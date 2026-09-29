@@ -27,16 +27,11 @@ export default function Lightbox({ art, onClose }) {
       className="lightbox"
       role="dialog"
       aria-modal="true"
-      aria-label={`第 ${art.id} 张：${art.title}`}
+      aria-label={art.title}
       onClick={onClose}
     >
       <div className="lightbox__bar" onClick={(e) => e.stopPropagation()}>
-        <p className="lightbox__title">
-          <span className="lightbox__num" style={{ background: art.accent }}>
-            {art.id}
-          </span>
-          {art.title}
-        </p>
+        <p className="lightbox__title">{art.title}</p>
         <div className="lightbox__tools">
           <button
             type="button"

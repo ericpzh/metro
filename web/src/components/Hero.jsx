@@ -15,7 +15,7 @@ export default function Hero() {
     <section className="hero" id="top">
       <div className="hero__grid" aria-hidden="true" />
       <div className="hero__inner">
-        <p className="hero__eyebrow">🚇 地铁车站设计师 · 概念图</p>
+        <p className="hero__eyebrow">地铁车站设计师 · 概念图</p>
         <h1>
           搭一座小小地铁车站。
           <br />
@@ -37,11 +37,9 @@ export default function Hero() {
             </div>
           </div>
 
-          <a className="hero__peek" href={`#sheet-${first.id}`} aria-label={`前往第 ${first.id} 张概念图`}>
+          <a className="hero__peek" href={`#sheet-${first.id}`} aria-label="前往第一张概念图">
             <img src={sheet(first.file)} alt="" loading="eager" decoding="async" aria-hidden="true" />
-            <span className="hero__peek-tag">
-              <b>{first.id}</b> {first.nav}
-            </span>
+            <span className="hero__peek-tag">{first.nav}</span>
           </a>
         </div>
 

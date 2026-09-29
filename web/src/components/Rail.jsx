@@ -19,7 +19,6 @@ export default function Rail({ active }) {
                     style={{ '--accent': a.accent }}
                   >
                     <span className="rail__tick" aria-hidden="true" />
-                    <span className="rail__num">{a.id}</span>
                     <span className="rail__name">{a.nav}</span>
                   </a>
                 </li>

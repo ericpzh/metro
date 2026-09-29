@@ -247,7 +247,7 @@ export function artHero() {
     }
     // the escalator tread runs: dashes march down the incline
     const c0 = P(x + w / 2, yTop + 0.4, FZ - 0.06), c1 = P(x + w / 2, yBot - 0.4, B2 + 0.16);
-    S.fg.push([80, `<path d="M${n(c0[0])},${n(c0[1])} L${n(c1[0])},${n(c1[1])}" stroke="#0d1116" stroke-width="4" stroke-dasharray="10 14" opacity="0.3" fill="none">${dashFlow(24, '1.5s')}</path>`]);
+    S.fg.push([80, `<path d="M${n(c0[0])},${n(c0[1])} L${n(c1[0])},${n(c1[1])}" stroke="#0d1116" stroke-width="4" stroke-dasharray="10 14" opacity="0.3" fill="none" ${dashFlow(24, '1.5s')}/>`]);
   };
   run(13.2, 1.2, 10.0, 16.2);
   run(14.5, 1.2, 10.0, 16.2);
@@ -256,7 +256,7 @@ export function artHero() {
   }
   {
     const c0 = P(16.4, 10.3, FZ - 0.2), c1 = P(16.4, 15.9, B2 + 0.12);
-    S.fg.push([80, `<path d="M${n(c0[0])},${n(c0[1])} L${n(c1[0])},${n(c1[1])}" stroke="#0d1116" stroke-width="4" stroke-dasharray="9 12" opacity="0.28" fill="none">${dashFlow(21, '1.6s')}</path>`]);
+    S.fg.push([80, `<path d="M${n(c0[0])},${n(c0[1])} L${n(c1[0])},${n(c1[1])}" stroke="#0d1116" stroke-width="4" stroke-dasharray="9 12" opacity="0.28" fill="none" ${dashFlow(21, '1.6s')}/>`]);
   }
   S.handrailY(15.74, 10.0, FZ + 0.05, 16.0, B2 + 0.05, 0.95, { panel: C.glass, panelTone: 1.25, capCol: C.dark });
   S.handrailY(17.06, 10.0, FZ + 0.05, 16.0, B2 + 0.05, 0.95, { panel: C.glass, panelTone: 1.25, capCol: C.dark });
@@ -336,6 +336,6 @@ export function artHero() {
     ${S.out()}
   </g>${legendBg}${A.join('')}${lg}`
     + title(48, 62, '概念 01 // 等轴测剖视图', '地铁车站设计师',
-      'B1 站厅的顶板被摘掉，透过竖井往下，就能看见 B2 站台。1 格 = 1 米。');
+      'B1 站厅摘了顶板，顺着竖井往下，能看见 B2 站台。1 格 = 1 米。');
   return sheet(1600, 1180, body, { glow: true });
 }

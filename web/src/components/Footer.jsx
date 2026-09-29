@@ -7,12 +7,12 @@ export default function Footer() {
         <div className="footer__col">
           <h2>这套画风是怎么来的</h2>
           <p>
-            画风取材自真实的广州地铁：白白的挡板吊顶、亮面的彩色搪瓷墙板（拼缝都留着）、
-            撒着深色小点的花岗岩地面、拉丝不锈钢柱子、顶上一道线路色的全高屏蔽门，还有特别醒目的安全黄盲道。
+            画风取自真实广州地铁：白色挡板吊顶、亮面彩色搪瓷墙板、带深色斑点的花岗岩地面、
+            不锈钢柱子、顶部带线路色的全高屏蔽门，还有醒目的安全黄盲道。
           </p>
           <p className="footer__note">
-            参考照片只用来看，没放进包里。配色和元素都在 <code>tools/iso.mjs</code> 里重画了一遍；每张图都由{' '}
-            <code>node tools/gen-art.mjs</code> 生成，用的是和游戏里一模一样的 2:1 等轴测投影。
+            参考照片只看不进包。配色和元素在 <code>tools/iso.mjs</code> 里重画；每张图都由{' '}
+            <code>node tools/gen-art.mjs</code> 生成，用和游戏一样的 2:1 等轴测投影。
           </p>
         </div>
 
@@ -41,7 +41,7 @@ export default function Footer() {
       <div className="footer__base">
         <p>地铁车站设计师 — 概念图，草稿 1。</p>
         <p>
-          不差钱，不招人，也不用交维护费。你只管搭，人群自己会来；车站扛得住就皆大欢喜，扛不住……那就再改改嘛。
+          不差钱，不招人，也不用维护费。你尽管搭，人群自己会来；扛得住就皆大欢喜，扛不住就再改改。
         </p>
       </div>
     </footer>

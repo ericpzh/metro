@@ -1,14 +1,14 @@
 // Concept sheet 07 - the interface. The mock is Chinese-only: the shipping UI
 // language is Simplified Chinese, so the sheet is drawn in the language the
 // player will actually read. Sheet captions stay in English for the doc set.
-import { C, T, MUL, title, sheet, n, poly, pstr, sway, breathe, dashFlow, mover, group } from './iso.mjs';
+import { C, T, MUL, title, sheet, n, poly, pstr, sway, breathe, dashFlow, mover, group, pulseBar } from './iso.mjs';
 
 export function artUI() {
   const W = 1600, H = 1000;
   const g = [];
   g.push(title(48, 62, '概念 07 // 界面',
     '建造与观察，同屏完成',
-    '相机就是楼层选择器。左边建造，右边改你选中的东西，底下管线路、楼层和叠加层。界面只有简体中文。'));
+    '相机就是楼层选择器：左边建造，右边改选中的东西，底下管线路、楼层和叠加层。界面只有简体中文。'));
   g.push(`<rect x="48" y="170" width="1504" height="790" rx="16" fill="#0b0f16" stroke="#243040"/>`);
   const panel = (x, y, w, h, t, sub) => {
     g.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="#131b26" stroke="#243040"/>`);
@@ -21,7 +21,7 @@ export function artUI() {
   g.push(T(196, 216, '换乘站', { size: 12, fill: '#5d6d80' }));
   g.push(T(310, 216, '周一 07:42   |   工作日   |   4 倍速', { size: 13, fill: '#8fa0b3', mono: true }));
   // a live run indicator, so the mock reads as a running simulation
-  g.push(`<circle cx="298" cy="212" r="5" fill="${C.green}">${breathe(0.15, '1.6s')}</circle>`);
+  g.push(`<circle cx="298" cy="212" r="5" fill="${C.green}" ${breathe(0.15, '1.6s')}/>`);
   g.push(`<rect x="700" y="196" width="180" height="26" rx="7" fill="#1d2731"/>`);
   g.push(T(712, 214, '站内 3,412 人', { size: 12.5, fill: C.yellow, mono: true }));
   g.push(`<rect x="890" y="196" width="150" height="26" rx="7" fill="#1d2731"/>`);
@@ -59,7 +59,7 @@ export function artUI() {
   for (let i = 0; i <= 10; i++) for (let j = 0; j <= 10; j++) {
     iso.push(iq(i, j, 0, 1, 1, (i + j) % 2 ? '#2c3a4a' : '#31404f'));
   }
-  iso.push(`<polygon points="${pstr([ip(7, 2, 0), ip(10, 2, 0), ip(10, 4, 0), ip(7, 4, 0)])}" fill="${C.blue}" opacity=".35" stroke="${C.blue}" stroke-width="2" stroke-dasharray="5 4">${dashFlow(9, '0.9s')}</polygon>`);
+  iso.push(`<polygon points="${pstr([ip(7, 2, 0), ip(10, 2, 0), ip(10, 4, 0), ip(7, 4, 0)])}" fill="${C.blue}" opacity=".35" stroke="${C.blue}" stroke-width="2" stroke-dasharray="5 4" ${dashFlow(9, '0.9s')}/>`);
   iso.push(iq(7, 2, 0.02, 3, 2, '#2f7ef2'));
   iso.push(`<polygon points="${pstr([ip(6, 6, 0), ip(10, 6, 0), ip(10, 6, 1), ip(6, 6, 1)])}" fill="#6e7885" stroke="${C.ink}" stroke-width="0.7"/>`);
   for (let i = 0; i < 8; i++) {
@@ -135,8 +135,7 @@ export function artUI() {
     g.push(T(x + 16, y + 70, `行车间隔 ${head}`, { size: 12, fill: '#c3d0de', mono: true }));
     g.push(`<rect x="${x + 16}" y="${y + 82}" width="244" height="10" rx="5" fill="#1d2731"/>`);
     const hw = 244 * (0.9 - i * 0.18);
-    g.push(`<rect x="${x + 16}" y="${y + 82}" width="${hw}" height="10" rx="5" fill="${col}">`
-      + `<animate attributeName="width" values="${n(hw)};${n(hw * 0.7)};${n(hw)}" keyTimes="0;0.5;1" dur="${(3 + i).toFixed(0)}s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/></rect>`);
+    g.push(`<rect x="${x + 16}" y="${y + 82}" width="${hw}" height="10" rx="5" fill="${col}" ${pulseBar(hw, hw * 0.7, (3 + i).toFixed(0) + 's')}/>`);
     g.push(T(x + 16, y + 110, ['贯通运行', '终点站折返', '同台换乘'][i], { size: 11.5, fill: '#7d8ea3' }));
   });
   panel(976, 808, 560, 120, null);
@@ -146,13 +145,13 @@ export function artUI() {
   g.push(`<path d="M1000,880 L1120,860 L1190,872" stroke="${C.lineB}" stroke-width="3" fill="none"/>`);
   g.push(mover('M1000,900 L1100,880 L1190,896', C.lineA, 0, { r: 4.2, dur: '6s', f0: 0.02, f1: 0.06, f2: 0.9, f3: 0.94 }));
   g.push(mover('M1000,880 L1120,860 L1190,872', C.lineB, '1.5s', { r: 4.2, dur: '6s', f0: 0.02, f1: 0.06, f2: 0.9, f3: 0.94 }));
-  g.push(`<circle cx="1100" cy="874" r="7" fill="${C.yellow}">${breathe(0.35, '2.2s')}</circle>`);
+  g.push(`<circle cx="1100" cy="874" r="7" fill="${C.yellow}" ${breathe(0.35, '2.2s')}/>`);
   g.push(MUL(1210, 864, [
     '出入口   已建 3 / 计划 2',
     '闸机     进 14   |   出 14',
     '扶梯     上行 6   |   下行 4',
     '电梯     2（无障碍路径正常）',
   ], { size: 11.5, fill: '#a9b8c8', lh: 20, mono: true }));
-  g.push(T(992, 946, '整站都是中文界面。数字和线路编号按国标写法来，站名、出口、设备一律用中文。', { size: 11.5, fill: '#5d6d80' }));
+  g.push(T(992, 946, '整站全中文。数字和线路编号按国标写法，站名、出口、设备也用中文。', { size: 11.5, fill: '#5d6d80' }));
   return sheet(W, H, g.join(''));
 }

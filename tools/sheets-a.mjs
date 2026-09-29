@@ -77,7 +77,7 @@ export function artSection() {
     g.push(`<polygon points="${x0},${y0} ${x1},${y1} ${x1},${y1 + t} ${x0},${y0 + t}" fill="${col}" opacity=".92" stroke="${C.ink}" stroke-width="2"/>`);
     g.push(`<path d="M${x0 + 8},${y0 + (y1 - y0) / 2 + 6} L${x1 - 8},${y1 + (y1 - y0) / 2 + 6}" stroke="#08111a" stroke-width="2" opacity=".3"/>`);
     // the truss carries steps: dashes march along the run, showing which way it moves
-    g.push(`<path d="M${x0 + 8},${y0 + t / 2} L${x1 - 8},${y1 + t / 2}" stroke="#08111a" stroke-width="4" stroke-dasharray="9 11" opacity=".55" fill="none">${dashFlow(20, '1.5s')}</path>`);
+    g.push(`<path d="M${x0 + 8},${y0 + t / 2} L${x1 - 8},${y1 + t / 2}" stroke="#08111a" stroke-width="4" stroke-dasharray="9 11" opacity=".55" fill="none" ${dashFlow(20, '1.5s')}/>`);
     if (label) g.push(T((x0 + x1) / 2, (y0 + y1) / 2 + 14, label, { size: 12.5, fill: '#08111a', anchor: 'middle', weight: 800 }));
   };
   band(1210, B1f, 1330, GY + 4, 26, C.asc, '扶梯');
@@ -88,7 +88,7 @@ export function artSection() {
   g.push(`<rect x="1150" y="${GY - 4}" width="42" height="${B3f - GY + 4}" fill="#1b2430" stroke="#98a4b1" stroke-width="2.5"/>`);
   // one cab, travelling the shaft: ground down to B3 and back
   g.push(group(`<rect x="1154" y="${GY + 4}" width="34" height="52" rx="3" fill="#8ec9e6" opacity=".95" stroke="${C.ink}" stroke-width="2"/>`,
-    amT('0 0;0 0;0 520;0 520;0 0;0 0', '0;0.12;0.44;0.76;0.88;1', '13s',
+    amT('0 0;0 0;0 500;0 500;0 0;0 0', '0;0.12;0.44;0.76;0.88;1', '13s',
       '0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1;0 0 1 1;0 0 1 1')));
   g.push(T(1171, GY - 14, '电梯', { size: 11.5, fill: '#9fb3c8', weight: 800, anchor: 'middle' }));
   g.push(T(CORE0 + 22, 1018, '竖向交通核', { size: 11.5, fill: C.asc, weight: 800, ls: 1.2 }));
@@ -96,7 +96,7 @@ export function artSection() {
   /* ---- B1 concourse contents ---- */
   for (let i = 0; i < 6; i++) g.push(`<rect x="${700 + i * 34}" y="${B1f - 62}" width="26" height="62" fill="#98a4b1" stroke="${C.ink}" stroke-width="2"/>`);
   g.push(`<rect x="696" y="${B1f - 70}" width="212" height="8" fill="${C.green}"/>`);
-  g.push(T(696, B1f - 80, '闸机  —  每一台都得自己扛下通过量', { size: 11.5, fill: C.green, weight: 700 }));
+  g.push(T(696, B1f - 80, '闸机 —— 各扛各的客流', { size: 11.5, fill: C.green, weight: 700 }));
   for (let i = 0; i < 4; i++) g.push(`<rect x="${400 + i * 46}" y="${B1f - 72}" width="38" height="72" fill="${C.blueD}" stroke="${C.ink}" stroke-width="2"/>`);
   g.push(T(396, B1f - 82, '自动售票机', { size: 12, fill: C.blue, weight: 800 }));
   g.push(`<rect x="240" y="${B1f - 112}" width="110" height="112" fill="#a4703f" stroke="${C.ink}" stroke-width="2"/>`);
@@ -165,7 +165,7 @@ export function artSection() {
     g.push(`<rect x="${cx + 15}" y="${trainB - 31}" width="10" height="7" rx="2" fill="#ffd45e"/>`);
 
     g.push(T(218, 950, '3 号线跟 1、2 号线成直角（90°）。', { size: 12.5, fill: col, weight: 700 }));
-    g.push(T(218, 970, '这一层是横断面：轨道插进图里，看到的是车头正面。', { size: 11, fill: '#7d8ea3' }));
+    g.push(T(218, 970, '这层是横断面：轨道插进图里，看到的是车头正面。', { size: 11, fill: '#7d8ea3' }));
 
     // mini plan: two parallel lines and a perpendicular third
     const mx = 862, my = 900, mw = 214, mh = 76;
@@ -178,7 +178,7 @@ export function artSection() {
   };
   crossStation(B3f, L3, '3');
 
-  g.push(T(540, B2f + 34, '绿色向下是上车，黄色向上是下车——列车就是一条按时刻表走的队列', { size: 11.5, fill: '#6f8299' }));
+  g.push(T(540, B2f + 34, '绿向下是上车，黄向上是下车——列车就是按时刻表走的队列', { size: 11.5, fill: '#6f8299' }));
 
   /* ---- depth dimensions ---- */
   const dim = (y1, y2, txt) => {
@@ -194,12 +194,12 @@ export function artSection() {
   /* ---- footnote strip ---- */
   g.push(`<rect x="48" y="1040" width="1504" height="66" rx="12" fill="#0f1620" stroke="#243040"/>`);
   const notes = [
-    [C.lineA, '1 号线在地面以上：接触网供电，站台敞着，没有屏蔽门。'],
-    [C.lineB, '2 号线在 B2 的屏蔽门后面，上车得按门一扇扇地来。'],
-    [C.lineC, '3 号线在 B3，还跟另外两条成直角，换乘＝垂直走一段、水平走一段。'],
-    [C.asc, '扶梯、楼梯、电梯都是要摆的资产，各自的运力和速度都不一样。'],
-    [C.green, '换乘的乘客都是一个个真人：走路、排队、刷卡、等车、上车。'],
-    [C.yellow, '深度不是摆设，它就是步行时间、排队时间和站台密度。'],
+    [C.lineA, '1 号线在地面以上：接触网供电，站台敞着，没屏蔽门。'],
+    [C.lineB, '2 号线在 B2 的屏蔽门后面，上车得按门一扇扇来。'],
+    [C.lineC, '3 号线在 B3，还跟另外两条成直角：换乘＝竖着走一段，再横着走一段。'],
+    [C.asc, '扶梯、楼梯、电梯都要自己摆，运力和速度各不相同。'],
+    [C.green, '换乘客都是真人：走路、排队、刷卡、等车、上车。'],
+    [C.yellow, '深度不是摆设，它就是步行、排队和站台密度。'],
   ];
   notes.forEach(([col, s], i) => {
     const cx = 70 + Math.floor(i / 3) * 740, cy = 1068 + (i % 3) * 18;
@@ -255,7 +255,7 @@ export function artBlocks() {
   const g = [];
   g.push(title(48, 62, '概念 03 // 方块系统',
     '圆角方块',
-    '1 × 1 × 1 米的方块，顶边倒角，转角自动接上。装表面是按格、按面来的：地板、天花板，加四面墙。'));
+    '1 米见方的方块，顶边倒角，转角自己接上。表面按格按面铺：地板、天花板，加四面墙。'));
 
   /* --- A. the cell --- */
   g.push(T(60, 190, 'A.  一个方块 = 一个格', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
@@ -272,15 +272,15 @@ export function artBlocks() {
   g.push(leader(238, 602, 262, 500, C.teal));
   g.push(leader(238, 626, 248, 524, C.pink));
   g.push(MUL(150, 668, [
-    '一个格子清楚自己有六个面。每个面能带一种',
-    '材质，再挂一组标记（能不能走、漏不漏气、',
-    '承不承重）。就这么点东西，游戏里',
-    '看到的一切都是从它推出来的。',
+    '一个格子有六个面，每个面能带一种',
+    '材质，再挂点标记（能不能走、漏不漏气、',
+    '承不承重）。就这些，游戏里',
+    '看到的一切都由它推出来。',
   ], { size: 12.5, fill: '#93a1b3', lh: 19 }));
 
   /* --- B. corner autotiling --- */
   g.push(T(560, 190, 'B.  转角自动拼接', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-  g.push(T(560, 214, '八邻域位掩码 → 外角磨圆，内角倒角。', { size: 12.5, fill: '#93a1b3' }));
+  g.push(T(560, 214, '八邻域掩码 → 外角磨圆，内角倒角。', { size: 12.5, fill: '#93a1b3' }));
   const cellDraw = (ox, oy, s, mask, fill) => {
     let out = '';
     for (let i = 0; i < 4; i++) {
@@ -310,8 +310,8 @@ export function artBlocks() {
     g.push(T(cx, cy + 90, lbl, { size: 12, fill: '#93a1b3', anchor: 'middle' }));
   });
   g.push(`<rect x="560" y="560" width="470" height="1" fill="#25303d"/>`);
-  g.push(T(560, 590, '圆角边缘按掩码只建一次，而不是每摆一次就建一次，再', { size: 12.5, fill: '#7d8ea3' }));
-  g.push(T(560, 610, '并进分块网格。倒角深度是一个方块的 12.5%，也就是 12.5 厘米。', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(560, 590, '圆角按掩码只建一次，不用每摆一次建一次，再', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(560, 610, '并进分块网格。倒角是方块的 12.5%，也就是 12.5 厘米。', { size: 12.5, fill: '#7d8ea3' }));
 
   /* --- C. what you can stack --- */
   g.push(T(1080, 190, 'C.  表面叠层', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
@@ -329,13 +329,13 @@ export function artBlocks() {
   g.push(group(`<g transform="translate(1290,570) scale(1.4)">${st2.out()}</g>`, sway(4, '6s', '0.8s')));
   g.push(MUL(1080, 766, [
     'stack(地面饰面, 格体, 顶面饰面, 北墙, 西墙)  —  每一层',
-    '表面都可以不要，各带自己的材质编号和美术变体。',
-    '这里把顶板抬高了，好让你看清里面；真玩起来，',
-    '每面墙都是独立的，一个房间可以只砌北墙。',
+    '表面都能省，各带自己的材质编号和美术变体。',
+    '这里把顶板抬高，好看清里面；真玩起来，',
+    '每面墙独立，一个房间可以只砌北墙。',
   ], { size: 12.5, fill: '#93a1b3', lh: 20 }));
 
   /* --- D. materials --- */
-  g.push(T(60, 760, 'D.  材质色板（照着 Overcrowd 的感觉配）', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+  g.push(T(60, 760, 'D.  材质色板（照着 Overcrowd 配）', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
   const mats = [
     [C.tile, '釉面砖'], [C.concrete, '混凝土'], [C.concreteD, '现浇'], [C.floor, '水磨石'],
     [C.steel, '不锈钢'], [C.glass, '玻璃 / 屏蔽门'], [C.yellow, '盲道黄'], [C.red, '点缀色 A'],
@@ -359,9 +359,9 @@ export function artBlocks() {
   g.push(T(bx + 46, by - 92, '轮廓保持方正，只有转角变柔', { size: 12, fill: '#7d8ea3' }));
   g.push(`<rect x="1150" y="880" width="380" height="120" rx="12" fill="#0f1620" stroke="#25303d"/>`);
   g.push(MUL(1170, 910, [
-    '渲染上，方块会按分块合并成一个',
+    '渲染上，方块按分块合并成一个',
     'BufferGeometry。地面贴图、盲道和',
-    '标识则是单独的透明四边形，',
+    '标识是单独的透明四边形，',
     '画在上面，不会把合并拆开。',
   ], { size: 12.5, fill: '#93a1b3', lh: 20 }));
   return sheet(W, H, g.join(''));
@@ -375,7 +375,7 @@ export function artModules() {
   const g = [];
   g.push(title(48, 62, '概念 04 // 可放置模块',
     '可以放进车站的东西',
-    '每个模块都占 a × b 的地，还带一个仿真真会去读的通行量。沙盒模式：不算钱，只看后果。'));
+    '每个模块占 a × b 的地，还带一份仿真真会读的通行量。沙盒模式：不算钱，只看后果。'));
 
   const mods = [
     ['turnstile', '闸机', '1 × 2 格', '进 25 / 出 25 人/分', C.green, (S) => {
@@ -387,7 +387,7 @@ export function artModules() {
       S.box(-0.9, 0.68, 1.1, 1.8, 0.32, 0.1, C.green, { tone: 1.25 });
       S.box(-0.9, -0.94, 1.1, 1.8, 0.32, 0.1, C.green, { tone: 1.25 });
     }],
-    ['tvm', '自动售票机', '1 × 1 格', '1.5 张/分 —— 排队全从这儿开始', C.blue, (S) => {
+    ['tvm', '自动售票机', '1 × 1 格', '1.5 张/分 —— 队伍都从这儿排', C.blue, (S) => {
       S.rbox(-0.5, -0.5, 0, 1, 1, 2.1, C.blueD, { r: 0.16, tone: 1.02 });
       S.face('y', 0.51, -0.32, 0.34, 1.15, 1.9, C.glass, { tone: 1.35, sw: 0.5 });
       S.face('y', 0.51, -0.32, 0.34, 0.55, 1.0, '#dbe6f2', { tone: 1.1, sw: 0.5 });
@@ -423,7 +423,7 @@ export function artModules() {
       S.rbox(-2, -0.24, 2.8, 4, 0.48, 0.32, C.lineB, { r: 0.08, tone: 1.05 });
       S.rbox(-2, -0.24, 0.3, 4, 0.48, 0.16, C.safety, { r: 0.06, tone: 1.05 });
     }],
-    ['door', '门（单开）', '1 × 1 格', '1.2 人/秒，关闭时阻断', C.green, (S) => {
+    ['door', '门（单开）', '1 × 1 格', '1.2 人/秒，关上就挡路', C.green, (S) => {
       S.rbox(-0.5, -0.6, 0, 0.26, 0.52, 2.5, C.tile, { r: 0.08, tone: 1.0 });
       S.rbox(0.24, -0.6, 0, 0.26, 0.52, 2.5, C.tile, { r: 0.08, tone: 1.0 });
       // the leaf swings clear and closes again
@@ -453,7 +453,7 @@ export function artModules() {
       S.rbox(-0.7, -4.2, 2.4, 1.4, 0.24, 0.22, C.steel, { r: 0.08 });
       // the belt and the rider: steps run up, one passenger rides with them
       const ePath = `M ${n(px(0, 3.9))} ${n(py(0, 3.9, -1.15))} L ${n(px(0, -3.9))} ${n(py(0, -3.9, 2.35))}`;
-      S.fg.push([80, `<path d="${ePath}" stroke="#0d1116" stroke-width="2" stroke-dasharray="6 9" opacity="0.3" fill="none">${dashFlow(15, '1.2s')}</path>`]);
+      S.fg.push([80, `<path d="${ePath}" stroke="#0d1116" stroke-width="2" stroke-dasharray="6 9" opacity="0.3" fill="none" ${dashFlow(15, '1.2s')}/>`]);
       walkLocal(S, ePath, C.blue, '0s', { dur: '5s', f0: 0.05, f1: 0.14, f2: 0.86, f3: 0.95 });
     }],
     ['lift', '电梯', '2 × 2 格', '无障碍，每趟 15 人', C.blue, (S) => {
@@ -493,7 +493,7 @@ export function artModules() {
       S.face('x', 0.41, -0.3, 0.3, 1.0, 2.5, C.blue, { tone: 1.0, sw: 0.5 });
       S.rbox(-0.45, -0.45, 2.8, 0.9, 0.9, 0.18, C.steel, { r: 0.2 });
     }],
-    ['qrail', '排队栏杆', '每米 1 × 1 格', '成渠：不能超越、不会外溢', C.steel, (S) => {
+    ['qrail', '排队栏杆', '每米 1 × 1 格', '成渠：不能插队，不会外溢', C.steel, (S) => {
       for (let i = 0; i < 3; i++) {
         const x = -1.6 + i * 1.6;
         S.rbox(x - 0.07, -0.07, 0, 0.14, 0.14, 1.02, C.steel, { r: 0.06, tone: 1.0, top: 1.2 });
@@ -566,7 +566,7 @@ export function artModules() {
   });
   const rows = Math.ceil(mods.length / cols);
   const foot = y0 + rows * (ch + 10) + 4;
-  g.push(T(48, foot, '没列出的还有：垃圾桶、消防点、失物招领、服务台、卫生间、售票窗口。规矩都一样：占地 + 通行量 + 标签。', { size: 13, fill: '#7d8ea3' }));
-  g.push(T(48, foot + 24, '每个模块还额外声明：挡不挡人（是/否）、从哪一侧排队，以及拥挤时会怎么掉运力。', { size: 13, fill: '#7d8ea3' }));
+  g.push(T(48, foot, '还有垃圾桶、消防点、失物招领、服务台、卫生间、售票窗口。规矩一样：占地 + 通行量 + 标签。', { size: 13, fill: '#7d8ea3' }));
+  g.push(T(48, foot + 24, '每个模块还会说明：挡不挡人、从哪侧排队、挤了会怎么掉运力。', { size: 13, fill: '#7d8ea3' }));
   return sheet(W, Math.max(H, foot + 60), g.join(''));
 }

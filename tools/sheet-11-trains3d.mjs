@@ -5,6 +5,7 @@
 import {
   C, TW, TH, ZU, P, px, py, n, shade, poly, faceSvg, boxSvg, rboxSvg, quadSvg,
   Scene, title, sheet, legend, callout, leader, T, MUL, rng, pstr, STOCK, carDoorCenters,
+  amT, sway, dashFlow, mover, group,
 } from './iso.mjs';
 import { isoCar, isoTrack, catenary } from './train-iso.mjs';
 
@@ -41,7 +42,7 @@ export function artTrains3D() {
   const g = [];
   g.push(title(48, 62, '概念 11 // 列车三维图',
     'A / B / C 型车，按游戏里的建法画',
-    '每节车厢，都是把圆角顶棚的断面沿车长拽出来。第 05 张给的是参数，这张给的是玩家真正看到的形状。'));
+    '每节车厢，都是圆角顶棚的断面沿车长拽出来。第 05 张给参数，这张给玩家看到的形状。'));
   const OV = [];                                              // overlay callouts
 
   T3.forEach((t, i) => {
@@ -64,6 +65,7 @@ export function artTrains3D() {
       x: 0, y: 0, z: 0.92, len: t.len, w: t.w, h: t.h, col: '#eef2f6',
       doors: t.doors, doorW: t.doorW, cab: t.cab, panto: t.panto, shoe: t.shoe,
       stripe: t.col, dest: t.cab, destText: t.dest, roofCol: '#dfe4ea', winCol: '#20303e',
+      anim: sway(15, '5s', `${(i * 0.7).toFixed(1)}s`),
     });
     const pl = place(S, { len: t.len, w: t.w, h: t.h }, px0 + 548, py0 + 186, 0.5);
     g.push(pl.svg);
@@ -109,10 +111,12 @@ export function artTrains3D() {
     }
     isoTrack(S, { x: -0.6, y: -0.2, z: -0.18, len: cars * (CL + gap) + 1, w: 3.2, third: true });
     const pl = place(S, { len: cars * (CL + gap), w: CW, h: CH }, px0 + 244, py0 + 214, 0.115);
-    g.push(pl.svg);
+    // the whole consist pulls out and eases back in
+    g.push(group(pl.svg, amT('0 0;0 0;34 17;34 17;0 0;0 0', '0;0.2;0.5;0.7;1', '18s',
+      '0.4 0 0.6 1;0 0 1 1;0 0 1 1;0.4 0 0.6 1')));
     g.push(MUL(px0 + 24, py0 + 344, [
-      '6 × 19.5 米，加上 5 处车钩间隙 = 列车全长 119.8 米。',
-      '站台至少得有这个长度，还得再留出停车余量。',
+      '6 × 19.5 米 + 5 处车钩间隙 = 全长 119.8 米。',
+      '站台至少这么长，还要留停车余量。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
@@ -150,10 +154,21 @@ export function artTrains3D() {
     }
     if (p0 < L) psdPanels.push([p0, L]);
     for (const [a, b] of psdPanels) psd(a, b);
+    // screen-door leaves part at every opening, then close again
+    {
+      const kT = '0;0.3;0.42;0.72;0.84;1';
+      const kS = '0 0 1 1;0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1;0 0 1 1';
+      for (const d of doorC) {
+        const kL = d + 2.79 + (zf + 1.2) * 0.9 + 0.05;
+        S.fg.push([kL, group(faceSvg('y', 2.79, d - 0.65, d, zf, zf + 2.35, C.glass, { tone: 1.34, opacity: 0.4, sw: 0.6 }), amT('0 0;0 0;-16 -8;-16 -8;0 0;0 0', kT, '10s', kS))]);
+        S.fg.push([kL, group(faceSvg('y', 2.79, d, d + 0.65, zf, zf + 2.35, C.glass, { tone: 1.34, opacity: 0.4, sw: 0.6 }), amT('0 0;0 0;16 8;16 8;0 0;0 0', kT, '10s', kS))]);
+      }
+    }
     S.fg.push([5.6 + 2.72 + (zf + 1.0) * 0.9, boxSvg(0.1, 2.72, zf + 1.0, 10.9, 0.16, 0.2, C.steelD, { tone: 1.0 })]);
     isoCar(S, {
       x: 0, y: -0.55, z: zf, len: L, w, h, col: '#eef2f6', doors: 3, doorW: 1.3,
       stripe: C.lineB, roofCol: '#dfe4ea', winCol: '#20303e', tone: 0.96,
+      anim: sway(12, '4s'),
     });
     // platform crowd
     const rr = rng(77);
@@ -161,6 +176,13 @@ export function artTrains3D() {
       const gx = 0.6 + rr() * (L - 1.2), gy = 3.9 + rr() * 3.4;
       S.sprite(gx, gy, zf, 'person', { color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink][(rr() * 6) | 0] });
     }
+    // passengers walk to a door and board through it
+    doorC.forEach((d, di) => {
+      const p0 = P(d, 6.4, zf + 0.02), p1 = P(d, 3.0, zf + 0.02);
+      S.fg.push([d + 6.4 + zf * 0.9, mover(`M ${n(p0[0])} ${n(p0[1])} L ${n(p1[0])} ${n(p1[1])}`,
+        [C.red, C.blue, C.teal][di % 3], `${(di * 0.6).toFixed(1)}s`,
+        { sprite: 'person', dur: '5s', f0: 0.05, f1: 0.12, f2: 0.86, f3: 0.94 })]);
+    });
     const pl = place(S, { len: L, w, h }, px0 + 250, py0 + 176, 0.52);
     g.push(pl.svg);
     const list = [];
@@ -175,8 +197,8 @@ export function artTrains3D() {
     co([0.4, -2.7, 3.4], px0 + 396, py0 + 244, 5, '隧道顶板');
     g.push(list.join(''));
     g.push(MUL(px0 + 24, py0 + 282, [
-      '屏蔽门会给每道门加一笔固定的耗时：',
-      '上车要过门板、过门槛两个动作，变成两次。',
+      '屏蔽门给每道门加一笔固定耗时：',
+      '上车要过门板、过门槛，变成两步。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
@@ -196,6 +218,8 @@ export function artTrains3D() {
         x: 0, y: 0.2, z: 0.92, len: L, w: 2.8, h: 3.8, col: '#eef2f6', doors: 3, doorW: 1.3,
         stripe: kind === 'catenary' ? C.lineA : C.lineB, panto: kind === 'catenary', shoe: kind === 'third',
         roofCol: '#dfe4ea', winCol: '#20303e',
+        anim: amT('0 0;0 0;30 15;30 15;0 0;0 0', '0;0.2;0.5;0.7;1', '9s',
+          '0.4 0 0.6 1;0 0 1 1;0 0 1 1;0.4 0 0.6 1'),
       });
       const pl = place(S, { len: L, w: 2.8, h: 3.8 }, ox, oy, 0.3);
       g.push(pl.svg);
@@ -207,8 +231,8 @@ export function artTrains3D() {
     g.push(T(px0 + 300, py0 + 176, '第三轨 — B / C 型', { size: 11.5, weight: 700, fill: C.lineB, mono: true }));
     g.push(T(px0 + 300, py0 + 194, '仅限隧道或加盖区间', { size: 10.5, fill: '#7d8ea3' }));
     g.push(MUL(px0 + 24, py0 + 222, [
-      '你可以在街道上方架一段接触网高架，',
-      '同一座车站的地下，又能跑第三轨线路。',
+      '街道上方能架接触网高架，',
+      '同一座车站地下，又能跑第三轨线路。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 

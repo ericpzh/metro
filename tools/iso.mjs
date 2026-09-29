@@ -314,67 +314,18 @@ export function legend(x, y, items, o = {}) {
   return out.join('');
 }
 export function sheet(w, h, body, o = {}) {
+  // fold in the per-mover keyframes the helpers buffered while drawing
+  const css = MOTION_CSS.replace('</style>', `${_kf.join('')}</style>`);
+  _kf.length = 0;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" font-family="Inter,'Noto Sans SC','Source Han Sans SC','Microsoft YaHei','PingFang SC','Hiragino Sans GB',Segoe UI,Helvetica,Arial,sans-serif">
 <defs>${SPRITES}</defs>
+${css}
 <rect width="${w}" height="${h}" fill="url(#sheetBg)"/>
 ${o.glow ? `<rect width="${w}" height="${h}" fill="url(#glow)"/>` : ''}
 ${body}
 </svg>`;
 }
 /** draw a plan-view rect with a label helper used by the plan sheets */
-/* ================================================================== *
- * motion: shared SMIL helpers
- *
- * Every concept sheet animates itself with declarative SMIL, so the
- * artwork keeps moving wherever the SVG is shown - including inside an
- * <img> on the site, where scripts never run. Each helper returns the
- * <animate*> element to drop inside the group that should move; the
- * group itself must carry no transform of its own (an outer <g> wraps
- * whatever the object already drew).
- * ================================================================== */
-export const D_LOOP = '16s';
-
-/** translate, optionally eased with keySplines. `values` are "x y" pairs. */
-export const amT = (values, keyTimes, dur = D_LOOP, splines) =>
-  `<animateTransform attributeName="transform" type="translate" values="${values}" keyTimes="${keyTimes}" dur="${dur}" repeatCount="indefinite" calcMode="${splines ? 'spline' : 'linear'}"${splines ? ` keySplines="${splines}"` : ''}/>`;
-
-/** scale, optionally eased. */
-export const amS = (values, keyTimes, dur = D_LOOP, splines) =>
-  `<animateTransform attributeName="transform" type="scale" values="${values}" keyTimes="${keyTimes}" dur="${dur}" repeatCount="indefinite" calcMode="${splines ? 'spline' : 'linear'}"${splines ? ` keySplines="${splines}"` : ''}/>`;
-
-/** rotate continuously about (cx, cy) in sheet units. */
-export const spin = (dur = '18s', cx = 0, cy = 0, begin = 0) =>
-  `<animateTransform attributeName="transform" type="rotate" values="0 ${n(cx)} ${n(cy)};360 ${n(cx)} ${n(cy)}" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"/>`;
-
-/** a gentle vertical bob around rest, in user units. */
-export const sway = (amp = 3, dur = '5s', begin = 0) =>
-  `<animateTransform attributeName="transform" type="translate" values="0 0;0 ${n(-amp)};0 0" keyTimes="0;0.5;1" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>`;
-
-/** opacity pulse; `to` is the low point of the breath. */
-export const breathe = (to = 0.35, dur = '4s', begin = 0) =>
-  `<animate attributeName="opacity" values="1;${n(to)};1" keyTimes="0;0.5;1" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>`;
-
-/** marching dashes: the pattern travels by `len` units per loop, i.e. it flows. */
-export const dashFlow = (len, dur = '1.6s', begin = 0, forward = true) =>
-  `<animate attributeName="stroke-dashoffset" values="${forward ? n(len) : 0};${forward ? 0 : n(len)}" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"/>`;
-
-/** a whole group that moves: pass the inner markup and its animation(s). */
-export const group = (inner, ...anims) => `<g>${inner}${anims.join('')}</g>`;
-
-/** A passenger that walks one path, fading in as it starts and out as it
- *  arrives. `begin` staggers it; `dur` is one traversal of the whole loop.
- *  Pass `o.sprite` to walk a <use> sprite (a person) instead of a dot. */
-export const mover = (path, col, begin = 0, o = {}) => {
-  const dur = o.dur ?? D_LOOP;
-  const body = o.sprite
-    ? `<use href="#${o.sprite}" x="0" y="0" style="color:${col}"/>`
-    : `<circle cx="0" cy="0" r="${n(o.r ?? 6.5)}" fill="${col}" stroke="#0d1116" stroke-width="1"/>`;
-  return `<g opacity="0">${body}`
-    + `<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;${o.f0 ?? 0.22};${o.f1 ?? 0.26};${o.f2 ?? 0.56};${o.f3 ?? 0.6};1" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"/>`
-    + `<animateMotion path="${path}" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"${o.pause ? ` keyTimes="0;${o.p0};${o.p1};1" keyPoints="0;0;1;1"` : ''}/>`
-    + `</g>`;
-};
-
 export function chart(series, x, y, w, h, o = {}) {
   const max = o.max ?? Math.max(...series.flatMap((s) => s.v));
   const g = [];
@@ -393,3 +344,125 @@ export function chart(series, x, y, w, h, o = {}) {
   }
   return g.join('');
 }
+
+/* ================================================================== *
+ * motion: shared CSS helpers
+ *
+ * A concept sheet has to keep moving wherever it is shown, and the site
+ * (like GitHub, and every markdown viewer) shows it through an <img>.
+ * That rules out SMIL: browsers freeze <animate*> inside an SVG image.
+ * CSS animations do run there, so every helper below emits a class plus
+ * CSS custom properties, and `sheet()` injects the keyframe library that
+ * consumes them. Nothing needs scripting, so the sheets also animate when
+ * opened on their own.
+ * ================================================================== */
+export const MOTION_CSS = `<style>
+@media (prefers-reduced-motion:reduce){.a-sway,.a-move,.a-doors,.a-spin,.a-breathe,.a-dash,.a-grow,.a-pulsew,.a-pass{animation:none!important}}
+@keyframes mSway{to{transform:translate(0,var(--ay,0px))}}
+@keyframes mMove{0%,18%{transform:translate(0,0)}52%,68%{transform:translate(var(--ax,0px),var(--ay,0px))}100%{transform:translate(0,0)}}
+@keyframes mDoors{0%,30%{transform:translate(0,0)}42%,72%{transform:translate(var(--ax,0px),var(--ay,0px))}84%,100%{transform:translate(0,0)}}
+@keyframes mSpin{to{transform:rotate(360deg)}}
+@keyframes mBreathe{to{opacity:var(--to,.3)}}
+@keyframes mDash{to{stroke-dashoffset:var(--dash,-20px)}}
+@keyframes mFade{0%,4%{opacity:0}12%,90%{opacity:1}96%,100%{opacity:0}}
+@keyframes mGrow{0%,12%{width:0px}50%,86%{width:var(--w)}100%{width:0px}}
+@keyframes mPulseW{0%,100%{width:var(--w)}50%{width:var(--w2)}}
+@keyframes mPass{0%{transform:translate(calc(-1 * var(--s,-100px)),0)}16%{transform:translate(0,0)}70%{transform:translate(0,0)}86%,100%{transform:translate(var(--s,-100px),0)}}
+.a-sway{animation-name:mSway;animation-duration:var(--dur,5s);animation-timing-function:ease-in-out;animation-delay:var(--delay,0s);animation-iteration-count:infinite;animation-direction:alternate}
+.a-move{animation-name:mMove;animation-duration:var(--dur,16s);animation-timing-function:ease-in-out;animation-delay:var(--delay,0s);animation-iteration-count:infinite}
+.a-doors{animation-name:mDoors;animation-duration:var(--dur,9s);animation-timing-function:ease-in-out;animation-delay:var(--delay,0s);animation-iteration-count:infinite}
+.a-spin{animation-name:mSpin;animation-duration:var(--dur,18s);animation-timing-function:linear;animation-delay:var(--delay,0s);animation-iteration-count:infinite;transform-box:fill-box;transform-origin:center}
+.a-breathe{animation-name:mBreathe;animation-duration:var(--dur,4s);animation-timing-function:ease-in-out;animation-delay:var(--delay,0s);animation-iteration-count:infinite;animation-direction:alternate}
+.a-dash{animation-name:mDash;animation-duration:var(--dur,1.6s);animation-timing-function:linear;animation-delay:var(--delay,0s);animation-iteration-count:infinite}
+.a-grow{animation-name:mGrow;animation-duration:var(--dur,10s);animation-timing-function:ease-in-out;animation-delay:var(--delay,0s);animation-iteration-count:infinite}
+.a-pulsew{animation-name:mPulseW;animation-duration:var(--dur,4s);animation-timing-function:ease-in-out;animation-delay:var(--delay,0s);animation-iteration-count:infinite}
+.a-pass{animation-name:mPass;animation-duration:var(--dur,20s);animation-timing-function:ease-in-out;animation-delay:var(--delay,0s);animation-iteration-count:infinite}
+</style>`;
+
+export const D_LOOP = '16s';
+
+/** translate: a "move out and settle back" slide. `values` are "x y" pairs,
+ *  as SMIL used to take them; only the displaced pair matters now. */
+export const amT = (values, keyTimes, dur = D_LOOP, splines, begin = 0) => {
+  const pairs = String(values).split(';');
+  let ax = 0, ay = 0;
+  for (const p of pairs) {
+    const [x, y] = p.trim().split(/\s+/).map(Number);
+    if (x || y) { ax = x; ay = y; }
+  }
+  const cls = pairs.length >= 6 ? 'a-doors' : 'a-move';
+  return `class="${cls}" style="--ax:${n(ax)}px;--ay:${n(ay)}px;--dur:${dur};--delay:${begin}"`;
+};
+
+/** a gentle vertical bob around rest, in user units. */
+export const sway = (amp = 3, dur = '5s', begin = 0) =>
+  `class="a-sway" style="--ay:${n(-amp)}px;--dur:${dur};--delay:${begin}"`;
+
+/** opacity pulse; `to` is the low point of the breath. */
+export const breathe = (to = 0.35, dur = '4s', begin = 0) =>
+  `class="a-breathe" style="--to:${n(to)};--dur:${dur};--delay:${begin}"`;
+
+/** continuous rotation about the element's own centre. */
+export const spin = (dur = '18s', begin = 0) =>
+  `class="a-spin" style="--dur:${dur};--delay:${begin}"`;
+
+/** marching dashes: the pattern travels by `len` units per loop, i.e. it flows. */
+export const dashFlow = (len, dur = '1.6s', begin = 0, forward = true) =>
+  `class="a-dash" style="--dash:${n(forward ? -len : len)}px;--dur:${dur};--delay:${begin}"`;
+
+/** a whole group that moves: pass the inner markup and the attribute strings
+ *  the motion helpers return. */
+export const group = (inner, ...attrs) => `<g ${attrs.filter(Boolean).join(' ')}>${inner}</g>`;
+
+/** A passenger that walks one path, fading in as it starts and out as it
+ *  arrives. `begin` staggers it; `dur` is one traversal of the loop. Pass
+ *  `o.sprite` to walk a <use> sprite (a person) instead of a dot,
+ *  `o.noFade` for a marker that loops forever (a camera orbit).
+ *
+ *  Paths are compiled to translate keyframes rather than left to
+ *  `animateMotion`/`offset-path`: browsers suspend both of those inside an
+ *  SVG used as an image, which is exactly how the site and README show the
+ *  sheets. Plain transforms keep working there. */
+let _kfSeq = 0;
+const _kf = [];
+export const mover = (path, col, begin = 0, o = {}) => {
+  const dur = o.dur ?? D_LOOP;
+  const pts = [];
+  const re = /[ML]\s*([-0-9.]+)[\s,]+([-0-9.]+)/gi;
+  let m;
+  while ((m = re.exec(path))) pts.push([+m[1], +m[2]]);
+  if (pts.length < 2) pts.push([pts[0]?.[0] ?? 0, pts[0]?.[1] ?? 0]);
+  const seg = [];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    seg.push(l); total += l;
+  }
+  let acc = 0;
+  const steps = pts.map((p, i) => {
+    if (i > 0) acc += seg[i - 1];
+    const at = total ? (acc / total) * 100 : 0;
+    return `${at.toFixed(3)}%{transform:translate(${n(p[0])}px,${n(p[1])}px)}`;
+  });
+  const name = `kf${++_kfSeq}`;
+  _kf.push(`@keyframes ${name}{${steps.join('')}}`);
+  const body = o.sprite
+    ? `<use href="#${o.sprite}" x="0" y="0" style="color:${col}"/>`
+    : `<circle cx="0" cy="0" r="${n(o.r ?? 6.5)}" fill="${col}" stroke="#0d1116" stroke-width="1"/>`;
+  const names = o.noFade ? name : `${name},mFade`;
+  const durs = o.noFade ? dur : `${dur},${dur}`;
+  const delays = o.noFade ? `${begin}` : `${begin},${begin}`;
+  return `<g style="animation-name:${names};animation-duration:${durs};animation-delay:${delays};animation-timing-function:linear;animation-iteration-count:infinite">${body}</g>`;
+};
+
+/** a bar that fills, holds and empties - a queue, a load, a timetable gap. */
+export const growBar = (w, dur = '10s', begin = 0) =>
+  `class="a-grow" style="--w:${n(w)}px;--dur:${dur};--delay:${begin}"`;
+
+/** a bar that breathes between two widths. */
+export const pulseBar = (w, w2, dur = '4s', begin = 0) =>
+  `class="a-pulsew" style="--w:${n(w)}px;--w2:${n(w2)}px;--dur:${dur};--delay:${begin}"`;
+
+/** a train that passes: enters from one side, dwells, exits the other. */
+export const passT = (shift, dur = '20s', begin = 0) =>
+  `class="a-pass" style="--s:${n(shift)}px;--dur:${dur};--delay:${begin}"`;

@@ -3,7 +3,7 @@
 // in the shipping language, Simplified Chinese.
 import {
   C, T, MUL, title, sheet, legend, poly, shade, n, pstr, chart, rng, LINES,
-  amT, sway, breathe, dashFlow, mover, group,
+  amT, sway, breathe, dashFlow, mover, group, growBar,
 } from './iso.mjs';
 
 /* =================================================================== *
@@ -14,19 +14,19 @@ const TYPES = [
     id: 'A', col: '#e5484d', w: 3.0, h: 3.8, len: 22.0, cars: '6 - 8', perCar: 310, rated: 250,
     power: '接触网 1500 V 直流或 25 kV 交流（走高架） | 个别线路用第三轨',
     gauge: 1435, vmax: '80 - 100 公里/时', doors: '每侧 5 门，门宽 1.4 米', n: 5,
-    note: '车体最宽，跑干线，能挂到 8 节。地面以上的线路一般用接触网，站台不用为顶棚留净空，车站可以直接敞着盖。',
+    note: '车体最宽，跑干线，能挂 8 节。地面以上一般用接触网，站台不用为顶棚留净空，车站能直接敞着盖。',
   },
   {
     id: 'B', col: '#2f7ef2', w: 2.8, h: 3.8, len: 19.5, cars: '4 - 6', perCar: 240, rated: 200,
     power: '第三轨 750 V 直流（隧道）',
     gauge: 1435, vmax: '80 公里/时', doors: '每侧 4 门，门宽 1.3 米', n: 4,
-    note: '中国城市地铁里最常见的就是它。第三轨必须走在隧道里，或者上面有盖，所以 B 型线路都待在 B2/B3 的屏蔽门后面。',
+    note: '中国城市地铁里最常见的就是它。第三轨得走在隧道里或有盖的地方，所以 B 型线路都待在 B2/B3 的屏蔽门后面。',
   },
   {
     id: 'C', col: '#f2b32c', w: 2.6, h: 3.6, len: 19.0, cars: '4 - 6', perCar: 200, rated: 170,
     power: '第三轨 750 V 直流 / 直线电机版本',
     gauge: 1435, vmax: '80 公里/时', doors: '每侧 4 门，门宽 1.2 米', n: 4,
-    note: '给低需求支线和自动化线路用的轻型车身。车窄，站台就窄，土建也省——可一挤起来，客流压力一点没少。',
+    note: '低需求支线和自动化线路用的轻车身。车窄、站台窄、土建省——可一挤起来，客流压力一点不少。',
   },
 ];
 
@@ -34,8 +34,8 @@ export function artTrains() {
   const W = 1600, H = 1780;
   const g = [];
   g.push(title(48, 62, '概念 05 // 列车与轨道',
-    'A / B / C 型列车，以及它们对车站的要求',
-    '按中国地铁的车型分类。车身多宽，决定站台边缘退到哪；一侧几扇门，决定上车多快；怎么供电，决定走隧道还是走高架。'));
+    'A / B / C 型列车，和它们对车站的要求',
+    '按中国地铁的分类：车多宽，站台边缘就退到哪；几扇门，上车就多快；怎么供电，决定钻隧道还是走高架。'));
 
   TYPES.forEach((t, i) => {
     const y0 = 200 + i * 322;
@@ -104,7 +104,7 @@ export function artTrains() {
     } else {
       g.push(`<rect x="556" y="${y0 + 30 + carH + 12}" width="${3 * (carW + 12)}" height="6" fill="#f0c000" stroke="${C.ink}" stroke-width="1.2"/>`);
       g.push(mover(`M556,${y0 + 30 + carH + 15} L${556 + 3 * (carW + 12)},${y0 + 30 + carH + 15}`, '#fff3b8', 0, { r: 3.4, dur: '7s', f0: 0.02, f1: 0.06, f2: 0.9, f3: 0.94 }));
-      g.push(T(560, y0 + 30 + carH + 40, '轨旁第三轨 —— 集电靴就装在转向架下面', { size: 11.5, fill: '#f0c000' }));
+      g.push(T(560, y0 + 30 + carH + 40, '轨旁第三轨 —— 集电靴装在转向架下', { size: 11.5, fill: '#f0c000' }));
     }
 
     // capacity + facts
@@ -113,8 +113,7 @@ export function artTrains() {
     g.push(`<rect x="${bx}" y="${y0 + 42}" width="250" height="20" rx="5" fill="#1d2731"/>`);
     // the load bar fills, holds, then empties: one trainload of boarding
     const loadW = (t.rated / 310) * 250;
-    g.push(`<rect x="${bx}" y="${y0 + 42}" width="${loadW}" height="20" rx="5" fill="${t.col}" opacity=".55">`
-      + `<animate attributeName="width" values="0;0;${n(loadW)};${n(loadW)};0" keyTimes="0;0.12;0.5;0.86;1" dur="10s" begin="${(i * 0.5).toFixed(1)}s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;0 0 1 1;0 0 1 1;0 0 1 1"/></rect>`);
+    g.push(`<rect x="${bx}" y="${y0 + 42}" width="${loadW}" height="20" rx="5" fill="${t.col}" opacity=".55" ${growBar(loadW, '10s', `${(i * 0.5).toFixed(1)}s`)}/>`);
     g.push(`<rect x="${bx}" y="${y0 + 42}" width="${(t.perCar / 310) * 250}" height="20" rx="5" fill="none" stroke="${t.col}" stroke-width="1.6"/>`);
     g.push(T(bx + 8, y0 + 57, `${t.perCar} 人拥挤`, { size: 12, fill: '#0b0e13', weight: 800 }));
     g.push(T(bx + 258, y0 + 57, `/ 定员 ${t.rated}`, { size: 12, fill: '#8fa0b3' }));
@@ -144,7 +143,7 @@ export function artTrains() {
 
   g.push(`<rect x="48" y="1180" width="1504" height="1" fill="#243040"/>`);
   g.push(T(48, 1210, '05b  车型是一组选择，不是一张图', { size: 14, weight: 800, fill: C.yellow, ls: 1.3 }));
-  g.push(T(48, 1230, '五个选择凑起来，才是一列完整的车。车型和编组决定能装多少人；受电、颜色和名字，则决定它属于哪条线。', { size: 12.5, fill: '#8fa0b3' }));
+  g.push(T(48, 1230, '五个选择凑起来，才是一列完整的车。车型和编组决定装多少人；受电、颜色和名字决定它属于哪条线。', { size: 12.5, fill: '#8fa0b3' }));
 
   const cy0 = 1252, cw = 282, cgap = 16, ch = 176;
   const card = (i, title, sub) => {
@@ -197,11 +196,11 @@ export function artTrains() {
     g.push(T(x + 30, cy0 + 103, '五丝广场', { size: 12, fill: '#c3d0de' }));
     g.push(T(x + 16, cy0 + 164, '颜色 + 名称 + 车型，合起来才是一条线', { size: 10.5, fill: '#7d8ea3' }));
   }
-  g.push(T(48, cy0 + ch + 26, '线路才是你编辑的单位。停站多久、多久发一班、上车多快、能跑哪些区间，全是从这五项推出来的。', { size: 12.5, fill: '#8fa0b3' }));
+  g.push(T(48, cy0 + ch + 26, '线路才是你编辑的单位：停多久、多久一班、上车多快、能跑哪段，全从这五项推出来。', { size: 12.5, fill: '#8fa0b3' }));
 
   /* ---- platform screen doors: full height or half height ---- */
   g.push(T(48, 1500, '05c  站台屏蔽门：全高还是半高', { size: 14, weight: 800, fill: C.yellow, ls: 1.3 }));
-  g.push(T(48, 1520, '车门间距还是那一套，只是门体有两种。全高把站台封起来；半高顶上留个排烟口，也更便宜。', { size: 12.5, fill: '#8fa0b3' }));
+  g.push(T(48, 1520, '车门间距还是那套，门体有两种：全高把站台封起来；半高顶上留个排烟口，更便宜。', { size: 12.5, fill: '#8fa0b3' }));
 
   const secY = 1560, secH = 150;
   const psdSection = (x, full) => {
@@ -229,7 +228,7 @@ export function artTrains() {
     g.push(`<path d="M${px - 44},${top} L${px - 44},${yb - 2}" stroke="${C.yellow}" stroke-width="1.2"/>`);
     g.push(`<path d="M${px - 48},${top} L${px - 40},${top} M${px - 48},${yb - 2} L${px - 40},${yb - 2}" stroke="${C.yellow}" stroke-width="1.2"/>`);
     g.push(T(px - 54, (top + yb) / 2, full ? '2.35 米' : '1.20 米', { size: 11, fill: C.yellow, anchor: 'end', mono: true }));
-    g.push(T(x, yb + 30, full ? '从地面一直封到顶板  ·  付费区还能控气流' : '齐腰隔断  ·  上方开敞排烟', { size: 11, fill: '#8fa0b3' }));
+    g.push(T(x, yb + 30, full ? '从地面封到顶板  ·  付费区还能控气流' : '齐腰隔断  ·  上方开敞排烟', { size: 11, fill: '#8fa0b3' }));
   };
   psdSection(76, true);
   psdSection(470, false);
@@ -244,10 +243,10 @@ export function artTrains() {
       g.push(T(tx + 8, yy + 18, id, { size: 13, weight: 800, fill: col, mono: true }));
       [per, per * 4, per * 6, per * 8].forEach((v, k) => g.push(T(tx + 8 + (k + 1) * 112, yy + 18, v.toLocaleString(), { size: 12, fill: '#dfe7f0', mono: true })));
     });
-    g.push(T(tx, ty + 46 + 3 * rh + 18, '数字是拥挤定员，定员大约是拥挤的 80%。车装不下的乘客，就留在站台上——这是最要命的那个读数。', { size: 11, fill: '#7d8ea3' }));
+    g.push(T(tx, ty + 46 + 3 * rh + 18, '数字是拥挤定员，定员约为拥挤的 80%。装不下的乘客就留在站台——这是最要命的读数。', { size: 11, fill: '#7d8ea3' }));
   }
 
-  g.push(T(48, H - 24, '仿真的约定：一条线路 = {车型, 编组长度, 受电, 颜色, 名称}。一列车 = {type, cars, doorsPerCar, doorWidth, dwellBase, maxLoad}。上车速率 = f(门宽, 拥挤度, 下车人数)。屏蔽门（全高或半高）会给每道门加上一笔固定的换乘耗时。', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(48, H - 24, '仿真的约定：一条线路 = {车型, 编组长度, 受电, 颜色, 名称}。一列车 = {type, cars, doorsPerCar, doorWidth, dwellBase, maxLoad}。上车速率 = f(门宽, 拥挤度, 下车人数)。屏蔽门（全高或半高）给每道门加一笔固定换乘耗时。', { size: 12.5, fill: '#7d8ea3' }));
   return sheet(W, H, g.join(''));
 }
 
@@ -258,8 +257,8 @@ export function artDemand() {
   const W = 1600, H = 1120;
   const g = [];
   g.push(title(48, 62, '概念 06 // 客流需求',
-    '人群从哪来，什么时候来',
-    '每个出口有自己的进站速度，每个站台有自己的出站速度。时段、星期几和日历一起把客流揉成波形。线路之间，就靠站厅来换乘客。'));
+    '人群从哪儿来，什么时候来',
+    '每个出口有自己的进站速度，每个站台有自己的出站速度。时段、星期几和日历一起把客流揉成波。线路之间，就靠站厅换乘客。'));
 
   const mk = (peak) => {
     const v = [];
@@ -316,15 +315,15 @@ export function artDemand() {
       if (w === 9 && d === 1) a = 0.85;                   // event spike
       const cellX = 1096 + d * 64, cellY = 258 + w * 20;
       g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="16" rx="4" fill="${C.yellow}" opacity="${(0.1 + a * 0.85).toFixed(2)}"/>`);
-      if (w === 4 && d === 2) g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="16" rx="4" fill="none" stroke="${C.red}" stroke-width="1.6">${breathe(0.2, '2.4s')}</rect>`);
-      if (w === 9 && d === 1) g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="16" rx="4" fill="none" stroke="${C.teal}" stroke-width="1.6">${breathe(0.2, '2.4s', '0.6s')}</rect>`);
+      if (w === 4 && d === 2) g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="16" rx="4" fill="none" stroke="${C.red}" stroke-width="1.6" ${breathe(0.2, '2.4s')}/>`);
+      if (w === 9 && d === 1) g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="16" rx="4" fill="none" stroke="${C.teal}" stroke-width="1.6" ${breathe(0.2, '2.4s', '0.6s')}/>`);
     }
   }
   for (let d = 0; d < 7; d++) g.push(T(1096 + d * 64 + 29, 252, days[d], { size: 12, fill: '#7d8ea3', anchor: 'middle' }));
   g.push(MUL(1096, 552, [
-    '红框：法定节假日——站台会很挤，而且来得毫无预兆',
+    '红框：法定节假日——站台很挤，还来得没预兆',
     '青框：站厅上方的体育场有活动的日子',
-    '灰字：每个出口都能设每小时的上限，',
+    '灰字：每个出口都能设每小时上限，',
     '哪天要封站，改个数字就行。',
   ], { size: 12, fill: '#7d8ea3', lh: 18 }));
 
@@ -357,13 +356,13 @@ export function artDemand() {
   g.push(arrow(440, 790, 480, 920, C.lineC));
   g.push(T(300, 700, '进站', { size: 11, fill: '#7d8ea3' }));
   g.push(MUL(76, 970, [
-    '换乘时间 = 扶梯排队 + 每级台阶 0.35 秒 + 步行 + 过闸。深度差就是一笔',
-    '实打实的花费，所以深层线路的候车乘客，常会顺路溜达到站厅的商铺里。',
+    '换乘时间 = 扶梯排队 + 每级台阶 0.35 秒 + 步行 + 过闸。深度差是一笔',
+    '实打实的花费，所以深层的候车乘客，常顺路溜达进站厅商铺。',
   ], { size: 12, fill: '#8fa0b3', lh: 17 }));
 
   /* --- D. exit control + wave shape --- */
   g.push(`<rect x="776" y="588" width="776" height="400" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(804, 622, 'D.  把客流揉成波形 + 控制各出口流量', { size: 15, weight: 800, fill: C.yellow, ls: 1.2 }));
+  g.push(T(804, 622, 'D.  把客流揉成波 + 管好各出口', { size: 15, weight: 800, fill: C.yellow, ls: 1.2 }));
   g.push(T(804, 644, '沙盒里没有票价、没有员工——只有速率、波形和混流', { size: 12.5, fill: '#7d8ea3' }));
   const slider = (x, y, label, val, col) => {
     g.push(T(x, y - 8, label, { size: 12.5, fill: '#b7c4d2' }));
@@ -383,13 +382,12 @@ export function artDemand() {
     g.push(T(804, y + 9, lbl, { size: 11.5, fill: '#8fa0b3', mono: true }));
     g.push(`<rect x="900" y="${y}" width="200" height="9" rx="4" fill="#1d2731"/>`);
     const bw = 200 * v;
-    g.push(`<rect x="900" y="${y}" width="${bw}" height="9" rx="4" fill="${col}">`
-      + `<animate attributeName="width" values="0;0;${n(bw)};${n(bw)};0" keyTimes="0;0.1;0.45;0.85;1" dur="9s" begin="${(i * 0.5).toFixed(1)}s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;0 0 1 1;0 0 1 1;0 0 1 1"/></rect>`);
+    g.push(`<rect x="900" y="${y}" width="${bw}" height="9" rx="4" fill="${col}" ${growBar(bw, '9s', `${(i * 0.5).toFixed(1)}s`)}/>`);
   });
   g.push(MUL(1120, 946, [
-    '闸机挤满时不会把人挡住：',
-    '乘客会自己改道去下一个空闲出口，',
-    '队列则化成站厅里的一片密度。',
+    '闸机挤满也不会硬拦人：',
+    '乘客会自己改道去下一个空出口，',
+    '队伍则化成站厅里的一片密度。',
   ], { size: 12, fill: '#7d8ea3', lh: 18 }));
   return sheet(W, H, g.join(''));
 }
@@ -402,7 +400,7 @@ export function artArch() {
   const g = [];
   g.push(title(48, 62, '概念 08 // 软件结构',
     'React + three.js，仿真跑在 Worker 里',
-    '人群仿真从不拖累画面。React 管面板和状态，three.js 管场景，Worker 管那 3000 个正往列车走的人。'));
+    '仿真从不拖累画面。React 管面板和状态，three.js 管场景，Worker 管 3000 个正往列车走的人。'));
 
   const box = (x, y, w, h, t, lines, col, o = {}) => {
     g.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="${o.fill ?? '#111926'}" stroke="${col}" stroke-width="${o.sw ?? 1.8}"/>`);
@@ -413,7 +411,7 @@ export function artArch() {
   const arrow = (x1, y1, x2, y2, col, label, dash) => {
     const d = `M${x1},${y1} L${x2},${y2}`;
     if (dash) {
-      g.push(`<path d="${d}" stroke="${col}" stroke-width="2" fill="none" marker-end="url(#ah2)" stroke-dasharray="${dash}" opacity=".9">${dashFlow(13, '1.3s')}</path>`);
+      g.push(`<path d="${d}" stroke="${col}" stroke-width="2" fill="none" marker-end="url(#ah2)" stroke-dasharray="${dash}" opacity=".9" ${dashFlow(13, '1.3s')}/>`);
     } else {
       g.push(`<path d="${d}" stroke="${col}" stroke-width="2" fill="none" marker-end="url(#ah2)" opacity=".9"/>`);
     }

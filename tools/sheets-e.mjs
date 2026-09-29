@@ -5,12 +5,13 @@
 // lanes and the boarding / alighting paths are all derived from it, so the
 // screen doors can never drift away from the doors they are supposed to meet.
 //
-// The motion is SMIL (animate / animateTransform / animateMotion), so the sheet
-// animates by itself wherever the SVG is opened. The loop is:
+// The motion is CSS (keyframes injected by sheet()), so the sheet animates
+// wherever it is shown - including inside an <img>, which is how the site and
+// the README embed it. The loop is:
 //   train enters -> docks -> PSD leaves open -> queues feed the doors, people
 //   alight -> PSD closes -> train leaves -> repeat.
 import {
-  C, T, MUL, title, sheet, n, carDoorCenters, STOCK,
+  C, T, MUL, title, sheet, n, carDoorCenters, STOCK, amT, mover, group, passT,
 } from './iso.mjs';
 
 /* ------------------------------------------------------------ flat helpers */
@@ -40,19 +41,6 @@ const DUR = '20s';                       // one full enter / dwell / leave cycle
 const T_IN = 0.16, T_OUT = 0.70;         // train docked between these keyTimes
 const P_OPEN0 = 0.19, P_OPEN1 = 0.24, P_CLOSE0 = 0.64, P_CLOSE1 = 0.69;
 
-/** translate animation, spline-eased */
-const amT = (values, keyTimes, dur = DUR, splines) =>
-  `<animateTransform attributeName="transform" type="translate" values="${values}" keyTimes="${keyTimes}" dur="${dur}" repeatCount="indefinite" calcMode="spline"${splines ? ` keySplines="${splines}"` : ''}/>`;
-
-/** A passenger that only exists during the dwell window and walks one path. */
-function mover(path, col, begin, o = {}) {
-  const dur = o.dur ?? DUR;
-  return `<g opacity="0">${circ(0, 0, o.r ?? 6.5, col, { stroke: '#0d1116', sw: 1 })}`
-    + `<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.22;0.26;0.56;0.60;1" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"/>`
-    + `<animateMotion path="${path}" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.24;0.58;1" keyPoints="0;0;1;1"/>`
-    + `</g>`;
-}
-
 /* =================================================================== sheet */
 export function artPlatformFlow() {
   const W = 1600, H = 1200;
@@ -60,7 +48,7 @@ export function artPlatformFlow() {
 
   g.push(title(48, 62, '概念 12 // 站台：车门与客流',
     '对齐的车门、自然形成的队列、来去的列车',
-    '车门间距只算一次，其余全由它定位：屏蔽门开在哪、队伍怎么排、上下车走哪条路。列车、车门和人群按 20 秒一轮循环播放。'));
+    '车门间距只算一次，其余全由它定位：屏蔽门开哪、队伍怎么排、上下车走哪条路。列车、车门和人群 20 秒一轮循环播放。'));
 
   g.push(`<defs>
     <marker id="arwPF" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9fb3c8"/></marker>
@@ -143,8 +131,8 @@ export function artPlatformFlow() {
   for (const dx of doorsPx) {
     psd.push(rect(dx - HALF - 3, Y_PEDGE, 3, 15, C.steelD, { rx: 1 }));
     psd.push(rect(dx + HALF, Y_PEDGE, 3, 15, C.steelD, { rx: 1 }));
-    leaves.push(`<g>${rect(dx - HALF, Y_PEDGE + 4, HALF, 7, C.glass, { stroke: C.ink, sw: 0.8, opacity: 0.92 })}${amT('0 0;0 0;-16 0;-16 0;0 0;0 0', pKT, DUR, pSpline)}</g>`);
-    leaves.push(`<g>${rect(dx, Y_PEDGE + 4, HALF, 7, C.glass, { stroke: C.ink, sw: 0.8, opacity: 0.92 })}${amT('0 0;0 0;16 0;16 0;0 0;0 0', pKT, DUR, pSpline)}</g>`);
+    leaves.push(group(rect(dx - HALF, Y_PEDGE + 4, HALF, 7, C.glass, { stroke: C.ink, sw: 0.8, opacity: 0.92 }), amT('0 0;0 0;-16 0;-16 0;0 0;0 0', pKT, DUR, pSpline)));
+    leaves.push(group(rect(dx, Y_PEDGE + 4, HALF, 7, C.glass, { stroke: C.ink, sw: 0.8, opacity: 0.92 }), amT('0 0;0 0;16 0;16 0;0 0;0 0', pKT, DUR, pSpline)));
   }
   g.push(rect(PX0, Y_PEDGE - 2, platW, 2, stock.col, { opacity: 0.9 }));   // line-colour header
   g.push(...psd);
@@ -171,12 +159,7 @@ export function artPlatformFlow() {
     }
   }
   const trainShift = Math.round((CARSTART + NCARS * (CARLEN + CARGAP) + 4) * s);
-  g.push(`<g>${train.join('')}${amT(
-    `-${trainShift} 0;0 0;0 0;${trainShift} 0;${trainShift} 0`,
-    `0;${T_IN};${T_OUT};0.86;1`,
-    DUR,
-    '0.4 0 0.25 1;0 0 1 1;0 0 1 1;0.4 0 0.25 1',
-  )}</g>`);
+  g.push(group(train.join(''), passT(trainShift, DUR)));
   g.push(T(PX0 + 6, Y_TRK1 - 14, '2 号线  ·  B 型  ·  图示 2 节', { size: 11.5, fill: '#8fa0b3' }));
 
   /* passengers that move: board from the lane heads, alight down the middle */
@@ -208,7 +191,7 @@ export function artPlatformFlow() {
   /* ======================================= B. alignment, in side elevation */
   const BX = 48, BY = 602, BW = 712, BH = 370;
   panelBox(g, BX, BY, BW, BH, 'B.  车门对得上（立面）',
-    '车身侧面和屏蔽门线，画的都是同一组车门中心。图里那些引导线，就是约定本身。');
+    '车身侧面和屏蔽门线，画的是同一组车门中心。那些引导线就是约定。');
 
   const sB = 29;
   const cw = stock.len * sB;
@@ -250,7 +233,7 @@ export function artPlatformFlow() {
   /* =========================================== C. auto-wayfinding / routing */
   const CX = 776, CY = 602, CW = 772, CH = 370;
   panelBox(g, CX, CY, CW, CH, 'C.  乘客自己找路',
-    '没人会对某个人说「你去 2 号口」。它只能看着自己当下的状态，一个节点一个节点地找过去。');
+    '没人会对某个人说「你去 2 号口」。它只能看自己当下的状态，一个点一个点地找。');
 
   const nodes = [
     ['车门', '下车', C.safety, '让开门口'],
@@ -283,20 +266,20 @@ export function artPlatformFlow() {
   }
   const routePath = `M ${bx[0] + bw / 2} ${by1 + bh / 2} L ${bx[3] + bw / 2} ${by1 + bh / 2} L ${bx[3] + bw / 2} ${by2 + bh / 2} L ${bx[0] + bw / 2} ${by2 + bh / 2}`;
   g.push(`<path d="${routePath}" fill="none" stroke="${C.yellow}" stroke-width="2" stroke-dasharray="1 9" stroke-linecap="round" opacity="0.7"/>`);
-  g.push(`<g>${circ(0, 0, 7, C.yellow, { stroke: '#0d1116', sw: 1.2 })}<animateMotion path="${routePath}" dur="11s" repeatCount="indefinite" calcMode="linear"/></g>`);
-  g.push(`<g>${circ(0, 0, 5, C.teal, { stroke: '#0d1116', sw: 1 })}<animateMotion path="${routePath}" dur="11s" begin="1.4s" repeatCount="indefinite" calcMode="linear"/></g>`);
-  g.push(`<g>${circ(0, 0, 5, C.red, { stroke: '#0d1116', sw: 1 })}<animateMotion path="${routePath}" dur="11s" begin="2.8s" repeatCount="indefinite" calcMode="linear"/></g>`);
+  g.push(mover(routePath, C.yellow, '0s', { r: 7, dur: '11s', noFade: true }));
+  g.push(mover(routePath, C.teal, '1.4s', { r: 5, dur: '11s', noFade: true }));
+  g.push(mover(routePath, C.red, '2.8s', { r: 5, dur: '11s', noFade: true }));
   g.push(MUL(796, 908, [
-    '规则就一句话：挑那条预期等待还在你耐心之内、代价又最低的路。哪条队伍等超过耐心，',
+    '规则一句话：挑预期等待还在你耐心内、代价又最低的那条路。哪条队等超过耐心，',
     '就改道——闸机、扶梯、车门，用的都是同一条规则。坐轮椅的人，只考虑电梯和坡道。',
-    '上车照此镜像：挑一道愿意接纳你的队伍；要坐的线路还没进站，',
-    '就在站台上等着。导向设施只改变你做决定要花的时间，不改这张图本身。',
+    '上车也一样：挑一道愿意接纳你的队伍；要坐的线路没进站，',
+    '就在站台上等。导向设施只改你做决定的耗时，不改这张图。',
   ], { size: 10.6, fill: '#a9b8c8', lh: 17 }));
 
   /* ========================================= D. the door cadence, per type */
   const DX0 = 48, DY = 988, DW = 1504, DH = 192;
   panelBox(g, DX0, DY, DW, DH, 'D.  各车型的车门间距',
-    '一个函数，三种答案。同一组中心，同时决定车身、屏蔽门和排队通道。');
+    '一个函数，三种答案。同一组中心，决定车身、屏蔽门和通道。');
   [STOCK.A, STOCK.B, STOCK.C].forEach((t, ti) => {
     const x = 76 + ti * 480;
     const sD = 16;

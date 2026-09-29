@@ -1,18 +1,26 @@
+import { useEffect, useState } from 'react'
+import useMediaQuery from '../useMediaQuery.js'
 import { sheet } from '../site.js'
 
+// Phone widths start with the note out of the way; the toggle brings it back.
+const PHONE = '(max-width: 620px)'
+
 /**
- * One concept sheet, edge to edge, with the design note floating over the
- * quietest part of the drawing (see `panel` in artworks.js).
+ * One concept sheet, edge to edge, with the design note pinned to the
+ * lower-right corner of the drawing. On phones the note starts collapsed so
+ * the drawing is unobstructed; on wider screens it starts expanded. The
+ * button in its header flips it either way.
  */
 export default function Sheet({ art, onOpen }) {
-  const p = art.panel
-  const isEdge = p.mode === 'edge'
-  const cls = isEdge ? `panel panel--${p.side}` : 'panel panel--free'
-  // Placement travels as custom properties so the narrow-width rules can
-  // reset it without !important fighting an inline left/right.
-  const style = isEdge
-    ? { '--panel-left': p.side === 'left' ? '5%' : 'auto', '--panel-right': p.side === 'right' ? '5%' : 'auto', '--panel-top': p.top }
-    : { '--panel-left': p.left, '--panel-right': 'auto', '--panel-top': p.top }
+  const isPhone = useMediaQuery(PHONE)
+  const [expanded, setExpanded] = useState(() => !isPhone)
+
+  // Auto-hide on phones, auto-show when there is room again.
+  useEffect(() => {
+    setExpanded(!isPhone)
+  }, [isPhone])
+
+  const cls = 'panel' + (expanded ? '' : ' panel--collapsed')
 
   return (
     <section
@@ -25,30 +33,40 @@ export default function Sheet({ art, onOpen }) {
         type="button"
         className="sheet__zoom"
         onClick={() => onOpen(art)}
-        aria-label={`放大看第 ${art.id} 张：${art.title}`}
+        aria-label={`看大图：${art.title}`}
       >
         <img src={sheet(art.file)} alt={art.alt} loading="lazy" decoding="async" />
       </button>
 
-      <article className={cls} style={style}>
+      <article className={cls}>
         <header className="panel__head">
-          <span className="panel__num">{art.id}</span>
           <span className="panel__cat">{art.nav}</span>
+          <button
+            type="button"
+            className="panel__toggle"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-label={expanded ? `收起「${art.title}」的说明` : `展开「${art.title}」的说明`}
+          >
+            {expanded ? '收起' : '展开'}
+          </button>
         </header>
 
-        <h2 className="panel__title">{art.title}</h2>
-        <p className="panel__lead">{art.lead}</p>
-        <p className="panel__note">{art.note}</p>
+        <div className="panel__body">
+          <h2 className="panel__title">{art.title}</h2>
+          <p className="panel__lead">{art.lead}</p>
+          <p className="panel__note">{art.note}</p>
 
-        <ul className="panel__tags">
-          {art.tags.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ul>
+          <ul className="panel__tags">
+            {art.tags.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
 
-        <button type="button" className="panel__open" onClick={() => onOpen(art)}>
-          放大看原图
-        </button>
+          <button type="button" className="panel__open" onClick={() => onOpen(art)}>
+            看大图
+          </button>
+        </div>
       </article>
     </section>
   )

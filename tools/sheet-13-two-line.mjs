@@ -4,6 +4,7 @@
 import {
   C, TW, TH, ZU, P, px, py, n, shade, poly, faceSvg, boxSvg, rboxSvg, quadSvg,
   Scene, title, sheet, legend, callout, leader, T, MUL, rng, pstr,
+  amT, dashFlow, mover, group,
 } from './iso.mjs';
 import { isoCar, isoTrack, catenary } from './train-iso.mjs';
 
@@ -21,7 +22,7 @@ export function artTwoLine() {
   const g = [];
   g.push(title(48, 62, '概念 13 // 两条线路，两种深度',
     '一条在街上，一条在街下',
-    '还是第 02 张那个换乘站，这回画成了体块。你能造的东西，都落在这两个盒子里；两个盒子之间换乘，是一段真要走的路。'));
+    '还是第 02 张那个换乘站，这回画成体块。你能造的东西都落在这两个盒子里；盒子之间换乘，是一段真要走的路。'));
   const OV = [];
   const S = Scene();
 
@@ -57,13 +58,16 @@ export function artTwoLine() {
   // station side wall (the far one) + the back wall
   S.fg.push([26 + 2.5 + (-9.25) * 0.9, boxSvg(4, 2, -16.6, 0.5, 16, 13.4, C.tile, { tone: 0.94 })]);
   S.fg.push([24 + 2.25 + (-9.25) * 0.9, boxSvg(4, 2, -16.6, 40, 0.5, 13.4, C.tile, { tone: 0.9 })]);
-  // trains on both roads
-  for (const [ty, col] of [[2.4, C.lineB], [11.4, C.lineB]]) {
+  // trains on both roads: each consist eases along its track and settles back
+  const trainAnim = (begin) => amT('0 0;0 0;54 27;54 27;0 0;0 0', '0;0.2;0.5;0.7;1', '18s',
+    '0.4 0 0.6 1;0 0 1 1;0 0 1 1;0.4 0 0.6 1', begin);
+  for (const [ty, col, begin] of [[2.4, C.lineB, '0s'], [11.4, C.lineB, '3s']]) {
     for (let c = 0; c < 2; c++) {
       isoCar(S, {
         x: 4.5 + c * 19.9, y: ty, z: zP - 0.18, len: 19.5, w: 2.8, h: 3.8, col: '#eef2f6',
         doors: 4, doorW: 1.3, cab: c === 0, stripe: col, dest: c === 0, destText: '五丝广场',
         roofCol: '#dfe4ea', winCol: '#20303e', shoe: true, tone: 0.98,
+        anim: trainAnim(begin),
       });
     }
   }
@@ -74,6 +78,14 @@ export function artTwoLine() {
     S.sprite(gx, gy, zP + 0.04, rr() > 0.85 ? 'personBag' : 'person',
       { color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink][(rr() * 6) | 0] });
   }
+  const walkX = (y, z, col, begin, dur = '9s', x0 = 7, x1 = 41) => {
+    const p0 = P(x0, y, z), p1 = P(x1, y, z);
+    S.fg.push([x0 + y + z * 0.9, mover(`M ${n(p0[0])} ${n(p0[1])} L ${n(p1[0])} ${n(p1[1])}`, col, begin,
+      { sprite: 'person', dur, f0: 0.02, f1: 0.08, f2: 0.9, f3: 0.96 })]);
+  };
+  walkX(7.2, zP + 0.06, C.red, '0s');
+  walkX(9.6, zP + 0.06, C.green, '1.8s');
+  walkX(8.4, zP + 0.06, C.purple, '3.4s');
 
   /* ---------------- B1 concourse ---------------- */
   const zC = -5.5;
@@ -105,6 +117,8 @@ export function artTwoLine() {
     if (gx > 20 && gx < 24 && gy > 12) continue;
     S.sprite(gx, gy, zC + 0.03, 'person', { color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink, C.green][(rr() * 7) | 0], bias: -0.4 });
   }
+  walkX(12.6, zC + 0.05, C.yellow, '0.6s');
+  walkX(9.0, zC + 0.05, C.blue, '2.4s');
 
   /* ---------------- station roof / street slab over the box ---------------- */
   S.raw(boxSvg(4, 2, -0.5, 40, 4.0, 0.5, C.concrete, { tone: 1.02, sw: 0.6 }));
@@ -118,9 +132,19 @@ export function artTwoLine() {
     S.deck(x0, y, z0, x1, w, z1, col ?? C.steelD, { truss: 0.55, tone: 1.0 });
     S.handrailX(y - 0.02, x0, z0, x1, z1, 0.95, { panel: C.glass, panelTone: 1.28, capCol: C.dark });
     S.handrailX(y + w + 0.02, x0, z0, x1, z1, 0.95, { panel: C.glass, panelTone: 1.28, capCol: C.dark });
+    // the treads run: dashes march up the flight
+    const c0 = P(x0 + 1, y + w / 2, z0 + 0.08), c1 = P(x1 - 1, y + w / 2, z1 + 0.08);
+    S.fg.push([95, `<path d="M${n(c0[0])},${n(c0[1])} L${n(c1[0])},${n(c1[1])}" stroke="#0d1116" stroke-width="3" stroke-dasharray="9 13" opacity="0.26" fill="none" ${dashFlow(22, '1.4s')}/>`]);
+  };
+  const ride = (x0, z0, x1, z1, y, begin, col) => {
+    const c0 = P(x0 + 1, y, z0 + 0.1), c1 = P(x1 - 1, y, z1 + 0.1);
+    S.fg.push([96, mover(`M ${n(c0[0])} ${n(c0[1])} L ${n(c1[0])} ${n(c1[1])}`, col, begin,
+      { sprite: 'person', dur: '7s', f0: 0.05, f1: 0.12, f2: 0.88, f3: 0.95 })]);
   };
   esc(8, zP, 20, zC, 6.4, 1.2);
   esc(8, zP, 20, zC, 7.8, 1.2);
+  ride(8, zP, 20, zC, 6.6, '0s', C.orange);
+  ride(8, zP, 20, zC, 8.0, '2.6s', C.teal);
   for (let i = 0; i < 16; i++) {
     S.rbox(8 + i * 0.75, 9.3, zP + i * 0.47, 0.75, 1.2, 0.47, C.concrete, { r: 0.06, tone: 1.0 });
   }
@@ -180,6 +204,8 @@ export function artTwoLine() {
     const gx = 2 + rr() * 44, gy = -3.0 + rr() * 3.6;
     S.sprite(gx, gy, zD + 1.22, 'person', { color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink][(rr() * 6) | 0] });
   }
+  walkX(-2.2, zD + 1.24, C.pink, '1.2s', '8s', -1, 46);
+  walkX(-0.6, zD + 1.24, C.teal, '3.6s', '8s', -1, 46);
 
   /* ---------------- callouts + annotation column ---------------- */
   const list = [];
@@ -215,7 +241,7 @@ export function artTwoLine() {
   });
   g.push(T(ax0 + 24, 456, '落差 24.6 米。这座车站的意义，全在这儿：', { size: 12, fill: '#8fa0b3' }));
   g.push(T(ax0 + 24, 476, '换乘就是一次爬升，而爬升本身就是客流。', { size: 12, fill: '#8fa0b3' }));
-  g.push(T(ax0 + 24, 500, '把各出口的进出量定好，整座竖向叠层就会从一头灌满。', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(ax0 + 24, 500, '把各出口进出量定好，整座竖向叠层就从一头灌满。', { size: 12, fill: '#8fa0b3' }));
 
   g.push(`<rect x="${ax0}" y="546" width="432" height="602" rx="14" fill="#111926" stroke="#243040"/>`);
   g.push(T(ax0 + 24, 582, '剖视图读法', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
@@ -238,11 +264,11 @@ export function artTwoLine() {
   g.push(T(ax0 + 24, 954, '为什么它成立', { size: 12, weight: 800, fill: '#8fa0b3', ls: 1.2 }));
   g.push(MUL(ax0 + 24, 980, [
     '一次开挖，两个车站盒体。',
-    '高架只要打桥墩：便宜，而且',
-    '盒体建成之后再调线也来得及。',
+    '高架只要打桥墩：便宜，',
+    '盒体建好再调线也来得及。',
     '换乘只用这一个竖井，你就能',
-    '把它当成一条队伍来量，而不是三条。',
-    '把靠近镜头的四分之一切掉，照样能玩：',
+    '当成一条队伍来量，而不是三条。',
+    '把近处的四分之一切掉，照样能玩：',
     '相机就是楼层选择器。',
   ], { size: 12, fill: '#7d8ea3', lh: 19 }));
   g.push(T(ax0 + 24, 1132, '沙盒模式：不算成本、不雇员工、不收票价', { size: 11.5, fill: '#5d6d80' }));
