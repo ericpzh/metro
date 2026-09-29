@@ -43,7 +43,7 @@ const P_OPEN0 = 0.19, P_OPEN1 = 0.24, P_CLOSE0 = 0.64, P_CLOSE1 = 0.69;
 
 /* =================================================================== sheet */
 export function artPlatformFlow() {
-  const W = 1600, H = 1200;
+  const W = 1600, H = 1250;
   const g = [];
 
   g.push(title(48, 62, '概念 12 // 站台：车门与客流',
@@ -89,7 +89,7 @@ export function artPlatformFlow() {
 
   /* concourse / vertical circulation band across the top */
   g.push(rect(PX0, Y_BAND0, platW, Y_BAND1 - Y_BAND0, '#161e2b', { rx: 6, stroke: '#243040' }));
-  for (let i = 0; i < 22; i++) g.push(upChevron(PX0 + 60 + i * 66, (Y_BAND0 + Y_BAND1) / 2));
+  for (let cvx = PX0 + 60; cvx < PX0 + platW - 26; cvx += 66) g.push(upChevron(cvx, (Y_BAND0 + Y_BAND1) / 2));
   g.push(T(PX0 + 14, Y_BAND0 + 26, '↑ 通往站厅   扶梯 + 楼梯 + 电梯   （出站走这边）', { size: 12.5, fill: C.yellow, weight: 700 }));
 
   /* door alignment guides: car door -> PSD opening -> alight path */
@@ -189,7 +189,7 @@ export function artPlatformFlow() {
   g.push(T(d0 + laneOff + 74, laneHead - 80, '排队通道', { size: 11, fill: '#a8d8ea', weight: 700 }));
 
   /* ======================================= B. alignment, in side elevation */
-  const BX = 48, BY = 602, BW = 712, BH = 370;
+  const BX = 48, BY = 602, BW = 712, BH = 410;
   panelBox(g, BX, BY, BW, BH, 'B.  车门对得上（立面）',
     '车身侧面和屏蔽门线，画的是同一组车门中心。那些引导线就是约定。');
 
@@ -231,7 +231,7 @@ export function artPlatformFlow() {
   g.push(T(cx0, py0 + 150, '建造网格是 1 米一格，开口只能往外取整，所以屏蔽门永远不比车门窄。', { size: 11, fill: '#7d8ea3' }));
 
   /* =========================================== C. auto-wayfinding / routing */
-  const CX = 776, CY = 602, CW = 772, CH = 370;
+  const CX = 776, CY = 602, CW = 772, CH = 410;
   panelBox(g, CX, CY, CW, CH, 'C.  乘客自己找路',
     '没人会对某个人说「你去 2 号口」。它只能看自己当下的状态，一个点一个点地找。');
 
@@ -277,7 +277,7 @@ export function artPlatformFlow() {
   ], { size: 10.6, fill: '#a9b8c8', lh: 17 }));
 
   /* ========================================= D. the door cadence, per type */
-  const DX0 = 48, DY = 988, DW = 1504, DH = 192;
+  const DX0 = 48, DY = 1030, DW = 1504, DH = 192;
   panelBox(g, DX0, DY, DW, DH, 'D.  各车型的车门间距',
     '一个函数，三种答案。同一组中心，决定车身、屏蔽门和通道。');
   [STOCK.A, STOCK.B, STOCK.C].forEach((t, ti) => {
@@ -286,7 +286,7 @@ export function artPlatformFlow() {
     const w = t.len * sD;
     const off = carDoorCenters(t.len, t.doors, t.doorW);
     const cc = x + w / 2;
-    const y = 1070;
+    const y = 1112;
     g.push(T(x, y - 12, `${t.id} 型`, { size: 15, weight: 800, fill: t.col, ls: 0.6 }));
     g.push(rect(x, y, w, 40, '#eef2f6', { rx: 6, stroke: C.ink, sw: 1.6 }));
     g.push(rect(x + 6, y + 7, w - 12, 10, '#26333f', { rx: 3 }));

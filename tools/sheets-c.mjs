@@ -83,8 +83,8 @@ function card(g, x, y, w, h, label, sub, az, el, opt = {}) {
   g.push(render(MODEL, az, el, opt.s ?? 9.5, x + w / 2 + (opt.dx ?? 0), y + (h - 62) / 2 + 12 + (opt.dy ?? 0)));
   g.push(T(x + 18, y + h - 44, label, { size: 16, weight: 700, fill: '#eaf0f6' }));
   g.push(T(x + 18, y + h - 24, sub, { size: 12.5, fill: '#8fa0b3' }));
-  g.push(`<rect x="${x + w - 92}" y="${y + 20}" width="72" height="24" rx="6" fill="#1b2530" stroke="#2b3746"/>`);
-  g.push(T(x + w - 56, y + 37, `方位 ${az}  俯仰 ${el}`, { size: 11, fill: '#7d8ea3', anchor: 'middle', mono: true }));
+  g.push(`<rect x="${x + w - 116}" y="${y + 20}" width="104" height="24" rx="6" fill="#1b2530" stroke="#2b3746"/>`);
+  g.push(T(x + w - 64, y + 37, `方位 ${az}  俯仰 ${el}`, { size: 11, fill: '#7d8ea3', anchor: 'middle', mono: true }));
 }
 
 /* ------------------------------------------------------------------ *
@@ -139,7 +139,7 @@ export function artViews() {
 
   /* ---- control legend ---- */
   const ly = y0 + 2 * chh + 2 * gapy + 6;
-  g.push(`<rect x="48" y="${ly}" width="1504" height="184" rx="14" fill="#111926" stroke="#243040"/>`);
+  g.push(`<rect x="48" y="${ly}" width="1504" height="212" rx="14" fill="#111926" stroke="#243040"/>`);
   g.push(T(72, ly + 34, '视口操作', { size: 14, weight: 800, fill: C.yellow, ls: 1.4 }));
   const ctrls = [
     ['中键拖拽', '360° 环绕 —— 方位和俯仰都随便'],

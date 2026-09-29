@@ -89,7 +89,7 @@ export function artQueues() {
   /* ---------------------------------------------------------------- B */
   panel(g, 812, 168, 740, 388, 'B.  一条通道拆开看', '像带仓库的服务台：后面是格位，前端只有一个服务口。');
   const lx = 900, ly = 300, lw = 40, llen = 470, slot = llen / 13;
-  g.push(rect(lx - 26, ly - 22, llen + 120, 250, '#0d141d', { rx: 8 }));
+  g.push(rect(lx - 26, ly - 22, llen + 120, 262, '#0d141d', { rx: 8 }));
   g.push(rect(lx, ly, llen, lw, '#a8d8ea', { rx: 3, opacity: 0.45 }));
   g.push(line(lx, ly - 4, lx + llen, ly - 4, C.steel, 2));
   g.push(line(lx, ly + lw + 4, lx + llen, ly + lw + 4, C.steel, 2));
@@ -114,13 +114,13 @@ export function artQueues() {
   g.push(T(lx - 20, ly - 34, '入口（从队尾加入）', { size: 11.5, fill: '#9fb3c8' }));
   g.push(T(lx - 20, ly + lw + 58, '格位 = 0.80 米 —— 比一个肩宽多一点', { size: 11.5, fill: '#8fa0b3' }));
   g.push(dimH(lx, lx + llen, ly + lw + 40, '通道长度 L'));
-  g.push(MUL(1140, 452, [
+  g.push(MUL(1140, 440, [
     '容量  =  floor(L / 0.80) + 1      （12 米通道 → 16 人）',
     '速率  ~  45 人/分                 （0.6 米/秒 挪步，单列）',
     '等待  =  队长 / 速率              （可预测，才好设计）',
   ], { size: 12, fill: '#a9b8c8', mono: true, lh: 22 }));
-  g.push(T(1140, 522, '同样 1 米宽，一窝蜂也能过约 60 人/分——但前锋乱，', { size: 11.5, fill: '#7d8ea3' }));
-  g.push(T(1140, 538, '会堵住旁边的流线，还没人算得出等多久。这就是代价。', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(1140, 510, '同样 1 米宽，一窝蜂也能过约 60 人/分——但前锋乱，', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(1140, 526, '会堵住旁边的流线，还没人算得出等多久。这就是代价。', { size: 11.5, fill: '#7d8ea3' }));
 
   /* ---------------------------------------------------------------- C */
   panel(g, 48, 574, 748, 360, 'C.  折返：把队列叠起来', '2 米宽的带子里折四段，存下 20 米长的队。');
@@ -155,7 +155,7 @@ export function artQueues() {
 
   /* ---------------------------------------------------------------- D */
   panel(g, 812, 574, 740, 360, 'D.  最要紧的一种：站台门口怎么排', '中间下车，两侧排队。屏蔽门正对车门中心（见第 12 张）。');
-  const px = 856, py = 700, pw = 650, ph = 150;
+  const px = 856, py = 686, pw = 650, ph = 150;
   g.push(rect(px - 16, py - 40, pw + 32, ph + 96, '#0d141d', { rx: 8 }));
   g.push(rect(px, py, pw, ph, '#cfd3d8', { rx: 4 }));                      // platform
   g.push(rect(px, py + ph, pw, 22, C.maroon, { rx: 3 }));                  // platform edge zone
@@ -173,7 +173,7 @@ export function artQueues() {
   g.push(T(px + pw - 8, py + ph + 46, '列车', { size: 11.5, fill: '#8fa0b3', anchor: 'end' }));
   doorX.forEach((dx, di) => {
     g.push(rect(dx - POFF, py + ph - 4, POFF * 2, 10, C.lineB, { rx: 2 }));  // PSD door
-    g.push(T(dx, py + ph + 6, '屏蔽门', { size: 10.5, fill: C.lineB, anchor: 'middle' }));
+    g.push(T(dx, py + ph + 15, '屏蔽门', { size: 10.5, fill: C.lineB, anchor: 'middle' }));
     // alighting path down the middle of the pair
     g.push(rect(dx - 14, py + 30, 28, ph - 34, C.safety, { rx: 3, opacity: 0.16 }));
     g.push(arrow(dx, py + ph - 12, dx, py + 34, C.safety, 2.4));
@@ -189,10 +189,9 @@ export function artQueues() {
       g.push(T(dx + sgn * 60, py + 20, '排队', { size: 10.5, fill: '#2f7ef2', anchor: 'middle' }));
     }
   });
-  g.push(MUL(856, 946, [
-    '每道门配两条道，各约 45 人/分 = 90 人/分，可门只过得去 72 人/分，瓶颈就在门上——',
-    '这才是正确答案，也是停站时间会成为设计变量的原因。',
-    '用涂装划通道、再加栏杆，正是中国地铁每个站台的日常。',
+  g.push(MUL(856, 902, [
+    '每道门配两条道，各约 45 人/分 = 90 人/分，但门只过得去 72 人/分，瓶颈就在门上。',
+    '所以停站时间成了设计变量；涂装划通道、加栏杆，是中国地铁站台的日常。',
   ], { size: 12, fill: '#a9b8c8', lh: 20 }));
 
   /* ---------------------------------------------------------------- E */

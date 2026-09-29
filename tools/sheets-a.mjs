@@ -119,7 +119,7 @@ export function artSection() {
     if (psd) g.push(`<rect x="${tx - 22}" y="${fy - 126}" width="${tw + 44}" height="112" fill="none" stroke="#8ec9e6" stroke-width="3" stroke-dasharray="12 7" opacity=".85"/>`);
     g.push(trainRun(trainSide(tx, fy - 122, tw, 3.6, col, line, 'third rail', 4), 26, '14s'));
     g.push(`<rect x="${tx - 34}" y="${fy - 24}" width="${tw + 68}" height="7" fill="${C.yellow}"/>`);
-    if (psd) g.push(T(tx - 42, fy - 116, '屏蔽门', { size: 12, fill: '#8ec9e6', weight: 800, anchor: 'end' }));
+    if (psd) g.push(T(tx - 42, fy - 104, '屏蔽门', { size: 12, fill: '#8ec9e6', weight: 800, anchor: 'end' }));
     for (const ax of [tx + 70, tx + 240, tx + 410]) {
       g.push(`<path d="M${ax},${fy - 36} l0,12 m-6,-7 l6,7 l6,-7" stroke="${C.yellow}" stroke-width="2.5" fill="none"/>`);
       g.push(`<path d="M${ax + 24},${fy - 24} l0,-12 m-6,7 l6,-7 l6,7" stroke="#2fb344" stroke-width="2.5" fill="none"/>`);
@@ -158,8 +158,8 @@ export function artSection() {
     // the car, end on: windscreen, destination board, headlights, livery
     g.push(`<rect x="${cx - cw / 2}" y="${trainT}" width="${cw}" height="${ch}" rx="9" fill="#e9eef4" stroke="${C.ink}" stroke-width="2.5"/>`);
     g.push(`<rect x="${cx - cw / 2}" y="${trainB - 17}" width="${cw}" height="17" rx="4" fill="${col}"/>`);
-    g.push(`<rect x="${cx - cw / 2 + 8}" y="${trainT + 2}" width="${cw - 16}" height="8" rx="3" fill="#141a20"/>`);
-    g.push(T(cx, trainT + 8.5, line, { size: 7.5, fill: '#ffd45e', anchor: 'middle', weight: 800 }));
+    g.push(`<rect x="${cx - cw / 2 + 8}" y="${trainT + 2}" width="${cw - 16}" height="11" rx="3" fill="#141a20"/>`);
+    g.push(T(cx, trainT + 11, line, { size: 7.5, fill: '#ffd45e', anchor: 'middle', weight: 800 }));
     g.push(`<rect x="${cx - cw / 2 + 7}" y="${trainT + 13}" width="${cw - 14}" height="32" rx="6" fill="#22323f" stroke="${C.ink}" stroke-width="1.4"/>`);
     g.push(`<rect x="${cx - 25}" y="${trainB - 31}" width="10" height="7" rx="2" fill="#ffd45e"/>`);
     g.push(`<rect x="${cx + 15}" y="${trainB - 31}" width="10" height="7" rx="2" fill="#ffd45e"/>`);
@@ -192,7 +192,7 @@ export function artSection() {
   dim(GY, 262, '+6 米');
 
   /* ---- footnote strip ---- */
-  g.push(`<rect x="48" y="1040" width="1504" height="66" rx="12" fill="#0f1620" stroke="#243040"/>`);
+  g.push(`<rect x="48" y="1038" width="1504" height="74" rx="12" fill="#0f1620" stroke="#243040"/>`);
   const notes = [
     [C.lineA, '1 号线在地面以上：接触网供电，站台敞着，没屏蔽门。'],
     [C.lineB, '2 号线在 B2 的屏蔽门后面，上车得按门一扇扇来。'],
@@ -202,7 +202,7 @@ export function artSection() {
     [C.yellow, '深度不是摆设，它就是步行、排队和站台密度。'],
   ];
   notes.forEach(([col, s], i) => {
-    const cx = 70 + Math.floor(i / 3) * 740, cy = 1068 + (i % 3) * 18;
+    const cx = 70 + Math.floor(i / 3) * 740, cy = 1062 + (i % 3) * 18;
     g.push(`<rect x="${cx}" y="${cy - 9}" width="10" height="10" rx="2.5" fill="${col}"/>`);
     g.push(T(cx + 18, cy, s, { size: 11.5, fill: '#a9b8c8' }));
   });

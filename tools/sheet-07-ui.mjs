@@ -113,12 +113,12 @@ export function artUI() {
   g.push(T(1196, 592, '连接至', { size: 11.5, fill: '#8fa0b3', weight: 700, ls: 1.2 }));
   const conns = [['站厅 B1', C.blue], ['1 号口（进 900 / 时）', C.green], ['2 号线站台 B2', C.lineB], ['1 号线 · 经扶梯', C.lineA]];
   conns.forEach(([t, col], i) => {
-    const y = 608 + i * 32;
+    const y = 608 + i * 30;
     g.push(`<rect x="1196" y="${y}" width="332" height="26" rx="7" fill="${col}" opacity=".12" stroke="${col}" stroke-width="1"/>`);
     g.push(`<circle cx="1212" cy="${y + 13}" r="5" fill="${col}"/>`);
     g.push(T(1228, y + 18, t, { size: 12, fill: '#c3d0de' }));
   });
-  g.push(T(1196, 736, '线路管理：新增线路，选择 A / B / C 车型，再分配', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(1196, 740, '线路管理：新增线路，选择 A / B / C 车型，再分配', { size: 11.5, fill: '#7d8ea3' }));
 
   /* ---- bottom rail: line manager + minimap ---- */
   panel(60, 766, 1480, 182, null);

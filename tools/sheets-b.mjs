@@ -131,8 +131,10 @@ export function artTrains() {
       lines[lines.length - 2] += lines.pop();
     }
     g.push(MUL(bx, y0 + 158, lines, { size: 12.5, fill: '#8fa0b3', lh: 18 }));
-    g.push(`<rect x="${bx}" y="${y0 + 228}" width="250" height="26" rx="6" fill="${t.col}" opacity=".14" stroke="${t.col}" stroke-width="1.2"/>`);
-    g.push(T(bx + 10, y0 + 246, t.power.slice(0, 40), { size: 11.5, fill: t.col, mono: true }));
+    // the power summary wraps on its own separator, so no line can run past the card
+    const pwr = t.power.split(' | ');
+    g.push(`<rect x="${bx}" y="${y0 + 214}" width="300" height="${16 + pwr.length * 16}" rx="6" fill="${t.col}" opacity=".14" stroke="${t.col}" stroke-width="1.2"/>`);
+    g.push(MUL(bx + 10, y0 + 232, pwr, { size: 11.5, fill: t.col, mono: true, lh: 16 }));
   });
 
   /* =================================================================== *
@@ -299,7 +301,7 @@ export function artDemand() {
   g.push(`<rect x="${200 + (17 / 23) * 820}" y="250" width="${(2 / 23) * 820}" height="244" fill="${C.red}" opacity=".1"/>`);
   g.push(T(200 + (8 / 23) * 820, 268, '早高峰', { size: 11.5, fill: C.red, anchor: 'middle', weight: 800 }));
   g.push(T(200 + (18 / 23) * 820, 268, '晚高峰', { size: 11.5, fill: C.red, anchor: 'middle', weight: 800 }));
-  g.push(legend(78, 540, [[C.yellow, '工作日'], [C.pink, '周六'], [C.teal, '周日 / 节假日']], { size: 12.5, step: 22 }));
+  g.push(legend(78, 522, [[C.yellow, '工作日'], [C.pink, '周六'], [C.teal, '周日 / 节假日']], { size: 12, step: 15 }));
 
   /* --- B. calendar --- */
   g.push(`<rect x="1072" y="180" width="480" height="380" rx="14" fill="#111926" stroke="#243040"/>`);
@@ -313,14 +315,14 @@ export function artDemand() {
       let a = we ? 0.22 + 0.12 * rr2() : 0.55 + 0.35 * rr2();
       if (w === 4 && d === 2) a = 1.0;                    // holiday spike
       if (w === 9 && d === 1) a = 0.85;                   // event spike
-      const cellX = 1096 + d * 64, cellY = 258 + w * 20;
-      g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="16" rx="4" fill="${C.yellow}" opacity="${(0.1 + a * 0.85).toFixed(2)}"/>`);
-      if (w === 4 && d === 2) g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="16" rx="4" fill="none" stroke="${C.red}" stroke-width="1.6" ${breathe(0.2, '2.4s')}/>`);
-      if (w === 9 && d === 1) g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="16" rx="4" fill="none" stroke="${C.teal}" stroke-width="1.6" ${breathe(0.2, '2.4s', '0.6s')}/>`);
+      const cellX = 1096 + d * 64, cellY = 258 + w * 16;
+      g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="13" rx="4" fill="${C.yellow}" opacity="${(0.1 + a * 0.85).toFixed(2)}"/>`);
+      if (w === 4 && d === 2) g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="13" rx="4" fill="none" stroke="${C.red}" stroke-width="1.6" ${breathe(0.2, '2.4s')}/>`);
+      if (w === 9 && d === 1) g.push(`<rect x="${cellX}" y="${cellY}" width="58" height="13" rx="4" fill="none" stroke="${C.teal}" stroke-width="1.6" ${breathe(0.2, '2.4s', '0.6s')}/>`);
     }
   }
   for (let d = 0; d < 7; d++) g.push(T(1096 + d * 64 + 29, 252, days[d], { size: 12, fill: '#7d8ea3', anchor: 'middle' }));
-  g.push(MUL(1096, 552, [
+  g.push(MUL(1096, 498, [
     '红框：法定节假日——站台很挤，还来得没预兆',
     '青框：站厅上方的体育场有活动的日子',
     '灰字：每个出口都能设每小时上限，',
@@ -328,7 +330,7 @@ export function artDemand() {
   ], { size: 12, fill: '#7d8ea3', lh: 18 }));
 
   /* --- C. transfer / OD --- */
-  g.push(`<rect x="48" y="588" width="700" height="400" rx="14" fill="#111926" stroke="#243040"/>`);
+  g.push(`<rect x="48" y="588" width="700" height="420" rx="14" fill="#111926" stroke="#243040"/>`);
   g.push(T(76, 622, 'C.  跨楼层的换乘', { size: 15, weight: 800, fill: C.yellow, ls: 1.2 }));
   g.push(T(76, 644, '换乘是一段步行、一道闸机、一次排队——不会瞬移', { size: 12.5, fill: '#7d8ea3' }));
   const node = (x, y, txt, col, sub) => {
@@ -355,13 +357,13 @@ export function artDemand() {
   g.push(arrow(450, 775, 480, 810, C.lineB));
   g.push(arrow(440, 790, 480, 920, C.lineC));
   g.push(T(300, 700, '进站', { size: 11, fill: '#7d8ea3' }));
-  g.push(MUL(76, 970, [
+  g.push(MUL(76, 966, [
     '换乘时间 = 扶梯排队 + 每级台阶 0.35 秒 + 步行 + 过闸。深度差是一笔',
     '实打实的花费，所以深层的候车乘客，常顺路溜达进站厅商铺。',
   ], { size: 12, fill: '#8fa0b3', lh: 17 }));
 
   /* --- D. exit control + wave shape --- */
-  g.push(`<rect x="776" y="588" width="776" height="400" rx="14" fill="#111926" stroke="#243040"/>`);
+  g.push(`<rect x="776" y="588" width="776" height="420" rx="14" fill="#111926" stroke="#243040"/>`);
   g.push(T(804, 622, 'D.  把客流揉成波 + 管好各出口', { size: 15, weight: 800, fill: C.yellow, ls: 1.2 }));
   g.push(T(804, 644, '沙盒里没有票价、没有员工——只有速率、波形和混流', { size: 12.5, fill: '#7d8ea3' }));
   const slider = (x, y, label, val, col) => {
@@ -408,7 +410,7 @@ export function artArch() {
     if (lines) g.push(MUL(x + 16, y + 52, lines, { size: 11.5, fill: '#93a1b3', lh: 18, mono: true }));
   };
   let ahN = 0;
-  const arrow = (x1, y1, x2, y2, col, label, dash) => {
+  const arrow = (x1, y1, x2, y2, col, label, dash, lo = 0) => {
     const d = `M${x1},${y1} L${x2},${y2}`;
     if (dash) {
       g.push(`<path d="${d}" stroke="${col}" stroke-width="2" fill="none" marker-end="url(#ah2)" stroke-dasharray="${dash}" opacity=".9" ${dashFlow(13, '1.3s')}/>`);
@@ -418,7 +420,7 @@ export function artArch() {
     // a token of data travels the connector, so every edge has a direction
     g.push(mover(d, col, `${(ahN++ * 0.3).toFixed(1)}s`, { r: 4.6, dur: '3.4s', f0: 0.02, f1: 0.06, f2: 0.9, f3: 0.94 }));
     if (label) {
-      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 + lo;
       const tw = label.length * 12.5 + 20;
       g.push(`<rect x="${mx - tw / 2}" y="${my - 20}" width="${tw}" height="20" rx="5" fill="#0b0f16" stroke="${col}" stroke-width="1" opacity=".95"/>`);
       g.push(T(mx, my - 6, label, { size: 11, fill: col, anchor: 'middle', mono: true }));
@@ -507,7 +509,7 @@ export function artArch() {
   arrow(360, 465, 640, 465, C.yellow, '放置 / 擦除');
   arrow(360, 655, 640, 655, C.wood, '模块定义');
   arrow(640, 690, 360, 845, C.teal, '实例缓冲', '7 6');
-  arrow(360, 830, 640, 690, C.green, '相机 + 切片', '7 6');
+  arrow(360, 830, 640, 690, C.green, '相机 + 切片', '7 6', -16);
   arrow(640, 380, 640, 430, C.blue, '');
   arrow(640, 580, 640, 620, C.purple, '');
   arrow(1100, 330, 1190, 285, '#8fa0b3', '读取');
