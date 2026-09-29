@@ -4,7 +4,7 @@
 //
 // A car runs along +x. The visible faces are the roof, the near (+y) side and
 // the leading (+x) end, which is the same three-face convention boxSvg uses.
-import { C, TW, TH, ZU, P, px, py, n, shade, poly, faceSvg, rng, carDoorCenters } from './iso.mjs';
+import { C, TW, TH, ZU, P, px, py, n, shade, poly, faceSvg, rng, carDoorCenters, group } from './iso.mjs';
 
 /** z/x ratio of the projection's view ray: visibility is n.(1,1,VZ) > 0. */
 const VZ = (2 * TH) / ZU;
@@ -198,7 +198,7 @@ export function isoCar(S, o) {
   }
   // push the whole car once, at its centre depth
   const carKey = key(len / 2, w / 2, h / 2);
-  S.fg.push([carKey, parts.join('')]);
+  S.fg.push([carKey, o.anim ? group(parts.join(''), o.anim) : parts.join('')]);
   return carKey;
 }
 
