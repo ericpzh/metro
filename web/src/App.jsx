@@ -3,7 +3,7 @@ import { artworks } from './artworks.js'
 import Nav from './components/Nav.jsx'
 import Hero from './components/Hero.jsx'
 import Rail from './components/Rail.jsx'
-import ArtworkSection from './components/ArtworkSection.jsx'
+import Sheet from './components/Sheet.jsx'
 import Lightbox from './components/Lightbox.jsx'
 import Footer from './components/Footer.jsx'
 
@@ -11,7 +11,7 @@ export default function App() {
   const [open, setOpen] = useState(null)
   const [active, setActive] = useState(artworks[0].id)
 
-  // Reveal sections as they enter the viewport.
+  // Reveal sheets as they enter the viewport.
   useEffect(() => {
     const nodes = document.querySelectorAll('[data-reveal]')
     if (!('IntersectionObserver' in window)) {
@@ -27,7 +27,7 @@ export default function App() {
           }
         }
       },
-      { rootMargin: '0px 0px -12% 0px', threshold: 0.08 },
+      { rootMargin: '0px 0px -8% 0px', threshold: 0.04 },
     )
     nodes.forEach((n) => io.observe(n))
     return () => io.disconnect()
@@ -35,7 +35,7 @@ export default function App() {
 
   // Track which sheet is on screen for the side rail.
   useEffect(() => {
-    const nodes = document.querySelectorAll('.section')
+    const nodes = document.querySelectorAll('.sheet')
     if (!('IntersectionObserver' in window)) return
     const io = new IntersectionObserver(
       (entries) => {
@@ -44,7 +44,7 @@ export default function App() {
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
         if (hit) setActive(hit.target.id.replace('sheet-', ''))
       },
-      { rootMargin: '-25% 0px -45% 0px', threshold: [0, 0.25, 0.5] },
+      { rootMargin: '-30% 0px -40% 0px', threshold: [0, 0.2, 0.5] },
     )
     nodes.forEach((n) => io.observe(n))
     return () => io.disconnect()
@@ -59,8 +59,8 @@ export default function App() {
         <Hero />
         <Rail active={active} />
         <div className="gallery" id="gallery">
-          {artworks.map((art, i) => (
-            <ArtworkSection art={art} index={i} key={art.id} onOpen={setOpen} />
+          {artworks.map((art) => (
+            <Sheet art={art} key={art.id} onOpen={setOpen} />
           ))}
         </div>
         <Footer />

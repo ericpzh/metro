@@ -20,7 +20,8 @@ station either copes or it does not.
 
 All sheets are vector, generated from [`tools/gen-art.mjs`](tools/gen-art.mjs) (`node tools/gen-art.mjs`).
 They are drawn from the same isometric projection the game uses (2:1 dimetric, 1 block = 1 m),
-so they double as an art-direction target rather than loose mood boards.
+so they double as an art-direction target rather than loose mood boards. Sheet 12 is animated
+(SMIL, self-contained); sheet 07 is drawn in the shipping UI language, Simplified Chinese.
 
 ### 1.1 The station you are building — isometric cutaway
 
@@ -74,7 +75,7 @@ controls that shape all of it.
 ![Concept 07 — interface](art/07-interface.svg)
 
 Build rail on the left, inspector on the right, line manager and minimap along the bottom. The
-camera is the level selector.
+camera is the level selector. The mock is drawn in the shipping language, Simplified Chinese (§9.2).
 
 ### 1.8 Software shape
 
@@ -120,6 +121,32 @@ Reference photographs studied for this pass (Wikimedia Commons, CC BY-SA 4.0):
 
 These are references only. No photograph is shipped in the game or this repository; the palette and
 motifs are reinterpreted in `tools/iso.mjs`.
+
+### 1.12 Rolling stock in 3D
+
+![Concept 11 — rolling stock in 3D](art/11-rolling-stock-3d.svg)
+
+The same A / B / C cars as §1.5, drawn the way the game builds them: a rounded-roof cross-section
+extruded along the run, carrying the window band, the door leaves, the livery band, the bogies, the
+roof equipment and the leading cab. The consist panel and the platform interface put the car against
+the screen doors and the third rail, and the power-pickup panel sets catenary against third rail.
+
+### 1.13 Platform doors and flow
+
+![Concept 12 — platform doors and flow](art/12-platform-doors-flow.svg)
+
+The car-door cadence is authoritative. One function returns the door centres, and the PSD openings,
+the queue lanes and the boarding and alighting paths are all placed from that same list, so the
+screen doors can never drift from the doors they are meant to meet. The sheet is animated: a 20 s
+enter / dock / open / board / close / leave loop.
+
+### 1.14 Two lines, two depths
+
+![Concept 13 — two lines, two depths](art/13-two-line-interchange.svg)
+
+Concept 02 as a volume. One line runs over the street on a viaduct, one runs under it in a box, and
+the whole transfer stack sits between them — B2 platform, B1 concourse, the street, the viaduct
+platform. The near quarter is cut away, which is also how the game's cutaway camera works.
 
 ---
 
@@ -642,6 +669,7 @@ behind today. And a "day report" you can scrub hour by hour.
 * **Ghost preview** with validity, snap, autotile, blueprint copy/paste, and an undo stack of
   build commands.
 * **Simulation controls**: day picker, demand curve editor, per-exit rate sliders, event days.
+* **Language** = Simplified Chinese only, with no English mode. See §9.2.
 
 ### 9.1 Camera and views
 
@@ -668,6 +696,21 @@ editing dims to 35% and desaturates, and in the flat views the soil is hidden so
 Concept sheet 09 shows all six views of one model, rendered with the same projection maths the game
 uses.
 
+### 9.2 Language
+
+The interface ships in **Simplified Chinese only**. This is not a localisation toggle: station names,
+exit numbers, line numbering, unit strings and the level-of-service vocabulary are authored in
+Chinese, and concept sheet 07 is drawn in Chinese for that reason. A few things stay ASCII on
+purpose, because they are identifiers rather than prose:
+
+* module ids, tag keys and the save-file schema (`gate.turnstile`, `zone.paid`),
+* level codes `B4`…`B1`, `G`, `L1`,
+* stock classes `A` / `B` / `C` and the `1× / 4× / 16×` speed labels,
+* numerals and units inside the Chinese strings (`25 人 / 分`, `间隔 2 分`).
+
+Everything a player reads as a sentence — tool names, inspector field names, connection lists,
+line-manager behaviour, minimap counters, warnings — is Chinese.
+
 ---
 
 ## 10. Technical design
@@ -676,7 +719,7 @@ uses.
 
 | Layer | Choice | Why |
 |---|---|---|
-| UI | React 19 + Vite + TypeScript | panels, inspector, line manager |
+| UI | React 19 + Vite + TypeScript | panels, inspector, line manager; Simplified Chinese only (§9.2) |
 | State | zustand + immer | small store, patch-based undo |
 | Scene | three.js + @react-three/fiber + drei | orbit camera, cutaways, gizmos |
 | Voxel meshes | custom chunk mesher | merged geometry per 16³ chunk, greedy faces |
@@ -859,12 +902,21 @@ metro/
     08-architecture.svg
     09-camera-and-views.svg
     10-queue-management.svg
+    11-rolling-stock-3d.svg
+    12-platform-doors-flow.svg
+    13-two-line-interchange.svg
   tools/
-    iso.mjs               <- shared isometric library: palette, projection, rounded boxes, sprites
-    sheets-a.mjs          <- sheets 01-04
-    sheets-b.mjs          <- sheets 05-08
+    iso.mjs               <- shared isometric library: palette, projection, rounded boxes, stock, sprites
+    train-iso.mjs         <- rolling stock in 3D: rounded-roof car section extruded along the run
+    sheets-a.mjs          <- sheets 02-04 (vertical section, blocks, catalogue)
+    sheet-01-hero.mjs     <- sheet 01, the isometric cutaway
+    sheets-b.mjs          <- sheets 05, 06, 08 (stock numbers, demand, software shape)
+    sheet-07-ui.mjs       <- sheet 07, the Chinese-only interface mock
     sheets-c.mjs          <- sheet 09, includes a tiny orthographic box renderer
     sheets-d.mjs          <- sheet 10, plan-view diagrams for queueing
+    sheets-e.mjs          <- sheet 12, animated platform doors and passenger flow
+    sheet-11-trains3d.mjs <- sheet 11, rolling stock in 3D
+    sheet-13-two-line.mjs <- sheet 13, two lines at two depths
     gen-art.mjs           <- node tools/gen-art.mjs  -> writes art/
     zoom.mjs              <- dev helper: crop a sheet for inspection
     serve.mjs             <- dev helper: static server for viewing art

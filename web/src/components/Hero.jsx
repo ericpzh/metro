@@ -1,5 +1,5 @@
 import { artworks, tagline } from '../artworks.js'
-import { specUrl } from '../site.js'
+import { sheet, specUrl } from '../site.js'
 
 const facts = [
   ['Platform', 'React 19 + Vite, three.js via react-three-fiber, Web Worker simulation'],
@@ -9,7 +9,7 @@ const facts = [
 ]
 
 export default function Hero() {
-  const n = String(artworks.length).padStart(2, '0')
+  const first = artworks[0]
 
   return (
     <section className="hero" id="top">
@@ -23,14 +23,25 @@ export default function Hero() {
           <br />
           <span className="hero__accent">try to use it.</span>
         </h1>
-        <p className="hero__tagline">{tagline}</p>
 
-        <div className="hero__actions">
-          <a className="btn btn--primary" href="#gallery">
-            See the {n} sheets
-          </a>
-          <a className="btn" href={specUrl} target="_blank" rel="noreferrer">
-            Read the spec
+        <div className="hero__cols">
+          <div>
+            <p className="hero__tagline">{tagline}</p>
+            <div className="hero__actions">
+              <a className="btn btn--primary" href="#gallery">
+                See the {artworks.length} sheets
+              </a>
+              <a className="btn" href={specUrl} target="_blank" rel="noreferrer">
+                Read the spec
+              </a>
+            </div>
+          </div>
+
+          <a className="hero__peek" href={`#sheet-${first.id}`} aria-label={`Go to sheet ${first.id}`}>
+            <img src={sheet(first.file)} alt="" loading="eager" decoding="async" aria-hidden="true" />
+            <span className="hero__peek-tag">
+              <b>{first.id}</b> {first.nav}
+            </span>
           </a>
         </div>
 
@@ -43,11 +54,6 @@ export default function Hero() {
           ))}
         </dl>
       </div>
-
-      <a className="hero__cue" href="#gallery" aria-label="Scroll to the concept art">
-        <span className="hero__cue-dot" />
-        scroll
-      </a>
     </section>
   )
 }

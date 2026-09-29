@@ -110,7 +110,10 @@ export function artTrains3D() {
     isoTrack(S, { x: -0.6, y: -0.2, z: -0.18, len: cars * (CL + gap) + 1, w: 3.2, third: true });
     const pl = place(S, { len: cars * (CL + gap), w: CW, h: CH }, px0 + 244, py0 + 214, 0.115);
     g.push(pl.svg);
-    g.push(T(px0 + 24, py0 + 352, '6 x 19.5 m + 5 gaps = 119.8 m of train. The platform must be at least that long, plus a stopping margin.', { size: 11, fill: '#7d8ea3' }));
+    g.push(MUL(px0 + 24, py0 + 344, [
+      '6 x 19.5 m + 5 gaps = 119.8 m of train.',
+      'The platform must be at least that long, plus a stopping margin.',
+    ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
   /* ---------------- right column: platform interface ---------------- */
@@ -168,10 +171,13 @@ export function artTrains3D() {
     co([3.9, 2.9, 2.4], px0 + 392, py0 + 78, 1, 'platform screen doors');
     co([5.0, 1.0, 0.35], px0 + 408, py0 + 118, 2, 'third rail + shoe');
     co([2.0, 2.9, 1.1], px0 + 400, py0 + 158, 3, 'platform edge');
-    co([8.5, 1.2, 2.2], px0 + 404, py0 + 200, 4, 'car floor level with platform');
+    co([8.5, 1.2, 2.2], px0 + 392, py0 + 200, 4, 'floor = platform level');
     co([0.4, -2.7, 3.4], px0 + 396, py0 + 244, 5, 'tunnel soffit');
     g.push(list.join(''));
-    g.push(T(px0 + 24, py0 + 296, 'PSD adds a fixed per-door transfer cost: boarding is a door, a leaf and a threshold, not one motion.', { size: 11, fill: '#7d8ea3' }));
+    g.push(MUL(px0 + 24, py0 + 282, [
+      'PSD adds a fixed per-door transfer cost:',
+      'boarding is a door, a leaf and a threshold, not one motion.',
+    ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
   /* ---------------- right column: power pickup ---------------- */
@@ -200,7 +206,10 @@ export function artTrains3D() {
     g.push(T(px0 + 74, py0 + 194, 'viaduct, open sky, tall gauge', { size: 10.5, fill: '#7d8ea3' }));
     g.push(T(px0 + 300, py0 + 176, 'THIRD RAIL  -  type B / C', { size: 11.5, weight: 700, fill: C.lineB, mono: true }));
     g.push(T(px0 + 300, py0 + 194, 'tunnel or covered box only', { size: 10.5, fill: '#7d8ea3' }));
-    g.push(T(px0 + 24, py0 + 232, 'A player can lay a catenary viaduct over the street and run a third-rail line under it in the same station.', { size: 11, fill: '#7d8ea3' }));
+    g.push(MUL(px0 + 24, py0 + 222, [
+      'A player can lay a catenary viaduct over the',
+      'street and run a third-rail line under it in the same station.',
+    ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
   return sheet(W, H, g.join('') + OV.join(''));

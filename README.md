@@ -17,8 +17,18 @@ This repository holds three things:
 
 ## The site
 
-A single scrolling page: every concept sheet in order, each one paired with the design note behind
-it. Click any sheet to open it at full resolution.
+A dark, single scrolling page: every concept sheet runs edge to edge, and its design note is a
+translucent glass panel floating over the drawing. Click any sheet to open it at full resolution.
+
+The sheets are dark (a `sheetBg` gradient from `#151d29` to `#0a0d13`), so the page is built to match
+them rather than fight them.
+
+**Panel placement is measured, not eyeballed.** Each sheet is rasterised at a 1440px reference width
+and scanned with an edge-energy map for the quietest band that still keeps the whole card on screen;
+the result is stored per sheet as `panel` in [`web/src/artworks.js`](web/src/artworks.js). Panels
+either hug the 5% margin (`mode: 'edge'`) or sit in a genuine pocket in the middle of the drawing
+(`mode: 'free'`). Below 1100px the overlay would cover too much of the art, so the panel docks to the
+bottom edge of the sheet instead.
 
 ```bash
 cd web

@@ -281,11 +281,11 @@ export function artHero() {
     const [ax, ay] = sc(x, y, z);
     callout(A, ax, ay, lx, ly, num, null);
   };
-  co(9.6, 8.4, FZ + 1.1, 520, 1050, 1);
+  co(9.6, 8.4, FZ + 1.1, 520, 1046, 1);
   co(5.4, 1.2, FZ + 1.6, 250, 690, 2);
   co(22.9, 4.2, FZ + 3.5, 1400, 520, 3);
-  co(11.0, 19.5, T0 + 0.9, 700, 1090, 4);
-  co(14.6, 13.5, B2 + 1.5, 900, 1090, 5);
+  co(11.0, 19.5, T0 + 0.9, 700, 1082, 4);
+  co(14.6, 13.5, B2 + 1.5, 962, 946, 5);
   co(3.4, 2.4, FZ + 5.3, 210, 190, 6);
   co(12.9, 4.6, FZ + 2.6, 1370, 300, 7);
   co(12.6, 9.7, FZ, 430, 950, 8);
@@ -311,8 +311,8 @@ export function artHero() {
   const body = `<g transform="translate(${TX},${TY})">
     <ellipse cx="${n(px(13, 11))}" cy="${n(py(13, 11, -1.6))}" rx="800" ry="360" fill="#000" opacity=".35" filter="url(#soft)"/>
     ${S.out()}
-  </g>${A.join('')}${legendBg}${lg}`
+  </g>${legendBg}${A.join('')}${lg}`
     + title(48, 62, 'CONCEPT 01 // ISOMETRIC CUTAWAY', 'Metro Station Designer',
-      'Underground interchange. B1 concourse, roof off, with the B2 platform showing through the circulation void. 1 block = 1 m.');
+      'B1 concourse, roof off; B2 platform below. 1 block = 1 m.');
   return sheet(1600, 1180, body, { glow: true });
 }
