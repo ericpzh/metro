@@ -9,6 +9,10 @@ web/dist/
 # Generated: the concept sheets are copied from art/ at build time
 web/public/art/
 
+# Wrangler
+.wrangler/
+worker-configuration.d.ts
+
 # Local tooling
 .vite/
 *.local

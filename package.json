@@ -1,0 +1,17 @@
+{
+  "name": "metro-station-designer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Root tooling for the Metro Station Designer concept-art site. The site itself lives in web/ and is deployed to Cloudflare Workers as static assets.",
+  "type": "module",
+  "scripts": {
+    "setup": "npm --prefix web ci",
+    "build": "npm --prefix web ci && npm --prefix web run build",
+    "deploy": "npm run build && wrangler deploy",
+    "preview": "npm run build && wrangler dev",
+    "dev": "npm --prefix web run dev"
+  },
+  "devDependencies": {
+    "wrangler": "^4.143.0"
+  }
+}

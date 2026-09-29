@@ -1,0 +1,20 @@
+{
+  // Metro Station Designer — deployed to Cloudflare Workers as static assets.
+  // The site is built into web/dist by `npm run build`; nothing runs on a server.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "metro",
+  "compatibility_date": "2026-09-28",
+
+  "assets": {
+    "directory": "./web/dist",
+    // Only needed when `main` is enabled below, so the Worker can read assets.
+    // "binding": "ASSETS",
+    "not_found_handling": "none"
+  }
+
+  // Path-prefix routing (example.com/metro/*) — uncomment `main` here, uncomment
+  // `assets.binding` above, and uncomment `vars` below. See worker/index.js and
+  // the "Custom routing" section of the README.
+  // "main": "./worker/index.js",
+  // "vars": { "ASSET_PREFIX": "/metro" }
+}
