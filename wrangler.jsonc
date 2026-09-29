@@ -5,16 +5,18 @@
   "name": "metro",
   "compatibility_date": "2026-09-28",
 
+  // The site is served from a path prefix — https://ericpzh.rest/metro/ — not a
+  // domain root, so the prefix Worker is enabled. See worker/index.js.
+  "main": "./worker/index.js",
+
   "assets": {
     "directory": "./web/dist",
-    // Only needed when `main` is enabled below, so the Worker can read assets.
-    // "binding": "ASSETS",
+    // Required because there is a `main`: it is how the Worker reads assets.
+    "binding": "ASSETS",
     "not_found_handling": "none"
-  }
+  },
 
-  // Path-prefix routing (example.com/metro/*) — uncomment `main` here, uncomment
-  // `assets.binding` above, and uncomment `vars` below. See worker/index.js and
-  // the "Custom routing" section of the README.
-  // "main": "./worker/index.js",
-  // "vars": { "ASSET_PREFIX": "/metro" }
+  // The bare prefix, no trailing slash. Must match the routes attached to the
+  // Worker in the Cloudflare dashboard.
+  "vars": { "ASSET_PREFIX": "/metro" }
 }

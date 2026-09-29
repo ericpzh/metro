@@ -81,35 +81,58 @@ npm run deploy     # build, then wrangler deploy
 `npm run deploy` needs `npx wrangler login` once. CI does not — Cloudflare supplies its own
 credentials to the build.
 
-### Custom routing
+### Routing
 
-The site uses relative asset paths (`base: './'` in [`web/vite.config.js`](web/vite.config.js)), so
-it works from a domain root *or* a subpath with no rebuild.
+The site is served from a path prefix — **`https://ericpzh.rest/metro/`** — rather than a domain
+root. `ASSET_PREFIX` in `wrangler.jsonc` is `/metro`, and [`worker/index.js`](worker/index.js)
+rewrites prefixed requests down to the asset root.
 
-**A subdomain or apex domain — no code change.** Workers & Pages → `metro` → **Settings** →
-**Domains & Routes** → **Add** → **Custom domain**. Enter `metro.example.com` (or `example.com`).
-The zone must be in the same Cloudflare account; the DNS record is created for you and a certificate
-is issued automatically.
+Attach **two** routes to the Worker — Workers & Pages → `metro` → **Settings** → **Domains & Routes**
+→ **Add** → **Route**:
 
-**A path prefix, `example.com/metro/*` — needs the prefix Worker.** Add a **Route** with the pattern
-`example.com/metro*`, then make three edits to `wrangler.jsonc`:
+| Route pattern | Catches |
+|---|---|
+| `ericpzh.rest/metro` | the bare path |
+| `ericpzh.rest/metro/*` | everything under it |
 
-1. Uncomment `"main": "./worker/index.js"`.
-2. Uncomment `"binding": "ASSETS"` inside the `assets` block — without it the Worker has no way to
-   read the assets and every prefixed request returns a 500.
-3. Uncomment `"vars": { "ASSET_PREFIX": "/metro" }` and match it to your route.
+Two routes, not one, because `/metro/*` does *not* match the bare `/metro` — the literal `/` after
+`metro` is required. Do not collapse them into `/metro*`: `*` matches across `/`, so `/metro*` would
+also swallow `/metropolis` and `/metro-north` and hand them to this Worker, which can only 404 them.
+
+> **`*.ericpzh.rest/metro/*` will not work for this.** A leading wildcard matches subdomains only and
+> never the apex, so `ericpzh.rest/metro/` would never reach the Worker. Add
+> `www.ericpzh.rest/metro` and `www.ericpzh.rest/metro/*` as well if the site should also answer on
+> `www`.
+
+Routes require the hostname to be **proxied** in DNS (orange cloud). A Custom Domain is not the right
+tool here: it would claim the whole of `ericpzh.rest`, which serves other things.
+
+Route patterns are ranked by specificity, so `ericpzh.rest/metro/*` wins over whatever already handles
+`ericpzh.rest/*`. If the apex is currently a **Pages** project bound as a Custom Domain rather than a
+Worker route, check afterwards that `/metro/` is not still landing on the other site.
 
 Assets live at the root of the Worker, so a request for `/metro/` matches no file and falls through to
-[`worker/index.js`](worker/index.js), which strips the prefix and re-fetches from `env.ASSETS`. Without
-it you get a 404 for every prefixed path. This combination is tested:
+[`worker/index.js`](worker/index.js), which strips the prefix and re-fetches from `env.ASSETS`. It also
+308-redirects the bare `/metro` and `/metro/index.html` to `/metro/`, so relative asset URLs keep
+resolving — without that the page would load and then fetch its CSS one directory too high.
+
+This combination is tested with `wrangler dev`:
 
 | Request | Result |
 |---|---|
+| `/metro` | `308` → `/metro/` |
 | `/metro/` | `200` `index.html` |
+| `/metro/index.html` | `308` → `/metro/` |
 | `/metro/art/01-isometric-cutaway.svg` | `200` `image/svg+xml` |
 | `/metro/assets/*.css` | `200` `text/css` |
 | `/` | `200` — served straight from assets, the Worker is not invoked |
-| `/nope` | `404` |
+| `/metropolis`, `/nope` | `404` |
+
+The `workers.dev` URL keeps working at the same time: `/` is served directly from assets, so one build
+serves both the domain root and the prefix.
+
+To move the site to a different path later, change `ASSET_PREFIX` and the routes together — nothing
+else depends on `/metro`.
 
 **Other routing you may want**, all in **Settings**:
 
