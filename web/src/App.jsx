@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { artworks } from './artworks.js'
+import { artworks, sections } from './artworks.js'
 import Nav from './components/Nav.jsx'
 import Hero from './components/Hero.jsx'
 import Rail from './components/Rail.jsx'
-import Sheet from './components/Sheet.jsx'
+import Section from './components/Section.jsx'
 import Lightbox from './components/Lightbox.jsx'
 import Footer from './components/Footer.jsx'
 
@@ -59,8 +59,8 @@ export default function App() {
         <Hero />
         <Rail active={active} />
         <div className="gallery" id="gallery">
-          {artworks.map((art) => (
-            <Sheet art={art} key={art.id} onOpen={setOpen} />
+          {sections.map((section) => (
+            <Section key={section.id} section={section} onOpen={setOpen} />
           ))}
         </div>
         <Footer />

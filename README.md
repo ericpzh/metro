@@ -36,6 +36,16 @@ npm install
 npm run dev     # http://localhost:5173
 ```
 
+Or from the repository root, without `cd`-ing:
+
+```bash
+npm install     # root deps (wrangler)
+npm run setup   # installs web/ deps
+npm start       # dev server at http://localhost:5173
+```
+
+`npm start` is a thin alias for `web`'s `dev` script, so it runs `sync-art` first and then Vite.
+
 ## Deploying to Cloudflare
 
 Cloudflare builds the site in CI and publishes it as **Workers static assets** — no server, no

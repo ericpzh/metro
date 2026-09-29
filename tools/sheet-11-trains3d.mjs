@@ -12,15 +12,15 @@ import { isoCar, isoTrack, catenary } from './train-iso.mjs';
 const EXTRA = {
   A: {
     cars: '6 - 8', perCar: 310, pwr: '接触网  1500 V 直流 / 25 kV 交流', panto: true, cab: true,
-    dest: '广州南站', lines: ['最宽车体', '干线 / 快线', '高架：开敞天空'],
+    dest: '广州南站', lines: ['车体最宽', '跑干线 / 快线', '走高架，头顶是天空'],
   },
   B: {
     cars: '4 - 6', perCar: 240, pwr: '第三轨  750 V 直流', shoe: true, cab: true,
-    dest: '五丝广场', lines: ['中国城市地铁的主力车型', '隧道 + 站台屏蔽门', 'B2 / B3 站台'],
+    dest: '五丝广场', lines: ['中国城市地铁的主力车型', '走隧道，配站台屏蔽门', 'B2 / B3 站台'],
   },
   C: {
     cars: '4 - 6', perCar: 200, pwr: '第三轨  750 V 直流 / 直线电机', shoe: true, cab: true,
-    dest: '白云西', lines: ['轻型车体，低需求支线', '自动化线路', '车体更窄，土建更省'],
+    dest: '白云西', lines: ['轻车身，跑低需求支线', '自动化线路', '车更窄，土建更省'],
   },
 };
 const T3 = ['A', 'B', 'C'].map((id) => ({ ...STOCK[id], ...EXTRA[id] }));
@@ -40,8 +40,8 @@ export function artTrains3D() {
   const W = 1600, H = 1240;
   const g = [];
   g.push(title(48, 62, '概念 11 // 列车三维图',
-    'A / B / C 型车，按游戏里的建法绘制',
-    '每节车体都是沿车长方向拉伸的圆角顶棚断面。第 05 张给出参数，这张给出玩家实际看到的形状。'));
+    'A / B / C 型车，按游戏里的建法画',
+    '每节车厢，都是把圆角顶棚的断面沿车长拽出来。第 05 张给的是参数，这张给的是玩家真正看到的形状。'));
   const OV = [];                                              // overlay callouts
 
   T3.forEach((t, i) => {
@@ -76,7 +76,7 @@ export function artTrains3D() {
     };
     co([t.len * 0.5, t.w * 0.5, t.h + 0.16], px0 + 830, py0 + 60, 1, '车顶 + 空调机组');
     co([t.len * 0.62, t.w, t.h * 0.64], px0 + 856, py0 + 96, 2, '车窗带');
-    co([t.len * 0.5, t.w, t.h * 0.35], px0 + 862, py0 + 134, 3, '涂装色带，线路色');
+    co([t.len * 0.5, t.w, t.h * 0.35], px0 + 862, py0 + 134, 3, '涂装色带，走线路色');
     co([t.len * 0.72, t.w, t.h * 0.2], px0 + 858, py0 + 172, 4, '车门门板与门框');
     co([t.len * 0.19, t.w * 0.5, 0.0], px0 + 838, py0 + 216, 5, '转向架、2 组车轮、集电靴');
     co([t.len + 0.1, t.w * 0.5, t.h * 0.62], px0 + 856, py0 + 258, 6, '司机室 + 目的地显示屏');
@@ -90,7 +90,7 @@ export function artTrains3D() {
     const px0 = 1064, pw = 488, py0 = 170, ph = 384;
     g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
     g.push(T(px0 + 24, py0 + 34, '列车编组', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, '完整 6 节编组，两端带司机室', { size: 11.5, fill: '#7d8ea3' }));
+    g.push(T(px0 + 24, py0 + 54, '完整 6 节编组，两头都带司机室', { size: 11.5, fill: '#7d8ea3' }));
     const S = Scene();
     const gap = 0.55, cars = 6, CL = 19.5, CW = 2.8, CH = 3.8;
     for (let c = 0; c < cars; c++) {
@@ -111,8 +111,8 @@ export function artTrains3D() {
     const pl = place(S, { len: cars * (CL + gap), w: CW, h: CH }, px0 + 244, py0 + 214, 0.115);
     g.push(pl.svg);
     g.push(MUL(px0 + 24, py0 + 344, [
-      '6 × 19.5 米 + 5 处车钩间隙 = 列车全长 119.8 米。',
-      '站台至少要这么长，还要留出停车余量。',
+      '6 × 19.5 米，加上 5 处车钩间隙 = 列车全长 119.8 米。',
+      '站台至少得有这个长度，还得再留出停车余量。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
@@ -121,7 +121,7 @@ export function artTrains3D() {
     const px0 = 1064, pw = 488, py0 = 574, ph = 320;
     g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
     g.push(T(px0 + 24, py0 + 34, '站台衔接', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, '列车停靠站台，屏蔽门关闭，第三轨带电', { size: 11.5, fill: '#7d8ea3' }));
+    g.push(T(px0 + 24, py0 + 54, '列车停靠站台，屏蔽门关着，第三轨带着电', { size: 11.5, fill: '#7d8ea3' }));
     const S = Scene();
     const L = 11.0, w = 2.8, h = 3.8, zf = 0.92;
     // tunnel shell behind the track
@@ -175,8 +175,8 @@ export function artTrains3D() {
     co([0.4, -2.7, 3.4], px0 + 396, py0 + 244, 5, '隧道顶板');
     g.push(list.join(''));
     g.push(MUL(px0 + 24, py0 + 282, [
-      '屏蔽门给每道门增加固定的换乘耗时：',
-      '上车是门板、门槛两个动作，而不是一个。',
+      '屏蔽门会给每道门加一笔固定的耗时：',
+      '上车要过门板、过门槛两个动作，变成两次。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
@@ -185,7 +185,7 @@ export function artTrains3D() {
     const px0 = 1064, pw = 488, py0 = 918, ph = 266;
     g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
     g.push(T(px0 + 24, py0 + 34, '受电方式', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, '这一选择决定隧道还是高架', { size: 11.5, fill: '#7d8ea3' }));
+    g.push(T(px0 + 24, py0 + 54, '怎么选，决定走隧道还是走高架', { size: 11.5, fill: '#7d8ea3' }));
     const mini = (ox, oy, kind) => {
       const S = Scene();
       const L = 8.5;
@@ -207,8 +207,8 @@ export function artTrains3D() {
     g.push(T(px0 + 300, py0 + 176, '第三轨 — B / C 型', { size: 11.5, weight: 700, fill: C.lineB, mono: true }));
     g.push(T(px0 + 300, py0 + 194, '仅限隧道或加盖区间', { size: 10.5, fill: '#7d8ea3' }));
     g.push(MUL(px0 + 24, py0 + 222, [
-      '玩家可以在街道上方架设接触网高架，',
-      '并在同一座车站的地下开行第三轨线路。',
+      '你可以在街道上方架一段接触网高架，',
+      '同一座车站的地下，又能跑第三轨线路。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 

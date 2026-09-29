@@ -1,14 +1,14 @@
 // Concept sheet 07 - the interface. The mock is Chinese-only: the shipping UI
 // language is Simplified Chinese, so the sheet is drawn in the language the
 // player will actually read. Sheet captions stay in English for the doc set.
-import { C, T, MUL, title, sheet, n, poly, pstr } from './iso.mjs';
+import { C, T, MUL, title, sheet, n, poly, pstr, sway, breathe, dashFlow, mover, group } from './iso.mjs';
 
 export function artUI() {
   const W = 1600, H = 1000;
   const g = [];
   g.push(title(48, 62, '概念 07 // 界面',
     '建造与观察，同屏完成',
-    '相机就是楼层选择器。左侧建造，右侧调整选中对象，底部管理线路、楼层与叠加层。界面语言：仅简体中文。'));
+    '相机就是楼层选择器。左边建造，右边改你选中的东西，底下管线路、楼层和叠加层。界面只有简体中文。'));
   g.push(`<rect x="48" y="170" width="1504" height="790" rx="16" fill="#0b0f16" stroke="#243040"/>`);
   const panel = (x, y, w, h, t, sub) => {
     g.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="#131b26" stroke="#243040"/>`);
@@ -20,6 +20,8 @@ export function artUI() {
   g.push(T(78, 216, '五丝广场站', { size: 18, weight: 800, fill: '#eaf0f6' }));
   g.push(T(196, 216, '换乘站', { size: 12, fill: '#5d6d80' }));
   g.push(T(310, 216, '周一 07:42   |   工作日   |   4 倍速', { size: 13, fill: '#8fa0b3', mono: true }));
+  // a live run indicator, so the mock reads as a running simulation
+  g.push(`<circle cx="298" cy="212" r="5" fill="${C.green}">${breathe(0.15, '1.6s')}</circle>`);
   g.push(`<rect x="700" y="196" width="180" height="26" rx="7" fill="#1d2731"/>`);
   g.push(T(712, 214, '站内 3,412 人', { size: 12.5, fill: C.yellow, mono: true }));
   g.push(`<rect x="890" y="196" width="150" height="26" rx="7" fill="#1d2731"/>`);
@@ -57,7 +59,7 @@ export function artUI() {
   for (let i = 0; i <= 10; i++) for (let j = 0; j <= 10; j++) {
     iso.push(iq(i, j, 0, 1, 1, (i + j) % 2 ? '#2c3a4a' : '#31404f'));
   }
-  iso.push(`<polygon points="${pstr([ip(7, 2, 0), ip(10, 2, 0), ip(10, 4, 0), ip(7, 4, 0)])}" fill="${C.blue}" opacity=".35" stroke="${C.blue}" stroke-width="2" stroke-dasharray="5 4"/>`);
+  iso.push(`<polygon points="${pstr([ip(7, 2, 0), ip(10, 2, 0), ip(10, 4, 0), ip(7, 4, 0)])}" fill="${C.blue}" opacity=".35" stroke="${C.blue}" stroke-width="2" stroke-dasharray="5 4">${dashFlow(9, '0.9s')}</polygon>`);
   iso.push(iq(7, 2, 0.02, 3, 2, '#2f7ef2'));
   iso.push(`<polygon points="${pstr([ip(6, 6, 0), ip(10, 6, 0), ip(10, 6, 1), ip(6, 6, 1)])}" fill="#6e7885" stroke="${C.ink}" stroke-width="0.7"/>`);
   for (let i = 0; i < 8; i++) {
@@ -68,7 +70,12 @@ export function artUI() {
   }
   iso.push(poly([ip(3, 4.5, 0.02), ip(5, 4.5, 0.02), ip(5, 5.5, 0.02), ip(3, 5.5, 0.02)], C.blue, 'none', 0));
   g.push(`<g>${iso.join('')}</g>`);
-  g.push(`<g><use href="#person" x="${n(ip(2, 3, 0)[0])}" y="${n(ip(2, 3, 0)[1])}" style="color:${C.red}"/><use href="#person" x="${n(ip(3.4, 3.6, 0)[0])}" y="${n(ip(3.4, 3.6, 0)[1])}" style="color:${C.teal}"/><use href="#person" x="${n(ip(4.6, 2.6, 0)[0])}" y="${n(ip(4.6, 2.6, 0)[1])}" style="color:${C.purple}"/><use href="#person" x="${n(ip(6.4, 8.6, 0)[0])}" y="${n(ip(6.4, 8.6, 0)[1])}" style="color:${C.orange}"/><use href="#person" x="${n(ip(8.2, 9.4, 0)[0])}" y="${n(ip(8.2, 9.4, 0)[1])}" style="color:${C.blue}"/></g>`);
+  const vpPeople = [[2, 3, C.red], [3.4, 3.6, C.teal], [4.6, 2.6, C.purple], [6.4, 8.6, C.orange], [8.2, 9.4, C.blue]];
+  g.push(vpPeople.map(([x, y, col], k) => {
+    const [psx, psy] = ip(x, y, 0);
+    return group(`<use href="#person" x="${n(psx)}" y="${n(psy)}" style="color:${col}"/>`,
+      sway(3.4, '2.6s', `${(k * 0.35).toFixed(2)}s`));
+  }).join(''));
   g.push(T(300, 288, '视图', { size: 12, fill: '#39465a', ls: 1.4, weight: 700, mono: true }));
   g.push(T(1140, 288, '左键建造  |  右键拆除  |  中键旋转  |  滚轮缩放  |  Q / E 楼层', { size: 11.5, fill: '#39465a', mono: true, anchor: 'end' }));
   /* ---- overlay legend ---- */
@@ -127,7 +134,9 @@ export function artUI() {
     g.push(T(x + 50, y + 42, `${stock}   ·   ${pwr}`, { size: 11.5, fill: '#8fa0b3', mono: true }));
     g.push(T(x + 16, y + 70, `行车间隔 ${head}`, { size: 12, fill: '#c3d0de', mono: true }));
     g.push(`<rect x="${x + 16}" y="${y + 82}" width="244" height="10" rx="5" fill="#1d2731"/>`);
-    g.push(`<rect x="${x + 16}" y="${y + 82}" width="${244 * (0.9 - i * 0.18)}" height="10" rx="5" fill="${col}"/>`);
+    const hw = 244 * (0.9 - i * 0.18);
+    g.push(`<rect x="${x + 16}" y="${y + 82}" width="${hw}" height="10" rx="5" fill="${col}">`
+      + `<animate attributeName="width" values="${n(hw)};${n(hw * 0.7)};${n(hw)}" keyTimes="0;0.5;1" dur="${(3 + i).toFixed(0)}s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/></rect>`);
     g.push(T(x + 16, y + 110, ['贯通运行', '终点站折返', '同台换乘'][i], { size: 11.5, fill: '#7d8ea3' }));
   });
   panel(976, 808, 560, 120, null);
@@ -135,13 +144,15 @@ export function artUI() {
   g.push(`<rect x="992" y="844" width="200" height="70" rx="8" fill="#0d141d" stroke="#1d2731"/>`);
   g.push(`<path d="M1000,900 L1100,880 L1190,896" stroke="${C.lineA}" stroke-width="3" fill="none"/>`);
   g.push(`<path d="M1000,880 L1120,860 L1190,872" stroke="${C.lineB}" stroke-width="3" fill="none"/>`);
-  g.push(`<circle cx="1100" cy="874" r="7" fill="${C.yellow}"/>`);
+  g.push(mover('M1000,900 L1100,880 L1190,896', C.lineA, 0, { r: 4.2, dur: '6s', f0: 0.02, f1: 0.06, f2: 0.9, f3: 0.94 }));
+  g.push(mover('M1000,880 L1120,860 L1190,872', C.lineB, '1.5s', { r: 4.2, dur: '6s', f0: 0.02, f1: 0.06, f2: 0.9, f3: 0.94 }));
+  g.push(`<circle cx="1100" cy="874" r="7" fill="${C.yellow}">${breathe(0.35, '2.2s')}</circle>`);
   g.push(MUL(1210, 864, [
     '出入口   已建 3 / 计划 2',
     '闸机     进 14   |   出 14',
     '扶梯     上行 6   |   下行 4',
     '电梯     2（无障碍路径正常）',
   ], { size: 11.5, fill: '#a9b8c8', lh: 20, mono: true }));
-  g.push(T(992, 946, '全站中文界面。数字与线路编号沿用国标写法，站名、出口、设备全部中文。', { size: 11.5, fill: '#5d6d80' }));
+  g.push(T(992, 946, '整站都是中文界面。数字和线路编号按国标写法来，站名、出口、设备一律用中文。', { size: 11.5, fill: '#5d6d80' }));
   return sheet(W, H, g.join(''));
 }

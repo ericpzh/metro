@@ -60,7 +60,7 @@ export function artPlatformFlow() {
 
   g.push(title(48, 62, '概念 12 // 站台：车门与客流',
     '对齐的车门、自然形成的队列、来去的列车',
-    '车门间距只计算一次，其余一切由它定位：屏蔽门开口、排队通道、上下车路径。列车、车门与人群以 20 秒循环播放。'));
+    '车门间距只算一次，其余全由它定位：屏蔽门开在哪、队伍怎么排、上下车走哪条路。列车、车门和人群按 20 秒一轮循环播放。'));
 
   g.push(`<defs>
     <marker id="arwPF" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9fb3c8"/></marker>
@@ -70,7 +70,7 @@ export function artPlatformFlow() {
   /* ============================================== A. the boarding sequence */
   const AX = 48, AY = 150, AW = 1504, AH = 436;
   panelBox(g, AX, AY, AW, AH, 'A.  上车时序（平面）',
-    '列车进站停稳，屏蔽门滑开，两条排队通道各自喂给一道门，乘客从中间下车，屏蔽门关闭，列车离站。');
+    '列车进站停稳，屏蔽门滑开，两条队伍各自喂给一道门，乘客从中间下车，屏蔽门合上，列车出站。');
 
   const s = 31;                                   // px per metre
   const PX0 = 76;
@@ -102,7 +102,7 @@ export function artPlatformFlow() {
   /* concourse / vertical circulation band across the top */
   g.push(rect(PX0, Y_BAND0, platW, Y_BAND1 - Y_BAND0, '#161e2b', { rx: 6, stroke: '#243040' }));
   for (let i = 0; i < 22; i++) g.push(upChevron(PX0 + 60 + i * 66, (Y_BAND0 + Y_BAND1) / 2));
-  g.push(T(PX0 + 14, Y_BAND0 + 26, '↑ 通往站厅   扶梯 + 楼梯 + 电梯   （由此出站）', { size: 12.5, fill: C.yellow, weight: 700 }));
+  g.push(T(PX0 + 14, Y_BAND0 + 26, '↑ 通往站厅   扶梯 + 楼梯 + 电梯   （出站走这边）', { size: 12.5, fill: C.yellow, weight: 700 }));
 
   /* door alignment guides: car door -> PSD opening -> alight path */
   for (const dx of doorsPx) g.push(ln(dx, Y_BAND1 + 6, dx, Y_TRK1 - 6, C.yellow, 1, '4 5'));
@@ -208,7 +208,7 @@ export function artPlatformFlow() {
   /* ======================================= B. alignment, in side elevation */
   const BX = 48, BY = 602, BW = 712, BH = 370;
   panelBox(g, BX, BY, BW, BH, 'B.  车门对得上（立面）',
-    '车身侧面和屏蔽门线都由同一组车门中心绘制。那些引导线就是约定。');
+    '车身侧面和屏蔽门线，画的都是同一组车门中心。图里那些引导线，就是约定本身。');
 
   const sB = 29;
   const cw = stock.len * sB;
@@ -245,12 +245,12 @@ export function artPlatformFlow() {
   g.push(dimH(dPx[0], dPx[0] + dwPx, py0 + 108, `门宽 ${stock.doorW} 米`));
   g.push(dimH(dPx[0], dPx[1], py0 + 84, `门距 ${pitch.toFixed(2)} 米`));
   g.push(T(cx0, py0 + 132, `距车中心的位置：${dOff.map((o) => (o >= 0 ? '+' : '') + o.toFixed(2)).join('  ')} 米`, { size: 12, fill: '#a9b8c8', mono: true }));
-  g.push(T(cx0, py0 + 150, '1 米的建造网格把开口向外取整，所以屏蔽门永远不会比车门更窄。', { size: 11, fill: '#7d8ea3' }));
+  g.push(T(cx0, py0 + 150, '建造网格是 1 米一格，开口只能往外取整，所以屏蔽门永远不比车门窄。', { size: 11, fill: '#7d8ea3' }));
 
   /* =========================================== C. auto-wayfinding / routing */
   const CX = 776, CY = 602, CW = 772, CH = 370;
   panelBox(g, CX, CY, CW, CH, 'C.  乘客自己找路',
-    '没人告诉个体「去 2 号口」：它从自身状态出发，一个节点一个节点地自己寻路。');
+    '没人会对某个人说「你去 2 号口」。它只能看着自己当下的状态，一个节点一个节点地找过去。');
 
   const nodes = [
     ['车门', '下车', C.safety, '让开门口'],
@@ -260,7 +260,7 @@ export function artPlatformFlow() {
     ['站厅', '步行', C.lineB, '跟着黄色导向带'],
     ['闸机', '排队', C.green, '从队尾加入通道'],
     ['出口', '离开', '#d7dde5', '地面出口，进出可设'],
-    ['完成', '消失', '#5d6d80', '个体离开仿真'],
+    ['完成', '消失', '#5d6d80', '离开仿真'],
   ];
   const bx = [800, 980, 1160, 1340], by1 = 692, by2 = 824, bw = 160, bh = 56;
   const place = (i) => ({ x: bx[i < 4 ? i : 7 - i], y: i < 4 ? by1 : by2 });
@@ -287,16 +287,16 @@ export function artPlatformFlow() {
   g.push(`<g>${circ(0, 0, 5, C.teal, { stroke: '#0d1116', sw: 1 })}<animateMotion path="${routePath}" dur="11s" begin="1.4s" repeatCount="indefinite" calcMode="linear"/></g>`);
   g.push(`<g>${circ(0, 0, 5, C.red, { stroke: '#0d1116', sw: 1 })}<animateMotion path="${routePath}" dur="11s" begin="2.8s" repeatCount="indefinite" calcMode="linear"/></g>`);
   g.push(MUL(796, 908, [
-    '规则一句话：走预期等待在你耐心之内、且代价最低的那条路。当某条队列超出耐心，',
-    '就改道 —— 闸机、扶梯、车门用的是同一条规则。无障碍个体只会考虑电梯 / 坡道边。',
-    '上车是镜像：挑一道队列愿意接纳你的车门；如果还没有你要坐的线路进站，',
-    '就在站台上等。导向设施只改变决策耗时，不改变图本身。',
+    '规则就一句话：挑那条预期等待还在你耐心之内、代价又最低的路。哪条队伍等超过耐心，',
+    '就改道——闸机、扶梯、车门，用的都是同一条规则。坐轮椅的人，只考虑电梯和坡道。',
+    '上车照此镜像：挑一道愿意接纳你的队伍；要坐的线路还没进站，',
+    '就在站台上等着。导向设施只改变你做决定要花的时间，不改这张图本身。',
   ], { size: 10.6, fill: '#a9b8c8', lh: 17 }));
 
   /* ========================================= D. the door cadence, per type */
   const DX0 = 48, DY = 988, DW = 1504, DH = 192;
   panelBox(g, DX0, DY, DW, DH, 'D.  各车型的车门间距',
-    '一个函数，三种答案。同一组中心同时驱动车身、屏蔽门和排队通道。');
+    '一个函数，三种答案。同一组中心，同时决定车身、屏蔽门和排队通道。');
   [STOCK.A, STOCK.B, STOCK.C].forEach((t, ti) => {
     const x = 76 + ti * 480;
     const sD = 16;
@@ -330,6 +330,6 @@ export function artPlatformFlow() {
     g.push(T(x, y + 100, `中心距  ±${pairs} 米`, { size: 11.5, fill: C.yellow, mono: true }));
   });
 
-  g.push(T(48, H - 14, '动画约定：车门间距是权威值，屏蔽门间距跟随它，排队通道锚定在同一个 x 上。改变车型，三者一起移动。', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(48, H - 14, '动画的约定：车门间距说了算，屏蔽门跟着它走，排队通道也钉在同一个 x 上。换个车型，三样一起挪。', { size: 12.5, fill: '#7d8ea3' }));
   return sheet(W, H, g.join(''));
 }

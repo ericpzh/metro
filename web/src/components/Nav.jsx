@@ -32,7 +32,7 @@ export default function Nav() {
           </span>
         </a>
         <nav className="nav__links">
-          <a href="#gallery">图库</a>
+          <a href="#gallery">看图</a>
           <a href={specUrl} target="_blank" rel="noreferrer">
             设计文档
           </a>

@@ -3,7 +3,7 @@
 // and every object is checked against the floor plates it stands on.
 import {
   C, PCOL, TW, TH, ZU, boxSvg, rboxSvg, quadSvg, faceSvg, Scene, px, py, P, pstr, poly,
-  T, MUL, title, sheet, callout, rng, n, carDoorCenters,
+  T, MUL, title, sheet, callout, rng, n, carDoorCenters, amT, dashFlow, mover, group,
 } from './iso.mjs';
 
 /* ------------------------------------------------------------------ *
@@ -41,21 +41,25 @@ export function artHero() {
   const CARLEN = 6.2, CARGAP = 0.4, CARSTART = 1.4, NCARS = 4, DOORS = 3, DOORW = 1.45;
   const dRel = carDoorCenters(CARLEN, DOORS, DOORW);
   const carDoors = [];
+  const trainCars = [];
   for (let i = 0; i < NCARS; i++) {
     const tx = CARSTART + i * (CARLEN + CARGAP);
     for (const o of dRel) carDoors.push(tx + CARLEN / 2 + o);
-    R(boxSvg(tx, 11.0, T0 + 0.55, CARLEN, 3.1, 3.7, '#d8dee6', { tone: 1.0 }));
-    R(boxSvg(tx, 11.0, T0 + 4.25, CARLEN, 3.1, 0.14, '#98a2ac', { tone: 1.0 }));
-    R(boxSvg(tx + 0.9, 11.5, T0 + 4.39, 1.7, 2.1, 0.3, '#8b949e', { tone: 1.0 }));
-    R(boxSvg(tx + 3.5, 11.5, T0 + 4.39, 1.2, 2.1, 0.22, '#8b949e', { tone: 1.0 }));
-    R(faceSvg('y', 14.12, tx + 0.45, tx + CARLEN - 0.45, T0 + 2.55, T0 + 3.55, '#22323f', { tone: 1.2, sw: 0.6 }));
+    trainCars.push(boxSvg(tx, 11.0, T0 + 0.55, CARLEN, 3.1, 3.7, '#d8dee6', { tone: 1.0 }));
+    trainCars.push(boxSvg(tx, 11.0, T0 + 4.25, CARLEN, 3.1, 0.14, '#98a2ac', { tone: 1.0 }));
+    trainCars.push(boxSvg(tx + 0.9, 11.5, T0 + 4.39, 1.7, 2.1, 0.3, '#8b949e', { tone: 1.0 }));
+    trainCars.push(boxSvg(tx + 3.5, 11.5, T0 + 4.39, 1.2, 2.1, 0.22, '#8b949e', { tone: 1.0 }));
+    trainCars.push(faceSvg('y', 14.12, tx + 0.45, tx + CARLEN - 0.45, T0 + 2.55, T0 + 3.55, '#22323f', { tone: 1.2, sw: 0.6 }));
     for (const o of dRel) {
       const dc = tx + CARLEN / 2 + o;
-      R(faceSvg('y', 14.14, dc - DOORW / 2, dc + DOORW / 2, T0 + 0.65, T0 + 3.3, '#2b3846', { tone: 1.05, sw: 0.5 }));
-      R(faceSvg('y', 14.16, dc - 0.03, dc + 0.03, T0 + 0.65, T0 + 3.3, '#0d1116', { tone: 1.0, sw: 0 }));
+      trainCars.push(faceSvg('y', 14.14, dc - DOORW / 2, dc + DOORW / 2, T0 + 0.65, T0 + 3.3, '#2b3846', { tone: 1.05, sw: 0.5 }));
+      trainCars.push(faceSvg('y', 14.16, dc - 0.03, dc + 0.03, T0 + 0.65, T0 + 3.3, '#0d1116', { tone: 1.0, sw: 0 }));
     }
-    R(faceSvg('y', 14.14, tx, tx + CARLEN, T0 + 0.5, T0 + 0.62, C.lineB, { tone: 1.1, sw: 0.4 }));
+    trainCars.push(faceSvg('y', 14.14, tx, tx + CARLEN, T0 + 0.5, T0 + 0.62, C.lineB, { tone: 1.1, sw: 0.4 }));
   }
+  // the train arrives, dwells against the screen doors, then pulls out
+  R(group(trainCars.join(''), amT('0 0;0 0;26 13;26 13;0 0;0 0', '0;0.22;0.5;0.68;0.86;1', '18s',
+    '0.4 0 0.2 1;0 0 1 1;0 0 1 1;0.4 0 0.2 1;0 0 1 1')));
   // screen doors along the platform edge: an opening under every car door, with a
   // gap at x 12.9..17.9 where the escalators and stair cross the edge.
   const PSD_X0 = 2.4, PSD_X1 = 26.0;
@@ -213,12 +217,24 @@ export function artHero() {
 
   /* ================= guidance: short, and routed on clear floor ================= */
   const walk = (pts, col, w) => `<path d="M${pts.map(([x, y]) => `${n(px(x, y))},${n(py(x, y, FZ + 0.03))}`).join(' L')}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" opacity=".92"/>`;
+  const walkPath = (pts) => `M${pts.map(([x, y]) => `${n(px(x, y))},${n(py(x, y, FZ + 0.03))}`).join(' L')}`;
+  // a passenger actually walks the guidance route, from one end to the other
+  const route = (pts, col, begin, o = {}) => {
+    const k = pts.reduce((a, [x, y]) => a + x + y, 0) / pts.length;
+    S.fg.push([k, mover(walkPath(pts), col, begin, { sprite: 'person', dur: '9s', ...o })]);
+  };
   S.raw(walk([[3.3, 5.0], [3.3, 2.6], [4.6, 1.9]], C.yellow, 6));                 // entrance -> TVMs
   S.raw(walk([[6.6, 1.9], [6.6, 4.2], [7.0, 6.9]], C.yellow, 6));                 // TVMs -> gates
   S.raw(walk([[8.4, 9.6], [14.6, 9.6]], C.yellow, 6));                            // gates -> circulation
   S.raw(walk([[8.2, 10.6], [8.2, 21.0]], C.yellow, 5));                           // paid walkway, west
   S.raw(walk([[17.8, 10.6], [17.8, 21.0]], C.yellow, 5));                         // paid walkway, east
   S.raw(walk([[20.0, 7.0], [15.2, 7.0], [13.6, 7.3]], C.yellow, 5));              // retail -> gates
+  route([[3.3, 5.0], [3.3, 2.6], [4.6, 1.9]], PCOL[3], '0s');
+  route([[6.6, 1.9], [6.6, 4.2], [7.0, 6.9]], PCOL[1], '2.2s');
+  route([[8.4, 9.6], [14.6, 9.6]], PCOL[5], '1.1s');
+  route([[8.2, 10.6], [8.2, 21.0]], PCOL[0], '0.6s');
+  route([[17.8, 10.6], [17.8, 21.0]], PCOL[4], '3.3s');
+  route([[20.0, 7.0], [15.2, 7.0], [13.6, 7.3]], PCOL[6], '2.8s');
   S.raw(quadSvg(4.6, 2.4, FZ + 0.03, 2.6, 2.6, C.blue, { tone: 1.1, sw: 0.7 }));
   S.raw(quadSvg(5.2, 3.0, FZ + 0.04, 1.4, 1.4, C.white, { tone: 1.0, sw: 0.5 }));
   S.raw(quadSvg(18.4, 8.6, FZ + 0.03, 2.2, 2.2, C.green, { tone: 1.15, sw: 0.7 }));
@@ -229,11 +245,18 @@ export function artHero() {
     for (const bx of [x - 0.18, x + w - 0.14]) {
       S.handrailY(bx, yTop, FZ, yBot, B2 + 0.1, 1.0, { panel: C.glass, panelTone: 1.3, capCol: C.dark });
     }
+    // the escalator tread runs: dashes march down the incline
+    const c0 = P(x + w / 2, yTop + 0.4, FZ - 0.06), c1 = P(x + w / 2, yBot - 0.4, B2 + 0.16);
+    S.fg.push([80, `<path d="M${n(c0[0])},${n(c0[1])} L${n(c1[0])},${n(c1[1])}" stroke="#0d1116" stroke-width="4" stroke-dasharray="10 14" opacity="0.3" fill="none">${dashFlow(24, '1.5s')}</path>`]);
   };
   run(13.2, 1.2, 10.0, 16.2);
   run(14.5, 1.2, 10.0, 16.2);
   for (let i = 0; i < 10; i++) {
     S.rbox(15.8, 10.0 + i * 0.6, FZ - (i + 1) * 0.33, 1.2, 0.6, 0.33, C.concrete, { r: 0.06, tone: 1.0 });
+  }
+  {
+    const c0 = P(16.4, 10.3, FZ - 0.2), c1 = P(16.4, 15.9, B2 + 0.12);
+    S.fg.push([80, `<path d="M${n(c0[0])},${n(c0[1])} L${n(c1[0])},${n(c1[1])}" stroke="#0d1116" stroke-width="4" stroke-dasharray="9 12" opacity="0.28" fill="none">${dashFlow(21, '1.6s')}</path>`]);
   }
   S.handrailY(15.74, 10.0, FZ + 0.05, 16.0, B2 + 0.05, 0.95, { panel: C.glass, panelTone: 1.25, capCol: C.dark });
   S.handrailY(17.06, 10.0, FZ + 0.05, 16.0, B2 + 0.05, 0.95, { panel: C.glass, panelTone: 1.25, capCol: C.dark });
@@ -291,15 +314,15 @@ export function artHero() {
   co(12.6, 9.7, FZ, 430, 950, 8);
   co(4.8, 17.9, FZ + 3.2, 230, 830, 9);
   const items = [
-    [C.yellow, '1  闸机 + 玻璃隔断：付费区唯一的合法通道'],
+    [C.yellow, '1  闸机 + 玻璃隔断：进付费区唯一的正门'],
     [C.blue, '2  自动售票机、地贴指引、导向标识'],
-    [C.red, '3  商铺，位于非付费区，已去顶'],
+    [C.red, '3  商铺：开在非付费区，屋顶已摘掉'],
     [C.lineB, '4  B2 站台：屏蔽门、第三轨、B 型列车'],
-    [C.asc, '5  同一竖井内的上下扶梯与楼梯'],
-    [C.white, '6  地面出入口（2 个出口，流量可设）'],
+    [C.asc, '5  同一个竖井里的上下扶梯和楼梯'],
+    [C.white, '6  地面出入口（两个出口，流量都能调）'],
     [C.pink, '7  数字广告屏 + 墙面灯箱'],
-    [C.green, '8  盲道导向带 + 闸机前的排队通道'],
-    [C.teal, '9  电梯：各层无障碍通达'],
+    [C.green, '8  盲道带 + 闸机前排队用的通道'],
+    [C.teal, '9  电梯：每一层都能无障碍到达'],
   ];
   const lg = items.map(([col, txt], i) => {
     const cx = 60 + (i % 2) * 700, cy = 1000 + Math.floor(i / 2) * 30;
@@ -313,6 +336,6 @@ export function artHero() {
     ${S.out()}
   </g>${legendBg}${A.join('')}${lg}`
     + title(48, 62, '概念 01 // 等轴测剖视图', '地铁车站设计师',
-      'B1 站厅去掉顶板；下方透过竖井可见 B2 站台。1 格 = 1 米。');
+      'B1 站厅的顶板被摘掉，透过竖井往下，就能看见 B2 站台。1 格 = 1 米。');
   return sheet(1600, 1180, body, { glow: true });
 }

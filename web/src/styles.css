@@ -377,6 +377,25 @@ code {
   display: none;
 }
 
+.rail__group + .rail__group {
+  margin-top: 18px;
+}
+
+.rail__label {
+  display: block;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  color: var(--muted-2);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.rail__label:hover {
+  color: var(--ink-2);
+}
+
 .rail__list {
   list-style: none;
   margin: 0;
@@ -482,6 +501,42 @@ code {
 .sheet__zoom:focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: -2px;
+}
+
+/* --------------------------------------------------------------- group ---- */
+
+.group__head {
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding: 78px 32px 30px;
+}
+
+.group:first-child .group__head {
+  padding-top: 34px;
+}
+
+.group__kicker {
+  margin: 0 0 14px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.24em;
+  color: var(--amber);
+}
+
+.group__title {
+  margin: 0 0 14px;
+  font-size: clamp(1.7rem, 3.2vw, 2.5rem);
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.group__note {
+  margin: 0;
+  max-width: 42rem;
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: var(--muted);
 }
 
 /* --------------------------------------------------------------- panel ---- */
@@ -827,16 +882,6 @@ code {
     z-index: 40;
     width: 180px;
   }
-
-  .rail__label {
-    display: block;
-    margin-bottom: 12px;
-    font-family: var(--mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--muted-2);
-  }
 }
 
 /* Below this the sheet is too narrow to hold a readable overlay, so the panel
@@ -901,6 +946,7 @@ code {
 
   .nav__inner,
   .hero__inner,
+  .group__head,
   .footer__inner,
   .footer__base {
     padding-left: 20px;

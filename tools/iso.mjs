@@ -322,6 +322,59 @@ ${body}
 </svg>`;
 }
 /** draw a plan-view rect with a label helper used by the plan sheets */
+/* ================================================================== *
+ * motion: shared SMIL helpers
+ *
+ * Every concept sheet animates itself with declarative SMIL, so the
+ * artwork keeps moving wherever the SVG is shown - including inside an
+ * <img> on the site, where scripts never run. Each helper returns the
+ * <animate*> element to drop inside the group that should move; the
+ * group itself must carry no transform of its own (an outer <g> wraps
+ * whatever the object already drew).
+ * ================================================================== */
+export const D_LOOP = '16s';
+
+/** translate, optionally eased with keySplines. `values` are "x y" pairs. */
+export const amT = (values, keyTimes, dur = D_LOOP, splines) =>
+  `<animateTransform attributeName="transform" type="translate" values="${values}" keyTimes="${keyTimes}" dur="${dur}" repeatCount="indefinite" calcMode="${splines ? 'spline' : 'linear'}"${splines ? ` keySplines="${splines}"` : ''}/>`;
+
+/** scale, optionally eased. */
+export const amS = (values, keyTimes, dur = D_LOOP, splines) =>
+  `<animateTransform attributeName="transform" type="scale" values="${values}" keyTimes="${keyTimes}" dur="${dur}" repeatCount="indefinite" calcMode="${splines ? 'spline' : 'linear'}"${splines ? ` keySplines="${splines}"` : ''}/>`;
+
+/** rotate continuously about (cx, cy) in sheet units. */
+export const spin = (dur = '18s', cx = 0, cy = 0, begin = 0) =>
+  `<animateTransform attributeName="transform" type="rotate" values="0 ${n(cx)} ${n(cy)};360 ${n(cx)} ${n(cy)}" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"/>`;
+
+/** a gentle vertical bob around rest, in user units. */
+export const sway = (amp = 3, dur = '5s', begin = 0) =>
+  `<animateTransform attributeName="transform" type="translate" values="0 0;0 ${n(-amp)};0 0" keyTimes="0;0.5;1" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>`;
+
+/** opacity pulse; `to` is the low point of the breath. */
+export const breathe = (to = 0.35, dur = '4s', begin = 0) =>
+  `<animate attributeName="opacity" values="1;${n(to)};1" keyTimes="0;0.5;1" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>`;
+
+/** marching dashes: the pattern travels by `len` units per loop, i.e. it flows. */
+export const dashFlow = (len, dur = '1.6s', begin = 0, forward = true) =>
+  `<animate attributeName="stroke-dashoffset" values="${forward ? n(len) : 0};${forward ? 0 : n(len)}" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"/>`;
+
+/** a whole group that moves: pass the inner markup and its animation(s). */
+export const group = (inner, ...anims) => `<g>${inner}${anims.join('')}</g>`;
+
+/** A passenger that walks one path, fading in as it starts and out as it
+ *  arrives. `begin` staggers it; `dur` is one traversal of the whole loop.
+ *  Pass `o.sprite` to walk a <use> sprite (a person) instead of a dot. */
+export const mover = (path, col, begin = 0, o = {}) => {
+  const dur = o.dur ?? D_LOOP;
+  const body = o.sprite
+    ? `<use href="#${o.sprite}" x="0" y="0" style="color:${col}"/>`
+    : `<circle cx="0" cy="0" r="${n(o.r ?? 6.5)}" fill="${col}" stroke="#0d1116" stroke-width="1"/>`;
+  return `<g opacity="0">${body}`
+    + `<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;${o.f0 ?? 0.22};${o.f1 ?? 0.26};${o.f2 ?? 0.56};${o.f3 ?? 0.6};1" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"/>`
+    + `<animateMotion path="${path}" dur="${dur}" begin="${begin}" repeatCount="indefinite" calcMode="linear"${o.pause ? ` keyTimes="0;${o.p0};${o.p1};1" keyPoints="0;0;1;1"` : ''}/>`
+    + `</g>`;
+};
+
 export function chart(series, x, y, w, h, o = {}) {
   const max = o.max ?? Math.max(...series.flatMap((s) => s.v));
   const g = [];

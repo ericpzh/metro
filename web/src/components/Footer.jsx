@@ -5,14 +5,14 @@ export default function Footer() {
     <footer className="footer">
       <div className="footer__inner">
         <div className="footer__col">
-          <h2>美术风格从何而来</h2>
+          <h2>这套画风是怎么来的</h2>
           <p>
-            美术方向是对真实广州地铁车站的风格化解读：高亮白色的挡板吊顶、带可见拼缝的亮面彩色搪瓷墙板、
-            带深色嵌条的斑点花岗岩地面、拉丝不锈钢立柱、带线路色顶带的全高屏蔽门，以及饱和的安全黄色盲道带。
+            画风取材自真实的广州地铁：白白的挡板吊顶、亮面的彩色搪瓷墙板（拼缝都留着）、
+            撒着深色小点的花岗岩地面、拉丝不锈钢柱子、顶上一道线路色的全高屏蔽门，还有特别醒目的安全黄盲道。
           </p>
           <p className="footer__note">
-            参考照片只作研究，并未随包发布。配色与母题在 <code>tools/iso.mjs</code> 中重新演绎；每一张图都由{' '}
-            <code>node tools/gen-art.mjs</code> 生成，采用与游戏相同的 2:1 等轴测投影。
+            参考照片只用来看，没放进包里。配色和元素都在 <code>tools/iso.mjs</code> 里重画了一遍；每张图都由{' '}
+            <code>node tools/gen-art.mjs</code> 生成，用的是和游戏里一模一样的 2:1 等轴测投影。
           </p>
         </div>
 
@@ -41,7 +41,7 @@ export default function Footer() {
       <div className="footer__base">
         <p>地铁车站设计师 — 概念图，草稿 1。</p>
         <p>
-          没有金钱，没有员工，没有维护费。你只管建造，人群自会到来，车站要么扛得住，要么扛不住。
+          不差钱，不招人，也不用交维护费。你只管搭，人群自己会来；车站扛得住就皆大欢喜，扛不住……那就再改改嘛。
         </p>
       </div>
     </footer>

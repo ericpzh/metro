@@ -6,6 +6,8 @@
   "description": "Concept-art site for Metro Station Designer, generated from the vector sheets in ../art.",
   "scripts": {
     "sync-art": "node scripts/sync-art.mjs",
+    "prestart": "npm run sync-art",
+    "start": "vite",
     "predev": "npm run sync-art",
     "dev": "vite",
     "prebuild": "npm run sync-art",

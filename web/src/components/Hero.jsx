@@ -3,9 +3,9 @@ import { sheet, specUrl } from '../site.js'
 
 const facts = [
   ['技术栈', 'React 19 + Vite、three.js（react-three-fiber）、Web Worker 仿真'],
-  ['模式', '沙盒 / 解谜模拟，单人'],
+  ['模式', '沙盒 / 解谜小游戏，一个人玩'],
   ['视角', '2:1 等轴测 3D、剖切、按层切片、360° 环绕'],
-  ['状态', '设计文档，草稿 1'],
+  ['状态', '设计文档，还是草稿 1'],
 ]
 
 export default function Hero() {
@@ -15,13 +15,13 @@ export default function Hero() {
     <section className="hero" id="top">
       <div className="hero__grid" aria-hidden="true" />
       <div className="hero__inner">
-        <p className="hero__eyebrow">地铁车站设计师 · 概念图</p>
+        <p className="hero__eyebrow">🚇 地铁车站设计师 · 概念图</p>
         <h1>
-          建造一座地铁车站。
+          搭一座小小地铁车站。
           <br />
-          再看人群
+          看人群来来去去。
           <br />
-          <span className="hero__accent">试着把它用起来。</span>
+          <span className="hero__accent">再想办法，别让它挤爆。</span>
         </h1>
 
         <div className="hero__cols">
@@ -29,10 +29,10 @@ export default function Hero() {
             <p className="hero__tagline">{tagline}</p>
             <div className="hero__actions">
               <a className="btn btn--primary" href="#gallery">
-                看这 {artworks.length} 张概念图
+                翻翻这 {artworks.length} 张概念图
               </a>
               <a className="btn" href={specUrl} target="_blank" rel="noreferrer">
-                阅读设计文档
+                看看设计文档
               </a>
             </div>
           </div>

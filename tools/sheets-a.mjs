@@ -2,7 +2,12 @@
 import {
   C, PCOL, TW, TH, ZU, boxSvg, rboxSvg, quadSvg, faceSvg, rampSvg, Scene, px, py, P, pstr, poly,
   T, MUL, tag, legend, title, sheet, callout, leader, rng, shade, n,
+  amT, sway, breathe, spin, dashFlow, mover, group,
 } from './iso.mjs';
+
+/** A person that walks a path given in scene-local coordinates. */
+const walkLocal = (S, path, col, begin, o = {}) =>
+  S.fg.push([o.k ?? 1, mover(path, col, begin, { sprite: o.sprite ?? 'person', ...o })]);
 
 /* =================================================================== *
  * 02  VERTICAL SECTION
@@ -22,7 +27,7 @@ export function artSection() {
   }
   g.push(`<rect x="0" y="${GY}" width="${W}" height="${H - GY}" fill="url(#soilHatch)"/>`);
   g.push(`<rect x="0" y="${GY}" width="${W}" height="9" fill="#2fb344" opacity=".5"/>`);
-  g.push(title(48, 40, '概念 02 // 纵剖面', '一座车站，四个层'));
+  g.push(title(48, 40, '概念 02 // 纵剖面', '一座车站，叠了好几层'));
 
   /* ---- Line 1 on its viaduct ---- */
   g.push(`<rect x="180" y="266" width="800" height="26" fill="#8a939f" stroke="${C.ink}" stroke-width="2.5"/>`);
@@ -30,10 +35,10 @@ export function artSection() {
     g.push(`<rect x="${x}" y="292" width="34" height="${GY - 292}" fill="#6c757f" stroke="${C.ink}" stroke-width="2.5"/>`);
     g.push(`<rect x="${x - 14}" y="${GY - 14}" width="62" height="14" fill="#5b6570"/>`);
   }
-  trainSide(g, 210, 150, 740, 3.9, L1, '1', 'catenary');
+  g.push(trainRun(trainSide(294, 150, 572, 3.9, L1, '1', 'catenary', 5), 24, '14s'));
   g.push(`<rect x="174" y="306" width="356" height="42" rx="7" fill="#0b1119" opacity=".82"/>`);
   g.push(T(180, 322, '1 号线  —  A 型 6 节  —  接触网 1500 V 直流  —  无屏蔽门', { size: 13, fill: L1, weight: 700 }));
-  g.push(T(180, 342, '地面以上：站台露天，直接受天气影响', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(180, 342, '地面以上：站台敞着，风吹日晒都躲不掉', { size: 12, fill: '#8fa0b3' }));
 
   const stationBox = (x0, y0, x1, y1) =>
     g.push(`<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="#0d1219" stroke="#2a3542" stroke-width="2"/>`);
@@ -50,13 +55,13 @@ export function artSection() {
   /* ---- the core first: it is a shaft in its own right ---- */
   stationBox(200, 470, 1140, 1000);
   stationBox(CORE0, 434, CORE1, 1000);
-  room(200, 1140, 470, B1f, 'B1   站厅  —  闸机、商铺、服务', '#8fa3ba', '闸机以外为非付费区');
+  room(200, 1140, 470, B1f, 'B1   站厅  —  闸机、商铺、服务', '#8fa3ba', '闸机外面就是非付费区');
   room(200, 1140, 700, B2f, 'B2   2 号线站台', L2, 'B 型车、第三轨、站台屏蔽门');
-  room(200, 1140, 880, B3f, 'B3   3 号线站台', L3, 'C 型车、第三轨、同台换乘');
+  room(200, 1140, 872, B3f, 'B3   3 号线站台', L3, 'C 型车、第三轨、与 1、2 号线垂直（90°）');
 
   /* ---- surface: plaza, pavilion over the core, ad board ---- */
   g.push(T(600, 350, '地面   0.0 米', { size: 15, fill: '#cfe0f0', weight: 800, ls: 1.2 }));
-  g.push(T(600, 372, '站前广场、公交与出租车停靠、两个出入口', { size: 12.5, fill: '#9fb3c8' }));
+  g.push(T(600, 372, '站前广场，公交和出租车停靠，两个出入口', { size: 12.5, fill: '#9fb3c8' }));
   g.push(`<rect x="690" y="${GY - 46}" width="96" height="46" fill="#3b4756" stroke="${C.ink}" stroke-width="2"/>`);
   g.push(T(738, GY - 18, '公交', { size: 12, fill: '#cfe0f0', anchor: 'middle' }));
   g.push(`<rect x="${CORE0 + 20}" y="262" width="${CORE1 - CORE0 - 40}" height="${GY - 262}" fill="#dfe4e8" stroke="${C.ink}" stroke-width="2.5"/>`);
@@ -71,6 +76,8 @@ export function artSection() {
   const band = (x0, y0, x1, y1, t, col, label) => {
     g.push(`<polygon points="${x0},${y0} ${x1},${y1} ${x1},${y1 + t} ${x0},${y0 + t}" fill="${col}" opacity=".92" stroke="${C.ink}" stroke-width="2"/>`);
     g.push(`<path d="M${x0 + 8},${y0 + (y1 - y0) / 2 + 6} L${x1 - 8},${y1 + (y1 - y0) / 2 + 6}" stroke="#08111a" stroke-width="2" opacity=".3"/>`);
+    // the truss carries steps: dashes march along the run, showing which way it moves
+    g.push(`<path d="M${x0 + 8},${y0 + t / 2} L${x1 - 8},${y1 + t / 2}" stroke="#08111a" stroke-width="4" stroke-dasharray="9 11" opacity=".55" fill="none">${dashFlow(20, '1.5s')}</path>`);
     if (label) g.push(T((x0 + x1) / 2, (y0 + y1) / 2 + 14, label, { size: 12.5, fill: '#08111a', anchor: 'middle', weight: 800 }));
   };
   band(1210, B1f, 1330, GY + 4, 26, C.asc, '扶梯');
@@ -79,15 +86,17 @@ export function artSection() {
   band(1360, B1f, 1480, B2f, 26, C.yellow, '楼梯');
   band(1360, B2f, 1480, B3f, 26, C.yellow, '楼梯');
   g.push(`<rect x="1150" y="${GY - 4}" width="42" height="${B3f - GY + 4}" fill="#1b2430" stroke="#98a4b1" stroke-width="2.5"/>`);
-  g.push(`<rect x="1154" y="${GY + 4}" width="34" height="52" fill="#8ec9e6" opacity=".9" stroke="${C.ink}" stroke-width="2"/>`);
-  g.push(`<rect x="1154" y="${B2f - 46}" width="34" height="46" fill="#8ec9e6" opacity=".9" stroke="${C.ink}" stroke-width="2"/>`);
+  // one cab, travelling the shaft: ground down to B3 and back
+  g.push(group(`<rect x="1154" y="${GY + 4}" width="34" height="52" rx="3" fill="#8ec9e6" opacity=".95" stroke="${C.ink}" stroke-width="2"/>`,
+    amT('0 0;0 0;0 520;0 520;0 0;0 0', '0;0.12;0.44;0.76;0.88;1', '13s',
+      '0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1;0 0 1 1;0 0 1 1')));
   g.push(T(1171, GY - 14, '电梯', { size: 11.5, fill: '#9fb3c8', weight: 800, anchor: 'middle' }));
   g.push(T(CORE0 + 22, 1018, '竖向交通核', { size: 11.5, fill: C.asc, weight: 800, ls: 1.2 }));
 
   /* ---- B1 concourse contents ---- */
   for (let i = 0; i < 6; i++) g.push(`<rect x="${700 + i * 34}" y="${B1f - 62}" width="26" height="62" fill="#98a4b1" stroke="${C.ink}" stroke-width="2"/>`);
   g.push(`<rect x="696" y="${B1f - 70}" width="212" height="8" fill="${C.green}"/>`);
-  g.push(T(696, B1f - 80, '闸机  —  每台闸机各自承担通过量', { size: 11.5, fill: C.green, weight: 700 }));
+  g.push(T(696, B1f - 80, '闸机  —  每一台都得自己扛下通过量', { size: 11.5, fill: C.green, weight: 700 }));
   for (let i = 0; i < 4; i++) g.push(`<rect x="${400 + i * 46}" y="${B1f - 72}" width="38" height="72" fill="${C.blueD}" stroke="${C.ink}" stroke-width="2"/>`);
   g.push(T(396, B1f - 82, '自动售票机', { size: 12, fill: C.blue, weight: 800 }));
   g.push(`<rect x="240" y="${B1f - 112}" width="110" height="112" fill="#a4703f" stroke="${C.ink}" stroke-width="2"/>`);
@@ -98,14 +107,17 @@ export function artSection() {
   g.push(T(615, B1f - 46, '广告', { size: 20, weight: 800, fill: C.pink, anchor: 'middle', ls: 3 }));
   // queue + walk shapes
   for (let i = 0; i < 7; i++) {
-    g.push(`<circle cx="${624 + i * 60}" cy="${B1f - 16}" r="6" fill="${C.yellow}" opacity=".8"/>`);
+    const qx = 624 + i * 60;
+    g.push(`<circle cx="${qx}" cy="${B1f - 16}" r="6" fill="${C.yellow}" opacity=".8"/>`);
+    // each waiting passenger shuffles up the queue toward the gate line
+    g.push(mover(`M ${qx} ${B1f - 4} L ${qx} ${B1f - 62}`, C.yellow, `${(i * 0.35).toFixed(2)}s`, { r: 6, dur: '3s', f0: 0.02, f1: 0.1, f2: 0.84, f3: 0.94 }));
   }
 
   /* ---- trains on their platforms ---- */
   const plat = (fy, col, line, psd) => {
     const tx = 540, tw = 500;
     if (psd) g.push(`<rect x="${tx - 22}" y="${fy - 126}" width="${tw + 44}" height="112" fill="none" stroke="#8ec9e6" stroke-width="3" stroke-dasharray="12 7" opacity=".85"/>`);
-    trainSide(g, tx, fy - 122, tw, 3.6, col, line, 'third rail');
+    g.push(trainRun(trainSide(tx, fy - 122, tw, 3.6, col, line, 'third rail', 4), 26, '14s'));
     g.push(`<rect x="${tx - 34}" y="${fy - 24}" width="${tw + 68}" height="7" fill="${C.yellow}"/>`);
     if (psd) g.push(T(tx - 42, fy - 116, '屏蔽门', { size: 12, fill: '#8ec9e6', weight: 800, anchor: 'end' }));
     for (const ax of [tx + 70, tx + 240, tx + 410]) {
@@ -114,8 +126,59 @@ export function artSection() {
     }
   };
   plat(B2f, L2, '2', true);
-  plat(B3f, L3, '3', true);
-  g.push(T(540, B2f + 34, '上车（绿色向下）/ 下车（黄色向上）——列车就是一条带时刻表的队列', { size: 11.5, fill: '#6f8299' }));
+
+  /* ---- Line 3 is perpendicular to the other two, so the section cuts it
+     across: the car is drawn end on and its tracks run into the page. ---- */
+  const crossStation = (fy, col, line) => {
+    const cx = 670;                                // middle of the B3 room
+    const wallL = cx - 132, wallR = cx + 132;
+    const boxTop = 874, floorTop = fy - 18;
+    const railY = floorTop - 6;
+    const cw = 2.6 * 26, ch = 3.6 * 26;            // a C-type car, seen end on
+    const trainB = railY - 4, trainT = trainB - ch;
+    const platTop = trainB - 26;                   // platform surface, level with the car floor
+
+    g.push(`<rect x="${wallL}" y="${boxTop}" width="${wallR - wallL}" height="${1000 - boxTop}" fill="#0d1219" stroke="#39465a" stroke-width="2"/>`);
+    g.push(`<rect x="${wallL}" y="${boxTop}" width="${wallR - wallL}" height="14" fill="#1b2430" stroke="#39465a" stroke-width="2"/>`);
+    g.push(`<rect x="${wallL}" y="${boxTop}" width="12" height="${1000 - boxTop}" fill="#2a3542"/>`);
+    g.push(`<rect x="${wallR - 12}" y="${boxTop}" width="12" height="${1000 - boxTop}" fill="#2a3542"/>`);
+
+    // side platforms either side of the single track
+    for (const s of [-1, 1]) {
+      const x0 = s < 0 ? cx - 38 - 62 : cx + 38;
+      g.push(`<rect x="${x0}" y="${platTop}" width="62" height="${floorTop - platTop}" fill="#5b6570"/>`);
+      g.push(`<rect x="${x0}" y="${platTop}" width="62" height="4" fill="#79848f"/>`);
+      g.push(`<rect x="${s < 0 ? x0 + 62 - 18 : x0}" y="${platTop}" width="18" height="6" fill="${C.yellow}"/>`);
+    }
+    // track bed, running rails and third rail, all in cross-section
+    g.push(`<rect x="${cx - 38}" y="${railY}" width="76" height="${floorTop - railY}" fill="#1a212b"/>`);
+    for (const rx of [cx - 19, cx + 19]) g.push(`<rect x="${rx - 4}" y="${railY - 2}" width="8" height="9" fill="#8a939f" stroke="${C.ink}" stroke-width="1"/>`);
+    g.push(`<rect x="${cx + 24}" y="${railY - 4}" width="9" height="10" fill="${C.psu}" stroke="${C.ink}" stroke-width="1"/>`);
+
+    // the car, end on: windscreen, destination board, headlights, livery
+    g.push(`<rect x="${cx - cw / 2}" y="${trainT}" width="${cw}" height="${ch}" rx="9" fill="#e9eef4" stroke="${C.ink}" stroke-width="2.5"/>`);
+    g.push(`<rect x="${cx - cw / 2}" y="${trainB - 17}" width="${cw}" height="17" rx="4" fill="${col}"/>`);
+    g.push(`<rect x="${cx - cw / 2 + 8}" y="${trainT + 2}" width="${cw - 16}" height="8" rx="3" fill="#141a20"/>`);
+    g.push(T(cx, trainT + 8.5, line, { size: 7.5, fill: '#ffd45e', anchor: 'middle', weight: 800 }));
+    g.push(`<rect x="${cx - cw / 2 + 7}" y="${trainT + 13}" width="${cw - 14}" height="32" rx="6" fill="#22323f" stroke="${C.ink}" stroke-width="1.4"/>`);
+    g.push(`<rect x="${cx - 25}" y="${trainB - 31}" width="10" height="7" rx="2" fill="#ffd45e"/>`);
+    g.push(`<rect x="${cx + 15}" y="${trainB - 31}" width="10" height="7" rx="2" fill="#ffd45e"/>`);
+
+    g.push(T(218, 950, '3 号线跟 1、2 号线成直角（90°）。', { size: 12.5, fill: col, weight: 700 }));
+    g.push(T(218, 970, '这一层是横断面：轨道插进图里，看到的是车头正面。', { size: 11, fill: '#7d8ea3' }));
+
+    // mini plan: two parallel lines and a perpendicular third
+    const mx = 862, my = 900, mw = 214, mh = 76;
+    g.push(`<rect x="${mx}" y="${my}" width="${mw}" height="${mh}" rx="6" fill="#0f1620" stroke="#25303d"/>`);
+    g.push(`<rect x="${mx + 74}" y="${my + 12}" width="66" height="52" rx="4" fill="#151d28" stroke="#39465a" stroke-width="1.5"/>`);
+    g.push(`<path d="M${mx + 8},${my + 30} L${mx + mw - 8},${my + 30}" stroke="${L1}" stroke-width="3.5"/>`);
+    g.push(`<path d="M${mx + 8},${my + 48} L${mx + mw - 8},${my + 48}" stroke="${L2}" stroke-width="3.5"/>`);
+    g.push(`<path d="M${mx + 107},${my + 5} L${mx + 107},${my + mh - 5}" stroke="${L3}" stroke-width="3.5"/>`);
+    g.push(T(mx + mw / 2, my - 6, '平面示意', { size: 10.5, fill: '#7d8ea3', anchor: 'middle' }));
+  };
+  crossStation(B3f, L3, '3');
+
+  g.push(T(540, B2f + 34, '绿色向下是上车，黄色向上是下车——列车就是一条按时刻表走的队列', { size: 11.5, fill: '#6f8299' }));
 
   /* ---- depth dimensions ---- */
   const dim = (y1, y2, txt) => {
@@ -131,12 +194,12 @@ export function artSection() {
   /* ---- footnote strip ---- */
   g.push(`<rect x="48" y="1040" width="1504" height="66" rx="12" fill="#0f1620" stroke="#243040"/>`);
   const notes = [
-    [C.lineA, '1 号线在地面以上：接触网受电，站台露天，无屏蔽门。'],
-    [C.lineB, '2 号线位于 B2 屏蔽门后 —— 上车按门控流。'],
-    [C.lineC, '3 号线在 B3，任何换乘都变成一次竖向行走，并在顶端排队。'],
-    [C.asc, '扶梯、楼梯与电梯都是资产，各有各的运力和速度。'],
-    [C.green, '换乘乘客是真实的个体：行走、排队、过闸、等候、上车。'],
-    [C.yellow, '深度不是装饰。它等于步行时间、排队时间和站台密度。'],
+    [C.lineA, '1 号线在地面以上：接触网供电，站台敞着，没有屏蔽门。'],
+    [C.lineB, '2 号线在 B2 的屏蔽门后面，上车得按门一扇扇地来。'],
+    [C.lineC, '3 号线在 B3，还跟另外两条成直角，换乘＝垂直走一段、水平走一段。'],
+    [C.asc, '扶梯、楼梯、电梯都是要摆的资产，各自的运力和速度都不一样。'],
+    [C.green, '换乘的乘客都是一个个真人：走路、排队、刷卡、等车、上车。'],
+    [C.yellow, '深度不是摆设，它就是步行时间、排队时间和站台密度。'],
   ];
   notes.forEach(([col, s], i) => {
     const cx = 70 + Math.floor(i / 3) * 740, cy = 1068 + (i % 3) * 18;
@@ -146,13 +209,19 @@ export function artSection() {
   return sheet(W, H, g.join(''));
 }
 
-function trainSide(g, x, y, w, hM, col, line, power) {
+function trainSide(x, y, w, hM, col, line, power, doors) {
   const h = hM * 26;
+  const g = [];
   g.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="#e9eef4" stroke="${C.ink}" stroke-width="2.5"/>`);
   g.push(`<rect x="${x}" y="${y + h - 15}" width="${w}" height="15" fill="${col}" opacity=".95" rx="4"/>`);
   g.push(`<rect x="${x + 16}" y="${y + 13}" width="${w - 32}" height="${h * 0.36}" fill="#22323f" opacity=".95" rx="6"/>`);
-  for (let d = x + 46; d < x + w - 70; d += 96) {
-    g.push(`<rect x="${d}" y="${y + 11}" width="46" height="${h - 26}" rx="5" fill="#2b3a49" stroke="${C.ink}" stroke-width="1.6"/>`);
+  // doors are spread evenly and the count follows the stock (A = 5, B / C = 4),
+  // so a longer drawn car never grows a bus-load of extra doors.
+  const nd = doors ?? Math.max(3, Math.round((w - 120) / 110));
+  const dw = 46, m = 46, span = w - 2 * m - dw;
+  for (let i = 0; i < nd; i++) {
+    const d = x + m + (nd === 1 ? span / 2 : (span * i) / (nd - 1));
+    g.push(`<rect x="${d}" y="${y + 11}" width="${dw}" height="${h - 26}" rx="5" fill="#2b3a49" stroke="${C.ink}" stroke-width="1.6"/>`);
     g.push(`<rect x="${d + 21}" y="${y + 11}" width="3" height="${h - 26}" fill="#0b0e13" opacity=".6"/>`);
   }
   for (let bx = x + 46; bx < x + w - 60; bx += 124) {
@@ -168,7 +237,14 @@ function trainSide(g, x, y, w, hM, col, line, power) {
     g.push(`<rect x="${x + 10}" y="${y + h + 15}" width="${w - 20}" height="7" fill="#f0c000" stroke="${C.ink}" stroke-width="1.4"/>`);
     g.push(T(x + w - 8, y + h + 36, '第三轨 750 V 直流', { size: 11.5, fill: '#f0c000', anchor: 'end', weight: 700 }));
   }
-  g.push(T(x + 10, y + h - 26, `${line} 号线`, { size: 15, fill: '#0b0e13', weight: 800, opacity: .0 }));
+  return g.join('');
+}
+
+/** Wrap a train body and give it the one motion a train has: it arrives,
+ *  dwells, and leaves again. `amp` is the horizontal slide in px. */
+function trainRun(body, amp = 34, dur = '14s') {
+  return group(body, amT(`0 0;0 0;${amp} 0;${amp} 0;0 0`, '0;0.2;0.5;0.7;1', dur,
+    '0.4 0 0.6 1;0 0 1 1;0 0 1 1;0.4 0 0.6 1'));
 }
 
 /* =================================================================== *
@@ -179,14 +255,14 @@ export function artBlocks() {
   const g = [];
   g.push(title(48, 62, '概念 03 // 方块系统',
     '圆角方块',
-    '1 × 1 × 1 米的方体块，顶边倒角，转角自动拼接。表面按格、按面涂装：地板、天花板和四个墙面。'));
+    '1 × 1 × 1 米的方块，顶边倒角，转角自动接上。装表面是按格、按面来的：地板、天花板，加四面墙。'));
 
   /* --- A. the cell --- */
   g.push(T(60, 190, 'A.  一个方块 = 一个格', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
   const S = Scene();
   S.box(0, 0, 0, 1, 1, 1, C.floor, { tone: 1.0 });
   const bevel = `<polygon points="${pstr([P(0.13, 0, 1), P(0.87, 0, 1), P(1, 0.13, 1), P(1, 0.87, 1), P(0.87, 1, 1), P(0.13, 1, 1), P(0, 0.87, 1), P(0, 0.13, 1)])}" fill="${shade(C.floor, 1.2)}" stroke="#0b0e13" stroke-width="0.8"/>`;
-  g.push(`<g transform="translate(250,480) scale(2.1)">${S.out()}${bevel}</g>`);
+  g.push(group(`<g transform="translate(250,480) scale(2.1)">${S.out()}${bevel}</g>`, sway(4, '5s')));
   // face labels
   const fl = (x, y, t, col) => g.push(T(x, y, t, { size: 13.5, fill: col, weight: 700 }));
   fl(150, 586, '顶面  →  地板', C.yellow);
@@ -196,15 +272,15 @@ export function artBlocks() {
   g.push(leader(238, 602, 262, 500, C.teal));
   g.push(leader(238, 626, 248, 524, C.pink));
   g.push(MUL(150, 668, [
-    '一个格知道自己的六个面。每个面可以带一种',
-    '材质和一组标记（可行走、气密、',
-    '承载标识）。仅此而已。游戏里',
-    '呈现的一切都由它推导。',
+    '一个格子清楚自己有六个面。每个面能带一种',
+    '材质，再挂一组标记（能不能走、漏不漏气、',
+    '承不承重）。就这么点东西，游戏里',
+    '看到的一切都是从它推出来的。',
   ], { size: 12.5, fill: '#93a1b3', lh: 19 }));
 
   /* --- B. corner autotiling --- */
   g.push(T(560, 190, 'B.  转角自动拼接', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-  g.push(T(560, 214, '8 邻域位掩码 → 外角变圆，内角倒角。', { size: 12.5, fill: '#93a1b3' }));
+  g.push(T(560, 214, '八邻域位掩码 → 外角磨圆，内角倒角。', { size: 12.5, fill: '#93a1b3' }));
   const cellDraw = (ox, oy, s, mask, fill) => {
     let out = '';
     for (let i = 0; i < 4; i++) {
@@ -229,13 +305,13 @@ export function artBlocks() {
     const cx = 600 + (i % 4) * 130, cy = 290 + Math.floor(i / 4) * 160;
     g.push(`<rect x="${cx - 60}" y="${cy - 60}" width="120" height="120" rx="10" fill="#0f1620" stroke="#25303d"/>`);
     g.push(cellDraw(cx, cy, 24, m, C.floor));
-    g.push(`<rect x="${cx - 24}" y="${cy - 24}" width="48" height="48" rx="8" fill="${C.yellow}" stroke="#0b0e13" stroke-width="2"/>`);
+    g.push(group(`<rect x="${cx - 24}" y="${cy - 24}" width="48" height="48" rx="8" fill="${C.yellow}" stroke="#0b0e13" stroke-width="2"/>`, breathe(0.4, '2.6s', `${(i * 0.16).toFixed(2)}s`)));
     g.push(T(cx, cy + 22, String(m), { size: 12, fill: '#0b0e13', anchor: 'middle', weight: 800, mono: true }));
     g.push(T(cx, cy + 90, lbl, { size: 12, fill: '#93a1b3', anchor: 'middle' }));
   });
   g.push(`<rect x="560" y="560" width="470" height="1" fill="#25303d"/>`);
-  g.push(T(560, 590, '圆角外缘按掩码只建一次，而不是每次摆放都建，然后', { size: 12.5, fill: '#7d8ea3' }));
-  g.push(T(560, 610, '合并进分块网格。倒角深度 = 一个方块的 12.5%（12.5 厘米）。', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(560, 590, '圆角边缘按掩码只建一次，而不是每摆一次就建一次，再', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(560, 610, '并进分块网格。倒角深度是一个方块的 12.5%，也就是 12.5 厘米。', { size: 12.5, fill: '#7d8ea3' }));
 
   /* --- C. what you can stack --- */
   g.push(T(1080, 190, 'C.  表面叠层', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
@@ -250,16 +326,16 @@ export function artBlocks() {
   for (const [lx, ly] of [[0.6, 0.6], [3.4, 0.6], [3.4, 3.4], [0.6, 3.4]]) {
     st2.box(lx, ly, 2.97, 0.16, 0.16, 0.43, C.steelD, { tone: 1.0 });          // ceiling hangers
   }
-  g.push(`<g transform="translate(1290,570) scale(1.4)">${st2.out()}</g>`);
+  g.push(group(`<g transform="translate(1290,570) scale(1.4)">${st2.out()}</g>`, sway(4, '6s', '0.8s')));
   g.push(MUL(1080, 766, [
     'stack(地面饰面, 格体, 顶面饰面, 北墙, 西墙)  —  每一层',
-    '表面都是可选的，各有自己的材质编号与美术变体。',
-    '这里把顶板抬高以便看清内部；实际游戏中，',
-    '墙体按边独立，一个房间可以只砌北墙。',
+    '表面都可以不要，各带自己的材质编号和美术变体。',
+    '这里把顶板抬高了，好让你看清里面；真玩起来，',
+    '每面墙都是独立的，一个房间可以只砌北墙。',
   ], { size: 12.5, fill: '#93a1b3', lh: 20 }));
 
   /* --- D. materials --- */
-  g.push(T(60, 760, 'D.  材质色板（贴近 Overcrowd 的配色）', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+  g.push(T(60, 760, 'D.  材质色板（照着 Overcrowd 的感觉配）', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
   const mats = [
     [C.tile, '釉面砖'], [C.concrete, '混凝土'], [C.concreteD, '现浇'], [C.floor, '水磨石'],
     [C.steel, '不锈钢'], [C.glass, '玻璃 / 屏蔽门'], [C.yellow, '盲道黄'], [C.red, '点缀色 A'],
@@ -283,10 +359,10 @@ export function artBlocks() {
   g.push(T(bx + 46, by - 92, '轮廓保持方正，只有转角变柔', { size: 12, fill: '#7d8ea3' }));
   g.push(`<rect x="1150" y="880" width="380" height="120" rx="12" fill="#0f1620" stroke="#25303d"/>`);
   g.push(MUL(1170, 910, [
-    '渲染说明：方块按分块合并成一个',
-    'BufferGeometry。地面贴图、盲道带和',
-    '标识是独立的透明四边形，',
-    '绘制在其上，因此不会破坏合并。',
+    '渲染上，方块会按分块合并成一个',
+    'BufferGeometry。地面贴图、盲道和',
+    '标识则是单独的透明四边形，',
+    '画在上面，不会把合并拆开。',
   ], { size: 12.5, fill: '#93a1b3', lh: 20 }));
   return sheet(W, H, g.join(''));
 }
@@ -299,7 +375,7 @@ export function artModules() {
   const g = [];
   g.push(title(48, 62, '概念 04 // 可放置模块',
     '可以放进车站的东西',
-    '每个模块都是 a × b 的占地，并带一个仿真真正会用的通过量。沙盒模式：不计成本，只承担后果。'));
+    '每个模块都占 a × b 的地，还带一个仿真真会去读的通行量。沙盒模式：不算钱，只看后果。'));
 
   const mods = [
     ['turnstile', '闸机', '1 × 2 格', '进 25 / 出 25 人/分', C.green, (S) => {
@@ -311,7 +387,7 @@ export function artModules() {
       S.box(-0.9, 0.68, 1.1, 1.8, 0.32, 0.1, C.green, { tone: 1.25 });
       S.box(-0.9, -0.94, 1.1, 1.8, 0.32, 0.1, C.green, { tone: 1.25 });
     }],
-    ['tvm', '自动售票机', '1 × 1 格', '1.5 张/分 —— 真实的排队源头', C.blue, (S) => {
+    ['tvm', '自动售票机', '1 × 1 格', '1.5 张/分 —— 排队全从这儿开始', C.blue, (S) => {
       S.rbox(-0.5, -0.5, 0, 1, 1, 2.1, C.blueD, { r: 0.16, tone: 1.02 });
       S.face('y', 0.51, -0.32, 0.34, 1.15, 1.9, C.glass, { tone: 1.35, sw: 0.5 });
       S.face('y', 0.51, -0.32, 0.34, 0.55, 1.0, '#dbe6f2', { tone: 1.1, sw: 0.5 });
@@ -332,7 +408,7 @@ export function artModules() {
       }
       S.box(-0.4, 2.3, 0, 1.2, 0.9, 1, C.dark);
     }],
-    ['kiosk', '咖啡亭', '3 × 3 格', '增加停留时间，聚集人群', C.orange, (S) => {
+    ['kiosk', '咖啡亭', '3 × 3 格', '让人多待一会儿，顺便聚人', C.orange, (S) => {
       S.box(-1.5, -1.2, 0, 3, 2.4, 2.2, C.wood, { tone: 1.02 });
       S.box(-1.8, -1.5, 2.2, 3.6, 3, 0.26, C.red, { tone: 1.1 });
       S.face('y', 1.21, -1.3, 1.3, 0.85, 1.45, '#f6efe4', { tone: 1.05, sw: 0.5 });
@@ -350,7 +426,10 @@ export function artModules() {
     ['door', '门（单开）', '1 × 1 格', '1.2 人/秒，关闭时阻断', C.green, (S) => {
       S.rbox(-0.5, -0.6, 0, 0.26, 0.52, 2.5, C.tile, { r: 0.08, tone: 1.0 });
       S.rbox(0.24, -0.6, 0, 0.26, 0.52, 2.5, C.tile, { r: 0.08, tone: 1.0 });
-      S.rbox(-0.2, -0.3, 0, 0.4, 0.36, 2.4, C.green, { r: 0.1, tone: 1.1 });
+      // the leaf swings clear and closes again
+      const leafSp = '0 0 1 1;0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1;0 0 1 1';
+      S.fg.push([1, group(rboxSvg(-0.2, -0.3, 0, 0.4, 0.36, 2.4, C.green, { r: 0.1, tone: 1.1 }),
+        amT('0 0;0 0;17 8;17 8;0 0;0 0', '0;0.3;0.42;0.72;0.84;1', '6s', leafSp))]);
       S.rbox(-0.5, -0.62, 2.5, 1, 0.56, 0.2, C.ceil, { r: 0.06, tone: 1.05 });
     }],
     ['exit', '车站出口 / 上行楼梯', '2 × 6 格', '每个出口单独设定流量', C.green, (S) => {
@@ -364,27 +443,37 @@ export function artModules() {
       for (let i = 0; i < 9; i++) S.rbox(-1.5, -3 + i * 0.62, -i * 0.34, 3, 0.62, 0.34, C.concrete, { r: 0.08, tone: 1.0 });
       S.handrailY(-1.62, -3, 0.06, 2.58, -3.0, 0.95, { panel: C.glass, panelTone: 1.25, capCol: C.dark });
       S.handrailY(1.62, -3, 0.06, 2.58, -3.0, 0.95, { panel: C.glass, panelTone: 1.25, capCol: C.dark });
+      const sPath = `M ${n(px(0, -2.8))} ${n(py(0, -2.8, 0.2))} L ${n(px(0, 2.4))} ${n(py(0, 2.4, -2.7))}`;
+      walkLocal(S, sPath, C.pink, '0s', { dur: '4.5s', f0: 0.05, f1: 0.14, f2: 0.86, f3: 0.95 });
     }],
     ['escalator', '自动扶梯', '1 × 8 格', '单向，75 人/分', C.asc, (S) => {
       S.ramp(-0.6, -4, 2.4, 1.2, 8, -1.2, C.steelD, { tone: 1.0, truss: 0.8 });
       S.handrailY(-0.78, -4, 2.4, 4, -1.2, 1.0, { panel: C.glass, panelTone: 1.3, capCol: C.dark });
       S.handrailY(0.48, -4, 2.4, 4, -1.2, 1.0, { panel: C.glass, panelTone: 1.3, capCol: C.dark });
       S.rbox(-0.7, -4.2, 2.4, 1.4, 0.24, 0.22, C.steel, { r: 0.08 });
+      // the belt and the rider: steps run up, one passenger rides with them
+      const ePath = `M ${n(px(0, 3.9))} ${n(py(0, 3.9, -1.15))} L ${n(px(0, -3.9))} ${n(py(0, -3.9, 2.35))}`;
+      S.fg.push([80, `<path d="${ePath}" stroke="#0d1116" stroke-width="2" stroke-dasharray="6 9" opacity="0.3" fill="none">${dashFlow(15, '1.2s')}</path>`]);
+      walkLocal(S, ePath, C.blue, '0s', { dur: '5s', f0: 0.05, f1: 0.14, f2: 0.86, f3: 0.95 });
     }],
     ['lift', '电梯', '2 × 2 格', '无障碍，每趟 15 人', C.blue, (S) => {
       S.rbox(-1, -1, -3.2, 2, 2, 6.4, C.glass, { r: 0.28, tone: 1.25, opacity: 0.9 });
-      S.rbox(-0.5, -0.5, -3.15, 1, 1, 6.3, C.steelD, { r: 0.16, tone: 1.0 });
+      // the cab rides the shaft
+      S.fg.push([0, group(rboxSvg(-0.5, -0.5, -3.15, 1, 1, 6.3, C.steelD, { r: 0.16, tone: 1.0 }),
+        amT('0 0;0 0;0 -140;0 -140;0 0;0 0', '0;0.12;0.42;0.72;0.84;1', '9s',
+          '0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1;0 0 1 1;0 0 1 1'))]);
       S.rbox(-1.1, -1.1, 3.2, 2.2, 2.2, 0.24, C.steel, { r: 0.28, tone: 1.05 });
       S.face('y', 1.0, -0.8, 0.8, 3.2, 3.44, C.blue, { tone: 1.1, sw: 0.5 });
     }],
-    ['billboard', '广告灯箱', '4 × 1 格', '诱导：提高商铺停留', C.pink, (S) => {
+    ['billboard', '广告灯箱', '4 × 1 格', '把人往商铺那边引', C.pink, (S) => {
       S.rbox(-2, -0.2, 0, 4, 0.4, 2.4, C.dark, { r: 0.1, tone: 1.0 });
       S.face('y', 0.22, -1.85, 1.85, 0.4, 2.1, C.pink, { tone: 1.12, sw: 0.6 });
-      S.face('y', 0.22, -1.6, 1.0, 0.7, 1.8, '#ffd9e6', { tone: 1.05, sw: 0.4 });
+      // a sign wants attention: it breathes
+      S.fg.push([1.35, group(faceSvg('y', 0.23, -1.6, 1.0, 0.7, 1.8, '#ffd9e6', { tone: 1.05, sw: 0.4 }), breathe(0.45, '2.4s'))]);
       S.rbox(-1.6, -0.3, 2.4, 0.4, 0.6, 0.3, C.steel, { r: 0.08 });
       S.rbox(1.2, -0.3, 2.4, 0.4, 0.6, 0.3, C.steel, { r: 0.08 });
     }],
-    ['sticker', '地贴导向 / 平面图', '2 × 2 格', '盲切路径，缩短排队时间', C.blue, (S) => {
+    ['sticker', '地贴导向 / 平面图', '2 × 2 格', '指路的，能少排一会儿队', C.blue, (S) => {
       S.quad(-1, -1, 0.02, 2, 2, C.blue, { tone: 1.12, sw: 0.6 });
       S.quad(-0.7, -0.7, 0.03, 1.4, 1.4, C.white, { tone: 1.0, sw: 0.4 });
       S.quad(-0.45, -0.45, 0.04, 0.9, 0.24, C.dark, { tone: 1.0, sw: 0.3 });
@@ -427,9 +516,9 @@ export function artModules() {
       S.quad(-0.44, -3, 0.03, 0.88, 6, C.asc, { tone: 0.6, sw: 0, opacity: 0.35 });
       for (let i = 0; i < 7; i++) S.quad(-0.4, -2.85 + i * 0.82, 0.04, 0.8, 0.1, C.white, { tone: 1.0, sw: 0.2 });
       for (const bx of [-0.5, 0.42]) S.rbox(bx, -3, 0, 0.08, 6, 0.06, C.steelD, { r: 0.03 });
-      S.sprite(0, -0.5, 0.04, 'person', { color: C.pink });
-      S.sprite(0, 0.6, 0.04, 'person', { color: C.blue });
-      S.sprite(0, 1.7, 0.04, 'person', { color: C.green });
+      const laneP = `M ${n(px(0, 2.9))} ${n(py(0, 2.9, 0.04))} L ${n(px(0, -2.9))} ${n(py(0, -2.9, 0.04))}`;
+      [[C.pink, 0], [C.blue, 1.1], [C.green, 2.2]].forEach(([c, b]) =>
+        walkLocal(S, laneP, c, `${b.toFixed(1)}s`, { dur: '3.8s', f0: 0.02, f1: 0.08, f2: 0.86, f3: 0.94 }));
     }],
     ['lane2', '排队通道 —— 并排两人', '每米 2 × 1 格', '运力翻倍，秩序减半', C.blue, (S) => {
       S.quad(-1, -3, 0.02, 2, 6, C.blue, { tone: 1.05, sw: 0.5 });
@@ -438,10 +527,11 @@ export function artModules() {
         for (let i = 0; i < 7; i++) S.quad(ox - 0.4, -2.85 + i * 0.82, 0.04, 0.8, 0.1, C.white, { tone: 1.0, sw: 0.2 });
       }
       for (const bx of [-1, 0.92]) S.rbox(bx, -3, 0, 0.08, 6, 0.06, C.steelD, { r: 0.03 });
-      S.sprite(-0.5, -0.6, 0.04, 'person', { color: C.orange });
-      S.sprite(0.5, -0.2, 0.04, 'person', { color: C.teal });
-      S.sprite(-0.5, 0.6, 0.04, 'person', { color: C.purple });
-      S.sprite(0.5, 1.1, 0.04, 'person', { color: C.red });
+      for (const ox of [-0.5, 0.5]) {
+        const colP = `M ${n(px(ox, 2.9))} ${n(py(ox, 2.9, 0.04))} L ${n(px(ox, -2.9))} ${n(py(ox, -2.9, 0.04))}`;
+        [[C.orange, 0], [C.teal, 1.6]].forEach(([c, b]) =>
+          walkLocal(S, colP, c, `${(b + (ox > 0 ? 0.7 : 0)).toFixed(1)}s`, { dur: '3.6s', f0: 0.02, f1: 0.08, f2: 0.86, f3: 0.94 }));
+      }
     }],
     ['switchback', '折返排队', '每折 2 × 4 格', '8 平方米地面容纳 40 人', C.purple, (S) => {
       const runX = 4, xs = -2;
@@ -454,10 +544,10 @@ export function artModules() {
       for (const [x, y] of [[xs, -1.5], [xs + runX, -0.5], [xs, 0.5], [xs + runX, 1.5]]) {
         S.rbox(x - 0.06, y - 0.06, 0, 0.12, 1.0, 0.98, C.steel, { r: 0.05, tone: 0.95 });
       }
-      S.sprite(-1.2, -1.5, 0.03, 'person', { color: C.teal });
-      S.sprite(1.4, -0.5, 0.03, 'person', { color: C.pink });
-      S.sprite(-1.0, 0.5, 0.03, 'person', { color: C.orange });
-      S.sprite(1.6, 1.5, 0.03, 'person', { color: C.blue });
+      const sp = (x, y) => `${n(px(x, y))},${n(py(x, y, 0.03))}`;
+      const snake = `M ${sp(xs, -1.5)} L ${sp(xs + runX, -1.5)} L ${sp(xs + runX, -0.5)} L ${sp(xs, -0.5)} L ${sp(xs, 0.5)} L ${sp(xs + runX, 0.5)} L ${sp(xs + runX, 1.5)} L ${sp(xs, 1.5)}`;
+      [[C.teal, 0], [C.pink, 2.2], [C.orange, 4.4], [C.blue, 6.6]].forEach(([c, b]) =>
+        walkLocal(S, snake, c, `${b.toFixed(1)}s`, { dur: '11s', f0: 0.02, f1: 0.08, f2: 0.9, f3: 0.96 }));
     }],
   ];
   const cols = 5, cw = 296, ch = 320, x0 = 48, y0 = 178;
@@ -476,7 +566,7 @@ export function artModules() {
   });
   const rows = Math.ceil(mods.length / cols);
   const foot = y0 + rows * (ch + 10) + 4;
-  g.push(T(48, foot, '未列出：垃圾桶、消防点、失物招领、服务台、卫生间、售票窗口 —— 同一套约定：占地 + 通过量 + 标签。', { size: 13, fill: '#7d8ea3' }));
-  g.push(T(48, foot + 24, '每个模块还声明：是否阻挡行人（是/否）、排队锚点（在哪一侧排队），以及随拥挤度衰减的运力曲线。', { size: 13, fill: '#7d8ea3' }));
+  g.push(T(48, foot, '没列出的还有：垃圾桶、消防点、失物招领、服务台、卫生间、售票窗口。规矩都一样：占地 + 通行量 + 标签。', { size: 13, fill: '#7d8ea3' }));
+  g.push(T(48, foot + 24, '每个模块还额外声明：挡不挡人（是/否）、从哪一侧排队，以及拥挤时会怎么掉运力。', { size: 13, fill: '#7d8ea3' }));
   return sheet(W, Math.max(H, foot + 60), g.join(''));
 }

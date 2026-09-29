@@ -1,7 +1,7 @@
 // Concept sheet 09 - camera, projection and CAD-style navigation.
 // Includes a tiny orthographic box renderer so the same station model can be
 // shown from any azimuth/elevation, including the flat elevation views.
-import { C, T, MUL, title, sheet, n, poly, shade, legend } from './iso.mjs';
+import { C, T, MUL, title, sheet, n, poly, shade, legend, dashFlow, breathe } from './iso.mjs';
 
 /* ------------------------------------------------------------------ *
  * tiny orthographic renderer: boxes in, polygons out
@@ -96,12 +96,19 @@ function navCube(g, cx, cy, s) {
   lab(cx, cy - s * 0.72, '顶');
   lab(cx - s * 0.86, cy + s * 0.3, '前');
   lab(cx + s * 0.86, cy + s * 0.26, '右');
-  g.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(s * 1.5)}" fill="none" stroke="#2f7ef2" stroke-width="2" stroke-dasharray="7 6" opacity=".8"/>`);
+  g.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(s * 1.5)}" fill="none" stroke="#2f7ef2" stroke-width="2" stroke-dasharray="7 6" opacity=".8">${dashFlow(13, '1.4s')}</circle>`);
   for (const a of [0, 90, 180, 270]) {
     const r = (a * Math.PI) / 180;
     g.push(`<circle cx="${n(cx + Math.cos(r) * s * 1.5)}" cy="${n(cy + Math.sin(r) * s * 1.5)}" r="5" fill="#2f7ef2"/>`);
   }
   g.push(`<path d="M${n(cx + s * 1.5 - 16)},${n(cy - 8)} a16,16 0 0 1 16,16" fill="none" stroke="#2f7ef2" stroke-width="3"/>`);
+  // a camera marker orbits the cube: this is the drag, drawn
+  {
+    const r = s * 1.5;
+    const orbit = `M ${n(cx - r)} ${n(cy)} A ${n(r)} ${n(r)} 0 1 1 ${n(cx + r)} ${n(cy)} A ${n(r)} ${n(r)} 0 1 1 ${n(cx - r)} ${n(cy)}`;
+    g.push(`<g><circle cx="${n(cx - r)}" cy="${n(cy)}" r="6" fill="#f2b32c" stroke="#0d1116" stroke-width="1.4"/>`
+      + `<animateMotion path="${orbit}" dur="9s" repeatCount="indefinite" calcMode="linear"/></g>`);
+  }
   g.push(T(cx, cy + s * 1.9, '拖动任意面、棱或角', { size: 11.5, fill: '#8fa0b3', anchor: 'middle' }));
 }
 
@@ -113,14 +120,14 @@ export function artViews() {
   const g = [];
   g.push(title(48, 62, '概念 09 // 相机与视图',
     '任意角度，也包括正交平视',
-    '像 CAD 视口一样 360° 环绕，外加真正的正交立面。同一个车站模型，六种看法。'));
+    '能像 CAD 视口那样 360° 随便转，也能切到真正的正交立面。同一个车站模型，六种看法。'));
 
   const cw = 480, chh = 350, x0 = 48, y0 = 172, gapx = 16, gapy = 16;
   card(g, x0, y0, cw, chh, '1.  等轴测建造视图', '默认：2:1 二测投影，方位角 45°，俯仰角 30°', 45, 30);
-  card(g, x0 + (cw + gapx), y0, cw, chh, '2.  自由环绕', '拖到任意自定义方位与俯仰 —— 方位 15°，俯仰 18°', 15, 18);
+  card(g, x0 + (cw + gapx), y0, cw, chh, '2.  自由环绕', '拖到任意方位和俯仰 —— 这里取方位 15°、俯仰 18°', 15, 18);
   card(g, x0 + 2 * (cw + gapx), y0, cw, chh, '3.  平面 / 俯视', '垂直向下：布置网格，读取流线', 0, 90, { s: 10.5, dy: 10 });
 
-  card(g, x0, y0 + chh + gapy, cw, chh, '4.  正交 X-Z 立面', '正交正立面 —— 剖面，无透视', 90, 0, { s: 12, dy: 8 });
+  card(g, x0, y0 + chh + gapy, cw, chh, '4.  正交 X-Z 立面', '正交正立面 —— 剖面，没有透视', 90, 0, { s: 12, dy: 8 });
   card(g, x0 + (cw + gapx), y0 + chh + gapy, cw, chh, '5.  正交 Y-Z 立面', '正交侧立面 —— 深度与楼层叠合', 0, 0, { s: 10.5, dy: 8 });
   card(g, x0 + 2 * (cw + gapx), y0 + chh + gapy, cw, chh, '6.  导航立方 + 预设', '1-5 键切换视图，O 键切换正交，F 键框选对象', 45, 30, { s: 6.5, dx: 118, dy: 4 });
   navCube(g, x0 + 2 * (cw + gapx) + 116, y0 + chh + gapy + 168, 46);
@@ -130,7 +137,7 @@ export function artViews() {
   g.push(`<rect x="48" y="${ly}" width="1504" height="184" rx="14" fill="#111926" stroke="#243040"/>`);
   g.push(T(72, ly + 34, '视口操作', { size: 14, weight: 800, fill: C.yellow, ls: 1.4 }));
   const ctrls = [
-    ['中键拖拽', '360° 环绕 —— 方位与俯仰无限制'],
+    ['中键拖拽', '360° 环绕 —— 方位和俯仰都随便'],
     ['Shift + 中键', '平移视图'],
     ['滚轮', '缩放（正交下为推拉）'],
     ['Shift + 滚轮', '仅改变俯仰'],
@@ -140,7 +147,7 @@ export function artViews() {
     ['F', '框选对象或当前楼层'],
     ['Q / E', '楼层切片上移 / 下移'],
     ['X', 'X 光：其他楼层变虚影'],
-    ['C', '剖切：隐藏近处四分之一'],
+    ['C', '剖切：把靠近镜头的那四分之一藏起来'],
     ['空格', '暂停 / 运行仿真'],
   ];
   ctrls.forEach(([k, v], i) => {
@@ -152,14 +159,14 @@ export function artViews() {
   });
   g.push(T(1072, ly + 66, '为什么这对建站者重要', { size: 12, weight: 800, fill: C.yellow, ls: 1.2 }));
   g.push(MUL(1072, ly + 92, [
-    '环绕视角告诉你空间对不对味；正交立面告诉你',
-    '它行不行。竖向交通、净高、楼层叠合，以及每个竖井的',
-    '深度，只有在 X-Z 视图里才诚实 —— 所以建站者',
-    '需要两者，落在同一个模型上，无需导出。',
+    '转着看，能知道空间对不对味；正交立面，才知道',
+    '它到底行不行。竖向交通、净高、楼层叠合，每个竖井有多深，',
+    '只有 X-Z 视图会老老实实告诉你——所以两样都得有，',
+    '而且落在同一个模型上，不用导出。',
   ], { size: 12, fill: '#a9b8c8', lh: 20 }));
   g.push(T(1072, ly + 172, '正交视图 = 图纸。透视视图 = 现场。', { size: 12, fill: '#7d8ea3' }));
 
   /* ---- a note on the renderer ---- */
-  g.push(T(48, H - 22, '六张卡片都是同一份方盒列表，用同一个正交投影渲染：屏幕坐标 = f(方位角, 俯仰角, 缩放)。游戏用的是同一套数学，建造视图里内置了 2:1 的比例。', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(48, H - 22, '六张卡片其实是同一份方盒列表，用同一个正交投影画出来：屏幕坐标 = f(方位角, 俯仰角, 缩放)。游戏里用的是同一套数学，建造视图里直接内置了 2:1 的比例。', { size: 12.5, fill: '#7d8ea3' }));
   return sheet(W, H, g.join(''));
 }
