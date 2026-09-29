@@ -1,0 +1,23 @@
+{
+  "name": "metro-station-designer-site",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Concept-art site for Metro Station Designer, generated from the vector sheets in ../art.",
+  "scripts": {
+    "sync-art": "node scripts/sync-art.mjs",
+    "predev": "npm run sync-art",
+    "dev": "vite",
+    "prebuild": "npm run sync-art",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.1"
+  }
+}

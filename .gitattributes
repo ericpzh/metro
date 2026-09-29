@@ -1,0 +1,9 @@
+# Normalise line endings so the repo stays LF everywhere (CI runs on Linux).
+* text=auto eol=lf
+
+*.svg  text
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.woff binary
+*.woff2 binary
