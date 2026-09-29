@@ -2,10 +2,10 @@ import { artworks, tagline } from '../artworks.js'
 import { sheet, specUrl } from '../site.js'
 
 const facts = [
-  ['Platform', 'React 19 + Vite, three.js via react-three-fiber, Web Worker simulation'],
-  ['Mode', 'Sandbox / puzzle-sim, single player'],
-  ['View', '2:1 isometric 3D, cutaway, per-level slicing, full orbit'],
-  ['Status', 'Specification, draft 1'],
+  ['技术栈', 'React 19 + Vite、three.js（react-three-fiber）、Web Worker 仿真'],
+  ['模式', '沙盒 / 解谜模拟，单人'],
+  ['视角', '2:1 等轴测 3D、剖切、按层切片、360° 环绕'],
+  ['状态', '设计文档，草稿 1'],
 ]
 
 export default function Hero() {
@@ -15,13 +15,13 @@ export default function Hero() {
     <section className="hero" id="top">
       <div className="hero__grid" aria-hidden="true" />
       <div className="hero__inner">
-        <p className="hero__eyebrow">Metro Station Designer · concept sheets</p>
+        <p className="hero__eyebrow">地铁车站设计师 · 概念图</p>
         <h1>
-          Build a metro station.
+          建造一座地铁车站。
           <br />
-          Then watch the crowd
+          再看人群
           <br />
-          <span className="hero__accent">try to use it.</span>
+          <span className="hero__accent">试着把它用起来。</span>
         </h1>
 
         <div className="hero__cols">
@@ -29,15 +29,15 @@ export default function Hero() {
             <p className="hero__tagline">{tagline}</p>
             <div className="hero__actions">
               <a className="btn btn--primary" href="#gallery">
-                See the {artworks.length} sheets
+                看这 {artworks.length} 张概念图
               </a>
               <a className="btn" href={specUrl} target="_blank" rel="noreferrer">
-                Read the spec
+                阅读设计文档
               </a>
             </div>
           </div>
 
-          <a className="hero__peek" href={`#sheet-${first.id}`} aria-label={`Go to sheet ${first.id}`}>
+          <a className="hero__peek" href={`#sheet-${first.id}`} aria-label={`前往第 ${first.id} 张概念图`}>
             <img src={sheet(first.file)} alt="" loading="eager" decoding="async" aria-hidden="true" />
             <span className="hero__peek-tag">
               <b>{first.id}</b> {first.nav}

@@ -38,12 +38,12 @@ export function artQueues() {
   const g = [];
   const rr = rng(4711);
   g.push(`<defs><marker id="arw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9fb3c8"/></marker></defs>`);
-  g.push(title(48, 62, 'CONCEPT 10 // QUEUE MANAGEMENT',
-    'Making people line up',
-    'A crowd that arrives as a blob blocks everything. The same crowd in single-file lanes is orderly, predictable and fits in a quarter of the floor. This is the cheapest capacity in the game.'));
+  g.push(title(48, 62, '概念 10 // 排队管理',
+    '让人排成队',
+    '一团涌来的人群会堵死一切。同样的人群排成单列通道后，有序、可预测，而且只占四分之一的地面。这是游戏里最便宜的一份运力。'));
 
   /* ---------------------------------------------------------------- A */
-  panel(g, 48, 168, 748, 388, 'A.  THE SAME 36 PEOPLE, THE SAME 3 GATES', 'left: free-for-all. right: three single-file lanes.');
+  panel(g, 48, 168, 748, 388, 'A.  同样的 36 个人，同样的 3 台闸机', '左：无序争抢。右：三条单列通道。');
   // --- left: blob
   const ax = 90, ay = 300;
   g.push(rect(ax - 10, ay - 12, 300, 232, '#0d141d', { rx: 8 }));
@@ -58,8 +58,8 @@ export function artQueues() {
     if (py < ay + 30) continue;
     g.push(agent(px, py, AG[(rr() * AG.length) | 0]));
   }
-  g.push(T(ax, ay + 232, 'no lanes: 1.4 m2/pax, LOS D, the corridor is blocked', { size: 12, fill: C.red }));
-  g.push(T(ax, ay + 250, 'front row shoves, late arrivals push sideways into the flow', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(ax, ay + 232, '无通道：1.4 平方米/人，服务水平 D，通道被堵死', { size: 12, fill: C.red }));
+  g.push(T(ax, ay + 250, '前排推挤，后到的人从侧向插入主流', { size: 11.5, fill: '#7d8ea3' }));
   // --- right: lanes
   const bx = 430, by = 300;
   g.push(rect(bx - 10, by - 12, 336, 232, '#0d141d', { rx: 8 }));
@@ -77,11 +77,11 @@ export function artQueues() {
       g.push(agent(lx + 10, sy + 4, AG[(lane * 5 + s) % AG.length], 6));
     }
   }
-  g.push(T(bx, by + 232, 'three lanes: 1.1 m2/pax, LOS B, 12 people stored per lane', { size: 12, fill: C.green }));
-  g.push(T(bx, by + 250, 'first-in-first-out, no sideways spill, the walkway stays clear', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(bx, by + 232, '三条通道：1.1 平方米/人，服务水平 B，每条存 12 人', { size: 12, fill: C.green }));
+  g.push(T(bx, by + 250, '先到先得，不侧向外溢，通道保持畅通', { size: 11.5, fill: '#7d8ea3' }));
 
   /* ---------------------------------------------------------------- B */
-  panel(g, 812, 168, 740, 388, 'B.  LANE ANATOMY', 'a lane is a server with storage: slots in the back, one head in the front.');
+  panel(g, 812, 168, 740, 388, 'B.  通道解剖', '一条通道就是一个带仓储的服务台：后排是格位，前端只有一个服务口。');
   const lx = 900, ly = 300, lw = 40, llen = 470, slot = llen / 13;
   g.push(rect(lx - 26, ly - 22, llen + 120, 250, '#0d141d', { rx: 8 }));
   g.push(rect(lx, ly, llen, lw, '#a8d8ea', { rx: 3, opacity: 0.45 }));
@@ -97,21 +97,21 @@ export function artQueues() {
   g.push(rect(lx + llen + 30, ly + 2, 16, lw - 4, '#bcc3ca', { rx: 3, stroke: '#0d1116' }));
   g.push(rect(lx + llen + 46, ly + 2, 5, lw - 4, C.green, { rx: 1.5 }));
   g.push(arrow(lx + llen - 10, ly + lw / 2, lx + llen + 74, ly + lw / 2, '#9fb3c8', 2));
-  g.push(T(lx + llen + 82, ly + 26, 'head: the gate,', { size: 11.5, fill: C.green }));
-  g.push(T(lx + llen + 82, ly + 42, 'door or machine', { size: 11.5, fill: C.green }));
-  g.push(T(lx - 20, ly - 34, 'entry (agents join the back)', { size: 11.5, fill: '#9fb3c8' }));
-  g.push(T(lx - 20, ly + lw + 58, 'slot = 0.80 m - a shoulder and a bit', { size: 11.5, fill: '#8fa0b3' }));
-  g.push(dimH(lx, lx + llen, ly + lw + 40, 'lane length L'));
+  g.push(T(lx + llen + 82, ly + 26, '服务口：闸机、', { size: 11.5, fill: C.green }));
+  g.push(T(lx + llen + 82, ly + 42, '门或设备', { size: 11.5, fill: C.green }));
+  g.push(T(lx - 20, ly - 34, '入口（个体从队尾加入）', { size: 11.5, fill: '#9fb3c8' }));
+  g.push(T(lx - 20, ly + lw + 58, '格位 = 0.80 米 —— 一个肩宽多一点', { size: 11.5, fill: '#8fa0b3' }));
+  g.push(dimH(lx, lx + llen, ly + lw + 40, '通道长度 L'));
   g.push(MUL(1140, 452, [
-    'capacity  =  floor(L / 0.80) + 1      (12 m lane -> 16 people)',
-    'rate      ~  45 pax/min               (0.6 m/s shuffling, single file)',
-    'wait      =  queue length / rate      (predictable, so it can be designed)',
+    '容量  =  floor(L / 0.80) + 1      （12 米通道 → 16 人）',
+    '速率  ~  45 人/分                 （0.6 米/秒 挪步，单列）',
+    '等待  =  队长 / 速率              （可预测，因此可设计）',
   ], { size: 12, fill: '#a9b8c8', mono: true, lh: 22 }));
-  g.push(T(1140, 522, 'A free-for-all crowd through the same 1 m width does ~60/min - but its front is', { size: 11.5, fill: '#7d8ea3' }));
-  g.push(T(1140, 538, 'chaotic, it blocks side flows, and nobody can predict the wait. That is the trade.', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(1140, 522, '同样 1 米宽度下，无序人群能过约 60 人/分 —— 但它的前锋', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(1140, 538, '混乱，会堵住侧向流线，而且没人能预测等待时间。这就是代价。', { size: 11.5, fill: '#7d8ea3' }));
 
   /* ---------------------------------------------------------------- C */
-  panel(g, 48, 574, 748, 360, 'C.  SWITCHBACK: FOLD THE QUEUE', 'four runs in a 2 m strip store 20 m of queue.');
+  panel(g, 48, 574, 748, 360, 'C.  折返：把队列叠起来', '2 米宽的一条带里，四段折返存下 20 米长的队列。');
   const sx = 110, sy = 700, runLen = 300, gap = 30;
   g.push(rect(sx - 20, sy - 46, runLen + 130, 214, '#0d141d', { rx: 8 }));
   for (let i = 0; i < 4; i++) {
@@ -126,17 +126,17 @@ export function artQueues() {
   g.push(line(sx + runLen, sy + 11, sx + runLen, sy + gap + 11, C.steel, 2));
   g.push(line(sx, sy + gap + 11, sx, sy + 2 * gap + 11, C.steel, 2));
   g.push(line(sx + runLen, sy + 2 * gap + 11, sx + runLen, sy + 3 * gap + 11, C.steel, 2));
-  g.push(dimH(sx, sx + runLen, sy + 4 * gap + 22, '4 runs x 5 m = 20 m of queue'));
-  g.push(T(sx + runLen + 40, sy + 11, 'in', { size: 11.5, fill: C.green }));
-  g.push(T(sx - 16, sy + 3 * gap + 11, 'out', { size: 11.5, fill: C.red, anchor: 'end' }));
+  g.push(dimH(sx, sx + runLen, sy + 4 * gap + 22, '4 段 × 5 米 = 20 米队列'));
+  g.push(T(sx + runLen + 40, sy + 11, '入', { size: 11.5, fill: C.green }));
+  g.push(T(sx - 16, sy + 3 * gap + 11, '出', { size: 11.5, fill: C.red, anchor: 'end' }));
   g.push(MUL(110, 866, [
-    'footprint 2 x 4 m per fold, 4 runs  ->  40 people stored in 8 m2 of floor',
-    'the same 40 people standing loose need ~48 m2 and block the room they stand in',
+    '每折占地 2 × 4 米，四折  →  8 平方米地面存下 40 人',
+    '同样 40 人松散站着要占约 48 平方米，并堵住他们所在的房间',
   ], { size: 12, fill: '#a9b8c8', lh: 20 }));
-  g.push(T(110, 910, 'Cost: a switchback is a trap if the head stalls - the whole queue is committed to one server.', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(110, 910, '代价：如果服务口卡住，折返就成了陷阱 —— 整条队列都被绑在一个服务口上。', { size: 11.5, fill: '#7d8ea3' }));
 
   /* ---------------------------------------------------------------- D */
-  panel(g, 812, 574, 740, 360, 'D.  THE PATTERN THAT MATTERS: PLATFORM DOOR LANES', 'alight down the middle, queue on both sides. PSD openings sit on the car-door centres (sheet 12).');
+  panel(g, 812, 574, 740, 360, 'D.  真正重要的形态：站台门口通道', '中间下车，两侧排队。屏蔽门开口对齐车门中心（第 12 张）。');
   const px = 856, py = 700, pw = 650, ph = 150;
   g.push(rect(px - 16, py - 40, pw + 32, ph + 96, '#0d141d', { rx: 8 }));
   g.push(rect(px, py, pw, ph, '#cfd3d8', { rx: 4 }));                      // platform
@@ -151,38 +151,38 @@ export function artQueues() {
     g.push(rect(dx - POFF, py + ph + 24, POFF * 2, 26, '#2b3a49', { stroke: '#0d1116', sw: 1 }));
     g.push(line(dx, py + ph + 4, dx, py + ph + 22, C.yellow, 1.2, '3 3'));
   }
-  g.push(T(px + 8, py - 14, 'platform', { size: 11.5, fill: '#7d8ea3' }));
-  g.push(T(px + pw - 8, py + ph + 46, 'train', { size: 11.5, fill: '#8fa0b3', anchor: 'end' }));
+  g.push(T(px + 8, py - 14, '站台', { size: 11.5, fill: '#7d8ea3' }));
+  g.push(T(px + pw - 8, py + ph + 46, '列车', { size: 11.5, fill: '#8fa0b3', anchor: 'end' }));
   doorX.forEach((dx, di) => {
     g.push(rect(dx - POFF, py + ph - 4, POFF * 2, 10, C.lineB, { rx: 2 }));  // PSD door
-    g.push(T(dx, py + ph + 6, 'PSD', { size: 10.5, fill: C.lineB, anchor: 'middle' }));
+    g.push(T(dx, py + ph + 6, '屏蔽门', { size: 10.5, fill: C.lineB, anchor: 'middle' }));
     // alighting path down the middle of the pair
     g.push(rect(dx - 14, py + 30, 28, ph - 34, C.safety, { rx: 3, opacity: 0.16 }));
     g.push(arrow(dx, py + ph - 12, dx, py + 34, C.safety, 2.4));
-    g.push(T(dx, py + 22, 'alight', { size: 10.5, fill: C.safety, anchor: 'middle', weight: 700 }));
+    g.push(T(dx, py + 22, '下车', { size: 10.5, fill: C.safety, anchor: 'middle', weight: 700 }));
     // two boarding lanes flanking it, each pointing at the door
     for (const sgn of [-1, 1]) {
       const lx0 = dx + sgn * 52 - 9;
       g.push(rect(lx0, py + 26, 18, ph - 30, '#a8d8ea', { rx: 2, opacity: 0.5 }));
       for (let s = 0; s < 7; s++) g.push(agent(lx0 + 9, py + 34 + s * 15, AG[(di + s) % AG.length], 5));
       g.push(arrow(dx + sgn * 60, py + 34, dx + sgn * 40, py + ph - 14, '#2f7ef2', 1.6));
-      g.push(T(dx + sgn * 60, py + 20, 'queue', { size: 10.5, fill: '#2f7ef2', anchor: 'middle' }));
+      g.push(T(dx + sgn * 60, py + 20, '排队', { size: 10.5, fill: '#2f7ef2', anchor: 'middle' }));
     }
   });
   g.push(MUL(856, 946, [
-    'Two lanes per door at ~45/min = 90/min into a door that takes 72/min, so the door is the',
-    'bottleneck - which is the correct answer, and the reason dwell time is a design variable.',
-    'Painted lanes plus rails are how every Chinese metro platform actually does this.',
+    '每道门两条通道，各约 45 人/分 = 90 人/分，而门只能过 72 人/分，所以瓶颈在门 ——',
+    '这才是正确答案，也正是停站时间成为设计变量的原因。',
+    '涂装通道加栏杆，正是中国地铁每个站台的实际做法。',
   ], { size: 12, fill: '#a9b8c8', lh: 20 }));
 
   /* ---------------------------------------------------------------- E */
-  panel(g, 48, 956, 1504, 178, 'E.  THE OBJECTS', 'all five are ordinary modules: they take a footprint, they carry a rate, they go in the save file.');
+  panel(g, 48, 956, 1504, 178, 'E.  这些物件', '五者都是普通模块：占一块地、带一个速率、写进存档。');
   const mods = [
-    ['Queue rail', '1 x 1 per m', 'physical channel. No overtaking, no sideways spill.', C.steel],
-    ['Belt barrier', '1 x 1', 'retractable, toggle open/closed at runtime.', C.yellow],
-    ['Queue lane, single file', '1 x 1 per m', 'painted. 16 pax per 12 m. ~45 pax/min.', C.asc],
-    ['Queue lane, two abreast', '2 x 1 per m', 'double the rate, half the order.', C.blue],
-    ['Switchback queue', '2 x 4 per fold', '40 pax in 8 m2. One committed server.', C.purple],
+    ['排队栏杆', '每米 1 × 1 格', '实体通道。不能超越，不会侧向外溢。', C.steel],
+    ['伸缩隔离带', '1 × 1 格', '可伸缩，运行时开关。', C.yellow],
+    ['排队通道，单列', '每米 1 × 1 格', '每 12 米 16 人，约 45 人/分。', C.asc],
+    ['排队通道，并排两人', '每米 2 × 1 格', '运力翻倍，秩序减半。', C.blue],
+    ['折返排队', '每折 2 × 4 格', '8 平方米 40 人。只服务一个出口。', C.purple],
   ];
   mods.forEach(([name, size, note, col], i) => {
     const mx = 76 + i * 296;
@@ -190,8 +190,8 @@ export function artQueues() {
     g.push(rect(mx, 1022, 280, 4, col, { rx: 2 }));
     g.push(T(mx + 16, 1050, name, { size: 13.5, weight: 700, fill: '#eaf0f6' }));
     g.push(T(mx + 16, 1070, size, { size: 11.5, fill: col, mono: true }));
-    g.push(T(mx + 16, 1094, note.length > 40 ? note.slice(0, 40) : note, { size: 11, fill: '#8fa0b3' }));
-    if (note.length > 40) g.push(T(mx + 16, 1108, note.slice(40), { size: 11, fill: '#8fa0b3' }));
+    g.push(T(mx + 16, 1094, note.length > 22 ? note.slice(0, 22) : note, { size: 11, fill: '#8fa0b3' }));
+    if (note.length > 22) g.push(T(mx + 16, 1108, note.slice(22, 44), { size: 11, fill: '#8fa0b3' }));
   });
   return sheet(W, H, g.join(''));
 }

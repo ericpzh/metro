@@ -84,7 +84,7 @@ function card(g, x, y, w, h, label, sub, az, el, opt = {}) {
   g.push(T(x + 18, y + h - 44, label, { size: 16, weight: 700, fill: '#eaf0f6' }));
   g.push(T(x + 18, y + h - 24, sub, { size: 12.5, fill: '#8fa0b3' }));
   g.push(`<rect x="${x + w - 92}" y="${y + 20}" width="72" height="24" rx="6" fill="#1b2530" stroke="#2b3746"/>`);
-  g.push(T(x + w - 56, y + 37, `az ${az}  el ${el}`, { size: 11, fill: '#7d8ea3', anchor: 'middle', mono: true }));
+  g.push(T(x + w - 56, y + 37, `方位 ${az}  俯仰 ${el}`, { size: 11, fill: '#7d8ea3', anchor: 'middle', mono: true }));
 }
 
 /* ------------------------------------------------------------------ *
@@ -93,16 +93,16 @@ function card(g, x, y, w, h, label, sub, az, el, opt = {}) {
 function navCube(g, cx, cy, s) {
   g.push(render([B(0, 0, 0, 1, 1, 1, '#2c3a4a')], 45, 30, s, cx, cy, [0.5, 0.5, 0.5]));
   const lab = (x, y, t) => g.push(T(x, y, t, { size: 12, weight: 800, fill: '#dbe6f2', anchor: 'middle', ls: 1.4 }));
-  lab(cx, cy - s * 0.72, 'TOP');
-  lab(cx - s * 0.86, cy + s * 0.3, 'FRONT');
-  lab(cx + s * 0.86, cy + s * 0.26, 'RIGHT');
+  lab(cx, cy - s * 0.72, '顶');
+  lab(cx - s * 0.86, cy + s * 0.3, '前');
+  lab(cx + s * 0.86, cy + s * 0.26, '右');
   g.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(s * 1.5)}" fill="none" stroke="#2f7ef2" stroke-width="2" stroke-dasharray="7 6" opacity=".8"/>`);
   for (const a of [0, 90, 180, 270]) {
     const r = (a * Math.PI) / 180;
     g.push(`<circle cx="${n(cx + Math.cos(r) * s * 1.5)}" cy="${n(cy + Math.sin(r) * s * 1.5)}" r="5" fill="#2f7ef2"/>`);
   }
   g.push(`<path d="M${n(cx + s * 1.5 - 16)},${n(cy - 8)} a16,16 0 0 1 16,16" fill="none" stroke="#2f7ef2" stroke-width="3"/>`);
-  g.push(T(cx, cy + s * 1.9, 'drag any face, edge or corner', { size: 11.5, fill: '#8fa0b3', anchor: 'middle' }));
+  g.push(T(cx, cy + s * 1.9, '拖动任意面、棱或角', { size: 11.5, fill: '#8fa0b3', anchor: 'middle' }));
 }
 
 /* =================================================================== *
@@ -111,37 +111,37 @@ function navCube(g, cx, cy, s) {
 export function artViews() {
   const W = 1600, H = 1240;
   const g = [];
-  g.push(title(48, 62, 'CONCEPT 09 // CAMERA AND VIEWS',
-    'Any angle, and the flat ones too',
-    'Full 360° orbit like a CAD viewport, plus true orthographic elevations. The same station model, six ways of looking at it.'));
+  g.push(title(48, 62, '概念 09 // 相机与视图',
+    '任意角度，也包括正交平视',
+    '像 CAD 视口一样 360° 环绕，外加真正的正交立面。同一个车站模型，六种看法。'));
 
   const cw = 480, chh = 350, x0 = 48, y0 = 172, gapx = 16, gapy = 16;
-  card(g, x0, y0, cw, chh, '1.  Isometric build view', 'the default: 2:1 dimetric, 45° yaw, 30° tilt', 45, 30);
-  card(g, x0 + (cw + gapx), y0, cw, chh, '2.  Free orbit', 'drag to any custom yaw and tilt - 15° yaw, 18° tilt', 15, 18);
-  card(g, x0 + 2 * (cw + gapx), y0, cw, chh, '3.  Plan / top', 'straight down: lay out the grid, read the flow', 0, 90, { s: 10.5, dy: 10 });
+  card(g, x0, y0, cw, chh, '1.  等轴测建造视图', '默认：2:1 二测投影，方位角 45°，俯仰角 30°', 45, 30);
+  card(g, x0 + (cw + gapx), y0, cw, chh, '2.  自由环绕', '拖到任意自定义方位与俯仰 —— 方位 15°，俯仰 18°', 15, 18);
+  card(g, x0 + 2 * (cw + gapx), y0, cw, chh, '3.  平面 / 俯视', '垂直向下：布置网格，读取流线', 0, 90, { s: 10.5, dy: 10 });
 
-  card(g, x0, y0 + chh + gapy, cw, chh, '4.  Flat X-Z elevation', 'orthographic front view - the section, no perspective', 90, 0, { s: 12, dy: 8 });
-  card(g, x0 + (cw + gapx), y0 + chh + gapy, cw, chh, '5.  Flat Y-Z elevation', 'orthographic side view - depth and level stacking', 0, 0, { s: 10.5, dy: 8 });
-  card(g, x0 + 2 * (cw + gapx), y0 + chh + gapy, cw, chh, '6.  Nav cube + presets', 'keys 1-5 snap the view, O toggles ortho, F frames selection', 45, 30, { s: 6.5, dx: 118, dy: 4 });
+  card(g, x0, y0 + chh + gapy, cw, chh, '4.  正交 X-Z 立面', '正交正立面 —— 剖面，无透视', 90, 0, { s: 12, dy: 8 });
+  card(g, x0 + (cw + gapx), y0 + chh + gapy, cw, chh, '5.  正交 Y-Z 立面', '正交侧立面 —— 深度与楼层叠合', 0, 0, { s: 10.5, dy: 8 });
+  card(g, x0 + 2 * (cw + gapx), y0 + chh + gapy, cw, chh, '6.  导航立方 + 预设', '1-5 键切换视图，O 键切换正交，F 键框选对象', 45, 30, { s: 6.5, dx: 118, dy: 4 });
   navCube(g, x0 + 2 * (cw + gapx) + 116, y0 + chh + gapy + 168, 46);
 
   /* ---- control legend ---- */
   const ly = y0 + 2 * chh + 2 * gapy + 6;
   g.push(`<rect x="48" y="${ly}" width="1504" height="184" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(72, ly + 34, 'VIEWPORT CONTROLS', { size: 14, weight: 800, fill: C.yellow, ls: 1.4 }));
+  g.push(T(72, ly + 34, '视口操作', { size: 14, weight: 800, fill: C.yellow, ls: 1.4 }));
   const ctrls = [
-    ['MMB drag', 'orbit 360° - yaw and tilt, no limits'],
-    ['Shift + MMB', 'pan the view'],
-    ['wheel', 'zoom (dolly in ortho)'],
-    ['Shift + wheel', 'change tilt only'],
-    ['1 / 2 / 3', 'snap to iso / plan / last custom angle'],
-    ['4 / 5', 'flat X-Z elevation / flat Y-Z elevation'],
-    ['O', 'toggle orthographic <-> perspective'],
-    ['F', 'frame the selection or the level'],
-    ['Q / E', 'slice one level up / down'],
-    ['X', 'x-ray: other levels become ghosts'],
-    ['C', 'cutaway: hide the near quarter'],
-    ['Space', 'pause / run the simulation'],
+    ['中键拖拽', '360° 环绕 —— 方位与俯仰无限制'],
+    ['Shift + 中键', '平移视图'],
+    ['滚轮', '缩放（正交下为推拉）'],
+    ['Shift + 滚轮', '仅改变俯仰'],
+    ['1 / 2 / 3', '吸附到等轴测 / 平面 / 上次自定义角度'],
+    ['4 / 5', '正交 X-Z 立面 / 正交 Y-Z 立面'],
+    ['O', '切换正交 ↔ 透视'],
+    ['F', '框选对象或当前楼层'],
+    ['Q / E', '楼层切片上移 / 下移'],
+    ['X', 'X 光：其他楼层变虚影'],
+    ['C', '剖切：隐藏近处四分之一'],
+    ['空格', '暂停 / 运行仿真'],
   ];
   ctrls.forEach(([k, v], i) => {
     const col = i % 2, row = Math.floor(i / 2);
@@ -150,16 +150,16 @@ export function artViews() {
     g.push(T(x + 8, y, k, { size: 11.5, fill: '#9fd7ee', mono: true, weight: 700 }));
     g.push(T(x + 160, y, v, { size: 12, fill: '#a9b8c8' }));
   });
-  g.push(T(1072, ly + 66, 'WHY THIS MATTERS FOR A STATION BUILDER', { size: 12, weight: 800, fill: C.yellow, ls: 1.2 }));
+  g.push(T(1072, ly + 66, '为什么这对建站者重要', { size: 12, weight: 800, fill: C.yellow, ls: 1.2 }));
   g.push(MUL(1072, ly + 92, [
-    'Orbit tells you whether the room feels right; the flat elevations tell you',
-    'whether it works. Vertical circulation, headroom, level stacking and the',
-    'depth of every shaft are only honest in the X-Z view - so a station builder',
-    'needs both, on the same model, with no export step.',
+    '环绕视角告诉你空间对不对味；正交立面告诉你',
+    '它行不行。竖向交通、净高、楼层叠合，以及每个竖井的',
+    '深度，只有在 X-Z 视图里才诚实 —— 所以建站者',
+    '需要两者，落在同一个模型上，无需导出。',
   ], { size: 12, fill: '#a9b8c8', lh: 20 }));
-  g.push(T(1072, ly + 172, 'Ortho view = the drawing. Perspective view = the place.', { size: 12, fill: '#7d8ea3' }));
+  g.push(T(1072, ly + 172, '正交视图 = 图纸。透视视图 = 现场。', { size: 12, fill: '#7d8ea3' }));
 
   /* ---- a note on the renderer ---- */
-  g.push(T(48, H - 22, 'All six cards are the same box list rendered with one orthographic projection: screen = f(azimuth, elevation, scale). The game uses the same maths, with the 2:1 ratio baked in for the build view.', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(48, H - 22, '六张卡片都是同一份方盒列表，用同一个正交投影渲染：屏幕坐标 = f(方位角, 俯仰角, 缩放)。游戏用的是同一套数学，建造视图里内置了 2:1 的比例。', { size: 12.5, fill: '#7d8ea3' }));
   return sheet(W, H, g.join(''));
 }

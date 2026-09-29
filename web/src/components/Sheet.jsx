@@ -25,7 +25,7 @@ export default function Sheet({ art, onOpen }) {
         type="button"
         className="sheet__zoom"
         onClick={() => onOpen(art)}
-        aria-label={`Open sheet ${art.id}, ${art.title}, at full resolution`}
+        aria-label={`全分辨率打开第 ${art.id} 张：${art.title}`}
       >
         <img src={sheet(art.file)} alt={art.alt} loading="lazy" decoding="async" />
       </button>
@@ -47,7 +47,7 @@ export default function Sheet({ art, onOpen }) {
         </ul>
 
         <button type="button" className="panel__open" onClick={() => onOpen(art)}>
-          Open at full resolution
+          全分辨率打开
         </button>
       </article>
     </section>

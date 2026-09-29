@@ -2,8 +2,8 @@ import { artworks } from '../artworks.js'
 
 export default function Rail({ active }) {
   return (
-    <nav className="rail" aria-label="Concept sheets">
-      <span className="rail__label">Sheets</span>
+    <nav className="rail" aria-label="概念图列表">
+      <span className="rail__label">概念图</span>
       <ol className="rail__list">
         {artworks.map((a) => (
           <li key={a.id}>

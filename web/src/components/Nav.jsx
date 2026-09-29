@@ -27,14 +27,14 @@ export default function Nav() {
         <a className="nav__brand" href="#top">
           <span className="nav__roundel" aria-hidden="true" />
           <span className="nav__name">
-            Metro Station Designer
-            <em>Concept art</em>
+            地铁车站设计师
+            <em>概念图</em>
           </span>
         </a>
         <nav className="nav__links">
-          <a href="#gallery">Gallery</a>
+          <a href="#gallery">图库</a>
           <a href={specUrl} target="_blank" rel="noreferrer">
-            The spec
+            设计文档
           </a>
           <a href={repoUrl} target="_blank" rel="noreferrer">
             GitHub

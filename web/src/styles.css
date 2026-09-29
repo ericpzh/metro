@@ -23,8 +23,10 @@
   --glass: rgba(9, 13, 20, 0.55);
   --glass-2: rgba(9, 13, 20, 0.78);
 
-  --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
+  --mono: 'JetBrains Mono', 'Noto Sans SC', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
   --shell: 1200px;
 
   --shadow-1: 0 24px 70px -30px rgba(0, 0, 0, 0.85);

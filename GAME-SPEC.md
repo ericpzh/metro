@@ -20,8 +20,9 @@ station either copes or it does not.
 
 All sheets are vector, generated from [`tools/gen-art.mjs`](tools/gen-art.mjs) (`node tools/gen-art.mjs`).
 They are drawn from the same isometric projection the game uses (2:1 dimetric, 1 block = 1 m),
-so they double as an art-direction target rather than loose mood boards. Sheet 12 is animated
-(SMIL, self-contained); sheet 07 is drawn in the shipping UI language, Simplified Chinese.
+so they double as an art-direction target rather than loose mood boards. Every sheet is drawn in
+the shipping language, **Simplified Chinese**; only identifiers and units stay in Latin script
+(§9.2). Sheet 12 is animated (SMIL, self-contained).
 
 ### 1.1 The station you are building — isometric cutaway
 
@@ -700,8 +701,9 @@ uses.
 
 The interface ships in **Simplified Chinese only**. This is not a localisation toggle: station names,
 exit numbers, line numbering, unit strings and the level-of-service vocabulary are authored in
-Chinese, and concept sheet 07 is drawn in Chinese for that reason. A few things stay ASCII on
-purpose, because they are identifiers rather than prose:
+Chinese, and **every concept sheet is drawn in Chinese** for that reason — the art is the spec's
+rendering target, so it has to read the way the game will. A few things stay ASCII on purpose,
+because they are identifiers rather than prose:
 
 * module ids, tag keys and the save-file schema (`gate.turnstile`, `zone.paid`),
 * level codes `B4`…`B1`, `G`, `L1`,
@@ -709,7 +711,9 @@ purpose, because they are identifiers rather than prose:
 * numerals and units inside the Chinese strings (`25 人 / 分`, `间隔 2 分`).
 
 Everything a player reads as a sentence — tool names, inspector field names, connection lists,
-line-manager behaviour, minimap counters, warnings — is Chinese.
+line-manager behaviour, minimap counters, warnings — is Chinese, and the concept sheets follow the
+same rule. The generator sources in `tools/` keep English comments and identifiers; only the
+rendered strings are Chinese.
 
 ---
 

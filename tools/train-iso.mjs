@@ -190,7 +190,7 @@ export function isoCar(S, o) {
       put(key(len, w / 2, h * 0.88), faceSvg('x', front + 0.018, y + 0.5, y + w - 0.5, z + h * 0.83, z + h * 0.96, '#141a20', { tone: 1.0, sw: 0.6 }));
       if (o.destText) {
         const X = px(front, y + w / 2), Y = py(front, y + w / 2, z + h * 0.875);
-        put(key(len, w / 2, h * 0.9), `<text transform="matrix(${-TW},${TH},0,${-ZU},${n(X)},${n(Y)})" text-anchor="middle" font-size="0.27" font-weight="700" fill="#ffd45e" letter-spacing="0.02">${o.destText}</text>`);
+        put(key(len, w / 2, h * 0.9), `<text transform="matrix(${TW},${-TH},0,${ZU},${n(X)},${n(Y)})" text-anchor="middle" font-size="0.27" font-weight="700" fill="#ffd45e" letter-spacing="0.02">${o.destText}</text>`);
       }
     }
   } else {

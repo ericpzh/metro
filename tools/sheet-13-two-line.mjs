@@ -19,9 +19,9 @@ const AT = (x, y, z) => [OX + px(x, y) * K, OY + py(x, y, z) * K];
 export function artTwoLine() {
   const W = 1600, H = 1180;
   const g = [];
-  g.push(title(48, 62, 'CONCEPT 13 // TWO LINES, TWO DEPTHS',
-    'One line over the street, one under it',
-    'The same interchange as concept 02, drawn as a volume. Everything the player builds sits in one of these two boxes, and the transfer between them is a real walk.'));
+  g.push(title(48, 62, '概念 13 // 两条线路，两种深度',
+    '一条在街上，一条在街下',
+    '与第 02 张同一个换乘站，但画成体块。玩家建造的一切都落在这两个盒子里，两者之间的换乘是一段真实的路程。'));
   const OV = [];
   const S = Scene();
 
@@ -199,10 +199,10 @@ export function artTwoLine() {
 
   const ax0 = 1120;
   g.push(`<rect x="${ax0}" y="170" width="432" height="356" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(ax0 + 24, 206, 'THE TWO LINES', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+  g.push(T(ax0 + 24, 206, '两条线路', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
   const rows = [
-    ['1', C.lineA, 'Line 1', 'overground, viaduct deck +11.6 m', 'type A / catenary / 6-8 cars'],
-    ['2', C.lineB, 'Line 2', 'underground, B2 platform -13.0 m', 'type B / third rail / 4-6 cars'],
+    ['1', C.lineA, '1 号线', '地面以上，高架桥面 +11.6 米', 'A 型 / 接触网 / 6-8 节'],
+    ['2', C.lineB, '2 号线', '地下，B2 站台 -13.0 米', 'B 型 / 第三轨 / 4-6 节'],
   ];
   rows.forEach(([id, col, name, sub, stock], i) => {
     const y = 232 + i * 104;
@@ -213,21 +213,21 @@ export function artTwoLine() {
     g.push(T(ax0 + 78, y + 48, sub, { size: 11.5, fill: '#a9b8c8', mono: true }));
     g.push(T(ax0 + 78, y + 68, stock, { size: 11.5, fill: '#7d8ea3', mono: true }));
   });
-  g.push(T(ax0 + 24, 456, 'Depth difference = 24.6 m. That is the whole point of the', { size: 12, fill: '#8fa0b3' }));
-  g.push(T(ax0 + 24, 476, 'station: the transfer is a climb, and the climb is the crowd.', { size: 12, fill: '#8fa0b3' }));
-  g.push(T(ax0 + 24, 500, 'Set the exit rates and the whole stack fills from one end.', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(ax0 + 24, 456, '深度差 24.6 米。这正是这座车站的意义所在：', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(ax0 + 24, 476, '换乘就是一次爬升，而爬升就是客流本身。', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(ax0 + 24, 500, '设定好各出口的进出量，整座竖向叠层就会从一端灌满。', { size: 12, fill: '#8fa0b3' }));
 
   g.push(`<rect x="${ax0}" y="546" width="432" height="602" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(ax0 + 24, 582, 'READING THE CUTAWAY', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+  g.push(T(ax0 + 24, 582, '剖视图读法', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
   const items = [
-    ['1', 'Line 1 canopy + platform, viaduct deck'],
-    ['2', 'Type A train, catenary pickup'],
-    ['3', 'B1 concourse: gates, shops, columns'],
-    ['4', 'B2 island platform, both roads'],
-    ['5', 'Escalator well: B2 -> B1, one open shaft'],
-    ['6', 'Street-to-concourse run, under the roof slab'],
-    ['7', 'Entrance head house on the street'],
-    ['8', 'Third rail on the underground line'],
+    ['1', '1 号线雨棚与站台，高架桥面'],
+    ['2', 'A 型列车，接触网受电'],
+    ['3', 'B1 站厅：闸机、商铺、立柱'],
+    ['4', 'B2 岛式站台，双侧线路'],
+    ['5', '扶梯竖井：B2 → B1，一个开敞井道'],
+    ['6', '地面到站厅的扶梯，位于顶板之下'],
+    ['7', '地面出入口雨棚'],
+    ['8', '地下线路的第三轨'],
   ];
   items.forEach(([num, txt], i) => {
     const y = 616 + i * 38;
@@ -235,17 +235,17 @@ export function artTwoLine() {
     g.push(T(ax0 + 40, y + 5, num, { size: 13, weight: 800, fill: C.ink, anchor: 'middle' }));
     g.push(T(ax0 + 62, y + 5, txt, { size: 12.5, fill: '#c3d0de' }));
   });
-  g.push(T(ax0 + 24, 954, 'WHY IT WORKS AS A LEVEL', { size: 12, weight: 800, fill: '#8fa0b3', ls: 1.2 }));
+  g.push(T(ax0 + 24, 954, '为什么它成立', { size: 12, weight: 800, fill: '#8fa0b3', ls: 1.2 }));
   g.push(MUL(ax0 + 24, 980, [
-    'One excavation, two station boxes.',
-    'The viaduct only needs piers: cheap, and it',
-    'can be moved after the box is built.',
-    'The transfer is a single shaft, so the player',
-    'can measure it as one queue, not three.',
-    'Cut the near quarter and you can still play:',
-    'the camera is the level selector.',
+    '一次开挖，两个车站盒体。',
+    '高架只需要桥墩：造价低，而且',
+    '可以在盒体建成之后再改线。',
+    '换乘只用一个竖井，玩家可以',
+    '把它当成一条队列来衡量，而不是三条。',
+    '切掉近处四分之一仍然可以玩：',
+    '相机就是楼层选择器。',
   ], { size: 12, fill: '#7d8ea3', lh: 19 }));
-  g.push(T(ax0 + 24, 1132, 'sandbox: no cost, no staff, no ticket price', { size: 11.5, fill: '#5d6d80' }));
+  g.push(T(ax0 + 24, 1132, '沙盒模式：不计成本、不雇员工、不设票价', { size: 11.5, fill: '#5d6d80' }));
 
   const body = `<g transform="translate(${n(OX)},${n(OY)}) scale(${K})">${S.out()}</g>` + OV.join('') + g.join('');
   return sheet(W, H, body);

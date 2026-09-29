@@ -6,9 +6,9 @@ import { C, T, MUL, title, sheet, n, poly, pstr } from './iso.mjs';
 export function artUI() {
   const W = 1600, H = 1000;
   const g = [];
-  g.push(title(48, 62, 'CONCEPT 07 // INTERFACE',
-    'Building and watching, in one screen',
-    'The camera is the level selector. Left rail builds, right panel tunes the selected thing, bottom rail owns lines, levels and overlays.  UI language: Simplified Chinese only.'));
+  g.push(title(48, 62, '概念 07 // 界面',
+    '建造与观察，同屏完成',
+    '相机就是楼层选择器。左侧建造，右侧调整选中对象，底部管理线路、楼层与叠加层。界面语言：仅简体中文。'));
   g.push(`<rect x="48" y="170" width="1504" height="790" rx="16" fill="#0b0f16" stroke="#243040"/>`);
   const panel = (x, y, w, h, t, sub) => {
     g.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="#131b26" stroke="#243040"/>`);

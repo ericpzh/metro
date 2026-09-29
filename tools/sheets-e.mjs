@@ -58,9 +58,9 @@ export function artPlatformFlow() {
   const W = 1600, H = 1200;
   const g = [];
 
-  g.push(title(48, 62, 'CONCEPT 12 // PLATFORM: DOORS + FLOW',
-    'Doors that line up, queues that form, a train that comes and goes',
-    'The car-door cadence is computed once and everything is placed from it: PSD openings, queue lanes, boarding and alighting paths. Train, doors and crowd run a 20 s loop.'));
+  g.push(title(48, 62, '概念 12 // 站台：车门与客流',
+    '对齐的车门、自然形成的队列、来去的列车',
+    '车门间距只计算一次，其余一切由它定位：屏蔽门开口、排队通道、上下车路径。列车、车门与人群以 20 秒循环播放。'));
 
   g.push(`<defs>
     <marker id="arwPF" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9fb3c8"/></marker>
@@ -69,8 +69,8 @@ export function artPlatformFlow() {
 
   /* ============================================== A. the boarding sequence */
   const AX = 48, AY = 150, AW = 1504, AH = 436;
-  panelBox(g, AX, AY, AW, AH, 'A.  THE BOARDING SEQUENCE, IN PLAN',
-    'the train enters and docks, the PSD leaves slide open, two queue lanes feed each door, people alight down the middle, the PSD closes, the train leaves.');
+  panelBox(g, AX, AY, AW, AH, 'A.  上车时序（平面）',
+    '列车进站停稳，屏蔽门滑开，两条排队通道各自喂给一道门，乘客从中间下车，屏蔽门关闭，列车离站。');
 
   const s = 31;                                   // px per metre
   const PX0 = 76;
@@ -102,7 +102,7 @@ export function artPlatformFlow() {
   /* concourse / vertical circulation band across the top */
   g.push(rect(PX0, Y_BAND0, platW, Y_BAND1 - Y_BAND0, '#161e2b', { rx: 6, stroke: '#243040' }));
   for (let i = 0; i < 22; i++) g.push(upChevron(PX0 + 60 + i * 66, (Y_BAND0 + Y_BAND1) / 2));
-  g.push(T(PX0 + 14, Y_BAND0 + 26, '↑ to concourse   escalators + stair + lift   (exit this way)', { size: 12.5, fill: C.yellow, weight: 700 }));
+  g.push(T(PX0 + 14, Y_BAND0 + 26, '↑ 通往站厅   扶梯 + 楼梯 + 电梯   （由此出站）', { size: 12.5, fill: C.yellow, weight: 700 }));
 
   /* door alignment guides: car door -> PSD opening -> alight path */
   for (const dx of doorsPx) g.push(ln(dx, Y_BAND1 + 6, dx, Y_TRK1 - 6, C.yellow, 1, '4 5'));
@@ -114,7 +114,7 @@ export function artPlatformFlow() {
   doorsPx.forEach((dx, i) => {
     g.push(rect(dx - 9, laneTop - 12, 18, laneHead - laneTop + 20, C.safety, { rx: 3, opacity: 0.14 }));
     g.push(arrowLine(dx, laneHead + 10, dx, laneTop - 4, C.safety, 2, 'arwPF'));
-    if (i === 1 || i === 4) g.push(T(dx, laneTop - 18, 'alight', { size: 10.5, fill: C.safety, anchor: 'middle', weight: 700 }));
+    if (i === 1 || i === 4) g.push(T(dx, laneTop - 18, '下车', { size: 10.5, fill: C.safety, anchor: 'middle', weight: 700 }));
     for (const sgn of [-1, 1]) {
       const lx = dx + sgn * laneOff;
       g.push(rect(lx - laneW / 2, laneTop, laneW, laneHead - laneTop, '#a8d8ea', { rx: 2, opacity: 0.45 }));
@@ -177,7 +177,7 @@ export function artPlatformFlow() {
     DUR,
     '0.4 0 0.25 1;0 0 1 1;0 0 1 1;0.4 0 0.25 1',
   )}</g>`);
-  g.push(T(PX0 + 6, Y_TRK1 - 14, 'Line 2  ·  B-type  ·  2 cars shown', { size: 11.5, fill: '#8fa0b3' }));
+  g.push(T(PX0 + 6, Y_TRK1 - 14, '2 号线  ·  B 型  ·  图示 2 节', { size: 11.5, fill: '#8fa0b3' }));
 
   /* passengers that move: board from the lane heads, alight down the middle */
   const movers = [];
@@ -195,20 +195,20 @@ export function artPlatformFlow() {
   g.push(...movers);
 
   /* labels + the one annotated door */
-  g.push(T(PX0 + 8, Y_PTOP + 26, 'platform', { size: 12.5, fill: '#5d6d80', weight: 700, ls: 0.6 }));
-  g.push(T(PX0 + platW - 14, Y_PTOP + 26, 'PSD openings on the car-door centres', { size: 11.5, fill: '#8fa0b3', anchor: 'end' }));
+  g.push(T(PX0 + 8, Y_PTOP + 26, '站台', { size: 12.5, fill: '#5d6d80', weight: 700, ls: 0.6 }));
+  g.push(T(PX0 + platW - 14, Y_PTOP + 26, '屏蔽门开口对齐车门中心', { size: 11.5, fill: '#8fa0b3', anchor: 'end' }));
   const d0 = doorsPx[2];
   g.push(arrowLine(d0 + 72, Y_CAR0 + 32, d0 + 14, Y_CAR0 + 6, C.white, 1.4));
-  g.push(T(d0 + 78, Y_CAR0 + 36, 'car door 1.3 m', { size: 11, fill: '#dfe7f0', weight: 700 }));
+  g.push(T(d0 + 78, Y_CAR0 + 36, '车门 1.3 米', { size: 11, fill: '#dfe7f0', weight: 700 }));
   g.push(ln(d0 - HALF, Y_PEDGE + 20, d0 - HALF - 58, Y_PEDGE + 44, C.glass, 1.2));
-  g.push(T(d0 - HALF - 62, Y_PEDGE + 48, 'PSD leaves', { size: 11, fill: C.glass, anchor: 'end', weight: 700 }));
+  g.push(T(d0 - HALF - 62, Y_PEDGE + 48, '屏蔽门门板', { size: 11, fill: C.glass, anchor: 'end', weight: 700 }));
   g.push(ln(d0 + laneOff, laneHead - 66, d0 + laneOff + 70, laneHead - 84, '#a8d8ea', 1.2));
-  g.push(T(d0 + laneOff + 74, laneHead - 80, 'queue lane', { size: 11, fill: '#a8d8ea', weight: 700 }));
+  g.push(T(d0 + laneOff + 74, laneHead - 80, '排队通道', { size: 11, fill: '#a8d8ea', weight: 700 }));
 
   /* ======================================= B. alignment, in side elevation */
   const BX = 48, BY = 602, BW = 712, BH = 370;
-  panelBox(g, BX, BY, BW, BH, 'B.  THE DOORS MATCH, IN ELEVATION',
-    'the car side and the PSD line are drawn from the same door centres. the guides are the contract.');
+  panelBox(g, BX, BY, BW, BH, 'B.  车门对得上（立面）',
+    '车身侧面和屏蔽门线都由同一组车门中心绘制。那些引导线就是约定。');
 
   const sB = 29;
   const cw = stock.len * sB;
@@ -225,7 +225,7 @@ export function artPlatformFlow() {
     g.push(ln(dx, cy0 + 6, dx, cy0 + chh - 8, '#7d8ea3', 1.2));
     g.push(rect(dx - dwPx / 2, cy0 + 6, dwPx, chh - 14, 'none', { rx: 3, stroke: stock.col, sw: 1 }));
   }
-  g.push(T(cx0, cy0 - 12, 'car side  ·  B-type 19.5 m  ·  4 doors / side', { size: 11.5, fill: '#8fa0b3' }));
+  g.push(T(cx0, cy0 - 12, '车身侧面  ·  B 型 19.5 米  ·  每侧 4 门', { size: 11.5, fill: '#8fa0b3' }));
   const py0 = cy0 + chh + 44;
   let ss = cx0;
   for (const dx of dPx) {
@@ -240,27 +240,27 @@ export function artPlatformFlow() {
     g.push(ln(dx, py0 + 10, dx, py0 + 26, C.yellow, 1, '4 4'));
     g.push(circ(dx, py0 + 34, 5.5, C.yellow, { stroke: '#0d1116', sw: 1 }));
   }
-  g.push(T(cx0, py0 + 60, 'PSD line  ·  openings at the same centres  ·  leaves slide left / right', { size: 11.5, fill: '#8fa0b3' }));
+  g.push(T(cx0, py0 + 60, '屏蔽门线  ·  开口在同一组中心  ·  门板左右滑动', { size: 11.5, fill: '#8fa0b3' }));
   const pitch = dOff[1] - dOff[0];
-  g.push(dimH(dPx[0], dPx[0] + dwPx, py0 + 108, `door ${stock.doorW} m`));
-  g.push(dimH(dPx[0], dPx[1], py0 + 84, `centre pitch ${pitch.toFixed(2)} m`));
-  g.push(T(cx0, py0 + 132, `centres from the car centre: ${dOff.map((o) => (o >= 0 ? '+' : '') + o.toFixed(2)).join('  ')} m`, { size: 12, fill: '#a9b8c8', mono: true }));
-  g.push(T(cx0, py0 + 150, 'a 1 m build grid rounds the openings outward, so the PSD is never narrower than the door.', { size: 11, fill: '#7d8ea3' }));
+  g.push(dimH(dPx[0], dPx[0] + dwPx, py0 + 108, `门宽 ${stock.doorW} 米`));
+  g.push(dimH(dPx[0], dPx[1], py0 + 84, `门距 ${pitch.toFixed(2)} 米`));
+  g.push(T(cx0, py0 + 132, `距车中心的位置：${dOff.map((o) => (o >= 0 ? '+' : '') + o.toFixed(2)).join('  ')} 米`, { size: 12, fill: '#a9b8c8', mono: true }));
+  g.push(T(cx0, py0 + 150, '1 米的建造网格把开口向外取整，所以屏蔽门永远不会比车门更窄。', { size: 11, fill: '#7d8ea3' }));
 
   /* =========================================== C. auto-wayfinding / routing */
   const CX = 776, CY = 602, CW = 772, CH = 370;
-  panelBox(g, CX, CY, CW, CH, 'C.  THE PASSENGER FINDS THE WAY',
-    'an agent is never told "go to exit 2": it routes itself, node by node, from the state it is in.');
+  panelBox(g, CX, CY, CW, CH, 'C.  乘客自己找路',
+    '没人告诉个体「去 2 号口」：它从自身状态出发，一个节点一个节点地自己寻路。');
 
   const nodes = [
-    ['CAR DOOR', 'alight', C.safety, 'step clear of the doors'],
-    ['PLATFORM', 'walk', C.white, 'pick the alight path'],
-    ['WAYFINDING', 'read', C.yellow, 'totem 8 m · sticker −15 s'],
-    ['VERTICAL', 'choose', C.asc, 'escalator / stair / lift'],
-    ['CONCOURSE', 'walk', C.lineB, 'follow the yellow band'],
-    ['FARE GATE', 'queue', C.green, 'join the lane at the back'],
-    ['EXIT', 'leave', '#d7dde5', 'street exit, set in / out'],
-    ['DONE', 'gone', '#5d6d80', 'agent leaves the sim'],
+    ['车门', '下车', C.safety, '让开门口'],
+    ['站台', '步行', C.white, '走下车路径'],
+    ['导向', '读取', C.yellow, '立牌 8 米 · 地贴 −15 秒'],
+    ['竖向', '选择', C.asc, '扶梯 / 楼梯 / 电梯'],
+    ['站厅', '步行', C.lineB, '跟着黄色导向带'],
+    ['闸机', '排队', C.green, '从队尾加入通道'],
+    ['出口', '离开', '#d7dde5', '地面出口，进出可设'],
+    ['完成', '消失', '#5d6d80', '个体离开仿真'],
   ];
   const bx = [800, 980, 1160, 1340], by1 = 692, by2 = 824, bw = 160, bh = 56;
   const place = (i) => ({ x: bx[i < 4 ? i : 7 - i], y: i < 4 ? by1 : by2 });
@@ -287,16 +287,16 @@ export function artPlatformFlow() {
   g.push(`<g>${circ(0, 0, 5, C.teal, { stroke: '#0d1116', sw: 1 })}<animateMotion path="${routePath}" dur="11s" begin="1.4s" repeatCount="indefinite" calcMode="linear"/></g>`);
   g.push(`<g>${circ(0, 0, 5, C.red, { stroke: '#0d1116', sw: 1 })}<animateMotion path="${routePath}" dur="11s" begin="2.8s" repeatCount="indefinite" calcMode="linear"/></g>`);
   g.push(MUL(796, 908, [
-    'The rule, in one line: take the cheapest path whose expected wait is under your patience. When a queue exceeds it,',
-    're-route - and it is the same rule at the gate, the escalator and the train door. A step-free agent only ever considers',
-    'lift / ramp edges. Boarding is the mirror image: pick the car door whose queue will accept you, and wait on the platform',
-    'if no train for your line is at the doors yet. The wayfinding aids only change how long the decision takes, not the graph.',
+    '规则一句话：走预期等待在你耐心之内、且代价最低的那条路。当某条队列超出耐心，',
+    '就改道 —— 闸机、扶梯、车门用的是同一条规则。无障碍个体只会考虑电梯 / 坡道边。',
+    '上车是镜像：挑一道队列愿意接纳你的车门；如果还没有你要坐的线路进站，',
+    '就在站台上等。导向设施只改变决策耗时，不改变图本身。',
   ], { size: 10.6, fill: '#a9b8c8', lh: 17 }));
 
   /* ========================================= D. the door cadence, per type */
   const DX0 = 48, DY = 988, DW = 1504, DH = 192;
-  panelBox(g, DX0, DY, DW, DH, 'D.  THE DOOR CADENCE, PER STOCK TYPE',
-    'one function, three answers. the same centres drive the car, the PSD and the lanes.');
+  panelBox(g, DX0, DY, DW, DH, 'D.  各车型的车门间距',
+    '一个函数，三种答案。同一组中心同时驱动车身、屏蔽门和排队通道。');
   [STOCK.A, STOCK.B, STOCK.C].forEach((t, ti) => {
     const x = 76 + ti * 480;
     const sD = 16;
@@ -304,7 +304,7 @@ export function artPlatformFlow() {
     const off = carDoorCenters(t.len, t.doors, t.doorW);
     const cc = x + w / 2;
     const y = 1070;
-    g.push(T(x, y - 12, `TYPE ${t.id}`, { size: 15, weight: 800, fill: t.col, ls: 0.6 }));
+    g.push(T(x, y - 12, `${t.id} 型`, { size: 15, weight: 800, fill: t.col, ls: 0.6 }));
     g.push(rect(x, y, w, 40, '#eef2f6', { rx: 6, stroke: C.ink, sw: 1.6 }));
     g.push(rect(x + 6, y + 7, w - 12, 10, '#26333f', { rx: 3 }));
     g.push(rect(x, y + 34, w, 6, t.col));
@@ -326,10 +326,10 @@ export function artPlatformFlow() {
     }
     g.push(rect(p0, py, x + w - p0, 8, '#cbd3dc', { stroke: C.ink, sw: 1 }));
     const pairs = off.filter((o) => o > 0).map((o) => o.toFixed(2)).join(' / ');
-    g.push(T(x, y + 84, `${t.len} m car  ·  ${t.doors} doors/side  ·  ${t.doorW} m door`, { size: 11.5, fill: '#a9b8c8', mono: true }));
-    g.push(T(x, y + 100, `centres  ±${pairs} m`, { size: 11.5, fill: C.yellow, mono: true }));
+    g.push(T(x, y + 84, `${t.len} 米车体  ·  每侧 ${t.doors} 门  ·  门宽 ${t.doorW} 米`, { size: 11.5, fill: '#a9b8c8', mono: true }));
+    g.push(T(x, y + 100, `中心距  ±${pairs} 米`, { size: 11.5, fill: C.yellow, mono: true }));
   });
 
-  g.push(T(48, H - 14, 'Animation contract: the car-door cadence is authoritative, the PSD cadence follows it, and the queue lanes are anchored to the same x. Change the stock type and all three move together.', { size: 12.5, fill: '#7d8ea3' }));
+  g.push(T(48, H - 14, '动画约定：车门间距是权威值，屏蔽门间距跟随它，排队通道锚定在同一个 x 上。改变车型，三者一起移动。', { size: 12.5, fill: '#7d8ea3' }));
   return sheet(W, H, g.join(''));
 }

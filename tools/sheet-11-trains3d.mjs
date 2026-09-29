@@ -11,16 +11,16 @@ import { isoCar, isoTrack, catenary } from './train-iso.mjs';
 // Geometry comes from STOCK so the 3D car can never drift from the plan sheets.
 const EXTRA = {
   A: {
-    cars: '6 - 8', perCar: 310, pwr: 'catenary  1500 V DC / 25 kV AC', panto: true, cab: true,
-    dest: '广州南站', lines: ['widest profile', 'trunk + express lines', 'viaduct: open to the sky'],
+    cars: '6 - 8', perCar: 310, pwr: '接触网  1500 V 直流 / 25 kV 交流', panto: true, cab: true,
+    dest: '广州南站', lines: ['最宽车体', '干线 / 快线', '高架：开敞天空'],
   },
   B: {
-    cars: '4 - 6', perCar: 240, pwr: 'third rail  750 V DC', shoe: true, cab: true,
-    dest: '五丝广场', lines: ['the Chinese metro workhorse', 'tunnel + platform screen doors', 'B2 / B3 platforms'],
+    cars: '4 - 6', perCar: 240, pwr: '第三轨  750 V 直流', shoe: true, cab: true,
+    dest: '五丝广场', lines: ['中国城市地铁的主力车型', '隧道 + 站台屏蔽门', 'B2 / B3 站台'],
   },
   C: {
-    cars: '4 - 6', perCar: 200, pwr: 'third rail  750 V DC / linear motor', shoe: true, cab: true,
-    dest: '白云西', lines: ['light profile, low demand', 'automated branch lines', 'narrower cars, cheaper box'],
+    cars: '4 - 6', perCar: 200, pwr: '第三轨  750 V 直流 / 直线电机', shoe: true, cab: true,
+    dest: '白云西', lines: ['轻型车体，低需求支线', '自动化线路', '车体更窄，土建更省'],
   },
 };
 const T3 = ['A', 'B', 'C'].map((id) => ({ ...STOCK[id], ...EXTRA[id] }));
@@ -39,23 +39,23 @@ function place(S, o, pcx, pcy, k) {
 export function artTrains3D() {
   const W = 1600, H = 1240;
   const g = [];
-  g.push(title(48, 62, 'CONCEPT 11 // ROLLING STOCK IN 3D',
-    'A / B / C type cars, drawn as the game builds them',
-    'Each car is a rounded-roof cross-section extruded along the run. Sheet 05 gives the numbers; this is the shape the player actually sees arrive.'));
+  g.push(title(48, 62, '概念 11 // 列车三维图',
+    'A / B / C 型车，按游戏里的建法绘制',
+    '每节车体都是沿车长方向拉伸的圆角顶棚断面。第 05 张给出参数，这张给出玩家实际看到的形状。'));
   const OV = [];                                              // overlay callouts
 
   T3.forEach((t, i) => {
     const px0 = 48, pw = 992, py0 = 170 + i * 352, ph = 336;
     g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
     g.push(`<rect x="${px0}" y="${py0}" width="8" height="${ph}" rx="4" fill="${t.col}"/>`);
-    g.push(T(px0 + 34, py0 + 54, `TYPE ${t.id}`, { size: 44, weight: 800, fill: t.col }));
+    g.push(T(px0 + 34, py0 + 54, `${t.id} 型`, { size: 44, weight: 800, fill: t.col }));
     g.push(MUL(px0 + 36, py0 + 88, [
-      `${t.w.toFixed(1)} m wide  x  ${t.h.toFixed(1)} m tall  x  ${t.len.toFixed(1)} m long`,
-      `${t.cars} cars per consist   |   ${t.doors} doors / side @ ${t.doorW.toFixed(1)} m`,
-      `${t.perCar} pax crush per car`,
+      `宽 ${t.w.toFixed(1)} 米  ×  高 ${t.h.toFixed(1)} 米  ×  长 ${t.len.toFixed(1)} 米`,
+      `编组 ${t.cars} 节   |   每侧 ${t.doors} 门，门宽 ${t.doorW.toFixed(1)} 米`,
+      `单节拥挤定员 ${t.perCar} 人`,
     ], { size: 12.5, fill: '#a9b8c8', lh: 21, mono: true }));
     g.push(MUL(px0 + 36, py0 + 176, t.lines, { size: 12, fill: '#7d8ea3', lh: 20 }));
-    g.push(`<rect x="${px0 + 34}" y="${py0 + 238}" width="${t.pwr.length * 7 + 22}" height="26" rx="7" fill="${t.col}" opacity=".14" stroke="${t.col}" stroke-width="1.2"/>`);
+    g.push(`<rect x="${px0 + 34}" y="${py0 + 238}" width="${t.pwr.length * 12 + 26}" height="26" rx="7" fill="${t.col}" opacity=".14" stroke="${t.col}" stroke-width="1.2"/>`);
     g.push(T(px0 + 46, py0 + 256, t.pwr, { size: 12, fill: t.col, mono: true }));
 
     /* the car itself */
@@ -74,14 +74,14 @@ export function artTrains3D() {
       const [ax, ay] = pl.at(p[0], p[1], p[2]);
       callout(list, ax, ay, lx, ly, num, txt, { col: t.col, dx: 20, size: 12.5 });
     };
-    co([t.len * 0.5, t.w * 0.5, t.h + 0.16], px0 + 830, py0 + 60, 1, 'roof + AC unit');
-    co([t.len * 0.62, t.w, t.h * 0.64], px0 + 856, py0 + 96, 2, 'window band');
-    co([t.len * 0.5, t.w, t.h * 0.35], px0 + 862, py0 + 134, 3, `livery band, line colour`);
-    co([t.len * 0.72, t.w, t.h * 0.2], px0 + 858, py0 + 172, 4, 'door leaf + frame');
-    co([t.len * 0.19, t.w * 0.5, 0.0], px0 + 838, py0 + 216, 5, 'bogie, 2 wheels, collector');
-    co([t.len + 0.1, t.w * 0.5, t.h * 0.62], px0 + 856, py0 + 258, 6, 'cab + destination sign');
-    if (t.panto) co([t.len * 0.5, t.w * 0.5, t.h + 1.05], px0 + 828, py0 + 296, 7, 'pantograph: catenary line');
-    if (t.shoe) co([t.len * 0.81, t.w * 0.62, -0.6], px0 + 846, py0 + 296, 7, 'shoe: third rail line');
+    co([t.len * 0.5, t.w * 0.5, t.h + 0.16], px0 + 830, py0 + 60, 1, '车顶 + 空调机组');
+    co([t.len * 0.62, t.w, t.h * 0.64], px0 + 856, py0 + 96, 2, '车窗带');
+    co([t.len * 0.5, t.w, t.h * 0.35], px0 + 862, py0 + 134, 3, '涂装色带，线路色');
+    co([t.len * 0.72, t.w, t.h * 0.2], px0 + 858, py0 + 172, 4, '车门门板与门框');
+    co([t.len * 0.19, t.w * 0.5, 0.0], px0 + 838, py0 + 216, 5, '转向架、2 组车轮、集电靴');
+    co([t.len + 0.1, t.w * 0.5, t.h * 0.62], px0 + 856, py0 + 258, 6, '司机室 + 目的地显示屏');
+    if (t.panto) co([t.len * 0.5, t.w * 0.5, t.h + 1.05], px0 + 828, py0 + 296, 7, '受电弓：接触网线路');
+    if (t.shoe) co([t.len * 0.81, t.w * 0.62, -0.6], px0 + 846, py0 + 296, 7, '集电靴：第三轨线路');
     OV.push(list.join(''));
   });
 
@@ -89,8 +89,8 @@ export function artTrains3D() {
   {
     const px0 = 1064, pw = 488, py0 = 170, ph = 384;
     g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
-    g.push(T(px0 + 24, py0 + 34, 'CONSIST', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, 'the full 6-car consist, cab at each end', { size: 11.5, fill: '#7d8ea3' }));
+    g.push(T(px0 + 24, py0 + 34, '列车编组', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+    g.push(T(px0 + 24, py0 + 54, '完整 6 节编组，两端带司机室', { size: 11.5, fill: '#7d8ea3' }));
     const S = Scene();
     const gap = 0.55, cars = 6, CL = 19.5, CW = 2.8, CH = 3.8;
     for (let c = 0; c < cars; c++) {
@@ -111,8 +111,8 @@ export function artTrains3D() {
     const pl = place(S, { len: cars * (CL + gap), w: CW, h: CH }, px0 + 244, py0 + 214, 0.115);
     g.push(pl.svg);
     g.push(MUL(px0 + 24, py0 + 344, [
-      '6 x 19.5 m + 5 gaps = 119.8 m of train.',
-      'The platform must be at least that long, plus a stopping margin.',
+      '6 × 19.5 米 + 5 处车钩间隙 = 列车全长 119.8 米。',
+      '站台至少要这么长，还要留出停车余量。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
@@ -120,8 +120,8 @@ export function artTrains3D() {
   {
     const px0 = 1064, pw = 488, py0 = 574, ph = 320;
     g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
-    g.push(T(px0 + 24, py0 + 34, 'PLATFORM INTERFACE', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, 'car at the platform, PSD closed, third rail live', { size: 11.5, fill: '#7d8ea3' }));
+    g.push(T(px0 + 24, py0 + 34, '站台衔接', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+    g.push(T(px0 + 24, py0 + 54, '列车停靠站台，屏蔽门关闭，第三轨带电', { size: 11.5, fill: '#7d8ea3' }));
     const S = Scene();
     const L = 11.0, w = 2.8, h = 3.8, zf = 0.92;
     // tunnel shell behind the track
@@ -168,15 +168,15 @@ export function artTrains3D() {
       const [ax, ay] = pl.at(p[0], p[1], p[2]);
       callout(list, ax, ay, lx, ly, num, txt, { col: C.lineB, dx: 18, size: 11.5 });
     };
-    co([3.9, 2.9, 2.4], px0 + 392, py0 + 78, 1, 'platform screen doors');
-    co([5.0, 1.0, 0.35], px0 + 408, py0 + 118, 2, 'third rail + shoe');
-    co([2.0, 2.9, 1.1], px0 + 400, py0 + 158, 3, 'platform edge');
-    co([8.5, 1.2, 2.2], px0 + 392, py0 + 200, 4, 'floor = platform level');
-    co([0.4, -2.7, 3.4], px0 + 396, py0 + 244, 5, 'tunnel soffit');
+    co([3.9, 2.9, 2.4], px0 + 392, py0 + 78, 1, '站台屏蔽门');
+    co([5.0, 1.0, 0.35], px0 + 408, py0 + 118, 2, '第三轨 + 集电靴');
+    co([2.0, 2.9, 1.1], px0 + 400, py0 + 158, 3, '站台边缘');
+    co([8.5, 1.2, 2.2], px0 + 392, py0 + 200, 4, '地板与站台齐平');
+    co([0.4, -2.7, 3.4], px0 + 396, py0 + 244, 5, '隧道顶板');
     g.push(list.join(''));
     g.push(MUL(px0 + 24, py0 + 282, [
-      'PSD adds a fixed per-door transfer cost:',
-      'boarding is a door, a leaf and a threshold, not one motion.',
+      '屏蔽门给每道门增加固定的换乘耗时：',
+      '上车是门板、门槛两个动作，而不是一个。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 
@@ -184,8 +184,8 @@ export function artTrains3D() {
   {
     const px0 = 1064, pw = 488, py0 = 918, ph = 266;
     g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
-    g.push(T(px0 + 24, py0 + 34, 'POWER PICKUP', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, 'the choice decides tunnel or viaduct', { size: 11.5, fill: '#7d8ea3' }));
+    g.push(T(px0 + 24, py0 + 34, '受电方式', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+    g.push(T(px0 + 24, py0 + 54, '这一选择决定隧道还是高架', { size: 11.5, fill: '#7d8ea3' }));
     const mini = (ox, oy, kind) => {
       const S = Scene();
       const L = 8.5;
@@ -202,13 +202,13 @@ export function artTrains3D() {
     };
     mini(px0 + 130, py0 + 108, 'catenary');
     mini(px0 + 356, py0 + 108, 'third');
-    g.push(T(px0 + 74, py0 + 176, 'CATENARY  -  type A', { size: 11.5, weight: 700, fill: C.lineA, mono: true }));
-    g.push(T(px0 + 74, py0 + 194, 'viaduct, open sky, tall gauge', { size: 10.5, fill: '#7d8ea3' }));
-    g.push(T(px0 + 300, py0 + 176, 'THIRD RAIL  -  type B / C', { size: 11.5, weight: 700, fill: C.lineB, mono: true }));
-    g.push(T(px0 + 300, py0 + 194, 'tunnel or covered box only', { size: 10.5, fill: '#7d8ea3' }));
+    g.push(T(px0 + 74, py0 + 176, '接触网 — A 型', { size: 11.5, weight: 700, fill: C.lineA, mono: true }));
+    g.push(T(px0 + 74, py0 + 194, '高架、露天、净空高', { size: 10.5, fill: '#7d8ea3' }));
+    g.push(T(px0 + 300, py0 + 176, '第三轨 — B / C 型', { size: 11.5, weight: 700, fill: C.lineB, mono: true }));
+    g.push(T(px0 + 300, py0 + 194, '仅限隧道或加盖区间', { size: 10.5, fill: '#7d8ea3' }));
     g.push(MUL(px0 + 24, py0 + 222, [
-      'A player can lay a catenary viaduct over the',
-      'street and run a third-rail line under it in the same station.',
+      '玩家可以在街道上方架设接触网高架，',
+      '并在同一座车站的地下开行第三轨线路。',
     ], { size: 11, fill: '#7d8ea3', lh: 15 }));
   }
 

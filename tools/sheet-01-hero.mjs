@@ -112,8 +112,8 @@ export function artHero() {
   R(faceSvg('x', 0.02, 2.0, 12.0, FZ + 0.5, FZ + 3.35, C.lineA, { tone: 1.02, sw: 1 }));
   R(faceSvg('x', 0.015, 2.4, 11.6, FZ + 1.0, FZ + 2.85, C.lineA, { tone: 1.07, sw: 0.4 }));
   for (let yy = 3.0; yy < 12; yy += 1.0) R(faceSvg('x', 0.03, yy, yy + 0.035, FZ + 0.5, FZ + 3.35, C.ink, { tone: 1, sw: 0, opacity: 0.16 }));
-  R(`<text transform="matrix(${TW},${-TH},0,${ZU},${n(px(0, 11.6))},${n(py(0, 11.6, FZ + 2.35))})" font-size="0.82" font-weight="800" fill="#1b2733" letter-spacing="0.06">WUSI SQUARE</text>`);
-  R(`<text transform="matrix(${TW},${-TH},0,${ZU},${n(px(0, 11.6))},${n(py(0, 11.6, FZ + 1.15))})" font-size="0.62" font-weight="600" fill="#1b2733" opacity="0.7">五丝广场</text>`);
+  R(`<text transform="matrix(${TW},${-TH},0,${ZU},${n(px(0, 11.6))},${n(py(0, 11.6, FZ + 2.35))})" font-size="0.82" font-weight="800" fill="#1b2733" letter-spacing="0.06">五丝广场站</text>`);
+  R(`<text transform="matrix(${TW},${-TH},0,${ZU},${n(px(0, 11.6))},${n(py(0, 11.6, FZ + 1.15))})" font-size="0.5" font-weight="600" fill="#1b2733" opacity="0.7" letter-spacing="0.08">地铁 1 号线 · 2 号线</text>`);
   // line-colour band along the top of both walls
   R(faceSvg('y', 0.03, 0, NX, FZ + WH - 0.85, FZ + WH - 0.35, C.lineA, { tone: 1.0, sw: 0.5 }));
   R(faceSvg('x', 0.03, 0, NY, FZ + WH - 0.85, FZ + WH - 0.35, C.lineA, { tone: 0.94, sw: 0.5 }));
@@ -291,15 +291,15 @@ export function artHero() {
   co(12.6, 9.7, FZ, 430, 950, 8);
   co(4.8, 17.9, FZ + 3.2, 230, 830, 9);
   const items = [
-    [C.yellow, '1  Fare gates + glass screens: the only legal crossing'],
-    [C.blue, '2  Ticket machines, guide sticker, wayfinding'],
-    [C.red, '3  Retail unit, unpaid side, roof removed'],
-    [C.lineB, '4  B2 platform: screen doors, third rail, B-type train'],
-    [C.asc, '5  Escalators down and up, plus the stair, in one void'],
-    [C.white, '6  Surface entrance pavilion (2 exits, settable flow)'],
-    [C.pink, '7  Digital advertising + wall lightboxes'],
-    [C.green, '8  Tactile guidance strip + queue lanes at the gates'],
-    [C.teal, '9  Lift: step-free between every level'],
+    [C.yellow, '1  闸机 + 玻璃隔断：付费区唯一的合法通道'],
+    [C.blue, '2  自动售票机、地贴指引、导向标识'],
+    [C.red, '3  商铺，位于非付费区，已去顶'],
+    [C.lineB, '4  B2 站台：屏蔽门、第三轨、B 型列车'],
+    [C.asc, '5  同一竖井内的上下扶梯与楼梯'],
+    [C.white, '6  地面出入口（2 个出口，流量可设）'],
+    [C.pink, '7  数字广告屏 + 墙面灯箱'],
+    [C.green, '8  盲道导向带 + 闸机前的排队通道'],
+    [C.teal, '9  电梯：各层无障碍通达'],
   ];
   const lg = items.map(([col, txt], i) => {
     const cx = 60 + (i % 2) * 700, cy = 1000 + Math.floor(i / 2) * 30;
@@ -312,7 +312,7 @@ export function artHero() {
     <ellipse cx="${n(px(13, 11))}" cy="${n(py(13, 11, -1.6))}" rx="800" ry="360" fill="#000" opacity=".35" filter="url(#soft)"/>
     ${S.out()}
   </g>${legendBg}${A.join('')}${lg}`
-    + title(48, 62, 'CONCEPT 01 // ISOMETRIC CUTAWAY', 'Metro Station Designer',
-      'B1 concourse, roof off; B2 platform below. 1 block = 1 m.');
+    + title(48, 62, '概念 01 // 等轴测剖视图', '地铁车站设计师',
+      'B1 站厅去掉顶板；下方透过竖井可见 B2 站台。1 格 = 1 米。');
   return sheet(1600, 1180, body, { glow: true });
 }

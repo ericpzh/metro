@@ -27,7 +27,7 @@ export default function Lightbox({ art, onClose }) {
       className="lightbox"
       role="dialog"
       aria-modal="true"
-      aria-label={`Sheet ${art.id}: ${art.title}`}
+      aria-label={`第 ${art.id} 张：${art.title}`}
       onClick={onClose}
     >
       <div className="lightbox__bar" onClick={(e) => e.stopPropagation()}>
@@ -44,10 +44,10 @@ export default function Lightbox({ art, onClose }) {
             onClick={() => setFull((f) => !f)}
             aria-pressed={full}
           >
-            {full ? 'Fit to screen' : 'Full resolution'}
+            {full ? '适应屏幕' : '原始分辨率'}
           </button>
           <button type="button" className="btn btn--small btn--close" onClick={onClose}>
-            Close
+            关闭
           </button>
         </div>
       </div>

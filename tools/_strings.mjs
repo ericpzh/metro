@@ -1,7 +1,7 @@
 // Dev helper: list every <text> string in the rendered sheets, so the Chinese
 // translation table can be built against real output.
 //   node tools/_strings.mjs
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +17,9 @@ for (const f of readdirSync(dir).filter((f) => f.endsWith('.svg')).sort()) {
   }
 }
 const latin = [...seen.keys()].filter((s) => /[A-Za-z]/.test(s));
-console.log(`total text strings: ${seen.size}   containing latin: ${latin.length}\n`);
+const lines = [`total text strings: ${seen.size}   containing latin: ${latin.length}`, ''];
 for (const s of latin.sort()) {
-  console.log(`${s}\t\t${seen.get(s).map((f) => f.slice(0, 2)).join(',')}`);
+  lines.push(`${s}\t\t${seen.get(s).map((f) => f.slice(0, 2)).join(',')}`);
 }
+writeFileSync(join(dirname(fileURLToPath(import.meta.url)), '_strings.out.txt'), lines.join('\n'), 'utf8');
+console.log(`wrote ${latin.length} latin strings`);
