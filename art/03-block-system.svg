@@ -32,7 +32,7 @@
 <filter id="blur6" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>
 </defs>
 <style>
-@media (prefers-reduced-motion:reduce){.a-sway,.a-move,.a-doors,.a-spin,.a-breathe,.a-dash,.a-grow,.a-pulsew,.a-pass{animation:none!important}}
+@media (prefers-reduced-motion:reduce){.a-sway,.a-move,.a-doors,.a-spin,.a-breathe,.a-dash,.a-grow,.a-pulsew,.a-pass,.mvr{animation:none!important}}
 @keyframes mSway{to{transform:translate(0,var(--ay,0px))}}
 @keyframes mMove{0%,18%{transform:translate(0,0)}52%,68%{transform:translate(var(--ax,0px),var(--ay,0px))}100%{transform:translate(0,0)}}
 @keyframes mDoors{0%,30%{transform:translate(0,0)}42%,72%{transform:translate(var(--ax,0px),var(--ay,0px))}84%,100%{transform:translate(0,0)}}

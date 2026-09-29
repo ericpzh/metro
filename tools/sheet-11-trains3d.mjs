@@ -42,7 +42,7 @@ export function artTrains3D() {
   const g = [];
   g.push(title(48, 62, '概念 11 // 列车三维图',
     'A / B / C 型车，按游戏里的建法画',
-    '每节车厢，都是圆角顶棚的断面沿车长拽出来。第 05 张给参数，这张给玩家看到的形状。'));
+    '每节车厢，都是圆角顶棚的断面沿车长拽出来。第 05 张给参数，这张给你看到的形状。'));
   const OV = [];                                              // overlay callouts
 
   T3.forEach((t, i) => {

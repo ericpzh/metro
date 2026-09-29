@@ -357,7 +357,7 @@ export function chart(series, x, y, w, h, o = {}) {
  * opened on their own.
  * ================================================================== */
 export const MOTION_CSS = `<style>
-@media (prefers-reduced-motion:reduce){.a-sway,.a-move,.a-doors,.a-spin,.a-breathe,.a-dash,.a-grow,.a-pulsew,.a-pass{animation:none!important}}
+@media (prefers-reduced-motion:reduce){.a-sway,.a-move,.a-doors,.a-spin,.a-breathe,.a-dash,.a-grow,.a-pulsew,.a-pass,.mvr{animation:none!important}}
 @keyframes mSway{to{transform:translate(0,var(--ay,0px))}}
 @keyframes mMove{0%,18%{transform:translate(0,0)}52%,68%{transform:translate(var(--ax,0px),var(--ay,0px))}100%{transform:translate(0,0)}}
 @keyframes mDoors{0%,30%{transform:translate(0,0)}42%,72%{transform:translate(var(--ax,0px),var(--ay,0px))}84%,100%{transform:translate(0,0)}}
@@ -452,7 +452,7 @@ export const mover = (path, col, begin = 0, o = {}) => {
   const names = o.noFade ? name : `${name},mFade`;
   const durs = o.noFade ? dur : `${dur},${dur}`;
   const delays = o.noFade ? `${begin}` : `${begin},${begin}`;
-  return `<g style="animation-name:${names};animation-duration:${durs};animation-delay:${delays};animation-timing-function:linear;animation-iteration-count:infinite">${body}</g>`;
+  return `<g class="mvr" style="animation-name:${names};animation-duration:${durs};animation-delay:${delays};animation-timing-function:linear;animation-iteration-count:infinite">${body}</g>`;
 };
 
 /** a bar that fills, holds and empties - a queue, a load, a timetable gap. */

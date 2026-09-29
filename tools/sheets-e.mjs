@@ -135,7 +135,7 @@ export function artPlatformFlow() {
     leaves.push(group(rect(dx, Y_PEDGE + 4, HALF, 7, C.glass, { stroke: C.ink, sw: 0.8, opacity: 0.92 }), amT('0 0;0 0;16 0;16 0;0 0;0 0', pKT, DUR, pSpline)));
   }
   g.push(rect(PX0, Y_PEDGE - 2, platW, 2, stock.col, { opacity: 0.9 }));   // line-colour header
-  g.push(...psd);
+  g.push(...psd, ...leaves);
 
   /* track bed */
   g.push(rect(PX0, Y_PEDGE + 12, platW, Y_TRK1 - (Y_PEDGE + 12), '#232a33', { rx: 3 }));
