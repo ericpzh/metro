@@ -1,0 +1,27 @@
+{
+  // Metro Station Designer — the game. Its own Worker project, separate from
+  // the art site (`metro`).
+  //
+  // Served from the path prefix https://ericpzh.rest/metro-game/ so the website
+  // can embed it same-origin. The prefix Worker strips the prefix; the Worker's
+  // own workers.dev root still serves the game directly. Attach two routes:
+  //   ericpzh.rest/metro-game     (the bare path)
+  //   ericpzh.rest/metro-game/*   (everything under it)
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "metro-game",
+  "compatibility_date": "2026-09-29",
+
+  "main": "./worker/index.js",
+
+  "assets": {
+    "directory": "./dist",
+    // Required because there is a `main`: it is how the Worker reads assets.
+    "binding": "ASSETS",
+    "not_found_handling": "none"
+  },
+
+  // Must match the routes attached to the Worker. To host the game at its own
+  // workers.dev root instead, delete `main`, the assets binding, and this var,
+  // and set `not_found_handling` back to "single-page-application".
+  "vars": { "ASSET_PREFIX": "/metro-game" }
+}

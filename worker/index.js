@@ -10,6 +10,11 @@
  * handler only runs when no static asset matches the request. Prefixed paths
  * never match, because the assets sit at the root of the Worker — so every
  * prefixed request lands here and gets rewritten before being served.
+ *
+ * `/<prefix>/game/` is the website's game tab: the same document as the site
+ * root, rendered as a full-viewport iframe around the game's own Worker. It is
+ * aliased back to the root so the document's relative `./assets/...` resolve
+ * under `/game/` without a second HTML entry.
  */
 export default {
   async fetch(request, env) {
@@ -22,18 +27,36 @@ export default {
     const mine = url.pathname === prefix || url.pathname.startsWith(prefix + '/')
     if (!mine) return env.ASSETS.fetch(request)
 
-    const rest = url.pathname.slice(prefix.length)
+    let rest = url.pathname.slice(prefix.length)
+    // Where the bare/`index.html` redirects should land — the game tab stays
+    // under /game/ rather than snapping back to the art page.
+    const game = rest === '/game' || rest.startsWith('/game/')
+    const home = game ? prefix + '/game/' : prefix + '/'
 
-    // The built site references its assets relatively (Vite `base: './'`), so
-    // the directory URL must carry its trailing slash or `./assets/...` would
-    // resolve one level too high. Same for an explicit /index.html, which the
-    // asset layer would otherwise redirect to the domain root.
     if (rest === '' || rest === '/index.html') {
-      url.pathname = prefix + '/'
+      url.pathname = home
       return Response.redirect(url.toString(), 308)
+    }
+    if (game) {
+      const sub = rest.slice('/game'.length)
+      if (sub === '' || sub === '/index.html') {
+        url.pathname = home
+        return Response.redirect(url.toString(), 308)
+      }
+      rest = sub
     }
 
     url.pathname = rest
-    return env.ASSETS.fetch(new Request(url, request))
+    const res = await env.ASSETS.fetch(new Request(url, request))
+
+    // The tab is a client route with no file behind it: serve the document so
+    // the app can render it. Anything with an extension is a real 404. Fetch
+    // the directory root, not /index.html — asking for /index.html explicitly
+    // is itself a redirect.
+    if (res.status === 404 && !/\.[a-z0-9]+$/i.test(rest)) {
+      url.pathname = '/'
+      return env.ASSETS.fetch(new Request(url, request))
+    }
+    return res
   },
 }

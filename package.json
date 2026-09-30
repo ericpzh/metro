@@ -10,7 +10,12 @@
     "build": "npm --prefix web ci && npm --prefix web run build",
     "deploy": "npm run build && wrangler deploy",
     "preview": "npm run build && wrangler dev",
-    "dev": "npm --prefix web run dev"
+    "dev": "npm --prefix web run dev",
+    "setup:game": "npm --prefix game ci",
+    "dev:game": "npm --prefix game run dev",
+    "build:game": "npm --prefix game ci && npm --prefix game run build",
+    "deploy:game": "npm run build:game && wrangler deploy -c game/wrangler.jsonc",
+    "test:game": "npm --prefix game test"
   },
   "devDependencies": {
     "wrangler": "^4.143.0"

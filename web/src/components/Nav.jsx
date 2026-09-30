@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { repoUrl, specUrl } from '../site.js'
+import { gamePath, repoUrl, specUrl } from '../site.js'
 
 export default function Nav() {
   const [progress, setProgress] = useState(0)
@@ -31,6 +31,15 @@ export default function Nav() {
             <em>概念图</em>
           </span>
         </a>
+        <nav className="tabs tabs--nav" aria-label="站点">
+          <a className="tab tab--on" href={import.meta.env.BASE_URL} aria-current="page">
+            概念图
+          </a>
+          <a className="tab" href={gamePath}>
+            游戏
+          </a>
+        </nav>
+        <span className="nav__spacer" />
         <nav className="nav__links">
           <a href="#gallery">看图</a>
           <a href={specUrl} target="_blank" rel="noreferrer">

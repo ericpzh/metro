@@ -9,11 +9,50 @@ either copes or it does not.
 | Path | What it is |
 |---|---|
 | [`GAME-SPEC.md`](GAME-SPEC.md) | The full design specification (draft 1). |
+| [`PLAN.md`](PLAN.md) | The build order for the playable vertical slice. |
+| [`game/`](game/) | **The game** — React + three.js + a Web Worker sim. Own app, own deploy. |
 | [`art/`](art/) | Thirteen generated concept sheets, as SVG. |
 | [`tools/`](tools/) | The generators for both: `node tools/gen-art.mjs` redraws `art/`. |
 | [`web/`](web/) | The concept-art website — React + Vite. |
 | [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers deploy config for the site. |
 | [`worker/`](worker/) | Optional entry point, only needed for path-prefix routing. |
+
+## The game
+
+The game is a separate application from the art site: its own `package.json`,
+Vite config, tests and Cloudflare Worker (`metro-game`). It reads nothing from
+`web/` and nothing from `art/` — the concept sheets are diagrams, not the
+art-direction target (see PLAN.md §2.3).
+
+It is reachable two ways, and both are the same build:
+
+* **The site's 游戏 tab** — `https://ericpzh.rest/metro/game/` renders the site
+  document as a full-viewport iframe around the game's Worker. The art page and
+  the game never share a viewport.
+* **The game's own URL** — `https://ericpzh.rest/metro-game/`, which also works
+  on its `workers.dev` root.
+
+The tab points at the game Worker rather than bundling it, so the two apps still
+build and deploy independently. The only coupling is a URL: `gameUrl` in
+[`web/src/site.js`](web/src/site.js), overridable with `VITE_GAME_URL`.
+
+```bash
+npm run setup:game    # install game/ deps
+npm run dev:game      # http://localhost:5174 (the site owns 5173)
+npm run test:game     # node --test: determinism, tick budgets, capacity ladder
+npm run deploy:game   # build, then `wrangler deploy -c game/wrangler.jsonc`
+```
+
+To see the tab locally, run the site and the game side by side:
+
+```bash
+npm start             # site at http://localhost:5173
+npm run dev:game      # game at http://localhost:5174, embedded by http://localhost:5173/game/
+```
+
+`game/README.md` covers the milestones, the simulation's time base, and the
+places where the vertical slice deliberately diverges from the spec.
+
 
 ## The site
 
@@ -105,6 +144,16 @@ Attach **two** routes to the Worker — Workers & Pages → `metro` → **Settin
 | `ericpzh.rest/metro` | the bare path |
 | `ericpzh.rest/metro/*` | everything under it |
 
+The game Worker gets its own two routes, the same way:
+
+| Route pattern | Catches |
+|---|---|
+| `ericpzh.rest/metro-game` | the bare path |
+| `ericpzh.rest/metro-game/*` | everything under it |
+
+Attach all four to the two Workers (`metro` and `metro-game`). The site's 游戏 tab at
+`/metro/game/` iframes `/metro-game/`, so the game must be routed before the tab works.
+
 Two routes, not one, because `/metro/*` does *not* match the bare `/metro` — the literal `/` after
 `metro` is required. Do not collapse them into `/metro*`: `*` matches across `/`, so `/metro*` would
 also swallow `/metropolis` and `/metro-north` and hand them to this Worker, which can only 404 them.
@@ -135,8 +184,16 @@ This combination is tested with `wrangler dev`:
 | `/metro/index.html` | `308` → `/metro/` |
 | `/metro/art/01-isometric-cutaway.svg` | `200` `image/svg+xml` |
 | `/metro/assets/*.css` | `200` `text/css` |
+| `/metro/game` | `308` → `/metro/game/` |
+| `/metro/game/` | `200` `index.html` — the 游戏 tab |
+| `/metro/game/assets/*.css` | `200` — the same assets, aliased back to the root |
+| `/metro/game/deep/route` | `200` `index.html` — the SPA fallback |
 | `/` | `200` — served straight from assets, the Worker is not invoked |
 | `/metropolis`, `/nope` | `404` |
+
+`/metro/game/` is the site document served one level down, so its relative `./assets/...` resolve
+under `/game/`; the Worker aliases that subpath back to the root rather than shipping a second HTML
+entry. The same test table applies to the game's Worker with `/metro-game/` as the prefix.
 
 The `workers.dev` URL keeps working at the same time: `/` is served directly from assets, so one build
 serves both the domain root and the prefix.
