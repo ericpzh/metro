@@ -110,15 +110,26 @@ npm run build
 npx wrangler deploy -c wrangler.jsonc
 ```
 
-`wrangler.jsonc` serves the game from the path prefix `https://ericpzh.rest/metro-game/`
-via [`worker/index.js`](worker/index.js), so the website's 游戏 tab can embed it
-same-origin; attach the two routes `ericpzh.rest/metro-game` and
-`ericpzh.rest/metro-game/*`. The Worker's own `workers.dev` root keeps working at the same
-time. From the repository root, `npm run deploy:game` does both steps.
+From the repository root, `npm run deploy:game` does both steps and also attaches the routes.
 
-To host it at the `workers.dev` root only, delete `main`, the `assets.binding` and the
-`ASSET_PREFIX` var, and set `assets.not_found_handling` back to
-`"single-page-application"`. The build needs no change either way.
+`wrangler.jsonc` serves the game from the path prefix `https://ericpzh.rest/metro-game/` via
+[`worker/index.js`](worker/index.js), so the website's 游戏 tab can embed it same-origin. The two
+routes `ericpzh.rest/metro-game` and `ericpzh.rest/metro-game/*` are declared under `routes` in the
+same file, so `wrangler deploy` creates them — there is no dashboard step. Two routes, not one: the
+bare path needs its own. The Worker's own `workers.dev` root keeps working at the same time.
+
+Two notes:
+
+* `wrangler` warns that the routes "will attempt to serve Assets on a configured path" (it looks for
+  `dist/metro-game/*`). Nothing lives there, so those requests fall through to the Worker, which
+  strips the prefix and reads from the asset root. The warning is cosmetic.
+* The site's Workers Builds project deploys `metro` only; nothing on push deploys this Worker. Either
+  run `npm run deploy:game` yourself or add a second Workers Builds project as the root README
+  describes.
+
+To host it at the `workers.dev` root only, delete `main`, the `assets.binding`, the `routes` and the
+`ASSET_PREFIX` var, and set `assets.not_found_handling` back to `"single-page-application"`. The
+build needs no change either way.
 
 If the site's tab should point somewhere else — a preview URL, a different domain — set
 `VITE_GAME_URL` when building `web/`.

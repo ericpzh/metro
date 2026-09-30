@@ -36,11 +36,15 @@ The tab points at the game Worker rather than bundling it, so the two apps still
 build and deploy independently. The only coupling is a URL: `gameUrl` in
 [`web/src/site.js`](web/src/site.js), overridable with `VITE_GAME_URL`.
 
+`game/wrangler.jsonc` declares the game's two routes, so `npm run deploy:game`
+creates them along with the Worker — there is no dashboard step and nothing to
+keep in sync by hand.
+
 ```bash
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
 npm run test:game     # node --test: determinism, tick budgets, capacity ladder
-npm run deploy:game   # build, then `wrangler deploy -c game/wrangler.jsonc`
+npm run deploy:game   # build, deploy metro-game, and attach its two routes
 ```
 
 To see the tab locally, run the site and the game side by side:
@@ -119,6 +123,17 @@ source of truth and the SVGs are never duplicated in git.
 
 Every push to `main` then rebuilds and redeploys.
 
+**This project deploys `metro` only.** The game is a second Worker (`metro-game`) with its own
+`wrangler.jsonc`, so the site's build never touches it — deploy it with `npm run deploy:game`. To have
+pushes ship both, add a second Workers Builds project on the same repository:
+
+| Field | Value |
+|---|---|
+| Project name | `metro-game` — must match `name` in `game/wrangler.jsonc` |
+| Build command | `npm run build:game` |
+| Deploy command | `npx wrangler deploy -c game/wrangler.jsonc` |
+| Root directory | `/` — the game's config is referenced by path, not by `cd` |
+
 ### Local preview and deploy
 
 ```bash
@@ -128,7 +143,8 @@ npm run deploy     # build, then wrangler deploy
 ```
 
 `npm run deploy` needs `npx wrangler login` once. CI does not — Cloudflare supplies its own
-credentials to the build.
+credentials to the build. `npm run deploy:game` deploys the game and attaches its routes the same
+way, and needs the same login.
 
 ### Routing
 
@@ -136,27 +152,30 @@ The site is served from a path prefix — **`https://ericpzh.rest/metro/`** — 
 root. `ASSET_PREFIX` in `wrangler.jsonc` is `/metro`, and [`worker/index.js`](worker/index.js)
 rewrites prefixed requests down to the asset root.
 
-Attach **two** routes to the Worker — Workers & Pages → `metro` → **Settings** → **Domains & Routes**
-→ **Add** → **Route**:
+The site and the game are **two Workers in the same zone**, each with two routes:
 
-| Route pattern | Catches |
-|---|---|
-| `ericpzh.rest/metro` | the bare path |
-| `ericpzh.rest/metro/*` | everything under it |
+| Route pattern | Worker | Attached by |
+|---|---|---|
+| `ericpzh.rest/metro` | `metro` | hand, once |
+| `ericpzh.rest/metro/*` | `metro` | hand, once |
+| `ericpzh.rest/metro-game` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
+| `ericpzh.rest/metro-game/*` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
 
-The game Worker gets its own two routes, the same way:
+The zone serves other things too (`api/*`, `livery*`, `editor*`, `ac27approach*`); those routes are
+left alone. The site's two are added once: Workers & Pages → `metro` → **Settings** → **Domains &
+Routes** → **Add** → **Route**. The game's are not added by hand — they are declared under `routes`
+in [`game/wrangler.jsonc`](game/wrangler.jsonc), so deploying the game creates them.
 
-| Route pattern | Catches |
-|---|---|
-| `ericpzh.rest/metro-game` | the bare path |
-| `ericpzh.rest/metro-game/*` | everything under it |
+Two routes per Worker, not one, because `/metro/*` does *not* match the bare `/metro` — the literal
+`/` after `metro` is required. Never collapse a pair into `/metro*` or `/metro-game*`: `*` matches
+across `/`, so `/metro*` would also swallow `/metro-game…` and hand it to the site's Worker, which
+can only 404 it.
 
-Attach all four to the two Workers (`metro` and `metro-game`). The site's 游戏 tab at
-`/metro/game/` iframes `/metro-game/`, so the game must be routed before the tab works.
-
-Two routes, not one, because `/metro/*` does *not* match the bare `/metro` — the literal `/` after
-`metro` is required. Do not collapse them into `/metro*`: `*` matches across `/`, so `/metro*` would
-also swallow `/metropolis` and `/metro-north` and hand them to this Worker, which can only 404 them.
+There is **no `ericpzh.rest/*` route**: the apex is a Pages project bound as a Custom Domain, so any
+path matching no Worker route falls through to it. That is what `/metro-game/` did before the game's
+routes existed — the 游戏 tab rendered, and its iframe showed the Pages site instead of the game.
+Route patterns are ranked by specificity, so `ericpzh.rest/metro/*` and `ericpzh.rest/metro-game/*`
+win over the apex.
 
 > **`*.ericpzh.rest/metro/*` will not work for this.** A leading wildcard matches subdomains only and
 > never the apex, so `ericpzh.rest/metro/` would never reach the Worker. Add
@@ -164,11 +183,7 @@ also swallow `/metropolis` and `/metro-north` and hand them to this Worker, whic
 > `www`.
 
 Routes require the hostname to be **proxied** in DNS (orange cloud). A Custom Domain is not the right
-tool here: it would claim the whole of `ericpzh.rest`, which serves other things.
-
-Route patterns are ranked by specificity, so `ericpzh.rest/metro/*` wins over whatever already handles
-`ericpzh.rest/*`. If the apex is currently a **Pages** project bound as a Custom Domain rather than a
-Worker route, check afterwards that `/metro/` is not still landing on the other site.
+tool for either Worker: it would claim the whole of `ericpzh.rest`, which serves other things.
 
 Assets live at the root of the Worker, so a request for `/metro/` matches no file and falls through to
 [`worker/index.js`](worker/index.js), which strips the prefix and re-fetches from `env.ASSETS`. It also
@@ -193,7 +208,13 @@ This combination is tested with `wrangler dev`:
 
 `/metro/game/` is the site document served one level down, so its relative `./assets/...` resolve
 under `/game/`; the Worker aliases that subpath back to the root rather than shipping a second HTML
-entry. The same test table applies to the game's Worker with `/metro-game/` as the prefix.
+entry. The same table applies to the game's Worker with `/metro-game/` as the prefix.
+
+When the game deploys, `wrangler` warns that the routes "will attempt to serve Assets on a configured
+path" — it goes looking for `game/dist/metro-game/*`, because the routes are declared next to
+`assets`. Nothing lives there, so those requests fall through to the Worker, which strips the prefix
+and reads from the asset root. The table above is the behaviour you actually get; the warning is
+cosmetic.
 
 The `workers.dev` URL keeps working at the same time: `/` is served directly from assets, so one build
 serves both the domain root and the prefix.
