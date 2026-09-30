@@ -11,6 +11,15 @@
   "name": "metro-game",
   "compatibility_date": "2026-09-29",
 
+  // Attaching the routes here means `wrangler deploy` creates them; there is no
+  // dashboard step. Two routes, not one: `/metro-game/*` does not match the
+  // bare `/metro-game`, and never collapse them into `/metro-game*` — `*` spans
+  // `/`, so it would also swallow `/metro-gameplay` and hand it to this Worker.
+  "routes": [
+    { "pattern": "ericpzh.rest/metro-game", "zone_name": "ericpzh.rest" },
+    { "pattern": "ericpzh.rest/metro-game/*", "zone_name": "ericpzh.rest" }
+  ],
+
   "main": "./worker/index.js",
 
   "assets": {
