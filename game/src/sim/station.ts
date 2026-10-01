@@ -20,10 +20,11 @@ import {
   WALK_SPEED,
 } from './constants.ts'
 import { floorSpeed } from './finishes.ts'
+import { gateAllows } from './gates.ts'
 import { EXIT_BACK_Y, EXIT_DOOR_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_SIDE } from './exits.ts'
 import { STOCK, doorCentres } from './stock.ts'
-import { zoneIndex } from './zones.ts'
-import type { StationData } from './types.ts'
+import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
+import { crossingDir, zoneIndex } from './zones.ts'
 
 export type ServerKind = 'gate' | 'escalator' | 'stair' | 'lift' | 'door' | 'stop'
 
@@ -49,6 +50,9 @@ export interface ServerDef {
   served: number
   waitAccum: number
   waitCount: number
+  /** Gate policy and the direction a two-way lane is currently committed to. */
+  gateMode?: GateMode
+  lane?: GateDir
 }
 
 export interface PlatformEdge {
@@ -115,9 +119,11 @@ interface EdgeDraft {
 export function buildGraph(data: StationData): StationGraph {
   const solid = new Set<string>()
   for (const c of data.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
-  // Cells that host a gate: the only walk edges allowed to cross a zone line.
-  const gateCells = new Set<string>()
-  for (const m of data.modules) if (m.type === 'gate') gateCells.add(cellKey(m.x, m.y, m.z))
+  // Cells that host a gate, and the direction each gate passes. Only a gate
+  // whose policy allows the crossing force can cross the zone line here, so a
+  // one-way gate is a barrier to the other direction (§4.5).
+  const gateModes = new Map<string, GateMode>()
+  for (const m of data.modules) if (m.type === 'gate') gateModes.set(cellKey(m.x, m.y, m.z), m.cfg.dir)
 
   // Walkable = a solid cell with nothing solid directly above it.
   const nodeIndex = new Map<string, number>()
@@ -179,7 +185,7 @@ export function buildGraph(data: StationData): StationGraph {
 
   const addServer = (s: Omit<ServerDef, 'id' | 'queue' | 'cooldown' | 'served' | 'waitAccum' | 'waitCount'>): number => {
     const id = servers.length
-    servers.push({ ...s, id, queue: [], cooldown: 0, served: 0, waitAccum: 0, waitCount: 0 })
+    servers.push({ ...s, id, queue: [], cooldown: 0, served: 0, waitAccum: 0, waitCount: 0, lane: s.lane ?? 0 })
     return id
   }
 
@@ -234,9 +240,16 @@ export function buildGraph(data: StationData): StationGraph {
       const j = nodeIndex.get(cellKey(nx, ny, z))
       if (j === undefined) continue
       // §4.5: a zone boundary is a movement barrier. The only crossing is a
-      // cell that hosts a gate, so an ungated fare line physically traps the
-      // crowd — no special-casing in the sim, just no edge.
-      if (nodeZone[i] !== nodeZone[j] && !gateCells.has(cellKey(x, y, z)) && !gateCells.has(cellKey(nx, ny, z))) continue
+      // cell that hosts a gate, and only if that gate actually passes this
+      // direction — so an ungated line traps the crowd and a one-way gate
+      // turns away the direction it does not serve.
+      if (nodeZone[i] !== nodeZone[j]) {
+        const dir = crossingDir(ZONES[nodeZone[i]], ZONES[nodeZone[j]])
+        const mi = gateModes.get(cellKey(x, y, z))
+        const mj = gateModes.get(cellKey(nx, ny, z))
+        const ok = (mi !== undefined && gateAllows(mi, dir)) || (mj !== undefined && gateAllows(mj, dir))
+        if (!ok) continue
+      }
       // §5.6: an exit head-house wall is a barrier too — the opening is the way.
       if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5)) continue
       // Cost carries the finish speed of both ends, so a concrete floor is a
@@ -271,6 +284,7 @@ export function buildGraph(data: StationData): StationGraph {
             ride: 0,
             batch: 1,
             cycle: 0,
+            gateMode: m.cfg.dir,
           })
           serverForNode.set(n, id)
         }
@@ -579,6 +593,18 @@ export class PathFinder {
   }
 
   /**
+   * A one-off search that neither reads nor writes the cache and does not
+   * consume the amortised budget. Used at the fare line, where the gate choice
+   * has to reflect the queues *now* — a shared cached path would commit a whole
+   * wave to one gate before any of them arrived (§7.2).
+   */
+  search(from: number, to: number, needs: Needs): Int32Array | null {
+    if (from < 0 || to < 0) return null
+    if (from === to) return EMPTY_PATH
+    return this.astar(from, to, needs, false)
+  }
+
+  /**
    * Amortise A* across ticks. Cache hits are free — only real searches consume
    * the per-tick budget, so a wave that shares a corridor resolves in one tick
    * while a wave of genuinely distinct legs still cannot stall the sim.
@@ -624,9 +650,9 @@ export class PathFinder {
   }
 
   /** Plain A* over the CSR graph. Returns node ids from start to goal. */
-  astar(start: number, goal: number, needs: Needs): Int32Array | null {
+  astar(start: number, goal: number, needs: Needs, count = true): Int32Array | null {
     const g = this.graph
-    this.searches++
+    if (count) this.searches++
     this.epoch++
     const ep = this.epoch
     const { adjStart, adjTo, adjCost, adjKind, adjServer, nodeX, nodeY, nodeZ, servers, serverForNode } = g

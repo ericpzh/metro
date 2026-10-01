@@ -20,6 +20,18 @@ export const ZONES: readonly Zone[] = ['outside', 'unpaid', 'paid', 'platform', 
 export const DEFAULT_ZONE: Zone = 'unpaid'
 
 /**
+ * A fare gate's pass policy, §4.5. `in` is entry only (unpaid → paid), `out` is
+ * exit only (paid → unpaid) and `both` passes either — but only one direction at
+ * a time, because a two-way turnstile is a single lane (§7.1).
+ */
+export type GateMode = 'in' | 'out' | 'both'
+/**
+ * Direction of a fare-line crossing: `1` entry, `-1` exit, `0` unknown (both
+ * sides the same zone). See `crossingDir` in `sim/zones.ts`.
+ */
+export type GateDir = -1 | 0 | 1
+
+/**
  * Pack an integer cell coordinate into one Number for `Set`/`Map` keys.
  * Number arithmetic, not bit shifts: `(x + 4096) << 20` overflows 32 bits and
  * makes neighbouring cells collide, which silently corrupts solidity and
@@ -84,7 +96,7 @@ export interface ModuleBase {
 
 export type Module =
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
-  | (ModuleBase & { type: 'gate'; cfg: { dir: 'both' | 'in' | 'out' } })
+  | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode } })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down' } })
   | (ModuleBase & { type: 'stair'; from: Vec3i; to: Vec3i; cfg: { width: number } })
   | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: Record<string, never> })

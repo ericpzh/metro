@@ -17,7 +17,11 @@ test('same seed and tick produce identical agents', () => {
     a.tickOnce()
     b.tickOnce()
   }
-  assert.ok(a.pool.count > 200, `expected a crowd, got ${a.pool.count}`)
+  // A real crowd passed through, so the comparison below is meaningful. Throughput
+  // tuning moves the *standing* population around, so count everyone the run
+  // created — still inside plus everyone who already left.
+  const throughput = a.pool.count + a.totals.exited + a.totals.boarded
+  assert.ok(throughput > 300, `expected a crowd, got ${throughput}`)
   assert.deepEqual(positions(a), positions(b))
 
   // And it keeps holding deep into the run.

@@ -6,7 +6,7 @@
 // is through a module that legitimately does so — a gate for the fare line.
 // That is what makes "a gate is the only legal crossing" true (§13.2).
 
-import { DEFAULT_ZONE, ZONES, type Zone } from './types.ts'
+import { DEFAULT_ZONE, ZONES, type GateDir, type Zone } from './types.ts'
 
 export interface ZoneDef {
   id: Zone
@@ -44,3 +44,27 @@ export function zoneDef(zone: Zone | undefined): ZoneDef {
 export function zoneLabel(zone: Zone | undefined): string {
   return zoneDef(zone).label
 }
+
+/** The paid side of the fare line: only an exit gate may leave it. */
+export function isPaidZone(zone: Zone): boolean {
+  return zone === 'paid' || zone === 'platform' || zone === 'restricted'
+}
+
+/** The unpaid side of the fare line: only an entry gate may leave it. */
+export function isUnpaidZone(zone: Zone): boolean {
+  return zone === 'unpaid' || zone === 'outside'
+}
+
+/**
+ * Which way a walker crosses the fare line between two zones: `1` entering the
+ * paid area, `-1` leaving it, `0` when the step does not cross it (or the two
+ * zones are the same side). Direction is what a one-way gate checks.
+ */
+export function crossingDir(from: Zone | undefined, to: Zone | undefined): GateDir {
+  const a = from ?? DEFAULT_ZONE
+  const b = to ?? DEFAULT_ZONE
+  if (isUnpaidZone(a) && isPaidZone(b)) return 1
+  if (isPaidZone(a) && isUnpaidZone(b)) return -1
+  return 0
+}
+

@@ -5,7 +5,7 @@
 
 import { PATIENCE_MAX, PATIENCE_MIN } from './constants.ts'
 import type { Rng } from './rng.ts'
-import { AgentState, type Trip } from './types.ts'
+import { AgentState, type GateDir, type Trip } from './types.ts'
 
 export interface Needs {
   stepFree: boolean
@@ -43,6 +43,10 @@ export interface Agent {
   server: number
   /** Gate/stop server already handled on this leg. */
   servedFor: number
+  /** Direction this agent crosses the fare line at the gate it is queued at. */
+  gateDir: GateDir
+  /** True once this leg has re-chosen a gate at the fare line. */
+  gateChosen: boolean
   /** Vertical ride interpolation. */
   rideFromX: number
   rideFromY: number
@@ -113,6 +117,8 @@ export class AgentPool {
     a.comfort = 1
     a.server = -1
     a.servedFor = -1
+    a.gateDir = 0
+    a.gateChosen = false
     a.rideT = 0
     a.rideTotal = 0
     a.door = -1

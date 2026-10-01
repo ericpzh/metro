@@ -28,10 +28,11 @@ import {
   type Los,
 } from './constants.ts'
 import { Rng } from './rng.ts'
+import { gateLaneAllows } from './gates.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from './station.ts'
-import { ZONE_INDEX } from './zones.ts'
+import { crossingDir, ZONE_INDEX } from './zones.ts'
 import { STOCK, trainRatedCapacity, type StockClass } from './stock.ts'
-import type { LineDef, StationData, Trip } from './types.ts'
+import { ZONES, type LineDef, type StationData, type Trip } from './types.ts'
 
 const STATE_ARRIVING = 0
 const STATE_WALKING = 1
@@ -586,6 +587,10 @@ export class World {
         this.stepLift(s, dt)
         continue
       }
+      if (s.kind === 'gate') {
+        this.stepGate(s, dt)
+        continue
+      }
       // The server owns the whole tick's worth of service capacity: at 75/min
       // and a 1 s step that is 1-2 people, but the loop is what makes the rate
       // correct at any step size.
@@ -603,6 +608,52 @@ export class World {
       if (s.cooldown < 0 && s.queue.length === 0) s.cooldown = 0
       if (s.cooldown < -dt) s.cooldown = -dt
     }
+  }
+
+  /**
+   * A fare gate. A one-way gate serves only the direction it is built for; a
+   * two-way gate is one lane, so the first agent to reach an idle lane fixes
+   * the direction and the lane stays that way until no agent of that direction
+   * is left to pass — first come, first served (§7.1). Agents of the blocked
+   * direction simply keep waiting behind it; the lane releases the moment its
+   * side drains, so the other direction gets its turn.
+   */
+  private stepGate(s: ServerDef, dt: number): void {
+    s.cooldown -= dt
+    const mode = s.gateMode ?? 'both'
+    const pool = this.pool.all()
+    while (s.cooldown <= 0 && s.queue.length > 0) {
+      const idx = this.pickGateAgent(s, mode, pool)
+      if (idx < 0) {
+        // Nobody of the committed direction is queued: release the lane so the
+        // next arrival (first come) can claim it.
+        s.lane = 0
+        break
+      }
+      const id = s.queue.splice(idx, 1)[0]
+      const a = pool.get(id)
+      if (!a || a.dead) {
+        s.cooldown += 1 / s.rate
+        continue
+      }
+      if (mode === 'both') s.lane = a.gateDir
+      this.serve(a, s)
+      s.cooldown += 1 / s.rate
+    }
+    if (s.cooldown < 0 && s.queue.length === 0) s.cooldown = 0
+    if (s.cooldown < -dt) s.cooldown = -dt
+  }
+
+  /** Queue index of the next agent the gate may serve, or -1. */
+  private pickGateAgent(s: ServerDef, mode: ServerDef['gateMode'], pool: Map<number, Agent>): number {
+    const lane = s.lane ?? 0
+    for (let i = 0; i < s.queue.length; i++) {
+      const a = pool.get(s.queue[i])
+      // A dead entry must be pulled out by the caller, whatever the direction.
+      if (!a || a.dead) return i
+      if (gateLaneAllows(mode ?? 'both', lane, a.gateDir)) return i
+    }
+    return -1
   }
 
   private stepLift(s: ServerDef, dt: number): void {
@@ -863,6 +914,7 @@ export class World {
       }
       return
     }
+    if (this.chooseGate(a)) return
     const g = this.graph
     const target = a.path[a.pathIdx]
     const tx = g.nodeX[target]
@@ -892,6 +944,40 @@ export class World {
     a.z += (tz - a.z) * inv
     a.vx = ((tx - a.x) / Math.max(dist, 1e-6)) * speed
     a.vy = ((ty - a.y) / Math.max(dist, 1e-6)) * speed
+  }
+
+  /**
+   * The fare line is a decision point, not a waypoint. A cached path commits a
+   * whole wave to the gate nearest the escalator while the queues it should
+   * balance are still empty, so that gate jams and the rest of the line idles.
+   * The moment an agent is about to step onto a gate it re-plans the rest of
+   * the leg against the live queues, because walking a few metres along the
+   * concourse beats queueing behind everyone else (§7.2).
+   *
+   * The re-plan deliberately skips the cache — it has to see the queues as they
+   * are — and happens once per crossing, which the escalators already pace, so
+   * it is a handful of searches a second, not a per-tick wave.
+   */
+  private chooseGate(a: Agent): boolean {
+    if (a.gateChosen) return false
+    const target = a.path[a.pathIdx]
+    const srv = this.graph.serverForNode.get(target)
+    if (srv === undefined || this.graph.servers[srv].kind !== 'gate') return false
+    a.gateChosen = true
+    const from = this.nearestNode(a.x, a.y, a.z)
+    if (from < 0 || a.destNode < 0 || from === a.destNode) return true
+    const path = this.path.search(from, a.destNode, a.needs)
+    if (path && path.length > 0) {
+      a.path = path
+      a.pathIdx = 0
+      if (path.length === 1) {
+        this.onArrive(a)
+        return true
+      }
+      a.state = STATE_WALKING
+      return false
+    }
+    return true
   }
 
   /**
@@ -1015,6 +1101,7 @@ export class World {
     this.ensureLegNode(a, leg)
     a.fromNode = this.nearestNode(a.x, a.y, a.z)
     a.destNode = leg.node
+    a.gateChosen = false
     if (a.fromNode < 0 || leg.node < 0) {
       // Unreachable or off-graph: give up on the trip.
       this.advanceLeg(a)
@@ -1111,6 +1198,14 @@ export class World {
     const gate = g.serverForNode.get(cur)
     if (gate !== undefined && a.servedFor !== gate && g.servers[gate].kind === 'gate') {
       a.servedFor = gate
+      // Which way this walker crosses the fare line: from the zone it left to
+      // the zone it is heading into, read off the path around the gate node.
+      const prev = a.pathIdx > 0 ? a.path[a.pathIdx - 1] : -1
+      const next = a.pathIdx + 1 < a.path.length ? a.path[a.pathIdx + 1] : -1
+      a.gateDir = crossingDir(
+        ZONES[prev >= 0 ? g.nodeZone[prev] : g.nodeZone[cur]],
+        ZONES[next >= 0 ? g.nodeZone[next] : g.nodeZone[cur]],
+      )
       this.joinServer(a, gate)
       return true
     }
