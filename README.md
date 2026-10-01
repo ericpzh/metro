@@ -127,15 +127,17 @@ source of truth and the SVGs are never duplicated in git.
 Every push to `main` then rebuilds and redeploys.
 
 **This project deploys `metro` only.** The game is a second Worker (`metro-game`) with its own
-`wrangler.jsonc`, so the site's build never touches it — deploy it with `npm run deploy:game`. To have
-pushes ship both, add a second Workers Builds project on the same repository:
+`wrangler.jsonc`, so the site's build never touches it. It has a second Workers Builds project on the
+same repository, so a push to `main` ships both:
 
 | Field | Value |
 |---|---|
-| Project name | `metro-game` — must match `name` in `game/wrangler.jsonc` |
+| Project name | `metro-game` — matches `name` in `game/wrangler.jsonc` |
 | Build command | `npm run build:game` |
 | Deploy command | `npx wrangler deploy -c game/wrangler.jsonc` |
 | Root directory | `/` — the game's config is referenced by path, not by `cd` |
+
+`npm run deploy:game` still deploys the game by hand.
 
 ### Local preview and deploy
 

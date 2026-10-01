@@ -189,9 +189,10 @@ Two notes:
 * `wrangler` warns that the routes "will attempt to serve Assets on a configured path" (it looks for
   `dist/metro-game/*`). Nothing lives there, so those requests fall through to the Worker, which
   strips the prefix and reads from the asset root. The warning is cosmetic.
-* The site's Workers Builds project deploys `metro` only; nothing on push deploys this Worker. Either
-  run `npm run deploy:game` yourself or add a second Workers Builds project as the root README
-  describes.
+* This Worker has its **own** Workers Builds project (`metro-game`), connected to `ericpzh/metro`.
+  A push to `main` runs `npm run build:game` and then `npx wrangler deploy -c game/wrangler.jsonc`,
+  so the game ships on every push the same way the site does. You can still deploy it by hand with
+  `npm run deploy:game`.
 
 To host it at the `workers.dev` root only, delete `main`, the `assets.binding`, the `routes` and the
 `ASSET_PREFIX` var, and set `assets.not_found_handling` back to `"single-page-application"`. The
