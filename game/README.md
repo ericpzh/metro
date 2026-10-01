@@ -1,7 +1,9 @@
 # Metro Station Designer — the game
 
-The playable vertical slice described in [`../PLAN.md`](../PLAN.md): a URL where you dig a
-box into the ground and watch three thousand people break it.
+The playable vertical slice (V0–V5) of draft 1 of [`../PLAN.md`](../PLAN.md) — a URL where you dig
+a box into the ground and watch three thousand people break it. That plan is now superseded: the
+current plan grows this slice into the **base game** (B1–B6, single line), and this README tracks
+the milestones as they land.
 
 It is its own application. Its own `package.json`, Vite config, tests and Cloudflare
 Worker (`metro-game`). It imports nothing from `web/` or `art/`.
@@ -21,9 +23,12 @@ src/
   sim/       PURE TypeScript. No DOM, no worker, no three. Runs in Node.
     constants.ts     every tuning number, including the time base
     stock.ts         A/B/C car classification
+    finishes.ts      surface finishes: the family decides behaviour, §4.3
+    zones.ts         fare zones: the boundary is a barrier, §4.5
     worker.ts        the only file that touches postMessage
-  render/    three.js: chunk mesher, procedural materials, outline, shadows, agents
-  build/     station document, cell commands, undo
+  render/    three.js: chunk mesher, procedural materials, module models, outline, shadows, agents
+  build/     station document, cell commands, paint, undo
+  persistence/ save schema (serialise / parse / migrate *.metro.json)
   app/       React shell: HUD, rails, inspector. Panels only, no sim logic
   data/      the reference station and the art palette
 test/        node --test suite (imports src/sim/*.ts directly)
@@ -34,14 +39,62 @@ Dependency direction is one-way: `app/ → render/ → sim/`, and `sim/` imports
 
 ## The milestones
 
-| | Contents | Acceptance |
-|---|---|---|
-| V0 | Shell: dark canvas, orbit camera, grid, FPS/tick readout | — |
-| V1 | Rounded-corner mesher + material lab at `/lab` | reads as a designed building; chunk build < 4 ms |
-| V2 | Build loop: 2×2 seed, extrude/dig, work plane, level slicing, undo | the spec's M0 test |
-| V3 | Crowd: worker at 5 Hz, station graph, agents, LOS overlay | 3,000+ agents, p99 tick < 8 ms, determinism asserted in Node |
-| V4 | Train, per-door queues, boarding, left-behind, the fix | an under-built station breaks and the fix works |
-| V5 | Own Worker project, deployed | this file's deploy section |
+Draft 1's vertical slice is **done** (V0–V5). The base game plan picks it up at B1.
+
+| | Contents | Acceptance | State |
+|---|---|---|---|
+| V0 | Shell: dark canvas, orbit camera, grid, FPS/tick readout | — | done |
+| V1 | Rounded-corner mesher + material lab at `/lab` | reads as a designed building; chunk build < 4 ms | done |
+| V2 | Build loop: 2×2 seed, extrude/dig, work plane, level slicing, undo | the spec's M0 test | done |
+| V3 | Crowd: worker at 5 Hz, station graph, agents, LOS overlay | 3,000+ agents, p99 tick < 8 ms, determinism asserted in Node | done |
+| V4 | Train, per-door queues, boarding, left-behind, the fix | an under-built station breaks and the fix works | done |
+| V5 | Own Worker project, deployed | the deploy section below | done |
+| **B1** | Cell faces, finish catalogue, per-face materials, paint tools, tactile strips, static save v1 | distinct materials, a floor finish that changes path cost, save round-trip | **done** |
+| **B2** | Fare zones, the zone boundary as a movement barrier, zone paint + overlay | an ungated fare line strands the crowd; a gate restores flow | **core done** |
+| B3–B6 | Capacity kit, draw kit, authored time + charts + snapshot, ship | see [`../PLAN.md`](../PLAN.md) §4 | planned |
+
+**B1** shipped `sim/finishes.ts` (the finish table), faces in `sim/types.ts`, one chunk-mesh part per
+finish, the walk-speed rule, the `N`/`M`/`I` paint tools, the tactile-strip decal layer along
+platform edges, and `persistence/save.ts` (`formatVersion: 1`, static). The mesher's cell-key
+packing was also fixed — the old bit-shift `key()` collided neighbouring cells, which would have
+made finish lookups wrong.
+
+**B2's core** shipped `sim/zones.ts`, `Cell.zone`, a graph rule that emits no walk edge across a
+zone line except through a gate cell, a zone bucket paint tool, the `分区热力` overlay, and an
+inspector zone control. Still open in B2: zone inference (a room enclosed by gates proposed `paid`),
+module zone-legality feedback for ticket machines, and the gate direction/anchor UI.
+
+**The module art pass** (part of PLAN §3 item 6, ahead of B3/B4) replaced the unit-cube modules with
+`render/models.ts`: procedural ticket machines, turnstile cabinets, escalators, exits and platform
+screen doors, plus rolling stock. PSDs are drawn from the `platform-edge` run (the screen the graph
+already models as doors); trains are posed by `World.trainRenderState()`, sent through the worker
+protocol, and drawn per consist by `SceneRenderer.setTrains`. The models are pure three.js geometry
+over one shared material kit — no image or GLB assets. Modules are level-aware, so a tall escalator
+or exit ghosts with the floor it belongs to instead of drawing through it.
+
+**Ramps carve their way in.** `sim/openings.ts` (`carveRampOpenings`) removes the solid cells an
+escalator, stair or lift climbs through, so a placed ramp surfaces from an opening rather than
+through the slab; the landing cells are protected because the graph uses them as the ramp's nodes.
+`data/reference-station.ts` runs the same carve, so the demo no longer shows escalators punching
+through the concourse floor. An escalator is single-direction and carries **one passenger per step**
+at 0.5 m/s over a 0.4 m pitch — 75/min, and exactly one rider per step on the run.
+
+**Every demo exit is a head-house over an up + down pair.** Each of the three surface exits owns a
+down run and an up run two metres apart, landing on the exit's own row; `models.ts` draws the exit
+as a steel-and-glass canopy whose roof reaches over that pair, so the escalators surface from a hole
+in the plaza under cover — the reference photo. `exitYaw` faces the mouth at the *midpoint* of the
+nearest run, so a down bay on one side and an up bay on the other still reads as one entrance.
+
+**The head-house is solid, and the opening is the way.** `sim/exits.ts` holds the geometry the sim
+and the renderer share. The exit's graph node is the street opening (the doorway cell, not the cell
+under the canopy), and the glass sides and back wall are barriers in the walk graph, so the crowd
+walks in and out through the opening and never through a wall. A bare portal opts out with
+`cfg.headHouse: false` (the small test stations do).
+
+**No ramps stacked.** A ramp also has a collision envelope (`rampEnvelope` / `rampBlocked`): a
+bounding box around the run, the truss and the balustrade. Up and down runs must sit in separate
+columns (the demo's banks are two metres apart), and `setUpEscalators` refuses a column an existing
+ramp already occupies, so a second escalator can never be dropped immediately below a first.
 
 `test/` holds the acceptance tests. Run them with `npm test`:
 
@@ -55,6 +108,15 @@ Dependency direction is one-way: `app/ → render/ → sim/`, and `sim/` imports
   jams, three fix it; a saturated platform leaves people behind.
 * `layering.test.mjs` — `sim/` imports nothing and touches no DOM; `render/` never reaches
   up into `app/`; `build/` imports neither.
+* `surfaces.test.mjs` — a slow floor finish is a real detour, a track bed is not a walkable
+  node, paint/fill/erase are immutable, and the mesher groups by finish (B1).
+* `save.test.mjs` — the `metro-save` v1 envelope round-trips the static station and names
+  every failure mode (B1).
+* `zones.test.mjs` — an ungated fare line strands the crowd (zero boardings); a gate restores
+  flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2).
+* `trains.test.mjs` — a dispatched train gets a pose on the track beside its platform edge,
+  a stop is a fixed berth/open/dwell/close/hold/depart sequence, and the pose is deterministic
+  (the rolling-stock render path).
 
 ## The simulation's time base
 
@@ -65,8 +127,9 @@ queued or watched. PLAN §2.1's own benchmark steps agents at the 0.2 s tick.
 
 This build keeps the crowd honest and runs the clock fast instead:
 
-* **one simulated second per tick** (so 1× ≈ 5× wall-clock),
-* the AM peak is ~18 real minutes, a train every 150 s of sim time is every 30 real
+* **one simulated second per tick**,
+* **1× is real time**: one tick per real second, so the crowd walks at true speed, the
+  AM peak is ~90 real minutes, and a train every 150 s of sim time is every 150 real
   seconds,
 * **fast-forward multiplies ticks per second, never the step size**, so §7.6 determinism
   is untouched.
@@ -82,7 +145,7 @@ comment there explains the trade.
 * **Inner fillets are dropped.** PLAN R2's named fallback: the mesher rounds convex
   outer corners and chamfers exposed top edges by 12.5 cm, but does not fillet concave
   inner corners.
-* **The day clock is 5×, not 120×** (above).
+* **The day clock is real time at 1×, not 120×** (above).
 * **Zones, surfaces, save/load, settings, charts and the module catalogue beyond
   escalator / gate / TVM / bench / exit are out of scope**, exactly as PLAN §7 lists.
 * **One line.** Transfers therefore resolve to an exit; §7.5 is not exercised.
@@ -95,13 +158,16 @@ On this machine (Node 24, desktop):
 |---|---|---|
 | Crowd, p99 worker tick | 2.2 ms at 3,257 agents | < 8 ms comfort, 200 ms hard |
 | Crowd, mean worker tick | 0.9 ms | — |
-| Chunk mesh build | ~3.7 ms warm, ~5 ms on the very first chunk (JIT) | < 4 ms |
+| Chunk mesh build, before B1 | ~3.7 ms warm, ~5 ms on the very first chunk (JIT) | < 4 ms |
+| Chunk mesh build, per-face finishes (B1) | **1.9 ms** for a one-layer station floor chunk, 2.7 ms for two, 4.4 ms for a fully solid 8-layer block | < 4 ms |
 | Frame | 60 fps in a windowed GPU; the headless software rasteriser used for
   CI screenshots is the limit there, not the scene | 16.6 ms |
 
-The chunk figure is the one honest miss: the first chunk of the session pays for JIT and
-lands just over the line, and every chunk after that is under it. PLAN R2's fallback if
-that ever gets worse is to drop the rounded vertical corners and keep the top bevels only.
+B1's per-face materials make the mesher sort faces into one part per finish. A real station
+chunk is a thin floor slab and stays well inside the budget (1.9 ms); the figure that misses
+is a *fully solid* 16×16×8 block, which is geometry-bound rather than finish-bound and was
+near the line before B1 too. PLAN R2's fallback if that ever gets worse is to drop the rounded
+vertical corners and keep the top bevels only.
 
 ## Deploy
 

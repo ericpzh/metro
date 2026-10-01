@@ -12,7 +12,25 @@
 // Coordinate convention: cell (x, y, z) occupies [x, x+1] x [y, y+1] x [z, z+1],
 // +z up.
 
-import type { Cell } from '../sim/types.ts'
+import { DEFAULT_FINISH, FINISH_LIST } from '../sim/finishes.ts'
+import { packKey as key, type Cell, type Face, type FinishId } from '../sim/types.ts'
+
+/** Finish id -> a small dense index, so a hot loop never does a string Map get. */
+const FINISH_INDEX = new Map<FinishId, number>(FINISH_LIST.map((f, i) => [f.id, i]))
+function finishIdx(id: FinishId): number {
+  return FINISH_INDEX.get(id) ?? FINISH_INDEX.get(DEFAULT_FINISH.top) as number
+}
+
+// The common case is an unpainted cell: use shared default indices and skip the
+// four Map lookups entirely.
+const DEFAULT_TOP_I = finishIdx(DEFAULT_FINISH.top)
+const DEFAULT_BOTTOM_I = finishIdx(DEFAULT_FINISH.bottom)
+const DEFAULT_SIDE_I: Record<'e' | 'w' | 'n' | 's', number> = {
+  e: finishIdx(DEFAULT_FINISH.e),
+  w: finishIdx(DEFAULT_FINISH.w),
+  n: finishIdx(DEFAULT_FINISH.n),
+  s: finishIdx(DEFAULT_FINISH.s),
+}
 
 export const CHUNK = 16
 /** Outer corner radius of the rounded profile, metres. */
@@ -20,12 +38,20 @@ export const CORNER_R = 0.125
 /** Top-rim chamfer, metres. "12.5 cm bevel on exposed top edges". */
 export const BEVEL = 0.125
 
-export interface ChunkGeometry {
+/** One merged run of faces wearing the same finish (§4.3). */
+export interface ChunkPart {
+  finish: FinishId
   positions: Float32Array
   normals: Float32Array
   colors: Float32Array
   uvs: Float32Array
   indices: Uint32Array
+  triangles: number
+}
+
+export interface ChunkGeometry {
+  /** Geometry grouped by finish, so one material can be drawn per part. */
+  parts: ChunkPart[]
   /** Cell coordinates this chunk covers, for the level/ghost logic. */
   cx: number
   cy: number
@@ -42,11 +68,6 @@ interface Pt {
   ny: number
   /** True when at least one adjacent edge is exposed. */
   exposed: boolean
-}
-
-function key(x: number, y: number, z: number): number {
-  // Pack into a single integer for a Set of numbers (fast, allocation-free).
-  return ((x + 4096) << 20) | ((y + 4096) << 8) | (z + 4096)
 }
 
 export function buildSolidSet(cells: readonly Cell[]): Set<number> {
@@ -148,18 +169,44 @@ function edgeExposure(p: Pt, q: Pt): { exposed: boolean; nx: number; ny: number 
 
 /**
  * Mesh one 16^3 chunk. `solid` must contain every solid cell in the station so
- * neighbour queries across chunk boundaries are correct.
+ * neighbour queries across chunk boundaries are correct. `zEnd` bounds the
+ * vertical span: the level slicer passes a storey's top so a level is meshed
+ * alone, never drawing the storeys above it. `emit`, when given, limits which
+ * solid cells contribute geometry — the block tool's add preview meshes only the
+ * pending cells while still reading `solid` for exposure, so it draws the exact
+ * final surface those cells will have.
  */
-export function meshChunk(solid: Set<number>, cx: number, cy: number, cz: number): ChunkGeometry {
+export function meshChunk(
+  solid: Set<number>,
+  finishes: Map<number, Partial<Record<Face, FinishId>>>,
+  cx: number,
+  cy: number,
+  cz: number,
+  zEnd: number = cz + CHUNK - 1,
+  emit?: Set<number>,
+): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
-  const b: VecBuilder = { pos: [], nor: [], col: [], uv: [], idx: [] }
   const isSolid = (x: number, y: number, z: number): boolean => solid.has(key(x, y, z))
   const H = BEVEL
 
+  // Faces are sorted into one builder per finish, so a chunk yields a handful of
+  // parts (one per material) instead of one part repainted per face. A dense
+  // array indexed by finish keeps the per-face selection off the string Map.
+  const builders: Array<VecBuilder | null> = []
+  const builderForIndex = (i: number): VecBuilder => {
+    let b = builders[i]
+    if (!b) {
+      b = { pos: [], nor: [], col: [], uv: [], idx: [] }
+      builders[i] = b
+    }
+    return b
+  }
+
   for (let x = cx; x < cx + CHUNK; x++) {
     for (let y = cy; y < cy + CHUNK; y++) {
-      for (let z = cz; z < cz + CHUNK; z++) {
+      for (let z = cz; z <= zEnd; z++) {
         if (!isSolid(x, y, z)) continue
+        if (emit !== undefined && !emit.has(key(x, y, z))) continue
         const up = !isSolid(x, y, z + 1)
         const down = !isSolid(x, y, z - 1)
         const E = !isSolid(x + 1, y, z)
@@ -167,6 +214,18 @@ export function meshChunk(solid: Set<number>, cx: number, cy: number, cz: number
         const N = !isSolid(x, y + 1, z)
         const S = !isSolid(x, y - 1, z)
         if (!up && !down && !E && !W && !N && !S) continue
+
+        const fin = finishes.get(key(x, y, z))
+        const topI = fin?.top !== undefined ? finishIdx(fin.top) : DEFAULT_TOP_I
+        const bottomI = fin?.bottom !== undefined ? finishIdx(fin.bottom) : DEFAULT_BOTTOM_I
+        const sideI: Record<'e' | 'w' | 'n' | 's', number> = fin
+          ? {
+              e: finishIdx(fin.e ?? DEFAULT_FINISH.e),
+              w: finishIdx(fin.w ?? DEFAULT_FINISH.w),
+              n: finishIdx(fin.n ?? DEFAULT_FINISH.n),
+              s: finishIdx(fin.s ?? DEFAULT_FINISH.s),
+            }
+          : DEFAULT_SIDE_I
 
         const profile = buildProfile(E, W, N, S)
         // Per-point exposed normal and inward offset for the top bevel.
@@ -207,7 +266,7 @@ export function meshChunk(solid: Set<number>, cx: number, cy: number, cz: number
           const ao = wallAo(isSolid, x, y, z, nx, ny)
           const uLen = Math.hypot(q.x - p.x, q.y - p.y)
           pushQuad(
-            b,
+            builderForIndex(sideI[sideOf(nx, ny)]),
             [ox + p.x, oy + p.y, oz],
             [ox + q.x, oy + q.y, oz],
             [ox + q.x, oy + q.y, oz + wallTop],
@@ -224,7 +283,7 @@ export function meshChunk(solid: Set<number>, cx: number, cy: number, cz: number
             const o2 = offs[(i + 1) % profile.length]
             const cn = Math.hypot(nx + 0, ny + 0, 1)
             pushQuad(
-              b,
+              builderForIndex(topI),
               [ox + p.x, oy + p.y, oz + wallTop],
               [ox + q.x, oy + q.y, oz + wallTop],
               [ox + o2.x, oy + o2.y, oz + 1],
@@ -248,7 +307,7 @@ export function meshChunk(solid: Set<number>, cx: number, cy: number, cz: number
             const p = offs[i]
             const q = offs[(i + 1) % offs.length]
             pushTri(
-              b,
+              builderForIndex(topI),
               [ox + cxm, oy + cym, oz + 1],
               [ox + p.x, oy + p.y, oz + 1],
               [ox + q.x, oy + q.y, oz + 1],
@@ -272,7 +331,7 @@ export function meshChunk(solid: Set<number>, cx: number, cy: number, cz: number
             const p = profile[(i + 1) % profile.length]
             const q = profile[i]
             pushTri(
-              b,
+              builderForIndex(bottomI),
               [ox + cxm, oy + cym, oz],
               [ox + p.x, oy + p.y, oz],
               [ox + q.x, oy + q.y, oz],
@@ -291,18 +350,30 @@ export function meshChunk(solid: Set<number>, cx: number, cy: number, cz: number
   }
 
   const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
-  return {
-    positions: new Float32Array(b.pos),
-    normals: new Float32Array(b.nor),
-    colors: new Float32Array(b.col),
-    uvs: new Float32Array(b.uv),
-    indices: new Uint32Array(b.idx),
-    cx,
-    cy,
-    cz,
-    triangles: b.idx.length / 3,
-    ms: t1 - t0,
+  // FINISH_LIST order is stable, so parts come out in a stable order.
+  const parts: ChunkPart[] = []
+  for (let i = 0; i < builders.length; i++) {
+    const b = builders[i]
+    if (!b) continue
+    parts.push({
+      finish: FINISH_LIST[i].id,
+      positions: new Float32Array(b.pos),
+      normals: new Float32Array(b.nor),
+      colors: new Float32Array(b.col),
+      uvs: new Float32Array(b.uv),
+      indices: new Uint32Array(b.idx),
+      triangles: b.idx.length / 3,
+    })
   }
+  let triangles = 0
+  for (const p of parts) triangles += p.triangles
+  return { parts, cx, cy, cz, triangles, ms: t1 - t0 }
+}
+
+/** The side face a wall normal belongs to; arcs snap to their dominant axis. */
+function sideOf(nx: number, ny: number): 'e' | 'w' | 'n' | 's' {
+  if (Math.abs(nx) >= Math.abs(ny)) return nx >= 0 ? 'e' : 'w'
+  return ny >= 0 ? 'n' : 's'
 }
 
 function cxCenter(pts: Pt[]): number {

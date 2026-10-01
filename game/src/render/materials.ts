@@ -1,8 +1,11 @@
-// Procedural material detail — PLAN.md §2.3 item 4. No image files, no GLB:
-// granite speckle, enamel panel seams, brushed metal and white baffles are all
-// drawn into small canvases at load and repeated per metre.
+// Procedural material detail — PLAN.md §2.3 item 4 and §4.3. No image files,
+// no GLB: every finish in `sim/finishes.ts` is drawn into a small canvas at
+// load and repeated per metre. The renderer reads the same table the sim reads,
+// so a finish cannot look like one thing and behave like another.
 
 import * as THREE from 'three'
+import { finishDef, type FinishDef } from '../sim/finishes.ts'
+import type { FinishId } from '../sim/types.ts'
 
 function canvas(size: number): { c: HTMLCanvasElement; g: CanvasRenderingContext2D } {
   const c = document.createElement('canvas')
@@ -33,7 +36,6 @@ function graniteCanvas(): HTMLCanvasElement {
     const s = Math.random() < 0.85 ? 1 : 2
     g.fillRect(Math.floor(Math.random() * 128), Math.floor(Math.random() * 128), s, s)
   }
-  // A single dark inlay band.
   g.fillStyle = 'rgba(35,38,46,0.85)'
   g.fillRect(0, 60, 128, 4)
   g.fillStyle = 'rgba(255,255,255,0.35)'
@@ -41,8 +43,71 @@ function graniteCanvas(): HTMLCanvasElement {
   return c
 }
 
+/** Poured concrete — mottled, no inlay. */
+function concreteCanvas(colour: number): HTMLCanvasElement {
+  const { c, g } = canvas(128)
+  const base = new THREE.Color(colour)
+  g.fillStyle = `#${base.getHexString()}`
+  g.fillRect(0, 0, 128, 128)
+  for (let i = 0; i < 1800; i++) {
+    const d = Math.random() < 0.5 ? -14 : 12
+    const r = Math.max(0, Math.min(255, Math.round(base.r * 255) + d))
+    const gg = Math.max(0, Math.min(255, Math.round(base.g * 255) + d))
+    const b = Math.max(0, Math.min(255, Math.round(base.b * 255) + d))
+    g.fillStyle = `rgba(${r},${gg},${b},0.35)`
+    g.fillRect(Math.floor(Math.random() * 128), Math.floor(Math.random() * 128), 2, 2)
+  }
+  return c
+}
+
+/** Square floor tile with grout joints. */
+function tileCanvas(colour: number): HTMLCanvasElement {
+  const { c, g } = canvas(128)
+  const base = new THREE.Color(colour)
+  g.fillStyle = `#${base.getHexString()}`
+  g.fillRect(0, 0, 128, 128)
+  g.strokeStyle = 'rgba(90,96,104,0.55)'
+  g.lineWidth = 2
+  for (let i = 0; i <= 128; i += 64) {
+    g.beginPath()
+    g.moveTo(i, 0)
+    g.lineTo(i, 128)
+    g.moveTo(0, i)
+    g.lineTo(128, i)
+    g.stroke()
+  }
+  return c
+}
+
+/** Track bed — dark ballast / slab. Not walkable (§4.3). */
+function trackCanvas(): HTMLCanvasElement {
+  const { c, g } = canvas(128)
+  g.fillStyle = '#2c313a'
+  g.fillRect(0, 0, 128, 128)
+  for (let i = 0; i < 2000; i++) {
+    const v = 24 + Math.floor(Math.random() * 34)
+    g.fillStyle = `rgba(${v},${v},${v + 6},0.7)`
+    g.fillRect(Math.floor(Math.random() * 128), Math.floor(Math.random() * 128), 2, 2)
+  }
+  return c
+}
+
+/** Flat painted plaster. */
+function plasterCanvas(colour: number): HTMLCanvasElement {
+  const { c, g } = canvas(64)
+  const base = new THREE.Color(colour)
+  g.fillStyle = `#${base.getHexString()}`
+  g.fillRect(0, 0, 64, 64)
+  for (let i = 0; i < 500; i++) {
+    const v = Math.random() < 0.5 ? 0.04 : -0.04
+    g.fillStyle = v > 0 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'
+    g.fillRect(Math.floor(Math.random() * 64), Math.floor(Math.random() * 64), 2, 2)
+  }
+  return c
+}
+
 /** Glossy coloured enamel wall panel with visible seams. */
-function enamelCanvas(colour: string): HTMLCanvasElement {
+function enamelCanvas(colour: number): HTMLCanvasElement {
   const { c, g } = canvas(128)
   const base = new THREE.Color(colour)
   g.fillStyle = `#${base.getHexString()}`
@@ -102,6 +167,18 @@ function metalCanvas(): HTMLCanvasElement {
   return c
 }
 
+/** Safety-yellow tactile strip marking the platform edge (§11). */
+function tactileCanvas(): HTMLCanvasElement {
+  const { c, g } = canvas(64)
+  g.fillStyle = '#f7d84b'
+  g.fillRect(0, 0, 64, 64)
+  g.fillStyle = 'rgba(120,96,10,0.55)'
+  for (let x = 0; x < 64; x += 8) g.fillRect(x, 0, 2, 64)
+  g.fillStyle = 'rgba(255,255,255,0.4)'
+  for (let x = 2; x < 64; x += 8) g.fillRect(x, 0, 1, 64)
+  return c
+}
+
 /** Soft radial contact-shadow blob, used under modules and the crowd. */
 export function contactShadowTexture(): THREE.Texture {
   const { c, g } = canvas(64)
@@ -116,49 +193,62 @@ export function contactShadowTexture(): THREE.Texture {
   return t
 }
 
+function canvasFor(def: FinishDef): HTMLCanvasElement {
+  switch (def.look) {
+    case 'granite':
+      return graniteCanvas()
+    case 'concrete':
+      return concreteCanvas(def.tint)
+    case 'tile':
+      return tileCanvas(def.tint)
+    case 'track':
+      return trackCanvas()
+    case 'baffle':
+      return baffleCanvas()
+    case 'metal':
+    case 'stainless':
+      return metalCanvas()
+    case 'plaster':
+      return plasterCanvas(def.tint)
+    case 'enamel':
+      return enamelCanvas(def.tint)
+    case 'soil':
+      return soilCanvas()
+  }
+}
+
+function finishMaterial(def: FinishDef): THREE.MeshStandardMaterial {
+  const glossy = def.look === 'metal' || def.look === 'stainless' || def.look === 'enamel'
+  return new THREE.MeshStandardMaterial({
+    map: tex(canvasFor(def), 1),
+    vertexColors: true,
+    roughness: def.look === 'enamel' ? 0.22 : glossy ? 0.35 : def.look === 'track' ? 0.95 : 0.78,
+    metalness: glossy ? 0.6 : 0.02,
+    side: def.family === 'ceiling' ? THREE.DoubleSide : THREE.FrontSide,
+  })
+}
+
 export interface MaterialSet {
-  granite: THREE.MeshStandardMaterial
-  baffle: THREE.MeshStandardMaterial
-  soil: THREE.MeshStandardMaterial
-  metal: THREE.MeshStandardMaterial
-  platform: THREE.MeshStandardMaterial
+  /** The material for a finish id (§4.3). Cached. */
+  finish: (id: FinishId) => THREE.MeshStandardMaterial
   outline: THREE.MeshBasicMaterial
   blob: THREE.MeshBasicMaterial
-  enamel: (colour: string) => THREE.MeshStandardMaterial
+  /** Transparent floor-decal layer — tactile strips, §4.2. */
+  tactile: THREE.MeshBasicMaterial
+  /** @deprecated kept for the lab; use `finish`. */
+  platform: THREE.MeshStandardMaterial
 }
 
 export function createMaterials(): MaterialSet {
-  const granite = new THREE.MeshStandardMaterial({
-    map: tex(graniteCanvas(), 1),
-    vertexColors: true,
-    roughness: 0.72,
-    metalness: 0.02,
-  })
-  const baffle = new THREE.MeshStandardMaterial({
-    map: tex(baffleCanvas(), 1),
-    vertexColors: true,
-    roughness: 0.85,
-    metalness: 0.0,
-    side: THREE.DoubleSide,
-  })
-  const soil = new THREE.MeshStandardMaterial({
-    map: tex(soilCanvas(), 1),
-    vertexColors: true,
-    roughness: 0.98,
-    metalness: 0.0,
-  })
-  const metal = new THREE.MeshStandardMaterial({
-    map: tex(metalCanvas(), 1),
-    vertexColors: true,
-    roughness: 0.35,
-    metalness: 0.75,
-  })
-  const platform = new THREE.MeshStandardMaterial({
-    map: tex(graniteCanvas(), 1),
-    vertexColors: true,
-    roughness: 0.6,
-    metalness: 0.02,
-  })
+  const cache = new Map<FinishId, THREE.MeshStandardMaterial>()
+  const finish = (id: FinishId): THREE.MeshStandardMaterial => {
+    let m = cache.get(id)
+    if (!m) {
+      m = finishMaterial(finishDef(id))
+      cache.set(id, m)
+    }
+    return m
+  }
   // Inverted-hull outline: back faces, pushed along the normal, flat dark.
   const outline = new THREE.MeshBasicMaterial({ color: 0x11151c, side: THREE.BackSide })
   const blob = new THREE.MeshBasicMaterial({
@@ -167,18 +257,11 @@ export function createMaterials(): MaterialSet {
     depthWrite: false,
     opacity: 0.9,
   })
-  const enamelCache = new Map<string, THREE.MeshStandardMaterial>()
-  const enamel = (colour: string): THREE.MeshStandardMaterial => {
-    const hit = enamelCache.get(colour)
-    if (hit) return hit
-    const m = new THREE.MeshStandardMaterial({
-      map: tex(enamelCanvas(colour), 1),
-      vertexColors: true,
-      roughness: 0.22,
-      metalness: 0.1,
-    })
-    enamelCache.set(colour, m)
-    return m
-  }
-  return { granite, baffle, soil, metal, platform, outline, blob, enamel }
+  const tactile = new THREE.MeshBasicMaterial({
+    map: tex(tactileCanvas(), 1, false),
+    transparent: true,
+    depthWrite: false,
+    opacity: 0.95,
+  })
+  return { finish, outline, blob, tactile, platform: finish('floor.granite') }
 }

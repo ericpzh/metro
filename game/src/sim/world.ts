@@ -7,11 +7,6 @@
 
 import { AgentPool, type Agent } from './agents.ts'
 import {
-  BOARDING_CUTOFF,
-  DWELL_BASE,
-  DWELL_MAX,
-  DWELL_MIN,
-  DWELL_PER_PAX,
   DOOR_RATE,
   LANE_SLOT,
   MAX_AGENTS,
@@ -19,6 +14,12 @@ import {
   PERSONAL_SPACE,
   SIM_DAY,
   SIM_SECONDS_PER_TICK,
+  TRAIN_APPROACH_S,
+  TRAIN_BERTH_HOLD,
+  TRAIN_DEPART_HOLD,
+  TRAIN_DEPART_S,
+  TRAIN_DOOR_TRAVEL,
+  TRAIN_DWELL,
   WALK_SPEED,
   clamp,
   densityDerate,
@@ -28,7 +29,8 @@ import {
 } from './constants.ts'
 import { Rng } from './rng.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from './station.ts'
-import { STOCK, trainRatedCapacity } from './stock.ts'
+import { ZONE_INDEX } from './zones.ts'
+import { STOCK, trainRatedCapacity, type StockClass } from './stock.ts'
 import type { LineDef, StationData, Trip } from './types.ts'
 
 const STATE_ARRIVING = 0
@@ -42,15 +44,24 @@ const STATE_LEAVING = 8
 
 const ARRIVE = 0.35
 const SIM_DT = SIM_SECONDS_PER_TICK
-/** Walk-distance budget in metres for one tick at a given speed. */
-const SEPARATION_NUDGE = 0.25
+/** Relaxation of the crowd collision pass: how much of an overlap to resolve per tick. */
+const SEPARATION_RELAX = 0.5
+/** Ceiling on a single agent's collision displacement in one tick, m. */
+const SEPARATION_MAX = 0.6
+/**
+ * Uniform-grid cell for the collision pass. Smaller than the density grid's
+ * NEIGHBOUR_CELL so a packed crowd only tests the few bodies actually within
+ * PERSONAL_SPACE, instead of every body in a 6 m square.
+ */
+const COLLISION_CELL = 1.0
+
+export type TrainState = 'approach' | 'berth' | 'opening' | 'dwell' | 'closing' | 'hold' | 'depart'
 
 export interface Train {
   id: number
   line: string
-  state: 'approach' | 'dwell' | 'depart'
+  state: TrainState
   t: number
-  dwell: number
   boarded: number
   alighted: number
   onboard: number
@@ -79,6 +90,17 @@ export interface Metrics {
   tickMs: number
   /** Agents that could not be routed to any destination this run. */
   stuck: number
+}
+
+/** Where a line's train appears: the platform edge it serves and its stock. */
+interface LineAnchor {
+  x: number
+  y: number
+  z: number
+  dirSign: number
+  cars: number
+  stock: StockClass
+  colour: number
 }
 
 export interface DynamicSnapshot {
@@ -113,20 +135,23 @@ export class World {
   doorOwner = new Map<number, string>()
   doorEdge = new Map<number, { line: string; index: number }>()
   lineById = new Map<string, LineDef>()
+  lineAnchors = new Map<string, LineAnchor>()
   nextDispatch = new Map<string, number>()
   /** Per-node live population, for the LOS overlay. */
   nodePop: Int32Array
   metrics: Metrics
   /** Deterministic work queue of agents waiting for a path. */
-  private gridW = 1
-  private gridH = 1
   private gridL = 1
-  private gridMinX = 0
-  private gridMinY = 0
   private gridMinZ = 0
-  private counts = new Int32Array(1)
-  private gStart = new Int32Array(2)
-  private gOrder = new Int32Array(1)
+  private cGridW = 1
+  private cGridH = 1
+  private cGridMinX = 0
+  private cGridMinY = 0
+  private cCounts = new Int32Array(1)
+  private cStart = new Int32Array(2)
+  private cOrder = new Int32Array(1)
+  /** Crowd count within ~2 m of each collision cell's centre, for the derate. */
+  private cellDensity = new Float32Array(1)
   private nextTrainId = 1
 
   constructor(data: StationData, seed = 1234567) {
@@ -171,6 +196,7 @@ export class World {
     this.doorEdge.clear()
     this.lineById.clear()
     for (const l of this.data.lines) this.lineById.set(l.id, l)
+    this.computeLineAnchors()
     for (const p of this.graph.platforms) {
       const arr = this.doorsByLine.get(p.line) ?? []
       for (const d of p.doors) {
@@ -207,16 +233,17 @@ export class World {
 
   private setupGrid(): void {
     const g = this.graph
-    this.gridMinX = Math.floor(g.minX) - 2
-    this.gridMinY = Math.floor(g.minY) - 2
     this.gridMinZ = g.levelsZ.length ? Math.floor(g.levelsZ[0]) - 2 : -8
-    this.gridW = clamp(Math.ceil(g.maxX - g.minX) + 6, 4, 512)
-    this.gridH = clamp(Math.ceil(g.maxY - g.minY) + 6, 4, 512)
     this.gridL = clamp(g.levelsZ.length + 4, 2, 32)
-    const nb = this.gridW * this.gridH * this.gridL
-    this.counts = new Int32Array(nb)
-    this.gStart = new Int32Array(nb + 1)
-    this.gOrder = new Int32Array(Math.max(64, this.pool.count + 64))
+    this.cGridMinX = Math.floor(g.minX) - 2
+    this.cGridMinY = Math.floor(g.minY) - 2
+    this.cGridW = clamp(Math.ceil((g.maxX - g.minX) / COLLISION_CELL) + 4, 4, 1024)
+    this.cGridH = clamp(Math.ceil((g.maxY - g.minY) / COLLISION_CELL) + 4, 4, 1024)
+    const cnb = this.cGridW * this.cGridH * this.gridL
+    this.cCounts = new Int32Array(cnb)
+    this.cStart = new Int32Array(cnb + 1)
+    this.cOrder = new Int32Array(Math.max(64, this.pool.count + 64))
+    this.cellDensity = new Float32Array(cnb)
   }
 
   /* -------------------------------------------------------------- public */
@@ -242,18 +269,23 @@ export class World {
     return this.metrics
   }
 
-  /** Write a render buffer: [x, y, z, state, phase] per live agent. */
+  /**
+   * Write a render buffer: [x, y, z, state, phase, id] per live agent. The id
+   * is what lets the renderer interpolate the same agent across frames; slots
+   * move around as agents die because `pool.compact()` shifts the live list.
+   */
   writeTransfer(out: Float32Array): number {
     let n = 0
     const live = this.pool.live
     for (let i = 0; i < live.length; i++) {
       const a = live[i]
-      const o = i * 5
+      const o = i * 6
       out[o] = a.x
       out[o + 1] = a.y
       out[o + 2] = a.z
       out[o + 3] = a.state
       out[o + 4] = (a.pathIdx & 7) + (a.id % 5) * 0.1
+      out[o + 5] = a.id
       n++
     }
     return n
@@ -301,7 +333,9 @@ export class World {
     // Optional stop at a ticket machine: §7.4a, 30% of unpaid entries.
     const stops: string[] = []
     if (this.rng.chance(0.25)) {
-      const tvms = this.graph.stops.filter((s) => s.kind === 'tvm')
+      // A ticket machine is only a stop in the unpaid zone, where an entering
+      // passenger actually passes it (§4.5).
+      const tvms = this.graph.stops.filter((s) => s.kind === 'tvm' && this.graph.nodeZone[s.node] === ZONE_INDEX.unpaid)
       if (tvms.length > 0) {
         const pick = tvms[this.rng.int(tvms.length)]
         stops.push('stop:' + pick.id)
@@ -314,24 +348,14 @@ export class World {
   }
 
   private pickExitId(): string {
+    // All open exits are equal: outflow is unlimited, so this is a uniform
+    // choice of door, not a rate weight.
     const exits = this.graph.exits.filter((e) => {
       const m = this.data.modules.find((x) => x.id === e.id)
-      return m && m.type === 'exit' && m.cfg.open && m.cfg.outRate > 0
+      return m && m.type === 'exit' && m.cfg.open
     })
     if (exits.length === 0) return ''
-    let total = 0
-    for (const e of exits) {
-      const m = this.data.modules.find((x) => x.id === e.id)
-      total += m && m.type === 'exit' ? m.cfg.outRate : 0
-    }
-    let r = this.rng.next() * total
-    for (const e of exits) {
-      const m = this.data.modules.find((x) => x.id === e.id)
-      const w = m && m.type === 'exit' ? m.cfg.outRate : 0
-      r -= w
-      if (r <= 0) return e.id
-    }
-    return exits[exits.length - 1].id
+    return exits[this.rng.int(exits.length)].id
   }
 
   private sampleTripFromTrain(exitShare: number, arrivingLine: string): Trip {
@@ -346,7 +370,8 @@ export class World {
   private spawnAtNode(node: number, origin: string, trip: Trip): Agent | null {
     const g = this.graph
     if (node < 0 || node >= g.nodeCount) return null
-    // Deterministic jitter inside the cell so a spawn wave does not stack.
+    // Deterministic jitter inside the cell so a spawn wave does not stack; the
+    // collision pass then spreads the wave out.
     const jx = (this.rng.next() - 0.5) * 0.6
     const jy = (this.rng.next() - 0.5) * 0.6
     const a = this.pool.spawn({ origin, stops: trip.stops, dest: trip.dest }, g.nodeX[node] + jx, g.nodeY[node] + jy, g.nodeZ[node], this.tick)
@@ -370,7 +395,6 @@ export class World {
           line: line.id,
           state: 'approach',
           t: 0,
-          dwell: 0,
           boarded: 0,
           alighted: 0,
           onboard: 0,
@@ -383,33 +407,52 @@ export class World {
       }
     }
 
-    for (const train of this.trains) {
+    for (const train of this.trains.slice()) {
       train.t += SIM_DT
-      if (train.state === 'approach') {
-        if (train.t >= 6) {
-          train.state = 'dwell'
-          train.t = 0
-          this.openDoors(train)
-          this.dumpAlighting(train)
-        }
-      } else if (train.state === 'dwell') {
-        this.serviceBoarding(train)
-        const line = this.lineById.get(train.line)
-        const base = line ? line.dwellBase : DWELL_BASE
-        const per = line ? line.dwellPerPax : DWELL_PER_PAX
-        train.dwell = clamp(base + per * (train.boarded + train.alighted), DWELL_MIN, DWELL_MAX)
-        if (train.t >= train.dwell - BOARDING_CUTOFF) {
-          train.state = 'depart'
-          train.t = 0
-          this.closeDoors(train)
-        }
-      } else {
-        if (train.t >= 6) {
-          // Remove after departure.
-          this.trains.splice(this.trains.indexOf(train), 1)
-        }
+      switch (train.state) {
+        case 'approach':
+          // Running in; the consist comes to a stand at the platform mark.
+          if (train.t >= TRAIN_APPROACH_S) this.setTrainState(train, 'berth')
+          break
+        case 'berth':
+          // Held at the mark, doors shut, before they cycle.
+          if (train.t >= TRAIN_BERTH_HOLD) {
+            this.openDoors(train)
+            this.dumpAlighting(train)
+            this.setTrainState(train, 'opening')
+          }
+          break
+        case 'opening':
+          // The leaves travel; boarding was enabled with the command.
+          if (train.t >= TRAIN_DOOR_TRAVEL) this.setTrainState(train, 'dwell')
+          break
+        case 'dwell':
+          // Doors fully open, serving the platform.
+          if (train.t >= TRAIN_DWELL) {
+            this.closeDoors(train)
+            this.setTrainState(train, 'closing')
+          }
+          break
+        case 'closing':
+          // The leaves shut; the queues have already been abandoned.
+          if (train.t >= TRAIN_DOOR_TRAVEL) this.setTrainState(train, 'hold')
+          break
+        case 'hold':
+          // Sealed, waiting to pull out.
+          if (train.t >= TRAIN_DEPART_HOLD) this.setTrainState(train, 'depart')
+          break
+        case 'depart':
+          // Run out, then the consist leaves the world.
+          if (train.t >= TRAIN_DEPART_S) this.trains.splice(this.trains.indexOf(train), 1)
+          break
       }
     }
+  }
+
+  /** Move a train to the head of `state`, resetting its phase clock. */
+  private setTrainState(train: Train, state: TrainState): void {
+    train.state = state
+    train.t = 0
   }
 
   private openDoors(train: Train): void {
@@ -431,8 +474,7 @@ export class World {
   private dumpAlighting(train: Train): void {
     const line = this.lineById.get(train.line)
     if (!line) return
-    const cap = trainRatedCapacity(line)
-    let n = Math.round(cap * 0.45)
+    let n = line.alightPerTrain
     const doors = train.doors
     if (doors.length === 0) return
     for (let i = 0; i < n; i++) {
@@ -445,12 +487,91 @@ export class World {
       train.alighted++
     }
     this.metrics.alighted += n
-    void cap
   }
 
-  private serviceBoarding(train: Train): void {
-    // Door rate is applied by stepServers; here we only book the result.
-    void train
+  /**
+   * The track position a line's trains run on, derived once from its platform
+   * edge and the track bed beside it. This is the only geometry the renderer
+   * needs to draw rolling stock, so it stays a pure function of the station.
+   */
+  private computeLineAnchors(): void {
+    this.lineAnchors.clear()
+    for (const line of this.data.lines) {
+      const edge = this.data.modules.find((m) => m.type === 'platform-edge' && m.cfg.line === line.id)
+      if (!edge || edge.type !== 'platform-edge') continue
+      const x = edge.x + edge.w / 2
+      // The track bed runs beside the platform edge. Take the midpoint of the
+      // track band within a few rows, so left/right platforms both work, then
+      // clamp that midpoint so the car body clears the platform edge — and on a
+      // bed too narrow for the stock still misses the screen doors rather than
+      // drawing through them.
+      let minY = Infinity
+      let maxY = -Infinity
+      for (const c of this.data.cells) {
+        if (c.fill !== 'solid' || c.z !== edge.z) continue
+        if (Math.abs(c.y - edge.y) > 3) continue
+        if (c.x < edge.x || c.x >= edge.x + edge.w) continue
+        if (c.finish?.top !== 'floor.track') continue
+        if (c.y < minY) minY = c.y
+        if (c.y > maxY) maxY = c.y
+      }
+      const width = STOCK[line.stock].width
+      const gap = 0.1
+      let y = Number.isFinite(minY) ? (minY + maxY) / 2 + 0.5 : edge.y - 0.5
+      if (Number.isFinite(minY)) {
+        const centre = y
+        if ((minY + maxY) / 2 < edge.y) {
+          // Track to the south (−y) of the edge.
+          const minCentre = minY + width / 2
+          const maxCentre = edge.y - gap - width / 2
+          y = minCentre <= maxCentre ? clamp(centre, minCentre, maxCentre) : maxCentre
+        } else {
+          // Track to the north (+y) of the edge.
+          const minCentre = edge.y + 1 + gap + width / 2
+          const maxCentre = maxY + 1 - width / 2
+          y = minCentre <= maxCentre ? clamp(centre, minCentre, maxCentre) : minCentre
+        }
+      }
+      const dirSign = /west|south|down|下行|西|南/i.test(line.direction) ? -1 : 1
+      const colour = parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0
+      this.lineAnchors.set(line.id, { x, y, z: edge.z + 1, dirSign, cars: line.cars, stock: line.stock, colour })
+    }
+  }
+
+  /**
+   * One pose per live train, stride 8: x, y, z, cars, stock index (A/B/C),
+   * doors-open, line colour, direction. A pure function of train state, so it
+   * adds no randomness and cannot disturb §7.6 determinism.
+   */
+  trainRenderState(): Float32Array {
+    const STRIDE = 8
+    const out = new Float32Array(this.trains.length * STRIDE)
+    let k = 0
+    for (const train of this.trains) {
+      const a = this.lineAnchors.get(train.line)
+      if (!a) continue
+      const trainLen = STOCK[a.stock].length * a.cars
+      const reach = trainLen / 2 + 25
+      let offset = 0
+      if (train.state === 'approach') {
+        // Ease out: fast down the tunnel, slowing to a stop at the mark.
+        const p = Math.min(1, train.t / TRAIN_APPROACH_S)
+        offset = -(1 - p) * (1 - p) * reach * a.dirSign
+      } else if (train.state === 'depart') {
+        // Ease in: pull away gently, then run up to speed.
+        const p = Math.min(1, train.t / TRAIN_DEPART_S)
+        offset = p * p * reach * a.dirSign
+      }
+      out[k++] = a.x + offset
+      out[k++] = a.y
+      out[k++] = a.z
+      out[k++] = a.cars
+      out[k++] = a.stock === 'A' ? 0 : a.stock === 'B' ? 1 : 2
+      out[k++] = train.state === 'opening' || train.state === 'dwell' || train.state === 'closing' ? 1 : 0
+      out[k++] = a.colour
+      out[k++] = a.dirSign
+    }
+    return out.subarray(0, k)
   }
 
   /* ------------------------------------------------------------- servers */
@@ -542,11 +663,120 @@ export class World {
     s.queue.push(a.id)
   }
 
+  /**
+   * A queued agent keeps wanting the entrance: it walks straight at the server
+   * node on the shortest line to it, at its density-derated speed, and holds a
+   * small standoff so it does not stand exactly on the node. It is the collision
+   * pass, not a scripted lane, that turns the crowd into a disc of bodies pressed
+   * toward the entrance — each blocked by the ones in front.
+   */
+  private stepQueue(a: Agent): void {
+    a.vx = 0
+    a.vy = 0
+    if (a.server < 0) return
+    const g = this.graph
+    const s = g.servers[a.server]
+    const tx = g.nodeX[s.node]
+    const ty = g.nodeY[s.node]
+    const dist = Math.hypot(tx - a.x, ty - a.y)
+    const standoff = PERSONAL_SPACE * 0.3
+    if (dist > standoff) {
+      const n = this.localDensity(a)
+      const m2PerPax = n > 0 ? 12.57 / (n + 1) : 12.57
+      const speed = a.speed * densityDerate(m2PerPax)
+      const step = Math.min(speed * SIM_DT, dist - standoff)
+      const inv = step / dist
+      this.tryMove(a, a.x + (tx - a.x) * inv, a.y + (ty - a.y) * inv)
+      a.z += (g.nodeZ[s.node] - a.z) * inv
+    }
+  }
+
+  /**
+   * One positional-relaxation pass over the whole crowd (§10.3). Every pair
+   * closer than PERSONAL_SPACE pushes apart, so no body stands inside another;
+   * a body pushed toward a wall is stopped at the edge and slides along it.
+   * Walking, queuing and waiting agents are all included — the crowd resolves
+   * itself the same way wherever it is.
+   */
+  private resolveCollisions(): void {
+    const live = this.pool.live
+    const W = this.cGridW
+    const H = this.cGridH
+    const band = W * H
+    const ps2 = PERSONAL_SPACE * PERSONAL_SPACE
+    for (let i = 0; i < live.length; i++) {
+      const a = live[i]
+      if (a.dead || a.state === STATE_RIDING) continue
+      const ax = a.x
+      const ay = a.y
+      const gx = Math.floor((ax - this.cGridMinX) / COLLISION_CELL)
+      const gy = Math.floor((ay - this.cGridMinY) / COLLISION_CELL)
+      const lz = this.levelBucket(a.z)
+      let px = 0
+      let py = 0
+      for (let oy = -1; oy <= 1; oy++) {
+        const yy = gy + oy
+        if (yy < 0 || yy >= H) continue
+        for (let ox = -1; ox <= 1; ox++) {
+          const xx = gx + ox
+          if (xx < 0 || xx >= W) continue
+          const c = lz * band + yy * W + xx
+          for (let k = this.cStart[c]; k < this.cStart[c + 1]; k++) {
+            const b = live[this.cOrder[k]]
+            if (b === a || b.dead || b.state === STATE_RIDING) continue
+            const dx = ax - b.x
+            const dy = ay - b.y
+            const d2 = dx * dx + dy * dy
+            if (d2 >= ps2) continue
+            if (d2 < 1e-8) {
+              // Perfectly coincident: spread along a fixed, id-derived angle.
+              const ang = a.id * 2.399963229728653
+              px += Math.cos(ang) * PERSONAL_SPACE * SEPARATION_RELAX
+              py += Math.sin(ang) * PERSONAL_SPACE * SEPARATION_RELAX
+              continue
+            }
+            const d = Math.sqrt(d2)
+            const push = ((PERSONAL_SPACE - d) / d) * SEPARATION_RELAX
+            px += dx * push
+            py += dy * push
+          }
+        }
+      }
+      if (px === 0 && py === 0) continue
+      const pm = Math.hypot(px, py)
+      if (pm > SEPARATION_MAX) {
+        px = (px / pm) * SEPARATION_MAX
+        py = (py / pm) * SEPARATION_MAX
+      }
+      this.tryMove(a, ax + px, ay + py)
+    }
+  }
+
+  /** Move an agent, but never onto a cell that is not floor. */
+  private tryMove(a: Agent, nx: number, ny: number): void {
+    if (this.onFloor(nx, ny, a.z)) {
+      a.x = nx
+      a.y = ny
+    } else if (this.onFloor(nx, a.y, a.z)) {
+      a.x = nx
+    } else if (this.onFloor(a.x, ny, a.z)) {
+      a.y = ny
+    }
+  }
+
+  /** True when the cell containing a point is walkable floor on its level. */
+  private onFloor(x: number, y: number, z: number): boolean {
+    return this.graph.nodeIndex.has(cellKey(Math.floor(x), Math.floor(y), Math.round(z) - 1))
+  }
+
   /* --------------------------------------------------------------- agents */
 
   private moveAgents(): void {
     const live = this.pool.live
-    this.buildNeighbourGrid(live)
+    // Grid and per-cell density from where the crowd stands at the top of the
+    // tick; movement reads the density, the collision pass rebuilds the grid.
+    this.buildCollisionGrid(live)
+    this.computeCellDensity()
     // Resolve path requests first, in agent id order.
     this.processRepaths()
 
@@ -564,8 +794,7 @@ export class World {
           break
         case STATE_QUEUING:
         case STATE_WAITING:
-          a.vx = 0
-          a.vy = 0
+          this.stepQueue(a)
           this.queueTime(a)
           break
         case STATE_BUYING:
@@ -580,6 +809,9 @@ export class World {
           break
       }
     }
+    // One collision pass over the whole crowd, after everyone has moved.
+    this.buildCollisionGrid(live)
+    this.resolveCollisions()
   }
 
   private queueTime(a: Agent): void {
@@ -645,8 +877,6 @@ export class World {
     const speed = a.speed * densityDerate(m2PerPax)
     const budget = speed * SIM_DT
 
-    const sep = this.separation(a)
-
     if (dist <= budget || dist < ARRIVE) {
       a.x = tx
       a.y = ty
@@ -662,117 +892,60 @@ export class World {
     a.z += (tz - a.z) * inv
     a.vx = ((tx - a.x) / Math.max(dist, 1e-6)) * speed
     a.vy = ((ty - a.y) / Math.max(dist, 1e-6)) * speed
-    // Light separation nudge so queues read as crowds rather than single files.
-    a.x += sep.x * SEPARATION_NUDGE
-    a.y += sep.y * SEPARATION_NUDGE
   }
 
-  private separation(a: Agent): { x: number; y: number } {
-    const live = this.pool.live
-    let fx = 0
-    let fy = 0
-    const W = this.gridW
-    const H = this.gridH
-    const gx = Math.floor((a.x - this.gridMinX) / NEIGHBOUR_CELL)
-    const gy = Math.floor((a.y - this.gridMinY) / NEIGHBOUR_CELL)
-    const lz = this.levelBucket(a.z)
-    for (let oy = -1; oy <= 1; oy++) {
-      const yy = gy + oy
-      if (yy < 0 || yy >= H) continue
-      for (let ox = -1; ox <= 1; ox++) {
-        const xx = gx + ox
-        if (xx < 0 || xx >= W) continue
-        const c = (lz * H + yy) * W + xx
-        const s = this.gStart[c]
-        const e = this.gStart[c + 1]
-        for (let k = s; k < e; k++) {
-          const j = this.gOrder[k]
-          const b = live[j]
-          if (b === a) continue
-          const ddx = b.x - a.x
-          const ddy = b.y - a.y
-          const d2 = ddx * ddx + ddy * ddy
-          if (d2 > PERSONAL_SPACE * PERSONAL_SPACE || d2 < 1e-9) continue
-          const d = Math.sqrt(d2)
-          const w = (PERSONAL_SPACE - d) / d
-          fx -= ddx * w
-          fy -= ddy * w
-        }
-      }
-    }
-    if (fx > 2) fx = 2
-    if (fx < -2) fx = -2
-    if (fy > 2) fy = 2
-    if (fy < -2) fy = -2
-    return { x: fx * 0.9, y: fy * 0.9 }
-  }
-
+  /**
+   * Crowd count around an agent, read from the precomputed cell density. The
+   * per-cell value is the number of bodies within ~2 m of the cell centre, so
+   * this is O(1) instead of a scan of every body in a 6 m square — which is
+   * what made a crush expensive.
+   */
   private localDensity(a: Agent): number {
+    const band = this.cGridW * this.cGridH
+    return this.cellDensity[this.collisionCellIndex(a.x, a.y, a.z, band)]
+  }
+
+  /**
+   * Precompute the crowd count within 2 m of every collision cell's centre,
+   * from the current grid. Agents in the same cell share the value, so the work
+   * is one pass over the non-empty cells instead of one scan per agent — which
+   * is what made a crush expensive.
+   */
+  private computeCellDensity(): void {
+    const W = this.cGridW
+    const H = this.cGridH
+    const band = W * H
+    const dens = this.cellDensity
     const live = this.pool.live
-    let n = 0
-    const W = this.gridW
-    const H = this.gridH
-    const gx = Math.floor((a.x - this.gridMinX) / NEIGHBOUR_CELL)
-    const gy = Math.floor((a.y - this.gridMinY) / NEIGHBOUR_CELL)
-    const lz = this.levelBucket(a.z)
-    for (let oy = -1; oy <= 1; oy++) {
-      const yy = gy + oy
-      if (yy < 0 || yy >= H) continue
-      for (let ox = -1; ox <= 1; ox++) {
-        const xx = gx + ox
-        if (xx < 0 || xx >= W) continue
-        const c = (lz * H + yy) * W + xx
-        for (let k = this.gStart[c]; k < this.gStart[c + 1]; k++) {
-          const b = live[this.gOrder[k]]
-          if (b === a) continue
-          const ddx = b.x - a.x
-          const ddy = b.y - a.y
-          if (ddx * ddx + ddy * ddy < 4) n++
+    dens.fill(0)
+    for (let lz = 0; lz < this.gridL; lz++) {
+      const base = lz * band
+      for (let gy = 0; gy < H; gy++) {
+        for (let gx = 0; gx < W; gx++) {
+          const c = base + gy * W + gx
+          if (this.cStart[c + 1] === this.cStart[c]) continue
+          const cx = this.cGridMinX + (gx + 0.5) * COLLISION_CELL
+          const cy = this.cGridMinY + (gy + 0.5) * COLLISION_CELL
+          let n = -1 // the agents in this cell count themselves out
+          for (let oy = -2; oy <= 2; oy++) {
+            const yy = gy + oy
+            if (yy < 0 || yy >= H) continue
+            for (let ox = -2; ox <= 2; ox++) {
+              const xx = gx + ox
+              if (xx < 0 || xx >= W) continue
+              const nc = base + yy * W + xx
+              for (let k = this.cStart[nc]; k < this.cStart[nc + 1]; k++) {
+                const b = live[this.cOrder[k]]
+                const dx = b.x - cx
+                const dy = b.y - cy
+                if (dx * dx + dy * dy < 4) n++
+              }
+            }
+          }
+          dens[c] = n
         }
       }
     }
-    return n
-  }
-
-  private buildNeighbourGrid(live: readonly Agent[]): void {
-    const n = live.length
-    if (this.gOrder.length < n) this.gOrder = new Int32Array(Math.max(n, this.gOrder.length * 2))
-    const counts = this.counts
-    counts.fill(0)
-    const W = this.gridW
-    const H = this.gridH
-    const W2 = W
-    const band = W2 * H
-    for (let i = 0; i < n; i++) counts[this.cellIndexFast(live[i], band)]++
-    let acc = 0
-    const nb = W2 * H * this.gridL
-    for (let c = 0; c < nb; c++) {
-      this.gStart[c] = acc
-      acc += counts[c]
-    }
-    this.gStart[nb] = acc
-    const cursor = counts
-    for (let c = 0; c < nb; c++) cursor[c] = this.gStart[c]
-    for (let i = 0; i < n; i++) {
-      const c = this.cellIndexFast(live[i], band)
-      this.gOrder[cursor[c]++] = i
-    }
-  }
-
-  private cellIndexFast(a: Agent, band: number): number {
-    return this.cellIndexAt(a.x, a.y, a.z, band)
-  }
-
-  private cellIndexAt(x: number, y: number, z: number, band: number): number {
-    let gx = Math.floor((x - this.gridMinX) / NEIGHBOUR_CELL)
-    let gy = Math.floor((y - this.gridMinY) / NEIGHBOUR_CELL)
-    const W = this.gridW
-    const H = this.gridH
-    if (gx < 0) gx = 0
-    else if (gx >= W) gx = W - 1
-    if (gy < 0) gy = 0
-    else if (gy >= H) gy = H - 1
-    return this.levelBucket(z) * band + gy * W + gx
   }
 
   private levelBucket(z: number): number {
@@ -781,6 +954,46 @@ export class World {
     if (lz < 0) lz = 0
     else if (lz >= this.gridL) lz = this.gridL - 1
     return lz
+  }
+
+  /**
+   * Rebuild the fine collision grid from the current positions. It is built
+   * after the movement pass, so it reflects where the crowd actually is now.
+   */
+  private buildCollisionGrid(live: readonly Agent[]): void {
+    const n = live.length
+    if (this.cOrder.length < n) this.cOrder = new Int32Array(Math.max(n, this.cOrder.length * 2))
+    const counts = this.cCounts
+    counts.fill(0)
+    const W = this.cGridW
+    const H = this.cGridH
+    const band = W * H
+    for (let i = 0; i < n; i++) counts[this.collisionCellIndex(live[i].x, live[i].y, live[i].z, band)]++
+    let acc = 0
+    const nb = band * this.gridL
+    for (let c = 0; c < nb; c++) {
+      this.cStart[c] = acc
+      acc += counts[c]
+    }
+    this.cStart[nb] = acc
+    const cursor = counts
+    for (let c = 0; c < nb; c++) cursor[c] = this.cStart[c]
+    for (let i = 0; i < n; i++) {
+      const a = live[i]
+      this.cOrder[cursor[this.collisionCellIndex(a.x, a.y, a.z, band)]++] = i
+    }
+  }
+
+  private collisionCellIndex(x: number, y: number, z: number, band: number): number {
+    let gx = Math.floor((x - this.cGridMinX) / COLLISION_CELL)
+    let gy = Math.floor((y - this.cGridMinY) / COLLISION_CELL)
+    const W = this.cGridW
+    const H = this.cGridH
+    if (gx < 0) gx = 0
+    else if (gx >= W) gx = W - 1
+    if (gy < 0) gy = 0
+    else if (gy >= H) gy = H - 1
+    return this.levelBucket(z) * band + gy * W + gx
   }
 
   /* --------------------------------------------------------- path & legs */
@@ -1006,7 +1219,10 @@ export class World {
     let worst = 4
     let worstNode = -1
     for (const a of this.pool.live) {
-      const n = this.nearestNode(a.x, a.y, a.z)
+      // A queued body stands in its lane but is logically at the server, so
+      // count it there — and skip the ring search, which is what makes a lane
+      // that reaches past the station expensive.
+      const n = a.server >= 0 ? g.servers[a.server].node : this.nearestNode(a.x, a.y, a.z)
       if (n >= 0) this.nodePop[n]++
     }
     for (let n = 0; n < g.nodeCount; n++) {

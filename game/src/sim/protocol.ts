@@ -27,4 +27,8 @@ export type FromWorker =
       agents: Float32Array
       metrics: Metrics
       density: Float32Array
+      /** One rolling-stock pose per live train; see `World.trainRenderState`. */
+      trains: Float32Array
+      /** Real milliseconds the renderer should interpolate one snapshot over. */
+      intervalMs: number
     }

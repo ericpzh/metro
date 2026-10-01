@@ -41,6 +41,7 @@ creates them along with the Worker — there is no dashboard step and nothing to
 keep in sync by hand.
 
 ```bash
+npm start             # build the game, then serve it at http://localhost:4174
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
 npm run test:game     # node --test: determinism, tick budgets, capacity ladder
@@ -50,7 +51,7 @@ npm run deploy:game   # build, deploy metro-game, and attach its two routes
 To see the tab locally, run the site and the game side by side:
 
 ```bash
-npm start             # site at http://localhost:5173
+npm run dev           # site dev server at http://localhost:5173
 npm run dev:game      # game at http://localhost:5174, embedded by http://localhost:5173/game/
 ```
 
@@ -84,10 +85,12 @@ Or from the repository root, without `cd`-ing:
 ```bash
 npm install     # root deps (wrangler)
 npm run setup   # installs web/ deps
-npm start       # dev server at http://localhost:5173
+npm run dev     # dev server at http://localhost:5173
 ```
 
-`npm start` is a thin alias for `web`'s `dev` script, so it runs `sync-art` first and then Vite.
+`npm run dev` is a thin alias for `web`'s `dev` script, so it runs `sync-art` first and then Vite.
+`npm start` is the *game*: it builds it and serves the build at http://localhost:4174 — it is not the
+site.
 
 ## Deploying to Cloudflare
 

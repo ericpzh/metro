@@ -19,7 +19,10 @@ import {
   TVM_RATE,
   WALK_SPEED,
 } from './constants.ts'
+import { floorSpeed } from './finishes.ts'
+import { EXIT_BACK_Y, EXIT_DOOR_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_SIDE } from './exits.ts'
 import { STOCK, doorCentres } from './stock.ts'
+import { zoneIndex } from './zones.ts'
 import type { StationData } from './types.ts'
 
 export type ServerKind = 'gate' | 'escalator' | 'stair' | 'lift' | 'door' | 'stop'
@@ -66,6 +69,10 @@ export interface StationGraph {
   nodeX: Float32Array
   nodeY: Float32Array
   nodeZ: Float32Array
+  /** Floor-finish walk-speed multiplier at each node (§4.3). */
+  nodeSpeed: Float32Array
+  /** Zone index at each node (§4.5), for trip sampling and the overlay. */
+  nodeZone: Uint8Array
   nodeKey: string[]
   nodeIndex: Map<string, number>
   adjStart: Int32Array
@@ -108,6 +115,9 @@ interface EdgeDraft {
 export function buildGraph(data: StationData): StationGraph {
   const solid = new Set<string>()
   for (const c of data.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
+  // Cells that host a gate: the only walk edges allowed to cross a zone line.
+  const gateCells = new Set<string>()
+  for (const m of data.modules) if (m.type === 'gate') gateCells.add(cellKey(m.x, m.y, m.z))
 
   // Walkable = a solid cell with nothing solid directly above it.
   const nodeIndex = new Map<string, number>()
@@ -115,6 +125,8 @@ export function buildGraph(data: StationData): StationGraph {
   const xs: number[] = []
   const ys: number[] = []
   const zs: number[] = []
+  const sps: number[] = []
+  const zns: number[] = []
   const levelSet = new Set<number>()
   let minX = Infinity
   let minY = Infinity
@@ -123,6 +135,10 @@ export function buildGraph(data: StationData): StationGraph {
   for (const c of data.cells) {
     if (c.fill !== 'solid') continue
     if (solid.has(cellKey(c.x, c.y, c.z + 1))) continue
+    // A floor finish is gameplay (§4.3): a track bed has speed 0 and is not a
+    // node at all, so agents cannot route onto the rails.
+    const speed = floorSpeed(c)
+    if (speed <= 0) continue
     const key = cellKey(c.x, c.y, c.z)
     if (nodeIndex.has(key)) continue
     const id = keys.length
@@ -131,6 +147,8 @@ export function buildGraph(data: StationData): StationGraph {
     xs.push(c.x + 0.5)
     ys.push(c.y + 0.5)
     zs.push(c.z + 1)
+    sps.push(speed)
+    zns.push(zoneIndex(c.zone))
     levelSet.add(c.z)
     if (c.x < minX) minX = c.x
     if (c.y < minY) minY = c.y
@@ -142,10 +160,14 @@ export function buildGraph(data: StationData): StationGraph {
   const nodeX = new Float32Array(nodeCount)
   const nodeY = new Float32Array(nodeCount)
   const nodeZ = new Float32Array(nodeCount)
+  const nodeSpeed = new Float32Array(nodeCount)
+  const nodeZone = new Uint8Array(nodeCount)
   for (let i = 0; i < nodeCount; i++) {
     nodeX[i] = xs[i]
     nodeY[i] = ys[i]
     nodeZ[i] = zs[i]
+    nodeSpeed[i] = sps[i]
+    nodeZone[i] = zns[i]
   }
 
   const servers: ServerDef[] = []
@@ -159,6 +181,42 @@ export function buildGraph(data: StationData): StationGraph {
     const id = servers.length
     servers.push({ ...s, id, queue: [], cooldown: 0, served: 0, waitAccum: 0, waitCount: 0 })
     return id
+  }
+
+  // Exit head-houses are solid: the crowd crosses at the street opening and
+  // never through the glass sides or the back wall. Each wall is a thin plane
+  // (see sim/exits.ts); an edge that crosses one inside its span is dropped,
+  // exactly like a zone boundary above.
+  interface ExitWall {
+    axis: 'x' | 'y'
+    at: number
+    min: number
+    max: number
+  }
+  const exitWalls: ExitWall[] = []
+  for (const m of data.modules) {
+    if (m.type !== 'exit' || m.cfg.headHouse === false) continue
+    const cx = m.x + 0.5
+    const cy = m.y + 0.5
+    const sx0 = cx - EXIT_SIDE
+    const sx1 = cx + EXIT_SIDE
+    exitWalls.push({ axis: 'x', at: sx0, min: cy + EXIT_GLASS_Y0, max: cy + EXIT_GLASS_Y1 })
+    exitWalls.push({ axis: 'x', at: sx1, min: cy + EXIT_GLASS_Y0, max: cy + EXIT_GLASS_Y1 })
+    exitWalls.push({ axis: 'y', at: cy + EXIT_BACK_Y, min: sx0, max: sx1 })
+  }
+  const crossesExitWall = (x: number, y: number, nx: number, ny: number): boolean => {
+    for (const w of exitWalls) {
+      if (w.axis === 'x') {
+        if ((x - w.at) * (nx - w.at) >= 0) continue
+        const cy = y + ((w.at - x) / (nx - x)) * (ny - y)
+        if (cy > w.min && cy < w.max) return true
+      } else {
+        if ((y - w.at) * (ny - w.at) >= 0) continue
+        const cx = x + ((w.at - y) / (ny - y)) * (nx - x)
+        if (cx > w.min && cx < w.max) return true
+      }
+    }
+    return false
   }
 
   // Walk edges: 4-neighbour, same surface height.
@@ -175,7 +233,16 @@ export function buildGraph(data: StationData): StationGraph {
     for (const [nx, ny] of nb) {
       const j = nodeIndex.get(cellKey(nx, ny, z))
       if (j === undefined) continue
-      edges.push({ from: i, to: j, cost: 1 / WALK_SPEED, kind: KIND_WALK, server: -1 })
+      // §4.5: a zone boundary is a movement barrier. The only crossing is a
+      // cell that hosts a gate, so an ungated fare line physically traps the
+      // crowd — no special-casing in the sim, just no edge.
+      if (nodeZone[i] !== nodeZone[j] && !gateCells.has(cellKey(x, y, z)) && !gateCells.has(cellKey(nx, ny, z))) continue
+      // §5.6: an exit head-house wall is a barrier too — the opening is the way.
+      if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5)) continue
+      // Cost carries the finish speed of both ends, so a concrete floor is a
+      // real detour and routing prefers the faster surface.
+      const speed = (nodeSpeed[i] + nodeSpeed[j]) / 2
+      edges.push({ from: i, to: j, cost: 1 / (WALK_SPEED * speed), kind: KIND_WALK, server: -1 })
     }
   }
 
@@ -184,7 +251,11 @@ export function buildGraph(data: StationData): StationGraph {
   for (const m of data.modules) {
     switch (m.type) {
       case 'exit': {
-        const n = nodeIndex.get(cellKey(m.x, m.y, m.z))
+        // A head-house's node is its street opening, not the cell under the
+        // canopy — so the crowd visibly walks out through the doorway. A bare
+        // portal (headHouse: false) keeps the module cell.
+        const door = m.cfg.headHouse === false ? undefined : nodeIndex.get(cellKey(m.x, m.y + EXIT_DOOR_Y, m.z))
+        const n = door ?? nodeIndex.get(cellKey(m.x, m.y, m.z))
         if (n !== undefined) exits.push({ id: m.id, node: n, name: m.cfg.name })
         break
       }
@@ -355,6 +426,8 @@ export function buildGraph(data: StationData): StationGraph {
     nodeX,
     nodeY,
     nodeZ,
+    nodeSpeed,
+    nodeZone,
     nodeKey: keys,
     nodeIndex,
     adjStart,

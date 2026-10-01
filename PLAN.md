@@ -1,398 +1,392 @@
-# PLAN.md — Base demo game
+# PLAN.md — from the vertical slice to the base game
 
-**Status:** draft 1 · 2026-09-29
-**Scope:** build a playable *vertical slice* of Metro Station Designer in this repository, as a
-**separate application** from the concept-art site in [`web/`](web/).
-**Reads with:** [`GAME-SPEC.md`](GAME-SPEC.md) (the full vision, draft 10). This file is the
-build order and the deltas, not a replacement for the spec.
-
----
-
-## 1. What we decided
-
-Three things are settled before any code is written.
-
-**1.1 — The game is a pure JS/TS project. No engine.** We re-checked this against the whole spec.
-Nothing in it needs C++. React + Vite + TS for panels, three.js + R3F for the scene, a Web Worker
-for the sim, JSON snapshots for saves, Vite → static assets for distribution. That is the stack in
-§10.1 of the spec and we're not changing it. The open questions were never "can JS do this" — they
-were about two specific budgets, and one of them is now measured (§2).
-
-**1.2 — The game is its own app, its own deploy, its own Worker.** `web/` stays exactly as it is.
-The game lives in a new top-level `game/` directory with:
-
-- its own `package.json` and dependency tree (no shared imports, no relative escapes either way),
-- its own Vite config and `tsconfig.json`,
-- its own `wrangler.jsonc` and its own Cloudflare Worker project (`metro-game`),
-- its own build and deploy scripts.
-
-It does **not** consume `art/`. The concept sheets are the spec's diagrams; the game's art comes
-from the 3D renderer (§2.2). Sharing nothing between the two apps means a change in one can never
-break the other's build.
-
-**1.3 — The target is a vertical slice, not M0.** Per §12, M0 is "grid in the browser" and ships no
-crowd. We're deliberately skipping ahead: go wide and shallow across the whole core loop instead of
-deep on build tooling. The reason is that our two unproven risks — the rounded-corner chunk mesher
-and whether the look actually reads as good art in 3D — plus the one risky budget (crowd stepping)
-all get settled in the first fortnight, before we invest in UX that assumes them.
-
-**The elevator pitch for the demo:** a URL where you dig a box into the ground, and watch three
-thousand people break it.
+**Status:** draft 2 · 2026-09-30
+**Supersedes:** draft 1 — the vertical-slice plan (V0–V5). That plan is *done*: the slice is
+built, tested and deployed (§1). This document replaces it.
+**Scope:** grow the shipped slice in [`game/`](game/) into the **base game**: the nine-stage core
+loop of [`GAME-SPEC.md`](GAME-SPEC.md) §3, playable end to end on a station the player builds from
+the 2×2 seed. **Single line.** Transfers and a second line stay out (§8).
+**Reads with:** `GAME-SPEC.md` (draft 10). This file is the build order and the deltas, not a
+replacement for the spec.
 
 ---
 
-## 2. Findings from the spike
+## 1. Where we are
 
-Run before writing this plan, so the plan rests on measurements rather than enthusiasm.
+Draft 1 set out to settle two unknowns and one budget before investing in UX. All three are now
+answered by shipped code, not by argument.
 
-### 2.1 The crowd tick is not a problem — and we were worried about the wrong number
+| What draft 1 doubted | What the slice proved |
+|---|---|
+| Is the look good enough? | **Yes.** Autotile, inverted-hull outline, AO, contact blobs and procedural granite/enamel/baffle all ship at `/lab`. The gate passed. |
+| Does the crowd tick hold up? | **Yes, with room.** p99 worker tick ≈ **2.2 ms at 3,257 agents** (comfort target 8 ms, hard budget 200 ms). |
+| Is A* over a real station affordable? | **Yes, because of the cache.** 520 synchronised searches collapse onto the `(from, to, needsClass)` cache; the per-tick budget is asserted in CI. |
+| Chunk mesh cost? | **≈ 3.7 ms warm**, ≈ 5 ms on the first chunk (JIT) — the one honest miss, and R2's bevels-only fallback is still in reserve. |
+| Determinism? | **Held.** `seed + tick → identical crowd` is a Node test, and `sim/` is scanned for `Math.random`. |
 
-We benchmarked the shape the spec asks for in §7.1–7.3: struct-of-arrays agents, uniform-grid
-neighbour search, 2 m personal space, per-agent state machine, density speed derate, 5 Hz tick.
-Script: [`tools/bench-crowd-tick.mjs`](tools/bench-crowd-tick.mjs) (plain Node, no deps).
+Everything below builds on that: `game/` is a working single-line demo of one hardcoded station.
+The base game is the same machinery, but the station is the player's, and every stage of §3's loop
+is real. The risky parts are behind us; what remains is breadth, a data model, and the interface.
 
-| agents | density | mean ms/tick | p99 | max | % of the 200 ms tick |
-|---:|---|---:|---:|---:|---:|
-| 1,000 | sparse | 0.10 | — | — | 0.05% |
-| 3,000 | sparse (spec target) | 0.58 | 1.24 | 2.26 | 0.29% |
-| 3,000 | **crush** 0.21 m²/pax | 3.92 | 5.31 | 6.40 | 1.96% |
-| 3,000 | crush + per-tick allocation | 3.91 | 4.32 | 5.80 | 1.95% |
-| 8,000 | crush | 14.18 | 19.80 | 22.26 | 7.09% |
-| 15,000 | sparse | 3.72 | — | — | 1.86% |
-| 30,000 | sparse | 15.29 | — | — | 7.65% |
+**Draft 1's architectural rules are carried forward unchanged** and remain non-negotiable:
 
-Three conclusions:
-
-- **An arrival rate is not a load.** 800 agents/min is 13.3/s, or 2.7 spawns per 200 ms tick.
-  Spawning an agent is a weighted RNG draw plus a path request — microseconds. What matters is
-  concurrency (Little's law, `L = λ × W`): 800/min at a ~8 min mean stay is ~6,400 agents in the
-  station. At crush density that's roughly 11 ms of a 200 ms tick.
-- **The §10.4 budget of "< 8 ms in the worker" is a comfort target, not a ceiling.** At 5 Hz the
-  worker owns 200 ms per tick. A 40 ms tick still runs the sim in real time and still answers
-  messages. Tick-time exhaustion doesn't begin until ~30–60k agents at crush — ten to twenty times
-  the spec's target.
-- **Density, not agent count, is the multiplier.** The same 3,000 agents cost 0.58 ms spread out
-  and 3.92 ms at LOS F. The worst case is always a crush-loaded platform, which is also the case
-  worth optimising for on purpose (§2.3, item 1).
-
-Note the honest caveats: these are a desktop's numbers (a 2-core laptop will be 2–3× slower, still
-fine); per-tick allocation showed no cost here because V8 scavenges short-lived objects well, but
-that measures throughput, not pause variance — so the tick stays allocation-free anyway.
-
-### 2.2 The one number that does miss the budget
-
-A train docks and 520 agents all unlock their boarding leg in the same tick. Measured A* over a
-200×200 grid with 20% obstacles:
-
-```
-520 uncached searches  =  395 ms for one tick   (0.76 ms per search, ~9,750 nodes each)
-```
-
-That is 2× over the 200 ms tick. It is the only measurement in the spike that fails.
-
-It also confirms that the path cache in §7.2 point 3 is **load-bearing, not an optimisation**.
-Those 520 agents share maybe 3–6 distinct corridors; with a cache keyed on
-`(from, to, needsClass)` the 395 ms collapses to single-digit milliseconds. A second guard is a
-per-tick re-path budget: amortise searches across ticks, because a 200 ms delay in a boarding
-agent's path decision is invisible while a 395 ms sim stall is not.
-
-This matters specifically because train-borne waves are *synchronised* re-paths. Spread the same
-800 agents/min evenly and pathfinding is free. Dump them in 40 seconds behind a train's doors and
-the cache has to already exist.
-
-### 2.3 The SVG sheets are diagrams, and that's fine
-
-We inspected the thirteen sheets. `tools/iso.mjs` gives every box three flat tones
-(`top ×1.13`, `right ×0.80`, `left ×0.58`) and one 0.8 px outline. Across all thirteen sheets:
-zero gradients inside any drawing, no per-face lighting, no texture, no contact shadows.
-
-That flatness is *structural* — the missing information is lighting and material, which a flat
-polygon renderer has no channel for — so adding more polygons cannot fix it. Which is why:
-
-> **The sheets are spec diagrams. They are not the art-direction target.**
-
-§1 of the spec claims the sheets "double as an art-direction target." We're retiring that claim.
-The sheets have done their job: a reader can see where the fare gates go and what a 2.8 m B-type car
-looks like. They stay, unchanged, as diagrams on the art site.
-
-The real art target is four renderer features, and all four are missing from the SVG pipeline:
-
-1. **Outline pass** — inverted hull or post-process edge detect, for §11's "dark, 0.8 px at design
-   scale, drawn per face."
-2. **Contact-shadow blobs** — §11 literally asks for them.
-3. **Ambient occlusion + a real key/ambient rig** — this alone is most of the difference between
-   "chunky toy building" and "spreadsheet."
-4. **Procedural material detail** — UV-noise granite speckle, enamel panel seams, brushed-metal
-   roughness.
-
-Consequence for the plan: milestone **V1 is a material lab, and it is a hard gate.** If the look
-isn't good in V1, we change the art direction before building a game on top of it.
-
-### 2.4 Architectural rules we're adopting from the spike
-
-- **The sim core is a pure TS package with no DOM, no worker, and no three.js imports.** It must run
-  in Node. This is what makes `node sim.mjs --seed 1 --hours 24` and CI budget tests possible; it
-  cannot be retrofitted once the sim is tangled into Comlink.
-- **Determinism is a commit-one constraint.** Fixed tick, one seeded RNG, no `Math.random`
-  anywhere in `sim/`, stable sort orders. §7.6 is a hard requirement and it is cheap to hold and
-  expensive to retrofit.
-- **Don't treat the worker as an event loop.** Each tick is one synchronous task: integrate all
-  agents, then post, then yield. No `await` per agent, no per-item microtasks.
-- **Interpolate cheaply.** The worker posts a `Float32Array` at 5 Hz (zero-copy transfer); the main
-  thread keeps prev/next buffers. Start by writing instance matrices on the CPU each frame — that's
-  ~0.5 ms for 3,000 agents and it's simple. Only move the lerp into a vertex shader with an `alpha`
-  uniform if we measure a need.
+- `sim/` is pure TS — no DOM, no worker, no three.js; it runs in Node.
+- Determinism is a commit-one constraint: fixed tick, one seeded RNG, stable iteration order.
+- One tick is one synchronous task; no `await` per agent.
+- The interface is **Simplified Chinese only** (§9.2); ids and save keys stay ASCII.
+- `game/` is its own app, its own tests, its own Worker (`metro-game`). It shares no code with
+  `web/` or `art/`. The only coupling is the site's 游戏 tab URL.
 
 ---
 
-## 3. Repository layout after this plan
+## 2. What "base game" means
+
+**Definition.** The base game is the §3 core loop working end to end on a station the player builds,
+with the spec's own numbers, one line, and a save:
 
 ```
-metro/
-  GAME-SPEC.md            the full vision (draft 10) — unchanged
-  PLAN.md                 this file
-  README.md               add one line pointing at game/
-  package.json            add game dev/build/deploy scripts
-  wrangler.jsonc          art site Worker — UNCHANGED (name: metro, ASSET_PREFIX /metro)
-  worker/index.js         art site prefix Worker — UNCHANGED
-  art/                    concept sheets — UNCHANGED, not consumed by the game
-  tools/                  art generators + bench-crowd-tick.mjs
-  web/                    concept-art site — UNCHANGED, deploys to /metro/
-  game/                   NEW — the game
-    index.html
-    package.json
-    tsconfig.json
-    vite.config.ts
-    wrangler.jsonc        own Worker project (name: metro-game)
-    src/
-      main.tsx
-      app/                React shell: HUD, level strip, clock/speed  (panels only, no sim logic)
-      render/             three: camera rig, nav cube, chunk mesher, materials, outline, shadows
-      build/              tools, commands, undo, validation, level slicing
-      sim/                PURE TYPESCRIPT — no DOM, no worker, no three imports
-        worker.ts         the thin worker wrapper (the only file that touches postMessage)
-      data/               constants.ts, stock.ts, materials.ts, reference-station.ts
-    bench/                moved from tools/ once the app exists; wired into CI in V3
-    test/                 node-run sim tests (determinism, budgets, capacity ladder)
+1 起点  2×2 seed                        ── already exists
+2 毛坯  massing / extrude / dig          ── already exists (block tool)
+3 饰面  surfaces, finishes, track bed    ── B1
+4 设备  the module catalogue             ── B2 (zones) + B3 (capacity kit) + B4 (draw kit)
+5 列车  line manager + timetable + trains── exists in a stub; B3/B5 make it real
+6 出入口 exit config, in/out rates        ── exists; zones make it honest (B2)
+7 运行  demand curves, day, charts        ── B5
+8 存档  *.metro.json snapshot             ── B1 (static) + B5 (full)
+9 迭代  read the charts, move a wall      ── undo exists; B5 completes it
 ```
 
-**Dependency direction is one-way: `app/ → render/ → sim/`, and `sim/` imports nothing.** A lint
-rule should enforce it. `game/` and `web/` share no code and no dependencies.
+**The one acceptance test for the whole thing.** A stranger opens the URL, starts from the 2×2
+seed, digs a station with a concourse and a platform, paints and zones it, places gates,
+escalators, turnstiles and a platform edge, sets a line and an exit demand, presses play, watches
+the AM peak break it, reads *why* in the charts, fixes it — and saves the exact crush to a
+`*.metro.json` a colleague can load paused and inspect.
 
-Gitignore needs no change: the existing bare `node_modules/` and `dist/` patterns already match at
-any depth, so they cover `game/node_modules/` and `game/dist/`.
+**What "base" deliberately leaves out** is §8. Air quality, mods, Steam packaging, multiplayer, a
+second line, transfers, queue-lane *ordering* semantics beyond capacity, and the full analytics
+suite are all later series.
 
 ---
 
-## 4. The vertical slice — work breakdown
+## 3. The structural gaps
 
-Six milestones, strict order. Each has an explicit acceptance test; none is "done" until it passes.
+The slice is shallow in six places, and five of them are in the data model, not the UI. Fixing the
+model first is why B1 is not "add a paint button."
 
-Rough sizing for one person, focused: **~2–3 weeks total.** Sizes are relative (S/M/L), not promises.
+1. **A cell has no faces.** `Cell` is `{ x, y, z, fill, tags? }`. Surfaces (§4.3), decals, wall
+   signage, track beds and PSD headers all need a place to live. Today the mesher invents faces from
+   neighbours and paints them all one material.
+2. **There are no zones.** §4.5's fare line is the most consequential decision in a station, and the
+   slice does not have it: gates are optional queue servers, not the only legal crossing. An agent
+   can walk around a gate.
+3. **The line is a stub.** `dispatchTrains` ignores `line.stations[]`; `sampleTripFromStreet` boards
+   `lineIds[0]`; `metrics.trainsLate` is `trains.length`. There is no line manager and no route.
+4. **There is no save.** `SaveDoc` is declared in `sim/types.ts`; nothing serialises it. The schema
+   must be frozen *before* content grows, or every milestone rewrites the file format.
+5. **Time is not authored.** The clock runs at a fixed 1 s/tick; there is no scrub, no day type, no
+   curve, no fast-forward and no chart. §7.4, §7.9 and §8.1 are all missing.
+6. **Modules are ad-hoc boxes.** `scene.ts` draws gates/TVMs/benches as unit cubes from a 4-item
+   `MODULE_OPTIONS`. The spec's catalogue is ~25 modules with footprints, rotation, validity,
+   variable areas and rounded silhouettes.
 
-### V0 — Shell · S (0.5 d)
-
-`game/` app boots: Vite + React 19 + TS, a dark full-viewport canvas, an orbit camera, a grid
-plane on the active level, and an FPS/tick readout.
-
-**Acceptance:** `npm run dev -w game` serves a dark 3D viewport you can orbit and zoom, at 60 fps,
-with a visible 1 m grid.
-**Depends on:** nothing.
-
-### V1 — Mesher + material lab · **L (3–5 d) — THE GATE**
-
-The risk spike. One 16³ chunk of blocks, meshed with the §4.2 rounded-corner autotile (8-neighbour
-mask, 12.5 cm bevel on exposed top edges), plus the four art features from §2.3: outline pass,
-contact shadows, AO + light rig, procedural granite/enamel/baffle materials.
-
-Ship it as a route inside the real app (`/lab`), not a throwaway page, so the renderer we judge is
-the renderer we keep.
-
-**Acceptance:** an 8×8 slab with a hole and a step in it renders with rounded corners and reads as
-a *designed building*, not a spreadsheet — and you would be happy shipping that exact look.
-**Also measure:** chunk mesh build time against the §10.4 budget (`< 4 ms`, chunk-local).
-**Depends on:** V0.
-**Kill criteria:** if the look still isn't there after 5 days, stop and change the art direction
-(candidates: real cel shading with a stronger outline, or a stylised 2.5D approach) rather than
-grinding on materials.
-
-### V2 — Build loop · M (2–3 d)
-
-The §12 M0 acceptance test, on top of V1's mesher: the 2×2 seed at `(0,0,0)`, extrude and dig with
-the base-block tool (click, drag, box-drag), the work-plane so void clicks land on something (§9.5),
-level slicing with `Q`/`E` and dimming of non-edited levels, and undo.
-
-Deliberately **not** in V2: surfaces/paint, zones, modules, the module catalogue. Blocks only.
-
-**Acceptance:** the spec's own M0 test — you can grow the seed into a detached underground box,
-orbit it, and look at it edge-on.
-**Depends on:** V1.
-
-### V3 — Crowd · L (4–6 d)
-
-The sim core, as a pure TS package. Worker at 5 Hz, station graph, agents per §7.1, flow-field
-steering plus grid separation, `InstancedMesh` rendering at scale, and the LOS density overlay.
-
-Two things must land here or V4 is impossible:
-
-- **the path cache** keyed on `(from, to, needsClass)`, plus a per-tick re-path budget (§2.2),
-- **the escalator as a capacity-limited server with a queue**, so the crowd has somewhere to pile up.
-
-**Acceptance:** a hardcoded reference station (§7.8 — the "Wusi Square" numbers) carries 3,000
-agents at ≥ 55 fps on the main thread, with **p99** worker tick < 8 ms, and determinism holds:
-same seed, same tick, identical positions, asserted in a Node test.
-**Depends on:** V0–V2 (needs geometry to walk on).
-**Note:** V1's mesher and V3's sim are independent and could be built in parallel by two people.
-
-### V4 — Train and the breaking point · M (3–4 d)
-
-One line, one train: dispatch on a headway, approach, doors, per-door queues, boarding and
-alighting, dwell per §6.4, departure — and **people left behind** when dwell runs out.
-
-This is where the game becomes a game, because this is the moment the §7.8 conclusion is visible:
-the platform exit is the binding constraint and it is bursty.
-
-**Acceptance:** an AM peak visibly breaks a deliberately under-built station — the escalator queue
-grows train over train, and the "left behind" counter climbs — and the fix (add an escalator, widen
-a stair) visibly fixes it.
-**Depends on:** V3.
-
-### V5 — Ship it · S (0.5 d)
-
-Own Cloudflare Worker project, deployed. A URL you can send someone.
-
-**Acceptance:** `https://metro-game.<account>.workers.dev` loads the demo, and a stranger can figure
-out the two things to do (dig, watch) without instructions.
-**Depends on:** V0–V4.
+Two debt items from the slice ride along and are repaid in the milestones that touch them:
+`setUpEscalators` hardcodes the reference-station fix by id prefix (dies in B3), and the game opens
+on the reference station rather than the seed (B6).
 
 ---
 
-## 5. Deploy — the game gets its own Worker
+## 4. Milestones
 
-The art site keeps its current setup untouched: Worker `metro`, assets from `./web/dist`, prefix
-worker, route `ericpzh.rest/metro/*`.
+Six milestones, strict order, each independently shippable and each with a Node-testable
+acceptance. Sizes are relative (S/M/L), for one focused person.
 
-The game gets a **second, independent Worker project**:
+**Progress.** B1 **done**: faces, the finish catalogue, per-face materials, the `N`/`M`/`I` paint
+tools, tactile-strip decals, and the static save v1. B2 **core done**: `sim/zones.ts`, `Cell.zone`,
+the graph barrier (no walk edge across a zone line except through a gate), the zone bucket tool, the
+`分区热力` overlay and the inspector control. B2 still open: zone inference, module zone-legality
+feedback (a TVM in the paid zone), and the gate direction/anchor UI. The rest is planned.
 
-```jsonc
-// game/wrangler.jsonc
-{
-  "name": "metro-game",
-  "compatibility_date": "2026-09-29",
-  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" }
-}
-```
+### B1 — Faces and finishes · **L (4–6 d)**
 
-**Recommended: deploy assets-only at the domain root of the Worker's own `workers.dev` URL.** No
-prefix worker script is needed at all, which removes the whole class of trailing-slash and
-relative-asset problems the art site had to solve with `worker/index.js`. Vite's `base: './'` keeps
-it portable if we later move it behind a path.
+The data model the rest of the game writes against, plus the paint loop and the first save.
 
-**Alternative, if it should live under `ericpzh.rest`:** reuse the proven pattern — add
-`"main": "./worker/index.js"`, `"assets": { "binding": "ASSETS" }` and
-`"vars": { "ASSET_PREFIX": "/metro-game" }`, copy the prefix Worker, and attach the two routes
-`ericpzh.rest/metro-game` and `ericpzh.rest/metro-game/*`. Same two-route rule as the art site: the
-bare path needs its own route, and never collapse them into `/metro-game*`.
+**Contents**
 
-**Decided, 2026-09-30: the prefix, plus a 游戏 tab.** The site links to the game rather than
-deploying it separately, so the game moved to the alternative above — `/metro-game/` behind a
-prefix Worker, which also keeps the `workers.dev` root working. No code is shared: the site adds a
-full-viewport iframe route at `/metro/game/` and points it at the game Worker through one URL
-(`gameUrl` in `web/src/site.js`, overridable with `VITE_GAME_URL`). A change in either app still
-cannot break the other's build; only the embed URL is a coupling, and it fails soft (the tab shows
-a "check the game Worker is deployed" hint).
+- **The cell grows six faces** (§4.1): `Cell.finish?: Partial<Record<'top'|'bottom'|'n'|'e'|'s'|'w', FinishId>>`,
+  sparse — an absent face is that face's family default. ASCII ids, Chinese labels.
+- **The finish catalogue** (`sim/finishes.ts`, pure data): four families 地面/天花/墙面/轨道, each
+  finish with a walk-speed multiplier (and cover/light as cosmetic fields for now). The family
+  decides behaviour, the finish decides look (§4.3).
+- **Floors are gameplay.** The station graph reads the top finish: a slow finish costs more to walk,
+  a track bed (speed 0) is not a node at all. This is the first surface with a mechanical effect.
+- **Per-face materials in the mesher.** `meshChunk` groups emitted faces by finish and returns parts;
+  the rounded profile, bevel, AO and outline pass are unchanged. Measured against §10.4's `< 4 ms`.
+- **Paint tools** (§9.5): `N` 单块 — paint one exposed face; `M` 整面 — flood-fill the connected
+  exposed region on that plane; `I` 取色 — eyedrop; `右键` erases to the family default. Ghost
+  preview, undoable, marks dirty.
+- **Track bed + tactile strip decals** (§4.2): the transparent quad layer that never breaks a merge.
+- **Save/load v1 (static).** `persistence/save.ts`: the `metro-save` envelope, `formatVersion: 1`,
+  static `levels/cells/modules/lines` only. This freezes the cell schema immediately and exercises
+  the versioning contract before content grows. Top bar `保存`/`读取`, drag-and-drop, station-name
+  field. The full movement snapshot is B5.
 
-Root `package.json` gains, mirroring the existing `web/` delegation style:
+**Acceptance**
 
-```
-setup:game   npm --prefix game ci
-dev:game     npm --prefix game run dev
-build:game   npm --prefix game ci && npm --prefix game run build
-deploy:game  npm run build:game && wrangler deploy -c game/wrangler.jsonc
-```
+- From the 2×2 seed, hand-build an 8×8 room, paint a granite floor, a concrete strip, an enamel wall
+  run and a track bed; the wall reads as enamel and the floor as granite, not one material.
+- `test/surfaces.test.mjs`: a concrete top finishes a slower path than granite; a track-bed top is
+  not a graph node; `paintFace` / `fillSurface` / `eraseFace` round-trip through undo.
+- `test/save.test.mjs`: serialise → parse is identity for cells-with-finishes, modules and lines;
+  wrong magic / bad JSON / newer `formatVersion` fail with the named Chinese error and change nothing.
+- Chunk build stays `< 4 ms` warm; the crowd tests are unaffected.
+
+**Not in B1:** zones, real module meshes, wall signage, the trait/comfort model, dynamic state in
+the save.
 
 ---
 
-## 6. Risk register
+### B2 — Zones and the fare line · **L (4–5 d)**
 
-Ordered by how much damage they do if unaddressed. Only the first two are genuinely scary.
+Where the station stops being a box and becomes a fare-controlled building. This is a *sim* change,
+not a paint layer.
+
+**Contents**
+
+- **Zones** (§4.5): `outside | unpaid | paid | platform | restricted` per cell; a bucket paint tool.
+- **A zone boundary is a movement barrier.** The graph emits no walk edge across `unpaid ↔ paid`,
+  `paid ↔ platform` or into `restricted` — **except through the module that legitimately crosses it**:
+  a gate for the fare line, a platform edge/PSD for the platform, an exit for `outside`. This is how
+  "a gate is the only legal crossing" becomes true without special-casing in the sim (§13.2).
+- **Validation**: a TVM or retail unit only in a legal zone; ghosts turn red otherwise.
+- **Zone inference** (§4.5): a room enclosed by gates and platform edges is *proposed* `paid` with a
+  dashed tint until confirmed.
+- **Trip sampling respects zones**: stops must be reachable in the agent's current zone; an
+  unreachable draw is dropped, and an agent that cannot reach its destination is counted in the
+  existing `metrics.stuck` and shown in the HUD.
+- **Zone overlay** and a right-inspector zone readout; gate config (`dir`, queue anchor).
+
+**Acceptance**
+
+- `test/zones.test.mjs`: a station with no gate produces **zero boardings** (the crowd cannot reach
+  the platform); adding turnstiles restores flow; a TVM in the paid zone is flagged invalid.
+- The reference station is zoned and still reproduces the same bottleneck.
+
+**Depends on:** B1 (zones are painted on the same cells).
+
+---
+
+### B3 — The capacity kit · **L (5–6 d)**
+
+The modules that move people. This is where the slice's hardcoded fixes are replaced by real
+catalogue items, and where the escalator stops being the only place a crowd can pile up.
+
+**Contents**
+
+- **The module catalogue** (`data/modules.ts`): ASCII id, Chinese label, footprint, rate, zone rule
+  and a render factory. Ceiling on ad-hoc boxes in `scene.ts`; modules are rounded-corner meshes with
+  the outline and contact blobs of §11.
+- **Capacity modules:** turnstile (bidirectional, queue anchor), accessible gate, wide barrier, swing
+  door, add-value machine, ticket window, vending machine, bench, info pillar, vent shaft.
+- **Vertical circulation:** escalator / stair / lift placeable as a run from one level to the next
+  with a live rise/validity readout; ramp. `setUpEscalators`' id-prefix hack is deleted; the reference
+  station is rebuilt from catalogue placements.
+- **Platform edge and PSDs** (§5.3): edge bound to line/dir/side and requiring the tactile strip;
+  full and half-height PSDs, one server pair per car door, opening only with a train and locking the
+  platform from the track.
+- **Queue furniture** (§5.5): queue rail, belt barrier, single-file and two-abreast lanes and
+  switchbacks — a lane is a **server with storage**: `capacity = floor(L/0.80)+1`, ≈45 pax/min,
+  no overtaking, no lateral exit. The lane's wait is knowable before the crowd arrives, which is the
+  point.
+- **Build UX:** `J` opens a categorised catalogue; `R` rotates; ghosts show footprint, zone legality
+  and predicted pax/min; drag places runs (rails, PSDs); right-click deletes a module and leaves the
+  block.
+
+**Acceptance**
+
+- `test/lanes.test.mjs`: a lane holds `floor(L/0.8)+1` agents, serves ≈45/min, and no agent overtakes
+  or leaves sideways; a PSD holds the platform while no train is present.
+- The reference station's platform still breaks on one escalator and is fixed by a second — now built
+  through the catalogue rather than a function.
+
+**Depends on:** B1, B2.
+
+---
+
+### B4 — The draw kit · **M (3–4 d)**
+
+What pulls people and makes a station legible: variable-area buildings and player text.
+
+**Contents**
+
+- **Variable-area buildings** (§5.7): shops, cafes and restrooms placed by rectangle drag ≥ min size,
+  flow scaled by floor area (`0.2–0.3 × area` shoppers/min), overflow queuing outside, resize by
+  handles, saved as `w, h`.
+- **Signage and displays** (§5.8): info pillars, guide stickers, billboards, ad towers, hanging
+  signs and the three TV mounts with player text; live quads in 3D; PSD header auto-text from the
+  timetable. Wayfinding is mechanical (info pillar −decision time, guide sticker −15 s search);
+  the rest is legibility.
+- **Stops** (§7.4a): agents roll 0–3 intermediate stops from modules on their corridor — TVM, retail,
+  restroom, bench, browsing — with patience-based skip.
+
+**Acceptance**
+
+- `test/stops.test.mjs`: a corridor with a TVM produces `buying` agents and a queue; a bigger shop
+  draws proportionally more stops; an agent whose stop queue exceeds patience drops it and continues.
+- A shop, a restroom, a pillar and a billboard place, resize, carry text and render.
+
+**Depends on:** B3 (catalogue).
+
+---
+
+### B5 — Authored time, charts and the snapshot · **L (5–6 d)**
+
+The "read the station" half, and the save that makes it shareable.
+
+**Contents**
+
+- **Demand** (§7.4): a non-homogeneous Poisson per exit, shaped by curve × calendar × event ×
+  exitControl; weekday / Saturday / Sunday / holiday; peak windows; boarding vs exit share;
+  service window.
+- **The timeline is a tool** (§7.9): scrub to any minute, play, fast-forward (headless tick batches,
+  never a bigger step — §7.6 stays intact), and re-run the same window after a change for a true A/B.
+- **Metrics at 2 Hz into 5-minute buckets**: per exit, per gate group, per escalator group, per
+  platform-door group, plus population and worst LOS.
+- **The `数据` drawer** (§8.1, key `T`): 进出站客流, 列车载客, 等待时间, 站内人数 — actual vs
+  configured, hover to frame the offending asset.
+- **Overlays** beyond LOS (§8): queues, throughput, boarding, dead weight.
+- **Full snapshot save/load** (§9.4, §10.5): `formatVersion: 2` adds the dynamic block — RNG state,
+  every agent (full §7.1 struct + quantised position + path/queue slot), trains, per-server queues,
+  spawn timers. A `v1 → v2` migrator keeps B1 saves loadable. Save pauses at a tick boundary; load
+  restores paused at that tick. `Ctrl+S` / `Ctrl+O`, dirty dot.
+- **Settings page** (§9.3): global per-browser `localStorage`, display/camera/operate/sim groups,
+  IndexedDB autosave slots.
+
+**Acceptance**
+
+- `test/time.test.mjs`: a full day runs headless; the peak lands where the curve says; two runs with
+  the same seed and inputs are identical; a change to the layout changes the outcome.
+- `test/snapshot.test.mjs`: run to mid-peak, snapshot the worker, restore into a fresh world, and the
+  next 500 ticks are byte-identical to the uninterrupted run; the file is `< 2 MB`; a corrupt or
+  newer file fails by name and leaves the open station untouched.
+
+**Depends on:** B1–B4 (the schema it freezes).
+
+---
+
+### B6 — Ship the base game · **M (3–4 d)**
+
+**Contents**
+
+- **Camera** (§9.1): the nav cube and the five presets (`1` 等距 / `2` 俯视 / `3` 自定义 / `4`
+  X-Z 正立面 / `5` Y-Z 侧立面), `F` frame, `X` ghost, `C` cutaway.
+- **Minimap** and the bottom-rail line/exit lists.
+- **Blueprints** (§9.5): copy/paste a selection, so a 120 m station is not thousands of clicks.
+- **Open on the seed**, not the reference station: a new station starts as the 2×2 slab with a
+  one-line prompt (build a gate, reach the platform), and 参考站（五四广场） stays a one-click sample.
+- **Performance pass** against §10.4 on a 60×60 × 5-level station and 3,000 agents, on a slow
+  machine, not this one.
+- Docs and deploy: README, this plan, the site tab.
+
+**Acceptance:** the §2 acceptance test, performed by someone who has not read this file.
+
+**Depends on:** B1–B5.
+
+**The line is still one line.** When the base game ships, a second line and transfers open the next
+series (§8); the same graph and the same save already have room for them.
+
+---
+
+## 5. Time, determinism and the tick
+
+This is the one durable decision the slice left half-made, and B5 finishes it.
+
+- **The crowd's clock stays honest.** A tick advances ~1 simulated second; a walking agent moves
+  ~1 m. §10.3's "24 sim-hours in ~12 real minutes" is *incompatible* with a 5 Hz continuous,
+  separable crowd — 12 min/day is 24 s per tick, and 24 s of walking is 32 m. The slice chose the
+  crowd; the base game keeps that choice.
+- **Fast-forward multiplies ticks, never the step** (§7.6). 16× runs 80 ticks/s in headless batches;
+  at the measured p99 the worker still has room. The timeline scrubs by re-simulating from a
+  snapshot (or the day start), which determinism makes exact.
+- **A day is authored and pointed at.** The default speed is 4×, the peak window is 1.5 h ≈ 18 real
+  minutes at 1×, and the tool is the scrubber plus fast-forward, not an unstoppable clock.
+- **Budgets are asserted, not assumed:** p99 worker tick < 8 ms at 3,000+ agents, chunk build
+  < 4 ms, frame 16.6 ms. `SIM_SECONDS_PER_TICK` in `sim/constants.ts` remains the one number that
+  changes the time base, and the comment there explains the trade.
+
+---
+
+## 6. The save format
+
+Frozen in two steps, on purpose.
+
+- **`formatVersion: 1` (B1).** The envelope, plus static `levels / cells / modules / lines`. Cells
+  carry sparse `finish` maps. No movement. This is enough to share a *layout* and to keep long builds
+  across development.
+- **`formatVersion: 2` (B5).** Adds the dynamic block of §10.5: `rng`, `agents[]`, `trains[]`,
+  `queues[]`, `spawns{}`. Loading restores the exact paused tick; the graph and meshes are rebuilt
+  from `static` and never serialised.
+- **One migrator per breaking change**, shipped forward (`v1 → v2`, …). A file newer than the game is
+  rejected whole (`存档版本过新，请更新游戏`), never partially loaded. Corrupt, wrong-magic or missing
+  sections fail by name and leave the open station untouched.
+- Settings (§9.3) are global and never written into a station file, so sharing a save leaks nothing.
+
+---
+
+## 7. Risk register
+
+Only the first two are genuinely new; the rest are managed.
 
 | # | Risk | Status | Mitigation |
 |---|---|---|---|
-| R1 | The look still reads as flat and undetailed in 3D — the same problem the SVGs have | **Unproven** | V1 is a hard gate with a 5-day kill criteria and named fallbacks. Do not build a game on top of a look we don't like. |
-| R2 | Rounded-corner autotile is expensive: rounded cells can't greedy-merge, so it's near per-cell geometry | **Unproven** | Measure in V1 against `< 4 ms`/chunk. If it misses, fall back to bevels-only on exposed edges (drop the inner fillets) — cheaper and still reads as "designed." |
-| R3 | Synchronised re-path storms blow the tick | **Measured, 395 ms** | Path cache + per-tick re-path budget, landed in V3. Non-negotiable. |
-| R4 | Determinism breaks and we lose A/B re-runs (§7.6) | **Preventable** | One seeded RNG, no `Math.random` in `sim/`, fixed tick, stable sorts, a Node test asserting identical output. Held from commit one. |
-| R5 | Crowd stepping at scale | **Measured safe** | 3,000 at crush is 3.9 ms of a 200 ms tick. 20× headroom. No work needed. |
-| R6 | GC pauses cause tail-latency spikes that the mean hides | **Partly unmeasured** | Keep the tick allocation-free; assert p99 not mean in CI; re-measure over long runs once V3 lands. |
-| R7 | Scope creep — the demo grows into the spec | **Ongoing** | The §7 "not in the demo" list is enforced. Every addition needs a V-milestone acceptance test. |
-| R8 | Low-end hardware (2-core laptop) is 2–3× slower than the benchmark machine | **Known** | Budget on the slow machine, not this one. Still ~10 ms tick and ~20 fps at 3,000 agents. |
+| R1 | **Per-face materials blow the chunk budget.** Rounded cells can't greedy-merge, and now each face can differ | **Unproven, measured in B1** | Group by finish; measure `< 4 ms` in CI. R2's fallback (bevels-only, fewer finish variants) still stands. |
+| R2 | **Zones as graph barriers surprise players** — an ungated station silently traps everyone | Unproven | Make it the first lesson, not a silent rule: the seed prompt points at the gate, and the `stuck` counter explains a trapped station. |
+| R3 | **Save format churn** — every milestone changes the schema | Preventable | v1 in B1, a migrator per break, round-trip tests in CI from the first version. |
+| R4 | **Scope creep back toward the full spec** | Ongoing | §8 is enforced; every addition needs a B-milestone acceptance test. Transfers are explicitly deferred. |
+| R5 | **Determinism breaks as zones/stops/trains are added** | Preventable | The existing scan + identical-output tests stay; new randomised draws go through the one RNG. |
+| R6 | **The reserve speed budget is spent by zones + stops + modules** | Measured safe at the slice | p99 2.2 ms of 8 ms at 3,257 agents leaves 3–4×; re-measure at each milestone on the slow machine too. |
+| R7 | **Low-end hardware is 2–3× slower** | Known | Budget on the slow machine; keep the tick allocation-free. |
 
 ---
 
-## 7. Explicitly not in the demo
+## 8. Explicitly not in the base game
 
-Everything below is in the spec and stays there. Adding any of it is a scope decision, not a
-natural next step.
+In `GAME-SPEC.md` and staying there. Each is a later series, not a natural next step.
 
-- **Track alignment tool** (§13.1) — V4 uses a hardcoded straight track.
-- **Fare zones, gates, paid/unpaid** (§4.5) — V2 has no zones; agents walk freely.
-- **Surfaces and paint tools** (§4.3, `N`/`M`) — V2 only extrudes and digs.
-- **Module catalogue beyond three items** (§5) — V3/V4 need only escalator, stairs, and PSD.
-- **Variable-area shops, restrooms, retail draw** (§5.7).
-- **Custom text signage and TVs** (§5.8).
-- **Queue lanes and switchbacks** (§5.5) — a big win, but V3 needs a *pile*, not order. Defer.
-- **Demand curves, calendar, day types, event days** (§7.4) — V4 uses one hardcoded peak.
-- **Transfers between lines** (§7.5) — one line only.
-- **Air quality, depth and enclosure** (§7.7).
-- **All four charts and the day report** (§8.1) — V3 ships the LOS overlay only.
-- **Save/load** (§9.4, §10.5).
-- **Settings page** (§9.3).
-- **Camera presets beyond orbit + one flat ortho view** (§9.1) — the flat X-Z elevation is worth
-  having early because it's how you read vertical circulation, but the nav cube can wait.
-- **Autosave, minimap, line manager UI, exit config UI.**
+- **Transfers between lines** (§7.5) and **a second line** — the base game is single-line by decision.
+  The graph, the save and the metrics keep room for them.
+- **Line tool for curved alignment** (§13.1) — the base game keeps straight track; the edge is bound
+  to a line, not a spline.
+- **Air quality, depth and enclosure** (§7.7) — comfort model, deferred.
+- **Full analytics**: OD/transfer matrices, flow arrows, the day-report export (§8) beyond the four
+  charts.
+- **Module catalogue beyond what B3/B4 need** — no depot sidings, no crossovers, no event-day venues.
+- **Settings beyond §9.3's rows**, cloud saves, multiplayer, mods, Steam/Electron packaging.
 
-**Kept, deliberately, from day one:** the **Simplified-Chinese-only interface** (§9.2). It is cheap
-to do from the start and painful to retrofit, and the spec is unambiguous that it is not a
-localisation toggle. Module ids, save keys and level codes stay ASCII per §9.2; every sentence a
-player reads is Chinese.
-
----
-
-## 8. Open questions
-
-Decided when we get there; not blocking V0–V2.
-
-1. **Comlink or raw `postMessage`?** The spec says Comlink (§10.1). Raw transferables are leaner and
-   we only need a handful of message types. Decide at V3 against the actual message set.
-2. **GPU interpolation from the start, or CPU matrices first?** Default is CPU first, measure at V3.
-3. **Does `art/` get a note in `web/` explaining that the sheets are diagrams and not the art
-   target?** Recommend yes, one line, so nobody re-reads §1 and starts adding detail to the SVGs
-   again.
-4. **Zustand + immer** (§10.1) for build state — settle in V2 when there's real state to model.
-5. **Does the demo ship the `/lab` route publicly, or keep it a dev-only route?** Recommend keep it,
-   it makes the art pipeline inspectable.
+**Kept from day one:** Simplified-Chinese-only interface (§9.2); ASCII ids in the save; the pure
+`sim/` package; determinism.
 
 ---
 
 ## 9. Spec deltas
 
-Small set of places where this plan does not follow `GAME-SPEC.md` literally. Each needs a one-line
-edit to the spec so the two documents agree.
+Places where this plan does not follow the spec literally. Each is one line in the spec.
 
 | Spec | Says | This plan | Why |
 |---|---|---|---|
-| §1 | the sheets "double as an art-direction target" | they are spec diagrams only | §2.3 — a flat polygon renderer has no channel for lighting or material, so the claim is unattainable |
-| §12 | M0 → M1 → M2 → M3 in order | vertical slice: V0–V5 crosses M0/M2/M3 shallowly | §1.3 — settle the mesher and the look before investing in build UX |
-| §10.4 | "Sim tick < 8 ms in the worker" | 8 ms is a comfort target; 200 ms is the hard budget | §2.1 — at 5 Hz the worker has 200 ms per tick |
-| §10.2 | "5 Hz tick" | unchanged, plus a mandatory per-tick re-path budget | §2.2 — 520 synchronised A* searches cost 395 ms |
+| §10.3 | 24 sim-hours in ~12 real minutes | the crowd's tick is honest; the clock is authored and scrubbed | §5 — 12 min/day is 24 s/tick, incompatible with a separable 5 Hz crowd |
+| §12 | M0 → M1 → … → M6 in order | base game B1–B6 covers M1–M4 single-line; M5's transfers deferred | §1 — the slice already crossed M0/M2/M3; the remaining risk is the model and the interface |
+| §13.1 | line tool generates the alignment | straight track bound to a line | keeps the base game focused; the editor is B7+ |
+| §5.5 | lanes give *order* (no overtaking) | lanes are servers with storage and no lateral exit; strict single-file ordering is simplified | the capacity effect is what the §7.8 ladder needs; ordering is polish |
+| §1 | the sheets double as the art target | they are diagrams only (carried from draft 1) | unchanged |
 
 ---
 
 ## 10. Next action
 
-Start **V0**. It's half a day, it has no dependencies, and everything else in this document is
-downstream of it.
+**Start B1.** It has no dependencies, it freezes the data model and the first save format, and every
+other milestone writes against it. The gate for B1 is §4's acceptance: a hand-built room whose
+materials are visibly distinct, a floor finish that changes the path cost, a static save that
+round-trips, and the chunk budget still green.
 
-Then **V1**, which is the gate. Everything above §6 stays theoretical until V1's acceptance test
-either passes or kills the art direction.
+Then **B2** — zones — is the milestone that turns the demo into the game, because that is the moment
+the fare line becomes the decision it is in the spec.

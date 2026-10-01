@@ -4,31 +4,29 @@
 // point of one file is that §7.8 is a calibration target, not a law: these are
 // meant to be tuned.
 
-/** Ticks per second. The worker owns 200 ms per tick (PLAN.md §2.1). */
-export const TICK_HZ = 5
-/** Seconds per tick, in real time. */
-export const DT = 1 / TICK_HZ
-
 /**
  * Simulated seconds advanced per tick. This is the single most important
  * tuning number in the file.
  *
  * GAME-SPEC §10.3 suggests 24 sim-hours in ~12 real minutes, which works out to
- * 24 simulated seconds per 200 ms tick. That is incompatible with the same
- * spec's 5 Hz continuous crowd: 24 s of walking is 32 m, and a crowd that
- * teleports 32 m per tick cannot be separated, queued or watched. PLAN §2.1's
- * own benchmark steps agents at the 0.2 s tick and measures 3,000 of them at
- * crush density, so the crowd's time base is the tick, not the day.
+ * tens of simulated seconds per tick. That is incompatible with the same spec's
+ * continuous crowd: a crowd that teleports tens of metres per tick cannot be
+ * separated, queued or watched. PLAN §2.1's own benchmark steps agents at the
+ * 0.2 s tick and measures 3,000 of them at crush density, so the crowd's time
+ * base is the tick, not the day.
  *
- * We keep the crowd honest and run the clock fast instead: 1 simulated second
- * per tick means 1x = 5x wall-clock, a weekday AM peak is ~18 real minutes, and
- * a train every 150 sim-seconds arrives every 30 real seconds. Fast-forward
- * multiplies ticks per second, never the step, so §7.6 determinism is untouched.
+ * We keep the crowd honest and run the clock fast instead: one tick steps a
+ * human-scale amount (1 s of walking is 1.34 m), and 1x runs one tick per real
+ * second, so a simulated second is a real second and the crowd walks at true
+ * speed. Fast-forward multiplies ticks per second (see BASE_TICK_MS), never the
+ * step, so §7.6 determinism is untouched.
  */
 export const SIM_SECONDS_PER_TICK = 1.0
+/** Real milliseconds per tick at 1x: one simulated second per real second. */
+export const BASE_TICK_MS = SIM_SECONDS_PER_TICK * 1000
 /** Simulated seconds per real second, at 1x. */
-export const SIM_RATE = SIM_SECONDS_PER_TICK / DT
-/** Real seconds that make up one simulated hour (720 s, i.e. 12 sim-min real). */
+export const SIM_RATE = 1000 / BASE_TICK_MS
+/** Real seconds that make up one simulated hour (3600 s = one real hour at 1x). */
 export const SECONDS_PER_SIM_HOUR = 3600 / SIM_RATE
 
 
@@ -39,8 +37,10 @@ export const SIM_DAY = 24 * 3600
 export const WALK_SPEED = 1.34
 /** Walking speed on stair treads, m/s (derated from free flow). */
 export const STAIR_SPEED = 1.0
-/** Escalator running speed, m/s. */
-export const ESCALATOR_SPEED = 0.75
+/** Escalator running speed, m/s. 0.5 is the heavy-duty setting used in crowds. */
+export const ESCALATOR_SPEED = 0.5
+/** Escalator step pitch, m. One passenger per step is the capacity model. */
+export const ESCALATOR_STEP_PITCH = 0.4
 /** Extra speed an agent gains riding an escalator (carried). */
 export const ESCALATOR_BOOST = 1.08
 
@@ -72,8 +72,13 @@ export const GATE_RATE = 25 / 60
 export const GATE_ACCESSIBLE_RATE = 18 / 60
 /** Ticket vending machine, tickets/s (1.5/min). */
 export const TVM_RATE = 1.5 / 60
-/** Escalator throughput, pax/s (75/min). Direction-locked. */
-export const ESCALATOR_RATE = 75 / 60
+/**
+ * Escalator throughput, pax/s. An escalator is single-direction and carries one
+ * passenger per step, so its throughput is speed / pitch (75/min at 0.5 m/s and
+ * a 0.4 m step). Riding `dist` at that speed leaves exactly `dist / pitch`
+ * passengers on the unit — its fixed capacity, one per step.
+ */
+export const ESCALATOR_RATE = ESCALATOR_SPEED / ESCALATOR_STEP_PITCH
 /** Stair, pax/s per metre of width. 25 up / 33 down per minute. */
 export const STAIR_RATE_UP = 25 / 60
 export const STAIR_RATE_DOWN = 33 / 60
@@ -82,13 +87,30 @@ export const LIFT_BATCH = 15
 export const LIFT_CYCLE = 40
 /** Train door, pax/s at a 1.4 m door, derated by crowding. */
 export const DOOR_RATE = 1.2
-/** Dwell, seconds: base + per-pax, clamped. */
-export const DWELL_BASE = 25
-export const DWELL_PER_PAX = 0.35
-export const DWELL_MIN = 20
-export const DWELL_MAX = 90
-/** Boarding stops this many seconds before departure. */
-export const BOARDING_CUTOFF = 3
+
+/**
+ * Train stop choreography, in simulated seconds. A stop is a fixed sequence
+ * rather than a demand-scaled dwell:
+ *
+ *   approach ─ berth ─ opening ─ dwell ─ closing ─ hold ─ depart
+ *      6 s      2 s      2 s      30 s     2 s      5 s     6 s
+ *
+ * The consist runs in, waits `TRAIN_BERTH_HOLD` at the mark with the doors
+ * shut, opens them over `TRAIN_DOOR_TRAVEL`, stands with the doors fully open
+ * for `TRAIN_DWELL`, shuts them over `TRAIN_DOOR_TRAVEL`, waits
+ * `TRAIN_DEPART_HOLD`, then runs out over `TRAIN_DEPART_S`.
+ *
+ * Boarding is served while the doors are commanded open (opening + dwell); when
+ * the doors begin to close the door queues are abandoned and counted left
+ * behind. The leaf travel is rendered, so a 2 s `TRAIN_DOOR_TRAVEL` is the
+ * longest a set of doors is ever seen to move.
+ */
+export const TRAIN_APPROACH_S = 6
+export const TRAIN_BERTH_HOLD = 2
+export const TRAIN_DOOR_TRAVEL = 2
+export const TRAIN_DWELL = 30
+export const TRAIN_DEPART_HOLD = 5
+export const TRAIN_DEPART_S = 6
 /** Agent patience before re-route, seconds. */
 export const PATIENCE_MIN = 60
 export const PATIENCE_MAX = 180

@@ -12,7 +12,7 @@ const root = createRoot(document.getElementById('root') as HTMLElement)
 root.render(isLab ? <Lab /> : <App />)
 
 if (!isLab) {
-  // The demo opens on the reference station, already warm, so there is a crowd
-  // from the first frame.
-  initSim(referenceStation(), 1234567, { startSeconds: 7.45 * 3600, warmup: 1100 })
+  // The demo opens on the reference station cold, with 0 passengers —
+  // the crowd builds from the first train arrivals.
+  initSim(referenceStation(), 1234567, { startSeconds: 7.45 * 3600, warmup: 0 })
 }

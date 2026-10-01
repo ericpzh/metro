@@ -12,8 +12,11 @@ function percentile(sorted, p) {
 
 test('3,000+ agents step inside the worker tick budget', () => {
   // The under-built station is the worst case: the platform jams and the
-  // population climbs through 3,000.
-  const w = new World(referenceStation({ upEscalators: 1 }), 2026)
+  // population climbs through 3,000. Worst-case load is set explicitly — the
+  // demo default is lighter and would never jam.
+  const data = referenceStation({ upEscalators: 1 })
+  for (const l of data.lines) l.alightPerTrain = 600
+  const w = new World(data, 2026)
   const samples = []
   let maxPop = 0
   const ticks = 2600
@@ -36,10 +39,10 @@ test('3,000+ agents step inside the worker tick budget', () => {
 test('the per-frame interpolation buffer is flat and contiguous', () => {
   const w = new World(referenceStation(), 5)
   for (let i = 0; i < 300; i++) w.tickOnce()
-  const buf = new Float32Array(8000 * 5)
+  const buf = new Float32Array(8000 * 6)
   const n = w.writeTransfer(buf)
   assert.ok(n > 0)
   assert.equal(n, w.pool.count)
-  // x/y/z/state/phase are finite for every written agent.
-  for (let i = 0; i < n * 5; i++) assert.ok(Number.isFinite(buf[i]), `buffer[${i}] is not finite`)
+  // x/y/z/state/phase/id are finite for every written agent.
+  for (let i = 0; i < n * 6; i++) assert.ok(Number.isFinite(buf[i]), `buffer[${i}] is not finite`)
 })

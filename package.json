@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "setup": "npm --prefix web ci",
-    "start": "npm run dev",
+    "start": "npm run dev:game",
     "build": "npm --prefix web ci && npm --prefix web run build",
     "deploy": "npm run build && wrangler deploy",
     "preview": "npm run build && wrangler dev",

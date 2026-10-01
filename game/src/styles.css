@@ -150,6 +150,50 @@ button.ghost {
   margin-top: 8px;
 }
 
+/* Surface palette (饰面, §4.3) */
+.paintPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.palette {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+.swatchBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  padding: 4px 6px;
+}
+.swatchBtn.on {
+  border-color: var(--accent);
+  background: #17324f;
+}
+.finishDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  flex: none;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 58px;
+  transform: translateX(-50%);
+  background: rgba(18, 24, 38, 0.95);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  z-index: 10;
+}
+
 .stage {
   position: relative;
   min-width: 0;
@@ -170,6 +214,197 @@ button.ghost {
   padding: 4px 8px;
   border-radius: 6px;
   pointer-events: none;
+}
+
+/* View cube + depth rail (top-right of the stage) */
+.viewNav {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  z-index: 6;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.viewCube {
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(155deg, rgba(26, 34, 51, 0.92), rgba(11, 16, 25, 0.94));
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(9px);
+  cursor: grab;
+}
+.viewCube:active {
+  cursor: grabbing;
+}
+.viewCube svg {
+  display: block;
+  width: 150px;
+  height: 150px;
+}
+.cubeFacePoly {
+  cursor: pointer;
+}
+.cubeEdge {
+  stroke: rgba(160, 184, 218, 0.45);
+  stroke-width: 1.1;
+  pointer-events: none;
+}
+.cubeEdgeHandle {
+  cursor: pointer;
+}
+.cubeEdgeHit {
+  stroke: transparent;
+  stroke-width: 15;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.cubeEdgeBar {
+  stroke: rgba(196, 216, 244, 0.85);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  pointer-events: none;
+  transition: stroke 120ms ease, stroke-width 120ms ease;
+}
+.cubeEdgeBar.on {
+  stroke: #d3f0ff;
+  stroke-width: 3.6;
+}
+.cubeEdgeHidden {
+  stroke: rgba(130, 152, 184, 0.22);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+.cubeLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  fill: #dbe3ef;
+  opacity: 0.92;
+  pointer-events: none;
+}
+.cubeCorner {
+  cursor: pointer;
+}
+.cubeCornerHit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 15;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  pointer-events: stroke;
+}
+.cubeCornerAngle {
+  fill: none;
+  stroke: rgba(196, 216, 244, 0.85);
+  stroke-width: 2.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  pointer-events: none;
+  transition: stroke 120ms ease, stroke-width 120ms ease;
+}
+.cubeCornerAngle.on {
+  stroke: #d3f0ff;
+  stroke-width: 3.6;
+}
+.cubeAxis {
+  pointer-events: none;
+}
+.cubeAxis text {
+  font-size: 8px;
+  font-weight: 700;
+}
+.cubeAxis line {
+  opacity: 0.9;
+}
+
+.depthRail {
+  position: relative;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 6px 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(155deg, rgba(26, 34, 51, 0.92), rgba(11, 16, 25, 0.94));
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(9px);
+}
+.depthTrack {
+  position: relative;
+  flex: 1;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.depthLine {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(78, 168, 255, 0.5), rgba(78, 168, 255, 0.12));
+}
+.depthDot {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 0;
+}
+.depthDot i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: #3a4a63;
+  border: 1px solid #5b6d8a;
+}
+.depthDot.on i {
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  border-color: #bfe6ff;
+  box-shadow: 0 0 10px rgba(78, 168, 255, 0.9);
+}
+.depthChip {
+  position: absolute;
+  right: calc(100% + 8px);
+  transform: translateY(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: rgba(14, 19, 31, 0.92);
+  border: 1px solid rgba(78, 168, 255, 0.5);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.depthChip b {
+  color: var(--accent);
+  font-size: 11px;
+}
+.depthChip span {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.depthTag {
+  text-align: center;
+  padding-top: 6px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--muted);
 }
 
 .panel {

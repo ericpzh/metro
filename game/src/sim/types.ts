@@ -3,11 +3,46 @@
 
 export type Fill = 'solid' | 'void'
 
+/** The six faces of a cell, §4.1. `+z` is up; `n` is `+y`, `e` is `+x`. */
+export type Face = 'top' | 'bottom' | 'n' | 'e' | 's' | 'w'
+export const FACES: readonly Face[] = ['top', 'bottom', 'n', 'e', 's', 'w']
+
+/** ASCII finish id, e.g. `floor.granite`. See `sim/finishes.ts`. */
+export type FinishId = string
+
+/**
+ * Fare zones — GAME-SPEC.md §4.5. Every floor cell belongs to exactly one, and
+ * a gate is the only legal crossing between `unpaid` and `paid`. The default is
+ * `unpaid`, so an unzoned station has a single zone and no internal barriers.
+ */
+export type Zone = 'outside' | 'unpaid' | 'paid' | 'platform' | 'restricted'
+export const ZONES: readonly Zone[] = ['outside', 'unpaid', 'paid', 'platform', 'restricted']
+export const DEFAULT_ZONE: Zone = 'unpaid'
+
+/**
+ * Pack an integer cell coordinate into one Number for `Set`/`Map` keys.
+ * Number arithmetic, not bit shifts: `(x + 4096) << 20` overflows 32 bits and
+ * makes neighbouring cells collide, which silently corrupts solidity and
+ * finishes. Coordinates are limited to ±4096 m, which is far past any station.
+ */
+export function packKey(x: number, y: number, z: number): number {
+  const OFF = 4096
+  const SPAN = 8192
+  return ((x + OFF) * SPAN + (y + OFF)) * SPAN + (z + OFF)
+}
+
 export interface Cell {
   x: number
   y: number
   z: number
   fill: Fill
+  /**
+   * Sparse per-face finish override (§4.1, §4.3). An absent face is that face's
+   * family default, so untouched cells cost nothing in memory or in a save.
+   */
+  finish?: Partial<Record<Face, FinishId>>
+  /** Fare zone (§4.5). Absent = `DEFAULT_ZONE`. */
+  zone?: Zone
   tags?: string[]
 }
 
@@ -26,9 +61,17 @@ export interface Vec3i {
 
 export interface ExitCfg {
   name: string
+  /** Street → station demand, pax/hour at peak. Outflow is unlimited: an exit
+   *  is a pure opening and passes as many people as the corridors deliver. */
   inRate: number
-  outRate: number
   open: boolean
+  /**
+   * Whether the exit is a covered head-house. A head-house is solid in the sim:
+   * the crowd crosses at the street opening and never through the glass sides or
+   * the back wall, and the exit's node is that opening. Set `false` for a bare
+   * portal (small test stations). Default `true`.
+   */
+  headHouse?: boolean
 }
 
 export interface ModuleBase {
@@ -71,8 +114,8 @@ export interface LineDef {
   cars: number
   power: 'third-rail' | 'catenary'
   headwayProfile: { peak: number; offpeak: number; late: number }
-  dwellBase: number
-  dwellPerPax: number
+  /** Passengers dumped onto the platform per train arrival (the demo slider). */
+  alightPerTrain: number
   terminus: 'reverse' | 'through'
   direction: string
   stations: string[]

@@ -4,12 +4,14 @@
 import { create } from 'zustand'
 import type { FromWorker, GraphInfo } from '../sim/protocol.ts'
 import type { Metrics } from '../sim/world.ts'
-import type { StationData } from '../sim/types.ts'
+import { DEFAULT_ZONE, type FinishId, type StationData, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
 import { cloneState, initialStation, setUpEscalators, toData, toState, type StationState } from '../build/model.ts'
+import { parse as parseSave, serialize as serializeSave } from '../persistence/save.ts'
 import type { SceneStats } from '../render/scene.ts'
 
-export type Tool = 'select' | 'block' | 'module'
+export type Tool = 'select' | 'block' | 'module' | 'paint' | 'zone'
+export type PaintMode = 'single' | 'surface' | 'pick'
 
 export interface ModuleOption {
   id: string
@@ -26,11 +28,24 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'exit', label: '出入口', type: 'exit', w: 1, h: 1 },
 ]
 
+/** Friendly name for a module type, for the inspector's "已选" row. */
+export function moduleLabel(type: string): string {
+  return MODULE_OPTIONS.find((m) => m.type === type)?.label ?? type
+}
+
 export interface AppState {
   station: StationState
   version: number
   tool: Tool
   moduleType: string
+  paintMode: PaintMode
+  /** Active finish brush — the face's family decides which ones apply. */
+  paintFinish: FinishId
+  /** Active fare-zone brush (§4.5). */
+  zoneBrush: Zone
+  zoneOverlayOn: boolean
+  /** Transient toast line (save/load results). */
+  notice: string | null
   activeZ: number
   ghostOtherLevels: boolean
   cutaway: boolean
@@ -48,6 +63,13 @@ export interface AppState {
 
   setTool: (t: Tool) => void
   setModuleType: (t: string) => void
+  setPaintMode: (m: PaintMode) => void
+  setPaintFinish: (id: FinishId) => void
+  setZoneBrush: (z: Zone) => void
+  setZoneOverlay: (on: boolean) => void
+  setNotice: (n: string | null) => void
+  saveToFile: () => void
+  loadFromText: (text: string) => void
   setActiveZ: (z: number) => void
   stepLevel: (dir: number) => void
   setOverlay: (on: boolean) => void
@@ -73,10 +95,16 @@ function sendControl(playing: boolean, speed: number): void {
 }
 
 let client: Worker | null = null
-let frameCb: ((count: number, agents: Float32Array, density: Float32Array) => void) | null = null
+let frameCb:
+  | ((count: number, agents: Float32Array, density: Float32Array, trains: Float32Array, intervalMs: number) => void)
+  | null = null
 
-/** Viewport registers here to receive the 5 Hz agent frame without re-rendering React. */
-export function setFrameHandler(fn: ((count: number, agents: Float32Array, density: Float32Array) => void) | null): void {
+/** Viewport registers here to receive the agent frame without re-rendering React. */
+export function setFrameHandler(
+  fn:
+    | ((count: number, agents: Float32Array, density: Float32Array, trains: Float32Array, intervalMs: number) => void)
+    | null,
+): void {
   frameCb = fn
 }
 
@@ -91,7 +119,7 @@ export function initSim(data: StationData, seed: number, opts: { startSeconds?: 
       if (msg.levelsZ.length > 0) useStore.getState().setActiveZ(msg.levelsZ[0])
     } else if (msg.type === 'state') {
       useStore.getState().setMetrics(msg.metrics)
-      frameCb?.(msg.count, msg.agents, msg.density)
+      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.intervalMs)
     }
   }
   client.postMessage({ type: 'init', data, seed, playing: true, speed: 1, ...opts })
@@ -106,7 +134,12 @@ export const useStore = create<AppState>((set, get) => ({
   version: 0,
   tool: 'select',
   moduleType: 'gate',
-  activeZ: 0,
+  paintMode: 'single',
+  paintFinish: 'floor.granite',
+  zoneBrush: DEFAULT_ZONE,
+  zoneOverlayOn: false,
+  notice: null,
+  activeZ: -8,
   ghostOtherLevels: true,
   cutaway: false,
   ortho: false,
@@ -123,6 +156,34 @@ export const useStore = create<AppState>((set, get) => ({
 
   setTool: (t) => set({ tool: t }),
   setModuleType: (t) => set({ moduleType: t }),
+  setPaintMode: (m) => set({ paintMode: m }),
+  setPaintFinish: (id) => set({ paintFinish: id }),
+  setZoneBrush: (z) => set({ zoneBrush: z }),
+  setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
+  setNotice: (n) => set({ notice: n }),
+  saveToFile: () => {
+    const s = get().station
+    const text = serializeSave(s)
+    const blob = new Blob([text], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${s.name || 'station'}.metro.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    set({ notice: '已保存' })
+  },
+  loadFromText: (text) => {
+    const r = parseSave(text)
+    if (!r.ok) {
+      set({ notice: r.error })
+      return
+    }
+    const s = r.state
+    set({ station: s, past: [...get().past, cloneState(get().station)].slice(-40), future: [], version: get().version + 1 })
+    rebuildSim(toData(s))
+    set({ notice: `已打开 · 存档版本 v${r.version}` })
+  },
   setActiveZ: (z) => set({ activeZ: z }),
   stepLevel: (dir) => {
     const g = get().graph
@@ -187,7 +248,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
   loadReference: () => {
     const s = toState(referenceStation())
-    set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: -4 })
+    set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: -8 })
     rebuildSim(toData(s))
   },
   setUpEscalators: (n) => {

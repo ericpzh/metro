@@ -2,7 +2,7 @@
 // Each tick is one synchronous task: run the world, then post. No await, no
 // per-agent microtasks (PLAN.md §2.4).
 
-import { TICK_HZ } from './constants.ts'
+import { BASE_TICK_MS } from './constants.ts'
 import type { FromWorker, ToWorker } from './protocol.ts'
 import type { Metrics } from './world.ts'
 import { World } from './world.ts'
@@ -11,11 +11,13 @@ const ctx = self as unknown as {
   postMessage(message: unknown, transfer?: Transferable[]): void
   addEventListener(type: string, fn: (e: MessageEvent) => void): void
   setInterval(fn: () => void, ms: number): number
+  clearInterval(id: number): void
 }
 
 let world: World | null = null
 let playing = false
 let speed = 1
+let timer: number | null = null
 let buffer = new Float32Array(0)
 let density = new Float32Array(0)
 
@@ -27,27 +29,41 @@ function metricsOf(w: World): Metrics {
   return { ...w.metrics }
 }
 
+/** Real milliseconds between ticks at the current speed; 1x is real time. */
+function intervalMs(): number {
+  const s = speed > 0 ? speed : 1
+  return Math.max(4, BASE_TICK_MS / s)
+}
+
 function run(): void {
   if (!world) return
-  if (playing) {
-    for (let i = 0; i < speed; i++) world.tickOnce()
-  }
+  if (playing && speed > 0) world.tickOnce()
   const w = world
-  const need = w.pool.count * 5
+  const need = w.pool.count * 6
   if (buffer.length < need) buffer = new Float32Array(Math.max(need, 4096))
   const count = w.writeTransfer(buffer)
   // Density for the LOS overlay: one value per graph node.
   if (density.length !== w.nodePop.length) density = new Float32Array(w.nodePop.length)
   density.set(w.nodePop)
   // Post copies (not transfers) so the worker keeps ownership of its buffers;
-  // the payload is ~120 KB and the main thread keeps prev/next anyway.
+  // the payload is ~145 KB and the main thread keeps prev/next anyway.
   post({
     type: 'state',
     count,
-    agents: buffer.slice(0, count * 5),
+    agents: buffer.slice(0, count * 6),
     metrics: metricsOf(w),
     density: density.slice(),
+    trains: w.trainRenderState(),
+    // The renderer interpolates between snapshots over exactly this window, so
+    // speed stays even no matter which multiplier is selected.
+    intervalMs: intervalMs(),
   })
+}
+
+/** One tick per fire. Speed multiplies ticks per second, never the step. */
+function schedule(): void {
+  if (timer !== null) ctx.clearInterval(timer)
+  timer = ctx.setInterval(run, intervalMs())
 }
 
 ctx.addEventListener('message', (e: MessageEvent) => {
@@ -80,6 +96,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
         },
         [nodes.buffer],
       )
+      schedule()
       run()
       break
     }
@@ -93,9 +110,9 @@ ctx.addEventListener('message', (e: MessageEvent) => {
     case 'control': {
       playing = msg.playing
       speed = msg.speed
+      schedule()
+      run()
       break
     }
   }
 })
-
-ctx.setInterval(run, 1000 / TICK_HZ)

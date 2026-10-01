@@ -11,6 +11,11 @@ function setInRates(data, rate) {
   return data
 }
 
+function setAlighting(data, n) {
+  for (const l of data.lines) l.alightPerTrain = n
+  return data
+}
+
 function run(data, ticks) {
   const w = new World(data, 99)
   let peakEscQueue = 0
@@ -26,8 +31,10 @@ function run(data, ticks) {
 }
 
 test('one escalator off the platform breaks; three fix it', () => {
-  const broken = run(referenceStation({ upEscalators: 1 }), 1600)
-  const fixed = run(referenceStation({ upEscalators: 3 }), 1600)
+  // AM-peak load is set explicitly: the demo default is lighter and would not
+  // jam even the broken station.
+  const broken = run(setAlighting(referenceStation({ upEscalators: 1 }), 540), 1600)
+  const fixed = run(setAlighting(referenceStation({ upEscalators: 3 }), 540), 1600)
 
   assert.ok(
     fixed.peakEscQueue * 2 < broken.peakEscQueue,

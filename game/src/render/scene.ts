@@ -3,11 +3,24 @@
 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { buildSolidSet, CHUNK, meshChunk } from './chunkMesher.ts'
 import { createMaterials, type MaterialSet } from './materials.ts'
-import type { StationData } from '../sim/types.ts'
-
-const TICK_MS = 200
+import {
+  buildModule,
+  buildTrain,
+  createModelMaterials,
+  disposeModelMaterials,
+  disposeObject,
+  setDoors,
+  type ModelMaterials,
+  type ModuleContext,
+} from './models.ts'
+import { finishMapOf } from '../sim/finishes.ts'
+import { ZONE_LIST } from '../sim/zones.ts'
+import type { StockClass } from '../sim/stock.ts'
+import type { Face, FinishId, Module, StationData } from '../sim/types.ts'
+import { packKey } from '../sim/types.ts'
 
 export interface PickResult {
   /** The solid cell that was hit, or the void cell under the work plane. */
@@ -32,6 +45,94 @@ export interface SceneStats {
 /** Crowd hue palette — §11: never matches a line colour. */
 const AGENT_COLORS = [0xe4572e, 0xf2a541, 0xf7d84b, 0x3fb27f, 0x42a5c4, 0xb07cc6, 0xe07a9b, 0xd9dce1]
 
+/** Sim seconds a door leaf takes to travel fully open or shut (matches the sim's
+ *  `TRAIN_DOOR_TRAVEL`; the renderer eases toward the commanded state). */
+const DOOR_TRAVEL_S = 2
+
+/**
+ * Mouse edge pan: with the pointer inside this band along a canvas edge the
+ * camera drifts that way, and a corner pushes two axes at once — WASD panning
+ * driven by the mouse. The push ramps from 0 at the band's inner line to full
+ * WASD speed at the very edge.
+ */
+const EDGE_PAN_PX = 26
+
+/** Most cells one drag preview can highlight at once (the ghost instance pool). */
+const GHOST_MAX = 4096
+
+/** Outward normal of each face, in cell units; also the paint plane's axis. */
+const FACE_NORMAL: Record<Face, [number, number, number]> = {
+  top: [0, 0, 1],
+  bottom: [0, 0, -1],
+  n: [0, 1, 0],
+  s: [0, -1, 0],
+  e: [1, 0, 0],
+  w: [-1, 0, 0],
+}
+
+/** The plane geometry's own normal, so a quad can be turned to face a wall. */
+const FACE_UP = new THREE.Vector3(0, 0, 1)
+
+/** Skin tones for the crowd's heads, so a person reads as a person. */
+const SKIN_COLORS = [0xf1c9a5, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac, 0xa9744a]
+
+/** Hair colours for the crowd, so a head reads as a person and not a mannequin. */
+const HAIR_COLORS = [0x2b2320, 0x4a3423, 0x6b4a2b, 0xb98a4a, 0x9a9a9a, 0x3a2f2a]
+
+/**
+ * The body: a squat frustum — the neck (top) is wide, the base wider still, and
+ * both are broader than the head. No arms and no legs: the crowd are the
+ * "Shapes", limb-less sprites that are a body and a head (`tools/iso.mjs`
+ * #person). The base sits at z = 0 and the figure faces +x, matching the crowd
+ * yaw. Ten sides, smooth-shaded, so it reads as a rounded cone at low poly.
+ */
+function humanoidBody(): THREE.BufferGeometry {
+  const g = new THREE.CylinderGeometry(0.15, 0.22, 0.58, 10, 1)
+  g.rotateX(Math.PI / 2)
+  g.translate(0, 0, 0.29)
+  return g
+}
+
+/** The head, a block on top of the neck. Feet at z = 0, faces +x. */
+function humanoidHead(): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(0.26, 0.26, 0.26)
+  g.translate(0, 0, 0.71)
+  return g
+}
+
+/**
+ * The hair cap: a shell over the top of the head plus a panel down the back, the
+ * semicircle the concept sheets draw (`tools/iso.mjs` #person). Every face is
+ * offset a hair outside the head — a cap that shares a plane with the head
+ * z-fights and flickers. Feet at z = 0, faces +x.
+ */
+function humanoidHair(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = []
+  const cap = new THREE.BoxGeometry(0.3, 0.3, 0.17)
+  cap.translate(0, 0, 0.765) // 0.68 .. 0.85, just proud of the head's 0.84 top
+  parts.push(cap)
+  const back = new THREE.BoxGeometry(0.05, 0.28, 0.2)
+  back.translate(-0.145, 0, 0.72)
+  parts.push(back)
+  return mergeGeometries(parts, false) as THREE.BufferGeometry
+}
+
+/**
+ * One live consist. The worker only reports a pose per tick (1 Hz at 1×), so the
+ * group carries the last two poses and is drawn between them each animation
+ * frame — otherwise the train would jump a tick's worth of distance at a time.
+ */
+interface TrainEntry {
+  group: THREE.Group
+  sig: string
+  /** Pose at the previous snapshot. */
+  from: THREE.Vector3
+  /** Pose at the current snapshot. */
+  to: THREE.Vector3
+  /** Whether the consist was present in the previous snapshot. */
+  active: boolean
+}
+
 export class SceneRenderer {
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
@@ -39,22 +140,45 @@ export class SceneRenderer {
   ortho: THREE.OrthographicCamera
   controls: OrbitControls
   mats: MaterialSet
+  modelMats: ModelMaterials
   solid = new Set<number>()
+  private finishes = new Map<number, Partial<Record<Face, FinishId>>>()
 
   private levelGroups = new Map<number, THREE.Group>()
   private chunkMeshes: THREE.Mesh[] = []
   private outlineMeshes: THREE.Mesh[] = []
-  private moduleBlobs: THREE.InstancedMesh | null = null
+
   private moduleMeshes: THREE.Group = new THREE.Group()
+  private trainGroup: THREE.Group = new THREE.Group()
+  private trainSlots = new Map<string, TrainEntry>()
+  /** Platform-screen-door groups, keyed to the line colour that opens them. */
+  private psdGroups: Array<{ group: THREE.Object3D; colour: number }> = []
   private grid: THREE.Group = new THREE.Group()
   private cursor: THREE.Mesh
+  /** Remove-drag preview: one red box per pending-delete block (§9.5). */
   private ghostMesh: THREE.InstancedMesh | null = null
+  /** Add-drag preview: the pending cells meshed into their final shape. */
+  private ghostGroup: THREE.Group = new THREE.Group()
+  private ghostKey = ''
+  private ghostMaterial: THREE.MeshStandardMaterial | null = null
+  /** Paint-drag preview: one flat quad per face a drag would paint (§9.5). */
+  private faceGhost: THREE.InstancedMesh | null = null
   private agents: THREE.InstancedMesh
+  private heads: THREE.InstancedMesh
+  private hair: THREE.InstancedMesh
   private blobs: THREE.InstancedMesh
   private overlay: THREE.InstancedMesh | null = null
+  private zoneOverlay: THREE.InstancedMesh | null = null
   private prev = new Float32Array(0)
   private cur = new Float32Array(0)
+  /** Frame-to-frame id -> slot lookups, so interpolation pairs the same agent. */
+  private prevId = new Map<number, number>()
+  private nextId = new Map<number, number>()
+  /** Agent id whose colour currently occupies each slot, so colours stay put. */
+  private colorIds = new Int32Array(0)
   private agentCount = 0
+  /** Interpolation window in ms, sent by the worker (varies with speed). */
+  private stateIntervalMs = 200
   private lastStateTime = 0
   private yaws = new Float32Array(0)
   private frameCount = 0
@@ -63,18 +187,35 @@ export class SceneRenderer {
   private lastChunkMs = 0
   private clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)
   private orthoOn = false
+  /** Orthographic zoom factor, driven by the wheel while a flat view is active. */
+  private orthoZoom = 1
+  private tmpSize = new THREE.Vector3()
   private ghost = true
   private activeZ = 0
   private bounds = new THREE.Box3()
   private raycaster = new THREE.Raycaster()
   private pickables: THREE.Object3D[] = []
+  /** Lowest storey each column reaches; a block there has nothing under it. */
+  private groundOf = new Map<string, number>()
   private dimMats = new Map<THREE.Material, THREE.Material>()
   private disposition = false
+  /** Keys held for WASD panning; the viewport keeps this in sync. */
+  keys = new Set<string>()
+  /** Pointer position in CSS px inside the canvas, for the edge pan. */
+  private pointerX = 0
+  private pointerY = 0
+  private pointerInside = false
+  /** Buttons held on the last pointer event; the middle one orbits, so it wins. */
+  private pointerButtons = 0
+  private canvasW = 1
+  private canvasH = 1
+  private lastFrame = 0
   private zAxis = new THREE.Vector3(0, 0, 1)
   private tmpQ = new THREE.Quaternion()
   private tmpM = new THREE.Matrix4()
   private tmpP = new THREE.Vector3()
   private tmpS = new THREE.Vector3(1, 1, 1)
+  private tmpColor = new THREE.Color()
   onStats: ((s: SceneStats) => void) | null = null
 
   constructor(canvas: HTMLCanvasElement) {
@@ -99,8 +240,20 @@ export class SceneRenderer {
     this.controls.minDistance = 4
     this.controls.maxDistance = 400
     this.controls.screenSpacePanning = true
+    // Left and right belong to the tools; orbit is the middle button, the wheel
+    // zooms, and WASD pans. (OrbitControls defaults — LEFT rotate, RIGHT pan —
+    // fought the block tools' click and drag.)
+    this.controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: null }
+    this.controls.enablePan = false
+    // Orthographic views are zoomed by the wheel handler below, not by the
+    // orbit dolly (which only moves the perspective camera).
+    canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    canvas.addEventListener('pointermove', this.onEdgePointerMove)
+    canvas.addEventListener('pointerleave', this.onEdgePointerLeave)
+    canvas.addEventListener('pointerup', this.onEdgePointerUp)
 
     this.mats = createMaterials()
+    this.modelMats = createModelMaterials()
 
     // Light rig: one key + ambient + a soft fill. §2.3 item 3.
     const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x2a2f39, 1.15)
@@ -115,21 +268,28 @@ export class SceneRenderer {
 
     this.scene.add(this.grid)
     this.scene.add(this.moduleMeshes)
+    this.scene.add(this.trainGroup)
+    this.scene.add(this.ghostGroup)
 
-    // Agents. Low-poly on purpose: at 3,000 the silhouette matters, not the
-    // facet count.
-    const geo = new THREE.CapsuleGeometry(0.2, 0.7, 1, 6)
-    geo.rotateX(Math.PI / 2)
-    geo.translate(0, 0, 0.55)
-    this.agents = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.05 }), 8000)
+    // Agents. Prison Architect register: a limb-less body ("Shape"), a head and
+    // a hair cap, so 3,000 people are still three instanced draws. The body
+    // wears the crowd palette, the head a skin tone, the hair a colour. Low-poly
+    // on purpose: the silhouette matters, not the facet count.
+    this.agents = new THREE.InstancedMesh(humanoidBody(), new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0.05 }), 8000)
     this.agents.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
     this.agents.frustumCulled = false
-    // Colours are static per slot; upload them once.
-    const slotColor = new THREE.Color()
-    for (let i = 0; i < 8000; i++) {
-      this.agents.setColorAt(i, slotColor.setHex(AGENT_COLORS[i % AGENT_COLORS.length]))
-    }
+    // Colours are per agent, not per slot: the live list shifts as people come
+    // and go, so a slot's colour would otherwise change identity every frame.
+    // `renderAgents` paints each slot from the id it currently holds.
     this.scene.add(this.agents)
+    this.heads = new THREE.InstancedMesh(humanoidHead(), new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 }), 8000)
+    this.heads.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.heads.frustumCulled = false
+    this.scene.add(this.heads)
+    this.hair = new THREE.InstancedMesh(humanoidHair(), new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0.02 }), 8000)
+    this.hair.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.hair.frustumCulled = false
+    this.scene.add(this.hair)
 
     const blobGeo = new THREE.CircleGeometry(0.42, 10)
     this.blobs = new THREE.InstancedMesh(blobGeo, this.mats.blob, 8000)
@@ -138,7 +298,10 @@ export class SceneRenderer {
     this.blobs.renderOrder = 2
     this.scene.add(this.blobs)
 
-    const cursorGeo = new THREE.RingGeometry(0.35, 0.5, 4)
+    // A 1 m square that lines up with the block grid: the 4-segment ring starts
+    // at 45° so its corners are the cell corners, and it is never rotated, so it
+    // highlights exactly the cell under the pointer at any camera angle.
+    const cursorGeo = new THREE.RingGeometry(0.6, Math.SQRT1_2, 4, 1, Math.PI / 4)
     this.cursor = new THREE.Mesh(cursorGeo, new THREE.MeshBasicMaterial({ color: 0x6ee7ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide }))
     this.cursor.visible = false
     this.scene.add(this.cursor)
@@ -151,56 +314,96 @@ export class SceneRenderer {
 
   setStation(data: StationData, trackCells: Set<number> = new Set()): void {
     this.solid = buildSolidSet(data.cells)
+    this.finishes = finishMapOf(data.cells)
     this.disposeChunks()
     const t0 = performance.now()
     this.lastChunkMs = 0
-    // Mesh per level band: one z of solid cells at a time keeps level slicing
-    // exact and each chunk small.
-    const byZ = new Map<number, Array<{ x: number; y: number }>>()
+    // Group cells into storeys. A storey is the named level a cell stands on:
+    // a wall, and a room's ceiling (the underside of the floor above), belong to
+    // the storey that carries them. Meshing each storey across its own z band
+    // stops a level drawing the storeys above it.
+    const floors =
+      data.levels.length > 0
+        ? data.levels.map((l) => l.z).sort((a, b) => a - b)
+        : [...new Set(data.cells.map((c) => c.z))].sort((a, b) => a - b)
+    const bandOf = (z: number): number => {
+      let lo = floors[0]
+      for (const f of floors) if (f <= z) lo = f
+      return lo
+    }
+    const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number }> }>()
+    // The lowest storey each column reaches. A block standing on that storey has
+    // nothing under it, so it is a plate hanging in space: it must stay on screen
+    // even when its storey sits above the one being looked at. Anything with a
+    // storey below it is that lower room's ceiling and goes with the cut.
+    this.groundOf.clear()
     for (const c of data.cells) {
       if (c.fill !== 'solid') continue
-      let arr = byZ.get(c.z)
-      if (!arr) {
-        arr = []
-        byZ.set(c.z, arr)
+      const band = bandOf(c.z)
+      const col = `${c.x},${c.y}`
+      const prev = this.groundOf.get(col)
+      if (prev === undefined || band < prev) this.groundOf.set(col, band)
+      let entry = byBand.get(band)
+      if (!entry) {
+        entry = { zLo: c.z, zHi: c.z, cells: [] }
+        byBand.set(band, entry)
       }
-      arr.push(c)
+      if (c.z < entry.zLo) entry.zLo = c.z
+      if (c.z > entry.zHi) entry.zHi = c.z
+      entry.cells.push({ x: c.x, y: c.y })
+    }
+    // Solid set of just those unsupported plates, for meshing them on their own.
+    const floating = new Set<number>()
+    for (const c of data.cells) {
+      if (c.fill !== 'solid') continue
+      if (bandOf(c.z) === this.groundOf.get(`${c.x},${c.y}`)) floating.add(packKey(c.x, c.y, c.z))
     }
     const box = new THREE.Box3()
-    for (const [z, cells] of byZ) {
-      const group = new THREE.Group()
-      group.userData.levelZ = z
+    const meshBand = (group: THREE.Group, levelZ: number, band: { zLo: number; zHi: number; cells: Array<{ x: number; y: number }> }, solid: Set<number>, isFloat: boolean): void => {
       const seen = new Set<string>()
-      for (const c of cells) {
+      for (const c of band.cells) {
         const cx = Math.floor(c.x / CHUNK) * CHUNK
         const cy = Math.floor(c.y / CHUNK) * CHUNK
         const k = `${cx},${cy}`
         if (seen.has(k)) continue
         seen.add(k)
-        const chunk = meshChunk(this.solid, cx, cy, z)
+        const chunk = meshChunk(solid, this.finishes, cx, cy, band.zLo, band.zHi)
         if (chunk.triangles === 0) continue
-        const geo = new THREE.BufferGeometry()
-        geo.setAttribute('position', new THREE.BufferAttribute(chunk.positions, 3))
-        geo.setAttribute('normal', new THREE.BufferAttribute(chunk.normals, 3))
-        geo.setAttribute('color', new THREE.BufferAttribute(chunk.colors, 3))
-        geo.setAttribute('uv', new THREE.BufferAttribute(chunk.uvs, 2))
-        geo.setIndex(new THREE.BufferAttribute(chunk.indices, 1))
-        geo.computeBoundingBox()
-        if (geo.boundingBox) box.union(geo.boundingBox)
         this.lastChunkMs = Math.max(this.lastChunkMs, chunk.ms)
-        const mesh = new THREE.Mesh(geo, this.mats.platform)
-        mesh.userData.levelZ = z
-        mesh.userData.cells = cells.length
-        group.add(mesh)
-        this.chunkMeshes.push(mesh)
-        // Inverted hull outline: same geometry, back faces, pushed outward.
-        const outline = new THREE.Mesh(geo, this.outlineMaterial())
-        outline.userData.levelZ = z
-        outline.renderOrder = -1
-        group.add(outline)
-        this.outlineMeshes.push(outline)
+        // One mesh per finish, sharing the chunk geometry where faces agree.
+        for (const part of chunk.parts) {
+          const geo = new THREE.BufferGeometry()
+          geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3))
+          geo.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3))
+          geo.setAttribute('color', new THREE.BufferAttribute(part.colors, 3))
+          geo.setAttribute('uv', new THREE.BufferAttribute(part.uvs, 2))
+          geo.setIndex(new THREE.BufferAttribute(part.indices, 1))
+          geo.computeBoundingBox()
+          if (geo.boundingBox) box.union(geo.boundingBox)
+          const mesh = new THREE.Mesh(geo, this.mats.finish(part.finish))
+          mesh.userData.levelZ = levelZ
+          mesh.userData.float = isFloat
+          mesh.userData.cells = band.cells.length
+          group.add(mesh)
+          this.chunkMeshes.push(mesh)
+          // Inverted hull outline: same geometry, back faces, pushed outward.
+          const outline = new THREE.Mesh(geo, this.outlineMaterial())
+          outline.userData.levelZ = levelZ
+          outline.userData.float = isFloat
+          outline.renderOrder = -1
+          group.add(outline)
+          this.outlineMeshes.push(outline)
+        }
       }
-      this.levelGroups.set(z, group)
+    }
+    for (const [levelZ, band] of byBand) {
+      const group = new THREE.Group()
+      group.userData.levelZ = levelZ
+      // The whole storey, then — for every storey that could sit above one — the
+      // unsupported plates on their own, so the two can be shown separately.
+      meshBand(group, levelZ, band, this.solid, false)
+      if (levelZ > floors[0]) meshBand(group, levelZ, band, floating, true)
+      this.levelGroups.set(levelZ, group)
       this.scene.add(group)
     }
     this.bounds = box
@@ -226,85 +429,198 @@ export class SceneRenderer {
     return m
   }
 
-  private buildModules(data: StationData, trackCells: Set<number>): void {
-    this.moduleMeshes.clear()
-    const parts: THREE.Mesh[] = []
-    const addBox = (x: number, y: number, z: number, w: number, h: number, d: number, colour: number, zOff = 0): void => {
-      const g = new THREE.BoxGeometry(w, d, h)
-      const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: colour, roughness: 0.4, metalness: 0.2 }))
-      m.position.set(x + w / 2, y + d / 2, z + zOff + h / 2)
-      parts.push(m)
-    }
+  /**
+   * Build every placed module through the model factory (§3 item 6). Modules are
+   * no longer unit cubes: `models.ts` gives each one a silhouette from the
+   * reference art, and the camera sees steel, glass, enamel and screens.
+   */
+  private buildModules(data: StationData, _trackCells: Set<number>): void {
+    this.clearModules()
+    const trackCells = new Set<string>()
+    for (const c of data.cells) if (c.fill === 'solid' && c.finish?.top === 'floor.track') trackCells.add(`${c.x},${c.y},${c.z}`)
+    const ctx: ModuleContext = { mats: this.modelMats, data, trackCells }
+    const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
+    this.psdGroups = []
     for (const mod of data.modules) {
-      switch (mod.type) {
-        case 'gate':
-          addBox(mod.x + 0.15, mod.y + 0.1, mod.z + 1, 0.7, 1.0, 0.9, 0x8b93a1)
-          break
-        case 'tvm':
-          addBox(mod.x + 0.2, mod.y + 0.2, mod.z + 1, 0.6, 0.6, 1.1, 0xd8dde4)
-          break
-        case 'bench':
-          addBox(mod.x + 0.15, mod.y + 0.1, mod.z + 1, 0.7, 0.8, 0.45, 0x9c6b4a)
-          break
-        case 'exit':
-          addBox(mod.x - 0.4, mod.y - 0.4, mod.z + 1, 1.8, 1.8, 0.3, 0x3fb27f)
-          break
-        case 'escalator': {
-          const a = new THREE.Vector3(mod.from.x + 0.5, mod.from.y + 0.5, mod.from.z + 1)
-          const b = new THREE.Vector3(mod.to.x + 0.5, mod.to.y + 0.5, mod.to.z + 1)
-          const mid = a.clone().add(b).multiplyScalar(0.5)
-          const len = a.distanceTo(b)
-          const g = new THREE.BoxGeometry(1.1, len, 0.25)
-          const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x6b7480, roughness: 0.5, metalness: 0.5 }))
-          m.position.copy(mid)
-          m.lookAt(b)
-          m.rotateX(Math.PI / 2)
-          parts.push(m)
-          break
-        }
-        case 'stair': {
-          const a = new THREE.Vector3(mod.from.x + 0.5, mod.from.y + 0.5, mod.from.z + 1)
-          const b = new THREE.Vector3(mod.to.x + 0.5, mod.to.y + 0.5, mod.to.z + 1)
-          const mid = a.clone().add(b).multiplyScalar(0.5)
-          const len = a.distanceTo(b)
-          const g = new THREE.BoxGeometry(2.4, len, 0.25)
-          const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x9aa2ab }))
-          m.position.copy(mid)
-          m.lookAt(b)
-          m.rotateX(Math.PI / 2)
-          parts.push(m)
-          break
-        }
-        case 'lift':
-          addBox(mod.x + 0.1, mod.y + 0.1, mod.z + 1, 1.8, 1.8, 2.6, 0x445063)
-          break
-        case 'track': {
-          for (let i = 0; i < mod.w; i++) {
-            if (!trackCells.has(0)) break
-            addBox(mod.x + i, mod.y, mod.z, 1, 1, 0.08, 0x2c313a, -0.02)
-          }
-          break
-        }
-        default:
-          break
+      const group = buildModule(mod, ctx)
+      if (!group) continue
+      group.userData.levelZs = moduleLevels(mod)
+      const ground = this.groundOf.get(`${mod.x},${mod.y}`)
+      group.userData.groundBand = ground
+      this.moduleMeshes.add(group)
+      if (mod.type === 'platform-edge') {
+        const line = data.lines.find((l) => l.id === mod.cfg.line)
+        const colour = line ? parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0 : 0x1f5fd0
+        this.psdGroups.push({ group, colour })
+      }
+      const r = blobRadius(mod.type)
+      if (r > 0) {
+        const blob: [number, number, number, number] = [mod.x + 0.5, mod.y + 0.5, mod.z + 1 - 0.42, r]
+        const bk = `${mod.z}|${ground ?? 'x'}`
+        const entry = blobsByKey.get(bk)
+        if (entry) entry.blobs.push(blob)
+        else blobsByKey.set(bk, { levelZ: mod.z, ground, blobs: [blob] })
       }
     }
-    for (const p of parts) this.moduleMeshes.add(p)
-    // Contact blobs under the modules (§11).
-    if (this.moduleBlobs) this.moduleMeshes.remove(this.moduleBlobs)
-    const n = parts.length
-    this.moduleBlobs = new THREE.InstancedMesh(new THREE.CircleGeometry(0.8, 12), this.mats.blob, Math.max(1, n))
-    this.moduleBlobs.renderOrder = 2
+    // Contact blobs under the floor-standing modules (§11), one batch per level
+    // so a shadow disappears with the storey it sits on. `clearModules` disposes
+    // every previous batch, so none of them are removed again here.
     const m = new THREE.Matrix4()
-    parts.forEach((p, i) => {
-      const box = p.geometry as THREE.BoxGeometry
-      const h = box.parameters?.height ?? 1
-      m.makeTranslation(p.position.x, p.position.y, p.position.z - h / 2 - 0.42)
-      this.moduleBlobs!.setMatrixAt(i, m)
-    })
-    this.moduleBlobs.count = n
-    this.moduleMeshes.add(this.moduleBlobs)
-    void trackCells
+    const p = new THREE.Vector3()
+    const q = new THREE.Quaternion()
+    const s = new THREE.Vector3()
+    for (const entry of blobsByKey.values()) {
+      const { levelZ, ground, blobs } = entry
+      const inst = new THREE.InstancedMesh(new THREE.CircleGeometry(0.62, 12), this.mats.blob, Math.max(1, blobs.length))
+      inst.renderOrder = 2
+      inst.frustumCulled = false
+      inst.userData.levelZs = [levelZ]
+      inst.userData.groundBand = ground
+      for (let i = 0; i < blobs.length; i++) {
+        const [x, y, z, r] = blobs[i]
+        m.compose(p.set(x, y, z), q, s.set(r, r, r))
+        inst.setMatrixAt(i, m)
+      }
+      inst.count = blobs.length
+      this.moduleMeshes.add(inst)
+    }
+    const decal = this.tactileDecals(data)
+    if (decal) this.moduleMeshes.add(decal)
+  }
+
+  /** Drop the last frame's module geometry and trains without touching materials. */
+  private clearModules(): void {
+    for (const child of [...this.moduleMeshes.children]) {
+      disposeObject(child)
+      this.moduleMeshes.remove(child)
+    }
+  }
+
+  /**
+   * Rolling stock (§6). The worker sends one pose per live train as a flat
+   * `Float32Array`, stride 8: x, y, z, cars, stock index, doors-open, colour,
+   * direction. A consist is cached by its signature (colour + direction +
+   * length), so it survives slot reordering, and its two latest poses are kept
+   * so `updateTrains` can glide it between ticks instead of teleporting.
+   */
+  setTrains(buffer: Float32Array): void {
+    const STRIDE = 8
+    const n = Math.min(Math.floor(buffer.length / STRIDE), 64)
+    for (const entry of this.trainSlots.values()) entry.active = false
+    const openColours = new Set<number>()
+    for (let i = 0; i < n; i++) {
+      const o = i * STRIDE
+      const x = buffer[o]
+      const y = buffer[o + 1]
+      const z = buffer[o + 2]
+      const cars = buffer[o + 3] | 0
+      const stockIdx = buffer[o + 4] | 0
+      const doorsOpen = buffer[o + 5] > 0.5
+      const colour = buffer[o + 6] & 0xffffff
+      const dirSign = buffer[o + 7] >= 0 ? 1 : -1
+      if (doorsOpen) openColours.add(colour)
+      const sig = `${colour}:${dirSign}:${cars}:${stockIdx}`
+      let entry = this.trainSlots.get(sig)
+      if (!entry) {
+        const stock: StockClass = (['A', 'B', 'C'] as const)[stockIdx] ?? 'B'
+        const group = buildTrain(this.modelMats, { x, y, z, cars, stock, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign })
+        // The track surface is one above its floor block's z.
+        group.userData.levelZs = [z - 1]
+        group.userData.doorT = 0
+        this.trainGroup.add(group)
+        entry = { group, sig, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(x, y, z), active: true }
+        this.trainSlots.set(sig, entry)
+      } else {
+        // Continue from where this consist was last drawn. A consist that has
+        // only just reappeared (the previous service departed long ago) snaps to
+        // its approach start rather than streaking back across the platform.
+        if (entry.active) entry.from.copy(entry.to)
+        else entry.from.set(x, y, z)
+        entry.to.set(x, y, z)
+        entry.active = true
+      }
+      entry.group.visible = true
+      // Doors ease open and shut in `updateTrains` rather than snapping.
+      entry.group.userData.doorTarget = doorsOpen ? 1 : 0
+      this.applyGroupLevel(entry.group, false)
+    }
+    for (const entry of this.trainSlots.values()) {
+      if (!entry.active) entry.group.visible = false
+    }
+    // The screen doors at a platform open with the train berthed at its line.
+    for (const psd of this.psdGroups) psd.group.userData.doorTarget = openColours.has(psd.colour) ? 1 : 0
+    this.updateTrains(performance.now(), 0)
+  }
+
+  /** Place every visible consist between its last two worker poses, and ease doors. */
+  private updateTrains(now: number, dt: number): void {
+    const alpha = Math.min(1, Math.max(0, (now - this.lastStateTime) / this.stateIntervalMs))
+    for (const entry of this.trainSlots.values()) {
+      if (!entry.group.visible) continue
+      entry.group.position.lerpVectors(entry.from, entry.to, alpha)
+      this.advanceDoors(entry.group, dt)
+    }
+    for (const psd of this.psdGroups) this.advanceDoors(psd.group, dt)
+  }
+
+  /**
+   * Ease one group's doors toward their target. A leaf takes `DOOR_TRAVEL_S` of
+   * sim time to cross, so the motion stays proportional to the sim clock at any
+   * fast-forward multiplier (`stateIntervalMs` shrinks as speed climbs).
+   */
+  private advanceDoors(root: THREE.Object3D, dt: number): void {
+    const target = (root.userData.doorTarget as number) ?? 0
+    const cur = (root.userData.doorT as number) ?? 0
+    if (cur === target) return
+    const step = (dt * (1000 / this.stateIntervalMs)) / DOOR_TRAVEL_S
+    const t = target > cur ? Math.min(target, cur + step) : Math.max(target, cur - step)
+    root.userData.doorT = t
+    setDoors(root, t)
+  }
+
+  /**
+   * Tactile strips along every platform edge, as a separate transparent quad
+   * layer so they never break a chunk merge (§4.2). The strip sits on the side
+   * of the edge cell that faces a track bed.
+   */
+  private tactileDecals(data: StationData): THREE.Mesh | null {
+    const track = new Set<string>()
+    for (const c of data.cells) if (c.finish?.top === 'floor.track') track.add(`${c.x},${c.y},${c.z}`)
+    if (track.size === 0) return null
+    const pos: number[] = []
+    const nor: number[] = []
+    const uv: number[] = []
+    const idx: number[] = []
+    let base = 0
+    const quad = (x0: number, y0: number, x1: number, y1: number, z: number): void => {
+      pos.push(x0, y0, z, x1, y0, z, x1, y1, z, x0, y1, z)
+      for (let i = 0; i < 4; i++) nor.push(0, 0, 1)
+      uv.push(0, 0, 1, 0, 1, 1, 0, 1)
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
+      base += 4
+    }
+    for (const m of data.modules) {
+      if (m.type !== 'platform-edge') continue
+      const z = m.z + 1 + 0.02
+      for (let i = 0; i < m.w; i++) {
+        const x = m.x + i
+        const y = m.y
+        if (track.has(`${x},${y - 1},${m.z}`)) quad(x, y, x + 1, y + 0.3, z)
+        else if (track.has(`${x},${y + 1},${m.z}`)) quad(x, y + 0.7, x + 1, y + 1, z)
+        else if (track.has(`${x - 1},${y},${m.z}`)) quad(x, y, x + 0.3, y + 1, z)
+        else if (track.has(`${x + 1},${y},${m.z}`)) quad(x + 0.7, y, x + 1, y + 1, z)
+      }
+    }
+    if (idx.length === 0) return null
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3))
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2))
+    geo.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1))
+    const mesh = new THREE.Mesh(geo, this.mats.tactile)
+    mesh.renderOrder = 1
+    mesh.userData.levelZs = [...new Set(data.modules.filter((m) => m.type === 'platform-edge').map((m) => m.z))]
+    return mesh
   }
 
   private buildGrid(): void {
@@ -351,21 +667,58 @@ export class SceneRenderer {
   }
 
   private applyLevel(): void {
+    // Block by block. At or below the active level the whole storey is drawn —
+    // opaque when it is the active one, a 35% ghost when it is under it. Above
+    // the active level every block that has something under it is cut away (it
+    // is that lower room's ceiling), but a block with nothing under it is a
+    // plate hanging in space and stays, so the station does not look guillotined.
     for (const [lz, group] of this.levelGroups) {
-      const active = lz === this.activeZ
       group.visible = true
+      const active = lz === this.activeZ
       for (const child of group.children) {
         const mesh = child as THREE.Mesh
         if (!mesh.isMesh) continue
+        const float = mesh.userData.float === true
+        // Below/at the active level draw the full storey; above it, only floats.
+        mesh.visible = lz <= this.activeZ ? !float : float
+        if (!mesh.visible) continue
         const isOutline = this.outlineMeshes.includes(mesh)
-        if (active || !this.ghost) {
-          mesh.material = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
-          mesh.visible = true
-        } else {
-          mesh.material = this.dimOf(isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh))
-        }
+        const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
+        mesh.material = active || !this.ghost ? base : this.dimOf(base)
       }
     }
+    // Fixtures follow the same rule: a gate on a cut-away storey goes, but one
+    // standing on an unsupported plate above the active level stays.
+    for (const child of this.moduleMeshes.children) this.applyGroupLevel(child, true)
+    // Trains own their `visible` flag (setTrains parks them), so leave it be.
+    for (const child of this.trainGroup.children) this.applyGroupLevel(child, false)
+  }
+
+  /**
+   * Dim or restore one module/train group by the level(s) it occupies. A ramp
+   * (escalator, stair, lift) belongs to both ends; everything else to its cell.
+   * Forestanding furniture with no level tag (shadows, decals) always shows.
+   */
+  private applyGroupLevel(root: THREE.Object3D, manageVisible: boolean): void {
+    const levels = root.userData.levelZs as number[] | undefined
+    const lz = root.userData.levelZ as number | undefined
+    const zs = levels ?? (lz !== undefined ? [lz] : undefined)
+    if (manageVisible) {
+      // Same rule as the blocks: cut away above the active level unless the
+      // fixture stands on a plate that itself has nothing under it.
+      const lowest = zs ? Math.min(...zs) : undefined
+      const ground = root.userData.groundBand as number | undefined
+      const shown = lowest === undefined || lowest <= this.activeZ || (ground !== undefined && ground > this.activeZ)
+      root.visible = shown
+      if (!shown) return
+    }
+    const active = !this.ghost || (zs ? zs.includes(this.activeZ) : true)
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh
+      if (!mesh.isMesh) return
+      const base = this.baseOf(mesh)
+      mesh.material = active ? base : this.dimOf(base)
+    })
   }
 
   private baseOf(mesh: THREE.Mesh): THREE.Material {
@@ -398,14 +751,51 @@ export class SceneRenderer {
 
   /* -------------------------------------------------------------- agents */
 
-  setAgents(buffer: Float32Array, count: number): void {
-    if (this.cur.length < buffer.length) {
-      this.cur = new Float32Array(Math.max(buffer.length, 4096))
-      this.prev = new Float32Array(Math.max(buffer.length, 4096))
-      this.yaws = new Float32Array(this.cur.length / 5)
+  setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
+    const floats = count * 6
+    if (this.cur.length < floats) {
+      // Preserve the old frame so ids that survive the resize still interpolate
+      // from where they were rather than streaking in from the origin.
+      const grown = new Float32Array(Math.max(floats, 4096))
+      grown.set(this.cur)
+      this.cur = grown
     }
-    this.prev.set(this.cur.subarray(0, this.cur.length))
-    this.cur.set(buffer.subarray(0, this.cur.length))
+    if (this.prev.length < count * 3) this.prev = new Float32Array(Math.max(count * 3, 4096))
+    if (this.yaws.length < count) this.yaws = new Float32Array(Math.max(count, 1024))
+    if (this.colorIds.length < count) {
+      const grown = new Int32Array(Math.max(count, 1024))
+      grown.fill(-1)
+      this.colorIds = grown
+    }
+    this.stateIntervalMs = intervalMs > 0 ? intervalMs : this.stateIntervalMs
+    // Match each incoming agent to its previous-frame position by id before
+    // overwriting `cur`. Slot i is not stable: `pool.compact()` shifts the live
+    // list whenever an agent dies, so pairing by slot would interpolate between
+    // two different people and send them flying across the station.
+    const prevId = this.prevId
+    const nextId = this.nextId
+    nextId.clear()
+    for (let i = 0; i < count; i++) {
+      const o = i * 6
+      const p = i * 3
+      const old = prevId.get(buffer[o + 5])
+      if (old !== undefined) {
+        const q = old * 6
+        this.prev[p] = this.cur[q]
+        this.prev[p + 1] = this.cur[q + 1]
+        this.prev[p + 2] = this.cur[q + 2]
+      } else {
+        // New spawn: start it at its own position, not somewhere it came from.
+        this.prev[p] = buffer[o]
+        this.prev[p + 1] = buffer[o + 1]
+        this.prev[p + 2] = buffer[o + 2]
+        this.yaws[i] = 0
+      }
+      nextId.set(buffer[o + 5], i)
+    }
+    this.cur.set(buffer.subarray(0, floats))
+    this.prevId = nextId
+    this.nextId = prevId
     this.agentCount = count
     this.lastStateTime = performance.now()
   }
@@ -447,6 +837,35 @@ export class SceneRenderer {
     if (this.overlay) this.overlay.visible = on
   }
 
+  /** Fare-zone tint (§4.5): one quad per exposed floor cell, coloured by zone. */
+  setZoneOverlay(quads: Float32Array, zones: Uint8Array, on: boolean): void {
+    const n = zones.length
+    if (!this.zoneOverlay || this.zoneOverlay.count !== n) {
+      if (this.zoneOverlay) {
+        this.scene.remove(this.zoneOverlay)
+        this.zoneOverlay.dispose()
+      }
+      const g = new THREE.PlaneGeometry(1, 1)
+      const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide })
+      this.zoneOverlay = new THREE.InstancedMesh(g, m, Math.max(1, n))
+      this.zoneOverlay.renderOrder = 1
+      this.zoneOverlay.frustumCulled = false
+      this.scene.add(this.zoneOverlay)
+    }
+    const mat4 = new THREE.Matrix4()
+    const col = new THREE.Color()
+    for (let i = 0; i < n; i++) {
+      mat4.makeTranslation(quads[i * 3], quads[i * 3 + 1], quads[i * 3 + 2])
+      this.zoneOverlay.setMatrixAt(i, mat4)
+      col.setHex(ZONE_LIST[zones[i]]?.colour ?? 0x888888)
+      this.zoneOverlay.setColorAt(i, col)
+    }
+    this.zoneOverlay.count = n
+    this.zoneOverlay.instanceMatrix.needsUpdate = true
+    if (this.zoneOverlay.instanceColor) this.zoneOverlay.instanceColor.needsUpdate = true
+    this.zoneOverlay.visible = on
+  }
+
   /* ------------------------------------------------------------- camera */
 
   setPreset(name: 'iso' | 'plan' | 'front' | 'side' | 'custom'): void {
@@ -469,19 +888,160 @@ export class SceneRenderer {
 
   setOrtho(on: boolean): void {
     this.orthoOn = on
-    const size = this.bounds.getSize(new THREE.Vector3()).length() * 0.7
-    this.ortho.left = -size
-    this.ortho.right = size
-    this.ortho.top = size
-    this.ortho.bottom = -size
+    // The orbit dolly does nothing to an orthographic frustum, so hand the
+    // wheel to `onWheel` (and back) whenever the projection changes.
+    this.controls.enableZoom = !on
+    this.applyOrtho()
     this.ortho.position.copy(this.camera.position)
     this.ortho.quaternion.copy(this.camera.quaternion)
+  }
+
+  /** Rebuild the ortho frustum from the model bounds, the aspect and the zoom. */
+  private applyOrtho(): void {
+    const base = this.bounds.getSize(this.tmpSize).length() * 0.7 * this.orthoZoom
+    const aspect = this.camera.aspect || 1
+    this.ortho.left = -base * aspect
+    this.ortho.right = base * aspect
+    this.ortho.top = base
+    this.ortho.bottom = -base
     this.ortho.updateProjectionMatrix()
+  }
+
+  /** Wheel zoom for flat views: scale the ortho frustum instead of dollying. */
+  private onWheel = (e: WheelEvent): void => {
+    if (!this.orthoOn) return
+    e.preventDefault()
+    this.orthoZoom = THREE.MathUtils.clamp(this.orthoZoom * Math.exp(e.deltaY * 0.001), 0.06, 16)
+    this.applyOrtho()
+  }
+
+  /** Track the pointer for the edge pan. Outside the canvas the pan stops. */
+  private onEdgePointerMove = (e: PointerEvent): void => {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    this.pointerX = e.clientX - rect.left
+    this.pointerY = e.clientY - rect.top
+    this.pointerButtons = e.buttons
+    this.pointerInside =
+      this.pointerX >= 0 && this.pointerY >= 0 && this.pointerX <= rect.width && this.pointerY <= rect.height
+  }
+
+  private onEdgePointerLeave = (): void => {
+    this.pointerInside = false
+    this.pointerButtons = 0
+  }
+
+  /** Keep the button state fresh so a released orbit never leaves the pan off. */
+  private onEdgePointerUp = (e: PointerEvent): void => {
+    this.pointerButtons = e.buttons
   }
 
   frame(): void {
     const c = this.bounds.getCenter(new THREE.Vector3())
     this.controls.target.copy(c)
+    this.controls.update()
+  }
+
+  /**
+   * Snap the camera to look along a world direction (from the station toward
+   * the camera). The view cube's face clicks pass a face normal, its corner
+   * clicks a corner vector. `useOrtho` picks the projection: faces are true
+   * projections, corners an isometric perspective.
+   */
+  setViewDirection(dir: THREE.Vector3, useOrtho: boolean): void {
+    const c = this.bounds.getCenter(new THREE.Vector3())
+    const dist = Math.max(40, this.bounds.getSize(new THREE.Vector3()).length() * 0.9)
+    const d = dir.clone().normalize()
+    // The camera is Z-up, so looking straight along ±Z makes `lookAt`
+    // degenerate; a hair off-axis keeps the roll defined and still reads as a
+    // top / bottom view.
+    if (Math.abs(d.x) < 1e-3 && Math.abs(d.y) < 1e-3) d.x = 1e-3
+    d.normalize()
+    this.controls.target.copy(c)
+    this.camera.position.copy(c).addScaledVector(d, dist)
+    this.camera.lookAt(c)
+    this.controls.update()
+    this.setOrtho(useOrtho)
+  }
+
+  /**
+   * Orbit from a pointer drag on the view cube: yaw turns around world Z,
+   * pitch around the screen-right axis, and the elevation stops just short of
+   * the poles so the view never flips.
+   */
+  orbitBy(dxPx: number, dyPx: number): void {
+    const target = this.controls.target
+    const offset = this.camera.position.clone().sub(target)
+    const up = new THREE.Vector3(0, 0, 1)
+    offset.applyAxisAngle(up, -dxPx * 0.008)
+    const forward = offset.clone().normalize()
+    const right = new THREE.Vector3().crossVectors(up, forward)
+    if (right.lengthSq() < 1e-8) right.set(1, 0, 0)
+    right.normalize()
+    offset.applyAxisAngle(right, -dyPx * 0.008)
+    const len = offset.length()
+    const theta = Math.atan2(offset.y, offset.x)
+    const phi = THREE.MathUtils.clamp(Math.acos(THREE.MathUtils.clamp(offset.z / len, -1, 1)), 0.02, Math.PI - 0.02)
+    offset.set(len * Math.sin(phi) * Math.cos(theta), len * Math.sin(phi) * Math.sin(theta), len * Math.cos(phi))
+    this.camera.position.copy(target).add(offset)
+    this.camera.lookAt(target)
+    this.controls.update()
+  }
+
+  /**
+   * Pan input for this frame. WASD (Shift = faster) plus the mouse edge band:
+   * a pointer within `EDGE_PAN_PX` of an edge pushes that way, ramped by how
+   * deep it sits in the band so the motion starts gently, and a corner pushes
+   * both axes together. The middle button orbits the camera, so its drag does
+   * not also pan.
+   */
+  private panInput(): { forward: number; strafe: number } {
+    let forward = 0
+    let strafe = 0
+    if (this.keys.has('w')) forward += 1
+    if (this.keys.has('s')) forward -= 1
+    if (this.keys.has('d')) strafe += 1
+    if (this.keys.has('a')) strafe -= 1
+    if (this.pointerInside && (this.pointerButtons & 4) === 0) {
+      const ramp = (d: number): number => THREE.MathUtils.clamp((EDGE_PAN_PX - d) / EDGE_PAN_PX, 0, 1)
+      const left = ramp(this.pointerX)
+      const right = ramp(this.canvasW - this.pointerX)
+      const top = ramp(this.pointerY)
+      const bottom = ramp(this.canvasH - this.pointerY)
+      strafe += right - left
+      forward += top - bottom
+    }
+    return {
+      forward: THREE.MathUtils.clamp(forward, -1, 1),
+      strafe: THREE.MathUtils.clamp(strafe, -1, 1),
+    }
+  }
+
+  /**
+   * Move the camera across the world's XY plane. `panInput` blends WASD (Shift
+   * = faster) with the mouse edge band; the pan is camera-relative, so it
+   * follows the orbit. Q/E are the layer step and live in the app.
+   */
+  private panCamera(dt: number): void {
+    if (dt <= 0) return
+    const { forward, strafe } = this.panInput()
+    if (forward === 0 && strafe === 0) return
+    const dir = new THREE.Vector3()
+    this.camera.getWorldDirection(dir)
+    dir.z = 0
+    if (dir.lengthSq() < 1e-6) dir.set(0, 1, 0) // looking straight down
+    dir.normalize()
+    // Screen right = forward x up (up is +z): (dx,dy,0) x (0,0,1) = (dy,-dx,0).
+    const right = new THREE.Vector3(dir.y, -dir.x, 0)
+    // Scale with zoom: a zoomed-in view pans metres per second, a zoomed-out
+    // view crosses the station. Shift multiplies it.
+    const distance = this.camera.position.distanceTo(this.controls.target)
+    const speed = Math.max(4, Math.min(45, distance * 0.4)) * (this.keys.has('shift') ? 3 : 1)
+    const move = new THREE.Vector3()
+      .addScaledVector(dir, forward * speed * dt)
+      .addScaledVector(right, strafe * speed * dt)
+    // Move target and camera together so the orbit offset is preserved.
+    this.camera.position.add(move)
+    this.controls.target.add(move)
     this.controls.update()
   }
 
@@ -496,8 +1056,24 @@ export class SceneRenderer {
     mat.color.setHex(valid ? 0x6ee7ff : 0xff5d5d)
   }
 
-  /** Ghost preview for the active drag (§9.5). */
+  /**
+   * Ghost preview for the active drag (§9.5). A remove drag flags the blocks it
+   * would delete with red boxes; an add drag shows the final shape the pending
+   * cells will take — meshed with the real profile, then drawn translucent — so
+   * the release is not a surprise.
+   */
   setGhost(cells: Array<[number, number, number]>, kind: 'add' | 'remove'): void {
+    if (kind === 'add') {
+      if (this.ghostMesh) this.ghostMesh.visible = false
+      const key = this.ghostKeyOf(cells)
+      if (key === this.ghostKey) return
+      this.ghostKey = key
+      this.buildShapeGhost(cells)
+      return
+    }
+
+    this.ghostGroup.visible = false
+    this.ghostKey = ''
     if (cells.length === 0) {
       if (this.ghostMesh) this.ghostMesh.visible = false
       return
@@ -505,14 +1081,16 @@ export class SceneRenderer {
     if (!this.ghostMesh) {
       const geo = new THREE.BoxGeometry(1, 1, 1)
       const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false })
-      this.ghostMesh = new THREE.InstancedMesh(geo, mat, 4096)
+      this.ghostMesh = new THREE.InstancedMesh(geo, mat, GHOST_MAX)
       this.ghostMesh.frustumCulled = false
       this.ghostMesh.renderOrder = 3
       this.scene.add(this.ghostMesh)
     }
     const m = new THREE.Matrix4()
-    const col = new THREE.Color(kind === 'add' ? 0x6ee7ff : 0xff5d5d)
-    const n = Math.min(cells.length, this.ghostMesh.count || 4096)
+    const col = new THREE.Color(0xff5d5d)
+    // Clamp to the pool capacity, not the previous frame's count — a drag that
+    // grows bigger than the last preview must still draw every pending block.
+    const n = Math.min(cells.length, GHOST_MAX)
     this.ghostMesh.count = n
     for (let i = 0; i < n; i++) {
       const [x, y, z] = cells[i]
@@ -525,6 +1103,126 @@ export class SceneRenderer {
     if (this.ghostMesh.instanceColor) this.ghostMesh.instanceColor.needsUpdate = true
   }
 
+  /** A cheap order-stable fingerprint of a pending cell set, to skip re-meshing. */
+  private ghostKeyOf(cells: Array<[number, number, number]>): string {
+    let h = 2166136261
+    for (const [x, y, z] of cells) {
+      h = Math.imul(h ^ (x + 4096), 16777619)
+      h = Math.imul(h ^ (y + 4096), 16777619)
+      h = Math.imul(h ^ (z + 4096), 16777619)
+    }
+    return `${cells.length}:${h >>> 0}`
+  }
+
+  /**
+   * Draw the pending add-cells as their final geometry. The real chunk mesher
+   * builds the rounded silhouette, but only the pending cells emit faces while
+   * the whole station answers neighbour queries — so the preview is the exact
+   * surface the release will add, sitting at the exact target cells.
+   */
+  private buildShapeGhost(cells: Array<[number, number, number]>): void {
+    this.clearShapeGhost()
+    if (cells.length === 0) return
+    const emit = new Set<number>()
+    const chunks = new Map<string, { cx: number; cy: number; cz: number }>()
+    const added: number[] = []
+    for (const [x, y, z] of cells) {
+      const k = packKey(x, y, z)
+      emit.add(k)
+      const cx = Math.floor(x / CHUNK) * CHUNK
+      const cy = Math.floor(y / CHUNK) * CHUNK
+      chunks.set(`${cx},${cy},${z}`, { cx, cy, cz: z })
+      if (!this.solid.has(k)) {
+        this.solid.add(k)
+        added.push(k)
+      }
+    }
+    const mat = this.shapeGhostMaterial()
+    try {
+      for (const { cx, cy, cz } of chunks.values()) {
+        const chunk = meshChunk(this.solid, this.finishes, cx, cy, cz, cz, emit)
+        for (const part of chunk.parts) {
+          const geo = new THREE.BufferGeometry()
+          geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3))
+          geo.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3))
+          geo.setAttribute('color', new THREE.BufferAttribute(part.colors, 3))
+          const mesh = new THREE.Mesh(geo, mat)
+          mesh.frustumCulled = false
+          mesh.renderOrder = 3
+          this.ghostGroup.add(mesh)
+        }
+      }
+    } finally {
+      for (const k of added) this.solid.delete(k)
+    }
+    this.ghostGroup.visible = this.ghostGroup.children.length > 0
+  }
+
+  private clearShapeGhost(): void {
+    for (const child of [...this.ghostGroup.children]) {
+      this.ghostGroup.remove(child)
+      ;(child as THREE.Mesh).geometry?.dispose()
+    }
+  }
+
+  private shapeGhostMaterial(): THREE.MeshStandardMaterial {
+    if (!this.ghostMaterial) {
+      this.ghostMaterial = new THREE.MeshStandardMaterial({
+        color: 0x7fe4ff,
+        emissive: 0x123a4a,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+        vertexColors: true,
+        roughness: 0.5,
+        metalness: 0.0,
+      })
+    }
+    return this.ghostMaterial
+  }
+
+  /**
+   * Paint-tool preview (§9.5): a flat translucent quad sitting just proud of
+   * every face a paint drag would colour. `colour` is the brush's own tint, so
+   * the preview shows the finish, not just the rectangle.
+   */
+  setFaceGhost(cells: Array<[number, number, number]>, face: Face, colour: number): void {
+    if (cells.length === 0) {
+      if (this.faceGhost) this.faceGhost.visible = false
+      return
+    }
+    const n = Math.min(cells.length, GHOST_MAX)
+    if (!this.faceGhost) {
+      const g = new THREE.PlaneGeometry(1, 1)
+      const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide })
+      this.faceGhost = new THREE.InstancedMesh(g, m, GHOST_MAX)
+      this.faceGhost.renderOrder = 4
+      this.faceGhost.frustumCulled = false
+      this.scene.add(this.faceGhost)
+    }
+    const [nx, ny, nz] = FACE_NORMAL[face]
+    const q = new THREE.Quaternion().setFromUnitVectors(FACE_UP, new THREE.Vector3(nx, ny, nz))
+    const mat = new THREE.Matrix4()
+    const col = new THREE.Color(colour)
+    const pos = new THREE.Vector3()
+    const scale = new THREE.Vector3(1, 1, 1)
+    for (let i = 0; i < n; i++) {
+      const [x, y, z] = cells[i]
+      pos.set(x + 0.5 + nx * 0.505, y + 0.5 + ny * 0.505, z + 0.5 + nz * 0.505)
+      mat.compose(pos, q, scale)
+      this.faceGhost.setMatrixAt(i, mat)
+      this.faceGhost.setColorAt(i, col)
+    }
+    this.faceGhost.count = n
+    this.faceGhost.visible = true
+    this.faceGhost.instanceMatrix.needsUpdate = true
+    if (this.faceGhost.instanceColor) this.faceGhost.instanceColor.needsUpdate = true
+  }
+
+  clearFaceGhost(): void {
+    if (this.faceGhost) this.faceGhost.visible = false
+  }
+
   setGridVisible(on: boolean): void {
     this.grid.visible = on
   }
@@ -535,7 +1233,10 @@ export class SceneRenderer {
     const rect = this.renderer.domElement.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, this.activeCamera())
-    const hits = this.raycaster.intersectObjects(this.pickables, false)
+    // Blocks removed from the level above are not pickable: a click must not
+    // grab a slab that is no longer drawn.
+    const shown = this.pickables.filter((m) => m.visible && (!m.parent || m.parent.visible))
+    const hits = this.raycaster.intersectObjects(shown, false)
     if (hits.length > 0) {
       const hit = hits[0]
       const p = hit.point
@@ -569,12 +1270,16 @@ export class SceneRenderer {
   private animate = (): void => {
     requestAnimationFrame(this.animate)
     const now = performance.now()
+    const dt = this.lastFrame > 0 ? Math.min(0.05, (now - this.lastFrame) / 1000) : 0
+    this.lastFrame = now
+    this.panCamera(dt)
     if (this.controls.enabled) this.controls.update()
     this.renderAgents(now)
+    this.updateTrains(now, dt)
     const cam = this.activeCamera()
     this.ortho.position.copy(this.camera.position)
     this.ortho.quaternion.copy(this.camera.quaternion)
-    this.ortho.updateProjectionMatrix()
+    this.applyOrtho()
     this.renderer.render(this.scene, cam)
     this.frameCount++
     if (now - this.fpsTime > 500) {
@@ -593,18 +1298,21 @@ export class SceneRenderer {
   }
 
   private renderAgents(now: number): void {
-    const alpha = Math.min(1, (now - this.lastStateTime) / TICK_MS)
+    const alpha = Math.min(1, (now - this.lastStateTime) / this.stateIntervalMs)
     const m = this.tmpM
     const q = this.tmpQ
     const pos = this.tmpP
     const scale = this.tmpS
     const axis = this.zAxis
     const n = this.agentCount
+    let colorDirty = false
     for (let i = 0; i < n; i++) {
-      const o = i * 5
-      const px = this.prev[o]
-      const py = this.prev[o + 1]
-      const pz = this.prev[o + 2]
+      const o = i * 6
+      const p = i * 3
+      const id = this.cur[o + 5]
+      const px = this.prev[p]
+      const py = this.prev[p + 1]
+      const pz = this.prev[p + 2]
       const cx = this.cur[o]
       const cy = this.cur[o + 1]
       const cz = this.cur[o + 2]
@@ -615,31 +1323,100 @@ export class SceneRenderer {
       q.setFromAxisAngle(axis, this.yaws[i])
       m.compose(pos, q, scale)
       this.agents.setMatrixAt(i, m)
+      this.heads.setMatrixAt(i, m)
+      this.hair.setMatrixAt(i, m)
       m.makeTranslation(pos.x, pos.y, pos.z + 0.03)
       this.blobs.setMatrixAt(i, m)
+      // Paint the slot only when the agent occupying it changes, so a person
+      // keeps their colour for their whole life instead of swapping each frame.
+      if (this.colorIds[i] !== id) {
+        this.colorIds[i] = id
+        this.agents.setColorAt(i, this.tmpColor.setHex(AGENT_COLORS[id % AGENT_COLORS.length]))
+        this.heads.setColorAt(i, this.tmpColor.setHex(SKIN_COLORS[id % SKIN_COLORS.length]))
+        this.hair.setColorAt(i, this.tmpColor.setHex(HAIR_COLORS[id % HAIR_COLORS.length]))
+        colorDirty = true
+      }
     }
     this.agents.count = n
+    this.heads.count = n
+    this.hair.count = n
     this.blobs.count = n
     this.agents.instanceMatrix.needsUpdate = true
+    this.heads.instanceMatrix.needsUpdate = true
+    this.hair.instanceMatrix.needsUpdate = true
     this.blobs.instanceMatrix.needsUpdate = true
+    if (colorDirty) {
+      if (this.agents.instanceColor) this.agents.instanceColor.needsUpdate = true
+      if (this.heads.instanceColor) this.heads.instanceColor.needsUpdate = true
+      if (this.hair.instanceColor) this.hair.instanceColor.needsUpdate = true
+    }
   }
 
   setAgentsVisible(on: boolean): void {
     this.agents.visible = on
+    this.heads.visible = on
+    this.hair.visible = on
     this.blobs.visible = on
   }
 
   resize(w: number, h: number): void {
+    this.canvasW = w
+    this.canvasH = h
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
+    if (this.orthoOn) this.applyOrtho()
   }
 
   dispose(): void {
     this.disposition = true
+    this.renderer.domElement.removeEventListener('wheel', this.onWheel)
+    this.renderer.domElement.removeEventListener('pointermove', this.onEdgePointerMove)
+    this.renderer.domElement.removeEventListener('pointerleave', this.onEdgePointerLeave)
+    this.renderer.domElement.removeEventListener('pointerup', this.onEdgePointerUp)
     this.disposeChunks()
+    this.clearShapeGhost()
+    this.ghostMaterial?.dispose()
+    if (this.faceGhost) {
+      this.scene.remove(this.faceGhost)
+      this.faceGhost.geometry.dispose()
+      ;(this.faceGhost.material as THREE.Material).dispose()
+      this.faceGhost.dispose()
+      this.faceGhost = null
+    }
+    disposeModelMaterials(this.modelMats)
+    for (const entry of this.trainSlots.values()) disposeObject(entry.group)
+    this.trainSlots.clear()
     this.renderer.dispose()
     void this.disposition
+  }
+}
+
+/** Contact-blob radius per module; long runs and ramps sit their own way. */
+function blobRadius(type: Module['type']): number {
+  switch (type) {
+    case 'track':
+    case 'platform-edge':
+    case 'escalator':
+    case 'stair':
+      return 0
+    case 'exit':
+    case 'lift':
+      return 1.2
+    default:
+      return 0.8
+  }
+}
+
+/** The cell level(s) a module occupies, for the ghost/level slicing. */
+function moduleLevels(mod: Module): number[] {
+  switch (mod.type) {
+    case 'escalator':
+    case 'stair':
+    case 'lift':
+      return [mod.from.z, mod.to.z]
+    default:
+      return [mod.z]
   }
 }
 
