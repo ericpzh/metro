@@ -20,6 +20,7 @@ import {
   type ModuleContext,
 } from './models.ts'
 import { finishMapOf } from '../sim/finishes.ts'
+import { trackBedKeys } from '../sim/placement.ts'
 import { OPENING_CEILING } from '../sim/openings.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
 import { stairLevels, stairTurnCells } from '../sim/stairs.ts'
@@ -400,8 +401,7 @@ export class SceneRenderer {
     this.solid = buildSolidSet(data.cells)
     this.finishes = finishMapOf(data.cells)
     this.stationData = data
-    this.trackCellSet = new Set<string>()
-    for (const c of data.cells) if (c.fill === 'solid' && c.finish?.top === 'floor.track') this.trackCellSet.add(`${c.x},${c.y},${c.z}`)
+    this.trackCellSet = trackBedKeys(data.cells, data.modules)
     // A stair's turn landing is drawn by the stair model, not the block mesher.
     const solidKeys = new Set<number>()
     for (const c of data.cells) if (c.fill === 'solid') solidKeys.add(packKey(c.x, c.y, c.z))
@@ -555,8 +555,7 @@ export class SceneRenderer {
    */
   private buildModules(data: StationData, _trackCells: Set<number>): void {
     this.clearModules()
-    const trackCells = new Set<string>()
-    for (const c of data.cells) if (c.fill === 'solid' && c.finish?.top === 'floor.track') trackCells.add(`${c.x},${c.y},${c.z}`)
+    const trackCells = trackBedKeys(data.cells, data.modules)
     const ctx: ModuleContext = { mats: this.modelMats, data, trackCells, finish: (id) => this.mats.finish(id) }
     const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
     this.psdGroups = []
@@ -796,8 +795,7 @@ export class SceneRenderer {
    * of the edge cell that faces a track bed.
    */
   private tactileDecals(data: StationData): THREE.Mesh | null {
-    const track = new Set<string>()
-    for (const c of data.cells) if (c.finish?.top === 'floor.track') track.add(`${c.x},${c.y},${c.z}`)
+    const track = trackBedKeys(data.cells, data.modules)
     if (track.size === 0) return null
     const pos: number[] = []
     const nor: number[] = []

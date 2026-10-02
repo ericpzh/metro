@@ -24,7 +24,7 @@ import { EXIT_BACK, EXIT_BACK_Y, EXIT_BAY_HALF, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EX
 import { finishOf } from '../sim/finishes.ts'
 import { STAIR_WIDTH_NORMAL, stairFlights } from '../sim/stairs.ts'
 import { doorCentres, STOCK, type StockClass } from '../sim/stock.ts'
-import type { Cell, Face, FinishId, Module, StationData, Vec3i } from '../sim/types.ts'
+import type { Cell, Face, FinishId, Module, RoomKind, StationData, Vec3i } from '../sim/types.ts'
 
 /* ------------------------------------------------------------------ palette */
 
@@ -353,11 +353,11 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
     case 'track':
       return buildTrack(ctx.mats, mod)
     case 'shop':
-      return buildShop(ctx, mod)
+      return buildRoom(ctx, mod)
     case 'booth':
       return buildBooth(ctx.mats, mod)
     case 'retail':
-      return buildShop(ctx, { ...mod, type: 'shop' } as Extract<Module, { type: 'shop' }>)
+      return buildRoom(ctx, { ...mod, type: 'shop', cfg: { kind: 'store' } } as Extract<Module, { type: 'shop' }>)
     default:
       return null
   }
@@ -1037,21 +1037,26 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
 
 function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>): THREE.Group {
   const g = new THREE.Group()
+  const d = mod.d ?? 1
   const cx = mod.x + mod.w / 2
-  const y = mod.y + 0.5
-  const z = mod.z + 1
+  const cy = mod.y + d / 2
+  const z = mod.z
+  // The bed is a trench: placing the rail dug the cell, so the platform top
+  // (z+1) drops half a metre to this slab. The exposed block sides form the
+  // trench walls; the module only supplies the bed and the rails.
+  slab(g, mats.black, cx, cy, z + 0.25, mod.w, d, 0.5)
   // Two rails on sleepers down the middle of the bed.
-  for (const s of [-1, 1]) slab(g, mats.steel, cx, y + s * 0.72, z + 0.1, mod.w, 0.1, 0.1)
+  for (const s of [-1, 1]) slab(g, mats.steel, cx, cy + s * 0.72, z + 0.6, mod.w, 0.1, 0.1)
   const nSleepers = Math.max(2, Math.round(mod.w / 0.6))
   for (let i = 0; i < nSleepers; i++) {
-    slab(g, mats.black, mod.x + ((i + 0.5) / nSleepers) * mod.w, y, z + 0.03, 0.24, 1.9, 0.08)
+    slab(g, mats.black, mod.x + ((i + 0.5) / nSleepers) * mod.w, cy, z + 0.55, 0.24, Math.max(1.9, d - 0.2), 0.08)
   }
   // Third rail.
-  slab(g, mats.darkSteel, cx, y - 1.05, z + 0.12, mod.w, 0.08, 0.08)
+  slab(g, mats.darkSteel, cx, cy - 1.05, z + 0.62, mod.w, 0.08, 0.08)
   return g
 }
 
-/* -------------------------------------------------------- shop and booth */
+/* --------------------------------------- walled rooms and the booth */
 
 function shopSignTexture(text: string, bg: string): THREE.CanvasTexture {
   return canvasTexture(256, 64, (c) => {
@@ -1064,16 +1069,24 @@ function shopSignTexture(text: string, bg: string): THREE.CanvasTexture {
   })
 }
 
+/** Sign text/colour and the fit-out hint, per walled-room kind. */
+const ROOM_STYLE: Record<RoomKind, { sign: string; bg: string }> = {
+  store: { sign: '商店', bg: '#1f9c63' },
+  toilet: { sign: '厕所', bg: '#2f8f7f' },
+  office: { sign: '办公室', bg: '#b5792a' },
+}
+
 /**
- * Shop room (商店): its solid perimeter walls are drawn here as thin 0.5 m
- * panels — the chunk mesher hides the full wall voxels (see `hiddenCells`), so
- * the inner half of every wall cell is free for shelving. Interior island rows
- * plus a shelf run against each wall fill the zone, with a hanging sign over the
- * doorway. World space, origin at the floor.
+ * Walled facility room (商店 / 厕所 / 办公室): its solid perimeter walls are
+ * drawn here as thin 0.5 m panels — the chunk mesher hides the full wall voxels
+ * (see `hiddenCells`), so the inner half of every wall cell is free for
+ * furniture. The fit-out (`cfg.kind`) fills the zone and picks the sign; the
+ * wall, doorway and opening logic is shared. World space, origin at the floor.
  */
-function buildShop(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): THREE.Group {
+function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): THREE.Group {
   const g = new THREE.Group()
   const mats = ctx.mats
+  const kind = mod.cfg.kind ?? 'store'
   const z0 = mod.z + 1
   const x0 = mod.x
   const x1 = mod.x + mod.w - 1
@@ -1082,6 +1095,9 @@ function buildShop(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
   /** Half a block: the wall leaves room for a shelf against it. */
   const WALL_T = 0.5
   const SHELF_D = 0.5
+  /** Door fit-out for 厕所 / 办公室: leaf height and frame thickness. */
+  const DOOR_H = 2.05
+  const FRAME_T = 0.09
 
   // One shelf unit: body, two goods strips and top goods. `along` runs with the
   // aisle and `deep` across it, so the same unit is an island row or a wall run.
@@ -1092,9 +1108,36 @@ function buildShop(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
     slab(g, mats.blue, cx, cy, z0 + 0.95, along, Math.max(0.12, deep - 0.04), 0.1)
   }
 
-  // Interior island rows: inset one cell from the walls, one aisle between rows.
-  for (let y = y0 + 2; y <= y1 - 2; y += 2) {
-    for (let x = x0 + 1; x <= x1 - 1; x++) shelf(x + 0.5, y + 0.5, 0.9, SHELF_D)
+  if (kind === 'store') {
+    // Interior island rows: inset one cell from the walls, one aisle between rows.
+    for (let y = y0 + 2; y <= y1 - 2; y += 2) {
+      for (let x = x0 + 1; x <= x1 - 1; x++) shelf(x + 0.5, y + 0.5, 0.9, SHELF_D)
+    }
+  } else if (kind === 'toilet') {
+    // Cubicle row along the back (north) wall — a partition and a WC bowl per
+    // cell — and a sink run along the front (south) wall.
+    for (let x = x0 + 1; x < x1; x++) {
+      slab(g, mats.steel, x + 1 - 0.03, y1 - 0.5, z0 + 0.9, 0.06, 1.0, 1.8)
+    }
+    for (let x = x0 + 1; x <= x1 - 1; x++) {
+      slab(g, mats.white, x + 0.5, y1 - 0.62, z0 + 0.2, 0.42, 0.62, 0.4)
+      slab(g, mats.white, x + 0.5, y1 - 0.42, z0 + 0.42, 0.42, 0.28, 0.26)
+    }
+    for (let x = x0 + 1; x <= x1 - 1; x++) {
+      slab(g, mats.steel, x + 0.5, y0 + 0.42, z0 + 0.45, 0.6, 0.5, 0.14)
+      slab(g, mats.steel, x + 0.5, y0 + 0.42, z0 + 0.62, 0.06, 0.06, 0.24)
+    }
+  } else {
+    // Office desks in a grid, each with a leg panel, a monitor and a chair.
+    for (let y = y0 + 1; y <= y1 - 1; y += 2) {
+      for (let x = x0 + 1; x <= x1 - 1; x += 2) {
+        slab(g, mats.steel, x + 0.5, y + 0.28, z0 + 0.2, 1.0, 0.06, 0.42)
+        slab(g, mats.darkSteel, x + 0.5, y + 0.5, z0 + 0.42, 1.1, 0.6, 0.06)
+        slab(g, mats.screen, x + 0.5, y + 0.5, z0 + 0.62, 0.44, 0.08, 0.28)
+        slab(g, mats.blue, x + 0.5, y + 0.94, z0 + 0.24, 0.42, 0.42, 0.08)
+        slab(g, mats.blue, x + 0.5, y + 1.08, z0 + 0.5, 0.42, 0.08, 0.46)
+      }
+    }
   }
 
   // Thin walls, wearing the finish painted on each cell's inward face, and a
@@ -1164,29 +1207,97 @@ function buildShop(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
       slab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h)
     }
   }
-  for (const { x, y } of columns.values()) {
-    const west = x === x0
-    const east = x === x1
-    const south = y === y0
-    const north = y === y1
-    // A corner already has two wall panels; shelve only the straight runs.
-    if ((west || east) && (south || north)) continue
-    if (south) shelf(x + 0.5, y0 + WALL_T + SHELF_D / 2, 0.9, SHELF_D)
-    else if (north) shelf(x + 0.5, y1 + 1 - WALL_T - SHELF_D / 2, 0.9, SHELF_D)
-    else if (west) shelf(x0 + WALL_T + SHELF_D / 2, y + 0.5, SHELF_D, 0.9)
-    else if (east) shelf(x1 + 1 - WALL_T - SHELF_D / 2, y + 0.5, SHELF_D, 0.9)
+  if (kind === 'store') {
+    // A shelf tucked against the inner face of every straight run. Corners
+    // already have two panels, so only the straight runs get one.
+    for (const { x, y } of columns.values()) {
+      const west = x === x0
+      const east = x === x1
+      const south = y === y0
+      const north = y === y1
+      if ((west || east) && (south || north)) continue
+      if (south) shelf(x + 0.5, y0 + WALL_T + SHELF_D / 2, 0.9, SHELF_D)
+      else if (north) shelf(x + 0.5, y1 + 1 - WALL_T - SHELF_D / 2, 0.9, SHELF_D)
+      else if (west) shelf(x0 + WALL_T + SHELF_D / 2, y + 0.5, SHELF_D, 0.9)
+      else if (east) shelf(x1 + 1 - WALL_T - SHELF_D / 2, y + 0.5, SHELF_D, 0.9)
+    }
+  }
+
+  const door = mod.cfg.door ?? []
+  const wallSide = (x: number, y: number): 's' | 'n' | 'w' | 'e' | null =>
+    x === x0 ? 'w' : x === x1 ? 'e' : y === y0 ? 's' : y === y1 ? 'n' : null
+
+  // 厕所 / 办公室 close their openings with a real door — jamb, leaf and
+  // handle. A 商店 keeps its open shop front, so this is skipped for `store`.
+  if (kind !== 'store' && door.length > 0) {
+    const LEAF_T = 0.06
+    const addDoor = (s: 's' | 'n' | 'w' | 'e', dLo: number, dHi: number): void => {
+      const alongX = s === 's' || s === 'n'
+      const plane = s === 's' ? y0 + WALL_T / 2 : s === 'n' ? y1 + 1 - WALL_T / 2 : s === 'w' ? x0 + WALL_T / 2 : x1 + 1 - WALL_T / 2
+      const start = dLo
+      const end = dHi + 1
+      const width = end - start
+      const axis = (c: number): [number, number] => (alongX ? [c, plane] : [plane, c])
+      // Frame: a jamb at each end and a lintel across the top, in the wall
+      // plane, so the cut opening keeps a proper surround.
+      const jamb = (a: number): void => {
+        const [jx, jy] = axis(a)
+        slab(g, mats.darkSteel, jx, jy, z0 + (DOOR_H + FRAME_T) / 2, alongX ? FRAME_T : WALL_T + 0.02, alongX ? WALL_T + 0.02 : FRAME_T, DOOR_H + FRAME_T)
+      }
+      jamb(start)
+      jamb(end)
+      const [lx, ly] = axis((start + end) / 2)
+      slab(g, mats.darkSteel, lx, ly, z0 + DOOR_H + FRAME_T / 2, alongX ? width + FRAME_T : WALL_T + 0.02, alongX ? WALL_T + 0.02 : FRAME_T, FRAME_T)
+
+      // A closed leaf across the opening (a pair, meeting in the middle, once
+      // the opening is wide enough that one leaf would read as a gate), with a
+      // vision panel and a handle so it reads as a door, not a wall.
+      const double = width > 1.9
+      const leafW = double ? width / 2 : width - 0.05
+      const centres = double ? [start + leafW / 2, end - leafW / 2] : [(start + end) / 2]
+      for (const c of centres) {
+        const [px, py] = axis(c)
+        slab(g, mats.white, px, py, z0 + DOOR_H / 2, alongX ? leafW : LEAF_T, alongX ? LEAF_T : leafW, DOOR_H)
+        slab(g, mats.glass, px, py, z0 + 1.45, alongX ? leafW * 0.5 : LEAF_T + 0.012, alongX ? LEAF_T + 0.012 : leafW * 0.5, 0.45)
+        // Handle on the free edge nearest the middle of the run.
+        const hc = c <= (start + end) / 2 ? c + leafW / 2 - 0.1 : c - leafW / 2 + 0.1
+        const [hx, hy] = axis(hc)
+        slab(g, mats.steel, hx, hy, z0 + 1.0, alongX ? 0.06 : LEAF_T + 0.06, alongX ? LEAF_T + 0.06 : 0.06, 0.14)
+      }
+    }
+    // Group the opening cells by wall and door each contiguous run separately.
+    const bySide = new Map<'s' | 'n' | 'w' | 'e', Set<number>>()
+    for (const [x, y] of door) {
+      const s = wallSide(x, y)
+      if (!s) continue
+      const set = bySide.get(s) ?? new Set<number>()
+      set.add(s === 's' || s === 'n' ? x : y)
+      bySide.set(s, set)
+    }
+    for (const [s, set] of bySide) {
+      const coords = [...set].sort((a, b) => a - b)
+      let runLo = coords[0]
+      let prev = coords[0]
+      for (let i = 1; i < coords.length; i++) {
+        if (coords[i] === prev + 1) {
+          prev = coords[i]
+          continue
+        }
+        addDoor(s, runLo, prev)
+        runLo = coords[i]
+        prev = coords[i]
+      }
+      addDoor(s, runLo, prev)
+    }
   }
 
   // Hanging sign over the doorway, on the same wall as the opening and sized to
-  // span it. A fixed 2 m sign drifts off the wall once the store front is wider;
+  // span it. A fixed 2 m sign drifts off the wall once the room front is wider;
   // matching the opening's run keeps both ends mounted on the wall each side.
-  const door = mod.cfg.door ?? []
-  const sideOf = (x: number, y: number): 's' | 'n' | 'w' | 'e' | null =>
-    x === x0 ? 'w' : x === x1 ? 'e' : y === y0 ? 's' : y === y1 ? 'n' : null
   let side: 's' | 'n' | 'w' | 'e' = 's'
   let first = 0
   for (const [x, y] of door) {
-    const s = sideOf(x, y)
+    const s = wallSide(x, y)
     if (!s) continue
     side = s
     first = s === 's' || s === 'n' ? x : y
@@ -1194,7 +1305,7 @@ function buildShop(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
   }
   const alongCoord = (x: number, y: number): number => (side === 's' || side === 'n' ? x : y)
   const cells = new Set<number>()
-  for (const [x, y] of door) if (sideOf(x, y) === side) cells.add(alongCoord(x, y))
+  for (const [x, y] of door) if (wallSide(x, y) === side) cells.add(alongCoord(x, y))
   // The contiguous opening run containing the first door cell.
   let lo = first
   let hi = first
@@ -1217,8 +1328,11 @@ function buildShop(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
   }
   const alongY = side === 's' || side === 'n'
   const plateW = Math.max(0.6, span - 0.2)
-  slab(g, mats.darkSteel, sx, sy, z0 + 2.2, alongY ? span : 0.08, alongY ? 0.08 : span, 0.1)
-  const sign = plate(g, new THREE.MeshBasicMaterial({ map: shopSignTexture('商店', '#1f9c63'), side: THREE.DoubleSide }), plateW, 0.5, sx, sy, z0 + 1.9, yaw)
+  // A shop front hangs its sign at eye level over the open bay; a door has to
+  // clear its own lintel, so the sign rides above the frame.
+  const signZ = z0 + (kind === 'store' ? 1.9 : DOOR_H + 0.42)
+  slab(g, mats.darkSteel, sx, sy, signZ + 0.3, alongY ? span : 0.08, alongY ? 0.08 : span, 0.1)
+  const sign = plate(g, new THREE.MeshBasicMaterial({ map: shopSignTexture(ROOM_STYLE[kind].sign, ROOM_STYLE[kind].bg), side: THREE.DoubleSide }), plateW, 0.5, sx, sy, signZ, yaw)
   sign.renderOrder = 1
   return g
 }

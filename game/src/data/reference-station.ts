@@ -112,16 +112,19 @@ export function referenceStation(variant: StationVariant = {}): StationData {
     y: -6,
     z: Z_P,
     w: 121,
-    cfg: { name: '1站台', line: '2', dir: 'eastbound', side: 'left' },
+    cfg: { name: '1站台', line: '2', dir: 'up', side: 'left' },
   })
+  // The bed is owned by a track module now; placing one digs its cells, so the
+  // platform edge reads as a half-metre drop rather than a flush floor.
   modules.push({
     id: 'track-1',
     type: 'track',
     x: -70,
-    y: -8,
+    y: -9,
     z: Z_P,
     w: 140,
-    cfg: { line: '2', power: 'third-rail' },
+    d: 3,
+    cfg: { line: '2', power: 'third-rail', dir: 'up' },
   })
 
   // --- exits (surface, §5.6) ---------------------------------------------
@@ -335,19 +338,30 @@ export function referenceStation(variant: StationVariant = {}): StationData {
   for (const c of cells) {
     if (c.z === Z_C && (c.y < 0 || Math.abs(c.x) > 7)) c.finish = { ...c.finish, top: 'floor.soil' }
   }
+  // Dig the track bed the module covers (the same one-course dig `placeRail`
+  // performs), so the platform edge drops to the recessed slab instead of a
+  // flush floor.
+  const bed = modules.find((m) => m.type === 'track')
+  if (bed && bed.type === 'track') {
+    const bd = bed.d ?? 1
+    const kill = new Set<string>()
+    for (let x = bed.x; x < bed.x + bed.w; x++) for (let y = bed.y; y < bed.y + bd; y++) kill.add(`${x},${y},${bed.z}`)
+    for (let i = cells.length - 1; i >= 0; i--) if (kill.has(`${cells[i].x},${cells[i].y},${cells[i].z}`)) cells.splice(i, 1)
+  }
 
   const lines: LineDef[] = [
     {
       id: '2',
       name: '2号线',
-      colour: '#2f7ef2',
+      colour: '#00679e',
       stock: 'B',
       cars: 6,
       power: 'third-rail',
       headwayProfile: { peak: 150, offpeak: 240, late: 480 },
       alightPerTrain: 200,
       terminus: 'through',
-      direction: 'eastbound',
+      direction: 'up',
+      travelSign: 1,
       stations: ['edge-1'],
     },
   ]

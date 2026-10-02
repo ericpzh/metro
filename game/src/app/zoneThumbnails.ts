@@ -57,8 +57,12 @@ function zoneIcon(colour: number): THREE.Group {
   return g
 }
 
-/** A facility room (§5.7): coloured floor ringed by low walls, doorway south. */
-function facilityIcon(colour: number): THREE.Group {
+/**
+ * A facility room (§5.7): coloured floor ringed by low walls, doorway south,
+ * with a hint of the fit-out (shelf / cubicle / desk) so 商店, 厕所, 办公室 and
+ * 售票亭 read apart at a glance.
+ */
+function facilityIcon(kind: string, colour: number): THREE.Group {
   const g = new THREE.Group()
   g.add(floorSlab())
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(SLAB_W - 0.16, SLAB_D - 0.16), tintMaterial(colour))
@@ -83,6 +87,25 @@ function facilityIcon(colour: number): THREE.Group {
   const stub = (SLAB_W - door) / 2
   add(stub, wallT, -(door / 2 + stub / 2), -ey)
   add(stub, wallT, door / 2 + stub / 2, -ey)
+
+  // Fit-out hint. A booth keeps its open desk ring; rooms get simple furniture.
+  const body = new THREE.MeshStandardMaterial({ color: 0x3c434c, roughness: 0.7, metalness: 0.05 })
+  const panel = new THREE.MeshStandardMaterial({ color: 0xb7bdc4, roughness: 0.6, metalness: 0.05 })
+  const box = (mat: THREE.Material, sx: number, sy: number, sz: number, x: number, y: number): void => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat)
+    m.position.set(x, y, SLAB_H + sz / 2)
+    g.add(m)
+  }
+  if (kind === 'toilet') {
+    for (const x of [-0.55, 0.0, 0.55]) box(panel, 0.04, 0.5, 0.5, x, 0.45)
+  } else if (kind === 'office') {
+    box(body, 1.0, 0.5, 0.1, 0, 0.1)
+    box(panel, 1.0, 0.06, 0.5, 0, 0.1)
+    box(body, 0.55, 0.42, 0.1, 0, 0.55)
+  } else if (kind === 'shop') {
+    box(body, 0.9, 0.16, 0.45, 0, 0.35)
+    box(panel, 0.9, 0.16, 0.45, 0, 0.0)
+  }
   return g
 }
 
@@ -125,7 +148,7 @@ export function renderZoneThumbnails(size = 132): Record<string, string> {
 
   const icons: Array<[string, THREE.Group]> = [
     ...ZONE_LIST.map((z): [string, THREE.Group] => [z.id, zoneIcon(z.colour)]),
-    ...FACILITY_OPTIONS.map((f): [string, THREE.Group] => [f.id, facilityIcon(f.colour)]),
+    ...FACILITY_OPTIONS.map((f): [string, THREE.Group] => [f.id, facilityIcon(f.id, f.colour)]),
   ]
 
   try {

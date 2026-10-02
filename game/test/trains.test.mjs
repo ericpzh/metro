@@ -20,12 +20,13 @@ test('a dispatched train gets a pose on the track beside its platform edge', () 
   const pose = w.trainRenderState()
   assert.equal(pose.length, STRIDE, 'one train, one pose')
   const [x, , z, cars, stock, doors, colour, dir] = pose
-  // Line 2 runs B stock, six cars, on the platform edge at y = -6, z = -8.
+  // Line 2 runs B stock, six cars, on the platform edge at y = -6, z = -8. The
+  // rail digs its bed, so the consist rides half a metre below the platform.
   assert.equal(cars, 6)
   assert.equal(stock, 1)
-  assert.equal(z, -7, 'the train floor sits on the track surface')
+  assert.equal(z, -7.5, 'the train rides the recessed track slab')
   assert.equal(dir, 1)
-  assert.equal(colour, parseInt('2f7ef2', 16))
+  assert.equal(colour, parseInt('00679e', 16))
   assert.ok(Number.isFinite(x) && x < 0, `trains approach from off the platform, got x=${x}`)
   assert.equal(doors, 0, 'doors are shut while approaching')
 })

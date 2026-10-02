@@ -110,6 +110,21 @@ build/ →  sim/            (and neither render/ nor app/)
   (adjacent cells are fine), except that a stair/escalator may pass through an
   exit head-house. `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp
   climbs through while keeping its landings as graph nodes.
+* **Rails and lines** (`build/rail.ts`, `sim/placement.ts`, `sim/world.ts`). A
+  rail is a `track` module bound to a line, an `up`/`down` direction and a bed
+  depth `d`. Placing one **digs** its bed course, so the mesher exposes the
+  platform edge as a half-metre drop and the module supplies the recessed slab
+  and rails; the consist rides at `track.z + 0.5`. The train anchor needs only a
+  track — a platform edge is for boarding — so a fresh rail runs a train before
+  any screen doors exist. `derivePlatformEdges` generates one `platform-edge` per
+  contiguous run of walkable exposed floor beside the bed (an island platform
+  yields two — the Spanish solution), and `regenerateRailEdges` re-derives them
+  after the floor changes. A track bed is **either** the `floor.track` finish
+  **or** a `track` module's footprint (`trackBedKeys` / `isTrackCell`), so the
+  hand-built demo and placed rails agree. `station.lines` now holds many lines
+  (added in the inspector); each carries stock/cars/headway, an `up`/`down`
+  `direction`, and a `travelSign` (±1) — and its colour comes from
+  `data/line-colours.ts` (real 广州地铁 sign colours by line number).
 
 ### Rendering and the app
 
@@ -118,6 +133,12 @@ build/ →  sim/            (and neither render/ nor app/)
   stair shapes, exits, platform screen doors, rolling stock. **No image or GLB
   assets.** `render/materials.ts` is the shared procedural material kit;
   `render/chunkMesher.ts` emits one mesh part per finish.
+* A **walled facility room** is the one `shop` module type; its fit-out lives in
+  `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter and
+  the `retail` shell). `build/model.ts`'s rectangle drag creates 商店 / 厕所 /
+  办公室 / 售票亭 through it, and `render/models.ts` draws the matching interior
+  and sign — 厕所 / 办公室 hang a real door on their openings, 商店 keeps an open
+  front. Two rooms merge only when their type *and* fit-out match.
 * `app/Viewport.tsx` owns the `SceneRenderer` lifecycle and turns pointer input
   into build commands; it is the only app file that touches three directly.
   `app/LeftRail.tsx` is the blueprint build rail; thumbnails are rendered from
@@ -147,6 +168,14 @@ build/ →  sim/            (and neither render/ nor app/)
   zone inference, module zone-legality feedback for ticket machines, and the gate
   direction/anchor UI. **B3–B6** (capacity kit, draw kit, authored time + charts
   + snapshot, ship) are planned in the spec.
+* The **track kit** has landed: rails are `track` modules with dug beds and
+  derived screen doors (`build/rail.ts`, `game/test/rail.test.mjs`). The left rail
+  has a 轨道 folder (tool, 上行/下行, 重置屏蔽门) and the inspector a 线路 section
+  for multi-line management (name/colour/stock/cars/direction, + 新建线路); a new
+  line wears its real 广州地铁 colour from `data/line-colours.ts`. The README still
+  files the draw kit under **B4** and its milestone table is not yet updated.
+  Walled facility rooms (商店 / 厕所 / 办公室) share the `shop` module and pick
+  their fit-out with `cfg.kind`; 售票亭 is the open `booth`.
 * `PLAN.md` was deleted, but `README.md`, `GAME-SPEC.md` and many source
   comments still reference it. Treat those references as historical.
 * The crowd micro-benchmark (`game/bench/crowd.mjs`,
@@ -179,7 +208,8 @@ npm test          # node --test "test/**/*.test.mjs"
 npm run typecheck
 ```
 
-Tests import `src/sim/*.ts` directly. When you add behaviour to the sim, add a
-focused `.test.mjs` beside the others and update `game/README.md`'s test list
-and milestone notes if the change is player-visible. Keep `sim/` pure — a test
-will fail if it imports three, React, or reaches outside `sim/`.
+Tests import `src/sim/*.ts` directly (and `src/build/rail.ts` for the rail
+suite). When you add behaviour to the sim, add a focused `.test.mjs` beside the
+others and update `game/README.md`'s test list and milestone notes if the change
+is player-visible. Keep `sim/` pure — a test will fail if it imports three,
+React, or reaches outside `sim/`.

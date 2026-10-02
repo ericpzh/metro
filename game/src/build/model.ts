@@ -7,7 +7,7 @@ import { carveRampOpenings } from '../sim/openings.ts'
 import { exitFloorAt } from '../sim/exits.ts'
 import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
 import { STAIR_WIDTH_NORMAL, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
-import { DEFAULT_ZONE, type Cell, type Face, type FinishId, type LevelDef, type Module, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
+import { DEFAULT_ZONE, type Cell, type Face, type FinishId, type LevelDef, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
 
 export function cellKey(x: number, y: number, z: number): string {
@@ -411,15 +411,32 @@ export function paintZoneCells(
  * a tunnel and the coping on top of a wall are structure — tinting those is what
  * used to put the zone map on the ceiling instead of the floor.
  */
-export function zoneMapFloors(cells: readonly Cell[]): Cell[] {
+export function zoneMapFloors(cells: readonly Cell[], modules: readonly Module[] = []): Cell[] {
   const solid = new Set<string>()
   for (const c of cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
-  return cells.filter(
+  const out = cells.filter(
     (c) =>
       c.fill === 'solid' &&
       !solid.has(cellKey(c.x, c.y, c.z + 1)) &&
       (floorSpeed(c) > 0 || (finishOf(c, 'top') === 'floor.track' && !solid.has(cellKey(c.x, c.y, c.z - 1)))),
   )
+  // A placed rail digs its bed, so those cells are gone from `cells`. Add the
+  // module footprint back as a synthetic restricted cell, so the zone map still
+  // tints and names the track.
+  const have = new Set(out.map((c) => cellKey(c.x, c.y, c.z)))
+  for (const m of modules) {
+    if (m.type !== 'track') continue
+    const d = m.d ?? 1
+    for (let x = m.x; x < m.x + m.w; x++) {
+      for (let y = m.y; y < m.y + d; y++) {
+        const k = cellKey(x, y, m.z)
+        if (have.has(k)) continue
+        have.add(k)
+        out.push({ x, y, z: m.z, fill: 'solid', finish: { top: 'floor.track' }, zone: 'restricted' })
+      }
+    }
+  }
+  return out
 }
 
 /** A zone-name label for the zone map, in world coordinates. */
@@ -493,10 +510,46 @@ export function zoneRegionLabels(floors: readonly Cell[]): ZoneLabel[] {
   return labels
 }
 
-/* --------------------------------- shop & booth zones (facility rooms) */
+/* ---------------- shop, toilet, office & booth (facility rooms) */
 
-/** Facility room kind built by the zone tool's rectangle drag. */
-export type FacilityKind = 'shop' | 'booth'
+/**
+ * Facility room kind built by the zone tool's rectangle drag. `shop`, `toilet`
+ * and `office` are walled rooms: they share the `shop` module type and pick
+ * their fit-out with `cfg.kind`. `booth` is an open desk counter with no walls.
+ */
+export type FacilityKind = 'shop' | 'toilet' | 'office' | 'booth'
+
+/** The walled-room brushes, mapped to the module `cfg.kind` each one builds. */
+const WALLED_ROOM: Record<'shop' | 'toilet' | 'office', RoomKind> = {
+  shop: 'store',
+  toilet: 'toilet',
+  office: 'office',
+}
+
+/** True for a brush that builds a walled room — every facility kind but booth. */
+export function isWalledRoomKind(kind: FacilityKind): kind is 'shop' | 'toilet' | 'office' {
+  return kind !== 'booth'
+}
+
+/** The fit-out of a walled room, defaulting legacy shops to a store. */
+function roomKindOf(m: Module): string | undefined {
+  return m.type === 'shop' ? (m.cfg.kind ?? 'store') : undefined
+}
+
+/**
+ * Identity a facility drag compares against. Two walled rooms merge only when
+ * their `cfg.kind` matches, so a toilet drawn over a shop is a clash, not a
+ * silent fit-out swap; anything of a different type (a booth, a retail shell)
+ * is likewise a clash.
+ */
+function facilitySignature(type: string, roomKind?: string): string {
+  return type === 'shop' ? `shop:${roomKind ?? 'store'}` : type
+}
+
+/** The signature a brush builds — the twin of `facilitySignature`. */
+function brushSignature(kind: FacilityKind): string {
+  return isWalledRoomKind(kind) ? `shop:${WALLED_ROOM[kind]}` : 'booth'
+}
 
 /** Minimum room size: walls + at least 1 m of walkable interior. */
 export const FACILITY_MIN = 3
@@ -597,8 +650,9 @@ export interface FacilityPlan {
 
 /**
  * What a facility rectangle drag would do. Overlapping a room of another type is
- * refused (`blockedBy`); overlapping rooms of the same type extends them into a
- * single room covering the union, instead of stacking a second module on top.
+ * refused (`blockedBy`); overlapping rooms of the same kind (same module type
+ * and, for walled rooms, the same fit-out) extend into a single room covering
+ * the union, instead of stacking a second module on top.
  *
  * The union is grown repeatedly: extending two rooms can make the bounding box
  * overlap a room (or the void corner) the drag never touched, and that clash has
@@ -607,10 +661,11 @@ export interface FacilityPlan {
 export function facilityPlan(state: StationState, kind: FacilityKind, r: FacilityRect): FacilityPlan {
   const merge: Module[] = []
   const seen = new Set<string>()
+  const want = brushSignature(kind)
   let rect = r
   for (;;) {
     const overlapping = facilitiesOverlapping(state, rect)
-    const blockedBy = overlapping.find((m) => m.type !== kind) ?? null
+    const blockedBy = overlapping.find((m) => facilitySignature(m.type, roomKindOf(m)) !== want) ?? null
     if (blockedBy) return { rect, merge, blockedBy }
     let grew = false
     for (const m of overlapping) {
@@ -634,21 +689,22 @@ export function facilityPlan(state: StationState, kind: FacilityKind, r: Facilit
 }
 
 /**
- * Place a shop / booth room, or extend a room of the same type when the drag
- * overlaps one (a different type is never overlapped — `facilityPlan` reports
- * the clash so the UI can explain).
+ * Place a walled room (商店 / 厕所 / 办公室) or a booth, or extend a room of
+ * the same kind when the drag overlaps one (a different kind is never overlapped
+ * — `facilityPlan` reports the clash so the UI can explain).
  *
- * A **shop** is a small building: full-height solid walls around its floor.
- * There is deliberately **no doorway** — the player right-clicks the wall to
- * cut an opening afterwards, so the room is exactly as sealed as they made it.
- * Walls are skipped where an existing wall column already encloses that side.
+ * A **walled room** is a small building: full-height solid walls around its
+ * floor. There is deliberately **no doorway** — the player right-clicks the wall
+ * to cut an opening afterwards, so the room is exactly as sealed as they made
+ * it. Walls are skipped where an existing wall column already encloses that
+ * side. The brush (`kind`) picks the fit-out the renderer draws via `cfg.kind`.
  *
  * A **booth** is not a walled room at all: just a desk counter around the floor
  * (a thin model, no voxel base) enclosing a staff area the crowd is served from
  * outside. It has no opening and never gets one.
  *
  * Requires open floor under the whole rect; returns the unchanged state when
- * the rect is too small, has no floor, or overlaps another room type.
+ * the rect is too small, has no floor, or overlaps another room kind.
  */
 export function placeFacility(
   state: StationState,
@@ -683,7 +739,7 @@ export function placeFacility(
   }
   const add: Cell[] = []
   const keptDoors: Array<[number, number]> = []
-  if (kind === 'shop') {
+  if (isWalledRoomKind(kind)) {
     const have = new Set(solid)
     for (let x = rect.x0; x <= rect.x1; x++) {
       for (let y = rect.y0; y <= rect.y1; y++) {
@@ -707,16 +763,16 @@ export function placeFacility(
   // Keep the original room's id when extending, so selection and saves follow it.
   const modId = id ?? plan.merge[0]?.id ?? nextModuleId(state.modules, kind)
   const module = (
-    kind === 'shop'
-      ? { id: modId, type: 'shop', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind: 'store', door: keptDoors } }
+    isWalledRoomKind(kind)
+      ? { id: modId, type: 'shop', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind: WALLED_ROOM[kind], door: keptDoors } }
       : { id: modId, type: 'booth', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind: 'ticket' } }
   ) as StationState['modules'][number]
   return { ...base, cells: [...base.cells, ...add], modules: [...base.modules, module] }
 }
 
 /**
- * Every wall cell a shop currently has — its whole wall ring. Empty for a
- * booth (its desk is a model, not voxels) or a shop whose walls have all been
+ * Every wall cell a walled room currently has — its whole wall ring. Empty for
+ * a booth (its desk is a model, not voxels) or a room whose walls have all been
  * opened.
  */
 export function facilityWallCells(
@@ -763,7 +819,7 @@ export function facilityOpeningCells(
 
 /**
  * Cut the openings a right-click drag planned, and remember them on the room.
- * A shop is a building: once its last wall is opened there is no store left, so
+ * A walled room is a building: once its last wall is opened the room is gone, so
  * it is removed too (leaving only the floor it stood on).
  */
 export function carveFacilityOpenings(
@@ -789,7 +845,7 @@ export function carveFacilityOpenings(
     return { ...m, cfg: { ...m.cfg, door } }
   })
   const result = { ...state, cells: nextCells, modules }
-  // A store with no wall left is not a store: drop it.
+  // A room with no wall left is not a room: drop it.
   const updated = modules.find((m) => m.id === id)
   if (updated && updated.type === 'shop' && facilityWallCells(nextCells, updated).length === 0) {
     return { ...result, modules: result.modules.filter((m) => m.id !== id) }
@@ -799,7 +855,7 @@ export function carveFacilityOpenings(
 
 /**
  * Remove a set of facility rooms and the auto walls only they need. A wall cell
- * a surviving shop still needs is kept, and floors are never touched.
+ * a surviving walled room still needs is kept, and floors are never touched.
  */
 function removeFacilitySet(state: StationState, ids: ReadonlySet<string>): StationState {
   const kill = new Set<string>()
@@ -807,7 +863,7 @@ function removeFacilitySet(state: StationState, ids: ReadonlySet<string>): Stati
     if (!ids.has(m.id) || m.type !== 'shop') continue
     for (const [x, y, z] of facilityWallCells(state.cells, m)) kill.add(cellKey(x, y, z))
   }
-  // Never remove a wall cell a surviving shop still needs.
+  // Never remove a wall cell a surviving walled room still needs.
   const keep = new Set<string>()
   for (const m of state.modules) {
     if (ids.has(m.id) || m.type !== 'shop') continue
@@ -821,10 +877,10 @@ function removeFacilitySet(state: StationState, ids: ReadonlySet<string>): Stati
 }
 
 /**
- * Bulldoze a shop / booth. A shop's auto walls — the solid cells stacked above
- * its own perimeter — are removed too, but never a wall another room still
- * needs, and never the floor. A booth has no solid cells, so only the module
- * goes.
+ * Bulldoze a walled room or booth. A walled room's auto walls — the solid cells
+ * stacked above its own perimeter — are removed too, but never a wall another
+ * room still needs, and never the floor. A booth has no solid cells, so only the
+ * module goes.
  */
 export function removeFacility(state: StationState, id: string): StationState {
   const mod = state.modules.find((m) => m.id === id)

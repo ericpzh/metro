@@ -499,44 +499,38 @@ export class World {
   private computeLineAnchors(): void {
     this.lineAnchors.clear()
     for (const line of this.data.lines) {
+      // A line needs a track to run on; the platform edge is only needed for
+      // boarding. Decoupling them means a freshly laid rail gets a train right
+      // away, even before a platform and its screen doors exist.
+      const track = this.data.modules.find((m) => m.type === 'track' && m.cfg.line === line.id)
+      if (!track || track.type !== 'track') continue
       const edge = this.data.modules.find((m) => m.type === 'platform-edge' && m.cfg.line === line.id)
-      if (!edge || edge.type !== 'platform-edge') continue
-      const x = edge.x + edge.w / 2
-      // The track bed runs beside the platform edge. Take the midpoint of the
-      // track band within a few rows, so left/right platforms both work, then
-      // clamp that midpoint so the car body clears the platform edge — and on a
-      // bed too narrow for the stock still misses the screen doors rather than
-      // drawing through them.
-      let minY = Infinity
-      let maxY = -Infinity
-      for (const c of this.data.cells) {
-        if (c.fill !== 'solid' || c.z !== edge.z) continue
-        if (Math.abs(c.y - edge.y) > 3) continue
-        if (c.x < edge.x || c.x >= edge.x + edge.w) continue
-        if (c.finish?.top !== 'floor.track') continue
-        if (c.y < minY) minY = c.y
-        if (c.y > maxY) maxY = c.y
-      }
+      const x = edge && edge.type === 'platform-edge' ? edge.x + edge.w / 2 : track.x + track.w / 2
+      const minY = track.y
+      const maxY = track.y + (track.d ?? 1) - 1
       const width = STOCK[line.stock].width
       const gap = 0.1
-      let y = Number.isFinite(minY) ? (minY + maxY) / 2 + 0.5 : edge.y - 0.5
-      if (Number.isFinite(minY)) {
+      let y = (minY + maxY) / 2 + 0.5
+      // An edge tells us which side the platform is on, so clamp the consist
+      // clear of it. Without an edge the train simply runs down the bed centre.
+      if (edge && edge.type === 'platform-edge') {
         const centre = y
         if ((minY + maxY) / 2 < edge.y) {
-          // Track to the south (−y) of the edge.
           const minCentre = minY + width / 2
           const maxCentre = edge.y - gap - width / 2
           y = minCentre <= maxCentre ? clamp(centre, minCentre, maxCentre) : maxCentre
         } else {
-          // Track to the north (+y) of the edge.
           const minCentre = edge.y + 1 + gap + width / 2
           const maxCentre = maxY + 1 - width / 2
           y = minCentre <= maxCentre ? clamp(centre, minCentre, maxCentre) : minCentre
         }
       }
-      const dirSign = /west|south|down|下行|西|南/i.test(line.direction) ? -1 : 1
+      // A train rides the rail surface: the recessed bed slab sits half a metre
+      // below the platform, so the consist drops with it.
+      const z = track.z + 0.5
+      const dirSign = (line.travelSign ?? 1) >= 0 ? 1 : -1
       const colour = parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0
-      this.lineAnchors.set(line.id, { x, y, z: edge.z + 1, dirSign, cars: line.cars, stock: line.stock, colour })
+      this.lineAnchors.set(line.id, { x, y, z, dirSign, cars: line.cars, stock: line.stock, colour })
     }
   }
 

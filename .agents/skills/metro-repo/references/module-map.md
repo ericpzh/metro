@@ -10,14 +10,14 @@ React.
 | File | Owns |
 |---|---|
 | `constants.ts` | Every tuning number, including the time base (`SIM_SECONDS_PER_TICK`, `BASE_TICK_MS`), speeds, LOS bands, gate/escalator/stair/lift/TVM rates, train stop choreography, agent cap, per-tick re-path budget. |
-| `types.ts` | The data model: `Cell`, `Face`, `Zone`, `GateMode`, `Module` union, `StairStyle`, `StairFlight`, `StationData`, `SaveDoc`, `AgentState`, and `packKey`. |
+| `types.ts` | The data model: `Cell`, `Face`, `Zone`, `GateMode`, `Module` union, `RoomKind` (a walled room's `shop.cfg.kind`), `StairStyle`, `StairFlight`, `LineDef` + `LineDirection` (`up`/`down` and a `travelSign`), `StationData`, `SaveDoc`, `AgentState`, and `packKey`. |
 | `rng.ts` | The single seeded RNG. All sim randomness goes through it, in fixed order. |
 | `stock.ts` | Classifies rolling stock A/B/C and derives doors, capacity and line throughput. |
 | `finishes.ts` | The finish table; family decides behaviour, finish decides look. `finishOf`, `floorSpeed`, `DEFAULT_FINISH`, `FINISH_LIST`. |
 | `zones.ts` | Fare zones. `ZONE_LIST`, `ZONE_INDEX`, `crossingDir`, labels. A zone boundary is a movement barrier. |
 | `gates.ts` | Gate policy predicates: `gateAllows`, `gateLaneAllows`, `nextGateIndex` (the two-way single-lane rule). |
 | `station.ts` | `buildGraph` and `StationGraph`, servers (`ServerDef`), platforms, `PathFinder` (A* + path cache + per-tick budget), `needsClass`. |
-| `placement.ts` | `ModuleBox`, `moduleEnvelope`, `boxesOverlap`, `placementBlocked`, `moduleAt`, `placementOnTrack`, `isTrackBed`. |
+| `placement.ts` | `ModuleBox`, `moduleEnvelope`, `boxesOverlap`, `placementBlocked`, `moduleAt`, `placementOnTrack`, `isTrackBed` / `trackBedKeys` / `isTrackCell` (a track bed is either the `floor.track` finish or a `track` module's footprint), `trackAt`, `trackCells`. |
 | `openings.ts` | `carveRampOpenings`, `rampEnvelope`, `rampBlocked`, `rampCorridorHalf`, `ESCALATOR_HEADROOM`, `escalatorBasesSolid`. |
 | `stairs.ts` | The four stair shapes, `STAIR_RUN`/`STAIR_RISE`, widths + `nextStairWidth`, `stairFlights`, `stairLandings`, level/turn helpers. |
 | `escalators.ts` | `escalatorModule` (the one fixed one-storey piece), `ESCALATOR_RUN`/`RISE`, `nextEscalatorDir`. |
@@ -32,6 +32,7 @@ React.
 | File | Owns |
 |---|---|
 | `model.ts` | `StationState`, `initialStation`, `toData`/`toState`/`cloneState`, `LEVEL_STEPS`/`nearestLevel`, `createModule`, `addEquipment`, cell add/remove, `removeModule`, module ids, face paint/erase/fill, zone paint + `zoneRegionLabels`, facilities (`placeFacility`, `facilityPlan`, `carveFacilityOpenings`, `removeFacility`), and `labStation`. |
+| `rail.ts` | Rail placement and derived screen doors: `RAIL_BED_DEPTH`, `railRect`, `defaultLine`, `isPlatformCell`, `derivePlatformEdges`, `dropDerivedEdges`, `regenerateRailEdges`, `placeRail` (dig the bed + lay the `track` module), `railModuleAt`, `railSummary`. Pure document edits. |
 
 ## `render/` — three.js
 
@@ -53,14 +54,15 @@ React.
 | File | Owns |
 |---|---|
 | `reference-station.ts` | `referenceStation` — the demo, built from the same equipment constructors the builder uses — and `emptyStation`. |
+| `line-colours.ts` | `GUANGZHOU_LINE_COLOURS` + `lineColourFor` / `DEFAULT_LINE_COLOUR`: a new line is born wearing its real 广州地铁 sign colour. Reference data, not tuning. |
 
 ## `app/` — React shell (panels only, no sim logic)
 
 | File | Owns |
 |---|---|
-| `store.ts` | zustand app state: the station document, active tool/brush/rotation/width/direction, view flags, metrics, and the worker plumbing (`initSim`, `rebuildSim`, `setFrameHandler`). `MODULE_OPTIONS`, `FACILITY_OPTIONS`, tool predicates. |
-| `App.tsx` | Top bar, inspector, bottom metric bar, global keyboard shortcuts. |
-| `LeftRail.tsx` | The blueprint build rail: folders for tools, equipment, zones, surfaces, view. |
+| `store.ts` | zustand app state: the station document, active tool/brush/rotation/width/direction, view flags, metrics, and the worker plumbing (`initSim`, `rebuildSim`, `setFrameHandler`). Rail and line actions (`layRail`, `regenRail`, `refreshRailDoors`, `removeRail`, `updateRail`, `updateLine`, `addLine`), `MODULE_OPTIONS`, `FACILITY_OPTIONS`, tool predicates. |
+| `App.tsx` | Top bar, inspector (including the rail/线路 cards), bottom metric bar, global keyboard shortcuts. |
+| `LeftRail.tsx` | The blueprint build rail: folders for tools, equipment, 轨道 (rail), 房间 (rooms), surfaces, zones, view. |
 | `Viewport.tsx` | Owns the `SceneRenderer` lifecycle and turns pointer input into build commands. The only app file that touches three directly. |
 | `ViewCube.tsx` | The orientation cube. |
 | `Lab.tsx` | The `/lab` material/renderer lab. |
@@ -76,7 +78,7 @@ React.
 
 ## `game/test/`
 
-`node --test` suite importing `src/sim/*.ts` directly: `determinism`,
-`capacity`, `layering`, `surfaces`, `save`, `zones`, `gates`, `trains`,
-`placement`, `openings`, `stairs`, `escalators`, `exits`, `facility`.
-`layering.test.mjs` enforces the dependency rule above.
+`node --test` suite importing `src/sim/*.ts` (and, for `rail`, `src/build/rail.ts`)
+directly: `determinism`, `capacity`, `layering`, `surfaces`, `save`, `zones`,
+`gates`, `trains`, `placement`, `openings`, `stairs`, `escalators`, `exits`,
+`facility`, `rail`. `layering.test.mjs` enforces the dependency rule above.

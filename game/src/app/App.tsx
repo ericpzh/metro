@@ -3,8 +3,9 @@ import { useStore, isEscalatorType, isRotatableType, isStairType } from './store
 import { LeftRail } from './LeftRail.tsx'
 import { Viewport } from './Viewport.tsx'
 import { paintZone, zoneAt } from '../build/model.ts'
+import { railSummary } from '../build/rail.ts'
 import { ZONE_LIST, zoneLabel } from '../sim/zones.ts'
-import type { Zone } from '../sim/types.ts'
+import type { LineDef, LineDirection, Module, Zone } from '../sim/types.ts'
 import { lineCapacityPerHour, trainRatedCapacity, STOCK } from '../sim/stock.ts'
 
 const LOS_LABEL: Record<string, string> = { A: 'A 畅通', B: 'B 顺畅', C: 'C 有点挤', D: 'D 拥挤', E: 'E 很挤', F: 'F 挤爆' }
@@ -146,22 +147,162 @@ function ZoneCard(): React.ReactElement | null {
   )
 }
 
+/**
+ * The rail / screen-door panel. Shows while the rail tool is active (so the
+ * player sets the line/direction before laying) and for a selected track module
+ * (so an existing rail can be rebound and its doors regenerated).
+ */
+function RailCard(): React.ReactElement | null {
+  const station = useStore((s) => s.station)
+  const selected = useStore((s) => s.selected)
+  const tool = useStore((s) => s.tool)
+  const railLineId = useStore((s) => s.railLineId)
+  const railDir = useStore((s) => s.railDir)
+  const railPower = useStore((s) => s.railPower)
+  const setRailLine = useStore((s) => s.setRailLine)
+  const setRailDir = useStore((s) => s.setRailDir)
+  const setRailPower = useStore((s) => s.setRailPower)
+  const updateRail = useStore((s) => s.updateRail)
+  const regenRail = useStore((s) => s.regenRail)
+
+  const track =
+    selected?.kind === 'module'
+      ? (station.modules.find((m) => m.id === selected.key && m.type === 'track') as Extract<Module, { type: 'track' }> | undefined)
+      : undefined
+  if (tool !== 'rail' && !track) return null
+
+  const lineId = track ? track.cfg.line : railLineId || station.lines[0]?.id || ''
+  const dir: LineDirection = track ? (track.cfg.dir ?? 'up') : railDir
+  const line = station.lines.find((l) => l.id === lineId)
+  const summary = track ? railSummary(track, line) : null
+  const setLine = (id: string): void => {
+    if (track) updateRail(track.id, { line: id })
+    else setRailLine(id)
+  }
+  const setDir = (d: LineDirection): void => {
+    if (track) updateRail(track.id, { dir: d })
+    else setRailDir(d)
+  }
+  const setPower = (p: 'third-rail' | 'catenary'): void => {
+    if (track) updateRail(track.id, { power: p })
+    else setRailPower(p)
+  }
+
+  return (
+    <>
+      <div className="groupTitle">轨道 / 站台门</div>
+      <div className="card">
+        <div className="kv">
+          <span>轨道</span>
+          <b>{track ? `已铺设 · ${track.w} m × ${track.d ?? 1} m` : '待铺设'}</b>
+        </div>
+        <div className="row">
+          <span className="muted small">线路</span>
+          {station.lines.map((l) => (
+            <button key={l.id} className={lineId === l.id ? 'chip on' : 'chip'} onClick={() => setLine(l.id)}>
+              <i className="swatch" style={{ background: l.colour }} />
+              {l.id}
+            </button>
+          ))}
+        </div>
+        <div className="row">
+          <span className="muted small">方向</span>
+          {(['up', 'down'] as const).map((d) => (
+            <button key={d} className={dir === d ? 'chip on' : 'chip'} onClick={() => setDir(d)}>
+              {d === 'up' ? '上行' : '下行'}
+            </button>
+          ))}
+        </div>
+        <div className="row">
+          <span className="muted small">供电</span>
+          {(['third-rail', 'catenary'] as const).map((p) => (
+            <button key={p} className={(track ? track.cfg.power : railPower) === p ? 'chip on' : 'chip'} onClick={() => setPower(p)}>
+              {p === 'third-rail' ? '第三轨' : '接触网'}
+            </button>
+          ))}
+        </div>
+        {line && (
+          <div className="muted small">
+            {line.name} · {line.stock}型{line.cars}节
+            {summary ? ` · 列车 ${summary.trainLength} m · ${summary.doors} 个车门` : ''}
+          </div>
+        )}
+        <div className="muted small">在站台旁的楼层拖出轨道；两侧有站台就自动生成屏蔽门</div>
+      </div>
+
+      {track && (
+        <button className="primary" onClick={() => regenRail(track.id)}>
+          重置屏蔽门
+        </button>
+      )}
+    </>
+  )
+}
+
+/**
+ * Line name + colour. Edits commit on blur / Enter, not per keystroke: every
+ * commit rebuilds the worker's station, so typing should not spam it.
+ */
+function LineFields({ line }: { line: LineDef }): React.ReactElement {
+  const updateLine = useStore((s) => s.updateLine)
+  const [name, setName] = useState(line.name)
+  const [colour, setColour] = useState(line.colour)
+  useEffect(() => {
+    setName(line.name)
+    setColour(line.colour)
+  }, [line.id, line.name, line.colour])
+
+  const commitName = (): void => {
+    const t = name.trim()
+    if (t && t !== line.name) updateLine(line.id, { name: t })
+    else setName(line.name)
+  }
+  const commitColour = (): void => {
+    if (colour !== line.colour) updateLine(line.id, { colour })
+  }
+
+  return (
+    <div className="row">
+      <input
+        className="lineNameInput"
+        value={name}
+        maxLength={16}
+        placeholder="线路名"
+        title="线路名（回车或点击别处保存）"
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commitName}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          else if (e.key === 'Escape') {
+            setName(line.name)
+            e.currentTarget.blur()
+          }
+        }}
+      />
+      <input
+        type="color"
+        className="lineColourInput"
+        value={colour}
+        title="线路颜色"
+        onChange={(e) => setColour(e.target.value)}
+        onBlur={commitColour}
+      />
+    </div>
+  )
+}
+
 function Inspector(): React.ReactElement {
   const station = useStore((s) => s.station)
   const selected = useStore((s) => s.selected)
   const commit = useStore((s) => s.commit)
+  const updateLine = useStore((s) => s.updateLine)
+  const addLine = useStore((s) => s.addLine)
 
   const exits = useMemo(() => station.modules.filter((m) => m.type === 'exit'), [station.modules])
-  const line = station.lines[0]
 
   const setExit = (id: string, patch: Partial<{ inRate: number; open: boolean; name: string }>): void => {
     const modules = station.modules.map((m) => (m.id === id && m.type === 'exit' ? { ...m, cfg: { ...m.cfg, ...patch } } : m))
     commit({ ...station, modules })
-  }
-
-  const setLine = (id: string, patch: Partial<{ alightPerTrain: number }>): void => {
-    const lines = station.lines.map((l) => (l.id === id ? { ...l, ...patch } : l))
-    commit({ ...station, lines })
   }
 
   return (
@@ -183,6 +324,8 @@ function Inspector(): React.ReactElement {
         <div className="muted small">点一下方块或设备，就能选中。</div>
       )}
       {selected?.kind === 'cell' && <ZoneCard />}
+
+      <RailCard />
 
       <div className="groupTitle">出入口客流</div>
       {exits.length === 0 && <div className="muted small">还没建出入口。</div>}
@@ -206,17 +349,41 @@ function Inspector(): React.ReactElement {
       )}
 
       <div className="groupTitle">线路</div>
-      {line ? (
-        <div className="card">
+      {station.lines.length === 0 && (
+        <div className="muted small">还没配线路。铺下第一段轨道时会自动新建，也可以在这里手动加。</div>
+      )}
+      {station.lines.map((line) => (
+        <div className="card" key={line.id}>
           <div className="kv">
             <span>线路</span>
             <b>
               <i className="swatch" style={{ background: line.colour }} /> {line.name} · {line.stock}型{line.cars}节
             </b>
           </div>
-          <div className="kv">
-            <span>高峰发车间隔</span>
-            <b>{Math.round(line.headwayProfile.peak)} 秒</b>
+          <LineFields line={line} />
+          <div className="row">
+            <span className="muted small">车型</span>
+            {(['A', 'B', 'C'] as const).map((s) => (
+              <button key={s} className={line.stock === s ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { stock: s })}>
+                {s}型
+              </button>
+            ))}
+          </div>
+          <label className="field">
+            <span>编组 {line.cars} 节</span>
+            <input type="range" min={1} max={8} step={1} value={line.cars} onChange={(e) => updateLine(line.id, { cars: Number(e.target.value) })} />
+          </label>
+          <div className="row">
+            <span className="muted small">方向</span>
+            {(['up', 'down'] as const).map((d) => (
+              <button
+                key={d}
+                className={line.direction === d ? 'chip on' : 'chip'}
+                onClick={() => updateLine(line.id, { direction: d })}
+              >
+                {d === 'up' ? '上行' : '下行'}
+              </button>
+            ))}
           </div>
           <div className="kv">
             <span>载客量</span>
@@ -226,13 +393,14 @@ function Inspector(): React.ReactElement {
           </div>
           <label className="field">
             <span>每列下车 {line.alightPerTrain} 人</span>
-            <input type="range" min={0} max={1500} step={10} value={line.alightPerTrain} onChange={(e) => setLine(line.id, { alightPerTrain: Number(e.target.value) })} />
+            <input type="range" min={0} max={1500} step={10} value={line.alightPerTrain} onChange={(e) => updateLine(line.id, { alightPerTrain: Number(e.target.value) })} />
           </label>
           <div className="muted small">{STOCK[line.stock].doorsPerSide * line.cars} 个车门 · 出站不限流，来多少走多少</div>
         </div>
-      ) : (
-        <div className="muted small">还没配线路。</div>
-      )}
+      ))}
+      <button className="chip" onClick={addLine}>
+        + 新建线路
+      </button>
     </div>
   )
 }
@@ -361,6 +529,9 @@ export function App(): React.ReactElement {
             st.setTool('zone')
           }
           break
+        case 'g':
+          st.setTool('rail')
+          break
         case 'y':
           if (e.ctrlKey || e.metaKey) st.redo()
           break
@@ -389,8 +560,10 @@ export function App(): React.ReactElement {
                 : tool === 'paint'
                   ? '材质：左键刷一格，拖拽刷一片，右键还原，取色能吸'
                   : tool === 'zone'
-                    ? '分区：左键点或拖框上色；商店/售票亭拖框建，墙上右键开门'
-                    : '选择：点方块或设备，看它是什么'}
+                    ? '分区：左键点或拖框上色；房间/售票亭拖框建，墙上右键开门'
+                    : tool === 'rail'
+                      ? '轨道：在站台旁拖出轨道床，自动生成站台门；右侧选线路与方向'
+                      : '选择：点方块或设备，看它是什么'}
           </div>
         </div>
         <Inspector />

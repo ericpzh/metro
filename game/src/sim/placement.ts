@@ -65,8 +65,13 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'platform-edge':
       // The screen sits just inside the platform edge of its run.
       return { x0: m.x, y0: m.y + 0.16, z0, x1: m.x + m.w, y1: m.y + 0.84, z1: z0 + FLAT_HEIGHT['platform-edge'] }
-    case 'track':
-      return { x0: m.x, y0: m.y, z0, x1: m.x + m.w, y1: m.y + 1, z1: z0 + FLAT_HEIGHT.track }
+    case 'track': {
+      // A dug track bed: the module owns the whole trench volume (bed slab +
+      // rails) from the block top to the platform surface, so no equipment can
+      // be dropped into it.
+      const d = m.d ?? 1
+      return { x0: m.x, y0: m.y, z0: m.z, x1: m.x + m.w, y1: m.y + d, z1: m.z + 1 }
+    }
     default:
       return null
   }
@@ -87,6 +92,42 @@ export function isTrackBed(cells: readonly Cell[], x: number, y: number, z: numb
   return c?.fill === 'solid' && c.finish?.top === 'floor.track'
 }
 
+/** Every cell a track module's bed covers — its run × depth at its own level. */
+export function trackBedCells(m: Module): Array<[number, number, number]> {
+  if (m.type !== 'track') return []
+  const d = m.d ?? 1
+  const out: Array<[number, number, number]> = []
+  for (let x = m.x; x < m.x + m.w; x++) for (let y = m.y; y < m.y + d; y++) out.push([x, y, m.z])
+  return out
+}
+
+/** The track module whose bed covers `(x, y, z)`, if any. */
+export function trackAt(modules: readonly Module[], x: number, y: number, z: number): Module | undefined {
+  for (const m of modules) {
+    if (m.type !== 'track') continue
+    const d = m.d ?? 1
+    if (z === m.z && x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + d) return m
+  }
+  return undefined
+}
+
+/**
+ * Keys of every track-bed cell, from the finish OR a track module's bed. A
+ * placed rail digs its cells (they are void, so there is no finish left to
+ * read); the finish path keeps the hand-built demo working unchanged.
+ */
+export function trackBedKeys(cells: readonly Cell[], modules: readonly Module[]): Set<string> {
+  const out = new Set<string>()
+  for (const c of cells) if (c.fill === 'solid' && c.finish?.top === 'floor.track') out.add(`${c.x},${c.y},${c.z}`)
+  for (const m of modules) for (const [x, y, z] of trackBedCells(m)) out.add(`${x},${y},${z}`)
+  return out
+}
+
+/** True when a cell is a track bed by either rule. */
+export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], x: number, y: number, z: number): boolean {
+  return isTrackBed(cells, x, y, z) || trackAt(modules, x, y, z) !== undefined
+}
+
 /**
  * The floor cells a module stands on, at its own level. A room covers its whole
  * `w × h`; a platform-edge or track run is one cell deep along +x; every other
@@ -104,7 +145,8 @@ function baseCells(m: Module): Array<[number, number]> {
     case 'platform-edge':
     case 'track': {
       const out: Array<[number, number]> = []
-      for (let x = m.x; x < m.x + m.w; x++) out.push([x, m.y])
+      const d = m.type === 'track' ? (m.d ?? 1) : 1
+      for (let x = m.x; x < m.x + m.w; x++) for (let y = m.y; y < m.y + d; y++) out.push([x, y])
       return out
     }
     default:
@@ -118,9 +160,13 @@ function baseCells(m: Module): Array<[number, number]> {
  * floor, so this is the surface rule that sits beside it. The builder refuses
  * these placements even though nothing else occupies the space.
  */
-export function placementOnTrack(cells: readonly Cell[], candidate: Module): boolean {
+export function placementOnTrack(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
   for (const [x, y] of baseCells(candidate)) {
     if (isTrackBed(cells, x, y, candidate.z)) return true
+    // A dug bed leaves no finish: the module covers the cell, and its own bed
+    // base is the block just under it, so test the candidate's cell and the one
+    // above (the trench).
+    if (trackAt(modules, x, y, candidate.z) || trackAt(modules, x, y, candidate.z + 1)) return true
   }
   return false
 }

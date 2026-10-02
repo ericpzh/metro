@@ -36,11 +36,12 @@ import {
 } from '../build/model.ts'
 import { finishDef } from '../sim/finishes.ts'
 import { exitFloorAt } from '../sim/exits.ts'
-import { moduleAt, isTrackBed, placementBlocked, placementOnTrack } from '../sim/placement.ts'
+import { moduleAt, isTrackCell, placementBlocked, placementOnTrack } from '../sim/placement.ts'
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
 import { FACILITY_OPTIONS, setFrameHandler, useStore, isFacilityBrush, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
 import type { Face, FinishId } from '../sim/types.ts'
+import { railModuleAt, railRect } from '../build/rail.ts'
 import { ViewCube } from './ViewCube.tsx'
 
 /** The face a picked normal belongs to; rounded corners snap to the dominant axis. */
@@ -131,6 +132,9 @@ function brushColour(brush: ZoneBrush): number {
 
 /** Colour of the "cut an opening" right-click preview. */
 const OPENING_PREVIEW = 0x7fe4ff
+
+/** Rail bed preview tint, matching the track finish. */
+const RAIL_PREVIEW = 0x3d4a5c
 
 /** Every cell a whole-store delete would clear, for the red preview volume. */
 function facilityVolume(mod: { x: number; y: number; z: number; w?: number; h?: number }): Array<[number, number, number]> {
@@ -223,6 +227,16 @@ export function Viewport(): React.ReactElement {
     downTime: number
   } | null>(null)
 
+  /** The rail tool's rectangle drag: press a floor cell, drag out the bed. */
+  const railDrag = useRef<{
+    active: boolean
+    anchor: [number, number, number]
+    z: number
+    sx: number
+    sy: number
+    downTime: number
+  } | null>(null)
+
   const version = useStore((s) => s.version)
   const station = useStore((s) => s.station)
   const tool = useStore((s) => s.tool)
@@ -246,8 +260,8 @@ export function Viewport(): React.ReactElement {
   const buildZoneOverlay = (): void => {
     const scene = sceneRef.current
     if (!scene) return
-    const cells = useStore.getState().station.cells
-    const floors = zoneMapFloors(cells)
+    const station = useStore.getState().station
+    const floors = zoneMapFloors(station.cells, station.modules)
     const quads = new Float32Array(floors.length * 3)
     const zones = new Uint8Array(floors.length)
     floors.forEach((c, i) => {
@@ -299,7 +313,7 @@ export function Viewport(): React.ReactElement {
     // An escalator may run through walls/ceilings — only its two landings must
     // be solid floor (or exit floor). Anything in between is carved on placement.
     const basesMissing = !!mod && mod.type === 'escalator' && !escalatorBasesSolid(st.station.cells, st.station.modules, mod)
-    const blocked = !!mod && (placementBlocked(st.station.modules, mod) || basesMissing || placementOnTrack(st.station.cells, mod))
+    const blocked = !!mod && (placementBlocked(st.station.modules, mod) || basesMissing || placementOnTrack(st.station.cells, mod, st.station.modules))
     scene.setCursor(h.cell, placeable && !blocked)
     scene.setModulePreview(mod, blocked)
   }
@@ -309,6 +323,7 @@ export function Viewport(): React.ReactElement {
     hoverRef.current = null
     zoneDrag.current = null
     facilityDrag.current = null
+    railDrag.current = null
     sceneRef.current?.setGhost([], 'add')
     sceneRef.current?.setGhost([], 'remove')
     sceneRef.current?.clearFaceGhost()
@@ -415,11 +430,17 @@ export function Viewport(): React.ReactElement {
     if (tool === 'select') {
       // Right-click bulldozes the equipment under the pointer.
       if (e.button === 2) {
-        bulldoze(hit.cell)
+        bulldoze(hit.cell, hit.place)
         return
       }
-      const mod = hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined
-      st.select(mod ? { kind: 'module', key: mod.id, label: moduleLabel(mod.type) } : { kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
+      // A rail's bed is dug, so the ray lands on the block below or the work
+      // plane; look for the track module at both the hit and the cell above.
+      const rail =
+        railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
+        railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2])
+      const mod = rail ?? (hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
+      const label = mod ? moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined) : ''
+      st.select(mod ? { kind: 'module', key: mod.id, label } : { kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
       scene.setGhost([], 'add')
       return
     }
@@ -427,7 +448,7 @@ export function Viewport(): React.ReactElement {
       // Equipment rides on a floor block; bare void has nothing to stand on.
       if (!hit.solid) return
       if (e.button === 2) {
-        bulldoze(hit.cell)
+        bulldoze(hit.cell, hit.place)
         return
       }
       placeModule(hit.cell, hit.place, hit.solid, st.moduleType)
@@ -456,8 +477,8 @@ export function Viewport(): React.ReactElement {
       return
     }
     if (tool === 'zone') {
-      // Right-click edits a shop: drag over its walls to cut openings, or drag
-      // across the whole store to delete it. Booths have no opening, so a
+      // Right-click edits a walled room: drag over its walls to cut openings, or
+      // drag across the whole room to delete it. Booths have no opening, so a
       // right-click deletes them outright.
       if (e.button === 2) {
         const fac = hit.solid ? facilityAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined
@@ -476,7 +497,7 @@ export function Viewport(): React.ReactElement {
           st.setNotice(`已拆掉${moduleLabel(fac.type)}`)
           return
         }
-        if (hit.solid) bulldoze(hit.cell)
+        if (hit.solid) bulldoze(hit.cell, hit.place)
         return
       }
       // Both brushes are a long-press drag: the press holds the anchor, the
@@ -496,6 +517,28 @@ export function Viewport(): React.ReactElement {
         downTime: performance.now(),
       }
       scene.setFaceGhost([anchor], 'top', brushColour(brush))
+      scene.setCursor(anchor, true)
+      return
+    }
+    if (tool === 'rail') {
+      // Right-click bulldozes a rail under the pointer.
+      if (e.button === 2) {
+        const rail =
+          railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
+          railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2])
+        if (rail) {
+          st.removeRail(rail.id)
+          st.select(null)
+        }
+        return
+      }
+      // A rail bed is a rectangle drag on the active level: press a floor cell,
+      // drag out the run (and bed width), release to dig and lay it.
+      e.preventDefault()
+      const z = st.activeZ
+      const anchor: [number, number, number] = [hit.cell[0], hit.cell[1], z]
+      railDrag.current = { active: true, anchor, z, sx: e.clientX, sy: e.clientY, downTime: performance.now() }
+      scene.setFaceGhost([anchor], 'top', RAIL_PREVIEW)
       scene.setCursor(anchor, true)
       return
     }
@@ -636,6 +679,23 @@ export function Viewport(): React.ReactElement {
       scene.setCursor(hit.cell, hit.solid)
       return
     }
+    if (st.tool === 'rail') {
+      const rd = railDrag.current
+      if (rd?.active) {
+        const target: [number, number, number] = [hit.cell[0], hit.cell[1], rd.z]
+        const r = railRect(rd.anchor, target, rd.z)
+        const cells = rectCells([r.x0, r.y0, r.z], [r.x1, r.y1, r.z], rd.z, false)
+        scene.setGhost([], 'remove')
+        scene.setFaceGhost(cells, 'top', RAIL_PREVIEW)
+        scene.setCursor(target, true)
+        return
+      }
+      scene.setGhost([], 'remove')
+      if (hit.solid) scene.setFaceGhost([hit.cell], 'top', RAIL_PREVIEW)
+      else scene.clearFaceGhost()
+      scene.setCursor(hit.cell, hit.solid)
+      return
+    }
     const c = hit.solid ? hit.place : hit.cell
     scene.setCursor(c, true)
   }
@@ -652,22 +712,34 @@ export function Viewport(): React.ReactElement {
       const hit = pickAt(e)
       const target: [number, number, number] = hit ? [hit.cell[0], hit.cell[1], fd.z] : fd.anchor
       const r = facilityRect(fd.anchor, target, fd.z)
-      // A drag that swallows the whole store means delete; anything narrower
+      // A drag that swallows the whole room means delete; anything narrower
       // cuts the wall openings it touches.
       if (facilityCovers(mod, r)) {
         st.commit(removeFacility(st.station, mod.id))
         st.select(null)
-        st.setNotice('商店拆掉了')
+        st.setNotice('房间拆掉了')
         return
       }
       const walls = facilityOpeningCells(st.station.cells, mod, r)
       if (walls.length === 0) {
-        st.setNotice('在墙上右键拖拽开门；框住整个商店就是拆除')
+        st.setNotice('在墙上右键拖拽开门；框住整个房间就是拆除')
         return
       }
       const cut = carveFacilityOpenings(st.station, mod.id, walls)
       st.commit(cut)
-      if (!cut.modules.some((m) => m.id === mod.id)) st.setNotice('商店的墙全拆光了')
+      if (!cut.modules.some((m) => m.id === mod.id)) st.setNotice('房间的墙全拆光了')
+      return
+    }
+    const rd = railDrag.current
+    railDrag.current = null
+    if (rd?.active) {
+      scene?.clearFaceGhost()
+      const st = useStore.getState()
+      const hit = pickAt(e)
+      const target: [number, number, number] = hit ? [hit.cell[0], hit.cell[1], rd.z] : rd.anchor
+      const wasRect = performance.now() - rd.downTime >= LONG_PRESS_MS && isMoved(rd, e)
+      const r = railRect(rd.anchor, wasRect ? target : rd.anchor, rd.z)
+      st.layRail(r)
       return
     }
     const zd = zoneDrag.current
@@ -707,7 +779,7 @@ export function Viewport(): React.ReactElement {
       // A room may not straddle the rails: its floor must not be a track bed.
       for (let x = area.x0; x <= area.x1; x++) {
         for (let y = area.y0; y <= area.y1; y++) {
-          if (isTrackBed(st.station.cells, x, y, area.z)) {
+          if (isTrackCell(st.station.cells, st.station.modules, x, y, area.z)) {
             st.setNotice('轨道上不能建房间')
             return
           }
@@ -720,12 +792,13 @@ export function Viewport(): React.ReactElement {
       }
       st.commit(next)
       st.select({ kind: 'cell', key: cellKey(area.x0, area.y0, area.z), label: `(${area.x0}, ${area.y0}, ${area.z}) ${aw}×${ah}` })
+      const built = FACILITY_OPTIONS.find((f) => f.id === zd.brush)?.label ?? '房间'
       st.setNotice(
         plan.merge.length > 0
           ? '房间已扩大到新的范围'
-          : zd.brush === 'shop'
-            ? '商店建好了，在墙上右键拖拽开门'
-            : '售票亭建好了，四周是柜台，从外面服务',
+          : zd.brush === 'booth'
+            ? `${built}建好了，四周是柜台，从外面服务`
+            : `${built}建好了，在墙上右键拖拽开门`,
       )
       return
     }
@@ -773,15 +846,25 @@ export function Viewport(): React.ReactElement {
   const onContextMenu = (e: React.MouseEvent): void => e.preventDefault()
 
   /** Right-click: remove the equipment standing on a cell, leaving the block. */
-  const bulldoze = (cell: [number, number, number]): void => {
+  const bulldoze = (cell: [number, number, number], place?: [number, number, number]): void => {
     const st = useStore.getState()
+    // A rail's bed is dug, so the module is found from the hit or the cell above.
+    const rail =
+      railModuleAt(st.station, cell[0], cell[1], cell[2]) ??
+      (place ? railModuleAt(st.station, place[0], place[1], place[2]) : undefined)
+    if (rail) {
+      st.removeRail(rail.id)
+      st.select(null)
+      sceneRef.current?.setModulePreview(null)
+      return
+    }
     const mod = moduleAt(st.station.modules, cell[0], cell[1], cell[2])
     if (!mod) return
     // Facility rooms take their auto walls with them; the floor stays.
     st.commit(mod.type === 'shop' || mod.type === 'booth' || mod.type === 'retail' ? removeFacility(st.station, mod.id) : removeModule(st.station, mod.id))
     st.select(null)
     sceneRef.current?.setModulePreview(null)
-    st.setNotice(`已拆掉${moduleLabel(mod.type)}`)
+    st.setNotice(`已拆掉${moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined)}`)
   }
 
   const placeModule = (cell: [number, number, number], place: [number, number, number], solid: boolean, type: string): void => {
@@ -802,7 +885,7 @@ export function Viewport(): React.ReactElement {
       return
     }
     // The rails sit on a track bed, not on passenger floor: no equipment there.
-    if (placementOnTrack(st.station.cells, mod)) {
+    if (placementOnTrack(st.station.cells, mod, st.station.modules)) {
       st.setNotice('轨道上不能放设备')
       return
     }

@@ -95,6 +95,14 @@ export interface ModuleBase {
 }
 
 /**
+ * Fit-out of a walled facility room (the `shop` module type is the generic
+ * walled room): a shop (商店), a toilet (厕所) or an office (办公室). The
+ * rectangle-drag builder writes it into `shop.cfg.kind`, and the renderer picks
+ * the interior and the sign from it, so all three share one wall/opening model.
+ */
+export type RoomKind = 'store' | 'toilet' | 'office'
+
+/**
  * A staircase's plan shape (§5.1). A stair always climbs exactly one storey;
  * the style decides how the flights turn. `straight` is one run, the `90`
  * styles climb one flight, turn, then climb a second, and `right180` is a
@@ -132,22 +140,38 @@ export type Module =
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'bench'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom' } })
-  | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: 'store'; door?: Array<[number, number]> } })
+  | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]> } })
   | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket'; door?: Array<[number, number]> } })
   | (ModuleBase & {
       type: 'platform-edge'
       /** Length in cells along +x from (x, y, z). */
       w: number
-      cfg: { name: string; line: string; dir: string; side: 'left' | 'right' }
+      cfg: {
+        name: string
+        line: string
+        dir: LineDirection
+        side: 'left' | 'right'
+        /** The track module this edge was auto-derived from, for regeneration. */
+        from?: string
+      }
     })
   | (ModuleBase & {
       type: 'track'
       /** Length in cells along +x from (x, y, z). */
       w: number
-      cfg: { line: string; power: 'third-rail' | 'catenary' }
+      /** Bed depth in cells across the run (+y). Defaults to 1. */
+      d?: number
+      cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection }
     })
 
 export type ModuleType = Module['type']
+
+/**
+ * A line's running direction (§6.3). 上行 / 下行 is the metro convention: the
+ * player assigns a track to one of a line's two directions, and the train's
+ * travel sign comes from the line, not from sniffing a compass word.
+ */
+export type LineDirection = 'up' | 'down'
 
 export interface LineDef {
   id: string
@@ -160,7 +184,9 @@ export interface LineDef {
   /** Passengers dumped onto the platform per train arrival (the demo slider). */
   alightPerTrain: number
   terminus: 'reverse' | 'through'
-  direction: string
+  direction: LineDirection
+  /** Which way along +x a train runs: +1 approaches from −x, −1 from +x. */
+  travelSign: 1 | -1
   stations: string[]
 }
 

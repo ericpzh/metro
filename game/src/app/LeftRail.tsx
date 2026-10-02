@@ -12,6 +12,7 @@ import {
   FACILITY_OPTIONS,
   MODULE_OPTIONS,
   isEscalatorType,
+  isFacilityBrush,
   isRotatableType,
   isStairType,
   useStore,
@@ -67,6 +68,26 @@ function Icon({ name }: { name: string }): React.ReactElement {
         <>
           <rect {...s} strokeDasharray="3 2.2" x="3.6" y="3.6" width="12.8" height="12.8" rx="1" />
           <path {...s} d="M7 13l6-6" />
+        </>,
+      )
+    case 'rail':
+      return svg(
+        <>
+          <path {...s} d="M6 3v14M14 3v14" />
+          <path {...s} d="M4 6h12M4 10h12M4 14h12" />
+        </>,
+      )
+    // Heroicons "refresh" — a two-arrow circular sweep, the icon the player
+    // expects for "reset the screen doors".
+    case 'refresh':
+      return svg(
+        <>
+          <path {...s} d="M3.3 3.3v4.2h.5" />
+          <path {...s} d="M16.6 9.2A6.7 6.7 0 0 0 3.8 7.5" />
+          <path {...s} d="M3.8 7.5H7.5" />
+          <path {...s} d="M16.7 16.7v-4.2h-.5" />
+          <path {...s} d="M16.2 12.5a6.7 6.7 0 0 1-12.8-1.7" />
+          <path {...s} d="M16.2 12.5H12.5" />
         </>,
       )
     case 'up':
@@ -222,7 +243,7 @@ const FAMILY_LABEL: Record<string, string> = { floor: '地面 · 轨道', ceilin
 
 /* ------------------------------------------------------------------- rail */
 
-type FolderKey = 'tools' | 'equipment' | 'surfaces' | 'zones' | 'view'
+type FolderKey = 'tools' | 'equipment' | 'rail' | 'rooms' | 'surfaces' | 'zones' | 'view'
 
 const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
   select: 'tools',
@@ -230,6 +251,7 @@ const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
   module: 'equipment',
   paint: 'surfaces',
   zone: 'zones',
+  rail: 'rail',
 }
 
 export function LeftRail(): React.ReactElement {
@@ -248,12 +270,15 @@ export function LeftRail(): React.ReactElement {
   const cutaway = useStore((s) => s.cutaway)
   const overlayOn = useStore((s) => s.overlayOn)
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
+  const railDir = useStore((s) => s.railDir)
 
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [zoneThumbs, setZoneThumbs] = useState<Record<string, string>>({})
   const [open, setOpen] = useState<Record<FolderKey, boolean>>({
     tools: true,
     equipment: true,
+    rail: false,
+    rooms: false,
     surfaces: false,
     zones: false,
     view: false,
@@ -285,9 +310,12 @@ export function LeftRail(): React.ReactElement {
   }, [])
 
   // Fold the folder that owns the active tool open, so the menu tracks the mode.
+  // A facility brush rides the zone tool but lives in its own 房间 folder, so it
+  // opens that folder instead of 分区.
   useEffect(() => {
-    setOpen((prev) => (prev[FOLDER_FOR_TOOL[tool]] ? prev : { ...prev, [FOLDER_FOR_TOOL[tool]]: true }))
-  }, [tool])
+    const key: FolderKey = tool === 'zone' && isFacilityBrush(zoneBrush) ? 'rooms' : FOLDER_FOR_TOOL[tool]
+    setOpen((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
+  }, [tool, zoneBrush])
 
   // Keep the stair sub-menu open while a stair shape is the active piece.
   useEffect(() => {
@@ -353,6 +381,25 @@ export function LeftRail(): React.ReactElement {
         </div>
       </Folder>
 
+      <Folder title="轨道" count={1} open={open.rail} onToggle={() => toggle('rail')}>
+        <div className="blockGrid">
+          <Block label="轨道" icon="rail" active={tool === 'rail'} title="轨道：拖出轨道床，自动生成屏蔽门" onClick={() => setTool('rail')} />
+          <Block
+            label="重置屏蔽门"
+            icon="refresh"
+            title="按当前站台重新生成屏蔽门（选中轨道只重置它，否则重置全部）"
+            onClick={() => st().refreshRailDoors()}
+          />
+        </div>
+        <div className="bpSub">
+          <div className="bpSubTitle">方向</div>
+          <div className="blockGrid two">
+            <Block label="上行" icon="up" active={railDir === 'up'} onClick={() => st().setRailDir('up')} />
+            <Block label="下行" icon="down" active={railDir === 'down'} onClick={() => st().setRailDir('down')} />
+          </div>
+        </div>
+      </Folder>
+
       <Folder title="设备" count={MODULE_OPTIONS.length} open={open.equipment} onToggle={() => toggle('equipment')}>
         <div className="blockGrid">
           {gearOptions.map((m) => (
@@ -400,7 +447,25 @@ export function LeftRail(): React.ReactElement {
         {tool === 'module' && moduleActions.length > 0 && <div className="blockGrid two">{moduleActions}</div>}
       </Folder>
 
-      <Folder title="分区" count={ZONE_LIST.length + FACILITY_OPTIONS.length} open={open.zones} onToggle={() => toggle('zones')}>
+      <Folder title="房间" count={FACILITY_OPTIONS.length} open={open.rooms} onToggle={() => toggle('rooms')}>
+        <div className="blockGrid">
+          {FACILITY_OPTIONS.map((f) => (
+            <Block
+              key={f.id}
+              label={f.label}
+              thumb={zoneThumbs[f.id]}
+              tone={`#${f.colour.toString(16).padStart(6, '0')}`}
+              active={tool === 'zone' && zoneBrush === f.id}
+              onClick={() => {
+                st().setZoneBrush(f.id)
+                setTool('zone')
+              }}
+            />
+          ))}
+        </div>
+      </Folder>
+
+      <Folder title="分区" count={ZONE_LIST.length} open={open.zones} onToggle={() => toggle('zones')}>
         <div className="blockGrid">
           {ZONE_LIST.map((z) => (
             <Block
@@ -415,24 +480,6 @@ export function LeftRail(): React.ReactElement {
               }}
             />
           ))}
-        </div>
-        <div className="bpSub">
-          <div className="bpSubTitle">房间（拖框画）</div>
-          <div className="blockGrid">
-            {FACILITY_OPTIONS.map((f) => (
-              <Block
-                key={f.id}
-                label={f.label}
-                thumb={zoneThumbs[f.id]}
-                tone={`#${f.colour.toString(16).padStart(6, '0')}`}
-                active={tool === 'zone' && zoneBrush === f.id}
-                onClick={() => {
-                  st().setZoneBrush(f.id)
-                  setTool('zone')
-                }}
-              />
-            ))}
-          </div>
         </div>
       </Folder>
 

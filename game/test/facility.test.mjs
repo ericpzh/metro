@@ -1,10 +1,12 @@
-// Shop & ticket-booth rooms (zone-tool rectangles).
+// Facility rooms (zone-tool rectangles).
 //
-// A shop is a small building: full-height walls around its floor, with NO
-// automatic doorway — the player right-clicks a wall to cut an opening, and a
-// right-click drag that covers the whole store deletes it. A booth is not a
-// walled room at all: a thin desk counter ring with no solid voxel base and no
-// opening, served from outside.
+// A walled room — 商店 (shop), 厕所 (toilet), 办公室 (office) — is a small
+// building: full-height walls around its floor, with NO automatic doorway — the
+// player right-clicks a wall to cut an opening, and a right-click drag that
+// covers the whole room deletes it. All three share the `shop` module type and
+// pick their fit-out with `cfg.kind`. A booth is not a walled room at all: a
+// thin desk counter ring with no solid voxel base and no opening, served from
+// outside.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -217,6 +219,50 @@ test('an extension cannot swallow a room in a bounding-box corner it never touch
   const drag = facilityRect([2, 0, 0], [4, 2, 0], 0)
   assert.equal(facilityPlan(st, 'shop', drag).blockedBy?.id, 'booth-1')
   assert.equal(placeFacility(st, 'shop', drag), st, 'an extension swallowed a different-type room')
+})
+
+test('toilet and office are walled rooms with their own fit-out', () => {
+  for (const kind of ['toilet', 'office']) {
+    const r = facilityRect([2, 2, 0], [5, 4, 0], 0)
+    const st = placeFacility(flatStation(), kind, r, `${kind}-1`)
+    const mod = st.modules.find((m) => m.id === `${kind}-1`)
+    assert.ok(mod && mod.type === 'shop', `${kind} is not a shop-type walled room`)
+    assert.equal(mod.cfg.kind, kind, `${kind} did not record its fit-out`)
+    assert.deepEqual(mod.cfg.door, [], `${kind} should be placed sealed`)
+    // Walls ring the room exactly like a shop.
+    for (let x = r.x0; x <= r.x1; x++) {
+      for (let y = r.y0; y <= r.y1; y++) {
+        if (!(x === r.x0 || x === r.x1 || y === r.y0 || y === r.y1)) continue
+        for (let dz = 1; dz <= SHOP_WALL_H; dz++) assert.ok(has(st.cells, x, y, dz), `${kind} missing wall ${x},${y},${dz}`)
+      }
+    }
+    // Right-clicking a wall opens it, and the fit-out survives the edit.
+    const walls = facilityOpeningCells(st.cells, mod, facilityRect([3, 2, 0], [3, 2, 0], 0))
+    const cut = carveFacilityOpenings(st, `${kind}-1`, walls)
+    assert.equal(cut.modules[0].cfg.kind, kind)
+    assert.equal(cut.modules[0].cfg.door.length, 1)
+    // And bulldozing takes the walls, not the floor.
+    const gone = removeFacility(st, `${kind}-1`)
+    assert.equal(gone.cells.length, 100)
+  }
+})
+
+test('rooms of a different fit-out do not overlap or merge', () => {
+  const st = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
+  // A toilet drawn across the shop is refused, unchanged.
+  assert.equal(placeFacility(st, 'toilet', facilityRect([4, 4, 0], [8, 8, 0], 0)), st, 'a toilet overlapped a shop')
+  const plan = facilityPlan(st, 'toilet', facilityRect([4, 4, 0], [8, 8, 0], 0))
+  assert.equal(plan.blockedBy?.id, 'shop-1')
+  assert.equal(plan.merge.length, 0)
+})
+
+test('two toilets of the same fit-out extend into one room', () => {
+  const st = placeFacility(flatStation(), 'toilet', facilityRect([1, 1, 0], [3, 3, 0], 0), 'toilet-1')
+  const grown = placeFacility(st, 'toilet', facilityRect([3, 3, 0], [5, 5, 0], 0))
+  assert.equal(grown.modules.length, 1, 'a second toilet module was created')
+  assert.equal(grown.modules[0].id, 'toilet-1')
+  assert.equal(grown.modules[0].cfg.kind, 'toilet')
+  assert.deepEqual([grown.modules[0].w, grown.modules[0].h], [5, 5])
 })
 
 test('the demo station ships one shop and one booth that stay connected', () => {

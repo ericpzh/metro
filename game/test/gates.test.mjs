@@ -17,14 +17,14 @@ function flatStation(dir) {
   }
   const modules = [
     { id: 'exit', type: 'exit', x: 0, y: 0, z: 0, cfg: { name: 'A口', inRate: 6000, open: true, headHouse: false } },
-    { id: 'edge', type: 'platform-edge', x: 10, y: 0, z: 0, w: 3, cfg: { name: '1站台', line: '2', dir: 'eastbound', side: 'left' } },
+    { id: 'edge', type: 'platform-edge', x: 10, y: 0, z: 0, w: 3, cfg: { name: '1站台', line: '2', dir: 'up', side: 'left' } },
     { id: 'g1', type: 'gate', x: 5, y: 0, z: 0, cfg: { dir } },
   ]
   const lines = [
     {
       id: '2', name: '2号线', colour: '#2f7ef2', stock: 'B', cars: 6, power: 'third-rail',
       headwayProfile: { peak: 60, offpeak: 120, late: 240 }, alightPerTrain: 540,
-      terminus: 'through', direction: 'eastbound', stations: ['edge'],
+      terminus: 'through', direction: 'up', travelSign: 1, stations: ['edge'],
     },
   ]
   return { name: 't', seed: 3, levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }], cells, modules, lines }
