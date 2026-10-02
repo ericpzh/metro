@@ -49,7 +49,7 @@ export default function GamePage() {
             <span className="spinner" aria-hidden="true" />
             <p>正在载入游戏…</p>
             <small>
-              如果长时间没有反应，请确认游戏 Worker 已部署，或
+              如果一直没反应，可能是游戏服务没连上，试试
               <a href={gameUrl} target="_blank" rel="noreferrer">
                 在新标签页打开
               </a>

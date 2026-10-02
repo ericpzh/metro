@@ -68,7 +68,7 @@ export function parse(text: string): ParseResult {
   const d = doc as Partial<SaveFileV1>
   if (d.format !== SAVE_FORMAT) return { ok: false, error: '不是地铁车站存档' }
   const version = typeof d.formatVersion === 'number' ? d.formatVersion : 0
-  if (version > SAVE_VERSION) return { ok: false, error: '存档版本过新，请更新游戏' }
+  if (version > SAVE_VERSION) return { ok: false, error: '存档太新了，先更新游戏' }
   if (!d.static || !Array.isArray(d.static.cells)) return { ok: false, error: '缺少车站数据' }
   const data: StationData = {
     name: typeof d.name === 'string' ? d.name : '未命名车站',

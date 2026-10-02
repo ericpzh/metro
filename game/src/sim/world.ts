@@ -8,6 +8,7 @@
 import { AgentPool, type Agent } from './agents.ts'
 import {
   DOOR_RATE,
+  GATE_CLEAR_RADIUS,
   LANE_SLOT,
   MAX_AGENTS,
   NEIGHBOUR_CELL,
@@ -715,11 +716,46 @@ export class World {
   }
 
   /**
+   * The neighbour node a queued passenger at a gate should wait beside: the one
+   * whose direction from the gate best matches where the passenger is standing.
+   * This holds the queue one cell out — outside the turnstile footprint — no
+   * matter how a collision shove or a fare-line re-path placed the body.
+   */
+  private waitSideNode(a: Agent, gateNode: number): number {
+    const g = this.graph
+    const gx = g.nodeX[gateNode]
+    const gy = g.nodeY[gateNode]
+    const gz = g.nodeZ[gateNode]
+    let best = -1
+    let bestDot = 0
+    for (let e = g.adjStart[gateNode]; e < g.adjStart[gateNode + 1]; e++) {
+      const nb = g.adjTo[e]
+      if (Math.abs(g.nodeZ[nb] - gz) > 0.01) continue
+      const vx = g.nodeX[nb] - gx
+      const vy = g.nodeY[nb] - gy
+      const len = Math.hypot(vx, vy)
+      if (len < 1e-6) continue
+      const dot = ((a.x - gx) * vx + (a.y - gy) * vy) / len
+      if (dot > bestDot) {
+        bestDot = dot
+        best = nb
+      }
+    }
+    return best >= 0 ? best : gateNode
+  }
+
+  /**
    * A queued agent keeps wanting the entrance: it walks straight at the server
    * node on the shortest line to it, at its density-derated speed, and holds a
    * small standoff so it does not stand exactly on the node. It is the collision
    * pass, not a scripted lane, that turns the crowd into a disc of bodies pressed
    * toward the entrance — each blocked by the ones in front.
+   *
+   * A fare gate is the one server whose node is *inside* the thing being entered:
+   * the node is the middle of the turnstile, so a queue pressed onto it would
+   * stand in the lane. A gate queue is therefore anchored to the cell the
+   * passenger approached from (`gateWaitNode`), so it forms just outside the
+   * gate footprint and the leaf can cycle without anyone waiting inside it.
    */
   private stepQueue(a: Agent): void {
     a.vx = 0
@@ -727,8 +763,9 @@ export class World {
     if (a.server < 0) return
     const g = this.graph
     const s = g.servers[a.server]
-    const tx = g.nodeX[s.node]
-    const ty = g.nodeY[s.node]
+    const node = s.kind === 'gate' && a.gateWaitNode >= 0 ? a.gateWaitNode : s.node
+    const tx = g.nodeX[node]
+    const ty = g.nodeY[node]
     const dist = Math.hypot(tx - a.x, ty - a.y)
     const standoff = PERSONAL_SPACE * 0.3
     if (dist > standoff) {
@@ -738,7 +775,7 @@ export class World {
       const step = Math.min(speed * SIM_DT, dist - standoff)
       const inv = step / dist
       this.tryMove(a, a.x + (tx - a.x) * inv, a.y + (ty - a.y) * inv)
-      a.z += (g.nodeZ[s.node] - a.z) * inv
+      a.z += (g.nodeZ[node] - a.z) * inv
     }
   }
 
@@ -863,6 +900,43 @@ export class World {
     // One collision pass over the whole crowd, after everyone has moved.
     this.buildCollisionGrid(live)
     this.resolveCollisions()
+    // The collision press can shove a gate queue into the turnstile itself; a
+    // final pass holds it clear of the footprint.
+    this.holdGateQueuesClear()
+  }
+
+  /**
+   * Keep fare-gate queues out of the turnstile footprint. A gate's node sits in
+   * the middle of its 1 m cell, so the collision press wants to pile bodies onto
+   * the very spot the leaf swings through. This eases anyone shoved inside back
+   * out along the radial from the node — on their own side of the fare line. The
+   * passenger being served is WALKING, not queued, so it passes through freely.
+   */
+  private holdGateQueuesClear(): void {
+    const g = this.graph
+    for (let i = 0; i < g.servers.length; i++) {
+      const s = g.servers[i]
+      if (s.kind !== 'gate' || s.queue.length === 0) continue
+      const gx = g.nodeX[s.node]
+      const gy = g.nodeY[s.node]
+      for (let q = 0; q < s.queue.length; q++) {
+        const a = this.pool.all().get(s.queue[q])
+        if (!a || a.dead) continue
+        let dx = a.x - gx
+        let dy = a.y - gy
+        let d = Math.hypot(dx, dy)
+        if (d >= GATE_CLEAR_RADIUS) continue
+        if (d < 1e-4) {
+          // Exactly on the node: back off toward the side it queued from.
+          const wn = a.gateWaitNode
+          dx = wn >= 0 ? g.nodeX[wn] - gx : 1
+          dy = wn >= 0 ? g.nodeY[wn] - gy : 0
+          d = Math.hypot(dx, dy) || 1
+        }
+        const k = GATE_CLEAR_RADIUS / d
+        this.tryMove(a, gx + dx * k, gy + dy * k)
+      }
+    }
   }
 
   private queueTime(a: Agent): void {
@@ -930,9 +1004,16 @@ export class World {
     const budget = speed * SIM_DT
 
     if (dist <= budget || dist < ARRIVE) {
-      a.x = tx
-      a.y = ty
-      a.z = tz
+      // A gate joins its queue from outside the turnstile footprint, so a
+      // waiting passenger is never snapped onto the node in the middle of the
+      // lane; every other node is arrived at exactly.
+      const srv = this.graph.serverForNode.get(target)
+      const gateNode = srv !== undefined && this.graph.servers[srv].kind === 'gate'
+      if (!gateNode) {
+        a.x = tx
+        a.y = ty
+        a.z = tz
+      }
       a.vx = 0
       a.vy = 0
       this.onArrive(a)
@@ -1206,6 +1287,9 @@ export class World {
         ZONES[prev >= 0 ? g.nodeZone[prev] : g.nodeZone[cur]],
         ZONES[next >= 0 ? g.nodeZone[next] : g.nodeZone[cur]],
       )
+      // Wait outside the gate, on whichever side of the node the passenger is
+      // actually standing when it reaches the queue.
+      a.gateWaitNode = this.waitSideNode(a, cur)
       this.joinServer(a, gate)
       return true
     }

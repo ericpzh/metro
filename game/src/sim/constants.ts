@@ -70,6 +70,13 @@ export function losOf(m2PerPax: number): Los {
 /** Gate throughput, pax/s (25/min). */
 export const GATE_RATE = 25 / 60
 export const GATE_ACCESSIBLE_RATE = 18 / 60
+/**
+ * A waiting passenger is held at least this far (metres) from a gate's node.
+ * The node is the middle of the 1 m gate cell, so anything above 0.5 keeps the
+ * queue outside the turnstile footprint even under the collision press; 0.62
+ * also clears the leaf, which reaches ~0.29 m into the lane.
+ */
+export const GATE_CLEAR_RADIUS = 0.62
 /** Ticket vending machine, tickets/s (1.5/min). */
 export const TVM_RATE = 1.5 / 60
 /**

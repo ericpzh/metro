@@ -1342,7 +1342,7 @@ MIME `application/json`, extension `*.metro.json`.
   "formatVersion": 1,       // integer, reject-if-newer
   "gameVersion": "1.0.0",
   "savedAt": "2026-09-30T09:00:00Z",  // ISO wall time, display only
-  "name": "五四广场",                  // station name, filename stem
+  "name": "嘉禾望岗",                  // station name, filename stem
   "seed": 1234567,          // §7.6 determinism root
   "tick": 87400,            // 5 Hz tick index; simTime = tick * 0.2 s
   "dayType": "weekday",

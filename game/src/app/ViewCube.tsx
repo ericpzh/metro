@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { SceneRenderer } from '../render/scene.ts'
 import { useStore } from './store.ts'
+import { LEVEL_STEPS } from '../build/model.ts'
 
 /** Cube half-extent in world units; the cube spans -HALF..HALF on each axis. */
 const HALF = 0.5
@@ -28,8 +29,8 @@ interface FaceDef {
 }
 
 const FACES: FaceDef[] = [
-  { key: 'top', axis: 'z', sgn: 1, dir: [0, 0, 1], label: '俯' },
-  { key: 'bottom', axis: 'z', sgn: -1, dir: [0, 0, -1], label: '仰' },
+  { key: 'top', axis: 'z', sgn: 1, dir: [0, 0, 1], label: '顶' },
+  { key: 'bottom', axis: 'z', sgn: -1, dir: [0, 0, -1], label: '底' },
   { key: 'e', axis: 'x', sgn: 1, dir: [1, 0, 0], label: '东' },
   { key: 'w', axis: 'x', sgn: -1, dir: [-1, 0, 0], label: '西' },
   { key: 'n', axis: 'y', sgn: 1, dir: [0, 1, 0], label: '北' },
@@ -338,10 +339,21 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
   const hoverOn = (id: string): void => setHover(id)
   const hoverOff = (id: string): void => setHover((h) => (h === id ? null : h))
 
+  /** Restore the default build view: the isometric preset, perspective, all levels shown. */
+  const goHome = (): void => {
+    const scene = sceneRef.current
+    if (!scene) return
+    scene.setPreset('iso')
+    const st = useStore.getState()
+    st.setOrtho(false)
+    st.setGhostOther(false)
+    syncNow()
+  }
+
   return (
     <div className="viewNav">
       <DepthRail />
-      <div className="viewCube" title="拖动旋转视角 · 点面看投影 · 点角看等轴测">
+      <div className="viewCube" title="拖动旋转 · 点面看正投影 · 点角看立体图">
         <svg
           viewBox={`${-VIEW} ${-VIEW} ${VIEW * 2} ${VIEW * 2}`}
           onPointerDown={onDown}
@@ -446,6 +458,13 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
             ))}
           </g>
         </svg>
+        <button type="button" className="viewHomeBtn" onClick={goHome} title="回到默认视角 (1)" aria-label="回到默认视角">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 10.5 12 3l9 7.5" />
+            <path d="M5 9.5V21h14V9.5" />
+            <path d="M9 21v-6h6v6" />
+          </svg>
+        </button>
       </div>
     </div>
   )
@@ -458,27 +477,18 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
  */
 function DepthRail(): React.ReactElement {
   const activeZ = useStore((s) => s.activeZ)
-  const graph = useStore((s) => s.graph)
-  const station = useStore((s) => s.station)
   const setActiveZ = useStore((s) => s.setActiveZ)
   const trackRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
 
-  // The rail lists storeys, not every block: a wall runs through z values the
-  // player never meant as a level (`sim/station.ts` reports the walkable floors,
-  // `station.levels` the named ones), so stepping never lands on a wall top.
-  const levels = useMemo(() => {
-    const set = new Set<number>(graph?.levelsZ ?? [])
-    for (const l of station.levels) set.add(l.z)
-    set.add(activeZ)
-    return [...set].sort((a, b) => a - b)
-  }, [graph, station.levels, activeZ])
+  // Fixed storeys (see `LEVEL_STEPS`): the rail always lists 12 down to -32
+  // in steps of 4, so every stop is a real work plane.
+  const levels = LEVEL_STEPS
 
   const min = levels[0]
   const max = levels[levels.length - 1]
   const span = Math.max(1, max - min)
   const frac = (z: number): number => (max === min ? 0.5 : (max - z) / span)
-  const idAt = (z: number): string => station.levels.find((l) => l.z === z)?.id ?? (z > 0 ? `+${z}` : `${z}`)
 
   const pick = (clientY: number): void => {
     const el = trackRef.current
@@ -492,7 +502,7 @@ function DepthRail(): React.ReactElement {
   }
 
   return (
-    <div className="depthRail" title="深度：Q 上一层 / E 下一层">
+    <div className="depthRail" title="高度：Q 下一层 / E 上一层">
       <div
         className="depthTrack"
         ref={trackRef}
@@ -527,8 +537,7 @@ function DepthRail(): React.ReactElement {
           </div>
         ))}
         <div className="depthChip" style={{ top: `${frac(activeZ) * 100}%` }}>
-          <b>{idAt(activeZ)}</b>
-          <span>z = {activeZ}</span>
+          <b>{activeZ}m</b>
         </div>
       </div>
       <div className="depthTag">高度</div>

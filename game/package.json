@@ -10,9 +10,7 @@
     "start": "npm run build && npm run preview",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "test": "node --test \"test/**/*.test.mjs\"",
-    "bench": "node bench/crowd.mjs 3000 1000 0 40 200",
-    "bench:crush": "node bench/crowd.mjs 3000 1000 0 40 25"
+    "test": "node --test \"test/**/*.test.mjs\""
   },
   "dependencies": {
     "immer": "^11.1.18",

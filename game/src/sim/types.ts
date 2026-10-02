@@ -94,15 +94,46 @@ export interface ModuleBase {
   rot?: number
 }
 
+/**
+ * A staircase's plan shape (§5.1). A stair always climbs exactly one storey;
+ * the style decides how the flights turn. `straight` is one run, the `90`
+ * styles climb one flight, turn, then climb a second, and `right180` is a
+ * switchback: two parallel flights with a half-landing between them.
+ */
+export type StairStyle = 'straight' | 'right90' | 'left90' | 'right180'
+
+/** One flight of a stair: a straight run of treads from one landing to the next. */
+export interface StairFlight {
+  from: Vec3i
+  to: Vec3i
+}
+
 export type Module =
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode } })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down' } })
-  | (ModuleBase & { type: 'stair'; from: Vec3i; to: Vec3i; cfg: { width: number } })
+  | (ModuleBase & {
+      type: 'stair'
+      /**
+       * The first and last landings — kept for every consumer that reads a stair
+       * as a plain run. `cfg.flights` is the authoritative geometry: `from` is
+       * `flights[0].from` and `to` is `flights[last].to`.
+       */
+      from: Vec3i
+      to: Vec3i
+      cfg: {
+        width: number
+        style?: StairStyle
+        /** Ordered flight segments, bottom → top. Defaults to one straight run. */
+        flights?: StairFlight[]
+      }
+    })
   | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: Record<string, never> })
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'bench'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom' } })
+  | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: 'store'; door?: Array<[number, number]> } })
+  | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket'; door?: Array<[number, number]> } })
   | (ModuleBase & {
       type: 'platform-edge'
       /** Length in cells along +x from (x, y, z). */

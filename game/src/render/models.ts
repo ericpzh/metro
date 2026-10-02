@@ -17,10 +17,14 @@
 // and trains are built in world space because they span more than one cell.
 
 import * as THREE from 'three'
-import { ESCALATOR_STEP_PITCH } from '../sim/constants.ts'
-import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, EXIT_SIDE, EXIT_W } from '../sim/exits.ts'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { facilityWallCells, SHOP_WALL_H } from '../build/model.ts'
+import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH } from '../sim/constants.ts'
+import { EXIT_BACK, EXIT_BACK_Y, EXIT_BAY_HALF, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, EXIT_SIDE, EXIT_W } from '../sim/exits.ts'
+import { finishOf } from '../sim/finishes.ts'
+import { STAIR_WIDTH_NORMAL, stairFlights } from '../sim/stairs.ts'
 import { doorCentres, STOCK, type StockClass } from '../sim/stock.ts'
-import type { Module, StationData } from '../sim/types.ts'
+import type { Cell, Face, FinishId, Module, StationData, Vec3i } from '../sim/types.ts'
 
 /* ------------------------------------------------------------------ palette */
 
@@ -314,6 +318,10 @@ export interface ModuleContext {
   data: StationData
   /** `x,y,z` key -> true for cells whose top finish is the track bed. */
   trackCells: Set<string>
+  /** A floor/wall finish material, so a stair can wear the floor it serves. */
+  finish: (id: FinishId) => THREE.Material
+  /** True when building the translucent placement ghost, not a placed module. */
+  preview?: boolean
 }
 
 function isTrack(ctx: ModuleContext, x: number, y: number, z: number): boolean {
@@ -328,24 +336,28 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
   switch (mod.type) {
     case 'tvm':
       return placeLocal(buildTvm(ctx.mats), mod)
+    case 'bench':
+      return placeLocal(buildBench(ctx.mats), mod)
     case 'gate':
       return placeLocal(buildGate(ctx.mats), mod)
-    case 'exit': {
-      const group = buildExit(ctx, mod)
-      group.position.set(mod.x + 0.5, mod.y + 0.5, mod.z + 1)
-      group.rotation.z = exitYaw(ctx, mod)
-      return group
-    }
+    case 'exit':
+      return placeLocal(buildExit(ctx, mod), mod)
     case 'escalator':
-      return buildEscalator(ctx.mats, mod)
+      return buildEscalator(ctx, mod)
     case 'stair':
-      return buildStair(ctx.mats, mod)
+      return buildStair(ctx, mod)
     case 'lift':
       return buildLift(ctx.mats, mod)
     case 'platform-edge':
       return buildPsd(ctx, mod)
     case 'track':
       return buildTrack(ctx.mats, mod)
+    case 'shop':
+      return buildShop(ctx, mod)
+    case 'booth':
+      return buildBooth(ctx.mats, mod)
+    case 'retail':
+      return buildShop(ctx, { ...mod, type: 'shop' } as Extract<Module, { type: 'shop' }>)
     default:
       return null
   }
@@ -386,29 +398,138 @@ function buildTvm(mats: ModelMaterials): THREE.Group {
   return g
 }
 
+/* ----------------------------------------------------------------- bench */
+
+/**
+ * Bench (座椅): a steel seat pan with a blue backrest, sized to the cell so a
+ * row of benches tiles into a 1 × n seating run along a platform wall. Sits
+ * against the −y face, leaving the +y side clear to walk up from.
+ */
+function buildBench(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  // Seat pan and the backrest above it.
+  slab(g, mats.steel, 0, -0.16, 0.44, 0.9, 0.42, 0.07)
+  slab(g, mats.blue, 0, -0.34, 0.68, 0.9, 0.07, 0.42)
+  // A leg frame at each end plus one shared centre leg.
+  for (const x of [-0.38, 0, 0.38]) slab(g, mats.darkSteel, x, -0.16, 0.2, 0.06, 0.38, 0.4)
+  // Back frame rail and a foot rail tying the legs together.
+  slab(g, mats.darkSteel, 0, -0.34, 0.44, 0.92, 0.05, 0.05)
+  slab(g, mats.darkSteel, 0, -0.16, 0.03, 0.9, 0.36, 0.05)
+  return g
+}
+
 /* ------------------------------------------------------------------ gate */
 
-/** Turnstile cabinet (闸机): steel, a red wing and lane lights. */
+/**
+ * Turnstile cabinet (闸机): steel, a red wing and lane lights.
+ *
+ * The cabinet stands on the cell's −x edge and the clear lane runs down the cell
+ * centre — which is exactly the graph node the sim routes the crowd through. So
+ * a passenger walks through the open lane, never through the stainless block.
+ * The red leaf slides back into the cabinet as the gate opens (see
+ * `setGateWing`); `SceneRenderer.updateGates` drives it as an agent arrives and
+ * shuts it behind them. A run of gates tiles correctly: each lane is the gap
+ * between one gate's cabinet and the next gate's cabinet.
+ */
 function buildGate(mats: ModelMaterials): THREE.Group {
   const g = new THREE.Group()
-  slab(g, mats.darkSteel, 0, 0, 0.05, 0.44, 0.98, 0.1)
-  slab(g, mats.steel, 0, 0, 0.58, 0.42, 0.94, 0.96)
-  capTop(g, mats.darkSteel, 0, 0, 1.06, 0.46, 0.98, 0.08)
+  const CAB = -0.5 // cabinet centre, on the cell's −x edge
+  slab(g, mats.darkSteel, CAB, 0, 0.05, 0.44, 0.98, 0.1)
+  slab(g, mats.steel, CAB, 0, 0.58, 0.42, 0.94, 0.96)
+  capTop(g, mats.darkSteel, CAB, 0, 1.06, 0.46, 0.98, 0.08)
   // Reader pad and the pass / stop lights on the walk-up face.
-  slab(g, mats.black, 0, -0.28, 1.12, 0.3, 0.24, 0.03)
-  plate(g, mats.ledGreen, 0.12, 0.07, -0.08, -0.14, 0.86, 0)
-  plate(g, mats.ledRed, 0.12, 0.07, 0.12, -0.14, 0.86, 0)
-  // The red translucent wing, hinged on the cabinet and reaching into the lane.
-  const wing = slab(g, mats.gateRed, 0.45, 0.06, 0.52, 0.5, 0.05, 0.66)
+  slab(g, mats.black, CAB, -0.28, 1.12, 0.3, 0.24, 0.03)
+  plate(g, mats.ledGreen, 0.12, 0.07, CAB - 0.08, -0.14, 0.86, 0)
+  plate(g, mats.ledRed, 0.12, 0.07, CAB + 0.12, -0.14, 0.86, 0)
+  // The red wing is a sliding leaf, not a hinged one: its cabinet-side edge is
+  // pinned to the cabinet face, and the far edge runs back into the cabinet as
+  // the gate opens — the leaf compresses along its length instead of swinging.
+  // A stub is always left proud of the panel, so the door never reaches zero
+  // width and appears to vanish. The scene drives it through `setGateWing`.
+  const WING = 0.58
+  const edgeX = CAB + 0.21
+  const wing = slab(g, mats.gateRed, edgeX + WING / 2, 0, 0.52, WING, 0.06, 0.66)
   wing.name = 'wing'
+  wing.userData.fullW = WING
+  wing.userData.edgeX = edgeX
+  g.userData.wing = wing
+  setGateWing(g, 0)
   // Blue accent stripe (the station's line colour family).
-  slab(g, mats.blue, 0, 0, 0.2, 0.43, 0.95, 0.05)
+  slab(g, mats.blue, CAB, 0, 0.2, 0.43, 0.95, 0.05)
   return g
+}
+
+/** Metres of wing left proud of the cabinet when the gate is fully open. */
+const WING_STUB = 0.06
+
+/**
+ * Set a turnstile's sliding wing. `open` 0 has the leaf shut across the lane,
+ * 1 has it slid back into the cabinet. The leaf is compressed along its length
+ * with the cabinet-side edge held fixed, so it reads as sliding into the panel
+ * rather than rotating; a small stub always stays outside the panel.
+ */
+export function setGateWing(root: THREE.Object3D, open: number): void {
+  const wing = root.userData.wing as THREE.Mesh | undefined
+  if (!wing) return
+  const fullW = (wing.userData.fullW as number) ?? 0.58
+  const edgeX = (wing.userData.edgeX as number) ?? 0
+  const s = 1 - open * (1 - WING_STUB / fullW)
+  wing.scale.x = s
+  wing.position.x = edgeX + (fullW * s) / 2
 }
 
 /* -------------------------------------------------------------- escalator */
 
-function buildEscalator(mats: ModelMaterials, mod: Extract<Module, { type: 'escalator' }>): THREE.Group {
+/**
+ * One escalator's rolling step band. The treads are world-horizontal (a real
+ * escalator keeps its steps level as the chain climbs), so a run reads as a
+ * staircase instead of a smooth ramp; `rollEscalator` then slides them up the
+ * incline and wraps them at the comb plates, so the band really turns over.
+ */
+export interface EscalatorRoll {
+  /** Instanced meshes sharing one matrix per step (tread + yellow nosing). */
+  parts: THREE.InstancedMesh[]
+  /** The step count (one instance each). */
+  count: number
+  /** Unit vector up the incline, from the lower landing to the upper one. */
+  climb: THREE.Vector3
+  /** Run length along the incline, metres. */
+  runLen: number
+  /** Step pitch along the incline, metres. */
+  pitch: number
+  /** +1 when the band carries a→b (which ascends), −1 when it descends. */
+  dir: number
+  /** Distance the band has rolled, wrapped into [0, runLen). */
+  phase: number
+  /** Tread yaw within the world-aligned band. */
+  yaw: number
+}
+
+/** Wrap `v` into [0, m). */
+function wrapMod(v: number, m: number): number {
+  return ((v % m) + m) % m
+}
+
+// Scratch, reused across escalators and frames (rollEscalator runs every frame).
+const _rot = new THREE.Matrix4()
+const _m = new THREE.Matrix4()
+const _p = new THREE.Vector3()
+
+/** Advance a step band by `simDt` simulated seconds and repose every step. */
+export function rollEscalator(roll: EscalatorRoll, simDt: number): void {
+  roll.phase = wrapMod(roll.phase + roll.dir * ESCALATOR_SPEED * simDt, roll.runLen)
+  _rot.makeRotationZ(roll.yaw)
+  for (let i = 0; i < roll.count; i++) {
+    const u = wrapMod(i * roll.pitch + roll.phase, roll.runLen)
+    _p.copy(roll.climb).multiplyScalar(u)
+    _m.makeTranslation(_p.x, _p.y, _p.z).multiply(_rot)
+    for (const part of roll.parts) part.setMatrixAt(i, _m)
+  }
+  for (const part of roll.parts) part.instanceMatrix.needsUpdate = true
+}
+
+function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escalator' }>): THREE.Group {
+  const mats = ctx.mats
   const a = new THREE.Vector3(mod.from.x + 0.5, mod.from.y + 0.5, mod.from.z + 1)
   const b = new THREE.Vector3(mod.to.x + 0.5, mod.to.y + 0.5, mod.to.z + 1)
   const len = a.distanceTo(b)
@@ -427,50 +548,298 @@ function buildEscalator(mats: ModelMaterials, mod: Extract<Module, { type: 'esca
   slab(g, mats.darkSteel, len / 2, 0, -0.3, len, W, 0.34)
   slab(g, mats.steel, len / 2, W / 2, 0.0, len, 0.06, 0.62)
   slab(g, mats.steel, len / 2, -W / 2, 0.0, len, 0.06, 0.62)
-  // Steps: a ridged ramp at walk level, one step per sim step pitch.
+
+  // The step band lives in a child that cancels the truss's rotation, so a box
+  // left unrotated about z keeps its top face level and the run reads as steps.
+  const ascends = b.z >= a.z
+  const lower = ascends ? a : b
+  const climb = t.clone().multiplyScalar(ascends ? 1 : -1) // unit, lower → upper
+  const runPerM = Math.hypot(climb.x, climb.y) // horizontal advance per metre climbed
+  const band = new THREE.Group()
+  band.quaternion.copy(g.quaternion).invert()
+  band.position.copy(lower).sub(a).applyQuaternion(band.quaternion)
+  g.add(band)
+
+  const yaw = Math.atan2(climb.y, climb.x)
+  const stepW = W - 0.14
   const nSteps = Math.max(4, Math.round(len / ESCALATOR_STEP_PITCH))
-  for (let i = 0; i < nSteps; i++) {
-    const x = (i + 0.5) * (len / nSteps)
-    slab(g, mats.darkSteel, x, 0, -0.03, len / nSteps, W - 0.12, 0.08)
-  }
-  // Glass balustrades and black handrails.
+  const pitch = len / nSteps // along the incline
+  const stepRise = Math.max(0.05, climb.z * pitch) // vertical rise per step
+  const stepRun = Math.max(0.05, runPerM * pitch) // horizontal advance per step
+  // A step is a tread at the incline line with a riser standing on its upper
+  // edge, plus the yellow nosing along the leading edge (real escalator steps).
+  const tread = new THREE.BoxGeometry(stepRun * 1.02, stepW, 0.06).translate(0, 0, -0.03)
+  const riser = new THREE.BoxGeometry(0.05, stepW, stepRise).translate(stepRun / 2, 0, stepRise / 2)
+  const nosing = new THREE.BoxGeometry(0.06, stepW, 0.08).translate(stepRun / 2 - 0.03, 0, -0.01)
+  const stepGeo = mergeGeometries([tread, riser])
+  tread.dispose()
+  riser.dispose()
+  const steps = new THREE.InstancedMesh(stepGeo ?? new THREE.BufferGeometry(), mats.steel, nSteps)
+  steps.frustumCulled = false // the band is reposed every frame
+  band.add(steps)
+  const noseMesh = new THREE.InstancedMesh(nosing, mats.orange, nSteps)
+  noseMesh.frustumCulled = false
+  band.add(noseMesh)
+
+  // Glass balustrades and black handrails. The handrail wraps the end of the
+  // glass at both landings — a half-turn in the balustrade plane from the top
+  // edge, round the end, and down into the newel — instead of stopping dead.
   slab(g, mats.glass, len / 2, W / 2, rise / 2, len, 0.03, rise)
   slab(g, mats.glass, len / 2, -W / 2, rise / 2, len, 0.03, rise)
   slab(g, mats.handrail, len / 2, W / 2 + 0.03, rise, len, 0.1, 0.08)
   slab(g, mats.handrail, len / 2, -W / 2 - 0.03, rise, len, 0.1, 0.08)
-  // Newel ends and the comb plates at both landings.
+  const railReturn = new THREE.TorusGeometry(rise / 2, 0.045, 8, 18, Math.PI)
+  railReturn.rotateX(Math.PI / 2) // into the balustrade plane (local x-z)
+  railReturn.rotateY(Math.PI / 2) // sweep top → +x → bottom
+  for (const endX of [0, len]) {
+    for (const s of [1, -1]) {
+      const rail = new THREE.Mesh(railReturn, mats.handrail)
+      rail.position.set(endX, s * (W / 2 + 0.03), rise / 2)
+      if (endX === 0) rail.rotation.z = Math.PI // bulge the other way at the start
+      g.add(rail)
+    }
+  }
+  // Newel ends at both landings. The comb plates are separate: they are level
+  // plates on the floor of each storey where the steps emerge. Each is pushed
+  // out past the run's last tread (which overhangs the landing node) so the
+  // rotating steps pass clear of it instead of clipping through.
   slab(g, mats.steel, 0.05, 0, -0.02, 0.5, W, 0.06)
   slab(g, mats.steel, len - 0.05, 0, -0.02, 0.5, W, 0.06)
-  slab(g, mats.orange, 0.05, 0, 0.24, 0.5, W - 0.2, 0.03)
-  slab(g, mats.orange, len - 0.05, 0, 0.24, 0.5, W - 0.2, 0.03)
+  const hdir = new THREE.Vector3(climb.x, climb.y, 0).normalize()
+  const plateLen = 0.5
+  // The band's outer tread overhangs the landing node by about `stepRun / 2`.
+  // The plate starts just past that and is pulled a quarter tile (0.25 m) back
+  // in from the previous stand-off, so it sits at the foot of the run.
+  const inner = stepRun / 2 - 0.15
+  for (const dir of [-1, 1]) {
+    const end = dir < 0 ? new THREE.Vector3() : climb.clone().multiplyScalar(len)
+    const out = hdir.clone().multiplyScalar(dir * (inner + plateLen / 2))
+    const comb = slab(band, mats.orange, end.x + out.x, end.y + out.y, end.z + 0.04, plateLen, W - 0.2, 0.05)
+    comb.rotation.z = yaw
+  }
   // Direction chevrons on the skirt, facing outward from each balustrade.
   for (let i = 0; i < 3; i++) {
     const x = len * (0.3 + i * 0.22)
     plate(g, mats.ledGreen, 0.22, 0.12, x, W / 2 + 0.04, 0.55, Math.PI)
     plate(g, mats.ledGreen, 0.22, 0.12, x, -W / 2 - 0.04, 0.55, 0)
   }
+  const roll: EscalatorRoll = {
+    parts: [steps, noseMesh],
+    count: nSteps,
+    climb,
+    runLen: len,
+    pitch,
+    dir: ascends ? 1 : -1,
+    phase: 0,
+    yaw,
+  }
+  rollEscalator(roll, 0) // seat the band before its first animated frame
+  g.userData.escalator = roll
+
+  // Placement ghost only: a bright arrow over the run showing travel direction.
+  // Local +x already runs `from → to` (the travel direction), so the arrow always
+  // points that way — up an up escalator, down a down one.
+  if (ctx.preview) {
+    const arrowZ = rise + 0.5
+    slab(g, mats.ledGreen, len * 0.33, 0, arrowZ, len * 0.5, 0.18, 0.1)
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.55, 4), mats.ledGreen)
+    head.rotation.z = -Math.PI / 2 // cone points +y by default; aim it +x
+    head.position.set(len * 0.62, 0, arrowZ)
+    g.add(head)
+  }
   return g
 }
 
-function buildStair(mats: ModelMaterials, mod: Extract<Module, { type: 'stair' }>): THREE.Group {
-  const a = new THREE.Vector3(mod.from.x + 0.5, mod.from.y + 0.5, mod.from.z + 1)
-  const b = new THREE.Vector3(mod.to.x + 0.5, mod.to.y + 0.5, mod.to.z + 1)
-  const len = a.distanceTo(b)
-  const t = b.clone().sub(a).normalize()
-  const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 0, 1), t).normalize()
-  const n = new THREE.Vector3().crossVectors(t, side).normalize()
+/**
+ * A staircase (楼梯). One storey of *real* steps, walked both ways: level treads
+ * with a riser under each leading edge, not a ramp with grooves. A straight
+ * stair is a single flight; a turning style is two flights meeting at a half or
+ * quarter landing, which the model draws as a platform in the same surface and
+ * the same slab thickness as the treads (the caller keeps the sim nodes).
+ *
+ * The stair wears the floor it climbs from — the top finish of its lower
+ * landing — so a granite hall gets a granite staircase, not a steel one.
+ */
+function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>): THREE.Group {
   const g = new THREE.Group()
-  g.position.copy(a)
-  g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(t, side, n))
-  slab(g, mats.darkSteel, len / 2, 0, -0.16, len, 2.4, 0.32)
-  const steps = Math.max(3, Math.round(len / 0.35))
-  for (let i = 0; i < steps; i++) slab(g, mats.steel, (i + 0.5) * (len / steps), 0, -0.02, len / steps, 2.3, 0.06)
-  // Handrails on both sides.
-  for (const s of [1, -1]) {
-    slab(g, mats.handrail, len / 2, s * 1.15, 0.9, len, 0.08, 0.08)
-    slab(g, mats.steel, len / 2, s * 1.15, 0.45, len, 0.05, 0.05)
-    for (let i = 0; i <= 2; i++) slab(g, mats.steel, (i / 2) * len, s * 1.15, 0.5, 0.06, 0.06, 1.0)
+  const width = mod.cfg.width ?? STAIR_WIDTH_NORMAL
+  const surface = stairSurface(ctx, mod)
+  const flights = stairFlights(mod)
+  for (const f of flights) g.add(buildStairFlight(ctx.mats, surface, f.from, f.to, width))
+  for (let i = 0; i + 1 < flights.length; i++) g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], width))
+  return g
+}
+
+/** Tread slab thickness — the stair's walking surface matches a floor slab. */
+const STAIR_TREAD_T = 0.09
+/** Target riser height; the flight's rise is divided into whole steps. */
+const STAIR_RISE = 1 / 6
+
+/**
+ * The floor finish a stair wears: the top finish of the cell at its lower
+ * landing, falling back to granite. So a stair in a tiled hall is tiled.
+ */
+function stairSurface(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>): THREE.Material {
+  const at = ctx.data.cells.find((c) => c.x === mod.from.x && c.y === mod.from.y && c.z === mod.from.z)
+  return ctx.finish(at?.finish?.top ?? 'floor.granite')
+}
+
+/**
+ * Stretch a box's per-face UVs from 0..1 to one repeat per metre, so a finish
+ * material tiles across the stair at the same scale it tiles across the floor.
+ */
+function metreUv(geo: THREE.BufferGeometry, sx: number, sy: number, sz: number): void {
+  const uv = geo.attributes.uv as THREE.BufferAttribute
+  const dims: Array<[number, number]> = [
+    [sz, sy],
+    [sz, sy], // +x, -x
+    [sx, sz],
+    [sx, sz], // +y, -y
+    [sx, sy],
+    [sx, sy], // +z, -z
+  ]
+  for (let f = 0; f < 6; f++) {
+    const [u, v] = dims[f]
+    for (let i = 0; i < 4; i++) {
+      const k = f * 4 + i
+      uv.setXY(k, uv.getX(k) * u, uv.getY(k) * v)
+    }
   }
+  uv.needsUpdate = true
+}
+
+/**
+ * A slab wearing a finish material. Finish materials read `vertexColors`, so the
+ * geometry gets a flat white colour attribute — the AO the mesher bakes in is
+ * only meaningful for chunk cells.
+ */
+function finishSlab(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, sx: number, sy: number, sz: number): THREE.Mesh {
+  const geo = new THREE.BoxGeometry(sx, sy, sz)
+  metreUv(geo, sx, sy, sz)
+  const n = geo.attributes.position.count
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3))
+  const m = new THREE.Mesh(geo, mat)
+  m.position.set(x, y, z)
+  parent.add(m)
+  return m
+}
+
+/**
+ * One straight flight, in world space, with +x up the horizontal run and +z up.
+ * `run` is the horizontal distance, `rise` the storey climb; the treads stay
+ * level and the risers stand on each leading edge, so it reads as a staircase.
+ */
+function buildStairFlight(mats: ModelMaterials, surface: THREE.Material, from: Vec3i, to: Vec3i, width: number): THREE.Group {
+  const lower = from.z <= to.z ? from : to
+  const upper = from.z <= to.z ? to : from
+  const dx = upper.x - lower.x
+  const dy = upper.y - lower.y
+  const run = Math.hypot(dx, dy)
+  const rise = upper.z - lower.z
+  const g = new THREE.Group()
+  g.position.set(lower.x + 0.5, lower.y + 0.5, lower.z + 1)
+  g.rotation.z = Math.atan2(dy, dx) // +x now points up the run
+
+  const half = width / 2
+  // Trim half a landing cell at each end, so the treads start at the edge of the
+  // floor the flight leaves and stop at the edge of the floor it reaches —
+  // otherwise the top tread is coplanar with the landing slab and z-fights it.
+  const inner = Math.min(0.5, Math.max(0, (run - 0.4) / 2))
+  const stairRun = run - inner * 2
+  if (stairRun < 0.2 || rise < 1e-3) {
+    // Degenerate flight: a level platform, so the piece is never invisible.
+    finishSlab(g, surface, Math.max(run, 0.5) / 2, 0, -STAIR_TREAD_T / 2, Math.max(run, 0.5), width, STAIR_TREAD_T)
+    return g
+  }
+
+  const steps = Math.max(2, Math.round(rise / STAIR_RISE))
+  const stepRise = rise / steps
+  const going = stairRun / steps
+  for (let i = 0; i < steps; i++) {
+    // Tread: level, its top on the step line.
+    finishSlab(g, surface, inner + i * going + going / 2, 0, (i + 1) * stepRise - STAIR_TREAD_T / 2, going + 0.002, width, STAIR_TREAD_T)
+    // Riser under the leading edge, from the tread below up to this one.
+    finishSlab(g, surface, inner + i * going, 0, i * stepRise + stepRise / 2, 0.05, width, stepRise)
+  }
+
+  // Side stringers, a soffit and a handrail run the incline. `theta` tilts a
+  // beam about the width axis so its length follows the slope.
+  const midX = inner + stairRun / 2
+  const theta = Math.atan2(rise, stairRun)
+  const slopeLen = Math.hypot(stairRun, rise)
+  for (const s of [1, -1]) {
+    const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), rise / 2 - 0.2, slopeLen + 0.12, 0.09, 0.32)
+    beam.rotation.y = -theta
+    const rail = slab(g, mats.handrail, midX, s * (half + 0.07), rise / 2 + 0.95, slopeLen, 0.07, 0.07)
+    rail.rotation.y = -theta
+    for (let i = 0; i <= 2; i++) {
+      const u = inner + (i / 2) * stairRun
+      slab(g, mats.steel, u, s * (half + 0.07), ((u - inner) / stairRun) * rise + 0.47, 0.05, 0.05, 0.94)
+    }
+  }
+  const soffit = slab(g, mats.darkSteel, midX, 0, rise / 2 - 0.26, slopeLen + 0.06, width + 0.06, 0.06)
+  soffit.rotation.y = -theta
+  return g
+}
+
+/**
+ * A stair's turn landing: a platform spanning the two flight ends, one stair
+ * width deep on every side the agent crosses, so the perpendicular width never
+ * pinches at the corner. Built from the same surface and slab thickness as the
+ * treads, over a shallow frame — never a reused 1 m floor block. A balustrade
+ * runs the edges a flight does not attach to, wrapping the outside of the turn
+ * and carrying the flight handrails around it.
+ */
+function buildStairLanding(
+  mats: ModelMaterials,
+  surface: THREE.Material,
+  fin: { from: Vec3i; to: Vec3i },
+  fout: { from: Vec3i; to: Vec3i },
+  width: number,
+): THREE.Group {
+  const g = new THREE.Group()
+  const a = fin.to
+  const b = fout.from
+  const ax = a.x + 0.5
+  const ay = a.y + 0.5
+  const bx = b.x + 0.5
+  const by = b.y + 0.5
+  const cx = (ax + bx) / 2
+  const cy = (ay + by) / 2
+  const sx = Math.abs(bx - ax) + width
+  const sy = Math.abs(by - ay) + width
+  const top = a.z + 1
+  const x0 = cx - sx / 2
+  const x1 = cx + sx / 2
+  const y0 = cy - sy / 2
+  const y1 = cy + sy / 2
+  finishSlab(g, surface, cx, cy, top - STAIR_TREAD_T / 2, sx, sy, STAIR_TREAD_T)
+  slab(g, mats.darkSteel, cx, cy, top - STAIR_TREAD_T - 0.14, sx - 0.18, sy - 0.18, 0.28)
+
+  // Which perimeter edges a flight attaches to: the side the flight body sits
+  // on, snapped to the dominant axis. The others get a balustrade.
+  const attached = new Set<string>()
+  const attachEdge = (from: Vec3i, to: Vec3i): void => {
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    attached.add(Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'e' : 'w') : dy > 0 ? 'n' : 's')
+  }
+  attachEdge(fin.to, fin.from) // the incoming flight, behind the landing
+  attachEdge(fout.from, fout.to) // the outgoing flight, beyond the landing
+
+  const RAIL = 0.95
+  const rail = (edge: string): void => {
+    if (edge === 's' || edge === 'n') {
+      const y = edge === 's' ? y0 + 0.04 : y1 - 0.04
+      slab(g, mats.handrail, cx, y, top + RAIL, sx, 0.06, 0.06)
+      for (const px of [x0 + 0.07, x1 - 0.07]) slab(g, mats.steel, px, y, top + RAIL / 2, 0.05, 0.05, RAIL)
+    } else {
+      const x = edge === 'w' ? x0 + 0.04 : x1 - 0.04
+      slab(g, mats.handrail, x, cy, top + RAIL, 0.06, sy, 0.06)
+      for (const py of [y0 + 0.07, y1 - 0.07]) slab(g, mats.steel, x, py, top + RAIL / 2, 0.05, 0.05, RAIL)
+    }
+  }
+  for (const edge of ['s', 'n', 'w', 'e']) if (!attached.has(edge)) rail(edge)
   return g
 }
 
@@ -486,39 +855,6 @@ function buildLift(mats: ModelMaterials, mod: Extract<Module, { type: 'lift' }>)
 }
 
 /* ------------------------------------------------------------------ exit */
-
-/**
- * Which way the exit faces: its −y (local) end is the mouth that opens onto the
- * escalator run climbing from underground, its +y end is the street doorway. We
- * aim −y at the *midpoint* of the nearest ramp — the run, not just its top
- * landing — so an exit with a down run on one side and an up run on the other
- * (the normal two-escalator exit) still faces straight down the pair instead of
- * snapping sideways to whichever landing is a hair closer.
- */
-function exitYaw(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): number {
-  const ex = mod.x + 0.5
-  const ey = mod.y + 0.5
-  let bx = 0
-  let by = 0
-  let best = Infinity
-  for (const m of ctx.data.modules) {
-    if (m.type !== 'escalator' && m.type !== 'stair' && m.type !== 'lift') continue
-    const mx = (m.from.x + m.to.x + 1) / 2
-    const my = (m.from.y + m.to.y + 1) / 2
-    const d = (mx - ex) ** 2 + (my - ey) ** 2
-    if (d < best) {
-      best = d
-      bx = mx - ex
-      by = my - ey
-    }
-  }
-  const fallback = ((mod.rot ?? 0) * Math.PI) / 2
-  if (best === Infinity || best > 196 || (bx === 0 && by === 0)) return fallback
-  // Local −y maps to world (sinθ, −cosθ); solve for it to point at (bx, by),
-  // then snap to the nearest quarter turn so the footprint stays axis-aligned.
-  const theta = Math.atan2(bx, -by)
-  return Math.round(theta / (Math.PI / 2)) * (Math.PI / 2)
-}
 
 /**
  * Street exit portal (出入口): a covered head-house over a pair of escalators,
@@ -545,8 +881,13 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   slab(g, mats.darkSteel, 0, 1.15, 0.05, W, 1.7, 0.1) // street-side walkway
   const stripLen = 0.3 - BACKY
   const stripY = (0.3 + BACKY) / 2
-  for (const s of [-1, 1]) slab(g, mats.darkSteel, s * (hw - 0.28), stripY, 0.05, 0.56, stripLen, 0.1)
-  slab(g, mats.darkSteel, 0, stripY, 0.05, 0.8, stripLen, 0.1) // divider between the runs
+  // The runs sit at local x = ±1; the floor must leave a handrail-clear opening
+  // over each bay, or the balustrade surfaces through the strips beside it.
+  const bay = EXIT_BAY_HALF
+  const dividerW = 2 * (1 - bay) // centre strip between the two runs
+  const sideW = Math.max(0.08, hw - (1 + bay)) // sliver against each glass side
+  for (const s of [-1, 1]) slab(g, mats.darkSteel, s * (1 + bay + sideW / 2), stripY, 0.05, sideW, stripLen, 0.1)
+  slab(g, mats.darkSteel, 0, stripY, 0.05, dividerW, stripLen, 0.1) // divider between the runs
 
   // Corner columns of the enclosed part, plus two under the south canopy edge.
   for (const sx of [-1, 1]) {
@@ -707,6 +1048,233 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   }
   // Third rail.
   slab(g, mats.darkSteel, cx, y - 1.05, z + 0.12, mod.w, 0.08, 0.08)
+  return g
+}
+
+/* -------------------------------------------------------- shop and booth */
+
+function shopSignTexture(text: string, bg: string): THREE.CanvasTexture {
+  return canvasTexture(256, 64, (c) => {
+    c.fillStyle = bg
+    c.fillRect(0, 0, 256, 64)
+    c.fillStyle = '#fff'
+    c.font = 'bold 30px "Microsoft YaHei", sans-serif'
+    c.textAlign = 'center'
+    c.fillText(text, 128, 42)
+  })
+}
+
+/**
+ * Shop room (商店): its solid perimeter walls are drawn here as thin 0.5 m
+ * panels — the chunk mesher hides the full wall voxels (see `hiddenCells`), so
+ * the inner half of every wall cell is free for shelving. Interior island rows
+ * plus a shelf run against each wall fill the zone, with a hanging sign over the
+ * doorway. World space, origin at the floor.
+ */
+function buildShop(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): THREE.Group {
+  const g = new THREE.Group()
+  const mats = ctx.mats
+  const z0 = mod.z + 1
+  const x0 = mod.x
+  const x1 = mod.x + mod.w - 1
+  const y0 = mod.y
+  const y1 = mod.y + mod.h - 1
+  /** Half a block: the wall leaves room for a shelf against it. */
+  const WALL_T = 0.5
+  const SHELF_D = 0.5
+
+  // One shelf unit: body, two goods strips and top goods. `along` runs with the
+  // aisle and `deep` across it, so the same unit is an island row or a wall run.
+  const shelf = (cx: number, cy: number, along: number, deep: number): void => {
+    slab(g, mats.darkSteel, cx, cy, z0 + 0.45, along, deep, 0.9)
+    slab(g, mats.orange, cx, cy, z0 + 0.35, along + 0.04, deep + 0.04, 0.12)
+    slab(g, mats.green, cx, cy, z0 + 0.65, along + 0.04, deep + 0.04, 0.14)
+    slab(g, mats.blue, cx, cy, z0 + 0.95, along, Math.max(0.12, deep - 0.04), 0.1)
+  }
+
+  // Interior island rows: inset one cell from the walls, one aisle between rows.
+  for (let y = y0 + 2; y <= y1 - 2; y += 2) {
+    for (let x = x0 + 1; x <= x1 - 1; x++) shelf(x + 0.5, y + 0.5, 0.9, SHELF_D)
+  }
+
+  // Thin walls, wearing the finish painted on each cell's inward face, and a
+  // shelf tucked against the inner face of each straight run. A side the shop
+  // did not wall itself — because an existing full wall block already encloses
+  // it — still gets a half-width panel and a shelf, so the room reads the same
+  // all the way round.
+  const cellAt = new Map<string, Cell>()
+  const solid = new Set<string>()
+  for (const c of ctx.data.cells) {
+    cellAt.set(`${c.x},${c.y},${c.z}`, c)
+    if (c.fill === 'solid') solid.add(`${c.x},${c.y},${c.z}`)
+  }
+  const wallMat = (key: string, face: Face): THREE.Material => ctx.finish(finishOf(cellAt.get(key) ?? {}, face))
+  const encloses = (x: number, y: number): boolean => solid.has(`${x},${y},${mod.z}`) && solid.has(`${x},${y},${mod.z + 1}`)
+
+  // Group the wall by column, so a full-height run is one panel rather than a
+  // stack of unit boxes whose coincident faces fight at every joint.
+  interface WallCol {
+    x: number
+    y: number
+    zLo: number
+    zHi: number
+    key: string
+  }
+  const columns = new Map<string, WallCol>()
+  const addCol = (x: number, y: number, zLo: number, zHi: number): void => {
+    const col = `${x},${y}`
+    const e = columns.get(col)
+    if (e) {
+      if (zLo < e.zLo) e.zLo = zLo
+      if (zHi > e.zHi) e.zHi = zHi
+    } else columns.set(col, { x, y, zLo, zHi, key: `${x},${y},${zLo}` })
+  }
+  for (const [x, y, z] of facilityWallCells(ctx.data.cells, mod)) addCol(x, y, z, z)
+  const doorHere = new Set((mod.cfg.door ?? []).map(([x, y]) => `${x},${y}`))
+  const sideCol = (x: number, y: number): void => {
+    if (columns.has(`${x},${y}`) || doorHere.has(`${x},${y}`)) return
+    const ox = x === x0 ? x - 1 : x === x1 ? x + 1 : x
+    const oy = y === y0 ? y - 1 : y === y1 ? y + 1 : y
+    if (encloses(ox, oy)) addCol(x, y, mod.z + 1, mod.z + SHOP_WALL_H)
+  }
+  for (let x = x0; x <= x1; x++) {
+    sideCol(x, y0)
+    sideCol(x, y1)
+  }
+  for (let y = y0; y <= y1; y++) {
+    sideCol(x0, y)
+    sideCol(x1, y)
+  }
+
+  for (const { x, y, zLo, zHi, key } of columns.values()) {
+    const h = zHi - zLo + 1
+    const cz = (zLo + zHi + 1) / 2
+    // On a corner the y-panel stops where the x-panel starts, so the two outer
+    // faces meet at an edge instead of lying coplanar.
+    if (y === y0 || y === y1) {
+      const a = x === x0 ? x0 + WALL_T : x
+      const b = x === x1 ? x1 + 1 - WALL_T : x + 1
+      const cy = y === y0 ? y + WALL_T / 2 : y + 1 - WALL_T / 2
+      // The panel's inside face is the one the room sees and the player clicks:
+      // south/north walls show their n/s face, west/east walls their e/w face.
+      slab(g, wallMat(key, y === y0 ? 'n' : 's'), (a + b) / 2, cy, cz, b - a, WALL_T, h)
+    }
+    if (x === x0 || x === x1) {
+      const cxx = x === x0 ? x + WALL_T / 2 : x + 1 - WALL_T / 2
+      slab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h)
+    }
+  }
+  for (const { x, y } of columns.values()) {
+    const west = x === x0
+    const east = x === x1
+    const south = y === y0
+    const north = y === y1
+    // A corner already has two wall panels; shelve only the straight runs.
+    if ((west || east) && (south || north)) continue
+    if (south) shelf(x + 0.5, y0 + WALL_T + SHELF_D / 2, 0.9, SHELF_D)
+    else if (north) shelf(x + 0.5, y1 + 1 - WALL_T - SHELF_D / 2, 0.9, SHELF_D)
+    else if (west) shelf(x0 + WALL_T + SHELF_D / 2, y + 0.5, SHELF_D, 0.9)
+    else if (east) shelf(x1 + 1 - WALL_T - SHELF_D / 2, y + 0.5, SHELF_D, 0.9)
+  }
+
+  // Hanging sign over the doorway, on the same wall as the opening and sized to
+  // span it. A fixed 2 m sign drifts off the wall once the store front is wider;
+  // matching the opening's run keeps both ends mounted on the wall each side.
+  const door = mod.cfg.door ?? []
+  const sideOf = (x: number, y: number): 's' | 'n' | 'w' | 'e' | null =>
+    x === x0 ? 'w' : x === x1 ? 'e' : y === y0 ? 's' : y === y1 ? 'n' : null
+  let side: 's' | 'n' | 'w' | 'e' = 's'
+  let first = 0
+  for (const [x, y] of door) {
+    const s = sideOf(x, y)
+    if (!s) continue
+    side = s
+    first = s === 's' || s === 'n' ? x : y
+    break
+  }
+  const alongCoord = (x: number, y: number): number => (side === 's' || side === 'n' ? x : y)
+  const cells = new Set<number>()
+  for (const [x, y] of door) if (sideOf(x, y) === side) cells.add(alongCoord(x, y))
+  // The contiguous opening run containing the first door cell.
+  let lo = first
+  let hi = first
+  while (cells.has(hi + 1)) hi++
+  while (cells.has(lo - 1)) lo--
+  const opened = cells.size > 0
+  const span = opened ? hi - lo + 1 : 2.0
+  const centre = (lo + hi + 1) / 2
+  let sx = mod.x + mod.w / 2
+  let sy = mod.y + 0.5
+  let yaw = 0
+  if (side === 's' || side === 'n') {
+    if (opened) sx = centre
+    sy = side === 's' ? y0 + 0.5 : y1 + 0.5
+    yaw = side === 's' ? 0 : Math.PI
+  } else {
+    if (opened) sy = centre
+    sx = side === 'w' ? x0 + 0.5 : x1 + 0.5
+    yaw = side === 'w' ? -Math.PI / 2 : Math.PI / 2
+  }
+  const alongY = side === 's' || side === 'n'
+  const plateW = Math.max(0.6, span - 0.2)
+  slab(g, mats.darkSteel, sx, sy, z0 + 2.2, alongY ? span : 0.08, alongY ? 0.08 : span, 0.1)
+  const sign = plate(g, new THREE.MeshBasicMaterial({ map: shopSignTexture('商店', '#1f9c63'), side: THREE.DoubleSide }), plateW, 0.5, sx, sy, z0 + 1.9, yaw)
+  sign.renderOrder = 1
+  return g
+}
+
+/**
+ * Ticket booth (售票亭): a service desk ringing the floor, with a glass screen
+ * above the counter. There is no solid voxel base and no doorway — the desk is
+ * a thin counter the crowd is served across, open overhead. World space,
+ * origin at the floor.
+ */
+function buildBooth(mats: ModelMaterials, mod: Extract<Module, { type: 'booth' }>): THREE.Group {
+  const g = new THREE.Group()
+  const z0 = mod.z + 1
+  const x0 = mod.x
+  const y0 = mod.y
+  const x1 = mod.x + mod.w - 1
+  const y1 = mod.y + mod.h - 1
+  const DESK = 0.9 // counter height, metres
+  const GLASS_TOP = 2.0
+  const DEPTH = 0.55 // counter depth — a desk, not a wall
+  // Desk counter + glass screen along each perimeter edge. Corners overlap
+  // harmlessly; the counter never closes overhead, so the booth reads open.
+  const runX = (y: number): void => {
+    for (let x = x0; x <= x1; x++) {
+      const cx = x + 0.5
+      const cy = y + 0.5
+      slab(g, mats.steel, cx, cy, z0 + DESK / 2, 1.0, DEPTH, DESK)
+      slab(g, mats.darkSteel, cx, cy, z0 + DESK, 1.02, DEPTH + 0.06, 0.06)
+      slab(g, mats.glass, cx, cy, z0 + (DESK + GLASS_TOP) / 2, 1.0, 0.04, GLASS_TOP - DESK)
+      slab(g, mats.darkSteel, cx, cy, z0 + GLASS_TOP, 1.0, 0.07, 0.06)
+    }
+  }
+  const runY = (x: number): void => {
+    for (let y = y0; y <= y1; y++) {
+      const cx = x + 0.5
+      const cy = y + 0.5
+      slab(g, mats.steel, cx, cy, z0 + DESK / 2, DEPTH, 1.0, DESK)
+      slab(g, mats.darkSteel, cx, cy, z0 + DESK, DEPTH + 0.06, 1.02, 0.06)
+      slab(g, mats.glass, cx, cy, z0 + (DESK + GLASS_TOP) / 2, 0.04, 1.0, GLASS_TOP - DESK)
+      slab(g, mats.darkSteel, cx, cy, z0 + GLASS_TOP, 0.07, 1.0, 0.06)
+    }
+  }
+  runX(y0)
+  runX(y1)
+  runY(x0)
+  runY(x1)
+  // Interior: a staff bench along the back, facing the counter.
+  for (let x = x0 + 1; x <= x1 - 1; x++) {
+    if (y1 - 1 <= y0) break
+    slab(g, mats.blue, x + 0.5, y1 - 0.5, z0 + 0.22, 0.45, 0.45, 0.44)
+    slab(g, mats.blue, x + 0.5, y1 - 0.5, z0 + 0.6, 0.45, 0.1, 0.44)
+  }
+  // Sign over the front (south) counter.
+  const cx = mod.x + mod.w / 2
+  const sign = plate(g, new THREE.MeshBasicMaterial({ map: shopSignTexture('售票', '#1b6fd6'), side: THREE.DoubleSide }), 1.8, 0.5, cx, y0 + 0.5, z0 + 2.2, 0)
+  sign.renderOrder = 1
   return g
 }
 

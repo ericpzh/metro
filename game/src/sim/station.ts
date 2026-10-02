@@ -21,8 +21,9 @@ import {
 } from './constants.ts'
 import { floorSpeed } from './finishes.ts'
 import { gateAllows } from './gates.ts'
-import { EXIT_BACK_Y, EXIT_DOOR_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_SIDE } from './exits.ts'
+import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres } from './stock.ts'
+import { STAIR_WIDTH_NORMAL, stairFlights } from './stairs.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndex } from './zones.ts'
 
@@ -88,7 +89,7 @@ export interface StationGraph {
   serverForNode: Map<number, number>
   platforms: PlatformEdge[]
   exits: Array<{ id: string; node: number; name: string }>
-  stops: Array<{ id: string; node: number; kind: 'tvm' | 'bench' | 'retail' }>
+  stops: Array<{ id: string; node: number; kind: 'tvm' | 'bench' | 'retail' | 'shop' | 'booth' }>
   /** Node grid bounds, for density overlays. */
   minX: number
   minY: number
@@ -125,6 +126,17 @@ export function buildGraph(data: StationData): StationGraph {
   const gateModes = new Map<string, GateMode>()
   for (const m of data.modules) if (m.type === 'gate') gateModes.set(cellKey(m.x, m.y, m.z), m.cfg.dir)
 
+  // A booth's desk rings the whole floor, so the staff area is not walkable:
+  // the crowd is served from outside the counter. Excluding the footprint keeps
+  // the graph honest without a solid voxel base (the desk is a thin model).
+  const boothCells = new Set<string>()
+  for (const m of data.modules) {
+    if (m.type !== 'booth') continue
+    const w = (m as { w?: number }).w ?? 1
+    const h = (m as { h?: number }).h ?? 1
+    for (let x = m.x; x < m.x + w; x++) for (let y = m.y; y < m.y + h; y++) boothCells.add(cellKey(x, y, m.z))
+  }
+
   // Walkable = a solid cell with nothing solid directly above it.
   const nodeIndex = new Map<string, number>()
   const keys: string[] = []
@@ -147,6 +159,7 @@ export function buildGraph(data: StationData): StationGraph {
     if (speed <= 0) continue
     const key = cellKey(c.x, c.y, c.z)
     if (nodeIndex.has(key)) continue
+    if (boothCells.has(key)) continue
     const id = keys.length
     nodeIndex.set(key, id)
     keys.push(key)
@@ -181,7 +194,7 @@ export function buildGraph(data: StationData): StationGraph {
   const edges: EdgeDraft[] = []
   const platforms: PlatformEdge[] = []
   const exits: Array<{ id: string; node: number; name: string }> = []
-  const stops: Array<{ id: string; node: number; kind: 'tvm' | 'bench' | 'retail' }> = []
+  const stops: Array<{ id: string; node: number; kind: 'tvm' | 'bench' | 'retail' | 'shop' | 'booth' }> = []
 
   const addServer = (s: Omit<ServerDef, 'id' | 'queue' | 'cooldown' | 'served' | 'waitAccum' | 'waitCount'>): number => {
     const id = servers.length
@@ -193,22 +206,10 @@ export function buildGraph(data: StationData): StationGraph {
   // never through the glass sides or the back wall. Each wall is a thin plane
   // (see sim/exits.ts); an edge that crosses one inside its span is dropped,
   // exactly like a zone boundary above.
-  interface ExitWall {
-    axis: 'x' | 'y'
-    at: number
-    min: number
-    max: number
-  }
   const exitWalls: ExitWall[] = []
   for (const m of data.modules) {
     if (m.type !== 'exit' || m.cfg.headHouse === false) continue
-    const cx = m.x + 0.5
-    const cy = m.y + 0.5
-    const sx0 = cx - EXIT_SIDE
-    const sx1 = cx + EXIT_SIDE
-    exitWalls.push({ axis: 'x', at: sx0, min: cy + EXIT_GLASS_Y0, max: cy + EXIT_GLASS_Y1 })
-    exitWalls.push({ axis: 'x', at: sx1, min: cy + EXIT_GLASS_Y0, max: cy + EXIT_GLASS_Y1 })
-    exitWalls.push({ axis: 'y', at: cy + EXIT_BACK_Y, min: sx0, max: sx1 })
+    exitWalls.push(...exitWallPlanes(m))
   }
   const crossesExitWall = (x: number, y: number, nx: number, ny: number): boolean => {
     for (const w of exitWalls) {
@@ -222,6 +223,61 @@ export function buildGraph(data: StationData): StationGraph {
         if (cx > w.min && cx < w.max) return true
       }
     }
+    return false
+  }
+
+  // A ramp's balustrade is a barrier too (§5.4): the side glass is not a door.
+  // A walk edge across either side plane is dropped, so the crowd enters and
+  // leaves at the landing tile *along* the run and never steps through the
+  // glass. The planes are the run centreline offset by the balustrade half-
+  // width, extended a little past each landing so the side edge that shares the
+  // landing's row actually crosses it.
+  interface RampWall {
+    ax: number
+    ay: number
+    bx: number
+    by: number
+  }
+  const rampWalls: RampWall[] = []
+  for (const m of data.modules) {
+    if (m.type !== 'escalator' && m.type !== 'stair') continue
+    // A stair may turn: every flight gets its own pair of side walls, so the
+    // crowd boards each flight along its run and never through the glass.
+    const segs = m.type === 'stair' ? stairFlights(m) : [{ from: m.from, to: m.to }]
+    const half = m.type === 'escalator' ? 0.52 : (m.cfg.width ?? STAIR_WIDTH_NORMAL) / 2
+    for (const seg of segs) {
+      const ax = seg.from.x + 0.5
+      const ay = seg.from.y + 0.5
+      const dx = seg.to.x - seg.from.x
+      const dy = seg.to.y - seg.from.y
+      const L = Math.hypot(dx, dy)
+      if (L < 1e-6) continue // a vertical run (a lift column) has no sides to cross
+      const ux = dx / L
+      const uy = dy / L
+      const EXT = 0.6
+      for (const s of [1, -1]) {
+        const ox = -uy * half * s
+        const oy = ux * half * s
+        rampWalls.push({
+          ax: ax - ux * EXT + ox,
+          ay: ay - uy * EXT + oy,
+          bx: ax + dx + ux * EXT + ox,
+          by: ay + dy + uy * EXT + oy,
+        })
+      }
+    }
+  }
+  const segCross = (px: number, py: number, qx: number, qy: number, rx: number, ry: number, sx: number, sy: number): boolean => {
+    const side = (ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number =>
+      (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+    const d1 = side(px, py, qx, qy, rx, ry)
+    const d2 = side(px, py, qx, qy, sx, sy)
+    const d3 = side(rx, ry, sx, sy, px, py)
+    const d4 = side(rx, ry, sx, sy, qx, qy)
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  }
+  const crossesRampWall = (x: number, y: number, nx: number, ny: number): boolean => {
+    for (const w of rampWalls) if (segCross(x, y, nx, ny, w.ax, w.ay, w.bx, w.by)) return true
     return false
   }
 
@@ -252,6 +308,8 @@ export function buildGraph(data: StationData): StationGraph {
       }
       // §5.6: an exit head-house wall is a barrier too — the opening is the way.
       if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5)) continue
+      // §5.4: a ramp's balustrade is a barrier — board at the landing, along the run.
+      if (crossesRampWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5)) continue
       // Cost carries the finish speed of both ends, so a concrete floor is a
       // real detour and routing prefers the faster surface.
       const speed = (nodeSpeed[i] + nodeSpeed[j]) / 2
@@ -267,7 +325,7 @@ export function buildGraph(data: StationData): StationGraph {
         // A head-house's node is its street opening, not the cell under the
         // canopy — so the crowd visibly walks out through the doorway. A bare
         // portal (headHouse: false) keeps the module cell.
-        const door = m.cfg.headHouse === false ? undefined : nodeIndex.get(cellKey(m.x, m.y + EXIT_DOOR_Y, m.z))
+        const door = m.cfg.headHouse === false ? undefined : nodeIndex.get(cellKey(...exitDoorCell(m)))
         const n = door ?? nodeIndex.get(cellKey(m.x, m.y, m.z))
         if (n !== undefined) exits.push({ id: m.id, node: n, name: m.cfg.name })
         break
@@ -304,9 +362,63 @@ export function buildGraph(data: StationData): StationGraph {
         if (n !== undefined) stops.push({ id: m.id, node: n, kind: 'bench' })
         break
       }
-      case 'retail': {
-        const n = nodeIndex.get(cellKey(m.x, m.y, m.z))
-        if (n !== undefined) stops.push({ id: m.id, node: n, kind: 'retail' })
+      case 'retail':
+      case 'shop': {
+        // The anchor corner is a perimeter wall cell (non-walkable once the
+        // auto walls stack above it), so the stop rides on the first walkable
+        // cell inside the room — the doorway end, falling back to the centre.
+        let n: number | undefined
+        if (m.type === 'retail') {
+          n = nodeIndex.get(cellKey(m.x, m.y, m.z))
+        } else {
+          const cx = m.x + Math.floor(m.w / 2)
+          const cy = m.y + Math.floor(m.h / 2)
+          n =
+            nodeIndex.get(cellKey(cx, m.y, m.z)) ??
+            nodeIndex.get(cellKey(m.x, cy, m.z)) ??
+            nodeIndex.get(cellKey(cx, cy, m.z)) ??
+            nodeIndex.get(cellKey(m.x + 1, m.y + 1, m.z))
+          if (n === undefined) {
+            outer: for (let y = m.y; y < m.y + m.h; y++) {
+              for (let x = m.x; x < m.x + m.w; x++) {
+                const c = nodeIndex.get(cellKey(x, y, m.z))
+                if (c !== undefined) {
+                  n = c
+                  break outer
+                }
+              }
+            }
+          }
+        }
+        if (n !== undefined) stops.push({ id: m.id, node: n, kind: m.type as 'retail' | 'shop' })
+        break
+      }
+      case 'booth': {
+        // Served from outside the desk: the stop is the nearest walkable cell
+        // ringing the counter, front (south) first.
+        const w = (m as { w?: number }).w ?? 1
+        const h = (m as { h?: number }).h ?? 1
+        const cx = m.x + Math.floor(w / 2)
+        const cy = m.y + Math.floor(h / 2)
+        const ring: Array<[number, number]> = [
+          [cx, m.y - 1],
+          [m.x - 1, cy],
+          [m.x + w, cy],
+          [cx, m.y + h],
+          [m.x - 1, m.y - 1],
+          [m.x + w, m.y - 1],
+          [m.x - 1, m.y + h],
+          [m.x + w, m.y + h],
+        ]
+        let bn: number | undefined
+        for (const [x, y] of ring) {
+          const c = nodeIndex.get(cellKey(x, y, m.z))
+          if (c !== undefined) {
+            bn = c
+            break
+          }
+        }
+        if (bn !== undefined) stops.push({ id: m.id, node: bn, kind: 'booth' })
         break
       }
       case 'escalator':
@@ -322,7 +434,7 @@ export function buildGraph(data: StationData): StationGraph {
           const ride = dist / ESCALATOR_SPEED
           const id = addServer({
             kind: 'escalator',
-            label: m.cfg.dir === 'up' ? '自动扶梯 上行' : '自动扶梯 下行',
+            label: m.cfg.dir === 'up' ? '上行扶梯' : '下行扶梯',
             rate: ESCALATOR_RATE,
             node: a,
             exitNode: b,
@@ -332,30 +444,40 @@ export function buildGraph(data: StationData): StationGraph {
           })
           edges.push({ from: a, to: b, cost: ride, kind: KIND_ESCALATOR, server: id })
         } else if (m.type === 'stair') {
-          const ride = dist / STAIR_SPEED
-          const down = nodeZ[a] > nodeZ[b]
-          const id = addServer({
-            kind: 'stair',
-            label: '楼梯',
-            rate: (down ? STAIR_RATE_DOWN : STAIR_RATE_UP) * m.cfg.width,
-            node: a,
-            exitNode: b,
-            ride,
-            batch: 1,
-            cycle: 0,
-          })
-          edges.push({ from: a, to: b, cost: ride, kind: KIND_STAIR, server: id })
-          const id2 = addServer({
-            kind: 'stair',
-            label: '楼梯',
-            rate: (down ? STAIR_RATE_UP : STAIR_RATE_DOWN) * m.cfg.width,
-            node: b,
-            exitNode: a,
-            ride,
-            batch: 1,
-            cycle: 0,
-          })
-          edges.push({ from: b, to: a, cost: ride, kind: KIND_STAIR, server: id2 })
+          // Each flight is its own capacity-limited, two-way edge, and the
+          // landings between them are walkable nodes, so a turning stair is
+          // walked one flight at a time (§5.1).
+          for (const f of stairFlights(m)) {
+            const fa = nodeAt(f.from)
+            const fb = nodeAt(f.to)
+            if (fa < 0 || fb < 0) continue
+            const fh = Math.hypot(nodeX[fa] - nodeX[fb], nodeY[fa] - nodeY[fb])
+            const fv = Math.abs(nodeZ[fa] - nodeZ[fb])
+            const fride = Math.hypot(fh, fv) / STAIR_SPEED
+            const down = nodeZ[fa] > nodeZ[fb]
+            const idDown = addServer({
+              kind: 'stair',
+              label: '楼梯',
+              rate: (down ? STAIR_RATE_DOWN : STAIR_RATE_UP) * m.cfg.width,
+              node: fa,
+              exitNode: fb,
+              ride: fride,
+              batch: 1,
+              cycle: 0,
+            })
+            edges.push({ from: fa, to: fb, cost: fride, kind: KIND_STAIR, server: idDown })
+            const idUp = addServer({
+              kind: 'stair',
+              label: '楼梯',
+              rate: (down ? STAIR_RATE_UP : STAIR_RATE_DOWN) * m.cfg.width,
+              node: fb,
+              exitNode: fa,
+              ride: fride,
+              batch: 1,
+              cycle: 0,
+            })
+            edges.push({ from: fb, to: fa, cost: fride, kind: KIND_STAIR, server: idUp })
+          }
         } else {
           const ride = LIFT_CYCLE
           const id = addServer({

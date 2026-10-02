@@ -44,7 +44,7 @@ export const FINISH_LIST: readonly FinishDef[] = [
   { id: 'wall.plaster', label: '涂料', family: 'wall', speed: 1.0, cover: false, look: 'plaster', tint: 0xe4e6ea },
   { id: 'wall.enamel', label: '搪瓷板', family: 'wall', speed: 1.0, cover: false, look: 'enamel', tint: 0x2f7ef2 },
   { id: 'wall.stainless', label: '拉丝不锈钢', family: 'wall', speed: 1.0, cover: false, look: 'stainless', tint: 0x9aa2ab },
-  { id: 'wall.soil', label: '土体', family: 'wall', speed: 1.0, cover: false, look: 'soil', tint: 0x232a34 },
+  { id: 'wall.soil', label: '土墙', family: 'wall', speed: 1.0, cover: false, look: 'soil', tint: 0x232a34 },
 ] as const
 
 const BY_ID = new Map<FinishId, FinishDef>(FINISH_LIST.map((f) => [f.id, f]))

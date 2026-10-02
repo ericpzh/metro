@@ -12,12 +12,18 @@ import {
   createModelMaterials,
   disposeModelMaterials,
   disposeObject,
+  rollEscalator,
   setDoors,
+  setGateWing,
+  type EscalatorRoll,
   type ModelMaterials,
   type ModuleContext,
 } from './models.ts'
 import { finishMapOf } from '../sim/finishes.ts'
+import { OPENING_CEILING } from '../sim/openings.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
+import { stairLevels, stairTurnCells } from '../sim/stairs.ts'
+import { facilityWallCells } from '../build/model.ts'
 import type { StockClass } from '../sim/stock.ts'
 import type { Face, FinishId, Module, StationData } from '../sim/types.ts'
 import { packKey } from '../sim/types.ts'
@@ -49,6 +55,16 @@ const AGENT_COLORS = [0xe4572e, 0xf2a541, 0xf7d84b, 0x3fb27f, 0x42a5c4, 0xb07cc6
  *  `TRAIN_DOOR_TRAVEL`; the renderer eases toward the commanded state). */
 const DOOR_TRAVEL_S = 2
 
+/** Sim seconds a turnstile leaf takes to slide open, hold, and shut. */
+const GATE_OPEN_S = 0.25
+const GATE_HOLD_S = 0.45
+const GATE_SHUT_S = 0.35
+/** Half a gate cell: the lane plane sits at the cell centre, so a passenger at
+ *  least this far out is outside the turnstile footprint (see `GATE_CLEAR_RADIUS`,
+ *  which holds the queue at 0.62 m). Used to tell "stepping into the gate" from
+ *  "waiting outside it". */
+const GATE_EDGE = 0.5
+
 /**
  * Mouse edge pan: with the pointer inside this band along a canvas edge the
  * camera drifts that way, and a corner pushes two axes at once — WASD panning
@@ -59,6 +75,11 @@ const EDGE_PAN_PX = 26
 
 /** Most cells one drag preview can highlight at once (the ghost instance pool). */
 const GHOST_MAX = 4096
+
+/** Hue the module hover ghost fades toward, matching the placement cursor. */
+const MODULE_GHOST_TINT = new THREE.Color(0x7fe4ff)
+/** Hue the ghost turns when the placement would collide with existing equipment. */
+const MODULE_GHOST_BAD = new THREE.Color(0xff5d5d)
 
 /** Outward normal of each face, in cell units; also the paint plane's axis. */
 const FACE_NORMAL: Record<Face, [number, number, number]> = {
@@ -133,6 +154,31 @@ interface TrainEntry {
   active: boolean
 }
 
+/**
+ * One turnstile, driven as a one-passenger-at-a-time leaf. The gate is not a
+ * proximity switch that stays open while a queue waits: a passenger walking
+ * through the lane is one crossing, which opens the leaf, holds it for that
+ * passenger, then shuts it — the next passenger waits for the next cycle.
+ */
+interface GateWing {
+  /** The gate group; `setGateWing` compresses its leaf into the cabinet. */
+  root: THREE.Object3D
+  /** The lane centre — the graph node — in world space. */
+  x: number
+  y: number
+  z: number
+  /** Crossing axis is world Y (gate rot even); world X otherwise. */
+  axisY: boolean
+  /** Passengers seen crossing since the last cycle began. */
+  pending: number
+  /** Seconds the leaf stays open for the passenger being served now. */
+  hold: number
+  /** 0 shut … 1 slid open. */
+  open: number
+  /** Eased target: 1 while letting a passenger through, else 0. */
+  target: number
+}
+
 export class SceneRenderer {
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
@@ -149,10 +195,38 @@ export class SceneRenderer {
   private outlineMeshes: THREE.Mesh[] = []
 
   private moduleMeshes: THREE.Group = new THREE.Group()
+  /** The last station document, so a hover ghost can be built through the models. */
+  private stationData: StationData | null = null
+  /** Cells whose top finish is the track bed, for the same preview context. */
+  private trackCellSet = new Set<string>()
+  /**
+   * Stair turn-landing cells. The sim keeps them as walkable nodes, but the
+   * stair model draws the platform, so the chunk mesher skips them. A reused
+   * 1 m block there would read as a floating cube, not a staircase landing.
+   */
+  private hiddenCells = new Set<number>()
+  /**
+   * Invisible full-cell boxes standing in for a shop's hidden wall voxels, so a
+   * right-click still picks the wall cell (the thin panel is module geometry,
+   * which the picking path does not see).
+   */
+  private wallPick = new THREE.Group()
+  private wallPickGeo = new THREE.BoxGeometry(1, 1, 1)
+  private wallPickMat = new THREE.MeshBasicMaterial({ visible: false })
+  /** Hover preview: a translucent copy of the module a click would place. */
+  private previewGroup: THREE.Group = new THREE.Group()
+  private previewKey = ''
+  /** Materials/geometries owned by the current preview, disposed on replacement. */
+  private previewMats: THREE.Material[] = []
+  private previewBases: THREE.Material[] = []
   private trainGroup: THREE.Group = new THREE.Group()
   private trainSlots = new Map<string, TrainEntry>()
   /** Platform-screen-door groups, keyed to the line colour that opens them. */
   private psdGroups: Array<{ group: THREE.Object3D; colour: number }> = []
+  /** Live escalator step bands, rolled every frame from the sim clock. */
+  private escalatorRolls: EscalatorRoll[] = []
+  /** Turnstile leaves, slid open as the crowd passes through their lanes. */
+  private gateWings: GateWing[] = []
   private grid: THREE.Group = new THREE.Group()
   private cursor: THREE.Mesh
   /** Remove-drag preview: one red box per pending-delete block (§9.5). */
@@ -169,6 +243,12 @@ export class SceneRenderer {
   private blobs: THREE.InstancedMesh
   private overlay: THREE.InstancedMesh | null = null
   private zoneOverlay: THREE.InstancedMesh | null = null
+  /** Flat text labels naming the zone of each area, shown with the zone map. */
+  private zoneLabels: THREE.Group = new THREE.Group()
+  /** One label material per zone, cached: the text texture is the same everywhere. */
+  private zoneLabelMats = new Map<number, THREE.MeshBasicMaterial>()
+  /** Shared quad the zone labels are drawn on, so a rebuild allocates no geometry. */
+  private zoneLabelGeo: THREE.PlaneGeometry | null = null
   private prev = new Float32Array(0)
   private cur = new Float32Array(0)
   /** Frame-to-frame id -> slot lookups, so interpolation pairs the same agent. */
@@ -268,8 +348,12 @@ export class SceneRenderer {
 
     this.scene.add(this.grid)
     this.scene.add(this.moduleMeshes)
+    this.scene.add(this.wallPick)
     this.scene.add(this.trainGroup)
     this.scene.add(this.ghostGroup)
+    this.scene.add(this.zoneLabels)
+    this.previewGroup.visible = false
+    this.scene.add(this.previewGroup)
 
     // Agents. Prison Architect register: a limb-less body ("Shape"), a head and
     // a hair cap, so 3,000 people are still three instanced draws. The body
@@ -315,6 +399,37 @@ export class SceneRenderer {
   setStation(data: StationData, trackCells: Set<number> = new Set()): void {
     this.solid = buildSolidSet(data.cells)
     this.finishes = finishMapOf(data.cells)
+    this.stationData = data
+    this.trackCellSet = new Set<string>()
+    for (const c of data.cells) if (c.fill === 'solid' && c.finish?.top === 'floor.track') this.trackCellSet.add(`${c.x},${c.y},${c.z}`)
+    // A stair's turn landing is drawn by the stair model, not the block mesher.
+    const solidKeys = new Set<number>()
+    for (const c of data.cells) if (c.fill === 'solid') solidKeys.add(packKey(c.x, c.y, c.z))
+    this.hiddenCells = new Set<number>()
+    for (const m of data.modules) {
+      if (m.type !== 'stair') continue
+      for (const p of stairTurnCells(m)) {
+        const k = packKey(p.x, p.y, p.z)
+        if (solidKeys.has(k)) this.hiddenCells.add(k)
+      }
+    }
+    // A shop's auto walls are drawn as thin panels by the shop model, so hide
+    // their 1 m voxels and leave invisible pick boxes behind: the right-click
+    // wall tools still have to find the cell they act on.
+    this.wallPick.clear()
+    for (const m of data.modules) {
+      if (m.type !== 'shop') continue
+      for (const [x, y, z] of facilityWallCells(data.cells, m)) {
+        const k = packKey(x, y, z)
+        if (!solidKeys.has(k)) continue
+        this.hiddenCells.add(k)
+        const proxy = new THREE.Mesh(this.wallPickGeo, this.wallPickMat)
+        proxy.position.set(x + 0.5, y + 0.5, z + 0.5)
+        this.wallPick.add(proxy)
+      }
+    }
+    this.wallPick.updateMatrixWorld(true)
+    this.clearModulePreview()
     this.disposeChunks()
     const t0 = performance.now()
     this.lastChunkMs = 0
@@ -353,9 +468,13 @@ export class SceneRenderer {
       entry.cells.push({ x: c.x, y: c.y })
     }
     // Solid set of just those unsupported plates, for meshing them on their own.
+    // A block a ramp carve orphaned is skipped: it is the ceiling over that
+    // opening (tagged by `carveRampOpenings`), so it belongs to the storey below
+    // and is cut with it rather than ghosted above the active level.
     const floating = new Set<number>()
     for (const c of data.cells) {
       if (c.fill !== 'solid') continue
+      if (c.tags?.includes(OPENING_CEILING)) continue
       if (bandOf(c.z) === this.groundOf.get(`${c.x},${c.y}`)) floating.add(packKey(c.x, c.y, c.z))
     }
     const box = new THREE.Box3()
@@ -367,7 +486,7 @@ export class SceneRenderer {
         const k = `${cx},${cy}`
         if (seen.has(k)) continue
         seen.add(k)
-        const chunk = meshChunk(solid, this.finishes, cx, cy, band.zLo, band.zHi)
+        const chunk = meshChunk(solid, this.finishes, cx, cy, band.zLo, band.zHi, undefined, this.hiddenCells)
         if (chunk.triangles === 0) continue
         this.lastChunkMs = Math.max(this.lastChunkMs, chunk.ms)
         // One mesh per finish, sharing the chunk geometry where faces agree.
@@ -413,7 +532,7 @@ export class SceneRenderer {
     const clipY = box.min.y + (box.max.y - box.min.y) * 0.5
     this.clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), clipY)
     void t0
-    this.pickables = [...this.chunkMeshes]
+    this.pickables = [...this.chunkMeshes, ...this.wallPick.children]
     this.applyLevel()
   }
 
@@ -438,7 +557,7 @@ export class SceneRenderer {
     this.clearModules()
     const trackCells = new Set<string>()
     for (const c of data.cells) if (c.fill === 'solid' && c.finish?.top === 'floor.track') trackCells.add(`${c.x},${c.y},${c.z}`)
-    const ctx: ModuleContext = { mats: this.modelMats, data, trackCells }
+    const ctx: ModuleContext = { mats: this.modelMats, data, trackCells, finish: (id) => this.mats.finish(id) }
     const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
     this.psdGroups = []
     for (const mod of data.modules) {
@@ -448,10 +567,22 @@ export class SceneRenderer {
       const ground = this.groundOf.get(`${mod.x},${mod.y}`)
       group.userData.groundBand = ground
       this.moduleMeshes.add(group)
+      if (mod.type === 'escalator') {
+        const roll = group.userData.escalator as EscalatorRoll | undefined
+        if (roll) this.escalatorRolls.push(roll)
+      }
       if (mod.type === 'platform-edge') {
         const line = data.lines.find((l) => l.id === mod.cfg.line)
         const colour = line ? parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0 : 0x1f5fd0
         this.psdGroups.push({ group, colour })
+      }
+      if (mod.type === 'gate') {
+        if (group.userData.wing) {
+          // The leaf's length runs along local x, so it blocks local y; a 90°
+          // rotation swaps the world crossing axis to x.
+          const axisY = (mod.rot ?? 0) % 2 === 0
+          this.gateWings.push({ root: group, x: mod.x + 0.5, y: mod.y + 0.5, z: mod.z + 1, axisY, pending: 0, hold: 0, open: 0, target: 0 })
+        }
       }
       const r = blobRadius(mod.type)
       if (r > 0) {
@@ -494,6 +625,8 @@ export class SceneRenderer {
       disposeObject(child)
       this.moduleMeshes.remove(child)
     }
+    this.escalatorRolls.length = 0
+    this.gateWings.length = 0
   }
 
   /**
@@ -576,6 +709,85 @@ export class SceneRenderer {
     const t = target > cur ? Math.min(target, cur + step) : Math.max(target, cur - step)
     root.userData.doorT = t
     setDoors(root, t)
+  }
+
+  /**
+   * Roll every escalator's step band by the same simulated time the crowd
+   * advances, so the steps move at `ESCALATOR_SPEED` m/s however fast the clock
+   * runs. Called with `simDt`, not wall time.
+   */
+  private updateEscalators(simDt: number): void {
+    for (const roll of this.escalatorRolls) rollEscalator(roll, simDt)
+  }
+
+  /**
+   * Count the passengers crossing each gate's lane. Called once per worker
+   * snapshot, because `prev`/`cur` only change then — the per-frame loop in
+   * `animate` would otherwise re-count the same step dozens of times. A
+   * passenger is counted when its step crosses the lane plane (previous →
+   * current): a real pass, not merely queueing nearby.
+   */
+  private detectGateCrossings(): void {
+    const n = this.agentCount
+    if (n === 0 || this.gateWings.length === 0) return
+    for (let i = 0; i < n; i++) {
+      const o = i * 6
+      const p = i * 3
+      const ax = this.cur[o]
+      const ay = this.cur[o + 1]
+      const az = this.cur[o + 2]
+      const bx = this.prev[p]
+      const by = this.prev[p + 1]
+      const bz = this.prev[p + 2]
+      for (const g of this.gateWings) {
+        // Gate lanes live on one storey; skip agents on another.
+        if (Math.abs(az - g.z) > 0.75 && Math.abs(bz - g.z) > 0.75) continue
+        // The clearance between queued bodies and the node means a genuine
+        // crossing always has a sizeable step along the crossing axis; a
+        // walker drifting along the gate row does not.
+        const sPrev = (g.axisY ? by : bx) - (g.axisY ? g.y : g.x)
+        const sCur = (g.axisY ? ay : ax) - (g.axisY ? g.y : g.x)
+        // The queue is held outside the gate cell, so only a passenger that was
+        // outside can be entering: either stepping in past the cell edge, or
+        // jumping clean across to the far side in one snapshot at speed.
+        if (Math.abs(sPrev) < GATE_EDGE) continue
+        const inside = Math.abs(sCur) < GATE_EDGE
+        const crossed = (sPrev < 0) !== (sCur < 0)
+        if (!inside && !crossed) continue
+        if (Math.abs(sCur - sPrev) < 0.12) continue
+        const lat = g.axisY ? (bx + ax) / 2 - g.x : (by + ay) / 2 - g.y
+        if (Math.abs(lat) > 0.45) continue
+        if (g.pending < 4) g.pending++
+      }
+    }
+  }
+
+  /**
+   * Advance every turnstile's cycle. Each counted crossing queues one
+   * open/hold/close cycle, and the next can start only once the leaf is fully
+   * shut — so one passenger passes, the gate closes, then reopens for the next,
+   * instead of being held open by whoever is waiting.
+   */
+  private updateGates(simDt: number): void {
+    for (const g of this.gateWings) this.stepGateWing(g, simDt)
+  }
+
+  /** Run one gate's open/hold/close cycle, starting the next only once shut. */
+  private stepGateWing(g: GateWing, simDt: number): void {
+    if (g.hold > 0) {
+      g.hold -= simDt
+      g.target = 1
+    } else if (g.open === 0 && g.pending > 0) {
+      g.pending--
+      g.hold = GATE_HOLD_S
+      g.target = 1
+    } else {
+      g.target = 0
+    }
+    if (g.open === g.target) return
+    const rate = (g.target > g.open ? 1 / GATE_OPEN_S : 1 / GATE_SHUT_S) * simDt
+    g.open = g.target > g.open ? Math.min(g.target, g.open + rate) : Math.max(g.target, g.open - rate)
+    setGateWing(g.root, g.open)
   }
 
   /**
@@ -798,6 +1010,8 @@ export class SceneRenderer {
     this.nextId = prevId
     this.agentCount = count
     this.lastStateTime = performance.now()
+    // One crossing count per worker snapshot, now that `prev`/`cur` are final.
+    this.detectGateCrossings()
   }
 
   setDensity(nodes: Float32Array, density: Float32Array, on: boolean): void {
@@ -837,8 +1051,18 @@ export class SceneRenderer {
     if (this.overlay) this.overlay.visible = on
   }
 
-  /** Fare-zone tint (§4.5): one quad per exposed floor cell, coloured by zone. */
-  setZoneOverlay(quads: Float32Array, zones: Uint8Array, on: boolean): void {
+  /**
+   * Fare-zone map (§4.5): one tinted quad per walkable floor cell and a flat
+   * text label naming the zone at the centre of each contiguous area. The quads
+   * carry the zone colour, the labels the zone's name, so the toggle answers
+   * both "which colour" and "which zone" at a glance.
+   */
+  setZoneOverlay(
+    quads: Float32Array,
+    zones: Uint8Array,
+    labels: Array<{ x: number; y: number; z: number; zone: number }>,
+    on: boolean,
+  ): void {
     const n = zones.length
     if (!this.zoneOverlay || this.zoneOverlay.count !== n) {
       if (this.zoneOverlay) {
@@ -864,6 +1088,54 @@ export class SceneRenderer {
     this.zoneOverlay.instanceMatrix.needsUpdate = true
     if (this.zoneOverlay.instanceColor) this.zoneOverlay.instanceColor.needsUpdate = true
     this.zoneOverlay.visible = on
+    this.buildZoneLabels(labels, on)
+  }
+
+  /** Rebuild the flat zone-name labels (one per contiguous zone area). */
+  private buildZoneLabels(labels: Array<{ x: number; y: number; z: number; zone: number }>, on: boolean): void {
+    this.clearZoneLabels()
+    if (!this.zoneLabelGeo) this.zoneLabelGeo = new THREE.PlaneGeometry(3.2, 1.2)
+    for (const l of labels) {
+      const mesh = new THREE.Mesh(this.zoneLabelGeo, this.zoneLabelMaterial(l.zone))
+      mesh.position.set(l.x, l.y, l.z)
+      mesh.renderOrder = 3
+      mesh.frustumCulled = false
+      this.zoneLabels.add(mesh)
+    }
+    this.zoneLabels.visible = on && labels.length > 0
+  }
+
+  private clearZoneLabels(): void {
+    for (const child of [...this.zoneLabels.children]) this.zoneLabels.remove(child)
+  }
+
+  /** One cached text material per zone, drawn as a dark pill in the zone colour. */
+  private zoneLabelMaterial(index: number): THREE.MeshBasicMaterial {
+    let m = this.zoneLabelMats.get(index)
+    if (m) return m
+    const def = ZONE_LIST[index]
+    const c = document.createElement('canvas')
+    c.width = 256
+    c.height = 96
+    const g = c.getContext('2d') as CanvasRenderingContext2D
+    const hex = `#${(def?.colour ?? 0x888888).toString(16).padStart(6, '0')}`
+    g.beginPath()
+    g.roundRect(8, 8, c.width - 16, c.height - 16, 20)
+    g.fillStyle = 'rgba(9,13,19,0.78)'
+    g.fill()
+    g.lineWidth = 5
+    g.strokeStyle = hex
+    g.stroke()
+    g.fillStyle = '#ffffff'
+    g.font = 'bold 42px "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif'
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.fillText(def?.label ?? '', c.width / 2, c.height / 2 + 2)
+    const t = new THREE.CanvasTexture(c)
+    t.colorSpace = THREE.SRGBColorSpace
+    m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, side: THREE.DoubleSide })
+    this.zoneLabelMats.set(index, m)
+    return m
   }
 
   /* ------------------------------------------------------------- camera */
@@ -1058,11 +1330,12 @@ export class SceneRenderer {
 
   /**
    * Ghost preview for the active drag (§9.5). A remove drag flags the blocks it
-   * would delete with red boxes; an add drag shows the final shape the pending
-   * cells will take — meshed with the real profile, then drawn translucent — so
-   * the release is not a surprise.
+   * would delete with boxes (red by default, or a caller's colour for a
+   * different meaning — e.g. cyan for a wall opening); an add drag shows the
+   * final shape the pending cells will take — meshed with the real profile, then
+   * drawn translucent — so the release is not a surprise.
    */
-  setGhost(cells: Array<[number, number, number]>, kind: 'add' | 'remove'): void {
+  setGhost(cells: Array<[number, number, number]>, kind: 'add' | 'remove', colour = 0xff5d5d): void {
     if (kind === 'add') {
       if (this.ghostMesh) this.ghostMesh.visible = false
       const key = this.ghostKeyOf(cells)
@@ -1087,7 +1360,7 @@ export class SceneRenderer {
       this.scene.add(this.ghostMesh)
     }
     const m = new THREE.Matrix4()
-    const col = new THREE.Color(0xff5d5d)
+    const col = new THREE.Color(colour)
     // Clamp to the pool capacity, not the previous frame's count — a drag that
     // grows bigger than the last preview must still draw every pending block.
     const n = Math.min(cells.length, GHOST_MAX)
@@ -1223,6 +1496,77 @@ export class SceneRenderer {
     if (this.faceGhost) this.faceGhost.visible = false
   }
 
+  /**
+   * Hover preview for the module tool: a translucent copy of the exact module a
+   * click would place at the hovered cell, so the release is not a surprise. The
+   * model is built through the same factory as a placed module and then every
+   * surface is swapped for a faded clone; passing `null` clears it.
+   */
+  setModulePreview(mod: Module | null, blocked = false): void {
+    const span =
+      mod && mod.type === 'stair'
+        ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}`
+        : mod && mod.type === 'escalator'
+          ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}`
+          : ''
+    const key = mod ? `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}${span}:${blocked ? 'x' : '-'}` : ''
+    if (key === this.previewKey) return
+    this.clearModulePreview()
+    this.previewKey = key
+    if (!mod || !this.stationData) return
+    const ctx: ModuleContext = { mats: this.modelMats, data: this.stationData, trackCells: this.trackCellSet, finish: (id) => this.mats.finish(id), preview: true }
+    const group = buildModule(mod, ctx)
+    if (!group) return
+    const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
+    const shared = new Set<THREE.Material>([
+      ...(Object.values(this.modelMats) as THREE.Material[]),
+      ...this.mats.finishCache.values(),
+      this.mats.outline,
+      this.mats.blob,
+      this.mats.tactile,
+    ])
+    const ghostOf = new Map<THREE.Material, THREE.Material>()
+    group.traverse((o) => {
+      const mesh = o as THREE.Mesh
+      if (!mesh.isMesh) return
+      const base = mesh.material as THREE.Material
+      let ghost = ghostOf.get(base)
+      if (!ghost) {
+        ghost = base.clone()
+        const any = ghost as THREE.MeshStandardMaterial
+        any.transparent = true
+        any.opacity = 0.45
+        any.depthWrite = false
+        any.side = THREE.DoubleSide
+        if (any.color) any.color = any.color.clone().lerp(tint, 0.4)
+        ghostOf.set(base, ghost)
+        this.previewMats.push(ghost)
+        // A factory material may be shared scene-wide; a module-local one (a
+        // printed sign, say) is ours to dispose when the preview moves on.
+        if (!shared.has(base)) this.previewBases.push(base)
+      }
+      mesh.material = ghost
+      mesh.renderOrder = 5
+      mesh.frustumCulled = false
+    })
+    this.previewGroup.add(group)
+    this.previewGroup.visible = true
+  }
+
+  /** Drop the hover preview's geometry and the materials/geometries it owns. */
+  private clearModulePreview(): void {
+    for (const child of [...this.previewGroup.children]) {
+      disposeObject(child)
+      this.previewGroup.remove(child)
+    }
+    for (const m of this.previewMats) m.dispose()
+    for (const m of this.previewBases) m.dispose()
+    this.previewMats.length = 0
+    this.previewBases.length = 0
+    this.previewGroup.visible = false
+    this.previewKey = ''
+  }
+
   setGridVisible(on: boolean): void {
     this.grid.visible = on
   }
@@ -1276,6 +1620,8 @@ export class SceneRenderer {
     if (this.controls.enabled) this.controls.update()
     this.renderAgents(now)
     this.updateTrains(now, dt)
+    this.updateEscalators(dt * (1000 / this.stateIntervalMs))
+    this.updateGates(dt * (1000 / this.stateIntervalMs))
     const cam = this.activeCamera()
     this.ortho.position.copy(this.camera.position)
     this.ortho.quaternion.copy(this.camera.quaternion)
@@ -1376,6 +1722,7 @@ export class SceneRenderer {
     this.renderer.domElement.removeEventListener('pointerup', this.onEdgePointerUp)
     this.disposeChunks()
     this.clearShapeGhost()
+    this.clearModulePreview()
     this.ghostMaterial?.dispose()
     if (this.faceGhost) {
       this.scene.remove(this.faceGhost)
@@ -1387,6 +1734,20 @@ export class SceneRenderer {
     disposeModelMaterials(this.modelMats)
     for (const entry of this.trainSlots.values()) disposeObject(entry.group)
     this.trainSlots.clear()
+    if (this.zoneOverlay) {
+      this.scene.remove(this.zoneOverlay)
+      this.zoneOverlay.geometry.dispose()
+      ;(this.zoneOverlay.material as THREE.Material).dispose()
+      this.zoneOverlay.dispose()
+      this.zoneOverlay = null
+    }
+    this.clearZoneLabels()
+    this.zoneLabelGeo?.dispose()
+    for (const m of this.zoneLabelMats.values()) {
+      m.map?.dispose()
+      m.dispose()
+    }
+    this.zoneLabelMats.clear()
     this.renderer.dispose()
     void this.disposition
   }
@@ -1403,6 +1764,10 @@ function blobRadius(type: Module['type']): number {
     case 'exit':
     case 'lift':
       return 1.2
+    case 'shop':
+    case 'booth':
+    case 'retail':
+      return 0
     default:
       return 0.8
   }
@@ -1412,9 +1777,10 @@ function blobRadius(type: Module['type']): number {
 function moduleLevels(mod: Module): number[] {
   switch (mod.type) {
     case 'escalator':
-    case 'stair':
     case 'lift':
       return [mod.from.z, mod.to.z]
+    case 'stair':
+      return stairLevels(mod)
     default:
       return [mod.z]
   }

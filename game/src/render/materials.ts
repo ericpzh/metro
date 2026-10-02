@@ -231,6 +231,8 @@ function finishMaterial(def: FinishDef): THREE.MeshStandardMaterial {
 export interface MaterialSet {
   /** The material for a finish id (§4.3). Cached. */
   finish: (id: FinishId) => THREE.MeshStandardMaterial
+  /** Every finish material built so far, so a caller can test ownership. */
+  finishCache: Map<FinishId, THREE.MeshStandardMaterial>
   outline: THREE.MeshBasicMaterial
   blob: THREE.MeshBasicMaterial
   /** Transparent floor-decal layer — tactile strips, §4.2. */
@@ -263,5 +265,5 @@ export function createMaterials(): MaterialSet {
     depthWrite: false,
     opacity: 0.95,
   })
-  return { finish, outline, blob, tactile, platform: finish('floor.granite') }
+  return { finish, finishCache: cache, outline, blob, tactile, platform: finish('floor.granite') }
 }

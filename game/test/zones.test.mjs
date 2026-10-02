@@ -5,7 +5,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { buildGraph } from '../src/sim/station.ts'
-import { paintZone, toData, toState, zoneAt } from '../src/build/model.ts'
+import { paintZone, paintZoneCells, toData, toState, zoneAt, zoneMapFloors, zoneRegionLabels } from '../src/build/model.ts'
+import { ZONE_INDEX } from '../src/sim/zones.ts'
 
 /** A 2 m corridor x=0..12, unpaid up to x=4 and paid from x=5, with a line at
  *  the far end. The floor is continuous — only the zone line is in the way. */
@@ -75,4 +76,47 @@ test('zone painting is a bucket and is immutable', () => {
   const one = paintZone(state, 0, 0, 0, 'outside', false)
   assert.equal(zoneAt(one.cells, 0, 0, 0), 'outside')
   assert.equal(zoneAt(one.cells, 1, 0, 0), 'unpaid', 'single-cell paint should not flood')
+})
+
+test('the zone drag paint sets a rectangle, skipping void cells', () => {
+  const state = toState(flatStation({ gate: true }))
+  // A 3x2 patch over cells that all exist, plus one void cell outside the floor.
+  const painted = paintZoneCells(state, [[0, 0, 0], [1, 0, 0], [2, 0, 0], [0, 1, 0], [1, 1, 0], [7, 7, 0]], 'platform')
+  assert.equal(zoneAt(painted.cells, 0, 0, 0), 'platform')
+  assert.equal(zoneAt(painted.cells, 1, 1, 0), 'platform')
+  assert.equal(zoneAt(painted.cells, 5, 0, 0), 'paid', 'the rectangle must not flood past its cells')
+  assert.equal(zoneAt(state.cells, 0, 0, 0), 'unpaid', 'paint mutated the base state')
+  // An empty list, or a patch already in the zone, leaves the state identical.
+  assert.equal(paintZoneCells(state, [], 'platform'), state)
+  assert.equal(paintZoneCells(state, [[0, 0, 0]], 'unpaid'), state)
+})
+
+test('the zone map tints the floor, not a roof or a wall coping', () => {
+  const cells = [
+    { x: 0, y: 0, z: 0, fill: 'solid' },
+    { x: 1, y: 0, z: 0, fill: 'solid', finish: { top: 'floor.soil' } },
+    { x: 2, y: 0, z: 0, fill: 'solid', finish: { top: 'floor.track' } },
+    { x: 3, y: 0, z: 0, fill: 'solid', finish: { top: 'floor.track' } },
+    { x: 3, y: 0, z: 1, fill: 'solid', finish: { top: 'floor.track' } },
+  ]
+  const floors = zoneMapFloors(cells)
+    .map((c) => `${c.x},${c.y},${c.z}`)
+    .sort()
+  // Granite floor and the platform track bed stay; cover soil and the track
+  // coping on top of the wall are structure, not floor.
+  assert.deepEqual(floors, ['0,0,0', '2,0,0'])
+})
+
+test('the zone map labels one area per contiguous zone patch', () => {
+  const state = toState(flatStation({ gate: true }))
+  const labels = zoneRegionLabels(zoneMapFloors(state.cells))
+  // The corridor is unpaid (x 0..4) then paid (x 5..12); two patches, two labels.
+  assert.equal(labels.length, 2)
+  const paid = labels.find((l) => l.zone === ZONE_INDEX.paid)
+  const unpaid = labels.find((l) => l.zone === ZONE_INDEX.unpaid)
+  assert.ok(paid && unpaid, 'both zone patches should be labelled')
+  assert.ok(paid.x > 4.5, 'the paid label belongs to the paid half')
+  assert.ok(unpaid.x < 4.5, 'the unpaid label belongs to the unpaid half')
+  // The label sits on a floor cell of its own zone, at the walk height.
+  assert.equal(zoneAt(state.cells, Math.floor(paid.x), 0, 0), 'paid')
 })

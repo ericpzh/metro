@@ -1,15 +1,20 @@
 :root {
-  --bg: #0b0f16;
-  --panel: #121826;
-  --panel2: #0e131f;
-  --line: #222c3d;
-  --text: #dbe3ef;
-  --muted: #8b97a9;
-  --accent: #4ea8ff;
-  --good: #3fb27f;
-  --warn: #f2a541;
-  --danger: #e4572e;
+  /* Blueprint palette: deep drafting-paper navy, pale ink, cyan accent. */
+  --bg: #06111d;
+  --panel: #0b1b2c;
+  --panel2: #081524;
+  --line: #1d3b58;
+  --text: #d6e7f7;
+  --muted: #7ea6c9;
+  --accent: #55b6ff;
+  --good: #4fd6a3;
+  --warn: #ffc861;
+  --danger: #ff7d5c;
+  --ink: #8fc4ee;
+  --bp-line: rgba(126, 183, 231, 0.3);
+  --bp-grid: rgba(96, 168, 232, 0.1);
   --font: 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+  --mono: 'Cascadia Mono', 'Consolas', 'SFMono-Regular', ui-monospace, monospace;
 }
 
 * {
@@ -28,10 +33,55 @@ body,
   overflow: hidden;
 }
 
+button {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #132a42;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+button:hover {
+  background: #18344f;
+  border-color: #3d6f9f;
+}
+button.primary {
+  background: #1667b8;
+  border-color: #2b8ae0;
+  font-weight: 600;
+}
+button.primary:hover {
+  background: #1a76cf;
+}
+button.ghost {
+  background: transparent;
+}
+button.ghost:hover {
+  background: #10233a;
+}
+.chip {
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+.chip.on,
+.railBtn.on {
+  background: #16374f;
+  border-color: var(--accent);
+  color: #eaf5ff;
+}
+.speeds {
+  display: flex;
+  gap: 4px;
+  margin-left: 6px;
+}
+
 .app {
   display: grid;
   grid-template-rows: 48px 1fr 42px;
   height: 100%;
+  background: var(--bg);
 }
 
 .topbar {
@@ -39,10 +89,9 @@ body,
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  background: var(--panel);
+  background: #0c2136;
   border-bottom: 1px solid var(--line);
 }
-
 .brand {
   display: flex;
   align-items: baseline;
@@ -51,67 +100,384 @@ body,
 .logo {
   font-weight: 700;
   letter-spacing: 2px;
-  color: #eef4ff;
+  color: #eaf5ff;
 }
 .stationName {
   color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+  padding: 3px 6px;
+}
+.stationName:hover {
+  color: #eaf5ff;
+  background: #10233a;
+  border-color: var(--line);
+}
+.stationNameInput {
+  width: 12em;
+  font-family: inherit;
+  font-size: 12px;
+  color: #eaf5ff;
+  background: #081a2c;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 4px 6px;
+  outline: none;
 }
 .spacer {
   flex: 1;
 }
 
-button {
-  font-family: inherit;
-  font-size: 12px;
-  color: var(--text);
-  background: #1a2233;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-button:hover {
-  border-color: #35507a;
-}
-button.primary {
-  background: #1d6fd0;
-  border-color: #2f86f0;
-  font-weight: 600;
-}
-button.ghost {
-  background: transparent;
-}
-.chip {
-  padding: 4px 8px;
-  border-radius: 999px;
-}
-.chip.on,
-.railBtn.on {
-  background: #17324f;
-  border-color: var(--accent);
-  color: #dff0ff;
-}
-.speeds {
-  display: flex;
-  gap: 4px;
-  margin-left: 6px;
-}
-
 .main {
   display: grid;
-  grid-template-columns: 190px 1fr 300px;
+  grid-template-columns: 232px 1fr 300px;
   min-height: 0;
 }
 
+/* ---------------------------------------------------------------- left rail */
+
 .rail {
-  background: var(--panel2);
+  position: relative;
+  background-color: #081a2c;
+  /* A drafting grid — flat lines, no gradient. */
+  background-image:
+    linear-gradient(var(--bp-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bp-grid) 1px, transparent 1px),
+    linear-gradient(rgba(96, 168, 232, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 168, 232, 0.045) 1px, transparent 1px);
+  background-size:
+    40px 40px,
+    40px 40px,
+    8px 8px,
+    8px 8px;
   border-right: 1px solid var(--line);
-  padding: 8px;
-  overflow: auto;
+  padding: 10px 8px 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Reserve the scrollbar's track whether or not it is shown, so a rail that
+     grows past the viewport does not re-flow its square tiles when it appears. */
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #24557f transparent;
+}
+.rail::-webkit-scrollbar {
+  width: 8px;
+}
+.rail::-webkit-scrollbar-thumb {
+  background: #1e4a72;
+  border-radius: 4px;
+}
+
+.railStamp {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
+  border: 1px solid var(--bp-line);
+  border-left: 3px solid var(--accent);
+  border-radius: 0;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  background: #0a2036;
 }
+.railStampTitle {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: #eaf5ff;
+}
+.railStampSub {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+/* Folder ("collapsible menu") — flat bars, a single-line tab, no depth. */
+.folder {
+  margin-bottom: 6px;
+}
+.folderHead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  text-align: left;
+  color: var(--ink);
+  background: #0f2740;
+  border: 1px solid var(--bp-line);
+  border-bottom-color: transparent;
+  border-radius: 0;
+  letter-spacing: 2px;
+}
+.folderHead:hover {
+  background: #143152;
+}
+/* The folder tab: a flat trapezoid that sits proud of the header's top edge.
+   The tabs step progressively rightwards as the folders descend, so they read
+   as one diagonal rather than a vertical stack or a left/right zig-zag. */
+.folderHead::before,
+.folderHead::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  clip-path: polygon(0 100%, 16% 0, 84% 0, 100% 100%);
+}
+.folderHead::before {
+  top: -7px;
+  left: var(--tab-x, 10px);
+  width: var(--tab-w, 60px);
+  height: 7px;
+  background: #2a4d70; /* tab outline */
+}
+.folderHead::after {
+  top: -6px;
+  left: calc(var(--tab-x, 10px) + 1px);
+  width: calc(var(--tab-w, 60px) - 2px);
+  height: 6px;
+  background: #0f2740; /* tab fill */
+}
+.folder.open > .folderHead {
+  border-bottom-color: var(--bp-line);
+  background: #16374f;
+  color: #eaf5ff;
+}
+.folder.open > .folderHead::before {
+  background: #356b9c;
+}
+.folder.open > .folderHead::after {
+  background: #16374f;
+}
+
+/* Tab positions: one diagonal, stepping right as the folders descend. */
+.folder:nth-of-type(1) {
+  --tab-x: 8px;
+}
+.folder:nth-of-type(2) {
+  --tab-x: 18px;
+}
+.folder:nth-of-type(3) {
+  --tab-x: 28px;
+}
+.folder:nth-of-type(4) {
+  --tab-x: 38px;
+}
+.folder:nth-of-type(5) {
+  --tab-x: 48px;
+}
+.folder:nth-of-type(6) {
+  --tab-x: 58px;
+}
+.folder:nth-of-type(7) {
+  --tab-x: 68px;
+}
+.folderName {
+  font-size: 12px;
+}
+.folderCount {
+  font-size: 9px;
+  line-height: 14px;
+  padding: 0 5px;
+  border: 1px solid var(--bp-line);
+  border-radius: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.folderCaret {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 260ms cubic-bezier(0.34, 0.1, 0.2, 1);
+}
+.folder.open .folderCaret {
+  transform: rotate(45deg);
+}
+/* Animated fold: 0fr → 1fr gives a measured, easing height with no magic max. */
+.folderBody {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 280ms cubic-bezier(0.33, 0.05, 0.2, 1);
+}
+.folder.open .folderBody {
+  grid-template-rows: 1fr;
+}
+.folderInner {
+  min-height: 0;
+  overflow: hidden;
+}
+.folderPad {
+  padding: 8px 7px 9px;
+  border: 1px solid var(--bp-line);
+  border-top: none;
+  border-radius: 0;
+  background: #0a1e33;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.folder.open .folderPad {
+  opacity: 1;
+  transition: opacity 260ms ease 60ms;
+}
+
+/* Square block grid — two columns, flat surfaces. */
+.blockGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.blockGrid.two {
+  margin-top: 6px;
+}
+.blockGrid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 2px;
+}
+.blockGrid + .blockGrid {
+  margin-top: 6px;
+}
+
+.bpBlock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  text-align: center;
+  color: var(--ink);
+  background: #0e2338;
+  border: 1px solid var(--bp-line);
+  border-radius: 0;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.bpBlock:hover {
+  background: #13304c;
+  border-color: rgba(85, 182, 255, 0.65);
+}
+/* Technical dashed inner frame. */
+.bpBlock::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px dashed rgba(126, 183, 231, 0.18);
+  border-radius: 0;
+  pointer-events: none;
+}
+.bpBlock.on {
+  border-color: var(--accent);
+  background: #16374f;
+}
+.bpBlock.on::after {
+  border-color: rgba(85, 182, 255, 0.5);
+}
+.bpBlockArt {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.bpBlockArt img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.bpBlockArt svg {
+  width: 34px;
+  height: 34px;
+  opacity: 0.92;
+}
+.bpTone {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+}
+.bpBlockLabel {
+  flex: none;
+  padding: 3px 2px 4px;
+  font-size: 10.5px;
+  line-height: 1.15;
+  color: var(--muted);
+  border-top: 1px solid rgba(126, 183, 231, 0.14);
+  background: #0a1a2b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bpBlock.on .bpBlockLabel {
+  color: #eaf5ff;
+}
+
+/* Sub-menu tile caret + the nested panel it folds out. */
+.bpCaret {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--ink);
+  border-bottom: 1.5px solid var(--ink);
+  transform: rotate(45deg);
+  transition: transform 240ms cubic-bezier(0.33, 0.05, 0.2, 1);
+}
+.bpCaret.on {
+  transform: rotate(-135deg);
+}
+.subMenu {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 260ms cubic-bezier(0.33, 0.05, 0.2, 1);
+}
+.subMenu.open {
+  grid-template-rows: 1fr;
+}
+.subMenuInner {
+  min-height: 0;
+  overflow: hidden;
+}
+.subMenuPad {
+  margin: 6px 0 2px 12px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(85, 182, 255, 0.4);
+}
+
+.bpSub {
+  margin-top: 9px;
+}
+.bpSubTitle {
+  margin: 0 2px 5px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--ink);
+  opacity: 0.8;
+}
+.bpReadout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--bp-line);
+  border-radius: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.bpReadout b {
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+/* Legacy rail classes kept for the inspector and any host embedding the panel. */
 .railBtn {
   text-align: left;
   width: 100%;
@@ -138,10 +504,11 @@ button.ghost {
 }
 .groupTitle {
   margin-top: 8px;
-  color: var(--muted);
+  color: var(--ink);
   font-size: 11px;
   letter-spacing: 1px;
   text-transform: uppercase;
+  opacity: 0.85;
 }
 .hint {
   color: var(--muted);
@@ -171,12 +538,12 @@ button.ghost {
 }
 .swatchBtn.on {
   border-color: var(--accent);
-  background: #17324f;
+  background: #16374f;
 }
 .finishDot {
   width: 12px;
   height: 12px;
-  border-radius: 3px;
+  border-radius: 0;
   border: 1px solid rgba(255, 255, 255, 0.25);
   flex: none;
 }
@@ -186,9 +553,9 @@ button.ghost {
   left: 50%;
   bottom: 58px;
   transform: translateX(-50%);
-  background: rgba(18, 24, 38, 0.95);
+  background: #0b1b2c;
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 8px 14px;
   cursor: pointer;
   z-index: 10;
@@ -210,9 +577,10 @@ button.ghost {
   left: 10px;
   bottom: 8px;
   color: var(--muted);
-  background: rgba(11, 15, 22, 0.7);
+  background: #06111d;
+  border: 1px solid var(--line);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: 0;
   pointer-events: none;
 }
 
@@ -230,18 +598,20 @@ button.ghost {
   touch-action: none;
 }
 .viewCube {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 6px;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: linear-gradient(155deg, rgba(26, 34, 51, 0.92), rgba(11, 16, 25, 0.94));
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(9px);
+  border-radius: 0;
+  background: #0b1f36;
   cursor: grab;
 }
 .viewCube:active {
   cursor: grabbing;
 }
-.viewCube svg {
+.viewCube > svg {
   display: block;
   width: 150px;
   height: 150px;
@@ -322,6 +692,35 @@ button.ghost {
 .cubeAxis line {
   opacity: 0.9;
 }
+.viewHomeBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #12283d;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  color: var(--muted);
+  cursor: pointer;
+}
+.viewHomeBtn:hover {
+  color: #dff0ff;
+  border-color: rgba(150, 180, 220, 0.5);
+  background: rgba(85, 182, 255, 0.18);
+}
+.viewHomeBtn svg {
+  display: block;
+  width: 14px !important;
+  height: 14px !important;
+  flex: none;
+}
 
 .depthRail {
   position: relative;
@@ -330,10 +729,8 @@ button.ghost {
   flex-direction: column;
   padding: 10px 6px 6px;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: linear-gradient(155deg, rgba(26, 34, 51, 0.92), rgba(11, 16, 25, 0.94));
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(9px);
+  border-radius: 0;
+  background: #0b1f36;
 }
 .depthTrack {
   position: relative;
@@ -348,8 +745,8 @@ button.ghost {
   bottom: 0;
   width: 2px;
   transform: translateX(-50%);
-  border-radius: 2px;
-  background: linear-gradient(180deg, rgba(78, 168, 255, 0.5), rgba(78, 168, 255, 0.12));
+  border-radius: 0;
+  background: #23466b;
 }
 .depthDot {
   position: absolute;
@@ -365,15 +762,14 @@ button.ghost {
   height: 6px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
-  background: #3a4a63;
-  border: 1px solid #5b6d8a;
+  background: #2f4763;
+  border: 1px solid #527199;
 }
 .depthDot.on i {
   width: 10px;
   height: 10px;
   background: var(--accent);
   border-color: #bfe6ff;
-  box-shadow: 0 0 10px rgba(78, 168, 255, 0.9);
 }
 .depthChip {
   position: absolute;
@@ -384,10 +780,9 @@ button.ghost {
   gap: 5px;
   white-space: nowrap;
   padding: 2px 7px;
-  border-radius: 7px;
-  background: rgba(14, 19, 31, 0.92);
-  border: 1px solid rgba(78, 168, 255, 0.5);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  border-radius: 0;
+  background: #0b1f36;
+  border: 1px solid rgba(85, 182, 255, 0.5);
   pointer-events: none;
 }
 .depthChip b {
@@ -416,7 +811,7 @@ button.ghost {
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 8px;
   margin-bottom: 6px;
   display: flex;
@@ -435,7 +830,7 @@ button.ghost {
   display: inline-block;
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: 0;
   margin-right: 4px;
 }
 .field {
@@ -466,7 +861,7 @@ input[type='range'] {
   align-items: center;
   gap: 14px;
   padding: 0 12px;
-  background: var(--panel);
+  background: #0c2136;
   border-top: 1px solid var(--line);
   overflow-x: auto;
 }
@@ -501,11 +896,10 @@ input[type='range'] {
   top: 20px;
   left: 20px;
   width: 380px;
-  background: rgba(14, 19, 31, 0.92);
+  background: #0b1f36;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 16px;
-  backdrop-filter: blur(6px);
 }
 .labPanel h1 {
   margin: 0 0 6px;
@@ -531,4 +925,63 @@ input[type='range'] {
 .back {
   color: var(--accent);
   text-decoration: none;
+}
+
+/* Mobile gate: the plain page a phone or tablet gets instead of the game. */
+.mobileGate {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  /* The same drafting grid the left rail uses. */
+  background-color: #081a2c;
+  background-image:
+    linear-gradient(var(--bp-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bp-grid) 1px, transparent 1px),
+    linear-gradient(rgba(96, 168, 232, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 168, 232, 0.045) 1px, transparent 1px);
+  background-size:
+    40px 40px,
+    40px 40px,
+    8px 8px,
+    8px 8px;
+}
+.mobileCard {
+  width: min(100%, 460px);
+  background: #0b1f36;
+  border: 1px solid var(--bp-line);
+  border-left: 3px solid var(--accent);
+  padding: 26px 24px;
+}
+.mobileBrand {
+  font-size: 11px;
+  letter-spacing: 5px;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.mobileCard h1 {
+  margin: 0 0 12px;
+  font-size: 24px;
+  letter-spacing: 1px;
+  color: #eaf5ff;
+}
+.mobileLead {
+  margin: 0 0 8px;
+  line-height: 1.75;
+}
+.mobileCard .muted {
+  margin: 0;
+  line-height: 1.75;
+}
+.mobileWhy {
+  margin: 18px 0;
+  padding-left: 18px;
+  line-height: 1.9;
+  color: var(--ink);
+}
+.mobileCopy {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
 }

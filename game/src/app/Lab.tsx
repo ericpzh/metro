@@ -38,7 +38,7 @@ export function Lab(): React.ReactElement {
       <canvas ref={canvasRef} className="viewport" />
       <div className="labPanel">
         <h1>材质试验台</h1>
-        <p className="muted">一块 8×8 板，中间开洞，远侧有台阶。若这个观感能接受，才把它用作游戏本体。</p>
+        <p className="muted">一块 8×8 的板，中间开个洞，远侧有台阶。观感先在这看，觉得行再拿去当游戏本体。</p>
         <ul>
           <li>
             <b>圆角自铺装</b>：8 邻域掩码，暴露顶边 12.5 cm 倒角，外侧圆角。

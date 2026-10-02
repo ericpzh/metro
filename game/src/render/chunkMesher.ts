@@ -184,6 +184,7 @@ export function meshChunk(
   cz: number,
   zEnd: number = cz + CHUNK - 1,
   emit?: Set<number>,
+  skip?: Set<number>,
 ): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
   const isSolid = (x: number, y: number, z: number): boolean => solid.has(key(x, y, z))
@@ -206,6 +207,7 @@ export function meshChunk(
     for (let y = cy; y < cy + CHUNK; y++) {
       for (let z = cz; z <= zEnd; z++) {
         if (!isSolid(x, y, z)) continue
+        if (skip !== undefined && skip.has(key(x, y, z))) continue
         if (emit !== undefined && !emit.has(key(x, y, z))) continue
         const up = !isSolid(x, y, z + 1)
         const down = !isSolid(x, y, z - 1)

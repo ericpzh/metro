@@ -39,7 +39,7 @@ export default function Lightbox({ art, onClose }) {
             onClick={() => setFull((f) => !f)}
             aria-pressed={full}
           >
-            {full ? '缩回屏幕' : '看原图'}
+            {full ? '适应屏幕' : '看原图'}
           </button>
           <button type="button" className="btn btn--small btn--close" onClick={onClose}>
             关掉

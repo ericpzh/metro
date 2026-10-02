@@ -43,6 +43,11 @@ export interface Agent {
   server: number
   /** Gate/stop server already handled on this leg. */
   servedFor: number
+  /**
+   * For a fare gate: the node the passenger approached from, so its wait holds
+   * just outside the gate footprint instead of on the gate node in the lane.
+   */
+  gateWaitNode: number
   /** Direction this agent crosses the fare line at the gate it is queued at. */
   gateDir: GateDir
   /** True once this leg has re-chosen a gate at the fare line. */
@@ -117,6 +122,7 @@ export class AgentPool {
     a.comfort = 1
     a.server = -1
     a.servedFor = -1
+    a.gateWaitNode = -1
     a.gateDir = 0
     a.gateChosen = false
     a.rideT = 0

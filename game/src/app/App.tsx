@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { useStore, MODULE_OPTIONS } from './store.ts'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useStore, isEscalatorType, isRotatableType, isStairType } from './store.ts'
+import { LeftRail } from './LeftRail.tsx'
 import { Viewport } from './Viewport.tsx'
-import { countUpEscalators, paintZone, zoneAt } from '../build/model.ts'
-import { FINISH_LIST, finishLabel } from '../sim/finishes.ts'
+import { paintZone, zoneAt } from '../build/model.ts'
 import { ZONE_LIST, zoneLabel } from '../sim/zones.ts'
 import type { Zone } from '../sim/types.ts'
 import { lineCapacityPerHour, trainRatedCapacity, STOCK } from '../sim/stock.ts'
@@ -10,10 +10,66 @@ import { lineCapacityPerHour, trainRatedCapacity, STOCK } from '../sim/stock.ts'
 const LOS_LABEL: Record<string, string> = { A: 'A 畅通', B: 'B 顺畅', C: 'C 有点挤', D: 'D 拥挤', E: 'E 很挤', F: 'F 挤爆' }
 const SPEEDS = [0, 1, 4, 16]
 
+/**
+ * The station title in the top bar. Click to edit: Enter or blur keeps the
+ * change, Escape throws it away. An empty name is refused by the store.
+ */
+function StationName(): React.ReactElement {
+  const name = useStore((s) => s.station.name)
+  const renameStation = useStore((s) => s.renameStation)
+  const [draft, setDraft] = useState<string | null>(null)
+  const cancelled = useRef(false)
+
+  const start = (): void => {
+    cancelled.current = false
+    setDraft(name)
+  }
+  // Runs on blur and on Enter. Escape flags the field first, so the blur that
+  // follows an unmount does not overwrite the name it just discarded.
+  const save = (): void => {
+    if (cancelled.current) {
+      cancelled.current = false
+      return
+    }
+    if (draft !== null) renameStation(draft)
+    setDraft(null)
+  }
+  const cancel = (): void => {
+    cancelled.current = true
+    setDraft(null)
+  }
+
+  if (draft === null) {
+    return (
+      <button className="stationName" onClick={start} title="点击重命名车站">
+        {name || '未命名车站'}
+      </button>
+    )
+  }
+  return (
+    <input
+      className="stationNameInput"
+      value={draft}
+      autoFocus
+      maxLength={24}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          save()
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          cancel()
+        }
+      }}
+    />
+  )
+}
+
 function TopBar(): React.ReactElement {
   const playing = useStore((s) => s.playing)
   const speed = useStore((s) => s.speed)
-  const name = useStore((s) => s.station.name)
   const setPlaying = useStore((s) => s.setPlaying)
   const setSpeed = useStore((s) => s.setSpeed)
   const newStation = useStore((s) => s.newStation)
@@ -25,7 +81,7 @@ function TopBar(): React.ReactElement {
     <div className="topbar">
       <div className="brand">
         <span className="logo">地铁站设计师</span>
-        <span className="stationName">{name}</span>
+        <StationName />
       </div>
       <div className="spacer" />
       <button className="ghost" onClick={newStation} title="从一块 2×2 空地开始">
@@ -65,162 +121,6 @@ function TopBar(): React.ReactElement {
   )
 }
 
-function LeftRail(): React.ReactElement {
-  const tool = useStore((s) => s.tool)
-  const setTool = useStore((s) => s.setTool)
-  const moduleType = useStore((s) => s.moduleType)
-  const setModuleType = useStore((s) => s.setModuleType)
-  const activeZ = useStore((s) => s.activeZ)
-  const overlayOn = useStore((s) => s.overlayOn)
-  const setOverlay = useStore((s) => s.setOverlay)
-  const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
-  const setZoneOverlay = useStore((s) => s.setZoneOverlay)
-  const cutaway = useStore((s) => s.cutaway)
-  const setCutaway = useStore((s) => s.setCutaway)
-  const ortho = useStore((s) => s.ortho)
-  const setOrtho = useStore((s) => s.setOrtho)
-  const ghost = useStore((s) => s.ghostOtherLevels)
-  const setGhost = useStore((s) => s.setGhostOther)
-  const undo = useStore((s) => s.undo)
-  const redo = useStore((s) => s.redo)
-  return (
-    <div className="rail">
-      <div className="groupTitle">工具</div>
-      <button className={tool === 'select' ? 'railBtn on' : 'railBtn'} onClick={() => setTool('select')}>
-        <b>V</b> 选择
-      </button>
-      <button className={tool === 'block' ? 'railBtn on' : 'railBtn'} onClick={() => setTool('block')}>
-        <b>B</b> 建造 / 拆除
-      </button>
-      <button className={tool === 'module' ? 'railBtn on' : 'railBtn'} onClick={() => setTool('module')}>
-        <b>J</b> 设备
-      </button>
-      {tool === 'module' && (
-        <div className="moduleList">
-          {MODULE_OPTIONS.map((m) => (
-            <button key={m.id} className={moduleType === m.id ? 'chip on' : 'chip'} onClick={() => setModuleType(m.id)}>
-              {m.label}
-            </button>
-          ))}
-        </div>
-      )}
-      <button className={tool === 'paint' ? 'railBtn on' : 'railBtn'} onClick={() => setTool('paint')}>
-        <b>N</b> 材质 / 取色
-      </button>
-      {tool === 'paint' && <PaintPalette />}
-      <button className={tool === 'zone' ? 'railBtn on' : 'railBtn'} onClick={() => setTool('zone')}>
-        <b>Z</b> 分区
-      </button>
-      {tool === 'zone' && <ZonePalette />}
-      <div className="groupTitle">楼层</div>
-      <div className="row">
-        <button className="chip" onClick={() => useStore.getState().stepLevel(1)} title="上一层 (Q)">
-          Q ↑
-        </button>
-        <span className="coord">z = {activeZ}</span>
-        <button className="chip" onClick={() => useStore.getState().stepLevel(-1)} title="下一层 (E)">
-          E ↓
-        </button>
-      </div>
-      <div className="groupTitle">视图</div>
-      <button className={ortho ? 'railBtn on' : 'railBtn'} onClick={() => setOrtho(!ortho)}>
-        <b>O</b> 平面 / 立体
-      </button>
-      <button className={ghost ? 'railBtn on' : 'railBtn'} onClick={() => setGhost(!ghost)}>
-        <b>X</b> 显示其它层
-      </button>
-      <button className={cutaway ? 'railBtn on' : 'railBtn'} onClick={() => setCutaway(!cutaway)}>
-        <b>C</b> 剖开
-      </button>
-      <button className={overlayOn ? 'railBtn on' : 'railBtn'} onClick={() => setOverlay(!overlayOn)}>
-        拥挤热力
-      </button>
-      <button className={zoneOverlayOn ? 'railBtn on' : 'railBtn'} onClick={() => setZoneOverlay(!zoneOverlayOn)}>
-        分区热力
-      </button>
-      <div className="groupTitle">编辑</div>
-      <div className="row">
-        <button className="chip" onClick={undo}>
-          Ctrl+Z 撤销
-        </button>
-        <button className="chip" onClick={redo}>
-          Ctrl+Y 重做
-        </button>
-      </div>
-      <div className="hint">
-        WASD 移动镜头 · Shift 加速 · Q/E 换层 · 鼠标贴边移动
-        <br />
-        中键拖动转视角 · 滚轮缩放
-        <br />
-        拖拽画一片 · Shift+拖拽画直线 · 右键删除
-      </div>
-    </div>
-  )
-}
-
-const PAINT_FAMILIES: Array<{ key: string; label: string; ids: string[] }> = [
-  { key: 'floor', label: '地面 / 轨道', ids: FINISH_LIST.filter((f) => f.family === 'floor' || f.family === 'track').map((f) => f.id) },
-  { key: 'ceiling', label: '天花板', ids: FINISH_LIST.filter((f) => f.family === 'ceiling').map((f) => f.id) },
-  { key: 'wall', label: '墙面', ids: FINISH_LIST.filter((f) => f.family === 'wall').map((f) => f.id) },
-]
-
-function PaintPalette(): React.ReactElement {
-  const mode = useStore((s) => s.paintMode)
-  const finish = useStore((s) => s.paintFinish)
-  const setMode = useStore((s) => s.setPaintMode)
-  const setFinish = useStore((s) => s.setPaintFinish)
-  return (
-    <div className="paintPanel">
-      <div className="row">
-        <button className={mode === 'single' ? 'chip on' : 'chip'} onClick={() => setMode('single')}>
-          单块 N
-        </button>
-        <button className={mode === 'surface' ? 'chip on' : 'chip'} onClick={() => setMode('surface')}>
-          整面 M
-        </button>
-        <button className={mode === 'pick' ? 'chip on' : 'chip'} onClick={() => setMode('pick')}>
-          取色 I
-        </button>
-      </div>
-      {PAINT_FAMILIES.map((fam) => (
-        <div key={fam.key}>
-          <div className="groupTitle">{fam.label}</div>
-          <div className="palette">
-            {fam.ids.map((id) => {
-              const def = FINISH_LIST.find((f) => f.id === id)
-              return (
-                <button key={id} className={finish === id ? 'swatchBtn on' : 'swatchBtn'} title={finishLabel(id)} onClick={() => { setFinish(id); setMode('single') }}>
-                  <i className="finishDot" style={{ background: `#${(def?.tint ?? 0x888888).toString(16).padStart(6, '0')}` }} />
-                  <span>{finishLabel(id)}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
-      <div className="hint">左键刷，拖拽刷一整片；右键还原；整面 = 同一层连成一片的地方</div>
-    </div>
-  )
-}
-
-function ZonePalette(): React.ReactElement {
-  const brush = useStore((s) => s.zoneBrush)
-  const setBrush = useStore((s) => s.setZoneBrush)
-  return (
-    <div className="paintPanel">
-      <div className="palette">
-        {ZONE_LIST.map((z) => (
-          <button key={z.id} className={brush === z.id ? 'swatchBtn on' : 'swatchBtn'} onClick={() => setBrush(z.id)}>
-            <i className="finishDot" style={{ background: `#${z.colour.toString(16).padStart(6, '0')}` }} />
-            <span>{z.label}</span>
-          </button>
-        ))}
-      </div>
-      <div className="hint">左键刷一片。付费区和非付费区之间，只有闸机过得去。</div>
-    </div>
-  )
-}
-
 function ZoneCard(): React.ReactElement | null {
   const selected = useStore((s) => s.selected)
   const station = useStore((s) => s.station)
@@ -250,7 +150,6 @@ function Inspector(): React.ReactElement {
   const station = useStore((s) => s.station)
   const selected = useStore((s) => s.selected)
   const commit = useStore((s) => s.commit)
-  const upEsc = countUpEscalators(station)
 
   const exits = useMemo(() => station.modules.filter((m) => m.type === 'exit'), [station.modules])
   const line = station.lines[0]
@@ -278,15 +177,15 @@ function Inspector(): React.ReactElement {
             <span>类型</span>
             <b>{selected.kind === 'module' ? '设备' : '方块'}</b>
           </div>
-          <div className="muted small">按 Del 删除，上面的设备也一起删掉</div>
+          <div className="muted small">按 Del 删除；上面有设备，就一起拆掉</div>
         </div>
       ) : (
-        <div className="muted small">点一下方块或设备就能选中。</div>
+        <div className="muted small">点一下方块或设备，就能选中。</div>
       )}
       {selected?.kind === 'cell' && <ZoneCard />}
 
       <div className="groupTitle">出入口客流</div>
-      {exits.length === 0 && <div className="muted small">还没有出入口。</div>}
+      {exits.length === 0 && <div className="muted small">还没建出入口。</div>}
       {exits.map((m) =>
         m.type === 'exit' ? (
           <div className="card" key={m.id}>
@@ -316,7 +215,7 @@ function Inspector(): React.ReactElement {
             </b>
           </div>
           <div className="kv">
-            <span>发车间隔</span>
+            <span>高峰发车间隔</span>
             <b>{Math.round(line.headwayProfile.peak)} 秒</b>
           </div>
           <div className="kv">
@@ -329,27 +228,11 @@ function Inspector(): React.ReactElement {
             <span>每列下车 {line.alightPerTrain} 人</span>
             <input type="range" min={0} max={1500} step={10} value={line.alightPerTrain} onChange={(e) => setLine(line.id, { alightPerTrain: Number(e.target.value) })} />
           </label>
-          <div className="muted small">{STOCK[line.stock].doorsPerSide * line.cars} 个车门 · 出站不限速，来多少走多少</div>
+          <div className="muted small">{STOCK[line.stock].doorsPerSide * line.cars} 个车门 · 出站不限流，来多少走多少</div>
         </div>
       ) : (
-        <div className="muted small">还没有线路。</div>
+        <div className="muted small">还没配线路。</div>
       )}
-
-      <div className="groupTitle">站台扶梯（易堵）</div>
-      <div className="card">
-        <div className="kv">
-          <span>上行扶梯</span>
-          <b>{upEsc} 台</b>
-        </div>
-        <div className="row">
-          {[1, 2, 3].map((n) => (
-            <button key={n} className={upEsc === n ? 'chip on' : 'chip'} onClick={() => useStore.getState().setUpEscalators(n)}>
-              {n} 台
-            </button>
-          ))}
-        </div>
-        <div className="muted small">多加几台扶梯，站台就没那么挤；盯着底部的“滞留”看。</div>
-      </div>
     </div>
   )
 }
@@ -371,9 +254,9 @@ function BottomBar(): React.ReactElement {
       <Metric label="时间" value={m ? clock(m.simTime) : '—'} />
       <span className="spacer" />
       <Metric label="FPS" value={stats ? stats.fps : '—'} />
-      <Metric label="计算耗时" value={m ? `${m.tickMs.toFixed(1)} ms` : '—'} />
-      <Metric label="网格耗时" value={stats ? `${stats.lastChunkMs.toFixed(1)} ms · ${stats.chunks}` : '—'} />
-      <Metric label="方块" value={station.cells.length} />
+      <Metric label="仿真耗时" value={m ? `${m.tickMs.toFixed(1)} ms` : '—'} />
+      <Metric label="网格构建" value={stats ? `${stats.lastChunkMs.toFixed(1)} ms · ${stats.chunks}` : '—'} />
+      <Metric label="方块数" value={station.cells.length} />
     </div>
   )
 }
@@ -396,6 +279,7 @@ function Metric({ label, value, warn, tone }: { label: string; value: string | n
 
 export function App(): React.ReactElement {
   const tool = useStore((s) => s.tool)
+  const moduleType = useStore((s) => s.moduleType)
   const setTool = useStore((s) => s.setTool)
   const notice = useStore((s) => s.notice)
 
@@ -420,6 +304,14 @@ export function App(): React.ReactElement {
         case 'j':
           st.setTool('module')
           break
+        case 'r':
+          if (!e.ctrlKey && !e.metaKey && !e.altKey && isRotatableType(st.moduleType)) st.rotateModule()
+          break
+        case 'tab':
+          e.preventDefault()
+          if (isStairType(st.moduleType)) st.cycleStairWidth()
+          else if (isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
+          break
         case 'n':
           st.setTool('paint')
           st.setPaintMode('single')
@@ -433,10 +325,10 @@ export function App(): React.ReactElement {
           st.setPaintMode('pick')
           break
         case 'q':
-          st.stepLevel(1)
+          st.stepLevel(-1)
           break
         case 'e':
-          st.stepLevel(-1)
+          st.stepLevel(1)
           break
         case 'x':
           st.setGhostOther(!st.ghostOtherLevels)
@@ -487,14 +379,18 @@ export function App(): React.ReactElement {
           <Viewport />
           <div className="stageHint">
             {tool === 'block'
-              ? '建造：单击放一块，拖拽画一片，右键删除'
+              ? '建造：单击放一块，按住拖出一片，右键删除'
               : tool === 'module'
-                ? '设备：先在左边选一种，再点地面放下去'
+                ? isStairType(moduleType)
+                  ? '楼梯：点地面放下，能转方向、调宽度，右键拆掉'
+                  : isEscalatorType(moduleType)
+                    ? '扶梯：点地面放下，能转方向、切上下行，右键拆掉'
+                    : '设备：左边选一种，点地面放下，能转方向，右键拆掉'
                 : tool === 'paint'
-                  ? '材质：左键刷一片，拖拽刷一整块，右键还原，I 键取色'
+                  ? '材质：左键刷一格，拖拽刷一片，右键还原，取色能吸'
                   : tool === 'zone'
-                    ? '分区：左键刷一片。付费区和非付费区之间只有闸机过得去'
-                    : '选择：点一下方块或设备，看它的信息'}
+                    ? '分区：左键点或拖框上色；商店/售票亭拖框建，墙上右键开门'
+                    : '选择：点方块或设备，看它是什么'}
           </div>
         </div>
         <Inspector />

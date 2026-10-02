@@ -18,8 +18,10 @@
 // a wall shell wraps each, with doorways where the escalators pass, so the demo
 // reads as a station cut out of the ground rather than a set of loose decks.
 
-import type { Cell, LineDef, Module, StationData, Vec3i } from '../sim/types.ts'
+import type { Cell, LineDef, Module, StationData, StairStyle, Vec3i } from '../sim/types.ts'
 import { carveRampOpenings } from '../sim/openings.ts'
+import { ESCALATOR_RUN, escalatorModule } from '../sim/escalators.ts'
+import { STAIR_RUN, STAIR_WIDTH_NARROW, stairFlightsFor } from '../sim/stairs.ts'
 
 const Z_C = -4 // concourse floor block
 const Z_P = -8 // platform floor block
@@ -34,8 +36,25 @@ function rect(x0: number, x1: number, y0: number, y1: number, z: number, cells: 
   }
 }
 
-function esc(id: string, from: Vec3i, to: Vec3i, dir: 'up' | 'down'): Module {
-  return { id, type: 'escalator', x: from.x, y: from.y, z: from.z, from, to, cfg: { dir } }
+/**
+ * One staircase, one storey, from a list of flights. `flights` is the ordered
+ * run (bottom → top); a single entry is a straight stair, two entries make the
+ * turn at the landing they share. `from`/`to` are the outer landings, so every
+ * consumer that reads a stair as a plain run still works.
+ */
+function stair(id: string, flights: Array<[Vec3i, Vec3i]>, style: StairStyle, width = STAIR_WIDTH_NARROW): Module {
+  const first = flights[0][0]
+  const last = flights[flights.length - 1][1]
+  return {
+    id,
+    type: 'stair',
+    x: first.x,
+    y: first.y,
+    z: first.z,
+    from: first,
+    to: last,
+    cfg: { width, style, flights: flights.map(([from, to]) => ({ from, to })) },
+  }
 }
 
 /** Gate line across the concourse at y = 12, widest available row first. */
@@ -72,10 +91,12 @@ export function referenceStation(variant: StationVariant = {}): StationData {
 
   // Platform: 121 m of floor, 7 m wide, one edge adjacent to the track.
   rect(-60, 60, -6, 0, Z_P, cells)
-  // Concourse: 15 x 25 m box, split by the gate line at y = 12.
+  // Concourse: 15 x 25 m box, split by the gate line at y = 12. The floor is
+  // continuous across the gate row — the fare line is a zone boundary in the
+  // graph, so the gates are the only legal crossing without a gap in the slab.
+  // (The old skip left three orphaned roof blocks floating over the row.)
   const gateXs = gateLine(gates)
-  rect(-7, 7, 0, 24, Z_C, cells, (_x, y) => y === 12)
-  for (const gx of gateXs) cells.push({ x: gx, y: 12, z: Z_C, fill: 'solid' })
+  rect(-7, 7, 0, 24, Z_C, cells)
   // Surface plaza — wide enough for the three exit head-houses in a row and the
   // openings their escalators climb out of.
   rect(-8, 8, 24, 36, Z_G, cells)
@@ -104,10 +125,10 @@ export function referenceStation(variant: StationVariant = {}): StationData {
   })
 
   // --- exits (surface, §5.6) ---------------------------------------------
-  // Each exit is a covered head-house over its own pair of escalators: a down
-  // run and an up run, side by side two metres apart, climbing out of a hole in
-  // the plaza that the exit roof covers. This is what a street exit is — you
-  // walk under the canopy, onto the escalator, and down into the station.
+  // Each exit is a covered head-house over a descending run and an up run, side
+  // by side two metres apart, climbing out of a hole in the plaza that the exit
+  // roof covers. This is what a street exit is — you walk under the canopy, onto
+  // the run, and down into the station. Exit A's descending run is a staircase.
   const exitDefs = [
     { id: 'exit-a', x: -5, y: 30, name: 'A口', inRate: 900 },
     { id: 'exit-b', x: 0, y: 30, name: 'B口', inRate: 900 },
@@ -122,28 +143,45 @@ export function referenceStation(variant: StationVariant = {}): StationData {
       z: Z_G,
       cfg: { name: e.name, inRate: e.inRate, open: true },
     })
-    // Surface <-> concourse, one pair per exit. The down run is the west bay and
-    // the up run the east bay; both land on the exit's own row, so the roof the
-    // exit draws sits over them.
-    modules.push(esc(`esc-gc-down-${e.id}`, { x: e.x - 1, y: e.y, z: Z_G }, { x: e.x - 1, y: e.y - 7, z: Z_C }, 'down'))
-    modules.push(esc(`esc-gc-up-${e.id}`, { x: e.x + 1, y: e.y - 7, z: Z_C }, { x: e.x + 1, y: e.y, z: Z_G }, 'up'))
+    // Surface <-> concourse, one pair per exit, each bay the equipment's fixed
+    // one-storey run: the 扶梯 button's exact piece, `ESCALATOR_RUN` cells of run
+    // over one storey of climb. The down run is the west bay and the up run the
+    // east bay; both land on the exit's own row, so the roof the exit draws sits
+    // over them. Exit A's west bay is a staircase instead of an escalator — a
+    // narrow (escalator-width) straight stair beside the up run, the
+    // reference-art mixed entrance (§3, §5.1).
+    if (e.id === 'exit-a') {
+      const base = { x: e.x - 1, y: e.y - STAIR_RUN, z: Z_C }
+      const flights = stairFlightsFor(base, 0, 'straight')
+      modules.push(stair(`stair-gc-${e.id}`, [[flights[0].from, flights[0].to]], 'straight', STAIR_WIDTH_NARROW))
+    } else {
+      modules.push(escalatorModule({ x: e.x - 1, y: e.y - ESCALATOR_RUN, z: Z_C }, 0, 'down', `esc-gc-down-${e.id}`))
+    }
+    modules.push(escalatorModule({ x: e.x + 1, y: e.y - ESCALATOR_RUN, z: Z_C }, 0, 'up', `esc-gc-up-${e.id}`))
   }
 
   // --- vertical circulation ----------------------------------------------
   // Down and up runs live in separate columns, two metres apart. Two ramps in
   // the same column stack on top of one another (their decks end up ~0.6 m
   // apart), which is impossible and ugly; `rampBlocked` enforces the same rule
-  // for ramps placed by the builder.
+  // for ramps placed by the builder. Each run is the equipment's fixed
+  // one-storey escalator: based on the platform, landing one storey up on the
+  // concourse.
   const cpDownX = [-6, -4]
   const cpUpX = [-2, 0, 2, 4, 6]
   for (let i = 0; i < cpDownX.length && i < down; i++) {
     const x = cpDownX[i]
-    modules.push(esc(`esc-cp-down-${i}`, { x, y: 2, z: Z_C }, { x, y: -3, z: Z_P }, 'down'))
+    modules.push(escalatorModule({ x, y: -3, z: Z_P }, 0, 'down', `esc-cp-down-${i}`))
   }
   for (let i = 0; i < cpUpX.length && i < up; i++) {
     const x = cpUpX[i]
-    modules.push(esc(`esc-cp-up-${i}`, { x, y: -2, z: Z_P }, { x, y: 3, z: Z_C }, 'up'))
+    modules.push(escalatorModule({ x, y: -3, z: Z_P }, 0, 'up', `esc-cp-up-${i}`))
   }
+
+  // --- staircases (楼梯, §5.1) --------------------------------------------
+  // The only pre-placed stair is the straight run that replaces exit A's down
+  // escalator (added in the exit loop above). No free-standing turning stairs:
+  // every stair in the demo surfaces under an exit head-house.
 
   // --- fare control -------------------------------------------------------
   for (let i = 0; i < gateXs.length; i++) {
@@ -159,23 +197,74 @@ export function referenceStation(variant: StationVariant = {}): StationData {
   modules.push({ id: 'bench-1', type: 'bench', x: 0, y: 8, z: Z_C, cfg: {} })
   modules.push({ id: 'bench-2', type: 'bench', x: -8, y: -4, z: Z_P, cfg: {} })
 
+  // --- facility rooms: one shop + one ticket booth (zone-tool rectangles) ---
+  // Same geometry the builder's `placeFacility` produces for a shop: a module
+  // plus walls stacked above the perimeter, skipped where an existing wall
+  // already touches. The demo authors a door opening by leaving a gap (the tool
+  // builds shops sealed; the player cuts openings with a right-click). A booth
+  // has no voxel walls at all — just a desk counter the renderer draws — so it
+  // adds no cells. Built inline (this file feeds `build/model.ts`, so it cannot
+  // import the builder).
+  {
+    const solid = new Set(cells.map((c) => `${c.x},${c.y},${c.z}`))
+    const has = (x: number, y: number, z: number): boolean => solid.has(`${x},${y},${z}`)
+    const wallColumn = (x: number, y: number, z: number): boolean => has(x, y, z) && has(x, y, z + 1)
+    const buildRoom = (
+      id: string,
+      kind: 'shop' | 'booth',
+      x0: number,
+      y0: number,
+      x1: number,
+      y1: number,
+      z: number,
+      door: Array<[number, number]>,
+    ): void => {
+      const wallH = kind === 'shop' ? 3 : 0
+      const doorKeys = new Set(door.map(([x, y]) => `${x},${y},${z}`))
+      for (let x = x0; x <= x1; x++) {
+        for (let y = y0; y <= y1; y++) {
+          if (!(x === x0 || x === x1 || y === y0 || y === y1)) continue
+          if (doorKeys.has(`${x},${y},${z}`)) continue
+          // Skip where an existing wall already touches from the outside.
+          const out: [number, number] = x === x0 ? [x - 1, y] : x === x1 ? [x + 1, y] : y === y0 ? [x, y - 1] : [x, y + 1]
+          if (wallColumn(out[0], out[1], z)) continue
+          for (let dz = 1; dz <= wallH; dz++) {
+            if (has(x, y, z + dz)) continue
+            cells.push({ x, y, z: z + dz, fill: 'solid' })
+            solid.add(`${x},${y},${z + dz}`)
+          }
+        }
+      }
+      modules.push(
+        kind === 'shop'
+          ? { id, type: 'shop', x: x0, y: y0, z, w: x1 - x0 + 1, h: y1 - y0 + 1, cfg: { kind: 'store', door } }
+          : { id, type: 'booth', x: x0, y: y0, z, w: x1 - x0 + 1, h: y1 - y0 + 1, cfg: { kind: 'ticket' } },
+      )
+    }
+    // Shop against the east wall of the paid hall (touches the existing ring,
+    // so that side needs no new wall). Kept clear of the escalator landings
+    // (y <= 3) so the platform exit stays connected. Its street-side opening is
+    // the authored gap at x = 3, y = 5..6.
+    buildRoom('shop-1', 'shop', 3, 4, 7, 7, Z_C, [[3, 5], [3, 6]])
+    // Ticket booth in the middle of the unpaid hall, between the gate line
+    // (y = 12) and the surface escalators (y ~ 23). A desk ring, served from
+    // outside (the crowd stays out of the staff floor).
+    buildRoom('booth-1', 'booth', -4, 14, -1, 17, Z_C, [])
+  }
+
   // --- enclosure ---------------------------------------------------------
   // The concourse is a room, not a floating floor plate: §4.3's wall blocks
   // movement and sight. Run a wall shell one block outside the floor slab so the
   // whole 15 x 25 m hall keeps its floor, four blocks tall from the slab base to
-  // the surface (B1 has 3 m of clear headroom under the plaza slab). The surface
-  // escalators climb out through doorways cut in the north wall where they land;
-  // the ring is then capped with surface blocks, so the wall tops read as the
-  // ground around the station box rather than as loose, walkable parapets.
+  // the surface (B1 has 3 m of clear headroom under the plaza slab). The north
+  // wall runs solid and the surface escalators carve their own doorways through
+  // it at the exact handrail width (`carveRampOpenings`); the ring is then capped
+  // with surface blocks, so the wall tops read as the ground around the station
+  // box rather than as loose, walkable parapets.
   const WALL_TOP = Z_C + 3
-  const escalatorX = new Set<number>()
-  for (const e of exitDefs) {
-    escalatorX.add(e.x - 1)
-    escalatorX.add(e.x + 1)
-  }
   for (let z = Z_C; z <= WALL_TOP; z++) {
     rect(-8, 8, -1, -1, z, cells) // south, behind the paid hall
-    rect(-8, 8, 25, 25, z, cells, (x) => escalatorX.has(x)) // north: the escalator doorways
+    rect(-8, 8, 25, 25, z, cells) // north: the escalators carve their doorways
     rect(-8, -8, 0, 24, z, cells) // west
     rect(8, 8, 0, 24, z, cells) // east
   }
@@ -226,6 +315,11 @@ export function referenceStation(variant: StationVariant = {}): StationData {
       // The fare line is the row of gates at y = 12: everything north of it
       // (toward the street escalators) is unpaid, everything south is paid.
       c.zone = c.y >= 12 ? 'unpaid' : 'paid'
+    } else if (c.z === (Z_C + Z_G) / 2) {
+      // Half/quarter landings of player-placed turning stairs: concourse
+      // granite in the unpaid hall.
+      c.finish = { top: 'floor.granite' }
+      c.zone = 'unpaid'
     } else if (c.z === Z_P) {
       c.finish = { top: c.y <= -7 ? 'floor.track' : 'floor.granite' }
       c.zone = c.y <= -7 ? 'restricted' : 'platform'
@@ -259,7 +353,7 @@ export function referenceStation(variant: StationVariant = {}): StationData {
   ]
 
   return {
-    name: '五四广场',
+    name: '嘉禾望岗',
     seed: 1234567,
     levels: [
       { id: 'G', z: Z_G, kind: 'at-grade', height: 4 },

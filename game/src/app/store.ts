@@ -6,8 +6,9 @@ import type { FromWorker, GraphInfo } from '../sim/protocol.ts'
 import type { Metrics } from '../sim/world.ts'
 import { DEFAULT_ZONE, type FinishId, type StationData, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
-import { cloneState, initialStation, setUpEscalators, toData, toState, type StationState } from '../build/model.ts'
+import { cloneState, initialStation, LEVEL_STEPS, nearestLevel, nextEscalatorDir, toData, toState, type StationState } from '../build/model.ts'
 import { parse as parseSave, serialize as serializeSave } from '../persistence/save.ts'
+import { STAIR_WIDTH_NORMAL, nextStairWidth } from '../sim/stairs.ts'
 import type { SceneStats } from '../render/scene.ts'
 
 export type Tool = 'select' | 'block' | 'module' | 'paint' | 'zone'
@@ -26,11 +27,68 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'tvm', label: '售票机', type: 'tvm', w: 1, h: 1 },
   { id: 'bench', label: '座椅', type: 'bench', w: 1, h: 1 },
   { id: 'exit', label: '出入口', type: 'exit', w: 1, h: 1 },
+  { id: 'escalator', label: '扶梯', type: 'escalator', w: 1, h: 1 },
+  { id: 'stair-straight', label: '直楼梯', type: 'stair', w: 1, h: 1 },
+  { id: 'stair-left90', label: '左转90°', type: 'stair', w: 1, h: 1 },
+  { id: 'stair-right90', label: '右转90°', type: 'stair', w: 1, h: 1 },
+  { id: 'stair-right180', label: '折返180°', type: 'stair', w: 1, h: 1 },
 ]
 
-/** Friendly name for a module type, for the inspector's "已选" row. */
+/** True for any of the four fixed staircase shapes in the palette. */
+export function isStairType(type: string): boolean {
+  return type === 'stair' || type.startsWith('stair-')
+}
+
+/** True for the fixed escalator piece, whose Tab cycle is up/down instead. */
+export function isEscalatorType(type: string): boolean {
+  return type === 'escalator'
+}
+
+/**
+ * Equipment that is moulded at one angle and cannot be turned by the player.
+ * Every piece in the current catalogue rotates, so this is empty; it is the one
+ * place to list a future fixed-angle module (a wall-mounted sign, a one-way
+ * gate body). The rail's 旋转 button and the R key both read `isRotatableType`,
+ * so adding a type here removes the control for it automatically.
+ */
+const FIXED_ANGLE_TYPES: ReadonlySet<string> = new Set<string>([])
+
+/** True when the player may turn this equipment before placing it (R / 旋转). */
+export function isRotatableType(type: string): boolean {
+  return !FIXED_ANGLE_TYPES.has(type)
+}
+
+/** Facility rooms built by dragging a rectangle in the zone tool. */
+export type FacilityBrush = 'shop' | 'booth'
+export type ZoneBrush = Zone | FacilityBrush
+
+export const FACILITY_OPTIONS: Array<{ id: FacilityBrush; label: string; colour: number }> = [
+  { id: 'shop', label: '商店', colour: 0xb07cc6 },
+  { id: 'booth', label: '售票亭', colour: 0x42a5c4 },
+]
+
+export function isFacilityBrush(b: ZoneBrush): b is FacilityBrush {
+  return b === 'shop' || b === 'booth'
+}
+
+/** Friendly name for a module type, for the inspector and the bulldoze notice. */
+const MODULE_LABELS: Record<string, string> = {
+  gate: '闸机',
+  tvm: '售票机',
+  bench: '座椅',
+  exit: '出入口',
+  escalator: '扶梯',
+  stair: '楼梯',
+  lift: '电梯',
+  retail: '商铺',
+  shop: '商店',
+  booth: '售票亭',
+  'platform-edge': '站台门',
+  track: '轨道',
+}
+
 export function moduleLabel(type: string): string {
-  return MODULE_OPTIONS.find((m) => m.type === type)?.label ?? type
+  return MODULE_LABELS[type] ?? MODULE_OPTIONS.find((m) => m.type === type)?.label ?? type
 }
 
 export interface AppState {
@@ -38,11 +96,17 @@ export interface AppState {
   version: number
   tool: Tool
   moduleType: string
+  /** Quarter-turn applied to the equipment being placed: 0..3. */
+  moduleRot: number
+  /** Stair tread width, cycled with Tab (narrow = escalator bay). */
+  stairWidth: number
+  /** Escalator travel direction, cycled with Tab (up/down). */
+  escalatorDir: 'up' | 'down'
   paintMode: PaintMode
   /** Active finish brush — the face's family decides which ones apply. */
   paintFinish: FinishId
-  /** Active fare-zone brush (§4.5). */
-  zoneBrush: Zone
+  /** Active fare-zone brush, or a facility room (§5.7) built by rectangle. */
+  zoneBrush: ZoneBrush
   zoneOverlayOn: boolean
   /** Transient toast line (save/load results). */
   notice: string | null
@@ -63,9 +127,15 @@ export interface AppState {
 
   setTool: (t: Tool) => void
   setModuleType: (t: string) => void
+  /** Turn the placement ghost 90° clockwise (R). */
+  rotateModule: () => void
+  /** Cycle the stair width between narrow (escalator) and normal (Tab). */
+  cycleStairWidth: () => void
+  /** Flip the escalator travel direction up ↔ down (Tab). */
+  cycleEscalatorDir: () => void
   setPaintMode: (m: PaintMode) => void
   setPaintFinish: (id: FinishId) => void
-  setZoneBrush: (z: Zone) => void
+  setZoneBrush: (z: ZoneBrush) => void
   setZoneOverlay: (on: boolean) => void
   setNotice: (n: string | null) => void
   saveToFile: () => void
@@ -82,12 +152,13 @@ export interface AppState {
   setStats: (s: SceneStats) => void
   setGraph: (g: GraphInfo) => void
   select: (sel: AppState['selected']) => void
+  /** Rename the station (top-bar title). Blank names are ignored. */
+  renameStation: (name: string) => void
   commit: (next: StationState) => void
   undo: () => void
   redo: () => void
   newStation: () => void
   loadReference: () => void
-  setUpEscalators: (n: number) => void
 }
 
 function sendControl(playing: boolean, speed: number): void {
@@ -134,6 +205,9 @@ export const useStore = create<AppState>((set, get) => ({
   version: 0,
   tool: 'select',
   moduleType: 'gate',
+  moduleRot: 0,
+  stairWidth: STAIR_WIDTH_NORMAL,
+  escalatorDir: 'up',
   paintMode: 'single',
   paintFinish: 'floor.granite',
   zoneBrush: DEFAULT_ZONE,
@@ -156,6 +230,13 @@ export const useStore = create<AppState>((set, get) => ({
 
   setTool: (t) => set({ tool: t }),
   setModuleType: (t) => set({ moduleType: t }),
+  // Clockwise on screen: the world turns +x toward −y in the isometric view.
+  // A fixed-angle piece simply ignores the turn, so the guard lives here as well
+  // as on the rail button.
+  rotateModule: () =>
+    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleRot + 3) % 4 } : {})),
+  cycleStairWidth: () => set((s) => ({ stairWidth: nextStairWidth(s.stairWidth) })),
+  cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
   setPaintMode: (m) => set({ paintMode: m }),
   setPaintFinish: (id) => set({ paintFinish: id }),
   setZoneBrush: (z) => set({ zoneBrush: z }),
@@ -182,28 +263,14 @@ export const useStore = create<AppState>((set, get) => ({
     const s = r.state
     set({ station: s, past: [...get().past, cloneState(get().station)].slice(-40), future: [], version: get().version + 1 })
     rebuildSim(toData(s))
-    set({ notice: `已打开 · 存档版本 v${r.version}` })
+    set({ notice: `已打开（存档 v${r.version}）` })
   },
-  setActiveZ: (z) => set({ activeZ: z }),
+  setActiveZ: (z) => set({ activeZ: nearestLevel(z) }),
   stepLevel: (dir) => {
-    const g = get().graph
-    const cur = get().activeZ
-    if (!g || g.levelsZ.length === 0) {
-      set({ activeZ: cur + dir })
-      return
-    }
-    const levels = g.levelsZ
-    let idx = 0
-    let best = Infinity
-    levels.forEach((z, i) => {
-      const d = Math.abs(z - cur)
-      if (d < best) {
-        best = d
-        idx = i
-      }
-    })
-    const ni = Math.max(0, Math.min(levels.length - 1, idx + dir))
-    set({ activeZ: levels[ni] })
+    const cur = nearestLevel(get().activeZ)
+    const idx = LEVEL_STEPS.indexOf(cur)
+    const ni = Math.max(0, Math.min(LEVEL_STEPS.length - 1, idx + dir))
+    set({ activeZ: LEVEL_STEPS[ni] })
   },
   setOverlay: (on) => set({ overlayOn: on }),
   setGhostOther: (on) => set({ ghostOtherLevels: on }),
@@ -221,6 +288,13 @@ export const useStore = create<AppState>((set, get) => ({
   setStats: (s) => set({ stats: s }),
   setGraph: (g) => set({ graph: g }),
   select: (sel) => set({ selected: sel }),
+
+  renameStation: (name) => {
+    const s = get().station
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === s.name) return
+    get().commit({ ...s, name: trimmed })
+  },
 
   commit: (next) => {
     const cur = get().station
@@ -250,9 +324,5 @@ export const useStore = create<AppState>((set, get) => ({
     const s = toState(referenceStation())
     set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: -8 })
     rebuildSim(toData(s))
-  },
-  setUpEscalators: (n) => {
-    const next = setUpEscalators(get().station, n)
-    get().commit(next)
   },
 }))

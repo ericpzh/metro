@@ -1,18 +1,14 @@
 import { createRoot } from 'react-dom/client'
-import { App } from './app/App.tsx'
-import { Lab } from './app/Lab.tsx'
-import { initSim } from './app/store.ts'
-import { referenceStation } from './data/reference-station.ts'
+import { MobileNotice } from './app/MobileNotice.tsx'
+import { isMobileMode } from './app/mobile.ts'
 import './styles.css'
 
-const path = location.pathname.replace(/\/+$/, '')
-const isLab = path.endsWith('/lab')
-
 const root = createRoot(document.getElementById('root') as HTMLElement)
-root.render(isLab ? <Lab /> : <App />)
 
-if (!isLab) {
-  // The demo opens on the reference station cold, with 0 passengers —
-  // the crowd builds from the first train arrivals.
-  initSim(referenceStation(), 1234567, { startSeconds: 7.45 * 3600, warmup: 0 })
+if (isMobileMode()) {
+  // A phone or tablet gets a plain page. Neither the game nor its three.js
+  // bundle is imported, so nothing renders, simulates or downloads here.
+  root.render(<MobileNotice />)
+} else {
+  void import('./app/boot.tsx').then(({ renderGame }) => renderGame(root))
 }
