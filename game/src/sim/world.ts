@@ -122,6 +122,31 @@ export interface DynamicSnapshot {
   }>
 }
 
+/** Default clock for a station that does not override it: 06:30. */
+const DEFAULT_SIM_TIME = 6.5 * 3600
+
+/** A zeroed metrics block for a freshly constructed or loaded world. */
+function freshMetrics(simTime: number): Metrics {
+  return {
+    tick: 0,
+    simTime,
+    population: 0,
+    worstLos: 'A',
+    worstLosNode: -1,
+    leftBehind: 0,
+    boarded: 0,
+    alighted: 0,
+    exited: 0,
+    trainsLate: 0,
+    gateQueue: 0,
+    escalatorQueue: 0,
+    doorQueue: 0,
+    period: 'peak',
+    agentsCap: false,
+    tickMs: 0,
+    stuck: 0,
+  }
+}
 
 export class World {
   data: StationData
@@ -130,7 +155,7 @@ export class World {
   rng: Rng
   seed: number
   tick = 0
-  simTime = 6.5 * 3600
+  simTime = DEFAULT_SIM_TIME
   pool: AgentPool
   trains: Train[] = []
   doorsByLine = new Map<string, number[]>()
@@ -160,31 +185,32 @@ export class World {
     this.data = data
     this.seed = seed
     this.rng = new Rng(seed)
-    this.simTime = 6.5 * 3600
+    this.simTime = DEFAULT_SIM_TIME
     const g = buildGraph(data)
     this.graph = g
     this.path = new PathFinder(g)
     this.pool = new AgentPool(this.rng)
     this.nodePop = new Int32Array(g.nodeCount)
-    this.metrics = {
-      tick: 0,
-      simTime: this.simTime,
-      population: 0,
-      worstLos: 'A',
-      worstLosNode: -1,
-      leftBehind: 0,
-      boarded: 0,
-      alighted: 0,
-      exited: 0,
-      trainsLate: 0,
-      gateQueue: 0,
-      escalatorQueue: 0,
-      doorQueue: 0,
-      period: 'peak',
-      agentsCap: false,
-      tickMs: 0,
-      stuck: 0,
-    }
+    this.metrics = freshMetrics(this.simTime)
+    this.rebuild()
+  }
+
+  /**
+   * Load a different station: a full simulation reset. Switching station is not
+   * an edit — every agent, train, queue, metric, the clock and the RNG stream
+   * start over, or the old crowd from the old document would walk the new one.
+   * `rebuild()` is the edit path and deliberately keeps the crowd in place.
+   */
+  load(data: StationData, seed = data.seed, startSeconds = DEFAULT_SIM_TIME): void {
+    this.data = data
+    this.seed = seed
+    this.rng = new Rng(seed)
+    this.simTime = startSeconds
+    this.tick = 0
+    this.pool = new AgentPool(this.rng)
+    this.trains = []
+    this.nextTrainId = 1
+    this.metrics = freshMetrics(startSeconds)
     this.rebuild()
   }
 

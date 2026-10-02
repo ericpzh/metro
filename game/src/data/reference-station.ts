@@ -380,6 +380,13 @@ export function referenceStation(variant: StationVariant = {}): StationData {
   }
 }
 
+/**
+ * Cold-boot runtime for the demo: 07:27, no warmup, so the page opens with an
+ * empty floor exactly as the first train arrives. The seed lives on the station
+ * (`referenceStation().seed`). Reused by 示例车站 so a switch matches a cold boot.
+ */
+export const REFERENCE_BOOT = { startSeconds: 7.45 * 3600, warmup: 0 } as const
+
 /** The 2x2 at-grade seed a new station starts from (§3 step 1, §4.1). */
 export function emptyStation(name = '未命名车站'): StationData {
   return {

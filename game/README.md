@@ -179,6 +179,9 @@ and stacked blocks stay plain, and the drag's live ghost shows the wall ring bef
   node, paint/fill/erase are immutable, and the mesher groups by finish (B1).
 * `save.test.mjs` — the `metro-save` v1 envelope round-trips the static station and names
   every failure mode (B1).
+* `load.test.mjs` — loading a station is a full sim reset: `World.load` clears the crowd,
+  trains, server queues, clock and throughput counters and reseeds the RNG, while the edit path
+  `rebuild` keeps the crowd in place.
 * `zones.test.mjs` — an ungated fare line strands the crowd (zero boardings); a gate restores
   flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2).
 * `trains.test.mjs` — a dispatched train gets a pose on the track beside its platform edge,

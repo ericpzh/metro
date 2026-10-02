@@ -6,7 +6,7 @@ import type { Root } from 'react-dom/client'
 import { App } from './App.tsx'
 import { Lab } from './Lab.tsx'
 import { initSim } from './store.ts'
-import { referenceStation } from '../data/reference-station.ts'
+import { referenceStation, REFERENCE_BOOT } from '../data/reference-station.ts'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
@@ -17,6 +17,6 @@ export function renderGame(root: Root): void {
   if (!isLab) {
     // The demo opens on the reference station cold, with 0 passengers —
     // the crowd builds from the first train arrivals.
-    initSim(referenceStation(), 1234567, { startSeconds: 7.45 * 3600, warmup: 0 })
+    initSim(referenceStation(), 1234567, REFERENCE_BOOT)
   }
 }

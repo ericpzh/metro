@@ -96,7 +96,10 @@ build/ →  sim/            (and neither render/ nor app/)
   touches `postMessage`. Messages in: `init` / `build` / `control`; out: `ready`
   (graph) / `state` (agent `Float32Array`s, metrics, density, train poses,
   `intervalMs`). Payloads are copied, not transferred; the renderer interpolates
-  over `intervalMs`. Each tick is synchronous.
+  over `intervalMs`. Each tick is synchronous. `build` is a live edit: it calls
+  `World.rebuild()` and keeps the crowd. A station switch (打开 / 新建 / 示例车站)
+  re-sends `init`, which calls `World.load()` — a full reset of agents, trains,
+  queues, clock and RNG — so no old passenger walks the new document.
 * **Zones are barriers** (`sim/zones.ts`), and *only a gate may cross the fare
   line* — if the gate's policy permits that direction. An ungated line strands
   the crowd. A two-way gate is a single lane: first come fixes the direction

@@ -70,10 +70,16 @@ ctx.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data as ToWorker
   switch (msg.type) {
     case 'init': {
-      world = new World(msg.data, msg.seed)
+      // The first `init` boots a world; sending it again loads a different
+      // station. Either way it is a full reset — no agent, train, queue or clock
+      // survives. Live edits use `build`, which keeps the crowd on purpose.
+      if (world) world.load(msg.data, msg.seed, msg.startSeconds)
+      else {
+        world = new World(msg.data, msg.seed)
+        if (msg.startSeconds !== undefined) world.simTime = msg.startSeconds
+      }
       playing = msg.playing
       speed = msg.speed
-      if (msg.startSeconds !== undefined) world.simTime = msg.startSeconds
       // Warm the station so the demo does not open on an empty floor. This is
       // just ticks: §7.6 determinism is unaffected.
       const warm = msg.warmup ?? 0

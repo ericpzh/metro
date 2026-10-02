@@ -5,7 +5,7 @@ import { create } from 'zustand'
 import type { FromWorker, GraphInfo } from '../sim/protocol.ts'
 import type { Metrics } from '../sim/world.ts'
 import { DEFAULT_ZONE, type FinishId, type StationData, type Zone } from '../sim/types.ts'
-import { referenceStation } from '../data/reference-station.ts'
+import { referenceStation, REFERENCE_BOOT } from '../data/reference-station.ts'
 import { cloneState, initialStation, LEVEL_STEPS, nearestLevel, nextEscalatorDir, removeModule, toData, toState, type StationState } from '../build/model.ts'
 import { defaultLine, dropDerivedEdges, placeRail, regenerateRailEdges, type RailRect } from '../build/rail.ts'
 import { parse as parseSave, serialize as serializeSave } from '../persistence/save.ts'
@@ -211,8 +211,9 @@ export function setFrameHandler(
   frameCb = fn
 }
 
-/** Boots the worker. Called once from main.tsx. */
-export function initSim(data: StationData, seed: number, opts: { startSeconds?: number; warmup?: number } = {}): void {
+/** Open the worker once and wire its messages. A station switch reuses it. */
+function ensureClient(): Worker {
+  if (client) return client
   client = new Worker(new URL('../sim/worker.ts', import.meta.url), { type: 'module' })
   client.onmessage = (e: MessageEvent<FromWorker>) => {
     const msg = e.data
@@ -225,11 +226,26 @@ export function initSim(data: StationData, seed: number, opts: { startSeconds?: 
       frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.intervalMs)
     }
   }
-  client.postMessage({ type: 'init', data, seed, playing: true, speed: 1, ...opts })
+  return client
+}
+
+/** Boots the worker on the demo. Called once from boot.tsx. */
+export function initSim(data: StationData, seed: number, opts: { startSeconds?: number; warmup?: number } = {}): void {
+  ensureClient().postMessage({ type: 'init', data, seed, playing: true, speed: 1, ...opts })
 }
 
 export function rebuildSim(data: StationData): void {
   client?.postMessage({ type: 'build', data })
+}
+
+/**
+ * Load a station into the running worker. `init` is a full reset — every agent,
+ * train, queue and the clock start over — so a switch never leaves the old
+ * crowd walking the new document. Live edits use `rebuildSim`, which keeps it.
+ */
+function loadSim(data: StationData, opts: { startSeconds?: number; warmup?: number } = {}): void {
+  const st = useStore.getState()
+  ensureClient().postMessage({ type: 'init', data, seed: data.seed, playing: st.playing, speed: st.speed, ...opts })
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -385,8 +401,8 @@ export const useStore = create<AppState>((set, get) => ({
       return
     }
     const s = r.state
-    set({ station: s, past: [...get().past, cloneState(get().station)].slice(-40), future: [], version: get().version + 1 })
-    rebuildSim(toData(s))
+    set({ station: s, past: [...get().past, cloneState(get().station)].slice(-40), future: [], version: get().version + 1, selected: null })
+    loadSim(toData(s))
     set({ notice: `已打开（存档 v${r.version}）` })
   },
   setActiveZ: (z) => set({ activeZ: nearestLevel(z) }),
@@ -441,12 +457,12 @@ export const useStore = create<AppState>((set, get) => ({
   },
   newStation: () => {
     const s = toState({ name: '未命名车站', seed: 7654321, levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4.5 }], cells: [{ x: 0, y: 0, z: 0, fill: 'solid' }, { x: 1, y: 0, z: 0, fill: 'solid' }, { x: 0, y: 1, z: 0, fill: 'solid' }, { x: 1, y: 1, z: 0, fill: 'solid' }], modules: [], lines: [] })
-    set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: 0 })
-    rebuildSim(toData(s))
+    set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: 0, selected: null })
+    loadSim(toData(s))
   },
   loadReference: () => {
     const s = toState(referenceStation())
-    set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: -8 })
-    rebuildSim(toData(s))
+    set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: -8, selected: null })
+    loadSim(toData(s), REFERENCE_BOOT)
   },
 }))

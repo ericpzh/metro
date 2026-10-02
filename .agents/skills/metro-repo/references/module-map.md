@@ -23,7 +23,7 @@ React.
 | `escalators.ts` | `escalatorModule` (the one fixed one-storey piece), `ESCALATOR_RUN`/`RISE`, `nextEscalatorDir`. |
 | `exits.ts` | Head-house geometry shared by sim and render: `EXIT_*` constants, `exitDoorCell`, `exitWallPlanes`, `exitFloorBounds`, `exitCoversCell`, `exitFloorAt`. |
 | `agents.ts` | `AgentPool` / `Agent` — the crowd bodies. |
-| `world.ts` | `World`, `tickOnce`, `Metrics`, trains, collision/separation pass, trip sampling, `trainRenderState`. |
+| `world.ts` | `World`, `tickOnce`, `Metrics`, trains, collision/separation pass, trip sampling, `trainRenderState`; `rebuild()` (an edit: rebuild the graph, keep the crowd) vs `load()` (a station switch: clear agents, trains, queues, clock and counters). |
 | `protocol.ts` | The worker message types (`ToWorker` / `FromWorker`, `GraphInfo`). |
 | `worker.ts` | The only sim file that touches `postMessage`; owns the `setInterval` tick loop. |
 
@@ -80,6 +80,6 @@ React.
 
 `node --test` suite importing `src/sim/*.ts` (and, for `rail` and `walls`,
 `src/build/*.ts`) directly: `determinism`, `capacity`, `layering`, `surfaces`,
-`save`, `zones`, `gates`, `trains`, `placement`, `openings`, `stairs`,
+`save`, `load`, `zones`, `gates`, `trains`, `placement`, `openings`, `stairs`,
 `escalators`, `exits`, `facility`, `rail`, `walls`. `layering.test.mjs` enforces
 the dependency rule above.

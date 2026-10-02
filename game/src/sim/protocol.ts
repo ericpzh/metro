@@ -15,6 +15,9 @@ export interface GraphInfo {
 }
 
 export type ToWorker =
+  // `init` boots the world and, sent again, loads a different station: both are
+  // a full reset. Live edits arrive as `build`, which rebuilds the graph and
+  // keeps the crowd.
   | { type: 'init'; data: StationData; seed: number; playing: boolean; speed: number; startSeconds?: number; warmup?: number }
   | { type: 'build'; data: StationData }
   | { type: 'control'; playing: boolean; speed: number }
