@@ -4,6 +4,7 @@
 import { finishOf, floorSpeed } from '../sim/finishes.ts'
 import { zoneIndex } from '../sim/zones.ts'
 import { carveRampOpenings } from '../sim/openings.ts'
+import { reservedOpening } from '../sim/placement.ts'
 import { exitFloorAt } from '../sim/exits.ts'
 import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
 import { STAIR_WIDTH_NORMAL, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
@@ -216,19 +217,34 @@ export function cloneState(s: StationState): StationState {
   }
 }
 
-/** Add solid cells, ignoring ones that are already solid. */
-export function addCells(cells: Cell[], add: Array<[number, number, number]>): { cells: Cell[]; changed: number } {
+/**
+ * Add solid cells, ignoring ones that are already solid and refusing any that
+ * would cover a reserved opening — a ramp's carved corridor or an exit's floor
+ * (`reservedOpening`). Without this guard the block brush could fill an
+ * auto-generated hole and seal a stair, escalator or exit in. Returns the cells
+ * added and how many were refused.
+ */
+export function addCells(
+  cells: Cell[],
+  add: Array<[number, number, number]>,
+  modules: readonly Module[] = [],
+): { cells: Cell[]; changed: number; blocked: number } {
   const have = new Set(cells.map((c) => cellKey(c.x, c.y, c.z)))
   const out = cells.slice()
   let changed = 0
+  let blocked = 0
   for (const [x, y, z] of add) {
     const k = cellKey(x, y, z)
     if (have.has(k)) continue
+    if (reservedOpening(modules, x, y, z)) {
+      blocked++
+      continue
+    }
     have.add(k)
     out.push({ x, y, z, fill: 'solid' })
     changed++
   }
-  return { cells: out, changed }
+  return { cells: out, changed, blocked }
 }
 
 /** Remove solid cells and any modules hosted on them. */
@@ -508,6 +524,288 @@ export function zoneRegionLabels(floors: readonly Cell[]): ZoneLabel[] {
     labels.push({ x: best.x + 0.5, y: best.y + 0.5, z: best.z + 1.06, zone })
   }
   return labels
+}
+
+/* ------------------------------------- build floors & their auto walls (§4.1) */
+
+/**
+ * Tag on a floor cell the 建造 tool drew. A patch is tracked by its cells
+ * rather than by a module, so an L-shape or a drag that overlaps hand-built
+ * ground all read as one continuous surface. Hand-built floor (the demo, a
+ * saved station) is deliberately untagged: it is treated as ground the patch
+ * can merge into, not as a patch of its own.
+ */
+export const AUTO_FLOOR = 'auto-floor'
+
+/** Tag on an automatically raised wall block — never on a hand-placed one. */
+export const AUTO_WALL = 'auto-wall'
+
+/**
+ * Height of a wall, in blocks: the player asked for a 4 m wall and one block is
+ * one metre, so four courses stand above the floor.
+ */
+export const AUTO_WALL_H = 4
+
+/**
+ * Tag on a wall block the 墙 tool laid. The tag is what lets the tool's
+ * right-click find the whole column under the pointer — geometry alone cannot
+ * tell a wall course from the floor it stands on.
+ */
+export const WALL = 'wall'
+
+function hasTag(c: { tags?: string[] }, tag: string): boolean {
+  return c.tags?.includes(tag) === true
+}
+
+/**
+ * The wall a 墙 tool drag lays: a full-height column on every cell of the run.
+ * `cells` are the base cells the wall rises from (the hovered floor's top), so
+ * the four courses are `z..z+3`.
+ */
+export function wallRun(cells: Array<[number, number, number]>): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  for (const [x, y, z] of cells) for (let dz = 0; dz < AUTO_WALL_H; dz++) out.push([x, y, z + dz])
+  return out
+}
+
+/**
+ * Lay a 墙-tool run: full-height wall columns, tagged `WALL` so a later
+ * right-click can lift the whole column. Like `addCells`, a reserved opening is
+ * refused. Returns the same state when every course already existed.
+ */
+export function addWalls(
+  state: StationState,
+  baseCells: Array<[number, number, number]>,
+): { state: StationState; changed: number; blocked: number } {
+  const have = new Set(state.cells.map((c) => cellKey(c.x, c.y, c.z)))
+  const added: Cell[] = []
+  let blocked = 0
+  for (const [x, y, z] of wallRun(baseCells)) {
+    const k = cellKey(x, y, z)
+    if (have.has(k)) continue
+    if (reservedOpening(state.modules, x, y, z)) {
+      blocked++
+      continue
+    }
+    have.add(k)
+    added.push({ x, y, z, fill: 'solid', tags: [WALL] })
+  }
+  if (added.length === 0) return { state, changed: 0, blocked }
+  return { state: { ...state, cells: [...state.cells, ...added] }, changed: added.length, blocked }
+}
+
+/**
+ * The whole 墙-tool column through `(x, y, z)`: the contiguous run of tagged
+ * cells above and below the hit, whether the pointer landed on the base, the
+ * middle or the top. Empty when the cell is not a 墙-tool wall.
+ */
+export function wallColumnAt(state: StationState, x: number, y: number, z: number): Array<[number, number, number]> {
+  const tagged = new Set<number>()
+  for (const c of state.cells) if (c.x === x && c.y === y && hasTag(c, WALL)) tagged.add(c.z)
+  if (!tagged.has(z)) return []
+  let a = z
+  while (tagged.has(a - 1)) a--
+  let b = z
+  while (tagged.has(b + 1)) b++
+  const out: Array<[number, number, number]> = []
+  for (let zz = a; zz <= b; zz++) out.push([x, y, zz])
+  return out
+}
+
+/**
+ * Every 墙-tool column through a set of cells — the right-drag's erase set. The
+ * per-cell columns are de-duplicated, so a drag whose line touches the same
+ * column twice never repeats a block.
+ */
+export function wallColumnsAt(
+  state: StationState,
+  cells: Array<[number, number, number]>,
+): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  const seen = new Set<string>()
+  for (const [x, y, z] of cells) {
+    for (const p of wallColumnAt(state, x, y, z)) {
+      const k = cellKey(p[0], p[1], p[2])
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(p)
+    }
+  }
+  return out
+}
+
+/**
+ * The new wall columns a 建造 drag will raise: every pending floor cell on the
+ * edge of the surface (a same-level neighbour is neither solid nor part of the
+ * patch). Used for the live ghost, so the room-like shell shows before release.
+ * `solid` is the current station; the patch is preview-only.
+ */
+export function plannedAutoWalls(
+  solid: ReadonlySet<string>,
+  floorCells: Array<[number, number, number]>,
+  modules: readonly Module[] = [],
+): Array<[number, number, number]> {
+  const patch = new Set(floorCells.map(([x, y, z]) => cellKey(x, y, z)))
+  const out: Array<[number, number, number]> = []
+  for (const [x, y, z] of floorCells) {
+    if (solid.has(cellKey(x, y, z))) continue
+    let edge = false
+    for (const [dx, dy] of NEIGH4) {
+      const k = cellKey(x + dx, y + dy, z)
+      if (!solid.has(k) && !patch.has(k)) {
+        edge = true
+        break
+      }
+    }
+    if (!edge) continue
+    for (let dz = 1; dz <= AUTO_WALL_H; dz++) {
+      const wk = cellKey(x, y, z + dz)
+      if (!solid.has(wk) && !reservedOpening(modules, x, y, z + dz)) out.push([x, y, z + dz])
+    }
+  }
+  return out
+}
+
+/**
+ * Rebuild the automatic wall ring around every 建造 floor patch. A patch cell on
+ * the outer edge of its surface earns a full-height wall column; an auto wall
+ * whose cell became interior — covered by a later drag — or whose floor was dug
+ * away is dropped. Hand-placed walls are never added to or removed from,
+ * because only `AUTO_WALL` cells are touched.
+ *
+ * This is the room-union rule applied to floors: overlap or abut two patches
+ * and the shared edge inside the union loses its wall while the new outer edge
+ * gains one. Only the *outer* edge is walled — a hole dug through the middle of
+ * a patch stays open (the void flood cannot reach it), so a stair opening is
+ * not silently boarded up. Returns the same state when nothing changed, so a
+ * no-op stays out of the undo stack.
+ */
+export function syncAutoWalls(state: StationState): StationState {
+  const solid = new Set<string>()
+  for (const c of state.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
+  // Group the tracked floor by level: walls only answer a same-level edge.
+  const byLevel = new Map<number, Array<[number, number]>>()
+  for (const c of state.cells) {
+    if (c.fill !== 'solid' || !hasTag(c, AUTO_FLOOR)) continue
+    const arr = byLevel.get(c.z)
+    if (arr) arr.push([c.x, c.y])
+    else byLevel.set(c.z, [[c.x, c.y]])
+  }
+  const wanted = new Map<string, [number, number, number]>()
+  for (const [z, cells] of byLevel) {
+    const patch = new Set(cells.map(([x, y]) => `${x},${y}`))
+    // Bounding box padded by one, to bound the exterior flood.
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const [x, y] of cells) {
+      if (x < minX) minX = x
+      if (y < minY) minY = y
+      if (x > maxX) maxX = x
+      if (y > maxY) maxY = y
+    }
+    minX--
+    minY--
+    maxX++
+    maxY++
+    // Flood void inward from the padded border, stopping at patch or any solid.
+    // Reached void is outside the surface; an unreached pocket is an interior
+    // hole, and earns no wall.
+    const seen = new Set<string>()
+    const stack: Array<[number, number]> = []
+    const pushVoid = (x: number, y: number): void => {
+      if (x < minX || x > maxX || y < minY || y > maxY) return
+      const k = `${x},${y}`
+      if (seen.has(k) || patch.has(k) || solid.has(cellKey(x, y, z))) return
+      seen.add(k)
+      stack.push([x, y])
+    }
+    for (let x = minX; x <= maxX; x++) {
+      pushVoid(x, minY)
+      pushVoid(x, maxY)
+    }
+    for (let y = minY; y <= maxY; y++) {
+      pushVoid(minX, y)
+      pushVoid(maxX, y)
+    }
+    while (stack.length > 0) {
+      const [x, y] = stack.pop() as [number, number]
+      pushVoid(x + 1, y)
+      pushVoid(x - 1, y)
+      pushVoid(x, y + 1)
+      pushVoid(x, y - 1)
+    }
+    for (const [x, y] of cells) {
+      let edge = false
+      for (const [dx, dy] of NEIGH4) {
+        if (seen.has(`${x + dx},${y + dy}`)) {
+          edge = true
+          break
+        }
+      }
+      if (!edge) continue
+      for (let dz = 1; dz <= AUTO_WALL_H; dz++) {
+        // Never board up a reserved opening: the ghost (`plannedAutoWalls`)
+        // leaves the same cells unwalled, and a ramp or exit needs them open.
+        if (reservedOpening(state.modules, x, y, z + dz)) continue
+        wanted.set(cellKey(x, y, z + dz), [x, y, z + dz])
+      }
+    }
+  }
+  let changed = false
+  const kept: Cell[] = []
+  for (const c of state.cells) {
+    const k = cellKey(c.x, c.y, c.z)
+    if (hasTag(c, AUTO_WALL) && !wanted.has(k)) {
+      changed = true
+      continue
+    }
+    kept.push(c)
+  }
+  const have = new Set(kept.map((c) => cellKey(c.x, c.y, c.z)))
+  for (const [k, p] of wanted) {
+    if (have.has(k)) continue
+    kept.push({ x: p[0], y: p[1], z: p[2], fill: 'solid', tags: [AUTO_WALL] })
+    changed = true
+  }
+  return changed ? { ...state, cells: kept } : state
+}
+
+/**
+ * Add the floor a 建造 rectangle drag drew, tag it as an auto-floor patch, and
+ * rebuild the wall ring. Cells the drag covers that already exist are left
+ * alone, so extending into hand-built ground is seamless. A single click (a
+ * plain block) does not come through here — only a deliberate drag turns into a
+ * walled surface.
+ */
+export function addFloor(state: StationState, cells: Array<[number, number, number]>): StationState {
+  const have = new Set(state.cells.map((c) => cellKey(c.x, c.y, c.z)))
+  const grown: Cell[] = []
+  for (const [x, y, z] of cells) {
+    const k = cellKey(x, y, z)
+    if (have.has(k)) continue
+    // A floor drag may not fill a reserved opening either: the same guard the
+    // block brush uses, so a ramp hole stays open under a newly drawn surface.
+    if (reservedOpening(state.modules, x, y, z)) continue
+    have.add(k)
+    grown.push({ x, y, z, fill: 'solid', tags: [AUTO_FLOOR] })
+  }
+  if (grown.length === 0) return state
+  return syncAutoWalls({ ...state, cells: [...state.cells, ...grown] })
+}
+
+/**
+ * Remove blocks a 建造 drag marked, then rebuild the wall ring only if one of
+ * them was an auto-floor cell. Removing a hand-placed block, or an auto wall
+ * itself, leaves the ring alone so a wall the player deliberately dug out is
+ * not silently restored.
+ */
+export function removeFloor(state: StationState, remove: Array<[number, number, number]>): StationState {
+  const killed = new Set(remove.map(([x, y, z]) => cellKey(x, y, z)))
+  const droppedFloor = state.cells.some((c) => killed.has(cellKey(c.x, c.y, c.z)) && hasTag(c, AUTO_FLOOR))
+  const next = removeCells(state, remove)
+  return droppedFloor ? syncAutoWalls(next) : next
 }
 
 /* ---------------- shop, toilet, office & booth (facility rooms) */

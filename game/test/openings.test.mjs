@@ -6,6 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { carveRampOpenings, rampBlocked, rampCorridorHalf, OPENING_CEILING } from '../src/sim/openings.ts'
+import { reservedOpening } from '../src/sim/placement.ts'
 import { EXIT_BAY_HALF } from '../src/sim/exits.ts'
 import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
 import { createModule } from '../src/build/model.ts'
@@ -104,6 +105,38 @@ test('the exit floor leaves the runs their handrail clearance', () => {
   assert.ok(esc && stair)
   assert.ok(EXIT_BAY_HALF >= rampCorridorHalf(esc), 'the exit bay must clear an escalator handrail')
   assert.ok(EXIT_BAY_HALF >= rampCorridorHalf(stair), 'the exit bay must clear a narrow stair handrail')
+})
+
+test('every cell a ramp carve opens is reserved against a hand-built block', () => {
+  // The block brush's guard must agree with the carve exactly: any cell the
+  // carve removes has to be refused if a player tries to lay it back.
+  const cells = []
+  for (let x = -1; x <= 1; x++) {
+    for (let y = 0; y <= 6; y++) {
+      for (let z = -2; z <= 2; z++) cells.push({ x, y, z, fill: 'solid' })
+    }
+  }
+  const r = {
+    id: 'e',
+    type: 'escalator',
+    x: 0,
+    y: 0,
+    z: 0,
+    from: { x: 0, y: 0, z: 0 },
+    to: { x: 0, y: 6, z: -4 },
+    cfg: { dir: 'down' },
+  }
+  const before = cells.map((c) => `${c.x},${c.y},${c.z}`)
+  carveRampOpenings(cells, [r])
+  const after = new Set(cells.map((c) => `${c.x},${c.y},${c.z}`))
+  let opened = 0
+  for (const k of before) {
+    if (after.has(k)) continue
+    const [x, y, z] = k.split(',').map(Number)
+    assert.ok(reservedOpening([r], x, y, z), `${k} was carved but reads as buildable`)
+    opened++
+  }
+  assert.ok(opened > 0, 'the carve actually opened cells')
 })
 
 test('the reference station keeps every ramp landing node', () => {

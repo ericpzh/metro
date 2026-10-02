@@ -455,8 +455,12 @@ export function App(): React.ReactElement {
           <Viewport />
           <div className="stageHint">
             {tool === 'block'
-              ? '建造：单击放一块，按住拖出一片，右键删除'
-              : tool === 'module'
+              ? '建造：单击放一块，按住拖出一片（自动长出 4m 外墙），右键删除'
+              : tool === 'wall'
+                ? '墙：按住拖出一条 4m 高的墙；右键拖拽整列拆除'
+                : tool === 'delete'
+                  ? '删除：单击拆一块，按住拖出一条拆一行（左右键都一样）'
+                  : tool === 'module'
                 ? isStairType(moduleType)
                   ? '楼梯：点地面放下，能转方向、调宽度，右键拆掉'
                   : isEscalatorType(moduleType)

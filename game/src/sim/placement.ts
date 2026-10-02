@@ -10,8 +10,8 @@
 //
 // Pure data — no three, no DOM.
 
-import { EXIT_L, EXIT_W } from './exits.ts'
-import { rampEnvelope } from './openings.ts'
+import { EXIT_L, EXIT_W, exitFloorAt } from './exits.ts'
+import { rampEnvelope, rampOpeningAt } from './openings.ts'
 import type { Cell, Module } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
@@ -169,6 +169,17 @@ export function placementOnTrack(cells: readonly Cell[], candidate: Module, modu
     if (trackAt(modules, x, y, candidate.z) || trackAt(modules, x, y, candidate.z + 1)) return true
   }
   return false
+}
+
+/**
+ * True when a solid block may not be built at `(x, y, z)` because it is a
+ * reserved opening: the corridor a ramp carves (stair/escalator/lift) or the
+ * floor an exit head-house lays over a hole. Equipment already refuses these
+ * spaces through `placementBlocked` / `placementOnTrack`; the block brush needs
+ * the same guard, or a hand-built cell seals a run the player can see through.
+ */
+export function reservedOpening(modules: readonly Module[], x: number, y: number, z: number): boolean {
+  return rampOpeningAt(modules, x, y, z) || exitFloorAt(modules, x, y, z)
 }
 
 /** Strict overlap, so modules in adjacent cells (a gate line) do not collide. */

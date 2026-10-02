@@ -179,6 +179,26 @@ function rampSegments(m: Module): Ramp[] | null {
 }
 
 /**
+ * Every corridor the placed ramps carve, with the per-type headroom `intrudes`
+ * reads: an escalator cuts the taller wall/ceiling corridor, a stair or lift the
+ * conservative one. The carve and the block-brush reservation share this single
+ * list, so a hand-built block is refused in exactly the cells the carve opens.
+ */
+function rampList(modules: readonly Module[]): Ramp[] {
+  const ramps: Ramp[] = []
+  for (const m of modules) {
+    if (m.type === 'stair') {
+      const half = rampCorridorHalf(m)
+      for (const s of stairFlights(m)) ramps.push({ from: s.from, to: s.to, half })
+    } else if (m.type === 'escalator' || m.type === 'lift') {
+      const headroom = m.type === 'escalator' ? ESCALATOR_HEADROOM : undefined
+      ramps.push({ from: m.from, to: m.to, headroom, half: rampCorridorHalf(m) })
+    }
+  }
+  return ramps
+}
+
+/**
  * True when a solid cell intrudes into the headroom above a ramp's walking
  * line — i.e. the ramp has to pass through it to surface. `headroom` is the
  * clearance above the line; escalators use ESCALATOR_HEADROOM so wall columns
@@ -210,11 +230,27 @@ function intrudes(c: Cell, r: Ramp): boolean {
 }
 
 /**
- * Remove every solid cell that a ramp passes through, in place. Returns how
- * many were removed. Safe to call more than once (idempotent once carved).
+ * True when a hand-built solid block at `(x, y, z)` would sit inside a ramp's
+ * opening — the corridor `carveRampOpenings` clears for a stair, escalator or
+ * lift. The block brush asks this before it lays a cell, so a player cannot cover
+ * up an auto-generated hole and seal a run in. A protected landing never answers
+ * true: it sits exactly on the walking line, not above it.
+ */
+export function rampOpeningAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
+  if (modules.length === 0) return false
+  const cell: Cell = { x, y, z, fill: 'solid' }
+  for (const r of rampList(modules)) {
+    if (intrudes(cell, r)) return true
+  }
+  return false
+}
+
+/**
+ * Remove every solid cell that a ramp passes through, in place. Returns how many
+ * were removed. Safe to call more than once (idempotent once carved).
  */
 export function carveRampOpenings(cells: Cell[], modules: readonly Module[]): number {
-  const ramps: Ramp[] = []
+  const ramps = rampList(modules)
   // Landing cells are the ramp's graph nodes; never carve them, even when two
   // runs share a column (an up and a down escalator side by side), and never
   // carve a stair's half/quarter landing between two flights.
@@ -224,15 +260,11 @@ export function carveRampOpenings(cells: Cell[], modules: readonly Module[]): nu
   }
   for (const m of modules) {
     if (m.type === 'stair') {
-      const half = rampCorridorHalf(m)
-      for (const s of stairFlights(m)) ramps.push({ from: s.from, to: s.to, half })
       // A stair's half/quarter landings are its interior graph nodes — never carve them.
       for (const p of stairLandings(m)) protectPoint(p)
     } else if (m.type === 'escalator' || m.type === 'lift') {
       // An escalator cuts the full wall/ceiling corridor along its run; only
       // its two landing cells are kept as graph nodes.
-      const headroom = m.type === 'escalator' ? ESCALATOR_HEADROOM : undefined
-      ramps.push({ from: m.from, to: m.to, headroom, half: rampCorridorHalf(m) })
       protectPoint(m.from)
       protectPoint(m.to)
     }

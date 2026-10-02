@@ -141,6 +141,16 @@ build/ →  sim/            (and neither render/ nor app/)
   办公室 / 售票亭 through it, and `render/models.ts` draws the matching interior
   and sign — 厕所 / 办公室 hang a real door on their openings, 商店 keeps an open
   front. Two rooms merge only when their type *and* fit-out match.
+* The 建造 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
+  drawn cells `auto-floor` and raises a 4 m `auto-wall` ring on the patch's outer
+  edge — the room-union rule generalised to cells, so overlapping/abutting patches
+  union, hand-built floor is continuous ground, and a hole dug through a patch
+  stays open. A single click stays a plain block. The 墙 tool lays tagged
+  four-course columns a right-click lifts whole, and 删除 is button-agnostic
+  single-block / line removal. A **reserved opening** — the corridor a ramp
+  carves or an exit's floor (`reservedOpening` in `sim/placement.ts`) — refuses a
+  hand-built cell, so the block brush cannot seal a run the player can see
+  through.
 * `app/Viewport.tsx` owns the `SceneRenderer` lifecycle and turns pointer input
   into build commands; it is the only app file that touches three directly.
   `app/LeftRail.tsx` is the blueprint build rail; thumbnails are rendered from
@@ -180,6 +190,12 @@ build/ →  sim/            (and neither render/ nor app/)
   The README still files the draw kit under **B4** and its milestone table is not
   yet updated. Walled facility rooms (商店 / 厕所 / 办公室) share the `shop` module
   and pick their fit-out with `cfg.kind`; 售票亭 is the open `booth`.
+* The **build kit** gained tagged floors with auto walls, the 墙 tool and a
+  dedicated 删除 tool (`build/model.ts`, `game/test/walls.test.mjs`). A drawn
+  floor patch grows a 4 m auto-wall ring on its outer edge; union with another
+  patch drops the buried wall, and a hole dug through a patch stays open.
+  `reservedOpening` (`sim/placement.ts`) also refuses a hand-built block in a
+  ramp corridor or an exit's floor. `game/README.md`'s test list documents it.
 * `PLAN.md` was deleted, but `README.md`, `GAME-SPEC.md` and many source
   comments still reference it. Treat those references as historical.
 * The crowd micro-benchmark (`game/bench/crowd.mjs`,

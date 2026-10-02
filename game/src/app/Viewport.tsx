@@ -5,6 +5,8 @@ import { useEffect, useRef } from 'react'
 import { SceneRenderer } from '../render/scene.ts'
 import {
   addCells,
+  addFloor,
+  addWalls,
   cellKey,
   createModule,
   eraseFaces,
@@ -23,11 +25,16 @@ import {
   paintFaces,
   paintZoneCells,
   placeFacility,
+  plannedAutoWalls,
+  removeCells,
+  removeFloor,
+  wallColumnAt,
+  wallColumnsAt,
+  wallRun,
   zoneMapFloors,
   zoneRegionLabels,
   addEquipment,
   carveFacilityOpenings,
-  removeCells,
   removeFacility,
   removeModule,
   SHOP_WALL_H,
@@ -36,11 +43,11 @@ import {
 } from '../build/model.ts'
 import { finishDef } from '../sim/finishes.ts'
 import { exitFloorAt } from '../sim/exits.ts'
-import { moduleAt, isTrackCell, placementBlocked, placementOnTrack } from '../sim/placement.ts'
+import { moduleAt, isTrackCell, placementBlocked, placementOnTrack, reservedOpening } from '../sim/placement.ts'
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
 import { FACILITY_OPTIONS, setFrameHandler, useStore, isFacilityBrush, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
-import type { Face, FinishId } from '../sim/types.ts'
+import type { Face, FinishId, Module } from '../sim/types.ts'
 import { railModuleAt, railRect } from '../build/rail.ts'
 import { ViewCube } from './ViewCube.tsx'
 
@@ -65,14 +72,21 @@ function isMoved(d: { sx: number; sy: number }, e: { clientX: number; clientY: n
  * Narrow a drag rectangle to the cells it would actually change: the solid
  * blocks a remove drag is pending-delete, the empty cells a build drag is
  * pending-build. Cells already in the desired state are left out, so the
- * highlight reads as exactly "what this release will do".
+ * highlight reads as exactly "what this release will do". A build drag also
+ * drops reserved openings — the corridors ramps carve and the floor exits cover
+ * — so the ghost never promises a block the release will refuse.
  */
 function pendingCells(
   cells: Array<[number, number, number]>,
   mode: 'add' | 'remove',
   solid: Set<string>,
+  modules: readonly Module[] = [],
 ): Array<[number, number, number]> {
-  return cells.filter(([x, y, z]) => (mode === 'remove' ? solid.has(cellKey(x, y, z)) : !solid.has(cellKey(x, y, z))))
+  return cells.filter(([x, y, z]) => {
+    const k = cellKey(x, y, z)
+    if (mode === 'remove') return solid.has(k)
+    return !solid.has(k) && !reservedOpening(modules, x, y, z)
+  })
 }
 
 /** Outward normal of each face: the paint plane's axis and the quad orientation. */
@@ -183,6 +197,8 @@ export function Viewport(): React.ReactElement {
     anchor: [number, number, number]
     z: number
     shift: boolean
+    /** True for the 墙 tool's drag, whose cells are full-height wall columns. */
+    wall?: boolean
     /** Screen position and time of the press, to tell a click from a drag. */
     sx: number
     sy: number
@@ -367,7 +383,9 @@ export function Viewport(): React.ReactElement {
       const sel = st.selected
       if (!sel || sel.kind !== 'cell') return
       const [x, y, z] = sel.key.split(',').map(Number)
-      const next = removeCells(st.station, [[x, y, z]])
+      // A build-tool floor brings its auto-wall ring with it; a hand-built or
+      // auto-wall block is just removed.
+      const next = removeFloor(st.station, [[x, y, z]])
       st.commit(next)
       st.select(null)
     }
@@ -542,6 +560,54 @@ export function Viewport(): React.ReactElement {
       scene.setCursor(anchor, true)
       return
     }
+    if (tool === 'wall') {
+      // The 墙 tool drags out a run of full-height wall; right-click drags the
+      // same run back out again, a whole column at a time.
+      e.preventDefault()
+      const mode: 'add' | 'remove' = e.button === 2 ? 'remove' : 'add'
+      const anchor = mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
+      drag.current = {
+        active: true,
+        button: e.button,
+        mode,
+        anchor,
+        z: anchor[2],
+        shift: false,
+        wall: true,
+        sx: e.clientX,
+        sy: e.clientY,
+        downTime: performance.now(),
+      }
+      scene.setGhost(
+        mode === 'add'
+          ? pendingCells(wallRun([anchor]), 'add', solidRef.current, st.station.modules)
+          : wallColumnAt(st.station, anchor[0], anchor[1], anchor[2]),
+        mode,
+      )
+      scene.setCursor(anchor, mode === 'add')
+      return
+    }
+    if (tool === 'delete') {
+      // The delete tool is button-agnostic: press a block and tap (one block) or
+      // drag a line (a run of blocks). It reuses the `drag` ref in remove mode
+      // with `shift` pinned, so the release takes the block tool's line path.
+      if (!hit.solid) return
+      e.preventDefault()
+      drag.current = {
+        active: true,
+        button: e.button,
+        mode: 'remove',
+        anchor: hit.cell,
+        z: hit.cell[2],
+        shift: true,
+        sx: e.clientX,
+        sy: e.clientY,
+        downTime: performance.now(),
+      }
+      scene.setGhost(pendingCells([hit.cell], 'remove', solidRef.current), 'remove')
+      scene.setCursor(hit.cell, true)
+      return
+    }
     // block tool: a click is one block, a long press + drag is a rectangle on
     // the pressed plane (the depth you are on, stepped with Q/E).
     e.preventDefault()
@@ -558,7 +624,7 @@ export function Viewport(): React.ReactElement {
       sy: e.clientY,
       downTime: performance.now(),
     }
-    scene.setGhost(pendingCells([anchor], mode, solidRef.current), mode)
+    scene.setGhost(pendingCells([anchor], mode, solidRef.current, st.station.modules), mode)
   }
 
   const onPointerMove = (e: React.PointerEvent): void => {
@@ -572,6 +638,43 @@ export function Viewport(): React.ReactElement {
       return
     }
     const st = useStore.getState()
+    if (st.tool === 'wall') {
+      const d = drag.current
+      if (d?.active) {
+        const target = d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
+        // Only a deliberate press becomes a run; a quick press stays one column.
+        const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
+        const line = dragging ? rectCells(d.anchor, target, d.z, true) : [d.anchor]
+        scene.setGhost(
+          d.mode === 'add'
+            ? pendingCells(wallRun(line), 'add', solidRef.current, st.station.modules)
+            : wallColumnsAt(st.station, line),
+          d.mode,
+        )
+        scene.setCursor(dragging ? target : d.anchor, d.mode === 'add')
+        return
+      }
+      const c = hit.solid ? hit.place : hit.cell
+      scene.setGhost(pendingCells(wallRun([c]), 'add', solidRef.current, st.station.modules), 'add')
+      scene.setCursor(c, true)
+      return
+    }
+    if (st.tool === 'delete') {
+      const d = drag.current
+      if (d?.active) {
+        // A deliberate press draws the line of blocks the release will remove;
+        // a quick tap stays one block even if the pointer jitters.
+        const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
+        const line = dragging ? rectCells(d.anchor, hit.cell, d.z, true) : [d.anchor]
+        scene.setGhost(pendingCells(line, 'remove', solidRef.current), 'remove')
+        scene.setCursor(dragging ? hit.cell : d.anchor, true)
+        return
+      }
+      // Hover: the one block under the pointer, highlighted as pending deletion.
+      scene.setGhost(pendingCells([hit.cell], 'remove', solidRef.current), 'remove')
+      scene.setCursor(hit.cell, hit.solid)
+      return
+    }
     if (st.tool === 'block') {
       const d = drag.current
       if (d?.active) {
@@ -581,7 +684,11 @@ export function Viewport(): React.ReactElement {
         // block even if the pointer jitters.
         const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
         const preview = dragging ? rectCells(d.anchor, target, d.z, e.shiftKey) : [d.anchor]
-        scene.setGhost(pendingCells(preview, d.mode, solidRef.current), d.mode)
+        // A deliberate add drag draws a walled surface: show the auto wall ring
+        // the release would raise, so the shell is not a surprise.
+        const cells = pendingCells(preview, d.mode, solidRef.current, st.station.modules)
+        if (d.mode === 'add' && dragging) cells.push(...plannedAutoWalls(solidRef.current, preview, st.station.modules))
+        scene.setGhost(cells, d.mode)
         scene.setCursor(dragging ? target : d.anchor, d.mode === 'add')
         return
       }
@@ -828,17 +935,42 @@ export function Viewport(): React.ReactElement {
     scene.setGhost([], 'add')
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
     const target = hit ? (d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell) : d.anchor
-    const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
     const st = useStore.getState()
+    if (d.wall) {
+      // A 墙 drag lays a run of full-height columns; a quick press is one. The
+      // right drag lifts the same run, a whole tagged column at a time.
+      const line = rect ? rectCells(d.anchor, target, d.z, true) : [d.anchor]
+      if (d.mode === 'add') {
+        const { state: next, changed, blocked } = addWalls(st.station, line)
+        if (changed > 0) st.commit(next)
+        if (blocked > 0) st.setNotice('预留开口要留空：楼梯、扶梯和出入口的地板不能用方块盖住')
+      } else {
+        const remove = wallColumnsAt(st.station, line)
+        if (remove.length === 0) return
+        st.commit(removeCells(st.station, remove))
+      }
+      return
+    }
+    const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
     if (d.mode === 'add') {
-      const { cells: next, changed } = addCells(st.station.cells, cells)
-      if (changed > 0) st.commit({ ...st.station, cells: next })
+      if (rect) {
+        // A deliberate drag draws a walled floor patch: union it with earlier
+        // patches and rebuild the auto wall ring around the new edge.
+        const next = addFloor(st.station, cells)
+        if (next !== st.station) st.commit(next)
+      } else {
+        const { cells: next, changed, blocked } = addCells(st.station.cells, cells, st.station.modules)
+        if (changed > 0) st.commit({ ...st.station, cells: next })
+        if (blocked > 0) st.setNotice('预留开口要留空：楼梯、扶梯和出入口的地板不能用方块盖住')
+      }
     } else {
       // Only real blocks count against the seed's integrity (§4.1); a rectangle
       // drawn across void would otherwise trip the guard for nothing.
       const remove = pendingCells(cells, 'remove', solidRef.current)
       if (st.station.cells.length - remove.length < 4) return
-      const next = removeCells(st.station, remove)
+      // A dug auto-floor brings its wall ring along; a hand-placed block is
+      // just removed.
+      const next = removeFloor(st.station, remove)
       if (next.cells.length !== st.station.cells.length) st.commit(next)
     }
   }

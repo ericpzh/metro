@@ -50,6 +50,24 @@ function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M4 6.4l6 3.4 6-3.4M10 9.8V17" />
         </>,
       )
+    // A brick wall: three courses, joints staggered.
+    case 'wall':
+      return svg(
+        <>
+          <rect {...s} x="3.4" y="4" width="13.2" height="12" rx="0.6" />
+          <path {...s} d="M3.4 8h13.2M3.4 12h13.2M8 4v4M12 8v4M8 12v4" />
+        </>,
+      )
+    // A waste bin: a block the delete tool tips away.
+    case 'delete':
+      return svg(
+        <>
+          <path {...s} d="M4.6 5.8h10.8" />
+          <path {...s} d="M7.6 5.8V4.2c0-.5.4-.9.9-.9h3c.5 0 .9.4.9.9v1.6" />
+          <path {...s} d="M6 5.8l.8 9.6c0 .6.5 1.1 1.1 1.1h4.2c.6 0 1.1-.5 1.1-1.1L14 5.8" />
+          <path {...s} d="M8.7 8.6v4.8M11.3 8.6v4.8" />
+        </>,
+      )
     case 'module':
       return svg(
         <>
@@ -250,6 +268,8 @@ type FolderKey = 'tools' | 'equipment' | 'rail' | 'rooms' | 'surfaces' | 'zones'
 const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
   select: 'tools',
   block: 'tools',
+  wall: 'tools',
+  delete: 'tools',
   module: 'equipment',
   paint: 'surfaces',
   zone: 'zones',
@@ -395,15 +415,17 @@ export function LeftRail(): React.ReactElement {
         <span className="railStampSub">METRO / BUILD</span>
       </div>
 
-      <Folder title="工具" count={4} open={open.tools} onToggle={() => toggle('tools')}>
+      <Folder title="工具" count={6} open={open.tools} onToggle={() => toggle('tools')}>
         <div className="blockGrid">
           {(
             [
               { id: 'select', label: '选择', icon: 'select' },
               { id: 'block', label: '建造', icon: 'block' },
-            ] as Array<{ id: Tool; label: string; icon: string }>
+              { id: 'wall', label: '墙', icon: 'wall', title: '墙：左键拖出 4m 高墙，右键拖拽整列拆除' },
+              { id: 'delete', label: '删除', icon: 'delete', title: '删除：单击拆一块，按住拖出一条拆一行（左右键一样）' },
+            ] as Array<{ id: Tool; label: string; icon: string; title?: string }>
           ).map((t) => (
-            <Block key={t.id} label={t.label} icon={t.icon} active={tool === t.id} onClick={() => setTool(t.id)} />
+            <Block key={t.id} label={t.label} icon={t.icon} title={t.title} active={tool === t.id} onClick={() => setTool(t.id)} />
           ))}
           <Block label="撤销" icon="undo" onClick={() => st().undo()} />
           <Block label="重做" icon="redo" onClick={() => st().redo()} />

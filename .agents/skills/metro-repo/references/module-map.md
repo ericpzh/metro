@@ -17,8 +17,8 @@ React.
 | `zones.ts` | Fare zones. `ZONE_LIST`, `ZONE_INDEX`, `crossingDir`, labels. A zone boundary is a movement barrier. |
 | `gates.ts` | Gate policy predicates: `gateAllows`, `gateLaneAllows`, `nextGateIndex` (the two-way single-lane rule). |
 | `station.ts` | `buildGraph` and `StationGraph`, servers (`ServerDef`), platforms, `PathFinder` (A* + path cache + per-tick budget), `needsClass`. |
-| `placement.ts` | `ModuleBox`, `moduleEnvelope`, `boxesOverlap`, `placementBlocked`, `moduleAt`, `placementOnTrack`, `isTrackBed` / `trackBedKeys` / `isTrackCell` (a track bed is either the `floor.track` finish or a `track` module's footprint), `trackAt`, `trackCells`. |
-| `openings.ts` | `carveRampOpenings`, `rampEnvelope`, `rampBlocked`, `rampCorridorHalf`, `ESCALATOR_HEADROOM`, `escalatorBasesSolid`. |
+| `placement.ts` | `ModuleBox`, `moduleEnvelope`, `boxesOverlap`, `placementBlocked`, `moduleAt`, `placementOnTrack`, `isTrackBed` / `trackBedKeys` / `isTrackCell` (a track bed is either the `floor.track` finish or a `track` module's footprint), `trackAt`, `trackCells`, `reservedOpening` (a cell a hand-built block may not cover: a ramp's carved corridor or an exit's floor). |
+| `openings.ts` | `carveRampOpenings`, `rampEnvelope`, `rampBlocked`, `rampCorridorHalf`, `ESCALATOR_HEADROOM`, `escalatorBasesSolid`, `rampOpeningAt` (the block-brush guard, sharing the carve's ramp list). |
 | `stairs.ts` | The four stair shapes, `STAIR_RUN`/`STAIR_RISE`, widths + `nextStairWidth`, `stairFlights`, `stairLandings`, level/turn helpers. |
 | `escalators.ts` | `escalatorModule` (the one fixed one-storey piece), `ESCALATOR_RUN`/`RISE`, `nextEscalatorDir`. |
 | `exits.ts` | Head-house geometry shared by sim and render: `EXIT_*` constants, `exitDoorCell`, `exitWallPlanes`, `exitFloorBounds`, `exitCoversCell`, `exitFloorAt`. |
@@ -31,7 +31,7 @@ React.
 
 | File | Owns |
 |---|---|
-| `model.ts` | `StationState`, `initialStation`, `toData`/`toState`/`cloneState`, `LEVEL_STEPS`/`nearestLevel`, `createModule`, `addEquipment`, cell add/remove, `removeModule`, module ids, face paint/erase/fill, zone paint + `zoneRegionLabels`, facilities (`placeFacility`, `facilityPlan`, `carveFacilityOpenings`, `removeFacility`), and `labStation`. |
+| `model.ts` | `StationState`, `initialStation`, `toData`/`toState`/`cloneState`, `LEVEL_STEPS`/`nearestLevel`, `createModule`, `addEquipment`, cell add/remove, `removeModule`, module ids, face paint/erase/fill, zone paint + `zoneRegionLabels`, facilities (`placeFacility`, `facilityPlan`, `carveFacilityOpenings`, `removeFacility`), build floors + their automatic walls (`addFloor`, `removeFloor`, `syncAutoWalls`, `wallRun`, `addWalls`, `wallColumnAt`/`wallColumnsAt`, `plannedAutoWalls`, `AUTO_FLOOR`/`AUTO_WALL`/`AUTO_WALL_H`/`WALL`), and `labStation`. |
 | `rail.ts` | Rail placement and derived screen doors: `RAIL_BED_DEPTH`, `railRect`, `defaultLine`, `isPlatformCell`, `derivePlatformEdges`, `dropDerivedEdges`, `regenerateRailEdges`, `placeRail` (dig the bed + lay the `track` module), `railModuleAt`, `railSummary`. Pure document edits. |
 
 ## `render/` — three.js
@@ -63,7 +63,7 @@ React.
 | `store.ts` | zustand app state: the station document, active tool/brush/rotation/width/direction, view flags, metrics, and the worker plumbing (`initSim`, `rebuildSim`, `setFrameHandler`). Rail and line actions (`layRail`, `regenRail`, `refreshRailDoors`, `removeRail`, `updateRail`, `updateLine`, `addLine`), `MODULE_OPTIONS`, `FACILITY_OPTIONS`, tool predicates. |
 | `App.tsx` | Top bar, inspector (including the 线路 card), bottom metric bar, global keyboard shortcuts. |
 | `LeftRail.tsx` | The blueprint build rail: folders for tools, equipment, 轨道 (the whole rail panel — tool, direction, bound line, 重置屏蔽门), 房间 (rooms), surfaces, zones, view. |
-| `Viewport.tsx` | Owns the `SceneRenderer` lifecycle and turns pointer input into build commands. The only app file that touches three directly. |
+| `Viewport.tsx` | Owns the `SceneRenderer` lifecycle and turns pointer input into build commands (the 建造 / 墙 / 删除 / equipment / paint / zone / rail tools). The only app file that touches three directly. |
 | `ViewCube.tsx` | The orientation cube. |
 | `Lab.tsx` | The `/lab` material/renderer lab. |
 | `boot.tsx` | Lazily imported bootstrap that renders the app and starts the sim. |
@@ -78,7 +78,8 @@ React.
 
 ## `game/test/`
 
-`node --test` suite importing `src/sim/*.ts` (and, for `rail`, `src/build/rail.ts`)
-directly: `determinism`, `capacity`, `layering`, `surfaces`, `save`, `zones`,
-`gates`, `trains`, `placement`, `openings`, `stairs`, `escalators`, `exits`,
-`facility`, `rail`. `layering.test.mjs` enforces the dependency rule above.
+`node --test` suite importing `src/sim/*.ts` (and, for `rail` and `walls`,
+`src/build/*.ts`) directly: `determinism`, `capacity`, `layering`, `surfaces`,
+`save`, `zones`, `gates`, `trains`, `placement`, `openings`, `stairs`,
+`escalators`, `exits`, `facility`, `rail`, `walls`. `layering.test.mjs` enforces
+the dependency rule above.

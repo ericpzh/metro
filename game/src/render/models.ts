@@ -1200,11 +1200,11 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
       const cy = y === y0 ? y + WALL_T / 2 : y + 1 - WALL_T / 2
       // The panel's inside face is the one the room sees and the player clicks:
       // south/north walls show their n/s face, west/east walls their e/w face.
-      slab(g, wallMat(key, y === y0 ? 'n' : 's'), (a + b) / 2, cy, cz, b - a, WALL_T, h)
+      finishSlab(g, wallMat(key, y === y0 ? 'n' : 's'), (a + b) / 2, cy, cz, b - a, WALL_T, h)
     }
     if (x === x0 || x === x1) {
       const cxx = x === x0 ? x + WALL_T / 2 : x + 1 - WALL_T / 2
-      slab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h)
+      finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h)
     }
   }
   if (kind === 'store') {

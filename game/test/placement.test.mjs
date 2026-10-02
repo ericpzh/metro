@@ -4,8 +4,8 @@
 // collide with the one below.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack } from '../src/sim/placement.ts'
-import { createModule, groundLevelZ, nextModuleId, removeModule, toState } from '../src/build/model.ts'
+import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening } from '../src/sim/placement.ts'
+import { addCells, createModule, groundLevelZ, nextModuleId, removeModule, toState } from '../src/build/model.ts'
 
 const gate = (x, y, z, id = 'gate') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })
 const tvm = (x, y, z, id = 'tvm') => ({ id, type: 'tvm', x, y, z, cfg: {} })
@@ -160,4 +160,42 @@ test('a room straddling a track bed is refused, not just its anchor cell', () =>
   assert.equal(placementOnTrack(cells, shop), true)
   assert.equal(placementOnTrack(cells, { ...shop, y: -1 }), true, 'the far row still reaches the bed')
   assert.equal(placementOnTrack(cells, { ...shop, y: 1 }), false, 'clear of the bed')
+})
+
+/* -------------------------------------------- reserved auto-generated openings */
+
+/** A descending escalator run along +y, from (0,0,0) to (0,6,-4). */
+const rampRun = () => ({
+  id: 'e',
+  type: 'escalator',
+  x: 0,
+  y: 0,
+  z: 0,
+  from: { x: 0, y: 0, z: 0 },
+  to: { x: 0, y: 6, z: -4 },
+  cfg: { dir: 'down' },
+})
+
+test('a ramp reserves the corridor it carves, but not its landing or the blocks outside', () => {
+  const r = rampRun()
+  assert.equal(reservedOpening([r], 0, 3, 0), true, 'a cell in the carved corridor is reserved')
+  assert.equal(reservedOpening([r], 0, 0, 0), false, 'the landing sits on the walking line, not reserved')
+  assert.equal(reservedOpening([r], 5, 3, 0), false, 'a cell beyond the handrail is free')
+  assert.equal(reservedOpening([], 0, 3, 0), false, 'no ramps reserves nothing')
+})
+
+test('an exit reserves the floor it lays over a hole', () => {
+  const e = exit(0, 0, 0, 'e')
+  assert.equal(reservedOpening([e], 0, 0, 0), true, 'inside the head-house floor')
+  assert.equal(reservedOpening([e], 5, 5, 0), false, 'well outside the footprint')
+})
+
+test('building a block may not cover a reserved opening', () => {
+  const r = rampRun()
+  // The first two candidates fall in the ramp's corridor; only the far cell may
+  // be built, and the refused count reports what the brush dropped.
+  const { cells, changed, blocked } = addCells([], [[0, 3, 0], [0, 4, 0], [5, 5, 0]], [r])
+  assert.equal(changed, 1)
+  assert.equal(blocked, 2)
+  assert.deepEqual(cells.map((c) => [c.x, c.y, c.z]), [[5, 5, 0]])
 })

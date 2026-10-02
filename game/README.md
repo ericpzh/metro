@@ -156,6 +156,17 @@ Up and down runs must sit in separate columns (the demo's banks are two metres a
 the builder refuses a column an existing ramp already occupies, so a second escalator can never
 be dropped immediately below a first.
 
+**Floors grow their own walls, and the 墙 tool lays one by hand.** A deliberate 建造 drag is not
+just a slab: `build/model.ts` tags its cells `auto-floor` and raises a 4 m `auto-wall` ring on the
+patch's outer edge, so a drawn surface reads as a room-sized shell. The rule is the room union,
+generalised to tagged cells: overlap or abut two patches and the shared edge inside the union loses
+its wall while the new outer edge gains one, an L-shape keeps only its true perimeter, hand-built
+floor is treated as continuous ground (no wall grows against it), and only `auto-floor` cells are
+tracked so a wall the player placed by hand — or the new 墙 tool's run — is never deleted or
+re-tagged. A hole dug through the middle stays open rather than getting boarded up. Single clicks
+and stacked blocks stay plain, and the drag's live ghost shows the wall ring before release. See
+`test/walls.test.mjs`.
+
 `test/` holds the acceptance tests. Run them with `npm test`:
 
 * `determinism.test.mjs` — same seed + tick ⇒ byte-identical positions, and no unseeded
@@ -176,10 +187,12 @@ be dropped immediately below a first.
 * `placement.test.mjs` — `sim/placement.ts` gives every module a world footprint: two may not
   share space (a gate line in adjacent cells is fine, a module on the storey above is not a
   conflict), a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
-  cell it covers, and `removeModule` bulldozes exactly one module and leaves its block.
+  cell it covers, `removeModule` bulldozes exactly one module and leaves its block, and the block
+  brush refuses a cell reserved by a ramp opening or an exit's floor (`reservedOpening`).
 * `openings.test.mjs` — a placed ramp carves the slab it climbs through but keeps its landings as
-  graph nodes, and the carve clears the blocks the balustrade and handrail sweep either side of the
-  run, not just the tread width.
+  graph nodes, the carve clears the blocks the balustrade and handrail sweep either side of the
+  run (not just the tread width), and every cell the carve opens reads as reserved so a hand-built
+  block cannot cover it back up.
 * `stairs.test.mjs` — the four stair shapes, each one storey; every flight is a two-way graph edge
   between walkable landings, a switchback is walked bottom to top across its half-landing, the turn
   landings are the cells between flights, the width cycle runs narrow → normal, the four stair
@@ -200,6 +213,11 @@ be dropped immediately below a first.
   extend a room, different ones clash; right-click carves wall openings (the renderer then hangs a
   3D door on a 厕所 / 办公室 opening and leaves the 商店 front open) and a room with no wall left is
   removed; the demo's shop and booth stay connected with live sim stops.
+* `walls.test.mjs` — the 建造 tool's deliberate drag draws a walled floor patch: a 4 m auto wall
+  ring rises on the patch's outer edge, overlapping or abutting two patches unions them (the buried
+  wall goes, the new edge is walled) while a hand-placed wall survives, digging an edge moves the
+  ring and a hole through the middle stays open, and 墙 lays tagged four-course columns that a
+  right-click or right-drag lifts whole.
 
 ## The simulation's time base
 

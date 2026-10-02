@@ -13,7 +13,7 @@ import { STAIR_WIDTH_NORMAL, nextStairWidth } from '../sim/stairs.ts'
 import type { LineDef, LineDirection } from '../sim/types.ts'
 import type { SceneStats } from '../render/scene.ts'
 
-export type Tool = 'select' | 'block' | 'module' | 'paint' | 'zone' | 'rail'
+export type Tool = 'select' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail'
 export type PaintMode = 'single' | 'surface' | 'pick'
 
 export interface ModuleOption {

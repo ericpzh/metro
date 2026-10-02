@@ -187,7 +187,12 @@ export function meshChunk(
   skip?: Set<number>,
 ): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
-  const isSolid = (x: number, y: number, z: number): boolean => solid.has(key(x, y, z))
+  // `skip` cells are hidden from the mesh (a shop's auto walls are drawn as
+  // thin panels instead), so they must not occlude their neighbours: otherwise
+  // the floor slab under a hidden wall is culled and leaves a half-block void
+  // along the inside of the room.
+  const isSolid = (x: number, y: number, z: number): boolean =>
+    solid.has(key(x, y, z)) && !(skip !== undefined && skip.has(key(x, y, z)))
   const H = BEVEL
 
   // Faces are sorted into one builder per finish, so a chunk yields a handful of
