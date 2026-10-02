@@ -122,9 +122,11 @@ build/ →  sim/            (and neither render/ nor app/)
   after the floor changes. A track bed is **either** the `floor.track` finish
   **or** a `track` module's footprint (`trackBedKeys` / `isTrackCell`), so the
   hand-built demo and placed rails agree. `station.lines` now holds many lines
-  (added in the inspector); each carries stock/cars/headway, an `up`/`down`
-  `direction`, and a `travelSign` (±1) — and its colour comes from
-  `data/line-colours.ts` (real 广州地铁 sign colours by line number).
+  (added in the inspector); each carries stock/cars/headway and a power mode, and
+  its colour comes from `data/line-colours.ts` (real 广州地铁 sign colours by line
+  number). The whole rail panel — the tool, 上行/下行, the bound line, and
+  重置屏蔽门 — lives in the left rail's 轨道 folder; the inspector's 线路 card
+  edits the lines themselves.
 
 ### Rendering and the app
 
@@ -170,12 +172,14 @@ build/ →  sim/            (and neither render/ nor app/)
   + snapshot, ship) are planned in the spec.
 * The **track kit** has landed: rails are `track` modules with dug beds and
   derived screen doors (`build/rail.ts`, `game/test/rail.test.mjs`). The left rail
-  has a 轨道 folder (tool, 上行/下行, 重置屏蔽门) and the inspector a 线路 section
-  for multi-line management (name/colour/stock/cars/direction, + 新建线路); a new
-  line wears its real 广州地铁 colour from `data/line-colours.ts`. The README still
-  files the draw kit under **B4** and its milestone table is not yet updated.
-  Walled facility rooms (商店 / 厕所 / 办公室) share the `shop` module and pick
-  their fit-out with `cfg.kind`; 售票亭 is the open `booth`.
+  has a 轨道 folder that is the whole rail panel — the tool, 上行/下行, the bound
+  line, and 重置屏蔽门 — and the inspector a 线路 section for multi-line management
+  (name/colour/stock/cars/供电/下车, + 新建线路); a new line wears its real 广州地铁
+  colour from `data/line-colours.ts`. The line owns the direction, and its tracks
+  carry it in `cfg.dir`; the line owns 供电 too, and editing it updates its tracks.
+  The README still files the draw kit under **B4** and its milestone table is not
+  yet updated. Walled facility rooms (商店 / 厕所 / 办公室) share the `shop` module
+  and pick their fit-out with `cfg.kind`; 售票亭 is the open `booth`.
 * `PLAN.md` was deleted, but `README.md`, `GAME-SPEC.md` and many source
   comments still reference it. Treat those references as historical.
 * The crowd micro-benchmark (`game/bench/crowd.mjs`,

@@ -3,9 +3,8 @@ import { useStore, isEscalatorType, isRotatableType, isStairType } from './store
 import { LeftRail } from './LeftRail.tsx'
 import { Viewport } from './Viewport.tsx'
 import { paintZone, zoneAt } from '../build/model.ts'
-import { railSummary } from '../build/rail.ts'
 import { ZONE_LIST, zoneLabel } from '../sim/zones.ts'
-import type { LineDef, LineDirection, Module, Zone } from '../sim/types.ts'
+import type { LineDef, Zone } from '../sim/types.ts'
 import { lineCapacityPerHour, trainRatedCapacity, STOCK } from '../sim/stock.ts'
 
 const LOS_LABEL: Record<string, string> = { A: 'A 畅通', B: 'B 顺畅', C: 'C 有点挤', D: 'D 拥挤', E: 'E 很挤', F: 'F 挤爆' }
@@ -148,98 +147,6 @@ function ZoneCard(): React.ReactElement | null {
 }
 
 /**
- * The rail / screen-door panel. Shows while the rail tool is active (so the
- * player sets the line/direction before laying) and for a selected track module
- * (so an existing rail can be rebound and its doors regenerated).
- */
-function RailCard(): React.ReactElement | null {
-  const station = useStore((s) => s.station)
-  const selected = useStore((s) => s.selected)
-  const tool = useStore((s) => s.tool)
-  const railLineId = useStore((s) => s.railLineId)
-  const railDir = useStore((s) => s.railDir)
-  const railPower = useStore((s) => s.railPower)
-  const setRailLine = useStore((s) => s.setRailLine)
-  const setRailDir = useStore((s) => s.setRailDir)
-  const setRailPower = useStore((s) => s.setRailPower)
-  const updateRail = useStore((s) => s.updateRail)
-  const regenRail = useStore((s) => s.regenRail)
-
-  const track =
-    selected?.kind === 'module'
-      ? (station.modules.find((m) => m.id === selected.key && m.type === 'track') as Extract<Module, { type: 'track' }> | undefined)
-      : undefined
-  if (tool !== 'rail' && !track) return null
-
-  const lineId = track ? track.cfg.line : railLineId || station.lines[0]?.id || ''
-  const dir: LineDirection = track ? (track.cfg.dir ?? 'up') : railDir
-  const line = station.lines.find((l) => l.id === lineId)
-  const summary = track ? railSummary(track, line) : null
-  const setLine = (id: string): void => {
-    if (track) updateRail(track.id, { line: id })
-    else setRailLine(id)
-  }
-  const setDir = (d: LineDirection): void => {
-    if (track) updateRail(track.id, { dir: d })
-    else setRailDir(d)
-  }
-  const setPower = (p: 'third-rail' | 'catenary'): void => {
-    if (track) updateRail(track.id, { power: p })
-    else setRailPower(p)
-  }
-
-  return (
-    <>
-      <div className="groupTitle">轨道 / 站台门</div>
-      <div className="card">
-        <div className="kv">
-          <span>轨道</span>
-          <b>{track ? `已铺设 · ${track.w} m × ${track.d ?? 1} m` : '待铺设'}</b>
-        </div>
-        <div className="row">
-          <span className="muted small">线路</span>
-          {station.lines.map((l) => (
-            <button key={l.id} className={lineId === l.id ? 'chip on' : 'chip'} onClick={() => setLine(l.id)}>
-              <i className="swatch" style={{ background: l.colour }} />
-              {l.id}
-            </button>
-          ))}
-        </div>
-        <div className="row">
-          <span className="muted small">方向</span>
-          {(['up', 'down'] as const).map((d) => (
-            <button key={d} className={dir === d ? 'chip on' : 'chip'} onClick={() => setDir(d)}>
-              {d === 'up' ? '上行' : '下行'}
-            </button>
-          ))}
-        </div>
-        <div className="row">
-          <span className="muted small">供电</span>
-          {(['third-rail', 'catenary'] as const).map((p) => (
-            <button key={p} className={(track ? track.cfg.power : railPower) === p ? 'chip on' : 'chip'} onClick={() => setPower(p)}>
-              {p === 'third-rail' ? '第三轨' : '接触网'}
-            </button>
-          ))}
-        </div>
-        {line && (
-          <div className="muted small">
-            {line.name} · {line.stock}型{line.cars}节
-            {summary ? ` · 列车 ${summary.trainLength} m · ${summary.doors} 个车门` : ''}
-          </div>
-        )}
-        <div className="muted small">在站台旁的楼层拖出轨道；两侧有站台就自动生成屏蔽门</div>
-      </div>
-
-      {track && (
-        <button className="primary" onClick={() => regenRail(track.id)}>
-          重置屏蔽门
-        </button>
-      )}
-    </>
-  )
-}
-
-/**
  * Line name + colour. Edits commit on blur / Enter, not per keystroke: every
  * commit rebuilds the worker's station, so typing should not spam it.
  */
@@ -325,8 +232,6 @@ function Inspector(): React.ReactElement {
       )}
       {selected?.kind === 'cell' && <ZoneCard />}
 
-      <RailCard />
-
       <div className="groupTitle">出入口客流</div>
       {exits.length === 0 && <div className="muted small">还没建出入口。</div>}
       {exits.map((m) =>
@@ -374,14 +279,14 @@ function Inspector(): React.ReactElement {
             <input type="range" min={1} max={8} step={1} value={line.cars} onChange={(e) => updateLine(line.id, { cars: Number(e.target.value) })} />
           </label>
           <div className="row">
-            <span className="muted small">方向</span>
-            {(['up', 'down'] as const).map((d) => (
+            <span className="muted small">供电</span>
+            {(['third-rail', 'catenary'] as const).map((p) => (
               <button
-                key={d}
-                className={line.direction === d ? 'chip on' : 'chip'}
-                onClick={() => updateLine(line.id, { direction: d })}
+                key={p}
+                className={line.power === p ? 'chip on' : 'chip'}
+                onClick={() => updateLine(line.id, { power: p })}
               >
-                {d === 'up' ? '上行' : '下行'}
+                {p === 'third-rail' ? '第三轨' : '接触网'}
               </button>
             ))}
           </div>

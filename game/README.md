@@ -83,11 +83,12 @@ asks "is this a track bed?" by *either* the `floor.track` finish (the hand-built
 module's footprint, so the demo and the renderer agree. `build/rail.ts` is the pure placement +
 derivation: it lays the bed, then generates one `platform-edge` per contiguous run of walkable exposed
 floor beside it (an island platform yields two — the Spanish solution), each bound to the rail's line
-and direction. The left rail has a dedicated **轨道** folder — the tool, 上行/下行, and a
-**重置屏蔽门** button that re-derives the selected rail's doors, or every rail's when nothing is
-selected. Line management lives in the right inspector's **线路** section (线路名/颜色, 车型/编组/方向/下车,
-plus **+ 新建线路**); the rail card there only binds a rail to one of the existing lines. The
-reference station builds its bed from the same dig, so the demo shows the recessed track too.
+and direction. The left rail has a dedicated **轨道** folder — the whole rail panel: the tool,
+上行/下行, the bound line, and a **重置屏蔽门** button that re-derives the selected rail's doors, or
+every rail's when nothing is selected. Line management lives in the right inspector's **线路** section
+(线路名/颜色, 车型/编组/供电/下车, plus **+ 新建线路**). The rail tool's 供电 comes from the line it is
+bound to. The reference station builds its bed from the same dig, so the demo shows the recessed
+track too.
 
 **Escalators are staircases, and they turn over.** `models.ts` builds each run as a band of
 instanced steps whose treads stay world-horizontal (riser, then the yellow nosing along the

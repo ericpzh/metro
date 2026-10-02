@@ -120,10 +120,10 @@ export interface AppState {
   /** Active fare-zone brush, or a facility room (§5.7) built by rectangle. */
   zoneBrush: ZoneBrush
   zoneOverlayOn: boolean
-  /** Rail tool: the line/direction/power a freshly laid bed binds to. */
+  /** Rail tool: the line/direction a freshly laid bed binds to. Power is a
+   *  line option (edited in the RHS 线路 panel), so it is not stored here. */
   railLineId: string
   railDir: LineDirection
-  railPower: 'third-rail' | 'catenary'
   /** Transient toast line (save/load results). */
   notice: string | null
   activeZ: number
@@ -155,7 +155,6 @@ export interface AppState {
   setZoneOverlay: (on: boolean) => void
   setRailLine: (id: string) => void
   setRailDir: (dir: LineDirection) => void
-  setRailPower: (p: 'third-rail' | 'catenary') => void
   /** Lay a rail bed (dig + track module + derived screen doors) and commit it. */
   layRail: (rect: RailRect) => void
   /** Re-derive a rail's screen doors after the platform floor changed. */
@@ -165,7 +164,7 @@ export interface AppState {
   /** Remove a rail and the screen doors derived from it. */
   removeRail: (trackId: string) => void
   /** Edit a rail's line/direction and re-derive its screen doors. */
-  updateRail: (trackId: string, patch: { line?: string; dir?: LineDirection; power?: 'third-rail' | 'catenary' }) => void
+  updateRail: (trackId: string, patch: { line?: string; dir?: LineDirection }) => void
   /** Edit a line's shared parameters (stock, cars, headway, colour). */
   updateLine: (lineId: string, patch: Partial<LineDef>) => void
   /** Add a new line and make it the rail tool's target. */
@@ -247,7 +246,6 @@ export const useStore = create<AppState>((set, get) => ({
   zoneOverlayOn: false,
   railLineId: '',
   railDir: 'up',
-  railPower: 'third-rail',
   notice: null,
   activeZ: -8,
   ghostOtherLevels: true,
@@ -279,7 +277,6 @@ export const useStore = create<AppState>((set, get) => ({
   setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
   setRailLine: (id) => set({ railLineId: id }),
   setRailDir: (dir) => set({ railDir: dir }),
-  setRailPower: (p) => set({ railPower: p }),
   layRail: (rect) => {
     const st = get()
     let station = st.station
@@ -288,7 +285,7 @@ export const useStore = create<AppState>((set, get) => ({
       // First rail on a fresh station: create the line it binds to, so placement
       // never stalls on an empty line list.
       if (station.lines.length === 0) {
-        const line = defaultLine('1', st.railDir, st.railPower)
+        const line = defaultLine('1', st.railDir, 'third-rail')
         station = { ...station, lines: [line] }
         lineId = line.id
       } else {
@@ -296,7 +293,9 @@ export const useStore = create<AppState>((set, get) => ({
       }
       set({ railLineId: lineId })
     }
-    const next = placeRail(station, rect, { lineId, dir: st.railDir, power: st.railPower })
+    // Power is a line option, so the track inherits the bound line's power.
+    const power = station.lines.find((l) => l.id === lineId)?.power ?? 'third-rail'
+    const next = placeRail(station, rect, { lineId, dir: st.railDir, power })
     if (next === station) {
       set({ notice: '这里已经有轨道了' })
       return
@@ -349,7 +348,12 @@ export const useStore = create<AppState>((set, get) => ({
     // caller cannot produce a zero-length train.
     const fixed = patch.cars !== undefined ? { ...patch, cars: Math.max(1, Math.min(8, Math.round(patch.cars))) } : patch
     const lines = st.station.lines.map((l) => (l.id === lineId ? { ...l, ...fixed } : l))
-    get().commit({ ...st.station, lines })
+    // Power is a line option, so keep the line's tracks in step with it.
+    const modules =
+      patch.power !== undefined
+        ? st.station.modules.map((m) => (m.type === 'track' && m.cfg.line === lineId ? { ...m, cfg: { ...m.cfg, power: patch.power as 'third-rail' | 'catenary' } } : m))
+        : st.station.modules
+    get().commit({ ...st.station, lines, modules })
   },
   addLine: () => {
     const st = get()
@@ -357,7 +361,7 @@ export const useStore = create<AppState>((set, get) => ({
     let n = st.station.lines.length + 1
     while (used.has(String(n))) n++
     const id = String(n)
-    const line = defaultLine(id, st.railDir, st.railPower)
+    const line = defaultLine(id, st.railDir, 'third-rail')
     get().commit({ ...st.station, lines: [...st.station.lines, line] })
     set({ railLineId: id, notice: `已新建 ${line.name}，铺轨时自动绑定` })
   },

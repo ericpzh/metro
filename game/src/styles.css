@@ -868,6 +868,9 @@ button.ghost:hover {
   background: none;
   cursor: pointer;
 }
+.railStatus {
+  padding: 2px 2px 5px;
+}
 input[type='range'] {
   width: 100%;
   accent-color: var(--accent);

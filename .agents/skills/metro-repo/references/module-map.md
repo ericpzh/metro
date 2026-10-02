@@ -61,8 +61,8 @@ React.
 | File | Owns |
 |---|---|
 | `store.ts` | zustand app state: the station document, active tool/brush/rotation/width/direction, view flags, metrics, and the worker plumbing (`initSim`, `rebuildSim`, `setFrameHandler`). Rail and line actions (`layRail`, `regenRail`, `refreshRailDoors`, `removeRail`, `updateRail`, `updateLine`, `addLine`), `MODULE_OPTIONS`, `FACILITY_OPTIONS`, tool predicates. |
-| `App.tsx` | Top bar, inspector (including the rail/线路 cards), bottom metric bar, global keyboard shortcuts. |
-| `LeftRail.tsx` | The blueprint build rail: folders for tools, equipment, 轨道 (rail), 房间 (rooms), surfaces, zones, view. |
+| `App.tsx` | Top bar, inspector (including the 线路 card), bottom metric bar, global keyboard shortcuts. |
+| `LeftRail.tsx` | The blueprint build rail: folders for tools, equipment, 轨道 (the whole rail panel — tool, direction, bound line, 重置屏蔽门), 房间 (rooms), surfaces, zones, view. |
 | `Viewport.tsx` | Owns the `SceneRenderer` lifecycle and turns pointer input into build commands. The only app file that touches three directly. |
 | `ViewCube.tsx` | The orientation cube. |
 | `Lab.tsx` | The `/lab` material/renderer lab. |
