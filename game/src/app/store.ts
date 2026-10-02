@@ -28,10 +28,10 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'bench', label: '座椅', type: 'bench', w: 1, h: 1 },
   { id: 'exit', label: '出入口', type: 'exit', w: 1, h: 1 },
   { id: 'escalator', label: '扶梯', type: 'escalator', w: 1, h: 1 },
-  { id: 'stair-straight', label: '直楼梯', type: 'stair', w: 1, h: 1 },
-  { id: 'stair-left90', label: '左转90°', type: 'stair', w: 1, h: 1 },
-  { id: 'stair-right90', label: '右转90°', type: 'stair', w: 1, h: 1 },
-  { id: 'stair-right180', label: '折返180°', type: 'stair', w: 1, h: 1 },
+  { id: 'stair-straight', label: '单跑楼梯', type: 'stair', w: 1, h: 1 },
+  { id: 'stair-left90', label: '左转角楼梯', type: 'stair', w: 1, h: 1 },
+  { id: 'stair-right90', label: '右转角楼梯', type: 'stair', w: 1, h: 1 },
+  { id: 'stair-right180', label: '双跑楼梯', type: 'stair', w: 1, h: 1 },
 ]
 
 /** True for any of the four fixed staircase shapes in the palette. */
