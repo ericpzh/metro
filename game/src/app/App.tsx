@@ -5,7 +5,6 @@ import { Viewport } from './Viewport.tsx'
 import { paintZone, zoneAt } from '../build/model.ts'
 import { ZONE_LIST, zoneLabel } from '../sim/zones.ts'
 import type { LineDef, Module, Zone } from '../sim/types.ts'
-import { lineCapacityPerHour, trainRatedCapacity, STOCK } from '../sim/stock.ts'
 
 const LOS_LABEL: Record<string, string> = { A: 'A 畅通', B: 'B 顺畅', C: 'C 有点挤', D: 'D 拥挤', E: 'E 很挤', F: 'F 挤爆' }
 const SPEEDS = [0, 1, 4, 16]
@@ -152,6 +151,7 @@ function ZoneCard(): React.ReactElement | null {
  */
 function LineFields({ line }: { line: LineDef }): React.ReactElement {
   const updateLine = useStore((s) => s.updateLine)
+  const removeLine = useStore((s) => s.removeLine)
   const [name, setName] = useState(line.name)
   const [colour, setColour] = useState(line.colour)
   const [upTerminus, setUpTerminus] = useState(line.upTerminus ?? '')
@@ -214,6 +214,17 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
           onChange={(e) => setColour(e.target.value)}
           onBlur={commitColour}
         />
+        <button
+          type="button"
+          className="lineDeleteBtn"
+          title="删除线路，连同它名下的轨道和屏蔽门"
+          aria-label="删除线路"
+          onClick={() => removeLine(line.id)}
+        >
+          <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 6h12M8 6V4h4v2M6 6l.7 9h6.6L14 6M8.4 9v4M11.6 9v4" />
+          </svg>
+        </button>
       </div>
       <label className="field">
         <span>上行终点</span>
@@ -386,6 +397,11 @@ function Inspector(): React.ReactElement {
         )}
         {station.lines.map((line) => {
           const open = openLines[line.id] ?? true
+          // The slider is per car; the readout is the whole train. So the shown
+          // 载客量 is a function of both 编组 and the per-car load, and 人/时 folds
+          // in the peak headway.
+          const perCar = Math.max(0, Math.round(line.alightPerTrain / Math.max(1, line.cars)))
+          const perHour = Math.round((line.alightPerTrain * 3600) / line.headwayProfile.peak)
           return (
             <Disclosure
               key={line.id}
@@ -438,17 +454,20 @@ function Inspector(): React.ReactElement {
                   </button>
                 ))}
               </div>
-              <div className="kv">
-                <span>载客量</span>
-                <b>
-                  {trainRatedCapacity(line)} 人/列 · {lineCapacityPerHour(line).toLocaleString()} 人/时
-                </b>
-              </div>
               <label className="field">
-                <span>每列下车 {line.alightPerTrain} 人</span>
-                <input type="range" min={0} max={1500} step={10} value={line.alightPerTrain} onChange={(e) => updateLine(line.id, { alightPerTrain: Number(e.target.value) })} />
+                <span>
+                  {line.alightPerTrain} 人/列 · {perHour.toLocaleString()} 人/时
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={400}
+                  step={10}
+                  value={perCar}
+                  title={`每节 ${perCar} 人`}
+                  onChange={(e) => updateLine(line.id, { alightPerTrain: Number(e.target.value) * line.cars })}
+                />
               </label>
-              <div className="muted small">{STOCK[line.stock].doorsPerSide * line.cars} 个车门 · 出站不限流，来多少走多少</div>
             </Disclosure>
           )
         })}

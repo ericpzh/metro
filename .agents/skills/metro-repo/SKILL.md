@@ -327,7 +327,11 @@ build/ →  sim/            (and neither render/ nor app/)
   (auto-extends a rail off its free end, no platform doors, with a length slider),
   R (旋转), 上行/下行, the bound line, and 重置屏蔽门; the inspector a 线路
   section for multi-line management (名字/颜色/上行终点/下行终点/车型/编组/供电/下车,
-  + 新建线路; each card and the section fold open/closed);
+  + 新建线路; each card and the section fold open/closed; a trash icon beside the
+  colour swatch deletes the line and every track bound to it, `removeLineAndTracks`
+  in `build/rail.ts`, undoable; the 下车 slider is per car, so the 载客量 readout
+  `编组 × 下车/节` 人/列 and its peak-hour figure follow both the slider and the
+  consist);
   a new line wears its real 广州地铁 colour from `data/line-colours.ts`. The line
   owns the direction, and its tracks
   carry it in `cfg.dir`; the line owns 供电 too, and `setLinePower` carries the

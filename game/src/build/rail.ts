@@ -12,7 +12,7 @@ import { doorCentres, trainLength } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, type TrackModule } from '../sim/track.ts'
 import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
 import { lineColourFor } from '../data/line-colours.ts'
-import { cellKey, nextModuleId, type StationState } from './model.ts'
+import { cellKey, nextModuleId, removeModule, type StationState } from './model.ts'
 
 /** Default bed depth in cells: a 2.8 m Type-B car sits inside with clearance. */
 export const RAIL_BED_DEPTH = 3
@@ -225,6 +225,23 @@ export function regenerateRailEdges(state: StationState, trackId: string): Stati
   if (!track || track.type !== 'track') return state
   const cleaned = dropDerivedEdges(state, trackId)
   return { ...cleaned, modules: [...cleaned.modules, ...derivePlatformEdges(cleaned, track)] }
+}
+
+/**
+ * Delete a line together with its rolling stock: every `track` bound to it
+ * (platform rails and hand-sized tunnels), the screen doors derived from those
+ * tracks, and any tunnel shell they raised. A line with no tracks is simply
+ * dropped. Pure, so the caller repoints the rail tool and any 3D selection.
+ */
+export function removeLineAndTracks(state: StationState, lineId: string): StationState {
+  if (!state.lines.some((l) => l.id === lineId)) return state
+  let next = state
+  for (const m of state.modules) {
+    if (m.type === 'track' && m.cfg.line === lineId) {
+      next = stripTunnelShell(removeModule(dropDerivedEdges(next, m.id), m.id), m.id)
+    }
+  }
+  return { ...next, lines: next.lines.filter((l) => l.id !== lineId) }
 }
 
 /** True when two tracks would share a bed cell. */

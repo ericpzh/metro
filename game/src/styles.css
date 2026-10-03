@@ -865,6 +865,26 @@ button.ghost:hover {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 0 12px rgba(47, 158, 255, 0.35);
 }
+/* The line card's destructive action: a compact trash button pinned right of
+   the colour swatch, matching the flat drafting chrome. */
+.lineDeleteBtn {
+  flex: none;
+  width: 24px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: #081a2c;
+  color: var(--muted);
+  cursor: pointer;
+}
+.lineDeleteBtn:hover {
+  border-color: var(--danger);
+  background: #3a1710;
+  color: var(--danger);
+}
 /* Collapsible inspector block (RHS). The body eases open via grid rows — the
    same trick as the left rail's folders — and stays mounted while clipped, so a
    collapsed line keeps its half-typed input state. */

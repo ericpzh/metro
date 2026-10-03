@@ -4,7 +4,7 @@
 // contiguous run of platform floor beside the bed.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, placeRail, placeTrack, placeTunnel, railModuleAt, regenerateRailEdges, resizeTrack, setLinePower, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
+import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, placeRail, placeTrack, placeTunnel, railModuleAt, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
 import { trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.ts'
 import { moduleEnvelope, placementOnTrack, trackBedKeys, trackAt } from '../src/sim/placement.ts'
 import { World } from '../src/sim/world.ts'
@@ -169,6 +169,37 @@ test('a 供电 switch re-cuts every track bound to the line, platform and tunnel
   assert.equal(switched.modules.find((m) => m.id === 't9').cfg.power, 'third-rail', 'another line is untouched')
   // The platform-edge derives from the track, so it stays bound to the line.
   assert.equal(switched.modules.some((m) => m.type === 'platform-edge' && m.cfg.line === '1'), true)
+})
+
+test('deleting a line takes its tracks, screen doors and tunnel shell, and leaves other lines', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  let s = placeRail(station(cells), { x0: 0, y0: 1, x1: 5, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const src = s.modules.find((m) => m.type === 'track')
+  // A wall crosses the tunnel's forward path, so the bore raises tagged shell
+  // cells the line must take with it.
+  for (let dz = 1; dz <= 4; dz++) cells.push({ x: 7, y: 1, z: dz, fill: 'solid' })
+  s = placeTunnel({ ...s, cells }, src.id, 4)
+  const tunnel = s.modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.ok(tunnel, 'the tunnel run exists')
+
+  // A second line with its own rail, clear of the first, must be untouched.
+  s = { ...s, lines: [...s.lines, defaultLine('2', 'down', 'catenary')] }
+  s = placeRail({ ...s, cells: [...s.cells, ...floorRow(0, 5, 3), ...floorRow(0, 5, 4)] }, { x0: 0, y0: 4, x1: 5, y1: 4, z: 0 }, { lineId: '2', dir: 'down', power: 'catenary' })
+  const other = s.modules.find((m) => m.type === 'track' && m.cfg.line === '2')
+  assert.ok(other, 'the second line laid its own rail')
+
+  const after = removeLineAndTracks(s, '1')
+  assert.equal(after.lines.some((l) => l.id === '1'), false, 'the line is gone')
+  assert.equal(after.modules.some((m) => m.type === 'track' && m.cfg.line === '1'), false, 'its rails are gone')
+  assert.equal(after.modules.some((m) => m.type === 'platform-edge' && m.cfg.line === '1'), false, 'its screen doors are gone')
+  assert.equal(after.cells.some((c) => c.tags?.includes(`${TUNNEL_SHELL}:${tunnel.id}`)), false, 'its tunnel shell is gone')
+  assert.ok(after.lines.some((l) => l.id === '2'), 'the other line survives')
+  assert.ok(after.modules.some((m) => m.id === other.id), 'the other rail survives')
+  assert.ok(after.modules.some((m) => m.type === 'platform-edge' && m.cfg.line === '2'), 'the other doors survive')
+
+  // An unknown line is a no-op, and deleting the last line empties the roster.
+  assert.equal(removeLineAndTracks(s, 'nope'), s)
+  assert.deepEqual(removeLineAndTracks(after, '2').lines, [])
 })
 
 test('a 屏蔽门 全高/半高 choice derives onto the edge and sizes its envelope', () => {

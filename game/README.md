@@ -144,7 +144,11 @@ the platform-only controls — 方向 (上行/下行), 线路, 重置屏蔽门 �
 **platform**; a tunnel tool or a selected tunnel shows just the two tools and the length slider. The 重置屏蔽门 button re-derives the selected
 rail's doors, or every rail's when nothing is selected. Line management lives in the right inspector's
 **线路** section (线路名/颜色, 上行终点/下行终点 direction signs, 车型/编组/供电/下车, plus **+ 新建线路**).
-The whole section and each line card fold open/closed, so a long roster stays compact. The two
+The whole section and each line card fold open/closed, so a long roster stays compact. Each card also
+carries a trash icon beside the colour swatch that removes the line together with every track bound to
+it (and those tracks' derived screen doors and tunnel shell) — a single undoable step. The 下车 slider
+is per car; its readout is the whole train, so 载客量 (`编组 × 下车/节` 人/列) and the peak-hour figure
+update with both the slider and the consist. The two
 terminus inputs name where each direction runs, and every platform screen door on that line
 prints the matching one on its direction sticker instead of a hardcoded place name. 屏蔽门 is a
 per-line choice of **全高** (the default storey-tall screen, its line header printed on a top band)
@@ -365,7 +369,9 @@ and the fare line holds. See `test/fence.test.mjs`.
   end, clears the wall it pokes through and raises its own side walls and ceiling without spawning
   doors; a platform needs its whole bed on solid floor and refuses a wall in its headroom; either one
   is blocked by any existing equipment, room, screen door or track; re-cutting a line's consist resizes
-  its platform tracks; a fresh line carries empty 上行/下行 termini for its screen header and a full-height
+  its platform tracks; deleting a line (`removeLineAndTracks`) takes its platform rails, tunnels, derived
+  screen doors and tunnel shell with it while leaving other lines' tracks and doors untouched;
+  a fresh line carries empty 上行/下行 termini for its screen header and a full-height
   (全高) 屏蔽门; switching a line to 半高 re-derives its edges and shrinks the reserved screen height from
   3.1 m to 1.5 m; the reference
   station builds its bed from the same dig and its hand-authored edge

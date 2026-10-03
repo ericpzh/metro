@@ -8,7 +8,7 @@ import { DEFAULT_ZONE, type FinishId, type StationData, type Zone } from '../sim
 import { referenceStation, REFERENCE_BOOT } from '../data/reference-station.ts'
 import { cloneState, initialStation, nearestLevel, nextEscalatorDir, removeModule, toData, toState, type StationState } from '../build/model.ts'
 import { LEVEL_STEPS } from '../sim/constants.ts'
-import { defaultLine, dropDerivedEdges, makeTrack, placeTrack, placeTunnel, regenerateRailEdges, resizeTrack, setLinePower, stripTunnelShell, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
+import { defaultLine, dropDerivedEdges, makeTrack, placeTrack, placeTunnel, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, stripTunnelShell, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
 import { parse as parseSave, serialize as serializeSave } from '../persistence/save.ts'
 import { STAIR_WIDTH_NORMAL, nextStairWidth } from '../sim/stairs.ts'
@@ -277,6 +277,8 @@ export interface AppState {
   updateLine: (lineId: string, patch: Partial<LineDef>) => void
   /** Add a new line and make it the rail tool's target. */
   addLine: () => void
+  /** Delete a line and every track bound to it (undoable). */
+  removeLine: (lineId: string) => void
   setNotice: (n: string | null) => void
   saveToFile: () => void
   loadFromText: (text: string) => void
@@ -532,9 +534,17 @@ export const useStore = create<AppState>((set, get) => ({
   },
   updateLine: (lineId, patch) => {
     const st = get()
+    const prev = st.station.lines.find((l) => l.id === lineId)
     // Consist is 1–8 cars for every stock class; clamp so a bad save or a stale
     // caller cannot produce a zero-length train.
-    const fixed = patch.cars !== undefined ? { ...patch, cars: Math.max(1, Math.min(8, Math.round(patch.cars))) } : patch
+    let fixed = patch.cars !== undefined ? { ...patch, cars: Math.max(1, Math.min(8, Math.round(patch.cars))) } : patch
+    // The load slider is per car, so a 编组 change keeps that per-car value and
+    // scales the stored whole-train total with the new car count. A patch that
+    // sets the total itself (the slider) is left alone.
+    if (patch.cars !== undefined && patch.alightPerTrain === undefined && prev) {
+      const cars = Math.max(1, Math.min(8, Math.round(patch.cars)))
+      fixed = { ...fixed, alightPerTrain: Math.round((prev.alightPerTrain / prev.cars) * cars) }
+    }
     const lines = st.station.lines.map((l) => (l.id === lineId ? { ...l, ...fixed } : l))
     let station = { ...st.station, lines }
     // Power is a line option, so carry it to every track bound to the line —
@@ -571,6 +581,26 @@ export const useStore = create<AppState>((set, get) => ({
     const line = defaultLine(id, st.railDir, 'third-rail')
     get().commit({ ...st.station, lines: [...st.station.lines, line] })
     set({ railLineId: id, notice: `已新建 ${line.name}，铺轨时自动绑定` })
+  },
+  removeLine: (lineId) => {
+    const st = get()
+    const line = st.station.lines.find((l) => l.id === lineId)
+    if (!line) return
+    // A line owns its rolling stock, so the pure edit drops every track bound to
+    // it along with those tracks' derived screen doors and tunnel shell.
+    const trackIds = st.station.modules.filter((m) => m.type === 'track' && m.cfg.line === lineId).map((m) => m.id)
+    const station = removeLineAndTracks(st.station, lineId)
+    const lines = station.lines
+    // A line owns the rail tool's target and any selection of one of its tracks,
+    // so repoint both at whatever line survives.
+    const railLineId = st.railLineId === lineId ? (lines[0]?.id ?? '') : st.railLineId
+    const selected = st.selected?.kind === 'module' && trackIds.includes(st.selected.key) ? null : st.selected
+    get().commit(station)
+    set({
+      railLineId,
+      selected,
+      notice: `已删除线路 ${line.name}${trackIds.length > 0 ? `，连同 ${trackIds.length} 段轨道` : ''}`,
+    })
   },
   setNotice: (n) => set({ notice: n }),
   saveToFile: () => {
