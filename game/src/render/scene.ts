@@ -20,6 +20,7 @@ import {
   type ModuleContext,
 } from './models.ts'
 import { finishMapOf } from '../sim/finishes.ts'
+import { storeyBand } from '../sim/constants.ts'
 import { trackBedKeys } from '../sim/placement.ts'
 import { edgeCells } from '../sim/track.ts'
 import { OPENING_CEILING } from '../sim/openings.ts'
@@ -66,6 +67,9 @@ const GATE_SHUT_S = 0.35
  *  which holds the queue at 0.62 m). Used to tell "stepping into the gate" from
  *  "waiting outside it". */
 const GATE_EDGE = 0.5
+
+/** Wall-clock seconds each advertisement poster stays on a 装饰 screen (§5.7). */
+const AD_FRAME_SECONDS = 3.5
 
 /**
  * Mouse edge pan: with the pointer inside this band along a canvas edge the
@@ -221,6 +225,15 @@ export class SceneRenderer {
   /** Materials/geometries owned by the current preview, disposed on replacement. */
   private previewMats: THREE.Material[] = []
   private previewBases: THREE.Material[] = []
+  /** Committed fence groups, hidden while the live fence drag previews them. */
+  private fenceGroups: THREE.Object3D[] = []
+  /**
+   * Live fence-drag preview: the existing fences rebuilt with the dragged line
+   * merged in (so a joint updates as you drag) plus the new translucent panels.
+   */
+  private fencePreviewGroup: THREE.Group = new THREE.Group()
+  private fencePreviewKey = ''
+  private fencePreviewMats: THREE.Material[] = []
   private trainGroup: THREE.Group = new THREE.Group()
   private trainSlots = new Map<string, TrainEntry>()
   /** Platform-screen-door groups, keyed to the line colour that opens them. */
@@ -229,6 +242,9 @@ export class SceneRenderer {
   private escalatorRolls: EscalatorRoll[] = []
   /** Turnstile leaves, slid open as the crowd passes through their lanes. */
   private gateWings: GateWing[] = []
+  /** Wall-mounted 装饰 screens, whose poster material cycles through the ad frames. */
+  private adScreens: THREE.Mesh[] = []
+  private adClock = 0
   private grid: THREE.Group = new THREE.Group()
   private cursor: THREE.Mesh
   /** Remove-drag preview: one red box per pending-delete block (§9.5). */
@@ -356,6 +372,7 @@ export class SceneRenderer {
     this.scene.add(this.zoneLabels)
     this.previewGroup.visible = false
     this.scene.add(this.previewGroup)
+    this.scene.add(this.fencePreviewGroup)
 
     // Agents. Prison Architect register: a limb-less body ("Shape"), a head and
     // a hair cap, so 3,000 people are still three instanced draws. The body
@@ -434,37 +451,27 @@ export class SceneRenderer {
     this.disposeChunks()
     const t0 = performance.now()
     this.lastChunkMs = 0
-    // Group cells into storeys. There are no named levels any more: a storey is
-    // one contiguous vertical run of solid cells in a column, keyed by the run's
-    // lowest z. A floor slab and the walls standing on it therefore share a
-    // storey, while a slab a full storey below is its own — which is what the
-    // depth rail slices against. Runs may overlap in z across columns, so each
-    // band meshes exactly its own cells (`emit`) instead of a z window.
-    const zsByCol = new Map<string, number[]>()
-    for (const c of data.cells) {
-      if (c.fill !== 'solid') continue
-      const col = `${c.x},${c.y}`
-      const arr = zsByCol.get(col)
-      if (arr) arr.push(c.z)
-      else zsByCol.set(col, [c.z])
-    }
+    // Group cells into storeys. A storey is a floor on the fixed 4 m editing
+    // grid (`LEVEL_STEPS`) plus the walls it grows up to the next grid line, so
+    // a cell belongs to the storey at or below it (`storeyBand`). Keying by the
+    // *grid* rather than by a contiguous run matters: a lower floor's 4 m wall
+    // reaches the floor above, and the raw run then reads as one tall storey,
+    // merging two floors into a single band. Bands may overlap in z across
+    // columns, so each band meshes exactly its own cells (`emit`) instead of a
+    // z window.
     const bandOfCell = new Map<number, number>()
     // The lowest storey each column reaches. A block standing on that storey has
     // nothing under it, so it is a plate hanging in space: it must stay on screen
     // even when its storey sits above the one being looked at. Anything with a
     // storey below it is that lower room's ceiling and goes with the cut.
     this.groundOf.clear()
-    for (const [col, zs] of zsByCol) {
-      zs.sort((a, b) => a - b)
-      const comma = col.indexOf(',')
-      const cx0 = Number(col.slice(0, comma))
-      const cy0 = Number(col.slice(comma + 1))
-      let base = zs[0]
-      this.groundOf.set(col, base)
-      for (let i = 0; i < zs.length; i++) {
-        if (i > 0 && zs[i] !== zs[i - 1] + 1) base = zs[i]
-        bandOfCell.set(packKey(cx0, cy0, zs[i]), base)
-      }
+    for (const c of data.cells) {
+      if (c.fill !== 'solid') continue
+      const band = storeyBand(c.z)
+      bandOfCell.set(packKey(c.x, c.y, c.z), band)
+      const col = `${c.x},${c.y}`
+      const prev = this.groundOf.get(col)
+      if (prev === undefined || band < prev) this.groundOf.set(col, band)
     }
     const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }>()
     for (const c of data.cells) {
@@ -576,6 +583,7 @@ export class SceneRenderer {
     const ctx: ModuleContext = { mats: this.modelMats, data, trackCells, finish: (id) => this.mats.finish(id) }
     const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
     this.psdGroups = []
+    this.adScreens = []
     for (const mod of data.modules) {
       const group = buildModule(mod, ctx)
       if (!group) continue
@@ -583,6 +591,7 @@ export class SceneRenderer {
       const ground = this.groundOf.get(`${mod.x},${mod.y}`)
       group.userData.groundBand = ground
       this.moduleMeshes.add(group)
+      if (mod.type === 'fence') this.fenceGroups.push(group)
       if (mod.type === 'escalator') {
         const roll = group.userData.escalator as EscalatorRoll | undefined
         if (roll) this.escalatorRolls.push(roll)
@@ -591,6 +600,10 @@ export class SceneRenderer {
         const line = data.lines.find((l) => l.id === mod.cfg.line)
         const colour = line ? parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0 : 0x1f5fd0
         this.psdGroups.push({ group, colour })
+      }
+      if (mod.type === 'billboard' || mod.type === 'tv') {
+        const screen = group.userData.adScreen as THREE.Mesh | undefined
+        if (screen) this.adScreens.push(screen)
       }
       if (mod.type === 'gate') {
         if (group.userData.wing) {
@@ -637,12 +650,15 @@ export class SceneRenderer {
 
   /** Drop the last frame's module geometry and trains without touching materials. */
   private clearModules(): void {
+    this.clearFencePreview()
     for (const child of [...this.moduleMeshes.children]) {
       disposeObject(child)
       this.moduleMeshes.remove(child)
     }
+    this.fenceGroups = []
     this.escalatorRolls.length = 0
     this.gateWings.length = 0
+    this.adScreens.length = 0
   }
 
   /**
@@ -735,6 +751,24 @@ export class SceneRenderer {
    */
   private updateEscalators(simDt: number): void {
     for (const roll of this.escalatorRolls) rollEscalator(roll, simDt)
+  }
+
+  /**
+   * Cycle the wall-mounted ad screens through the shared poster frames, so the
+   * 装饰 panels read as "playing ads". Wall time drives it — the posters keep
+   * changing even while the sim is paused — and every screen shares one frame,
+   * which keeps a single set of materials alive for the whole station.
+   */
+  private updateAds(dt: number): void {
+    if (this.adScreens.length === 0) return
+    this.adClock += dt
+    const fallback = this.modelMats.adFramesWide
+    for (const screen of this.adScreens) {
+      const set = (screen.userData.adSet as THREE.MeshBasicMaterial[] | undefined) ?? fallback
+      if (set.length === 0) continue
+      const frame = set[Math.floor(this.adClock / AD_FRAME_SECONDS) % set.length]
+      if (screen.material !== frame) screen.material = frame
+    }
   }
 
   /**
@@ -1523,8 +1557,10 @@ export class SceneRenderer {
         : mod && mod.type === 'escalator'
           ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}`
           : mod && mod.type === 'track'
-            ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}`
-            : ''
+            ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}:${mod.cfg.power}:${mod.cfg.tunnel ? 't' : 'p'}`
+            : mod && mod.type === 'billboard'
+              ? `:${mod.w}:${mod.cfg.variant}`
+              : ''
     const key = mod ? `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}${span}:${blocked ? 'x' : '-'}` : ''
     if (key === this.previewKey) return
     this.clearModulePreview()
@@ -1534,13 +1570,15 @@ export class SceneRenderer {
     const group = buildModule(mod, ctx)
     if (!group) return
     const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
-    const shared = new Set<THREE.Material>([
-      ...(Object.values(this.modelMats) as THREE.Material[]),
-      ...this.mats.finishCache.values(),
-      this.mats.outline,
-      this.mats.blob,
-      this.mats.tactile,
-    ])
+    const shared = new Set<THREE.Material>()
+    for (const value of Object.values(this.modelMats)) {
+      if (Array.isArray(value)) for (const m of value as THREE.Material[]) shared.add(m)
+      else shared.add(value as THREE.Material)
+    }
+    for (const m of this.mats.finishCache.values()) shared.add(m)
+    shared.add(this.mats.outline)
+    shared.add(this.mats.blob)
+    shared.add(this.mats.tactile)
     const ghostOf = new Map<THREE.Material, THREE.Material>()
     group.traverse((o) => {
       const mesh = o as THREE.Mesh
@@ -1584,6 +1622,88 @@ export class SceneRenderer {
     this.previewBases.length = 0
     this.previewGroup.visible = false
     this.previewKey = ''
+  }
+
+  /**
+   * Live preview for the 围栏 drag. Unlike a single-module hover, a fence's shape
+   * depends on its neighbours, so the existing fences are rebuilt here with the
+   * dragged line merged into their module list — dragging up to an existing end
+   * updates that end's block (its cap and end post go) as you drag — and the new
+   * panels are drawn translucent. Committed fences are hidden while this is up.
+   * Passing `null` (or an empty list) clears it.
+   */
+  setFencePreview(mods: Module[] | null, blocked = false): void {
+    const list = mods ?? []
+    const key = list.length === 0 ? '' : `${blocked ? 'x' : '-'}|${list.map((m) => `${m.x},${m.y},${m.z},${m.rot ?? 0}`).join(';')}`
+    if (key === this.fencePreviewKey) return
+    this.clearFencePreview()
+    this.fencePreviewKey = key
+    if (list.length === 0 || !this.stationData) return
+    // Hide the committed fences; the preview rebuilds every fence, so there is
+    // no z-fighting and every joint reflects the in-progress line.
+    for (const f of this.fenceGroups) f.visible = false
+    const merged: StationData = { ...this.stationData, modules: [...this.stationData.modules, ...list] }
+    const ctx: ModuleContext = { mats: this.modelMats, data: merged, trackCells: this.trackCellSet, finish: (id) => this.mats.finish(id) }
+    const shown = (m: Module): boolean => {
+      const zs = moduleLevels(m)
+      const lowest = zs.length > 0 ? Math.min(...zs) : undefined
+      const ground = this.groundOf.get(`${m.x},${m.y}`)
+      return lowest === undefined || lowest <= this.activeZ || (ground !== undefined && ground > this.activeZ)
+    }
+    for (const m of this.stationData.modules) {
+      if (m.type !== 'fence') continue
+      const group = buildModule(m, ctx)
+      if (!group) continue
+      group.visible = shown(m)
+      this.fencePreviewGroup.add(group)
+    }
+    // The dragged panels, tinted like the module hover ghost.
+    const previewCtx: ModuleContext = { ...ctx, preview: true }
+    const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
+    const shared = new Set<THREE.Material>()
+    for (const value of Object.values(this.modelMats)) {
+      if (Array.isArray(value)) for (const m of value as THREE.Material[]) shared.add(m)
+      else shared.add(value as THREE.Material)
+    }
+    for (const m of this.mats.finishCache.values()) shared.add(m)
+    const ghostOf = new Map<THREE.Material, THREE.Material>()
+    for (const m of list) {
+      const group = buildModule(m, previewCtx)
+      if (!group) continue
+      group.traverse((o) => {
+        const mesh = o as THREE.Mesh
+        if (!mesh.isMesh) return
+        const base = mesh.material as THREE.Material
+        let ghost = ghostOf.get(base)
+        if (!ghost) {
+          ghost = base.clone()
+          const any = ghost as THREE.MeshStandardMaterial
+          any.transparent = true
+          any.opacity = 0.5
+          any.depthWrite = false
+          any.side = THREE.DoubleSide
+          if (any.color) any.color = any.color.clone().lerp(tint, 0.4)
+          ghostOf.set(base, ghost)
+          this.fencePreviewMats.push(ghost)
+        }
+        mesh.material = ghost
+        mesh.renderOrder = 5
+        mesh.frustumCulled = false
+      })
+      this.fencePreviewGroup.add(group)
+    }
+  }
+
+  /** Drop the fence-drag preview and bring the committed fences back. */
+  private clearFencePreview(): void {
+    for (const child of [...this.fencePreviewGroup.children]) {
+      disposeObject(child)
+      this.fencePreviewGroup.remove(child)
+    }
+    for (const m of this.fencePreviewMats) m.dispose()
+    this.fencePreviewMats.length = 0
+    this.fencePreviewKey = ''
+    for (const f of this.fenceGroups) f.visible = true
   }
 
   setGridVisible(on: boolean): void {
@@ -1641,6 +1761,7 @@ export class SceneRenderer {
     this.updateTrains(now, dt)
     this.updateEscalators(dt * (1000 / this.stateIntervalMs))
     this.updateGates(dt * (1000 / this.stateIntervalMs))
+    this.updateAds(dt)
     const cam = this.activeCamera()
     this.ortho.position.copy(this.camera.position)
     this.ortho.quaternion.copy(this.camera.quaternion)
@@ -1742,6 +1863,7 @@ export class SceneRenderer {
     this.disposeChunks()
     this.clearShapeGhost()
     this.clearModulePreview()
+    this.clearFencePreview()
     this.ghostMaterial?.dispose()
     if (this.faceGhost) {
       this.scene.remove(this.faceGhost)
@@ -1786,6 +1908,8 @@ function blobRadius(type: Module['type']): number {
     case 'shop':
     case 'booth':
     case 'retail':
+    case 'billboard':
+    case 'tv':
       return 0
     default:
       return 0.8

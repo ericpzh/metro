@@ -17,16 +17,22 @@ import {
 } from '../render/models.ts'
 import { createMaterials } from '../render/materials.ts'
 import { stairFlightsFor, type StairStyle } from '../sim/stairs.ts'
-import type { Module, StationData, Vec3i } from '../sim/types.ts'
+import { BILLBOARD_SPECS } from '../sim/billboards.ts'
+import type { BillboardVariant, Module, StationData, Vec3i } from '../sim/types.ts'
 import { MODULE_OPTIONS } from './store.ts'
 
 /** The isometric direction the game opens on (`SceneRenderer.setPreset('iso')`). */
 const ISO = new THREE.Vector3(1, -1.2, 0.85).normalize()
 /** A climbing run (escalator, stair) reads as a staircase from the side. */
 const RUN = new THREE.Vector3(1, -0.45, 0.72).normalize()
+/** Wall-mounted decor faces +y, so its thumbnail looks at the lit front. */
+const FRONT = new THREE.Vector3(1, 1.15, 0.8).normalize()
 
 /** Which way to look at a given piece, so its silhouette is the readable one. */
 function viewDir(id: string): THREE.Vector3 {
+  // Wall-mounted decor faces +y, so its thumbnail looks at the lit front — for
+  // every billboard format (`billboard-wide`, `-portrait`, `-square`, `-large`).
+  if (id === 'tv' || id === 'billboard' || id.startsWith('billboard-')) return FRONT
   return id === 'escalator' || id.startsWith('stair') ? RUN : ISO
 }
 
@@ -71,10 +77,30 @@ function sampleModule(id: string): Module | null {
   switch (id) {
     case 'gate':
       return { id, type: 'gate', x: 0, y: 0, z: 0, rot: 0, cfg: { dir: 'both' } }
+    case 'fence':
+      return { id, type: 'fence', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'tvm':
       return { id, type: 'tvm', x: 0, y: 0, z: 0, cfg: {} }
     case 'bench':
       return { id, type: 'bench', x: 0, y: 0, z: 0, cfg: {} }
+    case 'shelf':
+      return { id, type: 'shelf', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'desk':
+      return { id, type: 'desk', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'cubicle':
+      return { id, type: 'cubicle', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'sink':
+      return { id, type: 'sink', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'billboard-wide':
+    case 'billboard-portrait':
+    case 'billboard-square':
+    case 'billboard-large': {
+      const variant = id.slice('billboard-'.length) as BillboardVariant
+      const spec = BILLBOARD_SPECS[variant] ?? BILLBOARD_SPECS.wide
+      return { id, type: 'billboard', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant } }
+    }
+    case 'tv':
+      return { id, type: 'tv', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'exit':
       return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'C口', inRate: 900, open: true } }
     case 'escalator':

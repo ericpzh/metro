@@ -96,6 +96,16 @@ export interface ModuleBase {
 export type RoomKind = 'store' | 'toilet' | 'office'
 
 /**
+ * A billboard's format (装饰, §5.7). The variant fixes both the run length in
+ * cells and the lit poster's aspect ratio, so one 广告牌 tool offers a small
+ * landscape, a tall portrait, a square and a wide two-cell banner.
+ */
+export type BillboardVariant = 'wide' | 'portrait' | 'square' | 'large'
+
+/** The poster aspect set a billboard variant draws from (`sim/billboards.ts`). */
+export type BillboardAspect = 'wide' | 'square' | 'portrait'
+
+/**
  * A staircase's plan shape (§5.1). A stair always climbs exactly one storey;
  * the style decides how the flights turn. `straight` is one run, the `90`
  * styles climb one flight, turn, then climb a second, and `right180` is a
@@ -112,6 +122,7 @@ export interface StairFlight {
 export type Module =
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode } })
+  | (ModuleBase & { type: 'fence'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down' } })
   | (ModuleBase & {
       type: 'stair'
@@ -131,10 +142,48 @@ export type Module =
     })
   | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: Record<string, never> })
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
-  | (ModuleBase & { type: 'bench'; cfg: Record<string, never> })
-  | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom' } })
-  | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]> } })
-  | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket'; door?: Array<[number, number]> } })
+  | (ModuleBase & { type: 'bench'; cfg: { auto?: boolean } })
+  /**
+   * A goods shelf (货架, 装饰): the same unit the 商店 fit-out stocks along its
+   * island rows and wall runs (§5.7), as a free-standing floor piece. It turns
+   * with the placement rotation like any equipment and may stand inside a
+   * walled room (see the shelf ↔ room exemption in `placementBlocked`).
+   * `cfg.auto` marks a shelf the room builder laid out itself, so bulldozing
+   * the room takes its own shelves but leaves hand-placed ones behind.
+   */
+  | (ModuleBase & { type: 'shelf'; cfg: { auto?: boolean } })
+  /**
+   * An office desk (办公桌, 装饰): the desk + monitor + chair unit the 办公室
+   * fit-out stocks on its grid (§5.7), as a free-standing floor piece. Like a
+   * shelf it turns with the placement rotation, may stand inside a walled room,
+   * and `cfg.auto` marks a unit the room builder laid out itself.
+   */
+  | (ModuleBase & { type: 'desk'; cfg: { auto?: boolean } })
+  /**
+   * One cubicle of a restroom (隔间, 装饰): the partition + WC + tank unit the
+   * 厕所 fit-out stocks along its back row (§5.7), as a free-standing floor
+   * piece. Turns with the placement rotation, may stand inside a walled room,
+   * and `cfg.auto` marks a unit the room builder laid out.
+   */
+  | (ModuleBase & { type: 'cubicle'; cfg: { auto?: boolean } })
+  /**
+   * A wash basin (洗手池, 装饰): the basin + tap unit the 厕所 fit-out stocks
+   * along its front wall (§5.7). Same rules as a cubicle.
+   */
+  | (ModuleBase & { type: 'sink'; cfg: { auto?: boolean } })
+  /**
+   * Wall-mounted decoration (装饰): a lightbox advertisement (广告牌) and a
+   * screen playing ads (电视). Both are fixed to the wall block behind them —
+   * the placement rotation names which face — so they may only be dropped on a
+   * floor cell with a solid block at the first course of the facing neighbour.
+   * A billboard runs `w` cells along its local +x and picks its poster aspect
+   * from `cfg.variant` (`sim/billboards.ts`).
+   */
+  | (ModuleBase & { type: 'billboard'; w: number; cfg: { variant: BillboardVariant } })
+  | (ModuleBase & { type: 'tv'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom'; bare?: boolean; stocked?: boolean } })
+  | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]>; bare?: boolean; stocked?: boolean } })
+  | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket'; door?: Array<[number, number]>; stocked?: boolean } })
   | (ModuleBase & {
       type: 'platform-edge'
       /** Length in cells along +x from (x, y, z). */

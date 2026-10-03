@@ -104,6 +104,13 @@ build/ →  sim/            (and neither render/ nor app/)
   line* — if the gate's policy permits that direction. An ungated line strands
   the crowd. A two-way gate is a single lane: first come fixes the direction
   until that side drains (`sim/gates.ts`).
+* **Fences are barriers too** (`sim/fences.ts`, 围栏 §5.2). A fence is a 1 m
+  thin panel through its cell's middle and its cell is not a walkable node, so a
+  dragged run plus the gate row it plugs into divides the floor into areas the
+  crowd only crosses at a gate. The renderer builds every panel from its
+  neighbours (`fenceArms`), so a straight run is continuous, a dead end caps
+  itself, and an L / T / + turns through the shared centre post with no
+  overhang.
 * **Finishes** (`sim/finishes.ts`): the *family* decides behaviour (floor walk
   speed, track bed not walkable, wall blocks), the finish decides look. The
   renderer reads the same table, so a surface cannot look like one thing and
@@ -111,8 +118,15 @@ build/ →  sim/            (and neither render/ nor app/)
 * **Placement** (`sim/placement.ts`): every module has a world footprint
   (`moduleEnvelope`); `placementBlocked` refuses overlaps with strict box tests
   (adjacent cells are fine), except that a stair/escalator may pass through an
-  exit head-house. `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp
-  climbs through while keeping its landings as graph nodes.
+  exit head-house and room furniture (a shelf / desk / cubicle / sink / bench)
+  may stand inside a walled room or booth (`moduleAt` then answers with the
+  furniture, not the room). A billboard or TV is *wall-mounted*:
+  `wallMountMissing` refuses it unless the facing neighbour — turned by the
+  placement rotation via `wallSide` — has a solid block at its first course
+  (`z + 1`, exactly where auto walls and the 墙 tool start), and a two-cell
+  banner needs a wall behind every cell of its run (`billboardCells`).
+  `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp climbs through
+  while keeping its landings as graph nodes.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
   `sim/world.ts`). A rail is a `track` module bound to a line and an `up`/`down`
   direction: a fixed, pre-rendered piece — a car-width bed (`d = 3`) and a run
@@ -158,13 +172,35 @@ build/ →  sim/            (and neither render/ nor app/)
   ticket machines, escalators (rolling step band via `rollEscalator`), the four
   stair shapes, exits, platform screen doors (printed header is FrontSide only, facing the platform read from `cfg.side`), rolling stock. **No image or GLB
   assets.** `render/materials.ts` is the shared procedural material kit;
-  `render/chunkMesher.ts` emits one mesh part per finish. There are no named levels: the street is `z = 0` (`GROUND_Z` in `build/model.ts`), a storey is one contiguous vertical run of solid cells per column keyed by its lowest z, and the depth rail slices those derived bands (a plate with nothing below it stays on screen above the cut). The save carries no `levels` field; old saves load with it ignored.
+  `render/chunkMesher.ts` emits one mesh part per finish. There are no named levels: the street is `z = 0` (`GROUND_Z` in `build/model.ts`), a storey is the fixed 4 m editing grid (`LEVEL_STEPS`/`storeyBand` in `sim/constants.ts`) — every solid cell belongs to the grid line at or below it, so a floor and its walls share a storey while a second floor one storey down keeps its own even when a wall column connects them — and the depth rail slices those bands (a plate with nothing below it stays on screen above the cut). The save carries no `levels` field; old saves load with it ignored.
 * A **walled facility room** is the one `shop` module type; its fit-out lives in
   `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter and
   the `retail` shell). `build/model.ts`'s rectangle drag creates 商店 / 厕所 /
-  办公室 / 售票亭 through it, and `render/models.ts` draws the matching interior
-  and sign — 厕所 / 办公室 hang a real door on their openings, 商店 keeps an open
-  front. Two rooms merge only when their type *and* fit-out match.
+  办公室 / 售票亭 through it, and `render/models.ts` draws the matching sign —
+  厕所 / 办公室 hang a real door on their openings, 商店 keeps an open front. Two
+  rooms merge only when their type *and* fit-out match. A room stocks its
+  furniture as individual modules now (a store one `shelf` per island row and
+  wall run, an office one `desk` per grid spot, a restroom its `cubicle`/
+  `sink`, a booth its `bench`), so every unit is right-clickable; the room
+  carries `cfg.stocked` and old saves migrate once via `ensureRoomFurniture` in
+  `toState`. Deleting a room takes its `cfg.auto` furniture but leaves
+  hand-placed pieces.
+* The **装饰 folder** holds the free-standing, rotatable pieces — 座椅 (the
+  bench, moved out of 设备), 货架, 办公桌, 厕所隔间 and 洗手池 — plus the
+  *wall-mounted* 广告牌 and 电视. A 广告牌 is a nested sub-menu of four formats
+  (横版 / 竖版 / 方形 / 大横版) whose run length and poster aspect come from the
+  shared `sim/billboards.ts` table, so the thumbnail, the collision envelope and
+  the drawn housing cannot disagree; every screen cycles three procedural, unlit
+  ad posters on wall time (`SceneRenderer.updateAds`), one poster set per aspect
+  so a portrait banner is not a stretched landscape. Wall-mounted pieces must
+  bolt to a wall (see `wallMountMissing`), so **R** turns the panel's back to it.
+* The **方块 tool** is the plain sibling of 地基: the same click / drag placement
+  but no `auto-wall` ring and no tagged floor, so a drag lays bare blocks.
+* The **围栏 tool** (设备) drags out a straight run like 墙, but lays one 1 m panel
+  per cell with the panels following the drag direction (R turns a single); a
+  right-drag lifts the run. `app/Viewport.tsx` drives a live fence preview that
+  rebuilds the existing runs with the dragged line merged in, so an end you drag
+  up to loses its cap as you move (`SceneRenderer.setFencePreview`).
 * The 地基 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
   drawn cells `auto-floor` and raises a 4 m `auto-wall` ring on the patch's outer
   edge — the room-union rule generalised to cells, so overlapping/abutting patches
@@ -215,7 +251,10 @@ build/ →  sim/            (and neither render/ nor app/)
   section for multi-line management (name/colour/stock/cars/供电/下车, + 新建线路);
   a new line wears its real 广州地铁 colour from `data/line-colours.ts`. The line
   owns the direction, and its tracks
-  carry it in `cfg.dir`; the line owns 供电 too, and editing it updates its tracks.
+  carry it in `cfg.dir`; the line owns 供电 too, and `setLinePower` carries the
+  new mode to every track bound to it — 第三轨 draws a guarded conductor rail,
+  接触网 an overhead wire under a canopy or tunnel shell — re-cutting them on
+  mesh rebuild.
   The README still files the draw kit under **B4** and its milestone table is not
   yet updated. Walled facility rooms (商店 / 厕所 / 办公室) share the `shop` module
   and pick their fit-out with `cfg.kind`; 售票亭 is the open `booth`.
@@ -224,7 +263,20 @@ build/ →  sim/            (and neither render/ nor app/)
   floor patch grows a 4 m auto-wall ring on its outer edge; union with another
   patch drops the buried wall, and a hole dug through a patch stays open.
   `reservedOpening` (`sim/placement.ts`) also refuses a hand-built block in a
-  ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, storeys derive from geometry, exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms.
+  ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 方块 tool is the untagged sibling of 地基.
+* The **装饰 kit** has landed (`sim/billboards.ts`, `sim/placement.ts`,
+  `render/models.ts`, `game/test/shelf|desk|restroom.test.mjs`): 座椅 / 货架 /
+  办公桌 / 厕所隔间 / 洗手池 are free-standing, rotatable `bench`/`shelf`/`desk`/
+  `cubicle`/`sink` modules, a walled room stocks one per layout spot (migrated
+  once from the old drawn interior by `ensureRoomFurniture`, guarded by
+  `cfg.stocked`), and 广告牌 / 电视 are wall-mounted (`wallMountMissing`) with the
+  four billboard formats sharing `sim/billboards.ts`. The 设备 folder's 货架 /
+  座椅 moved out to a new 装饰 folder in the build rail.
+* The **围栏 kit** has landed (`sim/fences.ts`, `sim/station.ts`,
+  `render/models.ts`, `app/Viewport.tsx`, `game/test/fence.test.mjs`): a fence run
+  is dragged out like a wall, its cell is not a walkable graph node, and the
+  renderer builds each joint from the neighbours, so a run plus a gate row is a
+  barrier the crowd only crosses at a gate.
 * `PLAN.md` was deleted, but `README.md`, `GAME-SPEC.md` and many source
   comments still reference it. Treat those references as historical.
 * The crowd micro-benchmark (`game/bench/crowd.mjs`,

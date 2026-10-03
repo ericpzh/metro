@@ -71,6 +71,20 @@ export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' 
   }
 }
 
+/**
+ * Switch a line's 供电 mode and carry it to every track bound to that line — the
+ * platform rails and the tunnel runs alike. The renderer reads the mode back off
+ * each track's `cfg`, so rebuilding the modules re-cuts all of them together
+ * (§5.4 track kit). Pure document edit.
+ */
+export function setLinePower(state: StationState, lineId: string, power: 'third-rail' | 'catenary'): StationState {
+  const lines = state.lines.map((l) => (l.id === lineId ? { ...l, power } : l))
+  const modules = state.modules.map((m) =>
+    m.type === 'track' && m.cfg.line === lineId ? { ...m, cfg: { ...m.cfg, power } } : m,
+  )
+  return { ...state, lines, modules }
+}
+
 /** True when a cell is walkable platform floor: exposed, no wall/roof above. */
 export function isPlatformCell(cells: readonly Cell[], x: number, y: number, z: number): boolean {
   const c = cells.find((cc) => cc.x === x && cc.y === y && cc.z === z)

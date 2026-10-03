@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { SceneRenderer } from '../render/scene.ts'
 import { useStore } from './store.ts'
-import { LEVEL_STEPS } from '../build/model.ts'
+import { LEVEL_STEPS } from '../sim/constants.ts'
 
 /** Cube half-extent in world units; the cube spans -HALF..HALF on each axis. */
 const HALF = 0.5

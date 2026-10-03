@@ -4,7 +4,7 @@
 // collide with the one below.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening } from '../src/sim/placement.ts'
+import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallSide } from '../src/sim/placement.ts'
 import { addCells, createModule, GROUND_Z, nextModuleId, removeModule, toState } from '../src/build/model.ts'
 
 const gate = (x, y, z, id = 'gate') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })
@@ -89,6 +89,72 @@ test('the placement factory carries the hover rotation into the placed module', 
   assert.equal(createModule('tvm', 1, 2, 3, 't', 3)?.rot, 3)
   // Unknown types stay unplaceable.
   assert.equal(createModule('nope', 0, 0, 0, 'x'), null)
+})
+
+/* ------------------------------------------------ wall-mounted decoration */
+
+const billboard = (x, y, z, rot = 0, id = 'bb') => ({ id, type: 'billboard', x, y, z, rot, w: 1, cfg: { variant: 'wide' } })
+const tv = (x, y, z, rot = 0, id = 'tv') => ({ id, type: 'tv', x, y, z, rot, cfg: {} })
+
+test('wallSide turns the mount direction with the module rotation', () => {
+  assert.deepEqual(wallSide(0), [0, -1])
+  assert.deepEqual(wallSide(1), [1, 0])
+  assert.deepEqual(wallSide(2), [0, 1])
+  assert.deepEqual(wallSide(3), [-1, 0])
+  assert.deepEqual(wallSide(undefined), [0, -1])
+})
+
+test('a wall-mounted ad needs a solid wall block behind it', () => {
+  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  const bb = billboard(0, 0, 0)
+  assert.equal(wallMountMissing(floor, bb), true, 'no wall yet')
+  // The wall rises from the floor top (z + 1) in the facing neighbour.
+  assert.equal(wallMountMissing([...floor, { x: 0, y: -1, z: 1, fill: 'solid' }], bb), false)
+  // A solid floor neighbour at the same level is not a wall.
+  assert.equal(wallMountMissing([...floor, { x: 0, y: -1, z: 0, fill: 'solid' }], bb), true)
+})
+
+test('rotating a wall-mounted ad moves the wall it needs', () => {
+  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  const wallEast = [...floor, { x: 1, y: 0, z: 1, fill: 'solid' }]
+  assert.equal(wallMountMissing(wallEast, tv(0, 0, 0, 0)), true)
+  assert.equal(wallMountMissing(wallEast, tv(0, 0, 0, 1)), false)
+})
+
+test('a billboard factory names the variant and its run length', () => {
+  const wide = createModule('billboard-wide', 0, 0, 0, 'b1')
+  assert.equal(wide?.type, 'billboard')
+  assert.equal(wide?.w, 1)
+  assert.equal(wide?.cfg.variant, 'wide')
+  const portrait = createModule('billboard-portrait', 0, 0, 0, 'b2')
+  assert.equal(portrait?.cfg.variant, 'portrait')
+  const large = createModule('billboard-large', 0, 0, 0, 'b3')
+  assert.equal(large?.w, 2)
+  assert.equal(large?.cfg.variant, 'large')
+})
+
+test('a two-cell billboard needs a wall behind both cells', () => {
+  const run = (x, rot = 0, id = 'bb') => ({ id, type: 'billboard', x, y: 0, z: 0, rot, w: 2, cfg: { variant: 'large' } })
+  const floor = [
+    { x: 0, y: 0, z: 0, fill: 'solid' },
+    { x: 1, y: 0, z: 0, fill: 'solid' },
+  ]
+  // Only one of the two backing cells has a wall: the banner would hang off.
+  assert.equal(wallMountMissing([...floor, { x: 0, y: -1, z: 1, fill: 'solid' }], run(0)), true)
+  assert.equal(
+    wallMountMissing([...floor, { x: 0, y: -1, z: 1, fill: 'solid' }, { x: 1, y: -1, z: 1, fill: 'solid' }], run(0)),
+    false,
+  )
+  // A quarter-turn puts the run along +y, so the walls move to +x.
+  assert.equal(
+    wallMountMissing([...floor, { x: 1, y: 0, z: 1, fill: 'solid' }, { x: 1, y: 1, z: 1, fill: 'solid' }], run(0, 1)),
+    false,
+  )
+})
+
+test('a floor-standing module never needs a wall', () => {
+  assert.equal(wallMountMissing([], gate(0, 0, 0)), false)
+  assert.equal(wallMountMissing([], tvm(0, 0, 0)), false)
 })
 
 test('a surface exit is rooted at the street (z = 0)', () => {

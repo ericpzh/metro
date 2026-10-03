@@ -11,6 +11,8 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   FACILITY_OPTIONS,
   MODULE_OPTIONS,
+  isBillboardType,
+  isDecorType,
   isEscalatorType,
   isFacilityBrush,
   isRotatableType,
@@ -272,11 +274,12 @@ const FAMILY_LABEL: Record<string, string> = { floor: '地面 · 轨道', ceilin
 
 /* ------------------------------------------------------------------- rail */
 
-type FolderKey = 'tools' | 'equipment' | 'rail' | 'rooms' | 'surfaces' | 'zones' | 'view'
+type FolderKey = 'tools' | 'equipment' | 'rail' | 'rooms' | 'decor' | 'surfaces' | 'zones' | 'view'
 
 const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
   select: 'tools',
   block: 'tools',
+  cube: 'tools',
   wall: 'tools',
   delete: 'tools',
   module: 'equipment',
@@ -317,15 +320,20 @@ export function LeftRail(): React.ReactElement {
     equipment: false,
     rail: false,
     rooms: false,
+    decor: false,
     surfaces: false,
     zones: false,
     view: false,
   })
   // 楼梯 is a sub-menu: one tile that folds out the four stair shapes.
   const [stairOpen, setStairOpen] = useState(() => isStairType(moduleType))
+  // 广告牌 is a sub-menu too: one tile folds out the four billboard formats.
+  const [billboardOpen, setBillboardOpen] = useState(() => isBillboardType(moduleType))
 
   const stairOptions = useMemo(() => MODULE_OPTIONS.filter((m) => isStairType(m.type)), [])
-  const gearOptions = useMemo(() => MODULE_OPTIONS.filter((m) => !isStairType(m.type)), [])
+  const gearOptions = useMemo(() => MODULE_OPTIONS.filter((m) => !isStairType(m.type) && !isDecorType(m.type)), [])
+  const billboardOptions = useMemo(() => MODULE_OPTIONS.filter((m) => isBillboardType(m.id)), [])
+  const decorOptions = useMemo(() => MODULE_OPTIONS.filter((m) => isDecorType(m.type) && !isBillboardType(m.id)), [])
 
   useEffect(() => {
     let alive = true
@@ -351,13 +359,23 @@ export function LeftRail(): React.ReactElement {
   // A facility brush rides the zone tool but lives in its own 房间 folder, so it
   // opens that folder instead of 分区.
   useEffect(() => {
-    const key: FolderKey = tool === 'zone' && isFacilityBrush(zoneBrush) ? 'rooms' : FOLDER_FOR_TOOL[tool]
+    const key: FolderKey =
+      tool === 'zone' && isFacilityBrush(zoneBrush)
+        ? 'rooms'
+        : tool === 'module' && isDecorType(moduleType)
+          ? 'decor'
+          : FOLDER_FOR_TOOL[tool]
     setOpen((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
-  }, [tool, zoneBrush])
+  }, [tool, zoneBrush, moduleType])
 
   // Keep the stair sub-menu open while a stair shape is the active piece.
   useEffect(() => {
     if (isStairType(moduleType)) setStairOpen(true)
+  }, [moduleType])
+
+  // Keep the billboard sub-menu open while a billboard format is active.
+  useEffect(() => {
+    if (isBillboardType(moduleType)) setBillboardOpen(true)
   }, [moduleType])
 
   const toggle = (k: FolderKey): void => setOpen((o) => ({ ...o, [k]: !o[k] }))
@@ -430,12 +448,13 @@ export function LeftRail(): React.ReactElement {
         <span className="railStampSub">METRO / BUILD</span>
       </div>
 
-      <Folder title="工具" count={6} open={open.tools} onToggle={() => toggle('tools')}>
+      <Folder title="工具" count={7} open={open.tools} onToggle={() => toggle('tools')}>
         <div className="blockGrid">
           {(
             [
               { id: 'select', label: '选择', icon: 'select' },
               { id: 'block', label: '地基', icon: 'block', title: '地基：单击放一块，按住拖出一片（自动长出 4m 外墙），右键删除' },
+              { id: 'cube', label: '方块', icon: 'block', title: '方块：单击放一块，按住拖出一片（不自动长墙），右键删除' },
               { id: 'wall', label: '墙', icon: 'wall', title: '墙：左键拖出 4m 高墙，右键拖拽整列拆除' },
               { id: 'delete', label: '删除', icon: 'delete', title: '删除：单击拆一块，按住拖出一条拆一行（左右键一样）' },
             ] as Array<{ id: Tool; label: string; icon: string; title?: string }>
@@ -493,13 +512,11 @@ export function LeftRail(): React.ReactElement {
             />
           </div>
         )}
-        <div className="muted small railStatus">
-          {track
-            ? `已选${track.cfg.tunnel ? '隧道' : '轨道'} · ${track.w} m × ${track.d ?? 1} m${trackSummary && !track.cfg.tunnel ? ` · ${trackSummary.cars} 节 ${trackSummary.trainLength} m · ${trackSummary.doors} 门` : ''}`
-            : tool === 'tunnel'
-              ? '点已有轨道，从你这一端接一段隧道；滑杆调长度'
-              : '在站台旁放一段轨道：长度按列车，R 旋转、Tab 切换上下行；两侧有站台就自动生成屏蔽门'}
-        </div>
+        {track && (
+          <div className="muted small railStatus">
+            {`已选${track.cfg.tunnel ? '隧道' : '轨道'} · ${track.w} m × ${track.d ?? 1} m${trackSummary && !track.cfg.tunnel ? ` · ${trackSummary.cars} 节 ${trackSummary.trainLength} m · ${trackSummary.doors} 门` : ''}`}
+          </div>
+        )}
         {!editingTunnel && (
           <>
             <div className="bpSub">
@@ -528,7 +545,7 @@ export function LeftRail(): React.ReactElement {
         )}
       </Folder>
 
-      <Folder title="设备" count={MODULE_OPTIONS.length} open={open.equipment} onToggle={() => toggle('equipment')}>
+      <Folder title="设备" count={gearOptions.length + 1} open={open.equipment} onToggle={() => toggle('equipment')}>
         <div className="blockGrid">
           {gearOptions.map((m) => (
             <Block
@@ -572,7 +589,7 @@ export function LeftRail(): React.ReactElement {
             </div>
           </div>
         </div>
-        {tool === 'module' && moduleActions.length > 0 && <div className="blockGrid two">{moduleActions}</div>}
+        {tool === 'module' && !isDecorType(moduleType) && moduleActions.length > 0 && <div className="blockGrid two">{moduleActions}</div>}
       </Folder>
 
       <Folder title="房间" count={FACILITY_OPTIONS.length} open={open.rooms} onToggle={() => toggle('rooms')}>
@@ -591,6 +608,53 @@ export function LeftRail(): React.ReactElement {
             />
           ))}
         </div>
+      </Folder>
+
+      <Folder title="装饰" count={decorOptions.length + 1} open={open.decor} onToggle={() => toggle('decor')}>
+        <div className="blockGrid">
+          {decorOptions.map((m) => (
+            <Block
+              key={m.id}
+              label={m.label}
+              thumb={thumbs[m.id]}
+              active={tool === 'module' && moduleType === m.id}
+              onClick={() => {
+                setModuleType(m.id)
+                setTool('module')
+              }}
+            />
+          ))}
+          <Block
+            label="广告牌"
+            thumb={thumbs[billboardOptions[0]?.id ?? '']}
+            active={isBillboardType(moduleType)}
+            submenu={billboardOpen}
+            title="广告牌：展开选尺寸与比例"
+            onClick={() => setBillboardOpen((v) => !v)}
+          />
+        </div>
+        {/* Nested sub-menu: the billboard formats, indented under their parent. */}
+        <div className={billboardOpen ? 'subMenu open' : 'subMenu'} aria-hidden={!billboardOpen} inert={!billboardOpen}>
+          <div className="subMenuInner">
+            <div className="subMenuPad">
+              <div className="blockGrid">
+                {billboardOptions.map((m) => (
+                  <Block
+                    key={m.id}
+                    label={m.label}
+                    thumb={thumbs[m.id]}
+                    active={tool === 'module' && moduleType === m.id}
+                    onClick={() => {
+                      setModuleType(m.id)
+                      setTool('module')
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        {tool === 'module' && isDecorType(moduleType) && moduleActions.length > 0 && <div className="blockGrid two">{moduleActions}</div>}
       </Folder>
 
       <Folder title="分区" count={ZONE_LIST.length} open={open.zones} onToggle={() => toggle('zones')}>

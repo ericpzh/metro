@@ -12,7 +12,7 @@
 
 import { EXIT_L, EXIT_W, exitFloorAt } from './exits.ts'
 import { rampEnvelope, rampOpeningAt } from './openings.ts'
-import { edgeCells, trackCellAt, trackCells } from './track.ts'
+import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import type { Cell, Module } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
@@ -26,10 +26,17 @@ export interface ModuleBox {
 }
 
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'tvm' | 'bench' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'billboard' | 'tv' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.2,
+  fence: 1.0,
   tvm: 1.9,
   bench: 1.0,
+  shelf: 1.1,
+  desk: 0.9,
+  cubicle: 1.8,
+  sink: 0.9,
+  billboard: 2.4,
+  tv: 2.0,
   retail: 3.6,
   shop: 3.6,
   booth: 2.4,
@@ -57,6 +64,19 @@ function cellsAabb(cells: ReadonlyArray<[number, number, number]>, z0: number, z
 }
 
 /**
+ * Every world cell a billboard's run covers: `w` cells along its local +x,
+ * quarter-turned by `rot`. Mirrors `edgeCells` for a platform-edge.
+ */
+export function billboardCells(m: Extract<Module, { type: 'billboard' }>): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  for (let i = 0; i < m.w; i++) {
+    const [dx, dy] = rotateLocal(m.rot, i, 0)
+    out.push([m.x + dx, m.y + dy, m.z])
+  }
+  return out
+}
+
+/**
  * The plan box a flat, floor-standing module occupies. Modules anchor at their
  * cell and rise from its top (`z + 1`), matching `render/models.ts`. The exit's
  * canopy is longer than its enclosure, but the collision box is the head-house
@@ -68,7 +88,28 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'gate':
     case 'tvm':
     case 'bench':
+    case 'shelf':
+    case 'desk':
+    case 'cubicle':
+    case 'sink':
+    case 'tv':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
+    case 'billboard': {
+      // A billboard runs `w` cells along local +x, so its box is the AABB of
+      // the whole run (a quarter-turn keeps it axis-aligned).
+      return cellsAabb(billboardCells(m), z0, z0 + FLAT_HEIGHT.billboard)
+    }
+    case 'fence': {
+      // A 1 m high, very thin panel through the middle of its block (§5.2): the
+      // thin axis follows the placement rotation, so a fence line reads as one
+      // continuous barrier and a gate row can plug straight into it. Thin still
+      // overlaps a full-cell box in the same cell (same-cell stacking is
+      // refused) while adjacent cells stay legal.
+      const z1 = z0 + FLAT_HEIGHT.fence
+      const rot = (((m.rot ?? 0) % 4) + 4) % 4
+      if (rot % 2 === 1) return { x0: m.x + 0.45, y0: m.y, z0, x1: m.x + 0.55, y1: m.y + 1, z1 }
+      return { x0: m.x, y0: m.y + 0.45, z0, x1: m.x + 1, y1: m.y + 0.55, z1 }
+    }
     case 'exit': {
       const rx = EXIT_W / 2
       const ry = EXIT_L / 2
@@ -161,6 +202,8 @@ function baseCells(m: Module): Array<[number, number]> {
     }
     case 'platform-edge':
       return edgeCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'billboard':
+      return billboardCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'track':
       return trackCells(m).map(([x, y]) => [x, y] as [number, number])
     default:
@@ -196,6 +239,41 @@ export function reservedOpening(modules: readonly Module[], x: number, y: number
   return rampOpeningAt(modules, x, y, z) || exitFloorAt(modules, x, y, z)
 }
 
+/* ------------------------------------------------------- wall-mounted decor */
+
+/** Decoration types that must be fixed to a wall block behind them (§5.7). */
+const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'tv'])
+
+/**
+ * The cell step from a wall-mounted module to the wall it hangs on. The model
+ * is built against its local −y face and `placeLocal` turns it by `rot`, so the
+ * wall lies at (0,−1) rotated: rot 0 → −y, 1 → +x, 2 → +y, 3 → −x.
+ */
+export function wallSide(rot: number | undefined): [number, number] {
+  const [dx, dy] = rotateLocal(rot, 0, -1)
+  // Normalise −0 to 0 so callers (and their tests) see plain integers.
+  return [dx === 0 ? 0 : dx, dy === 0 ? 0 : dy]
+}
+
+/**
+ * True when a wall-mounted decoration has no wall behind it. The backing is the
+ * first course of the facing neighbour (`z + 1`): auto walls and the 墙 tool
+ * both rise from the floor's top, so a solid block there is a wall the panel can
+ * bolt onto. Every cell of a multi-cell billboard run needs its own wall, or the
+ * banner would hang off the end. Non-wall-mounted modules are never refused.
+ */
+export function wallMountMissing(cells: readonly Cell[], candidate: Module): boolean {
+  if (!WALL_MOUNTED.has(candidate.type)) return false
+  const [dx, dy] = wallSide(candidate.rot)
+  const nz = candidate.z + 1
+  for (const [bx, by] of baseCells(candidate)) {
+    const nx = bx + dx
+    const ny = by + dy
+    if (!cells.some((c) => c.fill === 'solid' && c.x === nx && c.y === ny && c.z === nz)) return true
+  }
+  return false
+}
+
 /** Strict overlap, so modules in adjacent cells (a gate line) do not collide. */
 export function boxesOverlap(a: ModuleBox, b: ModuleBox): boolean {
   return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0 && a.z0 < b.z1 && a.z1 > b.z0
@@ -209,6 +287,10 @@ export function boxesOverlap(a: ModuleBox, b: ModuleBox): boolean {
  * An exit is a special case: stairs and escalators may pass through it, so an
  * exit ↔ stair/escalator overlap never blocks placement. All other pairs
  * (exit ↔ gate/TVM/…, stair ↔ stair, ramp ↔ gate, …) still collide.
+ *
+ * A shelf or desk is the other exception: room furniture, so it may stand
+ * inside a walled room or booth (either side of the pair may be the
+ * candidate).
  */
 export function placementBlocked(modules: readonly Module[], candidate: Module): boolean {
   const c = moduleEnvelope(candidate)
@@ -216,6 +298,7 @@ export function placementBlocked(modules: readonly Module[], candidate: Module):
   for (const m of modules) {
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
     if (isExitRampPair(m, candidate)) continue
+    if (isFurnitureRoomPair(m, candidate)) continue
     const e = moduleEnvelope(m)
     if (e && boxesOverlap(c, e)) return true
   }
@@ -234,15 +317,34 @@ function isExitRampPair(a: Module, b: Module): boolean {
 }
 
 /**
+ * A shelf, desk, cubicle, sink or bench standing inside a walled room or
+ * booth: that pair never collides, so room furniture can be arranged (and
+ * re-arranged) after the room is drawn.
+ */
+function isFurnitureRoomPair(a: Module, b: Module): boolean {
+  const isFurniture = (m: Module): boolean =>
+    m.type === 'shelf' || m.type === 'desk' || m.type === 'cubicle' || m.type === 'sink' || m.type === 'bench'
+  const isRoom = (m: Module): boolean => m.type === 'shop' || m.type === 'booth' || m.type === 'retail'
+  return (isFurniture(a) && isRoom(b)) || (isRoom(a) && isFurniture(b))
+}
+
+/**
  * The module standing on cell `(x, y, z)`, for right-click bulldozing. The test
  * volume is the 1 m column just above the block top, so a multi-cell module (an
- * exit, a PSD run, a ramp) is found from any of the cells it covers.
+ * exit, a PSD run, a ramp) is found from any of the cells it covers. A room's
+ * envelope covers its whole floor, so furniture standing inside it is preferred:
+ * the first pass skips walled rooms and booths, and only when nothing smaller
+ * matches does the room itself answer.
  */
 export function moduleAt(modules: readonly Module[], x: number, y: number, z: number): Module | undefined {
   const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: z + 2 }
-  for (const m of modules) {
-    const e = moduleEnvelope(m)
-    if (e && boxesOverlap(e, cell)) return m
+  const hits = (skipRooms: boolean): Module | undefined => {
+    for (const m of modules) {
+      if (skipRooms && (m.type === 'shop' || m.type === 'booth' || m.type === 'retail')) continue
+      const e = moduleEnvelope(m)
+      if (e && boxesOverlap(e, cell)) return m
+    }
+    return undefined
   }
-  return undefined
+  return hits(true) ?? hits(false)
 }

@@ -19,12 +19,16 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { facilityWallCells, SHOP_WALL_H } from '../build/model.ts'
+import { TUNNEL_HEADROOM } from '../build/rail.ts'
 import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH } from '../sim/constants.ts'
+import { billboardSpec } from '../sim/billboards.ts'
+import { normRot, rotateLocal } from '../sim/track.ts'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_BAY_HALF, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, EXIT_SIDE, EXIT_W } from '../sim/exits.ts'
 import { finishOf } from '../sim/finishes.ts'
+import { fenceArms } from '../sim/fences.ts'
 import { STAIR_WIDTH_NORMAL, stairFlights } from '../sim/stairs.ts'
 import { doorCentres, STOCK, type StockClass } from '../sim/stock.ts'
-import type { Cell, Face, FinishId, Module, RoomKind, StationData, Vec3i } from '../sim/types.ts'
+import type { BillboardAspect, Cell, Face, FinishId, Module, RoomKind, StationData, Vec3i } from '../sim/types.ts'
 
 /* ------------------------------------------------------------------ palette */
 
@@ -37,6 +41,8 @@ const C = {
   green: 0x1f9c63,
   blue: 0x1b6fd6,
   orange: 0xf0a128,
+  /** Third-rail / catenary warning yellow, matching the art kit's `C.psu`. */
+  psu: 0xf0c000,
   white: 0xeef1f4,
   exitRed: 0xc22f28,
   glass: 0xa8d8e6,
@@ -59,6 +65,8 @@ export interface ModelMaterials {
   green: THREE.MeshStandardMaterial
   blue: THREE.MeshStandardMaterial
   orange: THREE.MeshStandardMaterial
+  /** Warning yellow for the third rail and catenary fittings. */
+  psu: THREE.MeshStandardMaterial
   white: THREE.MeshStandardMaterial
   exitRed: THREE.MeshStandardMaterial
   glass: THREE.MeshStandardMaterial
@@ -73,6 +81,14 @@ export interface ModelMaterials {
   trainSeat: THREE.MeshStandardMaterial
   /** Unlit canvases: LCD panels, LED strips, printed headers. */
   screen: THREE.MeshBasicMaterial
+  /**
+   * The cycles of unlit advertisement posters a 装饰 screen plays (§5.7), one
+   * set per aspect so a portrait billboard is not a stretched landscape. Each
+   * set is cycled in step by `SceneRenderer.updateAds`.
+   */
+  adFramesWide: THREE.MeshBasicMaterial[]
+  adFramesSquare: THREE.MeshBasicMaterial[]
+  adFramesPortrait: THREE.MeshBasicMaterial[]
   ledGreen: THREE.MeshBasicMaterial
   ledRed: THREE.MeshBasicMaterial
   glow: THREE.MeshBasicMaterial
@@ -184,6 +200,60 @@ function psdHeaderCanvas(colour: string, lineId: string): HTMLCanvasElement {
   return c
 }
 
+/**
+ * One advertisement frame for a wall-mounted screen (§5.7 装饰). Three bright,
+ * unlit posters cycle on the TV and the billboard, so the decoration reads as
+ * "playing ads" instead of a dead panel. The canvas is drawn proportionally so
+ * the same poster reads on a wide, square or portrait billboard. Kept procedural
+ * like every other material — no image assets.
+ */
+function adCanvas(variant: number, w: number, h: number): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const g = c.getContext('2d') as CanvasRenderingContext2D
+  const themes: Array<{ bg: string; band: string; title: string; sub: string; accent: string }> = [
+    { bg: '#c62828', band: '#ff8a3d', title: '限时优惠', sub: '扫码领券 · 全线通用', accent: '#ffe08a' },
+    { bg: '#0d47a1', band: '#42a5f5', title: '新线开通', sub: '扫码乘车 · 快人一步', accent: '#a5f3ff' },
+    { bg: '#1b5e20', band: '#66bb6a', title: '买一送一', sub: '车站商铺 · 今日专享', accent: '#d7ff9c' },
+  ]
+  const t = themes[((variant % themes.length) + themes.length) % themes.length]
+  g.fillStyle = t.bg
+  g.fillRect(0, 0, w, h)
+  // A diagonal light sweep so the panel looks lit.
+  g.fillStyle = 'rgba(255,255,255,0.10)'
+  g.beginPath()
+  g.moveTo(0, h)
+  g.lineTo(w * 0.38, 0)
+  g.lineTo(w * 0.58, 0)
+  g.lineTo(w * 0.2, h)
+  g.closePath()
+  g.fill()
+  g.fillStyle = t.band
+  g.fillRect(0, 0, w, Math.round(h * 0.16))
+  g.fillStyle = t.accent
+  g.font = `bold ${Math.round(h * 0.3)}px "Microsoft YaHei", sans-serif`
+  g.fillText(t.title, Math.round(w * 0.06), Math.round(h * 0.58))
+  g.fillStyle = '#ffffff'
+  g.font = `${Math.round(h * 0.13)}px "Microsoft YaHei", sans-serif`
+  g.fillText(t.sub, Math.round(w * 0.07), Math.round(h * 0.83))
+  // The metro roundel, bottom-right.
+  g.strokeStyle = '#ffffff'
+  g.lineWidth = Math.max(2, Math.round(h * 0.022))
+  g.beginPath()
+  g.arc(w * 0.87, h * 0.72, h * 0.12, -0.7, 3.7)
+  g.stroke()
+  g.beginPath()
+  g.arc(w * 0.87, h * 0.72, h * 0.045, 0, Math.PI * 2)
+  g.stroke()
+  return c
+}
+
+/** One unlit ad material at a poster's canvas size. */
+function adMaterial(variant: number, w: number, h: number): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({ map: canvasTexture(w, h, (g) => g.drawImage(adCanvas(variant, w, h), 0, 0)), side: THREE.DoubleSide })
+}
+
 /** The exit portal header: the metro logo, station name and the exit letter. */
 function exitHeaderCanvas(name: string, letter: string): HTMLCanvasElement {
   const c = document.createElement('canvas')
@@ -249,6 +319,7 @@ export function createModelMaterials(): ModelMaterials {
     green: new THREE.MeshStandardMaterial({ color: C.green, roughness: 0.3, metalness: 0.15 }),
     blue: new THREE.MeshStandardMaterial({ color: C.blue, roughness: 0.3, metalness: 0.2 }),
     orange: new THREE.MeshStandardMaterial({ color: C.orange, roughness: 0.4, metalness: 0.1 }),
+    psu: new THREE.MeshStandardMaterial({ color: C.psu, roughness: 0.5, metalness: 0.15 }),
     white: new THREE.MeshStandardMaterial({ color: C.white, roughness: 0.45, metalness: 0.05 }),
     exitRed: new THREE.MeshStandardMaterial({ color: C.exitRed, roughness: 0.4, metalness: 0.35 }),
     glass,
@@ -261,6 +332,9 @@ export function createModelMaterials(): ModelMaterials {
     trainInterior: new THREE.MeshStandardMaterial({ color: C.trainInterior, roughness: 0.85, metalness: 0.05, side: THREE.BackSide }),
     trainSeat: new THREE.MeshStandardMaterial({ color: C.trainSeat, roughness: 0.7, metalness: 0.1 }),
     screen: new THREE.MeshBasicMaterial({ map: canvasTexture(128, 96, (g) => g.drawImage(lcdCanvas(), 0, 0)), side: THREE.DoubleSide }),
+    adFramesWide: [0, 1, 2].map((v) => adMaterial(v, 256, 128)),
+    adFramesSquare: [0, 1, 2].map((v) => adMaterial(v, 192, 192)),
+    adFramesPortrait: [0, 1, 2].map((v) => adMaterial(v, 144, 256)),
     ledGreen: new THREE.MeshBasicMaterial({ color: 0x48e08a }),
     ledRed: new THREE.MeshBasicMaterial({ color: 0xff5d47 }),
     glow: new THREE.MeshBasicMaterial({ color: 0xf7ecc8, side: THREE.DoubleSide }),
@@ -268,10 +342,13 @@ export function createModelMaterials(): ModelMaterials {
 }
 
 export function disposeModelMaterials(m: ModelMaterials): void {
-  for (const mat of Object.values(m) as THREE.Material[]) {
-    const t = (mat as THREE.MeshStandardMaterial).map
-    if (t) t.dispose()
-    mat.dispose()
+  for (const value of Object.values(m)) {
+    const list = Array.isArray(value) ? value : [value]
+    for (const mat of list as THREE.Material[]) {
+      const t = (mat as THREE.MeshStandardMaterial).map
+      if (t) t.dispose()
+      mat.dispose()
+    }
   }
 }
 
@@ -334,8 +411,22 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return placeLocal(buildTvm(ctx.mats), mod)
     case 'bench':
       return placeLocal(buildBench(ctx.mats), mod)
+    case 'shelf':
+      return placeLocal(buildShelf(ctx.mats), mod)
+    case 'desk':
+      return placeLocal(buildDesk(ctx.mats), mod)
+    case 'cubicle':
+      return placeLocal(buildCubicle(ctx.mats), mod)
+    case 'sink':
+      return placeLocal(buildSink(ctx.mats), mod)
+    case 'billboard':
+      return buildBillboard(ctx, mod)
+    case 'tv':
+      return placeLocal(buildTv(ctx.mats), mod)
     case 'gate':
       return placeLocal(buildGate(ctx.mats), mod)
+    case 'fence':
+      return buildFence(ctx, mod)
     case 'exit':
       return placeLocal(buildExit(ctx, mod), mod)
     case 'escalator':
@@ -414,6 +505,134 @@ function buildBench(mats: ModelMaterials): THREE.Group {
   return g
 }
 
+/* ----------------------------------------------------------------- shelf */
+
+/**
+ * One goods-shelf unit (货架): body, two goods strips and top goods. `along`
+ * runs with the aisle and `deep` across it, so the same unit is an island row,
+ * a wall run, or a free-standing 装饰 piece. `z0` is the floor top.
+ */
+function shelfUnit(g: THREE.Group, mats: ModelMaterials, cx: number, cy: number, z0: number, along: number, deep: number): void {
+  slab(g, mats.darkSteel, cx, cy, z0 + 0.45, along, deep, 0.9)
+  slab(g, mats.orange, cx, cy, z0 + 0.35, along + 0.04, deep + 0.04, 0.12)
+  slab(g, mats.green, cx, cy, z0 + 0.65, along + 0.04, deep + 0.04, 0.14)
+  slab(g, mats.blue, cx, cy, z0 + 0.95, along, Math.max(0.12, deep - 0.04), 0.1)
+}
+
+/**
+ * A free-standing shelf for the 装饰 folder: the store's own unit, one cell
+ * wide, turning with the placement rotation via `placeLocal`.
+ */
+function buildShelf(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  shelfUnit(g, mats, 0, 0, 0, 0.9, 0.5)
+  return g
+}
+
+/**
+ * A free-standing office desk for the 装饰 folder: the 办公室 grid unit (leg
+ * panel, desktop, monitor, chair), one cell wide, turning with the placement
+ * rotation via `placeLocal`.
+ */
+function buildDesk(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  slab(g, mats.steel, 0, -0.22, 0.2, 1.0, 0.06, 0.42)
+  slab(g, mats.darkSteel, 0, 0, 0.42, 1.1, 0.6, 0.06)
+  slab(g, mats.screen, 0, 0, 0.62, 0.44, 0.08, 0.28)
+  slab(g, mats.blue, 0, 0.44, 0.24, 0.42, 0.42, 0.08)
+  slab(g, mats.blue, 0, 0.58, 0.5, 0.42, 0.08, 0.46)
+  return g
+}
+
+/**
+ * One restroom cubicle for the 装饰 folder: the 厕所 back-row unit (partition
+ * on the cell's east edge, WC bowl + tank), facing the room (−y) at rot 0.
+ */
+function buildCubicle(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  slab(g, mats.steel, 0.47, 0, 0.9, 0.06, 1.0, 1.8)
+  slab(g, mats.white, 0, -0.12, 0.2, 0.42, 0.62, 0.4)
+  slab(g, mats.white, 0, 0.08, 0.42, 0.42, 0.28, 0.26)
+  return g
+}
+
+/**
+ * A wash basin for the 装饰 folder: the 厕所 front-wall unit (basin + tap),
+ * facing the room (+y) at rot 0.
+ */
+function buildSink(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  slab(g, mats.steel, 0, -0.08, 0.45, 0.6, 0.5, 0.14)
+  slab(g, mats.steel, 0, -0.08, 0.62, 0.06, 0.06, 0.24)
+  return g
+}
+
+/* -------------------------------------------------------- wall decoration */
+
+/** The poster frame set matching a billboard's aspect. */
+function adSet(mats: ModelMaterials, aspect: BillboardAspect): THREE.MeshBasicMaterial[] {
+  if (aspect === 'portrait') return mats.adFramesPortrait
+  if (aspect === 'square') return mats.adFramesSquare
+  return mats.adFramesWide
+}
+
+/**
+ * Advertisement lightbox (广告牌): a framed, lit poster bolted flat to the wall
+ * on the module's local −y face, so the 装饰 rotation picks which wall it hangs
+ * on. Its lit face turns into the room (+y). The variant (`sim/billboards.ts`)
+ * fixes the run length and the poster's aspect ratio: a one-cell landscape, a
+ * tall portrait, a square, or a two-cell banner. `userData.adScreen` is the
+ * poster mesh the scene cycles through the matching ad frames.
+ */
+function buildBillboard(ctx: ModuleContext, mod: Extract<Module, { type: 'billboard' }>): THREE.Group {
+  const spec = billboardSpec(mod.cfg.variant)
+  const frames = adSet(ctx.mats, spec.aspect)
+  const g = new THREE.Group()
+  // Place the group at the run's centre and turn it with the placement rotation,
+  // so the poster hangs on the local −y wall for every variant and run length.
+  const [dx, dy] = rotateLocal(mod.rot, (mod.w - 1) / 2, 0)
+  g.position.set(mod.x + 0.5 + dx, mod.y + 0.5 + dy, mod.z + 1)
+  g.rotation.z = (normRot(mod.rot) * Math.PI) / 2
+  const { panelW: pw, panelH: ph, panelZ: pz } = spec
+  // Housing flat against the wall, with a steel edge frame around it.
+  slab(g, ctx.mats.darkSteel, 0, -0.42, pz, pw + 0.08, 0.16, ph + 0.2)
+  slab(g, ctx.mats.steel, 0, -0.34, pz, pw + 0.12, 0.04, ph + 0.24)
+  // The lit advertisement, facing into the room.
+  const ad = plate(g, frames[0], pw, ph, 0, -0.315, pz, Math.PI)
+  ad.renderOrder = 1
+  ad.userData.adSet = frames
+  // A small illuminated 广告 / AD bar under the frame.
+  const barZ = pz - ph / 2 - 0.18
+  slab(g, ctx.mats.black, 0, -0.36, barZ, Math.min(0.5, pw * 0.7), 0.03, 0.16)
+  const label = plate(g, ctx.mats.glow, Math.min(0.42, pw * 0.6), 0.1, 0, -0.335, barZ, Math.PI)
+  label.renderOrder = 1
+  g.userData.adScreen = ad
+  return g
+}
+
+/**
+ * Advertising screen (电视): a slim dark bezel with a bright screen playing
+ * ads, hung on the wall on the module's local −y face. Smaller and lower than
+ * the billboard so the two read as different pieces. `userData.adScreen` is the
+ * screen mesh the scene animates.
+ */
+function buildTv(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  const frames = mats.adFramesWide
+  // Bezel and a thin steel shell behind it, plus the wall bracket.
+  slab(g, mats.darkSteel, 0, -0.4, 1.45, 1.06, 0.05, 0.86)
+  slab(g, mats.black, 0, -0.44, 1.45, 1.02, 0.1, 0.82)
+  slab(g, mats.steel, 0, -0.47, 1.45, 0.2, 0.06, 0.2)
+  // The glowing ad screen, proud of the shell so it never z-fights the bezel.
+  const screen = plate(g, frames[0], 0.92, 0.58, 0, -0.35, 1.45, Math.PI)
+  screen.renderOrder = 1
+  screen.userData.adSet = frames
+  // Power / status light on the lower bezel.
+  plate(g, mats.ledGreen, 0.05, 0.05, 0.42, -0.358, 1.12, Math.PI)
+  g.userData.adScreen = screen
+  return g
+}
+
 /* ------------------------------------------------------------------ gate */
 
 /**
@@ -457,7 +676,6 @@ function buildGate(mats: ModelMaterials): THREE.Group {
 
 /** Metres of wing left proud of the cabinet when the gate is fully open. */
 const WING_STUB = 0.06
-
 /**
  * Set a turnstile's sliding wing. `open` 0 has the leaf shut across the lane,
  * 1 has it slid back into the cabinet. The leaf is compressed along its length
@@ -472,6 +690,70 @@ export function setGateWing(root: THREE.Object3D, open: number): void {
   const s = 1 - open * (1 - WING_STUB / fullW)
   wing.scale.x = s
   wing.position.x = edgeX + (fullW * s) / 2
+}
+
+/* ----------------------------------------------------------------- fence */
+
+/**
+ * Fence (围栏, §5.2): a 1 m high, very thin metal frame around a glass panel,
+ * standing through the middle of its block. One panel per cell; a dragged run
+ * lays one per cell along the drag, and the rotation (R for a single, the drag
+ * direction for a run) picks the main axis of a lone panel.
+ *
+ * Every panel is built from its neighbours, not from a fixed main axis, so all
+ * joints are clean at 90°: a cell draws a half panel from its centre post to
+ * each edge a fence or gate neighbour touches, and nothing toward an open edge.
+ * A dead end (degree 1) or an isolated panel (degree 0, using `rot`) caps itself
+ * to the far edge with an end post; a cell at an L, T or + junction has no cap,
+ * so nothing overhangs past the turn. Because the geometry is derived from the
+ * neighbours, dragging a new segment against an existing end regenerates that
+ * end's block the moment it is committed — the old end post and overhang go.
+ */
+function buildFence(ctx: ModuleContext, mod: Extract<Module, { type: 'fence' }>): THREE.Group {
+  const mats = ctx.mats
+  const g = new THREE.Group()
+  const at = (x: number, y: number): Module | undefined =>
+    ctx.data.modules.find((m) => m.x === x && m.y === y && m.z === mod.z && (m.type === 'fence' || m.type === 'gate'))
+  const e = at(mod.x + 1, mod.y) !== undefined
+  const w = at(mod.x - 1, mod.y) !== undefined
+  const n = at(mod.x, mod.y + 1) !== undefined
+  const s = at(mod.x, mod.y - 1) !== undefined
+  const { x0, x1, y0, y1, capE, capW, capN, capS } = fenceArms(mod.rot, { e, w, n, s })
+
+  const POST = 0.08
+  const post = (x: number, y: number): void => {
+    slab(g, mats.darkSteel, x, y, 0.02, 0.16, 0.16, 0.04)
+    slab(g, mats.steel, x, y, 0.5, POST, POST, 1.0)
+  }
+  // A panel run along X from x0 to x1 through the centre: top and bottom rails
+  // with the glass between them. The glass spans the run exactly, so consecutive
+  // cells' glass meets at the shared edge and the centre posts cover the seam.
+  const railX = (a: number, b: number): void => {
+    const len = b - a
+    const cx = (a + b) / 2
+    slab(g, mats.steel, cx, 0, 0.955, len, 0.07, 0.09)
+    slab(g, mats.steel, cx, 0, 0.06, len, 0.07, 0.08)
+    slab(g, mats.glass, cx, 0, 0.52, len, 0.03, 0.76)
+  }
+  const railY = (a: number, b: number): void => {
+    const len = b - a
+    const cy = (a + b) / 2
+    slab(g, mats.steel, 0, cy, 0.955, 0.07, len, 0.09)
+    slab(g, mats.steel, 0, cy, 0.06, 0.07, len, 0.08)
+    slab(g, mats.glass, 0, cy, 0.52, 0.03, len, 0.76)
+  }
+  if (x1 - x0 > 1e-6) railX(x0, x1)
+  if (y1 - y0 > 1e-6) railY(y0, y1)
+  // Posts: the centre joint always, plus an end post on every capped end.
+  post(0, 0)
+  if (capE) post(0.46, 0)
+  if (capW) post(-0.46, 0)
+  if (capN) post(0, 0.46)
+  if (capS) post(0, -0.46)
+  // The orientation is baked into the geometry (neighbour arms + caps), so the
+  // group is positioned but never rotated — a 180° turn is the same panel.
+  g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z + 1)
+  return g
 }
 
 /* -------------------------------------------------------------- escalator */
@@ -1075,7 +1357,7 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   const cy = (d - 1) / 2
   // The bed is a trench: placing the rail dug the cell, so the platform top
   // drops half a metre to this slab. The exposed block sides form the trench
-  // walls; the module only supplies the bed and the rails.
+  // walls; the module only supplies the bed and the power supply on top.
   slab(g, mats.black, cx, cy, 0.25, mod.w, d, 0.5)
   // Two rails on sleepers down the middle of the bed.
   for (const s of [-1, 1]) slab(g, mats.steel, cx, cy + s * 0.72, 0.6, mod.w, 0.1, 0.1)
@@ -1083,8 +1365,12 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   for (let i = 0; i < nSleepers; i++) {
     slab(g, mats.black, ((i + 0.5) / nSleepers) * mod.w - 0.5, cy, 0.55, 0.24, Math.max(1.9, d - 0.2), 0.08)
   }
-  // Third rail.
-  slab(g, mats.darkSteel, cx, cy - 1.05, 0.62, mod.w, 0.08, 0.08)
+  // The line's 供电 decides the model: a conductor rail beside the running
+  // rails, or an overhead wire hung over them. Both are drawn for every piece
+  // bound to the line, platform and tunnel alike, so a power switch re-cuts all
+  // of them when the module meshes are rebuilt.
+  if (mod.cfg.power === 'catenary') buildCatenary(g, mats, mod, cx, cy, d)
+  else buildThirdRail(g, mats, mod.w, cx, cy)
   // The ghost carries the travel direction (上行/下行) as arrows along the run.
   if (preview) {
     const flip = mod.cfg.dir === 'down'
@@ -1097,6 +1383,53 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)
   if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
   return g
+}
+
+/** 第三轨: a guarded conductor rail along the outer −y edge of the bed. */
+function buildThirdRail(g: THREE.Group, mats: ModelMaterials, w: number, cx: number, cy: number): void {
+  const ty = cy - 1.05
+  // The live rail, sitting on ceramic insulators above the sleepers.
+  slab(g, mats.darkSteel, cx, ty, 0.62, w, 0.09, 0.09)
+  // A yellow protective cover arches over it, as a capping board on a real
+  // conductor rail does, so the third rail reads at a glance.
+  slab(g, mats.psu, cx, ty - 0.12, 0.8, w, 0.34, 0.05)
+  slab(g, mats.psu, cx, ty - 0.28, 0.7, w, 0.05, 0.22)
+  const n = Math.max(2, Math.round(w / 4))
+  for (let i = 0; i < n; i++) {
+    slab(g, mats.white, ((i + 0.5) / n) * w - 0.5, ty, 0.51, 0.1, 0.1, 0.14)
+  }
+}
+
+/**
+ * 接触网: an overhead contact wire over the running rails, hung from a ceiling.
+ * A bored tunnel already has its shell ceiling at `TUNNEL_HEADROOM + 1`, so the
+ * wire hangs from that. A platform has no ceiling of its own, and a mast cannot
+ * fit in the 3 m bed beside a 3 m car (on an island platform it would grow
+ * through the screen doors), so the model draws a covered trackway and hangs
+ * the wire from it. Either way the wire rides *below* the 4 m storey line, so it
+ * stays out of the floor slab above.
+ */
+function buildCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, cx: number, cy: number, d: number): void {
+  const w = mod.w
+  // The ceiling to hang from: the bore shell for a tunnel, a drawn canopy for a
+  // platform. The wire sits just under it, clear of a consist's 3.65 m roof.
+  // The platform canopy stops short of the 4 m storey line, so it never fights
+  // the floor slab of the level above.
+  const ceilingBottom = mod.cfg.tunnel ? TUNNEL_HEADROOM + 1 : TUNNEL_HEADROOM + 0.88
+  const wireZ = ceilingBottom - 0.1
+  if (!mod.cfg.tunnel) {
+    // A flat canopy over the bed, with a fascia beam down each long edge.
+    slab(g, mats.white, cx, cy, ceilingBottom + 0.05, w, d, 0.1)
+    for (const j of [-0.5, d - 0.5]) slab(g, mats.darkSteel, cx, j, ceilingBottom + 0.04, w, 0.12, 0.12)
+  }
+  // Contact wire down the track centre, on short hangers from the ceiling.
+  slab(g, mats.steel, cx, cy, wireZ, w, 0.05, 0.05)
+  const n = Math.max(2, Math.round(w / 4))
+  for (let i = 0; i < n; i++) {
+    const x = ((i + 0.5) / n) * w - 0.5
+    slab(g, mats.steel, x, cy, (wireZ + ceilingBottom) / 2, 0.05, 0.05, ceilingBottom - wireZ)
+    slab(g, mats.psu, x, cy, wireZ + 0.04, 0.1, 0.1, 0.05)
+  }
 }
 
 /* --------------------------------------- walled rooms and the booth */
@@ -1137,56 +1470,17 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
   const y1 = mod.y + mod.h - 1
   /** Half a block: the wall leaves room for a shelf against it. */
   const WALL_T = 0.5
-  const SHELF_D = 0.5
   /** Door fit-out for 厕所 / 办公室: leaf height and frame thickness. */
   const DOOR_H = 2.05
   const FRAME_T = 0.09
 
-  // One shelf unit: body, two goods strips and top goods. `along` runs with the
-  // aisle and `deep` across it, so the same unit is an island row or a wall run.
-  const shelf = (cx: number, cy: number, along: number, deep: number): void => {
-    slab(g, mats.darkSteel, cx, cy, z0 + 0.45, along, deep, 0.9)
-    slab(g, mats.orange, cx, cy, z0 + 0.35, along + 0.04, deep + 0.04, 0.12)
-    slab(g, mats.green, cx, cy, z0 + 0.65, along + 0.04, deep + 0.04, 0.14)
-    slab(g, mats.blue, cx, cy, z0 + 0.95, along, Math.max(0.12, deep - 0.04), 0.1)
-  }
+  // NO fit-out draws its furniture here: shelves, desks, cubicles and sinks are
+  // modules of their own (stocked by `placeFacility`, migrated by
+  // `ensureRoomFurniture`), so each unit is individually right-clickable.
 
-  if (kind === 'store') {
-    // Interior island rows: inset one cell from the walls, one aisle between rows.
-    for (let y = y0 + 2; y <= y1 - 2; y += 2) {
-      for (let x = x0 + 1; x <= x1 - 1; x++) shelf(x + 0.5, y + 0.5, 0.9, SHELF_D)
-    }
-  } else if (kind === 'toilet') {
-    // Cubicle row along the back (north) wall — a partition and a WC bowl per
-    // cell — and a sink run along the front (south) wall.
-    for (let x = x0 + 1; x < x1; x++) {
-      slab(g, mats.steel, x + 1 - 0.03, y1 - 0.5, z0 + 0.9, 0.06, 1.0, 1.8)
-    }
-    for (let x = x0 + 1; x <= x1 - 1; x++) {
-      slab(g, mats.white, x + 0.5, y1 - 0.62, z0 + 0.2, 0.42, 0.62, 0.4)
-      slab(g, mats.white, x + 0.5, y1 - 0.42, z0 + 0.42, 0.42, 0.28, 0.26)
-    }
-    for (let x = x0 + 1; x <= x1 - 1; x++) {
-      slab(g, mats.steel, x + 0.5, y0 + 0.42, z0 + 0.45, 0.6, 0.5, 0.14)
-      slab(g, mats.steel, x + 0.5, y0 + 0.42, z0 + 0.62, 0.06, 0.06, 0.24)
-    }
-  } else {
-    // Office desks in a grid, each with a leg panel, a monitor and a chair.
-    for (let y = y0 + 1; y <= y1 - 1; y += 2) {
-      for (let x = x0 + 1; x <= x1 - 1; x += 2) {
-        slab(g, mats.steel, x + 0.5, y + 0.28, z0 + 0.2, 1.0, 0.06, 0.42)
-        slab(g, mats.darkSteel, x + 0.5, y + 0.5, z0 + 0.42, 1.1, 0.6, 0.06)
-        slab(g, mats.screen, x + 0.5, y + 0.5, z0 + 0.62, 0.44, 0.08, 0.28)
-        slab(g, mats.blue, x + 0.5, y + 0.94, z0 + 0.24, 0.42, 0.42, 0.08)
-        slab(g, mats.blue, x + 0.5, y + 1.08, z0 + 0.5, 0.42, 0.08, 0.46)
-      }
-    }
-  }
-
-  // Thin walls, wearing the finish painted on each cell's inward face, and a
-  // shelf tucked against the inner face of each straight run. A side the shop
-  // did not wall itself — because an existing full wall block already encloses
-  // it — still gets a half-width panel and a shelf, so the room reads the same
+  // Thin walls, wearing the finish painted on each cell's inward face. A side
+  // the shop did not wall itself — because an existing full wall block already
+  // encloses it — still gets a half-width panel, so the room reads the same
   // all the way round.
   const cellAt = new Map<string, Cell>()
   const solid = new Set<string>()
@@ -1248,21 +1542,6 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
     if (x === x0 || x === x1) {
       const cxx = x === x0 ? x + WALL_T / 2 : x + 1 - WALL_T / 2
       finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h)
-    }
-  }
-  if (kind === 'store') {
-    // A shelf tucked against the inner face of every straight run. Corners
-    // already have two panels, so only the straight runs get one.
-    for (const { x, y } of columns.values()) {
-      const west = x === x0
-      const east = x === x1
-      const south = y === y0
-      const north = y === y1
-      if ((west || east) && (south || north)) continue
-      if (south) shelf(x + 0.5, y0 + WALL_T + SHELF_D / 2, 0.9, SHELF_D)
-      else if (north) shelf(x + 0.5, y1 + 1 - WALL_T - SHELF_D / 2, 0.9, SHELF_D)
-      else if (west) shelf(x0 + WALL_T + SHELF_D / 2, y + 0.5, SHELF_D, 0.9)
-      else if (east) shelf(x1 + 1 - WALL_T - SHELF_D / 2, y + 0.5, SHELF_D, 0.9)
     }
   }
 
@@ -1422,12 +1701,8 @@ function buildBooth(mats: ModelMaterials, mod: Extract<Module, { type: 'booth' }
   runX(y1)
   runY(x0)
   runY(x1)
-  // Interior: a staff bench along the back, facing the counter.
-  for (let x = x0 + 1; x <= x1 - 1; x++) {
-    if (y1 - 1 <= y0) break
-    slab(g, mats.blue, x + 0.5, y1 - 0.5, z0 + 0.22, 0.45, 0.45, 0.44)
-    slab(g, mats.blue, x + 0.5, y1 - 0.5, z0 + 0.6, 0.45, 0.1, 0.44)
-  }
+  // The staff benches are `bench` modules of their own, so each is
+  // individually deletable; nothing solid is drawn inside the counter.
   // Sign over the front (south) counter.
   const cx = mod.x + mod.w / 2
   const sign = plate(g, new THREE.MeshBasicMaterial({ map: shopSignTexture('售票', '#1b6fd6'), side: THREE.DoubleSide }), 1.8, 0.5, cx, y0 + 0.5, z0 + 2.2, 0)

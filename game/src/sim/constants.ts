@@ -33,6 +33,28 @@ export const SECONDS_PER_SIM_HOUR = 3600 / SIM_RATE
 /** A simulated day, in simulated seconds. */
 export const SIM_DAY = 24 * 3600
 
+/**
+ * The fixed storey grid, in blocks: every 4 m from +12 down to -32. One block is
+ * one metre, so a storey's floor sits on one of these and its 4 m wall climbs to
+ * the next one. The builder's Q/E stepping and the depth rail list exactly these
+ * (`nearestLevel` snaps a raw z to the nearest). The renderer also keys every
+ * cell to the storey at or below it, so two floors one storey apart never merge
+ * into a single band even when a wall column connects them.
+ */
+export const LEVEL_STEPS: number[] = [12, 8, 4, 0, -4, -8, -12, -16, -20, -24, -28, -32].sort((a, b) => a - b)
+
+/**
+ * The storey a cell at `z` belongs to: the fixed grid line at or below it. A
+ * floor on the grid and the 4 m walls it grows share a storey; a floor one
+ * storey down keeps its own, so a wall column that reaches the floor above does
+ * not merge the two into a single band (the renderer keys every cell this way).
+ */
+export function storeyBand(z: number): number {
+  let lo = LEVEL_STEPS[0]
+  for (const f of LEVEL_STEPS) if (f <= z) lo = f
+  return lo
+}
+
 /** Free-flow walking speed, m/s. */
 export const WALK_SPEED = 1.34
 /** Walking speed on stair treads, m/s (derated from free flow). */

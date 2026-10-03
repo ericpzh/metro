@@ -6,15 +6,16 @@ import type { FromWorker, GraphInfo } from '../sim/protocol.ts'
 import type { Metrics } from '../sim/world.ts'
 import { DEFAULT_ZONE, type FinishId, type StationData, type Zone } from '../sim/types.ts'
 import { referenceStation, REFERENCE_BOOT } from '../data/reference-station.ts'
-import { cloneState, initialStation, LEVEL_STEPS, nearestLevel, nextEscalatorDir, removeModule, toData, toState, type StationState } from '../build/model.ts'
-import { defaultLine, dropDerivedEdges, makeTrack, placeTrack, placeTunnel, regenerateRailEdges, resizeTrack, stripTunnelShell, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
+import { cloneState, initialStation, nearestLevel, nextEscalatorDir, removeModule, toData, toState, type StationState } from '../build/model.ts'
+import { LEVEL_STEPS } from '../sim/constants.ts'
+import { defaultLine, dropDerivedEdges, makeTrack, placeTrack, placeTunnel, regenerateRailEdges, resizeTrack, setLinePower, stripTunnelShell, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
 import { parse as parseSave, serialize as serializeSave } from '../persistence/save.ts'
 import { STAIR_WIDTH_NORMAL, nextStairWidth } from '../sim/stairs.ts'
 import type { LineDef, LineDirection } from '../sim/types.ts'
 import type { SceneStats } from '../render/scene.ts'
 
-export type Tool = 'select' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
+export type Tool = 'select' | 'block' | 'cube' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
 export type PaintMode = 'single' | 'surface' | 'pick'
 
 export interface ModuleOption {
@@ -27,8 +28,18 @@ export interface ModuleOption {
 
 export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'gate', label: '闸机', type: 'gate', w: 1, h: 1 },
+  { id: 'fence', label: '围栏', type: 'fence', w: 1, h: 1 },
   { id: 'tvm', label: '售票机', type: 'tvm', w: 1, h: 1 },
   { id: 'bench', label: '座椅', type: 'bench', w: 1, h: 1 },
+  { id: 'shelf', label: '货架', type: 'shelf', w: 1, h: 1 },
+  { id: 'desk', label: '办公桌', type: 'desk', w: 1, h: 1 },
+  { id: 'cubicle', label: '厕所隔间', type: 'cubicle', w: 1, h: 1 },
+  { id: 'sink', label: '洗手池', type: 'sink', w: 1, h: 1 },
+  { id: 'billboard-wide', label: '横版', type: 'billboard', w: 1, h: 1 },
+  { id: 'billboard-portrait', label: '竖版', type: 'billboard', w: 1, h: 1 },
+  { id: 'billboard-square', label: '方形', type: 'billboard', w: 1, h: 1 },
+  { id: 'billboard-large', label: '大横版', type: 'billboard', w: 2, h: 1 },
+  { id: 'tv', label: '电视', type: 'tv', w: 1, h: 1 },
   { id: 'exit', label: '出入口', type: 'exit', w: 1, h: 1 },
   { id: 'escalator', label: '扶梯', type: 'escalator', w: 1, h: 1 },
   { id: 'stair-straight', label: '单跑楼梯', type: 'stair', w: 1, h: 1 },
@@ -40,6 +51,44 @@ export const MODULE_OPTIONS: ModuleOption[] = [
 /** True for any of the four fixed staircase shapes in the palette. */
 export function isStairType(type: string): boolean {
   return type === 'stair' || type.startsWith('stair-')
+}
+
+/**
+ * True for any of the four billboard formats (装饰). The palette stores the
+ * option id (`billboard-wide`, …) while a placed module's `type` is the bare
+ * `billboard`, so both the id and the type read as a billboard here.
+ */
+export function isBillboardType(type: string): boolean {
+  return type === 'billboard' || type.startsWith('billboard-')
+}
+
+/**
+ * Decoration (装饰) pieces: seating, goods shelving, office desks, restroom
+ * fixtures and wall-mounted advertising. They are placeable equipment like any
+ * other, but the build rail files them under their own folder instead of 设备,
+ * and the wall-mounted pair must be fixed to a wall (see `wallMountMissing` in
+ * `sim/placement.ts`).
+ */
+export function isDecorType(type: string): boolean {
+  return (
+    type === 'bench' ||
+    type === 'shelf' ||
+    type === 'desk' ||
+    type === 'cubicle' ||
+    type === 'sink' ||
+    isBillboardType(type) ||
+    type === 'tv'
+  )
+}
+
+/** True for a 装饰 piece that may only be placed against a wall block. */
+export function isWallMountedType(type: string): boolean {
+  return isBillboardType(type) || type === 'tv'
+}
+
+/** True for the fence piece, which drags out a run like the wall tool. */
+export function isFenceType(type: string): boolean {
+  return type === 'fence'
 }
 
 /** True for the fixed escalator piece, whose Tab cycle is up/down instead. */
@@ -79,8 +128,15 @@ export function isFacilityBrush(b: ZoneBrush): b is FacilityBrush {
 /** Friendly name for a module type, for the inspector and the bulldoze notice. */
 const MODULE_LABELS: Record<string, string> = {
   gate: '闸机',
+  fence: '围栏',
   tvm: '售票机',
   bench: '座椅',
+  shelf: '货架',
+  desk: '办公桌',
+  cubicle: '厕所隔间',
+  sink: '洗手池',
+  billboard: '广告牌',
+  tv: '电视',
   exit: '出入口',
   escalator: '扶梯',
   stair: '楼梯',
@@ -423,12 +479,10 @@ export const useStore = create<AppState>((set, get) => ({
     // caller cannot produce a zero-length train.
     const fixed = patch.cars !== undefined ? { ...patch, cars: Math.max(1, Math.min(8, Math.round(patch.cars))) } : patch
     const lines = st.station.lines.map((l) => (l.id === lineId ? { ...l, ...fixed } : l))
-    // Power is a line option, so keep the line's tracks in step with it.
-    const modules =
-      patch.power !== undefined
-        ? st.station.modules.map((m) => (m.type === 'track' && m.cfg.line === lineId ? { ...m, cfg: { ...m.cfg, power: patch.power as 'third-rail' | 'catenary' } } : m))
-        : st.station.modules
-    let station = { ...st.station, lines, modules }
+    let station = { ...st.station, lines }
+    // Power is a line option, so carry it to every track bound to the line —
+    // platform rails and tunnel runs both — and their models re-cut on rebuild.
+    if (patch.power !== undefined) station = setLinePower(station, lineId, patch.power)
     // A platform rail is sized from its line's consist, so a stock/cars edit
     // re-cuts each of that line's platform tracks to the new run length (and
     // re-derives its screen doors). A tunnel is hand-sized, so it is left alone.

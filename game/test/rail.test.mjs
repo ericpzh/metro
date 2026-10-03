@@ -4,7 +4,7 @@
 // contiguous run of platform floor beside the bed.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, placeRail, placeTrack, placeTunnel, railModuleAt, regenerateRailEdges, resizeTrack, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
+import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, placeRail, placeTrack, placeTunnel, railModuleAt, regenerateRailEdges, resizeTrack, setLinePower, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
 import { trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.ts'
 import { moduleEnvelope, placementOnTrack, trackBedKeys, trackAt } from '../src/sim/placement.ts'
 import { World } from '../src/sim/world.ts'
@@ -140,6 +140,29 @@ test('a track piece is sized from the line: a car-width bed, the train length', 
   assert.deepEqual(trackPieceForLine(line), { w: 117, d: 3 }, '6 × 19.5 m = 117 m')
   assert.deepEqual(trackPieceForLine({ stock: 'A', cars: 8 }), { w: 176, d: 3 }, 'A stock, eight cars')
   assert.deepEqual(trackPieceForLine({ stock: 'C', cars: 4 }), { w: 76, d: 3 }, 'C stock, four cars')
+})
+
+test('a 供电 switch re-cuts every track bound to the line, platform and tunnel alike', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  let s = placeRail(station(cells), { x0: 0, y0: 1, x1: 5, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const src = s.modules.find((m) => m.type === 'track')
+  s = placeTunnel(s, src.id, 4)
+  const tunnel = s.modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.ok(tunnel, 'a tunnel run exists')
+  assert.equal(tunnel.cfg.power, 'third-rail', 'the tunnel inherits its source power')
+
+  // A second line's rail must not be dragged along by the switch.
+  const other = { id: 't9', type: 'track', x: 0, y: 4, z: 0, w: 3, d: 1, cfg: { line: '2', power: 'third-rail' } }
+  s = { ...s, lines: [...s.lines, defaultLine('2', 'up', 'third-rail')], modules: [...s.modules, other] }
+
+  const switched = setLinePower(s, '1', 'catenary')
+  assert.equal(switched.lines.find((l) => l.id === '1').power, 'catenary')
+  for (const m of switched.modules) {
+    if (m.type === 'track' && m.cfg.line === '1') assert.equal(m.cfg.power, 'catenary', `${m.id} follows the line`)
+  }
+  assert.equal(switched.modules.find((m) => m.id === 't9').cfg.power, 'third-rail', 'another line is untouched')
+  // The platform-edge derives from the track, so it stays bound to the line.
+  assert.equal(switched.modules.some((m) => m.type === 'platform-edge' && m.cfg.line === '1'), true)
 })
 
 test('a quarter-turned track digs a north–south bed and derives side edges', () => {

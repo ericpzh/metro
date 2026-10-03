@@ -19,6 +19,7 @@ import {
   facilityPlan,
   facilityRect,
   facilityWallCells,
+  fenceRotForLine,
   fillSurface,
   GROUND_Z,
   nextModuleId,
@@ -43,10 +44,10 @@ import {
 } from '../build/model.ts'
 import { finishDef } from '../sim/finishes.ts'
 import { exitFloorAt } from '../sim/exits.ts'
-import { moduleAt, isTrackCell, placementBlocked, placementOnTrack, reservedOpening } from '../sim/placement.ts'
+import { moduleAt, isTrackCell, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing } from '../sim/placement.ts'
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
-import { FACILITY_OPTIONS, setFrameHandler, useStore, isFacilityBrush, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
+import { FACILITY_OPTIONS, setFrameHandler, useStore, isDecorType, isFacilityBrush, isFenceType, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
 import type { Face, FinishId, Module } from '../sim/types.ts'
 import { defaultLine, freeTunnelEnd, makeTrack, makeTunnel, railModuleAt, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
@@ -186,6 +187,25 @@ function rectCells(a: [number, number, number], b: [number, number, number], z: 
   return out
 }
 
+/**
+ * The 墙 tool's run: a straight axis-aligned line, never a diagonal. The drag
+ * snaps to the dominant axis (ties go east–west), so a wall always slides
+ * through a single 90° row or column.
+ */
+function straightLineCells(a: [number, number, number], b: [number, number, number], z: number): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  if (Math.abs(b[0] - a[0]) >= Math.abs(b[1] - a[1])) {
+    const x0 = Math.min(a[0], b[0])
+    const x1 = Math.max(a[0], b[0])
+    for (let x = x0; x <= x1; x++) out.push([x, a[1], z])
+  } else {
+    const y0 = Math.min(a[1], b[1])
+    const y1 = Math.max(a[1], b[1])
+    for (let y = y0; y <= y1; y++) out.push([a[0], y, z])
+  }
+  return out
+}
+
 export function Viewport(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sceneRef = useRef<SceneRenderer | null>(null)
@@ -204,6 +224,8 @@ export function Viewport(): React.ReactElement {
     shift: boolean
     /** True for the 墙 tool's drag, whose cells are full-height wall columns. */
     wall?: boolean
+    /** True for the 围栏 tool's drag, which lays one fence panel per cell. */
+    fence?: boolean
     /** Screen position and time of the press, to tell a click from a drag. */
     sx: number
     sy: number
@@ -313,6 +335,33 @@ export function Viewport(): React.ReactElement {
     sceneRef.current?.setOrtho(ortho)
   }, [ortho])
 
+  /**
+   * The fence panels a drag run would place: one 1 m panel per cell, all at the
+   * run's rotation, skipping cells that are not floor or already occupied. The
+   * result drives the live fence preview; `blocked` is true when any cell of the
+   * run was refused, so the whole ghost flags red.
+   */
+  const fenceRunPreview = (line: Array<[number, number, number]>, rot: number): { mods: Module[]; blocked: boolean } => {
+    const st = useStore.getState()
+    const mods: Module[] = []
+    let blocked = false
+    const seen = new Set<string>()
+    for (const [x, y, z] of line) {
+      const k = cellKey(x, y, z)
+      if (seen.has(k)) continue
+      seen.add(k)
+      const mod = createModule('fence', x, y, z, 'preview', rot)
+      if (!mod) continue
+      const floorHere = st.station.cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) || exitFloorAt(st.station.modules, x, y, z)
+      if (!floorHere || placementBlocked(st.station.modules, mod) || placementOnTrack(st.station.cells, mod, st.station.modules)) {
+        blocked = true
+        continue
+      }
+      mods.push(mod)
+    }
+    return { mods, blocked }
+  }
+
   /** Rebuild the equipment hover ghost from the last hovered tile. */
   const refreshModulePreview = (): void => {
     const scene = sceneRef.current
@@ -331,7 +380,12 @@ export function Viewport(): React.ReactElement {
     // An escalator may run through walls/ceilings — only its two landings must
     // be solid floor (or exit floor). Anything in between is carved on placement.
     const basesMissing = !!mod && mod.type === 'escalator' && !escalatorBasesSolid(st.station.cells, st.station.modules, mod)
-    const blocked = !!mod && (placementBlocked(st.station.modules, mod) || basesMissing || placementOnTrack(st.station.cells, mod, st.station.modules))
+    const blocked =
+      !!mod &&
+      (placementBlocked(st.station.modules, mod) ||
+        basesMissing ||
+        placementOnTrack(st.station.cells, mod, st.station.modules) ||
+        wallMountMissing(st.station.cells, mod))
     scene.setCursor(h.cell, placeable && !blocked)
     scene.setModulePreview(mod, blocked)
   }
@@ -395,9 +449,45 @@ export function Viewport(): React.ReactElement {
     setBuildMeasure({ left: e.clientX - rect.left, top: e.clientY - rect.top, text })
   }
 
+  /**
+   * Drop any in-progress area drag without applying it (§9.5): a right-click or
+   * ESC while previewing a foundation, paint, zone or room rectangle just clears
+   * the ghost. Returns true when a drag was cancelled.
+   */
+  const cancelActiveDrag = (): boolean => {
+    const anyActive =
+      drag.current?.active === true ||
+      paint.current?.active === true ||
+      zoneDrag.current?.active === true ||
+      facilityDrag.current?.active === true
+    if (!anyActive) return false
+    drag.current = null
+    paint.current = null
+    zoneDrag.current = null
+    facilityDrag.current = null
+    setBuildMeasure(null)
+    sceneRef.current?.setGhost([], 'add')
+    sceneRef.current?.setGhost([], 'remove')
+    sceneRef.current?.clearFaceGhost()
+    sceneRef.current?.setFencePreview(null)
+    return true
+  }
+
+  // ESC cancels any in-progress drag even when the pointer never moves again.
+  useEffect(() => {
+    const onCancelKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      cancelActiveDrag()
+    }
+    window.addEventListener('keydown', onCancelKey)
+    return () => window.removeEventListener('keydown', onCancelKey)
+  }, [])
+
   // A ghost belongs to a tool; leaving one must not strand a preview.
   useEffect(() => {
     hoverRef.current = null
+    drag.current = null
+    paint.current = null
     zoneDrag.current = null
     facilityDrag.current = null
     setBuildMeasure(null)
@@ -406,6 +496,7 @@ export function Viewport(): React.ReactElement {
     sceneRef.current?.clearFaceGhost()
     sceneRef.current?.setCursor(null)
     sceneRef.current?.setModulePreview(null)
+    sceneRef.current?.setFencePreview(null)
   }, [tool])
 
   // Rotating (R), switching the equipment, or cycling its width/direction (Tab)
@@ -513,6 +604,14 @@ export function Viewport(): React.ReactElement {
   const onPointerDown = (e: React.PointerEvent): void => {
     const scene = sceneRef.current
     if (!scene || e.button === 1) return
+    // A second press while an area drag is previewing cancels it instead of
+    // starting a second drag, so the release commits nothing. In practice this
+    // is a right-click during a left drag (or the reverse); ESC is handled
+    // separately below for drags that never see another press.
+    if (cancelActiveDrag()) {
+      e.preventDefault()
+      return
+    }
     const st = useStore.getState()
     const tool: Tool = st.tool
     const hit = pickAt(e)
@@ -535,9 +634,60 @@ export function Viewport(): React.ReactElement {
       return
     }
     if (tool === 'module') {
+      // A fence (围栏) drags out a run like the 墙 tool: press to anchor, drag
+      // for a straight 90° line whose panels follow the drag direction, release
+      // to lay one panel per cell. A quick tap stays a single panel with the R
+      // rotation. Right-drag lifts the run back out, one panel at a time.
+      if (isFenceType(st.moduleType)) {
+        const mode: 'add' | 'remove' = e.button === 2 ? 'remove' : 'add'
+        if (mode === 'add' && !hit.solid) return
+        e.preventDefault()
+        drag.current = {
+          active: true,
+          button: e.button,
+          mode,
+          anchor: hit.cell,
+          z: hit.cell[2],
+          shift: false,
+          fence: true,
+          sx: e.clientX,
+          sy: e.clientY,
+          downTime: performance.now(),
+        }
+        if (mode === 'add') {
+          const { mods, blocked } = fenceRunPreview([hit.cell], st.moduleRot)
+          scene.setGhost([], 'add')
+          scene.setModulePreview(null)
+          scene.setFencePreview(mods, blocked)
+          scene.setCursor(hit.cell, !blocked)
+        } else {
+          scene.setFencePreview(null)
+          scene.setGhost([hit.cell], 'remove')
+          scene.setCursor(hit.cell, true)
+        }
+        return
+      }
       // Equipment rides on a floor block; bare void has nothing to stand on.
       if (!hit.solid) return
       if (e.button === 2) {
+        // A 装饰 right-click lifts a placed piece — including every shelf unit
+        // of a store, which are modules of their own since stocking. Pointing
+        // at the room itself (or bare floor) has nothing to lift.
+        if (isDecorType(st.moduleType)) {
+          const rail = railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2])
+          if (rail) {
+            bulldoze(hit.cell, hit.place)
+            return
+          }
+          const pointed = moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2])
+          if (pointed && pointed.type !== 'shop' && pointed.type !== 'booth' && pointed.type !== 'retail') {
+            bulldoze(hit.cell, hit.place)
+            return
+          }
+          const room = facilityAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2])
+          st.setNotice(room ? '货架要一个一个拆：点中货架再右键' : '这里没有可拆的装饰')
+          return
+        }
         bulldoze(hit.cell, hit.place)
         return
       }
@@ -694,8 +844,10 @@ export function Viewport(): React.ReactElement {
       scene.setCursor(hit.cell, true)
       return
     }
-    // block tool: a click is one block, a long press + drag is a rectangle on
-    // the pressed plane (the depth you are on, stepped with Q/E).
+    // block / 方块 tool: a click is one block, a long press + drag is a
+    // rectangle on the pressed plane (the depth you are on, stepped with Q/E).
+    // Only 地基 grows auto walls; 方块 falls through the same path but skips
+    // the walled-surface commit on release.
     e.preventDefault()
     const mode: 'add' | 'remove' = e.button === 2 ? 'remove' : 'add'
     const anchor = mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
@@ -717,6 +869,29 @@ export function Viewport(): React.ReactElement {
   const onPointerMove = (e: React.PointerEvent): void => {
     const scene = sceneRef.current
     if (!scene) return
+    // Right-click cancel while the left button is still held: the second
+    // pointerdown is unreliable (one mouse pointer, button already down), but
+    // the buttons bitmask on the move is not — a left drag that gains the
+    // right bit, or the reverse, drops the drag at once.
+    {
+      const activeButton =
+        drag.current?.active === true
+          ? drag.current.button
+          : paint.current?.active === true
+            ? paint.current.button
+            : zoneDrag.current?.active === true
+              ? 0
+              : facilityDrag.current?.active === true
+                ? 2
+                : null
+      if (activeButton !== null) {
+        const otherHeld = activeButton === 2 ? (e.buttons & 1) !== 0 : (e.buttons & 2) !== 0
+        if (otherHeld) {
+          cancelActiveDrag()
+          return
+        }
+      }
+    }
     const hit = pickAt(e)
     if (!hit) {
       hoverRef.current = null
@@ -731,15 +906,16 @@ export function Viewport(): React.ReactElement {
       if (d?.active) {
         const target = d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
         // Only a deliberate press becomes a run; a quick press stays one column.
+        // The run snaps to the dominant axis — straight 90° lines only.
         const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
-        const line = dragging ? rectCells(d.anchor, target, d.z, true) : [d.anchor]
+        const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
         scene.setGhost(
           d.mode === 'add'
             ? pendingCells(wallRun(line), 'add', solidRef.current, st.station.modules)
             : wallColumnsAt(st.station, line),
           d.mode,
         )
-        scene.setCursor(dragging ? target : d.anchor, d.mode === 'add')
+        scene.setCursor(dragging ? line[line.length - 1] : d.anchor, d.mode === 'add')
         return
       }
       const c = hit.solid ? hit.place : hit.cell
@@ -763,7 +939,7 @@ export function Viewport(): React.ReactElement {
       scene.setCursor(hit.cell, hit.solid)
       return
     }
-    if (st.tool === 'block') {
+    if (st.tool === 'block' || st.tool === 'cube') {
       const d = drag.current
       if (d?.active) {
         d.shift = e.shiftKey
@@ -772,10 +948,12 @@ export function Viewport(): React.ReactElement {
         // block even if the pointer jitters.
         const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
         const preview = dragging ? rectCells(d.anchor, target, d.z, e.shiftKey) : [d.anchor]
-        // A deliberate add drag draws a walled surface: show the auto wall ring
-        // the release would raise, so the shell is not a surprise.
+        // A deliberate 地基 drag draws a walled surface: show the auto wall ring
+        // the release would raise, so the shell is not a surprise. 方块 skips
+        // the ring — same drag, plain blocks only.
         const cells = pendingCells(preview, d.mode, solidRef.current, st.station.modules)
-        if (d.mode === 'add' && dragging) cells.push(...plannedAutoWalls(solidRef.current, preview, st.station.modules))
+        if (d.mode === 'add' && dragging && st.tool === 'block')
+          cells.push(...plannedAutoWalls(solidRef.current, preview, st.station.modules))
         scene.setGhost(cells, d.mode)
         scene.setCursor(dragging ? target : d.anchor, d.mode === 'add')
         // The patch's own footprint, in metres (1 cell = 1 m), pinned to the
@@ -807,10 +985,44 @@ export function Viewport(): React.ReactElement {
       return
     }
     if (st.tool === 'module') {
+      // An in-progress fence drag previews the straight run the release would
+      // lay — one panel per cell, snapped to the dominant axis like the wall —
+      // as real translucent fence models, with the existing runs rebuilt so an
+      // end you drag up to loses its cap live.
+      const d = drag.current
+      if (d?.active && d.fence) {
+        const target: [number, number, number] = [hit.cell[0], hit.cell[1], d.z]
+        // Only a deliberate press becomes a run; a quick press stays one panel.
+        const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
+        const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
+        if (d.mode === 'add') {
+          const rot = fenceRotForLine(line) ?? st.moduleRot
+          const { mods, blocked } = fenceRunPreview(line, rot)
+          scene.setGhost([], 'add')
+          scene.setModulePreview(null)
+          scene.setFencePreview(mods, blocked)
+          scene.setCursor(dragging ? line[line.length - 1] : d.anchor, !blocked)
+        } else {
+          // Preview exactly the fence panels the release would lift.
+          const seen = new Set<string>()
+          const cells: Array<[number, number, number]> = []
+          for (const [x, y, z] of line) {
+            const mod = moduleAt(st.station.modules, x, y, z)
+            if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
+            seen.add(mod.id)
+            cells.push([mod.x, mod.y, mod.z])
+          }
+          scene.setFencePreview(null)
+          scene.setGhost(cells, 'remove')
+          scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
+        }
+        return
+      }
       // Equipment stands on the floor block under the pointer, so the highlight
       // snaps to that tile instead of floating a metre above it, and a
       // translucent copy of the module shows exactly what the click will place.
       // Bare void and a clash with existing equipment both flag red.
+      scene.setFencePreview(null)
       hoverRef.current = { cell: hit.cell, solid: hit.solid }
       refreshModulePreview()
       return
@@ -906,6 +1118,28 @@ export function Viewport(): React.ReactElement {
   const onPointerUp = (e: React.PointerEvent): void => {
     const scene = sceneRef.current
     setBuildMeasure(null)
+    // Releasing the other button while a drag is held cancels it: the classic
+    // case is right-up during a left drag, whose own pointerdown never fired
+    // while the left button was down — committing here would apply the very
+    // rectangle the player tried to cancel. The still-held button's later
+    // release then finds no active drag and commits nothing.
+    {
+      const activeButton =
+        drag.current?.active === true
+          ? drag.current.button
+          : paint.current?.active === true
+            ? paint.current.button
+            : zoneDrag.current?.active === true
+              ? 0
+              : facilityDrag.current?.active === true
+                ? 2
+                : null
+      if (activeButton !== null && (e.button === 0 || e.button === 2) && e.button !== activeButton) {
+        cancelActiveDrag()
+        return
+      }
+      if (e.button === 1) return
+    }
     const fd = facilityDrag.current
     facilityDrag.current = null
     if (fd?.active) {
@@ -1018,13 +1252,71 @@ export function Viewport(): React.ReactElement {
     if (!scene || !d?.active) return
     const hit = pickAt(e)
     scene.setGhost([], 'add')
+    scene.setModulePreview(null)
+    scene.setFencePreview(null)
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
     const target = hit ? (d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell) : d.anchor
     const st = useStore.getState()
+    if (d.fence) {
+      // A 围栏 drag lays one panel per cell along a straight axis-aligned run;
+      // a quick press is one panel with the R rotation. The run's panels follow
+      // the drag direction, and the right drag lifts the same run back out.
+      const lineTarget: [number, number, number] = hit ? [hit.cell[0], hit.cell[1], d.z] : d.anchor
+      const line = rect ? straightLineCells(d.anchor, lineTarget, d.z) : [d.anchor]
+      if (d.mode === 'add') {
+        // The panel follows the run's own span. Using the run cells (not the
+        // press cell against the sorted end) keeps a run laid toward −x/−y from
+        // turning crosswise; a single cell keeps the R rotation.
+        const rot = fenceRotForLine(line) ?? st.moduleRot
+        let next = st.station
+        let placed = 0
+        let blocked = 0
+        const seen = new Set<string>()
+        for (const [x, y, z] of line) {
+          const k = cellKey(x, y, z)
+          if (seen.has(k)) continue
+          seen.add(k)
+          const mod = createModule('fence', x, y, z, nextModuleId(next.modules, 'fence'), rot)
+          if (!mod) continue
+          // A fence stands on floor like any equipment; bare void holds none.
+          const floorHere = next.cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) || exitFloorAt(next.modules, x, y, z)
+          if (!floorHere) {
+            blocked++
+            continue
+          }
+          if (placementBlocked(next.modules, mod) || placementOnTrack(next.cells, mod, next.modules)) {
+            blocked++
+            continue
+          }
+          next = addEquipment(next, mod)
+          placed++
+        }
+        if (placed > 0) st.commit(next)
+        if (blocked > 0) st.setNotice(placed > 0 ? `围栏放下了 ${placed} 段，${blocked} 格被挡住了` : '这儿放不下围栏，换个地方')
+      } else {
+        const seen = new Set<string>()
+        let next = st.station
+        let removed = 0
+        for (const [x, y, z] of line) {
+          const mod = moduleAt(next.modules, x, y, z)
+          if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
+          seen.add(mod.id)
+          next = removeModule(next, mod.id)
+          removed++
+        }
+        if (removed > 0) {
+          st.commit(next)
+          st.select(null)
+          st.setNotice(`已拆掉${removed}段围栏`)
+        }
+      }
+      return
+    }
     if (d.wall) {
-      // A 墙 drag lays a run of full-height columns; a quick press is one. The
-      // right drag lifts the same run, a whole tagged column at a time.
-      const line = rect ? rectCells(d.anchor, target, d.z, true) : [d.anchor]
+      // A 墙 drag lays a straight axis-aligned run of full-height columns; a
+      // quick press is one. The right drag lifts the same run, a whole tagged
+      // column at a time.
+      const line = rect ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
       if (d.mode === 'add') {
         const { state: next, changed, blocked } = addWalls(st.station, line)
         if (changed > 0) st.commit(next)
@@ -1038,9 +1330,11 @@ export function Viewport(): React.ReactElement {
     }
     const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
     if (d.mode === 'add') {
-      if (rect) {
-        // A deliberate drag draws a walled floor patch: union it with earlier
-        // patches and rebuild the auto wall ring around the new edge.
+      if (rect && st.tool !== 'cube') {
+        // A deliberate 地基 drag draws a walled floor patch: union it with
+        // earlier patches and rebuild the auto wall ring around the new edge.
+        // 方块 takes the plain-block path below even for a drag — no tags,
+        // no walls.
         const next = addFloor(st.station, cells)
         if (next !== st.station) st.commit(next)
       } else {
@@ -1060,7 +1354,12 @@ export function Viewport(): React.ReactElement {
     }
   }
 
-  const onContextMenu = (e: React.MouseEvent): void => e.preventDefault()
+  // A right-click also fires contextmenu while another button is held, even when
+  // its own pointerdown never arrived — so it cancels any previewing drag too.
+  const onContextMenu = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    cancelActiveDrag()
+  }
 
   /** Right-click: remove the equipment standing on a cell, leaving the block. */
   const bulldoze = (cell: [number, number, number], place?: [number, number, number]): void => {
@@ -1104,6 +1403,11 @@ export function Viewport(): React.ReactElement {
     // The rails sit on a track bed, not on passenger floor: no equipment there.
     if (placementOnTrack(st.station.cells, mod, st.station.modules)) {
       st.setNotice('轨道上不能放设备')
+      return
+    }
+    // 广告牌 / 电视 are wall-mounted: they need a solid wall block behind them.
+    if (wallMountMissing(st.station.cells, mod)) {
+      st.setNotice('广告牌和电视要贴在墙上：先砌一堵墙，用 R 转方向让背面朝墙')
       return
     }
     // An escalator punches through walls/ceilings on its own: allow it whenever

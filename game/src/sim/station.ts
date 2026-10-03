@@ -138,6 +138,15 @@ export function buildGraph(data: StationData): StationGraph {
     for (let x = m.x; x < m.x + w; x++) for (let y = m.y; y < m.y + h; y++) boothCells.add(cellKey(x, y, m.z))
   }
 
+  // A fence (围栏, §5.2) is a 1 m thin panel through the middle of its block:
+  // the cell it stands on is not walkable, so a fence run plus the gate row it
+  // plugs into divides the floor into areas the crowd can only cross at a gate.
+  const fenceCells = new Set<string>()
+  for (const m of data.modules) {
+    if (m.type !== 'fence') continue
+    fenceCells.add(cellKey(m.x, m.y, m.z))
+  }
+
   // Walkable = a solid cell with nothing solid directly above it.
   const nodeIndex = new Map<string, number>()
   const keys: string[] = []
@@ -161,6 +170,7 @@ export function buildGraph(data: StationData): StationGraph {
     const key = cellKey(c.x, c.y, c.z)
     if (nodeIndex.has(key)) continue
     if (boothCells.has(key)) continue
+    if (fenceCells.has(key)) continue
     const id = keys.length
     nodeIndex.set(key, id)
     keys.push(key)

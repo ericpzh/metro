@@ -5,10 +5,13 @@ import { finishOf, floorSpeed } from '../sim/finishes.ts'
 import { zoneIndex } from '../sim/zones.ts'
 import { carveRampOpenings } from '../sim/openings.ts'
 import { reservedOpening } from '../sim/placement.ts'
+import { LEVEL_STEPS } from '../sim/constants.ts'
+import { BILLBOARD_SPECS } from '../sim/billboards.ts'
+import { trackOriginForCentre } from '../sim/track.ts'
 import { exitFloorAt } from '../sim/exits.ts'
 import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
 import { STAIR_WIDTH_NORMAL, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
-import { DEFAULT_ZONE, type Cell, type Face, type FinishId, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
+import { DEFAULT_ZONE, type BillboardVariant, type Cell, type Face, type FinishId, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
 
 export function cellKey(x: number, y: number, z: number): string {
@@ -16,15 +19,12 @@ export function cellKey(x: number, y: number, z: number): string {
 }
 
 /**
- * The fixed editing storeys: every 4 units from +12 down to -32. Q/E steps
- * through these and the depth rail lists exactly these, so the work plane is
- * always on the 4-unit grid the reference station is built on (G = 0,
- * B1 = -4, B2 = -8) instead of jumping between whatever z values happen to
- * have walkable cells.
+ * Snap an arbitrary z to the nearest fixed storey. The storey grid itself lives
+ * in `sim/constants.ts` (`LEVEL_STEPS`); Q/E steps through it and the depth rail
+ * lists exactly it, so the work plane is always on the 4-unit grid the reference
+ * station is built on (G = 0, B1 = -4, B2 = -8) instead of jumping between
+ * whatever z values happen to have walkable cells.
  */
-export const LEVEL_STEPS: number[] = [12, 8, 4, 0, -4, -8, -12, -16, -20, -24, -28, -32].sort((a, b) => a - b)
-
-/** Snap an arbitrary z to the nearest fixed storey. */
 export function nearestLevel(z: number): number {
   let best = LEVEL_STEPS[0]
   for (const l of LEVEL_STEPS) if (Math.abs(l - z) < Math.abs(best - z)) best = l
@@ -72,10 +72,35 @@ export function createModule(
   switch (type) {
     case 'gate':
       return { id, type: 'gate', x, y, z, rot, cfg: { dir: 'both' } }
+    case 'fence':
+      return { id, type: 'fence', x, y, z, rot, cfg: {} }
     case 'tvm':
       return { id, type: 'tvm', x, y, z, rot, cfg: {} }
     case 'bench':
       return { id, type: 'bench', x, y, z, rot, cfg: {} }
+    case 'shelf':
+      return { id, type: 'shelf', x, y, z, rot, cfg: {} }
+    case 'desk':
+      return { id, type: 'desk', x, y, z, rot, cfg: {} }
+    case 'cubicle':
+      return { id, type: 'cubicle', x, y, z, rot, cfg: {} }
+    case 'sink':
+      return { id, type: 'sink', x, y, z, rot, cfg: {} }
+    case 'billboard':
+    case 'billboard-wide':
+    case 'billboard-portrait':
+    case 'billboard-square':
+    case 'billboard-large': {
+      // The palette id names the variant; a bare `billboard` (an old caller)
+      // falls back to the small landscape. The run is centred on the hovered
+      // cell like a track piece, so a two-cell banner grows evenly either side.
+      const variant: BillboardVariant = type === 'billboard' ? 'wide' : (type.slice('billboard-'.length) as BillboardVariant)
+      const spec = BILLBOARD_SPECS[variant] ?? BILLBOARD_SPECS.wide
+      const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1)
+      return { id, type: 'billboard', x: ox, y: oy, z, rot, w: spec.w, cfg: { variant: spec.variant } }
+    }
+    case 'tv':
+      return { id, type: 'tv', x, y, z, rot, cfg: {} }
     case 'exit':
       return { id, type: 'exit', x, y, z, rot, cfg: { name: '未命名口', inRate: 900, open: true } }
     case 'escalator':
@@ -189,13 +214,16 @@ export interface StationState {
 }
 
 export function toState(data: StationData): StationState {
-  return {
+  const state: StationState = {
     name: data.name,
     seed: data.seed,
     cells: data.cells.map(cloneCell),
     modules: data.modules.map((m) => ({ ...m })),
     lines: data.lines.map((l) => ({ ...l })),
   }
+  // Rooms drawn before furniture became modules carry no shelf/desk pieces
+  // yet — materialise them here so every load path (open, demo, new) agrees.
+  return ensureRoomFurniture(state)
 }
 
 export function toData(s: StationState): StationData {
@@ -262,6 +290,32 @@ export function nextModuleId(modules: readonly Module[], type: string): string {
   let n = modules.length + 1
   while (taken.has(`${type}-${n}`)) n++
   return `${type}-${n}`
+}
+
+/**
+ * The rotation for a dragged fence (围栏) run: the panel follows the drag
+ * direction like the 墙 tool (§5.2) — an east–west drag lays panels along +x
+ * (rot 0), a north–south drag along +y (rot 1). Ties go east–west, matching
+ * `straightLineCells` in the viewport. A single cell returns `null`, so the
+ * caller keeps the R rotation.
+ *
+ * The span is read from the full extent of the cells, never from the press cell
+ * against a sorted end: a run laid toward −x/−y would otherwise be compared with
+ * itself and turn crosswise (the zig-zag bug).
+ */
+export function fenceRotForLine(cells: ReadonlyArray<readonly [number, number, number]>): number | null {
+  if (cells.length < 2) return null
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const c of cells) {
+    if (c[0] < minX) minX = c[0]
+    if (c[0] > maxX) maxX = c[0]
+    if (c[1] < minY) minY = c[1]
+    if (c[1] > maxY) maxY = c[1]
+  }
+  return maxX - minX >= maxY - minY ? 0 : 1
 }
 
 export function isSolid(cells: Cell[], x: number, y: number, z: number): boolean {
@@ -981,6 +1035,202 @@ export function facilityPlan(state: StationState, kind: FacilityKind, r: Facilit
   return { rect, merge, blockedBy: null }
 }
 
+/** One furniture unit's floor cell and quarter-turn, for the room layouts below. */
+export interface FurnitureSpot {
+  type: 'shelf' | 'desk' | 'cubicle' | 'sink' | 'bench'
+  x: number
+  y: number
+  /** 0 = run along x (south/north walls, island rows, desk grids), 1 = along y. */
+  rot: number
+}
+
+/**
+ * Where a store's shelf units stand (§5.7): interior island rows inset one cell
+ * from the walls with one aisle between rows, plus one unit against the inner
+ * face of every straight (non-corner) wall run — including a side the room did
+ * not wall itself because a pre-existing wall column already encloses it.
+ * Door cells (cut openings) get no shelf. The room builder lays one `shelf`
+ * module per spot, so every auto shelf is individually bulldozable.
+ */
+export function storeShelfSpots(
+  cells: readonly Cell[],
+  rect: FacilityRect,
+  doors: ReadonlySet<string> = new Set(),
+): FurnitureSpot[] {
+  const { x0, y0, x1, y1, z } = rect
+  const spots: FurnitureSpot[] = []
+  for (let y = y0 + 2; y <= y1 - 2; y += 2) {
+    for (let x = x0 + 1; x <= x1 - 1; x++) spots.push({ type: 'shelf', x, y, rot: 0 })
+  }
+  const solid = new Set<string>()
+  for (const c of cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
+  const walled = new Set<string>()
+  for (const [x, y] of facilityWallCells(cells, { x: x0, y: y0, z, w: x1 - x0 + 1, h: y1 - y0 + 1, type: 'shop' })) {
+    walled.add(`${x},${y}`)
+  }
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      if (!isPerimeter(rect, x, y)) continue
+      if ((x === x0 || x === x1) && (y === y0 || y === y1)) continue
+      if (doors.has(`${x},${y}`)) continue
+      let run = walled.has(`${x},${y}`)
+      if (!run) {
+        const [ox, oy] = outsideOf(rect, x, y)
+        run = touchingExistingWall(solid, ox, oy, z)
+      }
+      if (!run) continue
+      spots.push({ type: 'shelf', x, y, rot: y === y0 || y === y1 ? 0 : 1 })
+    }
+  }
+  return spots
+}
+
+/**
+ * Where an office's desk units stand (§5.7): a grid inset one cell from the
+ * walls, one aisle between rows and columns. Desks need no wall behind them,
+ * so only the rect matters. The room builder lays one `desk` module per spot,
+ * individually bulldozable like a shelf.
+ */
+export function officeDeskSpots(rect: FacilityRect): FurnitureSpot[] {
+  const spots: FurnitureSpot[] = []
+  for (let y = rect.y0 + 1; y <= rect.y1 - 1; y += 2) {
+    for (let x = rect.x0 + 1; x <= rect.x1 - 1; x += 2) spots.push({ type: 'desk', x, y, rot: 0 })
+  }
+  return spots
+}
+
+/**
+ * Where a restroom's units stand (§5.7): one `cubicle` (partition + WC + tank)
+ * per back-row cell and one `sink` per front-row cell, both inset one cell
+ * from the side walls. Door cells (cut openings) get no unit. The room builder
+ * lays one module per spot, individually bulldozable like a shelf.
+ */
+export function restroomSpots(rect: FacilityRect, doors: ReadonlySet<string> = new Set()): FurnitureSpot[] {
+  const spots: FurnitureSpot[] = []
+  for (let x = rect.x0 + 1; x <= rect.x1 - 1; x++) {
+    if (!doors.has(`${x},${rect.y1 - 1}`)) spots.push({ type: 'cubicle', x, y: rect.y1 - 1, rot: 0 })
+    if (!doors.has(`${x},${rect.y0}`)) spots.push({ type: 'sink', x, y: rect.y0, rot: 0 })
+  }
+  return spots
+}
+
+/**
+ * The booth's staff seats: one `bench` per back-row interior cell, facing the
+ * front counter (rot 2). Mirrors the seats the booth model used to draw, so a
+ * migrated booth reads exactly as before — except each seat is now its own
+ * right-clickable module.
+ */
+export function boothBenchSpots(rect: FacilityRect): FurnitureSpot[] {
+  const spots: FurnitureSpot[] = []
+  if (rect.y1 - 1 <= rect.y0) return spots
+  for (let x = rect.x0 + 1; x <= rect.x1 - 1; x++) spots.push({ type: 'bench', x, y: rect.y1 - 1, rot: 2 })
+  return spots
+}
+
+/**
+ * Lay one auto furniture module (`cfg.auto`) per spot, skipping cells that
+ * already hold a shelf or desk — a hand-placed 货架/办公桌 keeps its cell, and
+ * a merge never stacks two units on each other.
+ */
+function addAutoFurniture(state: StationState, z: number, spots: readonly FurnitureSpot[]): StationState {
+  const taken = new Set<string>()
+  for (const m of state.modules) {
+    if ((m.type === 'shelf' || m.type === 'desk' || m.type === 'cubicle' || m.type === 'sink' || m.type === 'bench') && m.z === z) {
+      taken.add(`${m.x},${m.y}`)
+    }
+  }
+  const modules = [...state.modules]
+  for (const s of spots) {
+    const k = `${s.x},${s.y}`
+    if (taken.has(k)) continue
+    taken.add(k)
+    if (s.type === 'shelf') {
+      modules.push({ id: nextModuleId(modules, 'shelf'), type: 'shelf', x: s.x, y: s.y, z, rot: s.rot, cfg: { auto: true } })
+    } else if (s.type === 'desk') {
+      modules.push({ id: nextModuleId(modules, 'desk'), type: 'desk', x: s.x, y: s.y, z, rot: s.rot, cfg: { auto: true } })
+    } else if (s.type === 'cubicle') {
+      modules.push({ id: nextModuleId(modules, 'cubicle'), type: 'cubicle', x: s.x, y: s.y, z, rot: s.rot, cfg: { auto: true } })
+    } else if (s.type === 'sink') {
+      modules.push({ id: nextModuleId(modules, 'sink'), type: 'sink', x: s.x, y: s.y, z, rot: s.rot, cfg: { auto: true } })
+    } else {
+      modules.push({ id: nextModuleId(modules, 'bench'), type: 'bench', x: s.x, y: s.y, z, rot: s.rot, cfg: { auto: true } })
+    }
+  }
+  return modules.length === state.modules.length ? state : { ...state, modules }
+}
+
+/**
+ * Drop a room's auto-generated furniture (`cfg.auto`), leaving hand-placed
+ * 货架/办公桌 where they stand. Used when the room itself goes away.
+ */
+function dropAutoFurniture(state: StationState, rect: FacilityRect): StationState {
+  const kill = new Set<string>()
+  for (const m of state.modules) {
+    if (m.type !== 'shelf' && m.type !== 'desk' && m.type !== 'cubicle' && m.type !== 'sink' && m.type !== 'bench') continue
+    if (!m.cfg.auto) continue
+    if (m.z !== rect.z) continue
+    if (m.x >= rect.x0 && m.x <= rect.x1 && m.y >= rect.y0 && m.y <= rect.y1) kill.add(m.id)
+  }
+  if (kill.size === 0) return state
+  return { ...state, modules: state.modules.filter((m) => !kill.has(m.id)) }
+}
+
+/** Mark a walled room, retail shell or booth as furniture-materialised. */
+function markRoomStocked(state: StationState, id: string): StationState {
+  const modules = state.modules.map((m): Module => {
+    if (m.id !== id) return m
+    if (m.type === 'shop') return { ...m, cfg: { ...m.cfg, stocked: true } }
+    if (m.type === 'retail') return { ...m, cfg: { ...m.cfg, stocked: true } }
+    if (m.type === 'booth') return { ...m, cfg: { ...m.cfg, stocked: true } }
+    return m
+  })
+  return { ...state, modules }
+}
+
+/**
+ * Bring legacy rooms up to the furniture-module model: a store-kind room drawn
+ * before auto shelves became individually placed pieces gets one `shelf`
+ * module per layout spot, an office one `desk` per grid spot, a restroom its
+ * cubicles and sinks, and a booth its staff benches. A room the player already
+ * cleared of its drawn shelving (the old `cfg.bare`) just has the flag
+ * consumed. Rooms that already went through this carry `cfg.stocked` and are
+ * left alone, so re-running never duplicates a unit — deleting every unit
+ * stays deleted across a reload.
+ * Returns the same state when nothing changed.
+ */
+export function ensureRoomFurniture(state: StationState): StationState {
+  let next = state
+  let changed = false
+  for (const m of state.modules) {
+    if (m.type !== 'shop' && m.type !== 'retail' && m.type !== 'booth') continue
+    const fitOut = m.type === 'retail' ? 'store' : m.type === 'booth' ? 'booth' : (m.cfg.kind ?? 'store')
+    if ((fitOut !== 'store' && fitOut !== 'office' && fitOut !== 'toilet' && fitOut !== 'booth') || m.cfg.stocked) continue
+    // The old clear-the-room flag only ever existed on stores; booths never had it.
+    const bare = m.type !== 'booth' && m.cfg.bare === true
+    if (bare) {
+      next = markRoomStocked(next, m.id)
+    } else {
+      const rect = facilityRectOf(m)
+      if (fitOut === 'store') {
+        const doorPairs: Array<[number, number]> = m.type === 'shop' ? (m.cfg.door ?? []) : []
+        const doors = new Set(doorPairs.map(([x, y]) => `${x},${y}`))
+        next = addAutoFurniture(next, m.z, storeShelfSpots(next.cells, rect, doors))
+      } else if (fitOut === 'office') {
+        next = addAutoFurniture(next, m.z, officeDeskSpots(rect))
+      } else if (fitOut === 'toilet') {
+        const doorPairs: Array<[number, number]> = m.type === 'shop' ? (m.cfg.door ?? []) : []
+        const doors = new Set(doorPairs.map(([x, y]) => `${x},${y}`))
+        next = addAutoFurniture(next, m.z, restroomSpots(rect, doors))
+      } else {
+        next = addAutoFurniture(next, m.z, boothBenchSpots(rect))
+      }
+      next = markRoomStocked(next, m.id)
+    }
+    changed = true
+  }
+  return changed ? next : state
+}
+
 /**
  * Place a walled room (商店 / 厕所 / 办公室) or a booth, or extend a room of
  * the same kind when the drag overlaps one (a different kind is never overlapped
@@ -1055,12 +1305,45 @@ export function placeFacility(
   }
   // Keep the original room's id when extending, so selection and saves follow it.
   const modId = id ?? plan.merge[0]?.id ?? nextModuleId(state.modules, kind)
+  // A store stocks its own shelves as individual `shelf` modules, an office
+  // its desks as `desk` modules, a restroom its cubicles and sinks, and a
+  // booth its staff benches — one module per layout spot — so every unit is
+  // right-clickable on its own. Absorbed rooms bring no auto furniture along
+  // (their walls move); hand-placed pieces stay, and fresh units skip cells a
+  // hand-placed unit already holds.
+  const fitOut = isWalledRoomKind(kind) ? WALLED_ROOM[kind] : null
+  const stocksShelves = fitOut === 'store'
+  const stocksDesks = fitOut === 'office'
+  const stocksRestroom = fitOut === 'toilet'
+  const stocksBooth = kind === 'booth'
+  const stocked = stocksShelves || stocksDesks || stocksRestroom || stocksBooth
   const module = (
     isWalledRoomKind(kind)
-      ? { id: modId, type: 'shop', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind: WALLED_ROOM[kind], door: keptDoors } }
-      : { id: modId, type: 'booth', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind: 'ticket' } }
+      ? {
+          id: modId,
+          type: 'shop',
+          x: rect.x0,
+          y: rect.y0,
+          z: rect.z,
+          w,
+          h,
+          cfg: { kind: WALLED_ROOM[kind], door: keptDoors, ...(stocked ? { stocked: true } : {}) },
+        }
+      : { id: modId, type: 'booth', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind: 'ticket', stocked: true } }
   ) as StationState['modules'][number]
-  return { ...base, cells: [...base.cells, ...add], modules: [...base.modules, module] }
+  let next = { ...base, cells: [...base.cells, ...add], modules: [...base.modules, module] }
+  if (stocksShelves) {
+    const doorKeys = new Set(keptDoors.map(([x, y]) => `${x},${y}`))
+    next = addAutoFurniture(next, rect.z, storeShelfSpots(next.cells, rect, doorKeys))
+  } else if (stocksDesks) {
+    next = addAutoFurniture(next, rect.z, officeDeskSpots(rect))
+  } else if (stocksRestroom) {
+    const doorKeys = new Set(keptDoors.map(([x, y]) => `${x},${y}`))
+    next = addAutoFurniture(next, rect.z, restroomSpots(rect, doorKeys))
+  } else if (stocksBooth) {
+    next = addAutoFurniture(next, rect.z, boothBenchSpots(rect))
+  }
+  return next
 }
 
 /**
@@ -1138,10 +1421,12 @@ export function carveFacilityOpenings(
     return { ...m, cfg: { ...m.cfg, door } }
   })
   const result = { ...state, cells: nextCells, modules }
-  // A room with no wall left is not a room: drop it.
+  // A room with no wall left is not a room: drop it — and the auto furniture it
+  // stocked, while hand-placed 货架/办公桌 stay as furniture on the remaining floor.
   const updated = modules.find((m) => m.id === id)
   if (updated && updated.type === 'shop' && facilityWallCells(nextCells, updated).length === 0) {
-    return { ...result, modules: result.modules.filter((m) => m.id !== id) }
+    const dropped = { ...result, modules: result.modules.filter((m) => m.id !== id) }
+    return dropAutoFurniture(dropped, facilityRectOf(updated))
   }
   return result
 }
@@ -1149,12 +1434,20 @@ export function carveFacilityOpenings(
 /**
  * Remove a set of facility rooms and the auto walls only they need. A wall cell
  * a surviving walled room still needs is kept, and floors are never touched.
+ * A removed room's auto-generated furniture goes with it; hand-placed 货架/办公桌 stay —
+ * except on the extend path, where `placeFacility` re-stocks the union fresh
+ * (absorbed rooms' units are dropped first, so a merge never stacks two units
+ * on one cell).
  */
 function removeFacilitySet(state: StationState, ids: ReadonlySet<string>): StationState {
   const kill = new Set<string>()
+  const rooms: Array<{ x: number; y: number; z: number; w: number; h: number }> = []
   for (const m of state.modules) {
-    if (!ids.has(m.id) || m.type !== 'shop') continue
-    for (const [x, y, z] of facilityWallCells(state.cells, m)) kill.add(cellKey(x, y, z))
+    if (!ids.has(m.id) || (m.type !== 'shop' && m.type !== 'booth')) continue
+    if (m.type === 'shop') {
+      for (const [x, y, z] of facilityWallCells(state.cells, m)) kill.add(cellKey(x, y, z))
+    }
+    rooms.push({ x: m.x, y: m.y, z: m.z, w: m.w, h: m.h })
   }
   // Never remove a wall cell a surviving walled room still needs.
   const keep = new Set<string>()
@@ -1166,20 +1459,26 @@ function removeFacilitySet(state: StationState, ids: ReadonlySet<string>): Stati
     const k = cellKey(c.x, c.y, c.z)
     return !(kill.has(k) && !keep.has(k))
   })
-  return { ...state, cells, modules: state.modules.filter((m) => !ids.has(m.id)) }
+  let next: StationState = { ...state, cells, modules: state.modules.filter((m) => !ids.has(m.id)) }
+  for (const r of rooms) {
+    next = dropAutoFurniture(next, { x0: r.x, y0: r.y, x1: r.x + r.w - 1, y1: r.y + r.h - 1, z: r.z })
+  }
+  return next
 }
 
 /**
- * Bulldoze a walled room or booth. A walled room's auto walls — the solid cells
- * stacked above its own perimeter — are removed too, but never a wall another
- * room still needs, and never the floor. A booth has no solid cells, so only the
- * module goes.
+ * Bulldoze a walled room, booth or retail shell. A walled room's auto walls —
+ * the solid cells stacked above its own perimeter — are removed too, but never
+ * a wall another room still needs, and never the floor. A removed room's
+ * auto-generated furniture goes with it while hand-placed pieces stay behind
+ * on the floor.
  */
 export function removeFacility(state: StationState, id: string): StationState {
   const mod = state.modules.find((m) => m.id === id)
   if (!mod || (mod.type !== 'shop' && mod.type !== 'booth' && mod.type !== 'retail')) return state
   if (mod.type === 'shop') return removeFacilitySet(state, new Set([id]))
-  return { ...state, modules: state.modules.filter((m) => m.id !== id) }
+  const dropped: StationState = { ...state, modules: state.modules.filter((m) => m.id !== id) }
+  return dropAutoFurniture(dropped, facilityRectOf(mod))
 }
 
 /**

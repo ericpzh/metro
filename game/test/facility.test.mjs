@@ -125,7 +125,11 @@ test('no wall is built where an existing wall already touches', () => {
 test('rooms below the minimum size or without floor are rejected', () => {
   const st = flatStation()
   assert.equal(placeFacility(st, 'shop', facilityRect([0, 0, 0], [1, 1, 0], 0)), st, 'a 2x2 room was accepted')
-  assert.equal(placeFacility(st, 'booth', facilityRect([0, 0, 0], [5, 5, 0], 0)).modules.length, 1, 'a valid booth was rejected')
+  assert.equal(
+    placeFacility(st, 'booth', facilityRect([0, 0, 0], [5, 5, 0], 0)).modules.filter((m) => m.type === 'booth').length,
+    1,
+    'a valid booth was rejected',
+  )
   void FACILITY_MIN
   const edge = placeFacility(st, 'shop', facilityRect([8, 8, 0], [12, 12, 0], 0))
   assert.equal(edge, st, 'a room over void was accepted')
@@ -166,7 +170,11 @@ test('two rooms of different types may not overlap', () => {
 test('dragging a second room over the same type extends the original', () => {
   const st = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [5, 4, 0], 0), 'shop-1')
   const grown = placeFacility(st, 'shop', facilityRect([4, 4, 0], [7, 6, 0], 0))
-  assert.equal(grown.modules.length, 1, 'a second shop module was created')
+  assert.equal(
+    grown.modules.filter((m) => m.type === 'shop').length,
+    1,
+    'a second shop module was created',
+  )
   const mod = grown.modules[0]
   assert.equal(mod.id, 'shop-1', 'the original room id was not kept')
   assert.deepEqual([mod.x, mod.y, mod.w, mod.h], [2, 2, 6, 5], 'the room did not grow to the union')
@@ -180,14 +188,19 @@ test('dragging a second room over the same type extends the original', () => {
   assert.ok(!has(grown.cells, 5, 4, 1), 'a wall was left inside the extended room')
   // Touching, not overlapping, still starts a separate room.
   const apart = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [5, 4, 0], 0), 'shop-1')
-  assert.equal(placeFacility(apart, 'shop', facilityRect([6, 2, 0], [8, 4, 0], 0)).modules.length, 2)
+  const split = placeFacility(apart, 'shop', facilityRect([6, 2, 0], [8, 4, 0], 0))
+  assert.equal(
+    split.modules.filter((m) => m.type === 'shop').length,
+    2,
+    'touching rooms did not stay separate',
+  )
 })
 
 test('two booths extend into one without adding voxels', () => {
   const st = placeFacility(flatStation(), 'booth', facilityRect([1, 1, 0], [3, 3, 0], 0), 'booth-1')
   const grown = placeFacility(st, 'booth', facilityRect([3, 3, 0], [5, 5, 0], 0))
-  assert.equal(grown.modules.length, 1, 'a second booth module was created')
-  const mod = grown.modules[0]
+  assert.equal(grown.modules.filter((m) => m.type === 'booth').length, 1, 'a second booth module was created')
+  const mod = grown.modules.find((m) => m.type === 'booth')
   assert.equal(mod.id, 'booth-1')
   assert.deepEqual([mod.x, mod.y, mod.w, mod.h], [1, 1, 5, 5])
   assert.ok(!grown.cells.some((c) => c.z > 0), 'a booth extension added voxels')
@@ -212,7 +225,11 @@ test('extending a shop keeps openings on the new perimeter and drops interior on
 test('an extension cannot swallow a room in a bounding-box corner it never touched', () => {
   const a = placeFacility(flatStation(), 'shop', facilityRect([0, 2, 0], [2, 4, 0], 0), 'shop-1')
   const st = placeFacility(a, 'booth', facilityRect([3, 3, 0], [5, 5, 0], 0), 'booth-1')
-  assert.equal(st.modules.length, 2)
+  assert.equal(
+    st.modules.filter((m) => m.type === 'shop' || m.type === 'booth').length,
+    2,
+    'expected one shop and one booth module',
+  )
   // Extending shop-1 (which touches booth-1 nowhere directly) grows its bounding
   // box over booth-1's corner. The clash must refuse the placement.
   const drag = facilityRect([2, 0, 0], [4, 2, 0], 0)
@@ -258,10 +275,11 @@ test('rooms of a different fit-out do not overlap or merge', () => {
 test('two toilets of the same fit-out extend into one room', () => {
   const st = placeFacility(flatStation(), 'toilet', facilityRect([1, 1, 0], [3, 3, 0], 0), 'toilet-1')
   const grown = placeFacility(st, 'toilet', facilityRect([3, 3, 0], [5, 5, 0], 0))
-  assert.equal(grown.modules.length, 1, 'a second toilet module was created')
-  assert.equal(grown.modules[0].id, 'toilet-1')
-  assert.equal(grown.modules[0].cfg.kind, 'toilet')
-  assert.deepEqual([grown.modules[0].w, grown.modules[0].h], [5, 5])
+  assert.equal(grown.modules.filter((m) => m.type === 'shop').length, 1, 'a second toilet module was created')
+  const room = grown.modules.find((m) => m.type === 'shop')
+  assert.equal(room.id, 'toilet-1')
+  assert.equal(room.cfg.kind, 'toilet')
+  assert.deepEqual([room.w, room.h], [5, 5])
 })
 
 test('the demo station ships one shop and one booth that stay connected', () => {

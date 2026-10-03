@@ -273,6 +273,9 @@ button.ghost:hover {
 .folder:nth-of-type(7) {
   --tab-x: 68px;
 }
+.folder:nth-of-type(8) {
+  --tab-x: 78px;
+}
 .folderName {
   font-size: 12px;
 }

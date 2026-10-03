@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore, isEscalatorType, isRotatableType, isStairType } from './store.ts'
+import { useStore, isDecorType, isEscalatorType, isFenceType, isRotatableType, isStairType, isWallMountedType } from './store.ts'
 import { LeftRail } from './LeftRail.tsx'
 import { Viewport } from './Viewport.tsx'
 import { paintZone, zoneAt } from '../build/model.ts'
@@ -459,16 +459,32 @@ export function App(): React.ReactElement {
           <div className="stageHint">
             {tool === 'block'
               ? '地基：单击放一块，按住拖出一片（自动长出 4m 外墙），右键删除'
+              : tool === 'cube'
+                ? '方块：单击放一块，按住拖出一片（不自动长墙），右键删除'
               : tool === 'wall'
                 ? '墙：按住拖出一条 4m 高的墙；右键拖拽整列拆除'
                 : tool === 'delete'
                   ? '删除：单击拆一块，按住拖出一条拆一行（左右键都一样）'
                   : tool === 'module'
-                ? isStairType(moduleType)
+                ? isFenceType(moduleType)
+                  ? '围栏：单击放一块（R 旋转），按住拖出一条（方向跟拖拽走），右键拆掉；连上闸机就能分区'
+                  : isStairType(moduleType)
                   ? '楼梯：点地面放下，能转方向、调宽度，右键拆掉'
                   : isEscalatorType(moduleType)
                     ? '扶梯：点地面放下，能转方向、切上下行，右键拆掉'
-                    : '设备：左边选一种，点地面放下，能转方向，右键拆掉'
+                    : isDecorType(moduleType)
+                      ? moduleType === 'shelf'
+                        ? '货架：点地面放下，能转方向，右键逐个拆掉'
+                        : moduleType === 'desk'
+                          ? '办公桌：点地面放下，能转方向，右键逐个拆掉'
+                          : moduleType === 'cubicle'
+                            ? '厕所隔间：点地面放下，能转方向，右键逐个拆掉'
+                            : moduleType === 'sink'
+                              ? '洗手池：点地面放下，能转方向，右键逐个拆掉'
+                              : isWallMountedType(moduleType)
+                                ? '装饰：点地面贴在墙上（R 转方向让背面朝墙），右键拆掉'
+                                : '座椅：点地面放下，能转方向，右键拆掉'
+                      : '设备：左边选一种，点地面放下，能转方向，右键拆掉'
                 : tool === 'paint'
                   ? '材质：左键刷一格，拖拽刷一片，右键还原，取色能吸'
                   : tool === 'zone'

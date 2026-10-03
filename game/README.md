@@ -73,6 +73,31 @@ protocol, and drawn per consist by `SceneRenderer.setTrains`. The models are pur
 over one shared material kit — no image or GLB assets. Modules are level-aware, so a tall escalator
 or exit ghosts with the floor it belongs to instead of drawing through it.
 
+**The 装饰 folder holds seating, room furniture and wall-mounted advertising.** 座椅 (the bench, moved
+out of 设备), 货架 (the store's shelf unit), 办公桌 (the office desk + monitor + chair unit),
+厕所隔间 (the restroom cubicle) and 洗手池 (the wash basin) are all free-standing, rotatable pieces,
+and 广告牌 and 电视 all live under 装饰 in the build rail. The two advertising pieces are *wall-mounted*:
+`sim/placement.ts`'s `wallMountMissing` refuses them unless the facing neighbour has a solid block at
+its first course (`z + 1`), which is exactly where the 地基 auto-wall ring and the 墙 tool both start —
+so the player must build a wall and use **R** to turn the panel's back to it. `wallSide` turns that
+requirement with the module rotation and the renderer mounts the model on the same local −y face, so
+what the ghost shows is what the click builds. 广告牌 is a nested sub-menu of four formats — 横版 /
+竖版 / 方形 / 大横版 — whose run length (one cell, or two for 大横版) and poster aspect come from the
+shared `sim/billboards.ts` table, so the palette thumbnail, the collision envelope and the drawn
+housing cannot disagree. A multi-cell banner needs a wall behind every cell of its run. Every screen
+cycles three procedural, unlit ad posters on wall time, driven by `SceneRenderer.updateAds`; the
+posters come in wide / square / portrait sets (`render/models.ts`'s `adFramesWide` / `adFramesSquare` /
+`adFramesPortrait`) so a portrait billboard is not a stretched landscape, and the decoration reads as
+"playing ads" even while the sim is paused. Room furniture (shelf / desk / cubicle / sink / bench) may
+stand inside a walled room or booth (`placementBlocked` exempts the furniture ↔ room pair, and
+`moduleAt` prefers the furniture over the room around it). A store stocks one `shelf` module per layout
+spot (`storeShelfSpots`: island rows plus wall runs), an office one `desk` per grid spot
+(`officeDeskSpots`), a restroom one `cubicle` per back-row cell and one `sink` per front-row cell
+(`restroomSpots`), and a booth one `bench` per back-row cell (`boothBenchSpots`), so every auto unit is
+individually right-clickable; bulldozing the room takes its auto (`cfg.auto`) furniture but leaves
+hand-placed pieces, and rooms drawn before this carry a `cfg.stocked` migration
+(`ensureRoomFurniture`, via `toState`) instead of drawn units.
+
 **Rails are equipment: a fixed piece centred on the cursor.** A rail is a `track` module — a car-width
 bed (`d = 3` m) and a run the length of the bound line's consist (`w = ceil(stock length × cars)`) —
 so the whole module is pre-rendered as the placement ghost, centred on the highlighted tile (it grows
@@ -91,7 +116,7 @@ generates one `platform-edge` per contiguous run of walkable exposed floor besid
 platform yields two — the Spanish solution), each bound to the rail's line and direction and carrying
 the rail's rotation. Every derived edge records which side the track lies on (`cfg.side`, read from the
 screen's own frame), and the renderer, the auto-derive and `World.computeLineAnchors` share that one
-meaning, so the printed header always faces the platform, never the rail. Editing a line's 车型/编组 re-cuts its tracks to the new run length. The 轨道 folder has
+meaning, so the printed header always faces the platform, never the rail. Editing a line's 车型/编组 re-cuts its tracks to the new run length. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails, 接触网 draws an overhead contact wire hung from a ceiling — a canopy the model raises over a platform, or the bore's shell in a tunnel — kept under the 4 m storey line so it never buries in the floor above (and, unlike a mast, it cannot foul the screen doors of an island platform). Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
 two tools, both gated by one eligibility check (`trackBlockReason`): anything already sharing the run's
 space — equipment, a room, a screen door, a ramp, another rail/tunnel — blocks placement rather than
 being demolished, and the preview flags it red. **站台** is the fixed consist-length piece above; it must
@@ -189,6 +214,18 @@ re-tagged. A hole dug through the middle stays open rather than getting boarded 
 and stacked blocks stay plain, and the drag's live ghost shows the wall ring before release. See
 `test/walls.test.mjs`.
 
+**Fences divide areas with gates.** The 设备 folder's 围栏 (§5.2) is a 1 m high, very thin
+metal frame around a glass panel standing through the middle of its block. A single click drops
+one panel turned with **R**; press-and-drag lays a straight run like the 墙 tool with the panels
+following the drag direction, and right-drag lifts the run back out. The run previews as real
+translucent fence models while you drag. Every panel is built from its neighbours
+(`sim/fences.ts`), so a straight run is continuous, a dead end caps itself with an end post, and
+an L, T or + junction turns through the shared centre post with no overhang — dragging a new
+segment up to an existing end regenerates that end on the spot, dropping its old cap and post.
+A run plugs straight into a 闸机 row. The sim treats a fence cell as not walkable, so the run
+plus its gates is a barrier the crowd only crosses at a gate — paint different zones each side
+and the fare line holds. See `test/fence.test.mjs`.
+
 `test/` holds the acceptance tests. Run them with `npm test`:
 
 * `determinism.test.mjs` — same seed + tick ⇒ byte-identical positions, and no unseeded
@@ -213,7 +250,10 @@ and stacked blocks stay plain, and the drag's live ghost shows the wall ring bef
   share space (a gate line in adjacent cells is fine, a module on the storey above is not a
   conflict), a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
   cell it covers, `removeModule` bulldozes exactly one module and leaves its block, and the block
-  brush refuses a cell reserved by a ramp opening or an exit's floor (`reservedOpening`).
+  brush refuses a cell reserved by a ramp opening or an exit's floor (`reservedOpening`). The
+  装饰 广告牌 / 电视 are wall-mounted: `wallMountMissing` refuses them without a solid wall block
+  at the facing neighbour's first course, and `wallSide` turns that requirement with the module's
+  rotation.
 * `openings.test.mjs` — a placed ramp carves the slab it climbs through but keeps its landings as
   graph nodes, the carve clears the blocks the balustrade and handrail sweep either side of the
   run (not just the tread width), and every cell the carve opens reads as reserved so a hand-built
@@ -236,7 +276,8 @@ and stacked blocks stay plain, and the drag's live ghost shows the wall ring bef
   regeneration is idempotent and follows the current floor; the dug bed blocks equipment and reads
   as track by either rule; a piece is sized from the line (a car-width bed, the train length), centred
   on the highlighted cell, and a quarter-turned track digs a north–south bed, derives north–south
-  screen doors and runs its train in y with a matching yaw; a tunnel auto-extends a rail off its free
+  screen doors and runs its train in y with a matching yaw; a 供电 switch (`setLinePower`) re-cuts every
+  track bound to the line — platform and tunnel — and leaves other lines untouched; a tunnel auto-extends a rail off its free
   end, clears the wall it pokes through and raises its own side walls and ceiling without spawning
   doors; a platform needs its whole bed on solid floor and refuses a wall in its headroom; either one
   is blocked by any existing equipment, room, screen door or track; re-cutting a line's consist resizes
@@ -252,6 +293,31 @@ and stacked blocks stay plain, and the drag's live ghost shows the wall ring bef
   wall goes, the new edge is walled) while a hand-placed wall survives, digging an edge moves the
   ring and a hole through the middle stays open, and 墙 lays tagged four-course columns that a
   right-click or right-drag lifts whole.
+* `fence.test.mjs` — the 围栏 (§5.2): a 1 m high thin panel through the block middle (R turns a
+  single, a drag lays a run along the drag direction); a dragged run plugs into a gate row, the
+  fence cell is not a walkable node so the run plus its gates is a barrier the crowd only crosses
+  at a gate, and `fenceArms` builds every joint from the neighbours — a lone panel caps both ends,
+  a run end caps its free side, and an L / T / + turns through the centre with no overhang or cap.
+* `storey.test.mjs` — the renderer's storey bands key every cell to the fixed 4 m grid line at or
+  below it (`storeyBand`), so a floor and its 4 m auto walls share a storey while a second floor one
+  storey down stays its own; a lower floor's wall reaching the floor above must not merge the two
+  floors into one band.
+* `shelf.test.mjs` — the 货架 (§5.7): the factory builds it with the hover rotation, it may stand
+  inside a walled room or booth (either side of the shelf ↔ room pair, while shelves still collide
+  with each other and other equipment does not enter rooms), `moduleAt` prefers the furniture over
+  the room around it, placing a store stocks one auto shelf per layout spot, each shelf deletes on
+  its own while bulldozing the room keeps hand-placed ones, merges never stack two units on a cell,
+  legacy rooms migrate once on load (a cleared `cfg.bare` room stays empty), and everything
+  round-trips the save.
+* `desk.test.mjs` — the 办公桌 (§5.7), same model as shelves: the factory builds it with the hover
+  rotation, it may stand inside a walled room, `moduleAt` prefers it over the room, placing an
+  office stocks one auto desk per grid spot, each desk deletes on its own while bulldozing keeps
+  hand-placed ones, legacy offices migrate once, and everything round-trips the save.
+* `restroom.test.mjs` — 厕所 fixtures and the 售票亭 staff seats (§5.7): cubicles and sinks build
+  with the hover rotation and stand inside a walled room, placing a restroom stocks cubicles on the
+  back row and sinks on the front (a door cell gets none) and a booth one bench per back-row cell,
+  each unit deletes on its own while bulldozing keeps hand-placed ones and drops auto ones, legacy
+  rooms migrate once, and everything round-trips the save.
 
 ## The simulation's time base
 
@@ -286,12 +352,14 @@ comment there explains the trade.
 * **One line.** Transfers therefore resolve to an exit; §7.5 is not exercised.
 * **No named levels.** GAME-SPEC §4.3 defines a `levels` list of
   `{ id, z, kind, height }` bands. The game dropped it: the street is simply `z = 0`
-  (`GROUND_Z`), and the renderer derives each storey from the built geometry — one
-  contiguous vertical run of cells per column, keyed by the run's lowest z. A floor
-  slab and the walls on it share a storey; a plate with nothing below it stays on
-  screen when the active level drops beneath it. A new station can therefore be dug
-  below 0 immediately, with no B1/B2 declaration, and the save no longer carries a
-  `levels` field (old saves load with it ignored).
+  (`GROUND_Z`), and the renderer derives each storey from the fixed 4 m editing grid
+  (`LEVEL_STEPS` in `sim/constants.ts`) — every solid cell belongs to the grid line at or
+  below it (`storeyBand`). A floor slab and the 4 m walls on it share a storey; a second
+  floor one storey down keeps its own, even when the lower floor's wall column reaches the
+  floor above, so two stacked floors never merge into a single band. A plate with nothing
+  below it stays on screen when the active level drops beneath it. A new station can
+  therefore be dug below 0 immediately, with no B1/B2 declaration, and the save no longer
+  carries a `levels` field (old saves load with it ignored).
 
 ## Measured
 
