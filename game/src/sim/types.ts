@@ -64,6 +64,14 @@ export interface Vec3i {
   z: number
 }
 
+/**
+ * Number of escalator/stair bays an exit head-house opens (出入口 §5.6): one
+ * (单向), two (双向, the reference head-house) or three (三向). The bays sit at
+ * fixed local x offsets (`exitBayOffsets`), and the floor, walls and model all
+ * widen to match, so the drawn openings and the sim barrier agree.
+ */
+export type ExitBays = 1 | 2 | 3
+
 export interface ExitCfg {
   name: string
   /** Street → station demand, pax/hour at peak. Outflow is unlimited: an exit
@@ -77,6 +85,15 @@ export interface ExitCfg {
    * portal (small test stations). Default `true`.
    */
   headHouse?: boolean
+  /**
+   * Whether the head-house has a canopy and walls. `true`/absent is the covered
+   * portal (有盖); `false` is the open exit (无盖) that drops the walls and roof
+   * for a railing round the pit. The railing is still a sim barrier, so only the
+   * look changes.
+   */
+  covered?: boolean
+  /** How many bays the head-house opens: 1, 2 (default) or 3. */
+  bays?: ExitBays
 }
 
 export interface ModuleBase {
@@ -104,6 +121,14 @@ export type BillboardVariant = 'wide' | 'portrait' | 'square' | 'large'
 
 /** The poster aspect set a billboard variant draws from (`sim/billboards.ts`). */
 export type BillboardAspect = 'wide' | 'square' | 'portrait'
+
+/**
+ * A bench's variant (装饰 座椅, §5.7). Two families — a plain stainless bench
+ * with no back and an upholstered seat with a back and arm rests that chains
+ * into a row — each in a 1 m and a 2 m width, so one 座椅 tool offers four
+ * pieces (`sim/benches.ts`).
+ */
+export type BenchVariant = 'steel-1' | 'steel-2' | 'seat-1' | 'seat-2'
 
 /**
  * A staircase's plan shape (§5.1). A stair always climbs exactly one storey;
@@ -142,7 +167,23 @@ export type Module =
     })
   | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: Record<string, never> })
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
-  | (ModuleBase & { type: 'bench'; cfg: { auto?: boolean } })
+  /**
+   * A drinks vending machine (自动贩卖机): the same 1 × 1 m equipment footprint
+   * and stop behaviour as a TVM, with a different cabinet — a glass display of
+   * drinks beside a face-pay control strip. A distinct type so the renderer can
+   * draw it and the label reads 自动贩卖机.
+   */
+  | (ModuleBase & { type: 'vending'; cfg: Record<string, never> })
+  /**
+   * A bench (座椅, 装饰): the platform bench as a free-standing piece. `cfg.variant`
+   * picks the look and width — a plain stainless bench with no back or an
+   * upholstered seat with a back and arm rests, each 1 m or 2 m wide
+   * (`sim/benches.ts`). `w` is the run length in cells along local +x, kept on the
+   * module so the collision envelope and the drawn run cannot disagree; a legacy
+   * bench with neither field is the 1 m stainless piece. `cfg.auto` marks a staff
+   * bench the room builder laid out itself.
+   */
+  | (ModuleBase & { type: 'bench'; w?: number; cfg: { auto?: boolean; variant?: BenchVariant } })
   /**
    * A goods shelf (货架, 装饰): the same unit the 商店 fit-out stocks along its
    * island rows and wall runs (§5.7), as a free-standing floor piece. It turns
@@ -172,15 +213,27 @@ export type Module =
    */
   | (ModuleBase & { type: 'sink'; cfg: { auto?: boolean } })
   /**
-   * Wall-mounted decoration (装饰): a lightbox advertisement (广告牌) and a
-   * screen playing ads (电视). Both are fixed to the wall block behind them —
-   * the placement rotation names which face — so they may only be dropped on a
-   * floor cell with a solid block at the first course of the facing neighbour.
-   * A billboard runs `w` cells along its local +x and picks its poster aspect
-   * from `cfg.variant` (`sim/billboards.ts`).
+   * Wall-mounted decoration (装饰): a lightbox advertisement (广告牌). It is fixed
+   * to the wall block behind it — the placement rotation names which face — so it
+   * may only be dropped on a floor cell with a solid block at the first course of
+   * the facing neighbour. It runs `w` cells along its local +x and picks its
+   * poster aspect from `cfg.variant` (`sim/billboards.ts`).
    */
   | (ModuleBase & { type: 'billboard'; w: number; cfg: { variant: BillboardVariant } })
+  /**
+   * An advertising screen (电视, 装饰): a screen playing ads, hung by rods from
+   * the storey ceiling like the 指示牌 and readable from both faces, so it is
+   * ceiling-mounted (`ceilingMountMissing`), not fixed to a wall.
+   */
   | (ModuleBase & { type: 'tv'; cfg: Record<string, never> })
+  /**
+   * An overhead wayfinding sign (指示牌, 装饰): a lit directional board hung by
+   * rods from the storey ceiling, readable from both faces. It is not
+   * wall-mounted — `ceilingMountMissing` (`sim/placement.ts`) refuses it unless a
+   * solid slab sits one storey up (`z + 4`, the fixed `LEVEL_STEPS` grid), which
+   * is the ceiling the rods bolt to.
+   */
+  | (ModuleBase & { type: 'sign'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom'; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]>; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket'; door?: Array<[number, number]>; stocked?: boolean } })
@@ -193,6 +246,13 @@ export type Module =
         line: string
         dir: LineDirection
         side: 'left' | 'right'
+        /**
+         * 屏蔽门 height copied from the bound line when the edge is derived: a
+         * full-height screen fills the storey, a half-height (半高) one stops at
+         * 1.5 m. Read by the renderer and the collision envelope alike, so the
+         * screen cannot look tall but collide short.
+         */
+        psd?: PsdHeight
         /** The track module this edge was auto-derived from, for regeneration. */
         from?: string
       }
@@ -216,6 +276,14 @@ export type ModuleType = Module['type']
  */
 export type LineDirection = 'up' | 'down'
 
+/**
+ * Platform screen door (屏蔽门) height, a per-line option. `full` is the
+ * full-height screen that fills the storey with a printed header band on top;
+ * `half` is the 1.5 m half-height screen (半高), whose line header moves onto
+ * the glass as stickers. Absent means `full`, so old saves keep their screens.
+ */
+export type PsdHeight = 'full' | 'half'
+
 export interface LineDef {
   id: string
   name: string
@@ -223,6 +291,8 @@ export interface LineDef {
   stock: 'A' | 'B' | 'C'
   cars: number
   power: 'third-rail' | 'catenary'
+  /** 屏蔽门 全高 / 半高. Defaults to `full` when unset. */
+  psd?: PsdHeight
   headwayProfile: { peak: number; offpeak: number; late: number }
   /** Passengers dumped onto the platform per train arrival (the demo slider). */
   alightPerTrain: number

@@ -135,11 +135,15 @@ build/ →  sim/            (and neither render/ nor app/)
   (adjacent cells are fine), except that a stair/escalator may pass through an
   exit head-house and room furniture (a shelf / desk / cubicle / sink / bench)
   may stand inside a walled room or booth (`moduleAt` then answers with the
-  furniture, not the room). A billboard or TV is *wall-mounted*:
-  `wallMountMissing` refuses it unless the facing neighbour — turned by the
-  placement rotation via `wallSide` — has a solid block at its first course
-  (`z + 1`, exactly where auto walls and the 墙 tool start), and a two-cell
-  banner needs a wall behind every cell of its run (`billboardCells`).
+  furniture, not the room). A 广告牌 is *wall-mounted*: `wallMountMissing`
+  refuses it unless the facing neighbour — turned by the placement rotation via
+  `wallSide` — has a solid block at its first course (`z + 1`, exactly where auto
+  walls and the 墙 tool start), and a two-cell banner needs a wall behind every
+  cell of its run (`billboardCells`). The 指示牌 and 电视 are instead
+  *ceiling-hung*: `ceilingMountMissing` refuses them unless a solid slab sits one
+  storey up (`LEVEL_STEPS`, the 4 m grid), the ceiling their rods bolt to. A 2 m
+  bench is a real two-cell run — `benchCells` fixes its collision envelope and
+  base cells, so it blocks and is found from both cells.
   `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp climbs through
   while keeping its landings as graph nodes.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
@@ -183,7 +187,11 @@ build/ →  sim/            (and neither render/ nor app/)
   and the section fold open/closed. `LineDef.upTerminus` / `downTerminus` are the
   per-direction destinations, and every platform screen prints the bound line's
   terminus for its own `cfg.dir` (falling back to 上行/下行), so an up platform
-  points where the up track runs.
+  points where the up track runs. Each line also chooses its 屏蔽门 height
+  (`cfg.psd`, 全高 by default): `full` reserves the whole storey with the header
+  on a top band, `half` is a 1.5 m screen with the header on the glass; switching
+  re-derives every edge on the line (`regenerateRailEdges`), so the model and the
+  collision envelope agree (`PSD_FULL_HEIGHT` / `PSD_HALF_HEIGHT`).
 
 ### Rendering and the app
 
@@ -204,15 +212,26 @@ build/ →  sim/            (and neither render/ nor app/)
   carries `cfg.stocked` and old saves migrate once via `ensureRoomFurniture` in
   `toState`. Deleting a room takes its `cfg.auto` furniture but leaves
   hand-placed pieces.
-* The **装饰 folder** holds the free-standing, rotatable pieces — 座椅 (the
-  bench, moved out of 设备), 货架, 办公桌, 厕所隔间 and 洗手池 — plus the
-  *wall-mounted* 广告牌 and 电视. A 广告牌 is a nested sub-menu of four formats
-  (横版 / 竖版 / 方形 / 大横版) whose run length and poster aspect come from the
-  shared `sim/billboards.ts` table, so the thumbnail, the collision envelope and
-  the drawn housing cannot disagree; every screen cycles three procedural, unlit
-  ad posters on wall time (`SceneRenderer.updateAds`), one poster set per aspect
-  so a portrait banner is not a stretched landscape. Wall-mounted pieces must
-  bolt to a wall (see `wallMountMissing`), so **R** turns the panel's back to it.
+* The **装饰 folder** holds the free-standing, rotatable pieces — 座椅, 货架,
+  办公桌, 厕所隔间 and 洗手池 — plus 广告牌 (wall-mounted) and 电视 / 指示牌
+  (ceiling-hung). 座椅 is a nested sub-menu of four variants from `sim/benches.ts`:
+  a plain stainless bench with no back and an upholstered seat with a back and
+  arm rests, each 1 m or 2 m; the 2 m piece is a real two-cell run. 货架 draws a
+  stocked supermarket gondola (perforated back panel, five shelves, price rails,
+  instanced goods). 广告牌 is a nested sub-menu of four formats (横版 / 竖版 /
+  方形 / 大横版) whose run length and poster aspect come from the shared
+  `sim/billboards.ts` table, so the thumbnail, the collision envelope and the
+  drawn housing cannot disagree. 电视 and 指示牌 hang by rods from the ceiling and
+  print a lit double-sided face, so both read from either side; 电视 cycles the
+  shared ad posters while 指示牌 shows a static wayfinding board. Every ad screen
+  cycles three procedural, unlit posters on wall time (`SceneRenderer.updateAds`),
+  one poster set per aspect so a portrait banner is not a stretched landscape.
+  Wall-mounted pieces must bolt to a wall (see `wallMountMissing`), so **R**
+  turns the panel's back to it.
+* A **售票机 and 自动贩卖机** are the two machine types (`tvm` / `vending`): a
+  ticket machine and a drinks machine with the same 1 × 1 m footprint. Both are
+  unpaid-zone `stop` servers at `TVM_RATE`, and a quarter of street entries
+  (`sampleTripFromStreet`) route through one of the unpaid-zone machines.
 * The **地基 tool** has a **自动生成墙壁** toggle (on by default): on, a deliberate drag grows the
   `auto-wall` ring and tags the floor; off, the same click / drag lays untagged bare blocks with no
   ring. There is no separate 方块 tool any more.
@@ -236,7 +255,22 @@ build/ →  sim/            (and neither render/ nor app/)
   street header reprints it), demand and open toggle. The card is the RHS half of
   one selection link — clicking or focusing a control selects the exit, and
   clicking the exit in 3D selects it — so `SceneRenderer.setSelection` draws a box
-  around the model and the card gets `.sel`.
+  around the model and the card gets `.sel`. A click tests the drawn meshes
+  (`SceneRenderer.pickModule`) before the collision envelope, so a large
+  head-house is selected (or deleted) by any visible part of its model; the 删除
+  tool highlights the whole piece red instead of only the block beneath it. A
+  fresh exit letters itself for the first free A ~ Z (`nextExitName`), so a new
+  one reads `A口` / `B口` / … and a delete frees its letter.
+* **Exits come in six variants** (`sim/exits.ts`): 有盖 / 无盖 × 单向 / 双向 /
+  三向. `cfg.bays` (1, 2 or 3) sets how many runs the head-house opens — one bay
+  at local x = 0, two at ±1, three at −2/0/+2 — and `exitWidth` widens the floor,
+  frame and glass to 3.0 / 3.8 / 5.8 m. `cfg.covered: false` drops the canopy and
+  walls for a glass railing, but `exitWallPlanes` returns the same barriers, so
+  only the look changes; `models.ts` draws the covered piece as a red steel portal
+  frame under a blue waved roof. `exitRunSnap` snaps a straight stair/escalator
+  dropped inside a head-house into the nearest bay: its upper landing on the
+  street, its base one storey down toward the mouth, so the pointer positions the
+  run on the floor the exit opens onto. Turning stairs are left un-snapped.
 * **View toggles and the bottom bar.** Auto ceiling hiding is always on: a storey
   above the active one keeps only plates with nothing under them, so a room never
   wears its own ceiling. **显示其他层** (`ghostOtherLevels`, now default off) then
@@ -251,8 +285,9 @@ build/ →  sim/            (and neither render/ nor app/)
   stays open. A single click stays a plain block. While previewing, a badge pinned
   to the pointer reads the patch's live 长 × 宽 in metres (`Viewport.tsx`
   `buildMeasure`). The 墙 tool lays tagged
-  four-course columns a right-click lifts whole, and 删除 is button-agnostic
-  single-block / line removal. A **reserved opening** — the corridor a ramp
+  four-course columns a right-click lifts whole, and 删除 is button-agnostic: it
+  lifts a whole module under the pointer (through its own teardown for a rail or
+  room), else a single block or a dragged line. A **reserved opening** — the corridor a ramp
   carves or an exit's floor (`reservedOpening` in `sim/placement.ts`) — refuses a
   hand-built cell, so the block brush cannot seal a run the player can see
   through.
@@ -308,14 +343,20 @@ build/ →  sim/            (and neither render/ nor app/)
   patch drops the buried wall, and a hole dug through a patch stays open.
   `reservedOpening` (`sim/placement.ts`) also refuses a hand-built block in a
   ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (default on) instead of a separate 方块 tool.
-* The **装饰 kit** has landed (`sim/billboards.ts`, `sim/placement.ts`,
-  `render/models.ts`, `game/test/shelf|desk|restroom.test.mjs`): 座椅 / 货架 /
-  办公桌 / 厕所隔间 / 洗手池 are free-standing, rotatable `bench`/`shelf`/`desk`/
+* The **装饰 kit** has landed (`sim/billboards.ts`, `sim/benches.ts`,
+  `sim/placement.ts`, `render/models.ts`,
+  `game/test/shelf|desk|restroom|bench|sign.test.mjs`): 座椅 / 货架 / 办公桌 /
+  厕所隔间 / 洗手池 are free-standing, rotatable `bench`/`shelf`/`desk`/
   `cubicle`/`sink` modules, a walled room stocks one per layout spot (migrated
   once from the old drawn interior by `ensureRoomFurniture`, guarded by
-  `cfg.stocked`), and 广告牌 / 电视 are wall-mounted (`wallMountMissing`) with the
-  four billboard formats sharing `sim/billboards.ts`. The 设备 folder's 货架 /
-  座椅 moved out to a new 装饰 folder in the build rail.
+  `cfg.stocked`; each store wall unit backs its panel onto its own wall).
+  座椅 offers four variants from `sim/benches.ts` (stainless / backed × 1 m / 2 m),
+  the 2 m run spanning two cells; 货架 draws a stocked supermarket gondola. 广告牌
+  is wall-mounted (`wallMountMissing`) with the four formats sharing
+  `sim/billboards.ts`; 电视 and the new 指示牌 are *ceiling-hung*
+  (`ceilingMountMissing`, lit double-sided). The 设备 folder's 货架 / 座椅 moved
+  out to a new 装饰 folder, and 楼梯 / 出入口 / 座椅 / 广告牌 are nested variant
+  sub-menus.
 * The **围栏 kit** has landed (`sim/fences.ts`, `sim/station.ts`,
   `render/models.ts`, `app/Viewport.tsx`, `game/test/fence.test.mjs`): a fence run
   is dragged out like a wall, its cell is not a walkable graph node, and the
@@ -336,6 +377,20 @@ build/ →  sim/            (and neither render/ nor app/)
   出入口 / 线路), each exit is an editable, selectable card linked to a 3D
   highlight box (`SceneRenderer.setSelection`), and the view gained a 隐藏墙壁
   toggle with 显示其他层 now defaulting off (auto ceiling hiding is always on).
+* The **exit kit** has landed (`sim/exits.ts`, `sim/placement.ts`,
+  `render/models.ts`, `app/Viewport.tsx`, `game/test/exits.test.mjs`): 出入口 is a
+  nested sub-menu of six variants (有盖 / 无盖 × 单向 / 双向 / 三向). `cfg.bays`
+  widens the floor/frame/glass to 3.0 / 3.8 / 5.8 m, `cfg.covered: false` trades
+  the red-framed, blue-roofed canopy for a glass railing over the same barriers,
+  a straight ramp dropped inside snaps into the nearest bay (`exitRunSnap`), and a
+  fresh exit names itself `A口` … (`nextExitName`). The 3D view selects and deletes
+  by drawn mesh (`SceneRenderer.pickModule`), so the whole head-house is hit, not
+  just its reserved cells.
+* The **屏蔽门 and 自动贩卖机** work landed with it: each line chooses 全高 (default)
+  or 半高 屏蔽门 (`cfg.psd`), which re-derives its edges and shrinks the screen's
+  collision envelope from 3.1 m to 1.5 m; and 自动贩卖机 (`vending`) is a
+  TVM-footprint drinks machine that is the same unpaid-zone `stop` at `TVM_RATE`,
+  sharing the ticket/vending detour on a street entry.
 * `PLAN.md` was deleted, but `README.md`, `GAME-SPEC.md` and many source
   comments still reference it. Treat those references as historical.
 * The crowd micro-benchmark (`game/bench/crowd.mjs`,

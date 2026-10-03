@@ -431,7 +431,8 @@ exit = {
 }
 ```
 
-* Defaults: new exit `未命名口`, 600/600 pax/h. Rates clamp to 0–6000/h in steps of 10.
+* Defaults: a new exit is named for the next free letter `A口`–`Z口` (the placeholder
+  `未命名口` returns once all 26 are taken), 600/600 pax/h. Rates clamp to 0–6000/h in steps of 10.
 * **Throughput readout.** The inspector shows configured (`设定`) vs actual (`实际`, rolling
   5-min mean from the sim) in/out side by side; the §8.1 exit chart plots both series per
   exit, so an exit that cannot discharge its demand is visible as a gap between the lines.
@@ -1221,7 +1222,7 @@ module is selected; the bottom-rail exit list jumps here on click.
 
 | Widget (中文) | Range / step | Default | Sim effect |
 |---|---|---|---|
-| 名称 | 1–8 chars | 未命名口 | signage, minimap, charts |
+| 名称 | 1–8 chars | next free `A口`–`Z口` (`未命名口` when all 26 taken) | signage, minimap, charts |
 | 进站 `人/小时` slider + number | 0–6000, step 10 | 600 | `inRate` in `λ_exit(t)`; 0 = entry closed |
 | 出站 `人/小时` slider + number | 0–6000, step 10 | 600 | `outRate`, destination weight; 0 = exit closed |
 | 开关 | 开 / 关 | 开 | closed forces both rates 0 but remembers values |

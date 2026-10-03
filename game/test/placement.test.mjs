@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallSide } from '../src/sim/placement.ts'
-import { addCells, createModule, GROUND_Z, nextModuleId, removeModule, toState } from '../src/build/model.ts'
+import { addCells, createModule, GROUND_Z, nextExitName, nextModuleId, removeModule, toState } from '../src/build/model.ts'
 
 const gate = (x, y, z, id = 'gate') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })
 const tvm = (x, y, z, id = 'tvm') => ({ id, type: 'tvm', x, y, z, cfg: {} })
@@ -94,7 +94,6 @@ test('the placement factory carries the hover rotation into the placed module', 
 /* ------------------------------------------------ wall-mounted decoration */
 
 const billboard = (x, y, z, rot = 0, id = 'bb') => ({ id, type: 'billboard', x, y, z, rot, w: 1, cfg: { variant: 'wide' } })
-const tv = (x, y, z, rot = 0, id = 'tv') => ({ id, type: 'tv', x, y, z, rot, cfg: {} })
 
 test('wallSide turns the mount direction with the module rotation', () => {
   assert.deepEqual(wallSide(0), [0, -1])
@@ -117,8 +116,8 @@ test('a wall-mounted ad needs a solid wall block behind it', () => {
 test('rotating a wall-mounted ad moves the wall it needs', () => {
   const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
   const wallEast = [...floor, { x: 1, y: 0, z: 1, fill: 'solid' }]
-  assert.equal(wallMountMissing(wallEast, tv(0, 0, 0, 0)), true)
-  assert.equal(wallMountMissing(wallEast, tv(0, 0, 0, 1)), false)
+  assert.equal(wallMountMissing(wallEast, billboard(0, 0, 0, 0)), true)
+  assert.equal(wallMountMissing(wallEast, billboard(0, 0, 0, 1)), false)
 })
 
 test('a billboard factory names the variant and its run length', () => {
@@ -174,6 +173,30 @@ test('a fresh id is never one already in use', () => {
   const id = nextModuleId([state.modules[1]], 'gate')
   assert.notEqual(id, 'gate-2')
   assert.equal([state.modules[1]].some((m) => m.id === id), false)
+})
+
+test('a new exit letters itself A ~ Z and reuses a freed letter', () => {
+  // An empty station's first exit is A口, the next B口, and so on.
+  assert.equal(nextExitName([]), 'A口')
+  const a = exit(0, 0, 0, 'exit-1')
+  assert.equal(nextExitName([a]), 'B口')
+  const b = { ...exit(1, 0, 0, 'exit-2'), cfg: { name: 'B口', inRate: 900, open: true } }
+  assert.equal(nextExitName([a, b]), 'C口')
+  // A rename that does not start A ~ Z does not claim a letter.
+  const renamed = { ...a, cfg: { name: '北广场', inRate: 900, open: true } }
+  assert.equal(nextExitName([renamed]), 'A口')
+  // Editing A口 away frees A for the next piece.
+  assert.equal(nextExitName([b]), 'A口')
+  // Only exits count: other equipment never claims a letter.
+  assert.equal(nextExitName([gate(0, 0, 0, 'g')]), 'A口')
+})
+
+test('the placeholder returns once all 26 letters are taken', () => {
+  const mods = Array.from({ length: 26 }, (_, i) => ({
+    ...exit(i, 0, 0, `exit-${i}`),
+    cfg: { name: `${String.fromCharCode(65 + i)}口`, inRate: 900, open: true },
+  }))
+  assert.equal(nextExitName(mods), '未命名口')
 })
 
 /* ------------------------------------------------------- rail track beds */

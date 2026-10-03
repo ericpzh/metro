@@ -357,6 +357,7 @@ export function referenceStation(variant: StationVariant = {}): StationData {
       stock: 'B',
       cars: 6,
       power: 'third-rail',
+      psd: 'full',
       headwayProfile: { peak: 150, offpeak: 240, late: 480 },
       alightPerTrain: 200,
       terminus: 'through',

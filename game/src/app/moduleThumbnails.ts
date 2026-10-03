@@ -19,7 +19,8 @@ import { createMaterials } from '../render/materials.ts'
 import { liftModule } from '../sim/lifts.ts'
 import { stairFlightsFor, type StairStyle } from '../sim/stairs.ts'
 import { BILLBOARD_SPECS } from '../sim/billboards.ts'
-import type { BillboardVariant, Module, StationData, Vec3i } from '../sim/types.ts'
+import { benchSpec } from '../sim/benches.ts'
+import type { BenchVariant, BillboardVariant, ExitBays, Module, StationData, Vec3i } from '../sim/types.ts'
 import { MODULE_OPTIONS } from './store.ts'
 
 /** The isometric direction the game opens on (`SceneRenderer.setPreset('iso')`). */
@@ -34,6 +35,12 @@ function viewDir(id: string): THREE.Vector3 {
   // Wall-mounted decor faces +y, so its thumbnail looks at the lit front — for
   // every billboard format (`billboard-wide`, `-portrait`, `-square`, `-large`).
   if (id === 'tv' || id === 'billboard' || id.startsWith('billboard-')) return FRONT
+  // The 指示牌 is a double-sided board; look straight at its printed face.
+  if (id === 'sign') return FRONT
+  // A backed seat reads best from the front (its cushions and arms), but the
+  // backless stainless bench has nothing to hide and looks best on the lit
+  // isometric angle.
+  if (id.startsWith('bench-seat')) return FRONT
   return id === 'escalator' || id.startsWith('stair') ? RUN : ISO
 }
 
@@ -68,6 +75,7 @@ function syntheticStation(): StationData {
         stock: 'B',
         cars: 6,
         power: 'third-rail',
+        psd: 'full',
         headwayProfile: { peak: 150, offpeak: 240, late: 480 },
         alightPerTrain: 420,
         terminus: 'through',
@@ -90,8 +98,17 @@ function sampleModule(id: string): Module | null {
       return { id, type: 'fence', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'tvm':
       return { id, type: 'tvm', x: 0, y: 0, z: 0, cfg: {} }
+    case 'vending':
+      return { id, type: 'vending', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'bench':
-      return { id, type: 'bench', x: 0, y: 0, z: 0, cfg: {} }
+    case 'bench-steel-1':
+    case 'bench-steel-2':
+    case 'bench-seat-1':
+    case 'bench-seat-2': {
+      const variant: BenchVariant = id === 'bench' ? 'steel-1' : (id.slice('bench-'.length) as BenchVariant)
+      const spec = benchSpec(variant)
+      return { id, type: 'bench', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant } }
+    }
     case 'shelf':
       return { id, type: 'shelf', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'desk':
@@ -110,8 +127,21 @@ function sampleModule(id: string): Module | null {
     }
     case 'tv':
       return { id, type: 'tv', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'sign':
+      return { id, type: 'sign', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'exit':
-      return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'C口', inRate: 900, open: true } }
+    case 'exit-covered-1':
+    case 'exit-covered-2':
+    case 'exit-covered-3':
+    case 'exit-uncovered-1':
+    case 'exit-uncovered-2':
+    case 'exit-uncovered-3': {
+      const parts = id.split('-')
+      const covered = parts[1] !== 'uncovered'
+      const n = Number(parts[2])
+      const bays: ExitBays = n === 1 || n === 3 ? n : 2
+      return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'C口', inRate: 900, open: true, covered, bays } }
+    }
     case 'escalator':
       return { id, type: 'escalator', x: 0, y: 0, z: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 6, z: 4 }, cfg: { dir: 'up' } }
     case 'lift':

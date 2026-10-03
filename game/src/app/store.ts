@@ -30,7 +30,11 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'gate', label: '闸机', type: 'gate', w: 1, h: 1 },
   { id: 'fence', label: '围栏', type: 'fence', w: 1, h: 1 },
   { id: 'tvm', label: '售票机', type: 'tvm', w: 1, h: 1 },
-  { id: 'bench', label: '座椅', type: 'bench', w: 1, h: 1 },
+  { id: 'vending', label: '自动贩卖机', type: 'vending', w: 1, h: 1 },
+  { id: 'bench-steel-1', label: '不锈钢 1m', type: 'bench', w: 1, h: 1 },
+  { id: 'bench-steel-2', label: '不锈钢 2m', type: 'bench', w: 2, h: 1 },
+  { id: 'bench-seat-1', label: '靠背 1m', type: 'bench', w: 1, h: 1 },
+  { id: 'bench-seat-2', label: '连排 2m', type: 'bench', w: 2, h: 1 },
   { id: 'shelf', label: '货架', type: 'shelf', w: 1, h: 1 },
   { id: 'desk', label: '办公桌', type: 'desk', w: 1, h: 1 },
   { id: 'cubicle', label: '厕所隔间', type: 'cubicle', w: 1, h: 1 },
@@ -40,7 +44,13 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'billboard-square', label: '方形', type: 'billboard', w: 1, h: 1 },
   { id: 'billboard-large', label: '大横版', type: 'billboard', w: 2, h: 1 },
   { id: 'tv', label: '电视', type: 'tv', w: 1, h: 1 },
-  { id: 'exit', label: '出入口', type: 'exit', w: 1, h: 1 },
+  { id: 'sign', label: '指示牌', type: 'sign', w: 1, h: 1 },
+  { id: 'exit-covered-1', label: '有盖 单向', type: 'exit', w: 1, h: 1 },
+  { id: 'exit', label: '有盖 双向', type: 'exit', w: 1, h: 1 },
+  { id: 'exit-covered-3', label: '有盖 三向', type: 'exit', w: 1, h: 1 },
+  { id: 'exit-uncovered-1', label: '无盖 单向', type: 'exit', w: 1, h: 1 },
+  { id: 'exit-uncovered-2', label: '无盖 双向', type: 'exit', w: 1, h: 1 },
+  { id: 'exit-uncovered-3', label: '无盖 三向', type: 'exit', w: 1, h: 1 },
   { id: 'escalator', label: '扶梯', type: 'escalator', w: 1, h: 1 },
   { id: 'lift', label: '电梯', type: 'lift', w: 1, h: 1 },
   { id: 'stair-straight', label: '单跑楼梯', type: 'stair', w: 1, h: 1 },
@@ -64,32 +74,52 @@ export function isBillboardType(type: string): boolean {
 }
 
 /**
+ * True for any of the four bench variants (装饰 座椅). The palette stores the
+ * option id (`bench-steel-1`, …) while a placed module's `type` is the bare
+ * `bench`, so both the id and the type read as a bench here.
+ */
+export function isBenchType(type: string): boolean {
+  return type === 'bench' || type.startsWith('bench-')
+}
+
+/**
  * Decoration (装饰) pieces: seating, goods shelving, office desks, restroom
- * fixtures and wall-mounted advertising. They are placeable equipment like any
+ * fixtures and advertising. They are placeable equipment like any
  * other, but the build rail files them under their own folder instead of 设备,
- * and the wall-mounted pair must be fixed to a wall (see `wallMountMissing` in
+ * and the wall-mounted 广告牌 must be fixed to a wall (see `wallMountMissing` in
  * `sim/placement.ts`).
  */
 export function isDecorType(type: string): boolean {
   return (
-    type === 'bench' ||
+    isBenchType(type) ||
     type === 'shelf' ||
     type === 'desk' ||
     type === 'cubicle' ||
     type === 'sink' ||
+    type === 'sign' ||
     isBillboardType(type) ||
     type === 'tv'
   )
 }
 
-/** True for a 装饰 piece that may only be placed against a wall block. */
+/** True for a 装饰 piece that may only be placed against a wall block (广告牌). */
 export function isWallMountedType(type: string): boolean {
-  return isBillboardType(type) || type === 'tv'
+  return isBillboardType(type)
 }
 
 /** True for the fence piece, which drags out a run like the wall tool. */
 export function isFenceType(type: string): boolean {
   return type === 'fence'
+}
+
+/**
+ * True for any of the six exit variants (出入口). The palette stores the option
+ * id (`exit-covered-1`, `exit-uncovered-3`, …) while a placed module's `type` is
+ * the bare `exit`, so both the id and the type read as an exit here. The build
+ * rail files them under one 出入口 sub-menu.
+ */
+export function isExitType(type: string): boolean {
+  return type === 'exit' || type.startsWith('exit-')
 }
 
 /** True for the fixed escalator piece, whose Tab cycle is up/down instead. */
@@ -131,6 +161,7 @@ const MODULE_LABELS: Record<string, string> = {
   gate: '闸机',
   fence: '围栏',
   tvm: '售票机',
+  vending: '自动贩卖机',
   bench: '座椅',
   shelf: '货架',
   desk: '办公桌',
@@ -138,6 +169,7 @@ const MODULE_LABELS: Record<string, string> = {
   sink: '洗手池',
   billboard: '广告牌',
   tv: '电视',
+  sign: '指示牌',
   exit: '出入口',
   escalator: '扶梯',
   stair: '楼梯',
@@ -508,6 +540,12 @@ export const useStore = create<AppState>((set, get) => ({
     // Power is a line option, so carry it to every track bound to the line —
     // platform rails and tunnel runs both — and their models re-cut on rebuild.
     if (patch.power !== undefined) station = setLinePower(station, lineId, patch.power)
+    // A 屏蔽门 全高/半高 switch reads off each derived edge's own `cfg.psd`, so
+    // re-derive every rail on the line to move its screens with the line.
+    if (patch.psd !== undefined) {
+      const ids = station.modules.filter((m) => m.type === 'track' && m.cfg.line === lineId).map((m) => m.id)
+      for (const id of ids) station = regenerateRailEdges(station, id)
+    }
     // A platform rail is sized from its line's consist, so a stock/cars edit
     // re-cuts each of that line's platform tracks to the new run length (and
     // re-derives its screen doors). A tunnel is hand-sized, so it is left alone.

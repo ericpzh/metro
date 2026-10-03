@@ -425,6 +425,19 @@ function Inspector(): React.ReactElement {
                   </button>
                 ))}
               </div>
+              <div className="row">
+                <span className="muted small">屏蔽门</span>
+                {(['full', 'half'] as const).map((p) => (
+                  <button
+                    key={p}
+                    className={(line.psd ?? 'full') === p ? 'chip on' : 'chip'}
+                    title={p === 'full' ? '全高屏蔽门：整层高的玻璃，顶部印刷线路信息' : '半高屏蔽门：1.5m 高，线路信息贴在玻璃上'}
+                    onClick={() => updateLine(line.id, { psd: p })}
+                  >
+                    {p === 'full' ? '全高' : '半高'}
+                  </button>
+                ))}
+              </div>
               <div className="kv">
                 <span>载客量</span>
                 <b>
@@ -620,8 +633,10 @@ export function App(): React.ReactElement {
                             : moduleType === 'sink'
                               ? '洗手池：点地面放下，能转方向，右键逐个拆掉'
                               : isWallMountedType(moduleType)
-                                ? '装饰：点地面贴在墙上（R 转方向让背面朝墙），右键拆掉'
-                                : '座椅：点地面放下，能转方向，右键拆掉'
+                                ? '广告牌：点地面贴在墙上（R 转方向让背面朝墙），右键拆掉'
+                                : moduleType === 'sign' || moduleType === 'tv'
+                                  ? '指示牌/电视：吊在天花板下（上面要有四米高的楼板），R 转方向，右键拆掉'
+                                  : '座椅：点地面放下（不锈钢无靠背 / 带靠背连排，各 1m 与 2m），能转方向，右键拆掉'
                       : '设备：左边选一种，点地面放下，能转方向，右键拆掉'
                 : tool === 'paint'
                   ? '材质：左键刷一格，拖拽刷一片，右键还原，取色能吸'

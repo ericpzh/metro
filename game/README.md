@@ -73,25 +73,34 @@ protocol, and drawn per consist by `SceneRenderer.setTrains`. The models are pur
 over one shared material kit — no image or GLB assets. Modules are level-aware, so a tall escalator
 or exit ghosts with the floor it belongs to instead of drawing through it.
 
-**The 装饰 folder holds seating, room furniture and wall-mounted advertising.** 座椅 (the bench, moved
-out of 设备), 货架 (the store's shelf unit), 办公桌 (the office desk + monitor + chair unit),
+**The 装饰 folder holds seating, room furniture and advertising.** 座椅 (the bench, moved
+out of 设备), 货架 (a stocked supermarket gondola), 办公桌 (the office desk + monitor + chair unit),
 厕所隔间 (the restroom cubicle) and 洗手池 (the wash basin) are all free-standing, rotatable pieces,
-and 广告牌 and 电视 all live under 装饰 in the build rail. The two advertising pieces are *wall-mounted*:
-`sim/placement.ts`'s `wallMountMissing` refuses them unless the facing neighbour has a solid block at
+and 广告牌, 电视 and 指示牌 all live under 装饰 in the build rail. 广告牌 is *wall-mounted*:
+`sim/placement.ts`'s `wallMountMissing` refuses it unless the facing neighbour has a solid block at
 its first course (`z + 1`), which is exactly where the 地基 auto-wall ring and the 墙 tool both start —
 so the player must build a wall and use **R** to turn the panel's back to it. `wallSide` turns that
 requirement with the module rotation and the renderer mounts the model on the same local −y face, so
 what the ghost shows is what the click builds. 广告牌 is a nested sub-menu of four formats — 横版 /
 竖版 / 方形 / 大横版 — whose run length (one cell, or two for 大横版) and poster aspect come from the
 shared `sim/billboards.ts` table, so the palette thumbnail, the collision envelope and the drawn
-housing cannot disagree. A multi-cell banner needs a wall behind every cell of its run. Every screen
+housing cannot disagree. A multi-cell banner needs a wall behind every cell of its run. 电视 and 指示牌
+are *ceiling-hung* instead: `ceilingMountMissing` refuses them unless a solid slab sits one storey up
+(`LEVEL_STEPS`, the 4 m grid), and `render/models.ts` hangs each lit, double-sided face from that slab
+by two rods, so both read from either side. Every screen
 cycles three procedural, unlit ad posters on wall time, driven by `SceneRenderer.updateAds`; the
 posters come in wide / square / portrait sets (`render/models.ts`'s `adFramesWide` / `adFramesSquare` /
 `adFramesPortrait`) so a portrait billboard is not a stretched landscape, and the decoration reads as
-"playing ads" even while the sim is paused. Room furniture (shelf / desk / cubicle / sink / bench) may
+"playing ads" even while the sim is paused. 座椅 is the same kind of nested sub-menu: two families —
+a plain stainless bench with no back and an upholstered seat with a back and arm rests that chains
+into a row — each 1 m or 2 m wide, from the shared `sim/benches.ts` table. A 2 m bench is a real
+two-cell run: its `w` fixes the collision envelope and its base cells (`benchCells`), the renderer
+draws the whole run from the run's centre, and a legacy bench with neither `w` nor a variant is the
+1 m stainless piece. Room furniture (shelf / desk / cubicle / sink / bench) may
 stand inside a walled room or booth (`placementBlocked` exempts the furniture ↔ room pair, and
 `moduleAt` prefers the furniture over the room around it). A store stocks one `shelf` module per layout
-spot (`storeShelfSpots`: island rows plus wall runs), an office one `desk` per grid spot
+spot (`storeShelfSpots`: island rows plus wall runs), each wall unit turned so its perforated back
+panel faces the wall and its stocked front faces the room, an office one `desk` per grid spot
 (`officeDeskSpots`), a restroom one `cubicle` per back-row cell and one `sink` per front-row cell
 (`restroomSpots`), and a booth one `bench` per back-row cell (`boothBenchSpots`), so every auto unit is
 individually right-clickable; bulldozing the room takes its auto (`cfg.auto`) furniture but leaves
@@ -137,7 +146,10 @@ rail's doors, or every rail's when nothing is selected. Line management lives in
 **线路** section (线路名/颜色, 上行终点/下行终点 direction signs, 车型/编组/供电/下车, plus **+ 新建线路**).
 The whole section and each line card fold open/closed, so a long roster stays compact. The two
 terminus inputs name where each direction runs, and every platform screen door on that line
-prints the matching one on its direction sticker instead of a hardcoded place name. The reference station builds its
+prints the matching one on its direction sticker instead of a hardcoded place name. 屏蔽门 is a
+per-line choice of **全高** (the default storey-tall screen, its line header printed on a top band)
+or **半高** (a 1.5 m screen, the same header printed on the glass as stickers); switching it
+re-derives every screen bound to the line and re-sizes their collision envelope. The reference station builds its
 bed from the same dig, so the demo shows the recessed track too.
 
 **Escalators are staircases, and they turn over.** `models.ts` builds each run as a band of
@@ -211,14 +223,36 @@ snapshot (`World.liftRenderState`) so
 
 **Every demo exit is a head-house over an up + down pair.** Each of the three surface exits owns a
 descending run and an up run two metres apart, landing on the exit's own row; `models.ts` draws the
-exit as a steel-and-glass canopy whose roof reaches over that pair, so the runs surface from a hole
-in the plaza under cover — the reference photo. The exit's drawn floor leaves each bay open to
+exit as a **red steel portal frame** wrapping a **blue waved roof** that rises toward the street
+doorway (the sign side stands tallest), with glazed sides *and* a glazed back wall whose heads follow
+the roof, and red base members tying the frames together along the ground — the reference art, not a
+white-walled box. The roof reaches over the run, so the runs surface from a hole in the plaza under
+cover. The exit's drawn floor leaves each bay open to
 `EXIT_BAY_HALF`, so the balustrade and handrail pass through the wellway rather than the strips
 beside it. Exit A's west bay is a **stair** beside its up escalator (a mixed entrance), the other two
 keep a down escalator. An exit does **not** auto-face the nearest run: like the rest of the
 equipment it is turned with **R**, and its floor, street-opening node and glass/back walls all turn
 with it, so the mouth points where the player sets it. A surface exit is rooted at the street
 (z = 0); dropping one on a concourse or platform slab is refused.
+
+**Exits come in six variants: 有盖 / 无盖 × 单向 / 双向 / 三向.** `ExitCfg.bays` (1, 2 or the
+default 2) sets how many escalator/stair bays the head-house opens — one run at local x = 0, two at
+±1, three at −2/0/+2, with `exitWidth` widening the floor, frame and glass to 3.0 / 3.8 / 5.8 m
+(a 单向 is a full three blocks so the escalator handrail never eats the neighbour). The head-house
+floor is a thin plate over the whole odd `(2·bays + 1)`-cell footprint the exit claims — it opens
+only along a bay a run actually descends through, not that run's top-landing row, so the plaza floor
+never shows through the block and the pad is never cut a row short.
+`ExitCfg.covered: false` is the 无盖 exit: it drops the canopy, frames, glass and back wall and
+draws a 围栏-style glass railing (steel top/bottom rails, a glass sheet and posts) where each wall
+stood, so the barrier the crowd meets is the same and only the look changes. The 出入口 palette tile
+is a sub-menu of all six (有盖 单向/双向/三向, 无盖 单向/双向/三向).
+See `test/exits.test.mjs`.
+
+**A ramp dropped inside an exit snaps into a bay.** When an escalator or straight stair is placed over a
+head-house, the pointer controls the run's position on the *street* floor: `exitRunSnap` snaps its upper
+landing to the nearest bay and drops its base one storey down toward the mouth, so the run lines up with
+the hole the exit already knows rather than the floor it climbs from. Everywhere else the hovered cell
+stays the run's base. Turning stairs are left un-snapped — their run does not end at the bay.
 
 **The head-house is solid, and the opening is the way.** `sim/exits.ts` holds the geometry the sim
 and the renderer share. The exit's graph node is the street opening (the doorway cell, not the cell
@@ -230,7 +264,11 @@ walks in and out through the opening and never through a wall. A bare portal opt
 edits the exit's name (commit on Enter / blur), its demand and its open toggle; the name reprints the
 model's street header, which carries the station name and the exit's own name. The 3D view and the
 card share one selection: clicking an exit highlights its card, and clicking or focusing a card draws
-a highlight box around the exit in 3D (`SceneRenderer.setSelection`).
+a highlight box around the exit in 3D (`SceneRenderer.setSelection`). A click tests the drawn meshes
+(`SceneRenderer.pickModule`) as well as the collision envelope, so a large head-house is selected by any
+part of its visible model, not only the cells its box reserves. The 删除 tool does the same: hovering a
+placed module highlights the whole piece in red and a click removes it (rails and rooms through their
+own teardown) instead of only clearing the block beneath it.
 
 **No ramps stacked.** A ramp also has a collision envelope (`rampEnvelope` / `rampBlocked`): a
 bounding box around the run, the truss and the balustrade — for a stair, widened to its tread width.
@@ -288,9 +326,10 @@ and the fare line holds. See `test/fence.test.mjs`.
   conflict), a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
   cell it covers, `removeModule` bulldozes exactly one module and leaves its block, and the block
   brush refuses a cell reserved by a ramp opening or an exit's floor (`reservedOpening`). The
-  装饰 广告牌 / 电视 are wall-mounted: `wallMountMissing` refuses them without a solid wall block
+  装饰 广告牌 is wall-mounted: `wallMountMissing` refuses it without a solid wall block
   at the facing neighbour's first course, and `wallSide` turns that requirement with the module's
-  rotation.
+  rotation. A fresh exit is named for the first free letter A ~ Z (`nextExitName`, so A口 / B口 / …),
+  reusing a letter freed by a delete or rename, and falling back to 未命名口 once all 26 are taken.
 * `openings.test.mjs` — a placed ramp carves the slab it climbs through but keeps its landings as
   graph nodes, the carve clears the blocks the balustrade and handrail sweep either side of the
   run (not just the tread width), and every cell the carve opens reads as reserved so a hand-built
@@ -326,7 +365,9 @@ and the fare line holds. See `test/fence.test.mjs`.
   end, clears the wall it pokes through and raises its own side walls and ceiling without spawning
   doors; a platform needs its whole bed on solid floor and refuses a wall in its headroom; either one
   is blocked by any existing equipment, room, screen door or track; re-cutting a line's consist resizes
-  its platform tracks; a fresh line carries empty 上行/下行 termini for its screen header; the reference
+  its platform tracks; a fresh line carries empty 上行/下行 termini for its screen header and a full-height
+  (全高) 屏蔽门; switching a line to 半高 re-derives its edges and shrinks the reserved screen height from
+  3.1 m to 1.5 m; the reference
   station builds its bed from the same dig and its hand-authored edge
   matches what the derive would place.
 * `facility.test.mjs` — the rectangle-drag facilities: 商店 / 厕所 / 办公室 are walled rooms (one
@@ -351,7 +392,8 @@ and the fare line holds. See `test/fence.test.mjs`.
 * `shelf.test.mjs` — the 货架 (§5.7): the factory builds it with the hover rotation, it may stand
   inside a walled room or booth (either side of the shelf ↔ room pair, while shelves still collide
   with each other and other equipment does not enter rooms), `moduleAt` prefers the furniture over
-  the room around it, placing a store stocks one auto shelf per layout spot, each shelf deletes on
+  the room around it, placing a store stocks one auto shelf per layout spot with each wall unit
+  turned to back its panel onto its own wall, each shelf deletes on
   its own while bulldozing the room keeps hand-placed ones, merges never stack two units on a cell,
   legacy rooms migrate once on load (a cleared `cfg.bare` room stays empty), and everything
   round-trips the save.
@@ -364,6 +406,19 @@ and the fare line holds. See `test/fence.test.mjs`.
   back row and sinks on the front (a door cell gets none) and a booth one bench per back-row cell,
   each unit deletes on its own while bulldozing keeps hand-placed ones and drops auto ones, legacy
   rooms migrate once, and everything round-trips the save.
+* `vending.test.mjs` — the 自动贩卖机 (§7.4a): the factory builds it with the hover rotation, its
+  1 × 1 m envelope is identical to a TVM's (so the two block each other), and `buildGraph` gives it
+  the same unpaid-zone `stop` server and rate as a ticket machine under the 自动贩卖机 label.
+* `bench.test.mjs` — the 座椅 variants (§5.7): the table offers two families (stainless with no back,
+  backed seat) at two widths; the factory builds each with the hover rotation and a legacy bench is
+  the 1 m stainless piece; a 2 m bench covers two cells in its own direction (and quarter-turned),
+  blocks a piece on its second cell but not the next one over, is found by `moduleAt` from either
+  cell, is refused over a track bed on either cell, and round-trips the save.
+* `sign.test.mjs` — the ceiling-hung 装饰 pieces, 指示牌 and 电视 (§5.7): the factory builds the sign
+  with the hover rotation; a piece needs a solid ceiling at the next storey grid line (so a B1 piece
+  hangs from the concourse slab) and is refused without one, while floor-standing modules are never
+  refused; neither is wall-mounted; each envelope is the full storey column, so it is found and blocks
+  its cell; and both round-trip the save.
 
 ## The simulation's time base
 

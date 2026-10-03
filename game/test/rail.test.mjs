@@ -128,6 +128,8 @@ test('a fresh line is B stock, six cars, and carries the rail direction', () => 
   assert.equal(line.power, 'catenary')
   assert.equal(line.direction, 'down')
   assert.equal(line.travelSign, 1)
+  // A fresh line defaults to the full-height 屏蔽门.
+  assert.equal(line.psd, 'full')
   // A fresh line carries both direction termini as empty strings, so the
   // screen header falls back to the direction word until the player names them.
   assert.equal(line.upTerminus, '')
@@ -167,6 +169,24 @@ test('a 供电 switch re-cuts every track bound to the line, platform and tunnel
   assert.equal(switched.modules.find((m) => m.id === 't9').cfg.power, 'third-rail', 'another line is untouched')
   // The platform-edge derives from the track, so it stays bound to the line.
   assert.equal(switched.modules.some((m) => m.type === 'platform-edge' && m.cfg.line === '1'), true)
+})
+
+test('a 屏蔽门 全高/半高 choice derives onto the edge and sizes its envelope', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  let s = placeRail(station(cells), { x0: 0, y0: 1, x1: 5, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  // New lines default to the full-height screen (全高).
+  assert.equal(s.lines[0].psd, 'full')
+  let edge = s.modules.find((m) => m.type === 'platform-edge')
+  assert.equal(edge.cfg.psd, 'full', 'the derived edge carries the line choice')
+  assert.equal(moduleEnvelope(edge).z1, edge.z + 1 + 3.1, 'a full screen reserves the storey')
+
+  // Switch the line to 半高 and regenerate: the edge follows, and rises only 1.5 m.
+  s = { ...s, lines: s.lines.map((l) => ({ ...l, psd: 'half' })) }
+  const track = s.modules.find((m) => m.type === 'track')
+  s = regenerateRailEdges(s, track.id)
+  edge = s.modules.find((m) => m.type === 'platform-edge')
+  assert.equal(edge.cfg.psd, 'half')
+  assert.equal(moduleEnvelope(edge).z1, edge.z + 1 + 1.5, 'a half screen reserves only its 1.5 m')
 })
 
 test('a quarter-turned track digs a north–south bed and derives side edges', () => {

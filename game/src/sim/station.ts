@@ -129,7 +129,7 @@ export interface StationGraph {
   serverForNode: Map<number, number>
   platforms: PlatformEdge[]
   exits: Array<{ id: string; node: number; name: string }>
-  stops: Array<{ id: string; node: number; kind: 'tvm' | 'bench' | 'retail' | 'shop' | 'booth' }>
+  stops: Array<{ id: string; node: number; kind: 'tvm' | 'vending' | 'bench' | 'retail' | 'shop' | 'booth' }>
   /** Node grid bounds, for density overlays. */
   minX: number
   minY: number
@@ -257,7 +257,7 @@ export function buildGraph(data: StationData): StationGraph {
   const edges: EdgeDraft[] = []
   const platforms: PlatformEdge[] = []
   const exits: Array<{ id: string; node: number; name: string }> = []
-  const stops: Array<{ id: string; node: number; kind: 'tvm' | 'bench' | 'retail' | 'shop' | 'booth' }> = []
+  const stops: Array<{ id: string; node: number; kind: 'tvm' | 'vending' | 'bench' | 'retail' | 'shop' | 'booth' }> = []
 
   const addServer = (s: Omit<ServerDef, 'id' | 'queue' | 'cooldown' | 'served' | 'waitAccum' | 'waitCount'>): number => {
     const id = servers.length
@@ -411,11 +411,13 @@ export function buildGraph(data: StationData): StationGraph {
         }
         break
       }
-      case 'tvm': {
+      case 'tvm':
+      case 'vending': {
         const n = nodeIndex.get(cellKey(m.x, m.y, m.z))
         if (n !== undefined) {
-          const id = addServer({ kind: 'stop', label: '售票机', rate: TVM_RATE, node: n, exitNode: -1, ride: 0, batch: 1, cycle: 0 })
-          stops.push({ id: m.id, node: n, kind: 'tvm' })
+          const label = m.type === 'vending' ? '自动贩卖机' : '售票机'
+          const id = addServer({ kind: 'stop', label, rate: TVM_RATE, node: n, exitNode: -1, ride: 0, batch: 1, cycle: 0 })
+          stops.push({ id: m.id, node: n, kind: m.type })
           serverForNode.set(n, id)
         }
         break

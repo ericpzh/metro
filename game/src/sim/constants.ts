@@ -130,6 +130,15 @@ export const LIFT_BOARD_S = 0.6
 export const DOOR_RATE = 1.2
 
 /**
+ * Platform screen door (屏蔽门) heights above the platform, metres (§5.9). A
+ * full-height screen fills the storey; a half-height (半高) screen stops at
+ * chest height. Shared by the collision envelope and the procedural model, so
+ * the two can never disagree.
+ */
+export const PSD_FULL_HEIGHT = 3.1
+export const PSD_HALF_HEIGHT = 1.5
+
+/**
  * Train stop choreography, in simulated seconds. A stop is a fixed sequence
  * rather than a demand-scaled dwell:
  *

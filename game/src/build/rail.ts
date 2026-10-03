@@ -10,7 +10,7 @@ import { floorSpeed } from '../sim/finishes.ts'
 import { boxesOverlap, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { doorCentres, trainLength } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, type TrackModule } from '../sim/track.ts'
-import type { Cell, LineDef, LineDirection, Module } from '../sim/types.ts'
+import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
 import { lineColourFor } from '../data/line-colours.ts'
 import { cellKey, nextModuleId, type StationState } from './model.ts'
 
@@ -62,6 +62,7 @@ export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' 
     stock: 'B',
     cars: 6,
     power,
+    psd: 'full',
     headwayProfile: { peak: 150, offpeak: 240, late: 480 },
     alightPerTrain: 200,
     terminus: 'through',
@@ -161,6 +162,7 @@ function makeEdge(
   w: number,
   side: 'left' | 'right',
   dir: LineDirection,
+  psd: PsdHeight,
 ): PlatformEdgeModule {
   return {
     id: `edge-${track.id}-${side}`,
@@ -170,7 +172,7 @@ function makeEdge(
     z: track.z,
     w,
     rot: track.rot,
-    cfg: { name: '站台门', line: track.cfg.line, dir, side, from: track.id },
+    cfg: { name: '站台门', line: track.cfg.line, dir, side, psd, from: track.id },
   }
 }
 
@@ -185,6 +187,7 @@ export function derivePlatformEdges(state: StationState, track: Module): Platfor
   if (track.type !== 'track' || track.cfg.tunnel) return []
   const line = state.lines.find((l) => l.id === track.cfg.line)
   const dir: LineDirection = track.cfg.dir ?? line?.direction ?? 'up'
+  const psd: PsdHeight = line?.psd ?? 'full'
   const rot = track.rot ?? 0
   const d = track.d ?? 1
   const out: PlatformEdgeModule[] = []
@@ -204,7 +207,7 @@ export function derivePlatformEdges(state: StationState, track: Module): Platfor
     }
     for (const [i0, i1] of runsOf(xs)) {
       const [ox, oy] = rotateLocal(rot, i0, j)
-      out.push(makeEdge(track, track.x + ox, track.y + oy, i1 - i0 + 1, side, dir))
+      out.push(makeEdge(track, track.x + ox, track.y + oy, i1 - i0 + 1, side, dir, psd))
     }
   }
   return out

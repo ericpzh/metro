@@ -54,6 +54,20 @@ export function stairFacing(rot: number): [number, number] {
   }
 }
 
+/**
+ * The placement rotation whose run faces the unit step `[dx, dy]` (the inverse
+ * of `stairFacing`). Used to lay a run whose direction is already known — a ramp
+ * snapped into an exit bay climbs toward the head-house's own +y. Falls back to
+ * 0 for a non-axis step, which callers never pass.
+ */
+export function stairRotFor(dx: number, dy: number): number {
+  for (let r = 0; r < 4; r++) {
+    const [fx, fy] = stairFacing(r)
+    if (fx === dx && fy === dy) return r
+  }
+  return 0
+}
+
 /** Per-flight run and rise: a turn is two half-storey flights at the same slope. */
 export const STAIR_FLIGHT_RUN = 3
 export const STAIR_FLIGHT_RISE = 2

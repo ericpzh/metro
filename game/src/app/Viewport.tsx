@@ -22,6 +22,7 @@ import {
   fenceRotForLine,
   fillSurface,
   GROUND_Z,
+  nextExitName,
   nextModuleId,
   paintFaces,
   paintZoneCells,
@@ -44,12 +45,12 @@ import {
   type FacilityKind,
 } from '../build/model.ts'
 import { finishDef } from '../sim/finishes.ts'
-import { exitFloorAt } from '../sim/exits.ts'
+import { exitFloorAt, exitRunSnap } from '../sim/exits.ts'
 import { liftExtendedDown, liftExtendedUp, liftFootprintCells, type LiftModule } from '../sim/lifts.ts'
-import { moduleAt, isTrackCell, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing } from '../sim/placement.ts'
+import { moduleAt, isTrackCell, placementBlocked, placementOnTrack, reservedOpening, ceilingMountMissing, wallMountMissing } from '../sim/placement.ts'
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
-import { FACILITY_OPTIONS, setFrameHandler, useStore, isDecorType, isFacilityBrush, isFenceType, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
+import { FACILITY_OPTIONS, setFrameHandler, useStore, isDecorType, isExitType, isFacilityBrush, isFenceType, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
 import type { Face, FinishId, Module } from '../sim/types.ts'
 import { defaultLine, freeTunnelEnd, makeTrack, makeTunnel, railModuleAt, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
@@ -228,6 +229,8 @@ export function Viewport(): React.ReactElement {
     wall?: boolean
     /** True for the 围栏 tool's drag, which lays one fence panel per cell. */
     fence?: boolean
+    /** The id a delete-tool press is about to remove, when it points at a module. */
+    module?: string
     /** Screen position and time of the press, to tell a click from a drag. */
     sx: number
     sy: number
@@ -405,6 +408,38 @@ export function Viewport(): React.ReactElement {
     return { mod: up ? liftExtendedUp(shaft) : liftExtendedDown(shaft) }
   }
 
+  /**
+   * A straight ramp type: the pieces an exit bay can hold. A turning stair is
+   * excluded — its run does not end at the bay, so snapping it would not line
+   * its landing up with the hole.
+   */
+  const isStraightRamp = (type: string): boolean =>
+    type === 'escalator' || type === 'stair' || type === 'stair-straight'
+
+  /**
+   * Build the module a pointer at `cell` would place. A straight stair or
+   * escalator dropped inside an exit head-house snaps into the nearest bay: its
+   * upper landing on the street, its base one storey down toward the mouth, so
+   * the pointer positions the run on the top floor the exit opens onto rather
+   * than the floor it climbs from. Everywhere else the cell is the base.
+   */
+  const buildPlacementModule = (type: string, cell: [number, number, number], id: string): Module | null => {
+    const st = useStore.getState()
+    let mod: Module | null
+    if (isStraightRamp(type)) {
+      const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2])
+      mod = snap
+        ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, st.stairWidth, st.escalatorDir)
+        : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, st.stairWidth, st.escalatorDir)
+    } else {
+      mod = createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, st.stairWidth, st.escalatorDir)
+    }
+    // A fresh exit letters itself A ~ Z rather than wearing the 未命名口
+    // placeholder, so the card and the 3D header read like real signage.
+    if (mod && mod.type === 'exit' && mod.cfg.name === '未命名口') mod.cfg.name = nextExitName(st.station.modules)
+    return mod
+  }
+
   /** Rebuild the equipment hover ghost from the last hovered tile. */
   const refreshModulePreview = (): void => {
     const scene = sceneRef.current
@@ -421,7 +456,10 @@ export function Viewport(): React.ReactElement {
     // 电梯: hovering any cell of an existing shaft previews its extension even
     // where that level has no floor; a fresh lift still needs floor under it.
     const liftExt = st.moduleType === 'lift' ? liftHover(x, y, z) : null
-    const placeable = (floorHere || !!liftExt) && (st.moduleType !== 'exit' || onGround)
+    // A ramp dropped inside an exit snaps into a bay and descends to the floor
+    // below, so the exit's own floor is enough to stand its upper landing on.
+    const snap = isStraightRamp(st.moduleType) ? exitRunSnap(st.station.modules, x, y, z) : null
+    const placeable = (floorHere || !!liftExt || !!snap) && (!isExitType(st.moduleType) || onGround)
     let mod: Module | null = null
     let liftFloorMissing = false
     if (st.moduleType === 'lift') {
@@ -432,7 +470,7 @@ export function Viewport(): React.ReactElement {
         liftFloorMissing = !liftFootprintFloorOk(x, y, z)
       }
     } else if (placeable) {
-      mod = createModule(st.moduleType, x, y, z, 'preview', st.moduleRot, st.stairWidth, st.escalatorDir)
+      mod = buildPlacementModule(st.moduleType, h.cell, 'preview')
     }
     // An escalator may run through walls/ceilings — only its two landings must
     // be solid floor (or exit floor). Anything in between is carved on placement.
@@ -443,7 +481,8 @@ export function Viewport(): React.ReactElement {
         basesMissing ||
         liftFloorMissing ||
         placementOnTrack(st.station.cells, mod, st.station.modules) ||
-        wallMountMissing(st.station.cells, mod))
+        wallMountMissing(st.station.cells, mod) ||
+        ceilingMountMissing(st.station.cells, mod))
     scene.setCursor(h.cell, placeable && !blocked)
     scene.setModulePreview(mod, blocked)
   }
@@ -527,6 +566,7 @@ export function Viewport(): React.ReactElement {
     sceneRef.current?.setGhost([], 'add')
     sceneRef.current?.setGhost([], 'remove')
     sceneRef.current?.clearFaceGhost()
+    sceneRef.current?.setModulePreview(null)
     sceneRef.current?.setFencePreview(null)
     return true
   }
@@ -684,7 +724,10 @@ export function Viewport(): React.ReactElement {
     if (tool === 'select') {
       // Right-click bulldozes the equipment under the pointer.
       if (e.button === 2) {
-        bulldoze(hit.cell, hit.place)
+        const pickedId = scene.pickModule(e.clientX, e.clientY)
+        const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+        if (picked) removePlacedModule(picked)
+        else bulldoze(hit.cell, hit.place)
         return
       }
       // A rail's bed is dug, so the ray lands on the block below or the work
@@ -692,7 +735,11 @@ export function Viewport(): React.ReactElement {
       const rail =
         railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
         railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2])
-      const mod = rail ?? (hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
+      // The drawn mesh wins: a large exit is drawn far past its collision box,
+      // so the visible model is what a click should select.
+      const pickedId = scene.pickModule(e.clientX, e.clientY)
+      const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+      const mod = picked ?? rail ?? (hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
       const label = mod ? moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined) : ''
       st.select(mod ? { kind: 'module', key: mod.id, label } : { kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
       scene.setGhost([], 'add')
@@ -905,6 +952,29 @@ export function Viewport(): React.ReactElement {
       // The delete tool is button-agnostic: press a block and tap (one block) or
       // drag a line (a run of blocks). It reuses the `drag` ref in remove mode
       // with `shift` pinned, so the release takes the block tool's line path.
+      // A drawn module under the pointer is the pending delete instead — the
+      // whole piece goes, not the floor block beneath it.
+      const pickedId = scene.pickModule(e.clientX, e.clientY)
+      const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+      if (picked) {
+        e.preventDefault()
+        drag.current = {
+          active: true,
+          button: e.button,
+          mode: 'remove',
+          anchor: [picked.x, picked.y, picked.z],
+          z: picked.z,
+          shift: true,
+          module: picked.id,
+          sx: e.clientX,
+          sy: e.clientY,
+          downTime: performance.now(),
+        }
+        scene.setGhost([], 'remove')
+        scene.setModulePreview(picked, true)
+        scene.setCursor([picked.x, picked.y, picked.z], true)
+        return
+      }
       if (!hit.solid) return
       e.preventDefault()
       drag.current = {
@@ -1003,6 +1073,14 @@ export function Viewport(): React.ReactElement {
     if (st.tool === 'delete') {
       const d = drag.current
       if (d?.active) {
+        if (d.module) {
+          // A module delete is one piece; keep it highlighted while the press
+          // holds, and never grow it into a block line.
+          const mod = st.station.modules.find((m) => m.id === d.module)
+          scene.setGhost([], 'remove')
+          scene.setModulePreview(mod ?? null, true)
+          return
+        }
         // A deliberate press draws the line of blocks the release will remove;
         // a quick tap stays one block even if the pointer jitters.
         const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
@@ -1011,9 +1089,19 @@ export function Viewport(): React.ReactElement {
         scene.setCursor(dragging ? hit.cell : d.anchor, true)
         return
       }
-      // Hover: the one block under the pointer, highlighted as pending deletion.
-      scene.setGhost(pendingCells([hit.cell], 'remove', solidRef.current), 'remove')
-      scene.setCursor(hit.cell, hit.solid)
+      // Hover: a drawn module under the pointer is the pending delete, shown as
+      // a red ghost of the piece itself; otherwise the block under it.
+      const pickedId = scene.pickModule(e.clientX, e.clientY)
+      const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+      if (picked) {
+        scene.setGhost([], 'remove')
+        scene.setModulePreview(picked, true)
+        scene.setCursor([picked.x, picked.y, picked.z], true)
+      } else {
+        scene.setModulePreview(null)
+        scene.setGhost(pendingCells([hit.cell], 'remove', solidRef.current), 'remove')
+        scene.setCursor(hit.cell, hit.solid)
+      }
       return
     }
     if (st.tool === 'block') {
@@ -1334,6 +1422,13 @@ export function Viewport(): React.ReactElement {
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
     const target = hit ? (d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell) : d.anchor
     const st = useStore.getState()
+    if (d.module) {
+      // A delete-tool press on a module removes that whole piece, wherever the
+      // pointer was released.
+      const mod = st.station.modules.find((m) => m.id === d.module)
+      if (mod) removePlacedModule(mod)
+      return
+    }
     if (d.fence) {
       // A 围栏 drag lays one panel per cell along a straight axis-aligned run;
       // a quick press is one panel with the R rotation. The run's panels follow
@@ -1438,6 +1533,26 @@ export function Viewport(): React.ReactElement {
     cancelActiveDrag()
   }
 
+  /** Remove one placed module, routing rails and rooms through their own teardown. */
+  const removePlacedModule = (mod: Module): void => {
+    const st = useStore.getState()
+    if (mod.type === 'track') {
+      st.removeRail(mod.id)
+      st.select(null)
+      sceneRef.current?.setModulePreview(null)
+      return
+    }
+    // Facility rooms take their auto walls with them; the floor stays.
+    st.commit(
+      mod.type === 'shop' || mod.type === 'booth' || mod.type === 'retail'
+        ? removeFacility(st.station, mod.id)
+        : removeModule(st.station, mod.id),
+    )
+    st.select(null)
+    sceneRef.current?.setModulePreview(null)
+    st.setNotice(`已拆掉${moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined)}`)
+  }
+
   /** Right-click: remove the equipment standing on a cell, leaving the block. */
   const bulldoze = (cell: [number, number, number], place?: [number, number, number]): void => {
     const st = useStore.getState()
@@ -1446,18 +1561,11 @@ export function Viewport(): React.ReactElement {
       railModuleAt(st.station, cell[0], cell[1], cell[2]) ??
       (place ? railModuleAt(st.station, place[0], place[1], place[2]) : undefined)
     if (rail) {
-      st.removeRail(rail.id)
-      st.select(null)
-      sceneRef.current?.setModulePreview(null)
+      removePlacedModule(rail)
       return
     }
     const mod = moduleAt(st.station.modules, cell[0], cell[1], cell[2])
-    if (!mod) return
-    // Facility rooms take their auto walls with them; the floor stays.
-    st.commit(mod.type === 'shop' || mod.type === 'booth' || mod.type === 'retail' ? removeFacility(st.station, mod.id) : removeModule(st.station, mod.id))
-    st.select(null)
-    sceneRef.current?.setModulePreview(null)
-    st.setNotice(`已拆掉${moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined)}`)
+    if (mod) removePlacedModule(mod)
   }
 
   const placeModule = (cell: [number, number, number], place: [number, number, number], solid: boolean, type: string): void => {
@@ -1465,12 +1573,13 @@ export function Viewport(): React.ReactElement {
     // Exit-covered holes count as floor, like the hover ghost above.
     const floorHere = solid || exitFloorAt(st.station.modules, cell[0], cell[1], cell[2])
     const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])
-    // A surface exit stands at the street (h = 0 m) and nowhere else.
-    if (type === 'exit' && at[2] !== GROUND_Z) {
+    // A surface exit — any of the six variants — stands at the street (h = 0 m)
+    // and nowhere else.
+    if (isExitType(type) && at[2] !== GROUND_Z) {
       st.setNotice('出入口只能放在地面')
       return
     }
-    const mod = createModule(type, at[0], at[1], at[2], nextModuleId(st.station.modules, type), st.moduleRot, st.stairWidth, st.escalatorDir)
+    const mod = buildPlacementModule(type, at, nextModuleId(st.station.modules, type))
     if (!mod) return
     // Equipment has a collision box: two may not share space.
     if (placementBlocked(st.station.modules, mod)) {
@@ -1482,9 +1591,14 @@ export function Viewport(): React.ReactElement {
       st.setNotice('轨道上不能放设备')
       return
     }
-    // 广告牌 / 电视 are wall-mounted: they need a solid wall block behind them.
+    // 广告牌 is wall-mounted: it needs a solid wall block behind it.
     if (wallMountMissing(st.station.cells, mod)) {
-      st.setNotice('广告牌和电视要贴在墙上：先砌一堵墙，用 R 转方向让背面朝墙')
+      st.setNotice('广告牌要贴在墙上：先砌一堵墙，用 R 转方向让背面朝墙')
+      return
+    }
+    // 指示牌 / 电视 hang from the ceiling: they need a solid slab one storey up.
+    if (ceilingMountMissing(st.station.cells, mod)) {
+      st.setNotice('指示牌和电视要吊在天花板下：上面得有一层楼板（四米高）')
       return
     }
     // An escalator punches through walls/ceilings on its own: allow it whenever

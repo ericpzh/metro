@@ -70,10 +70,10 @@ test('placing a store stocks one shelf module per layout spot', () => {
   const stocked = shelvesOf(next)
   assert.equal(stocked.length, 10, `expected 10 auto shelves, got ${stocked.length}`)
   assert.ok(stocked.every((m) => m.cfg.auto === true), 'every stocked shelf is marked auto')
-  // Wall runs turn with the wall: east/west runs stand quarter-turned.
-  const rot0 = stocked.filter((m) => m.rot === 0).length
-  const rot1 = stocked.filter((m) => m.rot === 1).length
-  assert.deepEqual([rot0, rot1], [6, 4])
+  // Each wall shelf backs onto its own wall: south −y (2), north +y (0),
+  // west −x (1), east +x (3).
+  const byRot = [0, 1, 2, 3].map((r) => stocked.filter((m) => m.rot === r).length)
+  assert.deepEqual(byRot, [3, 2, 3, 2])
 })
 
 test('each shelf deletes on its own, leaving room and neighbours', () => {

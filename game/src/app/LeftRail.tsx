@@ -11,9 +11,11 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   FACILITY_OPTIONS,
   MODULE_OPTIONS,
+  isBenchType,
   isBillboardType,
   isDecorType,
   isEscalatorType,
+  isExitType,
   isFacilityBrush,
   isRotatableType,
   isStairType,
@@ -276,6 +278,18 @@ const FAMILY_LABEL: Record<string, string> = { floor: '地面 · 轨道', ceilin
 
 type FolderKey = 'tools' | 'equipment' | 'rail' | 'rooms' | 'decor' | 'surfaces' | 'zones' | 'view'
 
+/** The nested variant sub-menus, at most one of which may be expanded. */
+type SubMenuKey = 'stair' | 'exit' | 'bench' | 'billboard'
+
+/** Which nested variant sub-menu owns a module, or null if it owns none. */
+function subMenuForModule(moduleType: string): SubMenuKey | null {
+  if (isStairType(moduleType)) return 'stair'
+  if (isExitType(moduleType)) return 'exit'
+  if (isBenchType(moduleType)) return 'bench'
+  if (isBillboardType(moduleType)) return 'billboard'
+  return null
+}
+
 const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
   select: 'tools',
   block: 'tools',
@@ -326,15 +340,27 @@ export function LeftRail(): React.ReactElement {
     zones: false,
     view: false,
   })
-  // 楼梯 is a sub-menu: one tile that folds out the four stair shapes.
-  const [stairOpen, setStairOpen] = useState(() => isStairType(moduleType))
-  // 广告牌 is a sub-menu too: one tile folds out the four billboard formats.
-  const [billboardOpen, setBillboardOpen] = useState(() => isBillboardType(moduleType))
+  // The nested variant sub-menus (楼梯 / 出入口 / 座椅 / 广告牌) share one piece
+  // of state, so at most one is expanded at a time: opening one collapses the
+  // rest, and picking any module the sub-menu does not own collapses them all.
+  const [subMenu, setSubMenu] = useState<SubMenuKey | null>(() => subMenuForModule(moduleType))
+  const stairOpen = subMenu === 'stair'
+  const exitOpen = subMenu === 'exit'
+  const benchOpen = subMenu === 'bench'
+  const billboardOpen = subMenu === 'billboard'
 
   const stairOptions = useMemo(() => MODULE_OPTIONS.filter((m) => isStairType(m.type)), [])
-  const gearOptions = useMemo(() => MODULE_OPTIONS.filter((m) => !isStairType(m.type) && !isDecorType(m.type)), [])
+  const gearOptions = useMemo(
+    () => MODULE_OPTIONS.filter((m) => !isStairType(m.type) && !isDecorType(m.type) && !isExitType(m.id)),
+    [],
+  )
   const billboardOptions = useMemo(() => MODULE_OPTIONS.filter((m) => isBillboardType(m.id)), [])
-  const decorOptions = useMemo(() => MODULE_OPTIONS.filter((m) => isDecorType(m.type) && !isBillboardType(m.id)), [])
+  const benchOptions = useMemo(() => MODULE_OPTIONS.filter((m) => isBenchType(m.id)), [])
+  const exitOptions = useMemo(() => MODULE_OPTIONS.filter((m) => isExitType(m.id)), [])
+  const decorOptions = useMemo(
+    () => MODULE_OPTIONS.filter((m) => isDecorType(m.type) && !isBillboardType(m.id) && !isBenchType(m.id)),
+    [],
+  )
 
   useEffect(() => {
     let alive = true
@@ -369,17 +395,16 @@ export function LeftRail(): React.ReactElement {
     setOpen((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
   }, [tool, zoneBrush, moduleType])
 
-  // Keep the stair sub-menu open while a stair shape is the active piece.
+  // Keep the sub-menu that owns the active piece open, and collapse the rest —
+  // picking any tile (a variant, a plain module, or a different family) leaves
+  // at most one variant list expanded.
   useEffect(() => {
-    if (isStairType(moduleType)) setStairOpen(true)
-  }, [moduleType])
-
-  // Keep the billboard sub-menu open while a billboard format is active.
-  useEffect(() => {
-    if (isBillboardType(moduleType)) setBillboardOpen(true)
+    setSubMenu(subMenuForModule(moduleType))
   }, [moduleType])
 
   const toggle = (k: FolderKey): void => setOpen((o) => ({ ...o, [k]: !o[k] }))
+  // Opening one variant list collapses any other; clicking the open one closes it.
+  const toggleSubMenu = (k: SubMenuKey): void => setSubMenu((cur) => (cur === k ? null : k))
   const st = useStore.getState
 
   // The 轨道 folder is the rail panel. When a rail is selected it edits that
@@ -553,7 +578,7 @@ export function LeftRail(): React.ReactElement {
         )}
       </Folder>
 
-      <Folder title="设备" count={gearOptions.length + 1} open={open.equipment} onToggle={() => toggle('equipment')}>
+      <Folder title="设备" count={gearOptions.length + 2} open={open.equipment} onToggle={() => toggle('equipment')}>
         <div className="blockGrid">
           {gearOptions.map((m) => (
             <Block
@@ -573,7 +598,15 @@ export function LeftRail(): React.ReactElement {
             active={isStairType(moduleType)}
             submenu={stairOpen}
             title="楼梯：展开选形状"
-            onClick={() => setStairOpen((v) => !v)}
+            onClick={() => toggleSubMenu('stair')}
+          />
+          <Block
+            label="出入口"
+            thumb={thumbs['exit']}
+            active={isExitType(moduleType)}
+            submenu={exitOpen}
+            title="出入口：展开选有盖/无盖与单向/双向/三向"
+            onClick={() => toggleSubMenu('exit')}
           />
         </div>
         {/* Nested sub-menu: the stair shapes, indented under their parent tile. */}
@@ -582,6 +615,27 @@ export function LeftRail(): React.ReactElement {
             <div className="subMenuPad">
               <div className="blockGrid">
                 {stairOptions.map((m) => (
+                  <Block
+                    key={m.id}
+                    label={m.label}
+                    thumb={thumbs[m.id]}
+                    active={tool === 'module' && moduleType === m.id}
+                    onClick={() => {
+                      setModuleType(m.id)
+                      setTool('module')
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        {/* Nested sub-menu: the six exit variants (有盖 / 无盖 × 单向 / 双向 / 三向). */}
+        <div className={exitOpen ? 'subMenu open' : 'subMenu'} aria-hidden={!exitOpen} inert={!exitOpen}>
+          <div className="subMenuInner">
+            <div className="subMenuPad">
+              <div className="blockGrid">
+                {exitOptions.map((m) => (
                   <Block
                     key={m.id}
                     label={m.label}
@@ -618,7 +672,7 @@ export function LeftRail(): React.ReactElement {
         </div>
       </Folder>
 
-      <Folder title="装饰" count={decorOptions.length + 1} open={open.decor} onToggle={() => toggle('decor')}>
+      <Folder title="装饰" count={decorOptions.length + 2} open={open.decor} onToggle={() => toggle('decor')}>
         <div className="blockGrid">
           {decorOptions.map((m) => (
             <Block
@@ -633,13 +687,42 @@ export function LeftRail(): React.ReactElement {
             />
           ))}
           <Block
+            label="座椅"
+            thumb={thumbs[benchOptions[0]?.id ?? '']}
+            active={isBenchType(moduleType)}
+            submenu={benchOpen}
+            title="座椅：展开选不锈钢/靠背，各有 1m 与 2m"
+            onClick={() => toggleSubMenu('bench')}
+          />
+          <Block
             label="广告牌"
             thumb={thumbs[billboardOptions[0]?.id ?? '']}
             active={isBillboardType(moduleType)}
             submenu={billboardOpen}
             title="广告牌：展开选尺寸与比例"
-            onClick={() => setBillboardOpen((v) => !v)}
+            onClick={() => toggleSubMenu('billboard')}
           />
+        </div>
+        {/* Nested sub-menu: the bench variants, indented under their parent. */}
+        <div className={benchOpen ? 'subMenu open' : 'subMenu'} aria-hidden={!benchOpen} inert={!benchOpen}>
+          <div className="subMenuInner">
+            <div className="subMenuPad">
+              <div className="blockGrid">
+                {benchOptions.map((m) => (
+                  <Block
+                    key={m.id}
+                    label={m.label}
+                    thumb={thumbs[m.id]}
+                    active={tool === 'module' && moduleType === m.id}
+                    onClick={() => {
+                      setModuleType(m.id)
+                      setTool('module')
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
         {/* Nested sub-menu: the billboard formats, indented under their parent. */}
         <div className={billboardOpen ? 'subMenu open' : 'subMenu'} aria-hidden={!billboardOpen} inert={!billboardOpen}>

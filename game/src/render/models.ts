@@ -5,6 +5,7 @@
 // glass and screens.
 //
 //   TVM        售票机     stainless body, green housing, an LCD and a 车票 sign
+//   vending    自动贩卖机  white cabinet, glass drink display, face-pay strip
 //   gate       闸机      stainless cabinet, red wing, green/red lane lights
 //   escalator  扶梯      truss, steps, glass balustrade, black handrail
 //   exit       出入口    红色钢架, glass walls, a canopy over an up/down pair
@@ -20,10 +21,11 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { facilityWallCells, SHOP_WALL_H } from '../build/model.ts'
 import { TUNNEL_HEADROOM } from '../build/rail.ts'
-import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH } from '../sim/constants.ts'
+import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH, PSD_HALF_HEIGHT } from '../sim/constants.ts'
 import { billboardSpec } from '../sim/billboards.ts'
+import { benchSpec } from '../sim/benches.ts'
 import { normRot, rotateLocal } from '../sim/track.ts'
-import { EXIT_BACK, EXIT_BACK_Y, EXIT_BAY_HALF, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, EXIT_SIDE, EXIT_W } from '../sim/exits.ts'
+import { EXIT_BACK, EXIT_BACK_Y, EXIT_BAY_HALF, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, exitBayCell, exitBayOffsets, exitBays, exitSide, exitWidth } from '../sim/exits.ts'
 import { finishOf } from '../sim/finishes.ts'
 import { fenceArms } from '../sim/fences.ts'
 import { LIFT_STEP, liftStopZs } from '../sim/lifts.ts'
@@ -83,6 +85,14 @@ export interface ModelMaterials {
   /** Unlit canvases: LCD panels, LED strips, printed headers. */
   screen: THREE.MeshBasicMaterial
   /**
+   * The 自动贩卖机 front control strip: the 刷脸支付 header, the promo card, the
+   * payment panel, the keypad and the dispenser mouth, printed as one unlit
+   * panel so the cabinet reads as a real vending machine.
+   */
+  vendingPanel: THREE.MeshBasicMaterial
+  /** The 自动贩卖机 base band: the service hotline and phone number. */
+  vendingBase: THREE.MeshBasicMaterial
+  /**
    * The cycles of unlit advertisement posters a 装饰 screen plays (§5.7), one
    * set per aspect so a portrait billboard is not a stretched landscape. Each
    * set is cycled in step by `SceneRenderer.updateAds`.
@@ -90,6 +100,12 @@ export interface ModelMaterials {
   adFramesWide: THREE.MeshBasicMaterial[]
   adFramesSquare: THREE.MeshBasicMaterial[]
   adFramesPortrait: THREE.MeshBasicMaterial[]
+  /** The 指示牌 overhead sign face: the lit, double-sided wayfinding board. */
+  signFace: THREE.MeshBasicMaterial
+  /** The 货架 perforated back panel (dark charcoal pegboard). */
+  shelfPanel: THREE.MeshStandardMaterial
+  /** Base white material for the shelf goods; each instance tints it. */
+  shelfGoods: THREE.MeshStandardMaterial
   ledGreen: THREE.MeshBasicMaterial
   ledRed: THREE.MeshBasicMaterial
   glow: THREE.MeshBasicMaterial
@@ -169,6 +185,265 @@ function signCanvas(): HTMLCanvasElement {
   return c
 }
 
+/**
+ * The 指示牌 face: a lit black wayfinding board following the reference photo —
+ * white pictograms (lift, toilets, accessible, 出站 / Exit with an escalator),
+ * two coloured line badges and a direction arrow. Drawn once per material set
+ * and mapped onto both faces of the hung panel.
+ */
+function wayfindingCanvas(): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = 1024
+  c.height = 256
+  const g = c.getContext('2d') as CanvasRenderingContext2D
+  const W = c.width
+  const H = c.height
+  g.fillStyle = '#0d1116'
+  g.fillRect(0, 0, W, H)
+  g.strokeStyle = '#3c434c'
+  g.lineWidth = 6
+  g.strokeRect(6, 6, W - 12, H - 12)
+
+  const white = '#f4f7fa'
+  g.strokeStyle = white
+  g.fillStyle = white
+  g.lineWidth = 6
+  g.lineJoin = 'round'
+  g.lineCap = 'round'
+
+  // --- lift: a car outline with a person and up/down arrows -----------------
+  g.strokeRect(34, 62, 92, 132)
+  g.beginPath()
+  g.arc(80, 100, 14, 0, Math.PI * 2)
+  g.fill()
+  g.fillRect(66, 120, 28, 40)
+  for (const [ay, dir] of [[78, 1], [176, -1]] as const) {
+    g.beginPath()
+    g.moveTo(60, ay)
+    g.lineTo(80, ay - 16 * dir)
+    g.lineTo(100, ay)
+    g.stroke()
+  }
+
+  // --- toilets: a male and a female figure ---------------------------------
+  const figure = (x: number, dress: boolean): void => {
+    g.beginPath()
+    g.arc(x, 84, 15, 0, Math.PI * 2)
+    g.fill()
+    if (dress) {
+      g.beginPath()
+      g.moveTo(x, 104)
+      g.lineTo(x - 26, 172)
+      g.lineTo(x + 26, 172)
+      g.closePath()
+      g.fill()
+    } else {
+      g.fillRect(x - 16, 104, 32, 68)
+    }
+    g.fillRect(x - 18, 168, 12, 26)
+    g.fillRect(x + 6, 168, 12, 26)
+  }
+  figure(176, false)
+  figure(236, true)
+
+  // --- accessible: a seated figure on a wheel ------------------------------
+  g.beginPath()
+  g.arc(310, 84, 15, 0, Math.PI * 2)
+  g.fill()
+  g.fillRect(300, 104, 20, 44)
+  g.beginPath()
+  g.arc(310, 168, 30, 0, Math.PI * 2)
+  g.stroke()
+  g.beginPath()
+  g.moveTo(318, 138)
+  g.lineTo(360, 150)
+  g.stroke()
+
+  // --- 出站 / Exit with an escalator pictogram ------------------------------
+  g.fillStyle = white
+  g.font = 'bold 74px "Microsoft YaHei", sans-serif'
+  g.textBaseline = 'alphabetic'
+  g.fillText('出站', 398, 152)
+  g.font = 'bold 34px sans-serif'
+  g.fillText('Exit', 402, 202)
+  // Escalator glyph: a stepped diagonal with a rider.
+  g.beginPath()
+  g.moveTo(600, 196)
+  g.lineTo(660, 196)
+  g.lineTo(660, 170)
+  g.lineTo(690, 170)
+  g.lineTo(690, 130)
+  g.stroke()
+  g.beginPath()
+  g.arc(676, 96, 13, 0, Math.PI * 2)
+  g.fill()
+
+  // --- line badges: 22号线 (orange) and 18号线 (blue) ------------------------
+  const badge = (x: number, bg: string, digits: string): void => {
+    g.fillStyle = bg
+    g.fillRect(x, 54, 150, 148)
+    g.fillStyle = '#ffffff'
+    g.font = 'bold 46px "Microsoft YaHei", sans-serif'
+    g.fillText(digits, x + 14, 116)
+    g.font = 'bold 28px "Microsoft YaHei", sans-serif'
+    g.fillText('号线', x + 14, 158)
+    g.font = 'bold 20px sans-serif'
+    g.fillText('Line ' + digits, x + 14, 190)
+  }
+  badge(716, '#e8541f', '22')
+  badge(878, '#1b57c4', '18')
+
+  // --- direction arrow ------------------------------------------------------
+  g.strokeStyle = white
+  g.lineWidth = 14
+  g.beginPath()
+  g.moveTo(958, 196)
+  g.lineTo(1004, 122)
+  g.stroke()
+  g.beginPath()
+  g.moveTo(982, 110)
+  g.lineTo(1012, 112)
+  g.lineTo(1008, 142)
+  g.stroke()
+  return c
+}
+
+/**
+ * The 货架 back panel: a dark charcoal pegboard, the perforated steel backing of
+ * a supermarket gondola. Drawn once per material set and repeated over the
+ * panel face.
+ */
+function shelfPanelCanvas(): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = 128
+  c.height = 256
+  const g = c.getContext('2d') as CanvasRenderingContext2D
+  g.fillStyle = '#343a42'
+  g.fillRect(0, 0, 128, 256)
+  // Vertical brushed streaks.
+  g.fillStyle = '#3d444d'
+  for (let x = 4; x < 128; x += 8) g.fillRect(x, 0, 2, 256)
+  // Rows of punched holes.
+  g.fillStyle = '#24282e'
+  for (let y = 10; y < 256; y += 16) {
+    for (let x = 8; x < 128; x += 16) {
+      g.beginPath()
+      g.arc(x + (y % 32 === 10 ? 8 : 0), y, 2.6, 0, Math.PI * 2)
+      g.fill()
+    }
+  }
+  return c
+}
+
+/**
+ * The 自动贩卖机's right-hand control strip, drawn as one vertical panel: the
+ * 刷脸支付 header, a red promo card, the payment-icon grid, the keypad and the
+ * 取物口 dispenser mouth. Matches the reference photo's right column and maps
+ * 1:1 onto the cabinet's 0.32 × 1.44 m front plate.
+ */
+function vendingPanelCanvas(): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = 128
+  c.height = 576
+  const g = c.getContext('2d') as CanvasRenderingContext2D
+  g.textAlign = 'center'
+  // Light metal backing.
+  g.fillStyle = '#e7ebf0'
+  g.fillRect(0, 0, 128, 576)
+  // 刷脸支付 header.
+  g.fillStyle = '#1f6fd6'
+  g.fillRect(0, 0, 128, 68)
+  g.fillStyle = '#ffffff'
+  g.font = 'bold 20px "Microsoft YaHei", sans-serif'
+  g.fillText('刷脸支付', 64, 34)
+  g.font = '10px sans-serif'
+  g.fillText('Face scan payment', 64, 52)
+  // Red promo card (天猫优选).
+  g.fillStyle = '#d3231e'
+  g.fillRect(8, 78, 112, 92)
+  g.fillStyle = '#ffd54a'
+  g.font = 'bold 15px "Microsoft YaHei", sans-serif'
+  g.fillText('天猫优选', 64, 112)
+  g.fillStyle = '#ffffff'
+  g.fillRect(18, 124, 92, 38)
+  g.fillStyle = '#d3231e'
+  g.font = 'bold 11px "Microsoft YaHei", sans-serif'
+  g.fillText('1分钱乘车', 64, 149)
+  // Payment method grid.
+  g.fillStyle = '#ffffff'
+  g.fillRect(8, 180, 112, 120)
+  g.strokeStyle = '#cfd6de'
+  g.lineWidth = 2
+  g.strokeRect(8, 180, 112, 120)
+  const icons = ['#07c160', '#1677ff', '#e64340', '#f0a128', '#1f6fd6', '#1b1e24']
+  for (let r = 0; r < 3; r++) {
+    for (let col = 0; col < 2; col++) {
+      const x = 30 + col * 54
+      const y = 198 + r * 36
+      g.fillStyle = icons[r * 2 + col]
+      g.beginPath()
+      g.arc(x, y, 11, 0, Math.PI * 2)
+      g.fill()
+    }
+  }
+  // Payment bar.
+  g.fillStyle = '#1f6fd6'
+  g.fillRect(8, 308, 112, 26)
+  g.fillStyle = '#ffffff'
+  g.font = 'bold 12px "Microsoft YaHei", sans-serif'
+  g.fillText('请选择支付方式', 64, 326)
+  // Numeric keypad.
+  g.fillStyle = '#f2f5f8'
+  g.fillRect(8, 342, 112, 100)
+  g.fillStyle = '#3c434c'
+  for (let r = 0; r < 3; r++) {
+    for (let col = 0; col < 3; col++) {
+      g.beginPath()
+      g.arc(30 + col * 34, 366 + r * 28, 9, 0, Math.PI * 2)
+      g.fill()
+    }
+  }
+  // 取物口 dispenser mouth.
+  g.fillStyle = '#ffffff'
+  g.fillRect(8, 452, 112, 116)
+  g.fillStyle = '#9aa4ae'
+  g.fillRect(18, 462, 92, 74)
+  g.fillStyle = '#1f6fd6'
+  g.fillRect(26, 542, 76, 18)
+  g.fillStyle = '#ffffff'
+  g.font = 'bold 12px "Microsoft YaHei", sans-serif'
+  g.fillText('取物口', 64, 556)
+  return c
+}
+
+/** The 自动贩卖机's base band: the service hotline printed on blue. */
+function vendingBaseCanvas(): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = 384
+  c.height = 96
+  const g = c.getContext('2d') as CanvasRenderingContext2D
+  g.fillStyle = '#1b6fd6'
+  g.fillRect(0, 0, 384, 96)
+  // A rounded white panel, inset like the photo's printed plate.
+  g.fillStyle = '#ffffff'
+  g.beginPath()
+  g.moveTo(40, 14)
+  g.arcTo(344, 14, 344, 82, 14)
+  g.arcTo(344, 82, 40, 82, 14)
+  g.arcTo(40, 82, 40, 14, 14)
+  g.arcTo(40, 14, 344, 14, 14)
+  g.closePath()
+  g.fill()
+  g.textAlign = 'center'
+  g.fillStyle = '#5b6570'
+  g.font = '16px "Microsoft YaHei", sans-serif'
+  g.fillText('客服热线 / 安美咨询', 192, 40)
+  g.fillStyle = '#1b6fd6'
+  g.font = 'bold 26px "Microsoft YaHei", sans-serif'
+  g.fillText('4001-528-528', 192, 74)
+  return c
+}
+
 /** A platform-screen header: white, a line band, and the direction sticker. */
 function psdHeaderCanvas(colour: string, lineId: string, terminus: string): HTMLCanvasElement {
   const c = document.createElement('canvas')
@@ -205,7 +480,7 @@ function psdHeaderCanvas(colour: string, lineId: string, terminus: string): HTML
 }
 
 /**
- * One advertisement frame for a wall-mounted screen (§5.7 装饰). Three bright,
+ * One advertisement frame for a 装饰 screen (§5.7). Three bright,
  * unlit posters cycle on the TV and the billboard, so the decoration reads as
  * "playing ads" instead of a dead panel. The canvas is drawn proportionally so
  * the same poster reads on a wide, square or portrait billboard. Kept procedural
@@ -337,9 +612,14 @@ export function createModelMaterials(): ModelMaterials {
     trainInterior: new THREE.MeshStandardMaterial({ color: C.trainInterior, roughness: 0.85, metalness: 0.05, side: THREE.BackSide }),
     trainSeat: new THREE.MeshStandardMaterial({ color: C.trainSeat, roughness: 0.7, metalness: 0.1 }),
     screen: new THREE.MeshBasicMaterial({ map: canvasTexture(128, 96, (g) => g.drawImage(lcdCanvas(), 0, 0)), side: THREE.DoubleSide }),
+    vendingPanel: new THREE.MeshBasicMaterial({ map: canvasTexture(128, 576, (g) => g.drawImage(vendingPanelCanvas(), 0, 0)), side: THREE.DoubleSide }),
+    vendingBase: new THREE.MeshBasicMaterial({ map: canvasTexture(384, 96, (g) => g.drawImage(vendingBaseCanvas(), 0, 0)), side: THREE.DoubleSide }),
     adFramesWide: [0, 1, 2].map((v) => adMaterial(v, 256, 128)),
     adFramesSquare: [0, 1, 2].map((v) => adMaterial(v, 192, 192)),
     adFramesPortrait: [0, 1, 2].map((v) => adMaterial(v, 144, 256)),
+    signFace: new THREE.MeshBasicMaterial({ map: canvasTexture(1024, 256, (g) => g.drawImage(wayfindingCanvas(), 0, 0)) }),
+    shelfPanel: new THREE.MeshStandardMaterial({ map: canvasTexture(128, 256, (g) => g.drawImage(shelfPanelCanvas(), 0, 0)), roughness: 0.6, metalness: 0.35 }),
+    shelfGoods: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0.05 }),
     ledGreen: new THREE.MeshBasicMaterial({ color: 0x48e08a }),
     ledRed: new THREE.MeshBasicMaterial({ color: 0xff5d47 }),
     glow: new THREE.MeshBasicMaterial({ color: 0xf7ecc8, side: THREE.DoubleSide }),
@@ -414,8 +694,10 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
   switch (mod.type) {
     case 'tvm':
       return placeLocal(buildTvm(ctx.mats), mod)
+    case 'vending':
+      return placeLocal(buildVending(ctx.mats), mod)
     case 'bench':
-      return placeLocal(buildBench(ctx.mats), mod)
+      return buildBench(ctx, mod)
     case 'shelf':
       return placeLocal(buildShelf(ctx.mats), mod)
     case 'desk':
@@ -428,6 +710,8 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return buildBillboard(ctx, mod)
     case 'tv':
       return placeLocal(buildTv(ctx.mats), mod)
+    case 'sign':
+      return placeLocal(buildSign(ctx.mats), mod)
     case 'gate':
       return placeLocal(buildGate(ctx.mats), mod)
     case 'fence':
@@ -490,38 +774,177 @@ function buildTvm(mats: ModelMaterials): THREE.Group {
   return g
 }
 
+/* --------------------------------------------------------------- vending */
+
+/**
+ * Vending machine (自动贩卖机): a tall white cabinet with a glass-fronted drink
+ * display on the left and a face-pay control strip on the right, following the
+ * reference photo. The same 1 × 1 m footprint as a TVM; the front faces −y.
+ */
+function buildVending(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  // Plinth and the white cabinet (its front face sits at y = −0.30).
+  slab(g, mats.darkSteel, 0, 0.01, 0.06, 0.72, 0.58, 0.12)
+  slab(g, mats.white, 0, 0.01, 0.97, 0.76, 0.62, 1.7)
+  capTop(g, mats.darkSteel, 0, 0.01, 1.82, 0.78, 0.64)
+
+  // The blue 温馨提示 banner across the top of the front.
+  slab(g, mats.blue, 0, -0.301, 1.785, 0.72, 0.02, 0.07)
+
+  // --- left glass display: dark cavity, five shelves, rows of drinks --------
+  slab(g, mats.black, -0.17, -0.304, 1.01, 0.4, 0.012, 1.38)
+  const drinks = [mats.orange, mats.green, mats.blue, mats.psu, mats.white, mats.gateRed]
+  const shelfZ = [0.42, 0.68, 0.94, 1.2, 1.46]
+  for (let s = 0; s < shelfZ.length; s++) {
+    const z = shelfZ[s]
+    slab(g, mats.steel, -0.17, -0.326, z - 0.011, 0.4, 0.036, 0.022)
+    for (let col = 0; col < 4; col++) {
+      const x = -0.32 + col * 0.1
+      slab(g, drinks[(s * 4 + col) % drinks.length], x, -0.326, z + 0.095, 0.07, 0.036, 0.19)
+      slab(g, mats.darkSteel, x, -0.326, z + 0.2, 0.045, 0.032, 0.022)
+    }
+  }
+  // Glass door and its steel frame, with a handle at the opening edge.
+  slab(g, mats.glass, -0.17, -0.354, 1.01, 0.42, 0.014, 1.4)
+  slab(g, mats.darkSteel, -0.385, -0.354, 1.01, 0.03, 0.04, 1.4)
+  slab(g, mats.darkSteel, 0.045, -0.354, 1.01, 0.03, 0.04, 1.4)
+  slab(g, mats.darkSteel, -0.17, -0.354, 0.305, 0.46, 0.04, 0.03)
+  slab(g, mats.darkSteel, -0.17, -0.354, 1.715, 0.46, 0.04, 0.03)
+  slab(g, mats.darkSteel, 0.005, -0.366, 1.01, 0.025, 0.03, 0.5)
+
+  // --- right control strip and the base hotline band ------------------------
+  plate(g, mats.vendingPanel, 0.32, 1.44, 0.19, -0.306, 1.02, 0)
+  plate(g, mats.vendingBase, 0.66, 0.165, -0.01, -0.306, 0.215, 0)
+  return g
+}
+
 /* ----------------------------------------------------------------- bench */
 
 /**
- * Bench (座椅): a steel seat pan with a blue backrest, sized to the cell so a
- * row of benches tiles into a 1 × n seating run along a platform wall. Sits
- * against the −y face, leaving the +y side clear to walk up from.
+ * Bench (座椅, 装饰): one of the `sim/benches.ts` variants. The `steel` family is
+ * the platform bench — a stainless seat pan on two posts with no back — while
+ * the `seat` family is an upholstered seat with a back and arm rests that chains
+ * into a row (a 2 m bench is two seats sharing a middle arm). Both run along
+ * local +x with their back on the local −y side, so a run tiles against a
+ * platform wall and the placement rotation turns the whole piece. The group is
+ * placed at the run's centre, so a two-cell bench spans both of its cells.
  */
-function buildBench(mats: ModelMaterials): THREE.Group {
+function buildBench(ctx: ModuleContext, mod: Extract<Module, { type: 'bench' }>): THREE.Group {
+  const spec = benchSpec(mod.cfg.variant)
+  const g = spec.style === 'steel' ? steelBench(ctx.mats, spec.w) : seatBench(ctx.mats, spec.w)
+  const [dx, dy] = rotateLocal(mod.rot, (spec.w - 1) / 2, 0)
+  g.position.set(mod.x + 0.5 + dx, mod.y + 0.5 + dy, mod.z + 1)
+  g.rotation.z = (normRot(mod.rot) * Math.PI) / 2
+  return g
+}
+
+/** The stainless platform bench: a seat pan on two posts, with no back. */
+function steelBench(mats: ModelMaterials, w: number): THREE.Group {
   const g = new THREE.Group()
-  // Seat pan and the backrest above it.
-  slab(g, mats.steel, 0, -0.16, 0.44, 0.9, 0.42, 0.07)
-  slab(g, mats.blue, 0, -0.34, 0.68, 0.9, 0.07, 0.42)
-  // A leg frame at each end plus one shared centre leg.
-  for (const x of [-0.38, 0, 0.38]) slab(g, mats.darkSteel, x, -0.16, 0.2, 0.06, 0.38, 0.4)
-  // Back frame rail and a foot rail tying the legs together.
-  slab(g, mats.darkSteel, 0, -0.34, 0.44, 0.92, 0.05, 0.05)
-  slab(g, mats.darkSteel, 0, -0.16, 0.03, 0.9, 0.36, 0.05)
+  const span = w === 1 ? 0.9 : 1.9
+  // Seat pan, with a turned-down front lip over a heavier apron.
+  slab(g, mats.steel, 0, -0.02, 0.46, span, 0.4, 0.06)
+  slab(g, mats.steel, 0, 0.17, 0.4, span, 0.05, 0.14)
+  slab(g, mats.darkSteel, 0, -0.02, 0.4, span - 0.08, 0.3, 0.03)
+  // A post and a floor plate near each end.
+  for (const x of [-span / 2 + 0.18, span / 2 - 0.18]) {
+    slab(g, mats.steel, x, -0.02, 0.24, 0.07, 0.16, 0.42)
+    slab(g, mats.darkSteel, x, -0.02, 0.015, 0.16, 0.22, 0.03)
+  }
+  return g
+}
+
+/** The upholstered seat: a blue cushion and back on a white frame, one per metre. */
+function seatBench(mats: ModelMaterials, w: number): THREE.Group {
+  const g = new THREE.Group()
+  const seats = w
+  const span = w === 1 ? 0.9 : 1.9
+  const seatW = span / seats
+  // A blue cushion and back for each seat, so a 2 m piece reads as two chained seats.
+  for (let s = 0; s < seats; s++) {
+    const cx = -span / 2 + seatW * (s + 0.5)
+    slab(g, mats.white, cx, -0.04, 0.4, seatW - 0.08, 0.4, 0.05)
+    slab(g, mats.trainSeat, cx, -0.04, 0.46, seatW - 0.12, 0.42, 0.08)
+    slab(g, mats.white, cx, -0.38, 0.78, seatW - 0.08, 0.05, 0.6)
+    slab(g, mats.trainSeat, cx, -0.32, 0.78, seatW - 0.12, 0.1, 0.56)
+  }
+  // A white arm frame at every seat edge, plus a rear top rail tying them together.
+  for (let i = 0; i <= seats; i++) {
+    const bx = -span / 2 + seatW * i
+    slab(g, mats.white, bx, -0.04, 0.24, 0.07, 0.16, 0.44)
+    slab(g, mats.white, bx, 0.08, 0.64, 0.07, 0.34, 0.06)
+    slab(g, mats.white, bx, 0.23, 0.57, 0.06, 0.06, 0.14)
+    slab(g, mats.darkSteel, bx, -0.04, 0.015, 0.14, 0.16, 0.03)
+  }
+  slab(g, mats.white, 0, -0.4, 1.08, span, 0.05, 0.05)
   return g
 }
 
 /* ----------------------------------------------------------------- shelf */
 
+/** Overall height of a 货架 gondola above the floor top, metres. */
+const SHELF_H = 1.9
+
 /**
- * One goods-shelf unit (货架): body, two goods strips and top goods. `along`
- * runs with the aisle and `deep` across it, so the same unit is an island row,
- * a wall run, or a free-standing 装饰 piece. `z0` is the floor top.
+ * The goods on one shelf deck: a row of small, colourful packages (bags, boxes
+ * and jars) drawn as one InstancedMesh, so a whole shelf costs a single draw
+ * call. Instance colours vary by slot, so the row reads as a stocked shelf
+ * without a mesh per product. `baseZ` is the deck top, `cx`/`cy` the unit centre.
+ */
+function shelfGoodsRow(g: THREE.Group, mats: ModelMaterials, cx: number, cy: number, baseZ: number, along: number, seed: number): void {
+  const slots = 6
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mats.shelfGoods, slots)
+  const m = new THREE.Matrix4()
+  const col = new THREE.Color()
+  const colours = [C.orange, C.gateRed, C.green, C.blue, C.psu, C.white, C.trainSeat, 0xb0703c]
+  const spread = along - 0.12
+  for (let i = 0; i < slots; i++) {
+    const x = cx - spread / 2 + (spread * i) / (slots - 1)
+    // A deterministic mix of product shapes and colours per shelf.
+    const kind = (i + seed) % 3
+    const w = kind === 0 ? 0.13 : kind === 1 ? 0.15 : 0.1
+    const d = kind === 0 ? 0.08 : kind === 1 ? 0.11 : 0.1
+    const h = kind === 0 ? 0.2 : kind === 1 ? 0.09 : 0.12
+    m.makeScale(w, d, h)
+    m.setPosition(x, cy, baseZ + h / 2)
+    mesh.setMatrixAt(i, m)
+    col.setHex(colours[(i * 3 + seed * 5) % colours.length])
+    mesh.setColorAt(i, col)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+  mesh.computeBoundingSphere()
+  g.add(mesh)
+}
+
+/**
+ * One goods-shelf unit (货架): a supermarket gondola following the reference —
+ * a charcoal frame with a perforated back panel, five steel shelves each with a
+ * white price rail, and a row of colourful goods. The stocked front faces the
+ * local −y side (the game's default view) and the back panel sits on +y, so
+ * `storeShelfSpots` turns a wall run to back onto its wall. `along` runs with
+ * the aisle and `deep` across it, so the same unit is an island row, a wall run,
+ * or a free-standing 装饰 piece. `z0` is the floor top.
  */
 function shelfUnit(g: THREE.Group, mats: ModelMaterials, cx: number, cy: number, z0: number, along: number, deep: number): void {
-  slab(g, mats.darkSteel, cx, cy, z0 + 0.45, along, deep, 0.9)
-  slab(g, mats.orange, cx, cy, z0 + 0.35, along + 0.04, deep + 0.04, 0.12)
-  slab(g, mats.green, cx, cy, z0 + 0.65, along + 0.04, deep + 0.04, 0.14)
-  slab(g, mats.blue, cx, cy, z0 + 0.95, along, Math.max(0.12, deep - 0.04), 0.1)
+  const x0 = cx - along / 2
+  const x1 = cx + along / 2
+  const yFront = cy - deep / 2
+  const yBack = cy + deep / 2
+  // Base plinth and the perforated back panel against the local +y edge.
+  slab(g, mats.darkSteel, cx, cy, z0 + 0.09, along, deep, 0.18)
+  slab(g, mats.shelfPanel, cx, yBack - 0.035, z0 + SHELF_H / 2, along - 0.06, 0.05, SHELF_H)
+  // Two side uprights and a top cap.
+  for (const x of [x0 + 0.03, x1 - 0.03]) slab(g, mats.darkSteel, x, cy, z0 + SHELF_H / 2, 0.06, deep, SHELF_H)
+  slab(g, mats.darkSteel, cx, cy, z0 + SHELF_H - 0.03, along, deep, 0.06)
+  // Five shelves, each a steel deck with a white price rail at the front.
+  const levels = [0.42, 0.7, 0.98, 1.26, 1.54]
+  for (let i = 0; i < levels.length; i++) {
+    const deckZ = z0 + levels[i]
+    slab(g, mats.steel, cx, cy - 0.02, deckZ, along - 0.12, deep - 0.1, 0.03)
+    slab(g, mats.white, cx, yFront + 0.05, deckZ + 0.045, along - 0.12, 0.03, 0.07)
+    shelfGoodsRow(g, mats, cx, cy - 0.02, deckZ + 0.015, along, i)
+  }
 }
 
 /**
@@ -530,7 +953,7 @@ function shelfUnit(g: THREE.Group, mats: ModelMaterials, cx: number, cy: number,
  */
 function buildShelf(mats: ModelMaterials): THREE.Group {
   const g = new THREE.Group()
-  shelfUnit(g, mats, 0, 0, 0, 0.9, 0.5)
+  shelfUnit(g, mats, 0, 0, 0, 0.96, 0.5)
   return g
 }
 
@@ -616,25 +1039,71 @@ function buildBillboard(ctx: ModuleContext, mod: Extract<Module, { type: 'billbo
 }
 
 /**
- * Advertising screen (电视): a slim dark bezel with a bright screen playing
- * ads, hung on the wall on the module's local −y face. Smaller and lower than
- * the billboard so the two read as different pieces. `userData.adScreen` is the
- * screen mesh the scene animates.
+ * Advertising screen (电视, 装饰): a slim dark bezel with a bright screen playing
+ * ads, hung by two rods from the storey ceiling like the 指示牌 — its face is
+ * readable from either side. The floor top is the local origin and the ceiling
+ * slab is one storey up (`LEVEL_STEPS`, 4 m = local z 3.0), which is exactly
+ * what `ceilingMountMissing` required before it could be placed.
+ * `userData.adScreen` is the screen mesh the scene animates.
  */
 function buildTv(mats: ModelMaterials): THREE.Group {
   const g = new THREE.Group()
   const frames = mats.adFramesWide
-  // Bezel and a thin steel shell behind it, plus the wall bracket.
-  slab(g, mats.darkSteel, 0, -0.4, 1.45, 1.06, 0.05, 0.86)
-  slab(g, mats.black, 0, -0.44, 1.45, 1.02, 0.1, 0.82)
-  slab(g, mats.steel, 0, -0.47, 1.45, 0.2, 0.06, 0.2)
-  // The glowing ad screen, proud of the shell so it never z-fights the bezel.
-  const screen = plate(g, frames[0], 0.92, 0.58, 0, -0.35, 1.45, Math.PI)
+  const sw = 1.0
+  const sh = 0.72
+  const zc = 2.15 // screen centre above the floor top
+  const ceiling = 3.0 // the storey ceiling underside
+  const depth = 0.1
+  // Suspension rods and their ceiling plates.
+  for (const x of [-0.38, 0.38]) {
+    slab(g, mats.steel, x, 0, (zc + sh / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + sh / 2) - 0.04)
+    slab(g, mats.darkSteel, x, 0, ceiling - 0.02, 0.16, 0.16, 0.04)
+  }
+  // An open bezel frame around the screen, so the ad reads from both faces.
+  const bw = 0.07
+  slab(g, mats.darkSteel, 0, 0, zc + sh / 2 + bw / 2, sw + 2 * bw, depth, bw)
+  slab(g, mats.darkSteel, 0, 0, zc - sh / 2 - bw / 2, sw + 2 * bw, depth, bw)
+  for (const x of [-(sw + bw) / 2, (sw + bw) / 2]) slab(g, mats.darkSteel, x, 0, zc, bw, depth, sh)
+  // The glowing ad screen, DoubleSide, so it plays on both faces.
+  const screen = plate(g, frames[0], sw, sh, 0, 0, zc, 0)
   screen.renderOrder = 1
   screen.userData.adSet = frames
   // Power / status light on the lower bezel.
-  plate(g, mats.ledGreen, 0.05, 0.05, 0.42, -0.358, 1.12, Math.PI)
+  plate(g, mats.ledGreen, 0.05, 0.05, sw / 2 - 0.1, -depth / 2 - 0.005, zc - sh / 2, 0)
   g.userData.adScreen = screen
+  return g
+}
+
+/* ----------------------------------------------------------------- sign */
+
+/**
+ * Overhead wayfinding sign (指示牌, 装饰): a lit black directional board hung by
+ * two rods from the storey ceiling, readable from both faces. The floor top is
+ * the local origin and the ceiling slab is one storey up (`LEVEL_STEPS`, 4 m =
+ * local z 3.0), which is exactly what `ceilingMountMissing` required before the
+ * piece could be placed. `placeLocal` turns the board with the placement
+ * rotation, so R aims it along the concourse or across it.
+ */
+function buildSign(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  const W = 1.9
+  const H = 0.5
+  const T = 0.08
+  const zc = 2.35 // panel centre above the floor top
+  const ceiling = 3.0 // the storey ceiling underside
+  // Suspension rods and their ceiling plates.
+  for (const x of [-0.6, 0.6]) {
+    slab(g, mats.steel, x, 0, (zc + H / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + H / 2) - 0.04)
+    slab(g, mats.darkSteel, x, 0, ceiling - 0.02, 0.16, 0.16, 0.04)
+  }
+  // Panel body: a dark steel frame around a black lightbox.
+  slab(g, mats.darkSteel, 0, 0, zc, W, T, H)
+  slab(g, mats.black, 0, 0, zc, W - 0.03, T + 0.012, H - 0.03)
+  // The lit face on both sides, each drawn the right way up.
+  for (const [y, yaw] of [[T / 2 + 0.012, Math.PI], [-T / 2 - 0.012, 0]] as const) {
+    const face = plate(g, mats.signFace, W - 0.06, H - 0.06, 0, y, zc, yaw)
+    face.renderOrder = 1
+  }
   return g
 }
 
@@ -1207,75 +1676,217 @@ function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): 
 /* ------------------------------------------------------------------ exit */
 
 /**
- * Street exit portal (出入口): a covered head-house over a pair of escalators,
- * not a square pavilion. The +y end is the street doorway under the metro
- * header; the −y end is the mouth, where the up and down runs pass beneath the
- * long canopy and drop away through an opening in the plaza. Glass sides, red
- * steel frame, a canopy sized to cover the escalators — the reference art.
+ * A blue canopy with a gentle wave along the run: a strip of thin slabs whose
+ * heights follow `heightAt`, each tilted to meet its neighbour, so the folded
+ * surface reads as the reference art's waved roof. `heightAt(t)` maps 0 at the
+ * mouth (−y, over the runs) to 1 at the street doorway (+y); the shared profile
+ * is what lets the side glass follow the same edge with no gap. Built flat in
+ * the exit's local frame (before the placement rotation), `cx` the plan centre.
+ */
+function buildWavyRoof(
+  g: THREE.Group,
+  mat: THREE.Material,
+  cx: number,
+  y0: number,
+  y1: number,
+  w: number,
+  n: number,
+  heightAt: (t: number) => number,
+): void {
+  const step = (y1 - y0) / n
+  for (let i = 0; i < n; i++) {
+    const ya = y0 + i * step
+    const za = heightAt(i / n)
+    const zb = heightAt((i + 1) / n)
+    const seg = slab(g, mat, cx, ya + step / 2, (za + zb) / 2, w, Math.hypot(step, zb - za) + 0.03, 0.1)
+    // Tilt the segment so its long (y) axis follows the slope between crests.
+    seg.rotation.x = Math.atan2(zb - za, step)
+  }
+}
+
+/**
+ * Street exit portal (出入口): a head-house over one, two or three escalator
+ * bays, not a square pavilion. The +y end is the street doorway under the metro
+ * header; the −y end is the mouth, where the runs pass beneath the long canopy
+ * and drop away through an opening in the plaza. The reference art is a red
+ * steel portal frame wrapping a blue waved roof over glazed sides and back.
+ *
+ * 有盖 (covered, the default) draws the canopy, frame and glass; 无盖 (open)
+ * drops the roof and walls and runs a railing where each wall stood, so the
+ * sim barrier is identical and only the look changes. The bay count widens the
+ * floor, frame and run openings to match `exitBayOffsets`.
  */
 function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): THREE.Group {
   const mats = ctx.mats
   const g = new THREE.Group()
-  const W = EXIT_W // across the two escalator bays
+  const bays = exitBays(mod)
+  const offsets = exitBayOffsets(bays)
+  const W = exitWidth(bays) // across the run bays
   const L = EXIT_L // enclosed part: local y ∈ [−2, +2]
   const H = EXIT_H // canopy height above the walk
   const REACH = EXIT_REACH // how far the canopy reaches over the escalator run (−y)
-  const BACK = EXIT_BACK // canopy overhang past the doorway (+y)
+  const BACK = EXIT_BACK // canopy overhang past the street doorway (+y)
   const hw = W / 2
   const hl = L / 2
-
-  // Walk floor: the street-side walkway plus the side/centre strips that flank
-  // the two runs all the way back. The bays themselves stay open where the runs
-  // drop through.
-  const BACKY = EXIT_BACK_Y // back wall, just past where the runs go under the floor
-  slab(g, mats.darkSteel, 0, 1.15, 0.05, W, 1.7, 0.1) // street-side walkway
-  const stripLen = 0.3 - BACKY
-  const stripY = (0.3 + BACKY) / 2
-  // The runs sit at local x = ±1; the floor must leave a handrail-clear opening
-  // over each bay, or the balustrade surfaces through the strips beside it.
+  const covered = mod.cfg.covered !== false
+  const side = exitSide(bays)
   const bay = EXIT_BAY_HALF
-  const dividerW = 2 * (1 - bay) // centre strip between the two runs
-  const sideW = Math.max(0.08, hw - (1 + bay)) // sliver against each glass side
-  for (const s of [-1, 1]) slab(g, mats.darkSteel, s * (1 + bay + sideW / 2), stripY, 0.05, sideW, stripLen, 0.1)
-  slab(g, mats.darkSteel, 0, stripY, 0.05, dividerW, stripLen, 0.1) // divider between the runs
+  const BACKY = EXIT_BACK_Y // back wall, just past where the runs go under the floor
 
-  // Corner columns of the enclosed part, plus two under the south canopy edge.
-  for (const sx of [-1, 1]) {
-    for (const sy of [-1, 1]) slab(g, mats.exitRed, sx * (hw - 0.12), sy * (hl - 0.12), H / 2 + 0.05, 0.2, 0.2, H)
-    slab(g, mats.exitRed, sx * (hw - 0.12), -REACH + 0.3, H / 2 + 0.05, 0.2, 0.2, H)
+  // Head-house floor: one thin plate over the whole cell footprint the exit
+  // claims, so no hollow cell shows between the railings. The footprint is the
+  // odd (2·bays + 1)-cell block the exit covers (three blocks for a 单向), and
+  // the plaza floor never shows through it. Only a bay a run actually descends
+  // through is left open — and only along the middle of the descent, never the
+  // top-landing row or the mouth-most row the back rail stands on.
+  const hwFloor = (2 * bays + 1) / 2
+  const yHi = Math.ceil(EXIT_BACK + 0.5) - 0.5 // cell-aligned street edge
+  const landingBack = -0.5 // back edge of the run's top-landing cell (local y)
+  const corridorBack = BACKY + 1 // the mouth-most cell stays floored under the rail
+  // Walkway plus the top-landing row: solid full width.
+  slab(g, mats.darkSteel, 0, (landingBack + yHi) / 2, 0.05, hwFloor * 2, yHi - landingBack, 0.1)
+  // The mouth-most row, solid full width so the back rail sits on the pad.
+  slab(g, mats.darkSteel, 0, (BACKY + corridorBack) / 2, 0.05, hwFloor * 2, corridorBack - BACKY, 0.1)
+  // The descending corridor between them opens only at a run bay.
+  const stripLen = landingBack - corridorBack
+  const stripY = (landingBack + corridorBack) / 2
+  const strip = (cx: number, w: number): void => {
+    if (w > 0.02) slab(g, mats.darkSteel, cx, stripY, 0.05, w, stripLen, 0.1)
   }
-  // Glass sides run the length of the canopy — the enclosed bay and the glazed
-  // escalator run. Both ends stay open: the mouth and the street doorway.
-  const glassLen = EXIT_GLASS_Y1 - EXIT_GLASS_Y0
-  const glassY = (EXIT_GLASS_Y0 + EXIT_GLASS_Y1) / 2
-  for (const sx of [-1, 1]) {
-    slab(g, mats.glass, sx * EXIT_SIDE, glassY, 1.65, 0.04, glassLen, 2.7)
+  // True when a ramp's upper landing sits in this bay, so the pad must open for
+  // it. The bay's world cell is turned by the exit's rotation, so a rotated
+  // head-house still finds its run; anything else is covered by the pad.
+  const runAtBay = (o: number): boolean => {
+    const [bx, by, bz] = exitBayCell(mod, o)
+    return ctx.data.modules.some((mm) => {
+      if (mm.type !== 'escalator' && mm.type !== 'stair' && mm.type !== 'lift') return false
+      const top = mm.from.z >= mm.to.z ? mm.from : mm.to
+      return top.x === bx && top.y === by && top.z === bz
+    })
   }
-  // Canopy: a long roof over the enclosed bay and the escalator run, a blue
-  // soffit and an orange fascia all round.
-  const roofLen = BACK + REACH
-  const roofY = (BACK - REACH) / 2
-  const roofW = W + 0.3
-  slab(g, mats.darkSteel, 0, roofY, H + 0.07, roofW, roofLen, 0.14)
-  slab(g, mats.blue, 0, roofY, H - 0.02, roofW - 0.2, roofLen - 0.2, 0.04)
-  slab(g, mats.orange, 0, BACK, H + 0.05, roofW, 0.08, 0.22)
-  slab(g, mats.orange, 0, -REACH, H + 0.05, roofW, 0.08, 0.22)
-  for (const sx of [-1, 1]) slab(g, mats.orange, sx * roofW / 2, roofY, H + 0.05, 0.08, roofLen, 0.22)
-  // Under-canopy light strips down the middle.
-  for (let i = 0; i < 3; i++) slab(g, mats.glow, 0, 1.2 - i * 2.0, H - 0.05, 0.16, 0.9, 0.04)
+  let prev = -hwFloor
+  for (const o of offsets) {
+    if (!runAtBay(o)) continue // empty bay: the pad runs straight through it
+    // A run descends here: leave a handrail-clear opening, or the balustrade
+    // surfaces through the strips beside it.
+    strip((prev + (o - bay)) / 2, o - bay - prev)
+    prev = o + bay
+  }
+  strip((prev + hwFloor) / 2, hwFloor - prev)
 
-  // Back wall at the far (−y) end, opposite the entrance: the head-house closes
-  // behind the two runs, which have dropped under the floor by this point.
-  slab(g, mats.white, 0, BACKY, (H + 0.05) / 2, W - 0.12, 0.1, H - 0.1)
+  // 无盖 railing: the 围栏 glass panel, not a bare steel rail — a steel top and
+  // bottom rail with a glass sheet between them and a post at each joint. Built
+  // along a fixed local x (railZ) or y (railX), so it reads as the same fence
+  // piece the player places by hand.
+  const post = (x: number, y: number): void => {
+    slab(g, mats.darkSteel, x, y, 0.02, 0.16, 0.16, 0.04)
+    slab(g, mats.steel, x, y, 0.5, 0.08, 0.08, 1.0)
+  }
+  const railZ = (cx: number, y0: number, y1: number): void => {
+    const len = y1 - y0
+    const cy = (y0 + y1) / 2
+    slab(g, mats.steel, cx, cy, 0.955, 0.07, len, 0.09)
+    slab(g, mats.steel, cx, cy, 0.06, 0.07, len, 0.08)
+    slab(g, mats.glass, cx, cy, 0.52, 0.03, len, 0.76)
+    const n = Math.max(1, Math.round(len / 1.4))
+    for (let i = 0; i <= n; i++) post(cx, y0 + (len * i) / n)
+  }
+  const railX = (cy: number, x0: number, x1: number): void => {
+    const len = x1 - x0
+    const cx = (x0 + x1) / 2
+    slab(g, mats.steel, cx, cy, 0.955, len, 0.07, 0.09)
+    slab(g, mats.steel, cx, cy, 0.06, len, 0.07, 0.08)
+    slab(g, mats.glass, cx, cy, 0.52, len, 0.03, 0.76)
+    const n = Math.max(1, Math.round(len / 1.4))
+    for (let i = 0; i <= n; i++) post(x0 + (len * i) / n, cy)
+  }
+
+  if (covered) {
+    // The reference head-house is a red steel frame, not a row of pillars: on
+    // each side a post runs up to a top beam that wraps over the blue canopy,
+    // the frames are tied at the base by red steel parallel to the ground, and
+    // the glass hangs inside. Because it is all glass, the back is a glazed
+    // wall too; the roof rises toward the street doorway (+y) so the sign side
+    // stands tallest, and the side glass follows the wave with no gap.
+    const frameX = side + 0.03 // posts just outside the glass
+    const frameTop = H + 0.55 // top beam, just clear of the wave crest
+    const frameYs = [BACKY + 0.3, (BACKY + EXIT_GLASS_Y1) / 2, EXIT_GLASS_Y1 - 0.15]
+    for (const fy of frameYs) {
+      for (const sx of [-1, 1]) slab(g, mats.exitRed, sx * frameX, fy, frameTop / 2, 0.16, 0.16, frameTop)
+      slab(g, mats.exitRed, 0, fy, frameTop - 0.08, frameX * 2 + 0.16, 0.16, 0.16)
+    }
+    // Base frame: side members along the run plus the far cross tie only — the
+    // street doorway stays clear, so no red beam runs across the entrance floor.
+    const baseY0 = frameYs[0]
+    const baseY1 = frameYs[frameYs.length - 1]
+    for (const sx of [-1, 1]) slab(g, mats.exitRed, sx * frameX, (baseY0 + baseY1) / 2, 0.2, 0.14, baseY1 - baseY0 + 0.3, 0.2)
+    slab(g, mats.exitRed, 0, baseY0, 0.2, frameX * 2, 0.14, 0.2)
+
+    // Blue waved canopy, rising toward the street doorway (+y). `heightAt` is
+    // the profile both the roof and the glazing share, so the glass meets the
+    // roof edge with no gap.
+    const FLOOR_TOP = 0.3
+    const ry0 = -REACH
+    const ry1 = BACK
+    const waveAmp = 0.16
+    const periods = 0.85
+    const heightAt = (t: number): number => H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
+    const topAt = (y: number): number => heightAt((y - ry0) / (ry1 - ry0))
+    // The canopy overhangs the frame, but never past the block the exit claims
+    // (the 单向 is only three cells, so its roof is trimmed to the floor edge).
+    const roofW = Math.min(frameX * 2 + 0.6, hwFloor * 2)
+    buildWavyRoof(g, mats.blue, 0, ry0, ry1, roofW, 22, heightAt)
+
+    // Glass sides, each panel tilted to follow the roof, top edge tucked into it.
+    const sideGlass = (x: number): void => {
+      const n = 16
+      const step = (EXIT_GLASS_Y1 - EXIT_GLASS_Y0) / n
+      for (let i = 0; i < n; i++) {
+        const ya = EXIT_GLASS_Y0 + i * step
+        const yb = ya + step
+        const za = topAt(ya)
+        const zb = topAt(yb)
+        const theta = Math.atan2(zb - za, step)
+        const zmid = (za + zb) / 2
+        const h = (zmid - FLOOR_TOP) / Math.cos(theta)
+        const panel = slab(g, mats.glass, x, (ya + yb) / 2, (zmid + FLOOR_TOP) / 2, 0.04, Math.hypot(step, zb - za), h)
+        panel.rotation.x = theta
+      }
+    }
+    for (const sx of [-1, 1]) sideGlass(sx * side)
+    // Glass back wall (glazed like the sides); its head follows the roof there.
+    const zBack = topAt(BACKY)
+    slab(g, mats.glass, 0, BACKY, (zBack + FLOOR_TOP) / 2, side * 2, 0.05, zBack - FLOOR_TOP)
+
+    // Under-canopy light strips down the middle, tucked under the wave.
+    for (let i = 0; i < 3; i++) {
+      const ly = 1.2 - i * 2.0
+      slab(g, mats.glow, 0, ly, topAt(ly) - 0.1, 0.16, 0.9, 0.04)
+    }
+
+    // Handrail down each divider between two runs.
+    for (let i = 0; i < offsets.length - 1; i++) {
+      const cx = (offsets[i] + offsets[i + 1]) / 2
+      slab(g, mats.steel, cx, -1.0, 0.95, 0.06, 2.0, 0.06)
+      for (const s of [-1, 1]) for (let j = 0; j <= 1; j++) slab(g, mats.steel, cx, s * (0.2 + j * 1.6), 0.5, 0.06, 0.06, 0.9)
+    }
+  } else {
+    // 无盖: no canopy, frame or walls — a railing stands where each wall was, all
+    // the way along the sides and across the back, plus each divider between runs.
+    for (const sx of [-1, 1]) railZ(sx * side, EXIT_GLASS_Y0, EXIT_GLASS_Y1)
+    railX(BACKY, -side, side)
+    for (let i = 0; i < offsets.length - 1; i++) railZ((offsets[i] + offsets[i + 1]) / 2, BACKY, EXIT_GLASS_Y1)
+  }
 
   // Header over the street doorway, printed on the outer (+y) face. The exit's
-  // own name (A口 / 北门) prints here, so renaming it updates the model.
+  // own name (A口 / 北门) prints here, so renaming it updates the model. The open
+  // variant hangs it on two posts instead of under a canopy.
+  if (!covered) {
+    for (const sx of [-1, 1]) slab(g, mats.steel, sx * (hw - 0.12), hl - 0.12, 1.2, 0.08, 0.08, 2.4)
+  }
   slab(g, mats.darkSteel, 0, hl - 0.02, 2.45, W - 0.06, 0.12, 0.62)
   const header = plate(g, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || '地铁', mod.cfg.name || '出入口'), 0, 0)) }), W - 0.3, 0.5, 0, hl + 0.06, 2.45, Math.PI)
   header.renderOrder = 1
-  // Handrail down the divider between the two runs.
-  slab(g, mats.steel, 0, -1.0, 0.95, 0.06, 2.0, 0.06)
-  for (const s of [-1, 1]) for (let i = 0; i <= 1; i++) slab(g, mats.steel, 0, s * (0.2 + i * 1.6), 0.5, 0.06, 0.06, 0.9)
   return g
 }
 
@@ -1308,47 +1919,72 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
   const cars = line?.cars ?? 6
   const stock = (line?.stock ?? 'B') as StockClass
   const doorW = STOCK[stock].doorWidth
-  const doorH = 2.5
+  // 屏蔽门 全高 / 半高. The half-height screen (半高) stands 1.5 m and carries
+  // the line header as stickers on its glass instead of a printed top band; the
+  // full-height screen keeps the storey-tall glass and the header band above it.
+  const half = (mod.cfg.psd ?? line?.psd) === 'half'
+  const doorH = half ? 1.15 : 2.5
+  // Half stack from the local floor at z0: 0.12 sill + 1.26 glass + 0.12 cap.
+  const glassH = half ? PSD_HALF_HEIGHT - 0.24 : 2.6
+  const glassMid = half ? z0 + 0.12 + glassH / 2 : z0 + 1.45
+  const leafMid = half ? z0 + 0.12 + doorH / 2 : z0 + 1.42
+  const platYaw = toward < 0 ? Math.PI : 0
   // Openings that actually fall on this run, ascending.
   const openings = (line ? doorCentres({ stock, cars }) : [])
     .map((off) => cx + off)
     .filter((dx) => dx - doorW / 2 > x0 + 0.1 && dx + doorW / 2 < x0 + len - 0.1)
     .sort((a, b) => a - b)
 
-  // Sill and header run the full length; the glass itself is broken at the doors.
+  // Sill and head run the full length; the glass itself is broken at the doors.
   slab(g, mats.white, cx, yWall, z0 + 0.06, len, 0.18, 0.12)
-  slab(g, mats.white, cx, yWall, z0 + 2.85, len, 0.24, 0.3)
-  slab(g, mats.darkSteel, cx, yWall, z0 + 3.02, len, 0.28, 0.08)
-  // The printed header faces the platform (away from the track), repeated along
-  // the run so the station name and direction sticker recur as they really do.
-  // FrontSide, not DoubleSide: the track side of a screen has no label, so the
-  // sticker must not bleed through (mirrored) to the platform's back.
-  const platYaw = toward < 0 ? Math.PI : 0
-  const headerMap = canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId, terminus), 0, 0))
-  headerMap.wrapS = THREE.RepeatWrapping
-  headerMap.repeat.set(Math.max(1, Math.round(len / 10)), 1)
-  const header = plate(
-    g,
-    new THREE.MeshBasicMaterial({ map: headerMap, side: THREE.FrontSide }),
-    len,
-    0.3,
-    cx,
-    yWall - toward * 0.13,
-    z0 + 2.85,
-    platYaw,
-  )
-  header.renderOrder = 1
+  if (half) {
+    // A low cap rail closes the half screen at 1.5 m.
+    slab(g, mats.white, cx, yWall, z0 + PSD_HALF_HEIGHT - 0.06, len, 0.2, 0.12)
+    slab(g, mats.darkSteel, cx, yWall, z0 + PSD_HALF_HEIGHT, len, 0.24, 0.05)
+  } else {
+    slab(g, mats.white, cx, yWall, z0 + 2.85, len, 0.24, 0.3)
+    slab(g, mats.darkSteel, cx, yWall, z0 + 3.02, len, 0.28, 0.08)
+    // The printed header faces the platform (away from the track), repeated along
+    // the run so the station name and direction sticker recur as they really do.
+    // FrontSide, not DoubleSide: the track side of a screen has no label, so the
+    // sticker must not bleed through (mirrored) to the platform's back.
+    const headerMap = canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId, terminus), 0, 0))
+    headerMap.wrapS = THREE.RepeatWrapping
+    headerMap.repeat.set(Math.max(1, Math.round(len / 10)), 1)
+    const header = plate(
+      g,
+      new THREE.MeshBasicMaterial({ map: headerMap, side: THREE.FrontSide }),
+      len,
+      0.3,
+      cx,
+      yWall - toward * 0.13,
+      z0 + 2.85,
+      platYaw,
+    )
+    header.renderOrder = 1
+    // The under-header light strip.
+    slab(g, mats.glow, cx, yWall - toward * 0.12, z0 + 2.66, len, 0.03, 0.05)
+  }
   // The red "mind the gap" threshold, just under the doors so it never crosses
-  // an opening, and the under-header light strip.
+  // an opening.
   slab(g, mats.gateRed, cx, yWall, z0 + 0.14, len, 0.03, 0.07)
-  slab(g, mats.glow, cx, yWall - toward * 0.12, z0 + 2.66, len, 0.03, 0.05)
 
   // Fixed glass infill: everything except the door openings, so an open door
-  // actually shows the track instead of a wall of glass.
+  // actually shows the track instead of a wall of glass. A half screen prints
+  // the line header as a sticker on each fixed panel — the top band it loses is
+  // moved down onto the glass, which is where the reference art puts it.
+  const stickerMap = half ? canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId, terminus), 0, 0)) : null
+  const stickerMat = stickerMap ? new THREE.MeshBasicMaterial({ map: stickerMap, side: THREE.FrontSide }) : null
   const panel = (a: number, b: number): void => {
     const w = b - a
     if (w <= 0.05) return
-    slab(g, mats.glass, a + w / 2, yWall, z0 + 1.45, w, 0.04, 2.6)
+    slab(g, mats.glass, a + w / 2, yWall, glassMid, w, 0.04, glassH)
+    if (!stickerMat) return
+    // The 1024×96 header keeps its aspect, inset from the panel's mullions.
+    const sw = Math.min(w - 0.24, 2.8)
+    if (sw < 0.7) return
+    const sticker = plate(g, stickerMat, sw, sw * (96 / 1024), a + w / 2, yWall - toward * 0.05, glassMid, platYaw)
+    sticker.renderOrder = 1
   }
   let cursor = x0
   for (const dx of openings) {
@@ -1360,7 +1996,7 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
   // Mullions: a jamb at each side of every doorway, plus infill posts across the
   // wider fixed panels — never a bar across an opening.
   const postAt = (px: number): void => {
-    slab(g, mats.white, px, yWall, z0 + 1.45, 0.08, 0.14, 2.6)
+    slab(g, mats.white, px, yWall, glassMid, 0.08, 0.14, glassH)
   }
   for (const dx of openings) {
     postAt(dx - doorW / 2)
@@ -1380,13 +2016,13 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
   g.userData.line = mod.cfg.line
   for (const dx of openings) {
     for (const s of [-1, 1]) {
-      const glass = slab(g, mats.tintedGlass, dx + (s * doorW) / 4, leafY, z0 + 1.42, doorW / 2 - 0.02, 0.05, doorH)
-      const frame = slab(g, mats.white, dx + (s * doorW) / 2, leafY, z0 + 1.42, 0.06, 0.12, doorH)
+      const glass = slab(g, mats.tintedGlass, dx + (s * doorW) / 4, leafY, leafMid, doorW / 2 - 0.02, 0.05, doorH)
+      const frame = slab(g, mats.white, dx + (s * doorW) / 2, leafY, leafMid, 0.06, 0.12, doorH)
       registerDoorLeaf(glass, s, doorW / 2, leaves)
       registerDoorLeaf(frame, s, doorW / 2, leaves)
     }
     // Green "open" indicator above each pair.
-    plate(g, mats.ledGreen, 0.3, 0.06, dx, yWall - toward * 0.14, z0 + 2.7, platYaw)
+    plate(g, mats.ledGreen, 0.3, 0.06, dx, yWall - toward * 0.14, half ? z0 + 1.34 : z0 + 2.7, platYaw)
   }
   g.userData.doors = leaves
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)

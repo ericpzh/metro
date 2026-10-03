@@ -7,12 +7,13 @@ import { carveRampOpenings } from '../sim/openings.ts'
 import { reservedOpening } from '../sim/placement.ts'
 import { LEVEL_STEPS } from '../sim/constants.ts'
 import { BILLBOARD_SPECS } from '../sim/billboards.ts'
+import { benchSpec } from '../sim/benches.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
 import { exitFloorAt } from '../sim/exits.ts'
 import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
 import { liftExtendedDown, liftExtendedUp, liftModule } from '../sim/lifts.ts'
 import { STAIR_WIDTH_NORMAL, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
-import { DEFAULT_ZONE, type BillboardVariant, type Cell, type Face, type FinishId, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
+import { DEFAULT_ZONE, type BenchVariant, type BillboardVariant, type Cell, type ExitBays, type Face, type FinishId, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
 
 export function cellKey(x: number, y: number, z: number): string {
@@ -77,8 +78,21 @@ export function createModule(
       return { id, type: 'fence', x, y, z, rot, cfg: {} }
     case 'tvm':
       return { id, type: 'tvm', x, y, z, rot, cfg: {} }
+    case 'vending':
+      return { id, type: 'vending', x, y, z, rot, cfg: {} }
     case 'bench':
-      return { id, type: 'bench', x, y, z, rot, cfg: {} }
+    case 'bench-steel-1':
+    case 'bench-steel-2':
+    case 'bench-seat-1':
+    case 'bench-seat-2': {
+      // The palette id names the variant; a bare `bench` (an old caller, or the
+      // room builder's staff seat) is the 1 m stainless piece. A two-cell run is
+      // centred on the hovered cell like a track piece, so it grows evenly.
+      const variant: BenchVariant = type === 'bench' ? 'steel-1' : (type.slice('bench-'.length) as BenchVariant)
+      const spec = benchSpec(variant)
+      const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1)
+      return { id, type: 'bench', x: ox, y: oy, z, rot, w: spec.w, cfg: { variant: spec.variant } }
+    }
     case 'shelf':
       return { id, type: 'shelf', x, y, z, rot, cfg: {} }
     case 'desk':
@@ -102,8 +116,28 @@ export function createModule(
     }
     case 'tv':
       return { id, type: 'tv', x, y, z, rot, cfg: {} }
+    case 'sign':
+      return { id, type: 'sign', x, y, z, rot, cfg: {} }
     case 'exit':
-      return { id, type: 'exit', x, y, z, rot, cfg: { name: '未命名口', inRate: 900, open: true } }
+    case 'exit-covered-1':
+    case 'exit-covered-2':
+    case 'exit-covered-3':
+    case 'exit-uncovered-1':
+    case 'exit-uncovered-2':
+    case 'exit-uncovered-3': {
+      // The palette id names the variant: `exit` (or -covered-) is the 有盖
+      // head-house and -uncovered- is the open 无盖 railing exit; the trailing
+      // digit is the bay count (单向 / 双向 / 三向). A bare `exit` (an old caller
+      // or save) is the reference covered two-bay piece.
+      const parts = type.split('-')
+      const covered = parts[1] !== 'uncovered'
+      const n = Number(parts[2])
+      const bays: ExitBays = n === 1 || n === 3 ? n : 2
+      // The placeholder name is the fallback: the placement caller swaps in the
+      // next free A ~ Z letter (`nextExitName`), so a fresh exit reads like real
+      // signage. A save with no name, or all 26 letters used, keeps it.
+      return { id, type: 'exit', x, y, z, rot, cfg: { name: '未命名口', inRate: 900, open: true, covered, bays } }
+    }
     case 'escalator':
       // The one shared piece: the run always climbs from the dropped cell;
       // `dir` only orders from/to, which is what the sim reads as the one-way
@@ -316,6 +350,27 @@ export function nextModuleId(modules: readonly Module[], type: string): string {
   let n = modules.length + 1
   while (taken.has(`${type}-${n}`)) n++
   return `${type}-${n}`
+}
+
+/**
+ * The default name for a freshly placed exit: the first free letter A ~ Z, as
+ * `A口` / `B口` / … (GAME-SPEC.md §5.6). Real signage letters its exits rather
+ * than leaving every one 未命名口, and a deleted exit frees its letter for reuse.
+ * A rename to anything not starting A ~ Z simply keeps that name; once all 26
+ * letters are taken the placeholder comes back.
+ */
+export function nextExitName(modules: readonly Module[]): string {
+  const used = new Set<string>()
+  for (const m of modules) {
+    if (m.type !== 'exit') continue
+    const letter = m.cfg.name.trim().charAt(0).toUpperCase()
+    if (letter >= 'A' && letter <= 'Z') used.add(letter)
+  }
+  for (let i = 0; i < 26; i++) {
+    const letter = String.fromCharCode(65 + i)
+    if (!used.has(letter)) return `${letter}口`
+  }
+  return '未命名口'
 }
 
 /**
@@ -1066,7 +1121,12 @@ export interface FurnitureSpot {
   type: 'shelf' | 'desk' | 'cubicle' | 'sink' | 'bench'
   x: number
   y: number
-  /** 0 = run along x (south/north walls, island rows, desk grids), 1 = along y. */
+  /**
+   * 0 = run along x, 1 = along y, 2 = along x turned 180°, 3 = along y turned
+   * 180°. A wall shelf uses the turn that backs its panel onto the wall (2 for
+   * the −y wall, 0 for +y, 1 for −x, 3 for +x); desks, restroom fixtures and
+   * benches use their own facing.
+   */
   rot: number
 }
 
@@ -1105,7 +1165,7 @@ export function storeShelfSpots(
         run = touchingExistingWall(solid, ox, oy, z)
       }
       if (!run) continue
-      spots.push({ type: 'shelf', x, y, rot: y === y0 || y === y1 ? 0 : 1 })
+      spots.push({ type: 'shelf', x, y, rot: y === y0 ? 2 : y === y1 ? 0 : x === x0 ? 1 : 3 })
     }
   }
   return spots

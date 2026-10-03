@@ -373,14 +373,16 @@ export class World {
   }
 
   private sampleTripFromStreet(): Trip {
-    // Optional stop at a ticket machine: §7.4a, 30% of unpaid entries.
+    // Optional stop at a ticket / vending machine: §7.4a, a quarter of unpaid
+    // entries. Both machine types are stops in the unpaid zone, where an
+    // entering passenger actually passes them (§4.5).
     const stops: string[] = []
     if (this.rng.chance(0.25)) {
-      // A ticket machine is only a stop in the unpaid zone, where an entering
-      // passenger actually passes it (§4.5).
-      const tvms = this.graph.stops.filter((s) => s.kind === 'tvm' && this.graph.nodeZone[s.node] === ZONE_INDEX.unpaid)
-      if (tvms.length > 0) {
-        const pick = tvms[this.rng.int(tvms.length)]
+      const machines = this.graph.stops.filter(
+        (s) => (s.kind === 'tvm' || s.kind === 'vending') && this.graph.nodeZone[s.node] === ZONE_INDEX.unpaid,
+      )
+      if (machines.length > 0) {
+        const pick = machines[this.rng.int(machines.length)]
         stops.push('stop:' + pick.id)
       }
     }

@@ -894,7 +894,7 @@ export class SceneRenderer {
   }
 
   /**
-   * Cycle the wall-mounted ad screens through the shared poster frames, so the
+   * Cycle the 装饰 ad screens through the shared poster frames, so the
    * 装饰 panels read as "playing ads". Wall time drives it — the posters keep
    * changing even while the sim is paused — and every screen shares one frame,
    * which keeps a single set of materials alive for the whole station.
@@ -1928,6 +1928,38 @@ export class SceneRenderer {
 
   private activeCamera(): THREE.Camera {
     return this.orthoOn ? this.ortho : this.camera
+  }
+
+  /**
+   * The id of the placed module under the pointer, found from its drawn meshes
+   * rather than its collision envelope. Large equipment (an exit head-house) is
+   * drawn far past the box it reserves, so a click on the visible model would
+   * otherwise miss it and land on the floor beyond. Only visible modules count,
+   * matching the level slicing. Null over bare floor or station geometry.
+   */
+  pickModule(clientX: number, clientY: number): string | null {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
+    this.raycaster.setFromCamera(ndc, this.activeCamera())
+    const shown = this.moduleMeshes.children.filter((c) => c.visible && (!c.parent || c.parent.visible))
+    const hits = this.raycaster.intersectObjects(shown, true)
+    let modHit: THREE.Intersection | null = null
+    let moduleId: string | null = null
+    for (const hit of hits) {
+      let o: THREE.Object3D | null = hit.object
+      while (o && typeof o.userData.moduleId !== 'string') o = o.parent
+      if (o) {
+        modHit = hit
+        moduleId = o.userData.moduleId as string
+        break
+      }
+    }
+    if (!modHit || !moduleId) return null
+    // A block nearer the camera occludes the module: never select through a wall.
+    const blocks = this.pickables.filter((m) => m.visible && (!m.parent || m.parent.visible))
+    const blockHits = this.raycaster.intersectObjects(blocks, false)
+    if (blockHits.length > 0 && blockHits[0].distance < modHit.distance) return null
+    return moduleId
   }
 
   zoneAt(clientX: number, clientY: number, workPlaneZ: number): [number, number, number] | null {

@@ -10,9 +10,10 @@
 //
 // Pure data — no three, no DOM.
 
-import { EXIT_L, EXIT_W, exitFloorAt } from './exits.ts'
+import { EXIT_L, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { rampEnvelope, rampOpeningAt } from './openings.ts'
+import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS } from './constants.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import type { Cell, Module } from './types.ts'
 
@@ -27,21 +28,26 @@ export interface ModuleBox {
 }
 
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'billboard' | 'tv' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'billboard' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.2,
   fence: 1.0,
   tvm: 1.9,
+  vending: 1.9,
   bench: 1.0,
-  shelf: 1.1,
+  shelf: 1.9,
   desk: 0.9,
   cubicle: 1.8,
   sink: 0.9,
   billboard: 2.4,
-  tv: 2.0,
+  tv: 3.0,
+  // A ceiling-hung sign or TV spans the whole storey, from the floor top to the
+  // ceiling one grid step up, so its envelope is the full column (and it is
+  // found/blocked like any other equipment).
+  sign: 3.0,
   retail: 3.6,
   shop: 3.6,
   booth: 2.4,
-  'platform-edge': 3.1,
+  'platform-edge': PSD_FULL_HEIGHT,
   track: 0.3,
 }
 
@@ -78,6 +84,21 @@ export function billboardCells(m: Extract<Module, { type: 'billboard' }>): Array
 }
 
 /**
+ * Every world cell a bench's run covers: `w` cells along its local +x,
+ * quarter-turned by `rot`. Mirrors `billboardCells` for a platform-edge. A
+ * legacy bench with no `w` is the single-cell 1 m piece.
+ */
+export function benchCells(m: Extract<Module, { type: 'bench' }>): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  const w = m.w ?? 1
+  for (let i = 0; i < w; i++) {
+    const [dx, dy] = rotateLocal(m.rot, i, 0)
+    out.push([m.x + dx, m.y + dy, m.z])
+  }
+  return out
+}
+
+/**
  * The plan box a flat, floor-standing module occupies. Modules anchor at their
  * cell and rise from its top (`z + 1`), matching `render/models.ts`. The exit's
  * canopy is longer than its enclosure, but the collision box is the head-house
@@ -86,14 +107,19 @@ export function billboardCells(m: Extract<Module, { type: 'billboard' }>): Array
 function flatEnvelope(m: Module): ModuleBox | null {
   const z0 = m.z + 1
   switch (m.type) {
+    case 'bench':
+      // A bench runs `w` cells along local +x (a 2 m bench chains two seats),
+      // so its box is the AABB of the whole run.
+      return cellsAabb(benchCells(m), z0, z0 + FLAT_HEIGHT.bench)
     case 'gate':
     case 'tvm':
-    case 'bench':
+    case 'vending':
     case 'shelf':
     case 'desk':
     case 'cubicle':
     case 'sink':
     case 'tv':
+    case 'sign':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
     case 'billboard': {
       // A billboard runs `w` cells along local +x, so its box is the AABB of
@@ -112,7 +138,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return { x0: m.x, y0: m.y + 0.45, z0, x1: m.x + 1, y1: m.y + 0.55, z1 }
     }
     case 'exit': {
-      const rx = EXIT_W / 2
+      const rx = exitWidth(exitBays(m)) / 2
       const ry = EXIT_L / 2
       const cx = m.x + 0.5
       const cy = m.y + 0.5
@@ -126,7 +152,10 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return { x0: m.x, y0: m.y, z0, x1: m.x + m.w, y1: m.y + m.h, z1: z0 + FLAT_HEIGHT[m.type] }
     case 'platform-edge': {
       // The screen sits on the track-facing strip of its single-cell-deep run.
-      const box = cellsAabb(edgeCells(m), z0, z0 + FLAT_HEIGHT['platform-edge'])
+      // A half-height (半高) screen reserves only its real 1.5 m, so something
+      // may stand in the headroom the full screen would have filled.
+      const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : PSD_FULL_HEIGHT
+      const box = cellsAabb(edgeCells(m), z0, z0 + h)
       return box.x1 - box.x0 <= 1.0001
         ? { ...box, x0: box.x0 + 0.16, x1: box.x1 - 0.16 }
         : { ...box, y0: box.y0 + 0.16, y1: box.y1 - 0.16 }
@@ -217,6 +246,8 @@ function baseCells(m: Module): Array<[number, number]> {
       return edgeCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'billboard':
       return billboardCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'bench':
+      return benchCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'track':
       return trackCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'lift':
@@ -257,7 +288,10 @@ export function reservedOpening(modules: readonly Module[], x: number, y: number
 /* ------------------------------------------------------- wall-mounted decor */
 
 /** Decoration types that must be fixed to a wall block behind them (§5.7). */
-const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'tv'])
+const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard'])
+
+/** Decoration types that hang by rods from the ceiling slab above them (§5.7). */
+const CEILING_MOUNTED: ReadonlySet<string> = new Set(['sign', 'tv'])
 
 /**
  * The cell step from a wall-mounted module to the wall it hangs on. The model
@@ -287,6 +321,24 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module): boo
     if (!cells.some((c) => c.fill === 'solid' && c.x === nx && c.y === ny && c.z === nz)) return true
   }
   return false
+}
+
+/* ------------------------------------------------------ ceiling-hung decor */
+
+/**
+ * True when a ceiling-hung decoration (指示牌 or 电视) has no ceiling above it.
+ * The ceiling is the first storey grid line above the piece's floor
+ * (`LEVEL_STEPS`, one storey = 4 m in the built grid): the slab the suspension
+ * rods bolt to. A piece with nothing overhead has nowhere to hang, so the
+ * builder refuses it. Wall-mounted and floor-standing modules are never refused.
+ */
+export function ceilingMountMissing(cells: readonly Cell[], candidate: Module): boolean {
+  if (!CEILING_MOUNTED.has(candidate.type)) return false
+  const ceilingZ = LEVEL_STEPS.find((z) => z > candidate.z)
+  if (ceilingZ === undefined) return true
+  return !cells.some(
+    (c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === ceilingZ,
+  )
 }
 
 /** Strict overlap, so modules in adjacent cells (a gate line) do not collide. */
