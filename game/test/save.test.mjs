@@ -14,7 +14,6 @@ test('serialise -> parse is identity for the static station', () => {
   assert.equal(r.version, SAVE_VERSION)
   assert.equal(r.state.name, state.name)
   assert.equal(r.state.seed, state.seed)
-  assert.deepEqual(r.state.levels, state.levels)
   assert.deepEqual(r.state.cells, state.cells)
   assert.deepEqual(r.state.modules, state.modules)
   assert.deepEqual(r.state.lines, state.lines)

@@ -56,7 +56,6 @@ test('placing an escalator appends it and carves the slab it climbs through', ()
   const state = toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells: floor(0, 2, 0, 8, 0),
     modules: [],
     lines: [],

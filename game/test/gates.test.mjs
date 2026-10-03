@@ -27,7 +27,7 @@ function flatStation(dir) {
       terminus: 'through', direction: 'up', travelSign: 1, stations: ['edge'],
     },
   ]
-  return { name: 't', seed: 3, levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }], cells, modules, lines }
+  return { name: 't', seed: 3, cells, modules, lines }
 }
 
 function hasEdge(g, fromKey, toKey) {

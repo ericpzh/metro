@@ -16,7 +16,6 @@ function corridor() {
   return toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells,
     modules: [],
     lines: [],
@@ -61,7 +60,6 @@ test('paint, fill and erase are immutable and reversible', () => {
   const base = toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells,
     modules: [],
     lines: [],
@@ -100,7 +98,6 @@ test('paintFaces / eraseFaces repaint a drag rectangle immutably', () => {
   const base = toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells,
     modules: [],
     lines: [],

@@ -530,7 +530,7 @@ export const useStore = create<AppState>((set, get) => ({
     rebuildSim(toData(next))
   },
   newStation: () => {
-    const s = toState({ name: '未命名车站', seed: 7654321, levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4.5 }], cells: [{ x: 0, y: 0, z: 0, fill: 'solid' }, { x: 1, y: 0, z: 0, fill: 'solid' }, { x: 0, y: 1, z: 0, fill: 'solid' }, { x: 1, y: 1, z: 0, fill: 'solid' }], modules: [], lines: [] })
+    const s = toState({ name: '未命名车站', seed: 7654321, cells: [], modules: [], lines: [] })
     set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: 0, selected: null })
     loadSim(toData(s))
   },

@@ -9,10 +9,8 @@ import { trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.
 import { moduleEnvelope, placementOnTrack, trackBedKeys, trackAt } from '../src/sim/placement.ts'
 import { World } from '../src/sim/world.ts'
 
-const G = [{ id: 'G', z: 0, kind: 'at-grade', height: 4.5 }]
-
 function station(cells) {
-  return { name: '测试', seed: 1, levels: G, cells, modules: [], lines: [defaultLine('1', 'up', 'third-rail')] }
+  return { name: '测试', seed: 1, cells, modules: [], lines: [defaultLine('1', 'up', 'third-rail')] }
 }
 
 function floorRow(x0, x1, y, finish = 'floor.granite') {
@@ -39,6 +37,9 @@ test('placing a rail digs the bed, lays the track and derives the screen doors',
   assert.equal(edges.length, 1, 'one edge on the platform side')
   assert.equal(edges[0].y, 0, 'the edge sits on the platform row')
   assert.equal(edges[0].w, 6)
+  // The platform is south of the bed, so the track lies on the edge's +y: the
+  // screen's "right" side. The header must face the platform, never the rail.
+  assert.equal(edges[0].cfg.side, 'right', 'the derived screen faces the platform')
   assert.equal(edges[0].cfg.from, track.id, 'the edge remembers its rail')
 })
 
@@ -48,6 +49,10 @@ test('an island platform beside both sides yields two edges', () => {
   const edges = s1.modules.filter((m) => m.type === 'platform-edge')
   assert.equal(edges.length, 2)
   assert.deepEqual(edges.map((e) => e.y).sort(), [0, 2])
+  // The row at y = 0 is south of the bed (track on its +y → "right"); the row at
+  // y = 2 is north (track on its −y → "left").
+  const byY = edges.slice().sort((a, b) => a.y - b.y)
+  assert.deepEqual(byY.map((e) => e.cfg.side), ['right', 'left'])
 })
 
 test('a wall above a platform cell splits the derived edge', () => {
@@ -157,6 +162,10 @@ test('a quarter-turned track digs a north–south bed and derives side edges', (
   assert.equal(edges.length, 2)
   assert.ok(edges.every((e) => e.rot === 1 && e.w === 5), 'the doors inherit the rail’s rotation')
   assert.deepEqual(edges.map((e) => e.x).sort(), [0, 2], 'one edge on each side')
+  // rot 1 turns the run onto +y; the x = 0 edge is west of the bed (track on its
+  // +x, i.e. local −y → "left"), the x = 2 edge is east ("right").
+  const byX = edges.slice().sort((a, b) => a.x - b.x)
+  assert.deepEqual(byX.map((e) => e.cfg.side), ['left', 'right'])
 })
 
 test('a north–south rail runs its train in y with a quarter-turn yaw', () => {
@@ -350,4 +359,10 @@ test('the reference station ships a dug bed with an auto-consistent edge', async
       assert.equal(s.cells.some((c) => c.x === x && c.y === y && c.z === track.z), false)
     }
   }
+  // The hand-authored demo edge must agree with the auto-derive, or a player
+  // who places the same rail would get a screen facing the other way.
+  const edge = s.modules.find((m) => m.type === 'platform-edge')
+  const derived = derivePlatformEdges(s, track).find((e) => e.x === edge.x && e.y === edge.y)
+  assert.ok(derived, 'the demo edge is the one the derive would place')
+  assert.equal(edge.cfg.side, derived.cfg.side, 'the demo edge keeps the derived side')
 })

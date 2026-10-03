@@ -10,7 +10,7 @@
 // app layer. This module is pure and runs in Node.
 
 import { toState, type StationState } from '../build/model.ts'
-import type { Cell, LineDef, LevelDef, Module, StationData } from '../sim/types.ts'
+import type { Cell, LineDef, Module, StationData } from '../sim/types.ts'
 
 export const SAVE_FORMAT = 'metro-save' as const
 export const SAVE_VERSION = 1
@@ -24,7 +24,6 @@ export interface SaveFileV1 {
   name: string
   seed: number
   static: {
-    levels: LevelDef[]
     cells: Cell[]
     modules: Module[]
     lines: LineDef[]
@@ -44,7 +43,6 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     name: state.name,
     seed: state.seed,
     static: {
-      levels: state.levels,
       cells: state.cells,
       modules: state.modules,
       lines: state.lines,
@@ -73,7 +71,6 @@ export function parse(text: string): ParseResult {
   const data: StationData = {
     name: typeof d.name === 'string' ? d.name : '未命名车站',
     seed: typeof d.seed === 'number' ? d.seed : 1234567,
-    levels: d.static.levels ?? [{ id: 'G', z: 0, kind: 'at-grade', height: 4.5 }],
     cells: d.static.cells,
     modules: d.static.modules ?? [],
     lines: d.static.lines ?? [],

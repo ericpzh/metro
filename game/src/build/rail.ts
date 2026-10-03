@@ -172,10 +172,13 @@ export function derivePlatformEdges(state: StationState, track: Module): Platfor
   const rot = track.rot ?? 0
   const d = track.d ?? 1
   const out: PlatformEdgeModule[] = []
-  // Local j = −1 is the "left" side, j = d the "right" side.
+  // `side` is read from the screen's own frame, not the track's: it names the
+  // side the track lies on (renderer and sim both agree on this). A platform at
+  // local j = −1 sits on the track's −y, which puts the track on the edge's +y —
+  // its "right"; j = d is the mirror image.
   const sides: Array<{ side: 'left' | 'right'; j: number }> = [
-    { side: 'left', j: -1 },
-    { side: 'right', j: d },
+    { side: 'right', j: -1 },
+    { side: 'left', j: d },
   ]
   for (const { side, j } of sides) {
     const xs: number[] = []

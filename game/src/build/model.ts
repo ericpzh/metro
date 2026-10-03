@@ -8,7 +8,7 @@ import { reservedOpening } from '../sim/placement.ts'
 import { exitFloorAt } from '../sim/exits.ts'
 import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
 import { STAIR_WIDTH_NORMAL, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
-import { DEFAULT_ZONE, type Cell, type Face, type FinishId, type LevelDef, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
+import { DEFAULT_ZONE, type Cell, type Face, type FinishId, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
 
 export function cellKey(x: number, y: number, z: number): string {
@@ -34,12 +34,10 @@ export function nearestLevel(z: number): number {
 /**
  * The z of the at-grade (street) level — h = 0 m. A surface exit head-house is
  * rooted here and nowhere else: its opening and canopy belong at the ground, not
- * on a concourse or platform slab. Falls back to 0 for a doc with no at-grade
- * level.
+ * on a concourse or platform slab. There are no named levels any more; the
+ * street is simply z = 0.
  */
-export function groundLevelZ(levels: readonly LevelDef[]): number {
-  return levels.find((l) => l.kind === 'at-grade')?.z ?? 0
-}
+export const GROUND_Z = 0
 
 /**
  * A placed escalator is a fixed one-storey piece, the same footprint as a
@@ -185,7 +183,6 @@ function cloneCell(c: Cell): Cell {
 export interface StationState {
   name: string
   seed: number
-  levels: StationData['levels']
   cells: Cell[]
   modules: Module[]
   lines: StationData['lines']
@@ -195,7 +192,6 @@ export function toState(data: StationData): StationState {
   return {
     name: data.name,
     seed: data.seed,
-    levels: data.levels.map((l) => ({ ...l })),
     cells: data.cells.map(cloneCell),
     modules: data.modules.map((m) => ({ ...m })),
     lines: data.lines.map((l) => ({ ...l })),
@@ -203,14 +199,13 @@ export function toState(data: StationData): StationState {
 }
 
 export function toData(s: StationState): StationData {
-  return { name: s.name, seed: s.seed, levels: s.levels, cells: s.cells, modules: s.modules, lines: s.lines }
+  return { name: s.name, seed: s.seed, cells: s.cells, modules: s.modules, lines: s.lines }
 }
 
 export function cloneState(s: StationState): StationState {
   return {
     name: s.name,
     seed: s.seed,
-    levels: s.levels.map((l) => ({ ...l })),
     cells: s.cells.map(cloneCell),
     modules: s.modules.map((m) => JSON.parse(JSON.stringify(m)) as Module),
     lines: s.lines.map((l) => JSON.parse(JSON.stringify(l))),
@@ -529,7 +524,7 @@ export function zoneRegionLabels(floors: readonly Cell[]): ZoneLabel[] {
 /* ------------------------------------- build floors & their auto walls (§4.1) */
 
 /**
- * Tag on a floor cell the 建造 tool drew. A patch is tracked by its cells
+ * Tag on a floor cell the 地基 tool drew. A patch is tracked by its cells
  * rather than by a module, so an L-shape or a drag that overlaps hand-built
  * ground all read as one continuous surface. Hand-built floor (the demo, a
  * saved station) is deliberately untagged: it is treated as ground the patch
@@ -635,7 +630,7 @@ export function wallColumnsAt(
 }
 
 /**
- * The new wall columns a 建造 drag will raise: every pending floor cell on the
+ * The new wall columns a 地基 drag will raise: every pending floor cell on the
  * edge of the surface (a same-level neighbour is neither solid nor part of the
  * patch). Used for the live ghost, so the room-like shell shows before release.
  * `solid` is the current station; the patch is preview-only.
@@ -667,7 +662,7 @@ export function plannedAutoWalls(
 }
 
 /**
- * Rebuild the automatic wall ring around every 建造 floor patch. A patch cell on
+ * Rebuild the automatic wall ring around every 地基 floor patch. A patch cell on
  * the outer edge of its surface earns a full-height wall column; an auto wall
  * whose cell became interior — covered by a later drag — or whose floor was dug
  * away is dropped. Hand-placed walls are never added to or removed from,
@@ -773,7 +768,7 @@ export function syncAutoWalls(state: StationState): StationState {
 }
 
 /**
- * Add the floor a 建造 rectangle drag drew, tag it as an auto-floor patch, and
+ * Add the floor a 地基 rectangle drag drew, tag it as an auto-floor patch, and
  * rebuild the wall ring. Cells the drag covers that already exist are left
  * alone, so extending into hand-built ground is seamless. A single click (a
  * plain block) does not come through here — only a deliberate drag turns into a
@@ -796,7 +791,7 @@ export function addFloor(state: StationState, cells: Array<[number, number, numb
 }
 
 /**
- * Remove blocks a 建造 drag marked, then rebuild the wall ring only if one of
+ * Remove blocks a 地基 drag marked, then rebuild the wall ring only if one of
  * them was an auto-floor cell. Removing a hand-placed block, or an auto wall
  * itself, leaves the ring alone so a wall the player deliberately dug out is
  * not silently restored.
@@ -1256,7 +1251,6 @@ export function labStation(): StationData {
   return {
     name: '材质试验台',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells,
     modules,
     lines: [],

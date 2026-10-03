@@ -45,7 +45,6 @@ function syntheticStation(): StationData {
   return {
     name: '地铁站',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4.5 }],
     cells,
     modules: [],
     lines: [

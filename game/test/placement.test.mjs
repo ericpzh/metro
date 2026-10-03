@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening } from '../src/sim/placement.ts'
-import { addCells, createModule, groundLevelZ, nextModuleId, removeModule, toState } from '../src/build/model.ts'
+import { addCells, createModule, GROUND_Z, nextModuleId, removeModule, toState } from '../src/build/model.ts'
 
 const gate = (x, y, z, id = 'gate') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })
 const tvm = (x, y, z, id = 'tvm') => ({ id, type: 'tvm', x, y, z, cfg: {} })
@@ -73,7 +73,6 @@ test('bulldozing removes only that module and leaves its block', () => {
   const state = toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells: [{ x: 0, y: 0, z: 0, fill: 'solid' }],
     modules: [gate(0, 0, 0, 'a'), tvm(1, 0, 0, 'b')],
     lines: [],
@@ -92,21 +91,14 @@ test('the placement factory carries the hover rotation into the placed module', 
   assert.equal(createModule('nope', 0, 0, 0, 'x'), null)
 })
 
-test('a surface exit is rooted at the at-grade level', () => {
-  const levels = [
-    { id: 'G', z: 0, kind: 'at-grade', height: 4 },
-    { id: 'B1', z: -4, kind: 'underground', height: 4.5 },
-  ]
-  assert.equal(groundLevelZ(levels), 0)
-  // A doc with no at-grade level falls back to the surface.
-  assert.equal(groundLevelZ([{ id: 'B1', z: -4, kind: 'underground', height: 4.5 }]), 0)
+test('a surface exit is rooted at the street (z = 0)', () => {
+  assert.equal(GROUND_Z, 0)
 })
 
 test('a fresh id is never one already in use', () => {
   const state = toState({
     name: 't',
     seed: 1,
-    levels: [],
     cells: [],
     modules: [gate(0, 0, 0, 'gate-1'), gate(1, 0, 0, 'gate-2')],
     lines: [],

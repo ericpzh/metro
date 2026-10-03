@@ -434,31 +434,42 @@ export class SceneRenderer {
     this.disposeChunks()
     const t0 = performance.now()
     this.lastChunkMs = 0
-    // Group cells into storeys. A storey is the named level a cell stands on:
-    // a wall, and a room's ceiling (the underside of the floor above), belong to
-    // the storey that carries them. Meshing each storey across its own z band
-    // stops a level drawing the storeys above it.
-    const floors =
-      data.levels.length > 0
-        ? data.levels.map((l) => l.z).sort((a, b) => a - b)
-        : [...new Set(data.cells.map((c) => c.z))].sort((a, b) => a - b)
-    const bandOf = (z: number): number => {
-      let lo = floors[0]
-      for (const f of floors) if (f <= z) lo = f
-      return lo
+    // Group cells into storeys. There are no named levels any more: a storey is
+    // one contiguous vertical run of solid cells in a column, keyed by the run's
+    // lowest z. A floor slab and the walls standing on it therefore share a
+    // storey, while a slab a full storey below is its own — which is what the
+    // depth rail slices against. Runs may overlap in z across columns, so each
+    // band meshes exactly its own cells (`emit`) instead of a z window.
+    const zsByCol = new Map<string, number[]>()
+    for (const c of data.cells) {
+      if (c.fill !== 'solid') continue
+      const col = `${c.x},${c.y}`
+      const arr = zsByCol.get(col)
+      if (arr) arr.push(c.z)
+      else zsByCol.set(col, [c.z])
     }
-    const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number }> }>()
+    const bandOfCell = new Map<number, number>()
     // The lowest storey each column reaches. A block standing on that storey has
     // nothing under it, so it is a plate hanging in space: it must stay on screen
     // even when its storey sits above the one being looked at. Anything with a
     // storey below it is that lower room's ceiling and goes with the cut.
     this.groundOf.clear()
+    for (const [col, zs] of zsByCol) {
+      zs.sort((a, b) => a - b)
+      const comma = col.indexOf(',')
+      const cx0 = Number(col.slice(0, comma))
+      const cy0 = Number(col.slice(comma + 1))
+      let base = zs[0]
+      this.groundOf.set(col, base)
+      for (let i = 0; i < zs.length; i++) {
+        if (i > 0 && zs[i] !== zs[i - 1] + 1) base = zs[i]
+        bandOfCell.set(packKey(cx0, cy0, zs[i]), base)
+      }
+    }
+    const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }>()
     for (const c of data.cells) {
       if (c.fill !== 'solid') continue
-      const band = bandOf(c.z)
-      const col = `${c.x},${c.y}`
-      const prev = this.groundOf.get(col)
-      if (prev === undefined || band < prev) this.groundOf.set(col, band)
+      const band = bandOfCell.get(packKey(c.x, c.y, c.z)) as number
       let entry = byBand.get(band)
       if (!entry) {
         entry = { zLo: c.z, zHi: c.z, cells: [] }
@@ -466,7 +477,7 @@ export class SceneRenderer {
       }
       if (c.z < entry.zLo) entry.zLo = c.z
       if (c.z > entry.zHi) entry.zHi = c.z
-      entry.cells.push({ x: c.x, y: c.y })
+      entry.cells.push({ x: c.x, y: c.y, z: c.z })
     }
     // Solid set of just those unsupported plates, for meshing them on their own.
     // A block a ramp carve orphaned is skipped: it is the ceiling over that
@@ -476,10 +487,14 @@ export class SceneRenderer {
     for (const c of data.cells) {
       if (c.fill !== 'solid') continue
       if (c.tags?.includes(OPENING_CEILING)) continue
-      if (bandOf(c.z) === this.groundOf.get(`${c.x},${c.y}`)) floating.add(packKey(c.x, c.y, c.z))
+      if (bandOfCell.get(packKey(c.x, c.y, c.z)) === this.groundOf.get(`${c.x},${c.y}`)) floating.add(packKey(c.x, c.y, c.z))
     }
     const box = new THREE.Box3()
-    const meshBand = (group: THREE.Group, levelZ: number, band: { zLo: number; zHi: number; cells: Array<{ x: number; y: number }> }, solid: Set<number>, isFloat: boolean): void => {
+    const meshBand = (group: THREE.Group, levelZ: number, band: { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }, solid: Set<number>, isFloat: boolean): void => {
+      // Emit exactly this band's cells: runs overlap in z across columns, so a
+      // chunk's z window alone would mesh a neighbouring storey too.
+      const emit = new Set<number>()
+      for (const c of band.cells) emit.add(packKey(c.x, c.y, c.z))
       const seen = new Set<string>()
       for (const c of band.cells) {
         const cx = Math.floor(c.x / CHUNK) * CHUNK
@@ -487,7 +502,7 @@ export class SceneRenderer {
         const k = `${cx},${cy}`
         if (seen.has(k)) continue
         seen.add(k)
-        const chunk = meshChunk(solid, this.finishes, cx, cy, band.zLo, band.zHi, undefined, this.hiddenCells)
+        const chunk = meshChunk(solid, this.finishes, cx, cy, band.zLo, band.zHi, emit, this.hiddenCells)
         if (chunk.triangles === 0) continue
         this.lastChunkMs = Math.max(this.lastChunkMs, chunk.ms)
         // One mesh per finish, sharing the chunk geometry where faces agree.
@@ -519,10 +534,11 @@ export class SceneRenderer {
     for (const [levelZ, band] of byBand) {
       const group = new THREE.Group()
       group.userData.levelZ = levelZ
-      // The whole storey, then — for every storey that could sit above one — the
-      // unsupported plates on their own, so the two can be shown separately.
+      // The whole storey, then its unsupported plates on their own, so the two can
+      // be shown separately: a storey below the active level draws whole, while a
+      // plate hanging above it still stays on screen.
       meshBand(group, levelZ, band, this.solid, false)
-      if (levelZ > floors[0]) meshBand(group, levelZ, band, floating, true)
+      meshBand(group, levelZ, band, floating, true)
       this.levelGroups.set(levelZ, group)
       this.scene.add(group)
     }

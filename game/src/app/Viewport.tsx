@@ -1,7 +1,7 @@
 // The viewport: owns the SceneRenderer lifecycle and turns pointer input into
 // build commands. Panels stay in React; only this file touches three directly.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SceneRenderer } from '../render/scene.ts'
 import {
   addCells,
@@ -20,7 +20,7 @@ import {
   facilityRect,
   facilityWallCells,
   fillSurface,
-  groundLevelZ,
+  GROUND_Z,
   nextModuleId,
   paintFaces,
   paintZoneCells,
@@ -148,6 +148,13 @@ function brushColour(brush: ZoneBrush): number {
 /** Colour of the "cut an opening" right-click preview. */
 const OPENING_PREVIEW = 0x7fe4ff
 
+/** The 地基 (block) tool's live patch size, shown beside the pointer in metres. */
+interface BuildMeasure {
+  left: number
+  top: number
+  text: string
+}
+
 /** Every cell a whole-store delete would clear, for the red preview volume. */
 function facilityVolume(mod: { x: number; y: number; z: number; w?: number; h?: number }): Array<[number, number, number]> {
   const w = mod.w ?? 1
@@ -241,6 +248,9 @@ export function Viewport(): React.ReactElement {
     downTime: number
   } | null>(null)
 
+  /** The 地基 tool's pending patch size, pinned to the pointer while previewing. */
+  const [buildMeasure, setBuildMeasure] = useState<BuildMeasure | null>(null)
+
   const version = useStore((s) => s.version)
   const station = useStore((s) => s.station)
   const tool = useStore((s) => s.tool)
@@ -315,7 +325,7 @@ export function Viewport(): React.ReactElement {
     const floorHere = h.solid || exitFloorAt(st.station.modules, x, y, z)
     // A surface exit is rooted at the street (h = 0 m): it may not be dropped on
     // a concourse or platform slab.
-    const onGround = z === groundLevelZ(st.station.levels)
+    const onGround = z === GROUND_Z
     const placeable = floorHere && (st.moduleType !== 'exit' || onGround)
     const mod = placeable ? createModule(st.moduleType, x, y, z, 'preview', st.moduleRot, st.stairWidth, st.escalatorDir) : null
     // An escalator may run through walls/ceilings — only its two landings must
@@ -378,11 +388,19 @@ export function Viewport(): React.ReactElement {
     scene.setModulePreview(mod, blocked)
   }
 
+  /** Pin the 地基 patch-size badge to the pointer, in canvas-relative pixels. */
+  const showBuildMeasure = (e: React.PointerEvent, text: string): void => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setBuildMeasure({ left: e.clientX - rect.left, top: e.clientY - rect.top, text })
+  }
+
   // A ghost belongs to a tool; leaving one must not strand a preview.
   useEffect(() => {
     hoverRef.current = null
     zoneDrag.current = null
     facilityDrag.current = null
+    setBuildMeasure(null)
     sceneRef.current?.setGhost([], 'add')
     sceneRef.current?.setGhost([], 'remove')
     sceneRef.current?.clearFaceGhost()
@@ -693,6 +711,7 @@ export function Viewport(): React.ReactElement {
       downTime: performance.now(),
     }
     scene.setGhost(pendingCells([anchor], mode, solidRef.current, st.station.modules), mode)
+    showBuildMeasure(e, '长 1 m × 宽 1 m')
   }
 
   const onPointerMove = (e: React.PointerEvent): void => {
@@ -701,6 +720,7 @@ export function Viewport(): React.ReactElement {
     const hit = pickAt(e)
     if (!hit) {
       hoverRef.current = null
+      setBuildMeasure(null)
       scene.setCursor(null)
       scene.setModulePreview(null)
       return
@@ -758,11 +778,17 @@ export function Viewport(): React.ReactElement {
         if (d.mode === 'add' && dragging) cells.push(...plannedAutoWalls(solidRef.current, preview, st.station.modules))
         scene.setGhost(cells, d.mode)
         scene.setCursor(dragging ? target : d.anchor, d.mode === 'add')
+        // The patch's own footprint, in metres (1 cell = 1 m), pinned to the
+        // pointer so the player can size a foundation before releasing.
+        const dx = dragging ? Math.abs(target[0] - d.anchor[0]) + 1 : 1
+        const dy = dragging ? Math.abs(target[1] - d.anchor[1]) + 1 : 1
+        showBuildMeasure(e, `长 ${dx} m × 宽 ${dy} m`)
         return
       }
       const c = hit.solid ? hit.place : hit.cell
       scene.setGhost([c], 'add')
       scene.setCursor(c, true)
+      showBuildMeasure(e, '长 1 m × 宽 1 m')
       return
     }
     if (st.tool === 'paint') {
@@ -879,6 +905,7 @@ export function Viewport(): React.ReactElement {
 
   const onPointerUp = (e: React.PointerEvent): void => {
     const scene = sceneRef.current
+    setBuildMeasure(null)
     const fd = facilityDrag.current
     facilityDrag.current = null
     if (fd?.active) {
@@ -1063,7 +1090,7 @@ export function Viewport(): React.ReactElement {
     const floorHere = solid || exitFloorAt(st.station.modules, cell[0], cell[1], cell[2])
     const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])
     // A surface exit stands at the street (h = 0 m) and nowhere else.
-    if (type === 'exit' && at[2] !== groundLevelZ(st.station.levels)) {
+    if (type === 'exit' && at[2] !== GROUND_Z) {
       st.setNotice('出入口只能放在地面')
       return
     }
@@ -1099,12 +1126,18 @@ export function Viewport(): React.ReactElement {
         onContextMenu={onContextMenu}
         onPointerLeave={() => {
           hoverRef.current = null
+          setBuildMeasure(null)
           sceneRef.current?.setCursor(null)
           sceneRef.current?.setModulePreview(null)
           sceneRef.current?.setGhost([], 'remove')
           sceneRef.current?.clearFaceGhost()
         }}
       />
+      {buildMeasure && (
+        <div className="buildMeasure" style={{ left: buildMeasure.left + 14, top: buildMeasure.top + 14 }}>
+          {buildMeasure.text}
+        </div>
+      )}
       <ViewCube sceneRef={sceneRef} />
     </>
   )

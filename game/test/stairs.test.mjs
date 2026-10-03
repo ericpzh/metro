@@ -160,7 +160,7 @@ test('a placeable stair is a fixed one-storey piece run along its rotation', () 
 test('placing a stair carves the slab it climbs through', () => {
   const cells = []
   for (let x = 0; x < 3; x++) for (let y = 0; y < 9; y++) cells.push({ x, y, z: 0, fill: 'solid' })
-  const state = toState({ name: 't', seed: 1, levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }], cells, modules: [], lines: [] })
+  const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
   const mod = createModule('stair', 1, 0, -4, 'stair-1', 0, STAIR_WIDTH_NARROW)
   assert.ok(mod)
   const next = addEquipment(state, mod)
@@ -184,7 +184,7 @@ test('the four stair buttons each build their fixed one-storey shape', () => {
 test('placing a turning stair lays its half-landing as a walkable cell', () => {
   const cells = []
   for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) cells.push({ x, y, z: 4, fill: 'solid' })
-  const state = toState({ name: 't', seed: 1, levels: [{ id: 'G', z: 4, kind: 'at-grade', height: 4 }], cells, modules: [], lines: [] })
+  const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
   const mod = createModule('stair-left90', 2, 2, 4, 's', 0, STAIR_WIDTH_NARROW)
   assert.ok(mod)
   const next = addEquipment(state, mod)

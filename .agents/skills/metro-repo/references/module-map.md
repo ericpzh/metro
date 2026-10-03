@@ -64,7 +64,7 @@ React.
 | `store.ts` | zustand app state: the station document, active tool/brush/rotation/width/direction, view flags, metrics, and the worker plumbing (`initSim`, `rebuildSim`, `setFrameHandler`). Rail and line actions (`layTrack`, `layTunnel`, `rotateRail`, `cycleRailDir`, `setTunnelLength`, `regenRail`, `refreshRailDoors`, `removeRail`, `updateRail`, `updateLine`, `addLine`), `MODULE_OPTIONS`, `FACILITY_OPTIONS`, tool predicates. |
 | `App.tsx` | Top bar, inspector (including the 线路 card), bottom metric bar, global keyboard shortcuts, the stage hint. |
 | `LeftRail.tsx` | The blueprint build rail: folders for tools, equipment, 轨道 (the whole rail panel — the 站台 / 隧道 tools, R rotation, direction, bound line, tunnel-length slider, 重置屏蔽门), 房间 (rooms), surfaces, zones, view. |
-| `Viewport.tsx` | Owns the `SceneRenderer` lifecycle and turns pointer input into build commands (the 建造 / 墙 / 删除 / equipment / paint / zone / 站台 / 隧道 tools). The only app file that touches three directly. |
+| `Viewport.tsx` | Owns the `SceneRenderer` lifecycle and turns pointer input into build commands (the 地基 / 墙 / 删除 / equipment / paint / zone / 站台 / 隧道 tools). The only app file that touches three directly. |
 | `ViewCube.tsx` | The orientation cube. |
 | `Lab.tsx` | The `/lab` material/renderer lab. |
 | `boot.tsx` | Lazily imported bootstrap that renders the app and starts the sim. |

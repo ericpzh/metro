@@ -1,4 +1,4 @@
-// The reference station, §7.8 "Wusi Square" — three levels, three exits, a
+// The reference station, §7.8 "Wusi Square" — three storeys, three exits, a
 // gate line and a bank of escalators. Every number here is either the spec's
 // reference peak or a consequence of it.
 //
@@ -369,11 +369,6 @@ export function referenceStation(variant: StationVariant = {}): StationData {
   return {
     name: '嘉禾望岗',
     seed: 1234567,
-    levels: [
-      { id: 'G', z: Z_G, kind: 'at-grade', height: 4 },
-      { id: 'B1', z: Z_C, kind: 'underground', height: 4.5 },
-      { id: 'B2', z: Z_P, kind: 'underground', height: 4.5 },
-    ],
     cells,
     modules,
     lines,
@@ -392,7 +387,6 @@ export function emptyStation(name = '未命名车站'): StationData {
   return {
     name,
     seed: 7654321,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4.5 }],
     cells: [
       { x: 0, y: 0, z: 0, fill: 'solid' },
       { x: 1, y: 0, z: 0, fill: 'solid' },

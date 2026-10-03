@@ -89,7 +89,9 @@ by *either* the `floor.track` finish (the hand-built path) or a track module's f
 and the renderer agree. `build/rail.ts` is the pure placement + derivation: it lays the bed, then
 generates one `platform-edge` per contiguous run of walkable exposed floor beside it (an island
 platform yields two — the Spanish solution), each bound to the rail's line and direction and carrying
-the rail's rotation. Editing a line's 车型/编组 re-cuts its tracks to the new run length. The 轨道 folder has
+the rail's rotation. Every derived edge records which side the track lies on (`cfg.side`, read from the
+screen's own frame), and the renderer, the auto-derive and `World.computeLineAnchors` share that one
+meaning, so the printed header always faces the platform, never the rail. Editing a line's 车型/编组 re-cuts its tracks to the new run length. The 轨道 folder has
 two tools, both gated by one eligibility check (`trackBlockReason`): anything already sharing the run's
 space — equipment, a room, a screen door, a ramp, another rail/tunnel — blocks placement rather than
 being demolished, and the preview flags it red. **站台** is the fixed consist-length piece above; it must
@@ -161,8 +163,8 @@ in the plaza under cover — the reference photo. The exit's drawn floor leaves 
 beside it. Exit A's west bay is a **stair** beside its up escalator (a mixed entrance), the other two
 keep a down escalator. An exit does **not** auto-face the nearest run: like the rest of the
 equipment it is turned with **R**, and its floor, street-opening node and glass/back walls all turn
-with it, so the mouth points where the player sets it. A surface exit is rooted at the at-grade
-level (h = 0 m); dropping one on a concourse or platform slab is refused.
+with it, so the mouth points where the player sets it. A surface exit is rooted at the street
+(z = 0); dropping one on a concourse or platform slab is refused.
 
 **The head-house is solid, and the opening is the way.** `sim/exits.ts` holds the geometry the sim
 and the renderer share. The exit's graph node is the street opening (the doorway cell, not the cell
@@ -228,7 +230,9 @@ and stacked blocks stay plain, and the drag's live ghost shows the wall ring bef
   free, placing one carves its slab, and the demo's pre-placed runs are that same piece at the same
   dimensions.
 * `rail.test.mjs` — placing a rail digs the bed, lays the track module and derives one platform-edge
-  per contiguous platform run (two on an island); a wall above a platform cell splits the edge;
+  per contiguous platform run (two on an island); the derived screen's `side` names the side the track
+  lies on, so the header faces the platform and never the rail (checked on both sides of an island and
+  on a quarter-turned run); a wall above a platform cell splits the edge;
   regeneration is idempotent and follows the current floor; the dug bed blocks equipment and reads
   as track by either rule; a piece is sized from the line (a car-width bed, the train length), centred
   on the highlighted cell, and a quarter-turned track digs a north–south bed, derives north–south
@@ -236,7 +240,8 @@ and stacked blocks stay plain, and the drag's live ghost shows the wall ring bef
   end, clears the wall it pokes through and raises its own side walls and ceiling without spawning
   doors; a platform needs its whole bed on solid floor and refuses a wall in its headroom; either one
   is blocked by any existing equipment, room, screen door or track; re-cutting a line's consist resizes
-  its platform tracks; the reference station builds its bed from the same dig.
+  its platform tracks; the reference station builds its bed from the same dig and its hand-authored edge
+  matches what the derive would place.
 * `facility.test.mjs` — the rectangle-drag facilities: 商店 / 厕所 / 办公室 are walled rooms (one
   `shop` module type, the fit-out in `cfg.kind`) while 售票亭 is an open desk; same-fit-out drags
   extend a room, different ones clash; right-click carves wall openings (the renderer then hangs a
@@ -279,6 +284,14 @@ comment there explains the trade.
 * **Zones, surfaces, save/load, settings, charts and the module catalogue beyond
   escalator / gate / TVM / bench / exit are out of scope**, exactly as PLAN §7 lists.
 * **One line.** Transfers therefore resolve to an exit; §7.5 is not exercised.
+* **No named levels.** GAME-SPEC §4.3 defines a `levels` list of
+  `{ id, z, kind, height }` bands. The game dropped it: the street is simply `z = 0`
+  (`GROUND_Z`), and the renderer derives each storey from the built geometry — one
+  contiguous vertical run of cells per column, keyed by the run's lowest z. A floor
+  slab and the walls on it share a storey; a plate with nothing below it stays on
+  screen when the active level drops beneath it. A new station can therefore be dug
+  below 0 immediately, with no B1/B2 declaration, and the save no longer carries a
+  `levels` field (old saves load with it ignored).
 
 ## Measured
 

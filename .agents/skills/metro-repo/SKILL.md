@@ -129,7 +129,7 @@ build/ →  sim/            (and neither render/ nor app/)
   `derivePlatformEdges` generates one `platform-edge` per contiguous run of
   walkable exposed floor beside the bed (an island platform yields two — the
   Spanish solution), and `regenerateRailEdges` re-derives them after the floor
-  changes. Editing a line's 车型/编组 re-cuts its tracks (`resizeTrack`). A track
+  changes. Every derived edge records which side the track lies on (`cfg.side`, read from the screen's own frame and shared by the derive, the renderer and `World.computeLineAnchors`), so the printed header always faces the platform, never the rail. Editing a line's 车型/编组 re-cuts its tracks (`resizeTrack`). A track
   bed is **either** the `floor.track` finish **or** a `track` module's footprint
   (`trackBedKeys` / `isTrackCell`), so the hand-built demo and placed rails agree.
   The 轨道 folder has two tools, both gated by `trackBlockReason`: any interference
@@ -156,20 +156,22 @@ build/ →  sim/            (and neither render/ nor app/)
 
 * `render/models.ts` builds all module geometry procedurally — turnstiles,
   ticket machines, escalators (rolling step band via `rollEscalator`), the four
-  stair shapes, exits, platform screen doors, rolling stock. **No image or GLB
+  stair shapes, exits, platform screen doors (printed header is FrontSide only, facing the platform read from `cfg.side`), rolling stock. **No image or GLB
   assets.** `render/materials.ts` is the shared procedural material kit;
-  `render/chunkMesher.ts` emits one mesh part per finish.
+  `render/chunkMesher.ts` emits one mesh part per finish. There are no named levels: the street is `z = 0` (`GROUND_Z` in `build/model.ts`), a storey is one contiguous vertical run of solid cells per column keyed by its lowest z, and the depth rail slices those derived bands (a plate with nothing below it stays on screen above the cut). The save carries no `levels` field; old saves load with it ignored.
 * A **walled facility room** is the one `shop` module type; its fit-out lives in
   `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter and
   the `retail` shell). `build/model.ts`'s rectangle drag creates 商店 / 厕所 /
   办公室 / 售票亭 through it, and `render/models.ts` draws the matching interior
   and sign — 厕所 / 办公室 hang a real door on their openings, 商店 keeps an open
   front. Two rooms merge only when their type *and* fit-out match.
-* The 建造 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
+* The 地基 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
   drawn cells `auto-floor` and raises a 4 m `auto-wall` ring on the patch's outer
   edge — the room-union rule generalised to cells, so overlapping/abutting patches
   union, hand-built floor is continuous ground, and a hole dug through a patch
-  stays open. A single click stays a plain block. The 墙 tool lays tagged
+  stays open. A single click stays a plain block. While previewing, a badge pinned
+  to the pointer reads the patch's live 长 × 宽 in metres (`Viewport.tsx`
+  `buildMeasure`). The 墙 tool lays tagged
   four-course columns a right-click lifts whole, and 删除 is button-agnostic
   single-block / line removal. A **reserved opening** — the corridor a ramp
   carves or an exit's floor (`reservedOpening` in `sim/placement.ts`) — refuses a
@@ -222,7 +224,7 @@ build/ →  sim/            (and neither render/ nor app/)
   floor patch grows a 4 m auto-wall ring on its outer edge; union with another
   patch drops the buried wall, and a hole dug through a patch stays open.
   `reservedOpening` (`sim/placement.ts`) also refuses a hand-built block in a
-  ramp corridor or an exit's floor. `game/README.md`'s test list documents it.
+  ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, storeys derive from geometry, exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms.
 * `PLAN.md` was deleted, but `README.md`, `GAME-SPEC.md` and many source
   comments still reference it. Treat those references as historical.
 * The crowd micro-benchmark (`game/bench/crowd.mjs`,

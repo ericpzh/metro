@@ -28,7 +28,6 @@ function empty() {
   return toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells: [],
     modules: [],
     lines: [],
@@ -77,7 +76,6 @@ test('hand-built floor is ground, not a patch to wall against', () => {
   const base = toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells,
     modules: [],
     lines: [],
@@ -94,7 +92,6 @@ test('a hand-placed wall survives a union that buries it', () => {
   const base = toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells,
     modules: [],
     lines: [],

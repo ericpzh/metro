@@ -962,13 +962,15 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
   slab(g, mats.darkSteel, cx, yWall, z0 + 3.02, len, 0.28, 0.08)
   // The printed header faces the platform (away from the track), repeated along
   // the run so the station name and direction sticker recur as they really do.
+  // FrontSide, not DoubleSide: the track side of a screen has no label, so the
+  // sticker must not bleed through (mirrored) to the platform's back.
   const platYaw = toward < 0 ? Math.PI : 0
   const headerMap = canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId), 0, 0))
   headerMap.wrapS = THREE.RepeatWrapping
   headerMap.repeat.set(Math.max(1, Math.round(len / 10)), 1)
   const header = plate(
     g,
-    new THREE.MeshBasicMaterial({ map: headerMap, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ map: headerMap, side: THREE.FrontSide }),
     len,
     0.3,
     cx,

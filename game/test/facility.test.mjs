@@ -36,7 +36,6 @@ function flatStation({ wallAt = null } = {}) {
   return toState({
     name: 't',
     seed: 1,
-    levels: [{ id: 'G', z: 0, kind: 'at-grade', height: 4 }],
     cells,
     modules: [],
     lines: [],

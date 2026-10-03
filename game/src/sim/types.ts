@@ -58,13 +58,6 @@ export interface Cell {
   tags?: string[]
 }
 
-export interface LevelDef {
-  id: string
-  z: number
-  kind: 'underground' | 'at-grade' | 'viaduct'
-  height: number
-}
-
 export interface Vec3i {
   x: number
   y: number
@@ -194,7 +187,6 @@ export interface LineDef {
 export interface StationData {
   name: string
   seed: number
-  levels: LevelDef[]
   cells: Cell[]
   modules: Module[]
   lines: LineDef[]
@@ -257,7 +249,6 @@ export interface SaveDoc {
   tick: number
   dayType: 'weekday'
   config: {
-    levels: LevelDef[]
     demand: {
       peakWindows: Array<[string, string]>
       alightShare: number

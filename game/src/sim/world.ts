@@ -544,19 +544,23 @@ export class World {
       const gap = 0.1
       // Work in the track's local frame: u runs along the bed, v across it. The
       // bed spans v ∈ [0, d]; the platform edge (if any) sits at v = −1 or d.
+      // `side` names the side the track lies on from the screen's frame, so
+      // 'left' means the platform is beyond the bed at v = +d.
       const edge = this.data.modules.find((m) => m.type === 'platform-edge' && m.cfg.line === line.id)
       let v = d / 2
       if (edge && edge.type === 'platform-edge') {
         const side = edge.cfg.side
         if (side === 'left') {
-          // Platform on the local −v side: keep clear of its track-facing edge.
-          const minCentre = gap + width / 2
-          const maxCentre = d - width / 2
-          v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : maxCentre
-        } else {
+          // Platform on the local +v side (past the bed): keep clear of its
+          // track-facing edge.
           const minCentre = width / 2
           const maxCentre = d - gap - width / 2
           v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : minCentre
+        } else {
+          // Platform on the local −v side.
+          const minCentre = gap + width / 2
+          const maxCentre = d - width / 2
+          v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : maxCentre
         }
       }
       // The run midpoint on the bed, turned into world cell coordinates.

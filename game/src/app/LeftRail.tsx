@@ -314,7 +314,7 @@ export function LeftRail(): React.ReactElement {
   const [zoneThumbs, setZoneThumbs] = useState<Record<string, string>>({})
   const [open, setOpen] = useState<Record<FolderKey, boolean>>({
     tools: true,
-    equipment: true,
+    equipment: false,
     rail: false,
     rooms: false,
     surfaces: false,
@@ -435,7 +435,7 @@ export function LeftRail(): React.ReactElement {
           {(
             [
               { id: 'select', label: '选择', icon: 'select' },
-              { id: 'block', label: '建造', icon: 'block' },
+              { id: 'block', label: '地基', icon: 'block', title: '地基：单击放一块，按住拖出一片（自动长出 4m 外墙），右键删除' },
               { id: 'wall', label: '墙', icon: 'wall', title: '墙：左键拖出 4m 高墙，右键拖拽整列拆除' },
               { id: 'delete', label: '删除', icon: 'delete', title: '删除：单击拆一块，按住拖出一条拆一行（左右键一样）' },
             ] as Array<{ id: Tool; label: string; icon: string; title?: string }>
@@ -447,7 +447,7 @@ export function LeftRail(): React.ReactElement {
         </div>
       </Folder>
 
-      <Folder title="轨道" open={open.rail} onToggle={() => toggle('rail')}>
+      <Folder title="轨道" count={2} open={open.rail} onToggle={() => toggle('rail')}>
         <div className="blockGrid">
           <Block
             label="站台"
