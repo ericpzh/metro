@@ -10,6 +10,7 @@ import { BILLBOARD_SPECS } from '../sim/billboards.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
 import { exitFloorAt } from '../sim/exits.ts'
 import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
+import { liftExtendedDown, liftExtendedUp, liftModule } from '../sim/lifts.ts'
 import { STAIR_WIDTH_NORMAL, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
 import { DEFAULT_ZONE, type BillboardVariant, type Cell, type Face, type FinishId, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
@@ -108,6 +109,11 @@ export function createModule(
       // `dir` only orders from/to, which is what the sim reads as the one-way
       // travel and the label.
       return escalatorModule({ x, y, z }, rot, dir, id)
+    case 'lift':
+      // An elevator: one storey up from the dropped cell. The player grows the
+      // shaft a storey at a time (`extendLift`), so a fresh piece is always two
+      // stops.
+      return liftModule({ x, y, z }, rot, id)
     case 'stair': {
       const style = 'straight' as StairStyle
       const flights = stairFlightsFor({ x, y, z }, rot, style)
@@ -219,7 +225,9 @@ export function toState(data: StationData): StationState {
     seed: data.seed,
     cells: data.cells.map(cloneCell),
     modules: data.modules.map((m) => ({ ...m })),
-    lines: data.lines.map((l) => ({ ...l })),
+    // Older saves predate the per-line direction termini; default them to ''
+    // so the screen header falls back to the direction word instead of undefined.
+    lines: data.lines.map((l) => ({ ...l, upTerminus: l.upTerminus ?? '', downTerminus: l.downTerminus ?? '' })),
   }
   // Rooms drawn before furniture became modules carry no shelf/desk pieces
   // yet — materialise them here so every load path (open, demo, new) agrees.
@@ -282,6 +290,24 @@ export function removeCells(state: StationState, remove: Array<[number, number, 
 export function removeModule(state: StationState, id: string): StationState {
   const modules = state.modules.filter((m) => m.id !== id)
   return modules.length === state.modules.length ? state : { ...state, modules }
+}
+
+/** The elevator shaft standing in a column, if any. */
+export function liftInColumn(modules: readonly Module[], x: number, y: number): Extract<Module, { type: 'lift' }> | undefined {
+  for (const m of modules) if (m.type === 'lift' && m.x === x && m.y === y) return m
+  return undefined
+}
+
+/**
+ * Grow an existing shaft one storey up or down. The shaft keeps its id and its
+ * column; only its reach changes, so a hover-extension reads as the same
+ * elevator getting taller rather than a new piece appearing.
+ */
+export function extendLift(state: StationState, id: string, up: boolean): StationState {
+  const mod = state.modules.find((m) => m.id === id)
+  if (!mod || mod.type !== 'lift') return state
+  const grown = up ? liftExtendedUp(mod) : liftExtendedDown(mod)
+  return { ...state, modules: state.modules.map((m) => (m.id === id ? grown : m)) }
 }
 
 /** A free `${type}-n` id, so bulldozing then placing again never reuses one. */

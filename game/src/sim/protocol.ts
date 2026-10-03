@@ -32,6 +32,8 @@ export type FromWorker =
       density: Float32Array
       /** One rolling-stock pose per live train; see `World.trainRenderState`. */
       trains: Float32Array
+      /** One pose per elevator car; see `World.liftRenderState`. */
+      lifts: Float32Array
       /** Real milliseconds the renderer should interpolate one snapshot over. */
       intervalMs: number
     }

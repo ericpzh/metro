@@ -10,6 +10,10 @@ import {
   DOOR_RATE,
   GATE_CLEAR_RADIUS,
   LANE_SLOT,
+  LIFT_BOARD_S,
+  LIFT_DOOR_S,
+  LIFT_DWELL_S,
+  LIFT_SPEED,
   MAX_AGENTS,
   NEIGHBOUR_CELL,
   PERSONAL_SPACE,
@@ -255,6 +259,11 @@ export class World {
       a.destNode = -1
       a.server = -1
       a.state = STATE_ARRIVING
+      a.liftServer = -1
+      a.liftBoard = -1
+      a.liftDest = -1
+      a.liftPhase = 0
+      a.liftT = 0
     })
     this.setupGrid()
     this.nextDispatch.clear()
@@ -616,6 +625,22 @@ export class World {
     return out.subarray(0, k)
   }
 
+  /**
+   * One pose per elevator car, stride 6: plan x, plan y, lower cell z, upper
+   * cell z, cabin floor height, door-open fraction. The renderer matches a car
+   * to its shaft by the first three numbers, then moves the cabin and slides the
+   * doors. A pure function of car state, so §7.6 determinism is untouched.
+   */
+  liftRenderState(): Float32Array {
+    const out: number[] = []
+    for (const s of this.graph.servers) {
+      if (s.kind !== 'lift' || !s.lift) continue
+      const c = s.lift
+      out.push(c.x, c.y, c.fromZ, c.toZ, c.z, c.door)
+    }
+    return Float32Array.from(out)
+  }
+
   /* ------------------------------------------------------------- servers */
 
   private stepServers(): void {
@@ -697,25 +722,216 @@ export class World {
     return -1
   }
 
+  /**
+   * An elevator car. One shaft has one car: it parks at a floor, opens its
+   * doors, waits while the crowd walks in and out, shuts, then travels to the
+   * next called floor. Passengers aboard are `STATE_RIDING` and are pinned to
+   * the cabin by `stepLiftRide`, so they really move with it — the ride is not a
+   * teleport. The whole shaft is a single server; its stops and riders live on
+   * `s.lift` (see `buildGraph`).
+   */
   private stepLift(s: ServerDef, dt: number): void {
-    s.cooldown -= dt
-    if (s.cooldown > 0) return
-    // Load a batch and run one cycle.
-    let boarded = 0
-    const batch: Agent[] = []
-    while (s.queue.length > 0 && boarded < s.batch) {
-      const a = this.pool.all().get(s.queue.shift() as number)
-      if (!a || a.dead) continue
-      batch.push(a)
-      boarded++
+    const car = s.lift
+    if (!car) return
+    switch (car.phase) {
+      case 'idle': {
+        if (car.riders.length > 0) {
+          // Leftover riders (a multi-stop trip): head for the next destination.
+          this.startLiftMove(car, this.nextRiderStop(car))
+          return
+        }
+        const call = this.nextLiftCall(s, car)
+        if (call < 0) return
+        if (call === car.at) {
+          car.phase = 'open'
+          car.t = 0
+          car.door = 0
+        } else {
+          this.startLiftMove(car, call)
+        }
+        return
+      }
+      case 'move': {
+        car.moveT += dt
+        const k = clamp(car.moveT / car.moveTotal, 0, 1)
+        // Ease in/out, so the cabin accelerates and settles instead of sliding
+        // at a constant speed and stopping dead.
+        const e = k * k * (3 - 2 * k)
+        car.z = car.stopZ[car.legFrom] + (car.stopZ[car.legTo] - car.stopZ[car.legFrom]) * e
+        if (k >= 1) {
+          car.at = car.legTo
+          car.z = car.stopZ[car.legTo]
+          car.phase = 'open'
+          car.t = 0
+          car.door = 0
+        }
+        return
+      }
+      case 'open': {
+        if (car.door < 1) {
+          car.door = Math.min(1, car.door + dt / LIFT_DOOR_S)
+          return
+        }
+        car.t += dt
+        this.liftExchange(s, car)
+        if (car.t >= LIFT_DWELL_S) {
+          car.phase = 'close'
+          car.t = 0
+        }
+        return
+      }
+      case 'close': {
+        car.door = Math.max(0, car.door - dt / LIFT_DOOR_S)
+        if (car.door <= 0) {
+          car.phase = 'idle'
+          car.t = 0
+        }
+        return
+      }
     }
-    if (batch.length === 0) {
-      s.cooldown = 0
+  }
+
+  /** Begin travelling to `target` from the car's current stop. */
+  private startLiftMove(car: NonNullable<ServerDef['lift']>, target: number): void {
+    car.legFrom = car.at
+    car.legTo = target
+    car.moveT = 0
+    const dist = Math.abs(car.stopZ[target] - car.stopZ[car.at])
+    car.moveTotal = Math.max(1.5, dist / LIFT_SPEED)
+    car.phase = 'move'
+  }
+
+  /**
+   * The stop a waiting passenger wants the car to collect them at. The queue is
+   * scanned front to back — first come, first served — so the car never starves
+   * the passenger who has waited longest. -1 when nobody is waiting.
+   */
+  private nextLiftCall(s: ServerDef, car: NonNullable<ServerDef['lift']>): number {
+    const pool = this.pool.all()
+    for (let i = 0; i < s.queue.length; i++) {
+      const a = pool.get(s.queue[i])
+      if (!a || a.dead) continue
+      const idx = car.stops.indexOf(a.liftBoard)
+      if (idx >= 0) return idx
+    }
+    return -1
+  }
+
+  /** The next stop a rider aboard wants, or the current stop if none. */
+  private nextRiderStop(car: NonNullable<ServerDef['lift']>): number {
+    const pool = this.pool.all()
+    for (const id of car.riders) {
+      const a = pool.get(id)
+      if (!a || a.dead) continue
+      const idx = car.stops.indexOf(a.liftDest)
+      if (idx >= 0 && idx !== car.at) return idx
+    }
+    return car.at
+  }
+
+  /**
+   * With the doors open at a stop: let every rider bound here step out (they
+   * walk to the landing, then continue their path), then let the waiting crowd
+   * at this floor step in, up to the car's batch.
+   */
+  private liftExchange(s: ServerDef, car: NonNullable<ServerDef['lift']>): void {
+    const g = this.graph
+    const stop = car.stops[car.at]
+    const pool = this.pool.all()
+    const remaining: number[] = []
+    for (const id of car.riders) {
+      const a = pool.get(id)
+      if (!a || a.dead) continue
+      if (a.liftDest !== stop) {
+        remaining.push(id)
+        continue
+      }
+      // Start the step-out: interpolate from the cabin to the landing node.
+      a.liftPhase = 2
+      a.liftT = 0
+      a.server = -1
+      a.rideFromX = a.x
+      a.rideFromY = a.y
+      a.rideFromZ = a.z
+      a.rideToX = g.nodeX[stop]
+      a.rideToY = g.nodeY[stop]
+      a.rideToZ = g.nodeZ[stop]
+    }
+    car.riders = remaining
+    let filled = car.riders.length
+    for (let i = 0; i < s.queue.length && filled < s.batch; ) {
+      const a = pool.get(s.queue[i])
+      if (!a || a.dead) {
+        s.queue.splice(i, 1)
+        continue
+      }
+      if (a.liftBoard !== stop) {
+        i++
+        continue
+      }
+      s.queue.splice(i, 1)
+      car.riders.push(a.id)
+      a.liftServer = s.id
+      a.liftPhase = 0
+      a.liftT = 0
+      a.liftSlot = filled
+      a.rideFromX = a.x
+      a.rideFromY = a.y
+      a.rideFromZ = a.z
+      a.server = s.id
+      a.state = STATE_RIDING
+      filled++
+    }
+  }
+
+  /** Pin a rider to the cabin, or walk the passenger in/out of it. */
+  private stepLiftRide(a: Agent): void {
+    const s = this.graph.servers[a.liftServer]
+    const car = s?.lift
+    if (!car) {
+      a.state = STATE_WALKING
+      a.server = -1
+      a.liftServer = -1
       return
     }
-    for (const a of batch) this.serve(a, s)
-    s.cooldown = s.cycle
+    const [sx, sy] = liftSlotOffset(a.liftSlot)
+    // The 1.5 m carriage is centred in the 2 × 2 m assembly.
+    const cabinX = car.x + 1 + sx
+    const cabinY = car.y + 1 + sy
+    if (a.liftPhase === 0) {
+      // Stepping in: from where the queue left the passenger to its cabin slot.
+      a.liftT += SIM_DT
+      const k = clamp(a.liftT / LIFT_BOARD_S, 0, 1)
+      a.x = a.rideFromX + (cabinX - a.rideFromX) * k
+      a.y = a.rideFromY + (cabinY - a.rideFromY) * k
+      a.z = car.z
+      if (k >= 1) a.liftPhase = 1
+      return
+    }
+    if (a.liftPhase === 1) {
+      a.x = cabinX
+      a.y = cabinY
+      a.z = car.z
+      return
+    }
+    // Stepping out: from the cabin to the landing node, then resume the path.
+    a.liftT += SIM_DT
+    const k = clamp(a.liftT / LIFT_BOARD_S, 0, 1)
+    a.x = a.rideFromX + (a.rideToX - a.rideFromX) * k
+    a.y = a.rideFromY + (a.rideToY - a.rideFromY) * k
+    a.z = a.rideFromZ + (a.rideToZ - a.rideFromZ) * k
+    if (k >= 1) {
+      a.server = -1
+      a.liftServer = -1
+      a.liftBoard = -1
+      a.liftDest = -1
+      a.liftPhase = 0
+      a.state = STATE_WALKING
+      this.onArrive(a)
+    }
   }
+
+  /** Render state of every elevator car; see `World.liftRenderState`. */
 
   private serve(a: Agent, s: ServerDef): void {
     s.waitAccum += a.wait
@@ -804,8 +1020,10 @@ export class World {
     const g = this.graph
     const s = g.servers[a.server]
     const node = s.kind === 'gate' && a.gateWaitNode >= 0 ? a.gateWaitNode : s.node
-    const tx = g.nodeX[node]
-    const ty = g.nodeY[node]
+    // A lift queue waits on the landing, just in front of the cabin doors, so
+    // the crowd visibly walks in when the car opens.
+    const tx = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitX : g.nodeX[node]
+    const ty = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitY : g.nodeY[node]
     const dist = Math.hypot(tx - a.x, ty - a.y)
     const standoff = PERSONAL_SPACE * 0.3
     if (dist > standoff) {
@@ -1008,6 +1226,10 @@ export class World {
   }
 
   private stepRide(a: Agent): void {
+    if (a.liftServer >= 0) {
+      this.stepLiftRide(a)
+      return
+    }
     a.rideT -= SIM_DT
     const k = 1 - clamp(a.rideT / a.rideTotal, 0, 1)
     a.x = a.rideFromX + (a.rideToX - a.rideFromX) * k
@@ -1344,6 +1566,16 @@ export class World {
       const kind = g.adjKind[e]
       const server = g.adjServer[e]
       if ((kind === EDGE_KIND.escalator || kind === EDGE_KIND.stair || kind === EDGE_KIND.lift) && server >= 0) {
+        if (kind === EDGE_KIND.lift) {
+          // Remember where this passenger boards and where the car should drop
+          // them; a lift's car delivers each rider to its own floor.
+          a.liftBoard = cur
+          a.liftDest = next
+          const car = g.servers[server].lift
+          const [dx, dy] = rotateLocal(car?.rot ?? 0, 0, -1)
+          a.liftWaitX = g.nodeX[cur] + dx * 0.55
+          a.liftWaitY = g.nodeY[cur] + dy * 0.55
+        }
         this.joinServer(a, server)
         return true
       }
@@ -1487,6 +1719,20 @@ export class World {
 }
 
 const EMPTY_PATH = new Int32Array(0)
+
+/**
+ * Where a rider stands inside the cabin, by boarding order. The cabin is just
+ * under a metre across, so riders line up in three loose columns rather than
+ * piling on the centre; the offset is small but keeps them from occupying the
+ * exact same point, which the renderer would draw as one body.
+ */
+function liftSlotOffset(slot: number): [number, number] {
+  const cols = [-0.45, 0, 0.45]
+  const row = Math.floor(slot / cols.length) % 4
+  const col = cols[slot % cols.length]
+  const rowY = -0.45 + row * 0.3
+  return [col, rowY]
+}
 
 function performanceNowMs(): number {
   // Works in both the browser and Node without importing either.

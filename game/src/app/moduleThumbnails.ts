@@ -16,6 +16,7 @@ import {
   type ModuleContext,
 } from '../render/models.ts'
 import { createMaterials } from '../render/materials.ts'
+import { liftModule } from '../sim/lifts.ts'
 import { stairFlightsFor, type StairStyle } from '../sim/stairs.ts'
 import { BILLBOARD_SPECS } from '../sim/billboards.ts'
 import type { BillboardVariant, Module, StationData, Vec3i } from '../sim/types.ts'
@@ -44,7 +45,13 @@ function viewDir(id: string): THREE.Vector3 {
 function syntheticStation(): StationData {
   const cells: StationData['cells'] = []
   for (let x = -6; x <= 14; x++) {
-    for (let y = -6; y <= 10; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+    for (let y = -6; y <= 10; y++) {
+      cells.push({ x, y, z: 0, fill: 'solid' })
+      // A couple of upper storeys, so a tall piece (a lift) has landings to
+      // read; the thumbnail scene draws only the module, never these slabs.
+      cells.push({ x, y, z: 4, fill: 'solid' })
+      cells.push({ x, y, z: 8, fill: 'solid' })
+    }
   }
   // A track bed one cell north, for models that look for one.
   cells.push({ x: 0, y: -1, z: 0, fill: 'solid', finish: { top: 'floor.track' } })
@@ -65,6 +72,8 @@ function syntheticStation(): StationData {
         alightPerTrain: 420,
         terminus: 'through',
         direction: 'up',
+        upTerminus: '',
+        downTerminus: '',
         travelSign: 1,
         stations: [],
       },
@@ -105,6 +114,8 @@ function sampleModule(id: string): Module | null {
       return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'C口', inRate: 900, open: true } }
     case 'escalator':
       return { id, type: 'escalator', x: 0, y: 0, z: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 6, z: 4 }, cfg: { dir: 'up' } }
+    case 'lift':
+      return liftModule({ x: 0, y: 0, z: 0 }, 0, id)
     case 'stair-straight':
       return sampleStair('straight')
     case 'stair-left90':

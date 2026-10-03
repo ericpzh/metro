@@ -26,6 +26,7 @@ import { normRot, rotateLocal } from '../sim/track.ts'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_BAY_HALF, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, EXIT_SIDE, EXIT_W } from '../sim/exits.ts'
 import { finishOf } from '../sim/finishes.ts'
 import { fenceArms } from '../sim/fences.ts'
+import { LIFT_STEP, liftStopZs } from '../sim/lifts.ts'
 import { STAIR_WIDTH_NORMAL, stairFlights } from '../sim/stairs.ts'
 import { doorCentres, STOCK, type StockClass } from '../sim/stock.ts'
 import type { BillboardAspect, Cell, Face, FinishId, Module, RoomKind, StationData, Vec3i } from '../sim/types.ts'
@@ -169,7 +170,7 @@ function signCanvas(): HTMLCanvasElement {
 }
 
 /** A platform-screen header: white, a line band, and the direction sticker. */
-function psdHeaderCanvas(colour: string, lineId: string): HTMLCanvasElement {
+function psdHeaderCanvas(colour: string, lineId: string, terminus: string): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = 1024
   c.height = 96
@@ -192,11 +193,14 @@ function psdHeaderCanvas(colour: string, lineId: string): HTMLCanvasElement {
   g.font = 'bold 30px sans-serif'
   g.textAlign = 'center'
   g.fillText(lineId, 920, 69)
-  // Direction sticker.
+  // Direction sticker. The destination is the line's own terminus for the
+  // direction this screen serves (`mod.cfg.dir`), so the header reads the bound
+  // line instead of a hardcoded place name. An unset terminus falls back to the
+  // direction word.
   g.textAlign = 'left'
   g.fillStyle = '#1b6fd6'
   g.font = 'bold 22px "Microsoft YaHei", sans-serif'
-  g.fillText('◀ 番禺广场方向 →', 470, 62)
+  g.fillText(`◀ ${terminus}方向 →`, 470, 62)
   return c
 }
 
@@ -254,8 +258,8 @@ function adMaterial(variant: number, w: number, h: number): THREE.MeshBasicMater
   return new THREE.MeshBasicMaterial({ map: canvasTexture(w, h, (g) => g.drawImage(adCanvas(variant, w, h), 0, 0)), side: THREE.DoubleSide })
 }
 
-/** The exit portal header: the metro logo, station name and the exit letter. */
-function exitHeaderCanvas(name: string, letter: string): HTMLCanvasElement {
+/** The exit portal header: the metro logo, station name and the exit's name. */
+function exitHeaderCanvas(stationName: string, exitName: string): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = 512
   c.height = 96
@@ -271,18 +275,19 @@ function exitHeaderCanvas(name: string, letter: string): HTMLCanvasElement {
   g.beginPath()
   g.arc(40, 48, 8, 0, Math.PI * 2)
   g.stroke()
+  // Station name, then the exit's own name in the green identifier box, so
+  // renaming an exit in the inspector reprints this header.
   g.fillStyle = '#f0a128'
   g.font = 'bold 30px "Microsoft YaHei", sans-serif'
-  g.fillText(name, 78, 60)
-  g.fillStyle = '#fff'
-  g.font = 'bold 20px sans-serif'
-  g.fillText(letter, 430, 60)
+  g.fillText(stationName, 78, 60)
+  const label = (exitName || '口').slice(0, 2)
   g.fillStyle = '#1f9c63'
-  g.fillRect(410, 22, 52, 52)
+  g.fillRect(392, 18, 96, 60)
   g.fillStyle = '#fff'
-  g.font = 'bold 40px sans-serif'
+  g.font = `bold ${label.length > 1 ? 32 : 42}px "Microsoft YaHei", sans-serif`
   g.textAlign = 'center'
-  g.fillText(letter, 436, 66)
+  g.textBaseline = 'middle'
+  g.fillText(label, 440, 50)
   return c
 }
 
@@ -434,7 +439,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
     case 'stair':
       return buildStair(ctx, mod)
     case 'lift':
-      return buildLift(ctx.mats, mod)
+      return buildLift(ctx, mod)
     case 'platform-edge':
       return buildPsd(ctx, mod)
     case 'track':
@@ -1121,14 +1126,81 @@ function buildStairLanding(
   return g
 }
 
-function buildLift(mats: ModelMaterials, mod: Extract<Module, { type: 'lift' }>): THREE.Group {
+/**
+ * Headroom above the top landing, so the cabin and its call panel fit: the shaft
+ * runs on to just under the slab above that floor. It must stay below that slab,
+ * so a platform piece tops out at the concourse ceiling (0 m), never through the
+ * street floor.
+ */
+const LIFT_HEADROOM = 2.6
+
+/** True when `(x, y, z)` is walkable floor: solid, with nothing solid above it. */
+function floorAt(data: StationData, x: number, y: number, z: number): boolean {
+  const solid = (zz: number): boolean => data.cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === zz)
+  return solid(z) && !solid(z + 1)
+}
+
+/**
+ * An elevator (电梯). A 2 × 2 m vertical shaft with a moving 1.5 × 1.5 m cabin:
+ * a steel frame and back/side walls around an open front, a threshold and a
+ * call panel at every floor the shaft actually serves, and a cabin whose doors
+ * slide apart. Only real landings get a sill/panel — a shaft that runs past a
+ * floorless level shows nothing there. The cabin group is left in
+ * `userData.liftCabin` and its two leaves are registered as doors, so
+ * `SceneRenderer.setLifts` can travel the cabin and ease the doors from the sim
+ * car state. Built in world space so one model spans every storey of the shaft;
+ * the group origin is the centre of the 2 × 2 plan.
+ */
+function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): THREE.Group {
+  const mats = ctx.mats
   const g = new THREE.Group()
-  g.position.set(mod.x + 0.5, mod.y + 0.5, mod.from.z + 1)
-  slab(g, mats.darkSteel, 0, 0, 1.3, 1.8, 1.8, 2.6)
-  slab(g, mats.steel, 0, -0.9, 1.3, 1.5, 0.06, 2.2)
-  slab(g, mats.black, 0, -0.92, 1.3, 1.0, 0.03, 2.1)
-  slab(g, mats.darkSteel, 0, 0, 2.66, 2.0, 2.0, 0.12)
-  plate(g, mats.ledGreen, 0.4, 0.12, 0, -0.95, 2.4, 0)
+  g.position.set(mod.x + 1, mod.y + 1, mod.from.z + 1)
+  if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
+
+  const runH = Math.max(LIFT_STEP, mod.to.z - mod.from.z)
+  const H = runH + LIFT_HEADROOM
+  const outer = 0.94 // wall centre-line, so the assembly reads as 2 m across
+  const inner = 0.72 // 1.44 m clear carriage
+  const midH = H / 2
+
+  // Four corner posts and the back/side walls; the front (local −y) stays open.
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) slab(g, mats.darkSteel, sx * outer, sy * outer, midH, 0.14, 0.14, H)
+  }
+  slab(g, mats.steel, 0, outer, midH, 1.74, 0.12, H)
+  slab(g, mats.steel, -outer, 0, midH, 0.12, 1.74, H)
+  slab(g, mats.steel, outer, 0, midH, 0.12, 1.74, H)
+
+  // A threshold sill and a call panel at every real landing in the column.
+  for (const z of liftStopZs(mod.from.z, mod.to.z)) {
+    if (!floorAt(ctx.data, mod.x, mod.y, z)) continue
+    const L = z - mod.from.z
+    slab(g, mats.darkSteel, 0, -outer + 0.02, L + 0.03, 1.9, 0.22, 0.06)
+    slab(g, mats.black, 0.6, -outer - 0.03, L + 1.35, 0.3, 0.04, 0.18)
+    slab(g, mats.ledGreen, 0.6, -outer - 0.05, L + 1.35, 0.12, 0.02, 0.07)
+  }
+  slab(g, mats.darkSteel, 0, 0, H + 0.06, 2.04, 2.04, 0.14)
+
+  // The cabin: floor, roof, back and sides, with the two door leaves at the
+  // front. Its local origin is the cabin floor, so the renderer only sets z.
+  const cabin = new THREE.Group()
+  g.add(cabin)
+  g.userData.liftCabin = cabin
+  slab(cabin, mats.steel, 0, 0, 0.05, 1.5, 1.5, 0.1)
+  slab(cabin, mats.darkSteel, 0, 0, 2.42, 1.54, 1.54, 0.12)
+  slab(cabin, mats.steel, 0, inner, 1.24, 1.5, 0.06, 2.32)
+  slab(cabin, mats.steel, -inner, 0, 1.24, 0.06, 1.44, 2.32)
+  slab(cabin, mats.steel, inner, 0, 1.24, 0.06, 1.44, 2.32)
+  // Interior light and a mirror panel on the back wall.
+  slab(cabin, mats.glow, 0, 0, 2.3, 0.9, 0.9, 0.04)
+  plate(cabin, mats.screen, 0.9, 1.2, 0, inner - 0.04, 1.3, Math.PI)
+  const doors: THREE.Mesh[] = []
+  const leafW = 0.72
+  for (const s of [-1, 1]) {
+    const leaf = slab(cabin, mats.black, (s * leafW) / 2, -inner + 0.02, 1.24, leafW, 0.06, 2.15)
+    registerDoorLeaf(leaf, s, 0.7, doors)
+  }
+  g.userData.doors = doors
   return g
 }
 
@@ -1196,10 +1268,10 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   // behind the two runs, which have dropped under the floor by this point.
   slab(g, mats.white, 0, BACKY, (H + 0.05) / 2, W - 0.12, 0.1, H - 0.1)
 
-  // Header over the street doorway, printed on the outer (+y) face.
-  const letter = (mod.cfg.name || 'C').slice(0, 1)
+  // Header over the street doorway, printed on the outer (+y) face. The exit's
+  // own name (A口 / 北门) prints here, so renaming it updates the model.
   slab(g, mats.darkSteel, 0, hl - 0.02, 2.45, W - 0.06, 0.12, 0.62)
-  const header = plate(g, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || '地铁', letter), 0, 0)) }), W - 0.3, 0.5, 0, hl + 0.06, 2.45, Math.PI)
+  const header = plate(g, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || '地铁', mod.cfg.name || '出入口'), 0, 0)) }), W - 0.3, 0.5, 0, hl + 0.06, 2.45, Math.PI)
   header.renderOrder = 1
   // Handrail down the divider between the two runs.
   slab(g, mats.steel, 0, -1.0, 0.95, 0.06, 2.0, 0.06)
@@ -1228,6 +1300,11 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
   const line = ctx.data.lines.find((l) => l.id === mod.cfg.line) ?? ctx.data.lines[0]
   const colour = line?.colour ?? '#1b6fd6'
   const lineId = line?.id ?? '2'
+  // The header's destination is the bound line's terminus for this screen's
+  // direction, so an up platform points where the up track runs and a down one
+  // the other way (the terminus fields are the per-line inputs).
+  const terminus =
+    ((mod.cfg.dir === 'down' ? line?.downTerminus : line?.upTerminus) ?? '').trim() || (mod.cfg.dir === 'down' ? '下行' : '上行')
   const cars = line?.cars ?? 6
   const stock = (line?.stock ?? 'B') as StockClass
   const doorW = STOCK[stock].doorWidth
@@ -1247,7 +1324,7 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
   // FrontSide, not DoubleSide: the track side of a screen has no label, so the
   // sticker must not bleed through (mirrored) to the platform's back.
   const platYaw = toward < 0 ? Math.PI : 0
-  const headerMap = canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId), 0, 0))
+  const headerMap = canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId, terminus), 0, 0))
   headerMap.wrapS = THREE.RepeatWrapping
   headerMap.repeat.set(Math.max(1, Math.round(len / 10)), 1)
   const header = plate(
@@ -1314,6 +1391,10 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
   g.userData.doors = leaves
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)
   if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
+  // 隐藏墙壁 fades the whole screen along with the block walls.
+  g.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) o.userData.wall = true
+  })
   return g
 }
 
@@ -1537,11 +1618,11 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
       const cy = y === y0 ? y + WALL_T / 2 : y + 1 - WALL_T / 2
       // The panel's inside face is the one the room sees and the player clicks:
       // south/north walls show their n/s face, west/east walls their e/w face.
-      finishSlab(g, wallMat(key, y === y0 ? 'n' : 's'), (a + b) / 2, cy, cz, b - a, WALL_T, h)
+      finishSlab(g, wallMat(key, y === y0 ? 'n' : 's'), (a + b) / 2, cy, cz, b - a, WALL_T, h).userData.wall = true
     }
     if (x === x0 || x === x1) {
       const cxx = x === x0 ? x + WALL_T / 2 : x + 1 - WALL_T / 2
-      finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h)
+      finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h).userData.wall = true
     }
   }
 

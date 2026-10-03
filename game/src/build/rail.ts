@@ -66,6 +66,8 @@ export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' 
     alightPerTrain: 200,
     terminus: 'through',
     direction: dir,
+    upTerminus: '',
+    downTerminus: '',
     travelSign: 1,
     stations: [],
   }

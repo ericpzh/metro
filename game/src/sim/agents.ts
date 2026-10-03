@@ -61,6 +61,18 @@ export interface Agent {
   rideToZ: number
   rideT: number
   rideTotal: number
+  /** Lift car handling: the shaft's server, the boarding stop and the target. */
+  liftServer: number
+  liftBoard: number
+  liftDest: number
+  /** 0 stepping in, 1 aboard and pinned to the cabin, 2 stepping out. */
+  liftPhase: number
+  liftT: number
+  /** Slot index inside the cabin, so riders keep stable positions. */
+  liftSlot: number
+  /** Wait position for a lift queue (offset from the node toward the landing). */
+  liftWaitX: number
+  liftWaitY: number
   /** Chosen platform door server, or -1. */
   door: number
   /** Chosen exit id for a leaving leg. */
@@ -127,6 +139,14 @@ export class AgentPool {
     a.gateChosen = false
     a.rideT = 0
     a.rideTotal = 0
+    a.liftServer = -1
+    a.liftBoard = -1
+    a.liftDest = -1
+    a.liftPhase = 0
+    a.liftT = 0
+    a.liftSlot = 0
+    a.liftWaitX = 0
+    a.liftWaitY = 0
     a.door = -1
     a.exitId = ''
     a.spawnedTick = tick

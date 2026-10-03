@@ -228,6 +228,14 @@ export interface LineDef {
   alightPerTrain: number
   terminus: 'reverse' | 'through'
   direction: LineDirection
+  /**
+   * The terminating station printed on a platform screen's direction sticker
+   * (§5.4): the 上行 / 下行 destination this line runs toward. A screen reads its
+   * own line's terminus by its `dir`, so the header is real signal, not a
+   * hardcoded place name. Empty falls back to the shield's own direction word.
+   */
+  upTerminus: string
+  downTerminus: string
   /** Which way along +x a train runs: +1 approaches from −x, −1 from +x. */
   travelSign: 1 | -1
   stations: string[]

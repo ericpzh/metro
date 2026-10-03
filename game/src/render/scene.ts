@@ -19,13 +19,14 @@ import {
   type ModelMaterials,
   type ModuleContext,
 } from './models.ts'
-import { finishMapOf } from '../sim/finishes.ts'
+import { finishDef, finishMapOf } from '../sim/finishes.ts'
 import { storeyBand } from '../sim/constants.ts'
 import { trackBedKeys } from '../sim/placement.ts'
 import { edgeCells } from '../sim/track.ts'
 import { OPENING_CEILING } from '../sim/openings.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
 import { stairLevels, stairTurnCells } from '../sim/stairs.ts'
+import { liftFootprintCells, liftStopZs } from '../sim/lifts.ts'
 import { facilityWallCells } from '../build/model.ts'
 import type { StockClass } from '../sim/stock.ts'
 import type { Face, FinishId, Module, StationData } from '../sim/types.ts'
@@ -161,6 +162,28 @@ interface TrainEntry {
 }
 
 /**
+ * One elevator cabin. The shaft is built once; the sim sends the car's cabin
+ * height and door fraction, and the renderer glides the cabin and eases the
+ * doors between snapshots. `key` is the module's `x,y,fromZ`, which pairs a car
+ * with its shaft.
+ */
+interface LiftRig {
+  key: string
+  group: THREE.Object3D
+  cabin: THREE.Object3D
+  /** The group origin's z, so the cabin offset is `cabinZ - originZ`. */
+  originZ: number
+  /** Cabin floor height at the previous and current snapshots, world z. */
+  baseFrom: number
+  baseTo: number
+  /** Door fraction at the previous and current snapshots, 0 shut … 1 open. */
+  doorFrom: number
+  doorTo: number
+  /** False until the first snapshot names this rig. */
+  have: boolean
+}
+
+/**
  * One turnstile, driven as a one-passenger-at-a-time leaf. The gate is not a
  * proximity switch that stays open while a queue waits: a passenger walking
  * through the lane is one crossing, which opens the leaf, holds it for that
@@ -203,6 +226,9 @@ export class SceneRenderer {
   private moduleMeshes: THREE.Group = new THREE.Group()
   /** The last station document, so a hover ghost can be built through the models. */
   private stationData: StationData | null = null
+  /** The selected module's id and its highlight box, kept across a rebuild. */
+  private selectedModuleId: string | null = null
+  private selectionHelper: THREE.Box3Helper | null = null
   /** Cells whose top finish is the track bed, for the same preview context. */
   private trackCellSet = new Set<string>()
   /**
@@ -240,6 +266,10 @@ export class SceneRenderer {
   private psdGroups: Array<{ group: THREE.Object3D; colour: number }> = []
   /** Live escalator step bands, rolled every frame from the sim clock. */
   private escalatorRolls: EscalatorRoll[] = []
+  /** Elevator cabins, moved and opened from the sim car state. */
+  private liftRigs: LiftRig[] = []
+  /** The shaft meshes, so a hover can find a lift and its height to extend it. */
+  private liftPickMeshes: THREE.Mesh[] = []
   /** Turnstile leaves, slid open as the crowd passes through their lanes. */
   private gateWings: GateWing[] = []
   /** Wall-mounted 装饰 screens, whose poster material cycles through the ad frames. */
@@ -296,6 +326,10 @@ export class SceneRenderer {
   /** Lowest storey each column reaches; a block there has nothing under it. */
   private groundOf = new Map<string, number>()
   private dimMats = new Map<THREE.Material, THREE.Material>()
+  /** 隐藏墙壁: true while walls and platform screen doors should read through. */
+  private hideWalls = false
+  /** Translucent clones of wall/P.S.D. materials, keyed by the opaque original. */
+  private clearMats = new Map<THREE.Material, THREE.Material>()
   private disposition = false
   /** Keys held for WASD panning; the viewport keeps this in sync. */
   keys = new Set<string>()
@@ -447,6 +481,21 @@ export class SceneRenderer {
       }
     }
     this.wallPick.updateMatrixWorld(true)
+    // An elevator passes through the floor slab at every stop above its base:
+    // hide those cells so the mesher cuts a real shaft opening (the graph still
+    // sees them as nodes, and the cabin supplies the floor). The base cell stays,
+    // so the lift stands on solid floor.
+    for (const m of data.modules) {
+      if (m.type !== 'lift') continue
+      const lo = Math.min(m.from.z, m.to.z)
+      for (const z of liftStopZs(m.from.z, m.to.z)) {
+        if (z <= lo) continue
+        for (const [fx, fy] of liftFootprintCells(m)) {
+          const k = packKey(fx, fy, z)
+          if (solidKeys.has(k)) this.hiddenCells.add(k)
+        }
+      }
+    }
     this.clearModulePreview()
     this.disposeChunks()
     const t0 = performance.now()
@@ -526,12 +575,15 @@ export class SceneRenderer {
           mesh.userData.levelZ = levelZ
           mesh.userData.float = isFloat
           mesh.userData.cells = band.cells.length
+          // Tag wall faces so 隐藏墙壁 can fade them (and their outline) alone.
+          mesh.userData.wall = finishDef(part.finish).family === 'wall'
           group.add(mesh)
           this.chunkMeshes.push(mesh)
           // Inverted hull outline: same geometry, back faces, pushed outward.
           const outline = new THREE.Mesh(geo, this.outlineMaterial())
           outline.userData.levelZ = levelZ
           outline.userData.float = isFloat
+          outline.userData.wall = mesh.userData.wall
           outline.renderOrder = -1
           group.add(outline)
           this.outlineMeshes.push(outline)
@@ -556,8 +608,40 @@ export class SceneRenderer {
     const clipY = box.min.y + (box.max.y - box.min.y) * 0.5
     this.clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), clipY)
     void t0
-    this.pickables = [...this.chunkMeshes, ...this.wallPick.children]
+    this.pickables = [...this.chunkMeshes, ...this.wallPick.children, ...this.liftPickMeshes]
     this.applyLevel()
+    // Rebuild the selection box against the freshly built modules, so an edit
+    // does not drop the highlight.
+    this.refreshSelection()
+  }
+
+  /**
+   * Highlight one placed module with a world-space box, or clear it with null.
+   * The id is remembered, so a `setStation` rebuild re-finds the module.
+   */
+  setSelection(moduleId: string | null): void {
+    this.selectedModuleId = moduleId
+    this.refreshSelection()
+  }
+
+  private refreshSelection(): void {
+    if (this.selectionHelper) {
+      this.scene.remove(this.selectionHelper)
+      this.selectionHelper.geometry.dispose()
+      ;(this.selectionHelper.material as THREE.Material).dispose()
+      this.selectionHelper = null
+    }
+    const id = this.selectedModuleId
+    if (!id) return
+    const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
+    if (!group) return
+    const box = new THREE.Box3().setFromObject(group)
+    if (box.isEmpty()) return
+    box.expandByScalar(0.06)
+    const helper = new THREE.Box3Helper(box, 0x55b6ff)
+    helper.renderOrder = 4
+    this.selectionHelper = helper
+    this.scene.add(helper)
   }
 
   private outlineMaterial(): THREE.Material {
@@ -587,6 +671,7 @@ export class SceneRenderer {
     for (const mod of data.modules) {
       const group = buildModule(mod, ctx)
       if (!group) continue
+      group.userData.moduleId = mod.id
       group.userData.levelZs = moduleLevels(mod)
       const ground = this.groundOf.get(`${mod.x},${mod.y}`)
       group.userData.groundBand = ground
@@ -595,6 +680,17 @@ export class SceneRenderer {
       if (mod.type === 'escalator') {
         const roll = group.userData.escalator as EscalatorRoll | undefined
         if (roll) this.escalatorRolls.push(roll)
+      }
+      if (mod.type === 'lift') {
+        const cabin = group.userData.liftCabin as THREE.Object3D | undefined
+        if (cabin) {
+          const originZ = mod.from.z + 1
+          this.liftRigs.push({ key: `${mod.x},${mod.y},${mod.from.z}`, group, cabin, originZ, baseFrom: originZ, baseTo: originZ, doorFrom: 0, doorTo: 0, have: false })
+        }
+        group.traverse((o) => {
+          const mesh = o as THREE.Mesh
+          if (mesh.isMesh) this.liftPickMeshes.push(mesh)
+        })
       }
       if (mod.type === 'platform-edge') {
         const line = data.lines.find((l) => l.id === mod.cfg.line)
@@ -657,6 +753,8 @@ export class SceneRenderer {
     }
     this.fenceGroups = []
     this.escalatorRolls.length = 0
+    this.liftRigs.length = 0
+    this.liftPickMeshes.length = 0
     this.gateWings.length = 0
     this.adScreens.length = 0
   }
@@ -716,6 +814,48 @@ export class SceneRenderer {
     // The screen doors at a platform open with the train berthed at its line.
     for (const psd of this.psdGroups) psd.group.userData.doorTarget = openColours.has(psd.colour) ? 1 : 0
     this.updateTrains(performance.now(), 0)
+  }
+
+  /**
+   * One pose per elevator car, stride 6: plan x, plan y, lower cell z, upper
+   * cell z, cabin floor height, door fraction. Pairs each car with its shaft by
+   * the first three numbers and queues the new cabin position for gliding.
+   */
+  setLifts(buffer: Float32Array): void {
+    const STRIDE = 6
+    const n = Math.floor(buffer.length / STRIDE)
+    for (const rig of this.liftRigs) {
+      if (rig.have) {
+        rig.baseFrom = rig.baseTo
+        rig.doorFrom = rig.doorTo
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const o = i * STRIDE
+      const key = `${buffer[o] | 0},${buffer[o + 1] | 0},${buffer[o + 2] | 0}`
+      const rig = this.liftRigs.find((r) => r.key === key)
+      if (!rig) continue
+      if (!rig.have) {
+        rig.baseFrom = buffer[o + 4]
+        rig.doorFrom = buffer[o + 5]
+        rig.have = true
+      }
+      rig.baseTo = buffer[o + 4]
+      rig.doorTo = buffer[o + 5]
+    }
+  }
+
+  /** Glide every cabin between snapshots and draw its doors. */
+  private updateLifts(now: number): void {
+    if (this.liftRigs.length === 0) return
+    const alpha = Math.min(1, Math.max(0, (now - this.lastStateTime) / this.stateIntervalMs))
+    for (const rig of this.liftRigs) {
+      if (!rig.have) continue
+      const z = rig.baseFrom + (rig.baseTo - rig.baseFrom) * alpha
+      rig.cabin.position.z = z - rig.originZ
+      const door = rig.doorFrom + (rig.doorTo - rig.doorFrom) * alpha
+      setDoors(rig.group, door)
+    }
   }
 
   /** Place every visible consist between its last two worker poses, and ease doors. */
@@ -927,28 +1067,45 @@ export class SceneRenderer {
   }
 
   private applyLevel(): void {
-    // Block by block. At or below the active level the whole storey is drawn —
-    // opaque when it is the active one, a 35% ghost when it is under it. Above
-    // the active level every block that has something under it is cut away (it
-    // is that lower room's ceiling), but a block with nothing under it is a
-    // plate hanging in space and stays, so the station does not look guillotined.
+    // Auto ceiling hiding, always on: a storey above the active one has its
+    // blocks cut away when they have something under them (they are that lower
+    // room's ceiling); a block with nothing under it is a plate hanging in space
+    // and stays, so the station is never guillotined. This runs regardless of
+    // 显示其他层.
+    //
+    // 显示其他层 (this.ghost) only decides the storeys *below* the active one:
+    // on, they are drawn too, a 35% ghost under the crisp active storey; off,
+    // only the active storey is drawn (plus the hanging plates above).
     for (const [lz, group] of this.levelGroups) {
       group.visible = true
       const active = lz === this.activeZ
+      const atOrBelow = lz <= this.activeZ
       for (const child of group.children) {
         const mesh = child as THREE.Mesh
         if (!mesh.isMesh) continue
         const float = mesh.userData.float === true
-        // Below/at the active level draw the full storey; above it, only floats.
-        mesh.visible = lz <= this.activeZ ? !float : float
+        // Below/at the active storey draw the full storey (when the toggle
+        // allows it); above it, only the hanging plates.
+        mesh.visible = atOrBelow ? !float && (active || this.ghost) : float
         if (!mesh.visible) continue
         const isOutline = this.outlineMeshes.includes(mesh)
+        // 隐藏墙壁: fade the wall faces, and drop their dark outline hull, which
+        // would otherwise read as a solid black wall around the translucent faces.
+        if (this.hideWalls && mesh.userData.wall === true) {
+          if (isOutline) {
+            mesh.visible = false
+            continue
+          }
+          mesh.material = this.clearOf(this.baseOf(mesh))
+          continue
+        }
         const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
         mesh.material = active || !this.ghost ? base : this.dimOf(base)
       }
     }
-    // Fixtures follow the same rule: a gate on a cut-away storey goes, but one
-    // standing on an unsupported plate above the active level stays.
+    // Fixtures follow the same rule: auto ceiling hiding cuts the ones above the
+    // active storey (unless they stand on a plate with nothing under it), and
+    // 显示其他层 decides whether the fixtures below it are drawn.
     for (const child of this.moduleMeshes.children) this.applyGroupLevel(child, true)
     // Trains own their `visible` flag (setTrains parks them), so leave it be.
     for (const child of this.trainGroup.children) this.applyGroupLevel(child, false)
@@ -963,21 +1120,25 @@ export class SceneRenderer {
     const levels = root.userData.levelZs as number[] | undefined
     const lz = root.userData.levelZ as number | undefined
     const zs = levels ?? (lz !== undefined ? [lz] : undefined)
+    const touchesActive = zs ? zs.includes(this.activeZ) : true
     if (manageVisible) {
-      // Same rule as the blocks: cut away above the active level unless the
-      // fixture stands on a plate that itself has nothing under it.
+      // Auto ceiling hiding: a fixture above the active storey goes unless it
+      // stands on a plate that itself has nothing under it. Below it, the
+      // 显示其他层 toggle decides; a ramp that spans the active storey touches it.
       const lowest = zs ? Math.min(...zs) : undefined
       const ground = root.userData.groundBand as number | undefined
-      const shown = lowest === undefined || lowest <= this.activeZ || (ground !== undefined && ground > this.activeZ)
-      root.visible = shown
-      if (!shown) return
+      const inCut = lowest === undefined || lowest <= this.activeZ || (ground !== undefined && ground > this.activeZ)
+      const belowOnly = lowest !== undefined && lowest <= this.activeZ && !touchesActive
+      root.visible = inCut && (!belowOnly || this.ghost)
+      if (!root.visible) return
     }
-    const active = !this.ghost || (zs ? zs.includes(this.activeZ) : true)
+    const active = !this.ghost || touchesActive
     root.traverse((o) => {
       const mesh = o as THREE.Mesh
       if (!mesh.isMesh) return
       const base = this.baseOf(mesh)
-      mesh.material = active ? base : this.dimOf(base)
+      // 隐藏墙壁: a wall panel or a platform screen door reads through.
+      mesh.material = this.hideWalls && mesh.userData.wall === true ? this.clearOf(base) : active ? base : this.dimOf(base)
     })
   }
 
@@ -1000,6 +1161,24 @@ export class SceneRenderer {
     return d
   }
 
+  /**
+   * A translucent clone of `base` for 隐藏墙壁: walls and platform screen doors
+   * stay legible as surfaces but stop hiding the crowd and the station behind
+   * them. `depthWrite` is off so the layers behind actually show through.
+   */
+  private clearOf(base: THREE.Material): THREE.Material {
+    let c = this.clearMats.get(base)
+    if (!c) {
+      c = base.clone()
+      c.transparent = true
+      c.opacity = 0.16
+      c.depthWrite = false
+      if (c.onBeforeCompile !== base.onBeforeCompile) c.onBeforeCompile = base.onBeforeCompile
+      this.clearMats.set(base, c)
+    }
+    return c
+  }
+
   setCutaway(on: boolean): void {
     const planes = on ? [this.clipPlane] : []
     for (const m of [...this.chunkMeshes, ...this.outlineMeshes]) {
@@ -1007,6 +1186,12 @@ export class SceneRenderer {
       mat.clippingPlanes = planes
       mat.needsUpdate = true
     }
+  }
+
+  /** 隐藏墙壁: fade every wall and platform screen door, or restore them. */
+  setHideWalls(on: boolean): void {
+    this.hideWalls = on
+    this.applyLevel()
   }
 
   /* -------------------------------------------------------------- agents */
@@ -1556,7 +1741,9 @@ export class SceneRenderer {
         ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}`
         : mod && mod.type === 'escalator'
           ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}`
-          : mod && mod.type === 'track'
+          : mod && mod.type === 'lift'
+            ? `:${mod.from.z}>${mod.to.z}:${mod.rot ?? 0}`
+            : mod && mod.type === 'track'
             ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}:${mod.cfg.power}:${mod.cfg.tunnel ? 't' : 'p'}`
             : mod && mod.type === 'billboard'
               ? `:${mod.w}:${mod.cfg.variant}`
@@ -1759,6 +1946,7 @@ export class SceneRenderer {
     if (this.controls.enabled) this.controls.update()
     this.renderAgents(now)
     this.updateTrains(now, dt)
+    this.updateLifts(now)
     this.updateEscalators(dt * (1000 / this.stateIntervalMs))
     this.updateGates(dt * (1000 / this.stateIntervalMs))
     this.updateAds(dt)
@@ -1865,6 +2053,12 @@ export class SceneRenderer {
     this.clearModulePreview()
     this.clearFencePreview()
     this.ghostMaterial?.dispose()
+    if (this.selectionHelper) {
+      this.scene.remove(this.selectionHelper)
+      this.selectionHelper.geometry.dispose()
+      ;(this.selectionHelper.material as THREE.Material).dispose()
+      this.selectionHelper = null
+    }
     if (this.faceGhost) {
       this.scene.remove(this.faceGhost)
       this.faceGhost.geometry.dispose()
@@ -1904,7 +2098,7 @@ function blobRadius(type: Module['type']): number {
       return 0
     case 'exit':
     case 'lift':
-      return 1.2
+      return 1.5
     case 'shop':
     case 'booth':
     case 'retail':

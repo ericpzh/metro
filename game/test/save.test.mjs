@@ -29,6 +29,39 @@ test('finishes survive the round trip', () => {
   assert.deepEqual(again.finish, { top: 'floor.track' })
 })
 
+test('an old line with no termini loads with empty ones', () => {
+  // A v1 save written before the per-line direction termini existed: the loader
+  // must fill them, not leave undefined.
+  const legacy = {
+    format: SAVE_FORMAT,
+    formatVersion: 1,
+    static: {
+      cells: [],
+      modules: [],
+      lines: [
+        {
+          id: '1',
+          name: '1号线',
+          colour: '#edcf3b',
+          stock: 'B',
+          cars: 6,
+          power: 'third-rail',
+          headwayProfile: { peak: 150, offpeak: 240, late: 480 },
+          alightPerTrain: 200,
+          terminus: 'through',
+          direction: 'up',
+          travelSign: 1,
+          stations: [],
+        },
+      ],
+    },
+  }
+  const r = parse(JSON.stringify(legacy))
+  assert.equal(r.ok, true)
+  assert.equal(r.state.lines[0].upTerminus, '')
+  assert.equal(r.state.lines[0].downTerminus, '')
+})
+
 test('each failure names a Chinese reason and loads nothing', () => {
   const broken = parse('{ not json')
   assert.deepEqual(broken, { ok: false, error: '文件损坏' })

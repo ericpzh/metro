@@ -134,7 +134,10 @@ the track's `cfg.dir`, so the button turns the real consist, not just the previe
 the platform-only controls — 方向 (上行/下行), 线路, 重置屏蔽门 — only while placing or editing a
 **platform**; a tunnel tool or a selected tunnel shows just the two tools and the length slider. The 重置屏蔽门 button re-derives the selected
 rail's doors, or every rail's when nothing is selected. Line management lives in the right inspector's
-**线路** section (线路名/颜色, 车型/编组/供电/下车, plus **+ 新建线路**). The reference station builds its
+**线路** section (线路名/颜色, 上行终点/下行终点 direction signs, 车型/编组/供电/下车, plus **+ 新建线路**).
+The whole section and each line card fold open/closed, so a long roster stays compact. The two
+terminus inputs name where each direction runs, and every platform screen door on that line
+prints the matching one on its direction sticker instead of a hardcoded place name. The reference station builds its
 bed from the same dig, so the demo shows the recessed track too.
 
 **Escalators are staircases, and they turn over.** `models.ts` builds each run as a band of
@@ -180,6 +183,32 @@ never surface through the floor blocks to the left and right of the opening, not
 through the concourse floor. An escalator is single-direction and carries **one passenger per step**
 at 0.5 m/s over a 0.4 m pitch — 75/min, and exactly one rider per step on the run.
 
+**Elevators are a 2 × 2 m shaft with one car.** The **电梯** button drops a base
+module on the hovered floor: a 2 × 2 m assembly with a 1.5 × 1.5 m carriage
+inside its walls (`sim/lifts.ts`, `LIFT_RISE = 4`) that serves the floor one
+storey up and stands on all four of its floor cells. The *model* is taller than
+the ride: it runs on up to the slab above its top landing, so a piece on the
+platform (−8 m) serves −8 m and −4 m and tops out at the concourse ceiling
+(0 m), never poking through the street. The player grows it a storey at a time — hovering
+the shaft's upper half extends it up, the lower half down (`LIFT_EXTEND = 4`).
+Extending never checks for floor, so a shaft may run past a level with no slab
+(it simply has no landing there); only a fresh piece must stand on floor. One
+shaft is **one car**: `buildGraph` makes every walkable floor in the column a
+stop and gives the single lift server an edge between every ordered pair, so a
+passenger rides straight to their floor (a step-free passenger is forced onto it
+because stairs and escalators cost ∞).
+The shaft's three non-anchor cells are not walkable, so the crowd only boards at
+the anchor cell and never walks through the cabin walls. The car is a real state
+machine (`World.stepLift`): park, open the doors, let the crowd walk in and out,
+shut, then travel — riders are `STATE_RIDING` and pinned inside the cabin by
+`stepLiftRide`, so they visibly move with it instead of teleporting. `models.ts`
+builds the shaft and a cabin whose two leaves are registered doors, with a
+threshold sill and a green call panel at each real landing floor (never at a
+floorless level or above the roof), and the worker sends one car pose per
+snapshot (`World.liftRenderState`) so
+`SceneRenderer.setLifts` glides the cabin and slides the doors. See
+`test/lift.test.mjs`.
+
 **Every demo exit is a head-house over an up + down pair.** Each of the three surface exits owns a
 descending run and an up run two metres apart, landing on the exit's own row; `models.ts` draws the
 exit as a steel-and-glass canopy whose roof reaches over that pair, so the runs surface from a hole
@@ -197,6 +226,12 @@ under the canopy), and the glass sides and back wall are barriers in the walk gr
 walks in and out through the opening and never through a wall. A bare portal opts out with
 `cfg.headHouse: false` (the small test stations do).
 
+**An exit is named and selected in both views.** The RHS 出入口 section folds like 线路, and each card
+edits the exit's name (commit on Enter / blur), its demand and its open toggle; the name reprints the
+model's street header, which carries the station name and the exit's own name. The 3D view and the
+card share one selection: clicking an exit highlights its card, and clicking or focusing a card draws
+a highlight box around the exit in 3D (`SceneRenderer.setSelection`).
+
 **No ramps stacked.** A ramp also has a collision envelope (`rampEnvelope` / `rampBlocked`): a
 bounding box around the run, the truss and the balustrade — for a stair, widened to its tread width.
 Up and down runs must sit in separate columns (the demo's banks are two metres apart), and
@@ -211,7 +246,9 @@ its wall while the new outer edge gains one, an L-shape keeps only its true peri
 floor is treated as continuous ground (no wall grows against it), and only `auto-floor` cells are
 tracked so a wall the player placed by hand — or the new 墙 tool's run — is never deleted or
 re-tagged. A hole dug through the middle stays open rather than getting boarded up. Single clicks
-and stacked blocks stay plain, and the drag's live ghost shows the wall ring before release. See
+and stacked blocks stay plain, and the drag's live ghost shows the wall ring before release. The
+地基 tool carries a **自动生成墙壁** toggle (on by default) in the 工具 folder: turn it off and the
+same drag lays the patch as untagged bare blocks, with no ring. See
 `test/walls.test.mjs`.
 
 **Fences divide areas with gates.** The 设备 folder's 围栏 (§5.2) is a 1 m high, very thin
@@ -237,7 +274,7 @@ and the fare line holds. See `test/fence.test.mjs`.
 * `surfaces.test.mjs` — a slow floor finish is a real detour, a track bed is not a walkable
   node, paint/fill/erase are immutable, and the mesher groups by finish (B1).
 * `save.test.mjs` — the `metro-save` v1 envelope round-trips the static station and names
-  every failure mode (B1).
+  every failure mode (B1); a legacy line with no direction termini loads with empty ones.
 * `load.test.mjs` — loading a station is a full sim reset: `World.load` clears the crowd,
   trains, server queues, clock and throughput counters and reseeds the RNG, while the edit path
   `rebuild` keeps the crowd in place.
@@ -269,6 +306,14 @@ and the fare line holds. See `test/fence.test.mjs`.
   the direction cycle flips up ↔ down, two runs may not share a footprint but the next bay over is
   free, placing one carves its slab, and the demo's pre-placed runs are that same piece at the same
   dimensions.
+* `lift.test.mjs` — the 电梯 (§5.1): a fresh piece is a 2 × 2 m assembly that
+  serves the floor one storey up; extending grows it a storey up or down in the
+  same column and keeps its id; the graph joins every floor in the shaft with one car,
+  both ways, skips a floorless level, and only the anchor cell boards (the shaft
+  interior is not walkable);
+  two lifts may not share space but a 2 m gap is free; and a passenger rides —
+  walks in, is pinned to the 1.5 m cabin while it moves, and steps out on the
+  floor above. The car pose is deterministic and its door fraction stays in 0..1.
 * `rail.test.mjs` — placing a rail digs the bed, lays the track module and derives one platform-edge
   per contiguous platform run (two on an island); the derived screen's `side` names the side the track
   lies on, so the header faces the platform and never the rail (checked on both sides of an island and
@@ -281,7 +326,8 @@ and the fare line holds. See `test/fence.test.mjs`.
   end, clears the wall it pokes through and raises its own side walls and ceiling without spawning
   doors; a platform needs its whole bed on solid floor and refuses a wall in its headroom; either one
   is blocked by any existing equipment, room, screen door or track; re-cutting a line's consist resizes
-  its platform tracks; the reference station builds its bed from the same dig and its hand-authored edge
+  its platform tracks; a fresh line carries empty 上行/下行 termini for its screen header; the reference
+  station builds its bed from the same dig and its hand-authored edge
   matches what the derive would place.
 * `facility.test.mjs` — the rectangle-drag facilities: 商店 / 厕所 / 办公室 are walled rooms (one
   `shop` module type, the fit-out in `cfg.kind`) while 售票亭 is an open desk; same-fit-out drags

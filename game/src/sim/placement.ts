@@ -11,6 +11,7 @@
 // Pure data — no three, no DOM.
 
 import { EXIT_L, EXIT_W, exitFloorAt } from './exits.ts'
+import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { rampEnvelope, rampOpeningAt } from './openings.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import type { Cell, Module } from './types.ts'
@@ -140,9 +141,21 @@ function flatEnvelope(m: Module): ModuleBox | null {
   }
 }
 
-/** The world box a module occupies — its ramp corridor or its flat body. */
+/**
+ * The world box a module occupies — its ramp corridor or its flat body. A lift
+ * is neither: it is a 2 × 2 m shaft rising two storeys, so it gets its own box
+ * (the ramp envelope's thin vertical column would not reserve the whole plan).
+ */
 export function moduleEnvelope(m: Module): ModuleBox | null {
+  if (m.type === 'lift') return liftEnvelope(m)
   return rampEnvelope(m) ?? flatEnvelope(m)
+}
+
+/** The 2 × 2 m shaft box of a lift, from its lower landing to above its top. */
+function liftEnvelope(m: Extract<Module, { type: 'lift' }>): ModuleBox {
+  const lo = Math.min(m.from.z, m.to.z)
+  const hi = Math.max(m.from.z, m.to.z)
+  return { x0: m.x, y0: m.y, z0: lo + 0.5, x1: m.x + LIFT_SIZE, y1: m.y + LIFT_SIZE, z1: hi + 1 + 0.6 }
 }
 
 /**
@@ -206,6 +219,8 @@ function baseCells(m: Module): Array<[number, number]> {
       return billboardCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'track':
       return trackCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'lift':
+      return liftFootprintCells(m)
     default:
       return [[m.x, m.y]]
   }

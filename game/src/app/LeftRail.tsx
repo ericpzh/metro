@@ -253,7 +253,7 @@ interface FolderProps {
   children: React.ReactNode
 }
 
-function Folder({ title, count, open, onToggle, children }: FolderProps): React.ReactElement {
+export function Folder({ title, count, open, onToggle, children }: FolderProps): React.ReactElement {
   return (
     <section className={open ? 'folder open' : 'folder'}>
       <button type="button" className="folderHead" onClick={onToggle} aria-expanded={open}>
@@ -279,7 +279,6 @@ type FolderKey = 'tools' | 'equipment' | 'rail' | 'rooms' | 'decor' | 'surfaces'
 const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
   select: 'tools',
   block: 'tools',
-  cube: 'tools',
   wall: 'tools',
   delete: 'tools',
   module: 'equipment',
@@ -292,6 +291,7 @@ const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
 export function LeftRail(): React.ReactElement {
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
+  const autoWalls = useStore((s) => s.autoWalls)
   const moduleType = useStore((s) => s.moduleType)
   const setModuleType = useStore((s) => s.setModuleType)
   const moduleRot = useStore((s) => s.moduleRot)
@@ -303,6 +303,7 @@ export function LeftRail(): React.ReactElement {
   const ortho = useStore((s) => s.ortho)
   const ghost = useStore((s) => s.ghostOtherLevels)
   const cutaway = useStore((s) => s.cutaway)
+  const hideWalls = useStore((s) => s.hideWalls)
   const overlayOn = useStore((s) => s.overlayOn)
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
   const railDir = useStore((s) => s.railDir)
@@ -448,13 +449,12 @@ export function LeftRail(): React.ReactElement {
         <span className="railStampSub">METRO / BUILD</span>
       </div>
 
-      <Folder title="工具" count={7} open={open.tools} onToggle={() => toggle('tools')}>
+      <Folder title="工具" count={tool === 'block' ? 7 : 6} open={open.tools} onToggle={() => toggle('tools')}>
         <div className="blockGrid">
           {(
             [
               { id: 'select', label: '选择', icon: 'select' },
-              { id: 'block', label: '地基', icon: 'block', title: '地基：单击放一块，按住拖出一片（自动长出 4m 外墙），右键删除' },
-              { id: 'cube', label: '方块', icon: 'block', title: '方块：单击放一块，按住拖出一片（不自动长墙），右键删除' },
+              { id: 'block', label: '地基', icon: 'block', title: '地基：单击放一块，按住拖出一片（可自动长出 4m 外墙），右键删除' },
               { id: 'wall', label: '墙', icon: 'wall', title: '墙：左键拖出 4m 高墙，右键拖拽整列拆除' },
               { id: 'delete', label: '删除', icon: 'delete', title: '删除：单击拆一块，按住拖出一条拆一行（左右键一样）' },
             ] as Array<{ id: Tool; label: string; icon: string; title?: string }>
@@ -463,9 +463,17 @@ export function LeftRail(): React.ReactElement {
           ))}
           <Block label="撤销" icon="undo" onClick={() => st().undo()} />
           <Block label="重做" icon="redo" onClick={() => st().redo()} />
+          {tool === 'block' && (
+            <Block
+              label="自动生成墙壁"
+              icon="wall"
+              active={autoWalls}
+              title="开启后，拖出一片地基会长出 4m 外墙；关闭则只铺地砖"
+              onClick={() => st().setAutoWalls(!autoWalls)}
+            />
+          )}
         </div>
       </Folder>
-
       <Folder title="轨道" count={2} open={open.rail} onToggle={() => toggle('rail')}>
         <div className="blockGrid">
           <Block
@@ -718,11 +726,12 @@ export function LeftRail(): React.ReactElement {
         ))}
       </Folder>
 
-      <Folder title="视图" count={5} open={open.view} onToggle={() => toggle('view')}>
+      <Folder title="视图" count={6} open={open.view} onToggle={() => toggle('view')}>
         <div className="blockGrid">
           <Block label="正交 / 透视" icon="ortho" active={ortho} onClick={() => st().setOrtho(!ortho)} />
-          <Block label="显示其他层" icon="ghost" active={ghost} onClick={() => st().setGhostOther(!ghost)} />
+          <Block label="显示其他层" icon="ghost" active={!ghost} onClick={() => st().setGhostOther(!ghost)} />
           <Block label="剖切" icon="cutaway" active={cutaway} onClick={() => st().setCutaway(!cutaway)} />
+          <Block label="隐藏墙壁" icon="wall" active={hideWalls} onClick={() => st().setHideWalls(!hideWalls)} />
           <Block label="热力图" icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
           <Block label="分区图" icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
         </div>

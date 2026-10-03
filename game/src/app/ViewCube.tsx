@@ -289,7 +289,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
       if (!v) return
       scene.setViewDirection(new THREE.Vector3(v[0], v[1], v[2]).normalize(), false)
       st.setOrtho(false)
-      st.setGhostOther(false) // every layer on show
+      st.setGhostOther(true) // every layer on show (the active one crisp)
     } else if (action.startsWith('edge:')) {
       const parts = action.split(':')
       const va = new THREE.Vector3(...VERTICES[Number(parts[1])])
@@ -346,7 +346,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
     scene.setPreset('iso')
     const st = useStore.getState()
     st.setOrtho(false)
-    st.setGhostOther(false)
+    st.setGhostOther(true)
     syncNow()
   }
 

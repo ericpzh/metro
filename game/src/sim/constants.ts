@@ -114,6 +114,18 @@ export const STAIR_RATE_DOWN = 33 / 60
 /** Lift: 15 pax per 40 s cycle. */
 export const LIFT_BATCH = 15
 export const LIFT_CYCLE = 40
+/**
+ * Elevator car choreography, in simulated seconds. The car is a real, moving
+ * cabin: it opens its doors, lets the crowd walk in and out, closes them, then
+ * travels to the called floor. `LIFT_BATCH`/`LIFT_CYCLE` stay the capacity the
+ * path cost estimates with; these numbers only time the visible motion.
+ */
+export const LIFT_DOOR_S = 2
+export const LIFT_DWELL_S = 6
+/** How fast the cabin travels, m/s. */
+export const LIFT_SPEED = 1.5
+/** Seconds a passenger takes to step into or out of the cabin. */
+export const LIFT_BOARD_S = 0.6
 /** Train door, pax/s at a 1.4 m door, derated by crowding. */
 export const DOOR_RATE = 1.2
 

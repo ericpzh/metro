@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore, isDecorType, isEscalatorType, isFenceType, isRotatableType, isStairType, isWallMountedType } from './store.ts'
-import { LeftRail } from './LeftRail.tsx'
+import { useStore, isDecorType, isEscalatorType, isFenceType, isRotatableType, isStairType, isWallMountedType, moduleLabel } from './store.ts'
+import { Folder, LeftRail } from './LeftRail.tsx'
 import { Viewport } from './Viewport.tsx'
 import { paintZone, zoneAt } from '../build/model.ts'
 import { ZONE_LIST, zoneLabel } from '../sim/zones.ts'
-import type { LineDef, Zone } from '../sim/types.ts'
+import type { LineDef, Module, Zone } from '../sim/types.ts'
 import { lineCapacityPerHour, trainRatedCapacity, STOCK } from '../sim/stock.ts'
 
 const LOS_LABEL: Record<string, string> = { A: 'A 畅通', B: 'B 顺畅', C: 'C 有点挤', D: 'D 拥挤', E: 'E 很挤', F: 'F 挤爆' }
@@ -154,10 +154,14 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
   const updateLine = useStore((s) => s.updateLine)
   const [name, setName] = useState(line.name)
   const [colour, setColour] = useState(line.colour)
+  const [upTerminus, setUpTerminus] = useState(line.upTerminus ?? '')
+  const [downTerminus, setDownTerminus] = useState(line.downTerminus ?? '')
   useEffect(() => {
     setName(line.name)
     setColour(line.colour)
-  }, [line.id, line.name, line.colour])
+    setUpTerminus(line.upTerminus ?? '')
+    setDownTerminus(line.downTerminus ?? '')
+  }, [line.id, line.name, line.colour, line.upTerminus, line.downTerminus])
 
   const commitName = (): void => {
     const t = name.trim()
@@ -167,33 +171,167 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
   const commitColour = (): void => {
     if (colour !== line.colour) updateLine(line.id, { colour })
   }
+  // Termini may be cleared to '' (the header then falls back to the direction
+  // word), so unlike the name there is no non-empty guard.
+  const commitTermini = (): void => {
+    const up = upTerminus.trim()
+    const down = downTerminus.trim()
+    if (up !== (line.upTerminus ?? '') || down !== (line.downTerminus ?? '')) updateLine(line.id, { upTerminus: up, downTerminus: down })
+  }
+  const terminusKeys = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') e.currentTarget.blur()
+    else if (e.key === 'Escape') {
+      setUpTerminus(line.upTerminus ?? '')
+      setDownTerminus(line.downTerminus ?? '')
+      e.currentTarget.blur()
+    }
+  }
 
   return (
-    <div className="row">
-      <input
-        className="lineNameInput"
-        value={name}
-        maxLength={16}
-        placeholder="线路名"
-        title="线路名（回车或点击别处保存）"
-        onChange={(e) => setName(e.target.value)}
-        onBlur={commitName}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur()
-          else if (e.key === 'Escape') {
-            setName(line.name)
-            e.currentTarget.blur()
-          }
-        }}
-      />
-      <input
-        type="color"
-        className="lineColourInput"
-        value={colour}
-        title="线路颜色"
-        onChange={(e) => setColour(e.target.value)}
-        onBlur={commitColour}
-      />
+    <>
+      <div className="row">
+        <input
+          className="lineNameInput"
+          value={name}
+          maxLength={16}
+          placeholder="线路名"
+          title="线路名（回车或点击别处保存）"
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            else if (e.key === 'Escape') {
+              setName(line.name)
+              e.currentTarget.blur()
+            }
+          }}
+        />
+        <input
+          type="color"
+          className="lineColourInput"
+          value={colour}
+          title="线路颜色"
+          onChange={(e) => setColour(e.target.value)}
+          onBlur={commitColour}
+        />
+      </div>
+      <label className="field">
+        <span>上行终点</span>
+        <input
+          className="lineNameInput"
+          value={upTerminus}
+          maxLength={12}
+          onChange={(e) => setUpTerminus(e.target.value)}
+          onBlur={commitTermini}
+          onKeyDown={terminusKeys}
+        />
+      </label>
+      <label className="field">
+        <span>下行终点</span>
+        <input
+          className="lineNameInput"
+          value={downTerminus}
+          maxLength={12}
+          onChange={(e) => setDownTerminus(e.target.value)}
+          onBlur={commitTermini}
+          onKeyDown={terminusKeys}
+        />
+      </label>
+    </>
+  )
+}
+
+/**
+ * A fold for the right-hand inspector: a clickable head and a body that eases
+ * open/closed. The body stays mounted (clipped and `inert` while shut), so a
+ * collapsed line keeps its half-typed input state.
+ */
+function Disclosure({
+  head,
+  open,
+  onToggle,
+  className,
+  children,
+}: {
+  head: React.ReactNode
+  open: boolean
+  onToggle: () => void
+  className?: string
+  children: React.ReactNode
+}): React.ReactElement {
+  return (
+    <div className={className ? `disclosure ${className}` : 'disclosure'}>
+      <button type="button" className={open ? 'disclosureHead open' : 'disclosureHead'} onClick={onToggle} aria-expanded={open}>
+        {head}
+        <span className="disclosureCaret" aria-hidden="true" />
+      </button>
+      <div className={open ? 'foldBody open' : 'foldBody'} aria-hidden={!open} inert={!open}>
+        <div className="foldInner">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One exit's card in 出入口客流: its name (editable — the 3D header reprints on
+ * commit), its demand and its open toggle. The card is the RHS half of the
+ * selection link: it highlights when this exit is the 3D selection, and clicking
+ * or focusing any control selects the exit so the 3D box follows.
+ */
+function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): React.ReactElement {
+  const station = useStore((s) => s.station)
+  const commit = useStore((s) => s.commit)
+  const selected = useStore((s) => s.selected)
+  const select = useStore((s) => s.select)
+  const [name, setName] = useState(mod.cfg.name)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => setName(mod.cfg.name), [mod.id, mod.cfg.name])
+
+  const isSelected = selected?.kind === 'module' && selected.key === mod.id
+  useEffect(() => {
+    if (isSelected) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [isSelected])
+
+  const patch = (p: Partial<{ name: string; inRate: number; open: boolean }>): void => {
+    const modules = station.modules.map((m) => (m.id === mod.id && m.type === 'exit' ? { ...m, cfg: { ...m.cfg, ...p } } : m))
+    commit({ ...station, modules })
+  }
+  const commitName = (): void => {
+    const t = name.trim()
+    if (t && t !== mod.cfg.name) patch({ name: t })
+    else setName(mod.cfg.name)
+  }
+  const pick = (): void => select({ kind: 'module', key: mod.id, label: moduleLabel('exit') })
+
+  return (
+    <div ref={ref} className={isSelected ? 'card sel' : 'card'} onClick={pick} onFocus={pick}>
+      <label className="field">
+        <span>名称</span>
+        <input
+          className="lineNameInput"
+          value={name}
+          maxLength={12}
+          placeholder="出入口名"
+          title="出入口名称（回车或点击别处保存）"
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            else if (e.key === 'Escape') {
+              setName(mod.cfg.name)
+              e.currentTarget.blur()
+            }
+          }}
+        />
+      </label>
+      <label className="field">
+        <span>进站 {mod.cfg.inRate} 人/时</span>
+        <input type="range" min={0} max={6000} step={10} value={mod.cfg.inRate} onChange={(e) => patch({ inRate: Number(e.target.value) })} />
+      </label>
+      <label className="field inline">
+        <input type="checkbox" checked={mod.cfg.open} onChange={(e) => patch({ open: e.target.checked })} />
+        <span>开放</span>
+      </label>
     </div>
   )
 }
@@ -201,111 +339,110 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
 function Inspector(): React.ReactElement {
   const station = useStore((s) => s.station)
   const selected = useStore((s) => s.selected)
-  const commit = useStore((s) => s.commit)
   const updateLine = useStore((s) => s.updateLine)
   const addLine = useStore((s) => s.addLine)
+  const [infoOpen, setInfoOpen] = useState(true)
+  const [linesOpen, setLinesOpen] = useState(true)
+  const [exitsOpen, setExitsOpen] = useState(true)
+  // Per-line fold state. A line with no entry reads as open, so a freshly added
+  // line starts expanded without seeding the map.
+  const [openLines, setOpenLines] = useState<Record<string, boolean>>({})
 
   const exits = useMemo(() => station.modules.filter((m) => m.type === 'exit'), [station.modules])
 
-  const setExit = (id: string, patch: Partial<{ inRate: number; open: boolean; name: string }>): void => {
-    const modules = station.modules.map((m) => (m.id === id && m.type === 'exit' ? { ...m, cfg: { ...m.cfg, ...patch } } : m))
-    commit({ ...station, modules })
-  }
-
   return (
     <div className="panel">
-      <div className="groupTitle">信息</div>
-      {selected ? (
-        <div className="card">
-          <div className="kv">
-            <span>已选</span>
-            <b>{selected.label}</b>
-          </div>
-          <div className="kv">
-            <span>类型</span>
-            <b>{selected.kind === 'module' ? '设备' : '方块'}</b>
-          </div>
-          <div className="muted small">按 Del 删除；上面有设备，就一起拆掉</div>
-        </div>
-      ) : (
-        <div className="muted small">点一下方块或设备，就能选中。</div>
-      )}
-      {selected?.kind === 'cell' && <ZoneCard />}
+      <div className="railStamp">
+        <span className="railStampTitle">信息栏</span>
+        <span className="railStampSub">METRO / INSPECTOR</span>
+      </div>
 
-      <div className="groupTitle">出入口客流</div>
-      {exits.length === 0 && <div className="muted small">还没建出入口。</div>}
-      {exits.map((m) =>
-        m.type === 'exit' ? (
-          <div className="card" key={m.id}>
+      <Folder title="信息" open={infoOpen} onToggle={() => setInfoOpen((v) => !v)}>
+        {selected ? (
+          <div className="card">
             <div className="kv">
-              <span>名称</span>
-              <b>{m.cfg.name}</b>
+              <span>已选</span>
+              <b>{selected.label}</b>
             </div>
-            <label className="field">
-              <span>进站 {m.cfg.inRate} 人/时</span>
-              <input type="range" min={0} max={6000} step={10} value={m.cfg.inRate} onChange={(e) => setExit(m.id, { inRate: Number(e.target.value) })} />
-            </label>
-            <label className="field inline">
-              <input type="checkbox" checked={m.cfg.open} onChange={(e) => setExit(m.id, { open: e.target.checked })} />
-              <span>开放</span>
-            </label>
+            <div className="kv">
+              <span>类型</span>
+              <b>{selected.kind === 'module' ? '设备' : '方块'}</b>
+            </div>
           </div>
-        ) : null,
-      )}
+        ) : (
+          <div className="muted small">点一下方块或设备，就能选中。</div>
+        )}
+        {selected?.kind === 'cell' && <ZoneCard />}
+      </Folder>
 
-      <div className="groupTitle">线路</div>
-      {station.lines.length === 0 && (
-        <div className="muted small">还没配线路。铺下第一段轨道时会自动新建，也可以在这里手动加。</div>
-      )}
-      {station.lines.map((line) => (
-        <div className="card" key={line.id}>
-          <div className="kv">
-            <span>线路</span>
-            <b>
-              <i className="swatch" style={{ background: line.colour }} /> {line.name} · {line.stock}型{line.cars}节
-            </b>
-          </div>
-          <LineFields line={line} />
-          <div className="row">
-            <span className="muted small">车型</span>
-            {(['A', 'B', 'C'] as const).map((s) => (
-              <button key={s} className={line.stock === s ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { stock: s })}>
-                {s}型
-              </button>
-            ))}
-          </div>
-          <label className="field">
-            <span>编组 {line.cars} 节</span>
-            <input type="range" min={1} max={8} step={1} value={line.cars} onChange={(e) => updateLine(line.id, { cars: Number(e.target.value) })} />
-          </label>
-          <div className="row">
-            <span className="muted small">供电</span>
-            {(['third-rail', 'catenary'] as const).map((p) => (
-              <button
-                key={p}
-                className={line.power === p ? 'chip on' : 'chip'}
-                onClick={() => updateLine(line.id, { power: p })}
-              >
-                {p === 'third-rail' ? '第三轨' : '接触网'}
-              </button>
-            ))}
-          </div>
-          <div className="kv">
-            <span>载客量</span>
-            <b>
-              {trainRatedCapacity(line)} 人/列 · {lineCapacityPerHour(line).toLocaleString()} 人/时
-            </b>
-          </div>
-          <label className="field">
-            <span>每列下车 {line.alightPerTrain} 人</span>
-            <input type="range" min={0} max={1500} step={10} value={line.alightPerTrain} onChange={(e) => updateLine(line.id, { alightPerTrain: Number(e.target.value) })} />
-          </label>
-          <div className="muted small">{STOCK[line.stock].doorsPerSide * line.cars} 个车门 · 出站不限流，来多少走多少</div>
-        </div>
-      ))}
-      <button className="chip" onClick={addLine}>
-        + 新建线路
-      </button>
+      <Folder title="出入口" count={exits.length} open={exitsOpen} onToggle={() => setExitsOpen((v) => !v)}>
+        {exits.length === 0 && <div className="muted small">还没建出入口。</div>}
+        {exits.map((m) => (m.type === 'exit' ? <ExitCard key={m.id} mod={m} /> : null))}
+      </Folder>
+
+      <Folder title="线路" count={station.lines.length} open={linesOpen} onToggle={() => setLinesOpen((v) => !v)}>
+        {station.lines.length === 0 && (
+          <div className="muted small">还没配线路。铺下第一段轨道时会自动新建，也可以在这里手动加。</div>
+        )}
+        {station.lines.map((line) => {
+          const open = openLines[line.id] ?? true
+          return (
+            <Disclosure
+              key={line.id}
+              className="card"
+              head={
+                <span className="kv">
+                  <b>
+                    <i className="swatch" style={{ background: line.colour }} /> {line.name} · {line.stock}型{line.cars}节
+                  </b>
+                </span>
+              }
+              open={open}
+              onToggle={() => setOpenLines((o) => ({ ...o, [line.id]: !(o[line.id] ?? true) }))}
+            >
+              <LineFields line={line} />
+              <div className="row">
+                <span className="muted small">车型</span>
+                {(['A', 'B', 'C'] as const).map((s) => (
+                  <button key={s} className={line.stock === s ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { stock: s })}>
+                    {s}型
+                  </button>
+                ))}
+              </div>
+              <label className="field">
+                <span>编组 {line.cars} 节</span>
+                <input type="range" min={1} max={8} step={1} value={line.cars} onChange={(e) => updateLine(line.id, { cars: Number(e.target.value) })} />
+              </label>
+              <div className="row">
+                <span className="muted small">供电</span>
+                {(['third-rail', 'catenary'] as const).map((p) => (
+                  <button
+                    key={p}
+                    className={line.power === p ? 'chip on' : 'chip'}
+                    onClick={() => updateLine(line.id, { power: p })}
+                  >
+                    {p === 'third-rail' ? '第三轨' : '接触网'}
+                  </button>
+                ))}
+              </div>
+              <div className="kv">
+                <span>载客量</span>
+                <b>
+                  {trainRatedCapacity(line)} 人/列 · {lineCapacityPerHour(line).toLocaleString()} 人/时
+                </b>
+              </div>
+              <label className="field">
+                <span>每列下车 {line.alightPerTrain} 人</span>
+                <input type="range" min={0} max={1500} step={10} value={line.alightPerTrain} onChange={(e) => updateLine(line.id, { alightPerTrain: Number(e.target.value) })} />
+              </label>
+              <div className="muted small">{STOCK[line.stock].doorsPerSide * line.cars} 个车门 · 出站不限流，来多少走多少</div>
+            </Disclosure>
+          )
+        })}
+        <button className="chip" onClick={addLine}>
+          + 新建线路
+        </button>
+      </Folder>
     </div>
   )
 }
@@ -327,8 +464,6 @@ function BottomBar(): React.ReactElement {
       <Metric label="时间" value={m ? clock(m.simTime) : '—'} />
       <span className="spacer" />
       <Metric label="FPS" value={stats ? stats.fps : '—'} />
-      <Metric label="仿真耗时" value={m ? `${m.tickMs.toFixed(1)} ms` : '—'} />
-      <Metric label="网格构建" value={stats ? `${stats.lastChunkMs.toFixed(1)} ms · ${stats.chunks}` : '—'} />
       <Metric label="方块数" value={station.cells.length} />
     </div>
   )
@@ -352,6 +487,7 @@ function Metric({ label, value, warn, tone }: { label: string; value: string | n
 
 export function App(): React.ReactElement {
   const tool = useStore((s) => s.tool)
+  const autoWalls = useStore((s) => s.autoWalls)
   const moduleType = useStore((s) => s.moduleType)
   const setTool = useStore((s) => s.setTool)
   const notice = useStore((s) => s.notice)
@@ -458,9 +594,9 @@ export function App(): React.ReactElement {
           <Viewport />
           <div className="stageHint">
             {tool === 'block'
-              ? '地基：单击放一块，按住拖出一片（自动长出 4m 外墙），右键删除'
-              : tool === 'cube'
-                ? '方块：单击放一块，按住拖出一片（不自动长墙），右键删除'
+              ? autoWalls
+                ? '地基：单击放一块，按住拖出一片（自动长出 4m 外墙），右键删除'
+                : '地基：单击放一块，按住拖出一片（自动生成墙壁已关，只铺地砖），右键删除'
               : tool === 'wall'
                 ? '墙：按住拖出一条 4m 高的墙；右键拖拽整列拆除'
                 : tool === 'delete'
@@ -472,6 +608,8 @@ export function App(): React.ReactElement {
                   ? '楼梯：点地面放下，能转方向、调宽度，右键拆掉'
                   : isEscalatorType(moduleType)
                     ? '扶梯：点地面放下，能转方向、切上下行，右键拆掉'
+                    : moduleType === 'lift'
+                      ? '电梯：点地面放 2×2 米井道（跨两层，R 转门向）；对着井道上半截悬停向上加层，下半截向下加层，右键拆掉'
                     : isDecorType(moduleType)
                       ? moduleType === 'shelf'
                         ? '货架：点地面放下，能转方向，右键逐个拆掉'

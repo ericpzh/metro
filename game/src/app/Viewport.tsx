@@ -36,6 +36,7 @@ import {
   zoneRegionLabels,
   addEquipment,
   carveFacilityOpenings,
+  extendLift,
   removeFacility,
   removeModule,
   SHOP_WALL_H,
@@ -44,6 +45,7 @@ import {
 } from '../build/model.ts'
 import { finishDef } from '../sim/finishes.ts'
 import { exitFloorAt } from '../sim/exits.ts'
+import { liftExtendedDown, liftExtendedUp, liftFootprintCells, type LiftModule } from '../sim/lifts.ts'
 import { moduleAt, isTrackCell, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing } from '../sim/placement.ts'
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
@@ -287,10 +289,12 @@ export function Viewport(): React.ReactElement {
   const activeZ = useStore((s) => s.activeZ)
   const ghostOther = useStore((s) => s.ghostOtherLevels)
   const cutaway = useStore((s) => s.cutaway)
+  const hideWalls = useStore((s) => s.hideWalls)
   const ortho = useStore((s) => s.ortho)
   const overlayOn = useStore((s) => s.overlayOn)
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
   const graph = useStore((s) => s.graph)
+  const selected = useStore((s) => s.selected)
 
   useEffect(() => {
     overlayRef.current = overlayOn
@@ -332,6 +336,10 @@ export function Viewport(): React.ReactElement {
   }, [cutaway])
 
   useEffect(() => {
+    sceneRef.current?.setHideWalls(hideWalls)
+  }, [hideWalls])
+
+  useEffect(() => {
     sceneRef.current?.setOrtho(ortho)
   }, [ortho])
 
@@ -362,6 +370,41 @@ export function Viewport(): React.ReactElement {
     return { mods, blocked }
   }
 
+  /**
+   * True when all four floor cells of a 2 × 2 lift assembly at `(x, y, z)` are
+   * solid floor (or an exit's floor). A lift stands on its whole footprint, so a
+   * corner over void means it cannot be placed (or extended to) that level.
+   */
+  const liftFootprintFloorOk = (x: number, y: number, z: number): boolean => {
+    const st = useStore.getState()
+    return liftFootprintCells({ x, y }).every(
+      ([fx, fy]) =>
+        st.station.cells.some((c) => c.fill === 'solid' && c.x === fx && c.y === fy && c.z === z) ||
+        exitFloorAt(st.station.modules, fx, fy, z),
+    )
+  }
+
+  /**
+   * The shaft a 电梯 hover would extend. A hover in the same column as a placed
+   * shaft grows it a storey — upper half up, lower half down — instead of
+   * dropping a second piece. Extending never checks for floor: a shaft may run
+   * past a level that has no slab (it just has no landing there).
+   */
+  const liftHover = (x: number, y: number, z: number): { mod: LiftModule } | null => {
+    const st = useStore.getState()
+    // `moduleAt` finds the shaft from any cell its envelope covers, so hovering
+    // the visible cabin/shaft (whose landing slab is now an opening) still works.
+    const found = moduleAt(st.station.modules, x, y, z)
+    if (!found || found.type !== 'lift') return null
+    const shaft = found
+    const lo = Math.min(shaft.from.z, shaft.to.z)
+    const hi = Math.max(shaft.from.z, shaft.to.z)
+    // The midpoint belongs to the upper half, so hovering the exact middle of a
+    // two-storey shaft grows it up rather than down.
+    const up = z >= (lo + hi) / 2
+    return { mod: up ? liftExtendedUp(shaft) : liftExtendedDown(shaft) }
+  }
+
   /** Rebuild the equipment hover ghost from the last hovered tile. */
   const refreshModulePreview = (): void => {
     const scene = sceneRef.current
@@ -375,8 +418,22 @@ export function Viewport(): React.ReactElement {
     // A surface exit is rooted at the street (h = 0 m): it may not be dropped on
     // a concourse or platform slab.
     const onGround = z === GROUND_Z
-    const placeable = floorHere && (st.moduleType !== 'exit' || onGround)
-    const mod = placeable ? createModule(st.moduleType, x, y, z, 'preview', st.moduleRot, st.stairWidth, st.escalatorDir) : null
+    // 电梯: hovering any cell of an existing shaft previews its extension even
+    // where that level has no floor; a fresh lift still needs floor under it.
+    const liftExt = st.moduleType === 'lift' ? liftHover(x, y, z) : null
+    const placeable = (floorHere || !!liftExt) && (st.moduleType !== 'exit' || onGround)
+    let mod: Module | null = null
+    let liftFloorMissing = false
+    if (st.moduleType === 'lift') {
+      if (liftExt) {
+        mod = liftExt.mod
+      } else if (floorHere) {
+        mod = createModule('lift', x, y, z, 'preview', st.moduleRot, st.stairWidth, st.escalatorDir)
+        liftFloorMissing = !liftFootprintFloorOk(x, y, z)
+      }
+    } else if (placeable) {
+      mod = createModule(st.moduleType, x, y, z, 'preview', st.moduleRot, st.stairWidth, st.escalatorDir)
+    }
     // An escalator may run through walls/ceilings — only its two landings must
     // be solid floor (or exit floor). Anything in between is carved on placement.
     const basesMissing = !!mod && mod.type === 'escalator' && !escalatorBasesSolid(st.station.cells, st.station.modules, mod)
@@ -384,6 +441,7 @@ export function Viewport(): React.ReactElement {
       !!mod &&
       (placementBlocked(st.station.modules, mod) ||
         basesMissing ||
+        liftFloorMissing ||
         placementOnTrack(st.station.cells, mod, st.station.modules) ||
         wallMountMissing(st.station.cells, mod))
     scene.setCursor(h.cell, placeable && !blocked)
@@ -528,9 +586,10 @@ export function Viewport(): React.ReactElement {
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(canvas)
-    setFrameHandler((count, agents, density, trains, intervalMs) => {
+    setFrameHandler((count, agents, density, trains, lifts, intervalMs) => {
       scene.setAgents(agents, count, intervalMs)
       scene.setTrains(trains)
+      scene.setLifts(lifts)
       if (overlayRef.current && graphNodesRef.current.length === density.length * 3) {
         scene.setDensity(graphNodesRef.current, density, true)
       }
@@ -594,6 +653,12 @@ export function Viewport(): React.ReactElement {
     scene.setLevel(st.activeZ, st.ghostOtherLevels)
     scene.setCutaway(st.cutaway)
   }, [version, station])
+
+  // Keep the 3D selection box in step with the inspector's selection. A rebuild
+  // re-applies it inside setStation, so this only has to run on the id itself.
+  useEffect(() => {
+    sceneRef.current?.setSelection(selected?.kind === 'module' ? selected.key : null)
+  }, [selected])
 
   const pickAt = (e: React.PointerEvent): ReturnType<SceneRenderer['pick']> => {
     const scene = sceneRef.current
@@ -665,6 +730,19 @@ export function Viewport(): React.ReactElement {
           scene.setGhost([hit.cell], 'remove')
           scene.setCursor(hit.cell, true)
         }
+        return
+      }
+      // 电梯 is special: clicking any cell of an existing shaft extends it, even
+      // where that level has no floor (a shaft may run past a floorless storey).
+      // A fresh lift still needs solid floor under its 2 × 2 footprint, which
+      // `placeLift` checks. Right-click removes the shaft.
+      if (st.moduleType === 'lift') {
+        if (e.button === 2) {
+          bulldoze(hit.cell, hit.place)
+          return
+        }
+        const shaft = moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2])
+        if ((shaft && shaft.type === 'lift') || hit.solid) placeLift(hit)
         return
       }
       // Equipment rides on a floor block; bare void has nothing to stand on.
@@ -844,10 +922,9 @@ export function Viewport(): React.ReactElement {
       scene.setCursor(hit.cell, true)
       return
     }
-    // block / 方块 tool: a click is one block, a long press + drag is a
-    // rectangle on the pressed plane (the depth you are on, stepped with Q/E).
-    // Only 地基 grows auto walls; 方块 falls through the same path but skips
-    // the walled-surface commit on release.
+    // 地基: a click is one block, a long press + drag is a rectangle on the
+    // pressed plane (the depth you are on, stepped with Q/E). With 自动生成墙壁
+    // on (the default) the patch grows an auto-wall ring; off, it is plain blocks.
     e.preventDefault()
     const mode: 'add' | 'remove' = e.button === 2 ? 'remove' : 'add'
     const anchor = mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
@@ -939,7 +1016,7 @@ export function Viewport(): React.ReactElement {
       scene.setCursor(hit.cell, hit.solid)
       return
     }
-    if (st.tool === 'block' || st.tool === 'cube') {
+    if (st.tool === 'block') {
       const d = drag.current
       if (d?.active) {
         d.shift = e.shiftKey
@@ -948,11 +1025,11 @@ export function Viewport(): React.ReactElement {
         // block even if the pointer jitters.
         const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
         const preview = dragging ? rectCells(d.anchor, target, d.z, e.shiftKey) : [d.anchor]
-        // A deliberate 地基 drag draws a walled surface: show the auto wall ring
-        // the release would raise, so the shell is not a surprise. 方块 skips
-        // the ring — same drag, plain blocks only.
+        // A deliberate 地基 drag with 自动生成墙壁 on draws a walled surface:
+        // show the auto wall ring the release would raise, so the shell is not a
+        // surprise. With the toggle off, it is the same drag with plain blocks.
         const cells = pendingCells(preview, d.mode, solidRef.current, st.station.modules)
-        if (d.mode === 'add' && dragging && st.tool === 'block')
+        if (d.mode === 'add' && dragging && st.autoWalls)
           cells.push(...plannedAutoWalls(solidRef.current, preview, st.station.modules))
         scene.setGhost(cells, d.mode)
         scene.setCursor(dragging ? target : d.anchor, d.mode === 'add')
@@ -1330,11 +1407,11 @@ export function Viewport(): React.ReactElement {
     }
     const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
     if (d.mode === 'add') {
-      if (rect && st.tool !== 'cube') {
-        // A deliberate 地基 drag draws a walled floor patch: union it with
-        // earlier patches and rebuild the auto wall ring around the new edge.
-        // 方块 takes the plain-block path below even for a drag — no tags,
-        // no walls.
+      if (rect && st.autoWalls) {
+        // A deliberate 地基 drag with 自动生成墙壁 on draws a walled floor patch:
+        // union it with earlier patches and rebuild the auto wall ring around
+        // the new edge. With the toggle off it takes the plain-block path below
+        // even for a drag — no tags, no walls.
         const next = addFloor(st.station, cells)
         if (next !== st.station) st.commit(next)
       } else {
@@ -1416,7 +1493,39 @@ export function Viewport(): React.ReactElement {
       st.setNotice('扶梯两端都得有实心地板')
       return
     }
+    // A lift stands on a 2 × 2 m footprint: all four cells must be floor.
+    if (mod.type === 'lift' && !liftFootprintFloorOk(at[0], at[1], at[2])) {
+      st.setNotice('电梯占地 2×2 米：四个格子都要有地板')
+      return
+    }
     st.commit(addEquipment(st.station, mod))
+  }
+
+  /**
+   * Place or extend an elevator. A hover in the same column as an existing shaft
+   * grows it one storey — up if the hover is in the shaft's upper half, down if
+   * below — with no floor check, so a shaft can run past a level that has no
+   * slab. Otherwise a fresh two-storey shaft is dropped on the hovered floor.
+   */
+  const placeLift = (hit: { cell: [number, number, number]; place: [number, number, number]; solid: boolean }): void => {
+    const st = useStore.getState()
+    const [x, y, z] = hit.cell
+    const found = moduleAt(st.station.modules, x, y, z)
+    const shaft = found && found.type === 'lift' ? found : undefined
+    if (shaft) {
+      const lo = Math.min(shaft.from.z, shaft.to.z)
+      const hi = Math.max(shaft.from.z, shaft.to.z)
+      const up = z >= (lo + hi) / 2
+      const grown = up ? liftExtendedUp(shaft) : liftExtendedDown(shaft)
+      if (placementBlocked(st.station.modules, grown)) {
+        st.setNotice('这层有设备挡着，电梯伸不过去')
+        return
+      }
+      st.commit(extendLift(st.station, shaft.id, up))
+      st.setNotice(up ? '电梯向上加了一层' : '电梯向下加了一层')
+      return
+    }
+    placeModule(hit.cell, hit.place, hit.solid, 'lift')
   }
 
   return (

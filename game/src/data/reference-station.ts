@@ -361,6 +361,8 @@ export function referenceStation(variant: StationVariant = {}): StationData {
       alightPerTrain: 200,
       terminus: 'through',
       direction: 'up',
+      upTerminus: '广州南站',
+      downTerminus: '嘉禾望岗',
       travelSign: 1,
       stations: ['edge-1'],
     },

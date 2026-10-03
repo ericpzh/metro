@@ -128,6 +128,10 @@ test('a fresh line is B stock, six cars, and carries the rail direction', () => 
   assert.equal(line.power, 'catenary')
   assert.equal(line.direction, 'down')
   assert.equal(line.travelSign, 1)
+  // A fresh line carries both direction termini as empty strings, so the
+  // screen header falls back to the direction word until the player names them.
+  assert.equal(line.upTerminus, '')
+  assert.equal(line.downTerminus, '')
   // A line is born wearing the Guangzhou Metro sign colour for its number.
   assert.equal(line.colour, '#e89e47', 'line 3 is the Guangzhou orange')
   assert.equal(defaultLine('1', 'up', 'third-rail').colour, '#edcf3b', 'line 1 is yellow')

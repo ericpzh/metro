@@ -87,7 +87,8 @@ build/ →  sim/            (and neither render/ nor app/)
   `Date.now`, or unordered iteration into `sim/`.
 * **Graph** (`sim/station.ts`). Every walkable cell is a node (a solid cell with
   nothing solid above it and floor speed > 0). Fixed-length vertical equipment —
-  escalator, each stair flight, lift — is a capacity-limited edge with a server;
+  escalator, each stair flight — is a capacity-limited edge with a server; a lift
+  is one car whose every ordered pair of stops is an edge (see the lift bullet);
   gates, doors and stops are servers too. CSR adjacency; A* with a
   `(from|to|needsClass)` path cache, a per-tick re-path budget, and live queue
   wait folded into edge cost. `PathFinder.search()` bypasses the cache for the
@@ -111,6 +112,20 @@ build/ →  sim/            (and neither render/ nor app/)
   neighbours (`fenceArms`), so a straight run is continuous, a dead end caps
   itself, and an L / T / + turns through the shared centre post with no
   overhang.
+* **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a
+  2 × 2 m assembly with a 1.5 m carriage, dropped on a floor and serving the
+  floor one storey up (`LIFT_RISE`); hovering its upper/lower half grows it a
+  storey up/down (`LIFT_EXTEND`). A fresh piece must stand on all four of its
+  footprint cells, but extending never checks for floor, so a shaft may run past
+  a floorless level (it simply has no landing there). `buildGraph` makes every
+  walkable floor in the column a *stop* and gives the single `lift` server an
+  edge between every ordered pair, so a rider goes straight to their floor; only
+  the anchor (lower-left) cell is a walkable node — the other three shaft cells
+  are not, so the crowd never walks through the cabin walls. The car is a real
+  state machine (`World.stepLift`: park → open → dwell → close → move, eased),
+  and riders are `STATE_RIDING` pinned inside the cabin by `stepLiftRide`, so they
+  visibly move with it instead of teleporting; `World.liftRenderState` sends one
+  car pose per snapshot.
 * **Finishes** (`sim/finishes.ts`): the *family* decides behaviour (floor walk
   speed, track bed not walkable, wall blocks), the finish decides look. The
   renderer reads the same table, so a surface cannot look like one thing and
@@ -164,7 +179,11 @@ build/ →  sim/            (and neither render/ nor app/)
   `data/line-colours.ts` (real 广州地铁 sign colours by line number). The whole
   rail panel lives in the left rail's 轨道 folder; its platform-only controls
   (方向 上行/下行, 线路, 重置屏蔽门) show only while placing or editing a platform,
-  not a tunnel. The inspector's 线路 card edits the lines themselves.
+  not a tunnel. The inspector's 线路 card edits the lines themselves; each card
+  and the section fold open/closed. `LineDef.upTerminus` / `downTerminus` are the
+  per-direction destinations, and every platform screen prints the bound line's
+  terminus for its own `cfg.dir` (falling back to 上行/下行), so an up platform
+  points where the up track runs.
 
 ### Rendering and the app
 
@@ -194,13 +213,37 @@ build/ →  sim/            (and neither render/ nor app/)
   ad posters on wall time (`SceneRenderer.updateAds`), one poster set per aspect
   so a portrait banner is not a stretched landscape. Wall-mounted pieces must
   bolt to a wall (see `wallMountMissing`), so **R** turns the panel's back to it.
-* The **方块 tool** is the plain sibling of 地基: the same click / drag placement
-  but no `auto-wall` ring and no tagged floor, so a drag lays bare blocks.
+* The **地基 tool** has a **自动生成墙壁** toggle (on by default): on, a deliberate drag grows the
+  `auto-wall` ring and tags the floor; off, the same click / drag lays untagged bare blocks with no
+  ring. There is no separate 方块 tool any more.
 * The **围栏 tool** (设备) drags out a straight run like 墙, but lays one 1 m panel
   per cell with the panels following the drag direction (R turns a single); a
   right-drag lifts the run. `app/Viewport.tsx` drives a live fence preview that
   rebuilds the existing runs with the dragged line merged in, so an end you drag
   up to loses its cap as you move (`SceneRenderer.setFencePreview`).
+* The **电梯** (设备) draws a full-height shaft in world space (`render/models.ts`
+  `buildLift`): corner posts and back/side walls, a threshold sill and green call
+  panel at each real landing, and a cabin group left in `userData.liftCabin` whose
+  two leaves are registered `doors`. The base cell stays solid (the shaft stands
+  on it) but every slab at a stop above is hidden (`SceneRenderer` `hiddenCells`),
+  so the mesher cuts a real opening while the graph still sees the nodes.
+  `SceneRenderer.setLifts` pairs each 6-float car pose with its shaft and glides
+  the cabin / eases the doors between snapshots; the hover finds a shaft via
+  `moduleAt` (the lift's envelope reserves the whole 2 × 2 plan) and previews the
+  extension, its upper/lower half choosing up/down.
+* **An exit is named and selected in both views.** The RHS 出入口 folder lists one
+  card per exit (`App.tsx` `ExitCard`): name (Enter/blur commits, and the model's
+  street header reprints it), demand and open toggle. The card is the RHS half of
+  one selection link — clicking or focusing a control selects the exit, and
+  clicking the exit in 3D selects it — so `SceneRenderer.setSelection` draws a box
+  around the model and the card gets `.sel`.
+* **View toggles and the bottom bar.** Auto ceiling hiding is always on: a storey
+  above the active one keeps only plates with nothing under them, so a room never
+  wears its own ceiling. **显示其他层** (`ghostOtherLevels`, now default off) then
+  decides whether storeys *below* the active one are drawn as a 35% ghost.
+  **隐藏墙壁** (`hideWalls`) fades every wall face and platform screen door to 16%
+  with `depthWrite` off and drops their outline. The bottom bar shows FPS and
+  方块数 (the old sim-timing and chunk-build metrics were dropped).
 * The 地基 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
   drawn cells `auto-floor` and raises a 4 m `auto-wall` ring on the patch's outer
   edge — the room-union rule generalised to cells, so overlapping/abutting patches
@@ -248,7 +291,8 @@ build/ →  sim/            (and neither render/ nor app/)
   The 轨道 folder holds the 站台 tool (the consist-length piece), the 隧道 tool
   (auto-extends a rail off its free end, no platform doors, with a length slider),
   R (旋转), 上行/下行, the bound line, and 重置屏蔽门; the inspector a 线路
-  section for multi-line management (name/colour/stock/cars/供电/下车, + 新建线路);
+  section for multi-line management (名字/颜色/上行终点/下行终点/车型/编组/供电/下车,
+  + 新建线路; each card and the section fold open/closed);
   a new line wears its real 广州地铁 colour from `data/line-colours.ts`. The line
   owns the direction, and its tracks
   carry it in `cfg.dir`; the line owns 供电 too, and `setLinePower` carries the
@@ -263,7 +307,7 @@ build/ →  sim/            (and neither render/ nor app/)
   floor patch grows a 4 m auto-wall ring on its outer edge; union with another
   patch drops the buried wall, and a hole dug through a patch stays open.
   `reservedOpening` (`sim/placement.ts`) also refuses a hand-built block in a
-  ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 方块 tool is the untagged sibling of 地基.
+  ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (default on) instead of a separate 方块 tool.
 * The **装饰 kit** has landed (`sim/billboards.ts`, `sim/placement.ts`,
   `render/models.ts`, `game/test/shelf|desk|restroom.test.mjs`): 座椅 / 货架 /
   办公桌 / 厕所隔间 / 洗手池 are free-standing, rotatable `bench`/`shelf`/`desk`/
@@ -277,6 +321,21 @@ build/ →  sim/            (and neither render/ nor app/)
   is dragged out like a wall, its cell is not a walkable graph node, and the
   renderer builds each joint from the neighbours, so a run plus a gate row is a
   barrier the crowd only crosses at a gate.
+* The **lift kit** has landed (`sim/lifts.ts`, `sim/station.ts`, `sim/world.ts`,
+  `render/models.ts`, `app/Viewport.tsx`, `game/test/lift.test.mjs`): 电梯 is a
+  2 × 2 m shaft that serves every walkable floor in its column with one car, grown
+  a storey at a time by hovering its upper/lower half. The graph gives the single
+  `lift` server an edge between every ordered pair of stops, the car runs the
+  open → dwell → close → move cycle and carries `STATE_RIDING` riders pinned
+  inside, and the renderer glides the cabin and slides the doors from the worker's
+  car poses.
+* The **line direction termini** and the inspector's folding landed with it: each
+  line carries `upTerminus` / `downTerminus`, and every platform screen prints its
+  line's terminus for its own `cfg.dir` (the hardcoded 番禺广场方向 is gone). The
+  inspector is now a column of folding `Folder` / `Disclosure` blocks (信息 /
+  出入口 / 线路), each exit is an editable, selectable card linked to a 3D
+  highlight box (`SceneRenderer.setSelection`), and the view gained a 隐藏墙壁
+  toggle with 显示其他层 now defaulting off (auto ceiling hiding is always on).
 * `PLAN.md` was deleted, but `README.md`, `GAME-SPEC.md` and many source
   comments still reference it. Treat those references as historical.
 * The crowd micro-benchmark (`game/bench/crowd.mjs`,

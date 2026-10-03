@@ -15,7 +15,7 @@ import { STAIR_WIDTH_NORMAL, nextStairWidth } from '../sim/stairs.ts'
 import type { LineDef, LineDirection } from '../sim/types.ts'
 import type { SceneStats } from '../render/scene.ts'
 
-export type Tool = 'select' | 'block' | 'cube' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
+export type Tool = 'select' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
 export type PaintMode = 'single' | 'surface' | 'pick'
 
 export interface ModuleOption {
@@ -42,6 +42,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'tv', label: '电视', type: 'tv', w: 1, h: 1 },
   { id: 'exit', label: '出入口', type: 'exit', w: 1, h: 1 },
   { id: 'escalator', label: '扶梯', type: 'escalator', w: 1, h: 1 },
+  { id: 'lift', label: '电梯', type: 'lift', w: 1, h: 1 },
   { id: 'stair-straight', label: '单跑楼梯', type: 'stair', w: 1, h: 1 },
   { id: 'stair-left90', label: '左转角楼梯', type: 'stair', w: 1, h: 1 },
   { id: 'stair-right90', label: '右转角楼梯', type: 'stair', w: 1, h: 1 },
@@ -164,6 +165,8 @@ export interface AppState {
   station: StationState
   version: number
   tool: Tool
+  /** The 地基 tool: a dragged floor patch raises its 4 m auto-wall ring. */
+  autoWalls: boolean
   moduleType: string
   /** Quarter-turn applied to the equipment being placed: 0..3. */
   moduleRot: number
@@ -190,6 +193,8 @@ export interface AppState {
   activeZ: number
   ghostOtherLevels: boolean
   cutaway: boolean
+  /** 隐藏墙壁: draw every wall and platform screen door translucent. */
+  hideWalls: boolean
   ortho: boolean
   overlayOn: boolean
   playing: boolean
@@ -203,6 +208,8 @@ export interface AppState {
   lab: boolean
 
   setTool: (t: Tool) => void
+  /** Grow (or not) the 地基 patch's auto-wall ring on a drag. */
+  setAutoWalls: (on: boolean) => void
   setModuleType: (t: string) => void
   /** Turn the placement ghost 90° clockwise (R). */
   rotateModule: () => void
@@ -246,6 +253,7 @@ export interface AppState {
   setOverlay: (on: boolean) => void
   setGhostOther: (on: boolean) => void
   setCutaway: (on: boolean) => void
+  setHideWalls: (on: boolean) => void
   setOrtho: (on: boolean) => void
   setPlaying: (on: boolean) => void
   setSpeed: (s: number) => void
@@ -268,13 +276,27 @@ function sendControl(playing: boolean, speed: number): void {
 
 let client: Worker | null = null
 let frameCb:
-  | ((count: number, agents: Float32Array, density: Float32Array, trains: Float32Array, intervalMs: number) => void)
+  | ((
+      count: number,
+      agents: Float32Array,
+      density: Float32Array,
+      trains: Float32Array,
+      lifts: Float32Array,
+      intervalMs: number,
+    ) => void)
   | null = null
 
 /** Viewport registers here to receive the agent frame without re-rendering React. */
 export function setFrameHandler(
   fn:
-    | ((count: number, agents: Float32Array, density: Float32Array, trains: Float32Array, intervalMs: number) => void)
+    | ((
+        count: number,
+        agents: Float32Array,
+        density: Float32Array,
+        trains: Float32Array,
+        lifts: Float32Array,
+        intervalMs: number,
+      ) => void)
     | null,
 ): void {
   frameCb = fn
@@ -292,7 +314,7 @@ function ensureClient(): Worker {
       if (msg.levelsZ.length > 0) useStore.getState().setActiveZ(msg.levelsZ[0])
     } else if (msg.type === 'state') {
       useStore.getState().setMetrics(msg.metrics)
-      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.intervalMs)
+      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs)
     }
   }
   return client
@@ -321,6 +343,7 @@ export const useStore = create<AppState>((set, get) => ({
   station: initialStation(),
   version: 0,
   tool: 'select',
+  autoWalls: true,
   moduleType: 'gate',
   moduleRot: 0,
   stairWidth: STAIR_WIDTH_NORMAL,
@@ -335,8 +358,9 @@ export const useStore = create<AppState>((set, get) => ({
   tunnelLength: 30,
   notice: null,
   activeZ: -8,
-  ghostOtherLevels: true,
+  ghostOtherLevels: false,
   cutaway: false,
+  hideWalls: false,
   ortho: false,
   overlayOn: false,
   playing: true,
@@ -350,6 +374,7 @@ export const useStore = create<AppState>((set, get) => ({
   lab: false,
 
   setTool: (t) => set({ tool: t }),
+  setAutoWalls: (on) => set({ autoWalls: on }),
   setModuleType: (t) => set({ moduleType: t }),
   // Clockwise on screen: the world turns +x toward −y in the isometric view.
   // A fixed-angle piece simply ignores the turn, so the guard lives here as well
@@ -543,6 +568,7 @@ export const useStore = create<AppState>((set, get) => ({
   setOverlay: (on) => set({ overlayOn: on }),
   setGhostOther: (on) => set({ ghostOtherLevels: on }),
   setCutaway: (on) => set({ cutaway: on }),
+  setHideWalls: (on) => set({ hideWalls: on }),
   setOrtho: (on) => set({ ortho: on }),
   setPlaying: (on) => {
     sendControl(on, get().speed)

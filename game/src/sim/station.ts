@@ -25,6 +25,7 @@ import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres } from './stock.ts'
 import { edgeCells } from './track.ts'
 import { STAIR_WIDTH_NORMAL, stairFlights } from './stairs.ts'
+import { liftFootprintCells, liftStopZs } from './lifts.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndex } from './zones.ts'
 
@@ -55,6 +56,44 @@ export interface ServerDef {
   /** Gate policy and the direction a two-way lane is currently committed to. */
   gateMode?: GateMode
   lane?: GateDir
+  /** A lift's single moving car; absent for every other server. */
+  lift?: LiftCar
+}
+
+/**
+ * The live state of one elevator car. A shaft is a single piece of equipment
+ * with one car: it parks at a stop, opens, lets the crowd walk in and out,
+ * closes, then travels to the next called floor. Every walkable floor in the
+ * column is a stop, and every ordered pair of stops is a graph edge served by
+ * this car, so a passenger rides straight from their floor to theirs.
+ */
+export interface LiftCar {
+  /** The shaft's plan cell and the cell z of its two ends. */
+  x: number
+  y: number
+  fromZ: number
+  toZ: number
+  /** Placement quarter-turn; the cabin doors face local −y turned by it. */
+  rot: number
+  /** Stop node ids, bottom → top, and their walk-surface heights. */
+  stops: number[]
+  stopZ: number[]
+  /** Stop index the car is parked at (or last left). */
+  at: number
+  /** Interpolated cabin floor height, in world z. */
+  z: number
+  /** Moving leg: stop indices and elapsed/total seconds. */
+  legFrom: number
+  legTo: number
+  moveT: number
+  moveTotal: number
+  /** `idle` → pick a call; `open` doors; `dwell`; `close`; `move`. */
+  phase: 'idle' | 'open' | 'dwell' | 'close' | 'move'
+  t: number
+  /** Door open fraction, 0 shut … 1 fully open, for the renderer. */
+  door: number
+  /** Passenger ids currently aboard. */
+  riders: number[]
 }
 
 export interface PlatformEdge {
@@ -147,6 +186,18 @@ export function buildGraph(data: StationData): StationGraph {
     fenceCells.add(cellKey(m.x, m.y, m.z))
   }
 
+  // A lift is a 2 × 2 m shaft: only its anchor cell (the lower-left corner) is
+  // the boarding node; the other three cells are inside the shaft and are not
+  // walkable, so the crowd never strolls through the cabin walls.
+  const liftInnerCells = new Set<string>()
+  for (const m of data.modules) {
+    if (m.type !== 'lift') continue
+    for (const [x, y] of liftFootprintCells(m)) {
+      if (x === m.x && y === m.y) continue
+      liftInnerCells.add(cellKey(x, y, m.z))
+    }
+  }
+
   // Walkable = a solid cell with nothing solid directly above it.
   const nodeIndex = new Map<string, number>()
   const keys: string[] = []
@@ -171,6 +222,7 @@ export function buildGraph(data: StationData): StationGraph {
     if (nodeIndex.has(key)) continue
     if (boothCells.has(key)) continue
     if (fenceCells.has(key)) continue
+    if (liftInnerCells.has(key)) continue
     const id = keys.length
     nodeIndex.set(key, id)
     keys.push(key)
@@ -437,11 +489,11 @@ export function buildGraph(data: StationData): StationGraph {
       case 'lift': {
         const a = nodeAt(m.from)
         const b = nodeAt(m.to)
-        if (a < 0 || b < 0) break
-        const horizontal = Math.hypot(nodeX[a] - nodeX[b], nodeY[a] - nodeY[b])
-        const vertical = Math.abs(nodeZ[a] - nodeZ[b])
-        const dist = Math.hypot(horizontal, vertical)
         if (m.type === 'escalator') {
+          if (a < 0 || b < 0) break
+          const horizontal = Math.hypot(nodeX[a] - nodeX[b], nodeY[a] - nodeY[b])
+          const vertical = Math.abs(nodeZ[a] - nodeZ[b])
+          const dist = Math.hypot(horizontal, vertical)
           const ride = dist / ESCALATOR_SPEED
           const id = addServer({
             kind: 'escalator',
@@ -490,29 +542,55 @@ export function buildGraph(data: StationData): StationGraph {
             edges.push({ from: fb, to: fa, cost: fride, kind: KIND_STAIR, server: idUp })
           }
         } else {
+          // Elevator: one car per shaft. Its stops are every walkable floor in
+          // the module's column between `from` and `to`; every ordered pair of
+          // stops is an edge the one car serves, so a passenger rides directly.
+          // `exitNode` is unused — the car delivers each rider to `liftDest`.
+          const stops: number[] = []
+          const stopZ: number[] = []
+          for (const z of liftStopZs(m.from.z, m.to.z)) {
+            const n = nodeIndex.get(cellKey(m.x, m.y, z))
+            if (n === undefined) continue
+            stops.push(n)
+            stopZ.push(nodeZ[n])
+          }
+          if (stops.length < 2) break
           const ride = LIFT_CYCLE
           const id = addServer({
             kind: 'lift',
             label: '无障碍电梯',
             rate: LIFT_BATCH / LIFT_CYCLE,
-            node: a,
-            exitNode: b,
+            node: stops[0],
+            exitNode: -1,
             ride,
             batch: LIFT_BATCH,
             cycle: LIFT_CYCLE,
           })
-          const id2 = addServer({
-            kind: 'lift',
-            label: '无障碍电梯',
-            rate: LIFT_BATCH / LIFT_CYCLE,
-            node: b,
-            exitNode: a,
-            ride,
-            batch: LIFT_BATCH,
-            cycle: LIFT_CYCLE,
-          })
-          edges.push({ from: a, to: b, cost: ride, kind: KIND_LIFT, server: id })
-          edges.push({ from: b, to: a, cost: ride, kind: KIND_LIFT, server: id2 })
+          servers[id].lift = {
+            x: m.x,
+            y: m.y,
+            fromZ: m.from.z,
+            toZ: m.to.z,
+            rot: m.rot ?? 0,
+            stops,
+            stopZ,
+            at: 0,
+            z: stopZ[0],
+            legFrom: 0,
+            legTo: 0,
+            moveT: 0,
+            moveTotal: 0,
+            phase: 'idle',
+            t: 0,
+            door: 0,
+            riders: [],
+          }
+          for (let i = 0; i < stops.length; i++) {
+            for (let j = 0; j < stops.length; j++) {
+              if (i === j) continue
+              edges.push({ from: stops[i], to: stops[j], cost: ride, kind: KIND_LIFT, server: id })
+            }
+          }
         }
         break
       }
