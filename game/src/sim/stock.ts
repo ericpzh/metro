@@ -1,7 +1,16 @@
 // Rolling stock — GAME-SPEC.md §6.1. The numbers are the Chinese metro
-// classification (A/B/C) used as the tuning baseline.
+// classification (A/B/C/L) used as the tuning baseline. L is the linear-motor
+// (直线电机) car: 2.8 m wide and 16.8 m long, three doors a side, third-rail
+// pickup — the Guangzhou Line 4/5/6 stock.
 
-export type StockClass = 'A' | 'B' | 'C'
+/**
+ * The classification order shared by the worker and the renderer to encode a
+ * stock index in the rolling-stock pose. Keep them in sync through this list so
+ * adding a class cannot desync the two sides.
+ */
+export const STOCK_CLASSES = ['A', 'B', 'C', 'L'] as const
+
+export type StockClass = (typeof STOCK_CLASSES)[number]
 
 export interface Stock {
   cls: StockClass
@@ -49,6 +58,18 @@ export const STOCK: Record<StockClass, Stock> = {
     doorsPerSide: 4,
     doorWidth: 1.2,
     crushPerCar: 200,
+    ratedPerCar: 170,
+    consist: [4, 6],
+    power: 'third-rail',
+  },
+  L: {
+    cls: 'L',
+    width: 2.8,
+    length: 16.8,
+    height: 3.6,
+    doorsPerSide: 3,
+    doorWidth: 1.4,
+    crushPerCar: 215,
     ratedPerCar: 170,
     consist: [4, 6],
     power: 'third-rail',

@@ -36,7 +36,7 @@ import { Rng } from './rng.ts'
 import { gateLaneAllows } from './gates.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from './station.ts'
 import { crossingDir, ZONE_INDEX } from './zones.ts'
-import { STOCK, trainRatedCapacity, type StockClass } from './stock.ts'
+import { STOCK, STOCK_CLASSES, trainRatedCapacity, type StockClass } from './stock.ts'
 import { rotateLocal, trackFacing } from './track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from './types.ts'
 
@@ -591,7 +591,7 @@ export class World {
   }
 
   /**
-   * One pose per live train, stride 9: x, y, z, cars, stock index (A/B/C),
+   * One pose per live train, stride 9: x, y, z, cars, stock index (A/B/C/L),
    * doors-open, line colour, direction, yaw. A pure function of train state, so
    * it adds no randomness and cannot disturb §7.6 determinism.
    */
@@ -618,7 +618,7 @@ export class World {
       out[k++] = a.y + offset * a.fy
       out[k++] = a.z
       out[k++] = a.cars
-      out[k++] = a.stock === 'A' ? 0 : a.stock === 'B' ? 1 : 2
+      out[k++] = STOCK_CLASSES.indexOf(a.stock)
       out[k++] = train.state === 'opening' || train.state === 'dwell' || train.state === 'closing' ? 1 : 0
       out[k++] = a.colour
       out[k++] = a.dirSign

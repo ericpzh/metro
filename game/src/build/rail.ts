@@ -122,7 +122,7 @@ export interface TrackPiece {
 /**
  * The footprint a line's consist needs: a three-cell car-width bed and a run of
  * the whole train, so the dimension is known before the player places anything.
- * A/B/C car widths all round up to the bed, so only the length varies by line.
+ * A/B/C/L car widths all round up to the bed, so only the length varies by line.
  */
 export function trackPieceForLine(line: Pick<LineDef, 'stock' | 'cars'>): TrackPiece {
   return { w: Math.max(1, Math.ceil(trainLength(line))), d: RAIL_BED_DEPTH }

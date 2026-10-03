@@ -1,6 +1,8 @@
 // Station data model. Pure types shared by the build tools, the sim graph and
 // the save format (§10.5). Ids stay ASCII per §9.2 even though the UI is Chinese.
 
+import type { StockClass } from './stock.ts'
+
 export type Fill = 'solid' | 'void'
 
 /** The six faces of a cell, §4.1. `+z` is up; `n` is `+y`, `e` is `+x`. */
@@ -288,7 +290,7 @@ export interface LineDef {
   id: string
   name: string
   colour: string
-  stock: 'A' | 'B' | 'C'
+  stock: StockClass
   cars: number
   power: 'third-rail' | 'catenary'
   /** 屏蔽门 全高 / 半高. Defaults to `full` when unset. */

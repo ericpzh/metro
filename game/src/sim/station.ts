@@ -22,7 +22,7 @@ import {
 import { floorSpeed } from './finishes.ts'
 import { gateAllows } from './gates.ts'
 import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
-import { STOCK, doorCentres } from './stock.ts'
+import { STOCK, doorCentres, type StockClass } from './stock.ts'
 import { edgeCells } from './track.ts'
 import { STAIR_WIDTH_NORMAL, stairFlights } from './stairs.ts'
 import { liftFootprintCells, liftStopZs } from './lifts.ts'
@@ -931,7 +931,7 @@ function queueWait(s: ServerDef): number {
   return w > 600 ? 600 : w
 }
 
-export function stockDoorsPerSide(line: { stock: 'A' | 'B' | 'C' }): number {
+export function stockDoorsPerSide(line: { stock: StockClass }): number {
   return STOCK[line.stock].doorsPerSide
 }
 

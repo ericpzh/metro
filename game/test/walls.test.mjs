@@ -15,6 +15,7 @@ import {
   AUTO_FLOOR,
   AUTO_WALL,
   AUTO_WALL_H,
+  plannedAutoWalls,
   removeFloor,
   syncAutoWalls,
   toState,
@@ -122,6 +123,47 @@ test('a hole dug through the middle stays open — no wall boards it up', () => 
   }
 })
 
+/** A track module whose dug bed covers `w` cells along +x from `x, y`. */
+const trackModule = (x, y, w) => ({ id: 't1', type: 'track', x, y, z: 0, w, d: 1, rot: 0, cfg: { line: '1', power: 'third-rail' } })
+
+/** A full-height screen-door run on the platform strip. */
+const screenRun = (x, y, w) => ({ id: 'e1', type: 'platform-edge', x, y, z: 0, w, rot: 0, cfg: { name: '站台门', line: '1', dir: 'up', side: 'right', psd: 'full', from: 't1' } })
+
+test('a platform/tunnel footprint is covered ground, so the ring skips the platform edge', () => {
+  // The rail dug its bed at y = 2 and runs out past the patch, so the exterior
+  // flood would otherwise pour down the trench and wall the platform edge.
+  const base = toState({ name: 't', seed: 1, cells: [], modules: [trackModule(2, 2, 5)], lines: [] })
+  const st = addFloor(base, rect(0, 0, 5, 2))
+  for (const x of [2, 3, 4]) assert.ok(!has(st.cells, x, 1, 1), `a wall boarded the platform edge at ${x},1`)
+  // The true outer edge still earns its wall...
+  assert.ok(has(st.cells, 2, 0, 1), 'the outer edge lost its wall')
+  // ...and the drag never pours a block into the dug bed.
+  for (const x of [2, 3, 4, 5]) assert.ok(!has(st.cells, x, 2, 0), `the trench was filled at ${x},2`)
+})
+
+test('a full track through a patch does not board up the platform screen door', () => {
+  // A one-cell platform strip: void at y = 0 makes every cell an outer edge, so
+  // only the screen-door guard keeps the auto wall out of it.
+  const base = toState({ name: 't', seed: 1, cells: [], modules: [trackModule(2, 2, 5), screenRun(0, 1, 6)], lines: [] })
+  const st = addFloor(base, rect(0, 1, 5, 1))
+  for (const x of [0, 1, 2, 3, 4, 5]) {
+    assert.ok(!has(st.cells, x, 1, 1), `a wall rose in the screen door at ${x},1`)
+    assert.ok(has(st.cells, x, 1, 0), `the platform floor was skipped at ${x},1`)
+  }
+})
+
+test('the 地基 ghost leaves the platform footprint and screen doors out of its ring', () => {
+  const modules = [trackModule(2, 2, 5), screenRun(0, 1, 6)]
+  const walls = plannedAutoWalls(new Set(), rect(0, 0, 5, 2), modules)
+  for (const x of [0, 1, 2, 3, 4, 5]) {
+    assert.ok(!walls.some(([wx, wy, wz]) => wx === x && wy === 1 && wz === 1), `the ghost promised a wall in the screen at ${x},1`)
+  }
+  // The dug bed the release skips never grows a ghost wall either.
+  for (const x of [2, 3, 4, 5]) {
+    assert.ok(!walls.some(([wx, wy, wz]) => wx === x && wy === 2 && wz === 1), `the ghost promised a wall on the bed at ${x},2`)
+  }
+})
+
 test('a redundant sync is a no-op and keeps the same state object', () => {
   const st = addFloor(empty(), rect(1, 1, 5, 5))
   assert.equal(syncAutoWalls(st), st, 'a no-op sync rebuilt the station')
@@ -133,6 +175,25 @@ test('wallRun lays four courses on every base cell of the run', () => {
   for (const [x, y] of [[2, 2], [3, 2]]) {
     for (let dz = 0; dz < AUTO_WALL_H; dz++) assert.ok(cols.some(([cx, cy, cz]) => cx === x && cy === y && cz === dz))
   }
+})
+
+test('the 墙 tool lifts an auto-generated wall column in bulk, too', () => {
+  const st = addFloor(empty(), rect(1, 1, 5, 5))
+  // (1,1) is an auto-wall corner; the floor is at z=0, the wall courses z=1..4.
+  assert.deepEqual(
+    wallColumnAt(st, 1, 1, 3).map((c) => c[2]).sort((a, b) => a - b),
+    [1, 2, 3, 4],
+  )
+  // A right-drag along the edge returns both full columns, de-duplicated even
+  // though (1,1) is touched twice.
+  const run = [
+    [1, 1, 1],
+    [2, 1, 1],
+    [1, 1, 3],
+  ]
+  assert.equal(wallColumnsAt(st, run).length, 2 * AUTO_WALL_H)
+  // The floor block itself is not a wall course.
+  assert.deepEqual(wallColumnAt(st, 1, 1, 0), [])
 })
 
 test('the 墙 tool tags its columns so right-click can lift the whole run', () => {

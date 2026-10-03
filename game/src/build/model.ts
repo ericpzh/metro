@@ -4,11 +4,11 @@
 import { finishOf, floorSpeed } from '../sim/finishes.ts'
 import { zoneIndex } from '../sim/zones.ts'
 import { carveRampOpenings } from '../sim/openings.ts'
-import { reservedOpening } from '../sim/placement.ts'
+import { isTrackCell, reservedOpening } from '../sim/placement.ts'
 import { LEVEL_STEPS } from '../sim/constants.ts'
 import { BILLBOARD_SPECS } from '../sim/billboards.ts'
 import { benchSpec } from '../sim/benches.ts'
-import { trackOriginForCentre } from '../sim/track.ts'
+import { edgeCells, trackCells, trackOriginForCentre } from '../sim/track.ts'
 import { exitFloorAt } from '../sim/exits.ts'
 import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
 import { liftExtendedDown, liftExtendedUp, liftModule } from '../sim/lifts.ts'
@@ -305,6 +305,9 @@ export function addCells(
       blocked++
       continue
     }
+    // A placed rail's bed is already covered ground: the 地基 merge must not
+    // pour a block into the trench (and the live ghost drops the same cells).
+    if (isTrackCell(cells, modules, x, y, z)) continue
     have.add(k)
     out.push({ x, y, z, fill: 'solid' })
     changed++
@@ -679,12 +682,42 @@ export const AUTO_WALL_H = 4
 /**
  * Tag on a wall block the 墙 tool laid. The tag is what lets the tool's
  * right-click find the whole column under the pointer — geometry alone cannot
- * tell a wall course from the floor it stands on.
+ * tell a wall course from the floor it stands on. `AUTO_WALL` blocks answer the
+ * same lookup, so a hand run and a generated ring can both be lifted in bulk.
  */
 export const WALL = 'wall'
 
 function hasTag(c: { tags?: string[] }, tag: string): boolean {
   return c.tags?.includes(tag) === true
+}
+
+/**
+ * Every cell a placed track covers — a platform bed or a tunnel run. A rail
+ * digs its bed, so those cells have left `state.cells` and read as void to the
+ * wall flood; the 地基 auto merge treats the whole footprint as covered ground
+ * instead of an opening to wall off (see `syncAutoWalls`).
+ */
+function trackFootprintKeys(modules: readonly Module[]): Set<string> {
+  const out = new Set<string>()
+  for (const m of modules) {
+    if (m.type !== 'track') continue
+    for (const [x, y, z] of trackCells(m)) out.add(cellKey(x, y, z))
+  }
+  return out
+}
+
+/**
+ * Every floor cell a platform screen door stands on. The 地基 auto-wall ring
+ * skips these, so a full track sliced through a patch never boards up the
+ * screen doors derived along its platform edge.
+ */
+function platformDoorKeys(modules: readonly Module[]): Set<string> {
+  const out = new Set<string>()
+  for (const m of modules) {
+    if (m.type !== 'platform-edge') continue
+    for (const [x, y, z] of edgeCells(m)) out.add(cellKey(x, y, z))
+  }
+  return out
 }
 
 /**
@@ -725,13 +758,23 @@ export function addWalls(
 }
 
 /**
- * The whole 墙-tool column through `(x, y, z)`: the contiguous run of tagged
- * cells above and below the hit, whether the pointer landed on the base, the
- * middle or the top. Empty when the cell is not a 墙-tool wall.
+ * True for a cell the 墙 tool owns: a course it laid, or an auto-generated one.
+ * Both are the same 4 m wall to the player, so the tool must be able to lift an
+ * `AUTO_WALL` ring exactly like its own run.
+ */
+function isWallCell(c: Cell): boolean {
+  return hasTag(c, WALL) || hasTag(c, AUTO_WALL)
+}
+
+/**
+ * The whole 墙-tool column through `(x, y, z)`: the contiguous run of wall cells
+ * above and below the hit, whether the pointer landed on the base, the middle or
+ * the top. An auto-generated wall answers too, so the tool can open a doorway in
+ * an auto-wall ring. Empty when the cell is not a wall of either kind.
  */
 export function wallColumnAt(state: StationState, x: number, y: number, z: number): Array<[number, number, number]> {
   const tagged = new Set<number>()
-  for (const c of state.cells) if (c.x === x && c.y === y && hasTag(c, WALL)) tagged.add(c.z)
+  for (const c of state.cells) if (c.x === x && c.y === y && isWallCell(c)) tagged.add(c.z)
   if (!tagged.has(z)) return []
   let a = z
   while (tagged.has(a - 1)) a--
@@ -776,13 +819,23 @@ export function plannedAutoWalls(
   modules: readonly Module[] = [],
 ): Array<[number, number, number]> {
   const patch = new Set(floorCells.map(([x, y, z]) => cellKey(x, y, z)))
+  // The platform/tunnel footprint is covered ground even though a rail dug its
+  // bed out of `solid`, so the ghost never promises a wall along the platform
+  // edge — that is exactly where the screen doors are derived.
+  const covered = new Set(solid)
+  for (const k of trackFootprintKeys(modules)) covered.add(k)
+  const doors = platformDoorKeys(modules)
   const out: Array<[number, number, number]> = []
   for (const [x, y, z] of floorCells) {
-    if (solid.has(cellKey(x, y, z))) continue
+    // Already-existing floor, or a rail's dug bed the release will skip: no
+    // wall rises from a cell the patch does not actually lay.
+    if (covered.has(cellKey(x, y, z))) continue
+    // A screen door already stands here: never raise a wall through it.
+    if (doors.has(cellKey(x, y, z))) continue
     let edge = false
     for (const [dx, dy] of NEIGH4) {
       const k = cellKey(x + dx, y + dy, z)
-      if (!solid.has(k) && !patch.has(k)) {
+      if (!covered.has(k) && !patch.has(k)) {
         edge = true
         break
       }
@@ -807,12 +860,21 @@ export function plannedAutoWalls(
  * and the shared edge inside the union loses its wall while the new outer edge
  * gains one. Only the *outer* edge is walled — a hole dug through the middle of
  * a patch stays open (the void flood cannot reach it), so a stair opening is
- * not silently boarded up. Returns the same state when nothing changed, so a
- * no-op stays out of the undo stack.
+ * not silently boarded up. A placed rail digs its bed, so the platform/tunnel
+ * footprint is folded into the covered ground too: a full track sliced through
+ * a patch reads as part of the surface, not as an opening to wall — otherwise
+ * the flood would pour down the trench and board up every screen door along the
+ * platform edge. Returns the same state when nothing changed, so a no-op stays
+ * out of the undo stack.
  */
 export function syncAutoWalls(state: StationState): StationState {
   const solid = new Set<string>()
   for (const c of state.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
+  // A dug bed reads as void in `cells`, but it is covered ground for the merge.
+  const covered = new Set(solid)
+  for (const k of trackFootprintKeys(state.modules)) covered.add(k)
+  // Screen-door cells stay unwalled even when they sit on the patch's edge.
+  const doors = platformDoorKeys(state.modules)
   // Group the tracked floor by level: walls only answer a same-level edge.
   const byLevel = new Map<number, Array<[number, number]>>()
   for (const c of state.cells) {
@@ -839,15 +901,15 @@ export function syncAutoWalls(state: StationState): StationState {
     minY--
     maxX++
     maxY++
-    // Flood void inward from the padded border, stopping at patch or any solid.
-    // Reached void is outside the surface; an unreached pocket is an interior
-    // hole, and earns no wall.
+    // Flood void inward from the padded border, stopping at patch, covered
+    // ground (solid or a track footprint). Reached void is outside the surface;
+    // an unreached pocket is an interior hole, and earns no wall.
     const seen = new Set<string>()
     const stack: Array<[number, number]> = []
     const pushVoid = (x: number, y: number): void => {
       if (x < minX || x > maxX || y < minY || y > maxY) return
       const k = `${x},${y}`
-      if (seen.has(k) || patch.has(k) || solid.has(cellKey(x, y, z))) return
+      if (seen.has(k) || patch.has(k) || covered.has(cellKey(x, y, z))) return
       seen.add(k)
       stack.push([x, y])
     }
@@ -867,6 +929,9 @@ export function syncAutoWalls(state: StationState): StationState {
       pushVoid(x, y - 1)
     }
     for (const [x, y] of cells) {
+      // A platform screen door stands on this cell: no auto wall may rise
+      // through it, even when the cell is also on the patch's outer edge.
+      if (doors.has(cellKey(x, y, z))) continue
       let edge = false
       for (const [dx, dy] of NEIGH4) {
         if (seen.has(`${x + dx},${y + dy}`)) {
@@ -918,6 +983,10 @@ export function addFloor(state: StationState, cells: Array<[number, number, numb
     // A floor drag may not fill a reserved opening either: the same guard the
     // block brush uses, so a ramp hole stays open under a newly drawn surface.
     if (reservedOpening(state.modules, x, y, z)) continue
+    // The platform/tunnel covered area is already a surface: skip a rail's dug
+    // bed so the drag does not pour a block into the trench. The wall ring then
+    // wraps the whole patch+track footprint (see `syncAutoWalls`).
+    if (isTrackCell(state.cells, state.modules, x, y, z)) continue
     have.add(k)
     grown.push({ x, y, z, fill: 'solid', tags: [AUTO_FLOOR] })
   }

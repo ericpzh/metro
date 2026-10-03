@@ -28,7 +28,7 @@ import { ZONE_LIST } from '../sim/zones.ts'
 import { stairLevels, stairTurnCells } from '../sim/stairs.ts'
 import { liftFootprintCells, liftStopZs } from '../sim/lifts.ts'
 import { facilityWallCells } from '../build/model.ts'
-import type { StockClass } from '../sim/stock.ts'
+import { STOCK_CLASSES, type StockClass } from '../sim/stock.ts'
 import type { Face, FinishId, Module, StationData } from '../sim/types.ts'
 import { packKey } from '../sim/types.ts'
 
@@ -786,7 +786,7 @@ export class SceneRenderer {
       const sig = `${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}`
       let entry = this.trainSlots.get(sig)
       if (!entry) {
-        const stock: StockClass = (['A', 'B', 'C'] as const)[stockIdx] ?? 'B'
+        const stock: StockClass = STOCK_CLASSES[stockIdx] ?? 'B'
         const group = buildTrain(this.modelMats, { x, y, z, cars, stock, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
         // The track surface is one above its floor block's z.
         group.userData.levelZs = [z - 1]

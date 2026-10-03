@@ -47,7 +47,7 @@ import {
 import { finishDef } from '../sim/finishes.ts'
 import { exitFloorAt, exitRunSnap } from '../sim/exits.ts'
 import { liftExtendedDown, liftExtendedUp, liftFootprintCells, type LiftModule } from '../sim/lifts.ts'
-import { moduleAt, isTrackCell, placementBlocked, placementOnTrack, reservedOpening, ceilingMountMissing, wallMountMissing } from '../sim/placement.ts'
+import { moduleAt, isTrackCell, trackAt, placementBlocked, placementOnTrack, reservedOpening, ceilingMountMissing, wallMountMissing } from '../sim/placement.ts'
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
 import { FACILITY_OPTIONS, setFrameHandler, useStore, isDecorType, isExitType, isFacilityBrush, isFenceType, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
@@ -90,7 +90,9 @@ function pendingCells(
   return cells.filter(([x, y, z]) => {
     const k = cellKey(x, y, z)
     if (mode === 'remove') return solid.has(k)
-    return !solid.has(k) && !reservedOpening(modules, x, y, z)
+    // A placed rail's dug bed is covered ground: the ghost drops it so the
+    // preview matches the release, which skips the platform/tunnel area.
+    return !solid.has(k) && !reservedOpening(modules, x, y, z) && !trackAt(modules, x, y, z)
   })
 }
 

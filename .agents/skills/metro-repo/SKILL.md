@@ -344,7 +344,14 @@ build/ →  sim/            (and neither render/ nor app/)
 * The **build kit** gained tagged floors with auto walls, the 墙 tool and a
   dedicated 删除 tool (`build/model.ts`, `game/test/walls.test.mjs`). A drawn
   floor patch grows a 4 m auto-wall ring on its outer edge; union with another
-  patch drops the buried wall, and a hole dug through a patch stays open.
+  patch drops the buried wall, and a hole dug through a patch stays open. A
+  **placed rail's dug bed is covered ground** (`isTrackCell` / `trackAt`): the
+  drag never pours a block into the trench, `syncAutoWalls` folds
+  `trackFootprintKeys` into the covered set so the ring wraps the patch-plus-track
+  area instead of walling the platform edge, and `platformDoorKeys` keeps any
+  wall out of a derived screen door. The 墙 tool's `isWallCell` makes
+  `wallColumnAt` / `wallColumnsAt` answer an `AUTO_WALL` ring as well as its own
+  `WALL` run, so a doorway can be opened through generated walls.
   `reservedOpening` (`sim/placement.ts`) also refuses a hand-built block in a
   ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (default on) instead of a separate 方块 tool.
 * The **装饰 kit** has landed (`sim/billboards.ts`, `sim/benches.ts`,
@@ -395,6 +402,14 @@ build/ →  sim/            (and neither render/ nor app/)
   collision envelope from 3.1 m to 1.5 m; and 自动贩卖机 (`vending`) is a
   TVM-footprint drinks machine that is the same unpaid-zone `stop` at `TVM_RATE`,
   sharing the ticket/vending detour on a street entry.
+* The **stock classification** gained the **L** linear-motor car (`sim/stock.ts`,
+  `game/test/stock.test.mjs`): `STOCK_CLASSES` (`['A','B','C','L']`) is now the
+  single ordering source, so the worker's pose index (`STOCK_CLASSES.indexOf`) and
+  the renderer's decode (`STOCK_CLASSES[stockIdx]`) cannot desync, and the
+  inspector's 车型 chips iterate it too. L is the 2.8 m wide, 16.8 m long,
+  three-door, third-rail 广州 4/5/6 stock. `LineDef.stock` is now the imported
+  `StockClass` (a `stock.ts` → `types.ts` edge that stays inside `sim/`). The save
+  needs no migration — stock is a plain string with no whitelist.
 * `PLAN.md` was deleted, but `README.md`, `GAME-SPEC.md` and many source
   comments still reference it. Treat those references as historical.
 * The crowd micro-benchmark (`game/bench/crowd.mjs`,

@@ -628,20 +628,20 @@ cannot leave a lane sideways.
 
 ### 6.1 Stock types
 
-Numbers follow the Chinese metro car classification (A/B/C); treat them as the tuning baseline and
+Numbers follow the Chinese metro car classification (A/B/C/L); treat them as the tuning baseline and
 verify against GB 50157 before shipping.
 
-| | Type A | Type B | Type C |
-|---|---|---|---|
-| Width | 3.0 m | 2.8 m | 2.6 m |
-| Length / car | 22.0 m | 19.5 m | 19.0 m |
-| Height | 3.8 m | 3.8 m | 3.6 m |
-| Doors / side | 5 × 1.4 m | 4 × 1.3 m | 4 × 1.2 m |
-| Crush / car | 310 | 240 | 200 |
-| Rated / car | 250 | 200 | 170 |
-| Consist | 6–8 cars | 4–6 cars | 4–6 cars |
-| Power | catenary 1500 V DC / 25 kV AC | third rail 750 V DC | third rail 750 V DC (linear-motor variants exist) |
-| Typical use | trunk lines, viaducts and open cuts | the workhorse tunnel line | lighter branches, automated lines |
+| | Type A | Type B | Type C | Type L |
+|---|---|---|---|---|
+| Width | 3.0 m | 2.8 m | 2.6 m | 2.8 m |
+| Length / car | 22.0 m | 19.5 m | 19.0 m | 16.8 m |
+| Height | 3.8 m | 3.8 m | 3.6 m | 3.6 m |
+| Doors / side | 5 × 1.4 m | 4 × 1.3 m | 4 × 1.2 m | 3 × 1.4 m |
+| Crush / car | 310 | 240 | 200 | 215 |
+| Rated / car | 250 | 200 | 170 | 170 |
+| Consist | 6–8 cars | 4–6 cars | 4–6 cars | 4–6 cars |
+| Power | catenary 1500 V DC / 25 kV AC | third rail 750 V DC | third rail 750 V DC (linear-motor variants exist) | third rail 1500 V DC, linear motor |
+| Typical use | trunk lines, viaducts and open cuts | the workhorse tunnel line | lighter branches, automated lines | linear-motor lines (Guangzhou 4/5/6) |
 
 ### 6.2 Power pickup is a design constraint
 
@@ -662,7 +662,7 @@ line = {
   id: "2",                  // route number, shown on signage + PSD header
   name: "2号线",             // player-set display name
   colour: "#2f7ef2",        // line colour: enamel panels, PSD band, charts
-  stock: "B",               // A | B | C (§6.1)
+  stock: "B",               // A | B | C | L (§6.1)
   cars: 6,                  // consist length in cars; train length = cars × carLength
   power: "third-rail",
   headwayProfile: { peak: 150, offpeak: 240, late: 480 },  // s between trains per period (§6.5)
@@ -1233,8 +1233,8 @@ module is selected; the bottom-rail exit list jumps here on click.
 | Widget (中文) | Range / step | Default | Sim effect |
 |---|---|---|---|
 | 线路名 / 编号 / 颜色 | text + swatch | 2号线 / `#2f7ef2` | signage, PSD band, charts |
-| 车型 | A / B / C | B | capacity/car + door rate (§6.1) |
-| 编组 `节` stepper | A 6–8, B/C 4–6 | 6 | train length, `capacityPerTrain` |
+| 车型 | A / B / C / L | B | capacity/car + door rate (§6.1) |
+| 编组 `节` stepper | A 6–8, B/C/L 4–6 | 6 | train length, `capacityPerTrain` |
 | 间隔 `分:秒` ×3 (高峰/平峰/夜间) | 60–600 s each | 150 / 240 / 480 | per-period headway (§6.5); which hours are 高峰 comes from 时刻 panel |
 | 终点 `折返/通过` | reverse / through | through | turnaround dwell +30 s vs exit-and-replace |
 | 停站 `秒` + `秒/人` | 20–90 clamp | 25 + 0.35 | dwell; overrun leaves people behind |

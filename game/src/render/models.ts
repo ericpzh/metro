@@ -10,7 +10,7 @@
 //   escalator  扶梯      truss, steps, glass balustrade, black handrail
 //   exit       出入口    红色钢架, glass walls, a canopy over an up/down pair
 //   PSD        站台门    glass screen, white mullions, orange header, red band
-//   train      车辆      A/B/C stock, window band, blue livery, sliding doors
+//   train      车辆      A/B/C/L stock, window band, blue livery, sliding doors
 //
 // Coordinate convention matches the mesher: cell (x,y,z) occupies
 // [x,x+1]×[y,y+1]×[z,z+1], +z up. A module at (x,y,z) stands on top of its
@@ -2443,7 +2443,7 @@ export interface TrainPose {
 }
 
 /**
- * One train (车辆) as an A/B/C consist: rounded body, window band, blue livery,
+ * One train (车辆) as an A/B/C/L consist: rounded body, window band, blue livery,
  * sliding doors at the timetable's door centres and two bogies per car. Built in
  * world space with the origin at the train centre on the track surface.
  */

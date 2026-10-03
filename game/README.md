@@ -21,7 +21,7 @@ npm run test       # node --test: determinism, tick budgets, capacity ladder
 src/
   sim/       PURE TypeScript. No DOM, no worker, no three. Runs in Node.
     constants.ts     every tuning number, including the time base
-    stock.ts         A/B/C car classification
+    stock.ts         A/B/C/L car classification
     finishes.ts      surface finishes: the family decides behaviour, §4.3
     zones.ts         fare zones: the boundary is a barrier, §4.5
     worker.ts        the only file that touches postMessage
@@ -287,7 +287,12 @@ generalised to tagged cells: overlap or abut two patches and the shared edge ins
 its wall while the new outer edge gains one, an L-shape keeps only its true perimeter, hand-built
 floor is treated as continuous ground (no wall grows against it), and only `auto-floor` cells are
 tracked so a wall the player placed by hand — or the new 墙 tool's run — is never deleted or
-re-tagged. A hole dug through the middle stays open rather than getting boarded up. Single clicks
+re-tagged. The 墙 tool's remove drag treats an auto wall as a wall, so a doorway can be opened
+straight through the generated ring. A hole dug through the middle stays open rather than getting
+boarded up. The platform/tunnel footprint is covered ground too: a placed rail digs its bed, so the
+merge folds that footprint into the surface — the ring wraps the whole patch-plus-track area, the
+drag never pours a block into the trench, and no auto wall rises through a platform screen door a
+full track sliced through the patch. Single clicks
 and stacked blocks stay plain, and the drag's live ghost shows the wall ring before release. The
 地基 tool carries a **自动生成墙壁** toggle (on by default) in the 工具 folder: turn it off and the
 same drag lays the patch as untagged bare blocks, with no ring. See
@@ -325,6 +330,9 @@ and the fare line holds. See `test/fence.test.mjs`.
 * `trains.test.mjs` — a dispatched train gets a pose on the track beside its platform edge,
   a stop is a fixed berth/open/dwell/close/hold/depart sequence, and the pose is deterministic
   (the rolling-stock render path).
+* `stock.test.mjs` — the rolling-stock classes (§6.1): every classified car has a table row,
+  the L linear-motor car is the short 2.8 m three-door third-rail stock, its door cadence is
+  symmetric, and the worker's pose index decodes back to the same class.
 * `placement.test.mjs` — `sim/placement.ts` gives every module a world footprint: two may not
   share space (a gate line in adjacent cells is fine, a module on the storey above is not a
   conflict), a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
@@ -385,7 +393,11 @@ and the fare line holds. See `test/fence.test.mjs`.
   ring rises on the patch's outer edge, overlapping or abutting two patches unions them (the buried
   wall goes, the new edge is walled) while a hand-placed wall survives, digging an edge moves the
   ring and a hole through the middle stays open, and 墙 lays tagged four-course columns that a
-  right-click or right-drag lifts whole.
+  right-click or right-drag lifts whole — an auto-generated wall answers the same column lookup, so
+  the tool can open a doorway in the generated ring. The platform/tunnel footprint is covered
+  ground: the ring wraps a dug rail bed instead of walling the platform edge, the drag never pours
+  a block into the trench, and no auto wall rises through a platform screen door a full track
+  sliced through the patch.
 * `fence.test.mjs` — the 围栏 (§5.2): a 1 m high thin panel through the block middle (R turns a
   single, a drag lays a run along the drag direction); a dragged run plugs into a gate row, the
   fence cell is not a walkable node so the run plus its gates is a barrier the crowd only crosses

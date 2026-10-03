@@ -4,6 +4,7 @@ import { Folder, LeftRail } from './LeftRail.tsx'
 import { Viewport } from './Viewport.tsx'
 import { paintZone, zoneAt } from '../build/model.ts'
 import { ZONE_LIST, zoneLabel } from '../sim/zones.ts'
+import { STOCK_CLASSES } from '../sim/stock.ts'
 import type { LineDef, Module, Zone } from '../sim/types.ts'
 
 const LOS_LABEL: Record<string, string> = { A: 'A 畅通', B: 'B 顺畅', C: 'C 有点挤', D: 'D 拥挤', E: 'E 很挤', F: 'F 挤爆' }
@@ -419,7 +420,7 @@ function Inspector(): React.ReactElement {
               <LineFields line={line} />
               <div className="row">
                 <span className="muted small">车型</span>
-                {(['A', 'B', 'C'] as const).map((s) => (
+                {STOCK_CLASSES.map((s) => (
                   <button key={s} className={line.stock === s ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { stock: s })}>
                     {s}型
                   </button>

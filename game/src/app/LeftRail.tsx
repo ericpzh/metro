@@ -480,7 +480,7 @@ export function LeftRail(): React.ReactElement {
             [
               { id: 'select', label: '选择', icon: 'select' },
               { id: 'block', label: '地基', icon: 'block', title: '地基：单击放一块，按住拖出一片（可自动长出 4m 外墙），右键删除' },
-              { id: 'wall', label: '墙', icon: 'wall', title: '墙：左键拖出 4m 高墙，右键拖拽整列拆除' },
+              { id: 'wall', label: '墙', icon: 'wall', title: '墙：左键拖出 4m 高墙，右键拖拽整列拆除（自动生成的墙也可拆）' },
               { id: 'delete', label: '删除', icon: 'delete', title: '删除：单击拆一块，按住拖出一条拆一行（左右键一样）' },
             ] as Array<{ id: Tool; label: string; icon: string; title?: string }>
           ).map((t) => (
