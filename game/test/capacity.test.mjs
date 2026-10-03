@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 
 function setInRates(data, rate) {
   for (const m of data.modules) if (m.type === 'exit') m.cfg.inRate = rate
@@ -33,8 +33,8 @@ function run(data, ticks) {
 test('one escalator off the platform breaks; three fix it', () => {
   // AM-peak load is set explicitly: the demo default is lighter and would not
   // jam even the broken station.
-  const broken = run(setAlighting(referenceStation({ upEscalators: 1 }), 540), 1600)
-  const fixed = run(setAlighting(referenceStation({ upEscalators: 3 }), 540), 1600)
+  const broken = run(setAlighting(scenarioStation({ upEscalators: 1 }), 540), 1600)
+  const fixed = run(setAlighting(scenarioStation({ upEscalators: 3 }), 540), 1600)
 
   assert.ok(
     fixed.peakEscQueue * 2 < broken.peakEscQueue,
@@ -52,7 +52,7 @@ test('one escalator off the platform breaks; three fix it', () => {
 test('boarding demand that the doors cannot clear is counted as left behind', () => {
   // A boarding-heavy peak: the exits pour in far faster than the platform can
   // absorb, so the door queues survive a dwell and the counter climbs.
-  const data = setInRates(referenceStation({ upEscalators: 3 }), 6000)
+  const data = setInRates(scenarioStation({ upEscalators: 3 }), 6000)
   const r = run(data, 1600)
   assert.ok(r.world.totals.boarded > 0, 'nobody boarded a train at all')
   assert.ok(r.world.totals.leftBehind > 0, 'expected people left behind at a saturated platform')

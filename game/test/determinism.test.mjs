@@ -4,15 +4,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 
 function positions(world) {
   return world.pool.live.map((a) => [a.id, a.x, a.y, a.z, a.state])
 }
 
 test('same seed and tick produce identical agents', () => {
-  const a = new World(referenceStation(), 424242)
-  const b = new World(referenceStation(), 424242)
+  const a = new World(scenarioStation(), 424242)
+  const b = new World(scenarioStation(), 424242)
   for (let i = 0; i < 600; i++) {
     a.tickOnce()
     b.tickOnce()
@@ -33,8 +33,8 @@ test('same seed and tick produce identical agents', () => {
 })
 
 test('a different seed diverges', () => {
-  const a = new World(referenceStation(), 1)
-  const b = new World(referenceStation(), 2)
+  const a = new World(scenarioStation(), 1)
+  const b = new World(scenarioStation(), 2)
   for (let i = 0; i < 200; i++) {
     a.tickOnce()
     b.tickOnce()

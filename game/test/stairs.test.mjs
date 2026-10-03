@@ -7,7 +7,7 @@
 // the slab the flights pass through.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 import { buildGraph, EDGE_KIND } from '../src/sim/station.ts'
 import { carveRampOpenings } from '../src/sim/openings.ts'
 import { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_NARROW, STAIR_WIDTH_NORMAL, STAIR_WIDTHS, nextStairWidth, stairFacing, stairFlights, stairLandings, stairTurnCells } from '../src/sim/stairs.ts'
@@ -32,7 +32,7 @@ function reachable(g, from, to) {
 }
 
 test('the demo keeps only the exit-connected straight stair', () => {
-  const stairs = referenceStation().modules.filter((m) => m.type === 'stair')
+  const stairs = scenarioStation().modules.filter((m) => m.type === 'stair')
   assert.equal(stairs.length, 1, `expected one demo stair, got ${stairs.map((m) => m.id)}`)
   const [only] = stairs
   assert.equal(only.cfg.style, 'straight')
@@ -45,7 +45,7 @@ test('the demo keeps only the exit-connected straight stair', () => {
 })
 
 test('every flight of a turning stair is a two-way edge between walkable landings', () => {
-  const data = referenceStation()
+  const data = scenarioStation()
   const g = buildGraph(data)
   for (const m of data.modules.filter((x) => x.type === 'stair')) {
     for (const f of stairFlights(m)) {
@@ -66,7 +66,7 @@ test('every flight of a turning stair is a two-way edge between walkable landing
 test('a turning stair walks bottom to top across its landing', () => {
   // The old demo switchback geometry, rebuilt on the current demo slabs: the
   // half-landing is a real node, not a jump straight through the turn.
-  const data = referenceStation()
+  const data = scenarioStation()
   const Z_MID = -2
   for (const x of [2, 3, 4, 5]) data.cells.push({ x, y: 13, z: Z_MID, fill: 'solid' })
   const mod = {
@@ -100,7 +100,7 @@ test('a turning stair walks bottom to top across its landing', () => {
 })
 
 test('the stair reaches the station and is reached from the street', () => {
-  const data = referenceStation()
+  const data = scenarioStation()
   const g = buildGraph(data)
   const exit = g.exits[0].node
   for (const m of data.modules.filter((x) => x.type === 'stair')) {

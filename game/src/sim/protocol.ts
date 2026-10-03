@@ -21,6 +21,9 @@ export type ToWorker =
   | { type: 'init'; data: StationData; seed: number; playing: boolean; speed: number; startSeconds?: number; warmup?: number }
   | { type: 'build'; data: StationData }
   | { type: 'control'; playing: boolean; speed: number }
+  // A restart keeps the built station and the clock but empties the crowd: every
+  // agent, train and queue is dropped and the sim runs on from here.
+  | { type: 'restart' }
 
 export type FromWorker =
   | ({ type: 'ready' } & GraphInfo)

@@ -4,18 +4,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 import { TRAIN_DOOR_TRAVEL, TRAIN_DWELL } from '../src/sim/constants.ts'
 
 const STRIDE = 9
 
 test('no rolling stock before the first dispatch', () => {
-  const w = new World(referenceStation(), 99)
+  const w = new World(scenarioStation(), 99)
   assert.equal(w.trainRenderState().length, 0)
 })
 
 test('a dispatched train gets a pose on the track beside its platform edge', () => {
-  const w = new World(referenceStation({ upEscalators: 3 }), 99)
+  const w = new World(scenarioStation({ upEscalators: 3 }), 99)
   w.tickOnce()
   const pose = w.trainRenderState()
   assert.equal(pose.length, STRIDE, 'one train, one pose')
@@ -32,7 +32,7 @@ test('a dispatched train gets a pose on the track beside its platform edge', () 
 })
 
 test('a stop is a fixed berth / open / dwell / close / hold / depart sequence', () => {
-  const w = new World(referenceStation({ upEscalators: 3 }), 99)
+  const w = new World(scenarioStation({ upEscalators: 3 }), 99)
   const seen = []
   const doorsOpenIn = []
   for (let i = 0; i < 60; i++) {
@@ -58,8 +58,8 @@ test('a stop is a fixed berth / open / dwell / close / hold / depart sequence', 
 })
 
 test('the rolling-stock pose is deterministic', () => {
-  const a = new World(referenceStation(), 424242)
-  const b = new World(referenceStation(), 424242)
+  const a = new World(scenarioStation(), 424242)
+  const b = new World(scenarioStation(), 424242)
   for (let i = 0; i < 300; i++) {
     a.tickOnce()
     b.tickOnce()

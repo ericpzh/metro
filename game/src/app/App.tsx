@@ -8,7 +8,9 @@ import { STOCK_CLASSES } from '../sim/stock.ts'
 import type { LineDef, Module, Zone } from '../sim/types.ts'
 
 const LOS_LABEL: Record<string, string> = { A: 'A 畅通', B: 'B 顺畅', C: 'C 有点挤', D: 'D 拥挤', E: 'E 很挤', F: 'F 挤爆' }
-const SPEEDS = [0, 1, 4, 16]
+// Speed multipliers only: 暂停 lives on the play/pause button, so there is one
+// pause control, not a chip that duplicates it.
+const SPEEDS = [1, 4, 16]
 
 /**
  * The station title in the top bar. Click to edit: Enter or blur keeps the
@@ -76,6 +78,7 @@ function TopBar(): React.ReactElement {
   const loadReference = useStore((s) => s.loadReference)
   const saveToFile = useStore((s) => s.saveToFile)
   const loadFromText = useStore((s) => s.loadFromText)
+  const restartSim = useStore((s) => s.restartSim)
   const fileRef = useRef<HTMLInputElement>(null)
   return (
     <div className="topbar">
@@ -107,13 +110,16 @@ function TopBar(): React.ReactElement {
           e.target.value = ''
         }}
       />
-      <button className="primary" onClick={() => setPlaying(!playing)}>
+      <button className="primary" onClick={() => setPlaying(!playing)} title="播放 / 暂停（空格）">
         {playing ? '暂停' : '播放'}
+      </button>
+      <button className="ghost" onClick={restartSim} title="清空所有行人，重新开始（保留车站）">
+        重启
       </button>
       <div className="speeds">
         {SPEEDS.map((s) => (
           <button key={s} className={speed === s ? 'chip on' : 'chip'} onClick={() => setSpeed(s)}>
-            {s === 0 ? '暂停' : `${s}×`}
+            {s}×
           </button>
         ))}
       </div>
@@ -537,6 +543,13 @@ export function App(): React.ReactElement {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
       switch (e.key.toLowerCase()) {
+        case ' ':
+          // Space is the play/pause key. Always stop the default (page scroll or
+          // activating a focused button); a focused button would otherwise toggle
+          // twice, so it does not also pause.
+          e.preventDefault()
+          if (tag !== 'BUTTON') st.setPlaying(!st.playing)
+          break
         case 'v':
           setTool('select' as const)
           break

@@ -8,6 +8,7 @@ import { buildSolidSet, CHUNK, meshChunk } from './chunkMesher.ts'
 import { createMaterials, type MaterialSet } from './materials.ts'
 import {
   buildModule,
+  buildRampThins,
   buildTrain,
   createModelMaterials,
   disposeModelMaterials,
@@ -23,7 +24,7 @@ import { finishDef, finishMapOf } from '../sim/finishes.ts'
 import { storeyBand } from '../sim/constants.ts'
 import { trackBedKeys } from '../sim/placement.ts'
 import { edgeCells } from '../sim/track.ts'
-import { OPENING_CEILING } from '../sim/openings.ts'
+import { OPENING_CEILING, rampThinCells, type RampThin } from '../sim/openings.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
 import { stairLevels, stairTurnCells } from '../sim/stairs.ts'
 import { liftFootprintCells, liftStopZs } from '../sim/lifts.ts'
@@ -237,6 +238,8 @@ export class SceneRenderer {
    * 1 m block there would read as a floating cube, not a staircase landing.
    */
   private hiddenCells = new Set<number>()
+  /** Solid cells a ramp kept: drawn half a metre thick by `buildRampThins`. */
+  private rampThins: RampThin[] = []
   /**
    * Invisible full-cell boxes standing in for a shop's hidden wall voxels, so a
    * right-click still picks the wall cell (the thin panel is module geometry,
@@ -480,6 +483,20 @@ export class SceneRenderer {
         this.wallPick.add(proxy)
       }
     }
+    // A block a ramp runs against is kept but drawn half a metre thick: hide the
+    // full voxel, leave an invisible pick box, and let `buildRampThins` draw the
+    // half block. A stair's side floor cells are kept this way, so the floor at
+    // the top is not deleted and the run fits beside it. Derived from
+    // cells+modules, so it follows every edit.
+    this.rampThins = rampThinCells(data.cells, data.modules)
+    for (const w of this.rampThins) {
+      const k = packKey(w.x, w.y, w.z)
+      if (!solidKeys.has(k)) continue
+      this.hiddenCells.add(k)
+      const proxy = new THREE.Mesh(this.wallPickGeo, this.wallPickMat)
+      proxy.position.set(w.x + 0.5, w.y + 0.5, w.z + 0.5)
+      this.wallPick.add(proxy)
+    }
     this.wallPick.updateMatrixWorld(true)
     // An elevator passes through the floor slab at every stop above its base:
     // hide those cells so the mesher cuts a real shaft opening (the graph still
@@ -718,6 +735,14 @@ export class SceneRenderer {
         else blobsByKey.set(bk, { levelZ: mod.z, ground, blobs: [blob] })
       }
     }
+    // A ramp-adjacent half block, keyed to its storey band like any other
+    // fixture so the level slicer hides it with the floor it belongs to.
+    for (const g of buildRampThins(ctx, this.rampThins)) {
+      const [wx, wy, wz] = g.userData.cell as [number, number, number]
+      g.userData.levelZ = storeyBand(wz)
+      g.userData.groundBand = this.groundOf.get(`${wx},${wy}`)
+      this.moduleMeshes.add(g)
+    }
     // Contact blobs under the floor-standing modules (§11), one batch per level
     // so a shadow disappears with the storey it sits on. `clearModules` disposes
     // every previous batch, so none of them are removed again here.
@@ -906,7 +931,17 @@ export class SceneRenderer {
     for (const screen of this.adScreens) {
       const set = (screen.userData.adSet as THREE.MeshBasicMaterial[] | undefined) ?? fallback
       if (set.length === 0) continue
-      const frame = set[Math.floor(this.adClock / AD_FRAME_SECONDS) % set.length]
+      // Each screen runs on its own cadence and phase, assigned the first time it
+      // is animated, so a row of billboards is not a synchronised wall of ads.
+      let period = screen.userData.adPeriod as number | undefined
+      let offset = screen.userData.adOffset as number | undefined
+      if (period === undefined || offset === undefined) {
+        period = AD_FRAME_SECONDS * (0.55 + Math.random() * 1.5)
+        offset = Math.random() * period * set.length
+        screen.userData.adPeriod = period
+        screen.userData.adOffset = offset
+      }
+      const frame = set[Math.floor((this.adClock + offset) / period) % set.length]
       if (screen.material !== frame) screen.material = frame
     }
   }
@@ -1183,6 +1218,12 @@ export class SceneRenderer {
     const planes = on ? [this.clipPlane] : []
     for (const m of [...this.chunkMeshes, ...this.outlineMeshes]) {
       const mat = m.material as THREE.Material
+      mat.clippingPlanes = planes
+      mat.needsUpdate = true
+    }
+    // The crowd and their shadows must cut with the floors: otherwise a
+    // cutaway hides the slab but leaves the people behind it floating in front.
+    for (const mat of [this.agents.material, this.heads.material, this.hair.material, this.blobs.material] as THREE.Material[]) {
       mat.clippingPlanes = planes
       mat.needsUpdate = true
     }
@@ -2027,12 +2068,23 @@ export class SceneRenderer {
       const dy = cy - py
       if (dx * dx + dy * dy > 1e-6) this.yaws[i] = Math.atan2(dy, dx)
       q.setFromAxisAngle(axis, this.yaws[i])
-      m.compose(pos, q, scale)
-      this.agents.setMatrixAt(i, m)
-      this.heads.setMatrixAt(i, m)
-      this.hair.setMatrixAt(i, m)
-      m.makeTranslation(pos.x, pos.y, pos.z + 0.03)
-      this.blobs.setMatrixAt(i, m)
+      // Only the crowd on the storeys that are actually drawn: an agent on a
+      // hidden floor above (or a ghosted one below) would otherwise float over
+      // the visible floor, reading as "seen through" it.
+      if (this.agentLevelVisible(pos.z)) {
+        m.compose(pos, q, scale)
+        this.agents.setMatrixAt(i, m)
+        this.heads.setMatrixAt(i, m)
+        this.hair.setMatrixAt(i, m)
+        m.makeTranslation(pos.x, pos.y, pos.z + 0.03)
+        this.blobs.setMatrixAt(i, m)
+      } else {
+        m.makeScale(0, 0, 0)
+        this.agents.setMatrixAt(i, m)
+        this.heads.setMatrixAt(i, m)
+        this.hair.setMatrixAt(i, m)
+        this.blobs.setMatrixAt(i, m)
+      }
       // Paint the slot only when the agent occupying it changes, so a person
       // keeps their colour for their whole life instead of swapping each frame.
       if (this.colorIds[i] !== id) {
@@ -2063,6 +2115,20 @@ export class SceneRenderer {
     this.heads.visible = on
     this.hair.visible = on
     this.blobs.visible = on
+  }
+
+  /**
+   * True when an agent standing at walk-surface `z` belongs to a storey that is
+   * on screen. The active storey is always drawn; storeys above it only show a
+   * plate with nothing under it (never a crowd on a floor), and storeys below it
+   * show only when 显示其他层 is on. This is what stops a lower floor's crowd from
+   * showing through the storey the player is looking at.
+   */
+  private agentLevelVisible(z: number): boolean {
+    const band = storeyBand(z)
+    if (band > this.activeZ) return false
+    if (band < this.activeZ) return this.ghost
+    return true
   }
 
   resize(w: number, h: number): void {

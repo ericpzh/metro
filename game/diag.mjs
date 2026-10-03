@@ -1,6 +1,6 @@
-// Throwaway diagnostic: run the demo default station and watch queue metrics.
+// Throwaway diagnostic: run the Wusi Square test rig and watch queue metrics.
 import { World } from './src/sim/world.ts'
-import { referenceStation } from './src/data/reference-station.ts'
+import { scenarioStation } from './test/support/scenario-station.ts'
 
 function run(label, data, ticks) {
   const w = new World(data, 99)
@@ -25,6 +25,6 @@ function run(label, data, ticks) {
 }
 
 const ticks = 1600
-run('demo default (12 gates, 1 up esc)', referenceStation(), ticks)
-run('demo default, 16 gates', referenceStation({ gates: 16 }), ticks)
-run('demo default, 6 gates', referenceStation({ gates: 6 }), ticks)
+run('scenario default (12 gates, 1 up esc)', scenarioStation(), ticks)
+run('scenario, 16 gates', scenarioStation({ gates: 16 }), ticks)
+run('scenario, 6 gates', scenarioStation({ gates: 6 }), ticks)

@@ -47,10 +47,10 @@ import {
 import { finishDef } from '../sim/finishes.ts'
 import { exitFloorAt, exitRunSnap } from '../sim/exits.ts'
 import { liftExtendedDown, liftExtendedUp, liftFootprintCells, type LiftModule } from '../sim/lifts.ts'
-import { moduleAt, isTrackCell, trackAt, placementBlocked, placementOnTrack, reservedOpening, ceilingMountMissing, wallMountMissing } from '../sim/placement.ts'
+import { moduleAt, isTrackCell, trackAt, placementBlocked, placementOnTrack, reservedOpening, ceilingMountMissing, wallMountMissing, wallMountStandCell } from '../sim/placement.ts'
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
-import { FACILITY_OPTIONS, setFrameHandler, useStore, isDecorType, isExitType, isFacilityBrush, isFenceType, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
+import { FACILITY_OPTIONS, setFrameHandler, useStore, isDecorType, isExitType, isFacilityBrush, isFenceType, isWallMountedType, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
 import type { Face, FinishId, Module } from '../sim/types.ts'
 import { defaultLine, freeTunnelEnd, makeTrack, makeTunnel, railModuleAt, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
@@ -218,8 +218,10 @@ export function Viewport(): React.ReactElement {
   const graphNodesRef = useRef<Float32Array>(new Float32Array(0))
   /** Solid cell keys, refreshed with the station, so a drag can tell blocks from void. */
   const solidRef = useRef<Set<string>>(new Set())
+  /** True once the first station build has framed the home view (refresh only, not edits). */
+  const framedRef = useRef(false)
   /** The tile under the pointer for the equipment tool, so R can rebuild the ghost. */
-  const hoverRef = useRef<{ cell: [number, number, number]; solid: boolean } | null>(null)
+  const hoverRef = useRef<{ cell: [number, number, number]; place: [number, number, number]; solid: boolean } | null>(null)
   const drag = useRef<{
     active: boolean
     button: number
@@ -442,6 +444,21 @@ export function Viewport(): React.ReactElement {
     return mod
   }
 
+  /**
+   * The billboard a wall-mounted hover would place. Normally it stands on the
+   * hovered floor cell; a hover on a wall itself (e.g. the station wall across
+   * the track, behind the screen doors) stands the panel in the face-adjacent
+   * `place` cell instead — so an ad can be fixed to a wall that has no walkable
+   * floor in front of it. Returns null when no solid wall backs the panel.
+   */
+  const wallMountPlacement = (cell: [number, number, number], place: [number, number, number], id: string): Module | null => {
+    const st = useStore.getState()
+    const at = wallMountStandCell(st.station.cells, cell, place)
+    const mod = createModule(st.moduleType, at[0], at[1], at[2], id, st.moduleRot, st.stairWidth, st.escalatorDir)
+    if (!mod || wallMountMissing(st.station.cells, mod)) return null
+    return mod
+  }
+
   /** Rebuild the equipment hover ghost from the last hovered tile. */
   const refreshModulePreview = (): void => {
     const scene = sceneRef.current
@@ -455,6 +472,15 @@ export function Viewport(): React.ReactElement {
     // A surface exit is rooted at the street (h = 0 m): it may not be dropped on
     // a concourse or platform slab.
     const onGround = z === GROUND_Z
+    // 广告牌 is wall-mounted and may hang over a track (there is no floor in front
+    // of a station wall across the rails), so it is resolved from the wall alone.
+    if (isWallMountedType(st.moduleType)) {
+      const billboard = wallMountPlacement(h.cell, h.place, 'preview')
+      const blocked = !billboard || placementBlocked(st.station.modules, billboard)
+      scene.setCursor(h.cell, !blocked)
+      scene.setModulePreview(billboard, blocked)
+      return
+    }
     // 电梯: hovering any cell of an existing shaft previews its extension even
     // where that level has no floor; a fresh lift still needs floor under it.
     const liftExt = st.moduleType === 'lift' ? liftHover(x, y, z) : null
@@ -682,6 +708,7 @@ export function Viewport(): React.ReactElement {
       ro.disconnect()
       scene.dispose()
       sceneRef.current = null
+      framedRef.current = false
     }
   }, [])
 
@@ -694,6 +721,13 @@ export function Viewport(): React.ReactElement {
     scene.setStation(toData(station))
     scene.setLevel(st.activeZ, st.ghostOtherLevels)
     scene.setCutaway(st.cutaway)
+    // On a fresh page load the demo station must open on the home view; the
+    // constructor's preset ran before the station existed, so frame it now. A
+    // later edit rebuilds the station but must not yank the camera.
+    if (!framedRef.current) {
+      framedRef.current = true
+      scene.setPreset('iso')
+    }
   }, [version, station])
 
   // Keep the 3D selection box in step with the inspector's selection. A rebuild
@@ -1190,7 +1224,7 @@ export function Viewport(): React.ReactElement {
       // translucent copy of the module shows exactly what the click will place.
       // Bare void and a clash with existing equipment both flag red.
       scene.setFencePreview(null)
-      hoverRef.current = { cell: hit.cell, solid: hit.solid }
+      hoverRef.current = { cell: hit.cell, place: hit.place, solid: hit.solid }
       refreshModulePreview()
       return
     }
@@ -1261,7 +1295,7 @@ export function Viewport(): React.ReactElement {
     }
     if (st.tool === 'rail') {
       // The pre-rendered piece follows the pointer exactly as equipment does.
-      hoverRef.current = { cell: hit.cell, solid: hit.solid }
+      hoverRef.current = { cell: hit.cell, place: hit.place, solid: hit.solid }
       refreshRailPreview()
       return
     }
@@ -1274,7 +1308,7 @@ export function Viewport(): React.ReactElement {
         scene.setModulePreview(null)
         return
       }
-      hoverRef.current = { cell: hit.cell, solid: true }
+      hoverRef.current = { cell: hit.cell, place: hit.place, solid: true }
       refreshTunnelPreview()
       return
     }
@@ -1572,6 +1606,21 @@ export function Viewport(): React.ReactElement {
 
   const placeModule = (cell: [number, number, number], place: [number, number, number], solid: boolean, type: string): void => {
     const st = useStore.getState()
+    // A wall-mounted 广告牌 needs only a wall behind it — it may hang over a
+    // track, so it never goes through the floor/track rules below.
+    if (isWallMountedType(type)) {
+      const mod = wallMountPlacement(cell, place, nextModuleId(st.station.modules, type))
+      if (!mod) {
+        st.setNotice('广告牌要贴在墙上：先砌一堵墙，用 R 转方向让背面朝墙')
+        return
+      }
+      if (placementBlocked(st.station.modules, mod)) {
+        st.setNotice('这儿已经有设备了，换个地方')
+        return
+      }
+      st.commit(addEquipment(st.station, mod))
+      return
+    }
     // Exit-covered holes count as floor, like the hover ghost above.
     const floorHere = solid || exitFloorAt(st.station.modules, cell[0], cell[1], cell[2])
     const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])

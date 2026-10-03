@@ -5,10 +5,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { parse, serialize, SAVE_VERSION, SAVE_FORMAT } from '../src/persistence/save.ts'
 import { toState } from '../src/build/model.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 
 test('serialise -> parse is identity for the static station', () => {
-  const state = toState(referenceStation())
+  const state = toState(scenarioStation())
   const r = parse(serialize(state))
   assert.equal(r.ok, true)
   assert.equal(r.version, SAVE_VERSION)
@@ -20,7 +20,7 @@ test('serialise -> parse is identity for the static station', () => {
 })
 
 test('finishes survive the round trip', () => {
-  const state = toState(referenceStation())
+  const state = toState(scenarioStation())
   const track = state.cells.find((c) => c.finish?.top === 'floor.track')
   assert.ok(track, 'the reference station should carry a track bed')
   const r = parse(serialize(state))

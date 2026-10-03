@@ -29,7 +29,7 @@ src/
   build/     station document, cell commands, paint, undo
   persistence/ save schema (serialise / parse / migrate *.metro.json)
   app/       React shell: HUD, rails, inspector. Panels only, no sim logic
-  data/      the reference station and the art palette
+  data/      the demo station (the 动物园 save) and the art palette
 test/        node --test suite (imports src/sim/*.ts directly)
 bench/       crowd-tick benchmark
 ```
@@ -84,14 +84,18 @@ requirement with the module rotation and the renderer mounts the model on the sa
 what the ghost shows is what the click builds. 广告牌 is a nested sub-menu of four formats — 横版 /
 竖版 / 方形 / 大横版 — whose run length (one cell, or two for 大横版) and poster aspect come from the
 shared `sim/billboards.ts` table, so the palette thumbnail, the collision envelope and the drawn
-housing cannot disagree. A multi-cell banner needs a wall behind every cell of its run. 电视 and 指示牌
+housing cannot disagree. A multi-cell banner needs a wall behind every cell of its run. A hover on a
+wall block itself mounts the panel in the face-adjacent cell (`wallMountStandCell`), so a banner can
+hang on the station's outer wall across the track — behind and above the screen doors — where there
+is no walkable floor in front of it. 电视 and 指示牌
 are *ceiling-hung* instead: `ceilingMountMissing` refuses them unless a solid slab sits one storey up
 (`LEVEL_STEPS`, the 4 m grid), and `render/models.ts` hangs each lit, double-sided face from that slab
 by two rods, so both read from either side. Every screen
-cycles three procedural, unlit ad posters on wall time, driven by `SceneRenderer.updateAds`; the
-posters come in wide / square / portrait sets (`render/models.ts`'s `adFramesWide` / `adFramesSquare` /
-`adFramesPortrait`) so a portrait billboard is not a stretched landscape, and the decoration reads as
-"playing ads" even while the sim is paused. 座椅 is the same kind of nested sub-menu: two families —
+cycles three procedural, unlit ad posters on wall time, driven by `SceneRenderer.updateAds`; each
+screen draws its own random period and phase on first animation, so a row of billboards is not a
+synchronised wall. The posters come in wide / square / portrait sets (`render/models.ts`'s
+`adFramesWide` / `adFramesSquare` / `adFramesPortrait`) so a portrait billboard is not a stretched
+landscape, and the decoration reads as "playing ads" even while the sim is paused. 座椅 is the same kind of nested sub-menu: two families —
 a plain stainless bench with no back and an upholstered seat with a back and arm rests that chains
 into a row — each 1 m or 2 m wide, from the shared `sim/benches.ts` table. A 2 m bench is a real
 two-cell run: its `w` fixes the collision envelope and its base cells (`benchCells`), the renderer
@@ -106,6 +110,13 @@ panel faces the wall and its stocked front faces the room, an office one `desk` 
 individually right-clickable; bulldozing the room takes its auto (`cfg.auto`) furniture but leaves
 hand-placed pieces, and rooms drawn before this carry a `cfg.stocked` migration
 (`ensureRoomFurniture`, via `toState`) instead of drawn units.
+
+**The crowd respects the floors, and the clock pauses and restarts.** `SceneRenderer` draws only the
+agents whose storey band is on screen — the active storey, the ones below it when 显示其他层 is on,
+never one floating above a hidden floor — and the cutaway clip applies to the crowd too, so people no
+longer show through a slab. **Space** toggles play/pause (the top bar's 暂停 / 播放 button does the
+same), and 重启 empties the crowd, trains and queues while keeping the built station and the clock
+(`World.restart`, sent as a `restart` worker message).
 
 **Rails are equipment: a fixed piece centred on the cursor.** A rail is a `track` module — a car-width
 bed (`d = 3` m) and a run the length of the bound line's consist (`w = ceil(stock length × cars)`) —
@@ -153,8 +164,9 @@ terminus inputs name where each direction runs, and every platform screen door o
 prints the matching one on its direction sticker instead of a hardcoded place name. 屏蔽门 is a
 per-line choice of **全高** (the default storey-tall screen, its line header printed on a top band)
 or **半高** (a 1.5 m screen, the same header printed on the glass as stickers); switching it
-re-derives every screen bound to the line and re-sizes their collision envelope. The reference station builds its
-bed from the same dig, so the demo shows the recessed track too.
+re-derives every screen bound to the line and re-sizes their collision envelope. The Wusi Square
+test rig (`test/support/scenario-station.ts`) builds its bed from the same dig, and the 动物园 demo
+save carries the recessed bed too.
 
 **Escalators are staircases, and they turn over.** `models.ts` builds each run as a band of
 instanced steps whose treads stay world-horizontal (riser, then the yellow nosing along the
@@ -175,7 +187,7 @@ around the turn — the block mesher skips those cells, so a landing is never a 
 each placed as fixed-length equipment: its base sits on the hovered floor cell, the finished stair
 previews as a translucent ghost, and **R** turns the run; **Tab** cycles its width between narrow (an
 escalator bay) and normal. A turning stair also lays its half-landing as a walkable cell, so the two
-flights connect. The demo keeps a single pre-placed stair — the straight run
+flights connect. The Wusi Square test rig keeps a single pre-placed stair — the straight run
 that replaces exit A's down escalator; `carveRampOpenings`
 opens the slab each flight climbs through while keeping every landing, so each stairwell is a real
 hole in the ground.
@@ -186,17 +198,22 @@ the finished run previews as a translucent ghost; **R** turns it and **Tab** fli
 direction between up and down. The placement ghost carries a bright arrow over the run pointing the
 way it will carry people. Direction only orders `from`/`to` — the single one-way edge the sim reads —
 so an up and a down piece share one footprint, and any two runs still keep to separate columns. The
-one piece lives in `sim/escalators.ts`, and the reference station builds its pre-placed runs from
-that exact constructor too, so the demo and the builder place the same equipment at the same
+one piece lives in `sim/escalators.ts`, and the Wusi Square test rig builds its pre-placed runs from
+that exact constructor too, so the rig and the builder place the same equipment at the same
 dimensions.
 
 **Ramps carve their way in.** `sim/openings.ts` (`carveRampOpenings`) removes the solid cells an
 escalator, stair or lift climbs through, so a placed ramp surfaces from an opening rather than
 through the slab; the landing cells are protected because the graph uses them as the ramp's nodes.
-The corridor is as wide as the whole assembly — balustrades and handrails included — so the rails
-never surface through the floor blocks to the left and right of the opening, not just the treads.
-`data/reference-station.ts` runs the same carve, so the demo no longer shows escalators punching
-through the concourse floor. An escalator is single-direction and carries **one passenger per step**
+Only the run's **centreline cells** are carved (`RAMP_CORE_HALF`), so `rampOpeningAt` reserves just
+the true opening and the floor beside a run is not deleted — it stays buildable. Every other block
+the body or rail reaches is kept and marked by `rampThinCells`, so `SceneRenderer` hides the full
+voxel and draws a **half-metre block** on the side away from the run, leaving the near half clear
+for the body and handrail (the same hide-and-block trick a facility room uses). A wall is thinned
+when the handrail touches it; a **floor** is thinned when a wide stair's 1.6 m body reaches into the
+column beside it, which closes the hole the carve used to leave at the top of the stair. The 动物园
+demo save carries the same carved openings, so it no longer shows escalators punching through the
+concourse floor. An escalator is single-direction and carries **one passenger per step**
 at 0.5 m/s over a 0.4 m pitch — 75/min, and exactly one rider per step on the run.
 
 **Elevators are a 2 × 2 m shaft with one car.** The **电梯** button drops a base
@@ -225,7 +242,7 @@ snapshot (`World.liftRenderState`) so
 `SceneRenderer.setLifts` glides the cabin and slides the doors. See
 `test/lift.test.mjs`.
 
-**Every demo exit is a head-house over an up + down pair.** Each of the three surface exits owns a
+**Every Wusi Square exit is a head-house over an up + down pair.** Each of the three surface exits owns a
 descending run and an up run two metres apart, landing on the exit's own row; `models.ts` draws the
 exit as a **red steel portal frame** wrapping a **blue waved roof** that rises toward the street
 doorway (the sign side stands tallest), with glazed sides *and* a glazed back wall whose heads follow
@@ -306,14 +323,21 @@ translucent fence models while you drag. Every panel is built from its neighbour
 (`sim/fences.ts`), so a straight run is continuous, a dead end caps itself with an end post, and
 an L, T or + junction turns through the shared centre post with no overhang — dragging a new
 segment up to an existing end regenerates that end on the spot, dropping its old cap and post.
-A run plugs straight into a 闸机 row. The sim treats a fence cell as not walkable, so the run
-plus its gates is a barrier the crowd only crosses at a gate — paint different zones each side
-and the fare line holds. See `test/fence.test.mjs`.
+A run plugs straight into a 闸机 row, and it also joins a stair or escalator: `railLandingAt` makes a
+fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short.
+`placementBlocked` exempts that fence ↔ ramp pair (except on the ramp's own landing cells, whose
+nodes must stay walkable), so the connection is actually placeable — the stair's generous collision
+envelope no longer hides the floor beside it. The sim treats a fence cell as not walkable, so the run
+plus its gates is a barrier the crowd only crosses at a gate — paint different zones each side and the
+fare line holds. See `test/fence.test.mjs`.
 
 `test/` holds the acceptance tests. Run them with `npm test`:
 
 * `determinism.test.mjs` — same seed + tick ⇒ byte-identical positions, and no unseeded
   randomness anywhere in `sim/`.
+* `demo.test.mjs` — the shipped demo (动物园, Line 5) is one connected circulation: every exit
+  reaches every platform and screen door and back, and a run actually boards and clears a crowd.
+  Its controlled rig lives in `test/support/scenario-station.ts` for the other sim tests.
 * `capacity.test.mjs` — the §7.8 capacity ladder as a comparison: one platform escalator
   jams, three fix it; a saturated platform leaves people behind.
 * `layering.test.mjs` — `sim/` imports nothing and touches no DOM; `render/` never reaches
@@ -324,7 +348,8 @@ and the fare line holds. See `test/fence.test.mjs`.
   every failure mode (B1); a legacy line with no direction termini loads with empty ones.
 * `load.test.mjs` — loading a station is a full sim reset: `World.load` clears the crowd,
   trains, server queues, clock and throughput counters and reseeds the RNG, while the edit path
-  `rebuild` keeps the crowd in place.
+  `rebuild` keeps the crowd in place; `World.restart` empties the crowd and trains but keeps the
+  station document and the clock.
 * `zones.test.mjs` — an ungated fare line strands the crowd (zero boardings); a gate restores
   flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2).
 * `trains.test.mjs` — a dispatched train gets a pose on the track beside its platform edge,
@@ -342,10 +367,13 @@ and the fare line holds. See `test/fence.test.mjs`.
   at the facing neighbour's first course, and `wallSide` turns that requirement with the module's
   rotation. A fresh exit is named for the first free letter A ~ Z (`nextExitName`, so A口 / B口 / …),
   reusing a letter freed by a delete or rename, and falling back to 未命名口 once all 26 are taken.
+  A wall-mounted ad may also stand in the face-adjacent cell when the pointer is on a wall itself
+  (`wallMountStandCell`), so it can bolt to the station wall across the track.
 * `openings.test.mjs` — a placed ramp carves the slab it climbs through but keeps its landings as
-  graph nodes, the carve clears the blocks the balustrade and handrail sweep either side of the
-  run (not just the tread width), and every cell the carve opens reads as reserved so a hand-built
-  block cannot cover it back up.
+  graph nodes, only the run's centreline cells are carved (a block the handrail merely grazes is
+  kept), a wall beside a run survives and is marked by `rampThinCells` for its half-metre panel, and
+  a wide stair's side floor cells survive and are marked as half blocks, and every cell the carve
+  opens reads as reserved so a hand-built block cannot cover it back up.
 * `stairs.test.mjs` — the four stair shapes, each one storey; every flight is a two-way graph edge
   between walkable landings, a switchback is walked bottom to top across its half-landing, the turn
   landings are the cells between flights, the width cycle runs narrow → normal, the four stair
@@ -355,8 +383,8 @@ and the fare line holds. See `test/fence.test.mjs`.
 * `escalators.test.mjs` — the placed escalator is a fixed one-storey piece: an up run travels from
   the dropped cell to the storey above, a down run keeps the same footprint entered from the top,
   the direction cycle flips up ↔ down, two runs may not share a footprint but the next bay over is
-  free, placing one carves its slab, and the demo's pre-placed runs are that same piece at the same
-  dimensions.
+  free, placing one carves its slab, and the scenario rig's pre-placed runs are that same piece at the
+  same dimensions.
 * `lift.test.mjs` — the 电梯 (§5.1): a fresh piece is a 2 × 2 m assembly that
   serves the floor one storey up; extending grows it a storey up or down in the
   same column and keeps its id; the graph joins every floor in the shaft with one car,
@@ -402,7 +430,8 @@ and the fare line holds. See `test/fence.test.mjs`.
   single, a drag lays a run along the drag direction); a dragged run plugs into a gate row, the
   fence cell is not a walkable node so the run plus its gates is a barrier the crowd only crosses
   at a gate, and `fenceArms` builds every joint from the neighbours — a lone panel caps both ends,
-  a run end caps its free side, and an L / T / + turns through the centre with no overhang or cap.
+  a run end caps its free side, and an L / T / + turns through the centre with no overhang or cap;
+  `railLandingAt` lets a fence connect to a stair or escalator landing.
 * `storey.test.mjs` — the renderer's storey bands key every cell to the fixed 4 m grid line at or
   below it (`storeyBand`), so a floor and its 4 m auto walls share a storey while a second floor one
   storey down stays its own; a lower floor's wall reaching the floor above must not merge the two

@@ -67,6 +67,24 @@ test('the graph itself has no edge across an ungated zone line', () => {
   assert.equal(edge, false, 'the ungated zone boundary is not a barrier')
 })
 
+test('a same-side zone relabel is not a fare barrier', () => {
+  // `outside` and `unpaid` are both the unpaid side of the fare line, so a
+  // floor labelled with one and then the other is continuous: no gate needed.
+  // The same holds for `paid` next to `platform`. Only a real crossing (a walk
+  // from unpaid/outside into paid/platform/restricted) is gated.
+  const cells = []
+  for (let x = 0; x <= 8; x++) {
+    for (let y = 0; y <= 1; y++) cells.push({ x, y, z: 0, fill: 'solid', zone: x <= 3 ? 'outside' : 'unpaid' })
+  }
+  const g = buildGraph({ name: 't', seed: 1, cells, modules: [], lines: [] })
+  const a = g.nodeIndex.get('3,0,0')
+  const b = g.nodeIndex.get('4,0,0')
+  assert.ok(a !== undefined && b !== undefined)
+  let edge = false
+  for (let e = g.adjStart[a]; e < g.adjStart[a + 1]; e++) if (g.adjTo[e] === b) edge = true
+  assert.ok(edge, 'outside↔unpaid is the same side, so the floor stays connected')
+})
+
 test('zone painting is a bucket and is immutable', () => {
   const state = toState(flatStation({ gate: true }))
   assert.equal(zoneAt(state.cells, 0, 0, 0), 'unpaid')

@@ -23,7 +23,7 @@ import {
   SHOP_WALL_H,
   toState,
 } from '../src/build/model.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 import { buildGraph, PathFinder } from '../src/sim/station.ts'
 
 /** Open floor: 10x10 slab at z = 0, plus an optional existing wall column. */
@@ -283,7 +283,7 @@ test('two toilets of the same fit-out extend into one room', () => {
 })
 
 test('the demo station ships one shop and one booth that stay connected', () => {
-  const data = referenceStation()
+  const data = scenarioStation()
   const shop = data.modules.find((m) => m.id === 'shop-1')
   const booth = data.modules.find((m) => m.id === 'booth-1')
   assert.ok(shop && shop.type === 'shop', 'demo has no shop')

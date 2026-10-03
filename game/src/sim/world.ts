@@ -224,6 +224,21 @@ export class World {
     this.rebuild()
   }
 
+  /**
+   * Empty the simulation without changing the station or the clock: every agent,
+   * train, queue and metric starts over, and the RNG reseeds so a restart is
+   * deterministic. This is the "remove all agents" action — `load()` is for
+   * switching documents, this keeps the one being watched.
+   */
+  restart(): void {
+    this.rng = new Rng(this.seed)
+    this.pool = new AgentPool(this.rng)
+    this.trains = []
+    this.nextTrainId = 1
+    this.metrics = freshMetrics(this.simTime)
+    this.rebuild()
+  }
+
   /** Rebuild the graph from static data and reset derived state. */
   rebuild(): void {
     this.graph = buildGraph(this.data)

@@ -426,8 +426,8 @@ test('a tunnel snaps to the hovered end', () => {
 })
 
 test('the reference station ships a dug bed with an auto-consistent edge', async () => {
-  const { referenceStation } = await import('../src/data/reference-station.ts')
-  const s = referenceStation()
+  const { scenarioStation } = await import('./support/scenario-station.ts')
+  const s = scenarioStation()
   const track = s.modules.find((m) => m.type === 'track')
   assert.ok(track, 'the demo lays a track module')
   assert.equal(track.d, 3, 'a three-metre bed fits the Type-B car')

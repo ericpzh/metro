@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createModule, ESCALATOR_RISE, ESCALATOR_RUN, nextEscalatorDir, toState, addEquipment } from '../src/build/model.ts'
 import { escalatorModule } from '../src/sim/escalators.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 import { moduleEnvelope, placementBlocked } from '../src/sim/placement.ts'
 import { stairFacing } from '../src/sim/stairs.ts'
 
@@ -73,7 +73,7 @@ test('the direction cycle flips up ↔ down', () => {
 })
 
 test('the demo pre-places the equipment escalator, exact same dimensions', () => {
-  const ramps = referenceStation().modules.filter((m) => m.type === 'escalator')
+  const ramps = scenarioStation().modules.filter((m) => m.type === 'escalator')
   assert.ok(ramps.length > 0, 'the demo has no escalators')
   for (const m of ramps) {
     // The pre-placed run is byte-for-byte the piece the 扶梯 button builds.

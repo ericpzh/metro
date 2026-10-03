@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { boxesOverlap, moduleEnvelope, placementBlocked, placementOnTrack } from '../src/sim/placement.ts'
-import { fenceArms } from '../src/sim/fences.ts'
+import { fenceArms, railLandingAt } from '../src/sim/fences.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { createModule, fenceRotForLine } from '../src/build/model.ts'
 
@@ -113,6 +113,22 @@ test('a fence cell is not walkable, so the run is a barrier with a gate gap', ()
     if (key === '0,0,0') southEdge = true
   }
   assert.equal(southEdge, false, 'no walk edge runs through a fence cell')
+})
+
+test('a fence treats a stair or escalator landing as a neighbour', () => {
+  // A fence run butts up to a ramp handrail at its landing, so the renderer
+  // drops the end cap there instead of stopping short. A mid-flight cell is not
+  // a landing and does not connect.
+  const stair = createModule('stair-straight', 0, 0, 0, 's', 0)
+  assert.ok(stair)
+  assert.equal(railLandingAt([stair], 0, 0, 0), true, 'the lower landing connects')
+  assert.equal(railLandingAt([stair], 0, 6, 4), true, 'the upper landing connects')
+  assert.equal(railLandingAt([stair], 0, 3, 2), false, 'mid-flight does not')
+  const esc = createModule('escalator', 0, 0, 0, 'e', 0)
+  assert.ok(esc)
+  assert.equal(railLandingAt([esc], esc.from.x, esc.from.y, esc.from.z), true)
+  assert.equal(railLandingAt([esc], esc.to.x, esc.to.y, esc.to.z), true)
+  assert.equal(railLandingAt([], 0, 0, 0), false)
 })
 
 /* ------------------------------------------------------------ joint geometry */

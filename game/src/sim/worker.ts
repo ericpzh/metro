@@ -121,5 +121,14 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       run()
       break
     }
+    case 'restart': {
+      // Empty the crowd but keep the station document and the clock. The next
+      // `run` posts the cleared state immediately, even while paused.
+      if (world) {
+        world.restart()
+        run()
+      }
+      break
+    }
   }
 })

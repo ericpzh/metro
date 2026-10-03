@@ -13,9 +13,10 @@
 import { EXIT_L, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { rampEnvelope, rampOpeningAt } from './openings.ts'
+import { stairLandings } from './stairs.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS } from './constants.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
-import type { Cell, Module } from './types.ts'
+import { isWallBlock, type Cell, type Module } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
 export interface ModuleBox {
@@ -305,6 +306,22 @@ export function wallSide(rot: number | undefined): [number, number] {
 }
 
 /**
+ * The cell a wall-mounted piece stands in. Normally the hovered cell itself; but
+ * when the pointer is on a wall — the station wall across the track, where there
+ * is no walkable floor in front — it is the face-adjacent `place` cell in front
+ * of that wall. The caller still checks `wallMountMissing` for the backing.
+ */
+export function wallMountStandCell(
+  cells: readonly Cell[],
+  cell: readonly [number, number, number],
+  place: readonly [number, number, number],
+): [number, number, number] {
+  const hit = cells.find((c) => c.x === cell[0] && c.y === cell[1] && c.z === cell[2])
+  const onWall = hit !== undefined && hit.fill === 'solid' && isWallBlock(hit)
+  return onWall ? [place[0], place[1], place[2]] : [cell[0], cell[1], cell[2]]
+}
+
+/**
  * True when a wall-mounted decoration has no wall behind it. The backing is the
  * first course of the facing neighbour (`z + 1`): auto walls and the 墙 tool
  * both rise from the floor's top, so a solid block there is a wall the panel can
@@ -366,6 +383,7 @@ export function placementBlocked(modules: readonly Module[], candidate: Module):
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
     if (isExitRampPair(m, candidate)) continue
     if (isFurnitureRoomPair(m, candidate)) continue
+    if (isFenceRampPair(m, candidate)) continue
     const e = moduleEnvelope(m)
     if (e && boxesOverlap(c, e)) return true
   }
@@ -381,6 +399,32 @@ function isExitRampPair(a: Module, b: Module): boolean {
   const isExit = (m: Module): boolean => m.type === 'exit'
   const isRamp = (m: Module): boolean => m.type === 'stair' || m.type === 'escalator'
   return (isExit(a) && isRamp(b)) || (isExit(b) && isRamp(a))
+}
+
+/**
+ * A fence (围栏) beside a stair or escalator: that pair is allowed to share
+ * space, so a run can be drawn right up to the ramp's handrail (the renderer
+ * connects the two — see `railLandingAt`). The ramp's collision envelope is a
+ * generous box that otherwise covers the floor columns beside the run; a fence
+ * survives only on the ramp's own landing cells, which are its graph nodes and
+ * must stay walkable, so those are still refused.
+ */
+function isFenceRampPair(a: Module, b: Module): boolean {
+  const fence = a.type === 'fence' ? a : b.type === 'fence' ? b : null
+  const ramp = a.type === 'stair' || a.type === 'escalator' ? a : b.type === 'stair' || b.type === 'escalator' ? b : null
+  if (!fence || !ramp) return false
+  return !rampLandingAt(ramp, fence.x, fence.y, fence.z)
+}
+
+/** True when a ramp has a landing (graph node) on `(x, y, z)`. */
+function rampLandingAt(ramp: Module, x: number, y: number, z: number): boolean {
+  if (ramp.type === 'stair') {
+    return stairLandings(ramp).some((p) => p.x === x && p.y === y && p.z === z)
+  }
+  if (ramp.type === 'escalator') {
+    return (ramp.from.x === x && ramp.from.y === y && ramp.from.z === z) || (ramp.to.x === x && ramp.to.y === y && ramp.to.z === z)
+  }
+  return false
 }
 
 /**

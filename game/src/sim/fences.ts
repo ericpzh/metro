@@ -5,6 +5,27 @@
 // ends of its rotation axis. A junction never caps, so nothing overhangs past an
 // L, T or + turn — which is what makes a clean 90° corner.
 
+import { stairFlights } from './stairs.ts'
+import type { Module } from './types.ts'
+
+/**
+ * True when a stair or escalator has a landing on `(x, y, z)`. A fence run may
+ * meet a stair's handrail at that cell, so the fence treats it as a neighbour
+ * (drops its end cap and butts up to the rail) instead of stopping short.
+ */
+export function railLandingAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
+  for (const m of modules) {
+    if (m.type === 'stair') {
+      for (const f of stairFlights(m)) {
+        if ((f.from.x === x && f.from.y === y && f.from.z === z) || (f.to.x === x && f.to.y === y && f.to.z === z)) return true
+      }
+    } else if (m.type === 'escalator') {
+      if ((m.from.x === x && m.from.y === y && m.from.z === z) || (m.to.x === x && m.to.y === y && m.to.z === z)) return true
+    }
+  }
+  return false
+}
+
 /** Which of a fence cell's four same-level sides hold a fence or a gate. */
 export interface FenceNeighbours {
   e: boolean

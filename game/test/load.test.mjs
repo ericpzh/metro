@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 
 /** Tick until the demo has both a crowd and a live train to throw away. */
 function runUntilBusy(w) {
@@ -15,12 +15,12 @@ function runUntilBusy(w) {
 }
 
 test('load clears the crowd, trains, clock and counters of the previous station', () => {
-  const w = new World(referenceStation(), 1234567)
+  const w = new World(scenarioStation(), 1234567)
   runUntilBusy(w)
   assert.ok(w.tick > 0)
 
   // Switch stations with a different seed and start clock.
-  w.load(referenceStation({ upEscalators: 3 }), 42, 6 * 3600)
+  w.load(scenarioStation({ upEscalators: 3 }), 42, 6 * 3600)
   assert.equal(w.pool.count, 0, 'agents from the old station survived the load')
   assert.equal(w.trains.length, 0, 'a train from the old station survived the load')
   assert.equal(w.tick, 0, 'the tick clock did not reset')
@@ -32,7 +32,7 @@ test('load clears the crowd, trains, clock and counters of the previous station'
 })
 
 test('load reseeds the RNG, so the same station replays identically', () => {
-  const data = referenceStation()
+  const data = scenarioStation()
   const a = new World(data, 999)
   for (let i = 0; i < 120; i++) a.tickOnce()
   a.load(data, 999)
@@ -46,10 +46,24 @@ test('load reseeds the RNG, so the same station replays identically', () => {
 })
 
 test('rebuild (an edit) keeps the crowd, unlike load', () => {
-  const w = new World(referenceStation(), 7)
+  const w = new World(scenarioStation(), 7)
   runUntilBusy(w)
   const before = w.pool.count
-  w.data = referenceStation()
+  w.data = scenarioStation()
   w.rebuild()
   assert.equal(w.pool.count, before, 'an edit wrongly cleared the crowd')
+})
+
+test('restart empties the crowd but keeps the station and the clock', () => {
+  const w = new World(scenarioStation(), 1234567)
+  runUntilBusy(w)
+  const clock = w.simTime
+  const data = w.data
+  w.restart()
+  assert.equal(w.pool.count, 0, 'agents survived the restart')
+  assert.equal(w.trains.length, 0, 'a train survived the restart')
+  assert.equal(w.simTime, clock, 'a restart must not move the clock')
+  assert.equal(w.data, data, 'a restart must keep the station document')
+  assert.equal(w.metrics.population, 0)
+  for (const s of w.graph.servers) assert.equal(s.queue.length, 0, 'a server queue survived the restart')
 })

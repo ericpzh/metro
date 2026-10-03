@@ -73,7 +73,7 @@ build/ →  sim/            (and neither render/ nor app/)
   zones, facilities, placement, undo).
 * `render/` — three.js scene, chunk mesher, procedural materials and models.
 * `persistence/` — the `metro-save` v1 envelope.
-* `data/` — the reference station and the palette.
+* `data/` — the demo station save (`demo-station.json`, the 动物园 Line 5 document) and the palette.
 * `app/` — the React shell. Panels and pointer handling only; no sim logic.
 
 ### The sim
@@ -94,24 +94,32 @@ build/ →  sim/            (and neither render/ nor app/)
   wait folded into edge cost. `PathFinder.search()` bypasses the cache for the
   fare-line gate choice, which must see queues as they are now.
 * **The worker** (`sim/worker.ts`, `sim/protocol.ts`) is the only sim code that
-  touches `postMessage`. Messages in: `init` / `build` / `control`; out: `ready`
+  touches `postMessage`. Messages in: `init` / `build` / `control` / `restart`;
+  out: `ready`
   (graph) / `state` (agent `Float32Array`s, metrics, density, train poses,
   `intervalMs`). Payloads are copied, not transferred; the renderer interpolates
   over `intervalMs`. Each tick is synchronous. `build` is a live edit: it calls
   `World.rebuild()` and keeps the crowd. A station switch (打开 / 新建 / 示例车站)
   re-sends `init`, which calls `World.load()` — a full reset of agents, trains,
-  queues, clock and RNG — so no old passenger walks the new document.
+  queues, clock and RNG — so no old passenger walks the new document. `restart`
+  calls `World.restart()`: it empties every agent, train and queue and reseeds
+  the RNG, but keeps the document and the clock (the top bar's 重启 button).
 * **Zones are barriers** (`sim/zones.ts`), and *only a gate may cross the fare
-  line* — if the gate's policy permits that direction. An ungated line strands
-  the crowd. A two-way gate is a single lane: first come fixes the direction
-  until that side drains (`sim/gates.ts`).
+  line* — if the gate's policy permits that direction. A same-side relabelling
+  (`outside`↔`unpaid`, `paid`↔`platform`) is not a crossing at all: `crossingDir`
+  returns 0, so `buildGraph` skips the gate check and the floor stays continuous.
+  An ungated line strands the crowd. A two-way gate is a single lane: first come
+  fixes the direction until that side drains (`sim/gates.ts`).
 * **Fences are barriers too** (`sim/fences.ts`, 围栏 §5.2). A fence is a 1 m
   thin panel through its cell's middle and its cell is not a walkable node, so a
   dragged run plus the gate row it plugs into divides the floor into areas the
   crowd only crosses at a gate. The renderer builds every panel from its
   neighbours (`fenceArms`), so a straight run is continuous, a dead end caps
   itself, and an L / T / + turns through the shared centre post with no
-  overhang.
+  overhang. `railLandingAt` also treats a stair/escalator landing as a
+  neighbour, so a run butts up to the handrail instead of stopping short, and
+  `placementBlocked` exempts the fence ↔ ramp pair everywhere except the ramp's
+  own landing cells (whose nodes must stay walkable).
 * **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a
   2 × 2 m assembly with a 1.5 m carriage, dropped on a floor and serving the
   floor one storey up (`LIFT_RISE`); hovering its upper/lower half grows it a
@@ -139,13 +147,22 @@ build/ →  sim/            (and neither render/ nor app/)
   refuses it unless the facing neighbour — turned by the placement rotation via
   `wallSide` — has a solid block at its first course (`z + 1`, exactly where auto
   walls and the 墙 tool start), and a two-cell banner needs a wall behind every
-  cell of its run (`billboardCells`). The 指示牌 and 电视 are instead
+  cell of its run (`billboardCells`). `wallMountStandCell` stands the panel on
+  the hovered floor, or on the face-adjacent cell when the pointer is on a wall
+  itself, so an ad can bolt to the station wall across the track where there is
+  no floor in front of it. The 指示牌 and 电视 are instead
   *ceiling-hung*: `ceilingMountMissing` refuses them unless a solid slab sits one
   storey up (`LEVEL_STEPS`, the 4 m grid), the ceiling their rods bolt to. A 2 m
   bench is a real two-cell run — `benchCells` fixes its collision envelope and
   base cells, so it blocks and is found from both cells.
   `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp climbs through
-  while keeping its landings as graph nodes.
+  while keeping its landings as graph nodes — but only the cells the run's
+  **centreline** crosses (`RAMP_CORE_HALF`). Every other block the body or
+  handrail reaches is kept and marked by `rampThinCells` (a wall the rail grazes,
+  or a floor a wide stair's 1.6 m body enters), so `SceneRenderer` hides the full
+  voxel and draws a **half-metre panel** on the side away from the run
+  (`buildRampThins`, the same hide-and-block trick a facility room uses). The
+  floor beside a run stays buildable and a railing can sit against a wall.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
   `sim/world.ts`). A rail is a `track` module bound to a line and an `up`/`down`
   direction: a fixed, pre-rendered piece — a car-width bed (`d = 3`) and a run
@@ -225,9 +242,12 @@ build/ →  sim/            (and neither render/ nor app/)
   print a lit double-sided face, so both read from either side; 电视 cycles the
   shared ad posters while 指示牌 shows a static wayfinding board. Every ad screen
   cycles three procedural, unlit posters on wall time (`SceneRenderer.updateAds`),
-  one poster set per aspect so a portrait banner is not a stretched landscape.
-  Wall-mounted pieces must bolt to a wall (see `wallMountMissing`), so **R**
-  turns the panel's back to it.
+  each drawing its own random period and phase the first time it animates so a
+  row of billboards is not a synchronised wall, one poster set per aspect so a
+  portrait banner is not a stretched landscape. Wall-mounted pieces must bolt to
+  a wall (see `wallMountMissing`), so **R** turns the panel's back to it; hovering
+  a wall block itself mounts the panel in the facing floor cell
+  (`wallMountStandCell`), so an ad can hang on the station wall across the track.
 * A **售票机 and 自动贩卖机** are the two machine types (`tvm` / `vending`): a
   ticket machine and a drinks machine with the same 1 × 1 m footprint. Both are
   unpaid-zone `stop` servers at `TVM_RATE`, and a quarter of street entries
@@ -276,8 +296,15 @@ build/ →  sim/            (and neither render/ nor app/)
   wears its own ceiling. **显示其他层** (`ghostOtherLevels`, now default off) then
   decides whether storeys *below* the active one are drawn as a 35% ghost.
   **隐藏墙壁** (`hideWalls`) fades every wall face and platform screen door to 16%
-  with `depthWrite` off and drops their outline. The bottom bar shows FPS and
-  方块数 (the old sim-timing and chunk-build metrics were dropped).
+  with `depthWrite` off and drops their outline. **The crowd obeys the same
+  storeys**: `SceneRenderer` draws only the agents whose storey band is on screen
+  (never one above the active storey, and below it only while 显示其他层 is on),
+  and the depth cutaway clips the agent meshes too, so nobody floats in front of
+  a slab or shows through one. The top bar's 重启 button empties the crowd, trains
+  and queues but keeps the station and clock, and **Space** toggles play/pause
+  (the 暂停 / 播放 button does the same); the speed chips are multipliers only
+  (there is no 0× chip). The bottom bar shows FPS and 方块数 (the old sim-timing
+  and chunk-build metrics were dropped).
 * The 地基 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
   drawn cells `auto-floor` and raises a 4 m `auto-wall` ring on the patch's outer
   edge — the room-union rule generalised to cells, so overlapping/abutting patches
@@ -292,7 +319,10 @@ build/ →  sim/            (and neither render/ nor app/)
   hand-built cell, so the block brush cannot seal a run the player can see
   through.
 * `app/Viewport.tsx` owns the `SceneRenderer` lifecycle and turns pointer input
-  into build commands; it is the only app file that touches three directly.
+  into build commands; it is the only app file that touches three directly. The
+  first station build frames the home (iso) view — the constructor's preset ran
+  before the station existed — while later edits leave the camera alone
+  (`framedRef`).
   `app/LeftRail.tsx` is the blueprint build rail; thumbnails are rendered from
   the real models by `app/moduleThumbnails.ts` / `app/zoneThumbnails.ts`.
 * `app/store.ts` is zustand: the station document lives here, the sim lives in
@@ -416,8 +446,28 @@ build/ →  sim/            (and neither render/ nor app/)
   `tools/bench-crowd-tick.mjs`) and the `budget` / `pathcache` tests were
   removed. The test suite that remains is listed in `game/README.md` and lives
   in `game/test/`.
-* The demo loads `data/reference-station.ts` cold at 07:27 sim time, seed
-  `1234567`, warmup 0.
+* The **ramp carve, fence ramp-join and crowd honesty** change landed
+  (`sim/openings.ts`, `sim/fences.ts`, `sim/placement.ts`, `sim/world.ts`,
+  `sim/protocol.ts`, `render/models.ts`, `render/scene.ts`, `app/Viewport.tsx`,
+  `app/App.tsx`, `app/store.ts`): a ramp carves only its centreline
+  (`RAMP_CORE_HALF`) and keeps every block the body or handrail grazes as a
+  half-metre panel (`rampBodyHalf` / `rampThinCells` / `buildRampThins`), which
+  closes the hole a wide stair used to leave and lets a railing meet a wall; a
+  fence joins a stair/escalator landing (`railLandingAt`) and
+  `placementBlocked` exempts that pair off the landing nodes; a 广告牌 mounts on
+  the wall across the track (`wallMountStandCell`); the crowd hides with the
+  storey it stands on and clips with the cutaway; and the top bar gained 重启
+  (`World.restart`, the `restart` worker message) and **Space** play/pause.
+* The demo is the author's real **动物园** (广州地铁 5号线) save, shipped as
+  `data/demo-station.json` and handed out by `referenceStation()` as a
+  `structuredClone` so an edit never leaks back into the shared document. It
+  opens cold at 07:27 sim time, warmup 0, on its own seed `7654321` — a cold boot
+  and 打开 of the same document run the same crowd (`boot.tsx` seeds from
+  `station.seed`). The old hand-built Wusi Square rig moved to
+  `test/support/scenario-station.ts`, so the capacity / stair / escalator /
+  opening tests keep their controlled knobs; `demo.test.mjs` guards that the
+  shipped save is one connected circulation that actually boards and clears a
+  crowd.
 
 ## Deploy (Cloudflare Workers)
 

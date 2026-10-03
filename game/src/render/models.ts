@@ -27,7 +27,8 @@ import { benchSpec } from '../sim/benches.ts'
 import { normRot, rotateLocal } from '../sim/track.ts'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_BAY_HALF, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, exitBayCell, exitBayOffsets, exitBays, exitSide, exitWidth } from '../sim/exits.ts'
 import { finishOf } from '../sim/finishes.ts'
-import { fenceArms } from '../sim/fences.ts'
+import { fenceArms, railLandingAt } from '../sim/fences.ts'
+import type { RampThin } from '../sim/openings.ts'
 import { LIFT_STEP, liftStopZs } from '../sim/lifts.ts'
 import { STAIR_WIDTH_NORMAL, stairFlights } from '../sim/stairs.ts'
 import { doorCentres, STOCK, type StockClass } from '../sim/stock.ts'
@@ -1186,12 +1187,16 @@ export function setGateWing(root: THREE.Object3D, open: number): void {
 function buildFence(ctx: ModuleContext, mod: Extract<Module, { type: 'fence' }>): THREE.Group {
   const mats = ctx.mats
   const g = new THREE.Group()
-  const at = (x: number, y: number): Module | undefined =>
-    ctx.data.modules.find((m) => m.x === x && m.y === y && m.z === mod.z && (m.type === 'fence' || m.type === 'gate'))
-  const e = at(mod.x + 1, mod.y) !== undefined
-  const w = at(mod.x - 1, mod.y) !== undefined
-  const n = at(mod.x, mod.y + 1) !== undefined
-  const s = at(mod.x, mod.y - 1) !== undefined
+  // A fence connects to another fence or gate, and also to a stair/escalator
+  // landing — the run's handrail reaches that cell, so the fence drops its end
+  // cap and butts up to the railing instead of stopping short.
+  const joined = (x: number, y: number): boolean =>
+    ctx.data.modules.some((m) => (m.type === 'fence' || m.type === 'gate') && m.x === x && m.y === y && m.z === mod.z) ||
+    railLandingAt(ctx.data.modules, x, y, mod.z)
+  const e = joined(mod.x + 1, mod.y)
+  const w = joined(mod.x - 1, mod.y)
+  const n = joined(mod.x, mod.y + 1)
+  const s = joined(mod.x, mod.y - 1)
   const { x0, x1, y0, y1, capE, capW, capN, capS } = fenceArms(mod.rot, { e, w, n, s })
 
   const POST = 0.08
@@ -1228,6 +1233,50 @@ function buildFence(ctx: ModuleContext, mod: Extract<Module, { type: 'fence' }>)
   // group is positioned but never rotated — a 180° turn is the same panel.
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z + 1)
   return g
+}
+
+/* --------------------------------------------------- ramp-adjacent blocks */
+
+/**
+ * The half-metre blocks that stand in for a solid voxel a stair or escalator
+ * runs against (`rampThinCells`, `sim/openings.ts`). The chunk mesher hides the
+ * full voxel (see `hiddenCells`); each block is drawn in the half of the cell
+ * *away* from the run, so the body and its handrail have the near half to
+ * themselves while the wall or floor the player built stays solid. A floor keeps
+ * its top finish (it is still a floor), a wall the finish on the face the run
+ * sees. `userData.wall` lets 隐藏墙壁 fade it. One group per cell, tagged with its
+ * cell so the caller can key it to the storey band.
+ */
+export function buildRampThins(ctx: ModuleContext, thins: readonly RampThin[]): THREE.Group[] {
+  const T = 0.5
+  const cellAt = new Map<string, Cell>()
+  for (const c of ctx.data.cells) cellAt.set(`${c.x},${c.y},${c.z}`, c)
+  const out: THREE.Group[] = []
+  for (const t of thins) {
+    const [sx, sy] = t.side
+    const cell = cellAt.get(`${t.x},${t.y},${t.z}`) ?? {}
+    // The face the ramp sees: opposite the outward side.
+    const face: Face = sx > 0 ? 'w' : sx < 0 ? 'e' : sy > 0 ? 's' : 'n'
+    const mat = ctx.finish(finishOf(cell, t.kind === 'floor' ? 'top' : face))
+    let cx = t.x + 0.5
+    let cy = t.y + 0.5
+    let px = 1
+    let py = 1
+    if (sx !== 0) {
+      px = T
+      cx = t.x + (sx > 0 ? 1 - T / 2 : T / 2)
+    } else {
+      py = T
+      cy = t.y + (sy > 0 ? 1 - T / 2 : T / 2)
+    }
+    const g = new THREE.Group()
+    const mesh = finishSlab(g, mat, cx, cy, t.z + 0.5, px, py, 1)
+    // Only a wall half block takes the 隐藏墙壁 fade; a floor half block is floor.
+    mesh.userData.wall = t.kind === 'wall'
+    g.userData.cell = [t.x, t.y, t.z]
+    out.push(g)
+  }
+  return out
 }
 
 /* -------------------------------------------------------------- escalator */

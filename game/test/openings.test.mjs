@@ -5,12 +5,12 @@
 // §7.8: an escalator is single-direction, one passenger per step.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { carveRampOpenings, rampBlocked, rampCorridorHalf, OPENING_CEILING } from '../src/sim/openings.ts'
+import { carveRampOpenings, rampBlocked, rampCorridorHalf, rampThinCells, OPENING_CEILING } from '../src/sim/openings.ts'
 import { reservedOpening } from '../src/sim/placement.ts'
 import { EXIT_BAY_HALF } from '../src/sim/exits.ts'
 import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
 import { createModule } from '../src/build/model.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 import { ESCALATOR_RATE, ESCALATOR_SPEED, ESCALATOR_STEP_PITCH } from '../src/sim/constants.ts'
 
 test('a ramp carves the slab it climbs through, but keeps its landings', () => {
@@ -32,10 +32,11 @@ test('a ramp carves the slab it climbs through, but keeps its landings', () => {
   assert.ok(!cells.some((c) => c.x === 1 && c.y === 1 && c.z === 0), 'the cell beside the landing is open')
 })
 
-test('a carve clears the blocks the handrails sweep, not just the treads', () => {
-  // A run along +y through the middle column. The balustrade/handrail sits
-  // proud of the treads, so it reaches into the blocks to the left and right —
-  // both must go, or the rail surfaces through the floor beside the opening.
+test('only the run body is carved; a block the handrail grazes is kept', () => {
+  // A run along +y through the middle column. The escalator's body is 0.9 m
+  // wide (half 0.45 m), so the columns either side are only grazed by the
+  // handrail. They are kept — a floor edge may be touched by the rail — and the
+  // true opening stays one cell wide.
   const cells = []
   for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) cells.push({ x, y, z: 0, fill: 'solid' })
   const ramp = {
@@ -51,9 +52,64 @@ test('a carve clears the blocks the handrails sweep, not just the treads', () =>
   carveRampOpenings(cells, [ramp])
   const has = (x, y) => cells.some((c) => c.x === x && c.y === y && c.z === 0)
   assert.ok(!has(2, 2), 'the run itself is open')
-  assert.ok(!has(1, 2) && !has(3, 2), 'the blocks under the handrails are removed too')
+  assert.ok(has(1, 2) && has(3, 2), 'the columns the handrail merely grazes are kept')
   assert.ok(has(0, 2) && has(4, 2), 'the blocks beyond the handrail are kept')
   assert.ok(has(2, 0), 'the landing is still kept')
+})
+
+test('a wall beside a ramp is kept and marked for a half-metre panel', () => {
+  // A wall running along the +x side of an escalator: the carve must not remove
+  // it (the rail is allowed to touch the wall), and `rampThinWalls` names the
+  // cell with the side the thin panel goes on.
+  const cells = []
+  for (let x = 0; x < 3; x++) {
+    for (let y = 0; y < 5; y++) {
+      cells.push({ x, y, z: 0, fill: 'solid', tags: x === 2 ? ['auto-wall'] : ['auto-floor'] })
+    }
+  }
+  const ramp = {
+    id: 'e',
+    type: 'escalator',
+    x: 1,
+    y: 0,
+    z: 0,
+    from: { x: 1, y: 0, z: 0 },
+    to: { x: 1, y: 4, z: -2 },
+    cfg: { dir: 'down' },
+  }
+  carveRampOpenings(cells, [ramp])
+  assert.ok(cells.some((c) => c.x === 2 && c.y === 2 && c.z === 0), 'the wall beside the run survives the carve')
+  const thins = rampThinCells(cells, [ramp])
+  const at = thins.find((t) => t.x === 2 && t.y === 2 && t.z === 0)
+  assert.ok(at, 'the wall is marked for thinning')
+  assert.equal(at.kind, 'wall')
+  assert.deepEqual(at.side, [1, 0], 'the panel sits on the side away from the run')
+})
+
+test('a wide stair keeps its side floor cells and marks them as half blocks', () => {
+  // A 1.6 m stair reaches 0.3 m into each neighbouring column: those floor
+  // blocks survive the carve (only the run's own cell is opened) and are thinned
+  // to the far half so the stair fits. This is what fills the floor at the top.
+  // A lower slab at z=-4, an upper slab at z=0; the stair climbs from the lower
+  // to the upper along +y and punches through the upper slab near its top.
+  const cells = []
+  for (let x = -1; x <= 1; x++) {
+    for (let y = 0; y <= 8; y++) {
+      cells.push({ x, y, z: -4, fill: 'solid', tags: ['auto-floor'] })
+      cells.push({ x, y, z: 0, fill: 'solid', tags: ['auto-floor'] })
+    }
+  }
+  const stair = createModule('stair-straight', 0, 0, -4, 's', 0, 1.6)
+  assert.ok(stair)
+  carveRampOpenings(cells, [stair])
+  const has = (x, y) => cells.some((c) => c.x === x && c.y === y && c.z === 0)
+  assert.ok(!has(0, 4), 'the run cell at the top is carved')
+  assert.ok(has(-1, 4) && has(1, 4), 'the side floor cells survive the carve')
+  const thins = rampThinCells(cells, [stair])
+  const side = thins.find((t) => t.x === 1 && t.y === 4)
+  assert.ok(side, 'the side floor is marked for a half block')
+  assert.equal(side.kind, 'floor')
+  assert.deepEqual(side.side, [1, 0])
 })
 
 test('a run that lands on a floor does not carve the slab above it', () => {
@@ -85,7 +141,7 @@ test('a run that lands on a floor does not carve the slab above it', () => {
 })
 
 test('the reference station has no holes in its gate floor or concourse roof', () => {
-  const d = referenceStation()
+  const d = scenarioStation()
   const solid = new Set(d.cells.filter((c) => c.fill === 'solid').map((c) => `${c.x},${c.y},${c.z}`))
   // The gate row is floor, not a gap: the fare line is a zone boundary in the
   // graph, so the gates stay the only legal crossing.
@@ -140,7 +196,7 @@ test('every cell a ramp carve opens is reserved against a hand-built block', () 
 })
 
 test('the reference station keeps every ramp landing node', () => {
-  const d = referenceStation()
+  const d = scenarioStation()
   const has = new Set(d.cells.map((c) => `${c.x},${c.y},${c.z}`))
   let ramps = 0
   for (const m of d.modules) {
@@ -177,7 +233,7 @@ test('a ramp directly below another is blocked; a ramp in the next column is not
 })
 
 test('no two ramps in the reference station overlap', () => {
-  const ramps = referenceStation().modules.filter((m) => m.type === 'escalator' || m.type === 'stair' || m.type === 'lift')
+  const ramps = scenarioStation().modules.filter((m) => m.type === 'escalator' || m.type === 'stair' || m.type === 'lift')
   assert.ok(ramps.length > 0)
   for (let i = 0; i < ramps.length; i++) {
     for (let j = i + 1; j < ramps.length; j++) {
@@ -187,7 +243,7 @@ test('no two ramps in the reference station overlap', () => {
 })
 
 test('every surface exit has an up escalator and a descending run under its roof', () => {
-  const d = referenceStation()
+  const d = scenarioStation()
   const exits = d.modules.filter((m) => m.type === 'exit')
   assert.ok(exits.length > 0)
   for (const e of exits) {

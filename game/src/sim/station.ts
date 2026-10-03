@@ -364,10 +364,15 @@ export function buildGraph(data: StationData): StationGraph {
       // turns away the direction it does not serve.
       if (nodeZone[i] !== nodeZone[j]) {
         const dir = crossingDir(ZONES[nodeZone[i]], ZONES[nodeZone[j]])
-        const mi = gateModes.get(cellKey(x, y, z))
-        const mj = gateModes.get(cellKey(nx, ny, z))
-        const ok = (mi !== undefined && gateAllows(mi, dir)) || (mj !== undefined && gateAllows(mj, dir))
-        if (!ok) continue
+        // Same-side relabelling (paid↔platform, outside↔unpaid, …) is not a
+        // fare-line crossing at all: `crossingDir` returns 0, so no gate is
+        // needed. Only a real crossing is gated.
+        if (dir !== 0) {
+          const mi = gateModes.get(cellKey(x, y, z))
+          const mj = gateModes.get(cellKey(nx, ny, z))
+          const ok = (mi !== undefined && gateAllows(mi, dir)) || (mj !== undefined && gateAllows(mj, dir))
+          if (!ok) continue
+        }
       }
       // §5.6: an exit head-house wall is a barrier too — the opening is the way.
       if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5)) continue

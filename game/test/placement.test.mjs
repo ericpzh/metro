@@ -4,7 +4,7 @@
 // collide with the one below.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallSide } from '../src/sim/placement.ts'
+import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
 import { addCells, createModule, GROUND_Z, nextExitName, nextModuleId, removeModule, toState } from '../src/build/model.ts'
 
 const gate = (x, y, z, id = 'gate') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })
@@ -151,9 +151,32 @@ test('a two-cell billboard needs a wall behind both cells', () => {
   )
 })
 
+test('a wall-mounted ad may stand over a track when the pointer is on the wall', () => {
+  // The station wall across the track: the hovered cell is the wall block, so
+  // the panel belongs in the face-adjacent cell in front of it (over the track).
+  const wall = { x: 0, y: -1, z: 0, fill: 'solid', tags: ['auto-wall'] }
+  assert.deepEqual(wallMountStandCell([wall], [0, -1, 0], [0, 0, 0]), [0, 0, 0])
+  // Hovering a plain floor cell keeps the panel on that floor cell.
+  const floor = { x: 0, y: 0, z: 0, fill: 'solid', tags: ['auto-floor'] }
+  assert.deepEqual(wallMountStandCell([floor], [0, 0, 0], [0, 0, 1]), [0, 0, 0])
+})
+
 test('a floor-standing module never needs a wall', () => {
   assert.equal(wallMountMissing([], gate(0, 0, 0)), false)
   assert.equal(wallMountMissing([], tvm(0, 0, 0)), false)
+})
+
+test('a fence may stand beside a stair, but not on its landing node', () => {
+  // The stair's collision envelope is a generous box covering the floor columns
+  // beside the run. A fence is exempt from it so a run can meet the handrail
+  // (`railLandingAt` in the renderer) — except on the stair's own landing cells,
+  // which are its graph nodes and must stay walkable.
+  const stair = createModule('stair-straight', 0, 0, -4, 's', 0)
+  assert.ok(stair)
+  assert.equal(placementBlocked([stair], createModule('fence', 1, 6, 0, 'f', 0)), false, 'beside the top landing')
+  assert.equal(placementBlocked([stair], createModule('fence', -1, 4, 0, 'f', 0)), false, 'mid-run, beside the body')
+  assert.equal(placementBlocked([stair], createModule('fence', 0, 6, 0, 'f', 0)), true, 'on the top landing')
+  assert.equal(placementBlocked([stair], createModule('fence', 0, 0, -4, 'f', 0)), true, 'on the lower landing')
 })
 
 test('a surface exit is rooted at the street (z = 0)', () => {

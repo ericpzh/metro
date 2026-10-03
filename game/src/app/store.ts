@@ -291,6 +291,8 @@ export interface AppState {
   setOrtho: (on: boolean) => void
   setPlaying: (on: boolean) => void
   setSpeed: (s: number) => void
+  /** Clear every agent, train and queue, keeping the built station. */
+  restartSim: () => void
   setMetrics: (m: Metrics) => void
   setStats: (s: SceneStats) => void
   setGraph: (g: GraphInfo) => void
@@ -645,6 +647,10 @@ export const useStore = create<AppState>((set, get) => ({
   setSpeed: (s) => {
     sendControl(get().playing, s)
     set({ speed: s })
+  },
+  restartSim: () => {
+    client?.postMessage({ type: 'restart' })
+    set({ notice: '已清空所有行人' })
   },
   setMetrics: (m) => set({ metrics: m }),
   setStats: (s) => set({ stats: s }),

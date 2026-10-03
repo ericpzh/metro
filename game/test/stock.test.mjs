@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
-import { referenceStation } from '../src/data/reference-station.ts'
+import { scenarioStation } from './support/scenario-station.ts'
 import { STOCK, STOCK_CLASSES, doorCentres, trainLength, trainRatedCapacity } from '../src/sim/stock.ts'
 
 test('every classified car has a matching stock row', () => {
@@ -33,7 +33,7 @@ test('the door cadence follows the class: L has three doors per car', () => {
 })
 
 test('the worker encodes the L stock index the renderer decodes', () => {
-  const data = referenceStation({ upEscalators: 3 })
+  const data = scenarioStation({ upEscalators: 3 })
   data.lines[0].stock = 'L'
   const w = new World(data, 99)
   w.tickOnce()

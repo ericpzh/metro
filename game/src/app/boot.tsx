@@ -15,8 +15,10 @@ export function renderGame(root: Root): void {
   root.render(isLab ? <Lab /> : <App />)
 
   if (!isLab) {
-    // The demo opens on the reference station cold, with 0 passengers —
-    // the crowd builds from the first train arrivals.
-    initSim(referenceStation(), 1234567, REFERENCE_BOOT)
+    // The demo opens on the 动物园 station cold, with 0 passengers — the crowd
+    // builds from the first train arrivals. The seed is the station's own, so a
+    // cold boot and 打开 of the same document run the same crowd.
+    const station = referenceStation()
+    initSim(station, station.seed, REFERENCE_BOOT)
   }
 }

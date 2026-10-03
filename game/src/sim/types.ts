@@ -67,6 +67,22 @@ export interface Vec3i {
 }
 
 /**
+ * True when a cell is a wall the player or the 地基 tool raised, or a tunnel's
+ * shell. The tag strings mirror `build/model.ts` (`WALL` / `AUTO_WALL`) and
+ * `build/rail.ts` (`tunnel-shell:<id>`); they live here so the pure sim can
+ * recognise a wall without importing `build/`. A plain block has no tags and is
+ * not a wall.
+ */
+export function isWallBlock(c: { tags?: string[] }): boolean {
+  const tags = c.tags
+  if (!tags) return false
+  for (const t of tags) {
+    if (t === 'wall' || t === 'auto-wall' || t.startsWith('tunnel-shell:')) return true
+  }
+  return false
+}
+
+/**
  * Number of escalator/stair bays an exit head-house opens (出入口 §5.6): one
  * (单向), two (双向, the reference head-house) or three (三向). The bays sit at
  * fixed local x offsets (`exitBayOffsets`), and the floor, walls and model all
