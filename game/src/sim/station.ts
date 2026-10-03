@@ -25,7 +25,7 @@ import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, type StockClass } from './stock.ts'
 import { edgeCells } from './track.ts'
 import { STAIR_WIDTH_NORMAL, stairFlights } from './stairs.ts'
-import { liftFootprintCells, liftStopZs } from './lifts.ts'
+import { liftFootprintCells, liftLandingCells, liftStopZs } from './lifts.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndex } from './zones.ts'
 
@@ -186,15 +186,15 @@ export function buildGraph(data: StationData): StationGraph {
     fenceCells.add(cellKey(m.x, m.y, m.z))
   }
 
-  // A lift is a 2 × 2 m shaft: only its anchor cell (the lower-left corner) is
-  // the boarding node; the other three cells are inside the shaft and are not
-  // walkable, so the crowd never strolls through the cabin walls.
-  const liftInnerCells = new Set<string>()
+  // A lift is a 2 × 2 m shaft: every footprint cell is cabin interior and is
+  // not walkable. The only boarding cells are the floor tiles in front of the
+  // door opening (`liftLandingCells`), so the crowd enters and leaves through the
+  // door the model draws — never through a side or back wall.
+  const liftCells = new Set<string>()
   for (const m of data.modules) {
     if (m.type !== 'lift') continue
     for (const [x, y] of liftFootprintCells(m)) {
-      if (x === m.x && y === m.y) continue
-      liftInnerCells.add(cellKey(x, y, m.z))
+      liftCells.add(cellKey(x, y, m.z))
     }
   }
 
@@ -222,7 +222,7 @@ export function buildGraph(data: StationData): StationGraph {
     if (nodeIndex.has(key)) continue
     if (boothCells.has(key)) continue
     if (fenceCells.has(key)) continue
-    if (liftInnerCells.has(key)) continue
+    if (liftCells.has(key)) continue
     const id = keys.length
     nodeIndex.set(key, id)
     keys.push(key)
@@ -549,14 +549,21 @@ export function buildGraph(data: StationData): StationGraph {
             edges.push({ from: fb, to: fa, cost: fride, kind: KIND_STAIR, server: idUp })
           }
         } else {
-          // Elevator: one car per shaft. Its stops are every walkable floor in
-          // the module's column between `from` and `to`; every ordered pair of
-          // stops is an edge the one car serves, so a passenger rides directly.
-          // `exitNode` is unused — the car delivers each rider to `liftDest`.
+          // Elevator: one car per shaft. Its stops are the walkable floor tiles
+          // in front of the door at every storey between `from` and `to`, so a
+          // passenger boards and alights only through the door. Every ordered
+          // pair of stops is an edge the one car serves, so a rider travels
+          // straight to their floor. `exitNode` is unused — the car delivers
+          // each rider to `liftDest`.
           const stops: number[] = []
           const stopZ: number[] = []
+          const landings = liftLandingCells(m)
           for (const z of liftStopZs(m.from.z, m.to.z)) {
-            const n = nodeIndex.get(cellKey(m.x, m.y, z))
+            let n: number | undefined
+            for (const [lx, ly] of landings) {
+              n = nodeIndex.get(cellKey(lx, ly, z))
+              if (n !== undefined) break
+            }
             if (n === undefined) continue
             stops.push(n)
             stopZ.push(nodeZ[n])

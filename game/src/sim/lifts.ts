@@ -14,6 +14,7 @@
 // walkable floor between `from` and `to` is a stop, so the crowd rides straight
 // from their floor to theirs. Pure data — no three, no DOM.
 
+import { rotateLocal } from './track.ts'
 import type { Module, Vec3i } from './types.ts'
 
 /** One storey, in blocks: a floor is four metres above the one below it. */
@@ -76,4 +77,29 @@ export function liftStopZs(fromZ: number, toZ: number): number[] {
   const out: number[] = []
   for (let z = lo; z <= hi; z += LIFT_STEP) out.push(z)
   return out
+}
+
+/** The world direction the cabin doors look out on, for a placement rotation. */
+export function liftDoorDir(rot: number | undefined): [number, number] {
+  return rotateLocal(rot, 0, -1)
+}
+
+/**
+ * The two floor cells directly in front of the cabin doors — the only cells a
+ * passenger may board or alight through. The opening is the whole local −y face
+ * (the 2 m front), so both cells along it are doorways; the graph picks the
+ * first that is walkable floor. Every one of the 2 × 2 footprint cells is cabin
+ * interior and is never a landing, so the crowd cannot walk in through a wall.
+ * Without this a rotated lift kept boarding at its lower-left corner, which can
+ * sit against the back or a side wall, and passengers strolled in through it.
+ */
+export function liftLandingCells(m: { x: number; y: number; rot?: number }): Array<[number, number]> {
+  const cx = m.x + LIFT_SIZE / 2
+  const cy = m.y + LIFT_SIZE / 2
+  // Local j of the landing row: one cell beyond the front face at j = −1.
+  const front = -LIFT_SIZE + 0.5
+  return [-0.5, 0.5].map((i) => {
+    const [ox, oy] = rotateLocal(m.rot, i, front)
+    return [Math.round(cx + ox - 0.5), Math.round(cy + oy - 0.5)] as [number, number]
+  })
 }

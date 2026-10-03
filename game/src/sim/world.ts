@@ -35,6 +35,7 @@ import {
 import { Rng } from './rng.ts'
 import { gateLaneAllows } from './gates.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from './station.ts'
+import { liftDoorDir } from './lifts.ts'
 import { crossingDir, ZONE_INDEX } from './zones.ts'
 import { STOCK, STOCK_CLASSES, trainRatedCapacity, type StockClass } from './stock.ts'
 import { rotateLocal, trackFacing } from './track.ts'
@@ -1589,9 +1590,12 @@ export class World {
           a.liftBoard = cur
           a.liftDest = next
           const car = g.servers[server].lift
-          const [dx, dy] = rotateLocal(car?.rot ?? 0, 0, -1)
-          a.liftWaitX = g.nodeX[cur] + dx * 0.55
-          a.liftWaitY = g.nodeY[cur] + dy * 0.55
+          // The stop node is the landing tile in front of the door; stand the
+          // queue just off the threshold (toward the landing, away from the car),
+          // so the crowd visibly funnels through the doorway when it opens.
+          const [dx, dy] = liftDoorDir(car?.rot ?? 0)
+          a.liftWaitX = g.nodeX[cur] - dx * 0.45
+          a.liftWaitY = g.nodeY[cur] - dy * 0.45
         }
         this.joinServer(a, server)
         return true

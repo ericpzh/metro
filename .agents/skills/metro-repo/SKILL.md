@@ -125,12 +125,14 @@ build/ →  sim/            (and neither render/ nor app/)
   floor one storey up (`LIFT_RISE`); hovering its upper/lower half grows it a
   storey up/down (`LIFT_EXTEND`). A fresh piece must stand on all four of its
   footprint cells, but extending never checks for floor, so a shaft may run past
-  a floorless level (it simply has no landing there). `buildGraph` makes every
-  walkable floor in the column a *stop* and gives the single `lift` server an
-  edge between every ordered pair, so a rider goes straight to their floor; only
-  the anchor (lower-left) cell is a walkable node — the other three shaft cells
-  are not, so the crowd never walks through the cabin walls. The car is a real
-  state machine (`World.stepLift`: park → open → dwell → close → move, eased),
+  a floorless level (it simply has no landing there). `buildGraph` makes the
+  walkable floor tile in front of the cabin door (`liftLandingCells`, turned by
+  the piece's `rot`) at every storey a *stop* and gives the single `lift` server
+  an edge between every ordered pair, so a rider goes straight to their floor.
+  The whole 2 × 2 footprint is cabin interior and is never a walkable node, so
+  the crowd boards and alights only through the door the model draws — never
+  through a side or back wall. The car is a real state machine
+  (`World.stepLift`: park → open → dwell → close → move, eased),
   and riders are `STATE_RIDING` pinned inside the cabin by `stepLiftRide`, so they
   visibly move with it instead of teleporting; `World.liftRenderState` sends one
   car pose per snapshot.
@@ -411,6 +413,14 @@ build/ →  sim/            (and neither render/ nor app/)
   open → dwell → close → move cycle and carries `STATE_RIDING` riders pinned
   inside, and the renderer glides the cabin and slides the doors from the worker's
   car poses.
+* **A lift boards only at its door.** `liftLandingCells` / `liftDoorDir`
+  (`sim/lifts.ts`) turn the door opening by the piece's `rot`; `buildGraph` makes
+  the walkable landing tile in front of it the stop and marks all four footprint
+  cells non-walkable, and `world.ts` stands the queue just off the threshold.
+  Before this the graph boarded at the fixed lower-left corner, so a rotated lift
+  (the demo's `lift-14` rot 2, `lift-15` rot 1) had the crowd walking in through a
+  side/back wall and could even drop a stop. `game/test/lift.test.mjs` pins the
+  door contract, including a rotated piece.
 * The **line direction termini** and the inspector's folding landed with it: each
   line carries `upTerminus` / `downTerminus`, and every platform screen prints its
   line's terminus for its own `cfg.dir` (the hardcoded 番禺广场方向 is gone). The

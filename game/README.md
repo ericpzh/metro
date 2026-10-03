@@ -226,12 +226,14 @@ platform (−8 m) serves −8 m and −4 m and tops out at the concourse ceiling
 the shaft's upper half extends it up, the lower half down (`LIFT_EXTEND = 4`).
 Extending never checks for floor, so a shaft may run past a level with no slab
 (it simply has no landing there); only a fresh piece must stand on floor. One
-shaft is **one car**: `buildGraph` makes every walkable floor in the column a
-stop and gives the single lift server an edge between every ordered pair, so a
-passenger rides straight to their floor (a step-free passenger is forced onto it
-because stairs and escalators cost ∞).
-The shaft's three non-anchor cells are not walkable, so the crowd only boards at
-the anchor cell and never walks through the cabin walls. The car is a real state
+shaft is **one car**: `buildGraph` makes the walkable landing tile in front of
+the door at every storey a stop and gives the single lift server an edge between
+every ordered pair, so a passenger rides straight to their floor (a step-free
+passenger is forced onto it because stairs and escalators cost ∞).
+The whole 2 × 2 footprint is cabin interior and is never walkable; only the two
+floor tiles in front of the door opening (`liftLandingCells`, turned by the
+piece's rotation) can board, so the crowd enters and leaves through the door the
+model draws and never through a side or back wall. The car is a real state
 machine (`World.stepLift`): park, open the doors, let the crowd walk in and out,
 shut, then travel — riders are `STATE_RIDING` and pinned inside the cabin by
 `stepLiftRide`, so they visibly move with it instead of teleporting. `models.ts`
@@ -388,8 +390,8 @@ fare line holds. See `test/fence.test.mjs`.
 * `lift.test.mjs` — the 电梯 (§5.1): a fresh piece is a 2 × 2 m assembly that
   serves the floor one storey up; extending grows it a storey up or down in the
   same column and keeps its id; the graph joins every floor in the shaft with one car,
-  both ways, skips a floorless level, and only the anchor cell boards (the shaft
-  interior is not walkable);
+  both ways, skips a floorless level, and boards only at the door landing (the whole
+  shaft interior is not walkable, and a rotated lift's landing follows the door it faces);
   two lifts may not share space but a 2 m gap is free; and a passenger rides —
   walks in, is pinned to the 1.5 m cabin while it moves, and steps out on the
   floor above. The car pose is deterministic and its door fraction stays in 0..1.
