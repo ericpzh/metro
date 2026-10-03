@@ -4,7 +4,8 @@
 // contiguous run of platform floor beside the bed.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, placeRail, railModuleAt, regenerateRailEdges } from '../src/build/rail.ts'
+import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, placeRail, placeTrack, placeTunnel, railModuleAt, regenerateRailEdges, resizeTrack, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
+import { trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.ts'
 import { moduleEnvelope, placementOnTrack, trackBedKeys, trackAt } from '../src/sim/placement.ts'
 import { World } from '../src/sim/world.ts'
 
@@ -107,9 +108,10 @@ test('a rail with no platform still gets a running train', () => {
   const w = new World(s1, 99)
   w.tickOnce()
   const pose = w.trainRenderState()
-  assert.equal(pose.length, 8, 'one train, one pose')
+  assert.equal(pose.length, 9, 'one train, one pose')
   assert.equal(pose[3], 6, 'six cars')
   assert.equal(pose[2], 0.5, 'rides the recessed slab')
+  assert.equal(pose[8], 0, 'an east–west track has no yaw')
 })
 
 test('a fresh line is B stock, six cars, and carries the rail direction', () => {
@@ -126,6 +128,214 @@ test('a fresh line is B stock, six cars, and carries the rail direction', () => 
   assert.equal(defaultLine('1', 'up', 'third-rail').colour, '#edcf3b', 'line 1 is yellow')
   assert.equal(defaultLine('2', 'up', 'third-rail').colour, '#00679e', 'line 2 is blue')
   assert.equal(defaultLine('99', 'up', 'third-rail').colour, '#2f7ef2', 'unknown numbers fall back')
+})
+
+test('a track piece is sized from the line: a car-width bed, the train length', () => {
+  const line = defaultLine('1', 'up', 'third-rail') // B stock, six cars
+  assert.deepEqual(trackPieceForLine(line), { w: 117, d: 3 }, '6 × 19.5 m = 117 m')
+  assert.deepEqual(trackPieceForLine({ stock: 'A', cars: 8 }), { w: 176, d: 3 }, 'A stock, eight cars')
+  assert.deepEqual(trackPieceForLine({ stock: 'C', cars: 4 }), { w: 76, d: 3 }, 'C stock, four cars')
+})
+
+test('a quarter-turned track digs a north–south bed and derives side edges', () => {
+  // A three-column apron; the rail runs north–south up the middle column.
+  const cells = []
+  for (let y = 0; y < 6; y++) for (let x = 0; x < 3; x++) cells.push({ x, y, z: 0, fill: 'solid' })
+  const s1 = placeTrack(station(cells), { lineId: '1', dir: 'up', power: 'third-rail', rot: 1, x: 1, y: 0, z: 0, w: 5, d: 1 })
+
+  const track = s1.modules.find((m) => m.type === 'track')
+  assert.equal(track.w, 5)
+  assert.equal(track.rot, 1, 'the piece keeps its quarter turn')
+  // Local +x maps to +y, so the bed is the column x = 1, y = 0..4.
+  const bed = trackCells(track).map(([x, y]) => `${x},${y}`).sort()
+  assert.deepEqual(bed, ['1,0', '1,1', '1,2', '1,3', '1,4'])
+  assert.equal(trackCellAt(track, 1, 4, 0), true)
+  assert.equal(trackCellAt(track, 4, 1, 0), false, 'the old x-run reading no longer holds')
+
+  // Both neighbours are platform floor, so two edges run north–south.
+  const edges = s1.modules.filter((m) => m.type === 'platform-edge')
+  assert.equal(edges.length, 2)
+  assert.ok(edges.every((e) => e.rot === 1 && e.w === 5), 'the doors inherit the rail’s rotation')
+  assert.deepEqual(edges.map((e) => e.x).sort(), [0, 2], 'one edge on each side')
+})
+
+test('a north–south rail runs its train in y with a quarter-turn yaw', () => {
+  // Only the rail column is floor, so there is no platform edge to shift it.
+  const cells = []
+  for (let y = 0; y < 10; y++) cells.push({ x: 1, y, z: 0, fill: 'solid' })
+  const s1 = placeTrack(station(cells), { lineId: '1', dir: 'up', power: 'third-rail', rot: 1, x: 1, y: 0, z: 0, w: 10, d: 1 })
+  const w = new World(s1, 7)
+  w.tickOnce()
+  const pose = w.trainRenderState()
+  assert.equal(pose.length, 9)
+  assert.equal(pose[0], 0.5, 'x is fixed at the bed centre')
+  assert.ok(Math.abs(pose[8] - Math.PI / 2) < 1e-6, 'the consist is turned onto the run axis')
+  // The run direction is +y, so the approach offset shows up in y, not x.
+  assert.notEqual(pose[1], 5, 'the train is not sitting on the mark yet')
+})
+
+test('changing the line consist re-cuts the track to the new run length', () => {
+  const cells = [...floorRow(0, 9, 0), ...floorRow(0, 9, 1)]
+  const s1 = placeRail(station(cells), { x0: 0, y0: 1, x1: 4, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const track = s1.modules.find((m) => m.type === 'track')
+  const s2 = resizeTrack(s1, track, 7)
+  const t2 = s2.modules.find((m) => m.type === 'track')
+  assert.equal(t2.w, 7, 'the piece grows with the consist')
+  assert.equal(s2.cells.some((c) => c.y === 1 && c.x >= 5 && c.x <= 6), false, 'the extra bed is dug')
+  assert.equal(s2.modules.find((m) => m.type === 'platform-edge').w, 7, 'the doors follow the new run')
+  assert.equal(resizeTrack(s1, track, 5), s1, 'the same length is a no-op')
+})
+
+test('a piece is centred on the highlighted cell', () => {
+  // Odd run (117): the anchor is the exact middle cell.
+  assert.deepEqual(trackOriginForCentre(0, 10, 5, 117, 3), [10 - 58, 5 - 1])
+  // Quarter-turned, even run (20): the origin steps round the anchor.
+  assert.deepEqual(trackOriginForCentre(1, 10, 5, 20, 3), [11, -4])
+  // Centring a track puts the anchor inside its own footprint.
+  const cells = trackCells({ id: 't', type: 'track', x: 10 - 58, y: 5 - 1, z: 0, w: 117, d: 3, rot: 0, cfg: { line: '1', power: 'third-rail' } })
+  assert.ok(cells.some(([x, y]) => x === 10 && y === 5), 'the highlighted cell is on the piece')
+})
+
+test('a tunnel auto-extends off the free end and never spawns platform doors', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  const s1 = placeRail(station(cells), { x0: 0, y0: 1, x1: 5, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const src = s1.modules.find((m) => m.type === 'track')
+  const doorsBefore = s1.modules.filter((m) => m.type === 'platform-edge').length
+
+  // Both ends free: the first extension goes forward, abutting the source.
+  const s2 = placeTunnel(s1, src.id, 4)
+  const fwd = s2.modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.ok(fwd, 'a tunnel module is added')
+  assert.equal(fwd.x, src.x + src.w, 'it abuts the source’s forward end')
+  assert.equal(fwd.y, src.y)
+  assert.equal(fwd.w, 4)
+  assert.equal(fwd.rot ?? 0, src.rot ?? 0)
+  assert.equal(s2.modules.filter((m) => m.type === 'platform-edge').length, doorsBefore, 'a tunnel is a pure run, no doors')
+
+  // With the forward end now occupied, the next extension goes backward and
+  // ends where the source begins.
+  const s3 = placeTunnel(s2, src.id, 3)
+  const back = s3.modules.find((m) => m.type === 'track' && m.cfg.tunnel && m.x < src.x)
+  assert.ok(back, 'the second extension takes the free end')
+  assert.equal(back.x + back.w, src.x, 'it abuts the source’s backward end')
+
+  // A tunnel keeps the source's 上行/下行 direction, so the preview arrows agree.
+  assert.equal(fwd.cfg.dir, src.cfg.dir, 'the extension inherits the source direction')
+  assert.equal(back.cfg.dir, src.cfg.dir)
+
+  // Continuing from the forward tunnel extends further forward.
+  const s4 = placeTunnel(s3, fwd.id, 2)
+  const more = s4.modules.find((m) => m.type === 'track' && m.cfg.tunnel && m.x > src.x + src.w)
+  assert.ok(more, 'a tunnel extends the tunnel')
+
+  // A quarter-turned source extends along its own axis.
+  const apron = []
+  for (let y = 0; y < 8; y++) apron.push({ x: 1, y, z: 0, fill: 'solid' })
+  const r1 = placeTrack(station(apron), { lineId: '1', dir: 'up', power: 'third-rail', rot: 1, x: 1, y: 0, z: 0, w: 5, d: 1 })
+  const ns = placeTunnel(r1, r1.modules.find((m) => m.type === 'track').id, 3)
+  const nsTunnel = ns.modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.equal(nsTunnel.x, 1)
+  assert.equal(nsTunnel.y, 5, 'the extension continues north–south')
+  assert.equal(nsTunnel.rot, 1)
+})
+
+test('a platform refuses a wall in its headroom', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  for (let dz = 1; dz <= 4; dz++) cells.push({ x: 3, y: 1, z: dz, fill: 'solid' })
+  const s0 = station(cells)
+  const blocked = placeTrack(s0, { lineId: '1', dir: 'up', power: 'third-rail', rot: 0, x: 0, y: 1, z: 0, w: 6, d: 1 })
+  assert.equal(blocked, s0, 'the platform is refused, state unchanged')
+  assert.equal(trackClearanceBlocked(s0, { id: 't', type: 'track', x: 0, y: 1, z: 0, w: 6, d: 1, rot: 0, cfg: { line: '1', power: 'third-rail' } }), true)
+})
+
+test('a tunnel clears the wall it pokes through and raises its own shell', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  const s1 = placeRail(station(cells), { x0: 0, y0: 1, x1: 5, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const src = s1.modules.find((m) => m.type === 'track')
+  // A wall crosses the tunnel's forward path at x = 7, rising 1..4.
+  for (let dz = 1; dz <= 4; dz++) cells.push({ x: 7, y: 1, z: dz, fill: 'solid' })
+  const s2 = placeTunnel({ ...s1, cells }, src.id, 4)
+  const tunnel = s2.modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  const has = (x, y, z) => s2.cells.some((c) => c.x === x && c.y === y && c.z === z && c.fill === 'solid')
+  const tagged = (x, y, z) => s2.cells.some((c) => c.x === x && c.y === y && c.z === z && c.tags?.includes(`${TUNNEL_SHELL}:${tunnel.id}`))
+
+  // The tunnel runs x = 6..9 at y = 1; the wall inside the bore (z = 1..3) is gone.
+  assert.equal(has(7, 1, 1), false, 'the wall through the bore is deleted')
+  assert.equal(has(7, 1, 3), false)
+  // The ceiling sits one storey up, across the bore. Where a course already
+  // stood (the wall's top at x = 7) it is reused rather than tagged.
+  for (let x = 6; x <= 9; x++) assert.ok(has(x, 1, 4), `ceiling solid at ${x}`)
+  for (const x of [6, 8, 9]) assert.ok(tagged(x, 1, 4), `new ceiling tagged at ${x}`)
+  // Side walls flank the bore, full storey tall.
+  for (let x = 6; x <= 9; x++) {
+    for (let dz = 1; dz <= 4; dz++) {
+      assert.ok(tagged(x, 0, dz), `left wall ${x},${dz}`)
+      assert.ok(tagged(x, 2, dz), `right wall ${x},${dz}`)
+    }
+  }
+  // Removing the tunnel takes its shell with it.
+  const stripped = stripTunnelShell(s2, tunnel.id)
+  assert.equal(stripped.cells.some((c) => c.tags?.includes(`${TUNNEL_SHELL}:${tunnel.id}`)), false)
+})
+
+test('a platform needs the whole bed on floor and blocks on any interference', () => {
+  // A three-wide strip, with one cell missing so it is only two wide at x = 3.
+  const cells = []
+  for (let y = 0; y < 3; y++) for (let x = 0; x <= 5; x++) {
+    if (x === 3 && y === 2) continue
+    cells.push({ x, y, z: 0, fill: 'solid' })
+  }
+  const piece = { lineId: '1', dir: 'up', power: 'third-rail', rot: 0, x: 0, y: 0, z: 0, w: 6, d: 3 }
+  const s0 = station(cells)
+  assert.equal(placeTrack(s0, piece), s0, 'a bed over a hole is refused')
+  assert.equal(trackFloorMissing(s0, { id: 't', type: 'track', ...piece, cfg: { line: '1', power: 'third-rail' } }), true)
+  assert.equal(trackBlockReason(s0, { id: 't', type: 'track', ...piece, cfg: { line: '1', power: 'third-rail' } }), 'floor')
+
+  // Complete the strip and it places.
+  const filled = { ...s0, cells: [...cells, { x: 3, y: 2, z: 0, fill: 'solid' }] }
+  assert.notEqual(placeTrack(filled, piece), filled)
+
+  // Anything already in the way blocks it: a gate, a room, another track.
+  const withGate = { ...filled, modules: [{ id: 'g', type: 'gate', x: 3, y: 1, z: 0, cfg: { dir: 'both' } }] }
+  assert.equal(placeTrack(withGate, piece), withGate, 'a gate on the bed blocks it')
+  const withRoom = { ...filled, modules: [{ id: 'r', type: 'shop', x: 2, y: 0, z: 0, w: 2, h: 2, cfg: { kind: 'store' } }] }
+  assert.equal(placeTrack(withRoom, piece), withRoom, 'a room on the bed blocks it')
+  const withTrack = { ...filled, modules: [{ id: 't2', type: 'track', x: 2, y: 1, z: 0, w: 2, d: 1, cfg: { line: '1', power: 'third-rail', tunnel: true } }] }
+  assert.equal(placeTrack(withTrack, piece), withTrack, 'another track blocks it')
+})
+
+test('a tunnel may hang over void but still blocks on equipment', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  const s1 = placeRail(station(cells), { x0: 0, y0: 1, x1: 5, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const src = s1.modules.find((m) => m.type === 'track')
+  // The forward run x = 6..9 has no floor at all; a tunnel still extends there.
+  assert.notEqual(placeTunnel(s1, src.id, 4), s1, 'a tunnel hangs over void')
+
+  // Equipment standing in that run does block it.
+  const s2 = { ...s1, modules: [...s1.modules, { id: 'g', type: 'gate', x: 8, y: 1, z: 0, cfg: { dir: 'both' } }] }
+  assert.equal(placeTunnel(s2, src.id, 4), s2, 'a gate in the tunnel path blocks it')
+})
+
+test('the track direction sets which way the train runs', () => {
+  const cells = []
+  for (let x = 0; x < 40; x++) for (let y = 0; y < 3; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  const at = (dir) => new World(placeTrack(station(cells), { lineId: '1', dir, power: 'third-rail', rot: 0, x: 0, y: 0, z: 0, w: 40, d: 3 }), 5)
+  const up = at('up'); up.tickOnce()
+  const down = at('down'); down.tickOnce()
+  assert.equal(up.trainRenderState()[7], 1, '上行 runs +run')
+  assert.equal(down.trainRenderState()[7], -1, '下行 runs −run')
+})
+
+test('a tunnel snaps to the hovered end', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  const s1 = placeRail(station(cells), { x0: 0, y0: 1, x1: 5, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const src = s1.modules.find((m) => m.type === 'track')
+  // Hovering the west cell extends the west end, not the far one.
+  const west = placeTunnel(s1, src.id, 4, [0, 1, 0]).modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.equal(west.x + west.w, src.x, 'west hover extends west')
+  // Hovering the east cell extends the east end.
+  const east = placeTunnel(s1, src.id, 4, [5, 1, 0]).modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.equal(east.x, src.x + src.w, 'east hover extends east')
 })
 
 test('the reference station ships a dug bed with an auto-consistent edge', async () => {

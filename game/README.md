@@ -73,22 +73,42 @@ protocol, and drawn per consist by `SceneRenderer.setTrains`. The models are pur
 over one shared material kit — no image or GLB assets. Modules are level-aware, so a tall escalator
 or exit ghosts with the floor it belongs to instead of drawing through it.
 
-**Rails are dug in, and the screen doors follow.** A rail is a `track` module (`d` metres deep, bound
-to a line and an 上行/下行 direction). Placing one removes the bed course, so the mesher exposes the
-platform block's side face as a half-metre drop and the module supplies the recessed slab and rails;
-`World.computeLineAnchors` reads the module (the bed cells are gone) and rides the consist half a metre
-below the platform. The anchor needs only a track — the platform edge is for boarding — so a freshly
-laid rail runs a train immediately, before any platform or screen doors exist. `sim/placement.ts` now
-asks "is this a track bed?" by *either* the `floor.track` finish (the hand-built path) or a track
-module's footprint, so the demo and the renderer agree. `build/rail.ts` is the pure placement +
-derivation: it lays the bed, then generates one `platform-edge` per contiguous run of walkable exposed
-floor beside it (an island platform yields two — the Spanish solution), each bound to the rail's line
-and direction. The left rail has a dedicated **轨道** folder — the whole rail panel: the tool,
-上行/下行, the bound line, and a **重置屏蔽门** button that re-derives the selected rail's doors, or
-every rail's when nothing is selected. Line management lives in the right inspector's **线路** section
-(线路名/颜色, 车型/编组/供电/下车, plus **+ 新建线路**). The rail tool's 供电 comes from the line it is
-bound to. The reference station builds its bed from the same dig, so the demo shows the recessed
-track too.
+**Rails are equipment: a fixed piece centred on the cursor.** A rail is a `track` module — a car-width
+bed (`d = 3` m) and a run the length of the bound line's consist (`w = ceil(stock length × cars)`) —
+so the whole module is pre-rendered as the placement ghost, centred on the highlighted tile (it grows
+evenly both ways, so a long consist lands under the pointer rather than off one end) and turned with
+**R** like any other equipment. `R` is a true quarter-turn: `sim/track.ts` is the single source of orientation (run axis,
+footprint, edge run, anchor), so a rail can run east–west or north–south, and the consist, its screen
+doors and the platform-edge services all turn with it. Placing a rail removes the bed course, so the
+mesher exposes the platform block's side face as a half-metre drop and the module supplies the recessed
+slab and rails; `World.computeLineAnchors` reads the module (the bed cells are gone) and rides the
+consist half a metre below the platform, now along the track's run axis with a matching yaw. The anchor
+needs only a track — the platform edge is for boarding — so a freshly laid rail runs a train
+immediately, before any platform or screen doors exist. `sim/placement.ts` asks "is this a track bed?"
+by *either* the `floor.track` finish (the hand-built path) or a track module's footprint, so the demo
+and the renderer agree. `build/rail.ts` is the pure placement + derivation: it lays the bed, then
+generates one `platform-edge` per contiguous run of walkable exposed floor beside it (an island
+platform yields two — the Spanish solution), each bound to the rail's line and direction and carrying
+the rail's rotation. Editing a line's 车型/编组 re-cuts its tracks to the new run length. The 轨道 folder has
+two tools, both gated by one eligibility check (`trackBlockReason`): anything already sharing the run's
+space — equipment, a room, a screen door, a ramp, another rail/tunnel — blocks placement rather than
+being demolished, and the preview flags it red. **站台** is the fixed consist-length piece above; it must
+rest on solid floor under its whole bed (three cells wide, `trackFloorMissing`) and refuses a wall in its
+headroom (`trackClearanceBlocked`) — a platform is open air. **隧道** is a pure tunnel run: hover an
+existing rail and it extends off the free end nearest the pointer (a slider sets the length), keeping
+the source's axis, rotation and bed depth, flagged `cfg.tunnel` so it never spawns platform doors. A
+tunnel may hang over void, and it bores: it deletes any wall (or ground) poking into its three clear
+courses, then raises a solid side wall either side and a ceiling one storey up wherever they are missing
+(`boreTunnel`, shell blocks tagged `tunnel-shell:<id>` so removing the tunnel takes them too). Both
+refuse to overlap another track (`commitTrack` / `placeTunnel` return the same state when they would).
+The ghost draws the run's 上行/下行 direction as arrows on the bed (Tab toggles it in platform mode)
+and a tunnel inherits its source's direction; `computeLineAnchors` takes the train's travel sign from
+the track's `cfg.dir`, so the button turns the real consist, not just the preview. The 轨道 folder shows
+the platform-only controls — 方向 (上行/下行), 线路, 重置屏蔽门 — only while placing or editing a
+**platform**; a tunnel tool or a selected tunnel shows just the two tools and the length slider. The 重置屏蔽门 button re-derives the selected
+rail's doors, or every rail's when nothing is selected. Line management lives in the right inspector's
+**线路** section (线路名/颜色, 车型/编组/供电/下车, plus **+ 新建线路**). The reference station builds its
+bed from the same dig, so the demo shows the recessed track too.
 
 **Escalators are staircases, and they turn over.** `models.ts` builds each run as a band of
 instanced steps whose treads stay world-horizontal (riser, then the yellow nosing along the
@@ -210,7 +230,13 @@ and stacked blocks stay plain, and the drag's live ghost shows the wall ring bef
 * `rail.test.mjs` — placing a rail digs the bed, lays the track module and derives one platform-edge
   per contiguous platform run (two on an island); a wall above a platform cell splits the edge;
   regeneration is idempotent and follows the current floor; the dug bed blocks equipment and reads
-  as track by either rule; the reference station builds its bed from the same dig (B4, the draw kit).
+  as track by either rule; a piece is sized from the line (a car-width bed, the train length), centred
+  on the highlighted cell, and a quarter-turned track digs a north–south bed, derives north–south
+  screen doors and runs its train in y with a matching yaw; a tunnel auto-extends a rail off its free
+  end, clears the wall it pokes through and raises its own side walls and ceiling without spawning
+  doors; a platform needs its whole bed on solid floor and refuses a wall in its headroom; either one
+  is blocked by any existing equipment, room, screen door or track; re-cutting a line's consist resizes
+  its platform tracks; the reference station builds its bed from the same dig.
 * `facility.test.mjs` — the rectangle-drag facilities: 商店 / 厕所 / 办公室 are walled rooms (one
   `shop` module type, the fit-out in `cfg.kind`) while 售票亭 is an open desk; same-fit-out drags
   extend a room, different ones clash; right-click carves wall openings (the renderer then hangs a

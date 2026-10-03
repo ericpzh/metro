@@ -12,6 +12,7 @@
 
 import { EXIT_L, EXIT_W, exitFloorAt } from './exits.ts'
 import { rampEnvelope, rampOpeningAt } from './openings.ts'
+import { edgeCells, trackCellAt, trackCells } from './track.ts'
 import type { Cell, Module } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
@@ -34,6 +35,25 @@ const FLAT_HEIGHT: Record<'gate' | 'tvm' | 'bench' | 'retail' | 'shop' | 'booth'
   booth: 2.4,
   'platform-edge': 3.1,
   track: 0.3,
+}
+
+/**
+ * The axis-aligned world box covering a list of cells from `z0` to `z1`. A
+ * quarter-turn keeps a track piece axis-aligned, so the bounding box of its
+ * cells is exact rather than an over-estimate.
+ */
+function cellsAabb(cells: ReadonlyArray<[number, number, number]>, z0: number, z1: number): ModuleBox {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const [x, y] of cells) {
+    x0 = Math.min(x0, x)
+    y0 = Math.min(y0, y)
+    x1 = Math.max(x1, x + 1)
+    y1 = Math.max(y1, y + 1)
+  }
+  return { x0, y0, z0, x1, y1, z1 }
 }
 
 /**
@@ -62,16 +82,18 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'shop':
     case 'booth':
       return { x0: m.x, y0: m.y, z0, x1: m.x + m.w, y1: m.y + m.h, z1: z0 + FLAT_HEIGHT[m.type] }
-    case 'platform-edge':
-      // The screen sits just inside the platform edge of its run.
-      return { x0: m.x, y0: m.y + 0.16, z0, x1: m.x + m.w, y1: m.y + 0.84, z1: z0 + FLAT_HEIGHT['platform-edge'] }
-    case 'track': {
+    case 'platform-edge': {
+      // The screen sits on the track-facing strip of its single-cell-deep run.
+      const box = cellsAabb(edgeCells(m), z0, z0 + FLAT_HEIGHT['platform-edge'])
+      return box.x1 - box.x0 <= 1.0001
+        ? { ...box, x0: box.x0 + 0.16, x1: box.x1 - 0.16 }
+        : { ...box, y0: box.y0 + 0.16, y1: box.y1 - 0.16 }
+    }
+    case 'track':
       // A dug track bed: the module owns the whole trench volume (bed slab +
       // rails) from the block top to the platform surface, so no equipment can
       // be dropped into it.
-      const d = m.d ?? 1
-      return { x0: m.x, y0: m.y, z0: m.z, x1: m.x + m.w, y1: m.y + d, z1: m.z + 1 }
-    }
+      return cellsAabb(trackCells(m), m.z, m.z + 1)
     default:
       return null
   }
@@ -94,19 +116,13 @@ export function isTrackBed(cells: readonly Cell[], x: number, y: number, z: numb
 
 /** Every cell a track module's bed covers — its run × depth at its own level. */
 export function trackBedCells(m: Module): Array<[number, number, number]> {
-  if (m.type !== 'track') return []
-  const d = m.d ?? 1
-  const out: Array<[number, number, number]> = []
-  for (let x = m.x; x < m.x + m.w; x++) for (let y = m.y; y < m.y + d; y++) out.push([x, y, m.z])
-  return out
+  return m.type === 'track' ? trackCells(m) : []
 }
 
 /** The track module whose bed covers `(x, y, z)`, if any. */
 export function trackAt(modules: readonly Module[], x: number, y: number, z: number): Module | undefined {
   for (const m of modules) {
-    if (m.type !== 'track') continue
-    const d = m.d ?? 1
-    if (z === m.z && x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + d) return m
+    if (m.type === 'track' && trackCellAt(m, x, y, z)) return m
   }
   return undefined
 }
@@ -130,8 +146,9 @@ export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], 
 
 /**
  * The floor cells a module stands on, at its own level. A room covers its whole
- * `w × h`; a platform-edge or track run is one cell deep along +x; every other
- * piece — gate, TVM, bench, ramp, exit — is anchored by its single cell.
+ * `w × h`; a platform-edge or track run is one cell deep along its local +x;
+ * every other piece — gate, TVM, bench, ramp, exit — is anchored by its single
+ * cell.
  */
 function baseCells(m: Module): Array<[number, number]> {
   switch (m.type) {
@@ -143,12 +160,9 @@ function baseCells(m: Module): Array<[number, number]> {
       return out
     }
     case 'platform-edge':
-    case 'track': {
-      const out: Array<[number, number]> = []
-      const d = m.type === 'track' ? (m.d ?? 1) : 1
-      for (let x = m.x; x < m.x + m.w; x++) for (let y = m.y; y < m.y + d; y++) out.push([x, y])
-      return out
-    }
+      return edgeCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'track':
+      return trackCells(m).map(([x, y]) => [x, y] as [number, number])
     default:
       return [[m.x, m.y]]
   }

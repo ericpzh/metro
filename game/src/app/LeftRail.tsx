@@ -97,6 +97,15 @@ function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M4 6h12M4 10h12M4 14h12" />
         </>,
       )
+    // A tunnel mouth: an arch with the track running into it.
+    case 'tunnel':
+      return svg(
+        <>
+          <path {...s} d="M4 17V10a6 6 0 0 1 12 0v7" />
+          <path {...s} d="M8 17v-6.5a2 2 0 0 1 4 0V17" />
+          <path {...s} d="M4 13h4M12 13h4" />
+        </>,
+      )
     // Heroicons "refresh" — a two-arrow circular sweep, the icon the player
     // expects for "reset the screen doors".
     case 'refresh':
@@ -274,6 +283,7 @@ const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
   paint: 'surfaces',
   zone: 'zones',
   rail: 'rail',
+  tunnel: 'rail',
 }
 
 export function LeftRail(): React.ReactElement {
@@ -294,6 +304,8 @@ export function LeftRail(): React.ReactElement {
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
   const railDir = useStore((s) => s.railDir)
   const railLineId = useStore((s) => s.railLineId)
+  const railRot = useStore((s) => s.railRot)
+  const tunnelLength = useStore((s) => s.tunnelLength)
   const selected = useStore((s) => s.selected)
   const stationModules = useStore((s) => s.station.modules)
   const stationLines = useStore((s) => s.station.lines)
@@ -365,6 +377,9 @@ export function LeftRail(): React.ReactElement {
   const railDirNow = track ? (track.cfg.dir ?? 'up') : railDir
   const railLineNow = track ? track.cfg.line : railLineId || stationLines[0]?.id || ''
   const trackSummary = track ? railSummary(track, stationLines.find((l) => l.id === track.cfg.line)) : null
+  // The platform-only controls (方向 / 线路 / 重置屏蔽门) make no sense for a
+  // tunnel, so they are shown only while placing or editing a platform run.
+  const editingTunnel = track ? !!track.cfg.tunnel : tool === 'tunnel'
   const setRailDirNow = (d: 'up' | 'down'): void => {
     if (track) st().updateRail(track.id, { dir: d })
     else st().setRailDir(d)
@@ -434,41 +449,83 @@ export function LeftRail(): React.ReactElement {
 
       <Folder title="轨道" open={open.rail} onToggle={() => toggle('rail')}>
         <div className="blockGrid">
-          <Block label="轨道" icon="rail" active={tool === 'rail'} title="轨道：拖出轨道床，自动生成屏蔽门" onClick={() => setTool('rail')} />
           <Block
-            label="重置屏蔽门"
-            icon="refresh"
-            title="按当前站台重新生成屏蔽门（选中轨道只重置它，否则重置全部）"
-            onClick={() => st().refreshRailDoors()}
+            label="站台"
+            icon="rail"
+            active={tool === 'rail'}
+            title="站台轨道：在站台旁放一段列车长度的轨道床，自动生成屏蔽门"
+            onClick={() => setTool('rail')}
           />
+          <Block
+            label="隧道"
+            icon="tunnel"
+            active={tool === 'tunnel'}
+            title="隧道轨道：在已有轨道端头接一段纯隧道，不生成屏蔽门"
+            onClick={() => setTool('tunnel')}
+          />
+          {tool !== 'tunnel' && (
+            <Block
+              label={`旋转 ${((4 - railRot) % 4) * 90}°`}
+              icon="redo"
+              title="R：旋转站台轨道（东西 / 南北）"
+              onClick={() => st().rotateRail()}
+            />
+          )}
+          {!editingTunnel && (
+            <Block
+              label="重置屏蔽门"
+              icon="refresh"
+              title="按当前站台重新生成屏蔽门（选中轨道只重置它，否则重置全部）"
+              onClick={() => st().refreshRailDoors()}
+            />
+          )}
         </div>
+        {tool === 'tunnel' && (
+          <div className="bpSub">
+            <div className="bpSubTitle">隧道长度 {tunnelLength} m</div>
+            <input
+              type="range"
+              min={5}
+              max={200}
+              step={1}
+              value={tunnelLength}
+              onChange={(e) => st().setTunnelLength(Number(e.target.value))}
+            />
+          </div>
+        )}
         <div className="muted small railStatus">
           {track
-            ? `已选轨道 · ${track.w} m × ${track.d ?? 1} m${trackSummary ? ` · ${trackSummary.cars} 节 ${trackSummary.trainLength} m · ${trackSummary.doors} 门` : ''}`
-            : '在站台旁拖出轨道；两侧有站台就自动生成屏蔽门'}
+            ? `已选${track.cfg.tunnel ? '隧道' : '轨道'} · ${track.w} m × ${track.d ?? 1} m${trackSummary && !track.cfg.tunnel ? ` · ${trackSummary.cars} 节 ${trackSummary.trainLength} m · ${trackSummary.doors} 门` : ''}`
+            : tool === 'tunnel'
+              ? '点已有轨道，从你这一端接一段隧道；滑杆调长度'
+              : '在站台旁放一段轨道：长度按列车，R 旋转、Tab 切换上下行；两侧有站台就自动生成屏蔽门'}
         </div>
-        <div className="bpSub">
-          <div className="bpSubTitle">方向</div>
-          <div className="blockGrid two">
-            <Block label="上行" icon="up" active={railDirNow === 'up'} onClick={() => setRailDirNow('up')} />
-            <Block label="下行" icon="down" active={railDirNow === 'down'} onClick={() => setRailDirNow('down')} />
-          </div>
-        </div>
-        <div className="bpSub">
-          <div className="bpSubTitle">线路</div>
-          <div className="blockGrid">
-            {stationLines.map((l) => (
-              <Block
-                key={l.id}
-                label={l.id}
-                tone={l.colour}
-                active={railLineNow === l.id}
-                title={`${l.name} · ${l.stock}型${l.cars}节`}
-                onClick={() => setRailLineNow(l.id)}
-              />
-            ))}
-          </div>
-        </div>
+        {!editingTunnel && (
+          <>
+            <div className="bpSub">
+              <div className="bpSubTitle">方向</div>
+              <div className="blockGrid two">
+                <Block label="上行" icon="up" active={railDirNow === 'up'} onClick={() => setRailDirNow('up')} />
+                <Block label="下行" icon="down" active={railDirNow === 'down'} onClick={() => setRailDirNow('down')} />
+              </div>
+            </div>
+            <div className="bpSub">
+              <div className="bpSubTitle">线路</div>
+              <div className="blockGrid">
+                {stationLines.map((l) => (
+                  <Block
+                    key={l.id}
+                    label={l.id}
+                    tone={l.colour}
+                    active={railLineNow === l.id}
+                    title={`${l.name} · ${l.stock}型${l.cars}节`}
+                    onClick={() => setRailLineNow(l.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </Folder>
 
       <Folder title="设备" count={MODULE_OPTIONS.length} open={open.equipment} onToggle={() => toggle('equipment')}>

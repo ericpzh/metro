@@ -113,23 +113,44 @@ build/ →  sim/            (and neither render/ nor app/)
   (adjacent cells are fine), except that a stair/escalator may pass through an
   exit head-house. `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp
   climbs through while keeping its landings as graph nodes.
-* **Rails and lines** (`build/rail.ts`, `sim/placement.ts`, `sim/world.ts`). A
-  rail is a `track` module bound to a line, an `up`/`down` direction and a bed
-  depth `d`. Placing one **digs** its bed course, so the mesher exposes the
-  platform edge as a half-metre drop and the module supplies the recessed slab
-  and rails; the consist rides at `track.z + 0.5`. The train anchor needs only a
-  track — a platform edge is for boarding — so a fresh rail runs a train before
-  any screen doors exist. `derivePlatformEdges` generates one `platform-edge` per
-  contiguous run of walkable exposed floor beside the bed (an island platform
-  yields two — the Spanish solution), and `regenerateRailEdges` re-derives them
-  after the floor changes. A track bed is **either** the `floor.track` finish
-  **or** a `track` module's footprint (`trackBedKeys` / `isTrackCell`), so the
-  hand-built demo and placed rails agree. `station.lines` now holds many lines
-  (added in the inspector); each carries stock/cars/headway and a power mode, and
-  its colour comes from `data/line-colours.ts` (real 广州地铁 sign colours by line
-  number). The whole rail panel — the tool, 上行/下行, the bound line, and
-  重置屏蔽门 — lives in the left rail's 轨道 folder; the inspector's 线路 card
-  edits the lines themselves.
+* **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
+  `sim/world.ts`). A rail is a `track` module bound to a line and an `up`/`down`
+  direction: a fixed, pre-rendered piece — a car-width bed (`d = 3`) and a run
+  the length of the line's consist (`trackPieceForLine`) — placed like equipment
+  (centred on the highlighted cell, so the long run grows evenly both ways) with
+  **R** to quarter-turn it. `sim/track.ts` is the one orientation source
+  (`rotateLocal`/`trackCells`/`edgeCells`/`trackCentre`), so a rail can run
+  east–west or north–south and the consist, its screen doors and the platform
+  services turn with it. Placing one **digs** its bed course, so the mesher
+  exposes the platform edge as a half-metre drop and the module supplies the
+  recessed slab and rails; the consist rides at `track.z + 0.5` along the run
+  axis with a matching yaw. The train anchor needs only a track — a platform edge
+  is for boarding — so a fresh rail runs a train before any screen doors exist.
+  `derivePlatformEdges` generates one `platform-edge` per contiguous run of
+  walkable exposed floor beside the bed (an island platform yields two — the
+  Spanish solution), and `regenerateRailEdges` re-derives them after the floor
+  changes. Editing a line's 车型/编组 re-cuts its tracks (`resizeTrack`). A track
+  bed is **either** the `floor.track` finish **or** a `track` module's footprint
+  (`trackBedKeys` / `isTrackCell`), so the hand-built demo and placed rails agree.
+  The 轨道 folder has two tools, both gated by `trackBlockReason`: any interference
+  (equipment, a room, a screen door, a ramp, another rail/tunnel) blocks placement
+  instead of demolishing it. **站台** places the fixed consist-length piece, which
+  must rest on solid floor under its whole bed (`trackFloorMissing`) and refuses a
+  run with a wall in its headroom (`trackClearanceBlocked`); **隧道** extends an
+  existing rail off the free end nearest the pointer (`makeTunnel`/`placeTunnel`, a
+  pure run flagged `cfg.tunnel` that never spawns platform doors; a slider sets the
+  length), may hang over void, clears the wall it bores through, and raises a
+  side wall + ceiling around itself where missing (`boreTunnel`, shell cells
+  tagged `tunnel-shell:<id>`). The placement ghost draws the run's 上行/下行
+  direction as arrows (`buildTrack`; Tab toggles it in platform mode), a tunnel
+  inherits its source's direction, and `computeLineAnchors` reads the train's
+  travel sign from `cfg.dir`, so the button turns the real consist too.
+  `station.lines` holds many lines (added in the inspector); each carries
+  stock/cars/headway and a power mode, and its colour comes from
+  `data/line-colours.ts` (real 广州地铁 sign colours by line number). The whole
+  rail panel lives in the left rail's 轨道 folder; its platform-only controls
+  (方向 上行/下行, 线路, 重置屏蔽门) show only while placing or editing a platform,
+  not a tunnel. The inspector's 线路 card edits the lines themselves.
 
 ### Rendering and the app
 
@@ -183,12 +204,15 @@ build/ →  sim/            (and neither render/ nor app/)
   zone inference, module zone-legality feedback for ticket machines, and the gate
   direction/anchor UI. **B3–B6** (capacity kit, draw kit, authored time + charts
   + snapshot, ship) are planned in the spec.
-* The **track kit** has landed: rails are `track` modules with dug beds and
-  derived screen doors (`build/rail.ts`, `game/test/rail.test.mjs`). The left rail
-  has a 轨道 folder that is the whole rail panel — the tool, 上行/下行, the bound
-  line, and 重置屏蔽门 — and the inspector a 线路 section for multi-line management
-  (name/colour/stock/cars/供电/下车, + 新建线路); a new line wears its real 广州地铁
-  colour from `data/line-colours.ts`. The line owns the direction, and its tracks
+* The **track kit** has landed: rails are fixed, pre-rendered `track` pieces
+  sized from the bound line's consist, placed like equipment with **R** to
+  quarter-turn them (`build/rail.ts`, `sim/track.ts`, `game/test/rail.test.mjs`).
+  The 轨道 folder holds the 站台 tool (the consist-length piece), the 隧道 tool
+  (auto-extends a rail off its free end, no platform doors, with a length slider),
+  R (旋转), 上行/下行, the bound line, and 重置屏蔽门; the inspector a 线路
+  section for multi-line management (name/colour/stock/cars/供电/下车, + 新建线路);
+  a new line wears its real 广州地铁 colour from `data/line-colours.ts`. The line
+  owns the direction, and its tracks
   carry it in `cfg.dir`; the line owns 供电 too, and editing it updates its tracks.
   The README still files the draw kit under **B4** and its milestone table is not
   yet updated. Walled facility rooms (商店 / 厕所 / 办公室) share the `shop` module

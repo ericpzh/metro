@@ -378,11 +378,14 @@ export function App(): React.ReactElement {
           st.setTool('module')
           break
         case 'r':
-          if (!e.ctrlKey && !e.metaKey && !e.altKey && isRotatableType(st.moduleType)) st.rotateModule()
+          if (e.ctrlKey || e.metaKey || e.altKey) break
+          if (st.tool === 'rail') st.rotateRail()
+          else if (st.tool !== 'tunnel' && isRotatableType(st.moduleType)) st.rotateModule()
           break
         case 'tab':
           e.preventDefault()
-          if (isStairType(st.moduleType)) st.cycleStairWidth()
+          if (st.tool === 'rail') st.cycleRailDir()
+          else if (isStairType(st.moduleType)) st.cycleStairWidth()
           else if (isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
           break
         case 'n':
@@ -471,8 +474,10 @@ export function App(): React.ReactElement {
                   : tool === 'zone'
                     ? '分区：左键点或拖框上色；房间/售票亭拖框建，墙上右键开门'
                     : tool === 'rail'
-                      ? '轨道：在站台旁拖出轨道床，自动生成站台门；右侧选线路与方向'
-                      : '选择：点方块或设备，看它是什么'}
+                      ? '站台轨道：点地面放一段列车长度的轨道床（R 旋转，Tab 切换上下行），自动生成站台门'
+                      : tool === 'tunnel'
+                        ? '隧道：点已有轨道，从端头接一段隧道；滑杆调长度'
+                        : '选择：点方块或设备，看它是什么'}
           </div>
         </div>
         <Inspector />

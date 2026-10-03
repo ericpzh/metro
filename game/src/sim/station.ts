@@ -23,6 +23,7 @@ import { floorSpeed } from './finishes.ts'
 import { gateAllows } from './gates.ts'
 import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres } from './stock.ts'
+import { edgeCells } from './track.ts'
 import { STAIR_WIDTH_NORMAL, stairFlights } from './stairs.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndex } from './zones.ts'
@@ -509,15 +510,17 @@ export function buildGraph(data: StationData): StationGraph {
         const line = data.lines.find((l) => l.id === m.cfg.line)
         const doors: number[] = []
         const cells: number[] = []
+        const run = edgeCells(m)
         const nDoors = line ? doorCentres(line).length : m.w
-        for (let i = 0; i < m.w; i++) {
-          const n = nodeIndex.get(cellKey(m.x + i, m.y, m.z))
+        for (const [x, y] of run) {
+          const n = nodeIndex.get(cellKey(x, y, m.z))
           if (n === undefined) continue
           cells.push(n)
         }
-        const step = Math.max(1, Math.floor(m.w / Math.max(1, nDoors)))
-        for (let i = 0; i < m.w && doors.length < nDoors; i += step) {
-          const n = nodeIndex.get(cellKey(m.x + i, m.y, m.z))
+        const step = Math.max(1, Math.floor(run.length / Math.max(1, nDoors)))
+        for (let i = 0; i < run.length && doors.length < nDoors; i += step) {
+          const [x, y] = run[i]
+          const n = nodeIndex.get(cellKey(x, y, m.z))
           if (n === undefined) continue
           const id = addServer({
             kind: 'door',

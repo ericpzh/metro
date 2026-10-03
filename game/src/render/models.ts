@@ -324,10 +324,6 @@ export interface ModuleContext {
   preview?: boolean
 }
 
-function isTrack(ctx: ModuleContext, x: number, y: number, z: number): boolean {
-  return ctx.trackCells.has(`${x},${y},${z}`)
-}
-
 /**
  * Build one placed module. Returns a group in world space, or null for a module
  * with nothing to draw. The caller owns disposal.
@@ -351,7 +347,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
     case 'platform-edge':
       return buildPsd(ctx, mod)
     case 'track':
-      return buildTrack(ctx.mats, mod)
+      return buildTrack(ctx.mats, mod, ctx.preview)
     case 'shop':
       return buildRoom(ctx, mod)
     case 'booth':
@@ -936,12 +932,14 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
 function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edge' }>): THREE.Group {
   const mats = ctx.mats
   const g = new THREE.Group()
-  const x0 = mod.x
+  // Local frame: the group sits on the origin cell's centre, the run along +x,
+  // one cell deep. `side` says which way the track lies (left = local −y), so
+  // the screen faces it.
+  const x0 = -0.5
   const len = mod.w
-  const z0 = mod.z + 1
-  // Which side is the track on? The screen sits just inside the platform edge.
-  const toward = isTrack(ctx, mod.x, mod.y - 1, mod.z) ? -1 : isTrack(ctx, mod.x, mod.y + 1, mod.z) ? 1 : -1
-  const yWall = mod.y + 0.5 + toward * 0.34
+  const z0 = 1
+  const toward = mod.cfg.side === 'right' ? 1 : -1
+  const yWall = toward * 0.34
   const cx = x0 + len / 2
 
   // The line decides the door cadence; the screen is cut open where it lands.
@@ -1030,29 +1028,72 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
     plate(g, mats.ledGreen, 0.3, 0.06, dx, yWall - toward * 0.14, z0 + 2.7, platYaw)
   }
   g.userData.doors = leaves
+  g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)
+  if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
   return g
 }
 
 /* ------------------------------------------------------------------ track */
 
-function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>): THREE.Group {
+/**
+ * A flat arrow lying on the bed, pointing along local +x (or −x when `flip`).
+ * Used only by the placement ghost, so the player sees which way the track's
+ * 上行/下行 direction runs before committing.
+ */
+function buildDirectionArrow(mat: THREE.Material, x: number, y: number, z: number, flip: boolean): THREE.Group {
+  const g = new THREE.Group()
+  const shape = new THREE.Shape()
+  // A bold arrow: shaft from −1.1 to 0.4, head reaching 1.6, ~1.4 m across.
+  const shaft = 0.22
+  const headBase = 0.4
+  const headHalf = 0.72
+  shape.moveTo(-1.1, -shaft)
+  shape.lineTo(headBase, -shaft)
+  shape.lineTo(headBase, -headHalf)
+  shape.lineTo(1.6, 0)
+  shape.lineTo(headBase, headHalf)
+  shape.lineTo(headBase, shaft)
+  shape.lineTo(-1.1, shaft)
+  shape.closePath()
+  const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat)
+  g.add(mesh)
+  g.position.set(x, y, z)
+  // The shape lies flat on the bed; flip it 180° for a 下行 run.
+  if (flip) g.rotation.z = Math.PI
+  return g
+}
+
+function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, preview = false): THREE.Group {
   const g = new THREE.Group()
   const d = mod.d ?? 1
-  const cx = mod.x + mod.w / 2
-  const cy = mod.y + d / 2
-  const z = mod.z
+  // Build in the track's local frame: the run along +x, the amount across +y,
+  // the origin cell's centre at (0, 0). The group is then turned and moved into
+  // the world, so a quarter-turned piece runs north–south.
+  const cx = (mod.w - 1) / 2
+  const cy = (d - 1) / 2
   // The bed is a trench: placing the rail dug the cell, so the platform top
-  // (z+1) drops half a metre to this slab. The exposed block sides form the
-  // trench walls; the module only supplies the bed and the rails.
-  slab(g, mats.black, cx, cy, z + 0.25, mod.w, d, 0.5)
+  // drops half a metre to this slab. The exposed block sides form the trench
+  // walls; the module only supplies the bed and the rails.
+  slab(g, mats.black, cx, cy, 0.25, mod.w, d, 0.5)
   // Two rails on sleepers down the middle of the bed.
-  for (const s of [-1, 1]) slab(g, mats.steel, cx, cy + s * 0.72, z + 0.6, mod.w, 0.1, 0.1)
+  for (const s of [-1, 1]) slab(g, mats.steel, cx, cy + s * 0.72, 0.6, mod.w, 0.1, 0.1)
   const nSleepers = Math.max(2, Math.round(mod.w / 0.6))
   for (let i = 0; i < nSleepers; i++) {
-    slab(g, mats.black, mod.x + ((i + 0.5) / nSleepers) * mod.w, cy, z + 0.55, 0.24, Math.max(1.9, d - 0.2), 0.08)
+    slab(g, mats.black, ((i + 0.5) / nSleepers) * mod.w - 0.5, cy, 0.55, 0.24, Math.max(1.9, d - 0.2), 0.08)
   }
   // Third rail.
-  slab(g, mats.darkSteel, cx, cy - 1.05, z + 0.62, mod.w, 0.08, 0.08)
+  slab(g, mats.darkSteel, cx, cy - 1.05, 0.62, mod.w, 0.08, 0.08)
+  // The ghost carries the travel direction (上行/下行) as arrows along the run.
+  if (preview) {
+    const flip = mod.cfg.dir === 'down'
+    const n = Math.max(1, Math.min(8, Math.round(mod.w / 18)))
+    for (let i = 0; i < n; i++) {
+      const x = ((i + 0.5) / n) * mod.w - 0.5
+      g.add(buildDirectionArrow(mats.glow, x, cy, 0.82, flip))
+    }
+  }
+  g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)
+  if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
   return g
 }
 
@@ -1403,6 +1444,8 @@ export interface TrainPose {
   doorsOpen: boolean
   colour: string
   dirSign: number
+  /** Yaw (radians) that turns the consist's local +x onto the track's run axis. */
+  yaw: number
 }
 
 /**
@@ -1412,6 +1455,7 @@ export interface TrainPose {
  */
 export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
   const g = new THREE.Group()
+  g.rotation.z = pose.yaw
   const s = STOCK[pose.stock]
   const total = s.length * pose.cars
   const blue = new THREE.MeshStandardMaterial({ color: new THREE.Color(pose.colour), roughness: 0.3, metalness: 0.4 })

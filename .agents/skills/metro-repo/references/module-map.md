@@ -17,7 +17,8 @@ React.
 | `zones.ts` | Fare zones. `ZONE_LIST`, `ZONE_INDEX`, `crossingDir`, labels. A zone boundary is a movement barrier. |
 | `gates.ts` | Gate policy predicates: `gateAllows`, `gateLaneAllows`, `nextGateIndex` (the two-way single-lane rule). |
 | `station.ts` | `buildGraph` and `StationGraph`, servers (`ServerDef`), platforms, `PathFinder` (A* + path cache + per-tick budget), `needsClass`. |
-| `placement.ts` | `ModuleBox`, `moduleEnvelope`, `boxesOverlap`, `placementBlocked`, `moduleAt`, `placementOnTrack`, `isTrackBed` / `trackBedKeys` / `isTrackCell` (a track bed is either the `floor.track` finish or a `track` module's footprint), `trackAt`, `trackCells`, `reservedOpening` (a cell a hand-built block may not cover: a ramp's carved corridor or an exit's floor). |
+| `placement.ts` | `ModuleBox`, `moduleEnvelope`, `boxesOverlap`, `placementBlocked`, `moduleAt`, `placementOnTrack`, `isTrackBed` / `trackBedKeys` / `isTrackCell` (a track bed is either the `floor.track` finish or a `track` module's footprint), `trackAt`, `reservedOpening` (a cell a hand-built block may not cover: a ramp's carved corridor or an exit's floor). |
+| `track.ts` | Track orientation and footprint — the single source the builder, sim and renderer share: `normRot`, `rotateLocal`, `trackFacing`, `trackSide`, `trackDepth`, `trackCells`, `trackCellAt`, `trackCentre`, `trackOriginForCentre`, `edgeCells`. |
 | `openings.ts` | `carveRampOpenings`, `rampEnvelope`, `rampBlocked`, `rampCorridorHalf`, `ESCALATOR_HEADROOM`, `escalatorBasesSolid`, `rampOpeningAt` (the block-brush guard, sharing the carve's ramp list). |
 | `stairs.ts` | The four stair shapes, `STAIR_RUN`/`STAIR_RISE`, widths + `nextStairWidth`, `stairFlights`, `stairLandings`, level/turn helpers. |
 | `escalators.ts` | `escalatorModule` (the one fixed one-storey piece), `ESCALATOR_RUN`/`RISE`, `nextEscalatorDir`. |
@@ -32,7 +33,7 @@ React.
 | File | Owns |
 |---|---|
 | `model.ts` | `StationState`, `initialStation`, `toData`/`toState`/`cloneState`, `LEVEL_STEPS`/`nearestLevel`, `createModule`, `addEquipment`, cell add/remove, `removeModule`, module ids, face paint/erase/fill, zone paint + `zoneRegionLabels`, facilities (`placeFacility`, `facilityPlan`, `carveFacilityOpenings`, `removeFacility`), build floors + their automatic walls (`addFloor`, `removeFloor`, `syncAutoWalls`, `wallRun`, `addWalls`, `wallColumnAt`/`wallColumnsAt`, `plannedAutoWalls`, `AUTO_FLOOR`/`AUTO_WALL`/`AUTO_WALL_H`/`WALL`), and `labStation`. |
-| `rail.ts` | Rail placement and derived screen doors: `RAIL_BED_DEPTH`, `railRect`, `defaultLine`, `isPlatformCell`, `derivePlatformEdges`, `dropDerivedEdges`, `regenerateRailEdges`, `placeRail` (dig the bed + lay the `track` module), `railModuleAt`, `railSummary`. Pure document edits. |
+| `rail.ts` | Rail placement and derived screen doors: `RAIL_BED_DEPTH`, `TUNNEL_HEADROOM`, `TUNNEL_SHELL`, `railRect`, `defaultLine`, `isPlatformCell`, `trackPieceForLine`, `makeTrack`, `derivePlatformEdges`, `dropDerivedEdges`, `regenerateRailEdges`, `trackInterferenceBlocked` / `trackClearanceBlocked` / `trackFloorMissing` / `trackBlockReason` (eligibility: nothing may share the run's space; a platform needs solid floor and open headroom), `commitTrack`, `placeTrack` (a fixed piece), `placeRail` (the legacy axis-aligned rect), `resizeTrack`, `freeTunnelEnd` / `makeTunnel` / `placeTunnel` (auto-extend a rail off the free end nearest the hovered cell; bores the wall through and raises a shell, no platform doors), `stripTunnelShell`, `railModuleAt`, `railSummary`. Pure document edits. |
 
 ## `render/` — three.js
 
@@ -60,10 +61,10 @@ React.
 
 | File | Owns |
 |---|---|
-| `store.ts` | zustand app state: the station document, active tool/brush/rotation/width/direction, view flags, metrics, and the worker plumbing (`initSim`, `rebuildSim`, `setFrameHandler`). Rail and line actions (`layRail`, `regenRail`, `refreshRailDoors`, `removeRail`, `updateRail`, `updateLine`, `addLine`), `MODULE_OPTIONS`, `FACILITY_OPTIONS`, tool predicates. |
-| `App.tsx` | Top bar, inspector (including the 线路 card), bottom metric bar, global keyboard shortcuts. |
-| `LeftRail.tsx` | The blueprint build rail: folders for tools, equipment, 轨道 (the whole rail panel — tool, direction, bound line, 重置屏蔽门), 房间 (rooms), surfaces, zones, view. |
-| `Viewport.tsx` | Owns the `SceneRenderer` lifecycle and turns pointer input into build commands (the 建造 / 墙 / 删除 / equipment / paint / zone / rail tools). The only app file that touches three directly. |
+| `store.ts` | zustand app state: the station document, active tool/brush/rotation/width/direction, view flags, metrics, and the worker plumbing (`initSim`, `rebuildSim`, `setFrameHandler`). Rail and line actions (`layTrack`, `layTunnel`, `rotateRail`, `cycleRailDir`, `setTunnelLength`, `regenRail`, `refreshRailDoors`, `removeRail`, `updateRail`, `updateLine`, `addLine`), `MODULE_OPTIONS`, `FACILITY_OPTIONS`, tool predicates. |
+| `App.tsx` | Top bar, inspector (including the 线路 card), bottom metric bar, global keyboard shortcuts, the stage hint. |
+| `LeftRail.tsx` | The blueprint build rail: folders for tools, equipment, 轨道 (the whole rail panel — the 站台 / 隧道 tools, R rotation, direction, bound line, tunnel-length slider, 重置屏蔽门), 房间 (rooms), surfaces, zones, view. |
+| `Viewport.tsx` | Owns the `SceneRenderer` lifecycle and turns pointer input into build commands (the 建造 / 墙 / 删除 / equipment / paint / zone / 站台 / 隧道 tools). The only app file that touches three directly. |
 | `ViewCube.tsx` | The orientation cube. |
 | `Lab.tsx` | The `/lab` material/renderer lab. |
 | `boot.tsx` | Lazily imported bootstrap that renders the app and starts the sim. |

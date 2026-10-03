@@ -33,6 +33,7 @@ import { gateLaneAllows } from './gates.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from './station.ts'
 import { crossingDir, ZONE_INDEX } from './zones.ts'
 import { STOCK, trainRatedCapacity, type StockClass } from './stock.ts'
+import { rotateLocal, trackFacing } from './track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from './types.ts'
 
 const STATE_ARRIVING = 0
@@ -94,11 +95,16 @@ export interface Metrics {
   stuck: number
 }
 
-/** Where a line's train appears: the platform edge it serves and its stock. */
+/** Where a line's train appears: the track it runs on and its stock. */
 interface LineAnchor {
   x: number
   y: number
   z: number
+  /** Unit run direction of the track, so a north–south line travels in y. */
+  fx: number
+  fy: number
+  /** Yaw (radians) that turns the consist's local +x onto the run axis. */
+  yaw: number
   dirSign: number
   cars: number
   stock: StockClass
@@ -518,9 +524,10 @@ export class World {
   }
 
   /**
-   * The track position a line's trains run on, derived once from its platform
-   * edge and the track bed beside it. This is the only geometry the renderer
-   * needs to draw rolling stock, so it stays a pure function of the station.
+   * The track position a line's trains run on, derived once from its track and
+   * the platform edge beside it. This is the only geometry the renderer needs
+   * to draw rolling stock, so it stays a pure function of the station. The track
+   * carries its own orientation, so a north–south line travels in y.
    */
   private computeLineAnchors(): void {
     this.lineAnchors.clear()
@@ -530,43 +537,51 @@ export class World {
       // away, even before a platform and its screen doors exist.
       const track = this.data.modules.find((m) => m.type === 'track' && m.cfg.line === line.id)
       if (!track || track.type !== 'track') continue
-      const edge = this.data.modules.find((m) => m.type === 'platform-edge' && m.cfg.line === line.id)
-      const x = edge && edge.type === 'platform-edge' ? edge.x + edge.w / 2 : track.x + track.w / 2
-      const minY = track.y
-      const maxY = track.y + (track.d ?? 1) - 1
+      const rot = track.rot ?? 0
+      const [fx, fy] = trackFacing(rot)
+      const d = track.d ?? 1
       const width = STOCK[line.stock].width
       const gap = 0.1
-      let y = (minY + maxY) / 2 + 0.5
-      // An edge tells us which side the platform is on, so clamp the consist
-      // clear of it. Without an edge the train simply runs down the bed centre.
+      // Work in the track's local frame: u runs along the bed, v across it. The
+      // bed spans v ∈ [0, d]; the platform edge (if any) sits at v = −1 or d.
+      const edge = this.data.modules.find((m) => m.type === 'platform-edge' && m.cfg.line === line.id)
+      let v = d / 2
       if (edge && edge.type === 'platform-edge') {
-        const centre = y
-        if ((minY + maxY) / 2 < edge.y) {
-          const minCentre = minY + width / 2
-          const maxCentre = edge.y - gap - width / 2
-          y = minCentre <= maxCentre ? clamp(centre, minCentre, maxCentre) : maxCentre
+        const side = edge.cfg.side
+        if (side === 'left') {
+          // Platform on the local −v side: keep clear of its track-facing edge.
+          const minCentre = gap + width / 2
+          const maxCentre = d - width / 2
+          v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : maxCentre
         } else {
-          const minCentre = edge.y + 1 + gap + width / 2
-          const maxCentre = maxY + 1 - width / 2
-          y = minCentre <= maxCentre ? clamp(centre, minCentre, maxCentre) : minCentre
+          const minCentre = width / 2
+          const maxCentre = d - gap - width / 2
+          v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : minCentre
         }
       }
+      // The run midpoint on the bed, turned into world cell coordinates.
+      const [ox, oy] = rotateLocal(rot, track.w / 2, v)
+      const x = track.x + ox
+      const y = track.y + oy
       // A train rides the rail surface: the recessed bed slab sits half a metre
       // below the platform, so the consist drops with it.
       const z = track.z + 0.5
-      const dirSign = (line.travelSign ?? 1) >= 0 ? 1 : -1
+      // The track's own 上行/下行 picks which way along the run the train moves;
+      // an unset track falls back to the line's travel sign. This is what the
+      // placement preview's direction arrows show.
+      const dirSign = track.cfg.dir ? (track.cfg.dir === 'down' ? -1 : 1) : (line.travelSign ?? 1) >= 0 ? 1 : -1
       const colour = parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0
-      this.lineAnchors.set(line.id, { x, y, z, dirSign, cars: line.cars, stock: line.stock, colour })
+      this.lineAnchors.set(line.id, { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, cars: line.cars, stock: line.stock, colour })
     }
   }
 
   /**
-   * One pose per live train, stride 8: x, y, z, cars, stock index (A/B/C),
-   * doors-open, line colour, direction. A pure function of train state, so it
-   * adds no randomness and cannot disturb §7.6 determinism.
+   * One pose per live train, stride 9: x, y, z, cars, stock index (A/B/C),
+   * doors-open, line colour, direction, yaw. A pure function of train state, so
+   * it adds no randomness and cannot disturb §7.6 determinism.
    */
   trainRenderState(): Float32Array {
-    const STRIDE = 8
+    const STRIDE = 9
     const out = new Float32Array(this.trains.length * STRIDE)
     let k = 0
     for (const train of this.trains) {
@@ -584,14 +599,15 @@ export class World {
         const p = Math.min(1, train.t / TRAIN_DEPART_S)
         offset = p * p * reach * a.dirSign
       }
-      out[k++] = a.x + offset
-      out[k++] = a.y
+      out[k++] = a.x + offset * a.fx
+      out[k++] = a.y + offset * a.fy
       out[k++] = a.z
       out[k++] = a.cars
       out[k++] = a.stock === 'A' ? 0 : a.stock === 'B' ? 1 : 2
       out[k++] = train.state === 'opening' || train.state === 'dwell' || train.state === 'closing' ? 1 : 0
       out[k++] = a.colour
       out[k++] = a.dirSign
+      out[k++] = a.yaw
     }
     return out.subarray(0, k)
   }

@@ -7,7 +7,7 @@ import { World } from '../src/sim/world.ts'
 import { referenceStation } from '../src/data/reference-station.ts'
 import { TRAIN_DOOR_TRAVEL, TRAIN_DWELL } from '../src/sim/constants.ts'
 
-const STRIDE = 8
+const STRIDE = 9
 
 test('no rolling stock before the first dispatch', () => {
   const w = new World(referenceStation(), 99)

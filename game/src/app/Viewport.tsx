@@ -48,7 +48,8 @@ import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
 import { FACILITY_OPTIONS, setFrameHandler, useStore, isFacilityBrush, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
 import type { Face, FinishId, Module } from '../sim/types.ts'
-import { railModuleAt, railRect } from '../build/rail.ts'
+import { defaultLine, freeTunnelEnd, makeTrack, makeTunnel, railModuleAt, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
+import { trackOriginForCentre } from '../sim/track.ts'
 import { ViewCube } from './ViewCube.tsx'
 
 /** The face a picked normal belongs to; rounded corners snap to the dominant axis. */
@@ -147,9 +148,6 @@ function brushColour(brush: ZoneBrush): number {
 /** Colour of the "cut an opening" right-click preview. */
 const OPENING_PREVIEW = 0x7fe4ff
 
-/** Rail bed preview tint, matching the track finish. */
-const RAIL_PREVIEW = 0x3d4a5c
-
 /** Every cell a whole-store delete would clear, for the red preview volume. */
 function facilityVolume(mod: { x: number; y: number; z: number; w?: number; h?: number }): Array<[number, number, number]> {
   const w = mod.w ?? 1
@@ -243,16 +241,6 @@ export function Viewport(): React.ReactElement {
     downTime: number
   } | null>(null)
 
-  /** The rail tool's rectangle drag: press a floor cell, drag out the bed. */
-  const railDrag = useRef<{
-    active: boolean
-    anchor: [number, number, number]
-    z: number
-    sx: number
-    sy: number
-    downTime: number
-  } | null>(null)
-
   const version = useStore((s) => s.version)
   const station = useStore((s) => s.station)
   const tool = useStore((s) => s.tool)
@@ -260,6 +248,10 @@ export function Viewport(): React.ReactElement {
   const moduleRot = useStore((s) => s.moduleRot)
   const stairWidth = useStore((s) => s.stairWidth)
   const escalatorDir = useStore((s) => s.escalatorDir)
+  const railRot = useStore((s) => s.railRot)
+  const railLineId = useStore((s) => s.railLineId)
+  const railDir = useStore((s) => s.railDir)
+  const tunnelLength = useStore((s) => s.tunnelLength)
   const activeZ = useStore((s) => s.activeZ)
   const ghostOther = useStore((s) => s.ghostOtherLevels)
   const cutaway = useStore((s) => s.cutaway)
@@ -334,12 +326,63 @@ export function Viewport(): React.ReactElement {
     scene.setModulePreview(mod, blocked)
   }
 
+  /**
+   * The fixed track piece the rail tool would drop at the hovered cell. It is
+   * sized from the bound line's consist (or a default line on a fresh station),
+   * so the ghost is the exact module the click would place — rotation and all.
+   */
+  const railPiece = (): Module | null => {
+    const st = useStore.getState()
+    const h = hoverRef.current
+    if (!h) return null
+    const line = st.station.lines.find((l) => l.id === st.railLineId) ?? st.station.lines[0] ?? defaultLine(st.railLineId || '1', st.railDir, 'third-rail')
+    const { w, d } = trackPieceForLine(line)
+    // Centre the long run on the highlighted tile, so it grows evenly both ways.
+    const [ox, oy] = trackOriginForCentre(st.railRot, h.cell[0], h.cell[1], w, d)
+    return makeTrack({ id: 'preview', lineId: line.id, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: h.cell[2], w, d })
+  }
+
+  /** Rebuild the rail hover ghost from the last hovered tile. */
+  const refreshRailPreview = (): void => {
+    const scene = sceneRef.current
+    const h = hoverRef.current
+    if (!scene || !h) return
+    const st = useStore.getState()
+    // A piece only ever stands on floor, so a non-floor centre cell shows no
+    // ghost at all (and no blue highlight) — the equipment tool's rule.
+    const mod = h.solid ? railPiece() : null
+    const blocked = !!mod && (mod.type !== 'track' || trackBlockReason(st.station, mod) !== null)
+    scene.setCursor(h.cell, h.solid && !blocked)
+    scene.setModulePreview(mod, blocked)
+  }
+
+  /**
+   * The tunnel run the tunnel tool would add: a fixed-length extension off the
+   * end of the hovered rail, along that rail's own axis. It is only valid on an
+   * existing track bed and is refused where it would collide with another.
+   */
+  const refreshTunnelPreview = (): void => {
+    const scene = sceneRef.current
+    const h = hoverRef.current
+    if (!scene || !h) return
+    const st = useStore.getState()
+    const src = railModuleAt(st.station, h.cell[0], h.cell[1], h.cell[2])
+    if (!src) {
+      scene.setCursor(null)
+      scene.setModulePreview(null)
+      return
+    }
+    const mod = makeTunnel(src, freeTunnelEnd(st.station, src, h.cell), st.tunnelLength, 'preview')
+    const blocked = trackBlockReason(st.station, mod) !== null
+    scene.setCursor(h.cell, !blocked)
+    scene.setModulePreview(mod, blocked)
+  }
+
   // A ghost belongs to a tool; leaving one must not strand a preview.
   useEffect(() => {
     hoverRef.current = null
     zoneDrag.current = null
     facilityDrag.current = null
-    railDrag.current = null
     sceneRef.current?.setGhost([], 'add')
     sceneRef.current?.setGhost([], 'remove')
     sceneRef.current?.clearFaceGhost()
@@ -353,6 +396,17 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     refreshModulePreview()
   }, [moduleRot, moduleType, stairWidth, escalatorDir])
+
+  // The same for the rail piece: R, the bound line and the direction all change
+  // the pre-rendered ghost, so rebuild it in place.
+  useEffect(() => {
+    refreshRailPreview()
+  }, [railRot, railLineId, railDir])
+
+  // The tunnel's length changes its ghost; the hovered rail does not.
+  useEffect(() => {
+    refreshTunnelPreview()
+  }, [tunnelLength])
 
   // Boot the renderer.
   useEffect(() => {
@@ -550,14 +604,28 @@ export function Viewport(): React.ReactElement {
         }
         return
       }
-      // A rail bed is a rectangle drag on the active level: press a floor cell,
-      // drag out the run (and bed width), release to dig and lay it.
+      // A track piece sits on floor like equipment: a click drops the whole
+      // pre-sized module (R turns it), a right-click removes one.
+      if (!hit.solid) return
       e.preventDefault()
-      const z = st.activeZ
-      const anchor: [number, number, number] = [hit.cell[0], hit.cell[1], z]
-      railDrag.current = { active: true, anchor, z, sx: e.clientX, sy: e.clientY, downTime: performance.now() }
-      scene.setFaceGhost([anchor], 'top', RAIL_PREVIEW)
-      scene.setCursor(anchor, true)
+      st.layTrack(hit.cell)
+      return
+    }
+    if (tool === 'tunnel') {
+      // A tunnel can only be hung off an existing rail, continuing it from one
+      // end. It never touches the platform track's own cells — the run starts
+      // where that rail stops.
+      const src =
+        railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
+        railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2])
+      if (!src) return
+      if (e.button === 2) {
+        st.removeRail(src.id)
+        st.select(null)
+        return
+      }
+      e.preventDefault()
+      st.layTunnel(src.id, hit.cell)
       return
     }
     if (tool === 'wall') {
@@ -787,20 +855,22 @@ export function Viewport(): React.ReactElement {
       return
     }
     if (st.tool === 'rail') {
-      const rd = railDrag.current
-      if (rd?.active) {
-        const target: [number, number, number] = [hit.cell[0], hit.cell[1], rd.z]
-        const r = railRect(rd.anchor, target, rd.z)
-        const cells = rectCells([r.x0, r.y0, r.z], [r.x1, r.y1, r.z], rd.z, false)
-        scene.setGhost([], 'remove')
-        scene.setFaceGhost(cells, 'top', RAIL_PREVIEW)
-        scene.setCursor(target, true)
+      // The pre-rendered piece follows the pointer exactly as equipment does.
+      hoverRef.current = { cell: hit.cell, solid: hit.solid }
+      refreshRailPreview()
+      return
+    }
+    if (st.tool === 'tunnel') {
+      // The extension hangs off the rail under the pointer; no rail, no ghost.
+      const src = railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2])
+      if (!src) {
+        hoverRef.current = null
+        scene.setCursor(null)
+        scene.setModulePreview(null)
         return
       }
-      scene.setGhost([], 'remove')
-      if (hit.solid) scene.setFaceGhost([hit.cell], 'top', RAIL_PREVIEW)
-      else scene.clearFaceGhost()
-      scene.setCursor(hit.cell, hit.solid)
+      hoverRef.current = { cell: hit.cell, solid: true }
+      refreshTunnelPreview()
       return
     }
     const c = hit.solid ? hit.place : hit.cell
@@ -835,18 +905,6 @@ export function Viewport(): React.ReactElement {
       const cut = carveFacilityOpenings(st.station, mod.id, walls)
       st.commit(cut)
       if (!cut.modules.some((m) => m.id === mod.id)) st.setNotice('房间的墙全拆光了')
-      return
-    }
-    const rd = railDrag.current
-    railDrag.current = null
-    if (rd?.active) {
-      scene?.clearFaceGhost()
-      const st = useStore.getState()
-      const hit = pickAt(e)
-      const target: [number, number, number] = hit ? [hit.cell[0], hit.cell[1], rd.z] : rd.anchor
-      const wasRect = performance.now() - rd.downTime >= LONG_PRESS_MS && isMoved(rd, e)
-      const r = railRect(rd.anchor, wasRect ? target : rd.anchor, rd.z)
-      st.layRail(r)
       return
     }
     const zd = zoneDrag.current

@@ -21,6 +21,7 @@ import {
 } from './models.ts'
 import { finishMapOf } from '../sim/finishes.ts'
 import { trackBedKeys } from '../sim/placement.ts'
+import { edgeCells } from '../sim/track.ts'
 import { OPENING_CEILING } from '../sim/openings.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
 import { stairLevels, stairTurnCells } from '../sim/stairs.ts'
@@ -636,7 +637,7 @@ export class SceneRenderer {
    * so `updateTrains` can glide it between ticks instead of teleporting.
    */
   setTrains(buffer: Float32Array): void {
-    const STRIDE = 8
+    const STRIDE = 9
     const n = Math.min(Math.floor(buffer.length / STRIDE), 64)
     for (const entry of this.trainSlots.values()) entry.active = false
     const openColours = new Set<number>()
@@ -650,12 +651,13 @@ export class SceneRenderer {
       const doorsOpen = buffer[o + 5] > 0.5
       const colour = buffer[o + 6] & 0xffffff
       const dirSign = buffer[o + 7] >= 0 ? 1 : -1
+      const yaw = buffer[o + 8]
       if (doorsOpen) openColours.add(colour)
-      const sig = `${colour}:${dirSign}:${cars}:${stockIdx}`
+      const sig = `${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}`
       let entry = this.trainSlots.get(sig)
       if (!entry) {
         const stock: StockClass = (['A', 'B', 'C'] as const)[stockIdx] ?? 'B'
-        const group = buildTrain(this.modelMats, { x, y, z, cars, stock, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign })
+        const group = buildTrain(this.modelMats, { x, y, z, cars, stock, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
         // The track surface is one above its floor block's z.
         group.userData.levelZs = [z - 1]
         group.userData.doorT = 0
@@ -812,9 +814,7 @@ export class SceneRenderer {
     for (const m of data.modules) {
       if (m.type !== 'platform-edge') continue
       const z = m.z + 1 + 0.02
-      for (let i = 0; i < m.w; i++) {
-        const x = m.x + i
-        const y = m.y
+      for (const [x, y] of edgeCells(m)) {
         if (track.has(`${x},${y - 1},${m.z}`)) quad(x, y, x + 1, y + 0.3, z)
         else if (track.has(`${x},${y + 1},${m.z}`)) quad(x, y + 0.7, x + 1, y + 1, z)
         else if (track.has(`${x - 1},${y},${m.z}`)) quad(x, y, x + 0.3, y + 1, z)
@@ -1506,7 +1506,9 @@ export class SceneRenderer {
         ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}`
         : mod && mod.type === 'escalator'
           ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}`
-          : ''
+          : mod && mod.type === 'track'
+            ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}`
+            : ''
     const key = mod ? `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}${span}:${blocked ? 'x' : '-'}` : ''
     if (key === this.previewKey) return
     this.clearModulePreview()
@@ -1536,6 +1538,9 @@ export class SceneRenderer {
         any.opacity = 0.45
         any.depthWrite = false
         any.side = THREE.DoubleSide
+        // A track bed lives *inside* the floor block until it is dug, so its
+        // ghost must ignore depth or the block hides it entirely.
+        if (mod.type === 'track') any.depthTest = false
         if (any.color) any.color = any.color.clone().lerp(tint, 0.4)
         ghostOf.set(base, ghost)
         this.previewMats.push(ghost)

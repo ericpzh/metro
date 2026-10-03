@@ -7,13 +7,14 @@ import type { Metrics } from '../sim/world.ts'
 import { DEFAULT_ZONE, type FinishId, type StationData, type Zone } from '../sim/types.ts'
 import { referenceStation, REFERENCE_BOOT } from '../data/reference-station.ts'
 import { cloneState, initialStation, LEVEL_STEPS, nearestLevel, nextEscalatorDir, removeModule, toData, toState, type StationState } from '../build/model.ts'
-import { defaultLine, dropDerivedEdges, placeRail, regenerateRailEdges, type RailRect } from '../build/rail.ts'
+import { defaultLine, dropDerivedEdges, makeTrack, placeTrack, placeTunnel, regenerateRailEdges, resizeTrack, stripTunnelShell, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
+import { trackOriginForCentre } from '../sim/track.ts'
 import { parse as parseSave, serialize as serializeSave } from '../persistence/save.ts'
 import { STAIR_WIDTH_NORMAL, nextStairWidth } from '../sim/stairs.ts'
 import type { LineDef, LineDirection } from '../sim/types.ts'
 import type { SceneStats } from '../render/scene.ts'
 
-export type Tool = 'select' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail'
+export type Tool = 'select' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
 export type PaintMode = 'single' | 'surface' | 'pick'
 
 export interface ModuleOption {
@@ -124,6 +125,10 @@ export interface AppState {
    *  line option (edited in the RHS 线路 panel), so it is not stored here. */
   railLineId: string
   railDir: LineDirection
+  /** Quarter-turn applied to the rail piece being placed (R): 0..3. */
+  railRot: number
+  /** Tunnel tool: how far the auto-extended run reaches, in metres. */
+  tunnelLength: number
   /** Transient toast line (save/load results). */
   notice: string | null
   activeZ: number
@@ -155,8 +160,16 @@ export interface AppState {
   setZoneOverlay: (on: boolean) => void
   setRailLine: (id: string) => void
   setRailDir: (dir: LineDirection) => void
-  /** Lay a rail bed (dig + track module + derived screen doors) and commit it. */
-  layRail: (rect: RailRect) => void
+  /** Turn the rail piece being placed 90° (R). */
+  rotateRail: () => void
+  /** Toggle the platform run's 上行/下行 (Tab): edits a selected platform, else the tool default. */
+  cycleRailDir: () => void
+  /** Place the fixed track piece for the bound line at a cell (dig + doors). */
+  layTrack: (at: [number, number, number]) => void
+  /** Set the tunnel run length in metres. */
+  setTunnelLength: (metres: number) => void
+  /** Extend an existing rail with a tunnel run (dig + track module, no doors). */
+  layTunnel: (sourceId: string, at?: readonly [number, number, number]) => void
   /** Re-derive a rail's screen doors after the platform floor changed. */
   regenRail: (trackId: string) => void
   /** Re-derive the selected rail's doors, or every rail's when none is selected. */
@@ -262,6 +275,8 @@ export const useStore = create<AppState>((set, get) => ({
   zoneOverlayOn: false,
   railLineId: '',
   railDir: 'up',
+  railRot: 0,
+  tunnelLength: 30,
   notice: null,
   activeZ: -8,
   ghostOtherLevels: true,
@@ -293,7 +308,18 @@ export const useStore = create<AppState>((set, get) => ({
   setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
   setRailLine: (id) => set({ railLineId: id }),
   setRailDir: (dir) => set({ railDir: dir }),
-  layRail: (rect) => {
+  rotateRail: () => set((s) => ({ railRot: (s.railRot + 3) % 4 })),
+  cycleRailDir: () => {
+    const st = get()
+    const sel = st.selected
+    const track = sel?.kind === 'module' ? st.station.modules.find((m) => m.id === sel.key) : undefined
+    if (track && track.type === 'track' && !track.cfg.tunnel) {
+      get().updateRail(track.id, { dir: (track.cfg.dir ?? 'up') === 'up' ? 'down' : 'up' })
+      return
+    }
+    set({ railDir: st.railDir === 'up' ? 'down' : 'up' })
+  },
+  layTrack: (at) => {
     const st = get()
     let station = st.station
     let lineId = st.railLineId
@@ -309,9 +335,29 @@ export const useStore = create<AppState>((set, get) => ({
       }
       set({ railLineId: lineId })
     }
-    // Power is a line option, so the track inherits the bound line's power.
-    const power = station.lines.find((l) => l.id === lineId)?.power ?? 'third-rail'
-    const next = placeRail(station, rect, { lineId, dir: st.railDir, power })
+    const line = station.lines.find((l) => l.id === lineId)
+    if (!line) return
+    // The piece is sized from the line's consist before it is placed: a
+    // car-width bed and a run the length of the whole train. Power is a line
+    // option, so the track inherits the bound line's power.
+    const { w, d } = trackPieceForLine(line)
+    const [ox, oy] = trackOriginForCentre(st.railRot, at[0], at[1], w, d)
+    // Eligibility: nothing may share the space, a platform must lie on solid
+    // floor (the bed is a full three cells wide) and may not cross a wall.
+    const candidate = makeTrack({ id: 'probe', lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d })
+    const block = trackBlockReason(station, candidate)
+    if (block) {
+      set({
+        notice:
+          block === 'interference'
+            ? '这儿有设备、房间、站台或别的轨道挡着，放不下'
+            : block === 'wall'
+              ? '轨道中间有墙，站台放不下；这里可以用隧道穿过'
+              : '站台轨道要铺在整片地面上（至少三格宽）',
+      })
+      return
+    }
+    const next = placeTrack(station, { lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d })
     if (next === station) {
       set({ notice: '这里已经有轨道了' })
       return
@@ -319,7 +365,18 @@ export const useStore = create<AppState>((set, get) => ({
     get().commit(next)
     const track = [...next.modules].reverse().find((m) => m.type === 'track')
     const derived = track ? next.modules.filter((m) => m.type === 'platform-edge' && m.cfg.from === track.id).length : 0
-    set({ notice: derived > 0 ? `轨道已铺设，自动生成 ${derived} 段站台门` : '轨道已铺设；旁边没有站台，站台门暂未生成' })
+    set({ notice: derived > 0 ? `轨道已铺设（${w} m），自动生成 ${derived} 段站台门` : `轨道已铺设（${w} m）；旁边没有站台，站台门暂未生成` })
+  },
+  setTunnelLength: (metres) => set({ tunnelLength: Math.max(1, Math.min(400, Math.round(metres))) }),
+  layTunnel: (sourceId, at) => {
+    const st = get()
+    const next = placeTunnel(st.station, sourceId, st.tunnelLength, at)
+    if (next === st.station) {
+      set({ notice: '隧道接不上去：这里被设备、房间、站台或别的轨道挡住了' })
+      return
+    }
+    get().commit(next)
+    set({ notice: `隧道已接通（${st.tunnelLength} m）` })
   },
   regenRail: (trackId) => {
     const next = regenerateRailEdges(get().station, trackId)
@@ -347,7 +404,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
   removeRail: (trackId) => {
     const cleaned = dropDerivedEdges(get().station, trackId)
-    get().commit(removeModule(cleaned, trackId))
+    // A tunnel takes the shell it raised with it; a platform has none.
+    const without = stripTunnelShell(removeModule(cleaned, trackId), trackId)
+    get().commit(without)
     set({ notice: '轨道已拆除' })
   },
   updateRail: (trackId, patch) => {
@@ -369,7 +428,22 @@ export const useStore = create<AppState>((set, get) => ({
       patch.power !== undefined
         ? st.station.modules.map((m) => (m.type === 'track' && m.cfg.line === lineId ? { ...m, cfg: { ...m.cfg, power: patch.power as 'third-rail' | 'catenary' } } : m))
         : st.station.modules
-    get().commit({ ...st.station, lines, modules })
+    let station = { ...st.station, lines, modules }
+    // A platform rail is sized from its line's consist, so a stock/cars edit
+    // re-cuts each of that line's platform tracks to the new run length (and
+    // re-derives its screen doors). A tunnel is hand-sized, so it is left alone.
+    if (patch.stock !== undefined || patch.cars !== undefined) {
+      const line = lines.find((l) => l.id === lineId)
+      if (line) {
+        const { w } = trackPieceForLine(line)
+        const ids = station.modules.filter((m) => m.type === 'track' && m.cfg.line === lineId && !m.cfg.tunnel).map((m) => m.id)
+        for (const id of ids) {
+          const track = station.modules.find((m) => m.id === id)
+          if (track && track.type === 'track') station = resizeTrack(station, track, w)
+        }
+      }
+    }
+    get().commit(station)
   },
   addLine: () => {
     const st = get()

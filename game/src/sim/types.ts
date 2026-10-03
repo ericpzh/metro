@@ -161,7 +161,8 @@ export type Module =
       w: number
       /** Bed depth in cells across the run (+y). Defaults to 1. */
       d?: number
-      cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection }
+      /** A pure tunnel run: an extension of a line's track, never platform doors. */
+      cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean }
     })
 
 export type ModuleType = Module['type']
