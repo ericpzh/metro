@@ -4,6 +4,11 @@
 // neighbour touches; a dead end caps to its far edge, and a lone panel caps both
 // ends of its rotation axis. A junction never caps, so nothing overhangs past an
 // L, T or + turn — which is what makes a clean 90° corner.
+//
+// A neighbour may also be a 闸机, but only on the side its machine body stands on
+// (`gateSolidFaces` in `sim/gates.ts`): that is the face a run butts into, while
+// the lane side is a doorway the run must end at. The caller resolves that — the
+// booleans here are just "this side holds something a panel may meet".
 
 import { stairFlights } from './stairs.ts'
 import type { Module } from './types.ts'

@@ -129,7 +129,10 @@ motifs are reinterpreted in `tools/iso.mjs`.
 
 The same A / B / C cars as §1.5, drawn the way the game builds them: a rounded-roof cross-section
 extruded along the run, carrying the window band, the door leaves, the livery band, the bogies, the
-roof equipment and the leading cab. The consist panel and the platform interface put the car against
+roof equipment and a cab at **each** end. Both cabs are the same body — the dark face mask with its
+windscreen, crew-door windows and 广州地铁 mark, the twin lamp clusters and corner marker bars, the cream
+bumper band and the coupler — and differ only in their lamps: white at the end that leads, red at the
+end that trails. The consist panel and the platform interface put the car against
 the screen doors and the third rail, and the power-pickup panel sets catenary against third rail.
 
 ### 1.13 Platform doors and flow
@@ -138,8 +141,11 @@ the screen doors and the third rail, and the power-pickup panel sets catenary ag
 
 The car-door cadence is authoritative. One function returns the door centres, and the PSD openings,
 the queue lanes and the boarding and alighting paths are all placed from that same list, so the
-screen doors can never drift from the doors they are meant to meet. The sheet is animated: a 20 s
-enter / dock / open / board / close / leave loop.
+screen doors can never drift from the doors they are meant to meet. Inside a car the doors sit on
+one uniform pitch, held clear of both car ends (`DOOR_END_INSET`, the cab or gangway the end keeps —
+about 2.8 m, as on the real cars), so a three-door L car spreads its outer doors to the ends rather
+than bunching them in the middle, and the screen run repeats that same cadence. The sheet is
+animated: a 20 s enter / dock / open / board / close / leave loop.
 
 ### 1.14 Two lines, two depths
 
@@ -315,6 +321,10 @@ top of any family and never break a merge.
 * `左键` paints, `右键` erases (reverts to family default) in both tools — see §9.5 for the
   full mouse table. `取色` (`I`) picks the clicked face's texture as the active brush. Both
   tools preview as ghosts, are undoable, and mark the save dirty.
+* The `N`/`M` choice **sticks**. It is a setting of the 材质 folder, not of a texture: choosing a
+  finish (or a fresh 搪瓷板 colour) never changes it, so it is still there when the player comes back
+  from another folder on the left rail. `取色` only borrows the brush — it hands the brush back in
+  whichever of the two modes it was entered with.
 
 ### 4.4 Levels and depth
 
@@ -382,11 +392,36 @@ modules standing on it, with a confirm if §9.3 confirmations are on.
 | Elevator / lift | 2 × 2 | 15 pax/trip, ~40 s cycle | the only step-free path; agents that need it will wait rather than climb |
 | Ramp | 2 × n | 30 pax/min per metre | accessible, slow |
 
+Two runs of one storey may stand **flush** in adjacent cells. Every run is built to fit inside one
+tile — an escalator's balustrades, glass and handrails, and a *narrow* staircase's treads and rails,
+all inside its own 1 m cell — so a pair simply sits side by side, each carrying its own balustrade,
+and a bank of runs reads as one group with no slot in the middle. It also means a wall, a fence or a
+gate may be built right up against a run.
+
+A **wider staircase is lanes**: one, two or three parallel flights, each one escalator band (0.7 m),
+each in its own cell — so a 2-lane stair is two 0.7 m lanes in two blocks, a 3-lane stair in three.
+Neighbouring lanes always **join their steps** (each flight's treads run out to the cell edge, so
+there is no gap between them). Whether they are *one* staircase is a property of how they were
+placed: the lanes of one wide stair share a flight token, and along a seam between lanes that share
+it there is **no handrail** — the flight is railed only at its outer edges, and the crowd may step
+between lanes at the landings. Two 0.7 m stairs placed separately keep both of their own railings
+(their steps still meet, but the rails between them are a barrier), and a lane set against an
+escalator keeps its balustrade and does not reach under it. The lane
+count follows the pointer: dropped beside a stair on its left, the flight takes the cells on
+its right, and the other way round. A stair that is a single piece wider than a cell — a *turning*
+stair, whose flights cannot share their landings lane by lane, or a station saved before lanes — is
+the exception: its body crosses into the next cell, so it needs a bay of its own.
+
+Travel direction is
+irrelevant to standing flush (an up and a down escalator are the usual bank); a run in a column
+another run already occupies is still refused, so a second escalator can never be dropped immediately
+below a first.
+
 ### 5.2 Fare control and service
 
 | Module | Footprint | Capacity / rate | Notes |
 |---|---|---|---|
-| Turnstile gate | 1 × 2 | 25 in / 25 out per min | bidirectional configurable; queue anchor side selectable |
+| Turnstile gate | 1 × 2 | 25 in / 25 out per min | bidirectional configurable; queue anchor side selectable; a 1250 mm machine — 957 mm shoulder, a head tapering at 115° so its top is shorter than its base — whose piece cycles with `Tab`: **lane** (default) is the working turnstile, machine body on one half of the block with the lane and its leaf on the other, so a 围栏 run butts the body's solid side and ends at the doorway on the lane side, and **fence** keeps that body with fence on the other half, closing a run rather than passing anyone. Which hand the lane is on is not a setting — `R` turns the piece |
 | Accessible gate | 2 × 2 | 18 pax/min | luggage, wheelchairs, strollers; slower because the users are |
 | Ticket machine (TVM) | 1 × 1 | **1.5 tickets/min**, 4 queuing | a real transaction is 30–60 s. This is the queue that catches new players out |
 | Add-value machine | 1 × 1 | 1.8 pax/min | faster than a TVM: no ticket issue |
@@ -438,6 +473,13 @@ exit = {
   exit, so an exit that cannot discharge its demand is visible as a gap between the lines.
 * Closing an exit (either rate → 0, or `open: false`) re-routes agents through the graph —
   no teleporting. The transfer/wait charts move immediately, which is the point.
+
+**Geometry.** A surface exit is a head-house over runs that stand **side by side**: one run column
+per bay, with one full block of floor at each end — so a 单向 / 双向 / 三向 head-house is 3 / 4 / 5
+blocks across. Each run owns the block it lands in (its wellway opens exactly that block, wider only
+for a piece wider than a block), which keeps the floor pad whole beside it. The runs are entered at
+the street doorway and descend one storey to the hall below; a run dropped inside the head-house
+snaps to the column under the pointer, so they cannot end up a bay apart.
 
 ### 5.7 Variable-area shops / cafes / buildings (可变面积)
 
@@ -706,6 +748,11 @@ dwellDualSide = max(dwell(leftEdge), dwell(rightEdge))   // Spanish solution (§
 ```
 
 * Boarding only starts after the last passenger of a preceding wave has cleared the door zone.
+* **A door only opens where a screen door meets it.** The consist's two door banks open
+  independently, and only a bank whose berth carries a `platform-edge` run with screen doors (§5.3,
+  §5.9) is commanded open — the tunnel-wall side stays shut however long the train stands, and a
+  rail with no platform beside it opens nothing. The drawn leaves follow the same rule, so what the
+  player sees is exactly what the graph serves.
 * A train that cannot finish boarding inside the clamp leaves people behind. That is the core
   "pressure" readout of the game: a platform that slowly fills over the morning peak.
 * Agents decide to board when a train for their line is at the platform *and* the door they are
@@ -1069,8 +1116,20 @@ grazing horizon. Nothing snaps unless you ask it to. Wheel dollies; `Shift` + dr
 **A nav cube, like a CAD package.** A small cube in the corner carries `TOP`, `FRONT` and `RIGHT`
 labels; drag any face, edge or corner to snap the camera to that orientation. Presets on keys:
 `1` isometric, `2` plan, `3` last custom angle, `4` flat X-Z elevation, `5` flat Y-Z elevation.
-`O` toggles orthographic ↔ perspective, `F` frames the selection, `X` turns other levels into
-ghosts, `C` cuts away the near quarter.
+`O` toggles orthographic ↔ perspective, `F` frames the selection, `C` cuts away the near quarter.
+
+**The level slice, and it means one thing at every angle.** `X` (显示其他层, on by default) is the
+level slice.
+Off, the storey being edited is the *only* thing drawn — its blocks, its equipment, its crowd and
+its trains — in the plan, in an elevation and in a corner isometric alike; nothing from another
+storey can leak in. On, the active storey stays crisp and every other storey is drawn as a 35%
+ghost *where it does not block the depth you are working on*: the ghosts are translucent and keep
+their true depth, so a storey the active one covers is simply behind it. `H` (隐藏天花板, on by
+default) is the one thing above the active storey that always draws: a slab one storey up is that
+room's own ceiling, the nearest thing to a top-down camera, so it is hidden — but only when
+something stands under it. A plate with nothing beneath it (the street outside the station, a
+canopy on its own columns) stays, so the model is never guillotined. A face or corner click on the
+nav cube only ever moves the camera; it never changes the slice.
 
 **The flat views are the section drawings.** In an orthographic X-Z elevation you are looking at
 the station edge-on: level stacking, headroom, shaft depth and the vertical circulation all become
@@ -1112,7 +1171,8 @@ Simplified Chinese. Settings are **global** (per browser, not per station) and p
 |---|---|---|---|---|
 | 显示 | 画质 | 流畅 / 标准 / 精细 | 标准 | controls shadows, contact blobs, decal density |
 | 显示 | 人群数量上限 | 1000 / 2000 / 3000 | 3000 | cap for crowd sprites; sim still tracks all agents, extras are hidden worst-first |
-| 显示 | 非编辑层显示 | 幽灵 / 隐藏 | 幽灵 | what `X` toggles between; ghost = 35% + desaturate |
+| 显示 | 非编辑层显示 | 幽灵 / 隐藏 | 幽灵 | what `X` toggles between: 隐藏 draws the edited storey alone at every angle; 幽灵 adds the other storeys at 35% + desaturate, where they do not block it |
+| 显示 | 自动隐藏天花板 | 开 / 关 | 开 | what `H` toggles: a storey above the edited one keeps only the plates with nothing under them, so a room never wears its own ceiling |
 | 显示 | 色盲安全配色 | 开 / 关 | 关 | swaps LOS heat palette to blue-orange; crowd hues never match line colours either way |
 | 镜头 | 视角 | 透视 / 正交 | 透视 | same as `O`; flat presets force orthographic while active |
 | 镜头 | 环绕灵敏度 | 0.5–2.0 | 1.0 | orbit + pan speed multiplier |
@@ -1130,7 +1190,8 @@ Rules:
 * Settings page shows the save-format version and game version at the bottom
   (`存档格式 v1 · 游戏版本 x.y.z`) so bug reports can quote them with the seed (§7.6).
 * Keyboard shortcuts are listed on the page but not remappable in v1
-  (`V/B/N/M/J` tools, `1–5` views, `Q/E` levels, `X` ghost, `C` cutaway, `O` ortho, `F` frame,
+  (`V/B/N/M/J` tools, `1–5` views, `Q/E` levels, `X` level slice, `H` ceiling hiding, `C` cutaway,
+  `O` ortho, `F` frame,
   `R` rotate, `G` work-plane, `Del` delete, `,` settings). Full table in §9.5.
 
 ### 9.4 Save / load (存档 / 读档) — local file snapshot
@@ -1206,7 +1267,19 @@ Tools (left rail). `左键` always applies, `右键` always removes — in every
 | 4 | **Paint / erase one block face** | `N` 单块: `左键` paints the clicked face with the active texture of its family (地面/天花/墙面/轨道, §4.3). `右键` reverts that face to the family default. `I` eyedrops the hovered face into the brush. Works on block faces only — clicking void just moves the pin. |
 | 5 | **Paint / erase a continuous surface** | `M` 整面: `左键` flood-fills the connected same-family region on that plane (same level + orientation) with the active texture. `右键` reverts the whole connected region to default. `Shift+左键` fills only the box-dragged sub-rectangle instead of the full flood — the bounded variant for one room out of a large floor. |
 | 6 | **Place a module on top of / on wall / on ceiling** | `J` 设备: pick the module in the catalogue, then `左键` click the host face — top face = floor-standing (gate, TVM, escalator foot), side face = wall-mounted (signage, billboard, swing door), bottom face = ceiling-mounted (light well, hanging sign). Fixed modules place on click; **variable-area shops/cafes/restrooms (§5.7) place on `左键` drag** — rectangle ≥ min, ghost shows `宽×深·面积·人/分`. Ghost shows footprint + validity (red = blocked / no cover / wrong zone). `R` rotates 90°, `右键` click a module deletes it (block underneath stays). Drag places repeats along a line (queue rails, PSD runs). |
-| 7 | **Camera: orbit / zoom / snap** | Orbit: `中键` drag (or `右键` drag while in `V`? no — camera never steals `右键` from tools; use `中键`). Pan: `Shift+左键` drag in any tool, or `中键+Shift`. Zoom: wheel to cursor (direction per §9.3 反转缩放); `F` frames selection / work-plane pin. Snap: nav-cube faces + keys `1` 等距 / `2` 俯视 / `3` 自定义 / `4` X-Z正立面 / `5` Y-Z侧立面; `O` toggles 透视/正交 (flat presets force ortho while active); `X` ghost levels; `C` cutaway near quarter; `Q`/`E` level step. |
+| 7 | **Camera: orbit / zoom / snap** | Orbit: `中键` drag (or `右键` drag while in `V`? no — camera never steals `右键` from tools; use `中键`). Pan: `Shift+左键` drag in any tool, or `中键+Shift`. Zoom: wheel to cursor (direction per §9.3 反转缩放); `F` frames selection / work-plane pin. Snap: nav-cube faces + keys `1` 等距 / `2` 俯视 / `3` 自定义 / `4` X-Z正立面 / `5` Y-Z侧立面; `O` toggles 透视/正交 (flat presets force ortho while active); `X` slices to the edited level; `C` cutaway near quarter; `Q`/`E` level step. |
+
+**拆除 (`B` 删除).** One press removes the block or the whole piece under the pointer; holding the
+button and dragging keeps collecting. Across bare floor the drag draws the line of blocks the
+release will dig; across placed pieces it sweeps up **same-type** neighbours — every 设备 / 装饰
+piece the pointer *passes through* lights up as it is crossed (the path between two pointer events
+is sampled, so a fast drag does not skip one) and the release bulldozes the whole run in **one**
+commit, so a single `Ctrl+Z` puts it all back. The type must match exactly: a 2 m 座椅 does not
+take the 1 m ones and an 闸机 does not take the 售票机 at the end of its row, but rotation and
+`自动` origin are irrelevant — a gate line facing both ways is one row. A 围栏 keeps its own
+straight-run drag, and rooms, rails, 出入口, 楼梯 / 扶梯 / 电梯 and 站台门 are never swept: each is
+one piece with its own teardown. `Esc` cancels the sweep (and a right-press during a left drag
+cancels it too) without deleting anything.
 
 Conflict rules: camera never uses `左键` alone (that belongs to tools) and tools never use
 `中键` or wheel-click. `Esc` cancels the current drag first, then the selection. Every action

@@ -6,14 +6,15 @@ import { zoneIndex } from '../sim/zones.ts'
 import { carveRampOpenings } from '../sim/openings.ts'
 import { isTrackCell, reservedOpening } from '../sim/placement.ts'
 import { LEVEL_STEPS } from '../sim/constants.ts'
-import { BILLBOARD_SPECS } from '../sim/billboards.ts'
+import { BILLBOARD_SPECS, billboardSpec, postersFor } from '../sim/billboards.ts'
 import { benchSpec } from '../sim/benches.ts'
 import { edgeCells, trackCells, trackOriginForCentre } from '../sim/track.ts'
 import { exitFloorAt } from '../sim/exits.ts'
 import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
 import { liftExtendedDown, liftExtendedUp, liftModule } from '../sim/lifts.ts'
-import { STAIR_WIDTH_NORMAL, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
-import { DEFAULT_ZONE, type BenchVariant, type BillboardVariant, type Cell, type ExitBays, type Face, type FinishId, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
+import { STAIR_WIDTH_NARROW, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
+import { makeSignBoards, settleSignBoards, signBoardsOf, type SignBoardsDraft, type SignLineSource } from '../sim/sign.ts'
+import { DEFAULT_ZONE, type BenchVariant, type BillboardVariant, type Cell, type ExitBays, type Face, type FinishId, type GateDoor, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
 
 export function cellKey(x: number, y: number, z: number): string {
@@ -52,14 +53,32 @@ export const GROUND_Z = 0
 export { ESCALATOR_RISE, ESCALATOR_RUN, nextEscalatorDir } from '../sim/escalators.ts'
 
 /**
+ * Where a 指示牌's composed layout reads its lines from: the station document
+ * itself, or just its `lines` array. The placement tool holds the whole document
+ * and the model tests hold an array, and neither should have to wrap the other.
+ */
+export type SignLineInput = StationData | ReadonlyArray<StationData['lines'][number]>
+
+function linesOf(source: SignLineInput): SignLineSource {
+  return Array.isArray(source) ? { lines: source } : (source as StationData)
+}/**
  * Build a fresh module payload for one cell. Shared by the placement tool and
  * the on-hover ghost, so the preview is the exact module the click would add.
- * `width` is the stair width and `dir` the escalator direction (each cycled with
- * Tab); other types ignore them. Returns null for a type the placement UI cannot
- * create yet.
+ * `width` is the stair width — omitted, a stair is the narrow piece, exactly the
+ * escalator's step band — `dir` the escalator direction and `door` the 闸机 piece
+ * (a working lane or the fence machine, toggled with Tab); other types ignore
+ * them. Returns null for a type the placement UI cannot create yet.
  *
  * A stair or escalator is a fixed-length piece: its base is the cell, and it
  * climbs one storey `STAIR_RUN` cells along the placement rotation.
+ *
+ * `lines` and `sign` are only read by a 指示牌. A fresh board is composed from the
+ * station's own lines (`defaultSignLayout`) so the ghost a player hovers already
+ * carries their 1号线的 colour and number instead of a placeholder; `sign` is the
+ * **current** pair of boards (`store.currentBoards`), and a placed sign carries a
+ * copy of it, so the player composes once and hangs as many signs as they like. A
+ * 指示牌 placed without a `sign` still gets a readable default front — and, as ever,
+ * an empty back.
  */
 export function createModule(
   type: string,
@@ -70,10 +89,13 @@ export function createModule(
   rot = 0,
   width?: number,
   dir: EscalatorDir = 'up',
+  door: GateDoor = 'lane',
+  lines: SignLineInput = [],
+  sign?: SignBoardsDraft,
 ): Module | null {
   switch (type) {
     case 'gate':
-      return { id, type: 'gate', x, y, z, rot, cfg: { dir: 'both' } }
+      return { id, type: 'gate', x, y, z, rot, cfg: { dir: 'both', door } }
     case 'fence':
       return { id, type: 'fence', x, y, z, rot, cfg: {} }
     case 'tvm':
@@ -103,12 +125,16 @@ export function createModule(
       return { id, type: 'sink', x, y, z, rot, cfg: {} }
     case 'billboard':
     case 'billboard-wide':
+    case 'billboard-standard':
+    case 'billboard-large':
+    case 'billboard-panorama':
     case 'billboard-portrait':
-    case 'billboard-square':
-    case 'billboard-large': {
+    case 'billboard-square': {
       // The palette id names the variant; a bare `billboard` (an old caller)
       // falls back to the small landscape. The run is centred on the hovered
       // cell like a track piece, so a two-cell banner grows evenly either side.
+      // No poster yet: `randomAdSlug` rolls one when the piece is committed, so
+      // the hover ghost does not re-roll its artwork on every pointer move.
       const variant: BillboardVariant = type === 'billboard' ? 'wide' : (type.slice('billboard-'.length) as BillboardVariant)
       const spec = BILLBOARD_SPECS[variant] ?? BILLBOARD_SPECS.wide
       const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1)
@@ -116,8 +142,17 @@ export function createModule(
     }
     case 'tv':
       return { id, type: 'tv', x, y, z, rot, cfg: {} }
-    case 'sign':
-      return { id, type: 'sign', x, y, z, rot, cfg: {} }
+    case 'sign': {
+      // A board is born with a composed **front** (§5.8), not a blank face: the
+      // station's first line is already on it, so a fresh sign is readable before
+      // the player has opened its editor. The current pair, when there is one, is
+      // what the piece actually hangs — copied, because the next sign must be free
+      // to be composed differently without reprinting this one. The **back** is
+      // empty unless the player has composed one: a sign is one-sided until it is
+      // said otherwise.
+      const boards = sign ? settleSignBoards(sign, linesOf(lines)) : makeSignBoards(undefined, linesOf(lines))
+      return { id, type: 'sign', x, y, z, rot, cfg: { front: boards.front.map((c) => ({ ...c })), back: boards.back.map((c) => ({ ...c })) } }
+    }
     case 'exit':
     case 'exit-covered-1':
     case 'exit-covered-2':
@@ -160,7 +195,7 @@ export function createModule(
         rot,
         from: flights[0].from,
         to: flights[flights.length - 1].to,
-        cfg: { width: width ?? STAIR_WIDTH_NORMAL, style, flights },
+        cfg: { width: width ?? STAIR_WIDTH_NARROW, style, flights },
       }
     }
     case 'stair-straight':
@@ -178,12 +213,96 @@ export function createModule(
         rot,
         from: flights[0].from,
         to: flights[flights.length - 1].to,
-        cfg: { width: width ?? STAIR_WIDTH_NORMAL, style, flights },
+        cfg: { width: width ?? STAIR_WIDTH_NARROW, style, flights },
       }
     }
     default:
       return null
   }
+}
+
+/**
+ * Roll the poster a freshly placed ad screen prints. Deterministic in the module
+ * id — `nextModuleId` never reuses one — so the same click in the same station
+ * always hangs the same campaign, and an undo/redo pair does not reshuffle the
+ * wall. The candidates are filtered to the panel's silhouette, so a landscape
+ * panel is never asked to print a portrait poster.
+ */
+export function randomAdSlug(mod: Module): string {
+  const shape = mod.type === 'billboard' ? billboardSpec(mod.cfg.variant).shape : 'landscape'
+  const choices = postersFor(shape)
+  let hash = 2166136261
+  for (let i = 0; i < mod.id.length; i++) {
+    hash ^= mod.id.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return choices[(hash >>> 0) % choices.length].slug
+}
+
+/** True for an ad screen (广告牌 / 电视) that has no poster yet. */
+function needsPoster(mod: Module): boolean {
+  return (mod.type === 'billboard' || mod.type === 'tv') && mod.cfg.poster === undefined
+}
+
+/**
+ * Give every ad screen without one its placed poster: 广告牌 and 电视 print one
+ * real campaign each, rolled when the piece is committed and then frozen. A
+ * legacy save (or the demo) predates `cfg.poster` and is filled in here rather
+ * than at draw time, so the poster is part of the document — it survives a save,
+ * a reload and every later frame unchanged.
+ *
+ * The billboard and TV arms are written out separately because each has its own
+ * `cfg` shape; a shared spread would have to describe both at once.
+ */
+function assignAdPosters(modules: readonly Module[]): Module[] {
+  let changed = false
+  const out = modules.map((mod): Module => {
+    if (!needsPoster(mod)) return mod
+    changed = true
+    const poster = randomAdSlug(mod)
+    if (mod.type === 'billboard') return { ...mod, cfg: { ...mod.cfg, poster } }
+    if (mod.type === 'tv') return { ...mod, cfg: { ...mod.cfg, poster } }
+    return mod
+  })
+  return changed ? out : [...modules]
+}
+
+/**
+ * Every 指示牌's two boards, repaired on the way in (§5.8).
+ *
+ * A sign saved before the board was a document carries no components at all; one
+ * saved by an older build of the editor may carry a scale or a centre the panel can
+ * no longer hold; and one saved before a sign had a **back** carries its two faces
+ * folded into one list with a `side` on each mark. All three are fixed here, once,
+ * rather than at draw time — the same reason `assignAdPosters` rolls a poster on
+ * load instead of per frame. A sign that already has a usable pair is returned
+ * untouched, so this is not a per-frame rewrite of the document.
+ *
+ * A component that names a line the station no longer has is **left alone**: the
+ * shield prints the neutral plate until that line comes back, which is better
+ * than silently rebinding a sign to another line.
+ */
+function ensureSignLayouts(modules: readonly Module[], lines: SignLineSource): Module[] {
+  let changed = false
+  const out = modules.map((mod): Module => {
+    if (mod.type !== 'sign') return mod
+    const boards = signBoardsOf(mod.cfg, lines)
+    const same =
+      mod.cfg.components === undefined &&
+      mod.cfg.front !== undefined &&
+      mod.cfg.back !== undefined &&
+      mod.cfg.front.length === boards.front.length &&
+      mod.cfg.back.length === boards.back.length &&
+      mod.cfg.front.every((c, i) => c === boards.front[i]) &&
+      mod.cfg.back.every((c, i) => c === boards.back[i])
+    if (same) return mod
+    changed = true
+    // The legacy `components` list is dropped, not carried along: the pair now says
+    // everything it said, and leaving it in place would let a later write put the
+    // old single board back on the front.
+    return { ...mod, cfg: { front: boards.front, back: boards.back } }
+  })
+  return changed ? out : [...modules]
 }
 
 /**
@@ -194,9 +313,12 @@ export function createModule(
  * a carve left a hole, so the graph keeps the ramp's edge nodes. A ramp
  * (escalator, stair, lift) then carves the slab it climbs through; flat
  * equipment is a plain append.
+ *
+ * The append is also where a 装饰 screen's poster is rolled (`assignAdPosters`),
+ * so one click hangs one campaign for good.
  */
 export function addEquipment(state: StationState, mod: Module): StationState {
-  const modules = [...state.modules, mod]
+  const modules = assignAdPosters([...state.modules, mod])
   const isRamp = mod.type === 'escalator' || mod.type === 'stair' || mod.type === 'lift'
   if (!isRamp) return { ...state, modules }
   const cells = state.cells.map(cloneCell)
@@ -258,7 +380,10 @@ export function toState(data: StationData): StationState {
     name: data.name,
     seed: data.seed,
     cells: data.cells.map(cloneCell),
-    modules: data.modules.map((m) => ({ ...m })),
+    // A save written before ad screens carried a poster (or the demo) gets one
+    // printed now, so a loaded station shows the same campaign on every frame
+    // instead of re-rolling it at draw time.
+    modules: ensureSignLayouts(assignAdPosters(data.modules), data).map((m) => ({ ...m })),
     // Older saves predate the per-line direction termini; default them to ''
     // so the screen header falls back to the direction word instead of undefined.
     lines: data.lines.map((l) => ({ ...l, upTerminus: l.upTerminus ?? '', downTerminus: l.downTerminus ?? '' })),
@@ -729,6 +854,175 @@ export function wallRun(cells: Array<[number, number, number]>): Array<[number, 
   const out: Array<[number, number, number]> = []
   for (const [x, y, z] of cells) for (let dz = 0; dz < AUTO_WALL_H; dz++) out.push([x, y, z + dz])
   return out
+}
+
+/* ------------------------------------------------------- 墙-tool smart snapping */
+
+/**
+ * A horizontal direction, as a step in cell coordinates. `s` is `+y` because
+ * `+y` is "north" in this codebase's plan (the axes note in the repo guide:
+ * `n` is `+y`, `e` is `+x`).
+ */
+type WallDir = 'n' | 'e' | 's' | 'w'
+
+/** The four directions, in the order the 墙 tool cycles them with **R**. */
+export const WALL_DIRS: readonly WallDir[] = ['n', 'e', 's', 'w']
+
+const WALL_STEPS: Record<WallDir, readonly [number, number]> = {
+  n: [0, 1],
+  e: [1, 0],
+  s: [0, -1],
+  w: [-1, 0],
+}
+
+/** The 墙 tool's arrow id ↔ direction, the same quarter-turns `rot` uses. */
+const WALL_ROT_DIR: readonly WallDir[] = ['s', 'w', 'n', 'e']
+
+/**
+ * The direction a pointer offset points at, snapped to the nearer of the two
+ * axes it spans. The 墙 tool works in whole cells, so "which edge is the pointer
+ * beyond" is a quadrant test, not a distance: a purely diagonal offset resolves
+ * to `dx >= dy` (east or west) by the tie rule below.
+ */
+export function wallPointerDir(dx: number, dy: number): WallDir {
+  const ex = Math.abs(dx)
+  const ey = Math.abs(dy)
+  if (ex === 0 && ey === 0) return 's' // dead centre: the tool's own default face
+  if (ex >= ey) return dx >= 0 ? 'e' : 'w'
+  return dy >= 0 ? 'n' : 's'
+}
+
+/**
+ * The quarter-turn that faces `dir` — the *output* of a snap, never an input to
+ * one. A snapped wall face is turned back into the placement rotation so the
+ * rest of the tool (and anything mounted on the wall) reads one convention.
+ */
+export function wallDirRot(dir: WallDir): number {
+  return WALL_ROT_DIR.indexOf(dir)
+}
+
+/** True when no wall course of either kind stands at `(x, y, z)`. */
+function wallAbsent(cells: readonly Cell[], x: number, y: number, z: number): boolean {
+  return !cells.some((c) => c.x === x && c.y === y && c.z === z && isWallCell(c))
+}
+
+/** True when a solid floor block stands at `(x, y, z)`. */
+function wallFloor(cells: readonly Cell[], x: number, y: number, z: number): boolean {
+  return cells.some((c) => c.x === x && c.y === y && c.z === z && c.fill === 'solid')
+}
+
+/**
+ * The directions in which `(x, y, z)` faces open space — the edges the 墙 tool
+ * walls, and the same edge the 地基 auto-wall ring picks (`syncAutoWalls`).
+ *
+ * An edge is open when the neighbour carries **no wall** and **no floor** on
+ * this storey. The wall half is what stops the tool offering a side that already
+ * carries a wall; the floor half is what makes "buried" mean anything — without
+ * it a cell in the middle of a floor would read as open on all four sides,
+ * because the cells around it are floor rather than wall, and it would never
+ * step out to the edge that actually wants a wall.
+ */
+function wallVoidEdges(cells: readonly Cell[], x: number, y: number, z: number): WallDir[] {
+  const out: WallDir[] = []
+  for (const d of WALL_DIRS) {
+    const [dx, dy] = WALL_STEPS[d]
+    const nx = x + dx
+    const ny = y + dy
+    if (wallAbsent(cells, nx, ny, z) && !wallFloor(cells, nx, ny, z)) out.push(d)
+  }
+  return out
+}
+
+/**
+ * Where the 墙 tool stands the next column, and which of its wall faces it
+ * takes. This is the tool's smart snap (§5.1).
+ *
+ * A wall is a full-height 1 m course, so a snap cannot slide a block *within* a
+ * cell the way a fence panel or a billboard slides. It picks the cell and the
+ * face instead, by these rules:
+ *
+ *  1. **A clean edge wins.** A floor cell with exactly one open edge is walled
+ *     where it stands, facing that edge — the ordinary case, and the whole outer
+ *     ring of a drawn patch.
+ *  2. **A corner is a choice, and R is that choice.** A cell open on two or more
+ *     sides stays put, and the chosen direction decides which face the column
+ *     takes. **R** steps through the candidates best-first, so at a corner it
+ *     picks which wall the course continues.
+ *  3. **Only a cell with no edge of its own moves.** A cell buried inside a
+ *     floor is closed on every side, so the column steps to the nearest
+ *     neighbour that does face open space, faced back toward the hovered cell.
+ *
+ * "Open" is `wallVoidEdges`: no wall **and** no floor in the neighbour.
+ *
+ * **Orientation is never an input.** The snap is a pure function of the geometry
+ * around the hovered cell, so the column lands the same way whatever the player
+ * last pressed R for. R only steps through the candidates the geometry already
+ * produced — it can never change *where* the wall goes, only which of two equally
+ * valid faces at a corner is taken. Treating a placement rotation as the
+ * starting point (the way a fence panel or a billboard takes `rot`) is exactly
+ * the trap: it makes the player turn the piece before the tool will agree with
+ * them, instead of the tool reading the wall and turning the piece itself.
+ *
+ * `cells` is the station's cell list, `cell` the hovered base cell, `z` the
+ * storey the wall rises from, and `pointer` the pointer's world `[x, y]` when
+ * the caller has one — it only breaks a tie, so a rule still holds without it.
+ * `cycle` is how many times **R** has stepped the candidate list; it wraps, so
+ * the choice is always valid.
+ */
+export interface WallSnap {
+  /** The base cell the column rises from. */
+  x: number
+  y: number
+  z: number
+  /** The face the column shows to open space — the candidate `cycle` picked. */
+  dir: WallDir
+  /** Every direction **R** may choose, best-first. */
+  dirs: WallDir[]
+}
+
+export function wallSnap(
+  cells: readonly Cell[],
+  cell: readonly [number, number, number],
+  pointer: readonly [number, number] | null = null,
+  cycle = 0,
+): WallSnap {
+  const [ax, ay, az] = cell
+  const auto: WallDir | null = pointer === null ? null : wallPointerDir(pointer[0] - (ax + 0.5), pointer[1] - (ay + 0.5))
+  const here = wallVoidEdges(cells, ax, ay, az)
+  const pick = (dirs: WallDir[]): WallDir => dirs[((cycle % dirs.length) + dirs.length) % dirs.length]
+
+  // Rules 1 and 2: the column stays where it is; only its face is in question.
+  if (here.length > 0) {
+    const dirs: WallDir[] = []
+    const offer = (d: WallDir | null): void => {
+      if (d !== null && here.includes(d) && !dirs.includes(d)) dirs.push(d)
+    }
+    offer(auto)
+    for (const d of WALL_DIRS) offer(d)
+    return { x: ax, y: ay, z: az, dir: pick(dirs), dirs }
+  }
+
+  // Rule 3: no edge here, so step to the nearest neighbour that has one.
+  let best: { x: number; y: number; dir: WallDir; dist: number } | null = null
+  for (let x = ax - 1; x <= ax + 1; x++) {
+    for (let y = ay - 1; y <= ay + 1; y++) {
+      if (x === ax && y === ay) continue
+      const edges = wallVoidEdges(cells, x, y, az)
+      if (edges.length === 0) continue
+      const dist = Math.abs(x - ax) + Math.abs(y - ay)
+      if (best !== null && dist >= best.dist) continue
+      // Face back at the hovered cell, so the wall still points at the aim.
+      // (Also independent of orientation: the neighbour's first valid edge is
+      // the fallback, not a remembered rotation.)
+      const back = wallPointerDir(ax - x, ay - y)
+      best = { x, y, dir: edges.includes(back) ? back : edges[0], dist }
+    }
+  }
+  if (best !== null) return { x: best.x, y: best.y, z: az, dir: best.dir, dirs: [best.dir] }
+  // Nowhere nearby has an edge either (a lone buried cell): stand it on the
+  // tool's own default face and let `addWalls` report the reserved opening or
+  // the missing floor.
+  return { x: ax, y: ay, z: az, dir: 's', dirs: ['s'] }
 }
 
 /**

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore, isDecorType, isEscalatorType, isFenceType, isRotatableType, isStairType, isWallMountedType, moduleLabel } from './store.ts'
+import { useStore, isDecorType, isEscalatorType, isFenceType, isGateType, isRotatableType, isStairType, isWallMountedType, moduleLabel } from './store.ts'
 import { Folder, LeftRail } from './LeftRail.tsx'
 import { Viewport } from './Viewport.tsx'
+import { SignEditor } from './SignEditor.tsx'
 import { paintZone, zoneAt } from '../build/model.ts'
 import { ZONE_LIST, zoneLabel } from '../sim/zones.ts'
 import { STOCK_CLASSES } from '../sim/stock.ts'
@@ -359,6 +360,7 @@ function Inspector(): React.ReactElement {
   const selected = useStore((s) => s.selected)
   const updateLine = useStore((s) => s.updateLine)
   const addLine = useStore((s) => s.addLine)
+  const openSignEditor = useStore((s) => s.openSignEditor)
   const [infoOpen, setInfoOpen] = useState(true)
   const [linesOpen, setLinesOpen] = useState(true)
   const [exitsOpen, setExitsOpen] = useState(true)
@@ -386,6 +388,13 @@ function Inspector(): React.ReactElement {
               <span>类型</span>
               <b>{selected.kind === 'module' ? '设备' : '方块'}</b>
             </div>
+            {/* A 指示牌 is composed on its own board (§5.8), so it is edited in the
+                board editor rather than in a property list here. */}
+            {selected.kind === 'module' && station.modules.some((m) => m.id === selected.key && m.type === 'sign') && (
+              <button className="chip primary" onClick={() => openSignEditor(selected.key)}>
+                编辑指示牌面板
+              </button>
+            )}
           </div>
         ) : (
           <div className="muted small">点一下方块或设备，就能选中。</div>
@@ -542,6 +551,10 @@ export function App(): React.ReactElement {
       const st = useStore.getState()
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // While the 指示牌 board editor is up it owns the keyboard: Space, R, Tab and
+      // Delete all mean something to the board being composed, not to the station
+      // behind it. Its own Delete binding lives on the board (SignEditor).
+      if (st.signEditorFor !== null || st.signComposing) return
       switch (e.key.toLowerCase()) {
         case ' ':
           // Space is the play/pause key. Always stop the default (page scroll or
@@ -554,21 +567,35 @@ export function App(): React.ReactElement {
           setTool('select' as const)
           break
         case 'b':
+          st.setTool('delete')
+          break
+        case 'f':
           st.setTool('block')
+          break
+        case 'g':
+          st.setTool('wall')
           break
         case 'j':
           st.setTool('module')
           break
         case 'r':
           if (e.ctrlKey || e.metaKey || e.altKey) break
-          if (st.tool === 'rail') st.rotateRail()
+          // The 墙 tool has no piece to turn: R picks which of a corner cell's
+          // wall faces the column takes (`wallSnap` in `build/model.ts`).
+          if (st.tool === 'wall') st.rotateWallSnap()
+          else if (st.tool === 'rail') st.rotateRail()
           else if (st.tool !== 'tunnel' && isRotatableType(st.moduleType)) st.rotateModule()
           break
         case 'tab':
+          // In the 地基 tool Tab flips 自动生成墙壁; everywhere else it keeps its
+          // own meaning for the piece being placed: rail direction, stair width,
+          // escalator direction, the 闸机's lane or fence.
           e.preventDefault()
-          if (st.tool === 'rail') st.cycleRailDir()
+          if (st.tool === 'block') st.setAutoWalls(!st.autoWalls)
+          else if (st.tool === 'rail') st.cycleRailDir()
           else if (isStairType(st.moduleType)) st.cycleStairWidth()
           else if (isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
+          else if (isGateType(st.moduleType)) st.cycleGateDoor()
           break
         case 'n':
           st.setTool('paint')
@@ -594,6 +621,9 @@ export function App(): React.ReactElement {
         case 'c':
           st.setCutaway(!st.cutaway)
           break
+        case 'h':
+          st.setAutoCeiling(!st.autoCeiling)
+          break
         case 'o':
           st.setOrtho(!st.ortho)
           break
@@ -604,7 +634,7 @@ export function App(): React.ReactElement {
         case '5':
           window.dispatchEvent(new CustomEvent('metro:preset', { detail: e.key }))
           break
-        case 'f':
+        case 'home':
           window.dispatchEvent(new CustomEvent('metro:frame'))
           break
         case 'delete':
@@ -616,10 +646,14 @@ export function App(): React.ReactElement {
             if (e.shiftKey) st.redo()
             else st.undo()
           } else {
-            st.setTool('zone')
+            // Z is the 选择 tool now; 分区 moved to P.
+            st.setTool('select')
           }
           break
-        case 'g':
+        case 'p':
+          st.setTool('zone')
+          break
+        case 'l':
           st.setTool('rail')
           break
         case 'y':
@@ -641,19 +675,21 @@ export function App(): React.ReactElement {
           <div className="stageHint">
             {tool === 'block'
               ? autoWalls
-                ? '地基：单击放一块，按住拖出一片（自动长出 4m 外墙），右键删除'
-                : '地基：单击放一块，按住拖出一片（自动生成墙壁已关，只铺地砖），右键删除'
+                ? '地基 (F)：单击放一块，按住拖出一片（自动长出 4m 外墙，Tab 可关），右键删除'
+                : '地基 (F)：单击放一块，按住拖出一片（自动生成墙壁已关，只铺地砖，Tab 可开），右键删除'
               : tool === 'wall'
-                ? '墙：按住拖出一条 4m 高的墙；右键拖拽整列拆除'
+                ? '墙 (G)：按住拖出一条 4m 高的墙；右键拖拽整列拆除'
                 : tool === 'delete'
-                  ? '删除：单击拆一块，按住拖出一条拆一行（左右键都一样）'
+                  ? '删除 (B)：单击拆一块或一件设备；按住拖过同类设备/装饰可连续拆掉它们（拖过的都会亮起，松手一次拆完）；围栏沿拖拽方向整条拆除（左右键都一样）'
                   : tool === 'module'
-                ? isFenceType(moduleType)
+                ? isGateType(moduleType)
+                  ? '闸机：单击放一台（R 转方向，Tab 在有门 / 围栏之间切换）。围栏是一台没有闸机通道的机体，机体占半格、另外半格是围栏，人不能过，用来给围栏收口'
+                  : isFenceType(moduleType)
                   ? '围栏：单击放一块（R 旋转），按住拖出一条（方向跟拖拽走），右键拆掉；连上闸机就能分区'
                   : isStairType(moduleType)
-                  ? '楼梯：点地面放下，能转方向、调宽度，右键拆掉'
+                  ? '楼梯：点地面放下，能转方向、调宽度（每格 0.7m 与扶梯同宽，可紧贴并排；宽款会自动对齐旁边的楼梯），右键拆掉'
                   : isEscalatorType(moduleType)
-                    ? '扶梯：点地面放下，能转方向、切上下行，右键拆掉'
+                    ? '扶梯：点地面放下，能转方向、切上下行（可紧贴楼梯并排放），右键拆掉'
                     : moduleType === 'lift'
                       ? '电梯：点地面放 2×2 米井道（跨两层，R 转门向）；对着井道上半截悬停向上加层，下半截向下加层，右键拆掉'
                     : isDecorType(moduleType)
@@ -666,7 +702,7 @@ export function App(): React.ReactElement {
                             : moduleType === 'sink'
                               ? '洗手池：点地面放下，能转方向，右键逐个拆掉'
                               : isWallMountedType(moduleType)
-                                ? '广告牌：点地面贴在墙上（R 转方向让背面朝墙），右键拆掉'
+                                ? '广告牌：点地面自动贴向背后的墙（或直接点墙），右键拆掉'
                                 : moduleType === 'sign' || moduleType === 'tv'
                                   ? '指示牌/电视：吊在天花板下（上面要有四米高的楼板），R 转方向，右键拆掉'
                                   : '座椅：点地面放下（不锈钢无靠背 / 带靠背连排，各 1m 与 2m），能转方向，右键拆掉'
@@ -679,7 +715,7 @@ export function App(): React.ReactElement {
                       ? '站台轨道：点地面放一段列车长度的轨道床（R 旋转，Tab 切换上下行），自动生成站台门'
                       : tool === 'tunnel'
                         ? '隧道：点已有轨道，从端头接一段隧道；滑杆调长度'
-                        : '选择：点方块或设备，看它是什么'}
+                        : '选择 (Z)：点方块或设备，看它是什么'}
           </div>
         </div>
         <Inspector />
@@ -690,6 +726,9 @@ export function App(): React.ReactElement {
           {notice}
         </div>
       )}
+      {/* The 指示牌 board editor is a modal over everything, so the board is as big
+          as the window will allow. */}
+      <SignEditor />
     </div>
   )
 }

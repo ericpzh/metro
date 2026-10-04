@@ -57,10 +57,10 @@ test('only the run body is carved; a block the handrail grazes is kept', () => {
   assert.ok(has(2, 0), 'the landing is still kept')
 })
 
-test('a wall beside a ramp is kept and marked for a half-metre panel', () => {
-  // A wall running along the +x side of an escalator: the carve must not remove
-  // it (the rail is allowed to touch the wall), and `rampThinWalls` names the
-  // cell with the side the thin panel goes on.
+test('a wall beside a run is kept whole: the run fits inside its own cell', () => {
+  // The escalator is 0.98 m overall, handrails included, so its rail stops a
+  // centimetre inside the cell. A wall in the next column is neither carved nor
+  // reached — it stays a full block, and the floor beside a run stays buildable.
   const cells = []
   for (let x = 0; x < 3; x++) {
     for (let y = 0; y < 5; y++) {
@@ -79,7 +79,25 @@ test('a wall beside a ramp is kept and marked for a half-metre panel', () => {
   }
   carveRampOpenings(cells, [ramp])
   assert.ok(cells.some((c) => c.x === 2 && c.y === 2 && c.z === 0), 'the wall beside the run survives the carve')
-  const thins = rampThinCells(cells, [ramp])
+  assert.equal(rampThinCells(cells, [ramp]).length, 0, 'nothing beside a run is reached any more')
+})
+
+test('a wall a wide stair reaches is still kept and marked for a half panel', () => {
+  // A 1.6 m stair is wider than a cell, so its body and handrail genuinely cross
+  // into the column beside it: that wall is not carved (the rail is allowed to
+  // touch it) and is drawn half a metre thick instead.
+  const cells = []
+  for (let x = 0; x < 3; x++) {
+    for (let y = 0; y < 5; y++) {
+      cells.push({ x, y, z: 0, fill: 'solid', tags: x === 2 ? ['auto-wall'] : ['auto-floor'] })
+    }
+  }
+  // A wide stair descending along +y through the z = 0 slab.
+  const stair = createModule('stair-straight', 1, 4, -2, 's', 2, 1.6)
+  assert.ok(stair)
+  carveRampOpenings(cells, [stair])
+  assert.ok(cells.some((c) => c.x === 2 && c.y === 2 && c.z === 0), 'the wall beside the run survives the carve')
+  const thins = rampThinCells(cells, [stair])
   const at = thins.find((t) => t.x === 2 && t.y === 2 && t.z === 0)
   assert.ok(at, 'the wall is marked for thinning')
   assert.equal(at.kind, 'wall')

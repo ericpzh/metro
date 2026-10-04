@@ -2,6 +2,7 @@
 // the save format (§10.5). Ids stay ASCII per §9.2 even though the UI is Chinese.
 
 import type { StockClass } from './stock.ts'
+import type { SignLayout } from './sign.ts'
 
 export type Fill = 'solid' | 'void'
 
@@ -27,6 +28,25 @@ export const DEFAULT_ZONE: Zone = 'unpaid'
  * a time, because a two-way turnstile is a single lane (§7.1).
  */
 export type GateMode = 'in' | 'out' | 'both'
+/**
+ * What a 闸机 is: a working turnstile or the machine that closes a run. Cycled on
+ * the rail with Tab. `lane` (the default) is the real gate — a machine body on
+ * one half of the block and a lane, with its sliding leaf, on the other, so the
+ * crowd passes through it. `fence` is the **doorless** machine: the same body on
+ * the same half, with fence on the other half, so a 围栏 run carries on through
+ * its own cell and nobody walks through it — it crosses no fare line either.
+ *
+ * Which *hand* the lane is on is not a setting: `R` turns the whole piece, so the
+ * mirrored gate is one 180° rotation away (`rot` 2), and a quarter turn puts the
+ * machine on either of the other two sides.
+ */
+export type GateDoor = 'lane' | 'fence'
+/**
+ * The door spelling an older save may still carry: the side it was on (`right` /
+ * `left`) before the mirror became a rotation, or `none` for the doorless
+ * machine. Read through `gateDoorOf`, never directly.
+ */
+export type GateDoorStored = GateDoor | 'right' | 'left' | 'none'
 /**
  * Direction of a fare-line crossing: `1` entry, `-1` exit, `0` unknown (both
  * sides the same zone). See `crossingDir` in `sim/zones.ts`.
@@ -133,12 +153,19 @@ export type RoomKind = 'store' | 'toilet' | 'office'
 /**
  * A billboard's format (装饰, §5.7). The variant fixes both the run length in
  * cells and the lit poster's aspect ratio, so one 广告牌 tool offers a small
- * landscape, a tall portrait, a square and a wide two-cell banner.
+ * landscape, a standard, a wide two-cell banner, a three-cell panoramic strip,
+ * a tall portrait and a square.
  */
-export type BillboardVariant = 'wide' | 'portrait' | 'square' | 'large'
+export type BillboardVariant = 'wide' | 'standard' | 'large' | 'panorama' | 'portrait' | 'square'
 
-/** The poster aspect set a billboard variant draws from (`sim/billboards.ts`). */
-export type BillboardAspect = 'wide' | 'square' | 'portrait'
+/**
+ * The poster silhouette a billboard format is cut for (`sim/billboards.ts`).
+ * Distinct from `BillboardVariant` because two formats may share one silhouette
+ * (大横版 and 标准 both play a landscape) while a variant names one exact piece
+ * of furniture. The renderer only needs the silhouette: the poster table filters
+ * its slugs by it so a chosen poster is the right shape for the panel.
+ */
+export type BillboardShape = 'landscape' | 'wide' | 'panorama' | 'portrait' | 'square'
 
 /**
  * A bench's variant (装饰 座椅, §5.7). Two families — a plain stainless bench
@@ -164,7 +191,7 @@ export interface StairFlight {
 
 export type Module =
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
-  | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode } })
+  | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor } })
   | (ModuleBase & { type: 'fence'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down' } })
   | (ModuleBase & {
@@ -181,6 +208,15 @@ export type Module =
         style?: StairStyle
         /** Ordered flight segments, bottom → top. Defaults to one straight run. */
         flights?: StairFlight[]
+        /**
+         * The token every lane of one wide flight carries, so a 2- or 3-lane
+         * stair placed in one action is known to be **one staircase**: the rail
+         * along a seam between lanes that share it is dropped and the steps run
+         * across. Lanes placed separately never share one, so their rails stay —
+         * two 0.7 m stairs you drop side by side are two staircases whose steps
+         * happen to meet, not one 1.4 m stair (`sim/stairs.ts`).
+         */
+        flight?: string
       }
     })
   | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: Record<string, never> })
@@ -234,24 +270,45 @@ export type Module =
    * Wall-mounted decoration (装饰): a lightbox advertisement (广告牌). It is fixed
    * to the wall block behind it — the placement rotation names which face — so it
    * may only be dropped on a floor cell with a solid block at the first course of
-   * the facing neighbour. It runs `w` cells along its local +x and picks its
-   * poster aspect from `cfg.variant` (`sim/billboards.ts`).
+   * the facing neighbour. It runs `w` cells along its local +x, picks its panel
+   * size from `cfg.variant`, and prints `cfg.poster` on the lit face
+   * (`sim/billboards.ts`, `render/adArt.ts`).
+   *
+   * `cfg.poster` is the placed poster's slug, drawn once at placement
+   * (`randomAdSlug`) and then frozen: an ad screen is *not* an animation, so a
+   * billboard shows the same artwork for as long as it stands. Legacy saves
+   * without one are backfilled in `toState`, so a panel never re-rolls per frame.
    */
-  | (ModuleBase & { type: 'billboard'; w: number; cfg: { variant: BillboardVariant } })
+  | (ModuleBase & { type: 'billboard'; w: number; cfg: { variant: BillboardVariant; poster?: string } })
   /**
    * An advertising screen (电视, 装饰): a screen playing ads, hung by rods from
    * the storey ceiling like the 指示牌 and readable from both faces, so it is
-   * ceiling-mounted (`ceilingMountMissing`), not fixed to a wall.
+   * ceiling-mounted (`ceilingMountMissing`), not fixed to a wall. `cfg.poster`
+   * is the frozen slug it prints, exactly like a billboard's.
    */
-  | (ModuleBase & { type: 'tv'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'tv'; cfg: { poster?: string } })
   /**
    * An overhead wayfinding sign (指示牌, 装饰): a lit directional board hung by
    * rods from the storey ceiling, readable from both faces. It is not
    * wall-mounted — `ceilingMountMissing` (`sim/placement.ts`) refuses it unless a
    * solid slab sits one storey up (`z + 4`, the fixed `LEVEL_STEPS` grid), which
    * is the ceiling the rods bolt to.
+   *
+   * The two faces are **two boards**, and each prints its own: `cfg.front` is
+   * 正面, the side a passenger approaching the sign reads, and `cfg.back` is 背面,
+   * which may be empty — an empty face mounts no plate at all and shows the
+   * piece's own black lightbox, which is what a one-sided sign looks like from
+   * behind. A board is an ordered list of draggable parts — arrows, the bound
+   * line's own shield, typed text and pictograms — laid out by `sim/sign.ts` and
+   * drawn by `render/signFace.ts`, and the two faces share one panel, as wide as
+   * the longer of them (`signBoardsPanel`).
+   *
+   * `cfg.components` is the **older** single-board form, kept so that a save
+   * written before the back existed still loads: `toState`/`signBoardsOf` fold its
+   * per-component `side` into the pair once, and a board with no `components`,
+   * `front` or `back` at all is backfilled with `defaultSignLayout` on the front.
    */
-  | (ModuleBase & { type: 'sign'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'sign'; cfg: { components?: SignLayout; front?: SignLayout; back?: SignLayout } })
   | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom'; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]>; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket'; door?: Array<[number, number]>; stocked?: boolean } })

@@ -4,8 +4,9 @@
 // collide with the one below.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
-import { addCells, createModule, GROUND_Z, nextExitName, nextModuleId, removeModule, toState } from '../src/build/model.ts'
+import { autofaceWallMount, boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
+import { addCells, addEquipment, createModule, GROUND_Z, nextExitName, nextModuleId, randomAdSlug, removeModule, toData, toState } from '../src/build/model.ts'
+import { billboardSpec, postersFor } from '../src/sim/billboards.ts'
 
 const gate = (x, y, z, id = 'gate') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })
 const tvm = (x, y, z, id = 'tvm') => ({ id, type: 'tvm', x, y, z, cfg: {} })
@@ -120,6 +121,65 @@ test('rotating a wall-mounted ad moves the wall it needs', () => {
   assert.equal(wallMountMissing(wallEast, billboard(0, 0, 0, 1)), false)
 })
 
+test('a wall-mounted ad turns itself to face the wall, with no R needed', () => {
+  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  // A wall to the east: the panel must end up at rot 1 whatever the player held.
+  const wallEast = [...floor, { x: 1, y: 0, z: 1, fill: 'solid' }]
+  for (const held of [0, 2, 3]) {
+    const faced = autofaceWallMount(wallEast, billboard(0, 0, 0, held))
+    assert.equal(faced.rot, 1, `held rot ${held} should not survive a wall to the east`)
+    assert.equal(wallMountMissing(wallEast, faced), false, 'the result must actually be mounted')
+  }
+  // ...and equally for a wall to the north, south and west.
+  for (const [wx, wy, want] of [[0, 1, 2], [0, -1, 0], [-1, 0, 3]]) {
+    const cells = [...floor, { x: wx, y: wy, z: 1, fill: 'solid' }]
+    assert.equal(autofaceWallMount(cells, billboard(0, 0, 0, 1)).rot, want, `wall at ${wx},${wy}`)
+  }
+})
+
+test('a turn that already faces a wall is left alone', () => {
+  // The player's own choice is respected when it is valid, so deliberately
+  // flipping a panel between two walls is not undone under their hands.
+  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  const both = [...floor, { x: 1, y: 0, z: 1, fill: 'solid' }, { x: 0, y: -1, z: 1, fill: 'solid' }]
+  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 0)).rot, 0, 'an east wall must not steal a south-facing panel')
+  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 1)).rot, 1)
+})
+
+test('in a corner the panel takes the wall the pointer is nearest', () => {
+  // Two walls, neither matching the held turn: the aim decides. `near` is a
+  // world position, so the wall step is comparable to it.
+  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  const corner = [...floor, { x: 1, y: 0, z: 1, fill: 'solid' }, { x: 0, y: 1, z: 1, fill: 'solid' }]
+  const held = billboard(0, 0, 0, 0) // faces south, which is not a wall here
+  assert.equal(autofaceWallMount(corner, held, [2, 0.5]).rot, 1, 'aiming east takes the east wall')
+  assert.equal(autofaceWallMount(corner, held, [0.5, 2]).rot, 2, 'aiming north takes the north wall')
+})
+
+test('with no wall in any direction the ad is refused, not spun', () => {
+  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  const held = billboard(0, 0, 0, 2)
+  const faced = autofaceWallMount(floor, held)
+  assert.equal(faced.rot, 2, 'there is nothing to face, so the turn must not be invented')
+  assert.equal(wallMountMissing(floor, faced), true, 'the caller still sees the refusal')
+  // Non-wall-mounted modules are passed straight through.
+  const gate = { id: 'g', type: 'gate', x: 0, y: 0, z: 0, rot: 3, cfg: {} }
+  assert.equal(autofaceWallMount(floor, gate).rot, 3)
+})
+
+test('a two-cell run autofaces only to a wall that backs both cells', () => {
+  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }, { x: 1, y: 0, z: 0, fill: 'solid' }]
+  const run = { id: 'bb', type: 'billboard', x: 0, y: 0, z: 0, rot: 0, w: 2, cfg: { variant: 'large' } }
+  // A wall behind only the first cell cannot back the run, so the run stays
+  // where it was and the caller refuses it.
+  const half = [...floor, { x: 0, y: -1, z: 1, fill: 'solid' }]
+  assert.equal(autofaceWallMount(half, run).rot, 0)
+  assert.equal(wallMountMissing(half, autofaceWallMount(half, run)), true)
+  // A wall spanning both cells is a real mount.
+  const full = [...half, { x: 1, y: -1, z: 1, fill: 'solid' }]
+  assert.equal(wallMountMissing(full, autofaceWallMount(full, run)), false)
+})
+
 test('a billboard factory names the variant and its run length', () => {
   const wide = createModule('billboard-wide', 0, 0, 0, 'b1')
   assert.equal(wide?.type, 'billboard')
@@ -130,6 +190,47 @@ test('a billboard factory names the variant and its run length', () => {
   const large = createModule('billboard-large', 0, 0, 0, 'b3')
   assert.equal(large?.w, 2)
   assert.equal(large?.cfg.variant, 'large')
+  // The two later formats: a two-cell 标准 and the three-cell 长幅 strip.
+  assert.equal(createModule('billboard-standard', 0, 0, 0, 'b4')?.w, 2)
+  assert.equal(createModule('billboard-panorama', 0, 0, 0, 'b5')?.w, 3)
+  // A fresh piece carries no poster yet: the roll happens on commit, so the
+  // hover ghost does not re-roll its artwork on every pointer move.
+  assert.equal(wide?.cfg.poster, undefined)
+})
+
+test('a placed ad screen rolls one poster and keeps it', () => {
+  const state = { name: 's', seed: 1, cells: [], modules: [], lines: [] }
+  const placed = addEquipment(state, createModule('billboard-standard', 0, 0, 0, 'billboard-1'))
+  const billboard = placed.modules.find((m) => m.id === 'billboard-1')
+  assert.equal(typeof billboard.cfg.poster, 'string')
+  // The roll is deterministic in the module id, so re-placing the same piece
+  // (an undo/redo pair) hangs the same campaign.
+  assert.equal(billboard.cfg.poster, randomAdSlug({ id: 'billboard-1', type: 'billboard', x: 0, y: 0, z: 0, w: 2, cfg: { variant: 'standard' } }))
+  // A landscape panel is only ever offered landscape artwork.
+  assert.ok(postersFor(billboardSpec('standard').shape).some((p) => p.slug === billboard.cfg.poster))
+  // A committed piece is never re-rolled: adding another module leaves it alone.
+  const more = addEquipment(placed, createModule('tvm', 5, 5, 0, 'tvm-1'))
+  assert.equal(more.modules.find((m) => m.id === 'billboard-1').cfg.poster, billboard.cfg.poster)
+  // The 电视 prints a poster of its own, rolled the same way.
+  const tv = addEquipment(more, createModule('tv', 9, 9, 0, 'tv-1'))
+  assert.equal(typeof tv.modules.find((m) => m.id === 'tv-1').cfg.poster, 'string')
+})
+
+test('a poster-less legacy save is backfilled once, at load', () => {
+  const legacy = {
+    name: 's',
+    seed: 1,
+    cells: [],
+    modules: [{ id: 'billboard-9', type: 'billboard', x: 0, y: 0, z: 0, rot: 0, w: 1, cfg: { variant: 'wide' } }],
+    lines: [],
+  }
+  const first = toState(legacy)
+  const slug = first.modules[0].cfg.poster
+  assert.equal(typeof slug, 'string')
+  // The backfill is part of the document, so a second load of the same save
+  // prints the same poster instead of rolling a new one per frame.
+  assert.equal(toState(legacy).modules[0].cfg.poster, slug)
+  assert.equal(toState(toData(first)).modules[0].cfg.poster, slug)
 })
 
 test('a two-cell billboard needs a wall behind both cells', () => {
@@ -167,10 +268,10 @@ test('a floor-standing module never needs a wall', () => {
 })
 
 test('a fence may stand beside a stair, but not on its landing node', () => {
-  // The stair's collision envelope is a generous box covering the floor columns
-  // beside the run. A fence is exempt from it so a run can meet the handrail
-  // (`railLandingAt` in the renderer) — except on the stair's own landing cells,
-  // which are its graph nodes and must stay walkable.
+  // A run reserves exactly the tile it stands in, so the cell beside it is free
+  // ground a fence can take — and the run can meet the handrail there
+  // (`railLandingAt` in the renderer). The run's own cells, landings included,
+  // are its graph nodes and stay clear.
   const stair = createModule('stair-straight', 0, 0, -4, 's', 0)
   assert.ok(stair)
   assert.equal(placementBlocked([stair], createModule('fence', 1, 6, 0, 'f', 0)), false, 'beside the top landing')

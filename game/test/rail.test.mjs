@@ -113,10 +113,11 @@ test('a rail with no platform still gets a running train', () => {
   const w = new World(s1, 99)
   w.tickOnce()
   const pose = w.trainRenderState()
-  assert.equal(pose.length, 9, 'one train, one pose')
+  assert.equal(pose.length, 10, 'one train, one pose')
   assert.equal(pose[3], 6, 'six cars')
   assert.equal(pose[2], 0.5, 'rides the recessed slab')
   assert.equal(pose[8], 0, 'an east–west track has no yaw')
+  assert.equal(pose[9], 0, 'no screen doors, so neither bank may open')
 })
 
 test('a fresh line is B stock, six cars, and carries the rail direction', () => {
@@ -254,7 +255,7 @@ test('a north–south rail runs its train in y with a quarter-turn yaw', () => {
   const w = new World(s1, 7)
   w.tickOnce()
   const pose = w.trainRenderState()
-  assert.equal(pose.length, 9)
+  assert.equal(pose.length, 10)
   assert.equal(pose[0], 0.5, 'x is fixed at the bed centre')
   assert.ok(Math.abs(pose[8] - Math.PI / 2) < 1e-6, 'the consist is turned onto the run axis')
   // The run direction is +y, so the approach offset shows up in y, not x.

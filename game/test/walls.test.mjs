@@ -22,7 +22,9 @@ import {
   WALL,
   wallColumnAt,
   wallColumnsAt,
+  wallDirRot,
   wallRun,
+  wallSnap,
 } from '../src/build/model.ts'
 
 function empty() {
@@ -209,4 +211,98 @@ test('the 墙 tool tags its columns so right-click can lift the whole run', () =
   assert.equal(wallColumnsAt(st, [[2, 2, 0], [3, 2, 0], [2, 2, 2]]).length, 2 * AUTO_WALL_H)
   // A cell that is not a 墙-tool wall has no column.
   assert.deepEqual(wallColumnAt(st, 9, 9, 0), [])
+})
+
+/* ------------------------------------------------ 墙-tool smart snapping (R) */
+
+/** A wall you can snap against: a full course of hand-tagged blocks at z = 1. */
+const course = (x, y, z = 0) => wallRun([[x, y, z]]).map(([cx, cy, cz]) => ({ x: cx, y: cy, z: cz, fill: 'solid', tags: [WALL] }))
+
+/** One floor cell at z = 0, plus the wall courses named after it. */
+const floorCell = (x, y) => ({ x, y, z: 0, fill: 'solid' })
+const withCourses = (footprint, courses) => [...footprint, ...courses.flatMap(([x, y]) => course(x, y))]
+const at = (snap) => [snap.x, snap.y]
+
+test('a cell open on exactly one side keeps its column and faces that side', () => {
+  // A 3x3 patch whose whole ring is walled except the east edge of (2,1).
+  const ring = [[0, 0], [1, 0], [2, 0], [0, 1], [0, 2], [1, 2], [2, 2]]
+  const cells = withCourses(rect(0, 0, 2, 2).map(([x, y, z]) => floorCell(x, y, z)), ring)
+  const snap = wallSnap(cells, [2, 1, 0])
+  assert.deepEqual(at(snap), [2, 1], 'the column left the hovered cell')
+  assert.equal(snap.dir, 'e', 'the wall should face the one open side')
+  assert.deepEqual(snap.dirs, ['e'], 'one open side is not a choice, so R has nothing to cycle')
+})
+
+test('a corner cell offers every open side to R, best-first', () => {
+  // A 2x2 patch: (0,0) faces open space south and west.
+  const cells = withCourses(rect(0, 0, 1, 1).map(([x, y, z]) => floorCell(x, y, z)), [[1, 0], [0, 1], [1, 1]])
+  const snap = wallSnap(cells, [0, 0, 0])
+  assert.deepEqual(at(snap), [0, 0], 'a cell with its own edges must not snap away')
+  assert.deepEqual(snap.dirs, ['s', 'w'], 'the corner should offer both open faces')
+  // R steps the list, and it wraps in both directions.
+  assert.equal(wallSnap(cells, [0, 0, 0], null, 0).dir, 's')
+  assert.equal(wallSnap(cells, [0, 0, 0], null, 1).dir, 'w')
+  assert.equal(wallSnap(cells, [0, 0, 0], null, 2).dir, 's', 'the cycle must wrap')
+  assert.equal(wallSnap(cells, [0, 0, 0], null, 3).dir, 'w')
+})
+
+test('the pointer aim only breaks a tie between a corner cell’s open faces', () => {
+  const cells = withCourses(rect(0, 0, 1, 1).map(([x, y, z]) => floorCell(x, y, z)), [[1, 0], [0, 1], [1, 1]])
+  // Both open edges belong to (0,0); aiming is a delta from the cell centre.
+  assert.equal(wallSnap(cells, [0, 0, 0], [-3, 0.5]).dir, 'w', 'aiming west should pick the west face')
+  assert.equal(wallSnap(cells, [0, 0, 0], [0.5, -3]).dir, 's', 'aiming south should pick the south face')
+  // An already-walled side is never offered.
+  const walled = withCourses(rect(0, 0, 1, 1).map(([x, y, z]) => floorCell(x, y, z)), [[1, 0], [0, 1], [1, 1], [0, -1]])
+  assert.ok(!wallSnap(walled, [0, 0, 0]).dirs.includes('s'), 'a side that already carries a wall is not a candidate')
+})
+
+test('a cell buried in a floor steps out to the nearest cell that faces open space', () => {
+  // A 3x3 patch, its whole ring walled, and (2,2) buried in the middle. Every
+  // ring cell therefore faces open space outward, and (2,2) is one step from
+  // four of them.
+  const ring = []
+  for (let x = 1; x <= 3; x++) for (let y = 1; y <= 3; y++) if (x !== 2 || y !== 2) ring.push([x, y])
+  const cells = withCourses(rect(1, 1, 3, 3).map(([x, y, z]) => floorCell(x, y, z)), ring)
+  const snap = wallSnap(cells, [2, 2, 0])
+  // The scan runs x then y over the immediate ring, so (1,2) is the tie-break
+  // winner among the four cells one step away. Its own open side is west.
+  assert.deepEqual(at(snap), [1, 2], 'the column should have stepped to the ring')
+  assert.equal(snap.dir, 'w', 'the wall should face the open space it stepped out to')
+  assert.equal(snap.z, 0, 'the column must stay on the storey it was asked for')
+  assert.deepEqual(snap.dirs, ['w'], 'a stepped column has nothing for R to cycle')
+})
+
+test('a buried cell with no edge in its ring is left where it stands', () => {
+  // The scan is deliberately the immediate ring: a snap is a nudge to the next
+  // edge, never a jump across the room. On a 5x5 patch with a fully walled ring,
+  // (2,2) is buried *and* so are all eight cells around it, so the tool holds
+  // position and lets `addWalls` report whatever is actually wrong there.
+  const ring = []
+  for (let x = 0; x <= 4; x++) for (const y of [0, 4]) ring.push([x, y])
+  for (let y = 1; y <= 3; y++) for (const x of [0, 4]) ring.push([x, y])
+  const cells = withCourses(rect(0, 0, 4, 4).map(([x, y, z]) => floorCell(x, y, z)), ring)
+  const snap = wallSnap(cells, [2, 2, 0])
+  assert.deepEqual(at(snap), [2, 2], 'the column should not have wandered out of the scan')
+  assert.equal(snap.dir, 's', 'with no open edge to read, the face falls back to the default')
+  assert.deepEqual(snap.dirs, ['s'])
+})
+
+test('the snap never consults the placement rotation', () => {
+  // The whole point of the snap is that it reads the geometry: a rotation the
+  // player happens to be holding must not steer it, and there is no parameter
+  // left for one to travel through. `wallSnap` takes (cells, cell, pointer,
+  // cycle) and nothing else — R only reaches the *output*, as `dir`/`dirs`.
+  assert.equal(wallSnap.length, 2, 'wallSnap must expose no rotation argument')
+  // Same geometry, every R step: the column never moves, only the face cycles.
+  const cells = withCourses(rect(0, 0, 1, 1).map(([x, y, z]) => floorCell(x, y, z)), [[1, 0], [0, 1], [1, 1]])
+  const spots = [0, 1, 2, 3, 4, 5].map((cycle) => at(wallSnap(cells, [0, 0, 0], null, cycle)))
+  assert.ok(spots.every(([x, y]) => x === 0 && y === 0), `R moved the column: ${JSON.stringify(spots)}`)
+})
+
+test('a snapped face turns back into the placement quarter-turn', () => {
+  // The snap output is a face; the tool turns it into the `rot` the rest of the
+  // placement pipeline reads, so the mapping must be an exact round trip.
+  for (const [dir, rot] of [['s', 0], ['w', 1], ['n', 2], ['e', 3]]) {
+    assert.equal(wallDirRot(dir), rot)
+  }
 })

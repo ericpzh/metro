@@ -9,18 +9,25 @@
 import * as THREE from 'three'
 import {
   buildModule,
+  canvasTexture,
   createModelMaterials,
   disposeModelMaterials,
   disposeObject,
+  litPanelMaterial,
   type ModelMaterials,
   type ModuleContext,
 } from '../render/models.ts'
 import { createMaterials } from '../render/materials.ts'
+import { createAdArt } from '../render/adArt.ts'
+import { drawStationDisplay, STATION_PLATE, tvLineStatus } from '../render/stationDisplay.ts'
+import { drawSignPanel } from '../render/signFace.ts'
+import { loadPictograms } from '../render/pictograms.ts'
+import { makeSignBoards, signPlate } from '../sim/sign.ts'
 import { liftModule } from '../sim/lifts.ts'
 import { stairFlightsFor, type StairStyle } from '../sim/stairs.ts'
-import { BILLBOARD_SPECS } from '../sim/billboards.ts'
+import { BILLBOARD_SPECS, posterFor, type AdPoster } from '../sim/billboards.ts'
 import { benchSpec } from '../sim/benches.ts'
-import type { BenchVariant, BillboardVariant, ExitBays, Module, StationData, Vec3i } from '../sim/types.ts'
+import type { BenchVariant, BillboardShape, BillboardVariant, ExitBays, Module, StationData, Vec3i } from '../sim/types.ts'
 import { MODULE_OPTIONS } from './store.ts'
 
 /** The isometric direction the game opens on (`SceneRenderer.setPreset('iso')`). */
@@ -29,6 +36,21 @@ const ISO = new THREE.Vector3(1, -1.2, 0.85).normalize()
 const RUN = new THREE.Vector3(1, -0.45, 0.72).normalize()
 /** Wall-mounted decor faces +y, so its thumbnail looks at the lit front. */
 const FRONT = new THREE.Vector3(1, 1.15, 0.8).normalize()
+
+/**
+ * The poster each silhouette's palette thumbnail shows. Fixed rather than
+ * rolled, so the rail's icons are the same on every launch and a format's icon
+ * cannot change under the pointer — the walls themselves roll their poster at
+ * placement, but a menu is documentation. The map is typed by silhouette, so a
+ * new panel shape cannot be added without naming its icon.
+ */
+const SILHOUETTE_POSTER: Record<BillboardShape, AdPoster> = {
+  landscape: posterFor('metro-security'),
+  wide: posterFor('heinz-league'),
+  panorama: posterFor('yupao-hiring'),
+  portrait: posterFor('games-2025-red'),
+  square: posterFor('heinz-body'),
+}
 
 /** Which way to look at a given piece, so its silhouette is the readable one. */
 function viewDir(id: string): THREE.Vector3 {
@@ -90,10 +112,11 @@ function syntheticStation(): StationData {
 }
 
 /** One representative instance of each palette entry, placed at the origin. */
-function sampleModule(id: string): Module | null {
+function sampleModule(id: string, station: StationData): Module | null {
   switch (id) {
     case 'gate':
-      return { id, type: 'gate', x: 0, y: 0, z: 0, rot: 0, cfg: { dir: 'both' } }
+      // The palette tile shows the default lane gate; the choice itself is Tab.
+      return { id, type: 'gate', x: 0, y: 0, z: 0, rot: 0, cfg: { dir: 'both', door: 'lane' } }
     case 'fence':
       return { id, type: 'fence', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'tvm':
@@ -118,17 +141,29 @@ function sampleModule(id: string): Module | null {
     case 'sink':
       return { id, type: 'sink', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'billboard-wide':
+    case 'billboard-standard':
+    case 'billboard-large':
+    case 'billboard-panorama':
     case 'billboard-portrait':
-    case 'billboard-square':
-    case 'billboard-large': {
+    case 'billboard-square': {
       const variant = id.slice('billboard-'.length) as BillboardVariant
       const spec = BILLBOARD_SPECS[variant] ?? BILLBOARD_SPECS.wide
-      return { id, type: 'billboard', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant } }
+      // Each format's thumbnail shows a real poster cut for its own silhouette,
+      // so the sub-menu reads as six different ads rather than one ad in six
+      // frames. The choice is by silhouette, so it is stable for a given format.
+      const shape = BILLBOARD_SPECS[variant]?.shape ?? 'landscape'
+      const poster = SILHOUETTE_POSTER[shape]
+      return { id, type: 'billboard', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant, poster: poster.slug } }
     }
     case 'tv':
-      return { id, type: 'tv', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
-    case 'sign':
-      return { id, type: 'sign', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+      return { id, type: 'tv', x: 0, y: 0, z: 0, rot: 0, cfg: { poster: SILHOUETTE_POSTER.landscape.slug } }
+    case 'sign': {
+      // The palette icon shows the front a fresh click would hang — the same default
+      // `createModule` builds for a piece placed with no composed boards — and the
+      // same empty back, because a thumbnail of the back would be a black tile.
+      const boards = makeSignBoards(undefined, station)
+      return { id, type: 'sign', x: 0, y: 0, z: 0, rot: 0, cfg: { front: boards.front, back: boards.back } }
+    }
     case 'exit':
     case 'exit-covered-1':
     case 'exit-covered-2':
@@ -200,7 +235,7 @@ function objectBox(root: THREE.Object3D): THREE.Box3 {
 }
 
 /** Render every palette entry once. Throws if WebGL is unavailable. */
-export function renderModuleThumbnails(size = 132): Record<string, string> {
+export async function renderModuleThumbnails(size = 132): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
@@ -227,12 +262,57 @@ export function renderModuleThumbnails(size = 132): Record<string, string> {
   camera.up.set(0, 0, 1)
   const mats: ModelMaterials = createModelMaterials()
   const finishes = createMaterials()
+  const ads = createAdArt(renderer)
+  // The 广告牌 and 电视 icons print real posters, so wait for the artwork before
+  // drawing them; the whole pass is already deferred off the first paint.
+  await ads.load(() => {})
+  // The 指示牌 icon prints the board's own pictograms, which are bitmaps: await
+  // them for the same reason, because a tile drawn without them shows a board with
+  // its marks missing and the tiles are cached for the session.
+  await loadPictograms()
   const station = syntheticStation()
-  const ctx: ModuleContext = { mats, data: station, trackCells: new Set(['0,-1,0']), finish: (id) => finishes.finish(id) }
+  // A thumbnail has no live service to print, so the 电视 plate shows the station
+  // name and a blank clock — the same shape the placed piece draws.
+  const plateCache = new Map<string, THREE.Texture>()
+  const ctx: ModuleContext = {
+    mats,
+    ads,
+    data: station,
+    trackCells: new Set(['0,-1,0']),
+    finish: (id) => finishes.finish(id),
+    tvPlate: (id) => {
+      let t = plateCache.get(id)
+      if (!t) {
+        t = canvasTexture(STATION_PLATE.width, STATION_PLATE.height, (g) => {
+          drawStationDisplay(g, tvLineStatus(station.lines[0], [], [0.5, 0.5]), station.name, '08:20')
+        })
+        plateCache.set(id, t)
+      }
+      return t
+    },
+    // The 指示牌 icon prints the station's own 2号线 shield, so the palette shows
+    // what a click actually hangs rather than a placeholder board. The canvas is
+    // cut to the **pair's** shared panel, which is what makes a wide board's icon
+    // wider than a narrow one's and keeps the front and back plates the same size.
+    // A face is a **material** over that texture, the same shape the scene hands the
+    // model.
+    signFace: (id, layout, face, panel) => {
+      const key = `sign|${id}|${face}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+      let t = plateCache.get(key)
+      if (!t) {
+        const plate = signPlate(panel)
+        t = canvasTexture(plate.width, plate.height, (g) => {
+          drawSignPanel(g, layout, { lines: station.lines, panel }, face)
+        })
+        plateCache.set(key, t)
+      }
+      return litPanelMaterial(t)
+    },
+  }
 
   try {
     for (const opt of MODULE_OPTIONS) {
-      const mod = sampleModule(opt.id)
+      const mod = sampleModule(opt.id, station)
       if (!mod) continue
       const group = buildModule(mod, ctx)
       if (!group) continue
@@ -260,6 +340,7 @@ export function renderModuleThumbnails(size = 132): Record<string, string> {
     }
   } finally {
     disposeModelMaterials(mats)
+    ads.dispose()
     for (const m of finishes.finishCache.values()) {
       m.map?.dispose()
       m.dispose()
@@ -281,12 +362,17 @@ export function getModuleThumbnails(): Promise<Record<string, string>> {
   if (!pending) {
     pending = new Promise((resolve) => {
       const run = (): void => {
-        try {
-          cache = renderModuleThumbnails()
-        } catch {
-          cache = {}
-        }
-        resolve(cache)
+        // The pass awaits the ad artwork (see `renderModuleThumbnails`), so it
+        // resolves a promise rather than a record.
+        renderModuleThumbnails()
+          .then((rendered) => {
+            cache = rendered
+            resolve(rendered)
+          })
+          .catch(() => {
+            cache = {}
+            resolve(cache)
+          })
       }
       // Off the critical path: a short WebGL pass, so let the first paint land.
       if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {

@@ -56,20 +56,37 @@ Draft 1's vertical slice is **done** (V0–V5). The base game plan picks it up a
 finish, the walk-speed rule, the `N`/`M`/`I` paint tools, the tactile-strip decal layer along
 platform edges, and `persistence/save.ts` (`formatVersion: 1`, static). The mesher's cell-key
 packing was also fixed — the old bit-shift `key()` collided neighbouring cells, which would have
-made finish lookups wrong.
+made finish lookups wrong. 搪瓷板 gained a custom colour: the 材质 brush packs it into the finish
+id (`wall.enamel#rrggbb`), so a painted panel keeps its own colour through the save and the
+mesher gives each tint its own part and material. The brush also keeps its `N` 单块 / `M` 整面
+mode: the mode is a setting of the 材质 folder, not of a tile, so picking a texture (or a fresh
+搪瓷板 colour) leaves it alone and `I` 取色 hands the brush back in the mode it borrowed.
 
 **B2's core** shipped `sim/zones.ts`, `Cell.zone`, a graph rule that emits no walk edge across a
 zone line except through a gate cell, a zone drag-paint tool (a rectangle of the chosen zone over
 the floor it covers), the `分区` overlay (a tint on the walkable floor plus a text label naming each
 area), and an inspector zone control. Still open in B2: zone inference (a room enclosed by gates
-proposed `paid`), module zone-legality feedback for ticket machines, and the gate direction/anchor
-UI.
+proposed `paid`), module zone-legality feedback for ticket machines, and the gate direction UI —
+the 闸机's **piece** (a working lane, or the fence machine that closes a 围栏 run, toggled with Tab;
+its hand is a rotation, `R`) has landed, but its in / out / both policy and queue anchor are still
+fixed.
 
 **The module art pass** (part of PLAN §3 item 6, ahead of B3/B4) replaced the unit-cube modules with
 `render/models.ts`: procedural ticket machines, turnstile cabinets, escalators, exits and platform
 screen doors, plus rolling stock. PSDs are drawn from the `platform-edge` run (the screen the graph
 already models as doors); trains are posed by `World.trainRenderState()`, sent through the worker
-protocol, and drawn per consist by `SceneRenderer.setTrains`. The models are pure three.js geometry
+protocol, and drawn per consist by `SceneRenderer.setTrains`. Both ends of a consist wear the same
+cab — the dark face with its windscreen, crew-door windows, 广州地铁 mark, twin lamp clusters, marker
+bars, cream bumper band and coupler — and differ only in their lamps: white on the end that leads,
+red on the end that trails. Each pose also carries a **door-side mask**, so the leaves slide only on
+a side that really has screen doors to meet: a train never opens onto the tunnel wall (§1.13).
+The door cadence is `doorCentres` in `sim/stock.ts`: one uniform pitch per car, held
+`DOOR_END_INSET` (2.8 m) off both car ends for the cab or the gangway, so a three-door L car spreads
+its outer doors out to the ends instead of bunching them in the middle. `doorRunOffsets` projects
+that list onto a rail's run, and it is the single list the screen doors are cut from *and* the one
+the graph seats its boarding doors on — one door server per car door, on the cell the door stands at
+— so a screen door cannot drift from the car door it exists to meet.
+The models are pure three.js geometry
 over one shared material kit — no image or GLB assets. Modules are level-aware, so a tall escalator
 or exit ghosts with the floor it belongs to instead of drawing through it.
 
@@ -78,24 +95,210 @@ out of 设备), 货架 (a stocked supermarket gondola), 办公桌 (the office de
 厕所隔间 (the restroom cubicle) and 洗手池 (the wash basin) are all free-standing, rotatable pieces,
 and 广告牌, 电视 and 指示牌 all live under 装饰 in the build rail. 广告牌 is *wall-mounted*:
 `sim/placement.ts`'s `wallMountMissing` refuses it unless the facing neighbour has a solid block at
-its first course (`z + 1`), which is exactly where the 地基 auto-wall ring and the 墙 tool both start —
-so the player must build a wall and use **R** to turn the panel's back to it. `wallSide` turns that
-requirement with the module rotation and the renderer mounts the model on the same local −y face, so
-what the ghost shows is what the click builds. 广告牌 is a nested sub-menu of four formats — 横版 /
-竖版 / 方形 / 大横版 — whose run length (one cell, or two for 大横版) and poster aspect come from the
-shared `sim/billboards.ts` table, so the palette thumbnail, the collision envelope and the drawn
+its first course (`z + 1`), which is exactly where the 地基 auto-wall ring and the 墙 tool both start.
+Because that requirement is a function of the rotation alone, the panel **turns itself** to face its
+wall (`autofaceWallMount`): build a wall and drop the ad, and the orientation follows — no **R**
+needed, and none can leave it facing the wrong way. `wallSide` turns that requirement with the module
+rotation and the renderer mounts the model on the same local −y face, so
+what the ghost shows is what the click builds. 广告牌 is a nested sub-menu of six formats —
+横版 16:9 / 标准 2.25:1 / 大横版 16:9 / 长幅 3.75:1 / 竖版 0.7:1 / 方形 1:1 — whose run length (one,
+two or three cells) and panel size come from the shared `sim/billboards.ts` table, so the palette thumbnail, the collision envelope and the drawn
 housing cannot disagree. A multi-cell banner needs a wall behind every cell of its run. A hover on a
 wall block itself mounts the panel in the face-adjacent cell (`wallMountStandCell`), so a banner can
 hang on the station's outer wall across the track — behind and above the screen doors — where there
-is no walkable floor in front of it. 电视 and 指示牌
-are *ceiling-hung* instead: `ceilingMountMissing` refuses them unless a solid slab sits one storey up
-(`LEVEL_STEPS`, the 4 m grid), and `render/models.ts` hangs each lit, double-sided face from that slab
-by two rods, so both read from either side. Every screen
-cycles three procedural, unlit ad posters on wall time, driven by `SceneRenderer.updateAds`; each
-screen draws its own random period and phase on first animation, so a row of billboards is not a
-synchronised wall. The posters come in wide / square / portrait sets (`render/models.ts`'s
-`adFramesWide` / `adFramesSquare` / `adFramesPortrait`) so a portrait billboard is not a stretched
-landscape, and the decoration reads as "playing ads" even while the sim is paused. 座椅 is the same kind of nested sub-menu: two families —
+is no walkable floor in front of it.
+
+**A 电视 is a passenger-information screen, not a poster.** Its lit face is two panes: the station
+board down the left — line shield, 本趟 / 下趟 / 第三趟列车开往, the countdown and the departure clock —
+and a **content window** on the right where the network feed plays. `render/stationDisplay.ts` owns
+both the derivation ("what is the next train, and how long until it") and the pixels of the board.
+
+**The two panes tile the screen, with zero slack.** `TV_POSTER_RECT.x` is the split: the board column
+runs from the plate's left inset **to that split**, and the window takes **everything right of it, at
+full height** — so the artwork covers its whole half of the panel and no black strip survives above,
+below or beside it. The insets that keep text off the edge live *inside* the cards, never on the
+column's right, because slack there is dead black between the text and the picture. `stationDisplayLayout`
+separates this arithmetic from the drawing so a test can prove it without a canvas: the column's right
+edge *is* the window's left edge (`x + w === 1`), the text never runs under the window, and the clock
+belongs to the column rather than to a plate corner the artwork would paint over. Only the window
+cycles (`SceneRenderer.updateAdScreens`), on a period rolled per screen, so a row of them drifts apart
+instead of flipping as one wall, and it draws only artwork cut for a landscape panel — cropping is not
+stretching, and a portrait poster in a wide window would lose more than half its height.
+
+**A 电视 reads from one side.** Its board and its window ride the same single face (the local −y), so
+the panel is legible from one side and shows a plain dark back from the other — which is what the back
+of a television looks like. This is a modelling constraint, not a taste: each lit pane is a plane lying
+over a dark backing slab, and a pane on the slab's centre line is buried in it while a pane on the
+slab's surface z-fights it. Either way the window renders as a flat black rectangle with nothing in the
+console, which is why `LIT_STAND_OFF` puts every lit pane half a slab out *plus* a stand-off and why
+`test/tv-screen.test.mjs` pins the depth — and the tiling — rather than leaving either to a visual
+check. 指示牌 is
+*ceiling-hung* like the 电视: `ceilingMountMissing` refuses either unless a solid slab sits one storey
+up (`LEVEL_STEPS`, the 4 m grid), and `render/models.ts` hangs each from that slab by two rods. The
+指示牌 keeps its two double-sided faces — a wayfinding board genuinely reads both ways, where a
+screen does not.
+
+**A 指示牌 is a composed board, not a printed sticker.** §5.8's custom signage is what the overhead
+board *is*: `sim/sign.ts` holds its layout — an ordered list of **components**, each an arrow, the
+station's own line shield, typed text or a pictogram, placed in **metres along one row** — and
+`render/signFace.ts` is the only code that draws it. The lit face on the drawn model, the hover ghost,
+the build rail's palette icon and the board editor all call `drawSignPanel`, so what the player
+composes is the board they build, pixel for pixel; the face is drawn at a constant `PX_PER_METRE`,
+which is why a 0.42 m line badge measures the same on the model as it does in the editor.
+
+**The board is one row, and it is as long as its content.** `signPanelSize` measures the row —
+`max(floor, the last mark's right edge + a quiet margin)`, clamped to `PANEL_MAX_W` — and the drawn
+panel, its mesh and its texture all follow it. The height is fixed at `PANEL_MIN_H` (0.7 m): content
+never flows up and down the face, because a 指示牌 is a list read left to right, and `signCentreRange`
+pins every `y` to the row's centre line so that is structural rather than a habit. Positions are
+metres rather than fractions of the board for exactly this reason — a board that grows must not slide
+its content sideways.
+
+**Nothing on the board ever overlaps, and packing is what guarantees it.** `packSignRow` lays the row
+in three steps: the pieces the player is holding are placed first, exactly where they were put; then
+everything else is taken in order of where it *wants* to be and dropped into the first room at or
+after that point wide enough to hold it; then the requested order is restored, so the roster and the
+board read the same way. Placing a piece only into room that is already free means one pass is exact —
+which is why this replaced a separate-then-re-clamp loop that oscillated between two collisions
+whenever a board's ends were both against the frame, the shape a one-row board has most of the time.
+Each component also carries `SIGN_PIECE_PAD` on every side, so two marks never even touch.
+
+**A label prints at its own size, and the box is exactly the stack of its rows.** `signInkSize`
+reports a label as tall as its rows at `size × 1.15` each (`SIGN_SIZE.text.h × scale × 1.15 × lines`),
+which is what the row packs around — so `drawText` divides that back down into one row's pitch and one
+row's type (中文 at `SIGN_SIZE.text.h`, the gloss at `SIGN_TEXT_EN_SCALE` of it). Taking the stack's
+height *as* the line size set every label `lines ×` too large — a two-line label printed at 2.3 × its
+box and left the top of the panel — and a row pitch left in metres inside a pixel box stacked both rows
+on the same baseline. Both are silent (the right words, in the wrong place), so
+`test/sign-render.test.mjs` pins the two sizes, the row separation and that the stack stays on the
+plate.
+
+The palette's 指示牌 hangs the reference row — an exit arrow each side, the station's first line and
+the green 出口 plate between them — composed from the station's **own** lines, so a recoloured or
+renamed 5号线 reprints every shield that carries it without the sign being touched. A **line shield
+prints the line's name as 线路 spells it** and nothing else: a 5号线 shield prints 5号线, because the
+shield *is* the line's own name and a derived number would only be a second rendering of it. The
+optional English gloss is the one addition. Each component may be bound to one **face**, so a sign can
+be genuinely one-way (`side: 'left'` prints on the approach face only) or carry a different message
+each way. A sign is a **document**: `cfg.components` survives a save, `toState` backfills one for a
+save written before the board became a document (`ensureSignLayouts`), and `normalizeSignLayout`
+repairs the numbers — a duplicate id, a scale past what the board carries, a stray position — rather
+than trusting them.
+
+**The board editor is a modal of three rows of tiles, and nothing else.** `app/SignEditor.tsx` is the
+指示牌's one editor: the build rail's **自定义** tile opens it, beside the 旋转 tile a 指示牌 still has
+(a board turns *and* is composed), and the inspector can open it on a placed sign as well. A sign
+composed before placement is carried by the piece the next click hangs (`signDraft`). The three rows are
+
+1. **the board** — its content as a row of **fixed places**: one square per item, plus the spare empty
+   one. Bin order is list order, all the way down to the model (`signLayoutInOrder` / `packSignRow`), so
+   a drop puts a mark in a *place* rather than at a millimetre;
+2. **the four groups** — 箭头, 图标, 线路 and 文字, each a tile holding a picture of what it makes
+   (`groupMark`: an arrow, the 出口 plate, the station's first shield, a label printing its own name over
+   its gloss). One is open at a time and opening one folds the previous;
+3. **the open group's palette** — every option that group offers, one square each.
+
+A mark has **no size control**: every component carries `scale` (1 for everything the editor makes, and
+`normalizeSignLayout` repairs a stray one on load), but nothing in the modal changes it — a board is
+arranged by place alone.
+
+There is no prose, no legend and **no separate preview of the whole board**, because a bin already is
+the board: a row of places is the panel read left to right. Every tile — a place, a group, a palette
+option, the mark in the air — is drawn by `drawSignPanel`, the same code the model prints with, at one
+metre to the tile, so a tile carries the black plate and the mark that will stand there: a 卫生间 option
+shows the 卫生间 pictogram, a 线路 option the station's own shield in its own colour, 出口 its green
+plate — which is why a tile carries no lettering at all, and its name is its tooltip. The tiles wear the
+build rail's own blueprint square (`bpBlock`'s flat navy, dashed technical inner frame and square
+corners), so a group, a palette option, a place on the board and a block in the left rail are one object
+in four places.
+
+**One gesture, and every tile in the palette has it**: a mark is dragged from the palette **into a
+bin**, or from one bin into another, and the row makes room under the pointer while it hovers, so the
+drop is never a surprise. Letting go off the row changes nothing. **Nothing in the palette is unique**:
+a tile arms a drag whatever the board already holds, and what it lays down is another of its kind — a
+second arrow, a second 出口, a second label, the same pictogram twice — so `markFor` asks the board
+nothing. The board's one refusal is its own ten places (`SIGN_COMPONENT_MAX`), asked before a tile is
+even armed (`full`), which costs a tile the press rather than the drag. A press that never moves is a
+click, and now that no mark is unrepeatable a click can only mean *select*: the one click that does
+real work is the 文字 tile's, which picks the focused board's label so the boxes have something to
+edit (`pickExisting`); a 线路 tile **adds** a shield after the selection instead, because a shield has
+no boxes to point anywhere.
+
+**A board repeats whatever it likes, until it is full.** Nothing counts marks by kind: the same
+5号线 shield may stand on a sign as many times as it fits — a station with ten platforms is one board,
+not ten — the arrow family carries no rule at all, which is how a row gets an arrow at each end, and the
+pictograms and the text box are as repeatable as the rest. What stops it is the panel's own ceiling
+(`PANEL_MAX_W`, 3.4 m), and **full is measured, not counted**: `signMarkFits` lays the row out with the
+mark on it and asks whether `packSignRow` had to put it on top of something already there. So the count
+depends on which marks they are — **six arrows** fill a board (3.24 m of ink and the pad between them),
+nine pictograms or seven shields come close, and a board of arrows takes no seventh. This is what the
+palette obeys (`noRoom` in `SignEditor.tsx`), and it is why the ceiling is a design knob rather than a
+bug: past it the pack folds the last marks onto one place, which the print draws as two marks stacked
+where the row of bins showed two separate ones.
+
+文字 is the one group whose *mark* is typed rather than picked: one text box at a time, carrying 中文 over
+its English gloss. **Typing never puts a label up**: the group's drag handle is a tile of its own, to the
+left of the two boxes, holding the label they add up to — so what the pointer picks up is what the board
+would print — and that drag is the only way a label reaches the board. Labels repeat, so `setText`
+patches **the selected one** — the same component the boxes are showing — because "the first text box on
+the board" would mean typing into one label rewrote another. (Inserting on the first keystroke dropped a
+mark into the row at a place nobody had
+chosen.) The boxes never start a drag either, because a press inside a text field has to mean "put the
+caret here". ✕ throws the edit away and ✓ writes it.
+
+Nothing an edit does reaches the document until ✓: the board being arranged is drawn in place of the
+module's own (`signModuleWithPreview`) and the undo stack is untouched (`previewSignLayout` →
+`commitSignLayout`), so a drag per bin is not an edit. The hung sign still grows with its list, since
+`signPanelSize` measures the row it is given.
+
+**The ads are real posters.** The twelve supplied campaign JPEGs live in
+`game/src/assets/posters/` and are the artwork a 广告牌 or a 电视's content window plays;
+`sim/billboards.ts` carries the
+slug table (`AD_POSTERS`, `postersFor`, `posterFor`) and `render/adArt.ts` pairs a slug with its file.
+The folder is deliberately **not** called `ads/`: EasyList ships `/assets/ads/*$~image`, which blocks
+Vite's dev-time module URL for anything under an `assets/ads/` path, and because the glob in `adArt.ts`
+is `eager`, one blocked poster keeps the whole game from booting at all.
+A 广告牌's poster is **rolled once, when the piece is committed** (`randomAdSlug` in `build/model.ts`,
+deterministic in the module id, so an undo/redo pair hangs the same campaign) and written to
+`cfg.poster` — from then on the lit face is frozen, so a row of billboards is a row of different
+campaigns rather than a wall of flicker. A 电视's `cfg.poster` is only its opening frame: the scene
+re-points that window at another catalogue poster on its own cadence (`AdArt.adWindow`, which ignores
+the frozen slug entirely). A legacy save with no `cfg.poster` is backfilled once in
+`toState`, never per frame. The roll is filtered by silhouette, so a landscape panel is never asked to
+print a portrait poster, and `test/billboard.test.mjs` measures every catalogue poster against every
+format it can be rolled onto.
+
+**The pictograms are supplied artwork too, and they are bitmaps.** `sim/sign.ts`'s `SIGN_ICONS` is
+the whole catalogue — 列车, 电梯, 无障碍, 卫生间, 扶梯, 楼梯 and the 出口 plate — and every one but 出口
+is a PNG in `game/src/assets/pictograms/` that `render/pictograms.ts` decodes and hands to
+`render/signFace.ts` through the registry on that module (`setPictograms`). `tools/prep-sign-icons.py`
+is what makes them out of the supplied photographs of real station signage, and it is the only thing
+that decides how a mark looks: it thresholds every pixel (so the ink is **pure white** and nothing
+else survives), makes the photographed sign's dark ground **fully transparent** (the board's own plate
+is already near-black, and a mark carrying its own dark square would only read as a second, dirtier
+panel), cuts each mark square with one shared margin, and **drops the photographed sign's own rounded
+frame** — found as the thin ring that spans the whole picture — because `drawSignPanel` strokes the
+plate's frame around the whole board. 楼梯's frame is fused into its bottom tread, so that one source is
+used whole; the rest are frameless. The two halves are split on purpose: `signFace.ts` keeps the
+registry and draws, `pictograms.ts` is the only file that touches Vite or the DOM, so a test can paint a
+board and read what it printed without a browser (`test/sign-render.test.mjs` decodes the real assets
+and pins that each is square, pure white and clear behind the ink).
+
+**A board's marks are decoded before the board is printed**, for the same reason the posters are, and
+then one step further: a plate is a texture the scene mints once, so a face drawn before the art landed
+would keep the marks off it for the session. `SceneRenderer` starts the decode beside the ad artwork and
+**rebuilds its modules** when it lands (and reprints the one fallback plate `models.ts` mints before
+then), the rail's thumbnails await it, and the board editor's tiles redraw off the same promise
+(`usePictogramsReady`) — so no route into a board can print a plate of empty squares.
+
+**A poster is cropped, never stretched.** `render/panelUv.ts` computes the centred window of the image
+that matches the panel's aspect, and `render/adArt.ts` writes it into the quad's own UVs — so a 16:9
+campaign on a 2.25:1 lightbox loses its edges instead of smearing sideways, and one texture per poster
+serves every format that prints it. The pixels are decoded **before** any material is made: a material
+minted around a texture that has no image yet renders blank for good (the GPU upload happens once,
+empty, and the image that arrives later never reaches it), so `AdArt.load()` awaits every JPEG and
+`SceneRenderer` redraws the modules once they land — until then a screen prints a placeholder face.
+座椅 is the same kind of nested sub-menu: two families —
 a plain stainless bench with no back and an upholstered seat with a back and arm rests that chains
 into a row — each 1 m or 2 m wide, from the shared `sim/benches.ts` table. A 2 m bench is a real
 two-cell run: its `w` fixes the collision envelope and its base cells (`benchCells`), the renderer
@@ -111,11 +314,25 @@ individually right-clickable; bulldozing the room takes its auto (`cfg.auto`) fu
 hand-placed pieces, and rooms drawn before this carry a `cfg.stocked` migration
 (`ensureRoomFurniture`, via `toState`) instead of drawn units.
 
-**The crowd respects the floors, and the clock pauses and restarts.** `SceneRenderer` draws only the
-agents whose storey band is on screen — the active storey, the ones below it when 显示其他层 is on,
-never one floating above a hidden floor — and the cutaway clip applies to the crowd too, so people no
-longer show through a slab. **Space** toggles play/pause (the top bar's 暂停 / 播放 button does the
-same), and 重启 empties the crowd, trains and queues while keeping the built station and the clock
+**The level slice means one thing at every camera angle, and the crowd obeys it.**
+`render/levelSlicing.ts` owns the rule and `test/level-slicing.test.mjs` guards it. **显示其他层**
+(on by default) is the slice: off, the edited storey is the *only* thing drawn — blocks, equipment,
+crowd and trains alike — in a plan, an elevation and a corner isometric; nothing from another storey
+leaks in through a "plate
+hanging in space" rule any more. With it on, the active storey stays crisp and every other storey is
+drawn as a 35% ghost that keeps its real depth, so a storey the active one covers is simply behind it
+and the depth test drops it: the ghost shows exactly where it does not block the depth being edited.
+**隐藏天花板** (`H`, on by default) is the one piece of a storey *above* the active one that always
+draws, and only when nothing stands under it, so a room never wears its own ceiling and a top view
+looks into the room rather than onto its roof. The crowd follows the same `crowdVisible` rule — never
+one floating on a hidden floor — and the cutaway clip applies to it too, so people no longer show
+through a slab. A consist is tagged with the storey its floor block is in (`storeyBand` of the rounded
+track surface), so a train berthed at the platform disappears with the platform and never hangs in the
+air above it. The nav cube only ever moves the camera: no face, corner or **Home** click rewrites the
+slice behind the player's back.
+
+**The clock pauses and restarts.** **Space** toggles play/pause (the top bar's 暂停 / 播放 button does
+the same), and 重启 empties the crowd, trains and queues while keeping the built station and the clock
 (`World.restart`, sent as a `restart` worker message).
 
 **Rails are equipment: a fixed piece centred on the cursor.** A rail is a `track` module — a car-width
@@ -136,7 +353,9 @@ generates one `platform-edge` per contiguous run of walkable exposed floor besid
 platform yields two — the Spanish solution), each bound to the rail's line and direction and carrying
 the rail's rotation. Every derived edge records which side the track lies on (`cfg.side`, read from the
 screen's own frame), and the renderer, the auto-derive and `World.computeLineAnchors` share that one
-meaning, so the printed header always faces the platform, never the rail. Editing a line's 车型/编组 re-cuts its tracks to the new run length. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails, 接触网 draws an overhead contact wire hung from a ceiling — a canopy the model raises over a platform, or the bore's shell in a tunnel — kept under the 4 m storey line so it never buries in the floor above (and, unlike a mast, it cannot foul the screen doors of an island platform). Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
+meaning, so the printed header always faces the platform, never the rail. The same `cfg.side` decides
+which of the consist's two door banks may open at that berth: a side with no screen run has none, so
+its doors stay shut — the train opens onto the platform, never onto the tunnel wall (§1.13). Editing a line's 车型/编组 re-cuts its tracks to the new run length. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails, 接触网 draws an overhead contact wire hung from a ceiling — a canopy the model raises over a platform, or the bore's shell in a tunnel — kept under the 4 m storey line so it never buries in the floor above (and, unlike a mast, it cannot foul the screen doors of an island platform). Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
 two tools, both gated by one eligibility check (`trackBlockReason`): anything already sharing the run's
 space — equipment, a room, a screen door, a ramp, another rail/tunnel — blocks placement rather than
 being demolished, and the preview flags it red. **站台** is the fixed consist-length piece above; it must
@@ -185,33 +404,93 @@ surface and slab thickness as the treads, wrapped by a balustrade that carries t
 around the turn — the block mesher skips those cells, so a landing is never a floating 1 m cube. The
 **楼梯** group has four buttons, one per shape (straight, left 90°, right 90°, 180° switchback),
 each placed as fixed-length equipment: its base sits on the hovered floor cell, the finished stair
-previews as a translucent ghost, and **R** turns the run; **Tab** cycles its width between narrow (an
-escalator bay) and normal. A turning stair also lays its half-landing as a walkable cell, so the two
+previews as a translucent ghost, and **R** turns the run; **Tab** cycles its width between **one, two
+and three lanes** — 0.7 / 1.4 / 2.0 m, each lane exactly one escalator band, so a wide stair is
+literally that many narrow flights side by side and every lane merges with the run next to it (see
+the lane rule below). Every side of a flight carries a stringer
+and a handrail, and each handrail **levels off at its landing and turns down into a newel post on the
+floor** — a quarter turn, so a stair rail wraps round and reaches the ground instead of stopping dead
+above the last tread (the same idiom the escalator's balustrade return uses). A turning stair also
+lays its half-landing
+as a walkable cell, so the two
 flights connect. The Wusi Square test rig keeps a single pre-placed stair — the straight run
 that replaces exit A's down escalator; `carveRampOpenings`
 opens the slab each flight climbs through while keeping every landing, so each stairwell is a real
 hole in the ground.
+
+**A wide stair is lanes — one staircase — and it snaps beside what is already there.** A straight
+flight is laid as `stairLanes(stairWidth)` **one-lane pieces**, one per cell, each exactly
+`ESCALATOR_BAND` wide: a 2-lane stair is two 0.7 m lanes in two blocks, a 3-lane stair three. Every
+lane is an ordinary tile-sized run, so nothing about collision is special-cased. `stairLaneMates`
+then joins the **steps** of any two lanes standing flush along the run: each one's treads and risers
+run out to the cell edge, so neighbouring flights never leave a gap between them. Whether they are also
+*one* staircase is a property of the pieces, not of being neighbours — every lane of a wide stair laid
+in a single action carries the same `cfg.flight` token, and along a seam between lanes that share it
+the model (`buildStairFlight`) drops the stringer, handrail and posts, so the flight is railed only at
+its **outer** edges. So:
+
+* a 1.4 m or 2 m stair placed from the catalogue is one wide flight — steps joined, no rail down the
+  middle, and the crowd may step between its lanes at the landings (`sim/station.ts` leaves out the
+  balustrade wall there too);
+* two **separate** 0.7 m stairs dropped side by side stay two staircases — the steps still meet, but
+  each keeps both of its own railings, and those rails are a barrier the crowd walks around.
+
+Lane against *escalator* is a different matter again: both keep their own balustrade and the stair's
+steps do not reach under it, as the tile rule below describes. The hover ghost is built against the
+station *plus* its own pieces, so a wide stair previews as the one flight it will be. A wide piece
+covers more than one cell, so the
+pointer's cell is ambiguous: `planStairLanes` tries it as the first lane, then shifted back one lane
+at a time, and takes the first arrangement whose every lane is placeable — so a 2-lane flight dropped
+next to a stair **on its left** lands on the right of it, dropped next to one **on its right** lands
+on the left of it, and one dropped into a gap fills the gap. No arrangement free → the first
+candidate comes back flagged, and the ghost shows the same red refusal a single piece would.
+A **turning** stair is one piece at the chosen width (its flights turn, so its landings cannot be
+shared lane by lane): at 2 or 3 lanes it is wider than a cell and needs a bay of its own, exactly as
+before. A station saved with an old single-piece 1.6 m stair keeps it as it is — one wide flight with
+its own bay — so only newly placed straight stairs are mergeable.
+
+**A run fits inside one tile, so runs stand flush and neighbours are buildable.** `ESCALATOR_BAND`
+(0.68 m) is the escalator's clear step band, `ESCALATOR_BALUSTRADE` (0.82 m) is the spacing of its
+balustrades, and the handrail's outer face lands at 0.49 m — inside the cell. The narrow stair is
+built to exactly that band, so the two are the same width, and its handrail reaches 0.445 m: both
+pieces fit one 1 m tile with the whole assembly, rails included, and neither ever crosses its cell
+edge. Two runs in adjacent cells therefore simply sit side by side, each keeping **both of its own
+balustrades** — the pair reads as a bank of two rails on the boundary, and no rail has to be dropped,
+shared or owned (`test/bay.test.mjs` measures the drawn models to prove it). (The one case where a
+boundary carries no rail is two lanes of the *same* stair flight, which are one staircase — see the
+lane rule above.) It also means a wall, a
+fence or a gate can be built right up against a run: `rampEnvelope` reserves exactly the tile the run
+stands in, so the boxes of two adjacent runs *touch* and the ordinary strict-overlap rule already
+allows the bank, with no exemption to maintain. A single piece wider than a cell is the exception that
+proves the rule — an old 1.6 m stair, or a 2–3 lane turning stair — because its body genuinely crosses
+into the next cell, so it needs a bay of its own and still collides. A run in the same column one
+storey down still stacks and is still refused.
 
 **Escalators are placed the same way.** The **扶梯** button drops a fixed one-storey escalator: its
 base sits on the hovered floor cell, it rises `ESCALATOR_RUN` cells along the placement rotation, and
 the finished run previews as a translucent ghost; **R** turns it and **Tab** flips its travel
 direction between up and down. The placement ghost carries a bright arrow over the run pointing the
 way it will carry people. Direction only orders `from`/`to` — the single one-way edge the sim reads —
-so an up and a down piece share one footprint, and any two runs still keep to separate columns. The
+so an up and a down piece share one footprint, and two runs may stand flush in adjacent tiles (the
+tile rule above). The
 one piece lives in `sim/escalators.ts`, and the Wusi Square test rig builds its pre-placed runs from
 that exact constructor too, so the rig and the builder place the same equipment at the same
-dimensions.
+dimensions. Its handrail wraps the end of the glass at both landings — a half-turn round the end and
+down onto the floor — and a flat newel plate closes the foot of each balustrade, so no rail stops
+dead in mid-air.
 
 **Ramps carve their way in.** `sim/openings.ts` (`carveRampOpenings`) removes the solid cells an
 escalator, stair or lift climbs through, so a placed ramp surfaces from an opening rather than
 through the slab; the landing cells are protected because the graph uses them as the ramp's nodes.
 Only the run's **centreline cells** are carved (`RAMP_CORE_HALF`), so `rampOpeningAt` reserves just
-the true opening and the floor beside a run is not deleted — it stays buildable. Every other block
-the body or rail reaches is kept and marked by `rampThinCells`, so `SceneRenderer` hides the full
-voxel and draws a **half-metre block** on the side away from the run, leaving the near half clear
-for the body and handrail (the same hide-and-block trick a facility room uses). A wall is thinned
-when the handrail touches it; a **floor** is thinned when a wide stair's 1.6 m body reaches into the
-column beside it, which closes the hole the carve used to leave at the top of the stair. The 动物园
+the true opening and the floor beside a run is not deleted — it stays buildable. A block a ramp has
+kept is marked by `rampThinCells`, so `SceneRenderer` hides the full voxel and draws a **half-metre
+block** on the side away from the run, leaving the near half clear for the body and handrail (the
+same hide-and-block trick a facility room uses). That is now only ever a piece wider than a cell: a
+narrow stair or an escalator sweeps 0.445 / 0.49 m, so nothing beside it is reached at all, while a
+**floor** is still thinned when a wide stair's 1.6 m body reaches into the
+column beside it — which closes the hole the carve used to leave at the top of the stair — and a wall
+a wide stair's handrail touches is thinned the same way. The 动物园
 demo save carries the same carved openings, so it no longer shows escalators punching through the
 concourse floor. An escalator is single-direction and carries **one passenger per step**
 at 0.5 m/s over a 0.4 m pitch — 75/min, and exactly one rider per step on the run.
@@ -245,37 +524,50 @@ snapshot (`World.liftRenderState`) so
 `test/lift.test.mjs`.
 
 **Every Wusi Square exit is a head-house over an up + down pair.** Each of the three surface exits owns a
-descending run and an up run two metres apart, landing on the exit's own row; `models.ts` draws the
+descending run and an up run landing on the exit's own row, **side by side** in the head-house's two
+bays; `models.ts` draws the
 exit as a **red steel portal frame** wrapping a **blue waved roof** that rises toward the street
 doorway (the sign side stands tallest), with glazed sides *and* a glazed back wall whose heads follow
 the roof, and red base members tying the frames together along the ground — the reference art, not a
 white-walled box. The roof reaches over the run, so the runs surface from a hole in the plaza under
-cover. The exit's drawn floor leaves each bay open to
-`EXIT_BAY_HALF`, so the balustrade and handrail pass through the wellway rather than the strips
-beside it. Exit A's west bay is a **stair** beside its up escalator (a mixed entrance), the other two
-keep a down escalator. An exit does **not** auto-face the nearest run: like the rest of the
+cover. The exit's drawn floor leaves each run's own block open (`exitRunHalf`), so the balustrade and
+handrail pass through the wellway while the block beside it stays whole floor. Exit A's descending
+run is a narrow **stair** paired with the up escalator (a mixed entrance), the other two drop a down
+escalator beside their up run. An exit does **not** auto-face the nearest run: like the rest of the
 equipment it is turned with **R**, and its floor, street-opening node and glass/back walls all turn
 with it, so the mouth points where the player sets it. A surface exit is rooted at the street
 (z = 0); dropping one on a concourse or platform slab is refused.
 
-**Exits come in six variants: 有盖 / 无盖 × 单向 / 双向 / 三向.** `ExitCfg.bays` (1, 2 or the
-default 2) sets how many escalator/stair bays the head-house opens — one run at local x = 0, two at
-±1, three at −2/0/+2, with `exitWidth` widening the floor, frame and glass to 3.0 / 3.8 / 5.8 m
-(a 单向 is a full three blocks so the escalator handrail never eats the neighbour). The head-house
-floor is a thin plate over the whole odd `(2·bays + 1)`-cell footprint the exit claims — it opens
-only along a bay a run actually descends through, not that run's top-landing row, so the plaza floor
-never shows through the block and the pad is never cut a row short.
+**Exits come in six variants: 有盖 / 无盖 × 单向 / 双向 / 三向, and their runs stand side by side.**
+`ExitCfg.bays` (1, 2 or the default 2) is how many **adjacent** columns the head-house holds — a
+单向 at 0, a 双向 at 0 and 1, a 三向 at 0, 1 and 2 — and `exitSpan` builds the house around that group
+with **one full block of floor at each end**: 3 / 4 / 5 blocks across (`exitWidth`), so a 双向 is
+exactly four blocks wide with a whole block of black pad either side of the two runs. `exitRunSnap`
+clamps a dropped run to the group, so the runs can only ever be side by side. A station saved on the
+old two-metre bays (`exitRunColumns`) is still found: the house widens to cover where its runs really
+are instead of letting them poke through the glass. The head-house
+floor is a thin plate over the whole plan — it opens
+only along a column a run actually descends through (`exitRunOpenings`), not that run's top-landing
+row, so the plaza floor never shows through the block and the pad is never cut a row short. The
+interior dividers follow the runs the same way: the head-house rails a slot between two runs
+with an empty block between them (only reachable in a station saved on the old bays), and leaves runs
+standing side by side to the two balustrades their own
+models already draw on the boundary — a head-house rail there would cut through both of them.
 `ExitCfg.covered: false` is the 无盖 exit: it drops the canopy, frames, glass and back wall and
 draws a 围栏-style glass railing (steel top/bottom rails, a glass sheet and posts) where each wall
 stood, so the barrier the crowd meets is the same and only the look changes. The 出入口 palette tile
 is a sub-menu of all six (有盖 单向/双向/三向, 无盖 单向/双向/三向).
 See `test/exits.test.mjs`.
 
-**A ramp dropped inside an exit snaps into a bay.** When an escalator or straight stair is placed over a
-head-house, the pointer controls the run's position on the *street* floor: `exitRunSnap` snaps its upper
-landing to the nearest bay and drops its base one storey down toward the mouth, so the run lines up with
-the hole the exit already knows rather than the floor it climbs from. Everywhere else the hovered cell
-stays the run's base. Turning stairs are left un-snapped — their run does not end at the bay.
+**A ramp dropped inside an exit snaps into one of its run columns.** When an escalator or straight
+stair is placed over a
+head-house, the pointer controls the run's position on the *street* floor: `exitRunSnap` puts its upper
+landing in the column under the pointer — clamped to the bay group (0 … bays − 1), so the runs stay
+side by side — and drops its base one storey down toward the mouth, so the run lines up with the
+wellway the
+exit's floor opens for it rather than the floor it climbs from. That is what lets a stair be dropped
+beside an escalator inside one head-house. Everywhere else the hovered cell stays the run's base.
+Turning stairs are left un-snapped — their run does not end at the bay.
 
 **The head-house is solid, and the opening is the way.** `sim/exits.ts` holds the geometry the sim
 and the renderer share. The exit's graph node is the street opening (the doorway cell, not the cell
@@ -291,13 +583,24 @@ a highlight box around the exit in 3D (`SceneRenderer.setSelection`). A click te
 (`SceneRenderer.pickModule`) as well as the collision envelope, so a large head-house is selected by any
 part of its visible model, not only the cells its box reserves. The 删除 tool does the same: hovering a
 placed module highlights the whole piece in red and a click removes it (rails and rooms through their
-own teardown) instead of only clearing the block beneath it.
+own teardown) instead of only clearing the block beneath it. **A held drag sweeps a same-type run.**
+Press one 设备 / 装饰 piece and drag across its neighbours: every *matching* piece the pointer passes
+over lights up as it is crossed and the release bulldozes the lot in one commit, so a single `Ctrl+Z`
+puts the run back. The match is the palette piece, not the bare type — a 2 m 座椅 never takes the 1 m
+ones and a 横版 广告牌 never takes the portrait panels — while rotation and a room's `自动` origin are
+irrelevant, so a gate line facing both ways is one row. `app/sweep.ts` holds the rule; the viewport
+feeds it `SceneRenderer.pickModule` and it samples the path between two pointer events, so a fast flick
+that jumps a cell still collects what it crossed. A 围栏 keeps its own straight-run drag (below), and
+rooms, rails, 出入口, 楼梯 / 扶梯 / 电梯 and 站台门 are never swept — each is one structure with its own
+teardown. See `test/sweep.test.mjs`.
 
-**No ramps stacked.** A ramp also has a collision envelope (`rampEnvelope` / `rampBlocked`): a
-bounding box around the run, the truss and the balustrade — for a stair, widened to its tread width.
-Up and down runs must sit in separate columns (the demo's banks are two metres apart), and
-the builder refuses a column an existing ramp already occupies, so a second escalator can never
-be dropped immediately below a first.
+**No ramps stacked.** A ramp also has a collision envelope (`rampEnvelope` / `rampBlocked`): the tile
+its run stands in, dropped the truss depth below the lower landing and raised the balustrade height
+above the upper one — for a single piece wider than a cell (an old 1.6 m stair) widened to its tread
+width. A run
+in a column another run already occupies is refused, so a second escalator can never be dropped
+immediately below a first, while a run in the next column over is free ground: the two envelopes
+touch, which is not an overlap.
 
 **Floors grow their own walls, and the 墙 tool lays one by hand.** A deliberate 建造 drag is not
 just a slab: `build/model.ts` tags its cells `auto-floor` and raises a 4 m `auto-wall` ring on the
@@ -307,33 +610,69 @@ its wall while the new outer edge gains one, an L-shape keeps only its true peri
 floor is treated as continuous ground (no wall grows against it), and only `auto-floor` cells are
 tracked so a wall the player placed by hand — or the new 墙 tool's run — is never deleted or
 re-tagged. The 墙 tool's remove drag treats an auto wall as a wall, so a doorway can be opened
-straight through the generated ring. A hole dug through the middle stays open rather than getting
+straight through the generated ring.
+
+**The 墙 tool snaps to the edge that wants a wall, and orientation is never an input.** A wall is a
+full one-metre course, so a snap cannot slide a block *within* a cell the way a fence panel does; it
+picks the **cell** and the **face** instead (`wallSnap` in `build/model.ts`). An edge counts as open
+when the neighbour carries no wall *and* no floor on that storey, so the tool's candidates are
+exactly the edges the auto-wall ring would choose. A cell open on one side is walled where it stands
+facing that side; a cell open on two or more (a corner, or a one-cell-wide strip) stays put and **R**
+steps through the open faces best-first, which is how the course is made to continue the wall you
+meant; and a cell buried inside a floor steps to whichever cell in its immediate ring does face open
+space, faced back toward the pointer. The scan is deliberately one cell — a snap is a nudge to the
+next edge, never a jump across the room — and the pointer aim only breaks a tie, never overrides a
+rule. A hand-built wall always wins: the tool never offers a side that already carries one.
+
+Crucially, **`wallSnap` takes no rotation argument at all** — `(cells, cell, pointer?, cycle?)` — so
+a turn the player happens to be holding cannot steer the geometry. R reaches only the *output*, as
+`dir`/`dirs`, and `walls.test.mjs` pins `wallSnap.length` so a `rot` parameter cannot creep back in.
+Taking a placement rotation as the snap's starting point is the trap this avoids: it makes the player
+turn the piece before the tool will agree with them, instead of the tool reading the wall and turning
+the piece itself. **The same rule governs wall decor.** A 广告牌 bolted flat to a wall has exactly one
+correct orientation, so `autofaceWallMount` (`sim/placement.ts`) derives it from the backing wall —
+`wallMountMissing` already reduces "which way does it hang?" to `rot` alone, so the turn is an output
+there too. A valid turn is kept (deliberately flipping a panel between two walls still works), the
+pointer's aim breaks a corner tie, and a run must be backed along its whole length. The only failure
+left is "there is no wall here at all".
+
+A hole dug through the middle stays open rather than getting
 boarded up. The platform/tunnel footprint is covered ground too: a placed rail digs its bed, so the
 merge folds that footprint into the surface — the ring wraps the whole patch-plus-track area, the
 drag never pours a block into the trench, and no auto wall rises through a platform screen door a
 full track sliced through the patch. Single clicks
 and stacked blocks stay plain, and the drag's live ghost shows the wall ring before release. The
-地基 tool carries a **自动生成墙壁** toggle (on by default) in the 工具 folder: turn it off and the
+地基 tool carries a **自动生成墙壁** toggle (on by default) in the 工具 folder — **Tab** flips it
+while the 地基 tool is active: turn it off and the
 same drag lays the patch as untagged bare blocks, with no ring. See
 `test/walls.test.mjs`.
 
 **Fences divide areas with gates.** The 设备 folder's 围栏 (§5.2) is a 1 m high, very thin
 metal frame around a glass panel standing through the middle of its block. A single click drops
 one panel turned with **R**; press-and-drag lays a straight run like the 墙 tool with the panels
-following the drag direction, and right-drag lifts the run back out. The run previews as real
+following the drag direction, and right-drag lifts the run back out. The 删除 tool drags the same
+straight line: press a panel, drag along the run, and release to lift every panel on it at once (a
+tap still removes just the one under the pointer). The run previews as real
 translucent fence models while you drag. Every panel is built from its neighbours
 (`sim/fences.ts`), so a straight run is continuous, a dead end caps itself with an end post, and
 an L, T or + junction turns through the shared centre post with no overhang — dragging a new
 segment up to an existing end regenerates that end on the spot, dropping its old cap and post.
 A run plugs straight into a 闸机 row, and it also joins a stair or escalator: `railLandingAt` makes a
 fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short.
-`placementBlocked` exempts that fence ↔ ramp pair (except on the ramp's own landing cells, whose
-nodes must stay walkable), so the connection is actually placeable — the stair's generous collision
-envelope no longer hides the floor beside it. The sim treats a fence cell as not walkable, so the run
+That connection needs no collision exemption: a run reserves just its own tile, so the cell beside it
+is free ground and the fence's own thin box never meets the run's. The sim treats a fence cell as not
+walkable, so the run
 plus its gates is a barrier the crowd only crosses at a gate — paint different zones each side and the
 fare line holds. See `test/fence.test.mjs`.
 
 `test/` holds the acceptance tests. Run them with `npm test`:
+
+Two of the drawn faces can be rendered to a PNG outside the browser, for looking at rather than
+asserting: `node ../tools/render-tv-plate.mjs out.png` prints a 电视 station plate, and
+`node ../tools/render-sign-panel.mjs out.png` prints 指示牌 panels — a fresh board at the floor, one
+grown taller, one grown wider, and the whole catalogue on one board. Both drive the shipping draw
+functions through a recording 2D context, so the picture is the real output (only text width is
+approximated); neither needs WebGL.
 
 * `determinism.test.mjs` — same seed + tick ⇒ byte-identical positions, and no unseeded
   randomness anywhere in `sim/`.
@@ -345,7 +684,9 @@ fare line holds. See `test/fence.test.mjs`.
 * `layering.test.mjs` — `sim/` imports nothing and touches no DOM; `render/` never reaches
   up into `app/`; `build/` imports neither.
 * `surfaces.test.mjs` — a slow floor finish is a real detour, a track bed is not a walkable
-  node, paint/fill/erase are immutable, and the mesher groups by finish (B1).
+  node, paint/fill/erase are immutable, and the mesher groups by finish (B1); 搪瓷板 takes a
+  custom tint encoded in its finish id without changing the wall family, and the mesher keeps
+  two tints in separate parts.
 * `save.test.mjs` — the `metro-save` v1 envelope round-trips the static station and names
   every failure mode (B1); a legacy line with no direction termini loads with empty ones.
 * `load.test.mjs` — loading a station is a full sim reset: `World.load` clears the crowd,
@@ -354,12 +695,28 @@ fare line holds. See `test/fence.test.mjs`.
   station document and the clock.
 * `zones.test.mjs` — an ungated fare line strands the crowd (zero boardings); a gate restores
   flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2).
+* `gate-door.test.mjs` — the 闸机's two states (§5.2): `Tab` toggles a working **lane** and the
+  **fence** machine, and a save written while the door *side* was a setting (`right` / `left`) reads
+  as a lane while the old `none` reads as fence. The machine's solid side is the half its body stands
+  on and turns with `R` — a half turn *is* the mirror, which is why there is no 左 / 右 setting — so a
+  fence run butts it while a fence on the lane side ends at the doorway with its own end post; a fence
+  machine is a barrier — not a node, no gate server, no fare-line crossing — keeping the same
+  half-block body with fence on the other half of the cell (capped where nothing carries the run on).
+  The model itself is pinned too: the head is a trapezoid whose top is shorter than its base (the
+  reference's 115° shoulder) and the whole machine is the reference's 1250 mm, not a 1 m cube. The
+  **live ghost** is pinned as well, because a Tab cycle only redraws a preview already under the
+  pointer if it reaches both halves of that path: the store key the viewport subscribes to
+  (`placementPreviewKey`) and the renderer's ghost identity (`render/moduleGhostKey.ts`, which skips a
+  rebuild it thinks is unchanged).
 * `trains.test.mjs` — a dispatched train gets a pose on the track beside its platform edge,
-  a stop is a fixed berth/open/dwell/close/hold/depart sequence, and the pose is deterministic
-  (the rolling-stock render path).
+  a stop is a fixed berth/open/dwell/close/hold/depart sequence, the pose is deterministic,
+  the door-side mask follows the berth's screen doors (the platform side only, both banks on an
+  island, neither on a rail with no platform beside it), and every screen door stands on a car door
+  with no car door left without one (the rolling-stock render path).
 * `stock.test.mjs` — the rolling-stock classes (§6.1): every classified car has a table row,
   the L linear-motor car is the short 2.8 m three-door third-rail stock, its door cadence is
-  symmetric, and the worker's pose index decodes back to the same class.
+  symmetric, spread to the car ends on one uniform pitch rather than bunched mid-car, and the
+  worker's pose index decodes back to the same class.
 * `placement.test.mjs` — `sim/placement.ts` gives every module a world footprint: two may not
   share space (a gate line in adjacent cells is fine, a module on the storey above is not a
   conflict), a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
@@ -367,21 +724,54 @@ fare line holds. See `test/fence.test.mjs`.
   brush refuses a cell reserved by a ramp opening or an exit's floor (`reservedOpening`). The
   装饰 广告牌 is wall-mounted: `wallMountMissing` refuses it without a solid wall block
   at the facing neighbour's first course, and `wallSide` turns that requirement with the module's
-  rotation. A fresh exit is named for the first free letter A ~ Z (`nextExitName`, so A口 / B口 / …),
+  rotation. `autofaceWallMount` turns the panel to face that wall, so the rotation is derived rather
+  than pressed. A fresh exit is named for the first free letter A ~ Z (`nextExitName`, so A口 / B口 / …),
   reusing a letter freed by a delete or rename, and falling back to 未命名口 once all 26 are taken.
   A wall-mounted ad may also stand in the face-adjacent cell when the pointer is on a wall itself
   (`wallMountStandCell`), so it can bolt to the station wall across the track.
 * `openings.test.mjs` — a placed ramp carves the slab it climbs through but keeps its landings as
   graph nodes, only the run's centreline cells are carved (a block the handrail merely grazes is
-  kept), a wall beside a run survives and is marked by `rampThinCells` for its half-metre panel, and
-  a wide stair's side floor cells survive and are marked as half blocks, and every cell the carve
+  kept), a wall beside a run survives untouched (the run sweeps less than half a cell, so nothing
+  beside it is reached), a single piece wider than a cell keeps its side floor cells and has them
+  marked as half blocks while a wall it reaches is thinned the same way (an old 1.6 m stair, or a 2–3
+  lane turning stair — a straight wide stair is lanes now, so it reaches nothing), and every cell the carve
   opens reads as reserved so a hand-built block cannot cover it back up.
 * `stairs.test.mjs` — the four stair shapes, each one storey; every flight is a two-way graph edge
   between walkable landings, a switchback is walked bottom to top across its half-landing, the turn
-  landings are the cells between flights, the width cycle runs narrow → normal, the four stair
+  landings are the cells between flights, the width cycle runs one → two → three lanes (each exactly an
+  escalator band, and a width that is not a whole number of lanes reads as the nearest), the lanes of a
+  wide flight step along `stairRight` — the same "right of forward" a switchback's second flight uses —
+  `planStairLanes` puts the hovered cell first and shifts the flight back so it butts against a stair
+  on its left or its right (and flags the first candidate when nowhere fits), `stairLaneMates` pairs
+  two lanes of one run — neighbours always (`sameFlight` false: their steps meet and they keep their
+  rails), one staircase when they share a `cfg.flight` token — and refuses a lane set along the run,
+  one on another level, one running the other
+  way, a turning stair or a saved wide piece, the four stair
   buttons each build their fixed one-storey shape, a placed turning stair lays its half-landing as a
   walkable cell and carves its slab, and a carve keeps the landings while opening the slab a turning
   stair climbs through.
+* `bay.test.mjs` — the one-tile rule (§5.1): a narrow stair is exactly the escalator band and the
+  default stair, and a wide stair is laid as lanes, so every lane of a 2- or 3-lane flight merges with
+  an escalator and with the lane beside it (while an old single-piece 1.6 m stair keeps its own bay);
+  the models are measured to prove two neighbouring stairs **join their steps** while two placed
+  separately keep the rails between them and the lanes of one wide stair (one flight token) do not, and
+  the graph to prove the crowd may cross between the lanes of one wide flight but not between two
+  stairs — while a stair beside an escalator keeps both balustrades either way; a
+  run's body and handrails sweep less than half a cell, so an escalator and a stair,
+  two escalators (either travel direction) or a bank of three may stand in adjacent cells, along the
+  run or a storey up, while a wide single piece, the same column and a turning stair still collide; a wall,
+  fence or gate may be built right up against a run but not inside its tile; the rig's exit A is such
+  a flush pair, both runs join the graph and no walk edge crosses their balustrades; and the drawn
+  models are measured to prove each run keeps both of its own railings inside its own cell — and that
+  a stair's handrails wrap round at both outer landings and land on the floor, while a switchback's
+  half-landing gets no newel post in the middle of it.
+* `exits.test.mjs` — the 出入口 (§5.6): the plan is the runs' group with one full block of floor at
+  each end, so a 单向 / 双向 / 三向 is 3 / 4 / 5 blocks across and the runs stand side by side in
+  columns 0 … bays − 1; the floor, street-opening node and glass/back walls all follow the placement
+  rotation; a station saved on the old two-metre bays widens the house to cover its runs rather than
+  letting them poke through the glass; the pad opens one wellway per run, exactly its own block (and
+  wider only for a run wider than a block); the snap clamps the pointer into the bay group so runs can
+  only be dropped side by side; and 无盖 keeps the same barrier planes as 有盖.
 * `escalators.test.mjs` — the placed escalator is a fixed one-storey piece: an up run travels from
   the dropped cell to the storey above, a down run keeps the same footprint entered from the top,
   the direction cycle flips up ↔ down, two runs may not share a footprint but the next bay over is
@@ -467,7 +857,66 @@ fare line holds. See `test/fence.test.mjs`.
   with the hover rotation; a piece needs a solid ceiling at the next storey grid line (so a B1 piece
   hangs from the concourse slab) and is refused without one, while floor-standing modules are never
   refused; neither is wall-mounted; each envelope is the full storey column, so it is found and blocks
-  its cell; and both round-trip the save.
+  its cell; and both round-trip the save. The same file owns the 指示牌's **board document** (§5.8):
+  the board is **one row** that grows longer with its content and never taller, and its texture follows
+  it at a constant pixels per metre; text is measured and estimated alike; a label is two lines of
+  eight; every component is its ink plus a pad, so two marks can never touch; **no two components ever
+  overlap** — not when two are dropped in the same place, and not when every palette block is stamped
+  at one point — while the block being held keeps its exact place and the row packs around it; a
+  component is clamped onto the board rather than off it; a face-bound component prints on that face
+  only, and the hit test picks what the player can see; a fresh board carries the station's own line and
+  a legacy board is backfilled once; an unreadable layout (duplicate ids, forty components, a 99×
+  scale) is repaired rather than trusted; and a palette block is a content group that stamps as a run.
+* `billboard.test.mjs` — the 广告牌 formats and their posters (§5.7): the catalogue and the JPEGs in
+  `src/assets/posters/` name the same twelve slugs; a panel is only ever offered artwork cut for its own
+  silhouette; every poster a format can roll is cropped by less than 1.45× and the window that does the
+  cropping keeps the image's own aspect (`panelUvWindow`), so nothing is ever stretched; the window is
+  the centred crop and the cropped quad's UV corners walk it in three's own order; an unknown slug falls
+  back to the catalogue head rather than to a blank face; and all six panels fit their run, the 2.4 m
+  collision envelope and the 4 m storey.
+* `tv-screen.test.mjs` — the 电视's two lit panes (`render/models.ts` `buildTv`), pinned in geometry
+  because the failure is silent: the content window's pane must stand clear of the dark backing slab
+  that carries it, since a coplanar pane z-fights that slab and the window renders as a flat black
+  rectangle with nothing in the console. Both panes are also asserted to be front-side-only on the same
+  local −y face, so the back of the case reads as a blank panel, and the window is cut at exactly the
+  region `TV_POSTER_RECT` reserves for it — board ends, window begins, window reaches the screen edge.
+  `render/adArt.ts` is stubbed here rather than imported: it resolves its JPEGs through Vite's
+  `import.meta.glob`, which plain Node has no implementation of, and nothing under test lives there.
+* `station-display.test.mjs` — the 电视 board's own arithmetic (`render/stationDisplay.ts`), testable
+  without a canvas: `stationDisplayLayout` keeps the content window clear of the header, the three
+  cards, the service strip *and* the clock, in that order down the information column; the window
+  never leaves the plate; and `tvLineStatus` reads the next train off the live poses — an approaching
+  train becomes the countdown, one level with the berth reads 列车进站, one already past it is neither,
+  a train on the opposite track or another line is ignored, and an unset terminus falls back to the
+  line's own direction word.
+* `sweep.test.mjs` — the 删除 tool's same-type drag sweep (§9.5, `app/sweep.ts`): two 闸机 of either
+  rotation are one family while a 售票机 at the end of the row never joins; the palette variant is the
+  match, so a 2 m 座椅 leaves the 1 m ones standing and a 横版 广告牌 leaves the portrait panels, while
+  a legacy piece with no variant reads as the default it is drawn as; a room, a rail, an 出入口, a
+  楼梯 and a 站台门 are never sweepable; the drag path between two move events is sampled end to end
+  (a fast flick that jumps a cell still collects what it crossed, a teleport is capped but never
+  skipped), so a drag along a gate row collects exactly the gates and never twice; and the whole run
+  folds into one state, leaving other modules and the floor under them untouched.
+* `paint-mode.test.mjs` — the 材质 folder's own setting (`app/store.ts`, §4.3): `N` 单块 / `M` 整面
+  are what the brush keeps, so choosing a texture — a plain finish tile, or a fresh 搪瓷板 colour,
+  which reaches the brush in the same click rather than the previous render's value — never resets
+  it; the setting survives a detour through another folder on the left rail; and `I` 取色 borrows
+  the brush and hands it back in the mode it was entered with.
+* `level-slicing.test.mjs` — the level slice as a pure rule (`render/levelSlicing.ts`): which
+  side of the edited storey a piece sits on (a lift spanning into the storey counts as active),
+  显示其他层 off drawing the edited storey alone at every camera angle, ghost mode keeping the
+  neighbours at 35% while a storey above keeps only its unsupported plates (a room never wears
+  its own ceiling), and the crowd and the trains following the same slice.
+* `sign-editor.test.mjs` — the 指示牌 board editor session (`app/SignEditor.tsx`): a sign is a
+  pair of boards with a one-sided default, the preview never commits, confirming makes the pair
+  current and the next sign hung carries a copy, covering the full compose→place→print flow.
+* `sign-model.test.mjs` — the 指示牌 board document path (`sim/sign.ts` `buildSign`): one lit
+  face per composed board with a default-front/empty-back fallback, one vs two mounted faces,
+  and the shared panel sized to the longer board.
+* `sign-render.test.mjs` — the 指示牌 board pixels (`render/signFace.ts` `drawSignPanel`): a
+  fresh sign prints ink rather than black, per-face boards, the empty-face stand-in, panel-vs-
+  plate size agreement, label row pitch and separation, every palette mark printing, the PNG
+  pictograms square/white/clear, and the save round-trip.
 
 ## The simulation's time base
 

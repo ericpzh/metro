@@ -26,3 +26,6 @@ worker-configuration.d.ts
 Thumbs.db
 *.log
 npm-debug.log*
+
+# Scratch preview/review outputs (browser profiles, experiment scripts, screenshots)
+.preview/

@@ -6,6 +6,7 @@
 // train-borne wave cannot stall the sim (PLAN.md §2.2).
 
 import {
+  ESCALATOR_BALUSTRADE,
   ESCALATOR_RATE,
   ESCALATOR_SPEED,
   GATE_RATE,
@@ -20,11 +21,11 @@ import {
   WALK_SPEED,
 } from './constants.ts'
 import { floorSpeed } from './finishes.ts'
-import { gateAllows } from './gates.ts'
+import { gateAllows, gateHasLane } from './gates.ts'
 import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
-import { STOCK, doorCentres, type StockClass } from './stock.ts'
-import { edgeCells } from './track.ts'
-import { STAIR_WIDTH_NORMAL, stairFlights } from './stairs.ts'
+import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
+import { edgeCells, rotateLocal } from './track.ts'
+import { STAIR_WIDTH_NARROW, stairFlights, stairLaneMates } from './stairs.ts'
 import { liftFootprintCells, liftLandingCells, liftStopZs } from './lifts.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndex } from './zones.ts'
@@ -162,9 +163,17 @@ export function buildGraph(data: StationData): StationGraph {
   for (const c of data.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
   // Cells that host a gate, and the direction each gate passes. Only a gate
   // whose policy allows the crossing force can cross the zone line here, so a
-  // one-way gate is a barrier to the other direction (§4.5).
+  // one-way gate is a barrier to the other direction (§4.5). A **doorless**
+  // machine is no gate at all: it is left out here, so it crosses no fare line.
   const gateModes = new Map<string, GateMode>()
-  for (const m of data.modules) if (m.type === 'gate') gateModes.set(cellKey(m.x, m.y, m.z), m.cfg.dir)
+  for (const m of data.modules) if (m.type === 'gate' && gateHasLane(m)) gateModes.set(cellKey(m.x, m.y, m.z), m.cfg.dir)
+
+  // A doorless 闸机 (§4.5) is a machine body on one half of its block with fence
+  // on the other, placed to finish a run: there is no lane to walk down, so the
+  // cell is not walkable — the crowd goes round it exactly as it goes round a
+  // fence, which is what that other half is drawn as.
+  const gateWallCells = new Set<string>()
+  for (const m of data.modules) if (m.type === 'gate' && !gateHasLane(m)) gateWallCells.add(cellKey(m.x, m.y, m.z))
 
   // A booth's desk rings the whole floor, so the staff area is not walkable:
   // the crowd is served from outside the counter. Excluding the footprint keeps
@@ -222,6 +231,7 @@ export function buildGraph(data: StationData): StationGraph {
     if (nodeIndex.has(key)) continue
     if (boothCells.has(key)) continue
     if (fenceCells.has(key)) continue
+    if (gateWallCells.has(key)) continue
     if (liftCells.has(key)) continue
     const id = keys.length
     nodeIndex.set(key, id)
@@ -272,7 +282,7 @@ export function buildGraph(data: StationData): StationGraph {
   const exitWalls: ExitWall[] = []
   for (const m of data.modules) {
     if (m.type !== 'exit' || m.cfg.headHouse === false) continue
-    exitWalls.push(...exitWallPlanes(m))
+    exitWalls.push(...exitWallPlanes(m, data.modules))
   }
   const crossesExitWall = (x: number, y: number, nx: number, ny: number): boolean => {
     for (const w of exitWalls) {
@@ -304,10 +314,15 @@ export function buildGraph(data: StationData): StationGraph {
   const rampWalls: RampWall[] = []
   for (const m of data.modules) {
     if (m.type !== 'escalator' && m.type !== 'stair') continue
-    // A stair may turn: every flight gets its own pair of side walls, so the
-    // crowd boards each flight along its run and never through the glass.
+    // A stair may turn: every flight gets its own side walls, so the crowd
+    // boards each flight along its run and never through the glass. Lanes of one
+    // wide flight (`sameFlight`) have no rail between them, so that side carries
+    // no wall either — the crowd may step between lanes at the landings. Two
+    // stairs placed separately keep their rails *and* their walls: their steps
+    // meet, but you cannot walk from one to the other.
     const segs = m.type === 'stair' ? stairFlights(m) : [{ from: m.from, to: m.to }]
-    const half = m.type === 'escalator' ? 0.52 : (m.cfg.width ?? STAIR_WIDTH_NORMAL) / 2
+    const half = m.type === 'escalator' ? ESCALATOR_BALUSTRADE / 2 : (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
+    const laneMates = m.type === 'stair' ? stairLaneMates(data.modules, m) : []
     for (const seg of segs) {
       const ax = seg.from.x + 0.5
       const ay = seg.from.y + 0.5
@@ -319,6 +334,7 @@ export function buildGraph(data: StationData): StationGraph {
       const uy = dy / L
       const EXT = 0.6
       for (const s of [1, -1]) {
+        if (laneMates.some((mate) => mate.sameFlight && Math.sign(mate.step[0] * -uy + mate.step[1] * ux) === s)) continue
         const ox = -uy * half * s
         const oy = ux * half * s
         rampWalls.push({
@@ -393,12 +409,15 @@ export function buildGraph(data: StationData): StationGraph {
         // A head-house's node is its street opening, not the cell under the
         // canopy — so the crowd visibly walks out through the doorway. A bare
         // portal (headHouse: false) keeps the module cell.
-        const door = m.cfg.headHouse === false ? undefined : nodeIndex.get(cellKey(...exitDoorCell(m)))
+        const door = m.cfg.headHouse === false ? undefined : nodeIndex.get(cellKey(...exitDoorCell(m, data.modules)))
         const n = door ?? nodeIndex.get(cellKey(m.x, m.y, m.z))
         if (n !== undefined) exits.push({ id: m.id, node: n, name: m.cfg.name })
         break
       }
       case 'gate': {
+        // A doorless machine has no lane, so there is nothing to serve: it is a
+        // barrier only (see `gateWallCells`), and its cell is not even a node.
+        if (!gateHasLane(m)) break
         const n = nodeIndex.get(cellKey(m.x, m.y, m.z))
         if (n !== undefined) {
           const id = addServer({
@@ -613,15 +632,37 @@ export function buildGraph(data: StationData): StationGraph {
         const doors: number[] = []
         const cells: number[] = []
         const run = edgeCells(m)
-        const nDoors = line ? doorCentres(line).length : m.w
         for (const [x, y] of run) {
           const n = nodeIndex.get(cellKey(x, y, m.z))
           if (n === undefined) continue
           cells.push(n)
         }
-        const step = Math.max(1, Math.floor(run.length / Math.max(1, nDoors)))
-        for (let i = 0; i < run.length && doors.length < nDoors; i += step) {
-          const [x, y] = run[i]
+        // One door server per modelled passenger door, on the cell that door
+        // actually stands at — the same cadence, anchored on the same rail, that
+        // `models.ts` cuts the screen open with, so the queue forms at the
+        // opening that lines up with the car door and never a bay away (§1.13).
+        // The cadence is measured from the consist centre, i.e. the rail's run
+        // centre; this edge may cover only part of that bed. An edge that has
+        // lost its rail (a hand-authored or pre-`cfg.from` document) falls back
+        // to spreading its doors over its own run, so such a station still boards.
+        const railMod = data.modules.find((mm) => mm.id === m.cfg.from)
+        const rail = railMod?.type === 'track' ? railMod : undefined
+        const cadence = doorCentres(line ?? { stock: 'B', cars: 6 })
+        const seats: number[] = []
+        if (rail) {
+          const i0 = rotateLocal(-(rail.rot ?? 0), m.x - rail.x, m.y - rail.y)[0]
+          for (const at of doorRunOffsets(line ?? { stock: 'B', cars: 6 }, rail.w)) {
+            // The cell whose centre sits nearest that door; a door past either end
+            // of this run (a screen shorter than its rail) simply has none.
+            const j = Math.round(at - i0 - 0.5)
+            if (j >= 0 && j < run.length) seats.push(j)
+          }
+        } else {
+          const step = Math.max(1, Math.floor(run.length / Math.max(1, cadence.length)))
+          for (let i = 0; i < run.length && seats.length < cadence.length; i += step) seats.push(i)
+        }
+        for (const j of seats) {
+          const [x, y] = run[j]
           const n = nodeIndex.get(cellKey(x, y, m.z))
           if (n === undefined) continue
           const id = addServer({

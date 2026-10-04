@@ -16,9 +16,22 @@ import { DEFAULT_FINISH, FINISH_LIST } from '../sim/finishes.ts'
 import { packKey as key, type Cell, type Face, type FinishId } from '../sim/types.ts'
 
 /** Finish id -> a small dense index, so a hot loop never does a string Map get. */
-const FINISH_INDEX = new Map<FinishId, number>(FINISH_LIST.map((f, i) => [f.id, i]))
+const FINISH_IDS: FinishId[] = FINISH_LIST.map((f) => f.id)
+const FINISH_INDEX = new Map<FinishId, number>(FINISH_IDS.map((id, i) => [id, i]))
+/**
+ * Index for a finish id, handing out a new slot the first time a custom-tinted
+ * id (`wall.enamel#2f7ef2`) is seen. The stock list keeps stable indices; a
+ * painted colour is a distinct finish with its own material, so it must not
+ * fold back into the default — that is what would make every enamel wall blue.
+ */
 function finishIdx(id: FinishId): number {
-  return FINISH_INDEX.get(id) ?? FINISH_INDEX.get(DEFAULT_FINISH.top) as number
+  let i = FINISH_INDEX.get(id)
+  if (i === undefined) {
+    i = FINISH_IDS.length
+    FINISH_INDEX.set(id, i)
+    FINISH_IDS.push(id)
+  }
+  return i
 }
 
 // The common case is an unpainted cell: use shared default indices and skip the
@@ -357,13 +370,14 @@ export function meshChunk(
   }
 
   const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
-  // FINISH_LIST order is stable, so parts come out in a stable order.
+  // Stock FINISH_LIST ids keep their order; a custom tint appends on first
+  // sight, so parts still come out in a stable order for a given station.
   const parts: ChunkPart[] = []
   for (let i = 0; i < builders.length; i++) {
     const b = builders[i]
     if (!b) continue
     parts.push({
-      finish: FINISH_LIST[i].id,
+      finish: FINISH_IDS[i],
       positions: new Float32Array(b.pos),
       normals: new Float32Array(b.nor),
       colors: new Float32Array(b.col),

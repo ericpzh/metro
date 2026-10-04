@@ -114,10 +114,12 @@ export function scenarioStation(variant: StationVariant = {}): StationData {
     y: -6,
     z: Z_P,
     w: 121,
-    cfg: { name: '1站台', line: '2', dir: 'up', side: 'left' },
+    cfg: { name: '1站台', line: '2', dir: 'up', side: 'left', from: 'track-1' },
   })
   // The bed is owned by a track module now; placing one digs its cells, so the
-  // platform edge reads as a half-metre drop rather than a flush floor.
+  // platform edge reads as a half-metre drop rather than a flush floor. The edge
+  // remembers its rail, exactly as `derivePlatformEdges` writes it, so its screen
+  // doors land on the consist's own door cadence (§1.13).
   modules.push({
     id: 'track-1',
     type: 'track',
@@ -130,10 +132,13 @@ export function scenarioStation(variant: StationVariant = {}): StationData {
   })
 
   // --- exits (surface, §5.6) ---------------------------------------------
-  // Each exit is a covered head-house over a descending run and an up run, side
-  // by side two metres apart, climbing out of a hole in the plaza that the exit
-  // roof covers. This is what a street exit is — you walk under the canopy, onto
-  // the run, and down into the station. Exit A's descending run is a staircase.
+  // Each exit is a covered head-house over a descending run and an up run
+  // climbing out of a hole in the plaza that the exit roof covers. This is what
+  // a street exit is — you walk under the canopy, onto the run, and down into the
+  // station. The runs stand **side by side** in the head-house's two bays
+  // (§5.1, §5.6) — Exit A's descending run is a staircase, the other two drop an
+  // escalator — so every house is four blocks across with a full block of pad
+  // either side.
   const exitDefs = [
     { id: 'exit-a', x: -5, y: 30, name: 'A口', inRate: 900 },
     { id: 'exit-b', x: 0, y: 30, name: 'B口', inRate: 900 },
@@ -148,30 +153,28 @@ export function scenarioStation(variant: StationVariant = {}): StationData {
       z: Z_G,
       cfg: { name: e.name, inRate: e.inRate, open: true },
     })
-    // Surface <-> concourse, one pair per exit, each bay the equipment's fixed
-    // one-storey run: the 扶梯 button's exact piece, `ESCALATOR_RUN` cells of run
-    // over one storey of climb. The down run is the west bay and the up run the
-    // east bay; both land on the exit's own row, so the roof the exit draws sits
-    // over them. Exit A's west bay is a staircase instead of an escalator — a
-    // narrow (escalator-width) straight stair beside the up run, the
-    // reference-art mixed entrance (§3, §5.1).
+    // Surface <-> concourse, one pair per exit, each run the equipment's fixed
+    // one-storey piece: the 扶梯 button's exact run, `ESCALATOR_RUN` cells of
+    // horizontal run over one storey of climb. Both land on the exit's own row,
+    // so the roof the exit draws sits over them.
     if (e.id === 'exit-a') {
-      const base = { x: e.x - 1, y: e.y - STAIR_RUN, z: Z_C }
+      const base = { x: e.x, y: e.y - STAIR_RUN, z: Z_C }
       const flights = stairFlightsFor(base, 0, 'straight')
       modules.push(stair(`stair-gc-${e.id}`, [[flights[0].from, flights[0].to]], 'straight', STAIR_WIDTH_NARROW))
     } else {
-      modules.push(escalatorModule({ x: e.x - 1, y: e.y - ESCALATOR_RUN, z: Z_C }, 0, 'down', `esc-gc-down-${e.id}`))
+      modules.push(escalatorModule({ x: e.x, y: e.y - ESCALATOR_RUN, z: Z_C }, 0, 'down', `esc-gc-down-${e.id}`))
     }
     modules.push(escalatorModule({ x: e.x + 1, y: e.y - ESCALATOR_RUN, z: Z_C }, 0, 'up', `esc-gc-up-${e.id}`))
   }
 
   // --- vertical circulation ----------------------------------------------
-  // Down and up runs live in separate columns, two metres apart. Two ramps in
-  // the same column stack on top of one another (their decks end up ~0.6 m
-  // apart), which is impossible and ugly; `rampBlocked` enforces the same rule
-  // for ramps placed by the builder. Each run is the equipment's fixed
-  // one-storey escalator: based on the platform, landing one storey up on the
-  // concourse.
+  // The down and up banks off the platform live in separate columns, two metres
+  // apart. Two ramps in the same column stack on top of one another (their decks
+  // end up ~0.6 m apart), which is impossible and ugly; `rampBlocked` enforces
+  // the same rule for ramps placed by the builder — while a run standing flush
+  // beside another of the same storey is a bay pair, not a collision. Each run is
+  // the equipment's fixed one-storey escalator: based on the platform, landing one
+  // storey up on the concourse.
   const cpDownX = [-6, -4]
   const cpUpX = [-2, 0, 2, 4, 6]
   for (let i = 0; i < cpDownX.length && i < down; i++) {

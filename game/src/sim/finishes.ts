@@ -49,6 +49,35 @@ export const FINISH_LIST: readonly FinishDef[] = [
 
 const BY_ID = new Map<FinishId, FinishDef>(FINISH_LIST.map((f) => [f.id, f]))
 
+/**
+ * Separator joining a stock finish id to a custom tint, e.g.
+ * `wall.enamel#2f7ef2`. A custom-tinted finish is still a real finish: the base
+ * id decides family, speed and look, the suffix only supplies the colour. That
+ * keeps the per-face finish a plain string (no new cell field, no save
+ * migration) while letting 搪瓷板 be painted any colour, one cell at a time.
+ */
+const TINT_SEP = '#'
+
+/** A base finish id wearing a custom tint — `customFinishId('wall.enamel', 0xff8800)`. */
+export function customFinishId(base: FinishId, colour: number): FinishId {
+  const hex = (colour >>> 0).toString(16).padStart(6, '0').slice(-6)
+  return `${base}${TINT_SEP}${hex}`
+}
+
+/** The stock finish a possibly-tinted id derives from (`wall.enamel#…` → `wall.enamel`). */
+export function finishBaseId(id: FinishId): FinishId {
+  const at = id.indexOf(TINT_SEP)
+  return at < 0 ? id : id.slice(0, at)
+}
+
+/** The custom tint packed into a finish id, or null for a stock finish. */
+export function finishTint(id: FinishId): number | null {
+  const at = id.indexOf(TINT_SEP)
+  if (at < 0) return null
+  const n = Number.parseInt(id.slice(at + 1), 16)
+  return Number.isFinite(n) ? n : null
+}
+
 /** Default finish for each face, used when a cell has no override. */
 export const DEFAULT_FINISH: Record<Face, FinishId> = {
   top: 'floor.granite',
@@ -60,7 +89,15 @@ export const DEFAULT_FINISH: Record<Face, FinishId> = {
 }
 
 export function finishDef(id: FinishId): FinishDef {
-  return BY_ID.get(id) ?? BY_ID.get('floor.granite') as FinishDef
+  const exact = BY_ID.get(id)
+  if (exact) return exact
+  // A custom-tinted finish carries its colour in the id. Resolve the stock base
+  // for behaviour and look, then override the tint, so a painted enamel wall
+  // walks and collides exactly like the stock one.
+  const base = BY_ID.get(finishBaseId(id))
+  const tint = finishTint(id)
+  if (base && tint !== null) return { ...base, id, tint }
+  return BY_ID.get('floor.granite') as FinishDef
 }
 
 export function finishLabel(id: FinishId): string {

@@ -13,7 +13,6 @@
 import { EXIT_L, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { rampEnvelope, rampOpeningAt } from './openings.ts'
-import { stairLandings } from './stairs.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS } from './constants.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { isWallBlock, type Cell, type Module } from './types.ts'
@@ -30,7 +29,7 @@ export interface ModuleBox {
 
 /** How tall a body of each flat module stands above its cell top, metres. */
 const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'billboard' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
-  gate: 1.2,
+  gate: 1.3,
   fence: 1.0,
   tvm: 1.9,
   vending: 1.9,
@@ -340,6 +339,46 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module): boo
   return false
 }
 
+/**
+ * The same module turned to face a wall it can actually hang on — the piece's
+ * orientation is an **output** of the wall, never an input the player must get
+ * right first (the mirror of the 墙 tool's snap in `build/model.ts`).
+ *
+ * `wallMountMissing` already reduces "which way does it hang?" to `rot` alone, so
+ * the orientation is not a free choice: a panel bolted flat to a wall faces that
+ * wall and nothing else. This keeps the player's current turn when it is already
+ * valid (so a deliberately flipped panel is respected), and otherwise takes the
+ * first direction that has real backing, nearest-to-`near` first so a panel
+ * dropped in a corner picks the wall the pointer is looking at.
+ *
+ * Returns the module unchanged when it is not wall-mounted, or when no direction
+ * has backing at all — that case is a genuine refusal, and
+ * `wallMountMissing` reports it rather than being papered over here.
+ */
+export function autofaceWallMount(cells: readonly Cell[], candidate: Module, near?: readonly [number, number]): Module {
+  if (!WALL_MOUNTED.has(candidate.type)) return candidate
+  if (!wallMountMissing(cells, candidate)) return candidate
+
+  const [bx, by] = baseCells(candidate)[0] ?? [candidate.x, candidate.y]
+  // `wallSide` is the wall step for a given rot, so inverting it is the whole
+  // search: rot 0 → −y, 1 → +x, 2 → +y, 3 → −x.
+  const options: Array<{ rot: number; d: number }> = []
+  for (let rot = 0; rot < 4; rot++) {
+    const [dx, dy] = wallSide(rot)
+    const nz = candidate.z + 1
+    const backed = baseCells(candidate).every(([cx, cy]) =>
+      cells.some((c) => c.fill === 'solid' && c.x === cx + dx && c.y === cy + dy && c.z === nz),
+    )
+    if (!backed) continue
+    const d = near === undefined ? 0 : Math.abs(bx + dx - near[0]) + Math.abs(by + dy - near[1])
+    options.push({ rot, d })
+  }
+  if (options.length === 0) return candidate
+
+  options.sort((a, b) => a.d - b.d || a.rot - b.rot)
+  return { ...candidate, rot: options[0].rot }
+}
+
 /* ------------------------------------------------------ ceiling-hung decor */
 
 /**
@@ -369,8 +408,15 @@ export function boxesOverlap(a: ModuleBox, b: ModuleBox): boolean {
  * conflicts with itself (matched by id), so re-checking is safe.
  *
  * An exit is a special case: stairs and escalators may pass through it, so an
- * exit ↔ stair/escalator overlap never blocks placement. All other pairs
- * (exit ↔ gate/TVM/…, stair ↔ stair, ramp ↔ gate, …) still collide.
+ * exit ↔ stair/escalator overlap never blocks placement. Everything else must
+ * keep out of each other's boxes — which is enough for a bank of runs, because a
+ * run is built to fit inside one tile: two runs in adjacent cells reserve
+ * adjacent (touching, not overlapping) boxes, so escalators and stairs stand
+ * flush without a special case, and a wall, fence or gate may be built right up
+ * against a run the same way (a fence drawn up to a landing still butts onto its
+ * handrail in the renderer, which reads the neighbours rather than this rule). A
+ * 1.6 m stair is the exception that proves it: its body crosses into the next
+ * cell, so it still collides with whatever is there.
  *
  * A shelf or desk is the other exception: room furniture, so it may stand
  * inside a walled room or booth (either side of the pair may be the
@@ -383,7 +429,6 @@ export function placementBlocked(modules: readonly Module[], candidate: Module):
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
     if (isExitRampPair(m, candidate)) continue
     if (isFurnitureRoomPair(m, candidate)) continue
-    if (isFenceRampPair(m, candidate)) continue
     const e = moduleEnvelope(m)
     if (e && boxesOverlap(c, e)) return true
   }
@@ -399,32 +444,6 @@ function isExitRampPair(a: Module, b: Module): boolean {
   const isExit = (m: Module): boolean => m.type === 'exit'
   const isRamp = (m: Module): boolean => m.type === 'stair' || m.type === 'escalator'
   return (isExit(a) && isRamp(b)) || (isExit(b) && isRamp(a))
-}
-
-/**
- * A fence (围栏) beside a stair or escalator: that pair is allowed to share
- * space, so a run can be drawn right up to the ramp's handrail (the renderer
- * connects the two — see `railLandingAt`). The ramp's collision envelope is a
- * generous box that otherwise covers the floor columns beside the run; a fence
- * survives only on the ramp's own landing cells, which are its graph nodes and
- * must stay walkable, so those are still refused.
- */
-function isFenceRampPair(a: Module, b: Module): boolean {
-  const fence = a.type === 'fence' ? a : b.type === 'fence' ? b : null
-  const ramp = a.type === 'stair' || a.type === 'escalator' ? a : b.type === 'stair' || b.type === 'escalator' ? b : null
-  if (!fence || !ramp) return false
-  return !rampLandingAt(ramp, fence.x, fence.y, fence.z)
-}
-
-/** True when a ramp has a landing (graph node) on `(x, y, z)`. */
-function rampLandingAt(ramp: Module, x: number, y: number, z: number): boolean {
-  if (ramp.type === 'stair') {
-    return stairLandings(ramp).some((p) => p.x === x && p.y === y && p.z === z)
-  }
-  if (ramp.type === 'escalator') {
-    return (ramp.from.x === x && ramp.from.y === y && ramp.from.z === z) || (ramp.to.x === x && ramp.to.y === y && ramp.to.z === z)
-  }
-  return false
 }
 
 /**

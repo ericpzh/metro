@@ -114,6 +114,13 @@ interface LineAnchor {
   cars: number
   stock: StockClass
   colour: number
+  /**
+   * Which of the consist's two door banks may open at this berth — bit 0 the
+   * local +y side, bit 1 the local −y side (GAME-SPEC §1.13). A side is set
+   * only where the rail has a platform-edge run, i.e. platform screen doors:
+   * the train never opens onto the tunnel wall. Zero means no doors at all.
+   */
+  doorSides: number
 }
 
 export interface DynamicSnapshot {
@@ -602,17 +609,35 @@ export class World {
       // placement preview's direction arrows show.
       const dirSign = track.cfg.dir ? (track.cfg.dir === 'down' ? -1 : 1) : (line.travelSign ?? 1) >= 0 ? 1 : -1
       const colour = parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0
-      this.lineAnchors.set(line.id, { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, cars: line.cars, stock: line.stock, colour })
+      // Screen doors decide which door banks may open (§1.13): a side with no
+      // platform-edge run has no screen, so its doors stay shut. Prefer the
+      // edges derived from this rail — the platform the consist is actually
+      // berthed at — and fall back to the line's edges for a document whose
+      // edges predate `cfg.from`. `cfg.side` is read from the screen's own
+      // frame: 'left' means the platform lies past the bed on local +v, which is
+      // the consist's local +y.
+      let doorSides = 0
+      let lineSides = 0
+      for (const m of this.data.modules) {
+        if (m.type !== 'platform-edge' || m.cfg.line !== line.id) continue
+        const bit = m.cfg.side === 'left' ? 1 : 2
+        lineSides |= bit
+        if (m.cfg.from === track.id) doorSides |= bit
+      }
+      if (doorSides === 0) doorSides = lineSides
+      this.lineAnchors.set(line.id, { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, cars: line.cars, stock: line.stock, colour, doorSides })
     }
   }
 
   /**
-   * One pose per live train, stride 9: x, y, z, cars, stock index (A/B/C/L),
-   * doors-open, line colour, direction, yaw. A pure function of train state, so
-   * it adds no randomness and cannot disturb §7.6 determinism.
+   * One pose per live train, stride 10: x, y, z, cars, stock index (A/B/C/L),
+   * doors-open, line colour, direction, yaw, door-side mask. A pure function of
+   * train state, so it adds no randomness and cannot disturb §7.6 determinism.
+   * The mask is the berth's `LineAnchor.doorSides`: the renderer slides only the
+   * leaves on a side whose screen doors exist (§1.13).
    */
   trainRenderState(): Float32Array {
-    const STRIDE = 9
+    const STRIDE = 10
     const out = new Float32Array(this.trains.length * STRIDE)
     let k = 0
     for (const train of this.trains) {
@@ -639,6 +664,7 @@ export class World {
       out[k++] = a.colour
       out[k++] = a.dirSign
       out[k++] = a.yaw
+      out[k++] = a.doorSides
     }
     return out.subarray(0, k)
   }

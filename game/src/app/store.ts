@@ -4,19 +4,29 @@
 import { create } from 'zustand'
 import type { FromWorker, GraphInfo } from '../sim/protocol.ts'
 import type { Metrics } from '../sim/world.ts'
-import { DEFAULT_ZONE, type FinishId, type StationData, type Zone } from '../sim/types.ts'
+import { DEFAULT_ZONE, type FinishId, type Module, type StationData, type Zone } from '../sim/types.ts'
+import { finishDef } from '../sim/finishes.ts'
 import { referenceStation, REFERENCE_BOOT } from '../data/reference-station.ts'
 import { cloneState, initialStation, nearestLevel, nextEscalatorDir, removeModule, toData, toState, type StationState } from '../build/model.ts'
 import { LEVEL_STEPS } from '../sim/constants.ts'
 import { defaultLine, dropDerivedEdges, makeTrack, placeTrack, placeTunnel, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, stripTunnelShell, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
+import { nextGateDoor } from '../sim/gates.ts'
 import { parse as parseSave, serialize as serializeSave } from '../persistence/save.ts'
-import { STAIR_WIDTH_NORMAL, nextStairWidth } from '../sim/stairs.ts'
-import type { LineDef, LineDirection } from '../sim/types.ts'
+import { STAIR_WIDTH_NARROW, nextStairWidth } from '../sim/stairs.ts'
+import {
+  makeSignBoards,
+  settleSignBoards,
+  signBoardsOf,
+  type SignBoards,
+} from '../sim/sign.ts'
+import type { GateDoor, LineDef, LineDirection } from '../sim/types.ts'
 import type { SceneStats } from '../render/scene.ts'
 
 export type Tool = 'select' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
 export type PaintMode = 'single' | 'surface' | 'pick'
+/** The 材质 folder's own setting: the two modes `N` 单块 / `M` 整面 pick between. */
+export type PaintBaseMode = 'single' | 'surface'
 
 export interface ModuleOption {
   id: string
@@ -39,10 +49,12 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'desk', label: '办公桌', type: 'desk', w: 1, h: 1 },
   { id: 'cubicle', label: '厕所隔间', type: 'cubicle', w: 1, h: 1 },
   { id: 'sink', label: '洗手池', type: 'sink', w: 1, h: 1 },
-  { id: 'billboard-wide', label: '横版', type: 'billboard', w: 1, h: 1 },
-  { id: 'billboard-portrait', label: '竖版', type: 'billboard', w: 1, h: 1 },
-  { id: 'billboard-square', label: '方形', type: 'billboard', w: 1, h: 1 },
-  { id: 'billboard-large', label: '大横版', type: 'billboard', w: 2, h: 1 },
+  { id: 'billboard-wide', label: '横版 16:9', type: 'billboard', w: 1, h: 1 },
+  { id: 'billboard-standard', label: '标准 2.25:1', type: 'billboard', w: 2, h: 1 },
+  { id: 'billboard-large', label: '大横版 16:9', type: 'billboard', w: 2, h: 1 },
+  { id: 'billboard-panorama', label: '长幅 3.75:1', type: 'billboard', w: 3, h: 1 },
+  { id: 'billboard-portrait', label: '竖版 0.7:1', type: 'billboard', w: 1, h: 1 },
+  { id: 'billboard-square', label: '方形 1:1', type: 'billboard', w: 1, h: 1 },
   { id: 'tv', label: '电视', type: 'tv', w: 1, h: 1 },
   { id: 'sign', label: '指示牌', type: 'sign', w: 1, h: 1 },
   { id: 'exit-covered-1', label: '有盖 单向', type: 'exit', w: 1, h: 1 },
@@ -128,6 +140,14 @@ export function isEscalatorType(type: string): boolean {
 }
 
 /**
+ * True for the fare gate (闸机), whose Tab cycle picks the side its door — and so
+ * its lane — is on (§4.5).
+ */
+export function isGateType(type: string): boolean {
+  return type === 'gate'
+}
+
+/**
  * Equipment that is moulded at one angle and cannot be turned by the player.
  * Every piece in the current catalogue rotates, so this is empty; it is the one
  * place to list a future fixed-angle module (a wall-mounted sign, a one-way
@@ -202,13 +222,48 @@ export interface AppState {
   moduleType: string
   /** Quarter-turn applied to the equipment being placed: 0..3. */
   moduleRot: number
-  /** Stair tread width, cycled with Tab (narrow = escalator bay). */
+  /**
+   * The 墙 tool's picked wall face at a corner, as a step through the snap
+   * candidates **R** offers (`build/model.ts` `wallSnap`). It only encodes the
+   * player's choice — the candidate list itself is recomputed from the hovered
+   * cell — so it is a plain counter, reset when the tool changes.
+   */
+  wallSnapCycle: number
+  /**
+   * Stair width, cycled with Tab: one, two or three **lanes**, each exactly the
+   * escalator's step band, so a straight flight is laid as that many tile-sized
+   * pieces and every lane stands flush against an escalator or another stair
+   * (`sim/stairs.ts`).
+   */
   stairWidth: number
   /** Escalator travel direction, cycled with Tab (up/down). */
   escalatorDir: 'up' | 'down'
+  /**
+   * The 闸机 tool's piece (§4.5), toggled with Tab: `lane` (the default) is the
+   * working turnstile — machine body on one half of the block, lane with its leaf
+   * on the other — and `fence` is the doorless machine that carries a 围栏 run
+   * through its own cell. Which hand the lane is on is not a setting: **R** turns
+   * the piece. Carried into `cfg.door` on the piece placed.
+   */
+  gateDoor: GateDoor
   paintMode: PaintMode
+  /**
+   * The `N` 单块 / `M` 整面 half of `paintMode`, held separately because 取色
+   * (`I`) is a momentary overlay on one of the two brushes rather than a third
+   * one (§4.3). The mode is a setting of the 材质 folder, not of a tile or a
+   * face: choosing a finish (or a fresh 搪瓷板 colour) and eyedropping a face
+   * both hand the brush back in this mode instead of resetting it to 单块, so the
+   * player's last choice survives a detour through another folder.
+   */
+  paintBaseMode: PaintBaseMode
   /** Active finish brush — the face's family decides which ones apply. */
   paintFinish: FinishId
+  /**
+   * The custom colour the 搪瓷板 wall finish paints with (§4.3). The brush's
+   * finish id carries the colour (`customFinishId`), so each painted cell stores
+   * its own colour; this is just the current picker setting.
+   */
+  enamelColour: number
   /** Active fare-zone brush, or a facility room (§5.7) built by rectangle. */
   zoneBrush: ZoneBrush
   zoneOverlayOn: boolean
@@ -223,7 +278,18 @@ export interface AppState {
   /** Transient toast line (save/load results). */
   notice: string | null
   activeZ: number
+  /**
+   * 显示其他层, on by default: off it draws the edited storey alone at every
+   * camera angle, on it ghosts the other storeys where they do not block that
+   * storey (`render/levelSlicing.ts`).
+   */
   ghostOtherLevels: boolean
+  /**
+   * 隐藏天花板: hide the slab a storey up (the active room's ceiling) so a
+   * top-down camera looks into the room instead of onto its roof. Only a storey
+   * *above* the active one is affected, and only while 显示其他层 is on.
+   */
+  autoCeiling: boolean
   cutaway: boolean
   /** 隐藏墙壁: draw every wall and platform screen door translucent. */
   hideWalls: boolean
@@ -245,12 +311,28 @@ export interface AppState {
   setModuleType: (t: string) => void
   /** Turn the placement ghost 90° clockwise (R). */
   rotateModule: () => void
-  /** Cycle the stair width between narrow (escalator) and normal (Tab). */
+  /**
+   * Step the 墙 tool to its next snap candidate (**R**): which wall face the
+   * column takes where a cell faces open space on more than one side.
+   */
+  rotateWallSnap: () => void
+  /** Cycle the stair width one → two → three lanes (Tab). */
   cycleStairWidth: () => void
   /** Flip the escalator travel direction up ↔ down (Tab). */
   cycleEscalatorDir: () => void
+  /** Toggle the 闸机 between a working lane and the doorless fence machine (Tab). */
+  cycleGateDoor: () => void
   setPaintMode: (m: PaintMode) => void
+  /** Hand the brush back after 取色 (`I`), in whichever of `N`/`M` it was entered with. */
+  resumePaintMode: () => void
+  /**
+   * The 材质 tile's click: point the brush at a finish and switch to the paint
+   * tool, keeping the folder's `N`/`M` setting — a texture is not a mode.
+   */
+  selectPaintFinish: (id: FinishId) => void
   setPaintFinish: (id: FinishId) => void
+  /** Remember the 搪瓷板 picker's colour for the next enamel paint. */
+  setEnamelColour: (colour: number) => void
   setZoneBrush: (z: ZoneBrush) => void
   setZoneOverlay: (on: boolean) => void
   setRailLine: (id: string) => void
@@ -275,6 +357,80 @@ export interface AppState {
   updateRail: (trackId: string, patch: { line?: string; dir?: LineDirection }) => void
   /** Edit a line's shared parameters (stock, cars, headway, colour). */
   updateLine: (lineId: string, patch: Partial<LineDef>) => void
+  /**
+   * Rewrite one 指示牌's printed **boards** (§5.8). Both faces are replaced, so
+   * every edit — a drag, a stamp, a delete — is one `commit` and therefore one
+   * `Ctrl+Z`. Each face is settled on the way in (`settleSignBoards`), so the two
+   * boards, the shared panel and their content can never disagree.
+   */
+  setSignBoards: (moduleId: string, boards: SignBoards) => void
+  /**
+   * **The current boards**: the 指示牌 the player is working on, and the one every
+   * new sign is hung with.
+   *
+   * There is one current pair, and it is the whole of the signage model:
+   *
+   *  - the editor (the rail's 自定义 tile, or the boards a placed sign holds) edits
+   *    **this** pair, and ✓ makes it current;
+   *  - a sign placed afterwards carries **a copy of it**, so the player composes
+   *    once and hangs as many as they like;
+   *  - a sign already hanging is untouched by any of it: it keeps the boards it was
+   *    placed with (`cfg.front` / `cfg.back`), which is what makes an old sign an
+   *    old sign.
+   *
+   * Neither face is ever missing: a station with no signage yet starts from
+   * `defaultSignLayout` on the front and an empty back, and `toState` backfills an
+   * old save the same way.
+   */
+  currentBoards: SignBoards
+  /** Which module the board editor is editing: null when it is the current boards alone. */
+  signEditorFor: string | null
+  /**
+   * True while the editor is open on the **current boards** alone — no module
+   * behind it (the rail's 自定义 tile).
+   *
+   * The editor is open on `signEditorFor` (a placed sign) or on this. The boards
+   * themselves are deliberately *not* the flag: the current pair outlives the
+   * modal, so an open test of "is a board set" would leave the editor up with no
+   * way to close it.
+   */
+  signComposing: boolean
+  /**
+   * The boards the open editor is showing on a **placed** sign, before they are
+   * kept.
+   *
+   * The editor is a modal over the station, so the sign it is editing has to show
+   * the boards being arranged — but boards that are still being arranged are not an
+   * edit: they must not land in the document (✕ would have nothing to put back) and
+   * they must not land on the undo stack, once per keystroke. So the live pair
+   * lives here and the model draws it in place of the module's own
+   * (`signModuleWithPreview`); ✓ writes it to the module as one commit, and ✕ drops
+   * it.
+   */
+  signPreview: { moduleId: string; boards: SignBoards } | null
+  /** Open the board editor on the current boards (no module behind it). */
+  openSignComposer: () => void
+  /** Open the board editor on one placed sign, whose boards become the current ones. */
+  openSignEditor: (moduleId: string) => void
+  /**
+   * Close the board editor: it is no longer open on a placed sign or on the current
+   * boards. The boards themselves stay current for the next open and the next sign.
+   */
+  closeSignEditor: () => void
+  /**
+   * Show boards that have **not** been committed — the editor's live pair.
+   *
+   * The editor owns its own lists and writes them here as the player works: a
+   * placed sign shows them in place of its own boards (`signPreview`), and
+   * `currentBoards` follows so the next sign placed carries what is on screen. It
+   * is not an edit: nothing lands in a module and nothing lands on the undo stack,
+   * however much the player drags, until ✓ (`commitSignLayout`).
+   */
+  previewSignLayout: (boards: SignBoards) => void
+  /** Make the arranged boards the current ones — and, on a placed sign, that sign's. */
+  commitSignLayout: (boards: SignBoards) => void
+  /** Throw the edit away, putting the current boards back as they were (the editor's ✕). */
+  restoreSignLayout: (boards: SignBoards) => void
   /** Add a new line and make it the rail tool's target. */
   addLine: () => void
   /** Delete a line and every track bound to it (undoable). */
@@ -286,6 +442,7 @@ export interface AppState {
   stepLevel: (dir: number) => void
   setOverlay: (on: boolean) => void
   setGhostOther: (on: boolean) => void
+  setAutoCeiling: (on: boolean) => void
   setCutaway: (on: boolean) => void
   setHideWalls: (on: boolean) => void
   setOrtho: (on: boolean) => void
@@ -319,6 +476,8 @@ let frameCb:
       trains: Float32Array,
       lifts: Float32Array,
       intervalMs: number,
+      /** Sim seconds since midnight, for the in-world clocks (a 电视 plate). */
+      simTime: number,
     ) => void)
   | null = null
 
@@ -332,6 +491,8 @@ export function setFrameHandler(
         trains: Float32Array,
         lifts: Float32Array,
         intervalMs: number,
+        /** Sim seconds since midnight, for the in-world clocks (a 电视 plate). */
+        simTime: number,
       ) => void)
     | null,
 ): void {
@@ -350,7 +511,7 @@ function ensureClient(): Worker {
       if (msg.levelsZ.length > 0) useStore.getState().setActiveZ(msg.levelsZ[0])
     } else if (msg.type === 'state') {
       useStore.getState().setMetrics(msg.metrics)
-      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs)
+      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime)
     }
   }
   return client
@@ -375,6 +536,34 @@ function loadSim(data: StationData, opts: { startSeconds?: number; warmup?: numb
   ensureClient().postMessage({ type: 'init', data, seed: data.seed, playing: st.playing, speed: st.speed, ...opts })
 }
 
+/**
+ * Everything the equipment hover ghost is drawn from: the piece being placed,
+ * its rotation, and every Tab cycle — the stair width, the escalator direction
+ * and the 闸机's lane or fence. The viewport subscribes to this one key, so anything
+ * that changes what the ghost looks like rebuilds it under the pointer at once
+ * instead of waiting for the next pointer move; a new Tab cycle only has to join
+ * this list, in one place, to be redrawn live.
+ */
+export function placementPreviewKey(
+  s: Pick<AppState, 'moduleType' | 'moduleRot' | 'stairWidth' | 'escalatorDir' | 'gateDoor'>,
+): string {
+  return `${s.moduleType}|${s.moduleRot}|${s.stairWidth}|${s.escalatorDir}|${s.gateDoor}`
+}
+
+/**
+ * One module as it should be **drawn**: a 指示牌 whose boards are open in the
+ * editor shows the boards being arranged rather than the ones on disk, so the
+ * player arranges them against the station the sign hangs in.
+ *
+ * The preview is read here, at the last moment, instead of being written into the
+ * document: it is not an edit until ✓ says so, and boards that committed themselves
+ * per keystroke would fill `Ctrl+Z` with frames of a half-arranged sign.
+ */
+export function signModuleWithPreview(mod: Module, preview: AppState['signPreview']): Module {
+  if (!preview || mod.type !== 'sign' || mod.id !== preview.moduleId) return mod
+  return { ...mod, cfg: { front: preview.boards.front, back: preview.boards.back } }
+}
+
 export const useStore = create<AppState>((set, get) => ({
   station: initialStation(),
   version: 0,
@@ -382,10 +571,14 @@ export const useStore = create<AppState>((set, get) => ({
   autoWalls: true,
   moduleType: 'gate',
   moduleRot: 0,
-  stairWidth: STAIR_WIDTH_NORMAL,
+  wallSnapCycle: 0,
+  stairWidth: STAIR_WIDTH_NARROW,
   escalatorDir: 'up',
+  gateDoor: 'lane',
   paintMode: 'single',
+  paintBaseMode: 'single',
   paintFinish: 'floor.granite',
+  enamelColour: finishDef('wall.enamel').tint,
   zoneBrush: DEFAULT_ZONE,
   zoneOverlayOn: false,
   railLineId: '',
@@ -394,7 +587,8 @@ export const useStore = create<AppState>((set, get) => ({
   tunnelLength: 30,
   notice: null,
   activeZ: -8,
-  ghostOtherLevels: false,
+  ghostOtherLevels: true,
+  autoCeiling: true,
   cutaway: false,
   hideWalls: false,
   ortho: false,
@@ -408,8 +602,16 @@ export const useStore = create<AppState>((set, get) => ({
   past: [],
   future: [],
   lab: false,
+  // The boards every new 指示牌 is hung with, and the ones the editor edits. The
+  // front starts as the default board for the station the app opens on, so the first
+  // sign placed is already readable; the back starts **empty**, which is the whole
+  // point of a second face — it is black until the player puts something on it.
+  currentBoards: makeSignBoards(undefined, initialStation()),
+  signEditorFor: null,
+  signComposing: false,
+  signPreview: null,
 
-  setTool: (t) => set({ tool: t }),
+  setTool: (t) => set({ tool: t, wallSnapCycle: 0 }),
   setAutoWalls: (on) => set({ autoWalls: on }),
   setModuleType: (t) => set({ moduleType: t }),
   // Clockwise on screen: the world turns +x toward −y in the isometric view.
@@ -417,10 +619,23 @@ export const useStore = create<AppState>((set, get) => ({
   // as on the rail button.
   rotateModule: () =>
     set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleRot + 3) % 4 } : {})),
+  rotateWallSnap: () => set((s) => ({ wallSnapCycle: s.wallSnapCycle + 1 })),
   cycleStairWidth: () => set((s) => ({ stairWidth: nextStairWidth(s.stairWidth) })),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
-  setPaintMode: (m) => set({ paintMode: m }),
+  cycleGateDoor: () => set((s) => ({ gateDoor: nextGateDoor(s.gateDoor) })),
+  // 取色 is a mode the player leaves the moment they pick a face, so it never
+  // becomes the brush's setting; only 单块 / 整面 replace what `resumePaintMode`
+  // hands back.
+  setPaintMode: (m) => set(m === 'pick' ? { paintMode: m } : { paintMode: m, paintBaseMode: m }),
+  resumePaintMode: () => set((s) => ({ paintMode: s.paintBaseMode })),
+  selectPaintFinish: (id) => {
+    // The 材质 tile's whole click: pick the brush's finish and, in the same move,
+    // put the brush back in the folder's `N`/`M` setting. A texture is not a mode.
+    get().setTool('paint')
+    set((s) => ({ paintFinish: id, paintMode: s.paintBaseMode }))
+  },
   setPaintFinish: (id) => set({ paintFinish: id }),
+  setEnamelColour: (colour) => set({ enamelColour: colour }),
   setZoneBrush: (z) => set({ zoneBrush: z }),
   setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
   setRailLine: (id) => set({ railLineId: id }),
@@ -605,6 +820,70 @@ export const useStore = create<AppState>((set, get) => ({
     })
   },
   setNotice: (n) => set({ notice: n }),
+  setSignBoards: (moduleId, boards) => {
+    const st = get()
+    const mod = st.station.modules.find((m) => m.id === moduleId)
+    if (!mod || mod.type !== 'sign') return
+    const next = settleSignBoards(boards, st.station)
+    const modules = st.station.modules.map((m) => (m.id === moduleId && m.type === 'sign' ? { ...m, cfg: { front: next.front, back: next.back } } : m))
+    get().commit({ ...st.station, modules })
+  },
+  // There is one **current pair of boards**, and the editor edits it. A session on a
+  // placed sign also carries that sign's id, so ✓ writes the boards back to it; a
+  // session with no id is the rail's 自定义 tile, and ✓ simply makes the boards
+  // current.
+  openSignComposer: () => set({ signEditorFor: null, signComposing: true, signPreview: null }),
+  openSignEditor: (moduleId) => {
+    const mod = get().station.modules.find((m) => m.id === moduleId)
+    if (!mod || mod.type !== 'sign') return
+    // Editing a placed sign opens **its** boards as the current ones, so the editor,
+    // the next sign placed and the sign on screen are all the same boards while it is
+    // open. ✕ puts the current boards back (`restoreSignLayout`), and the module —
+    // which was never touched — is exactly as it was.
+    const boards = signBoardsOf(mod.cfg, get().station)
+    set({
+      signEditorFor: moduleId,
+      signComposing: false,
+      currentBoards: boards,
+      signPreview: { moduleId, boards },
+    })
+  },
+  /**
+   * Close the board editor: it is no longer open on a placed sign or on the current
+   * boards. The boards stay current — they are what the next sign will hang — and a
+   * placed sign's ✕/✓ have already dealt with the module through
+   * `commitSignLayout`/`restoreSignLayout`.
+   */
+  closeSignEditor: () => set({ signEditorFor: null, signComposing: false, signPreview: null }),
+  previewSignLayout: (boards) => {
+    const st = get()
+    const next = settleSignBoards(boards, st.station)
+    // The live boards: current for the next sign, and drawn on the sign being edited
+    // (the module itself is not written until ✓, so ✕ has something to put back and
+    // the undo stack does not collect a frame per dragged bin).
+    const patch: Partial<AppState> = { currentBoards: next, version: st.version + 1 }
+    if (st.signEditorFor !== null) patch.signPreview = { moduleId: st.signEditorFor, boards: next }
+    set(patch)
+  },
+  commitSignLayout: (boards) => {
+    const st = get()
+    const next = settleSignBoards(boards, st.station)
+    // ✓ is what makes boards the current ones: they are what the next sign will hang.
+    set({ currentBoards: next, signPreview: null })
+    if (st.signEditorFor === null) return
+    // And on a placed sign they are also that sign's boards — one commit, so one undo.
+    const mod = st.station.modules.find((m) => m.id === st.signEditorFor)
+    if (!mod || mod.type !== 'sign') return
+    get().setSignBoards(st.signEditorFor, next)
+  },
+  restoreSignLayout: (boards) => {
+    const st = get()
+    const next = settleSignBoards(boards, st.station)
+    // ✕ puts the current boards back to what the editor opened on, and drops the
+    // preview that stood in for them. Nothing is undone, because nothing was done: a
+    // placed sign was never written to.
+    set({ currentBoards: next, signPreview: null, version: st.version + 1 })
+  },
   saveToFile: () => {
     const s = get().station
     const text = serializeSave(s)
@@ -637,6 +916,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
   setOverlay: (on) => set({ overlayOn: on }),
   setGhostOther: (on) => set({ ghostOtherLevels: on }),
+  setAutoCeiling: (on) => set({ autoCeiling: on }),
   setCutaway: (on) => set({ cutaway: on }),
   setHideWalls: (on) => set({ hideWalls: on }),
   setOrtho: (on) => set({ ortho: on }),

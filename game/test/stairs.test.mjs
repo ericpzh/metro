@@ -10,7 +10,8 @@ import assert from 'node:assert/strict'
 import { scenarioStation } from './support/scenario-station.ts'
 import { buildGraph, EDGE_KIND } from '../src/sim/station.ts'
 import { carveRampOpenings } from '../src/sim/openings.ts'
-import { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_NARROW, STAIR_WIDTH_NORMAL, STAIR_WIDTHS, nextStairWidth, stairFacing, stairFlights, stairLandings, stairTurnCells } from '../src/sim/stairs.ts'
+import { ESCALATOR_BAND } from '../src/sim/constants.ts'
+import { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, STAIR_WIDTHS, nextStairWidth, planStairLanes, stairFacing, stairFlights, stairLaneBases, stairLaneMates, stairLandings, stairLanes, stairRight, stairTurnCells } from '../src/sim/stairs.ts'
 import { addEquipment, createModule, toState } from '../src/build/model.ts'
 
 const key = (p) => `${p.x},${p.y},${p.z}`
@@ -117,10 +118,108 @@ test('a straight stair is a single implied flight', () => {
   assert.deepEqual(stairLandings(m), [m.from, m.to])
 })
 
-test('stair widths cycle narrow (escalator bay) → normal → narrow', () => {
-  assert.deepEqual(STAIR_WIDTHS, [STAIR_WIDTH_NARROW, STAIR_WIDTH_NORMAL])
-  assert.equal(nextStairWidth(STAIR_WIDTH_NARROW), STAIR_WIDTH_NORMAL)
-  assert.equal(nextStairWidth(STAIR_WIDTH_NORMAL), STAIR_WIDTH_NARROW)
+test('stair widths cycle one → two → three lanes, each an escalator band wide', () => {
+  assert.deepEqual(STAIR_WIDTHS, [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE])
+  assert.equal(STAIR_WIDTH_NARROW, ESCALATOR_BAND)
+  assert.equal(STAIR_WIDTH_DOUBLE, 2 * ESCALATOR_BAND)
+  assert.equal(STAIR_WIDTH_TRIPLE, 3 * ESCALATOR_BAND)
+  assert.equal(nextStairWidth(STAIR_WIDTH_NARROW), STAIR_WIDTH_DOUBLE)
+  assert.equal(nextStairWidth(STAIR_WIDTH_DOUBLE), STAIR_WIDTH_TRIPLE)
+  assert.equal(nextStairWidth(STAIR_WIDTH_TRIPLE), STAIR_WIDTH_NARROW)
+  // A width that is not a whole number of lanes (an old 1.6 m stair) reads as the
+  // nearest one.
+  assert.equal(stairLanes(ESCALATOR_BAND), 1)
+  assert.equal(stairLanes(STAIR_WIDTH_DOUBLE), 2)
+  assert.equal(stairLanes(STAIR_WIDTH_TRIPLE), 3)
+  assert.equal(stairLanes(1.6), 2)
+  assert.equal(stairLanes(0.2), 1)
+  assert.equal(stairLanes(9), 3)
+})
+
+test('the lanes of a wide stair lie side by side across its run', () => {
+  // rot 0 runs +y, so the lanes step in +x; rot 1 runs +x, so they step in −y —
+  // the same "right of forward" the switchback's second flight uses.
+  assert.deepEqual(stairRight(0), [1, 0])
+  assert.deepEqual(stairRight(1), [0, -1])
+  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -4 }, 0, 3), [
+    { x: 3, y: 5, z: -4 },
+    { x: 4, y: 5, z: -4 },
+    { x: 5, y: 5, z: -4 },
+  ])
+  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -4 }, 1, 2), [
+    { x: 3, y: 5, z: -4 },
+    { x: 3, y: 4, z: -4 },
+  ])
+  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -4 }, 0, 1), [{ x: 3, y: 5, z: -4 }])
+})
+
+test('a wide stair snaps beside whatever already stands next to it', () => {  const free = () => true
+  const blocked = (cells) => (p) => !cells.some((c) => c.x === p.x && c.y === p.y)
+  const base = { x: 0, y: 0, z: 0 }
+  // Open ground: the hovered cell is the first lane, and the flight grows +right.
+  assert.deepEqual(planStairLanes(base, 0, 2, free).lanes.map((p) => p.x), [0, 1])
+  assert.equal(planStairLanes(base, 0, 2, free).free, true)
+  // Something already stands at x = 1: the flight shifts back so it sits west of
+  // it instead of overlapping.
+  const east = planStairLanes(base, 0, 2, blocked([{ x: 1, y: 0 }]))
+  assert.deepEqual(east.lanes.map((p) => p.x), [-1, 0])
+  assert.equal(east.free, true)
+  // Something stands at x = −1: the flight grows east, butting against it.
+  const west = planStairLanes(base, 0, 2, blocked([{ x: -1, y: 0 }]))
+  assert.deepEqual(west.lanes.map((p) => p.x), [0, 1])
+  assert.equal(west.free, true)
+  // A three-lane flight with something standing two cells east of the pointer
+  // shifts back so its last lane butts against it.
+  const gap = planStairLanes(base, 0, 3, blocked([{ x: 2, y: 0 }]))
+  assert.deepEqual(gap.lanes.map((p) => p.x), [-1, 0, 1])
+  assert.equal(gap.free, true)
+  // Nowhere to stand: the first candidate comes back flagged, so the ghost shows
+  // the same refusal a single piece would.
+  const wall = planStairLanes(base, 0, 2, blocked([{ x: 0, y: 0 }, { x: 1, y: 0 }]))
+  assert.equal(wall.free, false)
+  assert.deepEqual(wall.lanes.map((p) => p.x), [0, 1])
+})
+
+test('lanes side by side are neighbours; only one action makes them one flight', () => {
+  const lane = (id, x, y, rot = 0, width = STAIR_WIDTH_NARROW, z = -4, flight) => {
+    const m = createModule('stair-straight', x, y, z, id, rot, width)
+    assert.ok(m && m.type === 'stair')
+    if (flight) m.cfg.flight = flight
+    return m
+  }
+  const a = lane('a', 0, 0)
+  // rot 0 runs +y, so a lane at +x stands on the run's right. Neighbours join
+  // their steps (`sameFlight` false: two stairs placed separately).
+  const b = lane('b', 1, 0)
+  assert.deepEqual(stairLaneMates([a, b], a).map((m) => [m.step, m.side, m.sameFlight]), [[[1, 0], 1, false]])
+  assert.deepEqual(stairLaneMates([a, b], b).map((m) => [m.step, m.side, m.sameFlight]), [[[-1, 0], -1, false]])
+  // The same two lanes carrying one flight token are one staircase.
+  const fa = lane('a', 0, 0, 0, STAIR_WIDTH_NARROW, -4, 'f1')
+  const fb = lane('b', 1, 0, 0, STAIR_WIDTH_NARROW, -4, 'f1')
+  assert.deepEqual(stairLaneMates([fa, fb], fa).map((m) => m.sameFlight), [true])
+  assert.deepEqual(stairLaneMates([fa, fb], fb).map((m) => m.sameFlight), [true])
+  // Two different flights, or one lane with no token at all, are neighbours only.
+  const fc = lane('c', 1, 0, 0, STAIR_WIDTH_NARROW, -4, 'f2')
+  assert.deepEqual(stairLaneMates([fa, fc], fa).map((m) => m.sameFlight), [false])
+  assert.deepEqual(stairLaneMates([fa, b], fa).map((m) => m.sameFlight), [false])
+  // rot 1 runs +x, so its lanes step in −y and "right" turns with the run.
+  const c = lane('c', 3, 5, 1)
+  const d = lane('d', 3, 4, 1)
+  assert.deepEqual(stairLaneMates([c, d], c).map((m) => [m.step, m.side]), [[[0, -1], 1]])
+  // A lane set *along* the run is a different flight, not part of this one.
+  assert.deepEqual(stairLaneMates([a, lane('along', 0, 1)], a), [])
+  // So is one running the other way (its lower landing is a full run away), one
+  // on another level, and one that is not a single straight flight at all.
+  assert.deepEqual(stairLaneMates([a, lane('back', 1, 6, 2)], a), [])
+  assert.deepEqual(stairLaneMates([a, lane('higher', 1, 0, 0, STAIR_WIDTH_NARROW, 0)], a), [])
+  const turn = createModule('stair-left90', 1, 0, -4, 'turn', 0, STAIR_WIDTH_NARROW)
+  assert.ok(turn)
+  assert.deepEqual(stairLaneMates([a, turn], a), [])
+  // A saved single-piece wide stair is one flight of its own: it does not merge,
+  // and neither do two of them.
+  const wide = lane('wide', 1, 0, 0, STAIR_WIDTH_DOUBLE)
+  assert.deepEqual(stairLaneMates([a, wide], a), [])
+  assert.deepEqual(stairLaneMates([wide, lane('wide2', 2, 0, 0, STAIR_WIDTH_DOUBLE)], wide), [])
 })
 
 test('a switchback’s turn cells are the row of landings between its flights', () => {

@@ -110,16 +110,59 @@ build/ →  sim/            (and neither render/ nor app/)
   returns 0, so `buildGraph` skips the gate check and the floor stays continuous.
   An ungated line strands the crowd. A two-way gate is a single lane: first come
   fixes the direction until that side drains (`sim/gates.ts`).
+* **A 闸机 is either a lane or a fence** (`sim/gates.ts`, §5.2). `cfg.door` is `lane`
+  (default) or `fence`, toggled on the rail with **Tab** like the stair width and
+  escalator direction; `gateDoorOf` also reads the spellings an older save may
+  carry (`right` / `left` → lane, `none` → fence). The machine body is always built
+  on the cell's local −x half with its lane — and the sliding leaf — on the other;
+  **`R` turns the piece**, so which hand the lane is on is not a setting at all (
+  `gateMachineSide` is just that half turned by `rot`, and `gateSolidFaces` says
+  which neighbour a 围栏 run may butt into — a fence on the lane side ends at the
+  doorway with its own end post instead). `fence` is the **doorless** machine: the
+  same body with fence on the lane's half (drawn by `drawFence`, the shared fence
+  geometry), and `buildGraph` gives it no node and no server, so it blocks its cell
+  and crosses no fare line — the piece for finishing a run. `buildGate`
+  (`render/models.ts`) is the 广州地铁 photo gate: a 1250 mm machine with a 957 mm
+  shoulder and a head tapering at 115° (its top shorter than its base, via `prism`),
+  a stainless body, a navy head carrying the tilted screen, the round reader, the
+  QR window and the lane lights, a black fascia with a single **up** green arrow,
+  and the translucent red leaf.
 * **Fences are barriers too** (`sim/fences.ts`, 围栏 §5.2). A fence is a 1 m
   thin panel through its cell's middle and its cell is not a walkable node, so a
   dragged run plus the gate row it plugs into divides the floor into areas the
   crowd only crosses at a gate. The renderer builds every panel from its
   neighbours (`fenceArms`), so a straight run is continuous, a dead end caps
   itself, and an L / T / + turns through the shared centre post with no
-  overhang. `railLandingAt` also treats a stair/escalator landing as a
-  neighbour, so a run butts up to the handrail instead of stopping short, and
-  `placementBlocked` exempts the fence ↔ ramp pair everywhere except the ramp's
-  own landing cells (whose nodes must stay walkable).
+  overhang. A gate neighbour counts only on its machine side (`gateSolidFaces`),
+  and `railLandingAt` also treats a stair/escalator landing as a
+  neighbour, so a run butts up to the handrail instead of stopping short. A run
+  reserves exactly the tile it stands in, so the cell beside it is free ground and
+  `placementBlocked` needs no exemption for that pair (only a single piece wider
+  than a cell — an old 1.6 m stair, or a 2–3 lane turning stair — reaches its
+  neighbour at all).
+* **A stair is lanes** (`sim/stairs.ts`, §5.1). Tab cycles one, two or three
+  **lanes**, each exactly `ESCALATOR_BAND` (0.7 m) and each fitting one cell, so a
+  wide stair is that many one-lane pieces the builder drops together.
+  `stairLanes(width)` reads the tool's width (a width that is not a whole number
+  of lanes, an old 1.6 m stair, reads as the nearest) and
+  `planStairLanes(base, rot, lanes, placeable)` picks where the flight goes: the
+  hovered cell as the first lane, then shifted back one lane at a time, so it
+  butts against whatever stands beside it instead of overlapping, and flagged when
+  nowhere fits. Neighbouring lanes always **join their steps** — `buildStairFlight` runs each
+  flight's treads and risers out to the cell edge — but being *one* staircase is a
+  property of the pieces: every lane of a wide stair laid in one action carries the same
+  `cfg.flight` token, and only along a seam between lanes sharing it does the model drop
+  the stringer, handrail and posts (rails then only at the outer edges) and does
+  `sim/station.ts` leave out the balustrade wall, so the crowd may cross between lanes at
+  the landings. Two 0.7 m stairs dropped separately keep both of their own railings and
+  their walls, with their steps meeting between them; a lane against an *escalator* keeps
+  its balustrade and does not reach under it. The hover ghost is built with its own pieces
+  in the context (`setModulePreview`), so a wide stair previews as the one flight it will
+  be. A **turning** stair
+  is one piece at the chosen width — its flights turn, so its landings cannot be
+  shared lane by lane — and needs a bay of its own at 2–3 lanes. The lanes step
+  along `stairRight(rot)`, the same "right of forward" a switchback's second
+  flight is offset by.
 * **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a
   2 × 2 m assembly with a 1.5 m carriage, dropped on a floor and serving the
   floor one storey up (`LIFT_RISE`); hovering its upper/lower half grows it a
@@ -161,10 +204,12 @@ build/ →  sim/            (and neither render/ nor app/)
   while keeping its landings as graph nodes — but only the cells the run's
   **centreline** crosses (`RAMP_CORE_HALF`). Every other block the body or
   handrail reaches is kept and marked by `rampThinCells` (a wall the rail grazes,
-  or a floor a wide stair's 1.6 m body enters), so `SceneRenderer` hides the full
+  or a floor a single wide piece's 1.6 m body enters), so `SceneRenderer` hides the full
   voxel and draws a **half-metre panel** on the side away from the run
   (`buildRampThins`, the same hide-and-block trick a facility room uses). The
-  floor beside a run stays buildable and a railing can sit against a wall.
+  floor beside a run stays buildable and a railing can sit against a wall; a
+  tile-sized run (an escalator, a stair lane) reaches nothing beside it, so
+  nothing there is thinned at all.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
   `sim/world.ts`). A rail is a `track` module bound to a line and an `up`/`down`
   direction: a fixed, pre-rendered piece — a car-width bed (`d = 3`) and a run
@@ -181,7 +226,7 @@ build/ →  sim/            (and neither render/ nor app/)
   `derivePlatformEdges` generates one `platform-edge` per contiguous run of
   walkable exposed floor beside the bed (an island platform yields two — the
   Spanish solution), and `regenerateRailEdges` re-derives them after the floor
-  changes. Every derived edge records which side the track lies on (`cfg.side`, read from the screen's own frame and shared by the derive, the renderer and `World.computeLineAnchors`), so the printed header always faces the platform, never the rail. Editing a line's 车型/编组 re-cuts its tracks (`resizeTrack`). A track
+  changes. Every derived edge records which side the track lies on (`cfg.side`, read from the screen's own frame and shared by the derive, the renderer and `World.computeLineAnchors`), so the printed header always faces the platform, never the rail. That same side sets the consist's **door-side mask** (`LineAnchor.doorSides`, the 10th value of a train pose), and the door cadence itself is `doorRunOffsets` off the rail, so the train opens only the bank that meets screen doors and the screen is cut exactly where the car doors are — never onto the tunnel wall, and never a bay off the car door it serves. Editing a line's 车型/编组 re-cuts its tracks (`resizeTrack`). A track
   bed is **either** the `floor.track` finish **or** a `track` module's footprint
   (`trackBedKeys` / `isTrackCell`), so the hand-built demo and placed rails agree.
   The 轨道 folder has two tools, both gated by `trackBlockReason`: any interference
@@ -240,14 +285,31 @@ build/ →  sim/            (and neither render/ nor app/)
   instanced goods). 广告牌 is a nested sub-menu of four formats (横版 / 竖版 /
   方形 / 大横版) whose run length and poster aspect come from the shared
   `sim/billboards.ts` table, so the thumbnail, the collision envelope and the
-  drawn housing cannot disagree. 电视 and 指示牌 hang by rods from the ceiling and
-  print a lit double-sided face, so both read from either side; 电视 cycles the
-  shared ad posters while 指示牌 shows a static wayfinding board. Every ad screen
-  cycles three procedural, unlit posters on wall time (`SceneRenderer.updateAds`),
-  each drawing its own random period and phase the first time it animates so a
-  row of billboards is not a synchronised wall, one poster set per aspect so a
-  portrait banner is not a stretched landscape. Wall-mounted pieces must bolt to
-  a wall (see `wallMountMissing`), so **R** turns the panel's back to it; hovering
+  drawn housing cannot disagree. 电视 and 指示牌 hang by rods from the ceiling. The
+  指示牌 prints a lit double-sided wayfinding board, so it reads from either side;
+  the 电视 is **single-sided** — its station board (line shield, 本趟/下趟/第三趟
+  cards, clock) and its content window both ride the local −y face, so the back is a
+  plain dark panel. Every lit pane there lies over a dark backing slab, so it must
+  stand half a slab out plus `LIT_STAND_OFF`: a pane on the slab's centre line is
+  buried in it and reads as a black rectangle with no error. `电视` cycles the
+  shared ad posters in that window while the board around it stays put; each screen
+  rolls its own period, so a row of them drifts apart rather than flipping as one
+  wall, and only artwork cut for a landscape panel is eligible (cropping is not
+  stretching). `render/stationDisplay.ts` owns the board's derivation and pixels,
+  and `stationDisplayLayout` keeps its geometry testable without a canvas. Its plate
+  canvas is the **whole screen** — the layout is expressed against that surface —
+  while the board mesh is only the column, so the mesh samples the canvas' left
+  `TV_POSTER_RECT.x`. Mapping the full width onto it instead squeezes the plate into
+  that fraction and leaves the rest of the column as bare backing: a black band
+  between the text and the artwork, and text condensed by `1 / TV_POSTER_RECT.x`,
+  with nothing in the console to say so. `test/tv-screen.test.mjs` pins the sampling
+  as well as the depth and the tiling.
+  Wall-mounted pieces must bolt to a
+  wall (see `wallMountMissing`), and because that check is a function of `rot`
+  alone the panel **turns itself** to face its wall (`autofaceWallMount`) — the
+  orientation is an output of the geometry, not something **R** has to be pressed
+  into beforehand; a valid turn is kept so flipping a panel between two walls
+  still works, and the pointer's aim breaks a corner tie. Hovering
   a wall block itself mounts the panel in the facing floor cell
   (`wallMountStandCell`), so an ad can hang on the station wall across the track.
 * A **售票机 and 自动贩卖机** are the two machine types (`tvm` / `vending`): a
@@ -284,25 +346,44 @@ build/ →  sim/            (and neither render/ nor app/)
   fresh exit letters itself for the first free A ~ Z (`nextExitName`), so a new
   one reads `A口` / `B口` / … and a delete frees its letter.
 * **Exits come in six variants** (`sim/exits.ts`): 有盖 / 无盖 × 单向 / 双向 /
-  三向. `cfg.bays` (1, 2 or 3) sets how many runs the head-house opens — one bay
-  at local x = 0, two at ±1, three at −2/0/+2 — and `exitWidth` widens the floor,
-  frame and glass to 3.0 / 3.8 / 5.8 m. `cfg.covered: false` drops the canopy and
-  walls for a glass railing, but `exitWallPlanes` returns the same barriers, so
-  only the look changes; `models.ts` draws the covered piece as a red steel portal
-  frame under a blue waved roof. `exitRunSnap` snaps a straight stair/escalator
-  dropped inside a head-house into the nearest bay: its upper landing on the
+  三向, and their runs always stand **side by side**. `cfg.bays` (1, 2 or 3) is
+  how many adjacent columns the house holds — 0, then 0 and 1, then 0, 1 and 2 —
+  and `exitSpan` builds the plan around that group with one full block of floor
+  each end, so `exitWidth` is 3 / 4 / 5 blocks: a 双向 is four blocks across with
+  a whole block of pad either side. `cfg.covered: false` drops the canopy and
+  walls for a glass railing, but `exitWallPlanes` returns the same barriers (over
+  the same plan), so only the look changes; `models.ts` draws the covered piece as
+  a red steel portal frame under a blue waved roof, and the exit's name board moves
+  with the roof: 有盖 hangs it at the street doorway with its top edge meeting the
+  roof underside (`topAt`, the profile the roof and the glazing share), while 无盖
+  — which has nothing to hang from — lays the same board over the *mouth* railing's
+  glass, facing back up the runs toward the wellway the crowd descends; the railing
+  carries it, so it needs no posts of its own. `exitRunSnap` snaps a straight
+  stair/escalator dropped inside a head-house into the column under the pointer,
+  clamped to the bay group: its upper landing on the
   street, its base one storey down toward the mouth, so the pointer positions the
-  run on the floor the exit opens onto. Turning stairs are left un-snapped.
-* **View toggles and the bottom bar.** Auto ceiling hiding is always on: a storey
-  above the active one keeps only plates with nothing under them, so a room never
-  wears its own ceiling. **显示其他层** (`ghostOtherLevels`, now default off) then
-  decides whether storeys *below* the active one are drawn as a 35% ghost.
+  run on the floor the exit opens onto and the runs stay side by side. Turning
+  stairs are left un-snapped. A station saved on the old two-metre bays is still
+  read (`exitRunColumns`), so its house widens to cover its runs rather than
+  letting them poke through the glass.
+* **View toggles and the bottom bar.** The level slice is `render/levelSlicing.ts` (pure, covered by
+  `test/level-slicing.test.mjs`): **显示其他层** (`ghostOtherLevels`, default on) is all-or-nothing —
+  off, the edited storey is the *only* thing drawn at every camera angle; on, the active storey stays
+  crisp and the rest are 35% ghosts that keep their depth, so a storey the active one covers loses the
+  depth test and never blocks the depth being edited. **隐藏天花板** (`autoCeiling`, default on, `H`)
+  is the one exception above the active storey: a slab one storey up is that room's ceiling, so with
+  the toggle on a storey above keeps only the pieces with nothing under them (the chunk mesher's
+  `float` plate, a fixture whose column's lowest storey is above the active one). It only has an
+  effect while 显示其他层 is on — with the other storeys off there is nothing left to hide.
   **隐藏墙壁** (`hideWalls`) fades every wall face and platform screen door to 16%
-  with `depthWrite` off and drops their outline. **The crowd obeys the same
-  storeys**: `SceneRenderer` draws only the agents whose storey band is on screen
-  (never one above the active storey, and below it only while 显示其他层 is on),
-  and the depth cutaway clips the agent meshes too, so nobody floats in front of
-  a slab or shows through one. The top bar's 重启 button empties the crowd, trains
+  with `depthWrite` off and drops their outline. **The crowd obeys the same storeys**: the rule is
+  `crowdVisible`, never a storey above the active one, and the depth cutaway clips the agent meshes
+  too, so nobody floats in front of a slab or shows through one. **Trains are sliced like
+  everything else** — a consist is tagged with the storey of the floor block it stands on
+  (`storeyBand` of the rounded track surface, not the raw `z - 1`), and `applyGroupLevel` combines the
+  slice with the sim's own `parked` flag instead of the old "leave `visible` alone", which used to
+  draw every train at every level. **The nav cube only moves the camera**: no face, corner or Home
+  click may rewrite the slice. The top bar's 重启 button empties the crowd, trains
   and queues but keeps the station and clock, and **Space** toggles play/pause
   (the 暂停 / 播放 button does the same); the speed chips are multipliers only
   (there is no 0× chip). The bottom bar shows FPS and 方块数 (the old sim-timing
@@ -324,7 +405,11 @@ build/ →  sim/            (and neither render/ nor app/)
   into build commands; it is the only app file that touches three directly. The
   first station build frames the home (iso) view — the constructor's preset ran
   before the station existed — while later edits leave the camera alone
-  (`framedRef`).
+  (`framedRef`). The equipment hover ghost is rebuilt in place off
+  `placementPreviewKey`, so R and a Tab cycle (stair width, escalator direction,
+  闸机 door side) redraw the piece already under the pointer — which needs the
+  matching entry in `render/moduleGhostKey.ts` as well, or the scene skips the
+  rebuild (`setModulePreview`).
   `app/LeftRail.tsx` is the blueprint build rail; thumbnails are rendered from
   the real models by `app/moduleThumbnails.ts` / `app/zoneThumbnails.ts`.
 * `app/store.ts` is zustand: the station document lives here, the sim lives in
@@ -397,7 +482,7 @@ build/ →  sim/            (and neither render/ nor app/)
   the 2 m run spanning two cells; 货架 draws a stocked supermarket gondola. 广告牌
   is wall-mounted (`wallMountMissing`) with the four formats sharing
   `sim/billboards.ts`; 电视 and the new 指示牌 are *ceiling-hung*
-  (`ceilingMountMissing`, lit double-sided). The 设备 folder's 货架 / 座椅 moved
+  (`ceilingMountMissing`; the 指示牌 is lit double-sided, the 电视 single-sided). The 设备 folder's 货架 / 座椅 moved
   out to a new 装饰 folder, and 楼梯 / 出入口 / 座椅 / 广告牌 are nested variant
   sub-menus.
 * The **围栏 kit** has landed (`sim/fences.ts`, `sim/station.ts`,
@@ -427,13 +512,17 @@ build/ →  sim/            (and neither render/ nor app/)
   inspector is now a column of folding `Folder` / `Disclosure` blocks (信息 /
   出入口 / 线路), each exit is an editable, selectable card linked to a 3D
   highlight box (`SceneRenderer.setSelection`), and the view gained a 隐藏墙壁
-  toggle with 显示其他层 now defaulting off (auto ceiling hiding is always on).
+  toggle. The ceiling hiding that landed with it is its own 隐藏天花板 tile since
+  (default on), and the slice is all-or-nothing: 显示其他层 off is the deliberate
+  "one storey only" view and 幽灵 is the default (see the view-toggle bullet above).
 * The **exit kit** has landed (`sim/exits.ts`, `sim/placement.ts`,
   `render/models.ts`, `app/Viewport.tsx`, `game/test/exits.test.mjs`): 出入口 is a
   nested sub-menu of six variants (有盖 / 无盖 × 单向 / 双向 / 三向). `cfg.bays`
-  widens the floor/frame/glass to 3.0 / 3.8 / 5.8 m, `cfg.covered: false` trades
+  builds the house around 1 / 2 / 3 side-by-side run columns with a full block of
+  pad at each end — 3 / 4 / 5 blocks across — `cfg.covered: false` trades
   the red-framed, blue-roofed canopy for a glass railing over the same barriers,
-  a straight ramp dropped inside snaps into the nearest bay (`exitRunSnap`), and a
+  a straight ramp dropped inside snaps into the column under the pointer
+  (`exitRunSnap`), and a
   fresh exit names itself `A口` … (`nextExitName`). The 3D view selects and deletes
   by drawn mesh (`SceneRenderer.pickModule`), so the whole head-house is hit, not
   just its reserved cells.
@@ -442,6 +531,32 @@ build/ →  sim/            (and neither render/ nor app/)
   collision envelope from 3.1 m to 1.5 m; and 自动贩卖机 (`vending`) is a
   TVM-footprint drinks machine that is the same unpaid-zone `stop` at `TVM_RATE`,
   sharing the ticket/vending detour on a street entry.
+* **Both ends of a train are cabs, the doors follow the screens, and the cadence
+  spreads to the car ends.** `buildTrain` (`render/models.ts`) re-skins the last
+  2 m of each end car through `buildCab` — the dark face mask, centre windscreen
+  and crew-door windows, the 广州地铁 mark (`drawMetroMark`: the real two-stroke
+  mark, drawn once and shared with the exit banner), twin round lamp clusters and
+  corner marker bars, the cream bumper band, the number plates and
+  the coupler — so the body stays exactly `cars × carLength` long, the cab stops
+  short of the car's first passenger door, and only the coupler hangs past the
+  nose. The two ends differ only in their lamps (the `headlight`
+  / `taillight` unlit materials): white on the end that leads, red on the end that
+  trails. Door leaves carry the side they belong to (`registerDoorLeaf`'s `side`),
+  and `setDoorsSides` slides the two banks independently; the pose's 10th value
+  (`LineAnchor.doorSides`, built in `World.computeLineAnchors` from the berth's
+  `platform-edge` runs) says which of them may open, so `SceneRenderer.advanceTrainDoors`
+  opens only the bank with screen doors to meet and leaves the tunnel-wall side shut.
+  The cadence itself is `doorCentres` (`sim/stock.ts`): one uniform pitch per car,
+  held `DOOR_END_INSET` (2.8 m) off both car ends, rounded symmetrically about the
+  consist centre — so a three-door L car spreads its outer doors to the ends rather
+  than bunching them mid-car. `doorRunOffsets` projects that list onto a rail's run,
+  and it is the single list `models.ts` cuts the screen open with *and* the one
+  `buildGraph` seats a door server on (anchored on the edge's own rail, so a screen
+  shorter than its bed still lines up; a rail-less legacy edge falls back to
+  spreading over its own run).
+  `game/test/trains.test.mjs` pins the platform-side / island / no-platform cases
+  and that every screen door stands on a car door, `game/test/stock.test.mjs` the
+  cadence itself.
 * The **stock classification** gained the **L** linear-motor car (`sim/stock.ts`,
   `game/test/stock.test.mjs`): `STOCK_CLASSES` (`['A','B','C','L']`) is now the
   single ordering source, so the worker's pose index (`STOCK_CLASSES.indexOf`) and
@@ -478,6 +593,72 @@ build/ →  sim/            (and neither render/ nor app/)
   opening tests keep their controlled knobs; `demo.test.mjs` guards that the
   shipped save is one connected circulation that actually boards and clears a
   crowd.
+* The **材质 brush keeps its mode.** `N` 单块 / `M` 整面 are the 材质 folder's own setting
+  (`store.ts` `paintBaseMode`), not a property of a tile: clicking a finish tile — or a fresh
+  搪瓷板 colour, which now reaches the brush in the same click instead of the previous render's
+  value — leaves the mode alone, so it survives a detour through another folder on the left rail.
+  `I` 取色 only borrows the brush and hands it back in the mode it was entered with
+  (`resumePaintMode`); `selectPaintFinish` is the finish tile's whole click.
+  `game/test/paint-mode.test.mjs` pins it.
+* The **闸机 piece** landed (`sim/gates.ts`, `sim/station.ts`,
+  `sim/types.ts`, `render/models.ts`, `app/LeftRail.tsx`, `app/App.tsx`,
+  `app/store.ts`, `game/test/gate-door.test.mjs`): `cfg.door` is `lane` (default)
+  or `fence`, toggled with **Tab** on the 设备 rail beside 旋转, and the turnstile
+  model was rebuilt from the 广州地铁 reference photos and elevation — a 1250 mm
+  machine (957 mm shoulder) whose head is a **trapezoid** (`prism`: top shorter
+  than base, 115° shoulder, the screen tipped up on the slope), stainless body,
+  navy head with the round card reader, QR window and lane lights, a black fascia
+  with a single **up** green arrow, a blue foot band, and the translucent red
+  leaf. The body is flush with its cell edge, so a 围栏 run butts the machine's
+  solid side (and ends at the doorway on the lane side); a `fence` machine is not
+  a gate at all — no node, no server, no crossing — and closes a run with fence
+  drawn through its own half-block. The **left / right setting was dropped**: the
+  model is built one way and `R` turns it, so a half turn is the mirror and the
+  mode only has to answer lane-or-fence.
+* **A Tab cycle must redraw the ghost already under the pointer**, and that takes
+  two keys, not one: the viewport subscribes to `placementPreviewKey`
+  (`app/store.ts` — the piece, its `rot` and every Tab cycle, `gateDoor`
+  included) so the effect re-runs, and the renderer's ghost identity
+  (`render/moduleGhostKey.ts`) has to name the same setting, because
+  `SceneRenderer.setModulePreview` skips a rebuild whose key is unchanged. Naming
+  a setting in only one of the two is a stale ghost that only a pointer move
+  clears; `game/test/gate-door.test.mjs` pins both halves.
+* The **指示牌 board is a document with an editor** (`sim/sign.ts`,
+  `app/SignEditor.tsx`, `render/signFace.ts`, `render/pictograms.ts`, §5.8). A sign
+  used to print one fixed wayfinding canvas for the whole station; the board is now
+  an ordered list of components (arrows, line badges, text, icon labels) laid out in
+  metres and dragged in the board editor. A sign is **two boards**, front and back —
+  independent documents, either of which may be empty, and an empty side is the unlit
+  black plate (what the back of a fresh sign is). `signPanelSize` sizes the panel to
+  what it carries between a floor and a ceiling, so a board never grows into a wall.
+  `sim/sign.ts` is pure (no DOM, canvas or three): `signFace.ts` owns the only pixels
+  and `SignEditor.tsx` the drag surface, both reading the same geometry, so the editor
+  preview, the hover ghost and the lit face are one layout drawn three times. The six
+  pictograms are thresholded photo-to-bitmap assets (`tools/prep-sign-icons.py` turns
+  `tools/sign-icons-source/` into `src/assets/pictograms/`; 出口 is the drawn plate,
+  `tools/sign-icons-sheet.py` prints the contact sheet for review);
+  `game/test/sign-editor.test.mjs`, `sign-model.test.mjs` and `sign-render.test.mjs`
+  pin the session, the document path and the pixels.
+* The **删除 drag sweeps same-type runs** (`app/sweep.ts`, §9.5). A tap removes the
+  piece under the pointer; a held drag keeps collecting same-family neighbours —
+  rotation and 自动 origin ignored, variant matched, so a 2 m 座椅 never takes the
+  1 m ones and a 闸机 row never takes the 售票机 at its end — sampling the path
+  between pointer events so a fast flick skips none, and the release bulldozes the
+  run in **one** commit (one Ctrl+Z puts it back). Rooms, rails, 出入口, ramps, lifts
+  and screen doors are never swept — one piece, own teardown — and 围栏 keeps its
+  straight-run drag. `sweep.ts` is the one app module written browser-free so Node can
+  import it; `game/test/sweep.test.mjs` pins it.
+* The **广告牌 / 电视 posters are a catalogue, cropped never stretched**
+  (`sim/billboards.ts` `AD_POSTERS`, `render/adArt.ts`, `render/panelUv.ts`). Twelve
+  campaign slugs in `src/assets/posters/`, each tagged with the silhouettes it is cut
+  for, so a panel is only ever offered artwork cut for its own shape; `panelUvWindow`
+  takes the centred fitting crop and `croppedPlane` walks it in three's UV order, and
+  every offered crop stays under 1.45×. The posters live beside the code as
+  `posters/`, not `ads/` — EasyList blocks `/assets/ads/*`, which in dev would reject
+  the importing module's whole graph. `game/test/billboard.test.mjs` pins the
+  catalogue, the crop and the UVs; `tools/render-tv-plate.mjs` and
+  `tools/render-sign-panel.mjs` print the real draw functions to PNG for looking at
+  rather than asserting.
 
 ## Deploy (Cloudflare Workers)
 

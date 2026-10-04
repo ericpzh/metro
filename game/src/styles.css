@@ -379,6 +379,32 @@ button.ghost:hover {
 .bpBlock.on::after {
   border-color: rgba(85, 182, 255, 0.5);
 }
+/* Shortcut-key badge: hidden until the tile is hovered or focused, so the rail
+   stays clean but the keys are discoverable. */
+.bpKey {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  min-width: 15px;
+  padding: 0 3px;
+  font-size: 9.5px;
+  line-height: 13px;
+  text-align: center;
+  color: #eaf5ff;
+  background: rgba(7, 20, 33, 0.92);
+  border: 1px solid rgba(85, 182, 255, 0.55);
+  border-radius: 2px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.bpBlock:hover .bpKey,
+.bpBlock:focus-visible .bpKey {
+  opacity: 1;
+  transform: none;
+}
 .bpBlockArt {
   position: relative;
   flex: 1 1 auto;
@@ -404,6 +430,22 @@ button.ghost:hover {
   width: 100%;
   height: 100%;
   border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+}
+/* The 指示牌 tile's art is a native colour input, so the tile itself is the
+   picker: strip its chrome and let it fill the block. */
+.bpColour {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.bpColour::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.bpColour::-webkit-color-swatch {
+  border: 0;
 }
 .bpBlockLabel {
   flex: none;
@@ -452,6 +494,22 @@ button.ghost:hover {
   margin: 6px 0 2px 12px;
   padding-left: 8px;
   border-left: 2px solid rgba(85, 182, 255, 0.4);
+}
+/* Inline expansion: a derived row that lives inside the tile grid, spanning the
+   full width right below its parent tile's row. It reuses the subMenu 0fr → 1fr
+   fold, so opening pushes later tiles down and closing (or swapping to another
+   tool's row) shrinks with the same easing. */
+.inlineExpand {
+  grid-column: 1 / -1;
+}
+/* A collapsed inline row is height 0 but still sits between two 6px grid gaps;
+   without compensation it would leave a spare gap where the row used to be. */
+.subMenu.inlineExpand:not(.open) {
+  margin-bottom: -6px;
+}
+.inlineExpand .subMenuPad {
+  /* The grid gap already spaces the row from its parent tiles. */
+  margin-top: 0;
 }
 
 .bpSub {
@@ -1004,6 +1062,543 @@ button.ghost:hover {
 .railStatus {
   padding: 2px 2px 5px;
 }
+
+/* ---- the 指示牌 board editor (two rows of tiles, over the whole game) ------- */
+/* The scrim is a sibling *after* the panel, so the panel paints above it without
+   depending on a z-index the toast also wants. */
+.signModal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 40;
+  isolation: isolate;
+}
+/* The scrim is a `button` so it is clickable and keyboard-reachable, which means
+   every `button` rule in this file also lands on it — including `button:hover`,
+   which would paint the whole viewport its blue. It is a scrim, not a button:
+   appearance, border, radius, padding and **every** background state are reset
+   here, so no button rule can ever tint it. */
+.signModalScrim,
+.signModalScrim:hover,
+.signModalScrim:focus,
+.signModalScrim:active {
+  position: absolute;
+  inset: 0;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: rgba(2, 7, 13, 0.82);
+  cursor: default;
+  box-shadow: none;
+}
+/* The panel is a column: the two boards, the row of groups with the open palette, and
+   the two acts. Its width is **fixed**, and fixed to the shortest it can be: the row of
+   groups is the only thing in the modal that grows sideways, so the panel is exactly the
+   width of that row at its longest — the four group tiles, and the widest palette beside
+   one of them — and not a pixel more. A palette wider than that (a station with many
+   线路) is clipped by the panel rather than allowed to widen it; `--tile` is the one
+   square every tile in it is: a place on the board, a group and an option are the same
+   object three times over. */
+.signPanel {
+  --tile: 60px;
+  /* The row's own arithmetic, named: `--sign-gap` is the 6 px between two tiles, and it
+     is `--sign-row` that decides the panel's width below. */
+  --sign-gap: 6px;
+  --sign-group-tiles: 258px; /* 4 group tiles: 4 × 60 px + 3 × 6 px */
+  --sign-arrow-row: 522px; /* the widest palette: 8 arrow tiles, 8 × 60 px + 7 × 6 px */
+  --sign-row: calc(var(--sign-group-tiles) + var(--sign-gap) + var(--sign-arrow-row));
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* The row above plus the panel's own 2 × 14 px padding — and on a window too narrow
+     for that, the whole window with a hair to spare. */
+  width: min(calc(var(--sign-row) + 28px), 98vw);
+  /* The same value as a floor, so a palette wider than the panel cannot push it out —
+     that is what makes the width fixed. Content wider than the panel is clipped by
+     `overflow-x` below, and the palette that matters (arrows, icons, text) fits. */
+  min-width: min(calc(var(--sign-row) + 28px), 98vw);
+  min-height: 0;
+  padding: 14px 14px 16px;
+  max-height: 92vh;
+  /* The panel scrolls **down** only. Every row is laid out to the panel's own width, so
+     none of them can widen it, and the one that can be wider than the panel is clipped
+     rather than scrolled: a horizontal bar here would be a second way to move the board
+     sideways, which is the thing this width exists to prevent. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--bp-line);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+/* The two buttons there are, bottom right, and nothing else down here: the board is
+   arranged above them and the way out is under it. They wear the build rail's own
+   blueprint block — the same fill, the same technical dashed inner frame at the same
+   inset — so the acts that end the edit are the same object as the tiles that made it. */
+.signRail {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  /* The dashed frame is drawn at `inset`, so the button has to stay clear of it. */
+  --signActFrame: 4px;
+}
+.signAct {
+  position: relative;
+  width: 44px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text);
+  background: #0e2338;
+  border: 1px solid var(--bp-line);
+  border-radius: 0;
+  cursor: pointer;
+  /* The dashed frame is clipped by the button it is drawn in, with the 4 px
+     `inset` of `.bpBlock`'s keeping it off the border. */
+  overflow: hidden;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+/* The same technical dashed inner frame `.bpBlock::after` draws, at the same inset. */
+.signAct::after {
+  content: '';
+  position: absolute;
+  inset: var(--signActFrame);
+  border: 1px dashed rgba(126, 183, 231, 0.18);
+  border-radius: 0;
+  pointer-events: none;
+}
+.signAct:hover {
+  background: #13304c;
+  border-color: rgba(85, 182, 255, 0.65);
+}
+.signAct:hover::after {
+  border-color: rgba(85, 182, 255, 0.5);
+}
+.signAct.ok {
+  color: #b9f2d2;
+}
+.signAct.ok:hover {
+  background: #14351f;
+}
+.signAct.cancel:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: #3a1710;
+}
+/* The bin, to the left of the two acts: the rail's own 删除 icon in the same blueprint
+   button, and the **only button in the panel that acts immediately**. It is always on
+   screen — it has two gestures of its own, so it cannot be an affordance that only appears
+   while one of them is happening:
+     * a mark **dragged onto it** is thrown away (`.over`, which grows and lights the bin);
+     * a **click** on it, holding nothing, empties both boards.
+   It wears the delete colour at all times, plate and dashed frame included, because it is
+   the one control in this rail that destroys something. */
+.signAct.trash {
+  color: var(--danger);
+  /* The whole button is the delete colour, not just the glyph in it: the plate's own border
+     and its dashed frame are tinted too (`::after` below), so the bin reads as one red
+     object in the corner rather than a grey button that happens to hold a red icon. */
+  border-color: rgba(255, 125, 92, 0.55);
+  transition: opacity 120ms ease, border-color 120ms ease, background 120ms ease, color 120ms ease,
+    transform 120ms ease, box-shadow 120ms ease;
+}
+.signAct.trash svg {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+/* The technical dashed frame, tinted with the border rather than left the blueprint blue. */
+.signAct.trash::after {
+  border-color: rgba(255, 125, 92, 0.22);
+}
+/* Nothing on either board: the bin has no gesture left (`clearAll` returns early), so it is
+   faded and takes no press — but it keeps its box, because the drag's own hit test measures
+   it, and that is what keeps a carried mark out of it. */
+.signAct.trash:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.signAct.trash:disabled:hover {
+  background: #0e2338;
+  border-color: rgba(255, 125, 92, 0.35);
+}
+/* The mark is over the bin: the glow and the growth are what is added here — the colour is
+   already the delete colour, so the state still reads as a change of size and light. */
+.signAct.trash.over {
+  border-color: var(--danger);
+  background: #3a1710;
+  transform: scale(1.28);
+  box-shadow: 0 0 0 1px rgba(255, 125, 92, 0.45), 0 0 16px rgba(255, 125, 92, 0.35);
+}
+.signAct.trash.over svg {
+  width: 22px;
+  height: 22px;
+}
+.signAct.trash.over::after {
+  border-color: rgba(255, 125, 92, 0.5);
+}
+/* Row 1: the board as a row of **marks** — one square per mark, and the only thing a
+   square shows is the piece of sign that will stand there, drawn by the board's own
+   renderer into the tile (`.bin img`). There is no separate preview of the whole panel
+   and no spare place on the end: the row *is* the panel, read left to right, and a mark
+   goes in at whatever place the pointer is over.
+   There are **two** of these, one per face: `.signBoards` stacks 正面 over 背面, and each
+   row is its own board. The label above a row is part of the row's own header, so a row
+   and the word for it cannot drift apart. */
+.signBoards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: center;
+}
+.signFaceRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* The face's name, and the control that points the palette at it. It reads as a caption
+   first and a button second: a row of bins is a board, and the word over it is which
+   board — not a tab in a toolbar. */
+.signFaceLabel {
+  align-self: flex-start;
+  padding: 2px 8px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+}
+.signFaceRow.on .signFaceLabel {
+  color: var(--text);
+  border-color: var(--bp-line);
+  background: var(--panel2);
+}
+.signFaceLabel:hover {
+  color: var(--text);
+  border-color: rgba(85, 182, 255, 0.65);
+}
+/* The row of places is **one continuous lit plate**, not a line of tiles: every bin is
+   a square of the sign's own black face drawn edge to edge, so a row reads the way the
+   board reads — marks standing on one dark surface — and a drag slides a mark along a
+   surface rather than picking a tile out of a strip.
+
+   That is why the row and its bins carry no padding, no gap, no border and no fill of
+   their own: anything of the sort is editor furniture drawn *between* two pieces of the
+   sign, and it shows up as a seam.
+
+   The plate is still **painted**, and that is a hit-testing requirement rather than a
+   decoration. A drop resolves to the row under the pointer (`placeAt`, via
+   `elementFromPoint`), and an unpainted box is not hit-tested at all: with the row's fill
+   removed, aiming at the empty right-hand end of a short row, or at a bin's own centre
+   where the mark's artwork is transparent, landed on the row's *container* and the drop
+   went nowhere. The fill is the board's own ground (`#0d1116`, exactly what
+   `render/signFace.ts` fills a plate with), so it is invisible against the bins and makes
+   the whole plate a target. The one thing that must still read as a *place* is an empty
+   face's well, and that is the dashed square below. */
+.bins {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  /* A row is as wide as the marks on it, never as wide as its neighbour: a sign's two
+     faces are two boards, so 正面 carrying five marks and 背面 carrying one are two
+     different lengths, and stretching the shorter one to the longer one's width would
+     draw a board nobody composed. */
+  align-self: flex-start;
+  /* One square's worth of well even with nothing on the board, so an emptied row is
+     still a place to drop the first mark back into — which is also the smallest painted
+     plate there can be, and the one an empty face is aimed at. */
+  min-width: var(--tile);
+  min-height: var(--tile);
+  /* The board's own unlit ground, exactly as `render/signFace.ts` fills a plate with it,
+     so the seams between two bins are the same black as the bins themselves. */
+  background: #0d1116;
+}
+/* A mark is in the air over the row: the row shows the place it would take, which is
+   the cue that matters. The outline is inset so that lighting up the target does not
+   change the row's own size. */
+.bins.drop {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.bin {
+  position: relative;
+  flex: none;
+  width: var(--tile);
+  height: var(--tile);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  /* The plate itself, drawn by the board's own renderer: no border of the editor's, and
+     the board's black ground behind the mark rather than the panel's blue. */
+  background: #0d1116;
+  border: 0;
+  border-radius: 0;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+/* An empty face's one place: the well a mark is dropped into, holding nothing. It is the
+   same square as a bin — the row's geometry counts it — but with no art, no panel behind
+   it, no delete button and no grab cursor, because there is nothing there to pick up.
+   It is the **one** thing in a row that keeps a visible edge: a face with nothing on it
+   still has to show where the first mark goes, and on a black plate a black square would
+   show nothing at all. The edge is inset, so it does not add a seam to the size the row
+   reports to `placeAt`. */
+.bin.empty {
+  background: transparent;
+  cursor: default;
+}
+.bin.empty::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px dashed #24435f;
+  pointer-events: none;
+  transition: border-color 120ms ease;
+}
+.bin.empty:hover::before {
+  border-color: rgba(85, 182, 255, 0.45);
+}
+/* The picked mark. It cannot be shown with a border or a filled tile — the row is one
+   black plate and either would cut a visible box out of it — so the *mark* is lit
+   instead: a faint inner glow that follows the icon's own silhouette, which is the only
+   highlight that leaves the plate continuous. */
+.bin.on {
+  filter: drop-shadow(0 0 4px rgba(85, 182, 255, 0.9));
+}
+/* The rail's own technical dashed frame, so a bin and a build-rail block are the
+   same object in two places — on the *palette* tiles, which are furniture. A place on
+   the board is not furniture, so it carries no frame of its own. */
+.tile::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1px dashed rgba(126, 183, 231, 0.18);
+  pointer-events: none;
+}
+/* The mark in the air, following the pointer: a piece of the sign lifted off the
+   board. It is appended to the document body and moved by `transform` alone — a drag
+   reports a position dozens of times a second, and this must not re-render anything.
+   It is a **bin scaled up** (`DRAG_SCALE`, 1.5 in `SignEditor.tsx`): the same 5 px of
+   padding and 1 px border, so the black plate and the mark printed on it grow together.
+   The numbers are `60 × 1.5` for the box and `48 × 1.5` for the art, and they are
+   repeated from that module because a canvas cannot be sized from a stylesheet. */
+.dragGhost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 60;
+  width: 90px;
+  height: 90px;
+  /* Centred on the pointer, and a little above it: a carried mark should not sit under
+     the cursor that is aiming it. */
+  margin: -55px 0 0 -45px;
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  pointer-events: none;
+  background: #0d1116;
+  border: 1px solid var(--accent);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
+  will-change: transform;
+}
+/* The canvas fills the plate's content box, so the drawn picture and its plate are one
+   object: whatever size the plate is, the art inside it is the plate minus its padding. */
+.dragGhostArt {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* A tile's picture is the plate itself — the black board and the mark on it — so it
+   fills the padded square and nothing else is drawn around it. */
+.bin img,
+.tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+/* The row of groups: each group's tile, and the palette that folds out **beside it**.
+   A group is one item of this row, so the palette pushes the tiles after it along when
+   it opens and lets them back when it folds — the horizontal reading of the build rail,
+   where a sub-menu pushes the tiles below it down. The row runs from the panel's left
+   edge, so the tiles it pushes are pushed to the right. */
+.signPalette {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* One group: the tile, then its palette. The gap is the 6 px between a tile and the
+   palette that belongs to it, which is the same 6 px that separates two groups. */
+.signGroup {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* One group's palette: a `0fr → 1fr` **column** that animates, with a child clipping
+   what it holds — `InlineExpand` in `LeftRail.tsx` is this same fold turned the other
+   way (rows instead of columns), and the easing is the rail's own so the two menus move
+   alike. The palette grows out of the tile that opened it: `.signRowInner` is
+   `overflow: hidden`, so a row on its way out is clipped to nothing rather than shown
+   overflowing across the tiles beside it. */
+.signRow {
+  display: grid;
+  grid-template-columns: 0fr;
+  /* A flex item will not shrink below its own min-content width by default, and this
+     row's min-content is the whole palette; without the floor lifted an open palette
+     could push the group it belongs to out of the panel instead of taking what is left
+     of the row — and the row is sized (`.signPanel`) so that it never has to. */
+  min-width: 0;
+  transition: grid-template-columns 260ms cubic-bezier(0.33, 0.05, 0.2, 1);
+}
+.signRow.open {
+  grid-template-columns: 1fr;
+}
+/* A collapsed row is zero wide, so without this it would sit its own `gap` (6 px) away
+   from the tile it belongs to and read as a gap rather than as a closed palette. */
+.signRow:not(.open) {
+  margin-left: -6px;
+}
+/* The clip, and the reason the fold works: the track is narrower than the strip it
+   holds while it closes, and this is what hides the difference instead of letting it
+   overflow across the tiles beside it. `min-width: 0` is the other half — without it a
+   grid item will not shrink below its content's own width, and the track would sit at
+   full width no matter what the template says. */
+.signRowInner {
+  min-width: 0;
+  overflow: hidden;
+}
+/* The marks themselves, in the strip the fold reveals: the same row of tiles the rail
+   and the bins are, so a palette option and a place on the board are one object. It does
+   not shrink with the track — the track is the window, this is the picture. */
+.signRowPad {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tile);
+}
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+/* A tile is the same square wherever it stands — a place on the board, one of the four
+   groups, an option in the open group — and the same object the rail builds with: flat
+   navy, a dashed technical frame, and the mark itself inside it. Nothing on a tile is
+   lettering: a name would be a second, worse picture of the thing. */
+.tile {
+  flex: none;
+  position: relative;
+  width: var(--tile);
+  height: var(--tile);
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  line-height: 1;
+  color: var(--text);
+  background: #0e2338;
+  border: 1px solid var(--bp-line);
+  border-radius: 0;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.tile.grab {
+  cursor: grab;
+}
+.tile:hover {
+  background: #13304c;
+  border-color: rgba(85, 182, 255, 0.65);
+}
+.tile.on {
+  border-color: var(--accent);
+  background: #16374f;
+}
+/* A **group's** tile that offers more than one mark shows two of them, set on the diagonal
+   and divided by a slash: one arrow on the 箭头 tile says it *is* the arrow, not that it
+   opens a palette of eight, and the diagonal is the same "/" the copy uses for "or".
+   They sit **corner to corner** rather than side by side — top-left and bottom-right — which
+   is what lets each one be a proper square instead of a half-width strip: a mark is drawn to
+   fill the box it is given (`.tile img` is `object-fit: contain`), so two in a row would each
+   be half the size, and two on the diagonal are each most of it. They meet at the slash, and
+   the slash is what keeps them two marks rather than one smudge. */
+.tile.split {
+  padding: 0;
+}
+.tile.split img {
+  position: absolute;
+  /* 30 px: past half, because the corners are used and the two meet only where the slash
+     divides them. `48 − 2 × 5 − 2 × 1` is the plate a single mark gets; this is that plate's
+     ink, which is what the pair are sized against. */
+  width: 30px;
+  height: 30px;
+}
+.tile.split img:first-of-type {
+  top: 1.5px;
+  left: 1.5px;
+}
+.tile.split img:last-of-type {
+  right: 1.5px;
+  bottom: 1.5px;
+}
+/* The separator: a hairline on one edge, turned 22°, which is the angle that crosses the
+   tile corner to corner while still fitting inside its own box. Centred, so it runs through
+   the place the two plates meet. */
+.tileSplit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 62px;
+  border-left: 1px solid rgba(126, 183, 231, 0.5);
+  transform: translate(-50%, -50%) rotate(22deg);
+  pointer-events: none;
+}
+.tile.danger:hover {
+  border-color: var(--danger);
+  background: #3a1710;
+  color: var(--danger);
+}
+/* The one text box: 中文 on the first line (large), English under it (small). */
+.signText,
+.signCaption {
+  flex: none;
+  height: var(--tile);
+  padding: 0 8px;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  background: #0d2137;
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+/* The text box is a tile tall, so it sits in the palette's row rather than floating
+   in it, and wide enough for the hint it carries when the board has no label yet. */
+.signText {
+  width: 210px;
+}
+.signCaption {
+  width: 180px;
+  color: var(--muted);
+}
+.signText:focus,
+.signCaption:focus {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--text);
+}
+
 input[type='range'] {
   width: 100%;
   accent-color: var(--accent);

@@ -10,17 +10,26 @@ import {
   buildModule,
   buildRampThins,
   buildTrain,
+  canvasTexture,
   createModelMaterials,
   disposeModelMaterials,
   disposeObject,
+  litPanelMaterial,
+  refreshSignFaceMaterial,
   rollEscalator,
   setDoors,
+  setDoorsSides,
   setGateWing,
   type EscalatorRoll,
   type ModelMaterials,
   type ModuleContext,
 } from './models.ts'
 import { finishDef, finishMapOf } from '../sim/finishes.ts'
+import { createAdArt, type AdArt } from './adArt.ts'
+import { drawStationDisplay, STATION_PLATE, tvLineStatus } from './stationDisplay.ts'
+import { drawSignPanel } from './signFace.ts'
+import { loadPictograms } from './pictograms.ts'
+import { signBoardsOf, signBoardsPanel, signFaceLayout, signPlate, type SignLayout, type SignPanelSize } from '../sim/sign.ts'
 import { storeyBand } from '../sim/constants.ts'
 import { trackBedKeys } from '../sim/placement.ts'
 import { edgeCells } from '../sim/track.ts'
@@ -32,6 +41,8 @@ import { facilityWallCells } from '../build/model.ts'
 import { STOCK_CLASSES, type StockClass } from '../sim/stock.ts'
 import type { Face, FinishId, Module, StationData } from '../sim/types.ts'
 import { packKey } from '../sim/types.ts'
+import { moduleGhostKey } from './moduleGhostKey.ts'
+import { crowdVisible, levelSide, levelVisible, trainVisible, unsupportedAbove } from './levelSlicing.ts'
 
 export interface PickResult {
   /** The solid cell that was hit, or the void cell under the work plane. */
@@ -60,6 +71,17 @@ const AGENT_COLORS = [0xe4572e, 0xf2a541, 0xf7d84b, 0x3fb27f, 0x42a5c4, 0xb07cc6
  *  `TRAIN_DOOR_TRAVEL`; the renderer eases toward the commanded state). */
 const DOOR_TRAVEL_S = 2
 
+/**
+ * How long a 电视 window holds one piece of content before the feed changes it.
+ * The range is the point: each screen rolls its own period, so a row of them
+ * drifts apart instead of flipping as one wall.
+ */
+const TV_SWAP_MIN_MS = 6000
+const TV_SWAP_MAX_MS = 20000
+/** Stagger the first swap so screens do not all change on the first frame. */
+const TV_FIRST_SWAP_MS = 1200
+const TV_SWAP_JITTER_MS = 9000
+
 /** Sim seconds a turnstile leaf takes to slide open, hold, and shut. */
 const GATE_OPEN_S = 0.25
 const GATE_HOLD_S = 0.45
@@ -69,9 +91,6 @@ const GATE_SHUT_S = 0.35
  *  which holds the queue at 0.62 m). Used to tell "stepping into the gate" from
  *  "waiting outside it". */
 const GATE_EDGE = 0.5
-
-/** Wall-clock seconds each advertisement poster stays on a 装饰 screen (§5.7). */
-const AD_FRAME_SECONDS = 3.5
 
 /**
  * Mouse edge pan: with the pointer inside this band along a canvas edge the
@@ -275,9 +294,29 @@ export class SceneRenderer {
   private liftPickMeshes: THREE.Mesh[] = []
   /** Turnstile leaves, slid open as the crowd passes through their lanes. */
   private gateWings: GateWing[] = []
-  /** Wall-mounted 装饰 screens, whose poster material cycles through the ad frames. */
+  /** Wall-mounted 装饰 screens; the poster material each prints is frozen. */
   private adScreens: THREE.Mesh[] = []
-  private adClock = 0
+  /**
+   * Live 电视 content windows. Each swaps the artwork in its little window on its
+   * own cadence, so a row of them is not one synchronised wall — the frame around
+   * it (the station plate) never changes.
+   */
+  private tvScreens: Array<{ screen: THREE.Mesh; moduleId: string; poster: string; nextAt: number }> = []
+  /** The lit station plate per 电视 module, drawn from the live document. */
+  private tvPlates = new Map<string, THREE.CanvasTexture>()
+  /**
+   * The lit face of each 指示牌 per side (`id|left`, `id|right`), composed from the
+   * module's own layout. A board's plate is a document render like the 电视's — it
+   * exists only to light the drawn model, which is why both live here and are
+   * rebuilt with the modules they belong to.
+   */
+  private signPlates = new Map<string, { texture: THREE.CanvasTexture; material: THREE.Material; face: 'left' | 'right' }>()
+  /** The simulation clock, as the plate's clock field. */
+  private clockText = '--:--'
+  /** The live train poses, so a plate can count down to the next service. */
+  private trainPoses: Array<{ x: number; y: number; colour: number }> = []
+  /** The station's poster artwork, one cache per scene (`render/adArt.ts`). */
+  private ads: AdArt
   private grid: THREE.Group = new THREE.Group()
   private cursor: THREE.Mesh
   /** Remove-drag preview: one red box per pending-delete block (§9.5). */
@@ -322,6 +361,8 @@ export class SceneRenderer {
   private orthoZoom = 1
   private tmpSize = new THREE.Vector3()
   private ghost = true
+  /** 隐藏天花板: drop the ceiling of the storey above the active one. */
+  private autoCeiling = true
   private activeZ = 0
   private bounds = new THREE.Box3()
   private raycaster = new THREE.Raycaster()
@@ -389,6 +430,28 @@ export class SceneRenderer {
 
     this.mats = createMaterials()
     this.modelMats = createModelMaterials()
+    // The station's ad artwork, one cache per scene so every screen shares a
+    // texture per poster and nothing re-uploads on a rebuild. The JPEGs decode
+    // in the background; until they land a 装饰 screen prints the placeholder
+    // face, and `onReady` redraws the modules so every poster appears without a
+    // reload — see `render/adArt.ts` for why the pixels are not loaded lazily.
+    this.ads = createAdArt(this.renderer)
+    void this.ads.load(() => {
+      // The parameter is the legacy packed-key set `buildModules` no longer
+      // reads (it derives its own from the data), so the station alone is passed.
+      if (!this.disposition && this.stationData) this.buildModules(this.stationData, new Set())
+    })
+    // The 指示牌's pictograms are bitmap art, and a plate printed before the
+    // images decode would print the marks off it and keep them off — the texture is
+    // minted once. So the decode is started here, beside the ad artwork, and the
+    // modules are rebuilt the moment it lands (see `render/pictograms.ts`).
+    void loadPictograms().then((icons) => {
+      if (this.disposition || icons.size === 0) return
+      // The two boards drawn before the art existed: the scene's own fallback
+      // plate, and every module group already standing.
+      refreshSignFaceMaterial(this.modelMats)
+      if (this.stationData) this.buildModules(this.stationData, new Set())
+    })
 
     // Light rig: one key + ambient + a soft fill. §2.3 item 3.
     const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x2a2f39, 1.15)
@@ -514,6 +577,9 @@ export class SceneRenderer {
       }
     }
     this.clearModulePreview()
+    // A 指示牌 prints the station's lines, so a line edit reprints every face
+    // already hanging before the rebuild replaces them.
+    this.redrawSignPlates()
     this.disposeChunks()
     const t0 = performance.now()
     this.lastChunkMs = 0
@@ -597,7 +663,12 @@ export class SceneRenderer {
           group.add(mesh)
           this.chunkMeshes.push(mesh)
           // Inverted hull outline: same geometry, back faces, pushed outward.
-          const outline = new THREE.Mesh(geo, this.outlineMaterial())
+          const outlineMat = this.outlineMaterial()
+          const outline = new THREE.Mesh(geo, outlineMat)
+          // The outline owns its material, and `baseMaterial` pins the opaque
+          // original: without it a second `applyLevel` would take the ghost
+          // clone for the base and dim the hull again, and again.
+          outline.userData.baseMaterial = outlineMat
           outline.userData.levelZ = levelZ
           outline.userData.float = isFloat
           outline.userData.wall = mesh.userData.wall
@@ -678,10 +749,107 @@ export class SceneRenderer {
    * no longer unit cubes: `models.ts` gives each one a silhouette from the
    * reference art, and the camera sees steel, glass, enamel and screens.
    */
+  /** Release every 电视 station plate. The meshes they were painted for are gone. */
+  private clearTvPlates(): void {
+    for (const tex of this.tvPlates.values()) tex.dispose()
+    this.tvPlates.clear()
+  }
+
+  /** Release every 指示牌 face. Called with the modules, like `clearTvPlates`. */
+  private clearSignPlates(): void {
+    for (const entry of this.signPlates.values()) {
+      entry.texture.dispose()
+      // The material is minted per face and per rebuild, so it goes with the texture
+      // it wraps: `disposeObject` keeps materials (most are shared), so this is the
+      // only thing that frees these.
+      entry.material.dispose()
+    }
+    this.signPlates.clear()
+  }
+
+  /**
+   * The lit face of one 指示牌 on one side, cached per module **and panel**.
+   *
+   * `layout` is that face's own board — 正面 for the left face, 背面 for the right —
+   * and it is drawn by `render/signFace.ts` with the line shields reading the
+   * **live** station document, so recolouring 1号线 reprints every board that
+   * carries its shield and nothing else about the sign has to change.
+   *
+   * The texture is cut to the **pair's panel** (`signBoardsPanel`), not to the face
+   * on it: the two faces are two plates on one piece of hardware, so they share a
+   * size, and a short back prints on the same steel as a long front. That size is
+   * part of the cache key — a sign that grew since its plate was minted needs a new
+   * texture, not a redraw, so the key carries the panel's metres and a stale entry
+   * can never be handed to a mesh cut to a different size.
+   *
+   * What goes back to the model is a **material** — a `MeshBasicMaterial` whose map
+   * is that texture, exactly as every other printed panel in `models.ts` is built.
+   * Returning the bare texture was the bug that left every sign face black: a mesh
+   * cannot draw a texture in place of a material, so the face vanished and the
+   * model's own dark lightbox showed through.
+   */
+  private makeSignPlate(id: string, layout: SignLayout, face: 'left' | 'right', panel: SignPanelSize): THREE.Material {
+    const key = `${id}|${face}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+    const existing = this.signPlates.get(key)
+    if (existing) return existing.material
+    const lines = this.stationData?.lines ?? []
+    const plate = signPlate(panel)
+    const texture = canvasTexture(plate.width, plate.height, (g) => {
+      drawSignPanel(g, layout, { lines, panel }, face)
+    })
+    const material = litPanelMaterial(texture)
+    this.signPlates.set(key, { texture, material, face })
+    return material
+  }
+
+  /**
+   * Redraw every 指示牌 face in place, from the live document.
+   *
+   * A board prints the station's lines (a shield's colour, its number, its gloss)
+   * and the player's own components. Its components come from the module
+   * document, so a layout edit rebuilds the plate with the modules — but a *line*
+   * edit is a different shape of change, and this is where it lands: every face
+   * already hanging reprints, keeping its geometry and material, exactly like the
+   * 电视's clock. `setStation` calls it before the rebuild, so a recoloured shield
+   * reaches the boards a 线路 edit never touched.
+   */
+  private redrawSignPlates(): void {
+    if (this.signPlates.size === 0) return
+    const lines = this.stationData?.lines ?? []
+    for (const [key, entry] of this.signPlates) {
+      const id = key.slice(0, key.indexOf('|'))
+      const mod = this.stationData?.modules.find((m) => m.id === id)
+      if (!mod || mod.type !== 'sign') continue
+      const boards = signBoardsOf(mod.cfg, this.stationData)
+      const layout = signFaceLayout(boards, entry.face === 'right' ? 'back' : 'front')
+      const canvas = entry.texture.image as HTMLCanvasElement | undefined
+      const g = canvas?.getContext('2d')
+      if (!canvas || !g) continue
+      // A board that grew or shrank since the plate was minted needs a new
+      // texture, not a redraw: the mesh's own size is rebuilt with the modules, so
+      // the plate only has to match the geometry it is drawn on.
+      const panel = signBoardsPanel(boards)
+      const plate = signPlate(panel)
+      if (canvas.width !== plate.width || canvas.height !== plate.height) continue
+      drawSignPanel(g, layout, { lines, panel }, entry.face)
+      entry.texture.needsUpdate = true
+    }
+  }
+
   private buildModules(data: StationData, _trackCells: Set<number>): void {
     this.clearModules()
+    // The plates belong to the module groups just dropped, so they go with them —
+    // otherwise every edit would leak one texture per 电视 or 指示牌.
     const trackCells = trackBedKeys(data.cells, data.modules)
-    const ctx: ModuleContext = { mats: this.modelMats, data, trackCells, finish: (id) => this.mats.finish(id) }
+    const ctx: ModuleContext = {
+      mats: this.modelMats,
+      ads: this.ads,
+      data,
+      trackCells,
+      finish: (id) => this.mats.finish(id),
+      tvPlate: (id, x, y) => this.makeTvPlate(id, x, y),
+      signFace: (id, layout, face, panel) => this.makeSignPlate(id, layout, face, panel),
+    }
     const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
     this.psdGroups = []
     this.adScreens = []
@@ -717,6 +885,16 @@ export class SceneRenderer {
       if (mod.type === 'billboard' || mod.type === 'tv') {
         const screen = group.userData.adScreen as THREE.Mesh | undefined
         if (screen) this.adScreens.push(screen)
+        if (mod.type === 'tv' && screen) {
+          // The plate is the station information and never changes; only the
+          // window (the content the network feed plays in) cycles.
+          this.tvScreens.push({
+            screen,
+            moduleId: mod.id,
+            poster: String(screen.userData.adPoster ?? ''),
+            nextAt: performance.now() + TV_FIRST_SWAP_MS + Math.random() * TV_SWAP_JITTER_MS,
+          })
+        }
       }
       if (mod.type === 'gate') {
         if (group.userData.wing) {
@@ -772,6 +950,11 @@ export class SceneRenderer {
   /** Drop the last frame's module geometry and trains without touching materials. */
   private clearModules(): void {
     this.clearFencePreview()
+    // The per-piece plates are minted for the groups about to be dropped, so they
+    // are released here rather than leaking one texture per 电视 or 指示牌 an edit
+    // passes through.
+    this.clearTvPlates()
+    this.clearSignPlates()
     for (const child of [...this.moduleMeshes.children]) {
       disposeObject(child)
       this.moduleMeshes.remove(child)
@@ -782,18 +965,102 @@ export class SceneRenderer {
     this.liftPickMeshes.length = 0
     this.gateWings.length = 0
     this.adScreens.length = 0
+    this.tvScreens.length = 0
+  }
+
+  /**
+   * The lit station plate for one 电视: the frame the content window sits inside.
+   *
+   * It is station information, not artwork, so it is drawn from the live document
+   * — the line's own name, colour and terminus, the clock, and how close the next
+   * train is — and cached per module. It only has to be redrawn when one of those
+   * changes, which `setSimClock` does once a minute rather than every frame.
+   *
+   * The line is the station's **first** line. A 电视 is ceiling furniture rather
+   * than platform equipment, so it belongs to no platform and carries no line of
+   * its own; once a station runs several lines, this is the one place to revisit
+   * (a board per platform would want the line whose track is nearest).
+   */
+  private makeTvPlate(id: string, x: number, y: number): THREE.Texture {
+    const existing = this.tvPlates.get(id)
+    if (existing) return existing
+    const line = this.stationData?.lines[0]
+    const status = line ? tvLineStatus(line, this.trainPoses, [x, y]) : null
+    const t = canvasTexture(STATION_PLATE.width, STATION_PLATE.height, (g) => {
+      drawStationDisplay(g, status, this.stationData?.name ?? '', this.clockText)
+    })
+    this.tvPlates.set(id, t)
+    return t
+  }
+
+  /**
+   * The simulation clock, printed in the plate's information column. Called from
+   * the worker's state frame. When the printed minute changes, every plate is
+   * redrawn in place — the meshes keep their geometry and material, so nothing
+   * rebuilds but the pixels.
+   */
+  setSimClock(simTime: number): void {
+    const h = Math.floor(simTime / 3600) % 24
+    const mm = Math.floor((simTime % 3600) / 60)
+    const next = `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+    if (next === this.clockText) return
+    this.clockText = next
+    for (const [id, tex] of this.tvPlates) {
+      const canvas = tex.image as HTMLCanvasElement
+      const g = canvas.getContext('2d') as CanvasRenderingContext2D
+      const line = this.stationData?.lines[0]
+      const mod = this.stationData?.modules.find((m) => m.id === id)
+      const status = line ? tvLineStatus(line, this.trainPoses, [mod ? mod.x + 0.5 : 0.5, mod ? mod.y + 0.5 : 0.5]) : null
+      drawStationDisplay(g, status, this.stationData?.name ?? '', this.clockText)
+      tex.needsUpdate = true
+    }
+  }
+
+  /**
+   * The content window's cadence. A 电视 updates the *feed* in its window every so
+   * often, so this swaps the artwork — never the station plate around it — on a
+   * period drawn per screen from the kit's own range, with a fresh period rolled
+   * after each swap. Two screens side by side therefore drift apart instead of
+   * flipping together, which is what the reference photo's wall of TVs looks like.
+   */
+  private updateAdScreens(now: number): void {
+    for (const tv of this.tvScreens) {
+      if (now < tv.nextAt) continue
+      const win = tv.screen.userData.adWindow as { x: number; z: number; w: number; h: number } | undefined
+      if (win && this.ads) {
+        const next = this.ads.adWindow(win.w, win.h)
+        const prev = tv.screen.geometry
+        tv.screen.geometry = next.geometry
+        tv.screen.material = next.material
+        prev.dispose()
+        tv.screen.userData.adPoster = next.slug
+        tv.poster = next.slug
+      }
+      tv.nextAt = now + TV_SWAP_MIN_MS + Math.random() * (TV_SWAP_MAX_MS - TV_SWAP_MIN_MS)
+    }
   }
 
   /**
    * Rolling stock (§6). The worker sends one pose per live train as a flat
-   * `Float32Array`, stride 8: x, y, z, cars, stock index, doors-open, colour,
-   * direction. A consist is cached by its signature (colour + direction +
-   * length), so it survives slot reordering, and its two latest poses are kept
-   * so `updateTrains` can glide it between ticks instead of teleporting.
+   * `Float32Array`, stride 10: x, y, z, cars, stock index, doors-open, colour,
+   * direction, yaw, door-side mask. A consist is cached by its signature (colour
+   * + direction + length + mask), so it survives slot reordering, and its two
+   * latest poses are kept so `updateTrains` can glide it between ticks.
+   *
+   * The mask says which door banks may open (§1.13): bit 0 the consist's local
+   * +y, bit 1 its local −y. Only a side with platform screen doors is set, so
+   * the leaves on the tunnel-wall side stay shut however long the train stands.
    */
   setTrains(buffer: Float32Array): void {
-    const STRIDE = 9
+    const STRIDE = 10
     const n = Math.min(Math.floor(buffer.length / STRIDE), 64)
+    // Keep the live poses: the 电视 station plate counts down to the next train,
+    // so it has to see where the trains actually are (`tvLineStatus`).
+    this.trainPoses.length = 0
+    for (let i = 0; i < n; i++) {
+      const o = i * STRIDE
+      this.trainPoses.push({ x: buffer[o], y: buffer[o + 1], colour: buffer[o + 6] & 0xffffff })
+    }
     for (const entry of this.trainSlots.values()) entry.active = false
     const openColours = new Set<number>()
     for (let i = 0; i < n; i++) {
@@ -807,15 +1074,20 @@ export class SceneRenderer {
       const colour = buffer[o + 6] & 0xffffff
       const dirSign = buffer[o + 7] >= 0 ? 1 : -1
       const yaw = buffer[o + 8]
-      if (doorsOpen) openColours.add(colour)
-      const sig = `${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}`
+      const doorSides = buffer[o + 9] | 0
+      if (doorsOpen && doorSides !== 0) openColours.add(colour)
+      const sig = `${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}:${doorSides}`
       let entry = this.trainSlots.get(sig)
       if (!entry) {
         const stock: StockClass = STOCK_CLASSES[stockIdx] ?? 'B'
         const group = buildTrain(this.modelMats, { x, y, z, cars, stock, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
-        // The track surface is one above its floor block's z.
-        group.userData.levelZs = [z - 1]
-        group.userData.doorT = 0
+        // The storey the consist stands in: its track surface is half a metre
+        // below the platform, so the walk-surface convention (`cell z + 1`)
+        // rounds back to the floor block the train rides over. Without the
+        // rounding a consist berthed at -16 banded to -16.5 — below the storey
+        // it is standing on — and vanished with 显示其他层 off.
+        group.userData.levelZs = [storeyBand(Math.round(z - 1))]
+        group.userData.doorT = [0, 0]
         this.trainGroup.add(group)
         entry = { group, sig, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(x, y, z), active: true }
         this.trainSlots.set(sig, entry)
@@ -828,13 +1100,19 @@ export class SceneRenderer {
         entry.to.set(x, y, z)
         entry.active = true
       }
-      entry.group.visible = true
-      // Doors ease open and shut in `updateTrains` rather than snapping.
-      entry.group.userData.doorTarget = doorsOpen ? 1 : 0
-      this.applyGroupLevel(entry.group, false)
+      // `visible` here is the sim's own state — a consist between services is
+      // parked — and `parked` carries it across an `applyLevel`, which owns the
+      // flag otherwise (the level slicing and the sim both write it).
+      entry.group.userData.parked = false
+      // Doors ease open and shut per bank in `updateTrains`, never snapping.
+      entry.group.userData.doorOpen = doorsOpen ? 1 : 0
+      entry.group.userData.doorSides = doorSides
+      this.applyGroupLevel(entry.group, 'train')
     }
     for (const entry of this.trainSlots.values()) {
-      if (!entry.active) entry.group.visible = false
+      if (entry.active) continue
+      entry.group.userData.parked = true
+      entry.group.visible = false
     }
     // The screen doors at a platform open with the train berthed at its line.
     for (const psd of this.psdGroups) psd.group.userData.doorTarget = openColours.has(psd.colour) ? 1 : 0
@@ -889,9 +1167,30 @@ export class SceneRenderer {
     for (const entry of this.trainSlots.values()) {
       if (!entry.group.visible) continue
       entry.group.position.lerpVectors(entry.from, entry.to, alpha)
-      this.advanceDoors(entry.group, dt)
+      this.advanceTrainDoors(entry.group, dt)
     }
     for (const psd of this.psdGroups) this.advanceDoors(psd.group, dt)
+  }
+
+  /**
+   * Ease a consist's two door banks separately (§1.13). A bank opens only when
+   * the doors are commanded open *and* its bit is set in the berth's mask, so
+   * the side facing the tunnel wall never opens — that side simply has no
+   * platform screen doors to meet.
+   */
+  private advanceTrainDoors(root: THREE.Object3D, dt: number): void {
+    const sides = (root.userData.doorSides as number) ?? 0
+    const open = ((root.userData.doorOpen as number) ?? 0) > 0.5
+    const target = [open && (sides & 1) !== 0 ? 1 : 0, open && (sides & 2) !== 0 ? 1 : 0]
+    const t = (root.userData.doorT as number[] | undefined) ?? [0, 0]
+    const step = (dt * (1000 / this.stateIntervalMs)) / DOOR_TRAVEL_S
+    for (let i = 0; i < 2; i++) {
+      const cur = t[i]
+      if (cur === target[i]) continue
+      t[i] = target[i] > cur ? Math.min(target[i], cur + step) : Math.max(target[i], cur - step)
+    }
+    root.userData.doorT = t
+    setDoorsSides(root, t[0], t[1])
   }
 
   /**
@@ -916,34 +1215,6 @@ export class SceneRenderer {
    */
   private updateEscalators(simDt: number): void {
     for (const roll of this.escalatorRolls) rollEscalator(roll, simDt)
-  }
-
-  /**
-   * Cycle the 装饰 ad screens through the shared poster frames, so the
-   * 装饰 panels read as "playing ads". Wall time drives it — the posters keep
-   * changing even while the sim is paused — and every screen shares one frame,
-   * which keeps a single set of materials alive for the whole station.
-   */
-  private updateAds(dt: number): void {
-    if (this.adScreens.length === 0) return
-    this.adClock += dt
-    const fallback = this.modelMats.adFramesWide
-    for (const screen of this.adScreens) {
-      const set = (screen.userData.adSet as THREE.MeshBasicMaterial[] | undefined) ?? fallback
-      if (set.length === 0) continue
-      // Each screen runs on its own cadence and phase, assigned the first time it
-      // is animated, so a row of billboards is not a synchronised wall of ads.
-      let period = screen.userData.adPeriod as number | undefined
-      let offset = screen.userData.adOffset as number | undefined
-      if (period === undefined || offset === undefined) {
-        period = AD_FRAME_SECONDS * (0.55 + Math.random() * 1.5)
-        offset = Math.random() * period * set.length
-        screen.userData.adPeriod = period
-        screen.userData.adOffset = offset
-      }
-      const frame = set[Math.floor((this.adClock + offset) / period) % set.length]
-      if (screen.material !== frame) screen.material = frame
-    }
   }
 
   /**
@@ -1101,27 +1372,38 @@ export class SceneRenderer {
     this.buildGrid()
   }
 
+  /** 隐藏天花板: stop hiding the ceilings of the storey above the active one. */
+  setAutoCeiling(on: boolean): void {
+    this.autoCeiling = on
+    this.applyLevel()
+  }
+
+  /**
+   * Show, ghost or hide every storey for the active level. The rule itself is
+   * `render/levelSlicing.ts`; this is only the walk over the scene.
+   *
+   * 显示其他层 off is absolute: the active storey and nothing else — blocks,
+   * fixtures, crowd and trains alike — whatever the camera angle. On, the other
+   * storeys are drawn as 35% ghosts, which are translucent and keep their real
+   * depth, so a storey the active one covers is simply behind it and the depth
+   * test drops it: the ghost shows exactly where it does not block the depth
+   * being worked on. 隐藏天花板 is the one thing above the active storey that
+   * still draws, and only for the plates that are not that room's ceiling.
+   */
   private applyLevel(): void {
-    // Auto ceiling hiding, always on: a storey above the active one has its
-    // blocks cut away when they have something under them (they are that lower
-    // room's ceiling); a block with nothing under it is a plate hanging in space
-    // and stays, so the station is never guillotined. This runs regardless of
-    // 显示其他层.
-    //
-    // 显示其他层 (this.ghost) only decides the storeys *below* the active one:
-    // on, they are drawn too, a 35% ghost under the crisp active storey; off,
-    // only the active storey is drawn (plus the hanging plates above).
+    // One reused options record: `applyLevel` walks every chunk mesh in the
+    // station, so it must not mint an object per mesh.
+    const opts = { ghost: this.ghost, autoCeiling: this.autoCeiling, unsupported: false }
     for (const [lz, group] of this.levelGroups) {
       group.visible = true
-      const active = lz === this.activeZ
-      const atOrBelow = lz <= this.activeZ
+      const side = levelSide([lz], this.activeZ)
       for (const child of group.children) {
         const mesh = child as THREE.Mesh
         if (!mesh.isMesh) continue
-        const float = mesh.userData.float === true
-        // Below/at the active storey draw the full storey (when the toggle
-        // allows it); above it, only the hanging plates.
-        mesh.visible = atOrBelow ? !float && (active || this.ghost) : float
+        // A plate with nothing under it (the street outside, a canopy on its own
+        // columns) survives 隐藏天花板; a supported slab is that room's ceiling.
+        opts.unsupported = mesh.userData.float === true
+        mesh.visible = levelVisible(side, opts)
         if (!mesh.visible) continue
         const isOutline = this.outlineMeshes.includes(mesh)
         // 隐藏墙壁: fade the wall faces, and drop their dark outline hull, which
@@ -1135,45 +1417,47 @@ export class SceneRenderer {
           continue
         }
         const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
-        mesh.material = active || !this.ghost ? base : this.dimOf(base)
+        mesh.material = side === 'active' ? base : this.dimOf(base)
       }
     }
-    // Fixtures follow the same rule: auto ceiling hiding cuts the ones above the
-    // active storey (unless they stand on a plate with nothing under it), and
-    // 显示其他层 decides whether the fixtures below it are drawn.
-    for (const child of this.moduleMeshes.children) this.applyGroupLevel(child, true)
-    // Trains own their `visible` flag (setTrains parks them), so leave it be.
-    for (const child of this.trainGroup.children) this.applyGroupLevel(child, false)
+    // Fixtures follow the same rule: the storey above loses the pieces that hang
+    // over the room below, and 显示其他层 decides whether the rest are drawn.
+    for (const child of this.moduleMeshes.children) this.applyGroupLevel(child, 'module')
+    // Trains own their `visible` flag (`setTrains` parks them between services),
+    // so the slicing is combined with the sim's own state rather than replacing it.
+    for (const child of this.trainGroup.children) this.applyGroupLevel(child, 'train')
   }
 
   /**
-   * Dim or restore one module/train group by the level(s) it occupies. A ramp
-   * (escalator, stair, lift) belongs to both ends; everything else to its cell.
-   * Forestanding furniture with no level tag (shadows, decals) always shows.
+   * Show, ghost or hide one module or train group by the level(s) it occupies.
+   * A ramp (escalator, stair, lift) belongs to every storey it spans;
+   * everything else to its cell. Forestanding furniture with no level tag
+   * (shadows, decals) always shows.
    */
-  private applyGroupLevel(root: THREE.Object3D, manageVisible: boolean): void {
+  private applyGroupLevel(root: THREE.Object3D, kind: 'module' | 'train'): void {
     const levels = root.userData.levelZs as number[] | undefined
     const lz = root.userData.levelZ as number | undefined
     const zs = levels ?? (lz !== undefined ? [lz] : undefined)
-    const touchesActive = zs ? zs.includes(this.activeZ) : true
-    if (manageVisible) {
-      // Auto ceiling hiding: a fixture above the active storey goes unless it
-      // stands on a plate that itself has nothing under it. Below it, the
-      // 显示其他层 toggle decides; a ramp that spans the active storey touches it.
-      const lowest = zs ? Math.min(...zs) : undefined
+    const side = levelSide(zs, this.activeZ)
+    if (kind === 'train') {
+      root.visible = trainVisible(side, this.ghost, root.userData.parked === true)
+    } else {
+      // A fixture whose column starts above the active storey stands on a plate
+      // that is itself above it — the fixture's `float`, so 隐藏天花板 keeps it.
       const ground = root.userData.groundBand as number | undefined
-      const inCut = lowest === undefined || lowest <= this.activeZ || (ground !== undefined && ground > this.activeZ)
-      const belowOnly = lowest !== undefined && lowest <= this.activeZ && !touchesActive
-      root.visible = inCut && (!belowOnly || this.ghost)
-      if (!root.visible) return
+      root.visible = levelVisible(side, {
+        ghost: this.ghost,
+        autoCeiling: this.autoCeiling,
+        unsupported: unsupportedAbove(this.activeZ, ground),
+      })
     }
-    const active = !this.ghost || touchesActive
+    if (!root.visible) return
     root.traverse((o) => {
       const mesh = o as THREE.Mesh
       if (!mesh.isMesh) return
       const base = this.baseOf(mesh)
       // 隐藏墙壁: a wall panel or a platform screen door reads through.
-      mesh.material = this.hideWalls && mesh.userData.wall === true ? this.clearOf(base) : active ? base : this.dimOf(base)
+      mesh.material = this.hideWalls && mesh.userData.wall === true ? this.clearOf(base) : side === 'active' ? base : this.dimOf(base)
     })
   }
 
@@ -1182,6 +1466,11 @@ export class SceneRenderer {
     return mesh.userData.base as THREE.Material
   }
 
+  /**
+   * A 35% ghost of `base` for 显示其他层. `depthWrite` is off so a ghost never
+   * occludes another ghost — the layers stack as translucent sheets and the
+   * active storey, drawn opaque and first, still wins every pixel it covers.
+   */
   private dimOf(base: THREE.Material): THREE.Material {
     let d = this.dimMats.get(base)
     if (!d) {
@@ -1189,6 +1478,7 @@ export class SceneRenderer {
       const anyMat = d as THREE.MeshStandardMaterial
       anyMat.transparent = true
       anyMat.opacity = 0.35
+      anyMat.depthWrite = false
       if (anyMat.color) anyMat.color = anyMat.color.clone().lerp(new THREE.Color(0x6b7480), 0.7)
       if (anyMat.onBeforeCompile !== base.onBeforeCompile) anyMat.onBeforeCompile = base.onBeforeCompile
       this.dimMats.set(base, d)
@@ -1771,32 +2061,33 @@ export class SceneRenderer {
   }
 
   /**
-   * Hover preview for the module tool: a translucent copy of the exact module a
-   * click would place at the hovered cell, so the release is not a surprise. The
+   * Hover preview for the module tool: a translucent copy of the exact piece a
+   * click would place at the hovered cell, so the release is not a surprise. A
+   * wide stair is several lane pieces in one placement, so this takes a list. The
    * model is built through the same factory as a placed module and then every
    * surface is swapped for a faded clone; passing `null` clears it.
    */
-  setModulePreview(mod: Module | null, blocked = false): void {
-    const span =
-      mod && mod.type === 'stair'
-        ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}`
-        : mod && mod.type === 'escalator'
-          ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}`
-          : mod && mod.type === 'lift'
-            ? `:${mod.from.z}>${mod.to.z}:${mod.rot ?? 0}`
-            : mod && mod.type === 'track'
-            ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}:${mod.cfg.power}:${mod.cfg.tunnel ? 't' : 'p'}`
-            : mod && mod.type === 'billboard'
-              ? `:${mod.w}:${mod.cfg.variant}`
-              : ''
-    const key = mod ? `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}${span}:${blocked ? 'x' : '-'}` : ''
+  setModulePreview(mod: Module | readonly Module[] | null, blocked = false): void {
+    const mods = mod ? (Array.isArray(mod) ? mod : [mod]) : []
+    const key = mods.length === 0 ? '' : `${mods.map(moduleGhostKey).join('|')}:${blocked ? 'x' : '-'}`
     if (key === this.previewKey) return
     this.clearModulePreview()
     this.previewKey = key
-    if (!mod || !this.stationData) return
-    const ctx: ModuleContext = { mats: this.modelMats, data: this.stationData, trackCells: this.trackCellSet, finish: (id) => this.mats.finish(id), preview: true }
-    const group = buildModule(mod, ctx)
-    if (!group) return
+    if (mods.length === 0 || !this.stationData) return
+    // The ghost is built against the station *plus* its own pieces, so a
+    // multi-piece hover sees itself: the lanes of a wide stair join their steps
+    // and drop the rail between them exactly as they will once placed.
+    const data: StationData = { ...this.stationData, modules: [...this.stationData.modules, ...mods] }
+    const ctx: ModuleContext = {
+      mats: this.modelMats,
+      ads: this.ads,
+      data,
+      trackCells: this.trackCellSet,
+      finish: (id) => this.mats.finish(id),
+      preview: true,
+      tvPlate: (id, x, y) => this.makeTvPlate(id, x, y),
+      signFace: (id, layout, face, panel) => this.makeSignPlate(id, layout, face, panel),
+    }
     const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
     const shared = new Set<THREE.Material>()
     for (const value of Object.values(this.modelMats)) {
@@ -1807,34 +2098,38 @@ export class SceneRenderer {
     shared.add(this.mats.outline)
     shared.add(this.mats.blob)
     shared.add(this.mats.tactile)
-    const ghostOf = new Map<THREE.Material, THREE.Material>()
-    group.traverse((o) => {
-      const mesh = o as THREE.Mesh
-      if (!mesh.isMesh) return
-      const base = mesh.material as THREE.Material
-      let ghost = ghostOf.get(base)
-      if (!ghost) {
-        ghost = base.clone()
-        const any = ghost as THREE.MeshStandardMaterial
-        any.transparent = true
-        any.opacity = 0.45
-        any.depthWrite = false
-        any.side = THREE.DoubleSide
-        // A track bed lives *inside* the floor block until it is dug, so its
-        // ghost must ignore depth or the block hides it entirely.
-        if (mod.type === 'track') any.depthTest = false
-        if (any.color) any.color = any.color.clone().lerp(tint, 0.4)
-        ghostOf.set(base, ghost)
-        this.previewMats.push(ghost)
-        // A factory material may be shared scene-wide; a module-local one (a
-        // printed sign, say) is ours to dispose when the preview moves on.
-        if (!shared.has(base)) this.previewBases.push(base)
-      }
-      mesh.material = ghost
-      mesh.renderOrder = 5
-      mesh.frustumCulled = false
-    })
-    this.previewGroup.add(group)
+    for (const mod of mods) {
+      const group = buildModule(mod, ctx)
+      if (!group) continue
+      const ghostOf = new Map<THREE.Material, THREE.Material>()
+      group.traverse((o) => {
+        const mesh = o as THREE.Mesh
+        if (!mesh.isMesh) return
+        const base = mesh.material as THREE.Material
+        let ghost = ghostOf.get(base)
+        if (!ghost) {
+          ghost = base.clone()
+          const any = ghost as THREE.MeshStandardMaterial
+          any.transparent = true
+          any.opacity = 0.45
+          any.depthWrite = false
+          any.side = THREE.DoubleSide
+          // A track bed lives *inside* the floor block until it is dug, so its
+          // ghost must ignore depth or the block hides it entirely.
+          if (mod.type === 'track') any.depthTest = false
+          if (any.color) any.color = any.color.clone().lerp(tint, 0.4)
+          ghostOf.set(base, ghost)
+          this.previewMats.push(ghost)
+          // A factory material may be shared scene-wide; a module-local one (a
+          // printed sign, say) is ours to dispose when the preview moves on.
+          if (!shared.has(base)) this.previewBases.push(base)
+        }
+        mesh.material = ghost
+        mesh.renderOrder = 5
+        mesh.frustumCulled = false
+      })
+      this.previewGroup.add(group)
+    }
     this.previewGroup.visible = true
   }
 
@@ -1871,7 +2166,15 @@ export class SceneRenderer {
     // no z-fighting and every joint reflects the in-progress line.
     for (const f of this.fenceGroups) f.visible = false
     const merged: StationData = { ...this.stationData, modules: [...this.stationData.modules, ...list] }
-    const ctx: ModuleContext = { mats: this.modelMats, data: merged, trackCells: this.trackCellSet, finish: (id) => this.mats.finish(id) }
+    const ctx: ModuleContext = {
+      mats: this.modelMats,
+      ads: this.ads,
+      data: merged,
+      trackCells: this.trackCellSet,
+      finish: (id) => this.mats.finish(id),
+      tvPlate: (id, x, y) => this.makeTvPlate(id, x, y),
+      signFace: (id, layout, face, panel) => this.makeSignPlate(id, layout, face, panel),
+    }
     const shown = (m: Module): boolean => {
       const zs = moduleLevels(m)
       const lowest = zs.length > 0 ? Math.min(...zs) : undefined
@@ -2022,7 +2325,7 @@ export class SceneRenderer {
     this.updateLifts(now)
     this.updateEscalators(dt * (1000 / this.stateIntervalMs))
     this.updateGates(dt * (1000 / this.stateIntervalMs))
-    this.updateAds(dt)
+    this.updateAdScreens(now)
     const cam = this.activeCamera()
     this.ortho.position.copy(this.camera.position)
     this.ortho.quaternion.copy(this.camera.quaternion)
@@ -2119,16 +2422,12 @@ export class SceneRenderer {
 
   /**
    * True when an agent standing at walk-surface `z` belongs to a storey that is
-   * on screen. The active storey is always drawn; storeys above it only show a
-   * plate with nothing under it (never a crowd on a floor), and storeys below it
-   * show only when 显示其他层 is on. This is what stops a lower floor's crowd from
-   * showing through the storey the player is looking at.
+   * on screen — the same rule the geometry follows (`render/levelSlicing.ts`).
+   * A storey above the active one never shows its crowd: its floor is not drawn
+   * there, so the people would stand on nothing.
    */
   private agentLevelVisible(z: number): boolean {
-    const band = storeyBand(z)
-    if (band > this.activeZ) return false
-    if (band < this.activeZ) return this.ghost
-    return true
+    return crowdVisible(z, this.activeZ, this.ghost)
   }
 
   resize(w: number, h: number): void {
@@ -2165,6 +2464,9 @@ export class SceneRenderer {
       this.faceGhost = null
     }
     disposeModelMaterials(this.modelMats)
+    this.ads.dispose()
+    this.clearTvPlates()
+    this.tvScreens.length = 0
     for (const entry of this.trainSlots.values()) disposeObject(entry.group)
     this.trainSlots.clear()
     if (this.zoneOverlay) {

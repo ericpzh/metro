@@ -16,12 +16,14 @@
 //     Placement only needs both landings to be solid floor;
 //   * the corridor is as wide as the whole assembly — balustrades and handrails
 //     included — so the rails never surface through the blocks left and right
-//     of the opening (`rampCorridorHalf`);
+//     of the opening (`rampCorridorHalf`). Every piece is built to fit one cell,
+//     so that corridor never reaches into the cell next door;
 //   * pure data, no DOM, no three.
 
 import { isWallBlock, type Cell, type Module, type Vec3i } from './types.ts'
+import { ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { exitFloorAt } from './exits.ts'
-import { STAIR_WIDTH_NORMAL, stairFlights, stairLandings } from './stairs.ts'
+import { STAIR_WIDTH_NARROW, stairFlights, stairLandings } from './stairs.ts'
 
 /** Headroom above the walking line that must be clear, metres. */
 const HEADROOM = 1.3
@@ -50,20 +52,23 @@ const EPS = 0.02
 /**
  * The handrail sweeps wider than the treads, so the opening has to clear the
  * whole assembly or the rails emerge through the floor blocks directly either
- * side of the run. An escalator's handrail sits at ±(W/2 + 0.03) with a 0.1
- * section, so its corridor is 1.2 m overall.
+ * side of the run. An escalator's handrail stands `ESCALATOR_RAIL_PROUD` (0.15 m:
+ * a 0.03 stand-off from the glass plus the 0.1 handrail section, a hair clear of
+ * the skirt) proud of its step band, so the run sweeps
+ * `ESCALATOR_BAND / 2 + 0.15` — 0.49 m, inside its own 1 m cell rather than into
+ * the next one. `sim/exits.ts` opens its wellways with the same two numbers.
  */
-const ESCALATOR_CORRIDOR_HALF = 0.6
-/** A stair handrail runs this far proud of the tread edge, metres. */
-const STAIR_RAIL_PROUD = 0.105
+const ESCALATOR_CORRIDOR_HALF = ESCALATOR_BAND / 2 + ESCALATOR_RAIL_PROUD
 
 /**
  * Half-width a ramp sweeps, including its balustrade and handrail. Carving only
  * the tread width leaves the rails — which sit proud of the treads — poking
- * through the blocks to the left and right of the opening.
+ * through the blocks to the left and right of the opening. Both pieces are built
+ * to fit one cell, so this stays under 0.5: a block or a wall standing beside a
+ * run is never reached, never carved and never thinned.
  */
 export function rampCorridorHalf(m: Module): number {
-  if (m.type === 'stair') return (m.cfg.width ?? STAIR_WIDTH_NORMAL) / 2 + STAIR_RAIL_PROUD
+  if (m.type === 'stair') return (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2 + STAIR_RAIL_PROUD
   return ESCALATOR_CORRIDOR_HALF
 }
 
@@ -74,10 +79,10 @@ export function rampCorridorHalf(m: Module): number {
  * panel so the run still fits beside it (`rampThinCells`).
  */
 export function rampBodyHalf(m: Module): number {
-  if (m.type === 'stair') return (m.cfg.width ?? STAIR_WIDTH_NORMAL) / 2
-  // The escalator's step band is `W - 0.14` wide in `render/models.ts`; its half
-  // is 0.45 m, comfortably inside one cell, so an adjacent cell is not carved.
-  return 0.45
+  if (m.type === 'stair') return (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
+  // The escalator's step band is the shared `ESCALATOR_BAND`, so its half is
+  // 0.34 m — well inside one cell, so an adjacent cell is not carved.
+  return ESCALATOR_BAND / 2
 }
 
 /**
@@ -90,13 +95,20 @@ export const RAMP_CORE_HALF = 0
 
 /* ------------------------------------------------------- ramp collision box */
 
-/** Half-width of a ramp's envelope, metres (an escalator is ~1.2 m overall). */
-const RAMP_HALF = 0.7
+/**
+ * Half-width a run reserves, metres: its own cell. A run is built to fit inside
+ * one tile — body and handrails both — so its envelope is exactly that tile
+ * column, and two runs in adjacent cells simply *touch*. The strict-overlap rule
+ * therefore already lets a bank stand flush, with no special case: only a wider
+ * piece (a 1.6 m stair, whose body genuinely crosses into the next cell) claims
+ * more room than the tile it stands in.
+ */
+const RAMP_TILE_HALF = 0.5
 /** Truss depth below the walking line, metres. */
 const RAMP_FOOT = 0.5
 /** Balustrade height above the walking line, metres. */
 const RAMP_HEADROOM = 1.2
-/** Padding so two ramps in adjacent columns do not read as touching. */
+/** Vertical padding, so a run never reads as touching the storey above/below. */
 const RAMP_CLEAR = 0.15
 
 export interface RampBox {
@@ -117,8 +129,8 @@ export interface RampBox {
 export function rampEnvelope(m: Module): RampBox | null {
   const segs = rampSegments(m)
   if (!segs) return null
-  // A stair is as wide as its treads; an escalator keeps its balustrade half.
-  const half = m.type === 'stair' ? Math.max(RAMP_HALF, (m.cfg.width ?? STAIR_WIDTH_NORMAL) / 2) : RAMP_HALF
+  // A run reserves its own cell; only a body wider than a cell claims more.
+  const half = Math.max(RAMP_TILE_HALF, rampBodyHalf(m))
   let x0 = Infinity
   let y0 = Infinity
   let x1 = -Infinity
@@ -138,10 +150,10 @@ export function rampEnvelope(m: Module): RampBox | null {
     hi = Math.max(hi, s.from.z, s.to.z)
   }
   return {
-    x0: x0 - half - RAMP_CLEAR,
-    x1: x1 + half + RAMP_CLEAR,
-    y0: y0 - half - RAMP_CLEAR,
-    y1: y1 + half + RAMP_CLEAR,
+    x0: x0 - half,
+    x1: x1 + half,
+    y0: y0 - half,
+    y1: y1 + half,
     z0: lo + 1 - RAMP_FOOT - RAMP_CLEAR,
     z1: hi + 1 + RAMP_HEADROOM + RAMP_CLEAR,
   }
@@ -153,7 +165,11 @@ function boxesOverlap(a: RampBox, b: RampBox): boolean {
 
 /**
  * True when a candidate ramp would share space with an existing one — the rule
- * that stops a second escalator being dropped immediately below a first.
+ * that stops a second escalator being dropped immediately below a first. Two
+ * runs in adjacent cells are not a clash: each reserves its own tile, so their
+ * boxes touch rather than overlap, and a bank of escalators and stairs stands
+ * flush with every run keeping its own balustrade. That balustrade is also the
+ * barrier the crowd walks around (`rampWalls` in `sim/station.ts`).
  */
 export function rampBlocked(modules: readonly Module[], candidate: Module): boolean {
   const c = rampEnvelope(candidate)

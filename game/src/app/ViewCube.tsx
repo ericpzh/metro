@@ -1,9 +1,10 @@
 // The view cube: a small, stylised orientation widget in the corner of the
 // stage. A face click snaps the camera to that projection, a corner click drops
-// into an isometric from that corner, and dragging the cube orbits. Plan views
-// (top / bottom) turn the other levels to ghosts so only the depth you are on is
-// lit; a corner view opens every layer back up. The vertical depth rail beside
-// it mirrors the Q/E layer step and names the level you are standing on.
+// into an isometric from that corner, and dragging the cube orbits. It only ever
+// moves the camera: the level slicing (显示其他层 / 隐藏天花板) is the player's
+// own setting, so a face or corner click leaves it exactly as it was. The
+// vertical depth rail beside it mirrors the Q/E layer step and names the level
+// you are standing on.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
@@ -278,18 +279,16 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
     if (action.startsWith('face:')) {
       const def = FACES.find((f) => f.key === action.slice(5))
       if (!def) return
-      const plan = def.key === 'top' || def.key === 'bottom'
+      // A face click is only a camera move. It never touches 显示其他层: the
+      // level slicing is the player's setting, and a view that quietly flipped
+      // it is what made the button read as broken.
       scene.setViewDirection(new THREE.Vector3(def.dir[0], def.dir[1], def.dir[2]), true)
       st.setOrtho(true)
-      // Looking straight down (or up) the layers stack, so ghost the rest and
-      // leave the depth you are on lit.
-      if (plan) st.setGhostOther(true)
     } else if (action.startsWith('corner:')) {
       const v = VERTICES[Number(action.slice(7))]
       if (!v) return
       scene.setViewDirection(new THREE.Vector3(v[0], v[1], v[2]).normalize(), false)
       st.setOrtho(false)
-      st.setGhostOther(true) // every layer on show (the active one crisp)
     } else if (action.startsWith('edge:')) {
       const parts = action.split(':')
       const va = new THREE.Vector3(...VERTICES[Number(parts[1])])
@@ -339,14 +338,15 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
   const hoverOn = (id: string): void => setHover(id)
   const hoverOff = (id: string): void => setHover((h) => (h === id ? null : h))
 
-  /** Restore the default build view: the isometric preset, perspective, all levels shown. */
+  /**
+   * The default build view: the isometric preset in perspective. The camera
+   * only — 显示其他层 and 隐藏天花板 are the player's own settings and stay put.
+   */
   const goHome = (): void => {
     const scene = sceneRef.current
     if (!scene) return
     scene.setPreset('iso')
-    const st = useStore.getState()
-    st.setOrtho(false)
-    st.setGhostOther(true)
+    useStore.getState().setOrtho(false)
     syncNow()
   }
 

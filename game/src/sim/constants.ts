@@ -55,6 +55,28 @@ export function storeyBand(z: number): number {
   return lo
 }
 
+/**
+ * Escalator width, metres (§5.1). `ESCALATOR_BALUSTRADE` is the spacing between
+ * the two balustrades and `ESCALATOR_BAND` the clear step band between them —
+ * the spacing less the 0.07 skirt each side. Everything the run sweeps,
+ * handrails included, stays inside one 1 m cell: the handrail's outer face is at
+ * 0.49, so a run reserves exactly the tile it stands in and a second run — or a
+ * wall, a fence, a gate — may be built right up against it. That is what lets a
+ * bank of escalators and stairs stand flush, each with its own balustrade,
+ * instead of needing a shared one.
+ *
+ * Shared by the procedural model and the collision envelope, so the drawn
+ * escalator and the space it reserves can never disagree, and shared with
+ * `STAIR_WIDTH_NARROW`: a narrow stair is built to exactly the escalator band,
+ * so an escalator and a stair are the same width in the same bay.
+ */
+export const ESCALATOR_BALUSTRADE = 0.82
+export const ESCALATOR_BAND = 0.68
+/** An escalator's handrail stands this far proud of its step band, metres. */
+export const ESCALATOR_RAIL_PROUD = 0.15
+/** A stair handrail runs this far proud of the tread edge, metres. */
+export const STAIR_RAIL_PROUD = 0.105
+
 /** Free-flow walking speed, m/s. */
 export const WALK_SPEED = 1.34
 /** Walking speed on stair treads, m/s (derated from free flow). */

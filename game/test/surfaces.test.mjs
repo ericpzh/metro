@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildGraph } from '../src/sim/station.ts'
-import { finishOf, floorSpeed, finishMapOf } from '../src/sim/finishes.ts'
+import { finishOf, floorSpeed, finishMapOf, customFinishId, finishBaseId, finishDef, finishLabel, finishTint } from '../src/sim/finishes.ts'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
 import { packKey } from '../src/sim/types.ts'
 import { eraseFace, eraseFaces, fillSurface, paintFace, paintFaces, toData, toState } from '../src/build/model.ts'
@@ -90,6 +90,37 @@ test('the chunk mesher groups faces into one part per finish', () => {
   assert.ok(finishes.has('floor.granite'), 'default top finish missing')
   assert.ok(finishes.has('floor.concrete'), 'painted top finish missing')
   assert.ok(chunk.triangles > 0)
+})
+
+test('搪瓷板 takes a custom colour on top of the stock finish', () => {
+  const id = customFinishId('wall.enamel', 0xff8800)
+  assert.equal(id, 'wall.enamel#ff8800')
+  assert.equal(finishBaseId(id), 'wall.enamel')
+  assert.equal(finishTint(id), 0xff8800)
+
+  const def = finishDef(id)
+  assert.equal(def.look, 'enamel', 'the custom panel must keep the enamel look')
+  assert.equal(def.family, 'wall', 'the custom panel must keep the wall family')
+  assert.equal(def.tint, 0xff8800)
+  assert.equal(def.speed, finishDef('wall.enamel').speed, 'colour must not change behaviour')
+  assert.equal(finishLabel(id), '搪瓷板', 'the label is the base finish, not the hex')
+
+  // A stock id parses back to itself and carries no tint.
+  assert.equal(finishBaseId('wall.enamel'), 'wall.enamel')
+  assert.equal(finishTint('wall.enamel'), null)
+})
+
+test('the mesher keeps two enamel tints in separate parts, not the default', () => {
+  const red = customFinishId('wall.enamel', 0xff0000)
+  const green = customFinishId('wall.enamel', 0x00ff00)
+  const cells = [
+    { x: 0, y: 0, z: 0, fill: 'solid', finish: { n: red } },
+    { x: 2, y: 0, z: 0, fill: 'solid', finish: { n: green } },
+  ]
+  const chunk = meshChunk(buildSolidSet(cells), finishMapOf(cells), 0, 0, 0)
+  const finishes = new Set(chunk.parts.map((p) => p.finish))
+  assert.ok(finishes.has(red), 'the first custom tint should be its own part')
+  assert.ok(finishes.has(green), 'the second custom tint should be its own part')
 })
 
 test('paintFaces / eraseFaces repaint a drag rectangle immutably', () => {

@@ -95,19 +95,49 @@ export function lineCapacityPerHour(line: {
   return Math.round(perTrain * perHour)
 }
 
+/**
+ * Metres of car the ends keep clear of a passenger door: the cab (or the
+ * gangway) and the bogie live there. Real Chinese metro cars hold the door
+ * centre about 2.8 m from the car end, so the leaf's edge stands ~2.1 m in —
+ * which also clears the modelled cab's re-skin at the consist's two ends. The
+ * doors inside a car then sit on one uniform pitch, and it is *that* cadence the
+ * screen doors repeat, so a PSD opening can never drift from its car door
+ * (GAME-SPEC §1.13). Two insets are never less than one pitch, so the doors stay
+ * evenly spread across a car boundary too — exactly so on a three-door L car,
+ * where the whole consist ends up on a single 5.6 m cadence.
+ */
+export const DOOR_END_INSET = 2.8
+
 /** Door centres from the car-door cadence — the authoritative list, §1.13. */
 export function doorCentres(line: { stock: StockClass; cars: number }): number[] {
   const s = STOCK[line.stock]
   const total = s.length * line.cars
+  // One pitch per car, held clear of both ends: the doors spread out to the car
+  // rather than bunching in the middle, and every car carries the same cadence,
+  // so the screen doors can repeat it down the run. A one-door car has no pitch
+  // to spread over and keeps its centre.
+  const pitch = s.doorsPerSide > 1 ? (s.length - 2 * DOOR_END_INSET) / (s.doorsPerSide - 1) : 0
   const out: number[] = []
   for (let c = 0; c < line.cars; c++) {
     const carStart = c * s.length
-    // Doors are evenly spaced along the car, inset from the cab ends.
-    const span = s.length - 4
-    for (let d = 0; d < s.doorsPerSide; d++) {
-      const t = (d + 1) / (s.doorsPerSide + 1)
-      out.push(carStart + 2 + t * span)
-    }
+    for (let d = 0; d < s.doorsPerSide; d++) out.push(carStart + (s.doorsPerSide > 1 ? DOOR_END_INSET + d * pitch : s.length / 2))
   }
-  return out.map((v) => Math.round((v - total / 2) * 10) / 10)
+  // Round the distance from the centre, not the raw position: rounding the
+  // signed value would break the front/back symmetry on an exact half-decimetre.
+  return out.map((v) => {
+    const off = v - total / 2
+    return Math.sign(off) * (Math.round(Math.abs(off) * 10) / 10)
+  })
+}
+
+/**
+ * Where a consist's doors stand along a rail, in rail-local metres from the
+ * rail's first cell (cell `i` spans `[i, i + 1]`, so the run's centre — which is
+ * also the consist's — sits at `railW / 2`). `render/models.ts` cuts the screen
+ * open at these and `sim/station.ts` seats one door server on the cell each one
+ * falls in, so a screen door and the car door it exists to meet are placed from
+ * one list and cannot drift (§1.13).
+ */
+export function doorRunOffsets(line: { stock: StockClass; cars: number }, railW: number): number[] {
+  return doorCentres(line).map((off) => railW / 2 + off)
 }
