@@ -17,6 +17,7 @@ import { moduleAt, moduleEnvelope, placementBlocked, ceilingMountMissing, wallMo
 import { createModule, toState } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import {
+  PANEL_END_PAD,
   PANEL_INSET,
   PANEL_MAX_H,
   PANEL_MAX_W,
@@ -287,9 +288,10 @@ test('a board takes exactly as many marks as fit, and no more', () => {
   const arrowPanel = signPanelSize(packSignRow(arrows))
   assert.ok(arrowPanel.w > 3.0 && arrowPanel.w <= PANEL_MAX_W, `six arrows: ${arrowPanel.w} m`)
 
-  // A smaller mark fits more, a wider one fewer — the rule is width, not kind.
+  // A smaller mark fits more — the rule is width, not kind. (A shield fills the
+  // same six: the row's end pads take the room a seventh shield would need.)
   assert.ok(capacity('icon').length > arrows.length, 'pictograms are narrower than arrows')
-  assert.ok(capacity('line').length > arrows.length, 'a shield is narrower than an arrow')
+  assert.equal(capacity('line').length, arrows.length, 'a shield fills the same board as six arrows')
 
   // And what the rule accepted really is on the board: no two marks share a place.
   for (const kind of ['arrow', 'icon', 'line']) {
@@ -301,6 +303,55 @@ test('a board takes exactly as many marks as fit, and no more', () => {
         assert.ok(ox <= 1e-6, `${kind}: marks ${i} and ${j} share ${ox.toFixed(3)} m`)
       }
     }
+  }
+})
+
+test('a settled board refuses the mark that would stack, not only the one that would overhang', () => {
+  // The editor settles the row after every drop, so the marks a real board holds carry
+  // resolved `x` positions instead of all asking for 0. That is the case the count above
+  // cannot reach: the incoming mark asks for `x = 0`, so the pack always finds *it* room
+  // at the row's start and pushes the settled marks along instead — and the two it then
+  // piles at the ceiling are marks the caller never looked at. Asking the packed row
+  // rather than the added mark's own slot is what refuses the drop.
+  const mark = (n) => ({ id: `s${n}`, kind: 'arrow', x: 0, y: 0.35, scale: 1, side: 'both' })
+  let layout = []
+  for (let n = 1; n <= SIGN_COMPONENT_MAX + 2; n++) {
+    const comp = mark(n)
+    if (!signMarkFits(layout, comp)) break
+    layout = settleSignLayout([...layout, comp]).layout
+  }
+  assert.equal(layout.length, 6, `${layout.length} arrows fit once the row is settled`)
+  const boxes = signPieces(packSignRow(layout), signPanelSize(packSignRow(layout)))
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const ox = Math.min(boxes[i].left + boxes[i].w, boxes[j].left + boxes[j].w) - Math.max(boxes[i].left, boxes[j].left)
+      assert.ok(ox <= 1e-6, `marks ${i} and ${j} share ${ox.toFixed(3)} m`)
+    }
+  }
+})
+
+test('both black ends of a board match', () => {
+  const ends = (layout) => {
+    const settled = settleSignLayout(layout)
+    const lefts = settled.layout.map((c) => c.x - signPieceSize(c).w / 2)
+    const rights = settled.layout.map((c) => c.x + signPieceSize(c).w / 2)
+    return { left: Math.min(...lefts), right: settled.panel.w - Math.max(...rights) }
+  }
+  // The pack starts the row one end pad from the frame and the panel ends one
+  // pad past the last mark — the panel's 5 cm rounding is the only slack, so
+  // the back face mirrors the same ends. (A board shorter than the floor keeps
+  // its slack on the right; these boards all outgrow it.)
+  const station = { lines: [LINE_2] }
+  const fresh = defaultSignLayout(station)
+  for (const [name, layout] of [
+    ['fresh', fresh],
+    ['grown', stampSignBlock(fresh, 'text', { x: 3.0 })],
+    ['stored', settleSignBoards({ front: fresh, back: [] }).front],
+  ]) {
+    const e = ends(layout)
+    assert.ok(Math.abs(e.left - PANEL_END_PAD) < 0.03, `${name} leading ${e.left}`)
+    assert.ok(Math.abs(e.right - PANEL_END_PAD) < 0.03, `${name} trailing ${e.right}`)
+    assert.ok(Math.abs(e.left - e.right) < 0.03, `${name} ends differ: ${e.left} vs ${e.right}`)
   }
 })
 
@@ -381,12 +432,16 @@ test('text is measured, and estimated the same way without a canvas', () => {
   assert.ok(Math.abs(signPieceSize(comp).w - (cjk + SIGN_PIECE_PAD * 2)) < 1e-9)
 })
 
-test('a label is two lines of eight, and no more', () => {
+test('a label is 中文 of eight and English of sixteen, and no more', () => {
   assert.deepEqual(signTextLines('出站方向'), ['出站方向'])
   assert.deepEqual(signTextLines('换乘二号线\n请往前走'), ['换乘二号线', '请往前走'])
-  // Each line is cut to its own limit, and a third line is dropped.
-  const long = signTextLines('1234567890\nabcdefghij\nthird')
-  assert.deepEqual(long, ['12345678', 'abcdefgh'])
+  // The name is cut to its own limit, the gloss to its longer one, and a third
+  // line is dropped.
+  const long = signTextLines('123456789012\nabcdefghijklmnopqrs\nthird')
+  assert.deepEqual(long, ['12345678', 'abcdefghijklmnop'])
+  // A lone line may be the gloss with no name above it, so it keeps the gloss
+  // limit rather than being cut to the name's.
+  assert.deepEqual(signTextLines('abcdefghijklmnopqrs'), ['abcdefghijklmnop'])
   assert.equal(signTextLines('').length, 0)
   assert.equal(signTextLines('a\n\nb').length, 2)
 })

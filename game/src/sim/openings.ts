@@ -9,6 +9,11 @@
 //   * only cells the ramp actually cuts *above its walking line* are removed;
 //     the landing cells at both ends are kept, because the station graph needs
 //     them as the ramp's edge nodes;
+//   * a stair's treads stop half a landing cell short of each landing
+//     (`stairTreadTrim`), so the run's own **body** — the slope it sweeps, which
+//     `rampBodyBoxes` reports and equipment is tested against — leaves both landing
+//     tiles as plain floor a 围栏 may stand on, and the slab a flight passes under
+//     keeps its headroom;
 //   * a vertical run (a lift shaft) is left alone — it spans the same column,
 //     so there is nothing to carve cell-by-cell;
 //   * an escalator cuts a taller corridor (ESCALATOR_HEADROOM) along its run,
@@ -23,7 +28,7 @@
 import { isWallBlock, type Cell, type Module, type Vec3i } from './types.ts'
 import { ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { exitFloorAt } from './exits.ts'
-import { STAIR_WIDTH_NARROW, stairFlights, stairLandings } from './stairs.ts'
+import { STAIR_WIDTH_NARROW, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
 
 /** Headroom above the walking line that must be clear, metres. */
 const HEADROOM = 1.3
@@ -161,6 +166,91 @@ export function rampEnvelope(m: Module): RampBox | null {
 
 function boxesOverlap(a: RampBox, b: RampBox): boolean {
   return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0 && a.z0 < b.z1 && a.z1 > b.z0
+}
+
+/* ------------------------------------------------------- a run's own body */
+
+/**
+ * The boxes a **run's own body** fills, for collisions with flat equipment: one
+ * per tile the run sweeps, each cut to the slope *at that tile* — the truss under
+ * the local walking line up to the handrail over it (`flightBodyBoxes`).
+ *
+ * Two things follow, and both are what the builder asks for:
+ *   * a **stair**'s treads stop half a landing cell short of each landing
+ *     (`stairTreadTrim`), so its landing tiles hold no run at all — the block at
+ *     the head (or the foot) of a well is floor a 围栏 may stand on;
+ *   * a slab a run merely climbs **underneath** keeps its headroom, so the block
+ *     over the lower half of a flight is floor too. A box spanning the whole run
+ *     would cover both — the *reservation* (`rampEnvelope`) does, because a second
+ *     run must never be dropped through the first, and two runs meet on it.
+ *
+ * An **escalator** keeps its landing tiles: its truss, step band and balustrades
+ * are built from landing centre to landing centre (`render/models.ts`), so its
+ * body covers every tile of its run, landings included. A lift is not here at all —
+ * its space is the 2 × 2 shaft (`placement.ts`).
+ *
+ * Returns nothing for a piece that is neither, and for a flight it cannot measure —
+ * the caller must then keep the envelope rather than read emptiness as clear space.
+ */
+export function rampBodyBoxes(m: Module): RampBox[] {
+  if (m.type !== 'stair' && m.type !== 'escalator') return []
+  const segs = rampSegments(m)
+  if (!segs) return []
+  // A legacy 1.6 m stair's body crosses into the cells either side of it; every
+  // lane-sized piece (the builder's wide stair is lanes) stays inside its own tile.
+  const extra = Math.max(0, rampBodyHalf(m) - RAMP_TILE_HALF)
+  const out: RampBox[] = []
+  for (const s of segs) {
+    const boxes = flightBodyBoxes(s, m.type === 'stair', extra)
+    if (!boxes) return []
+    out.push(...boxes)
+  }
+  return out
+}
+
+/**
+ * One flight's body boxes, one per swept tile. `trimLandings` is the difference
+ * between the two kinds of run: a stair's treads are held off the landing tiles,
+ * an escalator's band is not.
+ */
+function flightBodyBoxes(s: Ramp, trimLandings: boolean, extra: number): RampBox[] | null {
+  const dx = s.to.x - s.from.x
+  const dy = s.to.y - s.from.y
+  // Every flight is axis-aligned (a stair turns by quarter turns, an escalator
+  // runs along its placement rotation); anything else keeps its envelope.
+  if (dx !== 0 && dy !== 0) return null
+  const len = Math.hypot(dx, dy)
+  const ux = dx === 0 ? 0 : Math.sign(dx)
+  const uy = dy === 0 ? 0 : Math.sign(dy)
+  // The treads cover the span [trim, len − trim] from the lower landing's centre;
+  // a cell's own span is (i − 0.5, i + 0.5), so the indices it meets are these.
+  // The epsilons keep a span that ends exactly on a cell edge off that cell.
+  const trim = trimLandings ? stairTreadTrim(len) : 0
+  const first = Math.floor(trim - 0.5 + 1e-9) + 1
+  const last = Math.ceil(len - trim + 0.5 - 1e-9) - 1
+  if (last < first) return null
+  const az = s.from.z + 1
+  const bz = s.to.z + 1
+  /** The walking line, `u` cells along the run from the lower landing's centre. */
+  const line = (u: number): number => az + (bz - az) * (u / len)
+  const alongX = dx !== 0
+  const out: RampBox[] = []
+  for (let i = first; i <= last; i++) {
+    const x = s.from.x + ux * i
+    const y = s.from.y + uy * i
+    const lo = Math.min(line(i - 0.5), line(i + 0.5))
+    const hi = Math.max(line(i - 0.5), line(i + 0.5))
+    out.push({
+      // The tile, widened across the run only, for a body wider than a cell.
+      x0: x - (alongX ? 0 : extra),
+      y0: y - (alongX ? extra : 0),
+      x1: x + 1 + (alongX ? 0 : extra),
+      y1: y + 1 + (alongX ? extra : 0),
+      z0: lo - RAMP_FOOT - RAMP_CLEAR,
+      z1: hi + RAMP_HEADROOM + RAMP_CLEAR,
+    })
+  }
+  return out
 }
 
 /**

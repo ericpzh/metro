@@ -6,16 +6,22 @@
 // keeps its whole enclosure clear. Ramps already had their own collision
 // (`rampEnvelope` / `rampBlocked` in `openings.ts`, tuned for the vertical
 // corridor); this module folds them into one envelope any equipment can be
-// tested against, and adds the flat, floor-standing modules.
+// tested against, and adds the flat, floor-standing modules — with one exception:
+// a **run** met by a flat piece is measured by the slope it actually draws
+// (`rampBodyBoxes`), because a stair's treads stop at the edge of each landing tile
+// and any floor a flight passes under keeps its headroom. Those blocks are floor, so
+// a 围栏 may guard the head of a well or stand on the slab over a flight; two runs
+// still meet on the full reservation, so runs can never be stacked.
 //
 // Pure data — no three, no DOM.
 
 import { EXIT_L, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
-import { rampEnvelope, rampOpeningAt } from './openings.ts'
+import { rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS } from './constants.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
-import { isWallBlock, type Cell, type Module } from './types.ts'
+import { tvBackToBack, tvFacing } from './tvs.ts'
+import { isWallBlock, type Cell, type Module, type Vec3i } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
 export interface ModuleBox {
@@ -28,7 +34,7 @@ export interface ModuleBox {
 }
 
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'billboard' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'billboard' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.3,
   fence: 1.0,
   tvm: 1.9,
@@ -38,6 +44,10 @@ const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shel
   desk: 0.9,
   cubicle: 1.8,
   sink: 0.9,
+  // 垃圾桶 / 灭火器: the drawn height of each piece (`models.ts` `buildBin` /
+  // `buildExtinguisher`), so its collision box and its body agree.
+  bin: 0.95,
+  extinguisher: 1.1,
   billboard: 2.4,
   tv: 3.0,
   // A ceiling-hung sign or TV spans the whole storey, from the floor top to the
@@ -118,6 +128,8 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'desk':
     case 'cubicle':
     case 'sink':
+    case 'bin':
+    case 'extinguisher':
     case 'tv':
     case 'sign':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
@@ -418,21 +430,89 @@ export function boxesOverlap(a: ModuleBox, b: ModuleBox): boolean {
  * 1.6 m stair is the exception that proves it: its body crosses into the next
  * cell, so it still collides with whatever is there.
  *
+ * A **run** (a stair or an escalator) is measured against flat equipment by the
+ * body it draws (`collisionBoxes` → `rampBodyBoxes`), not by its reservation: the
+ * body is the slope the run sweeps, tile by tile, so a stair's landing tiles — the
+ * treads stop at their edge — and any slab a flight climbs *underneath* are floor a
+ * 围栏, a gate or a bench may stand on. The reservation still decides every pairing
+ * of two runs, so a second run can never be dropped through the first or share its
+ * landing.
+ *
  * A shelf or desk is the other exception: room furniture, so it may stand
  * inside a walled room or booth (either side of the pair may be the
  * candidate).
+ *
+ * The one cell-sharing exemption that is **not** a pair of different kinds is the
+ * back-to-back 电视 (`sim/tvs.ts`): two screens facing opposite ways on one tile
+ * are one object — a single housing with a lit face each side — so they share the
+ * cell deliberately. Only that arrangement is exempt; two 电视 a quarter-turn
+ * apart would cross inside the block, and two facing the same way would duplicate a
+ * panel, so both still collide.
  */
 export function placementBlocked(modules: readonly Module[], candidate: Module): boolean {
+  return placementColliders(modules, candidate).length > 0
+}
+
+/**
+ * Every placed module the candidate would share space with — the offending
+ * pieces a blocked preview collides with. Same rule as `placementBlocked`,
+ * but returns the modules instead of a boolean so the builder can highlight
+ * them alongside the red ghost (§9.5).
+ */
+export function placementColliders(modules: readonly Module[], candidate: Module): Module[] {
+  const out: Module[] = []
   const c = moduleEnvelope(candidate)
-  if (!c) return false
+  if (!c) return out
   for (const m of modules) {
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
     if (isExitRampPair(m, candidate)) continue
     if (isFurnitureRoomPair(m, candidate)) continue
+    if (isTvPair(m, candidate)) continue
     const e = moduleEnvelope(m)
-    if (e && boxesOverlap(c, e)) return true
+    if (!e) continue
+    let hit = false
+    for (const a of collisionBoxes(candidate, m, c)) {
+      if (hit) break
+      for (const b of collisionBoxes(m, candidate, e)) {
+        if (boxesOverlap(a, b)) {
+          hit = true
+          break
+        }
+      }
+    }
+    if (hit) out.push(m)
   }
-  return false
+  return out
+}
+
+/**
+ * The volume one side of a pair is tested with. Normally the module's own
+ * envelope; but a run facing a **flat** piece is reduced to the body it draws
+ * (`rampBodyBoxes`), because a run only fills the slope it sweeps: a stair's
+ * landing tiles hold no tread at all — the flight stops at their edge — and a slab
+ * a flight climbs *underneath* keeps its headroom. A fence that guards the head of
+ * a well, or stands on the floor over the low half of the flight, is exactly that.
+ *
+ * The pairing stays symmetric: whichever piece was placed first, the question is
+ * the same one, and two runs (a stair, an escalator or a lift shaft) always meet
+ * on their full envelopes so they can never be stacked or share a landing. A run
+ * the box list cannot measure falls back to its envelope, so a degenerate piece is
+ * never read as clear space.
+ */
+function collisionBoxes(m: Module, other: Module, envelope: ModuleBox): ModuleBox[] {
+  if (!isRampRun(m) || isRunPiece(other)) return [envelope]
+  const body = rampBodyBoxes(m)
+  return body.length > 0 ? body : [envelope]
+}
+
+/** A run whose body is the slope it sweeps: a stair or an escalator. */
+function isRampRun(m: Module): boolean {
+  return m.type === 'stair' || m.type === 'escalator'
+}
+
+/** A piece whose own space is a run: a stair, an escalator or a lift shaft. */
+function isRunPiece(m: Module): boolean {
+  return m.type === 'stair' || m.type === 'escalator' || m.type === 'lift'
 }
 
 /**
@@ -447,15 +527,34 @@ function isExitRampPair(a: Module, b: Module): boolean {
 }
 
 /**
- * A shelf, desk, cubicle, sink or bench standing inside a walled room or
- * booth: that pair never collides, so room furniture can be arranged (and
- * re-arranged) after the room is drawn.
+ * A shelf, desk, cubicle, sink, bench, bin or 灭火器箱 standing inside a walled
+ * room or booth: that pair never collides, so room furniture can be arranged
+ * (and re-arranged) after the room is drawn. The bin and the extinguisher are
+ * room furniture in the ordinary sense — a shop or an office holds both — and
+ * without this a room's envelope would refuse them its whole floor.
  */
 function isFurnitureRoomPair(a: Module, b: Module): boolean {
   const isFurniture = (m: Module): boolean =>
-    m.type === 'shelf' || m.type === 'desk' || m.type === 'cubicle' || m.type === 'sink' || m.type === 'bench'
+    m.type === 'shelf' ||
+    m.type === 'desk' ||
+    m.type === 'cubicle' ||
+    m.type === 'sink' ||
+    m.type === 'bench' ||
+    m.type === 'bin' ||
+    m.type === 'extinguisher'
   const isRoom = (m: Module): boolean => m.type === 'shop' || m.type === 'booth' || m.type === 'retail'
   return (isFurniture(a) && isRoom(b)) || (isRoom(a) && isFurniture(b))
+}
+
+/**
+ * Two 电视 set back to back on one tile, facing opposite ways: one housing with a
+ * lit face each side, so the pair never collides however their envelopes overlap.
+ * Everything else about a 电视 is unchanged — it still hangs from the ceiling over
+ * its own cell (`ceilingMountMissing`) and still blocks a gate, a 指示牌 or a third
+ * 电视 that is not its opposite number.
+ */
+function isTvPair(a: Module, b: Module): boolean {
+  return a.type === 'tv' && b.type === 'tv' && tvBackToBack(a, b)
 }
 
 /**
@@ -465,8 +564,21 @@ function isFurnitureRoomPair(a: Module, b: Module): boolean {
  * envelope covers its whole floor, so furniture standing inside it is preferred:
  * the first pass skips walled rooms and booths, and only when nothing smaller
  * matches does the room itself answer.
+ *
+ * The one cell that can hold two pieces is a back-to-back 电视 pair, and there the
+ * pair is one object seen from two sides: `facing` — the direction the caller is
+ * looking from, in world space — picks the panel that is actually on screen, so a
+ * click on either face bulldozes the 电视 the player is pointing at. Without a
+ * direction (a caller that has no ray) the document's own order decides, as
+ * everywhere else.
  */
-export function moduleAt(modules: readonly Module[], x: number, y: number, z: number): Module | undefined {
+export function moduleAt(
+  modules: readonly Module[],
+  x: number,
+  y: number,
+  z: number,
+  facing?: readonly [number, number],
+): Module | undefined {
   const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: z + 2 }
   const hits = (skipRooms: boolean): Module | undefined => {
     for (const m of modules) {
@@ -476,5 +588,112 @@ export function moduleAt(modules: readonly Module[], x: number, y: number, z: nu
     }
     return undefined
   }
-  return hits(true) ?? hits(false)
+  const found = hits(true) ?? hits(false)
+  if (!found || found.type !== 'tv' || !facing) return found
+  // The other screen on the same cell, when they are a pair: whoever looks back
+  // along the caller's line of sight owns the face under the pointer.
+  const mate = modules.find(
+    (m): m is Extract<Module, { type: 'tv' }> =>
+      m.type === 'tv' && m.id !== found.id && m.x === found.x && m.y === found.y && m.z === found.z && tvBackToBack(found, m),
+  )
+  if (!mate) return found
+  const mine = tvFacing(found.rot)
+  const theirs = tvFacing(mate.rot)
+  const towards = (f: readonly [number, number]): number => f[0] * facing[0] + f[1] * facing[1]
+  return towards(theirs) > towards(mine) ? mate : found
+}
+
+/* -------------------------------------------------------- moving a piece */
+
+/**
+ * The pieces the 信息 card's **移动** may lift: the flat 设备 and 装饰 that stand on a
+ * cell and whose whole state is a `cfg` plus a rotation — a 闸机's lane, a
+ * 售票机, a 座椅, a 广告牌's frozen poster, a 指示牌's printed boards.
+ *
+ * A structural piece is refused, by the same rule that keeps the delete tool from
+ * sweeping one (§9.5): a 楼梯 / 扶梯 / 电梯 is a run whose **openings are carved**
+ * when it is placed, a 出入口 lays its own head-house floor over a hole, a room
+ * owns the walls around it, and a 轨道 / 站台门 is sized and derived from its line.
+ * A translation would leave every hole it cut behind and strand the geometry
+ * derived from it, so those are torn down and built again instead.
+ */
+const MOVABLE_TYPES: ReadonlySet<string> = new Set([
+  'gate',
+  'fence',
+  'tvm',
+  'vending',
+  'bench',
+  'shelf',
+  'desk',
+  'cubicle',
+  'sink',
+  'bin',
+  'extinguisher',
+  'billboard',
+  'tv',
+  'sign',
+])
+
+/** True when 移动 may lift this placed piece (the 信息 card's button asks). */
+export function isMovableModule(m: Module): boolean {
+  return MOVABLE_TYPES.has(m.type)
+}
+
+/**
+ * The same piece moved to `at` and turned to `rot`. Nothing else is touched: the
+ * id and the whole `cfg` — a 闸机's lane, a 指示牌's printed boards, a 广告牌's
+ * poster — travel with it, so what comes up is what goes down.
+ */
+export function movedModule(m: Module, at: Vec3i, rot: number): Module {
+  return { ...m, x: at.x, y: at.y, z: at.z, rot }
+}
+
+/**
+ * Why a lifted piece may not be dropped as `candidate`, or `''` when it may. The
+ * same rules a fresh placement answers to — floor under every cell it stands on,
+ * no track bed, nothing already in the space, a wall behind a 广告牌, a ceiling
+ * over a 指示牌 / 电视 — asked of a piece that already exists, so the copy still
+ * standing at the piece's origin never counts as the obstacle (`placementBlocked`
+ * matches a candidate to itself by id).
+ */
+export function moveDropReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module): string {
+  // A 广告牌 bolts to a wall and may hang over the track where there is no floor
+  // in front of that wall, so it is resolved from its backing alone — exactly as
+  // the placement tool resolves it (`placeModule`).
+  if (WALL_MOUNTED.has(candidate.type)) {
+    if (wallMountMissing(cells, candidate)) return '广告牌要贴在墙上：先砌一堵墙'
+    return placementBlocked(modules, candidate) ? '这儿已经有设备了，换个地方' : ''
+  }
+  for (const [x, y] of baseCells(candidate)) {
+    const floor =
+      cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === candidate.z) ||
+      exitFloorAt(modules, x, y, candidate.z)
+    if (!floor) return '这儿没有地板，设备要站在实心地板上'
+  }
+  if (placementOnTrack(cells, candidate, modules)) return '轨道上不能放设备'
+  if (placementBlocked(modules, candidate)) return '这儿已经有设备了，换个地方'
+  if (ceilingMountMissing(cells, candidate)) return '指示牌和电视要吊在天花板下：上面得有一层楼板（四米高）'
+  return ''
+}
+
+/**
+ * The piece a lifted module becomes at `at` with rotation `rot`, and why that
+ * drop is refused (`''` when it is legal). One function answers for the
+ * translucent ghost under the pointer, the `信息` card's 确认 and the commit
+ * itself, so what the player sees in the air is exactly what lands.
+ *
+ * The rotation is the carried one; a wall-mounted piece is turned to face its
+ * wall first (`autofaceWallMount` keeps the carried turn whenever that turn is
+ * backed), because which way a panel bolted to a wall faces is the wall's answer,
+ * never the player's problem.
+ */
+export function moveCandidate(
+  cells: readonly Cell[],
+  modules: readonly Module[],
+  mod: Module,
+  at: Vec3i,
+  rot: number,
+): { module: Module; reason: string } {
+  const moved = autofaceWallMount(cells, movedModule(mod, at, rot))
+  return { module: moved, reason: moveDropReason(cells, modules, moved) }
 }

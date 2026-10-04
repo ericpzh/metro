@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore, isDecorType, isEscalatorType, isFenceType, isGateType, isRotatableType, isStairType, isWallMountedType, moduleLabel } from './store.ts'
+import { useStore, isEscalatorType, isGateType, isRotatableType, isStairType, moduleLabel } from './store.ts'
+import { isMovableModule } from '../sim/placement.ts'
 import { Folder, LeftRail } from './LeftRail.tsx'
 import { Viewport } from './Viewport.tsx'
 import { SignEditor } from './SignEditor.tsx'
@@ -9,8 +10,10 @@ import { STOCK_CLASSES } from '../sim/stock.ts'
 import type { LineDef, Module, Zone } from '../sim/types.ts'
 
 const LOS_LABEL: Record<string, string> = { A: 'A 畅通', B: 'B 顺畅', C: 'C 有点挤', D: 'D 拥挤', E: 'E 很挤', F: 'F 挤爆' }
-// Speed multipliers only: 暂停 lives on the play/pause button, so there is one
-// pause control, not a chip that duplicates it.
+// Speed multipliers: the play/pause toggle and the speeds are one segmented
+// group of four (暂停 | 1× | 4× | 16×). Exactly one is highlighted: paused ⇒
+// the pause icon, playing ⇒ the active speed. Clicking a speed resumes at
+// that speed; Space toggles between paused and the last selected speed.
 const SPEEDS = [1, 4, 16]
 
 /**
@@ -81,6 +84,17 @@ function TopBar(): React.ReactElement {
   const loadFromText = useStore((s) => s.loadFromText)
   const restartSim = useStore((s) => s.restartSim)
   const fileRef = useRef<HTMLInputElement>(null)
+  // Ctrl+L opens the file picker, but the input lives here while the key
+  // handler lives in App, so it arrives as an event.
+  useEffect(() => {
+    const open = (): void => fileRef.current?.click()
+    window.addEventListener('metro:open', open)
+    return () => window.removeEventListener('metro:open', open)
+  }, [])
+  const playAt = (s: number): void => {
+    if (speed !== s) setSpeed(s)
+    if (!playing) setPlaying(true)
+  }
   return (
     <div className="topbar">
       <div className="brand">
@@ -88,17 +102,30 @@ function TopBar(): React.ReactElement {
         <StationName />
       </div>
       <div className="spacer" />
-      <button className="ghost" onClick={newStation} title="从一块 2×2 空地开始">
-        新建
+      <button className="ghost iconBtn" onClick={newStation} title="新建 (Ctrl+N)" aria-label="新建">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M4 1.5h5l3 3V14.5H4z" />
+          <path d="M9 1.5v3h3" />
+          <path d="M8 8.5v4M6 10.5h4" />
+        </svg>
       </button>
-      <button className="ghost" onClick={loadReference}>
-        示例车站
+      <button className="ghost iconBtn" onClick={loadReference} title="打开示例车站 (Ctrl+Shift+N)" aria-label="示例车站">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M1.5 6 8 2l6.5 4" />
+          <path d="M3.5 6v6.5M12.5 6v6.5M6.2 6v6.5M9.8 6v6.5M1.5 12.5h13" />
+        </svg>
       </button>
-      <button className="ghost" onClick={saveToFile} title="保存到文件">
-        保存
+      <button className="ghost iconBtn" onClick={saveToFile} title="保存到文件 (Ctrl+S)" aria-label="保存">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 2h8l2 2v10H3z" />
+          <path d="M5 2v3.5h6V2" />
+          <rect x="5" y="9" width="6" height="5" />
+        </svg>
       </button>
-      <button className="ghost" onClick={() => fileRef.current?.click()}>
-        打开
+      <button className="ghost iconBtn" onClick={() => fileRef.current?.click()} title="从文件打开 (Ctrl+L)" aria-label="打开">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M1.5 4.5h4.5L7.2 6H14.5v6.5h-13z" />
+        </svg>
       </button>
       <input
         ref={fileRef}
@@ -111,19 +138,46 @@ function TopBar(): React.ReactElement {
           e.target.value = ''
         }}
       />
-      <button className="primary" onClick={() => setPlaying(!playing)} title="播放 / 暂停（空格）">
-        {playing ? '暂停' : '播放'}
-      </button>
-      <button className="ghost" onClick={restartSim} title="清空所有行人，重新开始（保留车站）">
-        重启
-      </button>
-      <div className="speeds">
+      <div className="seg" role="group" aria-label="播放控制">
+        <button
+          className={!playing ? 'on' : ''}
+          onClick={() => {
+            if (playing) setPlaying(false)
+          }}
+          title="暂停（空格）"
+          aria-label="暂停"
+          aria-pressed={!playing}
+        >
+          {playing ? (
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <rect x="3.5" y="3" width="3" height="10" rx="0.6" />
+              <rect x="9.5" y="3" width="3" height="10" rx="0.6" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <path d="M4.5 2.8v10.4L13.2 8z" />
+            </svg>
+          )}
+        </button>
         {SPEEDS.map((s) => (
-          <button key={s} className={speed === s ? 'chip on' : 'chip'} onClick={() => setSpeed(s)}>
+          <button
+            key={s}
+            className={playing && speed === s ? 'on' : ''}
+            onClick={() => playAt(s)}
+            title={`${s} 倍速`}
+            aria-label={`${s} 倍速`}
+            aria-pressed={playing && speed === s}
+          >
             {s}×
           </button>
         ))}
       </div>
+      <button className="ghost iconBtn" onClick={restartSim} title="清空所有行人 (Ctrl+R)" aria-label="重启">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+          <path d="M13.5 1.8v3h-3" />
+        </svg>
+      </button>
     </div>
   )
 }
@@ -358,6 +412,7 @@ function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): React.Re
 function Inspector(): React.ReactElement {
   const station = useStore((s) => s.station)
   const selected = useStore((s) => s.selected)
+  const moveDraft = useStore((s) => s.moveDraft)
   const updateLine = useStore((s) => s.updateLine)
   const addLine = useStore((s) => s.addLine)
   const openSignEditor = useStore((s) => s.openSignEditor)
@@ -369,6 +424,14 @@ function Inspector(): React.ReactElement {
   const [openLines, setOpenLines] = useState<Record<string, boolean>>({})
 
   const exits = useMemo(() => station.modules.filter((m) => m.type === 'exit'), [station.modules])
+  // The selected piece, when the selection is a placed module — what 移动 acts on.
+  const selectedModule = selected?.kind === 'module' ? station.modules.find((m) => m.id === selected.key) : undefined
+  const isSign = selectedModule?.type === 'sign'
+  const movable = selectedModule !== undefined && isMovableModule(selectedModule)
+  // The lift's own controls take the card over the moment a piece is in the air, so
+  // they are read from the lift rather than from the selection: whatever is selected,
+  // 确认 / 取消 are always where the 移动 button was.
+  const canDrop = moveDraft !== null && moveDraft.at !== null && moveDraft.candidate !== null && moveDraft.reason === ''
 
   return (
     <div className="panel">
@@ -380,24 +443,85 @@ function Inspector(): React.ReactElement {
       <Folder title="信息" open={infoOpen} onToggle={() => setInfoOpen((v) => !v)}>
         {selected ? (
           <div className="card">
-            <div className="kv">
-              <span>已选</span>
-              <b>{selected.label}</b>
-            </div>
-            <div className="kv">
-              <span>类型</span>
-              <b>{selected.kind === 'module' ? '设备' : '方块'}</b>
-            </div>
-            {/* A 指示牌 is composed on its own board (§5.8), so it is edited in the
-                board editor rather than in a property list here. */}
-            {selected.kind === 'module' && station.modules.some((m) => m.id === selected.key && m.type === 'sign') && (
-              <button className="chip primary" onClick={() => openSignEditor(selected.key)}>
-                编辑指示牌面板
-              </button>
+            {moveDraft ? (
+              // 移动 (§9.5): while a piece is in the air this card **is** the move's
+              // control surface — the same place the 移动 button was pressed, so
+              // there is nothing to look for anywhere else. The 3D view shows the
+              // translucent ghost under the pointer; here is where it is, whether it
+              // will land, and the two ways out of it.
+              <>
+                <div className="kv" title="R 旋转；在地面左键放下；Esc / 右键放回原位">
+                  <span>移动</span>
+                  <b>{moduleLabel(moveDraft.module.type, moveDraft.module.type === 'shop' ? moveDraft.module.cfg.kind : undefined)}</b>
+                </div>
+                <div className="kv">
+                  <span>位置</span>
+                  <b className={canDrop ? undefined : 'bad'}>
+                    {moveDraft.at ? `(${moveDraft.at.x}, ${moveDraft.at.y}, ${moveDraft.at.z})` : '移到要放的位置'}
+                  </b>
+                </div>
+                {moveDraft.reason !== '' && <div className="moveReason small">{moveDraft.reason}</div>}
+                <div className="row">
+                  <button
+                    className="chip primary"
+                    disabled={!canDrop}
+                    title="确认：把它放在这里（也可以直接在地面点一下，或按 Enter）"
+                    onClick={() => useStore.getState().confirmMove()}
+                  >
+                    确认
+                  </button>
+                  <button
+                    className="chip"
+                    title="取消：放回拿起来的地方（Esc、右键也一样）"
+                    onClick={() => useStore.getState().cancelMove()}
+                  >
+                    取消
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="kv">
+                  <span>已选</span>
+                  <b>{selected.label}</b>
+                </div>
+                <div className="kv">
+                  <span>类型</span>
+                  <b>{selected.kind === 'module' ? '设备' : '方块'}</b>
+                </div>
+                <div className="row">
+                  {/* 移动 lives here rather than on a tile: the piece is already
+                      selected, so the card is where "move this one" belongs. Pressing
+                      it lifts the piece in the 3D view and turns this card into the
+                      move's own controls (above); a structure that cannot be moved
+                      says why and stays disabled. */}
+                  {selected.kind === 'module' && (
+                    <button
+                      className="chip primary"
+                      disabled={!movable}
+                      title={
+                        movable
+                          ? '移动：把它拿起来换个位置。整件东西原样移过去——指示牌印的面板、闸机的门向、广告牌的画面都不变；Esc / 右键随时放回原位'
+                          : `${selected.label}不能移动：用删除 (B) 拆掉再放`
+                      }
+                      onClick={() => useStore.getState().liftModule(selected.key)}
+                    >
+                      移动
+                    </button>
+                  )}
+                  {/* A 指示牌 is composed on its own board (§5.8), so it is edited in
+                      the board editor rather than in a property list here. */}
+                  {isSign && (
+                    <button className="chip" onClick={() => openSignEditor(selected.key)}>
+                      编辑指示牌面板
+                    </button>
+                  )}
+                </div>
+              </>
             )}
           </div>
         ) : (
-          <div className="muted small">点一下方块或设备，就能选中。</div>
+          <div className="muted small">暂未选中任何物品。</div>
         )}
         {selected?.kind === 'cell' && <ZoneCard />}
       </Folder>
@@ -534,9 +658,6 @@ function Metric({ label, value, warn, tone }: { label: string; value: string | n
 }
 
 export function App(): React.ReactElement {
-  const tool = useStore((s) => s.tool)
-  const autoWalls = useStore((s) => s.autoWalls)
-  const moduleType = useStore((s) => s.moduleType)
   const setTool = useStore((s) => s.setTool)
   const notice = useStore((s) => s.notice)
 
@@ -555,13 +676,50 @@ export function App(): React.ReactElement {
       // Delete all mean something to the board being composed, not to the station
       // behind it. Its own Delete binding lives on the board (SignEditor).
       if (st.signEditorFor !== null || st.signComposing) return
+      // Ctrl shortcuts for the top-bar icon actions (shown in their tooltips).
+      // Handled before the single-letter tool keys so Ctrl+N never also grabs
+      // the 材质 brush, etc.
+      const ck = e.key.toLowerCase()
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        if (ck === 's') {
+          e.preventDefault()
+          st.saveToFile()
+          return
+        }
+        if (ck === 'n' && e.shiftKey) {
+          e.preventDefault()
+          st.loadReference()
+          return
+        }
+        if (ck === 'n') {
+          e.preventDefault()
+          st.newStation()
+          return
+        }
+        if (ck === 'l') {
+          e.preventDefault()
+          window.dispatchEvent(new CustomEvent('metro:open'))
+          return
+        }
+        if (ck === 'r') {
+          e.preventDefault()
+          st.restartSim()
+          return
+        }
+        // Undo/redo keep their bindings in the switch below; every other
+        // Ctrl/⌘+letter is ignored here.
+        if (ck !== 'z' && ck !== 'y') return
+      }
       switch (e.key.toLowerCase()) {
         case ' ':
-          // Space is the play/pause key. Always stop the default (page scroll or
-          // activating a focused button); a focused button would otherwise toggle
-          // twice, so it does not also pause.
+          // Space is the play/pause key. A focused button would also fire on
+          // keyup (native Space-activates-button), so drop focus on keydown —
+          // the keyup then lands on the body and cannot re-click it — and
+          // always toggle. Otherwise Space right after clicking 4× would just
+          // re-press 4× instead of pausing.
           e.preventDefault()
-          if (tag !== 'BUTTON') st.setPlaying(!st.playing)
+          if (tag === 'BUTTON') (e.target as HTMLElement).blur()
+          st.setPlaying(!st.playing)
           break
         case 'v':
           setTool('select' as const)
@@ -580,9 +738,12 @@ export function App(): React.ReactElement {
           break
         case 'r':
           if (e.ctrlKey || e.metaKey || e.altKey) break
+          // A piece in the air (移动) is what R turns, whatever tool is active: the
+          // 信息 card lifted it, so there is no move tool to ask.
+          if (st.moveDraft) st.rotateMove()
           // The 墙 tool has no piece to turn: R picks which of a corner cell's
           // wall faces the column takes (`wallSnap` in `build/model.ts`).
-          if (st.tool === 'wall') st.rotateWallSnap()
+          else if (st.tool === 'wall') st.rotateWallSnap()
           else if (st.tool === 'rail') st.rotateRail()
           else if (st.tool !== 'tunnel' && isRotatableType(st.moduleType)) st.rotateModule()
           break
@@ -672,51 +833,6 @@ export function App(): React.ReactElement {
         <LeftRail />
         <div className="stage">
           <Viewport />
-          <div className="stageHint">
-            {tool === 'block'
-              ? autoWalls
-                ? '地基 (F)：单击放一块，按住拖出一片（自动长出 4m 外墙，Tab 可关），右键删除'
-                : '地基 (F)：单击放一块，按住拖出一片（自动生成墙壁已关，只铺地砖，Tab 可开），右键删除'
-              : tool === 'wall'
-                ? '墙 (G)：按住拖出一条 4m 高的墙；右键拖拽整列拆除'
-                : tool === 'delete'
-                  ? '删除 (B)：单击拆一块或一件设备；按住拖过同类设备/装饰可连续拆掉它们（拖过的都会亮起，松手一次拆完）；围栏沿拖拽方向整条拆除（左右键都一样）'
-                  : tool === 'module'
-                ? isGateType(moduleType)
-                  ? '闸机：单击放一台（R 转方向，Tab 在有门 / 围栏之间切换）。围栏是一台没有闸机通道的机体，机体占半格、另外半格是围栏，人不能过，用来给围栏收口'
-                  : isFenceType(moduleType)
-                  ? '围栏：单击放一块（R 旋转），按住拖出一条（方向跟拖拽走），右键拆掉；连上闸机就能分区'
-                  : isStairType(moduleType)
-                  ? '楼梯：点地面放下，能转方向、调宽度（每格 0.7m 与扶梯同宽，可紧贴并排；宽款会自动对齐旁边的楼梯），右键拆掉'
-                  : isEscalatorType(moduleType)
-                    ? '扶梯：点地面放下，能转方向、切上下行（可紧贴楼梯并排放），右键拆掉'
-                    : moduleType === 'lift'
-                      ? '电梯：点地面放 2×2 米井道（跨两层，R 转门向）；对着井道上半截悬停向上加层，下半截向下加层，右键拆掉'
-                    : isDecorType(moduleType)
-                      ? moduleType === 'shelf'
-                        ? '货架：点地面放下，能转方向，右键逐个拆掉'
-                        : moduleType === 'desk'
-                          ? '办公桌：点地面放下，能转方向，右键逐个拆掉'
-                          : moduleType === 'cubicle'
-                            ? '厕所隔间：点地面放下，能转方向，右键逐个拆掉'
-                            : moduleType === 'sink'
-                              ? '洗手池：点地面放下，能转方向，右键逐个拆掉'
-                              : isWallMountedType(moduleType)
-                                ? '广告牌：点地面自动贴向背后的墙（或直接点墙），右键拆掉'
-                                : moduleType === 'sign' || moduleType === 'tv'
-                                  ? '指示牌/电视：吊在天花板下（上面要有四米高的楼板），R 转方向，右键拆掉'
-                                  : '座椅：点地面放下（不锈钢无靠背 / 带靠背连排，各 1m 与 2m），能转方向，右键拆掉'
-                      : '设备：左边选一种，点地面放下，能转方向，右键拆掉'
-                : tool === 'paint'
-                  ? '材质：左键刷一格，拖拽刷一片，右键还原，取色能吸'
-                  : tool === 'zone'
-                    ? '分区：左键点或拖框上色；房间/售票亭拖框建，墙上右键开门'
-                    : tool === 'rail'
-                      ? '站台轨道：点地面放一段列车长度的轨道床（R 旋转，Tab 切换上下行），自动生成站台门'
-                      : tool === 'tunnel'
-                        ? '隧道：点已有轨道，从端头接一段隧道；滑杆调长度'
-                        : '选择 (Z)：点方块或设备，看它是什么'}
-          </div>
         </div>
         <Inspector />
       </div>

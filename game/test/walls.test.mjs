@@ -182,20 +182,49 @@ test('wallRun lays four courses on every base cell of the run', () => {
 test('the 墙 tool lifts an auto-generated wall column in bulk, too', () => {
   const st = addFloor(empty(), rect(1, 1, 5, 5))
   // (1,1) is an auto-wall corner; the floor is at z=0, the wall courses z=1..4.
+  // Deletion stays in the hit's storey: courses 1..3 belong to band 0 while the
+  // top course at z=4 belongs to the storey above, so it is left as the roof.
   assert.deepEqual(
     wallColumnAt(st, 1, 1, 3).map((c) => c[2]).sort((a, b) => a - b),
-    [1, 2, 3, 4],
+    [1, 2, 3],
   )
-  // A right-drag along the edge returns both full columns, de-duplicated even
-  // though (1,1) is touched twice.
+  // The roof course lifts on its own, from its own storey.
+  assert.deepEqual(
+    wallColumnAt(st, 1, 1, 4).map((c) => c[2]).sort((a, b) => a - b),
+    [4],
+  )
+  // A right-drag along the edge returns both storey-limited columns,
+  // de-duplicated even though (1,1) is touched twice.
   const run = [
     [1, 1, 1],
     [2, 1, 1],
     [1, 1, 3],
   ]
-  assert.equal(wallColumnsAt(st, run).length, 2 * AUTO_WALL_H)
+  assert.equal(wallColumnsAt(st, run).length, 2 * 3)
   // The floor block itself is not a wall course.
   assert.deepEqual(wallColumnAt(st, 1, 1, 0), [])
+})
+
+test('a stacked wall column lifts one storey at a time, never the roof above', () => {
+  // Two hand-placed runs stacked into one contiguous column across B1 and G:
+  // B1 owns -4..-1, G owns 0..3.
+  let st = addWalls(empty(), [[2, 2, -4]]).state
+  st = addWalls(st, [[2, 2, 0]]).state
+  assert.deepEqual(
+    wallColumnAt(st, 2, 2, -2).map((c) => c[2]).sort((a, b) => a - b),
+    [-4, -3, -2, -1],
+  )
+  assert.deepEqual(
+    wallColumnAt(st, 2, 2, 1).map((c) => c[2]).sort((a, b) => a - b),
+    [0, 1, 2, 3],
+  )
+  // A doorway gap still stops the run: only the contiguous segment in this
+  // storey comes back.
+  const gap = removeFloor(toState({ name: 't', seed: 1, cells: st.cells, modules: [], lines: [] }), [[2, 2, -3]])
+  assert.deepEqual(
+    wallColumnAt(gap, 2, 2, -2).map((c) => c[2]).sort((a, b) => a - b),
+    [-2, -1],
+  )
 })
 
 test('the 墙 tool tags its columns so right-click can lift the whole run', () => {

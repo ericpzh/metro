@@ -92,8 +92,11 @@ or exit ghosts with the floor it belongs to instead of drawing through it.
 
 **The 装饰 folder holds seating, room furniture and advertising.** 座椅 (the bench, moved
 out of 设备), 货架 (a stocked supermarket gondola), 办公桌 (the office desk + monitor + chair unit),
-厕所隔间 (the restroom cubicle) and 洗手池 (the wash basin) are all free-standing, rotatable pieces,
-and 广告牌, 电视 and 指示牌 all live under 装饰 in the build rail. 广告牌 is *wall-mounted*:
+厕所隔间 (the restroom cubicle), 洗手池 (the wash basin), 垃圾桶 (a stainless double bin) and 灭火器
+(the red fire-extinguisher cabinet on four legs) are all free-standing, rotatable pieces,
+and 广告牌, 电视 and 指示牌 all live under 装饰 in the build rail. 垃圾桶 and 灭火器 are cosmetic like the
+rest of the furniture — no server and no stop — and both count as room furniture, so they may stand
+inside a walled 商店 / 厕所 / 办公室 / 售票亭 (`placementBlocked`'s furniture ↔ room exemption). 广告牌 is *wall-mounted*:
 `sim/placement.ts`'s `wallMountMissing` refuses it unless the facing neighbour has a solid block at
 its first course (`z + 1`), which is exactly where the 地基 auto-wall ring and the 墙 tool both start.
 Because that requirement is a function of the rotation alone, the panel **turns itself** to face its
@@ -138,6 +141,51 @@ up (`LEVEL_STEPS`, the 4 m grid), and `render/models.ts` hangs each from that sl
 指示牌 keeps its two double-sided faces — a wayfinding board genuinely reads both ways, where a
 screen does not.
 
+**Two 电视 may share one tile, back to back, and then they are one object.** `sim/tvs.ts` owns the
+rule: a second 电视 on the same cell turned to face **exactly the opposite way** (180°, so `rot` values
+two apart) is legal, and the two are drawn as a **pair** — one housing, one bezel, one pair of
+suspension rods and ceiling plates, with a lit face on each side. That is the concourse screen a
+passage walked both ways hangs overhead, and it is the one exemption from
+"two modules may not share space" that is not a pair of *different* kinds (`placementColliders`, beside
+the room ← furniture and exit ← ramp ones). A quarter-turn apart is refused rather than drawn, because
+two panels crossing inside one block have no single housing to be drawn on; two facing the same way are
+refused because that is a duplicated panel.
+
+*The housing is two panels thick, and that is all.* `TV_HALF_DEPTH` (0.05 m) either side of the cell's
+centre, so the pair is 0.2 m through — two thin televisions stood against each other. It deliberately
+does **not** fill the cell: a metre-deep box reads as a chunk of concrete hung from the ceiling rather
+than as a pair of screens, which is what the first cut of this feature got wrong.
+
+*Drawing them as two solo models is not merely twice the geometry — it is visibly wrong.* A 电视's
+housing is symmetric about its centre, so two of them in one cell are left-half-coincident: each
+panel's dark backing is coplanar with the other's and its far face lands **exactly on** the opposite
+station board, which then z-fights it and loses its outer 0.006 m to the backing. `test/tv-pair.test.mjs`
+pins the pair instead — one suspension for the object, one backing per pane (not two per cell, and each
+stopping `TV_PAIR_MARGIN` short of the seam), each screen proud of the one surface the two share, and
+each of the four lit panes reachable only from its own side. It also pins that a lone 电视 still draws
+the 13-mesh model it always did, because this is a rule about two placed pieces, not a new field on the
+piece: nothing about the module changes, so an old save loads and a lone screen is untouched.
+
+*A screen has a back.* A lit pane is a plane mounted over a dark backing slab, and `render/adArt.ts`
+mints its poster materials **`FrontSide`** so the artwork leaves only the front: a double-sided poster
+prints out of the back of the piece as well, through the backing it is bolted to, so from behind a 电视
+would show the campaign rather than its own black housing. That matters most while placing, because R
+turns the piece and the one thing that has to read at a glance is which way it will face. The ghost
+preview keeps it too: `SceneRenderer.tintModuleGhost` doubles the sides of everything *except* a
+material the model already made single-sided, so a translucent screen still shows a black back. The
+production material was `DoubleSide` and every test stubbed `ads`, so nothing caught it until it was
+seen; `test/tv-pair.test.mjs` now pins both halves of the contract.
+
+*Which way a member prints is `placeLocal`'s job, not the model's.* Every lit pane is built on local −y
+in both cases; the two members end up on opposite sides of the cell purely because their `rot` values
+differ by a half-turn and each group is turned by its own. Handing the model a "which side" as well
+rotates the same turn twice — in the module's frame it cancels the group's own turn and drops **both**
+screens on one side, facing the same way, which is the defect the pair exists to remove. So the pair
+slot carries a depth and nothing else. The picker is the other half of the rule: a cell holding two of
+them is one object seen from two sides, so `moduleAt` takes the camera's look direction and answers with
+the face under the pointer (`scene.pickFacing`), rather than whichever piece happens to be first in the
+document.
+
 **A 指示牌 is a composed board, not a printed sticker.** §5.8's custom signage is what the overhead
 board *is*: `sim/sign.ts` holds its layout — an ordered list of **components**, each an arrow, the
 station's own line shield, typed text or a pictogram, placed in **metres along one row** — and
@@ -148,7 +196,10 @@ which is why a 0.42 m line badge measures the same on the model as it does in th
 
 **The board is one row, and it is as long as its content.** `signPanelSize` measures the row —
 `max(floor, the last mark's right edge + a quiet margin)`, clamped to `PANEL_MAX_W` — and the drawn
-panel, its mesh and its texture all follow it. The height is fixed at `PANEL_MIN_H` (0.7 m): content
+panel, its mesh and its texture all follow it. The row keeps one end pad (`PANEL_END_PAD`) of black
+at each end: the pack starts the first mark a pad from the frame and the panel ends a pad past the
+last mark, so an edited board cannot lose its leading margin to the frame and both faces mirror the
+same ends. The height is fixed at `PANEL_MIN_H` (0.7 m): content
 never flows up and down the face, because a 指示牌 is a list read left to right, and `signCentreRange`
 pins every `y` to the row's centre line so that is structural rather than a habit. Positions are
 metres rather than fractions of the board for exactly this reason — a board that grows must not slide
@@ -166,7 +217,10 @@ Each component also carries `SIGN_PIECE_PAD` on every side, so two marks never e
 **A label prints at its own size, and the box is exactly the stack of its rows.** `signInkSize`
 reports a label as tall as its rows at `size × 1.15` each (`SIGN_SIZE.text.h × scale × 1.15 × lines`),
 which is what the row packs around — so `drawText` divides that back down into one row's pitch and one
-row's type (中文 at `SIGN_SIZE.text.h`, the gloss at `SIGN_TEXT_EN_SCALE` of it). Taking the stack's
+row's type (中文 at `SIGN_SIZE.text.h`, the gloss at `SIGN_TEXT_EN_SCALE` of it). A label holds
+at most two lines — 中文 up to 8 characters, the English gloss up to 16 (spec §5.8 sizes the hanging
+sign 2 × 8; the gloss runs longer because it sets smaller and Latin advances are narrower, so sixteen
+English characters measure about like eight Chinese). Taking the stack's
 height *as* the line size set every label `lines ×` too large — a two-line label printed at 2.3 × its
 box and left the top of the panel — and a row pitch left in metres inside a pixel box stacked both rows
 on the same baseline. Both are silent (the right words, in the wrong place), so
@@ -393,8 +447,9 @@ leading edge), so the incline reads as a staircase rather than a smooth ramp. `r
 slides the band up the run every frame at `ESCALATOR_SPEED`, wrapping it at the comb plates and
 driven by the sim clock (`stateIntervalMs`) so fast-forward turns the steps faster, not the crowd.
 
-**Stairs are real steps, and the turn is walked.** The catalogue carries four staircase shapes —
-straight, right-hand and left-hand 90°, and a 180° switchback — each climbing exactly one storey
+**Stairs are real steps, and the turn is walked.** The catalogue carries five staircase shapes —
+straight, left- and right-hand 90°, and a 180° switchback in either hand (右 / 左双跑楼梯) — each
+climbing exactly one storey
 like an escalator, but walked both ways. `models.ts` builds each flight as level treads with a riser
 under every leading edge (never a ramp with grooves), and wears the **floor finish of its lower
 landing**, so a granite hall gets a granite staircase instead of a steel one. `sim/stairs.ts` exposes
@@ -402,7 +457,8 @@ a stair's ordered flights; the graph gives every flight its own two-way capacity
 half/quarter landing between them is a real walkable node and a stair-width platform in the same
 surface and slab thickness as the treads, wrapped by a balustrade that carries the flight handrails
 around the turn — the block mesher skips those cells, so a landing is never a floating 1 m cube. The
-**楼梯** group has four buttons, one per shape (straight, left 90°, right 90°, 180° switchback),
+**楼梯** group has five buttons, one per shape (straight, left 90°, right 90°, left and right
+switchback),
 each placed as fixed-length equipment: its base sits on the hovered floor cell, the finished stair
 previews as a translucent ghost, and **R** turns the run; **Tab** cycles its width between **one, two
 and three lanes** — 0.7 / 1.4 / 2.0 m, each lane exactly one escalator band, so a wide stair is
@@ -410,13 +466,34 @@ literally that many narrow flights side by side and every lane merges with the r
 the lane rule below). Every side of a flight carries a stringer
 and a handrail, and each handrail **levels off at its landing and turns down into a newel post on the
 floor** — a quarter turn, so a stair rail wraps round and reaches the ground instead of stopping dead
-above the last tread (the same idiom the escalator's balustrade return uses). A turning stair also
+above the last tread (the same idiom the escalator's balustrade return uses) — unless a **wall hugs
+that side from bottom to top** (`stairWallSides`). The wall is the barrier there, so the flight keeps
+only the stringer it meets the wall with and grows no handrail, rail posts or newel return of its own:
+a staircase in a stairwell is railed on its open side alone. The wall has to run the flight's whole
+length, at the flight's own heights — a wall that stops at the half-landing, a stump that only reaches
+the bottom steps, a doorway punched through one course, or a wall standing only on the storey above
+all leave the rail on. A turning stair also
 lays its half-landing
 as a walkable cell, so the two
 flights connect. The Wusi Square test rig keeps a single pre-placed stair — the straight run
 that replaces exit A's down escalator; `carveRampOpenings`
 opens the slab each flight climbs through while keeping every landing, so each stairwell is a real
 hole in the ground.
+
+**A switchback's two runs stand flush.** `stairSwitchbackOffset` lays the returning flight of a
+`right180` / `left180` one cell across **per lane**, so no empty column is left between the runs: the
+assembly covers one block per lane plus the one the two flights share — **2 blocks across at 0.7 m, 3
+at 1.4 m, 4 at 2 m** — and what stays between the bodies is the narrow stair well a real 双跑楼梯
+has, never a corridor. The two hands are two pieces, not one piece turned: the same first flight, with
+the return run laid back on its right or on its left, and **R** cannot swap one for the other (a
+rotation turns the whole stair about its base, so the turn keeps its hand). The half-landing is a
+**walked** row of cells — its cells are the stair's interior nodes — and the crowd really crosses it:
+each flight's balustrade wall (`sim/station.ts`) therefore **stops dead at the flight end that meets
+an interior landing**, because a wall over-running that end (as it does at an outer landing, where it
+stops the crowd cutting the corner off the run) would cut the landing's own cells apart and seal the
+two flights away from each other. A 180° turn lands on a row, so this is the pair's only way through:
+a switchback built before this rule — or a saved one with its flights still three cells apart — walks
+across it too. See `test/stairs.test.mjs`.
 
 **A wide stair is lanes — one staircase — and it snaps beside what is already there.** A straight
 flight is laid as `stairLanes(stairWidth)` **one-lane pieces**, one per cell, each exactly
@@ -456,9 +533,9 @@ built to exactly that band, so the two are the same width, and its handrail reac
 pieces fit one 1 m tile with the whole assembly, rails included, and neither ever crosses its cell
 edge. Two runs in adjacent cells therefore simply sit side by side, each keeping **both of its own
 balustrades** — the pair reads as a bank of two rails on the boundary, and no rail has to be dropped,
-shared or owned (`test/bay.test.mjs` measures the drawn models to prove it). (The one case where a
-boundary carries no rail is two lanes of the *same* stair flight, which are one staircase — see the
-lane rule above.) It also means a wall, a
+shared or owned (`test/bay.test.mjs` measures the drawn models to prove it). (A boundary carries no
+rail in two cases: two lanes of the *same* stair flight, which are one staircase, and a side a wall
+hugs — see the lane rule above and the stair bullet.) It also means a wall, a
 fence or a gate can be built right up against a run: `rampEnvelope` reserves exactly the tile the run
 stands in, so the boxes of two adjacent runs *touch* and the ordinary strict-overlap rule already
 allows the bank, with no exemption to maintain. A single piece wider than a cell is the exception that
@@ -543,14 +620,12 @@ with it, so the mouth points where the player sets it. A surface exit is rooted 
 单向 at 0, a 双向 at 0 and 1, a 三向 at 0, 1 and 2 — and `exitSpan` builds the house around that group
 with **one full block of floor at each end**: 3 / 4 / 5 blocks across (`exitWidth`), so a 双向 is
 exactly four blocks wide with a whole block of black pad either side of the two runs. `exitRunSnap`
-clamps a dropped run to the group, so the runs can only ever be side by side. A station saved on the
-old two-metre bays (`exitRunColumns`) is still found: the house widens to cover where its runs really
-are instead of letting them poke through the glass. The head-house
+clamps a dropped run to the group, so the runs can only ever be side by side. The head-house
 floor is a thin plate over the whole plan — it opens
 only along a column a run actually descends through (`exitRunOpenings`), not that run's top-landing
 row, so the plaza floor never shows through the block and the pad is never cut a row short. The
 interior dividers follow the runs the same way: the head-house rails a slot between two runs
-with an empty block between them (only reachable in a station saved on the old bays), and leaves runs
+with an empty block between them, and leaves runs
 standing side by side to the two balustrades their own
 models already draw on the boundary — a head-house rail there would cut through both of them.
 `ExitCfg.covered: false` is the 无盖 exit: it drops the canopy, frames, glass and back wall and
@@ -591,8 +666,35 @@ ones and a 横版 广告牌 never takes the portrait panels — while rotation a
 irrelevant, so a gate line facing both ways is one row. `app/sweep.ts` holds the rule; the viewport
 feeds it `SceneRenderer.pickModule` and it samples the path between two pointer events, so a fast flick
 that jumps a cell still collects what it crossed. A 围栏 keeps its own straight-run drag (below), and
-rooms, rails, 出入口, 楼梯 / 扶梯 / 电梯 and 站台门 are never swept — each is one structure with its own
-teardown. See `test/sweep.test.mjs`.
+rooms, rails, 出入口, 楼梯 and 站台门 are never swept — each is one structure with its own
+teardown. A **扶梯** and an **电梯** are the deliberate exception, and a divergence from §9.5, which
+lists both as unsweepable: a bank of either sweeps, each strictly within its own family, so an
+escalator never takes a lift, and the teardown is the same `removeModule` a single delete uses, so one
+`Ctrl+Z` restores the row. See `test/sweep.test.mjs`, which is where that decision is written down.
+
+**移动 moves a piece instead of rebuilding it.** It is neither a tool nor a second panel: select the
+设备 / 装饰 piece (`Z` 选择) and press `移动` in the right inspector's `信息` card, beside what the piece
+is — and that same card becomes the move's whole control surface while the piece is in the air, with
+`确认` / `取消` exactly where `移动` was, over the cell the drop would use and the rule a refused cell
+broke. The piece stops being *drawn* where it stood and rides the pointer as the translucent ghost a
+fresh placement shows, with `R` turning it in the air and the validity tint — the same red — meaning
+what it always means. Lifting is deliberately **not an edit**. The piece keeps its id and its whole
+`cfg` (a 指示牌's printed boards, a 闸机's lane, a 广告牌's frozen poster) and never leaves the document,
+so nothing lands on the undo stack and `取消` has nothing to restore; what lands is the piece as the
+document holds it *now*, so a board edited while it was in the air survives the move. The drop is
+**one** commit (one `Ctrl+Z`), and it answers the same rules a fresh placement does — floor under every
+cell it stands on, no track bed, nothing already in the space, a wall behind a 广告牌, a ceiling over a
+指示牌 / 电视 — asked through `moveCandidate` (`sim/placement.ts`) of a piece that already exists, so the
+copy at its origin is never read as the obstacle and the ghost, the card's `确认` and the commit cannot
+disagree. There are three ways out: `左键` on the ground (or `确认`, or `Enter`) drops it, and `取消` /
+`Esc` / a right press puts it back where it came from. A refused cell keeps it in the air and names the
+rule, exactly as a refused placement does. A ghost wears a private id (`MOVE_GHOST_ID`) because a
+指示牌's printed plate and a 电视's station plate are cached per module id, and a preview may only
+dispose what it minted itself. The structural pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms and 轨道 / 站台门
+— are refused, by the same rule that keeps 删除 from sweeping one (the card's button says so and stays
+disabled): a translation would leave behind the openings they carved and the geometry derived from
+them, so they are torn down and built again. Switching tools mid-lift puts the piece back, because a
+lift is not a mode to be lost in. See `test/move.test.mjs`.
 
 **No ramps stacked.** A ramp also has a collision envelope (`rampEnvelope` / `rampBlocked`): the tile
 its run stands in, dropped the truss depth below the lower landing and raised the balustrade height
@@ -600,7 +702,14 @@ above the upper one — for a single piece wider than a cell (an old 1.6 m stair
 width. A run
 in a column another run already occupies is refused, so a second escalator can never be dropped
 immediately below a first, while a run in the next column over is free ground: the two envelopes
-touch, which is not an overlap.
+touch, which is not an overlap. That envelope is what two **runs** meet on. A run met by flat
+equipment is measured by the **body** it draws instead (`rampBodyBoxes`): one box per tile, each
+cut to the slope *at that tile* — the truss under the local walking line up to the handrail over it.
+So a stair's treads stop half a landing cell short of each landing (`stairTreadTrim`, the same number
+the model builds them with), which leaves both landing tiles as plain floor, and any slab the flight
+climbs *underneath* keeps its headroom — the block over the low half of a run takes a 围栏, a gate or a
+bench. An escalator is the exception that proves it: its truss, step band and balustrades are built
+landing centre to landing centre, so every tile of its run, landings included, is its own.
 
 **Floors grow their own walls, and the 墙 tool lays one by hand.** A deliberate 建造 drag is not
 just a slab: `build/model.ts` tags its cells `auto-floor` and raises a 4 m `auto-wall` ring on the
@@ -660,9 +769,15 @@ segment up to an existing end regenerates that end on the spot, dropping its old
 A run plugs straight into a 闸机 row, and it also joins a stair or escalator: `railLandingAt` makes a
 fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short.
 That connection needs no collision exemption: a run reserves just its own tile, so the cell beside it
-is free ground and the fence's own thin box never meets the run's. The sim treats a fence cell as not
+is free ground and the fence's own thin box never meets the run's. The **landing tile itself** is free
+ground on a stair too — its treads stop half a landing cell short of each landing (`stairTreadTrim`) —
+and so is any slab the flight passes under: the run's body is cut to the slope tile by tile
+(`rampBodyBoxes`), so a fence also stands on the block at the head of a well, or over the low half of
+the flight, and guards both. The sim treats a fence cell as not
 walkable, so the run
-plus its gates is a barrier the crowd only crosses at a gate — paint different zones each side and the
+plus its gates is a barrier the crowd only crosses at a gate — and a fence *on* a landing is read the
+same way: that flight is dropped from the walk graph, so fencing the head of a stair really closes it
+off. Paint different zones each side and the
 fare line holds. See `test/fence.test.mjs`.
 
 `test/` holds the acceptance tests. Run them with `npm test`:
@@ -736,9 +851,13 @@ approximated); neither needs WebGL.
   marked as half blocks while a wall it reaches is thinned the same way (an old 1.6 m stair, or a 2–3
   lane turning stair — a straight wide stair is lanes now, so it reaches nothing), and every cell the carve
   opens reads as reserved so a hand-built block cannot cover it back up.
-* `stairs.test.mjs` — the four stair shapes, each one storey; every flight is a two-way graph edge
-  between walkable landings, a switchback is walked bottom to top across its half-landing, the turn
-  landings are the cells between flights, the width cycle runs one → two → three lanes (each exactly an
+* `stairs.test.mjs` — the five stair shapes, each one storey; every flight is a two-way graph edge
+  between walkable landings, a switchback is walked bottom to top **across its half-landing** (in a
+  stairwell with nothing else at the half height, so a sealed landing fails the test rather than
+  routing round the station), the turn
+  landings are the cells between flights, a switchback's runs stand flush — one block across per lane
+  plus the one the pair shares, 2 / 3 / 4 at 0.7 / 1.4 / 2 m — and its two hands are mirror images that
+  no rotation can swap, the width cycle runs one → two → three lanes (each exactly an
   escalator band, and a width that is not a whole number of lanes reads as the nearest), the lanes of a
   wide flight step along `stairRight` — the same "right of forward" a switchback's second flight uses —
   `planStairLanes` puts the hovered cell first and shifts the flight back so it butts against a stair
@@ -746,10 +865,14 @@ approximated); neither needs WebGL.
   two lanes of one run — neighbours always (`sameFlight` false: their steps meet and they keep their
   rails), one staircase when they share a `cfg.flight` token — and refuses a lane set along the run,
   one on another level, one running the other
-  way, a turning stair or a saved wide piece, the four stair
+  way, a turning stair or a saved wide piece, the five stair
   buttons each build their fixed one-storey shape, a placed turning stair lays its half-landing as a
   walkable cell and carves its slab, and a carve keeps the landings while opening the slab a turning
-  stair climbs through.
+  stair climbs through. `stairWallSides` names the sides of a flight a wall hugs from bottom to top —
+  every cell of the run, each read at the height the flight is at when it passes it — so a wall that
+  stops at the half-landing, a stump beside the bottom steps, a doorway through one course or a wall
+  standing only on the storey above leaves the rail on, while the top course a stairwell's wall shares
+  with the floor slab above still counts (the check reads solids, not wall tags).
 * `bay.test.mjs` — the one-tile rule (§5.1): a narrow stair is exactly the escalator band and the
   default stair, and a wide stair is laid as lanes, so every lane of a 2- or 3-lane flight merges with
   an escalator and with the lane beside it (while an old single-piece 1.6 m stair keeps its own bay);
@@ -764,12 +887,16 @@ approximated); neither needs WebGL.
   a flush pair, both runs join the graph and no walk edge crosses their balustrades; and the drawn
   models are measured to prove each run keeps both of its own railings inside its own cell — and that
   a stair's handrails wrap round at both outer landings and land on the floor, while a switchback's
-  half-landing gets no newel post in the middle of it.
+  half-landing gets no newel post in the middle of it, and that a wall standing beside one side of a
+  flight takes that side's handrail, rail posts and newel return with it (its stringer stays, and the
+  other side is untouched) while a wall that stops part way — or one on each side — leaves or takes
+  both.
 * `exits.test.mjs` — the 出入口 (§5.6): the plan is the runs' group with one full block of floor at
   each end, so a 单向 / 双向 / 三向 is 3 / 4 / 5 blocks across and the runs stand side by side in
   columns 0 … bays − 1; the floor, street-opening node and glass/back walls all follow the placement
-  rotation; a station saved on the old two-metre bays widens the house to cover its runs rather than
-  letting them poke through the glass; the pad opens one wellway per run, exactly its own block (and
+  rotation; the house's plan is `cfg.bays` alone — one full block of pad each end and no other
+  width, so `exitRunOpenings` keeps the wellways of the runs that fixed span covers and the house
+  never widens for a run outside it; the pad opens one wellway per run, exactly its own block (and
   wider only for a run wider than a block); the snap clamps the pointer into the bay group so runs can
   only be dropped side by side; and 无盖 keeps the same barrier planes as 有盖.
 * `escalators.test.mjs` — the placed escalator is a fixed one-storey piece: an up run travels from
@@ -853,6 +980,15 @@ approximated); neither needs WebGL.
   the 1 m stainless piece; a 2 m bench covers two cells in its own direction (and quarter-turned),
   blocks a piece on its second cell but not the next one over, is found by `moduleAt` from either
   cell, is refused over a track bed on either cell, and round-trips the save.
+* `decor.test.mjs` — the 垃圾桶 and 灭火器 decorations (§5.7): the palette files both under 装饰 with
+  their Chinese labels, the factory builds them with the hover rotation, each reserves exactly its own
+  cell up to the height it is drawn to (so the body can never stand taller than the space it reserves),
+  two may not share a cell while a neighbour or the storey above is free, both are room furniture that
+  may stand inside a 商店 / 售票亭, both are refused over a track bed, both round-trip the save, and a
+  drag sweep collects a run of either one without taking the other. The models are measured too: the bin
+  is a symmetric stainless double bin with two recessed mouths and one printed 可回收物 / 其它垃圾 band
+  proud of its front, and the cabinet is a red steel box standing on exactly four corner legs with one
+  white lettered plate spanning both doors in front of them.
 * `sign.test.mjs` — the ceiling-hung 装饰 pieces, 指示牌 and 电视 (§5.7): the factory builds the sign
   with the hover rotation; a piece needs a solid ceiling at the next storey grid line (so a B1 piece
   hangs from the concourse slab) and is refused without one, while floor-standing modules are never
@@ -897,6 +1033,18 @@ approximated); neither needs WebGL.
   (a fast flick that jumps a cell still collects what it crossed, a teleport is capped but never
   skipped), so a drag along a gate row collects exactly the gates and never twice; and the whole run
   folds into one state, leaving other modules and the floor under them untouched.
+* `move.test.mjs` — 移动 (§9.5, `sim/placement.ts` + `app/store.ts`), the `信息` card's action on the
+  selected piece rather than a tool: it lifts whatever tool is active and leaves that tool alone; the
+  flat 设备 / 装饰 pieces are movable and a 楼梯 / 扶梯 / 电梯 / 出入口 / 房间 / 轨道 / 站台门 is refused; a
+  moved piece is the same piece (id, `cfg`, poster and boards all travel) and never collides with the
+  copy still standing at its origin; a drop needs floor under every cell it stands on (a 2 m 座椅 needs
+  both), refuses a track bed and an occupied cell, turns a 广告牌 to the wall that backs it (and lets it
+  hang over the track where there is no floor in front of that wall), and requires a ceiling over a
+  指示牌; `replaceEquipment` swaps the piece in place keeping the list order; and in the store a lift is
+  not an edit (the piece stays in the document, nothing on the undo stack), `取消` puts it back with no
+  commit, `确认` is one commit that `Ctrl+Z` undoes, a refused drop keeps the piece in the air and says
+  why, a drop that changes nothing is not an edit while `R` + `确认` on the same cell is, and what lands
+  is the live piece — its boards as they are *now*, not a lift-time snapshot.
 * `paint-mode.test.mjs` — the 材质 folder's own setting (`app/store.ts`, §4.3): `N` 单块 / `M` 整面
   are what the brush keeps, so choosing a texture — a plain finish tile, or a fresh 搪瓷板 colour,
   which reaches the brush in the same click rather than the previous render's value — never resets

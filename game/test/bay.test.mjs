@@ -8,12 +8,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { ESCALATOR_BALUSTRADE, ESCALATOR_BAND } from '../src/sim/constants.ts'
-import { STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, stairLaneBases } from '../src/sim/stairs.ts'
+import { STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairLaneBases } from '../src/sim/stairs.ts'
 import { rampBlocked, rampBodyHalf, rampCorridorHalf } from '../src/sim/openings.ts'
 import { placementBlocked } from '../src/sim/placement.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { buildModule } from '../src/render/models.ts'
-import { createModule } from '../src/build/model.ts'
+import { createModule, wallRun } from '../src/build/model.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 
 const key = (p) => `${p.x},${p.y},${p.z}`
@@ -148,12 +148,13 @@ test('the reference station’s mixed entrance is a flush pair, and it is a barr
  * The drawn geometry of a run, measured in world space: every mesh of the model
  * the builder would place, as an axis-aligned box. Instanced meshes (the rolling
  * escalator band) are reposed every frame and are all inside their own cell, so
- * they are skipped.
+ * they are skipped. `cells` is the station's voxels, which a stair reads for the
+ * walls hugging it.
  */
-function meshBoxes(mod, modules) {
+function meshBoxes(mod, modules, cells = []) {
   // Any material name resolves to one plain material, so the check needs no DOM.
   const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial()) })
-  const data = { name: 't', seed: 1, cells: [], modules, lines: [] }
+  const data = { name: 't', seed: 1, cells, modules, lines: [] }
   const ctx = { mats, data, trackCells: new Set(), finish: () => mats.steel, preview: false }
   const g = buildModule(mod, ctx)
   assert.ok(g, `${mod.id} drew nothing`)
@@ -165,6 +166,27 @@ function meshBoxes(mod, modules) {
     boxes.push(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld))
   })
   return boxes
+}
+
+/**
+ * The newel returns of a stair, found by their own signature — a 0.07 m square
+ * section 0.70 m tall — so a handrail that wraps round and lands on the floor can
+ * be counted: two per rail that reaches its landings.
+ */
+function newelReturns(boxes) {
+  return boxes.filter((b) => {
+    const sizes = [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z].sort((a, c) => a - c)
+    return Math.abs(sizes[0] - 0.07) < 1e-6 && Math.abs(sizes[1] - 0.07) < 1e-6 && Math.abs(sizes[2] - 0.7) < 1e-6
+  })
+}
+
+/**
+ * A 4 m 墙-tool column — four courses from the floor's top, `z` … `z + 3` — standing
+ * on the −4 slab beside the cell of every run row in `rows`: the stairwell wall a
+ * stair's handrail is tested against.
+ */
+function wallColumn(x, rows = [0, 1, 2, 3, 4, 5]) {
+  return rows.flatMap((y) => wallRun([[x, y, -3]]).map(([wx, wy, wz]) => ({ x: wx, y: wy, z: wz, fill: 'solid', tags: ['wall'] })))
 }
 
 test('a run draws both of its own balustrades, inside its own cell', () => {
@@ -303,20 +325,62 @@ test('both handrails of a stair wrap round and land on the floor', () => {
 })
 
 test('a newel return is drawn only where a flight meets a floor of its own', () => {
-  // The newel posts have a signature of their own — 0.07 m square and 0.70 m
-  // tall — so they can be counted. A straight stair has two handrails at two
-  // outer landings; a switchback's half-landing carries the rail round the
-  // corner, so only its outer ends get a newel rather than four posts in the
-  // middle of the platform.
-  const newels = (mod) =>
-    meshBoxes(mod, [mod]).filter((b) => {
-      const sizes = [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z].sort((a, c) => a - c)
-      return Math.abs(sizes[0] - 0.07) < 1e-6 && Math.abs(sizes[1] - 0.07) < 1e-6 && Math.abs(sizes[2] - 0.7) < 1e-6
-    })
+  // A straight stair has two handrails at two outer landings; a switchback's
+  // half-landing carries the rail round the corner, so only its outer ends get a
+  // newel rather than four posts in the middle of the platform.
   const straight = createModule('stair-straight', 0, 0, -4, 's', 0, STAIR_WIDTH_NARROW)
   assert.ok(straight)
-  assert.equal(newels(straight).length, 4, 'two handrails at two outer landings')
-  const turn = createModule('stair-right180', 0, 0, -4, 't', 0, STAIR_WIDTH_NARROW)
-  assert.ok(turn)
-  assert.equal(newels(turn).length, 4, 'a turn landing carries the rail round the corner')
+  assert.equal(newelReturns(meshBoxes(straight, [straight])).length, 4, 'two handrails at two outer landings')
+  // Both hands of the switchback, at every width: the flights are laid flush, so
+  // the two runs stand closer together than ever and the landing still gets its
+  // rail round the corner rather than a post in the middle.
+  for (const id of ['stair-right180', 'stair-left180']) {
+    for (const width of [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]) {
+      const turn = createModule(id, 0, 0, -4, 't', 0, width)
+      assert.ok(turn, `${id} at ${width} m did not build`)
+      const boxes = meshBoxes(turn, [turn])
+      assert.ok(boxes.length > 0, `${id} at ${width} m drew nothing`)
+      for (const b of boxes) {
+        for (const v of [b.min, b.max]) assert.ok(Number.isFinite(v.x + v.y + v.z), `${id} at ${width} m drew a bad box`)
+      }
+      assert.equal(newelReturns(boxes).length, 4, `${id} at ${width} m: a turn landing carries the rail round the corner`)
+    }
+  }
+})
+
+test('a wall hugging one side of a flight takes that side’s handrail with it', () => {
+  // A straight stair climbs +y from (0,0) on the −4 slab with a 4 m wall column
+  // standing on the floor beside its east side — the stairwell case. The flight
+  // keeps the stringer it meets the wall with (its treads still stop at their own
+  // edge) and gives up the handrail, the rail posts and the newel return: the wall
+  // is the barrier there. The open west side is untouched.
+  const s = stair('s', 0)
+  const beside = wallColumn(1)
+  // In the open, both rails reach the floor at both outer landings: four newels.
+  assert.equal(newelReturns(meshBoxes(s, [s])).length, 4)
+  const walled = meshBoxes(s, [s], beside)
+  assert.equal(newelReturns(walled).length, 2, 'the walled side kept a newel return')
+  // Nothing on the wall's side reaches rail height any more, while the west rail
+  // still does. (The stringer's own top is the highest thing left over there, at
+  // ~1.1; an open rail's return reaches ~1.95.)
+  const high = (boxes, side) => boxes.filter((b) => Math.sign((b.min.x + b.max.x) / 2 - 0.5) === side && b.max.z > 1.3)
+  assert.ok(high(meshBoxes(s, [s]), 1).length > 0, 'the open stair draws no east handrail at all')
+  assert.equal(high(walled, 1).length, 0, 'the walled stair still draws an east handrail')
+  assert.ok(high(walled, -1).length > 0, 'the west handrail went with the east one')
+  // The stringer against the wall survives: the flight's own edge still runs the
+  // whole incline out at the tread edge, on the wall's line.
+  const stringer = walled.filter((b) => Math.abs((b.min.x + b.max.x) / 2 - 0.9) < 0.03 && b.max.y - b.min.y > 4)
+  assert.ok(stringer.length > 0, 'the stringer against the wall was dropped')
+})
+
+test('a wall that does not hug the whole flight keeps both handrails', () => {
+  const s = stair('s', 0)
+  // A wall beside the bottom three cells only, and a wall that stops two courses
+  // short of the flight's top: neither is a side the flight can lean on.
+  assert.equal(newelReturns(meshBoxes(s, [s], wallColumn(1, [0, 1, 2]))).length, 4)
+  assert.equal(newelReturns(meshBoxes(s, [s], wallColumn(1).filter((c) => c.z < -1))).length, 4)
+  // A wall on each side, whole length: the flight is railed nowhere, and both
+  // stringers are all that is left of its edges.
+  const both = [...wallColumn(1), ...wallColumn(-1)]
+  assert.equal(newelReturns(meshBoxes(s, [s], both)).length, 0)
 })

@@ -49,11 +49,14 @@ export const PANEL_MAX_W = 3.4
 export const PANEL_MAX_H = 1.6
 
 /**
- * The pad kept between the outermost mark and the board's own edge when the board
- * sizes itself, in metres. It is roughly the frame the renderer draws, so a grown
- * board has the same quiet margin at its edge as the floor board has.
+ * The quiet margin at **each end** of the row, in metres: the pack starts the
+ * first mark one pad from the frame and `signPanelSize` ends the panel one pad
+ * past the last mark, so the black ends match on the left and the right — and
+ * on the back face, which mirrors them. It is roomier than the drawn frame, so
+ * the panel's 5 cm rounding cannot eat it; on a board packed to the ceiling the
+ * ceiling pinches it instead of growing into a wall.
  */
-export const PANEL_PAD = 0.06
+export const PANEL_END_PAD = 0.12
 
 /**
  * The printed frame, as a fraction of each edge. The model draws a dark steel
@@ -212,7 +215,8 @@ export interface SignLineComponent extends SignBase {
   english: boolean
 }
 
-/** A free-text label, at most two lines of `SIGN_TEXT_MAX` characters. */
+/** A free-text label, at most two lines: 中文 up to `SIGN_TEXT_MAX` characters,
+ * its English gloss up to `SIGN_TEXT_EN_MAX`. */
 export interface SignTextComponent extends SignBase {
   kind: 'text'
   text: string
@@ -237,8 +241,22 @@ export type SignComponentDraft = SignComponent extends infer T ? (T extends Sign
 /** Everything a sign prints, in paint order — later components sit on top. */
 export type SignLayout = SignComponent[]
 
-/** The longest text a single label may carry, matching §5.8's 2 × 8 rule. */
+/** The longest a label's first line (中文名) may carry — §5.8's 2 × 8 rule. */
 export const SIGN_TEXT_MAX = 8
+
+/**
+ * The longest a label's gloss (English) line may carry. The gloss sets smaller
+ * (`SIGN_TEXT_EN_SCALE`) and Latin advances are narrower than a CJK em, so
+ * sixteen English characters measure about like eight Chinese — the board stays
+ * the width §5.8 sizes it. A lone single line may also be the gloss (the editor
+ * drops empty rows when it joins its two boxes), so it keeps this limit too.
+ */
+export const SIGN_TEXT_EN_MAX = 16
+
+/** The character limit of a label's line `i` (0-based): the name, then the gloss. */
+export function signTextLineMax(i: number): number {
+  return i === 0 ? SIGN_TEXT_MAX : SIGN_TEXT_EN_MAX
+}
 
 /** The most lines one label may print. */
 export const SIGN_TEXT_LINES = 2
@@ -361,13 +379,16 @@ export function estimateSignTextWidth(text: string, size: number): number {
   return em * size
 }
 
-/** Split a label into at most `SIGN_TEXT_LINES` lines, each at most `SIGN_TEXT_MAX`. */
+/**
+ * Split a label into at most `SIGN_TEXT_LINES` lines: the first (中文) at most
+ * `SIGN_TEXT_MAX` characters, the gloss (English) at most `SIGN_TEXT_EN_MAX`.
+ * A lone line keeps the gloss limit, because it may be the gloss typed with no
+ * name above it — the editor drops empty rows when it joins its two boxes.
+ */
 export function signTextLines(text: string): string[] {
-  const rows = text
-    .split(/\r?\n/)
-    .map((r) => [...r].slice(0, SIGN_TEXT_MAX).join(''))
-    .filter((r) => r.length > 0)
-  return rows.slice(0, SIGN_TEXT_LINES)
+  const kept = text.split(/\r?\n/).filter((r) => r.length > 0).slice(0, SIGN_TEXT_LINES)
+  const lone = kept.length === 1
+  return kept.map((r, i) => [...r].slice(0, lone ? SIGN_TEXT_EN_MAX : signTextLineMax(i)).join(''))
 }
 
 /**
@@ -429,7 +450,10 @@ export function signInkSize(c: SignComponent, measure: SignMeasure = estimateSig
   }
 }
 
-/** How close to the board's edge a component may sit: a small quiet margin. */
+/** How close to the board's edge a component's centre may legally sit: the hard
+ * frame minimum the clamp enforces. Arranging a row keeps the roomier
+ * `PANEL_END_PAD`; this is only what stops a mark leaving the board — an
+ * over-full row, or a layout written by hand. */
 const EDGE_PAD = 0.006
 
 /**
@@ -505,9 +529,10 @@ export function packSignRow(
   const occupied: Array<[number, number]> = []
   const at = new Map<string, number>()
 
-  // 1. The anchors: held pieces, exactly where they were put, left to right.
+  // 1. The anchors: held pieces, exactly where they were put, left to right —
+  //    but never inside the row's own end pad.
   for (const { c, w } of items.filter((p) => isLocked(p.c.id)).sort((a, b) => a.c.x - b.c.x || a.i - b.i)) {
-    const centre = Math.max(EDGE_PAD + w / 2, c.x)
+    const centre = Math.max(PANEL_END_PAD + w / 2, c.x)
     at.set(c.id, centre)
     occupied.push([centre - w / 2, centre + w / 2])
   }
@@ -517,15 +542,16 @@ export function packSignRow(
     // The request is read as written, which is what lets a drop past the end of the
     // board move the end of the board. A request past the ceiling is folded back to
     // the last place a piece can sit, so a board that runs out of room piles its
-    // last marks at the end rather than placing them off the sign.
-    const want = Math.max(EDGE_PAD + w / 2, Math.min(c.x, PANEL_MAX_W - w / 2))
+    // last marks at the end rather than placing them off the sign. Either way the
+    // row starts past its own end pad, so the leading black end matches the trailing one.
+    const want = Math.max(PANEL_END_PAD + w / 2, Math.min(c.x, PANEL_MAX_W - w / 2))
     let centre = want
     for (const [left, right] of [...occupied].sort((a, b) => a[0] - b[0])) {
       if (centre - w / 2 < right && centre + w / 2 > left) centre = right + w / 2
     }
     // No room left between here and the ceiling: the piece takes the middle of what
     // the row leaves, which is where a board that is genuinely over-full puts it.
-    if (centre + w / 2 > PANEL_MAX_W) centre = Math.max(EDGE_PAD + w / 2, PANEL_MAX_W - w / 2)
+    if (centre + w / 2 > PANEL_MAX_W) centre = Math.max(PANEL_END_PAD + w / 2, PANEL_MAX_W - w / 2)
     at.set(c.id, centre)
     occupied.push([centre - w / 2, centre + w / 2])
   }
@@ -682,13 +708,14 @@ export function signLayoutInserted(layout: readonly SignComponent[], comp: SignC
  * A 指示牌 is a list read left to right, so the board has a fixed height (the
  * floor) and grows only along its length:
  *
- *   width = the last mark's right edge + a quiet margin
+ *   width = the last mark's right edge + one end pad
  *
- * `right` is the outermost `centre + half its size` on the row, which makes the
- * size a pure function of the layout — and therefore stable under repetition:
- * `settleSignLayout` packs the row and then measures it, and measuring the packed
- * row asks for the board the pack already fitted. Growth is clamped to
- * `PANEL_MAX_W`, past which the content is packed inside instead.
+ * The pack starts the row one end pad from the frame, so the two black ends
+ * match: `right` is the outermost `centre + half its size` on the row, which
+ * makes the size a pure function of the layout — and therefore stable under
+ * repetition: `settleSignLayout` packs the row and then measures it, and
+ * measuring the packed row asks for the board the pack already fitted. Growth
+ * is clamped to `PANEL_MAX_W`, past which the content is packed inside instead.
  */
 export function signPanelSize(layout: readonly SignComponent[], measure: SignMeasure = estimateSignTextWidth): SignPanelSize {
   let right = 0
@@ -700,7 +727,7 @@ export function signPanelSize(layout: readonly SignComponent[], measure: SignMea
   return {
     // The row is one mark tall, so the floor is always tall enough: the board never
     // grows vertically and no content ever flows onto a second row.
-    w: clampPanel(PANEL_MIN_W, Math.max(PANEL_MIN_W, right + PANEL_PAD), PANEL_MAX_W),
+    w: clampPanel(PANEL_MIN_W, Math.max(PANEL_MIN_W, right + PANEL_END_PAD), PANEL_MAX_W),
     h: PANEL_MIN_H,
   }
 }
@@ -715,7 +742,7 @@ export function signPanelSize(layout: readonly SignComponent[], measure: SignMea
  * printed stacked on another one, and the board is full.
  *
  * The number of marks that fit therefore depends on **which** marks they are: six arrows are
- * 3.24 m of a 3.4 m board and ten pictograms are 3.6 m of it (and reach the ceiling). Asking
+ * 3.36 m of row and nine pictograms are 3.36 m of it (and reach the ceiling). Asking
  * this per mark is what keeps the palette, the board's own size and the print honest about one
  * another, instead of a count that would be wrong for every kind but one.
  */
@@ -725,12 +752,24 @@ export function signMarkFits(
   measure: SignMeasure = estimateSignTextWidth,
 ): boolean {
   const packed = packSignRow([...layout, comp], undefined, measure)
-  const added = packed[packed.length - 1]
   const w = signPieceSize(comp, measure).w
   if (w <= 0) return true
-  return !packed
-    .slice(0, -1)
-    .some((c) => Math.abs(c.x - added.x) < (w + signPieceSize(c, measure).w) / 2 - 1e-9)
+  // Ask the **packed row**, not the added mark's own slot. A resolved row has no two
+  // boxes overlapping — the pack only ever stacks when it has run out of row — so any
+  // overlapping pair means the board is full. Testing the new mark alone cannot see
+  // that: the palette's mark asks for `x = 0` (`SignEditor.markFor`), so the pack
+  // always finds *it* room at the row's start and pushes everything else along
+  // instead, and the two marks it stacks are ones the caller never looked at.
+  const boxes = packed.map((c) => {
+    const box = signPieceSize(c, measure)
+    return { left: c.x - box.w / 2, right: c.x + box.w / 2 }
+  })
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (boxes[i].left < boxes[j].right - 1e-9 && boxes[i].right > boxes[j].left + 1e-9) return false
+    }
+  }
+  return true
 }
 
 function clampPanel(min: number, want: number, max: number): number {
@@ -798,7 +837,7 @@ export function settleSignBins(
   // over-full reads as such rather than growing into a wall.
   const widest = layout.reduce((w, c) => Math.max(w, signPieceSize(c, measure).w), 0)
   const perBin = Math.max(SIGN_BIN_PITCH, widest)
-  const room = Math.max(bare.panel.w + PANEL_PAD, Math.min(maxW, perBin * bins))
+  const room = Math.max(bare.panel.w + PANEL_END_PAD, Math.min(maxW, perBin * bins))
   const pitch = room / bins
   return { layout: signLayoutInOrder(layout, pitch), panel: bare.panel, room, bins, pitch }
 }

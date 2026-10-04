@@ -46,6 +46,7 @@ import {
   SIGN_ICON_LABEL,
   SIGN_ICONS,
   SIGN_SIZE,
+  SIGN_TEXT_EN_MAX,
   SIGN_TEXT_EN_SCALE,
   SIGN_TEXT_MAX,
   estimateSignTextWidth,
@@ -1496,7 +1497,12 @@ function TextFields({
     setEn(next[1] ?? '')
   }, [comp])
   const push = (a: string, b: string): void => {
-    onCommit([a, b].map((r) => [...r].slice(0, SIGN_TEXT_MAX).join('')).filter((r) => r.trim() !== '').join('\n'))
+    // Each box keeps its own limit — 中文 eight, English sixteen — so typing the
+    // gloss never eats the name and the joined label is what `signTextLines`
+    // reads back out of the component.
+    const zh = [...a].slice(0, SIGN_TEXT_MAX).join('')
+    const en = [...b].slice(0, SIGN_TEXT_EN_MAX).join('')
+    onCommit([zh, en].filter((r) => r.trim() !== '').join('\n'))
   }
   // The two rows as one label: 中文 over its gloss, empty rows dropped, which is what
   // `signTextLines` reads back out of a component.
@@ -1525,7 +1531,7 @@ function TextFields({
       <input
         className="signCaption"
         value={en}
-        maxLength={SIGN_TEXT_MAX}
+        maxLength={SIGN_TEXT_EN_MAX}
         placeholder="English"
         aria-label="English"
         onChange={(e) => {

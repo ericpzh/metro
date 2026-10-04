@@ -21,9 +21,15 @@ import { removeModule, type StationState } from '../build/model.ts'
  * Anything absent keeps its own teardown, and sweeping it would be wrong or
  * surprising: a room (商店 / 售票亭 / 商铺) folds its auto walls and fit-out
  * away, a 轨道 goes through the line manager so its line and derived 站台门
- * follow, an 出入口 frees its letter for reuse, an 楼梯 / 扶梯 / 电梯 is one
- * multi-storey structure rather than a row of loose pieces, a 站台门 is derived
- * from a track, and a 围栏 already drags out a straight run of its own.
+ * follow, an 出入口 frees its letter for reuse, a 楼梯 is one multi-storey
+ * structure rather than a row of loose pieces, a 站台门 is derived from a track,
+ * and a 围栏 already drags out a straight run of its own.
+ *
+ * An **escalator** and a **lift** are listed here, so a bank of either does sweep
+ * — each strictly within its own family, so an escalator never takes a lift. That
+ * is a deliberate divergence from §9.5, which lists both as unsweepable; the
+ * teardown is the same `removeModule` a single delete uses, so a swept lift shaft
+ * leaves nothing stranded and one `Ctrl+Z` restores it.
  */
 const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
   // 设备
@@ -38,6 +44,8 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
   'desk',
   'cubicle',
   'sink',
+  'bin',
+  'extinguisher',
   'billboard',
   'tv',
   'sign',

@@ -71,10 +71,44 @@ button.ghost:hover {
   border-color: var(--accent);
   color: #eaf5ff;
 }
-.speeds {
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+.seg {
   display: flex;
-  gap: 4px;
+  align-items: stretch;
   margin-left: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--muted);
+}
+.seg button + button {
+  border-left: 1px solid var(--line);
+}
+.seg button:hover {
+  background: #10233a;
+  color: var(--text);
+}
+.seg button.on {
+  background: #16374f;
+  color: #eaf5ff;
 }
 
 .app {
@@ -625,17 +659,6 @@ button.ghost:hover {
   touch-action: none;
   cursor: crosshair;
 }
-.stageHint {
-  position: absolute;
-  left: 10px;
-  bottom: 8px;
-  color: var(--muted);
-  background: #06111d;
-  border: 1px solid var(--line);
-  padding: 4px 8px;
-  border-radius: 0;
-  pointer-events: none;
-}
 
 /* The 地基 tool's live patch size, pinned beside the pointer. */
 .buildMeasure {
@@ -649,6 +672,28 @@ button.ghost:hover {
   pointer-events: none;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* 移动: the cell a lifted piece is aimed at, and why that cell refuses it. The whole
+   control surface is the 信息 card, so this is where the refusal is read — the 3D
+   view's red ghost says the same thing. */
+.panel .card .moveReason {
+  color: var(--danger);
+  white-space: normal;
+}
+.panel .card .kv b.bad {
+  color: var(--danger);
+}
+/* The card's 移动 / 确认 button is always there for the selected piece: it is faded
+   and takes no press when the piece is a structure that cannot move (its title says
+   why) and while it has nothing to confirm. */
+.panel .card button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.panel .card button:disabled:hover {
+  background: #132a42;
+  border-color: var(--line);
 }
 
 /* View cube + depth rail (top-right of the stage) */

@@ -128,22 +128,16 @@ test('the floor and side planes widen with the bay count', () => {
   near(exitSide(3), 2.44)
 })
 
-test('a head-house widens to cover runs saved on the old spaced bays', () => {
-  // The flush group is what the model is built for; a station saved with its runs
-  // two metres apart still fits, so it never pokes through the glass.
+test('a head-house keeps its fixed width regardless of placed runs', () => {
+  // The house is 3 / 4 / 5 blocks for 1 / 2 / 3 bays — runs never widen it.
   const m = exit(0)
-  assert.deepEqual(exitSpan(m, []), { centre: 0.5, half: 2 })
-  assert.deepEqual(exitSpan(m, [m, run('w', 0), run('e', 1)]), { centre: 0.5, half: 2 })
-  assert.deepEqual(exitSpan(m, [m, run('w', -1), run('e', 1)]), { centre: 0, half: 2.5 })
-  // A run elsewhere in the station that merely lines up across the head-house is
-  // not part of it: its upper landing is nowhere near the exit's own length.
-  const far = createModule('escalator', 0, 20, -4, 'far', 0, undefined, 'up')
-  assert.ok(far)
-  assert.deepEqual(exitSpan(m, [m, far]), { centre: 0.5, half: 2 })
+  assert.deepEqual(exitSpan(m), { centre: 0.5, half: 2 })
+  assert.deepEqual(exitSpan(variant(0, { bays: 1 })), { centre: 0, half: 1.5 })
+  assert.deepEqual(exitSpan(variant(0, { bays: 3 })), { centre: 1, half: 2.5 })
   // and its walls follow that plan.
-  const sides = exitWallPlanes(m, [m, run('w', -1), run('e', 1)]).filter((w) => w.axis === 'x')
-  near(Math.min(...sides.map((w) => w.at)), 0.5 - 2.5 + 0.06)
-  near(Math.max(...sides.map((w) => w.at)), 0.5 + 2.5 - 0.06)
+  const sides = exitWallPlanes(m).filter((w) => w.axis === 'x')
+  near(Math.min(...sides.map((w) => w.at)), -1.0 + 0.06)
+  near(Math.max(...sides.map((w) => w.at)), 3.0 - 0.06)
 })
 
 test('an uncovered exit keeps its barrier planes, only the look differs', () => {

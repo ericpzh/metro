@@ -32,6 +32,7 @@ import { loadPictograms } from './pictograms.ts'
 import { signBoardsOf, signBoardsPanel, signFaceLayout, signPlate, type SignLayout, type SignPanelSize } from '../sim/sign.ts'
 import { storeyBand } from '../sim/constants.ts'
 import { trackBedKeys } from '../sim/placement.ts'
+import { tvPairSlot } from '../sim/tvs.ts'
 import { edgeCells } from '../sim/track.ts'
 import { OPENING_CEILING, rampThinCells, type RampThin } from '../sim/openings.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
@@ -42,6 +43,7 @@ import { STOCK_CLASSES, type StockClass } from '../sim/stock.ts'
 import type { Face, FinishId, Module, StationData } from '../sim/types.ts'
 import { packKey } from '../sim/types.ts'
 import { moduleGhostKey } from './moduleGhostKey.ts'
+import { facingFrom } from './pickFacing.ts'
 import { crowdVisible, levelSide, levelVisible, trainVisible, unsupportedAbove } from './levelSlicing.ts'
 
 export interface PickResult {
@@ -249,6 +251,9 @@ export class SceneRenderer {
   /** The selected module's id and its highlight box, kept across a rebuild. */
   private selectedModuleId: string | null = null
   private selectionHelper: THREE.Box3Helper | null = null
+  /** Ids of placed modules a blocked preview collides with, boxed in red. */
+  private colliderIds: string[] = []
+  private colliderHelpers: THREE.Box3Helper[] = []
   /** Cells whose top finish is the track bed, for the same preview context. */
   private trackCellSet = new Set<string>()
   /**
@@ -282,6 +287,8 @@ export class SceneRenderer {
   private fencePreviewGroup: THREE.Group = new THREE.Group()
   private fencePreviewKey = ''
   private fencePreviewMats: THREE.Material[] = []
+  /** Module-local base materials the fence ghost cloned, released with its ghosts. */
+  private fencePreviewBases: THREE.Material[] = []
   private trainGroup: THREE.Group = new THREE.Group()
   private trainSlots = new Map<string, TrainEntry>()
   /** Platform-screen-door groups, keyed to the line colour that opens them. */
@@ -701,6 +708,7 @@ export class SceneRenderer {
     // Rebuild the selection box against the freshly built modules, so an edit
     // does not drop the highlight.
     this.refreshSelection()
+    this.refreshCollisionHighlight()
   }
 
   /**
@@ -710,6 +718,40 @@ export class SceneRenderer {
   setSelection(moduleId: string | null): void {
     this.selectedModuleId = moduleId
     this.refreshSelection()
+  }
+
+  /**
+   * Highlight the placed modules a blocked preview collides with — the
+   * offending pieces beside the red ghost itself. Ids are remembered, so a
+   * `setStation` rebuild re-finds the modules. Pass null or an empty list to
+   * clear.
+   */
+  setCollisionHighlight(moduleIds: readonly string[] | null): void {
+    const next = moduleIds ? [...new Set(moduleIds)] : []
+    if (next.length === this.colliderIds.length && next.every((id, i) => id === this.colliderIds[i])) return
+    this.colliderIds = next
+    this.refreshCollisionHighlight()
+  }
+
+  private refreshCollisionHighlight(): void {
+    for (const helper of this.colliderHelpers) {
+      this.scene.remove(helper)
+      helper.geometry.dispose()
+      ;(helper.material as THREE.Material).dispose()
+    }
+    this.colliderHelpers = []
+    for (const id of this.colliderIds) {
+      if (id === this.selectedModuleId) continue
+      const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
+      if (!group) continue
+      const box = new THREE.Box3().setFromObject(group)
+      if (box.isEmpty()) continue
+      box.expandByScalar(0.06)
+      const helper = new THREE.Box3Helper(box, 0xff5d5d)
+      helper.renderOrder = 4
+      this.colliderHelpers.push(helper)
+      this.scene.add(helper)
+    }
   }
 
   private refreshSelection(): void {
@@ -848,6 +890,7 @@ export class SceneRenderer {
       trackCells,
       finish: (id) => this.mats.finish(id),
       tvPlate: (id, x, y) => this.makeTvPlate(id, x, y),
+      tvPairSlot: (id) => tvPairSlot(id, data.modules),
       signFace: (id, layout, face, panel) => this.makeSignPlate(id, layout, face, panel),
     }
     const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
@@ -2086,6 +2129,7 @@ export class SceneRenderer {
       finish: (id) => this.mats.finish(id),
       preview: true,
       tvPlate: (id, x, y) => this.makeTvPlate(id, x, y),
+      tvPairSlot: (id) => tvPairSlot(id, data.modules),
       signFace: (id, layout, face, panel) => this.makeSignPlate(id, layout, face, panel),
     }
     const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
@@ -2101,36 +2145,66 @@ export class SceneRenderer {
     for (const mod of mods) {
       const group = buildModule(mod, ctx)
       if (!group) continue
-      const ghostOf = new Map<THREE.Material, THREE.Material>()
-      group.traverse((o) => {
-        const mesh = o as THREE.Mesh
-        if (!mesh.isMesh) return
-        const base = mesh.material as THREE.Material
-        let ghost = ghostOf.get(base)
-        if (!ghost) {
-          ghost = base.clone()
-          const any = ghost as THREE.MeshStandardMaterial
-          any.transparent = true
-          any.opacity = 0.45
-          any.depthWrite = false
-          any.side = THREE.DoubleSide
-          // A track bed lives *inside* the floor block until it is dug, so its
-          // ghost must ignore depth or the block hides it entirely.
-          if (mod.type === 'track') any.depthTest = false
-          if (any.color) any.color = any.color.clone().lerp(tint, 0.4)
-          ghostOf.set(base, ghost)
-          this.previewMats.push(ghost)
-          // A factory material may be shared scene-wide; a module-local one (a
-          // printed sign, say) is ours to dispose when the preview moves on.
-          if (!shared.has(base)) this.previewBases.push(base)
-        }
-        mesh.material = ghost
-        mesh.renderOrder = 5
-        mesh.frustumCulled = false
-      })
+      this.tintModuleGhost(group, mod, tint, 0.45, this.previewMats, this.previewBases, shared)
       this.previewGroup.add(group)
     }
     this.previewGroup.visible = true
+  }
+
+  /**
+   * Swap every surface of a module group for a translucent ghost, and hand back the
+   * map it built so a caller can reuse one ghost per base material.
+   *
+   * `tinted` is the colour a ghost is washed toward, or null to leave the materials'
+   * own colours alone (the fence drag does not tint). A factory material may be shared
+   * scene-wide, so a base the caller does not own is pushed onto `owned` for it to
+   * dispose when the preview moves on.
+   *
+   * **A lit face keeps its own sidedness.** A 装饰 screen prints its artwork out of the
+   * front of a plane only (`render/adArt.ts`), and a ghost that forced
+   * `DoubleSide` — as the rest of the piece wants, so a translucent shape reads from
+   * every angle — would print the campaign out of the back of the screen again. The
+   * one thing R has to make obvious is which way the piece will face, and a back that
+   * shows content cannot say. So a mesh the model already marked single-sided stays
+   * single-sided, and the ghost shows the screen's own black housing from behind.
+   */
+  private tintModuleGhost(
+    group: THREE.Object3D,
+    mod: Module,
+    tint: THREE.Color | null,
+    opacity: number,
+    owned: THREE.Material[],
+    bases: THREE.Material[],
+    shared: ReadonlySet<THREE.Material>,
+  ): Map<THREE.Material, THREE.Material> {
+    const ghostOf = new Map<THREE.Material, THREE.Material>()
+    group.traverse((o) => {
+      const mesh = o as THREE.Mesh
+      if (!mesh.isMesh) return
+      const base = mesh.material as THREE.Material
+      let ghost = ghostOf.get(base)
+      if (!ghost) {
+        ghost = base.clone()
+        const any = ghost as THREE.MeshStandardMaterial
+        any.transparent = true
+        any.opacity = opacity
+        any.depthWrite = false
+        if (any.side !== THREE.FrontSide) any.side = THREE.DoubleSide
+        // A track bed lives *inside* the floor block until it is dug, so its ghost
+        // must ignore depth or the block hides it entirely.
+        if (mod.type === 'track') any.depthTest = false
+        if (tint && any.color) any.color = any.color.clone().lerp(tint, 0.4)
+        ghostOf.set(base, ghost)
+        owned.push(ghost)
+        // A factory material may be shared scene-wide; a module-local one (a printed
+        // sign, say) is the caller's to dispose when the preview moves on.
+        if (!shared.has(base)) bases.push(base)
+      }
+      mesh.material = ghost
+      mesh.renderOrder = 5
+      mesh.frustumCulled = false
+    })
+    return ghostOf
   }
 
   /** Drop the hover preview's geometry and the materials/geometries it owns. */
@@ -2173,6 +2247,7 @@ export class SceneRenderer {
       trackCells: this.trackCellSet,
       finish: (id) => this.mats.finish(id),
       tvPlate: (id, x, y) => this.makeTvPlate(id, x, y),
+      tvPairSlot: (id) => tvPairSlot(id, merged.modules),
       signFace: (id, layout, face, panel) => this.makeSignPlate(id, layout, face, panel),
     }
     const shown = (m: Module): boolean => {
@@ -2197,30 +2272,10 @@ export class SceneRenderer {
       else shared.add(value as THREE.Material)
     }
     for (const m of this.mats.finishCache.values()) shared.add(m)
-    const ghostOf = new Map<THREE.Material, THREE.Material>()
     for (const m of list) {
       const group = buildModule(m, previewCtx)
       if (!group) continue
-      group.traverse((o) => {
-        const mesh = o as THREE.Mesh
-        if (!mesh.isMesh) return
-        const base = mesh.material as THREE.Material
-        let ghost = ghostOf.get(base)
-        if (!ghost) {
-          ghost = base.clone()
-          const any = ghost as THREE.MeshStandardMaterial
-          any.transparent = true
-          any.opacity = 0.5
-          any.depthWrite = false
-          any.side = THREE.DoubleSide
-          if (any.color) any.color = any.color.clone().lerp(tint, 0.4)
-          ghostOf.set(base, ghost)
-          this.fencePreviewMats.push(ghost)
-        }
-        mesh.material = ghost
-        mesh.renderOrder = 5
-        mesh.frustumCulled = false
-      })
+      this.tintModuleGhost(group, m, tint, 0.5, this.fencePreviewMats, this.fencePreviewBases, shared)
       this.fencePreviewGroup.add(group)
     }
   }
@@ -2232,7 +2287,9 @@ export class SceneRenderer {
       this.fencePreviewGroup.remove(child)
     }
     for (const m of this.fencePreviewMats) m.dispose()
+    for (const m of this.fencePreviewBases) m.dispose()
     this.fencePreviewMats.length = 0
+    this.fencePreviewBases.length = 0
     this.fencePreviewKey = ''
     for (const f of this.fenceGroups) f.visible = true
   }
@@ -2304,6 +2361,23 @@ export class SceneRenderer {
     const blockHits = this.raycaster.intersectObjects(blocks, false)
     if (blockHits.length > 0 && blockHits[0].distance < modHit.distance) return null
     return moduleId
+  }
+
+  /**
+   * The horizontal direction the camera is looking **from**, as a world step — the
+   * value `moduleAt`'s `facing` wants. It is the
+   * second half of a pick: a mesh answers *which* piece the pointer is on, but the
+   * only cell that can hold two of them — a back-to-back 电视 pair — is one object
+   * from two sides, and a caller that resolves a module from the **cell** rather
+   * than from the drawn mesh has to say which face it meant.
+   *
+   * A camera looks the same way all over the screen, so one value serves the whole
+   * frame, and `getWorldDirection` is right for both cameras the viewport swaps
+   * between: the perspective one and the orthographic one, whose view direction is
+   * constant by definition. The sign is the trap — see `facingFrom`.
+   */
+  pickFacing(): [number, number] {
+    return facingFrom(this.activeCamera())
   }
 
   zoneAt(clientX: number, clientY: number, workPlaneZ: number): [number, number, number] | null {

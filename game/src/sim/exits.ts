@@ -124,43 +124,13 @@ function runTop(run: Module): Vec3i | null {
 }
 
 /**
- * The local x columns of the runs that belong to this head-house: their upper
- * landings on the exit's level, under its own length, inside a generous window
- * across it. A run saved under the old two-metre bay spacing is still found here,
- * so the house can widen to cover it rather than let it poke through the glass.
+ * The plan a head-house is drawn over and lays floor on: the flush bay group
+ * with one full block of floor at each end — 3 / 4 / 5 blocks for the
+ * 单向 / 双向 / 三向. No other width exists.
  */
-function exitRunColumns(modules: readonly Module[], m: ExitModule): number[] {
+export function exitSpan(m: ExitModule): ExitSpan {
   const bays = exitBays(m)
-  const nominal = exitBayOffsets(bays)
-  const lo = Math.min(...nominal) - bays
-  const hi = Math.max(...nominal) + bays
-  const out: number[] = []
-  for (const run of modules) {
-    const top = runTop(run)
-    if (!top || top.z !== m.z) continue
-    const [lx, ly] = exitLocal(top.x - m.x, top.y - m.y, m.rot)
-    // Under the head-house's own length (mouth to street doorway) — never a run
-    // elsewhere in the station that merely lines up across it.
-    if (ly < EXIT_BACK_Y || ly > EXIT_BACK) continue
-    if (lx < lo || lx > hi) continue
-    if (!out.includes(lx)) out.push(lx)
-  }
-  return out
-}
-
-/**
- * The plan a head-house is drawn over and lays floor on: the columns its runs
- * stand in — the flush bay group, or wherever a saved station's runs really are
- * — with one full block of floor at each end. A 双向 with its runs side by side
- * is therefore four blocks across with a whole block of pad each side; a station
- * saved on the old two-metre bays widens to cover them instead of breaking.
- */export function exitSpan(m: ExitModule, modules: readonly Module[] = []): ExitSpan {
-  const columns = [...exitBayOffsets(exitBays(m)), ...exitRunColumns(modules, m)]
-  // Half a block for the outermost run's own cell, plus a whole block of pad.
-  const margin = EXIT_BAY_HALF + 1
-  const lo = Math.min(...columns) - margin
-  const hi = Math.max(...columns) + margin
-  return { centre: (lo + hi) / 2, half: (hi - lo) / 2 }
+  return { centre: exitCentre(bays), half: exitWidth(bays) / 2 }
 }
 
 /** A thin barrier plane of a head-house, in world space (see `station.ts`). */
@@ -216,14 +186,11 @@ function exitLocal(wx: number, wy: number, rot: number | undefined): [number, nu
  * rectangle is turned by the placement rotation, so a rotated head-house covers
  * the ground it actually draws on. World-space, half-open: [x0,x1) × [y0,y1).
  */
-export function exitFloorBounds(
-  m: ExitModule,
-  modules: readonly Module[] = [],
-): { x0: number; y0: number; x1: number; y1: number } {
+export function exitFloorBounds(m: ExitModule): { x0: number; y0: number; x1: number; y1: number } {
   const cx = m.x + 0.5
   const cy = m.y + 0.5
   const rot = quarter(m.rot)
-  const { centre, half } = exitSpan(m, modules)
+  const { centre, half } = exitSpan(m)
   const lo = centre - half
   const hi = centre + half
   let x0 = Infinity
@@ -251,8 +218,8 @@ export function exitFloorBounds(
  * drawn head-house. It sits on the head-house's own centre line, on the middle
  * cell of an even-width plan.
  */
-export function exitDoorCell(m: ExitModule, modules: readonly Module[] = []): [number, number, number] {
-  const { centre } = exitSpan(m, modules)
+export function exitDoorCell(m: ExitModule): [number, number, number] {
+  const { centre } = exitSpan(m)
   const [dx, dy] = exitRotate(Math.round(centre), EXIT_DOOR_Y, m.rot)
   return [m.x + dx, m.y + dy, m.z]
 }
@@ -277,8 +244,7 @@ export interface ExitRunOpening {
 /**
  * The runs whose upper landing sits under this exit — the wellways its floor pad
  * must open for, and the columns its interior dividers stand between. Derived
- * from the runs actually placed rather than from the bay list, so a station saved
- * on the old two-metre bays opens exactly the wellways it had.
+ * from the runs actually placed rather than from the bay list.
  */
 export function exitRunOpenings(modules: readonly Module[], m: ExitModule): ExitRunOpening[] {
   const out: ExitRunOpening[] = []
@@ -286,7 +252,7 @@ export function exitRunOpenings(modules: readonly Module[], m: ExitModule): Exit
   for (const run of modules) {
     const top = runTop(run)
     if (!top || top.z !== m.z) continue
-    if (!exitCoversCell(m, modules, top.x, top.y, top.z)) continue
+    if (!exitCoversCell(m, top.x, top.y, top.z)) continue
     const [lx] = exitLocal(top.x - m.x, top.y - m.y, m.rot)
     if (seen.has(lx)) continue
     seen.add(lx)
@@ -321,7 +287,7 @@ export interface ExitRunSnap {
 }
 
 export function exitRunSnap(modules: readonly Module[], x: number, y: number, z: number): ExitRunSnap | null {
-  const exit = modules.find((m): m is ExitModule => m.type === 'exit' && exitCoversCell(m, modules, x, y, z))
+  const exit = modules.find((m): m is ExitModule => m.type === 'exit' && exitCoversCell(m, x, y, z))
   if (!exit) return null
   const [lx] = exitLocal(x - exit.x, y - exit.y, exit.rot)
   const bays = exitBays(exit)
@@ -345,11 +311,11 @@ export function exitRunSnap(modules: readonly Module[], x: number, y: number, z:
  * quarter-turn of the local planes ever produces. The sides stand at the plan's
  * edges (`exitSpan`), so they always clear the runs the house holds.
  */
-export function exitWallPlanes(m: ExitModule, modules: readonly Module[] = []): ExitWall[] {
+export function exitWallPlanes(m: ExitModule): ExitWall[] {
   const cx = m.x + 0.5
   const cy = m.y + 0.5
   const rot = quarter(m.rot)
-  const { centre, half } = exitSpan(m, modules)
+  const { centre, half } = exitSpan(m)
   const side = half - 0.06
   const walls: ExitWall[] = []
   const seg = (lx0: number, ly0: number, lx1: number, ly1: number): void => {
@@ -367,15 +333,15 @@ export function exitWallPlanes(m: ExitModule, modules: readonly Module[] = []): 
 }
 
 /** True when cell `(x, y, z)` lies under an exit's floor, on the exit's level. */
-export function exitCoversCell(m: ExitModule, modules: readonly Module[], x: number, y: number, z: number): boolean {
+export function exitCoversCell(m: ExitModule, x: number, y: number, z: number): boolean {
   if (z !== m.z) return false
-  const b = exitFloorBounds(m, modules)
+  const b = exitFloorBounds(m)
   return x + 1 > b.x0 && x < b.x1 && y + 1 > b.y0 && y < b.y1
 }
 
 /** Every floor cell an exit covers on its own level, holes included. */
-export function exitFootprintCells(m: ExitModule, modules: readonly Module[] = []): Array<[number, number, number]> {
-  const b = exitFloorBounds(m, modules)
+export function exitFootprintCells(m: ExitModule): Array<[number, number, number]> {
+  const b = exitFloorBounds(m)
   const out: Array<[number, number, number]> = []
   for (let x = Math.floor(b.x0); x < b.x1; x++) {
     for (let y = Math.floor(b.y0); y < b.y1; y++) {
@@ -392,7 +358,7 @@ export function exitFootprintCells(m: ExitModule, modules: readonly Module[] = [
  */
 export function exitFloorAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
   for (const m of modules) {
-    if (m.type === 'exit' && exitCoversCell(m, modules, x, y, z)) return true
+    if (m.type === 'exit' && exitCoversCell(m, x, y, z)) return true
   }
   return false
 }

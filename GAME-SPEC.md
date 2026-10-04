@@ -396,7 +396,10 @@ Two runs of one storey may stand **flush** in adjacent cells. Every run is built
 tile — an escalator's balustrades, glass and handrails, and a *narrow* staircase's treads and rails,
 all inside its own 1 m cell — so a pair simply sits side by side, each carrying its own balustrade,
 and a bank of runs reads as one group with no slot in the middle. It also means a wall, a fence or a
-gate may be built right up against a run.
+gate may be built right up against a run. A wall that hugs a flight **from bottom to top** replaces
+that side's handrail: the flight keeps the stringer it meets the wall with and is railed on its open
+sides alone. The wall must run the whole flight, at the flight's own heights — a wall that stops at the
+half-landing, or carries a doorway the flight passes, leaves the handrail on.
 
 A **wider staircase is lanes**: one, two or three parallel flights, each one escalator band (0.7 m),
 each in its own cell — so a 2-lane stair is two 0.7 m lanes in two blocks, a 3-lane stair in three.
@@ -411,6 +414,15 @@ count follows the pointer: dropped beside a stair on its left, the flight takes 
 its right, and the other way round. A stair that is a single piece wider than a cell — a *turning*
 stair, whose flights cannot share their landings lane by lane, or a station saved before lanes — is
 the exception: its body crosses into the next cell, so it needs a bay of its own.
+
+A **switchback staircase** (双跑楼梯) turns a storey back on itself: two parallel flights with a
+half-landing between them. Its runs stand flush — the returning flight is laid one cell across per
+lane, so the assembly covers one block per lane plus the one the two flights share: **2 blocks across
+at 0.7 m, 3 at 1.4 m, 4 at 2 m**, and what is left between the bodies is the narrow stair well a real
+双跑楼梯 has, never a corridor. It comes in both hands (右双跑楼梯 / 左双跑楼梯); a rotation turns the
+piece about its base and never swaps the hand of the turn. The half-landing is a **walked** row of
+cells — both flights join the graph to it — so each flight's balustrade stops at the flight end where
+it meets one, and only an outer landing keeps the over-run that stops the crowd cutting the corner.
 
 Travel direction is
 irrelevant to standing flush (an up and a down escalator are the usual bank); a run in a column
@@ -1257,11 +1269,13 @@ under the cursor. A diamond marker + `(x, y, z)` readout in the status line show
 work-plane cell, so building in empty space is aimed, not guessed. `G` toggles the plane
 visible as a faint grid; `Q`/`E` move it between levels with the slicer.
 
-Tools (left rail). `左键` always applies, `右键` always removes — in every tool:
+Tools (left rail). `左键` always applies, `右键` always removes — in every tool. (One transient
+exception: while a piece is in the air with 移动 — which is not a tool but the `信息` card's action on
+the selected piece — the right button puts that piece back.)
 
 | # | Task | Tool + action |
 |---|---|---|
-| 1 | **Select / delete a block, including in void** | `V` 选择: `左键` click a block to select (inspector opens). `左键` click void (work plane) clears selection and pins the coordinate — nothing to select, but the `(x,y,z)` pin is shown and can be framed with `F`. Box-select: `左键` drag in `V` selects all blocks in the rectangle on the active level. `Del` / `Backspace` deletes the selection (blocks and/or modules); `Ctrl+Z` / `Ctrl+Y` undo/redo; `Esc` clears selection. |
+| 1 | **Select / delete a block, including in void** | `V` 选择: `左键` click a block to select (inspector opens) — and a placed 设备 / 装饰 piece selected this way offers `移动` in the `信息` card (see below). `左键` click void (work plane) clears selection and pins the coordinate — nothing to select, but the `(x,y,z)` pin is shown and can be framed with `F`. Box-select: `左键` drag in `V` selects all blocks in the rectangle on the active level. `Del` / `Backspace` deletes the selection (blocks and/or modules); `Ctrl+Z` / `Ctrl+Y` undo/redo; `Esc` clears selection. |
 | 2 | **Place 1 or N blocks next to a block** | `B` 砌块: `左键` click a block *face* places 1 block attached to that face (ghost preview first). `左键` drag across faces paints a run; release over empty face-boxes fills each once. `Shift+左键` drag constrains to a straight line; plain box-drag on a face fills the rectangle (e.g. a 6×4 slab). `右键` click / `右键` drag erases blocks (restores void; hosted modules are refunded with confirm per §9.3). Wheel switches brush size 1–5 when the cursor is over a face. |
 | 3 | **Place a block NOT next to any block** | `B` 砌块 + work plane: `左键` click the work-plane marker places a block floating on the active level at that cell — no neighbour required. `Alt+左键` forces work-plane placement even when the ray also hits a block (aiming past geometry). Box-drag on the visible grid (`G`) fills detached rectangles the same way as attached ones. This is how the second pavilion 200 m away gets started. |
 | 4 | **Paint / erase one block face** | `N` 单块: `左键` paints the clicked face with the active texture of its family (地面/天花/墙面/轨道, §4.3). `右键` reverts that face to the family default. `I` eyedrops the hovered face into the brush. Works on block faces only — clicking void just moves the pin. |
@@ -1280,6 +1294,24 @@ take the 1 m ones and an 闸机 does not take the 售票机 at the end of its ro
 straight-run drag, and rooms, rails, 出入口, 楼梯 / 扶梯 / 电梯 and 站台门 are never swept: each is
 one piece with its own teardown. `Esc` cancels the sweep (and a right-press during a left drag
 cancels it too) without deleting anything.
+
+**移动 (信息栏 · the selected piece).** There is no move tool and no second panel: the piece is
+already selected, so `移动` sits in the right inspector's `信息` card beside what the piece is, and
+that same card becomes the move's whole control surface the moment the piece is in the air — `确认`
+and `取消` appear exactly where `移动` was, over a readout of the cell the drop would use and, when
+that cell refuses it, the rule it broke. Press `移动` and the selected 设备 / 装饰 piece comes up — it
+stops being drawn where it stood and rides the pointer as the same translucent ghost a fresh placement
+shows, validity tint and all (`R` turns it in the air). **It is not an edit:** the piece keeps its id
+and its whole `cfg` — a 指示牌's printed boards, a 闸机's lane, a 广告牌's frozen poster — and never
+leaves the document, so nothing reaches the undo stack until the drop is confirmed. `左键` on the
+ground (or the card's `确认`, or `Enter`) drops it there as **one** commit — a single `Ctrl+Z` puts it
+back where it came from — and `Esc`, a right-press, or the card's `取消` puts it back with no commit at
+all. A refused cell (no floor, a track bed, another piece, no wall behind a 广告牌, no ceiling over a
+指示牌 / 电视) keeps it in the air and names the rule, exactly as a fresh placement would. Structural
+pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms, 轨道 / 站台门 — are refused by the same rule that keeps 拆除
+from sweeping one: each is one piece whose carved openings, derived screen doors and room walls a
+translation would strand, so it is torn down and built again — the card's button says so rather than
+hiding. Switching tools mid-lift puts the piece back, because a lift is not a mode to be lost in.
 
 Conflict rules: camera never uses `左键` alone (that belongs to tools) and tools never use
 `中键` or wheel-click. `Esc` cancels the current drag first, then the selection. Every action

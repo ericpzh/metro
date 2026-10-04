@@ -1,4 +1,4 @@
-// The build rail (left column).
+﻿// The build rail (left column).
 //
 // A blueprint-styled stack of folders. Each folder is a "menu" that folds open
 // with an animated height transition and lays its entries out as square blocks
@@ -966,24 +966,6 @@ export function LeftRail(): React.ReactElement {
         </div>
       </Folder>
 
-      <Folder title="房间" count={FACILITY_OPTIONS.length} open={open.rooms} onToggle={() => toggle('rooms')}>
-        <div className="blockGrid">
-          {FACILITY_OPTIONS.map((f) => (
-            <Block
-              key={f.id}
-              label={f.label}
-              thumb={zoneThumbs[f.id]}
-              tone={`#${f.colour.toString(16).padStart(6, '0')}`}
-              active={tool === 'zone' && zoneBrush === f.id}
-              onClick={() => {
-                st().setZoneBrush(f.id)
-                setTool('zone')
-              }}
-            />
-          ))}
-        </div>
-      </Folder>
-
       <Folder title="装饰" count={decorOptions.length + 2} open={open.decor} onToggle={() => toggle('decor')}>
         <div className="blockGrid">
           {interleaveRows(
@@ -1078,6 +1060,24 @@ export function LeftRail(): React.ReactElement {
               return rows
             },
           )}
+        </div>
+      </Folder>
+
+      <Folder title="房间" count={FACILITY_OPTIONS.length} open={open.rooms} onToggle={() => toggle('rooms')}>
+        <div className="blockGrid">
+          {FACILITY_OPTIONS.map((f) => (
+            <Block
+              key={f.id}
+              label={f.label}
+              thumb={zoneThumbs[f.id]}
+              tone={`#${f.colour.toString(16).padStart(6, '0')}`}
+              active={tool === 'zone' && zoneBrush === f.id}
+              onClick={() => {
+                st().setZoneBrush(f.id)
+                setTool('zone')
+              }}
+            />
+          ))}
         </div>
       </Folder>
 

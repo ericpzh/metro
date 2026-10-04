@@ -205,7 +205,15 @@ export function createAdArt(renderer?: THREE.WebGLRenderer): AdArt {
       texture = placeholder
     }
     if (!material) {
-      material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide })
+      // **FrontSide, so a screen has a back.** The poster is a plane, and a
+      // double-sided one prints its artwork out of the *back* of the piece as well —
+      // through the dark backing slab it is mounted on, so what shows is the
+      // campaign rather than the panel. A 电视 is the case that makes it obvious:
+      // R turns the screen, and the one thing that has to read at a glance is which
+      // way it will face, which it cannot if both sides show artwork. The piece's
+      // own housing (`models.ts`) is what a viewer sees from behind — the bezel and
+      // the black backing — and that is what the back of a television looks like.
+      material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide })
       material.userData.adSlug = slug
       materials.set(key, material)
     }

@@ -25,7 +25,7 @@ import { gateAllows, gateHasLane } from './gates.ts'
 import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
-import { STAIR_WIDTH_NARROW, stairFlights, stairLaneMates } from './stairs.ts'
+import { STAIR_WIDTH_NARROW, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
 import { liftFootprintCells, liftLandingCells, liftStopZs } from './lifts.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndex } from './zones.ts'
@@ -282,7 +282,7 @@ export function buildGraph(data: StationData): StationGraph {
   const exitWalls: ExitWall[] = []
   for (const m of data.modules) {
     if (m.type !== 'exit' || m.cfg.headHouse === false) continue
-    exitWalls.push(...exitWallPlanes(m, data.modules))
+    exitWalls.push(...exitWallPlanes(m))
   }
   const crossesExitWall = (x: number, y: number, nx: number, ny: number): boolean => {
     for (const w of exitWalls) {
@@ -323,6 +323,19 @@ export function buildGraph(data: StationData): StationGraph {
     const segs = m.type === 'stair' ? stairFlights(m) : [{ from: m.from, to: m.to }]
     const half = m.type === 'escalator' ? ESCALATOR_BALUSTRADE / 2 : (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
     const laneMates = m.type === 'stair' ? stairLaneMates(data.modules, m) : []
+    // The flight ends that meet an **interior turn landing** of the same stair.
+    // A balustrade stops dead at the flight there: the crowd has to walk the
+    // half-landing from one flight to the next, and a wall over-running the end
+    // (as it must at an outer landing, where it stops the crowd cutting the
+    // corner off the run) would cut the landing's own cells apart and seal a
+    // switchback's two flights away from each other.
+    const turnEnds = new Set<string>()
+    if (m.type === 'stair') {
+      for (const { a, b } of stairTurnConnectors(m)) {
+        turnEnds.add(cellKey(a.x, a.y, a.z))
+        turnEnds.add(cellKey(b.x, b.y, b.z))
+      }
+    }
     for (const seg of segs) {
       const ax = seg.from.x + 0.5
       const ay = seg.from.y + 0.5
@@ -333,15 +346,17 @@ export function buildGraph(data: StationData): StationGraph {
       const ux = dx / L
       const uy = dy / L
       const EXT = 0.6
+      const extFrom = turnEnds.has(cellKey(seg.from.x, seg.from.y, seg.from.z)) ? 0 : EXT
+      const extTo = turnEnds.has(cellKey(seg.to.x, seg.to.y, seg.to.z)) ? 0 : EXT
       for (const s of [1, -1]) {
         if (laneMates.some((mate) => mate.sameFlight && Math.sign(mate.step[0] * -uy + mate.step[1] * ux) === s)) continue
         const ox = -uy * half * s
         const oy = ux * half * s
         rampWalls.push({
-          ax: ax - ux * EXT + ox,
-          ay: ay - uy * EXT + oy,
-          bx: ax + dx + ux * EXT + ox,
-          by: ay + dy + uy * EXT + oy,
+          ax: ax - ux * extFrom + ox,
+          ay: ay - uy * extFrom + oy,
+          bx: ax + dx + ux * extTo + ox,
+          by: ay + dy + uy * extTo + oy,
         })
       }
     }
@@ -409,7 +424,7 @@ export function buildGraph(data: StationData): StationGraph {
         // A head-house's node is its street opening, not the cell under the
         // canopy — so the crowd visibly walks out through the doorway. A bare
         // portal (headHouse: false) keeps the module cell.
-        const door = m.cfg.headHouse === false ? undefined : nodeIndex.get(cellKey(...exitDoorCell(m, data.modules)))
+        const door = m.cfg.headHouse === false ? undefined : nodeIndex.get(cellKey(...exitDoorCell(m)))
         const n = door ?? nodeIndex.get(cellKey(m.x, m.y, m.z))
         if (n !== undefined) exits.push({ id: m.id, node: n, name: m.cfg.name })
         break
@@ -539,6 +554,9 @@ export function buildGraph(data: StationData): StationGraph {
           for (const f of stairFlights(m)) {
             const fa = nodeAt(f.from)
             const fb = nodeAt(f.to)
+            // A landing that is no node — a 围栏 or a doorless 闸机 standing on it —
+            // is not a way through, so the flight is dropped rather than left
+            // dangling: fencing off the head of a stair really closes it.
             if (fa < 0 || fb < 0) continue
             const fh = Math.hypot(nodeX[fa] - nodeX[fb], nodeY[fa] - nodeY[fb])
             const fv = Math.abs(nodeZ[fa] - nodeZ[fb])

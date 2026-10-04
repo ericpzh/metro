@@ -299,18 +299,29 @@ function trackSpace(track: TrackModule): ModuleBox {
 }
 
 /**
+ * Every placed module sharing the track's space — the offending pieces an
+ * interfered rail preview collides with. Same rule as
+ * `trackInterferenceBlocked`, but returns the modules so the builder can
+ * highlight them alongside the red ghost.
+ */
+export function trackColliders(state: StationState, track: TrackModule): Module[] {
+  const box = trackSpace(track)
+  const out: Module[] = []
+  for (const m of state.modules) {
+    if (m.id === track.id) continue
+    const e = moduleEnvelope(m)
+    if (e && boxesOverlap(box, e)) out.push(m)
+  }
+  return out
+}
+
+/**
  * True when anything already on the level would share the track's space — a
  * gate, a room, a screen door, a ramp or another rail/tunnel. Interference
  * blocks the placement rather than demolishing what is there.
  */
 export function trackInterferenceBlocked(state: StationState, track: TrackModule): boolean {
-  const box = trackSpace(track)
-  for (const m of state.modules) {
-    if (m.id === track.id) continue
-    const e = moduleEnvelope(m)
-    if (e && boxesOverlap(box, e)) return true
-  }
-  return false
+  return trackColliders(state, track).length > 0
 }
 
 /** True when a platform run is not fully supported by solid floor. */

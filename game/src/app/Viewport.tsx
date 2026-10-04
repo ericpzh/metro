@@ -51,12 +51,12 @@ import { exitFloorAt, exitRunSnap } from '../sim/exits.ts'
 import { liftExtendedDown, liftExtendedUp, liftFootprintCells, type LiftModule } from '../sim/lifts.ts'
 import { ESCALATOR_BAND } from '../sim/constants.ts'
 import { planStairLanes, stairLanes } from '../sim/stairs.ts'
-import { moduleAt, isTrackCell, trackAt, placementBlocked, placementOnTrack, reservedOpening, ceilingMountMissing, wallMountMissing, wallMountStandCell, autofaceWallMount } from '../sim/placement.ts'
+import { moduleAt, isTrackCell, moveCandidate, trackAt, placementBlocked, placementColliders, placementOnTrack, reservedOpening, ceilingMountMissing, wallMountMissing, wallMountStandCell, autofaceWallMount } from '../sim/placement.ts'
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
 import { FACILITY_OPTIONS, placementPreviewKey, setFrameHandler, signModuleWithPreview, useStore, isDecorType, isExitType, isFacilityBrush, isFenceType, isWallMountedType, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
 import type { Cell, Face, FinishId, Module, Vec3i } from '../sim/types.ts'
-import { defaultLine, freeTunnelEnd, makeTrack, makeTunnel, railModuleAt, trackBlockReason, trackPieceForLine } from '../build/rail.ts'
+import { defaultLine, freeTunnelEnd, makeTrack, makeTunnel, railModuleAt, trackBlockReason, trackColliders, trackPieceForLine } from '../build/rail.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from './sweep.ts'
 import { ViewCube } from './ViewCube.tsx'
@@ -73,6 +73,14 @@ function dominantFace(n: [number, number, number]): Face {
 const LONG_PRESS_MS = 160
 /** Pointer travel in pixels that counts as a drag. */
 const DRAG_PX = 4
+
+/**
+ * The id a carried piece (移动) wears as a ghost. A translated piece must not mint
+ * into the caches keyed by a *placed* module's id — a 指示牌's printed plate and a
+ * 电视's station plate are looked up by id, and a preview owns only what it made
+ * itself (`SceneRenderer.setModulePreview`).
+ */
+const MOVE_GHOST_ID = 'move-preview'
 
 function isMoved(d: { sx: number; sy: number }, e: { clientX: number; clientY: number }): boolean {
   return Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > DRAG_PX
@@ -325,6 +333,14 @@ export function Viewport(): React.ReactElement {
   // whole preview keeps this from re-rendering the viewport on every dragged bin —
   // the `version` bump the editor raises alongside it is what redraws the meshes.
   const signPreviewId = useStore((s) => s.signPreview?.moduleId ?? null)
+  // The piece in the air (移动), by id: the station is drawn without it, so the
+  // translucent ghost under the pointer is the only copy on screen. Subscribing to
+  // the id — rather than to the whole draft — keeps a pointer move from rebuilding
+  // the station's meshes.
+  const moveId = useStore((s) => s.moveDraft?.module.id ?? null)
+  // The carried piece and its rotation: the two things an R or a fresh lift change
+  // about the ghost, so they are all the ghost effect has to watch.
+  const moveKey = useStore((s) => (s.moveDraft ? `${s.moveDraft.module.id}|${s.moveDraft.rot}` : ''))
   const tool = useStore((s) => s.tool)
   // Everything the equipment ghost is drawn from, as one key: the piece, its
   // rotation and each Tab cycle. Subscribing to the key — rather than to the
@@ -403,12 +419,14 @@ export function Viewport(): React.ReactElement {
    * The fence panels a drag run would place: one 1 m panel per cell, all at the
    * run's rotation, skipping cells that are not floor or already occupied. The
    * result drives the live fence preview; `blocked` is true when any cell of the
-   * run was refused, so the whole ghost flags red.
+   * run was refused, so the whole ghost flags red, and `colliderIds` names the
+   * placed modules the refused panels hit.
    */
-  const fenceRunPreview = (line: Array<[number, number, number]>, rot: number): { mods: Module[]; blocked: boolean } => {
+  const fenceRunPreview = (line: Array<[number, number, number]>, rot: number): { mods: Module[]; blocked: boolean; colliderIds: string[] } => {
     const st = useStore.getState()
     const mods: Module[] = []
     let blocked = false
+    const colliderIds: string[] = []
     const seen = new Set<string>()
     for (const [x, y, z] of line) {
       const k = cellKey(x, y, z)
@@ -417,13 +435,19 @@ export function Viewport(): React.ReactElement {
       const mod = createModule('fence', x, y, z, 'preview', rot)
       if (!mod) continue
       const floorHere = st.station.cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) || exitFloorAt(st.station.modules, x, y, z)
-      if (!floorHere || placementBlocked(st.station.modules, mod) || placementOnTrack(st.station.cells, mod, st.station.modules)) {
+      if (!floorHere || placementOnTrack(st.station.cells, mod, st.station.modules)) {
         blocked = true
+        continue
+      }
+      const hit = placementColliders(st.station.modules, mod)
+      if (hit.length > 0) {
+        blocked = true
+        for (const m of hit) if (!colliderIds.includes(m.id)) colliderIds.push(m.id)
         continue
       }
       mods.push(mod)
     }
-    return { mods, blocked }
+    return { mods, blocked, colliderIds }
   }
 
   /**
@@ -625,8 +649,10 @@ export function Viewport(): React.ReactElement {
     if (isWallMountedType(st.moduleType)) {
       const { mod: billboard, noWall } = wallMountPlacement(h.cell, h.place, 'preview', h.point)
       const blocked = noWall || !billboard || placementBlocked(st.station.modules, billboard)
+      const colliderIds = billboard && !noWall ? placementColliders(st.station.modules, billboard).map((m) => m.id) : []
       scene.setCursor(h.cell, !blocked)
       scene.setModulePreview(billboard, blocked)
+      scene.setCollisionHighlight(blocked ? colliderIds : null)
       return
     }
     // 电梯: hovering any cell of an existing shaft previews its extension even
@@ -660,8 +686,77 @@ export function Viewport(): React.ReactElement {
           wallMountMissing(st.station.cells, mod) ||
           ceilingMountMissing(st.station.cells, mod),
       ) || liftFloorMissing
+    const colliderIds: string[] = []
+    for (const mod of mods) {
+      for (const m of placementColliders(st.station.modules, mod)) {
+        if (!colliderIds.includes(m.id)) colliderIds.push(m.id)
+      }
+    }
     scene.setCursor(h.cell, placeable && !blocked)
     scene.setModulePreview(mods.length > 0 ? mods : null, blocked)
+    scene.setCollisionHighlight(blocked ? colliderIds : null)
+  }
+
+  /**
+   * The cell a carried piece is aimed at: the floor block under the pointer, or —
+   * for a 广告牌, which bolts to a wall and may hang over the track where there is
+   * no floor in front of it — the cell in front of that wall, exactly as a fresh
+   * placement resolves the same hover (`wallMountStandCell`).
+   */
+  const moveAnchorAt = (h: { cell: [number, number, number]; place: [number, number, number]; solid: boolean }): Vec3i => {
+    const st = useStore.getState()
+    const d = st.moveDraft
+    if (d && isWallMountedType(d.module.type)) {
+      const [x, y, z] = wallMountStandCell(st.station.cells, h.cell, h.place)
+      return { x, y, z }
+    }
+    const [x, y, z] = h.solid || exitFloorAt(st.station.modules, h.cell[0], h.cell[1], h.cell[2]) ? h.cell : h.place
+    return { x, y, z }
+  }
+
+  /** Drop the lift's ghost, cursor and highlight. The piece itself is untouched. */
+  const clearMovePreview = (): void => {
+    sceneRef.current?.setModulePreview(null)
+    sceneRef.current?.setCollisionHighlight(null)
+    sceneRef.current?.setCursor(null)
+  }
+
+  /**
+   * Rebuild a carried piece's ghost where it is aimed. The piece is *not* in the
+   * drawn station while it is in the air (`moveId`), so this translucent copy —
+   * the same one a fresh placement shows — is the whole read of "in the hand".
+   *
+   * With no hover (the pointer is off the canvas, or on the 信息 card reaching for
+   * 确认) the piece stays parked where it was last aimed, so the card still has
+   * something to drop. Everything the ghost shows is pushed back into the draft
+   * (`aimMove`), including the exact module it would place, so the 确认 and the commit
+   * cannot disagree with what is on screen.
+   */
+  const refreshMovePreview = (): void => {
+    const scene = sceneRef.current
+    const st = useStore.getState()
+    const d = st.moveDraft
+    if (!scene || !d) return
+    const h = hoverRef.current
+    const at = h ? moveAnchorAt(h) : d.at
+    if (!at) {
+      clearMovePreview()
+      st.aimMove(null, null, '')
+      return
+    }
+    // The piece is rebuilt from the **document's** copy every time, so a board
+    // edited, or an undo taken, while it is in the air shows up under the pointer
+    // instead of a lift-time snapshot — its `cfg` is the live one; only the cell
+    // and the rotation are the player's aim.
+    const current = st.station.modules.find((m) => m.id === d.module.id) ?? d.module
+    const { module: candidate, reason } = moveCandidate(st.station.cells, st.station.modules, current, at, d.rot)
+    // A ghost carries a private id: a 指示牌's printed plate and a 电视's station
+    // plate are cached per module id, and a preview must never mint into the copy a
+    // placed piece owns (`setModulePreview` disposes what its ghost created).
+    scene.setCursor([at.x, at.y, at.z], reason === '')
+    scene.setModulePreview({ ...candidate, id: MOVE_GHOST_ID }, reason !== '')
+    scene.setCollisionHighlight(reason === '' ? null : placementColliders(st.station.modules, candidate).map((m) => m.id))
+    st.aimMove(at, candidate, reason)
   }
 
   /**
@@ -690,8 +785,10 @@ export function Viewport(): React.ReactElement {
     // ghost at all (and no blue highlight) — the equipment tool's rule.
     const mod = h.solid ? railPiece() : null
     const blocked = !!mod && (mod.type !== 'track' || trackBlockReason(st.station, mod) !== null)
+    const colliderIds = mod && mod.type === 'track' && blocked ? trackColliders(st.station, mod).map((m) => m.id) : []
     scene.setCursor(h.cell, h.solid && !blocked)
     scene.setModulePreview(mod, blocked)
+    scene.setCollisionHighlight(blocked ? colliderIds : null)
   }
 
   /**
@@ -708,12 +805,15 @@ export function Viewport(): React.ReactElement {
     if (!src) {
       scene.setCursor(null)
       scene.setModulePreview(null)
+      scene.setCollisionHighlight(null)
       return
     }
     const mod = makeTunnel(src, freeTunnelEnd(st.station, src, h.cell), st.tunnelLength, 'preview')
     const blocked = trackBlockReason(st.station, mod) !== null
+    const colliderIds = blocked ? trackColliders(st.station, mod).map((m) => m.id) : []
     scene.setCursor(h.cell, !blocked)
     scene.setModulePreview(mod, blocked)
+    scene.setCollisionHighlight(blocked ? colliderIds : null)
   }
 
   /** Pin the 地基 patch-size badge to the pointer, in canvas-relative pixels. */
@@ -745,20 +845,39 @@ export function Viewport(): React.ReactElement {
     sceneRef.current?.clearFaceGhost()
     sceneRef.current?.setModulePreview(null)
     sceneRef.current?.setFencePreview(null)
+    sceneRef.current?.setCollisionHighlight(null)
     return true
   }
 
-  // ESC cancels any in-progress drag even when the pointer never moves again.
+  // ESC cancels any in-progress drag even when the pointer never moves again, and
+  // Enter / ESC are the keyboard halves of 移动's 确认 / 取消 — which live in the 信息
+  // card, so the keys are what makes the drop reachable without leaving the canvas.
   useEffect(() => {
     const onCancelKey = (e: KeyboardEvent): void => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === 'Enter') {
+        if (!useStore.getState().moveDraft) return
+        e.preventDefault()
+        useStore.getState().confirmMove()
+        if (!useStore.getState().moveDraft) clearMovePreview()
+        return
+      }
       if (e.key !== 'Escape') return
-      cancelActiveDrag()
+      if (cancelActiveDrag()) return
+      const st = useStore.getState()
+      if (st.signEditorFor !== null || st.signComposing) return
+      if (!st.moveDraft) return
+      st.cancelMove()
+      clearMovePreview()
     }
     window.addEventListener('keydown', onCancelKey)
     return () => window.removeEventListener('keydown', onCancelKey)
   }, [])
 
-  // A ghost belongs to a tool; leaving one must not strand a preview.
+  // A ghost belongs to a tool; leaving one must not strand a preview — and a piece
+  // in the air is put back where it came from, because a lift is not an edit and
+  // switching tools is not a way to lose one.
   useEffect(() => {
     hoverRef.current = null
     drag.current = null
@@ -766,12 +885,14 @@ export function Viewport(): React.ReactElement {
     zoneDrag.current = null
     facilityDrag.current = null
     setBuildMeasure(null)
+    useStore.getState().cancelMove(false)
     sceneRef.current?.setGhost([], 'add')
     sceneRef.current?.setGhost([], 'remove')
     sceneRef.current?.clearFaceGhost()
     sceneRef.current?.setCursor(null)
     sceneRef.current?.setModulePreview(null)
     sceneRef.current?.setFencePreview(null)
+    sceneRef.current?.setCollisionHighlight(null)
   }, [tool])
 
   // Rotating (R), switching the equipment, or cycling its width, direction or
@@ -869,12 +990,14 @@ export function Viewport(): React.ReactElement {
     if (!scene) return
     const st = useStore.getState()
     solidRef.current = new Set(station.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)))
-    // The board the editor is arranging, drawn where the sign it belongs to hangs.
-    const drawn =
-      st.signPreview === null
-        ? station
-        : { ...station, modules: station.modules.map((m) => signModuleWithPreview(m, st.signPreview)) }
-    scene.setStation(toData(drawn))
+    // The board the editor is arranging, drawn where the sign it belongs to hangs —
+    // and, for a piece 移动 has picked up, nothing at all: it is in the air,
+    // so the translucent ghost under the pointer is the only copy drawn.
+    const lifted = st.moveDraft?.module.id
+    const modules = station.modules
+      .filter((m) => m.id !== lifted)
+      .map((m) => signModuleWithPreview(m, st.signPreview))
+    scene.setStation(toData({ ...station, modules }))
     scene.setAutoCeiling(st.autoCeiling)
     scene.setLevel(st.activeZ, st.ghostOtherLevels)
     scene.setCutaway(st.cutaway)
@@ -885,7 +1008,19 @@ export function Viewport(): React.ReactElement {
       framedRef.current = true
       scene.setPreset('iso')
     }
-  }, [version, station, signPreviewId])
+  }, [version, station, signPreviewId, moveId])
+
+  // A lifted piece (移动) is drawn from its own ghost, so a fresh lift or an R while
+  // it is in the air rebuilds that ghost at once instead of waiting for the next
+  // pointer move. When the lift ends the ghost goes with it — and a cancel is not a
+  // commit, so nothing else has rebuilt the station to drop it: that is this effect's
+  // job, which is what makes the card's 取消 clear the piece on screen. `version` is in
+  // the list because a commit clears the ghost with the station (`setStation`), so an
+  // edit made while a piece is in the air — an undo, say — puts it back on screen.
+  useEffect(() => {
+    if (useStore.getState().moveDraft) refreshMovePreview()
+    else clearMovePreview()
+  }, [moveKey, version])
 
   // Keep the 3D selection box in step with the inspector's selection. A rebuild
   // re-applies it inside setStation, so this only has to run on the id itself.
@@ -912,6 +1047,33 @@ export function Viewport(): React.ReactElement {
     }
     const st = useStore.getState()
     const tool: Tool = st.tool
+    // 移动 (§9.5): a piece in the air owns the pointer, whichever tool was active
+    // when the 信息 card lifted it. A left press drops it at the pointer — aimed
+    // from the press itself, so a touch that never saw a pointer move still lands
+    // where it was tapped — and a right press puts it back where it came from.
+    // Both are the card's 确认 and 取消.
+    if (st.moveDraft) {
+      if (e.button === 2) {
+        e.preventDefault()
+        st.cancelMove()
+        clearMovePreview()
+        return
+      }
+      const liftHit = pickAt(e)
+      if (liftHit) {
+        hoverRef.current = {
+          cell: liftHit.cell,
+          place: liftHit.place,
+          solid: liftHit.solid,
+          point: [liftHit.point[0], liftHit.point[1]],
+        }
+        refreshMovePreview()
+      }
+      e.preventDefault()
+      st.confirmMove()
+      if (!useStore.getState().moveDraft) clearMovePreview()
+      return
+    }
     const hit = pickAt(e)
     if (!hit) return
     if (tool === 'select') {
@@ -920,7 +1082,7 @@ export function Viewport(): React.ReactElement {
         const pickedId = scene.pickModule(e.clientX, e.clientY)
         const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
         if (picked) removePlacedModule(picked)
-        else bulldoze(hit.cell, hit.place)
+        else bulldoze(hit.cell, hit.place, pickFacing())
         return
       }
       // A rail's bed is dug, so the ray lands on the block below or the work
@@ -960,13 +1122,15 @@ export function Viewport(): React.ReactElement {
           downTime: performance.now(),
         }
         if (mode === 'add') {
-          const { mods, blocked } = fenceRunPreview([hit.cell], st.moduleRot)
+          const { mods, blocked, colliderIds } = fenceRunPreview([hit.cell], st.moduleRot)
           scene.setGhost([], 'add')
           scene.setModulePreview(null)
           scene.setFencePreview(mods, blocked)
+          scene.setCollisionHighlight(blocked ? colliderIds : null)
           scene.setCursor(hit.cell, !blocked)
         } else {
           scene.setFencePreview(null)
+          scene.setCollisionHighlight(null)
           scene.setGhost([hit.cell], 'remove')
           scene.setCursor(hit.cell, true)
         }
@@ -978,7 +1142,7 @@ export function Viewport(): React.ReactElement {
       // `placeLift` checks. Right-click removes the shaft.
       if (st.moduleType === 'lift') {
         if (e.button === 2) {
-          bulldoze(hit.cell, hit.place)
+          bulldoze(hit.cell, hit.place, pickFacing())
           return
         }
         const shaft = moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2])
@@ -994,19 +1158,19 @@ export function Viewport(): React.ReactElement {
         if (isDecorType(st.moduleType)) {
           const rail = railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2])
           if (rail) {
-            bulldoze(hit.cell, hit.place)
+            bulldoze(hit.cell, hit.place, pickFacing())
             return
           }
           const pointed = moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2])
           if (pointed && pointed.type !== 'shop' && pointed.type !== 'booth' && pointed.type !== 'retail') {
-            bulldoze(hit.cell, hit.place)
+            bulldoze(hit.cell, hit.place, pickFacing())
             return
           }
           const room = facilityAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2])
           st.setNotice(room ? '货架要一个一个拆：点中货架再右键' : '这里没有可拆的装饰')
           return
         }
-        bulldoze(hit.cell, hit.place)
+        bulldoze(hit.cell, hit.place, pickFacing())
         return
       }
       placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]])
@@ -1057,7 +1221,7 @@ export function Viewport(): React.ReactElement {
           st.setNotice(`已拆掉${moduleLabel(fac.type)}`)
           return
         }
-        if (hit.solid) bulldoze(hit.cell, hit.place)
+        if (hit.solid) bulldoze(hit.cell, hit.place, pickFacing())
         return
       }
       // Both brushes are a long-press drag: the press holds the anchor, the
@@ -1184,6 +1348,7 @@ export function Viewport(): React.ReactElement {
           downTime: performance.now(),
         }
         scene.setModulePreview(fence ? null : picked, true)
+        scene.setCollisionHighlight(null)
         scene.setGhost(fence ? [[picked.x, picked.y, picked.z]] : [], 'remove')
         scene.setCursor([picked.x, picked.y, picked.z], true)
         return
@@ -1202,6 +1367,7 @@ export function Viewport(): React.ReactElement {
         downTime: performance.now(),
       }
       scene.setGhost(pendingCells([hit.cell], 'remove', solidRef.current), 'remove')
+      scene.setCollisionHighlight(null)
       scene.setCursor(hit.cell, true)
       return
     }
@@ -1256,11 +1422,24 @@ export function Viewport(): React.ReactElement {
     if (!hit) {
       hoverRef.current = null
       setBuildMeasure(null)
-      scene.setCursor(null)
-      scene.setModulePreview(null)
+      // A carried piece (移动) keeps its parked ghost: only where it is aimed, not
+      // whether it exists, depends on the pointer.
+      if (!useStore.getState().moveDraft) {
+        scene.setCursor(null)
+        scene.setModulePreview(null)
+        scene.setCollisionHighlight(null)
+      }
       return
     }
     const st = useStore.getState()
+    // 移动 again: while a piece is in the air every move only aims it. Nothing else
+    // the pointer could do — selecting, building, painting — happens until it is
+    // dropped or put back.
+    if (st.moveDraft) {
+      hoverRef.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1]] }
+      refreshMovePreview()
+      return
+    }
     if (st.tool === 'wall') {
       const d = drag.current
       if (d?.active) {
@@ -1304,6 +1483,7 @@ export function Viewport(): React.ReactElement {
             cells.push([mod.x, mod.y, mod.z])
           }
           scene.setModulePreview(null)
+          scene.setCollisionHighlight(null)
           scene.setGhost(cells, 'remove')
           scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
           return
@@ -1331,6 +1511,7 @@ export function Viewport(): React.ReactElement {
             .map((id) => st.station.modules.find((m) => m.id === id))
             .filter((m): m is Module => m !== undefined)
           scene.setGhost([], 'remove')
+          scene.setCollisionHighlight(null)
           scene.setModulePreview(mods, true)
           return
         }
@@ -1348,10 +1529,12 @@ export function Viewport(): React.ReactElement {
       const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
       if (picked) {
         scene.setGhost([], 'remove')
+        scene.setCollisionHighlight(null)
         scene.setModulePreview(picked, true)
         scene.setCursor([picked.x, picked.y, picked.z], true)
       } else {
         scene.setModulePreview(null)
+        scene.setCollisionHighlight(null)
         scene.setGhost(pendingCells([hit.cell], 'remove', solidRef.current), 'remove')
         scene.setCursor(hit.cell, hit.solid)
       }
@@ -1415,10 +1598,11 @@ export function Viewport(): React.ReactElement {
         const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
         if (d.mode === 'add') {
           const rot = fenceRotForLine(line) ?? st.moduleRot
-          const { mods, blocked } = fenceRunPreview(line, rot)
+          const { mods, blocked, colliderIds } = fenceRunPreview(line, rot)
           scene.setGhost([], 'add')
           scene.setModulePreview(null)
           scene.setFencePreview(mods, blocked)
+          scene.setCollisionHighlight(blocked ? colliderIds : null)
           scene.setCursor(dragging ? line[line.length - 1] : d.anchor, !blocked)
         } else {
           // Preview exactly the fence panels the release would lift.
@@ -1431,6 +1615,7 @@ export function Viewport(): React.ReactElement {
             cells.push([mod.x, mod.y, mod.z])
           }
           scene.setFencePreview(null)
+          scene.setCollisionHighlight(null)
           scene.setGhost(cells, 'remove')
           scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
         }
@@ -1523,6 +1708,7 @@ export function Viewport(): React.ReactElement {
         hoverRef.current = null
         scene.setCursor(null)
         scene.setModulePreview(null)
+        scene.setCollisionHighlight(null)
         return
       }
       hoverRef.current = { cell: hit.cell, place: hit.place, solid: true }
@@ -1672,6 +1858,7 @@ export function Viewport(): React.ReactElement {
     scene.setGhost([], 'add')
     scene.setModulePreview(null)
     scene.setFencePreview(null)
+    scene.setCollisionHighlight(null)
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
     const target = hit ? (d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell) : d.anchor
     const st = useStore.getState()
@@ -1708,6 +1895,10 @@ export function Viewport(): React.ReactElement {
         let next = st.station
         let placed = 0
         let blocked = 0
+        // Why the first refused cell was refused, so the notice names it instead of
+        // leaving the player to guess which rule fired (a void cell, a rail bed, or
+        // the piece already holding the space — a staircase's treads included).
+        let why = ''
         const seen = new Set<string>()
         for (const [x, y, z] of line) {
           const k = cellKey(x, y, z)
@@ -1719,17 +1910,33 @@ export function Viewport(): React.ReactElement {
           const floorHere = next.cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) || exitFloorAt(next.modules, x, y, z)
           if (!floorHere) {
             blocked++
+            why ||= '这格没有地板'
             continue
           }
-          if (placementBlocked(next.modules, mod) || placementOnTrack(next.cells, mod, next.modules)) {
+          if (placementOnTrack(next.cells, mod, next.modules)) {
             blocked++
+            why ||= '轨道上不能放围栏'
+            continue
+          }
+          if (placementBlocked(next.modules, mod)) {
+            blocked++
+            if (!why) {
+              const hit = moduleAt(next.modules, x, y, z)
+              why = hit ? `这格和${moduleLabel(hit.type, hit.type === 'shop' ? hit.cfg.kind : undefined)}重叠` : '这格放不下'
+            }
             continue
           }
           next = addEquipment(next, mod)
           placed++
         }
         if (placed > 0) st.commit(next)
-        if (blocked > 0) st.setNotice(placed > 0 ? `围栏放下了 ${placed} 段，${blocked} 格被挡住了` : '这儿放不下围栏，换个地方')
+        if (blocked > 0) {
+          st.setNotice(
+            placed > 0
+              ? `围栏放下了 ${placed} 段，${blocked} 格被挡住了${why ? `（${why}）` : ''}`
+              : `这儿放不下围栏：${why || '换个地方'}`,
+          )
+        }
       } else {
         const seen = new Set<string>()
         let next = st.station
@@ -1810,6 +2017,7 @@ export function Viewport(): React.ReactElement {
       st.removeRail(mod.id)
       st.select(null)
       sceneRef.current?.setModulePreview(null)
+      sceneRef.current?.setCollisionHighlight(null)
       return
     }
     // Facility rooms take their auto walls with them; the floor stays.
@@ -1820,11 +2028,20 @@ export function Viewport(): React.ReactElement {
     )
     st.select(null)
     sceneRef.current?.setModulePreview(null)
+    sceneRef.current?.setCollisionHighlight(null)
     st.setNotice(`已拆掉${moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined)}`)
   }
 
-  /** Right-click: remove the equipment standing on a cell, leaving the block. */
-  const bulldoze = (cell: [number, number, number], place?: [number, number, number]): void => {
+  /**
+   * Right-click: remove the equipment standing on a cell, leaving the block.
+   *
+   * The camera's own look direction is handed to `moduleAt`, because the one cell
+   * that can hold two pieces — a back-to-back 电视 pair — is a single object seen
+   * from two sides: without the direction the pick would fall back to the document's
+   * order, and a right-click would bulldoze whichever of the two happened to be
+   * listed first rather than the face under the pointer.
+   */
+  const bulldoze = (cell: [number, number, number], place?: [number, number, number], facing?: readonly [number, number]): void => {
     const st = useStore.getState()
     // A rail's bed is dug, so the module is found from the hit or the cell above.
     const rail =
@@ -1834,9 +2051,12 @@ export function Viewport(): React.ReactElement {
       removePlacedModule(rail)
       return
     }
-    const mod = moduleAt(st.station.modules, cell[0], cell[1], cell[2])
+    const mod = moduleAt(st.station.modules, cell[0], cell[1], cell[2], facing)
     if (mod) removePlacedModule(mod)
   }
+
+  /** The camera's look direction, for the cell-based picks that need it. */
+  const pickFacing = (): [number, number] | undefined => sceneRef.current?.pickFacing()
 
   const placeModule = (
     cell: [number, number, number],
@@ -1955,8 +2175,12 @@ export function Viewport(): React.ReactElement {
         onPointerLeave={() => {
           hoverRef.current = null
           setBuildMeasure(null)
+          // A piece in the air outlives the pointer: its ghost stays parked where it
+          // was aimed, so going to the 信息 card for 确认 does not take the aim away.
+          if (useStore.getState().moveDraft) return
           sceneRef.current?.setCursor(null)
           sceneRef.current?.setModulePreview(null)
+          sceneRef.current?.setCollisionHighlight(null)
           sceneRef.current?.setGhost([], 'remove')
           sceneRef.current?.clearFaceGhost()
         }}

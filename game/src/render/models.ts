@@ -34,8 +34,9 @@ import { fenceArms, railLandingAt, type FenceArms } from '../sim/fences.ts'
 import { gateHasLane, gateSolidFaces } from '../sim/gates.ts'
 import type { RampThin } from '../sim/openings.ts'
 import { LIFT_STEP, liftStopZs } from '../sim/lifts.ts'
-import { STAIR_WIDTH_NARROW, stairFlights, stairLaneMates, type StairLaneMate } from '../sim/stairs.ts'
+import { STAIR_WIDTH_NARROW, stairFlights, stairLaneMates, stairTreadTrim, stairWallSides, type StairLaneMate, type StairWallSides } from '../sim/stairs.ts'
 import { doorCentres, doorRunOffsets, STOCK, type Stock, type StockClass } from '../sim/stock.ts'
+import type { TvPairSlot } from '../sim/tvs.ts'
 import type { AdArt } from './adArt.ts'
 import type { Cell, Face, FinishId, Module, RoomKind, StationData, Vec3i } from '../sim/types.ts'
 
@@ -129,6 +130,14 @@ export interface ModelMaterials {
   shelfPanel: THREE.MeshStandardMaterial
   /** Base white material for the shelf goods; each instance tints it. */
   shelfGoods: THREE.MeshStandardMaterial
+  /**
+   * The 垃圾桶 front band: the 可回收物 loop and the 其它垃圾 mark, printed on a
+   * transparent ground so the brushed steel shows between them, the way the
+   * reference bin's stickers do.
+   */
+  binLabels: THREE.MeshBasicMaterial
+  /** The 灭火器箱 doors' white lettering (灭火器箱 / FIRE EXTINGUISHER BOX / 火119警). */
+  fireLabels: THREE.MeshBasicMaterial
   ledGreen: THREE.MeshBasicMaterial
   ledRed: THREE.MeshBasicMaterial
   glow: THREE.MeshBasicMaterial
@@ -357,6 +366,130 @@ function vendingBaseCanvas(): HTMLCanvasElement {
   return c
 }
 
+/**
+ * The 可回收物 Möbius loop: a triangle of three thick arrow strokes, each with a
+ * head at its end. Drawn rather than set from a font, because the mark is a
+ * symbol and every glyph that stands in for it is a different picture.
+ */
+function drawRecycleMark(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, colour: string): void {
+  const corner = (i: number): [number, number] => {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / 3
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)]
+  }
+  g.strokeStyle = colour
+  g.fillStyle = colour
+  g.lineWidth = r * 0.24
+  g.lineCap = 'butt'
+  for (let i = 0; i < 3; i++) {
+    const [ax, ay] = corner(i)
+    const [bx, by] = corner((i + 1) % 3)
+    // Each side is drawn short of both corners and finished with a head, so the
+    // three strokes read as one loop with a direction rather than a closed ring.
+    const t0 = 0.16
+    const t1 = 0.62
+    g.beginPath()
+    g.moveTo(ax + (bx - ax) * t0, ay + (by - ay) * t0)
+    g.lineTo(ax + (bx - ax) * t1, ay + (by - ay) * t1)
+    g.stroke()
+    const ang = Math.atan2(by - ay, bx - ax)
+    const ex = ax + (bx - ax) * t1
+    const ey = ay + (by - ay) * t1
+    const s = r * 0.34
+    g.beginPath()
+    g.moveTo(ex + Math.cos(ang) * s, ey + Math.sin(ang) * s)
+    g.lineTo(ex + Math.cos(ang + 2.4) * s, ey + Math.sin(ang + 2.4) * s)
+    g.lineTo(ex + Math.cos(ang - 2.4) * s, ey + Math.sin(ang - 2.4) * s)
+    g.closePath()
+    g.fill()
+  }
+}
+
+/**
+ * The 其它垃圾 mark: a lidded bin with a white arrow dropping into it — the
+ * "everything else" half of a two-stream pair, in black so it reads against the
+ * green loop beside it.
+ */
+function drawOtherWasteMark(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, colour: string): void {
+  g.fillStyle = colour
+  g.fillRect(cx - r * 0.55, cy - r * 0.72, r * 1.1, r * 0.2)
+  g.fillRect(cx - r * 0.16, cy - r * 0.94, r * 0.32, r * 0.16)
+  g.beginPath()
+  g.moveTo(cx - r * 0.44, cy - r * 0.44)
+  g.lineTo(cx + r * 0.44, cy - r * 0.44)
+  g.lineTo(cx + r * 0.3, cy + r * 0.86)
+  g.lineTo(cx - r * 0.3, cy + r * 0.86)
+  g.closePath()
+  g.fill()
+  g.fillStyle = '#ffffff'
+  g.fillRect(cx - r * 0.07, cy - r * 0.3, r * 0.14, r * 0.5)
+  g.beginPath()
+  g.moveTo(cx, cy + r * 0.64)
+  g.lineTo(cx - r * 0.21, cy + r * 0.24)
+  g.lineTo(cx + r * 0.21, cy + r * 0.24)
+  g.closePath()
+  g.fill()
+}
+
+/**
+ * The 垃圾桶's front band: the two waste marks the reference bin wears on its
+ * stainless lintel — 可回收物 in green on the left, 其它垃圾 in black on the right.
+ * Drawn on a transparent ground, so the brushed steel shows between and around
+ * them exactly as it does around the printed stickers they are.
+ */
+function binLabelCanvas(): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = 512
+  c.height = 128
+  const g = c.getContext('2d') as CanvasRenderingContext2D
+  drawRecycleMark(g, 128, 42, 34, '#1a9c4a')
+  drawOtherWasteMark(g, 384, 42, 30, '#20242b')
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillStyle = '#1a9c4a'
+  g.font = 'bold 28px "Microsoft YaHei", sans-serif'
+  g.fillText('可回收物', 128, 106)
+  g.fillStyle = '#20242b'
+  g.fillText('其它垃圾', 384, 106)
+  return c
+}
+
+/**
+ * The 灭火器箱's front lettering: the upper door's 灭火器箱 over its English gloss,
+ * and the lower door's 火119警 with the oversized emergency number the reference
+ * prints. Transparent, so the red steel of the doors keeps its own shading and
+ * only the white ink is a panel.
+ */
+function fireLabelCanvas(): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = 320
+  c.height = 400
+  const g = c.getContext('2d') as CanvasRenderingContext2D
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillStyle = '#ffffff'
+  g.font = 'bold 62px "Microsoft YaHei", sans-serif'
+  g.fillText('灭火器箱', 160, 60)
+  g.font = '19px "Arial Narrow", "Microsoft YaHei", sans-serif'
+  g.fillText('FIRE  EXTINGUISHER  BOX', 160, 122)
+  // 火119警: the small 火 and 警 flank the number, as the reference prints it.
+  const parts: Array<[string, number]> = [
+    ['火', 40],
+    ['119', 74],
+    ['警', 40],
+  ]
+  const widths = parts.map(([text, size]) => {
+    g.font = `bold ${size}px "Microsoft YaHei", sans-serif`
+    return g.measureText(text).width
+  })
+  let x = 160 - widths.reduce((a, b) => a + b, 0) / 2
+  for (let i = 0; i < parts.length; i++) {
+    g.font = `bold ${parts[i][1]}px "Microsoft YaHei", sans-serif`
+    g.fillText(parts[i][0], x + widths[i] / 2, 286)
+    x += widths[i]
+  }
+  return c
+}
+
 /** A platform-screen header: white, a line band, and the direction sticker. */
 function psdHeaderCanvas(colour: string, lineId: string, terminus: string): HTMLCanvasElement {
   const c = document.createElement('canvas')
@@ -554,6 +687,12 @@ export function createModelMaterials(): ModelMaterials {
     ),
     shelfPanel: new THREE.MeshStandardMaterial({ map: canvasTexture(128, 256, (g) => g.drawImage(shelfPanelCanvas(), 0, 0)), roughness: 0.6, metalness: 0.35 }),
     shelfGoods: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0.05 }),
+    // The 垃圾桶 / 灭火器 decorations' printed faces. Both are **transparent** decals
+    // rather than lit panels: the ink is white or coloured and everything else must
+    // let the brushed steel behind it through, or a bin would wear a grey band and a
+    // cabinet a red one over its own shading.
+    binLabels: new THREE.MeshBasicMaterial({ map: canvasTexture(512, 128, (g) => g.drawImage(binLabelCanvas(), 0, 0)), transparent: true, side: THREE.DoubleSide }),
+    fireLabels: new THREE.MeshBasicMaterial({ map: canvasTexture(320, 400, (g) => g.drawImage(fireLabelCanvas(), 0, 0)), transparent: true, side: THREE.DoubleSide }),
     ledGreen: new THREE.MeshBasicMaterial({ color: 0x48e08a }),
     ledRed: new THREE.MeshBasicMaterial({ color: 0xff5d47 }),
     glow: new THREE.MeshBasicMaterial({ color: 0xf7ecc8, side: THREE.DoubleSide }),
@@ -737,6 +876,16 @@ export interface ModuleContext {
    */
   tvPlate: (id: string, x: number, y: number) => THREE.Texture
   /**
+   * How one 电视 draws itself among the others on its cell: alone, or as one half
+   * of a back-to-back pair sharing a single housing (`sim/tvs.ts`). The caller
+   * holds the station's module list, which is the only thing that knows whether
+   * there is an opposite number beside it and which of the two hangs the pair.
+   *
+   * Omitted by a caller with no station behind it (a unit test), which reads as a
+   * lone 电视 — drawn exactly as it was before a pair could share a cell.
+   */
+  tvPairSlot?: (id: string) => TvPairSlot
+  /**
    * The lit face of one 指示牌, keyed by module id and **face**: a board's two
    * sides print their own boards — 正面 on the left face and 背面 on the right — so
    * a one-sided sign is one plate and a two-sided sign is two (`render/signFace.ts`
@@ -781,6 +930,10 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return placeLocal(buildCubicle(ctx.mats), mod)
     case 'sink':
       return placeLocal(buildSink(ctx.mats), mod)
+    case 'bin':
+      return placeLocal(buildBin(ctx.mats), mod)
+    case 'extinguisher':
+      return placeLocal(buildExtinguisher(ctx.mats), mod)
     case 'billboard':
       return buildBillboard(ctx, mod)
     case 'tv':
@@ -1070,6 +1223,83 @@ function buildSink(mats: ModelMaterials): THREE.Group {
   return g
 }
 
+/* ------------------------------------------- litter bin and extinguisher box */
+
+/**
+ * Litter bin (垃圾桶, 装饰): the reference stainless double bin — 0.88 × 0.42 m in
+ * plan and 0.95 m tall, the drawn height `FLAT_HEIGHT.bin` reserves.
+ *
+ * Two compartments share one stainless shell: the top rim is a front rail, a back
+ * rail and a centre bar around two recessed mouths, the front is open below the
+ * printed band with the divider and a slatted drain tray between the two bags, and
+ * a dark liner fills the shell so every opening reads as a cavity rather than as a
+ * face of a solid block. The front faces local −y, so the placement rotation aims
+ * the piece like any other equipment.
+ */
+function buildBin(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  const w = 0.88
+  const d = 0.42
+  const h = 0.95
+  // The shell: back and sides, standing on the cell's top face.
+  slab(g, mats.steel, 0, d / 2 - 0.025, h / 2, w, 0.05, h)
+  for (const x of [-w / 2 + 0.025, w / 2 - 0.025]) slab(g, mats.steel, x, 0, h / 2, 0.05, d, h)
+  // The dark liner: what the two mouths and the open front actually show.
+  slab(g, mats.darkSteel, 0, 0.02, 0.46, w - 0.12, d - 0.18, 0.84)
+  // A slatted drain tray over a dark base, and the divider the bags hang either side of.
+  slab(g, mats.black, 0, 0, 0.15, w - 0.12, d - 0.12, 0.02)
+  for (let i = 0; i < 5; i++) slab(g, mats.steel, -0.32 + i * 0.16, 0, 0.165, 0.1, d - 0.08, 0.015)
+  slab(g, mats.steel, 0, -0.02, 0.535, 0.05, d - 0.08, 0.75)
+  // The front band above the openings, carrying the two waste marks. It stands a
+  // few millimetres proud of the shell, so the printed decal is a plate on the
+  // steel rather than a face coplanar with it.
+  slab(g, mats.steel, 0, -d / 2 + 0.02, 0.83, w - 0.06, 0.05, 0.22)
+  plate(g, mats.binLabels, 0.76, 0.19, 0, -d / 2 - 0.008, 0.83, 0)
+  // The top rim, and the two recessed mouths it frames.
+  slab(g, mats.steel, 0, -0.19, 0.925, 0.82, 0.05, 0.05)
+  slab(g, mats.steel, 0, 0.19, 0.925, 0.82, 0.05, 0.05)
+  slab(g, mats.steel, 0, 0, 0.925, 0.07, 0.38, 0.05)
+  for (const x of [-0.2, 0.2]) slab(g, mats.black, x, 0, 0.888, 0.31, d - 0.1, 0.04)
+  return g
+}
+
+/**
+ * Fire-extinguisher cabinet (灭火器, 装饰): the reference red steel box, 0.70 ×
+ * 0.44 m in plan and 1.10 m tall including its four legs — the drawn height
+ * `FLAT_HEIGHT.extinguisher` reserves.
+ *
+ * The carcass rides a dark base plate on four corner legs, a lid overhangs it on
+ * every side, and the front is two red doors laid over a dark backing so the seam
+ * between them is a real groove; the upper door prints 灭火器箱 over its English
+ * gloss and the lower one 火119警, and a recessed handle sits on the +x side. The
+ * front faces local −y.
+ */
+function buildExtinguisher(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  const w = 0.7
+  const d = 0.44
+  const h = 1.1
+  const legH = 0.16
+  // Four corner legs, then the base plate they carry the carcass on.
+  for (const x of [-w / 2 + 0.06, w / 2 - 0.06]) {
+    for (const y of [-d / 2 + 0.06, d / 2 - 0.06]) slab(g, mats.exitRed, x, y, legH / 2, 0.05, 0.05, legH)
+  }
+  slab(g, mats.darkSteel, 0, 0, legH + 0.025, w, d, 0.05)
+  // The carcass, and the dark backing its two doors close over.
+  slab(g, mats.exitRed, 0, 0.01, 0.63, w, d - 0.02, 0.86)
+  slab(g, mats.black, 0, -d / 2 + 0.011, 0.63, w - 0.06, 0.017, 0.84)
+  // Two doors with a seam between them, then the overhanging lid.
+  slab(g, mats.exitRed, 0, -d / 2 - 0.0125, 0.88, w - 0.05, 0.025, 0.32)
+  slab(g, mats.exitRed, 0, -d / 2 - 0.0125, 0.47, w - 0.05, 0.025, 0.46)
+  slab(g, mats.exitRed, 0, 0, h - 0.025, w + 0.04, d + 0.04, 0.05)
+  // The recessed side handle: a dark well with the grip standing in it.
+  slab(g, mats.black, w / 2 + 0.0035, 0.05, 0.88, 0.009, 0.16, 0.07)
+  slab(g, mats.steel, w / 2 + 0.0125, 0.05, 0.88, 0.02, 0.12, 0.02)
+  // The lettering, printed on the doors' own red steel.
+  plate(g, mats.fireLabels, 0.64, 0.8, 0, -d / 2 - 0.027, 0.66, 0)
+  return g
+}
+
 /* -------------------------------------------------------- wall decoration */
 
 /**
@@ -1122,6 +1352,23 @@ function buildBillboard(ctx: ModuleContext, mod: Extract<Module, { type: 'billbo
 const LIT_STAND_OFF = 0.015
 
 /**
+ * How deep one 电视's panel is, either side of its own origin — the body of a single
+ * screen, and half the body of a back-to-back pair. The pair is exactly two of these
+ * and no more (`TV_PAIR_MARGIN` is the only slack), so a merged pair reads as two
+ * screens back to back in a slim housing rather than as a metre-deep box: two thin
+ * televisions, back to back.
+ */
+const TV_HALF_DEPTH = 0.05
+
+/**
+ * The seam between the two members of a pair, metres: their backing slabs stop this
+ * far short of the cell's mid-plane so the two bodies touch but do not coincide. It
+ * is also what a lone 电视 has always had between its backing and the screen centre,
+ * so the same arithmetic gives both bodies.
+ */
+const TV_PAIR_MARGIN = 0.01
+
+/**
  * Passenger-information screen (电视, 装饰): a slim dark bezel with a bright
  * screen, hung by two rods from the storey ceiling like the 指示牌. The floor top
  * is the local origin and the ceiling slab is one storey up (`LEVEL_STEPS`, 4 m =
@@ -1143,6 +1390,23 @@ const LIT_STAND_OFF = 0.015
  * television looks like. Both lit panes therefore ride the −y face of their backing
  * slab; putting one on the slab's centre line buries it, and the window then reads
  * as a black rectangle.
+ *
+ * **Two of them back to back are one piece of hardware.** A second 电视 on the same
+ * cell turned to face the other way (`sim/tvs.ts`) is drawn as a *pair*: one housing,
+ * one bezel, one pair of suspension rods, with a lit face each side — the concourse
+ * screen a passage walked both ways hangs overhead. The housing is **two panels
+ * thick** (`TV_HALF_DEPTH` either side of the cell's centre), because that is all the
+ * object is: two thin televisions stood against each other. It deliberately does not
+ * fill the cell — a metre-deep box reads as a chunk of concrete hung from the
+ * ceiling, which is not what the piece is.
+ *
+ * Drawing the two solo models instead is not merely twice the geometry: the housing
+ * is symmetric about its centre, so the two backings are left-half-coincident and the
+ * station board lands exactly coplanar with the far face of the opposite backing. The
+ * board then z-fights its neighbour and loses its outer 0.006 m to it
+ * (`test/tv-pair.test.mjs` measures both). The pair branch below is what removes that:
+ * each member's backing stops `TV_PAIR_MARGIN` short of the seam, and each lit face
+ * sits proud of the surface the two screens share.
  */
 function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THREE.Group {
   const g = new THREE.Group()
@@ -1153,19 +1417,43 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   const sh = 0.8
   const zc = 2.15 // screen centre above the floor top
   const ceiling = 3.0 // the storey ceiling underside
-  const depth = 0.1
-  // Suspension rods and their ceiling plates.
-  for (const x of [-0.42, 0.42]) {
-    slab(g, mats.steel, x, 0, (zc + sh / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + sh / 2) - 0.04)
-    slab(g, mats.darkSteel, x, 0, ceiling - 0.02, 0.16, 0.16, 0.04)
+  // A lone 电视 is one slim panel (0.1 m through). A pair is **two** of them back to
+  // back, not a box as deep as the cell: the two screens sit against each other and
+  // the housing is only as thick as the pair of them.
+  const slot: TvPairSlot = ctx.tvPairSlot?.(mod.id) ?? { hangs: true, depth: 0, rodId: mod.id }
+  const paired = slot.depth > 0
+  const bodyHalf = TV_HALF_DEPTH * (paired ? 2 : 1)
+  const depth = bodyHalf * 2
+  // Every lit pane prints on the local −y face, paired or not — that is the model the
+  // station has always had. **Which side of the cell that lands on is `placeLocal`'s
+  // job, not this one's**: the two members of a pair differ by a half-turn of `rot`,
+  // so the same local face and the same local offsets come out on opposite sides of
+  // the cell. Turning the panes here as well would cancel that half-turn and drop
+  // both screens on one side — see the `depth` note in `sim/tvs.ts`.
+  const surface = -bodyHalf
+  // One pane's own dark backing, spanning from the body's mid-plane out to the body's
+  // face less `TV_PAIR_MARGIN`. On a lone 电视 that is the 0.04 m slab it has always
+  // had; on a pair the two of them meet 0.02 m apart down the middle of the cell,
+  // where the shared housing hides the seam, instead of occupying each other's space.
+  const backingDepth = bodyHalf - TV_PAIR_MARGIN
+  const backingCentre = bodyHalf - backingDepth / 2
+  // Only the element that hangs the pair carries the suspension: one rod pair and
+  // one set of ceiling plates for the object, not two overlapping sets.
+  if (!paired || slot.hangs) {
+    for (const x of [-0.42, 0.42]) {
+      slab(g, mats.steel, x, 0, (zc + sh / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + sh / 2) - 0.04)
+      slab(g, mats.darkSteel, x, 0, ceiling - 0.02, 0.16, 0.16, 0.04)
+    }
   }
   // An open bezel frame around the screen, so the panel reads as a piece of
-  // hardware rather than a floating image. It is a true frame, so it shows on both
-  // sides — but the lit panes inside it only face the viewer.
-  const bw = 0.07
-  slab(g, mats.darkSteel, 0, 0, zc + sh / 2 + bw / 2, sw + 2 * bw, depth, bw)
-  slab(g, mats.darkSteel, 0, 0, zc - sh / 2 - bw / 2, sw + 2 * bw, depth, bw)
-  for (const x of [-(sw + bw) / 2, (sw + bw) / 2]) slab(g, mats.darkSteel, x, 0, zc, bw, depth, sh)
+  // hardware rather than a floating image. Drawn once for the pair: a second frame
+  // in the same cell would be coplanar with this one on all six faces.
+  if (!paired || slot.hangs) {
+    const bw = 0.07
+    slab(g, mats.darkSteel, 0, 0, zc + sh / 2 + bw / 2, sw + 2 * bw, depth, bw)
+    slab(g, mats.darkSteel, 0, 0, zc - sh / 2 - bw / 2, sw + 2 * bw, depth, bw)
+    for (const x of [-(sw + bw) / 2, (sw + bw) / 2]) slab(g, mats.darkSteel, x, 0, zc, bw, depth, sh)
+  }
 
   // The screen splits into exactly two regions that tile it: the board column on
   // the left, the content window on the right. Each is measured **from its own
@@ -1186,8 +1474,7 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   // Station board: one dark backing with the lit texture on its viewing face. The
   // pixels come from the scene (`ctx.tvPlate`), which is the only place that holds
   // the clock and the live train poses.
-  const plateDepth = depth - 0.02
-  slab(g, mats.black, boardX, 0, zc, boardW, plateDepth, boardH)
+  slab(g, mats.black, boardX, -backingCentre, zc, boardW, backingDepth, boardH)
   const plateTex = ctx.tvPlate(mod.id, mod.x + 0.5, mod.y + 0.5)
   // The plate canvas is the **whole screen** — the board column on the left and the
   // region the artwork covers on the right — because that is the surface
@@ -1201,7 +1488,7 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   plateTex.wrapS = THREE.ClampToEdgeWrapping
   plateTex.repeat.set(TV_POSTER_RECT.x, 1)
   plateTex.offset.set(0, 0)
-  const plateMesh = plate(g, new THREE.MeshBasicMaterial({ map: plateTex }), boardW, boardH, boardX, -(plateDepth / 2 + LIT_STAND_OFF), zc, 0)
+  const plateMesh = plate(g, new THREE.MeshBasicMaterial({ map: plateTex }), boardW, boardH, boardX, surface - LIT_STAND_OFF, zc, 0)
   plateMesh.renderOrder = 1
   plateMesh.userData.adStationPlate = mod.id
 
@@ -1209,21 +1496,20 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   // re-point this at another poster later, so the mesh is registered by role and
   // the module's frozen slug is only the opening frame.
   const winH = sh
-  const winDepth = depth - 0.02
-  slab(g, mats.black, winX, 0, zc, winW, winDepth, winH)
+  slab(g, mats.black, winX, -backingCentre, zc, winW, backingDepth, winH)
   const poster = posterFor(mod.cfg.poster)
   const face = ctx.ads.adFace(poster.slug, winW, winH)
-  // **In front of its own backing, and clear of it.** Both the board and the window
+  // **Proud of its own backing, and clear of it.** Both the board and the window
   // are slabs; a lit pane on the slab's centre line is buried in it, and one on the
   // slab's surface merely z-fights it — either way the window renders as a flat
   // black rectangle with no error anywhere. The pane goes half a slab out plus a
   // stand-off, the same relationship the 广告牌 uses for its poster.
-  const screen = plateOf(g, face.geometry, face.material, winX, -(winDepth / 2 + LIT_STAND_OFF), zc, 0)
+  const screen = plateOf(g, face.geometry, face.material, winX, surface - LIT_STAND_OFF, zc, 0)
   screen.renderOrder = 2
   screen.userData.adPoster = poster.slug
   screen.userData.adWindow = { x: winX, z: zc, w: winW, h: winH }
-  // Power / status light on the lower bezel.
-  plate(g, mats.ledGreen, 0.05, 0.05, sw / 2 - 0.09, -depth / 2 - 0.005, zc - sh / 2, 0)
+  // Power / status light on the lower bezel, on this element's own side.
+  plate(g, mats.ledGreen, 0.05, 0.05, sw / 2 - 0.09, surface - 0.005, zc - sh / 2, 0)
   g.userData.adScreen = screen
   return g
 }
@@ -1794,7 +2080,11 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
  * each run's own balustrade is the barrier between them. Two lanes of the *same*
  * wide flight are the exception — they drop the rail along the seam and run their
  * treads together, so a 2- or 3-lane stair reads as one wide flight with rails
- * only at its outer edges (`stairLaneMates`).
+ * only at its outer edges (`stairLaneMates`). So is a side a **wall hugs from
+ * bottom to top** (`stairWallSides`): the wall is the barrier there, so the
+ * flight keeps only the stringer it meets the wall with, and grows no handrail,
+ * rail posts or newel return of its own — a staircase in a stairwell is railed on
+ * its open side alone.
  */
 function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>): THREE.Group {
   const g = new THREE.Group()
@@ -1806,7 +2096,9 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
   // a newel in the middle of the platform.
   const outer = new Set([mod.from, mod.to].map((p) => `${p.x},${p.y},${p.z}`))
   const mates = stairLaneMates(ctx.data.modules, mod)
-  for (const f of flights) g.add(buildStairFlight(ctx.mats, surface, f.from, f.to, width, outer, mates))
+  for (const f of flights) {
+    g.add(buildStairFlight(ctx.mats, surface, f.from, f.to, width, outer, mates, stairWallSides(ctx.data.cells, f.from, f.to)))
+  }
   for (let i = 0; i + 1 < flights.length; i++) g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], width))
   return g
 }
@@ -1881,6 +2173,12 @@ function finishSlab(parent: THREE.Object3D, mat: THREE.Material, x: number, y: n
  * as one wide flight railed at its outer edges, while two stairs dropped
  * separately keep the rail down the middle between their joined steps. `local +y`
  * is `(-uy, ux)` in world space, which is how a world step becomes a local side.
+ *
+ * `walls` are the sides a wall hugs from bottom to top (`stairWallSides`), which
+ * keep their stringer but lose the handrail, its posts and its newel return: the
+ * wall is the barrier on that side, and a rail standing against it is the same
+ * balustrade drawn twice — the treads still stop at their own edge, so the
+ * stringer stays to meet the wall.
  */
 function buildStairFlight(
   mats: ModelMaterials,
@@ -1890,6 +2188,7 @@ function buildStairFlight(
   width: number,
   outer: ReadonlySet<string> = new Set(),
   mates: readonly StairLaneMate[] = [],
+  walls: StairWallSides = { left: false, right: false },
 ): THREE.Group {
   const lower = from.z <= to.z ? from : to
   const upper = from.z <= to.z ? to : from
@@ -1904,8 +2203,10 @@ function buildStairFlight(
   const half = width / 2
   // `joinSides` reach the cell edge so the steps meet; `openSides` go further and
   // give up their rail, because they are the same staircase as the lane there.
+  // `wallSides` give up only the rail, posts and return: a wall hugs them.
   const joinSides = new Set<number>()
   const openSides = new Set<number>()
+  const wallSides = new Set<number>()
   if (run > 1e-6) {
     const ux = dx / run
     const uy = dy / run
@@ -1915,6 +2216,10 @@ function buildStairFlight(
       joinSides.add(s)
       if (mate.sameFlight) openSides.add(s)
     }
+    // Local +y is the run's left (`-stairRight`), which is the side `walls.left`
+    // names; the sides are otherwise the same numbers the mates above are.
+    if (walls.left) wallSides.add(1)
+    if (walls.right) wallSides.add(-1)
   }
   const yLo = joinSides.has(-1) ? -0.5 : -half
   const yHi = joinSides.has(1) ? 0.5 : half
@@ -1923,7 +2228,9 @@ function buildStairFlight(
   // Trim half a landing cell at each end, so the treads start at the edge of the
   // floor the flight leaves and stop at the edge of the floor it reaches —
   // otherwise the top tread is coplanar with the landing slab and z-fights it.
-  const inner = Math.min(0.5, Math.max(0, (run - 0.4) / 2))
+  // Shared with `rampBodyBoxes`, which reserves exactly the tiles this sweeps, so
+  // a landing tile really is free floor in the collision model too.
+  const inner = stairTreadTrim(run)
   const stairRun = run - inner * 2
   if (stairRun < 0.2 || rise < 1e-3) {
     // Degenerate flight: a level platform, so the piece is never invisible.
@@ -1948,8 +2255,13 @@ function buildStairFlight(
   const slopeLen = Math.hypot(stairRun, rise)
   for (const s of [1, -1]) {
     if (openSides.has(s)) continue
+    // The stringer runs the incline on every side the flight keeps, a walled one
+    // included: the treads stop at their own edge, so the stringer is what meets
+    // the wall.
     const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), rise / 2 - 0.2, slopeLen + 0.12, 0.09, 0.32)
     beam.rotation.y = -theta
+    // A wall hugging this side is already the barrier: no handrail, no rail posts.
+    if (wallSides.has(s)) continue
     const rail = slab(g, mats.handrail, midX, s * (half + 0.07), rise / 2 + 0.95, slopeLen, 0.07, 0.07)
     rail.rotation.y = -theta
     for (let i = 0; i <= 2; i++) {
@@ -1966,10 +2278,11 @@ function buildStairFlight(
   soffit.rotation.y = -theta
   // The outer handrails level off at each landing and turn down into a newel
   // post on the floor, so a stair rail wraps round and reaches the ground instead
-  // of stopping dead above the last tread. `o` is the outward direction along the
-  // run: the lower landing is −x, the upper +x.
+  // of stopping dead above the last tread — a walled side has no rail to return.
+  // `o` is the outward direction along the run: the lower landing is −x, the
+  // upper +x.
   for (const s of [1, -1]) {
-    if (openSides.has(s)) continue
+    if (openSides.has(s) || wallSides.has(s)) continue
     const y = s * (half + 0.07)
     for (const o of [-1, 1]) {
       const end = o < 0 ? lower : upper
@@ -2195,7 +2508,7 @@ function buildWavyRoof(
  * runs actually placed (`exitRunOpenings`), so two runs descend side by side
  * under one roof.
  *
- * The house is built around the runs' own group (`exitSpan`): one full block of
+ * The house is built around the bay group (`exitSpan`): one full block of
  * floor at each end, so a 单向 is 3 blocks across, a 双向 4 and a 三向 5. Its
  * centre — `xc` — is the middle of that plan, which for an even width falls on a
  * cell boundary.
@@ -2203,7 +2516,7 @@ function buildWavyRoof(
 function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): THREE.Group {
   const mats = ctx.mats
   const g = new THREE.Group()
-  const { centre: xc, half: hw } = exitSpan(mod, ctx.data.modules)
+  const { centre: xc, half: hw } = exitSpan(mod)
   const W = hw * 2 // across the run group plus its side blocks
   const L = EXIT_L // enclosed part: local y ∈ [−2, +2]
   const H = EXIT_H // canopy height above the walk

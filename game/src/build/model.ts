@@ -5,7 +5,7 @@ import { finishOf, floorSpeed } from '../sim/finishes.ts'
 import { zoneIndex } from '../sim/zones.ts'
 import { carveRampOpenings } from '../sim/openings.ts'
 import { isTrackCell, reservedOpening } from '../sim/placement.ts'
-import { LEVEL_STEPS } from '../sim/constants.ts'
+import { LEVEL_STEPS, storeyBand } from '../sim/constants.ts'
 import { BILLBOARD_SPECS, billboardSpec, postersFor } from '../sim/billboards.ts'
 import { benchSpec } from '../sim/benches.ts'
 import { edgeCells, trackCells, trackOriginForCentre } from '../sim/track.ts'
@@ -123,6 +123,13 @@ export function createModule(
       return { id, type: 'cubicle', x, y, z, rot, cfg: {} }
     case 'sink':
       return { id, type: 'sink', x, y, z, rot, cfg: {} }
+    case 'bin':
+      // A litter bin (垃圾桶) and a fire-extinguisher cabinet (灭火器) are single
+      // free-standing decorations: no variant, no `cfg`, turned by the hover
+      // rotation like a shelf.
+      return { id, type: 'bin', x, y, z, rot, cfg: {} }
+    case 'extinguisher':
+      return { id, type: 'extinguisher', x, y, z, rot, cfg: {} }
     case 'billboard':
     case 'billboard-wide':
     case 'billboard-standard':
@@ -185,7 +192,7 @@ export function createModule(
       return liftModule({ x, y, z }, rot, id)
     case 'stair': {
       const style = 'straight' as StairStyle
-      const flights = stairFlightsFor({ x, y, z }, rot, style)
+      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW)
       return {
         id,
         type: 'stair',
@@ -201,9 +208,10 @@ export function createModule(
     case 'stair-straight':
     case 'stair-right90':
     case 'stair-left90':
-    case 'stair-right180': {
+    case 'stair-right180':
+    case 'stair-left180': {
       const style = type.slice('stair-'.length) as StairStyle
-      const flights = stairFlightsFor({ x, y, z }, rot, style)
+      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW)
       return {
         id,
         type: 'stair',
@@ -452,6 +460,18 @@ export function removeCells(state: StationState, remove: Array<[number, number, 
 export function removeModule(state: StationState, id: string): StationState {
   const modules = state.modules.filter((m) => m.id !== id)
   return modules.length === state.modules.length ? state : { ...state, modules }
+}
+
+/**
+ * Put a **moved** piece back into the station: the copy replaces the piece that
+ * shares its id where it already sits, so the module list keeps its order and
+ * nothing else is rebuilt. The piece never left the document — while it is in the
+ * air 移动 only stops *drawing* it — so a move is one replacement, and a
+ * single `Ctrl+Z` puts the piece back where it came from.
+ */
+export function replaceEquipment(state: StationState, moved: Module): StationState {
+  if (!state.modules.some((m) => m.id === moved.id)) return state
+  return { ...state, modules: state.modules.map((m) => (m.id === moved.id ? moved : m)) }
 }
 
 /** The elevator shaft standing in a column, if any. */
@@ -1061,19 +1081,24 @@ function isWallCell(c: Cell): boolean {
 }
 
 /**
- * The whole 墙-tool column through `(x, y, z)`: the contiguous run of wall cells
- * above and below the hit, whether the pointer landed on the base, the middle or
- * the top. An auto-generated wall answers too, so the tool can open a doorway in
- * an auto-wall ring. Empty when the cell is not a wall of either kind.
+ * The whole 墙-tool column through `(x, y, z)`, limited to the hit's own
+ * storey: the contiguous run of wall cells above and below the hit that share
+ * its `storeyBand`, whether the pointer landed on the base, the middle or the
+ * top. A stacked column across two storeys therefore lifts one storey at a
+ * time (at B1 that is `z..z+3`, e.g. -4..-1), and the top course that belongs
+ * to the storey above — an auto-wall ring's `z+4` roof — is left alone. An
+ * auto-generated wall answers too, so the tool can open a doorway in an
+ * auto-wall ring. Empty when the cell is not a wall of either kind.
  */
 export function wallColumnAt(state: StationState, x: number, y: number, z: number): Array<[number, number, number]> {
+  const band = storeyBand(z)
   const tagged = new Set<number>()
   for (const c of state.cells) if (c.x === x && c.y === y && isWallCell(c)) tagged.add(c.z)
   if (!tagged.has(z)) return []
   let a = z
-  while (tagged.has(a - 1)) a--
+  while (tagged.has(a - 1) && storeyBand(a - 1) === band) a--
   let b = z
-  while (tagged.has(b + 1)) b++
+  while (tagged.has(b + 1) && storeyBand(b + 1) === band) b++
   const out: Array<[number, number, number]> = []
   for (let zz = a; zz <= b; zz++) out.push([x, y, zz])
   return out

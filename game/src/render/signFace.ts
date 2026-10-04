@@ -23,7 +23,6 @@ import {
   PX_PER_METRE,
   SIGN_LINE_FALLBACK_COLOUR,
   SIGN_SIZE,
-  SIGN_TEXT_MAX,
   clampSignScale,
   estimateSignTextWidth,
   signContentBox,
@@ -47,8 +46,6 @@ const LATIN = '"Arial Narrow", "Helvetica Neue", Arial, sans-serif'
 
 /** Pale marks, exactly the reference board's ink. */
 const INK = '#f4f7fa'
-/** Characters past the label's limit, printed dimmed rather than dropped. */
-const INK_OVER = '#8a939c'
 /** The unlit ground of the board. */
 const BOARD = '#0d1116'
 /** The panel's steel frame. */
@@ -301,11 +298,15 @@ function drawLineBadge(
 }
 
 /**
- * A typed label: up to two lines of `SIGN_TEXT_MAX` (§5.8's 2 × 8). The first line
- * is the name (中文, large) and the second the gloss under it (English, small) —
+ * A typed label: 中文 up to `SIGN_TEXT_MAX`, its English gloss up to
+ * `SIGN_TEXT_EN_MAX` (§5.8 sizes the hanging sign 2 × 8; the gloss runs longer
+ * because it sets smaller). The first line is the name (中文, large) and the
+ * second the gloss under it (English, small) —
  * `SIGN_TEXT_EN_SCALE` is the one ratio the board, the tile preview and the
  * measurement all use. A label wider than the board is shrunk to the board rather
- * than clipped by it, and the characters past its line limit print dimmed.
+ * than clipped by it, and a label longer than its line limit is **truncated** by
+ * `signTextLines` before it ever reaches here — the editor's `maxLength` enforces
+ * the same limit, so only an imported save can carry an over-long row at all.
  *
  * `sizeM` is the **whole stack's** ink height, which is what `signInkSize` reports
  * for a label (one row's `signTextSize` × 1.15 per row). One row's own pitch is that
@@ -336,8 +337,10 @@ function drawText(g: CanvasRenderingContext2D, comp: Extract<SignComponent, { ki
     const top = box.y + box.h - (lines.length - i) * rowH
     const baseY = top + font + (rowH - font) * 0.5
     let cursor = box.x
-    for (const [ci, ch] of [...line].entries()) {
-      g.fillStyle = ci >= SIGN_TEXT_MAX ? INK_OVER : INK
+    // Nothing to dim past the limit: `signTextLines` (line 319) has already cut the
+    // row to it, so every character left belongs on the board.
+    g.fillStyle = INK
+    for (const ch of line) {
       g.fillText(ch, cursor, baseY)
       cursor += g.measureText(ch).width
     }

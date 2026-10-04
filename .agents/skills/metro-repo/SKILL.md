@@ -139,7 +139,20 @@ build/ →  sim/            (and neither render/ nor app/)
   reserves exactly the tile it stands in, so the cell beside it is free ground and
   `placementBlocked` needs no exemption for that pair (only a single piece wider
   than a cell — an old 1.6 m stair, or a 2–3 lane turning stair — reaches its
-  neighbour at all).
+  neighbour at all). A run met by **flat** equipment is measured by the body it
+  draws (`collisionBoxes` → `openings.ts` `rampBodyBoxes`) instead of by that
+  reservation: one box per tile, cut to the slope *at* that tile, and a stair's
+  treads stop half a landing cell short of each landing (`stairTreadTrim`). So a
+  stair's landing tiles and any slab the flight merely climbs *underneath* are
+  free ground — a 围栏, a 闸机 or a bench stands at the head of a well or over the
+  low half of a flight, which is how the demo guards each of its platform stairs —
+  while two runs still meet on the full envelope and can never share a landing. An
+  escalator is the exception that proves it: its truss, step band and balustrades
+  run landing centre to landing centre, so every tile of its run, landings
+  included, is its own.
+  A fence *on* a landing is read the same way as one beside it: the fence cell is
+  not a walkable node, so that flight drops out of the walk graph and fencing the
+  head of a stair really closes it off.
 * **A stair is lanes** (`sim/stairs.ts`, §5.1). Tab cycles one, two or three
   **lanes**, each exactly `ESCALATOR_BAND` (0.7 m) and each fitting one cell, so a
   wide stair is that many one-lane pieces the builder drops together.
@@ -154,7 +167,11 @@ build/ →  sim/            (and neither render/ nor app/)
   `cfg.flight` token, and only along a seam between lanes sharing it does the model drop
   the stringer, handrail and posts (rails then only at the outer edges) and does
   `sim/station.ts` leave out the balustrade wall, so the crowd may cross between lanes at
-  the landings. Two 0.7 m stairs dropped separately keep both of their own railings and
+  the landings. A side a **wall hugs from bottom to top** (`stairWallSides`) loses its
+  handrail, rail posts and newel return the same way — the wall is the barrier there — but
+  keeps its stringer, so a staircase in a stairwell is railed on its open side alone; the
+  wall must run the flight's whole length at the flight's own heights, or the rail stays.
+  Two 0.7 m stairs dropped separately keep both of their own railings and
   their walls, with their steps meeting between them; a lane against an *escalator* keeps
   its balustrade and does not reach under it. The hover ghost is built with its own pieces
   in the context (`setModulePreview`), so a wide stair previews as the one flight it will
@@ -162,7 +179,16 @@ build/ →  sim/            (and neither render/ nor app/)
   is one piece at the chosen width — its flights turn, so its landings cannot be
   shared lane by lane — and needs a bay of its own at 2–3 lanes. The lanes step
   along `stairRight(rot)`, the same "right of forward" a switchback's second
-  flight is offset by.
+  flight is offset by. The two **switchbacks** (`stair-right180` / `stair-left180`,
+  右 / 左双跑楼梯) lay that return flight one cell across per lane
+  (`stairSwitchbackOffset`), so the runs stand flush and the piece covers one block
+  per lane plus the one they share — 2 / 3 / 4 blocks at 0.7 / 1.4 / 2 m. The two
+  hands are two pieces, not one turned: **R** rotates the whole stair about its
+  base and never swaps the hand. A 180° turn lands on a **row**, not a shared
+  cell, so the crowd has to walk it: `sim/station.ts` cuts each flight's
+  balustrade wall off at the flight end that meets an interior landing
+  (`stairTurnConnectors`), because the 0.6 m over-run an outer landing keeps would
+  seal the landing's own cells apart and leave the two flights disconnected.
 * **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a
   2 × 2 m assembly with a 1.5 m carriage, dropped on a floor and serving the
   floor one storey up (`LIFT_RISE`); hovering its upper/lower half grows it a
@@ -186,9 +212,9 @@ build/ →  sim/            (and neither render/ nor app/)
 * **Placement** (`sim/placement.ts`): every module has a world footprint
   (`moduleEnvelope`); `placementBlocked` refuses overlaps with strict box tests
   (adjacent cells are fine), except that a stair/escalator may pass through an
-  exit head-house and room furniture (a shelf / desk / cubicle / sink / bench)
-  may stand inside a walled room or booth (`moduleAt` then answers with the
-  furniture, not the room). A 广告牌 is *wall-mounted*: `wallMountMissing`
+  exit head-house and room furniture (a shelf / desk / cubicle / sink / bench /
+  bin / 灭火器箱) may stand inside a walled room or booth (`moduleAt` then answers
+  with the furniture, not the room). A 广告牌 is *wall-mounted*: `wallMountMissing`
   refuses it unless the facing neighbour — turned by the placement rotation via
   `wallSide` — has a solid block at its first course (`z + 1`, exactly where auto
   walls and the 墙 tool start), and a two-cell banner needs a wall behind every
@@ -260,7 +286,7 @@ build/ →  sim/            (and neither render/ nor app/)
 ### Rendering and the app
 
 * `render/models.ts` builds all module geometry procedurally — turnstiles,
-  ticket machines, escalators (rolling step band via `rollEscalator`), the four
+  ticket machines, escalators (rolling step band via `rollEscalator`), the five
   stair shapes, exits, platform screen doors (printed header is FrontSide only, facing the platform read from `cfg.side`), rolling stock. **No image or GLB
   assets.** `render/materials.ts` is the shared procedural material kit;
   `render/chunkMesher.ts` emits one mesh part per finish. There are no named levels: the street is `z = 0` (`GROUND_Z` in `build/model.ts`), a storey is the fixed 4 m editing grid (`LEVEL_STEPS`/`storeyBand` in `sim/constants.ts`) — every solid cell belongs to the grid line at or below it, so a floor and its walls share a storey while a second floor one storey down keeps its own even when a wall column connects them — and the depth rail slices those bands (a plate with nothing below it stays on screen above the cut). The save carries no `levels` field; old saves load with it ignored.
@@ -277,13 +303,18 @@ build/ →  sim/            (and neither render/ nor app/)
   `toState`. Deleting a room takes its `cfg.auto` furniture but leaves
   hand-placed pieces.
 * The **装饰 folder** holds the free-standing, rotatable pieces — 座椅, 货架,
-  办公桌, 厕所隔间 and 洗手池 — plus 广告牌 (wall-mounted) and 电视 / 指示牌
+  办公桌, 厕所隔间, 洗手池, 垃圾桶 and 灭火器 — plus 广告牌 (wall-mounted) and 电视 / 指示牌
   (ceiling-hung). 座椅 is a nested sub-menu of four variants from `sim/benches.ts`:
   a plain stainless bench with no back and an upholstered seat with a back and
   arm rests, each 1 m or 2 m; the 2 m piece is a real two-cell run. 货架 draws a
   stocked supermarket gondola (perforated back panel, five shelves, price rails,
-  instanced goods). 广告牌 is a nested sub-menu of four formats (横版 / 竖版 /
-  方形 / 大横版) whose run length and poster aspect come from the shared
+  instanced goods). 垃圾桶 is the stainless double bin (`buildBin`: two recessed
+  mouths in one top rim, a centre divider, a slatted drain tray, one transparent
+  decal carrying 可回收物 and 其它垃圾), and 灭火器 is the red steel extinguisher
+  cabinet on four legs (`buildExtinguisher`: overhanging lid, two doors over a dark
+  seam, a recessed side handle, one white lettered decal over both doors). Both are
+  cosmetic — no server, no stop — and both count as room furniture. 广告牌 is a nested sub-menu of six formats
+  (横版 16:9 / 标准 2.25:1 / 大横版 16:9 / 长幅 3.75:1 / 竖版 0.7:1 / 方形 1:1) whose run length and poster aspect come from the shared
   `sim/billboards.ts` table, so the thumbnail, the collision envelope and the
   drawn housing cannot disagree. 电视 and 指示牌 hang by rods from the ceiling. The
   指示牌 prints a lit double-sided wayfinding board, so it reads from either side;
@@ -304,6 +335,26 @@ build/ →  sim/            (and neither render/ nor app/)
   between the text and the artwork, and text condensed by `1 / TV_POSTER_RECT.x`,
   with nothing in the console to say so. `test/tv-screen.test.mjs` pins the sampling
   as well as the depth and the tiling.
+  **Two 电视 may share one tile back to back** (`sim/tvs.ts`, `test/tv-pair.test.mjs`):
+  turned exactly 180° apart (`rot` two apart) the pair is one object — a housing **two
+  panels thick** (0.2 m through, `TV_HALF_DEPTH` either side of centre, *not* a
+  cell-filling box: a metre-deep one reads as concrete hung from the ceiling), one
+  bezel, one suspension, a lit face each side — and it is the one `placementColliders`
+  exemption that is not a pair of *different* kinds. A quarter-turn apart or facing the
+  same way is still refused. Drawing two solo models instead is visibly wrong, not just
+  wasteful: the housing is symmetric about its centre, so the two backings are
+  left-half-coincident and each station board lands exactly coplanar with the far face of
+  the opposite backing (it z-fights it and loses its outer 0.006 m). Which side a member
+  prints on is `placeLocal`'s job and **not** a field on the pair slot: both panes are
+  built on local −y, and the two members land on opposite sides purely because their
+  `rot` values differ by a half-turn — passing a direction as well rotates the same turn
+  twice and drops both screens on one side. `moduleAt` therefore takes the camera's look
+  direction (`scene.pickFacing`) so a right-click on either face takes the 电视 the
+  pointer is on. **A screen has a back**: `render/adArt.ts` mints poster materials
+  `FrontSide` (a double-sided poster prints through the backing slab it is bolted to, so
+  the piece shows content from behind and R cannot say which way it faces), and
+  `SceneRenderer.tintModuleGhost` doubles the sides of everything except a material the
+  model already made single-sided, so the placement ghost keeps a black back.
   Wall-mounted pieces must bolt to a
   wall (see `wallMountMissing`), and because that check is a function of `rot`
   alone the panel **turns itself** to face its wall (`autofaceWallMount`) — the
@@ -363,9 +414,11 @@ build/ →  sim/            (and neither render/ nor app/)
   clamped to the bay group: its upper landing on the
   street, its base one storey down toward the mouth, so the pointer positions the
   run on the floor the exit opens onto and the runs stay side by side. Turning
-  stairs are left un-snapped. A station saved on the old two-metre bays is still
-  read (`exitRunColumns`), so its house widens to cover its runs rather than
-  letting them poke through the glass.
+  stairs are left un-snapped. A head-house's plan is `cfg.bays` **alone** — one full
+  block of pad at each end, so 3 / 4 / 5 blocks across and no other width exists —
+  and `exitRunOpenings` walks the runs actually placed and keeps the ones that
+  fixed span covers, so the wellways and the interior dividers follow the runs
+  while the house never widens for one.
 * **View toggles and the bottom bar.** The level slice is `render/levelSlicing.ts` (pure, covered by
   `test/level-slicing.test.mjs`): **显示其他层** (`ghostOtherLevels`, default on) is all-or-nothing —
   off, the edited storey is the *only* thing drawn at every camera angle; on, the active storey stays
@@ -473,16 +526,20 @@ build/ →  sim/            (and neither render/ nor app/)
   ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (default on) instead of a separate 方块 tool.
 * The **装饰 kit** has landed (`sim/billboards.ts`, `sim/benches.ts`,
   `sim/placement.ts`, `render/models.ts`,
-  `game/test/shelf|desk|restroom|bench|sign.test.mjs`): 座椅 / 货架 / 办公桌 /
+  `game/test/shelf|desk|restroom|bench|decor|sign.test.mjs`): 座椅 / 货架 / 办公桌 /
   厕所隔间 / 洗手池 are free-standing, rotatable `bench`/`shelf`/`desk`/
-  `cubicle`/`sink` modules, a walled room stocks one per layout spot (migrated
+  `cubicle`/`sink` modules, and 垃圾桶 / 灭火器 joined them as the cosmetic
+  `bin` / `extinguisher` pieces (`game/test/decor.test.mjs`), a walled room stocks
+  one per layout spot (migrated
   once from the old drawn interior by `ensureRoomFurniture`, guarded by
   `cfg.stocked`; each store wall unit backs its panel onto its own wall).
   座椅 offers four variants from `sim/benches.ts` (stainless / backed × 1 m / 2 m),
   the 2 m run spanning two cells; 货架 draws a stocked supermarket gondola. 广告牌
   is wall-mounted (`wallMountMissing`) with the four formats sharing
   `sim/billboards.ts`; 电视 and the new 指示牌 are *ceiling-hung*
-  (`ceilingMountMissing`; the 指示牌 is lit double-sided, the 电视 single-sided). The 设备 folder's 货架 / 座椅 moved
+  (`ceilingMountMissing`; the 指示牌 is lit double-sided, the 电视 single-sided and —
+  two of them turned 180° apart on one tile — sharing a single two-panel-thick (0.2 m)
+  housing with a screen each side, `sim/tvs.ts` / `test/tv-pair.test.mjs`). The 设备 folder's 货架 / 座椅 moved
   out to a new 装饰 folder, and 楼梯 / 出入口 / 座椅 / 广告牌 are nested variant
   sub-menus.
 * The **围栏 kit** has landed (`sim/fences.ts`, `sim/station.ts`,
@@ -593,6 +650,23 @@ build/ →  sim/            (and neither render/ nor app/)
   opening tests keep their controlled knobs; `demo.test.mjs` guards that the
   shipped save is one connected circulation that actually boards and clears a
   crowd.
+  **Refreshing it** (the author keeps editing the station): `动物园.metro.json` is
+  a `metro-save` v1 *envelope* — `{format, formatVersion, gameVersion, savedAt,
+  name, seed, static}`, where `static` carries `cells` / `modules` / `lines` — while
+  the shipped file is the bare station document. So take `name`, `seed` and the
+  three `static` arrays, `JSON.stringify` the lot on **one line** with no trailing
+  newline and write it as UTF-8; for the current save that is byte-identical to
+  `JSON.stringify(toData(parse(save)))`, because `toState` finds nothing to migrate
+  (a save it *does* migrate would need the migrated form written instead). **Then
+  drop any cell that is not on the 1 m grid** — the author's saves carry a handful
+  (19 in the 2026-10 one) of fractional-coordinate blocks an old bug left behind,
+  which no tool can address and which draw as offset junk, so the shipped file is
+  11305 cells where the save has 11324. After a
+  refresh, re-check `reference-station.ts`'s header comment — it names the
+  station's levels, lifts, stairs, escalators, rooms and exits — plus the demo
+  facts `placement.test.mjs` pins (the two straight platform stairs, and which
+  panels the save already ships on their wells), and that `demo.test.mjs` still
+  passes.
 * The **材质 brush keeps its mode.** `N` 单块 / `M` 整面 are the 材质 folder's own setting
   (`store.ts` `paintBaseMode`), not a property of a tile: clicking a finish tile — or a fresh
   搪瓷板 colour, which now reaches the brush in the same click instead of the previous render's
@@ -644,9 +718,12 @@ build/ →  sim/            (and neither render/ nor app/)
   rotation and 自动 origin ignored, variant matched, so a 2 m 座椅 never takes the
   1 m ones and a 闸机 row never takes the 售票机 at its end — sampling the path
   between pointer events so a fast flick skips none, and the release bulldozes the
-  run in **one** commit (one Ctrl+Z puts it back). Rooms, rails, 出入口, ramps, lifts
-  and screen doors are never swept — one piece, own teardown — and 围栏 keeps its
-  straight-run drag. `sweep.ts` is the one app module written browser-free so Node can
+  run in **one** commit (one Ctrl+Z puts it back). Rooms, rails, 出入口, 楼梯,
+  screen doors and 围栏 are never swept — one piece, own teardown — while a bank of
+  **escalators** or of **lift** shafts does sweep, each strictly inside its own
+  family (an escalator never takes a lift); that pair is a deliberate divergence
+  from §9.5, which lists both as unsweepable, and `test/sweep.test.mjs` is where
+  the decision is written down. `sweep.ts` is the one app module written browser-free so Node can
   import it; `game/test/sweep.test.mjs` pins it.
 * The **广告牌 / 电视 posters are a catalogue, cropped never stretched**
   (`sim/billboards.ts` `AD_POSTERS`, `render/adArt.ts`, `render/panelUv.ts`). Twelve
@@ -659,6 +736,44 @@ build/ →  sim/            (and neither render/ nor app/)
   catalogue, the crop and the UVs; `tools/render-tv-plate.mjs` and
   `tools/render-sign-panel.mjs` print the real draw functions to PNG for looking at
   rather than asserting.
+* A **stair needs no handrail on a side a wall hugs from bottom to top**
+  (`stairWallSides` in `sim/stairs.ts`, `buildStairFlight` in `render/models.ts`,
+  `game/test/stairs.test.mjs` + `bay.test.mjs`). The check reads each cell of the
+  run at the height the flight is at when it passes it, and reads **solids**, not
+  `wall` tags: the top course of a stairwell's wall is usually the floor slab above
+  it, and all five stairs in the 动物园 demo are hugged by at least one untagged
+  block (the two straight platform stairs by nothing else). The wall must run the
+  whole flight, so a wall that stops at the
+  half-landing, a stump beside the bottom steps or a doorway through one course
+  leaves the rail on. The rail, its posts and its newel return go; the stringer
+  stays, so the flight still meets the wall.
+* The **移动 action moves a placed 设备 / 装饰 piece** (`sim/placement.ts`
+  `isMovableModule` / `movedModule` / `moveCandidate` / `moveDropReason`,
+  `build/model.ts` `replaceEquipment`, `app/store.ts` `moveDraft`, `app/App.tsx`
+  the `信息` card, `game/test/move.test.mjs`). It is deliberately **neither a tool
+  nor a second panel**: the piece is already selected (选择), so the way in is the
+  right inspector's `信息` card — pressing `移动` there lifts the selected piece —
+  and *that same card* turns into the move's whole control surface while the piece is
+  in the air, with `确认` / `取消` exactly where `移动` was, over the cell the drop
+  would use and the rule a refused cell broke (there is no bottom bar). The lift then
+  owns the pointer whatever tool is active, because a lift is a state of the *piece*,
+  not a mode (the active tool is left alone). It stops being *drawn* where it stood
+  and rides the pointer as the translucent ghost a fresh placement shows, **R**
+  turning it in the air. A lift is **not an edit** — the piece keeps its id and its
+  whole `cfg` (a 指示牌's printed boards, a 闸机's lane, a 广告牌's frozen poster) and
+  never leaves the document, so nothing reaches the undo stack and `取消` has nothing
+  to restore — and the drop is **one** commit (one `Ctrl+Z`), refused by the same
+  rules a fresh placement answers to (floor under every cell, no track bed, nothing in
+  the space, a wall for a 广告牌, a ceiling for a 指示牌 / 电视), asked of a piece that
+  already exists so the copy at its origin is never the obstacle. The three ways out
+  are a left press on the ground, the card's 确认 (or `Enter`), and 取消 / `Esc` / a
+  right press, which puts the piece back; switching tools mid-lift also puts it back.
+  A ghost carries a private id (`MOVE_GHOST_ID`), because a 指示牌's printed plate and
+  a 电视's station plate are cached per module id and a preview may only dispose what
+  it minted itself. Structural pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms, 轨道 / 站台门 —
+  are refused (the card's button is disabled and says why), by the same rule that keeps
+  删除 from sweeping one: a translation would strand the openings they carved and the
+  geometry derived from them.
 
 ## Deploy (Cloudflare Workers)
 
@@ -682,6 +797,11 @@ cd game
 npm test          # node --test "test/**/*.test.mjs"
 npm run typecheck
 ```
+
+If the runner cannot spawn a child process per file (a confined sandbox reports
+`spawn EPERM`), run it in one process instead — same tests, same result:
+`node --test --test-isolation=none "test/**/*.test.mjs"`. A Vite `build` may be
+blocked the same way; `tsc --noEmit` is the gate you can always run.
 
 Tests import `src/sim/*.ts` directly (and `src/build/rail.ts` for the rail
 suite). When you add behaviour to the sim, add a focused `.test.mjs` beside the

@@ -131,7 +131,37 @@ test('a fence treats a stair or escalator landing as a neighbour', () => {
   assert.equal(railLandingAt([], 0, 0, 0), false)
 })
 
-/* ------------------------------------------------------------ joint geometry */
+test('a fence on a landing closes the flight it stands on', () => {
+  // A stair's landing tile is free ground for a fence (its treads stop at the
+  // landing edge, `rampBodyBoxes`), which is how the head of a well is guarded —
+  // and because the landing is the flight's graph node, the run is then *closed*:
+  // the flight is dropped rather than left dangling, so a barrier across the top
+  // step really does shut the stair.
+  const cells = [
+    { x: 0, y: 0, z: 0, fill: 'solid' },
+    { x: 0, y: 6, z: 4, fill: 'solid' },
+  ]
+  const stair = createModule('stair-straight', 0, 0, 0, 's', 0)
+  assert.ok(stair)
+  const guard = fence(0, 6, 4, 0, 'guard')
+  assert.equal(placementBlocked([stair], guard), false, 'the landing takes the panel')
+  const open = buildGraph({ name: 't', seed: 1, cells, modules: [stair], lines: [] })
+  const bottom = open.nodeIndex.get('0,0,0')
+  const top = open.nodeIndex.get('0,6,4')
+  assert.notEqual(bottom, undefined)
+  assert.notEqual(top, undefined)
+  const edgesFrom = (g, a) => {
+    const out = []
+    for (let e = g.adjStart[a]; e < g.adjStart[a + 1]; e++) out.push(g.nodeKey[g.adjTo[e]])
+    return out
+  }
+  assert.deepEqual(edgesFrom(open, bottom), ['0,6,4'], 'the flight is the way up')
+  const shut = buildGraph({ name: 't', seed: 1, cells, modules: [stair, guard], lines: [] })
+  assert.equal(shut.nodeIndex.get('0,6,4'), undefined, 'the fenced landing is no node')
+  assert.deepEqual(edgesFrom(shut, shut.nodeIndex.get('0,0,0')), [], 'and the flight is gone')
+})
+
+
 
 const arms = (rot, e, w, n, s) => fenceArms(rot, { e, w, n, s })
 

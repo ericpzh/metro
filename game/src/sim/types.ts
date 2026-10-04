@@ -178,10 +178,12 @@ export type BenchVariant = 'steel-1' | 'steel-2' | 'seat-1' | 'seat-2'
 /**
  * A staircase's plan shape (§5.1). A stair always climbs exactly one storey;
  * the style decides how the flights turn. `straight` is one run, the `90`
- * styles climb one flight, turn, then climb a second, and `right180` is a
- * switchback: two parallel flights with a half-landing between them.
+ * styles climb one flight, turn, then climb a second, and the `180`s are
+ * switchbacks: two parallel flights with a half-landing between them, which
+ * differ only in the hand the return flight is on — `right180` turns the run
+ * back on its right, `left180` on its left.
  */
-export type StairStyle = 'straight' | 'right90' | 'left90' | 'right180'
+export type StairStyle = 'straight' | 'right90' | 'left90' | 'right180' | 'left180'
 
 /** One flight of a stair: a straight run of treads from one landing to the next. */
 export interface StairFlight {
@@ -267,6 +269,22 @@ export type Module =
    */
   | (ModuleBase & { type: 'sink'; cfg: { auto?: boolean } })
   /**
+   * A litter bin (垃圾桶, 装饰): the stainless double bin of the reference — two
+   * compartments under one stainless top, a dark liner behind an open front with
+   * a centre divider and a perforated drain tray, and the 可回收物 / 其它垃圾 marks
+   * printed on the front band above the openings. A free-standing floor piece
+   * that turns with the placement rotation like any equipment, and purely
+   * cosmetic: it is no server and no stop, so it never changes the crowd.
+   */
+  | (ModuleBase & { type: 'bin'; cfg: Record<string, never> })
+  /**
+   * A fire-extinguisher cabinet (灭火器, 装饰): the red steel box on four legs of
+   * the reference — a slight lid overhang, a two-door front carrying 灭火器箱 /
+   * FIRE EXTINGUISHER BOX over 火119警 in white, and a recessed side handle.
+   * Free-standing and rotatable; cosmetic, like the bin.
+   */
+  | (ModuleBase & { type: 'extinguisher'; cfg: Record<string, never> })
+  /**
    * Wall-mounted decoration (装饰): a lightbox advertisement (广告牌). It is fixed
    * to the wall block behind it — the placement rotation names which face — so it
    * may only be dropped on a floor cell with a solid block at the first course of
@@ -281,10 +299,16 @@ export type Module =
    */
   | (ModuleBase & { type: 'billboard'; w: number; cfg: { variant: BillboardVariant; poster?: string } })
   /**
-   * An advertising screen (电视, 装饰): a screen playing ads, hung by rods from
-   * the storey ceiling like the 指示牌 and readable from both faces, so it is
-   * ceiling-mounted (`ceilingMountMissing`), not fixed to a wall. `cfg.poster`
-   * is the frozen slug it prints, exactly like a billboard's.
+   * A passenger-information screen (电视, 装饰): the station board and the network
+   * feed's window over one tile, hung by rods from the storey ceiling, lit on one
+   * face. It is ceiling-mounted (`ceilingMountMissing`), not fixed to a wall.
+   * `cfg.poster` is the opening frame the content window plays; the scene re-points
+   * that window at another catalogue poster on its own cadence.
+   *
+   * Two of them may share one tile turned to face **opposite** ways
+   * (`sim/tvs.ts`): back to back they are one object — a single housing with a
+   * screen each side — so the pair is exempt from the usual one-piece-per-cell
+   * rule and `render/models.ts` draws the shared housing once.
    */
   | (ModuleBase & { type: 'tv'; cfg: { poster?: string } })
   /**

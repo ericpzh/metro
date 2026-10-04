@@ -2,8 +2,9 @@
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0). It is a real
 // five-level station: surface plaza, a concourse/mezzanine, and a stacked
 // two-level platform (up track at z = -16, down at z = -12) served by two lifts,
-// four stairs and thirteen escalators, with a store, an office and a gated
-// fare line.
+// five stairs and fourteen escalators, with a store, an office, two ticket
+// booths and a gated fare line. Two head-houses feed the concourse — a covered
+// C口 and an open B口 — and the line's up direction runs to 文冲.
 //
 // The raw document lives beside this file as `demo-station.json` so it is not
 // hand-edited; `referenceStation()` hands back a fresh clone each call, because

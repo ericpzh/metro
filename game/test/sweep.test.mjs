@@ -66,7 +66,7 @@ test('every 设备 / 装饰 type a sweep may collect is listed', () => {
   // The list is deliberately explicit: adding a palette piece without deciding
   // its teardown leaves it un-sweepable (a safe default), and this test is where
   // that decision is written down.
-  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'billboard', 'tv', 'sign']
+  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'bin', 'extinguisher', 'billboard', 'tv', 'sign']
   for (const type of sweepable) {
     const mod = { id: `m-${type}`, type, x: 0, y: 0, z: 0, cfg: {} }
     const family = sweepFamily(mod)

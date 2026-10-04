@@ -140,6 +140,10 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'cubicle', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'sink':
       return { id, type: 'sink', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'bin':
+      return { id, type: 'bin', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'extinguisher':
+      return { id, type: 'extinguisher', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'billboard-wide':
     case 'billboard-standard':
     case 'billboard-large':
@@ -189,6 +193,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       return sampleStair('right90')
     case 'stair-right180':
       return sampleStair('right180')
+    case 'stair-left180':
+      return sampleStair('left180')
     default:
       return null
   }
@@ -196,7 +202,11 @@ function sampleModule(id: string, station: StationData): Module | null {
 
 function sampleStair(style: StairStyle) {
   const base: Vec3i = { x: 0, y: 0, z: 0 }
-  const flights = stairFlightsFor(base, 0, style)
+  // The sample is drawn a shade wider than one lane so a wide flight and a
+  // switchback's two runs both read in the tile; the flights are built at that
+  // same width, so a switchback's return run is laid as far across as the model.
+  const width = 1.6
+  const flights = stairFlightsFor(base, 0, style, width)
   return {
     id: `stair-${style}`,
     type: 'stair' as const,
@@ -205,7 +215,7 @@ function sampleStair(style: StairStyle) {
     z: 0,
     from: flights[0].from,
     to: flights[flights.length - 1].to,
-    cfg: { width: 1.6, style, flights },
+    cfg: { width, style, flights },
   }
 }
 
