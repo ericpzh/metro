@@ -54,3 +54,16 @@ test('the demo boots at the authored time with a fresh floor', () => {
   assert.equal(w.pool.count, 0, 'the demo should open empty')
   assert.equal(w.simTime, REFERENCE_BOOT.startSeconds, 'the demo should open at its authored time')
 })
+
+test('the shipped demo carries no cell off the 1 m grid', () => {
+  // The author's own save arrived with 19 (fractional coordinates, no tags, no
+  // module standing on them). No tool in the game can mint one — or remove one,
+  // since a pick snaps to integers and `removeCells` matches an exact coordinate —
+  // so a save is the only way they can appear, and they must not be shipped.
+  // `toState` drops them on load (`save.test.mjs`); this is the guard on the file
+  // itself, which `referenceStation()` hands out raw.
+  const stray = referenceStation().cells.filter(
+    (c) => !Number.isInteger(c.x) || !Number.isInteger(c.y) || !Number.isInteger(c.z),
+  )
+  assert.deepEqual(stray, [], `${stray.length} off-grid cells in the demo save`)
+})

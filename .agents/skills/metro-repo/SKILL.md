@@ -657,11 +657,15 @@ build/ →  sim/            (and neither render/ nor app/)
   three `static` arrays, `JSON.stringify` the lot on **one line** with no trailing
   newline and write it as UTF-8; for the current save that is byte-identical to
   `JSON.stringify(toData(parse(save)))`, because `toState` finds nothing to migrate
-  (a save it *does* migrate would need the migrated form written instead). **Then
-  drop any cell that is not on the 1 m grid** — the author's saves carry a handful
-  (19 in the 2026-10 one) of fractional-coordinate blocks an old bug left behind,
-  which no tool can address and which draw as offset junk, so the shipped file is
-  11305 cells where the save has 11324. After a
+  (a save it *does* migrate would need the migrated form written instead). **Off-grid
+  cells are not a problem to fix by hand**: the author's saves carry a handful of
+  blocks at fractional coordinates (19 in the 2026-10 one) which no tool can address
+  and which draw as offset junk, and `toState` now drops them on load
+  (`build/model.ts` `isGridCell`), so opening and re-saving the station cleans it —
+  the shipped file is nonetheless kept clean, at 11305 cells where the save has
+  11324, and `demo.test.mjs` fails if one ever arrives. Nothing in the game can
+  *mint* one (see the `toState` note in the module map); they only ever come from
+  outside it. After a
   refresh, re-check `reference-station.ts`'s header comment — it names the
   station's levels, lifts, stairs, escalators, rooms and exits — plus the demo
   facts `placement.test.mjs` pins (the two straight platform stairs, and which

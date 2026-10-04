@@ -383,11 +383,29 @@ export interface StationState {
   lines: StationData['lines']
 }
 
+/**
+ * True when a cell sits on the 1 m editing grid.
+ *
+ * Every build command takes its coordinates from a pick — which floors the ray
+ * hit (`scene.pick`) — or from whole-cell arithmetic, so **the game cannot mint a
+ * cell off the grid**; a save is the only place one can appear, and one that did
+ * (the author's own station carried 19) is invisible to every tool: a pick snaps
+ * to integers, `removeCells` matches an exact coordinate, the graph gives it a
+ * degree-0 node and the mesher draws it as a block offset from its neighbours.
+ * `toState` therefore drops them on the way in.
+ */
+export function isGridCell(c: { x: number; y: number; z: number }): boolean {
+  return Number.isInteger(c.x) && Number.isInteger(c.y) && Number.isInteger(c.z)
+}
+
 export function toState(data: StationData): StationState {
   const state: StationState = {
     name: data.name,
     seed: data.seed,
-    cells: data.cells.map(cloneCell),
+    // Off-grid cells are dropped here, where every load path passes: they are
+    // unreachable junk no tool can address, so a station that keeps them can
+    // never be cleaned from inside the game.
+    cells: data.cells.filter(isGridCell).map(cloneCell),
     // A save written before ad screens carried a poster (or the demo) gets one
     // printed now, so a loaded station shows the same campaign on every frame
     // instead of re-rolling it at draw time.
