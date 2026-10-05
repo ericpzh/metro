@@ -5,7 +5,7 @@
 import { useEffect } from 'react'
 import { useStore, isEscalatorType, isGateType, isRotatableType, isStairType } from '../store.ts'
 import { LeftRail } from '../LeftRail.tsx'
-import { Viewport } from '../Viewport.tsx'
+import { Viewport, isTypingTarget } from '../Viewport.tsx'
 import { SignEditor } from '../SignEditor.tsx'
 import { TopBar } from './topbar/TopBar.tsx'
 import { Inspector } from './inspector/Inspector.tsx'
@@ -24,12 +24,23 @@ export function App(): React.ReactElement {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const st = useStore.getState()
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (isTypingTarget(e.target)) return
       // While the 指示牌 board editor is up it owns the keyboard: Space, R, Tab and
       // Delete all mean something to the board being composed, not to the station
       // behind it. Its own Delete binding lives on the board (SignEditor).
       if (st.signEditorFor !== null || st.signComposing) return
+      // 沉浸 is one more view angle, not a mode of its own: every shortcut keeps
+      // the meaning it has in the iso, plan, front and side views (Space pauses,
+      // V/B/F/G/J/P/L pick tools, R turns the piece being placed, Q/E step the
+      // storey, 1/2/4/5 are the other presets). Only one is its own — **Esc**
+      // leaves, so the way out is never more than one key away from inside the
+      // room. **K** toggles it, in the shortcut switch below with every other
+      // view toggle.
+      if (st.immersion && e.key.toLowerCase() === 'escape') {
+        e.preventDefault()
+        st.setImmersion(false)
+        return
+      }
       // Ctrl shortcuts for the top-bar icon actions (shown in their tooltips).
       // Handled before the single-letter tool keys so Ctrl+N never also grabs
       // the 材质 brush, etc.
@@ -72,7 +83,7 @@ export function App(): React.ReactElement {
           // always toggle. Otherwise Space right after clicking 4× would just
           // re-press 4× instead of pausing.
           e.preventDefault()
-          if (tag === 'BUTTON') (e.target as HTMLElement).blur()
+          if ((e.target as HTMLElement)?.tagName === 'BUTTON') (e.target as HTMLElement).blur()
           st.setPlaying(!st.playing)
           break
         case 'v':
@@ -147,10 +158,16 @@ export function App(): React.ReactElement {
         case 'h':
           st.setAutoCeiling(!st.autoCeiling)
           break
+        // 隐藏UI and 沉浸 both want the editing lattice gone, and the 视图 folder
+        // gives each its own tile: U takes the lattice, K stands the eye in the
+        // room (`render/scene/systems/GridSystem.ts` `gridVisible`).
         case 'u':
-          // 隐藏UI: the drawing lattice, not the interface — see the 视图 folder's
-          // 隐藏UI tile and `render/scene/systems/GridSystem.ts`.
           st.setHideUI(!st.hideUI)
+          break
+        case 'k':
+          // 沉浸: the camera stands an eye inside the station at the angle the
+          // player was holding — the interface stays.
+          st.setImmersion(!st.immersion)
           break
         case 'o':
           st.setOrtho(!st.ortho)

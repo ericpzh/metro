@@ -451,25 +451,93 @@ and the depth test drops it: the ghost shows exactly where it does not block the
 **隐藏天花板** (`H`, on by default) is the one piece of a storey *above* the active one that always
 draws, and only when nothing stands under it, so a room never wears its own ceiling and a top view
 looks into the room rather than onto its roof. The crowd follows the same `crowdVisible` rule — never
-one floating on a hidden floor — and the cutaway clip applies to it too, so people no longer show
+one floating on a hidden floor — and the 剖切 clip applies to it too, so people no longer show
 through a slab. A consist is tagged with the storey its floor block is in (`storeyBand` of the rounded
 track surface), so a train berthed at the platform disappears with the platform and never hangs in the
 air above it. The nav cube only ever moves the camera: no face, corner or **Home** click rewrites the
 slice behind the player's back.
 
-**隐藏UI takes the drawing lattice off the picture, and nothing else.** The 视图 folder's **隐藏UI** tile
-(**U**) hides the 1 m editing grid and its cell cursor — the two parts of the picture that are drawing
-furniture rather than station (`render/scene/systems/GridSystem.ts`). No station geometry goes with it
-and no interface: the build rail, the inspector, the nav cube, the level rail and every tool stay where
-they are, and the pointer goes on building and picking. The rule is one line, `gridVisible(hideUI,
-immersive)`, because two things want the same lattice gone — this tile, and the immersive eye, which is
-standing in the room and does not want a lattice at its feet. One shared flag rather than two
-`setGridVisible` calls is what keeps either mode from restoring the lattice behind the other's back; the
-cell cursor is guarded by the same function, because the pointer re-sets it every frame.
-
 **The clock pauses and restarts.** **Space** toggles play/pause (the top bar's 暂停 / 播放 button does
 the same), and 重启 empties the crowd, trains and queues while keeping the built station and the clock
 (`World.restart`, sent as a `restart` worker message).
+
+**隐藏UI is a view angle: where a person in the room would be looking from.** The 视图 folder reads, in
+tile order, 显示其他层 · 剖切 · 隐藏天花板 · 隐藏墙壁 · 隐藏UI · 热力图 · 分区图: the slice tools first
+(剖切 opening its own 剖切面 panel directly under its tile), then the pair that takes station furniture
+away, then the one tile that puts the *interface* away, then the two overlays that paint the station
+rather than hide it. Its **隐藏UI** tile (**K**, the label the store and the camera still know as
+`immersion`) is **not one of the five presets**: it is one **move** of the rig the other views already
+use, and it is deliberately no more than that. The camera steps to the plan position the view is
+looking at — the station's middle, in the default view — at a person's eye height above the floor of
+the storey being viewed, so **at depth −8 m the camera is at −6 m**, which is the one claim the mode
+makes; the orbit target comes with it by the same step, so **the angle, the dolly and the roll are
+exactly the ones the player arrived with**. That is what makes K a peek: it moves the eye, never
+re-aims, and leaving puts the rig back where it was, to the metre — a preset (1/2/4/5, the nav cube's
+home) is how the mode is *left*, and it is never restored over. Everything else is the rig the other
+views already use: **the middle
+button orbits, the wheel dollies, WASD pans, the nav cube and 1/2/4/5 are the other presets, and every
+shortcut keeps its meaning**. The panels, the inspector, the tools and the pointer keep working exactly
+as they do in an isometric drawing, because the control scheme *is* the other views; the mode borrows it
+rather than replacing it.
+
+Two things follow the **view** rather than the station, and both are there so the picture does not lie:
+
+* **The 1 m editing grid and its cell cursor go** (`SceneRenderer.setImmersive` →
+  `GridSystem.setGridVisible`). A lattice floating at the eye's own storey is a drawing aid; the mode's
+  question is what the station looks like to somebody standing in it.
+* **The slice stops being applied at all** — `LevelSystem.applyLevel` returns each piece's own material
+  instead of a ghost's, so every storey draws opaque (`显示其他层` and `隐藏天花板` are greyed out in the
+  视图 folder because they have nothing left to act on). This is not a nicety: a slice *flag* can only
+  turn a piece on or off, and it cannot undo the 35% translucency the slice assigned it, so the slab a
+  storey up ghosted **through** the floor under the eye — a granite concourse came out as a dark shadow
+  grid. The mode therefore skips that walk entirely, which is the only way to draw a slab as a slab. The
+  one toggle that survives is 隐藏墙壁: a deliberate look-through, not the slice.
+
+The 剖切 **clip** stays (it is the cut the player asked for) while its translucent highlighter — sheet,
+border and grab grid — goes with the grid: that furniture exists so the cut can be grabbed and slid from
+above the model, which is not what this view is for. **Esc** or the 视图 folder's **K** tile leaves.
+
+The view is aimed **once**, when the mode opens, and then it belongs to the player: **Q/E still step the
+storey** the rail reads, and the camera does not move with it — re-aiming on a storey change would throw
+away every orbit, dolly and pan that had been made since. For the same reason the mode adds **nothing to
+the screen**: no prompt, no overlay, no readout. What it is and how to leave are on the tile that
+switches it.
+
+Two faults found on the way here are worth keeping in mind, because neither was really about 隐藏UI.
+**A focused button is not a text field.** `isTypingTarget` (`app/Viewport.tsx`, shared with `AppShell`'s
+shortcuts) treats a key aimed at a `button` as the game's key; the earlier guard that only excluded
+`INPUT` and `TEXTAREA` meant that after clicking a rail tile the arrow-key row was, in effect,
+"typing", and WASD stopped panning. **A percentage height needs a definite containing block.** `.main`
+carried only `min-height: 0`, and `min-height` is not a height: `.stage`'s and `.viewport`'s
+`height: 100%` both computed to `auto` — which for a replaced element is its intrinsic **150 px** — so
+the canvas sat at its 300 × 150 default in the corner with the whole station squeezed into it, at every
+camera angle and in every view. `.main` now carries `height: 100%` with the reasoning written beside it.
+
+**剖切 is a placed surface now, not a fixed half-station cut.** It used to be one plane through the
+middle of the model's bounds facing +y, built inside the chunk rebuild. It is a surface the player
+places, turns and drags (`render/section.ts` for the arithmetic, `render/scene/systems/SectionSystem.ts`
+for the GPU half): an **anchor** — the middle of the station's plan on the storey being edited, set once
+per station so an edit never throws the cut away — an **azimuth** (0° looks north, 90° east), an
+**elevation** (0° is a wall, +90° looks straight down from above) and an **offset** the number is
+measured *the way the surface faces*, so a north-looking cut walks north and one looking down walks
+down. The plane keeps the half **behind** it (`planeConstant` is the distance from the world origin to
+the cut along the normal — the sign is the whole of it, and built the other way round the plane keeps
+the half it faces and cuts the room away in front of the player). Three ways in, one record:
+the 视图 folder's inline 剖切面 panel (a **位置** slider and a **typed box** — the input the spec asks
+for, so a cut that belongs at `−3.5` is typed rather than nudged, and the draft is local so a keystroke
+is never rewritten mid-word — plus **方位角** and **倾角** sliders and a 复位), **R** to turn the cut
+15° (5° with Shift), and a **drag on the highlighted surface itself**: the
+pointer is projected onto the normal, snapped to 0.5 m (5 cm with Shift), and measured against the
+plane the grab *started* in rather than the moving cut, so the surface follows the mouse instead of
+accelerating away from it. The surface on screen is a translucent sheet with a border and a 2 m grid,
+grown with the station so it always reaches past the building it cuts, floating a 2 cm toward the kept
+half so the clip cannot slice its own marker — and where a translucent sheet over the station lies, the
+pointer **snaps onto it**: the sheet lights up, the crosshair becomes a grab hand, and a press there is
+the cut's rather than the tool's, whatever the build rail is left on. The plane is written **in place**
+(one `THREE.Plane` for the scene's lifetime, shared by every clipped material), so a slide costs two
+numbers and no rebuild; the materials are only re-listed when the cut is switched on or off. Equipment
+is clipped with the blockwork (a 闸机 or a screen door standing in the cut-away half goes with the
+slab), and 隐藏UI hides the section's highlighter because it is diagram furniture, not station.
 
 **Rails are equipment: a fixed piece centred on the cursor.** A rail is a `track` module — a car-width
 bed (`d = 3` m) and a run the length of the bound line's consist (`w = ceil(stock length × cars)`) —
@@ -644,6 +712,19 @@ that exact constructor too, so the rig and the builder place the same equipment 
 dimensions. Its handrail wraps the end of the glass at both landings — a half-turn round the end and
 down onto the floor — and a flat newel plate closes the foot of each balustrade, so no rail stops
 dead in mid-air.
+
+**The ground under a run fills up to its truss.** A run's body hangs below its walking line, so the
+block under it would otherwise swallow the truss. `rampSlopeCuts` (`sim/openings.ts`) derives the
+volume each 楼梯 / 扶梯 takes out of the ground it climbs over: the tiles `rampBodyBoxes` already
+reserves for collision, with the truss depth (`RAMP_FOOT`) taken off the local walking line. The
+mesher draws those blocks' tops on that plane instead (`chunkMesher`'s `slope` map), so a block under
+a run is the filling under the slope — a wedge where the plane leaves through the block's floor,
+clipped with Sutherland–Hodgman so nothing chords back up into the run — and the run's truss lands on
+it. `rampOpeningAt` leaves the space under a run buildable for exactly that reason: a run's opening
+starts at its walking line, so the 地基 tool lays a block under it and the carve keeps it. Only the
+column the run's own walking line passes through is cut and a run's landing columns are left whole.
+Nothing is added to the document: the cut is derived from the modules, the way the half panel beside a
+wide run is (`thinWallCells`).
 
 **Ramps carve their way in.** `sim/openings.ts` (`carveRampOpenings`) removes the solid cells an
 escalator, stair or lift climbs through, so a placed ramp surfaces from an opening rather than
@@ -935,6 +1016,14 @@ approximated); neither needs WebGL.
   jams, three fix it; a saturated platform leaves people behind.
 * `layering.test.mjs` — `sim/` imports nothing and touches no DOM; `render/` never reaches
   up into `app/`; `build/` imports neither.
+* `scene-wiring.test.mjs` — the scene systems' sibling wiring (`render/scene/SceneRenderer.ts`).
+  Every system declares the siblings it walks with a definite-assignment claim (`chunks!: ChunkSystem`),
+  which TypeScript believes and the orchestrator has to make true; a wiring line dropped in a refactor
+  compiles cleanly and throws on the first frame instead — `Cannot read properties of undefined
+  (reading 'outlineSet')` at `LevelSystem.applyLevel`, which is what happened when a new system was
+  added and `this.level.chunks = this.chunks` went with it. The test reads the claims out of every
+  `systems/*System.ts` and asserts the orchestrator assigns each one, and a second case asserts the
+  reader actually sees the claims it guards (a check that parsed nothing would pass forever).
 * `surfaces.test.mjs` — a slow floor finish is a real detour, a track bed is not a walkable
   node, paint/fill/erase are immutable, and the mesher groups by finish (B1); 搪瓷板 takes a
   custom tint encoded in its finish id without changing the wall family, and the mesher keeps
@@ -999,6 +1088,14 @@ approximated); neither needs WebGL.
   marked as half blocks while a wall it reaches is thinned the same way (an old 1.6 m stair, or a 2–3
   lane turning stair — a straight wide stair is lanes now, so it reaches nothing), and every cell the carve
   opens reads as reserved so a hand-built block cannot cover it back up.
+* `slope-cut.test.mjs` — the ground under a run (§5.1 / §4.2): the 地基 tool lays a block under a
+  楼梯 / 扶梯 and the carve leaves it (a block already there when the run arrives survives it), the cut
+  is the run's own underside — `RAMP_FOOT` below the walking line at every point across the block,
+  never above it — one block per tile of the run's own column and nothing beside or past it, a stair
+  cuts only the tiles its treads sweep (its landings stop the treads short), a landing column is never
+  cut, a cut block is drawn as a slope with no flat cap, nothing a run cuts reaches back into its
+  body on either an escalator or a straight stair, and a block out of the run's reach meshes exactly
+  as it always did.
 * `stairs.test.mjs` — the five stair shapes, each one storey; every flight is a two-way graph edge
   between walkable landings, a switchback is walked bottom to top **across its half-landing** (in a
   stairwell with nothing else at the half height, so a sealed landing fails the test rather than
@@ -1236,11 +1333,19 @@ approximated); neither needs WebGL.
   side of the edited storey a piece sits on (a lift spanning into the storey counts as active),
   显示其他层 off drawing the edited storey alone at every camera angle, ghost mode keeping the
   neighbours at 35% while a storey above keeps only its unsupported plates (a room never wears
-  its own ceiling), and the crowd and the trains following the same slice.
-* `grid-visibility.test.mjs` — 隐藏UI, the drawing lattice and its cursor
-  (`render/scene/systems/GridSystem.ts` `gridVisible`): the tile hides the lattice on its own, the
-  immersive eye hides the same lattice for its own reason, neither restores it while the other still
-  wants it gone, and a pick under the pointer cannot put the cell cursor back on a hidden grid.
+  its own ceiling), and the crowd and the trains following the same slice. It also pins that
+  **沉浸 is not a slice flag**: a flag could turn a piece on but could not undo the ghost
+  material that put a storey through the floor under the eye, so the mode skips the walk
+  (`LevelSystem.applyLevel`) and the only per-agent flag that remains is `crowdVisible`'s.
+* `section.test.mjs` — the 剖切 surface's arithmetic (`render/section.ts`): a fresh cut looks exactly
+  +y, which is the plane the old fixed toggle drew; azimuth turns the look and elevation tilts it out
+  of the horizontal plane (with the normal still a unit vector at every angle); the surface's own
+  frame is orthonormal and stays defined looking straight down; the offset slides the cut the way the
+  surface faces and nowhere else; `planeConstant` is the distance from the world origin to the cut, so
+  the plane keeps the half **behind** it and the surface itself is never clipped off; the snap lands on
+  a half metre (5 cm fine); a drag follows the pointer along the normal only, and a downward-facing cut
+  follows a downward drag; the readout names the axis the cut leans on; and the highlight grows with the
+  station it cuts.
 * `sign-editor.test.mjs` — the 指示牌 board editor session (`app/SignEditor.tsx`): a sign is a
   pair of boards with a one-sided default, the preview never commits, confirming makes the pair
   current and the next sign hung carries a copy, covering the full compose→place→print flow.

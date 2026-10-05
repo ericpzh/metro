@@ -166,6 +166,13 @@ button.ghost:hover {
   display: grid;
   grid-template-columns: 232px 1fr 300px;
   min-height: 0;
+  /* The link in the height chain. A percentage height resolves against a
+     **definite** containing-block height, and `min-height` is not one: without
+     this, the stage's and the canvas's `height: 100%` both compute to `auto`,
+     and auto height for a replaced element is its intrinsic **150 px** — the
+     canvas then sits at its 300 × 150 default with the whole station squeezed
+     into the corner, at every camera angle and in every mode. */
+  height: 100%;
 }
 
 /* ---------------------------------------------------------------- left rail */
@@ -582,6 +589,68 @@ button.ghost:hover {
   font-family: var(--mono);
 }
 
+/* 剖切 surface controls: a label, its slider and its readout on one line, so the
+   location, the azimuth and the tilt read as three settings of one surface
+   rather than three unrelated fields. */
+.secRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.secLabel {
+  flex: none;
+  width: 40px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.secRow input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+.secValue {
+  flex: none;
+  min-width: 40px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+/* The typed slide location — the input the spec asks for: the cut goes to the
+   metre the player names, rather than to wherever a slider happened to stop. */
+.secBox {
+  flex: none;
+  width: 62px;
+  padding: 3px 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  color: #eaf5ff;
+  background: #081a2c;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.secBox:focus {
+  border-color: var(--accent);
+}
+
+/* ------------------------------------------------------------- 沉浸 (§9.7) */
+/* The mode is a **view angle**, not a skin: the build rail, the inspector, the
+   nav cube and the level rail all stay, the tools keep working, and the orbit /
+   wheel / WASD controls are the ones every other view uses. The one piece of the
+   editing picture that goes is the 1 m grid and its cell cursor
+   (`SceneRenderer.setImmersive` → `GridSystem.setGridVisible`), because a
+   lattice floating at the eye's own storey is a drawing aid and the mode's
+   question is what the station looks like to somebody standing in it. No prompt
+   and no overlay: the mode adds nothing to the screen, and the way out is the
+   **K** tile in the 视图 folder (lit while it is on) or **Esc**. */
+.immersion .viewport {
+  cursor: none;
+}
+
 /* Legacy rail classes kept for the inspector and any host embedding the panel. */
 .railBtn {
   text-align: left;
@@ -662,12 +731,27 @@ button.ghost:hover {
   position: relative;
   min-width: 0;
 }
+/* 沉浸 hides nothing in the layout any more: the build rail, the inspector, the
+   nav cube and the level rail all stay, and only the drawing grid goes
+   (`render/scene/systems/GridSystem.ts`). The `.viewport` in that mode has no
+   crosshair to aim with, so the cursor simply disappears over the picture. */
+.immersion .viewport {
+  cursor: none;
+}
 .viewport {
   display: block;
   width: 100%;
   height: 100%;
   touch-action: none;
   cursor: crosshair;
+}
+/* The pointer is on the 剖切 surface: a press here grabs the cut rather than
+   building, and the cursor has to say so before the press. */
+.viewport.grab {
+  cursor: grab;
+}
+.viewport.grab:active {
+  cursor: grabbing;
 }
 
 /* The 地基 tool's live patch size, pinned beside the pointer. */

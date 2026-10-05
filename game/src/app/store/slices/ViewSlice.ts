@@ -1,10 +1,12 @@
 // The view slice: which storey is edited and how the others draw around it
 // (level slicing in `render/levelSlicing.ts`), plus the camera and overlay
-// toggles.
+// toggles, the 沉浸 eye and the 剖切 surface.
 
 import type { StateCreator } from 'zustand'
 import { nearestLevel } from '../../../build/model.ts'
 import { LEVEL_STEPS } from '../../../sim/constants.ts'
+import { DEFAULT_SECTION_AZIMUTH, DEFAULT_SECTION_ELEVATION } from '../../../render/section.ts'
+import type { Section, Vec3 } from '../../../render/section.ts'
 import type { AppState } from '../Store.ts'
 
 export interface ViewSlice {
@@ -21,6 +23,7 @@ export interface ViewSlice {
    * *above* the active one is affected, and only while 显示其他层 is on.
    */
   autoCeiling: boolean
+  /** 剖切: clip the station at the placed section surface. */
   cutaway: boolean
   /** 隐藏墙壁: draw every wall and platform screen door translucent. */
   hideWalls: boolean
@@ -33,6 +36,20 @@ export interface ViewSlice {
   hideUI: boolean
   ortho: boolean
   overlayOn: boolean
+  /**
+   * 沉浸 (§9.7): the whole interface is put away and the camera becomes an eye
+   * inside the station, standing a person's height above the floor of the
+   * storey being edited, with every storey drawn crisp so what is seen is what
+   * the geometry really hides.
+   */
+  immersion: boolean
+  /**
+   * The 剖切 surface: where it was anchored, how it is turned and how far it has
+   * slid (`render/section.ts`). The rail's location box, its rotation controls
+   * and the 3D drag all write this one record, so the plane, the highlighted
+   * surface and the pointer can never disagree about where the cut is.
+   */
+  section: Section
 
   setActiveZ: (z: number) => void
   stepLevel: (dir: number) => void
@@ -43,6 +60,15 @@ export interface ViewSlice {
   setHideWalls: (on: boolean) => void
   setHideUI: (on: boolean) => void
   setOrtho: (on: boolean) => void
+  setImmersion: (on: boolean) => void
+  /** Re-place the cut at `anchor` on the storey being edited (a fresh 剖切). */
+  placeSection: (anchor: Vec3) => void
+  /** Slide the cut along its normal, in metres. */
+  setSectionOffset: (offset: number) => void
+  /** Turn the cut: `azimuth` degrees, or `elevation` when `tilt` is set. */
+  rotateSection: (delta: number, tilt?: boolean) => void
+  /** A whole new orientation, from the rail's own controls. */
+  setSectionOrientation: (azimuth: number, elevation: number) => void
 }
 
 export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, get) => ({
@@ -54,6 +80,8 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   hideUI: false,
   ortho: false,
   overlayOn: false,
+  immersion: false,
+  section: { anchor: [0, 0, -8], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH, elevation: DEFAULT_SECTION_ELEVATION }, offset: 0 },
 
   setActiveZ: (z) => set({ activeZ: nearestLevel(z) }),
   stepLevel: (dir) => {
@@ -69,4 +97,28 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setHideWalls: (on) => set({ hideWalls: on }),
   setHideUI: (on) => set({ hideUI: on }),
   setOrtho: (on) => set({ ortho: on }),
+  setImmersion: (on) => set({ immersion: on }),
+  placeSection: (anchor) =>
+    set((s) => ({
+      section: { ...s.section, anchor: [anchor[0], anchor[1], anchor[2]], offset: 0 },
+    })),
+  setSectionOffset: (offset) => set((s) => ({ section: { ...s.section, offset } })),
+  rotateSection: (delta, tilt = false) =>
+    set((s) => {
+      const o = s.section.orientation
+      const next = tilt
+        ? { ...o, elevation: Math.max(-90, Math.min(90, o.elevation + delta)) }
+        : { ...o, azimuth: ((o.azimuth + delta + 540) % 360) - 180 }
+      return { section: { ...s.section, orientation: next } }
+    }),
+  setSectionOrientation: (azimuth, elevation) =>
+    set((s) => ({
+      section: {
+        ...s.section,
+        orientation: {
+          azimuth: ((azimuth + 540) % 360) - 180,
+          elevation: Math.max(-90, Math.min(90, elevation)),
+        },
+      },
+    })),
 })

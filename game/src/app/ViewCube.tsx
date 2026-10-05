@@ -346,7 +346,13 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
     const scene = sceneRef.current
     if (!scene) return
     scene.setPreset('iso')
-    useStore.getState().setOrtho(false)
+    const st = useStore.getState()
+    st.setOrtho(false)
+    // A preset is a way out of 沉浸 as much as out of any other view: the camera
+    // has already left it (`setPreset`), so the mode's own state — the storey drawn
+    // crisp, the hidden grid — has to follow, or the rail would show a mode that is
+    // no longer on screen.
+    if (st.immersion) st.setImmersion(false)
     syncNow()
   }
 

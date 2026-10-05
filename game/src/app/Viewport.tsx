@@ -9,10 +9,15 @@
 // their controllers (GAME-SPEC §9.5 gestures).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+// The one value this file needs from three is the `Plane` a 剖切 slide is
+// measured in (`sectionDragRef`); everything else goes through the renderer.
+import { Plane, Vector3 } from 'three'
 import { SceneRenderer, type PickResult } from '../render/scene.ts'
 import { cellKey, removeFloor, thinWallSideMap, toData, zoneMapFloors, zoneRegionLabels } from '../build/model.ts'
 import type { WallSide } from '../sim/types.ts'
 import { zoneIndex } from '../sim/zones.ts'
+import { sectionNormal, slideOffset, snapOffset } from '../render/section.ts'
+import type { SectionOrientation, Vec3 } from '../render/section.ts'
 import { placementPreviewKey, setFrameHandler, signModuleWithPreview, useStore, type Tool } from './store.ts'
 import { ViewCube } from './ViewCube.tsx'
 import { BlockTool } from './tools/BlockTool.ts'
@@ -35,6 +40,23 @@ interface BuildMeasure {
   text: string
 }
 
+/**
+ * Whether a key event belongs to a text field rather than to the game. A button
+ * is deliberately **not** one: the build rail, the view toggles and the 沉浸
+ * hint's 退出 button are all `button`s, and a keydown aimed at a focused button
+ * is the game's key, not the field's. (The browser still activates a focused
+ * button on Space and Enter, which is why `App` blurs the button on a Space
+ * press — but that is about the *click*, never about the key reaching the game.)
+ * Exported so `windows/AppShell.tsx`'s global shortcuts use one definition of
+ * "this key is for a text field".
+ */
+export function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null
+  if (!el) return false
+  const tag = el.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true
+}
+
 export function Viewport(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sceneRef = useRef<SceneRenderer | null>(null)
@@ -54,6 +76,13 @@ export function Viewport(): React.ReactElement {
   /** True once the first station build has framed the home view (refresh only, not edits). */
   const framedRef = useRef(false)
   /**
+   * True once the first station build has placed the 剖切 surface. A station
+   * switch puts it back (`initSim` reloads the document but this is the only
+   * place that knows the new station's own extents), while an edit leaves it
+   * where the player put it.
+   */
+  const sectionSeededRef = useRef(false)
+  /**
    * The tile under the pointer for the equipment and 地基 tools, so R and Tab can
    * rebuild the ghost already under it (`refreshHover`).
    */
@@ -69,9 +98,23 @@ export function Viewport(): React.ReactElement {
    * and the release applies it.
    */
   const facilityDragRef = useRef<FacilityDragState | null>(null)
+  /**
+   * The 剖切 slide in progress: the surface's own point the grab started on, the
+   * offset it started from and the pointer's own plane. The section's plane is
+   * **fixed for the drag** (`dragPlane`), so the pointer's ray always meets a
+   * stable surface however far the cut has travelled — measuring against the
+   * moving plane is what makes a slide accelerate away from the pointer.
+   */
+  const sectionDragRef = useRef<{ from: Vec3; startOffset: number; orientation: SectionOrientation; plane: Plane } | null>(
+    null,
+  )
+  /** True while the pointer is on the section surface, for the hover read. */
+  const sectionHotRef = useRef(false)
 
   /** The 地基 tool's pending patch size, pinned to the pointer while previewing. */
   const [buildMeasure, setBuildMeasure] = useState<BuildMeasure | null>(null)
+  /** The pointer is on the 剖切 surface: the crosshair becomes a grab hand. */
+  const [sectionHot, setSectionHot] = useState(false)
 
   // The shared controller contract (Lane C step 0): the scene, the picks, the
   // refs above, and the patch-size badge. Stable for the component's lifetime,
@@ -153,6 +196,8 @@ export function Viewport(): React.ReactElement {
   const ghostOther = useStore((s) => s.ghostOtherLevels)
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
+  const section = useStore((s) => s.section)
+  const immersion = useStore((s) => s.immersion)
   const hideWalls = useStore((s) => s.hideWalls)
   const hideUI = useStore((s) => s.hideUI)
   const ortho = useStore((s) => s.ortho)
@@ -202,9 +247,11 @@ export function Viewport(): React.ReactElement {
     sceneRef.current?.setLevel(activeZ, ghostOther)
   }, [activeZ, ghostOther])
 
+  // 剖切 is the placed section surface plus the clip (`render/section.ts`): the
+  // plane is written in place, so a slide costs two numbers and no rebuild.
   useEffect(() => {
-    sceneRef.current?.setCutaway(cutaway)
-  }, [cutaway])
+    sceneRef.current?.setSection(section, cutaway)
+  }, [section, cutaway])
 
   useEffect(() => {
     sceneRef.current?.setHideWalls(hideWalls)
@@ -216,6 +263,23 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setHideUI(hideUI)
   }, [hideUI])
+
+  // 沉浸: the same view, stood inside the storey being looked at. The camera does
+  // the work (`SceneRenderer`), and this only says which storey to stand on — the
+  // grid it hides is already its own business. Nothing else about the viewport
+  // changes: the panels stay, the tools stay, and the pointer keeps building and
+  // picking exactly as it does in the iso, plan, front and side views.
+  //
+  // It is keyed on the **flag alone**, deliberately. The camera is *moved*, never
+  // re-aimed: it steps to the room at the angle the player was already holding, and
+  // leaving puts it back where it was — which is why the cleanup restores rather
+  // than re-framing. Q/E still step the storey the rail reads and the camera stays
+  // where it was put, because re-aiming it on a storey change would throw away every
+  // orbit, dolly and pan the player had made.
+  useEffect(() => {
+    sceneRef.current?.setImmersive(immersion, useStore.getState().activeZ)
+    return () => sceneRef.current?.setImmersive(false)
+  }, [immersion])
 
   useEffect(() => {
     sceneRef.current?.setOrtho(ortho)
@@ -343,6 +407,13 @@ export function Viewport(): React.ReactElement {
       const k = (e as CustomEvent).detail as string
       scene.setPreset(k === '1' ? 'iso' : k === '2' ? 'plan' : k === '4' ? 'front' : k === '5' ? 'side' : 'custom')
       useStore.getState().setOrtho(k === '2' || k === '4' || k === '5')
+      // A preset is a way out of 沉浸 as much as out of any other view: the mode
+      // is one of the five, so a cube face or 1/2/4/5 shows the view it names
+      // rather than leaving a tile lit over a view that is not being shown.
+      if (k === '1' || k === '2' || k === '4' || k === '5') {
+        const st = useStore.getState()
+        if (st.immersion) st.setImmersion(false)
+      }
     }
     const onFrame = (): void => scene.frame()
     const onDelete = (): void => {
@@ -356,11 +427,13 @@ export function Viewport(): React.ReactElement {
       st.commit(next)
       st.select(null)
     }
-    // WASD pan (Shift = faster). Q/E layer stepping stays in the app.
+    // WASD pan (Shift = faster). Q/E layer stepping stays in the app, and 沉浸
+    // uses this same pan: it is one more view angle, not a control scheme of its
+    // own. A text field keeps its letters — a focused **button** does not, or
+    // clicking a rail tile would stop WASD panning the camera afterwards.
     const panKeys = new Set(['w', 'a', 's', 'd', 'shift'])
     const onKeyDown = (e: KeyboardEvent): void => {
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (isTypingTarget(e.target)) return
       const k = e.key.toLowerCase()
       if (panKeys.has(k)) scene.keys.add(k)
     }
@@ -406,7 +479,15 @@ export function Viewport(): React.ReactElement {
     scene.setStation(toData({ ...station, modules }))
     scene.setAutoCeiling(st.autoCeiling)
     scene.setLevel(st.activeZ, st.ghostOtherLevels)
-    scene.setCutaway(st.cutaway)
+    // The 剖切 surface is placed once, on the first build of a station: the
+    // middle of its plan on the storey being edited, facing +y — the fixed cut
+    // the old toggle drew. It is deliberately **not** re-placed on every edit,
+    // so moving a wall never throws away the cut the player positioned.
+    if (!sectionSeededRef.current) {
+      sectionSeededRef.current = true
+      st.placeSection(scene.defaultSection().anchor)
+    }
+    scene.setSection(useStore.getState().section, st.cutaway)
     // On a fresh page load the demo station must open on the home view; the
     // constructor's preset ran before the station existed, so frame it now. A
     // later edit rebuilds the station but must not yank the camera.
@@ -450,9 +531,34 @@ export function Viewport(): React.ReactElement {
     preventDefault: () => e.preventDefault(),
   })
 
+  /**
+   * 剖切: grab the highlighted cut surface. The press is what decides — while the
+   * pointer is *on* the surface every button belongs to it, so the grab works
+   * whatever tool the build rail is left on; a press anywhere else is the tool's
+   * as usual. The surface snaps under the mouse for the same reason: a hover
+   * lights it up and switches the cursor to a grab hand.
+   */
   const onPointerDown = (e: React.PointerEvent): void => {
     const scene = sceneRef.current
     if (!scene || e.button === 1) return
+    // The section surface owns the pointer when it is under it, before any of
+    // the drag cancellation below: a grab is not a second press on a tool drag.
+    if (scene.sectionHit(e.clientX, e.clientY)) {
+      e.preventDefault()
+      const point = scene.sectionPoint(e.clientX, e.clientY)
+      if (point) {
+        const section = useStore.getState().section
+        const n = sectionNormal(section.orientation)
+        sectionDragRef.current = {
+          from: point,
+          startOffset: section.offset,
+          orientation: section.orientation,
+          plane: new Plane(new Vector3(n[0], n[1], n[2]), -n[0] * point[0] - n[1] * point[1] - n[2] * point[2]),
+        }
+        ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+      }
+      return
+    }
     // A second press while an area drag is previewing cancels it instead of
     // starting a second drag, so the release commits nothing. In practice this
     // is a right-click during a left drag (or the reverse); ESC is handled
@@ -475,6 +581,27 @@ export function Viewport(): React.ReactElement {
   const onPointerMove = (e: React.PointerEvent): void => {
     const scene = sceneRef.current
     if (!scene) return
+    // 剖切: a slide in progress owns the move. The pointer is projected onto the
+    // plane the grab started in — **not** onto the moving cut — so the surface
+    // follows the mouse exactly, and it is snapped to the half metre (Shift:
+    // 5 cm) so the cut lands on a round number of blocks.
+    const drag = sectionDragRef.current
+    if (drag) {
+      const p = scene.sectionPoint(e.clientX, e.clientY)
+      if (!p) return
+      useStore.getState().setSectionOffset(snapOffset(slideOffset(drag.startOffset, drag.from, p, drag.orientation), e.shiftKey))
+      return
+    }
+    // Hover: the surface lights up and the cursor becomes a grab hand where a
+    // press would take it (the same hit test the press uses), so the surface the
+    // pointer can snap onto says so before it is grabbed.
+    const hot = scene.sectionHit(e.clientX, e.clientY)
+    if (hot !== sectionHotRef.current) {
+      sectionHotRef.current = hot
+      scene.setSectionHover(hot)
+      setSectionHot(hot)
+    }
+    if (hot) return
     // Right-click cancel while the left button is still held: the second
     // pointerdown is unreliable (one mouse pointer, button already down), but
     // the buttons bitmask on the move is not — a left drag that gains the
@@ -539,6 +666,13 @@ export function Viewport(): React.ReactElement {
 
   const onPointerUp = (e: React.PointerEvent): void => {
     setBuildMeasure(null)
+    // 剖切: the slide ends here. The offset is already in the store (every move
+    // committed it), so the release only has to let the surface go.
+    if (sectionDragRef.current) {
+      sectionDragRef.current = null
+      sceneRef.current?.setSectionHover(false)
+      return
+    }
     // Releasing the other button while a drag is held cancels it: the classic
     // case is right-up during a left drag, whose own pointerdown never fired
     // while the left button was down — committing here would apply the very
@@ -588,7 +722,7 @@ export function Viewport(): React.ReactElement {
     <>
       <canvas
         ref={canvasRef}
-        className="viewport"
+        className={sectionHot ? 'viewport grab' : 'viewport'}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -596,6 +730,11 @@ export function Viewport(): React.ReactElement {
         onPointerLeave={() => {
           hoverRef.current = null
           setBuildMeasure(null)
+          if (sectionHotRef.current) {
+            sectionHotRef.current = false
+            setSectionHot(false)
+            sceneRef.current?.setSectionHover(false)
+          }
           // A piece in the air outlives the pointer: its ghost stays parked where it
           // was aimed, so going to the 信息 card for 确认 does not take the aim away.
           if (useStore.getState().moveDraft) return

@@ -148,7 +148,8 @@ export class GhostSystem extends SceneSystem {
    * A cheap order-stable fingerprint of a pending cell set, to skip re-meshing.
    * The 半墙 sides are part of it: R steps the thickness a thin wall's panel takes
    * without the pending cells moving at all, and a ghost that skipped that rebuild
-   * would show the wall the player just turned away from.
+   * would show the wall the player just turned away from. So is the run's cut,
+   * which changes when a 楼梯 / 扶梯 is placed or bulldozed under an unmoved cell.
    */
   private ghostKeyOf(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, WallSide>): string {
     let h = 2166136261
@@ -156,8 +157,15 @@ export class GhostSystem extends SceneSystem {
       h = Math.imul(h ^ (x + 4096), 16777619)
       h = Math.imul(h ^ (y + 4096), 16777619)
       h = Math.imul(h ^ (z + 4096), 16777619)
-      const side = thin?.get(packKey(x, y, z))
+      const k = packKey(x, y, z)
+      const side = thin?.get(k)
       if (side !== undefined) h = Math.imul(h ^ side.charCodeAt(0), 16777619)
+      const cut = this.ctx.slopeCuts.get(k)
+      if (cut !== undefined) {
+        h = Math.imul(h ^ cut.axis.charCodeAt(0), 16777619)
+        h = Math.imul(h ^ Math.round(cut.lo * 1024), 16777619)
+        h = Math.imul(h ^ Math.round(cut.hi * 1024), 16777619)
+      }
     }
     return `${cells.length}:${h >>> 0}`
   }
@@ -167,7 +175,8 @@ export class GhostSystem extends SceneSystem {
    * builds the rounded silhouette, but only the pending cells emit faces while
    * the whole station answers neighbour queries — so the preview is the exact
    * surface the release will add, sitting at the exact target cells. A 半墙 among
-   * them is meshed half a block thick, exactly as it will be once laid.
+   * them is meshed half a block thick, and a block under a 楼梯 / 扶梯 is meshed
+   * shaved to the run's underside, exactly as they will be once laid.
    */
   private buildShapeGhost(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, WallSide>): void {
     this.clearShapeGhost()
@@ -189,7 +198,7 @@ export class GhostSystem extends SceneSystem {
     const mat = this.shapeGhostMaterial()
     try {
       for (const { cx, cy, cz } of chunks.values()) {
-        const chunk = meshChunk(this.ctx.solid, this.ctx.finishes, cx, cy, cz, cz, emit, undefined, undefined, thin)
+        const chunk = meshChunk(this.ctx.solid, this.ctx.finishes, cx, cy, cz, cz, emit, undefined, undefined, thin, this.ctx.slopeCuts)
         for (const part of chunk.parts) {
           const geo = new THREE.BufferGeometry()
           geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3))

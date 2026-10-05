@@ -12,7 +12,7 @@ import { buildSolidSet, CHUNK, meshChunk } from '../../chunkMesher.ts'
 import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import { trackBedKeys } from '../../../sim/placement.ts'
-import { OPENING_CEILING, thinWallCells } from '../../../sim/openings.ts'
+import { OPENING_CEILING, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
 import { stairTurnCells } from '../../../sim/stairs.ts'
 import { liftFootprintCells, liftStopZs } from '../../../sim/lifts.ts'
 import { facilityWallCells } from '../../../build/model.ts'
@@ -89,6 +89,12 @@ export class ChunkSystem extends SceneSystem {
     // solid set, which cannot say how thick a cell is.
     this.ctx.thinSides = new Map<number, WallSide>()
     for (const t of thinWallCells(data.cells, data.modules)) this.ctx.thinSides.set(packKey(t.x, t.y, t.z), t.side)
+    // And where a 楼梯 / 扶梯 takes its volume out of a block: the top of a block
+    // under a run is the run's underside, so the ground fills up to the truss
+    // instead of bulging through it. Derived from the modules alone (a cut is a
+    // property of the run, not of the block), so the build ghost's pending cells
+    // read their cut from the same map.
+    this.ctx.slopeCuts = rampSlopeCuts(data.modules)
     for (const m of data.modules) {
       if (m.type !== 'stair') continue
       for (const p of stairTurnCells(m)) {
@@ -149,7 +155,6 @@ export class ChunkSystem extends SceneSystem {
     // The meshes `applyLevel` assigns materials to have just been replaced, so the
     // slice has to be applied again even if the view state itself did not change.
     this.ctx.levelKey = ''
-    const t0 = performance.now()
     this.ctx.lastChunkMs = 0
     // Group cells into storeys. A storey is a floor on the fixed 4 m editing
     // grid (`LEVEL_STEPS`) plus the walls it grows up to the next grid line, so
@@ -215,6 +220,15 @@ export class ChunkSystem extends SceneSystem {
         // (or a wall that becomes one) meshes differently at the same coordinates.
         const side = this.ctx.thinSides.get(k)
         if (side !== undefined) h = Math.imul(h ^ side.charCodeAt(0), 16777619)
+        // Where a run cuts the cell's top: placing or deleting a 楼梯 / 扶梯 changes
+        // this map without moving a single block, so the cut has to be part of what
+        // makes a chunk's mesh, or the ground under the run would keep the old shape.
+        const cut = this.ctx.slopeCuts.get(k)
+        if (cut !== undefined) {
+          h = Math.imul(h ^ cut.axis.charCodeAt(0), 16777619)
+          h = Math.imul(h ^ Math.round(cut.lo * 1024), 16777619)
+          h = Math.imul(h ^ Math.round(cut.hi * 1024), 16777619)
+        }
         const fin = this.ctx.finishes.get(k)
         if (fin) {
           // A custom-tinted finish id is a string; hash its characters, not its object.
@@ -300,7 +314,7 @@ export class ChunkSystem extends SceneSystem {
           }
           continue
         }
-        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides)
+        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts)
         if (chunk.triangles === 0) continue
         this.ctx.lastChunkMs = Math.max(this.ctx.lastChunkMs, chunk.ms)
         const meshes: THREE.Mesh[] = []
@@ -380,9 +394,10 @@ export class ChunkSystem extends SceneSystem {
     this.chunkCache = nextCache
     this.ctx.bounds = box
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(0, 0, 0), new THREE.Vector3(8, 8, 8))
-    const clipY = box.min.y + (box.max.y - box.min.y) * 0.5
-    this.ctx.clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), clipY)
-    void t0
+    // The 剖切 plane is not this system's: `SectionSystem` owns it, and keeping
+    // one `THREE.Plane` object alive across a rebuild is what lets the chunk
+    // materials go on sharing it by reference. A fresh plane here would leave
+    // every material clipped by a surface that no longer moves.
   }
 
   outlineMaterial(): THREE.Material {

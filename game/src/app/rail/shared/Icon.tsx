@@ -191,6 +191,16 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M10 3v7l6-3.4M10 10l6 3.4M10 10l-6 3.4M10 10V17" />
         </>,
       )
+    // 沉浸: an eye inside the room, with the floor it stands on under it — the
+    // mode is a body in the station, not a camera over one.
+    case 'immersion':
+      return svg(
+        <>
+          <path {...s} d="M2.2 9.4s2.9-4 7.8-4 7.8 4 7.8 4-2.9 4-7.8 4-7.8-4-7.8-4z" />
+          <circle {...s} cx="10" cy="9.4" r="1.9" />
+          <path {...s} d="M3 15.6h14" />
+        </>,
+      )
     case 'heat':
       return svg(
         <>

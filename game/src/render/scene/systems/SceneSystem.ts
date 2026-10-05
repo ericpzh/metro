@@ -18,7 +18,9 @@ import type { MaterialSet } from '../../materials.ts'
 import type { AdArt } from '../../adArt.ts'
 import type { ModelMaterials } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
+import type { SlopeCut } from '../../../sim/openings.ts'
 import { stairLevels } from '../../../sim/stairs.ts'
+import type { Section } from '../../section.ts'
 import type { Face, FinishId, Module, StationData, WallSide } from '../../../sim/types.ts'
 
 /** Pointer-pick answer: the solid cell hit, or the void cell under the work plane. */
@@ -96,6 +98,14 @@ export interface SceneContext {
    * what the player clicks is what they paint.
    */
   thinSides: Map<number, WallSide>
+  /**
+   * Every block a 楼梯 / 扶梯 takes its volume out of, by packed key → the plane its
+   * top is cut on (`rampSlopeCuts`). The mesher draws those blocks' tops on the
+   * run's underside instead of on the cell ceiling, so the ground under a run fills
+   * up to its truss. Derived from the modules alone, so the pending cell a build
+   * ghost is previewing reads its cut too.
+   */
+  slopeCuts: Map<number, SlopeCut>
   /** Cells whose top finish is the track bed, for the same preview context. */
   trackCellSet: Set<string>
   /** Lowest storey each column reaches; a block there has nothing under it. */
@@ -106,12 +116,35 @@ export interface SceneContext {
   autoCeiling: boolean
   /** 隐藏墙壁: true while walls and platform screen doors should read through. */
   hideWalls: boolean
+  /**
+   * 隐藏UI: the picture is the station rather than the storey being edited, so
+   * the slice is put away (`levelSlicing.sliceOptions`) and every storey draws
+   * as itself. It owns the editing lattice as well, but that flag lives with the
+   * lattice (`GridSystem`), not here.
+   */
+  hideUI: boolean
+  /**
+   * 沉浸: the eye is inside the station (§9.7 视图). The level slice stops being
+   * a slice — every storey draws crisp and no ceiling is lifted — because what
+   * the mode is for is what the geometry between the eye and the room really
+   * hides (`render/levelSlicing.ts`).
+   */
+  immersive: boolean
   /** The slice state the last `applyLevel` applied, so a repeat is skipped. */
   levelKey: string
   dimMats: Map<THREE.Material, THREE.Material>
   /** Translucent clones of wall/P.S.D. materials, keyed by the opaque original. */
   clearMats: Map<THREE.Material, THREE.Material>
-  clipPlane: THREE.Plane
+  /**
+   * The 剖切 surface the clip plane is built from (`render/section.ts`): where
+   * the cut stands, how it is turned and how far it has slid. The store owns it
+   * — the rail's location box and the drag both write there — and the scene
+   * only reads it, so the plane, the highlighted surface and the drag can never
+   * disagree about where the cut is. The plane itself is `SectionSystem.plane`,
+   * one object for the scene's lifetime, which is what lets every clipped
+   * material share it by reference.
+   */
+  section: Section
   /**
    * Materials a module builder minted for the current build alone — a 电视 plate, a
    * 站台门 header, an 出入口 header, the 售票机 marquee, a room's 招牌 (see
@@ -144,16 +177,19 @@ export class SceneContextData implements SceneContext {
   finishes = new Map<number, Partial<Record<Face, FinishId>>>()
   hiddenCells = new Set<number>()
   thinSides = new Map<number, WallSide>()
+  slopeCuts = new Map<number, SlopeCut>()
   trackCellSet = new Set<string>()
   groundOf = new Map<string, number>()
   activeZ = 0
   ghost = true
   autoCeiling = true
   hideWalls = false
+  hideUI = false
+  immersive = false
   levelKey = ''
   dimMats = new Map<THREE.Material, THREE.Material>()
   clearMats = new Map<THREE.Material, THREE.Material>()
-  clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)
+  section: Section = { anchor: [0, 0, 0], orientation: { azimuth: 0, elevation: 0 }, offset: 0 }
   ownedMats: THREE.Material[] = []
   trainPoses: Array<{ x: number; y: number; colour: number }> = []
   clockText = '--:--'

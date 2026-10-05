@@ -252,6 +252,17 @@ build/ →  sim/            (and neither render/ nor app/)
   tile-sized run (an escalator, a stair lane) reaches nothing beside it, so
   nothing there is thinned at all. A **半墙** the player laid is skipped: that cell
   is already a half block thick, and its side is theirs.
+  The ground **under** a run is the other half of that story: a run's body hangs
+  `RAMP_FOOT` (0.5 m) below its walking line, so `rampSlopeCuts` derives the volume
+  each 楼梯 / 扶梯 takes out of the blocks it climbs over — the same tiles
+  `rampBodyBoxes` reserves, with the truss depth off the local line — and the mesher
+  (`chunkMesher`'s `slope` map) draws those blocks' tops on that plane, clipping the
+  cross-section where the plane leaves through the block's floor so nothing chords
+  back up into the run. A block under a run is therefore floor the 地基 tool lays and
+  the carve keeps (a run's opening starts at its walking line, not at its truss), and
+  it reads as the filling under the slope. Only the run's own centreline column is
+  cut, a landing column never is, and nothing is added to the document — the cut is
+  derived, like the half panel beside a wide run. `test/slope-cut.test.mjs`.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
   `sim/world.ts`). A rail is a `track` module bound to a line and an `up`/`down`
   direction: a fixed, pre-rendered piece — a car-width bed (`d = 3`) and a run

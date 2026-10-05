@@ -1,10 +1,13 @@
-// 隐藏UI: the 1 m editing lattice and its cell cursor, and nothing else.
+// 隐藏UI: the editing lattice off the picture, and the storey slice put away
+// with it.
 //
-// The rule is one line in `GridSystem.ts` — `!hideUI && !immersive` — and the
-// point of the test is that it is a line rather than implicit behaviour spread
-// over two modes. The lattice is drawing furniture: the 隐藏UI tile takes it off
-// the picture, 沉浸 takes it off because the eye is standing in the room, and
-// neither may put it back while the other is still on.
+// Two rules make the mode, and both are one line each: `GridSystem.gridVisible`
+// (`!hideUI && !immersive`) owns the lattice and its cell cursor, and
+// `levelSlicing.sliceOptions` owns what the storeys draw — *every* storey, as
+// itself, instead of the 35% ghost sheet that lies over the floor under the
+// camera. The point of the test is that those are lines rather than implicit
+// behaviour spread over two modes, and that 隐藏UI and 沉浸 cannot put back what
+// the other one took away.
 //
 // The cursor is the half that is easy to lose: it is set by the pointer on every
 // frame, so a hidden lattice has to keep its ring down whatever the pick says.

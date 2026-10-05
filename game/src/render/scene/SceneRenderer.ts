@@ -28,7 +28,9 @@ import { CrowdSystem } from './systems/CrowdSystem.ts'
 import { GridSystem } from './systems/GridSystem.ts'
 import { CameraSystem } from './systems/CameraSystem.ts'
 import { PlateSystem } from './systems/PlateSystem.ts'
+import { SectionSystem } from './systems/SectionSystem.ts'
 import type { PickResult } from './systems/SceneSystem.ts'
+import type { Section } from '../section.ts'
 
 export type { PickResult, SceneStats }
 
@@ -46,6 +48,7 @@ export class SceneRenderer {
   private grid: GridSystem
   private cameraSys: CameraSystem
   private plates: PlateSystem
+  private sectionSys: SectionSystem
   private lastFrame = 0
   private frameCount = 0
   private fpsTime = 0
@@ -108,6 +111,7 @@ export class SceneRenderer {
     this.level = new LevelSystem(this.ctx)
     this.grid = new GridSystem(this.ctx)
     this.cameraSys = new CameraSystem(canvas, this.ctx, this.renderer)
+    this.sectionSys = new SectionSystem(this.ctx)
 
     this.trains.level = this.level
     this.modules.trains = this.trains
@@ -117,11 +121,16 @@ export class SceneRenderer {
     this.modules.ghost = this.ghostSys
     this.ghostSys.plates = this.plates
     this.ghostSys.modules = this.modules
+    // The slice walks the chunk meshes (`outlineSet`, `levelGroups`) as well as
+    // the fixtures and the trains, so all three have to be wired before the
+    // first `applyLevel` — which `setStation` calls on the station's first build.
     this.level.chunks = this.chunks
     this.level.modules = this.modules
     this.level.trains = this.trains
-    this.level.crowd = this.crowd
     this.cameraSys.modules = this.modules
+    this.sectionSys.chunks = this.chunks
+    this.sectionSys.crowd = this.crowd
+    this.sectionSys.modules = this.modules
 
     this.cameraSys.setPreset('iso')
     this.animate()
@@ -176,10 +185,27 @@ export class SceneRenderer {
     this.grid.buildGrid()
     this.cameraSys.setPickables([...this.chunks.chunkMeshes, ...this.chunks.wallPick.children, ...this.lifts.liftPickMeshes])
     this.level.applyLevel()
+    // A rebuild mints fresh chunk, crowd and module materials, which are not
+    // clipped until this walks them again — and a cut that is on has to stay on.
+    this.sectionSys.applyClip()
     // Rebuild the selection box against the freshly built modules, so an edit
     // does not drop the highlight.
     this.modules.refreshSelection()
     this.modules.refreshCollisionHighlight()
+  }
+
+  /**
+   * The 剖切 surface a station defaults to: the middle of its plan, on the
+   * storey being edited, facing +y — the fixed cut of the old toggle, now the
+   * starting point the location box and the drag move away from. Called once
+   * per station, so an edit never throws away the cut the player placed.
+   */
+  defaultSection(): Section {
+    const b = this.ctx.bounds
+    const anchor: [number, number, number] = Number.isFinite(b.min.x)
+      ? [(b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, this.ctx.activeZ]
+      : [0, 0, this.ctx.activeZ]
+    return { anchor, orientation: { azimuth: 0, elevation: 0 }, offset: 0 }
   }
 
   /**
@@ -230,8 +256,71 @@ export class SceneRenderer {
     this.level.setAutoCeiling(on)
   }
 
+  /**
+   * 剖切: the placed cut surface (`render/section.ts`). The plane is written in
+   * place, so sliding the cut costs two numbers rather than a rebuild — but the
+   * **materials** are only re-listed when the cut is switched on or off, which
+   * is the only time the plane's membership changes.
+   */
+  setSection(section: Section, on: boolean): void {
+    const wasOn = this.sectionSys.on
+    this.sectionSys.setSection(section, on)
+    if (wasOn !== on) this.sectionSys.applyClip()
+    this.sectionSys.setImmersive(this.ctx.immersive)
+  }
+
+  /** The store's 剖切 flag, for callers that only carry the toggle. */
   setCutaway(on: boolean): void {
-    this.level.setCutaway(on)
+    this.setSection(this.ctx.section, on)
+  }
+
+  /** The section surface under the pointer — the handle a slide grabs. */
+  sectionHit(clientX: number, clientY: number): boolean {
+    return this.sectionSys.hit(clientX, clientY, this.renderer.domElement, this.cameraSys.activeCamera())
+  }
+
+  /** Where the pointer's ray meets the section plane, for a slide. */
+  sectionPoint(clientX: number, clientY: number): [number, number, number] | null {
+    return this.sectionSys.rayPoint(clientX, clientY, this.renderer.domElement, this.cameraSys.activeCamera())
+  }
+
+  setSectionHover(on: boolean): void {
+    this.sectionSys.setHover(on)
+  }
+
+  /* ------------------------------------------------------------- 沉浸 */
+
+  /**
+   * 沉浸: the same view stood inside the storey being viewed rather than above the
+   * station (`CameraSystem.setImmersive`). **The interface stays** — the build rail,
+   * the inspector, the view cube, the level rail and every tool are exactly where
+   * they were, and the orbit, the wheel, WASD's pan and the nav cube all keep
+   * working, because the control scheme is the point of the other views. Neither
+   * does the **angle**: the camera steps to the room and its target comes with it,
+   * so the mode arrives at the orbit the player was holding and hands it back
+   * untouched on the way out. What the mode takes away is the **editing grid
+   * and its cell cursor**: a 1 m lattice floating at the eye's own storey is a
+   * drawing aid, and the mode's question is what the station looks like to
+   * somebody standing in it.
+   *
+   * Two other things follow the view rather than the station, and both are about
+   * not lying to the player: the level slice stops being a slice (every storey
+   * draws crisp — a 35% ghost of the floor above would show the room through it),
+   * and the 剖切 highlight goes away (its translucent sheet, border and grid exist
+   * so the cut can be grabbed and slid from above the model, which is not what
+   * the mode is for; the clip itself stays, because it is the cut the player
+   * asked for).
+   */
+  setImmersive(on: boolean, z?: number): void {
+    this.cameraSys.setImmersive(on, z)
+    this.level.setImmersive(on)
+    this.sectionSys.setImmersive(on)
+    this.grid.setGridVisible(!on)
+  }
+
+  /** Whether the view is aimed from inside the station. */
+  get immersive(): boolean {
+    return this.cameraSys.immersive
   }
 
   /** 隐藏墙壁: fade every wall and platform screen door, or restore them. */
@@ -324,13 +413,18 @@ export class SceneRenderer {
   }
 
   /**
-   * 隐藏UI: the drawing lattice and its cell cursor off the picture. It is the
-   * grid system's own flag rather than a hard `setGridVisible(false)`, because
-   * 沉浸 hides the same lattice for its own reason and the two must not restore
-   * it behind each other's back (`GridSystem.gridVisible`).
+   * 隐藏UI: the drawing lattice and its cell cursor off the picture, and the
+   * storey slice put away with them.
+   *
+   * Both flags belong to the systems that own the drawing, not to a hard
+   * `setGridVisible(false)` and a ghost material set on the rail's behalf: 沉浸
+   * hides the same lattice and asks for the same slice for its own reason, and
+   * neither mode may restore the other's lattice or ghost sheet
+   * (`GridSystem.gridVisible`, `LevelSystem.setHideUI`).
    */
   setHideUI(on: boolean): void {
     this.grid.setHideUI(on)
+    this.level.setHideUI(on)
   }
 
   /* -------------------------------------------------------------- picking */
@@ -394,6 +488,7 @@ export class SceneRenderer {
     this.cameraSys.dispose()
     this.chunks.disposeChunks()
     this.ghostSys.dispose()
+    this.sectionSys.dispose()
     this.modules.disposeSelection()
     disposeModelMaterials(this.ctx.modelMats)
     this.ctx.ads.dispose()
