@@ -14,8 +14,14 @@ import { drawStationDisplay, STATION_PLATE, tvLineStatus } from '../../stationDi
 import { drawSignPanel } from '../../signFace.ts'
 import { signBoardsOf, signBoardsPanel, signFaceLayout, signPlate } from '../../../sim/sign.ts'
 import type { SignLayout, SignPanelSize } from '../../../sim/sign.ts'
+import type { StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
+
+/** The cache key of one 指示牌 face: the module, the side, and the panel's own size. */
+function signPlateKey(id: string, face: 'left' | 'right', panel: SignPanelSize): string {
+  return `${id}|${face}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+}
 
 /**
  * How long a 电视 window holds one piece of content before the feed changes it.
@@ -46,6 +52,29 @@ export class PlateSystem extends SceneSystem {
    * rebuilt with the modules they belong to.
    */
   signPlates = new Map<string, { texture: THREE.CanvasTexture; material: THREE.Material; face: 'left' | 'right' }>()
+  /**
+   * What the 电视 plates were last drawn from: the station's name and, for every
+   * line, everything the board prints — its name, colour, direction, both termini,
+   * its peak headway and the travel axis the countdown is measured along.
+   * Those are the only inputs a **rebuild** can change (the clock and the
+   * next-train countdown are redrawn in place by `setSimClock`), so a change to
+   * any of them reprints every plate, and nothing else does. A field left out of
+   * the stamp is a board that keeps printing the line as it was: the plate is
+   * retained by module id, so a rename or a new terminus would never be redrawn.
+   */
+  private tvPlateStamp = ''
+  /**
+   * Every plate texture this system minted. A lit face wraps one of these, and the
+   * two places that free a builder-minted material's map (`ModuleSystem.clearModules`,
+   * `GhostSystem.clearModulePreview`) have to leave a retained plate's pixels alone —
+   * the plate outlives the mesh it is printed on.
+   */
+  private mintedTextures = new WeakSet<THREE.Texture>()
+
+  /** True for a texture this system owns — a 电视 plate or a 指示牌 face. */
+  ownsTexture(tex: THREE.Texture | null | undefined): boolean {
+    return tex !== null && tex !== undefined && this.mintedTextures.has(tex)
+  }
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -55,6 +84,56 @@ export class PlateSystem extends SceneSystem {
   clearTvPlates(): void {
     for (const tex of this.tvPlates.values()) tex.dispose()
     this.tvPlates.clear()
+  }
+
+  /**
+   * Keep the plates of the 电视 the document still has, and drop the rest.
+   *
+   * A rebuild used to dispose every plate and redraw it — a 640×304 canvas and its
+   * upload per television — for an edit that touched one wall. The plate is a
+   * function of the module's id (its position only moves the next-train countdown,
+   * which `setSimClock` refreshes every minute).
+   */
+  retainTvPlates(data: StationData): void {
+    const stamp = `${data.name}|${data.lines
+      .map((l) => `${l.id},${l.name},${l.colour},${l.direction},${l.upTerminus},${l.downTerminus},${l.headwayProfile.peak},${l.travelSign}`)
+      .join('|')}`
+    if (stamp !== this.tvPlateStamp) {
+      this.tvPlateStamp = stamp
+      this.clearTvPlates()
+      return
+    }
+    const keep = new Set<string>()
+    for (const mod of data.modules) if (mod.type === 'tv') keep.add(mod.id)
+    for (const [id, tex] of [...this.tvPlates]) {
+      if (keep.has(id)) continue
+      tex.dispose()
+      this.tvPlates.delete(id)
+    }
+  }
+
+  /**
+   * Keep every 指示牌 face whose module, side and panel are unchanged, and drop the
+   * rest. Each face is a 512 px/m canvas (≈1.2 MB for a 2 m board), so wiping them
+   * all per edit was the most expensive part of a rebuild after the chunks. What is
+   * kept is the canvas, its texture and its material: `redrawSignPlates` still
+   * repaints the pixels from the live document, so a 线路 edit reaches a retained
+   * face, and only the allocation is saved.
+   */
+  retainSignPlates(data: StationData): void {
+    const keep = new Set<string>()
+    for (const mod of data.modules) {
+      if (mod.type !== 'sign') continue
+      const panel = signBoardsPanel(signBoardsOf(mod.cfg, data))
+      keep.add(signPlateKey(mod.id, 'left', panel))
+      keep.add(signPlateKey(mod.id, 'right', panel))
+    }
+    for (const [key, entry] of [...this.signPlates]) {
+      if (keep.has(key)) continue
+      entry.texture.dispose()
+      entry.material.dispose()
+      this.signPlates.delete(key)
+    }
   }
 
   /** Release every 指示牌 face. Called with the modules, like `clearTvPlates`. */
@@ -91,7 +170,7 @@ export class PlateSystem extends SceneSystem {
    * model's own dark lightbox showed through.
    */
   makeSignPlate(id: string, layout: SignLayout, face: 'left' | 'right', panel: SignPanelSize): THREE.Material {
-    const key = `${id}|${face}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+    const key = signPlateKey(id, face, panel)
     const existing = this.signPlates.get(key)
     if (existing) return existing.material
     const lines = this.ctx.stationData?.lines ?? []
@@ -100,6 +179,7 @@ export class PlateSystem extends SceneSystem {
       drawSignPanel(g, layout, { lines, panel }, face)
     })
     const material = litPanelMaterial(texture)
+    this.mintedTextures.add(texture)
     this.signPlates.set(key, { texture, material, face })
     return material
   }
@@ -159,6 +239,7 @@ export class PlateSystem extends SceneSystem {
     const t = canvasTexture(STATION_PLATE.width, STATION_PLATE.height, (g) => {
       drawStationDisplay(g, status, this.ctx.stationData?.name ?? '', this.ctx.clockText)
     })
+    this.mintedTextures.add(t)
     this.tvPlates.set(id, t)
     return t
   }

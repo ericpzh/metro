@@ -221,16 +221,20 @@ export function moduleLabel(type: string, roomKind?: string): string {
 /**
  * Everything a hover ghost is drawn from: the piece being placed, its rotation,
  * and every Tab cycle — the stair width, the escalator direction, the 闸机's lane
- * or fence, and the 地基 tool's **半墙** mode and wall-face cycle. The viewport
- * subscribes to this one key, so anything that changes what a ghost looks like
- * rebuilds it under the pointer at once instead of waiting for the next pointer
- * move; a new Tab cycle only has to join this list, in one place, to be redrawn
- * live. (It is what keeps a 半墙 honest too: R turns the panel to another half of
- * the tile without moving the pending cells at all, so nothing else would redraw
+ * or fence, and the 地基 tool's cut modes (**半墙** / **三角上** / **三角下**) with the
+ * wall-face cycle they share. The viewport subscribes to this one key, so anything
+ * that changes what a ghost looks like rebuilds it under the pointer at once
+ * instead of waiting for the next pointer move; a new Tab cycle only has to join
+ * this list, in one place, to be redrawn live. (It is what keeps a cut piece
+ * honest too: R turns a 半墙 to another half of the tile, or a 三角 to another
+ * corner, without moving the pending cells at all, so nothing else would redraw
  * it.)
  */
 export function placementPreviewKey(
-  s: Pick<AppState, 'moduleType' | 'moduleRot' | 'stairWidth' | 'escalatorDir' | 'gateDoor' | 'halfWall' | 'wallSnapCycle'>,
+  s: Pick<
+    AppState,
+    'moduleType' | 'moduleRot' | 'stairWidth' | 'escalatorDir' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+  >,
 ): string {
-  return `${s.moduleType}|${s.moduleRot}|${s.stairWidth}|${s.escalatorDir}|${s.gateDoor}|${s.halfWall}|${s.wallSnapCycle}`
+  return `${s.moduleType}|${s.moduleRot}|${s.stairWidth}|${s.escalatorDir}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

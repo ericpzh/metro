@@ -17,6 +17,39 @@ import { parse as parseSave, serialize as serializeSave } from '../../../persist
 import type { AppState } from '../Store.ts'
 import { loadSim, rebuildSim } from './SimSlice.ts'
 
+/** Most undo frames, and the most document they may hold between them. */
+const UNDO_MAX_FRAMES = 40
+const UNDO_BUDGET = 120_000
+
+/**
+ * Roughly what one snapshot costs to keep: a cell is a small record, a module is a
+ * whole piece with its own config (`cells + 4 x modules` is the shipped demo's
+ * 11 333 + 1 464 ≈ 12 797, near enough to its ~2 MB in the heap — so the demo holds
+ * **nine** frames of history, where a fresh 2 × 2 station holds all forty).
+ */
+function snapshotCost(s: StationState): number {
+  return s.cells.length + s.modules.length * 4
+}
+
+/**
+ * Push a snapshot onto the undo stack, dropping the oldest frames until the stack
+ * fits both its depth limit and its memory budget.
+ *
+ * A depth cap alone says nothing about a large station: forty snapshots of an
+ * 11 000-cell build is tens of megabytes held for the session, and the clone is paid
+ * on every commit. A small station still gets all forty frames; a large one trades
+ * depth for a ceiling.
+ */
+function pushPast(past: readonly StationState[], snap: StationState): StationState[] {
+  const next = [...past, snap]
+  let held = next.reduce((n, s) => n + snapshotCost(s), 0)
+  while (next.length > 1 && (next.length > UNDO_MAX_FRAMES || held > UNDO_BUDGET)) {
+    held -= snapshotCost(next[0])
+    next.shift()
+  }
+  return next
+}
+
 export interface StationSlice {
   station: StationState
   version: number
@@ -69,7 +102,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
       return
     }
     const s = r.state
-    set({ station: s, past: [...get().past, cloneState(get().station)].slice(-40), future: [], version: get().version + 1, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, selected: null, moveDraft: null })
     loadSim(toData(s))
     // A save that carried blocks off the 1 m grid (nothing in the game can mint one,
     // so they came from outside) is repaired by `toState` rather than refused — say
@@ -92,7 +125,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
 
   commit: (next) => {
     const cur = get().station
-    set({ station: next, version: get().version + 1, past: [...get().past, cloneState(cur)].slice(-40), future: [] })
+    set({ station: next, version: get().version + 1, past: pushPast(get().past, cloneState(cur)), future: [] })
     rebuildSim(toData(next))
   },
   undo: () => {
@@ -106,12 +139,12 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const { future, station, past } = get()
     if (future.length === 0) return
     const next = future[future.length - 1]
-    set({ station: next, future: future.slice(0, -1), past: [...past, cloneState(station)], version: get().version + 1 })
+    set({ station: next, future: future.slice(0, -1), past: pushPast(past, cloneState(station)), version: get().version + 1 })
     rebuildSim(toData(next))
   },
   newStation: () => {
     const s = toState({ name: '未命名车站', seed: 7654321, cells: [], modules: [], lines: [] })
-    set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: 0, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: 0, selected: null, moveDraft: null })
     loadSim(toData(s))
   },
   loadReference: () => {
@@ -119,7 +152,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     // here: an off-grid block would be dropped rather than loaded, not refused.
     const repaired = toStateRepairing(referenceStation())
     const s = repaired.state
-    set({ station: s, past: [...get().past, cloneState(get().station)], future: [], version: get().version + 1, activeZ: -8, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: -8, selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
     if (repaired.droppedCells + repaired.droppedModules > 0) {
       set({ notice: `示例车站修复时删掉了 ${repaired.droppedCells + repaired.droppedModules} 个网格外的方块` })

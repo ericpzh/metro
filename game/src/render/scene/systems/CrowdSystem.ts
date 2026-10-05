@@ -209,10 +209,7 @@ export class CrowdSystem extends SceneSystem {
 
   setDensity(nodes: Float32Array, density: Float32Array, on: boolean): void {
     if (!this.overlay || this.overlay.count !== nodes.length / 3) {
-      if (this.overlay) {
-        this.ctx.scene.remove(this.overlay)
-        this.overlay.dispose()
-      }
+      this.dropOverlay(this.overlay)
       const g = new THREE.PlaneGeometry(1, 1)
       const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide })
       this.overlay = new THREE.InstancedMesh(g, m, Math.max(1, nodes.length / 3))
@@ -244,6 +241,26 @@ export class CrowdSystem extends SceneSystem {
     if (this.overlay) this.overlay.visible = on
   }
 
+  /** 区域 map visibility, without rebuilding the map. */
+  setZoneOverlayVisible(on: boolean): void {
+    if (this.zoneOverlay) this.zoneOverlay.visible = on
+    if (!on) this.zoneLabels.visible = false
+    else if (this.zoneLabels.children.length > 0) this.zoneLabels.visible = true
+  }
+
+  /**
+   * Drop one overlay for good. `InstancedMesh.dispose()` frees only the instance
+   * buffers, so the quad's geometry and its material — both minted per overlay —
+   * have to go with it or every resize leaves a pair on the GPU for the session.
+   */
+  private dropOverlay(overlay: THREE.InstancedMesh | null): void {
+    if (!overlay) return
+    this.ctx.scene.remove(overlay)
+    overlay.geometry.dispose()
+    ;(overlay.material as THREE.Material).dispose()
+    overlay.dispose()
+  }
+
   /**
    * Fare-zone map (§4.5): one tinted quad per walkable floor cell and a flat
    * text label naming the zone at the centre of each contiguous area. The quads
@@ -258,10 +275,7 @@ export class CrowdSystem extends SceneSystem {
   ): void {
     const n = zones.length
     if (!this.zoneOverlay || this.zoneOverlay.count !== n) {
-      if (this.zoneOverlay) {
-        this.ctx.scene.remove(this.zoneOverlay)
-        this.zoneOverlay.dispose()
-      }
+      this.dropOverlay(this.zoneOverlay)
       const g = new THREE.PlaneGeometry(1, 1)
       const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide })
       this.zoneOverlay = new THREE.InstancedMesh(g, m, Math.max(1, n))
@@ -485,13 +499,13 @@ export class CrowdSystem extends SceneSystem {
   }
 
   override dispose(): void {
-    if (this.zoneOverlay) {
-      this.ctx.scene.remove(this.zoneOverlay)
-      this.zoneOverlay.geometry.dispose()
-      ;(this.zoneOverlay.material as THREE.Material).dispose()
-      this.zoneOverlay.dispose()
-      this.zoneOverlay = null
-    }
+    // The LOS overlay belongs to this system as much as the zone map does: it was
+    // never dropped here, so a page that used the overlay left its geometry and
+    // material behind on teardown.
+    this.dropOverlay(this.overlay)
+    this.overlay = null
+    this.dropOverlay(this.zoneOverlay)
+    this.zoneOverlay = null
     this.clearZoneLabels()
     this.zoneLabelGeo?.dispose()
     for (const m of this.zoneLabelMats.values()) {
@@ -499,5 +513,14 @@ export class CrowdSystem extends SceneSystem {
       m.dispose()
     }
     this.zoneLabelMats.clear()
+    // The crowd's own instanced draws. They are one batch per body part for the
+    // scene's lifetime, so they go with it — geometry, material, instance buffers.
+    // `blobs` wears the shared `mats.blob`, which the material set disposes itself.
+    for (const mesh of [this.agents, this.heads, this.hair, this.blobs]) {
+      mesh.geometry.dispose()
+      if (mesh !== this.blobs) (mesh.material as THREE.Material).dispose()
+      mesh.dispose()
+      this.ctx.scene.remove(mesh)
+    }
   }
 }

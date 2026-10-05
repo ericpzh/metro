@@ -18,8 +18,8 @@ import type { ModuleContext } from '../../models.ts'
 import { HALF_WALL_T } from '../../../sim/constants.ts'
 import { rampFillKeys } from '../../../sim/openings.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
-import { halfWallInnerFace, packKey } from '../../../sim/types.ts'
-import type { Face, Module, WallSide } from '../../../sim/types.ts'
+import { halfWallInnerFace, isHalfWallShape, packKey } from '../../../sim/types.ts'
+import type { CellShape, Face, Module } from '../../../sim/types.ts'
 import { moduleGhostKey } from '../../moduleGhostKey.ts'
 import { moduleLevels, SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -103,7 +103,7 @@ export class GhostSystem extends SceneSystem {
     cells: Array<[number, number, number]>,
     kind: 'add' | 'remove',
     colour = 0xff5d5d,
-    thin?: ReadonlyMap<number, WallSide>,
+    thin?: ReadonlyMap<number, CellShape>,
   ): void {
     if (kind === 'add') {
       if (this.ghostMesh) this.ghostMesh.visible = false
@@ -152,15 +152,21 @@ export class GhostSystem extends SceneSystem {
    * would show the wall the player just turned away from. So is the run's cut,
    * which changes when a 楼梯 / 扶梯 is placed or bulldozed under an unmoved cell.
    */
-  private ghostKeyOf(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, WallSide>): string {
+  private ghostKeyOf(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, CellShape>): string {
     let h = 2166136261
     for (const [x, y, z] of cells) {
       h = Math.imul(h ^ (x + 4096), 16777619)
       h = Math.imul(h ^ (y + 4096), 16777619)
       h = Math.imul(h ^ (z + 4096), 16777619)
       const k = packKey(x, y, z)
-      const side = thin?.get(k)
-      if (side !== undefined) h = Math.imul(h ^ side.charCodeAt(0), 16777619)
+      const shape = thin?.get(k)
+      if (shape !== undefined) {
+        // The family and the hugged side both change the piece, and **R** steps the
+        // side without the pending cell moving: a ghost that skipped that rebuild
+        // would show the cut the player just turned away from.
+        h = Math.imul(h ^ (shape.kind === 'half' ? 0 : shape.triangle === 'upper' ? 1 : 2), 16777619)
+        for (let i = 0; i < shape.side.length; i++) h = Math.imul(h ^ shape.side.charCodeAt(i), 16777619)
+      }
       const cut = this.ctx.slopeCuts.get(k)
       if (cut !== undefined) {
         h = Math.imul(h ^ cut.axis.charCodeAt(0), 16777619)
@@ -193,7 +199,7 @@ export class GhostSystem extends SceneSystem {
    * them is meshed half a block thick, and a block under a 楼梯 / 扶梯 is meshed
    * shaved to the run's underside, exactly as they will be once laid.
    */
-  private buildShapeGhost(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, WallSide>): void {
+  private buildShapeGhost(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, CellShape>): void {
     this.clearShapeGhost()
     if (cells.length === 0) return
     const emit = new Set<number>()
@@ -298,8 +304,12 @@ export class GhostSystem extends SceneSystem {
     const scale = new THREE.Vector3(1, 1, 1)
     for (let i = 0; i < n; i++) {
       const [x, y, z] = cells[i]
-      const side = this.ctx.thinSides.get(packKey(x, y, z))
-      const inset = side !== undefined && face === halfWallInnerFace(side) ? HALF_WALL_T : 0
+      const shape = this.ctx.thinSides.get(packKey(x, y, z))
+      // A 半墙's panel turns its inner face into its own cell, half a block in, so the
+      // paint ghost sits on the panel rather than on the boundary. A 三角's faces are
+      // its own geometry, not the cell's, so the brush ghost stays on the boundary
+      // there — half a block in would float over the corner it cut away.
+      const inset = isHalfWallShape(shape) && face === halfWallInnerFace(shape.side) ? HALF_WALL_T : 0
       const off = 0.505 - inset
       pos.set(x + 0.5 + nx * off, y + 0.5 + ny * off, z + 0.5 + nz * off)
       mat.compose(pos, q, scale)
@@ -347,22 +357,38 @@ export class GhostSystem extends SceneSystem {
       owned: this.previewOwnedMats,
     }
     const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
-    const shared = new Set<THREE.Material>()
-    for (const value of Object.values(this.ctx.modelMats)) {
-      if (Array.isArray(value)) for (const m of value as THREE.Material[]) shared.add(m)
-      else shared.add(value as THREE.Material)
-    }
-    for (const m of this.ctx.mats.finishCache.values()) shared.add(m)
-    shared.add(this.ctx.mats.outline)
-    shared.add(this.ctx.mats.blob)
-    shared.add(this.ctx.mats.tactile)
     for (const piece of mods) {
       const group = buildModule(piece, ctx)
       if (!group) continue
-      this.tintModuleGhost(group, piece, tint, 0.45, this.previewMats, this.previewBases, shared)
+      this.tintModuleGhost(group, piece, tint, 0.45, this.previewMats, this.previewBases, (m) => this.sceneOwns(m))
       this.previewGroup.add(group)
     }
     this.previewGroup.visible = true
+  }
+
+  /**
+   * The shared model kit, as an ownership test. Built once, on first use: the kit
+   * is a fixed set of materials, and rebuilding it per hover was a per-pointer-move
+   * cost. `MaterialSet` answers for itself through `owns`, which is why a finish the
+   * ghost **just minted** for its own cells counts as the scene's and is never
+   * pushed onto a preview's disposal list.
+   */
+  private kitMats: WeakSet<THREE.Material> | null = null
+  private sceneOwns(mat: THREE.Material): boolean {
+    if (this.ctx.mats.owns(mat)) return true
+    // A printed plate: the material wraps a texture the plate system mints and keeps
+    // for the sign it is drawn on, so it is not the ghost's to dispose either.
+    if (this.plates.ownsTexture((mat as THREE.MeshBasicMaterial).map)) return true
+    let kit = this.kitMats
+    if (!kit) {
+      kit = new WeakSet<THREE.Material>()
+      for (const value of Object.values(this.ctx.modelMats)) {
+        if (Array.isArray(value)) for (const m of value as THREE.Material[]) kit.add(m)
+        else kit.add(value as THREE.Material)
+      }
+      this.kitMats = kit
+    }
+    return kit.has(mat)
   }
 
   /**
@@ -370,9 +396,10 @@ export class GhostSystem extends SceneSystem {
    * map it built so a caller can reuse one ghost per base material.
    *
    * `tinted` is the colour a ghost is washed toward, or null to leave the materials'
-   * own colours alone (the fence drag does not tint). A factory material may be shared
-   * scene-wide, so a base the caller does not own is pushed onto `owned` for it to
-   * dispose when the preview moves on.
+   * own colours alone (the fence drag does not tint). `sceneOwns` answers whether a
+   * base material belongs to the scene (the shared kit, or anything `MaterialSet`
+   * minted); a base it does not own is module-local — a printed sign, say — and is
+   * pushed onto `bases` for the caller to dispose when the preview moves on.
    *
    * **A lit face keeps its own sidedness.** A 装饰 screen prints its artwork out of the
    * front of a plane only (`render/adArt.ts`), and a ghost that forced
@@ -389,7 +416,7 @@ export class GhostSystem extends SceneSystem {
     opacity: number,
     owned: THREE.Material[],
     bases: THREE.Material[],
-    shared: ReadonlySet<THREE.Material>,
+    sceneOwns: (mat: THREE.Material) => boolean,
   ): Map<THREE.Material, THREE.Material> {
     const ghostOf = new Map<THREE.Material, THREE.Material>()
     group.traverse((o) => {
@@ -410,9 +437,9 @@ export class GhostSystem extends SceneSystem {
         if (tint && any.color) any.color = any.color.clone().lerp(tint, 0.4)
         ghostOf.set(base, ghost)
         owned.push(ghost)
-        // A factory material may be shared scene-wide; a module-local one (a printed
-        // sign, say) is the caller's to dispose when the preview moves on.
-        if (!shared.has(base)) bases.push(base)
+        // A factory material may be shared scene-wide; a module-local one is the
+        // caller's to dispose when the preview moves on.
+        if (!sceneOwns(base)) bases.push(base)
       }
       mesh.material = ghost
       mesh.renderOrder = 5
@@ -433,7 +460,9 @@ export class GhostSystem extends SceneSystem {
     this.previewBases.length = 0
     for (const m of this.previewOwnedMats) {
       const map = (m as THREE.MeshBasicMaterial).map
-      if (map) map.dispose()
+      // A plate is the scene's, not the ghost's: the lit face of a 电视 ghost wraps
+      // the same station plate the placed piece prints on (`PlateSystem.ownsTexture`).
+      if (map && !this.plates.ownsTexture(map)) map.dispose()
       m.dispose()
     }
     this.previewOwnedMats = []
@@ -486,16 +515,10 @@ export class GhostSystem extends SceneSystem {
     // The dragged panels, tinted like the module hover ghost.
     const previewCtx: ModuleContext = { ...ctx, preview: true }
     const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
-    const shared = new Set<THREE.Material>()
-    for (const value of Object.values(this.ctx.modelMats)) {
-      if (Array.isArray(value)) for (const m of value as THREE.Material[]) shared.add(m)
-      else shared.add(value as THREE.Material)
-    }
-    for (const m of this.ctx.mats.finishCache.values()) shared.add(m)
     for (const m of list) {
       const group = buildModule(m, previewCtx)
       if (!group) continue
-      this.tintModuleGhost(group, m, tint, 0.5, this.fencePreviewMats, this.fencePreviewBases, shared)
+      this.tintModuleGhost(group, m, tint, 0.5, this.fencePreviewMats, this.fencePreviewBases, (mat) => this.sceneOwns(mat))
       this.fencePreviewGroup.add(group)
     }
   }

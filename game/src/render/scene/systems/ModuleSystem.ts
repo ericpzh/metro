@@ -56,7 +56,7 @@ export class ModuleSystem extends SceneSystem {
    * reference art, and the camera sees steel, glass, enamel and screens.
    */
   buildModules(data: StationData, _trackCells: Set<number>): void {
-    this.clearModules()
+    this.clearModules(data)
     // The plates belong to the module groups just dropped, so they go with them —
     // otherwise every edit would leak one texture per 电视 or 指示牌.
     const trackCells = trackBedKeys(data.cells, data.modules)
@@ -160,21 +160,41 @@ export class ModuleSystem extends SceneSystem {
     if (decal) this.moduleMeshes.add(decal)
   }
 
-  /** Drop the last frame's module geometry and trains without touching materials. */
-  clearModules(): void {
+  /**
+   * Drop the last frame's module geometry and trains without touching materials.
+   *
+   * `data` is the document about to be built. A 电视 or 指示牌 that is still in it
+   * draws the same plate, so its canvas, texture and material are **retained**
+   * rather than disposed and re-minted — a rebuild used to re-mint ~1 MB of canvas
+   * per 电视 and per sign face for an edit that touched one wall. (A 指示牌's retained
+   * face is still *repainted* in place, `PlateSystem.redrawSignPlates`: what is kept
+   * is the allocation, not the pixels.) Called with no document (scene teardown),
+   * every plate goes.
+   */
+  clearModules(data?: StationData): void {
     this.ghost.clearFencePreview()
-    // The per-piece plates are minted for the groups about to be dropped, so they
-    // are released here rather than leaking one texture per 电视 or 指示牌 an edit
-    // passes through.
-    this.plates.clearTvPlates()
-    this.plates.clearSignPlates()
+    if (data) {
+      this.plates.retainTvPlates(data)
+      this.plates.retainSignPlates(data)
+    } else {
+      // The per-piece plates are minted for the groups about to be dropped, so they
+      // are released here rather than leaking one texture per 电视 or 指示牌 an edit
+      // passes through.
+      this.plates.clearTvPlates()
+      this.plates.clearSignPlates()
+    }
     // The materials a builder minted for this build (a 站台门 header, an 出入口
-    // header, the 售票机 marquee, a room's 招牌). They wrap a canvas of their own, so
-    // keeping them — which is what `disposeObject` does with every other material —
-    // would hold the pixels and the GL texture for the rest of the session.
+    // header, the 售票机 marquee, a 电视's lit face, a room's 招牌). They wrap a canvas
+    // of their own, so keeping them — which is what `disposeObject` does with every
+    // other material — would hold the pixels and the GL texture for the rest of the
+    // session.
     for (const m of this.ctx.ownedMats) {
       const map = (m as THREE.MeshBasicMaterial).map
-      if (map) map.dispose()
+      // ...unless the canvas is a **plate**, which outlives the mesh it is printed
+      // on: a 电视's lit face wraps the station plate `PlateSystem` retains across
+      // rebuilds, and freeing it here would throw away the very redraw the retention
+      // was for.
+      if (map && !this.plates.ownsTexture(map)) map.dispose()
       m.dispose()
     }
     this.ctx.ownedMats = []

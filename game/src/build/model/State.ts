@@ -60,12 +60,25 @@ export function toData(s: StationState): StationData {
   return { name: s.name, seed: s.seed, cells: s.cells, modules: s.modules, lines: s.lines };
 }
 
+/**
+ * A deep copy of one plain-data document part (a module, a line).
+ *
+ * `structuredClone` where the engine has it — every browser this game targets does,
+ * and Node has since 17 — and a JSON round-trip otherwise. The JSON path was the
+ * only one, and it ran per **module**: 366 of them on the demo station, ~890 KB of
+ * stringify and parse on the main thread for every single commit, for a snapshot the
+ * player may never return to.
+ */
+function deepCopy<T>(value: T): T {
+  return typeof structuredClone === 'function' ? structuredClone(value) : (JSON.parse(JSON.stringify(value)) as T);
+}
+
 export function cloneState(s: StationState): StationState {
   return {
     name: s.name,
     seed: s.seed,
     cells: s.cells.map(cloneCell),
-    modules: s.modules.map((m) => JSON.parse(JSON.stringify(m)) as Module),
-    lines: s.lines.map((l) => JSON.parse(JSON.stringify(l))),
+    modules: s.modules.map((m) => deepCopy(m)),
+    lines: s.lines.map((l) => deepCopy(l)),
   };
 }

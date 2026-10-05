@@ -4,8 +4,8 @@
 // so a finish cannot look like one thing and behave like another.
 
 import * as THREE from 'three'
-import { finishDef, type FinishDef } from '../sim/finishes.ts'
-import type { FinishId } from '../sim/types.ts'
+import { DEFAULT_FINISH, FINISH_LIST, RAMP_SOFFIT_FINISH, finishDef, type FinishDef } from '../sim/finishes.ts'
+import type { FinishId, StationData } from '../sim/types.ts'
 
 function canvas(size: number): { c: HTMLCanvasElement; g: CanvasRenderingContext2D } {
   const c = document.createElement('canvas')
@@ -260,20 +260,59 @@ export interface MaterialSet {
   finish: (id: FinishId) => THREE.MeshStandardMaterial
   /** Every finish material built so far, so a caller can test ownership. */
   finishCache: Map<FinishId, THREE.MeshStandardMaterial>
+  /**
+   * Whether this set minted `mat` — the exact ownership test a caller needs, and
+   * the only one that is right for a **preview**: a ghost built this very frame
+   * mints the finishes its cells name, and a set of "materials I already knew
+   * about" would count them as the ghost's own and then dispose them out from under
+   * the cache.
+   */
+  owns: (mat: THREE.Material) => boolean
+  /**
+   * Release every finish material the given ids do not cover. A painted colour is
+   * a finish of its own (`customFinishId`), minted from a free colour picker, and
+   * each one pins a canvas texture — so without this a session that paints many
+   * shades keeps every shade's pixels for the whole session.
+   */
+  retain: (inUse: ReadonlySet<FinishId>) => void
   outline: THREE.MeshBasicMaterial
   blob: THREE.MeshBasicMaterial
   /** Transparent floor-decal layer — tactile strips, §4.2. */
   tactile: THREE.MeshBasicMaterial
   /** @deprecated kept for the lab; use `finish`. */
   platform: THREE.MeshStandardMaterial
+  /** Release every material and texture this set owns. */
+  dispose: () => void
+}
+
+/**
+ * Every finish id a station document can draw with: the stock list, the defaults
+ * every face falls back to, the ramp soffit, each cell's own per-face overrides,
+ * and the finish a 楼梯 carries for its treads.
+ */
+export function finishesInUse(data: StationData): Set<FinishId> {
+  const out = new Set<FinishId>(FINISH_LIST.map((f) => f.id))
+  for (const id of Object.values(DEFAULT_FINISH)) out.add(id)
+  out.add(RAMP_SOFFIT_FINISH)
+  for (const c of data.cells) {
+    if (!c.finish) continue
+    for (const id of Object.values(c.finish)) if (id) out.add(id)
+  }
+  for (const m of data.modules) {
+    if (m.type === 'stair' && m.cfg.finish) out.add(m.cfg.finish)
+  }
+  return out
 }
 
 export function createMaterials(): MaterialSet {
   const cache = new Map<FinishId, THREE.MeshStandardMaterial>()
+  /** Everything this set minted, for `owns` — including finishes minted after it. */
+  const minted = new WeakSet<THREE.Material>()
   const finish = (id: FinishId): THREE.MeshStandardMaterial => {
     let m = cache.get(id)
     if (!m) {
       m = finishMaterial(finishDef(id))
+      minted.add(m)
       cache.set(id, m)
     }
     return m
@@ -292,5 +331,39 @@ export function createMaterials(): MaterialSet {
     depthWrite: false,
     opacity: 0.95,
   })
-  return { finish, finishCache: cache, outline, blob, tactile, platform: finish('floor.granite') }
+  minted.add(outline)
+  minted.add(blob)
+  minted.add(tactile)
+  /** Release one finish material and the canvas texture it wraps. */
+  const drop = (m: THREE.MeshStandardMaterial): void => {
+    m.map?.dispose()
+    m.dispose()
+  }
+  return {
+    finish,
+    finishCache: cache,
+    owns: (mat) => minted.has(mat),
+    retain: (inUse) => {
+      for (const [id, m] of [...cache]) {
+        if (inUse.has(id)) continue
+        drop(m)
+        cache.delete(id)
+      }
+    },
+    outline,
+    blob,
+    tactile,
+    platform: finish('floor.granite'),
+    dispose: () => {
+      for (const m of cache.values()) drop(m)
+      cache.clear()
+      // `platform` is a cache entry (`floor.granite`), so it has already gone with
+      // the rest; these three are the set's own.
+      outline.dispose()
+      blob.map?.dispose()
+      blob.dispose()
+      tactile.map?.dispose()
+      tactile.dispose()
+    },
+  }
 }

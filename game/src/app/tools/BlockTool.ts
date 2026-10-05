@@ -6,17 +6,18 @@
 import {
   addCells,
   addFloor,
+  addWalls,
   plannedAutoWalls,
   removeFloor,
   wallColumnAt,
   wallColumnsAt,
   wallSnap,
-  type WallDir,
 } from '../../build/model.ts'
+import type { CellShape } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { pendingCells, rectCells, straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
-import { halfWallSideFor, thinGhost } from './geometry/walls.ts'
+import { cutShapeFor, shapeWallSide, thinGhost } from './geometry/walls.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 
@@ -62,12 +63,15 @@ export class BlockTool extends ToolController {
         return
       }
     }
-    if (mode === 'add' && st.halfWall) {
-      // The side follows the wall tool's own rule — the cell's geometry first, then
-      // whatever **R** has stepped to (`halfWallRunSide`) — but the block stands
-      // exactly where the click landed: a 半墙 is placed like a block, not snapped
-      // to an edge like the 墙 tool's course.
+    if (mode === 'add' && (st.halfWall || st.triangles)) {
+      // The shape follows the wall tool's own rule — the cell's geometry first, then
+      // whatever **R** has stepped to (`halfWallRunSide` / `triangleRunSide`) — but the
+      // piece stands exactly where the click landed: a cut block is placed like a
+      // block, not snapped to an edge like the 墙 tool's course. The resolved shape
+      // goes on the drag, so the release lays the very piece the ghost is about to
+      // draw rather than resolving it a second time and hoping the two agree.
       const open = wallSnap(st.station.cells, anchor, [hit.point[0], hit.point[1]], 0).dirs
+      const shape = cutShapeFor([anchor], open, st)
       this.ctx.drag.current = {
         active: true,
         button: info.button,
@@ -78,11 +82,12 @@ export class BlockTool extends ToolController {
         wall: true,
         single: true,
         wallDirs: open,
+        shape,
         sx: info.clientX,
         sy: info.clientY,
         downTime: performance.now(),
       }
-      this.drawHalfWallGhost(anchor, open)
+      this.drawCutGhost(anchor, shape)
       scene.setCursor(anchor, true)
       return
     }
@@ -121,13 +126,19 @@ export class BlockTool extends ToolController {
       this.ctx.clearMeasure()
       return
     }
-    // 半墙 mode, add path: one wall block, never a patch and never a run, so
-    // there is no rectangle to preview and no patch size to report.
-    if (st.halfWall && d?.mode !== 'remove') {
-      const base: [number, number, number] = hit.solid ? hit.place : hit.cell
+    // A cut mode (半墙 / 三角), add path: one piece, never a patch and never a run, so
+    // there is no rectangle to preview and no patch size to report. The pressed
+    // column's own candidate faces (`d.wallDirs`) are what **R** steps through, and
+    // the shape it resolves to is written back to the drag so the release and the
+    // ghost never part company.
+    if ((st.halfWall || st.triangles) && d?.mode !== 'remove') {
+      const held = d?.active === true && d.wall === true
+      const base: [number, number, number] = held ? d.anchor : hit.solid ? hit.place : hit.cell
       const open = d?.wallDirs ?? wallSnap(st.station.cells, base, [hit.point[0], hit.point[1]], 0).dirs
-      this.drawHalfWallGhost(d?.active && d.wall ? d.anchor : base, open)
-      scene.setCursor(d?.active && d.wall ? d.anchor : base, true)
+      const shape = cutShapeFor([base], open, st)
+      if (held) d.shape = shape
+      this.drawCutGhost(base, shape)
+      scene.setCursor(base, true)
       this.ctx.clearMeasure()
       return
     }
@@ -178,7 +189,19 @@ export class BlockTool extends ToolController {
     const st = useStore.getState()
     const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
     if (d.mode === 'add') {
-      if (rect && st.autoWalls) {
+      // A cut-mode click (半墙 / 三角) is one tagged course, not a plain block: it goes
+      // through `addWalls` with the height of one and the shape the press resolved,
+      // which is what writes the `half-wall:<side>` / `tri-upper:<side>` tag the
+      // mesher draws the piece from. The plain-block path below would lay an untagged
+      // solid — a whole block where the ghost showed a cut one — which is the whole
+      // difference between the two.
+      if ((st.halfWall || st.triangles) && d.single === true && d.wall === true) {
+        const shape = d.shape ?? null
+        const triangle = shape?.kind === 'triangle' ? { kind: shape.triangle, side: shape.side } : null
+        const { state: next, changed, blocked } = addWalls(st.station, [d.anchor], shapeWallSide(shape), 1, triangle)
+        if (changed > 0) st.commit(next)
+        if (blocked > 0) st.setNotice('预留开口要留空：楼梯、扶梯和出入口的地板不能用方块盖住')
+      } else if (rect && st.autoWalls) {
         // A deliberate 地基 drag with 自动生成墙壁 on draws a walled floor patch:
         // union it with earlier patches and rebuild the auto wall ring around
         // the new edge. With the toggle off it takes the plain-block path below
@@ -203,25 +226,26 @@ export class BlockTool extends ToolController {
   }
 
   /**
-   * Draw the **半墙** ghost for one block: a single half-thick course, on the side
-   * **R** has stepped to, so the preview is the piece — the half thickness *is* the
-   * wall (`thinGhost`). `open` is the cell's own geometry (`wallSnap`'s candidate
-   * faces), which the side rule orders the player's choice behind.
+   * Draw the ghost for one cut piece: a **半墙** as a single half-thick course, a
+   * **三角** as the 45° wedge it tags, so the preview is the piece — the cut *is* the
+   * block (`thinGhost`). The shape is resolved before it gets here (`cutShapeFor`
+   * over the pressed cell's own candidate faces), so the ghost that shows the piece
+   * and the release that lays it read one answer.
    */
-  private drawHalfWallGhost(base: [number, number, number], open: readonly WallDir[]): void {
+  private drawCutGhost(base: [number, number, number], shape: CellShape | null): void {
     const scene = this.ctx.scene()
     if (!scene) return
     const st = useStore.getState()
     const cells = pendingCells([base], 'add', this.ctx.solids(), st.station.modules)
-    scene.setGhost(cells, 'add', undefined, thinGhost(cells, halfWallSideFor([base], open, st)))
+    scene.setGhost(cells, 'add', undefined, thinGhost(cells, shape))
   }
 
   /**
    * Rebuild the 地基 tool's hover ghost from the last tile it was over: the patch or
-   * the single **半墙** block (Tab), and for a 半墙 the side **R** has stepped to. Shared by
-   * the pointer move and the Tab / R effect, because a ghost is only redrawn when
-   * its key changes — nothing else would rebuild it under a still pointer
-   * (`placementPreviewKey`, `scene.setGhost`).
+   * the single cut piece (半墙 / 三角), and for a cut piece the shape **R** has stepped
+   * to. Shared by the pointer move and the Tab / R effect, because a ghost is only
+   * redrawn when its key changes — nothing else would rebuild it under a still
+   * pointer (`placementPreviewKey`, `scene.setGhost`).
    */
   override refreshHover(): void {
     const scene = this.ctx.scene()
@@ -230,8 +254,15 @@ export class BlockTool extends ToolController {
     const st = useStore.getState()
     if (st.tool !== 'block') return
     const base: [number, number, number] = h.solid ? h.place : h.cell
-    if (st.halfWall) {
-      this.drawHalfWallGhost(base, wallSnap(st.station.cells, base, h.point ?? null, 0).dirs)
+    if (st.halfWall || st.triangles) {
+      const open = wallSnap(st.station.cells, base, h.point ?? null, 0).dirs
+      const shape = cutShapeFor([base], open, st)
+      // A press still held keeps its anchor: **R** stepped mid-drag has to move the
+      // shape the release will lay, not only the one the ghost under the pointer
+      // shows, or the two would disagree at the release.
+      const d = this.ctx.drag.current
+      if (d?.active === true && d.wall === true && d.single === true) d.shape = shape
+      this.drawCutGhost(base, shape)
     } else {
       scene.setGhost([base], 'add')
     }

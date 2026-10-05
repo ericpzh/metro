@@ -20,7 +20,7 @@ the station either copes or it does not.
 | `game/plan.md` | The parallel-edit code organisation rules (R1–R6) and the folder layout. **Read before adding a window, tool, model or scene system.** |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. |
 | `art/` | Generated SVG concept sheets. Source of truth; copied into `web/public/art` at build time. Never hand-edited. |
-| `tools/` | Art generators (`node tools/gen-art.mjs`), drawn in the game's 2:1 dimetric projection via `tools/iso.mjs`. |
+| `tools/` | Art generators (`node tools/gen-art.mjs`), drawn in the game's 2:1 dimetric projection via `tools/iso.mjs`; the demo-save bake (`node tools/bake-demo-station.mjs`) and the render-to-PNG probes (`tools/render-sign-panel.mjs`, `tools/render-tv-plate.mjs`). |
 | `worker/` | The site's optional path-prefix rewrite entry. |
 | `wrangler.jsonc` | Root site Worker config. `game/wrangler.jsonc` is the game's. |
 
@@ -104,7 +104,12 @@ build/ →  sim/            (and neither render/ nor app/)
   re-sends `init`, which calls `World.load()` — a full reset of agents, trains,
   queues, clock and RNG — so no old passenger walks the new document. `restart`
   calls `World.restart()`: it empties every agent, train and queue and reseeds
-  the RNG, but keeps the document and the clock (the top bar's 重启 button).
+  the RNG, but keeps the document and the clock (the top bar's 重启 button). The tick
+  loop carries a **`dirty` flag**: while paused the station can still change (an edit,
+  a restart, a speed change), so every mutating message sets it and `run` posts at
+  once — but a paused tick that changed nothing returns immediately instead of
+  building and cloning a full ~150 KB snapshot, a store write and an
+  O(agents × gates) crossing scan four times a second for data already on screen.
 * **Zones are barriers** (`sim/zones.ts`), and *only a gate may cross the fare
   line* — if the gate's policy permits that direction. A same-side relabelling
   (`outside`↔`unpaid`, `paid`↔`platform`) is not a crossing at all: `crossingDir`
@@ -338,7 +343,17 @@ build/ →  sim/            (and neither render/ nor app/)
   builds all module geometry procedurally — turnstiles,
   ticket machines, escalators (rolling step band via `rollEscalator`), the five
   stair shapes, exits, platform screen doors (printed header is FrontSide only, facing the platform read from `cfg.side`), rolling stock. **No image or GLB
-  assets.** `render/materials.ts` is the shared procedural material kit;
+  assets.** `render/materials.ts` is the shared procedural material kit — and it is
+  an **ownership set** as much as a cache: `owns` says whether it minted a material
+  (the only test a preview can use, since a ghost mints the finishes its own cells
+  name), `retain(finishesInUse(data))` gives back every painted colour the document no
+  longer names (each finish wraps a 128² canvas, and the picker mints one per shade),
+  and `dispose` releases the lot with the scene. A piece that mints a material hands it
+  to its group instead of leaning on the kit (`ownedMaterial`, or a train's
+  `userData.ownedMats` livery), and `disposeObject` frees an `InstancedMesh` itself —
+  three drops `instanceMatrix`/`instanceColor` only on the mesh's own `dispose`, and a
+  contact-blob batch, an escalator's step band and a shelf's goods are all instanced
+  and rebuilt per edit;
   `render/chunkMesher.ts` emits one mesh part per finish. There are no named levels: the street is `z = 0` (`GROUND_Z` in `build/model.ts`), a storey is the fixed 4 m editing grid (`LEVEL_STEPS`/`storeyBand` in `sim/constants.ts`) — every solid cell belongs to the grid line at or below it, so a floor and its walls share a storey while a second floor one storey down keeps its own even when a wall column connects them — and the depth rail slices those bands (a plate with nothing below it stays on screen above the cut). The save carries no `levels` field; old saves load with it ignored.
 * A **walled facility room** is the one `shop` module type; its fit-out lives in
   `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter and
@@ -351,9 +366,14 @@ build/ →  sim/            (and neither render/ nor app/)
   `sink`, a booth its `bench`), so every unit is right-clickable; the room
   carries `cfg.stocked` and old saves migrate once via `ensureRoomFurniture` in
   `toState`. Deleting a room takes its `cfg.auto` furniture but leaves
-  hand-placed pieces. A room's walls meet at mitred corners (`mitreCap`: each run
-  stops one thickness short and one diagonal cap fills the corner, so no corner is
-  two walls thick), and rooms and the booth wear no name plate — the shelves and
+  hand-placed pieces. A room's walls meet at **square** corners —
+  `mitreCap` is deleted — with the west/east panel taking the corner cell's outer half
+  across the cell's whole depth and the south/north panel stopping one `WALL_T` short to
+  butt its inner face, so three quarters of the corner cell are wall and the
+  room-facing quarter is left free for furniture; the old triangular cap stood its apex
+  on the *cell's* inner corner, one thickness past the room's own, and laid a 0.5 m wedge
+  across that free half (`game/test/room-model.test.mjs` pins the square ring with no
+  gap, the empty quarter, and that every wall mesh is a `BoxGeometry`), and rooms and the booth wear no name plate — the shelves and
   the glass already say what the piece is. The 房间 folder's tiles are line icons
   of use (商店 / 售票亭 / 办公室 / 厕所), not colour chips, and
   `app/zoneThumbnails.ts` renders the 分区 brushes alone. Brush ids are `store` /
@@ -460,9 +480,10 @@ build/ →  sim/            (and neither render/ nor app/)
   ticket machine and a drinks machine with the same 1 × 1 m footprint. Both are
   unpaid-zone `stop` servers at `TVM_RATE`, and a quarter of street entries
   (`sampleTripFromStreet`) route through one of the unpaid-zone machines.
-* The **地基 tool** has a **自动生成墙壁** toggle (on by default): on, a deliberate drag grows the
+* The **地基 tool** has a **自动生成墙壁** toggle (**off by default**): on, a deliberate drag grows the
   `auto-wall` ring and tags the floor; off, the same click / drag lays untagged bare blocks with no
-  ring. There is no separate 方块 tool any more.
+  ring. There is no separate 方块 tool any more, and the toggle has no key — **Tab** steps the
+  切角 tile's cut modes instead.
 * The **围栏 tool** (设备) drags out a straight run like 墙, but lays one 1 m panel
   per cell with the panels following the drag direction (R turns a single); a
   right-drag lifts the run. `app/Viewport.tsx` drives a live fence preview that
@@ -522,7 +543,10 @@ build/ →  sim/            (and neither render/ nor app/)
   `float` plate, a fixture whose column's lowest storey is above the active one). It only has an
   effect while 显示其他层 is on — with the other storeys off there is nothing left to hide.
   **隐藏墙壁** (`hideWalls`) fades every wall face and platform screen door to 16%
-  with `depthWrite` off and drops their outline. **The crowd obeys the same storeys**: the rule is
+  with `depthWrite` off and drops their outline — except while a **剖切** cut is on, where a
+  wall goes completely instead (see the 剖切 bullet below). **隐藏UI** (`hideUI`, `U`) is the mode
+  that hides no interface: it takes the editing lattice and the storey slice away and draws the
+  station whole (also in the 剖切 bullet). **The crowd obeys the same storeys**: the rule is
   `crowdVisible`, never a storey above the active one, and the depth cutaway clips the agent meshes
   too, so nobody floats in front of a slab or shows through one. **Trains are sliced like
   everything else** — a consist is tagged with the storey of the floor block it stands on
@@ -540,11 +564,13 @@ build/ →  sim/            (and neither render/ nor app/)
   union, hand-built floor is continuous ground, and a hole dug through a patch
   stays open. A single click stays a plain block. While previewing, a badge pinned
   to the pointer reads the patch's live 长 × 宽 in metres (`Viewport.tsx`
-  `buildMeasure`). With **半墙** on (its own tile — click-only, no shortcut; Tab
-  only flips 自动生成墙壁 and the store refuses that while 半墙 owns the tool)
-  that click is instead one
-  half-block wall column, one per click — no patch and no run — and the two are
-  exclusive, so 自动生成墙壁 is off and greyed while it is on. The 墙 tool lays tagged
+  `buildMeasure`). The ring is **off when the game opens** — it is the one thing the
+  tool does that the player did not draw — and is asked for on its own tile, which is
+  the only way to it (it no longer holds **Tab**). With the **切角** tile on (半墙 /
+  三角上 / 三角下, stepped with **Tab**) a click is instead one
+  cut block, one per click — no patch and no run — and the two are
+  exclusive, so the ring is refused and greyed while a cut mode owns the tool (see the
+  三角 bullet below). The 墙 tool lays tagged
   four-course columns a right-click lifts whole, and 删除 is button-agnostic: it
   lifts a whole module under the pointer (through its own teardown for a rail or
   room), else a single block or a dragged line. A **reserved opening** — the corridor a ramp
@@ -559,7 +585,8 @@ build/ →  sim/            (and neither render/ nor app/)
   before the station existed — while later edits leave the camera alone
   (`framedRef`). The equipment hover ghost is rebuilt in place off
   `placementPreviewKey`, so R and a Tab cycle (stair width, escalator direction,
-  闸机 door side) redraw the piece already under the pointer — which needs the
+  闸机 door side, the 地基 tool's 切角 modes) redraw the piece already under the
+  pointer — which needs the
   matching entry in `render/moduleGhostKey.ts` as well, or the scene skips the
   rebuild (`setModulePreview`).
   `app/LeftRail.tsx` is now a barrel over `app/rail/` (shell + `folders/`,
@@ -636,14 +663,16 @@ build/ →  sim/            (and neither render/ nor app/)
 * The **半墙 kit** has landed (`sim/types.ts`, `sim/constants.ts`
   `HALF_WALL_T`, `build/model.ts`, `render/chunkMesher.ts`, `render/scene.ts`,
   `app/store.ts` `halfWall`, `app/Viewport.tsx`, `app/LeftRail.tsx`,
-  `game/test/halfwall.test.mjs`): the **地基** tool's **半墙** tile (click-only, no
-  shortcut) lays
+  `game/test/halfwall.test.mjs`): the **地基** tool's **切角** tile, on its 半墙 step,
+  lays
   one 4 m column half a block thick per click — the wall a facility room's own walls
   and a wide run's side panel are made of, as a piece the player can put anywhere.
-  It sits on the 地基 tool because it *is* the wall that tool grows, so the two wall
-  modes are exclusive: turning 半墙 on switches 自动生成墙壁 off and the store refuses
-  that toggle while it is on (its tile greys out), and leaving hands the ring back.
-  Tab only flips the generated ring on/off (refused while 半墙 owns the tool), and a 半墙
+  It sits on the 地基 tool because it *is* the wall that tool grows, so the cut modes
+  and the generated ring are exclusive: any cut mode holds 自动生成墙壁 off and the
+  store refuses
+  that toggle while one owns the tool (its tile greys out), and leaving the cycle does
+  **not** switch the ring back on — it is off by default, and its own tile is what
+  raises it. **Tab** steps the tile's three pieces (半墙 → 三角上 → 三角下 → 关), and a cut
   click is one column where it landed, never a patch or a run (`addWalls`'s `side`,
   `d.single` in the viewport). A 半墙 is still an ordinary solid wall cell — `WALL`
   plus a `half-wall:<side>` tag (`halfWallTag` / `halfWallSide`), so the column
@@ -659,13 +688,15 @@ build/ →  sim/            (and neither render/ nor app/)
   surface that is not on its cell's boundary, so `facePresent` (shared by the
   viewport's paint rectangle and the `M` 整面 flood) offers it even with a solid
   cell behind it and `render/scene.ts` insets the paint ghost onto the panel
-  itself, while `rampThinCells` skips a player's 半墙 rather than thinning it twice.
+  itself, while `rampThinCells` skips a piece the player already cut — a 半墙 or a
+  **三角** (`shapeOf`) — rather than deriving a shape they chose.
   **A ramp's kept blocks are drawn the same way** (`thinWallCells` is the one list —
-  tagged 半墙 plus `rampThinCells` — that the mesher, the build ghost and the brush
+  tagged 半墙 / 三角 plus `rampThinCells`, each carrying a `CellShape` — that the mesher,
+  the build ghost and the brush
   all read, and `buildRampThins` is gone): that is what makes a stair's own half wall
   paintable, where a single-material panel over a hidden voxel left the brush
   painting half a block away from the surface it aimed at.
-  `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (default on) instead of a separate 方块 tool.
+  `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (**off by default**) instead of a separate 方块 tool.
 * The **装饰 kit** has landed (`sim/billboards.ts`, `sim/benches.ts`,
   `sim/placement.ts`, `render/models.ts`,
   `game/test/shelf|desk|restroom|bench|decor|ceiling-decor|sign.test.mjs`): 座椅 /
@@ -794,22 +825,31 @@ build/ →  sim/            (and neither render/ nor app/)
   opening tests keep their controlled knobs; `demo.test.mjs` guards that the
   shipped save is one connected circulation that actually boards and clears a
   crowd.
-  **Refreshing it** (the author keeps editing the station): `动物园.metro.json` is
-  a `metro-save` v1 *envelope* — `{format, formatVersion, gameVersion, savedAt,
-  name, seed, static}`, where `static` carries `cells` / `modules` / `lines` — while
-  the shipped file is the bare station document. So take `name`, `seed` and the
-  three `static` arrays, `JSON.stringify` the lot on **one line** with no trailing
-  newline and write it as UTF-8; for the current save that is byte-identical to
-  `JSON.stringify(toData(parse(save)))`, because `toState` finds nothing to migrate
-  (a save it *does* migrate would need the migrated form written instead). **Off-grid
-  cells are not a problem to fix by hand**: the author's saves carry a handful of
-  blocks at fractional coordinates (19 in the 2026-10 one) which no tool can address
-  and which draw as offset junk, so both boundaries **drop** them — `toState` on the
+  **Refreshing it** (the author keeps editing the station):
+  `node tools/bake-demo-station.mjs [动物园.metro.json]` — the author's file is a
+  `metro-save` v1 *envelope* (`{format, formatVersion, gameVersion, savedAt, name,
+  seed, static}`, where `static` carries `cells` / `modules` / `lines`) while the
+  shipped file is the bare station document, so the script parses the envelope with the
+  game's own loader (`persistence/save.ts`) and writes `toData(toState(…))` — the
+  document the open path builds — as **one line** with no trailing newline, which is
+  what keeps the demo from carrying anything a load would have repaired away. It prints
+  the envelope, the name and seed, what the loader repaired, the raw → shipped counts,
+  the modules the loader materialised, an `idempotent` verdict and the byte count, and
+  exits non-zero only on a refused envelope (the round-trip verdict is printed, not
+  enforced). **Off-grid
+  cells are not a problem to fix by hand**: an author's save may carry a few blocks at
+  fractional coordinates which no tool can address and which draw as offset junk, so
+  both boundaries **drop** them — `toState` on the
   way in (`build/model.ts` `repairGrid`) and `serialize` on the way out. Nothing is
   ever *refused*: refusal is for a broken envelope (`文件损坏`, 不是地铁车站存档,
   存档太新了, 缺少车站数据), and a station that is otherwise fine is not worth losing
   over a block no tool can see. A load that had to repair says so in the 打开 notice,
-  the shipped file is nonetheless kept clean (11305 cells where the save has 11324),
+  the shipped file is nonetheless kept clean (the current bake ships **11 333 cells and
+  366 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-05
+  06:56Z save — the copy it replaced was 11 315 cells of an older one — and it carries
+  the **new cut pieces**: two 半墙 courses and thirty-two 三角 courses the author laid
+  with the 切角 tile, ordinary `wall` + `half-wall:*` / `tri-*:*` cells that no suite
+  has to know about),
   and `demo.test.mjs` fails if one ever arrives. Nothing in the game can *mint* one —
   a pick names whole cells (`render/pickCell.ts`: the block hit, and the block one step
   out along the face it was hit on), pinned against real meshed geometry by
@@ -931,6 +971,108 @@ build/ →  sim/            (and neither render/ nor app/)
   are refused (the card's button is disabled and says why), by the same rule that keeps
   删除 from sweeping one: a translation would strand the openings they carved and the
   geometry derived from them.
+* **The rail's folders answer to a Shift+letter ladder, and the ladder is data**
+  (`app/rail/helpers.ts` `FolderKey` / `RAIL_FOLDERS` / `folderForShiftKey`,
+  `app/rail/LeftRail.tsx`, `app/windows/AppShell.tsx`, `game/test/rail-folders.test.mjs`):
+  工具 `Q`, 轨道 `W`, 设备 `E`, 装饰 `R`, 房间 `T`, 分区 `Y`, 材质 `U`, 视图 `I`, in the order the
+  folders are stacked, each key badged on its own header (hover or focus only, so a rail of
+  closed folders stays quiet). The app names the folder and dispatches `metro:folder`, the rail
+  folds it — the same app-names-it / owner-does-it split as `metro:preset` — one key per folder
+  and one folder per key, the lookup case-blind, and a letter the rail does not use falls through
+  to the app's own switch (O 正交, B 删除). The letters must be *shifted* because every one of them
+  already means something unshifted (Q/E step the storey, R turns, U hides the UI, I picks a
+  finish).
+* **The 剖切 cut is a placed surface, and 隐藏UI draws the station whole**
+  (`render/section.ts`, `render/scene/systems/SectionSystem.ts` + `LevelSystem.ts` +
+  `GridSystem.ts`, `render/levelSlicing.ts`, `app/store/slices/ViewSlice.ts`,
+  `app/rail/folders/ViewFolder.tsx`, `game/test/section.test.mjs` + `section-drag.test.mjs` +
+  `cut-clipping.test.mjs` + `grid-visibility.test.mjs`). 剖切 used to be one fixed plane through
+  the station's middle; `section.ts` now owns all of its arithmetic (pure, three-free): an
+  `anchor` in the station plan, an `azimuth` that is always one of four `QUARTER_TURNS` and never
+  tilts out of the vertical, and an `offset` measured the way the surface faces.
+  `planeConstant` is `-d`, so the plane keeps the half **behind** the surface, and that sign
+  is the bug `planeConstant` has carried twice: turn it round and the room in front of the
+  player is sliced away instead of the one behind, with 90° and 270° coming out as one
+  picture rather than mirror images. The rail says one thing about the cut: the 剖切 tile (**C**) folds out **旋转**
+  (**R**, reading the angle a press turns *to*, wrapping at 270) and **隐藏剖切面** (**Y**, default
+  off, so the sheet is on screen and grabbable; hiding it takes the sheet, its hatch, the handle
+  and the arrow away while the clip stays, and `hit()` then refuses the pointer). A press that
+  lands on the sheet is the cut's own **whatever tool is active**: `Viewport` fixes the axis *on
+  screen* once (`SceneRenderer.sectionDragAxis` → `{axis, span}`, pixels per metre) and measures
+  every move along that line (`walkAlong` → `dragOffset`, `snapOffset` to the half metre, 5 cm
+  with Shift), so a step across the line moves nothing and a cut sliding straight at the camera
+  has no line at all — the grab is refused rather than divided by nothing
+  (`section-drag.test.mjs`). `SectionSystem.applyClip` hands that one `THREE.Plane` **by
+  reference** to the chunk meshes, every module mesh, the crowd's four instanced materials and
+  the slice walk, so a slide costs two numbers rather than a rebuild. **隐藏UI** (**U**) hides no
+  interface: it takes the 1 m editing lattice and its cell cursor away (`GridSystem.setHideUI`,
+  and `setCursor` refuses to put the ring back, because the mode draws no editing furniture at
+  all) and puts the storey slice away, so nothing is a 35% ghost — the 显示其他层 / 隐藏天花板
+  tiles are merely disabled. It is deliberately **not a slice flag**: `sliceOptions` turns it
+  into a *different* slice (`{ghost: true, autoCeiling: false}` — every storey, ceilings and
+  all), because a flag could turn a piece on but could not undo the ghost material the slice had
+  already assigned it, so the storeys below stayed see-through; `LevelSystem.applyLevel`'s
+  straight branch hands the **base material** back to every mesh it does not hand to
+  `dressWall`, which is the whole of that fix. 隐藏墙壁 and 剖切 are a pair, and in cut mode a wall
+  goes **completely** (`visible = false`, hull and 屏蔽门 modules included, because a translucent
+  wall is still an occluder) instead of reading through at 16%, and `dressWall` is where it is
+  put back — the walk is skipped as a repeat while the cut is on, so the toggle has to be
+  answered there.
+* The **三角 kit** landed with the 半墙 it twins (`sim/types.ts`, `sim/openings.ts`,
+  `build/model/Walls.ts`, `build/model/Paint.ts`, `render/chunkMesher.ts`,
+  `app/store.ts` `triangles` / `triKind` / `cycleCutMode`,
+  `app/rail/folders/ToolsFolder.tsx`, `app/tools/geometry/walls.ts` `cutShapeFor`,
+  `game/test/triangle.test.mjs` + `blocktool.test.mjs`): a 半墙 keeps half its cell *in
+  thickness*, a **三角** keeps half its cell *in elevation* — the cell cut on a 45° plane, so
+  the piece is a wedge with one flat 1 m square in the X-Y plane, one full-height square on
+  the side it hugs, the slope across the cell and two sharp triangular ends. It is again an
+  ordinary solid wall cell wearing a tag (`tri-upper:w` / `tri-lower:w`, `triangleTag`), which
+  is what makes every other rule agree with no second code path: `isWallBlock` reads it, so
+  the column lift, the storey slice, the ramp carve (a run *keeps* a cut block instead of
+  carving it — `rampThinCells` skips anything `shapeOf` answers, a shape the player chose) and
+  the crowd all treat it as a wall, while the mesher draws the wedge: `TRI_FRAME` is the one
+  shape in eight frames (the hugged corner, the cut's direction into the cell, the ridge axis),
+  `pushWedge` writes its five faces with nothing chamfered — a sawn block — and `pushFace`
+  winds each face against its own normal, so the orientation cannot drift from the tag that
+  names it. The two cuts are **two families, not one shape turned**: 三角上 stands the flat
+  square on the floor (a ramp), 三角下 hangs it from the ceiling (the soffit under a
+  diagonal), and **R** steps the four sides the full-height face stands on. The three cut
+  pieces share one rail tile — **切角**, whose label names whichever is live — and **Tab**
+  steps it (半墙 → 三角上 → 三角下 → 关), the key that used to toggle 自动生成墙壁; the ring is
+  now **off when the game opens** and its own tile is what raises it, so a fresh station
+  builds the way it was drawn. `thinWallCells` / `thinWallSideMap` hand out a `CellShape`
+  (`{kind:'half'}` | `{kind:'triangle'}`) rather than a bare `WallSide`, which is the type the
+  mesher, the build ghost, the chunk hash and `facePresent` all read; a 三角 needs none of the
+  半墙's paint exception (its diagonal is a surface the cell boundary already reports as
+  exposed, and the paint ghost stays on the boundary), and a press writes the shape it
+  resolved onto the drag (`AreaDrag.shape`) so the release lays the piece the ghost drew.
+* **A pass over what a rebuild used to cost** (`render/scene/systems/*`,
+  `render/materials.ts`, `render/models/PieceBuilder.ts`, `sim/worker.ts`, `sim/agents.ts`,
+  `build/model/State.ts`, `app/store/slices/*`). The chunk cache was being thrown away and
+  re-uploaded on every edit — `meshStation` released the last rebuild **twice**, once before
+  the reuse set existed — so it now releases exactly once, keep-aware, and
+  `chunk-cache.test.mjs` pins the very buffer objects a kept chunk comes back with. 电视 /
+  指示牌 plates are **retained** across a rebuild (`PlateSystem.retainTvPlates` /
+  `retainSignPlates`: the station's name and its lines are the only inputs a rebuild can
+  change, and the clock and countdown are redrawn in place), a consist configuration that
+  left is evicted after a few snapshots (`TrainSystem` `TRAIN_MISSES_ALLOWED` /
+  `dropConsist`), an overlay's quad and material are freed where the overlay is replaced and
+  the LOS one no longer survives teardown (`CrowdSystem.dropOverlay`), the 区域 map is rebuilt
+  only when the picture changes and can be shown without a rebuild (`setZoneOverlayVisible`,
+  `Viewport`'s `zoneKeyRef`), the scene stops its own animation frame on `dispose`
+  (`SceneRenderer.raf`) and takes the module groups and the finish set with it (a painted
+  colour the document no longer names gives its canvas texture back: `finishesInUse` /
+  `MaterialSet.retain`). The undo stack is capped by frames **and memory**
+  (`StationSlice.pushPast` — on the shipped demo that is **nine** frames, where a fresh
+  2 × 2 station keeps all forty), `cloneState` uses `structuredClone` instead of a
+  per-module JSON round-trip, and a **live** 指示牌 preview raises `signVersion` rather
+  than the document's `version`, so a preview stops looking like a document edit (no
+  undo frame, and no other reader of `version` re-fires) even though the sign it draws
+  still goes through the same `setStation` rebuild — a board can resize its panel, so a
+  cheaper redraw path is not free. In the sim the
+  worker stays quiet while paused with nothing `dirty`, and `AgentPool` drops a dead agent's
+  id entry as it recycles the object — the map grew by one entry per spawn for the whole
+  session.
 
 ## Deploy (Cloudflare Workers)
 

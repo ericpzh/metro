@@ -483,8 +483,9 @@ The tile order is the folder's own reading order: 显示其他层 · 剖切 · �
 pair that takes station furniture away, the two overlays that paint the station, and last the one tile
 that draws the station whole. **Seven tiles, and the header says 7**: the count beside a folder name is
 the tiles that folder can show in the state the rail is in, so it follows a mode that adds one (工具
-grows by 自动生成墙壁 and 半墙 under the 地基 tool, 视图 by 旋转 while 剖切 is on) rather than a number
-written down once and left behind.
+grows by 自动生成墙壁 and 切角 under the 地基 tool, 视图 by 旋转 while 剖切 is on) rather than a number
+written down once and left behind. The 切角 tile is one button for three pieces — it steps 半墙 → 三角上 →
+三角下 → 关 and its label names whichever is live — so the count follows the mode, not the mode's depth.
 
 **The rail's folders answer to Shift+Q, Shift+W, Shift+E … one letter a folder.** The first folder —
 工具 — is **Shift+Q**, and W E R T Y U I follow the folders below it (轨道, 设备, 装饰, 房间, 分区, 材质,
@@ -987,30 +988,73 @@ left is "there is no wall here at all".
 
 **The 地基 tool lays a 半墙 — the same wall at half a block thick, one block at a time.** A facility
 room's own walls and the panel a wide run keeps beside it have always been drawn half a block thick;
-the 工具 folder's **半墙** tile (**Tab**, while the 地基 tool is active) turns a click into one of those,
-so the player can put that wall anywhere. The piece is still an ordinary solid wall cell — tagged
-`WALL` plus the half of the tile it keeps (`half-wall:w`, `sim/types.ts`), so the column
-lift, the storey slice, `isWallBlock`, the ramp carve and the crowd all read it as a wall.
-`render/chunkMesher.ts` draws those cells half a block thick, squashing the standard rounded profile
-into that half and turning it into place, so the panel wears the wall's own profile and its **per-face
-finishes**: both of its sides are ordinary surfaces, painted by the 材质 brush exactly where the pointer
-hits them.
+the 工具 folder's **切角** tile (while the 地基 tool is active) turns a click into one of those, so the
+player can put that wall anywhere. The piece is still an ordinary solid wall cell — tagged `WALL` plus
+the half of the tile it keeps (`half-wall:w`, `sim/types.ts`), so the column lift, the storey slice,
+`isWallBlock`, the ramp carve and the crowd all read it as a wall. `render/chunkMesher.ts` draws those
+cells half a block thick, squashing the standard rounded profile into that half and turning it into
+place, so the panel wears the wall's own profile and its **per-face finishes**: both of its sides are
+ordinary surfaces, painted by the 材质 brush exactly where the pointer hits them.
 
-It lives on the 地基 tool because it *is* the wall that tool grows — so the two wall modes are
-exclusive: turning 半墙 on switches **自动生成墙壁** off and that tile greys out (the store refuses it
-while 半墙 owns the tool), and leaving 半墙 hands the patch its ring back. **Tab** cycles the three
-things a 地基 click can lay — the generated ring, bare blocks, the one-at-a-time 半墙 — and its first
-step is the one that was always there (Tab turns the ring off). A 半墙 click also never becomes a patch
-or a run: one block, exactly where the click landed, whatever the pointer does afterwards. A *run* of
-walls is still the 墙 tool's job.
+**The same tile also lays a 三角 — the cell cut on a 45° plane *in elevation*, so the block is a wedge.** It
+is the other half of the same idea: a 半墙 keeps half its cell *in thickness*, a 三角 keeps half its cell *in
+height*, cut corner to corner up the cell rather than across it. The piece is again an ordinary tagged wall
+cell (`tri-upper:w`, `tri-lower:w`), which is what makes everything else agree without a second code path —
+the column lift, the storey slice, `isWallBlock`, the ramp carve (a run keeps a cut block rather than
+carving it) and the crowd all read it as a wall, while the mesher draws the wedge the tag names. The shape
+is a **triangular prism lying in the cell**: the flat 1 m square **in the X-Y plane** is its base, the
+full-height square on the side it hugs is the face a run of them shares with the wall behind it, the two
+triangular ends are where the cut leaves the cell, and the slope is the piece itself. Three of its faces
+lean or cut, so nothing is chamfered — it is a sawn block, and a rounded rim would read as a lozenge rather
+than as the cut the player asked for.
 
-Which half a block keeps is **R**'s business, and it is the one thing a wall's own geometry cannot
-always answer. The candidates are the faces the cell opens onto first, then the rest
-(`halfWallSideDirs`), so a 半墙 dropped along a patch edge hugs that edge with no key pressed — the face
-a full wall would have stood on — while a partition placed in open floor, which has no edge to read,
-still offers all four. (A run offers only the two sides perpendicular to it, because a side *along* the
-run would leave a slot between column and column: a run's panels are one wall. Tab resets the face
-cycle with the mode, since the cycle means something different in each.)
+The two cuts are the same wedge and its mirror image, and the label on the tile says which way up it is:
+
+* **三角上 (`upper`)** — the **base is the floor**, the tip line at `+z`: the flat square lies on the cell's
+  own floor, the block is a full metre tall along the side it hugs, and the slope runs from the top of that
+  face down to the opposite floor edge. It is the lower half of the cell, so the piece is a **ramp**.
+* **三角下 (`lower`)** — the **base is the ceiling**, the tip line at `-z`: the flat square *is* the cell's
+  ceiling, the full-height face is still on the side it hugs, and the slope runs from that face's floor edge
+  up to the opposite ceiling edge. It is the upper half of the cell, so the piece is the **soffit** under a
+  diagonal — the same cut seen from below.
+
+Both are right isoceles with their right angle on the hugged face, so the eight pieces a cell admits are
+**one shape in eight frames** rather than eight shapes: `TRI_FRAME` (`render/chunkMesher.ts`) is the cell
+corner, the direction the cut runs into the cell and the direction along the ridge, and `pushWedge` writes
+the five faces in that frame. The eight were a table of coordinates once, and the table was the bug — a
+quarter-turn written out by hand collided one corner with another and lost the fourth — so the frame is
+derived, and what the test pins instead is the *shape*: 0.5 m³ of volume, the base square in the X-Y plane,
+the full-height face on the side the tag names, a √2 slope at exactly 45°, two triangular ends, and every
+face wound the way its own normal points. **R** steps the side the piece hugs — the face the wall behind it
+would have stood on, so a wedge dropped against an open edge arrives already the right way round, exactly as
+a 半墙 hugs a patch edge.
+
+The three cut pieces live on one tile because they are one question — what shape does a click lay — so
+the tile steps **半墙 → 三角上 → 三角下 → 关** and round again, and its label names whichever is live.
+**Tab** is that same step: it used to toggle the generated wall ring, and the key went to the cut modes
+because they answer the question a 地基 click is really asking. **R** turns the piece in all three modes,
+which is why the same `wallSnapCycle` serves them. The tile lives on the 地基 tool because a cut piece *is*
+the wall that tool grows — so the cut modes are exclusive with the ring: any of them holds **自动生成墙壁**
+off and that tile greys out (the store refuses it while a cut mode owns the tool). A cut click also never
+becomes a patch or a run: one block, exactly where the click landed, whatever the pointer does afterwards.
+A *run* of walls is still the 墙 tool's job.
+
+**自动生成墙壁 is off when the game opens.** The ring is the one thing the 地基 tool does that the player did
+not draw — it stands a 4 m wall around a surface they only laid the floor of — so it is no longer assumed:
+a dragged patch grows bare floor, and the ring is asked for on its own tile. With that default the tile no
+longer holds a key either, which is what freed **Tab** for the cut modes; **Tab**'s first step is now 半墙,
+and stepping off the end of the cycle returns to a plain 地基 rather than raising the ring behind the
+player's back. A new station therefore builds the way it was drawn, and 自动生成墙壁 is a deliberate
+choice made once, on the tile that says so.
+
+Which half, or which side, a piece hugs is **R**'s business, and it is the one thing a wall's own
+geometry cannot always answer. The candidates are the faces the cell opens onto first, then the rest
+(`halfWallSideDirs` / `triangleSideDirs`), so a 半墙 dropped along a patch edge hugs that edge with no key
+pressed — the face a full wall would have stood on — and a 三角 stands its full-height face there, while a
+partition placed in open floor, which has no edge to read, still offers all four. (A run offers only the
+two sides perpendicular to it, because a side *along* the run would leave a slot between column and column:
+a run's panels are one wall. Switching the mode resets the face cycle, since the cycle means something
+different in each.)
 
 The paint brush knows the difference too. A 半墙's inner face — the one looking across the cell's own
 clear half — is a surface *inside* its cell, so a solid neighbour behind it does not cover it:
@@ -1033,11 +1077,10 @@ merge folds that footprint into the surface — the ring wraps the whole patch-p
 drag never pours a block into the trench, and no auto wall rises through a platform screen door a
 full track sliced through the patch. Single clicks
 and stacked blocks stay plain, and the drag's live ghost shows the wall ring before release. The
-地基 tool carries a **自动生成墙壁** toggle (on by default) in the 工具 folder — **Tab** flips it
-while the 地基 tool is active: turn it off and the
-same drag lays the patch as untagged bare blocks, with no ring. Its **半墙** tile beside it is the
-third step of that same Tab cycle (and it greys the ring tile out while it is on, since the two are
-exclusive). See `test/walls.test.mjs`.
+地基 tool carries a **自动生成墙壁** toggle in the 工具 folder, and it is **off by default**: the same
+drag lays the patch as untagged bare blocks unless the ring is asked for. It has no key — **Tab** steps
+the 切角 tile's cut modes instead (半墙 / 三角上 / 三角下) — and that tile is disabled while any of them is
+on, since the two are exclusive. See `test/walls.test.mjs`.
 
 **Fences divide areas with gates.** The 设备 folder's 围栏 (§5.2) is a 1 m high, very thin
 metal frame around a glass panel standing through the middle of its block. A single click drops
@@ -1121,6 +1164,10 @@ approximated); neither needs WebGL.
   station document and the clock.
 * `zones.test.mjs` — an ungated fare line strands the crowd (zero boardings); a gate restores
   flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2).
+* `gates.test.mjs` — the gate **policy** predicates (`sim/gates.ts`): which direction a lane lets
+  through, the two-way single-lane rule (`nextGateIndex`), and the spellings an older save may carry
+  for the 闸机 piece (`right` / `left` → lane, `none` → fence). `gate-door.test.mjs` pins the piece
+  and its Tab cycle; this one pins the rules underneath.
 * `gate-door.test.mjs` — the 闸机's two states (§5.2): `Tab` toggles a working **lane** and the
   **fence** machine, and a save written while the door *side* was a setting (`right` / `left`) reads
   as a lane while the old `none` reads as fence. The machine's solid side is the half its body stands
@@ -1410,17 +1457,33 @@ approximated); neither needs WebGL.
   folder the rail already opens on), one key a folder and one folder a key, the lookup is case-blind
   because the listener hands over `KeyboardEvent.key.toLowerCase()`, and a letter no folder stands on
   falls through to the app's own switch instead of folding something.
-* `halfwall.test.mjs` — the **半墙** (§4.1/§4.3), the 地基 tool's half-block mode (`Tab`,
-  `build/model.ts` `addWalls`'s `side`): the column is an ordinary tagged wall — a `half-wall:w` course
+* `halfwall.test.mjs` — the **半墙** (§4.1/§4.3), the 地基 tool's half-block mode
+  (`build/model.ts` `addWalls`'s `side`): the column is an ordinary tagged wall — a `half-wall:w` course
   that lifts, slices and carves like any other while the mesher draws it `HALF_WALL_T` thick in the half
   the side names; **R** offers the geometry's own faces first for a single column and only the two
-  perpendicular sides for a run, wrapping; the 半墙 mode switches 自动生成墙壁 off, refuses it while on
-  and hands the ring back on the way out, and both settings join the ghost key; a painted face of a
-  panel colours that surface and not the whole block; the brush may paint a 半墙's inner face even with a
+  perpendicular sides for a run, wrapping; the cut tile's 半墙 step switches 自动生成墙壁 off, refuses it
+  while on and hands the ring back on the way out, and both settings join the ghost key; a painted face of
+  a panel colours that surface and not the whole block; the brush may paint a 半墙's inner face even with a
   solid cell behind it (`facePresent`, and `M` 整面 flooding a whole run from one column); `thinWallCells`
-  is the one list of thin cells the mesher, the ghost and the brush all read; a half wall **a ramp
+  is the one list of cut cells the mesher, the ghost and the brush all read; a half wall **a ramp
   derived** is in it and is painted the same way (the stair panel that used to be untexturable); and a
   ramp keeps a player's 半墙 without thinning it a second time.
+* `triangle.test.mjs` — the **三角** (§4.1/§4.3), the same tile's other two steps: a cut block is an
+  ordinary tagged wall (`tri-upper:w`), so `isWallBlock`, the column lift and the ramp carve treat it
+  as one and a run beside it keeps it rather than re-cutting it; the mesher draws the wedge the tag
+  names and **only** that wedge — all eight `(kind, side)` pairs read back as five faces, and the
+  assertions are about the shape rather than about a table of coordinates: 0.5 m³ of volume (which only
+  closes if every face is wound outward), the 1 m² base square flat in the X-Y plane at the floor for 上
+  and at the ceiling for 下, the 1 m² full-height face on the side the tag names, a √2 slope at exactly
+  45° falling away from that side, and two 0.5 m² triangular ends across the ridge — and the eight are
+  distinct, so no two tags are the same block; the tile
+  cycles 半墙 → 三角上 → 三角下 → 关, the three cut modes are exclusive with each other and with the ring, and
+  the kind and the side both join the ghost key (R rebuilds the preview without the cell moving).
+* `blocktool.test.mjs` — the 地基 tool's own press/release path: a cut click lays exactly the piece its
+  ghost previewed (the defect this file exists for was the ghost drawing a panel while the release laid
+  an untagged full block), the floor it stands on is left byte-identical, R walks the side and the
+  label with it, and a 半墙 aimed at a cell the auto-wall ring already fills is a no-op rather than a
+  course that replaces the ring's block.
 * `level-slicing.test.mjs` — the level slice as a pure rule (`render/levelSlicing.ts`): which
   side of the edited storey a piece sits on (a lift spanning into the storey counts as active),
   显示其他层 off drawing the edited storey alone at every camera angle, ghost mode keeping the
@@ -1454,6 +1517,14 @@ approximated); neither needs WebGL.
   Q/E are left, and the plane reaches every storey. It is the guard on the two ways a cut can look like
   black paint instead of a cut: a ghost that never learned about the plane, and a slice still ghosting
   the storey the cut is going through.
+* `chunk-cache.test.mjs` — the chunk cache's **GPU** half (`render/scene/systems/ChunkSystem.ts`): a
+  chunk whose content did not change comes back with the very geometry objects it had, its per-chunk
+  outline material included (so no program recompile), a chunk whose content *did* change releases the
+  buffers it is done with, and a rebuild still prunes the chunks the station no longer has. `meshStation`
+  releases the last rebuild exactly **once**, after the reuse set is known: releasing before it as well
+  disposed every cached geometry and outline before the keep-aware call had anything left to skip, so
+  every edit re-uploaded the whole station's buffers at a cost that grew with it — invisible in the
+  triangle count, which is why it read as "it gets slower the longer I build".
 * `sign-editor.test.mjs` — the 指示牌 board editor session (`app/SignEditor.tsx`): a sign is a
   pair of boards with a one-sided default, the preview never commits, confirming makes the pair
   current and the next sign hung carries a copy, covering the full compose→place→print flow.

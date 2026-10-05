@@ -22,7 +22,7 @@ import type { SlopeCut } from '../../../sim/openings.ts'
 import { stairLevels } from '../../../sim/stairs.ts'
 import { DEFAULT_SECTION_AZIMUTH } from '../../section.ts'
 import type { Section } from '../../section.ts'
-import type { Face, FinishId, Module, StationData, WallSide } from '../../../sim/types.ts'
+import type { CellShape, Face, FinishId, Module, StationData } from '../../../sim/types.ts'
 
 /** Pointer-pick answer: the solid cell hit, or the void cell under the work plane. */
 export interface PickResult {
@@ -96,13 +96,14 @@ export interface SceneContext {
    */
   hiddenCells: Set<number>
   /**
-   * Every cell that draws half a block thick, by packed key → the side its panel
-   * hugs: a **半墙** the player laid and every block a ramp kept beside its run
-   * (`thinWallCells`). The mesher draws those cells half a block thick, and the
-   * paint ghost sits on the panel's own faces rather than on the cell boundary, so
-   * what the player clicks is what they paint.
+   * Every cell that draws as less than a whole block, by packed key → the shape it
+   * draws: a **半墙** the player laid, a **三角** corner (which of the two cuts, and
+   * which corner), and every block a ramp kept beside its run (`thinWallCells`). The
+   * mesher draws those cells as that shape, and the paint ghost sits on a 半墙's own
+   * faces rather than on the cell boundary, so what the player clicks is what they
+   * paint.
    */
-  thinSides: Map<number, WallSide>
+  thinSides: Map<number, CellShape>
   /**
    * Every block a 楼梯 / 扶梯 takes its volume out of, by packed key → the plane its
    * top is cut on (`rampSlopeCuts`). The mesher draws those blocks' tops on the
@@ -192,7 +193,7 @@ export class SceneContextData implements SceneContext {
   solid = new Set<number>()
   finishes = new Map<number, Partial<Record<Face, FinishId>>>()
   hiddenCells = new Set<number>()
-  thinSides = new Map<number, WallSide>()
+  thinSides = new Map<number, CellShape>()
   slopeCuts = new Map<number, SlopeCut>()
   slopeFills = new Set<number>()
   trackCellSet = new Set<string>()

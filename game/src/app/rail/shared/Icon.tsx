@@ -46,6 +46,28 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} strokeDasharray="2 2" d="M12.4 4v12M16.6 4v12" />
         </>,
       )
+    // 三角上 / 三角下: the cell in plan, cut corner to corner, with the half that is
+    // **not** built left dashed — the piece is the triangle, and which triangle it
+    // is has to read at tile size. Hatched inside, the way the 半墙 mark hatches its
+    // courses, so "this tile lays a cut block" reads the same in both.
+    case 'triUpper':
+      return svg(
+        <>
+          <rect {...s} strokeDasharray="2 2" x="3.4" y="4" width="13.2" height="12" rx="0.6" />
+          <path {...s} d="M3.4 16L16.6 4" />
+          <path {...s} d="M3.4 16h13.2V4" />
+          <path {...s} strokeWidth="0.9" d="M6.4 13.4l2.6-2.6M9 14l2.6-2.6M11.6 14.6l2.6-2.6" />
+        </>,
+      )
+    case 'triLower':
+      return svg(
+        <>
+          <rect {...s} strokeDasharray="2 2" x="3.4" y="4" width="13.2" height="12" rx="0.6" />
+          <path {...s} d="M3.4 4l13.2 12" />
+          <path {...s} d="M3.4 16h13.2V4" />
+          <path {...s} strokeWidth="0.9" d="M6.4 6.6l2.6 2.6M9 6l2.6 2.6M11.6 5.4l2.6 2.6" />
+        </>,
+      )
     // A waste bin: a block the delete tool tips away.
     case 'delete':
       return svg(

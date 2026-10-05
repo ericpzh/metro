@@ -118,24 +118,29 @@ export function App(): React.ReactElement {
           else if (st.moveDraft) st.rotateMove()
           // The 墙 tool has no piece to turn: R picks which of a corner cell's
           // wall faces the column takes (`wallSnap` in `build/model.ts`). In the
-          // 地基 tool's **半墙** mode the same counter steps the panel to another
-          // half of the tile — that mode's one orientation choice. With 半墙 off the
-          // 地基 tool has nothing of its own to turn, so the key stops there rather
-          // than turning whatever piece the 设备 folder was left on.
+          // 地基 tool's cut modes the same counter steps the piece to another half of
+          // the tile — a 半墙 to the other half, a 三角 to the next corner — which is
+          // that mode's one orientation choice. With both modes off the 地基 tool has
+          // nothing of its own to turn, so the key stops there rather than turning
+          // whatever piece the 设备 folder was left on.
           else if (st.tool === 'wall') st.rotateWallSnap()
           else if (st.tool === 'block') {
-            if (st.halfWall) st.rotateWallSnap()
+            if (st.halfWall || st.triangles) st.rotateWallSnap()
           } else if (st.tool === 'rail') st.rotateRail()
           else if (st.tool !== 'tunnel' && isRotatableType(st.moduleType)) st.rotateModule()
           break
         case 'tab':
-          // In the 地基 tool Tab toggles the generated 4 m wall ring on/off.
-          // **半墙** has no shortcut: it is click-only. Everywhere else Tab keeps
-          // its own meaning for the piece being placed: rail direction, stair
-          // width, escalator direction, the 闸机's lane or fence.
+          // In the 地基 tool Tab steps the cut modes — 半墙 → 三角上 → 三角下 → off — which
+          // is the question a 地基 click answers: what shape does this one lay. It used
+          // to toggle the generated 4 m wall ring, which is now **off when the game
+          // opens** and asked for on its own tile instead: the ring is the one thing
+          // this tool does that the player did not draw, so it no longer takes the
+          // most-reached key in the folder. Everywhere else Tab keeps its own meaning
+          // for the piece being placed: rail direction, stair width, escalator
+          // direction, the 闸机's lane or fence.
           e.preventDefault()
           if (st.tool === 'block') {
-            st.setAutoWalls(!st.autoWalls)
+            st.cycleCutMode()
           } else if (st.tool === 'rail') st.cycleRailDir()
           else if (isStairType(st.moduleType)) st.cycleStairWidth()
           else if (isEscalatorType(st.moduleType)) st.cycleEscalatorDir()

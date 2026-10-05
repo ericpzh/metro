@@ -17,9 +17,20 @@ import { stairTurnCells } from '../../../sim/stairs.ts'
 import { liftFootprintCells, liftStopZs } from '../../../sim/lifts.ts'
 import { facilityWallCells } from '../../../build/model.ts'
 import { packKey } from '../../../sim/types.ts'
-import type { StationData, WallSide } from '../../../sim/types.ts'
+import type { CellShape, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
+
+/**
+ * A small order-stable number for one cut shape, for the chunk content hash: the
+ * mesher draws different geometry for a 半墙's four sides and a 三角's eight
+ * wedges, so a chunk whose cell is re-tagged at the same coordinates must re-mesh.
+ */
+function shapeKey(shape: CellShape): number {
+  const family = shape.kind === 'half' ? 0 : shape.triangle === 'upper' ? 1 : 2
+  const corner = shape.side.charCodeAt(0) * 31 + (shape.side.length > 1 ? shape.side.charCodeAt(1) : 0)
+  return family * 1000 + corner
+}
 
 export class ChunkSystem extends SceneSystem {
   levelGroups = new Map<number, THREE.Group>()
@@ -86,14 +97,14 @@ export class ChunkSystem extends SceneSystem {
     const solidKeys = new Set<number>()
     for (const c of data.cells) if (c.fill === 'solid') solidKeys.add(packKey(c.x, c.y, c.z))
     this.ctx.hiddenCells = new Set<number>()
-    // Every cell that draws half a block thick — a 半墙 the player laid, and every
-    // block a ramp kept beside its run (`thinWallCells`) — is **meshed**, not
-    // hidden: the mesher draws the half the panel keeps (`meshBand`), so the drawn
-    // panel is what the pointer picks and the face a player paints is the face they
-    // clicked. Thin cells are collected here because the mesher's own input is a
-    // solid set, which cannot say how thick a cell is.
-    this.ctx.thinSides = new Map<number, WallSide>()
-    for (const t of thinWallCells(data.cells, data.modules)) this.ctx.thinSides.set(packKey(t.x, t.y, t.z), t.side)
+    // Every cell that draws as less than a whole block — a 半墙 the player laid, a
+    // 三角 corner, and every block a ramp kept beside its run (`thinWallCells`) — is
+    // **meshed**, not hidden: the mesher draws the shape that cell is (`meshBand`), so
+    // the drawn panel is what the pointer picks and the face a player paints is the
+    // face they clicked. Cut cells are collected here because the mesher's own input
+    // is a solid set, which cannot say what shape a cell is.
+    this.ctx.thinSides = new Map<number, CellShape>()
+    for (const t of thinWallCells(data.cells, data.modules)) this.ctx.thinSides.set(packKey(t.x, t.y, t.z), t.shape)
     // And where a 楼梯 / 扶梯 takes its volume out of a block: the top of a block
     // under a run is the run's underside, so the ground fills up to the truss
     // instead of bulging through it. Derived from the modules alone (a cut is a
@@ -154,13 +165,14 @@ export class ChunkSystem extends SceneSystem {
    * modules, the grid and the level slice — in the order the old method did.
    */
   meshStation(data: StationData): void {
-    // Give back what the last rebuild left. `disposeChunks` is not used here: it
-    // disposes every chunk geometry, and the cache below re-adds the ones whose
-    // content did not change. Every geometry the last rebuild made is either
-    // re-added from the cache or swept as stale at the end of this pass.
-    this.releaseChunks()
-    this.ctx.scene.remove(...this.levelGroups.values())
-    this.levelGroups.clear()
+    // **One release per rebuild, and it is the keep-aware one.** What the last
+    // rebuild left is given back below, once `keep` is known (`releaseChunks` is
+    // called a second time with `keepChunkGeometries` set). Releasing here as well
+    // would dispose every cached chunk's geometry and outline material *before* the
+    // keep set exists — and because `releaseChunks` also empties `chunkMeshes` and
+    // `outlineMeshes`, the guarded call would then have nothing left to skip: every
+    // edit re-uploaded the whole station's buffers and recompiled the outline
+    // program, which is exactly the cost the cache exists to avoid.
     // The meshes `applyLevel` assigns materials to have just been replaced, so the
     // slice has to be applied again even if the view state itself did not change.
     this.ctx.levelKey = ''
@@ -230,10 +242,11 @@ export class ChunkSystem extends SceneSystem {
         h = Math.imul(h ^ c.x, 16777619)
         h = Math.imul(h ^ c.y, 16777619)
         h = Math.imul(h ^ c.z, 16777619)
-        // How thick the cell is, and which half it keeps: a 半墙 the player re-tags
-        // (or a wall that becomes one) meshes differently at the same coordinates.
-        const side = this.ctx.thinSides.get(k)
-        if (side !== undefined) h = Math.imul(h ^ side.charCodeAt(0), 16777619)
+        // Which shape the cell draws, and which way round: a 半墙 the player re-tags
+        // (or a wall that becomes one), or a 三角 turned to another corner, meshes
+        // differently at the same coordinates.
+        const shape = this.ctx.thinSides.get(k)
+        if (shape !== undefined) h = Math.imul(h ^ shapeKey(shape), 16777619)
         // Where a run cuts the cell's top: placing or deleting a 楼梯 / 扶梯 changes
         // this map without moving a single block, so the cut has to be part of what
         // makes a chunk's mesh, or the ground under the run would keep the old shape.
@@ -293,6 +306,10 @@ export class ChunkSystem extends SceneSystem {
         }
       }
     }
+    // The one release: everything the last rebuild made that this rebuild is not
+    // about to reuse. A kept chunk's geometry and its per-chunk outline material
+    // survive it, so re-adding the cached meshes below costs no re-upload and no
+    // program recompile.
     this.keepChunkGeometries = keep
     this.releaseChunks()
     this.ctx.scene.remove(...this.levelGroups.values())

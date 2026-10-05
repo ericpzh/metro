@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SceneRenderer, type PickResult } from '../render/scene.ts'
 import { cellKey, removeFloor, thinWallSideMap, toData, zoneMapFloors, zoneRegionLabels } from '../build/model.ts'
-import type { WallSide } from '../sim/types.ts'
+import type { CellShape } from '../sim/types.ts'
 import { zoneIndex } from '../sim/zones.ts'
 import { dragOffset, snapOffset, walkAlong } from '../render/section.ts'
 import { placementPreviewKey, setFrameHandler, signModuleWithPreview, useStore, type Tool } from './store.ts'
@@ -68,7 +68,7 @@ export function Viewport(): React.ReactElement {
    * cell's boundary (`faceTargets`); without the derived ones a stair's own half
    * wall was a surface the brush would not colour.
    */
-  const thinRef = useRef<Map<string, WallSide>>(new Map())
+  const thinRef = useRef<Map<string, CellShape>>(new Map())
   /** True once the first station build has framed the home view (refresh only, not edits). */
   const framedRef = useRef(false)
   /**
@@ -106,6 +106,11 @@ export function Viewport(): React.ReactElement {
   )
   /** True while the pointer is on the section surface, for the hover read. */
   const sectionHotRef = useRef(false)
+  /**
+   * The fingerprint of the 区域 map currently built (`buildZoneOverlay`), so the
+   * effect that runs on every commit can leave an unchanged map alone.
+   */
+  const zoneKeyRef = useRef('')
 
   /** The 地基 tool's pending patch size, pinned to the pointer while previewing. */
   const [buildMeasure, setBuildMeasure] = useState<BuildMeasure | null>(null)
@@ -167,9 +172,14 @@ export function Viewport(): React.ReactElement {
   const station = useStore((s) => s.station)
   // A 指示牌 whose board the editor has open draws the board being arranged, not the
   // one committed (`signModuleWithPreview`). Subscribing to the id rather than to the
-  // whole preview keeps this from re-rendering the viewport on every dragged bin —
-  // the `version` bump the editor raises alongside it is what redraws the meshes.
+  // whole preview keeps this from re-rendering the viewport on every dragged bin.
+  // `signVersion` is the preview's own redraw counter, watched by the rebuild effect
+  // below: a preview still redraws through `setStation` (a board can resize the
+  // panel), but it is not a document edit, so it must not ride on `version` — that
+  // is the counter every other reader of the document keys off, the undo stack
+  // included. See `SignSlice.signVersion`.
   const signPreviewId = useStore((s) => s.signPreview?.moduleId ?? null)
+  const signVersion = useStore((s) => s.signVersion)
   // The piece in the air (移动), by id: the station is drawn without it, so the
   // translucent ghost under the pointer is the only copy on screen. Subscribing to
   // the id — rather than to the whole draft — keeps a pointer move from rebuilding
@@ -210,17 +220,39 @@ export function Viewport(): React.ReactElement {
   const buildZoneOverlay = (): void => {
     const scene = sceneRef.current
     if (!scene) return
+    // 区域 map off: there is nothing to draw and no reason to flood-fill the whole
+    // station for it. This effect runs on every commit, and the flood fill plus the
+    // label sweep were being paid for while the map was hidden.
+    if (!useStore.getState().zoneOverlayOn) {
+      scene.setZoneOverlayVisible(false)
+      return
+    }
     const station = useStore.getState().station
     const floors = zoneMapFloors(station.cells, station.modules)
     const quads = new Float32Array(floors.length * 3)
     const zones = new Uint8Array(floors.length)
+    // A fingerprint of the picture the quads make, so an edit that touched no
+    // walkable floor (a wall, a bench, a line colour) does not mint another overlay
+    // — and another set of labels — for the same map.
+    let h = 2166136261
     floors.forEach((c, i) => {
+      const zone = zoneIndex(c.zone)
       quads[i * 3] = c.x + 0.5
       quads[i * 3 + 1] = c.y + 0.5
       quads[i * 3 + 2] = c.z + 1.02
-      zones[i] = zoneIndex(c.zone)
+      zones[i] = zone
+      h = Math.imul(h ^ (c.x + 4096), 16777619)
+      h = Math.imul(h ^ (c.y + 4096), 16777619)
+      h = Math.imul(h ^ (c.z + 4096), 16777619)
+      h = Math.imul(h ^ zone, 16777619)
     })
-    scene.setZoneOverlay(quads, zones, zoneRegionLabels(floors), useStore.getState().zoneOverlayOn)
+    const key = `${floors.length}:${h >>> 0}`
+    if (key === zoneKeyRef.current) {
+      scene.setZoneOverlayVisible(true)
+      return
+    }
+    zoneKeyRef.current = key
+    scene.setZoneOverlay(quads, zones, zoneRegionLabels(floors), true)
   }
 
   useEffect(() => {
@@ -374,6 +406,9 @@ export function Viewport(): React.ReactElement {
     if (!canvas) return
     const scene = new SceneRenderer(canvas)
     sceneRef.current = scene
+    // A fresh scene owns no overlay, so the fingerprint of the last one means
+    // nothing to it: the next build has to mint the map again.
+    zoneKeyRef.current = ''
     // The renderer on `window`, for the same reason the store is there (`boot.tsx`):
     // a browser-driven check can aim the camera at a corner and photograph it. Only
     // the live renderer, no copy, so a probe and the game cannot disagree.
@@ -483,7 +518,7 @@ export function Viewport(): React.ReactElement {
       framedRef.current = true
       scene.setPreset('iso')
     }
-  }, [version, station, signPreviewId, moveId])
+  }, [version, station, signPreviewId, signVersion, moveId])
 
   // A lifted piece (移动) is drawn from its own ghost, so a fresh lift or an R while
   // it is in the air rebuilds that ghost at once instead of waiting for the next

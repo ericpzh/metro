@@ -4,7 +4,7 @@
 
 import { faceAxis } from '../../../render/pickCell.ts'
 import { facePresent } from '../../../build/model.ts'
-import type { Face, WallSide } from '../../../sim/types.ts'
+import type { CellShape, Face } from '../../../sim/types.ts'
 
 /** Which `Face` each axis names, facing negative then positive. */
 const FACE_OF_AXIS: Record<'x' | 'y' | 'z', [Face, Face]> = {
@@ -64,7 +64,7 @@ export function faceTargets(
   cells: Array<[number, number, number]>,
   face: Face,
   solid: Set<string>,
-  thin: Map<string, WallSide> = new Map(),
+  thin: Map<string, CellShape> = new Map(),
 ): Array<[number, number, number]> {
   return cells.filter(([x, y, z]) => facePresent(solid, thin, x, y, z, face))
 }

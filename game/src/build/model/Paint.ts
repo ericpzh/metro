@@ -1,10 +1,10 @@
 // Build model: paint — face finishes, the 材质 brush and its floods (§4.3).
 
 import { finishOf } from '../../sim/finishes.ts';
-import { halfWallInnerFace, type Cell, type Face, type FinishId } from '../../sim/types.ts';
+import { halfWallInnerFace, isHalfWallShape, type Cell, type CellShape, type Face, type FinishId } from '../../sim/types.ts';
 import { cellKey, cloneCell } from './Cells.ts';
 import type { StationState } from './State.ts';
-import { thinWallSideMap, type WallDir } from './Walls.ts';
+import { thinWallSideMap } from './Walls.ts';
 
 /** The neighbour a face looks out on. */
 const FACE_STEP: Record<Face, [number, number, number]> = {
@@ -35,11 +35,14 @@ const FACE_PLANE: Record<Face, Array<[number, number, number]>> = {
  * A **半墙** is the case the cell boundary alone gets wrong. Its panel is half a
  * block thick, so the face looking across the cell's own clear half is a surface
  * *inside* this cell — a solid neighbour behind it does not cover it. Without that
- * exception a player could see the side of a 半墙 and not be able to paint it.
+ * exception a player could see the side of a 半墙 and not be able to paint it. A
+ * **三角** needs no such exception: two of its three faces are on the cell boundary
+ * like any block's, and its diagonal is a surface the boundary rule already reports
+ * as exposed, because the corner it cuts away leaves that neighbour empty.
  */
 export function facePresent(
   solid: ReadonlySet<string>,
-  thin: ReadonlyMap<string, WallDir>,
+  thin: ReadonlyMap<string, CellShape>,
   x: number,
   y: number,
   z: number,
@@ -47,8 +50,8 @@ export function facePresent(
 ): boolean {
   const k = cellKey(x, y, z);
   if (!solid.has(k)) return false;
-  const side = thin.get(k);
-  if (side !== undefined && halfWallInnerFace(side) === face) return true;
+  const shape = thin.get(k);
+  if (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face) return true;
   const step = FACE_STEP[face];
   return !solid.has(cellKey(x + step[0], y + step[1], z + step[2]));
 }

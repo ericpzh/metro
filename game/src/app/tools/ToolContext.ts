@@ -9,7 +9,7 @@
 
 import type { PickResult, SceneRenderer } from '../../render/scene.ts'
 import type { WallDir } from '../../build/model.ts'
-import type { Face, WallSide } from '../../sim/types.ts'
+import type { CellShape, Face } from '../../sim/types.ts'
 import type { ZoneBrush } from '../store.ts'
 
 /** The tile under the pointer, kept so R and Tab can rebuild a ghost in place. */
@@ -41,8 +41,16 @@ export interface AreaDrag {
    */
   single?: boolean
   /**
+   * The cut shape a **地基** click lays — a **半墙**'s thickness side or a **三角**'s
+   * hugged side (`cutShapeFor` over `wallDirs`), resolved at the press and kept
+   * current as **R** steps it. The release lays this shape, so the piece that lands is
+   * the one the ghost drew rather than a second, possibly different, reading of the
+   * same geometry.
+   */
+  shape?: CellShape | null
+  /**
    * The faces the pressed column's own geometry opens onto (`wallSnap`'s
-   * candidates), kept so a 半墙 can re-derive its thickness side as **R** steps it.
+   * candidates), kept so a 半墙 or 三角 can re-derive its shape as **R** steps it.
    */
   wallDirs?: WallDir[]
   /** True for the 围栏 tool's drag, which lays one fence panel per cell. */
@@ -134,7 +142,7 @@ export interface ToolContext {
   /** Solid cell keys, refreshed with the station. */
   solids: () => Set<string>
   /** Half-block-thick cells (半墙 and ramp-kept panels), refreshed with the station. */
-  thins: () => Map<string, WallSide>
+  thins: () => Map<string, CellShape>
   hover: { current: HoverTile | null }
   drag: { current: AreaDrag | null }
   paint: { current: PaintDrag | null }

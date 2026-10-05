@@ -25,7 +25,7 @@
 //     so that corridor never reaches into the cell next door;
 //   * pure data, no DOM, no three.
 
-import { halfWallSide, isWallBlock, packKey, type Cell, type Module, type Vec3i, type WallSide } from './types.ts'
+import { isWallBlock, packKey, shapeOf, type Cell, type CellShape, type Module, type Vec3i, type WallSide } from './types.ts'
 import { ESCALATOR_BALUSTRADE, ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { exitFloorAt } from './exits.ts'
 import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
@@ -778,11 +778,12 @@ export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]
   const out: RampThin[] = []
   for (const cell of cells) {
     if (cell.fill !== 'solid') continue
-    // A 半墙 the player laid is already a half-metre panel standing where they put
-    // it, so a ramp never thins it again: the side is theirs and re-deriving it
-    // would move a wall they built. (The carve still keeps the cell — see
-    // `carveRampOpenings` — so a 半墙 beside a run is never opened up.)
-    if (halfWallSide(cell) !== null) continue
+    // A piece the player already cut is left alone: a 半墙 is a half-metre panel
+    // standing where they put it, and a 三角 is the 45° wedge they chose, so a ramp
+    // never re-derives either one's shape — that would move a block they built. (The
+    // carve still keeps the cell — see `carveRampOpenings` — so a cut block beside a
+    // run is never opened up.)
+    if (shapeOf(cell) !== null) continue
     const wall = isWallBlock(cell)
     for (const r of ramps) {
       if (!overlaps(cell, r, wall)) continue
@@ -798,20 +799,20 @@ export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]
 }
 
 /**
- * Every cell the renderer must draw **half a block thick**, and the side its panel
- * hugs: a 半墙 the player laid (the `half-wall:<side>` tag it stores) plus every
- * block a ramp kept (`rampThinCells`, which skips the tagged ones). One list, so
- * the mesher that draws them, the build ghost that previews them and the 材质
- * brush that paints their faces cannot disagree about which cells are thin — the
- * defect that left a stair's own half wall unpaintable was the brush not knowing
- * about the derived ones.
+ * Every cell the renderer must draw as **less than a whole block**, and the shape
+ * it draws: a 半墙 the player laid (the `half-wall:<side>` tag it stores), a **三角**
+ * wedge (`tri-upper:<side>` / `tri-lower:<side>`), plus every block a ramp kept
+ * (`rampThinCells`, which skips the tagged ones). One list, so the mesher that draws
+ * them, the build ghost that previews them and the 材质 brush that paints their faces
+ * cannot disagree about which cells are cut — the defect that left a stair's own half
+ * wall unpaintable was the brush not knowing about the derived ones.
  */
-export function thinWallCells(cells: readonly Cell[], modules: readonly Module[]): Array<{ x: number; y: number; z: number; side: WallSide }> {
-  const out: Array<{ x: number; y: number; z: number; side: WallSide }> = []
+export function thinWallCells(cells: readonly Cell[], modules: readonly Module[]): Array<{ x: number; y: number; z: number; shape: CellShape }> {
+  const out: Array<{ x: number; y: number; z: number; shape: CellShape }> = []
   for (const cell of cells) {
-    const side = halfWallSide(cell)
-    if (side !== null) out.push({ x: cell.x, y: cell.y, z: cell.z, side })
+    const shape = shapeOf(cell)
+    if (shape !== null) out.push({ x: cell.x, y: cell.y, z: cell.z, shape })
   }
-  for (const t of rampThinCells(cells, modules)) out.push({ x: t.x, y: t.y, z: t.z, side: t.side })
+  for (const t of rampThinCells(cells, modules)) out.push({ x: t.x, y: t.y, z: t.z, shape: { kind: 'half', side: t.side } })
   return out
 }

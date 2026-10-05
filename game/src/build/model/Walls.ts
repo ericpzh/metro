@@ -4,7 +4,7 @@
 import { storeyBand } from '../../sim/constants.ts';
 import { thinWallCells } from '../../sim/openings.ts';
 import { reservedOpening } from '../../sim/placement.ts';
-import { halfWallSide, halfWallTag, type WallSide } from '../../sim/types.ts';
+import { halfWallTag, shapeOf, TRI_SIDES, triangleTag, type CellShape, type TriangleKind, type TriSide, type WallSide } from '../../sim/types.ts';
 import type { Cell, Module } from '../../sim/types.ts';
 import { cellKey, hasTag } from './Cells.ts';
 import type { StationState } from './State.ts';
@@ -219,19 +219,27 @@ export function wallSnap(
  * line up and the cells between them join, which is what makes a dragged 半墙 read
  * as a wall rather than as a row of slots.
  *
+ * `triangle` lays the run as **三角** instead: the same course, tagged with the side
+ * of its cell the wedge hugs and which of the two cuts it is (`triangleTag`), so the
+ * mesher draws the 45° wedge the player aimed at. It is the 地基 tool's third mode,
+ * one block at a time like its 半墙 — a cut is a shape being placed, not a wall being
+ * run.
+ *
  * `height` is how many courses rise from each base cell. The 墙 tool always wants
- * the full 4 m column (`AUTO_WALL_H`); the 地基 tool's 半墙 mode lays one block at
- * a time, so it passes 1 — a single tagged course per click that the player
- * stacks by hand.
+ * the full 4 m column (`AUTO_WALL_H`); the 地基 tool's 半墙 / 三角 modes lay one
+ * block at a time, so they pass 1 — a single tagged course per click that the
+ * player stacks by hand.
  */
 export function addWalls(
   state: StationState,
   baseCells: Array<[number, number, number]>,
   side: WallDir | null = null,
   height: number = AUTO_WALL_H,
+  triangle: { kind: TriangleKind; side: TriSide } | null = null,
 ): { state: StationState; changed: number; blocked: number } {
   const have = new Set(state.cells.map((c) => cellKey(c.x, c.y, c.z)));
-  const tags = side === null ? [WALL] : [WALL, halfWallTag(side)];
+  const tags =
+    triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
   const added: Cell[] = [];
   let blocked = 0;
   const run = height === AUTO_WALL_H ? wallRun(baseCells) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
@@ -250,12 +258,12 @@ export function addWalls(
 }
 
 /**
- * True for a cell the 墙 tool owns: a course it laid (full or 半墙), or an
- * auto-generated one. Both are the same 4 m wall to the player, so the tool must
- * be able to lift an `AUTO_WALL` ring exactly like its own run.
+ * True for a cell the 墙 tool owns: a course it laid (full, 半墙 or 三角), or an
+ * auto-generated one. All of them are the same 4 m wall to the player, so the tool
+ * must be able to lift an `AUTO_WALL` ring exactly like its own run.
  */
 function isWallCell(c: Cell): boolean {
-  return hasTag(c, WALL) || hasTag(c, AUTO_WALL) || halfWallSide(c) !== null;
+  return hasTag(c, WALL) || hasTag(c, AUTO_WALL) || shapeOf(c) !== null;
 }
 
 /* -------------------------------------------------------- 半墙 thickness (R) */
@@ -294,18 +302,50 @@ export function halfWallRunSide(baseCells: Array<[number, number, number]>, open
   return dirs[((cycle % dirs.length) + dirs.length) % dirs.length];
 }
 
+/* --------------------------------------------------------- 三角 side (R) */
+
 /**
- * Every cell of a station that draws **half a block thick**, by cell key → the side
- * its panel hugs: a 半墙 the player laid, plus every block a ramp kept beside its
- * run (`sim/openings.ts` `thinWallCells`, the one list the mesher also draws from).
- * The app reads it to decide which faces a paint brush may colour (`faceTargets`),
- * and the builder applies the same rule to a flood fill (`fillSurface`) — so a
- * stair's own half wall is a surface the 材质 brush knows about, not only the ones
- * a player laid by hand.
+ * The sides a **三角** click may hug, best-first: the ones the block's own geometry
+ * opens onto (`open`, the faces `wallSnap` read) before the rest.
+ *
+ * A wedge has no thickness to choose and no axis to be perpendicular to — the cell
+ * is cut across it whichever way it is turned — so all four sides are always on
+ * offer. The geometry only decides the order, so a 三角 dropped against an open edge
+ * stands its full-height face there with no key pressed, exactly as a 半墙 dropped on
+ * a patch edge hugs the edge: the piece hugs the wall rather than cutting its slope
+ * into it. **R** then steps the rest — four presses, four sides, and round again.
  */
-export function thinWallSideMap(cells: readonly Cell[], modules: readonly Module[] = []): Map<string, WallDir> {
-  const out = new Map<string, WallDir>();
-  for (const t of thinWallCells(cells, modules)) out.set(cellKey(t.x, t.y, t.z), t.side);
+export function triangleSideDirs(open: readonly WallDir[]): TriSide[] {
+  const rank = (d: WallDir): number => {
+    const i = open.indexOf(d);
+    return i < 0 ? open.length + WALL_DIRS.length : i;
+  };
+  return [...TRI_SIDES].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    // Equal ranks keep the clockwise order, so **R** still walks the cell.
+    return ra === rb ? TRI_SIDES.indexOf(a) - TRI_SIDES.indexOf(b) : ra - rb;
+  });
+}
+
+/** The side **R** has stepped to, wrapped, for a 三角 click. */
+export function triangleRunSide(open: readonly WallDir[], cycle: number): TriSide {
+  const dirs = triangleSideDirs(open);
+  return dirs[((cycle % dirs.length) + dirs.length) % dirs.length];
+}
+
+/**
+ * Every block of a station that draws as **less than a whole cell**, by cell key →
+ * the shape it draws: a 半墙 the player laid, a **三角** wedge they laid, plus every
+ * block a ramp kept beside its run (`sim/openings.ts` `thinWallCells`, the one list
+ * the mesher also draws from). The app reads it to decide which faces a paint brush
+ * may colour (`faceTargets`), and the builder applies the same rule to a flood fill
+ * (`fillSurface`) — so a stair's own half wall is a surface the 材质 brush knows
+ * about, not only the ones a player laid by hand.
+ */
+export function thinWallSideMap(cells: readonly Cell[], modules: readonly Module[] = []): Map<string, CellShape> {
+  const out = new Map<string, CellShape>();
+  for (const t of thinWallCells(cells, modules)) out.set(cellKey(t.x, t.y, t.z), t.shape);
   return out;
 }
 

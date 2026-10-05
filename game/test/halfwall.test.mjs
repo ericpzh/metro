@@ -37,6 +37,7 @@ import {
   wallColumnAt,
 } from '../src/build/model.ts'
 import { placementPreviewKey, useStore } from '../src/app/store.ts'
+import { createToolSlice } from '../src/app/store/slices/ToolSlice.ts'
 
 function empty() {
   return toState({ name: 't', seed: 1, cells: [], modules: [], lines: [] })
@@ -121,16 +122,17 @@ test('a single column offers all four sides, the geometry’s own face first', (
 })
 
 test('the 地基 tool carries the mode, and it excludes the auto-wall ring', () => {
-  // The rail's 半墙 tile and Tab both come through here, so this is the click. The
-  // two wall modes of the 地基 tool answer the same question — what the patch grows
-  // — so 半墙 turns 自动生成墙壁 off, that toggle is refused while it is on, and
-  // leaving hands the ring back. The wall-face cycle is reset with the mode, since
-  // the cycle means something different in each.
-  useStore.setState({ tool: 'block', halfWall: false, autoWalls: true, wallSnapCycle: 0 })
+  // The rail's cut tile and **Tab** both come through here, so this is the click. The
+  // cut modes and the generated ring answer the same question — what the patch grows
+  // — so 半墙 holds 自动生成墙壁 off, that toggle is refused while it is on, and
+  // leaving the mode leaves the ring where the default put it (**off**, since the
+  // ring is the one thing the tool does that the player did not draw). The wall-face
+  // cycle is reset with the mode, since the cycle means something different in each.
+  useStore.setState({ tool: 'block', halfWall: false, autoWalls: false, wallSnapCycle: 0 })
   const st = () => useStore.getState()
   st().toggleHalfWall()
   assert.equal(st().halfWall, true)
-  assert.equal(st().autoWalls, false, '半墙 must switch the generated ring off')
+  assert.equal(st().autoWalls, false, '半墙 must hold the generated ring off')
   st().setAutoWalls(true)
   assert.equal(st().autoWalls, false, 'the ring is refused while 半墙 owns the tool')
   st().rotateWallSnap()
@@ -138,19 +140,43 @@ test('the 地基 tool carries the mode, and it excludes the auto-wall ring', () 
   assert.equal(st().wallSnapCycle, 2)
   st().setHalfWall(false)
   assert.equal(st().halfWall, false)
-  assert.equal(st().autoWalls, true, 'leaving 半墙 hands the patch its wall ring back')
+  assert.equal(st().autoWalls, false, 'and the ring is not switched on behind the player’s back')
   assert.equal(st().wallSnapCycle, 0, 'flipping the mode keeps the cycle it belongs to')
 
+  // The ring's own tile still turns it on, now that it has no key and no default.
+  st().setAutoWalls(true)
+  assert.equal(st().autoWalls, true, 'the 自动生成墙壁 tile is how the ring is asked for')
+
   // Both the mode and the side R stepped to change what the hover ghost is, so
-  // both have to be in the one key the viewport subscribes to — otherwise Tab and
-  // R leave a ghost under the pointer showing the wall the player turned away from
-  // (`SceneRenderer.setGhost`'s own key carries the sides for the same reason).
+  // both have to be in the one key the viewport subscribes to — otherwise the tile
+  // and R leave a ghost under the pointer showing the wall the player turned away
+  // from (`SceneRenderer.setGhost`'s own key carries the sides for the same reason).
   const key = placementPreviewKey({ ...st(), halfWall: true, wallSnapCycle: 3 })
   assert.match(key, /true/)
   assert.match(key, /3$/)
   assert.notEqual(key, placementPreviewKey({ ...st(), halfWall: true, wallSnapCycle: 4 }))
   assert.notEqual(key, placementPreviewKey({ ...st(), halfWall: false, wallSnapCycle: 3 }))
-  useStore.setState({ tool: 'select', halfWall: false, autoWalls: true, wallSnapCycle: 0 })
+  useStore.setState({ tool: 'select', halfWall: false, autoWalls: false, wallSnapCycle: 0 })
+})
+
+test('自动生成墙壁 is off when the game opens', () => {
+  // The 地基 tool's default is bare floor: a dragged patch grows the surface the
+  // player drew and nothing else, and the 4 m ring is asked for on its own tile.
+  // Read from the slice's own factory — the store's initial `autoWalls` — rather than
+  // from a `setState`, so a change to the default cannot pass unnoticed.
+  const slice = createToolSlice(
+    () => {},
+    () => ({}),
+    {},
+  )
+  assert.equal(slice.autoWalls, false, 'a fresh slice opens with the ring off')
+  assert.equal(slice.halfWall, false)
+  assert.equal(slice.triangles, false)
+  // And the ring's own tile is the only way to it now: no key sets it.
+  useStore.setState({ tool: 'block', autoWalls: false, halfWall: false, triangles: false })
+  useStore.getState().setAutoWalls(true)
+  assert.equal(useStore.getState().autoWalls, true)
+  useStore.setState({ tool: 'select', autoWalls: false, halfWall: false, triangles: false })
 })
 
 /* --------------------------------------------------------- how it draws */
@@ -158,7 +184,7 @@ test('the 地基 tool carries the mode, and it excludes the auto-wall ring', () 
 /** Mesh one cell as a 半墙, and measure the panel it drew. */
 function panel(side, cells = [{ x: 1, y: 1, z: 0, fill: 'solid' }], finishes = new Map(), thins = [[1, 1, 0]]) {
   const solid = buildSolidSet(cells)
-  const thin = new Map(thins.map(([x, y, z]) => [packKey(x, y, z), side]))
+  const thin = new Map(thins.map(([x, y, z]) => [packKey(x, y, z), side === null ? null : { kind: 'half', side }]).filter(([, v]) => v !== null))
   const chunk = meshChunk(solid, finishes, 0, 0, 0, 0, undefined, undefined, undefined, thin)
   const pos = chunk.parts.flatMap((p) => Array.from(p.positions))
   const lo = [Infinity, Infinity, Infinity]
@@ -235,7 +261,7 @@ test('the brush may paint a 半墙’s inner face, even with a solid block behin
   const base = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
   const solid = new Set(base.cells.map((c) => `${c.x},${c.y},${c.z}`))
   const thin = thinWallSideMap(base.cells)
-  assert.equal(thin.get('1,1,0'), 'w')
+  assert.deepEqual(thin.get('1,1,0'), { kind: 'half', side: 'w' })
   assert.ok(facePresent(solid, thin, 1, 1, 0, 'e'), 'the inner face is a surface to paint')
   // The same geometry without the panel really does block that face: this is the
   // exception, not a hole in the rule.
@@ -296,7 +322,7 @@ test('a half wall a stair left behind is a surface the 材质 brush can colour',
   const thin = thinWallSideMap(state.cells, state.modules)
   const side = rampThinCells(state.cells, state.modules).find((t) => t.x === 2 && t.y === 2 && t.z === 0)
   assert.ok(side, 'the stair thinned the wall beside its run')
-  assert.equal(thin.get('2,2,0'), side.side, 'the derived half wall is in the thin map')
+  assert.deepEqual(thin.get('2,2,0'), { kind: 'half', side: side.side }, 'the derived half wall is in the thin map')
 
   // Its inner face — the one facing the run — is offered to the brush even though
   // the block on the far side of it is solid.
@@ -317,7 +343,7 @@ test('a half wall a stair left behind is a surface the 材质 brush can colour',
     undefined,
     undefined,
     undefined,
-    new Map([[packKey(2, 2, 0), side.side]]),
+    new Map([[packKey(2, 2, 0), { kind: 'half', side: side.side }]]),
   )
   assert.ok(
     chunk.parts.some((p) => p.finish === 'wall.enamel'),
@@ -326,12 +352,12 @@ test('a half wall a stair left behind is a surface the 材质 brush can colour',
 
   // And the whole list a renderer works from carries both sources in one place.
   const listed = thinWallCells(state.cells, state.modules)
-  assert.ok(listed.some((t) => t.x === 2 && t.y === 2 && t.z === 0 && t.side === side.side))
+  assert.ok(listed.some((t) => t.x === 2 && t.y === 2 && t.z === 0 && t.shape.kind === 'half' && t.shape.side === side.side))
   const tagged = thinWallCells(
     toState({ name: 't', seed: 1, cells: [floor(5, 5), { x: 5, y: 5, z: 1, fill: 'solid', tags: [WALL, halfWallTag('n')] }], modules: [], lines: [] }).cells,
     [],
   )
-  assert.deepEqual(tagged, [{ x: 5, y: 5, z: 1, side: 'n' }])
+  assert.deepEqual(tagged, [{ x: 5, y: 5, z: 1, shape: { kind: 'half', side: 'n' } }])
 })
 
 test('a 广告牌 bolts only to the half of a 半墙 that faces it', () => {

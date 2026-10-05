@@ -636,8 +636,14 @@ export function disposeObject(root: THREE.Object3D): void {
     // A 广告牌 / 电视 lit face draws a quad `render/adArt.ts` owns and shares with
     // every screen on the same panel; freeing it here would leave the next rebuild
     // drawing a disposed geometry.
-    if (isSharedGeometry(mesh)) return
-    mesh.geometry.dispose()
+    if (!isSharedGeometry(mesh)) mesh.geometry.dispose()
+    // **An `InstancedMesh` also owns its instance buffers**, and `geometry.dispose()`
+    // does not touch them: three frees `instanceMatrix`/`instanceColor` only on the
+    // mesh's own `dispose` event. A contact-blob batch, an escalator's step band and
+    // a shelf's goods are all instanced and rebuilt on every edit, so without this
+    // every rebuild left a dead GL buffer per batch on the GPU for the session.
+    const im = mesh as THREE.InstancedMesh
+    if (im.isInstancedMesh) im.dispose()
   })
 }
 

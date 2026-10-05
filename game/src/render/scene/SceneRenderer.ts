@@ -9,13 +9,13 @@
 // `/lab` page keep importing the path they always did.
 
 import * as THREE from 'three'
-import { createMaterials } from '../materials.ts'
+import { createMaterials, finishesInUse } from '../materials.ts'
 import type { MaterialSet } from '../materials.ts'
 import { createModelMaterials, disposeModelMaterials, refreshSignFaceMaterial } from '../models.ts'
 import type { ModelMaterials } from '../models.ts'
 import { createAdArt } from '../adArt.ts'
 import { loadPictograms } from '../pictograms.ts'
-import type { Face, Module, StationData, WallSide } from '../../sim/types.ts'
+import type { CellShape, Face, Module, StationData } from '../../sim/types.ts'
 import { SceneContextData } from './systems/SceneSystem.ts'
 import type { SceneStats } from './systems/SceneSystem.ts'
 import { ChunkSystem } from './systems/ChunkSystem.ts'
@@ -54,6 +54,8 @@ export class SceneRenderer {
   private frameCount = 0
   private fpsTime = 0
   private fps = 0
+  /** The live animation-frame handle, so `dispose` can stop the loop it started. */
+  private raf = 0
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
@@ -181,6 +183,10 @@ export class SceneRenderer {
 
   setStation(data: StationData, trackCells: Set<number> = new Set()): void {
     this.chunks.prepareStation(data)
+    // A painted colour the document no longer holds can go: each finish material
+    // wraps a 128² canvas texture, and the colour picker hands out a new id per
+    // shade, so a long painting session used to keep every shade it ever tried.
+    this.ctx.mats.retain(finishesInUse(data))
     this.ghostSys.clearModulePreview()
     // A 指示牌 prints the station's lines, so a line edit reprints every face
     // already hanging before the rebuild replaces them.
@@ -381,6 +387,11 @@ export class SceneRenderer {
     this.crowd.setOverlayVisible(on)
   }
 
+  /** 区域 map visibility alone, so an unchanged map is not rebuilt to show it. */
+  setZoneOverlayVisible(on: boolean): void {
+    this.crowd.setZoneOverlayVisible(on)
+  }
+
   setZoneOverlay(
     quads: Float32Array,
     zones: Uint8Array,
@@ -426,7 +437,7 @@ export class SceneRenderer {
     cells: Array<[number, number, number]>,
     kind: 'add' | 'remove',
     colour = 0xff5d5d,
-    thin?: ReadonlyMap<number, WallSide>,
+    thin?: ReadonlyMap<number, CellShape>,
   ): void {
     this.ghostSys.setGhost(cells, kind, colour, thin)
   }
@@ -472,7 +483,11 @@ export class SceneRenderer {
   /* --------------------------------------------------------------- loop */
 
   private animate = (): void => {
-    requestAnimationFrame(this.animate)
+    // A disposed renderer must not keep drawing: the loop used to run for the rest
+    // of the session after `dispose()` (an unmount, an HMR reload, the /lab page
+    // closing), re-creating GPU resources on a renderer that had just released them.
+    if (this.ctx.disposed) return
+    this.raf = requestAnimationFrame(this.animate)
     const now = performance.now()
     const dt = this.lastFrame > 0 ? Math.min(0.05, (now - this.lastFrame) / 1000) : 0
     this.lastFrame = now
@@ -509,15 +524,22 @@ export class SceneRenderer {
 
   dispose(): void {
     this.ctx.disposed = true
+    cancelAnimationFrame(this.raf)
     this.cameraSys.dispose()
     this.chunks.disposeChunks()
     this.ghostSys.dispose()
     this.sectionSys.dispose()
     this.modules.disposeSelection()
+    // The module groups, the plates they carry and the builder-minted materials go
+    // first (teardown keeps nothing), then the shared kit, then the finish set —
+    // whose every material wraps a canvas texture of its own.
+    this.modules.clearModules()
     disposeModelMaterials(this.ctx.modelMats)
     this.ctx.ads.dispose()
     this.plates.clearTvPlates()
+    this.plates.clearSignPlates()
     this.plates.tvScreens.length = 0
+    this.ctx.mats.dispose()
     this.trains.dispose()
     this.crowd.dispose()
     this.renderer.dispose()

@@ -153,9 +153,18 @@ test('arranging is a preview: drawn, never committed, dropped on ✕', () => {
 
   useStore.getState().openSignEditor('sign-1')
   const before = undoDepth()
+  const docVersion = useStore.getState().version
+  const redraws = useStore.getState().signVersion
 
   useStore.getState().previewSignLayout(longer)
   const st = useStore.getState()
+  // A live preview on a **placed** sign is the one thing the scene has to redraw, and
+  // it says so on its own counter — `signVersion`. The document's `version` stays put,
+  // because a preview is not a document edit: that counter is what the undo stack and
+  // every other reader of the document key off (`Viewport`'s rebuild effect watches
+  // both, since the redraw a preview asks for is the same `setStation`).
+  assert.ok(st.signVersion > redraws, 'the preview asks for a redraw of the sign it is on')
+  assert.equal(st.version, docVersion, 'and it is still not a document edit')
   // It follows the current boards, and it is what the model draws on the sign...
   assert.deepEqual(st.currentBoards, longer)
   assert.deepEqual(st.signPreview.boards, longer)
@@ -263,13 +272,16 @@ test('the whole flow: compose both faces, ✓, place, and the station prints the
 
   // 1. Compose it (the rail's 自定义 tile) and keep it with ✓, the way the editor's
   //    own handler does: `commitSignLayout(boards)` then close.
-  const before = useStore.getState().version
+  //    Boards composed for the **next** sign are on nobody's screen, so composing must
+  //    ask the scene for no rebuild at all: the preview counter stays exactly where it
+  //    was (`version` is what used to move here, once per keystroke).
+  const before = useStore.getState().signVersion
   useStore.getState().openSignComposer()
   useStore.getState().previewSignLayout(composed)
   useStore.getState().commitSignLayout(composed)
   useStore.getState().closeSignEditor()
   assert.equal(useStore.getState().signComposing, false, '✓ closed the editor')
-  assert.ok(useStore.getState().version > before, '✓ reached the store (a version bump is what redraws the model)')
+  assert.equal(useStore.getState().signVersion, before, 'composing the next sign redraws nothing')
   assert.deepEqual(useStore.getState().currentBoards, composed, '✓ made the boards current')
 
   // 2. Hang the next sign with them, exactly as the placement path does: `createModule`

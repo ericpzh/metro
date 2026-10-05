@@ -41,6 +41,8 @@ export {
   halfWallRunSide,
   halfWallSideDirs,
   thinWallSideMap,
+  triangleRunSide,
+  triangleSideDirs,
   WALL,
   wallColumnAt,
   wallColumnsAt,
@@ -52,6 +54,7 @@ export {
   type WallDir,
   type WallSnap,
 } from './model/Walls.ts';
+export type { CellShape, TriangleKind, TriSide } from '../sim/types.ts';
 export {
   boothBenchSpots,
   carveFacilityOpenings,

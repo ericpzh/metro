@@ -24,6 +24,12 @@ interface BlockProps {
   /** Keyboard shortcut, shown as a badge on hover / focus. */
   shortcut?: string
   /**
+   * Native tooltip. The rail's cut-mode tile cycles three pieces through one
+   * button, so its label can only name the live one; this says what the button
+   * does and what the current piece is for (`ToolsFolder`'s `CUT_MODES`).
+   */
+  title?: string
+  /**
    * A tile another mode of the same tool has taken over: still drawn, so the rule
    * is discoverable, but plainly out of play (the 地基 tool's 自动生成墙壁 while
    * **半墙** is on).
@@ -31,13 +37,14 @@ interface BlockProps {
   disabled?: boolean
 }
 
-export function Block({ label, active, onClick, thumb, icon, tone, submenu, shortcut, disabled }: BlockProps): React.ReactElement {
+export function Block({ label, active, onClick, thumb, icon, tone, submenu, shortcut, disabled, title }: BlockProps): React.ReactElement {
   return (
     <button
       type="button"
       className={active ? 'bpBlock on' : 'bpBlock'}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       aria-pressed={active}
       aria-expanded={submenu}
     >

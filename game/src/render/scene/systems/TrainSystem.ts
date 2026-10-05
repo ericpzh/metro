@@ -29,11 +29,26 @@ interface TrainEntry {
   to: THREE.Vector3
   /** Whether the consist was present in the previous snapshot. */
   active: boolean
+  /** Snapshots this consist has been absent for, so an old one can be evicted. */
+  missed: number
 }
 
 /** Sim seconds a door leaf takes to travel fully open or shut (matches the sim's
  *  `TRAIN_DOOR_TRAVEL`; the renderer eases toward the commanded state). */
 const DOOR_TRAVEL_S = 2
+
+/**
+ * How many consecutive snapshots a consist may be missing before it is dropped.
+ *
+ * A signature is a *configuration* (colour, direction, cars, stock, yaw, door side),
+ * and an edit that changes one — a new line, a recolour, a track moved — used to mint
+ * a whole consist that was then parked and kept forever: invisible, but still walked
+ * by every storey slice and every state frame. A train between services is absent for
+ * a long stretch, so the threshold only has to outlast the gap between the sim
+ * splicing a departed consist and the renderer drawing the last snapshot that
+ * mentioned it.
+ */
+const TRAIN_MISSES_ALLOWED = 4
 
 export class TrainSystem extends SceneSystem {
   trainGroup: THREE.Group = new THREE.Group()
@@ -69,7 +84,10 @@ export class TrainSystem extends SceneSystem {
       const o = i * STRIDE
       this.ctx.trainPoses.push({ x: buffer[o], y: buffer[o + 1], colour: buffer[o + 6] & 0xffffff })
     }
-    for (const entry of this.trainSlots.values()) entry.active = false
+    for (const entry of this.trainSlots.values()) {
+      entry.active = false
+      entry.missed++
+    }
     const openColours = new Set<number>()
     for (let i = 0; i < n; i++) {
       const o = i * STRIDE
@@ -97,16 +115,19 @@ export class TrainSystem extends SceneSystem {
         group.userData.levelZs = [storeyBand(Math.round(z - 1))]
         group.userData.doorT = [0, 0]
         this.trainGroup.add(group)
-        entry = { group, sig, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(x, y, z), active: true }
+        entry = { group, sig, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(x, y, z), active: true, missed: 0 }
         this.trainSlots.set(sig, entry)
       } else {
         // Continue from where this consist was last drawn. A consist that has
-        // only just reappeared (the previous service departed long ago) snaps to
-        // its approach start rather than streaking back across the platform.
+        // reappeared after a **short** gap (a stop it was parked through, a frame or
+        // two of the sim splicing it out) snaps to its approach start rather than
+        // streaking back across the platform; one absent for longer than
+        // `TRAIN_MISSES_ALLOWED` was evicted above, so this branch never sees it.
         if (entry.active) entry.from.copy(entry.to)
         else entry.from.set(x, y, z)
         entry.to.set(x, y, z)
         entry.active = true
+        entry.missed = 0
       }
       // `visible` here is the sim's own state — a consist between services is
       // parked — and `parked` carries it across an `applyLevel`, which owns the
@@ -117,10 +138,20 @@ export class TrainSystem extends SceneSystem {
       entry.group.userData.doorSides = doorSides
       this.level.applyGroupLevel(entry.group, 'train')
     }
-    for (const entry of this.trainSlots.values()) {
-      if (entry.active) continue
-      entry.group.userData.parked = true
-      entry.group.visible = false
+    for (const [sig, entry] of [...this.trainSlots]) {
+      // Park it first: the sim's own state (a consist between services) is what the
+      // storey slice reads, and a stale entry is parked exactly like a waiting one.
+      if (!entry.active) {
+        entry.group.userData.parked = true
+        entry.group.visible = false
+      }
+      // Long gone: drop the consist, its geometry and its livery. A later service
+      // with the same configuration builds a fresh group (a cache miss, once per
+      // arrival) rather than the whole session paying for every configuration the
+      // player ever built and then changed.
+      if (entry.missed <= TRAIN_MISSES_ALLOWED) continue
+      this.dropConsist(entry.group)
+      this.trainSlots.delete(sig)
     }
     // The screen doors at a platform open with the train berthed at its line.
     for (const psd of this.psdGroups) psd.group.userData.doorTarget = openColours.has(psd.colour) ? 1 : 0
@@ -174,8 +205,27 @@ export class TrainSystem extends SceneSystem {
     setDoors(root, t)
   }
 
+  /**
+   * Take one consist off the scene for good: its geometry, its per-consist livery
+   * (`TrainModel` tags what it minted in `userData.ownedMats`) and any instance
+   * buffers it holds. The materials of the shared kit are kept — they are drawn by
+   * the next consist too.
+   */
+  private dropConsist(group: THREE.Group): void {
+    this.trainGroup.remove(group)
+    disposeObject(group)
+    const owned = group.userData.ownedMats as THREE.Material[] | undefined
+    if (!owned) return
+    for (const m of owned) {
+      const map = (m as THREE.MeshStandardMaterial).map
+      if (map) map.dispose()
+      m.dispose()
+    }
+    group.userData.ownedMats = []
+  }
+
   override dispose(): void {
-    for (const entry of this.trainSlots.values()) disposeObject(entry.group)
+    for (const entry of this.trainSlots.values()) this.dropConsist(entry.group)
     this.trainSlots.clear()
   }
 }

@@ -54,6 +54,23 @@ export interface SignSlice {
    * it.
    */
   signPreview: { moduleId: string; boards: SignBoards } | null
+  /**
+   * The redraw counter for a **live** board edit, kept apart from the document's
+   * own `version`.
+   *
+   * `version` means "the station changed": it drives the whole rebuild and the undo
+   * stack's `cloneState`, and it is what every other reader of the document keys
+   * off. A preview is *not* a document change — nothing is written to the module
+   * until ✓ — so it must not look like one, or arranging a board would push frames
+   * onto the undo stack that nobody asked for.
+   *
+   * The scene still has to draw the sign being arranged, and a board can change the
+   * panel's size, so that redraw is the same full `setStation` a document edit takes
+   * (`Viewport`'s rebuild effect watches this counter alongside `version`). What the
+   * separate counter buys is that a preview stays invisible to every *other* reader
+   * of `version`.
+   */
+  signVersion: number
 
   /**
    * Rewrite one 指示牌's printed **boards** (§5.8). Both faces are replaced, so
@@ -96,6 +113,7 @@ export const createSignSlice: StateCreator<AppState, [], [], SignSlice> = (set, 
   signEditorFor: null,
   signComposing: false,
   signPreview: null,
+  signVersion: 0,
 
   setSignBoards: (moduleId, boards) => {
     const st = get()
@@ -152,8 +170,15 @@ export const createSignSlice: StateCreator<AppState, [], [], SignSlice> = (set, 
     // The live boards: current for the next sign, and drawn on the sign being edited
     // (the module itself is not written until ✓, so ✕ has something to put back and
     // the undo stack does not collect a frame per dragged bin).
-    const patch: Partial<AppState> = { currentBoards: next, version: st.version + 1 }
-    if (st.signEditorFor !== null) patch.signPreview = { moduleId: st.signEditorFor, boards: next }
+    const patch: Partial<AppState> = { currentBoards: next }
+    if (st.signEditorFor !== null) {
+      patch.signPreview = { moduleId: st.signEditorFor, boards: next }
+      // **Only a placed sign asks for a redraw.** Boards being composed for the
+      // *next* sign are not on screen anywhere, so raising a scene counter for them
+      // would rebuild the station for nothing — which is what hanging this on
+      // `version` did, one keystroke at a time.
+      patch.signVersion = st.signVersion + 1
+    }
     set(patch)
   },
   commitSignLayout: (boards) => {
@@ -173,7 +198,7 @@ export const createSignSlice: StateCreator<AppState, [], [], SignSlice> = (set, 
     // ✕ puts the current boards back to what the editor opened on, and drops the
     // preview that stood in for them. Nothing is undone, because nothing was done: a
     // placed sign was never written to.
-    set({ currentBoards: next, signPreview: null, version: st.version + 1 })
+    set({ currentBoards: next, signPreview: null, signVersion: st.signVersion + 1 })
   },
 })
 

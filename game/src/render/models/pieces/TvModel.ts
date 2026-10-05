@@ -1,7 +1,7 @@
 // Passenger-information screen (电视) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, slab, plate, plateOf, placeLocal } from '../PieceBuilder.ts'
+import { PieceBuilder, ownedMaterial, slab, plate, plateOf, placeLocal } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { posterFor } from '../../../sim/billboards.ts'
 import type { TvPairSlot } from '../../../sim/tvs.ts'
@@ -153,7 +153,7 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   plateTex.wrapS = THREE.ClampToEdgeWrapping
   plateTex.repeat.set(TV_POSTER_RECT.x, 1)
   plateTex.offset.set(0, 0)
-  const plateMesh = plate(g, new THREE.MeshBasicMaterial({ map: plateTex }), boardW, boardH, boardX, surface - LIT_STAND_OFF, zc, 0)
+  const plateMesh = plate(g, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: plateTex })), boardW, boardH, boardX, surface - LIT_STAND_OFF, zc, 0)
   plateMesh.renderOrder = 1
   plateMesh.userData.adStationPlate = mod.id
 
