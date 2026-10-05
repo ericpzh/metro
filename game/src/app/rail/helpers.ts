@@ -10,8 +10,41 @@ import { isBenchType, isBillboardType, isExitType, isStairType } from '../store.
 import type { AppState } from '../store.ts'
 import type { Module } from '../../sim/types.ts'
 
-/** One rail folder per key: 工具 / 设备 / 轨道 / 房间 / 装饰 / 材质 / 分区 / 视图. */
+/** One rail folder per key; `RAIL_FOLDERS` is the order they are stacked in. */
 export type FolderKey = 'tools' | 'equipment' | 'rail' | 'rooms' | 'decor' | 'surfaces' | 'zones' | 'view'
+
+/**
+ * The rail's folders, top to bottom, each with the Shift+letter that opens and
+ * closes it — **Shift+Q** the first folder, then W, E, R, T, Y, U, I one letter a
+ * row down the stack. The ladder is data because two units read it: the shell
+ * renders the folders in this order and prints each key on its header, and the
+ * app's one keydown listener turns a Shift+letter into the folder to fold
+ * (`app/windows/AppShell.tsx` → the `metro:folder` event the rail listens for).
+ * It lives here rather than in either of them so the order, the key on the header
+ * and the key that fires can never drift apart.
+ *
+ * A folder added at the bottom takes the next letter (**O**); one inserted in the
+ * middle moves every key below it, so keep the ladder in step with the render.
+ */
+export const RAIL_FOLDERS: ReadonlyArray<{ key: FolderKey; title: string; shift: string }> = [
+  { key: 'tools', title: '工具', shift: 'Q' },
+  { key: 'rail', title: '轨道', shift: 'W' },
+  { key: 'equipment', title: '设备', shift: 'E' },
+  { key: 'decor', title: '装饰', shift: 'R' },
+  { key: 'rooms', title: '房间', shift: 'T' },
+  { key: 'zones', title: '分区', shift: 'Y' },
+  { key: 'surfaces', title: '材质', shift: 'U' },
+  { key: 'view', title: '视图', shift: 'I' },
+]
+
+/**
+ * The folder a Shift+letter folds, or null when no folder stands on that letter.
+ * Case-blind, because the caller hands over `KeyboardEvent.key.toLowerCase()`.
+ */
+export function folderForShiftKey(letter: string): FolderKey | null {
+  const hit = RAIL_FOLDERS.find((f) => f.shift.toLowerCase() === letter.toLowerCase())
+  return hit ? hit.key : null
+}
 
 /** The nested variant sub-menus, at most one of which may be expanded. */
 export type SubMenuKey = 'stair' | 'exit' | 'bench' | 'billboard' | 'enamel'
