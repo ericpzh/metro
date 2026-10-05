@@ -9,15 +9,11 @@
 // their controllers (GAME-SPEC §9.5 gestures).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-// The one value this file needs from three is the `Plane` a 剖切 slide is
-// measured in (`sectionDragRef`); everything else goes through the renderer.
-import { Plane, Vector3 } from 'three'
 import { SceneRenderer, type PickResult } from '../render/scene.ts'
 import { cellKey, removeFloor, thinWallSideMap, toData, zoneMapFloors, zoneRegionLabels } from '../build/model.ts'
 import type { WallSide } from '../sim/types.ts'
 import { zoneIndex } from '../sim/zones.ts'
-import { sectionNormal, slideOffset, snapOffset } from '../render/section.ts'
-import type { SectionOrientation, Vec3 } from '../render/section.ts'
+import { dragOffset, snapOffset, walkAlong } from '../render/section.ts'
 import { placementPreviewKey, setFrameHandler, signModuleWithPreview, useStore, type Tool } from './store.ts'
 import { ViewCube } from './ViewCube.tsx'
 import { BlockTool } from './tools/BlockTool.ts'
@@ -99,13 +95,13 @@ export function Viewport(): React.ReactElement {
    */
   const facilityDragRef = useRef<FacilityDragState | null>(null)
   /**
-   * The 剖切 slide in progress: the surface's own point the grab started on, the
-   * offset it started from and the pointer's own plane. The section's plane is
-   * **fixed for the drag** (`dragPlane`), so the pointer's ray always meets a
-   * stable surface however far the cut has travelled — measuring against the
-   * moving plane is what makes a slide accelerate away from the pointer.
+   * The 剖切 slide in progress: where on screen the grab started, the offset it
+   * started from, and the cut's own axis projected onto the screen — the line the
+   * pointer is measured along. The axis is taken **once**, at the press
+   * (`SceneRenderer.sectionDragSpan`), so a slide can never re-aim itself
+   * mid-drag: the cut only ever moves the way (R) has set.
    */
-  const sectionDragRef = useRef<{ from: Vec3; startOffset: number; orientation: SectionOrientation; plane: Plane } | null>(
+  const sectionDragRef = useRef<{ startX: number; startY: number; startOffset: number; axis: [number, number]; span: number } | null>(
     null,
   )
   /** True while the pointer is on the section surface, for the hover read. */
@@ -406,10 +402,16 @@ export function Viewport(): React.ReactElement {
     // WASD pan (Shift = faster). Q/E layer stepping stays in the app. A text
     // field keeps its letters — a focused **button** does not, or clicking a rail
     // tile would stop WASD panning the camera afterwards.
+    //
+    // **Shift+W pans nothing**: it is the 轨道 folder's own key on the rail's
+    // Shift+letter ladder (`rail/helpers.ts` `RAIL_FOLDERS`), and a folder that
+    // also shoved the camera forward would be a key with two meanings. The fast
+    // pan keeps Shift+A/S/D, and a plain W is still forward.
     const panKeys = new Set(['w', 'a', 's', 'd', 'shift'])
     const onKeyDown = (e: KeyboardEvent): void => {
       if (isTypingTarget(e.target)) return
       const k = e.key.toLowerCase()
+      if (e.shiftKey && k === 'w') return
       if (panKeys.has(k)) scene.keys.add(k)
     }
     const onKeyUp = (e: KeyboardEvent): void => {
@@ -520,15 +522,18 @@ export function Viewport(): React.ReactElement {
     // the drag cancellation below: a grab is not a second press on a tool drag.
     if (scene.sectionHit(e.clientX, e.clientY)) {
       e.preventDefault()
-      const point = scene.sectionPoint(e.clientX, e.clientY)
-      if (point) {
+      // The line the pointer will be measured along: the cut's own axis on
+      // screen, taken once here. A cut that slides straight at the camera has no
+      // such line, and there is nothing to grab it by.
+      const { axis, span } = scene.sectionDragAxis()
+      if (span > 0) {
         const section = useStore.getState().section
-        const n = sectionNormal(section.orientation)
         sectionDragRef.current = {
-          from: point,
+          startX: e.clientX,
+          startY: e.clientY,
           startOffset: section.offset,
-          orientation: section.orientation,
-          plane: new Plane(new Vector3(n[0], n[1], n[2]), -n[0] * point[0] - n[1] * point[1] - n[2] * point[2]),
+          axis,
+          span,
         }
         ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
       }
@@ -556,15 +561,15 @@ export function Viewport(): React.ReactElement {
   const onPointerMove = (e: React.PointerEvent): void => {
     const scene = sceneRef.current
     if (!scene) return
-    // 剖切: a slide in progress owns the move. The pointer is projected onto the
-    // plane the grab started in — **not** onto the moving cut — so the surface
-    // follows the mouse exactly, and it is snapped to the half metre (Shift:
-    // 5 cm) so the cut lands on a round number of blocks.
+    // 剖切: a slide in progress owns the move. The pointer's travel is measured
+    // **along the cut's own axis on screen** — the axis was fixed at the press —
+    // and converted to metres, so the cut walks the way (R) points it and a
+    // sideways drag moves it not at all. The step is snapped to the half metre
+    // (Shift: 5 cm) so the cut lands on a round number of blocks.
     const drag = sectionDragRef.current
     if (drag) {
-      const p = scene.sectionPoint(e.clientX, e.clientY)
-      if (!p) return
-      useStore.getState().setSectionOffset(snapOffset(slideOffset(drag.startOffset, drag.from, p, drag.orientation), e.shiftKey))
+      const walked = walkAlong([drag.startX, drag.startY], [e.clientX, e.clientY], drag.axis)
+      useStore.getState().setSectionOffset(snapOffset(dragOffset(drag.startOffset, walked, drag.span), e.shiftKey))
       return
     }
     // Hover: the surface lights up and the cursor becomes a grab hand where a

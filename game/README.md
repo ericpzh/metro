@@ -418,14 +418,19 @@ individually right-clickable; bulldozing the room takes its auto (`cfg.auto`) fu
 hand-placed pieces, and rooms drawn before this carry a `cfg.stocked` migration
 (`ensureRoomFurniture`, via `toState`) instead of drawn units.
 
-**A room's walls are one panel thick, and its corners are mitred.** The wall voxels a room
+**A room's walls are one panel thick, and its corners are square.** The wall voxels a room
 raises are hidden from the chunk mesher (`SceneRenderer.setStation`'s `hiddenCells`, leaving an
 invisible pick box so the wall tools still address them) and `render/models.ts` draws each wall as a
 0.5 m panel instead, which is what frees the inner half of every wall cell for furniture. Where the
-west/east run meets the south/north run the two panels used to want the same cell — two 0.5 m walls
-in one square metre, a lump of extra thickness at every corner — so each run now stops one thickness
-short and the corner square is filled by a `mitreCap`, a triangular prism cut on its diagonal: both
-legs keep their own outer face, they meet on a 45° seam, and the corner is exactly one wall thick. A
+west/east run meets the south/north run the two panels must not both want the same cell — two 0.5 m
+walls in one square metre would be a lump of extra thickness at every corner — so the west/east run
+takes the corner cell **whole**, its 1 m depth reaching the room's other outer face and closing that
+run's end, and the south/north run stops one thickness short and butts against its inner face. The
+room's own corner and the one its two inner faces make are then plain right angles, one panel thick on
+every side. (A `mitreCap` triangular prism used to fill the corner cell on its diagonal, but its apex
+was the cell's *inner* corner rather than the wall's — one thickness past the free half a room keeps
+for furniture — so every corner also wore a 0.5 m diagonal wedge laid across that half. Nothing is
+left for it to fill, so it is gone; `room-model.test.mjs` pins the corner as a right angle.) A
 room wears **no name plate**: the 招牌 that used to hang over a doorway only ever repeated 商店 /
 厕所 / 办公室 (or 售票 over a booth) above the shelves and cubicles that already say so. The 房间
 folder's tiles wear a line icon of what the room is *for* — 商店, 售票亭, 办公室 and the 指示牌's own
@@ -474,9 +479,24 @@ they are, and the pointer goes on building and picking. **隐藏墙壁** stays l
 look-through of the station's own walls rather than a way of drawing a storey.
 
 The tile order is the folder's own reading order: 显示其他层 · 剖切 · 隐藏天花板 · 隐藏墙壁 · 热力图 ·
-分区图 · 隐藏UI — the slice tools first (剖切 opening its own 剖切面 panel directly under its tile), the
+分区图 · 隐藏UI — the slice tools first (剖切 folding out its own **旋转** tile directly under itself), the
 pair that takes station furniture away, the two overlays that paint the station, and last the one tile
-that draws the station whole.
+that draws the station whole. **Seven tiles, and the header says 7**: the count beside a folder name is
+the tiles that folder can show in the state the rail is in, so it follows a mode that adds one (工具
+grows by 自动生成墙壁 and 半墙 under the 地基 tool, 视图 by 旋转 while 剖切 is on) rather than a number
+written down once and left behind.
+
+**The rail's folders answer to Shift+Q, Shift+W, Shift+E … one letter a folder.** The first folder —
+工具 — is **Shift+Q**, and W E R T Y U I follow the folders below it (轨道, 设备, 装饰, 房间, 分区, 材质,
+视图), each header badging its own key on hover the way a tile does. The ladder is one list, `RAIL_FOLDERS`
+(`app/rail/helpers.ts`): the shell stacks the folders in that order and badges each key on its header
+(`.folderKey`, the tile's own `.bpKey` — hidden until the header is hovered or focused, so a rail of
+closed folders stays quiet), and the app's single keydown listener (`app/windows/AppShell.tsx`) turns a
+Shift+letter into the folder it names and hands it over as `metro:folder`, because the rail owns which
+folders are open and the app owns the keyboard — the same split `metro:preset` / `metro:frame` use for
+the camera. Shift+W therefore pans nothing: **W** with Shift was the fast forward pan, and a key may not
+both shove the camera and fold a folder, so the fast pan keeps Shift+A/S/D while a plain W is still
+forward.
 
 Each half is one line in the system that owns the drawing: the lattice is `GridSystem.setHideUI`, and
 the slice is `sliceOptions({ghost, autoCeiling, hideUI})` (`LevelSystem.applyLevel` skips the ghost
@@ -503,27 +523,33 @@ camera angle and in every view. `.main` now carries `height: 100%` with the reas
 middle of the model's bounds facing +y, built inside the chunk rebuild. It is a surface the player
 places, turns and drags (`render/section.ts` for the arithmetic, `render/scene/systems/SectionSystem.ts`
 for the GPU half): an **anchor** — the middle of the station's plan on the storey being edited, set once
-per station so an edit never throws the cut away — an **azimuth** (0° looks north, 90° east), an
-**elevation** (0° is a wall, +90° looks straight down from above) and an **offset** the number is
-measured *the way the surface faces*, so a north-looking cut walks north and one looking down walks
-down. The plane keeps the half **behind** it (`planeConstant` is the distance from the world origin to
-the cut along the normal — the sign is the whole of it, and built the other way round the plane keeps
-the half it faces and cuts the room away in front of the player). Three ways in, one record:
-the 视图 folder's inline 剖切面 panel (a **位置** slider and a **typed box** — the input the spec asks
-for, so a cut that belongs at `−3.5` is typed rather than nudged, and the draft is local so a keystroke
-is never rewritten mid-word — plus **方位角** and **倾角** sliders and a 复位), **R** to turn the cut
-15° (5° with Shift), and a **drag on the highlighted surface itself**: the
-pointer is projected onto the normal, snapped to 0.5 m (5 cm with Shift), and measured against the
-plane the grab *started* in rather than the moving cut, so the surface follows the mouse instead of
-accelerating away from it. The surface on screen is a translucent sheet with a border and a 2 m grid,
-grown with the station so it always reaches past the building it cuts, floating a 2 cm toward the kept
-half so the clip cannot slice its own marker — and where a translucent sheet over the station lies, the
-pointer **snaps onto it**: the sheet lights up, the crosshair becomes a grab hand, and a press there is
-the cut's rather than the tool's, whatever the build rail is left on. The plane is written **in place**
-(one `THREE.Plane` for the scene's lifetime, shared by every clipped material), so a slide costs two
-numbers and no rebuild; the materials are only re-listed when the cut is switched on or off. Equipment
-is clipped with the blockwork (a 闸机 or a screen door standing in the cut-away half goes with the
-slab), and 隐藏UI hides the section's highlighter because it is diagram furniture, not station.
+per station so an edit never throws the cut away — an **azimuth** that is always one of the four
+**quarter turns** (0° looks north, 90° east, 180° south, 270° west) and an **offset** measured *the way
+the surface faces*, so a north-looking cut walks north. The plane keeps the half **behind** it
+(`planeConstant` is the distance from the world origin to the cut along the normal — the sign is the
+whole of it, and built the other way round the plane keeps the half it faces and cuts the room away in
+front of the player).
+
+The rail says one thing about the cut and the mouse says the rest. Under the 剖切 tile, while the cut
+is on, folds out **旋转 X°** (**R**): the next quarter turn, lit as the angle a press will turn the cut
+*to* rather than the one it is at, wrapping at 270 back to 0 (`nextAzimuth`). There is nothing else —
+no position box, no sliders, no readout, no 复位 / 翻转 — because the surface itself is the control.
+
+**The drag is one promise: the cut moves the way (R) points it, and nowhere else.** A press that lands
+on the highlighted sheet belongs to the cut whatever tool the rail is on (the sheet lights up and the
+crosshair becomes a grab hand where that press would land). At the press the cut's own axis is projected
+onto the screen — one line, fixed for the whole drag (`SceneRenderer.sectionDragAxis`) — and each move
+measures the pointer's travel **along that line**, converted from pixels to metres, and snapped to 0.5 m
+(5 cm with Shift). A step across the line counts for nothing, so an oblique camera cannot turn a
+sideways drag into a slide; and because the measure is the pointer's own travel since the press rather
+than a ray meeting some plane, a slide can never accelerate away from the hand or re-aim itself
+mid-drag. A cut that slides straight at the camera has no line to drag along, and the grab is refused
+rather than left to divide by nothing. The surface on screen is a translucent sheet with a border and a
+2 m grid, grown with the station so it always reaches past the building it cuts, floating a 2 cm toward
+the kept half so the clip cannot slice its own marker. The plane is written **in place** (one
+`THREE.Plane` for the scene's lifetime, shared by every clipped material), so a slide costs two numbers
+and no rebuild; the materials are only re-listed when the cut is switched on or off. Equipment is
+clipped with the blockwork (a 闸机 or a screen door standing in the cut-away half goes with the slab).
 
 **Rails are equipment: a fixed piece centred on the cursor.** A rail is a `track` module — a car-width
 bed (`d = 3` m) and a run the length of the bound line's consist (`w = ceil(stock length × cars)`) —
@@ -711,6 +737,15 @@ starts at its walking line, so the 地基 tool lays a block under it and the car
 column the run's own walking line passes through is cut and a run's landing columns are left whole.
 Nothing is added to the document: the cut is derived from the modules, the way the half panel beside a
 wide run is (`thinWallCells`).
+
+**A wedge's top is the only drawn surface that is not a cell face**, and the pointer reads the drawn
+mesh: `THREE.Intersection.face.normal` is the triangle's own geometric normal, so `cell + normal` asked
+for a *fractional* block — laying 地基 beside the block under an escalator committed a block at
+(4.44, −0.15, 1.89), which no tool can address again (the grid repair drops it on the next load). The
+pick snaps the face to the axis it most points along (`render/pickCell.ts`, `pickCells` / `faceAxis`) and
+takes the placement cell one whole step out, which also covers a rounded block corner — the other
+off-axis face, and the reason the bug was never only about slopes. The 材质 brush reads the same snap
+through `dominantFace`, so the face a stroke paints and the cell a block lands in cannot disagree.
 
 **Ramps carve their way in.** `sim/openings.ts` (`carveRampOpenings`) removes the solid cells an
 escalator, stair or lift climbs through, so a placed ramp surfaces from an opening rather than
@@ -1027,6 +1062,15 @@ approximated); neither needs WebGL.
   the code that *makes* stations: a save cannot be written with an off-grid block either
   (`save.test.mjs`), so a tool that learned to mint a fraction is the only way one could ever
   reach a player.
+* `pick-cell.test.mjs` — the pick above every command in `grid.test.mjs` names whole cells,
+  whatever angle the surface it hit is drawn at. `CameraSystem.pick` reads the drawn mesh and
+  `THREE.Intersection.face.normal` is the *triangle's* geometric normal, so the two faces this game
+  deliberately draws off-axis — the wedge a 楼梯 / 扶梯 leaves the block under it (its top is the
+  run's sloping underside) and every rounded block edge — used to hand a tool a fraction: a 地基
+  block laid beside the block under an escalator landed at (4.44, −0.15, 1.89). The test rays the
+  **real chunk geometry** rather than typed-in normals — a case that only passes on made-up numbers is
+  what let this through — and pins that the axis snap is the one the 材质 brush paints by
+  (`faceAxis` ← `dominantFace`), so the face a stroke lands on and the cell a block lands in agree.
 * `load.test.mjs` — loading a station is a full sim reset: `World.load` clears the crowd,
   trains, server queues, clock and throughput counters and reseeds the RNG, while the edit path
   `rebuild` keeps the crowd in place; `World.restart` empties the crowd and trains but keeps the
@@ -1214,6 +1258,13 @@ approximated); neither needs WebGL.
   written against measured each side from a different line: the east counter and screen hung 0.55 m
   out in the next cell, the north run stood a whole cell inside the room, the capping boards stood a
   lip proud of every face, and every screen stopped a counter-depth short of its corner.
+* `room-model.test.mjs` — the walled room's own model (`render/models.ts` `buildRoom`), the perimeter
+  ring of 0.5 m panels that stands in for a room's wall voxels. What it pins is the square corner:
+  three quarters of every corner cell are wall and the quarter the room keeps for furniture is empty
+  (the ring is an L, not the diagonal wedge a `mitreCap` used to lay across that quarter, its apex one
+  wall thickness past the room's own inner corner), the panel's centre line is covered at every 5 cm
+  sample the whole way round with no gap at a corner, no panel leaves the room or the height
+  `moduleEnvelope` reserves, and nothing in the ring is anything but a box.
 * `vending.test.mjs` — the 自动贩卖机 (§7.4a): the factory builds it with the hover rotation, its
   1 × 1 m envelope is identical to a TVM's (so the two block each other), and `buildGraph` gives it
   the same unpaid-zone `stop` server and rate as a ticket machine under the 自动贩卖机 label.
@@ -1304,6 +1355,11 @@ approximated); neither needs WebGL.
   which reaches the brush in the same click rather than the previous render's value — never resets
   it; the setting survives a detour through another folder on the left rail; and `I` 取色 borrows
   the brush and hands it back in the mode it was entered with.
+* `rail-folders.test.mjs` — the rail's Shift+letter ladder (`app/rail/helpers.ts` `RAIL_FOLDERS`): the
+  keys are Q W E R T Y U I in the order the folders are stacked, 工具 first (so Shift+Q folds the
+  folder the rail already opens on), one key a folder and one folder a key, the lookup is case-blind
+  because the listener hands over `KeyboardEvent.key.toLowerCase()`, and a letter no folder stands on
+  falls through to the app's own switch instead of folding something.
 * `halfwall.test.mjs` — the **半墙** (§4.1/§4.3), the 地基 tool's half-block mode (`Tab`,
   `build/model.ts` `addWalls`'s `side`): the column is an ordinary tagged wall — a `half-wall:w` course
   that lifts, slices and carves like any other while the mesher draws it `HALF_WALL_T` thick in the half
@@ -1329,14 +1385,19 @@ approximated); neither needs WebGL.
   pick under the pointer cannot put the cursor ring back on a hidden grid; the lattice is still
   rebuilt at the active storey while hidden, so showing it again never flashes an empty grid.
 * `section.test.mjs` — the 剖切 surface's arithmetic (`render/section.ts`): a fresh cut looks exactly
-  +y, which is the plane the old fixed toggle drew; azimuth turns the look and elevation tilts it out
-  of the horizontal plane (with the normal still a unit vector at every angle); the surface's own
-  frame is orthonormal and stays defined looking straight down; the offset slides the cut the way the
-  surface faces and nowhere else; `planeConstant` is the distance from the world origin to the cut, so
-  the plane keeps the half **behind** it and the surface itself is never clipped off; the snap lands on
-  a half metre (5 cm fine); a drag follows the pointer along the normal only, and a downward-facing cut
-  follows a downward drag; the readout names the axis the cut leans on; and the highlight grows with the
+  +y, which is the plane the old fixed toggle drew; the look is one of four quarter turns and never
+  tilts out of the vertical, each with an orthonormal surface frame; `nextAzimuth` steps one quarter and
+  wraps at 270, snapping an off-grid angle back on; the offset slides the cut the way the surface faces
+  and nowhere else; `planeConstant` is the distance from the world origin to the cut, so the plane keeps
+  the half **behind** it and the surface itself is never clipped off; the snap lands on a half metre
+  (5 cm fine); a drag projects onto the look at every quarter turn; and the highlight grows with the
   station it cuts.
+* `section-drag.test.mjs` — the 剖切 drag end to end, with the rig the game uses
+  (`SceneRenderer.sectionDragAxis` and `render/section.ts` `dragOffset` / `walkAlong`): the cut's axis
+  projects to a real screen line at all four turns, a push **along** that line slides the cut the metres
+  it walked while a push of the same length **across** it moves nothing (the case an oblique camera used
+  to get wrong), and a cut sliding straight at the camera has no line at all — the grab is refused
+  instead of dividing by nothing.
 * `sign-editor.test.mjs` — the 指示牌 board editor session (`app/SignEditor.tsx`): a sign is a
   pair of boards with a one-sided default, the preview never commits, confirming makes the pair
   current and the next sign hung carries a copy, covering the full compose→place→print flow.

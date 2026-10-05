@@ -30,7 +30,8 @@ import { CameraSystem } from './systems/CameraSystem.ts'
 import { PlateSystem } from './systems/PlateSystem.ts'
 import { SectionSystem } from './systems/SectionSystem.ts'
 import type { PickResult } from './systems/SceneSystem.ts'
-import type { Section } from '../section.ts'
+import { DEFAULT_SECTION_AZIMUTH, sectionNormal } from '../section.ts'
+import type { Section, Vec3 } from '../section.ts'
 
 export type { PickResult, SceneStats }
 
@@ -196,16 +197,16 @@ export class SceneRenderer {
 
   /**
    * The 剖切 surface a station defaults to: the middle of its plan, on the
-   * storey being edited, facing +y — the fixed cut of the old toggle, now the
-   * starting point the location box and the drag move away from. Called once
-   * per station, so an edit never throws away the cut the player placed.
+   * storey being edited, looking +y — the fixed cut of the old toggle, now the
+   * starting point the drag slides away from. Called once per station, so an edit
+   * never throws away the cut the player placed.
    */
   defaultSection(): Section {
     const b = this.ctx.bounds
     const anchor: [number, number, number] = Number.isFinite(b.min.x)
       ? [(b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, this.ctx.activeZ]
       : [0, 0, this.ctx.activeZ]
-    return { anchor, orientation: { azimuth: 0, elevation: 0 }, offset: 0 }
+    return { anchor, orientation: { azimuth: DEFAULT_SECTION_AZIMUTH }, offset: 0 }
   }
 
   /**
@@ -281,6 +282,43 @@ export class SceneRenderer {
   /** Where the pointer's ray meets the section plane, for a slide. */
   sectionPoint(clientX: number, clientY: number): [number, number, number] | null {
     return this.sectionSys.rayPoint(clientX, clientY, this.renderer.domElement, this.cameraSys.activeCamera())
+  }
+
+  /**
+   * The cut's axis as the drag needs it: the direction it slides, in **canvas
+   * pixels per metre**, so the pointer's travel on screen can be read as metres
+   * of cut.
+   *
+   * This is what makes the mouse do exactly one thing. The pointer is measured
+   * along this screen line, and a step across it counts for nothing, so the cut
+   * only ever moves the way `R`'s turn points it — no reading a sideways drag as
+   * a slide just because the camera happens to be oblique. The span is a length,
+   * so a drag feels the same in a plan as in a corner isometric.
+   *
+   * A zero-length axis means the cut slides straight at the camera: there is no
+   * screen direction that moves it, so the drag stands still rather than running
+   * away (`app/Viewport.tsx` gives up on the grab).
+   */
+  sectionDragAxis(): { axis: [number, number]; span: number } {
+    const n = sectionNormal(this.ctx.section.orientation)
+    const c = this.ctx.bounds.getCenter(new THREE.Vector3())
+    const origin: Vec3 = [c.x, c.y, c.z]
+    const a = this.sectionScreenPoint(origin)
+    const b = this.sectionScreenPoint([origin[0] + n[0], origin[1] + n[1], origin[2] + n[2]])
+    if (!a || !b) return { axis: [0, 0], span: 0 }
+    const dx = b[0] - a[0]
+    const dy = b[1] - a[1]
+    const span = Math.hypot(dx, dy)
+    if (span < 1e-6) return { axis: [0, 0], span: 0 }
+    return { axis: [dx / span, dy / span], span }
+  }
+
+  /** A station-space point in canvas-relative CSS pixels, or null behind the camera. */
+  private sectionScreenPoint(point: Vec3): [number, number] | null {
+    const v = new THREE.Vector3(point[0], point[1], point[2]).project(this.cameraSys.activeCamera())
+    if (!Number.isFinite(v.x) || !Number.isFinite(v.y)) return null
+    const size = this.renderer.getSize(new THREE.Vector2())
+    return [((v.x + 1) / 2) * size.x, ((1 - v.y) / 2) * size.y]
   }
 
   setSectionHover(on: boolean): void {

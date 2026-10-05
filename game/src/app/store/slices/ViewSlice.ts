@@ -5,7 +5,7 @@
 import type { StateCreator } from 'zustand'
 import { nearestLevel } from '../../../build/model.ts'
 import { LEVEL_STEPS } from '../../../sim/constants.ts'
-import { DEFAULT_SECTION_AZIMUTH, DEFAULT_SECTION_ELEVATION } from '../../../render/section.ts'
+import { DEFAULT_SECTION_AZIMUTH, nextAzimuth } from '../../../render/section.ts'
 import type { Section, Vec3 } from '../../../render/section.ts'
 import type { AppState } from '../Store.ts'
 
@@ -37,10 +37,10 @@ export interface ViewSlice {
   ortho: boolean
   overlayOn: boolean
   /**
-   * The 剖切 surface: where it was anchored, how it is turned and how far it has
-   * slid (`render/section.ts`). The rail's location box, its rotation controls
-   * and the 3D drag all write this one record, so the plane, the highlighted
-   * surface and the pointer can never disagree about where the cut is.
+   * The 剖切 surface: where it was anchored, which quarter turn it looks in and
+   * how far it has slid (`render/section.ts`). The 旋转 tile and the 3D drag are
+   * two writes into this one record, so the plane, the highlighted surface and
+   * the pointer can never disagree about where the cut is.
    */
   section: Section
 
@@ -55,12 +55,10 @@ export interface ViewSlice {
   setOrtho: (on: boolean) => void
   /** Re-place the cut at `anchor` on the storey being edited (a fresh 剖切). */
   placeSection: (anchor: Vec3) => void
-  /** Slide the cut along its normal, in metres. */
+  /** Slide the cut along its normal, in metres — what a drag writes. */
   setSectionOffset: (offset: number) => void
-  /** Turn the cut: `azimuth` degrees, or `elevation` when `tilt` is set. */
-  rotateSection: (delta: number, tilt?: boolean) => void
-  /** A whole new orientation, from the rail's own controls. */
-  setSectionOrientation: (azimuth: number, elevation: number) => void
+  /** 旋转: one quarter turn (90°), wrapping at 270°. */
+  rotateSection: () => void
 }
 
 export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, get) => ({
@@ -72,7 +70,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   hideUI: false,
   ortho: false,
   overlayOn: false,
-  section: { anchor: [0, 0, -8], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH, elevation: DEFAULT_SECTION_ELEVATION }, offset: 0 },
+  section: { anchor: [0, 0, -8], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH }, offset: 0 },
 
   setActiveZ: (z) => set({ activeZ: nearestLevel(z) }),
   stepLevel: (dir) => {
@@ -93,22 +91,5 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
       section: { ...s.section, anchor: [anchor[0], anchor[1], anchor[2]], offset: 0 },
     })),
   setSectionOffset: (offset) => set((s) => ({ section: { ...s.section, offset } })),
-  rotateSection: (delta, tilt = false) =>
-    set((s) => {
-      const o = s.section.orientation
-      const next = tilt
-        ? { ...o, elevation: Math.max(-90, Math.min(90, o.elevation + delta)) }
-        : { ...o, azimuth: ((o.azimuth + delta + 540) % 360) - 180 }
-      return { section: { ...s.section, orientation: next } }
-    }),
-  setSectionOrientation: (azimuth, elevation) =>
-    set((s) => ({
-      section: {
-        ...s.section,
-        orientation: {
-          azimuth: ((azimuth + 540) % 360) - 180,
-          elevation: Math.max(-90, Math.min(90, elevation)),
-        },
-      },
-    })),
+  rotateSection: () => set((s) => ({ section: { ...s.section, orientation: { azimuth: nextAzimuth(s.section.orientation.azimuth) } } })),
 })

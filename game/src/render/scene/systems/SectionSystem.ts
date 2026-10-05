@@ -213,11 +213,26 @@ export class SectionSystem extends SceneSystem {
    * floats above it.
    */
   rayPoint(clientX: number, clientY: number, canvas: HTMLCanvasElement, camera: THREE.Camera): [number, number, number] | null {
+    return this.rayPointOn(clientX, clientY, canvas, camera, this.plane)
+  }
+
+  /**
+   * The same ray against **any** plane — what a drag uses: the plane the grab
+   * started in, held still for the whole slide (`SceneRenderer.sectionDragPlane`),
+   * so the pointer keeps meeting a stable surface however far the cut travels.
+   */
+  rayPointOn(
+    clientX: number,
+    clientY: number,
+    canvas: HTMLCanvasElement,
+    camera: THREE.Camera,
+    plane: THREE.Plane,
+  ): [number, number, number] | null {
     const rect = canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, camera)
     const p = new THREE.Vector3()
-    if (!this.raycaster.ray.intersectPlane(this.plane, p)) return null
+    if (!this.raycaster.ray.intersectPlane(plane, p)) return null
     return [p.x, p.y, p.z]
   }
 

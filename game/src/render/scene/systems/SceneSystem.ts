@@ -20,6 +20,7 @@ import type { ModelMaterials } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import type { SlopeCut } from '../../../sim/openings.ts'
 import { stairLevels } from '../../../sim/stairs.ts'
+import { DEFAULT_SECTION_AZIMUTH } from '../../section.ts'
 import type { Section } from '../../section.ts'
 import type { Face, FinishId, Module, StationData, WallSide } from '../../../sim/types.ts'
 
@@ -28,9 +29,13 @@ export interface PickResult {
   /** The solid cell that was hit, or the void cell under the work plane. */
   cell: [number, number, number]
   solid: boolean
-  /** Face normal (0 for the work plane). */
+  /**
+   * Face normal (0 for the work plane), snapped to the cell axis the face points
+   * along: a wedge's slope and a rounded corner are drawn off-axis, and every
+   * consumer of this wants the *face* (`pickCell.ts` `pickCells`).
+   */
   normal: [number, number, number]
-  /** Where a tool would place a new block. */
+  /** Where a tool would place a new block, one whole cell out along `normal`. */
   place: [number, number, number]
   point: [number, number, number]
 }
@@ -181,7 +186,7 @@ export class SceneContextData implements SceneContext {
   levelKey = ''
   dimMats = new Map<THREE.Material, THREE.Material>()
   clearMats = new Map<THREE.Material, THREE.Material>()
-  section: Section = { anchor: [0, 0, 0], orientation: { azimuth: 0, elevation: 0 }, offset: 0 }
+  section: Section = { anchor: [0, 0, 0], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH }, offset: 0 }
   ownedMats: THREE.Material[] = []
   trainPoses: Array<{ x: number; y: number; colour: number }> = []
   clockText = '--:--'

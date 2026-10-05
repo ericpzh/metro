@@ -2,7 +2,7 @@
 //
 // 剖切 used to be one fixed plane through the middle of the station's bounds,
 // facing +y: a toggle with nothing to set. It is now a *placed* surface — a
-// location along its own normal, an azimuth and an elevation — so the plane,
+// location along its own normal and a quarter-turn orientation — so the plane,
 // the highlighted surface drawn on it, the ray that snaps the pointer onto it
 // and the drag that slides it all have to agree on one definition. That
 // definition lives here, free of three.js, so `game/test/section.test.mjs` can
@@ -12,15 +12,13 @@
 //
 // * `azimuth` is the compass angle of the direction the cut looks in the
 //   horizontal plane, measured from `+y` toward `+x`, in degrees. It is the
-//   **view angle**: 0° looks north, 90° looks east.
-// * `elevation` tilts that look up out of the horizontal plane, in degrees: 0 is
-//   a vertical wall, +90 looks straight down from above, -90 straight up from
-//   below.
+//   **view angle**: 0° looks north, 90° looks east. It is a **quarter turn** —
+//   0, 90, 180 or 270 (`QUARTER_TURNS`) — because the cut is a wall through a
+//   block grid: the 旋转 tile steps it one quarter at a time, and the surface is
+//   never tilted out of the vertical.
 // * `offset` is the signed distance from the section origin (`anchor`) to the
 //   cut. It is measured **back along the look**: `+` slides the surface away
-//   from what it faces — up a window looking north, down through a ceiling
-//   looking down — so the number always means "how far past the anchor", never
-//   "which way in z".
+//   from what it faces, so the number always means "how far past the anchor".
 //
 // The plane keeps everything on the **origin side**: `dot(normal, p - cut) <= 0`.
 // Three.js' `THREE.Plane` is `dot(normal, p) + constant >= 0`, so `constant` is
@@ -30,12 +28,10 @@
 /** A point or direction on the station grid. */
 export type Vec3 = readonly [number, number, number]
 
-/** Which way the cut surface faces (§ above). */
+/** Which way the cut surface faces: north, east, south or west. */
 export interface SectionOrientation {
-  /** Degrees, 0 = looking `+y`, 90 = looking `+x`. */
+  /** Degrees, a quarter turn: 0 = looking `+y`, 90 = looking `+x`, and so on. */
   azimuth: number
-  /** Degrees, 0 = a vertical wall, ±90 = looking down / up. */
-  elevation: number
 }
 
 /** One 剖切 surface: where it started, how it is turned, how far it has slid. */
@@ -51,26 +47,33 @@ export interface Section {
 export const SECTION_SNAP = 0.5
 export const SECTION_SNAP_FINE = 0.05
 
+/** The only four looks the cut takes: one per quarter turn of 旋转 (R). */
+export const QUARTER_TURNS = [0, 90, 180, 270] as const
+
+/** A fresh cut looks north, the way the old fixed plane did. */
 export const DEFAULT_SECTION_AZIMUTH = 0
-export const DEFAULT_SECTION_ELEVATION = 0
 
 const DEG = Math.PI / 180
 
-export function defaultOrientation(): SectionOrientation {
-  return { azimuth: DEFAULT_SECTION_AZIMUTH, elevation: DEFAULT_SECTION_ELEVATION }
+/**
+ * The next look a 旋转 press asks for: one quarter turn clockwise, wrapping at
+ * 270. The angle is snapped into the quarter turns first, so a section saved with
+ * an off-grid azimuth (an older document) lands back on the grid in one press.
+ */
+export function nextAzimuth(azimuth: number): number {
+  const from = QUARTER_TURNS.reduce((best, turn) => (Math.abs(turn - azimuth) < Math.abs(best - azimuth) ? turn : best), QUARTER_TURNS[0])
+  return (from + 90) % 360
 }
 
 /**
  * The surface's outward normal — the way the cut **looks**, and so the axis the
- * slide runs along. Exactly (0, 1, 0) at the defaults, which is what makes a
+ * slide runs along. Exactly (0, 1, 0) at the default, which is what makes a
  * fresh 剖切 slide north–south the way the old fixed plane did: the plane's
  * origin side (the half it keeps) is the −y half, behind the surface.
  */
 export function sectionNormal(o: SectionOrientation): Vec3 {
   const a = o.azimuth * DEG
-  const e = o.elevation * DEG
-  const cos = Math.cos(e)
-  return [Math.sin(a) * cos, Math.cos(a) * cos, -Math.sin(e)]
+  return [Math.sin(a), Math.cos(a), 0]
 }
 
 /**
@@ -88,7 +91,7 @@ export function sectionRight(n: Vec3): Vec3 {
   return [x / len, y / len, 0]
 }
 
-/** The surface's local Y: `normal` × `right`, so the quad's height is the tilt. */
+/** The surface's local Y: `normal` × `right` — vertical for every quarter turn. */
 export function sectionUp(n: Vec3, right: Vec3): Vec3 {
   return [
     n[1] * right[2] - n[2] * right[1],
@@ -100,8 +103,8 @@ export function sectionUp(n: Vec3, right: Vec3): Vec3 {
 /**
  * Where the cut surface stands, in station space: the anchor walked **the way
  * the surface faces** by the offset. A cut looking north walks north as the
- * offset grows, and one looking down walks down — one sign, read as "further
- * than the anchor in the direction the surface looks", rather than one per axis.
+ * offset grows — one sign, read as "further than the anchor in the direction the
+ * surface looks", rather than one per axis.
  */
 export function sectionPoint(s: Section): Vec3 {
   const n = sectionNormal(s.orientation)
@@ -146,34 +149,32 @@ export function slideOffset(current: number, from: Vec3, hit: Vec3, orient: Sect
 }
 
 /**
- * The world coordinate the cut surface reads as: the axis the normal leans on
- * most, and the surface's value on it. A default section reads as its `y`.
+ * What a drag asks for, from the pointer's travel on screen: the step along the
+ * axis the cut slides, converted to metres.
+ *
+ * `axis` is the direction the cut slides as it appears **on screen** (a unit
+ * vector in canvas pixels) and `span` how many pixels one metre of it covers, so
+ * `walked / span` is metres however the camera is aimed. A pointer step across
+ * the axis contributes nothing, which is the rule the mode is for: the cut only
+ * ever moves the way 旋转 points it.
  */
-export function sectionCoord(s: Section): { axis: 'x' | 'y' | 'z'; value: number } {
-  const n = sectionNormal(s.orientation)
-  const p = sectionPoint(s)
-  const ax = Math.abs(n[0])
-  const ay = Math.abs(n[1])
-  const az = Math.abs(n[2])
-  if (az >= ax && az >= ay) return { axis: 'z', value: p[2] }
-  if (ax >= ay) return { axis: 'x', value: p[0] }
-  return { axis: 'y', value: p[1] }
+export function dragOffset(startOffset: number, walked: number, span: number): number {
+  if (!(span > 0)) return startOffset
+  return startOffset + walked / span
 }
 
-/** `+1.5 m · Y 3.0` — the offset, and the world line the surface has reached. */
-export function formatSection(s: Section): string {
-  const off = s.offset === 0 ? '0.0' : `${s.offset > 0 ? '+' : '−'}${Math.abs(s.offset).toFixed(1)}`
-  const c = sectionCoord(s)
-  const v = c.value
-  const world = `${c.axis.toUpperCase()} ${v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}`
-  return `${off} m · ${world}`
+/**
+ * How far the pointer walked along a screen axis, in pixels. Both points are
+ * pointer positions; `axis` is the slice's own axis on screen (`dragOffset`).
+ */
+export function walkAlong(start: readonly [number, number], now: readonly [number, number], axis: readonly [number, number]): number {
+  return (now[0] - start[0]) * axis[0] + (now[1] - start[1]) * axis[1]
 }
 
 /**
  * How big to draw the highlight: the station's own plan, a little proud of it,
  * so the surface always reaches past the building it cuts. `size` is a
- * half-extent in metres (the quad is `2 × size` square), `thickness` the depth
- * of the section fill slab the cut exposes.
+ * half-extent in metres (the quad is `2 × size` square).
  */
 export function sectionHighlightSize(size: Vec3): number {
   return Math.max(6, Math.hypot(size[0], size[1], size[2]) * 0.6)

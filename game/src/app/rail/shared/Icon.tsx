@@ -191,6 +191,16 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M10 3v7l6-3.4M10 10l6 3.4M10 10l-6 3.4M10 10V17" />
         </>,
       )
+    // 旋转: one quarter turn of the cut — a square in plan and the arc its edge
+    // swings through, with the arrow head landing on the next face.
+    case 'rotate':
+      return svg(
+        <>
+          <rect {...s} x="5" y="5" width="10" height="10" rx="1" />
+          <path {...s} d="M3.2 10a6.8 6.8 0 0 1 6.8-6.8" />
+          <path {...s} d="M13.4 2.4l1.4 1.6-1.4 1.6" />
+        </>,
+      )
     case 'heat':
       return svg(
         <>

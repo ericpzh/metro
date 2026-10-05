@@ -7,6 +7,7 @@ import { useStore, isEscalatorType, isGateType, isRotatableType, isStairType } f
 import { LeftRail } from '../LeftRail.tsx'
 import { Viewport, isTypingTarget } from '../Viewport.tsx'
 import { SignEditor } from '../SignEditor.tsx'
+import { folderForShiftKey } from '../rail/helpers.ts'
 import { TopBar } from './topbar/TopBar.tsx'
 import { Inspector } from './inspector/Inspector.tsx'
 import { BottomBar } from './statusbar/BottomBar.tsx'
@@ -33,6 +34,21 @@ export function App(): React.ReactElement {
       // Handled before the single-letter tool keys so Ctrl+N never also grabs
       // the 材质 brush, etc.
       const ck = e.key.toLowerCase()
+      // Shift+Q … Shift+I fold the rail's folders, one letter a row down the stack
+      // (`rail/helpers.ts` `RAIL_FOLDERS`): Shift+Q is 工具, the first folder, and
+      // W E R T Y U I follow the folders below it. The rail owns which folders are
+      // open, so this only names the folder and hands it over. It runs before the
+      // switch below because every one of these letters already means something
+      // unshifted — Q/E step the storey, R turns, U hides the UI, I picks a finish
+      // — and a held key repeats, which would flicker the folder it names.
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
+        const folder = folderForShiftKey(ck)
+        if (folder) {
+          e.preventDefault()
+          window.dispatchEvent(new CustomEvent('metro:folder', { detail: folder }))
+          return
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         if (ck === 's') {
           e.preventDefault()
@@ -91,9 +107,15 @@ export function App(): React.ReactElement {
           break
         case 'r':
           if (e.ctrlKey || e.metaKey || e.altKey) break
+          // While 剖切 is on, R is the cut's own quarter turn — the 旋转 tile's
+          // shortcut, and the one key the cut has. It wins over the piece being
+          // placed for as long as the cut is up, the way the surface itself owns
+          // the pointer when the mouse is on it (`app/Viewport.tsx`); switching
+          // the cut off hands R straight back.
+          if (st.cutaway) st.rotateSection()
           // A piece in the air (移动) is what R turns, whatever tool is active: the
           // 信息 card lifted it, so there is no move tool to ask.
-          if (st.moveDraft) st.rotateMove()
+          else if (st.moveDraft) st.rotateMove()
           // The 墙 tool has no piece to turn: R picks which of a corner cell's
           // wall faces the column takes (`wallSnap` in `build/model.ts`). In the
           // 地基 tool's **半墙** mode the same counter steps the panel to another
