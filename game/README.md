@@ -457,6 +457,29 @@ track surface), so a train berthed at the platform disappears with the platform 
 air above it. The nav cube only ever moves the camera: no face, corner or **Home** click rewrites the
 slice behind the player's back.
 
+**隐藏UI shows the station whole: no lattice, no ghost sheet, every storey as itself.** The 视图
+folder's **隐藏UI** tile (**U**) does two things, and they are the same idea — the picture is the
+building, not the storey being edited:
+
+* **The drawing furniture goes.** The 1 m editing grid and its cell cursor
+  (`render/scene/systems/GridSystem.ts`), the same pair the immersive eye hides for its own reason.
+* **The storey slice is put away.** Other storeys stop being drawn as 35% ghosts — the translucent
+  sheet lying over the floor under the camera — and no ceiling is lifted, so every storey draws
+  opaque, as itself, ceilings and all (`render/levelSlicing.ts` `sliceOptions`, applied by
+  `LevelSystem.applyLevel`). 显示其他层 and 隐藏天花板 have nothing to act on while it is on, so they
+  are greyed out in the folder.
+
+No interface goes with either: the build rail, the inspector, the nav cube and every tool stay where
+they are, and the pointer goes on building and picking. **隐藏墙壁** stays live, because it is a
+look-through of the station's own walls rather than a way of drawing a storey.
+
+The lattice rule is one line, `gridVisible(hideUI, immersive)`; the slice rule is one line,
+`sliceOptions({ghost, autoCeiling, hideUI, immersive})`. Both are pure, both are shared with **沉浸**
+— the immersive camera, which is the other mode that wants the station rather than the storey — and
+that sharing is the point: two `setGridVisible` calls and two ghost decisions would let one mode
+restore what the other took away. The cell cursor is guarded by the same function, because the pointer
+re-sets it every frame (`test/grid-visibility.test.mjs`, `test/level-slicing.test.mjs`).
+
 **The clock pauses and restarts.** **Space** toggles play/pause (the top bar's 暂停 / 播放 button does
 the same), and 重启 empties the crowd, trains and queues while keeping the built station and the clock
 (`World.restart`, sent as a `restart` worker message).
@@ -1337,6 +1360,10 @@ approximated); neither needs WebGL.
   **沉浸 is not a slice flag**: a flag could turn a piece on but could not undo the ghost
   material that put a storey through the floor under the eye, so the mode skips the walk
   (`LevelSystem.applyLevel`) and the only per-agent flag that remains is `crowdVisible`'s.
+* `grid-visibility.test.mjs` — 隐藏UI, the drawing lattice and its cursor
+  (`render/scene/systems/GridSystem.ts` `gridVisible`): the tile hides the lattice on its own, the
+  immersive eye hides the same lattice for its own reason, neither restores it while the other still
+  wants it gone, and a pick under the pointer cannot put the cell cursor back on a hidden grid.
 * `section.test.mjs` — the 剖切 surface's arithmetic (`render/section.ts`): a fresh cut looks exactly
   +y, which is the plane the old fixed toggle drew; azimuth turns the look and elevation tilts it out
   of the horizontal plane (with the normal still a unit vector at every angle); the surface's own
