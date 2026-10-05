@@ -94,10 +94,11 @@ test('隐藏UI is an asker, not a slice flag', () => {
   // dark shadow grid: a flag can turn a piece on, but it cannot undo the 35%
   // translucency the slice assigned it, so the slab a storey up ghosted *through*
   // the floor under the eye. 隐藏UI therefore asks for a different slice
-  // (`sliceOptions`) and skips `applyLevel`'s materials (see
-  // `LevelSystem.applyLevel`); what is pinned here is that the slice never claims
-  // to answer for it on its own — and that the crowd, whose flag *is* still read
-  // so a walker on another storey is not invisible in a station drawn whole, does.
+  // (`sliceOptions`) and `LevelSystem.applyLevel` hands each mesh its **base**
+  // material back (see `cut-clipping.test.mjs`, which walks the real scene for it);
+  // what is pinned here is that the slice never claims to answer for it on its own
+  // — and that the crowd, whose flag *is* still read so a walker on another storey
+  // is not invisible in a station drawn whole, does.
   const off = { ghost: false, autoCeiling: true }
   assert.equal(levelVisible('below', off), false, 'the slice is the slice: 显示其他层 off still hides a storey')
   assert.equal(trainVisible('below', false, false), false, 'nor is a consist on a hidden storey drawn by it')

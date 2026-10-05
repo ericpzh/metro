@@ -143,6 +143,37 @@ test('while a cut is on the slice is put away: every storey draws, opaque', () =
   assert.equal(isClipped(meshAt(B2)), false, 'no cut, no plane')
 })
 
+test('隐藏UI hands every storey back its own material, the storey below included', () => {
+  // 隐藏UI's promise is "the station whole, every storey as itself" — and the half
+  // of that a `visible` flag cannot do is the **material**. The mode put the slice
+  // away, and the walk handed base materials back for walls (through `dressWall`)
+  // but not for anything else, so a storey below kept the 35% ghost the slice had
+  // given it: the floor under the camera stayed see-through and the storey beneath
+  // showed up through it. The lower floor is therefore the case that matters here,
+  // not the active one.
+  const { level, meshAt } = station()
+  level.setLevel(B1, true)
+  assert.equal(meshAt(B2).material.opacity, 0.35, 'the slice ghosts the storey below')
+
+  level.setHideUI(true)
+  assert.equal(meshAt(B2).material.opacity, 1, '隐藏UI gives the storey below its own material back, not the ghost')
+  assert.equal(meshAt(B2).material.transparent, false, 'and opaque, not a 35% sheet')
+  assert.equal(meshAt(B2).material, meshAt(B2).userData.baseMaterial, 'it is the very base material the mesher assigned')
+  assert.equal(meshAt(B2).visible, true, 'and the storey is drawn at all')
+  assert.equal(meshAt(B1).material.opacity, 1, 'as is the storey being edited')
+
+  // Switching it off asks the slice for the ghost back, from the same cache.
+  level.setHideUI(false)
+  assert.equal(meshAt(B2).material.opacity, 0.35, 'and leaving the mode returns the storey to the ghost')
+
+  // 隐藏墙壁 is not the slice and survives the mode: a wall still reads through.
+  const s = wallStation()
+  s.level.setHideWalls(true)
+  s.level.setHideUI(true)
+  assert.equal(s.wallFace.material.opacity, 0.16, '隐藏墙壁 still reads a wall through while 隐藏UI is on')
+  assert.equal(s.meshAt(B2).material.opacity, 1, 'while the floors are the building')
+})
+
 test('隐藏墙壁 hides walls completely while a cut is on, and reads through otherwise', () => {
   const s = wallStation()
   const { level, wallFace, wallHull, wallPanel } = s

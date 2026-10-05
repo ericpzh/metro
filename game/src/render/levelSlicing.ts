@@ -106,10 +106,11 @@ export function sliceOptions(toggles: SliceToggles): SliceOptions {
  * Whether the level slicing draws a piece on `side`.
  *
  * 隐藏UI does not arrive here as a flag: `sliceOptions` clears `ghost` and
- * `autoCeiling` for it, and `LevelSystem` skips this walk's materials for every
- * piece. The material, and not only the visibility, has to be the mode's
- * business: a flag here could turn a piece on, but it could not undo the 35%
- * ghost material the slice had already assigned it.
+ * `autoCeiling` for it, and `LevelSystem` hands every mesh its base material back
+ * rather than the 35% ghost. The material, and not only the visibility, has to be
+ * the mode's business: a flag here could turn a piece on, but it could not undo
+ * the ghost material the slice had already assigned it — and going through the
+ * flag *alone* is what left the storeys below wearing that ghost.
  */
 export function levelVisible(side: LevelSide, opts: SliceOptions): boolean {
   if (side === 'active') return true

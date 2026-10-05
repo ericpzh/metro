@@ -71,9 +71,11 @@ export class LevelSystem extends SceneSystem {
    * and it is exactly the lie the mode exists to avoid: the slab a storey up
    * ghosts *through* the floor under the eye, and what should be a granite
    * concourse reads as a dark shadow grid. So it puts the slice away
-   * (`sliceOptions`) and skips this walk's materials entirely: every piece draws
-   * as itself, at full opacity, whatever storey it belongs to. 隐藏墙壁 is the
-   * one toggle that stays: it is a deliberate look-through, not the slice.
+   * (`sliceOptions`) and hands every mesh its **base** material back — not merely
+   * a `visible` flag, which could turn a piece on but could not undo the ghost
+   * clip the slice had already assigned it (`mesh.material = base` in the walk
+   * below; a wall comes back through `dressWall` instead). 隐藏墙壁 is the one
+   * toggle that stays: it is a deliberate look-through, not the slice.
    */
   applyLevel(): void {
     // This walks every chunk mesh and every module group in the station, so it is
@@ -114,7 +116,16 @@ export class LevelSystem extends SceneSystem {
         if (straight) {
           mesh.visible = true
           const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
-          this.dressWall(mesh, base, isOutline, clip)
+          // **The base material has to be handed back here.** `dressWall` only
+          // assigns one for a wall it takes over; for everything else it returns
+          // false and leaves the mesh wearing whatever the slice gave it — which is
+          // the 35% ghost of the storey below. So the floors, ceilings and slabs this
+          // mode is about kept their ghost, and the storey under the camera showed
+          // through them: 隐藏UI drew every storey as itself except the ones it was
+          // for. Walls were the one piece that came back, because `dressWall`
+          // restored them — which is why the leak read as "the lower floors are
+          // transparent" rather than "everything is".
+          if (!this.dressWall(mesh, base, isOutline, clip)) mesh.material = base
           this.clipMesh(mesh, clip)
           continue
         }
