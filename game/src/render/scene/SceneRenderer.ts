@@ -269,6 +269,15 @@ export class SceneRenderer {
     if (wasOn !== on) this.sectionSys.applyClip()
   }
 
+  /**
+   * 隐藏剖切面: keep the clip, put the section's own drawing away — the sheet,
+   * its border and grid, and the direction arrow (`SectionSystem`). With it off
+   * there is nothing to grab, so the surface stops taking the pointer too.
+   */
+  setSectionSurface(on: boolean): void {
+    this.sectionSys.setSurfaceVisible(on)
+  }
+
   /** The store's 剖切 flag, for callers that only carry the toggle. */
   setCutaway(on: boolean): void {
     this.setSection(this.ctx.section, on)

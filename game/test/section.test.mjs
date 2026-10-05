@@ -96,24 +96,45 @@ test('offset slides the cut the way the surface faces, and nowhere else', () => 
   assert.ok(close(sectionPoint(east)[1], 0) && close(sectionPoint(east)[2], -8), 'and not sideways or in z')
 })
 
-test('the plane keeps the half behind it: what the surface faces is cut away', () => {
-  // three.js keeps `dot(normal, p) + constant >= 0`, with `constant` written as
-  // `+d`, so the kept half is `dot(normal, p) - d >= 0` — everything on the far
-  // side of the cut. A cut at y = 3 looking north keeps y ≥ 3: the *northern*
-  // half, the one the camera standing south of the cut can see.
-  assert.ok(close(planeConstant(section(0, 0, [0, 3, 0])), 3))
-  const inside = (s, p) => dot(sectionNormal(s.orientation), p) - planeConstant(s) >= 0
+test('the plane keeps the half behind the arrow, and cuts the way it points away', () => {
+  // The rule the whole mode is now built on: the arrow points along the normal at
+  // the **kept** half, and the half it points away from is cut clean away. three
+  // keeps `dot(normal, p) + constant >= 0` and `planeConstant` is `-d`, so the kept
+  // half is `dot(normal, p) - d >= 0` with `d` the distance from the world origin
+  // to the cut along the look: a cut at y = 3 looking north (arrow at +y) keeps
+  // y ≤ 3, everything behind it.
+  //
+  // The sign is worth stating twice: written the other way (+d) the plane keeps
+  // the half it *faces*, the room in front of the player is sliced away instead of
+  // the one behind it, and 90° and 270° come out as the same picture.
+  const cutDistance = (s) => {
+    const n = sectionNormal(s.orientation)
+    const p = sectionPoint(s)
+    return n[0] * p[0] + n[1] * p[1] + n[2] * p[2]
+  }
+  const kept = (s, p) => dot(sectionNormal(s.orientation), p) - cutDistance(s) >= 0
   const s = section(0, 0, [0, 3, 0])
-  assert.equal(inside(s, [5, 4, 5]), true, 'the half behind the cut survives')
-  assert.equal(inside(s, [5, 2, 5]), false, 'the half the surface has not reached is cut away')
-  assert.equal(inside(s, [5, 3, 5]), true, 'the plane itself is inside, so the surface is not clipped off')
-  // The constant is the distance from the world origin to the cut along the
-  // normal, so it grows as the cut walks the way it looks.
-  assert.ok(close(planeConstant({ ...s, offset: 1 }), 4))
-  // A cut looking west keeps everything west of it: the same rule, other way.
-  const west = section(270, 0, [4, 0, 0])
-  assert.equal(inside(west, [-1, 0, 0]), true, 'past the cut in the way it looks survives')
-  assert.equal(inside(west, [9, 0, 0]), false, 'and what it has not reached is cut away')
+  assert.equal(planeConstant(s), -cutDistance(s), 'the constant is the negative of the distance, so three keeps the behind half')
+  assert.equal(kept(s, [5, 4, 5]), true, 'the half the arrow points at survives')
+  assert.equal(kept(s, [5, 2, 5]), false, 'the half it points away from is cut clean away')
+  assert.equal(kept(s, [5, 3, 5]), true, 'the plane itself is kept, so the sheet is never clipped off')
+  // The constant moves with the cut: walking it north by 1 m takes the keep line
+  // to y = 4.
+  assert.equal(planeConstant({ ...s, offset: 1 }), -4)
+  assert.equal(kept({ ...s, offset: 1 }, [5, 3.5, 5]), false, 'a point the cut has not reached yet is now cut away')
+  // West is the mirror of east, and south of north: the arrow flips, the kept half
+  // flips with it, and nothing else about the cut changes.
+  const east = section(90, 0, [3, 0, 0])
+  const west = section(270, 0, [3, 0, 0])
+  assert.equal(kept(east, [4, 0, 0]), true, 'looking east keeps what is east of the cut')
+  assert.equal(kept(east, [2, 0, 0]), false)
+  assert.equal(kept(west, [2, 0, 0]), true, 'looking west keeps what is west of it — the other half')
+  assert.equal(kept(west, [4, 0, 0]), false)
+  const north = section(0, 0, [0, 3, 0])
+  const south = section(180, 0, [0, 3, 0])
+  assert.equal(kept(north, [0, 4, 0]), true, 'north keeps the north half')
+  assert.equal(kept(south, [0, 2, 0]), true, 'south keeps the south half, and nothing else differs')
+  assert.equal(kept(south, [0, 4, 0]), false)
 })
 
 test('snapping lands the cut on a round number of blocks', () => {

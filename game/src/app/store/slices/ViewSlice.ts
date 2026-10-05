@@ -25,6 +25,13 @@ export interface ViewSlice {
   autoCeiling: boolean
   /** 剖切: clip the station at the placed section surface. */
   cutaway: boolean
+  /**
+   * 隐藏剖切面: keep cutting, but take the section's own drawing away — the
+   * translucent sheet, its border and grid, the grab handle and the direction
+   * arrow. On by default, so the surface can be seen and grabbed; off gives the
+   * cut the player asked for with none of the diagram over it.
+   */
+  hideSectionSurface: boolean
   /** 隐藏墙壁: draw every wall and platform screen door translucent. */
   hideWalls: boolean
   /**
@@ -50,6 +57,7 @@ export interface ViewSlice {
   setGhostOther: (on: boolean) => void
   setAutoCeiling: (on: boolean) => void
   setCutaway: (on: boolean) => void
+  setHideSectionSurface: (on: boolean) => void
   setHideWalls: (on: boolean) => void
   setHideUI: (on: boolean) => void
   setOrtho: (on: boolean) => void
@@ -66,6 +74,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   ghostOtherLevels: true,
   autoCeiling: true,
   cutaway: false,
+  hideSectionSurface: false,
   hideWalls: false,
   hideUI: false,
   ortho: false,
@@ -83,6 +92,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setGhostOther: (on) => set({ ghostOtherLevels: on }),
   setAutoCeiling: (on) => set({ autoCeiling: on }),
   setCutaway: (on) => set({ cutaway: on }),
+  setHideSectionSurface: (on) => set({ hideSectionSurface: on }),
   setHideWalls: (on) => set({ hideWalls: on }),
   setHideUI: (on) => set({ hideUI: on }),
   setOrtho: (on) => set({ ortho: on }),

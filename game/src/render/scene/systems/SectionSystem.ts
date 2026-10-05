@@ -32,6 +32,10 @@ const LIFT = 0.02
 const GRID = 2
 /** The quad's half-extent when the station has no measurable bounds yet. */
 const MIN_SIZE = 6
+/** The shortest the direction arrow gets, metres — a mark, not a monument. */
+const ARROW_MIN = 3
+/** The share of the arrow taken by its head; the rest is shaft. */
+const HEAD_SHARE = 0.4
 
 export class SectionSystem extends SceneSystem {
   /** Sibling systems whose materials have to be clipped; wired by the orchestrator. */
@@ -50,11 +54,17 @@ export class SectionSystem extends SceneSystem {
   private quad: THREE.Mesh
   private hatch: THREE.LineSegments
   private handle: THREE.Mesh
+  private arrow: THREE.Group
   private fill: THREE.MeshBasicMaterial
   private edge: THREE.LineBasicMaterial
   private handleMat: THREE.MeshBasicMaterial
+  private arrowMat: THREE.MeshBasicMaterial
   private size = MIN_SIZE
   private raycaster = new THREE.Raycaster()
+  /** 隐藏剖切面: the sheet, its hatch and the direction arrow are put away. */
+  private surfaceVisible = true
+  /** What the arrow was last sized for, so it is only re-laid-out when it moves. */
+  private arrowKey = 0
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -79,9 +89,73 @@ export class SectionSystem extends SceneSystem {
     this.hatch = new THREE.LineSegments(new THREE.BufferGeometry(), this.edge)
     this.handleMat = new THREE.MeshBasicMaterial({ color: 0xbfefff, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false })
     this.handle = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), this.handleMat)
-    this.group.add(this.quad, this.hatch, this.handle)
+    // The direction arrow: **the way it points is the half that is kept**, so the
+    // mode stops being a guess about which side survives a turn. Drawn without a
+    // depth test and last in the queue, because it is a diagram mark like the
+    // sheet's border — half-buried in a slab it would say nothing.
+    this.arrowMat = new THREE.MeshBasicMaterial({ color: 0x8fe4ff, toneMapped: false, depthTest: false, transparent: true })
+    this.arrow = new THREE.Group()
+    this.arrow.renderOrder = 4
+    this.buildArrow()
+    this.group.add(this.quad, this.hatch, this.handle, this.arrow)
     this.ctx.scene.add(this.group)
     this.buildHatch(MIN_SIZE)
+    this.resizeArrow(MIN_SIZE)
+  }
+
+  /**
+   * The arrow's shaft and head, pointing along the group's own `+z` — which
+   * `refreshHighlight` turns to the section normal. Two cylinders with **unit**
+   * dimensions, so the whole mark is drawn once and then scaled to the station
+   * (`resizeArrow`); the tail sits at the section plane and the head ends
+   * `ARROW`-long out into the kept half.
+   *
+   * The split is fixed: the last 40% of the arrow is the head, the rest the shaft.
+   */
+  private buildArrow(): void {
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 16), this.arrowMat)
+    head.userData.arrowPart = 'head'
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 12), this.arrowMat)
+    shaft.userData.arrowPart = 'shaft'
+    for (const part of [shaft, head]) {
+      part.rotation.x = Math.PI / 2
+      part.renderOrder = 4
+      part.frustumCulled = false
+      this.arrow.add(part)
+    }
+  }
+
+  /**
+   * Lay the arrow out for an arrow `length` metres long: tail on the section
+   * plane, head pointing out along the normal. The two unit cylinders are placed
+   * and scaled so the mark spans `[0, length]` in the arrow group's local `z`,
+   * with a head `HEAD_SHARE` of it and a shaft thinner than the head.
+   */
+  private resizeArrow(size: number): void {
+    const length = Math.max(ARROW_MIN, size * 0.22)
+    const key = Math.round(length * 100)
+    if (key === this.arrowKey) return
+    this.arrowKey = key
+    const head = length * HEAD_SHARE
+    const shaft = length - head
+    for (const part of this.arrow.children) {
+      const isHead = part.userData.arrowPart === 'head'
+      const len = isHead ? head : shaft
+      // The unit cylinder is centred on its own origin, so placing it at the
+      // midpoint of its span runs it from the tail to the tip.
+      part.position.z = isHead ? shaft + head / 2 : shaft / 2
+      const radius = isHead ? length * 0.075 : length * 0.018
+      part.scale.set(radius, len, radius)
+    }
+  }
+
+  /** 隐藏剖切面: the sheet, its hatch and the arrow with it (`setSurfaceVisible`). */
+  private applyVisibility(): void {
+    const shown = this.on && this.surfaceVisible
+    this.quad.visible = shown
+    this.hatch.visible = shown
+    this.handle.visible = shown
+    this.arrow.visible = shown
   }
 
   /** A square outline plus its 2 m grid, in the surface's own plane. */
@@ -107,7 +181,7 @@ export class SectionSystem extends SceneSystem {
   /**
    * The section the store has, and whether it is cutting. The plane is written
    * in place — three holds this object on every clipped material — and the
-   * highlight is moved and turned to lie on it.
+   * highlight (with its direction arrow) is moved and turned to lie on it.
    */
   setSection(section: Section, on: boolean): void {
     this.ctx.section = section
@@ -117,6 +191,14 @@ export class SectionSystem extends SceneSystem {
     this.plane.constant = planeConstant(section)
     this.group.visible = on
     this.refreshHighlight()
+    this.applyVisibility()
+  }
+
+  /** 隐藏剖切面: keep cutting, but put the sheet, hatch and arrow away. */
+  setSurfaceVisible(on: boolean): void {
+    if (this.surfaceVisible === on) return
+    this.surfaceVisible = on
+    this.applyVisibility()
   }
 
   /** Where the highlighted surface stands, sized to the station it cuts. */
@@ -130,6 +212,7 @@ export class SectionSystem extends SceneSystem {
       this.quad.geometry.dispose()
       this.quad.geometry = new THREE.PlaneGeometry(size * 2, size * 2)
       this.buildHatch(size)
+      this.resizeArrow(size)
     }
     // The quad's own frame: its `+z` (a PlaneGeometry's normal) is the section
     // normal, its `+x` the surface's right, its `+y` the surface's up.
@@ -143,6 +226,12 @@ export class SectionSystem extends SceneSystem {
     const lift: Vec3 = [p[0] + n[0] * LIFT, p[1] + n[1] * LIFT, p[2] + n[2] * LIFT]
     this.group.position.set(lift[0], lift[1], lift[2])
     this.group.quaternion.setFromRotationMatrix(m)
+    // The arrow rides the group's frame, so it turns with the section for free:
+    // it points along the group's own `+z`, which is the normal — the half that is
+    // kept. Its tail is the section plane itself, so the mark reads "from here,
+    // that way is what stays". `resizeArrow` lays the parts out from its length.
+    this.arrow.position.z = 0
+    this.resizeArrow(size)
   }
 
   /** The half-extent the highlight covers: the station's own plan, plus a margin. */
@@ -197,9 +286,13 @@ export class SectionSystem extends SceneSystem {
     }
   }
 
-  /** The section surface under the pointer, in canvas-relative CSS pixels. */
+  /**
+   * The section surface under the pointer: the handle a slide grabs. Only while
+   * the surface is on screen — with 隐藏剖切面 on there is no sheet to grab, so
+   * the pointer belongs to the tools as usual.
+   */
   hit(clientX: number, clientY: number, canvas: HTMLCanvasElement, camera: THREE.Camera): boolean {
-    if (!this.on) return false
+    if (!this.on || !this.surfaceVisible) return false
     const rect = canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, camera)
@@ -250,8 +343,10 @@ export class SectionSystem extends SceneSystem {
     this.quad.geometry.dispose()
     this.hatch.geometry.dispose()
     this.handle.geometry.dispose()
+    for (const part of this.arrow.children) (part as THREE.Mesh).geometry.dispose()
     this.fill.dispose()
     this.edge.dispose()
     this.handleMat.dispose()
+    this.arrowMat.dispose()
   }
 }

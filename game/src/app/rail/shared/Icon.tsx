@@ -201,6 +201,17 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M13.4 2.4l1.4 1.6-1.4 1.6" />
         </>,
       )
+    // 隐藏剖切面: the cut line in plan, and the direction arrow that says which
+    // half of it is kept — the same mark the viewport draws in 3D.
+    case 'cutSurface':
+      return svg(
+        <>
+          <path {...s} d="M3 13.4h14" />
+          <path {...s} d="M10 10.6V4.2" />
+          <path {...s} d="M7.6 6.6L10 4.2l2.4 2.4" />
+          <path {...s} strokeDasharray="2.4 2.2" d="M3 16.6h14" />
+        </>,
+      )
     case 'heat':
       return svg(
         <>

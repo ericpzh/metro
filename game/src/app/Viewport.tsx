@@ -192,6 +192,7 @@ export function Viewport(): React.ReactElement {
   const ghostOther = useStore((s) => s.ghostOtherLevels)
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
+  const hideSectionSurface = useStore((s) => s.hideSectionSurface)
   const section = useStore((s) => s.section)
   const hideWalls = useStore((s) => s.hideWalls)
   const hideUI = useStore((s) => s.hideUI)
@@ -247,6 +248,11 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setSection(section, cutaway)
   }, [section, cutaway])
+
+  // 隐藏剖切面: the clip stays, the sheet and its direction arrow go.
+  useEffect(() => {
+    sceneRef.current?.setSectionSurface(!hideSectionSurface)
+  }, [hideSectionSurface])
 
   useEffect(() => {
     sceneRef.current?.setHideWalls(hideWalls)

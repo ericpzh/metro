@@ -114,19 +114,21 @@ export function sectionPoint(s: Section): Vec3 {
 /**
  * The plane constant for `THREE.Plane`. A `THREE.Plane` *keeps* the half where
  * `dot(normal, p) + constant >= 0`, and the half this surface keeps is the one
- * **behind** it — everything the cut has not yet reached — so with the normal
- * pointing the way the surface faces the kept half is `dot(normal, p) <= d`,
- * which is three's `dot(normal, p) − d >= 0`: the constant is `+d`, the
- * distance from the world origin to the cut along the normal.
+ * **behind** it: everything the cut has not yet reached, the side the arrow
+ * points away from. With the normal pointing the way the surface faces, that kept
+ * half is `dot(normal, p) <= d`, and three's inequality reads
+ * `-dot(normal, p) + d >= 0` — so the constant is **`-d`**, `d` being the distance
+ * from the world origin to the cut along the look.
  *
- * The sign is the whole of it. Built the other way round the plane keeps the
- * half it *faces*, which puts the cut's kept side on the far side of the
- * camera and cuts the room away in front of the player.
+ * The sign is the whole of it, and it is the bug this line has carried twice. Turn
+ * it round (`+d`) and the plane keeps the half it *faces*: the room in front of the
+ * player is sliced away instead of the one behind it, and 90° and 270° come out as
+ * the same picture instead of mirror images.
  */
 export function planeConstant(s: Section): number {
   const n = sectionNormal(s.orientation)
   const p = sectionPoint(s)
-  return n[0] * p[0] + n[1] * p[1] + n[2] * p[2]
+  return -(n[0] * p[0] + n[1] * p[1] + n[2] * p[2])
 }
 
 /** Snap a slide distance: 0.5 m steps, 5 cm while Shift is held. */

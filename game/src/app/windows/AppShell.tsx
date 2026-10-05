@@ -173,6 +173,10 @@ export function App(): React.ReactElement {
         case 'u':
           st.setHideUI(!st.hideUI)
           break
+        case 'y':
+          // 隐藏剖切面: the cut stays, its sheet and direction arrow go.
+          st.setHideSectionSurface(!st.hideSectionSurface)
+          break
         case 'o':
           st.setOrtho(!st.ortho)
           break

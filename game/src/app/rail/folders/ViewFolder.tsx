@@ -44,7 +44,7 @@ export function ViewFolder(): React.ReactElement {
         onClick={() => st().setGhostOther(!ghost)}
       />
       <Block label="剖切" icon="cutaway" shortcut="C" active={cutaway} onClick={() => st().setCutaway(!cutaway)} />
-      <CutRotation open={cutaway} />
+      <CutControls open={cutaway} />
       <Block
         label="隐藏天花板"
         icon="ceiling"
@@ -62,18 +62,32 @@ export function ViewFolder(): React.ReactElement {
 }
 
 /**
- * **旋转 X°** — the cut's own quarter turn, folded out under the 剖切 tile while
- * the cut is on. It reads the angle it will turn *to*, so the tile says what a
- * press does rather than what the cut was; the store and the viewport's drag are
- * the other half of the same record (`render/section.ts` `nextAzimuth`).
+ * The cut's own two controls, folded out under the 剖切 tile while the cut is on:
+ * **旋转 X°** and **隐藏剖切面**.
+ *
+ * 旋转 reads the angle it will turn *to*, so the tile says what a press does
+ * rather than what the cut was (`render/section.ts` `nextAzimuth`). 隐藏剖切面
+ * keeps the cut but takes the surface's drawing away — sheet, border, grid, grab
+ * handle and the direction arrow — so the player can look at the slice itself with
+ * nothing of the tool over it. It reads as the state it is in, like every other
+ * 隐藏 tile in the folder.
  */
-function CutRotation({ open }: { open: boolean }): React.ReactElement {
+function CutControls({ open }: { open: boolean }): React.ReactElement {
   const azimuth = useStore((s) => s.section.orientation.azimuth)
   const rotateSection = useStore((s) => s.rotateSection)
+  const hideSurface = useStore((s) => s.hideSectionSurface)
+  const setHideSectionSurface = useStore((s) => s.setHideSectionSurface)
   const next = nextAzimuth(azimuth)
   return (
     <InlineExpand open={open}>
       <Block label={`旋转 ${next}°`} icon="rotate" shortcut="R" onClick={rotateSection} />
+      <Block
+        label="隐藏剖切面"
+        icon="cutSurface"
+        shortcut="Y"
+        active={hideSurface}
+        onClick={() => setHideSectionSurface(!hideSurface)}
+      />
     </InlineExpand>
   )
 }
