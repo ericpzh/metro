@@ -167,6 +167,28 @@ function metalCanvas(): HTMLCanvasElement {
   return c
 }
 
+/**
+ * Dark brushed steel in the finish's own tint — the 楼梯 / 扶梯 soffit and the ground
+ * a truss hangs into. `metalCanvas` is a fixed light stainless, so 钢板 carries its
+ * colour in the tint like the concrete and enamel looks do.
+ */
+function steelCanvas(colour: number): HTMLCanvasElement {
+  const { c, g } = canvas(64)
+  const r = (colour >> 16) & 0xff
+  const gr = (colour >> 8) & 0xff
+  const b = colour & 0xff
+  g.fillStyle = `rgb(${r},${gr},${b})`
+  g.fillRect(0, 0, 64, 64)
+  for (let i = 0; i < 900; i++) {
+    const y = Math.floor(Math.random() * 64)
+    // A lighter brush line over the base, so the plate reads as rolled steel.
+    const v = 0.16 + Math.random() * 0.22
+    g.fillStyle = `rgba(${Math.min(255, r + 90)},${Math.min(255, gr + 90)},${Math.min(255, b + 92)},${v.toFixed(2)})`
+    g.fillRect(0, y, 64, 1)
+  }
+  return c
+}
+
 /** Safety-yellow tactile strip marking the platform edge (§11). */
 function tactileCanvas(): HTMLCanvasElement {
   const { c, g } = canvas(64)
@@ -208,6 +230,8 @@ function canvasFor(def: FinishDef): HTMLCanvasElement {
     case 'metal':
     case 'stainless':
       return metalCanvas()
+    case 'steel':
+      return steelCanvas(def.tint)
     case 'plaster':
       return plasterCanvas(def.tint)
     case 'enamel':
@@ -218,12 +242,15 @@ function canvasFor(def: FinishDef): HTMLCanvasElement {
 }
 
 function finishMaterial(def: FinishDef): THREE.MeshStandardMaterial {
-  const glossy = def.look === 'metal' || def.look === 'stainless' || def.look === 'enamel'
+  const glossy = def.look === 'metal' || def.look === 'steel' || def.look === 'stainless' || def.look === 'enamel'
   return new THREE.MeshStandardMaterial({
     map: tex(canvasFor(def), 1),
     vertexColors: true,
-    roughness: def.look === 'enamel' ? 0.22 : glossy ? 0.35 : def.look === 'track' ? 0.95 : 0.78,
-    metalness: glossy ? 0.6 : 0.02,
+    // 钢板 is the run's own truss colour: the escalator's dark steel is roughness
+    // 0.55 / metalness 0.4 (`PieceBuilder` C.darkSteel), so the filling and the truss
+    // it meets read as one surface.
+    roughness: def.look === 'enamel' ? 0.22 : def.look === 'steel' ? 0.55 : glossy ? 0.35 : def.look === 'track' ? 0.95 : 0.78,
+    metalness: def.look === 'steel' ? 0.4 : glossy ? 0.6 : 0.02,
     side: def.family === 'ceiling' ? THREE.DoubleSide : THREE.FrontSide,
   })
 }

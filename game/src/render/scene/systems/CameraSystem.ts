@@ -10,6 +10,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { facingFrom } from '../../pickFacing.ts'
+import { pickCells } from '../../pickCell.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { PickResult, SceneContext } from './SceneSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
@@ -266,6 +267,14 @@ export class CameraSystem extends SceneSystem {
     this.controls.update()
   }
 
+  /**
+   * The pointer's answer, in whole cells: the block hit and the block a placement
+   * against it takes. The cell math is `pickCells` (pure, and pinned by
+   * `test/pick-cell.test.mjs`) because the drawn mesh under the pointer is not
+   * always axis-aligned: the block under a 楼梯 / 扶梯 is a wedge whose top is the
+   * run's slope, and every exposed block edge is rounded, so a raw
+   * `cell + face.normal` asks for a fractional block no tool can address again.
+   */
   pick(clientX: number, clientY: number, workPlaneZ: number): PickResult | null {
     const rect = this.canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
@@ -277,11 +286,9 @@ export class CameraSystem extends SceneSystem {
     if (hits.length > 0) {
       const hit = hits[0]
       const p = hit.point
-      const n = hit.face ? hit.face.normal.clone().normalize() : new THREE.Vector3(0, 0, 1)
-      const inside = p.clone().addScaledVector(n, -0.02)
-      const cell: [number, number, number] = [Math.floor(inside.x), Math.floor(inside.y), Math.floor(inside.z)]
-      const place: [number, number, number] = [cell[0] + n.x, cell[1] + n.y, cell[2] + n.z]
-      return { cell, solid: true, normal: [n.x, n.y, n.z], place, point: [p.x, p.y, p.z] }
+      const n = hit.face ? hit.face.normal : new THREE.Vector3(0, 0, 1)
+      const picked = pickCells([p.x, p.y, p.z], [n.x, n.y, n.z])
+      return { cell: picked.cell, solid: true, normal: picked.normal, place: picked.place, point: [p.x, p.y, p.z] }
     }
     // Work plane (§9.5): the floor plane of the active level, infinite.
     const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -(workPlaneZ + 1))

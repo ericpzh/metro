@@ -13,7 +13,7 @@
 // +z up.
 
 import { HALF_WALL_T } from '../sim/constants.ts'
-import { DEFAULT_FINISH, FINISH_LIST } from '../sim/finishes.ts'
+import { DEFAULT_FINISH, FINISH_LIST, RAMP_SOFFIT_FINISH } from '../sim/finishes.ts'
 import type { SlopeCut } from '../sim/openings.ts'
 import { packKey as key, type Cell, type Face, type FinishId, type WallSide } from '../sim/types.ts'
 
@@ -137,6 +137,51 @@ function pushTri(
     b.uv.push(uv[i][0], uv[i][1])
   }
   b.idx.push(base, base + 1, base + 2)
+}
+
+/**
+ * The cross-section of a run's **drawn body** where it is narrower than the cell — an
+ * escalator's truss box, `half` either side of its centreline across the run and the
+ * full width of the tile along it. Sharp corners, because the body is a slab and not a
+ * block; the rounded profile would read as a pillar under the escalator.
+ *
+ * `axis` is the plane's slope axis, which is the way the run travels, so the box is
+ * that long along `axis` and `2 × half` across it. The point normals are set so that
+ * `edgeExposure` — which reads an edge's direction off its midpoint, and falls back to
+ * the sum of the two point normals for an edge away from the cell boundary — gives each
+ * side its outward normal. The two ends land on the cell boundary and answer ±`axis`
+ * on their own; where the next tile's box carries on they are drawn anyway and hidden
+ * inside the union, so the skirt needs no neighbour test to look continuous.
+ */
+function buildTrussProfile(axis: 'x' | 'y', half: number): Pt[] {
+  const lo = 0.5 - half
+  const hi = 0.5 + half
+  return axis === 'x'
+    ? [
+        { x: 0, y: lo, nx: 0, ny: -1, exposed: true },
+        { x: 1, y: lo, nx: 0, ny: -1, exposed: true },
+        { x: 1, y: hi, nx: 0, ny: 1, exposed: true },
+        { x: 0, y: hi, nx: 0, ny: 1, exposed: true },
+      ]
+    : [
+        { x: lo, y: 0, nx: -1, ny: 0, exposed: true },
+        { x: hi, y: 0, nx: 1, ny: 0, exposed: true },
+        { x: hi, y: 1, nx: 1, ny: 0, exposed: true },
+        { x: lo, y: 1, nx: -1, ny: 0, exposed: true },
+      ]
+}
+
+/**
+ * Every face of a run's truss box wears the run's own steel (`RAMP_SOFFIT_FINISH`) — one
+ * shared record, so the mesher's hot loop never allocates one per filling cell.
+ */
+const TRUSS_FACES: Partial<Record<Face, FinishId>> = {
+  top: RAMP_SOFFIT_FINISH,
+  bottom: RAMP_SOFFIT_FINISH,
+  e: RAMP_SOFFIT_FINISH,
+  w: RAMP_SOFFIT_FINISH,
+  n: RAMP_SOFFIT_FINISH,
+  s: RAMP_SOFFIT_FINISH,
 }
 
 /** Build the rounded cross-section profile for one cell, CCW viewed from +z. */
@@ -277,7 +322,11 @@ function buildThinProfile(side: WallSide, E: boolean, W: boolean, N: boolean, S:
  * same way, names the blocks a 楼梯 / 扶梯 takes its volume out of (packed key → the
  * underside plane `sim/openings.ts` derives): their top is the run's slope rather
  * than the cell's ceiling, so the space under a run fills up to its truss instead
- * of bulging through it.
+ * of bulging through it. `fill`, finally, names the cells of that filling the
+ * station holds **no block** in (`rampFillKeys`): each is drawn as if its block
+ * existed — shaved by the same `slope` entry, wearing the finish of the block it
+ * stands on, solid to every neighbour so the ground below joins it seamlessly — so
+ * the wedge under a truss is filled without a cell no tool could address.
  */
 export function meshChunk(
   solid: Set<number>,
@@ -291,14 +340,19 @@ export function meshChunk(
   cells?: readonly { x: number; y: number; z: number }[],
   thin?: ReadonlyMap<number, WallSide>,
   slope?: ReadonlyMap<number, SlopeCut>,
+  fill?: ReadonlySet<number>,
 ): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
   // `skip` cells are hidden from the mesh (a shop's auto walls are drawn as
   // thin panels instead), so they must not occlude their neighbours: otherwise
   // the floor slab under a hidden wall is culled and leaves a half-block void
-  // along the inside of the room.
-  const isSolid = (x: number, y: number, z: number): boolean =>
-    solid.has(key(x, y, z)) && !(skip !== undefined && skip.has(key(x, y, z)))
+  // along the inside of the room. A `fill` cell is the one exception that is
+  // solid without being in the station: it is the ground a run's truss hangs into.
+  const isSolid = (x: number, y: number, z: number): boolean => {
+    const k = key(x, y, z)
+    if (skip !== undefined && skip.has(k)) return false
+    return solid.has(k) || (fill !== undefined && fill.has(k))
+  }
   const H = BEVEL
 
   // Faces are sorted into one builder per finish, so a chunk yields a handful of
@@ -334,7 +388,26 @@ export function meshChunk(
     const S = !isSolid(x, y - 1, z)
     if (!up && !down && !E && !W && !N && !S) continue
 
-    const fin = finishes.get(key(x, y, z))
+    const k = key(x, y, z)
+    const filled = fill !== undefined && fill.has(k)
+    /**
+     * A block a run takes its volume out of ends on the run's **underside** instead of
+     * on the 1 m line: a plane sloping along one horizontal axis, in cell-local units,
+     * so a block under a 楼梯 / 扶梯 fills the space under the slope and stops at the
+     * truss. `undefined` is the ordinary full-height block, meshed exactly as it always
+     * was — and it is the common case, so the cut costs it nothing but the map miss.
+     */
+    const cut = up ? slope?.get(k) : undefined
+    /**
+     * The ground a truss hangs into, drawn as the **run's own body** instead of as a
+     * block of the cell: the cut carries the body's half-width (`slope`), so an
+     * escalator's filling is its truss box, in the run's steel, meeting the truss flush.
+     */
+    const truss = filled && cut !== undefined && cut.half !== undefined
+    // A filling cell the station holds nothing in wears the finish of the block it
+    // stands on — the ground carried up to the truss — unless it is that truss box,
+    // which wears the run's own steel so the escalator reads as one body.
+    const fin = truss ? TRUSS_FACES : finishes.get(k) ?? (filled ? finishes.get(key(x, y, z - 1)) : undefined)
     const topI = fin?.top !== undefined ? finishIdx(fin.top) : DEFAULT_TOP_I
     const bottomI = fin?.bottom !== undefined ? finishIdx(fin.bottom) : DEFAULT_BOTTOM_I
     const sideI: Record<'e' | 'w' | 'n' | 's', number> = fin
@@ -349,8 +422,13 @@ export function meshChunk(
     // A 半墙 cell meshes as the half of the block its panel hugs; every other
     // solid cell is a full block. The faces keep their own finishes either way, so
     // painting a 半墙 is painting a wall — one face per surface, both sides of it.
-    const side = thin?.get(key(x, y, z))
-    const profile = side ? buildThinProfile(side, E, W, N, S) : buildProfile(E, W, N, S)
+    let profile: Pt[]
+    if (filled && cut !== undefined && cut.half !== undefined) {
+      profile = buildTrussProfile(cut.axis, cut.half)
+    } else {
+      const side = thin?.get(k)
+      profile = side ? buildThinProfile(side, E, W, N, S) : buildProfile(E, W, N, S)
+    }
     // Per-point exposed normal and inward offset for the top bevel.
     const offs: Pt[] = profile.map((p, i) => {
       const prev = profile[(i - 1 + profile.length) % profile.length]
@@ -376,13 +454,6 @@ export function meshChunk(
     const oy = y
     const oz = z
     const wallTop = up ? 1 - H : 1
-    // A block a run takes its volume out of ends on the run's **underside**
-    // instead of on the 1 m line: a plane sloping along one horizontal axis, in
-    // cell-local units, so a block under a 楼梯 / 扶梯 fills the space under the
-    // slope and stops at the truss. `undefined` is the ordinary full-height block,
-    // meshed exactly as it always was — and it is the common case, so the cut costs
-    // it nothing but the map miss.
-    const cut = up ? slope?.get(key(x, y, z)) : undefined
     /** The cut plane at a profile point, clamped into the block; null when uncut. */
     let cutAt: ((px: number, py: number) => number) | null = null
     if (cut !== undefined) {

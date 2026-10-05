@@ -764,6 +764,24 @@ column the run's own walking line passes through is cut and a run's landing colu
 Nothing is added to the document: the cut is derived from the modules, the way the half panel beside a
 wide run is (`thinWallCells`).
 
+The last course under a truss is the one the brush may **not** lay: its top face would sit above the
+walking line, where the crowd's own floor is measured. So the ground used to stop a wedge short of the
+truss, with the storey below showing through. The renderer closes it instead: `rampFillKeys` names
+every cut cell the station holds nothing in that stands on solid ground, `SceneRenderer` keeps that set
+with the cuts (`SceneContext.slopeFills`), and `chunkMesher`'s `fill` argument draws each one as if the
+block below carried on up to the truss — shaved by the same cut, solid to every neighbour so the seam is
+never drawn. **Where the cut carries the run's drawn body half-width the filling *is* that body.** An
+escalator's body is its truss box, narrower than the cell, so its filling is built from the rectangle
+itself (`buildTrussProfile`: sharp, `ESCALATOR_BALUSTRADE` across the run, the full tile along it) in the
+run's own steel — the new 钢板 finish (`RAMP_SOFFIT_FINISH`), the truss's own dark brushed colour — so the
+skirt meets the truss flush instead of stepping out 9 cm either side. A stair carries no half-width: its
+treads run out to the cell edge, so its filling keeps the cell's shape and the finish of the block below
+it. 钢板 is a stock **ceiling** finish, so it is in the 材质 palette too — a block's bottom face can wear
+the same steel anywhere. Still no cell, no tag, nothing a tool has to keep in step: dig the ground away
+and the filling goes with it. The hover ghost reads it with the pending cells in place, so the wedge a
+block is about to create is previewed with it (`test/ramp-fill.test.mjs`, which also fits the drawn
+filling against the escalator model's own truss, `test/slope-cut.test.mjs`).
+
 **A wedge's top is the only drawn surface that is not a cell face**, and the pointer reads the drawn
 mesh: `THREE.Intersection.face.normal` is the triangle's own geometric normal, so `cell + normal` asked
 for a *fractional* block — laying 地基 beside the block under an escalator committed a block at
@@ -1151,7 +1169,13 @@ approximated); neither needs WebGL.
   cuts only the tiles its treads sweep (its landings stop the treads short), a landing column is never
   cut, a cut block is drawn as a slope with no flat cap, nothing a run cuts reaches back into its
   body on either an escalator or a straight stair, and a block out of the run's reach meshes exactly
-  as it always did.
+  as it always did. It also pins the derived filling (`rampFillKeys`): a packed key really does step one
+  block down by subtracting one, a filling sits only where the plane cuts over ground and never in the
+  document, and the drawn ground reaches the truss with no seam against the block it continues.
+* `ramp-fill.test.mjs` — the same filling through the **real renderer** (`ChunkSystem`): a single ground
+  column under an escalator draws up to the truss in both slice passes, a run hanging over void fills
+  nothing (no floating wedge), a block the station still holds there needs no filling, and a cut with no
+  ground under it fills nothing.
 * `stairs.test.mjs` — the five stair shapes, each one storey; every flight is a two-way graph edge
   between walkable landings, a switchback is walked bottom to top **across its half-landing** (in a
   stairwell with nothing else at the half height, so a sealed landing fails the test rather than

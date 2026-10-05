@@ -16,6 +16,7 @@ import { CHUNK, meshChunk } from '../../chunkMesher.ts'
 import { buildModule, disposeObject } from '../../models.ts'
 import type { ModuleContext } from '../../models.ts'
 import { HALF_WALL_T } from '../../../sim/constants.ts'
+import { rampFillKeys } from '../../../sim/openings.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { halfWallInnerFace, packKey } from '../../../sim/types.ts'
 import type { Face, Module, WallSide } from '../../../sim/types.ts'
@@ -166,6 +167,20 @@ export class GhostSystem extends SceneSystem {
         h = Math.imul(h ^ Math.round(cut.lo * 1024), 16777619)
         h = Math.imul(h ^ Math.round(cut.hi * 1024), 16777619)
       }
+      // A block under a run carries the ground up to the truss, and that filling is
+      // part of what the ghost draws: whether it exists depends on the cell above
+      // being free and on the run's cut there, neither of which the cell's own key
+      // carries.
+      const above = packKey(x, y, z + 1)
+      const fillCut = this.ctx.slopeCuts.get(above)
+      if (fillCut !== undefined && !this.ctx.solid.has(above)) {
+        h = Math.imul(h ^ 0x5bf03635, 16777619)
+        h = Math.imul(h ^ fillCut.axis.charCodeAt(0), 16777619)
+        h = Math.imul(h ^ Math.round(fillCut.lo * 1024), 16777619)
+        h = Math.imul(h ^ Math.round(fillCut.hi * 1024), 16777619)
+        // The run's drawn body width shapes that filling (a truss box, not a block).
+        if (fillCut.half !== undefined) h = Math.imul(h ^ Math.round(fillCut.half * 1024), 16777619)
+      }
     }
     return `${cells.length}:${h >>> 0}`
   }
@@ -184,21 +199,35 @@ export class GhostSystem extends SceneSystem {
     const emit = new Set<number>()
     const chunks = new Map<string, { cx: number; cy: number; cz: number }>()
     const added: number[] = []
+    const put = (x: number, y: number, z: number): void => {
+      chunks.set(`${Math.floor(x / CHUNK) * CHUNK},${Math.floor(y / CHUNK) * CHUNK},${z}`, {
+        cx: Math.floor(x / CHUNK) * CHUNK,
+        cy: Math.floor(y / CHUNK) * CHUNK,
+        cz: z,
+      })
+    }
     for (const [x, y, z] of cells) {
       const k = packKey(x, y, z)
       emit.add(k)
-      const cx = Math.floor(x / CHUNK) * CHUNK
-      const cy = Math.floor(y / CHUNK) * CHUNK
-      chunks.set(`${cx},${cy},${z}`, { cx, cy, cz: z })
+      put(x, y, z)
       if (!this.ctx.solid.has(k)) {
         this.ctx.solid.add(k)
         added.push(k)
       }
     }
+    // A block landing under a 楼梯 / 扶梯 carries the ground up to the truss: the
+    // filling above it (`rampFillKeys`, read with the pending cells in place) is part
+    // of what the release shows, so the preview draws it too.
+    const fills = rampFillKeys(this.ctx.solid, this.ctx.slopeCuts)
+    for (const [x, y, z] of cells) {
+      if (!fills.has(packKey(x, y, z + 1))) continue
+      emit.add(packKey(x, y, z + 1))
+      put(x, y, z + 1)
+    }
     const mat = this.shapeGhostMaterial()
     try {
       for (const { cx, cy, cz } of chunks.values()) {
-        const chunk = meshChunk(this.ctx.solid, this.ctx.finishes, cx, cy, cz, cz, emit, undefined, undefined, thin, this.ctx.slopeCuts)
+        const chunk = meshChunk(this.ctx.solid, this.ctx.finishes, cx, cy, cz, cz, emit, undefined, undefined, thin, this.ctx.slopeCuts, fills)
         for (const part of chunk.parts) {
           const geo = new THREE.BufferGeometry()
           geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3))

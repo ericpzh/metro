@@ -12,7 +12,7 @@ import { buildSolidSet, CHUNK, meshChunk } from '../../chunkMesher.ts'
 import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import { trackBedKeys } from '../../../sim/placement.ts'
-import { OPENING_CEILING, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
+import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
 import { stairTurnCells } from '../../../sim/stairs.ts'
 import { liftFootprintCells, liftStopZs } from '../../../sim/lifts.ts'
 import { facilityWallCells } from '../../../build/model.ts'
@@ -42,6 +42,11 @@ export class ChunkSystem extends SceneSystem {
    * chunk whose content is unchanged yields byte-identical geometry: reusing the
    * built meshes is not an approximation. The geometry is already on the GPU, so a
    * reuse skips both the meshing and the re-upload.
+   *
+   * The one thing the mesher reads from beyond a cell's own record is the **derived
+   * filling** a block carries up to a run's truss (`slopeFills`): it is decided by the
+   * block directly below — the same column and the same storey band, so the same chunk
+   * — and by the cut the chunk key already hashes.
    *
    * Entries not claimed by the current rebuild are disposed at the end of it, so the
    * cache holds exactly the chunks the station currently has.
@@ -95,6 +100,10 @@ export class ChunkSystem extends SceneSystem {
     // property of the run, not of the block), so the build ghost's pending cells
     // read their cut from the same map.
     this.ctx.slopeCuts = rampSlopeCuts(data.modules)
+    // The filling those cuts leave open where the player has laid no block: the
+    // wedge between the ground's top and the truss's underside. Drawn from the block
+    // below it (`rampFillKeys`), never a cell the document holds.
+    this.ctx.slopeFills = rampFillKeys(this.ctx.solid, this.ctx.slopeCuts)
     for (const m of data.modules) {
       if (m.type !== 'stair') continue
       for (const p of stairTurnCells(m)) {
@@ -190,6 +199,11 @@ export class ChunkSystem extends SceneSystem {
       if (c.z < entry.zLo) entry.zLo = c.z
       if (c.z > entry.zHi) entry.zHi = c.z
       entry.cells.push({ x: c.x, y: c.y, z: c.z })
+      // The filling this block carries up to a run's truss is meshed with it, in the
+      // block's own storey: it is that block's top surface, not a storey of its own.
+      // Listing it here is also what makes it part of the chunk's content hash, so a
+      // chunk re-meshes when the ground it grows from changes.
+      if (this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1))) entry.cells.push({ x: c.x, y: c.y, z: c.z + 1 })
     }
     // Solid set of just those unsupported plates, for meshing them on their own.
     // A block a ramp carve orphaned is skipped: it is the ceiling over that
@@ -228,6 +242,10 @@ export class ChunkSystem extends SceneSystem {
           h = Math.imul(h ^ cut.axis.charCodeAt(0), 16777619)
           h = Math.imul(h ^ Math.round(cut.lo * 1024), 16777619)
           h = Math.imul(h ^ Math.round(cut.hi * 1024), 16777619)
+          // How wide the run's drawn body is where the cut names a filling: an
+          // escalator's truss box is narrower than the cell, and which run owns the cut
+          // decides the shape the mesher draws there.
+          if (cut.half !== undefined) h = Math.imul(h ^ Math.round(cut.half * 1024), 16777619)
         }
         const fin = this.ctx.finishes.get(k)
         if (fin) {
@@ -314,7 +332,7 @@ export class ChunkSystem extends SceneSystem {
           }
           continue
         }
-        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts)
+        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills)
         if (chunk.triangles === 0) continue
         this.ctx.lastChunkMs = Math.max(this.ctx.lastChunkMs, chunk.ms)
         const meshes: THREE.Mesh[] = []
@@ -377,8 +395,19 @@ export class ChunkSystem extends SceneSystem {
       // be shown separately: a storey below the active level draws whole, while a
       // plate hanging above it still stays on screen.
       meshBand(group, levelZ, band.cells, this.ctx.solid, emit, false)
-      const floats = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
-      if (floats.length > 0) meshBand(group, levelZ, floats, floating, emit, true)
+      const plates = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
+      if (plates.length > 0) {
+        // The ground a plate carries up to a run's truss is meshed with it here too,
+        // so the plate draws the same surface in both passes: the second pass holds
+        // only the plates as solid, and the filling standing on one would otherwise
+        // be left out — and cull the plate's own top face for nothing.
+        const floats = plates.concat(
+          plates
+            .filter((c) => this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1)))
+            .map((c) => ({ x: c.x, y: c.y, z: c.z + 1 })),
+        )
+        meshBand(group, levelZ, floats, floating, emit, true)
+      }
       this.levelGroups.set(levelZ, group)
       this.ctx.scene.add(group)
     }

@@ -17,7 +17,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
-import { RAMP_FOOT, carveRampOpenings, rampBodyBoxes, rampSlopeCuts } from '../src/sim/openings.ts'
+import { RAMP_FOOT, carveRampOpenings, rampBodyBoxes, rampFillKeys, rampSlopeCuts } from '../src/sim/openings.ts'
+import { ESCALATOR_BALUSTRADE } from '../src/sim/constants.ts'
 import { reservedOpening } from '../src/sim/placement.ts'
 import { addCells } from '../src/build/model/Cells.ts'
 import { createModule } from '../src/build/model.ts'
@@ -70,6 +71,30 @@ function mesh(cell, slope) {
     }
   }
   return out
+}
+
+/**
+ * Every vertex the mesher draws for a set of cells to visit, against a solid set the
+ * caller owns (so a *derived* filling can be visited without being solid).
+ */
+function meshCells(visit, solid, slope, fill) {
+  const emit = new Set(visit.map((c) => packKey(c.x, c.y, c.z)))
+  const zs = visit.map((c) => c.z)
+  const chunk = meshChunk(solid, new Map(), 0, 0, Math.min(...zs), Math.max(...zs), emit, undefined, visit, undefined, slope, fill)
+  const out = []
+  for (const part of chunk.parts) {
+    for (let i = 0; i < part.positions.length; i += 3) {
+      out.push([part.positions[i], part.positions[i + 1], part.positions[i + 2]])
+    }
+  }
+  return out
+}
+
+/** The highest vertex drawn over the cell `(x, y)`. */
+function topOver(verts, x, y) {
+  const inCell = verts.filter((p) => p[0] >= x - 1e-9 && p[0] <= x + 1 + 1e-9 && p[1] >= y - 1e-9 && p[1] <= y + 1 + 1e-9)
+  assert.ok(inCell.length > 0, `nothing drawn over (${x}, ${y})`)
+  return Math.max(...inCell.map((p) => p[2]))
 }
 
 /* ------------------------------------------------------------ placing it */
@@ -195,10 +220,74 @@ test('nothing a run cuts reaches above its own body, escalator or stair', () => 
   }
 })
 
+test('the cut carries the drawn body’s width where it is narrower than the cell', () => {
+  // An escalator's body is its truss box, so the filling under it is drawn as that box
+  // rather than as a block of the cell. A stair's treads run out to the cell edge, so its
+  // cut stays cell-wide and its filling keeps the ground's own shape.
+  const esc = escalator()
+  for (const cut of rampSlopeCuts([esc]).values()) {
+    assert.equal(cut.half, ESCALATOR_BALUSTRADE / 2, 'an escalator cut must carry its truss half-width')
+  }
+  const stair = createModule('stair-straight', 0, 0, -4, 's1', 0, undefined)
+  assert.ok(stair && stair.type === 'stair')
+  for (const cut of rampSlopeCuts([stair]).values()) {
+    assert.equal(cut.half, undefined, 'a stair cut must stay cell-wide')
+  }
+})
+
 test('a block out of the run’s reach is meshed exactly as it always was', () => {
   const cell = { x: 4, y: 0, z: 5 }
   const plain = mesh(cell, undefined)
   const withCuts = mesh(cell, rampSlopeCuts([escalator()]))
   assert.deepEqual(withCuts, plain, 'the cut map must not touch a block it does not name')
   assert.ok(Math.abs(Math.max(...plain.map((p) => p[2])) - 6) < 1e-6, 'an uncut block still fills its cell')
+})
+
+/* -------------------------------------- the filling no block has to cover */
+
+test('a packed key steps one block down by subtracting one', () => {
+  // `rampFillKeys` reads the block under a cut cell as `key - 1`: `packKey`'s z term
+  // is the last one it adds, so the step holds for every coordinate a station can
+  // use. If it ever stopped holding, a filling would stand on the wrong block.
+  for (const [x, y, z] of [[0, 0, 0], [5, 0, 1], [-3, 7, -8], [4095, -4095, 4095], [-4096, 4096, -4096]]) {
+    assert.equal(packKey(x, y, z - 1), packKey(x, y, z) - 1, `packKey(${x}, ${y}, ${z}) does not step down by one`)
+  }
+})
+
+test('the ground under a run is drawn up to the truss, and no cell is added', () => {
+  const esc = escalator()
+  const floor = []
+  for (let x = 0; x <= 8; x++) for (let y = -1; y <= 1; y++) floor.push({ x, y, z: 0, fill: 'solid' })
+  const solid = buildSolidSet(floor)
+  const cuts = rampSlopeCuts([esc])
+  const fills = rampFillKeys(solid, cuts)
+
+  // The course the truss crosses just above the floor is the one that used to be
+  // left open: the brush cannot lay it (its nominal top is above the walking line),
+  // and the block below it does not reach the truss on its own.
+  assert.ok(fills.has(packKey(5, 0, 1)), 'the wedge above the floor is a filling')
+  for (const k of fills) {
+    assert.ok(cuts.has(k), `the filling ${k} is not where the plane cuts`)
+    assert.ok(!solid.has(k), `the filling ${k} is a block the station already holds`)
+    assert.ok(solid.has(k - 1), `the filling ${k} stands on nothing`)
+  }
+
+  // The drawn ground: the floor alone stops at its ceiling, and with the filling the
+  // same column reaches the truss's underside.
+  const filledCells = [...fills].map((k) => {
+    const [x, y, z] = unpack(k)
+    return { x, y, z }
+  })
+  const plain = meshCells(floor, solid, cuts, undefined)
+  const filled = meshCells(floor.concat(filledCells), solid, cuts, fills)
+  const truss = line(esc, 5, 0.5) - RAMP_FOOT
+  assert.ok(Math.abs(topOver(plain, 5, 0) - 1) < 1e-6, 'the floor alone stops at its own ceiling')
+  assert.ok(
+    Math.abs(topOver(filled, 5, 0) - truss) < 0.02,
+    `the filled ground reaches ${topOver(filled, 5, 0)}, not the truss at ${truss}`,
+  )
+  // The filling is drawn as one surface with the block it continues: no face between
+  // them, or the wedge would read as a loose slab sitting on the floor.
+  const between = filled.filter((p) => z2eq(p[2], 1) && p[0] > 5.2 && p[0] < 5.8 && p[1] > 0.2 && p[1] < 0.8)
+  assert.deepEqual(between, [], 'the seam between the floor and its filling is drawn')
 })

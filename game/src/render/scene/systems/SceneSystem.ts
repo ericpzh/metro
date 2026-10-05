@@ -117,7 +117,9 @@ export interface SceneContext {
    * and that stands on solid ground. The mesher draws those cells as if the block
    * below carried on up to the truss, so the wedge under a 楼梯 / 扶梯 is filled
    * without a document cell — laid by no tool, kept in step by nothing. Derived from
-   * the run and the blocks, so it appears and disappears with them.
+   * the run and the blocks, so it appears and disappears with them. It is drawn
+   * geometry, so the pointer picks it like ground; no tool can write it (a cell the
+   * document does not hold cannot be dug, painted or built on).
    */
   slopeFills: Set<number>
   /** Cells whose top finish is the track bed, for the same preview context. */

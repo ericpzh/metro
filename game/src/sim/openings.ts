@@ -26,7 +26,7 @@
 //   * pure data, no DOM, no three.
 
 import { halfWallSide, isWallBlock, packKey, type Cell, type Module, type Vec3i, type WallSide } from './types.ts'
-import { ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
+import { ESCALATOR_BALUSTRADE, ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { exitFloorAt } from './exits.ts'
 import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
 
@@ -195,6 +195,43 @@ export interface SlopeCut {
   lo: number
   /** The same at its high edge. */
   hi: number
+  /**
+   * Half-width of the run's **drawn** body across that axis where it is narrower than
+   * the cell — an escalator's truss box (`ESCALATOR_BALUSTRADE / 2`). Absent where the
+   * body fills the cell, which is what a stair's treads do: they run out to the cell
+   * edge, so a block under them is shaved across its whole footprint.
+   *
+   * The filling under a run reads this to be drawn *as the body* it hangs from rather
+   * than as a block of the cell's size (`chunkMesher`'s `fill` path), so an escalator's
+   * skirt meets its truss flush instead of stepping out 9 cm either side.
+   */
+  half?: number
+}
+
+/**
+ * The ground a run's truss hangs into, where no block was laid: every cell
+ * `rampSlopeCuts` names that is **void** and stands on a **solid** block — the wedge
+ * between the top of the ground below and the truss's underside, by packed cell key.
+ *
+ * Nothing is added to the station. The brush may not lay this course (its nominal top
+ * would sit above the walking line, where the crowd's own floor is measured), so the
+ * gap under a truss would stay open to the storey below. The renderer draws it instead:
+ * the cut that would shave a block laid there shaves this filling the same way, so the
+ * ground reads as rising to the truss, and it appears and disappears with the ground
+ * and the run on its own (`thinWallCells` is the same kind of derived surface).
+ *
+ * `solid` holds packed cell keys, and a cell's own key minus one is the cell directly
+ * under it (`packKey`'s z term is the last one it adds), so the block below is found
+ * without unpacking a coordinate.
+ */
+export function rampFillKeys(solid: ReadonlySet<number>, slopes: ReadonlyMap<number, SlopeCut>): Set<number> {
+  const out = new Set<number>()
+  for (const k of slopes.keys()) {
+    if (solid.has(k)) continue
+    if (!solid.has(k - 1)) continue
+    out.add(k)
+  }
+  return out
 }
 
 /**
@@ -276,7 +313,12 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
           // Two runs over one block — an exit crossed by a stair — are settled by
           // whichever bites deeper, so the block clears both.
           if (prev !== undefined && Math.min(prev.lo, prev.hi) <= Math.min(lo, hi)) continue
-          out.set(k, { axis, lo, hi })
+          const cut: SlopeCut = { axis, lo, hi }
+          // An escalator's body is its truss box, narrower than the cell: the filling
+          // under it is drawn as that box. A stair's treads run out to the cell edge, so
+          // its cut stays cell-wide.
+          if (m.type === 'escalator') cut.half = ESCALATOR_BALUSTRADE / 2
+          out.set(k, cut)
         }
       }
     }

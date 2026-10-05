@@ -262,7 +262,28 @@ build/ →  sim/            (and neither render/ nor app/)
   the carve keeps (a run's opening starts at its walking line, not at its truss), and
   it reads as the filling under the slope. Only the run's own centreline column is
   cut, a landing column never is, and nothing is added to the document — the cut is
-  derived, like the half panel beside a wide run. `test/slope-cut.test.mjs`.
+  derived, like the half panel beside a wide run.
+  **The last course under a truss is the one the brush may not lay** (its top face
+  would sit above the walking line, where the crowd's own floor is measured), so the
+  renderer draws the rest of the filling: `rampFillKeys` names every cut cell the
+  station holds nothing in that stands on solid ground, `SceneRenderer` keeps that set
+  with the cuts (`SceneContext.slopeFills`), and `chunkMesher`'s `fill` argument draws
+  each one as if the block below carried on up to the truss — shaved by the same cut,
+  solid to its neighbours so the seam is never drawn. Where the cut carries the run's
+  drawn body half-width (an escalator's truss box; a stair's treads run out to the cell
+  edge and carry none) the filling *is* that body: a sharp rectangle `2 × half` across the
+  run, in the run's own steel (`RAMP_SOFFIT_FINISH`, 钢板), so the skirt meets the truss
+  flush instead of stepping out 9 cm either side. Anywhere else it wears the finish of the
+  block below. No
+  cell, no tag, nothing to keep in step (dig the ground and the filling goes with it),
+  and the hover ghost reads it with the pending cells in place. 钢板 is a stock ceiling
+  finish too, so a player can paint a block's bottom face with the same steel.
+  **A wedge's top is the one drawn surface in the game that is not a cell face**, so
+  the pointer's placement cell is snapped by axis (`render/pickCell.ts`, which also
+  snaps a rounded block corner) and never `cell + face.normal`: that arithmetic asked
+  for a fractional block, which no tool can address again. `test/slope-cut.test.mjs`
+  pins the cut and the derivation, `test/ramp-fill.test.mjs` the filling through the
+  real chunk system, `test/pick-cell.test.mjs` the pick over both.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
   `sim/world.ts`). A rail is a `track` module bound to a line and an `up`/`down`
   direction: a fixed, pre-rendered piece — a car-width bed (`d = 3`) and a run
@@ -790,8 +811,12 @@ build/ →  sim/            (and neither render/ nor app/)
   over a block no tool can see. A load that had to repair says so in the 打开 notice,
   the shipped file is nonetheless kept clean (11305 cells where the save has 11324),
   and `demo.test.mjs` fails if one ever arrives. Nothing in the game can *mint* one —
-  `test/grid.test.mjs` is the guard on that, and it is the file to extend if you add
-  a tool that writes cells. After a
+  a pick names whole cells (`render/pickCell.ts`: the block hit, and the block one step
+  out along the face it was hit on), pinned against real meshed geometry by
+  `test/pick-cell.test.mjs`, which is where an off-axis drawn face — the wedge under a
+  楼梯 / 扶梯, a rounded block corner — used to leak a fraction into a tool;
+  `test/grid.test.mjs` is the guard on the commands downstream of the pick, and it is the
+  file to extend if you add a tool that writes cells. After a
   refresh, re-check `reference-station.ts`'s header comment — it names the
   station's levels, lifts, stairs, escalators, rooms and exits — plus the demo
   facts `placement.test.mjs` pins (the two straight platform stairs, and which

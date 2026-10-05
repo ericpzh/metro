@@ -2,15 +2,25 @@
 // A paint drag lives on the pressed face's plane — only the two in-plane axes
 // change — and only cells that actually present that face are targets.
 
+import { faceAxis } from '../../../render/pickCell.ts'
 import { facePresent } from '../../../build/model.ts'
 import type { Face, WallSide } from '../../../sim/types.ts'
 
-/** The face a picked normal belongs to; rounded corners snap to the dominant axis. */
+/** Which `Face` each axis names, facing negative then positive. */
+const FACE_OF_AXIS: Record<'x' | 'y' | 'z', [Face, Face]> = {
+  x: ['w', 'e'],
+  y: ['s', 'n'],
+  z: ['bottom', 'top'],
+}
+
+/**
+ * The face a picked normal belongs to; rounded corners snap to the dominant axis.
+ * The rule itself is `faceAxis` (`render/pickCell.ts`), shared with the pick, so
+ * the face this brush paints and the cell a block lands in cannot disagree.
+ */
 export function dominantFace(n: [number, number, number]): Face {
-  const [nx, ny, nz] = n
-  if (Math.abs(nz) >= Math.abs(nx) && Math.abs(nz) >= Math.abs(ny)) return nz >= 0 ? 'top' : 'bottom'
-  if (Math.abs(nx) >= Math.abs(ny)) return nx >= 0 ? 'e' : 'w'
-  return ny >= 0 ? 'n' : 's'
+  const { axis, positive } = faceAxis(n)
+  return FACE_OF_AXIS[axis][positive ? 1 : 0]
 }
 
 /** Outward normal of each face: the paint plane's axis and the quad orientation. */

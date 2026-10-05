@@ -7,12 +7,18 @@ import type { Cell, Module, StationData } from '../../sim/types.ts';
  * True when a cell sits on the 1 m editing grid, with a coordinate a double can
  * represent at all (`NaN`/`Infinity` stringify to `null`).
  *
- * Every build command takes its coordinates from a pick — which floors the ray
- * hit (`scene.pick`) — or from whole-cell arithmetic, so **the game cannot mint a
- * cell off the grid**; a save is the only place one can appear, and one that did
- * (the author's own station carried 19) is invisible to every tool: a pick snaps
- * to integers, `removeCells` matches an exact coordinate, the graph gives it a
- * degree-0 node and the mesher draws it as a block offset from its neighbours.
+ * Every build command takes its coordinates from a pick — which names whole cells
+ * (`render/pickCell.ts`: the block hit, and the block one step out along the face
+ * it was hit on) — or from whole-cell arithmetic, so **the game cannot mint a cell
+ * off the grid**; a save is the only place one can appear, and one that did (the
+ * author's own station carried 19) is invisible to every tool: a pick names whole
+ * cells, `removeCells` matches an exact coordinate, the graph gives it a degree-0
+ * node and the mesher draws it as a block offset from its neighbours.
+ *
+ * It is the *placement* cell that is the trap: the drawn face's normal is the
+ * triangle's, and a block under a run is meshed as a wedge while every block edge
+ * is rounded, so `cell + normal` is a fraction. `game/test/pick-cell.test.mjs`
+ * rays real chunk geometry to hold that down.
  */
 export function isGridCell(c: { x: number; y: number; z: number }): boolean {
   return Number.isFinite(c.x) && Number.isFinite(c.y) && Number.isFinite(c.z) &&
