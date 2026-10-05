@@ -700,69 +700,6 @@ export function capTop(parent: THREE.Object3D, mat: THREE.Material, x: number, y
 }
 
 /**
- * A **mitre cap**: the triangular half of a wall corner, extruded from `z` to
- * `z + h`. `legs` are the two outward directions of the corner (e.g. `[-1, -1]`
- * for a south-west corner) and `T` the wall's thickness; the triangle fills the
- * corner square cut on its diagonal, so the two runs of a wall meet on a 45° seam
- * and the corner is exactly `T` thick on both of its faces instead of two panels
- * deep.
- *
- * It is a real shape rather than a box because a mitre **is** a triangle: two
- * boxes in that square would either stack into the doubling this replaces or step
- * against each other. World space, absolute metres — the caller hands the corner
- * square's own `(x, y)` and the prism stands on it.
- */
-export function mitreCap(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, T: number, h: number, legs: [number, number]): void {
-  const [lx, ly] = legs
-  // One thickness in along each of the two outer edges is where the 45° seam
-  // meets them; the corner square's own far corner is the third point.
-  const p: [number, number] = [lx < 0 ? T : 1 - T, ly < 0 ? 0 : 1]
-  const q: [number, number] = [lx < 0 ? 0 : 1, ly < 0 ? T : 1 - T]
-  const far: [number, number] = [lx < 0 ? 1 : 0, ly < 0 ? 1 : 0]
-  const shape = new THREE.Shape()
-  // CCW, which is what `ExtrudeGeometry` reads as "outside": its side walls and lids
-  // take their winding from the contour.
-  shape.moveTo(p[0], p[1])
-  shape.lineTo(q[0], q[1])
-  shape.lineTo(far[0], far[1])
-  shape.closePath()
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false })
-  // A wall finish is painted with the **chunk mesher's** material, which reads a
-  // per-vertex colour (`render/materials.ts` — the mesher bakes its AO there). A
-  // fresh geometry has no such attribute, and an attribute the shader wants but the
-  // buffer lacks reads as black, which is a black wedge driven through the wall. So
-  // the cap carries the same attribute at full white — no occlusion in a corner —
-  // and UVs measuring one metre per texture tile, the mesher's own convention, so
-  // its granite is the same size as the wall it continues.
-  const pos = geo.attributes.position
-  const uv = new Float32Array(pos.count * 2)
-  const col = new Float32Array(pos.count * 3)
-  for (let i = 0; i < pos.count; i++) {
-    const vx = pos.getX(i)
-    const vy = pos.getY(i)
-    const vz = pos.getZ(i)
-    // No single normal says which plane a corner vertex belongs to, so the UV is
-    // taken by which extent is the odd one out: the extrusion axis is the third.
-    if (vz < 1e-6 || vz > h - 1e-6) {
-      uv[i * 2] = vx
-      uv[i * 2 + 1] = vy
-    } else {
-      uv[i * 2] = lx < 0 || ly < 0 ? vy : vx
-      uv[i * 2 + 1] = vz
-    }
-    col[i * 3] = 1
-    col[i * 3 + 1] = 1
-    col[i * 3 + 2] = 1
-  }
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
-  const m = new THREE.Mesh(geo, mat)
-  m.position.set(x, y, z)
-  parent.add(m)
-  m.userData.wall = true
-}
-
-/**
  * A **trapezoidal prism**: a box whose top face is shorter than its base, so a
  * cabinet can wear the reference gate's 115° shoulder instead of reading as a
  * plain brick. `y0`/`y1` are the base's near and far faces, `yt0`/`yt1` the top's,
@@ -1017,7 +954,7 @@ export function registerDoorLeaf(mesh: THREE.Mesh, sign: number, travel: number,
 /**
  * The abstract base every module builder extends (Lane E, R4 + R5).
  *
- * The shared geometry kit (slab/plate/prism/mitreCap/finishSlab) and the fence
+ * The shared geometry kit (slab/plate/prism/finishSlab) and the fence
  * panels live here as plain functions so the moved builder bodies call them
  * verbatim, and again as protected methods so a subclass reaches the same kit
  * through inheritance. The module context (materials, ad art, station document)
@@ -1040,9 +977,6 @@ export abstract class PieceBuilder {
   }
   protected capTop(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, sx: number, sy: number, h = 0.06): void {
     capTop(parent, mat, x, y, z, sx, sy, h)
-  }
-  protected mitreCap(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, T: number, h: number, legs: [number, number]): void {
-    mitreCap(parent, mat, x, y, z, T, h, legs)
   }
   protected prism(parent: THREE.Object3D, mat: THREE.Material, xw: number, y0: number, y1: number, yt0: number, yt1: number, z0: number, z1: number): THREE.Mesh {
     return prism(parent, mat, xw, y0, y1, yt0, yt1, z0, z1)

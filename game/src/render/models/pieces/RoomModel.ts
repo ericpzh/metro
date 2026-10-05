@@ -1,7 +1,7 @@
 // Walled facility room builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, slab, mitreCap, finishSlab } from '../PieceBuilder.ts'
+import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { facilityWallCells, SHOP_WALL_H } from '../../../build/model.ts'
 import { HALF_WALL_T } from '../../../sim/constants.ts'
@@ -91,19 +91,22 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
     const h = zHi - zLo + 1
     const cz = (zLo + zHi + 1) / 2
     // Where the room's own west/east run meets its own south/north run, the two
-    // panels used to want the same cell — two 0.5 m walls stacked into one square
-    // metre, which is the lump of extra thickness every corner of the room wore.
-    // The ring is **mitred** instead: the west/east run keeps the full depth of the
-    // corner cell, the south/north run stops one thickness short of it, and the
-    // corner square is filled by a single `mitreCap` cut on its diagonal. Both legs
-    // keep their own outer face, they meet on a 45° seam, and the corner is exactly
-    // one wall thick on every side.
+    // panels must not both want the same cell — two 0.5 m walls stacked into one
+    // square metre would be a lump of extra thickness at every corner. So the
+    // west/east run takes the corner cell **whole**: its 1 m depth reaches the far
+    // outer face, which is what closes the other run's end. The south/north run
+    // stops one thickness short of it and butts against the west/east panel's inner
+    // face, meeting it on the plane between them. The result is a plain 90° corner
+    // at both the room's own corner and the one its two inner faces make, one panel
+    // thick on every side, with the corner cell's inner half still free for
+    // furniture. (A `mitreCap` triangular prism used to fill that cell on its
+    // diagonal; its apex reached the cell's *inner* corner, so it also laid a 0.5 m
+    // wedge across the free half. There is nothing left for it to fill.)
     const cornerX = x === x0 || x === x1
-    const cornerY = y === y0 || y === y1
     if (y === y0 || y === y1) {
       // A south/north panel crosses the room's whole width, giving the corner
-      // square to the mitre at each end it owns (`cornerX` is this column's own
-      // side of the room, not merely a column on the perimeter).
+      // square to the west/east run at each end it owns (`cornerX` is this column's
+      // own side of the room, not merely a column on the perimeter).
       const a = x === x0 && cornerX ? x0 + WALL_T : x
       const b = x === x1 && cornerX ? x1 + 1 - WALL_T : x + 1
       const cy = y === y0 ? y + WALL_T / 2 : y + 1 - WALL_T / 2
@@ -112,17 +115,10 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
       if (b > a) finishSlab(g, wallMat(key, y === y0 ? 'n' : 's'), (a + b) / 2, cy, cz, b - a, WALL_T, h).userData.wall = true
     }
     if (cornerX) {
+      // One square-ended panel per west/east run column, the corner cell included:
+      // no diagonal, so the two runs cannot leave a seam to mitre.
       const cxx = x === x0 ? x + WALL_T / 2 : x + 1 - WALL_T / 2
-      if (!cornerY) {
-        finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h).userData.wall = true
-      } else {
-        // The west/east run spans the corner cell's whole depth, so its leg reaches
-        // the outer face of the south/north wall; the mitre then fills the triangle
-        // the two legs leave between them. The cap wears the finish of the leg whose
-        // inward face it is the continuation of.
-        finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h).userData.wall = true
-        mitreCap(g, wallMat(key, x === x0 ? 'e' : 'w'), x, y, zLo, WALL_T, h, [x === x0 ? -1 : 1, y === y0 ? -1 : 1])
-      }
+      finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h).userData.wall = true
     }
   }
 
