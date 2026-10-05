@@ -46,7 +46,29 @@ function station() {
   level.chunks = { levelGroups, outlineSet: new Set(), chunkMeshes: [], outlineMeshes: [] }
   level.modules = { moduleMeshes: new THREE.Group() }
   level.trains = { trainGroup: new THREE.Group() }
-  return { ctx, level, meshAt: (lz) => levelGroups.get(lz).children[0] }
+  return { ctx, level, levelGroups, meshAt: (lz) => levelGroups.get(lz).children[0] }
+}
+
+/**
+ * The same station, but the active storey's mesh is a **wall** — with its dark
+ * outline hull standing beside it, the way the mesher draws one — so 隐藏墙壁 has
+ * something to act on. `wallPanel` is the same face as a module (a 屏蔽门).
+ */
+function wallStation() {
+  const s = station()
+  const group = s.levelGroups.get(B1)
+  const face = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x999999 }))
+  face.userData.baseMaterial = face.material
+  face.userData.wall = true
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.02, 1.02), new THREE.MeshStandardMaterial({ color: 0x111111 }))
+  hull.userData.baseMaterial = hull.material
+  hull.userData.wall = true
+  group.add(face, hull)
+  s.level.chunks.outlineSet = new Set([hull])
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x999999 }))
+  panel.userData.wall = true
+  s.level.modules.moduleMeshes.add(panel)
+  return { ...s, wallFace: face, wallHull: hull, wallPanel: panel }
 }
 
 const planesOf = (mesh) => mesh.material.clippingPlanes
@@ -119,4 +141,33 @@ test('while a cut is on the slice is put away: every storey draws, opaque', () =
   level.setCutaway(false)
   applyClipAll(level, [meshAt(B1), meshAt(B2)], null)
   assert.equal(isClipped(meshAt(B2)), false, 'no cut, no plane')
+})
+
+test('隐藏墙壁 hides walls completely while a cut is on, and reads through otherwise', () => {
+  const s = wallStation()
+  const { level, wallFace, wallHull, wallPanel } = s
+
+  // 隐藏墙壁 alone: the wall faces read through at 16%, and the dark outline hull
+  // is dropped — left in, it draws a solid black wall around its own faces.
+  level.setHideWalls(true)
+  assert.equal(wallFace.visible, true, 'the wall face is still there')
+  assert.equal(wallFace.material.opacity, 0.16, 'but reads through')
+  assert.equal(wallHull.visible, false, 'and its outline hull is gone')
+  assert.equal(wallPanel.material.opacity, 0.16, 'a 屏蔽门 reads through the same way')
+
+  // The cut joins in. Now a translucent wall is still an occluder, and the pair
+  // exists to look at what the cut exposes — so the wall goes entirely, faces and
+  // hull and module alike.
+  const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0)
+  level.setCutaway(true)
+  applyClipAll(level, [wallFace, wallHull, s.meshAt(B1), s.meshAt(B2)], plane)
+  assert.equal(wallFace.visible, false, 'with the cut on, the wall face is gone — not see-through, gone')
+  assert.equal(wallHull.visible, false, 'and the hull with it')
+  assert.equal(wallPanel.visible, false, 'and a 屏蔽门 module too')
+  assert.equal(s.meshAt(B1).visible, true, 'while the rest of the storey is still there to be cut through')
+
+  // 隐藏墙壁 off, cut still on: the wall is part of the building again.
+  level.setHideWalls(false)
+  assert.equal(wallFace.visible, true, 'the wall comes back when 隐藏墙壁 is switched off')
+  assert.equal(wallFace.material.opacity, 1, 'opaque, as the building')
 })

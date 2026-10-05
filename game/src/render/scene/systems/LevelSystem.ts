@@ -114,7 +114,7 @@ export class LevelSystem extends SceneSystem {
         if (straight) {
           mesh.visible = true
           const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
-          mesh.material = this.ctx.hideWalls && mesh.userData.wall === true ? this.clearOf(base) : base
+          this.dressWall(mesh, base, isOutline, clip)
           this.clipMesh(mesh, clip)
           continue
         }
@@ -123,14 +123,13 @@ export class LevelSystem extends SceneSystem {
         this.slice.unsupported = mesh.userData.float === true
         mesh.visible = levelVisible(side, this.slice)
         if (!mesh.visible) continue
-        // 隐藏墙壁: fade the wall faces, and drop their dark outline hull, which
-        // would otherwise read as a solid black wall around the translucent faces.
-        if (this.ctx.hideWalls && mesh.userData.wall === true) {
-          if (isOutline) {
-            mesh.visible = false
-            continue
-          }
-          mesh.material = this.clearOf(this.baseOf(mesh))
+        // **A wall takes its `visible` flag from this branch, not from the walk
+        // before it** — and the walk may have been the one that hid it (隐藏墙壁 with
+        // a cut on hides walls outright). Setting it back is what lets a wall return
+        // when either toggle is switched off.
+        if (mesh.userData.wall === true) {
+          mesh.visible = true
+          this.dressWall(mesh, this.baseOf(mesh), isOutline, clip)
           this.clipMesh(mesh, clip)
           continue
         }
@@ -177,9 +176,10 @@ export class LevelSystem extends SceneSystem {
       const mesh = o as THREE.Mesh
       if (!mesh.isMesh) return
       const base = this.baseOf(mesh)
-      // 隐藏墙壁: a wall panel or a platform screen door reads through.
-      if (this.ctx.hideWalls && mesh.userData.wall === true) mesh.material = this.clearOf(base)
-      else mesh.material = side === 'active' || straight ? base : this.dimOf(base)
+      // 隐藏墙壁: a wall panel or a platform screen door reads through — and goes
+      // altogether while a cut is on (`dressWall`).
+      if (this.dressWall(mesh, base, false, clip)) return
+      mesh.material = side === 'active' || straight ? base : this.dimOf(base)
       this.clipMesh(mesh, clip)
     })
   }
@@ -221,6 +221,48 @@ export class LevelSystem extends SceneSystem {
   baseOf(mesh: THREE.Mesh): THREE.Material {
     if (!mesh.userData.base) mesh.userData.base = mesh.material
     return mesh.userData.base as THREE.Material
+  }
+
+  /**
+   * **隐藏墙壁**, in both slices. It is the one toggle that survives a cut (it is a
+   * look-through, not a way of drawing a storey), but it cannot mean the same thing
+   * in both modes:
+   *
+   * * Slice **on**: walls read through at 16%, and their dark outline hull is
+   *   dropped — left in, that hull draws a solid black wall around its own
+   *   translucent faces.
+   * * Cut **on**: the slice is put away and geometry is clipped instead, so a wall
+   *   in the kept half still stands between the camera and everything behind it.
+   *   A translucent wall is still an occluder you can see through *badly*: the
+   *   whole point of the pair is to look at what the cut exposes, so a wall the
+   *   player asked to hide goes **completely** — faces and hull alike.
+   *
+   * Returns true when the mesh was taken over (hidden, or given the see-through
+   * clone), so the caller knows not to dress it again.
+   */
+  private dressWall(mesh: THREE.Mesh, base: THREE.Material, isOutline: boolean, clip: THREE.Plane | null): boolean {
+    const wall = mesh.userData.wall === true
+    // Leaving 隐藏墙壁: put the wall back as the building rather than as a
+    // see-through clone. This has to happen here and not only in the walk, because
+    // with a cut on the walk's *slice* does not change when this toggle does — it
+    // is already `straight` — so the walk is skipped as a repeat and nothing would
+    // ever hand the base material back.
+    if (!this.ctx.hideWalls) {
+      if (wall) {
+        mesh.visible = true
+        mesh.material = base
+        this.clipMesh(mesh, clip)
+      }
+      return false
+    }
+    if (!wall) return false
+    if (isOutline || this.ctx.cutaway) {
+      mesh.visible = false
+      return true
+    }
+    mesh.material = this.clearOf(base)
+    this.clipMesh(mesh, clip)
+    return true
   }
 
   /**
