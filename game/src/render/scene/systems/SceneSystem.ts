@@ -111,6 +111,15 @@ export interface SceneContext {
    * ghost is previewing reads its cut too.
    */
   slopeCuts: Map<number, SlopeCut>
+  /**
+   * The filling the ground under a run is missing, by packed cell key
+   * (`rampFillKeys`): a block `rampSlopeCuts` names that the station holds nothing in
+   * and that stands on solid ground. The mesher draws those cells as if the block
+   * below carried on up to the truss, so the wedge under a 楼梯 / 扶梯 is filled
+   * without a document cell — laid by no tool, kept in step by nothing. Derived from
+   * the run and the blocks, so it appears and disappears with them.
+   */
+  slopeFills: Set<number>
   /** Cells whose top finish is the track bed, for the same preview context. */
   trackCellSet: Set<string>
   /** Lowest storey each column reaches; a block there has nothing under it. */
@@ -128,6 +137,13 @@ export interface SceneContext {
    * lattice (`GridSystem`), not here.
    */
   hideUI: boolean
+  /**
+   * 剖切: a surface is cutting the station. While it is on the slice is put away as
+   * well (`levelSlicing.sliceOptions` takes the cut alongside 隐藏UI), so Q/E stop
+   * choosing a storey to ghost and the only thing that hides any of the station is
+   * the plane.
+   */
+  cutaway: boolean
   /** The slice state the last `applyLevel` applied, so a repeat is skipped. */
   levelKey: string
   dimMats: Map<THREE.Material, THREE.Material>
@@ -176,6 +192,7 @@ export class SceneContextData implements SceneContext {
   hiddenCells = new Set<number>()
   thinSides = new Map<number, WallSide>()
   slopeCuts = new Map<number, SlopeCut>()
+  slopeFills = new Set<number>()
   trackCellSet = new Set<string>()
   groundOf = new Map<string, number>()
   activeZ = 0
@@ -183,6 +200,7 @@ export class SceneContextData implements SceneContext {
   autoCeiling = true
   hideWalls = false
   hideUI = false
+  cutaway = false
   levelKey = ''
   dimMats = new Map<THREE.Material, THREE.Material>()
   clearMats = new Map<THREE.Material, THREE.Material>()

@@ -132,6 +132,10 @@ export class SceneRenderer {
     this.sectionSys.chunks = this.chunks
     this.sectionSys.crowd = this.crowd
     this.sectionSys.modules = this.modules
+    // The cut and the slice are two halves of one picture while 剖切 is on: the
+    // plane decides what is invisible, and the slice walk has to clip the ghost and
+    // 隐藏墙壁 materials **derived** from the ones it hands over (`applyClip`).
+    this.sectionSys.level = this.level
 
     this.cameraSys.setPreset('iso')
     this.animate()
@@ -278,9 +282,19 @@ export class SceneRenderer {
     this.sectionSys.setSurfaceVisible(on)
   }
 
-  /** The store's 剖切 flag, for callers that only carry the toggle. */
+  /**
+   * The store's 剖切 flag, for callers that only carry the toggle. It reaches the
+   * **storey walk** as well as the clip, because while a cut is on the slice is put
+   * away: Q/E stop choosing a storey to ghost (`levelSlicing.sliceOptions` takes the
+   * cut), so the only thing hiding any of the station is the plane — and the walk is
+   * what restates the plane on the materials it derives from the clipped ones.
+   */
   setCutaway(on: boolean): void {
-    this.setSection(this.ctx.section, on)
+    if (this.level.cutaway === on) return
+    this.level.setCutaway(on)
+    // The walk has just dressed every mesh again, so the clip has to be re-stated
+    // over the result: the plane decides what is invisible, not the slice.
+    this.sectionSys.applyClip()
   }
 
   /** The section surface under the pointer — the handle a slide grabs. */

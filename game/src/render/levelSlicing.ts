@@ -68,29 +68,37 @@ export interface SliceToggles {
   autoCeiling: boolean
   /** 隐藏UI: the picture is the station as it is, not the storey being edited. */
   hideUI: boolean
+  /** 剖切: a surface is cutting the station, so nothing else may hide anything. */
+  cutaway: boolean
 }
 
 /**
  * The slice one frame of the scene asks for.
  *
- * **隐藏UI puts the slice away, and the slice it asks for is `ghost: true,
- * autoCeiling: false`.** Ghost on is what "every storey draws" means: with it off
- * the active storey would be the only one left, which is the opposite of what a
- * player who turned the storey slice off asked for. Ceilings off stops the slab
- * over the active room from being lifted. What makes the picture read as a
- * building rather than as a drawing is then **the material**: the mode's caller
- * skips the 35% ghost material and draws each piece as itself
- * (`LevelSystem.applyLevel`), because the translucent sheet lying over the floor
- * under the camera *is* the ghost, not anything the station hides.
+ * **隐藏UI and 剖切 put the slice away, and the slice they ask for is
+ * `ghost: true, autoCeiling: false`.**
+ *
+ * `ghost: true` does not mean "ghost the others" here — it is what `levelVisible`
+ * reads as "the storeys that are not the active one are drawn at all" — and
+ * `autoCeiling: false` stops the slab over the room from being lifted. Together
+ * they are "every storey, ceiling and all", which is the point: the picture is the
+ * station, and **while 剖切 is on the only thing allowed to hide anything is the
+ * cut itself**. Leave the slice switched on and Q/E would still be choosing a
+ * storey to ghost and a storey to draw, so a cut through a ghosted storey reads as
+ * a cut through coloured glass.
+ *
+ * What makes the picture read as a building rather than as a drawing is then the
+ * material: the caller skips the 35% ghost material and draws each piece as itself
+ * (`LevelSystem.applyLevel`).
  *
  * 隐藏墙壁 is deliberately **not** here: it is a look-through of the station's own
- * walls rather than a way of drawing a storey, so it survives the mode.
+ * walls rather than a way of drawing a storey, so it survives either mode.
  *
  * Pure, so which slice a mode asks for is checkable without a renderer
- * (`test/grid-visibility.test.mjs`).
+ * (`test/level-slicing.test.mjs`).
  */
 export function sliceOptions(toggles: SliceToggles): SliceOptions {
-  if (toggles.hideUI) return { ghost: true, autoCeiling: false }
+  if (toggles.hideUI || toggles.cutaway) return { ghost: true, autoCeiling: false }
   return { ghost: toggles.ghost, autoCeiling: toggles.autoCeiling }
 }
 

@@ -244,9 +244,14 @@ export function Viewport(): React.ReactElement {
   }, [activeZ, ghostOther])
 
   // 剖切 is the placed section surface plus the clip (`render/section.ts`): the
-  // plane is written in place, so a slide costs two numbers and no rebuild.
+  // plane is written in place, so a slide costs two numbers and no rebuild. The
+  // flag goes on to the **storey walk** as well, because while a cut is on the slice
+  // is put away — Q/E stop choosing a storey to ghost, so the only thing hiding any
+  // of the station is the cut — and the walk is what re-clips the materials it
+  // derives from the plane (`SceneRenderer.setCutaway`).
   useEffect(() => {
     sceneRef.current?.setSection(section, cutaway)
+    sceneRef.current?.setCutaway(cutaway)
   }, [section, cutaway])
 
   // 隐藏剖切面: the clip stays, the sheet and its direction arrow go.

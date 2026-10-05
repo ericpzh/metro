@@ -544,12 +544,38 @@ measures the pointer's travel **along that line**, converted from pixels to metr
 sideways drag into a slide; and because the measure is the pointer's own travel since the press rather
 than a ray meeting some plane, a slide can never accelerate away from the hand or re-aim itself
 mid-drag. A cut that slides straight at the camera has no line to drag along, and the grab is refused
-rather than left to divide by nothing. The surface on screen is a translucent sheet with a border and a
-2 m grid, grown with the station so it always reaches past the building it cuts, floating a 2 cm toward
-the kept half so the clip cannot slice its own marker. The plane is written **in place** (one
-`THREE.Plane` for the scene's lifetime, shared by every clipped material), so a slide costs two numbers
-and no rebuild; the materials are only re-listed when the cut is switched on or off. Equipment is
-clipped with the blockwork (a 闸机 or a screen door standing in the cut-away half goes with the slab).
+rather than left to divide by nothing.
+
+**While a cut is on, the cut is the only thing that hides anything.** That one sentence is the whole
+rule, and it is why `levelSlicing.sliceOptions` takes 剖切 alongside 隐藏UI: the slice is put away, so
+**Q/E stop choosing a storey to ghost and 显示其他层 / 隐藏天花板 stop lifting anything** — every storey
+draws, opaque, ceilings and all. Cut through a ghosted storey and the cut reads as a cut through
+coloured glass; leave the slice on and the half that should be gone comes back the moment the active
+storey changes.
+
+The other half of that rule is that the plane has to reach **every** material the picture is drawn with,
+not only the ones the section system was handed. The slice *derives* materials and caches them — a 35%
+ghost per base material (`dimMats`), a 隐藏墙壁 clone (`clearMats`) — and a clone carries whatever
+`clippingPlanes` its original had **at the moment it was made**. A ghost made before the cut was
+switched on therefore has none, and the cache hands it out again on every later walk: geometry in the
+half that should be gone came back at full strength, which is a cut that looks like black paint rather
+than a cut. So the walk restates the plane on whatever it just dressed (`LevelSystem.clipMesh`, fed from
+`SectionSystem.applyClip`), and a clone takes its original's planes every time it is handed out
+(`dimOf` / `clearOf`) — otherwise a ghost stays cut after the cut is switched off.
+`test/cut-clipping.test.mjs` pins both halves.
+
+The surface on screen is a translucent sheet with a border and a 2 m grid, grown with the station so it
+always reaches past the building it cuts, floating a 2 cm toward the kept half so the clip cannot slice
+its own marker — and a **green arrow** on it points into the half that is **kept**, so which way a turn
+cuts is never a guess. The arrow is drawn without a depth test and last in the render queue, because a
+mark half-buried in a slab says nothing. **隐藏剖切面** (**Y**) folds out beside 旋转 and takes the
+sheet, its border, grid, grab handle and the arrow away, leaving the cut and nothing else; with the
+surface gone there is nothing to grab, so the pointer goes back to the tools.
+
+The plane is written **in place** (one `THREE.Plane` for the scene's lifetime, shared by every clipped
+material), so a slide costs two numbers and no rebuild; the materials are only re-listed when the cut is
+switched on or off. Equipment is clipped with the blockwork (a 闸机 or a screen door standing in the
+cut-away half goes with the slab).
 
 **Rails are equipment: a fixed piece centred on the cursor.** A rail is a `track` module — a car-width
 bed (`d = 3` m) and a run the length of the bound line's consist (`w = ceil(stock length × cars)`) —
@@ -1398,6 +1424,12 @@ approximated); neither needs WebGL.
   it walked while a push of the same length **across** it moves nothing (the case an oblique camera used
   to get wrong), and a cut sliding straight at the camera has no line at all — the grab is refused
   instead of dividing by nothing.
+* `cut-clipping.test.mjs` — the seam between the cut and the slice (`LevelSystem`): the slice's cached
+  ghost for 显示其他层 takes the plane when the cut comes on (and gives it back when the cut goes off —
+  a clone follows its original), **while the cut is on every storey draws opaque** however 显示其他层 and
+  Q/E are left, and the plane reaches every storey. It is the guard on the two ways a cut can look like
+  black paint instead of a cut: a ghost that never learned about the plane, and a slice still ghosting
+  the storey the cut is going through.
 * `sign-editor.test.mjs` — the 指示牌 board editor session (`app/SignEditor.tsx`): a sign is a
   pair of boards with a one-sided default, the preview never commits, confirming makes the pair
   current and the next sign hung carries a copy, covering the full compose→place→print flow.

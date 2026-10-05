@@ -35,6 +35,8 @@ export class LevelSystem extends SceneSystem {
    * toggles move, which is the only time `applyLevel` does any work.
    */
   private readonly slice: SliceOptions = { ghost: true, autoCeiling: true }
+  /** The cut's plane while a cut is on, shared by every material this walk dresses. */
+  private clip: THREE.Plane | null = null
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -80,7 +82,7 @@ export class LevelSystem extends SceneSystem {
     // and two of those usually change nothing — so skip a repeat with the same
     // slice. `setStation` clears the key because it rebuilds the meshes this
     // assigns materials to.
-    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideUI}`
+    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideUI}|${this.ctx.cutaway}`
     if (key === this.ctx.levelKey) return
     this.ctx.levelKey = key
     // One record for the whole walk: what the view asks of the slice this frame.
@@ -88,13 +90,20 @@ export class LevelSystem extends SceneSystem {
       ghost: this.ctx.ghost,
       autoCeiling: this.ctx.autoCeiling,
       hideUI: this.ctx.hideUI,
+      cutaway: this.ctx.cutaway,
     })
     this.slice.ghost = slice.ghost
     this.slice.autoCeiling = slice.autoCeiling
-    // **隐藏UI draws everything opaque**: it puts the slice away, which is the one
-    // thing a visibility flag could not do on its own — the 35% ghost *material*
-    // the slice assigned a piece has to be undone.
-    const straight = this.ctx.hideUI
+    // **隐藏UI and 剖切 draw everything opaque**: they put the slice away, which is
+    // the one thing a visibility flag could not do on its own — the 35% ghost
+    // *material* the slice assigned a piece has to be undone. While a cut is on
+    // this also settles which half of the station is invisible: the only thing
+    // allowed to hide anything is the plane.
+    const straight = this.ctx.hideUI || this.ctx.cutaway
+    // The cut comes **after** the outer cut, never before: a ghost clone made
+    // before the plane was switched on carries no planes of its own, so assigning
+    // it here is what stops the slice's own materials being holes in the cut.
+    const clip = this.ctx.cutaway ? this.clip : null
     for (const [lz, group] of this.chunks.levelGroups) {
       group.visible = true
       const side = levelSide([lz], this.ctx.activeZ)
@@ -106,6 +115,7 @@ export class LevelSystem extends SceneSystem {
           mesh.visible = true
           const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
           mesh.material = this.ctx.hideWalls && mesh.userData.wall === true ? this.clearOf(base) : base
+          this.clipMesh(mesh, clip)
           continue
         }
         // A plate with nothing under it (the street outside, a canopy on its own
@@ -121,6 +131,7 @@ export class LevelSystem extends SceneSystem {
             continue
           }
           mesh.material = this.clearOf(this.baseOf(mesh))
+          this.clipMesh(mesh, clip)
           continue
         }
         const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
@@ -146,10 +157,10 @@ export class LevelSystem extends SceneSystem {
     const lz = root.userData.levelZ as number | undefined
     const zs = levels ?? (lz !== undefined ? [lz] : undefined)
     const side = levelSide(zs, this.ctx.activeZ)
-    const straight = this.ctx.hideUI
+    const straight = this.ctx.hideUI || this.ctx.cutaway
     if (straight) {
-      // 隐藏UI: drawn, and drawn as itself — a 售票机, a 屏蔽门 or a consist does
-      // not become a 35% ghost because it stands on another storey.
+      // 隐藏UI / 剖切: drawn, and drawn as itself — a 售票机, a 屏蔽门 or a consist
+      // does not become a 35% ghost because it stands on another storey.
       root.visible = kind === 'train' ? root.userData.parked !== true : true
     } else if (kind === 'train') {
       root.visible = trainVisible(side, this.ctx.ghost, root.userData.parked === true)
@@ -161,6 +172,7 @@ export class LevelSystem extends SceneSystem {
       root.visible = levelVisible(side, this.slice)
     }
     if (!root.visible) return
+    const clip = this.ctx.cutaway ? this.clip : null
     root.traverse((o) => {
       const mesh = o as THREE.Mesh
       if (!mesh.isMesh) return
@@ -168,7 +180,42 @@ export class LevelSystem extends SceneSystem {
       // 隐藏墙壁: a wall panel or a platform screen door reads through.
       if (this.ctx.hideWalls && mesh.userData.wall === true) mesh.material = this.clearOf(base)
       else mesh.material = side === 'active' || straight ? base : this.dimOf(base)
+      this.clipMesh(mesh, clip)
     })
+  }
+
+  /**
+   * Point one mesh's material at the cut's plane, or clear it again.
+   *
+   * This has to happen on the material the mesh is **actually wearing** and on
+   * every material the slice derived and cached (`dimMats`, `clearMats`), and it
+   * has to be re-stated by every walk. A clone made before the cut was switched on
+   * carries no planes of its own and is handed out again on the next walk, so
+   * without this the geometry in the half that should be gone comes back at full
+   * strength — a cut where nothing is really cut.
+   */
+  private clipMesh(mesh: THREE.Mesh, plane: THREE.Plane | null): void {
+    const mat = mesh.material as THREE.Material
+    if (!mat) return
+    const planes = plane ? [plane] : null
+    if (mat.clippingPlanes === planes) return
+    mat.clippingPlanes = planes
+    mat.needsUpdate = true
+  }
+
+  /**
+   * Put the cut's plane on a material by reference — the ones 显示其他层 and
+   * 隐藏墙壁 cached (`SectionSystem.applyClip` shares its plane this way). Handing
+   * over the same `THREE.Plane` object is what keeps a slide to two numbers.
+   */
+  setClip(plane: THREE.Plane | null): void {
+    if (this.clip === plane) return
+    this.clip = plane
+    // The next walk re-states the planes on every material, so it must not be
+    // skipped as a repeat: the plane's *membership* changed even though the
+    // slice's toggles did not.
+    this.ctx.levelKey = ''
+    this.applyLevel()
   }
 
   baseOf(mesh: THREE.Mesh): THREE.Material {
@@ -193,6 +240,11 @@ export class LevelSystem extends SceneSystem {
       if (anyMat.onBeforeCompile !== base.onBeforeCompile) anyMat.onBeforeCompile = base.onBeforeCompile
       this.ctx.dimMats.set(base, d)
     }
+    // **A clone follows its original.** The cache is keyed by the material it came
+    // from and is handed out again on later walks, so it has to take the current
+    // clipping planes with it: left holding the planes it was cloned with, it is a
+    // ghost that stays cut after the cut is switched off, or one that never is.
+    d.clippingPlanes = base.clippingPlanes ?? null
     return d
   }
 
@@ -211,6 +263,8 @@ export class LevelSystem extends SceneSystem {
       if (c.onBeforeCompile !== base.onBeforeCompile) c.onBeforeCompile = base.onBeforeCompile
       this.ctx.clearMats.set(base, c)
     }
+    // 隐藏墙壁's clone follows its original for the same reason 显示其他层's does.
+    c.clippingPlanes = base.clippingPlanes ?? null
     return c
   }
 
@@ -229,6 +283,17 @@ export class LevelSystem extends SceneSystem {
   setHideUI(on: boolean): void {
     if (this.ctx.hideUI === on) return
     this.ctx.hideUI = on
+    this.applyLevel()
+  }
+
+  /** 剖切: while a cut is on, the slice is put away — the cut hides, nothing else. */
+  get cutaway(): boolean {
+    return this.ctx.cutaway
+  }
+
+  setCutaway(on: boolean): void {
+    if (this.ctx.cutaway === on) return
+    this.ctx.cutaway = on
     this.applyLevel()
   }
 }

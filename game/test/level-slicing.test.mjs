@@ -107,18 +107,22 @@ test('隐藏UI is an asker, not a slice flag', () => {
   assert.equal(crowdVisible(-15, 0, false, true), true, 'a mode that draws every storey draws its crowd too')
 })
 
-test('隐藏UI asks for a slice with every storey drawn and no ceiling lifted', () => {
+test('隐藏UI and 剖切 ask for a slice with every storey drawn, no ceiling lifted', () => {
   // Every storey, not the active one alone: with the slice left off there would be
   // one storey left to look at, which is the opposite of what a player who turned
   // the storey slice off asked for. The ceiling comes back too, because the slab
   // over the room is part of the building the mode is showing. What makes the
   // picture read as a building rather than a drawing is then the material:
-  // `applyLevel` skips the 35% ghost for it.
-  assert.deepEqual(sliceOptions({ ghost: true, autoCeiling: true, hideUI: false }), {
-    ghost: true,
-    autoCeiling: true,
-  })
+  // `applyLevel` skips the 35% ghost for it (and paints no ghost at all when a cut
+  // is on — see `LevelSystem.applyLevel`).
+  const plain = { ghost: true, autoCeiling: true, hideUI: false, cutaway: false }
+  assert.deepEqual(sliceOptions(plain), { ghost: true, autoCeiling: true }, 'untouched, the slice is the rail\'s')
   const putAway = { ghost: true, autoCeiling: false }
-  assert.deepEqual(sliceOptions({ ghost: false, autoCeiling: true, hideUI: true }), putAway)
-  assert.deepEqual(sliceOptions({ ghost: true, autoCeiling: true, hideUI: true }), putAway)
+  assert.deepEqual(sliceOptions({ ...plain, hideUI: true }), putAway)
+  assert.deepEqual(sliceOptions({ ghost: true, autoCeiling: true, hideUI: true, cutaway: false }), putAway)
+  // **剖切 puts the slice away too**, and that is the point of Q/E no longer
+  // mattering while a cut is on: 显示其他层 off would otherwise leave one storey to
+  // cut through, and 隐藏天花板 would lift the very slab the cut is slicing.
+  assert.deepEqual(sliceOptions({ ghost: false, autoCeiling: true, hideUI: false, cutaway: true }), putAway)
+  assert.deepEqual(sliceOptions({ ghost: false, autoCeiling: false, hideUI: false, cutaway: true }), putAway)
 })

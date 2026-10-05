@@ -24,6 +24,7 @@ import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import type { ChunkSystem } from './ChunkSystem.ts'
 import type { CrowdSystem } from './CrowdSystem.ts'
+import type { LevelSystem } from './LevelSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
 
 /** How far the highlight floats off the plane, toward the kept half, in metres. */
@@ -42,6 +43,12 @@ export class SectionSystem extends SceneSystem {
   chunks!: ChunkSystem
   crowd!: CrowdSystem
   modules!: ModuleSystem
+  /**
+   * The slice walk, so it can be handed the same plane. A ghost or 隐藏墙壁 clone
+   * is **derived** from a clipped material and cached, so the cut leaks unless the
+   * walk restates the planes on what it derived (`applyClip` → `setClip`).
+   */
+  level?: LevelSystem
 
   /** The one plane every clipped material shares. */
   readonly plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)
@@ -90,10 +97,11 @@ export class SectionSystem extends SceneSystem {
     this.handleMat = new THREE.MeshBasicMaterial({ color: 0xbfefff, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false })
     this.handle = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), this.handleMat)
     // The direction arrow: **the way it points is the half that is kept**, so the
-    // mode stops being a guess about which side survives a turn. Drawn without a
-    // depth test and last in the queue, because it is a diagram mark like the
-    // sheet's border — half-buried in a slab it would say nothing.
-    this.arrowMat = new THREE.MeshBasicMaterial({ color: 0x8fe4ff, toneMapped: false, depthTest: false, transparent: true })
+    // mode stops being a guess about which side survives a turn. Green, because it
+    // is a statement about the station's fate rather than another piece of the
+    // sheet — and drawn without a depth test, last in the queue, because half-buried
+    // in a slab it would say nothing.
+    this.arrowMat = new THREE.MeshBasicMaterial({ color: 0x2fd06a, toneMapped: false, depthTest: false, transparent: true })
     this.arrow = new THREE.Group()
     this.arrow.renderOrder = 4
     this.buildArrow()
@@ -105,15 +113,18 @@ export class SectionSystem extends SceneSystem {
 
   /**
    * The arrow's shaft and head, pointing along the group's own `+z` — which
-   * `refreshHighlight` turns to the section normal. Two cylinders with **unit**
-   * dimensions, so the whole mark is drawn once and then scaled to the station
-   * (`resizeArrow`); the tail sits at the section plane and the head ends
-   * `ARROW`-long out into the kept half.
+   * `refreshHighlight` turns to the section normal. **Unit** dimensions on both
+   * parts, so the mark is built once and then scaled to the station
+   * (`resizeArrow`); the tail sits on the section plane and the head ends
+   * `ARROW`-long out in the kept half.
    *
-   * The split is fixed: the last 40% of the arrow is the head, the rest the shaft.
+   * The head is a **cone**, not a stubby cylinder: a flat-ended shaft reads as a
+   * bar, and a bar says nothing about which way it points.
    */
   private buildArrow(): void {
-    const head = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 16), this.arrowMat)
+    // A cone is a cylinder with a point for a top, so the two are one code path in
+    // `resizeArrow` — it only has to know which end it is holding.
+    const head = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 20), this.arrowMat)
     head.userData.arrowPart = 'head'
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 12), this.arrowMat)
     shaft.userData.arrowPart = 'shaft'
@@ -144,7 +155,7 @@ export class SectionSystem extends SceneSystem {
       // The unit cylinder is centred on its own origin, so placing it at the
       // midpoint of its span runs it from the tail to the tip.
       part.position.z = isHead ? shaft + head / 2 : shaft / 2
-      const radius = isHead ? length * 0.075 : length * 0.018
+      const radius = isHead ? length * 0.09 : length * 0.022
       part.scale.set(radius, len, radius)
     }
   }
@@ -182,6 +193,12 @@ export class SectionSystem extends SceneSystem {
    * The section the store has, and whether it is cutting. The plane is written
    * in place — three holds this object on every clipped material — and the
    * highlight (with its direction arrow) is moved and turned to lie on it.
+   *
+   * While a cut is on, the slice is off (`render/levelSlicing.ts` `sliceOptions`,
+   * which takes the cut as well as 隐藏UI): Q/E stop choosing a storey to ghost, so
+   * the only thing that hides any of the station is this plane. That is one more
+   * reason the planes have to be re-stated rather than set once: every walk over
+   * the storeys dresses the meshes again, and it comes through `applyClip` after.
    */
   setSection(section: Section, on: boolean): void {
     this.ctx.section = section
@@ -256,7 +273,7 @@ export class SectionSystem extends SceneSystem {
    * not come through here at all.
    */
   applyClip(): void {
-    const planes = this.on ? [this.plane] : []
+    const planes: THREE.Plane[] | null = this.on ? [this.plane] : null
     for (const m of [...this.chunks.chunkMeshes, ...this.chunks.outlineMeshes]) {
       const mat = m.material as THREE.Material
       mat.clippingPlanes = planes
@@ -284,6 +301,12 @@ export class SectionSystem extends SceneSystem {
         mat.needsUpdate = true
       })
     }
+    // **The slice walk clips the materials it derives, not only the ones it was
+    // handed.** A ghost clone is cached, so one made before the cut was switched on
+    // carries no planes of its own and comes back unclipped on the next walk; giving
+    // the walk the plane is what makes it restate them (`LevelSystem.setClip`).
+    // Without this the cut has holes in it, and a storey shows straight through.
+    this.level?.setClip(this.on ? this.plane : null)
   }
 
   /**
