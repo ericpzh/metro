@@ -46,7 +46,7 @@ export function levelSide(levelsZ: readonly number[] | undefined, activeZ: numbe
   return hi < activeZ ? 'below' : 'above'
 }
 
-/** The three toggles the slicing reads: 显示其他层, 隐藏天花板, and the piece itself. */
+/** The toggles the slicing reads: 显示其他层, 隐藏天花板, and the piece itself. */
 export interface SliceOptions {
   /** 显示其他层: draw the storeys that are not the active one. */
   ghost: boolean
@@ -60,7 +60,58 @@ export interface SliceOptions {
   unsupported?: boolean
 }
 
-/** Whether the level slicing draws a piece on `side`. */
+/** What the view asks of the slice, before any one piece is looked at. */
+export interface SliceToggles {
+  /** 显示其他层: the storeys that are not the active one draw, as 35% ghosts. */
+  ghost: boolean
+  /** 隐藏天花板: the slab over the active room is lifted away. */
+  autoCeiling: boolean
+  /** 隐藏UI: the picture is the station as it is, not the storey being edited. */
+  hideUI: boolean
+  /** 剖切: a surface is cutting the station, so nothing else may hide anything. */
+  cutaway: boolean
+}
+
+/**
+ * The slice one frame of the scene asks for.
+ *
+ * **隐藏UI and 剖切 put the slice away, and the slice they ask for is
+ * `ghost: true, autoCeiling: false`.**
+ *
+ * `ghost: true` does not mean "ghost the others" here — it is what `levelVisible`
+ * reads as "the storeys that are not the active one are drawn at all" — and
+ * `autoCeiling: false` stops the slab over the room from being lifted. Together
+ * they are "every storey, ceiling and all", which is the point: the picture is the
+ * station, and **while 剖切 is on the only thing allowed to hide anything is the
+ * cut itself**. Leave the slice switched on and Q/E would still be choosing a
+ * storey to ghost and a storey to draw, so a cut through a ghosted storey reads as
+ * a cut through coloured glass.
+ *
+ * What makes the picture read as a building rather than as a drawing is then the
+ * material: the caller skips the 35% ghost material and draws each piece as itself
+ * (`LevelSystem.applyLevel`).
+ *
+ * 隐藏墙壁 is deliberately **not** here: it is a look-through of the station's own
+ * walls rather than a way of drawing a storey, so it survives either mode.
+ *
+ * Pure, so which slice a mode asks for is checkable without a renderer
+ * (`test/level-slicing.test.mjs`).
+ */
+export function sliceOptions(toggles: SliceToggles): SliceOptions {
+  if (toggles.hideUI || toggles.cutaway) return { ghost: true, autoCeiling: false }
+  return { ghost: toggles.ghost, autoCeiling: toggles.autoCeiling }
+}
+
+/**
+ * Whether the level slicing draws a piece on `side`.
+ *
+ * 隐藏UI does not arrive here as a flag: `sliceOptions` clears `ghost` and
+ * `autoCeiling` for it, and `LevelSystem` hands every mesh its base material back
+ * rather than the 35% ghost. The material, and not only the visibility, has to be
+ * the mode's business: a flag here could turn a piece on, but it could not undo
+ * the ghost material the slice had already assigned it — and going through the
+ * flag *alone* is what left the storeys below wearing that ghost.
+ */
 export function levelVisible(side: LevelSide, opts: SliceOptions): boolean {
   if (side === 'active') return true
   if (!opts.ghost) return false
@@ -94,8 +145,13 @@ export function trainVisible(side: LevelSide, ghost: boolean, parked: boolean): 
  * (and the depth test behind it hides a lower floor's crowd under the slab above
  * it); a storey above the active one never shows its crowd, because a floor that
  * is not drawn would leave the people standing on nothing.
+ *
+ * `showEveryStorey` is 隐藏UI's doing (`CrowdSystem` asks per agent): the mode
+ * draws every storey, so it draws everyone on them — the people on the floor
+ * above are exactly what a station drawn whole shows.
  */
-export function crowdVisible(z: number, activeZ: number, ghost: boolean): boolean {
+export function crowdVisible(z: number, activeZ: number, ghost: boolean, showEveryStorey = false): boolean {
+  if (showEveryStorey) return true
   const side = levelSide([storeyBand(z)], activeZ)
   return side === 'active' || (ghost && side === 'below')
 }

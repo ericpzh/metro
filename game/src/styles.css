@@ -166,6 +166,13 @@ button.ghost:hover {
   display: grid;
   grid-template-columns: 232px 1fr 300px;
   min-height: 0;
+  /* The link in the height chain. A percentage height resolves against a
+     **definite** containing-block height, and `min-height` is not one: without
+     this, the stage's and the canvas's `height: 100%` both compute to `auto`,
+     and auto height for a replaced element is its intrinsic **150 px** — the
+     canvas then sits at its 300 × 150 default with the whole station squeezed
+     into the corner, at every camera angle and in every mode. */
+  height: 100%;
 }
 
 /* ---------------------------------------------------------------- left rail */
@@ -423,9 +430,11 @@ button.ghost:hover {
 .bpBlock.on::after {
   border-color: rgba(85, 182, 255, 0.5);
 }
-/* Shortcut-key badge: hidden until the tile is hovered or focused, so the rail
-   stays clean but the keys are discoverable. */
-.bpKey {
+/* Shortcut-key badge: hidden until the tile or the folder header is hovered or
+   focused, so the rail stays clean but the keys are discoverable. The header
+   wears the tile's own badge, in the slot just left of its caret. */
+.bpKey,
+.folderKey {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -435,6 +444,7 @@ button.ghost:hover {
   font-size: 9.5px;
   line-height: 13px;
   text-align: center;
+  white-space: nowrap;
   color: #eaf5ff;
   background: rgba(7, 20, 33, 0.92);
   border: 1px solid rgba(85, 182, 255, 0.55);
@@ -444,10 +454,25 @@ button.ghost:hover {
   transform: translateY(-2px);
   transition: opacity 120ms ease, transform 120ms ease;
 }
+/* The header wears the badge on its own text row rather than in the tile's top
+   corner: a 30px bar has no corner to spare, so the badge centres on the name
+   (the row the flex header already centres) and stops well short of the caret
+   that owns the far right — 9px header padding + 7px caret + a 14px gap. */
+.folderKey {
+  top: 50%;
+  right: 30px;
+  transform: translateY(-50%);
+}
 .bpBlock:hover .bpKey,
 .bpBlock:focus-visible .bpKey {
   opacity: 1;
   transform: none;
+}
+/* The header's badge only fades in: `transform` is what centres it, so the
+   tile's small rise cannot be reused here. */
+.folderHead:hover .folderKey,
+.folderHead:focus-visible .folderKey {
+  opacity: 1;
 }
 .bpBlockArt {
   position: relative;
@@ -566,21 +591,6 @@ button.ghost:hover {
   color: var(--ink);
   opacity: 0.8;
 }
-.bpReadout {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-top: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--bp-line);
-  border-radius: 0;
-  font-size: 11px;
-  color: var(--muted);
-}
-.bpReadout b {
-  color: var(--accent);
-  font-family: var(--mono);
-}
 
 /* Legacy rail classes kept for the inspector and any host embedding the panel. */
 .railBtn {
@@ -668,6 +678,14 @@ button.ghost:hover {
   height: 100%;
   touch-action: none;
   cursor: crosshair;
+}
+/* The pointer is on the 剖切 surface: a press here grabs the cut rather than
+   building, and the cursor has to say so before the press. */
+.viewport.grab {
+  cursor: grab;
+}
+.viewport.grab:active {
+  cursor: grabbing;
 }
 
 /* The 地基 tool's live patch size, pinned beside the pointer. */

@@ -7,7 +7,7 @@
 // disappeared.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { crowdVisible, levelSide, levelVisible, trainVisible, unsupportedAbove } from '../src/render/levelSlicing.ts'
+import { crowdVisible, levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../src/render/levelSlicing.ts'
 import { storeyBand } from '../src/sim/constants.ts'
 
 test('a piece is on the side of the storey it covers', () => {
@@ -87,4 +87,43 @@ test('the crowd follows the same storeys as the floor under it', () => {
   assert.equal(crowdVisible(-7, -4, false), false, 'the -8 storey is below -4, so it needs the toggle')
   assert.equal(crowdVisible(-7, -4, true), true)
   assert.equal(crowdVisible(1, -4, true), false, 'the 0 storey is above -4: never its crowd')
+})
+
+test('隐藏UI is an asker, not a slice flag', () => {
+  // The mode used to be a flag *in* the slice, and that was the bug behind the
+  // dark shadow grid: a flag can turn a piece on, but it cannot undo the 35%
+  // translucency the slice assigned it, so the slab a storey up ghosted *through*
+  // the floor under the eye. 隐藏UI therefore asks for a different slice
+  // (`sliceOptions`) and `LevelSystem.applyLevel` hands each mesh its **base**
+  // material back (see `cut-clipping.test.mjs`, which walks the real scene for it);
+  // what is pinned here is that the slice never claims to answer for it on its own
+  // — and that the crowd, whose flag *is* still read so a walker on another storey
+  // is not invisible in a station drawn whole, does.
+  const off = { ghost: false, autoCeiling: true }
+  assert.equal(levelVisible('below', off), false, 'the slice is the slice: 显示其他层 off still hides a storey')
+  assert.equal(trainVisible('below', false, false), false, 'nor is a consist on a hidden storey drawn by it')
+  // The crowd keeps its own flag: the renderer asks `crowdVisible` per agent, so
+  // that is where a station drawn whole has to be honoured.
+  assert.equal(crowdVisible(-15, 0, false), false)
+  assert.equal(crowdVisible(-15, 0, false, true), true, 'a mode that draws every storey draws its crowd too')
+})
+
+test('隐藏UI and 剖切 ask for a slice with every storey drawn, no ceiling lifted', () => {
+  // Every storey, not the active one alone: with the slice left off there would be
+  // one storey left to look at, which is the opposite of what a player who turned
+  // the storey slice off asked for. The ceiling comes back too, because the slab
+  // over the room is part of the building the mode is showing. What makes the
+  // picture read as a building rather than a drawing is then the material:
+  // `applyLevel` skips the 35% ghost for it (and paints no ghost at all when a cut
+  // is on — see `LevelSystem.applyLevel`).
+  const plain = { ghost: true, autoCeiling: true, hideUI: false, cutaway: false }
+  assert.deepEqual(sliceOptions(plain), { ghost: true, autoCeiling: true }, 'untouched, the slice is the rail\'s')
+  const putAway = { ghost: true, autoCeiling: false }
+  assert.deepEqual(sliceOptions({ ...plain, hideUI: true }), putAway)
+  assert.deepEqual(sliceOptions({ ghost: true, autoCeiling: true, hideUI: true, cutaway: false }), putAway)
+  // **剖切 puts the slice away too**, and that is the point of Q/E no longer
+  // mattering while a cut is on: 显示其他层 off would otherwise leave one storey to
+  // cut through, and 隐藏天花板 would lift the very slab the cut is slicing.
+  assert.deepEqual(sliceOptions({ ghost: false, autoCeiling: true, hideUI: false, cutaway: true }), putAway)
+  assert.deepEqual(sliceOptions({ ghost: false, autoCeiling: false, hideUI: false, cutaway: true }), putAway)
 })

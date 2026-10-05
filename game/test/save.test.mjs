@@ -63,13 +63,14 @@ test('an old line with no termini loads with empty ones', () => {
 })
 
 test('a damaged block is dropped on load and on save, never refused', () => {
-  // Every build command takes its coordinates from a pick (which floors) or from
-  // whole-cell arithmetic, so the game cannot mint a cell off the 1 m grid — a save
-  // is the only place one can appear. It is also unreachable from inside the game:
-  // a pick snaps to integers and `removeCells` matches an exact coordinate, so a
-  // station that keeps one can never be cleaned. Both boundaries therefore **drop**
-  // it rather than refuse the file: the envelope is what earns a refusal, and a
-  // station that is otherwise fine is not worth losing over a block no tool can see.
+  // Every build command takes its coordinates from a pick (which names whole
+  // cells, `render/pickCell.ts`) or from whole-cell arithmetic, so the game cannot
+  // mint a cell off the 1 m grid — a save is the only place one can appear. It is
+  // also unreachable from inside the game: a pick names whole cells and
+  // `removeCells` matches an exact coordinate, so a station that keeps one can
+  // never be cleaned. Both boundaries therefore **drop** it rather than refuse the
+  // file: the envelope is what earns a refusal, and a station that is otherwise
+  // fine is not worth losing over a block no tool can see.
   const doc = {
     format: SAVE_FORMAT,
     formatVersion: 1,

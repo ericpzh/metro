@@ -2,17 +2,21 @@
 //
 // The author's own station arrived carrying 19 such cells (fractional coordinates,
 // no tags, no module standing on them). They came from outside the game: every
-// build command takes its coordinates either from a pick — and `scene.pick` has
-// floored the ray hit since the first commit that had picking — or from whole-cell
-// arithmetic. A save is therefore the only way one can arrive, and one that arrives
-// is unreachable from inside the game: a pick snaps to integers and `removeCells`
-// matches an exact coordinate, so no tool can ever delete it. That is why both
-// boundaries drop them instead of trusting them (`build/model.ts` `repairGrid`,
-// pinned in `save.test.mjs`) and why the shipped demo is checked in `demo.test.mjs`.
+// build command takes its coordinates either from a pick — which names whole cells,
+// `render/pickCell.ts`, whatever angle the drawn surface it hit is at — or from
+// whole-cell arithmetic. A save is therefore the only way one can arrive, and one
+// that arrives is unreachable from inside the game: a pick names whole cells and
+// `removeCells` matches an exact coordinate, so no tool can ever delete it. That is
+// why both boundaries drop them instead of trusting them (`build/model.ts`
+// `repairGrid`, pinned in `save.test.mjs`) and why the shipped demo is checked in
+// `demo.test.mjs`.
 //
 // This file is the other half: the guard on the code that *makes* stations. If any
 // tool ever learns to mint a fraction, this fails — which is the only way that bug
-// could reach a player, since a save cannot be written with one either.
+// could reach a player, since a save cannot be written with one either. The pick
+// itself is upstream of every command here, so *its* guarantee is pinned against
+// real meshed geometry in `pick-cell.test.mjs`: a face drawn off-axis (the wedge
+// under a 楼梯 / 扶梯, a rounded block corner) is where this used to leak.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {

@@ -13,8 +13,10 @@
 // +z up.
 
 import { HALF_WALL_T } from '../sim/constants.ts'
-import { DEFAULT_FINISH, FINISH_LIST } from '../sim/finishes.ts'
-import { packKey as key, type Cell, type Face, type FinishId, type WallSide } from '../sim/types.ts'
+import { DEFAULT_FINISH, FINISH_LIST, RAMP_SOFFIT_FINISH } from '../sim/finishes.ts'
+import type { SlopeCut } from '../sim/openings.ts'
+import { isHalfWallShape, isTriangleShape, packKey as key } from '../sim/types.ts'
+import type { Cell, CellShape, Face, FinishId, TriangleKind, TriSide, WallSide } from '../sim/types.ts'
 
 /** Finish id -> a small dense index, so a hot loop never does a string Map get. */
 const FINISH_IDS: FinishId[] = FINISH_LIST.map((f) => f.id)
@@ -138,6 +140,51 @@ function pushTri(
   b.idx.push(base, base + 1, base + 2)
 }
 
+/**
+ * The cross-section of a run's **drawn body** where it is narrower than the cell — an
+ * escalator's truss box, `half` either side of its centreline across the run and the
+ * full width of the tile along it. Sharp corners, because the body is a slab and not a
+ * block; the rounded profile would read as a pillar under the escalator.
+ *
+ * `axis` is the plane's slope axis, which is the way the run travels, so the box is
+ * that long along `axis` and `2 × half` across it. The point normals are set so that
+ * `edgeExposure` — which reads an edge's direction off its midpoint, and falls back to
+ * the sum of the two point normals for an edge away from the cell boundary — gives each
+ * side its outward normal. The two ends land on the cell boundary and answer ±`axis`
+ * on their own; where the next tile's box carries on they are drawn anyway and hidden
+ * inside the union, so the skirt needs no neighbour test to look continuous.
+ */
+function buildTrussProfile(axis: 'x' | 'y', half: number): Pt[] {
+  const lo = 0.5 - half
+  const hi = 0.5 + half
+  return axis === 'x'
+    ? [
+        { x: 0, y: lo, nx: 0, ny: -1, exposed: true },
+        { x: 1, y: lo, nx: 0, ny: -1, exposed: true },
+        { x: 1, y: hi, nx: 0, ny: 1, exposed: true },
+        { x: 0, y: hi, nx: 0, ny: 1, exposed: true },
+      ]
+    : [
+        { x: lo, y: 0, nx: -1, ny: 0, exposed: true },
+        { x: hi, y: 0, nx: 1, ny: 0, exposed: true },
+        { x: hi, y: 1, nx: 1, ny: 0, exposed: true },
+        { x: lo, y: 1, nx: -1, ny: 0, exposed: true },
+      ]
+}
+
+/**
+ * Every face of a run's truss box wears the run's own steel (`RAMP_SOFFIT_FINISH`) — one
+ * shared record, so the mesher's hot loop never allocates one per filling cell.
+ */
+const TRUSS_FACES: Partial<Record<Face, FinishId>> = {
+  top: RAMP_SOFFIT_FINISH,
+  bottom: RAMP_SOFFIT_FINISH,
+  e: RAMP_SOFFIT_FINISH,
+  w: RAMP_SOFFIT_FINISH,
+  n: RAMP_SOFFIT_FINISH,
+  s: RAMP_SOFFIT_FINISH,
+}
+
 /** Build the rounded cross-section profile for one cell, CCW viewed from +z. */
 function buildProfile(E: boolean, W: boolean, N: boolean, S: boolean): Pt[] {
   const R = CORNER_R
@@ -210,6 +257,195 @@ function turnPoint(p: Pt, turns: number): Pt {
 }
 
 /**
+ * The part of a profile a cut plane still has block in, as a polygon
+ * (Sutherland–Hodgman against one linear half-space).
+ *
+ * A run's underside slopes, so on the block that straddles the point where it
+ * leaves through the cell's floor the cut takes the block to nothing at one side.
+ * The clipped polygon carries a vertex exactly on that line, so the top cap and the
+ * side walls meet the floor there instead of chording across the corner — which is
+ * what would poke the block back up through the run it was cut out of.
+ *
+ * `value` is the plane in cell-local units, so "still block here" is `value > 0`.
+ */
+function clipProfile(profile: Pt[], value: (p: Pt) => number): Pt[] {
+  const out: Pt[] = []
+  for (let i = 0; i < profile.length; i++) {
+    const p = profile[i]
+    const q = profile[(i + 1) % profile.length]
+    const vp = value(p)
+    const vq = value(q)
+    if (vp > 0) out.push(p)
+    if (vp > 0 !== vq > 0) {
+      const t = vp / (vp - vq)
+      out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, nx: p.nx, ny: p.ny, exposed: true })
+    }
+  }
+  return out
+}
+
+/* -------------------------------------------------------- 三角 (§4.1 / §4.3) */
+
+/**
+ * The frame a **三角** wedge is written in, for the side it hugs: `ox`/`oy` are the
+ * cell edge on that side, `ux`/`uy` the direction the cut runs **into** the cell
+ * (away from the full-height face) and `vx`/`vy` the direction along the ridge — the
+ * axis the wedge is *not* cut across, which is where its two triangular ends land.
+ *
+ * `u` is the cut's own coordinate: 0 on the full-height face, 1 on the opposite cell
+ * boundary. Everything about the piece is one line in `u` and `z`, so the eight
+ * wedges are one shape in eight frames rather than eight shapes — which is the whole
+ * reason the orientation cannot drift from the tag that names it.
+ */
+const TRI_FRAME: Record<TriSide, { ox: number; oy: number; ux: number; uy: number; vx: number; vy: number }> = {
+  e: { ox: 1, oy: 0, ux: -1, uy: 0, vx: 0, vy: 1 },
+  w: { ox: 0, oy: 0, ux: 1, uy: 0, vx: 0, vy: 1 },
+  n: { ox: 0, oy: 1, ux: 0, uy: -1, vx: 1, vy: 0 },
+  s: { ox: 0, oy: 0, ux: 0, uy: 1, vx: 1, vy: 0 },
+}
+
+/**
+ * Per-vertex UVs of a face, in its own metres: `u` along its first edge and `v`
+ * square to it, so a triangular end or a slope carries the same texel density as the
+ * walls the profile path builds.
+ */
+function faceUv(pts: Array<[number, number, number]>, n: [number, number, number]): Array<[number, number]> {
+  const [px, py, pz] = pts[0]
+  const ex = [pts[1][0] - px, pts[1][1] - py, pts[1][2] - pz]
+  const len = Math.hypot(ex[0], ex[1], ex[2]) || 1
+  for (let i = 0; i < 3; i++) ex[i] /= len
+  const fx = [n[1] * ex[2] - n[2] * ex[1], n[2] * ex[0] - n[0] * ex[2], n[0] * ex[1] - n[1] * ex[0]]
+  return pts.map((p) => [
+    (p[0] - px) * ex[0] + (p[1] - py) * ex[1] + (p[2] - pz) * ex[2],
+    (p[0] - px) * fx[0] + (p[1] - py) * fx[1] + (p[2] - pz) * fx[2],
+  ])
+}
+
+/**
+ * Push one convex face, wound CCW seen from outside **whatever order its corners
+ * came in**.
+ *
+ * A wedge's five faces live in three different planes, and the `(u, v)` frame flips
+ * handedness with the side the block hugs, so writing out the winding per
+ * orientation is a table of eight that can be wrong quietly. The winding is measured
+ * against the face's own normal instead — by the signed area of the ring about it —
+ * and `test/triangle.test.mjs` pins the result for all eight pieces.
+ */
+function pushFace(b: VecBuilder, pts: Array<[number, number, number]>, n: [number, number, number], ao: number): void {
+  let turn = 0
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]
+    const q = pts[(i + 1) % pts.length]
+    turn += (p[1] * q[2] - p[2] * q[1]) * n[0] + (p[2] * q[0] - p[0] * q[2]) * n[1] + (p[0] * q[1] - p[1] * q[0]) * n[2]
+  }
+  const ring = turn >= 0 ? pts : [...pts].reverse()
+  if (ring.length === 3) {
+    pushTri(b, ring[0], ring[1], ring[2], n, ao, faceUv(ring, n))
+    return
+  }
+  const u = Math.hypot(ring[1][0] - ring[0][0], ring[1][1] - ring[0][1], ring[1][2] - ring[0][2])
+  const v = Math.hypot(ring[2][0] - ring[1][0], ring[2][1] - ring[1][1], ring[2][2] - ring[1][2])
+  pushQuad(b, ring[0], ring[1], ring[2], ring[3], n, [ao, ao, ao, ao], 0, 0, u, v)
+}
+
+/**
+ * The five faces of a **三角** wedge, each pushed into the builder of the finish it
+ * wears (`meshChunk`'s own `builderForIndex`).
+ *
+ * The piece is the cell cut on a 45° plane in elevation, so it is a triangular
+ * prism: a flat 1 m square **in the X-Y plane** — the floor for `upper`, the ceiling
+ * for `lower` — a full-height square face on the side the block hugs, the 45° slope
+ * across the cell, and the two triangular ends the slope cuts on the ridge axis. Its
+ * faces are the shape's own, not the cell's: the slope leans, the ends are triangles,
+ * and there is nothing to chamfer — the block is sawn, so a rounded rim would read as
+ * a lozenge rather than as the cut the player asked for.
+ *
+ * A face is drawn where the cell it looks into is empty. The slope has no neighbour
+ * to be flush with, so it is always drawn — and a wedge embedded in solid blocks
+ * loses the rest of its surface to its neighbours' culling all the same.
+ */
+function pushWedge(
+  builderForIndex: (i: number) => VecBuilder,
+  isSolid: (x: number, y: number, z: number) => boolean,
+  x: number,
+  y: number,
+  z: number,
+  open: { e: boolean; w: boolean; n: boolean; s: boolean; up: boolean; down: boolean },
+  kind: TriangleKind,
+  side: TriSide,
+  fin: { top: number; bottom: number; side: Record<'e' | 'w' | 'n' | 's', number> },
+): void {
+  const F = TRI_FRAME[side]
+  const upper = kind === 'upper'
+  const at = (u: number, v: number, h: number): [number, number, number] => [
+    x + F.ox + F.ux * u + F.vx * v,
+    y + F.oy + F.uy * u + F.vy * v,
+    z + h,
+  ]
+  /**
+   * The finish a face wears, read off its own normal the way the 材质 brush reads the
+   * surface under the pointer (`render/pickCell.ts` `faceAxis`: the axis the normal
+   * most points along, ties going vertical). Painting the visible slope therefore
+   * paints the horizontal face it leans to, and the two cannot disagree.
+   */
+  const finishOf = (n: [number, number, number]): number => {
+    const ax = Math.abs(n[0])
+    const ay = Math.abs(n[1])
+    const az = Math.abs(n[2])
+    if (az >= ax && az >= ay) return n[2] >= 0 ? fin.top : fin.bottom
+    return fin.side[sideOf(n[0], n[1])]
+  }
+  const face = (pts: Array<[number, number, number]>, n: [number, number, number], ao: number): void =>
+    pushFace(builderForIndex(finishOf(n)), pts, n, ao)
+
+  // 1. The full-height face on the side the block hugs — what the piece is aimed
+  //    with, and the one surface a run of them shares with the wall behind it.
+  if (open[side]) {
+    const n: [number, number, number] = [-F.ux, -F.uy, 0]
+    face([at(0, 0, 0), at(0, 1, 0), at(0, 1, 1), at(0, 0, 1)], n, wallAo(isSolid, x, y, z, n[0], n[1]))
+  }
+  // 2. The flat square: the piece's base in the X-Y plane — the floor it stands on
+  //    for 上, the ceiling it hangs from for 下. It is the cell's own top or bottom
+  //    face, so its exposure is the storey boundary's.
+  const base = upper ? open.down : open.up
+  const baseH = upper ? 0 : 1
+  if (base) {
+    const n: [number, number, number] = [0, 0, upper ? -1 : 1]
+    const ao = upper ? 0.6 : topAoAt(isSolid, x, y, z)
+    face([at(0, 0, baseH), at(1, 0, baseH), at(1, 1, baseH), at(0, 1, baseH)], n, ao)
+  }
+  // 3. The two triangular ends, one on each cell face across the ridge. The wrapped
+  //    face is the square's own section: the hugged edge, the floor, the slope — or
+  //    for 下 the hugged edge, the ceiling, and the slope under it.
+  const ends: Array<[boolean, [number, number, number]]> = F.vx === 1
+    ? [
+        [open.w, [-1, 0, 0]],
+        [open.e, [1, 0, 0]],
+      ]
+    : [
+        [open.s, [0, -1, 0]],
+        [open.n, [0, 1, 0]],
+      ]
+  for (const [shown, n] of ends) {
+    if (!shown) continue
+    const v = n[0] + n[1] > 0 ? 1 : 0
+    const ao = wallAo(isSolid, x, y, z, n[0], n[1])
+    face(upper ? [at(0, v, 0), at(1, v, 0), at(0, v, 1)] : [at(0, v, 0), at(0, v, 1), at(1, v, 1)], n, ao)
+  }
+  // 4. The 45° slope itself: up and away from the hugged face for 上, down and away
+  //    for 下 — always drawn, because there is no cell face it could be flush with.
+  const sn: [number, number, number] = upper ? [F.ux, F.uy, 1] : [F.ux, F.uy, -1]
+  const sLen = Math.SQRT2
+  const snUnit: [number, number, number] = [sn[0] / sLen, sn[1] / sLen, sn[2] / sLen]
+  const slopeAo = upper ? topAoAt(isSolid, x, y, z) : wallAo(isSolid, x, y, z, F.ux, F.uy)
+  face(
+    upper ? [at(0, 0, 1), at(1, 0, 0), at(1, 1, 0), at(0, 1, 1)] : [at(0, 0, 0), at(1, 0, 1), at(1, 1, 1), at(0, 1, 0)],
+    snUnit,
+    slopeAo,
+  )
+}
+
+/**
  * The cross-section of a **半墙** cell: the same rounded profile a full cell gets,
  * squashed to `HALF_WALL_T` and turned so the half it keeps is the one flush to the
  * side the panel hugs (`halfWallSide`). The panel's **inner** face — the one
@@ -241,10 +477,20 @@ function buildThinProfile(side: WallSide, E: boolean, W: boolean, N: boolean, S:
  * alone, never drawing the storeys above it. `emit`, when given, limits which
  * solid cells contribute geometry — the block tool's add preview meshes only the
  * pending cells while still reading `solid` for exposure, so it draws the exact
- * final surface those cells will have. `thin`, when given, names the **半墙** cells
- * among them (packed key → the side the panel hugs), which mesh half a block thick
- * instead of a full one. It is a parameter rather than something read off `cells`
- * because the build ghost meshes cells the station does not hold yet.
+ * final surface those cells will have. `thin`, when given, names the cells among
+ * them that are **not** whole blocks (packed key → the shape they draw): a **半墙**
+ * panel, which meshes half a block thick, or a **三角** wedge, which meshes as the
+ * cell cut on its own 45° plane. It is a parameter rather than something read off
+ * `cells`
+ * because the build ghost meshes cells the station does not hold yet. `slope`, the
+ * same way, names the blocks a 楼梯 / 扶梯 takes its volume out of (packed key → the
+ * underside plane `sim/openings.ts` derives): their top is the run's slope rather
+ * than the cell's ceiling, so the space under a run fills up to its truss instead
+ * of bulging through it. `fill`, finally, names the cells of that filling the
+ * station holds **no block** in (`rampFillKeys`): each is drawn as if its block
+ * existed — shaved by the same `slope` entry, wearing the finish of the block it
+ * stands on, solid to every neighbour so the ground below joins it seamlessly — so
+ * the wedge under a truss is filled without a cell no tool could address.
  */
 export function meshChunk(
   solid: Set<number>,
@@ -256,15 +502,21 @@ export function meshChunk(
   emit?: Set<number>,
   skip?: Set<number>,
   cells?: readonly { x: number; y: number; z: number }[],
-  thin?: ReadonlyMap<number, WallSide>,
+  thin?: ReadonlyMap<number, CellShape>,
+  slope?: ReadonlyMap<number, SlopeCut>,
+  fill?: ReadonlySet<number>,
 ): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
   // `skip` cells are hidden from the mesh (a shop's auto walls are drawn as
   // thin panels instead), so they must not occlude their neighbours: otherwise
   // the floor slab under a hidden wall is culled and leaves a half-block void
-  // along the inside of the room.
-  const isSolid = (x: number, y: number, z: number): boolean =>
-    solid.has(key(x, y, z)) && !(skip !== undefined && skip.has(key(x, y, z)))
+  // along the inside of the room. A `fill` cell is the one exception that is
+  // solid without being in the station: it is the ground a run's truss hangs into.
+  const isSolid = (x: number, y: number, z: number): boolean => {
+    const k = key(x, y, z)
+    if (skip !== undefined && skip.has(k)) return false
+    return solid.has(k) || (fill !== undefined && fill.has(k))
+  }
   const H = BEVEL
 
   // Faces are sorted into one builder per finish, so a chunk yields a handful of
@@ -300,7 +552,26 @@ export function meshChunk(
     const S = !isSolid(x, y - 1, z)
     if (!up && !down && !E && !W && !N && !S) continue
 
-    const fin = finishes.get(key(x, y, z))
+    const k = key(x, y, z)
+    const filled = fill !== undefined && fill.has(k)
+    /**
+     * A block a run takes its volume out of ends on the run's **underside** instead of
+     * on the 1 m line: a plane sloping along one horizontal axis, in cell-local units,
+     * so a block under a 楼梯 / 扶梯 fills the space under the slope and stops at the
+     * truss. `undefined` is the ordinary full-height block, meshed exactly as it always
+     * was — and it is the common case, so the cut costs it nothing but the map miss.
+     */
+    const cut = up ? slope?.get(k) : undefined
+    /**
+     * The ground a truss hangs into, drawn as the **run's own body** instead of as a
+     * block of the cell: the cut carries the body's half-width (`slope`), so an
+     * escalator's filling is its truss box, in the run's steel, meeting the truss flush.
+     */
+    const truss = filled && cut !== undefined && cut.half !== undefined
+    // A filling cell the station holds nothing in wears the finish of the block it
+    // stands on — the ground carried up to the truss — unless it is that truss box,
+    // which wears the run's own steel so the escalator reads as one body.
+    const fin = truss ? TRUSS_FACES : finishes.get(k) ?? (filled ? finishes.get(key(x, y, z - 1)) : undefined)
     const topI = fin?.top !== undefined ? finishIdx(fin.top) : DEFAULT_TOP_I
     const bottomI = fin?.bottom !== undefined ? finishIdx(fin.bottom) : DEFAULT_BOTTOM_I
     const sideI: Record<'e' | 'w' | 'n' | 's', number> = fin
@@ -315,8 +586,27 @@ export function meshChunk(
     // A 半墙 cell meshes as the half of the block its panel hugs; every other
     // solid cell is a full block. The faces keep their own finishes either way, so
     // painting a 半墙 is painting a wall — one face per surface, both sides of it.
-    const side = thin?.get(key(x, y, z))
-    const profile = side ? buildThinProfile(side, E, W, N, S) : buildProfile(E, W, N, S)
+    // A **三角** is not a cross-section at all: its cell is cut in *elevation*, so it
+    // meshes as a wedge with its own five faces (`pushWedge`) rather than as a profile
+    // extruded up the cell. It is a sawn block — no top-rim chamfer — and none of the
+    // profile machinery below applies to it, so it is done with its cell here.
+    const thinShape = thin?.get(k)
+    if (isTriangleShape(thinShape)) {
+      pushWedge(builderForIndex, isSolid, x, y, z, { e: E, w: W, n: N, s: S, up, down }, thinShape.triangle, thinShape.side, {
+        top: topI,
+        bottom: bottomI,
+        side: sideI,
+      })
+      continue
+    }
+    let profile: Pt[]
+    if (filled && cut !== undefined && cut.half !== undefined) {
+      profile = buildTrussProfile(cut.axis, cut.half)
+    } else if (isHalfWallShape(thinShape)) {
+      profile = buildThinProfile(thinShape.side, E, W, N, S)
+    } else {
+      profile = buildProfile(E, W, N, S)
+    }
     // Per-point exposed normal and inward offset for the top bevel.
     const offs: Pt[] = profile.map((p, i) => {
       const prev = profile[(i - 1 + profile.length) % profile.length]
@@ -342,11 +632,31 @@ export function meshChunk(
     const oy = y
     const oz = z
     const wallTop = up ? 1 - H : 1
-
+    /** The cut plane at a profile point, clamped into the block; null when uncut. */
+    let cutAt: ((px: number, py: number) => number) | null = null
+    if (cut !== undefined) {
+      const lo = cut.lo
+      const rise = cut.hi - cut.lo
+      const alongX = cut.axis === 'x'
+      cutAt = (px: number, py: number): number => {
+        const t = lo + rise * (alongX ? px : py)
+        return t <= 0 ? 0 : t >= 1 ? 1 : t
+      }
+    }
+    // Where the plane leaves through the block's floor the block is empty past it,
+    // so the cross-section is clipped there: a fan chording across that corner would
+    // rise back up into the run it was cut out of. Everywhere else it is the profile.
+    let shape = profile
+    if (cut !== undefined && Math.min(cut.lo, cut.hi) <= 0) {
+      const lo = cut.lo
+      const rise = cut.hi - cut.lo
+      const alongX = cut.axis === 'x'
+      shape = clipProfile(profile, (p: Pt): number => lo + rise * (alongX ? p.x : p.y))
+    }
     // Walls + chamfer rim.
-    for (let i = 0; i < profile.length; i++) {
-      const p = profile[i]
-      const q = profile[(i + 1) % profile.length]
+    for (let i = 0; i < shape.length; i++) {
+      const p = shape[i]
+      const q = shape[(i + 1) % shape.length]
       const e = edgeExposure(p, q)
       if (!e.exposed) continue
       const nx = e.nx
@@ -354,20 +664,28 @@ export function meshChunk(
       // Ambient occlusion from the cells beside this wall.
       const ao = wallAo(isSolid, x, y, z, nx, ny)
       const uLen = Math.hypot(q.x - p.x, q.y - p.y)
-      pushQuad(
-        builderForIndex(sideI[sideOf(nx, ny)]),
-        [ox + p.x, oy + p.y, oz],
-        [ox + q.x, oy + q.y, oz],
-        [ox + q.x, oy + q.y, oz + wallTop],
-        [ox + p.x, oy + p.y, oz + wallTop],
-        [nx, ny, 0],
-        [ao, ao, ao, ao],
-        0,
-        0,
-        uLen,
-        wallTop,
-      )
-      if (up) {
+      // A cut that has taken a wall all the way to the floor emits no wall there.
+      const hp = cutAt === null ? wallTop : cutAt(p.x, p.y)
+      const hq = cutAt === null ? wallTop : cutAt(q.x, q.y)
+      if (hp > 0 || hq > 0) {
+        pushQuad(
+          builderForIndex(sideI[sideOf(nx, ny)]),
+          [ox + p.x, oy + p.y, oz],
+          [ox + q.x, oy + q.y, oz],
+          [ox + q.x, oy + q.y, oz + hq],
+          [ox + p.x, oy + p.y, oz + hp],
+          [nx, ny, 0],
+          [ao, ao, ao, ao],
+          0,
+          0,
+          uLen,
+          hq,
+        )
+      }
+      // The top-rim chamfer is only for a block that ends on the cell ceiling. A
+      // cut block ends on a face the run made: it stays sharp, the way a sawn
+      // block does, rather than being rounded off at the truss.
+      if (up && cutAt === null) {
         const o1 = offs[i]
         const o2 = offs[(i + 1) % profile.length]
         const cn = Math.hypot(nx + 0, ny + 0, 1)
@@ -387,19 +705,23 @@ export function meshChunk(
       }
     }
 
-    // Top face: fan of the offset profile.
+    // Top face: a fan of the profile. An uncut block fans its chamfered profile on
+    // the ceiling; a cut one fans the plain profile on the slope, so the block's top
+    // is the run's underside right out to its own side walls.
     if (up) {
       const topAo = topAoAt(isSolid, x, y, z)
-      const cxm = cxCenter(offs)
-      const cym = cyCenter(offs)
-      for (let i = 0; i < offs.length; i++) {
-        const p = offs[i]
-        const q = offs[(i + 1) % offs.length]
+      const cap = cutAt === null ? offs : shape
+      const cxm = cxCenter(cap)
+      const cym = cyCenter(cap)
+      const cH = cutAt === null ? 1 : cutAt(cxm, cym)
+      for (let i = 0; i < cap.length; i++) {
+        const p = cap[i]
+        const q = cap[(i + 1) % cap.length]
         pushTri(
           builderForIndex(topI),
-          [ox + cxm, oy + cym, oz + 1],
-          [ox + p.x, oy + p.y, oz + 1],
-          [ox + q.x, oy + q.y, oz + 1],
+          [ox + cxm, oy + cym, oz + cH],
+          [ox + p.x, oy + p.y, oz + (cutAt === null ? 1 : cutAt(p.x, p.y))],
+          [ox + q.x, oy + q.y, oz + (cutAt === null ? 1 : cutAt(q.x, q.y))],
           [0, 0, 1],
           topAo,
           [
@@ -411,14 +733,18 @@ export function meshChunk(
       }
     }
 
-    // Bottom face, for floating blocks and cutaways.
+    // Bottom face, for floating blocks and cutaways. A cut block's footprint is the
+    // clipped cross-section, so the floor under it follows the same knife edge.
     if (down) {
       const ao = 0.6
-      const cxm = 0.5
-      const cym = 0.5
-      for (let i = 0; i < profile.length; i++) {
-        const p = profile[(i + 1) % profile.length]
-        const q = profile[i]
+      // A plain block fans from its cell centre; a clipped one has to fan from
+      // inside its own cross-section, or the fan's hub lands where the cut has
+      // already emptied the block.
+      const cxm = cutAt === null ? 0.5 : cxCenter(shape)
+      const cym = cutAt === null ? 0.5 : cyCenter(shape)
+      for (let i = 0; i < shape.length; i++) {
+        const p = shape[(i + 1) % shape.length]
+        const q = shape[i]
         pushTri(
           builderForIndex(bottomI),
           [ox + cxm, oy + cym, oz],

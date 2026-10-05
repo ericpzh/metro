@@ -20,6 +20,17 @@ let speed = 1
 let timer: number | null = null
 let buffer = new Float32Array(0)
 let density = new Float32Array(0)
+/**
+ * Something the renderer has not been told about yet.
+ *
+ * While the sim is paused the *station* can still change — an edit, a restart, a
+ * speed change — and those have to reach the screen. But a paused tick that changed
+ * nothing has no news to post, and the old `run()` built and cloned a full ~150 KB
+ * snapshot every interval anyway (1/4/16 Hz regardless of `playing`): pure garbage,
+ * a store write and an O(agents x gates) crossing scan per message, for data that
+ * was already on screen. So a paused `run` with nothing dirty returns immediately.
+ */
+let dirty = true
 
 function post(message: FromWorker, transfer: Transferable[] = []): void {
   ctx.postMessage(message, transfer)
@@ -37,7 +48,11 @@ function intervalMs(): number {
 
 function run(): void {
   if (!world) return
-  if (playing && speed > 0) world.tickOnce()
+  const stepping = playing && speed > 0
+  if (stepping) world.tickOnce()
+  // Paused with nothing changed since the last frame: there is no news to post.
+  else if (!dirty) return
+  dirty = false
   const w = world
   const need = w.pool.count * 6
   if (buffer.length < need) buffer = new Float32Array(Math.max(need, 4096))
@@ -104,6 +119,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
         [nodes.buffer],
       )
       schedule()
+      dirty = true
       run()
       break
     }
@@ -111,6 +127,10 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       if (world) {
         world.data = msg.data
         world.rebuild()
+        // The edit has to reach the screen now: while paused there is no stream to
+        // carry it later, which is the other half of the dirty flag.
+        dirty = true
+        run()
       }
       break
     }
@@ -118,6 +138,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       playing = msg.playing
       speed = msg.speed
       schedule()
+      dirty = true
       run()
       break
     }
@@ -126,6 +147,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       // `run` posts the cleared state immediately, even while paused.
       if (world) {
         world.restart()
+        dirty = true
         run()
       }
       break

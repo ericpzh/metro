@@ -170,6 +170,12 @@ export class AgentPool {
     for (let i = 0; i < this.liveList.length; i++) {
       const a = this.liveList[i]
       if (a.dead) {
+        // **The id index has to let go with the agent.** `spawn` recycles this very
+        // object under a *new* id, so a stale entry left here would answer for a
+        // live agent at an id nobody holds any more — and the map grew by one entry
+        // per spawn for the whole session. Every reader tests `!a || a.dead`, so an
+        // absent id reads exactly like a dead one.
+        if (this.byId.get(a.id) === a) this.byId.delete(a.id)
         this.free.push(a)
       } else {
         this.liveList[w++] = a

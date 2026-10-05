@@ -293,6 +293,12 @@ derived from these six faces. That keeps the build model small and makes save fi
   break a merge.
 * **Why bevels.** The softened corners are what make a 1 m voxel grid read as a designed building
   instead of a spreadsheet. See sheet 03.
+* **A cut top.** A block a 楼梯 / 扶梯 takes its volume out of — the ground under a run, which its
+  truss or soffit hangs into — is not a full cube. Its top is the run's own **underside**, a plane
+  sloping along the run, so the block reads as the filling under the slope and the run's truss sits
+  on it instead of disappearing into it. It is a *cut*, not a chamfer, so the block keeps its sharp
+  edge there. Nothing is stored: the cut is derived from the run (`rampSlopeCuts`), so there is no
+  filling-block piece in the document to keep in step with the run that made it.
 
 ### 4.3 Surfaces and what they do
 
@@ -430,6 +436,18 @@ Travel direction is
 irrelevant to standing flush (an up and a down escalator are the usual bank); a run in a column
 another run already occupies is still refused, so a second escalator can never be dropped immediately
 below a first.
+
+A run is founded on the ground it climbs over, and its body hangs **below** its walking line — an
+escalator's truss, a staircase's soffit and stringers, half a metre of it. So a block under a run is
+floor like any other: the 地基 tool lays it, the carve does not take it away (the carve opens the run's
+passage from the walking line **up**, and keeps the landings as the graph's nodes), and the renderer
+shaves its top to the run's underside (§4.2), tile by tile, so what stands under a 扶梯 is the filling
+under the slope rather than a cube with the truss buried in it. Only the column the run's own walking
+line passes through is cut, and a run's **landing columns** are left whole — they are the floor the
+crowd stands on at the foot of the run, so a block there is cut level with that surface, never on a
+slope. A block the run's body never reaches is left exactly as it was built. The cut is a *surface*:
+the crowd's model of a block is still its cell top, which is why it only ever happens below a run's
+walking line and never in a column anyone walks.
 
 ### 5.2 Fare control and service
 

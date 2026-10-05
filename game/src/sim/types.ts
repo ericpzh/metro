@@ -124,6 +124,109 @@ export function halfWallSide(c: { tags?: string[] }): WallSide | null {
   return null
 }
 
+/* ------------------------------------------------------ 三角 (triangle) blocks */
+
+/**
+ * The side of its cell a **三角** block stands its **full-height face** on — `w` is
+ * the cell's west face, so the block is a whole metre tall there and its 45° cut
+ * falls away to the east. It is the same four letters a **半墙** stores, because it
+ * answers the same question — which side of the tile does this piece hug — and a
+ * quarter-turn takes any of the four to the next, which is why **R** steps it.
+ */
+export type TriSide = WallSide
+
+/**
+ * The two cuts a **三角** block comes in, toggled on the rail. Both put the cell on
+ * a 45° plane in **elevation**, so the piece is a wedge: one flat 1 m square in the
+ * X-Y plane, the full-height square face on `side`, the 45° slope across the cell
+ * and two sharp triangular ends. They differ in which half of the cell the wedge
+ * is, which is what the rail's 三角上 / 三角下 names:
+ *
+ * * `upper` (三角上) — the **base is the floor**, the tip line at `+z`: the flat
+ *   square lies in the X-Y plane at the cell's own floor, the block is a full metre
+ *   tall along `side` and the slope runs from the top of that face down to the
+ *   opposite floor edge. The lower half of the cell, so the piece is a ramp.
+ * * `lower` (三角下) — the **base is the ceiling**, the tip line at `-z`: the flat
+ *   square is the cell's ceiling, the full-height face is still on `side`, and the
+ *   slope runs from that face's floor edge up to the opposite ceiling edge. The
+ *   upper half of the cell, so the piece is the soffit under a diagonal.
+ *
+ * Four sides each, and the eight together are every way a cell admits this wedge.
+ */
+export type TriangleKind = 'upper' | 'lower'
+
+/** Every side, in the order **R** steps them (a clockwise quarter-turn). */
+export const TRI_SIDES: readonly TriSide[] = ['n', 'e', 's', 'w']
+
+const TRI_SIDE_SET: readonly string[] = TRI_SIDES
+
+/**
+ * Tag prefix on a **三角** block: `tri-upper:w`. Two families rather than one
+ * because the pair is two shapes, not one shape turned — 上 stands its base on the
+ * floor and 下 hangs it from the ceiling, and no rotation makes one into the other.
+ * **R** then steps the side the block hugs, so the two families together span the
+ * eight wedges a cell admits.
+ */
+export const TRI_UPPER = 'tri-upper'
+export const TRI_LOWER = 'tri-lower'
+
+export function triangleTag(kind: TriangleKind, side: TriSide): string {
+  return `${kind === 'upper' ? TRI_UPPER : TRI_LOWER}:${side}`
+}
+
+/**
+ * The wedge a cell is, or null for any other block. The `kind` is which half of the
+ * cell it is (base on the floor or on the ceiling) and the `side` the face it hugs.
+ */
+export function triangleOf(c: { tags?: string[] }): { kind: TriangleKind; side: TriSide } | null {
+  const tags = c.tags
+  if (!tags) return null
+  for (const t of tags) {
+    const at = t.indexOf(':')
+    if (at < 0) continue
+    const family = t.slice(0, at)
+    if (family !== TRI_UPPER && family !== TRI_LOWER) continue
+    const side = t.slice(at + 1)
+    if (!TRI_SIDE_SET.includes(side)) continue
+    return { kind: family === TRI_UPPER ? 'upper' : 'lower', side: side as TriSide }
+  }
+  return null
+}
+
+/**
+ * Every block that is **not** a full cell, by packed cell key → the shape it draws
+ * (`render/chunkMesher.ts`): a 半墙 panel or a 三角 wedge. One list, so the mesher,
+ * the build ghost and the paint brush cannot disagree about which cells are cut.
+ */
+export type CellShape =
+  | { kind: 'half'; side: WallSide }
+  | { kind: 'triangle'; triangle: TriangleKind; side: TriSide }
+
+/** The cut shape of a block, or null when it fills its whole cell. */
+export function shapeOf(c: { tags?: string[] }): CellShape | null {
+  const half = halfWallSide(c)
+  if (half !== null) return { kind: 'half', side: half }
+  const tri = triangleOf(c)
+  if (tri !== null) return { kind: 'triangle', triangle: tri.kind, side: tri.side }
+  return null
+}
+
+/** True when a cell draws a 半墙 panel rather than a whole cell. */
+export function isHalfWallShape(shape: CellShape | null | undefined): shape is { kind: 'half'; side: WallSide } {
+  return shape?.kind === 'half'
+}
+
+/**
+ * True when a cell draws a **三角** wedge rather than a whole cell: the cell cut on
+ * a 45° plane in elevation, so the piece is one flat 1 m square in the X-Y plane,
+ * one full-height square, the slope across the cell and two sharp triangular ends.
+ * It is a piece the player lays like a 半墙 — one click, one course — and a ramp
+ * keeps it rather than carving it, exactly as it does a 半墙.
+ */
+export function isTriangleShape(shape: CellShape | null | undefined): shape is { kind: 'triangle'; triangle: TriangleKind; side: TriSide } {
+  return shape?.kind === 'triangle'
+}
+
 /**
  * The face of a 半墙 cell the panel turns **into its own cell**: the surface
  * looking across the clear half, half a block in from the cell's far side. It is a
@@ -146,13 +249,16 @@ export function halfWallInnerFace(side: WallSide): WallSide {
  * A 半墙 counts as a wall for every rule that asks about walls, because that is
  * what it is: a ramp keeps it instead of carving it (`carveRampOpenings`), a
  * wall-mounted 广告牌 may bolt to it (`wallMountMissing`), and the crowd is blocked
- * by its cell exactly as a full course blocks one.
+ * by its cell exactly as a full course blocks one. A **三角** is the same kind of
+ * piece — a course the player laid, wearing a cut — so it answers here too, and the
+ * wall tools can lift it like any other column.
  */
 export function isWallBlock(c: { tags?: string[] }): boolean {
   const tags = c.tags
   if (!tags) return false
   for (const t of tags) {
-    if (t === 'wall' || t === 'auto-wall' || t.startsWith('tunnel-shell:') || t.startsWith(`${HALF_WALL}:`)) return true
+    if (t === 'wall' || t === 'auto-wall' || t.startsWith('tunnel-shell:')) return true
+    if (t.startsWith(`${HALF_WALL}:`) || t.startsWith(`${TRI_UPPER}:`) || t.startsWith(`${TRI_LOWER}:`)) return true
   }
   return false
 }

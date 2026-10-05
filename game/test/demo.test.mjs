@@ -58,8 +58,9 @@ test('the demo boots at the authored time with a fresh floor', () => {
 test('the shipped demo carries no cell off the 1 m grid', () => {
   // The author's own save arrived with 19 (fractional coordinates, no tags, no
   // module standing on them). No tool in the game can mint one — or remove one,
-  // since a pick snaps to integers and `removeCells` matches an exact coordinate —
-  // so a save is the only way they can appear, and they must not be shipped.
+  // since a pick names whole cells (`render/pickCell.ts`) and `removeCells` matches
+  // an exact coordinate — so a save is the only way they can appear, and they must
+  // not be shipped.
   // `toState` drops them on load (`save.test.mjs`); this is the guard on the file
   // itself, which `referenceStation()` hands out raw.
   const stray = referenceStation().cells.filter(

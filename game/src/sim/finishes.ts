@@ -13,6 +13,15 @@ import type { Cell, Face, FinishId } from './types.ts'
 
 export type FinishFamily = 'floor' | 'ceiling' | 'wall' | 'track'
 
+/**
+ * The finish the ground under a run's truss is drawn in where no block was laid: the
+ * run's own dark steel, so the filling meets the truss's underside in one body instead
+ * of reading as concrete reaching up into the escalator. A stock finish, so a player
+ * can paint a block's **bottom** face with it (`finishesForFace`) and get the same
+ * look anywhere else they want it.
+ */
+export const RAMP_SOFFIT_FINISH = 'ceil.steel'
+
 export interface FinishDef {
   id: FinishId
   /** Simplified Chinese, shown in the rail palette. */
@@ -23,7 +32,7 @@ export interface FinishDef {
   /** Rain cover / light, cosmetic in the base game (§4.3). */
   cover: boolean
   /** Which procedural base the renderer draws. */
-  look: 'granite' | 'concrete' | 'tile' | 'track' | 'baffle' | 'metal' | 'plaster' | 'enamel' | 'stainless' | 'soil'
+  look: 'granite' | 'concrete' | 'tile' | 'track' | 'baffle' | 'metal' | 'steel' | 'plaster' | 'enamel' | 'stainless' | 'soil'
   /** Base tint, hexadecimal. */
   tint: number
 }
@@ -40,6 +49,10 @@ export const FINISH_LIST: readonly FinishDef[] = [
   // 天花 Ceiling finish — bottom face.
   { id: 'ceil.baffle', label: '格栅天花', family: 'ceiling', speed: 1.0, cover: true, look: 'baffle', tint: 0xe8ebef },
   { id: 'ceil.metal', label: '金属吊顶', family: 'ceiling', speed: 1.0, cover: true, look: 'metal', tint: 0x6b7480 },
+  // 钢板: dark brushed steel, the finish a 楼梯 / 扶梯 soffit wears — and the one the
+  // derived filling under a run's truss is drawn in, so the escalator reads as one
+  // body from the step band down to the ground (`rampFillKeys`, `chunkMesher`'s `fill`).
+  { id: RAMP_SOFFIT_FINISH, label: '钢板', family: 'ceiling', speed: 1.0, cover: true, look: 'steel', tint: 0x3c434c },
   // 墙面 Wall finish — n/e/s/w.
   { id: 'wall.plaster', label: '涂料', family: 'wall', speed: 1.0, cover: false, look: 'plaster', tint: 0xe4e6ea },
   { id: 'wall.enamel', label: '搪瓷板', family: 'wall', speed: 1.0, cover: false, look: 'enamel', tint: 0x2f7ef2 },
