@@ -15,7 +15,7 @@
 import { HALF_WALL_T } from '../sim/constants.ts'
 import { DEFAULT_FINISH, FINISH_LIST, RAMP_SOFFIT_FINISH } from '../sim/finishes.ts'
 import type { SlopeCut } from '../sim/openings.ts'
-import { isHalfWallShape, isTriangleShape, packKey as key } from '../sim/types.ts'
+import { isHalfWallShape, isTriangleShape, packKey as key, triangleSlopeFace } from '../sim/types.ts'
 import type { Cell, CellShape, Face, FinishId, TriangleKind, TriSide, WallSide } from '../sim/types.ts'
 
 /** Finish id -> a small dense index, so a hot loop never does a string Map get. */
@@ -49,9 +49,7 @@ const DEFAULT_SIDE_I: Record<'e' | 'w' | 'n' | 's', number> = {
 }
 
 export const CHUNK = 16
-/** Outer corner radius of the rounded profile, metres. */
-export const CORNER_R = 0.125
-/** Top-rim chamfer, metres. "12.5 cm bevel on exposed top edges". */
+/** Top-rim chamfer, metres. "12.5 cm bevel on exposed top edges" — GAME-SPEC §4.2. */
 export const BEVEL = 0.125
 
 /** One merged run of faces wearing the same finish (§4.3). */
@@ -77,13 +75,10 @@ export interface ChunkGeometry {
   ms: number
 }
 
+/** A point in a cell's own 1 m frame, as the profile walks it. */
 interface Pt {
   x: number
   y: number
-  nx: number
-  ny: number
-  /** True when at least one adjacent edge is exposed. */
-  exposed: boolean
 }
 
 export function buildSolidSet(cells: readonly Cell[]): Set<number> {
@@ -141,35 +136,85 @@ function pushTri(
 }
 
 /**
- * The cross-section of a run's **drawn body** where it is narrower than the cell — an
- * escalator's truss box, `half` either side of its centreline across the run and the
- * full width of the tile along it. Sharp corners, because the body is a slab and not a
- * block; the rounded profile would read as a pillar under the escalator.
+ * Push a convex face wound so it **faces `n`**, whatever order the corners were handed in.
  *
- * `axis` is the plane's slope axis, which is the way the run travels, so the box is
- * that long along `axis` and `2 × half` across it. The point normals are set so that
- * `edgeExposure` — which reads an edge's direction off its midpoint, and falls back to
- * the sum of the two point normals for an edge away from the cell boundary — gives each
- * side its outward normal. The two ends land on the cell boundary and answer ±`axis`
- * on their own; where the next tile's box carries on they are drawn anyway and hidden
- * inside the union, so the skirt needs no neighbour test to look continuous.
+ * A bevel's corner triangle is the one place the right order is not obvious: the block's
+ * outer corner, one neighbouring miter step and the other sit in three different planes, and
+ * which way round they read flips with the corner. Measuring the ring's signed area about
+ * `n` and reversing when it comes out negative is one line and cannot be got wrong, where
+ * writing the order out per corner is a table that goes wrong quietly — the face then draws
+ * as a black hole from the side it should be lit. Each corner carries its own UV, so a
+ * reversal takes the texture with it.
  */
-function buildTrussProfile(axis: 'x' | 'y', half: number): Pt[] {
+function pushFaceOut(
+  b: VecBuilder,
+  pts: Array<[number, number, number]>,
+  uvs: Array<[number, number]>,
+  n: [number, number, number],
+  ao: number,
+): void {
+  let turn = 0
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]
+    const q = pts[(i + 1) % pts.length]
+    turn += (p[1] * q[2] - p[2] * q[1]) * n[0] + (p[2] * q[0] - p[0] * q[2]) * n[1] + (p[0] * q[1] - p[1] * q[0]) * n[2]
+  }
+  const ring = turn >= 0 ? pts : [...pts].reverse()
+  const uv = turn >= 0 ? uvs : [...uvs].reverse()
+  if (ring.length === 3) {
+    pushTri(b, ring[0], ring[1], ring[2], n, ao, uv)
+    return
+  }
+  const base = b.pos.length / 3
+  b.pos.push(ring[0][0], ring[0][1], ring[0][2], ring[1][0], ring[1][1], ring[1][2], ring[2][0], ring[2][1], ring[2][2], ring[3][0], ring[3][1], ring[3][2])
+  for (let i = 0; i < 4; i++) {
+    b.nor.push(n[0], n[1], n[2])
+    b.col.push(ao, ao, ao)
+    b.uv.push(uv[i][0], uv[i][1])
+  }
+  b.idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
+}
+
+/**
+ * The cross-section of a run's **drawn body** where it is narrower than the cell — an
+ * escalator's truss box, `half` either side of its centreline across the run and the full
+ * width of the tile along it. Sharp corners, because the body is a slab and not a block: the
+ * profile a block gets, with the bevel, would read as a pillar under the escalator. Every
+ * side of it is exposed, so it wears the run's steel all round and the top is inset on all
+ * four sides like any other block's.
+ *
+ * `axis` is the plane's slope axis, which is the way the run travels, so the box is that
+ * long along `axis` and `2 × half` across it. The two ends land on the cell boundary, where
+ * the next tile's box carries on and hides them inside the union, so the skirt needs no
+ * neighbour test to look continuous.
+ */
+function buildTrussProfile(axis: 'x' | 'y', half: number): Profile {
   const lo = 0.5 - half
   const hi = 0.5 + half
-  return axis === 'x'
-    ? [
-        { x: 0, y: lo, nx: 0, ny: -1, exposed: true },
-        { x: 1, y: lo, nx: 0, ny: -1, exposed: true },
-        { x: 1, y: hi, nx: 0, ny: 1, exposed: true },
-        { x: 0, y: hi, nx: 0, ny: 1, exposed: true },
-      ]
-    : [
-        { x: lo, y: 0, nx: -1, ny: 0, exposed: true },
-        { x: hi, y: 0, nx: 1, ny: 0, exposed: true },
-        { x: hi, y: 1, nx: 1, ny: 0, exposed: true },
-        { x: lo, y: 1, nx: -1, ny: 0, exposed: true },
-      ]
+  const corners: Array<[number, number]> =
+    axis === 'x'
+      ? [
+          [0, hi],
+          [0, lo],
+          [1, lo],
+          [1, hi],
+        ]
+      : [
+          [lo, 1],
+          [lo, 0],
+          [hi, 0],
+          [hi, 1],
+        ]
+  const edges: ProfileEdge[] = []
+  for (let i = 0; i < 4; i++) {
+    const from: Pt = { x: corners[i][0], y: corners[i][1] }
+    const to: Pt = { x: corners[(i + 1) % 4][0], y: corners[(i + 1) % 4][1] }
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    const m = Math.hypot(dx, dy) || 1
+    edges.push({ from, to, nx: dy / m, ny: -dx / m, exposed: true, inset: BEVEL })
+  }
+  return { edges }
 }
 
 /**
@@ -185,47 +230,113 @@ const TRUSS_FACES: Partial<Record<Face, FinishId>> = {
   s: RAMP_SOFFIT_FINISH,
 }
 
-/** Build the rounded cross-section profile for one cell, CCW viewed from +z. */
-function buildProfile(E: boolean, W: boolean, N: boolean, S: boolean): Pt[] {
-  const R = CORNER_R
-  const pts: Pt[] = []
-  const arc = (cx: number, cy: number, a0: number, a1: number): void => {
-    const steps = 3
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps
-      const a = a0 + (a1 - a0) * t
-      const nx = Math.cos(a)
-      const ny = Math.sin(a)
-      pts.push({ x: cx + R * nx, y: cy + R * ny, nx, ny, exposed: true })
-    }
-  }
-  const corner = (x: number, y: number, nx: number, ny: number, exp: boolean): void => {
-    pts.push({ x, y, nx, ny, exposed: exp })
-  }
-  // SW then S edge then SE then E then NE then N then NW then W.
-  if (W && S) arc(R, R, Math.PI, 1.5 * Math.PI)
-  else corner(0, 0, W ? -1 : 0, S ? -1 : 0, W || S)
-  if (S && E) arc(1 - R, R, 1.5 * Math.PI, 2 * Math.PI)
-  else corner(1, 0, E ? 1 : 0, S ? -1 : 0, E || S)
-  if (E && N) arc(1 - R, 1 - R, 0, 0.5 * Math.PI)
-  else corner(1, 1, E ? 1 : 0, N ? 1 : 0, E || N)
-  if (N && W) arc(R, 1 - R, 0.5 * Math.PI, Math.PI)
-  else corner(0, 1, W ? -1 : 0, N ? 1 : 0, N || W)
-  return pts
+/**
+ * Which of a cell's four sides is open to the air **at this cell's own height**: `false`
+ * means a solid neighbour shares that side. A side merely having another cell above or
+ * below it is not this — a block under a floor is still open on a side the floor does not
+ * reach, so it keeps its bevel there.
+ */
+export interface Look {
+  e: boolean
+  w: boolean
+  n: boolean
+  s: boolean
 }
 
-function edgeExposure(p: Pt, q: Pt): { exposed: boolean; nx: number; ny: number } {
-  const mx = (p.x + q.x) / 2
-  const my = (p.y + q.y) / 2
-  if (mx < 1e-6) return { exposed: true, nx: -1, ny: 0 }
-  if (mx > 1 - 1e-6) return { exposed: true, nx: 1, ny: 0 }
-  if (my < 1e-6) return { exposed: true, nx: 0, ny: -1 }
-  if (my > 1 - 1e-6) return { exposed: true, nx: 0, ny: 1 }
-  // An arc segment — both adjacent sides are exposed.
-  const nx = p.nx + q.nx
-  const ny = p.ny + q.ny
-  const m = Math.hypot(nx, ny) || 1
-  return { exposed: true, nx: nx / m, ny: ny / m }
+/** One side of a cell's cross-section, as the profile walks it counter-clockwise. */
+export interface ProfileEdge {
+  from: Pt
+  to: Pt
+  /** Outward normal of this side, in cell-local units. */
+  nx: number
+  ny: number
+  /** Open to the air, so this side wears a wall and the bevel above it. */
+  exposed: boolean
+  /** How far this side's top edge is pulled in: the bevel when exposed, flush when shared. */
+  inset: number
+}
+
+/**
+ * A solid cell's cross-section, as the four sides walked counter-clockwise seen from +z.
+ *
+ * Everything about how a block is drawn follows from this one list: which wall runs it
+ * emits, how far the top face is inset, and which sides are flush with the block next door.
+ */
+export interface Profile {
+  edges: ProfileEdge[]
+}
+
+/**
+ * Build the cross-section of one cell, walked counter-clockwise from its north-west corner:
+ * west, south, east, north.
+ *
+ * **A side a solid neighbour shares is flush.** That is the whole point of the shape. An
+ * earlier version rounded and bevelled every cell edge whatever stood beside it, so two
+ * blocks always met along a shared edge that both of them insetted away from: a floor came
+ * out as a field of shallow cones with a V-groove along every seam and a pit at every
+ * four-block corner, twelve and a half centimetres deep and plainly visible from above.
+ * A shared side now draws nothing at all — no wall (the neighbour is the same building) and
+ * no bevel — so the two top faces are the one flat plane all the way across.
+ *
+ * The rounding that went with it is the corner arc. §4.2 asks for rounded outer corners
+ * *and* a 12.5 cm top bevel, and at a 12.5 cm corner radius those two cannot both exist:
+ * the inset of the corner by the bevel collapses it to a point exactly where the bevel
+ * ends. The bevel is the one the spec pins a number to, and a flat, seamless floor is what
+ * it is for, so the outline above it is a plain square.
+ */
+function buildProfile(look: Look): Profile {
+  // Corner i is the start of side i: NW, SW, SE, NE.
+  const corner = (i: number): Pt => ({ x: i === 2 || i === 3 ? 1 : 0, y: i === 0 || i === 3 ? 1 : 0 })
+  const open = [look.w, look.s, look.e, look.n]
+  const edges: ProfileEdge[] = []
+  for (let i = 0; i < 4; i++) {
+    const from = corner(i)
+    const to = corner((i + 1) % 4)
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    const m = Math.hypot(dx, dy) || 1
+    // Outward is the walk turned a quarter clockwise, which is already away from the cell.
+    edges.push({
+      from,
+      to,
+      nx: dy / m,
+      ny: -dx / m,
+      exposed: open[i],
+      inset: open[i] ? BEVEL : 0,
+    })
+  }
+  return { edges }
+}
+
+/** The outline a profile walks, for a caller that needs the polygon rather than the sides. */
+function profileOutline(profile: Profile): Pt[] {
+  return profile.edges.map((e) => e.from)
+}
+
+/**
+ * The top face's boundary: the block's own convex outline inset by `BEVEL` on every side
+ * that is open to the air, and untouched on every side it shares with a neighbour.
+ *
+ * Insetting the *outline* is what keeps each bevel a **flat 45° strip**. Offsetting each
+ * wall's line on its own instead — which is what this did — sounds equivalent and is not:
+ * a wall's inner line then runs the whole cell edge, so the chamfer over the west side
+ * leaves the cell boundary at the north-west corner and arrives at the south-east one, a
+ * diagonal sail across the floor rather than a bevel. That surface is not even planar, so
+ * the two triangles it is split into disagree with the normal it is lit by (dots of 0.80
+ * and −0.70 at the same time), and it is why a bevelled edge read as a row of hard black
+ * wedges instead of a chamfer. On the outline the corner between two open sides is a
+ * mitre: its two cells each step in by `BEVEL`, exactly what a chamfer's corner looks like.
+ *
+ * `ring[i]` is the inner end of the wall `edges[i]` draws, so a chamfer is the quad from
+ * that wall out to this ring — `edges[i].to` to `edges[i + 1].from` — and the two open
+ * sides at a convex corner close with one small triangle between their two mitre steps.
+ */
+function profileRing(profile: Profile): Pt[] {
+  const edges = profile.edges
+  // `ring[i]` is the inner end of wall `i` — the corner that wall runs to. Only that
+  // wall's own inset moves it, so the west wall's inner line stays at x = BEVEL for its
+  // whole length instead of being dragged along the neighbouring walls.
+  return edges.map((e) => ({ x: e.to.x - e.nx * e.inset, y: e.to.y - e.ny * e.inset }))
 }
 
 /* -------------------------------------------------------- 半墙 (§4.1 / §4.3) */
@@ -246,13 +357,27 @@ function sideTurned(side: WallSide, turns: number): WallSide {
 function turnPoint(p: Pt, turns: number): Pt {
   switch (turns) {
     case 1:
-      return { x: p.y, y: 1 - p.x, nx: p.ny, ny: -p.nx, exposed: p.exposed }
+      return { x: p.y, y: 1 - p.x }
     case 2:
-      return { x: 1 - p.x, y: 1 - p.y, nx: -p.nx, ny: -p.ny, exposed: p.exposed }
+      return { x: 1 - p.x, y: 1 - p.y }
     case 3:
-      return { x: 1 - p.y, y: p.x, nx: -p.ny, ny: p.nx, exposed: p.exposed }
+      return { x: 1 - p.y, y: p.x }
     default:
       return p
+  }
+}
+
+/** A normal turned `turns` clockwise about the cell centre: the same rigid turn, no offset. */
+function turnNormal(nx: number, ny: number, turns: number): { nx: number; ny: number } {
+  switch (turns) {
+    case 1:
+      return { nx: ny, ny: -nx }
+    case 2:
+      return { nx: -nx, ny: -ny }
+    case 3:
+      return { nx: -ny, ny: nx }
+    default:
+      return { nx, ny }
   }
 }
 
@@ -278,7 +403,7 @@ function clipProfile(profile: Pt[], value: (p: Pt) => number): Pt[] {
     if (vp > 0) out.push(p)
     if (vp > 0 !== vq > 0) {
       const t = vp / (vp - vq)
-      out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, nx: p.nx, ny: p.ny, exposed: true })
+      out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t })
     }
   }
   return out
@@ -302,6 +427,40 @@ const TRI_FRAME: Record<TriSide, { ox: number; oy: number; ux: number; uy: numbe
   w: { ox: 0, oy: 0, ux: 1, uy: 0, vx: 0, vy: 1 },
   n: { ox: 0, oy: 1, ux: 0, uy: -1, vx: 1, vy: 0 },
   s: { ox: 0, oy: 0, ux: 0, uy: 1, vx: 1, vy: 0 },
+}
+
+/**
+ * The plane a **三角**'s slope lies on, in cell-local units: its outward normal, the
+ * direction it falls along its cut, and the direction along the ridge. The plane passes
+ * through the cell's own centre, so this is everything a caller needs to put something
+ * **on the diagonal** rather than on the cell boundary — which is where a preview drawn
+ * from the cell alone would float a metre off the surface it promises.
+ *
+ * It is read from the same `TRI_FRAME` the mesh is written in, and `pushWedge` draws the
+ * slope from it too, so a quad `GhostSystem` lays on a wedge cannot disagree with the
+ * surface the 材质 brush will paint.
+ */
+export function wedgeSlope(kind: TriangleKind, side: TriSide): {
+  normal: [number, number, number]
+  along: [number, number, number]
+  ridge: [number, number, number]
+} {
+  const F = TRI_FRAME[side]
+  const s = Math.SQRT1_2
+  // 45° in elevation: the normal leans up and away from the hugged face for 上 (and
+  // down for 下). `along` is then the ridge turned a quarter-turn onto the slope —
+  // `ridge × normal` rather than the fall read off the frame, so the three are a
+  // **right-handed** frame whichever way the slope faces (the order `makeBasis` wants),
+  // and the quad built from them lands on the diagonal instead of folding through it.
+  const up = kind === 'upper' ? 1 : -1
+  const normal: [number, number, number] = [F.ux * s, F.uy * s, up * s]
+  const ridge: [number, number, number] = [F.vx, F.vy, 0]
+  const along: [number, number, number] = [
+    ridge[1] * normal[2] - ridge[2] * normal[1],
+    ridge[2] * normal[0] - ridge[0] * normal[2],
+    ridge[0] * normal[1] - ridge[1] * normal[0],
+  ]
+  return { normal, along, ridge }
 }
 
 /**
@@ -362,7 +521,9 @@ function pushFace(b: VecBuilder, pts: Array<[number, number, number]>, n: [numbe
  *
  * A face is drawn where the cell it looks into is empty. The slope has no neighbour
  * to be flush with, so it is always drawn — and a wedge embedded in solid blocks
- * loses the rest of its surface to its neighbours' culling all the same.
+ * loses the rest of its surface to its neighbours' culling all the same. It is a
+ * surface of the piece rather than of the cell, which is why its finish is named by
+ * `triangleSlopeFace` and not by the exposure of the cell it leans to.
  */
 function pushWedge(
   builderForIndex: (i: number) => VecBuilder,
@@ -385,8 +546,10 @@ function pushWedge(
   /**
    * The finish a face wears, read off its own normal the way the 材质 brush reads the
    * surface under the pointer (`render/pickCell.ts` `faceAxis`: the axis the normal
-   * most points along, ties going vertical). Painting the visible slope therefore
-   * paints the horizontal face it leans to, and the two cannot disagree.
+   * most points along, ties going vertical). Only the wedge's **axis-aligned** faces
+   * come through here — the hugged square, the base and the two ends. The slope names
+   * its slot directly (`triangleSlopeFace`, below), because a 45° normal ties on two
+   * axes and the rule for it has to be the *one* the brush's `facePresent` offers it by.
    */
   const finishOf = (n: [number, number, number]): number => {
     const ax = Math.abs(n[0])
@@ -434,40 +597,55 @@ function pushWedge(
   }
   // 4. The 45° slope itself: up and away from the hugged face for 上, down and away
   //    for 下 — always drawn, because there is no cell face it could be flush with.
-  const sn: [number, number, number] = upper ? [F.ux, F.uy, 1] : [F.ux, F.uy, -1]
-  const sLen = Math.SQRT2
-  const snUnit: [number, number, number] = [sn[0] / sLen, sn[1] / sLen, sn[2] / sLen]
+  //    Its finish is the cell's own horizontal slot, `triangleSlopeFace`: the face the
+  //    diagonal leans to, which is also the one the pointer reads off its normal, so
+  //    the surface drawn here is the surface the brush offers (`facePresent`).
   const slopeAo = upper ? topAoAt(isSolid, x, y, z) : wallAo(isSolid, x, y, z, F.ux, F.uy)
-  face(
+  pushFace(
+    builderForIndex(fin[triangleSlopeFace(kind)]),
     upper ? [at(0, 0, 1), at(1, 0, 0), at(1, 1, 0), at(0, 1, 1)] : [at(0, 0, 0), at(1, 0, 1), at(1, 1, 1), at(0, 1, 0)],
-    snUnit,
+    wedgeSlope(kind, side).normal,
     slopeAo,
   )
 }
 
 /**
- * The cross-section of a **半墙** cell: the same rounded profile a full cell gets,
- * squashed to `HALF_WALL_T` and turned so the half it keeps is the one flush to the
- * side the panel hugs (`halfWallSide`). The panel's **inner** face — the one
- * looking across the cell's own clear half — is always built, because it is a
- * surface inside this cell that nothing can stand across; that is the face the
- * half-block walls of a facility room have always been read on, and the one the
- * paint brush aims at. Its two ends take the exposure of the neighbours they meet,
- * so the columns of one run join with no face between them, and its outer face is
- * the side itself.
+ * The cross-section of a **半墙** cell: the same profile a full cell gets, squashed to
+ * `HALF_WALL_T` and turned so the half it keeps is the one flush to the side the panel
+ * hugs (`halfWallSide`). The panel's **inner** face — the one looking across the cell's
+ * own clear half — is always built, because it is a surface inside this cell that nothing
+ * can stand across; that is the face the half-block walls of a facility room have always
+ * been read on, and the one the paint brush aims at. Its two ends take the exposure of the
+ * neighbours they meet, so the columns of one run join with no face between them, and its
+ * outer face is the side itself.
  *
- * The squash happens in the canonical frame before the turn, so the rounding
- * stays where the profile put it: 12.5 cm along the wall, half that through it.
- * The turn is rigid, so a west-facing panel is this profile turned a quarter-turn,
- * not a second shape.
+ * The squash happens in the canonical frame before the turn, so the bevel stays where the
+ * profile put it: 12.5 cm along the wall, half that through it. The turn is rigid, so a
+ * west-facing panel is this profile turned a quarter-turn, not a second shape.
  */
-function buildThinProfile(side: WallSide, E: boolean, W: boolean, N: boolean, S: boolean): Pt[] {
+function buildThinProfile(side: WallSide, E: boolean, W: boolean, N: boolean, S: boolean): Profile {
   const turns = SIDE_TURNS[side]
   const solid: Record<WallSide, boolean> = { n: N, e: E, s: S, w: W }
   // The canonical panel is flush to the south edge: outer face south, inner face
   // north (always exposed), its two ends east and west.
-  const profile = buildProfile(solid[sideTurned('e', turns)], solid[sideTurned('w', turns)], true, solid[side])
-  return profile.map((p) => turnPoint({ ...p, y: p.y * HALF_WALL_T }, turns))
+  const canon = buildProfile({
+    e: solid[sideTurned('e', turns)],
+    w: solid[sideTurned('w', turns)],
+    n: true,
+    s: solid[side],
+  })
+  return {
+    edges: canon.edges.map((e) => {
+      const from = turnPoint({ x: e.from.x, y: e.from.y * HALF_WALL_T }, turns)
+      const to = turnPoint({ x: e.to.x, y: e.to.y * HALF_WALL_T }, turns)
+      // The squash is anisotropic, so the normal turns and then has to be renormalised:
+      // a normal across the panel is 1/HALF_WALL_T long after it, and the bevel with it
+      // is the same 12.5 cm measured through the panel rather than along the wall.
+      const n = turnNormal(e.nx, e.ny * HALF_WALL_T, turns)
+      const m = Math.hypot(n.nx, n.ny) || 1
+      return { from, to, nx: n.nx / m, ny: n.ny / m, exposed: e.exposed, inset: e.inset / m }
+    }),
+  }
 }
 
 /**
@@ -599,38 +777,23 @@ export function meshChunk(
       })
       continue
     }
-    let profile: Pt[]
+    let built: Profile
     if (filled && cut !== undefined && cut.half !== undefined) {
-      profile = buildTrussProfile(cut.axis, cut.half)
+      built = buildTrussProfile(cut.axis, cut.half)
     } else if (isHalfWallShape(thinShape)) {
-      profile = buildThinProfile(thinShape.side, E, W, N, S)
+      built = buildThinProfile(thinShape.side, E, W, N, S)
     } else {
-      profile = buildProfile(E, W, N, S)
+      built = buildProfile({ e: E, w: W, n: N, s: S })
     }
-    // Per-point exposed normal and inward offset for the top bevel.
-    const offs: Pt[] = profile.map((p, i) => {
-      const prev = profile[(i - 1 + profile.length) % profile.length]
-      const next = profile[(i + 1) % profile.length]
-      const e1 = edgeExposure(prev, p)
-      const e2 = edgeExposure(p, next)
-      let nx = 0
-      let ny = 0
-      if (e1.exposed) {
-        nx += e1.nx
-        ny += e1.ny
-      }
-      if (e2.exposed) {
-        nx += e2.nx
-        ny += e2.ny
-      }
-      const m = Math.hypot(nx, ny)
-      if (m < 1e-6) return { x: p.x, y: p.y, nx: 0, ny: 0, exposed: false }
-      return { x: p.x - (nx / m) * H, y: p.y - (ny / m) * H, nx: nx / m, ny: ny / m, exposed: true }
-    })
+    const edges = built.edges
+    const shape = profileOutline(built)
+    /** The top face's own boundary: the outline pulled in by each side's bevel, flush where nothing is exposed. */
+    const ring = profileRing(built)
 
     const ox = x
     const oy = y
     const oz = z
+    /** The side walls stop at the bevel's foot when the block ends on the cell ceiling. */
     const wallTop = up ? 1 - H : 1
     /** The cut plane at a profile point, clamped into the block; null when uncut. */
     let cutAt: ((px: number, py: number) => number) | null = null
@@ -645,29 +808,135 @@ export function meshChunk(
     }
     // Where the plane leaves through the block's floor the block is empty past it,
     // so the cross-section is clipped there: a fan chording across that corner would
-    // rise back up into the run it was cut out of. Everywhere else it is the profile.
-    let shape = profile
+    // rise back up into the run it was cut out of. Everywhere else it is the outline.
+    let body = shape
     if (cut !== undefined && Math.min(cut.lo, cut.hi) <= 0) {
       const lo = cut.lo
       const rise = cut.hi - cut.lo
       const alongX = cut.axis === 'x'
-      shape = clipProfile(profile, (p: Pt): number => lo + rise * (alongX ? p.x : p.y))
+      body = clipProfile(shape, (p: Pt): number => lo + rise * (alongX ? p.x : p.y))
     }
-    // Walls + chamfer rim.
-    for (let i = 0; i < shape.length; i++) {
-      const p = shape[i]
-      const q = shape[(i + 1) % shape.length]
-      const e = edgeExposure(p, q)
-      if (!e.exposed) continue
-      const nx = e.nx
-      const ny = e.ny
-      // Ambient occlusion from the cells beside this wall.
-      const ao = wallAo(isSolid, x, y, z, nx, ny)
-      const uLen = Math.hypot(q.x - p.x, q.y - p.y)
-      // A cut that has taken a wall all the way to the floor emits no wall there.
-      const hp = cutAt === null ? wallTop : cutAt(p.x, p.y)
-      const hq = cutAt === null ? wallTop : cutAt(q.x, q.y)
-      if (hp > 0 || hq > 0) {
+    /**
+     * The side walls, and the top-rim chamfer over each of them.
+     *
+     * A side flush with a solid neighbour emits neither: there is no wall between two parts
+     * of the same building, and no bevel on a boundary that is not a rim. That is the whole
+     * of "no gap between blocks" — with the wall and the chamfer gone the two top faces are
+     * one plane, and the cell boundary between them is not drawn at all.
+     *
+     * A **cut** block is the separate case. Clipping against the run's underside can turn a
+     * corner into a new vertex, so its cross-section is no longer the outline the sides were
+     * built from and cannot be indexed by it; it is walked as its own polygon, and it wears
+     * no chamfer because it ends on a face the run made (a sawn block keeps its sharp edge).
+     */
+    if (cutAt === null) {
+      /**
+       * The inner corner `k`: the wall running to it steps in by its own inset, and the wall
+       * leaving it by its own — the two steps a chamfer's mitre is made of. A corner with no
+       * open side on it, or one shared with a neighbour, simply does not move.
+       */
+      const inner = (k: number): Pt => {
+        const at = ring[(k - 1 + edges.length) % edges.length]
+        return { x: at.x, y: at.y }
+      }
+      for (let i = 0; i < edges.length; i++) {
+        const e = edges[i]
+        if (!e.exposed) continue
+        const p = shape[i]
+        const q = shape[(i + 1) % shape.length]
+        const nx = e.nx
+        const ny = e.ny
+        // Ambient occlusion from the cells beside this wall.
+        const ao = wallAo(isSolid, x, y, z, nx, ny)
+        const uLen = Math.hypot(q.x - p.x, q.y - p.y)
+        // This wall's own inner line: exactly `BEVEL` in, for its whole length.
+        const o1: Pt = { x: p.x - nx * e.inset, y: p.y - ny * e.inset }
+        const o2: Pt = { x: q.x - nx * e.inset, y: q.y - ny * e.inset }
+        if (wallTop > 0) {
+          pushQuad(
+            builderForIndex(sideI[sideOf(nx, ny)]),
+            [ox + p.x, oy + p.y, oz],
+            [ox + q.x, oy + q.y, oz],
+            [ox + q.x, oy + q.y, oz + wallTop],
+            [ox + p.x, oy + p.y, oz + wallTop],
+            [nx, ny, 0],
+            [ao, ao, ao, ao],
+            0,
+            0,
+            uLen,
+            wallTop,
+          )
+        }
+        if (up) {
+          const cn = Math.hypot(nx, ny, 1)
+          const nrm: [number, number, number] = [nx / cn, ny / cn, 1 / cn]
+          /**
+           * The chamfer is the **flat 45° strip** between this wall's top and this wall's
+           * own inner line, with its UVs spanning the strip's full depth — `v` 0 at the wall
+           * and 1 at the inner edge, so the last texel row down the chamfer is the first row
+           * of the flat top it meets. Spanning `v` over `H` instead left the chamfer
+           * sampling a 12.5 cm sliver of the texture while the top beside it sampled the
+           * whole metre, and the join between them drew a hard seam.
+           */
+          pushFaceOut(
+            builderForIndex(topI),
+            [
+              [ox + p.x, oy + p.y, oz + wallTop],
+              [ox + o1.x, oy + o1.y, oz + 1],
+              [ox + o2.x, oy + o2.y, oz + 1],
+              [ox + q.x, oy + q.y, oz + wallTop],
+            ],
+            [
+              [0, 0],
+              [0, 1],
+              [uLen, 1],
+              [uLen, 0],
+            ],
+            nrm,
+            ao + 0.12,
+          )
+          // The corner this wall runs to: the two mitre steps meet the block's own corner
+          // in one small triangle. It collapses to nothing wherever the neighbouring side
+          // is shared, which is what keeps a merged run of blocks free of geometry at its
+          // seams — and a zero-area triangle is not worth pushing at all.
+          const c = inner(i + 1)
+          if (c.x !== o2.x || c.y !== o2.y) {
+            pushFaceOut(
+              builderForIndex(topI),
+              [
+                [ox + q.x, oy + q.y, oz + wallTop],
+                [ox + o2.x, oy + o2.y, oz + 1],
+                [ox + c.x, oy + c.y, oz + 1],
+              ],
+              [
+                [q.x, q.y],
+                [o2.x, o2.y],
+                [c.x, c.y],
+              ],
+              nrm,
+              ao + 0.12,
+            )
+          }
+        }
+      }
+    } else {
+      for (let i = 0; i < body.length; i++) {
+        const p = body[i]
+        const q = body[(i + 1) % body.length]
+        const mx = (p.x + q.x) / 2
+        const my = (p.y + q.y) / 2
+        let nx = 0
+        let ny = 0
+        if (mx < 1e-6) nx = -1
+        else if (mx > 1 - 1e-6) nx = 1
+        else if (my < 1e-6) ny = -1
+        else if (my > 1 - 1e-6) ny = 1
+        else continue
+        // A cut that has taken a wall all the way to the floor emits no wall there.
+        const hp = cutAt(p.x, p.y)
+        const hq = cutAt(q.x, q.y)
+        if (hp <= 0 && hq <= 0) continue
+        const ao = wallAo(isSolid, x, y, z, nx, ny)
         pushQuad(
           builderForIndex(sideI[sideOf(nx, ny)]),
           [ox + p.x, oy + p.y, oz],
@@ -678,39 +947,18 @@ export function meshChunk(
           [ao, ao, ao, ao],
           0,
           0,
-          uLen,
+          Math.hypot(q.x - p.x, q.y - p.y),
           hq,
-        )
-      }
-      // The top-rim chamfer is only for a block that ends on the cell ceiling. A
-      // cut block ends on a face the run made: it stays sharp, the way a sawn
-      // block does, rather than being rounded off at the truss.
-      if (up && cutAt === null) {
-        const o1 = offs[i]
-        const o2 = offs[(i + 1) % profile.length]
-        const cn = Math.hypot(nx + 0, ny + 0, 1)
-        pushQuad(
-          builderForIndex(topI),
-          [ox + p.x, oy + p.y, oz + wallTop],
-          [ox + q.x, oy + q.y, oz + wallTop],
-          [ox + o2.x, oy + o2.y, oz + 1],
-          [ox + o1.x, oy + o1.y, oz + 1],
-          [nx / cn, ny / cn, 1 / cn],
-          [ao + 0.12, ao + 0.12, 1, 1],
-          0,
-          0,
-          uLen,
-          H,
         )
       }
     }
 
-    // Top face: a fan of the profile. An uncut block fans its chamfered profile on
-    // the ceiling; a cut one fans the plain profile on the slope, so the block's top
-    // is the run's underside right out to its own side walls.
+    // Top face: a fan of the **ring**, flat at full height. Ring and outline carry the same
+    // vertex order, so the ring is inset on a bevelled side, flush on a shared one, and the
+    // plane simply carries on into the block next door wherever the two meet.
     if (up) {
       const topAo = topAoAt(isSolid, x, y, z)
-      const cap = cutAt === null ? offs : shape
+      const cap = cutAt === null ? ring : body
       const cxm = cxCenter(cap)
       const cym = cyCenter(cap)
       const cH = cutAt === null ? 1 : cutAt(cxm, cym)
@@ -740,11 +988,11 @@ export function meshChunk(
       // A plain block fans from its cell centre; a clipped one has to fan from
       // inside its own cross-section, or the fan's hub lands where the cut has
       // already emptied the block.
-      const cxm = cutAt === null ? 0.5 : cxCenter(shape)
-      const cym = cutAt === null ? 0.5 : cyCenter(shape)
-      for (let i = 0; i < shape.length; i++) {
-        const p = shape[(i + 1) % shape.length]
-        const q = shape[i]
+      const cxm = cutAt === null ? 0.5 : cxCenter(body)
+      const cym = cutAt === null ? 0.5 : cyCenter(body)
+      for (let i = 0; i < body.length; i++) {
+        const p = body[(i + 1) % body.length]
+        const q = body[i]
         pushTri(
           builderForIndex(bottomI),
           [ox + cxm, oy + cym, oz],
@@ -801,16 +1049,46 @@ function sideOf(nx: number, ny: number): 'e' | 'w' | 'n' | 's' {
   return ny >= 0 ? 'n' : 's'
 }
 
+/**
+ * The **area centroid** of a polygon, as the hub its top face fans from.
+ *
+ * A vertex mean is not good enough: the bevel ring has three points along each rounded
+ * corner and only one at a flush edge, so its vertices are nowhere near evenly spread. On
+ * a ring that is a plain inset square the mean falls *outside* the polygon, and every
+ * triangle of the fan then reaches across the cell and folds back on itself. The area
+ * centroid is always inside a convex polygon, which is the whole requirement here.
+ */
 function cxCenter(pts: Pt[]): number {
-  let s = 0
-  for (const p of pts) s += p.x
-  return s / pts.length
+  return centroid(pts).x
 }
 
 function cyCenter(pts: Pt[]): number {
-  let s = 0
-  for (const p of pts) s += p.y
-  return s / pts.length
+  return centroid(pts).y
+}
+
+function centroid(pts: Pt[]): { x: number; y: number } {
+  let a = 0
+  let cx = 0
+  let cy = 0
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]
+    const q = pts[(i + 1) % pts.length]
+    const cross = p.x * q.y - q.x * p.y
+    a += cross
+    cx += (p.x + q.x) * cross
+    cy += (p.y + q.y) * cross
+  }
+  // Degenerate (all points collinear): fall back to the mean, which is at least on the line.
+  if (Math.abs(a) < 1e-12) {
+    let sx = 0
+    let sy = 0
+    for (const p of pts) {
+      sx += p.x
+      sy += p.y
+    }
+    return { x: sx / pts.length, y: sy / pts.length }
+  }
+  return { x: cx / (3 * a), y: cy / (3 * a) }
 }
 
 /** Wall AO from the 8 cells in the wall's plane, one step out along the normal. */

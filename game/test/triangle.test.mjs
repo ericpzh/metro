@@ -15,7 +15,9 @@
 // the pair spans the eight wedges a cell admits.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
+import * as THREE from 'three'
+import { buildSolidSet, meshChunk, wedgeSlope } from '../src/render/chunkMesher.ts'
+import { finishMapOf } from '../src/sim/finishes.ts'
 import { carveRampOpenings, rampThinCells, thinWallCells } from '../src/sim/openings.ts'
 import {
   halfWallTag,
@@ -24,10 +26,23 @@ import {
   packKey,
   shapeOf,
   triangleOf,
+  triangleSlopeFace,
   triangleTag,
   TRI_SIDES,
 } from '../src/sim/types.ts'
-import { addEquipment, addWalls, createModule, thinWallSideMap, toState, WALL } from '../src/build/model.ts'
+import {
+  addEquipment,
+  addWalls,
+  createModule,
+  facePresent,
+  fillSurface,
+  paintFaces,
+  thinWallSideMap,
+  toState,
+  WALL,
+} from '../src/build/model.ts'
+import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
+import { faceTargets } from '../src/app/tools/geometry/faces.ts'
 import { placementPreviewKey, useStore } from '../src/app/store.ts'
 import { BlockTool } from '../src/app/tools/BlockTool.ts'
 
@@ -89,13 +104,16 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 
 /**
  * One 三角 meshed **alone in its cell**, so all five of its faces are drawn, read back
- * as the faces themselves: every triangle's corners, its normal and its area, grouped
- * by the normal that names the face.
+ * as the faces themselves: every triangle's corners, its normal, its area and the
+ * finish part it landed in, grouped by the normal that names the face.
+ *
+ * `cells` is the whole station and the wedge is always the cell at the origin, with the
+ * ground under it (or a block over it) handed in by the caller; `finishes` is the
+ * per-face paint map, so a test can paint the piece and read back the surface it got.
  */
-function meshWedge(kind, side) {
-  const cells = [floor(0, 0)]
+function meshWedge(kind, side, cells = [floor(0, 0)], finishes = new Map()) {
   const thin = new Map([[packKey(0, 0, 0), { kind: 'triangle', triangle: kind, side }]])
-  const chunk = meshChunk(buildSolidSet(cells), new Map(), 0, 0, 0, 15, undefined, undefined, cells, thin)
+  const chunk = meshChunk(buildSolidSet(cells), finishes, 0, 0, 0, 15, undefined, undefined, cells, thin)
   const tris = []
   for (const part of chunk.parts) {
     for (let i = 0; i < part.indices.length; i += 3) {
@@ -103,7 +121,7 @@ function meshWedge(kind, side) {
       const v = idx.map((n) => [part.positions[n * 3], part.positions[n * 3 + 1], part.positions[n * 3 + 2]])
       const n = [part.normals[idx[0] * 3], part.normals[idx[0] * 3 + 1], part.normals[idx[0] * 3 + 2]]
       const geo = cross(sub(v[1], v[0]), sub(v[2], v[0]))
-      tris.push({ v, n, geo, area: Math.hypot(...geo) / 2 })
+      tris.push({ v, n, geo, area: Math.hypot(...geo) / 2, finish: part.finish })
     }
   }
   const byNormal = new Map()
@@ -198,6 +216,159 @@ test('the 三角 kind and side are part of what a ghost and a chunk key off', ()
   assert.notEqual(k({ wallSnapCycle: 0 }), k({ wallSnapCycle: 1 }), 'R rebuilds the ghost')
   assert.notEqual(k({ triKind: 'upper' }), k({ triKind: 'lower' }), 'the two kinds are different pieces')
   assert.notEqual(k({ triangles: true, halfWall: false }), k({ triangles: false, halfWall: true }), 'and a 半墙 is a third')
+})
+
+/* ------------------------------------------------------- the paint brush */
+
+/** The station's solid keys, the way `facePresent` takes them. */
+const solidKeys = (cells) => new Set(cells.filter((c) => c.fill === 'solid').map((c) => `${c.x},${c.y},${c.z}`))
+
+test('a 三角’s slope is a surface to paint, block against it or not', () => {
+  // The defect this pins: the slope is a face of the **piece**, so `pushWedge` draws it
+  // whether or not the cell it leans to is solid — but the brush asked the cell boundary
+  // and refused it. A wedge under a slab (三角上 with a block in the cell above, 三角下
+  // with one below) is the ordinary way to build a ramp, and its whole visible surface
+  // was untexturable: the stroke fell through to the room's ceiling instead.
+  for (const kind of ['upper', 'lower']) {
+    const upper = kind === 'upper'
+    const slope = triangleSlopeFace(kind)
+    // The wedge at (1,1,1), with a wall on the side it hugs, a block against the face its
+    // slope leans to, and one under its base — so every axis-aligned face is covered.
+    const wall = { x: 1, y: 1, z: 1, fill: 'solid', tags: [WALL, triangleTag(kind, 'w')] }
+    const blocker = { x: 1, y: 1, z: upper ? 2 : 0, fill: 'solid' }
+    const base = { x: 1, y: 1, z: upper ? 0 : 2, fill: 'solid' }
+    const hugged = { x: 0, y: 1, z: 1, fill: 'solid' }
+    const cells = [wall, blocker, base, hugged]
+    const solid = solidKeys(cells)
+    const thin = thinWallSideMap(cells)
+    assert.equal(facePresent(solid, thin, 1, 1, 1, slope), true, `${kind}: the diagonal is a surface to paint`)
+    // The exception is the slope, not the rule: the base square, the hugged face and the
+    // two ends keep the boundary test exactly as a whole block does.
+    assert.equal(facePresent(solid, thin, 1, 1, 1, upper ? 'bottom' : 'top'), false, `${kind}: a covered base is not`)
+    assert.equal(facePresent(solid, thin, 1, 1, 1, 'w'), false, `${kind}: nor the face a wall stands against`)
+    assert.equal(facePresent(solid, thin, 1, 1, 1, 'e'), true, `${kind}: an open end is`)
+    // The answer does not move with the neighbour — the slope was paintable before the
+    // block landed there and stays paintable under it, so the piece paints like the
+    // surface it draws.
+    assert.equal(facePresent(solidKeys([wall, base]), thin, 1, 1, 1, slope), true, `${kind}: nothing against it either way`)
+    // And a whole block with a neighbour over it is untouched by the exception.
+    const whole = solidKeys([{ x: 3, y: 3, z: 0, fill: 'solid' }, { x: 3, y: 3, z: 1, fill: 'solid' }])
+    assert.equal(facePresent(whole, new Map(), 3, 3, 0, 'top'), false, 'a plain block under another is still covered')
+  }
+})
+
+test('painting a wedge’s diagonal colours the slope the mesher draws', () => {
+  // The promise the brush makes: paint the surface, see the surface change. The whole
+  // loop is the app's — `faceTargets` is the list the viewport's press hands `paintFaces`
+  // — and it used to come back **empty** for a wedge with a block against it, so the
+  // stroke painted nothing. The slot the stroke lands in is the cell's own
+  // (`triangleSlopeFace`), which is the face the pointer reads off the 45° normal.
+  const SQ = Math.SQRT1_2
+  for (const kind of ['upper', 'lower']) {
+    const upper = kind === 'upper'
+    const cells = [
+      { x: 0, y: 0, z: 0, fill: 'solid', tags: [WALL, triangleTag(kind, 'w')] },
+      { x: 0, y: 0, z: upper ? 1 : -1, fill: 'solid' },
+    ]
+    const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
+    const face = triangleSlopeFace(kind)
+    const thin = thinWallSideMap(state.cells)
+    const targets = faceTargets([[0, 0, 0]], face, solidKeys(state.cells), thin)
+    assert.deepEqual(targets, [[0, 0, 0]], `${kind}: the brush’s own target list offers the diagonal`)
+
+    const painted = paintFaces(state, targets, face, 'wall.enamel')
+    assert.equal(painted.cells.find((c) => c.x === 0 && c.y === 0 && c.z === 0).finish[face], 'wall.enamel')
+    const m = meshWedge(kind, 'w', painted.cells, finishMapOf(painted.cells))
+    // One quad came out in the painted finish — the slope, and nothing else of the piece.
+    const enamel = m.chunk.parts.find((p) => p.finish === 'wall.enamel')
+    assert.ok(enamel, `${kind}: the painted face is its own part`)
+    assert.equal(enamel.positions.length / 3, 4, `${kind}: one quad was painted`)
+    let area = 0
+    for (let i = 0; i < enamel.normals.length; i += 3) {
+      assert.ok(Math.abs(Math.abs(enamel.normals[i + 2]) - SQ) < 1e-6, `${kind}: the painted surface is at 45°`)
+    }
+    for (let i = 0; i < enamel.indices.length; i += 3) {
+      const idx = [enamel.indices[i], enamel.indices[i + 1], enamel.indices[i + 2]]
+      const v = idx.map((n) => [enamel.positions[n * 3], enamel.positions[n * 3 + 1], enamel.positions[n * 3 + 2]])
+      area += Math.hypot(...cross(sub(v[1], v[0]), sub(v[2], v[0]))) / 2
+    }
+    assert.ok(Math.abs(area - Math.SQRT2) < 1e-6, `${kind}: 1 × √2 m of diagonal`)
+    // Painting one face is not a repaint of the piece: the rest keeps its own finishes.
+    assert.ok(
+      m.chunk.parts.some((p) => p.finish !== 'wall.enamel' && p.indices.length > 0),
+      `${kind}: the other faces keep their own finishes`,
+    )
+  }
+})
+
+test('the paint ghost sits on the diagonal, not on the cell’s ceiling', () => {
+  // The second half of the report: the brush's preview floated a metre above the surface
+  // it promised, because an axis-aligned face lives on the cell boundary and the slope is
+  // the one that does not. It goes on the sawn plane instead (`wedgeSlope`, the frame the
+  // mesher writes the diagonal in), 1 m along the ridge and √2 across the fall.
+  const SQ = Math.SQRT1_2
+  const ghostOf = (face, thin = new Map()) => {
+    const scene = new THREE.Scene()
+    const sys = new GhostSystem({ scene, thinSides: thin })
+    sys.setFaceGhost([[1, 1, 1]], face, 0xffffff)
+    const m = new THREE.Matrix4()
+    sys.faceGhost.getMatrixAt(0, m)
+    return {
+      pos: new THREE.Vector3().setFromMatrixPosition(m),
+      x: new THREE.Vector3(m.elements[0], m.elements[1], m.elements[2]),
+      y: new THREE.Vector3(m.elements[4], m.elements[5], m.elements[6]),
+      z: new THREE.Vector3(m.elements[8], m.elements[9], m.elements[10]),
+      centre: new THREE.Vector3(1.5, 1.5, 1.5),
+    }
+  }
+  for (const triangle of ['upper', 'lower']) {
+    // The slope leans up and away from the hugged (west) face for 上, down for 下.
+    const n = new THREE.Vector3(SQ, 0, (triangle === 'upper' ? 1 : -1) * SQ)
+    const thin = new Map([[packKey(1, 1, 1), { kind: 'triangle', triangle, side: 'w' }]])
+    const g = ghostOf(triangleSlopeFace(triangle), thin)
+    assert.ok(g.z.clone().sub(n).length() < 1e-6, `${triangle}: the quad is turned to the slope's own normal`)
+    const rel = g.pos.clone().sub(g.centre)
+    assert.ok(rel.dot(n) > 0 && rel.dot(n) < 0.01, `${triangle}: a hair proud of the plane the cell centre is on`)
+    assert.ok(rel.clone().sub(n.clone().multiplyScalar(rel.dot(n))).length() < 1e-6, `${triangle}: and not slid off it`)
+    assert.ok(Math.abs(g.y.length() - 1) < 1e-6, `${triangle}: 1 m along the ridge`)
+    assert.ok(Math.abs(g.x.length() - Math.SQRT2) < 1e-6, `${triangle}: √2 across the fall`)
+    assert.ok(Math.abs(g.x.dot(g.z)) < 1e-6 && Math.abs(g.y.dot(g.z)) < 1e-6, `${triangle}: and flat on the slope`)
+    // It is nowhere near the boundary plane it used to be drawn on: the cell's ceiling
+    // for 上, its floor for 下.
+    const boundary = triangle === 'upper' ? 2.005 : 0.995
+    assert.ok(Math.abs(g.pos.z - boundary) > 0.4, `${triangle}: not the boundary quad`)
+  }
+  // An ordinary block's top face is still a boundary quad, a hair proud of the ceiling.
+  const flat = ghostOf('top')
+  assert.ok(Math.abs(flat.pos.x - 1.5) < 1e-6 && Math.abs(flat.pos.y - 1.5) < 1e-6, 'xy on the cell centre')
+  assert.ok(Math.abs(flat.pos.z - 2.005) < 1e-6, 'z on the cell ceiling, 5 mm proud')
+  assert.ok(Math.abs(flat.z.z - 1) < 1e-6 && Math.abs(flat.x.length() - 1) < 1e-6, 'unturned and unscaled')
+})
+
+test('every wedge’s slope frame is right-handed, whichever side it hugs', () => {
+  // The quiet half of the ghost fix: `along` has to be *turned* from the normal rather
+  // than read off the frame, because the fall and the normal swap handedness between 上
+  // and 下. A left-handed basis still looks like three plausible axes, and
+  // `Matrix4.makeBasis` then palms the quad through the slope it was meant to lie on —
+  // so this is pinned as a frame rule for all eight pieces rather than per camera test.
+  for (const kind of ['upper', 'lower']) {
+    for (const side of TRI_SIDES) {
+      const { normal, along, ridge } = wedgeSlope(kind, side)
+      const cross = [
+        along[1] * ridge[2] - along[2] * ridge[1],
+        along[2] * ridge[0] - along[0] * ridge[2],
+        along[0] * ridge[1] - along[1] * ridge[0],
+      ]
+      const dot = along[0] * normal[0] + along[1] * normal[1] + along[2] * normal[2]
+      for (let i = 0; i < 3; i++) {
+        assert.ok(Math.abs(cross[i] - normal[i]) < 1e-9, `${kind}:${side}: along × ridge is not the slope's normal`)
+      }
+      assert.ok(Math.abs(dot) < 1e-9, `${kind}:${side}: the fall is not square to the normal`)
+      // The slope is a 45° plane, so the normal's vertical part is 1/√2 for every piece.
+      assert.ok(Math.abs(Math.abs(normal[2]) - Math.SQRT1_2) < 1e-9, `${kind}:${side}: not a 45° slope`)
+      assert.ok(Math.abs(Math.hypot(...ridge) - 1) < 1e-9, `${kind}:${side}: the ridge is not a metre`)
+    }
+  }
 })
 
 /* ------------------------------------------------------- the tool's click */

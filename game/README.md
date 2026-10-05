@@ -459,8 +459,8 @@ looks into the room rather than onto its roof. The crowd follows the same `crowd
 one floating on a hidden floor — and the 剖切 clip applies to it too, so people no longer show
 through a slab. A consist is tagged with the storey its floor block is in (`storeyBand` of the rounded
 track surface), so a train berthed at the platform disappears with the platform and never hangs in the
-air above it. The nav cube only ever moves the camera: no face, corner or **Home** click rewrites the
-slice behind the player's back.
+air above it. The nav cube only ever moves the camera: no face, corner, **Home** click, arrow or slider
+drag rewrites the slice behind the player's back.
 
 **隐藏UI shows the station whole: no lattice, no ghost sheet, every storey as itself.** The 视图
 folder's **隐藏UI** tile (**U**) does two things, and they are the same idea — the picture is the
@@ -498,6 +498,66 @@ folders are open and the app owns the keyboard — the same split `metro:preset`
 the camera. Shift+W therefore pans nothing: **W** with Shift was the fast forward pan, and a key may not
 both shove the camera and fold a folder, so the fast pan keeps Shift+A/S/D while a plain W is still
 forward.
+
+**Ctrl+Q / Ctrl+E raise and lower the view — the camera and its aim together.** A plain Q/E steps the
+storey, so the camera takes them *held*: Ctrl+E moves the view up world Z, Ctrl+Q moves it down, and the
+key set holds the pan under the **intent**, not the key — `PAN_UP` / `PAN_DOWN`
+(`render/scene/systems/SceneSystem.ts`) — so a storey step can never be read as a camera move. **Both** the
+camera and the point it aims at step by the same amount (`CameraSystem.panCameraVertical`), which is what
+holds the view angle, because the orbit offset is never touched: the station is seen from the same
+elevation, distance and bearing and simply slides up
+or down the screen — a vertical pan beside the WASD one. Moving the camera alone, with the aim left
+behind, would instead tilt onto a steeper or a flatter angle: a different control, and the one line a
+refactor is most likely to lose. The rate is the ground pan's own, so it scales with the orbit distance
+and Shift triples it; it runs for as long as the token is held (the frame loop drives it beside
+`panCamera`, `SceneRenderer.animate`), and because a locked step never changes the orbit distance,
+`OrbitControls`' own 4 m / 400 m limits have nothing to clamp — the hold is bounded only by letting go.
+**The nav cube's own two arrows hold the same token** (`app/ViewCube.tsx`, stacked at the widget's
+bottom-right corner), which is what makes the buttons and the keys one control: one vocabulary, two
+sources, so they cannot drift apart in direction or in rate, and a release from either clears the pan. Alt
+is left out of the keyboard guard, because AltGr **is** Ctrl+Alt on a European layout and AltGr+Q/E types
+a letter there; the press is taken from the browser before the browser acts on it, since Ctrl+E is
+Chrome's address-bar search and Ctrl+Q quits Firefox. `test/camera-vertical-pan.test.mjs` pins the locked
+step, the untouched angle, the shared token and every end of the wire.
+
+**回到默认视角 owns three things, and `Ctrl+H` is the same button.** The nav cube's ⌂ gets back to the
+isometric build view in perspective — `scene.setPreset('iso')`, the 透视/正交 flag, so the picture and the
+rail agree, and **the lens**: 视场角 goes back to `DEFAULT_FOV` (45°), because it is the one camera
+setting a player can leave the view in, and a home that kept a 120° wide-angle would be "wherever I was"
+rather than home. It touches nothing else: 显示其他层, 隐藏天花板, 剖切, 隐藏UI and 隐藏墙壁 are the player's
+own settings, and a "home" that quietly rewrote one of them is exactly what made the old button read as
+broken. The action lives once, in `app/viewHome.ts`, because there are three ways
+in and none of them may keep a copy: the ⌂ button, `Ctrl+H` in the shell (handed over as `metro:home`, the
+split `metro:preset` / `metro:frame` already use, because the shell owns the keyboard and the viewport
+owns the scene), and any later caller. A plain `H` is still 隐藏天花板 — the modifier is what separates the
+two readings of the letter, as it is for Q/E. `test/view-home.test.mjs` pins the untouched settings, the
+lens actually moving back through the real camera rig, and the one definition.
+
+**The slider under the cube is 视场角: the camera's lens, in the camera's own degrees.** The number on
+it is `PerspectiveCamera.fov` itself (`CameraSystem.fov` / `setFov`), so it can be compared with the lens
+anyone else quotes — a shooter's 90, a wide-angle's 100 — with no conversion in between. Degrees rather
+than a percentage of the default, which is what it was first: a lens *is* quoted in degrees, the
+distortion at either end is a property of the angle itself, and the tangent is not linear, so "67% of the
+default" is not 67% of the view. **Both ends of a lens are on the track** (`FOV_MIN_DEG` / `FOV_MAX_DEG`,
+shared by the slider and the camera's own clamp so the two cannot disagree): **30°** is the long end — it
+pulls the station in, a telephoto that fills the frame with one platform and leaves almost no context
+around it — and **120°** is the short end, most of the station at once with the perspective leaning hard
+into the fisheye. The values a shooter would call normal (60°–85°) and wide (90°–120°) are all reachable,
+and the game's own 45° building view sits nearer the long end, which is what a station editor wants: a
+tight lens with little distortion over the block being placed. It is the **vertical** field of view, which
+is the one that means the same thing at every window shape — a screen-width angle would change meaning
+when the stage is resized. **The camera is the truth**: the widget polls `CameraSystem.fov` every frame —
+only a whole degree re-renders — so the thumb follows whatever changed the lens, `DEFAULT_FOV` included
+when it is 回到默认视角 that moved it. Two details are not decoration. The flat presets are **unaffected**:
+they draw through the orthographic camera, whose field of view is its own frustum (the wheel zooms there),
+so this is a perspective lens control and 透视/正交 is still the preset keys' business. And a
+`<input type="range">` **is** a typing target to `isTypingTarget`, so the slider blurs itself when the
+drag ends — otherwise WASD and Ctrl+Q/E would quietly stop working until something else took the focus.
+The row wears Material Design's camera aperture (`MdOutlineCamera`) as its mark, inlined the way every
+other icon on this widget is — the repo draws its own SVG rather than carrying an icon package for one
+glyph. `test/camera-fov.test.mjs` pins the degrees as their own inverse, the long end genuinely
+magnifying and the wide end genuinely opening the frame (by the projection, not by the number), the
+camera-side clamp, the NaN guard and the projection moving.
 
 Each half is one line in the system that owns the drawing: the lattice is `GridSystem.setHideUI`, and
 the slice is `sliceOptions({ghost, autoCeiling, hideUI})` (`LevelSystem.applyLevel` skips the ghost
@@ -1071,6 +1131,19 @@ requires the backing block to keep the half that faces the panel, so a 广告牌
 side and `autofaceWallMount` turns the piece to a side that really backs it — a full wall, which fills
 its cell, still backs either. See `test/halfwall.test.mjs`.
 
+**A 三角's slope is a face of the piece too, and the brush paints it there.** It is the one 45°
+surface no cell boundary describes: `pushWedge` emits it whether or not the cell it leans to is
+solid, so a ramp under a slab — 三角上 with a block in the cell above it, 三角下 with one below —
+shows a diagonal the boundary rule calls covered. It wears the cell's own horizontal slot,
+`triangleSlopeFace` (`sim/types.ts`): `top`, the slot a floor wears, for 上, and `bottom`, the
+ceiling's, for 下. That is the same face the pointer reads off the 45° normal — `faceAxis` ties on
+two axes and goes vertical — so the mesher that draws it, the brush that aims at it and the palette
+that names it all mean one surface. `facePresent` (`build/model/Paint.ts`) offers it as paintable
+for exactly that reason, the one rule the viewport's paint rectangle and `M` 整面's flood both ask,
+and the paint ghost (`GhostSystem`) rides the sawn plane (`wedgeSlope`, `chunkMesher`) rather than
+the cell's ceiling a metre above the crest. Before that the diagonal was drawn but untexturable:
+the stroke fell through to whatever ceiling stood beside it. See `test/triangle.test.mjs`.
+
 A hole dug through the middle stays open rather than getting
 boarded up. The platform/tunnel footprint is covered ground too: a placed rail digs its bed, so the
 merge folds that footprint into the surface — the ring wraps the whole patch-plus-track area, the
@@ -1117,9 +1190,20 @@ approximated); neither needs WebGL.
 
 * `determinism.test.mjs` — same seed + tick ⇒ byte-identical positions, and no unseeded
   randomness anywhere in `sim/`.
+* `rng.test.mjs` — the generator that determinism rests on (`sim/rng.ts`, §7.6): the exact
+  sequence a seed produces (golden values — mulberry32 is a published algorithm, so a change
+  to these is a change to every recorded crowd and every replay), the range each helper
+  promises (`int` / `range` / `chance` / `pick`), the Poisson draw the crowd's arrivals are
+  made of (zero at a zero rate, and capped so an absurd λ cannot spin), and the state a
+  stream can be saved and resumed from. `pick`, `state` and `hashString` have no caller left
+  in `src/`, so they are pinned here as the module's API surface rather than as live code.
 * `demo.test.mjs` — the shipped demo (动物园, Line 5) is one connected circulation: every exit
   reaches every platform and screen door and back, and a run actually boards and clears a crowd.
   Its controlled rig lives in `test/support/scenario-station.ts` for the other sim tests.
+  It also guards the two contracts around the file itself: `referenceStation()` hands out a
+  **fresh** `structuredClone` on the document's own seed (a station the app mutates must never
+  leak an edit back into the next 打开), the shipped save carries no cell off the 1 m grid, and
+  `emptyStation()` is the 2 × 2 at-grade seed with nothing built on it.
 * `capacity.test.mjs` — the §7.8 capacity ladder as a comparison: one platform escalator
   jams, three fix it; a saturated platform leaves people behind.
 * `layering.test.mjs` — `sim/` imports nothing and touches no DOM; `render/` never reaches
@@ -1420,13 +1504,30 @@ approximated); neither needs WebGL.
   region `TV_POSTER_RECT` reserves for it — board ends, window begins, window reaches the screen edge.
   `render/adArt.ts` is stubbed here rather than imported: it resolves its JPEGs through Vite's
   `import.meta.glob`, which plain Node has no implementation of, and nothing under test lives there.
+* `module-build.test.mjs` — every piece the station can draw, built through the real dispatcher and
+  the real material kit (`render/models.ts` `buildModule`), one row per palette piece: the meshes it
+  draws (its instanced batches included) and the size its bounding box spans in metres, so a dropped
+  part or a whole piece that stops being drawn is a failure and not a silent hole in the station; the
+  `userData` handles the scene animates a piece by (`wing`, `doors`, `liftCabin`, `escalator`,
+  `adScreen`, `wall`); the dimensions that are contracts with the sim (the 闸机's 1250 mm, a screen
+  door drawn to the height the graph reserves — `PSD_FULL_HEIGHT` / `PSD_HALF_HEIGHT` — an exit one
+  block wider per bay, a stair climbing `STAIR_RISE` over `STAIR_RUN`, a 2 m run spanning two cells,
+  the 零售 shell *being* the store room); the consist (`cars × carLength` of body, both ends cabs, one
+  leaf per modelled door, white lamps leading); the four per-frame setters (`setGateWing` — whose
+  hinge end never moves — `setDoors`, `setDoorsSides`, `rollEscalator`); and a teardown, which frees
+  every geometry a group owns — an `InstancedMesh`'s instance buffers included — while keeping the
+  shared kit and the shared ad quads.
 * `station-display.test.mjs` — the 电视 board's own arithmetic (`render/stationDisplay.ts`), testable
   without a canvas: `stationDisplayLayout` keeps the content window clear of the header, the three
   cards, the service strip *and* the clock, in that order down the information column; the window
   never leaves the plate; and `tvLineStatus` reads the next train off the live poses — an approaching
   train becomes the countdown, one level with the berth reads 列车进站, one already past it is neither,
   a train on the opposite track or another line is ignored, and an unset terminus falls back to the
-  line's own direction word.
+  line's own direction word. The **pixels** are pinned too, through a recording 2D context: an
+  unbound plate centres the station name and says 尚未铺设线路 instead of printing a broken countdown,
+  the three cards print the services the headway derives (`本趟` reads 即将进站 or 列车进站, in the
+  green or the alarm red), the shield drops the 号线 suffix for the roundel and wears the line's own
+  colour, and no word a line-bound plate draws reaches into the artwork's half of the screen.
 * `sweep.test.mjs` — the 删除 tool's same-type drag sweep (§9.5, `app/sweep.ts`): two 闸机 of either
   rotation are one family while a 售票机 at the end of the row never joins; the palette variant is the
   match, so a 2 m 座椅 leaves the 1 m ones standing and a 横版 广告牌 leaves the portrait panels, while
@@ -1452,6 +1553,17 @@ approximated); neither needs WebGL.
   which reaches the brush in the same click rather than the previous render's value — never resets
   it; the setting survives a detour through another folder on the left rail; and `I` 取色 borrows
   the brush and hands it back in the mode it was entered with.
+* `line-edit.test.mjs` — the 线路 card's own actions (`app/store/slices/LineSlice.ts` +
+  `StationSlice.ts`, `build/rail.ts`): `addLine` mints the next free id in the document's own numbering
+  and wears its real 广州地铁 colour; `updateLine` lands 名字 / 颜色 / 上行终点 / 下行终点 / 车型 / 编组 /
+  下车, clamps a consist to 1–8 cars and carries the per-car 下车 over, and its **供电** and **屏蔽门**
+  switches reach every track and screen door bound to that line and no other (re-cutting a platform
+  rail while a hand-sized tunnel keeps its own length); `removeLine` takes the line, its tracks, their
+  doors and any tunnel shell as **one** `Ctrl+Z`; the undo stack pushes the document as it was, walks
+  both ways, and its memory cap trades depth on a large station without ever dropping the newest frame;
+  and the station paths — 新建车站, 示例车站 (with the 打开 notice when a load had to be repaired), a
+  rename that trims and never commits twice, and a save written and opened back — land on the document
+  and the notice they say they do, while a save that cannot be trusted is refused whole.
 * `rail-folders.test.mjs` — the rail's Shift+letter ladder (`app/rail/helpers.ts` `RAIL_FOLDERS`): the
   keys are Q W E R T Y U I in the order the folders are stacked, 工具 first (so Shift+Q folds the
   folder the rail already opens on), one key a folder and one folder a key, the lookup is case-blind
@@ -1476,7 +1588,12 @@ approximated); neither needs WebGL.
   closes if every face is wound outward), the 1 m² base square flat in the X-Y plane at the floor for 上
   and at the ceiling for 下, the 1 m² full-height face on the side the tag names, a √2 slope at exactly
   45° falling away from that side, and two 0.5 m² triangular ends across the ridge — and the eight are
-  distinct, so no two tags are the same block; the tile
+  distinct, so no two tags are the same block; its **slope is a surface the brush offers and paints** —
+  with a block against the face it leans to as much as without one, the block landed there or not
+  (`facePresent`), the stroke landing in the very finish the mesher draws the diagonal in
+  (`triangleSlopeFace`), the paint ghost riding the sawn plane (`wedgeSlope`) instead of the cell's
+  ceiling, and that plane's frame right-handed — `along × ridge` is the normal — for all eight pieces,
+  which is what keeps the quad on the diagonal rather than folded through it; the tile
   cycles 半墙 → 三角上 → 三角下 → 关, the three cut modes are exclusive with each other and with the ring, and
   the kind and the side both join the ghost key (R rebuilds the preview without the cell moving).
 * `blocktool.test.mjs` — the 地基 tool's own press/release path: a cut click lays exactly the piece its
@@ -1517,6 +1634,41 @@ approximated); neither needs WebGL.
   Q/E are left, and the plane reaches every storey. It is the guard on the two ways a cut can look like
   black paint instead of a cut: a ghost that never learned about the plane, and a slice still ghosting
   the storey the cut is going through.
+* `floor-surface.test.mjs` — the drawn **floor surface** (`render/chunkMesher.ts` `buildProfile`): a run of
+  blocks is one flat plane, and the only edge that drops is the one genuinely open to the air. It reads
+  the height of the drawn surface rather than counting triangles, because a count cannot tell a groove
+  from a smooth floor — a shared cell edge emits no wall and no bevel, so two top faces meet flush and a
+  2 × 2 patch of them has no pit in the middle; an exposed edge keeps §4.2's 12.5 cm bevel (`BEVEL`), and
+  that bevel is a **flat 45° strip**, wound outward, whose `v` spans its whole depth so its texture meets
+  the flat top's instead of stopping at a sliver. The shape this replaced — every cell edge rounded and
+  bevelled whatever stood beside it — left a V-groove along every seam and a 12.5 cm pit at every
+  four-block corner, plainly visible from above.
+* `camera-vertical-pan.test.mjs` — Ctrl+Q / Ctrl+E, the camera's own pair of letters
+  (`CameraSystem.panCameraVertical`): the camera **and the point it aims at** travel together along world
+  Z, so the orbit offset — the view angle — is untouched and the station slides up or down the screen
+  instead of being tilted away or panned off it; the rate scales with the orbit distance and Shift
+  triples it; a locked step never changes the orbit distance, so the wheel's own 4 m / 400 m limits have
+  nothing to clamp and a long hold keeps the angle; and a *plain* Q/E — the storey step — leaves the
+  view exactly where it is, which is why the key set carries the modifier in its token.
+* `camera-fov.test.mjs` — 视场角, the lens slider under the nav cube (`CameraSystem.fov` / `setFov`): a
+  degree count reads back as itself, which is what stops the thumb creeping, since the slider follows the
+  camera rather than leading it; the **30° end genuinely magnifies and the 120° end genuinely opens the
+  frame**, both measured by the projection's y scale rather than by the number, since "seeing more" is a
+  property of the frustum and not of the slider; a third of the angle is more than a third more
+  magnification, the non-linearity that made a percentage of the default the wrong scale; the camera
+  clamps to the slider's own ends, refuses a NaN (`clamp` would pass one through and blank the station),
+  and moves the projection matrix, so the change is drawn rather than merely stored.
+* `camera-orbit.test.mjs` — dragging the nav cube (`CameraSystem.orbitBy`), the one camera control with no
+  key and no button: a sideways drag turns the bearing and leaves the camera's height alone, an up-down
+  drag (after a turn, so the pitch axis has to be the screen-right one and not world X) changes the height
+  and leaves the bearing alone, and a drag pitched far past the pole stops short of it at `POLAR_EPS`
+  rather than flipping the view.
+* `view-home.test.mjs` — 回到默认视角 (`app/viewHome.ts`): the iso preset, the perspective flag and the
+  **lens** — and **nothing else**: every display setting (显示其他层, 隐藏天花板, 剖切, 隐藏UI, 隐藏墙壁) is
+  checked to come back untouched, because a home that quietly flipped one is what made the old button read
+  as broken; a widened lens is driven back to 100% **through the real camera rig**, so the reset is the
+  lens moving and not a call that happened to be made; a missing scene is a no-op; and `Ctrl+H`, the ⌂
+  button and the `metro:home` hand-over are one definition rather than three copies.
 * `chunk-cache.test.mjs` — the chunk cache's **GPU** half (`render/scene/systems/ChunkSystem.ts`): a
   chunk whose content did not change comes back with the very geometry objects it had, its per-chunk
   outline material included (so no program recompile), a chunk whose content *did* change releases the
@@ -1560,9 +1712,28 @@ comment there explains the trade.
 * **No react-three-fiber.** The scene is a plain three.js `SceneRenderer` driven by a
   React `Viewport` component. The renderer we judge at `/lab` is the renderer the game
   keeps either way; R3F would have added a reconciler between us and the chunk mesher.
-* **Inner fillets are dropped.** PLAN R2's named fallback: the mesher rounds convex
-  outer corners and chamfers exposed top edges by 12.5 cm, but does not fillet concave
-  inner corners.
+* **Inner fillets are dropped.** PLAN R2's named fallback: the mesher chamfers exposed
+  top edges by 12.5 cm, but does not fillet concave inner corners.
+* **A shared cell edge is not rounded.** §4.2 asks for rounded outer corners *and* a
+  12.5 cm bevel on exposed top edges, and the two cannot both exist at the top of a block:
+  at a 12.5 cm corner radius the inset of a rounded corner collapses to a point exactly
+  where the bevel ends. The bevel is the one the spec pins a number to, so the
+  outline above it is a plain square, and a side a solid neighbour shares is neither
+  rounded nor bevelled. That is what makes a floor one flat plane: rounding and bevelling
+  every cell edge whatever stood beside it left a V-groove along every seam and a pit at
+  every four-block corner, 12.5 cm deep. `test/floor-surface.test.mjs` reads the height of
+  the drawn surface and pins the flush seam, the level floor and the surviving rim bevel.
+* **A bevel is a flat 45° strip cut from the block's outline.** Insetting each *wall's* own
+  line instead sounds equivalent and is not: that wall's inner line then runs its whole cell
+  edge, so the chamfer over the west side leaves the cell boundary at the north-west corner
+  and arrives at the south-east one — a diagonal sail over the floor rather than a bevel.
+  The surface is not even planar, so the two triangles it splits into disagree with the
+  normal it is lit by (dots of 0.80 and −0.70 at once), which is what drew a bevelled edge
+  as a row of hard black wedges. The bevel ring is now the offset *outline*, the corner
+  between two open sides closes with its own small triangle, and the bevel's `v` spans its
+  full depth so its texture meets the flat top's instead of stopping at a 12.5 cm sliver.
+  `test/floor-surface.test.mjs` pins the planarity, the 45°, the outward winding and the UV
+  join, because a triangle count cannot see any of them.
 * **The day clock is real time at 1×, not 120×** (above).
 * **Zones, surfaces, save/load, settings, charts and the module catalogue beyond
   escalator / gate / TVM / bench / exit are out of scope**, exactly as PLAN §7 lists.

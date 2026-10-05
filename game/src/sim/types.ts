@@ -228,6 +228,24 @@ export function isTriangleShape(shape: CellShape | null | undefined): shape is {
 }
 
 /**
+ * The cell's own face a **三角**'s **slope** wears: `top` for 上, whose slope faces up
+ * the way a floor does, and `bottom` for 下, whose slope faces down the way a ceiling
+ * does. It is the horizontal face the diagonal leans to, and the one the pointer reads
+ * off it — a 45° normal ties on two axes and `faceAxis` gives the vertical one
+ * (`render/pickCell.ts`), so the brush and the mesher must name the same slot.
+ *
+ * The slope is a face of the **piece**, not of its cell, which is why the three rules
+ * that touch it read it from here rather than from the cell's neighbours:
+ * `pushWedge` draws it in this finish, `facePresent` (`build/model/Paint.ts`) offers it
+ * as a surface to paint, and the paint ghost (`GhostSystem`) puts its quad on the sawn
+ * plane. A wedge dropped with a block over it has a slope the boundary rule alone would
+ * call covered — and one the player can still see and paint.
+ */
+export function triangleSlopeFace(kind: TriangleKind): 'top' | 'bottom' {
+  return kind === 'upper' ? 'top' : 'bottom'
+}
+
+/**
  * The face of a 半墙 cell the panel turns **into its own cell**: the surface
  * looking across the clear half, half a block in from the cell's far side. It is a
  * real surface even when the neighbouring cell is solid — nothing can stand in the

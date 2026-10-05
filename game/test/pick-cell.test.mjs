@@ -16,7 +16,7 @@
 //     underside (`rampSlopeCuts`) — so hovering it and laying a 地基 block beside it
 //     committed a block at (4.44, −0.15, 1.89): off the grid, invisible to every tool
 //     from then on, and dropped by the grid repair on the next load;
-//   * every exposed block edge is rounded, so a corner's chamfer faces diagonally and
+//   * the 12.5 cm top-rim chamfer of every block open to the air faces diagonally, so
 //     the same thing happened on any block at all, escalator or not.
 //
 // So the test rays the *real* chunk geometry — the same mesh the player sees — rather
@@ -158,17 +158,26 @@ test('the block under an escalator hands back a whole cell, wedge and all', () =
   assert.ok(angled > 0, 'no probe landed on the wedge, so the report is not reproduced')
 })
 
-test('the rounded edge of a plain block is on the grid too', () => {
+test('a plain block’s top-rim chamfer is on the grid too', () => {
   const { group, solid } = draw([{ x: 0, y: 0, z: 0, fill: 'solid' }], undefined)
-  // Straight down just inside the cell's SW corner: the flat top cap is inset by
-  // the chamfer and the corner arc itself is rounded away (at 12.5 cm radius it is
-  // the chamfer, on a cone down to the corner, that is drawn here), so the ray
-  // lands on a face whose normal is diagonal in x and y.
-  const { point, normal } = dropAt(group, 0.05, 0.05)
-  assert.ok(Math.abs(normal[0]) > 1e-6 && Math.abs(normal[1]) > 1e-6, `the probe hit an axis face: ${show(normal)}`)
-  // The old arithmetic is what this pins: `cell + normal` was a fraction.
-  assert.ok(!whole(pickCells(point, [0, 0, 1]).cell.map((v, i) => v + normal[i])), 'the probe normal is axis-aligned')
+  // A lone block wears its 12.5 cm chamfer on all four sides, and it leans at 45°, so a
+  // ray dropped just inside an edge lands on a face whose normal is diagonal in x and z
+  // — not on an axis. The block's outline above the bevel is a plain square, so a corner
+  // is not a diagonal any more: the chamfer meeting there is.
+  for (const [px, py] of [[0.05, 0.5], [0.5, 0.05], [0.05, 0.05]]) {
+    const { normal } = dropAt(group, px, py)
+    assert.ok(
+      Math.abs(normal[0]) > 1e-6 || Math.abs(normal[1]) > 1e-6,
+      `the probe at (${px}, ${py}) hit an axis face: ${show(normal)}`,
+    )
+    assert.ok(Math.abs(normal[2]) > 1e-6, 'and the chamfer still faces up')
+  }
+  // Level ground a little way in from the rim: the flat top, which does face straight up.
+  const { point, normal } = dropAt(group, 0.5, 0.5)
+  assert.deepEqual(normal.map((v) => Math.round(v)), [0, 0, 1], 'the middle of the block is its flat top')
+  // The old arithmetic is what this pins: on the chamfer, `cell + normal` is a fraction.
+  assert.ok(!whole(pickCells(point, [0.141, 0, 0.99]).cell.map((v, i) => v + [0.141, 0, 0.99][i])), 'the chamfer normal is off-axis')
   const picked = pickCells(point, normal)
-  assert.ok(whole(picked.cell) && whole(picked.place), `a block on the rounded edge went to ${show(picked.place)}`)
+  assert.ok(whole(picked.cell) && whole(picked.place), `a block picked on its top went to ${show(picked.place)}`)
   assert.ok(solid.has(packKey(...picked.cell)), `the pick named a void block ${show(picked.cell)}`)
 })

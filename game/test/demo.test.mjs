@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { buildGraph } from '../src/sim/station.ts'
-import { referenceStation, REFERENCE_BOOT } from '../src/data/reference-station.ts'
+import { referenceStation, emptyStation, REFERENCE_BOOT } from '../src/data/reference-station.ts'
 
 function reachable(g, starts) {
   const seen = new Uint8Array(g.nodeCount)
@@ -67,4 +67,36 @@ test('the shipped demo carries no cell off the 1 m grid', () => {
     (c) => !Number.isInteger(c.x) || !Number.isInteger(c.y) || !Number.isInteger(c.z),
   )
   assert.deepEqual(stray, [], `${stray.length} off-grid cells in the demo save`)
+})
+
+test('the demo hands out a fresh document every time, on the seed it boots with', () => {
+  // `referenceStation()` is a `structuredClone`, not a shared object: the app mutates
+  // the station it is given (undo, edits, a lift), so one shared document would leak
+  // those edits back into the next 打开 — and the demo is also what a cold boot loads,
+  // which is why its seed has to be the document's own.
+  const first = referenceStation()
+  first.cells.length = 0
+  first.name = '被改过的'
+  const second = referenceStation()
+  assert.ok(second.cells.length > 0, 'a fresh copy never sees an edit made to the last one')
+  assert.notEqual(second.name, '被改过的', 'and neither does its name')
+  assert.equal(second.name, '动物园', 'the demo is still the author’s 动物园 save')
+  assert.equal(second.seed, 7654321, 'with the seed a cold boot and an 打开 both run the crowd on')
+  assert.ok(second.lines.length >= 1, 'and its line')
+  assert.ok(second.modules.length >= 1, 'and the station built on it')
+})
+
+test('a new station is the 2 × 2 at-grade seed, with nothing built on it', () => {
+  const fresh = emptyStation()
+  assert.equal(fresh.name, '未命名车站', 'a new station is unnamed until it is saved')
+  assert.deepEqual(fresh.modules, [], 'nothing is placed on it')
+  assert.deepEqual(fresh.lines, [], 'and no line is laid')
+  assert.equal(fresh.cells.length, 4, 'it starts on the 2 × 2 seed of §3 step 1')
+  assert.deepEqual(
+    fresh.cells.map((c) => `${c.x},${c.y},${c.z}`).sort(),
+    ['0,0,0', '0,1,0', '1,0,0', '1,1,0'],
+    'at the origin, one block each',
+  )
+  assert.ok(fresh.cells.every((c) => c.z === 0 && c.fill === 'solid'), 'solid, and at street level')
+  assert.equal(emptyStation('自定义').name, '自定义', 'and it can be named on the way in')
 })

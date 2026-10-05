@@ -284,9 +284,10 @@ build/ →  sim/            (and neither render/ nor app/)
   and the hover ghost reads it with the pending cells in place. 钢板 is a stock ceiling
   finish too, so a player can paint a block's bottom face with the same steel.
   **A wedge's top is the one drawn surface in the game that is not a cell face**, so
-  the pointer's placement cell is snapped by axis (`render/pickCell.ts`, which also
-  snaps a rounded block corner) and never `cell + face.normal`: that arithmetic asked
-  for a fractional block, which no tool can address again. `test/slope-cut.test.mjs`
+  the pointer's placement cell is snapped by axis (`render/pickCell.ts`) and never
+  `cell + face.normal`: that arithmetic asked
+  for a fractional block, which no tool can address again. (The pick used to snap a
+  rounded block corner too; the profile is a plain square now — see the mesher bullet.) `test/slope-cut.test.mjs`
   pins the cut and the derivation, `test/ramp-fill.test.mjs` the filling through the
   real chunk system, `test/pick-cell.test.mjs` the pick over both.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
@@ -354,7 +355,18 @@ build/ →  sim/            (and neither render/ nor app/)
   three drops `instanceMatrix`/`instanceColor` only on the mesh's own `dispose`, and a
   contact-blob batch, an escalator's step band and a shelf's goods are all instanced
   and rebuilt per edit;
-  `render/chunkMesher.ts` emits one mesh part per finish. There are no named levels: the street is `z = 0` (`GROUND_Z` in `build/model.ts`), a storey is the fixed 4 m editing grid (`LEVEL_STEPS`/`storeyBand` in `sim/constants.ts`) — every solid cell belongs to the grid line at or below it, so a floor and its walls share a storey while a second floor one storey down keeps its own even when a wall column connects them — and the depth rail slices those bands (a plate with nothing below it stays on screen above the cut). The save carries no `levels` field; old saves load with it ignored.
+  `render/chunkMesher.ts` emits one mesh part per finish, and its cross-section is **`buildProfile(look)`**:
+  a plain square with a 12.5 cm top bevel (`BEVEL`) on the sides that are **open at that cell's own
+  height**, and *nothing at all* on a side a solid neighbour shares — no wall and no bevel, so two
+  top faces are one flat plane. Corner rounding is gone with it (`CORNER_R` deleted): §4.2's rounded
+  outer corner and its 12.5 cm bevel cannot both exist at a 12.5 cm radius (the bevel's inset
+  collapses the corner to a point where the bevel ends), and the bevel is the one the spec pins a
+  number to. The earlier "round and bevel every edge whatever stood beside it" shape left a floor a
+  field of shallow cones with a V-groove along every seam and a 12.5 cm pit at every four-block
+  corner; `test/floor-surface.test.mjs` reads the drawn surface's height and pins the flush seam, the
+  level floor and the surviving rim bevel, and the bevel is a flat 45° strip cut from the block's
+  **outline** (insetting each wall's own line instead makes a diagonal sail whose two triangles
+  disagree with the normal they are lit by). There are no named levels: the street is `z = 0` (`GROUND_Z` in `build/model.ts`), a storey is the fixed 4 m editing grid (`LEVEL_STEPS`/`storeyBand` in `sim/constants.ts`) — every solid cell belongs to the grid line at or below it, so a floor and its walls share a storey while a second floor one storey down keeps its own even when a wall column connects them — and the depth rail slices those bands (a plate with nothing below it stays on screen above the cut). The save carries no `levels` field; old saves load with it ignored.
 * A **walled facility room** is the one `shop` module type; its fit-out lives in
   `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter and
   the `retail` shell). `build/model.ts`'s rectangle drag creates 商店 / 厕所 /
@@ -552,12 +564,35 @@ build/ →  sim/            (and neither render/ nor app/)
   everything else** — a consist is tagged with the storey of the floor block it stands on
   (`storeyBand` of the rounded track surface, not the raw `z - 1`), and `applyGroupLevel` combines the
   slice with the sim's own `parked` flag instead of the old "leave `visible` alone", which used to
-  draw every train at every level. **The nav cube only moves the camera**: no face, corner or Home
-  click may rewrite the slice. The top bar's 重启 button empties the crowd, trains
+  draw every train at every level. **The nav cube only moves the camera**: no face, corner, Home
+  click (⌂ or `Ctrl+H`), arrow or lens-slider drag may rewrite the slice — see the camera bullet
+  below. The top bar's 重启 button empties the crowd, trains
   and queues but keeps the station and clock, and **Space** toggles play/pause
   (the 暂停 / 播放 button does the same); the speed chips are multipliers only
   (there is no 0× chip). The bottom bar shows FPS and 方块数 (the old sim-timing
   and chunk-build metrics were dropped).
+* **The camera's own controls are the cube's and the modifier's, never a new letter.** `Ctrl+Q` /
+  `Ctrl+E` move the view up and down world Z — a **vertical pan**, not a lift — and the camera and
+  the point it aims at step **together** (`CameraSystem.panCameraVertical`), so the orbit offset
+  (the view angle) is untouched and the station simply slides up or down the screen; moving the
+  camera alone would tilt onto a steeper angle instead, which is a different control. The key set
+  holds the pan under an **intent** token (`PAN_UP` / `PAN_DOWN`, `render/scene/systems/SceneSystem.ts`)
+  rather than the key, and the nav cube's own two arrows hold the same token (`app/ViewCube.tsx`), so
+  one vocabulary has two sources and they cannot drift in direction or rate (`moveSpeed()`, Shift
+  ×3). A plain Q/E is still the storey step, and Alt is left out of the keyboard guard because AltGr
+  *is* Ctrl+Alt on a European layout. The cube also carries the **视场角** slider: the number is
+  `PerspectiveCamera.fov` itself (`CameraSystem.fov` / `setFov`), `DEFAULT_FOV` 45°, clamped to
+  `FOV_MIN_DEG` 30° / `FOV_MAX_DEG` 120°, and **vertical** rather than horizontal so a window resize
+  cannot change what it means. The camera is the truth: the widget polls `CameraSystem.fov` every
+  frame (a whole degree is the re-render threshold), so the thumb follows whatever moved the lens,
+  and the slider blurs itself when a drag ends — a range input is a typing target to
+  `isTypingTarget` and would otherwise swallow WASD. A nav-cube **drag** orbits
+  (`CameraSystem.orbitBy`, stopped `POLAR_EPS` short of the pole) with no key of its own, and
+  **回到默认视角** (`app/viewHome.ts` `goHomeView` — the ⌂ button, or `Ctrl+H` handed over as
+  `metro:home`) owns exactly three things: the iso preset, the 透视/正交 flag and the lens back to
+  `DEFAULT_FOV`. Every display setting (显示其他层 / 隐藏天花板 / 剖切 / 隐藏UI / 隐藏墙壁) is left as the
+  player had it, which is what the old Home button got wrong. The lens does not touch the flat
+  presets: they draw through the orthographic camera, whose field of view is its own frustum.
 * The 地基 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
   drawn cells `auto-floor` and raises a 4 m `auto-wall` ring on the patch's outer
   edge — the room-union rule generalised to cells, so overlapping/abutting patches
@@ -677,7 +712,8 @@ build/ →  sim/            (and neither render/ nor app/)
   `d.single` in the viewport). A 半墙 is still an ordinary solid wall cell — `WALL`
   plus a `half-wall:<side>` tag (`halfWallTag` / `halfWallSide`), so the column
   lift, the storey slice, `isWallBlock`, the ramp carve and the crowd all read it as
-  a wall — and the mesher draws it, squashing the standard rounded profile into the
+  a wall — and the mesher draws it, squashing the square profile (and its 12.5 cm top
+  bevel, `BEVEL`) into the
   half it keeps (`buildThinProfile`), which is what keeps its **per-face finishes**:
   both sides are ordinary surfaces the 材质 brush paints where the pointer hits them.
   **R** picks the side — the geometry's own faces first (`halfWallSideDirs`, so a
@@ -854,7 +890,8 @@ build/ →  sim/            (and neither render/ nor app/)
   a pick names whole cells (`render/pickCell.ts`: the block hit, and the block one step
   out along the face it was hit on), pinned against real meshed geometry by
   `test/pick-cell.test.mjs`, which is where an off-axis drawn face — the wedge under a
-  楼梯 / 扶梯, a rounded block corner — used to leak a fraction into a tool;
+  楼梯 / 扶梯, and back when the profile was rounded, a block corner — used to leak a
+  fraction into a tool;
   `test/grid.test.mjs` is the guard on the commands downstream of the pick, and it is the
   file to extend if you add a tool that writes cells. After a
   refresh, re-check `reference-station.ts`'s header comment — it names the
@@ -1042,9 +1079,13 @@ build/ →  sim/            (and neither render/ nor app/)
   now **off when the game opens** and its own tile is what raises it, so a fresh station
   builds the way it was drawn. `thinWallCells` / `thinWallSideMap` hand out a `CellShape`
   (`{kind:'half'}` | `{kind:'triangle'}`) rather than a bare `WallSide`, which is the type the
-  mesher, the build ghost, the chunk hash and `facePresent` all read; a 三角 needs none of the
-  半墙's paint exception (its diagonal is a surface the cell boundary already reports as
-  exposed, and the paint ghost stays on the boundary), and a press writes the shape it
+  mesher, the build ghost, the chunk hash and `facePresent` all read. A 三角's **slope is a face of
+  the piece**, not of its cell: `triangleSlopeFace(kind)` (`sim/types.ts`) names the finish slot it
+  wears — `top` for 上, `bottom` for 下, the horizontal face the diagonal leans to, which is the axis
+  `faceAxis` ties a 45° normal to — `facePresent` (`build/model/Paint.ts`) offers it to the 材质 brush
+  **even when a solid block stands against the face it leans to** (the one case the cell-boundary rule
+  alone calls covered), and the paint ghost rides the sawn plane (`wedgeSlope`, `render/chunkMesher.ts`)
+  rather than the cell's own ceiling a metre above the crest. A press writes the shape it
   resolved onto the drag (`AreaDrag.shape`) so the release lays the piece the ghost drew.
 * **A pass over what a rebuild used to cost** (`render/scene/systems/*`,
   `render/materials.ts`, `render/models/PieceBuilder.ts`, `sim/worker.ts`, `sim/agents.ts`,

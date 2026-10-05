@@ -5,13 +5,14 @@
 // `pickFacing`, `zoneAt`, `resize`).
 //
 // Left and right belong to the tools; orbit is the middle button, the wheel
-// zooms flat views, and WASD (+ the mouse edge band) pans camera-relative.
+// zooms flat views, WASD (+ the mouse edge band) pans camera-relative, and
+// Ctrl+Q / Ctrl+E pan the view up and down the vertical.
 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { facingFrom } from '../../pickFacing.ts'
 import { pickCells } from '../../pickCell.ts'
-import { SceneSystem } from './SceneSystem.ts'
+import { SceneSystem, PAN_DOWN, PAN_UP } from './SceneSystem.ts'
 import type { PickResult, SceneContext } from './SceneSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
 
@@ -22,6 +23,38 @@ import type { ModuleSystem } from './ModuleSystem.ts'
  * WASD speed at the very edge.
  */
 const EDGE_PAN_PX = 26
+
+/**
+ * The lens the perspective camera opens with, in degrees: the building view. It is what
+ * the nav cube's FOV slider is written against and what 回到默认视角 puts the lens back to
+ * (`app/viewHome.ts`), rather than a literal 45 in three files.
+ */
+export const DEFAULT_FOV = 45
+
+/**
+ * The lens range the slider offers, in degrees — the camera's own `fov`, which is the
+ * **vertical** field of view and so means the same thing at every window shape (a
+ * screen-width field of view would change meaning when the stage is resized).
+ *
+ * * 30° is the long end: a telephoto that pulls the station in and fills the frame with
+ *   one platform, with almost no context around it — the "tunnel vision" end.
+ * * 120° is the short end: most of the station in frame at once, with the perspective
+ *   leaning hard, the fisheye the wide end of a first-person slider is known for.
+ *
+ * Between them sit the values a shooter would call normal (60°–85°) and wide (90°–120°),
+ * all of them reachable; the game's own 45° building view is nearer the long end, which is
+ * what a station editor wants — a tight lens with little distortion over the block being
+ * placed.
+ */
+export const FOV_MIN_DEG = 30
+export const FOV_MAX_DEG = 120
+
+/**
+ * How close an orbit may come to the poles, in radians. At a pole the azimuth stops
+ * meaning anything and the view flips on the next drag, so the orbit drag stops a hair
+ * short of ±90° — it is the only way in, now the widget's slider is the lens.
+ */
+const POLAR_EPS = 0.02
 
 export class CameraSystem extends SceneSystem {
   camera: THREE.PerspectiveCamera
@@ -50,7 +83,7 @@ export class CameraSystem extends SceneSystem {
     super(ctx)
     this.canvas = canvas
     this.renderer = renderer
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.5, 2000)
+    this.camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.5, 2000)
     this.camera.up.set(0, 0, 1)
     this.ortho = new THREE.OrthographicCamera(-40, 40, 40, -40, 0.1, 2000)
     this.ortho.up.set(0, 0, 1)
@@ -191,8 +224,7 @@ export class CameraSystem extends SceneSystem {
    * the poles so the view never flips.
    */
   orbitBy(dxPx: number, dyPx: number): void {
-    const target = this.controls.target
-    const offset = this.camera.position.clone().sub(target)
+    const offset = this.camera.position.clone().sub(this.controls.target)
     const up = new THREE.Vector3(0, 0, 1)
     offset.applyAxisAngle(up, -dxPx * 0.008)
     const forward = offset.clone().normalize()
@@ -201,12 +233,58 @@ export class CameraSystem extends SceneSystem {
     right.normalize()
     offset.applyAxisAngle(right, -dyPx * 0.008)
     const len = offset.length()
-    const theta = Math.atan2(offset.y, offset.x)
-    const phi = THREE.MathUtils.clamp(Math.acos(THREE.MathUtils.clamp(offset.z / len, -1, 1)), 0.02, Math.PI - 0.02)
-    offset.set(len * Math.sin(phi) * Math.cos(theta), len * Math.sin(phi) * Math.sin(theta), len * Math.cos(phi))
+    this.placeAt(Math.atan2(offset.y, offset.x), Math.acos(THREE.MathUtils.clamp(offset.z / len, -1, 1)))
+  }
+
+  /**
+   * Put the camera at an azimuth and polar angle from its target, at the distance it
+   * already stands — the tail of the orbit drag, which is **a swing around the aim, not
+   * away from it**. The polar angle is clamped a hair short of the poles (`POLAR_EPS`),
+   * where the azimuth stops meaning anything and the view would flip.
+   */
+  private placeAt(theta: number, phi: number): void {
+    const target = this.controls.target
+    const offset = this.camera.position.clone().sub(target)
+    const len = offset.length()
+    if (len < 1e-6) return
+    const p = THREE.MathUtils.clamp(phi, POLAR_EPS, Math.PI - POLAR_EPS)
+    offset.set(len * Math.sin(p) * Math.cos(theta), len * Math.sin(p) * Math.sin(theta), len * Math.cos(p))
     this.camera.position.copy(target).add(offset)
     this.camera.lookAt(target)
     this.controls.update()
+  }
+
+  /**
+   * The perspective lens, in degrees — the camera's own vertical field of view, which is
+   * the one number the nav cube's slider shows and the one it writes back through
+   * `setFov`.
+   *
+   * Degrees rather than a percentage of `DEFAULT_FOV`, because that is the unit the value
+   * is *for*: a lens is quoted in degrees (a shooter's 90, a wide-angle's 100) and the
+   * distortion at either end is a property of the angle itself, so a percentage only
+   * added a conversion between the number on screen and the number anyone compares it to.
+   *
+   * The **flat presets are unaffected**: they draw through the orthographic camera, whose
+   * field of view is its own frustum (`orthoZoom`, on the wheel), so this is a perspective
+   * lens control.
+   */
+  fov(): number {
+    return this.camera.fov
+  }
+
+  /**
+   * Set the lens, in degrees. Clamped to the slider's own range (`FOV_MIN_DEG` /
+   * `FOV_MAX_DEG`) here as well as on the slider, so no caller can push the view to a
+   * lens nothing can be read through.
+   *
+   * A non-finite angle is **refused rather than clamped**: `MathUtils.clamp` passes a NaN
+   * straight through, and a NaN `fov` makes the projection matrix NaN and draws nothing at
+   * all, so the lens stays where it was instead of the station disappearing.
+   */
+  setFov(deg: number): void {
+    if (!Number.isFinite(deg)) return
+    this.camera.fov = THREE.MathUtils.clamp(deg, FOV_MIN_DEG, FOV_MAX_DEG)
+    this.camera.updateProjectionMatrix()
   }
 
   /**
@@ -239,9 +317,21 @@ export class CameraSystem extends SceneSystem {
   }
 
   /**
+   * Metres per second a camera pan travels. It scales with the orbit distance —
+   * a zoomed-in view moves metres, a zoomed-out one crosses the station — and
+   * Shift multiplies it. Both pans share it (WASD across the ground and Ctrl+Q/E
+   * up the vertical) so the two cannot drift apart in feel.
+   */
+  private moveSpeed(): number {
+    const distance = this.camera.position.distanceTo(this.controls.target)
+    return Math.max(4, Math.min(45, distance * 0.4)) * (this.ctx.keys.has('shift') ? 3 : 1)
+  }
+
+  /**
    * Move the camera across the world's XY plane. `panInput` blends WASD (Shift
    * = faster) with the mouse edge band; the pan is camera-relative, so it
-   * follows the orbit. Q/E are the layer step and live in the app.
+   * follows the orbit. Q/E are the layer step and live in the app; the camera's
+   * own vertical pair is Ctrl+Q / Ctrl+E (`panCameraVertical`).
    */
   panCamera(dt: number): void {
     if (dt <= 0) return
@@ -256,14 +346,50 @@ export class CameraSystem extends SceneSystem {
     const right = new THREE.Vector3(dir.y, -dir.x, 0)
     // Scale with zoom: a zoomed-in view pans metres per second, a zoomed-out
     // view crosses the station. Shift multiplies it.
-    const distance = this.camera.position.distanceTo(this.controls.target)
-    const speed = Math.max(4, Math.min(45, distance * 0.4)) * (this.ctx.keys.has('shift') ? 3 : 1)
+    const speed = this.moveSpeed()
     const move = new THREE.Vector3()
       .addScaledVector(dir, forward * speed * dt)
       .addScaledVector(right, strafe * speed * dt)
     // Move target and camera together so the orbit offset is preserved.
     this.camera.position.add(move)
     this.controls.target.add(move)
+    this.controls.update()
+  }
+
+  /**
+   * Ctrl+E / Ctrl+Q: raise and lower the view along world Z, at the ground pan's
+   * own rate (`moveSpeed`, Shift faster). **The camera and the point it aims at
+   * move together**, exactly as `panCamera` moves them across the ground.
+   *
+   * Moving both is what holds the *view angle*: the offset between the camera and
+   * its aim is never touched, so the station is seen from the same elevation,
+   * the same distance and the same bearing, and simply slides up or down the
+   * screen. Aiming the camera alone — the pan's own `controls.target` line left
+   * out — would instead tilt the view onto a steeper or flatter angle, which is
+   * a different control.
+   *
+   * Nothing clamps it and nothing needs to: the orbit distance is unchanged by a
+   * move in which camera and target step together, so `OrbitControls`' own
+   * `minDistance`/`maxDistance` never come into it, and the view is bounded only
+   * by letting the key go (`Home` frames the station again). WASD shifts the same
+   * world the same way on the other two axes.
+   *
+   * The pan is held under `PAN_UP` / `PAN_DOWN` (`SceneSystem.ts`): the intent,
+   * not a key, because the keyboard's Ctrl+E / Ctrl+Q and the nav cube's two
+   * arrows both hold it — one action, two sources, one rate. A plain Q/E adds
+   * neither, because that letter is the storey step in the app.
+   */
+  panCameraVertical(dt: number): void {
+    if (dt <= 0) return
+    let lift = 0
+    if (this.ctx.keys.has(PAN_UP)) lift += 1
+    if (this.ctx.keys.has(PAN_DOWN)) lift -= 1
+    if (lift === 0) return
+    const step = lift * this.moveSpeed() * dt
+    // Camera and target together, so the orbit offset — the view angle — is
+    // preserved by the move.
+    this.camera.position.z += step
+    this.controls.target.z += step
     this.controls.update()
   }
 

@@ -9,13 +9,14 @@
 // their controllers (GAME-SPEC §9.5 gestures).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { SceneRenderer, type PickResult } from '../render/scene.ts'
+import { SceneRenderer, PAN_DOWN, PAN_UP, type PickResult } from '../render/scene.ts'
 import { cellKey, removeFloor, thinWallSideMap, toData, zoneMapFloors, zoneRegionLabels } from '../build/model.ts'
 import type { CellShape } from '../sim/types.ts'
 import { zoneIndex } from '../sim/zones.ts'
 import { dragOffset, snapOffset, walkAlong } from '../render/section.ts'
 import { placementPreviewKey, setFrameHandler, signModuleWithPreview, useStore, type Tool } from './store.ts'
 import { ViewCube } from './ViewCube.tsx'
+import { goHomeView } from './viewHome.ts'
 import { BlockTool } from './tools/BlockTool.ts'
 import { DeleteTool } from './tools/DeleteTool.ts'
 import { EquipmentTool } from './tools/EquipmentTool.ts'
@@ -434,6 +435,9 @@ export function Viewport(): React.ReactElement {
       useStore.getState().setOrtho(k === '2' || k === '4' || k === '5')
     }
     const onFrame = (): void => scene.frame()
+    // 回到默认视角 (Ctrl+H, and the nav cube's own ⌂ button through the same action):
+    // the isometric build view in perspective, and nothing else.
+    const onHome = (): void => goHomeView(scene)
     const onDelete = (): void => {
       const st = useStore.getState()
       const sel = st.selected
@@ -453,15 +457,41 @@ export function Viewport(): React.ReactElement {
     // Shift+letter ladder (`rail/helpers.ts` `RAIL_FOLDERS`), and a folder that
     // also shoved the camera forward would be a key with two meanings. The fast
     // pan keeps Shift+A/S/D, and a plain W is still forward.
+    //
+    // **Ctrl+Q / Ctrl+E raise and lower the view** (`CameraSystem.panCameraVertical`),
+    // the one camera pair that needs a modifier: a plain Q/E steps the storey
+    // (`AppShell`), so the modifier is what tells the two apart. The key set holds
+    // the pan under its own name — `PAN_UP` / `PAN_DOWN`, the intent rather than the
+    // key — so the camera cannot mistake a storey step for a move, and so the nav
+    // cube's two arrows can hold the very same pan from the very same vocabulary
+    // (`app/ViewCube.tsx`). The camera and the point it aims at travel together, so
+    // the view angle is untouched and the station slides up or down the screen.
+    // Shift stays the fast modifier, as it is for the pan, and Alt is left out
+    // because AltGr **is** Ctrl+Alt on a European layout, where AltGr+Q/E types a
+    // letter. The press is taken from the browser before it acts on it: Ctrl+E is
+    // Chrome's address-bar search and Ctrl+Q quits Firefox.
     const panKeys = new Set(['w', 'a', 's', 'd', 'shift'])
     const onKeyDown = (e: KeyboardEvent): void => {
       if (isTypingTarget(e.target)) return
       const k = e.key.toLowerCase()
       if (e.shiftKey && k === 'w') return
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 'q' || k === 'e')) {
+        e.preventDefault()
+        scene.keys.add(k === 'e' ? PAN_UP : PAN_DOWN)
+        return
+      }
       if (panKeys.has(k)) scene.keys.add(k)
     }
     const onKeyUp = (e: KeyboardEvent): void => {
-      scene.keys.delete(e.key.toLowerCase())
+      const k = e.key.toLowerCase()
+      scene.keys.delete(k)
+      // The vertical pan is held under the intent's name, so the letter's release
+      // has to clear that — otherwise letting go of Ctrl+E would leave the view
+      // climbing. A release clears the token whatever put it there: the two
+      // sources are one action, and a second holder of the same direction is one
+      // pan, not two.
+      if (k === 'q') scene.keys.delete(PAN_DOWN)
+      if (k === 'e') scene.keys.delete(PAN_UP)
     }
     const onBlur = (): void => scene.keys.clear()
     window.addEventListener('keydown', onKeyDown)
@@ -469,6 +499,7 @@ export function Viewport(): React.ReactElement {
     window.addEventListener('blur', onBlur)
     window.addEventListener('metro:preset', onPreset)
     window.addEventListener('metro:frame', onFrame)
+    window.addEventListener('metro:home', onHome)
     window.addEventListener('metro:delete', onDelete)
     return () => {
       setFrameHandler(null)
@@ -477,6 +508,7 @@ export function Viewport(): React.ReactElement {
       window.removeEventListener('blur', onBlur)
       window.removeEventListener('metro:preset', onPreset)
       window.removeEventListener('metro:frame', onFrame)
+      window.removeEventListener('metro:home', onHome)
       window.removeEventListener('metro:delete', onDelete)
       ro.disconnect()
       scene.dispose()

@@ -12,13 +12,13 @@
 // merged in, so joints update as you drag.
 
 import * as THREE from 'three'
-import { CHUNK, meshChunk } from '../../chunkMesher.ts'
+import { CHUNK, meshChunk, wedgeSlope } from '../../chunkMesher.ts'
 import { buildModule, disposeObject } from '../../models.ts'
 import type { ModuleContext } from '../../models.ts'
 import { HALF_WALL_T } from '../../../sim/constants.ts'
 import { rampFillKeys } from '../../../sim/openings.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
-import { halfWallInnerFace, isHalfWallShape, packKey } from '../../../sim/types.ts'
+import { halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace } from '../../../sim/types.ts'
 import type { CellShape, Face, Module } from '../../../sim/types.ts'
 import { moduleGhostKey } from '../../moduleGhostKey.ts'
 import { moduleLevels, SceneSystem } from './SceneSystem.ts'
@@ -280,7 +280,10 @@ export class GhostSystem extends SceneSystem {
    * the preview shows the finish, not just the rectangle. A **半墙** is the one
    * surface that is not on its cell's boundary: its panel is half a block thick,
    * so the quad for the face looking across the cell's clear half sits on the
-   * panel itself, half a block in — the same place the brush will paint.
+   * panel itself, half a block in — the same place the brush will paint. A
+   * **三角**'s slope is the other: it is a face of the piece, so the quad goes on
+   * the sawn diagonal (`wedgeSlope`) rather than a metre above it on the cell's
+   * ceiling, where it would promise a surface that is not there.
    */
   setFaceGhost(cells: Array<[number, number, number]>, face: Face, colour: number): void {
     if (cells.length === 0) {
@@ -297,21 +300,41 @@ export class GhostSystem extends SceneSystem {
       this.ctx.scene.add(this.faceGhost)
     }
     const [nx, ny, nz] = FACE_NORMAL[face]
-    const q = new THREE.Quaternion().setFromUnitVectors(FACE_UP, new THREE.Vector3(nx, ny, nz))
+    const q = new THREE.Quaternion()
     const mat = new THREE.Matrix4()
     const col = new THREE.Color(colour)
     const pos = new THREE.Vector3()
     const scale = new THREE.Vector3(1, 1, 1)
+    // Scratch axes for a wedge's slope, so the common axis-aligned cell allocates none.
+    const ax = new THREE.Vector3()
+    const ay = new THREE.Vector3()
+    const az = new THREE.Vector3()
     for (let i = 0; i < n; i++) {
       const [x, y, z] = cells[i]
       const shape = this.ctx.thinSides.get(packKey(x, y, z))
       // A 半墙's panel turns its inner face into its own cell, half a block in, so the
       // paint ghost sits on the panel rather than on the boundary. A 三角's faces are
-      // its own geometry, not the cell's, so the brush ghost stays on the boundary
-      // there — half a block in would float over the corner it cut away.
-      const inset = isHalfWallShape(shape) && face === halfWallInnerFace(shape.side) ? HALF_WALL_T : 0
-      const off = 0.505 - inset
-      pos.set(x + 0.5 + nx * off, y + 0.5 + ny * off, z + 0.5 + nz * off)
+      // its own geometry, not the cell's, so its slope takes the diagonal itself (the
+      // plane the wedge was sawn on passes through the cell's centre) and its three
+      // axis-aligned faces keep the boundary, exactly as `facePresent` offers them.
+      if (isTriangleShape(shape) && triangleSlopeFace(shape.triangle) === face) {
+        const plane = wedgeSlope(shape.triangle, shape.side)
+        pos.set(x + 0.5 + plane.normal[0] * 0.005, y + 0.5 + plane.normal[1] * 0.005, z + 0.5 + plane.normal[2] * 0.005)
+        // The quad's own axes are the slope's: `x` falls along the diagonal, `y` runs
+        // the ridge, `z` is the normal it is turned to face.
+        ax.set(plane.along[0], plane.along[1], plane.along[2])
+        ay.set(plane.ridge[0], plane.ridge[1], plane.ridge[2])
+        az.set(plane.normal[0], plane.normal[1], plane.normal[2])
+        q.setFromRotationMatrix(mat.makeBasis(ax, ay, az))
+        // √2 across the fall, 1 m along the ridge: the slope's own 1 × √2 m.
+        scale.set(Math.SQRT2, 1, 1)
+      } else {
+        const inset = isHalfWallShape(shape) && face === halfWallInnerFace(shape.side) ? HALF_WALL_T : 0
+        const off = 0.505 - inset
+        pos.set(x + 0.5 + nx * off, y + 0.5 + ny * off, z + 0.5 + nz * off)
+        q.setFromUnitVectors(FACE_UP, az.set(nx, ny, nz))
+        scale.set(1, 1, 1)
+      }
       mat.compose(pos, q, scale)
       this.faceGhost.setMatrixAt(i, mat)
       this.faceGhost.setColorAt(i, col)

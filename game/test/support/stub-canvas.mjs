@@ -66,8 +66,11 @@ export function stubCanvas(width = 512, height = 256) {
     fillText: (t, x, y) => {
       ops.texts.push(String(t))
       // `bold 81.9px "…"` — the size is after the weight, so `parseFloat` would only
-      // ever see the word `bold`.
-      ops.words.push({ text: String(t), x, y, size: Number(/(\d+(?:\.\d+)?)px/.exec(g.font)?.[1] ?? 0) })
+      // ever see the word `bold`. The ink is recorded with the word because a strap
+      // that prints the right words in the wrong colour is the same failure as a
+      // strap that prints nothing: `fillStyle` at the moment of the call is the only
+      // place the colour exists (a `fillText` paints no path for `filled` to catch).
+      ops.words.push({ text: String(t), x, y, colour: String(g.fillStyle), size: Number(/(\d+(?:\.\d+)?)px/.exec(g.font)?.[1] ?? 0) })
     },
     strokeText: noop,
     measureText: (t) => ({ width: String(t).length * (parseFloat(g.font) || 10) * 0.95 }),

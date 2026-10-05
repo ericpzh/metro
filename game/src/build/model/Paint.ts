@@ -1,7 +1,16 @@
 // Build model: paint — face finishes, the 材质 brush and its floods (§4.3).
 
 import { finishOf } from '../../sim/finishes.ts';
-import { halfWallInnerFace, isHalfWallShape, type Cell, type CellShape, type Face, type FinishId } from '../../sim/types.ts';
+import {
+  halfWallInnerFace,
+  isHalfWallShape,
+  isTriangleShape,
+  triangleSlopeFace,
+  type Cell,
+  type CellShape,
+  type Face,
+  type FinishId,
+} from '../../sim/types.ts';
 import { cellKey, cloneCell } from './Cells.ts';
 import type { StationState } from './State.ts';
 import { thinWallSideMap } from './Walls.ts';
@@ -35,10 +44,17 @@ const FACE_PLANE: Record<Face, Array<[number, number, number]>> = {
  * A **半墙** is the case the cell boundary alone gets wrong. Its panel is half a
  * block thick, so the face looking across the cell's own clear half is a surface
  * *inside* this cell — a solid neighbour behind it does not cover it. Without that
- * exception a player could see the side of a 半墙 and not be able to paint it. A
- * **三角** needs no such exception: two of its three faces are on the cell boundary
- * like any block's, and its diagonal is a surface the boundary rule already reports
- * as exposed, because the corner it cuts away leaves that neighbour empty.
+ * exception a player could see the side of a 半墙 and not be able to paint it.
+ *
+ * A **三角** is the other, and for the same reason: its slope is a face of the
+ * *piece*, drawn whether or not the cell it leans to is solid (`pushWedge`). A wedge
+ * with a block in the cell above it — an ordinary ramp under a slab — therefore shows
+ * a diagonal the boundary rule reports as covered, and the brush used to refuse the
+ * one surface of the piece the player was pointing at. The slot is
+ * `triangleSlopeFace` (`sim/types.ts`): the one the mesher draws the slope in and the
+ * one the pointer reads off its 45° normal, so offering it here is the whole of "the
+ * diagonal is paintable". The base square, the hugged face and the two ends are
+ * ordinary cell faces and keep the boundary rule below.
  */
 export function facePresent(
   solid: ReadonlySet<string>,
@@ -52,6 +68,7 @@ export function facePresent(
   if (!solid.has(k)) return false;
   const shape = thin.get(k);
   if (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face) return true;
+  if (isTriangleShape(shape) && triangleSlopeFace(shape.triangle) === face) return true;
   const step = FACE_STEP[face];
   return !solid.has(cellKey(x + step[0], y + step[1], z + step[2]));
 }
@@ -161,6 +178,12 @@ export function paintStairSurface(state: StationState, id: string, finish: Finis
  * the panel is half a block thick, so that surface looks into its own cell's clear
  * half and nothing can stand across it. Flooding from one column of a run
  * therefore paints the whole run, which is the surface the player sees.
+ *
+ * A **三角**'s slope is the same kind of exception (`facePresent`): it is a face of
+ * the piece, so a flood over it carries on into the horizontal faces wearing the same
+ * slot (`triangleSlopeFace`) beside it — the diagonal and the floor or ceiling it
+ * leans to are one surface to the brush, which is the only reading the palette has of
+ * "the same face".
  */
 export function fillSurface(state: StationState, x: number, y: number, z: number, face: Face, finish: FinishId): StationState {
   const solid = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));

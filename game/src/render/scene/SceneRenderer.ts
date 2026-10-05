@@ -174,7 +174,7 @@ export class SceneRenderer {
     return this.cameraSys.controls
   }
 
-  /** Keys held for WASD panning; the viewport keeps this in sync. */
+  /** Keys held for WASD panning and the Ctrl+Q/E vertical pan; the viewport keeps this in sync. */
   get keys(): Set<string> {
     return this.ctx.keys
   }
@@ -427,6 +427,16 @@ export class SceneRenderer {
     this.cameraSys.orbitBy(dxPx, dyPx)
   }
 
+  /** The perspective lens, in degrees (`CameraSystem.fov`). */
+  fov(): number {
+    return this.cameraSys.fov()
+  }
+
+  /** Set the perspective lens, in degrees; the flat ortho views are unaffected. */
+  setFov(deg: number): void {
+    this.cameraSys.setFov(deg)
+  }
+
   /* -------------------------------------------------------------- ghosts */
 
   setCursor(cell: [number, number, number] | null, valid = true): void {
@@ -492,6 +502,7 @@ export class SceneRenderer {
     const dt = this.lastFrame > 0 ? Math.min(0.05, (now - this.lastFrame) / 1000) : 0
     this.lastFrame = now
     this.cameraSys.panCamera(dt)
+    this.cameraSys.panCameraVertical(dt)
     if (this.cameraSys.controls.enabled) this.cameraSys.controls.update()
     this.crowd.renderAgents(now)
     this.trains.updateTrains(now, dt)

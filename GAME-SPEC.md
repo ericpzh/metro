@@ -286,8 +286,14 @@ derived from these six faces. That keeps the build model small and makes save fi
 ### 4.2 Smooth-corner autotiling
 
 * **Mask.** Each cell computes an 8-neighbour mask (4 orthogonal + 4 diagonal).
-* **Geometry.** One rounded variant per mask is generated once at load, in the same style as the
-  concept sheet: rounded outer corners, filleted inner corners, 12.5 cm bevel on exposed top edges.
+* **Geometry.** One variant per mask is generated once at load, in the same style as the
+  concept sheet: a **12.5 cm bevel on every top edge exposed to the air**.
+* **A shared edge is flush.** A side a solid neighbour shares is rounded and bevelled not at all:
+  it is the same building, so the two blocks' top faces are one plane and the cell boundary
+  between them is not drawn. A block's outline above the bevel is therefore a plain square —
+  rounded outer corners cannot coexist with the bevel, because at a 12.5 cm corner radius the
+  inset of the corner collapses to a point exactly where the 12.5 cm bevel ends. The bevel is the
+  measured one, so it is the rounding that gives way.
 * **Merging.** Blocks are merged per 16×16×16 chunk into a single `BufferGeometry`. Floor decals,
   tactile strips, signage and arrows are separate transparent quads drawn on top so they never
   break a merge.
@@ -1222,7 +1228,7 @@ Rules:
 * Settings page shows the save-format version and game version at the bottom
   (`存档格式 v1 · 游戏版本 x.y.z`) so bug reports can quote them with the seed (§7.6).
 * Keyboard shortcuts are listed on the page but not remappable in v1
-  (`V/B/N/M/J` tools, `1–5` views, `Q/E` levels, `X` level slice, `H` ceiling hiding, `C` cutaway,
+  (`V/B/N/M/J` tools, `1–5` views, `Q/E` levels with `Ctrl+Q/E` for camera height, `X` level slice, `H` ceiling hiding, `C` cutaway,
   `O` ortho, `F` frame,
   `R` rotate, `G` work-plane, `Del` delete, `,` settings). Full table in §9.5.
 
@@ -1301,7 +1307,7 @@ the selected piece — the right button puts that piece back.)
 | 4 | **Paint / erase one block face** | `N` 单块: `左键` paints the clicked face with the active texture of its family (地面/天花/墙面/轨道, §4.3). `右键` reverts that face to the family default. `I` eyedrops the hovered face into the brush. Works on block faces only — clicking void just moves the pin. |
 | 5 | **Paint / erase a continuous surface** | `M` 整面: `左键` flood-fills the connected same-family region on that plane (same level + orientation) with the active texture. `右键` reverts the whole connected region to default. `Shift+左键` fills only the box-dragged sub-rectangle instead of the full flood — the bounded variant for one room out of a large floor. |
 | 6 | **Place a module on top of / on wall / on ceiling** | `J` 设备: pick the module in the catalogue, then `左键` click the host face — top face = floor-standing (gate, TVM, escalator foot), side face = wall-mounted (signage, billboard, swing door), bottom face = ceiling-mounted (light well, hanging sign). Fixed modules place on click; **variable-area shops/cafes/restrooms (§5.7) place on `左键` drag** — rectangle ≥ min, ghost shows `宽×深·面积·人/分`. Ghost shows footprint + validity (red = blocked / no cover / wrong zone). `R` rotates 90°, `右键` click a module deletes it (block underneath stays). Drag places repeats along a line (queue rails, PSD runs). |
-| 7 | **Camera: orbit / zoom / snap** | Orbit: `中键` drag (or `右键` drag while in `V`? no — camera never steals `右键` from tools; use `中键`). Pan: `Shift+左键` drag in any tool, or `中键+Shift`. Zoom: wheel to cursor (direction per §9.3 反转缩放); `F` frames selection / work-plane pin. Snap: nav-cube faces + keys `1` 等距 / `2` 俯视 / `3` 自定义 / `4` X-Z正立面 / `5` Y-Z侧立面; `O` toggles 透视/正交 (flat presets force ortho while active); `X` slices to the edited level; `C` cutaway near quarter; `Q`/`E` level step. |
+| 7 | **Camera: orbit / zoom / snap** | Orbit: `中键` drag (or `右键` drag while in `V`? no — camera never steals `右键` from tools; use `中键`). Pan: `Shift+左键` drag in any tool, or `中键+Shift`. Zoom: wheel to cursor (direction per §9.3 反转缩放); `F` frames selection / work-plane pin. Snap: nav-cube faces + keys `1` 等距 / `2` 俯视 / `3` 自定义 / `4` X-Z正立面 / `5` Y-Z侧立面; `O` toggles 透视/正交 (flat presets force ortho while active); `X` slices to the edited level; `C` cutaway near quarter; `Q`/`E` level step; `Ctrl+E` / `Ctrl+Q` raise and lower the view along Z — camera and aim move together, so the angle is unchanged (held, Shift = faster); the slider under the cube is 视场角, the camera's lens in its own degrees — the vertical field of view, 30° (a telephoto that fills the frame with one platform) to 120° (most of the station at once, the fisheye end), with the game's 45° building view inside the track; perspective only, the flat ortho views zoom on the wheel — and `Ctrl+H` / ⌂ returns to the home view (iso perspective, lens back to 45°). |
 
 **拆除 (`B` 删除).** One press removes the block or the whole piece under the pointer; holding the
 button and dragging keeps collecting. Across bare floor the drag draws the line of blocks the

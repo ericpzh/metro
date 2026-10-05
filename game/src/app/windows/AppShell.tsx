@@ -75,6 +75,15 @@ export function App(): React.ReactElement {
           st.restartSim()
           return
         }
+        // 回到默认视角: the nav cube's own ⌂ button, on the keyboard. It is the one
+        // camera key with a modifier — a plain H is 隐藏天花板 — and the Viewport owns
+        // the scene, so the press is handed over as `metro:home` exactly as the
+        // presets and 框选 use `metro:preset` / `metro:frame`.
+        if (ck === 'h') {
+          e.preventDefault()
+          window.dispatchEvent(new CustomEvent('metro:home'))
+          return
+        }
         // Undo/redo keep their bindings in the switch below; every other
         // Ctrl/⌘+letter is ignored here.
         if (ck !== 'z' && ck !== 'y') return

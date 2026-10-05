@@ -746,12 +746,18 @@ button.ghost:hover {
   border: 1px solid var(--line);
   border-radius: 0;
   background: #0b1f36;
+}
+/* The cube itself: the drag-to-orbit handle, and the box the ⌂ button and the two
+   arrows sit on the corners of. The lens slider is below it, deliberately outside this
+   box, so it does not read as a second way to drag the view. */
+.viewCubeStage {
+  position: relative;
   cursor: grab;
 }
-.viewCube:active {
+.viewCubeStage:active {
   cursor: grabbing;
 }
-.viewCube > svg {
+.viewCubeStage > svg {
   display: block;
   width: 150px;
   height: 150px;
@@ -832,11 +838,10 @@ button.ghost:hover {
 .cubeAxis line {
   opacity: 0.9;
 }
-.viewHomeBtn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 2;
+/* The widget's own round-cornered buttons: ⌂ (top-right) and the vertical-pan
+   arrows (bottom-right). One box, one hover, one pressed state — the arrows are
+   the same button twice, so they may not drift apart in look either. */
+.viewNavBtn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -849,17 +854,68 @@ button.ghost:hover {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   color: var(--muted);
   cursor: pointer;
+  touch-action: none;
 }
-.viewHomeBtn:hover {
+.viewNavBtn:hover {
   color: #dff0ff;
   border-color: rgba(150, 180, 220, 0.5);
   background: rgba(85, 182, 255, 0.18);
 }
-.viewHomeBtn svg {
+/* A held arrow is a held pan, so the press is the lit state. */
+.viewNavBtn:active {
+  color: #ffffff;
+  border-color: rgba(150, 200, 255, 0.75);
+  background: rgba(85, 182, 255, 0.34);
+}
+.viewNavBtn svg {
   display: block;
   width: 14px !important;
   height: 14px !important;
   flex: none;
+}
+.viewHomeBtn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+}
+/* The two arrows: one column, bottom-right, over the empty corner of the cube. */
+.viewPanBtns {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 视场角: the camera's lens, as a percentage of the one it opens with. The camera is the
+   truth, so this follows any caller that changes it; the cursor stays the default arrow
+   because dragging here does not orbit. */
+.viewFov {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  cursor: default;
+}
+/* The camera aperture that marks the row (its own inline SVG, like every other icon on
+   this widget). A mark, not a button: it never eats the pointer, so a press on the left
+   of the track still grabs the thumb. */
+.viewFov > svg {
+  flex: none;
+  pointer-events: none;
+}
+.viewFov input {
+  flex: 1;
+  min-width: 0;
+}
+.viewFovVal {
+  min-width: 26px;
+  font-size: 9px;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .depthRail {

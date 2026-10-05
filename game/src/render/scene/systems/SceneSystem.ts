@@ -180,7 +180,13 @@ export interface SceneContext {
   stateIntervalMs: number
   lastStateTime: number
   lastChunkMs: number
-  /** Keys held for WASD panning; the viewport keeps this in sync. */
+  /**
+   * Keys held for WASD panning and the camera's vertical pan; the viewport (WASD
+   * and Ctrl+Q/E) and the nav cube's two arrows both keep this in sync. The
+   * vertical tokens are `PAN_UP` / `PAN_DOWN` — the intent rather than a key,
+   * because two sources hold it — and a plain Q/E never adds either: that letter
+   * is the storey step, which lives in the app.
+   */
   keys: Set<string>
   /** True once `dispose()` has run; async art callbacks check this. */
   disposed: boolean
@@ -289,3 +295,16 @@ export function blobRadius(type: Module['type']): number {
       return 0.8
   }
 }
+
+/**
+ * The key set's vocabulary for the camera's vertical pan: the view rises while
+ * `PAN_UP` is held and drops while `PAN_DOWN` is (`CameraSystem.panCameraVertical`).
+ *
+ * The tokens name the **intent**, not a key, because the pan has two sources that
+ * hold it — the shell's key handler holds one while Ctrl+E / Ctrl+Q is down
+ * (`app/Viewport.tsx`), and the nav cube's two arrows hold one while the pointer is
+ * down (`app/ViewCube.tsx`). One vocabulary is what makes the two the same action at
+ * the same rate, and it is why the camera never has to know which one is asking.
+ */
+export const PAN_UP = 'pan-up'
+export const PAN_DOWN = 'pan-down'

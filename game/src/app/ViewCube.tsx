@@ -4,12 +4,17 @@
 // moves the camera: the level slicing (显示其他层 / 隐藏天花板) is the player's
 // own setting, so a face or corner click leaves it exactly as it was. The
 // vertical depth rail beside it mirrors the Q/E layer step and names the level
-// you are standing on.
+// you are standing on. Two more camera moves sit on the widget itself: the ⌂
+// button (回到默认视角, also Ctrl+H, `app/viewHome.ts`) and the pair of arrows under
+// it — the vertical pan the Ctrl+Q / Ctrl+E keys hold, which the arrows hold too
+// for as long as the pointer is down, under the same held token
+// (`SceneSystem.ts` `PAN_UP` / `PAN_DOWN`), so button and key cannot drift apart.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import type { SceneRenderer } from '../render/scene.ts'
+import { DEFAULT_FOV, FOV_MAX_DEG, FOV_MIN_DEG, PAN_DOWN, PAN_UP, type SceneRenderer } from '../render/scene.ts'
 import { useStore } from './store.ts'
+import { goHomeView } from './viewHome.ts'
 import { LEVEL_STEPS } from '../sim/constants.ts'
 
 /** Cube half-extent in world units; the cube spans -HALF..HALF on each axis. */
@@ -243,22 +248,30 @@ function buildCube(qt: [number, number, number, number]): CubeGeometry {
 
 export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer | null> }): React.ReactElement {
   const [qt, setQt] = useState<[number, number, number, number]>([0, 0, 0, 1])
+  /** The lens in whole degrees, for the slider — the camera is the truth. */
+  const [fovDeg, setFovDeg] = useState(DEFAULT_FOV)
   const [hover, setHover] = useState<string | null>(null)
   const press = useRef<{ x: number; y: number; moved: boolean; action: string | null } | null>(null)
 
   // Track the main camera's orientation; only re-render the widget when it
-  // actually turns, so an idle orbit does not churn React.
+  // actually turns, so an idle orbit does not churn React. The lens goes with it: the
+  // slider **follows the camera**, so a preset that changes it (or a later caller of
+  // `setFov`) moves the thumb, and only a whole degree re-renders.
   useEffect(() => {
     let raf = 0
     let last = ''
     const tick = (): void => {
       raf = requestAnimationFrame(tick)
-      const q = sceneRef.current?.camera.quaternion
-      if (!q) return
+      const scene = sceneRef.current
+      const q = scene?.camera.quaternion
+      if (!scene || !q) return
       const key = `${q.x.toFixed(5)},${q.y.toFixed(5)},${q.z.toFixed(5)},${q.w.toFixed(5)}`
-      if (key === last) return
-      last = key
-      setQt([q.x, q.y, q.z, q.w])
+      if (key !== last) {
+        last = key
+        setQt([q.x, q.y, q.z, q.w])
+      }
+      const deg = Math.round(scene.fov())
+      setFovDeg((cur) => (cur === deg ? cur : deg))
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
@@ -339,132 +352,235 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
   const hoverOff = (id: string): void => setHover((h) => (h === id ? null : h))
 
   /**
-   * The default build view: the isometric preset in perspective. The camera
-   * only — 显示其他层 and 隐藏天花板 are the player's own settings and stay put.
+   * The default build view (回到默认视角): the isometric preset in perspective. The
+   * camera only — 显示其他层, 隐藏天花板 and the 剖切 surface are the player's own
+   * settings and stay put. The action itself lives in `app/viewHome.ts`, because
+   * Ctrl+H is the same button on the keyboard and the two may not drift apart.
    */
   const goHome = (): void => {
-    const scene = sceneRef.current
-    if (!scene) return
-    scene.setPreset('iso')
-    useStore.getState().setOrtho(false)
+    goHomeView(sceneRef.current)
     syncNow()
+  }
+
+  /**
+   * The two arrows: hold the view up or down for as long as the pointer is down —
+   * **the very action Ctrl+E / Ctrl+Q hold from the keyboard**
+   * (`CameraSystem.panCameraVertical`), under the same token, so button and key
+   * cannot drift apart in direction or in rate. The token is cleared on release
+   * however the press ends (up, cancel, a lost capture), so a missed pointerup
+   * cannot leave the view climbing.
+   *
+   * One holder at a time: a press clears both tokens before it sets its own, which
+   * is also what a release does. The button has **no `onClick`** on purpose — a
+   * click would apply the same pan a second time, invisibly — and Space cannot be
+   * used to hold it, because Space on a focused button is the play/pause key
+   * (`AppShell` blurs the button and toggles the clock); Ctrl+E / Ctrl+Q are the
+   * keyboard's way to the same pan.
+   */
+  const holdPan = (dir: -1 | 0 | 1): void => {
+    const keys = sceneRef.current?.keys
+    if (!keys) return
+    keys.delete(PAN_UP)
+    keys.delete(PAN_DOWN)
+    if (dir > 0) keys.add(PAN_UP)
+    if (dir < 0) keys.add(PAN_DOWN)
+  }
+
+  const panDown = (e: React.PointerEvent<HTMLButtonElement>, dir: -1 | 1): void => {
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      /* A capture we cannot take still leaves the hold working inside the button. */
+    }
+    holdPan(dir)
+  }
+
+  /**
+   * 视场角: the slider under the cube is the camera's **lens**, in the camera's own
+   * degrees. Sliding left is a longer lens — 30° fills the frame with one platform and
+   * hides everything around it; sliding right opens the view up to 120°, where most of the
+   * station is in frame at once and the perspective leans into the fisheye. It **reads the
+   * camera** through `fov`, which is what lets the thumb follow any later caller rather
+   * than only this handler.
+   *
+   * The flat presets are unaffected: they draw through the orthographic camera, whose
+   * "field of view" is its own frustum (the wheel zooms there).
+   */
+  const setFov = (deg: number): void => {
+    sceneRef.current?.setFov(deg)
+    setFovDeg(deg)
   }
 
   return (
     <div className="viewNav">
       <DepthRail />
       <div className="viewCube" title="拖动旋转 · 点面看正投影 · 点角看立体图">
-        <svg
-          viewBox={`${-VIEW} ${-VIEW} ${VIEW * 2} ${VIEW * 2}`}
-          onPointerDown={onDown}
-          onPointerMove={onMove}
-          onPointerUp={onUp}
-          onPointerCancel={onUp}
-          onPointerLeave={() => setHover(null)}
-        >
-          <defs>
-            <linearGradient id="cubeGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="rgba(78,168,255,0.30)" />
-              <stop offset="100%" stopColor="rgba(78,168,255,0.05)" />
-            </linearGradient>
-            <linearGradient id="cubeGradHot" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="rgba(110,231,255,0.55)" />
-              <stop offset="100%" stopColor="rgba(78,168,255,0.18)" />
-            </linearGradient>
-          </defs>
+        <div className="viewCubeStage">
+          <svg
+            viewBox={`${-VIEW} ${-VIEW} ${VIEW * 2} ${VIEW * 2}`}
+            onPointerDown={onDown}
+            onPointerMove={onMove}
+            onPointerUp={onUp}
+            onPointerCancel={onUp}
+            onPointerLeave={() => setHover(null)}
+          >
+            <defs>
+              <linearGradient id="cubeGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="rgba(78,168,255,0.30)" />
+                <stop offset="100%" stopColor="rgba(78,168,255,0.05)" />
+              </linearGradient>
+              <linearGradient id="cubeGradHot" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="rgba(110,231,255,0.55)" />
+                <stop offset="100%" stopColor="rgba(78,168,255,0.18)" />
+              </linearGradient>
+            </defs>
 
-          {geo.edges
-            .filter((e) => !e.visible)
-            .map((e) => (
-              <line key={'h' + e.key} className="cubeEdgeHidden" x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} />
+            {geo.edges
+              .filter((e) => !e.visible)
+              .map((e) => (
+                <line key={'h' + e.key} className="cubeEdgeHidden" x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} />
+              ))}
+
+            {geo.faces.map((f) => {
+              const id = 'face:' + f.key
+              const on = hover === id
+              return (
+                <polygon
+                  key={f.key}
+                  className="cubeFacePoly"
+                  data-action={id}
+                  points={f.points}
+                  fill={on ? 'url(#cubeGradHot)' : 'url(#cubeGrad)'}
+                  stroke={on ? '#9ad8ff' : 'rgba(150,180,220,0.35)'}
+                  strokeWidth={1}
+                  onPointerEnter={() => hoverOn(id)}
+                  onPointerLeave={() => hoverOff(id)}
+                />
+              )
+            })}
+
+            {geo.edges
+              .filter((e) => e.visible)
+              .map((e) => {
+                const id = `edge:${e.a}:${e.b}`
+                const on = hover === id
+                return (
+                  <g
+                    key={e.key}
+                    className="cubeEdgeHandle"
+                    data-action={id}
+                    onPointerEnter={() => hoverOn(id)}
+                    onPointerLeave={() => hoverOff(id)}
+                  >
+                    <line className="cubeEdge" x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} />
+                    <line className="cubeEdgeHit" x1={e.bx1} y1={e.by1} x2={e.bx2} y2={e.by2} />
+                    <line className={on ? 'cubeEdgeBar on' : 'cubeEdgeBar'} x1={e.bx1} y1={e.by1} x2={e.bx2} y2={e.by2} />
+                  </g>
+                )
+              })}
+
+            {geo.faces.map((f) => (
+              <text key={'t' + f.key} className="cubeLabel" x={f.lx} y={f.ly} textAnchor="middle" dominantBaseline="central">
+                {f.label}
+              </text>
             ))}
 
-          {geo.faces.map((f) => {
-            const id = 'face:' + f.key
-            const on = hover === id
-            return (
-              <polygon
-                key={f.key}
-                className="cubeFacePoly"
-                data-action={id}
-                points={f.points}
-                fill={on ? 'url(#cubeGradHot)' : 'url(#cubeGrad)'}
-                stroke={on ? '#9ad8ff' : 'rgba(150,180,220,0.35)'}
-                strokeWidth={1}
-                onPointerEnter={() => hoverOn(id)}
-                onPointerLeave={() => hoverOff(id)}
-              />
-            )
-          })}
-
-          {geo.edges
-            .filter((e) => e.visible)
-            .map((e) => {
-              const id = `edge:${e.a}:${e.b}`
+            {geo.corners.map((c) => {
+              const id = 'corner:' + c.i
               const on = hover === id
               return (
                 <g
-                  key={e.key}
-                  className="cubeEdgeHandle"
+                  key={c.i}
+                  className="cubeCorner"
                   data-action={id}
                   onPointerEnter={() => hoverOn(id)}
                   onPointerLeave={() => hoverOff(id)}
+                  transform={on ? `translate(${c.x} ${c.y}) scale(1.18) translate(${-c.x} ${-c.y})` : undefined}
                 >
-                  <line className="cubeEdge" x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} />
-                  <line className="cubeEdgeHit" x1={e.bx1} y1={e.by1} x2={e.bx2} y2={e.by2} />
-                  <line className={on ? 'cubeEdgeBar on' : 'cubeEdgeBar'} x1={e.bx1} y1={e.by1} x2={e.bx2} y2={e.by2} />
+                  <circle cx={c.x} cy={c.y} r={15} fill="rgba(0,0,0,0)" />
+                  {c.stubs.map((s, k) => (
+                    <line key={'h' + k} className="cubeCornerHit" x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} />
+                  ))}
+                  {c.stubs.map((s, k) => (
+                    <line key={'a' + k} className={on ? 'cubeCornerAngle on' : 'cubeCornerAngle'} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} />
+                  ))}
                 </g>
               )
             })}
 
-          {geo.faces.map((f) => (
-            <text key={'t' + f.key} className="cubeLabel" x={f.lx} y={f.ly} textAnchor="middle" dominantBaseline="central">
-              {f.label}
-            </text>
-          ))}
-
-          {geo.corners.map((c) => {
-            const id = 'corner:' + c.i
-            const on = hover === id
-            return (
-              <g
-                key={c.i}
-                className="cubeCorner"
-                data-action={id}
-                onPointerEnter={() => hoverOn(id)}
-                onPointerLeave={() => hoverOff(id)}
-                transform={on ? `translate(${c.x} ${c.y}) scale(1.18) translate(${-c.x} ${-c.y})` : undefined}
-              >
-                <circle cx={c.x} cy={c.y} r={15} fill="rgba(0,0,0,0)" />
-                {c.stubs.map((s, k) => (
-                  <line key={'h' + k} className="cubeCornerHit" x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} />
-                ))}
-                {c.stubs.map((s, k) => (
-                  <line key={'a' + k} className={on ? 'cubeCornerAngle on' : 'cubeCornerAngle'} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} />
-                ))}
-              </g>
-            )
-          })}
-
-          <g className="cubeAxis">
-            {geo.axes.map((a) => (
-              <g key={a.key}>
-                <line x1={GIZMO.x} y1={GIZMO.y} x2={a.x} y2={a.y} stroke={a.color} strokeWidth={1.6} />
-                <circle cx={a.x} cy={a.y} r={1.8} fill={a.color} />
-                <text x={a.lx} y={a.ly} fill={a.color} textAnchor="middle" dominantBaseline="central">
-                  {a.key}
-                </text>
-              </g>
-            ))}
-          </g>
-        </svg>
-        <button type="button" className="viewHomeBtn" onClick={goHome} title="回到默认视角 (1)" aria-label="回到默认视角">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 10.5 12 3l9 7.5" />
-            <path d="M5 9.5V21h14V9.5" />
-            <path d="M9 21v-6h6v6" />
+            <g className="cubeAxis">
+              {geo.axes.map((a) => (
+                <g key={a.key}>
+                  <line x1={GIZMO.x} y1={GIZMO.y} x2={a.x} y2={a.y} stroke={a.color} strokeWidth={1.6} />
+                  <circle cx={a.x} cy={a.y} r={1.8} fill={a.color} />
+                  <text x={a.lx} y={a.ly} fill={a.color} textAnchor="middle" dominantBaseline="central">
+                    {a.key}
+                  </text>
+                </g>
+              ))}
+            </g>
           </svg>
-        </button>
+          <button type="button" className="viewNavBtn viewHomeBtn" onClick={goHome} title="回到默认视角 (Ctrl+H)" aria-label="回到默认视角">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 10.5 12 3l9 7.5" />
+              <path d="M5 9.5V21h14V9.5" />
+              <path d="M9 21v-6h6v6" />
+            </svg>
+          </button>
+          <div className="viewPanBtns">
+            <button
+              type="button"
+              className="viewNavBtn viewPanBtn"
+              title="视角升高 (Ctrl+E)"
+              aria-label="视角升高"
+              onPointerDown={(e) => panDown(e, 1)}
+              onPointerUp={() => holdPan(0)}
+              onPointerCancel={() => holdPan(0)}
+              onLostPointerCapture={() => holdPan(0)}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5 14.5 12 7.5l7 7" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="viewNavBtn viewPanBtn"
+              title="视角降低 (Ctrl+Q)"
+              aria-label="视角降低"
+              onPointerDown={(e) => panDown(e, -1)}
+              onPointerUp={() => holdPan(0)}
+              onPointerCancel={() => holdPan(0)}
+              onLostPointerCapture={() => holdPan(0)}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5 9.5 12 16.5l7-7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div className="viewFov">
+          {/* The slider's mark: Material Design's `camera` glyph — the aperture, the lens
+              diaphragm — which is what `MdOutlineCamera` (`react-icons/md`) draws, and the
+              right mark for a lens control. It is inlined the way every other icon on this
+              widget is (`app/rail/shared/Icon.tsx`, the ⌂ button, the two arrows): the repo
+              draws its own SVG rather than carrying an icon package for one mark, and the
+              path below is the icon set's own. */}
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
+            <path d="m14.25 2.26-.08-.04-.01.02C13.46 2.09 12.74 2 12 2 6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10c0-4.75-3.31-8.72-7.75-9.74zM19.41 9h-7.99l2.71-4.7c2.4.66 4.35 2.42 5.28 4.7zM13.1 4.08 10.27 9l-1.15 2L6.4 6.3A7.958 7.958 0 0 1 12 4c.37 0 .74.03 1.1.08zM5.7 7.09 8.54 12l1.15 2H4.26C4.1 13.36 4 12.69 4 12c0-1.85.64-3.55 1.7-4.91zM4.59 15h7.98l-2.71 4.7A8.033 8.033 0 0 1 4.59 15zm6.31 4.91L14.89 13l2.72 4.7A8 8 0 0 1 12 20c-.38 0-.74-.04-1.1-.09zm7.4-3-4-6.91h5.43c.17.64.27 1.31.27 2 0 1.85-.64 3.55-1.7 4.91z" />
+          </svg>
+          <input
+            type="range"
+            min={FOV_MIN_DEG}
+            max={FOV_MAX_DEG}
+            step={1}
+            value={fovDeg}
+            aria-label="视场角"
+            title="视场角：45° 默认 · 30° 长焦（望远）· 120° 广角（短焦，看得更多、畸变更强）"
+            onChange={(e) => setFov(Number(e.target.value))}
+            onPointerUp={(e) => e.currentTarget.blur()}
+          />
+          <span className="viewFovVal">{fovDeg}°</span>
+        </div>
       </div>
     </div>
   )
