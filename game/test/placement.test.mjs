@@ -351,6 +351,19 @@ test('the demo station’s platform stairs take a fence over the run and on the 
     (m) => m.type === 'stair' && Math.min(m.from.z, m.to.z) === -16 && Math.max(m.from.z, m.to.z) === -12,
   )
   assert.equal(stairs.length, 2, 'the demo has two stairs up from the platform at z = −16')
+  // A slab takes the panel only while *nothing* stands in the cell — the demo's own
+  // guard runs (fence-315 over the low treads of stair-straight-221, fence-316 over
+  // stair-straight-211) and just as much the props the author hangs from the same
+  // slab (the 监控 at 100,3,−12). Any module owns its cell (§5), so the refusal is
+  // "this cell is taken", never "this cell is fenced". The two stairs between them
+  // exercise both answers — 211 keeps a free slab over its run, 221 has both of its
+  // own taken — so the halves are counted over the pair rather than asked of every
+  // stair, and a save that closes the last free slab (or frees every taken one)
+  // reports which branch went missing.
+  let freeSlabs = 0
+  let takenSlabs = 0
+  let accepted = 0
+  let refused = 0
   for (const s of stairs) {
     const top = s.to.z === -12 ? s.to : s.from
     const bottom = s.to.z === -12 ? s.from : s.to
@@ -368,21 +381,20 @@ test('the demo station’s platform stairs take a fence over the run and on the 
     assert.ok(solid.has(`${tiles[0].x},${tiles[0].y},${bottom.z}`), `${s.id}: the first tile has no floor at z = −16`)
     assert.equal(placementBlocked(st.modules, panel(tiles[0].x, tiles[0].y, bottom.z)), true, `${s.id}: the treads over ${at({ ...tiles[0], z: bottom.z })}`)
     // The top storey: the well is open where the flight surfaces, and the tiles it
-    // merely passes under are floor that takes the panel — except the ones the
-    // station already guards from above (`fence-315` over the low treads of
-    // `stair-straight-221`, `fence-316` over `stair-straight-211`), where a second
-    // panel does not stack. Each run keeps at least one free slab, so the exemption
-    // is still exercised rather than asserted away.
+    // merely passes under are floor — a free one takes the panel, a taken one refuses
+    // it. The occupied slabs are not only fences: whatever the author hung there owns
+    // the cell the same way.
     const overRun = tiles.filter(({ x, y }) => solid.has(`${x},${y},${top.z}`))
     assert.ok(tiles.some(({ x, y }) => !solid.has(`${x},${y},${top.z}`)), `${s.id}: the well is open at z = −12`)
     assert.ok(overRun.length > 0, `${s.id}: no floor at z = −12 over the run at all`)
-    const shipped = st.modules.filter((m) => m.type === 'fence' && m.z === top.z)
-    const guarded = ({ x, y }) => shipped.some((m) => m.x === x && m.y === y)
-    assert.ok(overRun.some((t) => !guarded(t)), `${s.id}: the demo already guards every slab over the run`)
-    assert.ok(overRun.some(guarded), `${s.id}: the demo guards no slab over the run, so the refusal is untested`)
     for (const { x, y } of overRun) {
-      assert.equal(placementBlocked(st.modules, panel(x, y, top.z)), guarded({ x, y }),
-        `${s.id}: the −12 slab over the run at ${x},${y},−12`)
+      const taken = st.modules.some((m) => m.x === x && m.y === y && m.z === top.z)
+      const blocked = placementBlocked(st.modules, panel(x, y, top.z))
+      if (taken) takenSlabs++
+      else freeSlabs++
+      if (blocked) refused++
+      else accepted++
+      assert.equal(blocked, taken, `${s.id}: the −12 slab over the run at ${x},${y},−12`)
     }
     // The guard run the demo ships sits one row in front of the stair: that row is
     // where the well's railing is extended, and its own cells are taken already.
@@ -390,6 +402,10 @@ test('the demo station’s platform stairs take a fence over the run and on the 
     assert.ok(guard, `${s.id}: no guard panel is shipped beside the head of the run`)
     assert.equal(placementBlocked(st.modules, panel(guard.x, guard.y, guard.z)), true, 'a second panel does not stack on the guard')
   }
+  assert.ok(freeSlabs > 0, 'every slab over the two runs is taken, so taking the panel is untested')
+  assert.ok(takenSlabs > 0, 'the demo takes no slab over either run, so the refusal is untested')
+  assert.ok(accepted > 0, 'no free slab over the runs took the panel')
+  assert.ok(refused > 0, 'no taken slab over the runs refused the panel')
 })
 
 test('a surface exit is rooted at the street (z = 0)', () => {
