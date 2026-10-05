@@ -25,12 +25,28 @@ function importsOf(file) {
   return out
 }
 
+/**
+ * A relative import spec resolved against the importing file, as a path from `src/`.
+ * A layer may be a **folder tree** (`sim/world/World.ts`), so `../agents.ts` from
+ * inside `sim/world/` stays in `sim/` and is legal — only a resolution that leaves the
+ * layer is a violation. The old flat check rejected every `..`, which is not the rule.
+ */
+function resolveFrom(file, spec) {
+  const parts = file.split('/')
+  parts.pop()
+  for (const part of spec.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') parts.pop()
+    else parts.push(part)
+  }
+  return parts.join('/')
+}
+
 test('sim/ imports nothing outside sim/', () => {
   for (const file of filesIn('sim/')) {
     for (const spec of importsOf(file)) {
       if (!spec.startsWith('.')) assert.fail(`${file} imports the package "${spec}"`)
-      assert.ok(spec.includes('/') ? !spec.includes('../') : true, `${file} imports ${spec}`)
-      assert.ok(!spec.startsWith('..'), `${file} escapes sim/ with ${spec}`)
+      assert.ok(resolveFrom(file, spec).startsWith('sim/'), `${file} escapes sim/ with ${spec}`)
     }
   }
 })
@@ -49,12 +65,17 @@ test('sim/ never touches the DOM, three or react', () => {
 
 test('render/ does not import app/, and build/ imports neither render/ nor app/', () => {
   for (const file of filesIn('render/')) {
-    for (const spec of importsOf(file)) assert.ok(!spec.startsWith('../app'), `${file} imports ${spec}`)
+    for (const spec of importsOf(file)) {
+      if (!spec.startsWith('.')) continue
+      assert.ok(!resolveFrom(file, spec).startsWith('app/'), `${file} imports ${spec}`)
+    }
   }
   for (const file of filesIn('build/')) {
     for (const spec of importsOf(file)) {
-      assert.ok(!spec.startsWith('../render'), `${file} imports ${spec}`)
-      assert.ok(!spec.startsWith('../app'), `${file} imports ${spec}`)
+      if (!spec.startsWith('.')) continue
+      const resolved = resolveFrom(file, spec)
+      assert.ok(!resolved.startsWith('render/'), `${file} imports ${spec}`)
+      assert.ok(!resolved.startsWith('app/'), `${file} imports ${spec}`)
     }
   }
 })

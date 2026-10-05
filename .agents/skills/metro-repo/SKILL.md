@@ -17,6 +17,7 @@ the station either copes or it does not.
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
 | `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). |
 | `game/README.md` | Game milestones, the time base, measured numbers, and deliberate divergences from the spec. **Read this before changing sim behaviour.** |
+| `game/plan.md` | The parallel-edit code organisation rules (R1–R6) and the folder layout. **Read before adding a window, tool, model or scene system.** |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. |
 | `art/` | Generated SVG concept sheets. Source of truth; copied into `web/public/art` at build time. Never hand-edited. |
 | `tools/` | Art generators (`node tools/gen-art.mjs`), drawn in the game's 2:1 dimetric projection via `tools/iso.mjs`. |
@@ -300,7 +301,9 @@ build/ →  sim/            (and neither render/ nor app/)
 
 ### Rendering and the app
 
-* `render/models.ts` builds all module geometry procedurally — turnstiles,
+* `render/models.ts` is a **dispatcher + barrel** over `render/models/` (the
+  `PieceBuilder` base + shared kit, and one `pieces/*Model.ts` per piece). It
+  builds all module geometry procedurally — turnstiles,
   ticket machines, escalators (rolling step band via `rollEscalator`), the five
   stair shapes, exits, platform screen doors (printed header is FrontSide only, facing the platform read from `cfg.side`), rolling stock. **No image or GLB
   assets.** `render/materials.ts` is the shared procedural material kit;
@@ -516,8 +519,10 @@ build/ →  sim/            (and neither render/ nor app/)
   carves or an exit's floor (`reservedOpening` in `sim/placement.ts`) — refuses a
   hand-built cell, so the block brush cannot seal a run the player can see
   through.
-* `app/Viewport.tsx` owns the `SceneRenderer` lifecycle and turns pointer input
-  into build commands; it is the only app file that touches three directly. The
+* `app/Viewport.tsx` owns the `SceneRenderer` lifecycle and routes pointer events
+  to the tool controllers in `app/tools/` (`ToolController` base + `ToolContext`,
+  one controller per tool, `geometry/` for the pure pointer math); the Viewport is
+  the only app file that touches three directly. The
   first station build frames the home (iso) view — the constructor's preset ran
   before the station existed — while later edits leave the camera alone
   (`framedRef`). The equipment hover ghost is rebuilt in place off
@@ -525,10 +530,20 @@ build/ →  sim/            (and neither render/ nor app/)
   闸机 door side) redraw the piece already under the pointer — which needs the
   matching entry in `render/moduleGhostKey.ts` as well, or the scene skips the
   rebuild (`setModulePreview`).
-  `app/LeftRail.tsx` is the blueprint build rail; thumbnails are rendered from
+  `app/LeftRail.tsx` is now a barrel over `app/rail/` (shell + `folders/`,
+  `menus/`, `actions/`, `items/`, `shared/`); thumbnails are rendered from
   the real models by `app/moduleThumbnails.ts` / `app/zoneThumbnails.ts`.
-* `app/store.ts` is zustand: the station document lives here, the sim lives in
-  the worker. `app/boot.tsx` is lazy-imported so `app/mobile.ts` +
+* **The code is organised for parallel edits** (`game/plan.md`): every window,
+  subwindow, list item, tool and 3D model is its own unit in its own file, and
+  shared UI/behaviour uses a base class or shared chrome rather than a shared
+  god-file. The former giants are now barrels over their folders —
+  `app/App.tsx`→`windows/`, `app/LeftRail.tsx`→`rail/`, `app/store.ts`→`store/`,
+  `app/SignEditor.tsx`→`windows/sign/`, `build/model.ts`→`model/`,
+  `render/models.ts`→`models/`, `render/scene.ts`→`scene/`, `sim/world.ts`→`world/`
+  — so every deep import still resolves. Follow R1–R6 before adding a unit.
+* `app/store.ts` is zustand (a barrel over `app/store/`: `Store.ts` wiring + one
+  slice per concern + `catalog.ts`): the station document lives here, the sim
+  lives in the worker. `app/boot.tsx` is lazy-imported so `app/mobile.ts` +
   `MobileNotice.tsx` can show a plain notice on phones without downloading the
   three.js bundle.
 * `/lab` renders `app/Lab.tsx`, the material/renderer lab.
