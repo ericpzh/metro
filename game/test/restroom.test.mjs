@@ -83,7 +83,7 @@ test('a door cell gets no fixture', () => {
 })
 
 test('placing a booth stocks one staff bench per back-row cell, facing the counter', () => {
-  const next = placeFacility(flatStation(), 'booth', facilityRect([2, 2, 0], [5, 5, 0], 0), 'booth-1')
+  const next = placeFacility(flatStation(), 'ticket', facilityRect([2, 2, 0], [5, 5, 0], 0), 'booth-1')
   const room = next.modules.find((m) => m.id === 'booth-1')
   assert.equal(room.cfg.stocked, true)
   const benches = of(next, 'bench')
@@ -106,7 +106,7 @@ test('each fixture deletes on its own, and bulldozing keeps hand-placed ones', (
 })
 
 test('bulldozing a booth drops its auto benches', () => {
-  const st = placeFacility(flatStation(), 'booth', facilityRect([2, 2, 0], [5, 5, 0], 0), 'booth-1')
+  const st = placeFacility(flatStation(), 'ticket', facilityRect([2, 2, 0], [5, 5, 0], 0), 'booth-1')
   const gone = removeFacility(st, 'booth-1')
   assert.equal(of(gone, 'bench').length, 0, 'auto benches stayed after bulldozing the booth')
 })

@@ -2,16 +2,17 @@
 //
 // A stair climbs exactly one storey, like an escalator, but it turns, and the
 // turn is real: each flight is its own two-way graph edge and each half/quarter
-// landing is a walkable node between them. These tests pin that down — the four
-// styles, the graph join, and the carve that keeps the landings while opening
-// the slab the flights pass through.
+// landing is a walkable node between them. These tests pin that down — the five
+// styles, the flush switchback, the graph join, and the carve that keeps the
+// landings while opening the slab the flights pass through.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { scenarioStation } from './support/scenario-station.ts'
 import { buildGraph, EDGE_KIND } from '../src/sim/station.ts'
 import { carveRampOpenings } from '../src/sim/openings.ts'
+import { placementBlocked } from '../src/sim/placement.ts'
 import { ESCALATOR_BAND } from '../src/sim/constants.ts'
-import { STAIR_FLIGHT_RISE, STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, STAIR_WIDTHS, nextStairWidth, planStairLanes, stairFacing, stairFlights, stairLaneBases, stairLaneMates, stairLandings, stairLanes, stairRight, stairSwitchbackOffset, stairTurnCells, stairWallSides } from '../src/sim/stairs.ts'
+import { STAIR_FLIGHT_RISE, STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, STAIR_WIDTHS, nextStairWidth, planStairLanes, stairFacing, stairFlightSlides, stairFlights, stairLaneBases, stairLaneMates, stairLandings, stairLanes, stairRight, stairSwitchbackGap, stairSwitchbackOffset, stairTurnCells, stairWallSides } from '../src/sim/stairs.ts'
 import { addEquipment, createModule, toState, wallRun } from '../src/build/model.ts'
 
 const key = (p) => `${p.x},${p.y},${p.z}`
@@ -302,7 +303,10 @@ test('a switchback’s turn cells are the row of landings between its flights', 
     },
   }
   const cells = stairTurnCells(m).map((c) => key(c)).sort()
-  assert.deepEqual(cells, ['0,2,-2', '1,2,-2', '2,2,-2'])
+  // The row runs between the two flight ends and is as wide as the treads that
+  // end on it: this piece is 1.6 m wide, so its bands reach half a metre past the
+  // three cells the paths stand in, and the landing holds those cells too.
+  assert.deepEqual(cells, ['-1,2,-2', '0,2,-2', '1,2,-2', '2,2,-2', '3,2,-2'])
 })
 
 test('a placeable stair is a fixed one-storey piece run along its rotation', () => {
@@ -374,14 +378,16 @@ function reachableWithin(g, from, to, cells) {
   return false
 }
 
-test('a switchback’s runs stand flush: one block across per lane, plus the one they share', () => {
-  // 0.7 m takes 2 blocks, 1.4 m takes 3, 2 m takes 4 — the run's own lanes plus
-  // the cell the return flight turns back into. No empty column between the two
-  // runs: the return flight is laid in the next cell across per lane.
+test('a switchback’s runs share their balustrades: 2 / 4 / 5 blocks across', () => {
+  // The two runs are laid in neighbouring columns (one cell per lane), and the
+  // returning flight's treads slide across until its balustrade meets the first
+  // run's — the shared centre balustrade a real 双跑楼梯 has. No floor is left
+  // between the runs, and the piece claims one block per lane plus what the two
+  // bands need: 0.7 m takes 2 blocks, 1.4 m takes 4, 2 m takes 5.
   for (const [width, blocks] of [
     [STAIR_WIDTH_NARROW, 2],
-    [STAIR_WIDTH_DOUBLE, 3],
-    [STAIR_WIDTH_TRIPLE, 4],
+    [STAIR_WIDTH_DOUBLE, 4],
+    [STAIR_WIDTH_TRIPLE, 5],
   ]) {
     for (const style of ['right180', 'left180']) {
       const m = createModule(`stair-${style}`, 0, 0, -4, 'x', 0, width)
@@ -394,10 +400,29 @@ test('a switchback’s runs stand flush: one block across per lane, plus the one
       const across = style === 'right180' ? span : -span
       assert.deepEqual(second.from, { x: first.to.x + across, y: first.to.y, z: first.to.z })
       assert.deepEqual(second.to, { x: first.from.x + across, y: first.from.y, z: first.to.z + STAIR_FLIGHT_RISE })
-      // The landing they meet on is one row of `blocks` cells: the runs' own
-      // lanes plus the cell the pair shares, and never a cell beyond the run.
+      // The return run's treads slide the rest of that cell step, so the two bands
+      // come out `stairSwitchbackGap` apart — their handrails back to back.
+      const slides = stairFlightSlides(m)
+      assert.deepEqual(slides[0], { dx: 0, dy: 0 }, `${style}: the first run must not move`)
+      const slide = Math.hypot(slides[1].dx, slides[1].dy)
+      assert.ok(slide > 0, `${style} at ${width} m leaves a corridor between the runs`)
+      const side = style === 'right180' ? -1 : 1
+      assert.equal(Math.sign(slides[1].dx), side, `${style} at ${width} m slides the return run the wrong way`)
+      assert.equal(slides[1].dy, 0, `${style}: the slide must be across the run`)
+      assert.ok(
+        Math.abs(span - slide - stairSwitchbackGap(width)) < 0.05,
+        `${style} at ${width} m leaves ${(span - slide).toFixed(2)} between the runs, not ${stairSwitchbackGap(width).toFixed(2)}`,
+      )
+      // The blocks the piece claims are the blocks a 围栏 cannot stand in: probe
+      // every column along the flights with a fence at the half height.
+      const claimed = []
+      for (let x = -3; x <= 6; x++) {
+        if (placementBlocked([m], createModule('fence', x, 1, -2, 'f', 0))) claimed.push(x)
+      }
+      assert.equal(claimed.length, blocks, `${style} at ${width} m claims ${claimed.length} blocks (${claimed.join(',')}), not ${blocks}`)
+      // The half-landing holds the floor the treads end on, in the same blocks.
       const turn = stairTurnCells(m)
-      assert.equal(turn.length, blocks, `${style} at ${width} m takes ${turn.length} blocks across, not ${blocks}`)
+      assert.equal(turn.length, blocks, `${style} at ${width} m lays ${turn.length} landing cells, not ${blocks}`)
       const along = turn.every((c) => c.x === turn[0].x) ? 'y' : 'x'
       const spread = Math.max(...turn.map((c) => c[along])) - Math.min(...turn.map((c) => c[along])) + 1
       assert.equal(spread, blocks, `${style} at ${width} m turns on more than one row`)

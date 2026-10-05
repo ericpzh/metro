@@ -100,8 +100,9 @@ test('a wall a wide stair reaches is still kept and marked for a half panel', ()
   const thins = rampThinCells(cells, [stair])
   const at = thins.find((t) => t.x === 2 && t.y === 2 && t.z === 0)
   assert.ok(at, 'the wall is marked for thinning')
-  assert.equal(at.kind, 'wall')
-  assert.deepEqual(at.side, [1, 0], 'the panel sits on the side away from the run')
+  // The side is the half the panel keeps, in the same vocabulary a 半墙 stores:
+  // the panel sits on the side away from the run.
+  assert.equal(at.side, 'e')
 })
 
 test('a wide stair keeps its side floor cells and marks them as half blocks', () => {
@@ -126,8 +127,7 @@ test('a wide stair keeps its side floor cells and marks them as half blocks', ()
   const thins = rampThinCells(cells, [stair])
   const side = thins.find((t) => t.x === 1 && t.y === 4)
   assert.ok(side, 'the side floor is marked for a half block')
-  assert.equal(side.kind, 'floor')
-  assert.deepEqual(side.side, [1, 0])
+  assert.equal(side.side, 'e')
 })
 
 test('a run that lands on a floor does not carve the slab above it', () => {

@@ -63,7 +63,7 @@ test('moduleAt prefers furniture over the room around it', () => {
 test('placing a store stocks one shelf module per layout spot', () => {
   // 5x4 room: no island rows (too shallow), wall runs only —
   // 3 south + 3 north + 2 west + 2 east.
-  const next = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
+  const next = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
   const room = next.modules.find((m) => m.id === 'shop-1')
   assert.ok(room && room.type === 'shop', 'the room module comes first')
   assert.equal(room.cfg.stocked, true)
@@ -77,7 +77,7 @@ test('placing a store stocks one shelf module per layout spot', () => {
 })
 
 test('each shelf deletes on its own, leaving room and neighbours', () => {
-  const next = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
+  const next = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
   const first = shelvesOf(next)[0]
   const cut = removeModule(next, first.id)
   assert.equal(shelvesOf(cut).length, shelvesOf(next).length - 1)
@@ -86,7 +86,7 @@ test('each shelf deletes on its own, leaving room and neighbours', () => {
 })
 
 test('bulldozing a room drops its auto shelves but keeps hand-placed ones', () => {
-  let st = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
+  let st = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
   const hand = createModule('shelf', 4, 3, 0, 'hand-1', 1)
   st = addEquipment(st, hand)
   assert.equal(shelvesOf(st).length, 11)
@@ -100,7 +100,7 @@ test('bulldozing a room drops its auto shelves but keeps hand-placed ones', () =
 })
 
 test('opening every wall drops the room and its auto shelves', () => {
-  const st = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [5, 5, 0], 0), 'shop-1')
+  const st = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [5, 5, 0], 0), 'shop-1')
   const before = shelvesOf(st).length
   assert.ok(before > 0, 'the room stocked no shelves')
   const ring = facilityWallCells(st.cells, st.modules[0])
@@ -110,8 +110,8 @@ test('opening every wall drops the room and its auto shelves', () => {
 })
 
 test('extending a room re-stocks without stacking two units on a cell', () => {
-  const st = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [5, 4, 0], 0), 'shop-1')
-  const grown = placeFacility(st, 'shop', facilityRect([4, 4, 0], [7, 6, 0], 0))
+  const st = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [5, 4, 0], 0), 'shop-1')
+  const grown = placeFacility(st, 'store', facilityRect([4, 4, 0], [7, 6, 0], 0))
   const rooms = grown.modules.filter((m) => m.type === 'shop')
   assert.equal(rooms.length, 1, 'a second shop module was created')
   assert.equal(rooms[0].cfg.stocked, true)
@@ -146,7 +146,7 @@ test('legacy rooms are migrated on load, once', () => {
 })
 
 test('a stocked room and its shelves survive the save round trip', () => {
-  const placed = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
+  const placed = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
   const r = parse(serialize(placed))
   assert.equal(r.ok, true)
   assert.deepEqual(r.state.modules, placed.modules)

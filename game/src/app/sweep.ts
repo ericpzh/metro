@@ -46,6 +46,8 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
   'sink',
   'bin',
   'extinguisher',
+  'clock',
+  'cctv',
   'billboard',
   'tv',
   'sign',

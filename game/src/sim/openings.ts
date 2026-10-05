@@ -25,10 +25,10 @@
 //     so that corridor never reaches into the cell next door;
 //   * pure data, no DOM, no three.
 
-import { isWallBlock, type Cell, type Module, type Vec3i } from './types.ts'
+import { halfWallSide, isWallBlock, type Cell, type Module, type Vec3i, type WallSide } from './types.ts'
 import { ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { exitFloorAt } from './exits.ts'
-import { STAIR_WIDTH_NARROW, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
+import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
 
 /** Headroom above the walking line that must be clear, metres. */
 const HEADROOM = 1.3
@@ -143,10 +143,10 @@ export function rampEnvelope(m: Module): RampBox | null {
   let lo = Infinity
   let hi = -Infinity
   for (const s of segs) {
-    const ax = s.from.x + 0.5
-    const ay = s.from.y + 0.5
-    const bx = s.to.x + 0.5
-    const by = s.to.y + 0.5
+    const ax = s.from.x + 0.5 + (s.sx ?? 0)
+    const ay = s.from.y + 0.5 + (s.sy ?? 0)
+    const bx = s.to.x + 0.5 + (s.sx ?? 0)
+    const by = s.to.y + 0.5 + (s.sy ?? 0)
     x0 = Math.min(x0, ax, bx)
     x1 = Math.max(x1, ax, bx)
     y0 = Math.min(y0, ay, by)
@@ -234,6 +234,7 @@ function flightBodyBoxes(s: Ramp, trimLandings: boolean, extra: number): RampBox
   /** The walking line, `u` cells along the run from the lower landing's centre. */
   const line = (u: number): number => az + (bz - az) * (u / len)
   const alongX = dx !== 0
+  const [sx, sy] = [s.sx ?? 0, s.sy ?? 0]
   const out: RampBox[] = []
   for (let i = first; i <= last; i++) {
     const x = s.from.x + ux * i
@@ -241,11 +242,12 @@ function flightBodyBoxes(s: Ramp, trimLandings: boolean, extra: number): RampBox
     const lo = Math.min(line(i - 0.5), line(i + 0.5))
     const hi = Math.max(line(i - 0.5), line(i + 0.5))
     out.push({
-      // The tile, widened across the run only, for a body wider than a cell.
-      x0: x - (alongX ? 0 : extra),
-      y0: y - (alongX ? extra : 0),
-      x1: x + 1 + (alongX ? 0 : extra),
-      y1: y + 1 + (alongX ? extra : 0),
+      // The tile, widened across the run only for a body wider than a cell, and
+      // slid bodily when the body stands off its own walking line.
+      x0: x - (alongX ? 0 : extra) + (alongX ? 0 : sx),
+      y0: y - (alongX ? extra : 0) + (alongX ? sy : 0),
+      x1: x + 1 + (alongX ? 0 : extra) + (alongX ? 0 : sx),
+      y1: y + 1 + (alongX ? extra : 0) + (alongX ? sy : 0),
       z0: lo - RAMP_FOOT - RAMP_CLEAR,
       z1: hi + RAMP_HEADROOM + RAMP_CLEAR,
     })
@@ -281,6 +283,14 @@ interface Ramp {
   bodyHalf: number
   /** Half-width the handrail sweeps, metres. */
   railHalf: number
+  /**
+   * How far the run's **body** is slid across from its own centreline, in world
+   * cells (`stairFlightSlides`). A switchback's return run slides until its
+   * balustrade meets the first run's, so its treads, its rails and the corridor it
+   * carves all stand off the cell its landings sit on.
+   */
+  sx?: number
+  sy?: number
 }
 
 /**
@@ -298,14 +308,24 @@ export function escalatorBasesSolid(cells: readonly Cell[], modules: readonly Mo
 
 /**
  * The straight segments a ramp sweeps: an escalator or lift has one, a stair
- * has one per flight (its turn is a landing the flights meet at).
+ * has one per flight (its turn is a landing the flights meet at). A stair flight
+ * also carries the slide of its body from its own walking line, so a switchback's
+ * flush return run is carved and reserved where its treads really stand.
  */
 function rampSegments(m: Module): Ramp[] | null {
   const bodyHalf = rampBodyHalf(m)
   const railHalf = rampCorridorHalf(m)
   if (m.type === 'escalator' || m.type === 'lift') return [{ from: m.from, to: m.to, bodyHalf, railHalf }]
-  if (m.type === 'stair') return stairFlights(m).map((s) => ({ from: s.from, to: s.to, bodyHalf, railHalf }))
+  if (m.type === 'stair') return stairSegments(m)
   return null
+}
+
+/** A stair's flights as ramp segments, each with its own body slide. */
+function stairSegments(m: Extract<Module, { type: 'stair' }>): Ramp[] {
+  const bodyHalf = rampBodyHalf(m)
+  const railHalf = rampCorridorHalf(m)
+  const slides = stairFlightSlides(m)
+  return stairFlights(m).map((f, i) => ({ from: f.from, to: f.to, bodyHalf, railHalf, sx: slides[i].dx, sy: slides[i].dy }))
 }
 
 /**
@@ -318,9 +338,7 @@ function rampList(modules: readonly Module[]): Ramp[] {
   const ramps: Ramp[] = []
   for (const m of modules) {
     if (m.type === 'stair') {
-      const bodyHalf = rampBodyHalf(m)
-      const railHalf = rampCorridorHalf(m)
-      for (const s of stairFlights(m)) ramps.push({ from: s.from, to: s.to, bodyHalf, railHalf })
+      ramps.push(...stairSegments(m))
     } else if (m.type === 'escalator' || m.type === 'lift') {
       const headroom = m.type === 'escalator' ? ESCALATOR_HEADROOM : undefined
       ramps.push({ from: m.from, to: m.to, headroom, bodyHalf: rampBodyHalf(m), railHalf: rampCorridorHalf(m) })
@@ -346,8 +364,10 @@ function within(c: Cell, r: Ramp, half: number): boolean {
   const dy = r.to.y + 0.5 - ay
   const len2 = dx * dx + dy * dy
   if (len2 < 1e-6) return false
-  const px = c.x + 0.5
-  const py = c.y + 0.5
+  // The body's own line: the centreline slid across by the run's `sx`/`sy`, which
+  // is where a switchback's flush return run really sweeps.
+  const px = c.x + 0.5 - (r.sx ?? 0)
+  const py = c.y + 0.5 - (r.sy ?? 0)
   const t = ((px - ax) * dx + (py - ay) * dy) / len2
   if (t < 0 || t > 1) return false
   const lateral = Math.abs((px - ax) * dy - (py - ay) * dx) / Math.sqrt(len2)
@@ -469,25 +489,31 @@ export function carveRampOpenings(cells: Cell[], modules: readonly Module[]): nu
 }
 
 /**
- * One solid block a ramp has kept and must draw half a metre thick: a wall the
- * handrail touches (`kind: 'wall'`), or a floor block a wide stair's body
- * partially enters (`kind: 'floor'`).
+ * One solid block a ramp has kept and must draw half a block thick, and the half
+ * of its cell the panel keeps.
  */
 export interface RampThin {
   x: number
   y: number
   z: number
   /**
-   * Unit step from the ramp outward to the keep-half of the cell: [1,0] when the
-   * ramp is on the −x side, [−1,0] when it is on +x, and the same for y. The half
-   * a metre nearest the ramp is left clear for the body and its handrail.
+   * The side the keep-half is on: `e` when the ramp is on the −x side, `w` when it
+   * is on +x, and the same for y. The half a metre nearest the ramp is left clear
+   * for the body and its handrail. The same vocabulary a player's **半墙** stores
+   * (`sim/types.ts` `WallSide`), because the mesher draws both the same way.
    */
-  side: [number, number]
-  kind: 'wall' | 'floor'
+  side: WallSide
+}
+
+/** A unit cell step as the side it names, for `RampThin.side`. */
+function stepSide(sx: number, sy: number): WallSide {
+  if (sx > 0) return 'e'
+  if (sx < 0) return 'w'
+  return sy > 0 ? 'n' : 's'
 }
 
 /** The outward side of a cell from a ramp segment, snapped to the dominant axis. */
-function outwardSide(c: Cell, r: Ramp): [number, number] | null {
+function outwardSide(c: Cell, r: Ramp): WallSide | null {
   const ax = r.from.x + 0.5
   const ay = r.from.y + 0.5
   const dx = r.to.x + 0.5 - ax
@@ -508,19 +534,22 @@ function outwardSide(c: Cell, r: Ramp): [number, number] | null {
   const d = (px - cx) * nx + (py - cy) * ny
   if (Math.abs(d) < 1e-3) return null
   const s = d > 0 ? 1 : -1
-  if (Math.abs(nx) >= Math.abs(ny)) return [nx * s > 0 ? 1 : -1, 0]
-  return [0, ny * s > 0 ? 1 : -1]
+  if (Math.abs(nx) >= Math.abs(ny)) return stepSide(nx * s > 0 ? 1 : -1, 0)
+  return stepSide(0, ny * s > 0 ? 1 : -1)
 }
 
 /**
- * Every solid block a ramp has kept, with the side the half-metre panel goes on.
- * The renderer hides the full voxel and draws this panel instead (the same trick
- * a facility room uses), so the run's body and handrail sit in the clear half
- * while the block the player built stays solid. A wall is thinned when the
- * handrail reaches it; a floor is thinned only when the body genuinely reaches
- * past its cell boundary (a wide stair — an escalator's 0.9 m band does not, so
- * its side floor stays a full block). Derived from cells+modules, so it follows
- * an edit without the document storing anything extra.
+ * Every solid block a ramp has kept, with the side the half-block panel goes on.
+ * The mesher draws the cell half a block thick on that side (`thinWallCells`
+ * hands it over with the player's own 半墙 cells), so the run's body and handrail
+ * sit in the clear half while the block the player built stays solid. A wall is
+ * thinned when the handrail reaches it; a floor is thinned only when the body
+ * genuinely reaches past its cell boundary (a wide stair — an escalator's 0.9 m
+ * band does not, so its side floor stays a full block). Both draw identically
+ * now, so the derivation reports the side and nothing else. Derived from
+ * cells+modules, so it follows an edit without the document storing anything
+ * extra. A **半墙** is the one block it leaves alone: that cell is already drawn
+ * half a block thick, on the side the player chose.
  */
 export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]): RampThin[] {
   const ramps = rampList(modules)
@@ -528,6 +557,11 @@ export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]
   const out: RampThin[] = []
   for (const cell of cells) {
     if (cell.fill !== 'solid') continue
+    // A 半墙 the player laid is already a half-metre panel standing where they put
+    // it, so a ramp never thins it again: the side is theirs and re-deriving it
+    // would move a wall they built. (The carve still keeps the cell — see
+    // `carveRampOpenings` — so a 半墙 beside a run is never opened up.)
+    if (halfWallSide(cell) !== null) continue
     const wall = isWallBlock(cell)
     for (const r of ramps) {
       if (!overlaps(cell, r, wall)) continue
@@ -535,9 +569,28 @@ export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]
       // the body stays within its own cell, a full block is the correct floor.
       if (!wall && r.bodyHalf <= 0.5 + 1e-9) continue
       const side = outwardSide(cell, r)
-      if (side) out.push({ x: cell.x, y: cell.y, z: cell.z, side, kind: wall ? 'wall' : 'floor' })
+      if (side) out.push({ x: cell.x, y: cell.y, z: cell.z, side })
       break
     }
   }
+  return out
+}
+
+/**
+ * Every cell the renderer must draw **half a block thick**, and the side its panel
+ * hugs: a 半墙 the player laid (the `half-wall:<side>` tag it stores) plus every
+ * block a ramp kept (`rampThinCells`, which skips the tagged ones). One list, so
+ * the mesher that draws them, the build ghost that previews them and the 材质
+ * brush that paints their faces cannot disagree about which cells are thin — the
+ * defect that left a stair's own half wall unpaintable was the brush not knowing
+ * about the derived ones.
+ */
+export function thinWallCells(cells: readonly Cell[], modules: readonly Module[]): Array<{ x: number; y: number; z: number; side: WallSide }> {
+  const out: Array<{ x: number; y: number; z: number; side: WallSide }> = []
+  for (const cell of cells) {
+    const side = halfWallSide(cell)
+    if (side !== null) out.push({ x: cell.x, y: cell.y, z: cell.z, side })
+  }
+  for (const t of rampThinCells(cells, modules)) out.push({ x: t.x, y: t.y, z: t.z, side: t.side })
   return out
 }

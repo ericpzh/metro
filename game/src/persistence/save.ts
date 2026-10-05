@@ -9,7 +9,7 @@
 // Nothing here touches the DOM: the download and the file picker live in the
 // app layer. This module is pure and runs in Node.
 
-import { toState, type StationState } from '../build/model.ts'
+import { repairGrid, toData, toStateRepairing, type StationState } from '../build/model.ts'
 import type { Cell, LineDef, Module, StationData } from '../sim/types.ts'
 
 export const SAVE_FORMAT = 'metro-save' as const
@@ -31,10 +31,16 @@ export interface SaveFileV1 {
 }
 
 export type ParseResult =
-  | { ok: true; state: StationState; version: number }
+  | { ok: true; state: StationState; version: number; droppedCells: number; droppedModules: number }
   | { ok: false; error: string }
 
 export function serialize(state: StationState, now: Date = new Date()): string {
+  // Anything the grid cannot hold is **dropped here**, not refused: the station the
+  // player is looking at is the truth, and a block no tool can address is not worth
+  // a failed save. `repairGrid` is the same rule `toState` applies on the way in, so
+  // a file this game writes cannot carry one and cannot disagree with the loader
+  // about what one is.
+  const repaired = repairGrid(toData(state))
   const doc: SaveFileV1 = {
     format: SAVE_FORMAT,
     formatVersion: SAVE_VERSION,
@@ -43,8 +49,8 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     name: state.name,
     seed: state.seed,
     static: {
-      cells: state.cells,
-      modules: state.modules,
+      cells: repaired.cells,
+      modules: repaired.modules,
       lines: state.lines,
     },
   }
@@ -75,8 +81,12 @@ export function parse(text: string): ParseResult {
     modules: d.static.modules ?? [],
     lines: d.static.lines ?? [],
   }
-  const state = toState(migrate(data, version))
-  return { ok: true, state, version }
+  // A structurally valid station with damaged content still opens: the envelope is
+  // what earns a refusal (`文件损坏` and friends), and the grid repair drops what it
+  // must. The counts travel out so the 打开 notice can say the station was repaired
+  // rather than letting the player find out by counting blocks.
+  const repaired = toStateRepairing(migrate(data, version))
+  return { ok: true, state: repaired.state, version, droppedCells: repaired.droppedCells, droppedModules: repaired.droppedModules }
 }
 
 /**

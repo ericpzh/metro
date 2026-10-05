@@ -181,14 +181,26 @@ build/ →  sim/            (and neither render/ nor app/)
   along `stairRight(rot)`, the same "right of forward" a switchback's second
   flight is offset by. The two **switchbacks** (`stair-right180` / `stair-left180`,
   右 / 左双跑楼梯) lay that return flight one cell across per lane
-  (`stairSwitchbackOffset`), so the runs stand flush and the piece covers one block
-  per lane plus the one they share — 2 / 3 / 4 blocks at 0.7 / 1.4 / 2 m. The two
+  (`stairSwitchbackOffset`) — as close as two walking lines can stand — and then
+  **slide its treads, rails and collision body** the rest of that step
+  (`stairReturnSlide` / `stairFlightSlides`) until the two balustrades meet back to
+  back. The paths stay on the grid, so the half-landing is still one cell per lane
+  plus the one the pair shares; what moves is the band, never the walk. The piece
+  claims one block per lane plus what the two bands need — 2 / 4 / 5 blocks at
+  0.7 / 1.4 / 2 m, and the slide is capped so the 0.7 m run's walkers stay on the
+  flight. Anything that measures a flight's body (the carve, `rampBodyBoxes`, the
+  envelope, `rampWalls`, `stairWallSides`, `stairTurnCells`) has to read
+  `stairFlightSlides`. The two
   hands are two pieces, not one turned: **R** rotates the whole stair about its
   base and never swaps the hand. A 180° turn lands on a **row**, not a shared
   cell, so the crowd has to walk it: `sim/station.ts` cuts each flight's
   balustrade wall off at the flight end that meets an interior landing
   (`stairTurnConnectors`), because the 0.6 m over-run an outer landing keeps would
-  seal the landing's own cells apart and leave the two flights disconnected.
+  seal the landing's own cells apart and leave the two flights disconnected. A
+  stair's **walking surface is a finish of its own** (`stair.cfg.finish`, 材质):
+  its treads, risers and half-landing platform are one material, chosen by the
+  floor it climbs from unless the player painted the piece (`paintStairSurface`,
+  the pointer taking the module over the cell, since treads belong to no cell).
 * **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a
   2 × 2 m assembly with a 1.5 m carriage, dropped on a floor and serving the
   floor one storey up (`LIFT_RISE`); hovering its upper/lower half grows it a
@@ -221,21 +233,24 @@ build/ →  sim/            (and neither render/ nor app/)
   cell of its run (`billboardCells`). `wallMountStandCell` stands the panel on
   the hovered floor, or on the face-adjacent cell when the pointer is on a wall
   itself, so an ad can bolt to the station wall across the track where there is
-  no floor in front of it. The 指示牌 and 电视 are instead
-  *ceiling-hung*: `ceilingMountMissing` refuses them unless a solid slab sits one
-  storey up (`LEVEL_STEPS`, the 4 m grid), the ceiling their rods bolt to. A 2 m
+  no floor in front of it. The 指示牌, 电视, 时钟 and 监控 are instead
+  *ceiling-hung*: `ceilingMountMissing` refuses them unless a solid slab sits above
+  every cell of the piece one storey up (`LEVEL_STEPS`, the 4 m grid), the ceiling
+  their rods bolt to. A 2 m
   bench is a real two-cell run — `benchCells` fixes its collision envelope and
   base cells, so it blocks and is found from both cells.
   `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp climbs through
   while keeping its landings as graph nodes — but only the cells the run's
   **centreline** crosses (`RAMP_CORE_HALF`). Every other block the body or
   handrail reaches is kept and marked by `rampThinCells` (a wall the rail grazes,
-  or a floor a single wide piece's 1.6 m body enters), so `SceneRenderer` hides the full
-  voxel and draws a **half-metre panel** on the side away from the run
-  (`buildRampThins`, the same hide-and-block trick a facility room uses). The
+  or a floor a single wide piece's 1.6 m body enters), and the **mesher** draws it a
+  half block thick on the side away from the run — the same path a player's own 半墙
+  takes, so its faces keep their finishes and the 材质 brush can paint it
+  (`thinWallCells` is the one list both come through; `buildRampThins` is gone). The
   floor beside a run stays buildable and a railing can sit against a wall; a
   tile-sized run (an escalator, a stair lane) reaches nothing beside it, so
-  nothing there is thinned at all.
+  nothing there is thinned at all. A **半墙** the player laid is skipped: that cell
+  is already a half block thick, and its side is theirs.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
   `sim/world.ts`). A rail is a `track` module bound to a line and an `up`/`down`
   direction: a fixed, pre-rendered piece — a car-width bed (`d = 3`) and a run
@@ -301,10 +316,28 @@ build/ →  sim/            (and neither render/ nor app/)
   `sink`, a booth its `bench`), so every unit is right-clickable; the room
   carries `cfg.stocked` and old saves migrate once via `ensureRoomFurniture` in
   `toState`. Deleting a room takes its `cfg.auto` furniture but leaves
-  hand-placed pieces.
+  hand-placed pieces. A room's walls meet at mitred corners (`mitreCap`: each run
+  stops one thickness short and one diagonal cap fills the corner, so no corner is
+  two walls thick), and rooms and the booth wear no name plate — the shelves and
+  the glass already say what the piece is. The 房间 folder's tiles are line icons
+  of use (商店 / 售票亭 / 办公室 / 厕所), not colour chips, and
+  `app/zoneThumbnails.ts` renders the 分区 brushes alone. Brush ids are `store` /
+  `toilet` / `office` / `ticket` (`FacilityKind` / `FacilityBrush`, the same words
+  the fit-out uses; the walled rooms share the `shop` module, the booth is `booth`).
+  The **售票亭** (`buildBooth`) is the odd one out: hand-built
+  geometry rather than voxels, and it must be a **closed box inside the module's own
+  cells** — every side measures *inward from that side's outer face* (the cell
+  boundary), the west and east counter runs own the four corner squares while the
+  north and south runs butt between them, and the four glass sheets run out to each
+  other's inner faces with a corner mullion over every joint. Measuring a run from
+  the wrong line is what hung the east counter 0.55 m out in the next cell and stood
+  the north one a cell inside the room, and stopping the screens a counter-depth short
+  is what left a hole in the glass beside every corner; `test/booth-model.test.mjs`
+  pins the box (inside the cells, flush on all four faces, no gap round the band, the
+  same on all four sides).
 * The **装饰 folder** holds the free-standing, rotatable pieces — 座椅, 货架,
-  办公桌, 厕所隔间, 洗手池, 垃圾桶 and 灭火器 — plus 广告牌 (wall-mounted) and 电视 / 指示牌
-  (ceiling-hung). 座椅 is a nested sub-menu of four variants from `sim/benches.ts`:
+  办公桌, 厕所隔间, 洗手池, 垃圾桶 and 灭火器 — plus 广告牌 (wall-mounted) and 电视 /
+  指示牌 / 时钟 / 监控 (ceiling-hung). 座椅 is a nested sub-menu of four variants from `sim/benches.ts`:
   a plain stainless bench with no back and an upholstered seat with a back and
   arm rests, each 1 m or 2 m; the 2 m piece is a real two-cell run. 货架 draws a
   stocked supermarket gondola (perforated back panel, five shelves, price rails,
@@ -313,7 +346,32 @@ build/ →  sim/            (and neither render/ nor app/)
   decal carrying 可回收物 and 其它垃圾), and 灭火器 is the red steel extinguisher
   cabinet on four legs (`buildExtinguisher`: overhanging lid, two doors over a dark
   seam, a recessed side handle, one white lettered decal over both doors). Both are
-  cosmetic — no server, no stop — and both count as room furniture. 广告牌 is a nested sub-menu of six formats
+  cosmetic — no server, no stop — and both count as room furniture. 时钟 is the round
+  station clock (`buildClock`: an **open-ended** dark bezel ring over a white dial
+  disc, with **sixty divisions** — twelve hour marks and 48 minute ticks, at reference
+  proportions (hour 0.20 R by 0.055 R, tick 0.10 R by 0.02 R, all ending at the same inner rim) —
+  plus two hands and a centre boss per face, and **no numerals or name**. The clock is
+  **double-faced**: a slim white body whose two ends are the dials, with an open-ended black wrap
+  round the barrel between them. Twelve bars alone read as a plate; the ticks make it a clock. Every mark and hand carries its length along its box's local **x**, so one
+  turn — **`a − π/2`** — aims them all **radially** (the 12 and 6 marks vertical, the 3 and 9 marks
+  horizontal along the radius). Aimed across the rim instead, the cardinals come out the wrong way
+  round. That turn was read off the matrix, not derived: at each clock angle `a − π/2` dots 1.000
+  against the radius where `π/2 − a` gives 0.105 to 0.5. The two faces are **one dial mounted twice**,
+  the far one inside a group turned half a turn. The dial is in the **X-Z plane and carries no
+  rotation**: a `CylinderGeometry` is Y-up, so its caps already face ±y and the printed face
+  is the `−y` cap, out at the camera. A quarter-turn about x (`±π/2`) lays the disc flat in
+  the X-horizontal plane instead — the wrong plane, and no sign of that turn fixes it, which is
+  how the piece twice read as a clock facing the floor or the ceiling.
+  The face is **geometry, not a printed canvas**: a texture on the cap measured wrong on
+  the built page — it carried the marks' ink across the whole face while every unit test
+  passed, because a test's canvas is a stub that records calls rather than rasterising —
+  and a *closed* bezel cylinder caps the dial with a dark disc, which is why the ring is
+  `openEnded`. Every disc is a `CylinderGeometry` (Y-up) turned a quarter about x. 监控
+  is the bracketed bullet camera (`buildCctv`: a ceiling plate, thin stem, swivel
+  clamp and arm carrying a slim dark head with its lens, two-LED illuminator and sun
+  hood — the drawn housing is under 8% of the cell it reserves). Both are cosmetic props hung
+  the whole storey, and neither is room furniture: a hung fitting reserves the whole
+  column, so it may not be stacked over another piece. 广告牌 is a nested sub-menu of six formats
   (横版 16:9 / 标准 2.25:1 / 大横版 16:9 / 长幅 3.75:1 / 竖版 0.7:1 / 方形 1:1) whose run length and poster aspect come from the shared
   `sim/billboards.ts` table, so the thumbnail, the collision envelope and the
   drawn housing cannot disagree. 电视 and 指示牌 hang by rods from the ceiling. The
@@ -447,7 +505,11 @@ build/ →  sim/            (and neither render/ nor app/)
   union, hand-built floor is continuous ground, and a hole dug through a patch
   stays open. A single click stays a plain block. While previewing, a badge pinned
   to the pointer reads the patch's live 长 × 宽 in metres (`Viewport.tsx`
-  `buildMeasure`). The 墙 tool lays tagged
+  `buildMeasure`). With **半墙** on (its own tile — click-only, no shortcut; Tab
+  only flips 自动生成墙壁 and the store refuses that while 半墙 owns the tool)
+  that click is instead one
+  half-block wall column, one per click — no patch and no run — and the two are
+  exclusive, so 自动生成墙壁 is off and greyed while it is on. The 墙 tool lays tagged
   four-course columns a right-click lifts whole, and 删除 is button-agnostic: it
   lifts a whole module under the pointer (through its own teardown for a rail or
   room), else a single block or a dragged line. A **reserved opening** — the corridor a ramp
@@ -523,20 +585,55 @@ build/ →  sim/            (and neither render/ nor app/)
   `wallColumnAt` / `wallColumnsAt` answer an `AUTO_WALL` ring as well as its own
   `WALL` run, so a doorway can be opened through generated walls.
   `reservedOpening` (`sim/placement.ts`) also refuses a hand-built block in a
-  ramp corridor or an exit's floor. `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (default on) instead of a separate 方块 tool.
+  ramp corridor or an exit's floor. `game/README.md`'s test list documents it.
+* The **半墙 kit** has landed (`sim/types.ts`, `sim/constants.ts`
+  `HALF_WALL_T`, `build/model.ts`, `render/chunkMesher.ts`, `render/scene.ts`,
+  `app/store.ts` `halfWall`, `app/Viewport.tsx`, `app/LeftRail.tsx`,
+  `game/test/halfwall.test.mjs`): the **地基** tool's **半墙** tile (click-only, no
+  shortcut) lays
+  one 4 m column half a block thick per click — the wall a facility room's own walls
+  and a wide run's side panel are made of, as a piece the player can put anywhere.
+  It sits on the 地基 tool because it *is* the wall that tool grows, so the two wall
+  modes are exclusive: turning 半墙 on switches 自动生成墙壁 off and the store refuses
+  that toggle while it is on (its tile greys out), and leaving hands the ring back.
+  Tab only flips the generated ring on/off (refused while 半墙 owns the tool), and a 半墙
+  click is one column where it landed, never a patch or a run (`addWalls`'s `side`,
+  `d.single` in the viewport). A 半墙 is still an ordinary solid wall cell — `WALL`
+  plus a `half-wall:<side>` tag (`halfWallTag` / `halfWallSide`), so the column
+  lift, the storey slice, `isWallBlock`, the ramp carve and the crowd all read it as
+  a wall — and the mesher draws it, squashing the standard rounded profile into the
+  half it keeps (`buildThinProfile`), which is what keeps its **per-face finishes**:
+  both sides are ordinary surfaces the 材质 brush paints where the pointer hits them.
+  **R** picks the side — the geometry's own faces first (`halfWallSideDirs`, so a
+  半墙 along a patch edge hugs the edge with no key pressed), only the two
+  perpendicular ones for a run (a side along the run would leave a slot between
+  columns), all four for a single column in open floor; switching modes resets
+  the face cycle with the mode. A 半墙's **inner** face is the one
+  surface that is not on its cell's boundary, so `facePresent` (shared by the
+  viewport's paint rectangle and the `M` 整面 flood) offers it even with a solid
+  cell behind it and `render/scene.ts` insets the paint ghost onto the panel
+  itself, while `rampThinCells` skips a player's 半墙 rather than thinning it twice.
+  **A ramp's kept blocks are drawn the same way** (`thinWallCells` is the one list —
+  tagged 半墙 plus `rampThinCells` — that the mesher, the build ghost and the brush
+  all read, and `buildRampThins` is gone): that is what makes a stair's own half wall
+  paintable, where a single-material panel over a hidden voxel left the brush
+  painting half a block away from the surface it aimed at.
+  `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (default on) instead of a separate 方块 tool.
 * The **装饰 kit** has landed (`sim/billboards.ts`, `sim/benches.ts`,
   `sim/placement.ts`, `render/models.ts`,
-  `game/test/shelf|desk|restroom|bench|decor|sign.test.mjs`): 座椅 / 货架 / 办公桌 /
-  厕所隔间 / 洗手池 are free-standing, rotatable `bench`/`shelf`/`desk`/
-  `cubicle`/`sink` modules, and 垃圾桶 / 灭火器 joined them as the cosmetic
-  `bin` / `extinguisher` pieces (`game/test/decor.test.mjs`), a walled room stocks
+  `game/test/shelf|desk|restroom|bench|decor|ceiling-decor|sign.test.mjs`): 座椅 /
+  货架 / 办公桌 / 厕所隔间 / 洗手池 are free-standing, rotatable
+  `bench`/`shelf`/`desk`/`cubicle`/`sink` modules, and 垃圾桶 / 灭火器 joined them as
+  the cosmetic `bin` / `extinguisher` pieces (`game/test/decor.test.mjs`) with the
+  ceiling-hung `clock` 时钟 / `cctv` 监控 beside the hung signs
+  (`game/test/ceiling-decor.test.mjs`), a walled room stocks
   one per layout spot (migrated
   once from the old drawn interior by `ensureRoomFurniture`, guarded by
   `cfg.stocked`; each store wall unit backs its panel onto its own wall).
   座椅 offers four variants from `sim/benches.ts` (stainless / backed × 1 m / 2 m),
   the 2 m run spanning two cells; 货架 draws a stocked supermarket gondola. 广告牌
   is wall-mounted (`wallMountMissing`) with the four formats sharing
-  `sim/billboards.ts`; 电视 and the new 指示牌 are *ceiling-hung*
+  `sim/billboards.ts`; 电视, the new 指示牌 and the 时钟 / 监控 pair are *ceiling-hung*
   (`ceilingMountMissing`; the 指示牌 is lit double-sided, the 电视 single-sided and —
   two of them turned 180° apart on one tile — sharing a single two-panel-thick (0.2 m)
   housing with a screen each side, `sim/tvs.ts` / `test/tv-pair.test.mjs`). The 设备 folder's 货架 / 座椅 moved
@@ -660,12 +757,15 @@ build/ →  sim/            (and neither render/ nor app/)
   (a save it *does* migrate would need the migrated form written instead). **Off-grid
   cells are not a problem to fix by hand**: the author's saves carry a handful of
   blocks at fractional coordinates (19 in the 2026-10 one) which no tool can address
-  and which draw as offset junk, and `toState` now drops them on load
-  (`build/model.ts` `isGridCell`), so opening and re-saving the station cleans it —
-  the shipped file is nonetheless kept clean, at 11305 cells where the save has
-  11324, and `demo.test.mjs` fails if one ever arrives. Nothing in the game can
-  *mint* one (see the `toState` note in the module map); they only ever come from
-  outside it. After a
+  and which draw as offset junk, so both boundaries **drop** them — `toState` on the
+  way in (`build/model.ts` `repairGrid`) and `serialize` on the way out. Nothing is
+  ever *refused*: refusal is for a broken envelope (`文件损坏`, 不是地铁车站存档,
+  存档太新了, 缺少车站数据), and a station that is otherwise fine is not worth losing
+  over a block no tool can see. A load that had to repair says so in the 打开 notice,
+  the shipped file is nonetheless kept clean (11305 cells where the save has 11324),
+  and `demo.test.mjs` fails if one ever arrives. Nothing in the game can *mint* one —
+  `test/grid.test.mjs` is the guard on that, and it is the file to extend if you add
+  a tool that writes cells. After a
   refresh, re-check `reference-station.ts`'s header comment — it names the
   station's levels, lifts, stairs, escalators, rooms and exits — plus the demo
   facts `placement.test.mjs` pins (the two straight platform stairs, and which
@@ -696,8 +796,10 @@ build/ →  sim/            (and neither render/ nor app/)
 * **A Tab cycle must redraw the ghost already under the pointer**, and that takes
   two keys, not one: the viewport subscribes to `placementPreviewKey`
   (`app/store.ts` — the piece, its `rot` and every Tab cycle, `gateDoor`
-  included) so the effect re-runs, and the renderer's ghost identity
-  (`render/moduleGhostKey.ts`) has to name the same setting, because
+  included, plus the 地基 tool's `halfWall` mode and wall-face cycle) so the effect
+  re-runs, and the renderer's ghost identity
+  (`render/moduleGhostKey.ts`) has to name the same setting — a stair's painted
+  `finish` included — because
   `SceneRenderer.setModulePreview` skips a rebuild whose key is unchanged. Naming
   a setting in only one of the two is a stale ghost that only a pointer move
   clears; `game/test/gate-door.test.mjs` pins both halves.

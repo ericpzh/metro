@@ -10,7 +10,7 @@
 // A straight stair declares no flights, and this helper returns the single
 // implied run. Pure data — no three, no DOM.
 
-import { ESCALATOR_BAND } from './constants.ts'
+import { ESCALATOR_BAND, STAIR_RAIL_PROUD } from './constants.ts'
 import type { Cell, Module, StairFlight, StairStyle, Vec3i } from './types.ts'
 
 export type { StairFlight, StairStyle } from './types.ts'
@@ -287,7 +287,7 @@ export interface StairWallSides {
  * A flight not laid along a cell axis — nothing a placed stair produces — has no
  * cells to read beside it, so it answers no walls and keeps both of its rails.
  */
-export function stairWallSides(cells: readonly Cell[], from: Vec3i, to: Vec3i): StairWallSides {
+export function stairWallSides(cells: readonly Cell[], from: Vec3i, to: Vec3i, slide?: StairFlightSlide): StairWallSides {
   const none: StairWallSides = { left: false, right: false }
   const low = from.z <= to.z ? from : to
   const high = from.z <= to.z ? to : from
@@ -309,10 +309,15 @@ export function stairWallSides(cells: readonly Cell[], from: Vec3i, to: Vec3i): 
   const key = (x: number, y: number, z: number): string => `${x},${y},${z}`
   const left = new Set<string>()
   const right = new Set<string>()
+  const sx = slide?.dx ?? 0
+  const sy = slide?.dy ?? 0
   const n = Math.max(1, Math.round(run))
   for (let i = 0; i < n; i++) {
-    const cx = low.x + Math.round(ux * i)
-    const cy = low.y + Math.round(uy * i)
+    // The cell the flight's **treads** pass through, not the cell its walking line
+    // does: a switchback's return run is slid flush, so it leans on the wall beside
+    // the band, not on the wall beside the landing column.
+    const cx = low.x + Math.round(ux * i + sx)
+    const cy = low.y + Math.round(uy * i + sy)
     const z = Math.min(Math.floor(low.z + 1 + ((i + 0.5) / run) * rise + 1e-9), high.z)
     left.add(key(cx - Math.round(uy), cy + Math.round(ux), z))
     right.add(key(cx + Math.round(uy), cy - Math.round(ux), z))
@@ -383,20 +388,63 @@ export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, wid
  * How far the returning flight of a switchback (`right180` / `left180`) lies
  * from the first, in cells: **one cell per lane** of the stair's width.
  *
- * The two runs of a 双跑楼梯 stand flush — there is no wasted column between
- * them, and no gap a whole cell wide — so the hand-back flight is laid in the
- * very next cell across per lane, and the half-landing they meet on covers one
- * cell per lane *plus* the cell the two flights share. A switchback therefore
- * takes two blocks across at one lane (0.7 m), three at two lanes (1.4 m) and
- * four at three (2 m): the run's own lanes, plus the one it turns back into.
- * Because the bodies are `ESCALATOR_BAND` wide per lane, what is left between
- * them is the narrow stair well a real 双跑楼梯 has, never a corridor.
+ * The two runs of a 双跑楼梯 are laid in neighbouring columns — there is no
+ * wasted column between them, and no gap a whole cell wide — so the half-landing
+ * they meet on covers one cell per lane *plus* the cell the two flights share,
+ * and it is the same "right of forward" step `stairLaneBases` walks a wide
+ * straight stair along, so a switchback and a bank of lanes stand on one grid.
  *
- * It is the same "right of forward" step `stairLaneBases` walks a wide straight
- * stair along, so a switchback and a bank of lanes stand on the same grid.
+ * The cell step is the nearest the *paths* can stand, not the nearest the treads
+ * can: a run 0.68 m of lane wide leaves that much of the step over. What closes
+ * the rest is `stairReturnSlide` — the return run's treads slide across until its
+ * balustrade meets the first run's, so the pair really does stand flush.
  */
 export function stairSwitchbackOffset(width: number = STAIR_WIDTH_NARROW): number {
   return stairLanes(width)
+}
+
+/**
+ * How far apart a switchback's two runs stand, **tread centre to tread centre**,
+ * in cells: the run's own width plus the two balustrades that stand between them
+ * (`STAIR_RAIL_PROUD` is the outer face of a handrail). Laid at this separation
+ * the two runs' handrails meet back to back on the seam — the shared centre
+ * balustrade a real 双跑楼梯 has — so no floor at all is left between the runs.
+ */
+export function stairSwitchbackGap(width: number = STAIR_WIDTH_NARROW): number {
+  return width + 2 * STAIR_RAIL_PROUD
+}
+
+/**
+ * How far a walker's line stays clear of a tread's edge, metres: the limit a
+ * `stairReturnSlide` may push the stair's own walking line to.
+ */
+const STAIR_WALK_CLEARANCE = 0.25
+
+/**
+ * How far a switchback's **returning flight's treads** slide toward the first
+ * run, in cells, so that the two balustrades meet: the cell step its path is laid
+ * on (`stairSwitchbackOffset`) less the separation the treads want
+ * (`stairSwitchbackGap`) — 0.09 / 0.43 / 0.75 cells at one, two and three lanes.
+ *
+ * The paths stay on the grid — the half-landing is one cell per lane plus the one
+ * the pair shares, and both flights join the graph on cells — so what moves is
+ * only the drawn tread band, its balustrade and its collision body. That is the
+ * whole of "the runs stand flush": this is what turns a 1.4 m switchback from
+ * five blocks of floor into four, and a 2 m one from six into five, and what
+ * takes the corridor out of the middle of the stair.
+ *
+ * The slide is capped so the flight's own walking line never ends up outside the
+ * flight: a width that is already nearly a whole number of cells (the narrow
+ * 0.7 m run) leaves so little step that the treads barely move.
+ *
+ * `offset` is the separation the two paths were actually laid at, so a station
+ * saved before the runs were flush — an old switchback, its flights three cells
+ * apart — tightens as far as its own layout allows and no further.
+ */
+export function stairReturnSlide(offset: number, width: number = STAIR_WIDTH_NARROW): number {
+  const step = offset - stairSwitchbackGap(width)
+  const limit = Math.max(0, width / 2 - STAIR_WALK_CLEARANCE)
+  return Math.max(0, Math.min(step, limit))
 }
 
 /** The ordered flight segments of a stair, bottom → top. */
@@ -442,17 +490,87 @@ export function stairTurnConnectors(m: StairModule): Array<{ a: Vec3i; b: Vec3i 
   return out
 }
 
+/** The world-cell slide of one flight's tread band, from its own walking line. */
+export interface StairFlightSlide {
+  dx: number
+  dy: number
+}
+
+/** No slide: the flight's treads are centred on its walking line. */
+const NO_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
+
+/**
+ * How far each flight's **treads** are slid across from its own walking line, in
+ * cells — one entry per flight, in the same order as `stairFlights`.
+ *
+ * Only a switchback moves: its first run stands on the cell it was placed on,
+ * exactly as a straight stair does, and its **returning** flight slides toward it
+ * until the two balustrades meet (`stairReturnSlide`), which is what takes the
+ * wasted floor out of the middle of the stair. Everything drawn, carved,
+ * reserved and barred for that flight follows the band, so the handrail the crowd
+ * walks along is the handrail it can see; the flight's *landings* stay on the
+ * cells they were laid on, so the graph and the half-landing do not move.
+ */
+export function stairFlightSlides(m: StairModule): StairFlightSlide[] {
+  const flights = stairFlights(m)
+  const out: StairFlightSlide[] = flights.map(() => NO_SLIDE)
+  if (flights.length !== 2) return out
+  const width = m.cfg.width ?? STAIR_WIDTH_NARROW
+  const [first, second] = flights
+  // The across step from the first flight's line to the second's: both flights
+  // are straight, so this is the run's right (`stairRight` of the run direction).
+  const rx = second.from.x - first.from.x
+  const ry = second.from.y - first.from.y
+  const run = Math.hypot(first.to.x - first.from.x, first.to.y - first.from.y)
+  if (run < 1e-6) return out
+  const ux = (first.to.x - first.from.x) / run
+  const uy = (first.to.y - first.from.y) / run
+  // Component of the step across the run, in cells; its sign says which hand the
+  // return flight is on.
+  const across = rx * -uy + ry * ux
+  const offset = Math.abs(across)
+  const slide = stairReturnSlide(offset, width)
+  if (slide < 1e-6) return out
+  const side = across === 0 ? 0 : across > 0 ? -1 : 1 // slide back toward the first run
+  const dx = -uy * side * slide
+  const dy = ux * side * slide
+  // Normalise −0 to 0, so callers (and their tests) see plain numbers.
+  out[1] = { dx: dx === 0 ? 0 : dx, dy: dy === 0 ? 0 : dy }
+  return out
+}
+
 /**
  * Every cell an interior turn landing covers. These are the cells the builder
  * keeps as walkable nodes but the renderer hands to the stair model, so the
  * landing is drawn as a stair platform instead of a reused floor block.
+ *
+ * The row runs between the two flight ends, and it is as wide as the **treads**
+ * that end there: a switchback's return run is slid flush (`stairFlightSlides`),
+ * so its band reaches across the cell its path stands in, and the landing holds
+ * that floor too. A 90° turn lands on one cell (a = b) and stays one cell.
  */
 export function stairTurnCells(m: StairModule): Vec3i[] {
+  const flights = stairFlights(m)
+  const slides = stairFlightSlides(m)
+  const width = m.cfg.width ?? STAIR_WIDTH_NARROW
+  const half = Math.max(0.5, width / 2)
   const out: Vec3i[] = []
   const seen = new Set<string>()
-  for (const { a, b } of stairTurnConnectors(m)) {
-    for (let x = Math.min(a.x, b.x); x <= Math.max(a.x, b.x); x++) {
-      for (let y = Math.min(a.y, b.y); y <= Math.max(a.y, b.y); y++) {
+  for (let i = 0; i + 1 < flights.length; i++) {
+    const a = flights[i].to
+    const b = flights[i + 1].from
+    const acx = a.x + 0.5 + slides[i].dx
+    const acy = a.y + 0.5 + slides[i].dy
+    const bcx = b.x + 0.5 + slides[i + 1].dx
+    const bcy = b.y + 0.5 + slides[i + 1].dy
+    const acrossIsX = a.x !== b.x
+    const acrossIsY = a.y !== b.y
+    const x0 = acrossIsX ? Math.floor(Math.min(acx, bcx) - half + 1e-9) : Math.min(a.x, b.x)
+    const x1 = acrossIsX ? Math.ceil(Math.max(acx, bcx) + half - 1e-9) - 1 : Math.max(a.x, b.x)
+    const y0 = acrossIsY ? Math.floor(Math.min(acy, bcy) - half + 1e-9) : Math.min(a.y, b.y)
+    const y1 = acrossIsY ? Math.ceil(Math.max(acy, bcy) + half - 1e-9) - 1 : Math.max(a.y, b.y)
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
         const k = `${x},${y},${a.z}`
         if (seen.has(k)) continue
         seen.add(k)

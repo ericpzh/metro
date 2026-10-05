@@ -77,9 +77,18 @@ export const ESCALATOR_RAIL_PROUD = 0.15
 /** A stair handrail runs this far proud of the tread edge, metres. */
 export const STAIR_RAIL_PROUD = 0.105
 
+/**
+ * How thick a **半墙** (half-block wall) is, metres: half a block, so the panel
+ * hugs one edge of its cell and leaves the other half of the tile usable for a
+ * shelf or a bench. One number for the piece the player lays, the walled facility
+ * room's own walls and the panel a ramp keeps beside a wide run
+ * (`render/chunkMesher.ts`, `render/models.ts`), so a 半墙 and a room wall are the
+ * same wall wherever they meet.
+ */
+export const HALF_WALL_T = 0.5
+
 /** Free-flow walking speed, m/s. */
-export const WALK_SPEED = 1.34
-/** Walking speed on stair treads, m/s (derated from free flow). */
+export const WALK_SPEED = 1.34/** Walking speed on stair treads, m/s (derated from free flow). */
 export const STAIR_SPEED = 1.0
 /** Escalator running speed, m/s. 0.5 is the heavy-duty setting used in crowds. */
 export const ESCALATOR_SPEED = 0.5

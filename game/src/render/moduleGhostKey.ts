@@ -15,7 +15,7 @@ import type { Module } from '../sim/types.ts'
 export function moduleGhostKey(mod: Module): string {
   const span =
     mod.type === 'stair'
-      ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}`
+      ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}:${mod.cfg.finish ?? ''}`
       : mod.type === 'escalator'
         ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}`
         : mod.type === 'lift'

@@ -25,7 +25,7 @@ import { gateAllows, gateHasLane } from './gates.ts'
 import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
-import { STAIR_WIDTH_NARROW, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
+import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
 import { liftFootprintCells, liftLandingCells, liftStopZs } from './lifts.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndex } from './zones.ts'
@@ -321,6 +321,10 @@ export function buildGraph(data: StationData): StationGraph {
     // stairs placed separately keep their rails *and* their walls: their steps
     // meet, but you cannot walk from one to the other.
     const segs = m.type === 'stair' ? stairFlights(m) : [{ from: m.from, to: m.to }]
+    // A stair flight's body may stand off its own walking line (a switchback's
+    // flush return run): the balustrade the crowd walks along is the one drawn
+    // beside those treads, not the one beside the cell its landings sit on.
+    const slides = m.type === 'stair' ? stairFlightSlides(m) : []
     const half = m.type === 'escalator' ? ESCALATOR_BALUSTRADE / 2 : (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
     const laneMates = m.type === 'stair' ? stairLaneMates(data.modules, m) : []
     // The flight ends that meet an **interior turn landing** of the same stair.
@@ -336,9 +340,10 @@ export function buildGraph(data: StationData): StationGraph {
         turnEnds.add(cellKey(b.x, b.y, b.z))
       }
     }
-    for (const seg of segs) {
-      const ax = seg.from.x + 0.5
-      const ay = seg.from.y + 0.5
+    for (const [i, seg] of segs.entries()) {
+      const slide = slides[i] ?? { dx: 0, dy: 0 }
+      const ax = seg.from.x + 0.5 + slide.dx
+      const ay = seg.from.y + 0.5 + slide.dy
       const dx = seg.to.x - seg.from.x
       const dy = seg.to.y - seg.from.y
       const L = Math.hypot(dx, dy)

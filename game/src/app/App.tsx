@@ -742,18 +742,26 @@ export function App(): React.ReactElement {
           // 信息 card lifted it, so there is no move tool to ask.
           if (st.moveDraft) st.rotateMove()
           // The 墙 tool has no piece to turn: R picks which of a corner cell's
-          // wall faces the column takes (`wallSnap` in `build/model.ts`).
+          // wall faces the column takes (`wallSnap` in `build/model.ts`). In the
+          // 地基 tool's **半墙** mode the same counter steps the panel to another
+          // half of the tile — that mode's one orientation choice. With 半墙 off the
+          // 地基 tool has nothing of its own to turn, so the key stops there rather
+          // than turning whatever piece the 设备 folder was left on.
           else if (st.tool === 'wall') st.rotateWallSnap()
-          else if (st.tool === 'rail') st.rotateRail()
+          else if (st.tool === 'block') {
+            if (st.halfWall) st.rotateWallSnap()
+          } else if (st.tool === 'rail') st.rotateRail()
           else if (st.tool !== 'tunnel' && isRotatableType(st.moduleType)) st.rotateModule()
           break
         case 'tab':
-          // In the 地基 tool Tab flips 自动生成墙壁; everywhere else it keeps its
-          // own meaning for the piece being placed: rail direction, stair width,
-          // escalator direction, the 闸机's lane or fence.
+          // In the 地基 tool Tab toggles the generated 4 m wall ring on/off.
+          // **半墙** has no shortcut: it is click-only. Everywhere else Tab keeps
+          // its own meaning for the piece being placed: rail direction, stair
+          // width, escalator direction, the 闸机's lane or fence.
           e.preventDefault()
-          if (st.tool === 'block') st.setAutoWalls(!st.autoWalls)
-          else if (st.tool === 'rail') st.cycleRailDir()
+          if (st.tool === 'block') {
+            st.setAutoWalls(!st.autoWalls)
+          } else if (st.tool === 'rail') st.cycleRailDir()
           else if (isStairType(st.moduleType)) st.cycleStairWidth()
           else if (isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
           else if (isGateType(st.moduleType)) st.cycleGateDoor()

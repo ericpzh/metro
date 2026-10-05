@@ -36,6 +36,14 @@ const ISO = new THREE.Vector3(1, -1.2, 0.85).normalize()
 const RUN = new THREE.Vector3(1, -0.45, 0.72).normalize()
 /** Wall-mounted decor faces +y, so its thumbnail looks at the lit front. */
 const FRONT = new THREE.Vector3(1, 1.15, 0.8).normalize()
+/**
+ * The 时钟's dial faces straight down, so its icon is shot from low and to one
+ * side: the white face, its black markers and the round bezel are all the tile needs
+ * to say "clock", and the ceiling rod still reads as the stem above it.
+ */
+const CLOCK = new THREE.Vector3(0.9, 0.75, -0.55).normalize()
+/** The 监控's readable angle: its lens front and a little below it. */
+const CEILING = new THREE.Vector3(1, 1, -0.17).normalize()
 
 /**
  * The poster each silhouette's palette thumbnail shows. Fixed rather than
@@ -59,6 +67,12 @@ function viewDir(id: string): THREE.Vector3 {
   if (id === 'tv' || id === 'billboard' || id.startsWith('billboard-')) return FRONT
   // The 指示牌 is a double-sided board; look straight at its printed face.
   if (id === 'sign') return FRONT
+  // A 时钟 is a dial facing **down**: from the isometric angle its icon would be
+  // the bezel's dark top and nothing else, so its tile looks up at the face from
+  // below the piece. A 监控 reads from the front and slightly below, where its lens
+  // and hood are.
+  if (id === 'clock') return CLOCK
+  if (id === 'cctv') return CEILING
   // A backed seat reads best from the front (its cushions and arms), but the
   // backless stainless bench has nothing to hide and looks best on the lit
   // isometric angle.
@@ -144,6 +158,10 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'bin', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'extinguisher':
       return { id, type: 'extinguisher', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'clock':
+      return { id, type: 'clock', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'cctv':
+      return { id, type: 'cctv', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'billboard-wide':
     case 'billboard-standard':
     case 'billboard-large':
@@ -244,6 +262,18 @@ function objectBox(root: THREE.Object3D): THREE.Box3 {
   return box
 }
 
+/**
+ * The point a tile's camera is aimed at. Everything frames its own bounding-sphere
+ * centre; the two ceiling-hung decorations are the exception, because their centre
+ * is the middle of an empty storey below the hardware (see `viewDir`).
+ */
+function aimPoint(id: string, sphere: THREE.Sphere): THREE.Vector3 {
+  if (id === 'clock' || id === 'cctv') {
+    return sphere.center.clone().add(new THREE.Vector3(0, 0, sphere.radius * 0.42))
+  }
+  return sphere.center.clone()
+}
+
 /** Render every palette entry once. Throws if WebGL is unavailable. */
 export async function renderModuleThumbnails(size = 132): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
@@ -336,10 +366,16 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
       camera.top = half
       camera.bottom = -half
       const dir = viewDir(opt.id)
-      camera.position.copy(sphere.center).addScaledVector(dir, r * 6)
+      // A hung piece fills a whole storey, so its bounding sphere is twice as tall
+      // as it is wide and its centre sits *below* the part that reads: the 时钟's
+      // dial, the 监控's head. Those two tiles aim a little above the centre, which
+      // is what brings the face and the lens into the icon instead of leaving a
+      // frame of empty storey around a stem.
+      const aim = aimPoint(opt.id, sphere)
+      camera.position.copy(aim).addScaledVector(dir, r * 6)
       camera.near = r * 0.02
       camera.far = r * 40
-      camera.lookAt(sphere.center)
+      camera.lookAt(aim)
       camera.updateProjectionMatrix()
 
       renderer.render(scene, camera)

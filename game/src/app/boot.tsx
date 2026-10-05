@@ -20,6 +20,12 @@ const isLab = path.endsWith('/lab')
 declare global {
   interface Window {
     __metro?: typeof useStore
+    /**
+     * The live renderer, hung on `window` by `Viewport` for the same reason the
+     * store is: a browser-driven check can aim its camera at a corner and
+     * photograph what the game actually draws.
+     */
+    __scene?: import('../render/scene.ts').SceneRenderer
   }
 }
 

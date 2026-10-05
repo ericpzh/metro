@@ -19,12 +19,16 @@ import {
   facilityPlan,
   facilityRect,
   facilityWallCells,
+  facePresent,
   fenceRotForLine,
   fillSurface,
   GROUND_Z,
+  halfWallRunSide,
+  thinWallSideMap,
   nextExitName,
   nextModuleId,
   paintFaces,
+  paintStairSurface,
   paintZoneCells,
   placeFacility,
   plannedAutoWalls,
@@ -45,6 +49,7 @@ import {
   SHOP_WALL_H,
   toData,
   type FacilityKind,
+  type WallDir,
 } from '../build/model.ts'
 import { finishDef } from '../sim/finishes.ts'
 import { exitFloorAt, exitRunSnap } from '../sim/exits.ts'
@@ -55,7 +60,8 @@ import { moduleAt, isTrackCell, moveCandidate, trackAt, placementBlocked, placem
 import { escalatorBasesSolid } from '../sim/openings.ts'
 import { ZONE_LIST, zoneIndex } from '../sim/zones.ts'
 import { FACILITY_OPTIONS, placementPreviewKey, setFrameHandler, signModuleWithPreview, useStore, isDecorType, isExitType, isFacilityBrush, isFenceType, isWallMountedType, moduleLabel, type Tool, type ZoneBrush } from './store.ts'
-import type { Cell, Face, FinishId, Module, Vec3i } from '../sim/types.ts'
+import type { Cell, Face, FinishId, Module, Vec3i, WallSide } from '../sim/types.ts'
+import { packKey } from '../sim/types.ts'
 import { defaultLine, freeTunnelEnd, makeTrack, makeTunnel, railModuleAt, trackBlockReason, trackColliders, trackPieceForLine } from '../build/rail.ts'
 import { trackOriginForCentre } from '../sim/track.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from './sweep.ts'
@@ -118,13 +124,34 @@ function pendingCells(
  * state where it refuses to snap. R only steps the candidate faces at a corner.
  */
 function wallSnapAt(
-  hit: { cell: [number, number, number]; place: [number, number, number]; solid: boolean; point: [number, number, number] },
+  hit: { cell: [number, number, number]; place: [number, number, number]; solid: boolean; point: readonly number[] },
   cells: readonly Cell[],
   cycle: number,
-): { base: [number, number, number]; rot: number } {
+): { base: [number, number, number]; rot: number; dirs: WallDir[] } {
   const anchor = hit.solid ? hit.place : hit.cell
   const snap = wallSnap(cells, anchor, [hit.point[0], hit.point[1]], cycle)
-  return { base: [snap.x, snap.y, snap.z], rot: wallDirRot(snap.dir) }
+  return { base: [snap.x, snap.y, snap.z], rot: wallDirRot(snap.dir), dirs: snap.dirs }
+}
+
+/**
+ * The **半墙** side a run of wall columns takes: what **R** has stepped to, given
+ * the faces the anchor's own geometry offers (`halfWallRunSide`). Null while the 墙
+ * tool is laying full-block walls, which have no thickness to choose.
+ */
+function halfWallSideFor(line: Array<[number, number, number]>, open: readonly WallDir[], st: { halfWall: boolean; wallSnapCycle: number }): WallDir | null {
+  return st.halfWall ? halfWallRunSide(line, open, st.wallSnapCycle) : null
+}
+
+/**
+ * The pending cells as the ghost's mesher wants them: a **半墙** run is meshed half
+ * a block thick, so the preview shows the wall the release will lay and not a full
+ * one. Undefined for a full wall, which the mesher already draws as a block.
+ */
+function thinGhost(cells: Array<[number, number, number]>, side: WallDir | null): Map<number, WallSide> | undefined {
+  if (side === null) return undefined
+  const out = new Map<number, WallSide>()
+  for (const [x, y, z] of cells) out.set(packKey(x, y, z), side)
+  return out
 }
 
 /** Outward normal of each face: the paint plane's axis and the quad orientation. */
@@ -158,12 +185,19 @@ function planeCells(a: [number, number, number], b: [number, number, number], fa
   return out
 }
 
-/** The cells of a rectangle that actually present the face: solid, face unblocked. */
-function faceTargets(cells: Array<[number, number, number]>, face: Face, solid: Set<string>): Array<[number, number, number]> {
-  const [nx, ny, nz] = FACE_NORMAL[face]
-  return cells.filter(
-    ([x, y, z]) => solid.has(cellKey(x, y, z)) && !solid.has(cellKey(x + nx, y + ny, z + nz)),
-  )
+/**
+ * The cells of a rectangle that actually present the face: the same rule the 整面
+ * flood fills by (`facePresent`), so a dragged rectangle and an `M` click offer one
+ * surface. It is also what knows a 半墙's panel is half a block thick and that its
+ * inner face sits inside its own cell rather than on the cell's boundary.
+ */
+function faceTargets(
+  cells: Array<[number, number, number]>,
+  face: Face,
+  solid: Set<string>,
+  thin: Map<string, WallSide> = new Map(),
+): Array<[number, number, number]> {
+  return cells.filter(([x, y, z]) => facePresent(solid, thin, x, y, z, face))
 }
 
 /** Preview colour: the brush's own tint, or a warning red when erasing. */
@@ -249,9 +283,22 @@ export function Viewport(): React.ReactElement {
   const graphNodesRef = useRef<Float32Array>(new Float32Array(0))
   /** Solid cell keys, refreshed with the station, so a drag can tell blocks from void. */
   const solidRef = useRef<Set<string>>(new Set())
+  /**
+   * Every cell of the station that draws **half a block thick** — a 半墙 the player
+   * laid and every block a ramp kept beside its run — by cell key → the side the
+   * panel hugs, refreshed with the station. A paint brush reads it to offer the
+   * panel's own inner face, which is a surface inside its cell rather than on the
+   * cell's boundary (`faceTargets`); without the derived ones a stair's own half
+   * wall was a surface the brush would not colour.
+   */
+  const thinRef = useRef<Map<string, WallSide>>(new Map())
   /** True once the first station build has framed the home view (refresh only, not edits). */
   const framedRef = useRef(false)
-  /** The tile under the pointer for the equipment tool, so R can rebuild the ghost. */
+  /**
+   * The tile under the pointer for the equipment and 地基 tools, so R and Tab can
+   * rebuild the ghost already under it (`refreshModulePreview`,
+   * `refreshFoundationPreview`).
+   */
   const hoverRef = useRef<{ cell: [number, number, number]; place: [number, number, number]; solid: boolean; point?: [number, number] } | null>(null)
   const drag = useRef<{
     active: boolean
@@ -262,6 +309,19 @@ export function Viewport(): React.ReactElement {
     shift: boolean
     /** True for the 墙 tool's drag, whose cells are full-height wall columns. */
     wall?: boolean
+    /**
+     * A wall drag that never becomes a run: the 地基 tool's **半墙** mode lays one
+     * block per click, so the release takes the press's own cell whatever the
+     * pointer did in between.
+     */
+    single?: boolean
+    /**
+     * The faces the pressed column's own geometry opens onto (`wallSnap`'s
+     * candidates), kept so a 半墙 can re-derive its thickness side as **R** steps it.
+     * A single column has no run to be perpendicular to, so all four sides are on
+     * offer, the geometry's own first (`halfWallSideDirs`).
+     */
+    wallDirs?: WallDir[]
     /** True for the 围栏 tool's drag, which lays one fence panel per cell. */
     fence?: boolean
     /**
@@ -631,12 +691,18 @@ export function Viewport(): React.ReactElement {
     return { mod, noWall: wallMountMissing(st.station.cells, mod) }
   }
 
-  /** Rebuild the equipment hover ghost from the last hovered tile. */
+  /**
+   * Rebuild the equipment hover ghost from the last hovered tile. Only the
+   * equipment tool has one: the 地基 tool keeps the same hover ref for its own
+   * ghost, and a Tab in *that* tool must not drop a piece into the station
+   * (`placementPreviewKey` names the settings of both).
+   */
   const refreshModulePreview = (): void => {
     const scene = sceneRef.current
     const h = hoverRef.current
     if (!scene || !h) return
     const st = useStore.getState()
+    if (st.tool !== 'module') return
     const [x, y, z] = h.cell
     // An exit lays its own floor: cells it covers count even where a ramp
     // carved a hole, so stairs and escalators can land through an exit.
@@ -695,6 +761,45 @@ export function Viewport(): React.ReactElement {
     scene.setCursor(h.cell, placeable && !blocked)
     scene.setModulePreview(mods.length > 0 ? mods : null, blocked)
     scene.setCollisionHighlight(blocked ? colliderIds : null)
+  }
+
+  /**
+   * Draw the **半墙** ghost for one block: a single half-thick course, on the side
+   * **R** has stepped to, so the preview is the piece — the half thickness *is* the
+   * wall (`thinGhost`). `open` is the cell's own geometry (`wallSnap`'s candidate
+   * faces), which the side rule orders the player's choice behind.
+   */
+  const drawHalfWallGhost = (base: [number, number, number], open: readonly WallDir[]): void => {
+    const scene = sceneRef.current
+    if (!scene) return
+    const st = useStore.getState()
+    const cells = pendingCells([base], 'add', solidRef.current, st.station.modules)
+    scene.setGhost(cells, 'add', undefined, thinGhost(cells, halfWallSideFor([base], open, st)))
+  }
+
+  /**
+   * Rebuild the 地基 tool's hover ghost from the last tile it was over: the patch or
+   * the single **半墙** block (Tab), and for a 半墙 the side **R** has stepped to. Shared by
+   * the pointer move and the Tab / R effect, because a ghost is only redrawn when
+   * its key changes — nothing else would rebuild it under a still pointer
+   * (`placementPreviewKey`, `scene.setGhost`).
+   */
+  const refreshFoundationPreview = (): void => {
+    const scene = sceneRef.current
+    const h = hoverRef.current
+    if (!scene || !h) return
+    const st = useStore.getState()
+    if (st.tool !== 'block') return
+    const base: [number, number, number] = h.solid ? h.place : h.cell
+    if (st.halfWall) {
+      drawHalfWallGhost(base, wallSnap(st.station.cells, base, h.point ?? null, 0).dirs)
+    } else {
+      scene.setGhost([base], 'add')
+    }
+    scene.setCursor(base, true)
+    // The patch's own size badge belongs to the block brush; it comes back on the
+    // next pointer move if that is the mode the player is in.
+    setBuildMeasure(null)
   }
 
   /**
@@ -895,11 +1000,13 @@ export function Viewport(): React.ReactElement {
     sceneRef.current?.setCollisionHighlight(null)
   }, [tool])
 
-  // Rotating (R), switching the equipment, or cycling its width, direction or
-  // 闸机's lane or fence (Tab) rebuilds the ghost at the hovered tile at once, instead
-  // of waiting for the pointer to move again.
+  // Rotating (R), switching the equipment, or cycling its width, direction,
+  // 闸机's lane or fence, and the 地基 tool's 半墙 mode or the side R stepped it to
+  // (Tab / R) rebuild the ghost at the hovered tile at once, instead of waiting for
+  // the pointer to move again.
   useEffect(() => {
     refreshModulePreview()
+    refreshFoundationPreview()
   }, [placementKey])
 
   // The same for the rail piece: R, the bound line and the direction all change
@@ -919,6 +1026,10 @@ export function Viewport(): React.ReactElement {
     if (!canvas) return
     const scene = new SceneRenderer(canvas)
     sceneRef.current = scene
+    // The renderer on `window`, for the same reason the store is there (`boot.tsx`):
+    // a browser-driven check can aim the camera at a corner and photograph it. Only
+    // the live renderer, no copy, so a probe and the game cannot disagree.
+    window.__scene = scene
     scene.onStats = (s) => useStore.getState().setStats(s)
     const resize = (): void => scene.resize(canvas.clientWidth, canvas.clientHeight)
     resize()
@@ -990,6 +1101,7 @@ export function Viewport(): React.ReactElement {
     if (!scene) return
     const st = useStore.getState()
     solidRef.current = new Set(station.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)))
+    thinRef.current = thinWallSideMap(station.cells, station.modules)
     // The board the editor is arranging, drawn where the sign it belongs to hangs —
     // and, for a piece 移动 has picked up, nothing at all: it is in the air,
     // so the translucent ghost under the pointer is the only copy drawn.
@@ -1075,6 +1187,28 @@ export function Viewport(): React.ReactElement {
       return
     }
     const hit = pickAt(e)
+    // A stair's walking surface is the **piece**, not the floor it stands on: the
+    // pointer lands on treads, which no cell owns (and the flights run over a
+    // carved well), so the brush resolves the stair before anything that needs the
+    // cell the ray hit — its treads, risers and half-landing are one material.
+    if (tool === 'paint') {
+      const pickedId = scene.pickModule(e.clientX, e.clientY)
+      const stair = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+      if (stair && stair.type === 'stair') {
+        if (st.paintMode === 'pick') {
+          st.setPaintFinish(stair.cfg.finish ?? faceFinish(st.station.cells, stair.from.x, stair.from.y, stair.from.z, 'top'))
+          // 取色 is momentary, exactly as it is over a floor cell.
+          st.resumePaintMode()
+          return
+        }
+        // One press is the whole gesture: a stair has one walking surface, so
+        // nothing is held open for a drag. Right-click hands it back to the floor.
+        e.preventDefault()
+        const next = paintStairSurface(st.station, stair.id, e.button === 2 ? null : st.paintFinish)
+        if (next !== st.station) st.commit(next)
+        return
+      }
+    }
     if (!hit) return
     if (tool === 'select') {
       // Right-click bulldozes the equipment under the pointer.
@@ -1197,7 +1331,7 @@ export function Viewport(): React.ReactElement {
         sy: e.clientY,
         downTime: performance.now(),
       }
-      scene.setFaceGhost(faceTargets([hit.cell], face, solidRef.current), face, paintColour(e.button, st.paintFinish))
+      scene.setFaceGhost(faceTargets([hit.cell], face, solidRef.current, thinRef.current), face, paintColour(e.button, st.paintFinish))
       return
     }
     if (tool === 'zone') {
@@ -1374,9 +1508,61 @@ export function Viewport(): React.ReactElement {
     // 地基: a click is one block, a long press + drag is a rectangle on the
     // pressed plane (the depth you are on, stepped with Q/E). With 自动生成墙壁
     // on (the default) the patch grows an auto-wall ring; off, it is plain blocks.
+    // With **半墙** on (Tab) it is neither: the click lays one half-block wall
+    // block where it lands — the 半墙 mode is one piece at a time, and it is what
+    // the patch grows instead of the ring, so there is no patch and no auto wall
+    // (`store.ts` keeps the two modes exclusive).
     e.preventDefault()
     const mode: 'add' | 'remove' = e.button === 2 ? 'remove' : 'add'
     const anchor = mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
+    // A right-press on a tagged wall lifts the whole column, exactly as the 墙 tool's
+    // own right-drag does — what the mode builds, it takes back in one action rather
+    // than a course at a time. Anywhere else the 地基 tool's ordinary dig stands, so
+    // a misplaced floor block is still dug without leaving the mode.
+    if (mode === 'remove') {
+      const column = wallColumnAt(st.station, anchor[0], anchor[1], anchor[2])
+      if (column.length > 0) {
+        drag.current = {
+          active: true,
+          button: e.button,
+          mode,
+          anchor,
+          z: anchor[2],
+          shift: false,
+          wall: true,
+          sx: e.clientX,
+          sy: e.clientY,
+          downTime: performance.now(),
+        }
+        scene.setGhost(column, 'remove')
+        scene.setCursor(anchor, true)
+        return
+      }
+    }
+    if (mode === 'add' && st.halfWall) {
+      // The side follows the wall tool's own rule — the cell's geometry first, then
+      // whatever **R** has stepped to (`halfWallRunSide`) — but the block stands
+      // exactly where the click landed: a 半墙 is placed like a block, not snapped
+      // to an edge like the 墙 tool's course.
+      const open = wallSnap(st.station.cells, anchor, [hit.point[0], hit.point[1]], 0).dirs
+      drag.current = {
+        active: true,
+        button: e.button,
+        mode,
+        anchor,
+        z: anchor[2],
+        shift: false,
+        wall: true,
+        single: true,
+        wallDirs: open,
+        sx: e.clientX,
+        sy: e.clientY,
+        downTime: performance.now(),
+      }
+      drawHalfWallGhost(anchor, open)
+      scene.setCursor(anchor, true)
+      return
+    }
     drag.current = {
       active: true,
       button: e.button,
@@ -1541,7 +1727,31 @@ export function Viewport(): React.ReactElement {
       return
     }
     if (st.tool === 'block') {
+      // The tile under the pointer, so Tab (半墙) and R (its side) rebuild the
+      // ghost in place instead of waiting for the next move.
+      hoverRef.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1]] }
       const d = drag.current
+      // A wall remove drag — the right-press that landed on a 半墙 or any other
+      // tagged column — previews the columns the release lifts, exactly as the 墙
+      // tool's own right-drag does.
+      if (d?.active && d.wall === true && d.mode === 'remove') {
+        const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, e)
+        const line = dragging ? straightLineCells(d.anchor, hit.cell, d.z) : [d.anchor]
+        scene.setGhost(wallColumnsAt(st.station, line), 'remove')
+        scene.setCursor(dragging ? hit.cell : d.anchor, true)
+        setBuildMeasure(null)
+        return
+      }
+      // 半墙 mode, add path: one wall block, never a patch and never a run, so
+      // there is no rectangle to preview and no patch size to report.
+      if (st.halfWall && d?.mode !== 'remove') {
+        const base: [number, number, number] = hit.solid ? hit.place : hit.cell
+        const open = d?.wallDirs ?? wallSnap(st.station.cells, base, [hit.point[0], hit.point[1]], 0).dirs
+        drawHalfWallGhost(d?.active && d.wall ? d.anchor : base, open)
+        scene.setCursor(d?.active && d.wall ? d.anchor : base, true)
+        setBuildMeasure(null)
+        return
+      }
       if (d?.active) {
         d.shift = e.shiftKey
         const target = d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
@@ -1571,14 +1781,26 @@ export function Viewport(): React.ReactElement {
       return
     }
     if (st.tool === 'paint') {
+      // Over a stair the brush finishes the **piece**, not the floor the ray found
+      // under its treads: the stair itself is ghosted as the target, and no cell
+      // face is previewed (that would point at the wrong thing).
+      const stairId = scene.pickModule(e.clientX, e.clientY)
+      const stair = stairId ? st.station.modules.find((m) => m.id === stairId) : undefined
+      if (stair && stair.type === 'stair') {
+        scene.clearFaceGhost()
+        scene.setModulePreview(stair, false)
+        scene.setCursor([stair.x, stair.y, stair.z], true)
+        return
+      }
+      scene.setModulePreview(null)
       const p = paint.current
       if (p?.active) {
         // The rectangle runs to the cell under the pointer, on the anchor plane.
         const cells = planeCells(p.anchor, hit.cell, p.face)
-        scene.setFaceGhost(faceTargets(cells, p.face, solidRef.current), p.face, paintColour(p.button, st.paintFinish))
+        scene.setFaceGhost(faceTargets(cells, p.face, solidRef.current, thinRef.current), p.face, paintColour(p.button, st.paintFinish))
       } else if (st.paintMode !== 'pick' && hit.solid) {
         const face = dominantFace(hit.normal)
-        scene.setFaceGhost(faceTargets([hit.cell], face, solidRef.current), face, paintColour(0, st.paintFinish))
+        scene.setFaceGhost(faceTargets([hit.cell], face, solidRef.current, thinRef.current), face, paintColour(0, st.paintFinish))
       } else {
         scene.clearFaceGhost()
       }
@@ -1826,7 +2048,7 @@ export function Viewport(): React.ReactElement {
       st.setNotice(
         plan.merge.length > 0
           ? '房间已扩大到新的范围'
-          : zd.brush === 'booth'
+          : zd.brush === 'ticket'
             ? `${built}建好了，四周是柜台，从外面服务`
             : `${built}建好了，在墙上右键拖拽开门`,
       )
@@ -1839,7 +2061,7 @@ export function Viewport(): React.ReactElement {
       const rect = performance.now() - p.downTime >= LONG_PRESS_MS && isMoved(p, e)
       const hit = pickAt(e)
       const cells = rect ? planeCells(p.anchor, hit ? hit.cell : p.anchor, p.face) : [p.anchor]
-      const targets = faceTargets(cells, p.face, solidRef.current)
+      const targets = faceTargets(cells, p.face, solidRef.current, thinRef.current)
       if (targets.length === 0) return
       const st = useStore.getState()
       const next =
@@ -1959,15 +2181,22 @@ export function Viewport(): React.ReactElement {
     if (d.wall) {
       // A 墙 drag lays a straight axis-aligned run of full-height columns; a
       // quick press is one. The right drag lifts the same run, a whole tagged
-      // column at a time.
+      // column at a time. A **半墙** (`d.single`, the 地基 tool's mode) is always
+      // exactly one block — the one the press landed on — however far the pointer
+      // travelled, because that mode places one piece at a time.
       //
       // Both ends of `line` are already snapped: the press snapped the anchor
       // (`wallSnapAt`) and a drag snaps the target each move, so a run always
       // follows the cells that actually face open space and never re-snaps a
       // cell the pointer merely crossed on its way there.
-      const line = rect ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
+      //
+      // The thickness side is the one R had stepped to at the press (`d.wallDirs`
+      // is the anchor's own candidate faces), so the wall laid is the wall the
+      // ghost showed.
+      const line = d.single === true || !rect ? [d.anchor] : straightLineCells(d.anchor, target, d.z)
       if (d.mode === 'add') {
-        const { state: next, changed, blocked } = addWalls(st.station, line)
+        const side = d.wallDirs === undefined ? null : halfWallSideFor(line, d.wallDirs, st)
+        const { state: next, changed, blocked } = addWalls(st.station, line, side, d.single === true ? 1 : undefined)
         if (changed > 0) st.commit(next)
         if (blocked > 0) st.setNotice('预留开口要留空：楼梯、扶梯和出入口的地板不能用方块盖住')
       } else {
@@ -2112,8 +2341,10 @@ export function Viewport(): React.ReactElement {
         st.setNotice('广告牌要贴在墙上：先砌一堵墙')
         return
       }
-      // 指示牌 / 电视 hang from the ceiling: they need a solid slab one storey up.
-      if (ceilingMountMissing(st.station.cells, mod)) {        st.setNotice('指示牌和电视要吊在天花板下：上面得有一层楼板（四米高）')
+      // 指示牌 / 电视 / 时钟 / 监控 hang from the ceiling: they need a solid slab one
+      // storey up.
+      if (ceilingMountMissing(st.station.cells, mod)) {
+        st.setNotice('指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）')
         return
       }
       // An escalator punches through walls/ceilings on its own: allow it whenever

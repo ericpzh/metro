@@ -145,8 +145,18 @@ export function createAdArt(renderer?: THREE.WebGLRenderer): AdArt {
   const placeholders = new Map<string, THREE.Texture>()
   /** Slugs that have no pixels this session, so the fallback is reported once. */
   const absent = new Set<string>()
-  /** Every geometry handed out, so `dispose` can take back what it made. */
-  const geometries = new Set<THREE.PlaneGeometry>()
+  /**
+   * The quad for each `slug@w×h`, minted once and handed out to every reader.
+   *
+   * It is cached, not per-call, because there are far more readers than there are
+   * distinct panels: a rebuild builds one per 广告牌 and per 电视, and a 电视's content
+   * window re-points at a new poster on its own cadence. A fresh `PlaneGeometry` per
+   * call put a new buffer on the GPU each time and — because the module group
+   * disposes its own geometry with `disposeObject` — left the old object in a Set
+   * that only `dispose` ever emptied. One geometry per panel size is all this needs;
+   * `dispose` is what owns them.
+   */
+  const geometries = new Map<string, THREE.PlaneGeometry>()
 
   async function load(onReady: () => void): Promise<void> {
     const decoded = await Promise.all(
@@ -219,8 +229,11 @@ export function createAdArt(renderer?: THREE.WebGLRenderer): AdArt {
     }
     const image = texture.image as { width?: number; height?: number } | undefined
     const imageAspect = image?.width && image.height ? image.width / image.height : w / h
-    const geometry = croppedPlane(w, h, panelUvWindow(imageAspect, w / h))
-    geometries.add(geometry)
+    let geometry = geometries.get(key)
+    if (!geometry) {
+      geometry = croppedPlane(w, h, panelUvWindow(imageAspect, w / h))
+      geometries.set(key, geometry)
+    }
     return { material, geometry }
   }
 
@@ -242,7 +255,9 @@ export function createAdArt(renderer?: THREE.WebGLRenderer): AdArt {
       for (const mat of materials.values()) mat.dispose()
       for (const tex of textures.values()) tex.dispose()
       for (const tex of placeholders.values()) tex.dispose()
-      for (const geo of geometries) geo.dispose()
+      // The scene owns these now: a module group must not dispose a cached quad it
+      // shares with every other reader (`clearModules` → `disposeObject`).
+      for (const geo of geometries.values()) geo.dispose()
       materials.clear()
       textures.clear()
       placeholders.clear()

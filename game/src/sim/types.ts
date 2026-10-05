@@ -87,17 +87,72 @@ export interface Vec3i {
 }
 
 /**
- * True when a cell is a wall the player or the 地基 tool raised, or a tunnel's
- * shell. The tag strings mirror `build/model.ts` (`WALL` / `AUTO_WALL`) and
- * `build/rail.ts` (`tunnel-shell:<id>`); they live here so the pure sim can
- * recognise a wall without importing `build/`. A plain block has no tags and is
- * not a wall.
+ * A horizontal direction — `n` is `+y` and `e` is `+x`, the same convention the
+ * faces use. It names the half of a cell a **半墙** (half-block wall) is flush to:
+ * `w` is the cell's `x ∈ [x, x + 0.5]` half, `n` its `y ∈ [y + 0.5, y + 1]` half.
+ * The 墙 tool's `WallDir` is this same union (`build/model.ts`).
+ */
+export type WallSide = 'n' | 'e' | 's' | 'w'
+
+/**
+ * Tag prefix on a 半墙 course: `half-wall:w`. A thin wall is an ordinary solid
+ * wall cell — same course, same column lift, same slice — that draws half a block
+ * thick (`render/chunkMesher.ts`), the way a facility room's own walls and the
+ * panel a ramp leaves beside a run already do. The side is the face the panel
+ * shows to open space, so the half of the cell a player built into is the half the
+ * wall occupies and the clear half stays usable, which is the whole point of the
+ * piece. Stored on the cell rather than derived, because a partition standing in
+ * open floor has no geometry to derive a thickness from.
+ */
+export const HALF_WALL = 'half-wall'
+
+export function halfWallTag(side: WallSide): string {
+  return `${HALF_WALL}:${side}`
+}
+
+const WALL_SIDES: readonly WallSide[] = ['n', 'e', 's', 'w']
+
+/** The side a 半墙 cell's panel hugs, or null for any other block. */
+export function halfWallSide(c: { tags?: string[] }): WallSide | null {
+  const tags = c.tags
+  if (!tags) return null
+  for (const t of tags) {
+    if (!t.startsWith(`${HALF_WALL}:`)) continue
+    const side = t.slice(HALF_WALL.length + 1) as WallSide
+    if (WALL_SIDES.includes(side)) return side
+  }
+  return null
+}
+
+/**
+ * The face of a 半墙 cell the panel turns **into its own cell**: the surface
+ * looking across the clear half, half a block in from the cell's far side. It is a
+ * real surface even when the neighbouring cell is solid — nothing can stand in the
+ * clear half, because the clear half is inside this cell — which is why the paint
+ * brush offers it (`faceTargets` / `fillSurface`) and why the mesher always draws
+ * it. `render/scene.ts` insets the paint ghost onto it for the same reason.
+ */
+export function halfWallInnerFace(side: WallSide): WallSide {
+  return side === 'n' ? 's' : side === 's' ? 'n' : side === 'e' ? 'w' : 'e'
+}
+
+/**
+ * True when a cell is a wall the player or the 地基 tool raised, a 半墙, or a
+ * tunnel's shell. The tag strings mirror `build/model.ts` (`WALL` / `AUTO_WALL` /
+ * `HALF_WALL`) and `build/rail.ts` (`tunnel-shell:<id>`); they live here so the
+ * pure sim can recognise a wall without importing `build/`. A plain block has no
+ * tags and is not a wall.
+ *
+ * A 半墙 counts as a wall for every rule that asks about walls, because that is
+ * what it is: a ramp keeps it instead of carving it (`carveRampOpenings`), a
+ * wall-mounted 广告牌 may bolt to it (`wallMountMissing`), and the crowd is blocked
+ * by its cell exactly as a full course blocks one.
  */
 export function isWallBlock(c: { tags?: string[] }): boolean {
   const tags = c.tags
   if (!tags) return false
   for (const t of tags) {
-    if (t === 'wall' || t === 'auto-wall' || t.startsWith('tunnel-shell:')) return true
+    if (t === 'wall' || t === 'auto-wall' || t.startsWith('tunnel-shell:') || t.startsWith(`${HALF_WALL}:`)) return true
   }
   return false
 }
@@ -219,6 +274,16 @@ export type Module =
          * happen to meet, not one 1.4 m stair (`sim/stairs.ts`).
          */
         flight?: string
+        /**
+         * The finish a player has **painted on the stair's walking surface**
+         * (§4.3, 材质): its treads, their risers and the half-landing platform are
+         * drawn from one material, and this names it. Absent — the usual case —
+         * the stair wears the top finish of the floor it climbs from, so a
+         * staircase in a granite hall is granite and a tiled one is tiled; a
+         * painted stair keeps its own finish wherever it stands. Purely cosmetic:
+         * a flight is walked at `STAIR_SPEED` whatever it is finished with.
+         */
+        finish?: FinishId
       }
     })
   | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: Record<string, never> })
@@ -284,6 +349,30 @@ export type Module =
    * Free-standing and rotatable; cosmetic, like the bin.
    */
   | (ModuleBase & { type: 'extinguisher'; cfg: Record<string, never> })
+  /**
+   * A station clock (时钟, 装饰): the white-faced analogue clock of the reference,
+   * hung by a rod from the storey ceiling. The dial is a **round** cylinder — face
+   * down, so the hall below reads it — in a dark bezel ring, with black hour
+   * markers and hands and no numerals or branding anywhere on it, which is what the
+   * reference face shows: marks alone.
+   *
+   * It is ceiling-mounted (`ceilingMountMissing`), not fixed to a wall and not
+   * standing on the floor, and purely cosmetic like every other 装饰 piece. `rot`
+   * is meaningless to a round dial and is kept only so it turns with every other
+   * piece.
+   */
+  | (ModuleBase & { type: 'clock'; cfg: Record<string, never> })
+  /**
+   * A ceiling camera (监控, 装饰): the bracket-and-swivel housing of the reference,
+   * a dark bullet head with its lens, a two-LED illuminator and a sun hood,
+   * carried on a steel arm from a ceiling plate. `rot` aims it — the head looks
+   * along the piece's local −y, the same face a 电视 and a 指示牌 print on — so a
+   * camera dropped at a corridor mouth can be turned to watch it.
+   *
+   * Ceiling-mounted (`ceilingMountMissing`) and cosmetic: a camera is a prop, not
+   * a line of sight, so it never changes what an agent sees or where one walks.
+   */
+  | (ModuleBase & { type: 'cctv'; cfg: Record<string, never> })
   /**
    * Wall-mounted decoration (装饰): a lightbox advertisement (广告牌). It is fixed
    * to the wall block behind it — the placement rotation names which face — so it

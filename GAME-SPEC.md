@@ -416,10 +416,12 @@ stair, whose flights cannot share their landings lane by lane, or a station save
 the exception: its body crosses into the next cell, so it needs a bay of its own.
 
 A **switchback staircase** (双跑楼梯) turns a storey back on itself: two parallel flights with a
-half-landing between them. Its runs stand flush — the returning flight is laid one cell across per
-lane, so the assembly covers one block per lane plus the one the two flights share: **2 blocks across
-at 0.7 m, 3 at 1.4 m, 4 at 2 m**, and what is left between the bodies is the narrow stair well a real
-双跑楼梯 has, never a corridor. It comes in both hands (右双跑楼梯 / 左双跑楼梯); a rotation turns the
+half-landing between them. Its runs are laid **flush**: the returning flight's *path* is one cell
+across per lane, as close as two walking lines can stand, and its *treads* slide the rest of that step
+until the two balustrades meet back to back — the shared centre rail a real 双跑楼梯 has, with no floor
+left between the runs. The piece claims one block per lane plus what the two bands really need: **2
+blocks across at 0.7 m, 4 at 1.4 m, 5 at 2 m**. It comes in both hands (右双跑楼梯 / 左双跑楼梯); a
+rotation turns the
 piece about its base and never swaps the hand of the turn. The half-landing is a **walked** row of
 cells — both flights join the graph to it — so each flight's balustrade stops at the flight end where
 it meets one, and only an outer landing keeps the over-run that stops the crowd cutting the corner.

@@ -21,7 +21,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { facilityWallCells, SHOP_WALL_H } from '../build/model.ts'
 import { TUNNEL_HEADROOM } from '../build/rail.ts'
-import { ESCALATOR_BALUSTRADE, ESCALATOR_SPEED, ESCALATOR_STEP_PITCH, PSD_HALF_HEIGHT } from '../sim/constants.ts'
+import { ESCALATOR_BALUSTRADE, ESCALATOR_SPEED, ESCALATOR_STEP_PITCH, HALF_WALL_T, PSD_HALF_HEIGHT } from '../sim/constants.ts'
 import { PANEL_SIZE, makeSignBoards, signBoardsOf, signBoardsPanel, signPlate, type SignBoards, type SignLayout, type SignPanelSize } from '../sim/sign.ts'
 import { drawSignPanel } from './signFace.ts'
 import { billboardSpec, posterFor } from '../sim/billboards.ts'
@@ -32,13 +32,15 @@ import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, E
 import { finishOf } from '../sim/finishes.ts'
 import { fenceArms, railLandingAt, type FenceArms } from '../sim/fences.ts'
 import { gateHasLane, gateSolidFaces } from '../sim/gates.ts'
-import type { RampThin } from '../sim/openings.ts'
 import { LIFT_STEP, liftStopZs } from '../sim/lifts.ts'
-import { STAIR_WIDTH_NARROW, stairFlights, stairLaneMates, stairTreadTrim, stairWallSides, type StairLaneMate, type StairWallSides } from '../sim/stairs.ts'
+import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairTreadTrim, stairWallSides, type StairFlightSlide, type StairLaneMate, type StairWallSides } from '../sim/stairs.ts'
+
+/** A flight whose treads are centred on its own walking line. */
+const NO_STAIR_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
 import { doorCentres, doorRunOffsets, STOCK, type Stock, type StockClass } from '../sim/stock.ts'
 import type { TvPairSlot } from '../sim/tvs.ts'
 import type { AdArt } from './adArt.ts'
-import type { Cell, Face, FinishId, Module, RoomKind, StationData, Vec3i } from '../sim/types.ts'
+import type { Cell, Face, FinishId, Module, StationData, Vec3i } from '../sim/types.ts'
 
 /* ------------------------------------------------------------------ palette */
 
@@ -742,8 +744,18 @@ export function disposeModelMaterials(m: ModelMaterials): void {
 export function disposeObject(root: THREE.Object3D): void {
   root.traverse((o) => {
     const mesh = o as THREE.Mesh
-    if (mesh.isMesh) mesh.geometry.dispose()
+    if (!mesh.isMesh) return
+    // A 广告牌 / 电视 lit face draws a quad `render/adArt.ts` owns and shares with
+    // every screen on the same panel; freeing it here would leave the next rebuild
+    // drawing a disposed geometry.
+    if (isSharedGeometry(mesh)) return
+    mesh.geometry.dispose()
   })
+}
+
+/** True for a mesh whose geometry is owned elsewhere (see `plateOf`). */
+export function isSharedGeometry(mesh: THREE.Mesh): boolean {
+  return mesh.userData.sharedGeometry === true
 }
 
 /* ------------------------------------------------------------------ helpers */
@@ -770,6 +782,10 @@ function plate(parent: THREE.Object3D, mat: THREE.Material, w: number, h: number
  * The same plane around a geometry the caller already owns — how a
  * 装饰 screen mounts the lit face whose UVs are pre-cut to the panel
  * (`render/adArt.ts`). `yaw` and `tilt` turn the plate exactly as `plate` does.
+ *
+ * The geometry is `adArt`'s and is **shared** by every screen printing the same
+ * panel, so it is tagged: `disposeObject` must not free it with the module group
+ * the mesh happens to live in (see `isSharedGeometry`).
  */
 function plateOf(
   parent: THREE.Object3D,
@@ -782,6 +798,7 @@ function plateOf(
   tilt = 0,
 ): THREE.Mesh {
   const m = new THREE.Mesh(geometry, mat)
+  m.userData.sharedGeometry = true
   m.position.set(x, y, z)
   m.rotation.order = 'ZXY'
   m.rotation.set(Math.PI / 2 - tilt, 0, yaw)
@@ -792,6 +809,69 @@ function plateOf(
 /** Round the top rim of a cabinet with a slightly inset cap. */
 function capTop(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, sx: number, sy: number, h = 0.06): void {
   slab(parent, mat, x, y, z + h / 2, sx * 0.94, sy * 0.94, h)
+}
+
+/**
+ * A **mitre cap**: the triangular half of a wall corner, extruded from `z` to
+ * `z + h`. `legs` are the two outward directions of the corner (e.g. `[-1, -1]`
+ * for a south-west corner) and `T` the wall's thickness; the triangle fills the
+ * corner square cut on its diagonal, so the two runs of a wall meet on a 45° seam
+ * and the corner is exactly `T` thick on both of its faces instead of two panels
+ * deep.
+ *
+ * It is a real shape rather than a box because a mitre **is** a triangle: two
+ * boxes in that square would either stack into the doubling this replaces or step
+ * against each other. World space, absolute metres — the caller hands the corner
+ * square's own `(x, y)` and the prism stands on it.
+ */
+function mitreCap(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, T: number, h: number, legs: [number, number]): void {
+  const [lx, ly] = legs
+  // One thickness in along each of the two outer edges is where the 45° seam
+  // meets them; the corner square's own far corner is the third point.
+  const p: [number, number] = [lx < 0 ? T : 1 - T, ly < 0 ? 0 : 1]
+  const q: [number, number] = [lx < 0 ? 0 : 1, ly < 0 ? T : 1 - T]
+  const far: [number, number] = [lx < 0 ? 1 : 0, ly < 0 ? 1 : 0]
+  const shape = new THREE.Shape()
+  // CCW, which is what `ExtrudeGeometry` reads as "outside": its side walls and lids
+  // take their winding from the contour.
+  shape.moveTo(p[0], p[1])
+  shape.lineTo(q[0], q[1])
+  shape.lineTo(far[0], far[1])
+  shape.closePath()
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false })
+  // A wall finish is painted with the **chunk mesher's** material, which reads a
+  // per-vertex colour (`render/materials.ts` — the mesher bakes its AO there). A
+  // fresh geometry has no such attribute, and an attribute the shader wants but the
+  // buffer lacks reads as black, which is a black wedge driven through the wall. So
+  // the cap carries the same attribute at full white — no occlusion in a corner —
+  // and UVs measuring one metre per texture tile, the mesher's own convention, so
+  // its granite is the same size as the wall it continues.
+  const pos = geo.attributes.position
+  const uv = new Float32Array(pos.count * 2)
+  const col = new Float32Array(pos.count * 3)
+  for (let i = 0; i < pos.count; i++) {
+    const vx = pos.getX(i)
+    const vy = pos.getY(i)
+    const vz = pos.getZ(i)
+    // No single normal says which plane a corner vertex belongs to, so the UV is
+    // taken by which extent is the odd one out: the extrusion axis is the third.
+    if (vz < 1e-6 || vz > h - 1e-6) {
+      uv[i * 2] = vx
+      uv[i * 2 + 1] = vy
+    } else {
+      uv[i * 2] = lx < 0 || ly < 0 ? vy : vx
+      uv[i * 2 + 1] = vz
+    }
+    col[i * 3] = 1
+    col[i * 3 + 1] = 1
+    col[i * 3 + 2] = 1
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  const m = new THREE.Mesh(geo, mat)
+  m.position.set(x, y, z)
+  parent.add(m)
+  m.userData.wall = true
 }
 
 /**
@@ -908,6 +988,22 @@ export interface ModuleContext {
   finish: (id: FinishId) => THREE.Material
   /** True when building the translucent placement ghost, not a placed module. */
   preview?: boolean
+  /**
+   * A sink for the materials a builder mints **for this call alone**.
+   *
+   * `disposeObject` keeps materials, because almost every one of them is the
+   * shared kit in `mats` — but five builders print a canvas of their own (a 电视
+   * plate, a 站台门 header, an 出入口 header, the 售票机 marquee, a room's 招牌) and
+   * mint a material to wrap it. Those are new on every rebuild, so if nobody
+   * records them a 5-minute build session uploads a fresh texture per module per
+   * edit and never deletes one. A builder that makes one pushes it here; the scene
+   * disposes exactly this list when it rebuilds (`clearModules`), which is safe
+   * precisely because nothing shared is ever pushed.
+   *
+   * Omitted by a caller with no rebuild cycle behind it (a palette thumbnail pass
+   * or a unit test); those leak nothing because they run once.
+   */
+  owned?: THREE.Material[]
 }
 
 /**
@@ -917,7 +1013,7 @@ export interface ModuleContext {
 export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | null {
   switch (mod.type) {
     case 'tvm':
-      return placeLocal(buildTvm(ctx.mats), mod)
+      return placeLocal(buildTvm(ctx), mod)
     case 'vending':
       return placeLocal(buildVending(ctx.mats), mod)
     case 'bench':
@@ -934,6 +1030,14 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return placeLocal(buildBin(ctx.mats), mod)
     case 'extinguisher':
       return placeLocal(buildExtinguisher(ctx.mats), mod)
+    case 'clock':
+      // A round dial: the placement rotation turns it, but nothing on the face reads
+      // the difference, which is why the marks alone are enough to say "clock".
+      return placeLocal(buildClock(ctx.mats), mod)
+    case 'cctv':
+      // `placeLocal` aims the head: it looks along the piece's local −y, so R
+      // swings the camera round to watch a different approach.
+      return placeLocal(buildCctv(ctx.mats), mod)
     case 'billboard':
       return buildBillboard(ctx, mod)
     case 'tv':
@@ -959,7 +1063,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
     case 'shop':
       return buildRoom(ctx, mod)
     case 'booth':
-      return buildBooth(ctx.mats, mod)
+      return buildBooth(ctx, mod)
     case 'retail':
       return buildRoom(ctx, { ...mod, type: 'shop', cfg: { kind: 'store' } } as Extract<Module, { type: 'shop' }>)
     default:
@@ -974,10 +1078,22 @@ function placeLocal(group: THREE.Group, mod: Module): THREE.Group {
   return group
 }
 
+/**
+ * A material minted for one build, handed to the context's `owned` sink so the
+ * scene can dispose it with the module group it belongs to (see `ModuleContext.owned`).
+ * Every use of this is a canvas print that is new on each rebuild and that
+ * `disposeObject` would otherwise keep forever.
+ */
+function ownedMaterial<T extends THREE.Material>(ctx: ModuleContext, mat: T): T {
+  ctx.owned?.push(mat)
+  return mat
+}
+
 /* ------------------------------------------------------------------- TVM */
 
 /** Ticket machine (售票机): stainless body, green housing, LCD and a sign. */
-function buildTvm(mats: ModelMaterials): THREE.Group {
+function buildTvm(ctx: ModuleContext): THREE.Group {
+  const mats = ctx.mats
   const g = new THREE.Group()
   // Plinth and body.
   slab(g, mats.darkSteel, 0, 0.02, 0.06, 0.72, 0.64, 0.12)
@@ -997,7 +1113,7 @@ function buildTvm(mats: ModelMaterials): THREE.Group {
   slab(g, mats.darkSteel, -0.26, 0, 1.56, 0.04, 0.04, 0.2)
   slab(g, mats.darkSteel, 0.26, 0, 1.56, 0.04, 0.04, 0.2)
   slab(g, mats.black, 0, 0, 1.72, 0.8, 0.08, 0.3)
-  const sign = plate(g, new THREE.MeshBasicMaterial({ map: canvasTexture(256, 64, (c) => c.drawImage(signCanvas(), 0, 0)) }), 0.74, 0.24, 0, -0.05, 1.72, 0)
+  const sign = plate(g, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(256, 64, (c) => c.drawImage(signCanvas(), 0, 0)) })), 0.74, 0.24, 0, -0.05, 1.72, 0)
   sign.renderOrder = 1
   return g
 }
@@ -1300,6 +1416,233 @@ function buildExtinguisher(mats: ModelMaterials): THREE.Group {
   return g
 }
 
+/* ------------------------------------------------------ ceiling decoration */
+
+/**
+ * Station clock (时钟, 装饰): a **round** dial hung by a rod from the storey ceiling,
+ * 0.78 m across and hanging in the lower half of the storey so the hall below reads
+ * it. The face is white with black hour markers, minute ticks and two hands and
+ * **nothing else** — no numerals, no name, no logo, which is the reference face.
+ *
+ * **The face is geometry, not a printed canvas.** The dial is a white disc, the marks
+ * and the hands are thin boxes laid on it, and the bezel is a dark ring around it.
+ * That is deliberate: a canvas texture on the cap is one indirection between the
+ * source and the pixels, and the built page measured it wrong — the texture that
+ * reached the GPU carried the marks' ink across the whole face while the unit tests,
+ * whose canvas is a stub, all passed. Boxes have nothing to get wrong, and
+ * `test/ceiling-decor.test.mjs` reads the face's colour and counts its marks straight
+ * off the geometry.
+ *
+ * The ceiling underside is local z 3.0 (`LEVEL_STEPS`, the surface
+ * `ceilingMountMissing` demanded before the piece could be placed), so the rod spans
+ * exactly the gap between the ceiling plate and the regulator box on top of the dial.
+ * Nothing reaches the floor: the whole piece hangs.
+ */
+function buildClock(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  const faceR = 0.38 // the dial radius; the case is a shade larger all round
+  const caseR = 0.4
+  const ceiling = 3.0 // the storey ceiling underside, above the block top
+  // **A slim body, white at both ends and black round the rim.** The white cylinder is the dial
+  // material; the black wrap hides its barrel so the white reads as a **face** at each end rather
+  // than as a white drum. The clock is double-faced, because a concourse clock is read from either
+  // side.
+  const bodyDepth = 0.12
+  const bodyFront = -0.06 // the front white end; the camera looks from −y
+  const bodyBack = bodyFront + bodyDepth
+  const dialZ = 2.35 // the dial centre height: the lower half of the storey, easy to read
+  // The white body. **A `CylinderGeometry` is Y-up, so its caps already face ±y and it needs no
+  // rotation**: the ends of the barrel are the two faces. A quarter-turn about x would lay it flat
+  // in the X-Z plane, which is the wrong plane and no sign of that turn fixes it.
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(faceR, faceR, bodyDepth, 48), mats.white)
+  body.position.set(0, bodyFront + bodyDepth / 2, dialZ)
+  g.add(body)
+  // The black wrap: an **open** ring around the barrel. Open-ended because a capped cylinder would
+  // lay a black disc across each white face and hide the dial.
+  const wrap = new THREE.Mesh(
+    new THREE.CylinderGeometry(caseR, caseR, bodyDepth + 0.05, 48, 1, true),
+    mats.darkSteel,
+  )
+  wrap.position.set(0, bodyFront + bodyDepth / 2, dialZ)
+  g.add(wrap)
+  /**
+   * One dial, in a **neutral frame**: the dial's face lies in the X-Z plane, its outward direction
+   * is **+y**, and every offset below is a positive distance out of that face. There is no `facing`
+   * factor anywhere in here.
+   *
+   * **The whole dial stands proud of the case's white end, or the cap hides it.** The white barrel
+   * is capped at each end, so its cap is a flat disc `faceR` across lying *in front of* anything
+   * mounted level with or inside the end plane: a mark that reached the end plane flush would be
+   * buried in the cap and the face would render as a plain white disc. This dial was first built
+   * that way — mounted **at** the end plane with its marks laid toward −y, which is *into* the
+   * barrel — so both faces drew blank white and no test or type-check saw it, because the meshes
+   * were all present with the right sizes and the right material. `DIAL_OUT` therefore starts
+   * past the cap and each part is positioned as a **positive** step out of the dial plane, so no
+   * sign error can put it back inside the case.
+   *
+   * A real double-faced clock is one dial mounted twice — the far one turned half a turn — so this
+   * is built once and mounted twice rather than being branched on inside.
+   *
+   * **A clock face is sixty divisions, not twelve.** Twelve bars alone read as a plate with marks
+   * on it; the minute ticks between them are what make the ring read as a clock. The proportions
+   * are measured off the reference face:
+   *
+   *   hour mark    0.19 R long, 0.055 R across, its outer end at the rim
+   *   minute tick  0.10 R long, 0.02 R across, its outer end at the rim
+   *   hour hand    0.5 R,  minute hand 0.7 R
+   *
+   * A mark is measured from 12 o'clock, as a clock face is read.
+   */
+  const buildDial = (out: 1 | -1): THREE.Group => {
+    const dial = new THREE.Group()
+    // `out` is the side of the dial's own plane its parts stand on: +1 for a dial whose face looks
+    // along +y and −1 for one looking along −y. It touches **only** the y offsets — every mark's
+    // height off the face and nothing else — so each dial keeps the whole face exactly as built,
+    // hands included, and one sign is the single thing that differs between the two ends.
+    const DIAL_OUT = 0.012 // the dial plane's clearance past the case's white end
+    // The marks lie on the dial plane; the hands ride **over** them and the boss is the pivot the
+    // hands turn on, so the three sit at increasing heights and their boxes never interleave.
+    const markOut = out * DIAL_OUT // a mark's inner face on the dial plane
+    const handOut = out * (DIAL_OUT + 0.024) // an arm, clear above the marks
+    const bossOut = out * (DIAL_OUT + 0.026) // the hub, proud of both
+    /** One mark: a box of `length` along the radius, its outer end at the rim. */
+    const mark = (deg: number, length: number, across: number, thick: number): void => {
+      const rim = faceR - 0.02
+      const mid = rim - length / 2
+      const a = (deg * Math.PI) / 180
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(length, thick, across), mats.black)
+      bar.position.set(Math.sin(a) * mid, markOut + (out * thick) / 2, Math.cos(a) * mid)
+      // **A mark runs radially**, so its long axis points at the centre: the 12 and 6 marks stand
+      // vertical in the dial's plane and the 3 and 9 marks lie horizontal along the radius, which is
+      // what a clock face does.
+      //
+      // A box's `width` is its local x, so the turn that aims that axis along the radius at angle
+      // `a` is **`a − π/2`** — read off the matrix, not derived by hand: at every clock angle that
+      // turn gives a dot of 1.000 against the radius, while `π/2 − a` gives 0.105 to 0.5 (every
+      // mark *across* the rim, so 12 and 6 come out horizontal and 3 and 9 vertical) and `−a`
+      // gives 0 as well. A box's +x may point inward or outward — a bar is symmetric — so the
+      // magnitude is what matters.
+      bar.rotation.y = a - Math.PI / 2
+      dial.add(bar)
+    }
+    // The sixty minute ticks, five between every pair of hour marks. Short and fine, they are what
+    // turns the ring into a clock face.
+    for (let i = 0; i < 60; i++) {
+      if (i % 5 === 0) continue
+      mark(i * 6, 0.04, 0.009, 0.006)
+    }
+    // Twelve hour marks over them: the quarter-hour four are longer and heavier, which shapes the
+    // face.
+    for (let i = 0; i < 12; i++) {
+      const quarter = i % 3 === 0
+      mark(i * 30, quarter ? 0.09 : 0.08, quarter ? 0.024 : 0.016, 0.008)
+    }
+    // The hands, at 10:09 — the pose every product photograph uses, and one where neither hand
+    // covers a mark. A hand is radial too, but its box carries its length along local **z** where
+    // a mark's carries it along local x, so it takes the *opposite* turn: `a + π/2` against the
+    // mark's `π/2 − a`. The arm is placed from its two endpoints, so a wrong turn shows up as the
+    // tip landing on the wrong hour.
+    const hand = (deg: number, len: number, wide: number): void => {
+      const a = (deg * Math.PI) / 180
+      const dx = Math.sin(a)
+      const dz = Math.cos(a)
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(len, 0.012, wide), mats.black)
+      arm.position.set((dx * len) / 2, handOut + out * 0.006, (dz * len) / 2)
+      // A hand's box also carries its length along local x, so it takes the **same** turn as a
+      // mark; `π/2 − a` would lay the hand across its hour.
+      arm.rotation.y = a - Math.PI / 2
+      dial.add(arm)
+    }
+    hand(304, 0.19, 0.032) // hour: just short of 10
+    hand(54, 0.27, 0.02) // minute: just past 10 past
+    // The centre boss, so the hands read as turning on a pivot rather than on a hole.
+    const boss = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.02, 16), mats.black)
+    boss.position.set(0, bossOut + out * 0.01, 0)
+    dial.add(boss)
+    return dial
+  }
+  // Mount one dial on each end of the case: the front dial's face looks out of the **−y** end and
+  // the back one's out of the **+y** end, each mounted on the case's own end surface and standing
+  // its marks off that surface by `DIAL_OUT`. That standoff is the whole fix: a dial whose marks
+  // lie level with or inside the end is covered by the white cap and renders as a plain white
+  // disc. Each mount also carries the dial's **height** — put the height inside the dial instead
+  // and the back one swings to −z, a storey below the floor — and a half turn about y, which is
+  // the turn a real double-faced clock's far dial takes and which the round face is indifferent
+  // to. The face itself is left entirely alone: both ends show the same dial, hands and all.
+  const frontDial = new THREE.Group()
+  frontDial.add(buildDial(-1))
+  frontDial.position.set(0, bodyFront, dialZ)
+  frontDial.rotation.y = Math.PI
+  g.add(frontDial)
+  const backDial = new THREE.Group()
+  backDial.add(buildDial(1))
+  backDial.position.set(0, bodyBack, dialZ)
+  backDial.rotation.y = Math.PI
+  g.add(backDial)
+  // The rod from the top of the case up to the ceiling plate. It hangs in the piece's own frame,
+  // not the dial's, so it stays square to the storey whatever the faces do — and it leaves from the
+  // case's **rim**, not from part way down it, or it would stand inside the dial.
+  const rodDepth = bodyFront + bodyDepth / 2
+  const caseTop = dialZ + caseR
+  const rodBottom = caseTop - 0.02
+  const rodTop = ceiling
+  slab(g, mats.darkSteel, 0, rodDepth, caseTop - 0.045, 0.09, 0.09, 0.09) // the lug on the case rim
+  slab(g, mats.steel, 0, rodDepth, (rodBottom + rodTop) / 2, 0.03, 0.03, rodTop - rodBottom)
+  slab(g, mats.darkSteel, 0, rodDepth, ceiling - 0.018, 0.15, 0.15, 0.036)
+  return g
+}
+/**
+ * Ceiling camera (监控, 装饰): the reference bracket-and-swivel housing — a dark
+ * bullet head with its lens, a two-LED illuminator and a sun hood, carried on a
+ * steel arm from a ceiling plate. The head looks along the piece's local −y, so the
+ * placement rotation aims it; the whole assembly sits inside its own cell, hung
+ * rather than standing.
+ *
+ * It is a prop: no line of sight is simulated, so the piece never changes what an
+ * agent can see or where one walks. The head is a child group tipped about x, which
+ * is the one rotation that leaves its lens dead ahead and its tilt down the −y axis
+ * whatever `rot` does to the piece as a whole.
+ */
+function buildCctv(mats: ModelMaterials): THREE.Group {
+  const g = new THREE.Group()
+  const ceiling = 3.0 // the storey ceiling underside
+  // The mount is slim: a 0.14 m ceiling plate, a thin stem, a small clamp.
+  slab(g, mats.darkSteel, 0.1, 0, ceiling - 0.02, 0.14, 0.14, 0.04)
+  slab(g, mats.steel, 0.1, 0, (2.78 + ceiling) / 2, 0.028, 0.028, ceiling - 2.78)
+  slab(g, mats.darkSteel, 0.1, 0, 2.755, 0.09, 0.08, 0.09)
+  slab(g, mats.steel, 0.03, 0, 2.72, 0.16, 0.032, 0.032)
+  slab(g, mats.darkSteel, -0.05, 0, 2.68, 0.07, 0.07, 0.07)
+  // The head, tipped 12° down at the concourse, built about its own x = 0 so the body,
+  // the hood and the lens all sit on one axis.
+  const head = new THREE.Group()
+  head.position.set(-0.05, -0.02, 2.63)
+  head.rotation.x = -0.21
+  g.add(head)
+  // A slim 0.13 m body with a flange plate at the front and a shallow rail on top.
+  slab(head, mats.white, 0, 0.01, 0, 0.13, 0.26, 0.13)
+  slab(head, mats.steel, 0, 0.01, 0.056, 0.14, 0.22, 0.024)
+  slab(head, mats.darkSteel, 0, -0.125, 0, 0.15, 0.024, 0.15)
+  // The sun hood: a thin plate over the lens, a little wider than the body.
+  slab(head, mats.steel, 0, 0.024, 0.126, 0.155, 0.3, 0.02)
+  slab(head, mats.steel, 0, 0.114, 0.116, 0.155, 0.024, 0.044)
+  // The lens: a small dark ring, the glass inside it, and the barrel behind.
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.058, 0.08, 24), mats.black)
+  lens.rotation.x = Math.PI / 2
+  lens.position.set(0, -0.155, 0)
+  head.add(lens)
+  const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.014, 24), mats.tintedGlass)
+  glass.rotation.x = Math.PI / 2
+  glass.position.set(0, -0.196, 0)
+  head.add(glass)
+  // The two illuminator LEDs beside the lens, in the flange plate's front face.
+  for (const x of [-0.052, 0.052]) {
+    const led = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.014, 12), mats.ledRed)
+    led.rotation.x = Math.PI / 2
+    led.position.set(x, -0.19, -0.038)
+    head.add(led)
+  }
+  return g
+}
 /* -------------------------------------------------------- wall decoration */
 
 /**
@@ -1852,47 +2195,12 @@ function buildFence(ctx: ModuleContext, mod: Extract<Module, { type: 'fence' }>)
 
 /* --------------------------------------------------- ramp-adjacent blocks */
 
-/**
- * The half-metre blocks that stand in for a solid voxel a stair or escalator
- * runs against (`rampThinCells`, `sim/openings.ts`). The chunk mesher hides the
- * full voxel (see `hiddenCells`); each block is drawn in the half of the cell
- * *away* from the run, so the body and its handrail have the near half to
- * themselves while the wall or floor the player built stays solid. A floor keeps
- * its top finish (it is still a floor), a wall the finish on the face the run
- * sees. `userData.wall` lets 隐藏墙壁 fade it. One group per cell, tagged with its
- * cell so the caller can key it to the storey band.
- */
-export function buildRampThins(ctx: ModuleContext, thins: readonly RampThin[]): THREE.Group[] {
-  const T = 0.5
-  const cellAt = new Map<string, Cell>()
-  for (const c of ctx.data.cells) cellAt.set(`${c.x},${c.y},${c.z}`, c)
-  const out: THREE.Group[] = []
-  for (const t of thins) {
-    const [sx, sy] = t.side
-    const cell = cellAt.get(`${t.x},${t.y},${t.z}`) ?? {}
-    // The face the ramp sees: opposite the outward side.
-    const face: Face = sx > 0 ? 'w' : sx < 0 ? 'e' : sy > 0 ? 's' : 'n'
-    const mat = ctx.finish(finishOf(cell, t.kind === 'floor' ? 'top' : face))
-    let cx = t.x + 0.5
-    let cy = t.y + 0.5
-    let px = 1
-    let py = 1
-    if (sx !== 0) {
-      px = T
-      cx = t.x + (sx > 0 ? 1 - T / 2 : T / 2)
-    } else {
-      py = T
-      cy = t.y + (sy > 0 ? 1 - T / 2 : T / 2)
-    }
-    const g = new THREE.Group()
-    const mesh = finishSlab(g, mat, cx, cy, t.z + 0.5, px, py, 1)
-    // Only a wall half block takes the 隐藏墙壁 fade; a floor half block is floor.
-    mesh.userData.wall = t.kind === 'wall'
-    g.userData.cell = [t.x, t.y, t.z]
-    out.push(g)
-  }
-  return out
-}
+// A block a ramp kept is drawn by the chunk mesher, half a block thick, on the
+// side away from the run (`thinWallCells` in `sim/openings.ts` → the `thin` map
+// `scene.ts` hands `meshChunk`). It used to be drawn here as a single-material
+// slab over a hidden voxel; routing it through the mesher is what made a stair's
+// own half wall a real surface — its faces keep their own finishes, so the 材质
+// brush paints it, and the drawn panel itself is what the pointer picks.
 
 /* -------------------------------------------------------------- escalator */
 
@@ -2096,10 +2404,19 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
   // a newel in the middle of the platform.
   const outer = new Set([mod.from, mod.to].map((p) => `${p.x},${p.y},${p.z}`))
   const mates = stairLaneMates(ctx.data.modules, mod)
-  for (const f of flights) {
-    g.add(buildStairFlight(ctx.mats, surface, f.from, f.to, width, outer, mates, stairWallSides(ctx.data.cells, f.from, f.to)))
+  // A switchback's return run is slid flush against the first (`stairFlightSlides`):
+  // the treads, the rails and the landing platform follow the band, while the
+  // flight's own landings stay on the cells the graph walks.
+  const slides = stairFlightSlides(mod)
+  for (const [i, f] of flights.entries()) {
+    const slide = slides[i] ?? NO_STAIR_SLIDE
+    const from = { x: f.from.x, y: f.from.y, z: f.from.z }
+    const to = { x: f.to.x, y: f.to.y, z: f.to.z }
+    g.add(buildStairFlight(ctx.mats, surface, from, to, width, outer, mates, stairWallSides(ctx.data.cells, from, to, slide), slide))
   }
-  for (let i = 0; i + 1 < flights.length; i++) g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], width))
+  for (let i = 0; i + 1 < flights.length; i++) {
+    g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], width, slides[i] ?? NO_STAIR_SLIDE, slides[i + 1] ?? NO_STAIR_SLIDE))
+  }
   return g
 }
 
@@ -2109,10 +2426,14 @@ const STAIR_TREAD_T = 0.09
 const STAIR_RISE = 1 / 6
 
 /**
- * The floor finish a stair wears: the top finish of the cell at its lower
- * landing, falling back to granite. So a stair in a tiled hall is tiled.
+ * The finish a stair wears: the one painted on the piece itself (`cfg.finish`,
+ * 材质), or else the top finish of the cell at its lower landing, falling back to
+ * granite. So a stair in a tiled hall is tiled — unless the player has finished
+ * the staircase by hand, in which case that is what its treads, their risers and
+ * its half-landing are made of wherever it stands.
  */
 function stairSurface(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>): THREE.Material {
+  if (mod.cfg.finish) return ctx.finish(mod.cfg.finish)
   const at = ctx.data.cells.find((c) => c.x === mod.from.x && c.y === mod.from.y && c.z === mod.from.z)
   return ctx.finish(at?.finish?.top ?? 'floor.granite')
 }
@@ -2189,6 +2510,7 @@ function buildStairFlight(
   outer: ReadonlySet<string> = new Set(),
   mates: readonly StairLaneMate[] = [],
   walls: StairWallSides = { left: false, right: false },
+  slide: StairFlightSlide = NO_STAIR_SLIDE,
 ): THREE.Group {
   const lower = from.z <= to.z ? from : to
   const upper = from.z <= to.z ? to : from
@@ -2197,7 +2519,10 @@ function buildStairFlight(
   const run = Math.hypot(dx, dy)
   const rise = upper.z - lower.z
   const g = new THREE.Group()
-  g.position.set(lower.x + 0.5, lower.y + 0.5, lower.z + 1)
+  // The band stands `slide` cells across from the flight's own walking line: a
+  // switchback's return run is drawn flush against the first, its rails meeting
+  // back to back on the seam.
+  g.position.set(lower.x + 0.5 + slide.dx, lower.y + 0.5 + slide.dy, lower.z + 1)
   g.rotation.z = Math.atan2(dy, dx) // +x now points up the run
 
   const half = width / 2
@@ -2338,14 +2663,18 @@ function buildStairLanding(
   fin: { from: Vec3i; to: Vec3i },
   fout: { from: Vec3i; to: Vec3i },
   width: number,
+  slideIn: StairFlightSlide = NO_STAIR_SLIDE,
+  slideOut: StairFlightSlide = NO_STAIR_SLIDE,
 ): THREE.Group {
   const g = new THREE.Group()
   const a = fin.to
   const b = fout.from
-  const ax = a.x + 0.5
-  const ay = a.y + 0.5
-  const bx = b.x + 0.5
-  const by = b.y + 0.5
+  // The platform spans the two flights' **bands**, so a slid return run still
+  // lands on it: its end stands `slideOut` cells off the cell it lands on.
+  const ax = a.x + 0.5 + slideIn.dx
+  const ay = a.y + 0.5 + slideIn.dy
+  const bx = b.x + 0.5 + slideOut.dx
+  const by = b.y + 0.5 + slideOut.dy
   const cx = (ax + bx) / 2
   const cy = (ay + by) / 2
   const sx = Math.abs(bx - ax) + width
@@ -2694,7 +3023,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const signY = covered ? hl - 0.02 : BACKY
   const signZ = covered ? topAt(hl + 0.06) - signBoard / 2 - 0.02 : 0.52
   slab(g, mats.darkSteel, xc, signY, signZ, W - 0.06, 0.12, signBoard)
-  const header = plate(g, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || '地铁', mod.cfg.name || '出入口'), 0, 0)) }), W - 0.3, 0.5, xc, signY + 0.08, signZ, Math.PI)
+  const header = plate(g, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || '地铁', mod.cfg.name || '出入口'), 0, 0)) })), W - 0.3, 0.5, xc, signY + 0.08, signZ, Math.PI)
   header.renderOrder = 1
   return g
 }
@@ -2772,7 +3101,7 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
     headerMap.repeat.set(Math.max(1, Math.round(len / 10)), 1)
     const header = plate(
       g,
-      new THREE.MeshBasicMaterial({ map: headerMap, side: THREE.FrontSide }),
+      ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: headerMap, side: THREE.FrontSide })),
       len,
       0.3,
       cx,
@@ -2793,7 +3122,7 @@ function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edg
   // the line header as a sticker on each fixed panel — the top band it loses is
   // moved down onto the glass, which is where the reference art puts it.
   const stickerMap = half ? canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId, terminus), 0, 0)) : null
-  const stickerMat = stickerMap ? new THREE.MeshBasicMaterial({ map: stickerMap, side: THREE.FrontSide }) : null
+  const stickerMat = stickerMap ? ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: stickerMap, side: THREE.FrontSide })) : null
   const panel = (a: number, b: number): void => {
     const w = b - a
     if (w <= 0.05) return
@@ -2970,30 +3299,15 @@ function buildCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module
 
 /* --------------------------------------- walled rooms and the booth */
 
-function shopSignTexture(text: string, bg: string): THREE.CanvasTexture {
-  return canvasTexture(256, 64, (c) => {
-    c.fillStyle = bg
-    c.fillRect(0, 0, 256, 64)
-    c.fillStyle = '#fff'
-    c.font = 'bold 30px "Microsoft YaHei", sans-serif'
-    c.textAlign = 'center'
-    c.fillText(text, 128, 42)
-  })
-}
-
-/** Sign text/colour and the fit-out hint, per walled-room kind. */
-const ROOM_STYLE: Record<RoomKind, { sign: string; bg: string }> = {
-  store: { sign: '商店', bg: '#1f9c63' },
-  toilet: { sign: '厕所', bg: '#2f8f7f' },
-  office: { sign: '办公室', bg: '#b5792a' },
-}
-
 /**
  * Walled facility room (商店 / 厕所 / 办公室): its solid perimeter walls are
  * drawn here as thin 0.5 m panels — the chunk mesher hides the full wall voxels
  * (see `hiddenCells`), so the inner half of every wall cell is free for
- * furniture. The fit-out (`cfg.kind`) fills the zone and picks the sign; the
- * wall, doorway and opening logic is shared. World space, origin at the floor.
+ * furniture. The fit-out (`cfg.kind`) fills the zone; the wall, doorway and
+ * opening logic is shared. A room wears **no name plate**: which fit-out stands
+ * inside is the room's own business, and the plate it used to hang over the
+ * doorway only ever repeated 商店 / 厕所 / 办公室 over the shelves and cubicles
+ * that already say so. World space, origin at the floor.
  */
 function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): THREE.Group {
   const g = new THREE.Group()
@@ -3005,7 +3319,7 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
   const y0 = mod.y
   const y1 = mod.y + mod.h - 1
   /** Half a block: the wall leaves room for a shelf against it. */
-  const WALL_T = 0.5
+  const WALL_T = HALF_WALL_T
   /** Door fit-out for 厕所 / 办公室: leaf height and frame thickness. */
   const DOOR_H = 2.05
   const FRAME_T = 0.09
@@ -3065,19 +3379,39 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
   for (const { x, y, zLo, zHi, key } of columns.values()) {
     const h = zHi - zLo + 1
     const cz = (zLo + zHi + 1) / 2
-    // On a corner the y-panel stops where the x-panel starts, so the two outer
-    // faces meet at an edge instead of lying coplanar.
+    // Where the room's own west/east run meets its own south/north run, the two
+    // panels used to want the same cell — two 0.5 m walls stacked into one square
+    // metre, which is the lump of extra thickness every corner of the room wore.
+    // The ring is **mitred** instead: the west/east run keeps the full depth of the
+    // corner cell, the south/north run stops one thickness short of it, and the
+    // corner square is filled by a single `mitreCap` cut on its diagonal. Both legs
+    // keep their own outer face, they meet on a 45° seam, and the corner is exactly
+    // one wall thick on every side.
+    const cornerX = x === x0 || x === x1
+    const cornerY = y === y0 || y === y1
     if (y === y0 || y === y1) {
-      const a = x === x0 ? x0 + WALL_T : x
-      const b = x === x1 ? x1 + 1 - WALL_T : x + 1
+      // A south/north panel crosses the room's whole width, giving the corner
+      // square to the mitre at each end it owns (`cornerX` is this column's own
+      // side of the room, not merely a column on the perimeter).
+      const a = x === x0 && cornerX ? x0 + WALL_T : x
+      const b = x === x1 && cornerX ? x1 + 1 - WALL_T : x + 1
       const cy = y === y0 ? y + WALL_T / 2 : y + 1 - WALL_T / 2
       // The panel's inside face is the one the room sees and the player clicks:
       // south/north walls show their n/s face, west/east walls their e/w face.
-      finishSlab(g, wallMat(key, y === y0 ? 'n' : 's'), (a + b) / 2, cy, cz, b - a, WALL_T, h).userData.wall = true
+      if (b > a) finishSlab(g, wallMat(key, y === y0 ? 'n' : 's'), (a + b) / 2, cy, cz, b - a, WALL_T, h).userData.wall = true
     }
-    if (x === x0 || x === x1) {
+    if (cornerX) {
       const cxx = x === x0 ? x + WALL_T / 2 : x + 1 - WALL_T / 2
-      finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h).userData.wall = true
+      if (!cornerY) {
+        finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h).userData.wall = true
+      } else {
+        // The west/east run spans the corner cell's whole depth, so its leg reaches
+        // the outer face of the south/north wall; the mitre then fills the triangle
+        // the two legs leave between them. The cap wears the finish of the leg whose
+        // inward face it is the continuation of.
+        finishSlab(g, wallMat(key, x === x0 ? 'e' : 'w'), cxx, y + 0.5, cz, WALL_T, 1, h).userData.wall = true
+        mitreCap(g, wallMat(key, x === x0 ? 'e' : 'w'), x, y, zLo, WALL_T, h, [x === x0 ? -1 : 1, y === y0 ? -1 : 1])
+      }
     }
   }
 
@@ -3149,100 +3483,123 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
     }
   }
 
-  // Hanging sign over the doorway, on the same wall as the opening and sized to
-  // span it. A fixed 2 m sign drifts off the wall once the room front is wider;
-  // matching the opening's run keeps both ends mounted on the wall each side.
-  let side: 's' | 'n' | 'w' | 'e' = 's'
-  let first = 0
-  for (const [x, y] of door) {
-    const s = wallSide(x, y)
-    if (!s) continue
-    side = s
-    first = s === 's' || s === 'n' ? x : y
-    break
-  }
-  const alongCoord = (x: number, y: number): number => (side === 's' || side === 'n' ? x : y)
-  const cells = new Set<number>()
-  for (const [x, y] of door) if (wallSide(x, y) === side) cells.add(alongCoord(x, y))
-  // The contiguous opening run containing the first door cell.
-  let lo = first
-  let hi = first
-  while (cells.has(hi + 1)) hi++
-  while (cells.has(lo - 1)) lo--
-  const opened = cells.size > 0
-  const span = opened ? hi - lo + 1 : 2.0
-  const centre = (lo + hi + 1) / 2
-  let sx = mod.x + mod.w / 2
-  let sy = mod.y + 0.5
-  let yaw = 0
-  if (side === 's' || side === 'n') {
-    if (opened) sx = centre
-    sy = side === 's' ? y0 + 0.5 : y1 + 0.5
-    yaw = side === 's' ? 0 : Math.PI
-  } else {
-    if (opened) sy = centre
-    sx = side === 'w' ? x0 + 0.5 : x1 + 0.5
-    yaw = side === 'w' ? -Math.PI / 2 : Math.PI / 2
-  }
-  const alongY = side === 's' || side === 'n'
-  const plateW = Math.max(0.6, span - 0.2)
-  // A shop front hangs its sign at eye level over the open bay; a door has to
-  // clear its own lintel, so the sign rides above the frame.
-  const signZ = z0 + (kind === 'store' ? 1.9 : DOOR_H + 0.42)
-  slab(g, mats.darkSteel, sx, sy, signZ + 0.3, alongY ? span : 0.08, alongY ? 0.08 : span, 0.1)
-  const sign = plate(g, new THREE.MeshBasicMaterial({ map: shopSignTexture(ROOM_STYLE[kind].sign, ROOM_STYLE[kind].bg), side: THREE.DoubleSide }), plateW, 0.5, sx, sy, signZ, yaw)
-  sign.renderOrder = 1
   return g
 }
 
 /**
  * Ticket booth (售票亭): a service desk ringing the floor, with a glass screen
  * above the counter. There is no solid voxel base and no doorway — the desk is
- * a thin counter the crowd is served across, open overhead. World space,
- * origin at the floor.
+ * a thin counter the crowd is served across, open overhead. Like a walled room,
+ * the booth wears **no name plate**: a desk with a glass screen already reads as
+ * a service point, and a 1.8 m 售票 board over it only repeated the palette tile
+ * it was built from.
+ *
+ * The ring is a **closed box**, and every side of it is measured *inward from that
+ * side's own outer face* — the module's cell boundary. That one rule is what the
+ * four sides of the box share, and it is what the earlier pass got wrong: the east
+ * run measured outward from the boundary and hung its counter and screen 0.55 m
+ * out in the next cell, the north run measured from its last cell instead of the
+ * boundary and stood a whole cell inside the room, and the capping boards stood a
+ * lip proud of every face. Nothing on the piece may leave the cells the module
+ * reserves, so every run now draws between its face and its face ± its depth.
+ *
+ * The counter is laid the way a picture frame is: the west and east runs own the
+ * four corner squares and the north and south runs stop one counter depth short of
+ * them, so the desk band is one connected ring with no overlapping slab at a corner
+ * — drawing both runs through a corner is what used to make a 1 × 1 m pad of desk
+ * there. (The boards butt at the corner squares rather than lapping over each other,
+ * so they stay inside the footprint and the band still reads as one frame.)
+ *
+ * The screens are the box's own four walls: each side's screen stands against its
+ * outer face across the whole run, and the north and south sheets run out to the
+ * **inner face** of the west and east sheets, so two screens meet and butt at every
+ * corner instead of stopping a counter-depth short with a hole beside them. A
+ * corner mullion caps each of those joints. World space, origin at the floor.
  */
-function buildBooth(mats: ModelMaterials, mod: Extract<Module, { type: 'booth' }>): THREE.Group {
+function buildBooth(ctx: ModuleContext, mod: Extract<Module, { type: 'booth' }>): THREE.Group {
+  const mats = ctx.mats
   const g = new THREE.Group()
   const z0 = mod.z + 1
+  // The room's own rectangle in world space: `x0`/`y0` are the module's first cells
+  // and `x1`/`y1` the outer faces one cell past its last, which is where every run
+  // measures its depth from.
   const x0 = mod.x
   const y0 = mod.y
-  const x1 = mod.x + mod.w - 1
-  const y1 = mod.y + mod.h - 1
+  const x1 = mod.x + mod.w
+  const y1 = mod.y + mod.h
   const DESK = 0.9 // counter height, metres
   const GLASS_TOP = 2.0
-  const DEPTH = 0.55 // counter depth — a desk, not a wall
-  // Desk counter + glass screen along each perimeter edge. Corners overlap
-  // harmlessly; the counter never closes overhead, so the booth reads open.
-  const runX = (y: number): void => {
-    for (let x = x0; x <= x1; x++) {
-      const cx = x + 0.5
-      const cy = y + 0.5
-      slab(g, mats.steel, cx, cy, z0 + DESK / 2, 1.0, DEPTH, DESK)
-      slab(g, mats.darkSteel, cx, cy, z0 + DESK, 1.02, DEPTH + 0.06, 0.06)
-      slab(g, mats.glass, cx, cy, z0 + (DESK + GLASS_TOP) / 2, 1.0, 0.04, GLASS_TOP - DESK)
-      slab(g, mats.darkSteel, cx, cy, z0 + GLASS_TOP, 1.0, 0.07, 0.06)
+  /** Counter depth — a desk, not a wall: also the size of a corner square. */
+  const DEPTH = 0.55
+  /** The capping board's thickness. */
+  const CAP_T = 0.06
+  /** The screen stands against the counter's outer face. */
+  const GLASS_T = 0.04
+  const GLASS_INSET = 0.02
+  /** Widest bar in the screen band: the screen's own top rail. */
+  const RAIL = 0.07
+  /** The corner mullion's width: wider than the screen band on both axes. */
+  const POST = 0.09
+  /** The screen's inner face — where a screen meeting it butts. */
+  const GLASS_END = GLASS_INSET + GLASS_T
+  /** How far the screen's foot is buried in the counter's board, so no faces meet. */
+  const GLASS_FOOT = 0.01
+
+  /**
+   * One side of the ring. `side` names the outer face the run stands on; its counter,
+   * board and screen all measure **inward** from that face, so no piece can leave the
+   * module's cells. `a`/`b` are the counter's span along the side and `ga`/`gb` the
+   * screen's — the two differ at a corner, where the side meeting another gives up the
+   * joint to `GLASS_END` so the sheets butt instead of crossing.
+   */
+  const counterRun = (side: 's' | 'n' | 'w' | 'e', a: number, b: number, ga: number, gb: number): void => {
+    // `at(u, v)` maps "u along the side, v inward from its outer face" to world x/y.
+    const at = (u: number, v: number): [number, number] =>
+      side === 'w' ? [x0 + v, u] : side === 'e' ? [x1 - v, u] : side === 's' ? [u, y0 + v] : [u, y1 - v]
+    const alongX = side === 's' || side === 'n'
+    // Desk: its span along the side, DEPTH across it, its outer face on the wall line.
+    const len = b - a
+    const [dx, dy] = at((a + b) / 2, DEPTH / 2)
+    slab(g, mats.steel, dx, dy, z0 + DESK / 2, alongX ? len : DEPTH, alongX ? DEPTH : len, DESK)
+    // The capping board sits **on** the desk rather than let into it (the old board
+    // was centred on the counter top, and once its `LIP` was gone its outer face lay
+    // in the desk's own plane — steel against dark steel, fighting for the depth).
+    slab(g, mats.darkSteel, dx, dy, z0 + DESK + CAP_T / 2, alongX ? len : DEPTH, alongX ? DEPTH : len, CAP_T)
+    // The screen: against the outer face, its foot inside that board and its head
+    // inside the rail, so it only ever shows a clean sheet of glass in between.
+    const gLen = gb - ga
+    const [gx, gy] = at((ga + gb) / 2, GLASS_INSET + GLASS_T / 2)
+    const h = GLASS_TOP - DESK - GLASS_FOOT
+    slab(g, mats.glass, gx, gy, z0 + DESK + GLASS_FOOT + h / 2, alongX ? gLen : GLASS_T, alongX ? GLASS_T : gLen, h)
+    slab(g, mats.darkSteel, gx, gy, z0 + GLASS_TOP, alongX ? gLen : RAIL, alongX ? RAIL : gLen, CAP_T)
+  }
+
+  // The west and east runs close all four corners; the south and north runs butt
+  // between them, and their screens run out to the west and east screens' inner faces.
+  for (const side of ['w', 'e'] as const) counterRun(side, y0, y1, y0, y1)
+  for (const side of ['s', 'n'] as const) counterRun(side, x0 + DEPTH, x1 - DEPTH, x0 + GLASS_END, x1 - GLASS_END)
+  // A mullion on each corner, standing over the joint where two screens meet: wider
+  // than the screen band on both axes and reaching the outer faces, so the corner is
+  // filled rather than notched, and buried in the board at its foot like the screens.
+  // It may lie in the board's own planes (they are the same dark steel, so a shared
+  // plane is one surface drawn twice and cannot flicker); what it must never share is
+  // a plane with the steel desk or the `DoubleSide` glass.
+  for (const cx of [x0, x1 - POST]) {
+    for (const cy of [y0, y1 - POST]) {
+      slab(
+        g,
+        mats.darkSteel,
+        cx + POST / 2,
+        cy + POST / 2,
+        z0 + DESK + GLASS_FOOT + (GLASS_TOP - DESK - GLASS_FOOT) / 2,
+        POST,
+        POST,
+        GLASS_TOP - DESK - GLASS_FOOT,
+      )
     }
   }
-  const runY = (x: number): void => {
-    for (let y = y0; y <= y1; y++) {
-      const cx = x + 0.5
-      const cy = y + 0.5
-      slab(g, mats.steel, cx, cy, z0 + DESK / 2, DEPTH, 1.0, DESK)
-      slab(g, mats.darkSteel, cx, cy, z0 + DESK, DEPTH + 0.06, 1.02, 0.06)
-      slab(g, mats.glass, cx, cy, z0 + (DESK + GLASS_TOP) / 2, 0.04, 1.0, GLASS_TOP - DESK)
-      slab(g, mats.darkSteel, cx, cy, z0 + GLASS_TOP, 0.07, 1.0, 0.06)
-    }
-  }
-  runX(y0)
-  runX(y1)
-  runY(x0)
-  runY(x1)
   // The staff benches are `bench` modules of their own, so each is
   // individually deletable; nothing solid is drawn inside the counter.
-  // Sign over the front (south) counter.
-  const cx = mod.x + mod.w / 2
-  const sign = plate(g, new THREE.MeshBasicMaterial({ map: shopSignTexture('售票', '#1b6fd6'), side: THREE.DoubleSide }), 1.8, 0.5, cx, y0 + 0.5, z0 + 2.2, 0)
-  sign.renderOrder = 1
   return g
 }
 

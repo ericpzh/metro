@@ -8,7 +8,6 @@ import { buildSolidSet, CHUNK, meshChunk } from './chunkMesher.ts'
 import { createMaterials, type MaterialSet } from './materials.ts'
 import {
   buildModule,
-  buildRampThins,
   buildTrain,
   canvasTexture,
   createModelMaterials,
@@ -30,18 +29,18 @@ import { drawStationDisplay, STATION_PLATE, tvLineStatus } from './stationDispla
 import { drawSignPanel } from './signFace.ts'
 import { loadPictograms } from './pictograms.ts'
 import { signBoardsOf, signBoardsPanel, signFaceLayout, signPlate, type SignLayout, type SignPanelSize } from '../sim/sign.ts'
-import { storeyBand } from '../sim/constants.ts'
+import { HALF_WALL_T, storeyBand } from '../sim/constants.ts'
 import { trackBedKeys } from '../sim/placement.ts'
 import { tvPairSlot } from '../sim/tvs.ts'
 import { edgeCells } from '../sim/track.ts'
-import { OPENING_CEILING, rampThinCells, type RampThin } from '../sim/openings.ts'
+import { OPENING_CEILING, thinWallCells } from '../sim/openings.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
 import { stairLevels, stairTurnCells } from '../sim/stairs.ts'
 import { liftFootprintCells, liftStopZs } from '../sim/lifts.ts'
 import { facilityWallCells } from '../build/model.ts'
 import { STOCK_CLASSES, type StockClass } from '../sim/stock.ts'
-import type { Face, FinishId, Module, StationData } from '../sim/types.ts'
-import { packKey } from '../sim/types.ts'
+import type { Face, FinishId, Module, StationData, WallSide } from '../sim/types.ts'
+import { halfWallInnerFace, packKey } from '../sim/types.ts'
 import { moduleGhostKey } from './moduleGhostKey.ts'
 import { facingFrom } from './pickFacing.ts'
 import { crowdVisible, levelSide, levelVisible, trainVisible, unsupportedAbove } from './levelSlicing.ts'
@@ -244,6 +243,36 @@ export class SceneRenderer {
   private levelGroups = new Map<number, THREE.Group>()
   private chunkMeshes: THREE.Mesh[] = []
   private outlineMeshes: THREE.Mesh[] = []
+  /**
+   * The same meshes as `outlineMeshes`, as a set. `applyLevel` asks "is this mesh an
+   * outline?" once per chunk mesh, and the array answer is a linear scan — so the
+   * slice cost grew with the square of the station. Rebuilt with the array.
+   */
+  private outlineSet = new Set<THREE.Mesh>()
+  /** The slice state the last `applyLevel` applied, so a repeat is skipped. */
+  private levelKey = ''
+  /**
+   * Last rebuild's meshed chunk per storey band, keyed `band|cx,cy`, so an edit that
+   * touches one block re-meshes one chunk instead of the whole station.
+   *
+   * A block on a 62×62 three-storey station (the size the lag was reported at) puts
+   * ~11k cells through the mesher on every placement — around 108 ms of main thread,
+   * which is what made placing a block drop to single-digit FPS. The mesher reads
+   * nothing but a chunk's own cells (their exposure, finish and skipped state), so a
+   * chunk whose content is unchanged yields byte-identical geometry: reusing the
+   * built meshes is not an approximation. The geometry is already on the GPU, so a
+   * reuse skips both the meshing and the re-upload.
+   *
+   * Entries not claimed by the current rebuild are disposed at the end of it, so the
+   * cache holds exactly the chunks the station currently has.
+   */
+  private chunkCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
+  /**
+   * Cache keys this rebuild intends to reuse, set only around the release call in
+   * `setStation` so `releaseChunks` leaves their geometry — and the outline materials
+   * that go with it — alone. Null outside that window, when everything is disposable.
+   */
+  private keepChunkGeometries: Set<string> | null = null
 
   private moduleMeshes: THREE.Group = new THREE.Group()
   /** The last station document, so a hover ghost can be built through the models. */
@@ -262,8 +291,14 @@ export class SceneRenderer {
    * 1 m block there would read as a floating cube, not a staircase landing.
    */
   private hiddenCells = new Set<number>()
-  /** Solid cells a ramp kept: drawn half a metre thick by `buildRampThins`. */
-  private rampThins: RampThin[] = []
+  /**
+   * Every cell that draws half a block thick, by packed key → the side its panel
+   * hugs: a **半墙** the player laid and every block a ramp kept beside its run
+   * (`thinWallCells`). The mesher draws those cells half a block thick, and the
+   * paint ghost sits on the panel's own faces rather than on the cell boundary, so
+   * what the player clicks is what they paint.
+   */
+  private thinSides = new Map<number, WallSide>()
   /**
    * Invisible full-cell boxes standing in for a shop's hidden wall voxels, so a
    * right-click still picks the wall cell (the thin panel is module geometry,
@@ -278,6 +313,22 @@ export class SceneRenderer {
   /** Materials/geometries owned by the current preview, disposed on replacement. */
   private previewMats: THREE.Material[] = []
   private previewBases: THREE.Material[] = []
+  /**
+   * Materials a module builder minted for the current build alone — a 电视 plate, a
+   * 站台门 header, an 出入口 header, the 售票机 marquee, a room's 招牌 (see
+   * `ModuleContext.owned`). `disposeObject` keeps materials because nearly all of
+   * them are the shared kit, so these are collected separately and released when
+   * the module groups they belong to are dropped. Without this, every rebuild
+   * uploaded a fresh canvas texture per such module and never deleted one, which is
+   * what made a long build session slow down until the page was reloaded.
+   */
+  private ownedMats: THREE.Material[] = []
+  /**
+   * The same, for a hover/fence-drag preview. The ghost rebuilds on every cell the
+   * pointer crosses, so its builder-minted materials are released on each rebuild
+   * (`clearModulePreview`) rather than accumulating for the whole drag.
+   */
+  private previewOwnedMats: THREE.Material[] = []
   /** Committed fence groups, hidden while the live fence drag previews them. */
   private fenceGroups: THREE.Object3D[] = []
   /**
@@ -325,6 +376,8 @@ export class SceneRenderer {
   /** The station's poster artwork, one cache per scene (`render/adArt.ts`). */
   private ads: AdArt
   private grid: THREE.Group = new THREE.Group()
+  /** The extent and storey the drawn grid was built for, so it is only remade when it moves. */
+  private gridKey = ''
   private cursor: THREE.Mesh
   /** Remove-drag preview: one red box per pending-delete block (§9.5). */
   private ghostMesh: THREE.InstancedMesh | null = null
@@ -531,6 +584,14 @@ export class SceneRenderer {
     const solidKeys = new Set<number>()
     for (const c of data.cells) if (c.fill === 'solid') solidKeys.add(packKey(c.x, c.y, c.z))
     this.hiddenCells = new Set<number>()
+    // Every cell that draws half a block thick — a 半墙 the player laid, and every
+    // block a ramp kept beside its run (`thinWallCells`) — is **meshed**, not
+    // hidden: the mesher draws the half the panel keeps (`meshBand`), so the drawn
+    // panel is what the pointer picks and the face a player paints is the face they
+    // clicked. Thin cells are collected here because the mesher's own input is a
+    // solid set, which cannot say how thick a cell is.
+    this.thinSides = new Map<number, WallSide>()
+    for (const t of thinWallCells(data.cells, data.modules)) this.thinSides.set(packKey(t.x, t.y, t.z), t.side)
     for (const m of data.modules) {
       if (m.type !== 'stair') continue
       for (const p of stairTurnCells(m)) {
@@ -553,20 +614,10 @@ export class SceneRenderer {
         this.wallPick.add(proxy)
       }
     }
-    // A block a ramp runs against is kept but drawn half a metre thick: hide the
-    // full voxel, leave an invisible pick box, and let `buildRampThins` draw the
-    // half block. A stair's side floor cells are kept this way, so the floor at
-    // the top is not deleted and the run fits beside it. Derived from
-    // cells+modules, so it follows every edit.
-    this.rampThins = rampThinCells(data.cells, data.modules)
-    for (const w of this.rampThins) {
-      const k = packKey(w.x, w.y, w.z)
-      if (!solidKeys.has(k)) continue
-      this.hiddenCells.add(k)
-      const proxy = new THREE.Mesh(this.wallPickGeo, this.wallPickMat)
-      proxy.position.set(w.x + 0.5, w.y + 0.5, w.z + 0.5)
-      this.wallPick.add(proxy)
-    }
+    // A block a ramp runs against is kept, and the mesher draws it half a block
+    // thick on the side away from the run (it is in `thinSides` above), so the
+    // floor at the top of a stair is not deleted and the run fits beside it. A
+    // stair's side floor cells are kept this way too.
     this.wallPick.updateMatrixWorld(true)
     // An elevator passes through the floor slab at every stop above its base:
     // hide those cells so the mesher cuts a real shaft opening (the graph still
@@ -587,7 +638,16 @@ export class SceneRenderer {
     // A 指示牌 prints the station's lines, so a line edit reprints every face
     // already hanging before the rebuild replaces them.
     this.redrawSignPlates()
-    this.disposeChunks()
+    // Give back what the last rebuild left. `disposeChunks` is not used here: it
+    // disposes every chunk geometry, and the cache below re-adds the ones whose
+    // content did not change. Every geometry the last rebuild made is either
+    // re-added from the cache or swept as stale at the end of this pass.
+    this.releaseChunks()
+    this.scene.remove(...this.levelGroups.values())
+    this.levelGroups.clear()
+    // The meshes `applyLevel` assigns materials to have just been replaced, so the
+    // slice has to be applied again even if the view state itself did not change.
+    this.levelKey = ''
     const t0 = performance.now()
     this.lastChunkMs = 0
     // Group cells into storeys. A storey is a floor on the fixed 4 m editing
@@ -636,21 +696,114 @@ export class SceneRenderer {
       if (bandOfCell.get(packKey(c.x, c.y, c.z)) === this.groundOf.get(`${c.x},${c.y}`)) floating.add(packKey(c.x, c.y, c.z))
     }
     const box = new THREE.Box3()
-    const meshBand = (group: THREE.Group, levelZ: number, band: { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }, solid: Set<number>, isFloat: boolean): void => {
-      // Emit exactly this band's cells: runs overlap in z across columns, so a
-      // chunk's z window alone would mesh a neighbouring storey too.
-      const emit = new Set<number>()
-      for (const c of band.cells) emit.add(packKey(c.x, c.y, c.z))
-      const seen = new Set<string>()
-      for (const c of band.cells) {
+    // Everything the mesher reads for one chunk, hashed. A chunk whose key is
+    // unchanged meshes byte-identically, so its last meshes are reused as they are.
+    // `isFloat` is part of the key because the same cells are meshed on their own
+    // when they are unsupported plates: which pass a chunk belongs to is part of
+    // what it draws, and a chunk that changes pass must re-mesh.
+    const chunkKey = (levelZ: number, cx: number, cy: number, isFloat: boolean, cells: Array<{ x: number; y: number; z: number }>): string => {
+      let h = 2166136261
+      let n = 0
+      for (const c of cells) {
+        const k = packKey(c.x, c.y, c.z)
+        if (this.hiddenCells.has(k)) continue
+        h = Math.imul(h ^ c.x, 16777619)
+        h = Math.imul(h ^ c.y, 16777619)
+        h = Math.imul(h ^ c.z, 16777619)
+        // How thick the cell is, and which half it keeps: a 半墙 the player re-tags
+        // (or a wall that becomes one) meshes differently at the same coordinates.
+        const side = this.thinSides.get(k)
+        if (side !== undefined) h = Math.imul(h ^ side.charCodeAt(0), 16777619)
+        const fin = this.finishes.get(k)
+        if (fin) {
+          // A custom-tinted finish id is a string; hash its characters, not its object.
+          for (const id of [fin.top, fin.bottom, fin.e, fin.w, fin.n, fin.s]) {
+            if (id === undefined) continue
+            for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619)
+            h = Math.imul(h ^ id.length, 16777619)
+          }
+        }
+        n++
+      }
+      return `${levelZ}|${isFloat ? 'f' : 's'}|${cx},${cy}|${n}:${h >>> 0}`
+    }
+    const reuse = new Map(this.chunkCache)
+    // Which cached chunks this rebuild will keep, decided **before** anything is
+    // released: a reused chunk's `BufferGeometry` must survive the sweep, because a
+    // disposed geometry is not re-uploaded and its meshes would draw nothing.
+    const keep = new Set<string>()
+    {
+      const groupByChunk = (list: Array<{ x: number; y: number; z: number }>): Map<string, Array<{ x: number; y: number; z: number }>> => {
+        const perChunk = new Map<string, Array<{ x: number; y: number; z: number }>>()
+        for (const c of list) {
+          const k = `${Math.floor(c.x / CHUNK) * CHUNK},${Math.floor(c.y / CHUNK) * CHUNK}`
+          const entry = perChunk.get(k)
+          if (entry) entry.push(c)
+          else perChunk.set(k, [c])
+        }
+        return perChunk
+      }
+      // Mirrors the two passes below exactly, so the keys match.
+      for (const [levelZ, band] of byBand) {
+        for (const [k, list] of groupByChunk(band.cells)) {
+          const [cx, cy] = k.split(',').map(Number)
+          const key = chunkKey(levelZ, cx, cy, false, list)
+          if (reuse.has(key)) keep.add(key)
+        }
+        const floats = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
+        if (floats.length > 0) {
+          for (const [k, list] of groupByChunk(floats)) {
+            const [cx, cy] = k.split(',').map(Number)
+            const key = chunkKey(levelZ, cx, cy, true, list)
+            if (reuse.has(key)) keep.add(key)
+          }
+        }
+      }
+    }
+    this.keepChunkGeometries = keep
+    this.releaseChunks()
+    this.scene.remove(...this.levelGroups.values())
+    this.levelGroups.clear()
+    this.keepChunkGeometries = null
+    const nextCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
+    const meshBand = (group: THREE.Group, levelZ: number, cells: Array<{ x: number; y: number; z: number }>, solid: Set<number>, emit: Set<number>, isFloat: boolean): void => {
+      // Chunks are grouped once and meshed from that chunk's own cells, rather than
+      // walking the whole 16³ volume with an `emit` test per cell: the volume is
+      // mostly air, and a band that spans several z levels visited every column for
+      // every level in it.
+      const byChunk = new Map<string, { cx: number; cy: number; cells: Array<{ x: number; y: number; z: number }> }>()
+      for (const c of cells) {
         const cx = Math.floor(c.x / CHUNK) * CHUNK
         const cy = Math.floor(c.y / CHUNK) * CHUNK
         const k = `${cx},${cy}`
-        if (seen.has(k)) continue
-        seen.add(k)
-        const chunk = meshChunk(solid, this.finishes, cx, cy, band.zLo, band.zHi, emit, this.hiddenCells)
+        let entry = byChunk.get(k)
+        if (!entry) byChunk.set(k, (entry = { cx, cy, cells: [] }))
+        entry.cells.push(c)
+      }
+      for (const { cx, cy, cells: chunkCells } of byChunk.values()) {
+        const key = chunkKey(levelZ, cx, cy, isFloat, chunkCells)
+        // Unchanged since the last rebuild: keep the meshes, their GPU geometry and
+        // their material wiring, and only put them back in the group.
+        const keptEntry = keep.has(key) ? reuse.get(key) : undefined
+        if (keptEntry) {
+          nextCache.set(key, keptEntry)
+          for (const m of keptEntry.meshes) {
+            group.add(m)
+            this.chunkMeshes.push(m)
+            if (m.geometry.boundingBox) box.union(m.geometry.boundingBox)
+          }
+          for (const o of keptEntry.outlines) {
+            group.add(o)
+            this.outlineMeshes.push(o)
+            this.outlineSet.add(o)
+          }
+          continue
+        }
+        const chunk = meshChunk(solid, this.finishes, cx, cy, levelZ, levelZ, emit, this.hiddenCells, chunkCells, this.thinSides)
         if (chunk.triangles === 0) continue
         this.lastChunkMs = Math.max(this.lastChunkMs, chunk.ms)
+        const meshes: THREE.Mesh[] = []
+        const outlines: THREE.Mesh[] = []
         // One mesh per finish, sharing the chunk geometry where faces agree.
         for (const part of chunk.parts) {
           const geo = new THREE.BufferGeometry()
@@ -664,11 +817,12 @@ export class SceneRenderer {
           const mesh = new THREE.Mesh(geo, this.mats.finish(part.finish))
           mesh.userData.levelZ = levelZ
           mesh.userData.float = isFloat
-          mesh.userData.cells = band.cells.length
+          mesh.userData.cells = chunkCells.length
           // Tag wall faces so 隐藏墙壁 can fade them (and their outline) alone.
           mesh.userData.wall = finishDef(part.finish).family === 'wall'
           group.add(mesh)
           this.chunkMeshes.push(mesh)
+          meshes.push(mesh)
           // Inverted hull outline: same geometry, back faces, pushed outward.
           const outlineMat = this.outlineMaterial()
           const outline = new THREE.Mesh(geo, outlineMat)
@@ -682,20 +836,47 @@ export class SceneRenderer {
           outline.renderOrder = -1
           group.add(outline)
           this.outlineMeshes.push(outline)
+          this.outlineSet.add(outline)
+          outlines.push(outline)
+        }
+        if (meshes.length > 0) {
+          // Every part's geometry, not just the first: a chunk is one mesh per
+          // finish, and keeping the geometry of a reused chunk means keeping all of
+          // them — the rest are disposes of in `releaseChunks` otherwise, and a
+          // disposed geometry is never re-uploaded.
+          nextCache.set(key, { key, meshes, outlines, geometries: meshes.map((m) => m.geometry) })
         }
       }
     }
     for (const [levelZ, band] of byBand) {
       const group = new THREE.Group()
       group.userData.levelZ = levelZ
+      // Emit exactly this band's cells: runs overlap in z across columns, so a
+      // chunk's z window alone would mesh a neighbouring storey too. Both passes
+      // read the same set — the second only meshes the plates with nothing under
+      // them — so it is built once and the floating pass is handed the short list
+      // of unsupported cells rather than walking the whole storey again.
+      const emit = new Set<number>()
+      for (const c of band.cells) emit.add(packKey(c.x, c.y, c.z))
       // The whole storey, then its unsupported plates on their own, so the two can
       // be shown separately: a storey below the active level draws whole, while a
       // plate hanging above it still stays on screen.
-      meshBand(group, levelZ, band, this.solid, false)
-      meshBand(group, levelZ, band, floating, true)
+      meshBand(group, levelZ, band.cells, this.solid, emit, false)
+      const floats = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
+      if (floats.length > 0) meshBand(group, levelZ, floats, floating, emit, true)
       this.levelGroups.set(levelZ, group)
       this.scene.add(group)
     }
+    // Whatever the rebuild did not claim is a chunk that no longer exists (or that
+    // changed): release its geometry and its per-chunk outline material, or the
+    // cache becomes the leak it was meant to avoid. A kept chunk was skipped by
+    // `releaseChunks` above and is already back in `nextCache`.
+    for (const [key, stale] of reuse) {
+      if (nextCache.has(key)) continue
+      for (const m of stale.outlines) (m.material as THREE.Material).dispose()
+      for (const g of stale.geometries) g.dispose()
+    }
+    this.chunkCache = nextCache
     this.bounds = box
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(0, 0, 0), new THREE.Vector3(8, 8, 8))
     this.buildModules(data, trackCells)
@@ -892,6 +1073,7 @@ export class SceneRenderer {
       tvPlate: (id, x, y) => this.makeTvPlate(id, x, y),
       tvPairSlot: (id) => tvPairSlot(id, data.modules),
       signFace: (id, layout, face, panel) => this.makeSignPlate(id, layout, face, panel),
+      owned: this.ownedMats,
     }
     const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
     this.psdGroups = []
@@ -956,14 +1138,6 @@ export class SceneRenderer {
         else blobsByKey.set(bk, { levelZ: mod.z, ground, blobs: [blob] })
       }
     }
-    // A ramp-adjacent half block, keyed to its storey band like any other
-    // fixture so the level slicer hides it with the floor it belongs to.
-    for (const g of buildRampThins(ctx, this.rampThins)) {
-      const [wx, wy, wz] = g.userData.cell as [number, number, number]
-      g.userData.levelZ = storeyBand(wz)
-      g.userData.groundBand = this.groundOf.get(`${wx},${wy}`)
-      this.moduleMeshes.add(g)
-    }
     // Contact blobs under the floor-standing modules (§11), one batch per level
     // so a shadow disappears with the storey it sits on. `clearModules` disposes
     // every previous batch, so none of them are removed again here.
@@ -998,6 +1172,16 @@ export class SceneRenderer {
     // passes through.
     this.clearTvPlates()
     this.clearSignPlates()
+    // The materials a builder minted for this build (a 站台门 header, an 出入口
+    // header, the 售票机 marquee, a room's 招牌). They wrap a canvas of their own, so
+    // keeping them — which is what `disposeObject` does with every other material —
+    // would hold the pixels and the GL texture for the rest of the session.
+    for (const m of this.ownedMats) {
+      const map = (m as THREE.MeshBasicMaterial).map
+      if (map) map.dispose()
+      m.dispose()
+    }
+    this.ownedMats = []
     for (const child of [...this.moduleMeshes.children]) {
       disposeObject(child)
       this.moduleMeshes.remove(child)
@@ -1072,10 +1256,11 @@ export class SceneRenderer {
       const win = tv.screen.userData.adWindow as { x: number; z: number; w: number; h: number } | undefined
       if (win && this.ads) {
         const next = this.ads.adWindow(win.w, win.h)
-        const prev = tv.screen.geometry
+        // The quad is `adArt`'s and is shared with every screen on this panel size,
+        // so it is never disposed here — only re-pointed. The material is shared
+        // from the ad cache too, so it is only dropped, never disposed.
         tv.screen.geometry = next.geometry
         tv.screen.material = next.material
-        prev.dispose()
         tv.screen.userData.adPoster = next.slug
         tv.poster = next.slug
       }
@@ -1372,14 +1557,32 @@ export class SceneRenderer {
     return mesh
   }
 
-  private buildGrid(): void {
+  private clearGrid(): void {
+    // `Group.clear()` only unparents: the geometry and the per-build line material
+    // have to be released too, or every rebuild leaves a dead VBO behind.
+    for (const child of this.grid.children) {
+      const seg = child as THREE.LineSegments
+      seg.geometry?.dispose()
+      const mat = seg.material as THREE.Material | undefined
+      mat?.dispose()
+    }
     this.grid.clear()
+  }
+
+  private buildGrid(): void {
     const box = this.bounds
     const x0 = Math.floor(box.min.x / 5) * 5 - 5
     const x1 = Math.ceil(box.max.x / 5) * 5 + 5
     const y0 = Math.floor(box.min.y / 5) * 5 - 5
     const y1 = Math.ceil(box.max.y / 5) * 5 + 5
     const z = this.activeZ + 1.002
+    // The grid depends on the station's extent and the active storey, not on what
+    // the last edit changed — and `setStation` and `setLevel` both call this, so
+    // most edits rebuild an identical grid. Reuse it when nothing it reads moved.
+    const key = `${x0},${x1},${y0},${y1},${z}`
+    if (key === this.gridKey && this.grid.children.length > 0) return
+    this.clearGrid()
+    this.gridKey = key
     const minor = new Float32Array(((x1 - x0) + (y1 - y0) + 2) * 6)
     let k = 0
     for (let x = x0; x <= x1; x++) {
@@ -1395,15 +1598,61 @@ export class SceneRenderer {
   }
 
   private disposeChunks(): void {
+    this.releaseChunks()
+    this.scene.remove(...this.levelGroups.values())
+    this.levelGroups.clear()
+    // `dispose()` is the end of the road, so the cache's own references go too — the
+    // geometry itself was already released by `releaseChunks` above.
+    this.chunkCache.clear()
+  }
+
+  /**
+   * Release the rebuilt chunk geometry and the per-chunk outline materials, without
+   * touching the scene graph or the chunk cache.
+   *
+   * `setStation` calls this to put down everything the *last* rebuild left, then
+   * re-adds from `chunkCache` the chunks whose content did not change — so the
+   * geometry here is still wanted by the cache entries, which is why this is split
+   * from the cache's own pruning (see the stale sweep in `setStation`).
+   */
+  private releaseChunks(): void {
     // Geometries are shared between a chunk mesh and its outline mesh, and the
     // surface materials are shared across chunks: only the geometry and the
     // per-chunk outline material are ours to dispose.
-    for (const m of this.chunkMeshes) m.geometry.dispose()
-    for (const m of this.outlineMeshes) (m.material as THREE.Material).dispose()
-    for (const g of this.levelGroups.values()) this.scene.remove(g)
-    this.levelGroups.clear()
+    //
+    // A chunk the rebuild is about to reuse is skipped: its geometry is handed
+    // straight back to a fresh group, and disposing it would drop it from the GPU
+    // without a re-upload, so the reused meshes would draw nothing.
+    const keep = this.keepChunkGeometries
+    const kept = keep ? new Set<THREE.BufferGeometry>() : null
+    const keptOutline = keep ? new Set<THREE.Material>() : null
+    if (keep) {
+      for (const entry of this.chunkCache.values()) {
+        if (!keep.has(entry.key)) continue
+        for (const g of entry.geometries) kept?.add(g)
+        for (const o of entry.outlines) keptOutline?.add(o.material as THREE.Material)
+      }
+    }
+    for (const m of this.chunkMeshes) {
+      if (kept?.has(m.geometry)) continue
+      m.geometry.dispose()
+    }
+    for (const m of this.outlineMeshes) {
+      const mat = m.material as THREE.Material
+      if (keptOutline?.has(mat)) continue
+      mat.dispose()
+    }
+    // The 显示其他层 / 隐藏墙壁 caches are keyed by the very materials just dropped —
+    // an outline material is minted per chunk part per rebuild, and a module-local
+    // plate material per module. Left alone they grow for the whole session, and
+    // each entry pins a material (and, through `Material.clone`, its `map` texture)
+    // that nothing else references any more. Dropping what is now unreachable is
+    // all this needs: every live material is re-cached on the next `applyLevel`.
+    this.dimMats.clear()
+    this.clearMats.clear()
     this.chunkMeshes = []
     this.outlineMeshes = []
+    this.outlineSet = new Set()
   }
 
   /* ------------------------------------------------------------- levels */
@@ -1434,9 +1683,19 @@ export class SceneRenderer {
    * still draws, and only for the plates that are not that room's ceiling.
    */
   private applyLevel(): void {
+    // This walks every chunk mesh and every module group in the station, so it is
+    // the most expensive thing a view toggle does. One edit can ask for it three
+    // times (`setStation` → `setLevel`, then `setAutoCeiling`, then `setCutaway`),
+    // and two of those usually change nothing — so skip a repeat with the same
+    // slice. `setStation` clears the key because it rebuilds the meshes this
+    // assigns materials to.
+    const key = `${this.activeZ}|${this.ghost}|${this.autoCeiling}|${this.hideWalls}`
+    if (key === this.levelKey) return
+    this.levelKey = key
     // One reused options record: `applyLevel` walks every chunk mesh in the
     // station, so it must not mint an object per mesh.
     const opts = { ghost: this.ghost, autoCeiling: this.autoCeiling, unsupported: false }
+    const outlines = this.outlineSet
     for (const [lz, group] of this.levelGroups) {
       group.visible = true
       const side = levelSide([lz], this.activeZ)
@@ -1448,7 +1707,7 @@ export class SceneRenderer {
         opts.unsupported = mesh.userData.float === true
         mesh.visible = levelVisible(side, opts)
         if (!mesh.visible) continue
-        const isOutline = this.outlineMeshes.includes(mesh)
+        const isOutline = outlines.has(mesh)
         // 隐藏墙壁: fade the wall faces, and drop their dark outline hull, which
         // would otherwise read as a solid black wall around the translucent faces.
         if (this.hideWalls && mesh.userData.wall === true) {
@@ -1940,15 +2199,23 @@ export class SceneRenderer {
    * would delete with boxes (red by default, or a caller's colour for a
    * different meaning — e.g. cyan for a wall opening); an add drag shows the
    * final shape the pending cells will take — meshed with the real profile, then
-   * drawn translucent — so the release is not a surprise.
+   * drawn translucent — so the release is not a surprise. `thin` names the
+   * pending cells that are **半墙** (packed key → the side the panel hugs), so a
+   * half-block wall previews as half a block rather than as a full one: the
+   * thickness is the whole piece.
    */
-  setGhost(cells: Array<[number, number, number]>, kind: 'add' | 'remove', colour = 0xff5d5d): void {
+  setGhost(
+    cells: Array<[number, number, number]>,
+    kind: 'add' | 'remove',
+    colour = 0xff5d5d,
+    thin?: ReadonlyMap<number, WallSide>,
+  ): void {
     if (kind === 'add') {
       if (this.ghostMesh) this.ghostMesh.visible = false
-      const key = this.ghostKeyOf(cells)
+      const key = this.ghostKeyOf(cells, thin)
       if (key === this.ghostKey) return
       this.ghostKey = key
-      this.buildShapeGhost(cells)
+      this.buildShapeGhost(cells, thin)
       return
     }
 
@@ -1983,13 +2250,20 @@ export class SceneRenderer {
     if (this.ghostMesh.instanceColor) this.ghostMesh.instanceColor.needsUpdate = true
   }
 
-  /** A cheap order-stable fingerprint of a pending cell set, to skip re-meshing. */
-  private ghostKeyOf(cells: Array<[number, number, number]>): string {
+  /**
+   * A cheap order-stable fingerprint of a pending cell set, to skip re-meshing.
+   * The 半墙 sides are part of it: R steps the thickness a thin wall's panel takes
+   * without the pending cells moving at all, and a ghost that skipped that rebuild
+   * would show the wall the player just turned away from.
+   */
+  private ghostKeyOf(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, WallSide>): string {
     let h = 2166136261
     for (const [x, y, z] of cells) {
       h = Math.imul(h ^ (x + 4096), 16777619)
       h = Math.imul(h ^ (y + 4096), 16777619)
       h = Math.imul(h ^ (z + 4096), 16777619)
+      const side = thin?.get(packKey(x, y, z))
+      if (side !== undefined) h = Math.imul(h ^ side.charCodeAt(0), 16777619)
     }
     return `${cells.length}:${h >>> 0}`
   }
@@ -1998,9 +2272,10 @@ export class SceneRenderer {
    * Draw the pending add-cells as their final geometry. The real chunk mesher
    * builds the rounded silhouette, but only the pending cells emit faces while
    * the whole station answers neighbour queries — so the preview is the exact
-   * surface the release will add, sitting at the exact target cells.
+   * surface the release will add, sitting at the exact target cells. A 半墙 among
+   * them is meshed half a block thick, exactly as it will be once laid.
    */
-  private buildShapeGhost(cells: Array<[number, number, number]>): void {
+  private buildShapeGhost(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, WallSide>): void {
     this.clearShapeGhost()
     if (cells.length === 0) return
     const emit = new Set<number>()
@@ -2020,7 +2295,7 @@ export class SceneRenderer {
     const mat = this.shapeGhostMaterial()
     try {
       for (const { cx, cy, cz } of chunks.values()) {
-        const chunk = meshChunk(this.solid, this.finishes, cx, cy, cz, cz, emit)
+        const chunk = meshChunk(this.solid, this.finishes, cx, cy, cz, cz, emit, undefined, undefined, thin)
         for (const part of chunk.parts) {
           const geo = new THREE.BufferGeometry()
           geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3))
@@ -2064,7 +2339,10 @@ export class SceneRenderer {
   /**
    * Paint-tool preview (§9.5): a flat translucent quad sitting just proud of
    * every face a paint drag would colour. `colour` is the brush's own tint, so
-   * the preview shows the finish, not just the rectangle.
+   * the preview shows the finish, not just the rectangle. A **半墙** is the one
+   * surface that is not on its cell's boundary: its panel is half a block thick,
+   * so the quad for the face looking across the cell's clear half sits on the
+   * panel itself, half a block in — the same place the brush will paint.
    */
   setFaceGhost(cells: Array<[number, number, number]>, face: Face, colour: number): void {
     if (cells.length === 0) {
@@ -2088,7 +2366,10 @@ export class SceneRenderer {
     const scale = new THREE.Vector3(1, 1, 1)
     for (let i = 0; i < n; i++) {
       const [x, y, z] = cells[i]
-      pos.set(x + 0.5 + nx * 0.505, y + 0.5 + ny * 0.505, z + 0.5 + nz * 0.505)
+      const side = this.thinSides.get(packKey(x, y, z))
+      const inset = side !== undefined && face === halfWallInnerFace(side) ? HALF_WALL_T : 0
+      const off = 0.505 - inset
+      pos.set(x + 0.5 + nx * off, y + 0.5 + ny * off, z + 0.5 + nz * off)
       mat.compose(pos, q, scale)
       this.faceGhost.setMatrixAt(i, mat)
       this.faceGhost.setColorAt(i, col)
@@ -2131,6 +2412,7 @@ export class SceneRenderer {
       tvPlate: (id, x, y) => this.makeTvPlate(id, x, y),
       tvPairSlot: (id) => tvPairSlot(id, data.modules),
       signFace: (id, layout, face, panel) => this.makeSignPlate(id, layout, face, panel),
+      owned: this.previewOwnedMats,
     }
     const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
     const shared = new Set<THREE.Material>()
@@ -2217,6 +2499,12 @@ export class SceneRenderer {
     for (const m of this.previewBases) m.dispose()
     this.previewMats.length = 0
     this.previewBases.length = 0
+    for (const m of this.previewOwnedMats) {
+      const map = (m as THREE.MeshBasicMaterial).map
+      if (map) map.dispose()
+      m.dispose()
+    }
+    this.previewOwnedMats = []
     this.previewGroup.visible = false
     this.previewKey = ''
   }
@@ -2584,16 +2872,26 @@ function blobRadius(type: Module['type']): number {
   }
 }
 
-/** The cell level(s) a module occupies, for the ghost/level slicing. */
+/**
+ * The storeys a module occupies, for the ghost/level slicing.
+ *
+ * Every entry is a **storey band**, not a raw height — `storeyBand(z)`, the same
+ * key the cell mesher and `levelSide` compare against. A module's `z` is the floor
+ * it is anchored to, which is what the cells around it are keyed by as well; a
+ * fixture hung from the ceiling above is placed at the storey *below* the slab it
+ * hangs from, so its raw `z` (1) would otherwise read as a band of its own and no
+ * active storey would ever draw it. A run keeps both of its ends, and its landings
+ * come out of `stairLevels` already on the grid.
+ */
 function moduleLevels(mod: Module): number[] {
   switch (mod.type) {
     case 'escalator':
     case 'lift':
-      return [mod.from.z, mod.to.z]
+      return [storeyBand(mod.from.z), storeyBand(mod.to.z)]
     case 'stair':
-      return stairLevels(mod)
+      return stairLevels(mod).map(storeyBand)
     default:
-      return [mod.z]
+      return [storeyBand(mod.z)]
   }
 }
 

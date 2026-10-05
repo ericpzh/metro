@@ -1,14 +1,17 @@
 // 3D palette icons for the 分区 (fare-zone) folder in the build rail.
 //
-// The equipment tiles show the *real* in-game model (`moduleThumbnails.ts`), so
-// the zone palette follows suit at the scale the tool actually paints: a fare
-// zone is a grey floor slab wearing its overlay colour, and a facility room is
-// that same slab ringed by low walls — exactly what the rectangle drag builds.
-// Rendered once through an offscreen WebGL pass and cached for the session.
+// A fare zone is a grey floor slab wearing its overlay colour — exactly what the
+// rectangle drag paints — rendered once through an offscreen WebGL pass and cached
+// for the session.
+//
+// The 房间 folder's tiles do **not** come from here. A room is identified by what
+// it is for, so those tiles wear a blueprint line icon (`LeftRail`'s `roomStore` /
+// `roomTicket` / `roomOffice` / `roomRestroom`) instead of a render of the model or
+// a colour field, which is the one way a 1 cm tile can say "tickets" and "washroom"
+// apart.
 
 import * as THREE from 'three'
 import { ZONE_LIST } from '../sim/zones.ts'
-import { FACILITY_OPTIONS } from './store.ts'
 
 /** The isometric direction the game opens on (`SceneRenderer.setPreset('iso')`). */
 const ISO = new THREE.Vector3(1, -1.2, 0.85).normalize()
@@ -57,58 +60,6 @@ function zoneIcon(colour: number): THREE.Group {
   return g
 }
 
-/**
- * A facility room (§5.7): coloured floor ringed by low walls, doorway south,
- * with a hint of the fit-out (shelf / cubicle / desk) so 商店, 厕所, 办公室 and
- * 售票亭 read apart at a glance.
- */
-function facilityIcon(kind: string, colour: number): THREE.Group {
-  const g = new THREE.Group()
-  g.add(floorSlab())
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(SLAB_W - 0.16, SLAB_D - 0.16), tintMaterial(colour))
-  floor.position.z = SLAB_H + 0.012
-  g.add(floor)
-
-  const wallH = 0.62
-  const wallT = 0.14
-  const wall = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.6, metalness: 0.02 })
-  const add = (sx: number, sy: number, x: number, y: number): void => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, wallH), wall)
-    m.position.set(x, y, SLAB_H + wallH / 2)
-    g.add(m)
-  }
-  const ex = SLAB_W / 2 - wallT / 2
-  const ey = SLAB_D / 2 - wallT / 2
-  add(wallT, SLAB_D, -ex, 0) // west
-  add(wallT, SLAB_D, ex, 0) // east
-  add(SLAB_W, wallT, 0, ey) // north
-  // South wall, split around a doorway like the room the tool drops.
-  const door = 0.7
-  const stub = (SLAB_W - door) / 2
-  add(stub, wallT, -(door / 2 + stub / 2), -ey)
-  add(stub, wallT, door / 2 + stub / 2, -ey)
-
-  // Fit-out hint. A booth keeps its open desk ring; rooms get simple furniture.
-  const body = new THREE.MeshStandardMaterial({ color: 0x3c434c, roughness: 0.7, metalness: 0.05 })
-  const panel = new THREE.MeshStandardMaterial({ color: 0xb7bdc4, roughness: 0.6, metalness: 0.05 })
-  const box = (mat: THREE.Material, sx: number, sy: number, sz: number, x: number, y: number): void => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat)
-    m.position.set(x, y, SLAB_H + sz / 2)
-    g.add(m)
-  }
-  if (kind === 'toilet') {
-    for (const x of [-0.55, 0.0, 0.55]) box(panel, 0.04, 0.5, 0.5, x, 0.45)
-  } else if (kind === 'office') {
-    box(body, 1.0, 0.5, 0.1, 0, 0.1)
-    box(panel, 1.0, 0.06, 0.5, 0, 0.1)
-    box(body, 0.55, 0.42, 0.1, 0, 0.55)
-  } else if (kind === 'shop') {
-    box(body, 0.9, 0.16, 0.45, 0, 0.35)
-    box(panel, 0.9, 0.16, 0.45, 0, 0.0)
-  }
-  return g
-}
-
 /** Icons own their materials, so free both geometry and material as we finish. */
 function disposeIcon(root: THREE.Object3D): void {
   root.traverse((o) => {
@@ -120,7 +71,7 @@ function disposeIcon(root: THREE.Object3D): void {
   })
 }
 
-/** Render every zone and facility brush once. Throws if WebGL is unavailable. */
+/** Render every fare-zone brush once. Throws if WebGL is unavailable. */
 export function renderZoneThumbnails(size = 132): Record<string, string> {
   const out: Record<string, string> = {}
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
@@ -146,10 +97,7 @@ export function renderZoneThumbnails(size = 132): Record<string, string> {
   // The world is Z-up, so the icon camera must be too.
   camera.up.set(0, 0, 1)
 
-  const icons: Array<[string, THREE.Group]> = [
-    ...ZONE_LIST.map((z): [string, THREE.Group] => [z.id, zoneIcon(z.colour)]),
-    ...FACILITY_OPTIONS.map((f): [string, THREE.Group] => [f.id, facilityIcon(f.id, f.colour)]),
-  ]
+  const icons: Array<[string, THREE.Group]> = ZONE_LIST.map((z): [string, THREE.Group] => [z.id, zoneIcon(z.colour)])
 
   try {
     for (const [id, group] of icons) {

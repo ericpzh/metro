@@ -21,7 +21,7 @@ import { rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS } from './constants.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
-import { isWallBlock, type Cell, type Module, type Vec3i } from './types.ts'
+import { halfWallSide, isWallBlock, type Cell, type Module, type Vec3i, type WallSide } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
 export interface ModuleBox {
@@ -34,7 +34,7 @@ export interface ModuleBox {
 }
 
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'billboard' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'clock' | 'cctv' | 'billboard' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.3,
   fence: 1.0,
   tvm: 1.9,
@@ -50,10 +50,14 @@ const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shel
   extinguisher: 1.1,
   billboard: 2.4,
   tv: 3.0,
-  // A ceiling-hung sign or TV spans the whole storey, from the floor top to the
-  // ceiling one grid step up, so its envelope is the full column (and it is
-  // found/blocked like any other equipment).
+  // A ceiling-hung 指示牌 / 电视 / 时钟 / 监控 spans the whole storey, from the floor
+  // top to the ceiling one grid step up, so its envelope is the full column (and it
+  // is found/blocked like any other equipment). The clock's dial and the camera's
+  // head both sit inside that column — the piece is hung, so the air under it is
+  // reserved rather than free floor.
   sign: 3.0,
+  clock: 3.0,
+  cctv: 3.0,
   retail: 3.6,
   shop: 3.6,
   booth: 2.4,
@@ -130,6 +134,8 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'sink':
     case 'bin':
     case 'extinguisher':
+    case 'clock':
+    case 'cctv':
     case 'tv':
     case 'sign':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
@@ -303,7 +309,7 @@ export function reservedOpening(modules: readonly Module[], x: number, y: number
 const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard'])
 
 /** Decoration types that hang by rods from the ceiling slab above them (§5.7). */
-const CEILING_MOUNTED: ReadonlySet<string> = new Set(['sign', 'tv'])
+const CEILING_MOUNTED: ReadonlySet<string> = new Set(['sign', 'tv', 'clock', 'cctv'])
 
 /**
  * The cell step from a wall-mounted module to the wall it hangs on. The model
@@ -332,21 +338,39 @@ export function wallMountStandCell(
   return onWall ? [place[0], place[1], place[2]] : [cell[0], cell[1], cell[2]]
 }
 
+/** A unit cell step as the side it names (`+y` is `n`, `+x` is `e`). */
+function stepSide(dx: number, dy: number): WallSide {
+  if (dx > 0) return 'e'
+  if (dx < 0) return 'w'
+  return dy > 0 ? 'n' : 's'
+}
+
 /**
  * True when a wall-mounted decoration has no wall behind it. The backing is the
  * first course of the facing neighbour (`z + 1`): auto walls and the 墙 tool
  * both rise from the floor's top, so a solid block there is a wall the panel can
  * bolt onto. Every cell of a multi-cell billboard run needs its own wall, or the
  * banner would hang off the end. Non-wall-mounted modules are never refused.
+ *
+ * A **半墙** is only a wall on the half of its cell it keeps: its face on the far
+ * side is half a block away, so a panel bolted there would hang in mid-air. The
+ * backing therefore has to keep the half that faces the panel — which is a
+ * function of the panel's own `rot`, like everything else about the mount, so
+ * `autofaceWallMount` can simply turn the piece to a side that really backs it.
  */
 export function wallMountMissing(cells: readonly Cell[], candidate: Module): boolean {
   if (!WALL_MOUNTED.has(candidate.type)) return false
   const [dx, dy] = wallSide(candidate.rot)
   const nz = candidate.z + 1
+  // The half of the backing cell the panel's own back plane touches.
+  const needed = stepSide(-dx, -dy)
   for (const [bx, by] of baseCells(candidate)) {
     const nx = bx + dx
     const ny = by + dy
-    if (!cells.some((c) => c.fill === 'solid' && c.x === nx && c.y === ny && c.z === nz)) return true
+    const back = cells.find((c) => c.fill === 'solid' && c.x === nx && c.y === ny && c.z === nz)
+    if (back === undefined) return true
+    const side = halfWallSide(back)
+    if (side !== null && side !== needed) return true
   }
   return false
 }
@@ -394,18 +418,22 @@ export function autofaceWallMount(cells: readonly Cell[], candidate: Module, nea
 /* ------------------------------------------------------ ceiling-hung decor */
 
 /**
- * True when a ceiling-hung decoration (指示牌 or 电视) has no ceiling above it.
- * The ceiling is the first storey grid line above the piece's floor
+ * True when a ceiling-hung decoration (指示牌, 电视, 时钟 or 监控) has no ceiling
+ * above it. The ceiling is the first storey grid line above the piece's floor
  * (`LEVEL_STEPS`, one storey = 4 m in the built grid): the slab the suspension
  * rods bolt to. A piece with nothing overhead has nowhere to hang, so the
  * builder refuses it. Wall-mounted and floor-standing modules are never refused.
+ *
+ * Every cell of the piece needs a slab over it, asked through `baseCells` so that
+ * a future multi-cell hung fitting is covered rather than only its anchor.
  */
 export function ceilingMountMissing(cells: readonly Cell[], candidate: Module): boolean {
   if (!CEILING_MOUNTED.has(candidate.type)) return false
   const ceilingZ = LEVEL_STEPS.find((z) => z > candidate.z)
   if (ceilingZ === undefined) return true
-  return !cells.some(
-    (c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === ceilingZ,
+  return baseCells(candidate).some(
+    ([bx, by]) =>
+      !cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === ceilingZ),
   )
 }
 
@@ -629,6 +657,8 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'sink',
   'bin',
   'extinguisher',
+  'clock',
+  'cctv',
   'billboard',
   'tv',
   'sign',
@@ -652,9 +682,9 @@ export function movedModule(m: Module, at: Vec3i, rot: number): Module {
  * Why a lifted piece may not be dropped as `candidate`, or `''` when it may. The
  * same rules a fresh placement answers to — floor under every cell it stands on,
  * no track bed, nothing already in the space, a wall behind a 广告牌, a ceiling
- * over a 指示牌 / 电视 — asked of a piece that already exists, so the copy still
- * standing at the piece's origin never counts as the obstacle (`placementBlocked`
- * matches a candidate to itself by id).
+ * over a 指示牌 / 电视 / 时钟 / 监控 — asked of a piece that already exists, so the
+ * copy still standing at the piece's origin never counts as the obstacle
+ * (`placementBlocked` matches a candidate to itself by id).
  */
 export function moveDropReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module): string {
   // A 广告牌 bolts to a wall and may hang over the track where there is no floor
@@ -672,7 +702,7 @@ export function moveDropReason(cells: readonly Cell[], modules: readonly Module[
   }
   if (placementOnTrack(cells, candidate, modules)) return '轨道上不能放设备'
   if (placementBlocked(modules, candidate)) return '这儿已经有设备了，换个地方'
-  if (ceilingMountMissing(cells, candidate)) return '指示牌和电视要吊在天花板下：上面得有一层楼板（四米高）'
+  if (ceilingMountMissing(cells, candidate)) return '指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）'
   return ''
 }
 

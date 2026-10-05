@@ -46,7 +46,7 @@ const has = (cells, x, y, z) => cells.some((c) => c.x === x && c.y === y && c.z 
 
 test('a shop is walled all the way round, with no automatic doorway', () => {
   const r = facilityRect([2, 2, 0], [6, 5, 0], 0)
-  const next = placeFacility(flatStation(), 'shop', r, 'shop-1')
+  const next = placeFacility(flatStation(), 'store', r, 'shop-1')
   const mod = next.modules.find((m) => m.id === 'shop-1')
   assert.ok(mod && mod.type === 'shop')
   assert.deepEqual([mod.w, mod.h], [5, 4])
@@ -68,7 +68,7 @@ test('a shop is walled all the way round, with no automatic doorway', () => {
 
 test('a booth adds no solid cells — it is a desk, not a wall', () => {
   const r = facilityRect([1, 1, 0], [4, 4, 0], 0)
-  const next = placeFacility(flatStation(), 'booth', r, 'booth-1')
+  const next = placeFacility(flatStation(), 'ticket', r, 'booth-1')
   const mod = next.modules.find((m) => m.id === 'booth-1')
   assert.ok(mod && mod.type === 'booth')
   // No cell is added at all above the floor.
@@ -79,7 +79,7 @@ test('a booth adds no solid cells — it is a desk, not a wall', () => {
 
 test('right-click carves openings of any size, anywhere on the wall', () => {
   const r = facilityRect([2, 2, 0], [6, 5, 0], 0)
-  const st = placeFacility(flatStation(), 'shop', r, 'shop-1')
+  const st = placeFacility(flatStation(), 'store', r, 'shop-1')
   const mod = st.modules[0]
   // A 3-wide run along the south wall.
   const dragRect = facilityRect([3, 2, 0], [5, 2, 0], 0)
@@ -99,7 +99,7 @@ test('right-click carves openings of any size, anywhere on the wall', () => {
 
 test('a drag that covers the whole store means delete', () => {
   const r = facilityRect([2, 2, 0], [6, 5, 0], 0)
-  const st = placeFacility(flatStation(), 'shop', r, 'shop-1')
+  const st = placeFacility(flatStation(), 'store', r, 'shop-1')
   const mod = st.modules[0]
   assert.equal(facilityCovers(mod, facilityRect([3, 3, 0], [5, 4, 0], 0)), false, 'an interior drag is not a delete')
   assert.equal(facilityCovers(mod, facilityRect([2, 2, 0], [6, 5, 0], 0)), true, 'the exact store is a delete')
@@ -108,7 +108,7 @@ test('a drag that covers the whole store means delete', () => {
 
 test('facilityAt finds the store from its floor or any of its walls', () => {
   const r = facilityRect([2, 2, 0], [6, 5, 0], 0)
-  const st = placeFacility(flatStation(), 'shop', r, 'shop-1')
+  const st = placeFacility(flatStation(), 'store', r, 'shop-1')
   assert.equal(facilityAt(st, 4, 3, 0)?.id, 'shop-1', 'floor cell not found')
   assert.equal(facilityAt(st, 2, 3, 0 + SHOP_WALL_H)?.id, 'shop-1', 'wall cell not found')
   assert.equal(facilityAt(st, 8, 8, 0), undefined, 'found a store where there is none')
@@ -117,26 +117,26 @@ test('facilityAt finds the store from its floor or any of its walls', () => {
 test('no wall is built where an existing wall already touches', () => {
   const st = flatStation({ wallAt: [1, 3] })
   const r = facilityRect([2, 2, 0], [5, 4, 0], 0)
-  const next = placeFacility(st, 'shop', r, 'shop-1')
+  const next = placeFacility(st, 'store', r, 'shop-1')
   assert.ok(!has(next.cells, 2, 3, 1), 'redundant wall built against an existing wall')
   assert.ok(has(next.cells, 3, 2, 1) || has(next.cells, 4, 4, 1), 'unrelated sides lost their walls')
 })
 
 test('rooms below the minimum size or without floor are rejected', () => {
   const st = flatStation()
-  assert.equal(placeFacility(st, 'shop', facilityRect([0, 0, 0], [1, 1, 0], 0)), st, 'a 2x2 room was accepted')
+  assert.equal(placeFacility(st, 'store', facilityRect([0, 0, 0], [1, 1, 0], 0)), st, 'a 2x2 room was accepted')
   assert.equal(
-    placeFacility(st, 'booth', facilityRect([0, 0, 0], [5, 5, 0], 0)).modules.filter((m) => m.type === 'booth').length,
+    placeFacility(st, 'ticket', facilityRect([0, 0, 0], [5, 5, 0], 0)).modules.filter((m) => m.type === 'booth').length,
     1,
     'a valid booth was rejected',
   )
   void FACILITY_MIN
-  const edge = placeFacility(st, 'shop', facilityRect([8, 8, 0], [12, 12, 0], 0))
+  const edge = placeFacility(st, 'store', facilityRect([8, 8, 0], [12, 12, 0], 0))
   assert.equal(edge, st, 'a room over void was accepted')
 })
 
 test('bulldozing a shop removes its walls but keeps the floor', () => {
-  const placed = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
+  const placed = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
   const gone = removeFacility(placed, 'shop-1')
   assert.equal(gone.modules.length, 0, 'module not removed')
   assert.equal(gone.cells.length, 100, 'the floor was changed')
@@ -145,7 +145,7 @@ test('bulldozing a shop removes its walls but keeps the floor', () => {
 
 test('a shop with no wall left is not a store — it is removed', () => {
   const r = facilityRect([2, 2, 0], [5, 5, 0], 0)
-  const st = placeFacility(flatStation(), 'shop', r, 'shop-1')
+  const st = placeFacility(flatStation(), 'store', r, 'shop-1')
   const mod = st.modules[0]
   const ring = facilityWallCells(st.cells, mod)
   assert.equal(ring.length, 2 * (4 + 4) * SHOP_WALL_H - 4 * SHOP_WALL_H, 'unexpected wall ring size')
@@ -155,21 +155,21 @@ test('a shop with no wall left is not a store — it is removed', () => {
 })
 
 test('two rooms of different types may not overlap', () => {
-  const st = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
+  const st = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
   // A booth partly on the shop footprint is refused, unchanged.
-  assert.equal(placeFacility(st, 'booth', facilityRect([4, 4, 0], [8, 8, 0], 0)), st, 'a booth overlapped a shop')
+  assert.equal(placeFacility(st, 'ticket', facilityRect([4, 4, 0], [8, 8, 0], 0)), st, 'a booth overlapped a shop')
   // And the reverse: a shop drawn across a booth.
-  const boothOnly = placeFacility(flatStation(), 'booth', facilityRect([0, 0, 0], [3, 3, 0], 0), 'booth-1')
-  assert.equal(placeFacility(boothOnly, 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0)), boothOnly, 'a shop overlapped a booth')
+  const boothOnly = placeFacility(flatStation(), 'ticket', facilityRect([0, 0, 0], [3, 3, 0], 0), 'booth-1')
+  assert.equal(placeFacility(boothOnly, 'store', facilityRect([2, 2, 0], [6, 5, 0], 0)), boothOnly, 'a shop overlapped a booth')
   // The plan reports the clash so the UI can explain it.
-  const plan = facilityPlan(st, 'booth', facilityRect([4, 4, 0], [8, 8, 0], 0))
+  const plan = facilityPlan(st, 'ticket', facilityRect([4, 4, 0], [8, 8, 0], 0))
   assert.equal(plan.blockedBy?.id, 'shop-1')
   assert.equal(plan.merge.length, 0)
 })
 
 test('dragging a second room over the same type extends the original', () => {
-  const st = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [5, 4, 0], 0), 'shop-1')
-  const grown = placeFacility(st, 'shop', facilityRect([4, 4, 0], [7, 6, 0], 0))
+  const st = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [5, 4, 0], 0), 'shop-1')
+  const grown = placeFacility(st, 'store', facilityRect([4, 4, 0], [7, 6, 0], 0))
   assert.equal(
     grown.modules.filter((m) => m.type === 'shop').length,
     1,
@@ -187,8 +187,8 @@ test('dragging a second room over the same type extends the original', () => {
   }
   assert.ok(!has(grown.cells, 5, 4, 1), 'a wall was left inside the extended room')
   // Touching, not overlapping, still starts a separate room.
-  const apart = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [5, 4, 0], 0), 'shop-1')
-  const split = placeFacility(apart, 'shop', facilityRect([6, 2, 0], [8, 4, 0], 0))
+  const apart = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [5, 4, 0], 0), 'shop-1')
+  const split = placeFacility(apart, 'store', facilityRect([6, 2, 0], [8, 4, 0], 0))
   assert.equal(
     split.modules.filter((m) => m.type === 'shop').length,
     2,
@@ -197,8 +197,8 @@ test('dragging a second room over the same type extends the original', () => {
 })
 
 test('two booths extend into one without adding voxels', () => {
-  const st = placeFacility(flatStation(), 'booth', facilityRect([1, 1, 0], [3, 3, 0], 0), 'booth-1')
-  const grown = placeFacility(st, 'booth', facilityRect([3, 3, 0], [5, 5, 0], 0))
+  const st = placeFacility(flatStation(), 'ticket', facilityRect([1, 1, 0], [3, 3, 0], 0), 'booth-1')
+  const grown = placeFacility(st, 'ticket', facilityRect([3, 3, 0], [5, 5, 0], 0))
   assert.equal(grown.modules.filter((m) => m.type === 'booth').length, 1, 'a second booth module was created')
   const mod = grown.modules.find((m) => m.type === 'booth')
   assert.equal(mod.id, 'booth-1')
@@ -207,7 +207,7 @@ test('two booths extend into one without adding voxels', () => {
 })
 
 test('extending a shop keeps openings on the new perimeter and drops interior ones', () => {
-  const st0 = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [5, 5, 0], 0), 'shop-1')
+  const st0 = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [5, 5, 0], 0), 'shop-1')
   const mod = st0.modules[0]
   // One opening on the south wall (y=2, which the extension will bury) and one
   // on the east wall (x=5, which stays on the perimeter).
@@ -215,7 +215,7 @@ test('extending a shop keeps openings on the new perimeter and drops interior on
   const east = facilityOpeningCells(st0.cells, mod, facilityRect([5, 3, 0], [5, 3, 0], 0))
   const st = carveFacilityOpenings(st0, 'shop-1', [...south, ...east])
   assert.deepEqual(st.modules[0].cfg.door, [[3, 2], [5, 3]])
-  const grown = placeFacility(st, 'shop', facilityRect([2, 0, 0], [5, 3, 0], 0))
+  const grown = placeFacility(st, 'store', facilityRect([2, 0, 0], [5, 3, 0], 0))
   assert.deepEqual([grown.modules[0].w, grown.modules[0].h], [4, 6])
   assert.deepEqual(grown.modules[0].cfg.door, [[5, 3]], 'the surviving opening was not kept')
   assert.ok(!has(grown.cells, 5, 3, 1), 'the kept opening was walled shut')
@@ -223,8 +223,8 @@ test('extending a shop keeps openings on the new perimeter and drops interior on
 })
 
 test('an extension cannot swallow a room in a bounding-box corner it never touched', () => {
-  const a = placeFacility(flatStation(), 'shop', facilityRect([0, 2, 0], [2, 4, 0], 0), 'shop-1')
-  const st = placeFacility(a, 'booth', facilityRect([3, 3, 0], [5, 5, 0], 0), 'booth-1')
+  const a = placeFacility(flatStation(), 'store', facilityRect([0, 2, 0], [2, 4, 0], 0), 'shop-1')
+  const st = placeFacility(a, 'ticket', facilityRect([3, 3, 0], [5, 5, 0], 0), 'booth-1')
   assert.equal(
     st.modules.filter((m) => m.type === 'shop' || m.type === 'booth').length,
     2,
@@ -233,8 +233,8 @@ test('an extension cannot swallow a room in a bounding-box corner it never touch
   // Extending shop-1 (which touches booth-1 nowhere directly) grows its bounding
   // box over booth-1's corner. The clash must refuse the placement.
   const drag = facilityRect([2, 0, 0], [4, 2, 0], 0)
-  assert.equal(facilityPlan(st, 'shop', drag).blockedBy?.id, 'booth-1')
-  assert.equal(placeFacility(st, 'shop', drag), st, 'an extension swallowed a different-type room')
+  assert.equal(facilityPlan(st, 'store', drag).blockedBy?.id, 'booth-1')
+  assert.equal(placeFacility(st, 'store', drag), st, 'an extension swallowed a different-type room')
 })
 
 test('toilet and office are walled rooms with their own fit-out', () => {
@@ -264,7 +264,7 @@ test('toilet and office are walled rooms with their own fit-out', () => {
 })
 
 test('rooms of a different fit-out do not overlap or merge', () => {
-  const st = placeFacility(flatStation(), 'shop', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
+  const st = placeFacility(flatStation(), 'store', facilityRect([2, 2, 0], [6, 5, 0], 0), 'shop-1')
   // A toilet drawn across the shop is refused, unchanged.
   assert.equal(placeFacility(st, 'toilet', facilityRect([4, 4, 0], [8, 8, 0], 0)), st, 'a toilet overlapped a shop')
   const plan = facilityPlan(st, 'toilet', facilityRect([4, 4, 0], [8, 8, 0], 0))

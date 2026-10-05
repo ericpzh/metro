@@ -3,7 +3,7 @@
 
 import { finishOf, floorSpeed } from '../sim/finishes.ts'
 import { zoneIndex } from '../sim/zones.ts'
-import { carveRampOpenings } from '../sim/openings.ts'
+import { carveRampOpenings, thinWallCells } from '../sim/openings.ts'
 import { isTrackCell, reservedOpening } from '../sim/placement.ts'
 import { LEVEL_STEPS, storeyBand } from '../sim/constants.ts'
 import { BILLBOARD_SPECS, billboardSpec, postersFor } from '../sim/billboards.ts'
@@ -14,7 +14,7 @@ import { escalatorModule, type EscalatorDir } from '../sim/escalators.ts'
 import { liftExtendedDown, liftExtendedUp, liftModule } from '../sim/lifts.ts'
 import { STAIR_WIDTH_NARROW, stairFlightsFor, stairLandings, stairTurnCells } from '../sim/stairs.ts'
 import { makeSignBoards, settleSignBoards, signBoardsOf, type SignBoardsDraft, type SignLineSource } from '../sim/sign.ts'
-import { DEFAULT_ZONE, type BenchVariant, type BillboardVariant, type Cell, type ExitBays, type Face, type FinishId, type GateDoor, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type Zone } from '../sim/types.ts'
+import { DEFAULT_ZONE, halfWallInnerFace, halfWallSide, halfWallTag, type BenchVariant, type BillboardVariant, type Cell, type ExitBays, type Face, type FinishId, type GateDoor, type Module, type RoomKind, type StairStyle, type StationData, type Vec3i, type WallSide, type Zone } from '../sim/types.ts'
 import { referenceStation } from '../data/reference-station.ts'
 
 export function cellKey(x: number, y: number, z: number): string {
@@ -130,6 +130,15 @@ export function createModule(
       return { id, type: 'bin', x, y, z, rot, cfg: {} }
     case 'extinguisher':
       return { id, type: 'extinguisher', x, y, z, rot, cfg: {} }
+    case 'clock':
+      // A station clock (时钟) and a ceiling camera (监控): no variant, no `cfg` —
+      // the clock is round, so its rotation is purely cosmetic, and the camera's
+      // rotation is the direction it watches. Unlike the bin and the cabinet these
+      // two hang from the ceiling rather than standing on the floor
+      // (`ceilingMountMissing`, `sim/placement.ts`).
+      return { id, type: 'clock', x, y, z, rot, cfg: {} }
+    case 'cctv':
+      return { id, type: 'cctv', x, y, z, rot, cfg: {} }
     case 'billboard':
     case 'billboard-wide':
     case 'billboard-standard':
@@ -375,6 +384,33 @@ function cloneCell(c: Cell): Cell {
   return c.finish ? { ...c, finish: { ...c.finish } } : { ...c }
 }
 
+/**
+ * True when a solid cell presents `face` to a paint brush: the face is on the
+ * block's surface, with nothing standing across it. The viewport's `faceTargets`
+ * and `fillSurface`'s flood both ask this, so the brush offers a face the flood
+ * will accept and the two cannot disagree about what is paintable.
+ *
+ * A **半墙** is the case the cell boundary alone gets wrong. Its panel is half a
+ * block thick, so the face looking across the cell's own clear half is a surface
+ * *inside* this cell — a solid neighbour behind it does not cover it. Without that
+ * exception a player could see the side of a 半墙 and not be able to paint it.
+ */
+export function facePresent(
+  solid: ReadonlySet<string>,
+  thin: ReadonlyMap<string, WallDir>,
+  x: number,
+  y: number,
+  z: number,
+  face: Face,
+): boolean {
+  const k = cellKey(x, y, z)
+  if (!solid.has(k)) return false
+  const side = thin.get(k)
+  if (side !== undefined && halfWallInnerFace(side) === face) return true
+  const step = FACE_STEP[face]
+  return !solid.has(cellKey(x + step[0], y + step[1], z + step[2]))
+}
+
 export interface StationState {
   name: string
   seed: number
@@ -384,7 +420,8 @@ export interface StationState {
 }
 
 /**
- * True when a cell sits on the 1 m editing grid.
+ * True when a cell sits on the 1 m editing grid, with a coordinate a double can
+ * represent at all (`NaN`/`Infinity` stringify to `null`).
  *
  * Every build command takes its coordinates from a pick — which floors the ray
  * hit (`scene.pick`) — or from whole-cell arithmetic, so **the game cannot mint a
@@ -392,24 +429,82 @@ export interface StationState {
  * (the author's own station carried 19) is invisible to every tool: a pick snaps
  * to integers, `removeCells` matches an exact coordinate, the graph gives it a
  * degree-0 node and the mesher draws it as a block offset from its neighbours.
- * `toState` therefore drops them on the way in.
  */
 export function isGridCell(c: { x: number; y: number; z: number }): boolean {
-  return Number.isInteger(c.x) && Number.isInteger(c.y) && Number.isInteger(c.z)
+  return Number.isFinite(c.x) && Number.isFinite(c.y) && Number.isFinite(c.z) &&
+    Number.isInteger(c.x) && Number.isInteger(c.y) && Number.isInteger(c.z)
+}
+
+/**
+ * True when a module stands on the grid — its anchor **and** every endpoint it
+ * stores, because a run's `from`/`to` and a switchback's flights are what the
+ * builder lays floor and carves openings from. A module whose endpoints are off the
+ * grid would leave a flight landing on a cell that does not exist.
+ */
+export function isGridModule(m: Module): boolean {
+  const points: Array<{ x: number; y: number; z: number }> = [m]
+  const run = m as { from?: { x: number; y: number; z: number }; to?: { x: number; y: number; z: number } }
+  if (run.from) points.push(run.from)
+  if (run.to) points.push(run.to)
+  if (m.type === 'stair') for (const f of m.cfg.flights ?? []) points.push(f.from, f.to)
+  return points.every(isGridCell)
+}
+
+/**
+ * The cells and modules a document can keep, and how many of each it had to drop.
+ *
+ * One place decides what "damaged" means for the grid, so the two boundaries that
+ * repair a document cannot disagree: `toState` drops them on the way **in** (a save
+ * is the only way one can arrive) and `serialize` drops them on the way **out**, so
+ * a file this game writes can never carry a block no tool can address.
+ */
+export function repairGrid(data: StationData): {
+  cells: Cell[]
+  modules: Module[]
+  droppedCells: number
+  droppedModules: number
+} {
+  const cells = data.cells.filter(isGridCell)
+  const modules = data.modules.filter(isGridModule)
+  return {
+    cells,
+    modules,
+    droppedCells: data.cells.length - cells.length,
+    droppedModules: data.modules.length - modules.length,
+  }
+}
+
+/**
+ * `toState`, plus what the grid repair had to drop, so a caller that can say so
+ * (`parse` → the 打开 notice) reports the repair instead of performing it in
+ * silence.
+ */
+export function toStateRepairing(data: StationData): {
+  state: StationState
+  droppedCells: number
+  droppedModules: number
+} {
+  const repaired = repairGrid(data)
+  return { state: toStateFrom(data, repaired), droppedCells: repaired.droppedCells, droppedModules: repaired.droppedModules }
 }
 
 export function toState(data: StationData): StationState {
+  return toStateFrom(data, repairGrid(data))
+}
+
+/** The one load path: a document already through `repairGrid` becomes a `StationState`. */
+function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>): StationState {
   const state: StationState = {
     name: data.name,
     seed: data.seed,
     // Off-grid cells are dropped here, where every load path passes: they are
-    // unreachable junk no tool can address, so a station that keeps them can
-    // never be cleaned from inside the game.
-    cells: data.cells.filter(isGridCell).map(cloneCell),
+    // unreachable junk no tool can address, so a station that keeps them can never
+    // be cleaned from inside the game (`repairGrid`).
+    cells: repaired.cells.map(cloneCell),
     // A save written before ad screens carried a poster (or the demo) gets one
     // printed now, so a loaded station shows the same campaign on every frame
     // instead of re-rolling it at draw time.
-    modules: ensureSignLayouts(assignAdPosters(data.modules), data).map((m) => ({ ...m })),
+    modules: ensureSignLayouts(assignAdPosters(repaired.modules), data).map((m) => ({ ...m })),
     // Older saves predate the per-line direction termini; default them to ''
     // so the screen header falls back to the direction word instead of undefined.
     lines: data.lines.map((l) => ({ ...l, upTerminus: l.upTerminus ?? '', downTerminus: l.downTerminus ?? '' })),
@@ -640,8 +735,33 @@ export function eraseFaces(state: StationState, cells: Array<[number, number, nu
   return changed ? { ...state, cells: next } : state
 }
 
-/* ----------------------------------------------------------- zones (§4.5) */
+/**
+ * Paint — or clear — a **stair's walking surface** (§4.3, 材质): its treads, the
+ * risers under them and the half-landing platform, which `render/models.ts` draws
+ * from one material (`stairSurface`).
+ *
+ * Without this a stair can only wear the top finish of the floor it climbs from,
+ * so there is no way to say "this staircase is granite" — or to keep a stair
+ * tiled after the floor around it changes. `finish` is the finish the brush
+ * holds, or `null` to hand the surface back to the floor beneath it. Only the
+ * named piece is touched, and the same state comes back when nothing changed, so
+ * a no-op brush is never an undo step.
+ */
+export function paintStairSurface(state: StationState, id: string, finish: FinishId | null): StationState {
+  let changed = false
+  const modules = state.modules.map((m): typeof m => {
+    if (m.type !== 'stair' || m.id !== id) return m
+    if ((m.cfg.finish ?? null) === finish) return m
+    changed = true
+    const cfg = { ...m.cfg }
+    if (finish === null) delete cfg.finish
+    else cfg.finish = finish
+    return { ...m, cfg }
+  })
+  return changed ? { ...state, modules } : state
+}
 
+/* ----------------------------------------------------------- zones (§4.5) */
 export function zoneAt(cells: Cell[], x: number, y: number, z: number): Zone {
   return cells.find((c) => c.x === x && c.y === y && c.z === z)?.zone ?? DEFAULT_ZONE
 }
@@ -899,9 +1019,11 @@ export function wallRun(cells: Array<[number, number, number]>): Array<[number, 
 /**
  * A horizontal direction, as a step in cell coordinates. `s` is `+y` because
  * `+y` is "north" in this codebase's plan (the axes note in the repo guide:
- * `n` is `+y`, `e` is `+x`).
+ * `n` is `+y`, `e` is `+x`). It is the same union a 半墙 stores as its panel side
+ * (`sim/types.ts` `WallSide`), because both answer "which way does this wall
+ * face".
  */
-type WallDir = 'n' | 'e' | 's' | 'w'
+export type WallDir = WallSide
 
 /** The four directions, in the order the 墙 tool cycles them with **R**. */
 export const WALL_DIRS: readonly WallDir[] = ['n', 'e', 's', 'w']
@@ -1067,15 +1189,30 @@ export function wallSnap(
  * Lay a 墙-tool run: full-height wall columns, tagged `WALL` so a later
  * right-click can lift the whole column. Like `addCells`, a reserved opening is
  * refused. Returns the same state when every course already existed.
+ *
+ * `side` lays the run as **半墙** instead: the same column, tagged with the half of
+ * the cell its panel hugs (`halfWallTag`) so the mesher draws it half a block
+ * thick. It is one side for the whole run, because a run is one wall: its panels
+ * line up and the cells between them join, which is what makes a dragged 半墙 read
+ * as a wall rather than as a row of slots.
+ *
+ * `height` is how many courses rise from each base cell. The 墙 tool always wants
+ * the full 4 m column (`AUTO_WALL_H`); the 地基 tool's 半墙 mode lays one block at
+ * a time, so it passes 1 — a single tagged course per click that the player
+ * stacks by hand.
  */
 export function addWalls(
   state: StationState,
   baseCells: Array<[number, number, number]>,
+  side: WallDir | null = null,
+  height: number = AUTO_WALL_H,
 ): { state: StationState; changed: number; blocked: number } {
   const have = new Set(state.cells.map((c) => cellKey(c.x, c.y, c.z)))
+  const tags = side === null ? [WALL] : [WALL, halfWallTag(side)]
   const added: Cell[] = []
   let blocked = 0
-  for (const [x, y, z] of wallRun(baseCells)) {
+  const run = height === AUTO_WALL_H ? wallRun(baseCells) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]))
+  for (const [x, y, z] of run) {
     const k = cellKey(x, y, z)
     if (have.has(k)) continue
     if (reservedOpening(state.modules, x, y, z)) {
@@ -1083,19 +1220,70 @@ export function addWalls(
       continue
     }
     have.add(k)
-    added.push({ x, y, z, fill: 'solid', tags: [WALL] })
+    added.push({ x, y, z, fill: 'solid', tags: [...tags] })
   }
   if (added.length === 0) return { state, changed: 0, blocked }
   return { state: { ...state, cells: [...state.cells, ...added] }, changed: added.length, blocked }
 }
 
 /**
- * True for a cell the 墙 tool owns: a course it laid, or an auto-generated one.
- * Both are the same 4 m wall to the player, so the tool must be able to lift an
- * `AUTO_WALL` ring exactly like its own run.
+ * True for a cell the 墙 tool owns: a course it laid (full or 半墙), or an
+ * auto-generated one. Both are the same 4 m wall to the player, so the tool must
+ * be able to lift an `AUTO_WALL` ring exactly like its own run.
  */
 function isWallCell(c: Cell): boolean {
-  return hasTag(c, WALL) || hasTag(c, AUTO_WALL)
+  return hasTag(c, WALL) || hasTag(c, AUTO_WALL) || halfWallSide(c) !== null
+}
+
+/* -------------------------------------------------------- 半墙 thickness (R) */
+
+/**
+ * The panel sides a 半墙 run may take, best-first, for the **R** cycle.
+ *
+ * A full wall has no thickness to choose, so **R** there only ever steps through
+ * the faces the geometry already offers (`wallSnap`). A 半墙 does: a partition
+ * standing in open floor has no edge to read, and the half of the tile it keeps is
+ * the player's decision. So the candidates are the geometry's own faces first —
+ * which is why laying a 半墙 along a patch edge hugs the edge with no key pressed,
+ * exactly where a full wall would have stood — then the rest.
+ *
+ * A run is the one case the geometry has to constrain: the panels of a dragged
+ * wall are perpendicular to it (a side *along* the run would leave a slot between
+ * column and column), so a run offers only its two sides, the one facing open
+ * space first. A single column has no axis, and offers all four.
+ */
+export function halfWallSideDirs(baseCells: Array<[number, number, number]>, open: readonly WallDir[]): WallDir[] {
+  const alongX = baseCells.every((c) => c[1] === baseCells[0][1])
+  const alongY = baseCells.every((c) => c[0] === baseCells[0][0])
+  const pair: WallDir[] | null =
+    baseCells.length > 1 && alongX !== alongY ? (alongX ? ['n', 's'] : ['e', 'w']) : null
+  if (pair === null) {
+    const out = open.filter((d) => WALL_DIRS.includes(d))
+    for (const d of WALL_DIRS) if (!out.includes(d)) out.push(d)
+    return out
+  }
+  return [...pair.filter((d) => open.includes(d)), ...pair.filter((d) => !open.includes(d))]
+}
+
+/** The side **R** has stepped to, wrapped, for the run of `baseCells`. */
+export function halfWallRunSide(baseCells: Array<[number, number, number]>, open: readonly WallDir[], cycle: number): WallDir {
+  const dirs = halfWallSideDirs(baseCells, open)
+  return dirs[((cycle % dirs.length) + dirs.length) % dirs.length]
+}
+
+/**
+ * Every cell of a station that draws **half a block thick**, by cell key → the side
+ * its panel hugs: a 半墙 the player laid, plus every block a ramp kept beside its
+ * run (`sim/openings.ts` `thinWallCells`, the one list the mesher also draws from).
+ * The app reads it to decide which faces a paint brush may colour (`faceTargets`),
+ * and the builder applies the same rule to a flood fill (`fillSurface`) — so a
+ * stair's own half wall is a surface the 材质 brush knows about, not only the ones
+ * a player laid by hand.
+ */
+export function thinWallSideMap(cells: readonly Cell[], modules: readonly Module[] = []): Map<string, WallDir> {
+  const out = new Map<string, WallDir>()
+  for (const t of thinWallCells(cells, modules)) out.set(cellKey(t.x, t.y, t.z), t.side)
+  return out
 }
 
 /**
@@ -1347,22 +1535,25 @@ export function removeFloor(state: StationState, remove: Array<[number, number, 
 /* ---------------- shop, toilet, office & booth (facility rooms) */
 
 /**
- * Facility room kind built by the zone tool's rectangle drag. `shop`, `toilet`
- * and `office` are walled rooms: they share the `shop` module type and pick
- * their fit-out with `cfg.kind`. `booth` is an open desk counter with no walls.
+ * Facility room kind built by the zone tool's rectangle drag. `store`, `toilet`
+ * and `office` are walled rooms: they share the `shop` module type and pick their
+ * fit-out with `cfg.kind`. `ticket` is an open desk counter with no walls (the
+ * `booth` module). The names are the brushes the rail hands the drag — the same
+ * ids `FACILITY_OPTIONS` carries — so a brush and the piece it builds share one
+ * vocabulary; only the *saved* module keeps its own `shop` / `booth` type.
  */
-export type FacilityKind = 'shop' | 'toilet' | 'office' | 'booth'
+export type FacilityKind = 'store' | 'toilet' | 'office' | 'ticket'
 
 /** The walled-room brushes, mapped to the module `cfg.kind` each one builds. */
-const WALLED_ROOM: Record<'shop' | 'toilet' | 'office', RoomKind> = {
-  shop: 'store',
+const WALLED_ROOM: Record<'store' | 'toilet' | 'office', RoomKind> = {
+  store: 'store',
   toilet: 'toilet',
   office: 'office',
 }
 
-/** True for a brush that builds a walled room — every facility kind but booth. */
-export function isWalledRoomKind(kind: FacilityKind): kind is 'shop' | 'toilet' | 'office' {
-  return kind !== 'booth'
+/** True for a brush that builds a walled room — every facility kind but the booth. */
+export function isWalledRoomKind(kind: FacilityKind): kind is 'store' | 'toilet' | 'office' {
+  return kind !== 'ticket'
 }
 
 /** The fit-out of a walled room, defaulting legacy shops to a store. */
@@ -1695,8 +1886,10 @@ export function ensureRoomFurniture(state: StationState): StationState {
   let changed = false
   for (const m of state.modules) {
     if (m.type !== 'shop' && m.type !== 'retail' && m.type !== 'booth') continue
-    const fitOut = m.type === 'retail' ? 'store' : m.type === 'booth' ? 'booth' : (m.cfg.kind ?? 'store')
-    if ((fitOut !== 'store' && fitOut !== 'office' && fitOut !== 'toilet' && fitOut !== 'booth') || m.cfg.stocked) continue
+    // What the room stocks: a retail shell is a store, a booth is a ticket desk,
+    // and a walled room says so itself in `cfg.kind`.
+    const fitOut = m.type === 'retail' ? 'store' : m.type === 'booth' ? 'ticket' : (m.cfg.kind ?? 'store')
+    if ((fitOut !== 'store' && fitOut !== 'office' && fitOut !== 'toilet' && fitOut !== 'ticket') || m.cfg.stocked) continue
     // The old clear-the-room flag only ever existed on stores; booths never had it.
     const bare = m.type !== 'booth' && m.cfg.bare === true
     if (bare) {
@@ -1807,7 +2000,8 @@ export function placeFacility(
   const stocksShelves = fitOut === 'store'
   const stocksDesks = fitOut === 'office'
   const stocksRestroom = fitOut === 'toilet'
-  const stocksBooth = kind === 'booth'
+  // The one brush that is not a walled room — so it is the one that stocks seats.
+  const stocksBooth = kind === 'ticket'
   const stocked = stocksShelves || stocksDesks || stocksRestroom || stocksBooth
   const module = (
     isWalledRoomKind(kind)
@@ -1977,12 +2171,16 @@ export function removeFacility(state: StationState, id: string): StationState {
  * Flood-fill the connected exposed region of a face's plane with a finish
  * (§4.3, the `M` 整面 tool). The region stops at unexposed faces and at the
  * plane's edge, not at a change of current finish — you are painting a floor.
+ *
+ * A **半墙**'s inner face counts as exposed even when the cell across it is solid:
+ * the panel is half a block thick, so that surface looks into its own cell's clear
+ * half and nothing can stand across it. Flooding from one column of a run
+ * therefore paints the whole run, which is the surface the player sees.
  */
 export function fillSurface(state: StationState, x: number, y: number, z: number, face: Face, finish: FinishId): StationState {
   const solid = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)))
-  const step = FACE_STEP[face]
-  const exposed = (px: number, py: number, pz: number): boolean =>
-    solid.has(cellKey(px, py, pz)) && !solid.has(cellKey(px + step[0], py + step[1], pz + step[2]))
+  const thin = thinWallSideMap(state.cells, state.modules)
+  const exposed = (px: number, py: number, pz: number): boolean => facePresent(solid, thin, px, py, pz, face)
   if (!exposed(x, y, z)) return state
   const seen = new Set<string>([cellKey(x, y, z)])
   const queue: Array<[number, number, number]> = [[x, y, z]]

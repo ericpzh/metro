@@ -1,14 +1,18 @@
 // B1 acceptance (PLAN.md §4): surfaces are data, and a floor finish is
 // gameplay. A slow finish costs more to walk; a track bed is not a node at all;
-// paint / fill / erase are immutable so undo keeps working; and the mesher
-// groups a chunk into one part per finish.
+// paint / fill / erase are immutable so undo keeps working; the mesher groups a
+// chunk into one part per finish; and a stair's own walking surface can be
+// finished by hand like any floor.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as THREE from 'three'
 import { buildGraph } from '../src/sim/station.ts'
 import { finishOf, floorSpeed, finishMapOf, customFinishId, finishBaseId, finishDef, finishLabel, finishTint } from '../src/sim/finishes.ts'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
+import { buildModule } from '../src/render/models.ts'
+import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
 import { packKey } from '../src/sim/types.ts'
-import { eraseFace, eraseFaces, fillSurface, paintFace, paintFaces, toData, toState } from '../src/build/model.ts'
+import { createModule, eraseFace, eraseFaces, fillSurface, paintFace, paintFaces, paintStairSurface, toData, toState } from '../src/build/model.ts'
 
 function corridor() {
   const cells = []
@@ -149,8 +153,7 @@ test('paintFaces / eraseFaces repaint a drag rectangle immutably', () => {
   assert.equal(back.cells.some((c) => c.finish !== undefined), false, 'eraseFaces should drop the empty finish map')
 })
 
-test('the add preview meshes only the pending cells, with real exposure', () => {
-  // The build ghost (§9.5) meshes the cells an add-drag would place, but reads
+test('the add preview meshes only the pending cells, with real exposure', () => {  // The build ghost (§9.5) meshes the cells an add-drag would place, but reads
   // the whole station for exposure. A lone pending block shows every face; with a
   // solid neighbour the shared wall disappears, exactly as it will on release.
   const none = new Map()
@@ -184,4 +187,70 @@ test('the add preview meshes only the pending cells, with real exposure', () => 
   assert.ok(attached.triangles > 0, 'the attached pending block still has visible faces')
   assert.ok(attached.triangles < lone.triangles, 'the wall shared with the neighbour should be dropped')
   assert.ok(whole.triangles > attached.triangles, 'without emit the existing neighbour is meshed too')
+})
+
+/**
+ * The materials a module's model is drawn with. `finish` hands out one material
+ * per finish id, so a test can tell which finish a piece's surface wears.
+ */
+function drawnMaterials(mod, cells) {
+  const painted = new THREE.MeshStandardMaterial()
+  const fromFloor = new THREE.MeshStandardMaterial()
+  const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial()) })
+  const ctx = {
+    mats,
+    data: { name: 't', seed: 1, cells, modules: [mod], lines: [] },
+    trackCells: new Set(),
+    finish: (id) => (id === 'floor.tile' ? painted : fromFloor),
+    preview: false,
+  }
+  const g = buildModule(mod, ctx)
+  const used = new Set()
+  g.traverse((o) => {
+    if (o.isMesh) used.add(o.material)
+  })
+  return { painted, fromFloor, used }
+}
+
+test('a stair wears the finish painted on it, or the floor it climbs from', () => {
+  const cells = [{ x: 0, y: 0, z: -4, fill: 'solid', finish: { top: 'floor.granite' } }]
+  const plain = createModule('stair-straight', 0, 0, -4, 's', 0, STAIR_WIDTH_NARROW)
+  assert.ok(plain && plain.type === 'stair')
+  // Untouched, the treads are the floor it stands on (the hall's granite).
+  const bare = drawnMaterials(plain, cells)
+  assert.ok(bare.used.has(bare.fromFloor), 'an unpainted stair should wear the floor it climbs from')
+  assert.ok(!bare.used.has(bare.painted), 'an unpainted stair should not wear the brush')
+  // Painted, the staircase is its own finish wherever it stands — and the floor
+  // under it is not what the treads are made of any more.
+  const painted = { ...plain, cfg: { ...plain.cfg, finish: 'floor.tile' } }
+  const withTile = drawnMaterials(painted, cells)
+  assert.ok(withTile.used.has(withTile.painted), 'a painted stair should wear its own finish')
+  assert.ok(!withTile.used.has(withTile.fromFloor), 'the floor should no longer finish the treads')
+})
+
+test('painting a stair’s surface is immutable, targeted and reversible', () => {
+  const cells = []
+  for (let x = 0; x < 6; x++) for (let y = 0; y < 6; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  const stair = createModule('stair-straight', 1, 1, 0, 's1', 0, STAIR_WIDTH_NARROW)
+  const gate = createModule('gate', 4, 4, 0, 'g1', 0)
+  const base = toState({ name: 't', seed: 1, cells, modules: [stair, gate], lines: [] })
+  const cfgOf = (s, id) => s.modules.find((m) => m.id === id).cfg
+
+  const painted = paintStairSurface(base, 's1', 'floor.tile')
+  assert.equal(cfgOf(painted, 's1').finish, 'floor.tile')
+  assert.equal(cfgOf(base, 's1').finish, undefined, 'paintStairSurface mutated the base state')
+  assert.deepEqual(cfgOf(painted, 'g1'), cfgOf(base, 'g1'), 'another piece was rebuilt')
+  assert.equal(
+    painted.modules.find((m) => m.id === 'g1'),
+    base.modules.find((m) => m.id === 'g1'),
+    'the pieces around the stair should be the same objects',
+  )
+  // The same brush again is not an edit, so it is not an undo step either.
+  assert.equal(paintStairSurface(painted, 's1', 'floor.tile'), painted)
+  assert.equal(paintStairSurface(base, 'nope', 'floor.tile'), base, 'an unknown id changes nothing')
+
+  const cleared = paintStairSurface(painted, 's1', null)
+  assert.equal('finish' in cfgOf(cleared, 's1'), false, 'clearing should drop the key, not set null')
+  assert.equal(cfgOf(cleared, 's1').width, cfgOf(base, 's1').width, 'the rest of the piece survives')
+  assert.equal(paintStairSurface(cleared, 's1', null), cleared)
 })

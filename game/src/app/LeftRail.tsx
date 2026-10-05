@@ -1,11 +1,10 @@
-﻿// The build rail (left column).
+// The build rail (left column).
 //
 // A blueprint-styled stack of folders. Each folder is a "menu" that folds open
 // with an animated height transition and lays its entries out as square blocks
 // in two columns. Equipment blocks are the real in-game 3D models, rendered to
 // thumbnails by `moduleThumbnails.ts`; everything else uses a blueprint line
-// icon or a colour field. Keyboard shortcuts work, and each tool shows its key
-// as a small badge when hovered or focused.
+// icon or a colour field. Keyboard shortcuts work.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -26,7 +25,6 @@ import {
 import { getModuleThumbnails } from './moduleThumbnails.ts'
 import { getZoneThumbnails } from './zoneThumbnails.ts'
 import { FINISH_LIST, customFinishId, finishBaseId, finishLabel, finishTint } from '../sim/finishes.ts'
-import { stairLanes } from '../sim/stairs.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
 import type { GateDoor, Module } from '../sim/types.ts'
 import { railSummary } from '../build/rail.ts'
@@ -67,6 +65,16 @@ export function Icon({ name }: { name: string }): React.ReactElement {
         <>
           <rect {...s} x="3.4" y="4" width="13.2" height="12" rx="0.6" />
           <path {...s} d="M3.4 8h13.2M3.4 12h13.2M8 4v4M12 8v4M8 12v4" />
+        </>,
+      )
+    // A 半墙: the same courses at half the thickness, with the clear half of the
+    // tile beside it left as dashed lines — the space the wall keeps usable.
+    case 'halfwall':
+      return svg(
+        <>
+          <rect {...s} x="3.4" y="4" width="6.4" height="12" rx="0.6" />
+          <path {...s} d="M3.4 8h6.4M3.4 12h6.4M6.6 4v4M6.6 12v4" />
+          <path {...s} strokeDasharray="2 2" d="M12.4 4v12M16.6 4v12" />
         </>,
       )
     // A waste bin: a block the delete tool tips away.
@@ -228,6 +236,51 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M3 9h8.5a4 4 0 0 1 0 8H8" />
         </>,
       )
+    // The four 房间 types. These are the rail's own line marks, drawn like every
+    // other blueprint icon: a facility room tile shows *what the room is for*,
+    // which the tile's colour field could never say. 厕所 reuses the 指示牌's
+    // restroom mark (the same two figures, the same silhouettes), so the room the
+    // player builds and the sign they hang for it read as one thing.
+    case 'roomStore':
+      return svg(
+        <>
+          <path {...s} d="M4.4 8.2v8.4h11.2V8.2" />
+          <path {...s} d="M7.6 16.6v-4.2h4.8v4.2" />
+          <path {...s} d="M3 8.2l1.8-4.6h10.4L17 8.2z" />
+          <path {...s} d="M6.7 3.6v4.6M10 3.6v4.6M13.3 3.6v4.6" />
+        </>,
+      )
+    // 售票亭: a ticket, torn along its stub, with a punched hole.
+    case 'roomTicket':
+      return svg(
+        <>
+          <path {...s} d="M3.4 5.2h13.2v9.6H3.4z" />
+          <path {...s} d="M12.6 5.2v9.6" strokeDasharray="1.8 1.6" />
+          <path {...s} d="M5.6 8.4h5.2M5.6 11.6h3.8" />
+          <circle {...s} cx="14.8" cy="10" r="0.62" />
+        </>,
+      )
+    // 办公室: a desk with a monitor on it and a chair drawn up to the near side.
+    case 'roomOffice':
+      return svg(
+        <>
+          <rect {...s} x="7.2" y="5" width="8" height="5.6" rx="0.7" />
+          <path {...s} d="M11.2 10.6v1.2" />
+          <path {...s} d="M10.4 11.8h1.6" />
+          <path {...s} d="M4 13h13.6M5.2 13v3.6M16.4 13v3.6" />
+          <path {...s} d="M6.6 16.2h4.4M8.8 16.2v1.6" />
+        </>,
+      )
+    // 厕所 — the 指示牌's restroom mark, drawn as lines.
+    case 'roomRestroom':
+      return svg(
+        <>
+          <circle {...s} cx="6.4" cy="5.9" r="1.75" />
+          <path {...s} d="M6.4 7.9l-1.5 4.6h1.5v4.5h1.5V12.5h.9l-1.5-4.6" />
+          <circle {...s} cx="13.6" cy="5.9" r="1.75" />
+          <path {...s} d="M13.6 7.9c-1.3 0-2.1.9-2.1 2.1v2.5c0 .4.3.7.7.7h.25v3.8h2.3v-3.8h.25c.4 0 .7-.3.7-.7V10c0-1.2-.8-2.1-2.1-2.1z" />
+        </>,
+      )
     case 'redo':
       return svg(
         <>
@@ -245,7 +298,6 @@ export function Icon({ name }: { name: string }): React.ReactElement {
 interface BlockProps {
   label: string
   active?: boolean
-  title?: string
   onClick?: () => void
   /** A rendered model thumbnail (equipment). */
   thumb?: string
@@ -260,15 +312,21 @@ interface BlockProps {
   submenu?: boolean
   /** Keyboard shortcut, shown as a badge on hover / focus. */
   shortcut?: string
+  /**
+   * A tile another mode of the same tool has taken over: still drawn, so the rule
+   * is discoverable, but plainly out of play (the 地基 tool's 自动生成墙壁 while
+   * **半墙** is on).
+   */
+  disabled?: boolean
 }
 
-function Block({ label, active, title, onClick, thumb, icon, tone, submenu, shortcut }: BlockProps): React.ReactElement {
+function Block({ label, active, onClick, thumb, icon, tone, submenu, shortcut, disabled }: BlockProps): React.ReactElement {
   return (
     <button
       type="button"
       className={active ? 'bpBlock on' : 'bpBlock'}
-      title={title ?? label}
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={active}
       aria-expanded={submenu}
     >
@@ -278,9 +336,11 @@ function Block({ label, active, title, onClick, thumb, icon, tone, submenu, shor
         </span>
       ) : null}
       <span className="bpBlockArt">
-        {thumb ? <img src={thumb} alt="" draggable={false} /> : null}
-        {!thumb && icon ? <Icon name={icon} /> : null}
-        {!thumb && !icon && tone ? <i className="bpTone" style={{ background: tone }} /> : null}
+        {/* Art is one of three, in that order of preference: the real model, a
+            blueprint line icon, or a colour field. The 房间 tiles hand over their
+            icon *and* their colour, and the icon is the one that identifies the
+            room — the colour is only what the drag paints the floor with. */}
+        {thumb ? <img src={thumb} alt="" draggable={false} /> : icon ? <Icon name={icon} /> : tone ? <i className="bpTone" style={{ background: tone }} /> : null}
         {submenu !== undefined ? <span className={submenu ? 'bpCaret on' : 'bpCaret'} aria-hidden="true" /> : null}
       </span>
       <span className="bpBlockLabel">{label}</span>
@@ -300,7 +360,7 @@ function hexColour(colour: number): string {
  */
 function ColourTile({ colour, onChange }: { colour: number; onChange: (colour: number) => void }): React.ReactElement {
   return (
-    <label className="bpBlock" title="选择搪瓷板的颜色">
+    <label className="bpBlock">
       <span className="bpBlockArt">
         <input
           className="bpColour"
@@ -436,6 +496,7 @@ export function LeftRail(): React.ReactElement {
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const autoWalls = useStore((s) => s.autoWalls)
+  const halfWall = useStore((s) => s.halfWall)
   const moduleType = useStore((s) => s.moduleType)
   const setModuleType = useStore((s) => s.setModuleType)
   const moduleRot = useStore((s) => s.moduleRot)
@@ -606,8 +667,7 @@ export function LeftRail(): React.ReactElement {
   }, [paintFinish])
 
   // Contextual actions for the equipment being placed, each gated by what the
-  // piece actually supports: 旋转 only for turnable equipment, 宽度 for stairs,
-  // 上行/下行 for the escalator. A future fixed-angle module simply loses its
+  // piece actually supports. A future fixed-angle module simply loses its
   // rotation tile — no other change needed.
   //
   // 指示牌 is turnable **and** composed, so it shows both: 旋转 turns the hung
@@ -620,7 +680,6 @@ export function LeftRail(): React.ReactElement {
         label={`旋转 ${((4 - moduleRot) % 4) * 90}°`}
         icon="redo"
         shortcut="R"
-        title="R：旋转正在放置的设备"
         onClick={() => st().rotateModule()}
       />,
     )
@@ -631,20 +690,17 @@ export function LeftRail(): React.ReactElement {
         key="custom"
         label="自定义"
         icon="board"
-        title="打开指示牌面板：把内容拖到牌子上，牌子随内容伸缩；放下的指示牌就带着这块面板"
         onClick={() => st().openSignComposer()}
       />,
     )
   }
   if (isStairType(moduleType)) {
-    const lanes = stairLanes(stairWidth)
     moduleActions.push(
       <Block
         key="width"
         label={`宽度 ${stairWidth.toFixed(1)}m`}
         icon="ortho"
         shortcut="Tab"
-        title={`Tab：切换楼梯宽度。${lanes} 格 × 0.7m——一次放下的整跑是一体（中间不设栏杆）；另外单独放的楼梯各自保留栏杆，踏面依旧相接`}
         onClick={() => st().cycleStairWidth()}
       />,
     )
@@ -656,7 +712,6 @@ export function LeftRail(): React.ReactElement {
         label={escalatorDir === 'up' ? '上行' : '下行'}
         icon={escalatorDir === 'up' ? 'up' : 'down'}
         shortcut="Tab"
-        title="Tab：切换扶梯上下行"
         onClick={() => st().cycleEscalatorDir()}
       />,
     )
@@ -668,7 +723,6 @@ export function LeftRail(): React.ReactElement {
         label={GATE_DOOR_LABEL[gateDoor]}
         icon="turnstile"
         shortcut="Tab"
-        title="Tab：切换闸机 / 围栏。有门是正常闸机：机体占半格，另外半格是走道和红色挡板；围栏是一台没有闸机通道的机体，另外半格是围栏，用来给围栏收口。走道在哪一边用 R 转整个机体"
         onClick={() => st().cycleGateDoor()}
       />,
     )
@@ -704,48 +758,53 @@ export function LeftRail(): React.ReactElement {
         <span className="railStampSub">METRO / BUILD</span>
       </div>
 
-      <Folder title="工具" count={tool === 'block' ? 7 : 6} open={open.tools} onToggle={() => toggle('tools')}>
+      <Folder title="工具" count={tool === 'block' ? 8 : 6} open={open.tools} onToggle={() => toggle('tools')}>
         <div className="blockGrid">
           {(
             [
-              { id: 'select', label: '选择', icon: 'select', shortcut: 'Z', title: '选择 (Z)：点方块或设备看它是什么' },
+              { id: 'select', label: '选择', icon: 'select', shortcut: 'Z' },
               {
                 id: 'block',
                 label: '地基',
                 icon: 'block',
                 shortcut: 'F',
-                title: '地基 (F)：单击放一块，按住拖出一片（Tab 切换自动生成墙壁），右键删除',
               },
-              { id: 'wall', label: '墙', icon: 'wall', shortcut: 'G', title: '墙 (G)：自动吸附到临空的一格；一个角落有两个朝向时按 R 选择贴哪一面。左键拖出 4m 高墙，右键拖拽整列拆除（自动生成的墙也可拆）' },
+              { id: 'wall', label: '墙', icon: 'wall', shortcut: 'G' },
               {
                 id: 'delete',
                 label: '删除',
                 icon: 'delete',
                 shortcut: 'B',
-                title: '删除 (B)：单击拆一块或一件设备；按住拖过同类设备/装饰可连续拆掉（拖过的都会亮起，松手一次拆完）；围栏沿拖拽方向整条拆除',
               },
-            ] as Array<{ id: Tool; label: string; icon: string; title?: string; shortcut?: string }>
+            ] as Array<{ id: Tool; label: string; icon: string; shortcut?: string }>
           ).map((t) => (
             <Block
               key={t.id}
               label={t.label}
               icon={t.icon}
-              title={t.title}
               shortcut={t.shortcut}
               active={tool === t.id}
               onClick={() => setTool(t.id)}
             />
           ))}
-          <Block label="撤销" icon="undo" shortcut="Ctrl+Z" title="撤销 (Ctrl+Z)" onClick={() => st().undo()} />
-          <Block label="重做" icon="redo" shortcut="Ctrl+Y" title="重做 (Ctrl+Y 或 Ctrl+Shift+Z)" onClick={() => st().redo()} />
+          <Block label="撤销" icon="undo" shortcut="Ctrl+Z" onClick={() => st().undo()} />
+          <Block label="重做" icon="redo" shortcut="Ctrl+Y" onClick={() => st().redo()} />
           {tool === 'block' && (
             <Block
               label="自动生成墙壁"
               icon="wall"
               active={autoWalls}
+              disabled={halfWall}
               shortcut="Tab"
-              title="自动生成墙壁（Tab 切换）：开启后拖出一片地基会长出 4m 外墙；关闭则只铺地砖"
               onClick={() => st().setAutoWalls(!autoWalls)}
+            />
+          )}
+          {tool === 'block' && (
+            <Block
+              label="半墙"
+              icon="halfwall"
+              active={halfWall}
+              onClick={() => st().toggleHalfWall()}
             />
           )}
         </div>
@@ -764,7 +823,6 @@ export function LeftRail(): React.ReactElement {
                     active={tool === 'rail'}
                     shortcut="L"
                     submenu={platformOpen}
-                    title="站台轨道 (L)：在站台旁放一段列车长度的轨道床，自动生成屏蔽门"
                     onClick={() => setTool('rail')}
                   />
                 ),
@@ -778,7 +836,6 @@ export function LeftRail(): React.ReactElement {
                     icon="tunnel"
                     active={tool === 'tunnel'}
                     submenu={tunnelOpen}
-                    title="隧道轨道：在已有轨道端头接一段纯隧道，不生成屏蔽门"
                     onClick={() => setTool('tunnel')}
                   />
                 ),
@@ -795,7 +852,6 @@ export function LeftRail(): React.ReactElement {
                             label={`旋转 ${((4 - railRot) % 4) * 90}°`}
                             icon="redo"
                             shortcut="R"
-                            title="R：旋转站台轨道（东西 / 南北）"
                             onClick={() => st().rotateRail()}
                           />
                         )}
@@ -803,7 +859,6 @@ export function LeftRail(): React.ReactElement {
                           <Block
                             label="重置屏蔽门"
                             icon="refresh"
-                            title="按当前站台重新生成屏蔽门（选中轨道只重置它，否则重置全部）"
                             onClick={() => st().refreshRailDoors()}
                           />
                         )}
@@ -814,8 +869,8 @@ export function LeftRail(): React.ReactElement {
                         <div className="bpSub">
                           <div className="bpSubTitle">方向</div>
                           <div className="blockGrid two">
-                            <Block label="上行" icon="up" shortcut="Tab" title="上行（Tab 切换上下行）" active={railDirNow === 'up'} onClick={() => setRailDirNow('up')} />
-                            <Block label="下行" icon="down" shortcut="Tab" title="下行（Tab 切换上下行）" active={railDirNow === 'down'} onClick={() => setRailDirNow('down')} />
+                            <Block label="上行" icon="up" shortcut="Tab" active={railDirNow === 'up'} onClick={() => setRailDirNow('up')} />
+                            <Block label="下行" icon="down" shortcut="Tab" active={railDirNow === 'down'} onClick={() => setRailDirNow('down')} />
                           </div>
                         </div>
                         <div className="bpSub">
@@ -827,7 +882,6 @@ export function LeftRail(): React.ReactElement {
                                 label={l.id}
                                 tone={l.colour}
                                 active={railLineNow === l.id}
-                                title={`${l.name} · ${l.stock}型${l.cars}节`}
                                 onClick={() => setRailLineNow(l.id)}
                               />
                             ))}
@@ -894,7 +948,6 @@ export function LeftRail(): React.ReactElement {
                     thumb={thumbs[stairOptions[0]?.id ?? '']}
                     active={isStairType(moduleType)}
                     submenu={stairOpen}
-                    title="楼梯：展开选形状"
                     onClick={() => toggleSubMenu('stair')}
                   />
                 ),
@@ -908,7 +961,6 @@ export function LeftRail(): React.ReactElement {
                     thumb={thumbs['exit']}
                     active={isExitType(moduleType)}
                     submenu={exitOpen}
-                    title="出入口：展开选有盖/无盖与单向/双向/三向"
                     onClick={() => toggleSubMenu('exit')}
                   />
                 ),
@@ -994,7 +1046,6 @@ export function LeftRail(): React.ReactElement {
                     thumb={thumbs[benchOptions[0]?.id ?? '']}
                     active={isBenchType(moduleType)}
                     submenu={benchOpen}
-                    title="座椅：展开选不锈钢/靠背，各有 1m 与 2m"
                     onClick={() => toggleSubMenu('bench')}
                   />
                 ),
@@ -1008,7 +1059,6 @@ export function LeftRail(): React.ReactElement {
                     thumb={thumbs[billboardOptions[0]?.id ?? '']}
                     active={isBillboardType(moduleType)}
                     submenu={billboardOpen}
-                    title="广告牌：展开选尺寸与比例"
                     onClick={() => toggleSubMenu('billboard')}
                   />
                 ),
@@ -1069,8 +1119,11 @@ export function LeftRail(): React.ReactElement {
             <Block
               key={f.id}
               label={f.label}
-              thumb={zoneThumbs[f.id]}
-              tone={`#${f.colour.toString(16).padStart(6, '0')}`}
+              // The tile shows the room's **type** — store, ticket desk, office,
+              // washroom — not a colour chip: which of the four a drag will build
+              // has to be legible at a glance, and the colour only ever said
+              // "purple" or "teal".
+              icon={f.icon}
               active={tool === 'zone' && zoneBrush === f.id}
               onClick={() => {
                 st().setZoneBrush(f.id)
@@ -1103,9 +1156,9 @@ export function LeftRail(): React.ReactElement {
         <div className="blockGrid three">
           {(
             [
-              { id: 'single', label: '单块', icon: 'single', shortcut: 'N', title: '单块 (N)：左键刷一格，右键还原' },
-              { id: 'surface', label: '整面', icon: 'surface', shortcut: 'M', title: '整面 (M)：左键刷一整片，右键还原' },
-              { id: 'pick', label: '取色', icon: 'pick', shortcut: 'I', title: '取色 (I)：吸取一格表面的材质' },
+              { id: 'single', label: '单块', icon: 'single', shortcut: 'N' },
+              { id: 'surface', label: '整面', icon: 'surface', shortcut: 'M' },
+              { id: 'pick', label: '取色', icon: 'pick', shortcut: 'I' },
             ] as const
           ).map((m) => (
             <Block
@@ -1113,7 +1166,6 @@ export function LeftRail(): React.ReactElement {
               label={m.label}
               icon={m.icon}
               shortcut={m.shortcut}
-              title={m.title}
               active={tool === 'paint' && paintMode === m.id}
               onClick={() => {
                 setTool('paint')
@@ -1151,7 +1203,6 @@ export function LeftRail(): React.ReactElement {
                             tone={enamel ? hexColour(enamelColour) : `#${f.tint.toString(16).padStart(6, '0')}`}
                             active={enamel ? enamelActive : tool === 'paint' && paintFinish === f.id}
                             submenu={enamel ? enamelOpen : undefined}
-                            title={enamel ? '搪瓷板：支持自定义颜色，展开选颜色' : undefined}
                             onClick={() => {
                               if (!enamel) {
                                 st().selectPaintFinish(f.id)
@@ -1185,7 +1236,6 @@ export function LeftRail(): React.ReactElement {
             label="显示其他层"
             icon="ghost"
             shortcut="X"
-            title="显示其他层 (X)：关＝任何视角都只画当前层；开＝其他层按 35% 半透明叠加，被当前层挡住的部分不画"
             active={ghost}
             onClick={() => st().setGhostOther(!ghost)}
           />
@@ -1193,11 +1243,10 @@ export function LeftRail(): React.ReactElement {
             label="隐藏天花板"
             icon="ceiling"
             shortcut="H"
-            title="自动隐藏天花板 (H)：开＝收起楼上那层压在当前层上方的楼板（底下没东西的悬空板保留），俯视时能直接看进当前层"
             active={autoCeiling}
             onClick={() => st().setAutoCeiling(!autoCeiling)}
           />
-          <Block label="剖切" icon="cutaway" shortcut="C" title="剖切 (C)：沿活动层切开，看站内结构" active={cutaway} onClick={() => st().setCutaway(!cutaway)} />
+          <Block label="剖切" icon="cutaway" shortcut="C" active={cutaway} onClick={() => st().setCutaway(!cutaway)} />
           <Block label="隐藏墙壁" icon="wall" active={hideWalls} onClick={() => st().setHideWalls(!hideWalls)} />
           <Block label="热力图" icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
           <Block label="分区图" icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />

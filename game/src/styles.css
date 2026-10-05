@@ -410,6 +410,16 @@ button.ghost:hover {
   border-color: var(--accent);
   background: #16374f;
 }
+/* A tile another mode of the same tool has taken over (the 地基 tool's 自动生成墙壁
+   while 半墙 is on): still drawn, so the rule is discoverable, but plainly out of
+   play — and it does not light up under the pointer. */
+.bpBlock:disabled,
+.bpBlock:disabled:hover {
+  opacity: 0.42;
+  cursor: not-allowed;
+  background: #0e2338;
+  border-color: var(--bp-line);
+}
 .bpBlock.on::after {
   border-color: rgba(85, 182, 255, 0.5);
 }
