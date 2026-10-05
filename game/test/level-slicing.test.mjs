@@ -89,23 +89,17 @@ test('the crowd follows the same storeys as the floor under it', () => {
   assert.equal(crowdVisible(1, -4, true), false, 'the 0 storey is above -4: never its crowd')
 })
 
-test('the two modes that put the slice away are askers, not slice flags', () => {
+test('隐藏UI is an asker, not a slice flag', () => {
   // The mode used to be a flag *in* the slice, and that was the bug behind the
   // dark shadow grid: a flag can turn a piece on, but it cannot undo the 35%
   // translucency the slice assigned it, so the slab a storey up ghosted *through*
-  // the floor under the eye. 隐藏UI and 沉浸 therefore ask for a different slice
-  // (`sliceOptions`, pinned in `grid-visibility.test.mjs`) and skip
-  // `applyLevel`'s materials (see `LevelSystem.applyLevel`); what is pinned here
-  // is that the slice never claims to answer for them on its own — and that the
-  // crowd, whose flag *is* still read so a walker on another storey is not
-  // invisible in a station drawn whole, does.
+  // the floor under the eye. 隐藏UI therefore asks for a different slice
+  // (`sliceOptions`) and skips `applyLevel`'s materials (see
+  // `LevelSystem.applyLevel`); what is pinned here is that the slice never claims
+  // to answer for it on its own — and that the crowd, whose flag *is* still read
+  // so a walker on another storey is not invisible in a station drawn whole, does.
   const off = { ghost: false, autoCeiling: true }
   assert.equal(levelVisible('below', off), false, 'the slice is the slice: 显示其他层 off still hides a storey')
-  assert.equal(
-    levelVisible('below', { ...off, immersive: true }),
-    false,
-    'and an `immersive` field on the options is not a way to ask for anything: the mode is not the slice',
-  )
   assert.equal(trainVisible('below', false, false), false, 'nor is a consist on a hidden storey drawn by it')
   // The crowd keeps its own flag: the renderer asks `crowdVisible` per agent, so
   // that is where a station drawn whole has to be honoured.
@@ -113,18 +107,18 @@ test('the two modes that put the slice away are askers, not slice flags', () => 
   assert.equal(crowdVisible(-15, 0, false, true), true, 'a mode that draws every storey draws its crowd too')
 })
 
-test('隐藏UI and 沉浸 ask for the same slice: every storey drawn, no ceiling lifted', () => {
+test('隐藏UI asks for a slice with every storey drawn and no ceiling lifted', () => {
   // Every storey, not the active one alone: with the slice left off there would be
   // one storey left to look at, which is the opposite of what a player who turned
   // the storey slice off asked for. The ceiling comes back too, because the slab
   // over the room is part of the building the mode is showing. What makes the
   // picture read as a building rather than a drawing is then the material:
-  // `applyLevel` skips the 35% ghost for both modes.
-  assert.deepEqual(sliceOptions({ ghost: true, autoCeiling: true, hideUI: false, immersive: false }), {
+  // `applyLevel` skips the 35% ghost for it.
+  assert.deepEqual(sliceOptions({ ghost: true, autoCeiling: true, hideUI: false }), {
     ghost: true,
     autoCeiling: true,
   })
   const putAway = { ghost: true, autoCeiling: false }
-  assert.deepEqual(sliceOptions({ ghost: false, autoCeiling: true, hideUI: true, immersive: false }), putAway)
-  assert.deepEqual(sliceOptions({ ghost: false, autoCeiling: true, hideUI: false, immersive: true }), putAway)
+  assert.deepEqual(sliceOptions({ ghost: false, autoCeiling: true, hideUI: true }), putAway)
+  assert.deepEqual(sliceOptions({ ghost: true, autoCeiling: true, hideUI: true }), putAway)
 })

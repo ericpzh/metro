@@ -68,46 +68,40 @@ export interface SliceToggles {
   autoCeiling: boolean
   /** 隐藏UI: the picture is the station as it is, not the storey being edited. */
   hideUI: boolean
-  /** 沉浸: the eye is standing inside the room (`LevelSystem.setImmersive`). */
-  immersive: boolean
 }
 
 /**
  * The slice one frame of the scene asks for.
  *
- * **隐藏UI and 沉浸 both put the slice away, and the slice is `ghost: true,
- * autoCeiling: false`.** Ghost on is what "every storey draws" means: with it
- * off the active storey would be the only one left, which is the opposite of
- * what a player who turned the storey slice off asked for. Ceilings off stops
- * the slab over the active room from being lifted. What makes the picture read
- * as a building rather than as a drawing is then **the material**: the mode's
- * caller skips the 35% ghost material and draws each piece as itself
+ * **隐藏UI puts the slice away, and the slice it asks for is `ghost: true,
+ * autoCeiling: false`.** Ghost on is what "every storey draws" means: with it off
+ * the active storey would be the only one left, which is the opposite of what a
+ * player who turned the storey slice off asked for. Ceilings off stops the slab
+ * over the active room from being lifted. What makes the picture read as a
+ * building rather than as a drawing is then **the material**: the mode's caller
+ * skips the 35% ghost material and draws each piece as itself
  * (`LevelSystem.applyLevel`), because the translucent sheet lying over the floor
  * under the camera *is* the ghost, not anything the station hides.
  *
- * One function for the two modes because they are not two slices: they are one
- * picture, asked for from the rail and from inside the room.
- *
  * 隐藏墙壁 is deliberately **not** here: it is a look-through of the station's own
- * walls rather than a way of drawing a storey, so it survives either mode.
+ * walls rather than a way of drawing a storey, so it survives the mode.
  *
  * Pure, so which slice a mode asks for is checkable without a renderer
  * (`test/grid-visibility.test.mjs`).
  */
 export function sliceOptions(toggles: SliceToggles): SliceOptions {
-  if (toggles.hideUI || toggles.immersive) return { ghost: true, autoCeiling: false }
+  if (toggles.hideUI) return { ghost: true, autoCeiling: false }
   return { ghost: toggles.ghost, autoCeiling: toggles.autoCeiling }
 }
 
 /**
  * Whether the level slicing draws a piece on `side`.
  *
- * The two modes that put the slice away — 隐藏UI and 沉浸 — do not arrive here as
- * a flag: `sliceOptions` clears `ghost` and `autoCeiling` for them, and
- * `LevelSystem` then skips this walk's materials for every piece. The material,
- * and not only the visibility, has to be the mode's business: a flag here could
- * turn a piece on, but it could not undo the 35% ghost material the slice had
- * already assigned it.
+ * 隐藏UI does not arrive here as a flag: `sliceOptions` clears `ghost` and
+ * `autoCeiling` for it, and `LevelSystem` skips this walk's materials for every
+ * piece. The material, and not only the visibility, has to be the mode's
+ * business: a flag here could turn a piece on, but it could not undo the 35%
+ * ghost material the slice had already assigned it.
  */
 export function levelVisible(side: LevelSide, opts: SliceOptions): boolean {
   if (side === 'active') return true
@@ -143,9 +137,9 @@ export function trainVisible(side: LevelSide, ghost: boolean, parked: boolean): 
  * it); a storey above the active one never shows its crowd, because a floor that
  * is not drawn would leave the people standing on nothing.
  *
- * `showEveryStorey` is 隐藏UI or 沉浸 (`LevelSystem` passes either, `CrowdSystem`
- * asks per agent): both draw every storey, so both draw everyone on them — the
- * people on the floor above are exactly what a station drawn whole shows.
+ * `showEveryStorey` is 隐藏UI's doing (`CrowdSystem` asks per agent): the mode
+ * draws every storey, so it draws everyone on them — the people on the floor
+ * above are exactly what a station drawn whole shows.
  */
 export function crowdVisible(z: number, activeZ: number, ghost: boolean, showEveryStorey = false): boolean {
   if (showEveryStorey) return true

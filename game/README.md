@@ -462,7 +462,7 @@ folder's **隐藏UI** tile (**U**) does two things, and they are the same idea �
 building, not the storey being edited:
 
 * **The drawing furniture goes.** The 1 m editing grid and its cell cursor
-  (`render/scene/systems/GridSystem.ts`), the same pair the immersive eye hides for its own reason.
+  (`render/scene/systems/GridSystem.ts`).
 * **The storey slice is put away.** Other storeys stop being drawn as 35% ghosts — the translucent
   sheet lying over the floor under the camera — and no ceiling is lifted, so every storey draws
   opaque, as itself, ceilings and all (`render/levelSlicing.ts` `sliceOptions`, applied by
@@ -473,60 +473,23 @@ No interface goes with either: the build rail, the inspector, the nav cube and e
 they are, and the pointer goes on building and picking. **隐藏墙壁** stays live, because it is a
 look-through of the station's own walls rather than a way of drawing a storey.
 
-The lattice rule is one line, `gridVisible(hideUI, immersive)`; the slice rule is one line,
-`sliceOptions({ghost, autoCeiling, hideUI, immersive})`. Both are pure, both are shared with **沉浸**
-— the immersive camera, which is the other mode that wants the station rather than the storey — and
-that sharing is the point: two `setGridVisible` calls and two ghost decisions would let one mode
-restore what the other took away. The cell cursor is guarded by the same function, because the pointer
-re-sets it every frame (`test/grid-visibility.test.mjs`, `test/level-slicing.test.mjs`).
+The tile order is the folder's own reading order: 显示其他层 · 剖切 · 隐藏天花板 · 隐藏墙壁 · 热力图 ·
+分区图 · 隐藏UI — the slice tools first (剖切 opening its own 剖切面 panel directly under its tile), the
+pair that takes station furniture away, the two overlays that paint the station, and last the one tile
+that draws the station whole.
+
+Each half is one line in the system that owns the drawing: the lattice is `GridSystem.setHideUI`, and
+the slice is `sliceOptions({ghost, autoCeiling, hideUI})` (`LevelSystem.applyLevel` skips the ghost
+material for every piece). Keeping them in their owners rather than in two calls from the viewport is
+what stops the lattice and the slice from disagreeing about the mode, and the cell cursor is hidden
+with the lattice because the pointer re-sets it every frame
+(`test/grid-visibility.test.mjs`, `test/level-slicing.test.mjs`).
 
 **The clock pauses and restarts.** **Space** toggles play/pause (the top bar's 暂停 / 播放 button does
 the same), and 重启 empties the crowd, trains and queues while keeping the built station and the clock
 (`World.restart`, sent as a `restart` worker message).
 
-**隐藏UI is a view angle: where a person in the room would be looking from.** The 视图 folder reads, in
-tile order, 显示其他层 · 剖切 · 隐藏天花板 · 隐藏墙壁 · 隐藏UI · 热力图 · 分区图: the slice tools first
-(剖切 opening its own 剖切面 panel directly under its tile), then the pair that takes station furniture
-away, then the one tile that puts the *interface* away, then the two overlays that paint the station
-rather than hide it. Its **隐藏UI** tile (**K**, the label the store and the camera still know as
-`immersion`) is **not one of the five presets**: it is one **move** of the rig the other views already
-use, and it is deliberately no more than that. The camera steps to the plan position the view is
-looking at — the station's middle, in the default view — at a person's eye height above the floor of
-the storey being viewed, so **at depth −8 m the camera is at −6 m**, which is the one claim the mode
-makes; the orbit target comes with it by the same step, so **the angle, the dolly and the roll are
-exactly the ones the player arrived with**. That is what makes K a peek: it moves the eye, never
-re-aims, and leaving puts the rig back where it was, to the metre — a preset (1/2/4/5, the nav cube's
-home) is how the mode is *left*, and it is never restored over. Everything else is the rig the other
-views already use: **the middle
-button orbits, the wheel dollies, WASD pans, the nav cube and 1/2/4/5 are the other presets, and every
-shortcut keeps its meaning**. The panels, the inspector, the tools and the pointer keep working exactly
-as they do in an isometric drawing, because the control scheme *is* the other views; the mode borrows it
-rather than replacing it.
-
-Two things follow the **view** rather than the station, and both are there so the picture does not lie:
-
-* **The 1 m editing grid and its cell cursor go** (`SceneRenderer.setImmersive` →
-  `GridSystem.setGridVisible`). A lattice floating at the eye's own storey is a drawing aid; the mode's
-  question is what the station looks like to somebody standing in it.
-* **The slice stops being applied at all** — `LevelSystem.applyLevel` returns each piece's own material
-  instead of a ghost's, so every storey draws opaque (`显示其他层` and `隐藏天花板` are greyed out in the
-  视图 folder because they have nothing left to act on). This is not a nicety: a slice *flag* can only
-  turn a piece on or off, and it cannot undo the 35% translucency the slice assigned it, so the slab a
-  storey up ghosted **through** the floor under the eye — a granite concourse came out as a dark shadow
-  grid. The mode therefore skips that walk entirely, which is the only way to draw a slab as a slab. The
-  one toggle that survives is 隐藏墙壁: a deliberate look-through, not the slice.
-
-The 剖切 **clip** stays (it is the cut the player asked for) while its translucent highlighter — sheet,
-border and grab grid — goes with the grid: that furniture exists so the cut can be grabbed and slid from
-above the model, which is not what this view is for. **Esc** or the 视图 folder's **K** tile leaves.
-
-The view is aimed **once**, when the mode opens, and then it belongs to the player: **Q/E still step the
-storey** the rail reads, and the camera does not move with it — re-aiming on a storey change would throw
-away every orbit, dolly and pan that had been made since. For the same reason the mode adds **nothing to
-the screen**: no prompt, no overlay, no readout. What it is and how to leave are on the tile that
-switches it.
-
-Two faults found on the way here are worth keeping in mind, because neither was really about 隐藏UI.
+Two faults found while the view toggles were being built are worth keeping in mind.
 **A focused button is not a text field.** `isTypingTarget` (`app/Viewport.tsx`, shared with `AppShell`'s
 shortcuts) treats a key aimed at a `button` as the game's key; the earlier guard that only excluded
 `INPUT` and `TEXTAREA` meant that after clicking a rail tile the arrow-key row was, in effect,
@@ -1357,13 +1320,14 @@ approximated); neither needs WebGL.
   显示其他层 off drawing the edited storey alone at every camera angle, ghost mode keeping the
   neighbours at 35% while a storey above keeps only its unsupported plates (a room never wears
   its own ceiling), and the crowd and the trains following the same slice. It also pins that
-  **沉浸 is not a slice flag**: a flag could turn a piece on but could not undo the ghost
-  material that put a storey through the floor under the eye, so the mode skips the walk
-  (`LevelSystem.applyLevel`) and the only per-agent flag that remains is `crowdVisible`'s.
-* `grid-visibility.test.mjs` — 隐藏UI, the drawing lattice and its cursor
-  (`render/scene/systems/GridSystem.ts` `gridVisible`): the tile hides the lattice on its own, the
-  immersive eye hides the same lattice for its own reason, neither restores it while the other still
-  wants it gone, and a pick under the pointer cannot put the cell cursor back on a hidden grid.
+  **隐藏UI is not a slice flag**: its slice is a different one (`sliceOptions`), because a flag
+  could turn a piece on but could not undo the ghost material that put a storey through the floor
+  under the camera, so the mode skips the walk (`LevelSystem.applyLevel`) and the only per-agent
+  flag that remains is `crowdVisible`'s.
+* `grid-visibility.test.mjs` — 隐藏UI's drawing furniture
+  (`render/scene/systems/GridSystem.ts`): the tile hides the 1 m lattice and its cell cursor, and a
+  pick under the pointer cannot put the cursor ring back on a hidden grid; the lattice is still
+  rebuilt at the active storey while hidden, so showing it again never flashes an empty grid.
 * `section.test.mjs` — the 剖切 surface's arithmetic (`render/section.ts`): a fresh cut looks exactly
   +y, which is the plane the old fixed toggle drew; azimuth turns the look and elevation tilts it out
   of the horizontal plane (with the normal still a unit vector at every angle); the surface's own

@@ -411,7 +411,7 @@ export class CrowdSystem extends SceneSystem {
    * there, so the people would stand on nothing.
    */
   private agentLevelVisible(z: number): boolean {
-    return crowdVisible(z, this.ctx.activeZ, this.ctx.ghost, this.ctx.immersive || this.ctx.hideUI)
+    return crowdVisible(z, this.ctx.activeZ, this.ctx.ghost, this.ctx.hideUI)
   }
 
   /**

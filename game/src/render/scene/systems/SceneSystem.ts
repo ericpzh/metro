@@ -123,13 +123,6 @@ export interface SceneContext {
    * lattice (`GridSystem`), not here.
    */
   hideUI: boolean
-  /**
-   * 沉浸: the eye is inside the station (§9.7 视图). The level slice stops being
-   * a slice — every storey draws crisp and no ceiling is lifted — because what
-   * the mode is for is what the geometry between the eye and the room really
-   * hides (`render/levelSlicing.ts`).
-   */
-  immersive: boolean
   /** The slice state the last `applyLevel` applied, so a repeat is skipped. */
   levelKey: string
   dimMats: Map<THREE.Material, THREE.Material>
@@ -185,7 +178,6 @@ export class SceneContextData implements SceneContext {
   autoCeiling = true
   hideWalls = false
   hideUI = false
-  immersive = false
   levelKey = ''
   dimMats = new Map<THREE.Material, THREE.Material>()
   clearMats = new Map<THREE.Material, THREE.Material>()

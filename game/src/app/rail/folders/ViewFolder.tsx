@@ -3,10 +3,9 @@
 // **The tile order is the menu order**, one row of the grid at a time, nearest
 // the tool the player is likely to want next: the two `X` / `C` slice toggles
 // first (显示其他层, 剖切), then the 隐藏 pair that takes station furniture away
-// (隐藏天花板, 隐藏墙壁), then the two modes that put the storey slice away —
-// 沉浸 (**K**, the store's `immersion`: the camera stands an eye inside the
-// station) and 隐藏UI (**U**, the store's `hideUI`: the station drawn whole, and
-// the 1 m editing lattice and its cell cursor gone with the ghost sheet —
+// (隐藏天花板, 隐藏墙壁), then the one mode that puts the storey slice away —
+// 隐藏UI (**U**, the store's `hideUI`: the station drawn whole, and the 1 m
+// editing lattice and its cell cursor gone with the ghost sheet —
 // `render/levelSlicing.ts`, `render/scene/systems/GridSystem.ts`) — and last the
 // two overlays that paint the station rather than hide it (热力图, 分区图).
 //
@@ -40,22 +39,21 @@ export function ViewFolder(): React.ReactElement {
   const hideUI = useStore((s) => s.hideUI)
   const overlayOn = useStore((s) => s.overlayOn)
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
-  const immersion = useStore((s) => s.immersion)
   const section = useStore((s) => s.section)
   const st = useStore.getState
   return (
     <div className="blockGrid">
       {/* 显示其他层 / 剖切 lead: both are slice tools, and 剖切's own panel opens
           right under its tile. */}
-      {/* Both slice toggles are shown but plainly out of play while a mode that
-          puts the slice away is on — 隐藏UI draws every storey with no ceiling
-          lifted, and the 沉浸 eye does too — so the rule is discoverable. */}
+      {/* Both slice toggles are shown but plainly out of play while 隐藏UI is on —
+          it draws every storey with no ceiling lifted — so the rule is
+          discoverable. */}
       <Block
         label="显示其他层"
         icon="ghost"
         shortcut="X"
         active={ghost}
-        disabled={immersion || hideUI}
+        disabled={hideUI}
         onClick={() => st().setGhostOther(!ghost)}
       />
       <Block label="剖切" icon="cutaway" shortcut="C" active={cutaway} onClick={() => st().setCutaway(!cutaway)} />
@@ -67,22 +65,10 @@ export function ViewFolder(): React.ReactElement {
         icon="ceiling"
         shortcut="H"
         active={autoCeiling}
-        disabled={immersion || hideUI}
+        disabled={hideUI}
         onClick={() => st().setAutoCeiling(!autoCeiling)}
       />
       <Block label="隐藏墙壁" icon="wall" active={hideWalls} onClick={() => st().setHideWalls(!hideWalls)} />
-      {/* **沉浸** stands the camera inside the station at the angle the player was
-          holding (`app/store.ts` `immersion`); **隐藏UI** puts the storey slice away
-          and takes the editing lattice with it (`hideUI`). Two tiles, because they
-          are two different questions — where the eye is, and how the storeys draw —
-          even though both end in the same slice (`render/levelSlicing.ts`). */}
-      <Block
-        label="沉浸"
-        icon="immersion"
-        shortcut="K"
-        active={immersion}
-        onClick={() => st().setImmersion(!immersion)}
-      />
       <Block label="热力图" icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
       <Block label="分区图" icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
       <Block label="隐藏UI" icon="gridOff" shortcut="U" active={hideUI} onClick={() => st().setHideUI(!hideUI)} />

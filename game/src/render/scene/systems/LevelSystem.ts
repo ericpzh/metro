@@ -1,15 +1,15 @@
 // LevelSystem — storey slicing: which storeys draw, ghost or hide the rest,
-// fade walls, hold 沉浸 and 隐藏UI (moved verbatim from `render/scene.ts`:
+// fade walls, hold 隐藏UI (moved verbatim from `render/scene.ts`:
 // `setLevel`, `setAutoCeiling`, `applyLevel`, `applyGroupLevel`, `baseOf`,
 // `dimOf`, `clearOf`, `setHideWalls`).
 //
 // The rule itself is `render/levelSlicing.ts`; this is only the walk over the
 // scene. 显示其他层 off is absolute; on, the other storeys draw as 35% ghosts;
-// 沉浸 and 隐藏UI draw everything crisp, because both are asking to see the
-// station rather than the storey being edited. The dim/clear caches are keyed by
-// live materials and are dropped with the chunk rebuild (`releaseChunks`), or
-// they would pin dead materials forever. The 剖切 clip is not here any more:
-// `SectionSystem` owns the plane and the highlighted surface.
+// 隐藏UI draws everything crisp, because it is asking to see the station rather
+// than the storey being edited. The dim/clear caches are keyed by live materials
+// and are dropped with the chunk rebuild (`releaseChunks`), or they would pin
+// dead materials forever. The 剖切 clip is not here any more: `SectionSystem`
+// owns the plane and the highlighted surface.
 
 import * as THREE from 'three'
 import { levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../../levelSlicing.ts'
@@ -64,12 +64,12 @@ export class LevelSystem extends SceneSystem {
    * being worked on. 隐藏天花板 is the one thing above the active storey that
    * still draws, and only for the plates that are not that room's ceiling.
    *
-   * **隐藏UI and 沉浸 draw everything opaque.** All of that is drawing
-   * furniture — a sheet of 35% dark laid over the station so the storey being
-   * edited reads — and it is exactly the lie the two modes exist to avoid: the
-   * slab a storey up ghosts *through* the floor under the eye, and what should be
-   * a granite concourse reads as a dark shadow grid. So both put the slice away
-   * (`sliceOptions`) and skip this walk's materials entirely: every piece draws
+   * **隐藏UI draws everything opaque.** All of that is drawing furniture — a
+   * sheet of 35% dark laid over the station so the storey being edited reads —
+   * and it is exactly the lie the mode exists to avoid: the slab a storey up
+   * ghosts *through* the floor under the eye, and what should be a granite
+   * concourse reads as a dark shadow grid. So it puts the slice away
+   * (`sliceOptions`) and skips this walk's materials entirely: every piece draws
    * as itself, at full opacity, whatever storey it belongs to. 隐藏墙壁 is the
    * one toggle that stays: it is a deliberate look-through, not the slice.
    */
@@ -80,7 +80,7 @@ export class LevelSystem extends SceneSystem {
     // and two of those usually change nothing — so skip a repeat with the same
     // slice. `setStation` clears the key because it rebuilds the meshes this
     // assigns materials to.
-    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideUI}|${this.ctx.immersive}`
+    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideUI}`
     if (key === this.ctx.levelKey) return
     this.ctx.levelKey = key
     // One record for the whole walk: what the view asks of the slice this frame.
@@ -88,14 +88,13 @@ export class LevelSystem extends SceneSystem {
       ghost: this.ctx.ghost,
       autoCeiling: this.ctx.autoCeiling,
       hideUI: this.ctx.hideUI,
-      immersive: this.ctx.immersive,
     })
     this.slice.ghost = slice.ghost
     this.slice.autoCeiling = slice.autoCeiling
-    // **隐藏UI draws everything opaque**, and so does 沉浸: both put the slice
-    // away, which is the one thing a visibility flag could not do on its own —
-    // the 35% ghost *material* the slice assigned a piece has to be undone.
-    const straight = this.ctx.hideUI || this.ctx.immersive
+    // **隐藏UI draws everything opaque**: it puts the slice away, which is the one
+    // thing a visibility flag could not do on its own — the 35% ghost *material*
+    // the slice assigned a piece has to be undone.
+    const straight = this.ctx.hideUI
     for (const [lz, group] of this.chunks.levelGroups) {
       group.visible = true
       const side = levelSide([lz], this.ctx.activeZ)
@@ -147,10 +146,10 @@ export class LevelSystem extends SceneSystem {
     const lz = root.userData.levelZ as number | undefined
     const zs = levels ?? (lz !== undefined ? [lz] : undefined)
     const side = levelSide(zs, this.ctx.activeZ)
-    const straight = this.ctx.hideUI || this.ctx.immersive
+    const straight = this.ctx.hideUI
     if (straight) {
-      // 隐藏UI / 沉浸: drawn, and drawn as itself — a 售票机, a 屏蔽门 or a consist
-      // does not become a 35% ghost because it stands on another storey.
+      // 隐藏UI: drawn, and drawn as itself — a 售票机, a 屏蔽门 or a consist does
+      // not become a 35% ghost because it stands on another storey.
       root.visible = kind === 'train' ? root.userData.parked !== true : true
     } else if (kind === 'train') {
       root.visible = trainVisible(side, this.ctx.ghost, root.userData.parked === true)
@@ -222,21 +221,10 @@ export class LevelSystem extends SceneSystem {
   }
 
   /**
-   * 沉浸. The slice stops being a slice: every storey draws crisp and no
-   * ceiling is lifted, so what hides what is real geometry rather than a
-   * ghosting choice (`render/levelSlicing.ts`).
-   */
-  setImmersive(on: boolean): void {
-    if (this.ctx.immersive === on) return
-    this.ctx.immersive = on
-    this.applyLevel()
-  }
-
-  /**
-   * 隐藏UI. The same picture as 沉浸 — the station as it is, with every storey
-   * drawn as itself — without moving the camera, and with the editing lattice
-   * gone as well (`GridSystem`). The two ask for one slice (`sliceOptions`), so
-   * neither can leave the other's ghost sheet in place.
+   * 隐藏UI. The slice stops being a slice: the station as it is, with every
+   * storey drawn as itself and no ceiling lifted, and with the editing lattice
+   * gone as well (`GridSystem`). One slice, one owner, so the pieces and the
+   * fixtures cannot disagree about it (`sliceOptions`).
    */
   setHideUI(on: boolean): void {
     if (this.ctx.hideUI === on) return

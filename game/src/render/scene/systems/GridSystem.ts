@@ -9,20 +9,6 @@ import * as THREE from 'three'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 
-/**
- * 隐藏UI: whether the drawing lattice is drawn at all.
- *
- * Two gates take it away, and **the grid is the whole of what they take**: the
- * 隐藏UI tile, which is about the picture rather than the station, and the 沉浸
- * eye, which is standing in the room and does not want a 1 m lattice at its own
- * feet. Either one is enough; neither touches the panels, the tools or the
- * station's own geometry. Pure, so the rule is checkable without a GL context
- * (`test/grid-visibility.test.mjs`).
- */
-export function gridVisible(hideUI: boolean, immersive: boolean): boolean {
-  return !hideUI && !immersive
-}
-
 export class GridSystem extends SceneSystem {
   grid: THREE.Group = new THREE.Group()
   /** The extent and storey the drawn grid was built for, so it is only remade when it moves. */
@@ -30,8 +16,6 @@ export class GridSystem extends SceneSystem {
   cursor: THREE.Mesh
   /** 隐藏UI: the lattice and its cell cursor are put away. */
   private hideUI = false
-  /** 沉浸: the eye is in the room, so there is no lattice at its feet either. */
-  private immersive = false
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -101,23 +85,13 @@ export class GridSystem extends SceneSystem {
   /** 隐藏UI: take the drawing lattice and its cell cursor away, or put them back. */
   setHideUI(on: boolean): void {
     this.hideUI = on
-    this.applyGridVisible()
-  }
-
-  /** 沉浸: the mode stands an eye in the room, where the lattice is not wanted. */
-  setImmersive(on: boolean): void {
-    this.immersive = on
-    this.applyGridVisible()
-  }
-
-  private applyGridVisible(): void {
-    this.setGridVisible(gridVisible(this.hideUI, this.immersive))
+    this.setGridVisible(!on)
   }
 
   setCursor(cell: [number, number, number] | null, valid = true): void {
     // Nothing to aim at while the lattice is hidden, so a pick under the pointer
     // does not put the ring back: 隐藏UI draws no editing furniture at all.
-    if (!cell || !gridVisible(this.hideUI, this.immersive)) {
+    if (!cell || this.hideUI) {
       this.cursor.visible = false
       return
     }

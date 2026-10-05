@@ -6,19 +6,10 @@
 //
 // Left and right belong to the tools; orbit is the middle button, the wheel
 // zooms flat views, and WASD (+ the mouse edge band) pans camera-relative.
-//
-// **沉浸 is a move of the same rig** (`setImmersive`), and that is all it is: the
-// camera steps to where a person in the room would stand and the orbit target
-// comes with it, so the orbit rig, the wheel, the middle button, the nav cube and
-// the WASD pan all go on working exactly as they do in every other view, at the
-// angle the player was already holding. The control scheme is the point of the
-// other views, so the mode borrows it rather than replacing it — and it puts the
-// view back, to the metre, when it is turned off.
 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { facingFrom } from '../../pickFacing.ts'
-import { packKey } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { PickResult, SceneContext } from './SceneSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
@@ -30,59 +21,6 @@ import type { ModuleSystem } from './ModuleSystem.ts'
  * WASD speed at the very edge.
  */
 const EDGE_PAN_PX = 26
-
-/**
- * A person's eye height above the floor, in metres. The whole of 沉浸's claim is
- * this number: at depth −8 m the camera is set at −6 m, because that is where
- * somebody standing on that storey's floor would be looking from.
- */
-const EYE_HEIGHT = 1.62
-
-/**
- * The floor line under `(x, y)` at storey `z`: the top of the first solid block
- * the column meets on the way down from that storey's own line, so a viewer
- * stands on the room's floor rather than inside the massing it was dug out of.
- * `z` itself when the column is open, which keeps the eye the right height above
- * the grid even over a void.
- */
-function floorLine(solid: ReadonlySet<number>, x: number, y: number, z: number): number {
-  const cx = Math.floor(x)
-  const cy = Math.floor(y)
-  for (let cz = Math.floor(z); cz >= z - 64; cz--) {
-    if (!solid.has(packKey(cx, cy, cz))) continue
-    // The top of the run this block belongs to: a digging's massing is metres
-    // deep, and the surface is the line above the topmost block of it.
-    let top = cz
-    while (solid.has(packKey(cx, cy, top + 1))) top++
-    return top + 1
-  }
-  return z
-}
-
-/**
- * How far 沉浸 moves the rig, as one vector added to **both** the camera and its
- * orbit target: the eye ends at a person's height on `z`'s floor, at the plan
- * position the rig is looking at (its target's column).
- *
- * Being a translation is the whole design, and it is why the mode can never reset
- * anything. Adding one vector to both ends leaves the offset between them — the
- * direction the view looks along, the distance it looks from, and so the orbit the
- * player worked out — exactly what it was; only where the whole rig stands changes.
- * A player who has turned the station to look into a room arrives inside that room
- * at their own angle, and stepping back out restores the rig to the metre.
- *
- * Pure, so the one claim it makes is testable without a canvas or a GL context
- * (`test/immersive-view.test.mjs`).
- */
-export function immersiveStep(
-  camera: THREE.Vector3,
-  target: THREE.Vector3,
-  solid: ReadonlySet<number>,
-  z: number,
-): THREE.Vector3 {
-  const eye = floorLine(solid, target.x, target.y, z) + EYE_HEIGHT
-  return new THREE.Vector3(target.x - camera.x, target.y - camera.y, eye - camera.z)
-}
 
 export class CameraSystem extends SceneSystem {
   camera: THREE.PerspectiveCamera
@@ -106,19 +44,6 @@ export class CameraSystem extends SceneSystem {
   private renderer: THREE.WebGLRenderer
   /** Module groups for model-space picking; wired by the orchestrator. */
   modules!: ModuleSystem
-
-  /* ------------------------------------------------------------- 沉浸 */
-
-  /** True while the view is aimed from inside the station rather than over it. */
-  private immersion = false
-  /** The storey 沉浸 is currently standing on, so a re-seat knows the floor. */
-  private immersiveZ = 0
-  /**
-   * The rig as 沉浸 found it, so leaving gives it back exactly. 沉浸 is a look
-   * inside, not a view of its own: it may move the eye, but it may never cost the
-   * player the orbit, the dolly and the pan they had worked out.
-   */
-  private immersiveFrom: { position: THREE.Vector3; target: THREE.Vector3; ortho: boolean; zoom: number } | null = null
 
   constructor(canvas: HTMLCanvasElement, ctx: SceneContext, renderer: THREE.WebGLRenderer) {
     super(ctx)
@@ -149,98 +74,14 @@ export class CameraSystem extends SceneSystem {
     canvas.addEventListener('pointerup', this.onEdgePointerUp)
   }
 
-  /* ------------------------------------------------------------- 沉浸 */
-
-  get immersive(): boolean {
-    return this.immersion
-  }
-
-  /**
-   * 沉浸: the same rig, standing in the room instead of looking down at it from
-   * over the station. It is a **translation of the camera and its target and
-   * nothing else** — the eye steps to head height on the storey's floor at the plan
-   * position the rig was looking at, and the orbit target comes with it by the same
-   * step, so the direction the camera looks, the distance to its target and the roll
-   * are exactly the ones the player arrived with.
-   *
-   * That is why it does not re-aim: 沉浸 is a way of standing inside the station,
-   * not a fifth view of it, and a player who has orbited in to look at a room should
-   * not lose that angle to a keypress. Turning it off puts the rig back where it
-   * was, to the metre, so **K is a peek** — press it, press it again, and the view
-   * is the one that was there.
-   *
-   * Every other control is untouched: the orbit, the wheel, the middle button,
-   * WASD's pan and the nav cube all go on working as they do in every other view,
-   * because the control scheme is what the other views are for.
-   */
-  setImmersive(on: boolean, z?: number): void {
-    if (on === this.immersion) {
-      // Already in that state: a repeat (the mount effect running twice, a second
-      // K before a re-render) only re-seats the eye. Saving the pose again here
-      // would remember the immersion one and lose the view being come back to.
-      if (on) this.seatImmersive(z ?? this.immersiveZ)
-      return
-    }
-    this.immersion = on
-    if (!on) {
-      const from = this.immersiveFrom
-      this.immersiveFrom = null
-      if (!from) return
-      this.camera.position.copy(from.position)
-      this.controls.target.copy(from.target)
-      this.orthoZoom = from.zoom
-      this.camera.lookAt(from.target)
-      this.controls.update()
-      // The projection last: `setOrtho` copies the camera into the ortho one.
-      this.setOrtho(from.ortho)
-      return
-    }
-    this.immersiveFrom = {
-      position: this.camera.position.clone(),
-      target: this.controls.target.clone(),
-      ortho: this.orthoOn,
-      zoom: this.orthoZoom,
-    }
-    // A person's eye is a perspective view: 沉浸 never keeps a flat projection.
-    this.setOrtho(false)
-    this.seatImmersive(z ?? this.ctx.activeZ)
-  }
-
-  /**
-   * Stand the eye at head height on `z`'s floor, at the plan position the rig is
-   * looking at, and carry the orbit target along by the same step
-   * (`immersiveStep`). The step, and why it can be a translation at all, is the
-   * whole of 沉浸's camera; this is only the plumbing that applies it.
-   */
-  private seatImmersive(z: number): void {
-    const step = immersiveStep(this.camera.position, this.controls.target, this.ctx.solid, z)
-    this.camera.position.add(step)
-    this.controls.target.add(step)
-    this.controls.update()
-    this.immersiveZ = z
-  }
-
   /** The block/module meshes the current station made pickable. */
   setPickables(pickables: THREE.Object3D[]): void {
     this.pickables = pickables
   }
 
-  /**
-   * The four flat/overhead presets. 沉浸 is **not** one of them: it is a move of
-   * the rig the player is already holding (`setImmersive`), so it has nothing to
-   * say here.
-   *
-   * A preset *does* end 沉浸, and without putting the old rig back — the player has
-   * just asked for a different view, so restoring the one they were working at
-   * would simply overrule them. Forgetting the saved pose here is what keeps that
-   * promise: the app clears its own 沉浸 flag alongside this call, and the
-   * `setImmersive(false)` that follows is then a no-op rather than a restore that
-   * lands on top of the preset.
-   */
+  /** The four flat/overhead presets (iso, plan, front, side) plus `custom`. */
   setPreset(name: 'iso' | 'plan' | 'front' | 'side' | 'custom'): void {
     if (name === 'custom') return
-    this.immersion = false
-    this.immersiveFrom = null
     const c = this.ctx.bounds.getCenter(new THREE.Vector3())
     const dirs: Record<'iso' | 'plan' | 'front' | 'side', THREE.Vector3> = {
       iso: new THREE.Vector3(1, -1.2, 0.85).normalize(),
@@ -287,9 +128,8 @@ export class CameraSystem extends SceneSystem {
 
   /** Wheel zoom for flat views: scale the ortho frustum instead of dollying. */
   private onWheel = (e: WheelEvent): void => {
-    // 沉浸 is a perspective view like `iso`, so the wheel keeps its usual job:
-    // OrbitControls dollies the camera when the pointer is over the canvas, and
-    // that is the whole of the zoom here.
+    // A perspective view zoom is OrbitControls' own dolly; only the flat views
+    // have to be zoomed here.
     if (!this.orthoOn) return
     e.preventDefault()
     this.orthoZoom = THREE.MathUtils.clamp(this.orthoZoom * Math.exp(e.deltaY * 0.001), 0.06, 16)
@@ -317,14 +157,6 @@ export class CameraSystem extends SceneSystem {
   }
 
   frame(): void {
-    // 沉浸 stands on a storey, so `frame` puts the eye back on the floor of the one
-    // being looked around — the same translation `setImmersive` makes, taken again
-    // for the storey that is on screen now. The angle is untouched, as everywhere in
-    // the mode: this re-seats the eye, it does not re-aim the view.
-    if (this.immersion) {
-      this.seatImmersive(this.ctx.activeZ)
-      return
-    }
     const c = this.ctx.bounds.getCenter(new THREE.Vector3())
     this.controls.target.copy(c)
     this.controls.update()

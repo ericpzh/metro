@@ -16,10 +16,6 @@
 //     it cuts.
 //   * the picking ray for it, so the surface can be grabbed with the pointer
 //     (`app/Viewport.tsx` turns a hit into a slide).
-//
-// The `immersive` flag only changes *visibility* here: inside the station the
-// cut is still a cut, but the section's own highlighter is diagram furniture
-// and belongs to the editing view.
 
 import * as THREE from 'three'
 import { planeConstant, sectionNormal, sectionPoint, sectionRight, sectionUp, sectionHighlightSize } from '../../section.ts'
@@ -119,19 +115,8 @@ export class SectionSystem extends SceneSystem {
     const n = sectionNormal(section.orientation)
     this.plane.normal.set(n[0], n[1], n[2])
     this.plane.constant = planeConstant(section)
-    this.group.visible = on && !this.ctx.immersive
+    this.group.visible = on
     this.refreshHighlight()
-  }
-
-  /**
-   * 沉浸 hides the section's highlighter. The **clip stays** — it is the cut the
-   * player asked for and a view angle does not undo it — but the translucent
-   * sheet, its border and its grid are drawing furniture: they exist so the cut
-   * can be grabbed and slid, which is a thing to do from above the model, not
-   * from inside the room looking at what the cut exposes.
-   */
-  setImmersive(on: boolean): void {
-    this.group.visible = this.on && !on
   }
 
   /** Where the highlighted surface stands, sized to the station it cuts. */
@@ -214,7 +199,7 @@ export class SectionSystem extends SceneSystem {
 
   /** The section surface under the pointer, in canvas-relative CSS pixels. */
   hit(clientX: number, clientY: number, canvas: HTMLCanvasElement, camera: THREE.Camera): boolean {
-    if (!this.on || this.ctx.immersive) return false
+    if (!this.on) return false
     const rect = canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, camera)

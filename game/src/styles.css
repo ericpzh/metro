@@ -637,20 +637,6 @@ button.ghost:hover {
   border-color: var(--accent);
 }
 
-/* ------------------------------------------------------------- 沉浸 (§9.7) */
-/* The mode is a **view angle**, not a skin: the build rail, the inspector, the
-   nav cube and the level rail all stay, the tools keep working, and the orbit /
-   wheel / WASD controls are the ones every other view uses. The one piece of the
-   editing picture that goes is the 1 m grid and its cell cursor
-   (`SceneRenderer.setImmersive` → `GridSystem.setGridVisible`), because a
-   lattice floating at the eye's own storey is a drawing aid and the mode's
-   question is what the station looks like to somebody standing in it. No prompt
-   and no overlay: the mode adds nothing to the screen, and the way out is the
-   **K** tile in the 视图 folder (lit while it is on) or **Esc**. */
-.immersion .viewport {
-  cursor: none;
-}
-
 /* Legacy rail classes kept for the inspector and any host embedding the panel. */
 .railBtn {
   text-align: left;
@@ -730,13 +716,6 @@ button.ghost:hover {
 .stage {
   position: relative;
   min-width: 0;
-}
-/* 沉浸 hides nothing in the layout any more: the build rail, the inspector, the
-   nav cube and the level rail all stay, and only the drawing grid goes
-   (`render/scene/systems/GridSystem.ts`). The `.viewport` in that mode has no
-   crosshair to aim with, so the cursor simply disappears over the picture. */
-.immersion .viewport {
-  cursor: none;
 }
 .viewport {
   display: block;

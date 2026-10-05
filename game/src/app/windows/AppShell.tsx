@@ -29,18 +29,6 @@ export function App(): React.ReactElement {
       // Delete all mean something to the board being composed, not to the station
       // behind it. Its own Delete binding lives on the board (SignEditor).
       if (st.signEditorFor !== null || st.signComposing) return
-      // 沉浸 is one more view angle, not a mode of its own: every shortcut keeps
-      // the meaning it has in the iso, plan, front and side views (Space pauses,
-      // V/B/F/G/J/P/L pick tools, R turns the piece being placed, Q/E step the
-      // storey, 1/2/4/5 are the other presets). Only one is its own — **Esc**
-      // leaves, so the way out is never more than one key away from inside the
-      // room. **K** toggles it, in the shortcut switch below with every other
-      // view toggle.
-      if (st.immersion && e.key.toLowerCase() === 'escape') {
-        e.preventDefault()
-        st.setImmersion(false)
-        return
-      }
       // Ctrl shortcuts for the top-bar icon actions (shown in their tooltips).
       // Handled before the single-letter tool keys so Ctrl+N never also grabs
       // the 材质 brush, etc.
@@ -158,16 +146,10 @@ export function App(): React.ReactElement {
         case 'h':
           st.setAutoCeiling(!st.autoCeiling)
           break
-        // 隐藏UI and 沉浸 both want the editing lattice gone, and the 视图 folder
-        // gives each its own tile: U takes the lattice, K stands the eye in the
-        // room (`render/scene/systems/GridSystem.ts` `gridVisible`).
+        // 隐藏UI: the editing lattice and the storey slice, off the picture
+        // (`render/scene/systems/GridSystem.ts`, `render/levelSlicing.ts`).
         case 'u':
           st.setHideUI(!st.hideUI)
-          break
-        case 'k':
-          // 沉浸: the camera stands an eye inside the station at the angle the
-          // player was holding — the interface stays.
-          st.setImmersion(!st.immersion)
           break
         case 'o':
           st.setOrtho(!st.ortho)

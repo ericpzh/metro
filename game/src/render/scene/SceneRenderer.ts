@@ -266,7 +266,6 @@ export class SceneRenderer {
     const wasOn = this.sectionSys.on
     this.sectionSys.setSection(section, on)
     if (wasOn !== on) this.sectionSys.applyClip()
-    this.sectionSys.setImmersive(this.ctx.immersive)
   }
 
   /** The store's 剖切 flag, for callers that only carry the toggle. */
@@ -288,39 +287,18 @@ export class SceneRenderer {
     this.sectionSys.setHover(on)
   }
 
-  /* ------------------------------------------------------------- 沉浸 */
-
   /**
-   * 沉浸: the same view stood inside the storey being viewed rather than above the
-   * station (`CameraSystem.setImmersive`). **The interface stays** — the build rail,
-   * the inspector, the view cube, the level rail and every tool are exactly where
-   * they were, and the orbit, the wheel, WASD's pan and the nav cube all keep
-   * working, because the control scheme is the point of the other views. Neither
-   * does the **angle**: the camera steps to the room and its target comes with it,
-   * so the mode arrives at the orbit the player was holding and hands it back
-   * untouched on the way out. What the mode takes away is the **editing grid
-   * and its cell cursor**: a 1 m lattice floating at the eye's own storey is a
-   * drawing aid, and the mode's question is what the station looks like to
-   * somebody standing in it.
+   * 隐藏UI: the drawing lattice and its cell cursor off the picture, and the
+   * storey slice put away with them.
    *
-   * Two other things follow the view rather than the station, and both are about
-   * not lying to the player: the level slice stops being a slice (every storey
-   * draws crisp — a 35% ghost of the floor above would show the room through it),
-   * and the 剖切 highlight goes away (its translucent sheet, border and grid exist
-   * so the cut can be grabbed and slid from above the model, which is not what
-   * the mode is for; the clip itself stays, because it is the cut the player
-   * asked for).
+   * One flag per system that owns a drawing, rather than a hard
+   * `setGridVisible(false)` and a ghost material set on the rail's behalf: the
+   * grid and the slice are the same picture seen twice, and one owner each keeps
+   * them from disagreeing (`GridSystem`, `LevelSystem.setHideUI`).
    */
-  setImmersive(on: boolean, z?: number): void {
-    this.cameraSys.setImmersive(on, z)
-    this.level.setImmersive(on)
-    this.sectionSys.setImmersive(on)
-    this.grid.setGridVisible(!on)
-  }
-
-  /** Whether the view is aimed from inside the station. */
-  get immersive(): boolean {
-    return this.cameraSys.immersive
+  setHideUI(on: boolean): void {
+    this.grid.setHideUI(on)
+    this.level.setHideUI(on)
   }
 
   /** 隐藏墙壁: fade every wall and platform screen door, or restore them. */
@@ -410,21 +388,6 @@ export class SceneRenderer {
 
   setGridVisible(on: boolean): void {
     this.grid.setGridVisible(on)
-  }
-
-  /**
-   * 隐藏UI: the drawing lattice and its cell cursor off the picture, and the
-   * storey slice put away with them.
-   *
-   * Both flags belong to the systems that own the drawing, not to a hard
-   * `setGridVisible(false)` and a ghost material set on the rail's behalf: 沉浸
-   * hides the same lattice and asks for the same slice for its own reason, and
-   * neither mode may restore the other's lattice or ghost sheet
-   * (`GridSystem.gridVisible`, `LevelSystem.setHideUI`).
-   */
-  setHideUI(on: boolean): void {
-    this.grid.setHideUI(on)
-    this.level.setHideUI(on)
   }
 
   /* -------------------------------------------------------------- picking */

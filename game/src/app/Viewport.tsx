@@ -42,11 +42,11 @@ interface BuildMeasure {
 
 /**
  * Whether a key event belongs to a text field rather than to the game. A button
- * is deliberately **not** one: the build rail, the view toggles and the 沉浸
- * hint's 退出 button are all `button`s, and a keydown aimed at a focused button
- * is the game's key, not the field's. (The browser still activates a focused
- * button on Space and Enter, which is why `App` blurs the button on a Space
- * press — but that is about the *click*, never about the key reaching the game.)
+ * is deliberately **not** one: the build rail and the view toggles are all
+ * `button`s, and a keydown aimed at a focused button is the game's key, not the
+ * field's. (The browser still activates a focused button on Space and Enter,
+ * which is why `App` blurs the button on a Space press — but that is about the
+ * *click*, never about the key reaching the game.)
  * Exported so `windows/AppShell.tsx`'s global shortcuts use one definition of
  * "this key is for a text field".
  */
@@ -197,7 +197,6 @@ export function Viewport(): React.ReactElement {
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
   const section = useStore((s) => s.section)
-  const immersion = useStore((s) => s.immersion)
   const hideWalls = useStore((s) => s.hideWalls)
   const hideUI = useStore((s) => s.hideUI)
   const ortho = useStore((s) => s.ortho)
@@ -257,29 +256,13 @@ export function Viewport(): React.ReactElement {
     sceneRef.current?.setHideWalls(hideWalls)
   }, [hideWalls])
 
-  // 隐藏UI: the drawing lattice and its cell cursor, and nothing else. It is a
-  // flag on the grid system rather than a plain `setGridVisible`, so 沉浸's own
-  // reason for hiding the same lattice keeps working independently of it.
+  // 隐藏UI: the drawing lattice, its cell cursor, and the storey slice that puts
+  // the ghost sheet over the floor under the camera. One flag, one effect: the
+  // renderer hands it to the two systems that own those drawings
+  // (`SceneRenderer.setHideUI`).
   useEffect(() => {
     sceneRef.current?.setHideUI(hideUI)
   }, [hideUI])
-
-  // 沉浸: the same view, stood inside the storey being looked at. The camera does
-  // the work (`SceneRenderer`), and this only says which storey to stand on — the
-  // grid it hides is already its own business. Nothing else about the viewport
-  // changes: the panels stay, the tools stay, and the pointer keeps building and
-  // picking exactly as it does in the iso, plan, front and side views.
-  //
-  // It is keyed on the **flag alone**, deliberately. The camera is *moved*, never
-  // re-aimed: it steps to the room at the angle the player was already holding, and
-  // leaving puts it back where it was — which is why the cleanup restores rather
-  // than re-framing. Q/E still step the storey the rail reads and the camera stays
-  // where it was put, because re-aiming it on a storey change would throw away every
-  // orbit, dolly and pan the player had made.
-  useEffect(() => {
-    sceneRef.current?.setImmersive(immersion, useStore.getState().activeZ)
-    return () => sceneRef.current?.setImmersive(false)
-  }, [immersion])
 
   useEffect(() => {
     sceneRef.current?.setOrtho(ortho)
@@ -407,13 +390,6 @@ export function Viewport(): React.ReactElement {
       const k = (e as CustomEvent).detail as string
       scene.setPreset(k === '1' ? 'iso' : k === '2' ? 'plan' : k === '4' ? 'front' : k === '5' ? 'side' : 'custom')
       useStore.getState().setOrtho(k === '2' || k === '4' || k === '5')
-      // A preset is a way out of 沉浸 as much as out of any other view: the mode
-      // is one of the five, so a cube face or 1/2/4/5 shows the view it names
-      // rather than leaving a tile lit over a view that is not being shown.
-      if (k === '1' || k === '2' || k === '4' || k === '5') {
-        const st = useStore.getState()
-        if (st.immersion) st.setImmersion(false)
-      }
     }
     const onFrame = (): void => scene.frame()
     const onDelete = (): void => {
@@ -427,10 +403,9 @@ export function Viewport(): React.ReactElement {
       st.commit(next)
       st.select(null)
     }
-    // WASD pan (Shift = faster). Q/E layer stepping stays in the app, and 沉浸
-    // uses this same pan: it is one more view angle, not a control scheme of its
-    // own. A text field keeps its letters — a focused **button** does not, or
-    // clicking a rail tile would stop WASD panning the camera afterwards.
+    // WASD pan (Shift = faster). Q/E layer stepping stays in the app. A text
+    // field keeps its letters — a focused **button** does not, or clicking a rail
+    // tile would stop WASD panning the camera afterwards.
     const panKeys = new Set(['w', 'a', 's', 'd', 'shift'])
     const onKeyDown = (e: KeyboardEvent): void => {
       if (isTypingTarget(e.target)) return

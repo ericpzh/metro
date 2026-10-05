@@ -1,6 +1,6 @@
 // The view slice: which storey is edited and how the others draw around it
 // (level slicing in `render/levelSlicing.ts`), plus the camera and overlay
-// toggles, the 沉浸 eye and the 剖切 surface.
+// toggles, 隐藏UI and the 剖切 surface.
 
 import type { StateCreator } from 'zustand'
 import { nearestLevel } from '../../../build/model.ts'
@@ -37,13 +37,6 @@ export interface ViewSlice {
   ortho: boolean
   overlayOn: boolean
   /**
-   * 沉浸 (§9.7): the whole interface is put away and the camera becomes an eye
-   * inside the station, standing a person's height above the floor of the
-   * storey being edited, with every storey drawn crisp so what is seen is what
-   * the geometry really hides.
-   */
-  immersion: boolean
-  /**
    * The 剖切 surface: where it was anchored, how it is turned and how far it has
    * slid (`render/section.ts`). The rail's location box, its rotation controls
    * and the 3D drag all write this one record, so the plane, the highlighted
@@ -60,7 +53,6 @@ export interface ViewSlice {
   setHideWalls: (on: boolean) => void
   setHideUI: (on: boolean) => void
   setOrtho: (on: boolean) => void
-  setImmersion: (on: boolean) => void
   /** Re-place the cut at `anchor` on the storey being edited (a fresh 剖切). */
   placeSection: (anchor: Vec3) => void
   /** Slide the cut along its normal, in metres. */
@@ -80,7 +72,6 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   hideUI: false,
   ortho: false,
   overlayOn: false,
-  immersion: false,
   section: { anchor: [0, 0, -8], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH, elevation: DEFAULT_SECTION_ELEVATION }, offset: 0 },
 
   setActiveZ: (z) => set({ activeZ: nearestLevel(z) }),
@@ -97,7 +88,6 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setHideWalls: (on) => set({ hideWalls: on }),
   setHideUI: (on) => set({ hideUI: on }),
   setOrtho: (on) => set({ ortho: on }),
-  setImmersion: (on) => set({ immersion: on }),
   placeSection: (anchor) =>
     set((s) => ({
       section: { ...s.section, anchor: [anchor[0], anchor[1], anchor[2]], offset: 0 },
