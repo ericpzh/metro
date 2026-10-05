@@ -457,6 +457,16 @@ track surface), so a train berthed at the platform disappears with the platform 
 air above it. The nav cube only ever moves the camera: no face, corner or **Home** click rewrites the
 slice behind the player's back.
 
+**隐藏UI takes the drawing lattice off the picture, and nothing else.** The 视图 folder's **隐藏UI** tile
+(**U**) hides the 1 m editing grid and its cell cursor — the two parts of the picture that are drawing
+furniture rather than station (`render/scene/systems/GridSystem.ts`). No station geometry goes with it
+and no interface: the build rail, the inspector, the nav cube, the level rail and every tool stay where
+they are, and the pointer goes on building and picking. The rule is one line, `gridVisible(hideUI,
+immersive)`, because two things want the same lattice gone — this tile, and the immersive eye, which is
+standing in the room and does not want a lattice at its feet. One shared flag rather than two
+`setGridVisible` calls is what keeps either mode from restoring the lattice behind the other's back; the
+cell cursor is guarded by the same function, because the pointer re-sets it every frame.
+
 **The clock pauses and restarts.** **Space** toggles play/pause (the top bar's 暂停 / 播放 button does
 the same), and 重启 empties the crowd, trains and queues while keeping the built station and the clock
 (`World.restart`, sent as a `restart` worker message).
@@ -1227,6 +1237,10 @@ approximated); neither needs WebGL.
   显示其他层 off drawing the edited storey alone at every camera angle, ghost mode keeping the
   neighbours at 35% while a storey above keeps only its unsupported plates (a room never wears
   its own ceiling), and the crowd and the trains following the same slice.
+* `grid-visibility.test.mjs` — 隐藏UI, the drawing lattice and its cursor
+  (`render/scene/systems/GridSystem.ts` `gridVisible`): the tile hides the lattice on its own, the
+  immersive eye hides the same lattice for its own reason, neither restores it while the other still
+  wants it gone, and a pick under the pointer cannot put the cell cursor back on a hidden grid.
 * `sign-editor.test.mjs` — the 指示牌 board editor session (`app/SignEditor.tsx`): a sign is a
   pair of boards with a one-sided default, the preview never commits, confirming makes the pair
   current and the next sign hung carries a copy, covering the full compose→place→print flow.

@@ -176,6 +176,14 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M3 13.8l7 3.6 7-3.6" />
         </>,
       )
+    // 隐藏UI: the 1 m editing lattice, dashed, because what it stands for is the
+    // lattice taken away rather than a plane of the station.
+    case 'gridOff':
+      return svg(
+        <>
+          <path {...s} strokeDasharray="2.6 2.2" d="M4 6.4h12M4 10h12M4 13.6h12M6.4 4v12M10 4v12M13.6 4v12" />
+        </>,
+      )
     case 'cutaway':
       return svg(
         <>

@@ -154,6 +154,7 @@ export function Viewport(): React.ReactElement {
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
   const hideWalls = useStore((s) => s.hideWalls)
+  const hideUI = useStore((s) => s.hideUI)
   const ortho = useStore((s) => s.ortho)
   const overlayOn = useStore((s) => s.overlayOn)
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
@@ -208,6 +209,13 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setHideWalls(hideWalls)
   }, [hideWalls])
+
+  // 隐藏UI: the drawing lattice and its cell cursor, and nothing else. It is a
+  // flag on the grid system rather than a plain `setGridVisible`, so 沉浸's own
+  // reason for hiding the same lattice keeps working independently of it.
+  useEffect(() => {
+    sceneRef.current?.setHideUI(hideUI)
+  }, [hideUI])
 
   useEffect(() => {
     sceneRef.current?.setOrtho(ortho)

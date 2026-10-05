@@ -24,6 +24,13 @@ export interface ViewSlice {
   cutaway: boolean
   /** 隐藏墙壁: draw every wall and platform screen door translucent. */
   hideWalls: boolean
+  /**
+   * 隐藏UI: take the drawing furniture off the picture — the 1 m editing lattice
+   * and its cell cursor (`render/scene/systems/GridSystem.ts`). It hides nothing
+   * of the station and nothing of the interface, so the rail, the panels and the
+   * tools all stay exactly where they are.
+   */
+  hideUI: boolean
   ortho: boolean
   overlayOn: boolean
 
@@ -34,6 +41,7 @@ export interface ViewSlice {
   setAutoCeiling: (on: boolean) => void
   setCutaway: (on: boolean) => void
   setHideWalls: (on: boolean) => void
+  setHideUI: (on: boolean) => void
   setOrtho: (on: boolean) => void
 }
 
@@ -43,6 +51,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   autoCeiling: true,
   cutaway: false,
   hideWalls: false,
+  hideUI: false,
   ortho: false,
   overlayOn: false,
 
@@ -58,5 +67,6 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setAutoCeiling: (on) => set({ autoCeiling: on }),
   setCutaway: (on) => set({ cutaway: on }),
   setHideWalls: (on) => set({ hideWalls: on }),
+  setHideUI: (on) => set({ hideUI: on }),
   setOrtho: (on) => set({ ortho: on }),
 })

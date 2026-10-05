@@ -323,6 +323,16 @@ export class SceneRenderer {
     this.grid.setGridVisible(on)
   }
 
+  /**
+   * 隐藏UI: the drawing lattice and its cell cursor off the picture. It is the
+   * grid system's own flag rather than a hard `setGridVisible(false)`, because
+   * 沉浸 hides the same lattice for its own reason and the two must not restore
+   * it behind each other's back (`GridSystem.gridVisible`).
+   */
+  setHideUI(on: boolean): void {
+    this.grid.setHideUI(on)
+  }
+
   /* -------------------------------------------------------------- picking */
 
   pick(clientX: number, clientY: number, workPlaneZ: number): PickResult | null {

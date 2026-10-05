@@ -147,6 +147,11 @@ export function App(): React.ReactElement {
         case 'h':
           st.setAutoCeiling(!st.autoCeiling)
           break
+        case 'u':
+          // 隐藏UI: the drawing lattice, not the interface — see the 视图 folder's
+          // 隐藏UI tile and `render/scene/systems/GridSystem.ts`.
+          st.setHideUI(!st.hideUI)
+          break
         case 'o':
           st.setOrtho(!st.ortho)
           break
