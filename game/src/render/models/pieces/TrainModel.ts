@@ -3,11 +3,20 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
-import { STOCK, doorCentres } from '../../../sim/stock.ts'
+import { STOCK, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { buildCab } from './CabModel.ts'
 
 /* ------------------------------------------------------------------ trains */
+
+/**
+ * Where the car's glazing starts, above the consist origin: a **waist rail** at
+ * chest height over the cabin floor, so the window is the ~1 m band a seated
+ * passenger sees over and a standing one is watched through. It has to clear the
+ * cabin floor (`CABIN_FLOOR_Z`) by enough to be a rail, and stop under the door
+ * head so the skin above the glass is the header, not a slit.
+ */
+const WINDOW_SILL_Z = 1.6
 
 export interface TrainPose {
   x: number
@@ -28,6 +37,13 @@ export interface TrainPose {
  * ends wear the same cab (§1.12), and only the lamps tell them apart: the
  * leading end lights white, the trailing end red. Built in world space with the
  * origin at the train centre on the track surface.
+ *
+ * The car is a **real cabin**, not a block with doors painted on it: a floor at
+ * `CABIN_FLOOR_Z`, a ceiling, and a lining behind the seats, seen through a
+ * glazed window band and the open doorways. That is what lets the crowd the sim
+ * seats inside a consist (`World.seatAlighter` / `boardRider`) be *watched*
+ * riding in — and stepping out of — a train rather than appearing beside one.
+ * The skin still stops at every doorway, so a door opening is a real hole.
  *
  * The cab is a re-skin of the end car's last 2 m, not an extension, so the
  * body stays exactly `cars × carLength` long and the door cadence keeps lining
@@ -73,54 +89,57 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
       return out
     }
 
-    // Car shell. A narrower core with full-width end walls is skinned by side
-    // panels that stop at each doorway, so a door opening is a real hole into
-    // the cabin rather than a darker panel on a solid block.
+    // Car shell: a cabin between two end bulkheads, skinned by side panels that
+    // stop at each doorway. The panels are cut at `WINDOW_SILL_Z`, so the glass
+    // above them is the window the cabin is read through.
     const coreW = s.width - 0.6
     const skinY = s.width / 2 - 0.03
-    const doorZ0 = 0.57
-    const doorZ1 = 2.63
-    const doorH = doorZ1 - doorZ0
-    const doorZMid = (doorZ0 + doorZ1) / 2
-    slab(g, mats.trainBody, carCentre, 0, 1.75, bodyLen, coreW, 2.5)
+    const doorH = DOOR_HEAD_Z - DOOR_SILL_Z
+    const doorZMid = (DOOR_SILL_Z + DOOR_HEAD_Z) / 2
+    slab(g, mats.trainInterior, carCentre, 0, CABIN_FLOOR_Z - 0.06, bodyLen, coreW + 0.24, 0.12)
+    slab(g, mats.trainInterior, carCentre, 0, DOOR_HEAD_Z + 0.05, bodyLen, coreW + 0.24, 0.1)
     for (const e of [-1, 1]) slab(g, mats.trainBody, carCentre + e * (halfLen - 0.04), 0, 1.75, 0.08, s.width, 2.5)
     slab(g, mats.trainRoof, carCentre, 0, 3.05, bodyLen, s.width - 0.2, 0.2)
-    slab(g, mats.trainDark, carCentre, 0, 0.42, bodyLen, s.width - 0.1, 0.5)
+    slab(g, mats.trainDark, carCentre, 0, 0.335, bodyLen, s.width - 0.1, 0.37)
     for (const side of [-1, 1]) {
       const y = side * skinY
       // Full-length sill and header, then infill panels between the doors.
       slab(g, mats.trainBody, carCentre, y, 0.51, bodyLen, 0.06, 0.12)
       slab(g, mats.trainBody, carCentre, y, 2.82, bodyLen, 0.06, 0.38)
       for (const [a, b] of sideRuns(carCentre - halfLen, carCentre + halfLen, 0)) {
-        slab(g, mats.trainBody, (a + b) / 2, y, doorZMid, b - a, 0.06, doorH)
+        // Below the waist: body. Above it: the glazing that makes the cabin visible.
+        slab(g, mats.trainBody, (a + b) / 2, y, (DOOR_SILL_Z + WINDOW_SILL_Z) / 2, b - a, 0.06, WINDOW_SILL_Z - DOOR_SILL_Z)
+        slab(g, mats.glass, (a + b) / 2, y, (WINDOW_SILL_Z + DOOR_HEAD_Z) / 2, b - a, 0.04, DOOR_HEAD_Z - WINDOW_SILL_Z)
+        // The lining behind the seats, so a passenger looking out of one window
+        // sees a wall and not the platform through the window opposite. It stands
+        // at the cabin's own clear half-width, the box the sim seats riders in.
+        slab(g, mats.trainInterior, (a + b) / 2, side * (CABIN_HALF_W + 0.02), (CABIN_FLOOR_Z + WINDOW_SILL_Z) / 2, b - a, 0.04, WINDOW_SILL_Z - CABIN_FLOOR_Z)
       }
     }
 
-    // Window band and livery on both sides, broken at the doorways.
+    // Livery band on both sides, broken at the doorways. The window band above it
+    // is glass now, so nothing opaque covers the cabin.
     for (const side of [-1, 1]) {
       const face = (side * s.width) / 2
-      for (const [a, b] of sideRuns(carCentre - (bodyLen - 1.4) / 2, carCentre + (bodyLen - 1.4) / 2, 0.05)) {
-        slab(g, mats.trainDark, (a + b) / 2, face + side * 0.01, 2.35, b - a, 0.06, 0.95)
-      }
       for (const [a, b] of sideRuns(carCentre - bodyLen / 2, carCentre + bodyLen / 2, 0.05)) {
         slab(g, blue, (a + b) / 2, face + side * 0.02, 1.05, b - a, 0.05, 0.34)
       }
-      // The nose accent belongs to the cabs now (`buildCab` draws their cream
-      // swoosh); a rising patch on every car only muddied the window band.
+      // Longitudinal seating in the bays between the doors, under the windows —
+      // the doorways themselves stay clear for the people walking out of them.
+      for (const [a, b] of sideRuns(carCentre - halfLen + 0.1, carCentre + halfLen - 0.1, 0.25)) {
+        if (b - a < 1.2) continue
+        slab(g, mats.trainSeat, (a + b) / 2, side * (CABIN_HALF_W - 0.3), CABIN_FLOOR_Z + 0.22, b - a - 0.1, 0.5, 0.44)
+      }
     }
 
-    // Sliding doors over a modelled cabin: two leaves per side part to reveal an
-    // open interior — a lit cavity with a bench and grab poles.
+    // Ceiling lighting down the cabin, so the interior reads as a lit room.
+    slab(g, mats.glow, carCentre, 0, DOOR_HEAD_Z + 0.02, bodyLen - 1.2, 0.16, 0.03)
+
+    // Sliding doors onto the cabin: two leaves per side part to reveal the
+    // interior the platform is about to trade passengers with.
     for (const dx of inCar) {
       for (const side of [-1, 1]) {
         const face = (side * s.width) / 2
-        // The cavity is an open box drawn from the inside (back faces only), so
-        // its rear wall, floor, ceiling and jambs read as the car interior.
-        const cavity = new THREE.Mesh(new THREE.BoxGeometry(s.doorWidth, 0.26, doorH), mats.trainInterior)
-        cavity.position.set(dx, side * (skinY - 0.13), doorZMid)
-        g.add(cavity)
-        // A bench along the back wall and two grab poles.
-        slab(g, mats.trainSeat, dx, side * (skinY - 0.18), doorZ0 + 0.28, s.doorWidth - 0.24, 0.16, 0.36)
         for (const px of [-1, 1]) {
           const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, doorH - 0.12, 8), mats.steel)
           // A cylinder's axis is +y; the cabin's up is +z, so tip it upright.
@@ -128,8 +147,6 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
           pole.position.set(dx + px * (s.doorWidth / 3), side * (skinY - 0.16), doorZMid)
           g.add(pole)
         }
-        // Ceiling strip light.
-        slab(g, mats.glow, dx, side * (skinY - 0.16), doorZ1 - 0.07, s.doorWidth - 0.16, 0.12, 0.04)
         for (const leaf of [-1, 1]) {
           const m = slab(g, mats.trainDark, dx + (leaf * s.doorWidth) / 4, face + side * 0.03, 1.6, s.doorWidth / 2 - 0.03, 0.05, 2.1)
           registerDoorLeaf(m, leaf, s.doorWidth / 2, doors, side)

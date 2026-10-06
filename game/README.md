@@ -21,6 +21,8 @@ npm run test       # node --test: determinism, tick budgets, capacity ladder
 src/
   sim/       PURE TypeScript. No DOM, no worker, no three. Runs in Node.
     constants.ts     every tuning number, including the time base
+    clock.ts         the simulated clock: sim seconds -> a date, a weekday, the authored day
+    demand.ts        the crowd's day: the double-peak curve, its knobs and the calendar factor
     stock.ts         A/B/C/L car classification
     finishes.ts      surface finishes: the family decides behaviour, §4.3
     zones.ts         fare zones: the boundary is a barrier, §4.5
@@ -922,6 +924,32 @@ re-derives every screen bound to the line and re-sizes their collision envelope.
 test rig (`test/support/scenario-station.ts`) builds its bed from the same dig, and the 动物园 demo
 save carries the recessed bed too.
 
+**A consist is a cabin the crowd actually rides in, not a counter that teleports people onto the
+platform.** The alighting wave a service brings is **seated before it is on the road at all**:
+`World.loadAlighting` puts the whole cohort into the doorway queues it will leave by — the front pair
+at its own door, the rows behind it receding inboard — at dispatch, so the car is already full as it
+runs in and nothing pops into being beside a screen door (§5.9). `stock.ts` owns the cabin box the
+sim's slots and the car model are both cut from (`cabinSlot`, `CABIN_FLOOR_Z`, `CABIN_HALF_W`,
+`CABIN_ROW_PITCH`), so a rider is drawn standing on the floor the model draws and leaves through the
+doorway it was walked to — the same contract `doorCentres` holds between a car door and the screen
+that meets it. `World.stepTrainRider` pins a rider to its consist's own pose (`trainAt`, shared with
+`trainRenderState`, so the two cannot drift), and a rider is out of the crowd's way while it is
+aboard: not in the collision pass, not in the density derate, not priced onto the platform's nodes
+and not counted in the LOS — a full train is not a crush on the floor nobody has stepped onto yet.
+Doors first serve the wave: `World.openDoors` holds each doorway shut to boarders and
+`stepAlighting` hands it over the moment its **own** queue has drained, a pair abreast every
+`CABIN_ALIGHT_PAIR_S` (§5.9: alighting is the doorway's own business). Its turn is bounded by
+`CABIN_ALIGHT_MAX_S`, because a dwell has to be shared — past it the rest of the wave rides on and is
+counted among the stop's left-behind arrivals rather than a platform that silently never boards.
+Boarders take the cabin behind that queue (`boardRider`), ride out drawn in the car, and leave the
+world with the consist. The car itself is hollow — floor, ceiling, lining to the waist rail, a glazed
+window band, longitudinal seating in the bays between the doors and grab poles at each doorway
+(`render/models/pieces/TrainModel.ts`) — which is what lets the player watch the queue inside and
+step out of the doorway rather than appear beside the train. `test/train-cabin.test.mjs` pins it:
+the whole wave is aboard before the doors open, a doorway passes a row at its own cadence, boarders
+wait for their doorway, everybody still in the cabin leaves the world with it, and a wave too big for
+the dwell is counted rather than lost.
+
 **Escalators are staircases, and they turn over.** `models.ts` builds each run as a band of
 instanced steps whose treads stay world-horizontal (riser, then the yellow nosing along the
 leading edge), so the incline reads as a staircase rather than a smooth ramp. `rollEscalator`
@@ -1526,6 +1554,149 @@ same way: that flight is dropped from the walk graph, so fencing the head of a s
 off. Paint different zones each side and the
 fare line holds. See `test/fence.test.mjs`.
 
+**The 选择 tool can pick a passenger, and the station draws where they are going.** A click that
+lands on a body selects **the person**, not the floor under them (`SelectTool`), because the crowd is
+drawn over the station and the body the player aimed at is what they mean. The 信息 card names them
+(`行人 #id`) and the 3D view paints their remaining walk as a **light-blue line on the floor**, with a
+ring on the passenger it belongs to and a ring where the walk ends.
+
+The pick is **screen-space, not a ray**. An agent is three small instanced meshes thousands strong; a
+ray would either miss a 0.3 m person or need a fattened proxy for every one of them. So every body on
+a storey the slice draws is projected and the one nearest the pointer within 14 px wins
+(`CrowdSystem.pickAgent`) — the nearer body breaking a tie, so a passenger standing in front of another
+is the one picked. The distance to the solid face the same pointer ray found is handed in as a
+`blocker`, so a passenger a wall stands in front of is not selectable: they are not on screen.
+
+**The route is asked for, never assumed.** The selection names an agent and the worker answers with
+that agent's remaining walk (`World.routeOf`), sent with the ordinary state frame — waypoints as xyz
+triples, plus the id they belong to and a token. The token is what makes "the worker has not seen my
+selection yet" distinguishable from "that passenger has already left": a frame it had already built
+when the click happened names nobody, and only an answer to the newest request can clear the
+selection. The route is an **observation**: `routeOf` writes no agent field, joins no queue and draws
+no randomness, so a watched passenger walks exactly as an unwatched one does (pinned in Node against a
+control world).
+
+**The line is a ribbon lying on the walk surface, not a `THREE.Line`.** A one-pixel line has no width
+at station scale, and a preview that reads as paint on the floor has to have the floor's own plane
+(`render/routeLine.ts`). Each segment is a quad whose width runs along `side = normalize(d × up)` and
+which is lifted a hair along `side × d` — flat on the floor for a horizontal segment, and in the run's
+own plane for a 楼梯 or 扶梯, where a quad at the segment's average height would sink into the treads at
+both ends. Every bend is filled by a square of the ribbon's width laid in the frame of the average
+direction, which covers both corners the neighbouring quads leave (the square's inscribed disc is the
+one they sit inside). Positions are written into the scene's own buffer and the used part is chosen
+with the draw range, so a preview following a walking passenger every frame allocates nothing.
+
+**The walk ends where the train begins.** A route chains the legs the passenger will still **walk** —
+the rest of the one they are on, then each later leg from the node the previous one ends at — and
+stops at the first train leg. Everything past a ride is another station's floor, and a line drawn
+straight across the map would be a lie about a journey the floor cannot carry. For the same reason the
+line goes with the passenger: a storey the slice does not draw does not draw their route, and a
+passenger who reaches the door, boards and leaves the station takes the line with them. Leaving the
+选择 tool puts it away and coming back re-arms the same passenger, because the selection is still
+theirs.
+
+**Wayfinding: a lift is not for commuters, and the crowd is part of the cost.** Two things made a whole
+crowd choose the same way through a station, and both were on the *graph* rather than in the people.
+
+A lift edge is one 40 s hop between any two floors, so the moment the escalator queue passed a couple of
+minutes A* handed the lift the entire wave: on the shipped 动物园 demo, **2,238 of the passengers who
+travelled between floors ever boarded a lift** — walkers, in queues 33 and 72 deep — while the
+escalators built for them stood beside it. `waitQ` is the other half of it: it prices a queue that has
+*formed*, so the bodies still walking towards a gate were invisible to A*. A wave committed to one
+turnstile and then stood in front of it, and a passenger already in that queue had no idea the next lane
+along was empty.
+
+**A lift costs what the passenger cannot avoid.** `liftPenalty` ([`src/sim/station.ts`](src/sim/station.ts))
+is §7.2's `levelPenalty`: seconds added to every lift edge for a passenger who could have walked. A
+step-free passenger is charged **nothing** — the lift is the only way down they have (§7.4a) — a
+passenger with luggage `LIFT_AVOID_LUGGAGE_S`, and everyone else `LIFT_AVOID_S` (five minutes). It is a
+preference and not a ban, and that is the point: past that margin the lift still wins, so a station whose
+ramps really are jammed keeps its relief valve, and a shaft with nothing else beside it keeps its queue —
+the demo's deeper shaft still carries 798 walkers at the default.
+
+**The crowd is priced onto the graph.** `World.priceCongestion` scatters every standing passenger into
+its own collision cell **and the ring around it**, so a node knows who is standing *beside* it — the
+crowd pressed at a gate bank is on the tiles in front of the gate, not inside it, which the speed
+derate's own density field cannot see because it is filled only where bodies stand. Each node is then
+charged `min(bodies, CONGESTION_CAP) × CONGESTION_S` seconds on the path finder, and *every* search that
+tick reads the same field: a budgeted re-path, the fare-line choice and the 选择 tool's preview all price
+the same crowd, so the line a player watches is the line the passenger walks. The cap is what keeps a
+crush from becoming a wall — past it, one more body is not another second of detour.
+
+**The fare line is decided while it is still ahead.** `chooseGate` used to fire when a gate was the
+agent's *next* node, and by then the passenger is standing in the crush it should have walked around. It
+now re-plans the rest of the leg the moment a gate comes within `GATE_LOOKAHEAD` (8 m), skipping the path
+cache so it sees the queues as they are; `GATE_REPLAN_PER_TICK` rations those synchronous searches,
+because this one is not amortised like a leg's, and an agent the ration skips still chooses at the
+gate's own cell. A queue that is past patience gets §7.2's other trigger: `reRouteAroundQueue` re-plans
+against the live crowd and **moves only when the new route queues somewhere else**, so a passenger that
+finds nothing better keeps its place instead of walking to the back of the lane it is already in (and a
+step-free passenger waiting for a lift is never sent round in a circle).
+
+**What the two together do to the demo** (2400 s of the shipped 动物园 save at its peak, seed 99): the
+elevator queues fall from 33 / 72 deep to 27 / 48, the passengers who ever board a lift fall from 2,238
+to 1,885 (walkers 2,073 → 1,412), and the station **clears more people for it** — 3,425 leave against
+3,383, with 674 still inside against 734. The congestion term is deliberately not a free win on its own:
+with `LIFT_AVOID_S` set to 0 it *worsens* the elevator queue (113 / 57), because an uncrowded lift is
+exactly what a congestion-aware walker diverts to. The two numbers are one feature, and both are meant
+to be tuned: `CONGESTION_S = 1.2` is the setting at which the demo clears the most people, while 2.4
+jams the gates and the lifts together (113 deep).
+
+The bottom bar follows: **电梯排队** is its own counter, and 扶梯排队 no longer counts elevators with
+the ramps (`sim/world/types.ts`).
+
+**A barrier belongs to a storey, and that was the bigger bug.** An exit head-house's glass and a ramp's
+balustrade were thin planes in **plan**: `crossesExitWall` and `crossesRampWall` tested `(x, y)` and
+nothing else, so a 3.2 m head-house on the street walled off every floor beneath it and an escalator's
+side glass walled off the floors its run never reaches. On the shipped 动物园 save that fragmented the
+floor into **73 walk-only islands** and left exactly **one** platform→exit route in the station: all 36
+platform doors and both exits shared the same three rides, and 12 of 30 ramps carried nobody. That is
+the whole of "everything takes the blue route and nothing takes the red one".
+
+Both planes now carry the block levels their own body occupies (`EXIT_H` for a head-house, each
+flight's own `from.z`/`to.z` for a balustrade), and a walk edge outside them is free. The demo's floor
+comes back as 59 islands, **8 ramps** are on some platform→exit route instead of 3 — the escalator pair
+at (64,15)/(70,16) among them, splitting the crowd 36/36 with the western stair chain — 5 ramps carry
+nobody in 2400 s instead of 12, and the station clears 3,476 people against 3,383. `wayfinding.test.mjs`
+pins the rule both ways up: the storey a run climbs is walled by its glass, the one under it is not.
+
+*The station's own paint, and why the fare line is off for now.* 6,809 of the 动物园 save's 11,625 floor
+cells carry **no zone label**, and an unlabelled cell reads as `unpaid` (`DEFAULT_ZONE`). That is fine
+where the gate row is the line — and an invisible fare line everywhere a *painted* patch sits inside
+unpainted floor. Enforced, those lines are barriers (§4.5) and they sealed the −16 level's escalator
+landings into 6-cell pockets: that platform's only way out was one narrow stair at (28,3), 270,450 queued
+agent-seconds in 2400 s, and 5 of the station's 30 ramps carried nobody.
+
+So **`ZONE_LINES_BLOCK` is `false` for now** (`sim/constants.ts`): a zone line no longer blocks, a gate is
+still a queue the crowd walks through — and walks around when it is long — and the fare line stops being
+invisible enforcement. It is one line to put back, or per station: `buildGraph(data, true)` /
+`new World(data, seed, { zoneBarriers: true })`, which is how `zones.test.mjs` and `gates.test.mjs` keep
+the rule covered (they assert both modes: an ungated line strands the crowd when enforced, and is walkable
+floor when not). Measured on the same save with the labels left exactly as they are:
+
+| demo, 2400 s, seed 99 | line enforced | line off (shipped now) |
+|---|---|---|
+| ramps carrying nobody | 5 of 30 | **0 of 30** |
+| the −16 escalators at (52,17)/(53,17) | 0 | **925 / 7,302** queued agent-seconds |
+| stair@(28,3), the choke | 270,450 | **25,508** |
+| peak elevator queue | 63 | **11** |
+| people cleared | 3,540 | **3,777** |
+| gate throughput | 3,814 | **4,079** |
+
+The gates still carry a crowd — they are simply no longer a checkpoint, so a passenger may go round them.
+What is *not* fixed by any of this is the paint itself: a repair cannot be mechanical (filling unpainted
+floor from its painted neighbours leaks around the ends of the gate row and erases the fare line at all 15
+gates — measured, and why no such repair is in this diff), so the paint has to be finished by hand with
+the 分区 brush, after which the flag can go back on. Nor does the game yet say *why* a new escalator carries
+nobody, which is the one diagnostic this work did not add.
+
+*What this does not fix.* §7.1's two-way lane is committed to one direction until that side drains, and
+in a busy station the committed side never drains: a single two-way gate with a 540-passenger train
+alighting onto it boards **nobody** in ten simulated minutes, however long it runs, while the exiting
+queue grows past a thousand. That is the authored rule and it needs its own decision (a bounded hold, or
+a lane that alternates) — `wayfinding.test.mjs` and `zones.test.mjs` now assert the gate's *throughput*
+rather than one direction's, and the fixture says why.
+
 `test/` holds the acceptance tests. Run them with `npm test`:
 
 Two of the drawn faces can be rendered to a PNG outside the browser, for looking at rather than
@@ -1544,6 +1715,33 @@ approximated); neither needs WebGL.
   made of (zero at a zero rate, and capped so an absurd λ cannot spin), and the state a
   stream can be saved and resumed from. `pick`, `state` and `hashString` have no caller left
   in `src/`, so they are pinned here as the module's API surface rather than as live code.
+* `clock.test.mjs` — the simulated clock (`sim/clock.ts`, §7.9 / §9.6C): a sim second
+  becomes a civil date, a weekday, a day type, a period and one readout string, and the
+  信息栏's clock card, the status bar's 时间 and the in-world 电视 plates all print that one
+  clock. The arithmetic is pinned against real calendar facts rather than against
+  itself — 1970-01-01 was a Thursday, 2024-02-29 exists, 1900-02-29 does not, and the two
+  converters round-trip a leap day either side of the epoch — because a date one day out, a
+  weekday one off and a midnight that never comes all *look* like a working clock. The
+  高峰 / 平峰 / 夜间 chip is checked to be `periodOf` — the function the dispatcher picks its
+  headway with — at every window boundary, so the readout can never name a period the sim is
+  not running. It also pins the **authored day** (§9.6C): the operating window is half-open
+  `[from, to)`, a shut station is 夜间 *before* the peaks are consulted (a station that opens at
+  09:00 has no 08:00 peak to serve), a peak window moved into the morning moves the 高峰 with it
+  while one drawn outside the hours serves nobody, the 06:30 / 22:30 shoulders are the day's
+  rule rather than the window's — opening all day does not make 23:00 busy — and a window or a
+  peak pair the day cannot hold is bent into range instead of refused, in whole minutes so it
+  always matches what the time boxes print.
+* `demand.test.mjs` — the crowd's day (`src/sim/demand.ts`, §7.4 / §9.6C 客流曲线): the
+  **golden** case is that `demandShape` at `DEFAULT_DEMAND` equals the formula it replaced, at
+  every five simulated minutes and to the last bit — the knobs were added under a running
+  simulation, so a tolerance would hide exactly the drift this exists to catch. On top of that:
+  a knob moves the curve it names and only that one; 波形陡峭度 narrows the day (so the apex
+  barely moves and the *fall-off* is what changes); the period and day-type factors are the two
+  scales on the shape (peak 1.0 / off-peak 0.6 / late 0.25, weekday 1.0 down to holiday 0.3); a
+  series is 97 points that close back onto their first; a peak window inside the operating hours
+  is worth exactly peak-over-off-peak, and one drawn outside them is worth nothing because shut
+  is answered first; and every knob a document holds is clamped, rounded to two decimals and
+  defaulted field by field, so no `NaN` ever reaches the spawn.
 * `demo.test.mjs` — the shipped demo (动物园, Line 5) is one connected circulation: every exit
   reaches every platform and screen door and back, and a run actually boards and clears a crowd.
   Its controlled rig lives in `test/support/scenario-station.ts` for the other sim tests.
@@ -1571,7 +1769,12 @@ approximated); neither needs WebGL.
 * `save.test.mjs` — the `metro-save` v1 envelope round-trips the static station and names
   every failure mode (B1); a legacy line with no direction termini loads with empty ones; a
   block off the 1 m grid — or a `NaN`, which JSON writes as `null` — is **dropped** at both
-  boundaries rather than refused, while a broken envelope is still refused whole.
+  boundaries rather than refused, while a broken envelope is still refused whole. The
+  **authored day** — operating hours, peak windows and demand knobs — rides beside the name and
+  the seed: a v1 file written before any of it loads on the defaults (absent and defaulted are
+  one code path, and the cell schema `formatVersion` freezes has not moved), and a hand-edited
+  file with an inverted window, a one-ended peak pair or a knob past its slider still opens,
+  repaired field by field.
 * `grid.test.mjs` — nothing in the game can put a cell off the 1 m grid. Every palette piece is
   placed at every rotation, width, direction and 闸机 door mode, every staircase shape at
   fractional legacy widths (1.2, 1.6 m), and 方块 / 墙 / 房间 / 电梯 / 站台 / 隧道 / 材质 / 分区 /
@@ -1595,6 +1798,19 @@ approximated); neither needs WebGL.
   station document and the clock.
 * `zones.test.mjs` — an ungated fare line strands the crowd (zero boardings); a gate restores
   flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2).
+* `wayfinding.test.mjs` — how a crowd chooses (§7.2's path cost, §7.3's crowd, §7.4a's needs): the cost
+  of a lift edge is a fact about the *passenger* (`liftPenalty` — nothing for a step-free passenger, the
+  luggage figure for a suitcase, the full figure for a free walker) and the crowd charge is capped so a
+  crush is not a wall; on one fixture, a walker takes the ramp where a step-free passenger must take the
+  lift and a passenger with luggage does what neither does — and a jammed ramp still hands the walker the
+  lift, because the penalty is a preference and not a ban. Then the crowd itself: a priced node steers
+  the search to the other turnstile (in both directions, so it is the price and not a tie-break), the
+  world writes that price from the bodies standing next to a node before anything plans, a passenger
+  whose gate queue is past patience takes the next lane, and a busy gate line is re-chosen while the gate
+  is still metres away rather than on its doorstep. It also pins the two barrier rules the same complaints
+  ran into: a ramp's balustrade walls the storeys its run climbs and not the one below it, and a
+  head-house walls its own storey and not the concourse underneath it — a plane with no height on it left
+  the demo with one usable route and 12 of its 30 ramps idle.
 * `gates.test.mjs` — the gate **policy** predicates (`sim/gates.ts`): which direction a lane lets
   through, the two-way single-lane rule (`nextGateIndex`), and the spellings an older save may carry
   for the 闸机 piece (`right` / `left` → lane, `none` → fence). `gate-door.test.mjs` pins the piece
@@ -2256,6 +2472,19 @@ approximated); neither needs WebGL.
   the test reads back off the matrix-tracking context as a filled red path exactly one ring-thickness tall,
   level and centred on the ring (a strip at an angle is a prohibit-sign roundel, not the stop mark), with no
   bitmap and no wording of its own.
+* `agent-route.test.mjs` — the 选择 tool's passenger preview (§9.5): `World.routeOf` names the walk still
+  ahead (the line starts under the passenger and goes on to the node they are walking to, never back over
+  ground already covered, every waypoint a graph node), it **stops at the train** — a line leg ends at the
+  platform door the passenger is queuing for — a passenger who is not in the world has no route at all, and
+  reading one changes nothing (a watched world and a control world stay identical, RNG included). The
+  ribbon half is pinned as arithmetic: a flat route is one width across and a `ROUTE_LIFT` above the floor,
+  a 45° run's ribbon lies **in the slope** rather than on a plane at its average height, a bend's joint quad
+  covers both segment ends it joins, and the index buffer walks the quads in order so the draw range can
+  pick the used part. And the scene half runs with no GPU (`CrowdSystem`): the ribbon and its destination
+  ring are drawn for a real route and put away for a spent one, the ring and the line follow the passenger
+  and go with the storey that hides them (隐藏UI being the exception), hiding the crowd takes the preview
+  with it, and the pick answers with the passenger under the pointer — inside the radius, behind a nearer
+  solid face (no), on a hidden storey (no), and the nearer of two bodies that overlap.
 
 ## The simulation's time base
 
@@ -2275,6 +2504,57 @@ This build keeps the crowd honest and runs the clock fast instead:
 
 `SIM_SECONDS_PER_TICK` in `src/sim/constants.ts` is the one number to change, and the
 comment there explains the trade.
+
+**The clock those seconds are read through is one derivation** (`src/sim/clock.ts`). The sim
+counts seconds; a station lives on a calendar, so `stampAt(simTime)` lays day 0 on the
+calendar's epoch — 2026-01-01, a Thursday, until §9.6C's 时刻 window lets a station author its
+own epoch, 节假日 and 活动日 — and derives the date, the weekday and the day type (工作日 / 周六 /
+周日 / 节假日) from it. A long run therefore crosses midnight on its own: the date and the
+weekday walk forward while the crowd keeps its seconds. Every readout prints that one stamp —
+the 信息栏's clock card (with the 高峰 / 平峰 / 夜间 chip and the day bar), the status bar's
+时间, and the 电视 plates' own departure clock — so three drawings of the clock cannot
+disagree with each other or with the dispatcher, which asks the same `periodOf` for its
+headway.
+
+**The authored day is three fields of the station document**, all of them set in the floating
+**时刻** window (§9.6C, opened by pressing the clock card) and all of them carried in the save
+beside the name and the seed: the **operating hours** (`service`, 06:30–23:30 by default), the
+two **peak windows** (`peaks`, 07:30–09:00 and 17:30–19:00) and the **客流曲线** knobs
+(`demand`: 早高峰量, 晚高峰量, 波形陡峭度). Each is repaired into range on load rather than
+refused — whole minutes, one day, `to` after `from`, a knob inside its slider — so a
+hand-edited file still opens. `periodOf` gates the service periods on the first two: outside
+the window the station is 夜间 whatever the timetable would otherwise be doing, **shut is
+checked before the peaks** (a station that opens at 09:00 has no 08:00 peak to serve), and a
+peak window drawn outside the hours cannot sneak service into them. Both shipped defaults are
+deliberately **behaviour-preserving** — the hours they exclude were already 夜间 under the
+day's shoulders at 06:30 and 22:30, and the default peaks are the windows that were
+hard-coded — so shipping the windows and the knobs changed no crowd and an old run replays.
+
+**The curve is one function with two readers** (`src/sim/demand.ts`). `World.spawnStreet`
+draws its Poisson arrivals from `demandAt(hour, period, dayType, knobs)` and the 时刻 window
+plots `demandSeries(…)` — the same function sampled — so a slider dragged in the panel redraws
+the picture *and* moves the crowd, and the two cannot describe different days. The curve is
+§7.4's `λ = base × curve(timeOfDay) × calendar(dayOfYear)` split three ways:
+
+```
+shape(hour)     the double peak: the two heights and 波形陡峭度 (0.85 h wide at 100%),
+× period       高峰 1.0 / 平峰 0.6 / 夜间 0.25, the timetable's own multiplier (§6.5),
+× day type     工作日 1.0 / 周六 0.45 / 周日 0.35 / 节假日 0.30 — §7.4's calendar factor.
+```
+
+The **defaults are the pre-knob formula to the last bit** — `demand.test.mjs` compares
+`demandShape` against the `0.06 + gauss(8, 0.85) + 0.78 × gauss(18, 1.05) + 0.18 ×
+gauss(12.5, 2.2)` it replaced at every five simulated minutes, because that is the only proof
+that shipping the knobs under a running simulation changed no crowd. The day-type factor is
+what makes a long run's weekend visible; the *shape* difference §7.4 also asks for (a later,
+longer holiday peak) is not modelled yet, and the day is **derived from the date** rather
+than picked from the spec's 日期类型 dropdown — the epoch and holiday list are the next thing
+the 时刻 window authors.
+
+The speed group is **暂停 / 1× / 4× / 16× / 64×**. One tick is one simulated second at every
+multiplier — only the real interval between ticks changes (`intervalMs`) — so 64× asks for a
+tick every 15.6 ms and takes whatever rate the crowd's own tick cost allows; nothing is
+skipped, and §7.6 determinism is untouched because the step size never moves.
 
 ## Deliberate divergences from PLAN / GAME-SPEC
 
@@ -2315,6 +2595,26 @@ comment there explains the trade.
   missing surface right round every block. `test/floor-surface.test.mjs` reads the filling's
   height rather than counting its triangles, because only the height can tell a lid from none.
 * **The day clock is real time at 1×, not 120×** (above).
+* **The speed group runs to 64×.** §9's interface tables stop at `暂停 / 1× / 4× / 16×` in
+  three places, and §7.9's fast-forward — "headless worker ticks with no rendering, a full
+  day in a few seconds" — is not what this is: the crowd still draws at 64×, and the sim
+  takes whatever rate its own tick cost allows (a tick every 15.6 ms is what 64× asks for).
+* **The day is authored from a floating 时刻 window, and its default window is 06:30–23:30.**
+  §9.6C puts 营业时间, 高峰时段 and 客流曲线 in the bottom rail's 时刻 panel as a 05:30–24:00 dual
+  slider and a 24-point spline editor; the bottom rail has no 时刻 tab yet, so pressing the
+  信息栏's clock card opens a floating window with the same three inputs in its place (time
+  boxes and three sliders), and the day lives in the station document (`StationData.service /
+  peaks / demand`). The operating default differs from the spec's and is chosen to change
+  nothing: every hour it excludes was already 夜间 service, and the shipped peaks are the
+  windows that used to be hard-coded. A window that crosses midnight is not expressible —
+  营业时间 is one span of one day here, as it is in the spec's own slider.
+* **The day type is derived from the date, not picked from §9.6C's 日期类型 dropdown.** The
+  demand carries the calendar coefficient the four day types name (工作日 1.0 → 节假日 0.3), but
+  *which* day it is comes from the calendar's epoch and holiday list — still `DEFAULT_CALENDAR`
+  (day 0 is 2026-01-01, a Thursday) — rather than from a control, because a dropdown that
+  overrode the date would leave the clock's own date and weekday disagreeing with the crowd
+  they describe. Authoring the epoch, the 节假日 list and the 活动日 rows is the next thing that
+  window grows.
 * **Zones, surfaces, save/load, settings, charts and the module catalogue beyond
   escalator / gate / TVM / bench / exit are out of scope**, exactly as PLAN §7 lists.
 * **One line.** Transfers therefore resolve to an exit; §7.5 is not exercised.
@@ -2337,6 +2637,7 @@ On this machine (Node 24, desktop):
 |---|---|---|
 | Crowd, p99 worker tick | 2.2 ms at 3,257 agents | < 8 ms comfort, 200 ms hard |
 | Crowd, mean worker tick | 0.9 ms | — |
+| Wayfinding pass (`priceCongestion`), added per tick | 0.12 ms at ~1,000 agents on the 动物园 demo (that run's p99 worker tick: 4.1 ms) | inside the crowd budget |
 | Chunk mesh build, before B1 | ~3.7 ms warm, ~5 ms on the very first chunk (JIT) | < 4 ms |
 | Chunk mesh build, per-face finishes (B1) | **1.9 ms** for a one-layer station floor chunk, 2.7 ms for two, 4.4 ms for a fully solid 8-layer block | < 4 ms |
 | Frame | 60 fps in a windowed GPU; the headless software rasteriser used for

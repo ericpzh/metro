@@ -6,10 +6,14 @@
 // train-borne wave cannot stall the sim (PLAN.md §2.2).
 
 import {
+  CONGESTION_CAP,
+  CONGESTION_S,
   ESCALATOR_BALUSTRADE,
   ESCALATOR_RATE,
   ESCALATOR_SPEED,
   GATE_RATE,
+  LIFT_AVOID_LUGGAGE_S,
+  LIFT_AVOID_S,
   LIFT_BATCH,
   LIFT_CYCLE,
   MAX_REPATH_PER_TICK,
@@ -19,10 +23,11 @@ import {
   STAIR_SPEED,
   TVM_RATE,
   WALK_SPEED,
+  ZONE_LINES_BLOCK,
 } from './constants.ts'
 import { floorSpeed } from './finishes.ts'
 import { gateAllows, gateHasLane } from './gates.ts'
-import { exitDoorCell, exitWallPlanes, type ExitWall } from './exits.ts'
+import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
 import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
@@ -158,7 +163,18 @@ interface EdgeDraft {
   server: number
 }
 
-export function buildGraph(data: StationData): StationGraph {
+/**
+ * Build the walk graph.
+ *
+ * `zoneBarriers` is §4.5's fare line: with it on, a zone boundary is a movement
+ * barrier and the only crossing is a gate cell that passes that direction. It
+ * defaults to `ZONE_LINES_BLOCK`, which is **off** while the demo's paint is
+ * unfinished — an unlabelled cell reads as `unpaid`, so a painted patch in
+ * unpainted floor is an invisible fare line with no gate on it, and those walled
+ * the 动物园 station's circulation in two (see the constant). Pass `true` to test
+ * or to run one station with the rule enforced.
+ */
+export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): StationGraph {
   const solid = new Set<string>()
   for (const c of data.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
   // Cells that host a gate, and the direction each gate passes. Only a gate
@@ -278,14 +294,22 @@ export function buildGraph(data: StationData): StationGraph {
   // Exit head-houses are solid: the crowd crosses at the street opening and
   // never through the glass sides or the back wall. Each wall is a thin plane
   // (see sim/exits.ts); an edge that crosses one inside its span is dropped,
-  // exactly like a zone boundary above.
-  const exitWalls: ExitWall[] = []
+  // exactly like a zone boundary above — **but only on the storey the head-house
+  // stands on**. A head-house is `EXIT_H` of glass over one floor, and a plane
+  // with no height on it walls off every floor beneath it as well: the 动物园
+  // demo's two portals sit directly over its concourses, and their sides were
+  // cutting the floor below into islands — which is how a station ends up with
+  // one usable route and eleven of its thirty ramps carrying nobody.
+  const exitWalls: Array<{ wall: ExitWall; z0: number; z1: number }> = []
   for (const m of data.modules) {
     if (m.type !== 'exit' || m.cfg.headHouse === false) continue
-    exitWalls.push(...exitWallPlanes(m))
+    for (const wall of exitWallPlanes(m)) exitWalls.push({ wall, z0: m.z, z1: m.z + EXIT_H })
   }
-  const crossesExitWall = (x: number, y: number, nx: number, ny: number): boolean => {
-    for (const w of exitWalls) {
+  const crossesExitWall = (x: number, y: number, nx: number, ny: number, z: number): boolean => {
+    for (const { wall: w, z0, z1 } of exitWalls) {
+      // `z` is the floor block the walk edge is on: a head-house stores its
+      // walls over the storeys it is tall, not over the whole column.
+      if (z < z0 || z > z1) continue
       if (w.axis === 'x') {
         if ((x - w.at) * (nx - w.at) >= 0) continue
         const cy = y + ((w.at - x) / (nx - x)) * (ny - y)
@@ -305,11 +329,21 @@ export function buildGraph(data: StationData): StationGraph {
   // glass. The planes are the run centreline offset by the balustrade half-
   // width, extended a little past each landing so the side edge that shares the
   // landing's row actually crosses it.
+  //
+  // **A balustrade is a barrier for the storeys its run climbs, and no others.**
+  // The plane carries the block levels of the flight it belongs to, because a
+  // run is 4 m of glass in the air: without that, the escalator pair from the
+  // street to B1 also walled the concourse two storeys below at the same plan
+  // position, and a floor plate read as an archipelago of islands the crowd
+  // could only hop between by riding the one ramp that happened to fit.
   interface RampWall {
     ax: number
     ay: number
     bx: number
     by: number
+    /** Floor-block levels the flight spans; a walk edge outside them is free. */
+    z0: number
+    z1: number
   }
   const rampWalls: RampWall[] = []
   for (const m of data.modules) {
@@ -362,6 +396,8 @@ export function buildGraph(data: StationData): StationGraph {
           ay: ay - uy * extFrom + oy,
           bx: ax + dx + ux * extTo + ox,
           by: ay + dy + uy * extTo + oy,
+          z0: Math.min(seg.from.z, seg.to.z),
+          z1: Math.max(seg.from.z, seg.to.z),
         })
       }
     }
@@ -375,8 +411,11 @@ export function buildGraph(data: StationData): StationGraph {
     const d4 = side(rx, ry, sx, sy, qx, qy)
     return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
   }
-  const crossesRampWall = (x: number, y: number, nx: number, ny: number): boolean => {
-    for (const w of rampWalls) if (segCross(x, y, nx, ny, w.ax, w.ay, w.bx, w.by)) return true
+  const crossesRampWall = (x: number, y: number, nx: number, ny: number, z: number): boolean => {
+    for (const w of rampWalls) {
+      if (z < w.z0 || z > w.z1) continue
+      if (segCross(x, y, nx, ny, w.ax, w.ay, w.bx, w.by)) return true
+    }
     return false
   }
 
@@ -394,11 +433,13 @@ export function buildGraph(data: StationData): StationGraph {
     for (const [nx, ny] of nb) {
       const j = nodeIndex.get(cellKey(nx, ny, z))
       if (j === undefined) continue
-      // §4.5: a zone boundary is a movement barrier. The only crossing is a
-      // cell that hosts a gate, and only if that gate actually passes this
-      // direction — so an ungated line traps the crowd and a one-way gate
-      // turns away the direction it does not serve.
-      if (nodeZone[i] !== nodeZone[j]) {
+      // §4.5: a zone boundary is a movement barrier — when the station enforces
+      // the fare line. The only crossing then is a cell that hosts a gate, and
+      // only if that gate actually passes this direction, so an ungated line
+      // traps the crowd and a one-way gate turns away the direction it does not
+      // serve. With `zoneBarriers` off the labels are labels and the line is
+      // walkable anywhere: a gate is then only a queue the crowd may walk around.
+      if (zoneBarriers && nodeZone[i] !== nodeZone[j]) {
         const dir = crossingDir(ZONES[nodeZone[i]], ZONES[nodeZone[j]])
         // Same-side relabelling (paid↔platform, outside↔unpaid, …) is not a
         // fare-line crossing at all: `crossingDir` returns 0, so no gate is
@@ -411,9 +452,9 @@ export function buildGraph(data: StationData): StationGraph {
         }
       }
       // §5.6: an exit head-house wall is a barrier too — the opening is the way.
-      if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5)) continue
+      if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
       // §5.4: a ramp's balustrade is a barrier — board at the landing, along the run.
-      if (crossesRampWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5)) continue
+      if (crossesRampWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
       // Cost carries the finish speed of both ends, so a concrete floor is a
       // real detour and routing prefers the faster surface.
       const speed = (nodeSpeed[i] + nodeSpeed[j]) / 2
@@ -836,6 +877,31 @@ export function needsClass(n: Needs): string {
   return n.stepFree ? 'S' : n.luggage ? 'L' : 'N'
 }
 
+/**
+ * §7.2's `levelPenalty`: the seconds a lift edge costs a passenger who did not
+ * have to take it. Zero for a step-free passenger — for them the lift is the only
+ * way down (§7.4a), and a penalty would strand them in a station that has one.
+ * Everything else is `LIFT_AVOID_S`, or the smaller luggage number, because a
+ * passenger with a suitcase minds the walk less than the stairs do.
+ *
+ * It lives here rather than in the edge table because the table is one document
+ * for everybody: what a lift costs is a fact about the *passenger*.
+ */
+export function liftPenalty(n: Needs): number {
+  if (n.stepFree) return 0
+  return n.luggage ? LIFT_AVOID_LUGGAGE_S : LIFT_AVOID_S
+}
+
+/**
+ * The congestion charge a node carries, in seconds, for a crowd of `bodies`
+ * within about 2 m of it (§7.3). Shared by the world, which fills it from the
+ * live crowd, and the tests, which read it as arithmetic.
+ */
+export function congestionCost(bodies: number): number {
+  const n = bodies > CONGESTION_CAP ? CONGESTION_CAP : bodies > 0 ? bodies : 0
+  return n * CONGESTION_S
+}
+
 export interface PendingRequest {
   agentId: number
   from: number
@@ -847,6 +913,14 @@ export class PathFinder {
   graph: StationGraph
   cache: Map<string, Int32Array> = new Map()
   pending: PendingRequest[] = []
+  /**
+   * The congestion charge per node, in seconds: what the crowd standing there
+   * adds to a route through it (§7.3). The world writes it once per tick from the
+   * live crowd, before any search runs, and every search reads it — a budgeted
+   * re-path, a gate re-choice and the 选择 tool's preview all price the same
+   * crowd, so the line a player watches is the line the passenger walks.
+   */
+  readonly congestion: Float32Array
   private gScore: Float64Array
   private cameFrom: Int32Array
   private seen: Int32Array
@@ -857,6 +931,7 @@ export class PathFinder {
 
   constructor(graph: StationGraph) {
     this.graph = graph
+    this.congestion = new Float32Array(graph.nodeCount)
     this.gScore = new Float64Array(graph.nodeCount)
     this.cameFrom = new Int32Array(graph.nodeCount)
     this.seen = new Int32Array(graph.nodeCount)
@@ -947,6 +1022,8 @@ export class PathFinder {
     this.epoch++
     const ep = this.epoch
     const { adjStart, adjTo, adjCost, adjKind, adjServer, nodeX, nodeY, nodeZ, servers, serverForNode } = g
+    const congestion = this.congestion
+    const lift = liftPenalty(needs)
     const heap = this.heap
     heap.clear()
     this.gScore[start] = 0
@@ -976,7 +1053,11 @@ export class PathFinder {
         const kind = adjKind[e]
         if (needs.stepFree && (kind === KIND_STAIR || kind === KIND_ESCALATOR)) continue
         const nb = adjTo[e]
-        let ecost = adjCost[e]
+        // The edge's own cost, then everything arriving at its far end costs:
+        // §7.2's `levelPenalty` and `waitQ`, and §7.3's crowd — the bodies
+        // already standing where the route has to go.
+        let ecost = adjCost[e] + congestion[nb]
+        if (kind === KIND_LIFT) ecost += lift
         // §7.2: the edge cost carries the live queue wait, so the crowd spreads
         // across escalators and gates instead of all taking the nearest one.
         const sv = adjServer[e]

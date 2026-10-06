@@ -1,25 +1,61 @@
 // CrowdSystem — the people: the agent InstancedMeshes, the density/zone
-// overlays and the turnstile leaves the crowd pushes through (moved verbatim
-// from `render/scene.ts`: `setAgents`, `setDensity`, `setOverlayVisible`,
-// `setZoneOverlay`, `buildZoneLabels`, `clearZoneLabels`, `zoneLabelMaterial`,
-// `renderAgents`, `setAgentsVisible`, `agentLevelVisible`, `detectGateCrossings`,
-// `updateGates`, `stepGateWing`).
+// overlays, the 选择 tool's route preview and the turnstile leaves the crowd
+// pushes through (moved verbatim from `render/scene.ts`: `setAgents`,
+// `setDensity`, `setOverlayVisible`, `setZoneOverlay`, `buildZoneLabels`,
+// `clearZoneLabels`, `zoneLabelMaterial`, `renderAgents`, `setAgentsVisible`,
+// `agentLevelVisible`, `detectGateCrossings`, `updateGates`, `stepGateWing`).
 //
 // GAME-SPEC §11 (crowd): limb-less "Shapes" — one body, one head, one hair cap —
 // so thousands of people stay a handful of instanced draws, with a palette that
 // never matches a line colour. The gate cycle is crowd-driven: each counted
 // crossing queues one open/hold/close leaf cycle.
+//
+// The route preview belongs here because it belongs to a person: one passenger's
+// remaining walk, painted light blue on the floor by `render/routeLine.ts`, with a
+// ring on the passenger it is for and a ring where it ends. It is read-only —
+// `pickAgent` and `setRoute` never touch the sim.
 
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { setGateWing } from '../../models.ts'
 import { ZONE_LIST } from '../../../sim/zones.ts'
 import { crowdVisible } from '../../levelSlicing.ts'
+import {
+  ROUTE_MAX_POINTS,
+  ROUTE_MAX_QUADS,
+  ROUTE_QUAD_VERTS,
+  ROUTE_LIFT,
+  routeIndices,
+  writeRouteRibbon,
+} from '../../routeLine.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { GateWing, SceneContext } from './SceneSystem.ts'
 
 /** Crowd hue palette — §11: never matches a line colour. */
 const AGENT_COLORS = [0xe4572e, 0xf2a541, 0xf7d84b, 0x3fb27f, 0x42a5c4, 0xb07cc6, 0xe07a9b, 0xd9dce1]
+
+/**
+ * The route preview's colour — the light blue §9.5's 选择 tool draws a passenger's
+ * walk in. Deliberately outside the crowd and line palettes: it is not a person
+ * and not a line, it is the path of the one being watched.
+ */
+const ROUTE_BLUE = 0x7fd4ff
+
+/** How close to the pointer, in screen pixels, a passenger has to be to be picked. */
+const AGENT_PICK_RADIUS = 14
+
+/**
+ * How far apart, in pixels, two bodies are the *same* click: inside this the pick
+ * falls through to whichever stands in front, because two people 3 px apart on
+ * screen are one person to the pointer and the player meant the front one.
+ */
+const AGENT_PICK_TIE_PX = 3
+
+/** How far up a body the pick aims: mid-torso, so a click on the head still lands. */
+const AGENT_PICK_HEIGHT = 0.45
+
+/** How much nearer than the passenger a solid face has to be before it hides them. */
+const AGENT_PICK_CLEARANCE = 0.8
 
 /** Sim seconds a turnstile leaf takes to slide open, hold, and shut. */
 const GATE_OPEN_S = 0.25
@@ -112,6 +148,21 @@ export class CrowdSystem extends SceneSystem {
   agentCount = 0
   /** Turnstile leaves, slid open as the crowd passes through their lanes. */
   gateWings: GateWing[] = []
+  /** The 选择 tool's route line, its own scratch buffer, and the two rings. */
+  private route: THREE.Mesh
+  private routePos: Float32Array
+  private agentRing: THREE.Mesh
+  private destRing: THREE.Mesh
+  /** The passenger the route belongs to, or -1: set by `setRoute`, read per frame. */
+  private routeAgentId = -1
+  /** Whether the last route had a drawable line and a destination to ring. */
+  private routeDrawn = false
+  private destDrawn = false
+  /** The crowd's own 显示 switch (`setAgentsVisible`), held for the route preview. */
+  private agentsShown = true
+  /** Scratch for `pickAgent`: one point, cloned into view space and into NDC. */
+  private pickView = new THREE.Matrix4()
+  private pickVec = new THREE.Vector3()
   private yaws = new Float32Array(0)
   private zAxis = new THREE.Vector3(0, 0, 1)
   private tmpQ = new THREE.Quaternion()
@@ -149,11 +200,149 @@ export class CrowdSystem extends SceneSystem {
     this.blobs.renderOrder = 2
     this.ctx.scene.add(this.blobs)
     this.ctx.scene.add(this.zoneLabels)
+
+    // The 选择 tool's route preview: one ribbon on the walk surface, a ring under
+    // the passenger it belongs to and a ring where the walk ends. The position
+    // buffer is sized for the longest route there is and the draw range picks the
+    // part in use, so following a walking passenger uploads no new geometry and
+    // allocates nothing (`render/routeLine.ts` is where the quads are worked out).
+    this.routePos = new Float32Array(ROUTE_MAX_QUADS * ROUTE_QUAD_VERTS * 3)
+    const routeGeo = new THREE.BufferGeometry()
+    routeGeo.setAttribute('position', new THREE.BufferAttribute(this.routePos, 3))
+    routeGeo.setIndex(new THREE.BufferAttribute(routeIndices(ROUTE_MAX_QUADS), 1))
+    routeGeo.setDrawRange(0, 0)
+    this.route = new THREE.Mesh(
+      routeGeo,
+      new THREE.MeshBasicMaterial({ color: ROUTE_BLUE, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    this.route.renderOrder = 2
+    this.route.frustumCulled = false
+    this.route.visible = false
+    this.ctx.scene.add(this.route)
+
+    this.agentRing = this.routeRing(0.3, 0.46, 0.95)
+    this.destRing = this.routeRing(0.36, 0.54, 0.8)
+  }
+
+  /** One flat ring of the route preview, lying on the floor. */
+  private routeRing(inner: number, outer: number, opacity: number): THREE.Mesh {
+    const geo = new THREE.RingGeometry(inner, outer, 24)
+    geo.rotateX(-Math.PI / 2)
+    const mesh = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({ color: ROUTE_BLUE, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    mesh.renderOrder = 2
+    mesh.frustumCulled = false
+    mesh.visible = false
+    this.ctx.scene.add(mesh)
+    return mesh
+  }
+
+  /**
+   * The 选择 tool's route preview: the xyz waypoints of one passenger's remaining
+   * walk, and the passenger they belong to. An empty route puts the line away; a
+   * `null`-ish id (-1) means nobody is selected at all.
+   */
+  setRoute(points: Float32Array, agentId: number): void {
+    this.routeAgentId = agentId
+    const total = Math.floor(points.length / 3)
+    const n = Math.min(total, ROUTE_MAX_POINTS)
+    if (n < 2) {
+      this.routeDrawn = false
+      this.destDrawn = false
+      this.route.visible = false
+      this.destRing.visible = false
+      return
+    }
+    const quads = writeRouteRibbon(n === total ? points : points.subarray(0, n * 3), this.routePos)
+    const attr = this.route.geometry.getAttribute('position') as THREE.BufferAttribute
+    // Only the vertices in use are uploaded: the buffer is sized for the longest
+    // route there is, and a short one should not re-send the whole of it.
+    attr.clearUpdateRanges()
+    attr.addUpdateRange(0, quads * ROUTE_QUAD_VERTS * 3)
+    attr.needsUpdate = true
+    this.route.geometry.setDrawRange(0, quads * 6)
+    this.routeDrawn = quads > 0
+    this.route.visible = this.routeDrawn
+    // The ring closes the line at the door, counter or exit the walk is aiming at.
+    const last = (n - 1) * 3
+    this.destRing.position.set(points[last], points[last + 1], points[last + 2] + ROUTE_LIFT)
+    this.destDrawn = true
+    this.destRing.visible = true
   }
 
   /** Materials the cutaway must slice with the floors (read by LevelSystem). */
   clipMaterials(): THREE.Material[] {
-    return [this.agents.material, this.heads.material, this.hair.material, this.blobs.material] as THREE.Material[]
+    return [
+      this.agents.material,
+      this.heads.material,
+      this.hair.material,
+      this.blobs.material,
+      // The route preview is drawn in the station too: a cut that hides the floor
+      // it lies on has to hide the line as well.
+      this.route.material,
+      this.agentRing.material,
+      this.destRing.material,
+    ] as THREE.Material[]
+  }
+
+  /**
+   * The passenger under the pointer, or -1 for none (§9.5's 选择 tool).
+   *
+   * The pick is **screen-space**, not a ray against the bodies: an agent is three
+   * small instanced meshes and a ray would either miss a 0.3 m person or need a
+   * fattened proxy for every one of three thousand. Instead every body on a storey
+   * the slice draws is projected, and the one nearest the pointer within
+   * `AGENT_PICK_RADIUS` wins — with the nearer body breaking a tie, so a passenger
+   * standing in front of another is the one that is picked.
+   *
+   * "Nearest" is resolved to ~3 px (`AGENT_PICK_TIE_PX`): bodies 3 px apart on
+   * screen are the same click, and the one standing in front is what the player
+   * meant to hit. Past that the genuinely nearer body wins however deep it stands,
+   * because a click 12 px onto one passenger is not a click on their neighbour.
+   *
+   * `blocker` is how far away the frontmost solid face under the pointer is (the
+   * caller's own ray): a body a wall stands in front of is not on screen, and a
+   * click that lands on the wall must not select it. The tolerance is generous
+   * because the ray that finds the wall also finds the floor *under the passenger's
+   * own feet*, which is a little nearer than the body when the click is low.
+   */
+  pickAgent(clientX: number, clientY: number, camera: THREE.Camera, rect: DOMRect, blocker: number): number {
+    const n = this.agentCount
+    if (n === 0) return -1
+    const left = clientX - rect.left
+    const top = clientY - rect.top
+    this.pickView.copy(camera.matrixWorldInverse)
+    let best = -1
+    let bestDist2 = AGENT_PICK_RADIUS * AGENT_PICK_RADIUS
+    let bestDepth = Infinity
+    const tie2 = AGENT_PICK_TIE_PX * AGENT_PICK_TIE_PX
+    for (let i = 0; i < n; i++) {
+      const o = i * 6
+      const x = this.cur[o]
+      const y = this.cur[o + 1]
+      const z = this.cur[o + 2]
+      if (!this.agentLevelVisible(z)) continue
+      const wy = z + AGENT_PICK_HEIGHT
+      this.pickVec.set(x, y, wy).applyMatrix4(this.pickView)
+      // View space looks down -z, so anything at or behind the lens has no screen
+      // position at all — projecting it would mirror it back into the picture.
+      if (this.pickVec.z > -0.2) continue
+      const depth = -this.pickVec.z
+      this.pickVec.set(x, y, wy).project(camera)
+      const dx = ((this.pickVec.x + 1) / 2) * rect.width - left
+      const dy = ((1 - this.pickVec.y) / 2) * rect.height - top
+      const dist2 = dx * dx + dy * dy
+      if (dist2 > AGENT_PICK_RADIUS * AGENT_PICK_RADIUS) continue
+      if (depth > blocker + AGENT_PICK_CLEARANCE) continue
+      if (dist2 < bestDist2 - tie2 || (dist2 <= bestDist2 + tie2 && depth < bestDepth)) {
+        best = this.cur[o + 5]
+        bestDist2 = dist2
+        bestDepth = depth
+      }
+    }
+    return best
   }
 
   setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
@@ -354,6 +543,8 @@ export class CrowdSystem extends SceneSystem {
     const axis = this.zAxis
     const n = this.agentCount
     let colorDirty = false
+    /** True once the previewed passenger was drawn: the route goes with them. */
+    let agentOn = false
     for (let i = 0; i < n; i++) {
       const o = i * 6
       const p = i * 3
@@ -372,7 +563,8 @@ export class CrowdSystem extends SceneSystem {
       // Only the crowd on the storeys that are actually drawn: an agent on a
       // hidden floor above (or a ghosted one below) would otherwise float over
       // the visible floor, reading as "seen through" it.
-      if (this.agentLevelVisible(pos.z)) {
+      const drawn = this.agentLevelVisible(pos.z)
+      if (drawn) {
         m.compose(pos, q, scale)
         this.agents.setMatrixAt(i, m)
         this.heads.setMatrixAt(i, m)
@@ -385,6 +577,12 @@ export class CrowdSystem extends SceneSystem {
         this.heads.setMatrixAt(i, m)
         this.hair.setMatrixAt(i, m)
         this.blobs.setMatrixAt(i, m)
+      }
+      // The 选择 tool's ring sits on the body it belongs to, moved with it through
+      // the same interpolation, so what is highlighted is the person on screen.
+      if (id === this.routeAgentId) {
+        this.agentRing.position.set(pos.x, pos.y, pos.z + 0.02)
+        agentOn = drawn
       }
       // Paint the slot only when the agent occupying it changes, so a person
       // keeps their colour for their whole life instead of swapping each frame.
@@ -400,6 +598,11 @@ export class CrowdSystem extends SceneSystem {
     this.heads.count = n
     this.hair.count = n
     this.blobs.count = n
+    // The route follows the passenger it belongs to: a storey that does not draw
+    // the person does not draw the line they are walking either.
+    this.agentRing.visible = agentOn && this.agentsShown
+    this.route.visible = this.routeDrawn && agentOn && this.agentsShown
+    this.destRing.visible = this.destDrawn && agentOn && this.agentsShown
     this.agents.instanceMatrix.needsUpdate = true
     this.heads.instanceMatrix.needsUpdate = true
     this.hair.instanceMatrix.needsUpdate = true
@@ -412,10 +615,19 @@ export class CrowdSystem extends SceneSystem {
   }
 
   setAgentsVisible(on: boolean): void {
+    // Held rather than only applied: `renderAgents` restates the route preview's
+    // visibility every frame, so the crowd's own switch has to be remembered for
+    // it — otherwise hiding the crowd would leave one passenger's route drawn.
+    this.agentsShown = on
     this.agents.visible = on
     this.heads.visible = on
     this.hair.visible = on
     this.blobs.visible = on
+    if (!on) {
+      this.agentRing.visible = false
+      this.route.visible = false
+      this.destRing.visible = false
+    }
   }
 
   /**
@@ -520,6 +732,13 @@ export class CrowdSystem extends SceneSystem {
       mesh.geometry.dispose()
       if (mesh !== this.blobs) (mesh.material as THREE.Material).dispose()
       mesh.dispose()
+      this.ctx.scene.remove(mesh)
+    }
+    // And the route preview: the ribbon's own geometry and material, and the two
+    // rings, which are the scene's only other meshes in this system.
+    for (const mesh of [this.route, this.agentRing, this.destRing]) {
+      mesh.geometry.dispose()
+      ;(mesh.material as THREE.Material).dispose()
       this.ctx.scene.remove(mesh)
     }
   }

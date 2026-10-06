@@ -7,8 +7,12 @@
 
 import { AgentPool, type Agent } from '../agents.ts'
 import {
+  CONGESTION_CAP,
+  CONGESTION_S,
   DOOR_RATE,
   GATE_CLEAR_RADIUS,
+  GATE_LOOKAHEAD,
+  GATE_REPLAN_PER_TICK,
   LANE_SLOT,
   LIFT_BOARD_S,
   LIFT_DOOR_S,
@@ -26,21 +30,31 @@ import {
   TRAIN_DOOR_TRAVEL,
   TRAIN_DWELL,
   WALK_SPEED,
+  ZONE_LINES_BLOCK,
   clamp,
   densityDerate,
   losOf,
   periodOf,
   type Los,
+  type Period,
 } from '../constants.ts'
+import { dayAt, normalizePeaks, normalizeService, type DayType } from '../clock.ts'
+import {
+  DEFAULT_DEMAND_INPUT,
+  demandAt,
+  hourOfDay,
+  normalizeDemand,
+  type DemandInput,
+} from '../demand.ts'
 import { Rng } from '../rng.ts'
 import { gateLaneAllows } from '../gates.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
 import { liftDoorDir } from '../lifts.ts'
 import { crossingDir, ZONE_INDEX } from '../zones.ts'
-import { STOCK, STOCK_CLASSES, trainRatedCapacity } from '../stock.ts'
+import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
 import { rotateLocal, trackFacing, type TrackModule } from '../track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
-import type { DynamicSnapshot, LineAnchor, Metrics, Train, TrainState } from './types.ts'
+import type { DynamicSnapshot, LineAnchor, Metrics, Train, TrainAt, TrainState } from './types.ts'
 
 const STATE_ARRIVING = 0
 const STATE_WALKING = 1
@@ -49,10 +63,24 @@ const STATE_BUYING = 3
 const STATE_BROWSING = 4
 const STATE_WAITING = 5
 const STATE_RIDING = 6
+const STATE_ALIGHTING = 7
 const STATE_LEAVING = 8
 
 const ARRIVE = 0.35
 const SIM_DT = SIM_SECONDS_PER_TICK
+/**
+ * How many previewed route-leg tails are memoised before the whole memo is
+ * dropped (see `World.routeTails`). A trip has a handful of legs and only one
+ * passenger is previewed at a time, so this is generous by two orders of
+ * magnitude — it is a bound on a leak, not a working set.
+ */
+const ROUTE_TAIL_MEMO_MAX = 256
+/**
+ * Sim seconds a passenger takes to cross a doorway: the step in from the
+ * platform, or the step out of the cabin onto it. Short, because the doorway is
+ * a metre of floor — the wait is the queue behind it, not the step.
+ */
+const TRAIN_STEP_S = 0.8
 /** Relaxation of the crowd collision pass: how much of an overlap to resolve per tick. */
 const SEPARATION_RELAX = 0.5
 /** Ceiling on a single agent's collision displacement in one tick, m. */
@@ -82,6 +110,7 @@ function freshMetrics(simTime: number): Metrics {
     trainsLate: 0,
     gateQueue: 0,
     escalatorQueue: 0,
+    liftQueue: 0,
     doorQueue: 0,
     period: 'peak',
     agentsCap: false,
@@ -116,6 +145,28 @@ export class World {
   /** Per-node live population, for the LOS overlay. */
   nodePop: Int32Array
   metrics: Metrics
+  /**
+   * The passenger whose route the renderer previews (the 选择 tool's floor line),
+   * or -1 for none. Only `routeOf` reads it, and only the worker writes it: the
+   * preview is an observation, never an input, so a selected agent walks exactly
+   * as it would if nobody were watching it.
+   */
+  selectedAgent = -1
+  /**
+   * The walk legs ahead of the previewed route, memoised per agent and leg. The
+   * head of the route (the leg being walked) moves every tick, but the tail only
+   * changes when the agent finishes a leg, so the A* searches behind it are paid
+   * once rather than once per frame.
+   *
+   * Capped, because an agent's id is never reused within a pool but the *entry*
+   * would outlive the passenger: a preview that followed one passenger per click
+   * for an hour would hold every leg it ever drew. A tail is a pure function of
+   * the graph and the leg, so dropping the memo costs one A* per leg and never a
+   * wrong answer (see `World.rebuild`, which drops it when the graph is re-cut).
+   */
+  private routeTails = new Map<string, Float32Array>()
+  /** The graph the cached tails were computed against; a rebuild drops them. */
+  private routeTailGraph: StationGraph | null = null
   /** Deterministic work queue of agents waiting for a path. */
   private gridL = 1
   private gridMinZ = 0
@@ -128,14 +179,37 @@ export class World {
   private cOrder = new Int32Array(1)
   /** Crowd count within ~2 m of each collision cell's centre, for the derate. */
   private cellDensity = new Float32Array(1)
+  /**
+   * The same crowd, counted from the bodies' side: every standing passenger
+   * charges the cell it is in **and the ring around it**, so a cell with nobody
+   * on it still knows who is standing next to it. `cellDensity` is filled only
+   * where there are bodies (that is all the speed derate needs), which is
+   * exactly the wrong way round for pricing the crowd around a gate.
+   */
+  private crowdNear = new Float32Array(1)
+  /**
+   * Gate re-choices spent this tick. The fare-line decision skips the path cache
+   * (§7.2), so it is a synchronous search inside the tick and has to be rationed
+   * like one; an agent the ration skips still chooses at the gate's own cell.
+   */
+  private gateReplans = 0
   private nextTrainId = 1
+  /** Scratch pose for `trainAt`, so pinning a cabin needs no allocation. */
+  private poseScratch: TrainAt = { x: 0, y: 0, z: 0, fx: 1, fy: 0 }
+  /**
+   * Whether this world enforces §4.5's fare line. Defaults to `ZONE_LINES_BLOCK`,
+   * which is off while the demo's zone paint is unfinished; a test — or a station
+   * that wants the rule — passes its own answer.
+   */
+  readonly zoneBarriers: boolean
 
-  constructor(data: StationData, seed = 1234567) {
+  constructor(data: StationData, seed = 1234567, opts: { zoneBarriers?: boolean } = {}) {
     this.data = data
     this.seed = seed
     this.rng = new Rng(seed)
     this.simTime = DEFAULT_SIM_TIME
-    const g = buildGraph(data)
+    this.zoneBarriers = opts.zoneBarriers ?? ZONE_LINES_BLOCK
+    const g = buildGraph(data, this.zoneBarriers)
     this.graph = g
     this.path = new PathFinder(g)
     this.pool = new AgentPool(this.rng)
@@ -160,6 +234,9 @@ export class World {
     this.trains = []
     this.nextTrainId = 1
     this.metrics = freshMetrics(startSeconds)
+    this.selectedAgent = -1
+    this.routeTails.clear()
+    this.routeTailGraph = null
     this.rebuild()
   }
 
@@ -175,13 +252,44 @@ export class World {
     this.trains = []
     this.nextTrainId = 1
     this.metrics = freshMetrics(this.simTime)
+    // Nobody survives a restart, so the previewed passenger goes with the crowd.
+    this.selectedAgent = -1
+    this.routeTails.clear()
+    this.routeTailGraph = null
     this.rebuild()
   }
 
+  /**
+   * The station's authored day (§9.6C 时刻): its operating hours, its two peak windows and
+   * the demand curve's knobs, normalized once per `rebuild()` so the tick loop only ever
+   * reads plain numbers. Document data read there rather than cached at construction, so
+   * an edit that reaches `this.data` takes effect with no second copy to keep in step.
+   */
+  private day: DemandInput = DEFAULT_DEMAND_INPUT
+  /**
+   * The current day's type — §7.4's `calendar(dayOfYear)` multiplier. Refreshed when the
+   * calendar day rolls over: `dayAt` per tick would compute a civil date 64 times a second
+   * for an answer that changes once a day.
+   */
+  private dayTypeCache: { index: number; type: DayType } = { index: Number.NaN, type: 'weekday' }
+
   /** Rebuild the graph from static data and reset derived state. */
   rebuild(): void {
-    this.graph = buildGraph(this.data)
+    // The authored day is document data: re-read and re-normalize it on every rebuild,
+    // which is the same path a live edit takes (`build` → `rebuild`).
+    this.day = {
+      service: normalizeService(this.data.service),
+      peaks: normalizePeaks(this.data.peaks),
+      knobs: normalizeDemand(this.data.demand),
+    }
+    this.dayTypeCache.index = Number.NaN
+    this.graph = buildGraph(this.data, this.zoneBarriers)
     this.path = new PathFinder(this.graph)
+    // A tail is a list of node ids, so every one of them is stale the moment the
+    // graph is re-cut — dropped here rather than left to the identity check in
+    // `routeTail`, which only fires on the next preview.
+    this.routeTails.clear()
+    this.routeTailGraph = this.graph
     this.nodePop = new Int32Array(this.graph.nodeCount)
     this.doorsByLine.clear()
     this.doorsByTrack.clear()
@@ -223,6 +331,31 @@ export class World {
       s.waitAccum = 0
       s.waitCount = 0
     }
+    /**
+     * A consist still on the road holds its own doorways, and an edit re-cuts
+     * them: the screen a car door meets can move, appear or go. When that
+     * happens the cabin those passengers were seated in is no longer the cabin
+     * that was drawn, so they are set down — without a left-behind mark, since
+     * an edit is not the station failing to serve them.
+     */
+    for (const train of this.trains) {
+      const key = trainKey(train.line, train.track)
+      const doors = this.doorsByTrack.get(key) ?? this.doorsByLine.get(train.line) ?? []
+      const same = doors.length === train.doors.length && doors.every((d, i) => d === train.doors[i])
+      train.doors = doors
+      if (same) continue
+      for (const a of this.pool.live) {
+        if (a.train === train.id) this.pool.kill(a)
+      }
+      train.cabins = doors.map(() => [])
+      train.cabinDepth = doors.map(() => 0)
+      train.cabinRows = doors.map(() => 0)
+      train.doorT = doors.map(() => 0)
+      train.inFlight = doors.map(() => 0)
+      train.boardings = doors.map(() => 0)
+      train.alightLeft = 0
+      train.onboard = 0
+    }
     this.pool.forEach((a) => {
       a.path = EMPTY_PATH
       a.pathIdx = 0
@@ -230,6 +363,9 @@ export class World {
       a.destNode = -1
       a.server = -1
       a.state = STATE_ARRIVING
+      // A rider is *not* unpinned here: the loop above sets a consist's riders
+      // down only when its doorways were re-cut, and a rebuild that left them
+      // alone has to leave the wave riding (see the cabin's own test).
       a.liftServer = -1
       a.liftBoard = -1
       a.liftDest = -1
@@ -278,6 +414,7 @@ export class World {
     this.cStart = new Int32Array(cnb + 1)
     this.cOrder = new Int32Array(Math.max(64, this.pool.count + 64))
     this.cellDensity = new Float32Array(cnb)
+    this.crowdNear = new Float32Array(cnb)
   }
 
   /* -------------------------------------------------------------- public */
@@ -286,7 +423,7 @@ export class World {
     const t0 = performanceNowMs()
     this.tick++
     this.simTime += SIM_DT
-    const period = periodOf(this.simTime)
+    const period = periodOf(this.simTime, this.day.service, this.day.peaks)
 
     this.dispatchTrains(period)
     this.spawnStreet(period)
@@ -335,13 +472,23 @@ export class World {
 
   /* ------------------------------------------------------------ spawning */
 
-  private curve(period: 'peak' | 'offpeak' | 'late'): number {
-    const h = (this.simTime % SIM_DAY) / 3600
-    const gauss = (mu: number, s: number) => Math.exp(-((h - mu) * (h - mu)) / (2 * s * s))
-    const shape = 0.06 + 1.0 * gauss(8, 0.85) + 0.78 * gauss(18, 1.05) + 0.18 * gauss(12.5, 2.2)
-    if (period === 'late') return shape * 0.25
-    if (period === 'offpeak') return shape * 0.6
-    return shape
+  /**
+   * The demand multiplier at this instant: `sim/demand.ts`'s curve — the same samples the
+   * 时刻 window plots — scaled by the period the timetable is in and by the day type's
+   * calendar coefficient (§7.4). The period is handed in because `tickOnce` has already
+   * asked for it: asking twice is two chances to answer differently.
+   */
+  private curve(period: Period): number {
+    return demandAt(hourOfDay(this.simTime), period, this.dayType(), this.day.knobs)
+  }
+
+  /** The day type the calendar is on, refreshed when the simulated day rolls over. */
+  private dayType(): DayType {
+    const index = Math.floor(this.simTime / SIM_DAY)
+    if (this.dayTypeCache.index !== index) {
+      this.dayTypeCache = { index, type: dayAt(this.simTime).dayType }
+    }
+    return this.dayTypeCache.type
   }
 
   private spawnStreet(period: 'peak' | 'offpeak' | 'late'): void {
@@ -446,16 +593,17 @@ export class World {
           // Held at the mark, doors shut, before they cycle.
           if (train.t >= TRAIN_BERTH_HOLD) {
             this.openDoors(train)
-            this.dumpAlighting(train)
             this.setTrainState(train, 'opening')
           }
           break
         case 'opening':
-          // The leaves travel; boarding was enabled with the command.
+          // The leaves travel; the doorways step their passengers out while they do.
+          this.stepAlighting(train)
           if (train.t >= TRAIN_DOOR_TRAVEL) this.setTrainState(train, 'dwell')
           break
         case 'dwell':
           // Doors fully open, serving the platform.
+          this.stepAlighting(train)
           if (train.t >= TRAIN_DWELL) {
             this.closeDoors(train)
             this.setTrainState(train, 'closing')
@@ -471,7 +619,10 @@ export class World {
           break
         case 'depart':
           // Run out, then the consist leaves the world.
-          if (train.t >= TRAIN_DEPART_S) this.trains.splice(this.trains.indexOf(train), 1)
+          if (train.t >= TRAIN_DEPART_S) {
+            this.emptyTrain(train)
+            this.trains.splice(this.trains.indexOf(train), 1)
+          }
           break
       }
     }
@@ -482,7 +633,7 @@ export class World {
     const active = this.trains.find((t) => t.line === line.id && t.track === trackId)
     const next = this.nextDispatch.get(key) ?? this.simTime
     if (!active && this.simTime >= next) {
-      this.trains.push({
+      const train: Train = {
         id: this.nextTrainId++,
         line: line.id,
         track: trackId,
@@ -495,7 +646,20 @@ export class World {
         late: 0,
         doors,
         dir,
-      })
+        cabins: [],
+        cabinDepth: [],
+        cabinRows: [],
+        doorT: [],
+        inFlight: [],
+        boardings: [],
+        alightLeft: 0,
+        alightT: 0,
+      }
+      // The wave this consist brings is seated before it is on the road at all:
+      // it rides in down the tunnel, so the cabin is already full when the train
+      // pulls in and there is nothing to pop into being in front of the platform.
+      this.loadAlighting(train)
+      this.trains.push(train)
       this.nextDispatch.set(key, this.simTime + this.headwayFor(line, period))
     }
   }
@@ -506,38 +670,338 @@ export class World {
     train.t = 0
   }
 
+  /**
+   * The doors open onto the platform — but the alighting wave leaves through
+   * them first, so boarding is held at each doorway until its own queue has
+   * drained (`stepAlighting` opens them one at a time). The leaves are drawn
+   * from the train's own state, so holding the rate changes nothing the player
+   * sees except who is walking through the doorway.
+   */
   private openDoors(train: Train): void {
     for (const d of train.doors) {
       const s = this.graph.servers[d]
-      s.rate = DOOR_RATE
+      if (!s) continue
+      s.rate = 0
+      s.cooldown = 0
     }
   }
 
   private closeDoors(train: Train): void {
     for (const d of train.doors) {
       const s = this.graph.servers[d]
+      if (!s) continue
       s.rate = 0
       // Whoever is still queued was left behind by this train.
       this.metrics.leftBehind += s.queue.length
     }
   }
 
-  private dumpAlighting(train: Train): void {
-    const line = this.lineById.get(train.line)
-    if (!line) return
-    let n = line.alightPerTrain
-    const doors = train.doors
-    if (doors.length === 0) return
-    for (let i = 0; i < n; i++) {
-      if (this.pool.count >= MAX_AGENTS) break
-      const d = doors[i % doors.length]
-      const s = this.graph.servers[d]
-      const trip = this.sampleTripFromTrain(0.55, train.line)
-      if (!trip.dest) continue
-      this.spawnAtNode(s.node, 'train:' + train.line, trip)
-      train.alighted++
+  /**
+   * Seat the alighting wave this consist brings (§5.9, §7.4). The whole cohort
+   * is placed in the doorway queues it will leave by — the front pair at its own
+   * door, the rows behind it receding inboard — before the train is on the road,
+   * so the cabin draws full as the consist runs in and the platform sees people
+   * step out of a train rather than appear around a screen door.
+   *
+   * A wave too big for the cabin (a station left on a crush setting) keeps the
+   * remainder on `alightLeft` and is seated as the queues drain.
+   */
+  private loadAlighting(train: Train): void {
+    const n = train.doors.length
+    train.cabins = []
+    train.cabinDepth = []
+    train.cabinRows = []
+    train.doorT = []
+    train.inFlight = []
+    train.boardings = []
+    for (let d = 0; d < n; d++) {
+      train.cabins.push([])
+      train.cabinDepth.push(0)
+      train.cabinRows.push(0)
+      train.doorT.push(0)
+      train.inFlight.push(0)
+      train.boardings.push(0)
     }
-    this.metrics.alighted += n
+    const line = this.lineById.get(train.line)
+    train.alightLeft = line && n > 0 ? Math.max(0, line.alightPerTrain) : 0
+    // One row at a time *across* the consist, so a wave smaller than the cabin
+    // spreads over every doorway rather than packing the first car solid.
+    for (let row = 0; row < CABIN_MAX_ROWS && train.alightLeft > 0; row++) {
+      for (let d = 0; d < n && train.alightLeft > 0; d++) {
+        let seated = 0
+        for (const file of [-1, 1]) {
+          if (train.alightLeft <= 0) break
+          if (!this.seatAlighter(train, d, file, row)) break
+          train.alightLeft--
+          seated++
+        }
+        if (seated > 0) train.cabinRows[d] = row + 1
+      }
+    }
+    // What the cabin could hold is the depth boarders stand behind.
+    for (let d = 0; d < n; d++) train.cabinDepth[d] = train.cabinRows[d]
+  }
+
+  /**
+   * Put one alighting passenger in the cabin at its doorway queue's slot. It is
+   * `STATE_ALIGHTING` from the moment it is seated: aboard, pinned to the
+   * consist, and out of the station crowd's way until it steps onto the floor.
+   */
+  private seatAlighter(train: Train, door: number, file: number, row: number): boolean {
+    if (this.pool.count >= MAX_AGENTS) {
+      this.metrics.agentsCap = true
+      return false
+    }
+    const slot = this.cabinWorldPos(train, door, file, row)
+    if (!slot) return false
+    const trip = this.sampleTripFromTrain(0.55, train.line)
+    if (!trip.dest) return false
+    const a = this.pool.spawn({ origin: 'train:' + train.line, stops: trip.stops, dest: trip.dest }, slot[0], slot[1], slot[2], this.tick)
+    if (!a) return false
+    a.state = STATE_ALIGHTING
+    a.train = train.id
+    a.trainDoor = door
+    a.trainFile = file
+    a.trainRow = row
+    a.trainPhase = 1
+    a.trainT = 0
+    train.cabins[door].push(a.id)
+    return true
+  }
+
+  /**
+   * The world position of a cabin slot: the consist's own pose plus the slot's
+   * place in its frame. The car runs along the consist's local +x and its doors
+   * face local ±y, which is the frame `doorCentres` and `cabinSlot` are in.
+   */
+  private cabinWorldPos(train: Train, door: number, file: number, row: number): [number, number, number] | null {
+    const s = this.graph.servers[train.doors[door]]
+    if (!s) return null
+    const at = this.trainAt(train, this.poseScratch)
+    if (!at) {
+      // A platform edge with no rail under it (§6.3: dispatch needs a track to
+      // *draw* a consist, not to run one). There is no car to stand in and none
+      // drawn to stand in it, so the wave waits where it would leave from — at
+      // its own doorway, at a car floor's height over the platform.
+      const g = this.graph
+      return [
+        g.nodeX[s.node] + file * 0.3,
+        g.nodeY[s.node] + (row % 2 === 0 ? -0.15 : 0.15),
+        g.nodeZ[s.node] + (CABIN_FLOOR_Z - 0.5),
+      ]
+    }
+    // The doorway's own place in the consist's frame: the screen door stands on
+    // the cell its car door falls in, so the two are the same point to the half
+    // metre the graph rounds to.
+    const dx = this.graph.nodeX[s.node] - at.x
+    const dy = this.graph.nodeY[s.node] - at.y
+    const doorX = dx * at.fx + dy * at.fy
+    const across = -dx * at.fy + dy * at.fx
+    const side = across >= 0 ? 1 : -1
+    const [lx, ly] = cabinSlot(doorX, side, file, row)
+    return [at.x + lx * at.fx - ly * at.fy, at.y + lx * at.fy + ly * at.fx, at.z + CABIN_FLOOR_Z]
+  }
+
+  /**
+   * Step the alighting queues out of one consist, a pair a doorway at a time,
+   * and hand each doorway to the boarders the moment it is clear. Called while
+   * the doors are cycling, so a wave leaves over the dwell — not in one tick.
+   *
+   * The doorway's alighting turn is bounded (`CABIN_ALIGHT_MAX_S`): past it
+   * whoever is still in the cabin rides on, and the doorway boards. A dwell has
+   * to be shared, and the arrivals it could not get off are the stop's
+   * left-behind count, not a platform that silently never boards.
+   */
+  private stepAlighting(train: Train): void {
+    const n = train.doors.length
+    train.alightT += SIM_DT
+    const streaming = train.alightT <= CABIN_ALIGHT_MAX_S
+    if (!streaming) {
+      // Turning to boarding: the queue stops being a queue, and the riders still
+      // standing in it are simply still aboard. Whatever never even reached the
+      // cabin is this stop's left-behind arrivals, counted as it is dropped.
+      this.metrics.leftBehind += train.alightLeft
+      train.alightLeft = 0
+      for (let d = 0; d < n; d++) {
+        train.cabins[d].length = 0
+        train.cabinRows[d] = 0
+      }
+    }
+    for (let d = 0; d < n; d++) {
+      const s = this.graph.servers[train.doors[d]]
+      if (!s) continue
+      const queue = train.cabins[d]
+      if (streaming) {
+        // Refill first: a wave the cabin could not hold is seated as room appears.
+        while (train.alightLeft > 0 && train.cabinRows[d] < CABIN_MAX_ROWS) {
+          const row = train.cabinRows[d]
+          if (!this.seatAlighter(train, d, -1, row)) {
+            train.alightLeft = 0
+            break
+          }
+          train.alightLeft--
+          // An odd wave leaves one seat in its last row empty.
+          if (train.alightLeft > 0 && this.seatAlighter(train, d, 1, row)) train.alightLeft--
+          train.cabinRows[d] = row + 1
+        }
+        // Then let the front row out, at the doorway's own cadence.
+        train.doorT[d] -= SIM_DT
+        if (train.doorT[d] <= 0 && queue.length > 0) {
+          let out = 0
+          for (let i = queue.length - 1; i >= 0; i--) {
+            const a = this.pool.all().get(queue[i])
+            if (!a || a.dead) {
+              queue.splice(i, 1)
+              continue
+            }
+            if (a.trainRow > 0) continue
+            this.stepOut(train, a, s.node)
+            queue.splice(i, 1)
+            train.inFlight[d]++
+            out++
+          }
+          if (out > 0) {
+            train.cabinRows[d] = Math.max(0, train.cabinRows[d] - 1)
+            // Accumulated, not reset: the cadence is an average, so a one-second
+            // tick does not stretch a 1.2 s pair into two ticks of dwell.
+            train.doorT[d] += CABIN_ALIGHT_PAIR_S
+            // The rows behind shuffle up to the doorway they just left.
+            for (const id of queue) {
+              const a = this.pool.all().get(id)
+              if (a && !a.dead) a.trainRow--
+            }
+          }
+        }
+      }
+      // A clear doorway boards. Anyone still stepping out is still in it.
+      if (s.rate <= 0 && train.cabinRows[d] === 0 && train.inFlight[d] === 0) {
+        s.rate = DOOR_RATE
+      }
+    }
+  }
+
+  /** Send a passenger out of the cabin: a step from its slot to the doorway node. */
+  private stepOut(train: Train, a: Agent, node: number): void {
+    const g = this.graph
+    a.trainPhase = 2
+    a.trainT = 0
+    a.rideFromX = a.x
+    a.rideFromY = a.y
+    a.rideFromZ = a.z
+    // Two abreast leave abreast: the pair steps out either side of the doorway's
+    // centre rather than onto one point, where the renderer would draw one body.
+    const at = this.trainAt(train, this.poseScratch)
+    const along = at ? a.trainFile * CABIN_PAIR_HALF : 0
+    a.rideToX = g.nodeX[node] + (at ? along * at.fx : 0)
+    a.rideToY = g.nodeY[node] + (at ? along * at.fy : 0)
+    a.rideToZ = g.nodeZ[node]
+  }
+
+  /** Take a boarding passenger into the cabin, behind the alighting queue. */
+  private boardRider(a: Agent, s: ServerDef): void {
+    const train = this.trains.find((t) => t.doors.includes(s.id))
+    if (!train) {
+      // A doorway with no consist behind it (the train departed mid-service):
+      // the passenger has boarded something that is not there, and leaves.
+      a.dead = true
+      return
+    }
+    const door = train.doors.indexOf(s.id)
+    const k = train.boardings[door]++
+    a.train = train.id
+    a.trainDoor = door
+    a.trainFile = k % 2 === 0 ? -1 : 1
+    // Behind the wave that is getting off, so the two streams never share a slot.
+    a.trainRow = train.cabinDepth[door] + Math.floor(k / 2)
+    a.trainPhase = 0
+    a.trainT = 0
+    a.rideFromX = a.x
+    a.rideFromY = a.y
+    a.rideFromZ = a.z
+    a.state = STATE_RIDING
+    a.server = -1
+    train.onboard++
+  }
+
+  /**
+   * Pin a passenger to the consist it is riding in: stepping in from the
+   * platform, standing in the cabin (and shuffling up as the queue ahead of it
+   * leaves), or stepping out onto the platform. A rider is never routed by the
+   * station's crowd — it moves with its train.
+   */
+  private stepTrainRider(a: Agent): void {
+    const train = this.trains.find((t) => t.id === a.train)
+    if (!train) {
+      // Its consist left the world (or was edited away): nobody is left riding.
+      a.dead = true
+      a.train = -1
+      return
+    }
+    const slot = this.cabinWorldPos(train, a.trainDoor, a.trainFile, a.trainRow)
+    if (!slot) {
+      a.dead = true
+      a.train = -1
+      return
+    }
+    if (a.trainPhase === 0) {
+      // Stepping in: from where the doorway left the passenger to its slot.
+      a.trainT += SIM_DT
+      const k = clamp(a.trainT / TRAIN_STEP_S, 0, 1)
+      a.x = a.rideFromX + (slot[0] - a.rideFromX) * k
+      a.y = a.rideFromY + (slot[1] - a.rideFromY) * k
+      a.z = a.rideFromZ + (slot[2] - a.rideFromZ) * k
+      if (k >= 1) a.trainPhase = 1
+      return
+    }
+    if (a.trainPhase === 1) {
+      // Standing, and easing into place after the queue ahead of it moved up.
+      const k = clamp(SIM_DT / 0.35, 0, 1)
+      a.x += (slot[0] - a.x) * k
+      a.y += (slot[1] - a.y) * k
+      a.z += (slot[2] - a.z) * k
+      return
+    }
+    // Stepping out: from the slot to the doorway node, then a walker like anyone
+    // else. The consist is standing at its mark with the doors open, so the
+    // target cannot move under the step.
+    a.trainT += SIM_DT
+    const k = clamp(a.trainT / TRAIN_STEP_S, 0, 1)
+    a.x = a.rideFromX + (a.rideToX - a.rideFromX) * k
+    a.y = a.rideFromY + (a.rideToY - a.rideFromY) * k
+    a.z = a.rideFromZ + (a.rideToZ - a.rideFromZ) * k
+    if (k < 1) return
+    train.inFlight[a.trainDoor] = Math.max(0, train.inFlight[a.trainDoor] - 1)
+    train.alighted++
+    this.metrics.alighted++
+    a.train = -1
+    a.trainDoor = -1
+    a.trainPhase = 0
+    a.state = STATE_WALKING
+    a.server = -1
+    // The trip is a platform arrival's: origin 'train:<line>', then its stops
+    // and destination, walked from the doorway it stepped onto.
+    this.startLeg(a)
+  }
+
+  /**
+   * A consist leaves the world with everyone still aboard: the boarders ride out
+   * (they boarded it), and a member of the wave that never got off is stranded
+   * on the train — the one way an arrival is lost.
+   */
+  private emptyTrain(train: Train): void {
+    for (const a of this.pool.live) {
+      if (a.train !== train.id) continue
+      this.pool.kill(a)
+      if (a.state === STATE_ALIGHTING) this.metrics.leftBehind++
+    }
+    for (let d = 0; d < train.cabins.length; d++) {
+      train.cabins[d].length = 0
+      train.inFlight[d] = 0
+    }
+    // Whatever is still on `alightLeft` never even reached the cabin.
+    this.metrics.leftBehind += Math.max(0, train.alightLeft)
+    train.alightLeft = 0
+    train.onboard = 0
   }
 
   /**
@@ -546,8 +1010,7 @@ export class World {
    * to draw rolling stock, so it stays a pure function of the station. The track
    * carries its own orientation, so a north–south line travels in y.
    */
-  private computeLineAnchors(): void {
-    this.lineAnchors.clear()
+  private computeLineAnchors(): void {    this.lineAnchors.clear()
     for (const line of this.data.lines) {
       for (const track of this.serviceTracks(line.id)) {
         // A line needs a track to run on; the platform edge is only needed for
@@ -614,6 +1077,47 @@ export class World {
   }
 
   /**
+   * The berth anchor a consist runs from: its own (line, track), or — for a
+   * consist whose track was edited out from under it — the line's remaining
+   * anchor, so it keeps its pose until it departs instead of vanishing mid-run.
+   */
+  private trainAnchor(train: Train): LineAnchor | null {
+    const own = this.lineAnchors.get(trainKey(train.line, train.track))
+    if (own) return own
+    for (const [k, v] of this.lineAnchors) {
+      if (k.startsWith(train.line + '|')) return v
+    }
+    return null
+  }
+
+  /**
+   * Where a consist actually is this tick: its berth anchor plus the run-in /
+   * run-out easing. `trainRenderState` and the people riding in the cabin both
+   * read this, so a passenger aboard can never drift off its own train.
+   */
+  private trainAt(train: Train, out: TrainAt): TrainAt | null {
+    const a = this.trainAnchor(train)
+    if (!a) return null
+    const reach = (STOCK[a.stock].length * a.cars) / 2 + 25
+    let offset = 0
+    if (train.state === 'approach') {
+      // Ease out: fast down the tunnel, slowing to a stop at the mark.
+      const p = Math.min(1, train.t / TRAIN_APPROACH_S)
+      offset = -(1 - p) * (1 - p) * reach * a.dirSign
+    } else if (train.state === 'depart') {
+      // Ease in: pull away gently, then run up to speed.
+      const p = Math.min(1, train.t / TRAIN_DEPART_S)
+      offset = p * p * reach * a.dirSign
+    }
+    out.x = a.x + offset * a.fx
+    out.y = a.y + offset * a.fy
+    out.z = a.z
+    out.fx = a.fx
+    out.fy = a.fy
+    return out
+  }
+
+  /**
    * One pose per live train, stride 10: x, y, z, cars, stock index (A/B/C/L),
    * doors-open, line colour, direction, yaw, door-side mask. A pure function of
    * train state, so it adds no randomness and cannot disturb §7.6 determinism.
@@ -625,33 +1129,13 @@ export class World {
     const out = new Float32Array(this.trains.length * STRIDE)
     let k = 0
     for (const train of this.trains) {
-      // A consist edited out from under itself keeps the line's remaining
-      // anchor until it departs, instead of vanishing mid-run.
-      let a = this.lineAnchors.get(trainKey(train.line, train.track))
-      if (!a) {
-        for (const [k, v] of this.lineAnchors) {
-          if (k.startsWith(train.line + '|')) {
-            a = v
-            break
-          }
-        }
-        if (!a) continue
-      }
-      const trainLen = STOCK[a.stock].length * a.cars
-      const reach = trainLen / 2 + 25
-      let offset = 0
-      if (train.state === 'approach') {
-        // Ease out: fast down the tunnel, slowing to a stop at the mark.
-        const p = Math.min(1, train.t / TRAIN_APPROACH_S)
-        offset = -(1 - p) * (1 - p) * reach * a.dirSign
-      } else if (train.state === 'depart') {
-        // Ease in: pull away gently, then run up to speed.
-        const p = Math.min(1, train.t / TRAIN_DEPART_S)
-        offset = p * p * reach * a.dirSign
-      }
-      out[k++] = a.x + offset * a.fx
-      out[k++] = a.y + offset * a.fy
-      out[k++] = a.z
+      const a = this.trainAnchor(train)
+      if (!a) continue
+      const at = this.trainAt(train, this.poseScratch)
+      if (!at) continue
+      out[k++] = at.x
+      out[k++] = at.y
+      out[k++] = at.z
       out[k++] = a.cars
       out[k++] = STOCK_CLASSES.indexOf(a.stock)
       out[k++] = train.state === 'opening' || train.state === 'dwell' || train.state === 'closing' ? 1 : 0
@@ -988,11 +1472,10 @@ export class World {
       a.rideTotal = Math.max(0.2, s.ride)
       a.rideT = a.rideTotal
     } else if (s.kind === 'door') {
-      // Boarded: the agent leaves the station.
-      a.dead = true
+      // Boarded: the passenger steps into the car and rides (§1.13), drawn in
+      // the cabin until the consist leaves the world.
       this.metrics.boarded++
-      const train = this.trains.find((t) => t.doors.includes(s.id))
-      if (train) train.onboard++
+      this.boardRider(a, s)
     } else if (s.kind === 'stop') {
       a.state = STATE_BUYING
       a.timer = this.rng.range(30, 60)
@@ -1090,7 +1573,9 @@ export class World {
     const ps2 = PERSONAL_SPACE * PERSONAL_SPACE
     for (let i = 0; i < live.length; i++) {
       const a = live[i]
-      if (a.dead || a.state === STATE_RIDING) continue
+      // A rider is inside a train, not standing on the floor: it neither pushes
+      // the crowd nor is pushed by it (its consist holds it in place).
+      if (a.dead || a.state === STATE_RIDING || a.train >= 0) continue
       const ax = a.x
       const ay = a.y
       const gx = Math.floor((ax - this.cGridMinX) / COLLISION_CELL)
@@ -1107,7 +1592,7 @@ export class World {
           const c = lz * band + yy * W + xx
           for (let k = this.cStart[c]; k < this.cStart[c + 1]; k++) {
             const b = live[this.cOrder[k]]
-            if (b === a || b.dead || b.state === STATE_RIDING) continue
+            if (b === a || b.dead || b.state === STATE_RIDING || b.train >= 0) continue
             const dx = ax - b.x
             const dy = ay - b.y
             const d2 = dx * dx + dy * dy
@@ -1161,6 +1646,10 @@ export class World {
     // tick; movement reads the density, the collision pass rebuilds the grid.
     this.buildCollisionGrid(live)
     this.computeCellDensity()
+    // Price that crowd onto the graph before anything plans against it, so every
+    // search this tick sees the same station.
+    this.priceCongestion()
+    this.gateReplans = 0
     // Resolve path requests first, in agent id order.
     this.processRepaths()
 
@@ -1170,6 +1659,12 @@ export class World {
       if (a.awaitingPath) {
         a.vx = 0
         a.vy = 0
+        continue
+      }
+      // A passenger aboard a consist moves with its train, never with the crowd:
+      // stepping in, standing in the cabin, or stepping out onto the platform.
+      if (a.train >= 0) {
+        this.stepTrainRider(a)
         continue
       }
       switch (a.state) {
@@ -1237,30 +1732,89 @@ export class World {
 
   private queueTime(a: Agent): void {
     a.wait += SIM_DT
-    if (a.wait > a.patience) {
-      if (a.server >= 0 && this.graph.servers[a.server].kind === 'door') {
-        // Re-pick the cheapest door (§5.9).
-        const s = this.graph.servers[a.server]
-        const idx = s.queue.indexOf(a.id)
-        if (idx >= 0) s.queue.splice(idx, 1)
-        a.server = -1
-        a.wait = 0
-        const leg = a.legs[a.legIdx]
-        if (leg) {
-          leg.node = -1
-          a.door = -1
-        }
-        this.startLeg(a)
-      } else if (a.server >= 0 && this.graph.servers[a.server].kind === 'stop') {
-        // Drop the stop, walk on.
-        const s = this.graph.servers[a.server]
-        const idx = s.queue.indexOf(a.id)
-        if (idx >= 0) s.queue.splice(idx, 1)
-        a.server = -1
-        a.comfort -= 0.1
-        this.advanceLeg(a)
+    if (a.wait <= a.patience) return
+    const s = a.server >= 0 ? this.graph.servers[a.server] : null
+    if (s && s.kind === 'door') {
+      // Re-pick the cheapest door (§5.9).
+      const idx = s.queue.indexOf(a.id)
+      if (idx >= 0) s.queue.splice(idx, 1)
+      a.server = -1
+      a.wait = 0
+      const leg = a.legs[a.legIdx]
+      if (leg) {
+        leg.node = -1
+        a.door = -1
       }
+      this.startLeg(a)
+      return
     }
+    if (s && s.kind === 'stop') {
+      // Drop the stop, walk on.
+      const idx = s.queue.indexOf(a.id)
+      if (idx >= 0) s.queue.splice(idx, 1)
+      a.server = -1
+      a.comfort -= 0.1
+      this.advanceLeg(a)
+      return
+    }
+    // §7.2's other re-path trigger: a wait past patience re-picks the next-cheapest
+    // edge. Keep the place when there is nothing better, and let the patience clock
+    // start again rather than asking a synchronous search every tick.
+    this.reRouteAroundQueue(a, s)
+    a.wait = 0
+  }
+
+  /**
+   * Take the next-cheapest edge instead of the queue the passenger is standing in
+   * (§7.2). For a gate that is the next lane along the line, for a lift it is the
+   * stair or the escalator beside it — the search the passenger would have run had
+   * it known the queue when it set out (`chooseGate` runs it 8 m earlier; this is
+   * the second chance for the queue that only formed once the crowd arrived).
+   *
+   * It only ever *moves* an agent whose new route queues at a different server. A
+   * passenger that finds nothing better keeps its place in the queue it is already
+   * in, instead of walking to the back of it: a step-free passenger in a lift
+   * queue has nowhere else to be, and a lane whose neighbour is just as long is
+   * not a reason to lose your spot.
+   */
+  private reRouteAroundQueue(a: Agent, s: ServerDef | null): boolean {
+    if (!s || (s.kind !== 'gate' && s.kind !== 'lift')) return false
+    // The lift is the only way down for a step-free passenger: re-planning would
+    // hand back the same cabin every time.
+    if (s.kind === 'lift' && a.needs.stepFree) return false
+    if (a.destNode < 0 || a.awaitingPath) return false
+    const from = this.nearestNode(a.x, a.y, a.z)
+    if (from < 0 || from === a.destNode) return false
+    const path = this.path.search(from, a.destNode, a.needs)
+    if (!path || path.length === 0) return false
+    if (this.firstQueueServer(path) === s.id) return false
+    const idx = s.queue.indexOf(a.id)
+    if (idx >= 0) s.queue.splice(idx, 1)
+    a.server = -1
+    a.liftBoard = -1
+    a.liftDest = -1
+    // The new approach is its own fare-line decision: let it re-choose a lane too.
+    a.gateChosen = false
+    a.path = path
+    a.pathIdx = 0
+    if (path.length === 1) this.onArrive(a)
+    else a.state = STATE_WALKING
+    return true
+  }
+
+  /**
+   * The first server a route queues at — the gate, lane or ramp it is committed
+   * to. `-1` when the walk queues nowhere.
+   */
+  private firstQueueServer(path: Int32Array): number {
+    const g = this.graph
+    for (let i = 0; i < path.length; i++) {
+      const srv = g.serverForNode.get(path[i])
+      if (srv === undefined) continue
+      const kind = g.servers[srv].kind
+      if (kind === 'gate' || kind === 'lift' || kind === 'escalator' || kind === 'stair') return srv
+    }
+    return -1
   }
 
   private stepRide(a: Agent): void {
@@ -1331,19 +1885,47 @@ export class World {
    * The fare line is a decision point, not a waypoint. A cached path commits a
    * whole wave to the gate nearest the escalator while the queues it should
    * balance are still empty, so that gate jams and the rest of the line idles.
-   * The moment an agent is about to step onto a gate it re-plans the rest of
-   * the leg against the live queues, because walking a few metres along the
-   * concourse beats queueing behind everyone else (§7.2).
+   *
+   * The moment an agent *approaches* a gate it re-plans the rest of the leg
+   * against the live queues and the live crowd, because walking a few metres
+   * along the concourse beats queueing behind everyone else (§7.2) — and a
+   * decision left to the last metre is not a decision at all: by the time the
+   * gate is the very next node, the passenger is standing in the crush it should
+   * have walked around. `GATE_LOOKAHEAD` metres out is where the choice is still
+   * free, and `GATE_REPLAN_PER_TICK` rations the synchronous searches that buys;
+   * an agent the ration skips re-chooses at the gate's own cell, exactly where
+   * every re-choice used to be made.
    *
    * The re-plan deliberately skips the cache — it has to see the queues as they
-   * are — and happens once per crossing, which the escalators already pace, so
-   * it is a handful of searches a second, not a per-tick wave.
+   * are — and happens once per crossing, which the escalators already pace.
    */
   private chooseGate(a: Agent): boolean {
-    if (a.gateChosen) return false
-    const target = a.path[a.pathIdx]
-    const srv = this.graph.serverForNode.get(target)
-    if (srv === undefined || this.graph.servers[srv].kind !== 'gate') return false
+    if (a.gateChosen || a.destNode < 0) return false
+    const g = this.graph
+    // How far the passenger still has to walk before it is standing at a gate.
+    let lead = 0
+    let px = a.x
+    let py = a.y
+    let gateAt = -1
+    for (let i = a.pathIdx; i < a.path.length; i++) {
+      const n = a.path[i]
+      lead += Math.hypot(g.nodeX[n] - px, g.nodeY[n] - py)
+      px = g.nodeX[n]
+      py = g.nodeY[n]
+      const srv = g.serverForNode.get(n)
+      if (srv !== undefined && g.servers[srv].kind === 'gate') {
+        gateAt = i
+        break
+      }
+      if (lead > GATE_LOOKAHEAD) break
+    }
+    if (gateAt < 0) return false
+    const atGate = gateAt === a.pathIdx
+    if (!atGate) {
+      if (lead > GATE_LOOKAHEAD) return false
+      if (this.gateReplans >= GATE_REPLAN_PER_TICK) return false
+      this.gateReplans++
+    }
     a.gateChosen = true
     const from = this.nearestNode(a.x, a.y, a.z)
     if (from < 0 || a.destNode < 0 || from === a.destNode) return true
@@ -1415,6 +1997,52 @@ export class World {
     }
   }
 
+  /**
+   * Price the crowd into the graph, node by node (§7.3). What a passenger has to
+   * walk through is the bodies already standing there, and `waitQ` cannot see
+   * them: a queue that has not formed at a server yet does not exist for A*, so
+   * a route that is about to become a crush is still priced as empty floor.
+   *
+   * The bodies are scattered into their own cell and the ring around it, so a
+   * node knows who is standing *beside* it — which is the whole case being
+   * priced: the crowd pressed at a gate bank is on the tiles in front of the
+   * gate, not inside it. Every node then reads its own cell, capped (past a
+   * crush one more body is not another second of detour) and written onto the
+   * path finder for every search this tick.
+   */
+  private priceCongestion(): void {
+    const g = this.graph
+    const W = this.cGridW
+    const H = this.cGridH
+    const band = W * H
+    const near = this.crowdNear
+    near.fill(0)
+    const live = this.pool.live
+    for (let i = 0; i < live.length; i++) {
+      const a = live[i]
+      // A rider is in a car, not on the floor: the platform beside a berthed
+      // train must not be priced as a crush because the train is full.
+      if (a.dead || a.train >= 0) continue
+      const gx = Math.floor((a.x - this.cGridMinX) / COLLISION_CELL)
+      const gy = Math.floor((a.y - this.cGridMinY) / COLLISION_CELL)
+      const base = this.levelBucket(a.z) * band
+      for (let oy = -2; oy <= 2; oy++) {
+        const yy = gy + oy
+        if (yy < 0 || yy >= H) continue
+        for (let ox = -2; ox <= 2; ox++) {
+          const xx = gx + ox
+          if (xx < 0 || xx >= W) continue
+          near[base + yy * W + xx]++
+        }
+      }
+    }
+    const out = this.path.congestion
+    for (let n = 0; n < g.nodeCount; n++) {
+      const bodies = near[this.collisionCellIndex(g.nodeX[n], g.nodeY[n], g.nodeZ[n], band)]
+      out[n] = (bodies > CONGESTION_CAP ? CONGESTION_CAP : bodies) * CONGESTION_S
+    }
+  }
+
   private levelBucket(z: number): number {
     const span = Math.max(4, NEIGHBOUR_CELL * 2)
     let lz = Math.floor((z - this.gridMinZ) / span)
@@ -1426,6 +2054,8 @@ export class World {
   /**
    * Rebuild the fine collision grid from the current positions. It is built
    * after the movement pass, so it reflects where the crowd actually is now.
+   * Riders aboard a consist are left out: they stand in a car, not on the floor,
+   * so neither the separation pass nor the density derate may see them.
    */
   private buildCollisionGrid(live: readonly Agent[]): void {
     const n = live.length
@@ -1435,7 +2065,10 @@ export class World {
     const W = this.cGridW
     const H = this.cGridH
     const band = W * H
-    for (let i = 0; i < n; i++) counts[this.collisionCellIndex(live[i].x, live[i].y, live[i].z, band)]++
+    for (let i = 0; i < n; i++) {
+      if (live[i].train >= 0) continue
+      counts[this.collisionCellIndex(live[i].x, live[i].y, live[i].z, band)]++
+    }
     let acc = 0
     const nb = band * this.gridL
     for (let c = 0; c < nb; c++) {
@@ -1447,6 +2080,7 @@ export class World {
     for (let c = 0; c < nb; c++) cursor[c] = this.cStart[c]
     for (let i = 0; i < n; i++) {
       const a = live[i]
+      if (a.train >= 0) continue
       this.cOrder[cursor[this.collisionCellIndex(a.x, a.y, a.z, band)]++] = i
     }
   }
@@ -1686,6 +2320,116 @@ export class World {
     return -1
   }
 
+  /**
+   * The walking route still ahead of one agent, as [x, y, z] waypoints, for the
+   * 选择 tool's floor line: where the passenger stands now, the remaining nodes of
+   * the leg it is walking, then every later leg it will **walk**.
+   *
+   * The chain stops at a train. Everything past a ride is another station's floor
+   * — or the same station reached through a tunnel — and a line drawn straight
+   * across the map would be a lie about a journey the floor cannot carry. So the
+   * preview shows the walk, and ends where the passenger boards.
+   *
+   * Returns null when the agent is not in the world (it has left the station),
+   * which is how the worker knows to drop the preview rather than draw an empty
+   * one. Reading a route changes nothing: no agent field, no queue, no RNG, and
+   * the A* searches it runs do not touch the shared path cache.
+   */
+  routeOf(agentId: number): Float32Array | null {
+    const a = this.pool.all().get(agentId)
+    if (!a || a.dead) return null
+    const g = this.graph
+    const head: number[] = [a.x, a.y, a.z]
+    if (a.pathIdx < a.path.length) {
+      for (let i = a.pathIdx; i < a.path.length; i++) {
+        const n = a.path[i]
+        head.push(g.nodeX[n], g.nodeY[n], g.nodeZ[n])
+      }
+    } else if (a.awaitingPath && a.destNode >= 0) {
+      // A leg the sim has not handed a path for yet — the per-tick A* budget, which
+      // a wave can spend over several ticks. The preview runs the same search itself
+      // so the line does not blink off at the start of every leg; a read-only search,
+      // neither cached nor queued nor counted against the budget.
+      const from = this.nearestNode(a.x, a.y, a.z)
+      const path = from >= 0 && from !== a.destNode ? this.path.search(from, a.destNode, a.needs) : null
+      if (path) {
+        for (let i = path[0] === from ? 1 : 0; i < path.length; i++) {
+          const n = path[i]
+          head.push(g.nodeX[n], g.nodeY[n], g.nodeZ[n])
+        }
+      }
+    }
+    const tail = this.routeTail(a)
+    const out = new Float32Array(head.length + tail.length)
+    out.set(head, 0)
+    out.set(tail, head.length)
+    return out
+  }
+
+  /**
+   * The walk legs after the one being walked, chained node to node. Every later
+   * leg starts where the one before it ended, so the pieces join as one line; a
+   * leg with no route to it ends the preview rather than jumping the gap.
+   */
+  private routeTail(a: Agent): Float32Array {
+    if (this.routeTailGraph !== this.graph) {
+      this.routeTails.clear()
+      this.routeTailGraph = this.graph
+    }
+    const key = `${a.id}|${a.legIdx}`
+    const hit = this.routeTails.get(key)
+    if (hit) return hit
+    // The memo is a per-leg saving for the one passenger being watched, not a
+    // cache of the station: past this many legs it is dropped whole, because the
+    // oldest entries belong to passengers who have long since left the world.
+    if (this.routeTails.size >= ROUTE_TAIL_MEMO_MAX) this.routeTails.clear()
+    const g = this.graph
+    const out: number[] = []
+    // The leg being walked ends at `destNode` — the last node of its path, or the
+    // node it is standing on when that path is already spent at a queue.
+    let from = a.destNode >= 0 ? a.destNode : this.nearestNode(a.x, a.y, a.z)
+    for (let li = a.legIdx + 1; from >= 0 && li < a.legs.length; li++) {
+      const leg = a.legs[li]
+      if (leg.kind === 'line') break
+      const node = this.legEndNode(leg)
+      if (node < 0) break
+      if (node !== from) {
+        const path = this.path.search(from, node, a.needs)
+        if (!path || path.length === 0) break
+        // A* answers start → goal, and the start is where the previous leg ended —
+        // already the line's last waypoint, so it is not written twice.
+        for (let i = path[0] === from ? 1 : 0; i < path.length; i++) {
+          const n = path[i]
+          out.push(g.nodeX[n], g.nodeY[n], g.nodeZ[n])
+        }
+      }
+      from = node
+    }
+    const tail = Float32Array.from(out)
+    this.routeTails.set(key, tail)
+    return tail
+  }
+
+  /**
+   * Where a leg the agent has not reached yet ends, read off the graph without
+   * committing anything. `ensureLegNode` is the walking agent's own business — it
+   * picks a platform door from the live queue lengths and writes the choice onto
+   * the agent — so the preview resolves the leg kinds by lookup alone.
+   */
+  private legEndNode(leg: { node: number; kind: 'stop' | 'exit' | 'line'; ref: string }): number {
+    if (leg.node >= 0) return leg.node
+    const g = this.graph
+    if (leg.kind === 'exit') {
+      const id = leg.ref.startsWith('exit:') ? leg.ref.slice(5) : ''
+      return g.exits.find((x) => x.id === id)?.node ?? -1
+    }
+    if (leg.kind === 'stop') {
+      const id = leg.ref.startsWith('stop:') ? leg.ref.slice(5) : ''
+      return g.stops.find((x) => x.id === id)?.node ?? -1
+    }
+    return -1
+  }
+
   nearestNode(x: number, y: number, z: number): number {
     const g = this.graph
     const cx = Math.round(x - 0.5)
@@ -1711,6 +2455,10 @@ export class World {
     let worst = 4
     let worstNode = -1
     for (const a of this.pool.live) {
+      // A rider is aboard a consist, not standing in the station: pricing it
+      // against the platform node under its car would report the train's own
+      // passengers as a crush on the floor they have not stepped onto yet.
+      if (a.train >= 0) continue
       // A queued body stands in its lane but is logically at the server, so
       // count it there — and skip the ring search, which is what makes a lane
       // that reaches past the station expensive.
@@ -1730,10 +2478,12 @@ export class World {
     }
     let gateQ = 0
     let escQ = 0
+    let liftQ = 0
     let doorQ = 0
     for (const s of g.servers) {
       if (s.kind === 'gate') gateQ += s.queue.length
-      else if (s.kind === 'escalator' || s.kind === 'stair' || s.kind === 'lift') escQ += s.queue.length
+      else if (s.kind === 'escalator' || s.kind === 'stair') escQ += s.queue.length
+      else if (s.kind === 'lift') liftQ += s.queue.length
       else if (s.kind === 'door') doorQ += s.queue.length
     }
     this.metrics.tick = this.tick
@@ -1743,6 +2493,7 @@ export class World {
     this.metrics.worstLosNode = worstNode
     this.metrics.gateQueue = gateQ
     this.metrics.escalatorQueue = escQ
+    this.metrics.liftQueue = liftQ
     this.metrics.doorQueue = doorQ
     this.metrics.period = period
     this.metrics.trainsLate = this.trains.length

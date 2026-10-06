@@ -1,7 +1,7 @@
 // Simulation world (§7) — the data shapes the crowd, the trains and the metrics are
 // reported in, split out of `World` so the class and its consumers share one vocabulary.
 
-import type { Los } from '../constants.ts'
+import type { Los, Period } from '../constants.ts'
 import type { StockClass } from '../stock.ts'
 import type { Trip } from '../types.ts'
 export type TrainState = 'approach' | 'berth' | 'opening' | 'dwell' | 'closing' | 'hold' | 'depart'
@@ -24,6 +24,41 @@ export interface Train {
   late: number
   doors: number[]
   dir: string
+  /* ------------------------------------------------ the cabin (§1.13) */
+  /**
+   * Alighting queues by doorway: the rider ids standing in the cabin, the front
+   * row first. The wave the train brings rides in on these, so the consist pulls
+   * in already full and steps its passengers out of their own doorways.
+   */
+  cabins: number[][]
+  /** Rows each doorway's queue was loaded to — where boarders stand behind it. */
+  cabinDepth: number[]
+  /** Current depth of each doorway's queue, in rows. */
+  cabinRows: number[]
+  /** Seconds until each doorway may pass its next pair out. */
+  doorT: number[]
+  /** Riders mid step-out by doorway, so boarding waits for a clear doorway. */
+  inFlight: number[]
+  /** Boarders taken by each doorway, so each gets its own stand-back slot. */
+  boardings: number[]
+  /** The part of the wave that did not fit in the cabin, still to be seated. */
+  alightLeft: number
+  /** Seconds of door-open time this stop's doorways have spent alighting. */
+  alightT: number
+}
+
+/**
+ * Where a consist is this tick: its berth on the track plus the run-in/run-out
+ * easing. `trainRenderState` and the cabin riders both read it, so the people
+ * aboard can never drift off the train they are riding in.
+ */
+export interface TrainAt {
+  x: number
+  y: number
+  z: number
+  /** Unit run direction of the track. */
+  fx: number
+  fy: number
 }
 
 export interface Metrics {
@@ -38,9 +73,12 @@ export interface Metrics {
   exited: number
   trainsLate: number
   gateQueue: number
+  /** Escalators and stairs — the ramps that carry the crowd between floors. */
   escalatorQueue: number
+  /** Elevators, on their own line because they are their own kind of queue. */
+  liftQueue: number
   doorQueue: number
-  period: 'peak' | 'offpeak' | 'late'
+  period: Period
   agentsCap: boolean
   tickMs: number
   /** Agents that could not be routed to any destination this run. */

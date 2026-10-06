@@ -24,6 +24,10 @@ export type ToWorker =
   // A restart keeps the built station and the clock but empties the crowd: every
   // agent, train and queue is dropped and the sim runs on from here.
   | { type: 'restart' }
+  // The 选择 tool previews one passenger's route (`World.routeOf`). `id` is -1 to put
+  // the preview away, and `token` is echoed back on every frame so the renderer can
+  // tell "the worker has not seen my selection yet" from "that passenger is gone".
+  | { type: 'selectAgent'; id: number; token: number }
 
 export type FromWorker =
   | ({ type: 'ready' } & GraphInfo)
@@ -39,4 +43,13 @@ export type FromWorker =
       lifts: Float32Array
       /** Real milliseconds the renderer should interpolate one snapshot over. */
       intervalMs: number
+      /**
+       * The route preview: xyz waypoints of the selected passenger's remaining
+       * walk, empty when nothing is selected. `routeAgent` is the passenger the
+       * route belongs to, or -1 when the selected one is no longer in the world,
+       * and `routeToken` echoes the `selectAgent` request this frame answers.
+       */
+      route: Float32Array
+      routeAgent: number
+      routeToken: number
     }

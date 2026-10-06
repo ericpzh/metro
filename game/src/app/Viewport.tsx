@@ -14,7 +14,7 @@ import { cellKey, removeFloor, thinWallSideMap, toData, zoneMapFloors, zoneRegio
 import type { CellShape } from '../sim/types.ts'
 import { zoneIndex } from '../sim/zones.ts'
 import { dragOffset, snapOffset, walkAlong } from '../render/section.ts'
-import { placementPreviewKey, setFrameHandler, signModuleWithPreview, useStore, type Tool } from './store.ts'
+import { placementPreviewKey, selectSimAgent, setFrameHandler, setRouteHandler, signModuleWithPreview, useStore, type Tool } from './store.ts'
 import { ViewCube } from './ViewCube.tsx'
 import { goHomeView } from './viewHome.ts'
 import { BlockTool } from './tools/BlockTool.ts'
@@ -441,6 +441,9 @@ export function Viewport(): React.ReactElement {
         scene.setDensity(graphNodesRef.current, density, true)
       }
     })
+    // The 选择 tool's route preview rides the same frame, one step later: the line is
+    // drawn against the positions the frame above has just installed.
+    setRouteHandler((points, agentId) => scene.setRoute(points, agentId))
     const onPreset = (e: Event): void => {
       const k = (e as CustomEvent).detail as string
       scene.setPreset(k === '1' ? 'iso' : k === '2' ? 'plan' : k === '4' ? 'front' : k === '5' ? 'side' : 'custom')
@@ -521,6 +524,7 @@ export function Viewport(): React.ReactElement {
     window.addEventListener('metro:delete', onDelete)
     return () => {
       setFrameHandler(null)
+      setRouteHandler(null)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
@@ -587,6 +591,14 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setSelection(selected?.kind === 'module' ? selected.key : null)
   }, [selected])
+
+  // The 选择 tool's agent preview (§9.5): the selection names the passenger and the
+  // worker answers with the walk still ahead of them. Leaving the tool puts the line
+  // away — a route is drawn *for* a tool that is asking about one person — and coming
+  // back re-arms the same passenger, because the selection is still theirs.
+  useEffect(() => {
+    selectSimAgent(tool === 'select' && selected?.kind === 'agent' ? Number(selected.key) : null)
+  }, [selected, tool])
 
   const pickAt = (clientX: number, clientY: number): PickResult | null => {
     const scene = sceneRef.current

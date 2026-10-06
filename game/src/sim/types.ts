@@ -3,6 +3,8 @@
 
 import type { StockClass } from './stock.ts'
 import type { SignLayout, SignMount } from './sign.ts'
+import type { PeakWindows, TimeSpan } from './constants.ts'
+import type { DemandKnobs } from './demand.ts'
 
 export type Fill = 'solid' | 'void'
 
@@ -748,6 +750,20 @@ export interface StationData {
   cells: Cell[]
   modules: Module[]
   lines: LineDef[]
+  /**
+   * The station's **operating hours** (§9.6C 营业时间). Optional on the wire — a save or
+   * a demo file written before the window existed has none, and loads with
+   * `DEFAULT_SERVICE` — but always present on a `StationState`, which is the document
+   * the player edits.
+   */
+  service?: TimeSpan
+  /** The two **peak windows** (§9.6C 高峰时段): 早高峰 then 晚高峰. Same rule as `service`. */
+  peaks?: PeakWindows
+  /**
+   * The **客流曲线** knobs (§9.6C: 早高峰量 / 晚高峰量 / 波形陡峭度). Partial on the wire so a
+   * file that carries one of them still loads; finished by `normalizeDemand`.
+   */
+  demand?: Partial<DemandKnobs>
 }
 
 /** Numeric agent states, §7.1. Const object rather than enum (erasable syntax). */

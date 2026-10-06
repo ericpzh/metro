@@ -5,6 +5,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { parse, serialize, SAVE_VERSION, SAVE_FORMAT } from '../src/persistence/save.ts'
 import { toState } from '../src/build/model.ts'
+import { DEFAULT_PEAKS, DEFAULT_SERVICE } from '../src/sim/constants.ts'
+import { DEFAULT_DEMAND } from '../src/sim/demand.ts'
+import { SERVICE_MIN_SPAN } from '../src/sim/clock.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 
 test('serialise -> parse is identity for the static station', () => {
@@ -17,6 +20,62 @@ test('serialise -> parse is identity for the static station', () => {
   assert.deepEqual(r.state.cells, state.cells)
   assert.deepEqual(r.state.modules, state.modules)
   assert.deepEqual(r.state.lines, state.lines)
+  assert.deepEqual(r.state.service, state.service, 'the operating hours ride beside the name and the seed')
+  assert.deepEqual(r.state.peaks, state.peaks, 'and so do the two peak windows')
+  assert.deepEqual(r.state.demand, state.demand, 'and the demand knobs')
+})
+
+test('a file with no authored day opens on the defaults', () => {
+  // The three fields are station-level config, not part of the cell schema, so a v1 file
+  // written before them still loads: absent means the defaults, the same 06:30–23:30 and
+  // 07:30 / 17:30 a fresh station gets.
+  const state = toState(scenarioStation())
+  const doc = JSON.parse(serialize(state))
+  assert.deepEqual(doc.service, DEFAULT_SERVICE, 'and the envelope writes all three out')
+  assert.deepEqual(doc.peaks, DEFAULT_PEAKS)
+  assert.deepEqual(doc.demand, DEFAULT_DEMAND)
+  delete doc.service
+  delete doc.peaks
+  delete doc.demand
+  const r = parse(JSON.stringify(doc))
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.state.service, DEFAULT_SERVICE)
+  assert.deepEqual(r.state.peaks, DEFAULT_PEAKS)
+  assert.deepEqual(r.state.demand, DEFAULT_DEMAND)
+})
+
+test('an authored day the day cannot hold is bent into range on load', () => {
+  const state = toState(scenarioStation())
+  const doc = JSON.parse(serialize(state))
+  doc.service = { from: 22 * 3600, to: 5 * 3600 } // inverted, as if hand-edited
+  const r = parse(JSON.stringify(doc))
+  assert.equal(r.ok, true, 'a station with an impossible window still opens')
+  assert.deepEqual(r.state.service, { from: 22 * 3600, to: 22 * 3600 + SERVICE_MIN_SPAN })
+  doc.service = 'opening time'
+  const bad = parse(JSON.stringify(doc))
+  assert.equal(bad.ok, true)
+  assert.deepEqual(bad.state.service, DEFAULT_SERVICE, 'a field that is not a window at all is not one')
+  // The peaks and the knobs are repaired the same way, in place and per field.
+  doc.peaks = [{ from: 8 * 3600, to: 8 * 3600 }]
+  doc.demand = { amPeak: 99, pmPeak: 'busy', sharpness: 0.5 }
+  const repaired = parse(JSON.stringify(doc))
+  assert.equal(repaired.ok, true)
+  assert.deepEqual(repaired.state.peaks, [
+    { from: 8 * 3600, to: 8 * 3600 + SERVICE_MIN_SPAN },
+    DEFAULT_PEAKS[1],
+  ])
+  assert.deepEqual(repaired.state.demand, { amPeak: 2.5, pmPeak: DEFAULT_DEMAND.pmPeak, sharpness: 0.5 })
+  // An **array** is not a record: `isRecord([])` is true in JavaScript, so a
+  // hand-edited `service: []` has to be refused by shape and fall back to the
+  // shipped day rather than be read as a window with no ends.
+  doc.service = []
+  doc.demand = []
+  doc.peaks = {}
+  const shaped = parse(JSON.stringify(doc))
+  assert.equal(shaped.ok, true)
+  assert.deepEqual(shaped.state.service, DEFAULT_SERVICE, 'an empty array is not a window')
+  assert.deepEqual(shaped.state.demand, DEFAULT_DEMAND, 'nor is it a set of knobs')
+  assert.deepEqual(shaped.state.peaks, DEFAULT_PEAKS, 'and an object is not the pair of windows')
 })
 
 test('finishes survive the round trip', () => {

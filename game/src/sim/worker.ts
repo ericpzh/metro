@@ -21,6 +21,15 @@ let timer: number | null = null
 let buffer = new Float32Array(0)
 let density = new Float32Array(0)
 /**
+ * The newest route-preview request and its token. The token is echoed on every
+ * frame so the renderer can tell a frame computed *before* it asked (which says
+ * "nobody is selected") from an answer to its own request ("that passenger has
+ * left the station") — the two look identical without it.
+ */
+let agentToken = 0
+/** The shared empty route, so a frame with nothing selected allocates nothing. */
+const NO_ROUTE = new Float32Array(0)
+/**
  * Something the renderer has not been told about yet.
  *
  * While the sim is paused the *station* can still change — an edit, a restart, a
@@ -46,10 +55,18 @@ function intervalMs(): number {
   return Math.max(4, BASE_TICK_MS / s)
 }
 
+/**
+ * Is the clock running? One tick per fire, and news on every fire. Both `run` and
+ * the messages that only *show* something read this, so "what advances the sim" is
+ * asked in one place.
+ */
+function stepping(): boolean {
+  return playing && speed > 0
+}
+
 function run(): void {
   if (!world) return
-  const stepping = playing && speed > 0
-  if (stepping) world.tickOnce()
+  if (stepping()) world.tickOnce()
   // Paused with nothing changed since the last frame: there is no news to post.
   else if (!dirty) return
   dirty = false
@@ -60,6 +77,11 @@ function run(): void {
   // Density for the LOS overlay: one value per graph node.
   if (density.length !== w.nodePop.length) density = new Float32Array(w.nodePop.length)
   density.set(w.nodePop)
+  // The 选择 tool's route preview, rebuilt for the one passenger it belongs to and
+  // null when that passenger is no longer in the world. Its buffer is transferred
+  // rather than copied: nothing here keeps it.
+  const route = w.selectedAgent >= 0 ? w.routeOf(w.selectedAgent) : null
+  const points = route ?? NO_ROUTE
   // Post copies (not transfers) so the worker keeps ownership of its buffers;
   // the payload is ~145 KB and the main thread keeps prev/next anyway.
   post({
@@ -73,7 +95,10 @@ function run(): void {
     // The renderer interpolates between snapshots over exactly this window, so
     // speed stays even no matter which multiplier is selected.
     intervalMs: intervalMs(),
-  })
+    route: points,
+    routeAgent: route ? w.selectedAgent : -1,
+    routeToken: agentToken,
+  }, route ? [points.buffer] : [])
 }
 
 /** One tick per fire. Speed multiplies ticks per second, never the step. */
@@ -150,6 +175,18 @@ ctx.addEventListener('message', (e: MessageEvent) => {
         dirty = true
         run()
       }
+      break
+    }
+    case 'selectAgent': {
+      // A preview is not an edit: the world — and so the clock the passenger is
+      // walking on — is untouched. The renderer has to be told *now* only when
+      // nothing else is about to tell it: a running sim carries the route on its
+      // next tick, and stepping the world here would make *watching* a passenger
+      // advance the simulation (§7.6: `routeOf` is an observation).
+      if (world) world.selectedAgent = msg.id
+      agentToken = msg.token
+      dirty = true
+      if (!stepping()) run()
       break
     }
   }

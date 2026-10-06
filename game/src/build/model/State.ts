@@ -3,6 +3,9 @@
 // toStateRepairing, so Grid.ts stays a leaf and no State↔Grid cycle forms (C4).
 
 import type { Cell, Module, StationData } from '../../sim/types.ts';
+import type { PeakWindows, TimeSpan } from '../../sim/constants.ts';
+import { normalizePeaks, normalizeService } from '../../sim/clock.ts';
+import { normalizeDemand, type DemandKnobs } from '../../sim/demand.ts';
 import { cloneCell } from './Cells.ts';
 import { assignAdPosters, ensureSignLayouts } from './Equipment.ts';
 import { ensureRoomFurniture } from './Facilities.ts';
@@ -14,6 +17,15 @@ export interface StationState {
   cells: Cell[];
   modules: Module[];
   lines: StationData['lines'];
+  /**
+   * The station's authored day (§9.6C 时刻): its operating hours, its two peak windows and
+   * its demand curve's knobs. Always present here, where a save or a demo file that
+   * predates them is given the defaults rather than carrying an absence through every
+   * readout and every spawn that wants them.
+   */
+  service: TimeSpan;
+  peaks: PeakWindows;
+  demand: DemandKnobs;
 }
 
 /**
@@ -50,6 +62,13 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
     // Older saves predate the per-line direction termini; default them to ''
     // so the screen header falls back to the direction word instead of undefined.
     lines: data.lines.map((l) => ({ ...l, upTerminus: l.upTerminus ?? '', downTerminus: l.downTerminus ?? '' })),
+    // Same for the authored day (§9.6C): a file that never carried one opens on the
+    // defaults, and one that carries a window the day cannot hold (an inverted pair, a
+    // stray second, a knob past its slider) is bent into range here, where every load
+    // path passes.
+    service: normalizeService(data.service),
+    peaks: normalizePeaks(data.peaks),
+    demand: normalizeDemand(data.demand),
   };
   // Rooms drawn before furniture became modules carry no shelf/desk pieces
   // yet — materialise them here so every load path (open, demo, new) agrees.
@@ -57,7 +76,16 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
 }
 
 export function toData(s: StationState): StationData {
-  return { name: s.name, seed: s.seed, cells: s.cells, modules: s.modules, lines: s.lines };
+  return {
+    name: s.name,
+    seed: s.seed,
+    cells: s.cells,
+    modules: s.modules,
+    lines: s.lines,
+    service: s.service,
+    peaks: s.peaks,
+    demand: s.demand,
+  };
 }
 
 /**
@@ -80,5 +108,8 @@ export function cloneState(s: StationState): StationState {
     cells: s.cells.map(cloneCell),
     modules: s.modules.map((m) => deepCopy(m)),
     lines: s.lines.map((l) => deepCopy(l)),
+    service: { ...s.service },
+    peaks: [{ ...s.peaks[0] }, { ...s.peaks[1] }],
+    demand: { ...s.demand },
   };
 }

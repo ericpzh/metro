@@ -77,7 +77,7 @@ export function InfoCard(): React.ReactElement {
               </div>
               <div className="kv">
                 <span>类型</span>
-                <b>{selected.kind === 'module' ? '设备' : '方块'}</b>
+                <b>{selected.kind === 'module' ? '设备' : selected.kind === 'agent' ? '行人' : '方块'}</b>
               </div>
               <div className="row">
                 {/* 移动 lives here rather than on a tile: the piece is already
@@ -112,6 +112,13 @@ export function InfoCard(): React.ReactElement {
                   written here instead, where a disabled button cannot say it. */}
               {selected.kind === 'module' && !movable && (
                 <div className="muted small">整件结构不能移动：用删除 (B) 拆掉再放</div>
+              )}
+              {/* A selected passenger has no controls: what the 选择 tool does with one
+                  is show where they are going, and that drawing is in the 3D view
+                  rather than in this card. The line below is the only thing that has
+                  to be said about it. */}
+              {selected.kind === 'agent' && (
+                <div className="muted small">地面上的浅蓝线，是这位行人接下来要走的路线。</div>
               )}
             </>
           )}

@@ -38,8 +38,13 @@ function hasEdge(g, fromKey, toKey) {
   return false
 }
 
-function run(data, ticks) {
-  const w = new World(data, 3)
+/**
+ * This suite is about the fare line, so it runs the fixture with §4.5's barrier
+ * **enforced** — it is off by default while the demo's paint is unfinished
+ * (`ZONE_LINES_BLOCK`), and `zones.test.mjs` covers that default.
+ */
+function run(data, ticks, opts = { zoneBarriers: true }) {
+  const w = new World(data, 3, opts)
   for (let i = 0; i < ticks; i++) w.tickOnce()
   return w
 }
@@ -73,21 +78,28 @@ test('a two-way lane serves one direction at a time, first come first served', (
 test('the graph offers only the crossing a one-way gate allows', () => {
   // Cell 4 is unpaid, cell 5 is the gate (paid, since x>4). Leaving the paid
   // zone is the edge 5 -> 4; entering it is the reverse, 4 -> 5.
-  const out = buildGraph(flatStation('out'))
+  const out = buildGraph(flatStation('out'), true)
   assert.equal(hasEdge(out, '4,0,0', '5,0,0'), false, 'an exit gate let someone in')
   assert.equal(hasEdge(out, '5,0,0', '4,0,0'), true, 'an exit gate blocked an exit')
 
-  const inn = buildGraph(flatStation('in'))
+  const inn = buildGraph(flatStation('in'), true)
   assert.equal(hasEdge(inn, '4,0,0', '5,0,0'), true, 'an entry gate blocked an entry')
   assert.equal(hasEdge(inn, '5,0,0', '4,0,0'), false, 'an entry gate let someone out')
 
-  const both = buildGraph(flatStation('both'))
+  const both = buildGraph(flatStation('both'), true)
   assert.equal(hasEdge(both, '4,0,0', '5,0,0'), true)
   assert.equal(hasEdge(both, '5,0,0', '4,0,0'), true)
 })
 
 function noStreetSpawn(data) {
   for (const m of data.modules) if (m.type === 'exit') m.cfg.inRate = 0
+  return data
+}
+
+/** No alighting: the line still runs and its doors still exist, but nobody
+ *  steps off — so the only crowd is the street's. */
+function noAlighting(data) {
+  for (const l of data.lines) l.alightPerTrain = 0
   return data
 }
 
@@ -111,8 +123,14 @@ test('an entry-only gate boards but traps the alighting', () => {
 })
 
 test('a two-way gate passes both directions', () => {
-  const w = run(flatStation('both'), 240)
-  assert.ok(w.totals.boarded > 0, 'nobody boarded through a two-way gate')
+  // Each direction is given the lane in turn. They cannot both hold it at once
+  // and the fixture's train surge is far heavier than one lane's 0.42 pax/s, so
+  // in a genuinely mixed crowd the committed direction keeps it and the other
+  // waits — that is §7.1's first-come rule, and the assertion below would be
+  // reading the lane race rather than the gate. So: the street without the
+  // train, then the train without the street.
+  const entering = run(noAlighting(flatStation('both')), 240)
+  assert.ok(entering.totals.boarded > 0, 'nobody boarded through a two-way gate')
 
   const alightOnly = run(noStreetSpawn(flatStation('both')), 240)
   assert.ok(alightOnly.totals.exited > 0, 'nobody left through a two-way gate')
@@ -124,7 +142,7 @@ test('a two-way gate holds its lane until the committed side is clear', () => {
   const data = flatStation('both')
   for (const m of data.modules) if (m.type === 'exit') m.cfg.inRate = 0
   data.lines = []
-  const w = new World(data, 5)
+  const w = new World(data, 5, { zoneBarriers: true })
   const g = w.graph
   const gateNode = g.nodeIndex.get('5,0,0')
   const gateId = g.serverForNode.get(gateNode)

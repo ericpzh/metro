@@ -14,6 +14,9 @@ import {
   type StationState,
 } from '../../../build/model.ts'
 import { parse as parseSave, serialize as serializeSave } from '../../../persistence/save.ts'
+import { normalizePeaks, normalizeService } from '../../../sim/clock.ts'
+import { normalizeDemand, type DemandKnobs } from '../../../sim/demand.ts'
+import type { PeakWindows } from '../../../sim/constants.ts'
 import type { AppState } from '../Store.ts'
 import { loadSim, rebuildSim } from './SimSlice.ts'
 
@@ -55,7 +58,12 @@ export interface StationSlice {
   version: number
   /** Transient toast line (save/load results). */
   notice: string | null
-  selected: { kind: 'cell' | 'module'; key: string; label: string } | null
+  /**
+   * What the 信息 card is describing: a block, a placed module, or — from the 选择
+   * tool's click on a person (§9.5) — one agent of the crowd, whose remaining walk
+   * the 3D view draws as a light-blue line on the floor.
+   */
+  selected: { kind: 'cell' | 'module' | 'agent'; key: string; label: string } | null
   past: StationState[]
   future: StationState[]
   lab: boolean
@@ -66,6 +74,16 @@ export interface StationSlice {
   select: (sel: AppState['selected']) => void
   /** Rename the station (top-bar title). Blank names are ignored. */
   renameStation: (name: string) => void
+  /**
+   * Set the station's operating hours (§9.6C 营业时间), in seconds since midnight. The
+   * pair is repaired by `normalizeService` before it lands, so an inverted or
+   * out-of-day window bends into range rather than being stored as written.
+   */
+  setServiceWindow: (from: number, to: number) => void
+  /** Set one of the two peak windows (§9.6C 高峰时段): 0 早高峰, 1 晚高峰. */
+  setPeakWindow: (index: number, from: number, to: number) => void
+  /** Set the 客流曲线 knobs (§9.6C): any subset, repaired into its written range. */
+  setDemandKnobs: (patch: Partial<DemandKnobs>) => void
   commit: (next: StationState) => void
   undo: () => void
   redo: () => void
@@ -121,6 +139,32 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const trimmed = name.trim()
     if (!trimmed || trimmed === s.name) return
     get().commit({ ...s, name: trimmed })
+  },
+
+  setServiceWindow: (from, to) => {
+    const s = get().station
+    const next = normalizeService({ from, to })
+    // A keystroke that repairs to what is already stored is not an edit: it must not
+    // push an undo frame or rebuild the worker's graph.
+    if (next.from === s.service.from && next.to === s.service.to) return
+    get().commit({ ...s, service: next })
+  },
+
+  setPeakWindow: (index, from, to) => {
+    const s = get().station
+    // The other end of the pair is read out of the document, so a peak edit can never
+    // write a `peaks` array of the wrong length or lose the window beside it.
+    const pair = s.peaks.map((p, i) => (i === index ? { from, to } : { ...p })) as PeakWindows
+    const next = normalizePeaks(pair)
+    if (next[0].from === s.peaks[0].from && next[0].to === s.peaks[0].to && next[1].from === s.peaks[1].from && next[1].to === s.peaks[1].to) return
+    get().commit({ ...s, peaks: next })
+  },
+
+  setDemandKnobs: (patch) => {
+    const s = get().station
+    const next = normalizeDemand({ ...s.demand, ...patch })
+    if (next.amPeak === s.demand.amPeak && next.pmPeak === s.demand.pmPeak && next.sharpness === s.demand.sharpness) return
+    get().commit({ ...s, demand: next })
   },
 
   commit: (next) => {

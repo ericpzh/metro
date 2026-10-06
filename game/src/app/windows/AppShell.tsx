@@ -11,6 +11,7 @@ import { folderForAltKey, folderForShiftKey } from '../rail/helpers.ts'
 import { TopBar } from './topbar/TopBar.tsx'
 import { Inspector } from './inspector/Inspector.tsx'
 import { BottomBar } from './statusbar/BottomBar.tsx'
+import { TimePanel } from './time/TimePanel.tsx'
 
 export function App(): React.ReactElement {
   const setTool = useStore((s) => s.setTool)
@@ -265,6 +266,9 @@ export function App(): React.ReactElement {
         <Inspector />
       </div>
       <BottomBar />
+      {/* The 时刻 window floats over the game rather than covering it: the station it
+          describes stays visible behind the panel (§9.6C). */}
+      <TimePanel />
       {notice && (
         <div className="toast" onClick={() => useStore.getState().setNotice(null)}>
           {notice}

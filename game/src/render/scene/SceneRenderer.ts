@@ -418,6 +418,29 @@ export class SceneRenderer {
     this.crowd.setAgentsVisible(on)
   }
 
+  /**
+   * The 选择 tool's route preview: one passenger's remaining walk as xyz
+   * waypoints, drawn as a light-blue line on the floor (`CrowdSystem.setRoute`).
+   */
+  setRoute(points: Float32Array, agentId: number): void {
+    this.crowd.setRoute(points, agentId)
+  }
+
+  /**
+   * The passenger under the pointer, or null. The solid face the same ray finds is
+   * what the pick has to see past — a person behind a wall is not on screen — so
+   * the blocker's distance is measured here, where the camera is.
+   */
+  pickAgent(clientX: number, clientY: number): number | null {
+    const hit = this.pick(clientX, clientY, this.ctx.activeZ)
+    const cam = this.cameraSys.activeCamera()
+    const blocker = hit && hit.solid
+      ? Math.hypot(hit.point[0] - cam.position.x, hit.point[1] - cam.position.y, hit.point[2] - cam.position.z)
+      : Infinity
+    const id = this.crowd.pickAgent(clientX, clientY, cam, this.renderer.domElement.getBoundingClientRect(), blocker)
+    return id >= 0 ? id : null
+  }
+
   /* ------------------------------------------------------------- camera */
 
   setPreset(name: 'iso' | 'plan' | 'front' | 'side' | 'custom'): void {

@@ -89,7 +89,8 @@ export interface ModelMaterials {
   trainBlue: THREE.MeshStandardMaterial
   trainDark: THREE.MeshStandardMaterial
   trainRoof: THREE.MeshStandardMaterial
-  /** Inside of the train cabin, shown through an open door: back faces only. */
+  /** The car's own cabin: floor, ceiling and the lining behind the seats. Double-sided,
+   *  because the player reads it from inside through the doorways and the glazing. */
   trainInterior: THREE.MeshStandardMaterial
   trainSeat: THREE.MeshStandardMaterial
   /** Cab windscreen glass: dark, glossy, and distinctly darker than the body. */
@@ -588,7 +589,7 @@ export function createModelMaterials(): ModelMaterials {
     trainBlue: new THREE.MeshStandardMaterial({ color: C.trainBlue, roughness: 0.3, metalness: 0.4 }),
     trainDark: new THREE.MeshStandardMaterial({ color: C.trainDark, roughness: 0.45, metalness: 0.3 }),
     trainRoof: new THREE.MeshStandardMaterial({ color: C.trainRoof, roughness: 0.5, metalness: 0.4 }),
-    trainInterior: new THREE.MeshStandardMaterial({ color: C.trainInterior, roughness: 0.85, metalness: 0.05, side: THREE.BackSide }),
+    trainInterior: new THREE.MeshStandardMaterial({ color: C.trainInterior, roughness: 0.85, metalness: 0.05, side: THREE.DoubleSide }),
     trainSeat: new THREE.MeshStandardMaterial({ color: C.trainSeat, roughness: 0.7, metalness: 0.1 }),
     trainGlass: new THREE.MeshStandardMaterial({ color: C.trainGlass, roughness: 0.12, metalness: 0.5 }),
     trainTrim: new THREE.MeshStandardMaterial({ color: C.trainTrim, roughness: 0.4, metalness: 0.25 }),

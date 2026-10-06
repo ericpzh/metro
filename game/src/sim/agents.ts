@@ -77,6 +77,21 @@ export interface Agent {
   door: number
   /** Chosen exit id for a leaving leg. */
   exitId: string
+  /**
+   * The consist this passenger is aboard, or -1 (§1.13). A rider is pinned to
+   * its train's own pose, so it rides in with the consist and steps out at the
+   * platform — it is never a body the station's crowd has to route around.
+   */
+  train: number
+  /** Its doorway's index in `Train.doors`. */
+  trainDoor: number
+  /** Which of the two abreast that doorway passes: −1 / +1 off the door centre. */
+  trainFile: number
+  /** Its row in the cabin, counted from the doorway inboard. */
+  trainRow: number
+  /** 0 stepping in, 1 standing in the cabin, 2 stepping out onto the platform. */
+  trainPhase: number
+  trainT: number
   spawnedTick: number
   /** Set when this agent should be removed after the tick. */
   dead: boolean
@@ -149,6 +164,12 @@ export class AgentPool {
     a.liftWaitY = 0
     a.door = -1
     a.exitId = ''
+    a.train = -1
+    a.trainDoor = -1
+    a.trainFile = -1
+    a.trainRow = 0
+    a.trainPhase = 0
+    a.trainT = 0
     a.spawnedTick = tick
     a.dead = false
     a.awaitingPath = false

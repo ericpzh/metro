@@ -54,14 +54,14 @@ The suites, by the thing they are about. Each one's full description is in
 | Area | Files |
 |---|---|
 | Architecture | `layering`, `scene-wiring` |
-| Numbers | `rng` |
-| The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement`, `openings`, `stairs`, `escalators`, `slope-cut`, `ramp-fill`, `trains`, `stock`, `load` |
+| Numbers | `rng`, `clock`, `demand` |
+| The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement`, `openings`, `stairs`, `escalators`, `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route`, `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
 | The document and its edits | `save`, `grid`, `pick-cell`, `walls`, `halfwall`, `triangle`, `blocktool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation` |
 | The furniture and the decor | `shelf`, `desk`, `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `sign`, `sign-model`, `sign-editor`, `billboard`, `glass-panel`, `calligraphy`, `line-map`, `booth-model`, `room-model` |
 | The models | `module-build`, `tv-screen`, `tv-pair` |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` |
 | The pixels | `sign-render`, `station-display` |
-| The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit` |
+| The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit`, `select-agent` |
 
 ## The rules a test here follows
 
@@ -87,6 +87,14 @@ The suites, by the thing they are about. Each one's full description is in
 6. **A new behaviour goes in a `.test.mjs` beside the others, and two documents get a
    line**: `../README.md`'s test list (what it pins, in the repo's own words) and this
    file's table above (where it sits).
+7. **Set state in the test, not in a `test.beforeEach` — unless the file owns the
+   state.** The suite runs in **one process** (`--test-isolation=none`), so the store
+   and the globals (`Worker`, `self`, `document`) are shared by every file, and a
+   top-level hook in one file runs around *another* file's tests: a `beforeEach` that
+   resets the document under `pick-tool` leaves it looking for fixtures that are no
+   longer there. A file that stubs a global or seeds the store for its own suite may
+   use a hook; a file that only *reads* them should arrange itself inside the test
+   (`worker-preview`, `select-agent`).
 
 ## What is not tested, deliberately
 
@@ -102,23 +110,25 @@ The suites, by the thing they are about. Each one's full description is in
   itself). A component that renders nothing fails visibly; a store action that forgets a field
   does not.
 * **Vite-only modules.** `render/adArt.ts`, `render/pictograms.ts` and
-  `render/lineMapArt.ts` resolve their
-  artwork through `import.meta.glob`, which plain Node does not implement. Tests that
+  `render/lineMapArt.ts` resolve their  artwork through `import.meta.glob`, which plain Node does not implement. Tests that
   need an ad face stub it (`module-build`, `tv-screen`); the pixel code they feed
   (`render/stationDisplay.ts`, `render/signFace.ts`) is tested directly, and the map
-  plate tests (`line-map`) stub the art cache rather than the glob.
+  plate tests (`line-map`) stub the art cache rather than the glob. `SceneRenderer` is in
+  this family for a different reason — importing the class runs the same glob — so its
+  two one-line wrappers (`pickAgent`'s blocker distance and the `id >= 0 ? id : null`
+  mapping, and `setRoute`) are covered by the `CrowdSystem` and tool tests they hand off
+  to rather than directly.
 * **`/lab`, `boot.tsx`, `mobile.ts`** — the manual harness, the lazy bootstrap and the
   phone gate, all of which are browser-shaped by construction.
 
 ## Coverage, and the gaps that were closed
 
-Measured over the whole suite (`--experimental-test-coverage`, one process): **716 tests,
-94.66 % lines / 87.96 % branches / 87.98 % functions** across the `game/src` files the suite
-loads. Before the pass this file documents it was 557 tests at 90.01 / 87.72 / 81.53, and the
-gap-filling tests alone took it to 95.36 on a tree without the camera and floor-surface work.
-**These numbers are a snapshot of a moment, not a target** — regenerate them with the command
-above whenever the suite grows; the point of the table is the column that shows what an
-untested file was hiding.
+Measured over the whole suite (`--experimental-test-coverage`, one process): **880 tests,
+95.26 % lines / 88.53 % branches / 89.36 % functions** across the `game/src` files the suite
+loads. The snapshot before this pass was 855 at 94.94 / 88.47 / 88.23, and before that 716
+at 94.66 / 87.96 / 87.98 — **these numbers are a snapshot of a moment, not a target**;
+regenerate them with the command above whenever the suite grows. The point of the table is
+the column that shows what an untested file was hiding.
 
 | File | Before | Now | The test that closed it |
 |---|---|---|---|
@@ -127,7 +137,7 @@ untested file was hiding.
 | `render/models/pieces/ExitModel.ts` | 17.2 % | 95.7 % | `module-build` |
 | `render/models/pieces/TrackModel.ts` | 26.2 % | 100 % | `module-build` |
 | `render/models/pieces/TvmModel.ts` | 28.6 % | 100 % | `module-build` |
-| `render/models/pieces/TrainModel.ts` | 29.7 % | 99.0 % | `module-build` |
+| `render/models/pieces/TrainModel.ts` | 29.7 % | 99.1 % | `module-build` |
 | `render/models/pieces/CabModel.ts` | 37.5 % | 97.2 % | `module-build` |
 | `render/models/pieces/LiftModel.ts` | 37.6 % | 94.6 % | `module-build` |
 | `render/models/pieces/BenchModel.ts` | 38.5 % | 100 % | `module-build` |
@@ -138,7 +148,11 @@ untested file was hiding.
 | `sim/rng.ts` | 83.5 % | 100 % | `rng` |
 | `data/reference-station.ts` | 75.0 % | 100 % | `demo` |
 | `app/store/slices/LineSlice.ts` | 34.0 % | 100 % | `line-edit` |
-| `app/store/slices/StationSlice.ts` | 68.3 % | 100 % | `line-edit` |
+| `app/store/slices/StationSlice.ts` | 91.7 % | 100 % | `line-edit` (the authored day: window, peaks, knobs) |
+| `app/store/slices/SimSlice.ts` | 67.6 % | 93.2 % | `line-edit` (the route token), `select-agent` (the pick) |
+| `sim/stock.ts` (the cabin box) | 96.3 % | 100 % | `stock` |
+| `sim/world/World.ts` | 95.4 % | 96.6 % | `train-cabin`, `worker-preview` |
+| `sim/demand.ts` | 100 % | 100 % | `demand` — but the *crowd* it shapes was untested, which is the row that mattered |
 
 The files still lowest after this pass, and why they are:
 

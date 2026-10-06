@@ -23,6 +23,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useStore } from '../src/app/store.ts'
+import { initSim, selectSimAgent, setFrameHandler, setRouteHandler } from '../src/app/store/slices/SimSlice.ts'
 import { defaultLine, makeTrack, placeRail, placeTunnel, trackPieceForLine } from '../src/build/rail.ts'
 import { toState, toStateRepairing } from '../src/build/model.ts'
 // The same module record `referenceStation()` clones, so damaging it for one test
@@ -36,10 +37,13 @@ import { SAVE_VERSION } from '../src/persistence/save.ts'
 
 /** Every message the store posted into the worker, oldest first. */
 const workerInbox = []
+/** The stub the store opened, so a test can deliver a frame back to it. */
+let workerStub = null
 
 globalThis.Worker = class {
   constructor() {
     this.onmessage = null
+    workerStub = this
   }
   postMessage(message) {
     workerInbox.push(message)
@@ -409,7 +413,6 @@ test('a large station trades undo depth for the memory budget, and never drops t
 })
 
 /* ------------------------------------------------- 新建 / 打开 / 改名 / 存档 */
-
 test('newStation opens an empty 未命名车站 and keeps the station that was open one Ctrl+Z away', () => {
   load(twoLines(), { activeZ: -8 })
   const before = workerInbox.length
@@ -436,8 +439,7 @@ test('newStation opens an empty 未命名车站 and keeps the station that was o
   assert.deepEqual(st().station.lines.map((l) => l.id), ['1', '2'], 'Ctrl+Z brings the old document back')
 })
 
-test('loadReference opens the shipped 动物园 demo un-repaired, at its own boot time', () => {
-  load({ name: '线路测试', seed: 7, cells: floorRow(0, 1, 0), modules: [], lines: [] })
+test('loadReference opens the shipped 动物园 demo un-repaired, at its own boot time', () => {  load({ name: '线路测试', seed: 7, cells: floorRow(0, 1, 0), modules: [], lines: [] })
   const before = workerInbox.length
   st().loadReference()
   const expected = toStateRepairing(referenceStation())
@@ -607,4 +609,115 @@ test('a 车型 edit on a rail whose own tunnel runs off its end drops the rail i
   assert.equal(tracksOf('1').length, 1, 'the tunnel run survives: it is a track of the same line')
   st().undo()
   assert.equal(st().station.modules.some((m) => m.id === platform.id), true, 'and one Ctrl+Z brings the rail back')
+})
+
+/* --------------------------------------------------------- the route preview */
+
+test('the newest selection survives a stale frame, and clears itself when the passenger is gone', () => {
+  // `selectSimAgent` asks the worker for one passenger's remaining walk, and the
+  // worker echoes the request's token on every frame. The token is the whole
+  // handshake: frames already in flight when the click happened name the passenger
+  // selected *before*, or nobody, and acting on one clears the selection the moment
+  // it is made (or flashes the last passenger's line).
+  load(twoLines())
+  const frames = []
+  const routes = []
+  setFrameHandler((...args) => frames.push(args))
+  setRouteHandler((points, id) => routes.push([points, id]))
+  // Opening the worker is what wires the message handler: the slice builds it lazily.
+  initSim(st().station, 1)
+  const worker = workerStub
+  assert.ok(worker, 'the store opened its worker')
+
+  selectSimAgent(7)
+  const token = workerInbox.filter((m) => m.type === 'selectAgent').pop().token
+  st().select({ kind: 'agent', key: '7', label: '行人 #7' })
+
+  /** One frame the worker would post, with only the fields the handler reads. */
+  const frame = (routeToken, routeAgent, route = new Float32Array(0)) => ({
+    type: 'state',
+    count: 0,
+    agents: new Float32Array(0),
+    density: new Float32Array(0),
+    trains: new Float32Array(0),
+    lifts: new Float32Array(0),
+    intervalMs: 200,
+    metrics: { simTime: 0 },
+    route,
+    routeAgent,
+    routeToken,
+  })
+
+  // A frame built before the click: it answers an older request and names nobody.
+  worker.onmessage({ data: frame(token - 1, -1) })
+  assert.equal(routes.length, 0, 'a stale frame is not drawn')
+  assert.equal(st().selected?.kind, 'agent', 'and does not clear the selection it predates')
+  assert.equal(frames.length, 1, 'but the crowd frame itself still lands')
+
+  // The worker's answer, with the passenger in the world.
+  const points = new Float32Array([0, 0, 1, 4, 0, 1])
+  worker.onmessage({ data: frame(token, 7, points) })
+  assert.equal(routes.length, 1, 'the answering frame is drawn')
+  assert.equal(routes[0][0], points, 'with the waypoints the worker sent')
+  assert.equal(routes[0][1], 7)
+
+  // And the answer that says the passenger has left the station.
+  worker.onmessage({ data: frame(token, -1) })
+  assert.equal(st().selected, null, 'the selection follows the passenger out of the world')
+  assert.equal(routes[1][1], -1, 'and the scene is told to put the line away')
+})
+
+/* --------------------------------------------------------- the authored day */
+
+test('the 时刻 panel writes the day into the document, and a no-op keystroke writes nothing', () => {
+  // The three day actions are the only way 营业时间 / 高峰时段 / 客流曲线 reach the
+  // document. Each repairs its input through the same normalizer the loader uses, and
+  // each has to stay quiet when a keystroke repairs to what is already there — an edit
+  // that changed nothing must not push an undo frame or rebuild the worker's graph.
+  load(twoLines())
+  const frames = st().past.length
+  const version = st().version
+  const day = st().station.service
+  assert.deepEqual(day, { from: 6.5 * 3600, to: 23.5 * 3600 }, 'a station with no authored day runs the shipped window')
+
+  st().setServiceWindow(7 * 3600, 22 * 3600)
+  assert.deepEqual(st().station.service, { from: 7 * 3600, to: 22 * 3600 })
+  assert.equal(st().version, version + 1, 'a real edit bumps the version')
+  assert.equal(st().past.length, frames + 1, 'and is one Ctrl+Z away')
+  {
+    const build = workerInbox[workerInbox.length - 1]
+    assert.equal(build.type, 'build', 'and reaches the worker as an edit, not a reload')
+    assert.deepEqual(build.data.service, { from: 7 * 3600, to: 22 * 3600 }, 'with the window on the document')
+  }
+
+  const settled = workerInbox.length
+  st().setServiceWindow(7 * 3600, 22 * 3600)
+  assert.equal(st().version, version + 1, 'the same window again is not an edit')
+  assert.equal(workerInbox.length, settled, 'and rebuilds nothing')
+
+  // A peak window is edited by index, and the window beside it comes along untouched.
+  const before = st().station.peaks
+  st().setPeakWindow(0, 8 * 3600, 10 * 3600)
+  assert.deepEqual(st().station.peaks[0], { from: 8 * 3600, to: 10 * 3600 })
+  assert.deepEqual(st().station.peaks[1], before[1], 'the 晚高峰 is untouched')
+  {
+    const build = workerInbox[workerInbox.length - 1]
+    assert.equal(build.data.peaks[0].from, 8 * 3600)
+    assert.deepEqual(build.data.peaks[1], before[1])
+  }
+  const peakFrames = st().past.length
+  st().setPeakWindow(0, 8 * 3600, 10 * 3600)
+  assert.equal(st().past.length, peakFrames, 'and the same window again is not an edit')
+
+  // A knob is a patch, clamped to its slider and rounded to the slider's grain.
+  const knobs = { ...st().station.demand }
+  st().setDemandKnobs({ amPeak: 1.5 })
+  assert.equal(st().station.demand.amPeak, 1.5)
+  assert.equal(st().station.demand.pmPeak, knobs.pmPeak, 'the other knobs keep their values')
+  assert.equal(st().station.demand.sharpness, knobs.sharpness)
+  st().setDemandKnobs({ amPeak: 99 })
+  assert.ok(st().station.demand.amPeak <= 2.5, 'a knob past its slider is the slider’s end')
+  const knobFrames = st().past.length
+  st().setDemandKnobs({ amPeak: st().station.demand.amPeak })
+  assert.equal(st().past.length, knobFrames, 'a patch that changes nothing is not an edit')
 })

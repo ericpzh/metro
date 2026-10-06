@@ -94,6 +94,34 @@ build/ →  sim/            (and neither render/ nor app/)
   `(from|to|needsClass)` path cache, a per-tick re-path budget, and live queue
   wait folded into edge cost. `PathFinder.search()` bypasses the cache for the
   fare-line gate choice, which must see queues as they are now.
+* **A barrier belongs to a storey.** `buildGraph(data, zoneBarriers)` refuses a walk edge at an exit
+  head-house and at a ramp balustrade — and both are **planes in plan**, so each carries the block levels
+  its own body occupies and a walk edge outside them is free. Without that a head-house walls every floor
+  beneath it and a run's glass walls the floors it never reaches: on the 动物园 demo that cut the floor
+  into 73 walk-only islands and left **one** platform→exit route for the whole station, with 12 of its 30
+  ramps carrying nobody. `wayfinding.test.mjs` pins both directions.
+* **The fare line is off by default.** A cell with no `zone` reads as `DEFAULT_ZONE` (`unpaid`), so sparse
+  zone paint — the demo has 6,809 of 11,625 cells unlabelled — invents ungated fare lines wherever a
+  painted patch sits in unpainted floor, and they once sealed that platform's escalators into 6-cell
+  pockets behind one narrow stair. So `ZONE_LINES_BLOCK` is **false**: a zone line does not block, and a
+  gate is a queue the crowd may walk around. Put it back with that constant, or per station —
+  `buildGraph(data, true)` / `new World(data, seed, { zoneBarriers: true })`, which is how `zones`,
+  `gates` and `wayfinding` keep the §4.5 rule covered in both modes.
+* **The edge cost is §7.2's, and every term of it is load-bearing.** Arriving at a
+  node costs the edge plus `waitQ` there, plus **the crowd** (`PathFinder.congestion`):
+  `World.priceCongestion` scatters every standing body into its own collision cell
+  *and the ring around it* — the speed derate's own density field is filled only where
+  bodies stand, which is the wrong way round for pricing the crowd beside a gate — and
+  writes `min(bodies, CONGESTION_CAP) × CONGESTION_S` seconds per node once a tick,
+  before any search runs, so a budgeted re-path, a fare-line choice and the 选择 tool's
+  preview all price the same station. A lift edge additionally carries `liftPenalty(needs)`
+  (§7.2's `levelPenalty`): 0 for a step-free passenger, `LIFT_AVOID_LUGGAGE_S` with
+  luggage, `LIFT_AVOID_S` for anyone who could have walked — a **preference, not a ban**,
+  so a jammed ramp or a shaft with no alternative still hands them the lift. `chooseGate`
+  re-plans a leg the moment a gate is within `GATE_LOOKAHEAD` (rationed by
+  `GATE_REPLAN_PER_TICK`, because it skips the cache) and `World.reRouteAroundQueue` is
+  §7.2's patience trigger for a gate or lift queue, moving an agent **only** when the new
+  route queues at a different server.
 * **The worker** (`sim/worker.ts`, `sim/protocol.ts`) is the only sim code that
   touches `postMessage`. Messages in: `init` / `build` / `control` / `restart`;
   out: `ready`
@@ -1010,6 +1038,91 @@ build/ →  sim/            (and neither render/ nor app/)
   that every screen door stands on a car door, and one train per track on a
   two-direction line with disjoint door sets; `game/test/stock.test.mjs` the
   cadence itself.
+* **A consist is a cabin the crowd rides in** (`sim/stock.ts`, `sim/agents.ts`,
+  `sim/world/World.ts`, `sim/world/types.ts`, `render/models/PieceBuilder.ts`,
+  `render/models/pieces/TrainModel.ts`, `game/test/train-cabin.test.mjs`). The
+  alighting wave is no longer dumped onto the platform at door-open: the whole
+  cohort is **seated in the doorway queues it will leave by at dispatch**
+  (`World.loadAlighting` / `seatAlighter`), so the car draws full as the train
+  runs in. `stock.ts` owns the cabin box both sides are cut from — `cabinSlot`,
+  `CABIN_FLOOR_Z`, `CABIN_HALF_W`, `CABIN_ROW_PITCH`, `CABIN_MAX_ROWS`,
+  `CABIN_ALIGHT_PAIR_S`, `CABIN_ALIGHT_MAX_S` — and `World.cabinWorldPos` uses
+  the doorway's own node in the consist's frame, so the sim's slots and the car
+  model cannot drift. Riders carry `train` / `trainDoor` / `trainFile` /
+  `trainRow` / `trainPhase` on the `Agent`, are pinned by `World.stepTrainRider`
+  to `World.trainAt` (the pose `trainRenderState` shares), step out a pair a
+  doorway per `CABIN_ALIGHT_PAIR_S`, and are **excluded from the collision pass,
+  the density derate, `priceCongestion` and the LOS** while aboard. Boarding is
+  held per doorway until that doorway's own queue drains (`openDoors` sets rate
+  0, `stepAlighting` hands it over), then `boardRider` seats the boarder behind
+  the wave; everybody aboard leaves the world with the consist and a wave that
+  missed its `CABIN_ALIGHT_MAX_S` turn is counted in `leftBehind`. The car model
+  is now hollow: real floor, ceiling, lining to a 1.6 m waist rail, a **glazed
+  window band** (`mats.glass`), longitudinal seating in the bays between doors
+  and grab poles at each doorway — verified by screenshot in the 动物园 demo
+  (200 aboard at the berth, cleared over ~12 s, 38/40 riders visible from the
+  platform through the open doorways). An edit that re-cuts a consist's doorways
+  sets its riders down (`World.rebuild`, without a left-behind mark — an edit is
+  not a failure to serve), one that leaves the doorways alone keeps the wave
+  riding, and a rider whose consist has gone is dropped rather than frozen in the
+  world.
+* The **station clock and the crowd's day** (`sim/clock.ts`, `sim/demand.ts`,
+  `sim/constants.ts`, `sim/station.ts`, `sim/world/World.ts`, `sim/types.ts`,
+  `sim/protocol.ts`, `sim/worker.ts`, `build/model/State.ts`,
+  `persistence/save.ts`, `app/store/slices/{SimSlice,StationSlice,ViewSlice}.ts`,
+  `app/windows/time/**`, `app/windows/inspector/ClockCard.tsx`, `styles.css`;
+  tests `clock`, `demand`, `wayfinding`). 日期类型 / 营业时间 / 高峰时段 /
+  客流曲线 are **document data** (`StationData.service` / `peaks` / `demand`),
+  saved per station, repaired per field on load and re-normalized on every
+  `rebuild()` (`World.day`), so an edit lands through the same path a save does.
+  `periodOf(simTime, service, peaks)` checks **shut first** — a station that opens
+  at 08:00 is not in its 高峰 at 07:00 — and `DEFAULT_SERVICE` is 06:30–23:30,
+  deliberately the span the old fixed window plus shoulder rule already ran:
+  `demand.test.mjs` proves an all-day window runs the identical crowd, and that a
+  real crowd follows the knobs, the window and the calendar day
+  (`DAY_TYPE_FACTOR` 周六/周日/节假日 ≈ 0.45/0.35/0.3). `demandSeries` samples a
+  **uniform grid** so the last point closes onto the first for any step, and a
+  step that is zero/negative/NaN falls back to 15 minutes rather than looping
+  unbounded. `LOS_LABELS` is the single map both the status bar and the 时刻 strip
+  print. The panel reads its slider ends from `DEMAND_LIMITS` and its peak hours
+  from `DEMAND_AM_HOUR`/`DEMAND_PM_HOUR`, so the widget cannot offer a value
+  `normalizeDemand` then repairs.
+* **The fare line is a label by default** (`ZONE_LINES_BLOCK = false`,
+  `sim/constants.ts`, `sim/station.ts`): §4.5's barrier is off until the station's
+  zone paint is finished, because the shipped 动物园 save has 6,809 unlabelled
+  cells and an invisible fare line where a painted patch meets unpainted floor
+  (measured: 5 of 30 ramps carried nobody and the −16 platform had one usable way
+  out). Gates are still queues the crowd walks through and around. `buildGraph` /
+  `new World` take `zoneBarriers` explicitly, and `gates`, `zones` and
+  `wayfinding` force `true` so the authored rule stays covered.
+* **The 选择 tool's route preview** (`sim/world/World.ts` `routeOf`,
+  `sim/worker.ts`, `app/store/slices/SimSlice.ts`, `render/routeLine.ts`,
+  `render/scene/systems/CrowdSystem.ts` `setRoute`/`pickAgent`,
+  `app/tools/SelectTool.ts`; tests `agent-route`, `select-agent`,
+  `worker-preview`). One passenger's remaining walk is drawn as a ribbon on the
+  walk surface (`writeRouteRibbon`, three-free arithmetic, **capped in the writer**
+  — the scene sizes its buffer from `ROUTE_MAX_QUADS`, so an over-long polyline
+  must be clamped where it is written, not by its caller), the pick is
+  **screen-space** (`pickAgent`, with a 3 px tie window that falls through to
+  whichever body stands in front), and the worker echoes the request's token on
+  every frame so a stale frame cannot clear the selection it predates. Reading a
+  route is an **observation**: it touches no agent field, queue or RNG, its A*
+  searches skip the shared path cache, and the worker's `selectAgent` handler
+  builds a frame (`stepping()` false) instead of stepping the world — selecting a
+  passenger while playing used to advance the simulation
+  (`game/test/worker-preview.test.mjs`). The leg memo
+  (`World.routeTails`) is keyed by agent *and* leg and capped
+  (`ROUTE_TAIL_MEMO_MAX`), and `rebuild()` drops it: a tail is a list of node
+  ids, so a re-cut graph makes every one of them stale.
+* The **test suite's isolation rule** (`game/test/README.md` rule 7): the suite
+  runs in one process (`--test-isolation=none`), so the store and the globals
+  (`Worker`, `self`, `document`) are shared. A `test.beforeEach` in a file that
+  does not own a global will also run around *other* files' tests — seeding the
+  store from a hook in `select-agent.test.mjs` reset the document under
+  `pick-tool`'s tests. Files that stub a global or seed the store for their own
+  suite may use a hook; files that only read them arrange themselves inside the
+  test. Snapshot after the gap-filling pass: **880 tests, 95.26 % lines /
+  88.53 % branches / 89.36 % functions**.
 * The **stock classification** gained the **L** linear-motor car (`sim/stock.ts`,
   `game/test/stock.test.mjs`): `STOCK_CLASSES` (`['A','B','C','L']`) is now the
   single ordering source, so the worker's pose index (`STOCK_CLASSES.indexOf`) and

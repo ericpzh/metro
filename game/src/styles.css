@@ -1051,6 +1051,147 @@ button.ghost:hover {
   background: #1e4a72;
   border-radius: 4px;
 }
+/* The 信息栏's clock (`windows/inspector/ClockCard.tsx`): the sim's own time and the
+   station's operating hours, at the top of the column — **and it is a button**, because
+   pressing it opens the floating 时刻 window where the day is plotted and authored. It
+   wears `.card` for the column's rhythm, and `.card.clockCard` (rather than `.clockCard`)
+   because `.card` is declared below and a same-specificity rule there would quietly win. */
+.card.clockCard {
+  gap: 4px;
+  /* A little air before the first folder bar: the clock is a readout of its own, not
+     the first thing in the stack under it. */
+  margin-bottom: 12px;
+  /* A button's own text is centred and its colour is the button default; this one reads
+     as a card, and `button:hover` already lifts it because a pseudo-class beats `.card`. */
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+.card.clockCard:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+/* The way into the window, printed rather than only hoverable: the chevron is the
+   affordance, and the hover is the confirmation. */
+.clockMore {
+  margin-left: auto;
+  flex: none;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.card.clockCard:hover .clockMore {
+  color: var(--accent);
+}
+/* A stopped clock has to look stopped: the digits and the date give up their ink, and
+   only the 已暂停 chip keeps the accent. */
+.clockCard.paused .clockDigits,
+.clockCard.paused .clockDate,
+.clockCard.paused .clockHours {
+  color: var(--muted);
+}
+.clockTop {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.clockDigits {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+  color: #eaf5ff;
+}
+.clockDate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink);
+}
+/* A readout chip, not a control: the panel's square drafting badge, one colour per
+   meaning. */
+.clockChip {
+  flex: none;
+  padding: 0 5px;
+  font-size: 9px;
+  line-height: 14px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  background: #081a2c;
+  border: 1px solid var(--bp-line);
+}
+/* 高峰 is the period the whole crowd curve is shaped for: amber, the same ink the
+   bar's windows are shaded in, so the chip and the band read as one thing. */
+.clockChip.peak {
+  color: var(--warn);
+  border-color: rgba(255, 200, 97, 0.5);
+  background: rgba(255, 200, 97, 0.12);
+}
+.clockChip.late {
+  color: #93a9bf;
+}
+.clockChip.off {
+  margin-left: auto;
+  color: var(--accent);
+  border-color: rgba(85, 182, 255, 0.5);
+}
+/* Open or shut, the two states the operating hours are for: green while the station is
+   trading, a dashed grey while it is not (a shut station is not a fault, so it does not
+   wear the danger colour). */
+.clockChip.open {
+  color: var(--good);
+  border-color: rgba(79, 214, 163, 0.5);
+  background: rgba(79, 214, 163, 0.1);
+}
+.clockChip.shut {
+  border-style: dashed;
+}
+/* The day bar. It is a `span` inside the card's button (a button may only hold phrasing
+   content), so every block-level row in the card states its own display. */
+.clockTrack {
+  display: block;
+  position: relative;
+  height: 7px;
+  margin-top: 2px;
+  background: #081a2c;
+  border: 1px solid var(--bp-line);
+}
+/* The **operating hours** (§9.6C 营业时间): the lit part of the day. Everything the
+   window does not cover keeps the track's own dark, which is what a shut station looks
+   like; the peaks and the playhead are painted over it. */
+.clockOpen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(85, 182, 255, 0.18);
+}
+/* The station's two 高峰时段 (`DEFAULT_PEAKS` until the player draws their own),
+   shaded; the playhead crosses them as the chip above turns amber. */
+.clockPeak {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 200, 97, 0.35);
+}
+.clockNow {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--accent);
+}
+.clockHours {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
 /* The inspector mirrors the build rail's flat, square drafting look. */
 .panel button,
 .panel .chip,
@@ -2088,4 +2229,334 @@ input[type='range'] {
   width: 100%;
   padding: 10px;
   font-size: 13px;
+}
+
+/* --------------------------------------------------- the floating 时刻 window */
+/* `windows/time/TimePanel.tsx` (§9.6C 时刻 / 客流输入, sheet 06's panels A / B / D): what the
+   信息栏's clock card opens. It **floats** rather than covering the game — the station it
+   describes stays visible behind a light scrim — and it is anchored just left of the
+   inspector column, so it reads as having come out of the card that opened it. */
+.timeModal {
+  position: fixed;
+  inset: 0;
+  /* Under the sign editor's modal and the toast, over the rails. */
+  z-index: 30;
+}
+/* As in `.signModalScrim`: the scrim is a `button` so it is clickable and keyboard-
+   reachable, which means every `button` rule in this file lands on it too — including
+   `button:hover`, which would paint the whole viewport. Every state is reset here. */
+.timeScrim,
+.timeScrim:hover,
+.timeScrim:focus,
+.timeScrim:active {
+  position: absolute;
+  inset: 0;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: rgba(2, 7, 13, 0.34);
+  cursor: default;
+  box-shadow: none;
+}
+.timeWindow {
+  position: absolute;
+  top: 58px;
+  /* The inspector is 300 px (`styles.css` `.main`); the window sits a hair clear of it. */
+  right: 312px;
+  display: flex;
+  flex-direction: column;
+  width: min(620px, calc(100vw - 340px));
+  max-height: calc(100vh - 108px);
+  background: #081a2c;
+  background-image:
+    linear-gradient(var(--bp-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bp-grid) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px;
+  border: 1px solid var(--accent);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+.timeHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #0f2740;
+  border-bottom: 1px solid var(--bp-line);
+}
+.timeTitle {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: #eaf5ff;
+}
+/* The live clock, in the head: the window's own one-line readout, so the panel can be read
+   while its card is behind it. */
+.timeNow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.timeClose {
+  flex: none;
+  margin-left: auto;
+  width: 24px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: #081a2c;
+  color: var(--muted);
+}
+.timeClose:hover {
+  border-color: var(--accent);
+  color: #eaf5ff;
+}
+.timeBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #24557f transparent;
+}
+.timeBlock {
+  border: 1px solid var(--bp-line);
+  background: rgba(11, 27, 44, 0.72);
+  padding: 7px 8px 8px;
+}
+.timeBlockHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--ink);
+}
+.timeBlockNote {
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* The curve itself. `width: 100%` with the viewBox's own aspect keeps the plot and its
+   tick labels in proportion at any panel width. */
+.dayCurve {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.dayCurve .curveClosed {
+  fill: #06111d;
+}
+.dayCurve .curveOpen {
+  fill: rgba(85, 182, 255, 0.14);
+}
+.dayCurve .curvePeak {
+  fill: rgba(255, 200, 97, 0.2);
+}
+.dayCurve .curveBase {
+  stroke: rgba(126, 183, 231, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.dayCurve .curveLine {
+  fill: none;
+  stroke: rgba(126, 166, 201, 0.5);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.dayCurve .curveLine.active {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+.dayCurve .curveNow {
+  stroke: #eaf5ff;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.dayCurve .curveDot {
+  fill: var(--accent);
+}
+.dayCurve .curveTick {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.5px;
+}
+.curveLegend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.curveKey {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.curveKey i {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  background: rgba(126, 166, 201, 0.5);
+}
+.curveKey.active {
+  color: #eaf5ff;
+}
+.curveKey.active i {
+  background: var(--accent);
+}
+.curveKeyNote {
+  margin-left: auto;
+}
+/* B · 日历: the four day types with the calendar coefficient each one carries. */
+.dayTypes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dayType {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--muted);
+  background: #081a2c;
+  border: 1px solid var(--bp-line);
+}
+.dayType b {
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.dayType i {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-style: normal;
+  color: var(--ink);
+}
+.dayType.active {
+  color: #eaf5ff;
+  border-color: var(--accent);
+  background: #16374f;
+}
+.dayTypeNote {
+  flex: 1 0 100%;
+  font-size: 9px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+/* D · 时刻设置: one row per span — its name, the two ends, and (for the window) whether the
+   station is open right now. */
+.timeRow {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.timeLabel {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--muted);
+}
+.timeDash {
+  text-align: center;
+  color: var(--muted);
+}
+/* A native time box wearing the panel's own flat drafting input rather than the browser's
+   rounded default. The picker's own indicator is hidden: it is drawn in the browser's
+   colours and does not fit the drafting look, and the times are typed or stepped. */
+.timeBox {
+  width: 100%;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #eaf5ff;
+  background: #081a2c;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 3px 5px;
+  outline: none;
+}
+.timeBox:focus {
+  border-color: var(--accent);
+}
+.timeBox::-webkit-calendar-picker-indicator {
+  display: none;
+}
+/* The 客流曲线 knobs: sheet 06's panel D, three sliders across the panel. */
+.knobs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.knob {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.knobHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+.knobLabel {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--ink);
+}
+.knobValue {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #eaf5ff;
+}
+.knobHint {
+  font-size: 9px;
+  color: var(--muted);
+}
+/* The time-shaped metrics, in the same label-over-value shape as the status bar's. */
+.timeStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 8px;
+}
+.timeStat {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.timeStatLabel {
+  font-size: 9px;
+  color: var(--muted);
+}
+.timeStat b {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.timeStat.warn b {
+  color: var(--warn);
+}
+.timeStat.danger b {
+  color: var(--danger);
 }

@@ -39,8 +39,14 @@ function flatStation({ gate }) {
   return { name: 't', seed: 3, cells, modules, lines }
 }
 
-function run(data, ticks) {
-  const w = new World(data, 3)
+/**
+ * Run the fixture with §4.5's fare line **enforced**. The rule is off by default
+ * while the demo's zone paint is unfinished (`ZONE_LINES_BLOCK`), so a suite that
+ * is *about* the fare line has to ask for it — and `zoneBarriers: false` below is
+ * the default every station currently gets.
+ */
+function run(data, ticks, opts = { zoneBarriers: true }) {
+  const w = new World(data, 3, opts)
   for (let i = 0; i < ticks; i++) w.tickOnce()
   return w
 }
@@ -52,19 +58,50 @@ test('without a gate the crowd cannot reach the platform', () => {
 })
 
 test('a gate is the only crossing, and it restores flow', () => {
-  const w = run(flatStation({ gate: true }), 200)
-  assert.ok(w.totals.boarded > 0, 'nobody boarded even with a gate')
+  // The signal is the gate's **own** throughput, not one direction's — the
+  // fixture is deliberately busy (a 6000/h street and a 540-passenger train
+  // surge into one two-way lane), so which direction holds the lane is §7.1's
+  // first-come rule and not this test's question. What it pins is that the fare
+  // line carries a crowd once a gate stands in it, and carries nobody without
+  // one. (`exited` alone would be a poor control: an agent spawned on the exit
+  // cell completes a leg to it without crossing anything.)
+  const gated = run(flatStation({ gate: true }), 200)
+  const gate = gated.graph.servers.find((s) => s.kind === 'gate')
+  assert.ok(gate.waitCount > 20, `the gate served only ${gate.waitCount} people in 200 s`)
 })
 
 test('the graph itself has no edge across an ungated zone line', () => {
-  const g = buildGraph(flatStation({ gate: false }))
+  const g = buildGraph(flatStation({ gate: false }), true)
   // x=4,y=0 (node) and x=5,y=0 must not be adjacent.
   const a = g.nodeIndex.get('4,0,0')
   const b = g.nodeIndex.get('5,0,0')
   assert.ok(a !== undefined && b !== undefined)
   let edge = false
   for (let e = g.adjStart[a]; e < g.adjStart[a + 1]; e++) if (g.adjTo[e] === b) edge = true
-  assert.equal(edge, false, 'the ungated zone boundary is not a barrier')
+  assert.equal(edge, false, 'an ungated zone boundary is a barrier: no edge crosses it')
+})
+
+test('a zone line is walkable while the fare line is unenforced', () => {
+  // The shipped default (`ZONE_LINES_BLOCK = false`): a boundary with no gate on
+  // it is a label, not a wall — the 动物园 save's unpainted floor stops standing
+  // in for a fare line, and a station with one ungated line through it is not a
+  // station nobody can leave. The same fixture, same seed, both ways.
+  const open = buildGraph(flatStation({ gate: false }), false)
+  const a = open.nodeIndex.get('4,0,0')
+  const b = open.nodeIndex.get('5,0,0')
+  let edge = false
+  for (let e = open.adjStart[a]; e < open.adjStart[a + 1]; e++) if (open.adjTo[e] === b) edge = true
+  assert.equal(edge, true, 'the ungated zone line still blocked the floor')
+
+  const w = run(flatStation({ gate: false }), 200, { zoneBarriers: false })
+  assert.equal(w.metrics.stuck, 0, 'someone was stranded by a fare line that is not being enforced')
+  // And it really is a different station: with the line enforced the same fixture
+  // strands its alighting passengers at the boundary, and nobody gets out.
+  const shut = run(flatStation({ gate: false }), 200)
+  assert.ok(
+    w.totals.exited > shut.totals.exited,
+    `the unenforced line let nobody through (${w.totals.exited} vs ${shut.totals.exited} with it enforced)`,
+  )
 })
 
 test('a same-side zone relabel is not a fare barrier', () => {

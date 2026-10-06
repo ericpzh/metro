@@ -18,6 +18,7 @@ import { drawSignPanel } from '../../signFace.ts'
 import { calligraphyPanelSize } from '../../../sim/calligraphy.ts'
 import { lineMapSpec } from '../../../sim/linemaps.ts'
 import { signBoardsOf, signBoardsPanel, signFaceLayout, signPlate } from '../../../sim/sign.ts'
+import { stampAt } from '../../../sim/clock.ts'
 import type { SignLayout, SignPanelSize } from '../../../sim/sign.ts'
 import type { CalligraphyAxis, CalligraphyStyle, Module, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
@@ -444,9 +445,7 @@ export class PlateSystem extends SceneSystem {
    * rebuilds but the pixels.
    */
   setSimClock(simTime: number): void {
-    const h = Math.floor(simTime / 3600) % 24
-    const mm = Math.floor((simTime % 3600) / 60)
-    const next = `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+    const next = stampAt(simTime).clock
     if (next === this.ctx.clockText) return
     this.ctx.clockText = next
     for (const [id, tex] of this.tvPlates) {

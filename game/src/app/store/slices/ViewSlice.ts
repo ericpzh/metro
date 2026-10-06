@@ -44,6 +44,12 @@ export interface ViewSlice {
   ortho: boolean
   overlayOn: boolean
   /**
+   * The floating **时刻** window (§9.6C): the day's stats and time settings, opened by the
+   * 信息栏's clock card. It is a view over the document rather than a build tool, so its
+   * open state lives here with the other overlays.
+   */
+  timePanel: boolean
+  /**
    * The 剖切 surface: where it was anchored, which quarter turn it looks in and
    * how far it has slid (`render/section.ts`). The 旋转 tile and the 3D drag are
    * two writes into this one record, so the plane, the highlighted surface and
@@ -61,6 +67,8 @@ export interface ViewSlice {
   setHideWalls: (on: boolean) => void
   setHideUI: (on: boolean) => void
   setOrtho: (on: boolean) => void
+  /** Open or close the floating 时刻 window. */
+  setTimePanel: (open: boolean) => void
   /** Re-place the cut at `anchor` on the storey being edited (a fresh 剖切). */
   placeSection: (anchor: Vec3) => void
   /** Slide the cut along its normal, in metres — what a drag writes. */
@@ -79,6 +87,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   hideUI: false,
   ortho: false,
   overlayOn: false,
+  timePanel: false,
   section: { anchor: [0, 0, -8], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH }, offset: 0 },
 
   setActiveZ: (z) => set({ activeZ: nearestLevel(z) }),
@@ -96,6 +105,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setHideWalls: (on) => set({ hideWalls: on }),
   setHideUI: (on) => set({ hideUI: on }),
   setOrtho: (on) => set({ ortho: on }),
+  setTimePanel: (open) => set({ timePanel: open }),
   placeSection: (anchor) =>
     set((s) => ({
       section: { ...s.section, anchor: [anchor[0], anchor[1], anchor[2]], offset: 0 },

@@ -19,6 +19,7 @@ import { INSPECTOR_FOLDERS } from '../../rail/helpers.ts'
 import type { InspectorFolderKey } from '../../rail/helpers.ts'
 import { ViewFolder } from '../../rail/folders/ViewFolder.tsx'
 import { InfoCard } from './InfoCard.tsx'
+import { ClockCard } from './ClockCard.tsx'
 import { ExitCard } from './ExitCard.tsx'
 import { LineCard } from './LineCard.tsx'
 
@@ -105,6 +106,11 @@ export function Inspector(): React.ReactElement {
         <span className="railStampTitle">信息栏</span>
         <span className="railStampSub">METRO / INSPECTOR</span>
       </div>
+
+      {/* The station's clock, above the folders: the crowd, the timetable and the day
+          bar are all functions of this time (§7.4), so it is the one readout that
+          should not be behind a fold. */}
+      <ClockCard />
 
       {/* Stacked in the table's order, so the Alt+letter that folds a folder and the row
           it sits in are the same list read two ways (`INSPECTOR_FOLDERS`). */}

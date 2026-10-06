@@ -4,10 +4,17 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
-// group of four (暂停 | 1× | 4× | 16×). Exactly one is highlighted: paused ⇒
-// the pause icon, playing ⇒ the active speed. Clicking a speed resumes at
-// that speed; Space toggles between paused and the last selected speed.
-const SPEEDS = [1, 4, 16]
+// group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
+// pause icon, playing ⇒ the active speed. Clicking a speed resumes at that
+// speed; Space toggles between paused and the last selected speed.
+//
+// **64× is the top of the range and it is a wall-clock multiple, not a promise.**
+// One tick steps one simulated second whatever the speed (see `sim/constants.ts`),
+// so 64× asks the worker for a tick every 15.6 ms (`intervalMs`) — a rate the crowd's
+// own tick cost may not always meet in a busy station. The sim then simply runs at
+// whatever the machine manages; nothing is skipped and §7.6 determinism is untouched,
+// because the step size never changes.
+const SPEEDS = [1, 4, 16, 64]
 
 /**
  * The station title in the top bar. Click to edit: Enter or blur keeps the

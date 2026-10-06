@@ -65,4 +65,4 @@ export {
 } from './store/catalog.ts'
 
 export { signModuleWithPreview } from './store/slices/SignSlice.ts'
-export { setFrameHandler, initSim, rebuildSim } from './store/slices/SimSlice.ts'
+export { setFrameHandler, setRouteHandler, selectSimAgent, initSim, rebuildSim } from './store/slices/SimSlice.ts'

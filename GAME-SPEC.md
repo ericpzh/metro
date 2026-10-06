@@ -1423,10 +1423,16 @@ module is selected; the bottom-rail exit list jumps here on click.
 
 **C. Time panel — bottom rail, `时刻` tab (per station, §7.9).**
 
+> Deviation from the draft above: 营业时间 ships **06:30–23:30**, not 05:30–24:00. A day is
+> sampled in whole minutes and `24:00` is not a time of day, so the latest close a slider
+> can name is 23:59; the shipped window is also exactly the span the old fixed
+> `SERVICE_OPEN`/`SERVICE_CLOSE` + shoulder rule already ran, so adding the widget changed
+> no crowd (pinned by `demand.test.mjs`, which shows an all-day window runs the same day).
+
 | Widget (中文) | Control | Default |
 |---|---|---|
 | 日期类型 | 工作日 / 周六 / 周日 / 节假日 dropdown | 工作日 |
-| 营业时间 | 05:30–24:00 dual slider | as shown |
+| 营业时间 | 06:30–23:30 dual slider (whole minutes) | as shown |
 | 高峰时段 | two window sliders (早高峰/晚高峰) | 07:30–09:00, 17:30–19:00 | shared clock: picks peak headway on every line (§6.5); tails auto = 夜间 |
 | 客流曲线 | 24-point spline editor (volume, peak time, σ presets: 早高峰/晚高峰/平坦) | weekday double peak 08:00 + 18:00 |
 | 日历系数 | weekday 1.0, weekend 0.25–0.45, holiday shape | per day type |

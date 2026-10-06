@@ -10,6 +10,8 @@
 // app layer. This module is pure and runs in Node.
 
 import { repairGrid, toData, toStateRepairing, type StationState } from '../build/model.ts'
+import type { PeakWindows, TimeSpan } from '../sim/constants.ts'
+import type { DemandKnobs } from '../sim/demand.ts'
 import type { Cell, LineDef, Module, StationData } from '../sim/types.ts'
 
 export const SAVE_FORMAT = 'metro-save' as const
@@ -23,6 +25,17 @@ export interface SaveFileV1 {
   savedAt: string
   name: string
   seed: number
+  /**
+   * The station's authored day (§9.6C 时刻): its operating hours, its two peak windows and
+   * the demand curve's knobs, beside the name and the seed because they are station-level
+   * config rather than part of the built station. **All optional, and not a version
+   * bump**: a v1 file written before them loads on the defaults, a v1 reader that predates
+   * them ignores them, and each is repaired into range on the way in — the cell schema,
+   * which is what `formatVersion` freezes, has not moved.
+   */
+  service?: TimeSpan
+  peaks?: PeakWindows
+  demand?: Partial<DemandKnobs>
   static: {
     cells: Cell[]
     modules: Module[]
@@ -48,6 +61,9 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     savedAt: now.toISOString(),
     name: state.name,
     seed: state.seed,
+    service: state.service,
+    peaks: state.peaks,
+    demand: state.demand,
     static: {
       cells: repaired.cells,
       modules: repaired.modules,
@@ -80,6 +96,13 @@ export function parse(text: string): ParseResult {
     cells: d.static.cells,
     modules: d.static.modules ?? [],
     lines: d.static.lines ?? [],
+    // Left off the document entirely when the file carries none of them: `toState`
+    // supplies the defaults, so "absent" and "the default" stay one code path rather than
+    // two. Only the *shape* is checked here — a window the day cannot hold, a knob past
+    // its slider, a peak list of one, are all `normalize*`'s business, not a refusal.
+    ...(isRecord(d.service) ? { service: d.service as TimeSpan } : {}),
+    ...(Array.isArray(d.peaks) ? { peaks: d.peaks as PeakWindows } : {}),
+    ...(isRecord(d.demand) ? { demand: d.demand as Partial<DemandKnobs> } : {}),
   }
   // A structurally valid station with damaged content still opens: the envelope is
   // what earns a refusal (`文件损坏` and friends), and the grid repair drops what it
@@ -97,4 +120,13 @@ export function parse(text: string): ParseResult {
 function migrate(data: StationData, version: number): StationData {
   void version
   return data
+}
+
+/**
+ * Whether an untrusted field is a JSON object at all. The *values* are not judged here:
+ * the `normalize*` functions bend whatever arrives into the day it can hold, so a save
+ * with an inverted window or a fractional knob still opens.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
