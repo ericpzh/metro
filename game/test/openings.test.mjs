@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { carveRampOpenings, rampBlocked, rampCorridorHalf, rampThinCells, OPENING_CEILING } from '../src/sim/openings.ts'
 import { reservedOpening } from '../src/sim/placement.ts'
 import { EXIT_BAY_HALF } from '../src/sim/exits.ts'
-import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
+import { STAIR_WIDTHS, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairFlightSlides, stairFlights, stairLanes } from '../src/sim/stairs.ts'
 import { createModule } from '../src/build/model.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { ESCALATOR_RATE, ESCALATOR_SPEED, ESCALATOR_STEP_PITCH } from '../src/sim/constants.ts'
@@ -103,6 +103,86 @@ test('a wall a wide stair reaches is still kept and marked for a half panel', ()
   // The side is the half the panel keeps, in the same vocabulary a 半墙 stores:
   // the panel sits on the side away from the run.
   assert.equal(at.side, 'e')
+})
+
+test('a 双跑楼梯 pushed against a wall keeps it whole: its runs fill their own blocks', () => {
+  // The report this fixes: a switchback laid flush against a wall ate half of it. A
+  // 双跑楼梯's run is built to the width of the blocks it fills
+  // (`stairSwitchbackRunWidth`, 0.79 / 1.79 / 2.79 m), so its treads and both of its
+  // balustrades end **exactly** on the cell edges of those blocks: the wall beside it
+  // has only been touched, never entered, and a touch is not a reach (`within`). Both
+  // hands and all three sizes, each with a wall column standing flush on either side of
+  // the pair — the columns just outside the blocks the sliding runs fill.
+  for (const style of ['stair-left180', 'stair-right180']) {
+    for (const size of STAIR_WIDTHS) {
+      const stair = createModule(style, 2, 2, -4, 's', 0, size)
+      assert.ok(stair)
+      const lanes = stairLanes(size)
+      const flights = stairFlights(stair)
+      const slides = stairFlightSlides(stair)
+      // The pair's own blocks, from the flights' slid walking lines: a run fills
+      // `lanes` whole cells across from its line, so a wall stands one cell further out.
+      const lo = Math.min(...flights.map((f, i) => f.from.x + 0.5 + slides[i].dx - lanes / 2))
+      const hi = Math.max(...flights.map((f, i) => f.from.x + 0.5 + slides[i].dx + lanes / 2))
+      assert.equal(Number.isInteger(lo) && Number.isInteger(hi), true, 'the pair covers whole blocks')
+      const wallXs = [lo - 1, hi]
+      const cells = []
+      for (let x = -4; x <= 12; x++) {
+        for (let y = -4; y <= 10; y++) cells.push({ x, y, z: -4, fill: 'solid', tags: ['auto-floor'] })
+      }
+      for (const wx of wallXs) {
+        for (let y = 0; y <= 7; y++) {
+          for (let dz = 0; dz < 4; dz++) cells.push({ x: wx, y, z: -4 + dz, fill: 'solid', tags: ['wall'] })
+        }
+      }
+      carveRampOpenings(cells, [stair])
+      assert.equal(
+        cells.filter((c) => c.tags?.includes('wall')).length,
+        wallXs.length * 8 * 4,
+        `${style} at ${size}: every course of the walls beside the pair survives the carve`,
+      )
+      assert.deepEqual(
+        rampThinCells(cells, [stair]),
+        [],
+        `${style} at ${size}: nothing beside the pair is reached, so neither wall is cut`,
+      )
+    }
+  }
+})
+
+test('a turn wider than its own cell still has the wall it reaches thinned', () => {
+  // The other side of the same rule: a 中 / 宽 90° turn is one piece built at the tool's
+  // lane width (1.36 / 2.04 m), so its body really does cross 0.18 / 0.52 m into the
+  // column beside it — that wall is kept and drawn half a block thick, exactly as the
+  // 1.6 m stair's is. The narrow turn (0.68 m) stays inside its own cell and reaches
+  // nothing, and no width reaches a cell it merely touches.
+  for (const width of [STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]) {
+    const cells = []
+    for (let x = 0; x < 3; x++) {
+      for (let y = 0; y < 5; y++) {
+        cells.push({ x, y, z: 0, fill: 'solid', tags: x === 2 ? ['auto-wall'] : ['auto-floor'] })
+      }
+    }
+    const turn = createModule('stair-right90', 1, 4, -2, 's', 2, width)
+    assert.ok(turn)
+    assert.equal(turn.cfg.width, width, 'a 90° turn is built at the tool’s own width, not the block grid')
+    carveRampOpenings(cells, [turn])
+    assert.ok(cells.some((c) => c.x === 2 && c.y === 2 && c.z === 0), `the wall beside the ${width} m turn survives the carve`)
+    const at = rampThinCells(cells, [turn]).find((t) => t.x === 2 && t.y === 2 && t.z === 0)
+    assert.ok(at, `the wall the ${width} m turn reaches is thinned`)
+    assert.equal(at.side, 'e', 'and the panel sits on the half away from the run')
+  }
+  // The narrow turn sweeps 0.445 m, well inside its own cell.
+  const cells = []
+  for (let x = 0; x < 3; x++) {
+    for (let y = 0; y < 5; y++) {
+      cells.push({ x, y, z: 0, fill: 'solid', tags: x === 2 ? ['auto-wall'] : ['auto-floor'] })
+    }
+  }
+  const narrow = createModule('stair-right90', 1, 4, -2, 's', 2, STAIR_WIDTH_NARROW)
+  assert.ok(narrow)
+  carveRampOpenings(cells, [narrow])
+  assert.equal(rampThinCells(cells, [narrow]).length, 0, 'a narrow turn reaches no wall at all')
 })
 
 test('a wide stair keeps its side floor cells and marks them as half blocks', () => {

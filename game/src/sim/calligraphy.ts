@@ -20,6 +20,10 @@
 // solid block — so a rename reprints the ink *inside the panel it already has*
 // (shrinking the characters to fit) rather than quietly rebuilding a wall of a
 // different width behind a placed piece. What the player hangs is where it hangs.
+// The width is always an **odd** number of cells (`calligraphyPanelCells`), which
+// is what puts the inscription's own centre on the cell the pointer is aimed at;
+// a piece a save carries from before that rule keeps the even panel it was cut
+// with, since the panel is the piece's own wall footprint.
 //
 // Pure data — no three, no DOM.
 
@@ -173,8 +177,14 @@ export const CALLIGRAPHY_FALLBACK_NAME = '未命名车站'
  * roughly 1.2–2.2 m above the floor the player stands on and keep a good margin under
  * the storey's ceiling. 竖排: a column in one cell, from near the floor up to the
  * ceiling slab.
+ *
+ * `maxCells` is **odd, and so is every panel under it** (`calligraphyPanelCells`):
+ * a run is centred on the cell the pointer is on, and only an odd count leaves
+ * the inscription's own centre on that cell. An even one puts it on the boundary
+ * between two cells — half a metre to one side of the tile the player aimed at —
+ * which for a short name is the whole inscription.
  */
-export const CALLIGRAPHY_H = { panelH: 1, bottom: 1.2, maxCells: 4 } as const
+export const CALLIGRAPHY_H = { panelH: 1, bottom: 1.2, maxCells: 5 } as const
 export const CALLIGRAPHY_V = { panelW: 0.98, bottom: 0.4, maxPanelH: 2.6 } as const
 
 export interface CalligraphyGeometry {
@@ -224,15 +234,46 @@ export function calligraphyBottom(axis: CalligraphyAxis): number {
 }
 
 /**
+ * The panel a 横排 run of `want` metres takes, in whole cells: rounded **up to the
+ * next odd** count, clamped to `[1, CALLIGRAPHY_H.maxCells]`.
+ *
+ * The odd step is the point of this function, and it is about aiming rather than
+ * about looks. The factory centres a run on the cell the pointer is on
+ * (`trackOriginForCentre`), so a run of `c` cells covers `(c - 1) / 2` cells either
+ * side of it: centred **on that cell's own centre** for an odd `c`, and on the
+ * **boundary between two cells** for an even one. The ink is centred in its panel
+ * (`calligraphyLayout`), so an even panel drew the station's name half a metre to
+ * one side of the tile under the pointer — invisible in the middle of a long run
+ * of characters, but the whole piece when the name is one or two characters, which
+ * read as a 站名 that was not following the mouse.
+ *
+ * The ceiling is odd for the same reason: a name long enough to be capped must land
+ * on an odd count too, or the cap itself would put it back on a cell edge.
+ */
+export function calligraphyPanelCells(want: number, max: number = CALLIGRAPHY_H.maxCells): number {
+  const up = Math.max(1, Math.ceil(want - 1e-9))
+  const odd = up % 2 === 1 ? up : up + 1
+  // The ceiling is odd as well (`CALLIGRAPHY_H.maxCells`), and a caller that hands
+  // over an even one still gets an odd count back: odd is the contract, not a
+  // property of the default.
+  const ceiling = Math.max(1, max % 2 === 1 ? max : max - 1)
+  return Math.min(odd, ceiling)
+}
+
+/**
  * The panel a station name is cut for, on an axis.
  *
  * 横排 is a whole number of cells wide — the panel **is** its run, so what the
  * collision envelope reserves is what the wall carries — from one cell up to
- * `CALLIGRAPHY_H.maxCells`, at a fixed 1 m height.
+ * `CALLIGRAPHY_H.maxCells`, at a fixed 1 m height. The count steps in **odd**
+ * numbers (`calligraphyPanelCells`), so the run is symmetric about the cell the
+ * pointer is on at every name length and the inscription's own centre lands on the
+ * tile being aimed at.
  *
  * 竖排 is one cell wide and as tall as the name wants, up to `maxPanelH`, which is
  * what keeps its top under the storey's ceiling slab (the free height above a
- * floor is 3 m, and the column starts at 0.4 m).
+ * floor is 3 m, and the column starts at 0.4 m). One cell is odd, so the column is
+ * centred on the pointer's own cell like every 横排 panel.
  *
  * Either way the characters are cut to fit whatever the panel turned out to be, so
  * a name too long for its ceiling sets smaller type rather than spilling off the
@@ -258,7 +299,7 @@ export function calligraphyGeometry(name: string, axis: CalligraphyAxis): Callig
       courses: calligraphyCourses(bottom, panelH),
     }
   }
-  const cells = Math.min(CALLIGRAPHY_H.maxCells, Math.max(1, Math.ceil(want - 1e-9)))
+  const cells = calligraphyPanelCells(want)
   const panelH = CALLIGRAPHY_H.panelH
   const bottom = CALLIGRAPHY_H.bottom
   const advance = (cells - CALLIGRAPHY_PAD) / n

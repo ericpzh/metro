@@ -22,6 +22,7 @@ import { DeleteTool } from './tools/DeleteTool.ts'
 import { EquipmentTool } from './tools/EquipmentTool.ts'
 import { MoveController } from './tools/MoveController.ts'
 import { PaintTool } from './tools/PaintTool.ts'
+import { PickTool } from './tools/PickTool.ts'
 import { PlatformTool } from './tools/PlatformTool.ts'
 import { SelectTool } from './tools/SelectTool.ts'
 import { TunnelTool } from './tools/TunnelTool.ts'
@@ -146,6 +147,7 @@ export function Viewport(): React.ReactElement {
 
   const tools = useMemo(() => {
     const select = new SelectTool(ctx)
+    const pick = new PickTool(ctx)
     const block = new BlockTool(ctx)
     const wall = new WallTool(ctx)
     const del = new DeleteTool(ctx)
@@ -157,6 +159,7 @@ export function Viewport(): React.ReactElement {
     const move = new MoveController(ctx)
     const byTool: Record<Tool, ToolController> = {
       select,
+      pick,
       block,
       wall,
       delete: del,
@@ -166,7 +169,7 @@ export function Viewport(): React.ReactElement {
       rail: platform,
       tunnel,
     }
-    return { select, block, wall, delete: del, equipment, paint, zone, platform, tunnel, move, byTool }
+    return { select, pick, block, wall, delete: del, equipment, paint, zone, platform, tunnel, move, byTool }
   }, [ctx])
 
   const version = useStore((s) => s.version)
@@ -337,6 +340,8 @@ export function Viewport(): React.ReactElement {
   // ESC cancels any in-progress drag even when the pointer never moves again, and
   // Enter / ESC are the keyboard halves of 移动's 确认 / 取消 — which live in the 信息
   // card, so the keys are what makes the drop reachable without leaving the canvas.
+  // ESC is also the way out of a **吸取**: the piece a pick armed goes back with the
+  // tool, its settings and the boards a picked sign copied (`cancelPick`).
   useEffect(() => {
     const onCancelKey = (e: KeyboardEvent): void => {
       const tag = (e.target as HTMLElement)?.tagName
@@ -352,9 +357,16 @@ export function Viewport(): React.ReactElement {
       if (cancelActiveDrag()) return
       const st = useStore.getState()
       if (st.signEditorFor !== null || st.signComposing) return
-      if (!st.moveDraft) return
-      st.cancelMove()
-      tools.move.clearPreview()
+      // A piece 移动 has in the air is what Escape puts back first: it is the thing
+      // the player is holding. A 吸取 piece is only what the rail is armed with, so
+      // it is the second thing Escape ends — and it ends it whole (`cancelPick`: the
+      // tool, the piece, its settings and the boards a picked sign copied).
+      if (st.moveDraft) {
+        st.cancelMove()
+        tools.move.clearPreview()
+        return
+      }
+      st.cancelPick()
     }
     window.addEventListener('keydown', onCancelKey)
     return () => window.removeEventListener('keydown', onCancelKey)
@@ -474,6 +486,12 @@ export function Viewport(): React.ReactElement {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (isTypingTarget(e.target)) return
       const k = e.key.toLowerCase()
+      // **Alt+letter folds a 信息栏 folder** (`rail/helpers.ts` `INSPECTOR_FOLDERS`:
+      // 信息, 视图, 出入口, 线路), so it may not also shove the camera — Alt+W would
+      // otherwise fold 视图 *and* start a forward pan. The pan keys are the bare
+      // letters, plus the Shift+W that the rail's own ladder takes (`Shift+A/S/D`
+      // stays the fast pan).
+      if (e.altKey) return
       if (e.shiftKey && k === 'w') return
       if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 'q' || k === 'e')) {
         e.preventDefault()

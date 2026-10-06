@@ -46,6 +46,14 @@ export const C = {
   trainTrim: 0xe3d49b,
   /** The red 广州 mark on the cab face. */
   trainMark: 0xd8231c,
+  /**
+   * The 门's timber (装饰): a warm walnut for its frame, a paler one for its leaf and a
+   * dark one for fittings. One wood per piece — the door is the only piece that wears
+   * it — so the tones are named here rather than tinted per mesh.
+   */
+  wood: 0x8a5a2b,
+  woodLight: 0xb98a54,
+  woodDark: 0x5a3a1c,
 } as const
 
 /* --------------------------------------------------------------- materials */
@@ -72,6 +80,10 @@ export interface ModelMaterials {
   exitRed: THREE.MeshStandardMaterial
   glass: THREE.MeshStandardMaterial
   tintedGlass: THREE.MeshStandardMaterial
+  /** The 门 piece's timber: the frame, its paler leaf and a dark tone for fittings. */
+  wood: THREE.MeshStandardMaterial
+  woodLight: THREE.MeshStandardMaterial
+  woodDark: THREE.MeshStandardMaterial
   handrail: THREE.MeshStandardMaterial
   trainBody: THREE.MeshStandardMaterial
   trainBlue: THREE.MeshStandardMaterial
@@ -565,6 +577,12 @@ export function createModelMaterials(): ModelMaterials {
     exitRed: new THREE.MeshStandardMaterial({ color: C.exitRed, roughness: 0.4, metalness: 0.35 }),
     glass,
     tintedGlass,
+    // The 门's three tones: a walnut frame, a paler leaf, a dark pull. Wood is matte
+    // and slightly rough — the one place in the kit that is not metal, enamel or
+    // screen — so it reads as timber from the isometric camera.
+    wood: new THREE.MeshStandardMaterial({ color: C.wood, roughness: 0.72, metalness: 0.04 }),
+    woodLight: new THREE.MeshStandardMaterial({ color: C.woodLight, roughness: 0.7, metalness: 0.04 }),
+    woodDark: new THREE.MeshStandardMaterial({ color: C.woodDark, roughness: 0.66, metalness: 0.06 }),
     handrail: new THREE.MeshStandardMaterial({ color: C.rubber, roughness: 0.55, metalness: 0.1 }),
     trainBody: new THREE.MeshStandardMaterial({ color: C.trainBody, roughness: 0.35, metalness: 0.55 }),
     trainBlue: new THREE.MeshStandardMaterial({ color: C.trainBlue, roughness: 0.3, metalness: 0.4 }),

@@ -11,26 +11,39 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  CUT_MODES,
   MODULE_FAMILIES,
   MODULE_OPTIONS,
   actionRowOpen,
   actionsAnchorFor,
+  cutAnchor,
+  cutModeOf,
   familiesIn,
   familyAnchor,
   familyFor,
   familyOptions,
   folderOptions,
+  folderTiles,
   hasModuleActions,
   isDecorType,
   isFamilyOption,
 } from '../src/app/store.ts'
-import { subMenuForModule } from '../src/app/rail/helpers.ts'
+import {
+  armedActionsAnchor,
+  armedCut,
+  armedRailTile,
+  armedTiles,
+  revealScrollDelta,
+  showsAutoWalls,
+  subMenuForModule,
+  toolsFolderTiles,
+} from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 7)
+  assert.equal(MODULE_FAMILIES.length, 8)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['stair', 'exit', 'bench', 'billboard', 'glass', 'calligraphy', 'linemap'],
+    ['stair', 'exit', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
@@ -90,7 +103,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
     }
   }
   assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['stair', 'exit'])
-  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['bench', 'billboard', 'glass', 'calligraphy', 'linemap'])
+  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap'])
 })
 
 test('a variant never appears twice: the grid holds only the plain tiles', () => {
@@ -118,6 +131,59 @@ test('a variant never appears twice: the grid holds only the plain tiles', () =>
         )
       }
     }
+  }
+})
+
+test('one order list lays the grid out, and every tile a folder owns is drawn exactly once', () => {
+  // The rail is a **2-column** grid (`interleaveRows`), so `folderTiles`'s order *is* the
+  // row layout: two entries, one row. 装饰's is the palette order the pieces were laid out
+  // in — 指示牌 广告牌 / 座椅 站名 / 线网图 电视 / 垃圾桶 灭火器 / 时钟 监控 / 货架 办公桌 /
+  // 玻璃板 门 / 厕所隔间 洗手池 — and a family's parent tile takes its place in that order like
+  // any other tile, which is why the order cannot be read out of `MODULE_OPTIONS`.
+  const anchors = (folder) => folderTiles(folder).map((t) => t.anchor)
+  assert.deepEqual(anchors('decor'), [
+    'sign', familyAnchor('billboard'),
+    familyAnchor('bench'), familyAnchor('calligraphy'),
+    familyAnchor('linemap'), 'tv',
+    'bin', 'extinguisher',
+    'clock', 'cctv',
+    'shelf', 'desk',
+    familyAnchor('glass'),
+    familyAnchor('door'),
+    'cubicle', 'sink',
+  ])
+  assert.deepEqual(anchors('equipment'), [
+    'gate', 'fence',
+    'tvm', 'vending',
+    'escalator', 'lift',
+    familyAnchor('stair'), familyAnchor('exit'),
+  ])
+
+  for (const folder of ['equipment', 'decor']) {
+    const tiles = folderTiles(folder)
+    const drawn = tiles.map((t) => t.anchor)
+    assert.equal(new Set(drawn).size, drawn.length, `${folder}: no tile is drawn twice`)
+    // The order lists **every** tile the folder draws — each plain tile and each of its
+    // families, and nothing else: an order that forgot a tile would leave a piece the
+    // palette offers unreachable, and one that named a stranger would draw a blank tile.
+    const expected = new Set([
+      ...folderOptions(folder).map((m) => m.id),
+      ...familiesIn(folder).map((f) => familyAnchor(f.key)),
+    ])
+    assert.deepEqual(new Set(drawn), expected, `${folder}: the order covers the folder's tiles exactly`)
+    for (const tile of tiles) {
+      if (tile.kind === 'family') {
+        assert.equal(tile.family.folder, folder, `${tile.anchor} is a family of the ${folder} folder`)
+        assert.equal(tile.anchor, familyAnchor(tile.family.key))
+      } else {
+        // A family's variant is its sub-menu's tile, never the grid's.
+        assert.equal(isFamilyOption(tile.option.id), false, `${tile.option.id} is a tile of its own`)
+        assert.equal(tile.anchor, tile.option.id)
+      }
+    }
+    // The folder header's count is this list's length, so it can never disagree with the
+    // tiles the grid really draws.
+    assert.equal(tiles.length, folderOptions(folder).length + familiesIn(folder).length)
   }
 })
 
@@ -160,25 +226,28 @@ test('every piece with an action row anchors to a tile its folder really draws',
 })
 
 test('an action row is open only under the family the player is picking from', () => {
-  // The reported bug, as a rule: **click a 玻璃板 variant, then click 站名**. The two
-  // family tiles share a grid row, and the glass piece's 旋转 row is inserted after that
-  // pair — so left open it drew directly above 站名's variants, reading as 站名's (and
-  // rotating a piece the player had stopped looking at).
-  const glass = familyFor('glass-2x1')
-  const calligraphy = familyFor('calligraphy-kai-h')
-  const glassAnchor = actionsAnchorFor('glass-2x1')
+  // The reported bug, as a rule: **click a 座椅 variant, then click 站名**. The two family
+  // tiles share a grid row (`RAIL_ORDER`: 座椅 beside 站名), and the bench piece's 旋转 row is
+  // inserted after that pair — so left open it drew the bench's 旋转 tile **directly above
+  // 站名's variants**, reading as part of 站名 (and rotating a piece the player had stopped
+  // looking at).
+  const bench = familyFor('bench-steel-1')
+  const ink = familyFor('calligraphy-kai-h')
+  assert.equal(bench?.key, 'bench')
+  assert.equal(ink?.key, 'calligraphy')
+  const benchAnchor = actionsAnchorFor('bench-steel-1')
 
-  // Browsing 站名 while the glass piece is still the one being placed: the row is parked.
-  assert.equal(actionRowOpen(glassAnchor, glassAnchor, 'calligraphy'), false)
+  // Browsing 站名 while the bench piece is still the one being placed: the row is parked.
+  assert.equal(actionRowOpen(benchAnchor, benchAnchor, 'calligraphy'), false)
   // Browsing 站名's own variants with a 站名 piece selected: the row is under it, as asked.
   const inkAnchor = actionsAnchorFor('calligraphy-kai-h')
   assert.equal(actionRowOpen(inkAnchor, inkAnchor, 'calligraphy'), true)
   // No list open at all: the piece's row shows under its own tile.
-  assert.equal(actionRowOpen(glassAnchor, glassAnchor, null), true)
+  assert.equal(actionRowOpen(benchAnchor, benchAnchor, null), true)
   // Another tile's row never opens for a piece it does not belong to.
-  assert.equal(actionRowOpen(inkAnchor, glassAnchor, 'calligraphy'), false)
-  assert.equal(actionRowOpen('bin', glassAnchor, null), false)
-  assert.equal(actionRowOpen(glassAnchor, null, 'glass'), false, 'no piece, no row')
+  assert.equal(actionRowOpen(inkAnchor, benchAnchor, 'calligraphy'), false)
+  assert.equal(actionRowOpen('bin', benchAnchor, null), false)
+  assert.equal(actionRowOpen(benchAnchor, null, 'bench'), false, 'no piece, no row')
 
   // For **every** family: its own list open means its pieces' rows are open, and every
   // other family's list means they are parked — so no family can ever show a stray row.
@@ -193,4 +262,121 @@ test('an action row is open only under the family the player is picking from', (
   // A paint sub-menu is not a module family: while it is open no module family claims it,
   // so every action row is parked (the grid reads the open list as a family key or null).
   assert.equal(familiesIn('decor').some((f) => f.key === 'enamel'), false)
+})
+
+/* ------------------------------------------------- the 工具 folder's cut pieces */
+
+/** A whole armed state, so a test states only the field it is about. */
+const armedState = (over = {}) => ({
+  tool: 'select',
+  moduleType: 'gate',
+  zoneBrush: 'paid',
+  paintFinish: 'floor.granite',
+  halfWall: false,
+  triangles: false,
+  triKind: 'upper',
+  ...over,
+})
+
+test('生成墙壁 is not drawn while a cut piece owns the 方块 tool', () => {
+  // A 半墙 or a 三角 **is** the wall a patch would otherwise grow, so the ring's tile
+  // has nothing to say while one of them is armed. It used to be drawn greyed out
+  // with a tooltip explaining itself — a control the player cannot use, sitting
+  // among the ones they can. It is absent instead, and back with the plain tile.
+  assert.equal(cutModeOf(false, false, 'upper'), null)
+  assert.equal(cutModeOf(true, false, 'upper'), 'half')
+  assert.equal(cutModeOf(false, true, 'upper'), 'upper')
+  assert.equal(cutModeOf(false, true, 'lower'), 'lower')
+  assert.equal(cutModeOf(true, true, 'lower'), 'half', 'the two cut modes are exclusive, and 半墙 wins')
+  assert.equal(armedCut(armedState({ triangles: true, triKind: 'lower' })), 'lower', 'the rail asks the same question one way')
+
+  for (const cut of CUT_MODES) {
+    assert.equal(showsAutoWalls('block', cut.id), false, `${cut.id}: the ring's tile is not in the folder`)
+    assert.equal(toolsFolderTiles('block', cut.id), 10, `${cut.id}: ten tiles, the ring's not among them`)
+  }
+  assert.equal(showsAutoWalls('block', null), true, 'the plain 方块 tool keeps the ring')
+  assert.equal(toolsFolderTiles('block', null), 11)
+  // The tile belongs to the 方块 tool: another tool's folder shows its own ten.
+  for (const tool of ['select', 'pick', 'delete', 'wall', 'paint']) {
+    assert.equal(showsAutoWalls(tool, null), false, `${tool} has no ring to raise`)
+    assert.equal(toolsFolderTiles(tool, null), 10)
+  }
+})
+
+test('a cut piece owns a 旋转 row, anchored to its own tile — the same row a 座椅 owns', () => {
+  // The reported gap: the cut pieces' orientation was keyboard-only (**R**), and it was
+  // fixed by hand in the 工具 folder. It is the *equipment* mechanism instead: a cut
+  // piece is its own tile and its own anchor (`cutAnchor`), its 旋转 arrives through the
+  // one `ActionRow` a 座椅's does, and nothing in the folder asks whether a cut is on.
+  for (const cut of CUT_MODES) {
+    const armed = armedState({ tool: 'block', halfWall: cut.id === 'half', triangles: cut.id !== 'half', triKind: cut.id === 'lower' ? 'lower' : 'upper' })
+    const { tile, actions } = armedTiles(armed)
+    assert.equal(tile, cutAnchor(cut.id), `${cut.id}: the armed cut is its own tile`)
+    assert.equal(actions, cutAnchor(cut.id), `${cut.id}: and its row folds out under it`)
+    assert.equal(armedRailTile(armed), cutAnchor(cut.id), 'the selector the shell reads answers the same')
+    assert.equal(armedActionsAnchor(armed), cutAnchor(cut.id), 'and so does the one every grid reads')
+    // The row opens exactly as an equipment row does — the same two rules.
+    assert.equal(actionRowOpen(cutAnchor(cut.id), armedActionsAnchor(armed), null), true, `${cut.id}: its own row is open`)
+    assert.equal(actionRowOpen('wall', armedActionsAnchor(armed), null), false, `${cut.id}: the 墙 tile's row is not`)
+    assert.equal(actionRowOpen(cutAnchor(cut.id), null, null), false, 'and a row with no armed piece never opens')
+  }
+  // A plain 方块 owns neither: the ring tile beside it is a setting of the tool.
+  assert.deepEqual(armedTiles(armedState({ tool: 'block' })), { tile: null, actions: null })
+  // Only the 方块 tool has cuts. A cut left armed in the store must not fold a row out
+  // of any other tool's grid: the 墙 tool turns its own corner face with R, and a 设备
+  // grid folds out the *piece's* row and nothing else.
+  for (const tool of ['select', 'pick', 'delete', 'wall', 'paint', 'module', 'rail']) {
+    const anchor = armedActionsAnchor(armedState({ tool, halfWall: true }))
+    assert.equal(
+      CUT_MODES.some((c) => cutAnchor(c.id) === anchor),
+      false,
+      `${tool}: a stale armed cut folds no cut row out`,
+    )
+  }
+  // Every cut's anchor is a tile **the folder draws**: the tools grid is built from this
+  // very table, so the two cannot drift — the same contract the piece anchors hold.
+  const drawn = new Set(CUT_MODES.map((c) => cutAnchor(c.id)))
+  for (const cut of CUT_MODES) assert.equal(drawn.has(cutAnchor(cut.id)), true, `${cut.id} is drawn where its row anchors`)
+})
+
+/* ------------------------------------------------- what the rail keeps in view */
+
+test('the armed thing names the tile the rail scrolls to', () => {
+  const armed = (over) => armedRailTile(armedState(over))
+  // A placed piece, plain or a variant of a family: the tile is the palette option.
+  assert.equal(armed({ tool: 'module', moduleType: 'gate' }), 'gate')
+  assert.equal(armed({ tool: 'module', moduleType: 'bench-seat-2' }), 'bench-seat-2')
+  assert.equal(armed({ tool: 'module', moduleType: 'calligraphy-li-v' }), 'calligraphy-li-v')
+  // The 轨道 folder's two tiles, and the brushes of the 分区 / 房间 and 材质 folders.
+  assert.equal(armed({ tool: 'rail' }), '__platform')
+  assert.equal(armed({ tool: 'tunnel' }), '__tunnel')
+  assert.equal(armed({ tool: 'zone', zoneBrush: 'paid' }), 'paid')
+  assert.equal(armed({ tool: 'zone', zoneBrush: 'toilet' }), 'toilet')
+  assert.equal(armed({ tool: 'paint', paintFinish: 'wall.tile' }), 'wall.tile')
+  assert.equal(armed({ tool: 'paint', paintFinish: 'wall.enamel#3fa9f5' }), 'wall.enamel', '搪瓷板 reveals the tile its colour is a shade of')
+  // A cut piece is a tile too — the same derivation answers for it, which is why
+  // **Tab**-ing to another cut scrolls its tile into view like any other pick.
+  assert.equal(armed({ tool: 'block', halfWall: true }), cutAnchor('half'))
+  assert.equal(armed({ tool: 'block', triangles: true, triKind: 'lower' }), cutAnchor('lower'))
+  assert.equal(armed({ tool: 'block' }), null, 'a plain 方块 has no tile of its own')
+  // Tools whose subject is a face, or a selection: nothing of their own to show.
+  assert.equal(armed({ tool: 'select' }), null)
+  assert.equal(armed({ tool: 'pick' }), null)
+  assert.equal(armed({ tool: 'delete' }), null)
+})
+
+test('a tile already in view needs no scrolling, and one outside it does', () => {
+  const box = { top: 100, bottom: 500 }
+  // Fully in view, either end: the rail does not move.
+  assert.equal(revealScrollDelta(box, { top: 200, bottom: 260 }), 0)
+  assert.equal(revealScrollDelta(box, { top: 108, bottom: 168 }), 0, 'the pad still clears the top edge')
+  assert.equal(revealScrollDelta(box, { top: 440, bottom: 492 }), 0, 'and the bottom one')
+  // Below the fold: the rail scrolls down by exactly the overhang, pad included.
+  assert.equal(revealScrollDelta(box, { top: 520, bottom: 580 }), 580 + 8 - 500)
+  // Above it: and up by the same measure.
+  assert.equal(revealScrollDelta(box, { top: 40, bottom: 100 }), 40 - 8 - 100)
+  // Partly below but short enough to fit: the overhang only, so the top stays put.
+  assert.equal(revealScrollDelta(box, { top: 480, bottom: 700 }), 700 + 8 - 500)
+  // Taller than the box: its top is what is aligned, because that is where its label is.
+  assert.equal(revealScrollDelta(box, { top: 150, bottom: 650 }), 150 - 8 - 100)
 })

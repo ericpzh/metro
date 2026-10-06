@@ -18,20 +18,83 @@ export type { StairFlight, StairStyle } from './types.ts'
 type StairModule = Extract<Module, { type: 'stair' }>
 
 /**
- * The three widths a stair comes in, cycled with Tab in the builder. Every one is
- * a whole number of **lanes**, each exactly the escalator's step band
- * (`ESCALATOR_BAND`): one lane fits one 1 m cell, handrails included, so a lane
- * stands flush against an escalator or another lane and the pair reads as one
- * bank (§5.1). A wide stair is literally `lanes` narrow stairs side by side —
- * the builder drops one lane piece per cell — so the middle of a wide flight
- * wears the same two balustrades a stair next to an escalator does.
+ * The three sizes a stair comes in, cycled with Tab in the builder: **窄 / 中 / 宽**
+ * (`STAIR_WIDTH_LABELS`). Each is a whole number of **lanes**, each exactly the
+ * escalator's step band (`ESCALATOR_BAND`): one lane fits one 1 m cell, handrails
+ * included, so a lane stands flush against an escalator or another lane and the pair
+ * reads as one bank (§5.1). A wide straight stair is literally `lanes` narrow stairs
+ * side by side — the builder drops one lane piece per cell — so the middle of a wide
+ * flight wears the same two balustrades a stair next to an escalator does.
  *
- * `STAIR_WIDTHS` is the tool's setting: the *total* tread width it lays down.
+ * `STAIR_WIDTHS` is the tool's step, and the **size** is what the player picks: the
+ * action tile wears the name (窄 / 中 / 宽), never the metre, because the width a *piece*
+ * is built at is the width that makes it land on the **block grid**, and for a
+ * 双跑楼梯 that is not a lane multiple — its two runs stand flush, so what has to fill
+ * whole blocks is the *pair*. Each run is therefore laid at `stairSwitchbackRunWidth`:
+ * the blocks it fills less the two balustrades that stand inside them, which is 0.79 /
+ * 1.79 / 2.79 m at 窄 / 中 / 宽 rather than 0.68 / 1.36 / 2.04 (`test/stairs.test.mjs`
+ * probes the blocks with a 围栏).
  */
 export const STAIR_WIDTH_NARROW = ESCALATOR_BAND
 export const STAIR_WIDTH_DOUBLE = 2 * ESCALATOR_BAND
 export const STAIR_WIDTH_TRIPLE = 3 * ESCALATOR_BAND
 export const STAIR_WIDTHS: readonly number[] = [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]
+
+/**
+ * What the three sizes are called on the rail, in the order `STAIR_WIDTHS` cycles
+ * them. The tile wears a name, never a metre: the widths above are the tool's own
+ * business (see the block-grid note), and a player who wants a wider 双跑楼梯
+ * wants "宽", not "2.04 m".
+ */
+export const STAIR_WIDTH_LABELS = ['窄', '中', '宽'] as const
+
+/** The name the Tab tile wears for a stair width: 窄 / 中 / 宽. */
+export function stairWidthLabel(width: number): string {
+  return STAIR_WIDTH_LABELS[stairLanes(width) - 1]
+}
+
+/**
+ * The tread width a **双跑楼梯's run** is built at, from the tool's size: the blocks one
+ * run fills (`stairLanes`), less the two balustrades that stand inside them.
+ *
+ * A straight flight is a whole number of lanes, each lane its own cell; a switchback's
+ * run cannot be, because its two runs stand **flush** — their balustrades back to back on
+ * the seam — so what has to land on the block grid is the *pair*, `2 × lanes` blocks
+ * across. A run therefore fills its own blocks *balustrades included*: two lanes at
+ * 1.36 m would instead sweep 1.57 m, reaching into a neighbouring cell on each side of the
+ * pair — thinning those blocks into half panels and leaving the outer rail a half block
+ * short of any wall built against the piece. At 1.79 m the treads and rails end exactly on
+ * the cell edges, which is how a wall hugs the run and the handrail drops.
+ */
+export function stairSwitchbackRunWidth(width: number = STAIR_WIDTH_NARROW): number {
+  return stairLanes(width) - 2 * STAIR_RAIL_PROUD
+}
+
+/** The whole blocks a run of tread `width` fills, its two balustrades included. */
+export function stairRunBlocks(width: number): number {
+  return Math.max(1, Math.min(STAIR_LANES_MAX, Math.round(width + 2 * STAIR_RAIL_PROUD)))
+}
+
+/**
+ * True when a stair's tread width fills whole blocks — the width every switchback placed
+ * from the catalogue is built at (`stairSwitchbackRunWidth`). That is what lets its runs
+ * be laid **on the block grid** (`stairFlightSlides`); a piece saved at an older,
+ * off-grid width (1.36 m) keeps its band centred on its own walking line, exactly as it
+ * was placed.
+ */
+export function stairOnBlockGrid(width: number): boolean {
+  return Math.abs(width + 2 * STAIR_RAIL_PROUD - stairRunBlocks(width)) < 1e-6
+}
+
+/**
+ * The tread width a piece of `style` is **built** at from the tool's size: a straight or
+ * 90° run is the width itself — a lane, or the single wide piece it always was — while a
+ * switchback's runs are laid on the block grid (`stairSwitchbackRunWidth`), because its
+ * two flush runs are what has to fill whole blocks.
+ */
+export function stairBuildWidth(style: StairStyle, width: number = STAIR_WIDTH_NARROW): number {
+  return style === 'right180' || style === 'left180' ? stairSwitchbackRunWidth(width) : width
+}
 
 /** The most lanes one stair may be built from (the 3-block width). */
 export const STAIR_LANES_MAX = 3
@@ -44,8 +107,9 @@ export function nextStairWidth(width: number): number {
 
 /**
  * The lanes a tool width lays down: one per escalator band, 1 to
- * `STAIR_LANES_MAX`. A width that is not a whole number of lanes (a station saved
- * with the old 1.6 m stair) reads as the nearest one.
+ * `STAIR_LANES_MAX`. A width that is not a whole number of lanes — the tool's own
+ * 宽 size (2.04 m, three bands, sized so a switchback's flush pair claims six
+ * blocks) or a station saved with the old 1.6 m stair — reads as the nearest one.
  */
 export function stairLanes(width: number): number {
   const lanes = Math.round(width / ESCALATOR_BAND)
@@ -278,16 +342,35 @@ export interface StairWallSides {
  * cell's own height — a flight climbs the whole storey over the run — so a
  * two-course stump beside the top of the stairs is not a wall to lean on.
  *
+ * **The cells read are the ones beside the run's own blocks**, not beside the
+ * column its walking line is in: a 双跑楼梯's run is built to fill whole blocks
+ * (`stairSwitchbackRunWidth`), so its balustrade ends on the cell edge and the wall
+ * it is built against stands in the next cell out. A wider band that overhangs its
+ * cell — an older stair's — has the cells its rail reaches read instead, so a wall
+ * standing in the block its own treads cross still takes the rail away.
+ *
  * "Wall" is any **solid** cell, not only a tagged one: this engine draws every
  * solid cube the same and records who laid a wall in `tags` alone, and the top
  * course of a storey's wall often shares its cell with the floor slab above it,
  * which the auto-wall ring then leaves as floor. A handrail dropped because that
  * slab is there is right: the flight's last steps really do run into it.
  *
+ * `width` is the **tool's size**, not the tread width a placed piece stores:
+ * `stairSwitchbackRunWidth` makes a 双跑楼梯's `cfg.width` its *run's* width (1.79 m
+ * at 中), which `stairLanes` would read as three lanes. The one caller that matters
+ * (`StairModel`’s `buildStairFlight`) passes the piece's own tread width, which is
+ * the number the rails and the cells beside them were laid from.
+ *
  * A flight not laid along a cell axis — nothing a placed stair produces — has no
  * cells to read beside it, so it answers no walls and keeps both of its rails.
  */
-export function stairWallSides(cells: readonly Cell[], from: Vec3i, to: Vec3i, slide?: StairFlightSlide): StairWallSides {
+export function stairWallSides(
+  cells: readonly Cell[],
+  from: Vec3i,
+  to: Vec3i,
+  width: number = STAIR_WIDTH_NARROW,
+  slide?: StairFlightSlide,
+): StairWallSides {
   const none: StairWallSides = { left: false, right: false }
   const low = from.z <= to.z ? from : to
   const high = from.z <= to.z ? to : from
@@ -307,20 +390,49 @@ export function stairWallSides(cells: readonly Cell[], from: Vec3i, to: Vec3i, s
   // from the base, or a wall only beside the bottom steps would read as a wall
   // the whole way up.
   const key = (x: number, y: number, z: number): string => `${x},${y},${z}`
-  const left = new Set<string>()
-  const right = new Set<string>()
+  const half = width / 2
+  const reach = half + STAIR_RAIL_PROUD
   const sx = slide?.dx ?? 0
   const sy = slide?.dy ?? 0
+  // A run lies along a cell axis, so its band spans the other one: `acrossX` is that axis
+  // and `right` is the sign "right of the run" — `(uy, -ux)`, the side `buildStairFlight`
+  // numbers +1 — takes on it.
+  const acrossX = ux === 0
+  const right = acrossX ? uy : -ux
   const n = Math.max(1, Math.round(run))
+  const left = new Set<string>()
+  const rightSet = new Set<string>()
   for (let i = 0; i < n; i++) {
-    // The cell the flight's **treads** pass through, not the cell its walking line
-    // does: a switchback's return run is slid flush, so it leans on the wall beside
-    // the band, not on the wall beside the landing column.
-    const cx = low.x + Math.round(ux * i + sx)
-    const cy = low.y + Math.round(uy * i + sy)
+    // The cell the flight's **treads** pass through, and the run of whole cells they fill
+    // there — not the column its walking line is in: a switchback's run is laid on the
+    // block grid, so the cells beside it are the ones past its own blocks, and an older
+    // off-grid band is read from where its treads really reach.
+    const cx = low.x + ux * i
+    const cy = low.y + uy * i
+    // The run cell's own coordinate along the axis the band does *not* span: the cell the
+    // probe is read in is (across, along), never (across, across).
+    const along = acrossX ? cy : cx
     const z = Math.min(Math.floor(low.z + 1 + ((i + 0.5) / run) * rise + 1e-9), high.z)
-    left.add(key(cx - Math.round(uy), cy + Math.round(ux), z))
-    right.add(key(cx + Math.round(uy), cy - Math.round(ux), z))
+    const centre = acrossX ? cx + 0.5 + sx : cy + 0.5 + sy
+    // The whole cells whose centre the treads cover.
+    const lo = Math.ceil(centre - half - 0.5)
+    const hi = Math.floor(centre + half - 0.5)
+    const probe = (side: 1 | -1): void => {
+      const set = side > 0 ? rightSet : left
+      // Every cell the **rail** reaches over the tread edge, ...
+      const a = centre + side * right * half
+      const b = centre + side * right * reach
+      for (let k = Math.floor(Math.min(a, b)); k <= Math.ceil(Math.max(a, b)) - 1; k++) {
+        if (k >= lo && k <= hi) continue // the run's own blocks are not a wall beside it
+        set.add(acrossX ? key(k, along, z) : key(along, k, z))
+      }
+      // ... and the cell a wall stands in when the rail ends exactly on the cell edge,
+      // which is where a run on the block grid puts it.
+      const beyond = side * right > 0 ? hi + 1 : lo - 1
+      set.add(acrossX ? key(beyond, along, z) : key(along, beyond, z))
+    }
+    probe(1)
+    probe(-1)
   }
   const heldLeft = new Set<string>()
   const heldRight = new Set<string>()
@@ -328,9 +440,9 @@ export function stairWallSides(cells: readonly Cell[], from: Vec3i, to: Vec3i, s
     if (c.fill !== 'solid') continue
     const k = key(c.x, c.y, c.z)
     if (left.has(k)) heldLeft.add(k)
-    if (right.has(k)) heldRight.add(k)
+    if (rightSet.has(k)) heldRight.add(k)
   }
-  return { left: heldLeft.size === left.size, right: heldRight.size === right.size }
+  return { left: heldLeft.size === left.size, right: heldRight.size === rightSet.size }
 }
 
 /**
@@ -353,9 +465,9 @@ export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, wid
     y: base.y + fy * df + ry * dr,
     z: base.z + dz,
   })
-  // The two flights of a switchback lie flush: the return run steps across by
-  // one cell per lane, so the well between them is only as wide as the bodies
-  // themselves leave and the assembly covers `lanes + 1` cells across.
+  // The two flights of a switchback lie flush: the return run stands one block per lane
+  // across, and each run fills the blocks it stands in (`stairSwitchbackRunWidth`), so
+  // the pair covers `2 × lanes` blocks and its balustrades share the seam.
   const span = stairSwitchbackOffset(width)
   switch (style) {
     case 'right90':
@@ -386,18 +498,20 @@ export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, wid
 
 /**
  * How far the returning flight of a switchback (`right180` / `left180`) lies
- * from the first, in cells: **one cell per lane** of the stair's width.
+ * from the first, in cells: **one cell per block of the size** — the lanes the
+ * tool is set to.
  *
- * The two runs of a 双跑楼梯 are laid in neighbouring columns — there is no
- * wasted column between them, and no gap a whole cell wide — so the half-landing
- * they meet on covers one cell per lane *plus* the cell the two flights share,
- * and it is the same "right of forward" step `stairLaneBases` walks a wide
- * straight stair along, so a switchback and a bank of lanes stand on one grid.
+ * The two runs of a 双跑楼梯 are laid in neighbouring blocks — there is no
+ * wasted column between them, and no gap a whole cell wide — and each run is
+ * built to fill the blocks it stands in (`stairSwitchbackRunWidth`), so the pair
+ * covers `2 × lanes` whole blocks from the base cell and the half-landing they
+ * meet on is the row of those blocks. It is the same "right of forward" step
+ * `stairLaneBases` walks a wide straight stair along, so a switchback and a bank
+ * of lanes stand on one grid.
  *
- * The cell step is the nearest the *paths* can stand, not the nearest the treads
- * can: a run 0.68 m of lane wide leaves that much of the step over. What closes
- * the rest is `stairReturnSlide` — the return run's treads slide across until its
- * balustrade meets the first run's, so the pair really does stand flush.
+ * `width` is the tool's **size**, not the tread width a placed piece stores: a
+ * 180's `cfg.width` is its run's width (1.79 m at 中), and `stairLanes` would read
+ * that as three.
  */
 export function stairSwitchbackOffset(width: number = STAIR_WIDTH_NARROW): number {
   return stairLanes(width)
@@ -405,10 +519,12 @@ export function stairSwitchbackOffset(width: number = STAIR_WIDTH_NARROW): numbe
 
 /**
  * How far apart a switchback's two runs stand, **tread centre to tread centre**,
- * in cells: the run's own width plus the two balustrades that stand between them
+ * in cells: the run's own width plus the balustrade it carries on each side
  * (`STAIR_RAIL_PROUD` is the outer face of a handrail). Laid at this separation
  * the two runs' handrails meet back to back on the seam — the shared centre
  * balustrade a real 双跑楼梯 has — so no floor at all is left between the runs.
+ * For a run built to fill whole blocks (`stairSwitchbackRunWidth`) this is exactly
+ * the blocks a run fills, which is why a pair on the grid needs no slide at all.
  */
 export function stairSwitchbackGap(width: number = STAIR_WIDTH_NARROW): number {
   return width + 2 * STAIR_RAIL_PROUD
@@ -423,23 +539,23 @@ const STAIR_WALK_CLEARANCE = 0.25
 /**
  * How far a switchback's **returning flight's treads** slide toward the first
  * run, in cells, so that the two balustrades meet: the cell step its path is laid
- * on (`stairSwitchbackOffset`) less the separation the treads want
- * (`stairSwitchbackGap`) — 0.09 / 0.43 / 0.75 cells at one, two and three lanes.
+ * on less the separation the treads want (`stairSwitchbackGap`).
  *
- * The paths stay on the grid — the half-landing is one cell per lane plus the one
- * the pair shares, and both flights join the graph on cells — so what moves is
- * only the drawn tread band, its balustrade and its collision body. That is the
- * whole of "the runs stand flush": this is what turns a 1.4 m switchback from
- * five blocks of floor into four, and a 2 m one from six into five, and what
- * takes the corridor out of the middle of the stair.
+ * A run laid on the block grid wants **no** slide at all — its two runs already
+ * stand exactly that gap apart, because the width was chosen for the blocks it
+ * fills (`stairSwitchbackRunWidth`), so its handrails meet back to back on the
+ * seam untouched. What this closes is the well of a piece whose paths are further
+ * apart than its runs want: a station saved before the runs were flush (an old
+ * switchback, its flights three cells apart, which used to leave a 0.64 m corridor
+ * down the middle) and an older off-grid width, which has a step to make up.
+ *
+ * The paths stay on the grid — the half-landing is the row of blocks the pair
+ * covers, and both flights join the graph on cells — so what moves is only the
+ * drawn tread band, its balustrade and its collision body.
  *
  * The slide is capped so the flight's own walking line never ends up outside the
- * flight: a width that is already nearly a whole number of cells (the narrow
- * 0.7 m run) leaves so little step that the treads barely move.
- *
- * `offset` is the separation the two paths were actually laid at, so a station
- * saved before the runs were flush — an old switchback, its flights three cells
- * apart — tightens as far as its own layout allows and no further.
+ * flight: a run that is already nearly a whole number of cells wide leaves so
+ * little step that the treads barely move.
  */
 export function stairReturnSlide(offset: number, width: number = STAIR_WIDTH_NARROW): number {
   const step = offset - stairSwitchbackGap(width)
@@ -503,13 +619,23 @@ const NO_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
  * How far each flight's **treads** are slid across from its own walking line, in
  * cells — one entry per flight, in the same order as `stairFlights`.
  *
- * Only a switchback moves: its first run stands on the cell it was placed on,
- * exactly as a straight stair does, and its **returning** flight slides toward it
- * until the two balustrades meet (`stairReturnSlide`), which is what takes the
- * wasted floor out of the middle of the stair. Everything drawn, carved,
- * reserved and barred for that flight follows the band, so the handrail the crowd
- * walks along is the handrail it can see; the flight's *landings* stay on the
- * cells they were laid on, so the graph and the half-landing do not move.
+ * A switchback moves in two ways, and both are what puts it on the block grid:
+ *
+ *   * **Both** runs move half a block across at two lanes (a whole block at three) —
+ *     `(blocks − 1) / 2` along the run's right — so the flush pair covers `2 × blocks`
+ *     whole blocks from the base cell and every tread edge and balustrade lands on a cell
+ *     edge a wall can be built against. This is why a switchback's treads fill their
+ *     blocks (`stairSwitchbackRunWidth`) instead of being centred on one column.
+ *   * The **returning** flight then slides the rest of the step toward the first when the
+ *     two paths are further apart than the flush pair wants (`stairReturnSlide`), which is
+ *     the old switchback's well, and never on a piece laid on the grid.
+ *
+ * A piece saved at an older, off-grid width (`stairOnBlockGrid` false) keeps its own band
+ * centred on its walking line, exactly as it was placed.
+ *
+ * Everything drawn, carved, reserved and barred for a flight follows its band, so the
+ * handrail the crowd walks along is the handrail it can see; the flight's *landings* stay
+ * on the cells they were laid on, so the graph and the half-landing do not move.
  */
 export function stairFlightSlides(m: StairModule): StairFlightSlide[] {
   const flights = stairFlights(m)
@@ -525,17 +651,20 @@ export function stairFlightSlides(m: StairModule): StairFlightSlide[] {
   if (run < 1e-6) return out
   const ux = (first.to.x - first.from.x) / run
   const uy = (first.to.y - first.from.y) / run
+  // Half a block across at two lanes: the step that centres each run on the blocks it
+  // fills. The runs' *right* is `(uy, -ux)` — the side `stairRight` calls +1 — and it is
+  // the same direction for both runs, so the pair moves together.
+  const grid = stairOnBlockGrid(width) ? (stairRunBlocks(width) - 1) / 2 : 0
   // Component of the step across the run, in cells; its sign says which hand the
   // return flight is on.
   const across = rx * -uy + ry * ux
   const offset = Math.abs(across)
   const slide = stairReturnSlide(offset, width)
-  if (slide < 1e-6) return out
   const side = across === 0 ? 0 : across > 0 ? -1 : 1 // slide back toward the first run
-  const dx = -uy * side * slide
-  const dy = ux * side * slide
   // Normalise −0 to 0, so callers (and their tests) see plain numbers.
-  out[1] = { dx: dx === 0 ? 0 : dx, dy: dy === 0 ? 0 : dy }
+  const z = (v: number): number => (v === 0 ? 0 : v)
+  out[0] = { dx: z(uy * grid), dy: z(-ux * grid) }
+  out[1] = { dx: z(uy * grid - uy * side * slide), dy: z(-ux * grid + ux * side * slide) }
   return out
 }
 
@@ -545,9 +674,9 @@ export function stairFlightSlides(m: StairModule): StairFlightSlide[] {
  * landing is drawn as a stair platform instead of a reused floor block.
  *
  * The row runs between the two flight ends, and it is as wide as the **treads**
- * that end there: a switchback's return run is slid flush (`stairFlightSlides`),
- * so its band reaches across the cell its path stands in, and the landing holds
- * that floor too. A 90° turn lands on one cell (a = b) and stays one cell.
+ * that end there: a switchback's runs are laid on the block grid
+ * (`stairFlightSlides`), so the row is the `2 × lanes` blocks the pair covers. A
+ * 90° turn lands on one cell (a = b) and stays one cell.
  */
 export function stairTurnCells(m: StairModule): Vec3i[] {
   const flights = stairFlights(m)
@@ -579,4 +708,100 @@ export function stairTurnCells(m: StairModule): Vec3i[] {
     }
   }
   return out
+}
+
+/**
+ * The platform one interior turn landing is built on: the slab the two flights meet on,
+ * in world metres, and the storey (`z`) it stands on. Both flights' **bands** end here
+ * (`stairFlightSlides`), so the platform spans the two slid flight ends plus the stair's
+ * width **across** them — and, on the axis the two flights meet on, exactly the **one
+ * block** they meet in. A 90° turn meets at a single cell on both axes, so it stays a
+ * square the stair's width across.
+ *
+ * The block matters: a 双跑楼梯's landing is the row the two runs meet on, and that row is
+ * what the builder lays as walkable floor and what the crowd turns on. A platform as deep
+ * as the stair is *wide* — which is what a turn wants in a real stairwell, and what the
+ * model drew before — hangs a metre of slab over the rows below and above it, across the
+ * last steps of the run climbing into it. One block instead sits exactly on its own row, so
+ * the drawn platform and the walkable floor are the same cells and a wall on either side of
+ * the row is flush with the edge a railing would stand on. The model draws it
+ * (`buildStairLanding`) and the wall test below reads it, so the slab and the edges a wall
+ * can hug it by cannot disagree.
+ */
+export interface StairLandingShape {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  z: number
+}
+
+/** The platform of the landing between flights `i` and `i + 1` (`stairTurnConnectors`). */
+export function stairLandingShape(m: StairModule, i: number): StairLandingShape {
+  const flights = stairFlights(m)
+  const slides = stairFlightSlides(m)
+  const width = m.cfg.width ?? STAIR_WIDTH_NARROW
+  const a = flights[i].to
+  const b = flights[i + 1].from
+  const ax = a.x + 0.5 + slides[i].dx
+  const ay = a.y + 0.5 + slides[i].dy
+  const bx = b.x + 0.5 + slides[i + 1].dx
+  const by = b.y + 0.5 + slides[i + 1].dy
+  const cx = (ax + bx) / 2
+  const cy = (ay + by) / 2
+  // A switchback's two flights end in the *same* cell on one axis (the row they turn on) and
+  // a cell apart on the other; a 90° turn ends in the same cell on both. So an axis the
+  // flights differ on is spanned by their bands, an axis they share is the one block they
+  // meet in — unless they share both, which is a corner, and there the stair's own width is
+  // what the platform is.
+  const acrossX = a.x !== b.x
+  const acrossY = a.y !== b.y
+  const corner = !acrossX && !acrossY
+  const sx = acrossX ? Math.abs(bx - ax) + width : corner ? width : 1
+  const sy = acrossY ? Math.abs(by - ay) + width : corner ? width : 1
+  return { x0: cx - sx / 2, y0: cy - sy / 2, x1: cx + sx / 2, y1: cy + sy / 2, z: a.z }
+}
+
+/** Which edges of a turn landing a wall hugs, in the platform's own letters. */
+export interface StairLandingWalls {
+  n: boolean
+  s: boolean
+  w: boolean
+  e: boolean
+}
+
+/**
+ * The edges of a stair's **interior turn landing** a wall hugs — the sides the model
+ * leaves unrailed, exactly as `stairWallSides` takes a flight's handrail away on a walled
+ * side. A landing is a platform, not a run, so the wall is read at the landing's **own
+ * storey** (`stairLandingShape().z`): every cell just outside the edge must be solid, the
+ * same whole-edge rule the flights use. The half-landing of a 双跑楼梯 in a stairwell has
+ * its two long sides against the well's walls, and a balustrade left there is the same
+ * barrier drawn twice — and poking through the wall.
+ */
+export function stairLandingWalls(cells: readonly Cell[], m: StairModule, i: number): StairLandingWalls {
+  const shape = stairLandingShape(m, i)
+  const z = shape.z
+  const solid = (x: number, y: number): boolean =>
+    cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z)
+  /** The whole cells the platform itself stands in, along one axis. */
+  const span = (lo: number, hi: number): number[] => {
+    const out: number[] = []
+    for (let k = Math.floor(lo); k < Math.ceil(hi); k++) out.push(k)
+    return out
+  }
+  const xs = span(shape.x0, shape.x1)
+  const ys = span(shape.y0, shape.y1)
+  // The first whole cell outside each edge: the platform's own cells are never a wall
+  // (they are its floor), so a side is read one cell further out.
+  const west = Math.floor(shape.x0 - 1)
+  const east = Math.ceil(shape.x1)
+  const south = Math.floor(shape.y0 - 1)
+  const north = Math.ceil(shape.y1)
+  return {
+    w: ys.length > 0 && ys.every((y) => solid(west, y)),
+    e: ys.length > 0 && ys.every((y) => solid(east, y)),
+    s: xs.length > 0 && xs.every((x) => solid(x, south)),
+    n: xs.length > 0 && xs.every((x) => solid(x, north)),
+  }
 }

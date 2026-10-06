@@ -2,8 +2,8 @@
 //
 // A walled facility room's own walls and the panel a wide stair leaves beside its
 // run have always been drawn half a block thick. This is that same wall as a piece
-// the 方块 tool can lay anywhere: with **半墙** on (**Tab**) a click drops one such
-// block — one at a time, and instead of the 4 m wall ring a patch would otherwise
+// the 方块 tool can lay anywhere: with a **半墙** armed (its own tile) a click drops one
+// such block — one at a time, and instead of the 4 m wall ring a patch would otherwise
 // grow — keeping half of the tile at the side **R** picks.
 //
 // It is an ordinary solid wall cell wearing the half it keeps as a tag
@@ -17,6 +17,7 @@
 // is what `thinWallSideMap` hands the paint targets.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
 import { finishMapOf } from '../src/sim/finishes.ts'
 import { HALF_WALL_T } from '../src/sim/constants.ts'
@@ -122,12 +123,13 @@ test('a single column offers all four sides, the geometry’s own face first', (
 })
 
 test('the 方块 tool carries the mode, and it excludes the auto-wall ring', () => {
-  // The rail's cut tile and **Tab** both come through here, so this is the click. The
-  // cut modes and the generated ring answer the same question — what the patch grows
-  // — so 半墙 holds 自动生成墙壁 off, that toggle is refused while it is on, and
-  // leaving the mode leaves the ring where the default put it (**off**, since the
-  // ring is the one thing the tool does that the player did not draw). The wall-face
-  // cycle is reset with the mode, since the cycle means something different in each.
+  // The rail's cut tile arms the mode, and **Tab** — the ring's key — is refused here
+  // for the same reason the ring's tile is not drawn. The cut modes and the generated
+  // ring answer the same question — what the patch grows — so 半墙 holds 生成墙壁 off,
+  // that toggle is refused while it is on, and leaving the mode leaves the ring where
+  // the default put it (**off**, since the ring is the one thing the tool does that the
+  // player did not draw). The wall-face cycle is reset with the mode, since the cycle
+  // means something different in each.
   useStore.setState({ tool: 'block', halfWall: false, autoWalls: false, wallSnapCycle: 0 })
   const st = () => useStore.getState()
   st().toggleHalfWall()
@@ -143,9 +145,9 @@ test('the 方块 tool carries the mode, and it excludes the auto-wall ring', () 
   assert.equal(st().autoWalls, false, 'and the ring is not switched on behind the player’s back')
   assert.equal(st().wallSnapCycle, 0, 'flipping the mode keeps the cycle it belongs to')
 
-  // The ring's own tile still turns it on, now that it has no key and no default.
+  // The ring's own tile — and **Tab**, its key — turns it on, now that the default is off.
   st().setAutoWalls(true)
-  assert.equal(st().autoWalls, true, 'the 自动生成墙壁 tile is how the ring is asked for')
+  assert.equal(st().autoWalls, true, 'the 生成墙壁 tile (and Tab) is how the ring is asked for')
 
   // Both the mode and the side R stepped to change what the hover ghost is, so
   // both have to be in the one key the viewport subscribes to — otherwise the tile
@@ -159,11 +161,11 @@ test('the 方块 tool carries the mode, and it excludes the auto-wall ring', () 
   useStore.setState({ tool: 'select', halfWall: false, autoWalls: false, wallSnapCycle: 0 })
 })
 
-test('自动生成墙壁 is off when the game opens', () => {
+test('生成墙壁 is off when the game opens', () => {
   // The 方块 tool's default is bare floor: a dragged patch grows the surface the
-  // player drew and nothing else, and the 4 m ring is asked for on its own tile.
-  // Read from the slice's own factory — the store's initial `autoWalls` — rather than
-  // from a `setState`, so a change to the default cannot pass unnoticed.
+  // player drew and nothing else, and the 4 m ring is asked for on its own tile or
+  // with **Tab**. Read from the slice's own factory — the store's initial `autoWalls`
+  // — rather than from a `setState`, so a change to the default cannot pass unnoticed.
   const slice = createToolSlice(
     () => {},
     () => ({}),
@@ -172,11 +174,25 @@ test('自动生成墙壁 is off when the game opens', () => {
   assert.equal(slice.autoWalls, false, 'a fresh slice opens with the ring off')
   assert.equal(slice.halfWall, false)
   assert.equal(slice.triangles, false)
-  // And the ring's own tile is the only way to it now: no key sets it.
+  // The ring's own tile raises it, and **Tab** is that tile's key.
   useStore.setState({ tool: 'block', autoWalls: false, halfWall: false, triangles: false })
   useStore.getState().setAutoWalls(true)
   assert.equal(useStore.getState().autoWalls, true)
   useStore.setState({ tool: 'select', autoWalls: false, halfWall: false, triangles: false })
+})
+
+test("**Tab** is the 生成墙壁 tile's key, and the cut pieces are click-only", () => {
+  // The shell owns the keyboard and the folder owns the tile, so the two are pinned
+  // together where they meet: one `setAutoWalls` toggle for the 方块 tool, no cut-mode
+  // cycle left on the key, and the tile wearing the badge the key answers to.
+  const src = (p) => fs.readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
+  const shell = src('app/windows/AppShell.tsx')
+  assert.match(shell, /if \(st\.tool === 'block'\) \{\s*st\.setAutoWalls\(!st\.autoWalls\)/, 'Tab toggles the ring')
+  assert.doesNotMatch(shell, /cycleCutMode/, 'and no cut-mode cycle is left on a key')
+  assert.doesNotMatch(src('app/store/slices/ToolSlice.ts'), /cycleCutMode/, 'the cycle is gone from the store too')
+  const tools = src('app/rail/folders/ToolsFolder.tsx')
+  assert.match(tools, /label="生成墙壁"[\s\S]{0,80}shortcut="Tab"/, 'the tile wears the key it answers to')
+  assert.doesNotMatch(tools, /自动生成墙壁/, 'and the old name is gone from the folder')
 })
 
 /* --------------------------------------------------------- how it draws */

@@ -17,10 +17,10 @@ the station either copes or it does not.
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
 | `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). |
 | `game/README.md` | Game milestones, the time base, measured numbers, and deliberate divergences from the spec. **Read this before changing sim behaviour.** |
-| `game/plan.md` | The parallel-edit code organisation rules (R1–R6) and the folder layout. **Read before adding a window, tool, model or scene system.** |
+| `game/plan.md` | **Deleted.** The parallel-edit rules it held (the R1–R6 / lane language) survive only as citations in `game/src` comments — treat them as historical. The layout it prescribed is what `references/module-map.md` in this skill now maps: every window, tool and model is one unit in one file, and the former giants are barrels over folders. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. |
-| `art/` | Generated SVG concept sheets. Source of truth; copied into `web/public/art` at build time. Never hand-edited. |
-| `tools/` | Art generators (`node tools/gen-art.mjs`), drawn in the game's 2:1 dimetric projection via `tools/iso.mjs`; the demo-save bake (`node tools/bake-demo-station.mjs`) and the render-to-PNG probes (`tools/render-sign-panel.mjs`, `tools/render-tv-plate.mjs`). |
+| `art/` | Generated SVG concept sheets — **photographs of the built game** now, one per sheet. Source of truth; copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. |
+| `tools/` | The art generators — `node tools/shots.mjs` (headless Chrome over `game/dist`, one composed sheet per `tools/sheet-plan.mjs` entry) with `tools/iso.mjs`/`tools/sheet-*.mjs` behind the older hand-drawn sheets; the demo-save bake (`node tools/bake-demo-station.mjs`) and the render-to-PNG probes (`tools/render-sign-panel.mjs`, `tools/render-tv-plate.mjs`). |
 | `worker/` | The site's optional path-prefix rewrite entry. |
 | `wrangler.jsonc` | Root site Worker config. `game/wrangler.jsonc` is the game's. |
 
@@ -45,7 +45,7 @@ npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run build:game    # tsc --noEmit && vite build
 npm run deploy:game   # build, deploy metro-game, and attach its routes
 
-node tools/gen-art.mjs  # regenerate art/*.svg
+node tools/shots.mjs  # regenerate art/*.svg (screenshot sheets; needs game/dist built)
 ```
 
 Inside `game/`: `npm run dev`, `npm run typecheck`, `npm run build`,
@@ -159,11 +159,13 @@ build/ →  sim/            (and neither render/ nor app/)
   A fence *on* a landing is read the same way as one beside it: the fence cell is
   not a walkable node, so that flight drops out of the walk graph and fencing the
   head of a stair really closes it off.
-* **A stair is lanes** (`sim/stairs.ts`, §5.1). Tab cycles one, two or three
-  **lanes**, each exactly `ESCALATOR_BAND` (0.7 m) and each fitting one cell, so a
-  wide stair is that many one-lane pieces the builder drops together.
+* **A stair is lanes** (`sim/stairs.ts`, §5.1). Tab cycles three **sizes**, which the
+  action tile names 窄 / 中 / 宽 (`STAIR_WIDTH_LABELS`, `stairWidthLabel`) rather than
+  quoting a width — a straight stair is one, two or three **lanes**, each exactly
+  `ESCALATOR_BAND` (0.7 m) and each fitting one cell, so a
+  wide straight stair is that many one-lane pieces the builder drops together.
   `stairLanes(width)` reads the tool's width (a width that is not a whole number
-  of lanes, an old 1.6 m stair, reads as the nearest) and
+  of lanes — an old 1.6 m stair — reads as the nearest) and
   `planStairLanes(base, rot, lanes, placeable)` picks where the flight goes: the
   hovered cell as the first lane, then shifted back one lane at a time, so it
   butts against whatever stands beside it instead of overlapping, and flagged when
@@ -173,28 +175,46 @@ build/ →  sim/            (and neither render/ nor app/)
   `cfg.flight` token, and only along a seam between lanes sharing it does the model drop
   the stringer, handrail and posts (rails then only at the outer edges) and does
   `sim/station.ts` leave out the balustrade wall, so the crowd may cross between lanes at
-  the landings. A side a **wall hugs from bottom to top** (`stairWallSides`) loses its
+  the landings. A side a **wall hugs from bottom to top** (`stairWallSides(cells, from, to,
+  width, slide)`) loses its
   handrail, rail posts and newel return the same way — the wall is the barrier there — but
   keeps its stringer, so a staircase in a stairwell is railed on its open side alone; the
   wall must run the flight's whole length at the flight's own heights, or the rail stays.
+  The stringer and the soffit are **trimmed by `thickness · tan θ`** so their square-cut lower
+  corners end on the treads' edge, inside the cell the cut shaves: a landing's column is never
+  cut (`rampSlopeCuts` keeps it level, it is the floor at the foot of the run), so an overhang
+  past the treads left the flight's foot 0.36 m deep inside the floor block, swallowed by the
+  surface it stands on. The handrail keeps the full incline — it is in the air.
   Two 0.7 m stairs dropped separately keep both of their own railings and
   their walls, with their steps meeting between them; a lane against an *escalator* keeps
   its balustrade and does not reach under it. The hover ghost is built with its own pieces
   in the context (`setModulePreview`), so a wide stair previews as the one flight it will
   be. A **turning** stair
-  is one piece at the chosen width — its flights turn, so its landings cannot be
-  shared lane by lane — and needs a bay of its own at 2–3 lanes. The lanes step
+  is one piece — its flights turn, so its landings cannot be
+  shared lane by lane — and needs a bay of its own at 中 / 宽. The lanes step
   along `stairRight(rot)`, the same "right of forward" a switchback's second
   flight is offset by. The two **switchbacks** (`stair-right180` / `stair-left180`,
-  右 / 左双跑楼梯) lay that return flight one cell across per lane
-  (`stairSwitchbackOffset`) — as close as two walking lines can stand — and then
-  **slide its treads, rails and collision body** the rest of that step
-  (`stairReturnSlide` / `stairFlightSlides`) until the two balustrades meet back to
-  back. The paths stay on the grid, so the half-landing is still one cell per lane
-  plus the one the pair shares; what moves is the band, never the walk. The piece
-  claims one block per lane plus what the two bands need — 2 / 4 / 5 blocks at
-  0.7 / 1.4 / 2 m, and the slide is capped so the 0.7 m run's walkers stay on the
-  flight. Anything that measures a flight's body (the carve, `rampBodyBoxes`, the
+  右 / 左双跑楼梯) lay that return flight one **block** across per lane
+  (`stairSwitchbackOffset`) and are built a block wide each — `stairSwitchbackRunWidth(size)`
+  = the blocks a run fills less its two balustrades (0.79 / 1.79 / 2.79 m, stored in
+  `cfg.width` by `stairBuildWidth`), because the flush pair's *treads* have to land on the
+  block grid, not on a lane count. **Both** bands then move half a block (a whole block at
+  three lanes) onto it (`stairFlightSlides`), and the return run closes any remaining well
+  (`stairReturnSlide`, capped so a walker's line stays on the flight) — an older, off-grid
+  width (`stairOnBlockGrid` false) keeps its band where it was. The paths stay on the
+  grid, so the half-landing is the row of **blocks** the pair covers; what moves is the
+  band, never the walk. The piece claims a whole number of **blocks** across, two per run —
+  2 / 4 / 6 at 窄 / 中 / 宽 — so its treads and rails end on the cell edges and a wall built
+  beside it stands flush against the outer balustrade and takes it away, as on a straight
+  flight. The landing's **platform** is one block deep — the row the runs turn on
+  (`stairLandingShape`), not the runs' width, which would hang the slab over the last steps of
+  the run climbing into it — and its own balustrade follows the same rule per edge
+  (`stairLandingWalls`, read at the landing's storey, over that shape) — the two
+  long sides of a 双跑楼梯 in a stairwell lose their railings too. Anything that measures a
+  flight's body (the carve, `rampBodyBoxes`, `rampSlopeCuts` — which shaves every block the
+  flight's own line passes through, **the pair a slid band's line divides** included, since
+  a cut that took only the named column left the band's second block standing in the
+  soffit — the
   envelope, `rampWalls`, `stairWallSides`, `stairTurnCells`) has to read
   `stairFlightSlides`. The two
   hands are two pieces, not one turned: **R** rotates the whole stair about its
@@ -203,10 +223,15 @@ build/ →  sim/            (and neither render/ nor app/)
   balustrade wall off at the flight end that meets an interior landing
   (`stairTurnConnectors`), because the 0.6 m over-run an outer landing keeps would
   seal the landing's own cells apart and leave the two flights disconnected. A
-  stair's **walking surface is a finish of its own** (`stair.cfg.finish`, 材质):
-  its treads, risers and half-landing platform are one material, chosen by the
+  stair's **walking surface is a finish of its own** (`stair.cfg.finish`, 材质):  its treads, risers and half-landing platform are one material, chosen by the
   floor it climbs from unless the player painted the piece (`paintStairSurface`,
-  the pointer taking the module over the cell, since treads belong to no cell).
+  the pointer taking the module over the cell, since treads belong to no cell) — and that
+  finish reaches the ground under the run, since the cut's cap is the piece's own surface
+  (see the ground-under-a-run bullet). A turning stair's half-landing floor is the
+  **stair's** cell: `addEquipment` lays it, the mesher skips it (the model draws the
+  platform) and `removeModule` takes it back out with the piece, so a bulldozed 90° / 180°
+  leaves no stray block at mid-run. `isMovableModule` refuses a stair outright, so it leaves
+  and returns through delete and place.
 * **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a
   2 × 2 m assembly with a 1.5 m carriage, dropped on a floor and serving the
   floor one storey up (`LIFT_RISE`); hovering its upper/lower half grows it a
@@ -248,11 +273,19 @@ build/ →  sim/            (and neither render/ nor app/)
   walls and the 墙 tool start), and a two-cell banner needs a wall behind every
   cell of its run (`billboardCells`). `wallMountStandCell` stands the panel on
   the hovered floor, or on the face-adjacent cell when the pointer is on a wall
-  itself, so an ad can bolt to the station wall across the track where there is
+  itself — dropped to that wall's own storey floor (`storeyBand`), so a hover on
+  an upper wall course still anchors to the floor below rather than a floating
+  course height — so an ad can bolt to the station wall across the track where there is
   no floor in front of it. The 指示牌, 电视, 时钟 and 监控 are instead
   *ceiling-hung*: `ceilingMountMissing` refuses them unless a solid slab sits above
   every cell of the piece one storey up (`LEVEL_STEPS`, the 4 m grid), the ceiling
-  their rods bolt to. A 2 m
+  their rods bolt to, and `ceilingMountStandCell` resolves the hover to the floor
+  the piece hangs over from any face — a floor top names its own cell, a ceiling
+  underside one storey down, a wall-course side face the adjacent cell on its own
+  storey floor — so a hung fitting is aimed at the ceiling the way a panel is aimed
+  at its wall. Either way the ghost is the piece itself and no floor cell is
+  highlighted with it (`setCursor(null)` in the equipment, select, delete and move
+  previews; `test/wall-ceiling-snap.test.mjs`). A 2 m
   bench is a real two-cell run — `benchCells` fixes its collision envelope and
   base cells, so it blocks and is found from both cells.
   `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp climbs through
@@ -268,9 +301,16 @@ build/ →  sim/            (and neither render/ nor app/)
   nothing there is thinned at all. A **半墙** the player laid is skipped: that cell
   is already a half block thick, and its side is theirs.
   The ground **under** a run is the other half of that story: a run's body hangs
-  `RAMP_FOOT` (0.5 m) below its walking line, so `rampSlopeCuts` derives the volume
+  below its walking line — an escalator's truss by `RAMP_FOOT` (0.5 m), a stair's
+  stringers and soffit by `STAIR_BODY_DROP` (0.36 m, the line `StairModel` hangs them
+  to, because cutting a stair at a truss's depth leaves a slot of daylight under the
+  steps) — and the **line** is the run's own too: an escalator's truss runs landing
+  centre to landing centre, a stair's treads stop `stairTreadTrim` short of each centre
+  and still carry the whole rise (a 3-cell turn flight climbs at 45° where the walking
+  line is 33.7°), so `flightTiles` cuts a stair to the line its treads climb. So
+  `rampSlopeCuts` derives the volume
   each 楼梯 / 扶梯 takes out of the blocks it climbs over — the same tiles
-  `rampBodyBoxes` reserves, with the truss depth off the local line — and the mesher
+  `rampBodyBoxes` reserves, with that body depth off the local line — and the mesher
   (`chunkMesher`'s `slope` map) draws those blocks' tops on that plane, clipping the
   cross-section where the plane leaves through the block's floor so nothing chords
   back up into the run. A block under a run is therefore floor the 方块 tool lays and
@@ -289,7 +329,18 @@ build/ →  sim/            (and neither render/ nor app/)
   edge and carry none) the filling *is* that body: a sharp rectangle `2 × half` across the
   run, in the run's own steel (`RAMP_SOFFIT_FINISH`, 钢板), so the skirt meets the truss
   flush instead of stepping out 9 cm either side. Anywhere else it wears the finish of the
-  block below. No
+  block below — except the **cap**, the plane the run shaved to: that surface is the run's, so a
+  楼梯 painted with the 材质 brush (`cfg.finish`) paints the ground it stands on with it
+  (`SlopeCut.finish`, read where `topI` is chosen, behind any top face the player painted
+  themselves), while the block's own sides stay the ground's.
+  **No run in the game derives a filling any more.** A 扶梯's piece draws its own body
+  (`SlopeCut.ownBody`) and a **楼梯** asks for none at all (`SlopeCut.noFill`): the course a
+  filling would stand in under a stair is the run's own carved passage — the cell its treads
+  sweep, a mass no block fits in and no 材质 brush can register on — so a stair leans on the
+  ground it really has (the blocks its flight meets, shaved to its underside, the block below
+  the first step included) and hangs over its own well where there is none. The `fill` path
+  itself is still the mesher's, kept honest by `ramp-fill` / `floor-surface` over hand-made
+  cuts, the way the truss-width band is. No
   cell, no tag, nothing to keep in step (dig the ground and the filling goes with it),
   and the hover ghost reads it with the pending cells in place. 钢板 is a stock ceiling
   finish too, so a player can paint a block's bottom face with the same steel.
@@ -419,7 +470,7 @@ build/ →  sim/            (and neither render/ nor app/)
   pins the box (inside the cells, flush on all four faces, no gap round the band, the
   same on all four sides).
 * The **装饰 folder** holds the free-standing, rotatable pieces — 座椅, 货架,
-  办公桌, 厕所隔间, 洗手池, 垃圾桶 and 灭火器 — plus 广告牌 (wall-mounted) and 电视 /
+  办公桌, 厕所隔间, 洗手池, 垃圾桶, 灭火器 and 门 — plus 广告牌 (wall-mounted) and 电视 /
   指示牌 / 时钟 / 监控 (ceiling-hung). 座椅 is a nested sub-menu of four variants from `sim/benches.ts`:
   a plain stainless bench with no back and an upholstered seat with a back and
   arm rests, each 1 m or 2 m; the 2 m piece is a real two-cell run. 货架 draws a
@@ -429,7 +480,21 @@ build/ →  sim/            (and neither render/ nor app/)
   decal carrying 可回收物 and 其它垃圾), and 灭火器 is the red steel extinguisher
   cabinet on four legs (`buildExtinguisher`: overhanging lid, two doors over a dark
   seam, a recessed side handle, one white lettered decal over both doors). Both are
-  cosmetic — no server, no stop — and both count as room furniture. 时钟 is the round
+  cosmetic — no server, no stop — and both count as room furniture. 门 (`sim/doors.ts`) is
+  the folder's one **doorway**: a threshold, a post at each end, a head across them and the
+  leaf hung between, so the piece carries its own frame and stands on a floor tile like a
+  货架 — it is *not* wall-mounted (`WALL_MOUNTED` in `sim/placement.ts` leaves it out, so
+  `wallMountCourses` is empty) and it reserves its whole cells from the floor top to its
+  head. Four variants, 单开 / 双开 × 不锈钢 / 木: a 单开 is one leaf and one cell, a 双开 a pair
+  meeting in the middle over two, and **R** turns it. Nothing on a leaf is glazed, and every
+  fitting — the kick plate, two studs and the pull — stands proud of the leaf's face by
+  `DOOR_FRAME`'s own stand-off, because a plate lying a few millimetres off the leaf
+  z-fights and shimmers as the camera moves. The **office reuses the very same builder**
+  (`pieces/DoorModel.ts` `buildDoor`): a walled room's own doorway is drawn at the
+  opening's width and turn — each caller builds into a group that carries the doorway's
+  place and turn, so a member's size is measured in the piece's own frame too — so a hung 门
+  and a room's door are one drawing.
+  时钟 is the round
   station clock (`buildClock`: an **open-ended** dark bezel ring over a white dial
   disc, with **sixty divisions** — twelve hour marks and 48 minute ticks, at reference
   proportions (hour 0.20 R by 0.055 R, tick 0.10 R by 0.02 R, all ending at the same inner rim) —
@@ -503,14 +568,25 @@ build/ →  sim/            (and neither render/ nor app/)
   into beforehand; a valid turn is kept so flipping a panel between two walls
   still works, and the pointer's aim breaks a corner tie. Hovering
   a wall block itself mounts the panel in the facing floor cell
-  (`wallMountStandCell`), so an ad can hang on the station wall across the track.
+  (`wallMountStandCell`, on that wall's own storey floor), so an ad can hang on
+  the station wall across the track. A hung fitting is placed the same way from
+  the other side: hovering the floor below, the slab overhead or a wall course
+  between them resolves to the floor it hangs over (`ceilingMountStandCell`,
+  `EquipmentTool.ceilingPlacement`). And a wall/ceiling piece is highlighted as
+  itself, never as the floor beneath it: the build preview, the 选择 hover ghost,
+  the 删除 red ghost and the 移动 ghost all draw the piece with `setCursor(null)` —
+  selection still commits the blue `setSelection` box round the model, picked from
+  the drawn mesh (`pickModule`) before the cell.
   **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`, six sizes) is the 围栏's
   wall-mounted cousin: **one outer frame** — a sill, a head and two end posts round the whole run, with
   a single pane between them — so a three-cell panel is one window where a fence stands three frames up.
   站名 (`sim/calligraphy.ts` + `render/calligraphyFace.ts`) is the **station's own name** as an ink
   inscription: the module carries only the hand (楷书 / 行书 / 隶书 / 魏碑 / 黑体 / 宋体) and the axis
   (横排 / 竖排), the plate is **transparent** and holds the name and nothing else (the wall is the paper;
-  no ground, no seal), and a rename reprints every inscription in place. 线网图 (`sim/linemaps.ts`,
+  no ground, no seal), and a rename reprints every inscription in place. A 横排 panel is always an
+  **odd** number of cells wide (`calligraphyPanelCells`), because the run is centred on the cell under
+  the pointer and only an odd count leaves the name's own centre on that cell — an even one drew it
+  half a metre to one side, which is the whole piece when the name is short. 线网图 (`sim/linemaps.ts`,
   `render/lineMapArt.ts`) is the network **poster**: the supplied 广州地铁 线网示意图, saved as
   `src/assets/linemaps/network-map.jpg` (2048 × 2047) and paired with the panel exactly as `adArt.ts`
   pairs an ad slug with its JPEG — **artwork, not a drawing**. Both mounts print the same two-cell board
@@ -535,9 +611,10 @@ build/ →  sim/            (and neither render/ nor app/)
   ticket machine and a drinks machine with the same 1 × 1 m footprint. Both are
   unpaid-zone `stop` servers at `TVM_RATE`, and a quarter of street entries
   (`sampleTripFromStreet`) route through one of the unpaid-zone machines.
-* The **方块 tool** has a **自动生成墙壁** toggle (**off by default**): on, a deliberate drag grows the
+* The **方块 tool** has a **生成墙壁** toggle (**off by default**): on, a deliberate drag grows the
   `auto-wall` ring and tags the floor; off, the same click / drag lays untagged bare blocks with no
-  ring. The toggle has no key — **Tab** steps the 切角 tile's cut modes instead.
+  ring. **Tab** is that toggle's key, refused while a cut piece owns the tool; the
+  **半墙 / 上三角块 / 下三角块** cut tiles are **click-only** (each arms its own mode).
 * The **围栏 tool** (设备) drags out a straight run like 墙, but lays one 1 m panel
   per cell with the panels following the drag direction (R turns a single); a
   right-drag lifts the run. `app/Viewport.tsx` drives a live fence preview that
@@ -642,11 +719,12 @@ build/ →  sim/            (and neither render/ nor app/)
   stays open. A single click stays a plain block. While previewing, a badge pinned
   to the pointer reads the patch's live 长 × 宽 in metres (`Viewport.tsx`
   `buildMeasure`). The ring is **off when the game opens** — it is the one thing the
-  tool does that the player did not draw — and is asked for on its own tile, which is
-  the only way to it (it no longer holds **Tab**). With the **切角** tile on (半墙 /
-  三角上 / 三角下, stepped with **Tab**) a click is instead one
+  tool does that the player did not draw — and is asked for on its own tile, or with **Tab**,
+  the key that tile wears (refused while a cut piece owns the tool, exactly as the tile
+  is not drawn there). With a cut tile on (**半墙** /
+  **上三角块** / **下三角块**, each armed on its own tile, no key) a click is instead one
   cut block, one per click — no patch and no run — and the two are
-  exclusive, so the ring is refused and greyed while a cut mode owns the tool (see the
+  exclusive, so the ring's tile is **not drawn at all** while a cut mode owns the tool (see the
   三角 bullet below). The 墙 tool lays tagged
   four-course columns a right-click lifts whole, and 删除 is button-agnostic: it
   lifts a whole module under the pointer (through its own teardown for a rail or
@@ -662,32 +740,49 @@ build/ →  sim/            (and neither render/ nor app/)
   before the station existed — while later edits leave the camera alone
   (`framedRef`). The equipment hover ghost is rebuilt in place off
   `placementPreviewKey`, so R and a Tab cycle (stair width, escalator direction,
-  闸机 door side, the 方块 tool's 切角 modes) redraw the piece already under the
-  pointer — which needs the
+  闸机 door side) redraw the piece already under the pointer — and the 方块 tool's cut
+  mode and 半墙 side ride the same key — which needs the
   matching entry in `render/moduleGhostKey.ts` as well, or the scene skips the
   rebuild (`setModulePreview`).
   **a variant family is one row in one table.** `app/store/catalog.ts`'s `MODULE_FAMILIES`
-  (`ModuleFamily` = key + label + folder + the ids it `owns` + its variants' tile label/tooltip)
+  (`ModuleFamily` = key + label + folder + the ids it `owns` + its variants' tile label)
   is read by every half of that UI: `familyOptions` is the sub-menu, `familyAnchor` the parent
   tile, `familyFor` / `subMenuForModule` the rail's single open slot, `actionsAnchorFor` where
-  the action row folds out, `folderOptions` a folder's plain tiles (a family's variants are
-  excluded, so nothing is drawn twice) and the folder header's count that same arithmetic.
+  the action row folds out, `folderTiles(folder)` a folder's tiles **in rail order** — the plain
+  ones and each family's parent tile in one list, with `RAIL_ORDER` the one place that order is
+  written down, and `folderOptions` (a folder's plain tiles, a family's variants
+  excluded, so nothing is drawn twice) derived from it — and the folder header's count that same
+  arithmetic.
   `rail/shared/TileGrid.tsx` is the one grid the 设备 and 装饰 folders render, and
   `rail/menus/VariantMenu.tsx` the one variant list for every family (replacing four
   near-identical menus — 座椅 / 广告牌 / 出入口 / 楼梯 — and two hand-wired folder bodies — a family could otherwise be half
   wired: a variant whose list folded away when picked, or a 旋转 tile anchored to a tile no
   folder drew). Adding a family is one row; `test/rail-families.test.mjs` pins the contract.
+  **The action row is one component for the whole rail** — `rail/actions/ActionRow.tsx` holds the
+  fold, the open rule (`actionRowOpen`) and every action tile (旋转 / 自定义 / 窄 中 宽 / 上行-下行 /
+  有门-围栏), and the **工具 folder mounts the very same row** under its cut pieces, so a 半墙's 旋转
+  *is* the component a 座椅's comes from; the 旋转 tile itself is `rail/shared/RotateTile.tsx` (one
+  glyph and one **R** badge for the piece, a cut piece, a 轨道 run and the 剖切 surface alike, named in
+  that file and nowhere else); which tile a row belongs to is one derivation for pieces and
+  cuts alike (`rail/helpers.ts` `armedTiles` → `armedRailTile` / `armedActionsAnchor`). The cut
+  pieces themselves are `CUT_MODES` beside the family table (one row per piece: label and glyph,
+  its own `cutAnchor`), armed through the single `setCutMode` call. **No tile anywhere carries a
+  tooltip** (`Block` has no `title` at all): a tile shows its label, its art and its key badge, and
+  `aria-label` — not `title` — is how an icon-only control is named.
   `app/LeftRail.tsx` is now a barrel over `app/rail/` (shell + `folders/`,
   `menus/`, `actions/`, `items/`, `shared/`); thumbnails are rendered from
   the real models by `app/moduleThumbnails.ts` / `app/zoneThumbnails.ts`.
-* **The code is organised for parallel edits** (`game/plan.md`): every window,
+* **The code is organised for parallel edits** (the rules `game/plan.md` once held —
+  the file is gone, and its R1–R6 / lane citations in source comments are
+  historical): every window,
   subwindow, list item, tool and 3D model is its own unit in its own file, and
   shared UI/behaviour uses a base class or shared chrome rather than a shared
   god-file. The former giants are now barrels over their folders —
   `app/App.tsx`→`windows/`, `app/LeftRail.tsx`→`rail/`, `app/store.ts`→`store/`,
   `app/SignEditor.tsx`→`windows/sign/`, `build/model.ts`→`model/`,
   `render/models.ts`→`models/`, `render/scene.ts`→`scene/`, `sim/world.ts`→`world/`
-  — so every deep import still resolves. Follow R1–R6 before adding a unit.
+  — so every deep import still resolves. Keep the rule when adding a unit: one
+  unit per file, and the barrel re-exports it (`references/module-map.md`).
 * `app/store.ts` is zustand (a barrel over `app/store/`: `Store.ts` wiring + one
   slice per concern + `catalog.ts`): the station document lives here, the sim
   lives in the worker. `app/boot.tsx` is lazy-imported so `app/mobile.ts` +
@@ -751,16 +846,25 @@ build/ →  sim/            (and neither render/ nor app/)
 * The **半墙 kit** has landed (`sim/types.ts`, `sim/constants.ts`
   `HALF_WALL_T`, `build/model.ts`, `render/chunkMesher.ts`, `render/scene.ts`,
   `app/store.ts` `halfWall`, `app/Viewport.tsx`, `app/LeftRail.tsx`,
-  `game/test/halfwall.test.mjs`): the **方块** tool's **切角** tile, on its 半墙 step,
+  `game/test/halfwall.test.mjs`): the **工具** folder's **半墙** tile (the **方块** tool's mode),
   lays
   one 4 m column half a block thick per click — the wall a facility room's own walls
   and a wide run's side panel are made of, as a piece the player can put anywhere.
   It sits on the 方块 tool because it *is* the wall that tool grows, so the cut modes
   and the generated ring are exclusive: any cut mode holds 自动生成墙壁 off and the
   store refuses
-  that toggle while one owns the tool (its tile greys out), and leaving the cycle does
-  **not** switch the ring back on — it is off by default, and its own tile is what
-  raises it. **Tab** steps the tile's three pieces (半墙 → 三角上 → 三角下 → 关), and a cut
+  that toggle while one owns the tool, and with one armed the ring's tile is **not in
+  the folder at all** (`rail/helpers.ts` `showsAutoWalls` — a control the player cannot
+  use does not take a place among the ones they can). The cut pieces are a table,
+  `CUT_MODES` (`app/store/catalog.ts`, one row per piece with its label and glyph), and an
+  armed one folds out a **旋转 row under its own
+  tile** — `cutAnchor` is the cut's tile *and* its action anchor, so the row arrives
+  through the very `ActionRow` a 座椅's 旋转 does (`armedTiles` answers for both), and it
+  steps the same counter **R** turns (`rotateWallSnap`), since which half a 半墙 keeps and
+  which corner a 三角
+  takes is the hovered column's business. Leaving a cut mode does
+  **not** switch the ring back on — it is off by default, and its own tile (or **Tab**) is what
+  raises it. Each of the table's three pieces (半墙 / 三角上 / 三角下) is armed on its own tile, and a cut
   click is one column where it landed, never a patch or a run (`addWalls`'s `side`,
   `d.single` in the viewport). A 半墙 is still an ordinary solid wall cell — `WALL`
   plus a `half-wall:<side>` tag (`halfWallTag` / `halfWallSide`), so the column
@@ -937,12 +1041,13 @@ build/ →  sim/            (and neither render/ nor app/)
   ever *refused*: refusal is for a broken envelope (`文件损坏`, 不是地铁车站存档,
   存档太新了, 缺少车站数据), and a station that is otherwise fine is not worth losing
   over a block no tool can see. A load that had to repair says so in the 打开 notice,
-  the shipped file is nonetheless kept clean (the current bake ships **11 333 cells and
-  366 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-05
-  06:56Z save — the copy it replaced was 11 315 cells of an older one — and it carries
-  the **new cut pieces**: two 半墙 courses and thirty-two 三角 courses the author laid
-  with the 切角 tile, ordinary `wall` + `half-wall:*` / `tri-*:*` cells that no suite
-  has to know about),
+  the shipped file is nonetheless kept clean (the current bake ships **11 627 cells and
+  394 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-06
+  14:53Z save — the copy it replaced was 11 291 cells / 376 modules from earlier the same
+  day — and it carries the **new cut pieces**: two 半墙 courses and thirty-two 三角 courses
+  the
+  author laid with the cut tiles, plus four free-standing 门, ordinary `wall` +
+  `half-wall:*` / `tri-*:*` cells and `door` modules that no suite has to know about),
   and `demo.test.mjs` fails if one ever arrives. Nothing in the game can *mint* one —
   a pick names whole cells (`render/pickCell.ts`: the block hit, and the block one step
   out along the face it was hit on), pinned against real meshed geometry by
@@ -960,9 +1065,15 @@ build/ →  sim/            (and neither render/ nor app/)
   (`store.ts` `paintBaseMode`), not a property of a tile: clicking a finish tile — or a fresh
   搪瓷板 colour, which now reaches the brush in the same click instead of the previous render's
   value — leaves the mode alone, so it survives a detour through another folder on the left rail.
-  `I` 取色 only borrows the brush and hands it back in the mode it was entered with
+  `P` 吸取 (the 工具 folder's eyedropper) lifts a bare face's finish into the brush and a placed
+  piece into the placement; a **指示牌** is copied as its own printed **boards**
+  (`SignSlice.adoptSignBoards`), not merely as its tile, and the whole gesture is put back by
+  **Esc** through the `PickSlice` draft the picker notes before it writes (`beginPick` /
+  `cancelPick` — the tool, the piece, its settings, the brush and the boards); the rail scrolls to
+  the armed tile as it changes (`rail/helpers.ts` `activeRailTile` + `revealScrollDelta`, run
+  twice so the 280 ms fold has settled). The old in-brush `pick` overlay only borrows the brush and hands it back in the mode it was entered with
   (`resumePaintMode`); `selectPaintFinish` is the finish tile's whole click.
-  `game/test/paint-mode.test.mjs` pins it.
+  `game/test/paint-mode.test.mjs` and `game/test/pick-tool.test.mjs` pin them.
 * The **闸机 piece** landed (`sim/gates.ts`, `sim/station.ts`,
   `sim/types.ts`, `render/models.ts`, `app/LeftRail.tsx`, `app/App.tsx`,
   `app/store.ts`, `game/test/gate-door.test.mjs`): `cfg.door` is `lane` (default)
@@ -1043,9 +1154,13 @@ build/ →  sim/            (and neither render/ nor app/)
   `build/model.ts` `replaceEquipment`, `app/store.ts` `moveDraft`, `app/App.tsx`
   the `信息` card, `game/test/move.test.mjs`). It is deliberately **neither a tool
   nor a second panel**: the piece is already selected (选择), so the way in is the
-  right inspector's `信息` card — pressing `移动` there lifts the selected piece —
+  right inspector's `信息` card — pressing the 移动 button there lifts the selected
+  piece (an **icon** button, `IoMdMove`; 编辑指示牌面板 beside it is `FaEdit`, the lift's
+  own 确认 / 取消 become a tick and a cross — `IoMdCheckmark` / `IoMdClose` — and no
+  button in that column wears a tooltip — the name is the `aria-label`, and a disabled
+  移动 says why in a line of text under the row instead) —
   and *that same card* turns into the move's whole control surface while the piece is
-  in the air, with `确认` / `取消` exactly where `移动` was, over the cell the drop
+  in the air, with the tick and the cross exactly where 移动 was, over the cell the drop
   would use and the rule a refused cell broke (there is no bottom bar). The lift then
   owns the pointer whatever tool is active, because a lift is a state of the *piece*,
   not a mode (the active tool is left alone). It stops being *drawn* where it stood
@@ -1056,7 +1171,11 @@ build/ →  sim/            (and neither render/ nor app/)
   to restore — and the drop is **one** commit (one `Ctrl+Z`), refused by the same
   rules a fresh placement answers to (floor under every cell, no track bed, nothing in
   the space, a wall for a 广告牌, a ceiling for a 指示牌 / 电视), asked of a piece that
-  already exists so the copy at its origin is never the obstacle. The three ways out
+  already exists so the copy at its origin is never the obstacle. A carried wall panel
+  aims through `wallMountStandCell` and a hung fitting through `ceilingMountStandCell`
+  (`MoveController.moveAnchorAt`, reading the placed module's own mount — `isWallMounted` /
+  `isCeilingHung` — so a totem is never mistaken for a wall piece), and either previews
+  with no floor cursor: the ghost is the highlight. The three ways out
   are a left press on the ground, the card's 确认 (or `Enter`), and 取消 / `Esc` / a
   right press, which puts the piece back; switching tools mid-lift also puts it back.
   A ghost carries a private id (`MOVE_GHOST_ID`), because a 指示牌's printed plate and
@@ -1131,9 +1250,9 @@ build/ →  sim/            (and neither render/ nor app/)
   names it. The two cuts are **two families, not one shape turned**: 三角上 stands the flat
   square on the floor (a ramp), 三角下 hangs it from the ceiling (the soffit under a
   diagonal), and **R** steps the four sides the full-height face stands on. The three cut
-  pieces share one rail tile — **切角**, whose label names whichever is live — and **Tab**
-  steps it (半墙 → 三角上 → 三角下 → 关), the key that used to toggle 自动生成墙壁; the ring is
-  now **off when the game opens** and its own tile is what raises it, so a fresh station
+  pieces are **three rail tiles** — **半墙**, **上三角块** and **下三角块** — each arming the 方块
+  tool with its own mode, one click each and no key; the 生成墙壁 ring is
+  **off when the game opens** and its own tile (or **Tab**, its key) is what raises it, so a fresh station
   builds the way it was drawn. `thinWallCells` / `thinWallSideMap` hand out a `CellShape`
   (`{kind:'half'}` | `{kind:'triangle'}`) rather than a bare `WallSide`, which is the type the
   mesher, the build ghost, the chunk hash and `facePresent` all read. A 三角's **slope is a face of

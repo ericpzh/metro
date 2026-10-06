@@ -19,6 +19,7 @@ export function RoomFolder(): React.ReactElement {
         <Block
           key={f.id}
           label={f.label}
+          tile={f.id}
           // The tile shows the room's **type** — store, ticket desk, office,
           // washroom — not a colour chip: which of the four a drag will build
           // has to be legible at a glance, and the colour only ever said

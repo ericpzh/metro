@@ -65,7 +65,7 @@ export function TextFields({
         mark={paletteMark({ kind: 'text', text: text === '' ? '文字' : text })}
         lines={stationLines}
         active={comp !== undefined}
-        title={`${text === '' ? '文字' : text.replace('\n', ' / ')} — 拖到格位上`}
+        label={text === '' ? '文字' : text.replace('\n', ' / ')}
         onPointerDown={(e) => onArmDrag(text, e)}
         onClick={onPick}
       />

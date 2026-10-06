@@ -58,7 +58,7 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
           value={name}
           maxLength={16}
           placeholder="线路名"
-          title="线路名（回车或点击别处保存）"
+          aria-label="线路名"
           onChange={(e) => setName(e.target.value)}
           onBlur={commitName}
           onKeyDown={(e) => {
@@ -73,14 +73,13 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
           type="color"
           className="lineColourInput"
           value={colour}
-          title="线路颜色"
+          aria-label="线路颜色"
           onChange={(e) => setColour(e.target.value)}
           onBlur={commitColour}
         />
         <button
           type="button"
           className="lineDeleteBtn"
-          title="删除线路，连同它名下的轨道和屏蔽门"
           aria-label="删除线路"
           onClick={() => removeLine(line.id)}
         >
@@ -167,7 +166,6 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
           <button
             key={p}
             className={(line.psd ?? 'full') === p ? 'chip on' : 'chip'}
-            title={p === 'full' ? '全高屏蔽门：整层高的玻璃，顶部印刷线路信息' : '半高屏蔽门：1.5m 高，线路信息贴在玻璃上'}
             onClick={() => updateLine(line.id, { psd: p })}
           >
             {p === 'full' ? '全高' : '半高'}
@@ -184,7 +182,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
           max={400}
           step={10}
           value={perCar}
-          title={`每节 ${perCar} 人`}
+          aria-label="每节载客量"
           onChange={(e) => updateLine(line.id, { alightPerTrain: Number(e.target.value) * line.cars })}
         />
       </label>

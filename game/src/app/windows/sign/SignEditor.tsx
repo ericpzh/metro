@@ -8,20 +8,31 @@
 //      other way reads, and they are independent lists. The 背面 row starts
 //      **empty** — a one-sided sign is a real sign — and an empty row still has
 //      its one place, so there is somewhere to drop the first mark.
-//   2. **the four groups** — 箭头, 图标, 线路 or 文字, each a tile showing what it
-//      makes, and one open at a time: opening a group folds the one before it, and the
-//      palette that folds out does so **beside its own tile**, pushing the groups after
-//      it along.
-//   3. **the open group's palette** — every option it offers, one square each.
-//      The palette is **shared**: the same tile drags onto either row, and the row
-//      it lands in is the face it prints on. Nothing in it is unique — a mark may be
-//      laid down as many times as the board has places.
+//   2. **the four groups** — 箭头, 图标, 线路 or 文字, each a tab showing what it
+//      makes, and one open at a time: the open group's palette folds out in the well
+//      **under the tabs**.
+//   3. **the open group's palette** — every option it offers, one square each, in a
+//      wrapped grid. The palette is **shared**: the same tile drags onto either row,
+//      and the row it lands in is the face it prints on. Nothing in it is unique — a
+//      mark may be laid down as many times as the board has places.
+//
+// The modal is laid out the way it is used — **library on the left, boards on the
+// right** — so the gesture runs left to right: a tile is picked up out of the library
+// and put down on a board, and the board's own right-hand end, where the drag comes to
+// rest, is where the bin stands. ✕ is in the header, top left, as a modal's close is.
 //
 // A bin is a **place in a list**, and the list it belongs to is the face whose row
 // it is: an item may be dropped into a bin, from one bin into another **on the same
 // face**, and nowhere else. Bin order is list order, all the way down to the model
 // (`packSignRow`); dragging across the two rows would put a front board's mark on
 // the back one, which is not a reorder but a different sign.
+//
+// A drag that ends **off** the rows — and off the two places that destroy what they are
+// given — puts the mark back where it was. The two that destroy are the rail's bin and,
+// for a mark lifted off a board, the **library** itself: the shelves are where a tile came
+// from, so carrying one back into them is how it is given up, the same gesture run the
+// other way (`pointerOverLibrary` → `endDrag`). A palette tile let go in the shelves has left
+// nothing behind and simply stays there.
 //
 // There is no second view of either board, because a bin already *is* the board:
 // every tile — a place, a group, a palette option, the mark in the air — is drawn
@@ -30,9 +41,9 @@
 // that will be printed, and a row of bins is the board read left to right. No tile
 // carries lettering: a name would be a second, worse picture of the thing.
 //
-// Two buttons, bottom right: ✕ throws the edit away and ✓ keeps it. Nothing reaches the
-// station's undo stack until ✓ (`store.previewSignLayout` → `commitSignLayout`), so
-// a half-arranged board is not an edit.
+// The action cluster under the boards is the bin and the two acts: **✓** keeps the edit and
+// **✕** — in the header — throws it away. Nothing reaches the station's undo stack until ✓
+// (`store.previewSignLayout` → `commitSignLayout`), so a half-arranged board is not an edit.
 //
 // The presentation sub-parts are their own units: the tile pictures (`tileArt.tsx`), the
 // palette (`palette.tsx`), a row of places (`BinStrip.tsx`), the 文字 boxes (`TextFields.tsx`)
@@ -45,6 +56,7 @@ import {
   SIGN_ARROWS,
   SIGN_COMPONENT_MAX,
   settleSignBins,
+  signLayoutCarried,
   signLayoutInserted,
   signLayoutMoved,
   signMarkFits,
@@ -107,7 +119,11 @@ export function SignEditor(): React.ReactElement | null {
   // The editor's own boards: taken once, when the editor opens, and written back on
   // ✓. `opened` is what a ✕ goes back to.
   const [boards, setBoards] = useState<SignBoards>(stored)
-  const [group, setGroup] = useState<SignGroupId | null>(null)
+  // **箭头 is open on a fresh session.** The library is a well of tiles, and a well that starts
+  // empty says the editor has nothing to put on a board — which is the opposite of true. It is
+  // also the group a sign is most often built out of, and a group is only ever *open*, never
+  // required: pressing the tab shuts it again (`toggleGroup`).
+  const [group, setGroup] = useState<SignGroupId | null>('arrow')
   // The face whose row the palette is currently working on: the one last touched, and
   // the one a mark added by a **click** lands on. A drag re-reads the row under the
   // pointer (`trackDrag`), so a tile let go over 背面 is a back mark without the player
@@ -125,12 +141,13 @@ export function SignEditor(): React.ReactElement | null {
 
   useEffect(() => {
     if (!open) return
-    // A modal opens on its own boards: the group that was open and the mark that was
-    // picked both belong to the boards that were just closed.
+    // A modal opens on its own boards: the mark that was picked belongs to the boards that
+    // were just closed, so it goes with them. The library opens on 箭头 (see `group`), which
+    // is what makes a fresh session show tiles rather than an empty well.
     opened.current = stored
     setBoards(stored)
     setSelection(null)
-    setGroup(null)
+    setGroup('arrow')
     setFocusedFace('front')
     setDragMark(null)
     setInsertAt(null)
@@ -228,6 +245,14 @@ export function SignEditor(): React.ReactElement | null {
     ghost: HTMLElement | null
     /** The pointer is over the bin, so the mark is about to be thrown away. */
     overTrash: boolean
+    /**
+     * The pointer is over the **library** — the tiles the mark was taken from — so it is
+     * about to be thrown away there instead. The two are mutually exclusive and the bin is
+     * asked first: the corner plate is inside the workspace and the library is the whole
+     * left column, so nothing is ever over both, and asking the bin first is what keeps a
+     * drag aimed at the corner from being read as a drag back into the shelves.
+     */
+    overLibrary: boolean
   } | null>(null)
   const armed = useRef<{ id: string; payload: string; face: SignFaceName; x: number; y: number } | null>(null)
   const placeRef = useRef<{ face: SignFaceName; index: number } | null>(null)
@@ -235,6 +260,10 @@ export function SignEditor(): React.ReactElement | null {
   // place a drag can end that is not a place on a board.
   const trashRef = useRef<HTMLButtonElement | null>(null)
   const [overTrash, setOverTrash] = useState(false)
+  // The library, and whether the mark in the air is over it: the **other** place a drag can
+  // end without putting the mark down on a board — see `pointerOverLibrary` and `endDrag`.
+  const libraryRef = useRef<HTMLDivElement | null>(null)
+  const [overLibrary, setOverLibrary] = useState(false)
   // The newest boards, the newest writer and the newest lines, read through refs so the
   // window listeners are bound once per session rather than once per keystroke.
   const boardsRef = useRef(boards)
@@ -342,6 +371,30 @@ export function SignEditor(): React.ReactElement | null {
     )
   }
 
+  /**
+   * True when the pointer is over the **library** — the column of tiles the mark was taken
+   * out of in the first place.
+   *
+   * Letting go here **throws the mark away**, which is the same gesture run backwards: a
+   * tile is dragged out of the shelves onto a board, so dragging it back off the board and
+   * into the shelves is how it is given up, and it is the way a delete is asked for that
+   * needs no second target to find — the library is already the size of a column. It is
+   * the second of the two ends a drag can come to that is not a place on a board, and the
+   * bin is the first (`overTrash`), which is why this one is only ever asked when the
+   * pointer is not on the bin.
+   *
+   * The box is read as written (`getBoundingClientRect`), unlike the bin's: the bin grows
+   * while a mark is over it, so its hit test has to measure the layout box to keep from
+   * chasing its own state — nothing about the library moves, so what "over the library"
+   * means cannot drift either, and a target the size of a column needs no slack around it.
+   */
+  const pointerOverLibrary = (x: number, y: number): boolean => {
+    const el = libraryRef.current
+    if (!el) return false
+    const r = el.getBoundingClientRect()
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+  }
+
   /** Move the drag to the place under the pointer, if it changed. */
   const trackDrag = (x: number, y: number, mark: SignComponent): void => {
     const d = drag.current
@@ -358,7 +411,17 @@ export function SignEditor(): React.ReactElement | null {
       d.overTrash = over
       setOverTrash(over)
     }
-    const place = over ? null : placeAt(x, y)
+    // The library is the other throw-away target, and the bin is asked first (see the
+    // drag record): a pointer over the corner plate is never read as a drag into the
+    // shelves, so the two cues cannot both be lit.
+    const inLibrary = !over && pointerOverLibrary(x, y)
+    if (inLibrary !== d.overLibrary) {
+      d.overLibrary = inLibrary
+      setOverLibrary(inLibrary)
+    }
+    // Over **either** one the pointer is over no place, and the row is left exactly as it
+    // was for the same reason in both cases: the mark has not been put down anywhere yet.
+    const place = over || inLibrary ? null : placeAt(x, y)
     if (place?.face === placeRef.current?.face && place?.index === placeRef.current?.index) return
     placeRef.current = place
     setInsertAt(place === null ? null : place.index)
@@ -378,16 +441,17 @@ export function SignEditor(): React.ReactElement | null {
     // being dragged to, and re-laying the row on every pointer move would be churn.
     if (sameFace && at === place.index) return
     // **Across the two rows is a move between boards**, not a reorder: the mark leaves the
-    // board it was on and joins the one it is over. Both faces are written in the one call,
-    // so the pair is never left holding the same mark twice — and because the editor *draws*
-    // what it stores, the mark travels with the pointer from one row to the other as it is
-    // carried. A drag that wanders back before it is let go simply puts it back, because
-    // this is the same statement run the other way.
+    // board it was on and joins the one it is over. Both faces are written in the one call
+    // (`signLayoutCarried`), so the pair is never left holding the same mark twice — and
+    // because the editor *draws* what it stores, the mark travels with the pointer from one
+    // row to the other as it is carried. A drag that wanders back before it is let go simply
+    // puts it back, because this is the same statement run the other way.
     //
-    // The mark is taken **out of** the target list before it goes back in. Across the rows
-    // that filter is a no-op (the mark is not there); within a row it is the removal that
-    // turns an insert into a move, and without it a reorder inserted a *second* copy of the
-    // mark — the duplicate a settle renames to `c3_` — into a row that already had it.
+    // The mark arrives under a **new id**, minted against the board it joins: a board numbers
+    // its own marks, so the two boards are full of the same names, and a mark handed over as
+    // it stands is a second `c2` in a row that already holds one (see `signLayoutCarried`).
+    // The drag follows the id it now has, because the next pointer move looks the mark up by
+    // id — the old one would stop finding it and the drag would die in mid-air.
     if (!sameFace) {
       // The target board has to have room for it — asked **here**, at the moment the mark
       // would change boards, and never before: a press blocks nothing (a drag may be going
@@ -398,18 +462,10 @@ export function SignEditor(): React.ReactElement | null {
       if (!signMarkFits(boardsRef.current[place.face], comp)) {
         return
       }
-      const next = signLayoutInserted(
-        boardsRef.current[place.face].filter((c) => c.id !== comp.id),
-        comp,
-        place.index,
-      )
-      // The mark was renumbered by that re-lay (`signLayoutInOrder` mints ids from the
-      // list's order), so the drag follows the id it now has — otherwise the next pointer
-      // move would look for the old one and stop finding it.
-      const moved = next.find((c) => c.id === comp.id) ?? next[Math.min(place.index, next.length - 1)]
-      d.id = moved ? moved.id : d.id
-      d.remove = { face: place.face, id: d.id }
-      applyRef.current({ ...boardsRef.current, [held.face]: list.filter((c) => c.id !== comp.id), [place.face]: next })
+      const carried = signLayoutCarried(list, boardsRef.current[place.face], comp.id, place.index)
+      d.id = carried.id
+      d.remove = { face: place.face, id: carried.id }
+      applyRef.current({ ...boardsRef.current, [held.face]: carried.source, [place.face]: carried.target })
       return
     }
     // A move along a row is the model's own reorder (`signLayoutMoved`), which re-states
@@ -432,18 +488,21 @@ export function SignEditor(): React.ReactElement | null {
     setHoverFace(null)
     setDragMark(null)
     setOverTrash(false)
+    setOverLibrary(false)
     if (!commitDrop || !d) return
-    // A mark that was **on a board** is thrown away when it is let go over the rail's bin,
-    // and by nothing else. Letting go anywhere else that is not a place on a row puts it
-    // back where it was — a drag that wanders off the panel and comes back, or ends on the
-    // scrim, is a drag the player changed their mind about, and a gesture that quietly
-    // deletes a mark for being released a few pixels too far is not one anybody can use.
-    // This is the only way a mark leaves a board, now that a bin carries no ✕.
+    // A mark that was **on a board** is thrown away by two gestures, and by nothing else:
+    // let go over the rail's bin, or let go back over the **library** of tiles it was taken
+    // from (`overLibrary`). Everything else that is not a place on a row puts it back where
+    // it was — a drag that wanders off the panel and comes back, or ends on the scrim, is a
+    // drag the player changed their mind about, and a gesture that quietly deletes a mark
+    // for being released a few pixels too far is not one anybody can use. Neither gesture
+    // reaches a **palette** tile (`d.id === null`): one that is let go back in the shelves
+    // has not left anything, so there is nothing to give up.
     //
     // `d.remove` names the board the mark is on **now**, which is where a move across the
     // rows last put it — not the board it was lifted from. `d.id` is read from it rather
     // than remembered, because a move renumbers the mark (`trackDrag`).
-    if (d.id !== null && d.overTrash) {
+    if (d.id !== null && (d.overTrash || d.overLibrary)) {
       if (d.remove.face !== null) removeRef.current(d.remove.face, d.id)
       return
     }
@@ -474,12 +533,11 @@ export function SignEditor(): React.ReactElement | null {
       const comp = list.find((c) => c.id === d.id)
       if (comp) {
         if (signMarkFits(boardsRef.current[place.face], comp)) {
-          const next = signLayoutInserted(
-            boardsRef.current[place.face].filter((c) => c.id !== comp.id),
-            comp,
-            place.index,
-          )
-          applyRef.current({ ...boardsRef.current, [d.remove.face]: list.filter((c) => c.id !== comp.id), [place.face]: next })
+          // The same cross-board statement the live hover makes (`signLayoutCarried`), under
+          // a new id on the board it joins: this is the drop of a drag the hover *refused*,
+          // so the mark never moved and is still written at the place it was lifted from.
+          const carried = signLayoutCarried(list, boardsRef.current[place.face], comp.id, place.index)
+          applyRef.current({ ...boardsRef.current, [d.remove.face]: carried.source, [place.face]: carried.target })
         } else {
           noticeRef.current(SIGN_FULL_NOTICE)
         }
@@ -514,6 +572,7 @@ export function SignEditor(): React.ReactElement | null {
         remove: { face: a.id === '' ? null : a.face, id: a.id },
         ghost: null,
         overTrash: false,
+        overLibrary: false,
       }
       dragMarkRef.current = mark
       setDragMark(mark)
@@ -715,6 +774,12 @@ export function SignEditor(): React.ReactElement | null {
   if (!open) return null
 
   const lines = station.lines
+  // Whether what is in the air came **off a board**, which is the only thing the library's
+  // throw-away cue is for: a palette tile let go over the shelves has left nothing behind,
+  // so lighting the well for it would promise a delete that does not happen. A board mark
+  // keeps its own id, and a palette tile is `DRAG_MARK_ID` (`markFor`), so the two are told
+  // apart by the id the drag already carries.
+  const carryingBoardMark = dragMark !== null && dragMark.id !== DRAG_MARK_ID
   // Each face's own geometry, for the two things a row of tiles needs from it: the
   // settled order and the marks on it. A tile is a fixed square rather than a slice of
   // the panel, but the row is still the board: one square per mark, in order. The back
@@ -731,78 +796,68 @@ export function SignEditor(): React.ReactElement | null {
   })
   return (
     <div className="signModal" role="dialog" aria-modal="true" aria-label="指示牌编辑器">
-      <div className="signPanel">
-        {/* 1. the two boards — 正面 and 背面, each a labelled row of places drawn the way
-            the sign prints it. They are two independent boards, so each has its own row,
-            its own order and its own (possibly empty) content. */}
-        <div className="signBoards">
-          {rows.map((row) => (
-            <div key={row.face} className={focusedFace === row.face ? 'signFaceRow on' : 'signFaceRow'}>
-              <button
-                type="button"
-                className="signFaceLabel"
-                aria-pressed={focusedFace === row.face}
-                onClick={() => focusFace(row.face)}
-              >
-                {FACE_LABEL[row.face]}
-              </button>
-              <BinStrip
-                face={row.face}
-                layout={row.layout}
-                selectedId={selectedId(row.face)}
-                dropping={hoverFace === row.face && insertAt !== null}
-                onPickStart={(id, e) => {
-                  // Pressing a bin is also how the palette is pointed at that face. The
-                  // selection survives a press on a **different** face, because the press
-                  // itself is about to select there: `focusFace` runs first and would
-                  // otherwise drop the pick the player is in the middle of making.
-                  if (focusedFace !== row.face) setFocusedFace(row.face)
-                  setSelection({ face: row.face, id })
-                  // Armed, not started: a press that never moves is a selection.
-                  armed.current = { id, payload: '', face: row.face, x: e.clientX, y: e.clientY }
-                }}
-                lineDefs={lines}
-                ready={ready}
-                label={`${FACE_LABEL[row.face]} · ${FACE_ROW_LABEL[row.face]}`}
-              />
-            </div>
-          ))}
+      <div className={dragMark === null ? 'signPanel' : 'signPanel dragging'}>
+        {/* 0. the header: the way out, on the **right**. It is a bar of its own rather than a
+            corner of the action cluster so that ✕ is not one more button inside the gesture's
+            own strip — 应用 is the act that ends an edit, and a modal's close belongs at the top
+            of the frame it closes. It is deliberately **small and unnamed**: the modal is the
+            指示牌 editor by virtue of being open, and a title bar with a name in it only takes
+            room from the board. */}
+        <div className="signHead">
+          <button type="button" className="signClose" aria-label="放弃修改" onClick={cancel}>
+            ✕
+          </button>
         </div>
 
-        {/* 2. the four groups, each its own tile, and the open group's options folding
-            out **beside its own tile** — so opening one pushes the tiles to its right
-            along, the way the build rail's tiles are pushed down by a sub-menu. The tile
-            and its palette are one item of this row (`.signGroup`), which is what keeps
-            the palette attached to the group it belongs to rather than to the end of the
-            row. All four palettes stay mounted and one is open: `PaletteRow` clips the
-            others to nothing, so switching group is the old palette folding away while
-            the new one folds out, in one movement. */}
-        <div className="signPalette">
-          {SIGN_GROUPS.map((g) => (
-            <div className="signGroup" key={g.id}>
-              <GroupTile
-                id={g.id}
-                lines={lines}
-                ready={ready}
-                active={group === g.id}
-                title={group === g.id ? `${g.label} — 收起这一组` : `${g.label} — 展开这一组`}
-                onToggle={() => toggleGroup(g.id)}
-              />
+        {/* 1. the two columns. **The library on the left, the boards on the right**: the tiles
+            that make a mark are a store the player takes from, and the 正面 / 背面 rows are the
+            thing being built — so the panel reads the way it is used, and the gesture runs left
+            to right. It also leaves the boards' own right-hand end, where a carried mark comes
+            to rest, beside the bin. */}
+        <div className="signBody">
+          {/* 1a. the library: the four groups as a row of **tabs**, and the open group's
+              options in the well under them. It is also a **drop target** — the way back
+              out of a board — so it carries a ref for the drag's own hit test
+              (`pointerOverLibrary`) and wears the danger tint while a mark lifted off a board is
+              held over it. */}
+          <div
+            ref={libraryRef}
+            className={['signLibrary', overLibrary && carryingBoardMark ? 'over' : ''].filter(Boolean).join(' ')}
+          >
+            <div className="signTabs">
+              {SIGN_GROUPS.map((g) => (
+                <GroupTile
+                  key={g.id}
+                  id={g.id}
+                  lines={lines}
+                  ready={ready}
+                  active={group === g.id}
+                  label={g.label}
+                  onToggle={() => toggleGroup(g.id)}
+                />
+              ))}
+            </div>
 
-              <PaletteRow open={group === 'arrow' && g.id === 'arrow'}>
+            {/* 1b. the open group's palette. One group is open at a time, and the well folds
+                its contents in and out: the row is a `0fr → 1fr` grid row whose child clips
+                what it holds, so switching group is the old palette folding away while the
+                new one folds out, in one movement — the same fold the build rail's folders
+                use, turned to the library's width instead of its depth. */}
+            <div className="signPalette">
+              <PaletteRow open={group === 'arrow'}>
                 {SIGN_ARROWS.map((a) => (
                   <MarkTile
                     key={a}
                     mark={paletteMark({ kind: 'arrow', arrow: a })}
                     lines={lines}
                     active={selected?.kind === 'arrow' && selected.arrow === a}
-                    title={`箭头 ${ARROW_ANGLE[a]}° — 拖到格位上`}
+                    label={`箭头 ${ARROW_ANGLE[a]}°`}
                     onPointerDown={(e) => armPaletteDrag(`arrow:${a}`, e)}
                   />
                 ))}
               </PaletteRow>
 
-              <PaletteRow open={group === 'icon' && g.id === 'icon'}>
+              <PaletteRow open={group === 'icon'}>
                 {SIGN_MARKS.map((m) => (
                   <MarkTile
                     key={m.icon}
@@ -810,7 +865,7 @@ export function SignEditor(): React.ReactElement | null {
                     lines={lines}
                     ready={ready}
                     active={selected?.kind === 'icon' && selected.icon === m.icon}
-                    title={`${m.label} — 拖到格位上`}
+                    label={m.label}
                     onPointerDown={(e) => armPaletteDrag(`icon:${m.icon}`, e)}
                   />
                 ))}
@@ -819,7 +874,7 @@ export function SignEditor(): React.ReactElement | null {
               {/* 线路 is a mark, not a setting: a shield is dropped wherever the pointer lets
                   it go and may be laid down as many times as the board has places, so the same
                   line can stand five times on one sign. A click adds one after the selection. */}
-              <PaletteRow open={group === 'line' && g.id === 'line'}>
+              <PaletteRow open={group === 'line'}>
                 {lines.map((l) => {
                   const active = selected?.kind === 'line' && (selected.lineId === l.id || (selected.lineId === '' && lines[0]?.id === l.id))
                   return (
@@ -828,7 +883,7 @@ export function SignEditor(): React.ReactElement | null {
                       mark={paletteMark({ kind: 'line', lineId: l.id })}
                       lines={lines}
                       active={active}
-                      title={`${l.name} — 拖到格位上，可以放多个`}
+                      label={l.name}
                       onPointerDown={(e) => armPaletteDrag(`line:${l.id}`, e)}
                       onClick={() => setLine(l.id)}
                     />
@@ -836,7 +891,7 @@ export function SignEditor(): React.ReactElement | null {
                 })}
               </PaletteRow>
 
-              <PaletteRow open={group === 'text' && g.id === 'text'}>
+              <PaletteRow open={group === 'text'}>
                 <TextFields
                   comp={selected?.kind === 'text' ? selected : undefined}
                   lines={lines}
@@ -846,43 +901,99 @@ export function SignEditor(): React.ReactElement | null {
                 />
               </PaletteRow>
             </div>
-          ))}
-        </div>
+          </div>
 
-        {/* 4. the rail's corner, bottom right: the bin, then the two acts — throw the edit
-            away, or keep it. They are the last thing in the panel because that is where the
-            gesture ends: the board is arranged above them, the way out is under it, and the
-            bin sits where a mark being carried to it comes to rest. */}
-        <div className="signRail">
-          <button
-            type="button"
-            ref={trashRef}
-            className={[
-              'signAct',
-              'trash',
-              // The bin is **always there**, and red: it is a button with a press of its
-              // own (click it to empty both boards), so hiding it until a drag started would
-              // hide half of what it does. A full board tints its plate (`overTrash`), see
-              // `.signAct.trash.over`.
-              overTrash && dragMark?.id !== DRAG_MARK_ID && populated ? 'over' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            aria-label="删除拖入的内容，或点击清空正反面"
-            // A **click** on a bin that is holding nothing: the whole board goes. A press
-            // that became a drag never gets here — the browser withholds the click once the
-            // pointer has moved, and the drag's own end (`endDrag`) has already deleted the
-            // one mark it was carrying.
-            onClick={clearAll}
-          >
-            <Icon name="delete" />
-          </button>
-          <button type="button" className="signAct cancel" aria-label="放弃修改" onClick={cancel}>
-            ✕
-          </button>
-          <button type="button" className="signAct ok" aria-label="完成" onClick={confirm}>
-            ✓
-          </button>
+          {/* 1c. the boards — 正面 and 背面, each a labelled row of places drawn the way the
+              sign prints it. They are two independent boards, so each has its own row, its own
+              order and its own (possibly empty) content. The label sits in a gutter to the
+              **left** of the row, so the two plates line up one over the other and read as the
+              two faces of one sign. */}
+          <div className="signWorkspace">
+            <div className="signBoards">
+              {rows.map((row) => (
+                <div key={row.face} className={focusedFace === row.face ? 'signFaceRow on' : 'signFaceRow'}>
+                  <button
+                    type="button"
+                    className="signFaceLabel"
+                    aria-pressed={focusedFace === row.face}
+                    onClick={() => focusFace(row.face)}
+                  >
+                    {FACE_LABEL[row.face]}
+                  </button>
+                  <BinStrip
+                    face={row.face}
+                    layout={row.layout}
+                    selectedId={selectedId(row.face)}
+                    dropping={hoverFace === row.face && insertAt !== null}
+                    onPickStart={(id, e) => {
+                      // Pressing a bin is also how the palette is pointed at that face. The
+                      // selection survives a press on a **different** face, because the press
+                      // itself is about to select there: `focusFace` runs first and would
+                      // otherwise drop the pick the player is in the middle of making.
+                      if (focusedFace !== row.face) setFocusedFace(row.face)
+                      setSelection({ face: row.face, id })
+                      // Armed, not started: a press that never moves is a selection.
+                      armed.current = { id, payload: '', face: row.face, x: e.clientX, y: e.clientY }
+                    }}
+                    lineDefs={lines}
+                    ready={ready}
+                    label={`${FACE_LABEL[row.face]} · ${FACE_ROW_LABEL[row.face]}`}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* What is left of the column, which is the gap the cluster is pushed down by: the
+                panel's height is fixed, so the bin and ✓ sit on its floor rather than floating
+                under whatever the boards happen to measure. */}
+            <span className="signRailSpacer" />
+
+            {/* 2. the action cluster, pinned to the column's **bottom-right** corner — the panel
+                has a fixed height, so this corner does not move as the boards are arranged. The
+                bin is the leftmost of the two because it is the thing a drag aims at: it sits
+                under the boards' right-hand end, so a mark carried off a board travels into it
+                down the same column the board finishes in. What is left of the row is empty
+                space, not prose: the tiles say what to do with them, and the bin's own caption
+                is the only line the cluster needs. */}
+            <div className="signRail">
+              <button
+                type="button"
+                ref={trashRef}
+                className={[
+                  'signAct',
+                  'trash',
+                  // The bin is **always there**, and red: it is a button with a press of its
+                  // own (click it to empty both boards), so hiding it until a drag started would
+                  // hide half of what it does. What a drag adds is the light: the caption says
+                  // what the gesture is, and a mark over the plate lights it
+                  // (`.signAct.trash.over`).
+                  //
+                  // **Anything carried lights it**, a palette tile included. It used to be
+                  // exempt — `dragMark.id !== DRAG_MARK_ID`, a test that is false for every mark
+                  // a palette arms, because `markFor` labels them all with `DRAG_MARK_ID` — so
+                  // the one state the light exists for never once came on. What a drop *does*
+                  // still turns on the mark's own provenance (`d.id`, `d.remove.face` in
+                  // `endDrag`): a tile let go here is refused and stays in the library, a mark
+                  // lifted off a board is thrown away, and the plate is the drop target either
+                  // way.
+                  overTrash && dragMark !== null && populated ? 'over' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-label="删除拖入的内容，或点击清空正反面"
+                // A **click** on a bin that is holding nothing: the whole board goes. A press
+                // that became a drag never gets here — the browser withholds the click once the
+                // pointer has moved, and the drag's own end (`endDrag`) has already deleted the
+                // one mark it was carrying.
+                onClick={clearAll}
+              >
+                <Icon name="delete" />
+              </button>
+              <button type="button" className="signAct ok" aria-label="完成" onClick={confirm}>
+                ✓
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       <button className="signModalScrim" aria-label="关闭编辑器" onClick={cancel} />

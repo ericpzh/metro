@@ -29,6 +29,7 @@ import {
   calligraphyBottom,
   calligraphyChars,
   calligraphyGeometry,
+  calligraphyPanelCells,
   calligraphyPanelSize,
   calligraphyStyle,
   isCalligraphyAxis,
@@ -163,13 +164,13 @@ test('the panel is cut for the name: whole cells across, one column down', () =>
   // A longer name grows the panel until it reaches its ceiling, and then shrinks the
   // type instead of the wall.
   assert.equal(calligraphyGeometry('公园', 'h').cells, 3, '0.3 + 2 × 0.86 rounds up to three cells')
-  assert.equal(calligraphyGeometry('园', 'h').cells, 2, 'and a single character to two')
+  assert.equal(calligraphyGeometry('园', 'h').cells, 3, 'and a single character takes the smallest odd panel, not a two-cell one')
   const five = calligraphyGeometry('动物园西站', 'h')
-  assert.equal(five.cells, CALLIGRAPHY_H.maxCells, 'the panel stops at its ceiling')
-  assert.ok(five.ink < 0.85, 'and the characters set smaller to fit it')
+  assert.equal(five.cells, 5, 'four and five characters want the next odd panel up')
+  assert.equal(five.ink, 0.85, 'which still sets them at the full size')
   const eight = calligraphyGeometry('一二三四五六七八', 'h')
-  assert.equal(eight.cells, CALLIGRAPHY_H.maxCells)
-  assert.ok(eight.ink < five.ink, 'the more characters, the smaller the type')
+  assert.equal(eight.cells, CALLIGRAPHY_H.maxCells, 'the panel stops at its ceiling')
+  assert.ok(eight.ink < five.ink, 'and the characters set smaller to fit it')
   assert.ok(eight.ink > 0.3, `still legible at the ceiling (${eight.ink.toFixed(3)} m)`)
   // Every character stays inside the panel it was cut for, at every length.
   for (const name of ['园', '公园', '动物园', '动物园西站', '一二三四五六七八']) {
@@ -187,6 +188,43 @@ test('the panel is cut for the name: whole cells across, one column down', () =>
   const short = calligraphyGeometry('园', 'v')
   assert.ok(short.panelH < CALLIGRAPHY_V.maxPanelH, 'a short column is only as tall as its characters')
   assert.ok(short.ink <= 0.85)
+})
+
+test('every 横排 panel is centred on the cell the pointer is on', () => {
+  // The reported bug, as a rule. A run is centred on the hovered cell, so a run of an
+  // **even** number of cells is centred on the boundary between two of them — half a
+  // metre to one side of the tile being aimed at. The ink is centred in its panel, so
+  // the station's name was drawn half a cell off the pointer: hidden in the middle of
+  // a long run of characters and the whole piece for a short name, which is what
+  // "the 站名 is not following the mouse" was. Every panel is therefore an odd number
+  // of cells (`calligraphyPanelCells`), which only ever leaves the run symmetric
+  // about the anchor cell — at every name length, and on both run directions.
+  for (const name of ['园', '公园', '动物园', '汉溪长隆', '动物园西站', '一二三四五六七八']) {
+    const geo = calligraphyGeometry(name, 'h')
+    assert.equal(geo.cells % 2, 1, `${name}: ${geo.cells} cells is an odd count`)
+    for (const rot of [0, 2]) {
+      const band = moduleEnvelope(placed(name, 'calligraphy-kai-h', rot))
+      assert.equal(
+        (band.x0 + band.x1) / 2,
+        2.5,
+        `${name} at rot ${rot}: half the panel either side of the hovered cell (got ${band.x0}–${band.x1})`,
+      )
+    }
+  }
+  assert.equal(CALLIGRAPHY_H.maxCells % 2, 1, 'and the ceiling is odd, so a capped name is centred too')
+  assert.equal(calligraphyGeometry(CALLIGRAPHY_FALLBACK_NAME, 'h').cells % 2, 1, 'the fallback name included')
+})
+
+test('the panel count rounds up to the next odd number of cells', () => {
+  assert.equal(calligraphyPanelCells(0), 1, 'never narrower than one cell')
+  assert.equal(calligraphyPanelCells(1.16), 3, 'a single character')
+  assert.equal(calligraphyPanelCells(2.02), 3, 'two characters already want three')
+  assert.equal(calligraphyPanelCells(2.88), 3, 'three')
+  assert.equal(calligraphyPanelCells(3.74), 5, 'four')
+  assert.equal(calligraphyPanelCells(4.6), 5, 'five')
+  assert.equal(calligraphyPanelCells(7.18), 5, 'a name past the ceiling stops on the ceiling itself')
+  assert.equal(calligraphyPanelCells(9, 7), 7, 'and a caller may set its own ceiling')
+  assert.equal(calligraphyPanelCells(9, 4), 3, 'an even ceiling still yields an odd count, which is the contract')
 })
 
 test('a panel is backed on exactly the courses it crosses', () => {

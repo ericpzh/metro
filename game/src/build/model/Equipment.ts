@@ -14,13 +14,15 @@ import {
 import { escalatorModule, type EscalatorDir } from '../../sim/escalators.ts';
 import { exitFloorAt } from '../../sim/exits.ts';
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../../sim/glassPanels.ts';
+import { DEFAULT_DOOR_VARIANT, doorSpec } from '../../sim/doors.ts';
 import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../../sim/linemaps.ts';
 import { liftModule } from '../../sim/lifts.ts';
-import { carveRampOpenings } from '../../sim/openings.ts';
+import { carveRampOpenings } from '../../sim/openings.ts'
+import { moduleFootprint } from '../../sim/placement.ts';
 import { trackOriginForCentre } from '../../sim/track.ts';
-import { STAIR_WIDTH_NARROW, stairFlightsFor, stairLandings, stairTurnCells } from '../../sim/stairs.ts';
+import { STAIR_WIDTH_NARROW, stairBuildWidth, stairFlightsFor, stairLandings, stairTurnCells } from '../../sim/stairs.ts';
 import { makeSignBoards, settleSignBoards, signBoardsOf, type SignBoardsDraft, type SignLineSource } from '../../sim/sign.ts';
-import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
+import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
 import { cellKey, cloneCell } from './Cells.ts';
 import type { StationState } from './State.ts';
 
@@ -166,6 +168,20 @@ export function createModule(
       const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1);
       return { id, type: 'glass', x: ox, y: oy, z, rot, w: spec.w, cfg: { variant: spec.variant } };
     }
+    case 'door':
+    case 'door-steel-1':
+    case 'door-steel-2':
+    case 'door-wood-1':
+    case 'door-wood-2': {
+      // The palette id names the variant; a bare `door` (an old caller, or the
+      // room builder's own doorway) is the single stainless piece. The run is
+      // centred on the hovered cell like a 玻璃板's, so a 双开 door grows evenly
+      // either side of the pointer rather than off to one hand.
+      const variant: DoorVariant = type === 'door' ? DEFAULT_DOOR_VARIANT : (type.slice('door-'.length) as DoorVariant);
+      const spec = doorSpec(variant);
+      const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1);
+      return { id, type: 'door', x: ox, y: oy, z, rot, w: spec.w, cfg: { variant: spec.variant } };
+    }
     case 'calligraphy':
     case 'calligraphy-kai-h':
     case 'calligraphy-kai-v':
@@ -265,7 +281,11 @@ export function createModule(
     case 'stair-right180':
     case 'stair-left180': {
       const style = type.slice('stair-'.length) as StairStyle;
-      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW);
+      // The **size** lays the flights (a switchback's two runs stand `stairLanes` cells
+      // apart); the piece is then built at the width that size means — a 双跑楼梯's runs
+      // are block-wide, so its two flush runs fill whole blocks (`stairBuildWidth`).
+      const size = width ?? STAIR_WIDTH_NARROW;
+      const flights = stairFlightsFor({ x, y, z }, rot, style, size);
       return {
         id,
         type: 'stair',
@@ -275,7 +295,7 @@ export function createModule(
         rot,
         from: flights[0].from,
         to: flights[flights.length - 1].to,
-        cfg: { width: width ?? STAIR_WIDTH_NARROW, style, flights },
+        cfg: { width: stairBuildWidth(style, size), style, flights },
       };
     }
     default:
@@ -405,10 +425,55 @@ export function addEquipment(state: StationState, mod: Module): StationState {
   return { ...state, cells, modules };
 }
 
-/** Bulldoze one module, leaving the block it stood on. */
+/**
+ * The floor a stair lays for **its own turn landing** (`stairTurnCells`): the walkable node
+ * between its two flights, which the block mesher skips while the model draws the platform
+ * there. A straight stair lays none.
+ */
+function stairLandingCells(mod: Module): Vec3i[] {
+  return mod.type === 'stair' ? stairTurnCells(mod) : [];
+}
+
+/**
+ * The cells a set of modules needs as their own floor: **every cell of each piece's
+ * footprint** (`moduleFootprint` — a 2 m bench's two cells, a 双开 门's pair, a rail's bed,
+ * a room's whole plan), plus every stair's turn landing.
+ *
+ * The footprint, not the anchor: a landing cell is floor like any other, and a piece that
+ * merely *starts* somewhere else still stands on the cells it spans. Protecting anchors
+ * alone left the floor under a bench's far half to be bulldozed away with the stair, so
+ * the bench stood over void.
+ */
+function cellsInUse(modules: readonly Module[]): Set<string> {
+  const held = new Set<string>();
+  for (const m of modules) {
+    for (const [x, y] of moduleFootprint(m)) held.add(cellKey(x, y, m.z));
+    for (const p of stairLandingCells(m)) held.add(cellKey(p.x, p.y, p.z));
+  }
+  return held;
+}
+
+/**
+ * Bulldoze one module, leaving the block it stood on — **except** the floor a 楼梯 laid for
+ * its own turn landing. That cell is the stair's platform: the mesher skips it and the model
+ * draws the slab there, so left behind on its own it is a stray block in the middle of the
+ * station with no stair to turn on. A straight stair lays none, so nothing changes for it; a
+ * cell another piece still stands on, or another stair still turns on, is kept.
+ */
 export function removeModule(state: StationState, id: string): StationState {
+  const gone = state.modules.find((m) => m.id === id);
   const modules = state.modules.filter((m) => m.id !== id);
-  return modules.length === state.modules.length ? state : { ...state, modules };
+  if (modules.length === state.modules.length) return state;
+  if (!gone) return { ...state, modules };
+  const keep = cellsInUse(modules);
+  const kill = new Set(
+    stairLandingCells(gone)
+      .map((p) => cellKey(p.x, p.y, p.z))
+      .filter((k) => !keep.has(k)),
+  );
+  if (kill.size === 0) return { ...state, modules };
+  const cells = state.cells.filter((c) => !kill.has(cellKey(c.x, c.y, c.z)));
+  return { ...state, cells, modules };
 }
 
 /**
@@ -417,6 +482,11 @@ export function removeModule(state: StationState, id: string): StationState {
  * nothing else is rebuilt. The piece never left the document — while it is in the
  * air 移动 only stops *drawing* it — so a move is one replacement, and a
  * single `Ctrl+Z` puts the piece back where it came from.
+ *
+ * A 楼梯 is not moved this way at all (`isMovableModule`: a structural piece's derived
+ * geometry — a turn landing, a carve, a wellway — would be stranded by a translation), so a
+ * stair leaves and returns through `removeModule` and `addEquipment`, which is where its
+ * turn-landing floor is taken back out and laid again.
  */
 export function replaceEquipment(state: StationState, moved: Module): StationState {
   if (!state.modules.some((m) => m.id === moved.id)) return state;

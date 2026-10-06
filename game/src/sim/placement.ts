@@ -18,11 +18,12 @@
 import { EXIT_L, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { glassSpec, glassWallCourses } from './glassPanels.ts'
+import { doorSpec } from './doors.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
 import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
-import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS } from './constants.ts'
+import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
 import { halfWallSide, isWallBlock, type Cell, type Module, type Vec3i, type WallSide } from './types.ts'
@@ -61,8 +62,9 @@ const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shel
   desk: 0.9,
   cubicle: 1.8,
   sink: 0.9,
-  // 垃圾桶 / 灭火器: the drawn height of each piece (`models.ts` `buildBin` /
-  // `buildExtinguisher`), so its collision box and its body agree.
+  // A litter bin (垃圾桶) and a fire-extinguisher cabinet (灭火器) are single
+  // free-standing decorations: no variant, no `cfg`, turned by the hover
+  // rotation like a shelf.
   bin: 0.95,
   extinguisher: 1.1,
   tv: 3.0,
@@ -144,6 +146,11 @@ export function glassCells(m: Extract<Module, { type: 'glass' }>): Array<[number
   return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
 }
 
+/** Every cell a 门's run covers: one for a 单开 door, two for a 双开. */
+export function doorCells(m: Extract<Module, { type: 'door' }>): Array<[number, number, number]> {
+  return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
+}
+
 /** Every cell a 站名's run covers — its panel is its run, in whole cells. */
 export function calligraphyCells(m: Extract<Module, { type: 'calligraphy' }>): Array<[number, number, number]> {
   return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
@@ -189,6 +196,15 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // A bench runs `w` cells along local +x (a 2 m bench chains two seats),
       // so its box is the AABB of the whole run.
       return cellsAabb(benchCells(m), z0, z0 + FLAT_HEIGHT.bench)
+    case 'door': {
+      // A 门 **stands on the floor**: it is a doorway of its own — threshold, posts,
+      // head and the leaves between them — so it reserves its run, from the floor top
+      // to the top of its head, like a 货架, and needs nothing behind it. The height is
+      // the variant's own `DoorSpec.h` (`sim/doors.ts`), which is the height
+      // `DoorModel` draws it to: one table, so the box and the model cannot drift.
+      const spec = doorSpec(m.cfg?.variant)
+      return cellsAabb(doorCells(m), z0, z0 + spec.h)
+    }
     case 'gate':
     case 'tvm':
     case 'vending':
@@ -370,6 +386,8 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
       return billboardCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'glass':
       return glassCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'door':
+      return doorCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'calligraphy':
       return calligraphyCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'linemap':
@@ -406,6 +424,7 @@ function baseCells(m: Module): Array<[number, number]> {
     case 'calligraphy':
     case 'linemap':
     case 'bench':
+    case 'door':
     case 'track':
     case 'lift':
       return moduleFootprint(m)
@@ -446,9 +465,12 @@ export function reservedOpening(modules: readonly Module[], x: number, y: number
 
 /**
  * Decoration types that must be fixed to a wall block behind them (§5.7): the
- * 广告牌, the 玻璃板, the 站名 and the wall-mounted 线网图. A 线网图's **stand**
- * variant is the one exception — it is a totem on the floor — so the test is the
- * placed module's own, not just its type (`isWallMounted`).
+ * 广告牌, the 玻璃板, the 站名 and the wall-mounted 线网图. A 线网图's **stand** variant is
+ * the one exception — it is a totem on the floor — so the test is the placed module's
+ * own, not just its type (`isWallMounted`).
+ *
+ * A **门 is not here**: it carries its own threshold, posts and head, so it stands on the
+ * floor like a 货架 and asks the ground rules for a tile, not the wall's for backing.
  */
 const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'glass', 'calligraphy', 'linemap'])
 
@@ -484,6 +506,9 @@ export function wallMountCourses(m: Module): number[] {
       return [0]
     case 'glass':
       return glassWallCourses(glassSpec(m.cfg?.variant))
+    case 'door':
+      // A 门 stands on the floor, so it wants no wall behind it at all.
+      return []
     case 'calligraphy':
       return calligraphyCourses(calligraphyBottom(m.cfg?.axis), m.panelH)
     case 'linemap':
@@ -519,7 +544,9 @@ export function wallSide(rot: number | undefined): [number, number] {
  * The cell a wall-mounted piece stands in. Normally the hovered cell itself; but
  * when the pointer is on a wall — the station wall across the track, where there
  * is no walkable floor in front — it is the face-adjacent `place` cell in front
- * of that wall. The caller still checks `wallMountMissing` for the backing.
+ * of that wall, dropped to that wall's own storey floor (`storeyBand`): a hover
+ * on an upper wall course still anchors the panel to the floor below, not to a
+ * floating course height. The caller still checks `wallMountMissing` for the backing.
  */
 export function wallMountStandCell(
   cells: readonly Cell[],
@@ -528,7 +555,8 @@ export function wallMountStandCell(
 ): [number, number, number] {
   const hit = cells.find((c) => c.x === cell[0] && c.y === cell[1] && c.z === cell[2])
   const onWall = hit !== undefined && hit.fill === 'solid' && isWallBlock(hit)
-  return onWall ? [place[0], place[1], place[2]] : [cell[0], cell[1], cell[2]]
+  if (!onWall) return [cell[0], cell[1], cell[2]]
+  return [place[0], place[1], storeyBand(place[2])]
 }
 
 /** A unit cell step as the side it names (`+y` is `n`, `+x` is `e`). */
@@ -536,6 +564,31 @@ function stepSide(dx: number, dy: number): WallSide {
   if (dx > 0) return 'e'
   if (dx < 0) return 'w'
   return dy > 0 ? 'n' : 's'
+}
+
+/**
+ * The floor cell a ceiling-hung piece (指示牌, 电视, 时钟, 监控) hangs over, from a
+ * pointer hit anywhere on the storey: the floor, the ceiling slab overhead, or a
+ * wall course between them. `place - cell` is the face normal (`pickCells`), so:
+ *
+ *   * bottom face (`dz === -1`) — the underside of the ceiling slab — anchors one
+ *     storey down (`cell.z - 4`), the floor that slab is the ceiling of;
+ *   * top face (`dz === +1`) — a floor top — anchors the hit cell itself;
+ *   * side face — a wall course or a slab edge — anchors the face-adjacent cell,
+ *     dropped to its own storey floor (`storeyBand`), the same floor a wall panel
+ *     takes from the same hover (`wallMountStandCell`).
+ *
+ * Hovering void (the work plane) already names the floor, so it passes through.
+ * The caller still checks `ceilingMountMissing` for the slab above the anchor.
+ */
+export function ceilingMountStandCell(
+  cell: readonly [number, number, number],
+  place: readonly [number, number, number],
+): [number, number, number] {
+  const dz = place[2] - cell[2]
+  if (dz === -1) return [cell[0], cell[1], cell[2] - 4]
+  if (dz === 1) return [cell[0], cell[1], cell[2]]
+  return [place[0], place[1], storeyBand(place[2])]
 }
 
 /**
@@ -1056,6 +1109,7 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'cctv',
   'billboard',
   'glass',
+  'door',
   'calligraphy',
   'linemap',
   'tv',
@@ -1109,7 +1163,9 @@ export type EquipmentRefusal =
  * belongs to (`layer`: true only while placing, so a 移动 of an existing one is not
  * refused for where it already is), the rails, the space another piece holds, a
  * 广告牌's wall, a hung piece's slab, a 扶梯's two landings and a 电梯's 2 × 2
- * footprint.
+ * footprint. The ground is the **floor-standing** pieces' rule: a hung piece is
+ * anchored to the floor cell it hangs over (`ceilingMountStandCell`) but does not
+ * stand on it, so the slab overhead is its whole structural requirement.
  *
  * `candidate` carries the resolution the tool already did to it — a 广告牌 turned to
  * face its wall (`autofaceWallMount`), a run snapped into an exit bay — because
@@ -1125,7 +1181,15 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     if (wallMountMissing(cells, candidate)) return 'wall'
     return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
   }
-  if (!moduleFloorOk(cells, modules, candidate)) return candidate.type === 'lift' ? 'lift-footprint' : 'floor'
+  // A **hung** 装饰 — a 指示牌, 电视, 时钟 or 监控 — is the wall panel's twin one step
+  // higher: its rods bolt to the slab overhead, so the floor cell it is anchored to
+  // (`ceilingMountStandCell`, the storey the save reads) is the room's, not its own,
+  // and the ground rule would refuse it over a well or over the rails where a slab
+  // really does hang it — with a notice about floor under a piece three metres up.
+  // It is still refused on a track bed, in another piece's space and under open sky.
+  if (!isCeilingHung(candidate) && !moduleFloorOk(cells, modules, candidate)) {
+    return candidate.type === 'lift' ? 'lift-footprint' : 'floor'
+  }
   if (placementOnTrack(cells, candidate, modules)) return 'track'
   if (placementColliders(modules, candidate).length > 0) return 'occupied'
   if (wallMountMissing(cells, candidate)) return 'wall'

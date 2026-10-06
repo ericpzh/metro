@@ -216,9 +216,17 @@ interface PaintBox {
 }
 
 /**
- * An arrow pointing one of the eight ways. The mark is drawn once pointing right
- * and turned about the box's centre — the same path for all eight directions, so
- * no diagonal can drift out of shape.
+ * An arrow pointing one of the **eight ways**, or one of the **two U-turns**.
+ *
+ * The eight are drawn once pointing right and turned about the box's centre — the same path for
+ * all eight, so no diagonal can drift out of shape. The two U-turns are not in that family and
+ * are not a rotation of it: a turn back is a shape of its own — a shaft up one side, a bend
+ * over the top, and a head coming down the other — so they are drawn in *their own* frame, with
+ * the direction passed in as the sign of the mirror (`f`). One path therefore serves both, and
+ * neither can disagree with the other about how wide the bend is.
+ *
+ * Drawn with the two vertical runs and a semicircular bend, which is what a U-turn arrow is on
+ * every wayfinding sign there is; a squared-off bend reads as a pipe, not a turn.
  */
 function drawArrow(g: CanvasRenderingContext2D, dir: string, box: PaintBox): void {
   const angles: Record<string, number> = {
@@ -232,6 +240,12 @@ function drawArrow(g: CanvasRenderingContext2D, dir: string, box: PaintBox): voi
     'up-right': -Math.PI / 4,
   }
   const { x, y, w, h } = box
+  // A U-turn: `f` mirrors it, so `uturn-right` bends the head back down on the right.
+  const f = dir === 'uturn-right' ? 1 : dir === 'uturn-left' ? -1 : 0
+  if (f !== 0) {
+    drawUturnArrow(g, box, f)
+    return
+  }
   g.save()
   g.translate(x + w / 2, y + h / 2)
   g.rotate(angles[dir] ?? 0)
@@ -250,6 +264,82 @@ function drawArrow(g: CanvasRenderingContext2D, dir: string, box: PaintBox): voi
     [headStart, shaft / 2],
     [-hw, shaft / 2],
   ])
+  g.fill()
+  g.restore()
+}
+
+/**
+ * The **turn back**, drawn as the plate's own geometry: a shaft rising on the left, a bend over
+ * the top, and a head coming back down on the right. `f = -1` mirrors the whole drawing about
+ * the box's centre rather than restating it, so the two hands cannot drift apart.
+ *
+ * **One centre line, stroked once.** The whole mark is a single path — up the tail, round the
+ * bend, down the head — and the *line* is what makes it: `lineWidth` is constant along it, so
+ * every part of the drawing is the same width by construction. The first version of this drew
+ * the shape as an **outline**: an outer arc at `r + stroke/2` and an inner arc at `r − stroke/2`,
+ * filled between them. That is a valid way to draw a wide bend and a wrong way to draw a *line*:
+ * where the bend is tight the inner radius collapses toward zero (at a 4 px stroke and a 10 px
+ * bend it is 1.6 px), so the inner edge necks down and the U prints with a thin crescent in it.
+ * No amount of tuning fixes that — it is the geometry of concentric arcs — and a stroked centre
+ * line has the property for free. The head stays **filled**, because an arrowhead is wider than
+ * the line it caps.
+ *
+ * The proportions are the sign's own U-turn, read off the glyph every wayfinding system draws
+ * (Material's `u_turn_right`: `M6 9v12h2V9c0-2.21 1.79-4 4-4s4 1.79 4 4v4.17…`): a stroke an
+ * eighth of the mark's height, runs whose centres stand a bend-radius apart, a bend whose radius
+ * is the run's own, and a head a little wider than the stroke whose base sits a head-length
+ * above the foot. The two ends are therefore **not level** — the tail runs on to the foot, the
+ * head stops short of it — which is the asymmetry that reads as a turn rather than a horseshoe.
+ */
+function drawUturnArrow(g: CanvasRenderingContext2D, box: PaintBox, f: number): void {
+  const { x, y, w, h } = box
+  // The line's own width, and the bend's radius — the run's centre line, which is what both the
+  // bend and the gap between the runs are measured on. The width is a **fifth of the mark**,
+  // which is what puts it in the same family as the eight directions: a straight arrow's shaft is
+  // 0.3 of its own height, so a hairline U beside them reads as a different kind of object.
+  // The radius is what is left for the channel, and it is deliberately not much more than the
+  // line: a U-turn's arms stand close together.
+  const line = h * 0.2
+  const r = Math.min(w * 0.28, h * 0.22)
+  // The bend's centre: its top edge is the mark's top, the arc is a true semicircle, and its
+  // springing points are where the two straight runs begin.
+  const cx = x + w / 2
+  const bendCy = y + line / 2 + r
+  // The foot the tail runs to, and the head's base a head-length above it.
+  const foot = y + h * 0.96
+  const headL = line * 1.7
+  const headW = line * 2.6
+  const headTop = foot - headL
+  // The runs: the tail on the left, the head on the right, one bend radius from the centre.
+  const tailX = cx - r
+  const headX = cx + r
+
+  g.save()
+  // One hand is the other, mirrored: the drawing below is always the right-hand turn.
+  g.translate(cx, y + h / 2)
+  g.scale(f, 1)
+  g.translate(-cx, -(y + h / 2))
+  g.strokeStyle = INK
+  g.fillStyle = INK
+  g.lineWidth = line
+  g.lineCap = 'butt'
+  g.lineJoin = 'round'
+  // The run and the bend, in one path: `anticlockwise = false` runs π → 3π/2 → 2π, and `3π/2`
+  // is the top of the circle on screen (y grows downward). Every point of this line is one
+  // `lineWidth` wide — the bend included, which is the whole point.
+  g.beginPath()
+  g.moveTo(tailX, foot)
+  g.lineTo(tailX, bendCy)
+  g.arc(cx, bendCy, r, Math.PI, 0, false)
+  g.lineTo(headX, headTop)
+  g.stroke()
+  // The head: a triangle on the same centre line, its base flush with the stroke's edges and its
+  // point on the foot, so the arrow is the same width as the line that carries it.
+  g.beginPath()
+  g.moveTo(headX - headW / 2, headTop)
+  g.lineTo(headX + headW / 2, headTop)
+  g.lineTo(headX, foot)
+  g.closePath()
   g.fill()
   g.restore()
 }
@@ -303,7 +393,14 @@ function drawLineBadge(
  * because it sets smaller). The first line is the name (中文, large) and the
  * second the gloss under it (English, small) —
  * `SIGN_TEXT_EN_SCALE` is the one ratio the board, the tile preview and the
- * measurement all use. A label wider than the board is shrunk to the board rather
+ * measurement all use, and it is read through `signTextLineScale`, which decides it
+ * **per row from the row's own text**: a gloss is the line that prints small, and an
+ * English-only label is a gloss too. Asking the same function the model measured with
+ * is what keeps the printed ink inside the box the row was packed into — the two used
+ * to disagree, and a row that measured one size while it printed another overran the
+ * board it was laid out on.
+ *
+ * A label wider than the board is shrunk to the board rather
  * than clipped by it, and a label longer than its line limit is **truncated** by
  * `signTextLines` before it ever reaches here — the editor's `maxLength` enforces
  * the same limit, so only an imported save can carry an over-long row at all.
@@ -324,10 +421,15 @@ function drawText(g: CanvasRenderingContext2D, comp: Extract<SignComponent, { ki
   const size = rowM / 1.15
   const rowH = rowM * ppm
   for (const [i, line] of lines.entries()) {
-    let font = size * signTextLineScale(i) * ppm
+    let font = size * signTextLineScale(i, line) * ppm
     g.font = `bold ${font}px ${CJK}`
     // The board, not the box: a label that outgrows its own piece shrinks until it
-    // fits the panel it is printed on.
+    // fits the panel it is printed on. This is the **drawn** width against the board
+    // itself, so it is also the guard for the one thing the layout cannot see — the
+    // font the browser really resolved. The model measured the row through
+    // `measureText` too (`signMeasure`), so the two agree; where a font's advances come
+    // out wider than the layout was told, the label shrinks rather than running off the
+    // edge of the plate it is printed on.
     while (g.measureText(line).width > panelW * ppm && font > 6) {
       font -= 1
       g.font = `bold ${font}px ${CJK}`
@@ -396,6 +498,25 @@ function drawPiece(
 /* ------------------------------------------------------------------ face */
 
 /**
+ * The span the **printed ink** of a laid-out row covers, in metres from the panel's
+ * left: from the first mark's ink's left edge to the last one's ink's right edge.
+ *
+ * The ink is what the row *is* to the viewer. A piece's box carries
+ * `SIGN_PIECE_PAD` on every side, so the padded row spans a little more — and the two
+ * come apart exactly where it matters, because a board that has reached its ceiling is
+ * packed to the frame on one side and given the slack on the other. Laying the boxes on
+ * the panel then leaves the marks themselves leaning; the report is that board: six
+ * arrows printed with the last one against the frame and a black band down the left,
+ * while the editor's preview — a face on a panel of its own size — was centred.
+ */
+function inkSpan(pieces: readonly SignPiece[]): { left: number; right: number } {
+  return {
+    left: Math.min(...pieces.map((p) => p.x - p.inkW / 2)),
+    right: Math.max(...pieces.map((p) => p.x + p.inkW / 2)),
+  }
+}
+
+/**
  * Draw one face of a board into `g`.
  *
  * The canvas must already be sized to `ctx.panel` at `ctx.ppm` pixels per metre
@@ -409,6 +530,16 @@ function drawPiece(
  * one-way board one-way: a component bound to the left face is simply absent from
  * the right. Pass `'both'` for a canvas that stands in for the whole board (a
  * palette thumbnail, or a test).
+ *
+ * The face is **centred** on the panel it is handed, and it is the **ink** that is
+ * centred — the marks a viewer sees, not the padded boxes they are packed in. The two
+ * faces of a sign share one piece of steel (`signBoardsPanel` is the wider of the two),
+ * so a face that is shorter than its partner has slack to spare; laid down as packed,
+ * all of it landed on the face's right, and since each plate is turned to face its own
+ * passenger the back face's slack came out as a wide black band down the *left* of the
+ * board when read from that side. A face is a document of its own, so it is laid on the
+ * panel the way a document is laid on a page: centred, with its own end margins equal,
+ * whatever the row's own length is.
  */
 export function drawSignPanel(
   g: CanvasRenderingContext2D,
@@ -441,18 +572,44 @@ export function drawSignPanel(
   }
 
   const measure = signMeasure(g, CJK, ppm)
-  const byId = new Map(layout.map((c) => [c.id, c]))
   // `signPieces` has already clamped every piece onto the printed area, so the
   // boxes drawn here are the ones the editor hit-tests — one geometry, two users.
   // Each box carries a `SIGN_PIECE_PAD` margin on every side; the **ink** is drawn
   // inside it, which is what keeps two marks on a board from touching.
-  for (const piece of signPieces(layout, ctx.panel, face, measure)) {
+  const pieces = signPieces(layout, ctx.panel, face, measure)
+  // Where in canvas pixels this face's own row starts, so that its printed ink comes out
+  // centred between the panel's two frame margins.
+  //
+  // A box is placed at `offX + x * ppm - ink/2`, so the leading mark's ink lands at
+  // `ink.left * ppm + offX`. Setting that equal to the printed area's own left edge plus
+  // the margin the ink leaves there — the margin being half of what the printed area has
+  // left over, `((W - 2 * padX) - inkWidth * ppm) / 2` — gives
+  //
+  //     offX = padX + (W - 2 * padX - inkWidth * ppm) / 2 - ink.left * ppm
+  //
+  // The `padX` is the term the first cut of this missed. It shifted the row by
+  // `(panel.w / 2 - centre) * ppm` alone, which is the row's move measured between two
+  // **panel** positions while the box is placed from the **canvas** edge — so the leading
+  // margin was spent twice and the whole row printed a margin's width to the right. A
+  // board packed to its ceiling came out with its last mark against the frame and a black
+  // band down its left — the report, "shifted right and not centring" — and it is also why
+  // the 3D board disagreed with the editor's preview, which draws a face on a panel of its
+  // own size and so showed it centred.
+  //
+  // The panel the caller passes is the **pair's** (`signBoardsPanel`, the wider of the two
+  // faces), so a face carrying less than its partner has slack to spare and this is what
+  // hands that slack to both ends evenly; a face that already fills the panel is centred
+  // by the same statement rather than by a special case.
+  const ink = pieces.length === 0 ? null : inkSpan(pieces)
+  const offX = ink === null ? 0 : padX + (W - 2 * padX - (ink.right - ink.left) * ppm) / 2 - ink.left * ppm
+  const byId = new Map(layout.map((c) => [c.id, c]))
+  for (const piece of pieces) {
     const comp = byId.get(piece.id)
     if (!comp) continue
     const inkW = piece.inkW * ppm
     const inkH = piece.inkH * ppm
     const box: PaintBox = {
-      x: padX + piece.x * ppm - inkW / 2,
+      x: offX + piece.x * ppm - inkW / 2,
       // The panel's origin is its bottom-left; the canvas grows downward, so the
       // printed area's *bottom* edge is where the panel's y = 0 sits.
       y: padY + (contentH - piece.y) * ppm - inkH / 2,

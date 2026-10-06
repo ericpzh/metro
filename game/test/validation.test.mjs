@@ -198,6 +198,11 @@ test('the equipment verdict is one rule set, with one sentence per rule', () => 
   // and the slab it needs is the first grid line above.
   const hung = createModule('sign', 1, 1, 0, 's1', 0)
   assert.equal(equipmentReason(st.cells, st.modules, hung), 'ceiling')
+  // A hung piece is exempt from the ground: the cell off the slab's edge refuses a
+  // 售票机 for its floor and takes the 指示牌 that hangs from the slab over it.
+  const well = flatStation([{ x: 9, y: 9, z: 4, fill: 'solid' }])
+  const overWell = createModule('sign', 9, 9, 0, 's2', 0)
+  assert.equal(equipmentReason(well.cells, well.modules, overWell, true), '', 'a hung piece wants the slab, not the ground')
   // A 出入口 belongs at the street, and only while placing — a 移动 of one already
   // standing on a concourse is not refused for where it is.
   const exit = { id: 'x1', type: 'exit', x: 2, y: 2, z: -4, rot: 0, cfg: { name: 'A口', inRate: 600, open: true } }

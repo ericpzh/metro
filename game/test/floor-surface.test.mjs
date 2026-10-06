@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import { BEVEL, buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
 import { finishMapOf } from '../src/sim/finishes.ts'
 import { packKey } from '../src/sim/types.ts'
-import { rampFillKeys, rampSlopeCuts } from '../src/sim/openings.ts'
+import { rampFillKeys } from '../src/sim/openings.ts'
 
 /** A solid `n × n` floor slab at z = 0. */
 function floorPatch(n) {
@@ -232,33 +232,27 @@ test('a chamfer’s texture runs its whole depth, so it meets the flat top seaml
 })
 
 test('the filling under a run is a closed body, not four walls with no lid', () => {
-  // A run over solid ground gets a derived filling: the wedge between the ground below and
-  // the run's underside, drawn in the ground's own finish (`rampFillKeys`, `chunkMesher`'s
-  // `fill`). It must be a **closed** shell. A filling cell used to count as a solid for its
-  // neighbours' exposure, so the cell it stands for reported `up = false` and drew no top
-  // face at all: the run's body came out as four walls with no lid, and its inside was
-  // visible from above. The run here is a **stair** — a 扶梯 draws that body itself now
-  // (`EscalatorModel.undercroftSolid`), so nothing is derived under one.
-  const run = {
-    id: 's1', type: 'stair', x: 6, y: 0, z: 0, rot: 3,
-    from: { x: 6, y: 0, z: 0 }, to: { x: 0, y: 0, z: 4 },
-    cfg: { width: 0.68, style: 'straight', flights: [{ from: { x: 6, y: 0, z: 0 }, to: { x: 0, y: 0, z: 4 } }] },
-  }
+  // A run whose ground the renderer fills gets a derived wedge: the cell between the ground
+  // below and the run's underside, drawn by `chunkMesher`'s `fill` (`rampFillKeys`). **No run
+  // in the game asks for one any more** — a 扶梯's piece draws its own body and a 楼梯 leans
+  // on the ground it really has, hanging over its own well — so this pins the drawing itself,
+  // over a hand-made cut. A filling must be a **closed** shell: a filling cell once counted as
+  // solid for its neighbours' exposure, so the cell it stands for reported `up = false` and
+  // drew no top face, and the run's body came out as four walls with no lid.
   const cells = []
   for (let x = 0; x <= 8; x++) for (let y = 0; y <= 2; y++) cells.push({ x, y, z: 0, fill: 'solid' })
   const solid = buildSolidSet(cells)
-  const cuts = rampSlopeCuts([run])
-  const fills = rampFillKeys(solid, cuts)
-  assert.ok(fills.size > 0, 'the run over ground should be filled at all')
-
+  // Three cells of wedge above the floor, sloping along x like a run climbing over them.
+  const cuts = new Map()
   const list = []
-  for (const k of fills) {
-    const z = (k % 8192) - 4096
-    const t = (k - (z + 4096)) / 8192
-    const y = (t % 8192) - 4096
-    const x = (t - (y + 4096)) / 8192 - 4096
-    list.push({ x, y, z })
+  for (const x of [3, 4, 5]) {
+    const c = { x, y: 1, z: 1 }
+    cuts.set(packKey(c.x, c.y, c.z), { axis: 'x', lo: 0.25, hi: 0.75 })
+    list.push(c)
   }
+  const fills = rampFillKeys(solid, cuts)
+  assert.equal(fills.size, list.length, 'the hand-made cut over ground should be filled')
+
   const zs = list.map((c) => c.z)
   const chunk = meshChunk(
     solid, finishMapOf(cells), 0, 0, Math.min(...zs), Math.max(...zs),

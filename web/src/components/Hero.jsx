@@ -2,10 +2,10 @@ import { artworks, tagline } from '../artworks.js'
 import { sheet, specUrl } from '../site.js'
 
 const facts = [
-  ['技术栈', 'React 19 + Vite、three.js（react-three-fiber）、Web Worker 仿真'],
+  ['技术栈', 'React 19 + Vite、three.js、Web Worker 仿真'],
   ['模式', '沙盒 / 解谜小游戏，一个人玩'],
   ['视角', '2:1 等轴测 3D、剖切、按层切片、360° 环绕'],
-  ['状态', '设计文档，还是草稿 1'],
+  ['图', '全部是游戏本体的截图'],
 ]
 
 export default function Hero() {

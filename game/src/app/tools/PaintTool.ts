@@ -1,6 +1,8 @@
 // The 材质 (paint) tool: press a face, drag a rectangle on its plane; a stair's
-// walking surface paints as one piece, and 取色 lifts a finish back into the
-// brush. Moved verbatim from app/Viewport.tsx (GAME-SPEC §8: 材质 paint tools).
+// walking surface paints as one piece. The brush's own `pick` overlay lifts a
+// finish back into it; the 工具 folder's 吸取 (`P`) is the eyedropper players
+// reach for — it lifts equipment as well as finishes. Moved verbatim from
+// app/Viewport.tsx (GAME-SPEC §8: 材质 paint tools).
 
 import { eraseFaces, faceFinish, fillSurface, paintFaces, paintStairSurface } from '../../build/model.ts'
 import { finishDef } from '../../sim/finishes.ts'

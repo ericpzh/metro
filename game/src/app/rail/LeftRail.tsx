@@ -6,19 +6,22 @@
 // folders share: which folders are open, the single nested variant sub-menu slot
 // (at most one of 楼梯 / 出入口 / 座椅 / 广告牌 / 搪瓷板 expanded), and the ladder that
 // opens and closes them from the keyboard — **Shift+Q** the first folder, then
-// W, E, R, T, Y, U, I down the stack (`RAIL_FOLDERS`). The order the folders are
-// stacked in *is* the ladder, so both come from that one list.
+// W, E, R, T, Y, U down the stack (`RAIL_FOLDERS`). The order the folders are
+// stacked in *is* the ladder, so both come from that one list. The 信息栏 is the other
+// column and carries its own table with its own modifier — **Alt+Q … Alt+R** over
+// 信息 / 视图 / 出入口 / 线路 (`INSPECTOR_FOLDERS`), which is where 视图 went: it is a set
+// of look controls, so it lives beside the read-outs.
 // `Folder` stays here for now — Lane A will lift the shared chrome into
 // app/windows/shared/; until then the barrel at app/LeftRail.tsx keeps both
 // import paths working.
 
-import { useEffect, useState } from 'react'
-import { FACILITY_OPTIONS, familiesIn, folderOptions, isDecorType, isFacilityBrush, useStore } from '../store.ts'
+import { useEffect, useRef, useState } from 'react'
+import { FACILITY_OPTIONS, folderTiles, isDecorType, isFacilityBrush, useStore } from '../store.ts'
 import type { Tool } from '../store.ts'
 import { FINISH_LIST } from '../../sim/finishes.ts'
 import { ZONE_LIST } from '../../sim/zones.ts'
-import { RAIL_FOLDERS, findSelectedTrack, subMenuForModule } from './helpers.ts'
-import type { FolderKey, SubMenuKey } from './helpers.ts'
+import { RAIL_FOLDERS, REVEAL_SETTLE_MS, armedCut, armedRailTile, findSelectedTrack, revealScrollDelta, subMenuForModule, toolsFolderTiles } from './helpers.ts'
+import type { FolderKey, RailFolderKey, SubMenuKey } from './helpers.ts'
 import { ToolsFolder } from './folders/ToolsFolder.tsx'
 import { RailFolder } from './folders/RailFolder.tsx'
 import { EquipmentFolder } from './folders/EquipmentFolder.tsx'
@@ -26,7 +29,6 @@ import { DecorFolder } from './folders/DecorFolder.tsx'
 import { RoomFolder } from './folders/RoomFolder.tsx'
 import { ZoneFolder } from './folders/ZoneFolder.tsx'
 import { PaintFolder } from './folders/PaintFolder.tsx'
-import { ViewFolder } from './folders/ViewFolder.tsx'
 
 interface FolderProps {
   title: string
@@ -72,8 +74,9 @@ export function Folder({ title, count, shortcut, open, onToggle, children }: Fol
   )
 }
 
-const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
+const FOLDER_FOR_TOOL: Record<Tool, RailFolderKey> = {
   select: 'tools',
+  pick: 'tools',
   block: 'tools',
   wall: 'tools',
   delete: 'tools',
@@ -84,15 +87,21 @@ const FOLDER_FOR_TOOL: Record<Tool, FolderKey> = {
   tunnel: 'rail',
 }
 
+/** The rail's own folder keys, so a 信息栏 folder's Alt+letter is not folded here. */
+const RAIL_FOLDER_KEYS: ReadonlySet<string> = new Set(RAIL_FOLDERS.map((f) => f.key))
+
 export function LeftRail(): React.ReactElement {
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
   const zoneBrush = useStore((s) => s.zoneBrush)
   const selected = useStore((s) => s.selected)
   const stationModules = useStore((s) => s.station.modules)
-  const cutaway = useStore((s) => s.cutaway)
+  /** The cut piece the 方块 tool will lay, if any: read for the folder count below. */
+  const cut = useStore(armedCut)
+  /** The rail itself: the scroll container every tile lives in (`styles.css` `.rail`). */
+  const railRef = useRef<HTMLDivElement>(null)
 
-  const [open, setOpen] = useState<Record<FolderKey, boolean>>({
+  const [open, setOpen] = useState<Record<RailFolderKey, boolean>>({
     tools: true,
     equipment: false,
     rail: false,
@@ -100,7 +109,6 @@ export function LeftRail(): React.ReactElement {
     decor: false,
     surfaces: false,
     zones: false,
-    view: false,
   })
   // The nested variant sub-menus (楼梯 / 出入口 / 座椅 / 广告牌) share one piece
   // of state, so at most one is expanded at a time: opening one collapses the
@@ -111,7 +119,7 @@ export function LeftRail(): React.ReactElement {
   // A facility brush rides the zone tool but lives in its own 房间 folder, so it
   // opens that folder instead of 分区.
   useEffect(() => {
-    const key: FolderKey =
+    const key: RailFolderKey =
       tool === 'zone' && isFacilityBrush(zoneBrush)
         ? 'rooms'
         : tool === 'module' && isDecorType(moduleType)
@@ -131,17 +139,20 @@ export function LeftRail(): React.ReactElement {
   // the one global keydown listener (`app/windows/AppShell.tsx`) does not know
   // which folders are open, so it dispatches `metro:folder` with the FolderKey
   // and the fold happens here — the same split as `metro:preset` / `metro:frame`
-  // between the app and the camera.
+  // between the app and the camera. The event carries the 信息栏's own keys too
+  // (its Alt ladder), so a key this table does not name is dropped rather than folded.
   useEffect(() => {
     const onFolder = (e: Event): void => {
       const key = (e as CustomEvent).detail as FolderKey
-      setOpen((o) => (key in o ? { ...o, [key]: !o[key] } : o))
+      if (!RAIL_FOLDER_KEYS.has(key)) return
+      const railKey = key as RailFolderKey
+      setOpen((prev) => ({ ...prev, [railKey]: !prev[railKey] }))
     }
     window.addEventListener('metro:folder', onFolder)
     return () => window.removeEventListener('metro:folder', onFolder)
   }, [])
 
-  const toggle = (k: FolderKey): void => setOpen((o) => ({ ...o, [k]: !o[k] }))
+  const toggle = (k: RailFolderKey): void => setOpen((o) => ({ ...o, [k]: !o[k] }))
   // Opening one variant list collapses any other; clicking the open one closes it.
   const toggleSubMenu = (k: SubMenuKey): void => setSubMenu((cur) => (cur === k ? null : k))
 
@@ -152,36 +163,67 @@ export function LeftRail(): React.ReactElement {
     if (trackId) setOpen((prev) => (prev.rail ? prev : { ...prev, rail: true }))
   }, [trackId])
 
+  /**
+   * Bring the tile of whatever is armed into view.
+   *
+   * A 吸取 hands the rail a piece the player may never have opened the folder for —
+   * so the menu has to show them *where* it went, and a tile scrolled out of the
+   * rail does not. The tile is the armed thing's own (`armedRailTile`, the rail's one
+   * answer for pieces, cut pieces, rails, rooms and finishes); the folder and the
+   * variant list that hold it are opened by the two effects above; and this only ever
+   * moves the rail's own scroll, because a tile already on screen needs no movement at
+   * all (`revealScrollDelta` answers 0).
+   *
+   * A fold is a ~280 ms height transition, so the first pass lands the tile near
+   * where the fold ends and the second, once it has settled, lands on it.
+   */
+  const armedTile = useStore(armedRailTile)
+  useEffect(() => {
+    if (!armedTile) return
+    const reveal = (): void => {
+      const rail = railRef.current
+      const el = rail?.querySelector<HTMLElement>(`[data-tile="${armedTile}"]`)
+      if (!rail || !el) return
+      const delta = revealScrollDelta(rail.getBoundingClientRect(), el.getBoundingClientRect())
+      if (delta !== 0) rail.scrollTop += delta
+    }
+    const timers = [window.setTimeout(reveal, 0), window.setTimeout(reveal, REVEAL_SETTLE_MS)]
+    return () => {
+      for (const t of timers) window.clearTimeout(t)
+    }
+  }, [armedTile])
+
   // What each folder shows, and the count its header prints. The count is the
   // tiles the folder can put on screen *in the state the rail is in* — 工具 grows
-  // by 自动生成墙壁 and 半墙 under the 方块 tool, 视图 by 旋转 while 剖切 is on — so a
-  // header never counts tiles the player cannot see there and then. 视图's is 7:
-  // 显示其他层 / 剖切 / 隐藏天花板 / 隐藏墙壁 / 热力图 / 分区图 / 隐藏UI.
-  const folders: Record<FolderKey, { count: number; body: React.ReactNode }> = {
-    tools: { count: tool === 'block' ? 8 : 6, body: <ToolsFolder /> },
+  // by 生成墙壁 under the plain 方块 tool (and only there: a cut piece takes that
+  // tile away, `showsAutoWalls`) — so a header never counts tiles the player cannot
+  // see there and then. A folded-out **action row** is not a tile in any folder, which
+  // is why a cut's 旋转 adds nothing here. (视图's own 7 / 8 is the 信息栏's to print
+  // now, beside its body.)
+  const folders: Record<RailFolderKey, { count: number; body: React.ReactNode }> = {
+    tools: { count: toolsFolderTiles(tool, cut), body: <ToolsFolder /> },
     rail: { count: 2, body: <RailFolder /> },
     equipment: {
       // The count is the grid's own arithmetic — the plain tiles plus one parent tile
-      // per family — read from the same table `TileGrid` renders, so the header can
+      // per family, read from the very list `TileGrid` renders — so the header can
       // never disagree with what the folder shows.
-      count: folderOptions('equipment').length + familiesIn('equipment').length,
+      count: folderTiles('equipment').length,
       body: <EquipmentFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
     },
     decor: {
-      count: folderOptions('decor').length + familiesIn('decor').length,
+      count: folderTiles('decor').length,
       body: <DecorFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
+    },
+    surfaces: {
+      count: FINISH_LIST.length + 2,
+      body: <PaintFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
     },
     rooms: { count: FACILITY_OPTIONS.length, body: <RoomFolder /> },
     zones: { count: ZONE_LIST.length, body: <ZoneFolder /> },
-    surfaces: {
-      count: FINISH_LIST.length + 3,
-      body: <PaintFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
-    },
-    view: { count: cutaway ? 8 : 7, body: <ViewFolder /> },
   }
 
   return (
-    <div className="rail">
+    <div className="rail" ref={railRef}>
       <div className="railStamp">
         <span className="railStampTitle">建造栏</span>
         <span className="railStampSub">METRO / BUILD</span>

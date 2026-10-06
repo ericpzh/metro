@@ -16,7 +16,7 @@ import { CHUNK, meshChunk, wedgeSlope } from '../../chunkMesher.ts'
 import { buildModule, disposeObject } from '../../models.ts'
 import type { ModuleContext } from '../../models.ts'
 import { HALF_WALL_T } from '../../../sim/constants.ts'
-import { rampFillKeys } from '../../../sim/openings.ts'
+import { rampFillKeys, type SlopeCut } from '../../../sim/openings.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace } from '../../../sim/types.ts'
 import type { CellShape, Face, Module } from '../../../sim/types.ts'
@@ -205,7 +205,13 @@ export class GhostSystem extends SceneSystem {
    * The 半墙 sides are part of it: R steps the thickness a thin wall's panel takes
    * without the pending cells moving at all, and a ghost that skipped that rebuild
    * would show the wall the player just turned away from. So is the run's cut,
-   * which changes when a 楼梯 / 扶梯 is placed or bulldozed under an unmoved cell.
+   * which changes when a 楼梯 / 扶梯 is placed or bulldozed under an unmoved cell —
+   * and **everything about that cut the mesher draws**, not merely its plane: the
+   * base clamp (`base`, the block a stair stands on is held level), the cap's
+   * painted finish (`finish`, a 材质 stroke on the piece) and the two flags that
+   * decide whether a filling is derived at all (`noFill` / `ownBody`). `lo`/`hi` do
+   * not move when a stair is repainted, so a key without `finish` would keep the old
+   * cap colour under an unmoved ghost.
    */
   private ghostKeyOf(cells: Array<[number, number, number]>, thin?: ReadonlyMap<number, CellShape>): string {
     let h = 2166136261
@@ -222,28 +228,37 @@ export class GhostSystem extends SceneSystem {
         h = Math.imul(h ^ (shape.kind === 'half' ? 0 : shape.triangle === 'upper' ? 1 : 2), 16777619)
         for (let i = 0; i < shape.side.length; i++) h = Math.imul(h ^ shape.side.charCodeAt(i), 16777619)
       }
-      const cut = this.ctx.slopeCuts.get(k)
-      if (cut !== undefined) {
-        h = Math.imul(h ^ cut.axis.charCodeAt(0), 16777619)
-        h = Math.imul(h ^ Math.round(cut.lo * 1024), 16777619)
-        h = Math.imul(h ^ Math.round(cut.hi * 1024), 16777619)
-      }
+      h = this.mixCut(h, this.ctx.slopeCuts.get(k))
       // A block under a run carries the ground up to the truss, and that filling is
       // part of what the ghost draws: whether it exists depends on the cell above
       // being free and on the run's cut there, neither of which the cell's own key
       // carries.
       const above = packKey(x, y, z + 1)
-      const fillCut = this.ctx.slopeCuts.get(above)
-      if (fillCut !== undefined && !this.ctx.solid.has(above)) {
+      const fillCut = this.ctx.solid.has(above) ? undefined : this.ctx.slopeCuts.get(above)
+      if (fillCut !== undefined) {
         h = Math.imul(h ^ 0x5bf03635, 16777619)
-        h = Math.imul(h ^ fillCut.axis.charCodeAt(0), 16777619)
-        h = Math.imul(h ^ Math.round(fillCut.lo * 1024), 16777619)
-        h = Math.imul(h ^ Math.round(fillCut.hi * 1024), 16777619)
-        // The run's drawn body width shapes that filling (a truss box, not a block).
-        if (fillCut.half !== undefined) h = Math.imul(h ^ Math.round(fillCut.half * 1024), 16777619)
+        h = this.mixCut(h, fillCut)
       }
     }
     return `${cells.length}:${h >>> 0}`
+  }
+
+  /** Fold every drawn field of one cut into a running hash (see `ghostKeyOf`). */
+  private mixCut(h: number, cut: SlopeCut | undefined): number {
+    if (cut === undefined) return h
+    h = Math.imul(h ^ cut.axis.charCodeAt(0), 16777619)
+    h = Math.imul(h ^ Math.round(cut.lo * 1024), 16777619)
+    h = Math.imul(h ^ Math.round(cut.hi * 1024), 16777619)
+    if (cut.base !== undefined) h = Math.imul(h ^ 0x1f83d9ab, 16777619)
+    if (cut.base !== undefined) h = Math.imul(h ^ Math.round(cut.base * 1024), 16777619)
+    // The run's drawn body width shapes that filling (a truss box, not a block).
+    if (cut.half !== undefined) h = Math.imul(h ^ Math.round(cut.half * 1024), 16777619)
+    if (cut.noFill) h = Math.imul(h ^ 0x27d4eb2f, 16777619)
+    if (cut.ownBody) h = Math.imul(h ^ 0x165667b1, 16777619)
+    if (cut.finish !== undefined) {
+      for (let i = 0; i < cut.finish.length; i++) h = Math.imul(h ^ cut.finish.charCodeAt(i), 16777619)
+    }
+    return h
   }
 
   /**
@@ -294,6 +309,14 @@ export class GhostSystem extends SceneSystem {
           geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3))
           geo.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3))
           geo.setAttribute('color', new THREE.BufferAttribute(part.colors, 3))
+          geo.setAttribute('uv', new THREE.BufferAttribute(part.uvs, 2))
+          // The index is **not** optional. A `ChunkPart` is an indexed mesh: its vertex
+          // list holds each face's own corners (a 三角's five faces are 10 vertices for
+          // 6 triangles), so without this the renderer reads the list as a plain triangle
+          // soup, drops its last vertex, and welds unrelated faces together — which is
+          // what made the 三角 preview show a couple of its faces and lose the rest.
+          // `ChunkSystem` sets it for the same parts; this is the one caller that did not.
+          geo.setIndex(new THREE.BufferAttribute(part.indices, 1))
           const mesh = new THREE.Mesh(geo, mat)
           mesh.frustumCulled = false
           mesh.renderOrder = 3

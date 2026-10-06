@@ -765,7 +765,13 @@ export function meshChunk(
     // stands on — the ground carried up to the truss — unless it is that truss box,
     // which wears the run's own steel so the escalator reads as one body.
     const fin = truss ? TRUSS_FACES : finishes.get(k) ?? (filled ? finishes.get(key(x, y, z - 1)) : undefined)
-    const topI = fin?.top !== undefined ? finishIdx(fin.top) : DEFAULT_TOP_I
+    /**
+     * The **cap**: the surface a run left behind, the plane its cut shaves to. It belongs to
+     * the run as much as to the ground — a 楼梯 painted with the 材质 brush paints the ground
+     * under it with it (`SlopeCut.finish`) — so a block that carries no top finish of its own
+     * takes the run's. A face the player painted themselves always wins.
+     */
+    const topI = fin?.top !== undefined ? finishIdx(fin.top) : cut?.finish !== undefined ? finishIdx(cut.finish) : DEFAULT_TOP_I
     const bottomI = fin?.bottom !== undefined ? finishIdx(fin.bottom) : DEFAULT_BOTTOM_I
     const sideI: Record<'e' | 'w' | 'n' | 's', number> = fin
       ? {
@@ -831,17 +837,30 @@ export function meshChunk(
       const lo = cut.lo
       const rise = cut.hi - cut.lo
       const alongX = cut.axis === 'x'
-      cutAt = (px: number, py: number): number => lo + rise * (alongX ? px : py)
+      /**
+       * The run's own plane, never below the **base plane** it stands on (`SlopeCut.base`):
+       * a stair's soffit hangs under the landing it leaves, and ground cut to that would
+       * be a wedge dipping below the floor the piece is founded on — the block under the
+       * base would stop being a floor block. The cut takes volume only from at or above
+       * the plane, so the base block stays whole and level with the floor beside it.
+       */
+      const clamp = cut.base
+      cutAt = clamp === undefined
+        ? (px: number, py: number): number => lo + rise * (alongX ? px : py)
+        : (px: number, py: number): number => {
+            const raw = lo + rise * (alongX ? px : py)
+            return raw > clamp ? raw : clamp
+          }
     }
     // Where the plane leaves through the block's floor the block is empty past it,
     // so the cross-section is clipped there: a fan chording across that corner would
     // rise back up into the run it was cut out of. Everywhere else it is the outline.
+    // The test is on the plane as drawn — the base clamp included — or a block the
+    // clamp has filled back to its floor would be clipped away as if it were empty.
     let body = shape
-    if (cut !== undefined && Math.min(cut.lo, cut.hi) <= 0) {
-      const lo = cut.lo
-      const rise = cut.hi - cut.lo
-      const alongX = cut.axis === 'x'
-      body = clipProfile(shape, (p: Pt): number => lo + rise * (alongX ? p.x : p.y))
+    if (cutAt !== null && Math.min(cutAt(0, 0), cutAt(1, 0), cutAt(0, 1), cutAt(1, 1)) <= 0) {
+      const plane = cutAt
+      body = clipProfile(shape, (p: Pt): number => plane(p.x, p.y))
     }
     /**
      * The side walls, and the top-rim chamfer over each of them.
@@ -1015,6 +1034,11 @@ export function meshChunk(
        * the rim it is meant to close, splitting the lid away from the walls and leaving the
        * run's body open exactly as it does on the boundary itself. The mean of the rim's
        * heights lies on the plane by construction, so the fan comes out flat.
+       *
+       * The mean is taken of the plane **as drawn**, so a cell whose whole plane the base
+       * clamp has lifted gets one level lid — exactly the top the block would have had if
+       * the stair had never touched it (`SlopeCut.base`). Taking the raw plane instead
+       * tilts that lid under the floor it sits level with.
        */
       let cH = 0
       for (const p of cap) cH += bodyTop(p.x, p.y)

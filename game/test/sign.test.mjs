@@ -54,6 +54,7 @@ import {
   signComponentAt,
   signContentBox,
   signInkSize,
+  signLayoutCarried,
   signLayoutInOrder,
   signLayoutInserted,
   signLayoutMoved,
@@ -65,6 +66,7 @@ import {
   signPieces,
   signPlate,
   signTextLineScale,
+  signTextIsGloss,
   signTextLines,
   signTextSize,
   splitSignBoards,
@@ -291,11 +293,17 @@ test('a board takes exactly as many marks as fit, and no more', () => {
   assert.equal(arrows.length, 6, `${arrows.length} arrows fit`)
   const arrowPanel = signPanelSize(packSignRow(arrows))
   assert.ok(arrowPanel.w > 3.0 && arrowPanel.w <= PANEL_MAX_W, `six arrows: ${arrowPanel.w} m`)
+  // Six arrows need the ceiling to move: 3.24 m of row plus a quiet end pad at each
+  // end is 3.48 m of steel, and a board narrower than that cannot hold them centred.
+  // The ceiling is what makes that possible, so it is stated here rather than left to
+  // be rediscovered — a ceiling that squeezes a legal row leaves the print off centre,
+  // which is the report this file's render tests pin (`sign-render.test.mjs`).
+  assert.ok(arrowPanel.w >= 3.48 - 0.05, `six arrows are given their own steel: ${arrowPanel.w} m`)
 
-  // A smaller mark fits more — the rule is width, not kind. (A shield fills the
-  // same six: the row's end pads take the room a seventh shield would need.)
+  // A smaller mark fits more — the rule is width, not kind. (A shield is 0.42 m of ink
+  // to an arrow's 0.48, so a seventh still lands inside the ceiling.)
   assert.ok(capacity('icon').length > arrows.length, 'pictograms are narrower than arrows')
-  assert.equal(capacity('line').length, arrows.length, 'a shield fills the same board as six arrows')
+  assert.ok(capacity('line').length > arrows.length, 'a shield is narrower than an arrow')
 
   // And what the rule accepted really is on the board: no two marks share a place.
   for (const kind of ['arrow', 'icon', 'line']) {
@@ -306,6 +314,72 @@ test('a board takes exactly as many marks as fit, and no more', () => {
         const ox = Math.min(boxes[i].left + boxes[i].w, boxes[j].left + boxes[j].w) - Math.max(boxes[i].left, boxes[j].left)
         assert.ok(ox <= 1e-6, `${kind}: marks ${i} and ${j} share ${ox.toFixed(3)} m`)
       }
+    }
+  }
+})
+
+test('room is a question about the board and the mark, not about where the mark has been', () => {
+  // The bug this pins: a mark carried off **背面** into **正面** was refused with "这块牌子放不下了"
+  // while the very same mark, dragged in from the palette, was taken — on a board with room
+  // for it. Two things made the answer depend on where the mark came from, and both were the
+  // *mark's own state* leaking into a question about the board:
+  //
+  //   * its `x` — the place it held on the row it was leaving, which scattered the pack: the
+  //     gaps the spread implies are not room a new mark can use, and a request that lands
+  //     near the ceiling is folded back onto a neighbour there;
+  //   * its `id` — a board numbers its own marks from `c1`, so the two boards are full of the
+  //     same names, and the pack (which is keyed by id) read two marks of one name as two
+  //     marks in one place.
+  const arrow = (id, x = 0) => ({ id, kind: 'arrow', arrow: 'up', x, y: 0.35, scale: 1, side: 'both' })
+  const board = settleSignLayout([arrow('c1'), arrow('c2'), arrow('c3')]).layout
+  const fromPalette = arrow('drag', 0)
+  assert.ok(signMarkFits(board, fromPalette), 'a fourth arrow from the palette fits three')
+
+  // Carried across from the other row, the mark is the same mark: same arrow, name from the
+  // board it is leaving, place from the row it was on.
+  for (const id of ['c1', 'c2', 'c3']) {
+    for (const x of [0.165, 0.495, 1.485, 3.135]) {
+      const carried = arrow(id, x)
+      assert.equal(
+        signMarkFits(board, carried),
+        true,
+        `the same arrow carried over (id ${id}, x ${x}) fits three: the answer may not depend on where it stands`,
+      )
+    }
+  }
+
+  // And a board that really is full still refuses both, on the same reasoning. The count
+  // is **asked of the model** rather than stated here: how many marks a board holds
+  // depends on how wide they are, and a vertical arrow's box is the horizontal mark's
+  // turned with it (`signInkSize`) — so the number is a property of the board and the
+  // mark, which is the whole point of `signMarkFits`.
+  let full = []
+  for (let n = 1; n <= SIGN_COMPONENT_MAX + 2; n++) {
+    const next = arrow(`f${n}`)
+    if (!signMarkFits(full, next)) break
+    full = settleSignLayout([...full, next]).layout
+  }
+  assert.ok(full.length >= 3, `${full.length} arrows fill a board`)
+  assert.equal(signMarkFits(full, fromPalette), false, 'one more from the palette is refused')
+  assert.equal(signMarkFits(full, arrow('f3', 0.99)), false, 'and so is one more carried off the other row')
+})
+
+test('a pack places by the place in the list, not by the name on the mark', () => {
+  // Two boards number their own marks from `c1`, so a row of marks from *both* boards — which
+  // is exactly what `signMarkFits` lays out to ask about room — holds a repeated id. Keyed by
+  // id, the pack gave both marks of one name the *same* `x` (`c2` came back twice, at the
+  // place the first of them had been given), which reads as a row that has already folded two
+  // marks onto one place.
+  const arrow = (id) => ({ id, kind: 'arrow', arrow: 'up', x: 0, y: 0.35, scale: 1, side: 'both' })
+  const row = packSignRow([arrow('c1'), arrow('c2'), arrow('c3'), arrow('c2')])
+  assert.equal(row.length, 4, 'every mark in the list is placed')
+  const xs = row.map((c) => c.x)
+  assert.deepEqual(xs, [...xs].sort((a, b) => a - b), 'and they stand in the order they were listed')
+  const boxes = signPieces(row, signPanelSize(row))
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const ox = Math.min(boxes[i].left + boxes[i].w, boxes[j].left + boxes[j].w) - Math.max(boxes[i].left, boxes[j].left)
+      assert.ok(ox <= 1e-6, `marks ${i} (${row[i].id}) and ${j} (${row[j].id}) share ${ox.toFixed(3)} m`)
     }
   }
 })
@@ -450,13 +524,30 @@ test('a label is 中文 of eight and English of sixteen, and no more', () => {
   assert.equal(signTextLines('a\n\nb').length, 2)
 })
 
-test('a label sets its second line small, so one box carries both languages', () => {
-  // The board's one text box is 中文 over English: the first line is full size and
-  // the second is the gloss, at the one ratio the model, the renderer and the
+test('a label sets its English gloss small, so one box carries both languages', () => {
+  // The board's one text box is 中文 over English: the 中文 row is full size and the
+  // English one is the gloss, at the one ratio the model, the renderer and the
   // editor's tiles all read.
-  assert.equal(signTextLineScale(0), 1)
-  assert.equal(signTextLineScale(1), SIGN_TEXT_EN_SCALE)
+  assert.equal(signTextLineScale(0, '出站'), 1)
+  assert.equal(signTextLineScale(1, 'Exit'), SIGN_TEXT_EN_SCALE)
+  // The scale is asked about the row's **own text**, not about its place in the label:
+  // a 中文 row is full size wherever it sits, and an English-only label is a gloss
+  // even though it is the first row — the editor's two boxes are 中文 over English, but
+  // a *one-row* label is whatever the player typed into them.
+  assert.equal(signTextLineScale(1, '出站'), 1, 'a 中文 second row is not a gloss')
+  assert.equal(signTextLineScale(0, 'Exit'), 1, 'the name row is the name row')
+  assert.equal(signTextLineScale(1, 'Towards Jiaokou'), SIGN_TEXT_EN_SCALE)
+  assert.equal(signTextIsGloss('Towards Jiaokou'), true)
+  assert.equal(signTextIsGloss('Exit'), true)
+  assert.equal(signTextIsGloss('5号线'), false)
+  assert.equal(signTextIsGloss('Line 5'), true)
+  assert.equal(signTextIsGloss('APM线'), false)
+  assert.equal(signTextIsGloss(''), true)
+  // The English is sized by the **ink the eye reads**, not by em: a Latin cap-height is
+  // about 0.72 of an em while a CJK glyph fills its box, so the gloss has to set well
+  // under the 中文 to stop reading as a second headline.
   assert.ok(SIGN_TEXT_EN_SCALE > 0.4 && SIGN_TEXT_EN_SCALE < 0.8, `${SIGN_TEXT_EN_SCALE}`)
+  assert.ok(SIGN_TEXT_EN_SCALE <= 0.55, `the gloss must not outweigh the 中文 it sits under: ${SIGN_TEXT_EN_SCALE}`)
 
   const size = signTextSize(1)
   // A measure that reports exactly what it was handed, so the size each row is
@@ -479,6 +570,12 @@ test('a label sets its second line small, so one box carries both languages', ()
   // twice as tall as a one-line one and the board makes room for both rows.
   assert.ok(Math.abs(ink.h - size * 1.15 * 2) < 1e-9, `${ink.h}`)
   assert.ok(Math.abs(ink.h - 2 * signInkSize({ ...both, text: '出站' }, measured).h) < 1e-9)
+  // The row the **drawing** sets is the row the **measurement** priced: the renderer
+  // reads the same function (`render/signFace.ts`), and a label whose gloss was
+  // measured at one size and printed at another overran the board it was packed onto.
+  const glossAtHalf = signInkSize({ id: 'g', kind: 'text', text: '方向\nDirection', x: 1, y: 0.35, scale: 1, side: 'both' }, measured)
+  const directionAtFull = measured('Direction', size)
+  assert.ok(glossAtHalf.w < directionAtFull, `the gloss must not be priced at full size: ${glossAtHalf.w} vs ${directionAtFull}`)
 })
 
 test('the bin order is the row: a move or an insert is a list edit', () => {
@@ -782,10 +879,10 @@ test('a mark dropped on one face lands on that face and nowhere else', () => {
 
 test('a mark can be carried from one board to the other, and only ever lives on one', () => {
   // The editor's cross-face drag: the mark leaves the board it was on and joins the one it
-  // is over, at the place it was dropped. It is written as one statement over the pair —
-  // take it out of one list, put it into the other — which is what keeps the two boards
-  // from ever both holding it, or neither. This is the model half of that; the gesture
-  // itself is exercised in the browser.
+  // is over, at the place it was dropped. It is written as one statement over the pair
+  // (`signLayoutCarried`) — take it out of one list, put it into the other — which is what
+  // keeps the two boards from ever both holding it, or neither. This is the model half of
+  // that; the gesture itself is exercised in the browser.
   const boards = settleSignBoards({
     front: [
       makeSignComponent('arrow', 'a1'),
@@ -795,9 +892,8 @@ test('a mark can be carried from one board to the other, and only ever lives on 
     back: [],
   })
   const carried = boards.front[1]
-  const source = boards.front.filter((c) => c.id !== carried.id)
-  const destination = signLayoutInserted(boards.back, carried, 0)
-  const moved = { front: source, back: destination }
+  const first = signLayoutCarried(boards.front, boards.back, carried.id, 0)
+  const moved = { front: first.source, back: first.target }
 
   assert.equal(moved.front.length, 2, 'the board it left is one shorter')
   assert.equal(moved.back.length, 1, 'the board it joined is one longer')
@@ -806,9 +902,14 @@ test('a mark can be carried from one board to the other, and only ever lives on 
   // Aimed at the start of the shorter board, it *is* the start: the row states each mark's
   // place, so the drop lands where the pointer was and not merely somewhere on the board.
   assert.ok(moved.back[0].x <= moved.front[0].x + 1e-9, `dropped at the start: ${moved.back[0].x}`)
+  // The mark is a **new mark** on the board it joins, and the caller is told what it is
+  // called there: a drag follows its mark by id from one pointer move to the next.
+  assert.equal(moved.back[0].id, first.id, 'the returned id is the one the mark now carries')
+  assert.notEqual(first.id, carried.id, 'a mark that changes boards is renamed to a free id there')
 
   // Carried back, the pair is whole again — and the mark is counted once throughout.
-  const returned = { front: signLayoutInserted(moved.front, moved.back[0], 1), back: [] }
+  const second = signLayoutCarried(moved.back, moved.front, first.id, 1)
+  const returned = { front: second.target, back: second.source }
   assert.equal(returned.front.length, 3)
   assert.equal(returned.front.filter((c) => c.kind === 'icon').length, 1, 'exactly one copy, never a duplicate')
 
@@ -820,6 +921,25 @@ test('a mark can be carried from one board to the other, and only ever lives on 
   }
   assert.ok(onOneBoard(moved), 'a carried mark is on exactly one board')
   assert.ok(onOneBoard(returned), 'and so is one carried back')
+
+  // **The rows are numbered independently, so they are full of the same names**: three marks
+  // on each board are `c1`, `c2`, `c3` twice over. A mark handed over as it stands is a second
+  // `c2` in the row it joins — and taking it off the board it was *joining* (a filter by an id
+  // both boards hold) deletes that board's own mark instead: a drag that eats a neighbour and
+  // puts nothing in its place. The carry is written against the list the mark is really on, and
+  // mints an id the destination does not already have.
+  const both = settleSignBoards({
+    front: [makeSignComponent('arrow', 'c1'), makeSignComponent('arrow', 'c2'), makeSignComponent('arrow', 'c3')],
+    back: [makeSignComponent('arrow', 'c1'), makeSignComponent('arrow', 'c2'), makeSignComponent('arrow', 'c3')],
+  })
+  assert.deepEqual(both.front.map((c) => c.id), ['c1', 'c2', 'c3'], 'a board numbers its own marks')
+  assert.deepEqual(both.back.map((c) => c.id), ['c1', 'c2', 'c3'], 'and the other board numbers them the same')
+  const cross = signLayoutCarried(both.back, both.front, 'c2', 1)
+  assert.equal(cross.target.length, 4, 'the board it joins keeps every mark it had, and gains one')
+  assert.equal(cross.source.length, 2, 'the board it left keeps the two it is not carrying')
+  assert.deepEqual(cross.target.map((c) => c.id), ['c1', 'c4', 'c2', 'c3'], `the mark lands in the place it was aimed at: ${JSON.stringify(cross.target.map((c) => c.id))}`)
+  assert.equal(new Set(cross.target.map((c) => c.id)).size, 4, 'and no row holds one name twice')
+  assert.ok(cross.source.every((c) => c.id !== cross.id), 'the carried mark is off the board it left')
 })
 
 test('the empty face’s stand-in place is not a mark, and never reaches a board', () => {

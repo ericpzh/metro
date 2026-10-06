@@ -1,11 +1,11 @@
 // The 装饰 folder body (§5.4 decor palette).
 //
-// A thin wrapper: the grid itself — the plain decor tiles, the five variant families
-// (座椅 / 广告牌 / 玻璃板 / 站名 / 线网图) with their sub-menus, and the contextual action row
-// — is `rail/shared/TileGrid.tsx`, driven by the family table in
-// `app/store/catalog.ts`. Nothing about the folder is written out here, which is the
-// point: the folder, its parent tiles, its lists and the action row all read that one
-// table, so they cannot disagree.
+// A thin wrapper: the grid itself — the folder's tiles in rail order, the plain ones and
+// the six variant families (座椅 / 广告牌 / 玻璃板 / 门 / 站名 / 线网图) with their sub-menus, and
+// the contextual action row — is `rail/shared/TileGrid.tsx`, driven by the order list and
+// the family table in `app/store/catalog.ts`. Nothing about the folder is written out here,
+// which is the point: the folder, its parent tiles, its lists and the action row all read
+// those one tables, so they cannot disagree.
 
 import { TileGrid } from '../shared/TileGrid.tsx'
 import type { SubMenuKey } from '../helpers.ts'

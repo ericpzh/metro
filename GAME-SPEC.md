@@ -331,12 +331,12 @@ top of any family and never break a merge.
   region on that plane (same level, same orientation) with the chosen texture. The fast
   pass for stage 3 of the loop: paint a whole concourse floor or an entire wall run.
 * `左键` paints, `右键` erases (reverts to family default) in both tools — see §9.5 for the
-  full mouse table. `取色` (`I`) picks the clicked face's texture as the active brush. Both
-  tools preview as ghosts, are undoable, and mark the save dirty.
+  full mouse table. `吸取` (`P`, the 工具 folder's eyedropper) picks the clicked surface as the
+  active brush — and a placed 设备 / 装饰 piece instead arms that piece's placement (see §9.5).
+  Both tools preview as ghosts, are undoable, and mark the save dirty.
 * The `N`/`M` choice **sticks**. It is a setting of the 材质 folder, not of a texture: choosing a
   finish (or a fresh 搪瓷板 colour) never changes it, so it is still there when the player comes back
-  from another folder on the left rail. `取色` only borrows the brush — it hands the brush back in
-  whichever of the two modes it was entered with.
+  from another folder on the left rail.
 
 ### 4.4 Levels and depth
 
@@ -414,7 +414,8 @@ sides alone. The wall must run the whole flight, at the flight's own heights —
 half-landing, or carries a doorway the flight passes, leaves the handrail on.
 
 A **wider staircase is lanes**: one, two or three parallel flights, each one escalator band (0.7 m),
-each in its own cell — so a 2-lane stair is two 0.7 m lanes in two blocks, a 3-lane stair in three.
+each in its own cell — so a 2-lane stair is two 0.7 m lanes in two blocks, a 3-lane stair in three —
+and the tool's action tile names those three **sizes** 窄 / 中 / 宽 rather than quoting a width.
 Neighbouring lanes always **join their steps** (each flight's treads run out to the cell edge, so
 there is no gap between them). Whether they are *one* staircase is a property of how they were
 placed: the lanes of one wide stair share a flight token, and along a seam between lanes that share
@@ -425,14 +426,22 @@ escalator keeps its balustrade and does not reach under it. The lane
 count follows the pointer: dropped beside a stair on its left, the flight takes the cells on
 its right, and the other way round. A stair that is a single piece wider than a cell — a *turning*
 stair, whose flights cannot share their landings lane by lane, or a station saved before lanes — is
-the exception: its body crosses into the next cell, so it needs a bay of its own.
+the exception: at 中 / 宽 its runs fill two and three whole blocks, so it needs a bay of its own (a
+双跑楼梯's runs are block-wide, below).
 
 A **switchback staircase** (双跑楼梯) turns a storey back on itself: two parallel flights with a
-half-landing between them. Its runs are laid **flush**: the returning flight's *path* is one cell
-across per lane, as close as two walking lines can stand, and its *treads* slide the rest of that step
-until the two balustrades meet back to back — the shared centre rail a real 双跑楼梯 has, with no floor
-left between the runs. The piece claims one block per lane plus what the two bands really need: **2
-blocks across at 0.7 m, 4 at 1.4 m, 5 at 2 m**. It comes in both hands (右双跑楼梯 / 左双跑楼梯); a
+half-landing between them. Its runs are laid **flush** — balustrades back to back on the seam, the shared
+centre rail a real 双跑楼梯 has, with no floor left between the runs — so each run is built to fill its own
+**blocks**, balustrades included (0.79 / 1.79 / 2.79 m of treads at 窄 / 中 / 宽, where a lane count would
+give 1.36 m at 中), and both bands are then laid on the block grid: the returning flight's *path* stands
+one block per lane across and the pair moves half a block (a whole block at three lanes) so its treads and
+rails end on the cell edges. Its **size is the blocks the pair takes across**, two per run: **2 blocks at
+窄, 4 at 中, 6 at 宽**, growing along the run's right from the base cell, and the platform they turn on
+is **one block deep** — the row the runs meet in, which is the floor the crowd walks across — rather than
+as deep as the runs are wide. A wall built beside the piece
+therefore stands flush against a run's outer balustrade and against the half-landing's long sides, and
+those railings — like a flight's (`stairWallSides` / `stairLandingWalls`) — are dropped: the wall is the
+barrier there. It comes in both hands (右双跑楼梯 / 左双跑楼梯); a
 rotation turns the
 piece about its base and never swaps the hand of the turn. The half-landing is a **walked** row of
 cells — both flights join the graph to it — so each flight's balustrade stops at the flight end where
@@ -444,7 +453,13 @@ another run already occupies is still refused, so a second escalator can never b
 below a first.
 
 A run is founded on the ground it climbs over, and its body hangs **below** its walking line — an
-escalator's truss, a staircase's soffit and stringers, half a metre of it. So a block under a run is
+escalator's truss, half a metre of it (`RAMP_FOOT`), or a staircase's stringers and the soffit they
+carry, a little less (`STAIR_BODY_DROP`), because a stair's underside is the surface the ground under it
+has to meet and cutting it to a truss's depth leaves a slot of daylight under the steps. The **line** the
+cut follows is the run's own as well: an escalator's truss really does run landing centre to landing
+centre, but a staircase's treads stop half a landing cell short of each centre and still carry the whole
+rise, so the body under them is the steeper line — a 3-cell turn flight climbs at 45° where the
+landing-to-landing line is 33.7°. So a block under a run is
 floor like any other: the 方块 tool lays it, the carve does not take it away (the carve opens the run's
 passage from the walking line **up**, and keeps the landings as the graph's nodes), and the renderer
 shaves its top to the run's underside (§4.2), tile by tile, so what stands under a 扶梯 is the filling
@@ -453,7 +468,9 @@ line passes through is cut, and a run's **landing columns** are left whole — t
 crowd stands on at the foot of the run, so a block there is cut level with that surface, never on a
 slope. A block the run's body never reaches is left exactly as it was built. The cut is a *surface*:
 the crowd's model of a block is still its cell top, which is why it only ever happens below a run's
-walking line and never in a column anyone walks.
+walking line and never in a column anyone walks. The cap it leaves is the **run's** surface, not the
+ground's: a 楼梯 painted with the 材质 brush (`cfg.finish`) paints the ground it stands on with it,
+while the block's own sides stay the ground's.
 
 An **escalator carries that course itself**: its 扶梯 piece is solid under the truss over the cells the
 ground's own filling covers — a closed prism across the balustrade width, from the lower landing's
@@ -462,8 +479,16 @@ above), which its lid follows to its very end — instead of leaving it to a der
 has to tell its neighbours to treat as solid. Its lid *is* that plane and its flanks are flush with the
 truss box's own, so the body, the shaved ground and the truss read as one solid with no step and no
 slit, standing exactly where the ground's own filling stood. A
-staircase keeps the behaviour above: its soffit and stringers hang below the walking line and its
-underside is the ground's filling, drawn to the slope wherever ground reaches it.
+staircase takes neither course beyond the ground it really has: its soffit and stringers hang below the
+treads' own line **and end at the treads** — a landing's column is never cut, so a beam overhanging it
+would be swallowed by the floor at the foot of the run — the blocks its flight meets are shaved to that
+line, and where there is no block it
+hangs over its own well, open — a derived filling under it would stand in the run's own carved passage,
+a mass no block fits in and no 材质 brush can register on. The half-landing floor
+a turning staircase lays is the **stair's** own cell — the mesher skips it and the model draws the
+platform — so deleting the stair takes it back out with the piece; a straight staircase lays none, and
+**移动** refuses a staircase outright (`isMovableModule`), so one leaves and returns through delete and
+place.
 
 ### 5.2 Fare control and service
 
@@ -1314,7 +1339,7 @@ the selected piece — the right button puts that piece back.)
 | 1 | **Select / delete a block, including in void** | `V` 选择: `左键` click a block to select (inspector opens) — and a placed 设备 / 装饰 piece selected this way offers `移动` in the `信息` card (see below). `左键` click void (work plane) clears selection and pins the coordinate — nothing to select, but the `(x,y,z)` pin is shown and can be framed with `F`. Box-select: `左键` drag in `V` selects all blocks in the rectangle on the active level. `Del` / `Backspace` deletes the selection (blocks and/or modules); `Ctrl+Z` / `Ctrl+Y` undo/redo; `Esc` clears selection. |
 | 2 | **Place 1 or N blocks next to a block** | `B` 砌块: `左键` click a block *face* places 1 block attached to that face (ghost preview first). `左键` drag across faces paints a run; release over empty face-boxes fills each once. `Shift+左键` drag constrains to a straight line; plain box-drag on a face fills the rectangle (e.g. a 6×4 slab). `右键` click / `右键` drag erases blocks (restores void; hosted modules are refunded with confirm per §9.3). Wheel switches brush size 1–5 when the cursor is over a face. |
 | 3 | **Place a block NOT next to any block** | `B` 砌块 + work plane: `左键` click the work-plane marker places a block floating on the active level at that cell — no neighbour required. `Alt+左键` forces work-plane placement even when the ray also hits a block (aiming past geometry). Box-drag on the visible grid (`G`) fills detached rectangles the same way as attached ones. This is how the second pavilion 200 m away gets started. |
-| 4 | **Paint / erase one block face** | `N` 单块: `左键` paints the clicked face with the active texture of its family (地面/天花/墙面/轨道, §4.3). `右键` reverts that face to the family default. `I` eyedrops the hovered face into the brush. Works on block faces only — clicking void just moves the pin. |
+| 4 | **Paint / erase one block face** | `N` 单块: `左键` paints the clicked face with the active texture of its family (地面/天花/墙面/轨道, §4.3). `右键` reverts that face to the family default. `P` 吸取 (the 工具 folder's eyedropper) picks the clicked surface into the brush — a 半墙's inner face and a 三角's slope are surfaces of their own — or, on a placed 设备 / 装饰 piece, arms that piece's placement instead (see row 6). Works on block faces only — clicking void just moves the pin. |
 | 5 | **Paint / erase a continuous surface** | `M` 整面: `左键` flood-fills the connected same-family region on that plane (same level + orientation) with the active texture. `右键` reverts the whole connected region to default. `Shift+左键` fills only the box-dragged sub-rectangle instead of the full flood — the bounded variant for one room out of a large floor. |
 | 6 | **Place a module on top of / on wall / on ceiling** | `J` 设备: pick the module in the catalogue, then `左键` click the host face — top face = floor-standing (gate, TVM, escalator foot), side face = wall-mounted (signage, billboard, swing door), bottom face = ceiling-mounted (light well, hanging sign). Fixed modules place on click; **variable-area shops/cafes/restrooms (§5.7) place on `左键` drag** — rectangle ≥ min, ghost shows `宽×深·面积·人/分`. Ghost shows footprint + validity (red = blocked / no cover / wrong zone). `R` rotates 90°, `右键` click a module deletes it (block underneath stays). Drag places repeats along a line (queue rails, PSD runs). |
 | 7 | **Camera: orbit / zoom / snap** | Orbit: `中键` drag (or `右键` drag while in `V`? no — camera never steals `右键` from tools; use `中键`). Pan: `Shift+左键` drag in any tool, or `中键+Shift`. Zoom: wheel to cursor (direction per §9.3 反转缩放); `F` frames selection / work-plane pin. Snap: nav-cube faces + keys `1` 等距 / `2` 俯视 / `3` 自定义 / `4` X-Z正立面 / `5` Y-Z侧立面; `O` toggles 透视/正交 (flat presets force ortho while active); `X` slices to the edited level; `C` cutaway near quarter; `Q`/`E` level step; `Ctrl+E` / `Ctrl+Q` raise and lower the view along Z — camera and aim move together, so the angle is unchanged (held, Shift = faster); the slider under the cube is 视场角, the camera's lens in its own degrees — the vertical field of view, 30° (a telephoto that fills the frame with one platform) to 120° (most of the station at once, the fisheye end), with the game's 45° building view inside the track; perspective only, the flat ortho views zoom on the wheel — and `Ctrl+H` / ⌂ returns to the home view (iso perspective, lens back to 45°). |
@@ -1342,8 +1367,10 @@ and its whole `cfg` — a 指示牌's printed boards, a 闸机's lane, a 广告�
 leaves the document, so nothing reaches the undo stack until the drop is confirmed. `左键` on the
 ground (or the card's `确认`, or `Enter`) drops it there as **one** commit — a single `Ctrl+Z` puts it
 back where it came from — and `Esc`, a right-press, or the card's `取消` puts it back with no commit at
-all. A refused cell (no floor, a track bed, another piece, no wall behind a 广告牌, no ceiling over a
-指示牌 / 电视) keeps it in the air and names the rule, exactly as a fresh placement would. Structural
+all. A refused cell (no floor under a piece that stands on one, a track bed, another piece, no wall
+behind a 广告牌, no ceiling over a 指示牌 / 电视 — the slab a hung piece needs is its whole structural
+requirement, since it hangs over the floor cell rather than standing on it) keeps it in the air and
+names the rule, exactly as a fresh placement would. Structural
 pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms, 轨道 / 站台门 — are refused by the same rule that keeps 拆除
 from sweeping one: each is one piece whose carved openings, derived screen doors and room walls a
 translation would strand, so it is torn down and built again — the card's button says so rather than

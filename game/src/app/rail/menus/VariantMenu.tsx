@@ -4,9 +4,9 @@
 // identically: it folds out under its parent tile, shares the rail's single open slot
 // with the others, and picking a variant selects that piece (keeping the list open,
 // because the list's family is the piece's family). 楼梯, 出入口, 座椅, 广告牌, 玻璃板,
-// 站名 and 线网图 were seven copies of this component before; they are one now, driven by
-// the family row in `app/store/catalog.ts`, so a family's labels and tooltips are data
-// (`tileLabel` / `title`) rather than a seventh file, and a new family needs no UI code
+// 门, 站名 and 线网图 were eight copies of this component before; they are one now, driven by
+// the family row in `app/store/catalog.ts`, so a family's labels are data
+// (`tileLabel`) rather than an eighth file, and a new family needs no UI code
 // at all.
 //
 // Nothing here decides what a family *is*: it renders `familyOptions(family)`. The
@@ -30,7 +30,7 @@ export function VariantMenu({ family, open, thumbs }: { family: ModuleFamily; op
         <Block
           key={m.id}
           label={family.tileLabel ? family.tileLabel(m) : m.label}
-          title={family.title ? family.title(m) : undefined}
+          tile={m.id}
           thumb={thumbs[m.id]}
           active={tool === 'module' && moduleType === m.id}
           onClick={() => {

@@ -4,11 +4,13 @@
 
 import {
   SIGN_BACK_MARK,
+  SIGN_ARROW_LABEL,
   SIGN_ICON_LABEL,
   SIGN_ICONS,
   SIGN_SIZE,
-  SIGN_TEXT_EN_SCALE,
   estimateSignTextWidth,
+  nextSignComponentId,
+  signTextLineScale,
   signTextLines,
   signTextSize,
   type SignArrow,
@@ -85,8 +87,13 @@ export const SIGN_MARKS: ReadonlyArray<{ icon: SignIcon; label: string }> = SIGN
 /** A pictogram's own name, where a caller has only the icon. */
 export const MARK_LABEL: Record<string, string> = Object.fromEntries(SIGN_MARKS.map((m) => [m.icon, m.label]))
 
-/** The eight directions as one right-pointing mark, turned about the tile's centre. */
-export const ARROW_ANGLE: Record<SignArrow, number> = {
+/**
+ * The **eight directions** as degrees about the tile's centre, for the degree in a tile's name.
+ * The two turns back are deliberately absent: a U-turn is not an angle, it is a shape, and
+ * `SIGN_ARROW_LABEL` is what names it (see `componentName`). The type says so — a `Partial`, so
+ * a direction that is forgotten is a missing number rather than a wrong one.
+ */
+export const ARROW_ANGLE: Partial<Record<SignArrow, number>> = {
   right: 0,
   'down-right': 45,
   down: 90,
@@ -160,7 +167,7 @@ export function markInk(mark: SignComponent): { w: number; h: number } {
       // An empty box is one character's worth of ink rather than nothing: it is what
       // the player drags onto a bin, and a mark with no footprint could not be seen.
       if (lines.length === 0) return { w: size, h: size * 1.15 }
-      const w = Math.max(0.01, ...lines.map((l, i) => estimateSignTextWidth(l, size * (i === 0 ? 1 : SIGN_TEXT_EN_SCALE))))
+      const w = Math.max(0.01, ...lines.map((l, i) => estimateSignTextWidth(l, size * signTextLineScale(i, l))))
       return { w, h: Math.max(size, lines.length * size * 1.15) }
     }
   }
@@ -227,13 +234,14 @@ export function groupMarks(id: SignGroupId, lines: readonly LineDef[]): { marks:
 
 /* ------------------------------------------------------------------ bins */
 
-/** The next free component id on a board. */
-export function nextId(layout: readonly SignComponent[]): string {
-  let n = layout.length + 1
-  const used = new Set(layout.map((c) => c.id))
-  while (used.has(`c${n}`)) n++
-  return `c${n}`
-}
+/**
+ * The next free component id on a board: the **model's** own rule, and the one place it is
+ * written (`nextSignComponentId`). A board numbers its own marks from `c1`, so two boards
+ * hold the same names — which is why a mark carried from one board to the other is re-minted
+ * there (`signLayoutCarried`), and why *every* mint has to be the same arithmetic. The
+ * palette's drop is the one mint that happens out here, and it comes through this.
+ */
+export const nextId = nextSignComponentId
 
 /**
  * The mark a palette tile offers, as a component with no id yet: what the drag
@@ -293,8 +301,12 @@ export function withHover(layout: readonly SignComponent[], mark: SignComponent 
 /** What a component is, in one word, for a bin's own label. */
 export function componentName(comp: SignComponent): string {
   switch (comp.kind) {
-    case 'arrow':
-      return `箭头 ${ARROW_ANGLE[comp.arrow]}°`
+    case 'arrow': {
+      // A direction is its degrees; a **turn back** has no angle to quote, so it is the name the
+      // model gives it (掉头向右 / 掉头向左), which is also what its palette tile is labelled.
+      const deg = ARROW_ANGLE[comp.arrow]
+      return deg === undefined ? SIGN_ARROW_LABEL[comp.arrow] : `箭头 ${deg}°`
+    }
     case 'line':
       return '线路牌'
     case 'text':

@@ -1,16 +1,16 @@
 // The pointer-tool slice: the active tool, the equipment tool's piece and its
-// rotation, the 方块 tool's wall modes, the Tab cycles (stair width, escalator
-// direction, 闸机 door) and the zone tool's brush (§4.5, §5.7).
+// rotation, the 方块 tool's cut modes and 生成墙壁 ring, the Tab cycles (stair width,
+// escalator direction, 闸机 door) and the zone tool's brush (§4.5, §5.7).
 
 import type { StateCreator } from 'zustand'
 import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
 import { DEFAULT_ZONE, type GateDoor, type TriangleKind } from '../../../sim/types.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
-import { isRotatableType, type ZoneBrush } from '../catalog.ts'
+import { isRotatableType, type CutMode, type ZoneBrush } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
-export type Tool = 'select' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
+export type Tool = 'select' | 'pick' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
 
 export interface ToolSlice {
   tool: Tool
@@ -18,9 +18,10 @@ export interface ToolSlice {
    * The 方块 tool: a dragged floor patch raises its 4 m auto-wall ring. **Off when
    * the game opens.** The ring is the one thing the tool does that the player did
    * not draw — it stands a wall around a surface they only laid the floor of — so
-   * the tool no longer assumes it: a fresh station grows bare floor, and the ring is
-   * asked for on its own tile. Its **Tab** shortcut is gone with the default; Tab
-   * now steps the cut modes, which is the choice a 方块 click makes far more often.
+   * the tool does not assume it: a fresh station grows bare floor, and the ring is
+   * asked for on its own tile or with **Tab**, which is that tile's key. A cut mode
+   * (半墙 / 三角) refuses the toggle, tile and key alike: the piece *is* the wall the
+   * patch would otherwise grow.
    */
   autoWalls: boolean
   moduleType: string
@@ -40,30 +41,32 @@ export interface ToolSlice {
    * **半墙** block — a half-block-thick wall course, the wall a facility room's own walls
    * and the panel beside a wide run are already made of — where the click lands,
    * one per click. It stands in for the wall a patch would otherwise grow, so
-   * turning it on turns 自动生成墙壁 off and that toggle is refused while it is on;
+   * turning it on turns 生成墙壁 off and that toggle is refused while it is on;
    * and it is one at a time because a *run* of walls is the 墙 tool's job. Which
    * half of each tile the panel keeps is **R**'s business, and the piece itself is
    * `addWalls`'s `side` (`build/model.ts`).
    */
   halfWall: boolean
   /**
-   * The 方块 tool's fourth and fifth modes, on the same tile as 半墙: instead of a
-   * whole block it lays a single **三角** — the cell cut on a 45° plane in
-   * *elevation*, so the piece is a wedge with one flat 1 m square in the X-Y plane,
-   * one full-height square, the slope across the cell and two triangular ends. Two
-   * shapes, both cut from a cell: `upper` (三角上) puts that flat square on the floor
-   * and `lower` (三角下) hangs it from the ceiling, and **R** picks which of the four
-   * sides of the cell the full-height face stands on. The tile cycles 半墙 → 三角上 →
-   * 三角下 → off, so the three cut pieces share one button and one key (**R**),
-   * because they are one question: what shape does this click lay?
+   * The 方块 tool's 三角 mode: instead of a whole block it lays a single **三角** — the
+   * cell cut on a 45° plane in *elevation*, so the piece is a wedge with one flat 1 m
+   * square in the X-Y plane, one full-height square, the slope across the cell and two
+   * triangular ends. Two shapes, both cut from a cell: `upper` (三角上) puts that flat
+   * square on the floor and `lower` (三角下) hangs it from the ceiling, and **R** picks
+   * which of the four sides of the cell the full-height face stands on. Each of the
+   * three cut pieces has its **own tile** (半墙 / 上三角块 / 下三角块), armed through the one
+   * `setCutMode` call, because they are three answers to one question — what shape does
+   * this click lay? — and Tab is the 生成墙壁 ring's key now, not a cut cycle.
    */
   triangles: boolean
   triKind: TriangleKind
   /**
-   * Stair width, cycled with Tab: one, two or three **lanes**, each exactly the
+   * The stair's size, cycled with Tab and named **窄 / 中 / 宽** on the action tile
+   * (`sim/stairs.ts`). The first two are one and two **lanes**, each exactly the
    * escalator's step band, so a straight flight is laid as that many tile-sized
-   * pieces and every lane stands flush against an escalator or another stair
-   * (`sim/stairs.ts`).
+   * pieces and every lane stands flush against an escalator or another stair; the
+   * 宽 size lays 2.5 m of treads a side, which is what a 双跑楼梯's flush pair needs
+   * to claim exactly six blocks across.
    */
   stairWidth: number
   /** Escalator travel direction, cycled with Tab (up/down). */
@@ -82,9 +85,10 @@ export interface ToolSlice {
 
   setTool: (t: Tool) => void
   /**
-   * Grow (or not) the 方块 patch's auto-wall ring on a drag. Refused while the
-   * 半墙 mode owns the tool: the half wall is what the patch grows instead, and the
-   * rail's tile is disabled there for the same reason.
+   * Grow (or not) the 方块 patch's auto-wall ring on a drag. Refused while a cut piece
+   * owns the tool: the half wall or the 三角 is what the patch would grow into instead,
+   * and the ring's tile is **not drawn at all** there for the same reason
+   * (`rail/helpers.ts` `showsAutoWalls`).
    */
   setAutoWalls: (on: boolean) => void
   setModuleType: (t: string) => void
@@ -100,7 +104,7 @@ export interface ToolSlice {
   rotateWallSnap: () => void
   /**
    * Turn the 方块 tool's **半墙** mode on or off. On, it lays half-block walls one
-   * click at a time and holds 自动生成墙壁 off (refused while it is on); off, the click
+   * click at a time and holds 生成墙壁 off (refused while it is on); off, the click
    * is a plain 方块 again with the ring wherever the player left it. The wall-face
    * cycle is reset with it, since the cycle means something different in each mode.
    *
@@ -115,19 +119,18 @@ export interface ToolSlice {
    * plain 方块 again. `kind` picks which of the two cuts — 三角上 or 三角下 — it is.
    */
   setTriangles: (on: boolean, kind?: TriangleKind) => void
+  /**
+   * **Arm one cut piece, or none** — the one call the 工具 folder's cut tiles make, so
+   * the three shapes arm through one path instead of a setter each and the tile can be
+   * drawn straight from `CUT_MODES` (`app/store/catalog.ts`). `null` is a plain 方块
+   * again. Arming a cut holds the generated ring off, as it always did: a 半墙 or a
+   * 三角 *is* the wall a patch would otherwise grow.
+   */
+  setCutMode: (cut: CutMode | null) => void
   /** Flip the 三角 mode on/off without changing its shape — **R**'s neighbour. */
   toggleTriangles: () => void
   /** Pick 三角上 or 三角下 while 三角 mode is on. */
   setTriKind: (kind: TriangleKind) => void
-  /**
-   * Step the 方块 tool's cut modes from the rail tile and from **Tab**, which is the
-   * key that used to toggle the auto-wall ring: 半墙 → 三角上 → 三角下 → off → 半墙.
-   * One button for the three pieces, because they are one question — what shape does
-   * a click lay — and the key went with them because that question is the one a 方块
-   * click answers; the ring, which is off when the game opens, is asked for on its
-   * own tile instead.
-   */
-  cycleCutMode: () => void
   /** Cycle the stair width one → two → three lanes (Tab). */
   cycleStairWidth: () => void
   /** Flip the escalator travel direction up ↔ down (Tab). */
@@ -136,6 +139,16 @@ export interface ToolSlice {
   cycleGateDoor: () => void
   setZoneBrush: (z: ZoneBrush) => void
   setZoneOverlay: (on: boolean) => void
+  /**
+   * Point the placement ghost at an absolute rotation (0..3). The rail's 旋转
+   * button and R step it relatively (`rotateModule`); the 吸取 tool sets it
+   * absolutely so the next piece lands the way the picked one stood.
+   */
+  setModuleRot: (rot: number) => void
+  /** Point the 扶梯 direction at an absolute value (the 吸取 tool copies it). */
+  setEscalatorDir: (dir: 'up' | 'down') => void
+  /** Point the 闸机 door at an absolute value (the 吸取 tool copies it). */
+  setGateDoor: (door: GateDoor) => void
 }
 
 export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, get) => ({
@@ -170,22 +183,25 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   setHalfWall: (on) => set({ halfWall: on, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
   toggleHalfWall: () => get().setHalfWall(!get().halfWall),
   setTriangles: (on, kind) => set({ triangles: on, halfWall: false, autoWalls: false, wallSnapCycle: 0, ...(kind ? { triKind: kind } : {}) }),
+  // One cut piece, one call. `halfWall` / `triangles` stay the fields the click reads
+  // (and the ones the older setters above write); this is the rail's own way in, so
+  // the 工具 folder's tiles carry no per-piece branching.
+  setCutMode: (cut) =>
+    set({
+      halfWall: cut === 'half',
+      triangles: cut === 'upper' || cut === 'lower',
+      ...(cut === 'upper' || cut === 'lower' ? { triKind: cut } : {}),
+      autoWalls: false,
+      wallSnapCycle: 0,
+    }),
   toggleTriangles: () => get().setTriangles(!get().triangles),
   setTriKind: (kind) => set({ triKind: kind }),
-  // 半墙 → 三角上 → 三角下 → off, the cycle **Tab** steps. Every step leaves the ring
-  // off — it is off by default, and the three cut modes are what a 方块 click lays
-  // instead of it — so the toggle that raises it is the tile's own, never a side
-  // effect of leaving the cycle.
-  cycleCutMode: () =>
-    set((s) => {
-      if (!s.halfWall && !s.triangles) return { halfWall: true, triangles: false, autoWalls: false, wallSnapCycle: 0 }
-      if (s.halfWall) return { halfWall: false, triangles: true, triKind: 'upper' as TriangleKind, autoWalls: false, wallSnapCycle: 0 }
-      if (s.triKind === 'upper') return { triKind: 'lower' as TriangleKind, wallSnapCycle: 0 }
-      return { halfWall: false, triangles: false, autoWalls: false, wallSnapCycle: 0 }
-    }),
   cycleStairWidth: () => set((s) => ({ stairWidth: nextStairWidth(s.stairWidth) })),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
   cycleGateDoor: () => set((s) => ({ gateDoor: nextGateDoor(s.gateDoor) })),
   setZoneBrush: (z) => set({ zoneBrush: z }),
   setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
+  setModuleRot: (rot) => set({ moduleRot: ((rot % 4) + 4) % 4 }),
+  setEscalatorDir: (dir) => set({ escalatorDir: dir }),
+  setGateDoor: (door) => set({ gateDoor: door }),
 })

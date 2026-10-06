@@ -25,7 +25,7 @@
 //     so that corridor never reaches into the cell next door;
 //   * pure data, no DOM, no three.
 
-import { isWallBlock, packKey, shapeOf, type Cell, type CellShape, type Module, type Vec3i, type WallSide } from './types.ts'
+import { isWallBlock, packKey, shapeOf, type Cell, type CellShape, type FinishId, type Module, type Vec3i, type WallSide } from './types.ts'
 import { ESCALATOR_BALUSTRADE, ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { exitFloorAt } from './exits.ts'
 import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
@@ -54,6 +54,20 @@ export const ESCALATOR_HEADROOM = 2.2
 export const OPENING_CEILING = 'opening-ceiling'
 /** A cell must clear the line by this much before it counts as an obstruction. */
 const EPS = 0.02
+/**
+ * How far a run's swept **body or handrail** must cross a block's near edge before
+ * that block counts as reached, metres.
+ *
+ * A 双跑楼梯's run is built to fill whole blocks (`stairSwitchbackRunWidth`): its treads
+ * and both of its balustrades end exactly on the cell edges of the blocks it stands in,
+ * so its corridor half-width is exactly half a block per lane. A rail like that
+ * *touches* the near face of every block beside it and enters none of them, and touching
+ * is not being in: the wall a player pushes the piece flush against stays whole, with
+ * nothing to make room for (`rampThinCells`). The tolerance is a micrometre of real
+ * overlap — a hair of a body inside the neighbouring cell is still drawn as a half panel,
+ * while float noise in a width the catalogue derived is not read as one.
+ */
+const REACH_EPS = 1e-6
 /**
  * The handrail sweeps wider than the treads, so the opening has to clear the
  * whole assembly or the rails emerge through the floor blocks directly either
@@ -111,12 +125,25 @@ export const RAMP_CORE_HALF = 0
 const RAMP_TILE_HALF = 0.5
 /**
  * Truss depth below the walking line, metres: how far the body of a run — an
- * escalator's truss, a stair's soffit and stringers — hangs under the surface it
- * carries. Shared by the collision body (`flightBodyBoxes`) and the cut a run
- * makes in the blocks under it (`rampSlopeCuts`), so the space equipment is kept
- * out of and the volume taken out of a block are the same volume.
+ * escalator's truss — hangs under the surface it carries. Shared by the collision
+ * body (`flightBodyBoxes`) and the cut an **escalator** makes in the blocks under it
+ * (`rampSlopeCuts`), so the space equipment is kept out of and the volume taken out
+ * of a block are the same volume. A **stair** is not a truss box and hangs to
+ * `STAIR_BODY_DROP` instead.
  */
 export const RAMP_FOOT = 0.5
+
+/**
+ * How far a **stair**'s drawn body — the stringers and the soffit they carry — hangs
+ * below its walking line, metres: the plane the ground under a stair is cut to
+ * (`rampSlopeCuts`) and the line the model hangs its stringers and soffit from, so the
+ * filling rises to the underside of the steps instead of stopping a hand's width below
+ * it. One number for both, because a stair cut to an escalator's `RAMP_FOOT` (0.5 m)
+ * leaves a slot of daylight between the steps and the ground that fills up to them —
+ * which is exactly what an escalator, whose truss really is that deep and whose own
+ * piece draws the body under it, does not.
+ */
+export const STAIR_BODY_DROP = 0.36
 /** Balustrade height above the walking line, metres. */
 const RAMP_HEADROOM = 1.2
 /** Vertical padding, so a run never reads as touching the storey above/below. */
@@ -182,11 +209,13 @@ function boxesOverlap(a: RampBox, b: RampBox): boolean {
  * units — 0 is the block's floor, 1 its ceiling — so a mesher can put a profile
  * point's top at `lo + (hi − lo) · t` without knowing anything about the run.
  *
- * `lo`/`hi` are the plane at the cell's two edges and are **not** clamped: a plane
- * that leaves through the cell's floor or ceiling on one side still slopes, and
- * flattening that end would tip the whole plane up and poke it through the run at
- * the other. The reader clamps each point it draws, which leaves the slope exactly
- * where the run put it.
+ * `lo`/`hi` are the plane at the cell's two edges and are **not** clamped to the cell: a
+ * plane that leaves through its floor or ceiling on one side still slopes, and flattening
+ * that end would tip the whole plane up and poke it through the run at the other. The
+ * reader clamps each point it draws, which leaves the slope exactly where the run put it.
+ * They are held off the **base plane** the run stands on (`base`) instead: a stair's soffit
+ * hangs below the landing it leaves, and ground cut to it there would be a wedge dipping
+ * under the floor the piece is founded on rather than that floor's own level continuation.
  */
 export interface SlopeCut {
   /** The axis the plane slopes along. */
@@ -195,6 +224,24 @@ export interface SlopeCut {
   lo: number
   /** The same at its high edge. */
   hi: number
+  /**
+   * The lowest plane this cut may reach, in the **same cell-local units** as `lo`/`hi`:
+   * the run's own **base plane**, the surface of the landing it climbs from (world
+   * `from.z + 1`).
+   *
+   * A **stair** sets it, and the reader clamps the cut up to it, because below that plane
+   * there is no ground to take: the base landing is the floor the piece stands on, and the
+   * ground under it is the floor the player walks across. A stair's body is steeper than
+   * its run — the treads stop `stairTreadTrim` short of each landing but still carry the
+   * whole rise — so near the foot its soffit hangs *below* the plane the piece stands on.
+   * Cut without this and the block under the base comes out a tilted wedge that dips under
+   * the floor beside it (`the block below the base of stair is not flat`): the base block
+   * is a floor block, not a batten, and it has to stay level with the floor it continues.
+   *
+   * A cut that reaches this plane over a whole cell leaves that block **whole** — trim to
+   * the plane and a level top is exactly what the cell already is.
+   */
+  base?: number
   /**
    * Half-width of the run's **drawn** body across that axis where it is narrower than
    * the cell — an escalator's truss box (`ESCALATOR_BALUSTRADE / 2`). Absent where the
@@ -207,6 +254,22 @@ export interface SlopeCut {
    */
   half?: number
   /**
+   * The run's **own painted surface** (`cfg.finish`, the 材质 brush on the piece), when it has
+   * one. The canvas the cut leaves — a shaved block's cap or the derived filling above it — is
+   * part of that piece's surface rather than the ground's, so it is drawn in this finish
+   * (`chunkMesher`'s cap): a 楼梯 painted with the 材质 brush takes the ground under it with it.
+   */
+  finish?: FinishId
+  /**
+   * The run leaves the ground under it **as it is**: no filling is derived over it
+   * (`rampFillKeys`). A **楼梯** asks for this. It shaves the blocks its flight really meets —
+   * the floor it climbs from, the slabs it passes through — and where there is no block the
+   * flight hangs over its own well, open, instead of standing on a mass the renderer made up:
+   * the course a filling would fill is the run's own carved passage, which no block fits in
+   * and no 材质 brush can paint.
+   */
+  noFill?: boolean
+  /**
    * The run's **own piece** draws the body that would be filled here — an escalator's
    * undercroft (`EscalatorModel.undercroftSolid`), which is cut to this very cell and plane.
    * `rampFillKeys` skips it: two bodies in one place are two coplanar faces, one of them
@@ -218,19 +281,25 @@ export interface SlopeCut {
 
 /**
  * The ground a run's truss hangs into, where no block was laid: every cell
- * `rampSlopeCuts` names that is **void** and stands on a **solid** block — the wedge
- * between the top of the ground below and the truss's underside, by packed cell key.
+ * `rampSlopeCuts` names that is **void**, stands on a **solid** block, and whose run
+ * leaves its ground alone (`SlopeCut.ownBody` / `noFill`) — the wedge between the top of the
+ * ground below and the run's underside, by packed cell key.
  *
- * Nothing is added to the station. The brush may not lay this course (its nominal top
- * would sit above the walking line, where the crowd's own floor is measured), so the
- * gap under a truss would stay open to the storey below. The renderer draws it instead:
- * the cut that would shave a block laid there shaves this filling the same way, so the
- * ground reads as rising to the truss, and it appears and disappears with the ground
- * and the run on its own (`thinWallCells` is the same kind of derived surface).
+ * Nothing is added to the station. Where a run keeps this course the brush may not lay it
+ * (its nominal top would sit above the walking line, where the crowd's own floor is
+ * measured), so the gap under the run would stay open to the storey below. The renderer
+ * draws it instead: the cut that would shave a block laid there shaves this filling the same
+ * way, so the ground reads as rising to the run, and it appears and disappears with the
+ * ground and the run on its own (`thinWallCells` is the same kind of derived surface).
  *
- * A cell with **no ground directly under it is deliberately left alone**: a run over void
- * is a run over void, and inventing a column of solid under it would be the renderer making
- * up a building the player never laid. `test/ramp-fill.test.mjs` pins both halves.
+ * Two things derive nothing. A cell with **no ground directly under it is deliberately left
+ * alone**: a run over void is a run over void, and inventing a column of solid under it would
+ * be the renderer making up a building the player never laid. And a **楼梯** leaves its
+ * ground alone everywhere (`SlopeCut.noFill`): it shaves the blocks its flight really meets —
+ * the floor it climbs from, the slabs it passes through — and where there is no block it
+ * hangs over its own well, open. The course a filling would stand in there is the run's own
+ * **carved passage**, a mass no block would fit in and no 材质 brush can paint, so a stair's
+ * under-side is exactly its ground: the block below the first step, shaved, and nothing else.
  *
  * `solid` holds packed cell keys, and a cell's own key minus one is the cell directly
  * under it (`packKey`'s z term is the last one it adds), so the block below is found
@@ -240,8 +309,9 @@ export function rampFillKeys(solid: ReadonlySet<number>, slopes: ReadonlyMap<num
   const out = new Set<number>()
   for (const [k, cut] of slopes) {
     // A run whose own piece draws this body gets no filling: the piece's solid is already there,
-    // and a second one on the same plane is a face that flickers against it.
-    if (cut.ownBody) continue
+    // and a second one on the same plane is a face that flickers against it. A stair asks for
+    // none at all — its flight hangs over its own well rather than on a mass the renderer made.
+    if (cut.ownBody || cut.noFill) continue
     if (solid.has(k)) continue
     if (!solid.has(k - 1)) continue
     out.add(k)
@@ -298,46 +368,91 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
     const segs = rampSegments(m)
     if (!segs) continue
     const trimLandings = m.type === 'stair'
+    // How deep the body under the line really hangs: an escalator's truss box, or a
+    // stair's stringers and soffit. The ground is cut to *that*, or the filling stops
+    // in mid-air below the steps it is supposed to carry.
+    const foot = m.type === 'stair' ? STAIR_BODY_DROP : RAMP_FOOT
     for (const s of segs) {
       const tiles = flightTiles(s, trimLandings)
       if (!tiles) continue
+      /**
+       * The plane the ground under this flight may not be cut below — the **base plane**
+       * of the flight, the surface of the landing it climbs from. A stair's body line is
+       * steeper than its run (the treads are trimmed, the rise is not), so it leaves the
+       * landing already below that surface and the first columns past the landing would
+       * otherwise be shaved into a wedge that dips under the floor beside them. Trimming
+       * the cut to the plane the piece stands on keeps the block under the base a floor
+       * block: level, at the level of the landing it continues (`SlopeCut.base`).
+       *
+       * `FlightTile.a`/`b` are the line's own output at the tile's edges, so this needs
+       * nothing applied to them: the lowest point of the treads' line *is* the surface the
+       * piece stands on.
+       */
+      const base = trimLandings ? Math.min(...tiles.map((t) => Math.min(t.a, t.b))) : undefined
       for (const t of tiles) {
-        if (protect.has(`${t.x},${t.y}`)) continue
         const axis: 'x' | 'y' = t.alongX ? 'x' : 'y'
         // Which way round `a`/`b` sit only decides which end of the block is the
         // high one; the block is cut by the plane either way.
-        const ua = t.a - RAMP_FOOT
-        const ub = t.b - RAMP_FOOT
+        const ua = t.a - foot
+        const ub = t.b - foot
         // The cells the underside passes through: the deepest one it enters, up to
         // the highest one it has not left again. A block entirely under the plane
         // is never reached, and one entirely above it is not reported.
         const first = Math.floor(Math.min(ua, ub) + 1e-9)
         const last = Math.ceil(Math.max(ua, ub) - 1e-9) - 1
-        for (let z = first; z <= last; z++) {
-          // The plane where it crosses this block, kept unclamped so its slope is the
-          // run's: the reader flattens whatever falls outside the block it draws.
-          const lo = ua - z
-          const hi = ub - z
-          // A plane entirely past the block's ceiling cuts nothing; one entirely
-          // under its floor has already taken the whole block, which is the carve's
-          // business (the run's own cell), not a shave.
-          if (lo >= 1 && hi >= 1) continue
-          if (lo <= 0 && hi <= 0) continue
-          const k = packKey(t.x, t.y, z)
-          const prev = out.get(k)
-          // Two runs over one block — an exit crossed by a stair — are settled by
-          // whichever bites deeper, so the block clears both.
-          if (prev !== undefined && Math.min(prev.lo, prev.hi) <= Math.min(lo, hi)) continue
-          const cut: SlopeCut = { axis, lo, hi }
-          // An escalator's body is its truss box, narrower than the cell: the filling
-          // under it is drawn as that box. A stair's treads run out to the cell edge, so
-          // its cut stays cell-wide.
-          if (m.type === 'escalator') {
-            cut.half = ESCALATOR_BALUSTRADE / 2
-            // …and the 扶梯 draws that body itself now, so no filling is derived over it.
-            cut.ownBody = true
+        for (const [x, y] of cellsOnLine(t)) {
+          if (protect.has(`${x},${y}`)) continue
+          for (let z = first; z <= last; z++) {
+            // The plane where it crosses this block, kept unclamped so its slope is the
+            // run's: the reader flattens whatever falls outside the block it draws.
+            const lo = ua - z
+            const hi = ub - z
+            // A plane entirely past the block's ceiling cuts nothing; one entirely
+            // under its floor has already taken the whole block, which is the carve's
+            // business (the run's own cell), not a shave.
+            if (lo >= 1 && hi >= 1) continue
+            if (lo <= 0 && hi <= 0) continue
+            // A stair never takes ground below its own base plane (`SlopeCut.base`): an edge of the
+            // plane **at or under** it is raised to it, and a cell the plane reaches nowhere above
+            // it is left as the whole, level block it is — no shave below the floor the piece stands
+            // on. The edge that merely *touches* the plane counts: the treads' own soffit starts
+            // there, so the ground beside it is already under the body the flight hangs.
+            const baseZ = base === undefined ? undefined : base - z
+            const raised = (v: number): number | undefined =>
+              baseZ !== undefined && v <= baseZ + 1e-9 ? baseZ : undefined
+            const loRaised = raised(lo)
+            const hiRaised = raised(hi)
+            const local = loRaised ?? lo
+            const localHi = hiRaised ?? hi
+            const k = packKey(x, y, z)
+            const prev = out.get(k)
+            // Two runs over one block — an exit crossed by a stair — are settled by
+            // whichever bites deeper, so the block clears both.
+            if (prev !== undefined && Math.min(prev.lo, prev.hi) <= Math.min(local, localHi)) continue
+            const cut: SlopeCut = { axis, lo: local, hi: localHi }
+            // The plane is named only where the clamp really holds it: a cut already clear of the
+            // base plane is the run's own body, and saying otherwise would tell the reader — and
+            // the tests — that a cell was raised when it was not.
+            if (baseZ !== undefined && (loRaised !== undefined || hiRaised !== undefined)) cut.base = baseZ
+            // An escalator's body is its truss box, narrower than the cell: the filling
+            // under it is drawn as that box. A stair's treads run out to the cell edge, so
+            // its cut stays cell-wide.
+            if (m.type === 'escalator') {
+              cut.half = ESCALATOR_BALUSTRADE / 2
+              // …and the 扶梯 draws that body itself now, so no filling is derived over it.
+              cut.ownBody = true
+            }
+            if (m.type === 'stair') {
+              // A stair leans on the ground it really has and on nothing else: the blocks its
+              // flight meets are shaved, the carved passage under it stays open (its own well).
+              cut.noFill = true
+              // A painted **楼梯** (`cfg.finish`, the 材质 brush on the piece) paints the ground
+              // it stands on: the canvas its cut leaves is part of that piece's surface, so it
+              // wears the piece's own finish unless the block's own top face was painted.
+              if (m.cfg.finish) cut.finish = m.cfg.finish
+            }
+            out.set(k, cut)
           }
-          out.set(k, cut)
         }
       }
     }
@@ -376,9 +491,10 @@ export function rampBodyBoxes(m: Module): RampBox[] {
   // A legacy 1.6 m stair's body crosses into the cells either side of it; every
   // lane-sized piece (the builder's wide stair is lanes) stays inside its own tile.
   const extra = Math.max(0, rampBodyHalf(m) - RAMP_TILE_HALF)
+  const drop = m.type === 'stair' ? STAIR_BODY_DROP : RAMP_FOOT
   const out: RampBox[] = []
   for (const s of segs) {
-    const boxes = flightBodyBoxes(s, m.type === 'stair', extra)
+    const boxes = flightBodyBoxes(s, m.type === 'stair', extra, drop)
     if (!boxes) return []
     out.push(...boxes)
   }
@@ -433,10 +549,7 @@ function flightTiles(s: Ramp, trimLandings: boolean): FlightTile[] | null {
   const first = Math.floor(trim - 0.5 + 1e-9) + 1
   const last = Math.ceil(len - trim + 0.5 - 1e-9) - 1
   if (last < first) return null
-  const az = s.from.z + 1
-  const bz = s.to.z + 1
-  /** The walking line, `u` cells along the run from the lower landing's centre. */
-  const line = (u: number): number => az + (bz - az) * (u / len)
+  const line = walkLine(s, trimLandings)
   const alongX = dx !== 0
   // `i + 0.5` is the far edge of the tile in **run order**; when the run travels
   // the negative way that edge is the cell's own low edge, so the two heights swap
@@ -461,11 +574,69 @@ function flightTiles(s: Ramp, trimLandings: boolean): FlightTile[] | null {
 }
 
 /**
+ * The cells one flight tile's own **walking line** passes through, as `[x, y]`.
+ *
+ * Usually the tile's single column — the line runs down the middle of the cell the
+ * tile names. A flight **slid across its run** (`sx` / `sy`, `stairFlightSlides`) is the
+ * exception, and the reason this is not just `[t.x, t.y]`: a block-grid switchback's
+ * runs stand half a block off their landing cells, so each flight's walking line runs
+ * exactly along a **block boundary**, and a line on an edge belongs to the cells it
+ * borders — the rule the carve applies (`within`'s `RAMP_CORE_HALF` test, whose
+ * `gap === 0` case is exactly "the line merely divides this cell"). Cutting only the
+ * column the tile is named for left the band's second block standing inside the
+ * flight's soffit, up to the body's own drop of ground poking through the treads.
+ *
+ * This is the same test the carve makes, read off the tile instead of a cell list: a
+ * cell counts when its centre is no further than half a cell from the line.
+ */
+function cellsOnLine(t: FlightTile): Array<[number, number]> {
+  const across = t.alongX ? t.y + 0.5 + t.sy : t.x + 0.5 + t.sx
+  const out: Array<[number, number]> = []
+  for (let i = Math.floor(across - 0.5); i <= Math.ceil(across - 0.5); i++) {
+    if (Math.abs(i + 0.5 - across) > 0.5 + 1e-9) continue
+    out.push(t.alongX ? [t.x, i] : [i, t.y])
+  }
+  return out
+}
+
+/**
+ * The walking line of one flight, `u` cells along the run from the lower landing's
+ * centre, as an **absolute** height (the landing surfaces are `from.z + 1` / `to.z + 1`).
+ *
+ * A **stair** is the exception, and the reason this is not one line: its treads stop
+ * `stairTreadTrim` short of each landing centre but still carry the whole rise, so the
+ * body under them — stringers and soffit, which the model hangs from that same line —
+ * is *steeper* than the landing-to-landing line. Cutting the ground to the shallow line
+ * leaves a wedge of daylight under a flight's upper steps and buries the plane in its
+ * lower ones; the closer the trim is to a third of the run (a 3-cell turn flight is
+ * trimmed by a sixth of it each end), the worse it gets. An escalator's truss really does
+ * run landing centre to landing centre, so it keeps the line.
+ *
+ * It is also what the flight's **base plane** is read off (`rampSlopeCuts`): the line at
+ * the lower end of the treads is where the piece stands, and the ground under a stair is
+ * never cut below it.
+ */
+function walkLine(s: Ramp, trimLandings: boolean): (u: number) => number {
+  const len = Math.hypot(s.to.x - s.from.x, s.to.y - s.from.y)
+  const az = s.from.z + 1
+  const bz = s.to.z + 1
+  const trim = trimLandings ? stairTreadTrim(len) : 0
+  const span = len - trim * 2
+  return (u: number): number => (trimLandings ? az + (bz - az) * ((u - trim) / span) : az + (bz - az) * (u / len))
+}
+
+/**
  * One flight's body boxes, one per swept tile. The tile is widened across the run
  * only for a body wider than a cell, and slid bodily when the body stands off its
  * own walking line.
+ *
+ * `drop` is how deep the body really hangs under its line, and it is the **drawn**
+ * number, not one shared depth: an escalator's truss by `RAMP_FOOT`, a stair's
+ * stringers and soffit by `STAIR_BODY_DROP` (`rampSlopeCuts` cuts the ground to the
+ * same one). Reserving a stair at the truss's depth kept a bench or a 围栏 out of a
+ * 0.29 m band the stair's own model leaves clear.
  */
-function flightBodyBoxes(s: Ramp, trimLandings: boolean, extra: number): RampBox[] | null {
+function flightBodyBoxes(s: Ramp, trimLandings: boolean, extra: number, drop: number): RampBox[] | null {
   const tiles = flightTiles(s, trimLandings)
   if (!tiles) return null
   return tiles.map((t) => {
@@ -476,7 +647,7 @@ function flightBodyBoxes(s: Ramp, trimLandings: boolean, extra: number): RampBox
       y0: t.y - (t.alongX ? extra : 0) + (t.alongX ? t.sy : 0),
       x1: t.x + 1 + (t.alongX ? 0 : extra) + (t.alongX ? 0 : t.sx),
       y1: t.y + 1 + (t.alongX ? extra : 0) + (t.alongX ? t.sy : 0),
-      z0: lo - RAMP_FOOT - RAMP_CLEAR,
+      z0: lo - drop - RAMP_CLEAR,
       z1: hi + RAMP_HEADROOM + RAMP_CLEAR,
     }
   })
@@ -578,10 +749,22 @@ function rampList(modules: readonly Module[]): Ramp[] {
  * True when a solid cell lies within `half` of a ramp's centreline and above its
  * walking line by no more than the headroom — i.e. the run has to pass through
  * it. The lateral test uses the cell's *near edge* (half a cell closer than its
- * centre), so a block only counts when the swept half-width reaches into it.
+ * centre), so a block only counts when the swept half-width crosses into it.
  * `headroom` is the clearance above the line; escalators use
  * ESCALATOR_HEADROOM so wall columns along the way are cleared, stairs keep the
  * conservative HEADROOM. A vertical run (lift) has no sweep.
+ *
+ * `half` decides what "reaches" means, because the two callers ask two different
+ * questions:
+ *
+ *   * `RAMP_CORE_HALF` (0) asks for the cell the run's own **line** passes through.
+ *     A line that runs exactly along a cell edge belongs to the cell it borders: a
+ *     switchback's runs are slid half a block off their landing cells
+ *     (`stairFlightSlides`), so each flight stands its walking line on a block
+ *     boundary and the opening is the pair of blocks that line divides.
+ *   * a **swept width** (a body, or a handrail) is a volume, and it reaches a block
+ *     only when it crosses that block's near edge — merely touching the face of it
+ *     is not being inside it (`REACH_EPS`).
  */
 function within(c: Cell, r: Ramp, half: number): boolean {
   const ax = r.from.x + 0.5
@@ -598,7 +781,12 @@ function within(c: Cell, r: Ramp, half: number): boolean {
   const t = ((px - ax) * dx + (py - ay) * dy) / len2
   if (t < 0 || t > 1) return false
   const lateral = Math.abs((px - ax) * dy - (py - ay) * dx) / Math.sqrt(len2)
-  if (Math.max(0, lateral - 0.5) > half) return false
+  // How far the run's line is clear of the cell's near edge. The core test keeps a
+  // cell the line merely divides (`gap === 0`); a swept width has to cross it, so a
+  // run built to the block grid — whose rail ends exactly on the edge — reaches
+  // nothing beside its own blocks and leaves the wall there whole.
+  const gap = Math.max(0, lateral - 0.5)
+  if (half > 0 ? gap >= half - REACH_EPS : gap > 0) return false
   const h = az + (r.to.z + 1 - az) * t
   const headroom = r.headroom ?? HEADROOM
   // Above the line (so the ramp surfaces through it) but within headroom, and
@@ -623,8 +811,9 @@ function intrudes(c: Cell, r: Ramp): boolean {
 }
 
 /**
- * A partial overlap: the ramp's body (or, for a wall, its handrail) reaches into
- * this cell. The block is kept and drawn half a metre thick instead of fully
+ * A partial overlap: the ramp's body (or, for a wall, its handrail) reaches **into**
+ * this cell — crosses its near edge, rather than merely touching the face of it
+ * (`REACH_EPS`). The block is kept and drawn half a metre thick instead of fully
  * carved, so a wide stair's side columns stay as floor and a railing fits
  * against a wall.
  */
@@ -783,13 +972,22 @@ function outwardSide(c: Cell, r: Ramp): WallSide | null {
  * The mesher draws the cell half a block thick on that side (`thinWallCells`
  * hands it over with the player's own 半墙 cells), so the run's body and handrail
  * sit in the clear half while the block the player built stays solid. A wall is
- * thinned when the handrail reaches it; a floor is thinned only when the body
+ * thinned when the handrail reaches into it; a floor is thinned only when the body
  * genuinely reaches past its cell boundary (a wide stair — an escalator's 0.9 m
  * band does not, so its side floor stays a full block). Both draw identically
  * now, so the derivation reports the side and nothing else. Derived from
  * cells+modules, so it follows an edit without the document storing anything
  * extra. A **半墙** is the one block it leaves alone: that cell is already drawn
  * half a block thick, on the side the player chose.
+ *
+ * **A 双跑楼梯 reaches nothing beside its runs**, and that is by construction rather
+ * than by luck: a switchback's run is laid at the width of the blocks it fills
+ * (`stairSwitchbackRunWidth`, 0.79 / 1.79 / 2.79 m), so its treads and both
+ * balustrades end exactly on the cell edges and the wall a player pushes the piece
+ * flush against is kept **whole** — the wall the piece hugs is the barrier there,
+ * and the model drops the handrail on that side (`stairWallSides`). Only a piece
+ * genuinely wider than its own blocks — a 中 / 宽 90° turn, an old off-grid 1.6 m
+ * stair — has a body that crosses into the column beside it.
  */
 export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]): RampThin[] {
   const ramps = rampList(modules)

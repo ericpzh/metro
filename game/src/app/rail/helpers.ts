@@ -1,48 +1,94 @@
 // Types and pure helpers shared by the rail shell and its folders (plan.md R6).
 //
-// `FolderKey` / `SubMenuKey` / `subMenuForModule` / `findSelectedTrack` are each
-// read by two units (the shell's open-state effects and the folders that render
-// the matching rows), so they live here instead of being duplicated — and here
-// rather than in the shell, so folders never import the shell that imports them
-// (no cycles, plan.md C4).
+// `FolderKey` (and the two tables it spans — the rail's Shift ladder and the 信息栏's Alt
+// one) / `SubMenuKey` / `subMenuForModule` / `findSelectedTrack` are each read by more
+// than one unit (the two column shells' open-state effects, the folders that render the
+// matching rows, and the app's keydown listener), so they live here instead of being
+// duplicated — and here rather than in a shell, so folders never import the shell that
+// imports them (no cycles, plan.md C4).
 
-import { familyFor, type ModuleFamilyKey } from '../store.ts'
-import type { AppState } from '../store.ts'
-import type { Module } from '../../sim/types.ts'
+import {
+  actionsAnchorFor,
+  cutAnchor,
+  cutModeOf,
+  familyFor,
+  hasModuleActions,
+  type CutMode,
+  type ModuleFamilyKey,
+} from '../store.ts'
+import type { AppState, Tool, ZoneBrush } from '../store.ts'
+import { finishBaseId } from '../../sim/finishes.ts'
+import type { Module, TriangleKind } from '../../sim/types.ts'
 
-/** One rail folder per key; `RAIL_FOLDERS` is the order they are stacked in. */
-export type FolderKey = 'tools' | 'equipment' | 'rail' | 'rooms' | 'decor' | 'surfaces' | 'zones' | 'view'
+/** One build-rail folder per key; `RAIL_FOLDERS` is the order they are stacked in. */
+export type RailFolderKey = 'tools' | 'rail' | 'equipment' | 'decor' | 'surfaces' | 'rooms' | 'zones'
+
+/** One 信息栏 (RHS) folder per key; `INSPECTOR_FOLDERS` is the inspector's own stack. */
+export type InspectorFolderKey = 'info' | 'view' | 'exits' | 'lines'
+
+/** A folder a shortcut folds, in whichever column it lives. */
+export type FolderKey = RailFolderKey | InspectorFolderKey
 
 /**
- * The rail's folders, top to bottom, each with the Shift+letter that opens and
- * closes it — **Shift+Q** the first folder, then W, E, R, T, Y, U, I one letter a
- * row down the stack. The ladder is data because two units read it: the shell
- * renders the folders in this order and prints each key on its header, and the
- * app's one keydown listener turns a Shift+letter into the folder to fold
+ * The **build rail's** folders, top to bottom, each with the Shift+letter that opens
+ * and closes it — **Shift+Q** the first folder, then W, E, R, T, Y, U one letter a row
+ * down the stack. The ladder is data because two units read it: the shell renders the
+ * folders in this order and prints each key on its header, and the app's one keydown
+ * listener turns a Shift+letter into the folder to fold
  * (`app/windows/AppShell.tsx` → the `metro:folder` event the rail listens for).
  * It lives here rather than in either of them so the order, the key on the header
  * and the key that fires can never drift apart.
  *
- * A folder added at the bottom takes the next letter (**O**); one inserted in the
- * middle moves every key below it, so keep the ladder in step with the render.
+ * A folder added at the bottom takes the next letter; one inserted in the middle moves
+ * every key below it, so keep the ladder in step with the render.
  */
-export const RAIL_FOLDERS: ReadonlyArray<{ key: FolderKey; title: string; shift: string }> = [
+export const RAIL_FOLDERS: ReadonlyArray<{ key: RailFolderKey; title: string; shift: string }> = [
   { key: 'tools', title: '工具', shift: 'Q' },
   { key: 'rail', title: '轨道', shift: 'W' },
   { key: 'equipment', title: '设备', shift: 'E' },
   { key: 'decor', title: '装饰', shift: 'R' },
-  { key: 'rooms', title: '房间', shift: 'T' },
-  { key: 'zones', title: '分区', shift: 'Y' },
-  { key: 'surfaces', title: '材质', shift: 'U' },
-  { key: 'view', title: '视图', shift: 'I' },
+  { key: 'surfaces', title: '材质', shift: 'T' },
+  { key: 'rooms', title: '房间', shift: 'Y' },
+  { key: 'zones', title: '分区', shift: 'U' },
 ]
 
 /**
- * The folder a Shift+letter folds, or null when no folder stands on that letter.
- * Case-blind, because the caller hands over `KeyboardEvent.key.toLowerCase()`.
+ * The **信息栏's** (RHS) folders, top to bottom, each with the **Alt+letter** that folds
+ * it — Alt+Q down the stack, one letter a row. The inspector is its own column with its
+ * own modifier, so the two ladders never compete for a key: **Shift** belongs to the
+ * build rail (Q W E R T Y U, the tools) and **Alt** to the read-outs, and every folder
+ * in this column is labeled here rather than in the JSX, so its header, its badge and
+ * the key that fires come from one row (`windows/inspector/Inspector.tsx` renders the
+ * table in this order; `folderForAltKey` is how the app's listener names one).
+ *
+ * 视图 sits between 信息 and 出入口: it moved out of the build rail because its tiles
+ * (显示其他层 / 剖切 / 隐藏天花板 / 隐藏墙壁 / 热力图 / 分区图 / 隐藏UI) are controls over
+ * how the station is *drawn* rather than pieces of it. A fifth folder would take
+ * **Alt+T**, the next letter on this ladder.
  */
-export function folderForShiftKey(letter: string): FolderKey | null {
+export const INSPECTOR_FOLDERS: ReadonlyArray<{ key: InspectorFolderKey; title: string; alt: string }> = [
+  { key: 'info', title: '信息', alt: 'Q' },
+  { key: 'view', title: '视图', alt: 'W' },
+  { key: 'exits', title: '出入口', alt: 'E' },
+  { key: 'lines', title: '线路', alt: 'R' },
+]
+
+/**
+ * The build-rail folder a **Shift+letter** folds, or null when no folder stands on that
+ * letter. Case-blind, because the caller hands over `KeyboardEvent.key.toLowerCase()`.
+ */
+export function folderForShiftKey(letter: string): RailFolderKey | null {
   const hit = RAIL_FOLDERS.find((f) => f.shift.toLowerCase() === letter.toLowerCase())
+  return hit ? hit.key : null
+}
+
+/**
+ * The 信息栏 folder an **Alt+letter** folds, or null — the inspector's half of the same
+ * split (`rail/LeftRail.tsx` owns the Shift ladder, `windows/inspector/Inspector.tsx`
+ * this one). Case-blind for the same reason.
+ */
+export function folderForAltKey(letter: string): InspectorFolderKey | null {
+  const hit = INSPECTOR_FOLDERS.find((f) => f.alt.toLowerCase() === letter.toLowerCase())
   return hit ? hit.key : null
 }
 
@@ -74,4 +120,175 @@ export function findSelectedTrack(
 ): Extract<Module, { type: 'track' }> | undefined {
   if (selected?.kind !== 'module') return undefined
   return stationModules.find((m) => m.id === selected.key && m.type === 'track') as Extract<Module, { type: 'track' }> | undefined
+}
+
+/* ------------------------------------------------------ the 工具 folder's shape */
+
+/**
+ * Whether the **生成墙壁** tile is in the 工具 folder at all.
+ *
+ * It is not: a 半墙 or a 三角 *is* the wall a patch would otherwise grow, so while
+ * one of the cut modes owns the tool the ring has nothing to say — the tile was
+ * drawn greyed out with a tooltip explaining why, which is a control the player
+ * cannot use taking a place among the ones they can. It is not shown, rather than
+ * shown disabled, and it comes back with the plain 方块 tile. Its key, **Tab**, is
+ * refused under the same condition (`setAutoWalls`), so the tile's absence and the
+ * key's silence are one rule.
+ */
+export function showsAutoWalls(tool: Tool, cut: CutMode | null): boolean {
+  return tool === 'block' && cut === null
+}
+
+/**
+ * How many tiles the 工具 folder can put on screen right now: 选择 / 吸取 / 方块 /
+ * 删除 / 墙 / 半墙 / 上三角块 / 下三角块 / 撤销 / 重做, plus 生成墙壁 (**Tab**) in the plain
+ * 方块 mode. The folder header prints this, and it is derived rather than hand-counted
+ * so the count cannot disagree with the tiles the folder actually draws.
+ *
+ * **A folded-out row is not a tile**, here as in 设备 / 装饰: an armed cut piece's
+ * 旋转 folds out under its own tile through the same `ActionRow` a 座椅's does, and
+ * neither folder counts a row.
+ */
+export function toolsFolderTiles(tool: Tool, cut: CutMode | null): number {
+  return showsAutoWalls(tool, cut) ? 11 : 10
+}
+
+/* ------------------------------------------------------ what the rail is armed with */
+
+/**
+ * The state the rail's two tile questions are answered from. Every field is a plain
+ * store field, so the store can be handed straight in (and the two selectors below
+ * are `useStore(armedRailTile)` / `useStore(armedActionsAnchor)`).
+ */
+export interface ArmedState {
+  tool: Tool
+  moduleType: string
+  zoneBrush: ZoneBrush
+  paintFinish: string
+  halfWall: boolean
+  triangles: boolean
+  triKind: TriangleKind
+}
+
+/**
+ * The cut piece the next 方块 click will lay, or null for a plain block — the rail's
+ * selector for it (`useStore(armedCut)`), over the one function that reads the store's
+ * two fields as the single thing they mean (`cutModeOf`).
+ *
+ * Every unit that cares asks this way: the folder that draws the cut tiles, the grid that
+ * folds their 旋转 out, and the shell that counts the folder's tiles. None of them reads
+ * `halfWall` / `triangles` / `triKind` for itself.
+ */
+export function armedCut(s: { halfWall: boolean; triangles: boolean; triKind: TriangleKind }): CutMode | null {
+  return cutModeOf(s.halfWall, s.triangles, s.triKind)
+}
+
+/**
+ * What the rail is armed with, as the two tiles the rail cares about — **one
+ * derivation, read by every folder**: no folder asks "is this a cut mode?" or "is
+ * this a family?" for itself, so a piece and a cut travel the same path.
+ */
+export interface ArmedTiles {
+  /**
+   * The tile that **is** the armed thing: the placement's own variant, the cut piece
+   * the next click will lay, a rail / room / finish tile. The shell scrolls it into
+   * view, which is what makes a 吸取 land somewhere the player can see.
+   */
+  tile: string | null
+  /**
+   * The tile the armed thing's **action row** folds out under — a family's parent tile
+   * when the thing is one of its variants, and the piece's or the cut's own tile
+   * otherwise (`actionsAnchorFor` / `cutAnchor`). Null when it owns no action tiles,
+   * which is what keeps a row from folding out under a tile that has none.
+   */
+  actions: string | null
+}
+
+/**
+ * Answer both questions for whatever is armed.
+ *
+ * The **pieces** and the **cut modes** are deliberately the same shape here: a 座椅
+ * with a 旋转 and a 半墙 with a 旋转 anchor their rows the same way and fold out the
+ * same `ActionRow`, so adding one is a row in a table (`MODULE_OPTIONS` /
+ * `CUT_MODES`) rather than a branch in a folder.
+ */
+export function armedTiles(s: ArmedState): ArmedTiles {
+  switch (s.tool) {
+    case 'module':
+      return {
+        tile: s.moduleType,
+        actions: hasModuleActions(s.moduleType) ? actionsAnchorFor(s.moduleType) : null,
+      }
+    case 'block': {
+      // A cut piece is its own tile and its own anchor. A plain 方块 has neither: the
+      // ring tile beside it is a **setting of the tool** (`showsAutoWalls`), not an
+      // action of an armed piece, so it folds nothing out.
+      const cut = armedCut(s)
+      const anchor = cut === null ? null : cutAnchor(cut)
+      return { tile: anchor, actions: anchor }
+    }
+    case 'rail':
+      return { tile: PLATFORM_TILE, actions: null }
+    case 'tunnel':
+      return { tile: TUNNEL_TILE, actions: null }
+    case 'zone':
+      // A fare zone and a facility room are one brush slot in two folders; either
+      // way the tile wears the brush's own id.
+      return { tile: s.zoneBrush, actions: null }
+    case 'paint':
+      // 搪瓷板's brush carries its colour in the id (`wall.enamel#rrggbb`), and the
+      // tile is the finish it is a shade of.
+      return { tile: finishBaseId(s.paintFinish), actions: null }
+    default:
+      return { tile: null, actions: null }
+  }
+}
+
+/** The armed thing's own tile — the rail shell's selector. */
+export function armedRailTile(s: ArmedState): string | null {
+  return armedTiles(s).tile
+}
+
+/** The anchor the armed thing's action row folds out under — every grid's selector. */
+export function armedActionsAnchor(s: ArmedState): string | null {
+  return armedTiles(s).actions
+}
+
+/* ----------------------------------------------------- what the rail keeps in view */
+
+/** The 轨道 folder's two tiles, as `data-tile` ids (they are not palette options). */
+export const PLATFORM_TILE = '__platform'
+export const TUNNEL_TILE = '__tunnel'
+
+/** A rectangle, in the two numbers a "is it in view" test needs. */
+export interface ViewRect {
+  top: number
+  bottom: number
+}
+
+/** The margin a revealed tile keeps from the rail's edge, in pixels. */
+export const REVEAL_PAD = 8
+
+/**
+ * How long the rail's folds take to settle, in milliseconds. A folder opens over
+ * 280 ms and a variant sub-menu over 260 ms (`styles.css` `.folderBody` /
+ * `.subMenu`), so a reveal waits this long before its second, authoritative pass —
+ * the first one measured a tile that was still moving.
+ */
+export const REVEAL_SETTLE_MS = 360
+
+/**
+ * How far a scroll container has to move to bring `rect` into view, in pixels:
+ * negative when the tile is above the box, positive when it is below it, and `0`
+ * when it already fits — so revealing a tile that is on screen moves nothing.
+ *
+ * A tile too tall for the box is aligned by its **top**, because the top is where
+ * its label is: scrolling to its bottom edge instead would fill the rail with the
+ * tile's lower half and hide the one thing that identifies it.
+ */
+export function revealScrollDelta(box: ViewRect, rect: ViewRect, pad = REVEAL_PAD): number {
+  const taller = rect.bottom - rect.top > box.bottom - box.top - 2 * pad
+  if (taller || rect.top - pad < box.top) return rect.top - pad - box.top
+  if (rect.bottom + pad > box.bottom) return rect.bottom + pad - box.bottom
+  return 0
 }

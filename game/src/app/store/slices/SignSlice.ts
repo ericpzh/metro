@@ -81,6 +81,17 @@ export interface SignSlice {
   setSignBoards: (moduleId: string, boards: SignBoards) => void
   /** Open the board editor on the current boards (no module behind it). */
   openSignComposer: () => void
+  /**
+   * Make one placed sign's printed boards **the current pair** — what 吸取 does when
+   * it lifts a 指示牌: the piece's own two faces become the boards the next sign is
+   * hung with, so the copy a pick arms carries the exact sign the player pointed at
+   * (`cfg.front` / `cfg.back`, settled as they are printed) rather than whatever
+   * board was composed last.
+   *
+   * Unlike `openSignEditor` this opens nothing and writes nothing to the module: it
+   * is a copy **out** of a placed sign, not an edit of it.
+   */
+  adoptSignBoards: (boards: SignBoards) => void
   /** Open the board editor on one placed sign, whose boards become the current ones. */
   openSignEditor: (moduleId: string) => void
   /**
@@ -138,6 +149,11 @@ export const createSignSlice: StateCreator<AppState, [], [], SignSlice> = (set, 
       // left standing would be dropped behind the modal by one keypress.
       moveDraft: null,
     }),
+  // A sign's boards are lifted **out** of the piece and into the current pair, with
+  // nothing else touched: the module keeps its own faces (this is a copy, not an
+  // edit) and no editor opens. Settled on the way in like every other write, so the
+  // pair the picker arms is a pair the print can lay out.
+  adoptSignBoards: (boards) => set({ currentBoards: settleSignBoards(boards, get().station) }),
   openSignEditor: (moduleId) => {
     const mod = get().station.modules.find((m) => m.id === moduleId)
     if (!mod || mod.type !== 'sign') return

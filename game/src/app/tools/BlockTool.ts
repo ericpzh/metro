@@ -1,6 +1,7 @@
 // The 方块 (block) tool: click for one block, long-press + drag for a rectangle
-// patch (with an auto-wall ring when 自动生成墙壁 is on), Tab for one **半墙**
-// block at a time, right-press on a wall for a whole-column lift. Moved verbatim
+// patch (with an auto-wall ring when 生成墙壁 is on, which **Tab** and the ring's
+// own tile raise), one **半墙** / 三角 block at a time when a cut piece is armed,
+// right-press on a wall for a whole-column lift. Moved verbatim
 // from app/Viewport.tsx (GAME-SPEC §4).
 
 import {
@@ -32,10 +33,10 @@ export class BlockTool extends ToolController {
     if (!scene || !hit) return
     const st = useStore.getState()
     // 方块: a click is one block, a long press + drag is a rectangle on the
-    // pressed plane (the depth you are on, stepped with Q/E). With 自动生成墙壁
-    // on (the default) the patch grows an auto-wall ring; off, it is plain blocks.
-    // With **半墙** on (Tab) it is neither: the click lays one half-block wall
-    // block where it lands — the 半墙 mode is one piece at a time, and it is what
+    // pressed plane (the depth you are on, stepped with Q/E). With 生成墙壁
+    // on the patch grows an auto-wall ring; off, it is plain blocks.
+    // With a cut piece armed (半墙 / 三角, its own tile) it is neither: the click lays
+    // one piece where it lands — a cut is one piece at a time, and it is what
     // the patch grows instead of the ring, so there is no patch and no auto wall
     // (`store.ts` keeps the two modes exclusive).
     info.preventDefault()
@@ -158,7 +159,7 @@ export class BlockTool extends ToolController {
         scene.setGhost(pendingCells(preview, 'remove', this.ctx.solids()), 'remove')
         scene.setCollisionHighlight(null)
       } else {
-        // A deliberate 方块 drag with 自动生成墙壁 on draws a walled surface: the
+        // A deliberate 方块 drag with 生成墙壁 on draws a walled surface: the
         // ring the release would raise is previewed with the blocks themselves, and
         // it is judged by the same rule as they are. The raw rectangle goes in, so a
         // cell the release will refuse is drawn red rather than dropped in silence —
@@ -240,7 +241,7 @@ export class BlockTool extends ToolController {
         if (changed > 0) st.commit(next)
         if (blocked > 0) st.setNotice(blockRefusalNotice('equipment'))
       } else if (rect && st.autoWalls) {
-        // A deliberate 方块 drag with 自动生成墙壁 on draws a walled floor patch:
+        // A deliberate 方块 drag with 生成墙壁 on draws a walled floor patch:
         // union it with earlier patches and rebuild the auto wall ring around
         // the new edge. With the toggle off it takes the plain-block path below
         // even for a drag — no tags, no walls.

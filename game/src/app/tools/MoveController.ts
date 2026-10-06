@@ -4,9 +4,9 @@
 // the active tool, and the Enter/ESC keys confirm/cancel through the store.
 
 import { exitFloorAt } from '../../sim/exits.ts'
-import { moveCandidate, placementColliders, wallMountStandCell } from '../../sim/placement.ts'
+import { ceilingMountStandCell, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountStandCell } from '../../sim/placement.ts'
 import type { Vec3i } from '../../sim/types.ts'
-import { isWallMountedType, useStore } from '../store.ts'
+import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 
@@ -62,15 +62,19 @@ export class MoveController extends ToolController {
 
   /**
    * The cell a carried piece is aimed at: the floor block under the pointer, or —
-   * for a 广告牌, which bolts to a wall and may hang over the track where there is
-   * no floor in front of it — the cell in front of that wall, exactly as a fresh
-   * placement resolves the same hover (`wallMountStandCell`).
+   * for a wall panel, the cell in front of that wall (`wallMountStandCell`), and
+   * for a hung fitting, the floor under the ceiling slab (`ceilingMountStandCell`)
+   * — exactly as a fresh placement resolves the same hover.
    */
   private moveAnchorAt(h: { cell: [number, number, number]; place: [number, number, number]; solid: boolean }): Vec3i {
     const st = useStore.getState()
     const d = st.moveDraft
-    if (d && isWallMountedType(d.module.type)) {
+    if (d && isWallMounted(d.module)) {
       const [x, y, z] = wallMountStandCell(st.station.cells, h.cell, h.place)
+      return { x, y, z }
+    }
+    if (d && isCeilingHung(d.module)) {
+      const [x, y, z] = ceilingMountStandCell(h.cell, h.place)
       return { x, y, z }
     }
     const [x, y, z] = h.solid || exitFloorAt(st.station.modules, h.cell[0], h.cell[1], h.cell[2]) ? h.cell : h.place
@@ -116,7 +120,9 @@ export class MoveController extends ToolController {
     // A ghost carries a private id: a 指示牌's printed plate and a 电视's station
     // plate are cached per module id, and a preview must never mint into the copy a
     // placed piece owns (`setModulePreview` disposes what its ghost created).
-    scene.setCursor([at.x, at.y, at.z], reason === '')
+    // A wall panel or a hung fitting lives on its surface: the ghost is the
+    // highlight, never a floor cell.
+    scene.setCursor(isWallMounted(candidate) || isCeilingHung(candidate) ? null : [at.x, at.y, at.z], reason === '')
     scene.setModulePreview({ ...candidate, id: MOVE_GHOST_ID }, reason !== '')
     scene.setCollisionHighlight(reason === '' ? null : placementColliders(st.station.modules, candidate).map((m) => m.id))
     st.aimMove(at, candidate, reason)

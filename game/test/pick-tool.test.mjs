@@ -1,0 +1,322 @@
+// The 吸取 picker (工具栏, `P`): clicking a placed piece arms the placement
+// with that exact variant — and its rotation / escalator direction / 闸机 door —
+// selects the instance, and hands the left rail to the folder that owns it (by
+// switching to that tool). Clicking a bare face lifts its finish into the 材质
+// brush instead. The rail's tiles only call these store commands through the
+// tool, so driving `PickTool.onDown` with a stubbed context covers the click.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { toState, addWalls, createModule, paintFace, thinWallSideMap } from '../src/build/model.ts'
+import { pickCells } from '../src/render/pickCell.ts'
+import { settleSignBoards, signBoardsOf } from '../src/sim/sign.ts'
+import { useStore } from '../src/app/store.ts'
+import { PickTool } from '../src/app/tools/PickTool.ts'
+import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
+
+const floor = (x, y, z = 0) => ({ x, y, z, fill: 'solid' })
+
+/** The two faces of the 指示牌 below: a label and the 出口 plate, plus an empty back. */
+const SIGN_BOARDS = {
+  front: [
+    { id: 'c1', kind: 'text', text: '出口 A', x: 0.5, y: 0.4, scale: 1, side: 'both' },
+    { id: 'c2', kind: 'icon', icon: 'exit', x: 0.3, y: 0.6, scale: 1, side: 'both' },
+  ],
+  back: [],
+}
+
+const MODULES = [
+  { id: 'g1', type: 'gate', x: 0, y: 0, z: 0, rot: 2, cfg: { dir: 'both', door: 'fence' } },
+  { id: 'b1', type: 'bench', x: 1, y: 0, z: 0, rot: 1, w: 2, cfg: { variant: 'seat-2' } },
+  { id: 'b2', type: 'bench', x: 3, y: 3, z: 0, rot: 0, cfg: {} },
+  { id: 'bb1', type: 'billboard', x: 2, y: 0, z: 0, rot: 0, w: 3, cfg: { variant: 'panorama' } },
+  { id: 'gl1', type: 'glass', x: 3, y: 0, z: 0, rot: 0, w: 2, cfg: { variant: '2x2' } },
+  { id: 'c1', type: 'calligraphy', x: 0, y: 1, z: 0, rot: 0, w: 1, panelH: 2, cfg: { style: 'song', axis: 'v' } },
+  { id: 'lm1', type: 'linemap', x: 1, y: 1, z: 0, rot: 0, w: 1, cfg: { mount: 'stand' } },
+  { id: 'dr1', type: 'door', x: 1, y: 3, z: 0, rot: 3, w: 2, cfg: { variant: 'wood-2' } },
+  { id: 'dr2', type: 'door', x: 2, y: 3, z: 0, rot: 0, w: 1, cfg: {} },
+  {
+    id: 's1',
+    type: 'stair',
+    x: 2,
+    y: 1,
+    z: 0,
+    rot: 3,
+    from: { x: 2, y: 1, z: 0 },
+    to: { x: 2, y: 4, z: 4 },
+    cfg: { width: STAIR_WIDTH_NARROW, style: 'right180' },
+  },
+  { id: 'e1', type: 'exit', x: 3, y: 1, z: 0, rot: 0, cfg: { name: 'A口', inRate: 600, open: true, covered: false, bays: 3 } },
+  {
+    id: 'es1',
+    type: 'escalator',
+    x: 0,
+    y: 2,
+    z: 0,
+    rot: 1,
+    from: { x: 0, y: 2, z: 0 },
+    to: { x: 0, y: 5, z: 4 },
+    cfg: { dir: 'down' },
+  },
+  { id: 't1', type: 'track', x: 1, y: 2, z: 0, rot: 0, cfg: { line: 'L1', dir: 'up' } },
+  { id: 'r1', type: 'shop', x: 2, y: 2, z: 0, rot: 0, w: 2, h: 2, cfg: { kind: 'toilet' } },
+  { id: 'sg1', type: 'sign', x: 2, y: 3, z: 0, rot: 0, cfg: { front: SIGN_BOARDS.front.map((c) => ({ ...c })), back: [] } },
+  { id: 'pe1', type: 'platform-edge', x: 3, y: 2, z: 0, rot: 0, w: 2, cfg: { name: '', line: '', dir: 'up', side: 'left' } },
+]
+
+/** The picker with the scene stubbed and the drawn-model pick scripted. */
+function ctxFor(pickedId) {
+  const ref = (v = null) => ({ current: v })
+  return new PickTool({
+    scene: () => ({ setGhost: () => {}, setCursor: () => {}, setModulePreview: () => {}, setCollisionHighlight: () => {} }),
+    pick: () => null,
+    pickModule: () => pickedId,
+    facing: () => undefined,
+    solids: () => new Set(useStore.getState().station.cells.filter((c) => c.fill === 'solid').map((c) => `${c.x},${c.y},${c.z}`)),
+    thins: () => thinWallSideMap(useStore.getState().station.cells, useStore.getState().station.modules),
+    hover: ref(),
+    drag: ref(),
+    paint: ref(),
+    zoneDrag: ref(),
+    facilityDrag: ref(),
+    showMeasure: () => {},
+    clearMeasure: () => {},
+  })
+}
+
+/** One left press on a cell; `solid` says the ray hit a block face. */
+function press(cell, solid = true, button = 0) {
+  return {
+    clientX: 0,
+    clientY: 0,
+    button,
+    buttons: button === 2 ? 2 : 1,
+    shiftKey: false,
+    hit: { cell, place: [cell[0], cell[1], cell[2] + 1], solid, normal: [0, 0, 1], point: [cell[0] + 0.5, cell[1] + 0.5] },
+    preventDefault: () => {},
+  }
+}
+
+test.beforeEach(() => {
+  const cells = []
+  for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) cells.push(floor(x, y))
+  useStore.setState({
+    tool: 'pick',
+    moduleType: 'gate',
+    moduleRot: 0,
+    stairWidth: STAIR_WIDTH_NARROW,
+    escalatorDir: 'up',
+    gateDoor: 'lane',
+    zoneBrush: 'paid',
+    paintMode: 'single',
+    paintBaseMode: 'single',
+    paintFinish: 'floor.granite',
+    selected: null,
+    notice: null,
+    pickDraft: null,
+    past: [],
+    future: [],
+    station: toState({ name: 't', seed: 1, cells, modules: structuredClone(MODULES), lines: [] }),
+  })
+})
+
+const st = () => useStore.getState()
+
+test('picking equipment arms its exact variant, copies its turn, and selects it', () => {
+  ctxFor('g1').onDown(press([0, 0, 0]))
+  assert.equal(st().tool, 'module')
+  assert.equal(st().moduleType, 'gate')
+  assert.equal(st().moduleRot, 2)
+  assert.equal(st().gateDoor, 'fence')
+  assert.deepEqual(st().selected, { kind: 'module', key: 'g1', label: '闸机' })
+
+  ctxFor('b1').onDown(press([1, 0, 0]))
+  assert.equal(st().moduleType, 'bench-seat-2', 'a 2 m backed bench arms its own tile')
+  assert.equal(st().moduleRot, 1)
+  assert.equal(st().selected.key, 'b1')
+
+  ctxFor('bb1').onDown(press([2, 0, 0]))
+  assert.equal(st().moduleType, 'billboard-panorama')
+
+  ctxFor('gl1').onDown(press([3, 0, 0]))
+  assert.equal(st().moduleType, 'glass-2x2')
+
+  ctxFor('c1').onDown(press([0, 1, 0]))
+  assert.equal(st().moduleType, 'calligraphy-song-v')
+
+  ctxFor('lm1').onDown(press([1, 1, 0]))
+  assert.equal(st().moduleType, 'linemap-stand')
+
+  ctxFor('dr1').onDown(press([1, 3, 0]))
+  assert.equal(st().moduleType, 'door-wood-2', 'a 门 arms its own leaf count and material')
+  assert.equal(st().moduleRot, 3)
+
+  ctxFor('s1').onDown(press([2, 1, 0]))
+  assert.equal(st().moduleType, 'stair-right180', 'a stair is picked as equipment, not as a finish')
+  assert.equal(st().moduleRot, 3)
+
+  ctxFor('e1').onDown(press([3, 1, 0]))
+  assert.equal(st().moduleType, 'exit-uncovered-3')
+
+  ctxFor('es1').onDown(press([0, 2, 0]))
+  assert.equal(st().moduleType, 'escalator')
+  assert.equal(st().escalatorDir, 'down')
+})
+
+test('a legacy piece with no variant reads as the palette default it is drawn as', () => {
+  ctxFor('b2').onDown(press([3, 3, 0]))
+  assert.equal(st().moduleType, 'bench-steel-1')
+  assert.equal(st().tool, 'module')
+
+  // A 门 with no variant is the 单开 不锈钢 door, the one `doorSpec` falls back to.
+  ctxFor('dr2').onDown(press([2, 3, 0]))
+  assert.equal(st().moduleType, 'door-steel-1')
+})
+
+test('a rail run hands to the 轨道 tool, a room to 分区, a screen door only selects', () => {
+  ctxFor('t1').onDown(press([1, 2, 0]))
+  assert.equal(st().tool, 'rail')
+  assert.equal(st().selected.key, 't1')
+
+  ctxFor('r1').onDown(press([2, 2, 0]))
+  assert.equal(st().tool, 'zone')
+  assert.equal(st().zoneBrush, 'toilet', 'the 厕所 room arms its own brush, revealing 房间')
+  assert.equal(st().selected.key, 'r1')
+
+  ctxFor('pe1').onDown(press([3, 2, 0]))
+  assert.equal(st().selected.key, 'pe1', 'a derived edge has no placement to arm')
+})
+
+test('a 半墙 and a 三角 are picked on the surface the pointer is on, never the block', () => {
+  // A half-block panel (inner face east) and an upper 三角 (45° slope) on bare
+  // ground. The pick's own cell math snaps the slope's off-axis normal to the
+  // wedge's face slot, so the two surfaces resolve exactly as the 材质 brush does.
+  let station = toState({ name: 't', seed: 1, cells: [], modules: [], lines: [] })
+  station = addWalls(station, [[1, 1, 0]], 'w', 1).state
+  station = addWalls(station, [[2, 2, 0]], null, 1, { kind: 'upper', side: 'n' }).state
+  station = paintFace(station, 1, 1, 0, 'e', 'wall.tile')
+  station = paintFace(station, 2, 2, 0, 'top', 'floor.concrete')
+  useStore.setState({ station })
+
+  // The panel's inner face points east into the cell's clear half; a ray hits it
+  // at the cell centre.
+  const half = pickCells([1.5, 1.5, 0.5], [1, 0, 0])
+  ctxFor(null).onDown({ ...press(half.cell), hit: { ...press(half.cell).hit, normal: half.normal } })
+  assert.equal(st().paintFinish, 'wall.tile', 'the 半墙 picked its own inner surface')
+  assert.equal(st().tool, 'paint')
+
+  // The wedge's slope is drawn off-axis; the pick snaps it to the piece's face slot.
+  const slope = pickCells([2.5, 2.5, 0.5], [0, -Math.SQRT1_2, Math.SQRT1_2])
+  assert.deepEqual(slope.cell, [2, 2, 0], 'the slope reads its own cell, not the block below')
+  assert.deepEqual(slope.normal, [0, 0, 1], 'the 45° normal snaps to the 三角’s top slot')
+  ctxFor(null).onDown({ ...press(slope.cell), hit: { ...press(slope.cell).hit, normal: slope.normal } })
+  assert.equal(st().paintFinish, 'floor.concrete', 'the 三角 picked its slope surface')
+})
+
+test('a bare face lends its finish to the 材质 brush, and a right press picks nothing', () => {
+  // An empty floor, so no envelope (a rail run is train-long) stands under it.
+  const cells = []
+  for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) cells.push(floor(x, y))
+  useStore.setState({ station: toState({ name: 't', seed: 1, cells, modules: [], lines: [] }) })
+  ctxFor(null).onDown(press([0, 3, 0]))
+  assert.equal(st().tool, 'paint')
+  assert.equal(st().paintFinish, 'floor.granite')
+  assert.equal(st().paintMode, 'single', 'the finish lands in the folder’s own mode')
+
+  useStore.setState({ tool: 'pick', selected: null })
+  ctxFor('g1').onDown(press([0, 0, 0], true, 2))
+  assert.equal(st().tool, 'pick', 'a right press is not a pick')
+  assert.equal(st().selected, null)
+  assert.equal(st().moduleType, 'gate', 'and it arms nothing either')
+})
+
+/* ------------------------------------------------------- the sign's own boards */
+
+test('picking a 指示牌 copies the piece’s own printed boards, not the last ones composed', () => {
+  // Something else is current, exactly as if the player had composed a different
+  // board since this sign was hung.
+  const elsewhere = settleSignBoards(
+    { front: [{ id: 'c9', kind: 'text', text: '站台', x: 0.5, y: 0.5, scale: 1, side: 'both' }], back: [] },
+    st().station,
+  )
+  useStore.setState({ currentBoards: elsewhere })
+
+  ctxFor('sg1').onDown(press([2, 3, 0]))
+  assert.equal(st().tool, 'module', 'the picker hands the placement the sign')
+  assert.equal(st().moduleType, 'sign')
+
+  const sign = st().station.modules.find((m) => m.id === 'sg1')
+  const expected = settleSignBoards(signBoardsOf(sign.cfg, st().station), st().station)
+  assert.deepEqual(st().currentBoards.front, expected.front, 'the picked sign’s front is what is current now')
+  assert.deepEqual(st().currentBoards.back, expected.back)
+  assert.notDeepEqual(st().currentBoards.front, elsewhere.front, 'and not the board that was current before')
+  assert.deepEqual(
+    sign.cfg.front.map((c) => c.kind),
+    ['text', 'icon'],
+    'the piece itself is untouched: a pick copies out of a sign, it never edits one',
+  )
+
+  // The next sign hung is the one that was picked, which is the whole point.
+  const placed = createModule('sign', 0, 3, 0, 'new-sign', 0, undefined, 'up', 'lane', st().station, st().currentBoards)
+  assert.deepEqual(placed.cfg.front, st().currentBoards.front)
+})
+
+test('Esc puts a picked piece back — the tool, its settings and the boards', () => {
+  assert.equal(st().pickDraft, null, 'nothing picked yet')
+
+  // The player is in 选择 with a gate armed, picks a bench, and lands in 设备 with
+  // the bench's own variant and turn.
+  useStore.setState({ tool: 'select', moduleType: 'gate', moduleRot: 0 })
+  ctxFor('b1').onDown(press([1, 0, 0]))
+  assert.equal(st().tool, 'module')
+  assert.equal(st().moduleType, 'bench-seat-2')
+  assert.equal(st().moduleRot, 1)
+  assert.deepEqual(
+    { tool: st().pickDraft.tool, moduleType: st().pickDraft.moduleType, moduleRot: st().pickDraft.moduleRot },
+    { tool: 'select', moduleType: 'gate', moduleRot: 0 },
+    'the draft is the pre-pick rail',
+  )
+
+  assert.equal(st().cancelPick(), true, 'Esc finds something to put back')
+  assert.equal(st().tool, 'select', 'the tool the pick borrowed is handed back')
+  assert.equal(st().moduleType, 'gate')
+  assert.equal(st().moduleRot, 0)
+  assert.equal(st().pickDraft, null, 'and the pick is forgotten')
+  assert.equal(st().cancelPick(), false, 'a second Esc has nothing left to do')
+  assert.equal(st().notice, '已取消吸取')
+})
+
+test('Esc hands back the wall-face cycle the pick borrowed from the 方块 tool', () => {
+  // The pick reaches the rail through `setTool`, which zeroes the 方块 tool's
+  // wall-face cycle with every tool change. A player who had stepped a **半墙** onto
+  // its side and then picked a bench must not come back to the geometry's default half.
+  useStore.setState({ tool: 'block', halfWall: true, triangles: false, autoWalls: false, wallSnapCycle: 2 })
+  ctxFor('b1').onDown(press([1, 0, 0]))
+  assert.equal(st().wallSnapCycle, 0, 'the pick’s own tool change resets the cycle')
+
+  assert.equal(st().cancelPick(), true, 'Esc finds the pick to put back')
+  assert.equal(st().tool, 'block', 'the 方块 tool comes back …')
+  assert.equal(st().halfWall, true, '… with its cut piece still armed …')
+  assert.equal(st().wallSnapCycle, 2, '… and the half R had stepped it to')
+})
+
+test('Esc hands a picked sign’s boards back too', () => {  const elsewhere = settleSignBoards(
+    { front: [{ id: 'c9', kind: 'text', text: '站台', x: 0.5, y: 0.5, scale: 1, side: 'both' }], back: [] },
+    st().station,
+  )
+  useStore.setState({ currentBoards: elsewhere })
+
+  ctxFor('sg1').onDown(press([2, 3, 0]))
+  assert.notDeepEqual(st().currentBoards.front, elsewhere.front, 'the pick copied the sign’s board in')
+  st().cancelPick()
+  assert.deepEqual(st().currentBoards.front, elsewhere.front, 'and Esc puts the old pair back')
+  assert.equal(st().notice, '已取消吸取')
+})
+
+test('a pick notes nothing when it changes nothing', () => {
+  // A derived 站台门 has no placement to arm: it is selected, and there is no
+  // gesture for Esc to end.
+  ctxFor('pe1').onDown(press([3, 2, 0]))
+  assert.equal(st().selected.key, 'pe1')
+  assert.equal(st().pickDraft, null)
+  assert.equal(st().tool, 'pick', 'and the tool is left where it was')
+})

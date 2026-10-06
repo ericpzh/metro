@@ -5,14 +5,16 @@ export default function Footer() {
     <footer className="footer">
       <div className="footer__inner">
         <div className="footer__col">
-          <h2>这套画风是怎么来的</h2>
+          <h2>这些图是怎么来的</h2>
           <p>
-            画风取自真实广州地铁：白色挡板吊顶、亮面彩色搪瓷墙板、带深色斑点的花岗岩地面、
-            不锈钢柱子、顶部带线路色的全高屏蔽门，还有醒目的安全黄盲道。
+            每一张都是游戏自己的截图：把正式构建跑在无头浏览器里，载入示例车站（动物园），
+            调好相机再拍下来——不是另画一遍的示意图。
           </p>
           <p className="footer__note">
-            参考照片只看不进包。配色和元素在 <code>tools/iso.mjs</code> 里重画；每张图都由{' '}
-            <code>node tools/gen-art.mjs</code> 生成，用和游戏一样的 2:1 等轴测投影。
+            画风取自真实广州地铁：白色挡板吊顶、亮面彩色搪瓷墙板、带深色斑点的花岗岩地面、
+            不锈钢柱子、顶部带线路色的全高屏蔽门，还有醒目的安全黄盲道。照片只看不进包；
+            这些图由 <code>node tools/shots.mjs</code> 生成，构图写在{' '}
+            <code>tools/sheet-plan.mjs</code> 里。
           </p>
         </div>
 
@@ -26,7 +28,7 @@ export default function Footer() {
             </li>
             <li>
               <a href={artUrl} target="_blank" rel="noreferrer">
-                art/ <span>SVG 源文件</span>
+                art/ <span>截图源文件</span>
               </a>
             </li>
             <li>

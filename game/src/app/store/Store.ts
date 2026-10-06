@@ -14,6 +14,7 @@ import { createLineSlice, type LineSlice } from './slices/LineSlice.ts'
 import { createMoveSlice, type MoveSlice } from './slices/MoveSlice.ts'
 import { createPaintSlice, type PaintSlice } from './slices/PaintSlice.ts'
 import { createSignSlice, type SignSlice } from './slices/SignSlice.ts'
+import { createPickSlice, type PickSlice } from './slices/PickSlice.ts'
 import { createSimSlice, type SimSlice } from './slices/SimSlice.ts'
 
 export type AppState =
@@ -25,6 +26,7 @@ export type AppState =
   & MoveSlice
   & PaintSlice
   & SignSlice
+  & PickSlice
   & SimSlice
 
 export const useStore = create<AppState>()((...a) => ({
@@ -36,5 +38,6 @@ export const useStore = create<AppState>()((...a) => ({
   ...createMoveSlice(...a),
   ...createPaintSlice(...a),
   ...createSignSlice(...a),
+  ...createPickSlice(...a),
   ...createSimSlice(...a),
 }))

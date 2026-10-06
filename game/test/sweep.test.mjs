@@ -13,6 +13,7 @@ const gate = (x, y, z, id = 'gate-1', rot = 0) => ({ id, type: 'gate', x, y, z, 
 const tvm = (x, y, z, id = 'tvm-1') => ({ id, type: 'tvm', x, y, z, cfg: {} })
 const bench = (x, y, z, variant, id = 'bench-1') => ({ id, type: 'bench', x, y, z, w: variant === 'steel-2' ? 2 : 1, cfg: { variant } })
 const billboard = (x, y, z, variant, id = 'bb-1') => ({ id, type: 'billboard', x, y, z, rot: 0, w: 1, cfg: { variant } })
+const door = (x, y, z, variant, id = 'door-1') => ({ id, type: 'door', x, y, z, rot: 0, w: (variant ?? '').endsWith('-2') ? 2 : 1, cfg: { variant } })
 const fence = (x, y, z, id = 'f-1') => ({ id, type: 'fence', x, y, z, rot: 0, cfg: {} })
 const track = (x, y, z, id = 'track-1') => ({ id, type: 'track', x, y, z, w: 6, d: 3, cfg: { line: 'A', power: 'third-rail' } })
 const exit = (x, y, z, id = 'exit-1') => ({ id, type: 'exit', x, y, z, cfg: { name: 'A口', inRate: 900, outRate: 900, open: true } })
@@ -40,6 +41,12 @@ test('a sweep keeps the palette variant apart', () => {
   assert.equal(sweepFamily(billboard(0, 0, 0, 'wide')), 'billboard:wide')
   assert.equal(sameSweepFamily(billboard(0, 0, 0, 'wide', 'a'), billboard(1, 0, 0, 'wide', 'b')), true)
   assert.equal(sameSweepFamily(billboard(0, 0, 0, 'wide', 'a'), billboard(1, 0, 0, 'portrait', 'b')), false)
+  // A 双开 stainless 门 does not collect the single wooden ones beside it: the family
+  // key is the variant, and the variant is the leaf count *and* the material.
+  assert.equal(sweepFamily(door(0, 0, 0, 'steel-2')), 'door:steel-2')
+  assert.equal(sameSweepFamily(door(0, 0, 0, 'steel-2', 'a'), door(2, 0, 0, 'steel-2', 'b')), true)
+  assert.equal(sameSweepFamily(door(0, 0, 0, 'steel-2', 'a'), door(2, 0, 0, 'steel-1', 'b')), false)
+  assert.equal(sameSweepFamily(door(0, 0, 0, 'steel-2', 'a'), door(2, 0, 0, 'wood-2', 'b')), false)
 })
 
 test('a legacy piece with no variant reads as the palette default it is drawn as', () => {
@@ -49,6 +56,7 @@ test('a legacy piece with no variant reads as the palette default it is drawn as
   assert.equal(sweepFamily(bench(0, 0, 0, undefined)), sweepFamily(bench(0, 0, 0, 'steel-1')))
   assert.equal(sweepFamily(billboard(0, 0, 0, undefined)), sweepFamily(billboard(0, 0, 0, 'wide')))
   assert.equal(sameSweepFamily(bench(0, 0, 0, undefined, 'a'), bench(2, 0, 0, 'steel-1', 'b')), true)
+  assert.equal(sweepFamily(door(0, 0, 0, undefined)), sweepFamily(door(0, 0, 0, 'steel-1')), 'a 门 with no variant is the 单开 不锈钢 door')
 })
 
 test('a room, a rail, an exit, a staircase or a 围栏 is never swept', () => {
@@ -66,7 +74,7 @@ test('every 设备 / 装饰 type a sweep may collect is listed', () => {
   // The list is deliberately explicit: adding a palette piece without deciding
   // its teardown leaves it un-sweepable (a safe default), and this test is where
   // that decision is written down.
-  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'bin', 'extinguisher', 'billboard', 'tv', 'sign']
+  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'bin', 'extinguisher', 'clock', 'cctv', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign']
   for (const type of sweepable) {
     const mod = { id: `m-${type}`, type, x: 0, y: 0, z: 0, cfg: {} }
     const family = sweepFamily(mod)

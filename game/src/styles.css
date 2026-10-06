@@ -65,6 +65,18 @@ button.ghost:hover {
   padding: 4px 8px;
   border-radius: 3px;
 }
+/* An icon-only chip (the 信息 card's 移动 / 编辑指示牌面板): the same button as a
+   labelled one, squared off around the glyph. The icon is an SVG sized in `em`,
+   so the font size here is what sets it. */
+.chip.iconOnly {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 26px;
+  padding: 4px 6px;
+  font-size: 16px;
+}
 .chip.on,
 .railBtn.on {
   background: #16374f;
@@ -384,6 +396,13 @@ button.ghost:hover {
 .blockGrid + .blockGrid {
   margin-top: 6px;
 }
+/* The 信息栏 is the wider column — `.main` gives the build rail 232px and the panel
+   300px — so the tile grids in it fit **three** to a row where the rail's fit two. The
+   panel's only grid is 视图's (§8 view toggles), and this covers the row its 剖切 folds
+   out (`InlineExpand` renders a `.blockGrid` of its own) as well. */
+.panel .blockGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 
 .bpBlock {
   position: relative;
@@ -417,7 +436,7 @@ button.ghost:hover {
   border-color: var(--accent);
   background: #16374f;
 }
-/* A tile another mode of the same tool has taken over (the 方块 tool's 自动生成墙壁
+/* A tile another mode of the same tool has taken over (the 方块 tool's 生成墙壁
    while 半墙 is on): still drawn, so the rule is discoverable, but plainly out of
    play — and it does not light up under the pointer. */
 .bpBlock:disabled,
@@ -714,9 +733,10 @@ button.ghost:hover {
 .panel .card .kv b.bad {
   color: var(--danger);
 }
-/* The card's 移动 / 确认 button is always there for the selected piece: it is faded
-   and takes no press when the piece is a structure that cannot move (its title says
-   why) and while it has nothing to confirm. */
+/* The card's 移动 tick is always there for the selected piece: it is faded and takes no
+   press when the piece is a structure that cannot move — the card writes why in a line
+   of text under the row, since a disabled control cannot say it and the button wears no
+   tooltip — and while it has nothing to confirm. */
 .panel .card button:disabled {
   opacity: 0.4;
   cursor: default;
@@ -1226,66 +1246,247 @@ button.ghost:hover {
   cursor: default;
   box-shadow: none;
 }
-/* The panel is a column: the two boards, the row of groups with the open palette, and
-   the two acts. Its width is **fixed**, and fixed to the shortest it can be: the row of
-   groups is the only thing in the modal that grows sideways, so the panel is exactly the
-   width of that row at its longest — the four group tiles, and the widest palette beside
-   one of them — and not a pixel more. A palette wider than that (a station with many
-   线路) is clipped by the panel rather than allowed to widen it; `--tile` is the one
-   square every tile in it is: a place on the board, a group and an option are the same
-   object three times over. */
+/* The panel is a grid: a header across the top, then **two columns** — the library of tiles
+   on the left and the boards with their action cluster on the right. It has a **fixed height**,
+   which is the whole reason the columns scroll: the library grows and shrinks a shelf as groups
+   open and close, and a panel that resized with it would slide the board the player is aiming
+   at up and down the screen between two drags. The action cluster sits in the workspace's
+   bottom-right corner, so with the height fixed that corner does not move either.
+   `--tile` is the one square every tile in the panel is — a place on the board, a group tab, a
+   palette option, the bin and the closing act. */
 .signPanel {
-  --tile: 60px;
-  /* The row's own arithmetic, named: `--sign-gap` is the 6 px between two tiles, and it
-     is `--sign-row` that decides the panel's width below. */
+  --tile: 56px;
+  /* The squares' own arithmetic, named: `--sign-gap` separates two tiles and `--sign-lib` is
+     the library **as a box**. It is **four tiles wide**, and that width is what the palettes
+     are laid out in — the four group tabs are one row, and the ten arrows are three rows of
+     four, four and two. The box is those four tracks plus their three 6 px gaps, the library's
+     own 2 × 8 px padding and 2 × 1 px border — and those paddings are the whole reason the tile
+     is 56 and not 60: at 60 the tracks came to 258 px inside a 256 px content box, so the
+     fourth column ran 4 px past the well's inner edge and read as chopped off. Get the box a
+     pixel short and the tab row drops its fourth tile onto a second one (a grid of fixed tracks
+     cannot compress, so an overflow wraps). `--sign-work` is what the workspace needs for a full
+     board. The panel is the sum of the two, plus the gap between the columns and its own
+     2 × 14 px padding. */
   --sign-gap: 6px;
-  --sign-group-tiles: 258px; /* 4 group tiles: 4 × 60 px + 3 × 6 px */
-  --sign-arrow-row: 522px; /* the widest palette: 8 arrow tiles, 8 × 60 px + 7 × 6 px */
-  --sign-row: calc(var(--sign-group-tiles) + var(--sign-gap) + var(--sign-arrow-row));
+  --sign-lib: 266px; /* 4 × 56 + 3 × 6 tiles' row, plus the library's padding and border */
+  --sign-work: 440px; /* the widest board a palette builds, plus the cluster under its right end */
   position: relative;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
-  /* The row above plus the panel's own 2 × 14 px padding — and on a window too narrow
-     for that, the whole window with a hair to spare. */
-  width: min(calc(var(--sign-row) + 28px), 98vw);
-  /* The same value as a floor, so a palette wider than the panel cannot push it out —
-     that is what makes the width fixed. Content wider than the panel is clipped by
-     `overflow-x` below, and the palette that matters (arrows, icons, text) fits. */
-  min-width: min(calc(var(--sign-row) + 28px), 98vw);
-  min-height: 0;
-  padding: 14px 14px 16px;
-  max-height: 92vh;
-  /* The panel scrolls **down** only. Every row is laid out to the panel's own width, so
-     none of them can widen it, and the one that can be wider than the panel is clipped
-     rather than scrolled: a horizontal bar here would be a second way to move the board
-     sideways, which is the thing this width exists to prevent. */
-  overflow-x: hidden;
-  overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--bp-line);
+  /* Library + gap + workspace + the panel's own 2 × 14 px padding — and on a window too
+     narrow for that, the whole window with a hair to spare. */
+  width: min(calc(var(--sign-lib) + var(--sign-gap) + var(--sign-work) + 28px), 96vw);
+  /* The height is a constant, and one of the two things that used to jump: the library's shelf
+     is as tall as the group that is open, so `auto` made the modal resize at every tab press.
+     It is also **sized to the tallest shelf there is**, and to nothing more: a row of four
+     group tabs, then the three rows the arrow palette needs — ten arrows are 4 + 4 + 2, so its
+     shelf is 3 × 56 + 2 × 6 tall. Anything past that is empty paper, and the library is where
+     it showed: the column stretches to whatever the panel's height is, so a panel a few pixels
+     too tall left a strip of nothing under the shelves. The sum is written out because nothing
+     here can measure it, and every term is a box that is already in this file:
+       30px  the panel's own padding (2 × 14) and its frame (2 × 1)
+       23px  the header's grid **track** — its own 37 px band (2 × 5 of padding, the 26 px
+             close, its 1 px rule) less the 14 px it hangs up over the padding above it, which
+             is what makes the band run edge to edge
+       10px  the gap between the header and the body
+       18px  the library's border and padding (2 × 1 + 2 × 8)
+        2px  the well's border (2 × 1)
+     4 --tile  the four rows of tiles: the group tabs and the shelf's three
+     6 --sign-gap  the six gaps around them: the one under the tabs, the two between the
+             shelf's rows, the shelf's own pad above them, and the well's own 2 × 6 of padding
+     Get it a pixel short and the third row is clipped by the well it folds out in.
+     `min(…, 90vh)` folds it back to almost the whole window on a short one. */
+  height: min(
+    calc(30px + 23px + 10px + 18px + 2px + 4 * var(--tile) + 6 * var(--sign-gap)),
+    90vh
+  );
+  padding: 14px;
+  /* Nothing scrolls the panel itself: the two columns scroll, each in its own well, so the
+     header and the action cluster stay where they are. */
+  overflow: hidden;
+  /* The same drafting sheet the rails wear — deep navy paper, a 40 px grid and the fine 8 px
+     one inside it — so the sign editor is one more blueprint surface rather than a plain panel.
+     It is drawn **faint**, and that is the point: a board is a black plate, so a loud grid
+     behind it competes with the thing being composed. The colour is set first so the sheet
+     still reads if gradients are ignored anywhere. */
+  background-color: #081a2c;
+  background-image:
+    linear-gradient(rgba(96, 168, 232, 0.075) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 168, 232, 0.075) 1px, transparent 1px),
+    linear-gradient(rgba(96, 168, 232, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 168, 232, 0.03) 1px, transparent 1px);
+  background-size:
+    40px 40px,
+    40px 40px,
+    8px 8px,
+    8px 8px;
+  /* A **faint** frame, and a lot of drop shadow: the panel is dark navy on a near-black scrim,
+     so a blueprint-blue hairline around it read as a bright box floating over the station
+     rather than as the edge of a sheet. The sheet is separated from the scrim by its shadow,
+     and the frame only says where the paper stops. */
+  border: 1px solid rgba(126, 183, 231, 0.16);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
 }
-/* The two buttons there are, bottom right, and nothing else down here: the board is
-   arranged above them and the way out is under it. They wear the build rail's own
-   blueprint block — the same fill, the same technical dashed inner frame at the same
-   inset — so the acts that end the edit are the same object as the tiles that made it. */
-.signRail {
+/* The header: a **small** bar with the way out at its right-hand end and nothing else. It
+   bleeds to the panel's own edges and is a shade darker than the body, so the modal reads as a
+   framed tool and the drafting grid stays the working surface. `-14px` is the panel's padding,
+   which is what makes the band run edge to edge. */
+.signHead {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  /* The dashed frame is drawn at `inset`, so the button has to stay clear of it. */
-  --signActFrame: 4px;
+  margin: -14px -14px 0;
+  padding: 5px 8px;
+  background: #081c2f;
+  border-bottom: 1px solid var(--bp-line);
 }
-.signAct {
-  position: relative;
-  width: 44px;
-  height: 30px;
+/* The way out: a small square, the size of a window's close button rather than of a board
+   tile, because it is not part of the gesture the tiles are for. 放弃 is its accessible name;
+   a caption under it — or a tooltip over it — was one more thing between the player and the
+   board, and the ✕ says what it is. */
+.signClose {
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   padding: 0;
-  font-size: 15px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  background: #0e2338;
+  border: 1px solid var(--bp-line);
+  border-radius: 0;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.signClose:hover {
+  color: var(--danger);
+  background: #3a1710;
+  border-color: var(--danger);
+}
+/* The two columns: **the library and the boards**. Each stretches to the panel's own fixed
+   height rather than sizing to its content, which is what keeps the workspace's bottom edge —
+   and so the action cluster on it — from moving as groups open and close. */
+.signBody {
+  display: grid;
+  grid-template-columns: var(--sign-lib) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+  min-height: 0;
+}
+/* The library: the four group tabs, then the well their palette folds out in. It is a column,
+   so the well sits under the tabs and nowhere else — a group is a *shelf* of options rather
+   than a drawer beside its own tile.
+   Its **side** padding is 4 px and its vertical padding 8, and that asymmetry is the whole of
+   the fourth column's clearance: `--sign-lib` is four 56 px tracks and their gaps, plus this
+   padding, plus the two borders, plus the well's own 6 px frame — so the horizontal padding is
+   what is left over, and at 8 px a side the shelf ran 8 px past the well's inner edge and the
+   fourth column read as chopped. It is stated here so the sum stops needing to be guessed. */
+.signLibrary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sign-gap);
+  min-height: 0;
+  padding: 8px 4px;
+  background: #081a2c;
+  border: 1px solid var(--bp-line);
+}
+/* **A mark is being carried back into the shelves.** The library is where a tile comes from,
+   so it is also where one goes: letting go here throws the carried mark away (`endDrag`,
+   `overLibrary` in `SignEditor`), and this is the state that says so — the same two steps the
+   rail's bin wears (`.signPanel.dragging .signAct.trash` and `.signAct.trash.over`), because
+   they are the same act in two places. Only a mark that is **on** a board lights it
+   (`carryingBoardMark`): a palette tile let go over its own shelf has given nothing up, and
+   the well does not promise to delete one. It is the border and the fill, not a transform:
+   the box is the drag's own hit test, and it must not move while the pointer is inside it. */
+.signLibrary.over {
+  border-color: var(--danger);
+  background: #2b1410;
+  box-shadow: inset 0 0 0 1px rgba(255, 125, 92, 0.45), 0 0 22px rgba(255, 125, 92, 0.25);
+}
+/* The tabs, one row of four: the groups at a `--tile` each, and the library is sized so they
+   fit on one line — a group tab that wrapped would read as a fifth group. */
+.signTabs {
+  display: grid;
+  grid-template-columns: repeat(4, var(--tile));
+  gap: var(--sign-gap);
+}
+/* The well the open palette folds out in: the four rows are the grid's items and only the
+   open one has any height, so switching group animates one row closed and the next one open.
+   It is drawn as a recess in the library — a darker ground than the tabs — which is what says
+   the tiles inside it are options *of* the tab above rather than four more tabs.
+   It is the **only** thing in the panel that scrolls: the panel's height is fixed, so a shelf
+   longer than the well (a station's twelve lines) scrolls inside it rather than pushing the
+   modal taller. `1fr` of the well is a share of whatever height is left, so a `min-height`
+   here would be a *ceiling* on the shelf and the tiles below it would be clipped unseen. */
+.signPalette {
+  /* **Not `flex: 1`.** The well is a recess drawn around what is in it, so it is exactly as tall
+     as the open shelf and no taller — a stretched one left a dark empty strip under a short
+     palette (the 文字 group's two rows), which reads as tiles that failed to draw. What keeps
+     the *panel* a constant height is the panel's own `height`, not this. */
+  min-height: 0;
+  /* **No scroller here.** The well is a recess in the library and nothing more: a scroll
+     container inside the panel's own frame is the one arrangement that painted a stale frame of
+     the shelf over the library here, and the shelf is short enough — three rows of a `--tile` —
+     that a group never needs one. A station with more lines than the well is tall is the one
+     case that would want it, and it is visible past the well's edge rather than hidden. */
+  display: grid;
+  grid-template-rows: auto;
+  align-content: start;
+  gap: 0;
+  padding: var(--sign-gap);
+  background: #061524;
+  border: 1px solid rgba(126, 183, 231, 0.12);
+  overflow: hidden;
+}
+.signPalette::-webkit-scrollbar {
+  width: 8px;
+}
+.signPalette::-webkit-scrollbar-thumb {
+  background: #1e4a72;
+}
+/* The boards' column: 正面 over 背面, then the action cluster at its bottom-right. It stretches
+   to the panel's fixed height, so the cluster is pinned to a corner that does not move. */
+.signWorkspace {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+/* The action cluster: the bin and the act that keeps the edit, in the column's bottom-right
+   corner. Everything in it is the build rail's own blueprint block — the same fill, the same
+   technical dashed inner frame at the same inset — so the controls that end the edit are the
+   same object as the tiles that made it. */
+.signRail {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+  /* The dashed frame is drawn at `inset`, so the button has to stay clear of it. */
+  --signActFrame: 4px;
+}
+/* What the cluster does not use, it gives to the gap: the two controls are pinned right by
+   `justify-content`, and this keeps them there however the row is measured. */
+.signRailSpacer {
+  flex: 1;
+  min-width: 0;
+}
+/* One control, one square: a `--tile` (60 px) of blueprint plate holding its glyph, so the bin
+   and ✓ are the same object as the tiles the board was made of. Nothing is written under
+   either of them: a picture of the gesture beats a word for it, and the words that were there —
+   清空正反面 under the bin, 应用 under the tick — asked for more room than they explained. */
+.signAct {
+  position: relative;
+  flex: none;
+  width: var(--tile);
+  height: var(--tile);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 22px;
   line-height: 1;
   color: var(--text);
   background: #0e2338;
@@ -1324,57 +1525,88 @@ button.ghost:hover {
   border-color: var(--danger);
   background: #3a1710;
 }
-/* The bin, to the left of the two acts: the rail's own 删除 icon in the same blueprint
-   button, and the **only button in the panel that acts immediately**. It is always on
-   screen — it has two gestures of its own, so it cannot be an affordance that only appears
-   while one of them is happening:
-     * a mark **dragged onto it** is thrown away (`.over`, which grows and lights the bin);
+/* The bin, at the **left of the two**: the rail's own 删除 icon in the same blueprint button,
+   and the **only control in the panel that acts immediately**. It is a whole `--tile` square —
+   the same 60 px as the mark it destroys, and the same 60 px it keeps while a mark is over it,
+   because the drag's own hit test (`overBin`) measures this box: a plate that grew as the
+   pointer neared it would have the pointer chasing a target that moved. It is always on screen,
+   because it has two gestures of its own and so cannot be an affordance that only appears while
+   one of them is happening:
+     * a mark **dragged onto it** is thrown away;
      * a **click** on it, holding nothing, empties both boards.
-   It wears the delete colour at all times, plate and dashed frame included, because it is
-   the one control in this rail that destroys something. */
+   It wears the delete colour at all times, plate and dashed frame included, because it is the
+   one control in this rail that destroys something. */
 .signAct.trash {
   color: var(--danger);
   /* The whole button is the delete colour, not just the glyph in it: the plate's own border
      and its dashed frame are tinted too (`::after` below), so the bin reads as one red
      object in the corner rather than a grey button that happens to hold a red icon. */
   border-color: rgba(255, 125, 92, 0.55);
+  /* The **one** plate in the panel its own frame does not clip, because the bin grows out of
+     its square while a mark is over it: the gesture ends here, and the plate has to read as a
+     target *around* the mark in the air rather than under it. Nothing moves but the paint —
+     the pointer is on the plate's centre, so the growth is symmetric, and `overBin` goes on
+     measuring the button's **layout** box, which a transform does not touch. */
+  overflow: visible;
   transition: opacity 120ms ease, border-color 120ms ease, background 120ms ease, color 120ms ease,
-    transform 120ms ease, box-shadow 120ms ease;
+    box-shadow 120ms ease, transform 120ms ease;
 }
 .signAct.trash svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   pointer-events: none;
+  transition: width 120ms ease, height 120ms ease;
 }
 /* The technical dashed frame, tinted with the border rather than left the blueprint blue. */
 .signAct.trash::after {
   border-color: rgba(255, 125, 92, 0.22);
+  transition: border-color 120ms ease;
 }
 /* Nothing on either board: the bin has no gesture left (`clearAll` returns early), so it is
-   faded and takes no press — but it keeps its box, because the drag's own hit test measures
-   it, and that is what keeps a carried mark out of it. */
+   faded — but it keeps its box and its press, because the drag's own hit test measures that
+   box, and because a mark in the air over a faded bin still has to be able to reach it. */
 .signAct.trash:disabled {
   opacity: 0.4;
-  cursor: default;
 }
 .signAct.trash:disabled:hover {
   background: #0e2338;
   border-color: rgba(255, 125, 92, 0.35);
 }
-/* The mark is over the bin: the glow and the growth are what is added here — the colour is
-   already the delete colour, so the state still reads as a change of size and light. */
-.signAct.trash.over {
+/* **A mark is in the air**, which is the state the bin exists for: the plate goes to the
+   danger fill, the glyph grows most of the way to the square's own edge, the border and its
+   dashed frame come up to full strength, and the caption lights in the same red. This is
+   what makes the drop target visible while the player is carrying something — a 44 × 30
+   button with an 18 px glyph was not, and the gesture is aimed at the corner the player is
+   already dragging toward. */
+.signPanel.dragging .signAct.trash {
+  background: #2b1410;
   border-color: var(--danger);
-  background: #3a1710;
+  box-shadow: 0 0 0 1px rgba(255, 125, 92, 0.35), 0 0 20px rgba(255, 125, 92, 0.22);
+}
+.signPanel.dragging .signAct.trash::after {
+  border-color: rgba(255, 125, 92, 0.5);
+}
+.signPanel.dragging .signAct.trash svg {
+  width: 40px;
+  height: 40px;
+}
+/* The mark is **over** the bin: the plate grows into a ring around the mark in the air — the
+   pointer is on its centre, so the mark ends up inside the target it is about to land on —
+   the plate goes solid red-tinted, the glyph goes to the plate's own edge, and the glow comes
+   up. It reads as the last state before letting go, which is the only thing the player needs
+   to know at that moment. */
+.signAct.trash.over {
+  border-color: #ffd0c2;
+  background: #4a1a10;
   transform: scale(1.28);
-  box-shadow: 0 0 0 1px rgba(255, 125, 92, 0.45), 0 0 16px rgba(255, 125, 92, 0.35);
+  box-shadow: 0 0 0 1px var(--danger), 0 0 34px rgba(255, 125, 92, 0.65);
 }
 .signAct.trash.over svg {
-  width: 22px;
-  height: 22px;
+  width: 42px;
+  height: 42px;
 }
 .signAct.trash.over::after {
-  border-color: rgba(255, 125, 92, 0.5);
+  border-color: rgba(255, 208, 194, 0.6);
 }
 /* Row 1: the board as a row of **marks** — one square per mark, and the only thing a
    square shows is the piece of sign that will stand there, drawn by the board's own
@@ -1382,28 +1614,31 @@ button.ghost:hover {
    and no spare place on the end: the row *is* the panel, read left to right, and a mark
    goes in at whatever place the pointer is over.
    There are **two** of these, one per face: `.signBoards` stacks 正面 over 背面, and each
-   row is its own board. The label above a row is part of the row's own header, so a row
-   and the word for it cannot drift apart. */
+   row is its own board. The word for a face sits in a gutter to the **left** of its row, so
+   the two plates line up one over the other — a sign is two faces of one piece of steel, and
+   a caption above each row would read as two separate boards. */
 .signBoards {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  align-self: center;
 }
+/* A row and the word for it: the caption is a fixed gutter so both rows' plates begin on the
+   same line, and the row itself is the second column. */
 .signFaceRow {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
 }
 /* The face's name, and the control that points the palette at it. It reads as a caption
-   first and a button second: a row of bins is a board, and the word over it is which
+   first and a button second: a row of bins is a board, and the word beside it is which
    board — not a tab in a toolbar. */
 .signFaceLabel {
-  align-self: flex-start;
-  padding: 2px 8px;
+  justify-self: end;
+  padding: 2px 7px;
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--dim);
+  color: var(--muted);
   background: none;
   border: 1px solid transparent;
   border-radius: 0;
@@ -1444,8 +1679,9 @@ button.ghost:hover {
   /* A row is as wide as the marks on it, never as wide as its neighbour: a sign's two
      faces are two boards, so 正面 carrying five marks and 背面 carrying one are two
      different lengths, and stretching the shorter one to the longer one's width would
-     draw a board nobody composed. */
-  align-self: flex-start;
+     draw a board nobody composed. It begins at the row's own left edge (`justify-self`),
+     which is the line the face's caption gutter ends on. */
+  justify-self: start;
   /* One square's worth of well even with nothing on the board, so an emptied row is
      still a place to drop the first mark back into — which is also the smallest painted
      plate there can be, and the one an empty face is aimed at. */
@@ -1560,66 +1796,46 @@ button.ghost:hover {
   display: block;
   pointer-events: none;
 }
-/* The row of groups: each group's tile, and the palette that folds out **beside it**.
-   A group is one item of this row, so the palette pushes the tiles after it along when
-   it opens and lets them back when it folds — the horizontal reading of the build rail,
-   where a sub-menu pushes the tiles below it down. The row runs from the panel's left
-   edge, so the tiles it pushes are pushed to the right. */
-.signPalette {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-/* One group: the tile, then its palette. The gap is the 6 px between a tile and the
-   palette that belongs to it, which is the same 6 px that separates two groups. */
-.signGroup {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-/* One group's palette: a `0fr → 1fr` **column** that animates, with a child clipping
-   what it holds — `InlineExpand` in `LeftRail.tsx` is this same fold turned the other
-   way (rows instead of columns), and the easing is the rail's own so the two menus move
-   alike. The palette grows out of the tile that opened it: `.signRowInner` is
-   `overflow: hidden`, so a row on its way out is clipped to nothing rather than shown
-   overflowing across the tiles beside it. */
+/* One group's palette, in the well under the tabs: a `0fr → 1fr` **row** that animates, with
+   a child clipping what it holds — `InlineExpand` in `LeftRail.tsx` is this same fold, and the
+   easing is the rail's own so the two menus move alike. The four palettes are the items of the
+   well's grid (`.signPalette`), so the open one takes the height its tiles need and a shut one
+   takes none: a group opening is the library growing a shelf, and switching group is one shelf
+   folding away as the next folds out. */
 .signRow {
   display: grid;
-  grid-template-columns: 0fr;
-  /* A flex item will not shrink below its own min-content width by default, and this
-     row's min-content is the whole palette; without the floor lifted an open palette
-     could push the group it belongs to out of the panel instead of taking what is left
-     of the row — and the row is sized (`.signPanel`) so that it never has to. */
-  min-width: 0;
-  transition: grid-template-columns 260ms cubic-bezier(0.33, 0.05, 0.2, 1);
+  grid-template-rows: 0fr;
+  /* A grid item will not shrink below its own min-content height by default, and this row's
+     min-content is the whole palette; without the floor lifted a shut palette would still set
+     the well's height. */
+  min-height: 0;
+  transition: grid-template-rows 220ms cubic-bezier(0.33, 0.05, 0.2, 1);
 }
 .signRow.open {
-  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
 }
-/* A collapsed row is zero wide, so without this it would sit its own `gap` (6 px) away
-   from the tile it belongs to and read as a gap rather than as a closed palette. */
-.signRow:not(.open) {
-  margin-left: -6px;
-}
-/* The clip, and the reason the fold works: the track is narrower than the strip it
-   holds while it closes, and this is what hides the difference instead of letting it
-   overflow across the tiles beside it. `min-width: 0` is the other half — without it a
-   grid item will not shrink below its content's own width, and the track would sit at
-   full width no matter what the template says. */
+/* The clip, and the reason the fold works: the track is shorter than the shelf it holds while
+   it closes, and this is what hides the difference instead of letting it overflow into the
+   tab below. `min-height: 0` is the other half — without it a grid item will not shrink below
+   its content's own height, and the track would sit at full height no matter what the template
+   says. */
 .signRowInner {
-  min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
-/* The marks themselves, in the strip the fold reveals: the same row of tiles the rail
-   and the bins are, so a palette option and a place on the board are one object. It does
-   not shrink with the track — the track is the window, this is the picture. */
+/* The marks themselves, in the shelf the fold reveals: a **wrapped grid** of the same tiles
+   the rail and the bins are, so a palette option and a place on the board are one object. It
+   does not shrink with the track — the track is the window, this is the picture — and it is
+   **four tiles wide**, the library's own width and the tab row's own rhythm, because that is the
+   count the options come in: eight arrows are two whole rows of four, and the seven pictograms
+   are one row of four over one of three. A three-wide shelf left an empty square at the end of
+   every arrow row — a hole in the middle of the library that read as a missing tile. */
 .signRowPad {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--tile);
+  display: grid;
+  grid-template-columns: repeat(4, var(--tile));
+  gap: var(--sign-gap);
+  justify-content: start;
+  padding-top: var(--sign-gap);
 }
 .hint {
   font-size: 11px;
@@ -1701,10 +1917,14 @@ button.ghost:hover {
   background: #3a1710;
   color: var(--danger);
 }
-/* The one text box: 中文 on the first line (large), English under it (small). */
+/* The 文字 boxes: 中文 on the first line (large), English under it (small). This is the one
+   palette that is **two rows, not three**, because its mark tile and its first box belong
+   together: the tile sits in the shelf's first column and 中文 takes the rest of that row, so
+   the shelf reads left to right — the mark, then the name it carries — and English gets the
+   whole second row to itself, because its gloss is the longer of the two and that is where the
+   room goes. An input is not a square and must not be asked to be one; what it is, is a row. */
 .signText,
 .signCaption {
-  flex: none;
   height: var(--tile);
   padding: 0 8px;
   font-family: var(--font);
@@ -1714,13 +1934,11 @@ button.ghost:hover {
   border: 1px solid var(--line);
   border-radius: 0;
 }
-/* The text box is a tile tall, so it sits in the palette's row rather than floating
-   in it, and wide enough for the hint it carries when the board has no label yet. */
 .signText {
-  width: 210px;
+  grid-column: 2 / -1;
 }
 .signCaption {
-  width: 180px;
+  grid-column: 1 / -1;
   color: var(--muted);
 }
 .signText:focus,

@@ -4,7 +4,7 @@
 
 import { cellKey } from '../../build/model.ts'
 import { railModuleAt } from '../../build/rail.ts'
-import { moduleAt } from '../../sim/placement.ts'
+import { isCeilingHung, isWallMounted, moduleAt } from '../../sim/placement.ts'
 import { moduleLabel, useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -39,12 +39,28 @@ export class SelectTool extends ToolController {
     const label = mod ? moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined) : ''
     st.select(mod ? { kind: 'module', key: mod.id, label } : { kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
     scene.setGhost([], 'add')
+    // A hover ghost on a wall/ceiling piece must not outlive the click: the blue
+    // selection box (`setSelection`) is the highlight from here on.
+    scene.setModulePreview(null)
   }
 
   onMove(info: PointerInfo): void {
     const scene = this.ctx.scene()
     const hit = info.hit
     if (!scene || !hit) return
+    // A wall panel or a hung fitting lives on its surface, not on the floor
+    // below it: hovering the drawn model highlights the piece itself (the same
+    // translucent ghost the build tool shows) and no floor cell is ringed.
+    const pickedId = this.pickModuleAt(info)
+    if (pickedId) {
+      const picked = useStore.getState().station.modules.find((m) => m.id === pickedId)
+      if (picked && (isWallMounted(picked) || isCeilingHung(picked))) {
+        scene.setCursor(null)
+        scene.setModulePreview(picked, false)
+        return
+      }
+    }
+    scene.setModulePreview(null)
     const c = hit.solid ? hit.place : hit.cell
     scene.setCursor(c, true)
   }

@@ -12,7 +12,7 @@ export function stubCanvas(width = 512, height = 256) {
   // right characters, off the top of the panel. `images` is the same record for a
   // **pictogram**, which is bitmap art rather than a path: a test can read which mark
   // was printed and in what box.
-  const ops = { fills: 0, strokes: 0, texts: [], words: [], filled: [], stroked: [], images: 0, drawn: [] }
+  const ops = { fills: 0, strokes: 0, texts: [], words: [], filled: [], stroked: [], strokeWidths: [], images: 0, drawn: [], ellipses: [], arcs: [] }
   const g = {
     canvas: { width, height },
     fillStyle: '#000',
@@ -32,11 +32,19 @@ export function stubCanvas(width = 512, height = 256) {
     lineTo: noop,
     rect: noop,
     roundRect: noop,
-    arc: noop,
+    // The two curve jobs are recorded rather than ignored, because their **arguments carry the
+    // drawing**: an arc's start/end angle and its `anticlockwise` flag decide which side of the
+    // circle it bulges, and a sign whose bend sweeps the wrong way is a blob rather than a
+    // U-turn. Counting calls cannot tell the two apart; the arguments can.
+    arc: (cx, cy, r, a0, a1, anticlockwise) => {
+      ops.arcs.push({ cx, cy, r, a0, a1, anticlockwise: Boolean(anticlockwise) })
+    },
     arcTo: noop,
     quadraticCurveTo: noop,
     bezierCurveTo: noop,
-    ellipse: noop,
+    ellipse: (cx, cy, rx, ry, rot, a0, a1, anticlockwise) => {
+      ops.ellipses.push({ cx, cy, rx, ry, a0, a1, anticlockwise: Boolean(anticlockwise) })
+    },
     save: noop,
     restore: noop,
     translate: noop,
@@ -58,6 +66,9 @@ export function stubCanvas(width = 512, height = 256) {
     stroke: () => {
       ops.strokes++
       ops.stroked.push(String(g.strokeStyle))
+      // The **width** of the line, not just its colour: a mark drawn as a stroked centre line is
+      // as wide as its `lineWidth` and no wider, so that number is the drawing.
+      ops.strokeWidths.push(g.lineWidth)
     },
     strokeRect: () => {
       ops.strokes++

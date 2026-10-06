@@ -10,11 +10,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  addEquipment,
   addFloor,
   addWalls,
   AUTO_FLOOR,
   AUTO_WALL,
   AUTO_WALL_H,
+  createModule,
   plannedAutoWalls,
   removeFloor,
   syncAutoWalls,
@@ -26,6 +28,8 @@ import {
   wallRun,
   wallSnap,
 } from '../src/build/model.ts'
+import { thinWallCells } from '../src/sim/openings.ts'
+import { STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
 
 function empty() {
   return toState({
@@ -313,7 +317,9 @@ test('a buried cell with no edge in its ring is left where it stands', () => {
   const snap = wallSnap(cells, [2, 2, 0])
   assert.deepEqual(at(snap), [2, 2], 'the column should not have wandered out of the scan')
   assert.equal(snap.dir, 's', 'with no open edge to read, the face falls back to the default')
-  assert.deepEqual(snap.dirs, ['s'])
+  // Nothing in the piece's own cell is open either, so there is no geometry for the
+  // list to read — all four sides are on offer and **R** can still walk them.
+  assert.deepEqual(snap.dirs, ['n', 'e', 's', 'w'], 'with no edge to read, R still has every side')
 })
 
 test('the snap never consults the placement rotation', () => {
@@ -328,10 +334,68 @@ test('the snap never consults the placement rotation', () => {
   assert.ok(spots.every(([x, y]) => x === 0 && y === 0), `R moved the column: ${JSON.stringify(spots)}`)
 })
 
+test('the candidate list R steps never moves with the pointer', () => {
+  // `dirs` is what every cut piece reads — a 半墙's panel side, a 三角's hugged side
+  // (`triangleSideDirs` ranks by membership in it) — so if the pointer could reorder
+  // it, the piece would re-aim itself as the mouse crossed the cell with no key
+  // pressed. The pointer may still order the 墙 tool's own face `dir`; it may not
+  // order the list.
+  //
+  // A 2x2 patch: (0,0) faces open space south and west, so both open faces are its
+  // own. (2,2) of a 3x3 beside it is buried instead, covering rule 3.
+  const corner = withCourses(rect(0, 0, 1, 1).map(([x, y, z]) => floorCell(x, y, z)), [[1, 0], [0, 1], [1, 1]])
+  for (const cell of [[0, 0, 0]]) {
+    const lists = new Set()
+    for (const [px, py] of [[0.01, 0.01], [0.99, 0.01], [0.01, 0.99], [0.99, 0.99], [0.5, 0.5]]) {
+      const snap = wallSnap(corner, cell, [cell[0] + px, cell[1] + py], 0)
+      lists.add(snap.dirs.join(','))
+    }
+    assert.equal(lists.size, 1, `cell ${cell}: R's list moved with the pointer, saw ${[...lists].join(' | ')}`)
+  }
+  const buried = withCourses(rect(1, 1, 3, 3).map(([x, y, z]) => floorCell(x, y, z)), [[1, 2], [2, 1], [2, 3], [3, 2]])
+  const buriedLists = new Set()
+  for (const [px, py] of [[0.01, 0.01], [0.99, 0.01], [0.01, 0.99], [0.99, 0.99], [0.5, 0.5]]) {
+    buriedLists.add(wallSnap(buried, [2, 2, 0], [2 + px, 2 + py], 0).dirs.join(','))
+  }
+  assert.equal(buriedLists.size, 1, `a stepped column's list moved with the pointer, saw ${[...buriedLists].join(' | ')}`)
+  // The one thing the pointer still decides: which of a corner cell's open faces the
+  // 墙 tool lays now.
+  assert.equal(wallSnap(corner, [0, 0, 0], [0.01, 0.5], 0).dir, 'w', 'aiming west picks the west face')
+  assert.equal(wallSnap(corner, [0, 0, 0], [0.5, 0.01], 0).dir, 's', 'aiming south picks the south face')
+})
+
 test('a snapped face turns back into the placement quarter-turn', () => {
   // The snap output is a face; the tool turns it into the `rot` the rest of the
   // placement pipeline reads, so the mapping must be an exact round trip.
   for (const [dir, rot] of [['s', 0], ['w', 1], ['n', 2], ['e', 3]]) {
     assert.equal(wallDirRot(dir), rot)
   }
+})
+
+test('a 双跑楼梯 pushed flush against a wall ring leaves the ring whole', () => {
+  // The report: a switchback dropped against a wall ate half of it. A 双跑楼梯's runs
+  // are built to fill the blocks they stand in (`stairSwitchbackRunWidth`), so their
+  // treads and balustrades end exactly on the cell edges of those blocks and the column
+  // the piece leans on has only been **touched** — a touch is not a reach, so no half
+  // panel is derived over it (`rampThinCells`) and the wall stays a full course at every
+  // height the flight passes. Here the ring of a drawn patch is that wall: the piece is
+  // pushed so its outer run's blocks end against the ring's own column.
+  const st = addFloor(empty(), rect(0, 0, 6, 6))
+  const stair = createModule('stair-right180', 2, 1, 0, 's', 0, STAIR_WIDTH_DOUBLE)
+  assert.ok(stair)
+  const wallCells = (cells) => cells.filter((c) => c.tags?.includes(AUTO_WALL))
+  const before = wallCells(st.cells).length
+  assert.ok(before > 0, 'the patch grew no ring to lean on')
+  // The pair's blocks are x = 2..5, so the ring's west column at x = 6 is the wall the
+  // outer run ends against (its rails reach exactly that cell edge).
+  const after = addEquipment(st, stair)
+  assert.equal(wallCells(after.cells).length, before, 'the carve took wall courses away')
+  assert.ok(
+    has(after.cells, 6, 3, 2) && has(after.cells, 6, 3, 4),
+    'the wall the run ends against lost a course at the height the flight passes',
+  )
+  const halfPanels = thinWallCells(after.cells, after.modules).filter((t) => t.x === 6)
+  assert.deepEqual(halfPanels, [], `the wall beside the run was cut into half panels: ${JSON.stringify(halfPanels)}`)
+  // The stair still laid its own landing row, and the wall is not part of it.
+  assert.ok(has(after.cells, 2, 4, 2) && has(after.cells, 5, 4, 2), 'the turn landing was not laid')
 })

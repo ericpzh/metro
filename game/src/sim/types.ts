@@ -362,6 +362,22 @@ export type BenchVariant = 'steel-1' | 'steel-2' | 'seat-1' | 'seat-2'
 export type GlassVariant = '1x1' | '2x1' | '3x1' | '1x2' | '2x2' | '3x2'
 
 /**
+ * The two things a 门 is made of (装饰, §5.7): the leaf count and the material. A
+ * 单开 door is one leaf and one cell wide, a 双开 a pair meeting in the middle over
+ * two cells; the material is 不锈钢 or 木, which is the finish of the frame, the
+ * leaves and the handle together (`sim/doors.ts` paints both from one table).
+ */
+export type DoorMaterial = 'steel' | 'wood'
+
+/**
+ * A swing door's variant (装饰 门, §5.7): `<material>-<leaves>`, as `steel-1` …
+ * `wood-2`. The piece is the same framed door the 办公室 closes its doorway with
+ * (`render/models/pieces/DoorModel.ts`), so the variant names one piece of
+ * furniture rather than a mount.
+ */
+export type DoorVariant = 'steel-1' | 'steel-2' | 'wood-1' | 'wood-2'
+
+/**
  * The hand a 站名 inscription is written in (§5.7): 楷书, 行书, 隶书, 魏碑, 黑体
  * or 宋体. The hand is a font stack, an ink and a stroke treatment
  * (`sim/calligraphy.ts`), so the same station name reads six different ways.
@@ -552,6 +568,25 @@ export type Module =
    * 广告牌, where there is no floor in front of the station wall at all.
    */
   | (ModuleBase & { type: 'glass'; w: number; cfg: { variant: GlassVariant } })
+  /**
+   * A free-standing swing door (门, 装饰): a doorway of its own — a threshold, a post
+   * at each end, a head across them and the leaf hung between — standing on a floor
+   * tile like a 货架, with nothing behind it. `cfg.variant` names the four pieces
+   * (`sim/doors.ts`): 单开 or 双开 × 不锈钢 or 木, so a single door is one cell wide
+   * with one leaf and a double one two cells wide with a pair meeting in the middle.
+   *
+   * It carries **its own frame**, which is why it asks the ground rules for a tile
+   * and not the wall's for backing: it is *not* wall-mounted (`isWallMounted`,
+   * `wallMountCourses`), it reserves its whole cells from the floor top to its head
+   * (`sim/placement.ts`), and it may stand across a corridor or at a room's mouth as
+   * readily as in the open.
+   *
+   * The **office reuses it**: a walled room's own doorway is drawn by the same
+   * builder (`render/models/pieces/DoorModel.ts`), at the opening's width and in
+   * the stainless finish, so the door a player hangs and the door a room closes
+   * itself with are one drawing rather than two.
+   */
+  | (ModuleBase & { type: 'door'; w: number; cfg: { variant: DoorVariant } })
   /**
    * Station-name calligraphy (站名, 装饰): the station's own name
    * (`StationData.name`) drawn as a large ink inscription and bolted to a wall —

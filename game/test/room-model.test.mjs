@@ -117,3 +117,58 @@ test('the ring stays inside the room and the height its module reserves', () => 
 test('every room wall is a box: no diagonal prism is left in the ring', () => {
   for (const { geometry } of build()) assert.equal(geometry.type, 'BoxGeometry', 'a room wall is not a box')
 })
+
+/**
+ * The room's **doorway** (`render/models/pieces/DoorModel.ts` `buildDoor`), built with a
+ * one-cell opening on `side`, as world-space boxes. The group is a child of the room's, so
+ * it carries the place and the turn the shared builder needs.
+ */
+function doorway(side) {
+  const opening = side === 's' ? [2, 0] : side === 'n' ? [2, H - 1] : side === 'w' ? [0, 2] : [W - 1, 2]
+  const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
+  const data = { name: 't', seed: 1, cells: roomCells(), modules: [], lines: [] }
+  const mod = { ...shop(), cfg: { kind: 'office', door: [opening] } }
+  const group = buildModule(mod, { mats, data, trackCells: new Set(), finish: () => mats.granite, preview: false })
+  group.updateMatrixWorld(true)
+  let found = null
+  group.traverse((o) => {
+    if (o.name === 'doorway') found = o
+  })
+  assert.notEqual(found, null, `${side}: the room closed its opening with no doorway`)
+  const boxes = []
+  found.traverse((o) => {
+    if (o.isMesh) boxes.push(new THREE.Box3().setFromObject(o))
+  })
+  return { boxes, opening, at: found.position, rot: found.rotation.z }
+}
+
+test('a room doorway runs along its wall on every side, never through it', () => {
+  // `buildDoor` sizes every member in the **piece's** frame — the run along its local x,
+  // the depth across it — so a doorway on a west or east wall has to be built into a group
+  // that carries the quarter turn. One that mapped only its members' *positions* (the old
+  // `turnedDoorFrame`) left the run and the depth swapped there: the head and leaves stood  // 90° transposed, straight through the wall and 0.43 m outside the building. Every other
+  // room-doorway test opens on the south wall, where the turn is the identity, so nothing
+  // caught it.
+  for (const side of ['s', 'n', 'w', 'e']) {
+    const { boxes, opening, at } = doorway(side)
+    const alongX = side === 's' || side === 'n'
+    assert.ok(boxes.length > 0, `${side}: the doorway drew nothing`)
+    // The doorway's own line: the middle of the opening, on the wall.
+    const mid = alongX ? [opening[0] + 0.5, null, at.z] : [null, opening[1] + 0.5, at.z]
+    for (const b of boxes) {
+      const run = alongX ? b.max.x - b.min.x : b.max.y - b.min.y
+      const depth = alongX ? b.max.y - b.min.y : b.max.x - b.min.x
+      // A member's run never crosses the opening (one cell wide, so 1 m of frame at most),
+      // and its depth through the wall is a post's, not a run's.
+      assert.ok(run <= 1 + 0.2 + EPS, `${side}: a member runs ${run.toFixed(3)} m along the wall`)
+      assert.ok(depth <= 0.2 + EPS, `${side}: a member reaches ${depth.toFixed(3)} m through the wall`)
+      // The member's own plane sits across the middle of the opening, not beside it.
+      if (alongX) assert.ok(Math.abs((b.min.x + b.max.x) / 2 - mid[0]) <= 0.6 + EPS, `${side}: a member is off the opening across x`)
+      else assert.ok(Math.abs((b.min.y + b.max.y) / 2 - mid[1]) <= 0.6 + EPS, `${side}: a member is off the opening across y`)
+    }
+    // The threshold, the head and the leaves all stand on the floor's own top.
+    for (const b of boxes) {
+      assert.ok(b.min.z >= at.z - EPS && b.max.z <= at.z + 2.1 + EPS, `${side}: a member leaves the doorway's height (${b.min.z}..${b.max.z})`)
+    }
+  }
+})

@@ -2,10 +2,11 @@
 // skips a rebuild whose key matches the one it is already drawing, so this has to
 // name everything that changes what the ghost *looks like*: a 闸机's lane or fence
 // (Tab), a stair's shape, an escalator's direction, a bench's variant and width, a
-// track's bound line and power, and the three wall pieces' own choices — a 玻璃板's
-// size, a 站名's hand and axis, a 线网图's mount. A setting left out of here means
-// Tab or a palette click redraws nothing and the stale ghost stays under the
-// pointer — which is exactly what the 闸机 toggle did until it was named here.
+// track's bound line and power, and the wall pieces' own choices — a 玻璃板's
+// size, a 门's variant, a 站名's hand and axis, a 线网图's mount. A setting left out
+// of here means Tab or a palette click redraws nothing and the stale ghost stays
+// under the pointer — which is exactly what the 闸机 toggle did until it was named
+// here.
 //
 // Pure and three-free, so the contract can be tested in Node.
 
@@ -31,6 +32,8 @@ export function moduleGhostKey(mod: Module): string {
                   ? `:${gateDoorOf(mod)}`
                   : mod.type === 'glass'
                     ? `:${mod.w}:${mod.cfg.variant}`
+                    : mod.type === 'door'
+                      ? `:${mod.w}:${mod.cfg.variant}`
                     : mod.type === 'calligraphy'
                       ? `:${mod.w}:${mod.panelH}:${mod.cfg.style}:${mod.cfg.axis}`
                       : mod.type === 'linemap'

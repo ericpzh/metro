@@ -59,6 +59,7 @@ const { STOCK, doorCentres } = await import('../src/sim/stock.ts')
 const { STAIR_RISE, STAIR_RUN } = await import('../src/sim/stairs.ts')
 const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
+const { DOOR_SPECS } = await import('../src/sim/doors.ts')
 
 const LINE = {
   id: '5',
@@ -200,6 +201,14 @@ const PIECES = [
   ['玻璃板 1×1', palette('glass-1x1'), 5, '1×0.1×1'],
   ['玻璃板 3×1', palette('glass-3x1'), 5, '3×0.1×1'],
   ['玻璃板 3×2', palette('glass-3x2'), 5, '3×0.1×2'],
+  // The 门 (§5.7) is a **free-standing doorway** — threshold, two posts, head and the
+  // leaves hung between them — so it stands on a floor tile and needs no wall. Nine
+  // meshes for a 单开 (four frame members plus the leaf's own five) and fourteen for a
+  // 双开, so the leaf count is a number the model really draws.
+  ['门 单开 不锈钢', palette('door-steel-1'), 9, '1×0.19×2.05'],
+  ['门 双开 不锈钢', palette('door-steel-2'), 14, '2×0.19×2.05'],
+  ['门 单开 木', palette('door-wood-1'), 9, '1×0.19×2.05'],
+  ['门 双开 木', palette('door-wood-2'), 14, '2×0.19×2.05'],
   ['站名 楷书 横排', calligraphy('calligraphy-kai-h'), 1, '3×0×1'],
   ['站名 楷书 竖排', calligraphy('calligraphy-kai-v'), 1, '0.98×0×2.6'],
   ['线网图 墙面', palette('linemap-wall'), 3, '1.92×0.185×1.939'],
@@ -212,15 +221,28 @@ const PIECES = [
   ['出入口 无盖 三向', palette('exit-uncovered-3'), 46, '5.04×8.08×1'],
   ['扶梯', palette('escalator'), 18, '0.98×7.55×5.563'],
   ['电梯', palette('lift'), 17, '2.04×2.04×6.73'],
-  ['楼梯 单跑', palette('stair-straight'), 71, '0.89×6.25×5.347'],
-  ['楼梯 左转 90°', palette('stair-left90'), 90, '3.57×3.57×5.341'],
-  ['楼梯 右转 90°', palette('stair-right90'), 90, '3.57×3.57×5.341'],
-  ['楼梯 左双跑', palette('stair-left180'), 93, '1.8×3.465×5.341'],
-  ['楼梯 右双跑', palette('stair-right180'), 93, '1.8×3.465×5.341'],
+  // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns
+  // around them are read: a flight or half-landing a wall hugs loses that side's balustrade
+  // (`stairWallSides` / `stairLandingWalls`). In the open, a 90° turn draws 90 meshes and a
+  // 双跑楼梯 93 — the rows below are the same pieces with a room's wall against the turn.
+  //
+  // The height is the stringer's and soffit's **square-cut corners**, not an overhang: both
+  // beams are trimmed by `thickness · tan θ` so they end on the treads' own edge, inside the
+  // cell the cut shaves. An overhang put the piece's lowest point 0.36 m deep in the landing's
+  // block, which is deliberately never cut — the flight's foot sank into the floor it stands on.
+  ['楼梯 单跑', palette('stair-straight'), 71, '0.89×6.25×5.323'],
+  ['楼梯 左转 90°', palette('stair-left90'), 87, '3.57×3.57×5.315'],
+  ['楼梯 右转 90°', palette('stair-right90'), 90, '3.57×3.57×5.315'],
+  ['楼梯 左双跑', palette('stair-left180'), 90, '2×3.625×5.315'],
+  ['楼梯 右双跑', palette('stair-right180'), 90, '2×3.625×5.315'],
   ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 20, '3×3×2.03'],
   ['商店房间', room('shop', 'store'), 18, '5×4×3'],
-  ['厕所房间', room('shop', 'toilet'), 24, '5×4.01×3'],
-  ['办公室房间', room('shop', 'office'), 24, '5×4.01×3'],
+  // 厕所 / 办公室 close their doorway with the shared 门 builder
+  // (`render/models/pieces/DoorModel.ts`): the same standing doorway — threshold, posts,
+  // head and the leaf between them — set into the opening they cut, so the room's box
+  // grows by the threshold's own step past the wall's face and nothing more.
+  ['厕所房间', room('shop', 'toilet'), 27, '5×4.09×3'],
+  ['办公室房间', room('shop', 'office'), 27, '5×4.09×3'],
   ['零售外壳', room('retail', undefined), 18, '5×4×3'],
 ]
 
@@ -301,6 +323,49 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   const span = (id) => round(box(build(palette(id)).group).getSize(new THREE.Vector3()).x)
   assert.ok(span('bench-steel-2') > 1.5 && span('bench-steel-1') < 1, 'the 2 m 座椅 spans two cells and the 1 m one does not')
   assert.ok(span('billboard-panorama') > 2.5, 'the 长幅 banner spans its three cells')
+
+  // A 门 is a **full-height** panel and a 双开 one spans two cells, so what the piece
+  // reserves off its wall is what it draws. (Micron slop: the group is turned by the
+  // placement rotation, so `Box3.setFromObject` comes back a few ulps out.)
+  const doorSize = (id) => box(build(palette(id)).group).getSize(new THREE.Vector3())
+  const single = doorSize('door-steel-1')
+  const pair = doorSize('door-steel-2')
+  assert.ok(Math.abs(single.z - 2.05) < 1e-6, `a 门 is drawn to its own height (${round(single.z)})`)
+  assert.equal(round(pair.x), 2, 'and a 双开 door spans the two cells it reserves')
+  assert.equal(round(single.y), round(pair.y), 'every 门 is one panel deep, whatever its width')
+
+  // The 办公室 / 厕所 doorway is the **same piece**, not a look-alike: the room's door
+  // is drawn to the 门's own height, and its opening's width picks the leaf count off
+  // the same builder (`render/models/pieces/DoorModel.ts`).
+  const roomDoor = (door) => {
+    const mod = { id: 'shop-1', type: 'shop', x: 4, y: 4, z: 0, w: 5, h: 4, rot: 0, cfg: { kind: 'office', door } }
+    ctx.data = data = { ...data, modules: [mod] }
+    const group = buildModule(mod, ctx)
+    group.updateMatrixWorld(true)
+    // The room's own panels are tagged (`buildRoom`); everything else it draws is the
+    // doorway, so the door's own box is what is left.
+    const box = new THREE.Box3()
+    let meshes = 0
+    group.traverse((o) => {
+      if (o.isMesh && !o.userData.wall) {
+        meshes++
+        box.expandByObject(o)
+      }
+    })
+    return { meshes, size: box.getSize(new THREE.Vector3()) }
+  }
+  const oneLeaf = roomDoor([[6, 4]])
+  assert.ok(Math.abs(oneLeaf.size.z - 2.05) < 1e-6, `a room doorway is cut to the 门 piece's own height (${round(oneLeaf.size.z)})`)
+  assert.ok(Math.abs(oneLeaf.size.x - single.x) < 1e-6, 'and a one-cell opening draws one leaf of it')
+  assert.equal(oneLeaf.meshes, 9, 'a doorway draws exactly the parts a standing 门 does')
+  const twoLeaves = roomDoor([
+    [6, 4],
+    [7, 4],
+  ])
+  assert.ok(Math.abs(twoLeaves.size.x - pair.x) < 1e-6, 'a two-cell opening draws the pair')
+  // The fittings are one set per leaf and nothing else, so the extra meshes are the
+  // second leaf's own five — the same five a 双开 门 adds over a 单开.
+  assert.equal(twoLeaves.meshes - oneLeaf.meshes, 5, 'the second leaf adds its own five parts')
 
   // 供电: 接触网 hangs a wire overhead, 第三轨 guards a conductor rail at track level.
   const rail = box(build(track({ power: 'third-rail' })).group).getSize(new THREE.Vector3())

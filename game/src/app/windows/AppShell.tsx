@@ -7,7 +7,7 @@ import { useStore, isEscalatorType, isGateType, isRotatableType, isStairType } f
 import { LeftRail } from '../LeftRail.tsx'
 import { Viewport, isTypingTarget } from '../Viewport.tsx'
 import { SignEditor } from '../SignEditor.tsx'
-import { folderForShiftKey } from '../rail/helpers.ts'
+import { folderForAltKey, folderForShiftKey } from '../rail/helpers.ts'
 import { TopBar } from './topbar/TopBar.tsx'
 import { Inspector } from './inspector/Inspector.tsx'
 import { BottomBar } from './statusbar/BottomBar.tsx'
@@ -30,19 +30,32 @@ export function App(): React.ReactElement {
       // Delete all mean something to the board being composed, not to the station
       // behind it. Its own Delete binding lives on the board (SignEditor).
       if (st.signEditorFor !== null || st.signComposing) return
-      // Ctrl shortcuts for the top-bar icon actions (shown in their tooltips).
+      // Ctrl shortcuts for the top-bar icon actions (their accessible names say so).
       // Handled before the single-letter tool keys so Ctrl+N never also grabs
       // the 材质 brush, etc.
       const ck = e.key.toLowerCase()
-      // Shift+Q … Shift+I fold the rail's folders, one letter a row down the stack
+      // Shift+Q … Shift+U fold the build rail's folders, one letter a row down the stack
       // (`rail/helpers.ts` `RAIL_FOLDERS`): Shift+Q is 工具, the first folder, and
-      // W E R T Y U I follow the folders below it. The rail owns which folders are
-      // open, so this only names the folder and hands it over. It runs before the
-      // switch below because every one of these letters already means something
-      // unshifted — Q/E step the storey, R turns, U hides the UI, I picks a finish
-      // — and a held key repeats, which would flicker the folder it names.
+      // W E R T Y U follow the folders below it. **Alt+Q … Alt+R** do the same for the
+      // 信息栏's own stack (`INSPECTOR_FOLDERS`: 信息, 视图, 出入口, 线路) — a modifier per
+      // column, so the same four letters serve both stacks without a clash. Each shell
+      // owns which of its folders are open, so this only names the folder and hands it over.
+      // Both run before the switch below because every one of these letters already means
+      // something unmodified — Q/E step the storey, R turns, U hides the UI, P 吸取,
+      // T 分区 — and a held key repeats, which would flicker the folder it names.
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
         const folder = folderForShiftKey(ck)
+        if (folder) {
+          e.preventDefault()
+          window.dispatchEvent(new CustomEvent('metro:folder', { detail: folder }))
+          return
+        }
+      }
+      // The 信息栏's half of the same idea. `!e.ctrlKey` is what keeps **AltGr** out of
+      // it: on a European layout AltGr *is* Ctrl+Alt, so AltGr+letter types a character
+      // and must not fold a folder — the same guard the camera's Ctrl+Q/E pan uses.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.repeat) {
+        const folder = folderForAltKey(ck)
         if (folder) {
           e.preventDefault()
           window.dispatchEvent(new CustomEvent('metro:folder', { detail: folder }))
@@ -139,17 +152,20 @@ export function App(): React.ReactElement {
           else if (st.tool !== 'tunnel' && isRotatableType(st.moduleType)) st.rotateModule()
           break
         case 'tab':
-          // In the 方块 tool Tab steps the cut modes — 半墙 → 三角上 → 三角下 → off — which
-          // is the question a 方块 click answers: what shape does this one lay. It used
-          // to toggle the generated 4 m wall ring, which is now **off when the game
-          // opens** and asked for on its own tile instead: the ring is the one thing
-          // this tool does that the player did not draw, so it no longer takes the
-          // most-reached key in the folder. Everywhere else Tab keeps its own meaning
-          // for the piece being placed: rail direction, stair width, escalator
-          // direction, the 闸机's lane or fence.
+          // In the 方块 tool Tab raises the generated **生成墙壁** ring — the key the
+          // tile wears, so the one thing this tool does that the player did not draw
+          // is a keystroke away. It is **refused while a cut piece owns the tool**,
+          // the same refusal the tile's own absence is: a 半墙 or a 三角 *is* the wall
+          // the patch would grow, so the press does nothing rather than switching a
+          // cut off behind the player's back (`setAutoWalls` holds that guard). The
+          // three cut pieces are picked on their own tiles, one click each, and
+          // **R** turns whichever is armed.
+          // Everywhere else Tab keeps its own meaning for the piece being
+          // placed: rail direction, stair width, escalator direction, the 闸机's
+          // lane or fence.
           e.preventDefault()
           if (st.tool === 'block') {
-            st.cycleCutMode()
+            st.setAutoWalls(!st.autoWalls)
           } else if (st.tool === 'rail') st.cycleRailDir()
           else if (isStairType(st.moduleType)) st.cycleStairWidth()
           else if (isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
@@ -164,8 +180,9 @@ export function App(): React.ReactElement {
           st.setPaintMode('surface')
           break
         case 'i':
-          st.setTool('paint')
-          st.setPaintMode('pick')
+          // `I` is the old 取色 key, kept as an alias: eyedropping moved to the
+          // 工具 folder's 吸取 (`P`), which lifts equipment as well as finishes.
+          st.setTool('pick')
           break
         case 'q':
           st.stepLevel(-1)
@@ -188,8 +205,13 @@ export function App(): React.ReactElement {
           st.setHideUI(!st.hideUI)
           break
         case 'y':
-          // 隐藏剖切面: the cut stays, its sheet and direction arrow go.
-          st.setHideSectionSurface(!st.hideSectionSurface)
+          // Ctrl/⌘+**Y** is redo, beside Ctrl+Shift+Z (the guard above passes `y`
+          // through with its modifier for exactly this); a plain **Y** is 隐藏剖切面
+          // — the cut stays, its sheet and direction arrow go. Both live here
+          // because a switch takes its first match: a second `case 'y'` below was
+          // unreachable, so Ctrl+Y toggled the cut instead of redoing.
+          if (e.ctrlKey || e.metaKey) st.redo()
+          else st.setHideSectionSurface(!st.hideSectionSurface)
           break
         case 'o':
           st.setOrtho(!st.ortho)
@@ -213,18 +235,18 @@ export function App(): React.ReactElement {
             if (e.shiftKey) st.redo()
             else st.undo()
           } else {
-            // Z is the 选择 tool now; 分区 moved to P.
+            // Z is the 选择 tool now; 分区 moved to T (吸取 took P).
             st.setTool('select')
           }
           break
         case 'p':
+          st.setTool('pick')
+          break
+        case 't':
           st.setTool('zone')
           break
         case 'l':
           st.setTool('rail')
-          break
-        case 'y':
-          if (e.ctrlKey || e.metaKey) st.redo()
           break
       }
     }

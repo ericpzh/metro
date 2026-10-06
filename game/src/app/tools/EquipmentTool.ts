@@ -20,8 +20,11 @@ import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
   autofaceWallMount,
+  ceilingMountMissing,
+  ceilingMountStandCell,
   equipmentReason,
   equipmentRefusalNotice,
+  isCeilingHung,
   moduleAt,
   placementBlocked,
   placementOnTrack,
@@ -449,6 +452,25 @@ export class EquipmentTool extends ToolController {
   }
 
   /**
+   * The hung piece a ceiling-hover would place. The pointer may be on the floor
+   * below, on the ceiling slab overhead, or on a wall course between them —
+   * `ceilingMountStandCell` resolves all three to the floor the piece hangs over,
+   * so a 指示牌 is aimed at the ceiling the way a 广告牌 is aimed at its wall.
+   */
+  private ceilingPlacement(
+    cell: [number, number, number],
+    place: [number, number, number],
+    id: string,
+  ): { mods: Module[]; noCeiling: boolean } {
+    const st = useStore.getState()
+    const at = ceilingMountStandCell(cell, place)
+    const mods = this.buildPlacementModules(st.moduleType, at, id)
+    if (mods.length === 0) return { mods: [], noCeiling: true }
+    const noCeiling = mods.some((m) => ceilingMountMissing(st.station.cells, m))
+    return { mods, noCeiling }
+  }
+
+  /**
    * Rebuild the equipment hover ghost from the last hovered tile. Only the
    * equipment tool has one: the 方块 tool keeps the same hover ref for its own
    * ghost, and a Tab in *that* tool must not drop a piece into the station
@@ -469,14 +491,31 @@ export class EquipmentTool extends ToolController {
     const onGround = z === GROUND_Z
     // 广告牌 is wall-mounted and may hang over a track (there is no floor in front
     // of a station wall across the rails), so it is resolved from the wall alone.
+    // The panel lives **on the wall**: the ghost is the panel itself, so no floor
+    // cell is highlighted with it.
     if (isWallMountedType(st.moduleType)) {
       const { mod: billboard, noWall } = this.wallMountPlacement(h.cell, h.place, 'preview', h.point)
       const check = billboard ? checkModulePlacements(st.station, [{ id: billboard.id, module: billboard }]) : null
       // No wall at all is a refusal of its own: a panel has nowhere to bolt.
       const blocked = noWall || check === null || check.refused.size > 0
-      scene.setCursor(h.cell, !blocked)
+      scene.setCursor(null)
       scene.setModulePreview(billboard, blocked)
       scene.setCollisionHighlight(check && check.colliderIds.length > 0 ? check.colliderIds : null)
+      return
+    }
+    // A hung piece (指示牌 / 电视 / 时钟 / 监控) lives **on the ceiling**: the
+    // pointer may be on the floor below, the slab overhead or a wall course
+    // between them, and the ghost is the fitting itself — never a floor cell.
+    if (isCeilingHung({ type: st.moduleType })) {
+      const { mods: hung, noCeiling } = this.ceilingPlacement(h.cell, h.place, 'preview')
+      const check = checkModulePlacements(
+        st.station,
+        hung.map((module) => ({ id: module.id, module, layer: true })),
+      )
+      const blocked = hung.length === 0 || noCeiling || check.refused.size > 0
+      scene.setCursor(null)
+      scene.setModulePreview(hung.length > 0 ? hung : null, blocked)
+      scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
       return
     }
     // 电梯: hovering any cell of an existing shaft previews its extension even
@@ -537,6 +576,25 @@ export class EquipmentTool extends ToolController {
         return
       }
       st.commit(addEquipment(st.station, mod))
+      return
+    }
+    // A hung piece (指示牌 / 电视 / 时钟 / 监控) bolts to the slab overhead: it is
+    // aimed at the ceiling (`ceilingMountStandCell`), not at the ground rules, and
+    // the only failure outside the shared verdict is "no ceiling up there".
+    if (isCeilingHung({ type })) {
+      const { mods, noCeiling } = this.ceilingPlacement(cell, place, nextModuleId(st.station.modules, type))
+      if (mods.length === 0 || noCeiling) {
+        st.setNotice(equipmentRefusalNotice('ceiling'))
+        return
+      }
+      for (const mod of mods) {
+        const refusal = equipmentReason(st.station.cells, st.station.modules, mod, true)
+        if (refusal !== '') {
+          st.setNotice(equipmentRefusalNotice(refusal))
+          return
+        }
+      }
+      st.commit(mods.reduce((state, mod) => addEquipment(state, mod), st.station))
       return
     }
     // Exit-covered holes count as floor, like the hover ghost above.

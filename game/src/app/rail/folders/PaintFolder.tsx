@@ -1,9 +1,12 @@
 // The 材质 folder body (§6 finishes).
 //
-// Brush modes (单块 / 整面 / 取色) plus one tile per finish, grouped by family
+// Brush modes (单块 / 整面) plus one tile per finish, grouped by family
 // (地面·轨道 / 天花板 / 墙面). 搪瓷板 sits last in 墙面: it is the one tile with
 // a variant sub-menu (its colour), wearing a custom colour while every other
 // tile wears its fixed tint.
+//
+// Eyedropping moved to the 工具 folder's 吸取 (`P`): it lifts a finish off a
+// bare face the same way, and a placed piece of equipment off its model.
 //
 // Clicking 搪瓷板 selects the brush and folds its colour-picker row out below,
 // the way a variant sub-menu works. Neither it nor a plain finish tile touches
@@ -66,12 +69,11 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
 
   return (
     <>
-      <div className="blockGrid three">
+      <div className="blockGrid">
         {(
           [
             { id: 'single', label: '单块', icon: 'single', shortcut: 'N' },
             { id: 'surface', label: '整面', icon: 'surface', shortcut: 'M' },
-            { id: 'pick', label: '取色', icon: 'pick', shortcut: 'I' },
           ] as const
         ).map((m) => (
           <Block
@@ -96,6 +98,7 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
                   <Block
                     key={f.id}
                     label={finishLabel(f.id)}
+                    tile={f.id}
                     tone={`#${f.tint.toString(16).padStart(6, '0')}`}
                     active={tool === 'paint' && paintFinish === f.id}
                     onClick={() => {
@@ -113,6 +116,7 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
                         <Block
                           key={f.id}
                           label={finishLabel(f.id)}
+                          tile={f.id}
                           tone={enamel ? hexColour(enamelColour) : `#${f.tint.toString(16).padStart(6, '0')}`}
                           active={enamel ? enamelActive : tool === 'paint' && paintFinish === f.id}
                           submenu={enamel ? enamelOpen : undefined}

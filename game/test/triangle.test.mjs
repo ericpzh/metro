@@ -434,6 +434,85 @@ function press(cell, solid) {
   }
 }
 
+test('the add ghost of a 三角 is the whole wedge, indexed like every other chunk mesh', () => {
+  // The defect this pins: `buildShapeGhost` copied a `ChunkPart`'s position / normal /
+  // colour attributes into its own `BufferGeometry` and never copied the **index**.
+  // A part is an indexed mesh whose vertex list holds each face's own corners — a
+  // wedge's five faces are 10 vertices for 6 triangles — so the renderer read the list
+  // as a plain triangle soup: it drew a couple of faces, welded unrelated ones together
+  // and dropped the last vertex. Three of the five faces were gone, which is what the
+  // report called missing faces.
+  const side = 'w'
+  const shape = { kind: 'triangle', triangle: 'upper', side }
+  const thin = new Map([[packKey(0, 0, 1), shape]])
+  const sys = new GhostSystem({ scene: new THREE.Scene(), thinSides: thin, solid: new Set(), slopeCuts: new Map(), finishes: new Map() })
+  // Previewed in mid-air, so no neighbour culls a face: the ghost must be the closed
+  // piece — five faces, 0.5 m³ by the divergence theorem, every triangle wound outward.
+  sys.setGhost([[0, 0, 1]], 'add', undefined, thin)
+  const tris = []
+  const meshes = sys.ghostGroup.children
+  assert.ok(meshes.length > 0, 'the ghost drew something')
+  for (const mesh of meshes) {
+    const idx = mesh.geometry.getIndex()
+    assert.ok(idx, 'the ghost geometry carries the part index — without it three of five faces vanish')
+    const pos = mesh.geometry.getAttribute('position')
+    const nor = mesh.geometry.getAttribute('normal')
+    assert.ok(Math.max(...idx.array) < pos.count, 'the index stays inside the vertex list')
+    for (let i = 0; i < idx.count; i += 3) {
+      const v = [idx.getX(i), idx.getX(i + 1), idx.getX(i + 2)].map((n) => [pos.getX(n), pos.getY(n), pos.getZ(n)])
+      const a = idx.getX(i)
+      tris.push({ v, geo: cross(sub(v[1], v[0]), sub(v[2], v[0])), n: [nor.getX(a), nor.getY(a), nor.getZ(a)] })
+    }
+  }
+  let volume = 0
+  const normals = new Set()
+  for (const t of tris) {
+    volume += dot(t.v[0], cross(t.v[1], t.v[2])) / 6
+    assert.ok(dot(t.geo, t.n) > 1e-9, 'every ghost face is wound outward')
+    normals.add(t.n.map((x) => x.toFixed(3)).join(','))
+  }
+  assert.ok(Math.abs(volume - 0.5) < 1e-6, `the ghost is the whole 0.5 m³ wedge, got ${volume}`)
+  assert.equal(normals.size, 5, `five faces, got ${normals.size}`)
+  assert.equal(tris.length, 8, 'six triangles of the closed piece, as the mesher emits them')
+})
+
+test('a 三角 hover ghost does not turn as the pointer moves inside one cell', () => {
+  // The second half of the report: the piece changed as the mouse moved with no key
+  // pressed. `wallSnap` used the pointer's quadrant to order the candidate list, and
+  // everything downstream reads that order — `triangleSideDirs` ranks by membership
+  // and keeps the clockwise order on a tie, so moving the pointer across the cell's
+  // diagonal re-sorted four equally-open sides and re-aimed the wedge. The list is now
+  // a pure function of the geometry: the only thing that turns the piece is **R**.
+  const cell = [1, 1, 0]
+  const place = [1, 1, 1]
+  const steps = [0.15, 0.35, 0.5, 0.65, 0.85]
+  for (const triKind of ['upper', 'lower']) {
+    for (let cycle = 0; cycle < 4; cycle++) {
+      station(triKind, cycle)
+      const seen = new Set()
+      for (const px of steps) {
+        for (const py of steps) {
+          const { tool, ghosts } = ctxFor()
+          ghosts.length = 0
+          tool.onMove({
+            clientX: 0,
+            clientY: 0,
+            button: 0,
+            buttons: 0,
+            shiftKey: false,
+            hit: { cell, place, solid: true, normal: [0, 0, 1], point: [1 + px, 1 + py, 1] },
+            preventDefault: () => {},
+          })
+          const drawn = [...(ghosts[0]?.thin?.values() ?? [])][0]
+          assert.deepEqual(drawn, { kind: 'triangle', triangle: triKind, side: drawn.side }, 'the ghost is the wedge mode')
+          seen.add(drawn.side)
+        }
+      }
+      assert.equal(seen.size, 1, `${triKind} cycle ${cycle}: one side per cell, saw ${[...seen].join(', ')}`)
+    }
+  }
+})
+
 test('a 三角 click lays the tagged wedge its ghost previewed', () => {
   // The same contract the 半墙 click had to earn: the piece that lands is the piece
   // the ghost drew, and it lands as its own shape rather than as a whole block.
@@ -467,35 +546,35 @@ test('a 三角 click lays the tagged wedge its ghost previewed', () => {
   assert.equal(seen.size, 8, `the tool lays all eight wedges, saw ${seen.size}`)
 })
 
-test('the 方块 tool carries the 三角 mode, and **Tab** cycles the three pieces', () => {
-  // The rail's one cut tile steps 半墙 → 三角上 → 三角下 → off, and back, and **Tab** is
-  // that same step: the key used to toggle the generated wall ring, which is now off
-  // when the game opens and asked for on its own tile. The three cut modes are
-  // exclusive, they all hold the ring off, and the ring is never switched on behind
-  // the player's back by leaving the cycle.
+test('the 方块 tool carries the 三角 mode, and each cut piece has its own tile', () => {
+  // The 工具 folder's three cut tiles each arm one piece through the one `setCutMode`
+  // call — the piece the player wants is one click away, not a step through a cycle.
+  // **Tab** belongs to the 生成墙壁 ring instead (`AppShell.tsx`), which is the one
+  // control that raises it. The three cut modes are exclusive with each other and
+  // with the ring: any of them holds the ring off, and the ring is never switched on
+  // behind the player's back by leaving a cut mode.
   useStore.setState({ tool: 'block', halfWall: false, triangles: false, triKind: 'upper', autoWalls: false, wallSnapCycle: 0 })
   const st = () => useStore.getState()
-  st().cycleCutMode()
-  assert.equal(st().halfWall, true, '半墙 first — Tab’s first step is a cut piece, not the ring')
+  st().setCutMode('half')
+  assert.equal(st().halfWall, true, '半墙 is armed on its own tile')
   assert.equal(st().triangles, false)
   assert.equal(st().autoWalls, false, 'a cut mode holds the generated ring off')
   assert.equal(st().wallSnapCycle, 0, 'the side cycle starts fresh with the mode')
-  st().cycleCutMode()
+  st().setCutMode('upper')
   assert.equal(st().triangles, true, 'then 三角上')
   assert.equal(st().halfWall, false, 'the two cut modes are exclusive')
   assert.equal(st().triKind, 'upper')
   assert.equal(st().autoWalls, false)
-  st().cycleCutMode()
+  st().setCutMode('lower')
   assert.equal(st().triangles, true, 'then 三角下')
   assert.equal(st().triKind, 'lower')
-  st().cycleCutMode()
+  st().setCutMode(null)
   assert.equal(st().triangles, false, 'and off')
   assert.equal(st().halfWall, false)
-  assert.equal(st().autoWalls, false, 'leaving the cycle does not raise the ring')
-  st().cycleCutMode()
-  assert.equal(st().halfWall, true, 'and the cycle wraps')
-  // The ring is refused while either cut mode owns the tool, and its own tile is the
-  // only way to it.
+  assert.equal(st().autoWalls, false, 'leaving a cut mode does not raise the ring')
+  // The ring is refused while either cut mode owns the tool — which is also what makes
+  // **Tab** a no-op there, since the key is `setAutoWalls(!autoWalls)` — and with no cut
+  // mode on it is the tile (and the key) that opens it.
   st().setTriangles(true)
   st().setAutoWalls(true)
   assert.equal(st().autoWalls, false, 'the ring is refused while 三角 owns the tool')
@@ -504,7 +583,8 @@ test('the 方块 tool carries the 三角 mode, and **Tab** cycles the three piec
   st().setHalfWall(false)
   assert.equal(st().autoWalls, false)
   st().setAutoWalls(true)
-  assert.equal(st().autoWalls, true, 'with no cut mode on, the tile still opens the ring')
+  assert.equal(st().autoWalls, true, 'with no cut mode on, the ring opens')
+  st().setAutoWalls(false)
   // Both the mode and the side **R** stepped to change what the hover ghost is, so
   // both have to be in the one key the viewport subscribes to.
   useStore.setState({ tool: 'select', halfWall: false, triangles: false, autoWalls: false, wallSnapCycle: 0 })

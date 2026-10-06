@@ -4,7 +4,7 @@
 // itself lives in app/sweep.ts; this file only owns the pointer gesture.
 
 import { removeFloor, removeModule } from '../../build/model.ts'
-import { moduleAt } from '../../sim/placement.ts'
+import { isCeilingHung, isWallMounted, moduleAt } from '../../sim/placement.ts'
 import type { Module } from '../../sim/types.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from '../sweep.ts'
 import { moduleLabel, useStore } from '../store.ts'
@@ -60,7 +60,9 @@ export class DeleteTool extends ToolController {
       scene.setModulePreview(fence ? null : picked, true)
       scene.setCollisionHighlight(null)
       scene.setGhost(fence ? [[picked.x, picked.y, picked.z]] : [], 'remove')
-      scene.setCursor([picked.x, picked.y, picked.z], true)
+      // A wall panel or a hung fitting is the pending delete itself: its own
+      // red ghost is the highlight, never the floor cell beneath it.
+      scene.setCursor(isWallMounted(picked) || isCeilingHung(picked) ? null : [picked.x, picked.y, picked.z], true)
       return
     }
     if (!hit.solid) return
@@ -145,14 +147,15 @@ export class DeleteTool extends ToolController {
       return
     }
     // Hover: a drawn module under the pointer is the pending delete, shown as
-    // a red ghost of the piece itself; otherwise the block under it.
+    // a red ghost of the piece itself; otherwise the block under it. A wall
+    // panel or a hung fitting never rings the floor beneath it.
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     if (picked) {
       scene.setGhost([], 'remove')
       scene.setCollisionHighlight(null)
       scene.setModulePreview(picked, true)
-      scene.setCursor([picked.x, picked.y, picked.z], true)
+      scene.setCursor(isWallMounted(picked) || isCeilingHung(picked) ? null : [picked.x, picked.y, picked.z], true)
     } else {
       scene.setModulePreview(null)
       scene.setCollisionHighlight(null)

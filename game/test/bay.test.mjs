@@ -8,7 +8,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { ESCALATOR_BALUSTRADE, ESCALATOR_BAND } from '../src/sim/constants.ts'
-import { STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairLaneBases } from '../src/sim/stairs.ts'
+import { STAIR_BODY_DROP } from '../src/sim/openings.ts'
+import { STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairLaneBases, stairLandings } from '../src/sim/stairs.ts'
 import { rampBlocked, rampBodyHalf, rampCorridorHalf } from '../src/sim/openings.ts'
 import { placementBlocked } from '../src/sim/placement.ts'
 import { buildGraph } from '../src/sim/station.ts'
@@ -344,6 +345,114 @@ test('a newel return is drawn only where a flight meets a floor of its own', () 
         for (const v of [b.min, b.max]) assert.ok(Number.isFinite(v.x + v.y + v.z), `${id} at ${width} m drew a bad box`)
       }
       assert.equal(newelReturns(boxes).length, 4, `${id} at ${width} m: a turn landing carries the rail round the corner`)
+    }
+  }
+})
+
+test('a switchback is drawn across exactly the blocks its size claims: 2 / 4 / 6', () => {
+  // The visible piece has to agree with the room it reserves: a flush pair that
+  // drew a column wider than the space a 围栏 is refused in — or narrower than the
+  // half-landing it lays — would read as one stair and collide as another. **Two
+  // blocks a run**, so 窄 / 中 / 宽 are 2 / 4 / 6 across; `stairs.test.mjs` probes
+  // those reserved columns with a fence at the half height.
+  for (const [width, blocks] of [
+    [STAIR_WIDTH_NARROW, 2],
+    [STAIR_WIDTH_DOUBLE, 4],
+    [STAIR_WIDTH_TRIPLE, 6],
+  ]) {
+    for (const id of ['stair-right180', 'stair-left180']) {
+      const m = createModule(id, 0, 0, -4, 't', 0, width)
+      assert.ok(m, `${id} at ${width} m did not build`)
+      const boxes = meshBoxes(m, [m])
+      // A hair of float noise off the cell edge is not a block: read the extent with a
+      // tolerance, or a run whose rail ends at exactly 2.0000000001 reads as three cells.
+      const drawn =
+        Math.ceil(Math.max(...boxes.map((b) => b.max.x)) - 1e-6) - Math.floor(Math.min(...boxes.map((b) => b.min.x)) + 1e-6)
+      assert.equal(drawn, blocks, `${id} at ${width} m draws ${drawn} blocks across, not ${blocks}`)
+    }
+  }
+})
+
+test('a 双跑楼梯 in a stairwell is railed only where it is open', () => {
+  // The runs stand on the block grid, so a wall built beside the piece stands flush
+  // against each run's outer balustrade and that balustrade — with its posts and its
+  // newel return — goes, exactly as on a straight flight. The half-landing's two long
+  // sides lean on the same walls, so its railing goes with them; the open end of the
+  // stairwell keeps its own.
+  const m = createModule('stair-right180', 0, 0, -4, 't', 0, STAIR_WIDTH_DOUBLE)
+  assert.ok(m && m.type === 'stair')
+  const column = (x) => [0, 1, 2, 3, 4].flatMap((y) => [-4, -3, -2, -1, 0].map((z) => ({ x, y, z, fill: 'solid', tags: ['wall'] })))
+  const open = meshBoxes(m, [m])
+  const walled = meshBoxes(m, [m], [...column(-1), ...column(4)])
+  // A horizontal rail segment at the landing's own level: the two long sides sit at the
+  // platform's edge (`stairLandingShape`), the open end at the far side of the row.
+  const levelRail = (boxes, axis, v) =>
+    boxes.filter((b) => Math.abs((b.min[axis] + b.max[axis]) / 2 - v) < 0.06 && b.max.z - b.min.z < 0.1 && b.max[axis === 'x' ? 'y' : 'x'] - b.min[axis === 'x' ? 'y' : 'x'] > 0.9)
+  assert.equal(levelRail(open, 'x', 0.145).length, 1, 'the landing is not railed on its west side')
+  assert.equal(levelRail(open, 'x', 3.855).length, 1, 'the landing is not railed on its east side')
+  assert.equal(levelRail(open, 'y', 3.96).length, 1, 'the landing is not railed at its open end')
+  assert.equal(levelRail(walled, 'x', 0.145).length, 0, 'a rail was left standing against the west wall')
+  assert.equal(levelRail(walled, 'x', 3.855).length, 0, 'a rail was left standing against the east wall')
+  assert.equal(levelRail(walled, 'y', 3.96).length, 1, 'the open end of the landing lost its rail')
+  // Four newel returns in the open — both rails of both outer landings — and only the two
+  // on the **seam** are left once a wall has replaced the outer two: those two rails face
+  // each other across the middle of the pair, with no wall to lean on.
+  assert.equal(newelReturns(open).length, 4)
+  assert.equal(newelReturns(walled).length, 2)
+})
+
+test('a stair hangs its soffit on the line the ground under it is cut to', () => {
+  // A stair is not a truss box: its stringers and the soffit they carry hang
+  // `STAIR_BODY_DROP` below the walking line, and `rampSlopeCuts` cuts the ground to exactly
+  // that plane (`slope-cut.test.mjs` pins the cut point by point), so the filling rises to
+  // the underside of the steps. Cutting at an escalator's `RAMP_FOOT` — a 0.5 m truss —
+  // stopped the ground 14 cm short of the flight: a slot of daylight under every stair.
+  const s = stair('s', 0)
+  const flight = s.cfg.flights[0]
+  const boxes = meshBoxes(s, [s])
+  // The soffit is the one plate centred across the flight and running the whole incline —
+  // deep in z as the rotation makes it; the stringers run down its sides, the treads and
+  // risers are level slabs, and the rails and posts are a rail's own thickness.
+  const soffit = boxes.filter(
+    (b) => Math.abs((b.min.x + b.max.x) / 2 - 0.5) < 0.02 && b.max.x - b.min.x > 0.6 && b.max.z - b.min.z > 3,
+  )
+  assert.equal(soffit.length, 1, `the flight has ${soffit.length} soffit plates`)
+  // A slab rotated about the width axis has its box centre on its own centre line.
+  const centre = (soffit[0].min.z + soffit[0].max.z) / 2
+  const underside = flight.from.z + 1 + (flight.to.z - flight.from.z) / 2 - STAIR_BODY_DROP
+  assert.ok(Math.abs(centre - (underside + 0.03)) < 1e-9, `the soffit's centre is ${centre}, not on the body line ${underside + 0.03}`)
+})
+
+test('a flight’s beams end at the treads, never inside a landing’s block', () => {
+  // A landing's column is deliberately never cut (`rampSlopeCuts` keeps it level — it is the
+  // floor the crowd stands on at the foot of the run), while the tiles the treads sweep *are*
+  // shaved to the flight's underside. So the flight has to stop at the treads: a stringer or
+  // soffit overhanging its landing put the piece's lowest point 0.36 m inside a block the cut
+  // never touches, and the floor's own surface cut the foot of the flight off where it entered.
+  // Both beams are rotated boxes, so the square-cut **upper** corner of each end swings
+  // `T·tan θ` past the end of their length — the trim `buildStairFlight` applies, which lands
+  // that corner on the treads' edge.
+  for (const [id, width] of [['stair-straight', 0.68], ['stair-straight', 1.79], ['stair-right90', 0.79], ['stair-right90', 1.79], ['stair-left180', 2.79]]) {
+    const mod = createModule(id, 0, 0, -4, 'x', 0, width)
+    assert.ok(mod && mod.type === 'stair', `${id} is not a stair`)
+    for (const b of meshBoxes(mod, [mod])) {
+      // A **level slab** is the floor's own surface: treads, risers, the half-landing platform
+      // (whose top *is* the walking surface, so its body sitting inside the landing's block is
+      // the point of it) and the rail posts' caps. The beams are rotated, so their boxes are
+      // deep in z — and they are what has to stop at the treads.
+      if (b.max.z - b.min.z < 0.35) continue
+      for (const l of stairLandings(mod)) {
+        for (const [x, y] of [[b.min.x, b.min.y], [b.max.x, b.min.y], [b.min.x, b.max.y], [b.max.x, b.max.y]]) {
+          // Strictly inside the landing's own cell in plan — a point on the boundary belongs to
+          // the neighbouring tile, which the cut does shave — and strictly below its floor.
+          if (x < l.x + 1e-3 || x > l.x + 1 - 1e-3 || y < l.y + 1e-3 || y > l.y + 1 - 1e-3) continue
+          if (b.min.z >= l.z + 1 - 1e-3 || b.min.z < l.z - 1e-3) continue
+          assert.fail(
+            `${id}: a part ${(b.max.x - b.min.x).toFixed(2)}×${(b.max.y - b.min.y).toFixed(2)}×${(b.max.z - b.min.z).toFixed(2)} ` +
+              `reaches ${(l.z + 1 - b.min.z).toFixed(2)} m into the landing's block at ${l.x},${l.y},${l.z}`,
+          )
+        }
+      }
     }
   }
 })

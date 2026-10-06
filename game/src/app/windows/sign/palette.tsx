@@ -16,29 +16,39 @@ import { groupMarks, type SignGroupId } from './tokens.ts'
  * it is the lid on a palette. The two look alike and behave alike (press opens, keyboard
  * opens, `aria-expanded` says which), so they share every class and the same slots for what
  * they hold; what they do not share is how many marks they hold.
+ *
+ * `label` is the tile's **accessible name** and nothing else. It is deliberately not a
+ * `title`: a hover tooltip is a second, slower picture of the mark the tile already draws, and
+ * over a library of them it is in the way of the gesture.
  */
 export function GroupTile({
   id,
   lines,
   ready,
   active,
-  title,
+  label,
   onToggle,
 }: {
   id: SignGroupId
   lines: readonly LineDef[]
   ready: boolean
   active: boolean
-  title: string
+  label: string
   onToggle: () => void
 }): React.ReactElement {
   const { marks, split } = groupMarks(id, lines)
   return (
     <button
       type="button"
-      className={split ? 'tile group split' : 'tile group'}
-      aria-label={title}
-      // A group's tile is a disclosure, and `aria-expanded` is what says which it is.
+      // `active` is not decoration: it is the **only** thing on screen that says which group's
+      // shelf is open below it, and it was passed in here and never put on the element — so the
+      // tab of the open group looked exactly like the three shut ones. It wears the same `on`
+      // as a picked mark, which is what the rest of the modal uses for "this is the live one".
+      className={['tile', 'group', active ? 'on' : '', split ? 'split' : ''].filter(Boolean).join(' ')}
+      aria-label={label}
+      // A group's tile is a toggle, and `aria-pressed` says which way it stands. It also
+      // carries `aria-expanded`, because what it opens is the shelf beneath it.
+      aria-pressed={active}
       aria-expanded={active}
       onPointerDown={onToggle}
       // The press has already opened it, so the click that follows must not shut it again.
@@ -65,16 +75,16 @@ export function GroupTile({
 /**
  * One option, as the square blueprint tile that offers it. The tile is furniture —
  * flat navy with the rail's own dashed technical frame — and everything inside it is
- * the mark, drawn by the sign's own code. No tile carries lettering or a hover
- * tooltip: the name is its accessible label and nothing else, because a picture of
- * the thing beats a word for it.
+ * the mark, drawn by the sign's own code. No tile carries lettering **or a hover
+ * tooltip**: the name is its accessible label and nothing else, because a picture of
+ * the thing beats a word for it, and over a library of them the word is in the way.
  */
 export function MarkTile({
   mark,
   lines,
   ready = false,
   active,
-  title,
+  label,
   onPointerDown,
   onClick,
 }: {
@@ -83,7 +93,8 @@ export function MarkTile({
   /** Whether the pictograms are decoded. A text or shield tile has no use for it. */
   ready?: boolean
   active: boolean
-  title: string
+  /** The tile's accessible name. Not a `title`: see `GroupTile`. */
+  label: string
   /** The press that arms a drag. Absent for a tile that is only ever clicked. */
   onPointerDown?: (e: React.PointerEvent) => void
   onClick?: () => void
@@ -94,7 +105,7 @@ export function MarkTile({
       // `grab` only where the gesture is a drag: a 线路 tile is clicked, and the cursor is
       // the one thing that says which of the two a tile is.
       className={['tile', active ? 'on' : '', onPointerDown ? 'grab' : ''].filter(Boolean).join(' ')}
-      aria-label={title}
+      aria-label={label}
       onPointerDown={onPointerDown}
       onClick={onClick}
     >
@@ -104,20 +115,18 @@ export function MarkTile({
 }
 
 /**
- * One group's palette, folding out **to the right** of the group bar.
+ * One group's palette, folding out in the **well under the tabs**.
  *
- * The build rail's `InlineExpand` is the same idea vertically: a `0fr → 1fr` track
- * that animates, a child that clips it, and the row keeps rendering even while it is
- * shut so the animation has something to slide.
- *
- * Here the track is a *column* — `grid-template-columns: 0fr → 1fr` — so the palette
- * grows out of the tile that opened it, and the four rows can be mounted together with
- * one open: switching group slides the old row away while the new one slides in, which
- * is what makes the swap one movement instead of two pictures.
+ * The build rail's `InlineExpand` is the same idea vertically: a `0fr → 1fr` track that
+ * animates, a child that clips it, and the row keeps rendering even while it is shut so
+ * the animation has something to slide. Here the track is a **row** of a grid whose items
+ * are the four palettes (`.signPalette`), so the open one takes the height its own tiles
+ * need and a shut one takes none — the fold is the library growing a shelf, not a row
+ * sliding sideways, which is what it was while the palette hung off its own tab.
  *
  * Closed rows stay in the DOM (`inert`, so nothing inside can take a press or a tab)
  * because an unmounted row cannot animate out. What keeps a closed row from being
- * *seen* is the inner `overflow: hidden` clipping it to the zero-width track.
+ * *seen* is the inner `overflow: hidden` clipping it to the zero-height track.
  *
  * **The children are always the current ones.** A shut row is clipped, not frozen: its
  * tiles are built from the editor's live state on every render, so a tile in a row that

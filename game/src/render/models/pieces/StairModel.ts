@@ -3,8 +3,9 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials, ModuleContext } from '../PieceBuilder.ts'
-import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
-import type { StairFlightSlide, StairLaneMate, StairWallSides } from '../../../sim/stairs.ts'
+import { STAIR_BODY_DROP } from '../../../sim/openings.ts'
+import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairLandingShape, stairLandingWalls, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
+import type { StairFlightSlide, StairLaneMate, StairLandingShape, StairLandingWalls, StairWallSides } from '../../../sim/stairs.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
 
 // Procedural module models — the art pass behind PLAN §3 item 6 ("modules are
@@ -69,10 +70,10 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
     const slide = slides[i] ?? NO_STAIR_SLIDE
     const from = { x: f.from.x, y: f.from.y, z: f.from.z }
     const to = { x: f.to.x, y: f.to.y, z: f.to.z }
-    g.add(buildStairFlight(ctx.mats, surface, from, to, width, outer, mates, stairWallSides(ctx.data.cells, from, to, slide), slide))
+    g.add(buildStairFlight(ctx.mats, surface, from, to, width, outer, mates, stairWallSides(ctx.data.cells, from, to, width, slide), slide))
   }
   for (let i = 0; i + 1 < flights.length; i++) {
-    g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], width, slides[i] ?? NO_STAIR_SLIDE, slides[i + 1] ?? NO_STAIR_SLIDE))
+    g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], stairLandingShape(mod, i), stairLandingWalls(ctx.data.cells, mod, i)))
   }
   return g
 }
@@ -81,6 +82,10 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
 const STAIR_TREAD_T = 0.09
 /** Target riser height; the flight's rise is divided into whole steps. */
 const STAIR_RISE = 1 / 6
+/** Depth of a side stringer, metres: it carries the treads down to `STAIR_BODY_DROP`. */
+const STAIR_STRINGER_T = 0.32
+/** Thickness of the soffit under the treads, metres: its underside is the body line. */
+const STAIR_SOFFIT_T = 0.06
 
 /**
  * The finish a stair wears: the one painted on the piece itself (`cfg.finish`,
@@ -191,19 +196,37 @@ function buildStairFlight(
   }
 
   // Side stringers, a soffit and a handrail run the incline. `theta` tilts a
-  // beam about the width axis so its length follows the slope.
+  // beam about the width axis so its length follows the slope. Both the stringer
+  // and the soffit hang to `STAIR_BODY_DROP` below the walking line — the same
+  // plane the ground under the run is cut to (`rampSlopeCuts`), so the ground
+  // rises to the underside of the steps instead of stopping short of them.
+  //
+  // Both beams are **rotated** boxes, so their end faces are square to the slope and their
+  // upper corner swings `T·tan θ` past the end of their length. Both are trimmed by exactly
+  // that, so the upper corner of each end lands on the treads' own edge — the lower corner
+  // stays inside the treads, below the landing's floor — and no part of the flight enters the
+  // landing's block: a landing column is deliberately never cut (`rampSlopeCuts` keeps it
+  // level: it is the floor the crowd stands on at the foot of the run), so a beam that
+  // reached into it was swallowed by the floor it stands on. An overhang *past* the treads
+  // (`+0.12`/`+0.06` here once) is the same mistake the other way round: the stringer's low
+  // corner ended up 0.37 m inside a block the cut never touches.
   const midX = inner + stairRun / 2
   const theta = Math.atan2(rise, stairRun)
   const slopeLen = Math.hypot(stairRun, rise)
+  const underside = rise / 2 - STAIR_BODY_DROP
+  /** The length that puts a beam's square-cut lower corner on the treads' edge. */
+  const beamLen = (thickness: number): number => slopeLen - thickness * Math.tan(theta)
   for (const s of [1, -1]) {
     if (openSides.has(s)) continue
     // The stringer runs the incline on every side the flight keeps, a walled one
     // included: the treads stop at their own edge, so the stringer is what meets
     // the wall.
-    const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), rise / 2 - 0.2, slopeLen + 0.12, 0.09, 0.32)
+    const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), underside + STAIR_STRINGER_T / 2, beamLen(STAIR_STRINGER_T), 0.09, STAIR_STRINGER_T)
     beam.rotation.y = -theta
     // A wall hugging this side is already the barrier: no handrail, no rail posts.
     if (wallSides.has(s)) continue
+    // The rail keeps the full incline: it is in the air, so its square ends pass over the
+    // landings harmlessly, and the end posts below it stay under the rail.
     const rail = slab(g, mats.handrail, midX, s * (half + 0.07), rise / 2 + 0.95, slopeLen, 0.07, 0.07)
     rail.rotation.y = -theta
     for (let i = 0; i <= 2; i++) {
@@ -213,10 +236,10 @@ function buildStairFlight(
   }
   // The soffit runs under the whole joined width, overhanging only on a free
   // side — and never past a cell edge, where the neighbouring lane's own soffit
-  // carries on.
+  // carries on. Its own underside is the body line the ground is cut to.
   const sLo = yLo - (joinSides.has(-1) ? 0 : 0.03)
   const sHi = yHi + (joinSides.has(1) ? 0 : 0.03)
-  const soffit = slab(g, mats.darkSteel, midX, (sLo + sHi) / 2, rise / 2 - 0.26, slopeLen + 0.06, sHi - sLo, 0.06)
+  const soffit = slab(g, mats.darkSteel, midX, (sLo + sHi) / 2, underside + STAIR_SOFFIT_T / 2, beamLen(STAIR_SOFFIT_T), sHi - sLo, STAIR_SOFFIT_T)
   soffit.rotation.y = -theta
   // The outer handrails level off at each landing and turn down into a newel
   // post on the floor, so a stair rail wraps round and reaches the ground instead
@@ -272,40 +295,32 @@ function stairReturnGeo(): THREE.TorusGeometry {
  * pinches at the corner. Built from the same surface and slab thickness as the
  * treads, over a shallow frame — never a reused 1 m floor block. A balustrade
  * runs the edges a flight does not attach to, wrapping the outside of the turn
- * and carrying the flight handrails around it.
+ * and carrying the flight handrails around it — **except** a side a wall hugs
+ * (`stairLandingWalls`): the wall is the barrier there, and a rail against it is
+ * the same balustrade drawn twice, poking through the wall.
  */
 function buildStairLanding(
   mats: ModelMaterials,
   surface: THREE.Material,
   fin: { from: Vec3i; to: Vec3i },
   fout: { from: Vec3i; to: Vec3i },
-  width: number,
-  slideIn: StairFlightSlide = NO_STAIR_SLIDE,
-  slideOut: StairFlightSlide = NO_STAIR_SLIDE,
+  shape: StairLandingShape,
+  walls: StairLandingWalls,
 ): THREE.Group {
   const g = new THREE.Group()
   const a = fin.to
-  const b = fout.from
-  // The platform spans the two flights' **bands**, so a slid return run still
-  // lands on it: its end stands `slideOut` cells off the cell it lands on.
-  const ax = a.x + 0.5 + slideIn.dx
-  const ay = a.y + 0.5 + slideIn.dy
-  const bx = b.x + 0.5 + slideOut.dx
-  const by = b.y + 0.5 + slideOut.dy
-  const cx = (ax + bx) / 2
-  const cy = (ay + by) / 2
-  const sx = Math.abs(bx - ax) + width
-  const sy = Math.abs(by - ay) + width
+  const { x0, y0, x1, y1 } = shape
+  const cx = (x0 + x1) / 2
+  const cy = (y0 + y1) / 2
+  const sx = x1 - x0
+  const sy = y1 - y0
   const top = a.z + 1
-  const x0 = cx - sx / 2
-  const x1 = cx + sx / 2
-  const y0 = cy - sy / 2
-  const y1 = cy + sy / 2
   finishSlab(g, surface, cx, cy, top - STAIR_TREAD_T / 2, sx, sy, STAIR_TREAD_T)
   slab(g, mats.darkSteel, cx, cy, top - STAIR_TREAD_T - 0.14, sx - 0.18, sy - 0.18, 0.28)
 
   // Which perimeter edges a flight attaches to: the side the flight body sits
-  // on, snapped to the dominant axis. The others get a balustrade.
+  // on, snapped to the dominant axis. The others get a balustrade — unless a wall
+  // hugs them, because then the balustrade would be the barrier drawn twice.
   const attached = new Set<string>()
   const attachEdge = (from: Vec3i, to: Vec3i): void => {
     const dx = to.x - from.x
@@ -327,7 +342,8 @@ function buildStairLanding(
       for (const py of [y0 + 0.07, y1 - 0.07]) slab(g, mats.steel, x, py, top + RAIL / 2, 0.05, 0.05, RAIL)
     }
   }
-  for (const edge of ['s', 'n', 'w', 'e']) if (!attached.has(edge)) rail(edge)
+  const edges: Array<keyof StairLandingWalls> = ['s', 'n', 'w', 'e']
+  for (const edge of edges) if (!attached.has(edge) && !walls[edge]) rail(edge)
   return g
 }
 

@@ -1,3 +1,20 @@
+// The isometric drawing kit the concept sheets used to be built from.
+//
+// **Retired.** The sheets are photographs of the game now, taken by
+// `tools/shots.mjs` from the built app; nothing generates artwork from this file
+// any more, and `tools/gen-art.mjs` – the entry point that drove it – is gone.
+//
+// It is kept because the game's own look was first worked out here: the palette
+// below is a stylised read of real Guangzhou Metro stations (white baffle
+// ceilings, glossy enamel wall panels, speckled granite floors, stainless
+// columns, full-height screen doors wearing their line's colour, tactile
+// warning strips), and the renderer in `game/src/render/` still answers to it.
+// Read it as the record of where the art direction came from, not as a tool.
+//
+// Its siblings – `sheets-a.mjs` … `sheets-e.mjs`, `sheet-01-hero.mjs`,
+// `sheet-07-ui.mjs`, `sheet-11-trains3d.mjs`, `sheet-13-two-line.mjs`,
+// `train-iso.mjs`, `zoom.mjs` – are the same: the drawing code for sheets that
+// are no longer drawn. `tools/serve.mjs` is still useful on its own.
 // Shared drawing library for the Metro Station Designer concept sheets.
 // 2:1 isometric projection, 1 block = 1 m, z is height in metres.
 

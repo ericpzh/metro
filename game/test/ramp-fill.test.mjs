@@ -1,14 +1,16 @@
-// The ground under a run fills up to its truss — GAME-SPEC §4.2 / §5.1.
+// The ground under a run fills up to its underside — GAME-SPEC §4.2 / §5.1.
 //
-// A run's body hangs `RAMP_FOOT` (0.5 m) below its walking line, and the block brush
+// A run's body hangs below its walking line — an escalator's truss by `RAMP_FOOT` (0.5 m),
+// a stair's stringers and soffit by `STAIR_BODY_DROP` — and the block brush
 // may only lay ground whose **top face** is at or below that line (the crowd's floor is
 // a block's `z + 1`, so a course above the line would stand inside the run). The last
-// course under the truss therefore cannot be built — and with nothing drawn there, the
-// ground stops a wedge short of the truss and you can see through to the storey below.
+// course under the body therefore cannot be built — and with nothing drawn there, the
+// ground stops a wedge short of the run's underside and you can see through to the storey
+// below.
 //
 // The renderer closes it instead (`rampFillKeys` → `SceneContext.slopeFills`): a cell
 // the cut names that the station holds **nothing** in and that stands on solid ground is
-// meshed as if the block below carried on up to the truss. No cell is added, no tag,
+// meshed as if the block below carried on up to that body line. No cell is added, no tag,
 // nothing for a tool to keep in step — so it follows the ground and the run on its own,
 // the way `thinWallCells` follows a wide stair.
 //
@@ -28,7 +30,7 @@ import { ChunkSystem } from '../src/render/scene/systems/ChunkSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
 import { RAMP_SOFFIT_FINISH, finishMapOf } from '../src/sim/finishes.ts'
-import { RAMP_FOOT, carveRampOpenings, rampFillKeys, rampSlopeCuts } from '../src/sim/openings.ts'
+import { RAMP_FOOT, STAIR_BODY_DROP, carveRampOpenings, rampFillKeys, rampSlopeCuts } from '../src/sim/openings.ts'
 import { packKey } from '../src/sim/types.ts'
 
 /**
@@ -49,8 +51,15 @@ const escalator = {
   from: { x: 6, y: 0, z: 0 }, to: { x: 0, y: 0, z: 4 }, cfg: { dir: 'up' },
 }
 
-/** The run's walking line, in world z, at world x (as `slope-cut.test.mjs` reads it). */
+/** The run's landing-to-landing walking line, in world z, at world x. */
 const line = (x) => 1 + ((6.5 - x) / 6) * 4
+
+/**
+ * The **body line** under the stair, in world z, at world x: its treads stop half a landing
+ * cell short of each landing centre and carry the whole rise, so the stringers and soffit —
+ * and the cut the ground is shaved to — follow that steeper line, not the walking line above.
+ */
+const body = (x) => 1 + ((6.5 - x - 0.5) / 5) * 4
 
 /** Ground blocks at `(x, y)`, one course per storey given. */
 function ground(x, y, zs) {
@@ -107,6 +116,34 @@ function vertsOver(chunks, x, y, float = false) {
   return out
 }
 
+/**
+ * Every vertex drawn over the cell `(x, y)` **off the plane it shares with the cell at
+ * `x − 1`**, where a neighbour's own geometry lands and reads as this column (see the file
+ * header: one scene measures one ground column).
+ */
+function vertsOffSharedFace(chunks, x, y, float = false) {
+  const out = []
+  for (const mesh of chunks.chunkMeshes) {
+    if (mesh.userData.float !== float) continue
+    const pos = mesh.geometry.getAttribute('position')
+    for (let i = 0; i < pos.count; i++) {
+      const vx = pos.getX(i)
+      const vy = pos.getY(i)
+      if (vx <= x + 1e-6 || vx > x + 1 + 1e-6) continue
+      if (vy < y - 1e-6 || vy > y + 1 + 1e-6) continue
+      out.push(pos.getZ(i))
+    }
+  }
+  return out
+}
+
+/** The highest vertex among drawn points over the cell `(x, y)`. */
+function topOver2(verts, x, y) {
+  const inCell = verts.filter((p) => p[0] >= x - 1e-9 && p[0] <= x + 1 + 1e-9 && p[1] >= y - 1e-9 && p[1] <= y + 1 + 1e-9)
+  assert.ok(inCell.length > 0, `nothing drawn over (${x}, ${y})`)
+  return Math.max(...inCell.map((p) => p[2]))
+}
+
 /** The highest vertex drawn over the cell `(x, y)` in one slice pass. */
 function topOver(chunks, x, y, float = false) {
   const drawn = vertsOver(chunks, x, y, float)
@@ -152,34 +189,100 @@ function vertsInside(chunks, x, y) {
   return out
 }
 
-test('a floor under a run is drawn up to the truss, and no cell is added for it', () => {
+test('a stair derives no filling: it hangs over its own well, and the ground it has is shaved', () => {
+  // The mass a filling would stand in under a stair is the run's own **carved passage** — a
+  // block-sized wedge in the cell the flight's treads sweep, which no block fits in and no
+  // 材质 brush can register on. So a stair leans on the ground it really has: the blocks its
+  // flight meets are shaved to its underside, and where there is none it hangs over its well.
   const data = station(ground(5, 0, [0]))
   const { chunks, ctx, asked } = render(data)
 
-  // The course the truss crosses above the floor is the one the brush cannot lay:
-  // the renderer derives it instead, and the document is untouched.
-  assert.ok(ctx.slopeFills.has(packKey(5, 0, 1)), 'the wedge above the floor is a filling')
+  assert.equal(ctx.slopeFills.size, 0, 'a stair derived a filling under its own passage')
+  assert.ok(ctx.slopeCuts.size > 0, 'the stair no longer shaves the ground it climbs over')
   assert.ok(
     !data.cells.some((c) => c.x === 5 && c.y === 0 && c.z === 1),
-    'the filling must not be a cell in the document',
+    'the fill must not be a cell in the document',
   )
-
-  const truss = line(5) - RAMP_FOOT
+  // What is left is the **ground it has**: the floor block under the flight, shaved to the
+  // stair's own body line — the block "below the first step" — in both slice passes. Its cap
+  // runs from the plane at the cell's far edge up to the block's own ceiling, where the plane
+  // has already climbed past it.
+  //
+  // The block at the base itself is **held at the plane the stair stands on**, not shaved under
+  // it: the flight's body leaves the landing already below that plane, and cutting to it there
+  // would dip the floor block under the floor beside it (`SlopeCut.base`). Its cap is its own
+  // ceiling; the shave above the base plane is a course further up.
+  const base = body(6)
   for (const pass of [false, true]) {
     const top = topOver(chunks, 5, 0, pass)
-    assert.ok(Math.abs(top - truss) < 0.02, `the ground stops at ${top}, not at the truss at ${truss}`)
+    assert.ok(Math.abs(top - 1) < 1e-6, `the floor block lost its own ceiling at ${top}`)
+    // Nothing in the block is over the plane the stair stands on: where the flight's body has
+    // dipped below it the block's cap is that plane (its own ceiling here), not a shave under it.
+    for (const z of vertsOver(chunks, 5, 0, pass)) {
+      assert.ok(z <= base + 1e-6, `the base block was cut over the plane the stair stands on: ${z}`)
+    }
   }
-  // …and a stair carries no drawn body of its own, so its filling keeps the cell's shape and the
-  // ground's finish rather than an escalator's steel.
-  assert.ok(!asked.includes(RAMP_SOFFIT_FINISH), 'the stair’s filling is drawn in a 扶梯’s steel')
-  const band = vertsAbove(chunks, 5, 1)
-  const lo = Math.min(...band)
-  const hi = Math.max(...band)
+  // The ground below keeps its own faces and finish: nothing was drawn in the run's steel.
+  assert.ok(!asked.includes(RAMP_SOFFIT_FINISH), 'the stair’s ground is drawn in a 扶梯’s steel')
+})
+
+test('a stair shaves the courses above its base plane, and never the floor it stands on', () => {
+  // The other half of the rule above, on a column with ground in two courses: the course the
+  // base plane lands in is held at that plane — the floor block, level with the floor beside it
+  // — while the course above, which the flight's body has climbed clear of, is shaved to the
+  // body exactly as the rig above used to shave the base course.
+  //
+  // The carve takes the course the run's own treads sweep, so the column under the flight keeps
+  // its **base** block alone and the shaved course is the one the flight has climbed clear of, a
+  // cell along at (4, 0). That neighbour shares this cell's x = 5 plane and its shaved top corner
+  // sits exactly on it, so the base column is measured off that plane (the header's rule).
+  const data = station(ground(5, 0, [0, 1]).concat(ground(4, 0, [1])))
+  const { chunks } = render(data)
+  const base = body(6)
+  // The base course: its cap is the plane the stair stands on, and nothing of it is over that.
+  for (const z of vertsOffSharedFace(chunks, 5, 0, false)) {
+    assert.ok(z <= base + 1e-6, `the base block was cut over the plane the stair stands on: ${z}`)
+  }
   assert.ok(
-    Math.abs(hi - lo - 1) < 1e-6,
-    `the filling spans ${(hi - lo).toFixed(3)} across, not the cell's own 1 m`,
+    vertsOffSharedFace(chunks, 5, 0, false).some((z) => Math.abs(z - base) < 1e-6),
+    'the course the base plane lands in was not held at it',
   )
-  assert.ok(Math.abs((lo + hi) / 2 - 0.5) < 1e-6, 'the filling is not centred on the run’s line')
+  // The course the flight has climbed clear of is a shave of the same body, not a ceiling: a
+  // vertex sits on the body line, half a cell above the base plane.
+  const shaved = body(5) - STAIR_BODY_DROP
+  assert.ok(
+    vertsOver(chunks, 4, 0, false).some((z) => Math.abs(z - shaved) < 0.02),
+    `the stair no longer shaves the course above its base plane (expected ${shaved.toFixed(2)})`,
+  )
+})
+
+test('the mesher still draws a derived filling: the ground carried up to a run’s underside', () => {
+  // No run in the game derives one any more — an escalator's piece draws its own body and a
+  // stair hangs over its well — but the drawing contract is still the mesher's, for a cut
+  // that asks for a filling. This is it, over a hand-made cut: a cell the station holds
+  // nothing in, drawn as if the block below carried on up to the plane, with no cell added
+  // and no seam against the block it continues.
+  const cell = { x: 5, y: 0, z: 1 }
+  const k = packKey(cell.x, cell.y, cell.z)
+  const floor = [{ x: cell.x, y: cell.y, z: 0, fill: 'solid' }]
+  const solid = buildSolidSet(floor)
+  const cuts = new Map([[k, { axis: 'x', lo: 0.2, hi: 0.8 }]])
+  const fills = rampFillKeys(solid, cuts)
+  assert.deepEqual([...fills], [k], 'a plain cut over ground derives no filling')
+  const visit = [...floor, cell]
+  const emit = new Set(visit.map((c) => packKey(c.x, c.y, c.z)))
+  const chunk = meshChunk(solid, finishMapOf(floor), 0, 0, 0, cell.z, emit, undefined, visit, undefined, cuts, fills)
+  const drawn = []
+  for (const part of chunk.parts) {
+    for (let i = 0; i < part.positions.length; i += 3) drawn.push([part.positions[i], part.positions[i + 1], part.positions[i + 2]])
+  }
+  const top = topOver2(drawn, cell.x, cell.y)
+  assert.ok(Math.abs(top - (cell.z + 0.8)) < 1e-6, `the filled ground reaches ${top}, not the cut plane at ${cell.z + 0.8}`)
+  // A block already there is never filled over: the column already ends on the plane.
+  const solidToo = buildSolidSet([...floor, { ...cell, fill: 'solid' }])
+  assert.equal(rampFillKeys(solidToo, cuts).size, 0, 'a block that is already there is filled over')
+  // And nothing floats: a cut with no ground under it derives no filling either.
+  assert.equal(rampFillKeys(new Set(), cuts).size, 0, 'a cut over void derived a filling')
 })
 
 test('a run hanging over void is left alone: nothing floats under a truss', () => {
@@ -197,9 +300,9 @@ test('a block the station already holds there needs no filling', () => {
   const data = station(ground(5, 0, [0, 1]), false)
   const { chunks, ctx } = render(data)
   assert.equal(ctx.slopeFills.size, 0, 'a block that is already there needs no filling')
-  const truss = line(5) - RAMP_FOOT
+  const under = body(5) - STAIR_BODY_DROP
   const top = topOver(chunks, 5, 0)
-  assert.ok(Math.abs(top - truss) < 0.02, `the shaved block ends at ${top}, not at the truss at ${truss}`)
+  assert.ok(Math.abs(top - under) < 0.02, `the shaved block ends at ${top}, not at the stair's body at ${under}`)
 })
 
 test('a 扶梯 derives no filling at all: its own piece carries that body', () => {

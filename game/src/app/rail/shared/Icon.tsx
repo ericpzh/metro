@@ -214,7 +214,10 @@ export function Icon({ name }: { name: string }): React.ReactElement {
         </>,
       )
     // 旋转: one quarter turn of the cut — a square in plan and the arc its edge
-    // swings through, with the arrow head landing on the next face.
+    // swings through, with the arrow head landing on the next face. The rail's 旋转
+    // tiles do **not** wear it: they are one control (`shared/RotateTile.tsx`) and draw
+    // a turning arrow of their own (`react-icons`' `AiOutlineRotateRight`), which reads
+    // as "turn this" without the label. Nothing else uses this mark today.
     case 'rotate':
       return svg(
         <>

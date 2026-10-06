@@ -44,7 +44,7 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
           value={name}
           maxLength={12}
           placeholder="出入口名"
-          title="出入口名称（回车或点击别处保存）"
+          aria-label="出入口名称"
           onChange={(e) => setName(e.target.value)}
           onBlur={commitName}
           onKeyDown={(e) => {

@@ -13,9 +13,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { drawSignPanel, setPictograms } from '../src/render/signFace.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
+import { trackingCanvas } from './support/tracking-canvas.mjs'
 import { pictogramArt, pictogramNames, readPictogram } from './support/pictograms.mjs'
 import { createModule, toState } from '../src/build/model.ts'
-import { settleSignBins, settleSignBoards, defaultSignLayout, SIGN_BACK_MARK, signBoardsPanel, signPanelSize, signPlate, PX_PER_METRE, SIGN_ICONS, SIGN_SIZE, SIGN_TEXT_EN_SCALE } from '../src/sim/sign.ts'
+import { settleSignBins, settleSignBoards, defaultSignLayout, isUturnArrow, signInkSize, SIGN_BACK_MARK, signBoardsPanel, signPanelSize, signPieces, signPlate, PX_PER_METRE, SIGN_ICONS, SIGN_SIZE, SIGN_TEXT_EN_SCALE } from '../src/sim/sign.ts'
 
 // The marks a board prints are the shipped PNG assets, decoded off disk. A board
 // drawn without them prints no pictogram at all — which is exactly what this file
@@ -76,6 +77,115 @@ test('a fresh sign prints marks, not a black panel', () => {
   assert.ok(ops.texts.includes('5号线'), `the shield prints its line: ${JSON.stringify(ops.texts)}`)
   assert.ok(ops.texts.includes('出'), 'the exit plate prints 出')
   assert.ok(ops.texts.includes('EXIT'), 'the exit plate prints EXIT')
+})
+
+test('a face shorter than its partner is centred on the steel, not packed to one end', () => {  // The two faces of a sign share **one piece of steel**: `signBoardsPanel` is the wider
+  // of the two, so a face that carries less than its partner has slack to spare. Packed
+  // from the printed area's left edge, all of that slack landed on the face's right — and
+  // because each plate is turned to face its own passenger, the back face's slack came out
+  // as a wide black band down the *left* of the board when read from that side. That is
+  // the report: the editor's preview draws a face on its **own** panel (no slack, nothing
+  // to centre) while the model draws it on the shared one, so the two disagreed and the 3D
+  // board read as shoved along the steel.
+  //
+  // The drawing centres a face by shifting the whole row so its own midpoint sits on the
+  // panel's midpoint (`render/signFace.ts`). This is that shift read back: come in from
+  // each end of the printed area and the two gaps match.
+  const long = [
+    { id: 'l1', kind: 'arrow', arrow: 'left', x: 0, y: 0.35, scale: 1, side: 'both' },
+    { id: 'l2', kind: 'text', text: '滘口方向\nTowards Jiaokou', x: 0, y: 0.35, scale: 1, side: 'both' },
+    { id: 'l3', kind: 'line', lineId: '5', english: true, x: 0, y: 0.35, scale: 1, side: 'both' },
+    { id: 'l4', kind: 'text', text: '文冲方向\nTowards Wenchong', x: 0, y: 0.35, scale: 1, side: 'both' },
+    { id: 'l5', kind: 'arrow', arrow: 'down', x: 0, y: 0.35, scale: 1, side: 'both' },
+  ]
+  const short = [
+    { id: 's1', kind: 'icon', icon: 'lift', x: 0, y: 0.35, scale: 1, side: 'both' },
+    { id: 's2', kind: 'text', text: '电梯', x: 0, y: 0.35, scale: 1, side: 'both' },
+  ]
+  const boards = settleSignBoards({ front: long, back: short })
+  const panel = signBoardsPanel(boards)
+  // The pair really does differ, or this test would be asking nothing.
+  assert.ok(signPanelSize(boards.front).w > signPanelSize(boards.back).w + 0.4, 'the front face is the longer one')
+
+  /** The two end gaps a face leaves when it is centred on the shared panel. */
+  const ends = (layout, face) => {
+    const pieces = signPieces(layout, panel, face)
+    assert.ok(pieces.length > 0, `${face}: no pieces`)
+    const left = Math.min(...pieces.map((p) => p.left))
+    const right = Math.max(...pieces.map((p) => p.left + p.w))
+    // The drawing's own shift: the row's midpoint on to the panel's.
+    const off = panel.w / 2 - (Math.min(...pieces.map((p) => p.x - p.w / 2)) + Math.max(...pieces.map((p) => p.x + p.w / 2))) / 2
+    return { left: left + off, right: panel.w - right - off, off }
+  }
+
+  for (const [name, layout, face] of [['front', boards.front, 'left'], ['back', boards.back, 'right']]) {
+    const e = ends(layout, face)
+    // The two black ends match, which is the whole of "centred": there is no side of the
+    // board that this face's ink leans towards. (A face left as packed leaves its right
+    // end out by the whole slack — 0.6 m on the back face of this pair — which is orders
+    // of magnitude outside this tolerance.)
+    assert.ok(Math.abs(e.left - e.right) < 0.02, `${name} face is centred: ends ${e.left.toFixed(3)} / ${e.right.toFixed(3)} m`)
+    assert.ok(e.left > 0.05, `${name} face keeps its end margin: ${e.left.toFixed(3)} m`)
+    // A face that **fills** the panel is already sitting on it: the shift is nothing
+    // beyond the panel's own 5 cm size step, so this cannot move what the player
+    // composed on the editor's preview (which draws a face on its own panel).
+    if (signPanelSize(layout).w >= panel.w - 1e-9) {
+      assert.ok(Math.abs(e.off) < 0.03, `${name} fills the panel: shift within the size step (${e.off.toFixed(4)})`)
+    } else {
+      assert.ok(e.off > 0.05, `${name} carries less than the steel: it is shifted (${e.off.toFixed(4)})`)
+    }
+  }
+
+  // The one-sided sign of the report: the back face is packed at the page's left edge and
+  // carries a metre of dead steel. The front face here fills the panel exactly.
+  const front = signPanelSize(boards.front).w
+  assert.ok(Math.abs(front - panel.w) < 1e-9, `the longer face defines the panel: ${front} vs ${panel.w}`)
+  const back = ends(boards.back, 'right')
+  assert.ok(back.off > 0.5, `the shorter face is shifted by the slack: ${back.off.toFixed(3)} m`)
+  assert.ok(Math.abs(back.left - back.right) < 0.02, `and lands centred: ${back.left.toFixed(3)} / ${back.right.toFixed(3)} m`)
+  assert.ok(!(Math.abs(back.left - 0.19) < 0.02 && back.right > 1.5), 'not left as packed (which left 1.6 m of steel bare)')
+})
+
+test('the printed ink of a full board is centred, end pads and all', () => {
+  // The report: a board packed right up to the panel's ceiling — the test case is six
+  // arrows, three pointing each way — printed **shifted right**, with the last mark
+  // jammed against the frame and a black band down the left of the board. The editor's
+  // preview was centred, so the 3D board was the one that disagreed.
+  //
+  // The centring is a property of the **pixels**, not of the layout numbers, so it is
+  // asked of the drawing itself: paint the board and measure the box the ink covers.
+  // Reading `signPieces` instead would have missed this — the pieces' own boxes were
+  // centred while the mark inside each box was not, so the geometry "agreed" while the
+  // board printed off to one side.
+  const arrows = ['left', 'left', 'left', 'right', 'right', 'right'].map((arrow, i) => ({
+    id: `c${i + 1}`,
+    kind: 'arrow',
+    arrow,
+    x: (i + 0.5) * 0.33,
+    y: 0.35,
+    scale: 1,
+    side: 'both',
+  }))
+  const boards = settleSignBoards({ front: arrows, back: [] })
+  const panel = signBoardsPanel(boards)
+  const plate = signPlate(panel)
+
+  for (const face of ['left', 'right']) {
+    const { g, inkSpan } = trackingCanvas(plate.width, plate.height)
+    drawSignPanel(g, boards.front, { lines: [LINE], panel }, face)
+    const span = inkSpan()
+    assert.ok(span, `${face}: no ink printed`)
+    // The plate is the panel at `PX_PER_METRE`, so a pixel is a metre/512.
+    const leftGap = span.left / PX_PER_METRE
+    const rightGap = panel.w - span.right / PX_PER_METRE
+    // The two black ends of the board match: within a centimetre, which is a whole
+    // margin's worth of daylight on a board that was out by a third of a pad.
+    assert.ok(
+      Math.abs(leftGap - rightGap) < 0.01,
+      `${face}: ink centred — left ${leftGap.toFixed(4)} m vs right ${rightGap.toFixed(4)} m`,
+    )
+    assert.ok(leftGap > 0.04, `${face}: the leading end keeps its margin (${leftGap.toFixed(4)} m)`)
+  }
 })
 
 test('the two faces are two boards: each prints only its own', () => {
@@ -298,6 +408,64 @@ test('a two-line label is set at its own size, one row under the other, on the p
   assert.ok(en.y - zh.y > en.size, `the rows are stacked, not overprinted: ${en.y - zh.y}px apart`)
   assert.ok(zh.y - zh.size > 0, `the upper row runs off the plate: baseline ${zh.y}, size ${zh.size}`)
   assert.ok(en.y < plate.height, `the lower row runs off the plate: baseline ${en.y} of ${plate.height}`)
+})
+
+/**
+ * The **turn back** (`uturn-left` / `uturn-right`) is the one arrow whose shape is not a rotation
+ * of the straight mark, and it has been wrong twice, both times invisibly to every other test:
+ *
+ *   1. the bend was **swept the wrong way**, so the inner arc crossed the bottom of its own
+ *      ellipse — inside the filled dome — and the mark printed as a blob with a slit in it;
+ *   2. it was drawn as an **outline** (an outer arc and an inner arc, filled between them), which
+ *      cannot have a constant line width: as the bend tightens the inner radius collapses toward
+ *      zero, so the inside of the U necks down to a crescent. No tuning fixes that; only drawing
+ *      the mark as a **stroked centre line** does, because then every point of it is `lineWidth`
+ *      wide by construction.
+ *
+ * So both properties are pinned here: the mark is stroked once with a single width, and its bend
+ * is a semicircle swept over the top — `3π/2` is up on screen in a y-down space, so
+ * `anticlockwise = false` from π to 0 is the one that bulges upward.
+ */
+test('the U-turn arrow is one line of one width, bending over the top', () => {
+  const board = [
+    { id: 'c1', kind: 'arrow', arrow: 'uturn-right', x: 0, y: 0.35, scale: 1.6, side: 'both' },
+    { id: 'c2', kind: 'arrow', arrow: 'uturn-left', x: 0, y: 0.35, scale: 1.6, side: 'both' },
+  ]
+  const { ops, plate } = paint(settleSignBins(board).layout, [LINE], 'left')
+  // One line per mark — the run, the bend and the head run are **one path**, which is what makes
+  // the width uniform. The plate's own frame is a stroke too, so the count is checked **from the
+  // marks' own widths**: exactly two of them, and they are the drawing's, not the frame's (which
+  // is a hairline at `frame * 0.5`).
+  const markWidths = ops.strokeWidths.filter((strokeWidth) => strokeWidth > 2)
+  assert.equal(markWidths.length, 2, `one stroked path per mark: ${markWidths.length} of ${ops.strokeWidths.length} strokes are the marks`)
+  assert.equal(markWidths[0], markWidths[1], `both hands are the same weight: ${markWidths}`)
+  // The bend: one arc per mark, a true semicircle (rx === ry), swept over the top.
+  const arcs = ops.arcs
+  assert.equal(arcs.length, 2, `one bend per mark: ${arcs.length}`)
+  for (const [i, label] of ['uturn-right', 'uturn-left'].entries()) {
+    const bend = arcs[i]
+    assert.ok(Math.abs(bend.r - 0) > 0, `${label}: the bend has a radius`)
+    assert.equal(bend.a0, Math.PI, `${label}: the bend starts on the tail's side`)
+    assert.equal(bend.a1, 0, `${label}: and ends on the head's side`)
+    assert.equal(bend.anticlockwise, false, `${label}: the bend bulges over the top`)
+    // The whole drawing hangs below the bend's springing line: the top of the arc is the mark's
+    // top edge, so a mark that grew would print its arrowhead off the plate.
+    assert.ok(bend.cy - bend.r > 0 && bend.cy - bend.r < plate.height, `${label}: the bend is inside the plate (${bend.cy - bend.r} of ${plate.height})`)
+  }
+  // A square mark: the U is nearly as tall as it is wide, so it must not be given the long box
+  // of a straight arrow (which would letterbox it into a sliver). The box is measured rather
+  // than restated, so the drawing's own size and the palette's ink cannot drift apart.
+  assert.ok(isUturnArrow('uturn-right') && isUturnArrow('uturn-left'))
+  assert.ok(!isUturnArrow('left'), 'the eight directions are not turns back')
+  const uturn = signInkSize({ id: 'u', kind: 'arrow', arrow: 'uturn-right', x: 0, y: 0, scale: 1, side: 'both' })
+  const straight = signInkSize({ id: 's', kind: 'arrow', arrow: 'left', x: 0, y: 0, scale: 1, side: 'both' })
+  assert.equal(uturn.w, uturn.h, `a turn back takes a square box: ${uturn.w} × ${uturn.h}`)
+  assert.ok(uturn.h > straight.h, `and a taller one than a straight arrow's: ${uturn.h} vs ${straight.h}`)
+  // And the drawing fits the **place** it was settled into: the bins of a two-mark row are far
+  // wider than one mark, so a settled board magnifies its marks, and what must hold is that the
+  // drawn mark stays inside its bin or two marks on a board would overlap.
+  const drawnHalfWm = (Math.max(...arcs.map((a) => a.r)) + markWidths[0] / 2) / PX_PER_METRE
+  assert.ok(drawnHalfWm <= settleSignBins(board).pitch / 2, `the U fits its bin: ${drawnHalfWm}`)
 })
 
 test('a sign module round-trips its boards through the save', () => {

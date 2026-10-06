@@ -20,6 +20,7 @@ import { ClockModel } from './models/pieces/ClockModel.ts'
 import { CctvModel } from './models/pieces/CctvModel.ts'
 import { BillboardModel } from './models/pieces/BillboardModel.ts'
 import { GlassModel } from './models/pieces/GlassModel.ts'
+import { DoorModel } from './models/pieces/DoorModel.ts'
 import { CalligraphyModel } from './models/pieces/CalligraphyModel.ts'
 import { LineMapModel } from './models/pieces/LineMapModel.ts'
 import { TvModel } from './models/pieces/TvModel.ts'
@@ -67,6 +68,8 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return new BillboardModel(ctx).build(mod)
     case 'glass':
       return new GlassModel(ctx).build(mod)
+    case 'door':
+      return new DoorModel(ctx).build(mod)
     case 'calligraphy':
       return new CalligraphyModel(ctx).build(mod)
     case 'linemap':

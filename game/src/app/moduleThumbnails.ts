@@ -28,12 +28,13 @@ import { loadPictograms } from '../render/pictograms.ts'
 import { makeSignBoards, signPlate } from '../sim/sign.ts'
 import { DEFAULT_CALLIGRAPHY_AXIS, DEFAULT_CALLIGRAPHY_STYLE, calligraphyGeometry, isCalligraphyAxis, isCalligraphyStyle } from '../sim/calligraphy.ts'
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../sim/glassPanels.ts'
+import { DEFAULT_DOOR_VARIANT, doorSpec } from '../sim/doors.ts'
 import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../sim/linemaps.ts'
 import { liftModule } from '../sim/lifts.ts'
 import { stairFlightsFor, type StairStyle } from '../sim/stairs.ts'
 import { BILLBOARD_SPECS, posterFor, type AdPoster } from '../sim/billboards.ts'
 import { benchSpec } from '../sim/benches.ts'
-import type { BenchVariant, BillboardShape, BillboardVariant, CalligraphyAxis, CalligraphyStyle, ExitBays, GlassVariant, LineMapVariant, Module, StationData, Vec3i } from '../sim/types.ts'
+import type { BenchVariant, BillboardShape, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GlassVariant, LineMapVariant, Module, StationData, Vec3i } from '../sim/types.ts'
 import { MODULE_OPTIONS } from './store.ts'
 
 /** The isometric direction the game opens on (`SceneRenderer.setPreset('iso')`). */
@@ -70,12 +71,15 @@ const SILHOUETTE_POSTER: Record<BillboardShape, AdPoster> = {
 function viewDir(id: string): THREE.Vector3 {
   // Wall-mounted decor faces +y, so its thumbnail looks at the lit front — for
   // every billboard format (`billboard-wide`, `-portrait`, `-square`, `-large`),
-  // the glass panels, the station-name inscriptions and the two network maps.
+  // the glass panels, the station-name inscriptions and the two network maps. A
+  // **门** is floor-standing (it carries its own frame), but the readable face of a
+  // door is its leaf, which is the same view.
   if (
     id === 'tv' ||
     id === 'billboard' ||
     id.startsWith('billboard-') ||
     id.startsWith('glass') ||
+    id.startsWith('door') ||
     id.startsWith('calligraphy') ||
     id.startsWith('linemap')
   ) {
@@ -207,6 +211,17 @@ function sampleModule(id: string, station: StationData): Module | null {
       // The sample is drawn at its own run's centre, exactly as a placed piece is,
       // so a three-cell panel's icon is the wide window the tile promises.
       return { id, type: 'glass', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant } }
+    }
+    case 'door':
+    case 'door-steel-1':
+    case 'door-steel-2':
+    case 'door-wood-1':
+    case 'door-wood-2': {
+      const variant: DoorVariant = id === 'door' ? DEFAULT_DOOR_VARIANT : (id.slice('door-'.length) as DoorVariant)
+      const spec = doorSpec(variant)
+      // The sample is drawn at its own run's centre, exactly as a placed piece is, so
+      // a 双开 door's icon is the wide pair its tile promises rather than one leaf.
+      return { id, type: 'door', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant } }
     }
     case 'calligraphy':
     case 'calligraphy-kai-h':

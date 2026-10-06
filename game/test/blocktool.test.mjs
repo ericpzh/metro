@@ -110,8 +110,9 @@ test('a 半墙 click lays the tagged course its ghost previewed, not a full bloc
   const placed = useStore.getState().station.cells.find((c) => c.x === 1 && c.y === 1 && c.z === 1)
   assert.ok(placed, 'the click should lay a course above the floor')
   assert.ok(placed.tags?.includes('wall'), 'the course is a 墙-tool wall')
-  // A lone column offers all four sides, the geometry's own candidate first.
-  assert.equal(halfWallSide(placed), 's')
+  // A lone column offers all four sides in the tool's own order (`wallSnap.dirs`),
+  // and that order does not move with the pointer — only **R** steps it.
+  assert.equal(halfWallSide(placed), 'n')
 
   // And that tag is what draws it half a block: the same cell meshes a full
   // block without its side.
@@ -269,8 +270,8 @@ test('a 半墙 click only ever adds: the block it stands on is left alone', () =
   const stacked = useStore.getState().station
   assert.equal(stacked.cells.length, countBefore + 2, 'stacking adds one course per click')
   assert.deepEqual(stacked.cells.find((c) => c.x === 1 && c.y === 1 && c.z === 0), floorBefore)
-  assert.equal(halfWallSide(stacked.cells.find((c) => c.x === 1 && c.y === 1 && c.z === 1)), 's')
-  assert.equal(halfWallSide(stacked.cells.find((c) => c.x === 1 && c.y === 1 && c.z === 2)), 's')
+  assert.equal(halfWallSide(stacked.cells.find((c) => c.x === 1 && c.y === 1 && c.z === 1)), 'n')
+  assert.equal(halfWallSide(stacked.cells.find((c) => c.x === 1 && c.y === 1 && c.z === 2)), 'n')
 })
 
 test('a 半墙 on top of an auto-wall ring keeps that ring course', () => {

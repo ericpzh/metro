@@ -1,11 +1,13 @@
 // Walled facility room builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
+import { PieceBuilder, finishSlab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { facilityWallCells, SHOP_WALL_H } from '../../../build/model.ts'
 import { HALF_WALL_T } from '../../../sim/constants.ts'
+import { DOOR_SPECS } from '../../../sim/doors.ts'
 import { finishOf } from '../../../sim/finishes.ts'
+import { buildDoor, doorMaterials } from './DoorModel.ts'
 import type { Cell, Face, Module } from '../../../sim/types.ts'
 
 /* --------------------------------------- walled rooms and the booth */
@@ -31,9 +33,6 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
   const y1 = mod.y + mod.h - 1
   /** Half a block: the wall leaves room for a shelf against it. */
   const WALL_T = HALF_WALL_T
-  /** Door fit-out for 厕所 / 办公室: leaf height and frame thickness. */
-  const DOOR_H = 2.05
-  const FRAME_T = 0.09
 
   // NO fit-out draws its furniture here: shelves, desks, cubicles and sinks are
   // modules of their own (stocked by `placeFacility`, migrated by
@@ -126,43 +125,51 @@ function buildRoom(ctx: ModuleContext, mod: Extract<Module, { type: 'shop' }>): 
   const wallSide = (x: number, y: number): 's' | 'n' | 'w' | 'e' | null =>
     x === x0 ? 'w' : x === x1 ? 'e' : y === y0 ? 's' : y === y1 ? 'n' : null
 
-  // 厕所 / 办公室 close their openings with a real door — jamb, leaf and
-  // handle. A 商店 keeps its open shop front, so this is skipped for `store`.
+  // 厕所 / 办公室 close their openings with a real door — the same free-standing doorway
+  // the 装饰 门 piece builds, set into the hole they cut. A 商店 keeps its open shop
+  // front, so this is skipped for `store`.
+  //
+  // The door is **the 门 piece's own builder** (`DoorModel.ts` `buildDoor`), not a second
+  // drawing of one: the same threshold, posts, head, leaves and fittings, at the
+  // opening's own width. What the doorway adds is where the piece stands — centred on the
+  // opening, on the floor, facing into the room — so every measurement below is the
+  // doorway's own and every member is the piece's.
   if (kind !== 'store' && door.length > 0) {
-    const LEAF_T = 0.06
+    /** A doorway's own height: the 装饰 door's, so the two pieces read as one. */
+    const DOOR_H = DOOR_SPECS['steel-1'].h
+    /** The door's leaf finish here — the room's own door is the stainless piece. */
+    const doorMats = doorMaterials(mats, 'steel')
     const addDoor = (s: 's' | 'n' | 'w' | 'e', dLo: number, dHi: number): void => {
       const alongX = s === 's' || s === 'n'
-      const plane = s === 's' ? y0 + WALL_T / 2 : s === 'n' ? y1 + 1 - WALL_T / 2 : s === 'w' ? x0 + WALL_T / 2 : x1 + 1 - WALL_T / 2
       const start = dLo
       const end = dHi + 1
       const width = end - start
-      const axis = (c: number): [number, number] => (alongX ? [c, plane] : [plane, c])
-      // Frame: a jamb at each end and a lintel across the top, in the wall
-      // plane, so the cut opening keeps a proper surround.
-      const jamb = (a: number): void => {
-        const [jx, jy] = axis(a)
-        slab(g, mats.darkSteel, jx, jy, z0 + (DOOR_H + FRAME_T) / 2, alongX ? FRAME_T : WALL_T + 0.02, alongX ? WALL_T + 0.02 : FRAME_T, DOOR_H + FRAME_T)
-      }
-      jamb(start)
-      jamb(end)
-      const [lx, ly] = axis((start + end) / 2)
-      slab(g, mats.darkSteel, lx, ly, z0 + DOOR_H + FRAME_T / 2, alongX ? width + FRAME_T : WALL_T + 0.02, alongX ? WALL_T + 0.02 : FRAME_T, FRAME_T)
-
-      // A closed leaf across the opening (a pair, meeting in the middle, once
-      // the opening is wide enough that one leaf would read as a gate), with a
-      // vision panel and a handle so it reads as a door, not a wall.
-      const double = width > 1.9
-      const leafW = double ? width / 2 : width - 0.05
-      const centres = double ? [start + leafW / 2, end - leafW / 2] : [(start + end) / 2]
-      for (const c of centres) {
-        const [px, py] = axis(c)
-        slab(g, mats.white, px, py, z0 + DOOR_H / 2, alongX ? leafW : LEAF_T, alongX ? LEAF_T : leafW, DOOR_H)
-        slab(g, mats.glass, px, py, z0 + 1.45, alongX ? leafW * 0.5 : LEAF_T + 0.012, alongX ? LEAF_T + 0.012 : leafW * 0.5, 0.45)
-        // Handle on the free edge nearest the middle of the run.
-        const hc = c <= (start + end) / 2 ? c + leafW / 2 - 0.1 : c - leafW / 2 + 0.1
-        const [hx, hy] = axis(hc)
-        slab(g, mats.steel, hx, hy, z0 + 1.0, alongX ? 0.06 : LEAF_T + 0.06, alongX ? LEAF_T + 0.06 : 0.06, 0.14)
-      }
+      // The opening's centre in the caller's own x/y terms, its floor, and the way **into
+      // the room**. The piece faces that way — `buildDoor` moulds it with its local +y
+      // across the doorway and its run along local x — so the rotation is the quarter-turn
+      // whose own outward step is that direction, and the piece is set on the wall's own
+      // plane at the middle of the opening.
+      const into: [number, number] = s === 's' ? [0, 1] : s === 'n' ? [0, -1] : s === 'w' ? [1, 0] : [-1, 0]
+      // The quarter-turn whose own outward step **is** `into` (`rotateLocal(rot, 0, 1)`):
+      // the piece's local +y is the way it faces, so this is what makes it look into the
+      // room rather than out of it. A quarter turn anticlockwise takes +y to −x, so the
+      // two x-sides are the *opposite* way round from the two y-sides.
+      const rot = into[0] === 1 ? 3 : into[0] === -1 ? 1 : into[1] === 1 ? 0 : 2
+      const face = s === 'w' ? x0 : s === 'e' ? x1 + 1 : s === 's' ? y0 : y1 + 1
+      const at: [number, number, number] = alongX ? [(start + end) / 2, face, z0] : [face, (start + end) / 2, z0]
+      // One leaf for a one-cell opening, a pair once two would read better than one —
+      // the same threshold the shared builder's own leaf widths assume.
+      //
+      // The doorway is built into a **group of its own**, placed and turned like the
+      // standing 门's (`buildStandingDoor`): `buildDoor` sizes every member in the piece's
+      // own frame, so a doorway measured in world axes would swap its run and its depth on
+      // the two x-sides and draw the leaves and head straight through the wall.
+      const doorway = new THREE.Group()
+      doorway.name = 'doorway'
+      doorway.position.set(at[0], at[1], at[2])
+      doorway.rotation.z = (rot * Math.PI) / 2
+      g.add(doorway)
+      buildDoor(doorway, (x, z, y) => [x, y, z], doorMats, { span: width, panelH: DOOR_H, leaves: width > 1.9 ? 2 : 1 })
     }
     // Group the opening cells by wall and door each contiguous run separately.
     const bySide = new Map<'s' | 'n' | 'w' | 'e', Set<number>>()

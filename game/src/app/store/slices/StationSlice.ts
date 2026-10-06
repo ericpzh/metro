@@ -24,7 +24,7 @@ const UNDO_BUDGET = 120_000
 /**
  * Roughly what one snapshot costs to keep: a cell is a small record, a module is a
  * whole piece with its own config (`cells + 4 x modules` is the shipped demo's
- * 11 333 + 1 464 ≈ 12 797, near enough to its ~2 MB in the heap — so the demo holds
+ * 11 627 + 1 576 ≈ 13 203, near enough to its ~2 MB in the heap — so the demo holds
  * **nine** frames of history, where a fresh 2 × 2 station holds all forty).
  */
 function snapshotCost(s: StationState): number {

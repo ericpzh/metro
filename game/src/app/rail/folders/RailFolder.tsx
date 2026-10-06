@@ -8,8 +8,9 @@
 
 import { useStore } from '../../store.ts'
 import { railSummary } from '../../../build/rail.ts'
-import { findSelectedTrack } from '../helpers.ts'
+import { findSelectedTrack, PLATFORM_TILE, TUNNEL_TILE } from '../helpers.ts'
 import { Block } from '../shared/Block.tsx'
+import { RotateTile } from '../shared/RotateTile.tsx'
 import { InlinePanel, interleaveRows } from '../shared/InlinePanel.tsx'
 import { LineItem } from '../items/LineItem.tsx'
 
@@ -60,6 +61,7 @@ export function RailFolder(): React.ReactElement {
                   key="__platform"
                   label="站台"
                   icon="rail"
+                  tile={PLATFORM_TILE}
                   active={tool === 'rail'}
                   shortcut="L"
                   submenu={platformOpen}
@@ -74,6 +76,7 @@ export function RailFolder(): React.ReactElement {
                   key="__tunnel"
                   label="隧道"
                   icon="tunnel"
+                  tile={TUNNEL_TILE}
                   active={tool === 'tunnel'}
                   submenu={tunnelOpen}
                   onClick={() => setTool('tunnel')}
@@ -88,12 +91,7 @@ export function RailFolder(): React.ReactElement {
                   {(tool !== 'tunnel' || !editingTunnel) && (
                     <div className="blockGrid">
                       {tool !== 'tunnel' && (
-                        <Block
-                          label={`旋转 ${((4 - railRot) % 4) * 90}°`}
-                          icon="redo"
-                          shortcut="R"
-                          onClick={() => st().rotateRail()}
-                        />
+                        <RotateTile label={`旋转 ${((4 - railRot) % 4) * 90}°`} onClick={() => st().rotateRail()} />
                       )}
                       {!editingTunnel && (
                         <Block

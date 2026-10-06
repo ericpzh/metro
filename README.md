@@ -11,8 +11,8 @@ either copes or it does not.
 | [`GAME-SPEC.md`](GAME-SPEC.md) | The full design specification (draft 1). |
 | [`PLAN.md`](PLAN.md) | The build order for the playable vertical slice. |
 | [`game/`](game/) | **The game** — React + three.js + a Web Worker sim. Own app, own deploy. |
-| [`art/`](art/) | Thirteen generated concept sheets, as SVG. |
-| [`tools/`](tools/) | The generators for both: `node tools/gen-art.mjs` redraws `art/`. |
+| [`art/`](art/) | Eleven concept sheets: photographs of the game, as SVG. |
+| [`tools/`](tools/) | The generators for both: `node tools/shots.mjs` redraws `art/`. |
 | [`web/`](web/) | The concept-art website — React + Vite. |
 | [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers deploy config for the site. |
 | [`worker/`](worker/) | Optional entry point, only needed for path-prefix routing. |
@@ -21,8 +21,7 @@ either copes or it does not.
 
 The game is a separate application from the art site: its own `package.json`,
 Vite config, tests and Cloudflare Worker (`metro-game`). It reads nothing from
-`web/` and nothing from `art/` — the concept sheets are diagrams, not the
-art-direction target (see PLAN.md §2.3).
+`web/`.
 
 It is reachable two ways, and both are the same build:
 
@@ -64,15 +63,16 @@ places where the vertical slice deliberately diverges from the spec.
 A dark, single scrolling page: every concept sheet runs edge to edge, and its design note is a
 translucent glass panel floating over the drawing. Click any sheet to open it at full resolution.
 
-The sheets are dark (a `sheetBg` gradient from `#151d29` to `#0a0d13`), so the page is built to match
-them rather than fight them.
+Each sheet is a **photograph of the game** — the demo station (动物园) as the shipped build draws
+it — taken by [`tools/shots.mjs`](tools/shots.mjs) through a headless browser, and composed into
+one SVG per sheet. They are dark, so the page is built to match them rather than fight them.
 
-**Panel placement is measured, not eyeballed.** Each sheet is rasterised at a 1440px reference width
-and scanned with an edge-energy map for the quietest band that still keeps the whole card on screen;
-the result is stored per sheet as `panel` in [`web/src/artworks.js`](web/src/artworks.js). Panels
-either hug the 5% margin (`mode: 'edge'`) or sit in a genuine pocket in the middle of the drawing
-(`mode: 'free'`). Below 1100px the overlay would cover too much of the art, so the panel docks to the
-bottom edge of the sheet instead.
+**Panel placement is measured, not eyeballed** on the diagrams the sheets used to be. Each sheet
+was rasterised at a 1440px reference width and scanned with an edge-energy map for the quietest
+band that still keeps the whole card on screen; the result is stored per sheet as `panel` in
+[`web/src/artworks.js`](web/src/artworks.js). Panels either hug the 5% margin (`mode: 'edge'`) or
+sit in a genuine pocket in the middle of the drawing (`mode: 'free'`). Below 1100px the overlay
+would cover too much of the art, so the panel docks to the bottom edge of the sheet instead.
 
 ```bash
 cd web
@@ -237,11 +237,26 @@ else depends on `/metro`.
 
 ## Regenerating the art
 
+The sheets are photographs of the game, so the game has to be built first:
+
 ```bash
-node tools/gen-art.mjs           # rewrites art/*.svg
-node tools/serve.mjs             # a small local viewer for the sheets
+npm run build:game               # writes game/dist — the sheets are shot from it
+node tools/shots.mjs --connect   # or drop --connect to let the tool open its own browser
+node tools/shots.mjs --only 03,07            # one or two sheets
 ```
 
-Every sheet is drawn in the same 2:1 dimetric projection the game uses, so they double as an
-art-direction target rather than loose mood boards. The palette is a stylised read of real Guangzhou
-Metro stations, reinterpreted in [`tools/iso.mjs`](tools/iso.mjs); no photograph is shipped here.
+`shots.mjs` serves `game/dist` on a throwaway port, drives a headless Chrome over the DevTools
+protocol, loads the demo station, and photographs it: it aims each camera, sets the game's own view
+flags (剖切, 隐藏墙壁, which storey is edited), runs the crowd forward at 16x so a picture has people
+in it, and composes the frames into `art/*.svg`, one file per sheet.
+
+**The compositions are data**, not code: [tools/sheet-plan.mjs](tools/sheet-plan.mjs) lists every
+sheet as panels — where each sits on the sheet, where the camera stands, what region of the station
+it frames, and what the game should be showing at the time. Edit that to change a picture.
+
+`art/` stays the single source of truth. `web`'s `prebuild` copies the sheets the gallery lists
+(`web/src/artworks.js`) into `web/public/art` and nothing else, so a sheet the plan stops drawing is
+dropped from the build rather than shipped stale.
+
+The palette is a stylised read of real Guangzhou Metro stations, drawn by the game's own renderer
+from [`game/src/render/`](game/src/render/) — no photograph is shipped here.

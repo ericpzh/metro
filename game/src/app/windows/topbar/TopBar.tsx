@@ -40,7 +40,7 @@ function StationName(): React.ReactElement {
 
   if (draft === null) {
     return (
-      <button className="stationName" onClick={start} title="点击重命名车站">
+      <button className="stationName" onClick={start} aria-label="车站名称，点击重命名">
         {name || '未命名车站'}
       </button>
     )
@@ -95,27 +95,27 @@ export function TopBar(): React.ReactElement {
         <StationName />
       </div>
       <div className="spacer" />
-      <button className="ghost iconBtn" onClick={newStation} title="新建 (Ctrl+N)" aria-label="新建">
+      <button className="ghost iconBtn" onClick={newStation} aria-label="新建">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M4 1.5h5l3 3V14.5H4z" />
           <path d="M9 1.5v3h3" />
           <path d="M8 8.5v4M6 10.5h4" />
         </svg>
       </button>
-      <button className="ghost iconBtn" onClick={loadReference} title="打开示例车站 (Ctrl+Shift+N)" aria-label="示例车站">
+      <button className="ghost iconBtn" onClick={loadReference} aria-label="示例车站">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M1.5 6 8 2l6.5 4" />
           <path d="M3.5 6v6.5M12.5 6v6.5M6.2 6v6.5M9.8 6v6.5M1.5 12.5h13" />
         </svg>
       </button>
-      <button className="ghost iconBtn" onClick={saveToFile} title="保存到文件 (Ctrl+S)" aria-label="保存">
+      <button className="ghost iconBtn" onClick={saveToFile} aria-label="保存">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M3 2h8l2 2v10H3z" />
           <path d="M5 2v3.5h6V2" />
           <rect x="5" y="9" width="6" height="5" />
         </svg>
       </button>
-      <button className="ghost iconBtn" onClick={() => fileRef.current?.click()} title="从文件打开 (Ctrl+L)" aria-label="打开">
+      <button className="ghost iconBtn" onClick={() => fileRef.current?.click()} aria-label="打开">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M1.5 4.5h4.5L7.2 6H14.5v6.5h-13z" />
         </svg>
@@ -137,7 +137,6 @@ export function TopBar(): React.ReactElement {
           onClick={() => {
             if (playing) setPlaying(false)
           }}
-          title="暂停（空格）"
           aria-label="暂停"
           aria-pressed={!playing}
         >
@@ -157,7 +156,6 @@ export function TopBar(): React.ReactElement {
             key={s}
             className={playing && speed === s ? 'on' : ''}
             onClick={() => playAt(s)}
-            title={`${s} 倍速`}
             aria-label={`${s} 倍速`}
             aria-pressed={playing && speed === s}
           >
@@ -165,7 +163,7 @@ export function TopBar(): React.ReactElement {
           </button>
         ))}
       </div>
-      <button className="ghost iconBtn" onClick={restartSim} title="清空所有行人 (Ctrl+R)" aria-label="重启">
+      <button className="ghost iconBtn" onClick={restartSim} aria-label="重启">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
           <path d="M13.5 1.8v3h-3" />

@@ -13,6 +13,8 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import {
   ceilingMountMissing,
+  equipmentReason,
+  equipmentRefusalNotice,
   isMovableModule,
   moduleAt,
   moduleEnvelope,
@@ -140,6 +142,26 @@ test('a hung piece wants the air, not the floor: it shares its cell with floor a
   // A piece a cell along is free, whatever kind it is.
   assert.equal(placementBlocked([clock(2, 2)], cctv(3, 2, 0, 'v2')), false)
   assert.equal(placementBlocked([clock(2, 2)], gate(3, 2, 0, 'g2')), false)
+})
+
+// The ground rule is the **floor-standing** pieces' rule: a hung piece is anchored
+// to the floor cell of the storey it hangs over, but it does not stand on it, so
+// the slab overhead is its whole structural requirement. A sign over a well, or
+// over the rails, is refused by what really refuses it and never by a floor three
+// metres under its rods.
+test('a hung piece answers to the slab, never to the ground under it', () => {
+  const slab = [ceilingAt(2, 2)]
+  assert.equal(equipmentReason(slab, [], clock(2, 2), true), '', 'the slab hangs it, floor or no floor')
+  assert.equal(equipmentReason([], [], clock(2, 2), true), 'ceiling', 'open sky is what it lacks')
+  assert.match(equipmentRefusalNotice('ceiling'), /天花板/)
+  // A rail's dug bed is still refused — and now says so, rather than blaming a
+  // floor the piece was never standing on.
+  const bed = [{ x: 2, y: 2, z: 0, fill: 'solid', finish: { top: 'floor.track' } }, ...slab]
+  assert.equal(equipmentReason(bed, [], clock(2, 2), true), 'track')
+  // The same floorless cell still refuses a piece that really does stand: the
+  // exemption is the hung piece's, not the cell's.
+  const tvm = createModule('tvm', 2, 2, 0, 't', 0)
+  assert.equal(equipmentReason(slab, [], tvm, true), 'floor')
 })
 
 test('a piece is found from its cell and refused on a track bed', () => {

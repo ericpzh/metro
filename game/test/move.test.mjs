@@ -58,7 +58,7 @@ const flat = (mods = [], extra = []) => state(station(extra).cells, mods)
 /* ----------------------------------------------------------- what can move */
 
 test('the flat 设备 and 装饰 move; the structural pieces do not', () => {
-  for (const type of ['gate', 'fence', 'tvm', 'vending', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'bin', 'extinguisher', 'billboard', 'glass', 'calligraphy', 'linemap', 'tv', 'sign']) {
+  for (const type of ['gate', 'fence', 'tvm', 'vending', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'bin', 'extinguisher', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign']) {
     assert.equal(isMovableModule(piece(type, 1, 1)), true, `${type} is movable`)
   }
   // A run carves its openings, an exit lays its own floor, a room owns the walls

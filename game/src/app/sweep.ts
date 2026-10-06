@@ -14,6 +14,7 @@ import type { Module } from '../sim/types.ts'
 import { benchSpec } from '../sim/benches.ts'
 import { billboardSpec } from '../sim/billboards.ts'
 import { glassSpec } from '../sim/glassPanels.ts'
+import { doorSpec } from '../sim/doors.ts'
 import { lineMapSpec } from '../sim/linemaps.ts'
 import { removeModule, type StationState } from '../build/model.ts'
 
@@ -52,6 +53,7 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
   'cctv',
   'billboard',
   'glass',
+  'door',
   'calligraphy',
   'linemap',
   'tv',
@@ -78,6 +80,9 @@ export function sweepFamily(mod: Module): string | null {
   // it. A 站名 sweeps by hand and axis, and a 线网图 by mount, so a drag takes the
   // wall maps and leaves the totems (and vice versa).
   if (mod.type === 'glass') return `glass:${glassSpec(mod.cfg?.variant).variant}`
+  // A 门 sweeps by variant too: a 双开 stainless door does not collect the single
+  // wooden ones beside it, and a drag takes the doors of one finish only.
+  if (mod.type === 'door') return `door:${doorSpec(mod.cfg?.variant).variant}`
   if (mod.type === 'calligraphy') return `calligraphy:${mod.cfg?.style ?? 'kai'}:${mod.cfg?.axis ?? 'h'}`
   if (mod.type === 'linemap') return `linemap:${lineMapSpec(mod.cfg?.mount).variant}`
   return mod.type

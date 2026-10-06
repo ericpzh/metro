@@ -33,6 +33,7 @@ export function ZoneFolder(): React.ReactElement {
         <Block
           key={z.id}
           label={z.label}
+          tile={z.id}
           thumb={zoneThumbs[z.id]}
           tone={`#${z.colour.toString(16).padStart(6, '0')}`}
           active={tool === 'zone' && zoneBrush === z.id}

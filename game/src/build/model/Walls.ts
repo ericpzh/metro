@@ -149,7 +149,8 @@ function wallVoidEdges(cells: readonly Cell[], x: number, y: number, z: number):
  *
  * `cells` is the station's cell list, `cell` the hovered base cell, `z` the
  * storey the wall rises from, and `pointer` the pointer's world `[x, y]` when
- * the caller has one — it only breaks a tie, so a rule still holds without it.
+ * the caller has one — it only orders the face `dir` returns, so a rule still
+ * holds without it and the list `dirs` hands the cycle is the same either way.
  * `cycle` is how many times **R** has stepped the candidate list; it wraps, so
  * the choice is always valid.
  */
@@ -160,7 +161,12 @@ export interface WallSnap {
   z: number;
   /** The face the column shows to open space — the candidate `cycle` picked. */
   dir: WallDir;
-  /** Every direction **R** may choose, best-first. */
+  /**
+   * Every direction **R** may choose, best-first: the faces the geometry owns
+   * first, then the rest. A pure function of the geometry and `cycle` — the pointer
+   * never enters it, so a piece that reads its order (a 半墙's panel side, a 三角's
+   * hugged side) cannot turn as the pointer crosses the cell.
+   */
   dirs: WallDir[];
 }
 
@@ -175,15 +181,39 @@ export function wallSnap(
   const here = wallVoidEdges(cells, ax, ay, az);
   const pick = (dirs: WallDir[]): WallDir => dirs[((cycle % dirs.length) + dirs.length) % dirs.length];
 
+  /**
+   * The candidate list **R** steps: the faces the geometry owns, in the tool's own
+   * `WALL_DIRS` order. The pointer is deliberately not part of it.
+   *
+   * A pointer preference may only order the one face the 墙 tool lays *now* (the
+   * `dir` it returns), never the list the cycle walks. Were it in this list, the
+   * list — and so every piece that reads its order, the 半墙 panel side and the 三角
+   * hugged side — would turn as the pointer crossed the cell: the piece would
+   * re-aim itself under a mouse that never left the tile, which is exactly what a
+   * cut block must not do. `triangleSideDirs` / `halfWallSideDirs` rank by
+   * membership in this list, so a list that is a pure function of the geometry
+   * makes the piece a pure function of the geometry and **R**.
+   *
+   * A cell with nothing open at all (rule 3's last resort) is the one case with no
+   * geometry to read: it offers all four, so **R** can still turn the piece.
+   */
+  const candidates = (dirs: WallDir[]): WallDir[] => {
+    const out: WallDir[] = [];
+    for (const d of WALL_DIRS) if (dirs.includes(d) && !out.includes(d)) out.push(d);
+    return out.length > 0 ? out : [...WALL_DIRS];
+  };
+
   // Rules 1 and 2: the column stays where it is; only its face is in question.
   if (here.length > 0) {
+    // The 墙 tool's own face at a corner: the pointer's own quadrant first, then the
+    // geometry's order. `dir` is the one thing the pointer still decides.
     const dirs: WallDir[] = [];
     const offer = (d: WallDir | null): void => {
       if (d !== null && here.includes(d) && !dirs.includes(d)) dirs.push(d);
     };
     offer(auto);
     for (const d of WALL_DIRS) offer(d);
-    return { x: ax, y: ay, z: az, dir: pick(dirs), dirs };
+    return { x: ax, y: ay, z: az, dir: pick(dirs), dirs: candidates(here) };
   }
 
   // Rule 3: no edge here, so step to the nearest neighbour that has one.
@@ -202,11 +232,12 @@ export function wallSnap(
       best = { x, y, dir: edges.includes(back) ? back : edges[0], dist };
     }
   }
-  if (best !== null) return { x: best.x, y: best.y, z: az, dir: best.dir, dirs: [best.dir] };
+  if (best !== null) return { x: best.x, y: best.y, z: az, dir: best.dir, dirs: candidates([best.dir]) };
   // Nowhere nearby has an edge either (a lone buried cell): stand it on the
   // tool's own default face and let `addWalls` report the reserved opening or
-  // the missing floor.
-  return { x: ax, y: ay, z: az, dir: 's', dirs: ['s'] };
+  // the missing floor. The default is also *in* `dirs` (all four are on offer),
+  // so **R** can still turn the piece from here.
+  return { x: ax, y: ay, z: az, dir: 's', dirs: candidates([]) };
 }
 
 /**
@@ -318,6 +349,13 @@ export function halfWallRunSide(baseCells: Array<[number, number, number]>, open
  * stands its full-height face there with no key pressed, exactly as a 半墙 dropped on
  * a patch edge hugs the edge: the piece hugs the wall rather than cutting its slope
  * into it. **R** then steps the rest — four presses, four sides, and round again.
+ *
+ * `open` is a **ranked list of open sides**, and only membership decides which sides
+ * are candidates: it comes from `wallSnap`'s `dirs`, which is the geometry's own answer
+ * and not the pointer's (a canonical `WALL_DIRS` order), so nothing but the block's
+ * neighbours and **R** can turn the piece. A caller handing another order would still
+ * move the piece — `rank` reads `open`'s own first entry — which is why `wallSnap` is
+ * the one place the list is built.
  */
 export function triangleSideDirs(open: readonly WallDir[]): TriSide[] {
   const rank = (d: WallDir): number => {
@@ -327,7 +365,10 @@ export function triangleSideDirs(open: readonly WallDir[]): TriSide[] {
   return [...TRI_SIDES].sort((a, b) => {
     const ra = rank(a);
     const rb = rank(b);
-    // Equal ranks keep the clockwise order, so **R** still walks the cell.
+    // Equal ranks keep the clockwise order, so **R** still walks the cell. Equal is
+    // the ordinary case — several faces are open at once — and it is what makes the
+    // result a function of *which* faces are open: only the first entry of `open`
+    // outranks the rest, and `wallSnap` hands that list in a canonical order.
     return ra === rb ? TRI_SIDES.indexOf(a) - TRI_SIDES.indexOf(b) : ra - rb;
   });
 }

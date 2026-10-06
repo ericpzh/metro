@@ -44,17 +44,24 @@ export const PANEL_MIN_H = 0.7
  * The board's ceiling. A sign that needs more room than this has too much on it:
  * the editor stops growing here and the layout is clamped inside, which is what
  * keeps a board from becoming a wall across the concourse.
+ *
+ * It is 3.5 m because that is the least steel a **legal full row** fits in: six
+ * arrows are `6 × (0.48 + 2 × SIGN_PIECE_PAD)` = 3.24 m of row, and a board can only
+ * hold them *centred* — which is what the print does — if it also has the quiet end
+ * pad at each end, 3.48 m. A ceiling of 3.4 m packed six arrows against one frame and
+ * printed them off centre (the report this was raised for); 3.5 m fits all six and a
+ * seventh still does not (`test/sign.test.mjs` pins both halves).
  */
-export const PANEL_MAX_W = 3.4
+export const PANEL_MAX_W = 3.5
 export const PANEL_MAX_H = 1.6
 
 /**
- * The quiet margin at **each end** of the row, in metres: the pack starts the
- * first mark one pad from the frame and `signPanelSize` ends the panel one pad
- * past the last mark, so the black ends match on the left and the right — and
- * on the back face, which mirrors them. It is roomier than the drawn frame, so
- * the panel's 5 cm rounding cannot eat it; on a board packed to the ceiling the
- * ceiling pinches it instead of growing into a wall.
+ * The quiet margin at **each end** of the row, in metres: `signPanelSize` adds it
+ * to both ends of the row's own span, and the pack starts the first mark one pad
+ * from the frame — so the black ends match on the left and the right, and on the
+ * back face, which mirrors them. It is roomier than the drawn frame, so the panel's
+ * 5 cm rounding cannot eat it; on a board packed to the ceiling the ceiling pinches
+ * it instead of growing into a wall.
  */
 export const PANEL_END_PAD = 0.12
 
@@ -150,13 +157,39 @@ export const SIGN_ICON_LABEL: Record<SignIcon, string> = {
 }
 
 /** The shapes an arrow component can point. */
-export type SignArrow = 'left' | 'right' | 'up' | 'down' | 'up-left' | 'up-right' | 'down-left' | 'down-right'
+export type SignArrow =
+  | 'left'
+  | 'right'
+  | 'up'
+  | 'down'
+  | 'up-left'
+  | 'up-right'
+  | 'down-left'
+  | 'down-right'
+  /**
+   * The two **turns back**: a U-turn arrow, which is not one of the eight directions. It is a
+   * drawn shape of its own — a shaft up, a bend, and a head coming back down — because no
+   * rotation of a straight arrow is a U. `uturn-right` is the one that turns the traveller
+   * round to their right; the other is its mirror.
+   */
+  | 'uturn-right'
+  | 'uturn-left'
 
-export const SIGN_ARROWS: readonly SignArrow[] = ['left', 'right', 'up', 'down', 'up-left', 'up-right', 'down-left', 'down-right']
+export const SIGN_ARROWS: readonly SignArrow[] = [
+  'left',
+  'right',
+  'up',
+  'down',
+  'up-left',
+  'up-right',
+  'down-left',
+  'down-right',
+  'uturn-right',
+  'uturn-left',
+]
 
 /** The arrow's own short label, for the inspector's chips. */
-export const SIGN_ARROW_LABEL: Record<SignArrow, string> = {
-  left: '←',
+export const SIGN_ARROW_LABEL: Record<SignArrow, string> = {  left: '←',
   right: '→',
   up: '↑',
   down: '↓',
@@ -164,6 +197,19 @@ export const SIGN_ARROW_LABEL: Record<SignArrow, string> = {
   'up-right': '↗',
   'down-left': '↙',
   'down-right': '↘',
+  'uturn-right': '掉头向右',
+  'uturn-left': '掉头向左',
+}
+
+/**
+ * True for the two **turns back**. A U-turn arrow is the one mark whose shape is not a
+ * direction: its box is a square like a pictogram's (see `signInkSize`), and it is **stroked
+ * as a centre line** rather than filled as an outline — the shaft, the shoulder and the head
+ * are one pen stroke (`render/signFace.ts`) — while the editor's palette shows it beside the
+ * eight directions because that is where a player looks for it.
+ */
+export function isUturnArrow(arrow: SignArrow): boolean {
+  return arrow === 'uturn-right' || arrow === 'uturn-left'
 }
 
 /**
@@ -262,17 +308,44 @@ export function signTextLineMax(i: number): number {
 export const SIGN_TEXT_LINES = 2
 
 /**
- * How much smaller a label's **second** line prints than its first, so one text box
- * carries a sign's two languages in their own sizes: 中文 large on the first line,
- * English small under it. The ratio is one number for the model, the renderer and
- * the editor's tiles, so all three agree on how wide the label is. A label of one
- * line is unaffected.
+ * How much smaller a label's gloss (English) prints than its 中文, so one text box
+ * carries a sign's two languages in their own sizes: 中文 large, English small under
+ * it. The ratio is one number for the model, the renderer and the editor's tiles, so
+ * all three agree on how wide the label is.
+ *
+ * It is sized by **ink height**, which is what the eye reads, not by em: a CJK glyph
+ * fills its em box, while a Latin cap-height is only about 0.72 of it — so at 1:1 the
+ * English already looks a quarter shorter, and 0.62 still printed it taller and
+ * heavier than the 中文 it sits under (the report: "English font is way too large").
+ * A Latin em at 0.5 puts its caps at about 0.36 of the CJK row, the proportion the
+ * reference boards print.
  */
-export const SIGN_TEXT_EN_SCALE = 0.62
+export const SIGN_TEXT_EN_SCALE = 0.5
 
-/** The size multiplier of a label's line `i` (0-based): the first at full size. */
-export function signTextLineScale(i: number): number {
-  return i === 0 ? 1 : SIGN_TEXT_EN_SCALE
+/**
+ * True for a line that is **Latin-only** — a gloss with no CJK of its own. A gloss is
+ * the only line that prints small, and it is recognised by its own content rather than
+ * by being the second row: a two-row label is always 中文 over English (the editor's
+ * two boxes), but a *one-row* one is whatever the player typed, and an English-only
+ * label is a gloss on a board that happens to have no 中文 on it.
+ */
+export function signTextIsGloss(line: string): boolean {
+  return !hasCjk(line)
+}
+
+/** True when `text` carries a CJK ideograph — the mark of a line printed at full size. */
+function hasCjk(text: string): boolean {
+  return /[\u2e80-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(text)
+}
+
+/**
+ * The size multiplier of one line of a label: full size for 中文, the gloss ratio for
+ * an English row. **Content, not index**, so the layout, the printed face and the
+ * editor's tiles cannot disagree about which row is small — they all ask this.
+ */
+export function signTextLineScale(i: number, line = ''): number {
+  if (i === 0) return 1
+  return signTextIsGloss(line) ? SIGN_TEXT_EN_SCALE : 1
 }
 
 /** The most components one panel holds, so a sign cannot become a novel.
@@ -432,6 +505,12 @@ export function signInkSize(c: SignComponent, measure: SignMeasure = estimateSig
   const scale = clampSignScale(c.scale)
   switch (c.kind) {
     case 'arrow':
+      // A **turn back** is not a long mark: its U is nearly as tall as it is wide, so it takes a
+      // square box of its own rather than the 1.6:1 one a straight arrow needs. Sized a little
+      // above a pictogram so the two read as the same weight side by side on a board — a
+      // pictogram is a solid silhouette and this is a bold line, and an outline drawn at the
+      // same box height looks like the smaller mark.
+      if (isUturnArrow(c.arrow)) return { w: SIGN_SIZE.icon.w * 1.2 * scale, h: SIGN_SIZE.icon.h * 1.2 * scale }
       return { w: SIGN_SIZE.arrow.w * scale, h: SIGN_SIZE.arrow.h * scale }
     case 'line':
       return { w: SIGN_SIZE.line.w * scale, h: SIGN_SIZE.line.h * scale }
@@ -442,9 +521,11 @@ export function signInkSize(c: SignComponent, measure: SignMeasure = estimateSig
       const lines = signTextLines(c.text)
       if (lines.length === 0) return { w: 0, h: 0 }
       const size = signTextSize(scale)
-      // Each row is measured at its own size (the gloss line is smaller), and the
-      // box is as tall as the stack of rows at the first line's size.
-      const w = Math.max(...lines.map((l, i) => measure(l, size * signTextLineScale(i))))
+      // Each row is measured at the size **it** prints at — the scale is asked per
+      // line, because a gloss is recognised by its own content (`signTextLineScale`)
+      // and not by the row it happens to be on — and the box is as tall as the stack
+      // of rows at the first line's size.
+      const w = Math.max(...lines.map((l, i) => measure(l, size * signTextLineScale(i, l))))
       return { w, h: size * 1.15 * lines.length }
     }
   }
@@ -527,18 +608,23 @@ export function packSignRow(
     .map((c, i) => ({ c, i, w: signPieceSize(c, measure).w }))
     .filter((p) => p.w > 0)
   const occupied: Array<[number, number]> = []
-  const at = new Map<string, number>()
+  // **The place in the list, not the id.** A board numbers its own marks from `c1`, so two
+  // boards number them *the same* — and `signMarkFits` packs exactly such a row
+  // (`[...front, carried]`, a mark carried off the other face). Keyed by id, the two marks
+  // that share one came back with the same `x`, which reads as a row that has folded two
+  // marks onto one place: the board was called full while it had room for both.
+  const at = new Map<number, number>()
 
   // 1. The anchors: held pieces, exactly where they were put, left to right —
   //    but never inside the row's own end pad.
-  for (const { c, w } of items.filter((p) => isLocked(p.c.id)).sort((a, b) => a.c.x - b.c.x || a.i - b.i)) {
+  for (const { c, i, w } of items.filter((p) => isLocked(p.c.id)).sort((a, b) => a.c.x - b.c.x || a.i - b.i)) {
     const centre = Math.max(PANEL_END_PAD + w / 2, c.x)
-    at.set(c.id, centre)
+    at.set(i, centre)
     occupied.push([centre - w / 2, centre + w / 2])
   }
   // 2. Everything else, in order of where it wants to be, into the first room at or
   //    after that point that holds it.
-  for (const { c, w } of items.filter((p) => !isLocked(p.c.id)).sort((a, b) => a.c.x - b.c.x || a.i - b.i)) {
+  for (const { c, i, w } of items.filter((p) => !isLocked(p.c.id)).sort((a, b) => a.c.x - b.c.x || a.i - b.i)) {
     // The request is read as written, which is what lets a drop past the end of the
     // board move the end of the board. A request past the ceiling is folded back to
     // the last place a piece can sit, so a board that runs out of room piles its
@@ -552,11 +638,11 @@ export function packSignRow(
     // No room left between here and the ceiling: the piece takes the middle of what
     // the row leaves, which is where a board that is genuinely over-full puts it.
     if (centre + w / 2 > PANEL_MAX_W) centre = Math.max(PANEL_END_PAD + w / 2, PANEL_MAX_W - w / 2)
-    at.set(c.id, centre)
+    at.set(i, centre)
     occupied.push([centre - w / 2, centre + w / 2])
   }
   // 3. Back into the requested order, so the roster reads like the board.
-  return layout.map((c) => (at.has(c.id) ? { ...c, x: at.get(c.id) as number, y: ROW_Y } : c))
+  return layout.map((c, i) => (at.has(i) ? { ...c, x: at.get(i) as number, y: ROW_Y } : c))
 }
 
 /**
@@ -700,6 +786,43 @@ export function signLayoutInserted(layout: readonly SignComponent[], comp: SignC
   return signLayoutInOrder([...layout.slice(0, at), comp, ...layout.slice(at)], pitch)
 }
 
+/**
+ * A mark **carried from one board to the other**: the two lists that result, with the mark
+ * off the board it was on and in the place it was aimed at on the one it joins.
+ *
+ * It arrives as a **new mark**, whose id is minted against the board it lands on
+ * (`nextSignComponentId`) — because a board numbers its own marks. Two boards therefore both
+ * hold a `c1`, a `c2` and a `c3`, and a mark handed over as it stands puts a *second* mark of
+ * that name in the row it joins. Nothing in a row may be named twice: the row is keyed by id
+ * (the bins' own keys, a reorder's `findIndex`, a delete's filter), and `signMarkFits` lays
+ * the two boards' marks out in **one** row to ask about room, where a repeated id is two
+ * marks in one place and the row reads as already full. Re-minting it here is also what makes
+ * the removal safe: the mark is taken off **its own** list, where its id can only be its own —
+ * a filter by that id against the board it is *joining* deletes whichever mark there happens
+ * to share the name, which is a drag that eats a neighbour instead of moving one.
+ *
+ * `source` is read for the mark and never for its place: the board it leaves keeps the order
+ * it had, and the board it joins is laid in order at the place the pointer aimed at
+ * (`signLayoutInserted`). The returned `id` is what the mark is called now, which is what a
+ * caller following it through a drag has to hold on to.
+ */
+export function signLayoutCarried(
+  source: readonly SignComponent[],
+  target: readonly SignComponent[],
+  carriedId: string,
+  index: number,
+  pitch: number = SIGN_BIN_PITCH,
+): { source: SignLayout; target: SignLayout; id: string } {
+  const comp = source.find((c) => c.id === carriedId)
+  if (!comp) return { source: [...source], target: [...target], id: carriedId }
+  const arriving = { ...comp, id: nextSignComponentId(target) }
+  return {
+    source: source.filter((c) => c.id !== carriedId),
+    target: signLayoutInserted(target, arriving, index, pitch),
+    id: arriving.id,
+  }
+}
+
 /* -------------------------------------------------------------- the board */
 
 /**
@@ -708,26 +831,44 @@ export function signLayoutInserted(layout: readonly SignComponent[], comp: SignC
  * A 指示牌 is a list read left to right, so the board has a fixed height (the
  * floor) and grows only along its length:
  *
- *   width = the last mark's right edge + one end pad
+ *   width = the row's own span + one quiet end pad at **each** end
  *
- * The pack starts the row one end pad from the frame, so the two black ends
- * match: `right` is the outermost `centre + half its size` on the row, which
- * makes the size a pure function of the layout — and therefore stable under
- * repetition: `settleSignLayout` packs the row and then measures it, and
- * measuring the packed row asks for the board the pack already fitted. Growth
- * is clamped to `PANEL_MAX_W`, past which the content is packed inside instead.
+ * The pad is added to both ends of the row's own span — from the leftmost mark's
+ * left edge to the rightmost mark's right edge — so the two black ends of a board
+ * are equal by construction, and the board is a **centred** function of its
+ * content rather than of the pack's own left-to-right cursor. Sizing it from the
+ * last mark's right edge alone (as this did) left the left end always one pad
+ * wide while the right end took all the slack, so a row long enough to reach the
+ * ceiling printed with a black band down its left and its last mark jammed against
+ * the right frame: the report's "shifted right and not centring".
+ *
+ * A row that still fits is unchanged — a row packed from `PANEL_END_PAD` spans
+ * `pad … right`, and `right + pad` is the same number either way — so this only
+ * moves a board that has run into the ceiling, which is exactly the case that was
+ * wrong. Growth is clamped to `PANEL_MAX_W`, past which the content is packed
+ * inside instead.
  */
 export function signPanelSize(layout: readonly SignComponent[], measure: SignMeasure = estimateSignTextWidth): SignPanelSize {
+  // The leftmost edge, as `null` until a mark sets it: 0 is a **position** a mark may
+  // legitimately hold (a centred mark whose own left edge lands on the origin), so it
+  // cannot double as "unset" — a later mark at a larger left edge would then overwrite
+  // the minimum and shrink the measured board.
+  let left: number | null = null
   let right = 0
   for (const c of layout) {
     const { w } = signPieceSize(c, measure)
     if (w <= 0) continue
-    right = Math.max(right, c.x + w / 2)
+    const markLeft = c.x - w / 2
+    const markRight = c.x + w / 2
+    left = left === null ? markLeft : Math.min(left, markLeft)
+    right = Math.max(right, markRight)
   }
+  if (right <= 0 || left === null) return { w: PANEL_MIN_W, h: PANEL_MIN_H }
+  const span = right - left
   return {
     // The row is one mark tall, so the floor is always tall enough: the board never
     // grows vertically and no content ever flows onto a second row.
-    w: clampPanel(PANEL_MIN_W, Math.max(PANEL_MIN_W, right + PANEL_END_PAD), PANEL_MAX_W),
+    w: clampPanel(PANEL_MIN_W, Math.max(PANEL_MIN_W, span + PANEL_END_PAD * 2), PANEL_MAX_W),
     h: PANEL_MIN_H,
   }
 }
@@ -745,21 +886,36 @@ export function signPanelSize(layout: readonly SignComponent[], measure: SignMea
  * 3.36 m of row and nine pictograms are 3.36 m of it (and reach the ceiling). Asking
  * this per mark is what keeps the palette, the board's own size and the print honest about one
  * another, instead of a count that would be wrong for every kind but one.
+ *
+ * **The question is about the board and the mark, and about nothing else** — so the row is
+ * asked about as the *list* it is, not as the positions it happens to be written at. A mark
+ * carries an `x` from wherever it stands now: `0` out of the palette, and the place it holds
+ * on 背面 when it is carried across from there — a position on a board it is not going to.
+ * Read as written, that position scatters the row: the pack leaves the gaps the spread
+ * implies, the gaps are not room a new mark can use, and a mark whose request lands near the
+ * ceiling is folded back onto a neighbour there — so the same arrow was taken from the
+ * palette and refused from the other row, and 正面 was called full with room on it. Laying
+ * every piece at the row's own start (`PANEL_END_PAD`, which the pack resolves into
+ * first-fit order) makes the answer a property of the board and the mark alone: the answer
+ * for a mark dragged off the other face is the one its own palette tile gets.
  */
 export function signMarkFits(
   layout: readonly SignComponent[],
   comp: SignComponent,
   measure: SignMeasure = estimateSignTextWidth,
 ): boolean {
-  const packed = packSignRow([...layout, comp], undefined, measure)
   const w = signPieceSize(comp, measure).w
   if (w <= 0) return true
+  const packed = packSignRow(
+    [...layout, comp].map((c) => ({ ...c, x: PANEL_END_PAD })),
+    undefined,
+    measure,
+  )
   // Ask the **packed row**, not the added mark's own slot. A resolved row has no two
   // boxes overlapping — the pack only ever stacks when it has run out of row — so any
   // overlapping pair means the board is full. Testing the new mark alone cannot see
-  // that: the palette's mark asks for `x = 0` (`SignEditor.markFor`), so the pack
-  // always finds *it* room at the row's start and pushes everything else along
-  // instead, and the two marks it stacks are ones the caller never looked at.
+  // that: a mark asking for `x = 0` is placed at the row's start and pushes everything
+  // else along instead, and the two marks it stacks are ones the caller never looked at.
   const boxes = packed.map((c) => {
     const box = signPieceSize(c, measure)
     return { left: c.x - box.w / 2, right: c.x + box.w / 2 }

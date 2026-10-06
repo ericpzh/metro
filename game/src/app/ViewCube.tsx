@@ -414,7 +414,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
   return (
     <div className="viewNav">
       <DepthRail />
-      <div className="viewCube" title="拖动旋转 · 点面看正投影 · 点角看立体图">
+      <div className="viewCube">
         <div className="viewCubeStage">
           <svg
             viewBox={`${-VIEW} ${-VIEW} ${VIEW * 2} ${VIEW * 2}`}
@@ -520,7 +520,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
               ))}
             </g>
           </svg>
-          <button type="button" className="viewNavBtn viewHomeBtn" onClick={goHome} title="回到默认视角 (Ctrl+H)" aria-label="回到默认视角">
+          <button type="button" className="viewNavBtn viewHomeBtn" onClick={goHome} aria-label="回到默认视角">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 10.5 12 3l9 7.5" />
               <path d="M5 9.5V21h14V9.5" />
@@ -531,7 +531,6 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
             <button
               type="button"
               className="viewNavBtn viewPanBtn"
-              title="视角升高 (Ctrl+E)"
               aria-label="视角升高"
               onPointerDown={(e) => panDown(e, 1)}
               onPointerUp={() => holdPan(0)}
@@ -545,7 +544,6 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
             <button
               type="button"
               className="viewNavBtn viewPanBtn"
-              title="视角降低 (Ctrl+Q)"
               aria-label="视角降低"
               onPointerDown={(e) => panDown(e, -1)}
               onPointerUp={() => holdPan(0)}
@@ -575,7 +573,6 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
             step={1}
             value={fovDeg}
             aria-label="视场角"
-            title="视场角：45° 默认 · 30° 长焦（望远）· 120° 广角（短焦，看得更多、畸变更强）"
             onChange={(e) => setFov(Number(e.target.value))}
             onPointerUp={(e) => e.currentTarget.blur()}
           />
@@ -618,7 +615,7 @@ function DepthRail(): React.ReactElement {
   }
 
   return (
-    <div className="depthRail" title="高度：Q 下一层 / E 上一层">
+    <div className="depthRail">
       <div
         className="depthTrack"
         ref={trackRef}

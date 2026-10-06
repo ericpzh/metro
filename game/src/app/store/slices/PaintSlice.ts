@@ -1,6 +1,7 @@
 // The 材质 slice: the paint brush's mode and finish (§4.3). `N` 单块 / `M` 整面
-// is the folder's own setting; 取色 (`I`) is a momentary overlay on one of the
-// two brushes rather than a third one.
+// is the folder's own setting; the `pick` overlay survives from when 取色 (`I`)
+// lived here — eyedropping moved to the 工具 folder's 吸取 (`P`), which lifts
+// equipment as well as finishes, and `I` now aliases that tool.
 
 import type { StateCreator } from 'zustand'
 import { finishDef } from '../../../sim/finishes.ts'
@@ -32,7 +33,7 @@ export interface PaintSlice {
   enamelColour: number
 
   setPaintMode: (m: PaintMode) => void
-  /** Hand the brush back after 取色 (`I`), in whichever of `N`/`M` it was entered with. */
+  /** Hand the brush back after its own `pick` overlay, in whichever of `N`/`M` it was entered with. */
   resumePaintMode: () => void
   /**
    * The 材质 tile's click: point the brush at a finish and switch to the paint
