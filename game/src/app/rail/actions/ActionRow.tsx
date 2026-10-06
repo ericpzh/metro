@@ -28,6 +28,7 @@ import {
   isEscalatorType,
   isGateType,
   isRotatableType,
+  isSignType,
   isStairType,
   useStore,
   type ModuleFamilyKey,
@@ -95,7 +96,9 @@ function ActionTiles(): React.ReactElement {
       {piece !== null && isRotatableType(piece) ? (
         <RotateTile label={`旋转 ${((4 - moduleRot) % 4) * 90}°`} onClick={() => st().rotateModule()} />
       ) : null}
-      {piece === 'sign' ? (
+      {/* Both 指示牌 mounts — the hung board and the wall board — are composed on the
+          same board editor, so the tile follows the piece and not one palette id. */}
+      {piece !== null && isSignType(piece) ? (
         <Block
           label="自定义"
           icon="board"

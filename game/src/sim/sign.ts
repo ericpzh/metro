@@ -22,12 +22,15 @@
 // before a sign had two boards reads exactly like a new one.
 //
 // The board **sizes itself to what it carries**. `signPanelSize(layout)` gives the
-// panel its metres — wider than `PANEL_MIN_W` when the components need the room,
-// taller than `PANEL_MIN_H` when they stack — clamped to a ceiling so a sign
-// never grows into a wall. Every component is placed in metres from the panel's
+// panel its metres — wider than `PANEL_MIN_W` when the components need the room —
+// clamped to a ceiling so a sign
+// never grows into a wall. Its **height** is the floor, always (`PANEL_MIN_H`): the row
+// is one mark tall, so nothing stacks and `PANEL_MAX_H` is only the ceiling a future
+// two-row board would need. Every component is placed in metres from the panel's
 // bottom-left, so making the panel bigger moves nothing; the renderer scales
 // `PX_PER_METRE` pixels per metre whatever the panel's own size is.
 
+import { wallCourses } from './courses.ts'
 import type { LineDef, Module } from './types.ts'
 
 /* ------------------------------------------------------------------ panel */
@@ -121,9 +124,10 @@ export interface SignLineSource {
 
 /**
  * The wayfinding pictograms a component may wear, in the order the inspector
- * lists them. Each one is a **bitmap** — `render/signFace.ts` prints the asset
+ * lists them. Most are **bitmaps** — `render/signFace.ts` prints the asset
  * `prep-sign-icons.py` makes from the reference photographs — so a mark's look is
- * decided by the artwork and not by a drawing routine here, and the list is the
+ * decided by the artwork and not by a drawing routine here; the two exceptions are
+ * drawn geometry instead (`SIGN_DRAWN_ICONS`), and the list is the
  * one place the catalogue and the files have to agree.
  */
 export type SignIcon =
@@ -134,6 +138,7 @@ export type SignIcon =
   | 'escalator'
   | 'stairs'
   | 'exit'
+  | 'stop'
 
 export const SIGN_ICONS: readonly SignIcon[] = [
   'train',
@@ -143,6 +148,7 @@ export const SIGN_ICONS: readonly SignIcon[] = [
   'escalator',
   'stairs',
   'exit',
+  'stop',
 ]
 
 /** What each pictogram is called, in the inspector's own words. */
@@ -154,6 +160,22 @@ export const SIGN_ICON_LABEL: Record<SignIcon, string> = {
   escalator: '扶梯',
   stairs: '楼梯',
   exit: '出口',
+  stop: '禁止',
+}
+
+/**
+ * The marks a board **draws** rather than loading: the 出口 plate, which is a printed
+ * plate and not a pictogram at all, and the 禁止 roundel, which is two shapes and no
+ * artwork. Every other icon is a bitmap (`src/assets/pictograms/`), and this list is
+ * what tells the two apart — `render/signFace.ts` draws one and blits the other, and
+ * `render/pictograms.ts` asks it before reporting a missing asset, so a drawn mark can
+ * never be reported as a missing picture nor waited on as one.
+ */
+export const SIGN_DRAWN_ICONS: readonly SignIcon[] = ['exit', 'stop']
+
+/** True for an icon whose look is drawn by the renderer rather than supplied as art. */
+export function signIconIsDrawn(icon: SignIcon): boolean {
+  return SIGN_DRAWN_ICONS.includes(icon)
 }
 
 /** The shapes an arrow component can point. */
@@ -1245,9 +1267,115 @@ export function normalizeSignLayout(layout: readonly SignComponent[] | undefined
 /** The sign type name, so callers do not spell it out. */
 export const SIGN_TYPE = 'sign'
 
-/** True for a module that is an overhead wayfinding board. */
+/** True for a module that is a wayfinding board, hung or bolted. */
 export function isSignModule(mod: Module): mod is Extract<Module, { type: 'sign' }> {
   return mod.type === SIGN_TYPE
+}
+
+/* ------------------------------------------------------------ how it is hung */
+
+/**
+ * The two ways a 指示牌 is fixed (§5.8): **ceiling** is the overhead board hung by
+ * rods from the storey ceiling, read from both faces, and **wall** is the same board
+ * bolted flat to a wall, read from the room it faces.
+ *
+ * The mount is the piece's own choice, carried in `cfg.mount` and offered as two
+ * palette tiles (`sign-ceiling` / `sign-wall`) — the same shape as the 线网图's
+ * `cfg.mount` (`sim/linemaps.ts`), so the placement rules can ask one table rather
+ * than sniff a module. A sign with no mount at all — every save written before the
+ * wall board existed — is the hanging one, which is what it was.
+ */
+export type SignMount = 'ceiling' | 'wall'
+
+/** The two mounts, in palette order: the hung board first, the wall board beside it. */
+export const SIGN_MOUNTS: readonly SignMount[] = ['ceiling', 'wall']
+
+/** The mount a sign with none is: the overhead board, as it always was. */
+export const DEFAULT_SIGN_MOUNT: SignMount = 'ceiling'
+
+/** True for the value of a `cfg.mount`, so a save cannot carry a third one. */
+export function isSignMount(value: unknown): value is SignMount {
+  return value === 'ceiling' || value === 'wall'
+}
+
+/** The panel's centre above the floor top for the **hung** board, metres. */
+export const SIGN_CEILING_PANEL_Z = 2.35
+
+/**
+ * The panel's centre above the floor top for the **wall** board, metres: read at a
+ * standing eye's height rather than over the concourse. Its 0.7 m panel then spans
+ * 1.30–2.00 m, which crosses exactly the wall's **second** course (`wallCourses`) —
+ * clear of the metre a 座椅 occupies under it, while a 售票机 (1.9 m) still reaches
+ * into the band, so a tall machine in front of the board really is in its way. That
+ * band is what the board's backing rule asks for, so the courses it asks for are the
+ * ones it covers.
+ */
+export const SIGN_WALL_PANEL_Z = 1.65
+
+export interface SignMountSpec {
+  mount: SignMount
+  /** What the palette tile wears. */
+  label: string
+  /** The panel's centre above the floor top, metres. */
+  panelZ: number
+  /** True when the piece hangs by rods from the slab overhead. */
+  hung: boolean
+  /**
+   * True when a board is mounted on **each** face. A hung 指示牌 is read from both
+   * sides of the concourse, so both of its boards print; a wall board has a wall
+   * behind it, so only 正面 does and `cfg.back` is not read at all.
+   */
+  doubleSided: boolean
+}
+
+export const SIGN_MOUNT_SPECS: Record<SignMount, SignMountSpec> = {
+  ceiling: { mount: 'ceiling', label: '吊挂指示牌', panelZ: SIGN_CEILING_PANEL_Z, hung: true, doubleSided: true },
+  wall: { mount: 'wall', label: '墙面指示牌', panelZ: SIGN_WALL_PANEL_Z, hung: false, doubleSided: false },
+}
+
+/** The spec for a mount, defaulting to the hung board for a legacy or unknown value. */
+export function signMountSpec(mount: SignMount | undefined): SignMountSpec {
+  return SIGN_MOUNT_SPECS[mount ?? DEFAULT_SIGN_MOUNT] ?? SIGN_MOUNT_SPECS[DEFAULT_SIGN_MOUNT]
+}
+
+/**
+ * The mount a sign's **config** names, repaired: an absent or unknown `mount` is the
+ * hanging board.
+ *
+ * It takes the config rather than the module because its one caller answers a piece
+ * that may not be a module yet: `isCeilingHung` is asked about a `{type, cfg?}` while
+ * the placement tool is armed with an **id** (`sign-ceiling` / `sign-wall`) and no
+ * document exists behind it, so the mount is read from whatever `cfg` there is — and a
+ * bare id with none is the hanging board, the default every new sign is placed with.
+ */
+export function signMountOf(cfg: object | undefined): SignMount {
+  if (cfg !== undefined && 'mount' in cfg) {
+    const mount: unknown = cfg.mount
+    if (isSignMount(mount)) return mount
+  }
+  return DEFAULT_SIGN_MOUNT
+}
+
+/** True when this mount is the wall board. */
+export function isWallSignMount(mount: SignMount | undefined): boolean {
+  return !signMountSpec(mount).hung
+}
+
+/**
+ * The wall courses a **wall** 指示牌 needs solid backing on, local (0 = the first
+ * metre above the floor): the band its panel crosses, from the same `panelZ` the
+ * model hangs it at. A hanging sign wants the air overhead rather than a wall
+ * (`ceilingMountMissing`), so it asks for none.
+ *
+ * The panel's **height is the floor's** (`PANEL_MIN_H`): a board grows along its
+ * length and never in height (`signPanelSize`), so the band a wall sign covers is a
+ * property of the piece and not of what is printed on it — which is what lets this be
+ * answered without the station the shields read their colours from.
+ */
+export function signWallCourses(mount: SignMount | undefined): number[] {
+  const spec = signMountSpec(mount)
+  if (spec.hung) return []
+  return wallCourses(spec.panelZ - PANEL_MIN_H / 2, PANEL_MIN_H)
 }
 
 /**
@@ -1396,6 +1524,20 @@ export function settleSignBoards(boards: SignBoardsDraft, station?: SignLineSour
   const front = normalizeSignLayout(settleSignBins(boards.front).layout, station)
   const back = boards.back.length > 0 ? normalizeSignLayout(settleSignBins(boards.back).layout, station) : []
   return { front, back }
+}
+
+/**
+ * The boards a **mount actually mounts**: the pair itself for the hanging board, and
+ * **正面 alone** for the wall board, which has the wall behind it rather than a second
+ * face (`signMountSpec(...).doubleSided`).
+ *
+ * One place answers it, so the drawn panel, the plate and the thumbnail cannot disagree:
+ * a wall board carrying a back it never prints (an imported save's, or a hand-written
+ * one) would otherwise be **cut to a face that is not on it**, and its 正面 would print
+ * centred on steel wider than the board.
+ */
+export function mountedSignBoards(mount: SignMount | undefined, boards: SignBoards): SignBoards {
+  return signMountSpec(mount).doubleSided ? boards : { front: boards.front, back: [] }
 }
 
 /**

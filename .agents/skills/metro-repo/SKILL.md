@@ -19,8 +19,8 @@ the station either copes or it does not.
 | `game/README.md` | Game milestones, the time base, measured numbers, and deliberate divergences from the spec. **Read this before changing sim behaviour.** |
 | `game/plan.md` | **Deleted.** The parallel-edit rules it held (the R1–R6 / lane language) survive only as citations in `game/src` comments — treat them as historical. The layout it prescribed is what `references/module-map.md` in this skill now maps: every window, tool and model is one unit in one file, and the former giants are barrels over folders. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. |
-| `art/` | Generated SVG concept sheets — **photographs of the built game** now, one per sheet. Source of truth; copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. |
-| `tools/` | The art generators — `node tools/shots.mjs` (headless Chrome over `game/dist`, one composed sheet per `tools/sheet-plan.mjs` entry) with `tools/iso.mjs`/`tools/sheet-*.mjs` behind the older hand-drawn sheets; the demo-save bake (`node tools/bake-demo-station.mjs`) and the render-to-PNG probes (`tools/render-sign-panel.mjs`, `tools/render-tv-plate.mjs`). |
+| `art/` | Generated SVG concept sheets — **authored drawings**, one per sheet, in the game's own 2:1 dimetric projection (`tools/iso.mjs`), animation included. Source of truth; copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited — `node tools/gen-art.mjs` rewrites them. |
+| `tools/` | The art generator (`node tools/gen-art.mjs` over `tools/sheet-*.mjs` / `sheets-*.mjs`, drawn with `tools/iso.mjs`) and its sheet viewer (`tools/serve.mjs`); the demo-save bake (`node tools/bake-demo-station.mjs`); the render-to-PNG probes (`tools/render-sign-panel.mjs`, `tools/render-tv-plate.mjs`); and `tools/preview.mjs` (`npm run preview:local`), which serves the two builds on one origin without wrangler. `tools/shots.mjs` + `tools/sheet-plan.mjs` are the **abandoned** screenshot pipeline — not the sheets (`PLAN-models.md`). |
 | `worker/` | The site's optional path-prefix rewrite entry. |
 | `wrangler.jsonc` | Root site Worker config. `game/wrangler.jsonc` is the game's. |
 
@@ -45,7 +45,7 @@ npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run build:game    # tsc --noEmit && vite build
 npm run deploy:game   # build, deploy metro-game, and attach its routes
 
-node tools/shots.mjs  # regenerate art/*.svg (screenshot sheets; needs game/dist built)
+node tools/gen-art.mjs  # regenerate art/*.svg (authored sheets, drawn via tools/iso.mjs)
 ```
 
 Inside `game/`: `npm run dev`, `npm run typecheck`, `npm run build`,
@@ -276,14 +276,18 @@ build/ →  sim/            (and neither render/ nor app/)
   itself — dropped to that wall's own storey floor (`storeyBand`), so a hover on
   an upper wall course still anchors to the floor below rather than a floating
   course height — so an ad can bolt to the station wall across the track where there is
-  no floor in front of it. The 指示牌, 电视, 时钟 and 监控 are instead
+  no floor in front of it. The **hanging** 指示牌, the 电视, the 时钟 and the 监控 are instead
   *ceiling-hung*: `ceilingMountMissing` refuses them unless a solid slab sits above
   every cell of the piece one storey up (`LEVEL_STEPS`, the 4 m grid), the ceiling
   their rods bolt to, and `ceilingMountStandCell` resolves the hover to the floor
   the piece hangs over from any face — a floor top names its own cell, a ceiling
   underside one storey down, a wall-course side face the adjacent cell on its own
   storey floor — so a hung fitting is aimed at the ceiling the way a panel is aimed
-  at its wall. Either way the ghost is the piece itself and no floor cell is
+  at its wall. A 指示牌's **wall** mount is the panel rule again rather than this one:
+  one piece, two palette tiles (`sign-ceiling` / `sign-wall`), and the mount lives in
+  `cfg.mount` (`SignMount`, `sim/sign.ts`) so `isWallMounted` / `isCeilingHung` /
+  `wallMountCourses` ask the module — reading a bare `sign-ceiling` / `sign-wall` id
+  when the tool is only armed with one. Either way the ghost is the piece itself and no floor cell is
   highlighted with it (`setCursor(null)` in the equipment, select, delete and move
   previews; `test/wall-ceiling-snap.test.mjs`). A 2 m
   bench is a real two-cell run — `benchCells` fixes its collision envelope and
@@ -470,8 +474,10 @@ build/ →  sim/            (and neither render/ nor app/)
   pins the box (inside the cells, flush on all four faces, no gap round the band, the
   same on all four sides).
 * The **装饰 folder** holds the free-standing, rotatable pieces — 座椅, 货架,
-  办公桌, 厕所隔间, 洗手池, 垃圾桶, 灭火器 and 门 — plus 广告牌 (wall-mounted) and 电视 /
-  指示牌 / 时钟 / 监控 (ceiling-hung). 座椅 is a nested sub-menu of four variants from `sim/benches.ts`:
+  办公桌, 厕所隔间, 洗手池, 垃圾桶, 灭火器 and 门 — plus 广告牌 and the **墙面指示牌**
+  (wall-mounted, `wallMountMissing`) and 电视 / **吊挂指示牌** / 时钟 / 监控
+  (ceiling-hung) — the 指示牌 being one piece with both mounts, offered as two tiles
+  (`sign-ceiling` / `sign-wall`) and read from its own `cfg.mount`. 座椅 is a nested sub-menu of four variants from `sim/benches.ts`:
   a plain stainless bench with no back and an upholstered seat with a back and
   arm rests, each 1 m or 2 m; the 2 m piece is a real two-cell run. 货架 draws a
   stocked supermarket gondola (perforated back panel, five shelves, price rails,
@@ -522,8 +528,19 @@ build/ →  sim/            (and neither render/ nor app/)
   column, so it may not be stacked over another piece. 广告牌 is a nested sub-menu of six formats
   (横版 16:9 / 标准 2.25:1 / 大横版 16:9 / 长幅 3.75:1 / 竖版 0.7:1 / 方形 1:1) whose run length and poster aspect come from the shared
   `sim/billboards.ts` table, so the thumbnail, the collision envelope and the
-  drawn housing cannot disagree. 电视 and 指示牌 hang by rods from the ceiling. The
-  指示牌 prints a lit double-sided wayfinding board, so it reads from either side;
+  drawn housing cannot disagree. 电视 hangs by rods from the ceiling, and the **吊挂指示牌**
+  with it. A 指示牌 is **one board, two mounts** (`SignMount`, `sim/sign.ts`): the
+  吊挂指示牌 is a lit **double-sided** board (正面 and 背面, either of which may be empty)
+  read from both sides of the concourse, while the **墙面指示牌** is the same board bolted
+  flat to the wall on its local −y face — the 广告牌's own face, so `autofaceWallMount`
+  turns it — read from one side only: the wall is behind it, `cfg.back` is never mounted,
+  the editor shows 正面 alone, and `createModule` drops the back a current pair carries.
+  The wall board hangs at `SIGN_WALL_PANEL_Z` (1.65 m), so its 0.7 m panel crosses exactly
+  the wall's second course (`signWallCourses`), and `flatEnvelope` gives it a 广告牌's
+  thin slab on that wall rather than the hung board's whole storey column — which is why a
+  座椅 shares its tile while a 售票机 tall enough to reach the panel collides. The two
+  mounts are two pieces to a sweep (`sign:wall` / `sign:ceiling`), to the hover ghost
+  (`moduleGhostKey`) and to the palette, and one type everywhere else. Then
   the 电视 is **single-sided** — its station board (line shield, 本趟/下趟/第三趟
   cards, clock) and its content window both ride the local −y face, so the back is a
   plain dark panel. Every lit pane there lies over a dark backing slab, so it must
@@ -757,7 +774,12 @@ build/ →  sim/            (and neither render/ nor app/)
   `rail/menus/VariantMenu.tsx` the one variant list for every family (replacing four
   near-identical menus — 座椅 / 广告牌 / 出入口 / 楼梯 — and two hand-wired folder bodies — a family could otherwise be half
   wired: a variant whose list folded away when picked, or a 旋转 tile anchored to a tile no
-  folder drew). Adding a family is one row; `test/rail-families.test.mjs` pins the contract.
+  folder drew). Adding a family is one row; `test/rail-families.test.mjs` pins the contract —
+  including that **a predicate answers for a palette id exactly as for the module type it builds**
+  (`isDecorType('sign-ceiling')`), because the rail folds a folder open and the tool guards a
+  right-click by the **id** it is armed with, before any module exists (a family spelled as
+  prefixed ids has to be named by its family predicate, or arming it opens 设备 and skips the
+  装饰 guard that keeps one right press from tearing a room down).
   **The action row is one component for the whole rail** — `rail/actions/ActionRow.tsx` holds the
   fold, the open rule (`actionRowOpen`) and every action tile (旋转 / 自定义 / 窄 中 宽 / 上行-下行 /
   有门-围栏), and the **工具 folder mounts the very same row** under its cut pieces, so a 半墙's 旋转
@@ -904,10 +926,12 @@ build/ →  sim/            (and neither render/ nor app/)
   座椅 offers four variants from `sim/benches.ts` (stainless / backed × 1 m / 2 m),
   the 2 m run spanning two cells; 货架 draws a stocked supermarket gondola. 广告牌
   is wall-mounted (`wallMountMissing`) with the four formats sharing
-  `sim/billboards.ts`; 电视, the new 指示牌 and the 时钟 / 监控 pair are *ceiling-hung*
-  (`ceilingMountMissing`; the 指示牌 is lit double-sided, the 电视 single-sided and —
+  `sim/billboards.ts`; 电视 and the 吊挂指示牌 with the 时钟 / 监控 pair are *ceiling-hung*
+  (`ceilingMountMissing`; the hung 指示牌 is lit double-sided, the 电视 single-sided and —
   two of them turned 180° apart on one tile — sharing a single two-panel-thick (0.2 m)
-  housing with a screen each side, `sim/tvs.ts` / `test/tv-pair.test.mjs`). The 设备 folder's 货架 / 座椅 moved
+  housing with a screen each side, `sim/tvs.ts` / `test/tv-pair.test.mjs`), while the
+  **墙面指示牌** is a wall board bolted to the 广告牌's own face and read from one side.
+  The 设备 folder's 货架 / 座椅 moved
   out to a new 装饰 folder, and 楼梯 / 出入口 / 座椅 / 广告牌 are nested variant
   sub-menus.
 * The **围栏 kit** has landed (`sim/fences.ts`, `sim/station.ts`,
@@ -1041,12 +1065,11 @@ build/ →  sim/            (and neither render/ nor app/)
   ever *refused*: refusal is for a broken envelope (`文件损坏`, 不是地铁车站存档,
   存档太新了, 缺少车站数据), and a station that is otherwise fine is not worth losing
   over a block no tool can see. A load that had to repair says so in the 打开 notice,
-  the shipped file is nonetheless kept clean (the current bake ships **11 627 cells and
-  394 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-06
-  14:53Z save — the copy it replaced was 11 291 cells / 376 modules from earlier the same
-  day — and it carries the **new cut pieces**: two 半墙 courses and thirty-two 三角 courses
-  the
-  author laid with the cut tiles, plus four free-standing 门, ordinary `wall` +
+  the shipped file is nonetheless kept clean (the current bake ships **11 625 cells and
+  395 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-06
+  16:32Z save — the copy it replaced was 11 627 cells / 394 modules of the same day —
+  and it carries the **new cut pieces**: two 半墙 courses and thirty-two 三角 courses the
+  author laid with the cut tiles, plus five free-standing 门, ordinary `wall` +
   `half-wall:*` / `tri-*:*` cells and `door` modules that no suite has to know about),
   and `demo.test.mjs` fails if one ever arrives. Nothing in the game can *mint* one —
   a pick names whole cells (`render/pickCell.ts`: the block hit, and the block one step
@@ -1105,14 +1128,19 @@ build/ →  sim/            (and neither render/ nor app/)
   an ordered list of components (arrows, line badges, text, icon labels) laid out in
   metres and dragged in the board editor. A sign is **two boards**, front and back —
   independent documents, either of which may be empty, and an empty side is the unlit
-  black plate (what the back of a fresh sign is). `signPanelSize` sizes the panel to
+  black plate (what the back of a fresh sign is) — but that pair is the **hung** board's
+  (`signMountSpec(...).doubleSided`): a **wall** 指示牌 has the wall behind it, so it mounts
+  正面 alone, its editor shows one face and `createModule` drops the back a current pair
+  carries. `signPanelSize` sizes the panel to
   what it carries between a floor and a ceiling, so a board never grows into a wall.
   `sim/sign.ts` is pure (no DOM, canvas or three): `signFace.ts` owns the only pixels
   and `SignEditor.tsx` the drag surface, both reading the same geometry, so the editor
-  preview, the hover ghost and the lit face are one layout drawn three times. The six
-  pictograms are thresholded photo-to-bitmap assets (`tools/prep-sign-icons.py` turns
-  `tools/sign-icons-source/` into `src/assets/pictograms/`; 出口 is the drawn plate,
-  `tools/sign-icons-sheet.py` prints the contact sheet for review);
+  preview, the hover ghost and the lit face are one layout drawn three times. Six of the
+  eight pictograms are thresholded photo-to-bitmap assets (`tools/prep-sign-icons.py` turns
+  `tools/sign-icons-source/` into `src/assets/pictograms/`), and two marks are **drawn
+  geometry** instead — the green 出口/EXIT plate and the red 禁止 roundel, listed in
+  `SIGN_DRAWN_ICONS` (`signIconIsDrawn`), which is what `pictograms.ts` asks before
+  reporting a missing asset (`tools/sign-icons-sheet.py` prints the contact sheet for review);
   `game/test/sign-editor.test.mjs`, `sign-model.test.mjs` and `sign-render.test.mjs`
   pin the session, the document path and the pixels.
 * The **删除 drag sweeps same-type runs** (`app/sweep.ts`, §9.5). A tap removes the

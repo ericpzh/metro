@@ -41,7 +41,7 @@ export default function Footer() {
       </div>
 
       <div className="footer__base">
-        <p>地铁车站设计师 — 概念图，草稿 1。</p>
+        <p>地铁车站设计师 — 游戏截图，草稿 1。</p>
         <p>
           不差钱，不招人，也不用维护费。你尽管搭，人群自己会来；扛得住就皆大欢喜，扛不住就再改改。
         </p>

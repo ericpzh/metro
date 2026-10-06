@@ -13,9 +13,26 @@
 // document, and the rule that no two marks may ever sit on top of each other.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { moduleAt, moduleEnvelope, placementBlocked, ceilingMountMissing, wallMountMissing } from '../src/sim/placement.ts'
+import {
+  autofaceWallMount,
+  ceilingMountMissing,
+  equipmentRefusalNotice,
+  equipmentReason,
+  isCeilingHung,
+  isWallMounted,
+  moduleAt,
+  moduleBlockedCells,
+  moduleEnvelope,
+  placementBlocked,
+  wallMountCourses,
+  wallMountMissing,
+} from '../src/sim/placement.ts'
 import { createModule, toState } from '../src/build/model.ts'
+import { ensureSignLayouts } from '../src/build/model/Equipment.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
+import { sameSweepFamily, sweepFamily } from '../src/app/sweep.ts'
+import { MODULE_OPTIONS, isSignType } from '../src/app/store.ts'
+import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import {
   PANEL_END_PAD,
   PANEL_INSET,
@@ -31,6 +48,7 @@ import {
   SIGN_BLOCKS,
   SIGN_COMPONENT_MAX,
   SIGN_ICONS,
+  SIGN_MOUNTS,
   SIGN_PIECE_PAD,
   SIGN_SCALE_MAX,
   SIGN_SCALE_MIN,
@@ -61,6 +79,10 @@ import {
   signLineEnglish,
   signLineNumber,
   signMarkFits,
+  signMountOf,
+  signMountSpec,
+  isSignMount,
+  isWallSignMount,
   signPanelSize,
   signPieceSize,
   signPieces,
@@ -69,6 +91,7 @@ import {
   signTextIsGloss,
   signTextLines,
   signTextSize,
+  signWallCourses,
   splitSignBoards,
   stampSignBlock,
 } from '../src/sim/sign.ts'
@@ -81,6 +104,15 @@ function slab(x, y, z, finish) {
 const sign = (x, y, z, id = 'sign-1', rot = 0) => ({ id, type: 'sign', x, y, z, rot, cfg: {} })
 const tv = (x, y, z, id = 'tv-1', rot = 0) => ({ id, type: 'tv', x, y, z, rot, cfg: {} })
 const gate = (x, y, z, id = 'gate-1') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })
+/**
+ * A 指示牌 on its **wall** mount: the same board bolted flat to the wall on the
+ * piece's local −y face. Its faces are stated rather than composed — every rule in the
+ * first half of this file is about the piece, not about what is printed on it.
+ */
+const wallSign = (x, y, z, id = 'sign-w', rot = 0) => ({ id, type: 'sign', x, y, z, rot, cfg: { mount: 'wall', front: [], back: [] } })
+/** The two boards a wall board has no use for: only the hung one mounts a back. */
+const SIGN_BACKLESS_FRONT = [{ id: 'c1', kind: 'icon', icon: 'exit', x: 0.5, y: 0.35, scale: 1, side: 'both' }]
+const SIGN_BACK = [{ id: 'c1', kind: 'text', text: '电梯', x: 0.5, y: 0.35, scale: 1, side: 'both' }]
 
 /** The station's lines, as the shield components read them. */
 const LINE_2 = {
@@ -125,10 +157,101 @@ test('a ceiling-hung piece needs a solid ceiling one storey up', () => {
   assert.equal(ceilingMountMissing([slab(2, 3, 0)], gate(2, 3, 0)), false)
 })
 
-test('the sign and TV are not wall-mounted', () => {
-  // No wall behind them; the ceiling rule is the only one that applies.
+test('the piece is created with the mount its palette tile names', () => {
+  // Two mounts, in palette order, and one piece: the mount travels in `cfg` so every
+  // rule below can ask the module rather than the id it was armed with.
+  assert.deepEqual(SIGN_MOUNTS, ['ceiling', 'wall'])
+  assert.deepEqual(MODULE_OPTIONS.filter((m) => isSignType(m.id)).map((m) => m.id), ['sign-ceiling', 'sign-wall'])
+  assert.equal(isSignMount('wall'), true)
+  assert.equal(isSignMount('floor'), false)
+  assert.equal(signMountOf({ mount: 'floor' }), 'ceiling', 'an unknown mount is the hung board')
+  assert.equal(signMountOf(undefined), 'ceiling')
+  assert.equal(createModule('sign', 1, 2, 3, 's', 1)?.cfg.mount, 'ceiling', 'a bare type is the overhead board')
+  assert.equal(createModule('sign-ceiling', 1, 2, 3, 's', 1)?.cfg.mount, 'ceiling')
+  assert.equal(createModule('sign-wall', 1, 2, 3, 's', 1)?.cfg.mount, 'wall')
+  // ...and only the hung board gets a second face to print on.
+  const boards = { front: SIGN_BACKLESS_FRONT, back: SIGN_BACK }
+  const wall = createModule('sign-wall', 1, 2, 3, 'w', 0, undefined, 'up', 'lane', [LINE_2], boards)
+  const hung = createModule('sign-ceiling', 1, 2, 3, 'c', 0, undefined, 'up', 'lane', [LINE_2], boards)
+  assert.ok(wall.cfg.front.length > 0, 'a wall board is composed on its one face')
+  assert.deepEqual(wall.cfg.back, [], 'and carries no back: the wall is behind it')
+  assert.ok(hung.cfg.back.length > 0, 'the hung board carries both faces')
+})
+
+test('a 指示牌 is wall-mounted on its wall mount, and never on its ceiling one', () => {
+  // No wall behind them; the ceiling rule is the only one that applies — to the hung
+  // board, whose mount is the one it has always had.
   assert.equal(wallMountMissing([slab(2, 3, 0)], sign(2, 3, 0)), false)
   assert.equal(wallMountMissing([slab(2, 3, 0)], tv(2, 3, 0)), false)
+  assert.equal(isWallMounted(sign(2, 3, 0)), false)
+  assert.equal(isCeilingHung(sign(2, 3, 0)), true)
+  // ...and the opposite for the **wall** board: bolted to a wall, and hanging on
+  // nothing, so a cell with open sky over it is exactly where it belongs.
+  const wall = wallSign(2, 3, 0)
+  assert.equal(isWallMounted(wall), true)
+  assert.equal(isCeilingHung(wall), false)
+  assert.equal(ceilingMountMissing([slab(2, 3, 0)], wall), false, 'a wall board hangs from nothing')
+  assert.equal(wallMountMissing([slab(2, 3, 0)], wall), true, 'and with no wall it has nowhere to be')
+})
+
+test('a wall 指示牌 is backed on the one wall course its panel crosses', () => {
+  // The board is 0.7 m tall and sits at 1.65 m, so it crosses the wall's **second**
+  // course — the band from 2 to 3 m above the floor top — and nothing else.
+  assert.deepEqual(signWallCourses('wall'), [1])
+  assert.deepEqual(wallMountCourses(wallSign(2, 3, 0)), [1])
+  assert.deepEqual(signWallCourses('ceiling'), [], 'the hung board asks the ceiling for air, not the wall for stone')
+  const floor = slab(2, 3, 0)
+  assert.equal(wallMountMissing([floor], wallSign(2, 3, 0)), true, 'no wall at all')
+  assert.equal(wallMountMissing([floor, slab(2, 2, 1)], wallSign(2, 3, 0)), true, 'a wall one course tall is not enough')
+  assert.equal(wallMountMissing([floor, slab(2, 2, 1), slab(2, 2, 2)], wallSign(2, 3, 0)), false, 'two courses back it')
+  // The wall is the piece's own local −y face, so a quarter turn asks for backing on
+  // another side of the cell (`wallSide`: rot 0 → −y, 1 → +x).
+  assert.equal(wallMountMissing([floor, slab(3, 3, 1), slab(3, 3, 2)], wallSign(2, 3, 0, 'sign-w', 1)), false)
+  assert.equal(wallMountMissing([floor, slab(2, 2, 1), slab(2, 2, 2)], wallSign(2, 3, 0, 'sign-w', 1)), true)
+  // ...which is why the panel turns itself to the wall that backs it, exactly as a
+  // 广告牌 does: which way a bolted board faces is the wall's answer, never the
+  // player's, so the tool never has to ask for R first.
+  const faced = autofaceWallMount([floor, slab(2, 2, 1), slab(2, 2, 2)], wallSign(2, 3, 0, 'sign-w', 3))
+  assert.equal(faced.rot, 0, 'the piece is turned to face the wall that backs it')
+})
+
+test('a wall 指示牌 reserves a slab on its wall, not the whole storey column', () => {
+  const wall = wallSign(2, 3, 0)
+  const hung = sign(2, 3, 0)
+  assert.deepEqual(moduleEnvelope(wall), { x0: 2, y0: 3, z0: 2.3, x1: 3, y1: 3.25, z1: 3 })
+  assert.deepEqual(moduleEnvelope(hung), { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 4 }, 'the hung board keeps its column')
+  // It is found from the floor cell it hangs over, like every other piece.
+  assert.equal(moduleAt([wall], 2, 3, 0)?.id, 'sign-w')
+  // A 座椅 on the floor **under** it shares the tile — the panel is two metres up and a
+  // bench is one metre tall — while a 售票机 tall enough to reach the panel is in its way.
+  assert.equal(placementBlocked([wall], createModule('bench', 2, 3, 0, 'b', 0)), false)
+  assert.equal(placementBlocked([wall], createModule('tvm', 2, 3, 0, 't', 0)), true)
+  // Two wall boards in one cell want the same slab of wall, so they collide.
+  assert.equal(placementBlocked([wall], wallSign(2, 3, 0, 'sign-w2')), true)
+  assert.equal(placementBlocked([wall], wallSign(3, 3, 0, 'sign-w3')), false, 'a cell along is free')
+  // The course the panel covers is not the block brush's to lay — the wall has to be
+  // there first — while the storey the hung board holds is the wall board's no longer.
+  assert.equal(moduleBlockedCells([wall], 2).has('2,3,2'), true, 'the panel’s own course is spoken for')
+  assert.equal(moduleBlockedCells([hung], 2).has('2,3,2'), true)
+  assert.equal(moduleBlockedCells([wall], 1).has('2,3,1'), false, 'the course under the panel is still the room’s')
+  assert.equal(moduleBlockedCells([hung], 1).has('2,3,1'), true, 'which is what the hung board’s column reserves')
+})
+
+test('the placement verdict answers each mount by its own rules', () => {
+  const floor = slab(2, 3, 0)
+  const wall = [slab(2, 2, 1), slab(2, 2, 2)]
+  const hung = sign(2, 3, 0)
+  assert.equal(equipmentReason([floor, ...wall], [], hung, true), 'ceiling', 'the hung board still wants its slab')
+  assert.equal(equipmentReason([floor, ...wall], [], wallSign(2, 3, 0), true), '', 'the wall board is happy on a wall with open sky over it')
+  assert.equal(equipmentReason([floor], [], wallSign(2, 3, 0), true), 'wall')
+  // The tool is armed with a **palette id** before there is a module to ask, so the two
+  // tiles answer for their own mounts — a `sign-ceiling` ghost hangs, a `sign-wall` one
+  // bolts to the wall.
+  assert.equal(isCeilingHung({ type: 'sign' }), true)
+  assert.equal(isCeilingHung({ type: 'sign-ceiling' }), true)
+  assert.equal(isCeilingHung({ type: 'sign-wall' }), false)
+  assert.equal(isCeilingHung({ type: 'tv' }), true)
+  assert.equal(isCeilingHung(createModule('sign-wall', 2, 3, 0, 'w', 0)), false)
 })
 
 test('a ceiling-hung piece envelope is the whole storey column', () => {
@@ -145,6 +268,73 @@ test('a ceiling-hung piece envelope is the whole storey column', () => {
     // Adjacent cells stay free.
     assert.equal(placementBlocked([hung], gate(3, 3, 0)), false)
   }
+})
+
+test('a wall 指示牌 round-trips the save, and the two mounts are two pieces to a sweep', () => {
+  const placed = createModule('sign-wall', 2, 3, 0, 'sign-w', 0, undefined, 'up', 'right', [LINE_2])
+  const ceiling = createModule('sign-ceiling', 2, 3, 0, 'sign-c', 0, undefined, 'up', 'right', [LINE_2])
+  // The mount survives the load path, which repairs a sign's boards: the repair writes
+  // the pair and never the mount (`ensureSignLayouts`).
+  const st = toState({
+    name: 't',
+    seed: 1,
+    cells: [slab(2, 3, 0), slab(2, 2, 1), slab(2, 2, 2)],
+    modules: [placed],
+    lines: [LINE_2],
+  })
+  const r = parse(serialize(st))
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.state.modules, st.modules)
+  assert.equal(r.state.modules[0].cfg.mount, 'wall', 'the mount survives the save')
+  // A sweep takes the boards of one mount and leaves the other: a drag over the hung
+  // ones must not bulldoze the wall board on the same wall.
+  assert.equal(sweepFamily(placed), 'sign:wall')
+  assert.equal(sweepFamily(ceiling), 'sign:ceiling')
+  assert.equal(sweepFamily(sign(2, 3, 0)), 'sign:ceiling', 'a legacy sign with no mount is the hung one')
+  assert.equal(sameSweepFamily(placed, ceiling), false)
+  assert.equal(sameSweepFamily(placed, createModule('sign-wall', 4, 3, 0, 'sign-w9', 0)), true)
+  // ...and so does the hover ghost: the two mounts draw differently, so a palette click
+  // between them has to rebuild the piece under the pointer.
+  assert.notEqual(moduleGhostKey(placed), moduleGhostKey(ceiling))
+  assert.equal(moduleGhostKey(sign(2, 3, 0)), moduleGhostKey(ceiling), 'the bare type is the hung tile')
+})
+
+test('the mount vocabulary reads an id and a legacy save the way the piece does', () => {
+  // The predicate the editor and the model ask (`isWallSignMount`), for the three
+  // spellings a mount arrives in: the two named, and anything else — a save from before
+  // the wall board existed, or a value no version ever wrote — which is the hanging board.
+  assert.equal(isWallSignMount('wall'), true)
+  assert.equal(isWallSignMount('ceiling'), false)
+  assert.equal(isWallSignMount(undefined), false, 'a save with no mount is the overhead board')
+  assert.equal(signMountSpec(undefined).hung, true)
+  assert.equal(signMountSpec('wall').hung, false)
+  assert.equal(signMountSpec(undefined).doubleSided, true, 'and the hanging board is the two-faced one')
+  assert.equal(signMountSpec('wall').doubleSided, false)
+  // The palette tiles are built from that table, so the labels are its own words.
+  const tiles = MODULE_OPTIONS.filter((m) => isSignType(m.id))
+  assert.deepEqual(tiles.map((m) => m.label), [signMountSpec('ceiling').label, signMountSpec('wall').label])
+
+  // A **legacy save** — a single `components` list, and now a mount — is repaired to the
+  // pair *and keeps the mount it was written with*, wall board included: the repair writes
+  // the boards, never the mount.
+  const legacy = {
+    id: 'sign-legacy',
+    type: 'sign',
+    x: 2,
+    y: 3,
+    z: 0,
+    rot: 0,
+    cfg: { mount: 'wall', components: [{ ...SIGN_BACKLESS_FRONT[0], id: 'c1', side: 'front' }] },
+  }
+  const repaired = ensureSignLayouts([legacy], [LINE_2])[0]
+  assert.equal(repaired.cfg.mount, 'wall', 'the repair keeps the mount')
+  assert.ok(repaired.cfg.front.length > 0, 'and folds the legacy list onto the front')
+  assert.equal(repaired.cfg.components, undefined, 'the legacy list is dropped rather than carried along')
+
+  // The refusal notices name each mount, because the two are refused for opposite
+  // reasons: no backing for the wall board, no slab overhead for the hanging one.
+  assert.match(equipmentRefusalNotice('wall'), /墙面指示牌/)
+  assert.match(equipmentRefusalNotice('ceiling'), /吊挂指示牌/)
 })
 
 test('a ceiling-hung piece round-trips the save', () => {

@@ -15,8 +15,10 @@
 // and to the plate resolution.
 //
 // The pictograms are vector art in the style of the reference photographs: pale
-// marks on a near-black lit board, with the exit plate as the one coloured
-// element (a green 出/EXIT tile, exactly the plate on the station wall).
+// marks on a near-black lit board, with two **coloured** marks beside them — the
+// green 出/EXIT exit plate, and the red 禁止 roundel, which is the one mark the board
+// draws in a warning colour, because a prohibition sign is red and reads as nothing
+// else.
 
 import {
   PANEL_INSET,
@@ -52,6 +54,12 @@ const BOARD = '#0d1116'
 const FRAME = '#3c434c'
 /** The exit plate's green, matching the 出/EXIT tile on the wall. */
 const EXIT_GREEN = '#1f9c5e'
+/**
+ * The 禁止 roundel's red: the prohibition colour a no-entry mark is painted in, a
+ * shade off the reference boards' own signal red so it reads as a mark on the
+ * near-black plate rather than glowing off it.
+ */
+const STOP_RED = '#e0242a'
 
 /**
  * A board's pictograms: one decoded image per mark, ready for `drawImage`.
@@ -182,9 +190,51 @@ function drawExitPlate(g: CanvasRenderingContext2D, x: number, y: number, w: num
 }
 
 /**
- * One pictogram in the box `(x, y, w, h)`: bitmap art, printed as it is.
+ * The red **禁止** roundel: a ring with a **level** strip across its diameter — the
+ * "stop" mark, in the prohibition colour.
  *
- * Every mark but 出口 is a square asset, drawn into the mark's own square and
+ * It is drawn rather than supplied as art because it is a **shape**, not a picture:
+ * two primitives, one colour and no photograph behind it. The whole mark is red —
+ * ring and strip alike — which is what makes it read as a prohibition sign on the
+ * board's near-black plate.
+ *
+ * The strip spans the full diameter and is drawn **horizontally**: its ends meet the
+ * ring's centre line, so the mark is a circle with a bar straight across it. The mark
+ * fills its box too — the ring's **outer** edge is the box's own edge — where every
+ * bitmap asset carries a clear margin inside its own, so the drawn mark reads a shade
+ * heavier than a pictogram of the same box (a few per cent of the box's width).
+ */
+function drawStopMark(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  const s = Math.max(1, Math.min(w, h))
+  const cx = x + w / 2
+  const cy = y + h / 2
+  // The stroke is the ring's own thickness, and the radius is measured on its centre
+  // line — the outer edge of the ring is therefore the edge of the box.
+  const line = s * 0.13
+  const r = s / 2 - line / 2
+  g.fillStyle = STOP_RED
+  // The strip is a **path** rather than a `fillRect`: it is the shape the board's
+  // other drawn marks are made of, and the one the recording context behind
+  // `tools/render-sign-panel.mjs` can read the corners of.
+  poly(g, [
+    [cx - r, cy - line / 2],
+    [cx + r, cy - line / 2],
+    [cx + r, cy + line / 2],
+    [cx - r, cy + line / 2],
+  ])
+  g.fill()
+  g.strokeStyle = STOP_RED
+  g.lineWidth = line
+  g.beginPath()
+  g.arc(cx, cy, r, 0, Math.PI * 2)
+  g.stroke()
+}
+
+/**
+ * One pictogram in the box `(x, y, w, h)`: the two **drawn** marks — the 出/EXIT
+ * plate and the 禁止 roundel — and every other one as bitmap art, printed as it is.
+ *
+ * Every bitmap mark is a square asset, drawn into the mark's own square and
  * nothing else — a pictogram is a picture, so the board neither recolours it nor
  * draws a caption beside it. The art is white ink on a transparent ground, which is
  * why it composites straight onto the board's own near-black plate.
@@ -199,6 +249,10 @@ function drawIcon(g: CanvasRenderingContext2D, icon: SignIcon, x: number, y: num
   const oy = y + (h - s) / 2
   if (icon === 'exit') {
     drawExitPlate(g, ox, oy, s, s)
+    return
+  }
+  if (icon === 'stop') {
+    drawStopMark(g, ox, oy, s, s)
     return
   }
   const art = iconArt.get(icon)

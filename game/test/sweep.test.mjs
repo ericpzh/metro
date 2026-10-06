@@ -20,6 +20,7 @@ const exit = (x, y, z, id = 'exit-1') => ({ id, type: 'exit', x, y, z, cfg: { na
 const stair = (x, y, z, id = 'stair-1') => ({ id, type: 'stair', x, y, z, rot: 0, to: { x, y: y + 3, z: z + 4 }, cfg: { width: 1 } })
 const shop = (id = 'shop-1') => ({ id, type: 'shop', x: 0, y: 0, z: 0, w: 5, h: 5, cfg: { kind: 'store', door: [] } })
 const platformEdge = (x, y, z, id = 'pe-1') => ({ id, type: 'platform-edge', x, y, z, w: 6, cfg: { name: '1站台', line: 'A', dir: 'up', side: 'left' } })
+const sign = (x, y, z, mount, id = 'sign-1') => ({ id, type: 'sign', x, y, z, rot: 0, cfg: { mount, front: [], back: [] } })
 
 test('a sweep matches the same equipment type, whatever the rotation', () => {
   assert.equal(sweepFamily(gate(0, 0, 0)), 'gate')
@@ -47,6 +48,15 @@ test('a sweep keeps the palette variant apart', () => {
   assert.equal(sameSweepFamily(door(0, 0, 0, 'steel-2', 'a'), door(2, 0, 0, 'steel-2', 'b')), true)
   assert.equal(sameSweepFamily(door(0, 0, 0, 'steel-2', 'a'), door(2, 0, 0, 'steel-1', 'b')), false)
   assert.equal(sameSweepFamily(door(0, 0, 0, 'steel-2', 'a'), door(2, 0, 0, 'wood-2', 'b')), false)
+  // The two 指示牌 mounts are two pieces off one palette row: a drag takes the boards
+  // hung over the concourse and leaves the ones bolted to the wall — and a legacy sign
+  // with no mount at all is the hung board it was drawn as.
+  assert.equal(sweepFamily(sign(0, 0, 0, 'wall')), 'sign:wall')
+  assert.equal(sweepFamily(sign(0, 0, 0, 'ceiling')), 'sign:ceiling')
+  assert.equal(sweepFamily(sign(0, 0, 0, undefined)), 'sign:ceiling')
+  assert.equal(sameSweepFamily(sign(0, 0, 0, 'wall', 'a'), sign(1, 0, 0, 'wall', 'b')), true)
+  assert.equal(sameSweepFamily(sign(0, 0, 0, 'wall', 'a'), sign(1, 0, 0, 'ceiling', 'b')), false)
+  assert.equal(sameSweepFamily(sign(0, 0, 0, undefined, 'a'), sign(1, 0, 0, 'ceiling', 'b')), true)
 })
 
 test('a legacy piece with no variant reads as the palette default it is drawn as', () => {

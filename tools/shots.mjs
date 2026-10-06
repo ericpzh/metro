@@ -531,12 +531,18 @@ async function main() {
     server.close()
     throw new Error('the game did not expose __scene/__metro — is game/dist current?')
   }
-  await clean(page, true)
+  await frame(page, SHOT_CSS)
 
   const report = []
   for (const sheet of wanted) {
     process.stdout.write(`  ${sheet.id}  ${sheet.file} … `)
-    await clean(page, !sheet.interface)
+    // The interface sheet is the game as it is played: its own layout, and the
+    // station left exactly where the game puts it, so the canvas is not resized
+    // for it and the capture is the whole window.
+    await frame(page, sheet.interface ? INTERFACE_CSS : SHOT_CSS)
+    if (!sheet.interface) {
+      await page.eval(`(() => { window.__metro.getState().setHideUI(true); window.__scene.setGridVisible(false); return true })()`)
+    }
     if (sheet.crowd) {
       // 16x until the station has a crowd, then back to real time so the
       // photographed frame is an ordinary one.
@@ -550,6 +556,14 @@ async function main() {
     for (const panel of sheet.panels) {
       const [x, y, w, h] = panel.place
       const full = panel.cam === undefined
+      if (sheet.interface) {
+        // No resizing and no fit: the frame is the whole window, exactly as the
+        // game lays itself out.
+        if (panel.view) await setView(page, panel.view)
+        await sleep(700)
+        panels.push(await page.png())
+        continue
+      }
       if (!full) {
         await setView(page, panel.view)
         // The canvas becomes the panel, so the capture is the whole frame.

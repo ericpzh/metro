@@ -192,7 +192,8 @@ const PIECES = [
   ['广告牌 竖版', palette('billboard-portrait'), 5, '0.92×0.185×1.54'],
   ['广告牌 方形', palette('billboard-square'), 5, '0.92×0.185×1.18'],
   ['电视', palette('tv'), 13, '1.56×0.16×1.32'],
-  ['指示牌', palette('sign'), 7, '2.15×0.16×1'],
+  ['指示牌 吊挂', palette('sign-ceiling'), 7, '2.15×0.16×1'],
+  ['指示牌 墙面', palette('sign-wall'), 3, '2.15×0.197×0.7'],
   // The wall pieces (§5.7). A 玻璃板 is the outer frame and one pane whatever its
   // size — five meshes for a 1 × 1 band and for a 3 × 2 window alike, which is what
   // "no inner frame" means as a number. A 站名 is its single ink plane, cut to the
@@ -389,6 +390,22 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   assert.equal(retail.meshes, store.meshes, 'the 零售 shell and a 商店 room are the same piece')
   assert.equal(retail.size, store.size, 'drawn to the same size')
   assert.notEqual(build(room('shop', 'toilet')).meshes, store.meshes, 'a 厕所 fits out its own interior')
+
+  // The 指示牌's two mounts are one board hung two ways. The **wall** board is bolted
+  // flat to its wall — its body's back face is the cell's own −y edge (the plane a wall
+  // block's face is at, local y = −0.5), so the panel stands on the wall rather than
+  // floating in front of it — and it hangs at reading height with no rods, while the
+  // overhead board reaches the storey slab it is suspended from. Every box is in world
+  // metres and the piece stands on a block top at z = 1, so the heights below are read
+  // back off it.
+  const wallSign = box(build(palette('sign-wall')).group)
+  const hungSign = box(build(palette('sign-ceiling')).group)
+  assert.equal(round(wallSign.min.y), 4, 'the wall board is flush with the wall plane')
+  assert.ok(wallSign.max.y - wallSign.min.y < 0.25, 'and stands only its own body proud of it')
+  assert.equal(round(wallSign.min.z - 1), 1.3, 'the wall board hangs at the eye height its courses name')
+  assert.equal(round(wallSign.max.z - 1), 2, 'and its panel crosses exactly the one wall course it asks for')
+  assert.ok(hungSign.max.z - 1 > 2.9, 'a 吊挂 board reaches the ceiling its rods bolt to')
+  assert.ok(hungSign.min.z > wallSign.max.z, 'and hangs over the concourse rather than at reading height')
 })
 
 test('a 扶梯 carries its own solid under the truss, over the course the ground leaves', () => {

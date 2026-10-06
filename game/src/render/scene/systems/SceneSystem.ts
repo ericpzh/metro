@@ -300,12 +300,14 @@ export function blobRadius(type: Module['type']): number {
     case 'retail':
     case 'billboard':
     // The wall pieces are bolted to a wall or, for the 线网图 totem, stand on a
-    // plinth; a room and a booth are their own walls and counter, and the hung 电视
-    // hangs: none of them wants a floor contact blob under it. (A 门 is a
+    // plinth; a room and a booth are their own walls and counter, and the hung 电视 and
+    // both 指示牌 mounts (the board on its rods, the board on the wall) hang or bolt
+    // rather than stand: none of them wants a floor contact blob under it. (A 门 is a
     // floor-standing piece like a 货架, so it takes the default blob below.)
     case 'glass':
     case 'calligraphy':
     case 'linemap':
+    case 'sign':
     case 'tv':
       return 0
     default:

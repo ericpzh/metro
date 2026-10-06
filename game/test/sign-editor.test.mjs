@@ -201,6 +201,51 @@ test('arranging is a preview: drawn, never committed, dropped on ✕', () => {
   assert.equal(editorOpen(), false)
 })
 
+test('editing a wall 指示牌 keeps it on its wall, and never gives it a back', () => {
+  // The **mount** is the piece's own (`cfg.mount`), not the editor's: a wall board stays
+  // bolted to its wall however often its board is rearranged, and it has one face — the
+  // wall is behind it — so the back the current pair may carry never reaches it.
+  const built = createModule('sign-wall', 2, 3, 0, 'sign-w', 0, undefined, 'up', 'right', [LINE])
+  assert.equal(built.cfg.mount, 'wall')
+  const state = toState({
+    name: '墙面测试',
+    seed: 1,
+    // The wall the piece is bolted to: two courses, which is the band it asks for.
+    cells: [{ x: 2, y: 3, z: 0, fill: 'solid' }, { x: 2, y: 2, z: 1, fill: 'solid' }, { x: 2, y: 2, z: 2, fill: 'solid' }],
+    modules: [built],
+    lines: [LINE],
+  })
+  useStore.getState().closeSignEditor()
+  const boards = { front: state.modules[0].cfg.front, back: [] }
+  useStore.setState({ station: state, currentBoards: boards, past: [], future: [] })
+
+  useStore.getState().openSignEditor('sign-w')
+  const longer = settleSignBoards({ front: [...boards.front, EXTRA], back: [] })
+  useStore.getState().commitSignLayout(longer)
+  useStore.getState().closeSignEditor()
+  assert.equal(useStore.getState().signEditorFor, null, 'the editor closed on the kept boards')
+  const mod = useStore.getState().station.modules.find((m) => m.id === 'sign-w')
+  assert.equal(mod.cfg.mount, 'wall', 'the board is still on its wall')
+  assert.deepEqual(mod.cfg.front, longer.front, 'and carries what was composed')
+  assert.deepEqual(mod.cfg.back, [], 'a wall board has no second face to write')
+  // The **preview** carries the mount as well: a wall board being arranged is still
+  // bolted to its wall, and a preview that dropped `mount` would draw the overhead
+  // piece — rods and all — over a sign the player hung flat.
+  const drawn = signModuleWithPreview(mod, { moduleId: 'sign-w', boards: { front: longer.front, back: [] } })
+  assert.equal(drawn.cfg.mount, 'wall')
+  assert.deepEqual(drawn.cfg.front, longer.front, 'and shows the board being arranged')
+
+  // Compose a back for the **next** sign — a hung one would hang it — and the wall
+  // board placed from the same pair still comes out one-sided.
+  useStore.setState({ currentBoards: { front: longer.front, back: BACK } })
+  const st = useStore.getState()
+  const wall = createModule('sign-wall', 6, 3, 0, 'sign-w2', 0, undefined, 'up', 'right', st.station, st.currentBoards)
+  const hung = createModule('sign-ceiling', 6, 3, 0, 'sign-c2', 0, undefined, 'up', 'right', st.station, st.currentBoards)
+  assert.deepEqual(wall.cfg.front, longer.front, 'the wall board takes the current front')
+  assert.deepEqual(wall.cfg.back, [], 'and drops the back the current pair carries')
+  assert.deepEqual(hung.cfg.back, BACK, 'while the hung board hangs it')
+})
+
 test('✓ makes a pair current, and the next sign is hung with a copy of it', () => {
   const { board } = stationWithSign()
   const longer = { front: longerThan(board), back: BACK }

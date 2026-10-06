@@ -24,7 +24,7 @@
 //   * **One load per page.** The decode is shared by the scene, the rail's
 //     thumbnails and the board editor, all of which can start at the same moment.
 
-import { SIGN_ICONS, isSignIcon, type SignIcon } from '../sim/sign.ts'
+import { SIGN_ICONS, isSignIcon, signIconIsDrawn, type SignIcon } from '../sim/sign.ts'
 import { pictograms, setPictograms, type SignIconArt } from './signFace.ts'
 
 const DATA_URLS: Record<string, string> = import.meta.glob('../assets/pictograms/*.png', {
@@ -71,9 +71,11 @@ export function loadPictograms(): Promise<SignIconArt> {
       }),
     )
     // Dev-only: the catalogue and the asset folder must agree, or a mark silently
-    // never appears on any board and the editor offers a square of nothing.
+    // never appears on any board and the editor offers a square of nothing. The
+    // **drawn** marks (`SIGN_DRAWN_ICONS` — the 出/EXIT plate and the 禁止 roundel)
+    // have no file by design: the renderer paints them, so they are not asked for.
     if (import.meta.env?.DEV) {
-      const missing = SIGN_ICONS.filter((icon) => !decoded.has(icon) && icon !== 'exit')
+      const missing = SIGN_ICONS.filter((icon) => !decoded.has(icon) && !signIconIsDrawn(icon))
       if (missing.length > 0) console.warn(`[sign] no pictogram art for: ${missing.join(', ')}`)
     }
     setPictograms(decoded)

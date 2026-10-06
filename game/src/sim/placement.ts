@@ -23,6 +23,7 @@ import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
 import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
+import { PANEL_MIN_H, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
@@ -217,8 +218,18 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'clock':
     case 'cctv':
     case 'tv':
-    case 'sign':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
+    case 'sign': {
+      // A **hanging** 指示牌 spans the whole storey column, like the 电视 and the
+      // clock above. A **wall** board is bolted flat to the wall behind it, so it
+      // reserves what a 广告牌 reserves — a thin slab on that wall, over the band its
+      // own panel crosses — and the air under it (a 座椅) and the room in front of it
+      // stay the room's, which is the whole difference between the two mounts.
+      if (isCeilingHung(m)) return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT.sign }
+      const spec = signMountSpec(m.cfg.mount)
+      const half = PANEL_MIN_H / 2
+      return wallPanelBox(m, [[m.x, m.y, m.z]], z0 + spec.panelZ - half, z0 + spec.panelZ + half)
+    }
     case 'billboard': {
       // A 广告牌 is **bolted to a wall**, so what it reserves is the panel on that
       // wall: a thin housing a hand's width off the backing, spanning the run along
@@ -467,23 +478,32 @@ export function reservedOpening(modules: readonly Module[], x: number, y: number
  * Decoration types that must be fixed to a wall block behind them (§5.7): the
  * 广告牌, the 玻璃板, the 站名 and the wall-mounted 线网图. A 线网图's **stand** variant is
  * the one exception — it is a totem on the floor — so the test is the placed module's
- * own, not just its type (`isWallMounted`).
+ * own, not just its type (`isWallMounted`). A **指示牌** joins them from its own
+ * `cfg.mount`, which is why it is not in this set either: a hanging sign wants the
+ * ceiling, and only the wall board wants a wall.
  *
  * A **门 is not here**: it carries its own threshold, posts and head, so it stands on the
  * floor like a 货架 and asks the ground rules for a tile, not the wall's for backing.
  */
 const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'glass', 'calligraphy', 'linemap'])
 
-/** Decoration types that hang by rods from the ceiling slab above them (§5.7). */
-const CEILING_MOUNTED: ReadonlySet<string> = new Set(['sign', 'tv', 'clock', 'cctv'])
+/**
+ * Decoration types that hang by rods from the ceiling slab above them (§5.7). A **sign**
+ * is deliberately not in this set: its hanging mount and its wall mount are two pieces
+ * behind one type, so `isCeilingHung` answers a sign (and the bare `sign-ceiling` id)
+ * from `cfg.mount` before this lookup.
+ */
+const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv'])
 
 /**
  * True when a piece is bolted flat to a wall. Every wall-mounted type is, except
  * the 线网图's free-standing totem: it stands on the floor on its own plinth, so it
  * answers to the ground rules like a 售票机 and never to the wall's
- * (`equipmentReason`).
+ * (`equipmentReason`). A 指示牌 answers from its own mount: the wall board is, the
+ * hanging one is not.
  */
 export function isWallMounted(m: Module): boolean {
+  if (m.type === 'sign') return !signMountSpec(m.cfg.mount).hung
   if (!WALL_MOUNTED.has(m.type)) return false
   return m.type === 'linemap' ? lineMapSpec(m.cfg.mount).mount === 'wall' : true
 }
@@ -492,7 +512,8 @@ export function isWallMounted(m: Module): boolean {
  * The wall courses (local, 0 = the first metre above the floor) a wall-mounted
  * piece needs solid backing on, from the table that owns the piece's own height:
  * a 广告牌 and a 1 m 玻璃板 want the first course, a 2 m panel the first two, a
- * 站名 and a wall 线网图 the band their panel really crosses.
+ * 站名 and a wall 线网图 the band their panel really crosses, and a wall 指示牌 the
+ * band its own 0.7 m board is bolted at.
  *
  * One list per type, because "how tall is this panel and where does it sit" is the
  * table's business and this is the rule that reads it — a piece whose courses and
@@ -513,19 +534,29 @@ export function wallMountCourses(m: Module): number[] {
       return calligraphyCourses(calligraphyBottom(m.cfg?.axis), m.panelH)
     case 'linemap':
       return lineMapWallCourses(lineMapSpec(m.cfg?.mount))
+    case 'sign':
+      return signWallCourses(m.cfg.mount)
     default:
       return []
   }
 }
 
 /**
- * True when a piece hangs from the slab overhead — a 指示牌, 电视, 时钟 or 监控.
- * Such a piece wants the **air** at the top of its column, not the cell, so it
+ * True when a piece hangs from the slab overhead — a hanging 指示牌, a 电视, a 时钟 or a
+ * 监控. Such a piece wants the **air** at the top of its column, not the cell, so it
  * shares a tile with whatever stands on the floor or is bolted to the wall
  * (`placementBlocked`), and a block laid in that cell is the slab it hangs from
- * rather than something in its way.
+ * rather than something in its way. A **wall** 指示牌 is its opposite number and is
+ * not hung.
+ *
+ * The test reads a **palette id** as readily as a placed module, because the
+ * placement tool is armed with the id before there is a module to ask: a 指示牌's two
+ * mounts are two tiles (`sign-ceiling` / `sign-wall`) and neither carries a `cfg` yet,
+ * so `sign-ceiling` answers for the hanging board and `sign-wall` — like the wall
+ * board itself — answers no.
  */
-export function isCeilingHung(m: { type: string }): boolean {
+export function isCeilingHung(m: { type: string; cfg?: object }): boolean {
+  if (m.type === 'sign' || m.type === 'sign-ceiling') return signMountSpec(signMountOf(m.cfg)).hung
   return CEILING_MOUNTED.has(m.type)
 }
 
@@ -671,17 +702,19 @@ export function autofaceWallMount(cells: readonly Cell[], candidate: Module, nea
 /* ------------------------------------------------------ ceiling-hung decor */
 
 /**
- * True when a ceiling-hung decoration (指示牌, 电视, 时钟 or 监控) has no ceiling
- * above it. The ceiling is the first storey grid line above the piece's floor
- * (`LEVEL_STEPS`, one storey = 4 m in the built grid): the slab the suspension
- * rods bolt to. A piece with nothing overhead has nowhere to hang, so the
- * builder refuses it. Wall-mounted and floor-standing modules are never refused.
+ * True when a **hanging** decoration (a 指示牌 on its ceiling mount, a 电视, a 时钟 or a
+ * 监控) has no ceiling above it. The ceiling is the first storey grid line above the
+ * piece's floor (`LEVEL_STEPS`, one storey = 4 m in the built grid): the slab the
+ * suspension rods bolt to. A piece with nothing overhead has nowhere to hang, so the
+ * builder refuses it. A **wall** 指示牌 is bolted instead of hung and asks for backing
+ * (`wallMountMissing`), and wall-mounted and floor-standing modules are never refused
+ * here either.
  *
  * Every cell of the piece needs a slab over it, asked through `baseCells` so that
  * a future multi-cell hung fitting is covered rather than only its anchor.
  */
 export function ceilingMountMissing(cells: readonly Cell[], candidate: Module): boolean {
-  if (!CEILING_MOUNTED.has(candidate.type)) return false
+  if (!isCeilingHung(candidate)) return false
   const ceilingZ = LEVEL_STEPS.find((z) => z > candidate.z)
   if (ceilingZ === undefined) return true
   return baseCells(candidate).some(
@@ -880,20 +913,22 @@ export function equipmentBlockingCell(modules: readonly Module[], x: number, y: 
  * apart would cross inside the block, and two facing the same way would duplicate a
  * panel, so both still collide.
  *
- * A **ceiling-hung** piece — 指示牌, 电视, 时钟, 监控 — is the other one, and for a
- * different reason: it hangs from the slab overhead, so the air under it belongs
- * to the room, not to the fitting. A chair on the floor, a poster on the back wall
- * and a clock on the ceiling are three pieces in three different places, and they
+ * A **ceiling-hung** piece — a hanging 指示牌, a 电视, a 时钟, a 监控 — is the other one,
+ * and for a different reason: it hangs from the slab overhead, so the air under it
+ * belongs to the room, not to the fitting. A chair on the floor, a poster on the back
+ * wall and a clock on the ceiling are three pieces in three different places, and they
  * share a tile in a real station. A hung piece therefore ignores every flat piece
  * (floor-standing, wall-mounted, a room, a rail) and every such piece ignores it;
  * it still collides with another hung piece, because those really do want the same
  * air, and with a **run** — a 楼梯 / 扶梯 / 电梯 shaft passes through the storey the
- * piece hangs in and its headroom is not negotiable.
+ * piece hangs in and its headroom is not negotiable. A **wall** 指示牌 is not hung and
+ * takes no part in this: it is a panel on a wall, and the boxes say so.
  *
  * A **wall-mounted** 广告牌 is the same idea one step lower: `flatEnvelope` gives it
  * the band of wall it really covers rather than the cell it hangs over, so a 座椅 on
  * the floor under it, or a 时钟 over it, is not in its way — while a 售票机 tall enough
- * to reach the panel still is. Nothing is exempted by hand: the boxes decide.
+ * to reach the panel still is. The **wall** 指示牌 is measured exactly the same way.
+ * Nothing is exempted by hand: the boxes decide.
  */
 export function placementBlocked(modules: readonly Module[], candidate: Module): boolean {
   return placementColliders(modules, candidate).length > 0
@@ -1213,9 +1248,9 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal): string {
     case 'occupied':
       return '这儿已经有设备了，换个地方'
     case 'wall':
-      return '墙面装饰（广告牌、玻璃板、站名、线网图）要贴在墙上：背后得有一堵实心墙，而且面板跨过的每一米都要有'
+      return '墙面装饰（广告牌、玻璃板、站名、线网图、墙面指示牌）要贴在墙上：背后得有一堵实心墙，而且面板跨过的每一米都要有'
     case 'ceiling':
-      return '指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）'
+      return '吊挂指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）；墙面指示牌不用吊，贴在墙上就行'
     case 'escalator-bases':
       return '扶梯两端都得有实心地板'
     case 'lift-footprint':

@@ -350,6 +350,24 @@ the build rail's palette icon and the board editor all call `drawSignPanel`, so 
 composes is the board they build, pixel for pixel; the face is drawn at a constant `PX_PER_METRE`,
 which is why a 0.42 m line badge measures the same on the model as it does in the editor.
 
+**One board, two mounts.** The piece is offered as two tiles — **吊挂指示牌** and **墙面指示牌** —
+and the mount travels in its own `cfg.mount` (`SignMount`, `sim/sign.ts`), so every rule can ask the
+module rather than the palette id it was armed with: `isWallMounted` and `isCeilingHung` read that one
+field, and `isCeilingHung` reads a bare `sign-ceiling` / `sign-wall` id as well, because the placement
+tool is armed with an id before there is a module to ask. The **hung** board is what it always was: rods
+from the storey slab (`ceilingMountMissing`), a storey-tall column (`FLAT_HEIGHT.sign`), and two lit
+plates. The **wall** board is a panel bolted flat to the wall on the piece's local −y face — the same
+face a 广告牌 hangs on, so `autofaceWallMount` turns it and the tool never asks the player to press `R`
+first — read from one side only: the wall is behind it, so `cfg.back` is not mounted at all, the board
+editor shows 正面 alone for it, and `createModule` drops the back a current pair may carry. It hangs at
+`SIGN_WALL_PANEL_Z` (1.65 m), so its 0.7 m panel crosses exactly the wall's **second** course
+(`signWallCourses` → `wallMountCourses`), and `flatEnvelope` gives it the 广告牌's shape: a thin slab on
+that wall over that band, not a cell. A 座椅 under it therefore shares the tile while a 售票机 tall
+enough to reach the panel collides, and a cell with open sky over it is exactly where it belongs. The
+two mounts are two pieces to a sweep (`sign:wall` / `sign:ceiling`) and to the hover ghost
+(`moduleGhostKey`), and one type everywhere else — a save, a pick, the inspector and the board editor
+work on both.
+
 **The board is one row, and it is as long as its content.** `signPanelSize` measures the row's own
 span — from the first mark's left edge to the last one's right edge — and gives it a quiet margin
 (`PANEL_END_PAD`) at **each** end, clamped to `PANEL_MAX_W`; the drawn panel, its mesh and its texture
@@ -500,9 +518,10 @@ print a portrait poster, and `test/billboard.test.mjs` measures every catalogue 
 format it can be rolled onto.
 
 **The pictograms are supplied artwork too, and they are bitmaps.** `sim/sign.ts`'s `SIGN_ICONS` is
-the whole catalogue — 列车, 电梯, 无障碍, 卫生间, 扶梯, 楼梯 and the 出口 plate — and every one but 出口
-is a PNG in `game/src/assets/pictograms/` that `render/pictograms.ts` decodes and hands to
-`render/signFace.ts` through the registry on that module (`setPictograms`). `tools/prep-sign-icons.py`
+the whole catalogue — 列车, 电梯, 无障碍, 卫生间, 扶梯, 楼梯, the 出口 plate and the 禁止 roundel — and every
+one but the last two is a PNG in `game/src/assets/pictograms/` that `render/pictograms.ts` decodes and
+hands to `render/signFace.ts` through the registry on that module (`setPictograms`).
+`tools/prep-sign-icons.py`
 is what makes them out of the supplied photographs of real station signage, and it is the only thing
 that decides how a mark looks: it thresholds every pixel (so the ink is **pure white** and nothing
 else survives), makes the photographed sign's dark ground **fully transparent** (the board's own plate
@@ -514,6 +533,17 @@ used whole; the rest are frameless. The two halves are split on purpose: `signFa
 registry and draws, `pictograms.ts` is the only file that touches Vite or the DOM, so a test can paint a
 board and read what it printed without a browser (`test/sign-render.test.mjs` decodes the real assets
 and pins that each is square, pure white and clear behind the ink).
+
+**Two marks are geometry instead of art**, and they are the board's only colour: the green **出/EXIT
+plate**, which is a printed plate rather than a pictogram, and the red **禁止 roundel** — a ring with a
+**level** strip across its diameter, drawn in `STOP_RED` because a prohibition sign is red or it is not
+one. They are listed in `SIGN_DRAWN_ICONS` (`signIconIsDrawn`), which is what `pictograms.ts` asks
+before reporting a missing asset and what `drawIcon` branches on, so a drawn mark is never waited on as
+a bitmap nor reported as one that failed to load. The roundel is a path rather than a `fillRect`, which
+is what lets `tools/render-sign-panel.mjs` record its corners: `test/sign-render.test.mjs` reads them
+back off the matrix-tracking context and pins the strip as a box exactly `2r` wide and one ring-thick
+tall, level and centred — a strip at an angle is a prohibit *sign* roundel, not the "stop" mark it is
+named for.
 
 **A board's marks are decoded before the board is printed**, for the same reason the posters are, and
 then one step further: a plate is a texture the scene mints once, so a face drawn before the art landed
@@ -1875,11 +1905,17 @@ approximated); neither needs WebGL.
   never a floating course height); a hung fitting hovered on the floor, the slab overhead or
   a wall course resolves to the floor it hangs over (`ceilingMountStandCell`); and a piece so
   aimed passes the shared `equipmentReason` verdict — with a ceiling where it needs one.
-* `sign.test.mjs` — the ceiling-hung 装饰 pieces, 指示牌 and 电视 (§5.7): the factory builds the sign
+* `sign.test.mjs` — the 装饰 pieces 指示牌 and 电视 (§5.7): the factory builds the sign
   with the hover rotation; a piece needs a solid ceiling at the next storey grid line (so a B1 piece
   hangs from the concourse slab) and is refused without one, while floor-standing modules are never
-  refused; neither is wall-mounted; each envelope is the full storey column, so it is found and blocks
-  its cell; and both round-trip the save. The same file owns the 指示牌's **board document** (§5.8):
+  refused; a **hanging** sign is not wall-mounted and its envelope is the full storey column, so it is
+  found and blocks its cell; and both round-trip the save. The same file owns the 指示牌's **two mounts**
+  (§5.8): the piece is created with the mount its palette tile names, a **wall** board is wall-mounted and
+  never the ceiling one, it is backed on the **one** wall course its 0.7 m panel crosses
+  (`signWallCourses`), it reserves a thin slab on that wall rather than the whole storey column (so a
+  座椅 shares the tile while a tall 售票机 collides), and the shared `equipmentReason` verdict answers each
+  mount by its own rules — ceiling for the hung board, backing for the wall one — with the two mounts two
+  pieces to a sweep and one module type to a save. The same file owns the 指示牌's **board document** (§5.8):
   the board is **one row** that grows longer with its content and never taller, and its texture follows
   it at a constant pixels per metre; text is measured and estimated alike; a label is two lines of
   eight; every component is its ink plus a pad, so two marks can never touch; **no two components ever
@@ -1985,7 +2021,9 @@ approximated); neither needs WebGL.
   hinge end never moves — `setDoors`, `setDoorsSides`, `rollEscalator`); the 扶梯's own **body under
   its truss**, which is walked as a closed shell and measured against the lower landing, the course
   the ground leaves, the cell edges it spans and the truss's width, and rayed straight up over that
-  course and past it; and a teardown, which frees
+  course and past it; a 指示牌's **two mounts** measured the same way (the wall board flush with the wall
+  plane, its body only its own depth proud of it, its panel spanning 1.3–2.0 m — the one wall course it
+  asks for — where the 吊挂 board reaches the ceiling its rods bolt to); and a teardown, which frees
   every geometry a group owns — an `InstancedMesh`'s instance buffers included — while keeping the
   shared kit and the shared ad quads.
 * `station-display.test.mjs` — the 电视 board's own arithmetic (`render/stationDisplay.ts`), testable
@@ -2002,7 +2040,8 @@ approximated); neither needs WebGL.
 * `sweep.test.mjs` — the 删除 tool's same-type drag sweep (§9.5, `app/sweep.ts`): two 闸机 of either
   rotation are one family while a 售票机 at the end of the row never joins; the palette variant is the
   match, so a 2 m 座椅 leaves the 1 m ones standing, a 横版 广告牌 leaves the portrait panels and a
-  双开 不锈钢 门 leaves the single wooden ones, while
+  双开 不锈钢 门 leaves the single wooden ones, and a **墙面指示牌** leaves the hanging boards (the mount is
+  the same kind of variant, an absent one reading as the hung board), while
   a legacy piece with no variant reads as the default it is drawn as; a room, a rail, an 出入口, a
   楼梯 and a 站台门 are never sweepable; every sweepable 设备 / 装饰 type is listed (so a new palette
   piece is un-sweepable until the decision is written down); the drag path between two move events is
@@ -2036,7 +2075,9 @@ approximated); neither needs WebGL.
   resolved by `facePresent` exactly as the brush resolves them — while a right press picks nothing.
   Two halves of the gesture are pinned beside it: a **指示牌** is copied as its own **boards**, not as
   its tile (the picked sign's printed faces become the current pair, the piece itself untouched, and
-  the next sign hung carries them), and **Esc** puts a whole pick back — tool, piece, turn, direction,
+  the next sign hung carries them) — and it arms the **tile of the mount it stands by**
+  (`sign-ceiling` / `sign-wall`), so the palette and the piece agree — and **Esc** puts a whole pick back
+  — tool, piece, turn, direction,
   door, the 方块 tool's wall-face cycle and the boards — through the `pickDraft` the picker notes before
   it writes, with a pick that changed nothing noting nothing.
 * `line-edit.test.mjs` — the 线路 card's own actions (`app/store/slices/LineSlice.ts` +
@@ -2063,7 +2104,12 @@ approximated); neither needs WebGL.
   contextual action row all read. It pins the four halves against each other for every family and every
   palette id: the keys and anchors are unique; each family owns at least one variant and **no variant is
   claimed twice**; every family is filed in the folder its own pieces are filed in (装饰 by `isDecorType`,
-  设备 by the rest) and `familiesIn` names them in rail order; **one order list (`RAIL_ORDER`) lays the
+  设备 by the rest) — and **every palette id answers a predicate as its own type does**, which is the rule the
+  rail's folder fold and the 装饰 right-click guard ride: a family whose ids are prefixed (`sign-ceiling`)
+  has to be named by its family predicate, or arming it opens the wrong folder and a right press skips the
+  guard that protects a room — and `familiesIn` names them in rail order, 装饰's own list being
+  bench / billboard / glass / door / calligraphy / linemap / **sign**, the 指示牌's two mounts the seventh —
+  and **one order list (`RAIL_ORDER`) lays the
   grid out** and every tile a folder owns is drawn exactly once, in it — a family's variants are excluded
   from its folder's plain tiles (`folderOptions`), so nothing is drawn twice and everything the folder can
   place is reachable; the
@@ -2190,14 +2236,26 @@ approximated); neither needs WebGL.
   triangle count, which is why it read as "it gets slower the longer I build".
 * `sign-editor.test.mjs` — the 指示牌 board editor session (`app/SignEditor.tsx`): a sign is a
   pair of boards with a one-sided default, the preview never commits, confirming makes the pair
-  current and the next sign hung carries a copy, covering the full compose→place→print flow.
+  current and the next sign hung carries a copy, covering the full compose→place→print flow — and a
+  **wall** 指示牌 keeps its mount through an edit and is never given a back (the wall is its second
+  face), while a wall board hung as the current one drops the back that pair carries.
 * `sign-model.test.mjs` — the 指示牌 board document path (`sim/sign.ts` `buildSign`): one lit
   face per composed board with a default-front/empty-back fallback, one vs two mounted faces,
-  and the shared panel sized to the longer board.
+  and the shared panel sized to the longer board. The two mounts are measured off the geometry: a
+  **wall** board mounts **正面 alone** as one lit face into the room (the back's own label never reaches
+  the wall), carries **no rods** (five meshes fewer than the hung board) and stands its panel across the
+  one wall course its backing rule asks from (`SIGN_WALL_PANEL_Z ± PANEL_MIN_H / 2`), with its body's back
+  face on the wall plane and the same board width as the hung one. It is **cut to the face it mounts**, too:
+  a back the document still carries cannot widen its steel or shift its plate (`mountedSignBoards`), where the
+  hung board — the one that really mounts both — is cut to the longer of its two faces.
 * `sign-render.test.mjs` — the 指示牌 board pixels (`render/signFace.ts` `drawSignPanel`): a
   fresh sign prints ink rather than black, per-face boards, the empty-face stand-in, panel-vs-
   plate size agreement, label row pitch and separation, every palette mark printing, the PNG
-  pictograms square/white/clear, and the save round-trip.
+  pictograms square/white/clear, and the save round-trip. Two marks are **geometry, not art**, and both
+  are pinned: the 出口/EXIT plate, and the red **禁止 roundel** — one ring drawn right round, whose strip
+  the test reads back off the matrix-tracking context as a filled red path exactly one ring-thickness tall,
+  level and centred on the ring (a strip at an angle is a prohibit-sign roundel, not the stop mark), with no
+  bitmap and no wording of its own.
 
 ## The simulation's time base
 

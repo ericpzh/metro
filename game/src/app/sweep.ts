@@ -16,6 +16,7 @@ import { billboardSpec } from '../sim/billboards.ts'
 import { glassSpec } from '../sim/glassPanels.ts'
 import { doorSpec } from '../sim/doors.ts'
 import { lineMapSpec } from '../sim/linemaps.ts'
+import { signMountSpec } from '../sim/sign.ts'
 import { removeModule, type StationState } from '../build/model.ts'
 
 /**
@@ -85,6 +86,9 @@ export function sweepFamily(mod: Module): string | null {
   if (mod.type === 'door') return `door:${doorSpec(mod.cfg?.variant).variant}`
   if (mod.type === 'calligraphy') return `calligraphy:${mod.cfg?.style ?? 'kai'}:${mod.cfg?.axis ?? 'h'}`
   if (mod.type === 'linemap') return `linemap:${lineMapSpec(mod.cfg?.mount).variant}`
+  // A 指示牌 sweeps by mount on the same reasoning: a drag takes the boards hung over
+  // the concourse and leaves the ones bolted to the wall (and vice versa).
+  if (mod.type === 'sign') return `sign:${signMountSpec(mod.cfg?.mount).mount}`
   return mod.type
 }
 

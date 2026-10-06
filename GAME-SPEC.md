@@ -597,11 +597,22 @@ All labels Simplified Chinese; text fields accept Chinese + digits + the ASCII i
 | 广告牌 billboard | 3 × 16 | same; swatch for bg colour | browse/dwell bonus unchanged in v1 |
 | 广告柱 ad tower | 2 × 10 | same | same |
 | 吊牌 hanging sign | 2 × 8, double-sided | `J` ceiling-face + `文案` tab | pure wayfinding, no bonus; the cheap overhead label |
+| 指示牌 sign (吊挂 / 墙面) | a board of up to 10 marks | its own board editor (the 自定义 action) | two mounts, one board: 吊挂 hangs by rods from the ceiling and prints both faces, 墙面 is bolted flat to a wall at reading height and prints 正面 alone |
 
 Rules: select module → right panel `文案` tab → type → live 3D preview on the quad.
 Over-long input hard-clamps with a counter (`12/12`); empty text renders the module
 default (`问讯处`, `本站导览`, …). Text is cosmetic in v1 — it never changes routing,
 only readability. Saved as `cfg.text[]` (§10.5).
+
+A **指示牌** is composed in its own editor rather than typed into a box: arrows, line
+shields, labels and pictograms are dragged onto the board, which grows with what it
+carries. It comes in **two mounts**, and the mount is the piece's own (`cfg.mount`):
+**吊挂指示牌** hangs from the storey ceiling and is read from both faces, **墙面指示牌**
+is a panel bolted flat to a wall at reading height and read from one — the wall is
+behind it, so 背面 is not mounted. A wall board therefore wants solid backing on the one
+course its 0.7 m panel crosses and nothing overhead, and a hung one the reverse. Its
+marks include the red 禁止 roundel (a ring with a level strip across its diameter) and the green
+出/EXIT plate, the two marks the renderer draws rather than loading as pictogram art.
 
 **PSD header display (屏蔽门上方, automatic, not typed):**
 
@@ -1368,8 +1379,9 @@ leaves the document, so nothing reaches the undo stack until the drop is confirm
 ground (or the card's `确认`, or `Enter`) drops it there as **one** commit — a single `Ctrl+Z` puts it
 back where it came from — and `Esc`, a right-press, or the card's `取消` puts it back with no commit at
 all. A refused cell (no floor under a piece that stands on one, a track bed, another piece, no wall
-behind a 广告牌, no ceiling over a 指示牌 / 电视 — the slab a hung piece needs is its whole structural
-requirement, since it hangs over the floor cell rather than standing on it) keeps it in the air and
+behind a 广告牌 or a 墙面指示牌, no ceiling over a 吊挂指示牌 / 电视 — the slab a hung piece needs is its
+whole structural requirement, since it hangs over the floor cell rather than standing on it) keeps it in
+the air and
 names the rule, exactly as a fresh placement would. Structural
 pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms, 轨道 / 站台门 — are refused by the same rule that keeps 拆除
 from sweeping one: each is one piece whose carved openings, derived screen doors and room walls a

@@ -11,8 +11,11 @@ export function stubCanvas(width = 512, height = 256) {
   // silent a failure as a missing mark: a row set twice too large still prints the
   // right characters, off the top of the panel. `images` is the same record for a
   // **pictogram**, which is bitmap art rather than a path: a test can read which mark
-  // was printed and in what box.
-  const ops = { fills: 0, strokes: 0, texts: [], words: [], filled: [], stroked: [], strokeWidths: [], images: 0, drawn: [], ellipses: [], arcs: [] }
+  // was printed and in what box. `rotations` keeps every `rotate` an angle, in radians,
+  // because a drawn mark's **orientation** is part of its drawing — the arrows are one
+  // path turned about their own centre, and a mark that quietly turned itself would be
+  // a different sign.
+  const ops = { fills: 0, strokes: 0, texts: [], words: [], filled: [], stroked: [], strokeWidths: [], images: 0, drawn: [], ellipses: [], arcs: [], rotations: [] }
   const g = {
     canvas: { width, height },
     fillStyle: '#000',
@@ -48,7 +51,9 @@ export function stubCanvas(width = 512, height = 256) {
     save: noop,
     restore: noop,
     translate: noop,
-    rotate: noop,
+    rotate: (angle) => {
+      ops.rotations.push(angle)
+    },
     scale: noop,
     setTransform: noop,
     resetTransform: noop,

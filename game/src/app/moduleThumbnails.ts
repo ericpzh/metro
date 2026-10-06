@@ -25,7 +25,7 @@ import { drawLineMapPlaceholder, lineMapPlaceholderPlate } from '../render/lineM
 import { drawStationDisplay, STATION_PLATE, tvLineStatus } from '../render/stationDisplay.ts'
 import { drawSignPanel } from '../render/signFace.ts'
 import { loadPictograms } from '../render/pictograms.ts'
-import { makeSignBoards, signPlate } from '../sim/sign.ts'
+import { DEFAULT_SIGN_MOUNT, makeSignBoards, signMountSpec, signPlate, type SignMount } from '../sim/sign.ts'
 import { DEFAULT_CALLIGRAPHY_AXIS, DEFAULT_CALLIGRAPHY_STYLE, calligraphyGeometry, isCalligraphyAxis, isCalligraphyStyle } from '../sim/calligraphy.ts'
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../sim/glassPanels.ts'
 import { DEFAULT_DOOR_VARIANT, doorSpec } from '../sim/doors.ts'
@@ -85,8 +85,10 @@ function viewDir(id: string): THREE.Vector3 {
   ) {
     return FRONT
   }
-  // The 指示牌 is a double-sided board; look straight at its printed face.
-  if (id === 'sign') return FRONT
+  // A 指示牌 is composed of boards printed on its face — the hung one on both faces,
+  // the wall one on the one face it has — so either tile looks straight at what it
+  // prints.
+  if (id.startsWith('sign')) return FRONT
   // A 时钟 is a dial facing **down**: from the isometric angle its icon would be
   // the bezel's dark top and nothing else, so its tile looks up at the face from
   // below the piece. A 监控 reads from the front and slightly below, where its lens
@@ -252,12 +254,24 @@ function sampleModule(id: string, station: StationData): Module | null {
       const spec = lineMapSpec(mount)
       return { id, type: 'linemap', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { mount: spec.variant } }
     }
-    case 'sign': {
+    case 'sign':
+    case 'sign-ceiling':
+    case 'sign-wall': {
       // The palette icon shows the front a fresh click would hang — the same default
       // `createModule` builds for a piece placed with no composed boards — and the
-      // same empty back, because a thumbnail of the back would be a black tile.
+      // same empty back, because a thumbnail of the back would be a black tile. A
+      // **wall** board has no back at all: the wall is behind it.
+      const mount: SignMount = id === 'sign-wall' ? 'wall' : DEFAULT_SIGN_MOUNT
       const boards = makeSignBoards(undefined, station)
-      return { id, type: 'sign', x: 0, y: 0, z: 0, rot: 0, cfg: { front: boards.front, back: boards.back } }
+      return {
+        id,
+        type: 'sign',
+        x: 0,
+        y: 0,
+        z: 0,
+        rot: 0,
+        cfg: { mount, front: boards.front, back: signMountSpec(mount).doubleSided ? boards.back : [] },
+      }
     }
     case 'exit':
     case 'exit-covered-1':

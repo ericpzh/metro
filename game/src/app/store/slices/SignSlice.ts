@@ -131,7 +131,16 @@ export const createSignSlice: StateCreator<AppState, [], [], SignSlice> = (set, 
     const mod = st.station.modules.find((m) => m.id === moduleId)
     if (!mod || mod.type !== 'sign') return
     const next = settleSignBoards(boards, st.station)
-    const modules = st.station.modules.map((m) => (m.id === moduleId && m.type === 'sign' ? { ...m, cfg: { front: next.front, back: next.back } } : m))
+    const modules = st.station.modules.map((m) => {
+      if (m.id !== moduleId || m.type !== 'sign') return m
+      // The **mount** is the piece's own and is not the editor's to write: a wall
+      // board stays bolted to its wall and a hung board stays on its rods however the
+      // boards are rearranged. Everything else the config might carry is the legacy
+      // `components` list, which the pair replaces (`ensureSignLayouts`).
+      const cfg: typeof m.cfg = { front: next.front, back: next.back }
+      if (m.cfg.mount !== undefined) cfg.mount = m.cfg.mount
+      return { ...m, cfg }
+    })
     get().commit({ ...st.station, modules })
   },
   // There is one **current pair of boards**, and the editor edits it. A session on a
@@ -226,8 +235,14 @@ export const createSignSlice: StateCreator<AppState, [], [], SignSlice> = (set, 
  * The preview is read here, at the last moment, instead of being written into the
  * document: it is not an edit until ✓ says so, and boards that committed themselves
  * per keystroke would fill `Ctrl+Z` with frames of a half-arranged sign.
+ *
+ * The **mount** is carried through, because it is not one of the boards: a wall board
+ * being arranged is still bolted to its wall, and a preview that dropped the mount
+ * would draw the overhead piece — rods and all — over a sign the player hung flat.
  */
 export function signModuleWithPreview(mod: Module, preview: AppState['signPreview']): Module {
   if (!preview || mod.type !== 'sign' || mod.id !== preview.moduleId) return mod
-  return { ...mod, cfg: { front: preview.boards.front, back: preview.boards.back } }
+  const cfg: typeof mod.cfg = { front: preview.boards.front, back: preview.boards.back }
+  if (mod.cfg.mount !== undefined) cfg.mount = mod.cfg.mount
+  return { ...mod, cfg }
 }

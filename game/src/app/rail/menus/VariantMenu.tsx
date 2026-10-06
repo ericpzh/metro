@@ -4,9 +4,10 @@
 // identically: it folds out under its parent tile, shares the rail's single open slot
 // with the others, and picking a variant selects that piece (keeping the list open,
 // because the list's family is the piece's family). 楼梯, 出入口, 座椅, 广告牌, 玻璃板,
-// 门, 站名 and 线网图 were eight copies of this component before; they are one now, driven by
+// 门, 站名, 线网图 and 指示牌 (its two mounts) were nine copies of this component before;
+// they are one now, driven by
 // the family row in `app/store/catalog.ts`, so a family's labels are data
-// (`tileLabel`) rather than an eighth file, and a new family needs no UI code
+// (`tileLabel`) rather than a ninth file, and a new family needs no UI code
 // at all.
 //
 // Nothing here decides what a family *is*: it renders `familyOptions(family)`. The

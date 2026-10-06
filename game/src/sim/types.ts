@@ -2,7 +2,7 @@
 // the save format (§10.5). Ids stay ASCII per §9.2 even though the UI is Chinese.
 
 import type { StockClass } from './stock.ts'
-import type { SignLayout } from './sign.ts'
+import type { SignLayout, SignMount } from './sign.ts'
 
 export type Fill = 'solid' | 'void'
 
@@ -634,17 +634,25 @@ export type Module =
    */
   | (ModuleBase & { type: 'tv'; cfg: { poster?: string } })
   /**
-   * An overhead wayfinding sign (指示牌, 装饰): a lit directional board hung by
-   * rods from the storey ceiling, readable from both faces. It is not
-   * wall-mounted — `ceilingMountMissing` (`sim/placement.ts`) refuses it unless a
-   * solid slab sits one storey up (`z + 4`, the fixed `LEVEL_STEPS` grid), which
-   * is the ceiling the rods bolt to.
+   * A wayfinding sign (指示牌, 装饰), in one of the two mounts §5.8 allows: a lit
+   * directional board **hung** by rods from the storey ceiling and readable from both
+   * faces, or the same board **bolted flat to a wall** and read from the room it
+   * faces (`sim/sign.ts`'s `SignMount`).
+   *
+   * A **hanging** sign is not wall-mounted — `ceilingMountMissing` (`sim/placement.ts`)
+   * refuses it unless a solid slab sits one storey up (`z + 4`, the fixed `LEVEL_STEPS`
+   * grid), which is the ceiling the rods bolt to. A **wall** sign is the reverse: it
+   * needs no slab at all and wants solid backing behind it on the courses its panel
+   * crosses (`signWallCourses`), and the wall it is bolted to is the local −y face of
+   * its `rot`, exactly as a 广告牌's is.
    *
    * The two faces are **two boards**, and each prints its own: `cfg.front` is
    * 正面, the side a passenger approaching the sign reads, and `cfg.back` is 背面,
    * which may be empty — an empty face mounts no plate at all and shows the
    * piece's own black lightbox, which is what a one-sided sign looks like from
-   * behind. A board is an ordered list of draggable parts — arrows, the bound
+   * behind. A wall board has a wall behind it rather than a second face, so it
+   * mounts 正面 alone and never reads `cfg.back` (`signMountSpec(...).doubleSided`).
+   * A board is an ordered list of draggable parts — arrows, the bound
    * line's own shield, typed text and pictograms — laid out by `sim/sign.ts` and
    * drawn by `render/signFace.ts`, and the two faces share one panel, as wide as
    * the longer of them (`signBoardsPanel`).
@@ -653,8 +661,10 @@ export type Module =
    * written before the back existed still loads: `toState`/`signBoardsOf` fold its
    * per-component `side` into the pair once, and a board with no `components`,
    * `front` or `back` at all is backfilled with `defaultSignLayout` on the front.
+   * `cfg.mount` is the same story for the hang: absent — every save written before
+   * the wall board existed — reads as the overhead board it was.
    */
-  | (ModuleBase & { type: 'sign'; cfg: { components?: SignLayout; front?: SignLayout; back?: SignLayout } })
+  | (ModuleBase & { type: 'sign'; cfg: { mount?: SignMount; components?: SignLayout; front?: SignLayout; back?: SignLayout } })
   | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom'; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]>; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket'; door?: Array<[number, number]>; stocked?: boolean } })

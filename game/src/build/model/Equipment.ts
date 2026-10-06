@@ -21,7 +21,7 @@ import { carveRampOpenings } from '../../sim/openings.ts'
 import { moduleFootprint } from '../../sim/placement.ts';
 import { trackOriginForCentre } from '../../sim/track.ts';
 import { STAIR_WIDTH_NARROW, stairBuildWidth, stairFlightsFor, stairLandings, stairTurnCells } from '../../sim/stairs.ts';
-import { makeSignBoards, settleSignBoards, signBoardsOf, type SignBoardsDraft, type SignLineSource } from '../../sim/sign.ts';
+import { makeSignBoards, settleSignBoards, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
 import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
 import { cellKey, cloneCell } from './Cells.ts';
 import type { StationState } from './State.ts';
@@ -219,16 +219,32 @@ export function createModule(
       const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1);
       return { id, type: 'linemap', x: ox, y: oy, z, rot, w: spec.w, cfg: { mount: spec.variant } };
     }
-    case 'sign': {
+    case 'sign':
+    case 'sign-ceiling':
+    case 'sign-wall': {
       // A board is born with a composed **front** (§5.8), not a blank face: the
       // station's first line is already on it, so a fresh sign is readable before
       // the player has opened its editor. The current pair, when there is one, is
       // what the piece actually hangs — copied, because the next sign must be free
       // to be composed differently without reprinting this one. The **back** is
       // empty unless the player has composed one: a sign is one-sided until it is
-      // said otherwise.
-      const boards = sign ? settleSignBoards(sign, linesOf(lines)) : makeSignBoards(undefined, linesOf(lines));
-      return { id, type: 'sign', x, y, z, rot, cfg: { front: boards.front.map((c) => ({ ...c })), back: boards.back.map((c) => ({ ...c })) } };
+      // said otherwise — and a **wall** sign has no back at all, because the wall is
+      // behind it (`signMountSpec(...).doubleSided`), so only 正面 is carried.
+      const mount: SignMount = type === 'sign-wall' ? 'wall' : DEFAULT_SIGN_MOUNT
+      const boards = sign ? settleSignBoards(sign, linesOf(lines)) : makeSignBoards(undefined, linesOf(lines))
+      return {
+        id,
+        type: 'sign',
+        x,
+        y,
+        z,
+        rot,
+        cfg: {
+          mount,
+          front: boards.front.map((c) => ({ ...c })),
+          back: signMountSpec(mount).doubleSided ? boards.back.map((c) => ({ ...c })) : [],
+        },
+      }
     }
     case 'exit':
     case 'exit-covered-1':
@@ -381,8 +397,12 @@ export function ensureSignLayouts(modules: readonly Module[], lines: SignLineSou
     changed = true;
     // The legacy `components` list is dropped, not carried along: the pair now says
     // everything it said, and leaving it in place would let a later write put the
-    // old single board back on the front.
-    return { ...mod, cfg: { front: boards.front, back: boards.back } };
+    // old single board back on the front. The **mount** is the piece's own and travels
+    // exactly as written — including absent, which is the hanging board a sign saved
+    // before the wall variant existed is, and a sign this repair never has to touch.
+    const cfg: Extract<Module, { type: 'sign' }>['cfg'] = { front: boards.front, back: boards.back };
+    if (mod.cfg.mount !== undefined) cfg.mount = mod.cfg.mount;
+    return { ...mod, cfg };
   });
   return changed ? out : [...modules];
 }

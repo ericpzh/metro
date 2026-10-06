@@ -5,6 +5,7 @@
 
 import type { AppState } from './Store.ts'
 import type { TriangleKind, Zone } from '../../sim/types.ts'
+import { SIGN_MOUNTS, signMountSpec } from '../../sim/sign.ts'
 
 export interface ModuleOption {
   id: string
@@ -48,10 +49,16 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'billboard-portrait', label: '竖版 0.7:1', type: 'billboard', w: 1, h: 1 },
   { id: 'billboard-square', label: '方形 1:1', type: 'billboard', w: 1, h: 1 },
   { id: 'tv', label: '电视', type: 'tv', w: 1, h: 1 },
-  { id: 'sign', label: '指示牌', type: 'sign', w: 1, h: 1 },
-  // The three wall pieces (装饰 §5.7): glass panels in six sizes, the station-name
-  // inscription in six hands × two axes, and the network map as a wall board or a
-  // free-standing totem. A run's length is the piece's own (`sim/glassPanels.ts`,
+  // The 指示牌's two mounts (§5.8): the overhead board hung from the ceiling and read
+  // from both sides, and the same board bolted flat to a wall. Two tiles, one piece —
+  // the 线网图's wall/stand pair read the other way round (`sim/sign.ts`) — and the tiles
+  // are **built from that table** (`SIGN_MOUNTS` / `signMountSpec`), so a mount's label
+  // and its palette id cannot drift apart.
+  ...SIGN_MOUNTS.map((mount) => ({ id: `sign-${mount}`, label: signMountSpec(mount).label, type: 'sign', w: 1, h: 1 })),
+  // The wall-mounted 装饰 pieces (§5.7): glass panels in six sizes, the station-name
+  // inscription in six hands × two axes, the network map as a wall board or a
+  // free-standing totem, and the 指示牌 on its wall mount (its hanging sibling above is
+  // the ceiling's). A run's length is the piece's own (`sim/glassPanels.ts`,
   // `sim/calligraphy.ts`, `sim/linemaps.ts`), so the cell counts here name the
   // smallest piece of each family.
   { id: 'glass-1x1', label: '玻璃板 1×1', type: 'glass', w: 1, h: 1 },
@@ -124,11 +131,18 @@ export function isBenchType(type: string): boolean {
  * Decoration (装饰) pieces: seating, goods shelving, office desks, restroom
  * fixtures, the bin and the 灭火器箱, the ceiling-hung 时钟 and 监控, advertising,
  * and the wall pieces — glass panels, the 门 the office closes itself with, the
- * station-name inscription and the network map. They are placeable
+ * station-name inscription, the network map and the **wall** 指示牌 (with the hanging
+ * board beside it). They are placeable
  * equipment like any
  * other, but the build rail files them under their own folder instead of 设备,
  * and the wall-mounted pieces must be fixed to a wall (see `wallMountMissing` in
  * `sim/placement.ts`).
+ *
+ * **Every id a piece is armed by has to answer here as its type does**: this is the
+ * predicate the rail folds its folder open by (`LeftRail`) and the one the 装饰
+ * right-click guard asks (`EquipmentTool`), and both hold a **palette id**, not a
+ * module — so a family added as prefixed ids (`sign-ceiling`) has to be named by its
+ * family predicate (`isSignType`), not by its bare type alone.
  */
 export function isDecorType(type: string): boolean {
   return (
@@ -141,7 +155,7 @@ export function isDecorType(type: string): boolean {
     type === 'extinguisher' ||
     type === 'clock' ||
     type === 'cctv' ||
-    type === 'sign' ||
+    isSignType(type) ||
     isBillboardType(type) ||
     isGlassType(type) ||
     isDoorType(type) ||
@@ -188,17 +202,28 @@ export function isLineMapType(type: string): boolean {
 }
 
 /**
+ * True for either 指示牌 (装饰): the overhead board hung from the ceiling and the
+ * board bolted flat to a wall. The palette spells them `sign-ceiling` / `sign-wall`
+ * and a placed module is the bare `sign` with its `cfg.mount`, exactly as the
+ * 线网图's two mounts read.
+ */
+export function isSignType(type: string): boolean {
+  return type === 'sign' || type.startsWith('sign-')
+}
+
+/**
  * True for a 装饰 piece that may only be placed against a wall block: the 广告牌, the
- * 玻璃板, the 站名 and the **wall** 线网图 — not the totem, which stands on the floor. The
- * palette ids are what the tool holds, so the totem's id is the one exception;
- * `sim/placement.ts`'s `isWallMounted` makes the same call on a placed module, from its
- * `cfg.mount`.
+ * 玻璃板, the 站名, the **wall** 线网图 — not the totem, which stands on the floor — and
+ * the **wall** 指示牌, whose hanging sibling is fixed to the ceiling instead. The
+ * palette ids are what the tool holds, so those two exceptions are named here;
+ * `sim/placement.ts`'s `isWallMounted` makes the same call on a placed module, from
+ * its `cfg.mount`.
  *
  * A **门 is not here**: it is a doorway of its own — threshold, posts and head — so it
  * stands on a floor tile like a 货架 and the tool resolves it from the ground.
  */
 export function isWallMountedType(type: string): boolean {
-  return isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || (isLineMapType(type) && type !== 'linemap-stand')
+  return isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || type === 'sign-wall' || (isLineMapType(type) && type !== 'linemap-stand')
 }
 
 /** True for the fence piece, which drags out a run like the wall tool. */
@@ -247,13 +272,14 @@ export function isRotatableType(type: string): boolean {
 
 /**
  * The rail's **variant families**: one row per nested sub-menu — 楼梯, 出入口, 座椅,
- * 广告牌, 玻璃板, 门, 站名, 线网图 — and the single table every part of that UI reads.
+ * 广告牌, 玻璃板, 门, 站名, 线网图, 指示牌 (its two mounts) — and the single table every
+ * part of that UI reads.
  *
  * A family in this rail is four things that have to agree: the parent **tile** (its
  * label and the variant its icon shows), the **list** of variants it folds out, the
  * **sub-menu slot** the rail keeps open, and the **anchor** the contextual action row
  * (旋转 / 自定义 / …) folds out under. Those used to be written out once per family —
- * seven near-identical menu components, a hand-written parent tile in each folder, and
+ * nine near-identical menu components, a hand-written parent tile in each folder, and
  * a third list mapping a piece to its anchor — so a family could be half-wired: a
  * variant that folds its own list away when picked, or a piece whose 旋转 tile folds
  * out under a tile that does not exist. This table is the one place that says what a
@@ -265,7 +291,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'stair' | 'exit' | 'bench' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap'
+export type ModuleFamilyKey = 'stair' | 'exit' | 'bench' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
 
 /** Which folder a family's parent tile and its variants live in. */
 export type ModuleFolder = 'equipment' | 'decor'
@@ -299,11 +325,12 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
   { key: 'door', owns: isDoorType },
   { key: 'calligraphy', owns: isCalligraphyType },
   { key: 'linemap', owns: isLineMapType },
+  { key: 'sign', owns: isSignType },
 ]
 
 /**
  * The families, grouped by folder: the 设备 folder's two first, then the 装饰 folder's
- * six. This is the family **table**'s order (what `familiesIn` reports); where each
+ * seven. This is the family **table**'s order (what `familiesIn` reports); where each
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
@@ -341,6 +368,12 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
     label: '线网图',
     folder: 'decor',
     owns: isLineMapType,
+  },
+  {
+    key: 'sign',
+    label: '指示牌',
+    folder: 'decor',
+    owns: isSignType,
   },
 ]
 
@@ -412,7 +445,7 @@ export type FolderTile =
 const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
   equipment: ['gate', 'fence', 'tvm', 'vending', 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
   decor: [
-    'sign',
+    familyAnchor('sign'),
     familyAnchor('billboard'),
     familyAnchor('bench'),
     familyAnchor('calligraphy'),
@@ -471,7 +504,7 @@ export function folderOptions(folder: ModuleFolder): ModuleOption[] {
 export function hasModuleActions(moduleType: string): boolean {
   return (
     isRotatableType(moduleType) ||
-    moduleType === 'sign' ||
+    isSignType(moduleType) ||
     isStairType(moduleType) ||
     isEscalatorType(moduleType) ||
     isGateType(moduleType)

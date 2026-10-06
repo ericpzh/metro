@@ -253,6 +253,17 @@ const wide = [
 ]
 
 /**
+ * The two **drawn** marks, on a board of their own so each is legible: the green
+ * 出/EXIT plate and the red **禁止** roundel, whose strip is level across its
+ * diameter. Neither is a bitmap, so this row is the one place both are drawn at a
+ * size a reader can check by eye.
+ */
+const drawn = [
+  { id: 'd1', kind: 'icon', icon: 'exit', x: 0.45, y: 0.35, scale: 1.4, side: 'both' },
+  { id: 'd2', kind: 'icon', icon: 'stop', x: 1.05, y: 0.35, scale: 1.4, side: 'both' },
+]
+
+/**
  * The pictograms, as `drawImage` sources: each asset as a data URL the recorded
  * SVG can carry. The marks are white ink on a transparent ground, and the board's
  * own near-black plate shows through — exactly what the canvas does.
@@ -268,6 +279,7 @@ const rows = [
   ['a fresh 指示牌 (the floor)', fresh],
   ['grown taller by two lines', tall],
   ['grown wider by a run of marks', wide],
+  ['the two drawn marks: 出/EXIT and 禁止', drawn],
   ['the whole catalogue on one board', catalogue],
 ]
 const out = process.argv[2] ?? 'sign-panel.png'

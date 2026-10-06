@@ -151,6 +151,16 @@ npm run deploy     # build, then wrangler deploy
 credentials to the build. `npm run deploy:game` deploys the game and attaches its routes the same
 way, and needs the same login.
 
+When wrangler is not available — no Cloudflare account, no network, or a machine that will not let
+it spawn — `npm run preview:local` serves the same two builds from `.dist` on one origin instead:
+the site at `/`, and the game at `/game/` and `/metro-game/`. It is plain Node with no children, so
+it starts anywhere:
+
+```bash
+npm run build && npm run build:game    # it only reads build output
+npm run preview:local                  # http://127.0.0.1:4173/
+```
+
 ### Routing
 
 The site is served from a path prefix — **`https://ericpzh.rest/metro/`** — rather than a domain
@@ -237,26 +247,20 @@ else depends on `/metro`.
 
 ## Regenerating the art
 
-The sheets are photographs of the game, so the game has to be built first:
-
 ```bash
-npm run build:game               # writes game/dist — the sheets are shot from it
-node tools/shots.mjs --connect   # or drop --connect to let the tool open its own browser
-node tools/shots.mjs --only 03,07            # one or two sheets
+node tools/gen-art.mjs           # rewrites art/*.svg
+node tools/serve.mjs             # a small local viewer for the sheets
 ```
 
-`shots.mjs` serves `game/dist` on a throwaway port, drives a headless Chrome over the DevTools
-protocol, loads the demo station, and photographs it: it aims each camera, sets the game's own view
-flags (剖切, 隐藏墙壁, which storey is edited), runs the crowd forward at 16x so a picture has people
-in it, and composes the frames into `art/*.svg`, one file per sheet.
-
-**The compositions are data**, not code: [tools/sheet-plan.mjs](tools/sheet-plan.mjs) lists every
-sheet as panels — where each sits on the sheet, where the camera stands, what region of the station
-it frames, and what the game should be showing at the time. Edit that to change a picture.
+Every sheet is drawn in the same 2:1 dimetric projection the game uses, so they double as an
+art-direction target rather than loose mood boards. The palette is a stylised read of real Guangzhou
+Metro stations, reinterpreted in [`tools/iso.mjs`](tools/iso.mjs); no photograph is shipped here.
 
 `art/` stays the single source of truth. `web`'s `prebuild` copies the sheets the gallery lists
-(`web/src/artworks.js`) into `web/public/art` and nothing else, so a sheet the plan stops drawing is
+(`web/src/artworks.js`) into `web/public/art` and nothing else, so a sheet the gallery stops listing is
 dropped from the build rather than shipped stale.
 
-The palette is a stylised read of real Guangzhou Metro stations, drawn by the game's own renderer
-from [`game/src/render/`](game/src/render/) — no photograph is shipped here.
+The **next step** for these sheets is to swap their hand-drawn furniture for the game's real models,
+module by module, keeping every layout, label, callout and animation where it is — `PLAN-models.md`
+records what that needs and the bridge that already works.
+

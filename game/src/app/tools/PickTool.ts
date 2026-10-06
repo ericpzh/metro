@@ -26,7 +26,7 @@ import { cellKey, faceFinish, facePresent } from '../../build/model.ts'
 import { railModuleAt } from '../../build/rail.ts'
 import { finishLabel } from '../../sim/finishes.ts'
 import { isCeilingHung, isWallMounted, moduleAt } from '../../sim/placement.ts'
-import { signBoardsOf } from '../../sim/sign.ts'
+import { signBoardsOf, signMountSpec } from '../../sim/sign.ts'
 import type { Module } from '../../sim/types.ts'
 import { MODULE_OPTIONS, moduleLabel, useStore } from '../store.ts'
 import { dominantFace } from './geometry/faces.ts'
@@ -64,6 +64,12 @@ function paletteIdForModule(mod: Module): string | null {
     case 'linemap':
       id = mod.cfg.mount === 'stand' ? 'linemap-stand' : 'linemap-wall'
       break
+    case 'sign':
+      // The two mounts are two tiles, so a picked sign arms the one it was hung as —
+      // the wall board and the overhead board are different pieces off the same
+      // palette row (`sim/sign.ts`).
+      id = signMountSpec(mod.cfg.mount).hung ? 'sign-ceiling' : 'sign-wall'
+      break
     case 'stair':
       id = `stair-${mod.cfg.style ?? 'straight'}`
       break
@@ -96,7 +102,6 @@ function paletteIdForModule(mod: Module): string | null {
     case 'clock':
     case 'cctv':
     case 'tv':
-    case 'sign':
     case 'escalator':
     case 'lift':
       id = mod.type

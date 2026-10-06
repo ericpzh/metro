@@ -16,7 +16,7 @@ import { stubCanvas } from './support/stub-canvas.mjs'
 import { trackingCanvas } from './support/tracking-canvas.mjs'
 import { pictogramArt, pictogramNames, readPictogram } from './support/pictograms.mjs'
 import { createModule, toState } from '../src/build/model.ts'
-import { settleSignBins, settleSignBoards, defaultSignLayout, isUturnArrow, signInkSize, SIGN_BACK_MARK, signBoardsPanel, signPanelSize, signPieces, signPlate, PX_PER_METRE, SIGN_ICONS, SIGN_SIZE, SIGN_TEXT_EN_SCALE } from '../src/sim/sign.ts'
+import { settleSignBins, settleSignBoards, defaultSignLayout, isUturnArrow, signIconIsDrawn, signInkSize, SIGN_BACK_MARK, signBoardsPanel, signPanelSize, signPieces, signPlate, PX_PER_METRE, SIGN_ICONS, SIGN_SIZE, SIGN_TEXT_EN_SCALE } from '../src/sim/sign.ts'
 
 // The marks a board prints are the shipped PNG assets, decoded off disk. A board
 // drawn without them prints no pictogram at all — which is exactly what this file
@@ -297,9 +297,10 @@ test('the printed frame is the panel’s, and a patch of the board can ask for n
 })
 
 test('every mark the palette offers prints on its own', () => {
-  // The ink is `render/signFace.ts`'s own pale mark colour; the ground and the frame
-  // are the two it paints before any component is reached.
+  // The ink is `render/signFace.ts`'s own pale mark colour, and the ground the plate
+  // starts as; the frame is *stroked*, so neither of these is a mark.
   const INK = '#f4f7fa'
+  const BOARD = '#0d1116'
   // One board per kind, drawn alone: a component whose drawing is broken (or whose box
   // is zero-sized, so the renderer skips it) would be a mark the player cannot put on a
   // sign at all. The pictograms are the whole palette, so every one of them is asked —
@@ -314,16 +315,18 @@ test('every mark the palette offers prints on its own', () => {
     const layout = settleSignBins([mark]).layout
     const { ops } = paint(layout, [LINE], 'left')
     const what = `${mark.kind}/${mark.icon ?? mark.arrow ?? mark.text}`
-    // A mark has printed when it filled in the ink colour, set a word in it (the 出口
-    // plate is ink words on a green field, so it does the second), or — for every
-    // pictogram that is a picture rather than a plate — drew its bitmap. What it must
-    // not do is leave the plate as the ground alone, which is how a broken board looks:
-    // a black rectangle hanging in the station.
-    const printed = ops.filled.includes(INK) || ops.texts.length > 0 || ops.images > 0
+    // A mark has printed when it painted **anything of its own** over the ground, set a
+    // word, or — for every pictogram that is a picture rather than a plate — drew its
+    // bitmap. Not every mark is pale ink: the 出口 plate is a green field with white
+    // words on it and the 禁止 roundel is red, so "the board's ground and nothing else"
+    // is the failure — a black rectangle hanging in the station.
+    const printed = ops.filled.some((c) => c !== BOARD) || ops.texts.length > 0 || ops.images > 0
     assert.ok(printed, `${what}: nothing was drawn (fills ${JSON.stringify(ops.filled)}, no words, no pictures)`)
-    // A bitmap mark is drawn as one square picture of its own asset, so the drawing
-    // and the catalogue cannot disagree about which mark a component wears.
-    if (mark.kind === 'icon' && mark.icon !== 'exit') {
+    // A **bitmap** mark is drawn as one square picture of its own asset, so the drawing
+    // and the catalogue cannot disagree about which mark a component wears. The two
+    // drawn marks — the 出/EXIT plate and the 禁止 roundel — are paths instead, and are
+    // pinned by their own tests below.
+    if (mark.kind === 'icon' && !signIconIsDrawn(mark.icon)) {
       assert.deepEqual(ops.drawn.map((d) => d.icon), [mark.icon], `${what}: the wrong picture was printed`)
       assert.equal(ops.drawn[0].w, ops.drawn[0].h, `${what}: a pictogram is drawn square`)
       assert.ok(Math.abs(ops.drawn[0].w - SIGN_SIZE.icon.w * PX_PER_METRE) < 0.5, `${what}: drawn at ${ops.drawn[0].w}px`)
@@ -343,6 +346,63 @@ test('every mark the palette offers prints on its own', () => {
 })
 
 /**
+ * The 禁止 roundel, mark by mark. It is the one mark whose look is **geometry and a
+ * colour** rather than a photograph — a red ring with a level strip across its
+ * diameter — so the two things that can go wrong are invisible anywhere else: a strip
+ * at an angle (a prohibit *sign* roundel, which is not the "stop" mark it is named
+ * for) and a ring painted in the board's pale ink.
+ */
+test('the 禁止 roundel is a red ring with a level strip across its diameter', () => {
+  const RED = '#e0242a'
+  const layout = settleSignBins([{ id: 'c1', kind: 'icon', icon: 'stop', x: 0, y: 0.35, scale: 1, side: 'both' }]).layout
+  const { ops } = paint(layout, [LINE], 'left')
+  // Both parts of the mark are the one red — the ring and the strip alike — and none of
+  // the board's pale ink is on it: a prohibition sign is red, or it is not one.
+  assert.ok(ops.filled.includes(RED), `the strip is painted red (${JSON.stringify(ops.filled)})`)
+  assert.ok(ops.stroked.includes(RED), `the ring is stroked red (${JSON.stringify(ops.stroked)})`)
+  assert.ok(!ops.filled.includes('#f4f7fa'), 'and the mark carries no pale ink of its own')
+  // It is **drawn**, not a picture: no bitmap is blitted and no caption is set.
+  assert.equal(ops.images, 0, 'the roundel is not a bitmap')
+  assert.deepEqual(ops.texts, [], 'and it carries no wording')
+  // The ring is one full circle whose **outer** edge is the mark's own square, so the
+  // roundel is the same weight on a board as a pictogram beside it.
+  assert.equal(ops.arcs.length, 1, 'one ring')
+  const arc = ops.arcs[0]
+  assert.equal(arc.a0, 0)
+  assert.ok(Math.abs(arc.a1 - Math.PI * 2) < 1e-9, 'drawn right round')
+  const side = SIGN_SIZE.icon.w * PX_PER_METRE
+  const line = side * 0.13
+  assert.ok(Math.abs(arc.r - (side / 2 - line / 2)) < 0.5, `the ring's centre line is ${arc.r} px`)
+  assert.ok(Math.abs(ops.strokeWidths[ops.strokeWidths.length - 1] - line) < 0.5, 'and its thickness is its own')
+  // The strip is **not turned at all**: the mark is the icon's plain "stop" bar, level
+  // across a round ring, and a mark that turned itself would need a `rotate` to do it.
+  assert.deepEqual(ops.rotations, [], 'the mark is drawn upright, with no turn on it')
+  // ...and the strip really is **level and across the diameter**, which is a question
+  // about the geometry rather than about the calls: the same board painted through the
+  // matrix-tracking context leaves the strip as a box `2r` wide and one line tall,
+  // centred on the ring.
+  const panel = signPanelSize(layout)
+  const plate = signPlate(panel)
+  const tracked = trackingCanvas(plate.width, plate.height)
+  drawSignPanel(tracked.g, layout, { lines: [LINE], panel }, 'left')
+  const strip = tracked.painted.find((p) => p.kind === 'fill' && p.colour === RED)
+  assert.ok(strip, 'the strip is a filled red path')
+  const xs = strip.points.map((p) => p[0])
+  const ys = strip.points.map((p) => p[1])
+  const width = Math.max(...xs) - Math.min(...xs)
+  const height = Math.max(...ys) - Math.min(...ys)
+  assert.ok(Math.abs(width - 2 * arc.r) < 0.5, `the strip spans the diameter (${width.toFixed(1)} px vs ${(2 * arc.r).toFixed(1)})`)
+  assert.ok(Math.abs(height - line) < 0.5, `and is one line of the ring thick (${height.toFixed(1)} px vs ${line.toFixed(1)})`)
+  // Level, not leaning: its top and bottom edges are each half a line off the ring's
+  // own centre, so the box is two rows of equal y rather than a slope.
+  const rows = [...new Set(ys.map((y) => Math.round(y * 100) / 100))].sort((a, b) => a - b)
+  assert.equal(rows.length, 2, `a level bar has two edges (got ${rows.length})`)
+  assert.ok(Math.abs((rows[0] + rows[1]) / 2 - arc.cy) < 0.5, 'centred on the ring, not off to one side')
+  assert.ok(Math.abs(rows[1] - rows[0] - line) < 0.5, 'the two edges are one line apart')
+  assert.ok(width > height * 4, `the bar is wide and shallow (${width.toFixed(1)}×${height.toFixed(1)} px)`)
+})
+
+/**
  * The assets themselves, which nothing above can see: a board prints whatever
  * bitmap it is handed, so a mark that arrived with a grey ground, a soft edge or a
  * non-square frame would print just as happily. The contract
@@ -350,7 +410,9 @@ test('every mark the palette offers prints on its own', () => {
  */
 test('every pictogram asset is square, pure white ink on a clear ground', () => {
   const names = pictogramNames()
-  const icons = SIGN_ICONS.filter((icon) => icon !== 'exit')
+  // The **drawn** marks have no asset by design — the renderer paints the 出/EXIT plate
+  // and the 禁止 roundel — so the folder holds one file per remaining pictogram.
+  const icons = SIGN_ICONS.filter((icon) => !signIconIsDrawn(icon))
   assert.deepEqual(names, [...icons].sort(), 'one asset per pictogram, and no others')
   for (const name of names) {
     const png = readPictogram(name)

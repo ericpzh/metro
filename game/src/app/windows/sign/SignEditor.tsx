@@ -7,7 +7,9 @@
 //      is what an approaching passenger reads, the back is what someone coming the
 //      other way reads, and they are independent lists. The 背面 row starts
 //      **empty** — a one-sided sign is a real sign — and an empty row still has
-//      its one place, so there is somewhere to drop the first mark.
+//      its one place, so there is somewhere to drop the first mark. A sign on the
+//      **wall** mount has no back at all — the wall is behind it — so its session
+//      shows 正面 alone (`isWallSignMount`).
 //   2. **the four groups** — 箭头, 图标, 线路 or 文字, each a tab showing what it
 //      makes, and one open at a time: the open group's palette folds out in the well
 //      **under the tabs**.
@@ -60,6 +62,7 @@ import {
   signLayoutInserted,
   signLayoutMoved,
   signMarkFits,
+  isWallSignMount,
   type SignBoards,
   type SignComponent,
   type SignFaceName,
@@ -104,6 +107,8 @@ export function SignEditor(): React.ReactElement | null {
   const target = useStore((s) => s.signEditorFor)
   const station = useStore((s) => s.station)
   const currentBoards = useStore((s) => s.currentBoards)
+  /** The armed palette tile: what the 自定义 tile composes for when nothing is placed. */
+  const moduleType = useStore((s) => s.moduleType)
   const previewSignLayout = useStore((s) => s.previewSignLayout)
   const commitSignLayout = useStore((s) => s.commitSignLayout)
   const restoreSignLayout = useStore((s) => s.restoreSignLayout)
@@ -115,6 +120,21 @@ export function SignEditor(): React.ReactElement | null {
   // sign, else the store's **current boards** — a session always opens on one of them,
   // and `openSignEditor` has already put the module's there.
   const stored: SignBoards = module?.type === 'sign' ? { front: module.cfg.front ?? currentBoards.front, back: module.cfg.back ?? [] } : currentBoards
+  /**
+   * The faces the editor shows. A **wall** 指示牌 has one: the wall is behind it, so
+   * 背面 has no plate to print on and the row is left out entirely rather than shown
+   * as a board nothing will ever draw (`signMountSpec(...).doubleSided`).
+   *
+   * The mount is asked of the module when the editor was opened on a placed sign and of
+   * the **armed palette tile** when it was opened from the 自定义 tile with nothing placed
+   * yet (`signComposing`: the next piece, which that tile already knows the mount of). A
+   * session that offered 背面 for a wall tile would let the player compose a face the
+   * placement then drops (`createModule` mounts 正面 alone), which is a silent loss.
+   */
+  const faces: readonly SignFaceName[] =
+    (module?.type === 'sign' && isWallSignMount(module.cfg.mount)) || (module === undefined && moduleType === 'sign-wall')
+      ? ['front']
+      : SIGN_FACES
 
   // The editor's own boards: taken once, when the editor opens, and written back on
   // ✓. `opened` is what a ✕ goes back to.
@@ -784,7 +804,7 @@ export function SignEditor(): React.ReactElement | null {
   // settled order and the marks on it. A tile is a fixed square rather than a slice of
   // the panel, but the row is still the board: one square per mark, in order. The back
   // row is laid over `faceRowLayout`, which is what gives an empty back its one place.
-  const rows = SIGN_FACES.map((face) => {
+  const rows = faces.map((face) => {
     const board = settleSignBins(faceRowLayout(boards[face]))
     // What is drawn **while a mark is in the air**: it takes the place the pointer is
     // over and the row shifts along, so the row shows the drop that is about to happen

@@ -40,10 +40,10 @@ import {
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 8)
+  assert.equal(MODULE_FAMILIES.length, 9)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['stair', 'exit', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap'],
+    ['stair', 'exit', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
@@ -103,7 +103,20 @@ test('a family is filed in the folder its own pieces are filed in', () => {
     }
   }
   assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['stair', 'exit'])
-  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap'])
+  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
+  // **The id has to answer as the type does.** The rail and the placement tool hold a
+  // palette **id**, not a module: `LeftRail` folds the folder open by `isDecorType(moduleType)`
+  // and `EquipmentTool` asks the same predicate before its 装饰 right-click guard. A family
+  // whose ids are prefixed (`sign-ceiling` / `sign-wall`) once answered only for its bare
+  // `type`, so arming a 指示牌 opened 设备 instead of 装饰 and a right press skipped the guard
+  // that stops a room being torn down by one click.
+  for (const option of MODULE_OPTIONS) {
+    assert.equal(
+      isDecorType(option.id),
+      isDecorType(option.type),
+      `${option.id}: the palette id is filed where its own type is`,
+    )
+  }
 })
 
 test('a variant never appears twice: the grid holds only the plain tiles', () => {
@@ -142,7 +155,7 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
   // any other tile, which is why the order cannot be read out of `MODULE_OPTIONS`.
   const anchors = (folder) => folderTiles(folder).map((t) => t.anchor)
   assert.deepEqual(anchors('decor'), [
-    'sign', familyAnchor('billboard'),
+    familyAnchor('sign'), familyAnchor('billboard'),
     familyAnchor('bench'), familyAnchor('calligraphy'),
     familyAnchor('linemap'), 'tv',
     'bin', 'extinguisher',

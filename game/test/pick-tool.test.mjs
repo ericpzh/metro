@@ -242,7 +242,7 @@ test('picking a 指示牌 copies the piece’s own printed boards, not the last 
 
   ctxFor('sg1').onDown(press([2, 3, 0]))
   assert.equal(st().tool, 'module', 'the picker hands the placement the sign')
-  assert.equal(st().moduleType, 'sign')
+  assert.equal(st().moduleType, 'sign-ceiling', 'and arms the mount it was hung by')
 
   const sign = st().station.modules.find((m) => m.id === 'sg1')
   const expected = settleSignBoards(signBoardsOf(sign.cfg, st().station), st().station)
@@ -258,6 +258,28 @@ test('picking a 指示牌 copies the piece’s own printed boards, not the last 
   // The next sign hung is the one that was picked, which is the whole point.
   const placed = createModule('sign', 0, 3, 0, 'new-sign', 0, undefined, 'up', 'lane', st().station, st().currentBoards)
   assert.deepEqual(placed.cfg.front, st().currentBoards.front)
+})
+
+test('a picked 指示牌 arms the mount it hangs by, so the tile and the piece agree', () => {
+  // A 指示牌 is two tiles in one cell — hung from the ceiling or bolted to a wall — and
+  // the tile is what the next click lays, so a pick has to read the piece's own mount
+  // rather than the bare type (`sim/sign.ts`'s `SignMount`).
+  const wall = {
+    id: 'sgw',
+    type: 'sign',
+    x: 1,
+    y: 1,
+    z: 0,
+    rot: 0,
+    cfg: { mount: 'wall', front: SIGN_BOARDS.front.map((c) => ({ ...c })), back: [] },
+  }
+  useStore.setState({ station: toState({ name: 't', seed: 1, cells: [floor(1, 1)], modules: [wall], lines: [] }) })
+  ctxFor('sgw').onDown(press([1, 1, 0]))
+  assert.equal(st().tool, 'module')
+  assert.equal(st().moduleType, 'sign-wall', 'the wall board arms the wall tile')
+  // ...and a piece placed from that tile is the same mount, wall and all.
+  const again = createModule(st().moduleType, 1, 1, 0, 'sgw2', 0, undefined, 'up', 'lane', st().station, st().currentBoards)
+  assert.equal(again.cfg.mount, 'wall')
 })
 
 test('Esc puts a picked piece back — the tool, its settings and the boards', () => {

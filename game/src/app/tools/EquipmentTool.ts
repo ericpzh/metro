@@ -445,9 +445,27 @@ export class EquipmentTool extends ToolController {
   ): { mod: Module | null; noWall: boolean } {
     const st = useStore.getState()
     const at = wallMountStandCell(st.station.cells, cell, place)
-    const draft = createModule(st.moduleType, at[0], at[1], at[2], id, st.moduleRot, st.stairWidth, st.escalatorDir)
+    // The piece is built the way the hung one is — the tool's own settings, and for a
+    // 指示牌 the station's lines and the **current** boards, so a wall board hung while
+    // its editor is open carries what is on screen and a bare one still wears the
+    // player's 1号线 shield.
+    const draft = createModule(
+      st.moduleType,
+      at[0],
+      at[1],
+      at[2],
+      id,
+      st.moduleRot,
+      st.stairWidth,
+      st.escalatorDir,
+      st.gateDoor,
+      st.station,
+      st.currentBoards,
+    )
     if (!draft) return { mod: null, noWall: true }
-    const mod = autofaceWallMount(st.station.cells, draft, near)
+    // A wall 指示牌 whose board is open in the editor draws the board being arranged.
+    const facing = autofaceWallMount(st.station.cells, draft, near)
+    const mod = signModuleWithPreview(facing, st.signPreview)
     return { mod, noWall: wallMountMissing(st.station.cells, mod) }
   }
 

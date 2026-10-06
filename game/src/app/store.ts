@@ -49,6 +49,7 @@ export {
   isDoorType,
   isCalligraphyType,
   isLineMapType,
+  isSignType,
   isBenchType,
   isDecorType,
   isWallMountedType,
