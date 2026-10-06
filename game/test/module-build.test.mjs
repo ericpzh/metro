@@ -57,7 +57,8 @@ const { buildModule, buildTrain, createModelMaterials, disposeObject, setDoors, 
 const { createModule } = await import('../src/build/model.ts')
 const { STOCK, doorCentres } = await import('../src/sim/stock.ts')
 const { STAIR_RISE, STAIR_RUN } = await import('../src/sim/stairs.ts')
-const { ESCALATOR_SPEED, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
+const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
+const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 
 const LINE = {
   id: '5',
@@ -150,6 +151,12 @@ function build(mod, preview = false) {
 }
 
 const palette = (id, rot = 0, dir = 'up', door = 'lane') => createModule(id, 4, 4, 0, 'm-' + id, rot, undefined, dir, door, [LINE])
+/**
+ * A 站名 is cut from the **station's name**, not from its palette id, so it is
+ * built through the whole document (`data.name` is 动物园 here): its panel is three
+ * cells wide for a three-character name, which is the number the row below pins.
+ */
+const calligraphy = (id) => createModule(id, 4, 4, 0, 'm-' + id, 0, undefined, 'up', 'lane', data)
 const room = (type, kind, extra = {}) => ({ id: `${type}-1`, type, x: 4, y: 4, z: 0, w: 5, h: 4, rot: 0, cfg: { kind, door: [[6, 4]], ...extra } })
 const edge = (psd, side = 'left', dir = 'up') => ({ id: `edge-${psd}`, type: 'platform-edge', x: 4, y: 4, z: 0, w: 8, rot: 0, cfg: { name: '站台门', line: '5', dir, side, psd, from: 'track-1' } })
 const track = (cfg) => ({ id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, d: 3, rot: 0, cfg: { line: '5', power: 'third-rail', dir: 'up', ...cfg } })
@@ -185,13 +192,25 @@ const PIECES = [
   ['广告牌 方形', palette('billboard-square'), 5, '0.92×0.185×1.18'],
   ['电视', palette('tv'), 13, '1.56×0.16×1.32'],
   ['指示牌', palette('sign'), 7, '2.15×0.16×1'],
+  // The wall pieces (§5.7). A 玻璃板 is the outer frame and one pane whatever its
+  // size — five meshes for a 1 × 1 band and for a 3 × 2 window alike, which is what
+  // "no inner frame" means as a number. A 站名 is its single ink plane, cut to the
+  // panel the name asked for. A 线网图 is a framed board, or a totem with a plinth, a
+  // post and a lit face on each side — the **same two-cell board** on both mounts.
+  ['玻璃板 1×1', palette('glass-1x1'), 5, '1×0.1×1'],
+  ['玻璃板 3×1', palette('glass-3x1'), 5, '3×0.1×1'],
+  ['玻璃板 3×2', palette('glass-3x2'), 5, '3×0.1×2'],
+  ['站名 楷书 横排', calligraphy('calligraphy-kai-h'), 1, '3×0×1'],
+  ['站名 楷书 竖排', calligraphy('calligraphy-kai-v'), 1, '0.98×0×2.6'],
+  ['线网图 墙面', palette('linemap-wall'), 3, '1.92×0.185×1.939'],
+  ['线网图 立式', palette('linemap-stand'), 5, '1.86×0.62×2.279'],
   ['出入口 有盖 单向', palette('exit-covered-1'), 75, '3.1×8.118×3.75'],
   ['出入口 有盖 双向', palette('exit'), 75, '4.1×8.118×3.75'],
   ['出入口 有盖 三向', palette('exit-covered-3'), 75, '5.1×8.118×3.75'],
   ['出入口 无盖 单向', palette('exit-uncovered-1'), 44, '3.04×8.08×1'],
   ['出入口 无盖 双向', palette('exit-uncovered-2'), 46, '4.04×8.08×1'],
   ['出入口 无盖 三向', palette('exit-uncovered-3'), 46, '5.04×8.08×1'],
-  ['扶梯', palette('escalator'), 17, '0.98×7.55×5.563'],
+  ['扶梯', palette('escalator'), 18, '0.98×7.55×5.563'],
   ['电梯', palette('lift'), 17, '2.04×2.04×6.73'],
   ['楼梯 单跑', palette('stair-straight'), 71, '0.89×6.25×5.347'],
   ['楼梯 左转 90°', palette('stair-left90'), 90, '3.57×3.57×5.341'],
@@ -305,6 +324,100 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   assert.equal(retail.meshes, store.meshes, 'the 零售 shell and a 商店 room are the same piece')
   assert.equal(retail.size, store.size, 'drawn to the same size')
   assert.notEqual(build(room('shop', 'toilet')).meshes, store.meshes, 'a 厕所 fits out its own interior')
+})
+
+test('a 扶梯 carries its own solid under the truss, over the course the ground leaves', () => {
+  // The ground under a run always stops **one course** short of the truss: the 方块 brush may not
+  // lay that last course, whose top face would sit above the walking line. The renderer filled
+  // that course (`rampFillKeys`, `sim/openings.ts`) as a derived cell, which belongs to the
+  // ground and kept coming out as four walls with no lid. The escalator draws the body itself,
+  // cut to exactly that course: where the ground's filling stood, and no deeper or further.
+  const mod = palette('escalator')
+  const built = build(mod)
+  const solid = built.group.getObjectByName('undercroft')
+  assert.ok(solid, 'the 扶梯 carries no solid under the truss')
+
+  // A closed shell: every edge belongs to exactly two triangles, so no side of it — from below,
+  // from above, or from the landing it climbs from — shows its own inside.
+  const pos = solid.geometry.getAttribute('position')
+  const edges = new Map()
+  const at = (i) => {
+    const v = new THREE.Vector3().fromBufferAttribute(pos, i)
+    return `${round(v.x)},${round(v.y)},${round(v.z)}`
+  }
+  for (let i = 0; i < pos.count; i += 3) {
+    for (const [u, v] of [[0, 1], [1, 2], [2, 0]]) {
+      const edge = [at(i + u), at(i + v)].sort().join('|')
+      edges.set(edge, (edges.get(edge) ?? 0) + 1)
+    }
+  }
+  assert.ok(edges.size > 0, 'the undercroft drew no faces at all')
+  for (const [edge, shared] of edges) assert.equal(shared, 2, `the undercroft's edge ${edge} is not shared by two faces`)
+
+  // The frame the body is cut in: `slope` is the run's own rise over its horizontal run, and the
+  // ground under a run is shaved to `RAMP_FOOT` below the walking line at any station.
+  const slope = (mod.to.z - mod.from.z) / Math.hypot(mod.to.x - mod.from.x, mod.to.y - mod.from.y)
+  const cutAt = (y) => mod.from.z + 1 + (y - (mod.from.y + 0.5)) * slope - RAMP_FOOT
+  const b = box(solid)
+  assert.equal(round(b.min.z), mod.from.z + 1, 'it does not stand on the lower landing’s floor')
+  assert.equal(round(b.min.y), round(mod.from.y + 0.5 + 0.75), 'it does not start where the lid meets the floor')
+  assert.equal(round(b.max.y), round(mod.from.y + 0.5 + 2.5), 'it does not finish on the cell edge it crosses')
+  assert.equal(round(b.max.z), round(cutAt(b.max.y)), 'its top is not the plane the ground is shaved to')
+  assert.ok(b.max.z > mod.from.z + 1 + 1, 'its lid flattens off at the course line instead of following the ground up')
+  assert.equal(round(b.getSize(new THREE.Vector3()).x), round(ESCALATOR_BALUSTRADE), 'not flush with the truss box’s flanks')
+
+  // Solid from below over that course — a ray straight up under the run meets the body, never the
+  // gap between the truss and the floor — and no further: past it the run is the shell it was.
+  const from = new THREE.Vector3(mod.from.x + 0.5, mod.from.y + 0.5, mod.from.z + 1)
+  const to = new THREE.Vector3(mod.to.x + 0.5, mod.to.y + 0.5, mod.to.z + 1)
+  const climb = to.clone().sub(from).normalize()
+  // `s` is horizontal distance up the run, as the piece's own frame measures it — the first
+  // 0.75 m of it is the trench the cut opens in the floor, which the truss box's own dip is
+  // already inside.
+  const across = new THREE.Vector3(climb.x, climb.y, 0).normalize()
+  const under = (s) => {
+    const p = from.clone().add(across.clone().multiplyScalar(s))
+    const ray = new THREE.Raycaster(new THREE.Vector3(p.x, p.y, mod.from.z - 8), new THREE.Vector3(0, 0, 1))
+    return ray.intersectObject(built.group, true)[0]?.object.name ?? 'nothing'
+  }
+  for (const s of [1, 1.5, 2, 2.4]) assert.equal(under(s), 'undercroft', `nothing solid under the run ${s} m up from the landing`)
+  for (const s of [3.5, 4.5, 5.5]) assert.notEqual(under(s), 'undercroft', `the body reaches past the course the ground stops at (${s} m)`)
+
+  // Its lid **is** that plane, to the body's very end: the body and the shaved ground meet in one
+  // surface instead of leaving a step beside the run or a slit at the trench the cut opens at its
+  // foot — and its top is buried in the truss box the whole way, so no slit opens under the truss
+  // where a flat cap would have stopped short of it. Nothing may stand proud of the plane: a
+  // vertex above it would poke through the ground the player sees.
+  let worst = -Infinity
+  for (let i = 0; i < pos.count; i++) {
+    const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(solid.matrixWorld)
+    worst = Math.max(worst, v.z - cutAt(v.y))
+  }
+  assert.ok(Math.abs(worst) < 1e-6, `the body is ${worst.toFixed(4)} m off the plane the ground is shaved to`)
+
+  // And no slit under the truss. The body's lid has to sit **above** the truss box's own underside
+  // wherever the two overlap, or its last stretch — and its end face — stands in the open with the
+  // truss floating over it, which is exactly what a lid flattened off at the course line left.
+  const alongRun = (mesh, pick) => {
+    const p = mesh.geometry.getAttribute('position')
+    const v = new THREE.Vector3()
+    let best = pick === 'max' ? -Infinity : Infinity
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld)
+      const plane = v.z - slope * v.y
+      best = pick === 'max' ? Math.max(best, plane) : Math.min(best, plane)
+    }
+    return best
+  }
+  const lid = alongRun(solid, 'max')
+  const trussUnderside = alongRun(built.group.getObjectByName('truss'), 'min')
+  assert.ok(lid > trussUnderside, `the body stops ${(trussUnderside - lid).toFixed(4)} m short of the truss's underside`)
+
+  // Direction only orders the travel the sim reads: a down run is the same body in the same
+  // place, so the two directions of one bank fill the same space.
+  const down = box(build(palette('escalator', 0, 'down')).group.getObjectByName('undercroft'))
+  assert.deepEqual(down.min.toArray().map(round), b.min.toArray().map(round), 'a down run carries its solid somewhere else')
+  assert.deepEqual(down.max.toArray().map(round), b.max.toArray().map(round), 'a down run carries its solid somewhere else')
 })
 
 test('a consist is cars × carLength of body, with a cab and its doors on both sides', () => {

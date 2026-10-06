@@ -206,6 +206,14 @@ export interface SlopeCut {
    * skirt meets its truss flush instead of stepping out 9 cm either side.
    */
   half?: number
+  /**
+   * The run's **own piece** draws the body that would be filled here — an escalator's
+   * undercroft (`EscalatorModel.undercroftSolid`), which is cut to this very cell and plane.
+   * `rampFillKeys` skips it: two bodies in one place are two coplanar faces, one of them
+   * meshed from the ground's kit and one from the model's, and the pair flickers against each
+   * other wherever they meet. The piece's solid stands there instead.
+   */
+  ownBody?: boolean
 }
 
 /**
@@ -220,13 +228,20 @@ export interface SlopeCut {
  * ground reads as rising to the truss, and it appears and disappears with the ground
  * and the run on its own (`thinWallCells` is the same kind of derived surface).
  *
+ * A cell with **no ground directly under it is deliberately left alone**: a run over void
+ * is a run over void, and inventing a column of solid under it would be the renderer making
+ * up a building the player never laid. `test/ramp-fill.test.mjs` pins both halves.
+ *
  * `solid` holds packed cell keys, and a cell's own key minus one is the cell directly
  * under it (`packKey`'s z term is the last one it adds), so the block below is found
  * without unpacking a coordinate.
  */
 export function rampFillKeys(solid: ReadonlySet<number>, slopes: ReadonlyMap<number, SlopeCut>): Set<number> {
   const out = new Set<number>()
-  for (const k of slopes.keys()) {
+  for (const [k, cut] of slopes) {
+    // A run whose own piece draws this body gets no filling: the piece's solid is already there,
+    // and a second one on the same plane is a face that flickers against it.
+    if (cut.ownBody) continue
     if (solid.has(k)) continue
     if (!solid.has(k - 1)) continue
     out.add(k)
@@ -317,7 +332,11 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
           // An escalator's body is its truss box, narrower than the cell: the filling
           // under it is drawn as that box. A stair's treads run out to the cell edge, so
           // its cut stays cell-wide.
-          if (m.type === 'escalator') cut.half = ESCALATOR_BALUSTRADE / 2
+          if (m.type === 'escalator') {
+            cut.half = ESCALATOR_BALUSTRADE / 2
+            // …and the 扶梯 draws that body itself now, so no filling is derived over it.
+            cut.ownBody = true
+          }
           out.set(k, cut)
         }
       }

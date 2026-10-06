@@ -37,6 +37,24 @@ const escalator = (from = { x: 6, y: 0, z: 0 }, to = { x: 0, y: 0, z: 4 }) => ({
   cfg: { dir: 'up' },
 })
 
+/**
+ * The same run as a **stair** (`rot: 3` is the orientation `createModule('stair-straight', 6, 0, 0,
+ * …)` builds for it). A stair draws no body of its own, so it is the run whose ground the renderer
+ * still fills — an escalator's piece carries that body itself now (`EscalatorModel.undercroftSolid`),
+ * which is why the filling tests are written over this one.
+ */
+const stair = (from = { x: 6, y: 0, z: 0 }, to = { x: 0, y: 0, z: 4 }) => ({
+  id: 's1',
+  type: 'stair',
+  x: from.x,
+  y: from.y,
+  z: from.z,
+  rot: 3,
+  from,
+  to,
+  cfg: { width: 0.68, style: 'straight', flights: [{ from, to }] },
+})
+
 /** The walking line of a run, at a world point: `from` and `to` are landings. */
 function line(run, x, y) {
   const from = run.from ?? run
@@ -104,7 +122,7 @@ test('a block under a run is floor: the brush lays it and the carve leaves it', 
   // The run's own cell — its walking line passes through it — is the opening.
   assert.equal(reservedOpening([esc], 4, 0, 2), true, "the run's own cell is not buildable")
   // The cell directly below it is *not*: the truss hangs into its top, and that is
-  // exactly what the 地基 tool is for.
+  // exactly what the 方块 tool is for.
   assert.equal(reservedOpening([esc], 4, 0, 1), false, 'the cell under the run must be buildable')
 
   const { changed, blocked } = addCells([], [[4, 0, 1]], [esc])
@@ -255,17 +273,17 @@ test('a packed key steps one block down by subtracting one', () => {
 })
 
 test('the ground under a run is drawn up to the truss, and no cell is added', () => {
-  const esc = escalator()
+  const run = stair()
   const floor = []
   for (let x = 0; x <= 8; x++) for (let y = -1; y <= 1; y++) floor.push({ x, y, z: 0, fill: 'solid' })
   const solid = buildSolidSet(floor)
-  const cuts = rampSlopeCuts([esc])
+  const cuts = rampSlopeCuts([run])
   const fills = rampFillKeys(solid, cuts)
 
-  // The course the truss crosses just above the floor is the one that used to be
+  // The course the run crosses just above the floor is the one that used to be
   // left open: the brush cannot lay it (its nominal top is above the walking line),
-  // and the block below it does not reach the truss on its own.
-  assert.ok(fills.has(packKey(5, 0, 1)), 'the wedge above the floor is a filling')
+  // and the block below it does not reach the run on its own.
+  assert.ok(fills.size > 0, 'nothing under the run is filled at all')
   for (const k of fills) {
     assert.ok(cuts.has(k), `the filling ${k} is not where the plane cuts`)
     assert.ok(!solid.has(k), `the filling ${k} is a block the station already holds`)
@@ -273,21 +291,41 @@ test('the ground under a run is drawn up to the truss, and no cell is added', ()
   }
 
   // The drawn ground: the floor alone stops at its ceiling, and with the filling the
-  // same column reaches the truss's underside.
+  // same column reaches the run's underside.
   const filledCells = [...fills].map((k) => {
     const [x, y, z] = unpack(k)
     return { x, y, z }
   })
   const plain = meshCells(floor, solid, cuts, undefined)
   const filled = meshCells(floor.concat(filledCells), solid, cuts, fills)
-  const truss = line(esc, 5, 0.5) - RAMP_FOOT
-  assert.ok(Math.abs(topOver(plain, 5, 0) - 1) < 1e-6, 'the floor alone stops at its own ceiling')
+  const x = filledCells[0].x
+  const y = filledCells[0].y
+  // The plane slopes down the run, so the cell's own top is highest at its low edge in x.
+  const underside = line(run, x, y + 0.5) - RAMP_FOOT
+  assert.ok(Math.abs(topOver(plain, x, y) - 1) < 1e-6, 'the floor alone stops at its own ceiling')
   assert.ok(
-    Math.abs(topOver(filled, 5, 0) - truss) < 0.02,
-    `the filled ground reaches ${topOver(filled, 5, 0)}, not the truss at ${truss}`,
+    Math.abs(topOver(filled, x, y) - underside) < 0.02,
+    `the filled ground reaches ${topOver(filled, x, y)}, not the run's underside at ${underside}`,
   )
   // The filling is drawn as one surface with the block it continues: no face between
   // them, or the wedge would read as a loose slab sitting on the floor.
-  const between = filled.filter((p) => z2eq(p[2], 1) && p[0] > 5.2 && p[0] < 5.8 && p[1] > 0.2 && p[1] < 0.8)
+  const between = filled.filter(
+    (p) => z2eq(p[2], 1) && p[0] > x + 0.2 && p[0] < x + 0.8 && p[1] > y + 0.2 && p[1] < y + 0.8,
+  )
   assert.deepEqual(between, [], 'the seam between the floor and its filling is drawn')
+})
+
+test('a 扶梯 derives no filling: its own piece draws that body', () => {
+  // Two bodies in one cell are two coplanar faces, one meshed from the ground's kit and one from
+  // the model's, and the pair flickers. So the cut an escalator leaves is still shaved ground —
+  // the piece's undercroft is cut to that very plane — but nothing is *filled* over it: the piece
+  // stands there (`EscalatorModel.undercroftSolid`, pinned against the truss in `module-build`).
+  const run = escalator()
+  const floor = []
+  for (let x = 0; x <= 8; x++) for (let y = -1; y <= 1; y++) floor.push({ x, y, z: 0, fill: 'solid' })
+  const solid = buildSolidSet(floor)
+  const cuts = rampSlopeCuts([run])
+  assert.ok(cuts.size > 0, 'the escalator no longer shaves the ground it climbs over')
+  assert.equal(rampFillKeys(solid, cuts).size, 0, 'the escalator derives a filling its piece already draws')
+  for (const cut of cuts.values()) assert.equal(cut.ownBody, true, 'the cut does not say its piece draws the body')
 })

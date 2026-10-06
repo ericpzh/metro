@@ -13,6 +13,8 @@
 import type { Module } from '../sim/types.ts'
 import { benchSpec } from '../sim/benches.ts'
 import { billboardSpec } from '../sim/billboards.ts'
+import { glassSpec } from '../sim/glassPanels.ts'
+import { lineMapSpec } from '../sim/linemaps.ts'
 import { removeModule, type StationState } from '../build/model.ts'
 
 /**
@@ -49,6 +51,9 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
   'clock',
   'cctv',
   'billboard',
+  'glass',
+  'calligraphy',
+  'linemap',
   'tv',
   'sign',
 ])
@@ -69,6 +74,12 @@ export function sweepFamily(mod: Module): string | null {
   // described, so the family key is read from them rather than from the module.
   if (mod.type === 'bench') return `bench:${benchSpec(mod.cfg.variant).variant}`
   if (mod.type === 'billboard') return `billboard:${billboardSpec(mod.cfg.variant).variant}`
+  // A 玻璃板 sweeps by size: a 2 × 2 window does not collect the 1 m bands beside
+  // it. A 站名 sweeps by hand and axis, and a 线网图 by mount, so a drag takes the
+  // wall maps and leaves the totems (and vice versa).
+  if (mod.type === 'glass') return `glass:${glassSpec(mod.cfg?.variant).variant}`
+  if (mod.type === 'calligraphy') return `calligraphy:${mod.cfg?.style ?? 'kai'}:${mod.cfg?.axis ?? 'h'}`
+  if (mod.type === 'linemap') return `linemap:${lineMapSpec(mod.cfg?.mount).variant}`
   return mod.type
 }
 

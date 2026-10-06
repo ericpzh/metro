@@ -107,12 +107,13 @@ test('a format prints the poster it was given, and an unknown slug a placeholder
 
 test('the six formats are a palette of real panels', () => {
   assert.equal(BILLBOARD_VARIANTS.length, 6)
-  // The drawn panel fits its run and its 2.4 m collision envelope, so a
-  // billboard never pokes through the neighbouring bay or the floor above.
+  // The drawn panel fits its run and stays clear of the floor and of the ceiling
+  // slab two storeys up — the band `moduleEnvelope` reserves is exactly this one
+  // (`panelZ` ± `panelH` / 2, `sim/placement.ts`), which is why a 座椅 on the floor
+  // under a poster is not in its way.
   for (const variant of BILLBOARD_VARIANTS) {
     const spec = BILLBOARD_SPECS[variant]
     assert.ok(spec.panelW <= spec.w, `${variant}: a ${spec.panelW} m panel cannot fit ${spec.w} cells`)
-    assert.ok(spec.panelH <= 2.4, `${variant}: a ${spec.panelH} m panel is taller than the module`)
     assert.ok(spec.panelZ - spec.panelH / 2 > 0.2, `${variant}: the panel would sit on the floor`)
     assert.ok(spec.panelZ + spec.panelH / 2 < 2.4, `${variant}: the panel would poke through the ceiling`)
   }

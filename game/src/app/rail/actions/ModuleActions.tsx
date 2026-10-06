@@ -5,40 +5,32 @@
 // turnable **and** composed, so it shows both: 旋转 turns the hung board, and
 // 自定义 opens the board editor for the panel it will print (§5.8).
 //
-// The anchor helpers below are the single source for *where* this row belongs —
-// the tile that spawned it, so it folds out right below its parent instead of at
-// the folder bottom. Group-owned pieces anchor to their parent tile; plain gear
-// anchors to its own tile. Null closes every row, letting the open one shrink
-// away. Equipment and 装饰 folders both read them, so the two rows can never
-// disagree about which tile owns a piece.
+// **Where the row belongs** is one rule, `actionsAnchorFor` in `app/store/catalog.ts`:
+// the piece's **family tile** when it is a variant of one (座椅 / 广告牌 / 玻璃板 / 站名 /
+// 线网图 / 楼梯 / 出入口) and the piece's own tile otherwise. The shared grid
+// (`rail/shared/TileGrid.tsx`) renders the tiles and folds this row out under the same
+// anchor, so the two cannot disagree — which is what a per-folder, hand-listed anchor
+// used to get wrong (a variant whose 旋转 tile folded out under a tile no folder drew).
+// Null closes every row, letting the open one fold away.
 
-import { isBenchType, isBillboardType, isDecorType, isEscalatorType, isExitType, isGateType, isRotatableType, isStairType, useStore } from '../../store.ts'
+import { actionsAnchorFor, hasModuleActions, isEscalatorType, isGateType, isStairType, isRotatableType, useStore } from '../../store.ts'
 import type { Tool } from '../../store.ts'
 import type { GateDoor } from '../../../sim/types.ts'
 import { Block } from '../shared/Block.tsx'
 
+export { hasModuleActions } from '../../store.ts'
+
 /** The 闸机 tile's Tab cycle, in the label the action tile wears. */
 const GATE_DOOR_LABEL: Record<GateDoor, string> = { lane: '有门', fence: '围栏' }
 
-/** True when the piece being placed owns at least one action tile. */
-export function hasModuleActions(moduleType: string): boolean {
-  return isRotatableType(moduleType) || moduleType === 'sign' || isStairType(moduleType) || isEscalatorType(moduleType) || isGateType(moduleType)
-}
-
-/** Anchor of the action row inside 设备, or null when no row is open. */
-export function equipActionsAnchor(tool: Tool, moduleType: string): string | null {
-  if (tool !== 'module' || isDecorType(moduleType) || !hasModuleActions(moduleType)) return null
-  if (isStairType(moduleType)) return '__stair'
-  if (isExitType(moduleType)) return '__exit'
-  return moduleType
-}
-
-/** Anchor of the action row inside 装饰, or null when no row is open. */
-export function decorActionsAnchor(tool: Tool, moduleType: string): string | null {
-  if (tool !== 'module' || !isDecorType(moduleType) || !hasModuleActions(moduleType)) return null
-  if (isBenchType(moduleType)) return '__bench'
-  if (isBillboardType(moduleType)) return '__billboard'
-  return moduleType
+/**
+ * The tile the action row folds out under, or null when the tool is not placing a piece
+ * that owns one. The folder needs no argument: a tile exists only in its own folder's
+ * grid, so an anchor that folder does not draw simply never opens.
+ */
+export function actionsAnchor(tool: Tool, moduleType: string): string | null {
+  if (tool !== 'module' || !hasModuleActions(moduleType)) return null
+  return actionsAnchorFor(moduleType)
 }
 
 export function ModuleActions(): React.ReactElement {

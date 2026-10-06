@@ -685,16 +685,29 @@ export function meshChunk(
   fill?: ReadonlySet<number>,
 ): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
-  // `skip` cells are hidden from the mesh (a shop's auto walls are drawn as
-  // thin panels instead), so they must not occlude their neighbours: otherwise
-  // the floor slab under a hidden wall is culled and leaves a half-block void
-  // along the inside of the room. A `fill` cell is the one exception that is
-  // solid without being in the station: it is the ground a run's truss hangs into.
+  // What a cell *voted* for its neighbours' exposure, and what it *draws*, are not the same
+  // question — this is the one place they come apart.
+  //
+  // `skip` cells are hidden from the mesh (a shop's auto walls are drawn as thin panels
+  // instead), so they must not occlude their neighbours either: otherwise the floor slab
+  // under a hidden wall is culled and leaves a half-block void along the inside of the room.
+  //
+  // A `fill` cell is the ground a run's truss hangs into — drawn, but not a cell the station
+  // holds. Letting it vote makes the cell below believe a block stands on top of it, so that
+  // cell reports `up = false` and never draws a top face at all: the run's body came out as
+  // four walls with no lid and the inside of the escalator showed through the gaps between
+  // them. It is still *something* the mesher draws, though, so the cell above it is not open
+  // to the sky — which is what `draws` and `standsOn` are for.
   const isSolid = (x: number, y: number, z: number): boolean => {
     const k = key(x, y, z)
     if (skip !== undefined && skip.has(k)) return false
-    return solid.has(k) || (fill !== undefined && fill.has(k))
+    if (fill !== undefined && fill.has(k)) return false
+    return solid.has(k)
   }
+  /** Does the mesher draw anything in this cell at all — a block, or a run's filling? */
+  const draws = (x: number, y: number, z: number): boolean => solid.has(key(x, y, z)) || (fill !== undefined && fill.has(key(x, y, z)))
+  /** Is there something under this cell to stand on — a block, or a run's filling? */
+  const standsOn = (x: number, y: number, z: number): boolean => draws(x, y, z - 1)
   const H = BEVEL
 
   // Faces are sorted into one builder per finish, so a chunk yields a handful of
@@ -719,11 +732,13 @@ export function meshChunk(
     const x = cell.x
     const y = cell.y
     const z = cell.z
-    if (!isSolid(x, y, z)) continue
+    if (!draws(x, y, z)) continue
     if (skip !== undefined && skip.has(key(x, y, z))) continue
     if (emit !== undefined && !emit.has(key(x, y, z))) continue
-    const up = !isSolid(x, y, z + 1)
-    const down = !isSolid(x, y, z - 1)
+    // A cell is open above unless something is drawn there — the block above, or the
+    // filling under a run. Only a real block ever culls a face on a *side*.
+    const up = !draws(x, y, z + 1)
+    const down = !standsOn(x, y, z)
     const E = !isSolid(x + 1, y, z)
     const W = !isSolid(x - 1, y, z)
     const N = !isSolid(x, y + 1, z)
@@ -793,18 +808,30 @@ export function meshChunk(
     const ox = x
     const oy = y
     const oz = z
-    /** The side walls stop at the bevel's foot when the block ends on the cell ceiling. */
-    const wallTop = up ? 1 - H : 1
-    /** The cut plane at a profile point, clamped into the block; null when uncut. */
+    /**
+     * How high the **top face** sits at a point, and how high a **wall** reaches there.
+     *
+     * They are the same number only when a run has cut the block. A plain block's top face is
+     * its own ceiling (`1`) while its walls stop a bevel lower (`1 - H`) so the chamfer has
+     * somewhere to be — reading the wall's height for the cap drops the whole top by 12.5 cm
+     * and opens a rim of missing surface all the way round every block.
+     *
+     * With a **cut** both follow the run's underside, and it is the run's *lower* edge that
+     * wins: a cut only ever takes volume away, so a block the run has climbed clear of is
+     * whole. Taking the plane outright lifted the cap above the cell and left the real top
+     * open, which is what drew the filling under a truss as an open box with the inside of
+     * the run showing through it.
+     */
     let cutAt: ((px: number, py: number) => number) | null = null
+    const bodyTop = (px: number, py: number): number =>
+      cutAt === null ? 1 : Math.min(1, cutAt(px, py))
+    const wallTop = (px: number, py: number): number =>
+      cutAt === null ? (up ? 1 - H : 1) : Math.min(1, cutAt(px, py))
     if (cut !== undefined) {
       const lo = cut.lo
       const rise = cut.hi - cut.lo
       const alongX = cut.axis === 'x'
-      cutAt = (px: number, py: number): number => {
-        const t = lo + rise * (alongX ? px : py)
-        return t <= 0 ? 0 : t >= 1 ? 1 : t
-      }
+      cutAt = (px: number, py: number): number => lo + rise * (alongX ? px : py)
     }
     // Where the plane leaves through the block's floor the block is empty past it,
     // so the cross-section is clipped there: a fan chording across that corner would
@@ -852,19 +879,22 @@ export function meshChunk(
         // This wall's own inner line: exactly `BEVEL` in, for its whole length.
         const o1: Pt = { x: p.x - nx * e.inset, y: p.y - ny * e.inset }
         const o2: Pt = { x: q.x - nx * e.inset, y: q.y - ny * e.inset }
-        if (wallTop > 0) {
+        // An uncut block ends on the cell ceiling; its walls stop at the chamfer's foot.
+        const hp = wallTop(p.x, p.y)
+        const hq = wallTop(q.x, q.y)
+        if (hp > 0 || hq > 0) {
           pushQuad(
             builderForIndex(sideI[sideOf(nx, ny)]),
             [ox + p.x, oy + p.y, oz],
             [ox + q.x, oy + q.y, oz],
-            [ox + q.x, oy + q.y, oz + wallTop],
-            [ox + p.x, oy + p.y, oz + wallTop],
+            [ox + q.x, oy + q.y, oz + hq],
+            [ox + p.x, oy + p.y, oz + hp],
             [nx, ny, 0],
             [ao, ao, ao, ao],
             0,
             0,
             uLen,
-            wallTop,
+            hq,
           )
         }
         if (up) {
@@ -881,10 +911,10 @@ export function meshChunk(
           pushFaceOut(
             builderForIndex(topI),
             [
-              [ox + p.x, oy + p.y, oz + wallTop],
+              [ox + p.x, oy + p.y, oz + hp],
               [ox + o1.x, oy + o1.y, oz + 1],
               [ox + o2.x, oy + o2.y, oz + 1],
-              [ox + q.x, oy + q.y, oz + wallTop],
+              [ox + q.x, oy + q.y, oz + hq],
             ],
             [
               [0, 0],
@@ -904,7 +934,7 @@ export function meshChunk(
             pushFaceOut(
               builderForIndex(topI),
               [
-                [ox + q.x, oy + q.y, oz + wallTop],
+                [ox + q.x, oy + q.y, oz + hq],
                 [ox + o2.x, oy + o2.y, oz + 1],
                 [ox + c.x, oy + c.y, oz + 1],
               ],
@@ -932,9 +962,10 @@ export function meshChunk(
         else if (my < 1e-6) ny = -1
         else if (my > 1 - 1e-6) ny = 1
         else continue
-        // A cut that has taken a wall all the way to the floor emits no wall there.
-        const hp = cutAt(p.x, p.y)
-        const hq = cutAt(q.x, q.y)
+        // The wall reaches the run's underside — or the cell's own ceiling, where the run
+        // has already climbed clear of this block and there is nothing left to cut.
+        const hp = wallTop(p.x, p.y)
+        const hq = wallTop(q.x, q.y)
         if (hp <= 0 && hq <= 0) continue
         const ao = wallAo(isSolid, x, y, z, nx, ny)
         pushQuad(
@@ -953,23 +984,49 @@ export function meshChunk(
       }
     }
 
-    // Top face: a fan of the **ring**, flat at full height. Ring and outline carry the same
-    // vertex order, so the ring is inset on a bevelled side, flush on a shared one, and the
-    // plane simply carries on into the block next door wherever the two meet.
+    /**
+     * The top face: a fan of the **ring**, flat at full height.
+     *
+     * Ring and outline carry the same vertex order, so the ring is inset on a bevelled side,
+     * flush on a shared one, and the plane simply carries on into the block next door
+     * wherever the two meet.
+     *
+     * A **cut** block is the exception, and only in one direction. Its top is the run's own
+     * underside, so it follows the cut plane — but the cut only ever takes volume *away*: a
+     * block a run has climbed clear of is still a whole block, and its top is its own
+     * ceiling. Taking the plane as the height outright put the cap up in the air above the
+     * cell wherever the run had passed above it, and left the cell's real top open — which is
+     * what drew the filling under a truss as an open box, walls and no lid, with the inside
+     * of the run showing from above. `min` against the ceiling is the whole fix, and it keeps
+     * the cap over the block's **own** cross-section, so a narrow truss box gets a narrow lid.
+     */
     if (up) {
       const topAo = topAoAt(isSolid, x, y, z)
       const cap = cutAt === null ? ring : body
       const cxm = cxCenter(cap)
       const cym = cyCenter(cap)
-      const cH = cutAt === null ? 1 : cutAt(cxm, cym)
+      /**
+       * The hub's height is the **mean of the cap's own boundary heights**, not the height
+       * the surface happens to have at the hub's position.
+       *
+       * A run's cut plane slopes along one axis, so `bodyTop` at the hub's `(x, y)` is only
+       * right when the hub sits at the mean of the boundary *positions* — and it does not,
+       * because the fan's hub is the polygon's centroid. Sampling there drops the hub below
+       * the rim it is meant to close, splitting the lid away from the walls and leaving the
+       * run's body open exactly as it does on the boundary itself. The mean of the rim's
+       * heights lies on the plane by construction, so the fan comes out flat.
+       */
+      let cH = 0
+      for (const p of cap) cH += bodyTop(p.x, p.y)
+      cH /= cap.length
       for (let i = 0; i < cap.length; i++) {
         const p = cap[i]
         const q = cap[(i + 1) % cap.length]
         pushTri(
           builderForIndex(topI),
           [ox + cxm, oy + cym, oz + cH],
-          [ox + p.x, oy + p.y, oz + (cutAt === null ? 1 : cutAt(p.x, p.y))],
-          [ox + q.x, oy + q.y, oz + (cutAt === null ? 1 : cutAt(q.x, q.y))],
+          [ox + p.x, oy + p.y, oz + bodyTop(p.x, p.y)],
+          [ox + q.x, oy + q.y, oz + bodyTop(q.x, q.y)],
           [0, 0, 1],
           topAo,
           [

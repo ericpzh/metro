@@ -2,7 +2,7 @@
 //
 // A walled facility room's own walls and the panel a wide stair leaves beside its
 // run have always been drawn half a block thick. This is that same wall as a piece
-// the 地基 tool can lay anywhere: with **半墙** on (**Tab**) a click drops one such
+// the 方块 tool can lay anywhere: with **半墙** on (**Tab**) a click drops one such
 // block — one at a time, and instead of the 4 m wall ring a patch would otherwise
 // grow — keeping half of the tile at the side **R** picks.
 //
@@ -121,7 +121,7 @@ test('a single column offers all four sides, the geometry’s own face first', (
   assert.equal(halfWallRunSide(one, ['w'], 4), 'w')
 })
 
-test('the 地基 tool carries the mode, and it excludes the auto-wall ring', () => {
+test('the 方块 tool carries the mode, and it excludes the auto-wall ring', () => {
   // The rail's cut tile and **Tab** both come through here, so this is the click. The
   // cut modes and the generated ring answer the same question — what the patch grows
   // — so 半墙 holds 自动生成墙壁 off, that toggle is refused while it is on, and
@@ -160,7 +160,7 @@ test('the 地基 tool carries the mode, and it excludes the auto-wall ring', () 
 })
 
 test('自动生成墙壁 is off when the game opens', () => {
-  // The 地基 tool's default is bare floor: a dragged patch grows the surface the
+  // The 方块 tool's default is bare floor: a dragged patch grows the surface the
   // player drew and nothing else, and the 4 m ring is asked for on its own tile.
   // Read from the slice's own factory — the store's initial `autoWalls` — rather than
   // from a `setState`, so a change to the default cannot pass unnoticed.

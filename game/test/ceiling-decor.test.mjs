@@ -18,6 +18,7 @@ import {
   moduleEnvelope,
   placementBlocked,
   placementOnTrack,
+  reservedOpening,
 } from '../src/sim/placement.ts'
 import { createModule } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
@@ -94,14 +95,51 @@ test('both may only be hung under a real ceiling', () => {
   assert.equal(ceilingMountMissing(open, gate(3, 3, 0)), false)
 })
 
-test('neither piece may share a cell, with anything', () => {
+test('a hung piece wants the air, not the floor: it shares its cell with floor and wall pieces', () => {
+  // Two hung pieces want the same air overhead, so they still exclude each other.
   assert.equal(placementBlocked([clock(2, 2)], cctv(2, 2, 0, 'v2')), true)
   assert.equal(placementBlocked([cctv(2, 2)], clock(2, 2, 0, 'c2')), true)
-  assert.equal(placementBlocked([clock(2, 2)], gate(2, 2, 0)), true)
-  assert.equal(placementBlocked([gate(2, 2, 0)], cctv(2, 2, 0, 'v2')), true)
-  // A piece a cell along, or on the storey above, is free.
+  // A chair on the floor, a poster on the back wall and a clock on the ceiling are
+  // three pieces in three different places: they share the tile, and either side of
+  // the pair may be the candidate.
+  assert.equal(placementBlocked([clock(2, 2)], gate(2, 2, 0)), false, 'the clock hangs over the 闸机, not in it')
+  assert.equal(placementBlocked([gate(2, 2, 0)], cctv(2, 2, 0, 'v2')), false)
+  assert.equal(placementBlocked([clock(2, 2)], createModule('bench', 2, 2, 0, 'b', 0)), false, 'a 座椅 under the dial')
+  assert.equal(
+    placementBlocked([createModule('billboard', 2, 2, 0, 'ad', 0)], clock(2, 2, 0, 'c2')),
+    false,
+    'a 广告牌 on the wall behind it',
+  )
+  // A **run** is the exception: a flight or a shaft passes through the storey the
+  // piece hangs in, and a 指示牌 hung into its headroom is a sign nobody walks under.
+  // The escalator's anchors are its two landings, so this is its own column.
+  assert.equal(placementBlocked([clock(2, 2)], createModule('escalator', 2, 2, 0, 'e', 0)), true)
+  // A stair is the same where its treads run — and floor over its own landings,
+  // which is the cell the clock hangs over there. Every swept cell of the flight is
+  // asked, and both answers have to appear, so the rule cannot pass by refusing a
+  // stair everywhere or nowhere.
+  const stair = createModule('stair-straight', 2, 2, 0, 's', 0)
+  assert.ok(stair, 'a straight stair')
+  const dx = Math.sign(stair.to.x - stair.from.x)
+  const dy = Math.sign(stair.to.y - stair.from.y)
+  const swept = []
+  for (let i = 0; i <= Math.max(Math.abs(stair.to.x - stair.from.x), Math.abs(stair.to.y - stair.from.y)); i++) {
+    swept.push([stair.from.x + dx * i, stair.from.y + dy * i])
+  }
+  let overTread = 0
+  let overLanding = 0
+  for (const [x, y] of swept) {
+    if (placementBlocked([stair], clock(x, y, stair.z, 'c3'))) overTread++
+    else overLanding++
+  }
+  assert.ok(overTread > 0, 'no cell of the flight refuses the clock, so the refusal is untested')
+  assert.ok(overLanding > 0, 'every cell of the flight refuses it, so the landing is untested')
+  // The treads are what refuses it, and the two landings are floor a clock hangs over.
+  assert.equal(placementBlocked([stair], clock(swept[2][0], swept[2][1], stair.z, 'c5')), true)
+  assert.equal(placementBlocked([stair], clock(stair.to.x, stair.to.y, stair.z, 'c6')), false, 'the top landing')
+  // A piece a cell along is free, whatever kind it is.
   assert.equal(placementBlocked([clock(2, 2)], cctv(3, 2, 0, 'v2')), false)
-  assert.equal(placementBlocked([cctv(2, 2)], clock(2, 2, 4, 'c2')), false)
+  assert.equal(placementBlocked([clock(2, 2)], gate(3, 2, 0, 'g2')), false)
 })
 
 test('a piece is found from its cell and refused on a track bed', () => {

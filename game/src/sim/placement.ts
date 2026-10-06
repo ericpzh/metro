@@ -16,8 +16,12 @@
 // Pure data — no three, no DOM.
 
 import { EXIT_L, exitBays, exitFloorAt, exitWidth } from './exits.ts'
+import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
+import { glassSpec, glassWallCourses } from './glassPanels.ts'
+import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
-import { rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
+import { billboardSpec } from './billboards.ts'
+import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS } from './constants.ts'
 import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
@@ -33,8 +37,21 @@ export interface ModuleBox {
   z1: number
 }
 
+/**
+ * How far a 广告牌's housing stands off the wall it is bolted to, either side of the
+ * wall's own face, metres. The drawn panel (`models/pieces/BillboardModel.ts`) hangs
+ * from `−0.5` (the backing, on the wall's centre line) out to `−0.315` (the lit
+ * face), so this is that housing with a little clearance. It makes the poster's
+ * collision box a **slab on a wall** rather than a cell: the room in front of it,
+ * three courses deep, is not the poster's to reserve.
+ */
+const PANEL_DEPTH = 0.25
+
+/** Clearance round a 广告牌's poster for its frame and its 广告 bar, metres. */
+const FRAME_PAD = 0.14
+
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'clock' | 'cctv' | 'billboard' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.3,
   fence: 1.0,
   tvm: 1.9,
@@ -48,7 +65,6 @@ const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shel
   // `buildExtinguisher`), so its collision box and its body agree.
   bin: 0.95,
   extinguisher: 1.1,
-  billboard: 2.4,
   tv: 3.0,
   // A ceiling-hung 指示牌 / 电视 / 时钟 / 监控 spans the whole storey, from the floor
   // top to the ceiling one grid step up, so its envelope is the full column (and it
@@ -112,6 +128,54 @@ export function benchCells(m: Extract<Module, { type: 'bench' }>): Array<[number
   return out
 }
 
+/** The same walk for one of the newer runs: `w` cells along local +x. */
+function runCells(m: { x: number; y: number; z: number; w: number; rot?: number }): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  const w = m.w > 0 ? m.w : 1
+  for (let i = 0; i < w; i++) {
+    const [dx, dy] = rotateLocal(m.rot, i, 0)
+    out.push([m.x + dx, m.y + dy, m.z])
+  }
+  return out
+}
+
+/** Every cell a 玻璃板's run covers (`w` cells along local +x). */
+export function glassCells(m: Extract<Module, { type: 'glass' }>): Array<[number, number, number]> {
+  return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
+}
+
+/** Every cell a 站名's run covers — its panel is its run, in whole cells. */
+export function calligraphyCells(m: Extract<Module, { type: 'calligraphy' }>): Array<[number, number, number]> {
+  return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
+}
+
+/** Every cell a 线网图 covers: two cells for the wall board, one for the totem. */
+export function lineMapCells(m: Extract<Module, { type: 'linemap' }>): Array<[number, number, number]> {
+  return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
+}
+
+/**
+ * The envelope of a **panel bolted to a wall**: the exact AABB of the run's own
+ * cells, narrowed to the `PANEL_DEPTH` of the cell the panel hangs on — the wall's
+ * own side of it (`wallSide`), so the box is the housing and not the room in front
+ * of it. Three quarters of the cell therefore stay the room's, which is why a 座椅
+ * stands under a 线网图 board and a 售票机 beneath an inscription hung above its head.
+ * `zLo`/`zHi` are the band of wall the panel covers.
+ *
+ * The run's extent comes from the module's **own cells** (`glassCells` and its
+ * siblings march the run the way the model draws it), because a quarter-turn sends a
+ * run along −x or −y as readily as along +x or +y: reading `x + w` would put the
+ * housing across the room on the rotations that run the other way.
+ */
+function wallPanelBox(m: Module, cells: ReadonlyArray<[number, number, number]>, zLo: number, zHi: number): ModuleBox {
+  const box = cellsAabb(cells, zLo, zHi)
+  const [wx, wy] = wallSide(m.rot)
+  if (wx !== 0) {
+    return wx > 0 ? { ...box, x1: box.x1, x0: box.x1 - PANEL_DEPTH } : { ...box, x0: box.x0, x1: box.x0 + PANEL_DEPTH }
+  }
+  return wy > 0 ? { ...box, y1: box.y1, y0: box.y1 - PANEL_DEPTH } : { ...box, y0: box.y0, y1: box.y0 + PANEL_DEPTH }
+}
+
 /**
  * The plan box a flat, floor-standing module occupies. Modules anchor at their
  * cell and rise from its top (`z + 1`), matching `render/models.ts`. The exit's
@@ -140,9 +204,42 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'sign':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
     case 'billboard': {
-      // A billboard runs `w` cells along local +x, so its box is the AABB of
-      // the whole run (a quarter-turn keeps it axis-aligned).
-      return cellsAabb(billboardCells(m), z0, z0 + FLAT_HEIGHT.billboard)
+      // A 广告牌 is **bolted to a wall**, so what it reserves is the panel on that
+      // wall: a thin housing a hand's width off the backing, spanning the run along
+      // its local +x and only the band of wall the poster really covers. The
+      // variants sit at `panelZ` 1.55–1.7 m with `panelH` 0.48–1.16 m, so the lowest
+      // panel's skirt is more than two metres above the floor — the air under every
+      // one of them is the room's, which is why a 座椅, a 售票机 or a 闸机 against the
+      // same wall is not "in the way" of a poster five feet above it.
+      const spec = billboardSpec(m.cfg?.variant)
+      const pz = m.z + 1 + spec.panelZ
+      const half = spec.panelH / 2 + FRAME_PAD
+      return wallPanelBox(m, billboardCells(m), pz - half, pz + half)
+    }
+    case 'glass': {
+      // A 玻璃板 is wall-mounted like the 广告牌 above, so it reserves the same
+      // **slab on a wall** rather than a cell: the run along local +x and the band
+      // of wall the panel really covers. It is cladding, so that band starts at the
+      // floor top — the air in front of it is the room's, and a bench or a 闸机
+      // against the same wall stands in it freely.
+      const spec = glassSpec(m.cfg?.variant)
+      return wallPanelBox(m, glassCells(m), z0, z0 + spec.h)
+    }
+    case 'calligraphy': {
+      // A 站名 hangs at eye height (横排) or climbs the wall from near the floor
+      // (竖排), so its slab is the band between `bottom` and `bottom + panelH` — the
+      // same shape as the 广告牌's, at the height the inscription is written.
+      const bottom = calligraphyBottom(m.cfg?.axis)
+      return wallPanelBox(m, calligraphyCells(m), z0 + bottom, z0 + bottom + m.panelH)
+    }
+    case 'linemap': {
+      const spec = lineMapSpec(m.cfg?.mount)
+      // The totem is floor-standing, so it reserves its **whole run** from the floor up
+      // to its own head — two cells of concourse, not one. The wall board is the panel's
+      // band on the wall, with the frame's clearance the board's own housing has.
+      if (spec.mount === 'stand') return cellsAabb(lineMapCells(m), z0, z0 + spec.height)
+      const bottom = spec.panelZ - spec.panelH / 2
+      return wallPanelBox(m, lineMapCells(m), z0 + bottom - LINE_MAP_FRAME_PAD, z0 + bottom + spec.panelH + LINE_MAP_FRAME_PAD)
     }
     case 'fence': {
       // A 1 m high, very thin panel through the middle of its block (§5.2): the
@@ -246,12 +343,19 @@ export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], 
 }
 
 /**
- * The floor cells a module stands on, at its own level. A room covers its whole
- * `w × h`; a platform-edge or track run is one cell deep along its local +x;
- * every other piece — gate, TVM, bench, ramp, exit — is anchored by its single
- * cell.
+ * The floor cells a module stands on, at its own level — the **public** footprint.
+ * A room covers its whole `w × h`; a 2 × 2 电梯 its four cells; a rail its bed, a
+ * 站台门 its screened strip, a 座椅 and a 广告牌 the run of cells they span; a
+ * **run** its two **landings**, which is the floor a 楼梯 or 扶梯 really stands on
+ * (its corridor between them is `reservedOpening`'s business, and the ground under
+ * its slope is floor a block belongs on). Everything else — a gate, a TVM, a hung
+ * piece — is anchored by its single cell.
+ *
+ * `baseCells` below is the same list narrowed to each piece's anchor cell, for the
+ * callers that ask about a module *as a candidate* (a rail's bed is one object, not
+ * one cell per metre).
  */
-function baseCells(m: Module): Array<[number, number]> {
+export function moduleFootprint(m: Module): Array<[number, number]> {
   switch (m.type) {
     case 'retail':
     case 'shop':
@@ -264,12 +368,47 @@ function baseCells(m: Module): Array<[number, number]> {
       return edgeCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'billboard':
       return billboardCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'glass':
+      return glassCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'calligraphy':
+      return calligraphyCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'linemap':
+      return lineMapCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'bench':
       return benchCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'track':
       return trackCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'lift':
       return liftFootprintCells(m)
+    case 'stair':
+      return [m.from, m.to].map((p) => [p.x, p.y] as [number, number])
+    case 'escalator':
+      return [m.from, m.to].map((p) => [p.x, p.y] as [number, number])
+    default:
+      return [[m.x, m.y]]
+  }
+}
+
+/**
+ * The floor cells a module is **anchored** by, for the rules that ask about the
+ * piece as a whole: a rail's dug bed is one object rather than one cell per metre,
+ * and a run is the single cell it was dropped on (its landings are `moduleFootprint`
+ * when a caller needs the floor it stands on).
+ */
+function baseCells(m: Module): Array<[number, number]> {
+  switch (m.type) {
+    case 'retail':
+    case 'shop':
+    case 'booth':
+    case 'platform-edge':
+    case 'billboard':
+    case 'glass':
+    case 'calligraphy':
+    case 'linemap':
+    case 'bench':
+    case 'track':
+    case 'lift':
+      return moduleFootprint(m)
     default:
       return [[m.x, m.y]]
   }
@@ -305,11 +444,65 @@ export function reservedOpening(modules: readonly Module[], x: number, y: number
 
 /* ------------------------------------------------------- wall-mounted decor */
 
-/** Decoration types that must be fixed to a wall block behind them (§5.7). */
-const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard'])
+/**
+ * Decoration types that must be fixed to a wall block behind them (§5.7): the
+ * 广告牌, the 玻璃板, the 站名 and the wall-mounted 线网图. A 线网图's **stand**
+ * variant is the one exception — it is a totem on the floor — so the test is the
+ * placed module's own, not just its type (`isWallMounted`).
+ */
+const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'glass', 'calligraphy', 'linemap'])
 
 /** Decoration types that hang by rods from the ceiling slab above them (§5.7). */
 const CEILING_MOUNTED: ReadonlySet<string> = new Set(['sign', 'tv', 'clock', 'cctv'])
+
+/**
+ * True when a piece is bolted flat to a wall. Every wall-mounted type is, except
+ * the 线网图's free-standing totem: it stands on the floor on its own plinth, so it
+ * answers to the ground rules like a 售票机 and never to the wall's
+ * (`equipmentReason`).
+ */
+export function isWallMounted(m: Module): boolean {
+  if (!WALL_MOUNTED.has(m.type)) return false
+  return m.type === 'linemap' ? lineMapSpec(m.cfg.mount).mount === 'wall' : true
+}
+
+/**
+ * The wall courses (local, 0 = the first metre above the floor) a wall-mounted
+ * piece needs solid backing on, from the table that owns the piece's own height:
+ * a 广告牌 and a 1 m 玻璃板 want the first course, a 2 m panel the first two, a
+ * 站名 and a wall 线网图 the band their panel really crosses.
+ *
+ * One list per type, because "how tall is this panel and where does it sit" is the
+ * table's business and this is the rule that reads it — a piece whose courses and
+ * whose drawn body disagreed would hang half a metre into thin air.
+ */
+export function wallMountCourses(m: Module): number[] {
+  switch (m.type) {
+    case 'billboard':
+      // A poster is one course: the billboard's variants hang inside the first
+      // metre of their wall whatever their panel size.
+      return [0]
+    case 'glass':
+      return glassWallCourses(glassSpec(m.cfg?.variant))
+    case 'calligraphy':
+      return calligraphyCourses(calligraphyBottom(m.cfg?.axis), m.panelH)
+    case 'linemap':
+      return lineMapWallCourses(lineMapSpec(m.cfg?.mount))
+    default:
+      return []
+  }
+}
+
+/**
+ * True when a piece hangs from the slab overhead — a 指示牌, 电视, 时钟 or 监控.
+ * Such a piece wants the **air** at the top of its column, not the cell, so it
+ * shares a tile with whatever stands on the floor or is bolted to the wall
+ * (`placementBlocked`), and a block laid in that cell is the slab it hangs from
+ * rather than something in its way.
+ */
+export function isCeilingHung(m: { type: string }): boolean {
+  return CEILING_MOUNTED.has(m.type)
+}
 
 /**
  * The cell step from a wall-mounted module to the wall it hangs on. The model
@@ -346,11 +539,13 @@ function stepSide(dx: number, dy: number): WallSide {
 }
 
 /**
- * True when a wall-mounted decoration has no wall behind it. The backing is the
- * first course of the facing neighbour (`z + 1`): auto walls and the 墙 tool
- * both rise from the floor's top, so a solid block there is a wall the panel can
- * bolt onto. Every cell of a multi-cell billboard run needs its own wall, or the
- * banner would hang off the end. Non-wall-mounted modules are never refused.
+ * True when a wall-mounted decoration has no wall behind it. Every cell of the run
+ * needs its own backing — three cells wide needs three — and so does **every
+ * course the panel crosses** (`wallMountCourses`): a poster wants the first metre
+ * of its wall, a 2 m 玻璃板 the first two, and a 竖排 inscription the band its column
+ * climbs, so a wall that stops after one metre carries the poster and refuses the
+ * glass. Auto walls and the 墙 tool both lay four courses from the floor's top,
+ * which is why a plainly built wall backs every one of them.
  *
  * A **半墙** is only a wall on the half of its cell it keeps: its face on the far
  * side is half a block away, so a panel bolted there would hang in mid-air. The
@@ -359,18 +554,18 @@ function stepSide(dx: number, dy: number): WallSide {
  * `autofaceWallMount` can simply turn the piece to a side that really backs it.
  */
 export function wallMountMissing(cells: readonly Cell[], candidate: Module): boolean {
-  if (!WALL_MOUNTED.has(candidate.type)) return false
+  if (!isWallMounted(candidate)) return false
   const [dx, dy] = wallSide(candidate.rot)
-  const nz = candidate.z + 1
   // The half of the backing cell the panel's own back plane touches.
   const needed = stepSide(-dx, -dy)
-  for (const [bx, by] of baseCells(candidate)) {
-    const nx = bx + dx
-    const ny = by + dy
-    const back = cells.find((c) => c.fill === 'solid' && c.x === nx && c.y === ny && c.z === nz)
-    if (back === undefined) return true
-    const side = halfWallSide(back)
-    if (side !== null && side !== needed) return true
+  for (const course of wallMountCourses(candidate)) {
+    const nz = candidate.z + 1 + course
+    for (const [bx, by] of baseCells(candidate)) {
+      const back = cells.find((c) => c.fill === 'solid' && c.x === bx + dx && c.y === by + dy && c.z === nz)
+      if (back === undefined) return true
+      const side = halfWallSide(back)
+      if (side !== null && side !== needed) return true
+    }
   }
   return false
 }
@@ -392,18 +587,23 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module): boo
  * `wallMountMissing` reports it rather than being papered over here.
  */
 export function autofaceWallMount(cells: readonly Cell[], candidate: Module, near?: readonly [number, number]): Module {
-  if (!WALL_MOUNTED.has(candidate.type)) return candidate
+  if (!isWallMounted(candidate)) return candidate
   if (!wallMountMissing(cells, candidate)) return candidate
 
   const [bx, by] = baseCells(candidate)[0] ?? [candidate.x, candidate.y]
+  const courses = wallMountCourses(candidate)
   // `wallSide` is the wall step for a given rot, so inverting it is the whole
   // search: rot 0 → −y, 1 → +x, 2 → +y, 3 → −x.
   const options: Array<{ rot: number; d: number }> = []
   for (let rot = 0; rot < 4; rot++) {
     const [dx, dy] = wallSide(rot)
-    const nz = candidate.z + 1
-    const backed = baseCells(candidate).every(([cx, cy]) =>
-      cells.some((c) => c.fill === 'solid' && c.x === cx + dx && c.y === cy + dy && c.z === nz),
+    // A direction only counts as a wall when **every** cell of the run and every
+    // course the panel crosses is backed — the same test `wallMountMissing` makes,
+    // so the turn this picks is a turn that really hangs.
+    const backed = courses.every((course) =>
+      baseCells(candidate).every(([cx, cy]) =>
+        cells.some((c) => c.fill === 'solid' && c.x === cx + dx && c.y === cy + dy && c.z === candidate.z + 1 + course),
+      ),
     )
     if (!backed) continue
     const d = near === undefined ? 0 : Math.abs(bx + dx - near[0]) + Math.abs(by + dy - near[1])
@@ -443,6 +643,156 @@ export function boxesOverlap(a: ModuleBox, b: ModuleBox): boolean {
 }
 
 /**
+ * Every cell a module **stands in**: its own base cells (a room's whole plan, a
+ * rail's bed, a bench's run) plus its anchor — the single cell every other piece
+ * is dropped on. A **run** is the exception, and deliberately so: only its two
+ * landings are floor it stands on, and those are exactly the cells `reservedOpening`
+ * already protects, so a run is named by its anchor alone. Asking `baseCells` about
+ * a 楼梯 or 扶梯 would walk the whole flight and answer with the run's own corridor.
+ */
+function occupyingCells(m: Module): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = [[m.x, m.y, m.z]]
+  for (const [x, y] of baseCells(m)) if (x !== m.x || y !== m.y) out.push([x, y, m.z])
+  return out
+}
+
+/**
+ * The two pieces whose cells a block rule leaves to the rule that owns them.
+ *
+ * A rail **digs** its bed, so its cells are void rather than blocks and
+ * `isTrackCell` refuses them either way — but its envelope is a car-width bed of
+ * three cells, and reading that as "occupied" would make the 方块 drag refuse the
+ * platform strip beside the rails, which is exactly where the floor has to be laid.
+ * A **站台门** is derived from that rail and stands on the same strip, and the wall
+ * ring already knows not to rise through it (`platformDoorKeys`).
+ *
+ * A **run** is here for the same reason one storey up: its two landings are floor
+ * the crowd stands on and the ground under its slope is the filling §5.1 says the
+ * block brush is *for*, while the corridor between them is `reservedOpening`'s
+ * answer — asked of the carve, which is the rule that really draws the opening.
+ */
+const RUN_OR_RAIL: ReadonlySet<string> = new Set(['stair', 'escalator', 'lift', 'platform-edge', 'track'])
+
+/**
+ * The cells a **block** may not be built in, at `z` exactly: every cell a placed
+ * module stands in, and the first storey of the column a flat piece fills above it
+ * — a 闸机, a 售票机, a 座椅, a 货架, a 广告牌 on its wall, a 房间's whole plan, and a
+ * hung 指示牌's own ceiling column.
+ *
+ * `reservedOpening` covers the ramp carve (from the walking line **up**) and the
+ * floor a head-house lays, but nothing covered the rest: `placementBlocked` only
+ * ever compares two *modules*, so the block brush had no way to see the equipment
+ * already standing in the cell it was about to pour a block into. This is that
+ * rule — a block and a piece never share a cell.
+ *
+ * A **run**, a rail and the screen doors beside it are left to `RUN_OR_RAIL`'s own
+ * rules; everything else claims its cell and the column above it.
+ */
+export function moduleBlockedCells(modules: readonly Module[], z: number): Set<string> {
+  const out = new Set<string>()
+  for (const m of modules) {
+    if (RUN_OR_RAIL.has(m.type)) continue
+    for (const [x, y, mz] of occupyingCells(m)) if (mz === z) out.add(`${x},${y},${z}`)
+    const e = moduleEnvelope(m)
+    // A module with no envelope reserves nothing — its own cell is already in the
+    // set above, and it lays no block column either.
+    if (e && e.z1 > z && e.z0 < z + 1) {
+      for (let x = Math.floor(e.x0); x < Math.ceil(e.x1); x++) {
+        for (let y = Math.floor(e.y0); y < Math.ceil(e.y1); y++) out.add(`${x},${y},${z}`)
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * `moduleBlockedCells` for a whole drag, cached per level. A wall ring asks about
+ * one level at a time (`plannedAutoWalls`, `syncAutoWalls`), a floor patch and its
+ * live ghost ask about one, and a block rectangle may span several — so the set is
+ * built once per level asked about rather than once per cell. The returned map is
+ * the caller's own scratch space; the sets in it are not to be mutated.
+ */
+export function blockedCellsByLevel(modules: readonly Module[]): (z: number) => Set<string> {
+  const byLevel = new Map<number, Set<string>>()
+  return (z: number): Set<string> => {
+    let s = byLevel.get(z)
+    if (s === undefined) {
+      s = moduleBlockedCells(modules, z)
+      byLevel.set(z, s)
+    }
+    return s
+  }
+}
+
+/** Why a cell refuses a block. */
+export type BlockRefusal = 'opening' | 'equipment' | 'track'
+
+/** A block candidate's verdict: whether it may be laid, and what refuses it. */
+export interface BlockCheck {
+  cell: [number, number, number]
+  ok: boolean
+  reason: BlockRefusal | ''
+  /** The placed pieces that fired the refusal — for a preview's red boxes. */
+  blockers: Module[]
+}
+
+/**
+ * May a **block** be laid at `(x, y, z)`, and what refuses it? The same three rules
+ * the release applies, in the order it applies them:
+ *
+ *   1. `opening`   — a reserved opening: the corridor a 楼梯 / 扶梯 / 电梯 carves from
+ *      its walking line up, or the floor an 出入口 head-house lays. A block there
+ *      would seal a run the player can see through.
+ *   2. `equipment` — a piece already stands in the cell (`moduleBlockedCells`): the
+ *      column a 闸机 / 售票机 / 座椅 fills, a 房间's plan, a hung 指示牌's own column.
+ *      A block and a piece never share a cell.
+ *   3. `track`     — a rail's dug bed or the `floor.track` finish: covered ground,
+ *      built on by neither.
+ *
+ * `blockers` is the equipment that fired rule 2, found by the piece's **own**
+ * footprint rather than by its reservation, so a stair over the cell is in the way
+ * and the ground under its slope is not.
+ */
+export function blockReason(
+  cells: readonly Cell[],
+  modules: readonly Module[],
+  x: number,
+  y: number,
+  z: number,
+  level?: (z: number) => Set<string>,
+): BlockCheck {
+  const cell: [number, number, number] = [x, y, z]
+  if (reservedOpening(modules, x, y, z)) return { cell, ok: false, reason: 'opening', blockers: [] }
+  const occupied = (level ?? blockedCellsByLevel(modules))(z)
+  if (occupied.has(`${x},${y},${z}`)) return { cell, ok: false, reason: 'equipment', blockers: equipmentBlockingCell(modules, x, y, z) }
+  if (isTrackCell(cells, modules, x, y, z)) return { cell, ok: false, reason: 'track', blockers: [] }
+  return { cell, ok: true, reason: '', blockers: [] }
+}
+
+/**
+ * Every piece standing in cell `(x, y, z)` — the pieces a refused block check names.
+ * Asked through the modules rather than through the occupancy set, because the set
+ * answers with a cell key and a preview needs the object: the collision highlight
+ * boxes a module group by id, and a notice names the piece.
+ */
+export function equipmentBlockingCell(modules: readonly Module[], x: number, y: number, z: number): Module[] {
+  const out: Module[] = []
+  const occupied = moduleBlockedCells(modules, z)
+  if (!occupied.has(`${x},${y},${z}`)) return out
+  // The 1 m box of the block the cell would hold, in world space.
+  const box: ModuleBox = { x0: x, y0: y, z0: z, x1: x + 1, y1: y + 1, z1: z + 1 }
+  for (const m of modules) {
+    // The piece's own space, **not** its anchor's z: a 闸机 dropped on the floor at
+    // z stands in the column above it (`m.z + 1` and up), and a run reaches the
+    // storeys it climbs through. Asking `m.z === z` would find only the piece
+    // dropped on this very course and miss every piece standing on the one below.
+    const e = moduleEnvelope(m)
+    if (e && boxesOverlap(e, box)) out.push(m)
+  }
+  return out
+}
+
+/**
  * True when a candidate module would share space with one already placed — the
  * rule the builder enforces before it commits a placement. A module never
  * conflicts with itself (matched by id), so re-checking is safe.
@@ -476,6 +826,21 @@ export function boxesOverlap(a: ModuleBox, b: ModuleBox): boolean {
  * cell deliberately. Only that arrangement is exempt; two 电视 a quarter-turn
  * apart would cross inside the block, and two facing the same way would duplicate a
  * panel, so both still collide.
+ *
+ * A **ceiling-hung** piece — 指示牌, 电视, 时钟, 监控 — is the other one, and for a
+ * different reason: it hangs from the slab overhead, so the air under it belongs
+ * to the room, not to the fitting. A chair on the floor, a poster on the back wall
+ * and a clock on the ceiling are three pieces in three different places, and they
+ * share a tile in a real station. A hung piece therefore ignores every flat piece
+ * (floor-standing, wall-mounted, a room, a rail) and every such piece ignores it;
+ * it still collides with another hung piece, because those really do want the same
+ * air, and with a **run** — a 楼梯 / 扶梯 / 电梯 shaft passes through the storey the
+ * piece hangs in and its headroom is not negotiable.
+ *
+ * A **wall-mounted** 广告牌 is the same idea one step lower: `flatEnvelope` gives it
+ * the band of wall it really covers rather than the cell it hangs over, so a 座椅 on
+ * the floor under it, or a 时钟 over it, is not in its way — while a 售票机 tall enough
+ * to reach the panel still is. Nothing is exempted by hand: the boxes decide.
  */
 export function placementBlocked(modules: readonly Module[], candidate: Module): boolean {
   return placementColliders(modules, candidate).length > 0
@@ -496,6 +861,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (isExitRampPair(m, candidate)) continue
     if (isFurnitureRoomPair(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
+    if (isHangingShare(m, candidate)) continue
     const e = moduleEnvelope(m)
     if (!e) continue
     let hit = false
@@ -511,6 +877,25 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (hit) out.push(m)
   }
   return out
+}
+
+/**
+ * A **ceiling-hung** piece and any flat one share a tile: the hung piece is up
+ * under the slab and the flat piece is on the floor or against the wall, so one
+ * column of air holds both and neither is in the other's way. Either side of the
+ * pair may be the candidate, so the test asks about both.
+ *
+ * The exemption stops at a **run**: a stair's treads, an escalator's step band or
+ * a lift's shaft passes through that same storey, and a 指示牌 hung into its
+ * headroom is a sign nobody can walk under. Hanging the two 电视 back to back is
+ * still its own arrangement (`isTvPair`), and two hung pieces still want the same
+ * air, so neither pair is let through here.
+ */
+function isHangingShare(a: Module, b: Module): boolean {
+  const hung = isCeilingHung(a) ? a : isCeilingHung(b) ? b : null
+  if (hung === null) return false
+  const other = hung === a ? b : a
+  return !isCeilingHung(other) && !isRunPiece(other)
 }
 
 /**
@@ -587,8 +972,11 @@ function isTvPair(a: Module, b: Module): boolean {
 
 /**
  * The module standing on cell `(x, y, z)`, for right-click bulldozing. The test
- * volume is the 1 m column just above the block top, so a multi-cell module (an
- * exit, a PSD run, a ramp) is found from any of the cells it covers. A room's
+ * volume is the **air of that cell's own storey** — from the block's top to the next
+ * 4 m grid line — so a multi-cell module (an exit, a PSD run, a ramp) is found from
+ * any of the cells it covers, and a wall-mounted panel is found from the floor cell
+ * it hangs over even when its body is in the upper half of the room (a 广告牌 at
+ * 1.4 m, a 站名 横排 at 2.5 m). A room's
  * envelope covers its whole floor, so furniture standing inside it is preferred:
  * the first pass skips walled rooms and booths, and only when nothing smaller
  * matches does the room itself answer.
@@ -607,7 +995,14 @@ export function moduleAt(
   z: number,
   facing?: readonly [number, number],
 ): Module | undefined {
-  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: z + 2 }
+  // The test volume is the **air of the cell's own storey**, not just the first
+  // metre above its block: a 广告牌 hangs from 1.36 m up, but a 站名 横排 is written
+  // at 2.5 m and a totem's board is above its plinth, and a piece whose body is
+  // entirely in the upper half of the storey has to be found from the cell it
+  // stands on like any other. The band stops at the next storey grid line
+  // (`LEVEL_STEPS`), so a piece one floor up is still not this cell's.
+  const ceiling = LEVEL_STEPS.find((v) => v > z) ?? z + 4
+  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
   const hits = (skipRooms: boolean): Module | undefined => {
     for (const m of modules) {
       if (skipRooms && (m.type === 'shop' || m.type === 'booth' || m.type === 'retail')) continue
@@ -660,6 +1055,9 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'clock',
   'cctv',
   'billboard',
+  'glass',
+  'calligraphy',
+  'linemap',
   'tv',
   'sign',
 ])
@@ -678,32 +1076,103 @@ export function movedModule(m: Module, at: Vec3i, rot: number): Module {
   return { ...m, x: at.x, y: at.y, z: at.z, rot }
 }
 
+/** True when every cell of a module's footprint is solid floor or an exit's floor. */
+export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[], candidate: Module): boolean {
+  for (const [bx, by] of moduleFootprint(candidate)) {
+    const floor =
+      cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === candidate.z) ||
+      exitFloorAt(modules, bx, by, candidate.z)
+    if (!floor) return false
+  }
+  return true
+}
+
+/** Why a module may not be placed, or `''` when it may. */
+export type EquipmentRefusal =
+  | ''
+  | 'exit-on-slab'
+  | 'floor'
+  | 'track'
+  | 'occupied'
+  | 'wall'
+  | 'ceiling'
+  | 'escalator-bases'
+  | 'lift-footprint'
+
 /**
- * Why a lifted piece may not be dropped as `candidate`, or `''` when it may. The
- * same rules a fresh placement answers to — floor under every cell it stands on,
- * no track bed, nothing already in the space, a wall behind a 广告牌, a ceiling
- * over a 指示牌 / 电视 / 时钟 / 监控 — asked of a piece that already exists, so the
- * copy still standing at the piece's origin never counts as the obstacle
- * (`placementBlocked` matches a candidate to itself by id).
+ * May `candidate` stand where it is? The **one** rule set for a module: the
+ * equipment hover, the release, a fence run's own cells and a lifted piece's drop
+ * all ask this, so a ghost can never promise a piece the release refuses.
+ *
+ * Every rule here was already enforced by the builder, gathered rather than
+ * changed: the ground under every cell the piece stands on, the storey an 出入口
+ * belongs to (`layer`: true only while placing, so a 移动 of an existing one is not
+ * refused for where it already is), the rails, the space another piece holds, a
+ * 广告牌's wall, a hung piece's slab, a 扶梯's two landings and a 电梯's 2 × 2
+ * footprint.
+ *
+ * `candidate` carries the resolution the tool already did to it — a 广告牌 turned to
+ * face its wall (`autofaceWallMount`), a run snapped into an exit bay — because
+ * those produce the piece, not the verdict.
+ */
+export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
+  if (layer && candidate.type === 'exit' && candidate.z !== 0) return 'exit-on-slab'
+  // A wall-mounted 装饰 — a 广告牌, a 玻璃板, a 站名 or the wall 线网图 — bolts to a
+  // wall and may hang over the track where there is no floor in front of it, so it
+  // is resolved from its backing and never from the ground. A **线网图's totem** is
+  // not: it stands on the floor like a 售票机, so it falls through to the rules below.
+  if (isWallMounted(candidate)) {
+    if (wallMountMissing(cells, candidate)) return 'wall'
+    return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
+  }
+  if (!moduleFloorOk(cells, modules, candidate)) return candidate.type === 'lift' ? 'lift-footprint' : 'floor'
+  if (placementOnTrack(cells, candidate, modules)) return 'track'
+  if (placementColliders(modules, candidate).length > 0) return 'occupied'
+  if (wallMountMissing(cells, candidate)) return 'wall'
+  if (ceilingMountMissing(cells, candidate)) return 'ceiling'
+  // A 扶梯 punches through whatever is in its way, so only its two landings matter.
+  // (A 电梯's bay is already answered above: `moduleFloorOk` is its whole footprint,
+  // so a lift short of floor reports 'lift-footprint', never the generic 'floor'.)
+  if (candidate.type === 'escalator' && !escalatorBasesSolid(cells, modules, candidate)) return 'escalator-bases'
+  return ''
+}
+
+/** A module refusal, in the words the notice bar uses. */
+export function equipmentRefusalNotice(reason: EquipmentRefusal): string {
+  switch (reason) {
+    case 'exit-on-slab':
+      return '出入口只能放在地面'
+    case 'floor':
+      return '这儿没有地板，设备要站在实心地板上'
+    case 'track':
+      return '轨道上不能放设备'
+    case 'occupied':
+      return '这儿已经有设备了，换个地方'
+    case 'wall':
+      return '墙面装饰（广告牌、玻璃板、站名、线网图）要贴在墙上：背后得有一堵实心墙，而且面板跨过的每一米都要有'
+    case 'ceiling':
+      return '指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）'
+    case 'escalator-bases':
+      return '扶梯两端都得有实心地板'
+    case 'lift-footprint':
+      return '电梯占地 2×2 米：四个格子都要有地板'
+    default:
+      return ''
+  }
+}
+
+/**
+ * Why a lifted piece may not be dropped as `candidate`, or `''` when it may.
+ *
+ * The question itself is the one rule set above, so a lifted piece and a fresh
+ * placement can never be judged differently — this function only turns that verdict
+ * into the sentence the 信息 card shows. It is asked of a piece that already exists,
+ * so the copy still standing at the piece's origin never counts as the obstacle
+ * (`placementBlocked` matches a candidate to itself by id), and the **layer** is not
+ * re-checked: a 移动 may not be refused for where the piece already is.
  */
 export function moveDropReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module): string {
-  // A 广告牌 bolts to a wall and may hang over the track where there is no floor
-  // in front of that wall, so it is resolved from its backing alone — exactly as
-  // the placement tool resolves it (`placeModule`).
-  if (WALL_MOUNTED.has(candidate.type)) {
-    if (wallMountMissing(cells, candidate)) return '广告牌要贴在墙上：先砌一堵墙'
-    return placementBlocked(modules, candidate) ? '这儿已经有设备了，换个地方' : ''
-  }
-  for (const [x, y] of baseCells(candidate)) {
-    const floor =
-      cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === candidate.z) ||
-      exitFloorAt(modules, x, y, candidate.z)
-    if (!floor) return '这儿没有地板，设备要站在实心地板上'
-  }
-  if (placementOnTrack(cells, candidate, modules)) return '轨道上不能放设备'
-  if (placementBlocked(modules, candidate)) return '这儿已经有设备了，换个地方'
-  if (ceilingMountMissing(cells, candidate)) return '指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）'
-  return ''
+  return equipmentRefusalNotice(equipmentReason(cells, modules, candidate))
 }
 
 /**

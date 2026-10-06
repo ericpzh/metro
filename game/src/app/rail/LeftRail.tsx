@@ -13,7 +13,7 @@
 // import paths working.
 
 import { useEffect, useState } from 'react'
-import { FACILITY_OPTIONS, isDecorType, isFacilityBrush, useStore } from '../store.ts'
+import { FACILITY_OPTIONS, familiesIn, folderOptions, isDecorType, isFacilityBrush, useStore } from '../store.ts'
 import type { Tool } from '../store.ts'
 import { FINISH_LIST } from '../../sim/finishes.ts'
 import { ZONE_LIST } from '../../sim/zones.ts'
@@ -21,8 +21,8 @@ import { RAIL_FOLDERS, findSelectedTrack, subMenuForModule } from './helpers.ts'
 import type { FolderKey, SubMenuKey } from './helpers.ts'
 import { ToolsFolder } from './folders/ToolsFolder.tsx'
 import { RailFolder } from './folders/RailFolder.tsx'
-import { EquipmentFolder, gearOptions } from './folders/EquipmentFolder.tsx'
-import { DecorFolder, decorOptions } from './folders/DecorFolder.tsx'
+import { EquipmentFolder } from './folders/EquipmentFolder.tsx'
+import { DecorFolder } from './folders/DecorFolder.tsx'
 import { RoomFolder } from './folders/RoomFolder.tsx'
 import { ZoneFolder } from './folders/ZoneFolder.tsx'
 import { PaintFolder } from './folders/PaintFolder.tsx'
@@ -154,18 +154,21 @@ export function LeftRail(): React.ReactElement {
 
   // What each folder shows, and the count its header prints. The count is the
   // tiles the folder can put on screen *in the state the rail is in* — 工具 grows
-  // by 自动生成墙壁 and 半墙 under the 地基 tool, 视图 by 旋转 while 剖切 is on — so a
+  // by 自动生成墙壁 and 半墙 under the 方块 tool, 视图 by 旋转 while 剖切 is on — so a
   // header never counts tiles the player cannot see there and then. 视图's is 7:
   // 显示其他层 / 剖切 / 隐藏天花板 / 隐藏墙壁 / 热力图 / 分区图 / 隐藏UI.
   const folders: Record<FolderKey, { count: number; body: React.ReactNode }> = {
     tools: { count: tool === 'block' ? 8 : 6, body: <ToolsFolder /> },
     rail: { count: 2, body: <RailFolder /> },
     equipment: {
-      count: gearOptions.length + 2,
+      // The count is the grid's own arithmetic — the plain tiles plus one parent tile
+      // per family — read from the same table `TileGrid` renders, so the header can
+      // never disagree with what the folder shows.
+      count: folderOptions('equipment').length + familiesIn('equipment').length,
       body: <EquipmentFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
     },
     decor: {
-      count: decorOptions.length + 2,
+      count: folderOptions('decor').length + familiesIn('decor').length,
       body: <DecorFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
     },
     rooms: { count: FACILITY_OPTIONS.length, body: <RoomFolder /> },

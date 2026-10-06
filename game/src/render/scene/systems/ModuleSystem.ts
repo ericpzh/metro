@@ -69,6 +69,8 @@ export class ModuleSystem extends SceneSystem {
       tvPlate: (id, x, y) => this.plates.makeTvPlate(id, x, y),
       tvPairSlot: (id) => tvPairSlot(id, data.modules),
       signFace: (id, layout, face, panel) => this.plates.makeSignPlate(id, layout, face, panel),
+      calligraphyFace: (id, spec) => this.plates.makeCalligraphyPlate(id, spec),
+      lineMapFace: (id, panel) => this.plates.makeLineMapPlate(id, panel),
       owned: this.ctx.ownedMats,
     }
     const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
@@ -176,12 +178,14 @@ export class ModuleSystem extends SceneSystem {
     if (data) {
       this.plates.retainTvPlates(data)
       this.plates.retainSignPlates(data)
+      this.plates.retainDecorPlates(data)
     } else {
       // The per-piece plates are minted for the groups about to be dropped, so they
       // are released here rather than leaking one texture per 电视 or 指示牌 an edit
       // passes through.
       this.plates.clearTvPlates()
       this.plates.clearSignPlates()
+      this.plates.clearDecorPlates()
     }
     // The materials a builder minted for this build (a 站台门 header, an 出入口
     // header, the 售票机 marquee, a 电视's lit face, a room's 招牌). They wrap a canvas

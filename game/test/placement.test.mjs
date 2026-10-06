@@ -4,8 +4,8 @@
 // collide with the one below.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { autofaceWallMount, boxesOverlap, isTrackBed, moduleAt, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
-import { addCells, addEquipment, createModule, GROUND_Z, nextExitName, nextModuleId, randomAdSlug, removeModule, toData, toState } from '../src/build/model.ts'
+import { autofaceWallMount, boxesOverlap, isCeilingHung, isTrackBed, moduleAt, moduleBlockedCells, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
+import { addCells, addEquipment, addFloor, createModule, GROUND_Z, nextExitName, nextModuleId, randomAdSlug, removeModule, toData, toState } from '../src/build/model.ts'
 import { billboardSpec, postersFor } from '../src/sim/billboards.ts'
 import { referenceStation } from '../src/data/reference-station.ts'
 
@@ -382,13 +382,14 @@ test('the demo station’s platform stairs take a fence over the run and on the 
     assert.equal(placementBlocked(st.modules, panel(tiles[0].x, tiles[0].y, bottom.z)), true, `${s.id}: the treads over ${at({ ...tiles[0], z: bottom.z })}`)
     // The top storey: the well is open where the flight surfaces, and the tiles it
     // merely passes under are floor — a free one takes the panel, a taken one refuses
-    // it. The occupied slabs are not only fences: whatever the author hung there owns
-    // the cell the same way.
+    // it. A **floor-standing** piece is what takes a cell from a 围栏; a 装饰 hung
+    // from the slab overhead — the 监控 the author hangs over this very run — is up
+    // under the ceiling, so the panel stands on the slab beneath it.
     const overRun = tiles.filter(({ x, y }) => solid.has(`${x},${y},${top.z}`))
     assert.ok(tiles.some(({ x, y }) => !solid.has(`${x},${y},${top.z}`)), `${s.id}: the well is open at z = −12`)
     assert.ok(overRun.length > 0, `${s.id}: no floor at z = −12 over the run at all`)
     for (const { x, y } of overRun) {
-      const taken = st.modules.some((m) => m.x === x && m.y === y && m.z === top.z)
+      const taken = st.modules.some((m) => m.x === x && m.y === y && m.z === top.z && !isCeilingHung(m))
       const blocked = placementBlocked(st.modules, panel(x, y, top.z))
       if (taken) takenSlabs++
       else freeSlabs++
@@ -531,4 +532,62 @@ test('building a block may not cover a reserved opening', () => {
   assert.equal(changed, 1)
   assert.equal(blocked, 2)
   assert.deepEqual(cells.map((c) => [c.x, c.y, c.z]), [[5, 5, 0]])
+})
+
+/* ------------------------------------------- a block through a placed piece */
+
+test('a block may not be built through a piece of equipment', () => {
+  // `placementBlocked` only ever compares two *modules*, so the block brush needs
+  // the same question asked of it — otherwise a 闸机, a 座椅 or a 房间 can be buried
+  // in a block laid on top of it. One cell per candidate, so the refusal is the
+  // piece's own cell and not an over-wide envelope.
+  const room = { id: 'r1', type: 'shop', x: 0, y: 0, z: 0, w: 2, h: 2, rot: 0, cfg: { kind: 'store', door: [] } }
+  const modules = [gate(4, 0, 0, 'g1'), tvm(5, 0, 0, 't1'), createModule('bench', 6, 0, 0, 'b1', 0), room]
+  for (const [x, y] of [[4, 0], [5, 0], [6, 0], [0, 0], [1, 0], [0, 1], [1, 1]]) {
+    const { cells, changed, blocked } = addCells([], [[x, y, 1]], modules)
+    assert.equal(changed, 0, `a block was built in the cell of a piece at ${x},${y}`)
+    assert.equal(blocked, 1)
+    assert.deepEqual(cells, [])
+  }
+  // The cells beside every one of them are free ground.
+  for (const [x, y] of [[4, 1], [7, 0], [2, 0], [0, 2]]) {
+    const { changed } = addCells([], [[x, y, 1]], modules)
+    assert.equal(changed, 1, `${x},${y} should be free`)
+  }
+  // A **run** is not in this set: its landings are floor the crowd stands on and the
+  // cell under its slope is the filling §5.1 says the brush is *for*, so it claims no
+  // block column at all. Its corridor is `reservedOpening`'s answer, asked of the
+  // carve — the rule that really draws the opening.
+  const esc = createModule('escalator', 4, 0, 0, 'e1', 0)
+  assert.equal(moduleBlockedCells([esc], 0).size, 0, 'a run claims no block column')
+  assert.equal(moduleBlockedCells([esc], 1).size, 0, 'nor the ground under its slope')
+  assert.equal(addCells([], [[4, 0, 0]], [esc]).changed, 1, 'the ground under a run is floor')
+  // The corridor itself is still refused, by the carve rather than by silence.
+  const corridor = addCells([], [[4, 3, 3]], [esc])
+  assert.equal(corridor.changed, 0, 'the carved corridor took a block')
+  assert.equal(corridor.blocked, 1, 'and reported it as a reserved opening')
+  // A hung 指示牌 hangs in its own column over the cell it was dropped on, and that
+  // cell is reserved for it — the sign's rods really are in the way of a slab there.
+  const hung = createModule('sign', 9, 0, 0, 's1', 0)
+  assert.equal(moduleBlockedCells([hung], 1).has('9,0,1'), true, 'the sign wants the column it hangs in')
+  assert.equal(addCells([], [[9, 0, 1]], [hung]).blocked, 1, 'a block in the sign’s own column is refused')
+  assert.equal(addCells([], [[9, 0, 0]], [hung]).blocked, 1, 'and the cell its rods pass through')
+})
+
+test('a floor patch carries on around a piece instead of burying it', () => {
+  // The 闸机 stands in the cell the drag covers, and the patch leaves it alone while
+  // laying floor all round it — the same rule the brush answers to.
+  const modules = [gate(1, 1, 0, 'g1')]
+  const cells = []
+  for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) cells.push([x, y, 0])
+  const st = addFloor(toState({ name: 't', seed: 1, cells: [], modules, lines: [] }), cells)
+  assert.equal(st.cells.some((c) => c.x === 1 && c.y === 1 && c.z === 0), false, 'the drag poured a block into the 闸机')
+  for (const [x, y] of [[0, 0], [1, 0], [2, 0], [0, 1], [2, 1], [0, 2], [1, 2], [2, 2]]) {
+    assert.ok(st.cells.some((c) => c.x === x && c.y === y && c.z === 0), `the patch skipped ${x},${y}`)
+  }
+  // The wall ring the patch raises may not board up the piece either.
+  for (const c of st.cells) {
+    if (c.z === 0) continue
+    assert.equal(c.x === 1 && c.y === 1, false, 'the ring rose through the 闸机')
+  }
 })

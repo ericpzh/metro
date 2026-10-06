@@ -1,5 +1,5 @@
 // The pointer-tool slice: the active tool, the equipment tool's piece and its
-// rotation, the 地基 tool's wall modes, the Tab cycles (stair width, escalator
+// rotation, the 方块 tool's wall modes, the Tab cycles (stair width, escalator
 // direction, 闸机 door) and the zone tool's brush (§4.5, §5.7).
 
 import type { StateCreator } from 'zustand'
@@ -15,12 +15,12 @@ export type Tool = 'select' | 'block' | 'wall' | 'delete' | 'module' | 'paint' |
 export interface ToolSlice {
   tool: Tool
   /**
-   * The 地基 tool: a dragged floor patch raises its 4 m auto-wall ring. **Off when
+   * The 方块 tool: a dragged floor patch raises its 4 m auto-wall ring. **Off when
    * the game opens.** The ring is the one thing the tool does that the player did
    * not draw — it stands a wall around a surface they only laid the floor of — so
    * the tool no longer assumes it: a fresh station grows bare floor, and the ring is
    * asked for on its own tile. Its **Tab** shortcut is gone with the default; Tab
-   * now steps the cut modes, which is the choice a 地基 click makes far more often.
+   * now steps the cut modes, which is the choice a 方块 click makes far more often.
    */
   autoWalls: boolean
   moduleType: string
@@ -30,13 +30,13 @@ export interface ToolSlice {
    * The 墙 tool's picked wall face at a corner, as a step through the snap
    * candidates **R** offers (`build/model.ts` `wallSnap`). It only encodes the
    * player's choice — the candidate list itself is recomputed from the hovered
-   * cell — so it is a plain counter, reset when the tool changes. In the 地基 tool's
+   * cell — so it is a plain counter, reset when the tool changes. In the 方块 tool's
    * **半墙** mode the same counter steps the panel's thickness side, past the
    * geometry's own faces to the ones only the player can pick (`halfWallSideDirs`).
    */
   wallSnapCycle: number
   /**
-   * The 地基 tool's third mode, on its own tile (click-only, no shortcut): instead of blocks it lays a single
+   * The 方块 tool's third mode, on its own tile (click-only, no shortcut): instead of blocks it lays a single
    * **半墙** block — a half-block-thick wall course, the wall a facility room's own walls
    * and the panel beside a wide run are already made of — where the click lands,
    * one per click. It stands in for the wall a patch would otherwise grow, so
@@ -47,7 +47,7 @@ export interface ToolSlice {
    */
   halfWall: boolean
   /**
-   * The 地基 tool's fourth and fifth modes, on the same tile as 半墙: instead of a
+   * The 方块 tool's fourth and fifth modes, on the same tile as 半墙: instead of a
    * whole block it lays a single **三角** — the cell cut on a 45° plane in
    * *elevation*, so the piece is a wedge with one flat 1 m square in the X-Y plane,
    * one full-height square, the slope across the cell and two triangular ends. Two
@@ -82,7 +82,7 @@ export interface ToolSlice {
 
   setTool: (t: Tool) => void
   /**
-   * Grow (or not) the 地基 patch's auto-wall ring on a drag. Refused while the
+   * Grow (or not) the 方块 patch's auto-wall ring on a drag. Refused while the
    * 半墙 mode owns the tool: the half wall is what the patch grows instead, and the
    * rail's tile is disabled there for the same reason.
    */
@@ -92,27 +92,27 @@ export interface ToolSlice {
   rotateModule: () => void
   /**
    * Step to the next wall orientation (**R**): in the 墙 tool, which of a corner
-   * cell's faces the column takes; in the 地基 tool's **半墙** mode, which half of
+   * cell's faces the column takes; in the 方块 tool's **半墙** mode, which half of
    * the tile the panel keeps (`halfWallSideDirs`). One counter, because it is the
    * same question — the wall's orientation — and only one of the two tools is ever
    * asking it.
    */
   rotateWallSnap: () => void
   /**
-   * Turn the 地基 tool's **半墙** mode on or off. On, it lays half-block walls one
+   * Turn the 方块 tool's **半墙** mode on or off. On, it lays half-block walls one
    * click at a time and holds 自动生成墙壁 off (refused while it is on); off, the click
-   * is a plain 地基 again with the ring wherever the player left it. The wall-face
+   * is a plain 方块 again with the ring wherever the player left it. The wall-face
    * cycle is reset with it, since the cycle means something different in each mode.
    *
    * `triangles` and its `kind` are the other half of that mode: `triangles` false
-   * with `halfWall` false is a plain 地基, and the two cut modes are exclusive.
+   * with `halfWall` false is a plain 方块, and the two cut modes are exclusive.
    */
   setHalfWall: (on: boolean) => void
   /** Flip the 半墙 mode — the rail's tile. */
   toggleHalfWall: () => void
   /**
-   * Turn the 地基 tool's **三角** mode on (and 半墙 off), or off to leave the click a
-   * plain 地基 again. `kind` picks which of the two cuts — 三角上 or 三角下 — it is.
+   * Turn the 方块 tool's **三角** mode on (and 半墙 off), or off to leave the click a
+   * plain 方块 again. `kind` picks which of the two cuts — 三角上 or 三角下 — it is.
    */
   setTriangles: (on: boolean, kind?: TriangleKind) => void
   /** Flip the 三角 mode on/off without changing its shape — **R**'s neighbour. */
@@ -120,10 +120,10 @@ export interface ToolSlice {
   /** Pick 三角上 or 三角下 while 三角 mode is on. */
   setTriKind: (kind: TriangleKind) => void
   /**
-   * Step the 地基 tool's cut modes from the rail tile and from **Tab**, which is the
+   * Step the 方块 tool's cut modes from the rail tile and from **Tab**, which is the
    * key that used to toggle the auto-wall ring: 半墙 → 三角上 → 三角下 → off → 半墙.
    * One button for the three pieces, because they are one question — what shape does
-   * a click lay — and the key went with them because that question is the one a 地基
+   * a click lay — and the key went with them because that question is the one a 方块
    * click answers; the ring, which is off when the game opens, is asked for on its
    * own tile instead.
    */
@@ -140,7 +140,7 @@ export interface ToolSlice {
 
 export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, get) => ({
   tool: 'select',
-  // Off when the game opens: a 地基 drag lays bare floor unless the player asks for
+  // Off when the game opens: a 方块 drag lays bare floor unless the player asks for
   // the ring on its own tile.
   autoWalls: false,
   moduleType: 'gate',
@@ -156,7 +156,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   zoneOverlayOn: false,
 
   setTool: (t) => set({ tool: t, wallSnapCycle: 0 }),
-  // The cut modes of the 地基 tool are exclusive with the generated ring: a 半墙 or a
+  // The cut modes of the 方块 tool are exclusive with the generated ring: a 半墙 or a
   // 三角 is what the patch grows instead of the ring, so either one refuses the
   // toggle while it owns the tool.
   setAutoWalls: (on) => set((s) => (s.halfWall || s.triangles ? {} : { autoWalls: on })),
@@ -173,7 +173,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   toggleTriangles: () => get().setTriangles(!get().triangles),
   setTriKind: (kind) => set({ triKind: kind }),
   // 半墙 → 三角上 → 三角下 → off, the cycle **Tab** steps. Every step leaves the ring
-  // off — it is off by default, and the three cut modes are what a 地基 click lays
+  // off — it is off by default, and the three cut modes are what a 方块 click lays
   // instead of it — so the toggle that raises it is the tile's own, never a side
   // effect of leaving the cycle.
   cycleCutMode: () =>

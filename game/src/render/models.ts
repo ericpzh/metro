@@ -19,6 +19,9 @@ import { ExtinguisherModel } from './models/pieces/ExtinguisherModel.ts'
 import { ClockModel } from './models/pieces/ClockModel.ts'
 import { CctvModel } from './models/pieces/CctvModel.ts'
 import { BillboardModel } from './models/pieces/BillboardModel.ts'
+import { GlassModel } from './models/pieces/GlassModel.ts'
+import { CalligraphyModel } from './models/pieces/CalligraphyModel.ts'
+import { LineMapModel } from './models/pieces/LineMapModel.ts'
 import { TvModel } from './models/pieces/TvModel.ts'
 import { SignModel } from './models/pieces/SignModel.ts'
 import { GateModel } from './models/pieces/GateModel.ts'
@@ -62,6 +65,12 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return new CctvModel(ctx).build(mod)
     case 'billboard':
       return new BillboardModel(ctx).build(mod)
+    case 'glass':
+      return new GlassModel(ctx).build(mod)
+    case 'calligraphy':
+      return new CalligraphyModel(ctx).build(mod)
+    case 'linemap':
+      return new LineMapModel(ctx).build(mod)
     case 'tv':
       return new TvModel(ctx).build(mod)
     case 'sign':
@@ -93,7 +102,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
   }
 }
 
-export type { ModelMaterials, ModuleContext } from './models/PieceBuilder.ts'
+export type { ModelMaterials, ModuleContext, PrintedFace } from './models/PieceBuilder.ts'
 export {
   canvasTexture,
   createModelMaterials,

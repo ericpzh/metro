@@ -37,7 +37,6 @@ export function GroupTile({
     <button
       type="button"
       className={split ? 'tile group split' : 'tile group'}
-      title={title}
       aria-label={title}
       // A group's tile is a disclosure, and `aria-expanded` is what says which it is.
       aria-expanded={active}
@@ -66,8 +65,9 @@ export function GroupTile({
 /**
  * One option, as the square blueprint tile that offers it. The tile is furniture —
  * flat navy with the rail's own dashed technical frame — and everything inside it is
- * the mark, drawn by the sign's own code. No tile carries lettering: the name is its
- * tooltip and nothing else, because a picture of the thing beats a word for it.
+ * the mark, drawn by the sign's own code. No tile carries lettering or a hover
+ * tooltip: the name is its accessible label and nothing else, because a picture of
+ * the thing beats a word for it.
  */
 export function MarkTile({
   mark,
@@ -94,7 +94,6 @@ export function MarkTile({
       // `grab` only where the gesture is a drag: a 线路 tile is clicked, and the cursor is
       // the one thing that says which of the two a tile is.
       className={['tile', active ? 'on' : '', onPointerDown ? 'grab' : ''].filter(Boolean).join(' ')}
-      title={title}
       aria-label={title}
       onPointerDown={onPointerDown}
       onClick={onClick}

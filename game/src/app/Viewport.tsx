@@ -30,7 +30,7 @@ import { ZoneTool } from './tools/ZoneTool.ts'
 import { ToolController } from './tools/ToolController.ts'
 import type { AreaDrag, FacilityDragState, HoverTile, PaintDrag, PointerInfo, ToolContext, ZoneDragState } from './tools/ToolContext.ts'
 
-/** The 地基 (block) tool's live patch size, shown beside the pointer in metres. */
+/** The 方块 (block) tool's live patch size, shown beside the pointer in metres. */
 interface BuildMeasure {
   left: number
   top: number
@@ -80,7 +80,7 @@ export function Viewport(): React.ReactElement {
    */
   const sectionSeededRef = useRef(false)
   /**
-   * The tile under the pointer for the equipment and 地基 tools, so R and Tab can
+   * The tile under the pointer for the equipment and 方块 tools, so R and Tab can
    * rebuild the ghost already under it (`refreshHover`).
    */
   const hoverRef = useRef<HoverTile | null>(null)
@@ -113,7 +113,7 @@ export function Viewport(): React.ReactElement {
    */
   const zoneKeyRef = useRef('')
 
-  /** The 地基 tool's pending patch size, pinned to the pointer while previewing. */
+  /** The 方块 tool's pending patch size, pinned to the pointer while previewing. */
   const [buildMeasure, setBuildMeasure] = useState<BuildMeasure | null>(null)
   /** The pointer is on the 剖切 surface: the crosshair becomes a grab hand. */
   const [sectionHot, setSectionHot] = useState(false)
@@ -382,7 +382,7 @@ export function Viewport(): React.ReactElement {
   }, [tool])
 
   // Rotating (R), switching the equipment, or cycling its width, direction,
-  // 闸机's lane or fence, and the 地基 tool's 半墙 mode or the side R stepped it to
+  // 闸机's lane or fence, and the 方块 tool's 半墙 mode or the side R stepped it to
   // (Tab / R) rebuild the ghost at the hovered tile at once, instead of waiting for
   // the pointer to move again.
   useEffect(() => {
@@ -712,8 +712,8 @@ export function Viewport(): React.ReactElement {
    * Which controller owns an in-progress area-drag release. The press promised
    * the gesture, so the flags on the drag — not the current tool — decide:
    * module sweeps and delete-side fence lines to 删除, 围栏 runs to 设备,
-   * wall runs (including the 地基 tool's right-press column lift) to 墙, and
-   * plain block rectangles to 地基 — or to 删除 for its line-remove drag.
+   * wall runs (including the 方块 tool's right-press column lift) to 墙, and
+   * plain block rectangles to 方块 — or to 删除 for its line-remove drag.
    */
   const ownerForRelease = (d: AreaDrag, current: Tool): ToolController => {
     if (d.modules !== undefined) return tools.delete

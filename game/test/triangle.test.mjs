@@ -1,4 +1,4 @@
-// 三角 — the 45° wedge the 地基 tool lays (§4.1, §4.3).
+// 三角 — the 45° wedge the 方块 tool lays (§4.1, §4.3).
 //
 // A 半墙 keeps **half a cell in thickness**; a 三角 keeps half a cell **in
 // elevation** — the cell cut on a 45° plane, so the piece is a wedge standing on (or
@@ -467,7 +467,7 @@ test('a 三角 click lays the tagged wedge its ghost previewed', () => {
   assert.equal(seen.size, 8, `the tool lays all eight wedges, saw ${seen.size}`)
 })
 
-test('the 地基 tool carries the 三角 mode, and **Tab** cycles the three pieces', () => {
+test('the 方块 tool carries the 三角 mode, and **Tab** cycles the three pieces', () => {
   // The rail's one cut tile steps 半墙 → 三角上 → 三角下 → off, and back, and **Tab** is
   // that same step: the key used to toggle the generated wall ring, which is now off
   // when the game opens and asked for on its own tile. The three cut modes are

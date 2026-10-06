@@ -1,4 +1,4 @@
-// Wall and cut-shape math shared by the 墙 tool and the 地基 tool's 半墙 / 三角
+// Wall and cut-shape math shared by the 墙 tool and the 方块 tool's 半墙 / 三角
 // modes, moved verbatim from app/Viewport.tsx. Snapping is a pure function of the
 // surrounding geometry — the player's rotation is never an input, it is an
 // *output* — so R can never leave the tool in a state where it refuses to snap.
@@ -28,14 +28,14 @@ export function wallSnapAt(
  * tool is laying full-block walls, which have no thickness to choose.
  *
  * This is the **墙** tool's reading, where `halfWall` is that tool's own mode. The
- * 地基 tool asks its own question — one piece, and a 三角 mode is not a 半墙 — through
+ * 方块 tool asks its own question — one piece, and a 三角 mode is not a 半墙 — through
  * `cutShapeFor` below.
  */
 export function halfWallSideFor(line: Array<[number, number, number]>, open: readonly WallDir[], st: { halfWall: boolean; wallSnapCycle: number }): WallDir | null {
   return st.halfWall ? halfWallRunSide(line, open, st.wallSnapCycle) : null
 }
 
-/** What the 地基 tool's cut modes hold: which piece a click lays, and its shape. */
+/** What the 方块 tool's cut modes hold: which piece a click lays, and its shape. */
 export interface CutMode {
   halfWall: boolean
   triangles: boolean
@@ -44,7 +44,7 @@ export interface CutMode {
 }
 
 /**
- * The shape a **地基** click lays in a cut mode, or null when the tool is laying
+ * The shape a **方块** click lays in a cut mode, or null when the tool is laying
  * whole blocks. One answer for the whole tool — the press, the drag, the rebuilt
  * hover ghost and the release all read it — so the piece that lands is the piece
  * the ghost drew.

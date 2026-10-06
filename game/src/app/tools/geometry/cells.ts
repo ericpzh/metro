@@ -2,17 +2,20 @@
 // These are pure functions of the two pressed cells — no store, no scene — so
 // every controller that previews or commits a rectangle shares them.
 
-import { cellKey } from '../../../build/model.ts'
-import { reservedOpening, trackAt } from '../../../sim/placement.ts'
+import { cellKey } from '../../../build/model/Cells.ts'
+import { checkBlockCells } from '../../../build/validation.ts'
 import type { Module } from '../../../sim/types.ts'
 
 /**
- * Narrow a drag rectangle to the cells it would actually change: the solid
+ * Narrow a drag rectangle to the cells it would actually **change**: the solid
  * blocks a remove drag is pending-delete, the empty cells a build drag is
  * pending-build. Cells already in the desired state are left out, so the
- * highlight reads as exactly "what this release will do". A build drag also
- * drops reserved openings — the corridors ramps carve and the floor exits cover
- * — so the ghost never promises a block the release will refuse.
+ * highlight reads as exactly "what this release will do".
+ *
+ * A build drag is narrowed by the one placement rule set (`checkBlockCells` →
+ * `blockReason`), so a cell a 闸机 holds, a ramp's corridor or a rail's bed is not a
+ * candidate at all — it is a **refusal** the preview draws in red, which is a
+ * different question and is asked separately (`checkBlockCells` keeps both lists).
  */
 export function pendingCells(
   cells: Array<[number, number, number]>,
@@ -20,13 +23,8 @@ export function pendingCells(
   solid: Set<string>,
   modules: readonly Module[] = [],
 ): Array<[number, number, number]> {
-  return cells.filter(([x, y, z]) => {
-    const k = cellKey(x, y, z)
-    if (mode === 'remove') return solid.has(k)
-    // A placed rail's dug bed is covered ground: the ghost drops it so the
-    // preview matches the release, which skips the platform/tunnel area.
-    return !solid.has(k) && !reservedOpening(modules, x, y, z) && !trackAt(modules, x, y, z)
-  })
+  if (mode === 'remove') return cells.filter(([x, y, z]) => solid.has(cellKey(x, y, z)))
+  return checkBlockCells({ cells: [], modules }, cells).acceptedCells
 }
 
 export function rectCells(a: [number, number, number], b: [number, number, number], z: number, line: boolean): Array<[number, number, number]> {

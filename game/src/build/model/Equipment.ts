@@ -3,14 +3,24 @@
 
 import { benchSpec } from '../../sim/benches.ts';
 import { BILLBOARD_SPECS, billboardSpec, postersFor } from '../../sim/billboards.ts';
+import {
+  CALLIGRAPHY_FALLBACK_NAME,
+  DEFAULT_CALLIGRAPHY_AXIS,
+  DEFAULT_CALLIGRAPHY_STYLE,
+  calligraphyGeometry,
+  isCalligraphyAxis,
+  isCalligraphyStyle,
+} from '../../sim/calligraphy.ts';
 import { escalatorModule, type EscalatorDir } from '../../sim/escalators.ts';
 import { exitFloorAt } from '../../sim/exits.ts';
+import { DEFAULT_GLASS_VARIANT, glassSpec } from '../../sim/glassPanels.ts';
+import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../../sim/linemaps.ts';
 import { liftModule } from '../../sim/lifts.ts';
 import { carveRampOpenings } from '../../sim/openings.ts';
 import { trackOriginForCentre } from '../../sim/track.ts';
 import { STAIR_WIDTH_NARROW, stairFlightsFor, stairLandings, stairTurnCells } from '../../sim/stairs.ts';
 import { makeSignBoards, settleSignBoards, signBoardsOf, type SignBoardsDraft, type SignLineSource } from '../../sim/sign.ts';
-import type { BenchVariant, BillboardVariant, ExitBays, GateDoor, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
+import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
 import { cellKey, cloneCell } from './Cells.ts';
 import type { StationState } from './State.ts';
 
@@ -33,6 +43,17 @@ export type SignLineInput = StationData | ReadonlyArray<StationData['lines'][num
 
 function linesOf(source: SignLineInput): SignLineSource {
   return Array.isArray(source) ? { lines: source } : (source as StationData);
+}
+
+/**
+ * The station name a fresh 站名 is cut for. The placement caller hands over the
+ * whole station document (the same `StationData` a 指示牌 reads its lines from), so
+ * the inscription is sized from the name it will print; a caller with only a line
+ * array (a unit test, a thumbnail) gets the neutral fallback, and the piece is then
+ * cut for that name's own length.
+ */
+function stationNameOf(source: SignLineInput): string {
+  return Array.isArray(source) ? CALLIGRAPHY_FALLBACK_NAME : ((source as StationData).name || CALLIGRAPHY_FALLBACK_NAME);
 }/**
  * Build a fresh module payload for one cell. Shared by the placement tool and
  * the on-hover ghost, so the preview is the exact module the click would add.
@@ -130,6 +151,58 @@ export function createModule(
     }
     case 'tv':
       return { id, type: 'tv', x, y, z, rot, cfg: {} };
+    case 'glass':
+    case 'glass-1x1':
+    case 'glass-2x1':
+    case 'glass-3x1':
+    case 'glass-1x2':
+    case 'glass-2x2':
+    case 'glass-3x2': {
+      // The palette id names the size; a bare `glass` (an old caller) is the
+      // single-cell 1 m panel. The run is centred on the hovered cell like a
+      // billboard's, so a three-cell window grows evenly either side of the pointer.
+      const variant: GlassVariant = type === 'glass' ? DEFAULT_GLASS_VARIANT : (type.slice('glass-'.length) as GlassVariant);
+      const spec = glassSpec(variant);
+      const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1);
+      return { id, type: 'glass', x: ox, y: oy, z, rot, w: spec.w, cfg: { variant: spec.variant } };
+    }
+    case 'calligraphy':
+    case 'calligraphy-kai-h':
+    case 'calligraphy-kai-v':
+    case 'calligraphy-xing-h':
+    case 'calligraphy-xing-v':
+    case 'calligraphy-li-h':
+    case 'calligraphy-li-v':
+    case 'calligraphy-wei-h':
+    case 'calligraphy-wei-v':
+    case 'calligraphy-hei-h':
+    case 'calligraphy-hei-v':
+    case 'calligraphy-song-h':
+    case 'calligraphy-song-v': {
+      // The palette id names the hand and the axis (`calligraphy-<style>-<axis>`);
+      // a bare `calligraphy` is 楷书 横排. The panel is cut **now**, from the name
+      // the station carries at this moment: it is the piece's own wall footprint
+      // (`w` cells, `panelH` metres), and it stays that size for good — a later
+      // rename reprints the ink inside it rather than rebuilding a different wall
+      // behind a placed piece (`sim/calligraphy.ts`).
+      const parts = type.split('-');
+      const style = (isCalligraphyStyle(parts[1]) ? parts[1] : DEFAULT_CALLIGRAPHY_STYLE) as CalligraphyStyle;
+      const axis = (isCalligraphyAxis(parts[2]) ? parts[2] : DEFAULT_CALLIGRAPHY_AXIS) as CalligraphyAxis;
+      const geo = calligraphyGeometry(stationNameOf(lines), axis);
+      const [ox, oy] = trackOriginForCentre(rot, x, y, geo.cells, 1);
+      return { id, type: 'calligraphy', x: ox, y: oy, z, rot, w: geo.cells, panelH: geo.panelH, cfg: { style, axis } };
+    }
+    case 'linemap':
+    case 'linemap-wall':
+    case 'linemap-stand': {
+      // The palette id names the mount; a bare `linemap` (an old caller) is the wall
+      // board. The wall board is centred on the hovered cell like a billboard; the
+      // totem is a single cell, so its own cell is its anchor.
+      const mount: LineMapVariant = type === 'linemap-stand' ? 'stand' : DEFAULT_LINE_MAP_VARIANT;
+      const spec = lineMapSpec(mount);
+      const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1);
+      return { id, type: 'linemap', x: ox, y: oy, z, rot, w: spec.w, cfg: { mount: spec.variant } };
+    }
     case 'sign': {
       // A board is born with a composed **front** (§5.8), not a blank face: the
       // station's first line is already on it, so a fresh sign is readable before

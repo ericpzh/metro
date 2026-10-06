@@ -2,7 +2,7 @@
 // at or below it, so a floor and the walls it grows share a storey while a
 // second floor one storey down stays its own. This is the regression guard for
 // a lower floor's 4 m wall reaching the floor above and merging the two floors
-// into one band (the 地基 tool's auto walls).
+// into one band (the 方块 tool's auto walls).
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { LEVEL_STEPS, storeyBand } from '../src/sim/constants.ts'

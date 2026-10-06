@@ -21,7 +21,7 @@ export interface HoverTile {
 }
 
 /**
- * An in-progress press-and-hold shared by the 地基 / 墙 / 删除 / 围栏 tools.
+ * An in-progress press-and-hold shared by the 方块 / 墙 / 删除 / 围栏 tools.
  * One ref serves all four because only one tool is ever active — the tool-change
  * effect in `Viewport.tsx` clears it when leaving.
  */
@@ -35,13 +35,13 @@ export interface AreaDrag {
   /** True for the 墙 tool's drag, whose cells are full-height wall columns. */
   wall?: boolean
   /**
-   * A wall drag that never becomes a run: the 地基 tool's **半墙** mode lays one
+   * A wall drag that never becomes a run: the 方块 tool's **半墙** mode lays one
    * block per click, so the release takes the press's own cell whatever the
    * pointer did in between.
    */
   single?: boolean
   /**
-   * The cut shape a **地基** click lays — a **半墙**'s thickness side or a **三角**'s
+   * The cut shape a **方块** click lays — a **半墙**'s thickness side or a **三角**'s
    * hugged side (`cutShapeFor` over `wallDirs`), resolved at the press and kept
    * current as **R** steps it. The release lays this shape, so the piece that lands is
    * the one the ghost drew rather than a second, possibly different, reading of the
@@ -148,7 +148,7 @@ export interface ToolContext {
   paint: { current: PaintDrag | null }
   zoneDrag: { current: ZoneDragState | null }
   facilityDrag: { current: FacilityDragState | null }
-  /** Pin the 地基 patch-size badge to the pointer, in canvas-relative pixels. */
+  /** Pin the 方块 patch-size badge to the pointer, in canvas-relative pixels. */
   showMeasure: (clientX: number, clientY: number, text: string) => void
   clearMeasure: () => void
 }

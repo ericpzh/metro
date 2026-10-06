@@ -13,7 +13,7 @@
 // draws are deliberately off-axis, so `cell + face.normal` asked for a fraction:
 //
 //   * the block under a 楼梯 / 扶梯 is a wedge — its top is the run's sloping
-//     underside (`rampSlopeCuts`) — so hovering it and laying a 地基 block beside it
+//     underside (`rampSlopeCuts`) — so hovering it and laying a 方块 block beside it
 //     committed a block at (4.44, −0.15, 1.89): off the grid, invisible to every tool
 //     from then on, and dropped by the grid repair on the next load;
 //   * the 12.5 cm top-rim chamfer of every block open to the air faces diagonally, so
@@ -148,7 +148,7 @@ test('the block under an escalator hands back a whole cell, wedge and all', () =
     assert.ok(whole(picked.cell) && whole(picked.place), `over (${x}, ${y}) a block went to ${show(picked.place)}`)
     assert.ok(solid.has(packKey(...picked.cell)), `over (${x}, ${y}) the pick named a void block ${show(picked.cell)}`)
     assert.deepEqual(picked.normal, faceStep(normal))
-    // And the 地基 tool's own add path keeps it: the anchor a block click takes is
+    // And the 方块 tool's own add path keeps it: the anchor a block click takes is
     // this placement cell, and whatever the brush lays down is a whole cell — or a
     // reserved opening it correctly refuses (the run's own corridor over the wedge).
     const { cells: added, blocked } = addCells([], [picked.place], [escalator])

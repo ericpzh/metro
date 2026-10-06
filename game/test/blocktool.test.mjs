@@ -1,7 +1,7 @@
-// The 地基 tool's controllers, driven through their own press/release path.
+// The 方块 tool's controllers, driven through their own press/release path.
 //
 // `halfwall.test.mjs` pins the 半墙 as a *piece* — the cell, its tag, the panel
-// the mesher draws from it. This file pins the *click*: that the block the 地基
+// the mesher draws from it. This file pins the *click*: that the block the 方块
 // tool's **半墙** mode commits on release is the same tagged course its ghost
 // previewed. The two had drifted apart — the ghost drew a half-block panel
 // (`thinGhost`), while the release went through the plain-block path

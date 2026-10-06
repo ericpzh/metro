@@ -26,13 +26,24 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { ChunkSystem } from '../src/render/scene/systems/ChunkSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
-import { buildSolidSet } from '../src/render/chunkMesher.ts'
-import { RAMP_SOFFIT_FINISH } from '../src/sim/finishes.ts'
-import { ESCALATOR_BALUSTRADE } from '../src/sim/constants.ts'
-import { RAMP_FOOT, carveRampOpenings, rampFillKeys } from '../src/sim/openings.ts'
+import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
+import { RAMP_SOFFIT_FINISH, finishMapOf } from '../src/sim/finishes.ts'
+import { RAMP_FOOT, carveRampOpenings, rampFillKeys, rampSlopeCuts } from '../src/sim/openings.ts'
 import { packKey } from '../src/sim/types.ts'
 
-/** A run climbing one storey along −x: 6 cells across, 4 m up. */
+/**
+ * The run the filling rigs stand on: a **stair**, climbing one storey along −x, 6 cells across and
+ * 4 m up. A stair draws no body of its own, so the ground under it is the renderer's to fill; a
+ * 扶梯's piece carries that body itself now (`EscalatorModel.undercroftSolid`), so `rampFillKeys`
+ * derives nothing under one — which is what the last test here is about.
+ */
+const stair = {
+  id: 's1', type: 'stair', x: 6, y: 0, z: 0, rot: 3,
+  from: { x: 6, y: 0, z: 0 }, to: { x: 0, y: 0, z: 4 },
+  cfg: { width: 0.68, style: 'straight', flights: [{ from: { x: 6, y: 0, z: 0 }, to: { x: 0, y: 0, z: 4 } }] },
+}
+
+/** The same run as an escalator, for the piece that draws its own body. */
 const escalator = {
   id: 'e1', type: 'escalator', x: 6, y: 0, z: 0, rot: 0,
   from: { x: 6, y: 0, z: 0 }, to: { x: 0, y: 0, z: 4 }, cfg: { dir: 'up' },
@@ -46,11 +57,20 @@ function ground(x, y, zs) {
   return zs.map((z) => ({ x, y, z, fill: 'solid' }))
 }
 
+/** The packed key back to its cell, so a derived filling can be visited as a coordinate. */
+function unpack(k) {
+  const z = (k % 8192) - 4096
+  const t = (k - (z + 4096)) / 8192
+  const y = (t % 8192) - 4096
+  const x = (t - (y + 4096)) / 8192 - 4096
+  return { x, y, z }
+}
+
 /** A station of just those blocks, with the run dropped on it (and carved, unless told not to). */
 function station(cells, carve = true) {
   const kept = cells.map((c) => ({ ...c }))
-  if (carve) carveRampOpenings(kept, [escalator])
-  return { name: 'fill', seed: 1, cells: kept, modules: [escalator], lines: [] }
+  if (carve) carveRampOpenings(kept, [stair])
+  return { name: 'fill', seed: 1, cells: kept, modules: [stair], lines: [] }
 }
 
 /** The chunk meshes the renderer would draw for a station, with a recorded material kit. */
@@ -149,15 +169,15 @@ test('a floor under a run is drawn up to the truss, and no cell is added for it'
     const top = topOver(chunks, 5, 0, pass)
     assert.ok(Math.abs(top - truss) < 0.02, `the ground stops at ${top}, not at the truss at ${truss}`)
   }
-  // …and it is drawn as the **escalator's own body** rather than as a block of the cell:
-  // the truss box, wearing the run's steel rather than the ground's finish.
-  assert.ok(asked.includes(RAMP_SOFFIT_FINISH), 'the filling is not drawn in the run’s steel')
+  // …and a stair carries no drawn body of its own, so its filling keeps the cell's shape and the
+  // ground's finish rather than an escalator's steel.
+  assert.ok(!asked.includes(RAMP_SOFFIT_FINISH), 'the stair’s filling is drawn in a 扶梯’s steel')
   const band = vertsAbove(chunks, 5, 1)
   const lo = Math.min(...band)
   const hi = Math.max(...band)
   assert.ok(
-    Math.abs(hi - lo - ESCALATOR_BALUSTRADE) < 1e-6,
-    `the filling spans ${(hi - lo).toFixed(3)} across, not the truss's ${ESCALATOR_BALUSTRADE}`,
+    Math.abs(hi - lo - 1) < 1e-6,
+    `the filling spans ${(hi - lo).toFixed(3)} across, not the cell's own 1 m`,
   )
   assert.ok(Math.abs((lo + hi) / 2 - 0.5) < 1e-6, 'the filling is not centred on the run’s line')
 })
@@ -182,10 +202,22 @@ test('a block the station already holds there needs no filling', () => {
   assert.ok(Math.abs(top - truss) < 0.02, `the shaved block ends at ${top}, not at the truss at ${truss}`)
 })
 
-test('the filling fits the escalator’s own truss: same width, no gap', async () => {
-  // The model's truss is the escalator's dark-steel slab. The filling has to meet it:
-  // the same width, centred on the run's own line, and reaching *into* it rather than
-  // stopping short (the cut plane is `RAMP_FOOT` below the walking line; the truss hangs
+test('a 扶梯 derives no filling at all: its own piece carries that body', () => {
+  // The piece draws the body that used to be derived here (`EscalatorModel.undercroftSolid`, cut to
+  // this very cell and plane). A second one on the same plane is a face that flickers against the
+  // piece's, so the renderer derives nothing: the cut still shaves the ground, and the tab is empty.
+  const data = { name: 'fill', seed: 1, cells: ground(5, 0, [0]), modules: [escalator], lines: [] }
+  const { chunks, ctx } = render(data)
+  assert.equal(ctx.slopeFills.size, 0, 'the escalator derives a filling its own piece already draws')
+  assert.ok(ctx.slopeCuts.size > 0, 'the escalator no longer shaves the ground it climbs over')
+  assert.deepEqual(vertsOver(chunks, 5, 0).filter((z) => z > 1 + 1e-6), [], 'a second body was drawn under an escalator')
+})
+
+test('the mesher’s truss-width band still fits the escalator’s own truss', async () => {
+  // No game path hands the mesher a truss-width filling any more — the 扶梯's piece is that body —
+  // so the cut goes in by hand. What is pinned is the profile the mesher draws for a body narrower
+  // than the cell: the same width as the model's truss, on the run's own line, and reaching *into*
+  // it rather than stopping short (the plane is `RAMP_FOOT` below the walking line; the truss hangs
   // a little deeper, measured across the incline, so the two overlap).
   const stubContext = () => {
     const store = {}
@@ -208,8 +240,10 @@ test('the filling fits the escalator’s own truss: same width, no gap', async (
   const group = buildModule(escalator, { mats })
   group.updateMatrixWorld(true)
   const truss = []
+  // The truss alone: the piece also carries its own solid under it (`EscalatorModel`'s
+  // undercroft), in the same dark steel.
   group.traverse((o) => {
-    if (!o.isMesh || o.material !== mats.darkSteel) return
+    if (!o.isMesh || o.name !== 'truss') return
     const pos = o.geometry.getAttribute('position')
     for (let i = 0; i < pos.count; i++) {
       truss.push(new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld))
@@ -217,8 +251,24 @@ test('the filling fits the escalator’s own truss: same width, no gap', async (
   })
   assert.ok(truss.length > 0, 'the escalator model has no dark-steel truss to fit')
 
-  const { chunks } = render(station(ground(5, 0, [0])))
-  const band = vertsAbove(chunks, 5, 1)
+  const cells = ground(5, 0, [0])
+  const solid = buildSolidSet(cells)
+  const cuts = new Map([...rampSlopeCuts([escalator])].map(([k, c]) => [k, { ...c, ownBody: undefined }]))
+  const fills = rampFillKeys(solid, cuts)
+  const list = [...fills].map(unpack)
+  const chunk = meshChunk(
+    solid, finishMapOf(cells), 0, 0, Math.min(...list.map((c) => c.z)), Math.max(...list.map((c) => c.z)),
+    new Set(fills), undefined, list, undefined, cuts, fills,
+  )
+  const band = []
+  for (const part of chunk.parts) {
+    for (let i = 0; i < part.positions.length; i += 3) {
+      if (part.positions[i] < 5 - 1e-6 || part.positions[i] > 6 + 1e-6) continue
+      if (part.positions[i + 2] <= 1 + 1e-6) continue
+      band.push(part.positions[i + 1])
+    }
+  }
+  assert.ok(band.length > 0, 'the truss-width filling drew nothing')
   const ys = truss.map((p) => p.y)
   assert.ok(
     Math.abs(ys.length ? Math.max(...ys) - Math.min(...ys) - (Math.max(...band) - Math.min(...band)) : NaN) < 1e-6,

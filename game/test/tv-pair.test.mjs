@@ -37,6 +37,10 @@ import { facingFrom } from '../src/render/pickFacing.ts'
 /* ------------------------------------------------------------- the pair rule */
 
 const tv = (x, y, z, rot, id = `tv-${rot}`) => ({ id, type: 'tv', x, y, z, rot, cfg: {} })
+/** A 闸机 on the pair's tile: a flat piece, so it passes under the hung housing. */
+const gate = (x, y, z, id = 'gate-1') => ({ id, type: 'gate', x, y, z, rot: 0, cfg: { dir: 'both' } })
+/** A 监控 on the pair's tile: hung like the screens, so it wants the same air. */
+const cctv = (x, y, z, id = 'cctv-1') => ({ id, type: 'cctv', x, y, z, rot: 0, cfg: {} })
 
 test('a 电视 looks along −y turned by its rotation', () => {
   // The same relationship `wallSide` describes for a wall-mounted panel: `rot` is
@@ -78,8 +82,13 @@ test('a back-to-back pair shares the cell, and nothing else about a 电视 chang
   // The other way round, and a quarter turn: still one piece per cell.
   assert.equal(placementBlocked([a], tv(2, 3, 0, 1, 'c')), true)
   assert.equal(placementBlocked([a], tv(2, 3, 0, 0, 'd')), true)
-  // A pair claims the cell against everything that is not its opposite number.
-  assert.equal(placementBlocked([a, b], { id: 'g', type: 'gate', x: 2, y: 3, z: 0, cfg: { dir: 'both' } }), true)
+  // A pair is still hung from the ceiling, so a piece standing on the floor shares
+  // the tile with it — the 闸机 passes under the housing, as it does under any hung
+  // piece. What the pair claims is the **air**: a third 电视 on the same tile is
+  // still refused, and so is any other hung fitting.
+  assert.equal(placementBlocked([a, b], gate(2, 3, 0, 'g2')), false, 'both screens hang over the 闸机 they share a tile with')
+  assert.equal(placementBlocked([a, b], tv(2, 3, 0, 0, 'f')), true, 'a third screen wants the same air')
+  assert.equal(placementBlocked([a, b], cctv(2, 3, 0, 'v')), true)
   // Adjacent cells are untouched, and the ceiling rule still applies to the pair.
   assert.equal(placementBlocked([a], tv(3, 3, 0, 2, 'e')), false)
   assert.equal(ceilingMountMissing([{ x: 2, y: 3, z: 0, fill: 'solid' }, { x: 2, y: 3, z: 4, fill: 'solid' }], a), false)

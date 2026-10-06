@@ -127,9 +127,9 @@ export function App(): React.ReactElement {
           else if (st.moveDraft) st.rotateMove()
           // The 墙 tool has no piece to turn: R picks which of a corner cell's
           // wall faces the column takes (`wallSnap` in `build/model.ts`). In the
-          // 地基 tool's cut modes the same counter steps the piece to another half of
+          // 方块 tool's cut modes the same counter steps the piece to another half of
           // the tile — a 半墙 to the other half, a 三角 to the next corner — which is
-          // that mode's one orientation choice. With both modes off the 地基 tool has
+          // that mode's one orientation choice. With both modes off the 方块 tool has
           // nothing of its own to turn, so the key stops there rather than turning
           // whatever piece the 设备 folder was left on.
           else if (st.tool === 'wall') st.rotateWallSnap()
@@ -139,8 +139,8 @@ export function App(): React.ReactElement {
           else if (st.tool !== 'tunnel' && isRotatableType(st.moduleType)) st.rotateModule()
           break
         case 'tab':
-          // In the 地基 tool Tab steps the cut modes — 半墙 → 三角上 → 三角下 → off — which
-          // is the question a 地基 click answers: what shape does this one lay. It used
+          // In the 方块 tool Tab steps the cut modes — 半墙 → 三角上 → 三角下 → off — which
+          // is the question a 方块 click answers: what shape does this one lay. It used
           // to toggle the generated 4 m wall ring, which is now **off when the game
           // opens** and asked for on its own tile instead: the ring is the one thing
           // this tool does that the player did not draw, so it no longer takes the

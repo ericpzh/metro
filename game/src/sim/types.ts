@@ -258,7 +258,7 @@ export function halfWallInnerFace(side: WallSide): WallSide {
 }
 
 /**
- * True when a cell is a wall the player or the 地基 tool raised, a 半墙, or a
+ * True when a cell is a wall the player or the 方块 tool raised, a 半墙, or a
  * tunnel's shell. The tag strings mirror `build/model.ts` (`WALL` / `AUTO_WALL` /
  * `HALF_WALL`) and `build/rail.ts` (`tunnel-shell:<id>`); they live here so the
  * pure sim can recognise a wall without importing `build/`. A plain block has no
@@ -353,6 +353,32 @@ export type BillboardShape = 'landscape' | 'wide' | 'panorama' | 'portrait' | 's
  * pieces (`sim/benches.ts`).
  */
 export type BenchVariant = 'steel-1' | 'steel-2' | 'seat-1' | 'seat-2'
+
+/**
+ * A glass panel's size (装饰 玻璃板, §5.7): the run in cells by the height in
+ * metres, as `1x1` … `3x2`. The 围栏's wall-mounted cousin — one pane in an outer
+ * frame, in six sizes (`sim/glassPanels.ts`).
+ */
+export type GlassVariant = '1x1' | '2x1' | '3x1' | '1x2' | '2x2' | '3x2'
+
+/**
+ * The hand a 站名 inscription is written in (§5.7): 楷书, 行书, 隶书, 魏碑, 黑体
+ * or 宋体. The hand is a font stack, an ink and a stroke treatment
+ * (`sim/calligraphy.ts`), so the same station name reads six different ways.
+ */
+export type CalligraphyStyle = 'kai' | 'xing' | 'li' | 'wei' | 'hei' | 'song'
+
+/**
+ * Which way a 站名 runs: `h` 横排 along the wall, `v` 竖排 down it.
+ */
+export type CalligraphyAxis = 'h' | 'v'
+
+/**
+ * How a 线网图 is mounted (§5.7): `wall` is the framed board bolted flat to a wall
+ * and read from one side, `stand` the free-standing double-sided totem that
+ * reserves its own cell of floor.
+ */
+export type LineMapVariant = 'wall' | 'stand'
 
 /**
  * A staircase's plan shape (§5.1). A stair always climbs exactly one storey;
@@ -511,6 +537,54 @@ export type Module =
    * without one are backfilled in `toState`, so a panel never re-rolls per frame.
    */
   | (ModuleBase & { type: 'billboard'; w: number; cfg: { variant: BillboardVariant; poster?: string } })
+  /**
+   * A wall-mounted glass panel (玻璃板, 装饰): a sheet of glass held by an **outer
+   * frame only** and bolted flat to a wall — the 围栏's wall-mounted cousin, and
+   * the piece that makes the difference visible. A fence stands a post and a pair
+   * of rails *per cell*, so a run of them is a row of 1 m panels; a glass panel
+   * has one sill, one head and two end posts around the whole run and one pane
+   * between them, so a three-cell panel is a single glazed opening.
+   *
+   * It runs `w` cells along its local +x and stands `cfg.variant`'s height
+   * (`sim/glassPanels.ts`) from the floor top up, so a 1 m panel is cladding and a
+   * 2 m one is a full-height pane. Wall-mounted: it needs solid backing on **every course
+   * the panel crosses** (`wallMountMissing`), and it may hang over a track like a
+   * 广告牌, where there is no floor in front of the station wall at all.
+   */
+  | (ModuleBase & { type: 'glass'; w: number; cfg: { variant: GlassVariant } })
+  /**
+   * Station-name calligraphy (站名, 装饰): the station's own name
+   * (`StationData.name`) drawn as a large ink inscription and bolted to a wall —
+   * the brush lettering a real station wears beside its name plate.
+   *
+   * The piece holds **no text**: it names the hand it is written in
+   * (`cfg.style`, `sim/calligraphy.ts` — 楷书 / 行书 / 隶书 / 魏碑 / 黑体 / 宋体) and
+   * the way it runs (`cfg.axis` — 横排 along the wall, 竖排 down it), and
+   * `render/calligraphyFace.ts` prints the live station name into the panel. A
+   * rename therefore reprints every inscription in the station without touching
+   * one module.
+   *
+   * `w` is the run in cells and `panelH` the panel's height in metres, both fixed
+   * **when the piece is placed** from the name it carried then: a wider
+   * inscription is a wider piece of wall (more cells needing solid backing), so a
+   * later rename sets smaller type inside the same panel rather than silently
+   * rebuilding a different wall behind a placed piece. Wall-mounted, on every
+   * course the panel crosses.
+   */
+  | (ModuleBase & { type: 'calligraphy'; w: number; panelH: number; cfg: { style: CalligraphyStyle; axis: CalligraphyAxis } })
+  /**
+   * A line system map (线网图, 装饰): the network diagram drawn from the station's
+   * **own lines** — one coloured band per line, its stations ticked along it, its
+   * interchanges ringed (`render/lineMapFace.ts`) — so recolouring a line or
+   * adding a station repaints every map in the station.
+   *
+   * `cfg.mount` is the two variants' whole difference (`sim/linemaps.ts`): `wall`
+   * is a framed landscape board bolted flat to a wall on every course it crosses
+   * and read from one side, `stand` a free-standing portrait totem printed on
+   * **both** faces, which is floor-standing instead — it needs floor under it and
+   * reserves its own cell like a 售票机.
+   */
+  | (ModuleBase & { type: 'linemap'; w: number; cfg: { mount: LineMapVariant } })
   /**
    * A passenger-information screen (电视, 装饰): the station board and the network
    * feed's window over one tile, hung by rods from the storey ceiling, lit on one

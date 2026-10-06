@@ -19,15 +19,21 @@ import {
 } from '../render/models.ts'
 import { createMaterials } from '../render/materials.ts'
 import { createAdArt } from '../render/adArt.ts'
+import { createLineMapArt } from '../render/lineMapArt.ts'
+import { calligraphyPlate, drawCalligraphyPanel } from '../render/calligraphyFace.ts'
+import { drawLineMapPlaceholder, lineMapPlaceholderPlate } from '../render/lineMapFace.ts'
 import { drawStationDisplay, STATION_PLATE, tvLineStatus } from '../render/stationDisplay.ts'
 import { drawSignPanel } from '../render/signFace.ts'
 import { loadPictograms } from '../render/pictograms.ts'
 import { makeSignBoards, signPlate } from '../sim/sign.ts'
+import { DEFAULT_CALLIGRAPHY_AXIS, DEFAULT_CALLIGRAPHY_STYLE, calligraphyGeometry, isCalligraphyAxis, isCalligraphyStyle } from '../sim/calligraphy.ts'
+import { DEFAULT_GLASS_VARIANT, glassSpec } from '../sim/glassPanels.ts'
+import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../sim/linemaps.ts'
 import { liftModule } from '../sim/lifts.ts'
 import { stairFlightsFor, type StairStyle } from '../sim/stairs.ts'
 import { BILLBOARD_SPECS, posterFor, type AdPoster } from '../sim/billboards.ts'
 import { benchSpec } from '../sim/benches.ts'
-import type { BenchVariant, BillboardShape, BillboardVariant, ExitBays, Module, StationData, Vec3i } from '../sim/types.ts'
+import type { BenchVariant, BillboardShape, BillboardVariant, CalligraphyAxis, CalligraphyStyle, ExitBays, GlassVariant, LineMapVariant, Module, StationData, Vec3i } from '../sim/types.ts'
 import { MODULE_OPTIONS } from './store.ts'
 
 /** The isometric direction the game opens on (`SceneRenderer.setPreset('iso')`). */
@@ -63,8 +69,18 @@ const SILHOUETTE_POSTER: Record<BillboardShape, AdPoster> = {
 /** Which way to look at a given piece, so its silhouette is the readable one. */
 function viewDir(id: string): THREE.Vector3 {
   // Wall-mounted decor faces +y, so its thumbnail looks at the lit front — for
-  // every billboard format (`billboard-wide`, `-portrait`, `-square`, `-large`).
-  if (id === 'tv' || id === 'billboard' || id.startsWith('billboard-')) return FRONT
+  // every billboard format (`billboard-wide`, `-portrait`, `-square`, `-large`),
+  // the glass panels, the station-name inscriptions and the two network maps.
+  if (
+    id === 'tv' ||
+    id === 'billboard' ||
+    id.startsWith('billboard-') ||
+    id.startsWith('glass') ||
+    id.startsWith('calligraphy') ||
+    id.startsWith('linemap')
+  ) {
+    return FRONT
+  }
   // The 指示牌 is a double-sided board; look straight at its printed face.
   if (id === 'sign') return FRONT
   // A 时钟 is a dial facing **down**: from the isometric angle its icon would be
@@ -179,6 +195,48 @@ function sampleModule(id: string, station: StationData): Module | null {
     }
     case 'tv':
       return { id, type: 'tv', x: 0, y: 0, z: 0, rot: 0, cfg: { poster: SILHOUETTE_POSTER.landscape.slug } }
+    case 'glass':
+    case 'glass-1x1':
+    case 'glass-2x1':
+    case 'glass-3x1':
+    case 'glass-1x2':
+    case 'glass-2x2':
+    case 'glass-3x2': {
+      const variant: GlassVariant = id === 'glass' ? DEFAULT_GLASS_VARIANT : (id.slice('glass-'.length) as GlassVariant)
+      const spec = glassSpec(variant)
+      // The sample is drawn at its own run's centre, exactly as a placed piece is,
+      // so a three-cell panel's icon is the wide window the tile promises.
+      return { id, type: 'glass', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant } }
+    }
+    case 'calligraphy':
+    case 'calligraphy-kai-h':
+    case 'calligraphy-kai-v':
+    case 'calligraphy-xing-h':
+    case 'calligraphy-xing-v':
+    case 'calligraphy-li-h':
+    case 'calligraphy-li-v':
+    case 'calligraphy-wei-h':
+    case 'calligraphy-wei-v':
+    case 'calligraphy-hei-h':
+    case 'calligraphy-hei-v':
+    case 'calligraphy-song-h':
+    case 'calligraphy-song-v': {
+      // Each tile prints the **synthetic station's** own name in its own hand, so
+      // the sub-menu reads as one name written twelve ways rather than twelve
+      // placeholder plates — the same code path a placed piece takes.
+      const parts = id.split('-')
+      const style = (isCalligraphyStyle(parts[1]) ? parts[1] : DEFAULT_CALLIGRAPHY_STYLE) as CalligraphyStyle
+      const axis = (isCalligraphyAxis(parts[2]) ? parts[2] : DEFAULT_CALLIGRAPHY_AXIS) as CalligraphyAxis
+      const geo = calligraphyGeometry(station.name, axis)
+      return { id, type: 'calligraphy', x: 0, y: 0, z: 0, rot: 0, w: geo.cells, panelH: geo.panelH, cfg: { style, axis } }
+    }
+    case 'linemap':
+    case 'linemap-wall':
+    case 'linemap-stand': {
+      const mount: LineMapVariant = id === 'linemap-stand' ? 'stand' : DEFAULT_LINE_MAP_VARIANT
+      const spec = lineMapSpec(mount)
+      return { id, type: 'linemap', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { mount: spec.variant } }
+    }
     case 'sign': {
       // The palette icon shows the front a fresh click would hang — the same default
       // `createModule` builds for a piece placed with no composed boards — and the
@@ -306,6 +364,11 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
   // The 广告牌 and 电视 icons print real posters, so wait for the artwork before
   // drawing them; the whole pass is already deferred off the first paint.
   await ads.load(() => {})
+  // A 线网图 icon is the **supplied** 线网示意图, so it waits for that poster too — a
+  // tile drawn before it lands would show the drawn placeholder board and keep it for
+  // the session, because the tiles are cached.
+  const lineMaps = createLineMapArt(renderer)
+  await lineMaps.load()
   // The 指示牌 icon prints the board's own pictograms, which are bitmaps: await
   // them for the same reason, because a tile drawn without them shows a board with
   // its marks missing and the tiles are cached for the session.
@@ -314,6 +377,13 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
   // A thumbnail has no live service to print, so the 电视 plate shows the station
   // name and a blank clock — the same shape the placed piece draws.
   const plateCache = new Map<string, THREE.Texture>()
+  /**
+   * The two printed 装饰 faces the tiles need — a 站名's ink and a 线网图's board —
+   * kept apart from `plateCache` because a face is a **material** over a texture, not
+   * a bare texture (a mesh handed a texture where it expects a material cannot draw).
+   * Released with the rest of the pass in the `finally` below.
+   */
+  const faceCache = new Map<string, THREE.Material>()
   const ctx: ModuleContext = {
     mats,
     ads,
@@ -347,6 +417,40 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
         plateCache.set(key, t)
       }
       return litPanelMaterial(t)
+    },
+    // A 站名 icon is the synthetic station's own name in that hand and axis —
+    // real drawing code, so the sub-menu shows twelve hands rather than twelve tiles.
+    calligraphyFace: (id, spec) => {
+      const key = `calligraphy|${id}|${spec.style}|${spec.axis}|${spec.panel.w.toFixed(3)}x${spec.panel.h.toFixed(3)}`
+      const cached = faceCache.get(key) as THREE.MeshBasicMaterial | undefined
+      if (cached) return { material: cached, texture: cached.map ?? undefined }
+      const plate = calligraphyPlate(spec.panel)
+      const texture = canvasTexture(plate.width, plate.height, (g) => {
+        drawCalligraphyPanel(g, { text: station.name, style: spec.style, axis: spec.axis, panel: spec.panel })
+      })
+      const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.FrontSide })
+      faceCache.set(key, material)
+      return { material, texture }
+    },
+    // A 线网图 icon is the supplied 线网示意图 itself, mounted exactly as a placed map
+    // mounts it: the poster's own quad (its UV window is the crop that fits the panel)
+    // and the art's shared material. The drawn placeholder board is the fallback for a
+    // pass whose poster did not decode.
+    lineMapFace: (id, panel) => {
+      if (lineMaps.ready()) {
+        const painted = lineMaps.face(panel.w, panel.h)
+        return { material: painted.material, geometry: painted.geometry }
+      }
+      const key = `linemap|${id}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+      const cached = faceCache.get(key)
+      if (cached) return { material: cached }
+      const plate = lineMapPlaceholderPlate(panel)
+      const texture = canvasTexture(plate.width, plate.height, (g) => {
+        drawLineMapPlaceholder(g, { lines: station.lines, stationName: station.name, panel })
+      })
+      const material = litPanelMaterial(texture)
+      faceCache.set(key, material)
+      return { material }
     },
   }
 
@@ -387,6 +491,14 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
   } finally {
     disposeModelMaterials(mats)
     ads.dispose()
+    // The 站名 ink and the 线网图 boards are minted for the tiles alone: nothing in
+    // the scene shares them, so they go with the pass (each wraps a canvas of its
+    // own, and the pass is one-shot for the session).
+    for (const mat of faceCache.values()) {
+      const map = (mat as THREE.MeshBasicMaterial).map
+      if (map) map.dispose()
+      mat.dispose()
+    }
     for (const m of finishes.finishCache.values()) {
       m.map?.dispose()
       m.dispose()

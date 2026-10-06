@@ -227,6 +227,16 @@ build/ →  sim/            (and neither render/ nor app/)
   speed, track bed not walkable, wall blocks), the finish decides look. The
   renderer reads the same table, so a surface cannot look like one thing and
   behave like another.
+* **Placement is one verdict, asked twice** (`sim/placement.ts` + `build/validation.ts`).
+  `blockReason` answers "may a block be laid here" (`opening` / `equipment` / `track`, naming the
+  piece in the way) and `equipmentReason` answers "may this module stand here" (the ground, the
+  storey, the rails, another piece's space, a 广告牌's wall, a hung piece's slab, a 扶梯's landings, a
+  电梯's bay). `build/validation.ts` runs a whole preview's worth of candidates through them
+  (`checkBlockCells` / `checkModulePlacements`) and hands back the accepted cells, the refused cells
+  and the offending pieces — so `app/tools/*`'s red ghost, red collision boxes and the refusal notice
+  and `build/model/{Cells,Floors,Walls}.ts`'s edit all read one answer, and `moveDropReason` is that
+  same verdict in words. Never inline a placement rule in a tool again: add it to the verdict, and
+  both the preview and the release get it.
 * **Placement** (`sim/placement.ts`): every module has a world footprint
   (`moduleEnvelope`); `placementBlocked` refuses overlaps with strict box tests
   (adjacent cells are fine), except that a stair/escalator may pass through an
@@ -263,7 +273,7 @@ build/ →  sim/            (and neither render/ nor app/)
   `rampBodyBoxes` reserves, with the truss depth off the local line — and the mesher
   (`chunkMesher`'s `slope` map) draws those blocks' tops on that plane, clipping the
   cross-section where the plane leaves through the block's floor so nothing chords
-  back up into the run. A block under a run is therefore floor the 地基 tool lays and
+  back up into the run. A block under a run is therefore floor the 方块 tool lays and
   the carve keeps (a run's opening starts at its walking line, not at its truss), and
   it reads as the filling under the slope. Only the run's own centreline column is
   cut, a landing column never is, and nothing is added to the document — the cut is
@@ -488,14 +498,40 @@ build/ →  sim/            (and neither render/ nor app/)
   still works, and the pointer's aim breaks a corner tie. Hovering
   a wall block itself mounts the panel in the facing floor cell
   (`wallMountStandCell`), so an ad can hang on the station wall across the track.
+  **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`, six sizes) is the 围栏's
+  wall-mounted cousin: **one outer frame** — a sill, a head and two end posts round the whole run, with
+  a single pane between them — so a three-cell panel is one window where a fence stands three frames up.
+  站名 (`sim/calligraphy.ts` + `render/calligraphyFace.ts`) is the **station's own name** as an ink
+  inscription: the module carries only the hand (楷书 / 行书 / 隶书 / 魏碑 / 黑体 / 宋体) and the axis
+  (横排 / 竖排), the plate is **transparent** and holds the name and nothing else (the wall is the paper;
+  no ground, no seal), and a rename reprints every inscription in place. 线网图 (`sim/linemaps.ts`,
+  `render/lineMapArt.ts`) is the network **poster**: the supplied 广州地铁 线网示意图, saved as
+  `src/assets/linemaps/network-map.jpg` (2048 × 2047) and paired with the panel exactly as `adArt.ts`
+  pairs an ad slug with its JPEG — **artwork, not a drawing**. Both mounts print the same two-cell board
+  cut to the poster's own aspect (`LINE_MAP_ASPECT`): a wall board, or a **free-standing totem on a
+  plinth printed on both faces** (the one piece here that is floor-standing, not wall-mounted). Until the
+  pixels land (and in a unit test) a map prints `render/lineMapFace.ts`'s **placeholder board** — the
+  station's own lines as bands, shields and interchanges. The backing rule grew with the wall pieces:
+  `wallMountCourses`
+  says which 1 m courses each type's panel actually crosses — a 广告牌's first, a 2 m 玻璃板's first two,
+  a 横排 inscription's 2nd and 3rd, a 线网图 board's 2nd and 3rd — and `wallMountMissing` asks for solid
+  wall on every one of them, for
+  every cell of the run; `wallPanelBox` narrows the run's **own cells** (never `x + w`, which is the wrong
+  way round on the rotations that run −x / −y) to a slab on the wall, so the floor in front of a panel
+  stays the room's. The course arithmetic is one leaf, `wallCourses(bottom, height)` (`sim/courses.ts`),
+  shared by all three wall-piece tables and the placement rule: a panel crosses the courses it overlaps,
+  half-open per course, so an edge landing exactly on a course line claims nothing it merely touches.
+  The models are one file per piece beside them — `pieces/GlassModel.ts` (the outer frame only: sill,
+  head, two end posts, one pane), `pieces/CalligraphyModel.ts` (the transparent plate, reprinted in
+  place on a rename) and `pieces/LineMapModel.ts` (the wall board with one lit face, the totem as two
+  opposed planes off the one shared face).
 * A **售票机 and 自动贩卖机** are the two machine types (`tvm` / `vending`): a
   ticket machine and a drinks machine with the same 1 × 1 m footprint. Both are
   unpaid-zone `stop` servers at `TVM_RATE`, and a quarter of street entries
   (`sampleTripFromStreet`) route through one of the unpaid-zone machines.
-* The **地基 tool** has a **自动生成墙壁** toggle (**off by default**): on, a deliberate drag grows the
+* The **方块 tool** has a **自动生成墙壁** toggle (**off by default**): on, a deliberate drag grows the
   `auto-wall` ring and tags the floor; off, the same click / drag lays untagged bare blocks with no
-  ring. There is no separate 方块 tool any more, and the toggle has no key — **Tab** steps the
-  切角 tile's cut modes instead.
+  ring. The toggle has no key — **Tab** steps the 切角 tile's cut modes instead.
 * The **围栏 tool** (设备) drags out a straight run like 墙, but lays one 1 m panel
   per cell with the panels following the drag direction (R turns a single); a
   right-drag lifts the run. `app/Viewport.tsx` drives a live fence preview that
@@ -593,7 +629,7 @@ build/ →  sim/            (and neither render/ nor app/)
   `DEFAULT_FOV`. Every display setting (显示其他层 / 隐藏天花板 / 剖切 / 隐藏UI / 隐藏墙壁) is left as the
   player had it, which is what the old Home button got wrong. The lens does not touch the flat
   presets: they draw through the orthographic camera, whose field of view is its own frustum.
-* The 地基 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
+* The 方块 tool's *deliberate drag* is not a bare slab: `build/model.ts` tags the
   drawn cells `auto-floor` and raises a 4 m `auto-wall` ring on the patch's outer
   edge — the room-union rule generalised to cells, so overlapping/abutting patches
   union, hand-built floor is continuous ground, and a hole dug through a patch
@@ -620,10 +656,21 @@ build/ →  sim/            (and neither render/ nor app/)
   before the station existed — while later edits leave the camera alone
   (`framedRef`). The equipment hover ghost is rebuilt in place off
   `placementPreviewKey`, so R and a Tab cycle (stair width, escalator direction,
-  闸机 door side, the 地基 tool's 切角 modes) redraw the piece already under the
+  闸机 door side, the 方块 tool's 切角 modes) redraw the piece already under the
   pointer — which needs the
   matching entry in `render/moduleGhostKey.ts` as well, or the scene skips the
   rebuild (`setModulePreview`).
+  **a variant family is one row in one table.** `app/store/catalog.ts`'s `MODULE_FAMILIES`
+  (`ModuleFamily` = key + label + folder + the ids it `owns` + its variants' tile label/tooltip)
+  is read by every half of that UI: `familyOptions` is the sub-menu, `familyAnchor` the parent
+  tile, `familyFor` / `subMenuForModule` the rail's single open slot, `actionsAnchorFor` where
+  the action row folds out, `folderOptions` a folder's plain tiles (a family's variants are
+  excluded, so nothing is drawn twice) and the folder header's count that same arithmetic.
+  `rail/shared/TileGrid.tsx` is the one grid the 设备 and 装饰 folders render, and
+  `rail/menus/VariantMenu.tsx` the one variant list for every family (replacing four
+  near-identical menus — 座椅 / 广告牌 / 出入口 / 楼梯 — and two hand-wired folder bodies — a family could otherwise be half
+  wired: a variant whose list folded away when picked, or a 旋转 tile anchored to a tile no
+  folder drew). Adding a family is one row; `test/rail-families.test.mjs` pins the contract.
   `app/LeftRail.tsx` is now a barrel over `app/rail/` (shell + `folders/`,
   `menus/`, `actions/`, `items/`, `shared/`); thumbnails are rendered from
   the real models by `app/moduleThumbnails.ts` / `app/zoneThumbnails.ts`.
@@ -698,11 +745,11 @@ build/ →  sim/            (and neither render/ nor app/)
 * The **半墙 kit** has landed (`sim/types.ts`, `sim/constants.ts`
   `HALF_WALL_T`, `build/model.ts`, `render/chunkMesher.ts`, `render/scene.ts`,
   `app/store.ts` `halfWall`, `app/Viewport.tsx`, `app/LeftRail.tsx`,
-  `game/test/halfwall.test.mjs`): the **地基** tool's **切角** tile, on its 半墙 step,
+  `game/test/halfwall.test.mjs`): the **方块** tool's **切角** tile, on its 半墙 step,
   lays
   one 4 m column half a block thick per click — the wall a facility room's own walls
   and a wide run's side panel are made of, as a piece the player can put anywhere.
-  It sits on the 地基 tool because it *is* the wall that tool grows, so the cut modes
+  It sits on the 方块 tool because it *is* the wall that tool grows, so the cut modes
   and the generated ring are exclusive: any cut mode holds 自动生成墙壁 off and the
   store refuses
   that toggle while one owns the tool (its tile greys out), and leaving the cycle does
@@ -732,7 +779,7 @@ build/ →  sim/            (and neither render/ nor app/)
   all read, and `buildRampThins` is gone): that is what makes a stair's own half wall
   paintable, where a single-material panel over a hidden voxel left the brush
   painting half a block away from the surface it aimed at.
-  `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 地基 tool carries a 自动生成墙壁 toggle (**off by default**) instead of a separate 方块 tool.
+  `game/README.md`'s test list documents it. Named levels are gone (`LevelDef` deleted): the street is `z = 0`, a storey keys each solid cell to the fixed 4 m grid line at or below it (`storeyBand` in `sim/constants.ts`, so a lower floor's wall reaching the floor above cannot merge two floors into one band), exits refuse non-street slabs, and `platform-edge.cfg.side` names the side the track lies on so headers face platforms. The 方块 tool carries a 自动生成墙壁 toggle (**off by default**) instead of a separate 方块 tool.
 * The **装饰 kit** has landed (`sim/billboards.ts`, `sim/benches.ts`,
   `sim/placement.ts`, `render/models.ts`,
   `game/test/shelf|desk|restroom|bench|decor|ceiling-decor|sign.test.mjs`): 座椅 /
@@ -924,7 +971,7 @@ build/ →  sim/            (and neither render/ nor app/)
 * **A Tab cycle must redraw the ghost already under the pointer**, and that takes
   two keys, not one: the viewport subscribes to `placementPreviewKey`
   (`app/store.ts` — the piece, its `rot` and every Tab cycle, `gateDoor`
-  included, plus the 地基 tool's `halfWall` mode and wall-face cycle) so the effect
+  included, plus the 方块 tool's `halfWall` mode and wall-face cycle) so the effect
   re-runs, and the renderer's ghost identity
   (`render/moduleGhostKey.ts`) has to name the same setting — a stair's painted
   `finish` included — because
@@ -1143,7 +1190,8 @@ If the runner cannot spawn a child process per file (a confined sandbox reports
 `node --test --test-isolation=none "test/**/*.test.mjs"`. A Vite `build` may be
 blocked the same way; `tsc --noEmit` is the gate you can always run.
 
-Tests import `src/sim/*.ts` directly (and `src/build/rail.ts` for the rail
+Tests import `src/sim/*.ts` directly (and `src/build/validation.ts` for the
+placement-verdict suite, `src/build/rail.ts` for the rail
 suite). When you add behaviour to the sim, add a focused `.test.mjs` beside the
 others and update `game/README.md`'s test list and milestone notes if the change
 is player-visible. Keep `sim/` pure — a test will fail if it imports three,

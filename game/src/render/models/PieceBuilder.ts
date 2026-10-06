@@ -9,8 +9,11 @@ import type { FenceArms } from '../../sim/fences.ts'
 import { PANEL_SIZE, makeSignBoards, signPlate } from '../../sim/sign.ts'
 import type { SignBoards, SignLayout, SignPanelSize } from '../../sim/sign.ts'
 import type { TvPairSlot } from '../../sim/tvs.ts'
-import type { FinishId, Module, StationData } from '../../sim/types.ts'
+import type { FinishId, Module, StationData, CalligraphyAxis, CalligraphyStyle } from '../../sim/types.ts'
 import type { AdArt } from '../adArt.ts'
+import { calligraphyPlate, drawCalligraphyPanel } from '../calligraphyFace.ts'
+import { drawLineMapPlaceholder, lineMapPlaceholderPlate } from '../lineMapFace.ts'
+import { LINE_MAP_PANEL_H, LINE_MAP_PANEL_W } from '../../sim/linemaps.ts'
 import { drawSignPanel } from '../signFace.ts'
 
 /* ------------------------------------------------------------------ palette */
@@ -99,9 +102,21 @@ export interface ModelMaterials {
   vendingBase: THREE.MeshBasicMaterial
   /** The 指示牌 overhead sign face: the lit, double-sided wayfinding board. */
   signFace: THREE.MeshBasicMaterial
+  /**
+   * The fallback 站名 ink, for a caller with no station document behind it: the
+   * neutral name written in 楷书 横排 at the default panel, drawn by the same code a
+   * placed piece uses. **Transparent**: an inscription is strokes on the wall, so
+   * everything the brush does not cover is the piece's own absence.
+   */
+  calligraphyInk: THREE.MeshBasicMaterial
+  /**
+   * The fallback 线网图 board, for a caller with no station document behind it: a real
+   * map of an empty network, which prints 尚未铺设线路 in the middle of the plan
+   * rather than an empty white rectangle.
+   */
+  lineMapPlaceholder: THREE.MeshBasicMaterial
   /** The 货架 perforated back panel (dark charcoal pegboard). */
-  shelfPanel: THREE.MeshStandardMaterial
-  /** Base white material for the shelf goods; each instance tints it. */
+  shelfPanel: THREE.MeshStandardMaterial  /** Base white material for the shelf goods; each instance tints it. */
   shelfGoods: THREE.MeshStandardMaterial
   /**
    * The 垃圾桶 front band: the 可回收物 loop and the 其它垃圾 mark, printed on a
@@ -586,8 +601,35 @@ export function createModelMaterials(): ModelMaterials {
     ledGreen: new THREE.MeshBasicMaterial({ color: 0x48e08a }),
     ledRed: new THREE.MeshBasicMaterial({ color: 0xff5d47 }),
     glow: new THREE.MeshBasicMaterial({ color: 0xf7ecc8, side: THREE.DoubleSide }),
+    // The fallback 站名 / 线网图 faces, for a caller with no station document and no
+    // artwork behind it (a unit test): the neutral name, and the drawn placeholder board
+    // for a station with no lines. Both are drawn by the same code those pieces print
+    // with, and the map's is cut to the **real panel** (`sim/linemaps.ts`), so a
+    // station-less build shows a board of the right shape rather than a placeholder
+    // square. Neither is reprinted later — no artwork decodes for either, unlike the
+    // sign's pictograms.
+    calligraphyInk: new THREE.MeshBasicMaterial({
+      map: canvasTexture(
+        calligraphyPlate(CALLIGRAPHY_FALLBACK_PANEL).width,
+        calligraphyPlate(CALLIGRAPHY_FALLBACK_PANEL).height,
+        (g) => drawCalligraphyPanel(g, { text: '地铁站', style: 'kai', axis: 'h', panel: CALLIGRAPHY_FALLBACK_PANEL }),
+      ),
+      transparent: true,
+      side: THREE.FrontSide,
+    }),
+    lineMapPlaceholder: litPanelMaterial(
+      canvasTexture(lineMapPlaceholderPlate(LINE_MAP_FALLBACK_PANEL).width, lineMapPlaceholderPlate(LINE_MAP_FALLBACK_PANEL).height, (g) => {
+        drawLineMapPlaceholder(g, { lines: [], stationName: '', panel: LINE_MAP_FALLBACK_PANEL })
+      }),
+    ),
   }
 }
+
+/** The panel the kit's fallback inscription is cut to, metres. */
+const CALLIGRAPHY_FALLBACK_PANEL = { w: 2, h: 1 }
+
+/** The panel the kit's fallback map board is cut to: the piece's own board. */
+const LINE_MAP_FALLBACK_PANEL = { w: LINE_MAP_PANEL_W, h: LINE_MAP_PANEL_H }
 
 /**
  * The boards a sign with nothing of its own is drawn with: the station's default
@@ -768,6 +810,22 @@ export function prism(
 
 /* -------------------------------------------------------------- module kit */
 
+/**
+ * One printed board, as a model mounts it: the material that lights the mesh, and —
+ * for a face cut from a **real image** — the quad whose UVs hold the crop window that
+ * fits the picture to the panel (`render/panelUv.ts`). A drawn plate has no geometry of
+ * its own: it is cut to the panel, so the model mounts a plain `plate` at that size.
+ *
+ * `texture` names the pixels when the caller mints them, so a plate this system owns can
+ * be repainted in place (`PlateSystem.redrawDecorPlates`); a face shared out of an art
+ * cache (the 线网图's poster) has none, because nothing about it follows the document.
+ */
+export interface PrintedFace {
+  material: THREE.Material
+  geometry?: THREE.BufferGeometry
+  texture?: THREE.Texture
+}
+
 export interface ModuleContext {
   mats: ModelMaterials
   /**
@@ -815,6 +873,36 @@ export interface ModuleContext {
    * to the shared default face.
    */
   signFace?: (id: string, layout: SignLayout, face: 'left' | 'right', panel: SignPanelSize) => THREE.Material
+  /**
+   * The ink of one 站名, keyed by module id: the station's own name
+   * (`StationData.name`, read by the plate system from the live document) written
+   * in the piece's hand and cut to the piece's panel. A **material** (carried as a
+   * `PrintedFace`, like the 线网图's), for the same reason a 指示牌's face is one — and
+   * transparent, because an inscription is brush strokes on the wall rather than a
+   * printed board.
+   *
+   * Omitted by a caller with no station behind it (a unit test), which falls back
+   * to the kit's own neutral inscription.
+   */
+  calligraphyFace?: (
+    id: string,
+    spec: { style: CalligraphyStyle; axis: CalligraphyAxis; panel: { w: number; h: number } },
+  ) => PrintedFace
+  /**
+   * The printed face of one 线网图: the supplied 线网示意图 (`render/lineMapArt.ts`) once
+   * its pixels are in hand, and the drawn placeholder board before that
+   * (`render/lineMapFace.ts`). One face serves **both** faces of the free-standing
+   * totem.
+   *
+   * `geometry` is the pre-cut quad a **real image** needs — its UV window is the
+   * centred crop that fits the poster to the panel, so a map is never stretched — and
+   * is absent for a drawn board, which is cut to the panel and mounts as a plain
+   * `plate` at that size.
+   *
+   * Omitted by a caller with no scene behind it (a unit test), which falls back to the
+   * kit's own empty map board.
+   */
+  lineMapFace?: (id: string, panel: { w: number; h: number }) => PrintedFace
   /** A floor/wall finish material, so a stair can wear the floor it serves. */
   finish: (id: FinishId) => THREE.Material
   /** True when building the translucent placement ghost, not a placed module. */

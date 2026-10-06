@@ -10,7 +10,7 @@
 //   * every exposed block edge is rounded, so a corner arc faces diagonally.
 //
 // A tool that placed at `cell + face.normal` therefore asked for a **fraction**:
-// hovering the block under an escalator and laying a 地基 block beside it
+// hovering the block under an escalator and laying a 方块 block beside it
 // committed (4.44, −0.15, 1.89) instead of a cell. The game addresses whole cells
 // only (`build/model/Grid.ts`), so a fraction is invisible to every tool from then
 // on — `removeCells` matches exact coordinates — and the grid repair drops it on

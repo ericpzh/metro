@@ -97,20 +97,30 @@ export class GhostSystem extends SceneSystem {
    * drawn translucent — so the release is not a surprise. `thin` names the
    * pending cells that are **半墙** (packed key → the side the panel hugs), so a
    * half-block wall previews as half a block rather than as a full one: the
-   * thickness is the whole piece.
+   * thickness is the whole piece. `refused` names the candidates the release will
+   * **not** take (the cells a piece of equipment already holds, a reserved opening,
+   * a rail bed): they are drawn as red boxes beside the cyan shape, so a blocked
+   * cell reads as "not this one" rather than as a block that quietly went missing.
    */
   setGhost(
     cells: Array<[number, number, number]>,
     kind: 'add' | 'remove',
     colour = 0xff5d5d,
     thin?: ReadonlyMap<number, CellShape>,
+    refused: ReadonlyArray<[number, number, number]> = [],
   ): void {
     if (kind === 'add') {
       if (this.ghostMesh) this.ghostMesh.visible = false
-      const key = this.ghostKeyOf(cells, thin)
+      // A refused candidate is drawn as a **red box** beside the shape the release
+      // would take, so a drag that drops a cell says which cell and not merely
+      // "one fewer block than you drew". The box is the same instanced mesh a
+      // remove drag uses, and the two never show at once: `add` keeps only the
+      // refused list here, `remove` only the cells being taken away.
+      const key = `${this.ghostKeyOf(cells, thin)}|${this.refusedKeyOf(refused)}`
       if (key === this.ghostKey) return
       this.ghostKey = key
       this.buildShapeGhost(cells, thin)
+      this.setRefusedBoxes(refused, 0xff5d5d)
       return
     }
 
@@ -143,6 +153,51 @@ export class GhostSystem extends SceneSystem {
     this.ghostMesh.visible = true
     this.ghostMesh.instanceMatrix.needsUpdate = true
     if (this.ghostMesh.instanceColor) this.ghostMesh.instanceColor.needsUpdate = true
+  }
+
+  /**
+   * Draw the refused candidates of an add preview as red boxes through the same
+   * instanced mesh a remove drag uses. Called after `buildShapeGhost`, which may
+   * have left the mesh hidden; an empty list clears it.
+   */
+  private setRefusedBoxes(refused: ReadonlyArray<[number, number, number]>, colour: number): void {
+    if (!this.ghostMesh) {
+      if (refused.length === 0) return
+      const geo = new THREE.BoxGeometry(1, 1, 1)
+      const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false })
+      this.ghostMesh = new THREE.InstancedMesh(geo, mat, GHOST_MAX)
+      this.ghostMesh.frustumCulled = false
+      this.ghostMesh.renderOrder = 3
+      this.ctx.scene.add(this.ghostMesh)
+    }
+    if (refused.length === 0) {
+      this.ghostMesh.visible = false
+      return
+    }
+    const m = new THREE.Matrix4()
+    const col = new THREE.Color(colour)
+    const n = Math.min(refused.length, GHOST_MAX)
+    this.ghostMesh.count = n
+    for (let i = 0; i < n; i++) {
+      const [x, y, z] = refused[i]
+      m.makeTranslation(x + 0.5, y + 0.5, z + 0.5)
+      this.ghostMesh.setMatrixAt(i, m)
+      this.ghostMesh.setColorAt(i, col)
+    }
+    this.ghostMesh.visible = true
+    this.ghostMesh.instanceMatrix.needsUpdate = true
+    if (this.ghostMesh.instanceColor) this.ghostMesh.instanceColor.needsUpdate = true
+  }
+
+  /** A cheap order-stable fingerprint of the refused cells, for the ghost key. */
+  private refusedKeyOf(cells: ReadonlyArray<[number, number, number]>): string {
+    let h = 2166136261
+    for (const [x, y, z] of cells) {
+      h = Math.imul(h ^ (x + 4096), 16777619)
+      h = Math.imul(h ^ (y + 4096), 16777619)
+      h = Math.imul(h ^ (z + 4096), 16777619)
+    }
+    return `${cells.length}:${h >>> 0}`
   }
 
   /**
@@ -377,6 +432,8 @@ export class GhostSystem extends SceneSystem {
       tvPlate: (id, x, y) => this.plates.makeTvPlate(id, x, y),
       tvPairSlot: (id) => tvPairSlot(id, data.modules),
       signFace: (id, layout, face, panel) => this.plates.makeSignPlate(id, layout, face, panel),
+      calligraphyFace: (id, spec) => this.plates.makeCalligraphyPlate(id, spec),
+      lineMapFace: (id, panel) => this.plates.makeLineMapPlate(id, panel),
       owned: this.previewOwnedMats,
     }
     const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT

@@ -154,7 +154,7 @@ test('a full track through a patch does not board up the platform screen door', 
   }
 })
 
-test('the 地基 ghost leaves the platform footprint and screen doors out of its ring', () => {
+test('the 方块 ghost leaves the platform footprint and screen doors out of its ring', () => {
   const modules = [trackModule(2, 2, 5), screenRun(0, 1, 6)]
   const walls = plannedAutoWalls(new Set(), rect(0, 0, 5, 2), modules)
   for (const x of [0, 1, 2, 3, 4, 5]) {

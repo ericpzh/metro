@@ -417,7 +417,7 @@ button.ghost:hover {
   border-color: var(--accent);
   background: #16374f;
 }
-/* A tile another mode of the same tool has taken over (the 地基 tool's 自动生成墙壁
+/* A tile another mode of the same tool has taken over (the 方块 tool's 自动生成墙壁
    while 半墙 is on): still drawn, so the rule is discoverable, but plainly out of
    play — and it does not light up under the pointer. */
 .bpBlock:disabled,
@@ -665,7 +665,9 @@ button.ghost:hover {
   border-radius: 0;
   padding: 8px 14px;
   cursor: pointer;
-  z-index: 10;
+  /* Above the 指示牌 editor modal (`.signModal` z-index 40) so a refusal
+     raised while the board is open is read, not buried under the scrim. */
+  z-index: 50;
 }
 
 .stage {
@@ -688,7 +690,7 @@ button.ghost:hover {
   cursor: grabbing;
 }
 
-/* The 地基 tool's live patch size, pinned beside the pointer. */
+/* The 方块 tool's live patch size, pinned beside the pointer. */
 .buildMeasure {
   position: absolute;
   z-index: 8;

@@ -39,6 +39,31 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'billboard-square', label: '方形 1:1', type: 'billboard', w: 1, h: 1 },
   { id: 'tv', label: '电视', type: 'tv', w: 1, h: 1 },
   { id: 'sign', label: '指示牌', type: 'sign', w: 1, h: 1 },
+  // The three wall pieces (装饰 §5.7): glass panels in six sizes, the station-name
+  // inscription in six hands × two axes, and the network map as a wall board or a
+  // free-standing totem. A run's length is the piece's own (`sim/glassPanels.ts`,
+  // `sim/calligraphy.ts`, `sim/linemaps.ts`), so the cell counts here name the
+  // smallest piece of each family.
+  { id: 'glass-1x1', label: '玻璃板 1×1', type: 'glass', w: 1, h: 1 },
+  { id: 'glass-2x1', label: '玻璃板 2×1', type: 'glass', w: 2, h: 1 },
+  { id: 'glass-3x1', label: '玻璃板 3×1', type: 'glass', w: 3, h: 1 },
+  { id: 'glass-1x2', label: '玻璃板 1×2', type: 'glass', w: 1, h: 1 },
+  { id: 'glass-2x2', label: '玻璃板 2×2', type: 'glass', w: 2, h: 1 },
+  { id: 'glass-3x2', label: '玻璃板 3×2', type: 'glass', w: 3, h: 1 },
+  { id: 'calligraphy-kai-h', label: '楷书 横排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-kai-v', label: '楷书 竖排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-xing-h', label: '行书 横排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-xing-v', label: '行书 竖排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-li-h', label: '隶书 横排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-li-v', label: '隶书 竖排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-wei-h', label: '魏碑 横排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-wei-v', label: '魏碑 竖排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-hei-h', label: '黑体 横排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-hei-v', label: '黑体 竖排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-song-h', label: '宋体 横排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-song-v', label: '宋体 竖排', type: 'calligraphy', w: 1, h: 1 },
+  { id: 'linemap-wall', label: '墙面线网图', type: 'linemap', w: 2, h: 1 },
+  { id: 'linemap-stand', label: '立式线网图', type: 'linemap', w: 1, h: 1 },
   { id: 'exit-covered-1', label: '有盖 单向', type: 'exit', w: 1, h: 1 },
   { id: 'exit', label: '有盖 双向', type: 'exit', w: 1, h: 1 },
   { id: 'exit-covered-3', label: '有盖 三向', type: 'exit', w: 1, h: 1 },
@@ -79,11 +104,12 @@ export function isBenchType(type: string): boolean {
 
 /**
  * Decoration (装饰) pieces: seating, goods shelving, office desks, restroom
- * fixtures, the bin and the 灭火器箱, the ceiling-hung 时钟 and 监控, and
- * advertising. They are placeable
+ * fixtures, the bin and the 灭火器箱, the ceiling-hung 时钟 and 监控, advertising,
+ * and the three wall pieces — glass panels, the station-name inscription and the
+ * network map. They are placeable
  * equipment like any
  * other, but the build rail files them under their own folder instead of 设备,
- * and the wall-mounted 广告牌 must be fixed to a wall (see `wallMountMissing` in
+ * and the wall-mounted pieces must be fixed to a wall (see `wallMountMissing` in
  * `sim/placement.ts`).
  */
 export function isDecorType(type: string): boolean {
@@ -99,13 +125,49 @@ export function isDecorType(type: string): boolean {
     type === 'cctv' ||
     type === 'sign' ||
     isBillboardType(type) ||
+    isGlassType(type) ||
+    isCalligraphyType(type) ||
+    isLineMapType(type) ||
     type === 'tv'
   )
 }
 
-/** True for a 装饰 piece that may only be placed against a wall block (广告牌). */
+/**
+ * True for any of the six 玻璃板 sizes (装饰). The palette id names the size
+ * (`glass-2x1`) while a placed module's `type` is the bare `glass`, so both read as
+ * a glass panel here — the same split `isBillboardType` makes.
+ */
+export function isGlassType(type: string): boolean {
+  return type === 'glass' || type.startsWith('glass-')
+}
+
+/**
+ * True for any of the twelve 站名 options (装饰): six hands (`kai` … `song`) on
+ * two axes (`h` 横排 / `v` 竖排), spelled `calligraphy-<style>-<axis>` in the palette
+ * and `calligraphy` on a placed module.
+ */
+export function isCalligraphyType(type: string): boolean {
+  return type === 'calligraphy' || type.startsWith('calligraphy-')
+}
+
+/**
+ * True for either 线网图 (装饰): the wall board and the free-standing totem. The
+ * palette spells them `linemap-wall` / `linemap-stand` and a placed module is the
+ * bare `linemap` with its `cfg.mount`, which is what tells the two apart.
+ */
+export function isLineMapType(type: string): boolean {
+  return type === 'linemap' || type.startsWith('linemap-')
+}
+
+/**
+ * True for a 装饰 piece that may only be placed against a wall block: the 广告牌, the
+ * 玻璃板, the 站名 and the **wall** 线网图 — not the totem, which stands on the
+ * floor. The palette ids are what the tool holds, so the totem's id is the one
+ * exception; `sim/placement.ts`'s `isWallMounted` makes the same call on a placed
+ * module, from its `cfg.mount`.
+ */
 export function isWallMountedType(type: string): boolean {
-  return isBillboardType(type)
+  return isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || (isLineMapType(type) && type !== 'linemap-stand')
 }
 
 /** True for the fence piece, which drags out a run like the wall tool. */
@@ -148,6 +210,191 @@ const FIXED_ANGLE_TYPES: ReadonlySet<string> = new Set<string>([])
 /** True when the player may turn this equipment before placing it (R / 旋转). */
 export function isRotatableType(type: string): boolean {
   return !FIXED_ANGLE_TYPES.has(type)
+}
+
+/* ------------------------------------------------------- the variant families */
+
+/**
+ * The rail's **variant families**: one row per nested sub-menu — 楼梯, 出入口, 座椅,
+ * 广告牌, 玻璃板, 站名, 线网图 — and the single table every part of that UI reads.
+ *
+ * A family in this rail is four things that have to agree: the parent **tile** (its
+ * label and the variant its icon shows), the **list** of variants it folds out, the
+ * **sub-menu slot** the rail keeps open, and the **anchor** the contextual action row
+ * (旋转 / 宽度 / …) folds out under. Those used to be written out once per family —
+ * seven near-identical menu components, a hand-written parent tile in each folder, and
+ * a third list mapping a piece to its anchor — so a family could be half-wired: a
+ * variant that folds its own list away when picked, or a piece whose 旋转 tile folds
+ * out under a tile that does not exist. This table is the one place that says what a
+ * family is, and `familyAnchor` / `familyOptions` / `familyFor` / `subMenuForModule` /
+ * `actionsAnchorFor` below are the only readers, so **a new family is one row here**
+ * (`app/rail/shared/TileGrid.tsx` renders it and `app/rail/actions/ModuleActions.tsx`
+ * anchors to it with no further edits).
+ *
+ * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
+ * prove the four halves agree for every family, in Node.
+ */
+export type ModuleFamilyKey = 'stair' | 'exit' | 'bench' | 'billboard' | 'glass' | 'calligraphy' | 'linemap'
+
+/** Which folder a family's parent tile and its variants live in. */
+export type ModuleFolder = 'equipment' | 'decor'
+
+export interface ModuleFamily {
+  key: ModuleFamilyKey
+  /** The parent tile's label (`Block`'s `label`). */
+  label: string
+  /** The folder whose grid shows this family. */
+  folder: ModuleFolder
+  /**
+   * True for every **palette id** of this family (the tile ids in `MODULE_OPTIONS`,
+   * and the bare module type they build). Read from the id alone, so the grid, the
+   * open slot, the piece's own tile and the action anchor cannot disagree.
+   */
+  owns: (id: string) => boolean
+  /**
+   * The label one variant's tile wears. Defaults to the palette label; a family whose
+   * labels repeat the family name (玻璃板 1×1) drops it, the way 座椅's own labels do.
+   */
+  tileLabel?: (option: ModuleOption) => string
+  /** The variant tile's tooltip, when the family has something to say about it. */
+  title?: (option: ModuleOption) => string
+}
+
+/** The family a palette id belongs to, or null for a piece that is its own tile. */
+const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
+  { key: 'stair', owns: isStairType },
+  { key: 'exit', owns: isExitType },
+  { key: 'bench', owns: isBenchType },
+  { key: 'billboard', owns: isBillboardType },
+  { key: 'glass', owns: isGlassType },
+  { key: 'calligraphy', owns: isCalligraphyType },
+  { key: 'linemap', owns: isLineMapType },
+]
+
+/** The families, in rail order: the 设备 folder's two first, then the 装饰 folder's five. */
+export const MODULE_FAMILIES: readonly ModuleFamily[] = [
+  { key: 'stair', label: '楼梯', folder: 'equipment', owns: isStairType },
+  { key: 'exit', label: '出入口', folder: 'equipment', owns: isExitType },
+  { key: 'bench', label: '座椅', folder: 'decor', owns: isBenchType },
+  { key: 'billboard', label: '广告牌', folder: 'decor', owns: isBillboardType },
+  {
+    key: 'glass',
+    label: '玻璃板',
+    folder: 'decor',
+    owns: isGlassType,
+    // The tiles sit inside the 玻璃板 list, so the family name is not repeated on every
+    // one of them — the way 座椅's own variants read 不锈钢 1m, not 座椅 不锈钢 1m.
+    tileLabel: (m) => m.label.replace('玻璃板 ', ''),
+    title: (m) => `${m.label}：面板只有外框，贴在墙上；一格一米宽`,
+  },
+  {
+    key: 'calligraphy',
+    label: '站名',
+    folder: 'decor',
+    owns: isCalligraphyType,
+    title: (m) => `${m.label}：把站名写成大字贴在墙上；站名改了，墙上的字跟着改`,
+  },
+  {
+    key: 'linemap',
+    label: '线网图',
+    folder: 'decor',
+    owns: isLineMapType,
+    title: (m) => (m.id === 'linemap-stand' ? '立式线网图：落地的双面牌子，两面都印线网图' : '墙面线网图：贴在墙上的线网图，单面'),
+  },
+]
+
+/** The anchor id of a family's parent tile in the grid. */
+export function familyAnchor(key: ModuleFamilyKey | string): string {
+  return `__${key}`
+}
+
+/** The family a palette id — or a placed module's type — belongs to, or null. */
+export function familyFor(idOrType: string): ModuleFamily | null {
+  const owner = FAMILY_OWNERS.find((f) => f.owns(idOrType))
+  return owner ? (MODULE_FAMILIES.find((f) => f.key === owner.key) ?? null) : null
+}
+
+/** True for a palette id that belongs to a family (and so is not a tile of its own). */
+export function isFamilyOption(id: string): boolean {
+  return familyFor(id) !== null
+}
+
+/** Every variant of a family, in palette order. */
+export function familyOptions(family: ModuleFamily): ModuleOption[] {
+  return MODULE_OPTIONS.filter((m) => family.owns(m.id))
+}
+
+/** The families a folder shows, in rail order. */
+export function familiesIn(folder: ModuleFolder): ModuleFamily[] {
+  return MODULE_FAMILIES.filter((f) => f.folder === folder)
+}
+
+/** True for the gear tiles the 设备 folder owns (everything that is not decor, a run or an exit). */
+function isGearTile(option: ModuleOption): boolean {
+  return !isDecorType(option.type) && !isStairType(option.type) && !isExitType(option.id)
+}
+
+/**
+ * The **plain tiles** of a folder: every palette option it shows that is not a variant
+ * of one of its families, in palette order. This is what keeps a variant from appearing
+ * twice — once in the grid and once in its family's list — and it is the same list the
+ * folder's header counts (`TileGrid`), so the count and the grid cannot drift.
+ */
+export function folderOptions(folder: ModuleFolder): ModuleOption[] {
+  const base = MODULE_OPTIONS.filter((m) => (folder === 'decor' ? isDecorType(m.type) : isGearTile(m)))
+  return base.filter((m) => !isFamilyOption(m.id))
+}
+
+/**
+ * True when the piece being placed owns at least one action tile (旋转, and whatever a
+ * family adds beside it). Read by the shared grid, which is what decides whether an
+ * action row exists at all.
+ */
+export function hasModuleActions(moduleType: string): boolean {
+  return (
+    isRotatableType(moduleType) ||
+    moduleType === 'sign' ||
+    isStairType(moduleType) ||
+    isEscalatorType(moduleType) ||
+    isGateType(moduleType)
+  )
+}
+
+/**
+ * The tile an action row folds out under: the **family tile** when the piece is one of
+ * a family's variants, and the piece's own tile otherwise. The one rule both the grid
+ * (which renders the tiles) and the action row (which folds out under one of them)
+ * read, so a piece can never anchor to a tile the folder does not draw.
+ */
+export function actionsAnchorFor(moduleType: string): string {
+  const family = familyFor(moduleType)
+  return family ? familyAnchor(family.key) : moduleType
+}
+
+/**
+ * Whether an action row anchored at `anchor` should be **open** right now.
+ *
+ * `anchor` is a tile in the grid, `pieceAnchor` is what the piece being placed asks for
+ * (`actionsAnchorFor`, or null when it has no row to show) and `openFamily` is the
+ * variant list the player is looking at, if any.
+ *
+ * Two tiles can share a grid row — 玻璃板 sits beside 站名, 座椅 beside 广告牌 — and a
+ * full-width row can only be inserted *after* that pair, so an open action row lands
+ * between a family's tile and whatever the other family of the pair folds out next. Left
+ * at that, picking a 玻璃板 variant and then opening 站名's list drew the glass piece's
+ * 旋转 tile **directly above 站名's variants**, reading as part of 站名 (and rotating a
+ * piece the player had stopped looking at). So a row is open only when it is the piece's
+ * **and** the piece's own family is the one in focus: while another family's list is
+ * open, the piece's row is parked — the row comes back the moment that family is picked
+ * from, and it is never ambiguous which tile it belongs to.
+ *
+ * The rule is here, in the family table, rather than in the grid, so the row and the
+ * tiles cannot drift apart and `test/rail-families.test.mjs` can pin it in Node.
+ */
+export function actionRowOpen(anchor: string, pieceAnchor: string | null, openFamily: ModuleFamilyKey | null): boolean {
+  if (pieceAnchor === null || pieceAnchor !== anchor) return false
+  if (openFamily === null) return true
+  return familyAnchor(openFamily) === anchor
 }
 
 /**
@@ -193,6 +440,9 @@ const MODULE_LABELS: Record<string, string> = {
   clock: '时钟',
   cctv: '监控',
   billboard: '广告牌',
+  glass: '玻璃板',
+  calligraphy: '站名',
+  linemap: '线网图',
   tv: '电视',
   sign: '指示牌',
   exit: '出入口',
@@ -221,7 +471,7 @@ export function moduleLabel(type: string, roomKind?: string): string {
 /**
  * Everything a hover ghost is drawn from: the piece being placed, its rotation,
  * and every Tab cycle — the stair width, the escalator direction, the 闸机's lane
- * or fence, and the 地基 tool's cut modes (**半墙** / **三角上** / **三角下**) with the
+ * or fence, and the 方块 tool's cut modes (**半墙** / **三角上** / **三角下**) with the
  * wall-face cycle they share. The viewport subscribes to this one key, so anything
  * that changes what a ghost looks like rebuilds it under the pointer at once
  * instead of waiting for the next pointer move; a new Tab cycle only has to join

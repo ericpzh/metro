@@ -6,7 +6,7 @@
 // rather than in the shell, so folders never import the shell that imports them
 // (no cycles, plan.md C4).
 
-import { isBenchType, isBillboardType, isExitType, isStairType } from '../store.ts'
+import { familyFor, type ModuleFamilyKey } from '../store.ts'
 import type { AppState } from '../store.ts'
 import type { Module } from '../../sim/types.ts'
 
@@ -46,16 +46,20 @@ export function folderForShiftKey(letter: string): FolderKey | null {
   return hit ? hit.key : null
 }
 
-/** The nested variant sub-menus, at most one of which may be expanded. */
-export type SubMenuKey = 'stair' | 'exit' | 'bench' | 'billboard' | 'enamel'
+/**
+ * The nested variant sub-menus: the module families (`app/store/catalog.ts`) plus the
+ * 材质 folder's 搪瓷板 colour list, which is a paint brush's swatches rather than a family
+ * of pieces. At most one is expanded at a time.
+ */
+export type SubMenuKey = ModuleFamilyKey | 'enamel'
 
-/** Which nested variant sub-menu owns a module, or null if it owns none. */
+/**
+ * Which nested variant sub-menu owns a module, or null when it owns none. Derived from
+ * the one family table, so a family added there is wired into the rail's single
+ * open-slot state automatically — a variant can never fold its own list away.
+ */
 export function subMenuForModule(moduleType: string): SubMenuKey | null {
-  if (isStairType(moduleType)) return 'stair'
-  if (isExitType(moduleType)) return 'exit'
-  if (isBenchType(moduleType)) return 'bench'
-  if (isBillboardType(moduleType)) return 'billboard'
-  return null
+  return familyFor(moduleType)?.key ?? null
 }
 
 /**

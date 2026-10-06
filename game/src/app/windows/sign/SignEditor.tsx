@@ -141,6 +141,14 @@ export function SignEditor(): React.ReactElement | null {
   }, [open, target])
 
   /**
+   * The refusal the editor raises when a board has no room for one more mark. Kept
+   * as a constant so the success path below can recognise — and clear — exactly
+   * this notice once the board has room again, instead of leaving a stale toast
+   * up after the mark was moved to the other face or deleted.
+   */
+  const SIGN_FULL_NOTICE = '这块牌子放不下了 — 先删掉一些内容'
+
+  /**
    * The one place a board is written: the editor's own two lists, the bins, the hover
    * ghost and the module are all this call.
    *
@@ -148,6 +156,12 @@ export function SignEditor(): React.ReactElement | null {
    * the two plates share one panel: a mark added to the front can lengthen the steel the
    * back is printed on, so writing one face without the other would leave the pair
    * disagreeing about the sign they hang on.
+   *
+   * A write that went through means the board has room again, so a stale
+   * board-full refusal is cleared here rather than left on the global toast for
+   * its full timeout: moving the mark to the other face or deleting it is the
+   * fix the notice asked for. Only this editor's own refusals are cleared — any
+   * other notice is left alone.
    */
   const apply = useCallback(
     (next: SignBoards) => {
@@ -157,6 +171,10 @@ export function SignEditor(): React.ReactElement | null {
       }
       setBoards(trimmed)
       previewSignLayout(trimmed)
+      const cur = useStore.getState().notice
+      if (cur === SIGN_FULL_NOTICE || cur?.startsWith('一块指示牌最多放') === true) {
+        useStore.getState().setNotice(null)
+      }
     },
     [previewSignLayout],
   )
@@ -374,9 +392,10 @@ export function SignEditor(): React.ReactElement | null {
       // The target board has to have room for it — asked **here**, at the moment the mark
       // would change boards, and never before: a press blocks nothing (a drag may be going
       // anywhere, including to the bin, or to the other face and back), so the refusal can
-      // only be about a board that is actually being committed to.
+      // only be about a board that is actually being committed to. The refusal itself is
+      // **silent**: hovering a full board is not a commitment, and the notice fires on the
+      // drop (`endDrag`) — not on every pointer move across the row.
       if (!signMarkFits(boardsRef.current[place.face], comp)) {
-        noticeRef.current('这块牌子放不下了 — 先删掉一些内容')
         return
       }
       const next = signLayoutInserted(
@@ -430,9 +449,10 @@ export function SignEditor(): React.ReactElement | null {
     }
     // A drop from the palette is an insert into the row it was let go over, and its own
     // drag never had a mark to throw away: let go off the rows it simply ends, and the tile
-    // stays in the palette. A drop of a board mark onto a row has already been made, place
-    // by place, as the pointer moved — including the refusal above, which is why a mark that
-    // could not cross is still on the board it started on.
+    // stays in the palette. A drop of a board mark onto the row it is already on was made
+    // place by place as the pointer moved — but a mark let go over the *other* face was
+    // refused live (`trackDrag` stays silent while hovering), so the drop is where its
+    // refusal is said: room means it lands, none means the notice.
     if (d.id === null && place !== null) {
       const list = boardsRef.current[place.face]
       const comp = markFor(d.payload)
@@ -442,7 +462,27 @@ export function SignEditor(): React.ReactElement | null {
       if (comp && signMarkFits(list, comp)) {
         applyRef.current({ ...boardsRef.current, [place.face]: signLayoutInserted(list, { ...comp, id: nextId(list) }, place.index) })
       } else if (comp) {
-        noticeRef.current('这块牌子放不下了 — 先删掉一些内容')
+        noticeRef.current(SIGN_FULL_NOTICE)
+      }
+    }
+    // A board mark let go over the other face never moved there live — the hover refusal
+    // is silent — so the drop decides it: it lands when there is room, and only the drop
+    // says so when there is none. Let go over its own face (or off the rows) it is already
+    // where it belongs and there is nothing to refuse.
+    if (d.id !== null && place !== null && d.remove.face !== null && d.remove.face !== place.face) {
+      const list = boardsRef.current[d.remove.face]
+      const comp = list.find((c) => c.id === d.id)
+      if (comp) {
+        if (signMarkFits(boardsRef.current[place.face], comp)) {
+          const next = signLayoutInserted(
+            boardsRef.current[place.face].filter((c) => c.id !== comp.id),
+            comp,
+            place.index,
+          )
+          applyRef.current({ ...boardsRef.current, [d.remove.face]: list.filter((c) => c.id !== comp.id), [place.face]: next })
+        } else {
+          noticeRef.current(SIGN_FULL_NOTICE)
+        }
       }
     }
   }
@@ -548,7 +588,7 @@ export function SignEditor(): React.ReactElement | null {
       return true
     }
     if (signMarkFits(layout, comp)) return false
-    setNotice('这块牌子放不下了 — 先删掉一些内容')
+    setNotice(SIGN_FULL_NOTICE)
     return true
   }
 
@@ -702,7 +742,6 @@ export function SignEditor(): React.ReactElement | null {
                 type="button"
                 className="signFaceLabel"
                 aria-pressed={focusedFace === row.face}
-                title={`在${FACE_LABEL[row.face]}上放新的内容`}
                 onClick={() => focusFace(row.face)}
               >
                 {FACE_LABEL[row.face]}
@@ -829,7 +868,6 @@ export function SignEditor(): React.ReactElement | null {
             ]
               .filter(Boolean)
               .join(' ')}
-            title="拖到这里删除一个；点一下清空正反面"
             aria-label="删除拖入的内容，或点击清空正反面"
             // A **click** on a bin that is holding nothing: the whole board goes. A press
             // that became a drag never gets here — the browser withholds the click once the
@@ -839,10 +877,10 @@ export function SignEditor(): React.ReactElement | null {
           >
             <Icon name="delete" />
           </button>
-          <button type="button" className="signAct cancel" title="放弃修改 (Esc)" aria-label="放弃修改" onClick={cancel}>
+          <button type="button" className="signAct cancel" aria-label="放弃修改" onClick={cancel}>
             ✕
           </button>
-          <button type="button" className="signAct ok" title="完成 (Enter)" aria-label="完成" onClick={confirm}>
+          <button type="button" className="signAct ok" aria-label="完成" onClick={confirm}>
             ✓
           </button>
         </div>

@@ -17,21 +17,21 @@ import {
 import { railModuleAt } from '../../build/rail.ts'
 import { ESCALATOR_BAND } from '../../sim/constants.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
-import { liftExtendedDown, liftExtendedUp, liftFootprintCells, type LiftModule } from '../../sim/lifts.ts'
-import { escalatorBasesSolid } from '../../sim/openings.ts'
+import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
   autofaceWallMount,
-  ceilingMountMissing,
+  equipmentReason,
+  equipmentRefusalNotice,
   moduleAt,
   placementBlocked,
-  placementColliders,
   placementOnTrack,
   wallMountMissing,
   wallMountStandCell,
 } from '../../sim/placement.ts'
+import { checkModulePlacements } from '../../build/validation.ts'
 import { planStairLanes, stairLanes } from '../../sim/stairs.ts'
 import type { Module, Vec3i } from '../../sim/types.ts'
-import { isDecorType, isExitType, isFenceType, isWallMountedType, moduleLabel, signModuleWithPreview, useStore } from '../store.ts'
+import { isDecorType, isExitType, isFenceType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
 import { straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
@@ -207,24 +207,13 @@ export class EquipmentTool extends ToolController {
         seen.add(k)
         const mod = createModule('fence', x, y, z, nextModuleId(next.modules, 'fence'), rot)
         if (!mod) continue
-        // A fence stands on floor like any equipment; bare void holds none.
-        const floorHere = next.cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) || exitFloorAt(next.modules, x, y, z)
-        if (!floorHere) {
+        // A fence stands on floor like any equipment, and is refused by the one
+        // verdict every other piece answers to (`equipmentReason`), which already
+        // says "no floor here" as `floor`.
+        const refusal = equipmentReason(next.cells, next.modules, mod)
+        if (refusal !== '') {
           blocked++
-          why ||= '这格没有地板'
-          continue
-        }
-        if (placementOnTrack(next.cells, mod, next.modules)) {
-          blocked++
-          why ||= '轨道上不能放围栏'
-          continue
-        }
-        if (placementBlocked(next.modules, mod)) {
-          blocked++
-          if (!why) {
-            const clash = moduleAt(next.modules, x, y, z)
-            why = clash ? `这格和${moduleLabel(clash.type, clash.type === 'shop' ? clash.cfg.kind : undefined)}重叠` : '这格放不下'
-          }
+          why ||= equipmentRefusalNotice(refusal)
           continue
         }
         next = addEquipment(next, mod)
@@ -276,34 +265,17 @@ export class EquipmentTool extends ToolController {
       seen.add(k)
       const mod = createModule('fence', x, y, z, 'preview', rot)
       if (!mod) continue
-      const floorHere = st.station.cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) || exitFloorAt(st.station.modules, x, y, z)
-      if (!floorHere || placementOnTrack(st.station.cells, mod, st.station.modules)) {
+      // The same verdict the release asks, so the red run under the drag is the run
+      // the release refuses.
+      const check = checkModulePlacements(st.station, [{ id: mod.id, module: mod }])
+      if (check.refused.size > 0) {
         blocked = true
-        continue
-      }
-      const clash = placementColliders(st.station.modules, mod)
-      if (clash.length > 0) {
-        blocked = true
-        for (const m of clash) if (!colliderIds.includes(m.id)) colliderIds.push(m.id)
+        for (const id of check.colliderIds) if (!colliderIds.includes(id)) colliderIds.push(id)
         continue
       }
       mods.push(mod)
     }
     return { mods, blocked, colliderIds }
-  }
-
-  /**
-   * True when all four floor cells of a 2 × 2 lift assembly at `(x, y, z)` are
-   * solid floor (or an exit's floor). A lift stands on its whole footprint, so a
-   * corner over void means it cannot be placed (or extended to) that level.
-   */
-  private liftFootprintFloorOk(x: number, y: number, z: number): boolean {
-    const st = useStore.getState()
-    return liftFootprintCells({ x, y }).every(
-      ([fx, fy]) =>
-        st.station.cells.some((c) => c.fill === 'solid' && c.x === fx && c.y === fy && c.z === z) ||
-        exitFloorAt(st.station.modules, fx, fy, z),
-    )
   }
 
   /**
@@ -478,7 +450,7 @@ export class EquipmentTool extends ToolController {
 
   /**
    * Rebuild the equipment hover ghost from the last hovered tile. Only the
-   * equipment tool has one: the 地基 tool keeps the same hover ref for its own
+   * equipment tool has one: the 方块 tool keeps the same hover ref for its own
    * ghost, and a Tab in *that* tool must not drop a piece into the station
    * (`placementPreviewKey` names the settings of both).
    */
@@ -499,11 +471,12 @@ export class EquipmentTool extends ToolController {
     // of a station wall across the rails), so it is resolved from the wall alone.
     if (isWallMountedType(st.moduleType)) {
       const { mod: billboard, noWall } = this.wallMountPlacement(h.cell, h.place, 'preview', h.point)
-      const blocked = noWall || !billboard || placementBlocked(st.station.modules, billboard)
-      const colliderIds = billboard && !noWall ? placementColliders(st.station.modules, billboard).map((m) => m.id) : []
+      const check = billboard ? checkModulePlacements(st.station, [{ id: billboard.id, module: billboard }]) : null
+      // No wall at all is a refusal of its own: a panel has nowhere to bolt.
+      const blocked = noWall || check === null || check.refused.size > 0
       scene.setCursor(h.cell, !blocked)
       scene.setModulePreview(billboard, blocked)
-      scene.setCollisionHighlight(blocked ? colliderIds : null)
+      scene.setCollisionHighlight(check && check.colliderIds.length > 0 ? check.colliderIds : null)
       return
     }
     // 电梯: hovering any cell of an existing shaft previews its extension even
@@ -514,38 +487,29 @@ export class EquipmentTool extends ToolController {
     const snap = this.isStraightRamp(st.moduleType) ? exitRunSnap(st.station.modules, x, y, z) : null
     const placeable = (floorHere || !!liftExt || !!snap) && (!isExitType(st.moduleType) || onGround)
     let mods: Module[] = []
-    let liftFloorMissing = false
     if (st.moduleType === 'lift') {
       if (liftExt) {
         mods = [liftExt.mod]
       } else if (floorHere) {
         const lift = createModule('lift', x, y, z, 'preview', st.moduleRot, st.stairWidth, st.escalatorDir)
         if (lift) mods = [lift]
-        liftFloorMissing = !this.liftFootprintFloorOk(x, y, z)
       }
     } else if (placeable) {
       mods = this.buildPlacementModules(st.moduleType, h.cell, 'preview')
     }
-    // An escalator may run through walls/ceilings — only its two landings must
-    // be solid floor (or exit floor). Anything in between is carved on placement.
-    const blocked =
-      mods.some(
-        (mod) =>
-          placementBlocked(st.station.modules, mod) ||
-          (mod.type === 'escalator' && !escalatorBasesSolid(st.station.cells, st.station.modules, mod)) ||
-          placementOnTrack(st.station.cells, mod, st.station.modules) ||
-          wallMountMissing(st.station.cells, mod) ||
-          ceilingMountMissing(st.station.cells, mod),
-      ) || liftFloorMissing
-    const colliderIds: string[] = []
-    for (const mod of mods) {
-      for (const m of placementColliders(st.station.modules, mod)) {
-        if (!colliderIds.includes(m.id)) colliderIds.push(m.id)
-      }
-    }
+    // **One verdict, one display.** The rules are `build/validation.ts`'s (the same
+    // ones the release asks), so a piece is refused here for exactly the reason it
+    // would be refused on release — a 扶梯 whose landings are not solid ground, a
+    // 电梯 whose bay is not floor, a 指示牌 with no slab overhead — and the refused
+    // pieces are boxed in red beside the red ghost.
+    const check = checkModulePlacements(
+      st.station,
+      mods.map((module) => ({ id: module.id, module, layer: true })),
+    )
+    const blocked = check.refused.size > 0
     scene.setCursor(h.cell, placeable && !blocked)
     scene.setModulePreview(mods.length > 0 ? mods : null, blocked)
-    scene.setCollisionHighlight(blocked ? colliderIds : null)
+    scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
   }
 
   private placeModule(
@@ -557,17 +521,19 @@ export class EquipmentTool extends ToolController {
   ): void {
     const st = useStore.getState()
     // A wall-mounted 广告牌 needs only a wall behind it — it may hang over a
-    // track, so it never goes through the floor/track rules below.
+    // track, so it goes through the same verdict as everything else and never
+    // through the ground rules.
     if (isWallMountedType(type)) {
       // The panel turns itself to face whatever wall backs it, so the only
       // failure left is "there is no wall here at all".
       const { mod, noWall } = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near)
       if (!mod || noWall) {
-        st.setNotice('广告牌要贴在墙上：先砌一堵墙')
+        st.setNotice(equipmentRefusalNotice('wall'))
         return
       }
-      if (placementBlocked(st.station.modules, mod)) {
-        st.setNotice('这儿已经有设备了，换个地方')
+      const refusal = equipmentReason(st.station.cells, st.station.modules, mod)
+      if (refusal !== '') {
+        st.setNotice(equipmentRefusalNotice(refusal))
         return
       }
       st.commit(addEquipment(st.station, mod))
@@ -579,44 +545,18 @@ export class EquipmentTool extends ToolController {
     // A surface exit — any of the six variants — stands at the street (h = 0 m)
     // and nowhere else.
     if (isExitType(type) && at[2] !== GROUND_Z) {
-      st.setNotice('出入口只能放在地面')
+      st.setNotice(equipmentRefusalNotice('exit-on-slab'))
       return
     }
     const mods = this.buildPlacementModules(type, at, nextModuleId(st.station.modules, type))
     if (mods.length === 0) return
+    // **One verdict, one refusal.** Every rule a module answers to lives in
+    // `build/validation.ts` (which reads `equipmentReason`), so the piece the red
+    // ghost refused is the piece this refuses, in the same words.
     for (const mod of mods) {
-      // Equipment has a collision box: two may not share space.
-      if (placementBlocked(st.station.modules, mod)) {
-        st.setNotice('这儿已经有设备了，换个地方')
-        return
-      }
-      // The rails sit on a track bed, not on passenger floor: no equipment there.
-      if (placementOnTrack(st.station.cells, mod, st.station.modules)) {
-        st.setNotice('轨道上不能放设备')
-        return
-      }
-      // 广告牌 is wall-mounted: it needs a solid wall block behind it. The
-      // orientation is not the player's problem — `autofaceWallMount` already
-      // turned the panel — so this is only the "no wall here at all" branch.
-      if (wallMountMissing(st.station.cells, mod)) {
-        st.setNotice('广告牌要贴在墙上：先砌一堵墙')
-        return
-      }
-      // 指示牌 / 电视 / 时钟 / 监控 hang from the ceiling: they need a solid slab one
-      // storey up.
-      if (ceilingMountMissing(st.station.cells, mod)) {
-        st.setNotice('指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）')
-        return
-      }
-      // An escalator punches through walls/ceilings on its own: allow it whenever
-      // both landings stand on solid floor or exit floor, and refuse it otherwise.
-      if (mod.type === 'escalator' && !escalatorBasesSolid(st.station.cells, st.station.modules, mod)) {
-        st.setNotice('扶梯两端都得有实心地板')
-        return
-      }
-      // A lift stands on a 2 × 2 m footprint: all four cells must be floor.
-      if (mod.type === 'lift' && !this.liftFootprintFloorOk(at[0], at[1], at[2])) {
-        st.setNotice('电梯占地 2×2 米：四个格子都要有地板')
+      const refusal = equipmentReason(st.station.cells, st.station.modules, mod, true)
+      if (refusal !== '') {
+        st.setNotice(equipmentRefusalNotice(refusal))
         return
       }
     }

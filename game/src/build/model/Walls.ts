@@ -3,7 +3,8 @@
 
 import { storeyBand } from '../../sim/constants.ts';
 import { thinWallCells } from '../../sim/openings.ts';
-import { reservedOpening } from '../../sim/placement.ts';
+import { blockedCellsByLevel } from '../../sim/placement.ts';
+import { blockReason } from '../validation.ts';
 import { halfWallTag, shapeOf, TRI_SIDES, triangleTag, type CellShape, type TriangleKind, type TriSide, type WallSide } from '../../sim/types.ts';
 import type { Cell, Module } from '../../sim/types.ts';
 import { cellKey, hasTag } from './Cells.ts';
@@ -96,7 +97,7 @@ function wallFloor(cells: readonly Cell[], x: number, y: number, z: number): boo
 
 /**
  * The directions in which `(x, y, z)` faces open space — the edges the 墙 tool
- * walls, and the same edge the 地基 auto-wall ring picks (`syncAutoWalls`).
+ * walls, and the same edge the 方块 auto-wall ring picks (`syncAutoWalls`).
  *
  * An edge is open when the neighbour carries **no wall** and **no floor** on
  * this storey. The wall half is what stops the tool offering a side that already
@@ -221,12 +222,12 @@ export function wallSnap(
  *
  * `triangle` lays the run as **三角** instead: the same course, tagged with the side
  * of its cell the wedge hugs and which of the two cuts it is (`triangleTag`), so the
- * mesher draws the 45° wedge the player aimed at. It is the 地基 tool's third mode,
+ * mesher draws the 45° wedge the player aimed at. It is the 方块 tool's third mode,
  * one block at a time like its 半墙 — a cut is a shape being placed, not a wall being
  * run.
  *
  * `height` is how many courses rise from each base cell. The 墙 tool always wants
- * the full 4 m column (`AUTO_WALL_H`); the 地基 tool's 半墙 / 三角 modes lay one
+ * the full 4 m column (`AUTO_WALL_H`); the 方块 tool's 半墙 / 三角 modes lay one
  * block at a time, so they pass 1 — a single tagged course per click that the
  * player stacks by hand.
  */
@@ -243,10 +244,13 @@ export function addWalls(
   const added: Cell[] = [];
   let blocked = 0;
   const run = height === AUTO_WALL_H ? wallRun(baseCells) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
+  const level = blockedCellsByLevel(state.modules);
   for (const [x, y, z] of run) {
     const k = cellKey(x, y, z);
     if (have.has(k)) continue;
-    if (reservedOpening(state.modules, x, y, z)) {
+    // One rule set for every course, whatever laid it: a wall may no more fill a
+    // reserved opening or a cell a piece of equipment holds than a block may.
+    if (!blockReason(state.cells, state.modules, x, y, z, level).ok) {
       blocked++;
       continue;
     }

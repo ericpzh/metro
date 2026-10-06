@@ -31,7 +31,7 @@ interface BlockProps {
   title?: string
   /**
    * A tile another mode of the same tool has taken over: still drawn, so the rule
-   * is discoverable, but plainly out of play (the 地基 tool's 自动生成墙壁 while
+   * is discoverable, but plainly out of play (the 方块 tool's 自动生成墙壁 while
    * **半墙** is on).
    */
   disabled?: boolean

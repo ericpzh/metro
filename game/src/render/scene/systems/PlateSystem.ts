@@ -10,11 +10,16 @@
 
 import * as THREE from 'three'
 import { canvasTexture, litPanelMaterial } from '../../models.ts'
+import type { PrintedFace } from '../../models.ts'
 import { drawStationDisplay, STATION_PLATE, tvLineStatus } from '../../stationDisplay.ts'
+import { calligraphyPlate, drawCalligraphyPanel } from '../../calligraphyFace.ts'
+import { drawLineMapPlaceholder, lineMapPlaceholderPlate } from '../../lineMapFace.ts'
 import { drawSignPanel } from '../../signFace.ts'
+import { calligraphyPanelSize } from '../../../sim/calligraphy.ts'
+import { lineMapSpec } from '../../../sim/linemaps.ts'
 import { signBoardsOf, signBoardsPanel, signFaceLayout, signPlate } from '../../../sim/sign.ts'
 import type { SignLayout, SignPanelSize } from '../../../sim/sign.ts'
-import type { StationData } from '../../../sim/types.ts'
+import type { CalligraphyAxis, CalligraphyStyle, Module, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 
@@ -52,6 +57,19 @@ export class PlateSystem extends SceneSystem {
    * rebuilt with the modules they belong to.
    */
   signPlates = new Map<string, { texture: THREE.CanvasTexture; material: THREE.Material; face: 'left' | 'right' }>()
+  /**
+   * The printed faces of the two 装饰 pieces that carry the station's own words: a
+   * 站名's ink (the station's name, in the piece's hand and axis) and a 线网图's board
+   * (the supplied 线网示意图, or the drawn placeholder board until its pixels land).
+   * Keyed `id|kind|what it prints`, so a piece whose hand or axis was changed is a new
+   * face rather than a repaint — the same mechanism the 指示牌's faces use, for the same
+   * reason: they exist only to light the mesh they are bolted to.
+   *
+   * `owned` says whether **this system** minted the pixels. The map's board is the art
+   * cache's (`render/lineMapArt.ts`) and is shared by every map on the same panel, so
+   * it is retained and released by that cache and never disposed from here.
+   */
+  decorPlates = new Map<string, { face: PrintedFace; owned: boolean; kind: 'calligraphy' | 'linemap' }>()
   /**
    * What the 电视 plates were last drawn from: the station's name and, for every
    * line, everything the board prints — its name, colour, direction, both termini,
@@ -218,9 +236,184 @@ export class PlateSystem extends SceneSystem {
     }
   }
 
+  /* ------------------------------------- the station's own words (装饰) */
+
   /**
-   * The lit station plate for one 电视: the frame the content window sits inside.
+   * The cache key of one 站名 or 线网图 face: the module **and** what it prints.
    *
+   * The two pieces carry the station's own words rather than a composed document, so
+   * what their plate depends on is the piece's own choice (a hand and an axis, a
+   * panel's size) — and the *document* behind it, which is why `redrawDecorPlates`
+   * repaints rather than re-keys when the station is renamed or a line is
+   * recoloured. A key includes the piece so two inscriptions in the same hand on
+   * different panels are two textures, exactly as two 指示牌 faces are.
+   */
+  private decorPlateKey(mod: Module): string | null {
+    if (mod.type === 'calligraphy') {
+      const axis = mod.cfg?.axis === 'v' ? 'v' : 'h'
+      const panel = calligraphyPanelSize(axis, mod.w, mod.panelH)
+      return `${mod.id}|calligraphy|${mod.cfg?.style ?? 'kai'}|${axis}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+    }
+    if (mod.type === 'linemap') {
+      const spec = lineMapSpec(mod.cfg?.mount)
+      return `${mod.id}|linemap|${spec.panelW.toFixed(3)}x${spec.panelH.toFixed(3)}`
+    }
+    return null
+  }
+
+  /**
+   * Keep every inscription and map whose module and parameters are unchanged, and
+   * drop the rest — the same bargain `retainSignPlates` makes, for the same reason:
+   * the plate is the expensive part of a rebuild (a 512 px/m canvas per piece), and
+   * `redrawDecorPlates` still repaints the pixels from the live document, so what is
+   * saved is the allocation and not the accuracy.
+   */
+  retainDecorPlates(data: StationData): void {
+    const keep = new Set<string>()
+    for (const mod of data.modules) {
+      const key = this.decorPlateKey(mod)
+      if (key !== null) keep.add(key)
+    }
+    const drop = (entry: { face: PrintedFace; owned: boolean }): void => {
+      if (!entry.owned) return
+      entry.face.texture?.dispose()
+      entry.face.material.dispose()
+    }
+    for (const [key, entry] of [...this.decorPlates]) {
+      // A **placeholder** map board is dropped the moment the supplied poster is in
+      // hand: its key is the same, so leaving it in the cache would keep the drawn
+      // board on the wall for the session instead of the artwork.
+      const stalePlaceholder = entry.kind === 'linemap' && entry.owned && this.ctx.lineMaps?.ready() === true
+      if (!stalePlaceholder && keep.has(key)) continue
+      drop(entry)
+      this.decorPlates.delete(key)
+    }
+  }
+
+  /** Release every 站名 / 线网图 face this system minted. The art cache keeps its own. */
+  clearDecorPlates(): void {
+    for (const entry of this.decorPlates.values()) {
+      if (!entry.owned) continue
+      entry.face.texture?.dispose()
+      entry.face.material.dispose()
+    }
+    this.decorPlates.clear()
+  }
+
+  /**
+   * The ink of one 站名: the **live** station name, in the piece's hand and axis,
+   * cut to the panel the piece carries.
+   *
+   * A material, like every other printed face here — and a **transparent** one, since
+   * an inscription is brush strokes on the wall rather than a printed board: the
+   * pixels the brush does not cover must be the wall's, not a ground of the plate's.
+   */
+  makeCalligraphyPlate(id: string, spec: { style: CalligraphyStyle; axis: CalligraphyAxis; panel: { w: number; h: number } }): PrintedFace {
+    const key = `${id}|calligraphy|${spec.style}|${spec.axis}|${spec.panel.w.toFixed(3)}x${spec.panel.h.toFixed(3)}`
+    const existing = this.decorPlates.get(key)
+    if (existing) return existing.face
+    const text = this.ctx.stationData?.name ?? ''
+    const plate = calligraphyPlate(spec.panel)
+    const texture = canvasTexture(plate.width, plate.height, (g) => {
+      drawCalligraphyPanel(g, { text, style: spec.style, axis: spec.axis, panel: spec.panel })
+    })
+    const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.FrontSide })
+    this.mintedTextures.add(texture)
+    const face: PrintedFace = { material, texture }
+    this.decorPlates.set(key, { face, owned: true, kind: 'calligraphy' })
+    return face
+  }
+
+  /**
+   * The board of one 线网图: the **supplied poster** once its pixels are in hand
+   * (`render/lineMapArt.ts`), and the drawn placeholder board before that.
+   *
+   * One face serves **both** faces of the free-standing totem — each is its own plane
+   * turned to its own side, so neither is a mirror of the other and the one map reads
+   * correctly from either. The art's quad carries the poster's own UV window (a real
+   * image is cropped to the panel, never stretched), which is why a face carries its
+   * geometry as well as its material: the drawn placeholder is cut to the panel and
+   * needs no window of its own.
+   */
+  makeLineMapPlate(id: string, panel: { w: number; h: number }): PrintedFace {
+    const key = `${id}|linemap|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+    const existing = this.decorPlates.get(key)
+    if (existing) return existing.face
+    const art = this.ctx.lineMaps
+    if (art?.ready()) {
+      const painted = art.face(panel.w, panel.h)
+      // The art owns its texture and material (every map on this panel shares them), so
+      // the ownership tests that free a module's maps must leave them alone.
+      if (painted.material.map) this.mintedTextures.add(painted.material.map)
+      const face: PrintedFace = { material: painted.material, geometry: painted.geometry }
+      this.decorPlates.set(key, { face, owned: false, kind: 'linemap' })
+      return face
+    }
+    const lines = this.ctx.stationData?.lines ?? []
+    const stationName = this.ctx.stationData?.name ?? ''
+    const plate = lineMapPlaceholderPlate(panel)
+    const texture = canvasTexture(plate.width, plate.height, (g) => {
+      drawLineMapPlaceholder(g, { lines, stationName, panel })
+    })
+    const material = litPanelMaterial(texture)
+    this.mintedTextures.add(texture)
+    const face: PrintedFace = { material, texture }
+    this.decorPlates.set(key, { face, owned: true, kind: 'linemap' })
+    return face
+  }
+
+  /**
+   * Redraw every **drawn** inscription and placeholder map in place, from the live
+   * document.
+   *
+   * This is where a **rename** and a **line edit** land: the plates outlive the meshes
+   * they are printed on (they are retained by key), so without this a station renamed
+   * after its 站名 was hung would keep its old name on the wall for the session.
+   * Redrawing rather than re-keying keeps the allocations, exactly as
+   * `redrawSignPlates` does for the 指示牌's shields.
+   *
+   * The map's **artwork** is a supplied poster and does not depend on the document, so
+   * its face is skipped — a line edit cannot change a picture of the whole network.
+   */
+  redrawDecorPlates(): void {
+    if (this.decorPlates.size === 0) return
+    const data = this.ctx.stationData
+    if (!data) return
+    for (const [key, entry] of this.decorPlates) {
+      if (!entry.owned || !entry.face.texture) continue
+      const id = key.slice(0, key.indexOf('|'))
+      const mod = data.modules.find((m) => m.id === id)
+      if (!mod) continue
+      const canvas = entry.face.texture.image as HTMLCanvasElement | undefined
+      const g = canvas?.getContext('2d')
+      if (!canvas || !g) continue
+      if (mod.type === 'calligraphy') {
+        const axis = mod.cfg?.axis === 'v' ? 'v' : 'h'
+        const panel = calligraphyPanelSize(axis, mod.w, mod.panelH)
+        const plate = calligraphyPlate(panel)
+        // A panel that changed size needs a new texture, not a repaint: the mesh's
+        // own geometry is rebuilt with the modules, so the plate only has to match it.
+        if (canvas.width !== plate.width || canvas.height !== plate.height) continue
+        // The ink has no ground, so the old strokes have to be taken off the canvas
+        // before the new ones go down — a redraw over a redraw would double-print.
+        g.clearRect(0, 0, canvas.width, canvas.height)
+        drawCalligraphyPanel(g, { text: data.name, style: mod.cfg?.style ?? 'kai', axis, panel })
+        entry.face.texture.needsUpdate = true
+      } else if (mod.type === 'linemap') {
+        const spec = lineMapSpec(mod.cfg?.mount)
+        const panel = { w: spec.panelW, h: spec.panelH }
+        const plate = lineMapPlaceholderPlate(panel)
+        if (canvas.width !== plate.width || canvas.height !== plate.height) continue
+        // The placeholder board paints its own ground edge to edge, so it needs no
+        // clearing.
+        drawLineMapPlaceholder(g, { lines: data.lines, stationName: data.name, panel })
+        entry.face.texture.needsUpdate = true
+      }
+    }
+  }
+
+  /**
+   * The lit station plate for one 电视: the frame the content window sits inside.   *
    * It is station information, not artwork, so it is drawn from the live document
    * — the line's own name, colour and terminus, the clock, and how close the next
    * train is — and cached per module. It only has to be redrawn when one of those

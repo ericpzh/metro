@@ -16,6 +16,7 @@
 import * as THREE from 'three'
 import type { MaterialSet } from '../../materials.ts'
 import type { AdArt } from '../../adArt.ts'
+import type { LineMapArt } from '../../lineMapArt.ts'
 import type { ModelMaterials } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import type { SlopeCut } from '../../../sim/openings.ts'
@@ -84,6 +85,13 @@ export interface SceneContext {
   mats: MaterialSet
   modelMats: ModelMaterials
   ads: AdArt
+  /**
+   * The supplied 线网图 poster, one cache per scene like the ad artwork: every map
+   * shares one texture, and until its pixels land a map prints the drawn placeholder
+   * board (`render/lineMapFace.ts`) rather than a blank panel. Null for a caller with
+   * no artwork behind it (a unit test), which reads as "not ready".
+   */
+  lineMaps: LineMapArt | null
   bounds: THREE.Box3
   /** The last station document, so a hover ghost can be built through the models. */
   stationData: StationData | null
@@ -227,12 +235,14 @@ export class SceneContextData implements SceneContext {
   mats: MaterialSet
   modelMats: ModelMaterials
   ads: AdArt
+  lineMaps: LineMapArt | null
 
-  constructor(scene: THREE.Scene, mats: MaterialSet, modelMats: ModelMaterials, ads: AdArt) {
+  constructor(scene: THREE.Scene, mats: MaterialSet, modelMats: ModelMaterials, ads: AdArt, lineMaps: LineMapArt | null = null) {
     this.scene = scene
     this.mats = mats
     this.modelMats = modelMats
     this.ads = ads
+    this.lineMaps = lineMaps
   }
 }
 
@@ -289,6 +299,11 @@ export function blobRadius(type: Module['type']): number {
     case 'booth':
     case 'retail':
     case 'billboard':
+    // The three new wall pieces are bolted to a wall or, for the 线网图 totem, stand
+    // on a plinth: none of them wants a floor contact blob under it.
+    case 'glass':
+    case 'calligraphy':
+    case 'linemap':
     case 'tv':
       return 0
     default:

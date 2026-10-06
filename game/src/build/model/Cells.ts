@@ -2,7 +2,8 @@
 // Leaf module: only sim/ imports plus a type-only StationState.
 
 import { LEVEL_STEPS } from '../../sim/constants.ts';
-import { isTrackCell, reservedOpening } from '../../sim/placement.ts';
+import { blockedCellsByLevel } from '../../sim/placement.ts';
+import { blockReason } from '../validation.ts';
 import type { Cell, Module } from '../../sim/types.ts';
 import type { StationState } from './State.ts';
 
@@ -53,11 +54,15 @@ export function isSolid(cells: Cell[], x: number, y: number, z: number): boolean
 }
 
 /**
- * Add solid cells, ignoring ones that are already solid and refusing any that
- * would cover a reserved opening — a ramp's carved corridor or an exit's floor
- * (`reservedOpening`). Without this guard the block brush could fill an
- * auto-generated hole and seal a stair, escalator or exit in. Returns the cells
- * added and how many were refused.
+ * Add solid cells, ignoring ones that are already solid and refusing any the one
+ * placement rule set rejects (`blockReason`, `sim/placement.ts`): a reserved opening
+ * — a ramp's carved corridor or an exit's floor — a cell a piece of equipment
+ * already stands in, or a rail's dug bed. Without the first guard the block brush
+ * could fill an auto-generated hole and seal a stair, escalator or exit in; without
+ * the second it could pour a block into a 闸机, a 售票机, a 座椅 or a 房间 and leave
+ * the piece buried in the new floor; without the third it would fill the trench.
+ * Every one of them is counted, so the number here and the red boxes the preview
+ * draws are the same number. Returns the cells added and how many were refused.
  */
 export function addCells(
   cells: Cell[],
@@ -68,17 +73,16 @@ export function addCells(
   const out = cells.slice();
   let changed = 0;
   let blocked = 0;
+  // One set per level, built once for the whole rectangle: equipment is sparse, so
+  // this is the same handful of modules every time a drag asks about another cell.
+  const level = blockedCellsByLevel(modules);
   for (const [x, y, z] of add) {
-    const k = cellKey(x, y, z);
-    if (have.has(k)) continue;
-    if (reservedOpening(modules, x, y, z)) {
+    if (have.has(cellKey(x, y, z))) continue;
+    if (!blockReason(cells, modules, x, y, z, level).ok) {
       blocked++;
       continue;
     }
-    // A placed rail's bed is already covered ground: the 地基 merge must not
-    // pour a block into the trench (and the live ghost drops the same cells).
-    if (isTrackCell(cells, modules, x, y, z)) continue;
-    have.add(k);
+    have.add(cellKey(x, y, z));
     out.push({ x, y, z, fill: 'solid' });
     changed++;
   }

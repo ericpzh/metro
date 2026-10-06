@@ -1,6 +1,7 @@
-// Build model: floors — the 地基 patch and its automatic wall ring (§4.1).
+// Build model: floors — the 方块 patch and its automatic wall ring (§4.1).
 
-import { isTrackCell, reservedOpening } from '../../sim/placement.ts';
+import { blockedCellsByLevel } from '../../sim/placement.ts';
+import { blockReason } from '../validation.ts';
 import { edgeCells, trackCells } from '../../sim/track.ts';
 import type { Cell, Module } from '../../sim/types.ts';
 import { cellKey, hasTag, NEIGH4, removeCells } from './Cells.ts';
@@ -8,7 +9,7 @@ import type { StationState } from './State.ts';
 import { AUTO_WALL, AUTO_WALL_H } from './Walls.ts';
 
 /**
- * Tag on a floor cell the 地基 tool drew. A patch is tracked by its cells
+ * Tag on a floor cell the 方块 tool drew. A patch is tracked by its cells
  * rather than by a module, so an L-shape or a drag that overlaps hand-built
  * ground all read as one continuous surface. Hand-built floor (the demo, a
  * saved station) is deliberately untagged: it is treated as ground the patch
@@ -19,7 +20,7 @@ export const AUTO_FLOOR = 'auto-floor';
 /**
  * Every cell a placed track covers — a platform bed or a tunnel run. A rail
  * digs its bed, so those cells have left `state.cells` and read as void to the
- * wall flood; the 地基 auto merge treats the whole footprint as covered ground
+ * wall flood; the 方块 auto merge treats the whole footprint as covered ground
  * instead of an opening to wall off (see `syncAutoWalls`).
  */
 function trackFootprintKeys(modules: readonly Module[]): Set<string> {
@@ -32,7 +33,7 @@ function trackFootprintKeys(modules: readonly Module[]): Set<string> {
 }
 
 /**
- * Every floor cell a platform screen door stands on. The 地基 auto-wall ring
+ * Every floor cell a platform screen door stands on. The 方块 auto-wall ring
  * skips these, so a full track sliced through a patch never boards up the
  * screen doors derived along its platform edge.
  */
@@ -46,7 +47,7 @@ function platformDoorKeys(modules: readonly Module[]): Set<string> {
 }
 
 /**
- * The new wall columns a 地基 drag will raise: every pending floor cell on the
+ * The new wall columns a 方块 drag will raise: every pending floor cell on the
  * edge of the surface (a same-level neighbour is neither solid nor part of the
  * patch). Used for the live ghost, so the room-like shell shows before release.
  * `solid` is the current station; the patch is preview-only.
@@ -63,6 +64,9 @@ export function plannedAutoWalls(
   const covered = new Set(solid);
   for (const k of trackFootprintKeys(modules)) covered.add(k);
   const doors = platformDoorKeys(modules);
+  // The cells a piece of equipment already holds, by level: a wall column may not
+  // rise through a 闸机, a 售票机 or a 指示牌 any more than a hand-built course may.
+  const occupiedAt = blockedCellsByLevel(modules);
   const out: Array<[number, number, number]> = [];
   for (const [x, y, z] of floorCells) {
     // Already-existing floor, or a rail's dug bed the release will skip: no
@@ -81,14 +85,20 @@ export function plannedAutoWalls(
     if (!edge) continue;
     for (let dz = 1; dz <= AUTO_WALL_H; dz++) {
       const wk = cellKey(x, y, z + dz);
-      if (!solid.has(wk) && !reservedOpening(modules, x, y, z + dz)) out.push([x, y, z + dz]);
+      if (solid.has(wk)) continue;
+      // The same rule set as everything else: the ring never boards up a reserved
+      // opening and never rises through a piece of equipment. The patch is
+      // preview-only, so the rule reads the station as it stands — a wall column
+      // grows into void, and what refuses it is what is already there.
+      if (!blockReason([], modules, x, y, z + dz, occupiedAt).ok) continue;
+      out.push([x, y, z + dz]);
     }
   }
   return out;
 }
 
 /**
- * Rebuild the automatic wall ring around every 地基 floor patch. A patch cell on
+ * Rebuild the automatic wall ring around every 方块 floor patch. A patch cell on
  * the outer edge of its surface earns a full-height wall column; an auto wall
  * whose cell became interior — covered by a later drag — or whose floor was dug
  * away is dropped. Hand-placed walls are never added to or removed from,
@@ -113,6 +123,9 @@ export function syncAutoWalls(state: StationState): StationState {
   for (const k of trackFootprintKeys(state.modules)) covered.add(k);
   // Screen-door cells stay unwalled even when they sit on the patch's edge.
   const doors = platformDoorKeys(state.modules);
+  // The cells a piece of equipment holds, by level: the ring may no more rise
+  // through a 指示牌 or a 售票机 than the live ghost's may (`plannedAutoWalls`).
+  const occupiedAt = blockedCellsByLevel(state.modules);
   // Group the tracked floor by level: walls only answer a same-level edge.
   const byLevel = new Map<number, Array<[number, number]>>();
   for (const c of state.cells) {
@@ -179,9 +192,10 @@ export function syncAutoWalls(state: StationState): StationState {
       }
       if (!edge) continue;
       for (let dz = 1; dz <= AUTO_WALL_H; dz++) {
-        // Never board up a reserved opening: the ghost (`plannedAutoWalls`)
-        // leaves the same cells unwalled, and a ramp or exit needs them open.
-        if (reservedOpening(state.modules, x, y, z + dz)) continue;
+        // Never board up a reserved opening, and never rise through a piece of
+        // equipment: the ghost (`plannedAutoWalls`) leaves the same cells
+        // unwalled, and both ask the one rule set.
+        if (!blockReason(state.cells, state.modules, x, y, z + dz, occupiedAt).ok) continue;
         wanted.set(cellKey(x, y, z + dz), [x, y, z + dz]);
       }
     }
@@ -206,25 +220,29 @@ export function syncAutoWalls(state: StationState): StationState {
 }
 
 /**
- * Add the floor a 地基 rectangle drag drew, tag it as an auto-floor patch, and
+ * Add the floor a 方块 rectangle drag drew, tag it as an auto-floor patch, and
  * rebuild the wall ring. Cells the drag covers that already exist are left
  * alone, so extending into hand-built ground is seamless. A single click (a
  * plain block) does not come through here — only a deliberate drag turns into a
  * walled surface.
+ *
+ * Every cell the drag covers is a candidate the preview judged (`checkBlockCells`
+ * over the same `blockReason`), so the two can be compared: the patch lays exactly
+ * the accepted cells, and a caller that walked the raw rectangle can see what was
+ * refused by comparing the two lists.
  */
 export function addFloor(state: StationState, cells: Array<[number, number, number]>): StationState {
   const have = new Set(state.cells.map((c) => cellKey(c.x, c.y, c.z)));
+  const level = blockedCellsByLevel(state.modules);
   const grown: Cell[] = [];
   for (const [x, y, z] of cells) {
     const k = cellKey(x, y, z);
     if (have.has(k)) continue;
-    // A floor drag may not fill a reserved opening either: the same guard the
-    // block brush uses, so a ramp hole stays open under a newly drawn surface.
-    if (reservedOpening(state.modules, x, y, z)) continue;
-    // The platform/tunnel covered area is already a surface: skip a rail's dug
-    // bed so the drag does not pour a block into the trench. The wall ring then
-    // wraps the whole patch+track footprint (see `syncAutoWalls`).
-    if (isTrackCell(state.cells, state.modules, x, y, z)) continue;
+    // The same rule set the brush and the live ghost ask: a floor drag carries on
+    // around a reserved opening, a piece of equipment or a rail's dug bed rather
+    // than pouring a block into any of them. The wall ring then wraps the whole
+    // patch+track footprint (see `syncAutoWalls`).
+    if (!blockReason(state.cells, state.modules, x, y, z, level).ok) continue;
     have.add(k);
     grown.push({ x, y, z, fill: 'solid', tags: [AUTO_FLOOR] });
   }
@@ -233,7 +251,7 @@ export function addFloor(state: StationState, cells: Array<[number, number, numb
 }
 
 /**
- * Remove blocks a 地基 drag marked, then rebuild the wall ring only if one of
+ * Remove blocks a 方块 drag marked, then rebuild the wall ring only if one of
  * them was an auto-floor cell. Removing a hand-placed block, or an auto wall
  * itself, leaves the ring alone so a wall the player deliberately dug out is
  * not silently restored.

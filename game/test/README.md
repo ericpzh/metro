@@ -56,12 +56,12 @@ The suites, by the thing they are about. Each one's full description is in
 | Architecture | `layering`, `scene-wiring` |
 | Numbers | `rng` |
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement`, `openings`, `stairs`, `escalators`, `slope-cut`, `ramp-fill`, `trains`, `stock`, `load` |
-| The document and its edits | `save`, `grid`, `pick-cell`, `walls`, `halfwall`, `triangle`, `blocktool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail` |
-| The furniture and the decor | `shelf`, `desk`, `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `sign`, `sign-model`, `sign-editor`, `billboard`, `booth-model`, `room-model` |
+| The document and its edits | `save`, `grid`, `pick-cell`, `walls`, `halfwall`, `triangle`, `blocktool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation` |
+| The furniture and the decor | `shelf`, `desk`, `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `sign`, `sign-model`, `sign-editor`, `billboard`, `glass-panel`, `calligraphy`, `line-map`, `booth-model`, `room-model` |
 | The models | `module-build`, `tv-screen`, `tv-pair` |
-| The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home` |
+| The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` |
 | The pixels | `sign-render`, `station-display` |
-| The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `line-edit` |
+| The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit` |
 
 ## The rules a test here follows
 
@@ -101,17 +101,19 @@ The suites, by the thing they are about. Each one's full description is in
   and the camera tests, which drive `CameraSystem` behind the widget rather than the widget
   itself). A component that renders nothing fails visibly; a store action that forgets a field
   does not.
-* **Vite-only modules.** `render/adArt.ts` and `render/pictograms.ts` resolve their
+* **Vite-only modules.** `render/adArt.ts`, `render/pictograms.ts` and
+  `render/lineMapArt.ts` resolve their
   artwork through `import.meta.glob`, which plain Node does not implement. Tests that
   need an ad face stub it (`module-build`, `tv-screen`); the pixel code they feed
-  (`render/stationDisplay.ts`, `render/signFace.ts`) is tested directly.
+  (`render/stationDisplay.ts`, `render/signFace.ts`) is tested directly, and the map
+  plate tests (`line-map`) stub the art cache rather than the glob.
 * **`/lab`, `boot.tsx`, `mobile.ts`** — the manual harness, the lazy bootstrap and the
   phone gate, all of which are browser-shaped by construction.
 
 ## Coverage, and the gaps that were closed
 
-Measured over the whole suite (`--experimental-test-coverage`, one process): **633 tests,
-94.36 % lines / 88.05 % branches / 87.53 % functions** across the `game/src` files the suite
+Measured over the whole suite (`--experimental-test-coverage`, one process): **716 tests,
+94.66 % lines / 87.96 % branches / 87.98 % functions** across the `game/src` files the suite
 loads. Before the pass this file documents it was 557 tests at 90.01 / 87.72 / 81.53, and the
 gap-filling tests alone took it to 95.36 on a tree without the camera and floor-surface work.
 **These numbers are a snapshot of a moment, not a target** — regenerate them with the command

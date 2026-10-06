@@ -27,6 +27,7 @@ src/
     worker.ts        the only file that touches postMessage
   render/    three.js: chunk mesher, procedural materials, module models, outline, shadows, agents
   build/     station document, cell commands, paint, undo
+             validation.ts  the ONE placement verdict + the preview gatherer
   persistence/ save schema (serialise / parse / migrate *.metro.json)
   app/       React shell: HUD, rails, inspector. Panels only, no sim logic
   data/      the demo station (the 动物园 save) and the art palette
@@ -35,6 +36,15 @@ bench/       crowd-tick benchmark
 ```
 
 Dependency direction is one-way: `app/ → render/ → sim/`, and `sim/` imports nothing.
+
+**One placement verdict, asked twice.** Every builder decision — may this block be
+laid, may this piece stand here — is answered by one function, and both the preview
+under the pointer and the commit on release ask it. The rules live in
+`sim/placement.ts` (`blockReason`, `equipmentReason`); `build/validation.ts` gathers a
+whole preview's worth of them into the accepted cells the ghost draws, the refused
+cells it boxes in red and the pieces standing in the way. So the red preview, the
+notice on release and the edit itself cannot disagree — see
+[`test/validation.test.mjs`](test/validation.test.mjs) for the property pinned.
 
 ## The milestones
 
@@ -105,7 +115,7 @@ and 广告牌, 电视, 指示牌, 时钟 and 监控 all live under 装饰 in the
 rest of the furniture — no server and no stop — and both count as room furniture, so they may stand
 inside a walled 商店 / 厕所 / 办公室 / 售票亭 (`placementBlocked`'s furniture ↔ room exemption). 广告牌 is *wall-mounted*:
 `sim/placement.ts`'s `wallMountMissing` refuses it unless the facing neighbour has a solid block at
-its first course (`z + 1`), which is exactly where the 地基 auto-wall ring and the 墙 tool both start.
+its first course (`z + 1`), which is exactly where the 方块 auto-wall ring and the 墙 tool both start.
 Because that requirement is a function of the rotation alone, the panel **turns itself** to face its
 wall (`autofaceWallMount`): build a wall and drop the ad, and the orientation follows — no **R**
 needed, and none can leave it facing the wrong way. `wallSide` turns that requirement with the module
@@ -117,6 +127,42 @@ housing cannot disagree. A multi-cell banner needs a wall behind every cell of i
 wall block itself mounts the panel in the face-adjacent cell (`wallMountStandCell`), so a banner can
 hang on the station's outer wall across the track — behind and above the screen doors — where there
 is no walkable floor in front of it.
+
+**Three more wall pieces hang under 装饰, and the wall rule grew with them.** 玻璃板 is the 围栏's
+wall-mounted cousin: a sheet of glass in an **outer frame only** — one sill, one head and two end
+posts around the whole run, with a single pane between them, so a three-cell panel is one window where
+a fence run of the same length stands three frames up — in six sizes (one, two or three cells wide, in
+a 1 m and a 2 m height) from `sim/glassPanels.ts`. 站名 is the station's own name as a large ink
+inscription: the piece carries **no text**, only the hand it is written in (楷书 / 行书 / 隶书 / 魏碑 /
+黑体 / 宋体, `sim/calligraphy.ts`) and the way it runs (横排 along the wall, 竖排 down it), and
+`render/calligraphyFace.ts` prints the live `StationData.name` onto a **transparent** plate — the name
+and nothing else, no seal and no ground, because an inscription is brush strokes on the wall rather than
+a poster of one. A rename therefore reprints every inscription in the station
+without touching a module, and the panel is cut **when the piece is placed** — a wider name is a wider
+piece of wall, so a later rename sets smaller type inside the same panel instead of quietly rebuilding
+a different wall behind a placed piece. 线网图 is the network poster a real station hangs: the supplied
+广州地铁 线网示意图 itself, saved as `src/assets/linemaps/network-map.jpg` (2048 × 2047) and paired with
+the panel by `render/lineMapArt.ts` — **artwork, not a drawing**, exactly as `render/adArt.ts` pairs an
+ad slug with its JPEG. Both mounts print the **same board**, cut to the poster's own aspect
+(`LINE_MAP_ASPECT`), so a wall map and a concourse totem cannot crop one picture differently: **墙面线网图**,
+a framed two-cell board bolted to a wall and read from one side, and **立式线网图**, a free-standing
+two-cell totem on a plinth — the one piece here that is *not* wall-mounted, printed on **both** faces so
+a passenger reads it from either direction down the concourse. Until the poster's pixels land (and if the
+asset were ever missing) each map prints a **drawn placeholder board** from the station's own lines
+(`render/lineMapFace.ts`: one coloured band per line, a shield, a tick per station, a ring per
+interchange), which is what a unit test and a station-less build see.
+
+**A wall-mounted piece is backed wherever its panel actually is.** `wallMountCourses`
+(`sim/placement.ts`) reads each type's own table for the band of wall it covers — a 广告牌's first
+course, a 1 m 玻璃板's, a 2 m panel's first two, a 横排 inscription's 2nd and 3rd (it is written 1.2 m
+up), a 竖排 column's 0th to 2nd — and `wallMountMissing` asks for solid backing on every one of them,
+for **every cell of the run**. A panel that spans three cells needs three walls behind it, and a 半墙
+(a one-course wall) carries the 1 m band and refuses the 2 m window. The envelope is the same honesty
+from the other side: `wallPanelBox` narrows the module's **own run cells** to a slab `PANEL_DEPTH`
+either side of the wall's centre line, so the air in front of a panel is the room's — a 座椅 stands
+under a 线网图 board, a 售票机 under an inscription that hangs above its head — and the run is read
+from `glassCells` / `calligraphyCells` / `lineMapCells` rather than from `x + w`, which would put the
+housing across the room on the rotations that run the other way.
 
 **A 电视 is a passenger-information screen, not a poster.** Its lit face is two panes: the station
 board down the left — line shield, 本趟 / 下趟 / 第三趟列车开往, the countdown and the departure clock —
@@ -147,6 +193,23 @@ check. 指示牌 is
 up (`LEVEL_STEPS`, the 4 m grid), and `render/models.ts` hangs each from that slab by two rods. The
 指示牌 keeps its two double-sided faces — a wayfinding board genuinely reads both ways, where a
 screen does not.
+
+**A ceiling-hung piece wants the air, not the cell.** It hangs from the slab overhead, so the floor
+under it is still the room's: `placementBlocked` lets it share a tile with anything that stands on the
+floor or is bolted to the wall — a 座椅, a 闸机, a 广告牌 — and only refuses it against another *hung*
+piece (the two really do want the same air, which is what the back-to-back 电视 pair is exempt from) or
+against a **run**, whose treads, step band or shaft passes through the storey the piece hangs in.
+Without the exemption the storey-tall envelope `moduleEnvelope` reports made a clock and a chair in one
+corner impossible, though nothing about either is in the other's way.
+
+**A wall-mounted 广告牌 reserves the wall, not the cell.** Its envelope used to be the whole tile it
+hangs over, three courses deep — so a 座椅 standing on that floor "collided" with a poster two metres
+above it and the chair's ghost turned the placement red. `flatEnvelope` now gives the panel the drawn
+geometry: a thin housing against its backing, spanning its run, over only the band of wall the poster
+covers (`billboardSpec`'s `panelZ` / `panelH` — the lowest variant's skirt is 2.3 m up). So a chair, a
+bench or a hung 时钟 shares the tile with a poster, while a 售票机 tall enough to reach the panel still
+collides. No piece-hand-written exemption: the boxes decide, which is the same rule the 装饰 folder's
+own tests read.
 
 **时钟 and 监控 are the same ceiling-hung contract with different hardware.** 时钟 is a **round**
 station clock: a white face with black hour marks, minute ticks and hands and *nothing* printed on
@@ -410,6 +473,32 @@ draws the whole run from the run's centre, and a legacy bench with neither `w` n
 1 m stainless piece. Room furniture (shelf / desk / cubicle / sink / bench) may
 stand inside a walled room or booth (`placementBlocked` exempts the furniture ↔ room pair, and
 `moduleAt` prefers the furniture over the room around it). A store stocks one `shelf` module per layout
+
+**A variant family is one row in one table, and the whole rail reads it.** A family in this rail is four
+things that have to agree: the parent **tile** (its label, and the variant its icon shows), the **list**
+it folds out, the rail's single **open slot**, and the **anchor** the contextual action row (旋转 / 宽度 /
+… ) folds out under. Those used to be written out four times over — a menu component per family, a
+hand-listed parent tile in each folder, a hand-listed open-slot mapping, and a hand-listed action anchor —
+so a family could be *half* wired, and the failure was silent in the UI: a variant whose list folded away
+the moment it was picked, or a placed piece whose 旋转 tile folded out under a tile no folder drew. They
+are now one table, `MODULE_FAMILIES` in
+[`app/store/catalog.ts`](src/app/store/catalog.ts) — the family's key and label, the folder it lives in,
+the palette ids it owns, and (as data) the tile label and tooltip its variants wear — and every half of
+the UI reads it: `familyOptions(family)` is the sub-menu, `familyAnchor(key)` is the parent tile,
+`familyFor` / `subMenuForModule` is the open slot, `actionsAnchorFor` is where the action row folds out,
+`folderOptions(folder)` is a folder's plain tiles (a family's variants are excluded, so nothing is drawn
+twice) and the folder header's count is that same arithmetic. `rail/shared/TileGrid.tsx` is the one grid
+both the 设备 and 装饰 folders render (plain tiles + one parent tile per family + the one variant menu,
+`rail/menus/VariantMenu.tsx`, for every family — 楼梯 / 出入口 / 座椅 / 广告牌 / 玻璃板 / 站名 / 线网图 —
+where there used to be seven near-identical components), and `rail/actions/ModuleActions.tsx` folds its
+row out under `actionsAnchorFor(moduleType)`. **A row is open only under the family being
+browsed** (`actionRowOpen`): two family tiles share a grid row (玻璃板 beside 站名, 座椅 beside 广告牌) and a
+full-width row can only be inserted after that pair, so a row left open across a family the player had
+stopped picking from drew the *previous* piece's 旋转 tile straight above the new family's variants,
+reading as theirs — while rotating a piece they were no longer looking at. It is parked instead, and comes
+back the moment that family is picked from (R still rotates the live piece from the keyboard either way). **Adding a family is one row in that table**: the grid, the
+list, the open slot, the count and the action anchor all follow, and
+`test/rail-families.test.mjs` proves in Node that they agree for every family and every palette id.
 spot (`storeShelfSpots`: island rows plus wall runs), each wall unit turned so its perforated back
 panel faces the wall and its stocked front faces the room, an office one `desk` per grid spot
 (`officeDeskSpots`), a restroom one `cubicle` per back-row cell and one `sink` per front-row cell
@@ -483,7 +572,7 @@ The tile order is the folder's own reading order: 显示其他层 · 剖切 · �
 pair that takes station furniture away, the two overlays that paint the station, and last the one tile
 that draws the station whole. **Seven tiles, and the header says 7**: the count beside a folder name is
 the tiles that folder can show in the state the rail is in, so it follows a mode that adds one (工具
-grows by 自动生成墙壁 and 切角 under the 地基 tool, 视图 by 旋转 while 剖切 is on) rather than a number
+grows by 自动生成墙壁 and 切角 under the 方块 tool, 视图 by 旋转 while 剖切 is on) rather than a number
 written down once and left behind. The 切角 tile is one button for three pieces — it steps 半墙 → 三角上 →
 三角下 → 关 and its label names whichever is live — so the count follows the mode, not the mode's depth.
 
@@ -820,7 +909,7 @@ mesher draws those blocks' tops on that plane instead (`chunkMesher`'s `slope` m
 a run is the filling under the slope — a wedge where the plane leaves through the block's floor,
 clipped with Sutherland–Hodgman so nothing chords back up into the run — and the run's truss lands on
 it. `rampOpeningAt` leaves the space under a run buildable for exactly that reason: a run's opening
-starts at its walking line, so the 地基 tool lays a block under it and the carve keeps it. Only the
+starts at its walking line, so the 方块 tool lays a block under it and the carve keeps it. Only the
 column the run's own walking line passes through is cut and a run's landing columns are left whole.
 Nothing is added to the document: the cut is derived from the modules, the way the half panel beside a
 wide run is (`thinWallCells`).
@@ -831,21 +920,52 @@ truss, with the storey below showing through. The renderer closes it instead: `r
 every cut cell the station holds nothing in that stands on solid ground, `SceneRenderer` keeps that set
 with the cuts (`SceneContext.slopeFills`), and `chunkMesher`'s `fill` argument draws each one as if the
 block below carried on up to the truss — shaved by the same cut, solid to every neighbour so the seam is
-never drawn. **Where the cut carries the run's drawn body half-width the filling *is* that body.** An
-escalator's body is its truss box, narrower than the cell, so its filling is built from the rectangle
-itself (`buildTrussProfile`: sharp, `ESCALATOR_BALUSTRADE` across the run, the full tile along it) in the
-run's own steel — the new 钢板 finish (`RAMP_SOFFIT_FINISH`), the truss's own dark brushed colour — so the
-skirt meets the truss flush instead of stepping out 9 cm either side. A stair carries no half-width: its
-treads run out to the cell edge, so its filling keeps the cell's shape and the finish of the block below
-it. 钢板 is a stock **ceiling** finish, so it is in the 材质 palette too — a block's bottom face can wear
-the same steel anywhere. Still no cell, no tag, nothing a tool has to keep in step: dig the ground away
-and the filling goes with it. The hover ghost reads it with the pending cells in place, so the wedge a
-block is about to create is previewed with it (`test/ramp-fill.test.mjs`, which also fits the drawn
-filling against the escalator model's own truss, `test/slope-cut.test.mjs`).
+never drawn. **Where the cut carries the run's drawn body half-width the filling *is* that body** — the
+mesher builds it from the rectangle itself (`buildTrussProfile`: sharp, across the run, the full tile
+along it) in the run's own steel, the 钢板 finish (`RAMP_SOFFIT_FINISH`), so a narrow body's skirt meets
+its truss flush instead of stepping out 9 cm either side. A stair carries no half-width: its treads run
+out to the cell edge, so its filling keeps the cell's shape and the finish of the block below it. No
+**escalator** derives a filling at all, though: its piece draws that body itself (`SlopeCut.ownBody`,
+below), and two bodies in one cell are two coplanar faces — one meshed from the ground's kit and one
+from the model's — flickering against each other wherever they meet. 钢板 is a stock **ceiling** finish,
+so it is in the 材质 palette too — a block's bottom face can wear the same steel anywhere. Still no
+cell, no tag, nothing a tool has to keep in step: dig the ground away and the filling goes with it. The
+hover ghost reads it with the pending cells in place, so the wedge a block is about to create is
+previewed with it (`test/ramp-fill.test.mjs`, which fits the drawn filling against the escalator model's
+own truss; `test/slope-cut.test.mjs`).
+
+**The escalator carries its own body over the course the ground leaves.** The filling above is the
+**ground's** surface, drawn by the mesher as a derived cell — and a derived cell has to be *told* it
+is solid without being one, which is what drew it as four walls and no lid. The 扶梯 draws that body
+itself instead, over exactly the course the 方块 brush may not lay (the reason a filling exists at
+all): `EscalatorModel`'s `undercroftSolid` cuts a **closed prism**, `ESCALATOR_BALUSTRADE` across,
+whose floor is the lower landing's walking line. Its lid is the plane the ground under a run is
+**shaved to** (`RAMP_FOOT` below the walking line, `rampSlopeCuts`) rather than the truss box's own
+underside, and that is what makes the two one surface: the body meets the shaved ground level, and the
+trench the cut opens at its foot closes exactly where the body begins. The truss's underside hangs
+lower still, so the body's top and flanks are buried inside the box — flanks flush with the box's own
+at the same width, sharing the same steel, so there is no step for the eye and no seam for the depth
+buffer. The lid follows that plane **to the body's very end** rather than flattening off at the course
+line: a flat cap left the body's last stretch standing with the truss floating a hand's width above it
+and a slit to see through, where now the end face meets the truss's own underside. The body reaches as
+far as the ground's filling did and no further — on a one-storey run it spans the two cells the
+filling covered, from where the lid meets the floor (0.75 m up the run) to the far edge of the last
+cell it crosses (2.5 m) — and past that the run keeps the open underside it has always had. Because the
+piece draws that body, the renderer **derives nothing** under an escalator: the cut it leaves carries
+`ownBody` (`sim/openings.ts`), `rampFillKeys` skips it, and the tab stays empty — two bodies in one cell
+would be two coplanar faces, one from the ground's kit and one from the model's, flickering against each
+other. The derived filling still does its own job for a **stair**, whose treads run out to the cell edge
+and whose underside is the ground's. The space under a run also stays buildable (`rampOpeningAt`), so
+a block laid there is drawn inside that body — the piece wins, the way it does anywhere a player builds
+into equipment. `module-build.test.mjs` pins it: the prism's shell (every edge shared by two faces),
+its floor, its extent, its width, every vertex at or below the plane the ground is shaved to with the
+top exactly on it, its lid above the truss's underside the whole way so no slit can open under it,
+rays straight up under the run meeting it over that course and missing it past it, and a down run
+carrying the same body as its up twin.
 
 **A wedge's top is the only drawn surface that is not a cell face**, and the pointer reads the drawn
 mesh: `THREE.Intersection.face.normal` is the triangle's own geometric normal, so `cell + normal` asked
-for a *fractional* block — laying 地基 beside the block under an escalator committed a block at
+for a *fractional* block — laying 方块 beside the block under an escalator committed a block at
 (4.44, −0.15, 1.89), which no tool can address again (the grid repair drops it on the next load). The
 pick snaps the face to the axis it most points along (`render/pickCell.ts`, `pickCells` / `faceAxis`) and
 takes the placement cell one whole step out, which also covers a rounded block corner — the other
@@ -1046,9 +1166,9 @@ there too. A valid turn is kept (deliberately flipping a panel between two walls
 pointer's aim breaks a corner tie, and a run must be backed along its whole length. The only failure
 left is "there is no wall here at all".
 
-**The 地基 tool lays a 半墙 — the same wall at half a block thick, one block at a time.** A facility
+**The 方块 tool lays a 半墙 — the same wall at half a block thick, one block at a time.** A facility
 room's own walls and the panel a wide run keeps beside it have always been drawn half a block thick;
-the 工具 folder's **切角** tile (while the 地基 tool is active) turns a click into one of those, so the
+the 工具 folder's **切角** tile (while the 方块 tool is active) turns a click into one of those, so the
 player can put that wall anywhere. The piece is still an ordinary solid wall cell — tagged `WALL` plus
 the half of the tile it keeps (`half-wall:w`, `sim/types.ts`), so the column lift, the storey slice,
 `isWallBlock`, the ramp carve and the crowd all read it as a wall. `render/chunkMesher.ts` draws those
@@ -1092,20 +1212,34 @@ a 半墙 hugs a patch edge.
 The three cut pieces live on one tile because they are one question — what shape does a click lay — so
 the tile steps **半墙 → 三角上 → 三角下 → 关** and round again, and its label names whichever is live.
 **Tab** is that same step: it used to toggle the generated wall ring, and the key went to the cut modes
-because they answer the question a 地基 click is really asking. **R** turns the piece in all three modes,
-which is why the same `wallSnapCycle` serves them. The tile lives on the 地基 tool because a cut piece *is*
+because they answer the question a 方块 click is really asking. **R** turns the piece in all three modes,
+which is why the same `wallSnapCycle` serves them. The tile lives on the 方块 tool because a cut piece *is*
 the wall that tool grows — so the cut modes are exclusive with the ring: any of them holds **自动生成墙壁**
 off and that tile greys out (the store refuses it while a cut mode owns the tool). A cut click also never
 becomes a patch or a run: one block, exactly where the click landed, whatever the pointer does afterwards.
 A *run* of walls is still the 墙 tool's job.
 
-**自动生成墙壁 is off when the game opens.** The ring is the one thing the 地基 tool does that the player did
+**自动生成墙壁 is off when the game opens.** The ring is the one thing the 方块 tool does that the player did
 not draw — it stands a 4 m wall around a surface they only laid the floor of — so it is no longer assumed:
 a dragged patch grows bare floor, and the ring is asked for on its own tile. With that default the tile no
 longer holds a key either, which is what freed **Tab** for the cut modes; **Tab**'s first step is now 半墙,
-and stepping off the end of the cycle returns to a plain 地基 rather than raising the ring behind the
+and stepping off the end of the cycle returns to a plain 方块 rather than raising the ring behind the
 player's back. A new station therefore builds the way it was drawn, and 自动生成墙壁 is a deliberate
 choice made once, on the tile that says so.
+
+**A block the release will refuse is shown refused.** The ghost used to drop such a cell silently — a
+drag that met a 闸机 simply laid one block fewer than the rectangle it drew, with nothing on screen to
+say which cell or why. Now the ghost draws the accepted cells as the cyan shape it always did **and**
+boxes each refused candidate in red, with the offending pieces (the 闸机, the 座椅, the hung 指示牌)
+highlighted in red beside them, and the release repeats the reason in the notice bar. It is the same
+verdict on both sides — `sim/placement.ts`'s `blockReason`, gathered by `build/validation.ts`'s
+`checkBlockCells` — which is what makes the count in the notice and the number of red boxes one number.
+`test/refused-ghost.test.mjs` pins the display half of that contract: the refused cells reach the
+instanced boxes centred on their cells, a changed refused set rebuilds them, an empty set clears
+them, and the wall pieces (玻璃板 / 站名 / 线网图) draw no floor contact blob.
+The 墙 tool reads it the same way: a full-height column is four candidates, so a wall that meets a
+machine shows the two courses inside it red and stands the two above it, and the running 围栏 drag marks
+the panels it cannot place.
 
 Which half, or which side, a piece hugs is **R**'s business, and it is the one thing a wall's own
 geometry cannot always answer. The candidates are the faces the cell opens onto first, then the rest
@@ -1150,7 +1284,7 @@ merge folds that footprint into the surface — the ring wraps the whole patch-p
 drag never pours a block into the trench, and no auto wall rises through a platform screen door a
 full track sliced through the patch. Single clicks
 and stacked blocks stay plain, and the drag's live ghost shows the wall ring before release. The
-地基 tool carries a **自动生成墙壁** toggle in the 工具 folder, and it is **off by default**: the same
+方块 tool carries a **自动生成墙壁** toggle in the 工具 folder, and it is **off by default**: the same
 drag lays the patch as untagged bare blocks unless the ring is asked for. It has no key — **Tab** steps
 the 切角 tile's cut modes instead (半墙 / 三角上 / 三角下) — and that tile is disabled while any of them is
 on, since the two are exclusive. See `test/walls.test.mjs`.
@@ -1227,7 +1361,7 @@ approximated); neither needs WebGL.
   boundaries rather than refused, while a broken envelope is still refused whole.
 * `grid.test.mjs` — nothing in the game can put a cell off the 1 m grid. Every palette piece is
   placed at every rotation, width, direction and 闸机 door mode, every staircase shape at
-  fractional legacy widths (1.2, 1.6 m), and 地基 / 墙 / 房间 / 电梯 / 站台 / 隧道 / 材质 / 分区 /
+  fractional legacy widths (1.2, 1.6 m), and 方块 / 墙 / 房间 / 电梯 / 站台 / 隧道 / 材质 / 分区 /
   移动 are driven through their real builders, each asserting that every cell and every module
   anchor — `from`, `to` and a switchback's flights included — stays whole. This is the guard on
   the code that *makes* stations: a save cannot be written with an off-grid block either
@@ -1237,7 +1371,7 @@ approximated); neither needs WebGL.
   whatever angle the surface it hit is drawn at. `CameraSystem.pick` reads the drawn mesh and
   `THREE.Intersection.face.normal` is the *triangle's* geometric normal, so the two faces this game
   deliberately draws off-axis — the wedge a 楼梯 / 扶梯 leaves the block under it (its top is the
-  run's sloping underside) and every rounded block edge — used to hand a tool a fraction: a 地基
+  run's sloping underside) and every rounded block edge — used to hand a tool a fraction: a 方块
   block laid beside the block under an escalator landed at (4.44, −0.15, 1.89). The test rays the
   **real chunk geometry** rather than typed-in normals — a case that only passes on made-up numbers is
   what let this through — and pins that the axis snap is the one the 材质 brush paints by
@@ -1278,7 +1412,12 @@ approximated); neither needs WebGL.
   share space (a gate line in adjacent cells is fine, a module on the storey above is not a
   conflict), a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
   cell it covers, `removeModule` bulldozes exactly one module and leaves its block, and the block
-  brush refuses a cell reserved by a ramp opening or an exit's floor (`reservedOpening`). The
+  brush refuses a cell reserved by a ramp opening or an exit's floor (`reservedOpening`) **or held by
+  a piece of equipment** (`moduleBlockedCells`: a 闸机, a 售票机, a 座椅, a 房间's whole plan or a
+  hung 指示牌's column — while a run's landings and the ground under its slope stay floor, since the
+  carve is what owns the corridor between them). A ceiling-hung piece shares its cell with whatever
+  stands on the floor or hangs on the wall, since it wants the air and not the cell, and is refused
+  only against another hung piece or a run. The
   装饰 广告牌 is wall-mounted: `wallMountMissing` refuses it without a solid wall block
   at the facing neighbour's first course, and `wallSide` turns that requirement with the module's
   rotation. `autofaceWallMount` turns the panel to face that wall, so the rotation is derived rather
@@ -1286,6 +1425,28 @@ approximated); neither needs WebGL.
   reusing a letter freed by a delete or rename, and falling back to 未命名口 once all 26 are taken.
   A wall-mounted ad may also stand in the face-adjacent cell when the pointer is on a wall itself
   (`wallMountStandCell`), so it can bolt to the station wall across the track.
+* `validation.test.mjs` — **the preview and the release are one verdict** (`build/validation.ts`
+  over `sim/placement.ts`'s `blockReason` / `equipmentReason`), which is the property the player
+  sees: a cell the ghost promises is a cell the edit commits, and a cell it refuses is one the
+  release drops *and reports*. `blockReason` names the rule that fired (`opening` / `equipment` /
+  `track`) and, for equipment, the piece itself, so the preview can box the 闸机 it collided with.
+  `checkBlockCells` splits a whole gesture into the accepted cells the cyan ghost draws and the
+  refused cells + offending pieces the red boxes mark, over a rectangle that meets a 闸机, a hung
+  时钟 and a rail bed; `addCells` lays exactly the accepted set and counts exactly the refused one,
+  `addFloor` carries on around a piece, and a wall column is refused at the courses the piece really
+  occupies while standing clear above it (a 闸机 is 1.3 m). `equipmentReason` is one rule set with one
+  sentence per rule — the ground, the storey an 出入口 belongs to (while placing, not while moving),
+  the rails, the space another piece holds, a 广告牌's wall, a hung piece's slab, a 扶梯's two landings
+  and a 电梯's bay — and `moveDropReason` reads the same one, so the 移动 card and the hover cannot
+  drift. `checkModulePlacements` gathers a placement's candidates (a wide 楼梯 is several lanes) with
+  the colliders each refusal names, and `firstRefusal` / `dominantRefusal` /
+  `blockRefusalNotice` turn the whole preview into the notice line — the majority
+  refusal, not the first cell walked into. A run's footprint is its two landings
+  (the void middle is carved, not refused), and a lift short of floor names its bay
+  (`lift-footprint`, never the generic floor — the dedicated branch used to sit
+  behind the generic check where no lift could reach it). The course arithmetic
+  underneath (`sim/courses.ts` `wallCourses`) claims a course the panel crosses and
+  never one its edge merely touches.
 * `openings.test.mjs` — a placed ramp carves the slab it climbs through but keeps its landings as
   graph nodes, only the run's centreline cells are carved (a block the handrail merely grazes is
   kept), a wall beside a run survives untouched (the run sweeps less than half a cell, so nothing
@@ -1293,7 +1454,7 @@ approximated); neither needs WebGL.
   marked as half blocks while a wall it reaches is thinned the same way (an old 1.6 m stair, or a 2–3
   lane turning stair — a straight wide stair is lanes now, so it reaches nothing), and every cell the carve
   opens reads as reserved so a hand-built block cannot cover it back up.
-* `slope-cut.test.mjs` — the ground under a run (§5.1 / §4.2): the 地基 tool lays a block under a
+* `slope-cut.test.mjs` — the ground under a run (§5.1 / §4.2): the 方块 tool lays a block under a
   楼梯 / 扶梯 and the carve leaves it (a block already there when the run arrives survives it), the cut
   is the run's own underside — `RAMP_FOOT` below the walking line at every point across the block,
   never above it — one block per tile of the run's own column and nothing beside or past it, a stair
@@ -1467,7 +1628,8 @@ approximated); neither needs WebGL.
   files both under 装饰 with their Chinese labels, the factory builds them with the hover rotation,
   each reserves exactly its own cell from the floor top to the storey ceiling, neither may be hung
   where there is no slab overhead while floor-standing pieces are never asked for one, neither may
-  share a cell with anything, neither may stand on a track bed, both are movable and round-trip the
+  share a cell with **another hung piece** — while a 闸机, a 座椅 or a 广告牌 on the same tile is
+  allowed, and a run is not — neither may stand on a track bed, both are movable and round-trip the
   save, and a drag sweep collects a run of either without taking the other. The models are measured
   too, off the **geometry** rather than a texture: the clock is a true cylinder whose face disc
   hangs at 2.4 m with a **white** material, twelve hour markers and 48 minute ticks in **black**
@@ -1494,8 +1656,53 @@ approximated); neither needs WebGL.
   silhouette; every poster a format can roll is cropped by less than 1.45× and the window that does the
   cropping keeps the image's own aspect (`panelUvWindow`), so nothing is ever stretched; the window is
   the centred crop and the cropped quad's UV corners walk it in three's own order; an unknown slug falls
-  back to the catalogue head rather than to a blank face; and all six panels fit their run, the 2.4 m
-  collision envelope and the 4 m storey.
+  back to the catalogue head rather than to a blank face; and all six panels fit their run, the wall
+  band their collision envelope reserves (`panelZ` ± `panelH` / 2, so a poster never claims the floor
+  under it) and the 4 m storey.
+* `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers six (one, two or three cells
+  wide, in a 1 m and a 2 m height), one palette tile per size, and a legacy or unknown value reads as
+  the 1 × 1 band; the factory centres the run on the hovered cell; the envelope is a **slab on a wall**
+  rather than a cell (`x + w` is not the run — at rot 2 it lies along −x, and `wallPanelBox` reads the
+  module's own cells so the housing stays on the wall on every rotation); every cell of the run needs
+  backing, and so does **every course the panel crosses** (a 1 m wall carries the 1 m band and refuses
+  the 2 m window); a panel turns itself to a wall that backs it; two may not share a cell; the pieces
+  round-trip the save and sweep by size. The model is where "outer frame only" becomes a number: five
+  meshes at **every** size — a sill, a head, two end posts and one pane — against a 围栏 run of the same
+  length, which stands one frame up per cell.
+* `calligraphy.test.mjs` — the 站名 (§5.7): six hands (楷书 / 行书 / 隶书 / 魏碑 / 黑体 / 宋体, each
+  with its own font stack, ink, tracking and second strike) on two axes, twelve palette tiles whose
+  labels name both; the characters are the station's own name, capped at eight and never blank; the
+  panel is cut for it — whole cells across at eye height, one column down in 竖排, with the type
+  shrinking when the name outgrows the panel rather than the panel growing past its ceiling; the wall
+  courses are the band the inscription crosses (a 横排 band written 1.2 m up wants the 2nd and 3rd), so
+  a low inscription shares its cell with a bench under it while a 售票机 reaches into it; the factory
+  records the hand and the axis and cuts the panel from the live name. The pixels are pinned through
+  the recording canvas: **the name is the whole plate** — nothing fills at all, so the wall is the
+  paper and no seal is stamped beside the characters — one strike per character plus a drier second
+  pass, the run laid out across in 横排 and down the column in 竖排, and the wash from a hash of the
+  character, so a rebuild reprints the same wall instead of twitching. The scene's own plate cache is
+  driven too: a rename repaints every inscription **in place** (retained by module id), a different
+  hand is a different texture, and a module the document no longer holds gives its plate back.
+* `line-map.test.mjs` — the 线网图 (§5.7): the two mounts are one table — a wall board (two cells,
+  single-sided, on a wall on every course it crosses, with its frame's bottom 1.06 m up so a 座椅
+  stands under it) and a free-standing totem (the **same two-cell board** on a plinth and a post,
+  printed on **both** faces, floor-standing and never asked for a wall). **The board is the supplied
+  poster**: the file's own JPEG header is read, its 2048 × 2047 size pinned, and the panel's aspect
+  checked against it, so the crop window is the whole image (`panelUvWindow` is the identity) — and
+  replacing the asset with a differently shaped picture fails the test rather than silently cropping
+  the map to a slice. The **placeholder board**'s arithmetic is checked on the real table too: one band
+  per line in document order, never overlapping, the shield heading its run, every station ticked, the
+  station two lines share ringed as an interchange, labels thinning to every nth when a 1.8 m board
+  cannot hold them — with a label's own width clear between the ones it keeps — and lines the panel is
+  too short for counted in the footer rather than folded onto each other. The pixels are read back: the
+  title and the station's own plate, each line's colour as a band and a shield, every station named, the
+  footer counting the network, and a recoloured line reaching the board. The model pins the mount: one
+  lit face on the wall board facing into the room, and **two planes facing opposite ways** off one face
+  on the totem, never one double-sided plane that would print the map mirrored on the back.
+  The scene's own plate cache (`PlateSystem.makeLineMapPlate`) is driven the way the modules
+  drive it: the placeholder is owned pixels cached by piece and panel, the poster's face is
+  shared art the cache neither mints nor frees, a placeholder left past the poster's arrival
+  is evicted on retain, and a line edit repaints the placeholder in place.
 * `tv-screen.test.mjs` — the 电视's two lit panes (`render/models.ts` `buildTv`), pinned in geometry
   because the failure is silent: the content window's pane must stand clear of the dark backing slab
   that carries it, since a coplanar pane z-fights that slab and the window renders as a flat black
@@ -1514,7 +1721,10 @@ approximated); neither needs WebGL.
   block wider per bay, a stair climbing `STAIR_RISE` over `STAIR_RUN`, a 2 m run spanning two cells,
   the 零售 shell *being* the store room); the consist (`cars × carLength` of body, both ends cabs, one
   leaf per modelled door, white lamps leading); the four per-frame setters (`setGateWing` — whose
-  hinge end never moves — `setDoors`, `setDoorsSides`, `rollEscalator`); and a teardown, which frees
+  hinge end never moves — `setDoors`, `setDoorsSides`, `rollEscalator`); the 扶梯's own **body under
+  its truss**, which is walked as a closed shell and measured against the lower landing, the course
+  the ground leaves, the cell edges it spans and the truss's width, and rayed straight up over that
+  course and past it; and a teardown, which frees
   every geometry a group owns — an `InstancedMesh`'s instance buffers included — while keeping the
   shared kit and the shared ad quads.
 * `station-display.test.mjs` — the 电视 board's own arithmetic (`render/stationDisplay.ts`), testable
@@ -1569,7 +1779,20 @@ approximated); neither needs WebGL.
   folder the rail already opens on), one key a folder and one folder a key, the lookup is case-blind
   because the listener hands over `KeyboardEvent.key.toLowerCase()`, and a letter no folder stands on
   falls through to the app's own switch instead of folding something.
-* `halfwall.test.mjs` — the **半墙** (§4.1/§4.3), the 地基 tool's half-block mode
+* `rail-families.test.mjs` — the rail's **variant families** (`app/store/catalog.ts` `MODULE_FAMILIES`),
+  the one table the parent tiles, the sub-menus, the rail's single open slot, the folder counts and the
+  contextual action row all read. It pins the four halves against each other for every family and every
+  palette id: the keys and anchors are unique; each family owns at least one variant and **no variant is
+  claimed twice**; every family is filed in the folder its own pieces are filed in (装饰 by `isDecorType`,
+  设备 by the rest) and `familiesIn` names them in rail order; a family's variants are excluded from its
+  folder's plain tiles, so nothing is drawn twice and everything the folder can place is reachable; the
+  open slot answers with the piece's own family (`subMenuForModule`), which is what stops a variant
+  folding its list away the moment it is picked; and every piece with an action row anchors to a tile its
+  folder really draws — `actionsAnchorFor` names the family tile for a variant and the piece's own tile
+  otherwise, so the 旋转 row can never fold out under nothing; and `actionRowOpen` is open only under the
+  family being browsed — the reported 玻璃板 → 站名 case is pinned by name, for every family pair, so no
+  family can ever show a stray 旋转 row inside another family's list.
+* `halfwall.test.mjs` — the **半墙** (§4.1/§4.3), the 方块 tool's half-block mode
   (`build/model.ts` `addWalls`'s `side`): the column is an ordinary tagged wall — a `half-wall:w` course
   that lifts, slices and carves like any other while the mesher draws it `HALF_WALL_T` thick in the half
   the side names; **R** offers the geometry's own faces first for a single column and only the two
@@ -1596,7 +1819,7 @@ approximated); neither needs WebGL.
   which is what keeps the quad on the diagonal rather than folded through it; the tile
   cycles 半墙 → 三角上 → 三角下 → 关, the three cut modes are exclusive with each other and with the ring, and
   the kind and the side both join the ghost key (R rebuilds the preview without the cell moving).
-* `blocktool.test.mjs` — the 地基 tool's own press/release path: a cut click lays exactly the piece its
+* `blocktool.test.mjs` — the 方块 tool's own press/release path: a cut click lays exactly the piece its
   ghost previewed (the defect this file exists for was the ghost drawing a panel while the release laid
   an untagged full block), the floor it stands on is left byte-identical, R walks the side and the
   label with it, and a 半墙 aimed at a cell the auto-wall ring already fills is a no-op rather than a
@@ -1734,6 +1957,17 @@ comment there explains the trade.
   full depth so its texture meets the flat top's instead of stopping at a 12.5 cm sliver.
   `test/floor-surface.test.mjs` pins the planarity, the 45°, the outward winding and the UV
   join, because a triangle count cannot see any of them.
+* **The filling under a run is a closed body.** `rampFillKeys` derives the wedge between the
+  ground and a truss's underside, and the mesher draws it as the run's own body. Two things
+  had to be true for it to read as solid. A fill cell must **not** count as solid when its
+  neighbours ask what is exposed — it is drawn, but it is not a cell the station holds — or
+  the cell below believes a block stands on it, reports `up = false` and never draws a top
+  face: the run came out as four walls with no lid, and the inside of the escalator showed
+  through the gaps between them. And the top face's height is the **cell ceiling**, not the
+  wall's own top: a plain block's walls stop a bevel lower so the chamfer has somewhere to
+  be, and reading that height for the cap drops the whole floor 12.5 cm, opening a rim of
+  missing surface right round every block. `test/floor-surface.test.mjs` reads the filling's
+  height rather than counting its triangles, because only the height can tell a lid from none.
 * **The day clock is real time at 1×, not 120×** (above).
 * **Zones, surfaces, save/load, settings, charts and the module catalogue beyond
   escalator / gate / TVM / bench / exit are out of scope**, exactly as PLAN §7 lists.

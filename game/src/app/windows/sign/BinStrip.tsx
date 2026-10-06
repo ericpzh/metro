@@ -19,8 +19,8 @@ import { componentName } from './tokens.ts'
  *
  * Every bin is the same square and shows nothing but the mark: the place in the list is
  * where it is on screen, so a number in the corner would only repeat the row's own order,
- * and the mark's name is its tooltip rather than a caption the tile has to carry. What is
- * left in a bin is the piece of sign that will stand there.
+ * and the mark's name is its accessible label rather than a caption the tile has to
+ * carry. What is left in a bin is the piece of sign that will stand there.
  *
  * The stand-in place carries nothing — no art, no delete button, no tooltip — because it
  * is not a mark: it is the absence of one, and the row it sits in is where the next mark
@@ -69,7 +69,7 @@ export function BinStrip({
             key={comp.id}
             className={comp.id === selectedId ? 'bin on' : 'bin'}
             role="listitem"
-            title={`${componentName(comp)} · 拖到别处换位置，拖出面板删除`}
+            aria-label={`${componentName(comp)} · 拖到别处换位置，拖出面板删除`}
             // The press only arms a possible drag: the window listeners in the editor
             // decide whether it became one, so a click still selects.
             onPointerDown={(e) => onPickStart(comp.id, e)}

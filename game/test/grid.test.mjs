@@ -99,20 +99,20 @@ test('a legacy staircase width that is not a whole number of lanes stays on the 
 })
 
 test('every other tool lays only whole cells', () => {
-  // 地基 (brush + drag + auto walls) and 墙.
+  // 方块 (brush + drag + auto walls) and 墙.
   let st = base()
   const patch = []
   for (let x = 20; x < 25; x++) for (let y = 20; y < 25; y++) patch.push([x, y, 0])
   st = { ...st, cells: addCells(st.cells, patch, st.modules).cells }
-  assertOnGrid('地基 brush', st)
-  assertOnGrid('地基 auto walls', syncAutoWalls(st))
+  assertOnGrid('方块 brush', st)
+  assertOnGrid('方块 auto walls', syncAutoWalls(st))
   const run = []
   for (let x = 26; x < 30; x++) run.push([x, 26, 0])
   assertOnGrid('墙 drag', addWalls(st, wallRun(run)).state)
   // The 半墙 mode lays the same column, each course tagged with its own half of
   // the tile: a thickness, never a fraction of a cell.
   assertOnGrid('半墙 drag', addWalls(st, wallRun(run), 'w').state)
-  assertOnGrid('地基 addFloor', addFloor(st, patch.map(([x, y, z]) => [x, y, z])))
+  assertOnGrid('方块 addFloor', addFloor(st, patch.map(([x, y, z]) => [x, y, z])))
 
   // 房间.
   for (const kind of ['store', 'toilet', 'office', 'ticket']) {

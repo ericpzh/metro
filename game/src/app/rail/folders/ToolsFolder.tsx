@@ -1,11 +1,11 @@
 // The 工具 folder body (§4 pointer tools).
 //
-// 选择 / 地基 (+自动生成墙壁 + the 切角 tile) / 墙 / 删除, plus undo-redo. The
+// 选择 / 方块 (+自动生成墙壁 + the 切角 tile) / 墙 / 删除, plus undo-redo. The
 // folder chrome (`Folder` + open state) stays with the rail shell; this file
 // owns only what the folder shows.
 //
-// The two tiles the 地基 tool adds are its two choices, and **Tab is on the cut
-// tile**: it steps 半墙 → 三角上 → 三角下 → off, which is the question a 地基 click
+// The two tiles the 方块 tool adds are its two choices, and **Tab is on the cut
+// tile**: it steps 半墙 → 三角上 → 三角下 → off, which is the question a 方块 click
 // answers — what shape does this one lay. 自动生成墙壁, which used to hold Tab, is off
 // when the game opens and is asked for here instead: the ring is the one thing the
 // tool does that the player did not draw.
@@ -15,7 +15,7 @@ import type { Tool } from '../../store.ts'
 import { Block } from '../shared/Block.tsx'
 
 /**
- * The 地基 tool's cut modes, as the one tile that steps them: 半墙 → 三角上 → 三角下
+ * The 方块 tool's cut modes, as the one tile that steps them: 半墙 → 三角上 → 三角下
  * → off, and round again. They share a button because they are one question —
  * what shape does this click lay — and **R** turns the piece whichever of the three
  * is showing; the label says which is live, so the tile is its own readout.
@@ -42,7 +42,7 @@ export function ToolsFolder(): React.ReactElement {
           { id: 'select', label: '选择', icon: 'select', shortcut: 'Z' },
           {
             id: 'block',
-            label: '地基',
+            label: '方块',
             icon: 'block',
             shortcut: 'F',
           },
@@ -74,7 +74,7 @@ export function ToolsFolder(): React.ReactElement {
           disabled={cut !== null}
           title={
             cut === null
-              ? '自动生成墙壁：拖动地基时沿外圈长出 4 m 墙（默认关闭，点一下打开）'
+              ? '自动生成墙壁：拖动方块时沿外圈长出 4 m 墙（默认关闭，点一下打开）'
               : '自动生成墙壁：切角模式占用中，退出切角后可打开'
           }
           onClick={() => st().setAutoWalls(!autoWalls)}

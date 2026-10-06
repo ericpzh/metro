@@ -14,6 +14,7 @@ import type { MaterialSet } from '../materials.ts'
 import { createModelMaterials, disposeModelMaterials, refreshSignFaceMaterial } from '../models.ts'
 import type { ModelMaterials } from '../models.ts'
 import { createAdArt } from '../adArt.ts'
+import { createLineMapArt } from '../lineMapArt.ts'
 import { loadPictograms } from '../pictograms.ts'
 import type { CellShape, Face, Module, StationData } from '../../sim/types.ts'
 import { SceneContextData } from './systems/SceneSystem.ts'
@@ -75,10 +76,19 @@ export class SceneRenderer {
     // face, and `onReady` redraws the modules so every poster appears without a
     // reload — see `render/adArt.ts` for why the pixels are not loaded lazily.
     const ads = createAdArt(this.renderer)
-    this.ctx = new SceneContextData(scene, mats, modelMats, ads)
+    // The 线网图's poster, one cache per scene the same way: it decodes in the
+    // background and `onReady` redraws the modules, so every map hangs the real
+    // 线网示意图 without a reload. Until then each prints the **drawn placeholder board**
+    // (`render/lineMapFace.ts`), because a material minted around an image-less texture
+    // uploads empty and stays blank.
+    const lineMaps = createLineMapArt(this.renderer)
+    this.ctx = new SceneContextData(scene, mats, modelMats, ads, lineMaps)
     void this.ctx.ads.load(() => {
       // The parameter is the legacy packed-key set `buildModules` no longer
       // reads (it derives its own from the data), so the station alone is passed.
+      if (!this.ctx.disposed && this.ctx.stationData) this.modules.buildModules(this.ctx.stationData, new Set())
+    })
+    void this.ctx.lineMaps?.load(() => {
       if (!this.ctx.disposed && this.ctx.stationData) this.modules.buildModules(this.ctx.stationData, new Set())
     })
     // The 指示牌's pictograms are bitmap art, and a plate printed before the
@@ -189,8 +199,11 @@ export class SceneRenderer {
     this.ctx.mats.retain(finishesInUse(data))
     this.ghostSys.clearModulePreview()
     // A 指示牌 prints the station's lines, so a line edit reprints every face
-    // already hanging before the rebuild replaces them.
+    // already hanging before the rebuild replaces them — and the two 装饰 pieces that
+    // carry the station's own words, a 站名's name and a 线网图's network, are
+    // reprinted for the same reason: a rename or a recoloured line reaches the wall.
     this.plates.redrawSignPlates()
+    this.plates.redrawDecorPlates()
     this.chunks.meshStation(data)
     this.modules.buildModules(data, trackCells)
     this.grid.buildGrid()
@@ -448,8 +461,9 @@ export class SceneRenderer {
     kind: 'add' | 'remove',
     colour = 0xff5d5d,
     thin?: ReadonlyMap<number, CellShape>,
+    refused?: ReadonlyArray<[number, number, number]>,
   ): void {
-    this.ghostSys.setGhost(cells, kind, colour, thin)
+    this.ghostSys.setGhost(cells, kind, colour, thin, refused)
   }
 
   setFaceGhost(cells: Array<[number, number, number]>, face: Face, colour: number): void {
@@ -547,8 +561,10 @@ export class SceneRenderer {
     this.modules.clearModules()
     disposeModelMaterials(this.ctx.modelMats)
     this.ctx.ads.dispose()
+    this.ctx.lineMaps?.dispose()
     this.plates.clearTvPlates()
     this.plates.clearSignPlates()
+    this.plates.clearDecorPlates()
     this.plates.tvScreens.length = 0
     this.ctx.mats.dispose()
     this.trains.dispose()

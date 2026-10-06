@@ -133,9 +133,13 @@ test('a ceiling-hung piece envelope is the whole storey column', () => {
   for (const hung of [sign(2, 3, 0), tv(2, 3, 0)]) {
     const box = moduleEnvelope(hung)
     assert.deepEqual(box, { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 4 })
-    // It is found from its floor cell and blocks another piece there.
+    // It is found from its floor cell, and that cell is its own: a second hung
+    // piece — the one thing that really wants the same air — is refused there.
     assert.equal(moduleAt([hung], 2, 3, 0)?.type, hung.type)
-    assert.equal(placementBlocked([hung], gate(2, 3, 0)), true)
+    const other = hung.type === 'sign' ? tv(2, 3, 0, 'other') : sign(2, 3, 0, 'other')
+    assert.equal(placementBlocked([hung], other), true)
+    // A piece standing on the floor shares the tile: the sign hangs over it.
+    assert.equal(placementBlocked([hung], gate(2, 3, 0)), false)
     // Adjacent cells stay free.
     assert.equal(placementBlocked([hung], gate(3, 3, 0)), false)
   }

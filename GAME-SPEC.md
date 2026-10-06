@@ -445,7 +445,7 @@ below a first.
 
 A run is founded on the ground it climbs over, and its body hangs **below** its walking line — an
 escalator's truss, a staircase's soffit and stringers, half a metre of it. So a block under a run is
-floor like any other: the 地基 tool lays it, the carve does not take it away (the carve opens the run's
+floor like any other: the 方块 tool lays it, the carve does not take it away (the carve opens the run's
 passage from the walking line **up**, and keeps the landings as the graph's nodes), and the renderer
 shaves its top to the run's underside (§4.2), tile by tile, so what stands under a 扶梯 is the filling
 under the slope rather than a cube with the truss buried in it. Only the column the run's own walking
@@ -454,6 +454,16 @@ crowd stands on at the foot of the run, so a block there is cut level with that 
 slope. A block the run's body never reaches is left exactly as it was built. The cut is a *surface*:
 the crowd's model of a block is still its cell top, which is why it only ever happens below a run's
 walking line and never in a column anyone walks.
+
+An **escalator carries that course itself**: its 扶梯 piece is solid under the truss over the cells the
+ground's own filling covers — a closed prism across the balustrade width, from the lower landing's
+walking line up to the plane the ground under a run is shaved to (`RAMP_FOOT` below the walking line,
+above), which its lid follows to its very end — instead of leaving it to a derived surface the renderer
+has to tell its neighbours to treat as solid. Its lid *is* that plane and its flanks are flush with the
+truss box's own, so the body, the shaved ground and the truss read as one solid with no step and no
+slit, standing exactly where the ground's own filling stood. A
+staircase keeps the behaviour above: its soffit and stringers hang below the walking line and its
+underside is the ground's filling, drawn to the slope wherever ground reaches it.
 
 ### 5.2 Fare control and service
 

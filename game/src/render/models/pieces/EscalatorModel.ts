@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { ESCALATOR_BALUSTRADE, ESCALATOR_SPEED, ESCALATOR_STEP_PITCH } from '../../../sim/constants.ts'
+import { RAMP_FOOT } from '../../../sim/openings.ts'
 import type { Module } from '../../../sim/types.ts'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
@@ -15,6 +16,82 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 // slab over a hidden voxel; routing it through the mesher is what made a stair's
 // own half wall a real surface — its faces keep their own finishes, so the 材质
 // brush paints it, and the drawn panel itself is what the pointer picks.
+
+/* ----------------------------------------------------------------- the body */
+
+/**
+ * The truss box: `TRUSS_DROP` below the walking line to the middle of the ribbon, and
+ * `TRUSS_DEPTH` thick. It is the piece's own shell — the solid under it is cut to the ground's
+ * surface instead (`undercroftSolid`), which lands inside this box.
+ */
+const TRUSS_DROP = 0.3
+const TRUSS_DEPTH = 0.34
+/**
+ * The **course** the ground under a run always stops short of, in metres. The 方块 brush may not
+ * lay that last course — its top face would sit above the walking line, where the crowd's own
+ * floor is measured — which is the whole reason a filling exists (`rampFillKeys`,
+ * `sim/openings.ts`). It is what the solid under a truss is measured against: the body covers the
+ * cells the ground's own filling covered along that course, and no further.
+ */
+const UNDERCROFT_COURSE = 1
+
+/**
+ * The solid under the truss — the escalator's **own** body, over the course the ground leaves.
+ *
+ * The piece is otherwise a shell, and the wedge under a run used to be drawn as a derived
+ * surface that belongs to the **ground**: a cell the renderer filled only where a run hangs
+ * directly over a block, which is one course deep and truss-width. The escalator carries that
+ * body itself instead, drawn for every escalator rather than depending on the ground beneath it.
+ *
+ * Its lid is the plane the ground under a run is **shaved to** (`RAMP_FOOT` below the walking
+ * line, `rampSlopeCuts` in `sim/openings.ts`), not the truss box's own underside. That is what
+ * makes the two one surface: the body meets the shaved ground level and the trench the cut opens
+ * at the foot closes exactly where the body begins. The truss's underside hangs lower still, so
+ * the body's top and flanks are buried inside the box — flush with its flanks at
+ * `ESCALATOR_BALUSTRADE` across, with no step for the eye and no face for the depth buffer to
+ * fight over, since both wear the same steel. The lid follows that plane **to the body's very
+ * end** rather than flattening off at the course line, so the end face meets the truss's own
+ * underside instead of stopping a hand's width short of it and leaving a slit to see through.
+ * The body reaches as far as the ground's filling did and no further: the cells the shaved plane
+ * crosses inside one course, past which the run keeps the open underside it has always had.
+ *
+ * It is built in **world axes** — X up the run, Y up, Z across it — because its floor is
+ * world-horizontal while its lid follows the incline; the caller places it at the lower landing
+ * through the inverse of the run's own rotation, the idiom the step band already uses. `climb`
+ * is the unit run from the lower landing to the upper one. Returns null for a run with no room
+ * under it (a level one, or one whose lid is already on the floor).
+ */
+function undercroftSolid(climb: THREE.Vector3, len: number, mat: THREE.Material): THREE.Mesh | null {
+  const cosT = Math.hypot(climb.x, climb.y)
+  const sinT = climb.z
+  if (sinT < 0.05 || cosT < 0.05) return null
+  const slope = sinT / cosT
+  const flat = len * cosT // the run's horizontal length
+  const rise = len * sinT - RAMP_FOOT // the lid's height at the upper landing, inside the truss box
+  const foot = RAMP_FOOT / slope // where the lid meets the floor: nothing below it to fill
+  // How far along the run the body reaches: the far edge of the last cell the ground's own
+  // filling covered, which is the last one the shaved plane crosses inside the course. Past it
+  // the run is the open shell it has always been.
+  const courseEnd = (RAMP_FOOT + UNDERCROFT_COURSE) / slope
+  const end = Math.min(flat, rise <= UNDERCROFT_COURSE ? flat : 0.5 + Math.ceil(courseEnd - 0.5))
+  // Its lid is the shaved plane **to its very end**, never flattened at the course line: the truss
+  // box's underside hangs 6.5 cm lower the whole way, so a flat cap would leave the body's last
+  // stretch — and the end face itself — standing in a slit under the truss instead of meeting it.
+  const top = end * slope - RAMP_FOOT
+  if (top < 0.05 || end < foot + 0.05) return null
+
+  const section = new THREE.Shape()
+  section.moveTo(foot, 0)
+  section.lineTo(end, 0)
+  section.lineTo(end, top)
+  section.closePath()
+  const geo = new THREE.ExtrudeGeometry(section, { depth: ESCALATOR_BALUSTRADE, bevelEnabled: false })
+  geo.translate(0, 0, -ESCALATOR_BALUSTRADE / 2) // centred on the run's own line
+
+  const solid = new THREE.Mesh(geo, mat)
+  solid.name = 'undercroft'
+  return solid
+}
 
 /* -------------------------------------------------------------- escalator */
 
@@ -87,7 +164,8 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
   // balustrades, and the pair reads as a bank of two rails side by side. Truss and
   // side skirts are trimmed to the run, so the ramp never pokes past its landings
   // into the floor it connects to.
-  slab(g, mats.darkSteel, len / 2, 0, -0.3, len, W, 0.34)
+  const truss = slab(g, mats.darkSteel, len / 2, 0, -TRUSS_DROP, len, W, TRUSS_DEPTH)
+  truss.name = 'truss'
   slab(g, mats.steel, len / 2, W / 2, 0.0, len, 0.06, 0.62)
   slab(g, mats.steel, len / 2, -W / 2, 0.0, len, 0.06, 0.62)
 
@@ -149,6 +227,20 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
   slab(g, mats.steel, 0.05, 0, -0.02, 0.5, W, 0.06)
   slab(g, mats.steel, len - 0.05, 0, -0.02, 0.5, W, 0.06)
   const hdir = new THREE.Vector3(climb.x, climb.y, 0).normalize()
+  // The solid under the truss. `g` carries the run's own incline, so the wedge — built in
+  // world axes, its floor level and its lid on the incline — goes in through the inverse of
+  // that rotation, exactly as the step band does.
+  const solid = undercroftSolid(climb, len, mats.darkSteel)
+  if (solid) {
+    const inv = g.quaternion.clone().invert()
+    const across = new THREE.Vector3().crossVectors(hdir, up).normalize() // (hdir, up, across) is right-handed
+    solid.quaternion
+      .copy(inv)
+      .multiply(new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(hdir, up, across)))
+    solid.position.copy(lower).sub(a).applyQuaternion(inv)
+    g.add(solid)
+    g.userData.undercroft = solid
+  }
   const plateLen = 0.5
   // The band's outer tread overhangs the landing node by about `stepRun / 2`.
   // The plate starts just past that and is pulled a quarter tile (0.25 m) back
