@@ -103,6 +103,28 @@ test('every screen door stands on a car door, and no car door is left without on
   }
 })
 
+test('one line with two directions runs one train per track', () => {
+  // Two parallel rails on one line: the 上行 bed at y = 0 serves the y = 1
+  // platform, the 下行 bed at y = 4 serves y = 3 — one screen run each.
+  const cells = []
+  for (let x = 0; x < 30; x++) for (let y = 0; y < 5; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  let s = station(cells)
+  s = placeTrack(s, { lineId: '1', dir: 'up', power: 'third-rail', rot: 0, x: 0, y: 0, z: 0, w: 24, d: 1 })
+  s = placeTrack(s, { lineId: '1', dir: 'down', power: 'third-rail', rot: 0, x: 0, y: 4, z: 0, w: 24, d: 1 })
+  assert.equal(s.modules.filter((m) => m.type === 'platform-edge').length, 2, 'one screen run per rail')
+  const w = new World(s, 99)
+  for (let i = 0; i < 20; i++) w.tickOnce()
+  assert.equal(w.trains.length, 2, 'each direction runs its own consist')
+  const pose = w.trainRenderState()
+  assert.equal(pose.length, 2 * STRIDE, 'one pose per consist')
+  assert.notEqual(pose[1], pose[STRIDE + 1], 'the consists berth on different rails')
+  const [a, b] = w.trains
+  assert.notEqual(a.track, b.track, 'bound to different tracks')
+  assert.ok(a.doors.length > 0 && b.doors.length > 0, 'each serves its own screen doors')
+  const owned = new Set(a.doors)
+  assert.ok(b.doors.every((d) => !owned.has(d)), 'no door server is served twice')
+})
+
 test('a stop is a fixed berth / open / dwell / close / hold / depart sequence', () => {
   const w = new World(scenarioStation({ upEscalators: 3 }), 99)
   const seen = []

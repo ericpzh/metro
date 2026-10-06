@@ -9,7 +9,7 @@
 import * as THREE from 'three'
 import { buildTrain, disposeObject, setDoors, setDoorsSides } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
-import { STOCK_CLASSES } from '../../../sim/stock.ts'
+import { STOCK, STOCK_CLASSES } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -53,8 +53,8 @@ const TRAIN_MISSES_ALLOWED = 4
 export class TrainSystem extends SceneSystem {
   trainGroup: THREE.Group = new THREE.Group()
   private trainSlots = new Map<string, TrainEntry>()
-  /** Platform-screen-door groups, keyed to the line colour that opens them. */
-  psdGroups: Array<{ group: THREE.Object3D; colour: number }> = []
+  /** Platform-screen-door runs with their berth position, for per-rail opening. */
+  psdGroups: Array<{ group: THREE.Object3D; x: number; y: number; z: number; half: number; fx: number; fy: number }> = []
   /** Level slicing for newly arrived consists; wired by the orchestrator. */
   level!: LevelSystem
 
@@ -88,7 +88,7 @@ export class TrainSystem extends SceneSystem {
       entry.active = false
       entry.missed++
     }
-    const openColours = new Set<number>()
+    const openTrains: Array<{ x: number; y: number; z: number; fx: number; fy: number; half: number }> = []
     for (let i = 0; i < n; i++) {
       const o = i * STRIDE
       const x = buffer[o]
@@ -101,7 +101,10 @@ export class TrainSystem extends SceneSystem {
       const dirSign = buffer[o + 7] >= 0 ? 1 : -1
       const yaw = buffer[o + 8]
       const doorSides = buffer[o + 9] | 0
-      if (doorsOpen && doorSides !== 0) openColours.add(colour)
+      if (doorsOpen && doorSides !== 0) {
+        const cls = STOCK_CLASSES[stockIdx] ?? 'B'
+        openTrains.push({ x, y, z, fx: Math.cos(yaw), fy: Math.sin(yaw), half: (STOCK[cls].length * cars) / 2 })
+      }
       const sig = `${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}:${doorSides}`
       let entry = this.trainSlots.get(sig)
       if (!entry) {
@@ -153,8 +156,24 @@ export class TrainSystem extends SceneSystem {
       this.dropConsist(entry.group)
       this.trainSlots.delete(sig)
     }
-    // The screen doors at a platform open with the train berthed at its line.
-    for (const psd of this.psdGroups) psd.group.userData.doorTarget = openColours.has(psd.colour) ? 1 : 0
+    // A screen opens with the consist berthed at its own rail — not with any
+    // train of the line — so 上行/下行 (and two stations on one line) move
+    // independently. Both island faces match the one consist between them.
+    for (const psd of this.psdGroups) {
+      let open = false
+      for (const t of openTrains) {
+        if (Math.abs(psd.z - t.z) > 2) continue
+        const dx = psd.x - t.x
+        const dy = psd.y - t.y
+        const along = Math.abs(dx * t.fx + dy * t.fy)
+        const across = Math.abs(dx * t.fy - dy * t.fx)
+        if (along <= t.half + psd.half + 2 && across <= 3.5) {
+          open = true
+          break
+        }
+      }
+      psd.group.userData.doorTarget = open ? 1 : 0
+    }
     this.updateTrains(performance.now(), 0)
   }
 

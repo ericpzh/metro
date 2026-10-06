@@ -9,6 +9,12 @@ export type TrainState = 'approach' | 'berth' | 'opening' | 'dwell' | 'closing' 
 export interface Train {
   id: number
   line: string
+  /**
+   * The platform track module this consist serves — one train per
+   * (line, track) (§6.3), so an 上行/下行 pair runs a consist each instead of
+   * sharing the first rail's.
+   */
+  track: string
   state: TrainState
   t: number
   boarded: number

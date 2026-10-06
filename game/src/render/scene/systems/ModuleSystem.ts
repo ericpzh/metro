@@ -16,7 +16,7 @@ import {
 } from '../../models.ts'
 import type { EscalatorRoll, ModuleContext } from '../../models.ts'
 import { trackBedKeys } from '../../../sim/placement.ts'
-import { edgeCells } from '../../../sim/track.ts'
+import { edgeCells, rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -101,9 +101,11 @@ export class ModuleSystem extends SceneSystem {
         })
       }
       if (mod.type === 'platform-edge') {
-        const line = data.lines.find((l) => l.id === mod.cfg.line)
-        const colour = line ? parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0 : 0x1f5fd0
-        this.trains.psdGroups.push({ group, colour })
+        // Where this screen run sits, so the doors open with the consist
+        // berthed at its own rail rather than any train of the line colour.
+        const [fx, fy] = trackFacing(mod.rot)
+        const [ox, oy] = rotateLocal(mod.rot, (mod.w - 1) / 2, 0)
+        this.trains.psdGroups.push({ group, x: mod.x + 0.5 + ox, y: mod.y + 0.5 + oy, z: mod.z, half: mod.w / 2, fx, fy })
       }
       if (mod.type === 'billboard' || mod.type === 'tv') {
         const screen = group.userData.adScreen as THREE.Mesh | undefined

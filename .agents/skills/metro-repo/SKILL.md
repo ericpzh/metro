@@ -313,6 +313,12 @@ build/ →  sim/            (and neither render/ nor app/)
   recessed slab and rails; the consist rides at `track.z + 0.5` along the run
   axis with a matching yaw. The train anchor needs only a track — a platform edge
   is for boarding — so a fresh rail runs a train before any screen doors exist.
+  Service is one consist per (line, track) (`trainKey`, `World.serviceTracks`):
+  an 上行/下行 pair runs a train each, and each boards only at the screen doors
+  derived from its own rail (`doorsByTrack` via `cfg.from`, same-direction
+  fallback for pre-`from` edges). Tunnel runs are extensions, not berths —
+  unless the line owns nothing else, so a tunnel-only line still shows a train —
+  and a line with no rails at all keeps one line-level train serving the whole line.
   `derivePlatformEdges` generates one `platform-edge` per contiguous run of
   walkable exposed floor beside the bed (an island platform yields two — the
   Spanish solution), and `regenerateRailEdges` re-derives them after the floor
@@ -861,6 +867,9 @@ build/ →  sim/            (and neither render/ nor app/)
   (`LineAnchor.doorSides`, built in `World.computeLineAnchors` from the berth's
   `platform-edge` runs) says which of them may open, so `SceneRenderer.advanceTrainDoors`
   opens only the bank with screen doors to meet and leaves the tunnel-wall side shut.
+  The platform screens themselves open by berth proximity (`TrainSystem` matches
+  each `platform-edge` run against the poses of doors-open consists), not by line
+  colour, so the two directions — and two stations on one line — move independently.
   The cadence itself is `doorCentres` (`sim/stock.ts`): one uniform pitch per car,
   held `DOOR_END_INSET` (2.8 m) off both car ends, rounded symmetrically about the
   consist centre — so a three-door L car spreads its outer doors to the ends rather
@@ -869,8 +878,9 @@ build/ →  sim/            (and neither render/ nor app/)
   `buildGraph` seats a door server on (anchored on the edge's own rail, so a screen
   shorter than its bed still lines up; a rail-less legacy edge falls back to
   spreading over its own run).
-  `game/test/trains.test.mjs` pins the platform-side / island / no-platform cases
-  and that every screen door stands on a car door, `game/test/stock.test.mjs` the
+  `game/test/trains.test.mjs` pins the platform-side / island / no-platform cases,
+  that every screen door stands on a car door, and one train per track on a
+  two-direction line with disjoint door sets; `game/test/stock.test.mjs` the
   cadence itself.
 * The **stock classification** gained the **L** linear-motor car (`sim/stock.ts`,
   `game/test/stock.test.mjs`): `STOCK_CLASSES` (`['A','B','C','L']`) is now the

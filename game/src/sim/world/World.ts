@@ -38,7 +38,7 @@ import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type Statio
 import { liftDoorDir } from '../lifts.ts'
 import { crossingDir, ZONE_INDEX } from '../zones.ts'
 import { STOCK, STOCK_CLASSES, trainRatedCapacity } from '../stock.ts'
-import { rotateLocal, trackFacing } from '../track.ts'
+import { rotateLocal, trackFacing, type TrackModule } from '../track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
 import type { DynamicSnapshot, LineAnchor, Metrics, Train, TrainState } from './types.ts'
 
@@ -90,6 +90,11 @@ function freshMetrics(simTime: number): Metrics {
   }
 }
 
+/** Dispatch/anchor key for one service: a (line, track) pair (§6.3). */
+function trainKey(lineId: string, trackId: string): string {
+  return `${lineId}|${trackId}`
+}
+
 export class World {
   data: StationData
   graph: StationGraph
@@ -101,6 +106,8 @@ export class World {
   pool: AgentPool
   trains: Train[] = []
   doorsByLine = new Map<string, number[]>()
+  /** Door servers per (line, track) service — what each consist boards with. */
+  doorsByTrack = new Map<string, number[]>()
   doorOwner = new Map<number, string>()
   doorEdge = new Map<number, { line: string; index: number }>()
   lineById = new Map<string, LineDef>()
@@ -177,6 +184,7 @@ export class World {
     this.path = new PathFinder(this.graph)
     this.nodePop = new Int32Array(this.graph.nodeCount)
     this.doorsByLine.clear()
+    this.doorsByTrack.clear()
     this.doorOwner.clear()
     this.doorEdge.clear()
     this.lineById.clear()
@@ -190,6 +198,22 @@ export class World {
         this.doorEdge.set(d, { line: p.line, index: p.doors.indexOf(d) })
       }
       this.doorsByLine.set(p.line, arr)
+      // Each platform belongs to the rail that derived it (`cfg.from`), so a
+      // consist boards only at its own screen doors. Edges that predate
+      // `cfg.from` fall back to the rail of the same direction, or the line's
+      // only rail.
+      const edgeMod = this.data.modules.find((m) => m.id === p.id)
+      const from = edgeMod?.type === 'platform-edge' ? edgeMod.cfg.from : undefined
+      const rails = this.serviceTracks(p.line)
+      const trackId = rails.some((t) => t.id === from)
+        ? (from as string)
+        : (rails.filter((t) => (t.cfg.dir ?? this.lineById.get(p.line)?.direction) === p.dir)[0] ?? rails[0])?.id
+      if (trackId !== undefined) {
+        const key = trainKey(p.line, trackId)
+        const tarr = this.doorsByTrack.get(key) ?? []
+        for (const d of p.doors) tarr.push(d)
+        this.doorsByTrack.set(key, tarr)
+      }
     }
     // Reset server queues; agents will re-request on the next tick.
     for (const s of this.graph.servers) {
@@ -216,9 +240,29 @@ export class World {
     this.nextDispatch.clear()
     let stagger = 0
     for (const l of this.data.lines) {
-      this.nextDispatch.set(l.id, this.simTime + stagger)
-      stagger += 13
+      const tracks = this.serviceTracks(l.id)
+      if (tracks.length === 0) {
+        this.nextDispatch.set(trainKey(l.id, ''), this.simTime + stagger)
+        stagger += 13
+        continue
+      }
+      for (const t of tracks) {
+        this.nextDispatch.set(trainKey(l.id, t.id), this.simTime + stagger)
+        stagger += 13
+      }
     }
+  }
+
+  /**
+   * The rails a line runs trains on: one consist per (line, track) (§6.3).
+   * Tunnel runs are extensions, not berths — unless the line owns nothing
+   * else, so a tunnel-only line still shows a train. Document order, keeping
+   * dispatch deterministic (§7.6).
+   */
+  private serviceTracks(lineId: string): TrackModule[] {
+    const bound = this.data.modules.filter((m): m is TrackModule => m.type === 'track' && m.cfg.line === lineId)
+    const platforms = bound.filter((t) => !t.cfg.tunnel)
+    return platforms.length > 0 ? platforms : bound
   }
 
   private setupGrid(): void {
@@ -378,24 +422,16 @@ export class World {
 
   private dispatchTrains(period: 'peak' | 'offpeak' | 'late'): void {
     for (const line of this.data.lines) {
-      const active = this.trains.find((t) => t.line === line.id)
-      const next = this.nextDispatch.get(line.id) ?? this.simTime
-      if (!active && this.simTime >= next) {
-        const cap = trainRatedCapacity(line)
-        this.trains.push({
-          id: this.nextTrainId++,
-          line: line.id,
-          state: 'approach',
-          t: 0,
-          boarded: 0,
-          alighted: 0,
-          onboard: 0,
-          capacity: cap,
-          late: 0,
-          doors: this.doorsByLine.get(line.id) ?? [],
-          dir: line.direction,
-        })
-        this.nextDispatch.set(line.id, this.simTime + this.headwayFor(line, period))
+      const tracks = this.serviceTracks(line.id)
+      if (tracks.length === 0) {
+        // No rails yet (a hand-authored edge with no track): the line still
+        // runs one train serving the whole line.
+        this.maybeDispatch(line, '', period, trainKey(line.id, ''), this.doorsByLine.get(line.id) ?? [], line.direction)
+        continue
+      }
+      for (const track of tracks) {
+        const key = trainKey(line.id, track.id)
+        this.maybeDispatch(line, track.id, period, key, this.doorsByTrack.get(key) ?? [], track.cfg.dir ?? line.direction)
       }
     }
 
@@ -441,6 +477,29 @@ export class World {
     }
   }
 
+  /** Dispatch one service unless its consist is already running. */
+  private maybeDispatch(line: LineDef, trackId: string, period: 'peak' | 'offpeak' | 'late', key: string, doors: number[], dir: string): void {
+    const active = this.trains.find((t) => t.line === line.id && t.track === trackId)
+    const next = this.nextDispatch.get(key) ?? this.simTime
+    if (!active && this.simTime >= next) {
+      this.trains.push({
+        id: this.nextTrainId++,
+        line: line.id,
+        track: trackId,
+        state: 'approach',
+        t: 0,
+        boarded: 0,
+        alighted: 0,
+        onboard: 0,
+        capacity: trainRatedCapacity(line),
+        late: 0,
+        doors,
+        dir,
+      })
+      this.nextDispatch.set(key, this.simTime + this.headwayFor(line, period))
+    }
+  }
+
   /** Move a train to the head of `state`, resetting its phase clock. */
   private setTrainState(train: Train, state: TrainState): void {
     train.state = state
@@ -482,74 +541,75 @@ export class World {
   }
 
   /**
-   * The track position a line's trains run on, derived once from its track and
-   * the platform edge beside it. This is the only geometry the renderer needs
+   * Where each (line, track) service runs, derived from its own track and the
+   * platform edges beside it. This is the only geometry the renderer needs
    * to draw rolling stock, so it stays a pure function of the station. The track
    * carries its own orientation, so a north–south line travels in y.
    */
   private computeLineAnchors(): void {
     this.lineAnchors.clear()
     for (const line of this.data.lines) {
-      // A line needs a track to run on; the platform edge is only needed for
-      // boarding. Decoupling them means a freshly laid rail gets a train right
-      // away, even before a platform and its screen doors exist.
-      const track = this.data.modules.find((m) => m.type === 'track' && m.cfg.line === line.id)
-      if (!track || track.type !== 'track') continue
-      const rot = track.rot ?? 0
-      const [fx, fy] = trackFacing(rot)
-      const d = track.d ?? 1
-      const width = STOCK[line.stock].width
-      const gap = 0.1
-      // Work in the track's local frame: u runs along the bed, v across it. The
-      // bed spans v ∈ [0, d]; the platform edge (if any) sits at v = −1 or d.
-      // `side` names the side the track lies on from the screen's frame, so
-      // 'left' means the platform is beyond the bed at v = +d.
-      const edge = this.data.modules.find((m) => m.type === 'platform-edge' && m.cfg.line === line.id)
-      let v = d / 2
-      if (edge && edge.type === 'platform-edge') {
-        const side = edge.cfg.side
-        if (side === 'left') {
-          // Platform on the local +v side (past the bed): keep clear of its
-          // track-facing edge.
-          const minCentre = width / 2
-          const maxCentre = d - gap - width / 2
-          v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : minCentre
-        } else {
-          // Platform on the local −v side.
-          const minCentre = gap + width / 2
-          const maxCentre = d - width / 2
-          v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : maxCentre
+      for (const track of this.serviceTracks(line.id)) {
+        // A line needs a track to run on; the platform edge is only needed for
+        // boarding. Decoupling them means a freshly laid rail gets a train right
+        // away, even before a platform and its screen doors exist.
+        const rot = track.rot ?? 0
+        const [fx, fy] = trackFacing(rot)
+        const d = track.d ?? 1
+        const width = STOCK[line.stock].width
+        const gap = 0.1
+        // Work in the track's local frame: u runs along the bed, v across it. The
+        // bed spans v ∈ [0, d]; the platform edge (if any) sits at v = −1 or d.
+        // `side` names the side the track lies on from the screen's frame, so
+        // 'left' means the platform is beyond the bed at v = +d.
+        const trackDir = track.cfg.dir ?? line.direction
+        const edge = this.data.modules.find(
+          (m) => m.type === 'platform-edge' && m.cfg.line === line.id && (m.cfg.from === track.id || (!m.cfg.from && m.cfg.dir === trackDir)),
+        )
+        let v = d / 2
+        if (edge && edge.type === 'platform-edge') {
+          const side = edge.cfg.side
+          if (side === 'left') {
+            // Platform on the local +v side (past the bed): keep clear of its
+            // track-facing edge.
+            const minCentre = width / 2
+            const maxCentre = d - gap - width / 2
+            v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : minCentre
+          } else {
+            // Platform on the local −v side.
+            const minCentre = gap + width / 2
+            const maxCentre = d - width / 2
+            v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : maxCentre
+          }
         }
+        // The run midpoint on the bed, turned into world cell coordinates.
+        const [ox, oy] = rotateLocal(rot, track.w / 2, v)
+        const x = track.x + ox
+        const y = track.y + oy
+        // A train rides the rail surface: the recessed bed slab sits half a metre
+        // below the platform, so the consist drops with it.
+        const z = track.z + 0.5
+        // The track's own 上行/下行 picks which way along the run the train moves;
+        // an unset track falls back to the line's travel sign. This is what the
+        // placement preview's direction arrows show.
+        const dirSign = track.cfg.dir ? (track.cfg.dir === 'down' ? -1 : 1) : (line.travelSign ?? 1) >= 0 ? 1 : -1
+        const colour = parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0
+        // Screen doors decide which door banks may open (§1.13): a side with no
+        // platform-edge run has no screen, so its doors stay shut. Only the
+        // edges derived from this rail count — the platform the consist is
+        // actually berthed at — so the two directions keep their own banks.
+        // Edges that predate `cfg.from` match by direction instead.
+        let doorSides = 0
+        let dirSides = 0
+        for (const m of this.data.modules) {
+          if (m.type !== 'platform-edge' || m.cfg.line !== line.id) continue
+          const bit = m.cfg.side === 'left' ? 1 : 2
+          if (m.cfg.from === track.id) doorSides |= bit
+          else if (!m.cfg.from && m.cfg.dir === trackDir) dirSides |= bit
+        }
+        if (doorSides === 0) doorSides = dirSides
+        this.lineAnchors.set(trainKey(line.id, track.id), { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, cars: line.cars, stock: line.stock, colour, doorSides })
       }
-      // The run midpoint on the bed, turned into world cell coordinates.
-      const [ox, oy] = rotateLocal(rot, track.w / 2, v)
-      const x = track.x + ox
-      const y = track.y + oy
-      // A train rides the rail surface: the recessed bed slab sits half a metre
-      // below the platform, so the consist drops with it.
-      const z = track.z + 0.5
-      // The track's own 上行/下行 picks which way along the run the train moves;
-      // an unset track falls back to the line's travel sign. This is what the
-      // placement preview's direction arrows show.
-      const dirSign = track.cfg.dir ? (track.cfg.dir === 'down' ? -1 : 1) : (line.travelSign ?? 1) >= 0 ? 1 : -1
-      const colour = parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0
-      // Screen doors decide which door banks may open (§1.13): a side with no
-      // platform-edge run has no screen, so its doors stay shut. Prefer the
-      // edges derived from this rail — the platform the consist is actually
-      // berthed at — and fall back to the line's edges for a document whose
-      // edges predate `cfg.from`. `cfg.side` is read from the screen's own
-      // frame: 'left' means the platform lies past the bed on local +v, which is
-      // the consist's local +y.
-      let doorSides = 0
-      let lineSides = 0
-      for (const m of this.data.modules) {
-        if (m.type !== 'platform-edge' || m.cfg.line !== line.id) continue
-        const bit = m.cfg.side === 'left' ? 1 : 2
-        lineSides |= bit
-        if (m.cfg.from === track.id) doorSides |= bit
-      }
-      if (doorSides === 0) doorSides = lineSides
-      this.lineAnchors.set(line.id, { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, cars: line.cars, stock: line.stock, colour, doorSides })
     }
   }
 
@@ -565,8 +625,18 @@ export class World {
     const out = new Float32Array(this.trains.length * STRIDE)
     let k = 0
     for (const train of this.trains) {
-      const a = this.lineAnchors.get(train.line)
-      if (!a) continue
+      // A consist edited out from under itself keeps the line's remaining
+      // anchor until it departs, instead of vanishing mid-run.
+      let a = this.lineAnchors.get(trainKey(train.line, train.track))
+      if (!a) {
+        for (const [k, v] of this.lineAnchors) {
+          if (k.startsWith(train.line + '|')) {
+            a = v
+            break
+          }
+        }
+        if (!a) continue
+      }
       const trainLen = STOCK[a.stock].length * a.cars
       const reach = trainLen / 2 + 25
       let offset = 0
