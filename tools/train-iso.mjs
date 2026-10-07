@@ -204,12 +204,18 @@ export function isoCar(S, o) {
 
 /* ---------------------------------------------------------------- track */
 /** Straight track bed with rails, sleepers and an optional third rail.
- *  Runs along +x. o = {x,y,z,len, third, catenary, bed}. */
+ *  Runs along +x. o = {x,y,z,len, third, catenary, bed, key}.
+ *
+ *  `key` shifts the whole bed into a caller's depth band. A track is a **background figure** —
+ *  it runs the length of the station, so no single number can sort it against a train that does
+ *  the same — and a sheet that has to place it between its own consist and the next thing down
+ *  (so the consist sits *on* its rails rather than over them) has nothing else to move it with. */
 export function isoTrack(S, o) {
   const { x, y, z, len } = o;
   const gauge = o.gauge ?? 1.435;
   const w = o.w ?? 3.2;
-  const put = (k, svg) => S.fg.push([k, svg]);
+  const k0 = o.key ?? 0;
+  const put = (k, svg) => S.fg.push([k + k0, svg]);
   const mid = y + w / 2;
   const r0 = mid - gauge / 2, r1 = mid + gauge / 2;
   put(x + len / 2 + y + z * 0.9, poly(
@@ -244,10 +250,11 @@ export function isoTrack(S, o) {
   }
 }
 
-/** Overhead contact wire + droppers, for catenary lines. */
-export function catenary(S, o) {
+/** Overhead contact wire + droppers, for catenary lines. `key` shifts it into a depth band,
+ *  as `isoTrack`'s does and for the same reason: a wire runs the whole viaduct. */
+export function catenary(S, o, key = 0) {
   const { x, y, z, len } = o;
-  const put = (k, svg) => S.fg.push([k, svg]);
+  const put = (k, svg) => S.fg.push([k + key, svg]);
   put(x + len / 2 + y + (z + 0.3) * 0.9, poly(
     [P(x, y, z + 0.3), P(x + len, y, z + 0.3), P(x + len, y, z + 0.42), P(x, y, z + 0.42)], shade(C.psu, 1.15), null, 0));
   for (let cx = x + 4; cx < x + len; cx += 8) {

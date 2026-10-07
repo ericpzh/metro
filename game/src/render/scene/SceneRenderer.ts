@@ -16,6 +16,7 @@ import type { ModelMaterials } from '../models.ts'
 import { createAdArt } from '../adArt.ts'
 import { createLineMapArt } from '../lineMapArt.ts'
 import { loadPictograms } from '../pictograms.ts'
+import { addStationLights, applyStationRenderer, STATION_CLEAR } from './lightRig.ts'
 import type { CellShape, Face, Module, StationData } from '../../sim/types.ts'
 import { SceneContextData } from './systems/SceneSystem.ts'
 import type { SceneStats } from './systems/SceneSystem.ts'
@@ -63,12 +64,12 @@ export class SceneRenderer {
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
-    this.renderer.setClearColor(0x0b0f16, 1)
+    applyStationRenderer(this.renderer)
     this.renderer.shadowMap.enabled = false
     this.renderer.localClippingEnabled = true
 
     const scene = new THREE.Scene()
-    scene.fog = new THREE.Fog(0x0b0f16, 120, 320)
+    scene.fog = new THREE.Fog(STATION_CLEAR, 120, 320)
 
     const mats = createMaterials()
     const modelMats = createModelMaterials()
@@ -105,16 +106,9 @@ export class SceneRenderer {
       if (this.ctx.stationData) this.modules.buildModules(this.ctx.stationData, new Set())
     })
 
-    // Light rig: one key + ambient + a soft fill. §2.3 item 3.
-    const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x2a2f39, 1.15)
-    scene.add(hemi)
-    const key = new THREE.DirectionalLight(0xfff3e0, 1.5)
-    key.position.set(60, -80, 120)
-    scene.add(key)
-    const fill = new THREE.DirectionalLight(0xbcd2ff, 0.45)
-    fill.position.set(-70, 60, 40)
-    scene.add(fill)
-    scene.add(new THREE.AmbientLight(0xffffff, 0.28))
+    // Light rig: one key + ambient + a soft fill. §2.3 item 3 — and the same call the
+    // capture passes make, so the sheets photograph the light the player sees.
+    addStationLights(scene)
 
     this.chunks = new ChunkSystem(this.ctx)
     this.plates = new PlateSystem(this.ctx)

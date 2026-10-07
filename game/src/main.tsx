@@ -43,6 +43,17 @@ async function boot() {
     ;(window as unknown as { __trainCardsReady?: boolean }).__trainCardsReady = true
     return
   }
+  if (params.has('capture-pieces')) {
+    // Sheet 02's own pass: the rail's own piece builder, asked for square-on side
+    // elevations instead of icons, so a vertical section can carry the real 闸机, 扶梯,
+    // 电梯 and 出入口 rather than boxes drawn to look like them. The same pass answers
+    // `views` — the same pieces on the **drawing kit's isometric axes**, which is what
+    // sheet 13's volume needs (`tools/render-piece-views.mjs`).
+    const capture = await import('./app/moduleThumbnails.ts')
+    Object.assign(window, { __pieceElevations: capture })
+    ;(window as unknown as { __pieceElevationsReady?: boolean }).__pieceElevationsReady = true
+    return
+  }
   if (isMobileMode()) {
     // A phone or tablet gets a plain page. Neither the game nor its three.js
     // bundle is imported, so nothing renders, simulates or downloads here.

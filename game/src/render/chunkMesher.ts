@@ -1,10 +1,12 @@
 // Chunk mesher — GAME-SPEC.md §4.2, the V1 gate (PLAN.md §4 V1).
 //
 // One block = one 1 m cell with six faces. For every solid cell we build a
-// *rounded* cross-section profile from its 8-neighbour exposure mask, extrude it
-// from z to z+1, and chamfer the exposed top rim by 12.5 cm. Inner fillets are
-// dropped on purpose: PLAN.md R2 names "bevels-only on exposed edges" as the
-// fallback, and a flat renderer gains nothing from the inner detail.
+// cross-section profile from its 8-neighbour exposure mask and extrude it from z
+// to z+1. **A block is a cube**: the top rim is square, with no chamfer on it —
+// see `buildProfile` below for why the 12.5 cm bevel that used to be cut there
+// went away. Inner fillets are dropped on purpose: PLAN.md R2 names "bevels-only
+// on exposed edges" as the fallback, and a flat renderer gains nothing from the
+// inner detail.
 //
 // The mesh is merged per 16^3 chunk into a single BufferGeometry, and faces
 // between two solid cells are never emitted.
@@ -49,8 +51,6 @@ const DEFAULT_SIDE_I: Record<'e' | 'w' | 'n' | 's', number> = {
 }
 
 export const CHUNK = 16
-/** Top-rim chamfer, metres. "12.5 cm bevel on exposed top edges" — GAME-SPEC §4.2. */
-export const BEVEL = 0.125
 
 /** One merged run of faces wearing the same finish (§4.3). */
 export interface ChunkPart {
@@ -136,52 +136,11 @@ function pushTri(
 }
 
 /**
- * Push a convex face wound so it **faces `n`**, whatever order the corners were handed in.
- *
- * A bevel's corner triangle is the one place the right order is not obvious: the block's
- * outer corner, one neighbouring miter step and the other sit in three different planes, and
- * which way round they read flips with the corner. Measuring the ring's signed area about
- * `n` and reversing when it comes out negative is one line and cannot be got wrong, where
- * writing the order out per corner is a table that goes wrong quietly — the face then draws
- * as a black hole from the side it should be lit. Each corner carries its own UV, so a
- * reversal takes the texture with it.
- */
-function pushFaceOut(
-  b: VecBuilder,
-  pts: Array<[number, number, number]>,
-  uvs: Array<[number, number]>,
-  n: [number, number, number],
-  ao: number,
-): void {
-  let turn = 0
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i]
-    const q = pts[(i + 1) % pts.length]
-    turn += (p[1] * q[2] - p[2] * q[1]) * n[0] + (p[2] * q[0] - p[0] * q[2]) * n[1] + (p[0] * q[1] - p[1] * q[0]) * n[2]
-  }
-  const ring = turn >= 0 ? pts : [...pts].reverse()
-  const uv = turn >= 0 ? uvs : [...uvs].reverse()
-  if (ring.length === 3) {
-    pushTri(b, ring[0], ring[1], ring[2], n, ao, uv)
-    return
-  }
-  const base = b.pos.length / 3
-  b.pos.push(ring[0][0], ring[0][1], ring[0][2], ring[1][0], ring[1][1], ring[1][2], ring[2][0], ring[2][1], ring[2][2], ring[3][0], ring[3][1], ring[3][2])
-  for (let i = 0; i < 4; i++) {
-    b.nor.push(n[0], n[1], n[2])
-    b.col.push(ao, ao, ao)
-    b.uv.push(uv[i][0], uv[i][1])
-  }
-  b.idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
-}
-
-/**
  * The cross-section of a run's **drawn body** where it is narrower than the cell — an
  * escalator's truss box, `half` either side of its centreline across the run and the full
- * width of the tile along it. Sharp corners, because the body is a slab and not a block: the
- * profile a block gets, with the bevel, would read as a pillar under the escalator. Every
- * side of it is exposed, so it wears the run's steel all round and the top is inset on all
- * four sides like any other block's.
+ * width of the tile along it. Sharp corners, because the body is a slab and not a block: a
+ * block's profile would read as a pillar under the escalator. Every side of it is exposed, so
+ * it wears the run's steel all round.
  *
  * `axis` is the plane's slope axis, which is the way the run travels, so the box is that
  * long along `axis` and `2 × half` across it. The two ends land on the cell boundary, where
@@ -212,7 +171,7 @@ function buildTrussProfile(axis: 'x' | 'y', half: number): Profile {
     const dx = to.x - from.x
     const dy = to.y - from.y
     const m = Math.hypot(dx, dy) || 1
-    edges.push({ from, to, nx: dy / m, ny: -dx / m, exposed: true, inset: BEVEL })
+    edges.push({ from, to, nx: dy / m, ny: -dx / m, exposed: true })
   }
   return { edges }
 }
@@ -234,7 +193,7 @@ const TRUSS_FACES: Partial<Record<Face, FinishId>> = {
  * Which of a cell's four sides is open to the air **at this cell's own height**: `false`
  * means a solid neighbour shares that side. A side merely having another cell above or
  * below it is not this — a block under a floor is still open on a side the floor does not
- * reach, so it keeps its bevel there.
+ * reach, so it draws its own wall there.
  */
 export interface Look {
   e: boolean
@@ -250,17 +209,15 @@ export interface ProfileEdge {
   /** Outward normal of this side, in cell-local units. */
   nx: number
   ny: number
-  /** Open to the air, so this side wears a wall and the bevel above it. */
+  /** Open to the air, so this side wears a wall. */
   exposed: boolean
-  /** How far this side's top edge is pulled in: the bevel when exposed, flush when shared. */
-  inset: number
 }
 
 /**
  * A solid cell's cross-section, as the four sides walked counter-clockwise seen from +z.
  *
  * Everything about how a block is drawn follows from this one list: which wall runs it
- * emits, how far the top face is inset, and which sides are flush with the block next door.
+ * emits, where its top face reaches, and which sides are flush with the block next door.
  */
 export interface Profile {
   edges: ProfileEdge[]
@@ -275,14 +232,16 @@ export interface Profile {
  * blocks always met along a shared edge that both of them insetted away from: a floor came
  * out as a field of shallow cones with a V-groove along every seam and a pit at every
  * four-block corner, twelve and a half centimetres deep and plainly visible from above.
- * A shared side now draws nothing at all — no wall (the neighbour is the same building) and
- * no bevel — so the two top faces are the one flat plane all the way across.
+ * A shared side draws nothing at all — no wall, because the neighbour is the same building —
+ * so the two top faces are the one flat plane all the way across.
  *
- * The rounding that went with it is the corner arc. §4.2 asks for rounded outer corners
- * *and* a 12.5 cm top bevel, and at a 12.5 cm corner radius those two cannot both exist:
- * the inset of the corner by the bevel collapses it to a point exactly where the bevel
- * ends. The bevel is the one the spec pins a number to, and a flat, seamless floor is what
- * it is for, so the outline above it is a plain square.
+ * **There is no top-rim chamfer.** §4.2 used to cut a 12.5 cm bevel off every exposed top
+ * edge, and the block is a plain cube instead: the bevel's own 45° faces met at each convex
+ * corner in a facet that crossed its neighbours and stood proud of the lid, and the geometry
+ * that closed it (a mitre ring, a corner triangle per corner) was the single fiddliest part
+ * of this file. A sharp rim is what the 方块 tool lays, what the sheets draw, and what the
+ * corner of a cube should be; the rounding §4.2 also asked for stays dropped with it, since
+ * a 12.5 cm corner radius cannot coexist with a square rim either.
  */
 function buildProfile(look: Look): Profile {
   // Corner i is the start of side i: NW, SW, SE, NE.
@@ -302,7 +261,6 @@ function buildProfile(look: Look): Profile {
       nx: dy / m,
       ny: -dx / m,
       exposed: open[i],
-      inset: open[i] ? BEVEL : 0,
     })
   }
   return { edges }
@@ -311,32 +269,6 @@ function buildProfile(look: Look): Profile {
 /** The outline a profile walks, for a caller that needs the polygon rather than the sides. */
 function profileOutline(profile: Profile): Pt[] {
   return profile.edges.map((e) => e.from)
-}
-
-/**
- * The top face's boundary: the block's own convex outline inset by `BEVEL` on every side
- * that is open to the air, and untouched on every side it shares with a neighbour.
- *
- * Insetting the *outline* is what keeps each bevel a **flat 45° strip**. Offsetting each
- * wall's line on its own instead — which is what this did — sounds equivalent and is not:
- * a wall's inner line then runs the whole cell edge, so the chamfer over the west side
- * leaves the cell boundary at the north-west corner and arrives at the south-east one, a
- * diagonal sail across the floor rather than a bevel. That surface is not even planar, so
- * the two triangles it is split into disagree with the normal it is lit by (dots of 0.80
- * and −0.70 at the same time), and it is why a bevelled edge read as a row of hard black
- * wedges instead of a chamfer. On the outline the corner between two open sides is a
- * mitre: its two cells each step in by `BEVEL`, exactly what a chamfer's corner looks like.
- *
- * `ring[i]` is the inner end of the wall `edges[i]` draws, so a chamfer is the quad from
- * that wall out to this ring — `edges[i].to` to `edges[i + 1].from` — and the two open
- * sides at a convex corner close with one small triangle between their two mitre steps.
- */
-function profileRing(profile: Profile): Pt[] {
-  const edges = profile.edges
-  // `ring[i]` is the inner end of wall `i` — the corner that wall runs to. Only that
-  // wall's own inset moves it, so the west wall's inner line stays at x = BEVEL for its
-  // whole length instead of being dragged along the neighbouring walls.
-  return edges.map((e) => ({ x: e.to.x - e.nx * e.inset, y: e.to.y - e.ny * e.inset }))
 }
 
 /* -------------------------------------------------------- 半墙 (§4.1 / §4.3) */
@@ -515,9 +447,9 @@ function pushFace(b: VecBuilder, pts: Array<[number, number, number]>, n: [numbe
  * prism: a flat 1 m square **in the X-Y plane** — the floor for `upper`, the ceiling
  * for `lower` — a full-height square face on the side the block hugs, the 45° slope
  * across the cell, and the two triangular ends the slope cuts on the ridge axis. Its
- * faces are the shape's own, not the cell's: the slope leans, the ends are triangles,
- * and there is nothing to chamfer — the block is sawn, so a rounded rim would read as
- * a lozenge rather than as the cut the player asked for.
+ * faces are the shape's own, not the cell's: the slope leans and the ends are triangles,
+ * so a rounded or mitred rim would read as a lozenge rather than as the cut the player
+ * asked for.
  *
  * A face is drawn where the cell it looks into is empty. The slope has no neighbour
  * to be flush with, so it is always drawn — and a wedge embedded in solid blocks
@@ -619,8 +551,8 @@ function pushWedge(
  * neighbours they meet, so the columns of one run join with no face between them, and its
  * outer face is the side itself.
  *
- * The squash happens in the canonical frame before the turn, so the bevel stays where the
- * profile put it: 12.5 cm along the wall, half that through it. The turn is rigid, so a
+ * The squash happens in the canonical frame before the turn, so the panel keeps the profile's
+ * own shape: half a block through it, full height along it. The turn is rigid, so a
  * west-facing panel is this profile turned a quarter-turn, not a second shape.
  */
 function buildThinProfile(side: WallSide, E: boolean, W: boolean, N: boolean, S: boolean): Profile {
@@ -639,11 +571,10 @@ function buildThinProfile(side: WallSide, E: boolean, W: boolean, N: boolean, S:
       const from = turnPoint({ x: e.from.x, y: e.from.y * HALF_WALL_T }, turns)
       const to = turnPoint({ x: e.to.x, y: e.to.y * HALF_WALL_T }, turns)
       // The squash is anisotropic, so the normal turns and then has to be renormalised:
-      // a normal across the panel is 1/HALF_WALL_T long after it, and the bevel with it
-      // is the same 12.5 cm measured through the panel rather than along the wall.
+      // a normal across the panel is 1/HALF_WALL_T long after it.
       const n = turnNormal(e.nx, e.ny * HALF_WALL_T, turns)
       const m = Math.hypot(n.nx, n.ny) || 1
-      return { from, to, nx: n.nx / m, ny: n.ny / m, exposed: e.exposed, inset: e.inset / m }
+      return { from, to, nx: n.nx / m, ny: n.ny / m, exposed: e.exposed }
     }),
   }
 }
@@ -708,7 +639,6 @@ export function meshChunk(
   const draws = (x: number, y: number, z: number): boolean => solid.has(key(x, y, z)) || (fill !== undefined && fill.has(key(x, y, z)))
   /** Is there something under this cell to stand on — a block, or a run's filling? */
   const standsOn = (x: number, y: number, z: number): boolean => draws(x, y, z - 1)
-  const H = BEVEL
 
   // Faces are sorted into one builder per finish, so a chunk yields a handful of
   // parts (one per material) instead of one part repainted per face. A dense
@@ -787,8 +717,8 @@ export function meshChunk(
     // painting a 半墙 is painting a wall — one face per surface, both sides of it.
     // A **三角** is not a cross-section at all: its cell is cut in *elevation*, so it
     // meshes as a wedge with its own five faces (`pushWedge`) rather than as a profile
-    // extruded up the cell. It is a sawn block — no top-rim chamfer — and none of the
-    // profile machinery below applies to it, so it is done with its cell here.
+    // extruded up the cell. It is a sawn block — the 45° plane is the piece — and none of
+    // the profile machinery below applies to it, so it is done with its cell here.
     const thinShape = thin?.get(k)
     if (isTriangleShape(thinShape)) {
       pushWedge(builderForIndex, isSolid, x, y, z, { e: E, w: W, n: N, s: S, up, down }, thinShape.triangle, thinShape.side, {
@@ -808,21 +738,16 @@ export function meshChunk(
     }
     const edges = built.edges
     const shape = profileOutline(built)
-    /** The top face's own boundary: the outline pulled in by each side's bevel, flush where nothing is exposed. */
-    const ring = profileRing(built)
 
     const ox = x
     const oy = y
     const oz = z
     /**
-     * How high the **top face** sits at a point, and how high a **wall** reaches there.
+     * How high the top face sits at a point, and how high a wall reaches there — one number,
+     * because a block has no chamfer to make room for: a wall runs the whole way up to the
+     * surface the block ends on and meets it at that surface's own edge.
      *
-     * They are the same number only when a run has cut the block. A plain block's top face is
-     * its own ceiling (`1`) while its walls stop a bevel lower (`1 - H`) so the chamfer has
-     * somewhere to be — reading the wall's height for the cap drops the whole top by 12.5 cm
-     * and opens a rim of missing surface all the way round every block.
-     *
-     * With a **cut** both follow the run's underside, and it is the run's *lower* edge that
+     * With a **cut** the surface is the run's underside, and it is the run's *lower* edge that
      * wins: a cut only ever takes volume away, so a block the run has climbed clear of is
      * whole. Taking the plane outright lifted the cap above the cell and left the real top
      * open, which is what drew the filling under a truss as an open box with the inside of
@@ -831,8 +756,6 @@ export function meshChunk(
     let cutAt: ((px: number, py: number) => number) | null = null
     const bodyTop = (px: number, py: number): number =>
       cutAt === null ? 1 : Math.min(1, cutAt(px, py))
-    const wallTop = (px: number, py: number): number =>
-      cutAt === null ? (up ? 1 - H : 1) : Math.min(1, cutAt(px, py))
     if (cut !== undefined) {
       const lo = cut.lo
       const rise = cut.hi - cut.lo
@@ -863,28 +786,17 @@ export function meshChunk(
       body = clipProfile(shape, (p: Pt): number => plane(p.x, p.y))
     }
     /**
-     * The side walls, and the top-rim chamfer over each of them.
+     * The side walls.
      *
-     * A side flush with a solid neighbour emits neither: there is no wall between two parts
-     * of the same building, and no bevel on a boundary that is not a rim. That is the whole
-     * of "no gap between blocks" — with the wall and the chamfer gone the two top faces are
-     * one plane, and the cell boundary between them is not drawn at all.
+     * A side flush with a solid neighbour emits nothing: there is no wall between two parts of
+     * the same building. That is the whole of "no gap between blocks" — with the wall gone the
+     * two top faces are one plane, and the cell boundary between them is not drawn at all.
      *
      * A **cut** block is the separate case. Clipping against the run's underside can turn a
      * corner into a new vertex, so its cross-section is no longer the outline the sides were
-     * built from and cannot be indexed by it; it is walked as its own polygon, and it wears
-     * no chamfer because it ends on a face the run made (a sawn block keeps its sharp edge).
+     * built from and cannot be indexed by it; it is walked as its own polygon.
      */
     if (cutAt === null) {
-      /**
-       * The inner corner `k`: the wall running to it steps in by its own inset, and the wall
-       * leaving it by its own — the two steps a chamfer's mitre is made of. A corner with no
-       * open side on it, or one shared with a neighbour, simply does not move.
-       */
-      const inner = (k: number): Pt => {
-        const at = ring[(k - 1 + edges.length) % edges.length]
-        return { x: at.x, y: at.y }
-      }
       for (let i = 0; i < edges.length; i++) {
         const e = edges[i]
         if (!e.exposed) continue
@@ -895,12 +807,9 @@ export function meshChunk(
         // Ambient occlusion from the cells beside this wall.
         const ao = wallAo(isSolid, x, y, z, nx, ny)
         const uLen = Math.hypot(q.x - p.x, q.y - p.y)
-        // This wall's own inner line: exactly `BEVEL` in, for its whole length.
-        const o1: Pt = { x: p.x - nx * e.inset, y: p.y - ny * e.inset }
-        const o2: Pt = { x: q.x - nx * e.inset, y: q.y - ny * e.inset }
-        // An uncut block ends on the cell ceiling; its walls stop at the chamfer's foot.
-        const hp = wallTop(p.x, p.y)
-        const hq = wallTop(q.x, q.y)
+        // The wall reaches the block's own surface — its ceiling, or the run's underside.
+        const hp = bodyTop(p.x, p.y)
+        const hq = bodyTop(q.x, q.y)
         if (hp > 0 || hq > 0) {
           pushQuad(
             builderForIndex(sideI[sideOf(nx, ny)]),
@@ -915,57 +824,6 @@ export function meshChunk(
             uLen,
             hq,
           )
-        }
-        if (up) {
-          const cn = Math.hypot(nx, ny, 1)
-          const nrm: [number, number, number] = [nx / cn, ny / cn, 1 / cn]
-          /**
-           * The chamfer is the **flat 45° strip** between this wall's top and this wall's
-           * own inner line, with its UVs spanning the strip's full depth — `v` 0 at the wall
-           * and 1 at the inner edge, so the last texel row down the chamfer is the first row
-           * of the flat top it meets. Spanning `v` over `H` instead left the chamfer
-           * sampling a 12.5 cm sliver of the texture while the top beside it sampled the
-           * whole metre, and the join between them drew a hard seam.
-           */
-          pushFaceOut(
-            builderForIndex(topI),
-            [
-              [ox + p.x, oy + p.y, oz + hp],
-              [ox + o1.x, oy + o1.y, oz + 1],
-              [ox + o2.x, oy + o2.y, oz + 1],
-              [ox + q.x, oy + q.y, oz + hq],
-            ],
-            [
-              [0, 0],
-              [0, 1],
-              [uLen, 1],
-              [uLen, 0],
-            ],
-            nrm,
-            ao + 0.12,
-          )
-          // The corner this wall runs to: the two mitre steps meet the block's own corner
-          // in one small triangle. It collapses to nothing wherever the neighbouring side
-          // is shared, which is what keeps a merged run of blocks free of geometry at its
-          // seams — and a zero-area triangle is not worth pushing at all.
-          const c = inner(i + 1)
-          if (c.x !== o2.x || c.y !== o2.y) {
-            pushFaceOut(
-              builderForIndex(topI),
-              [
-                [ox + q.x, oy + q.y, oz + hq],
-                [ox + o2.x, oy + o2.y, oz + 1],
-                [ox + c.x, oy + c.y, oz + 1],
-              ],
-              [
-                [q.x, q.y],
-                [o2.x, o2.y],
-                [c.x, c.y],
-              ],
-              nrm,
-              ao + 0.12,
-            )
-          }
         }
       }
     } else {
@@ -983,8 +841,8 @@ export function meshChunk(
         else continue
         // The wall reaches the run's underside — or the cell's own ceiling, where the run
         // has already climbed clear of this block and there is nothing left to cut.
-        const hp = wallTop(p.x, p.y)
-        const hq = wallTop(q.x, q.y)
+        const hp = bodyTop(p.x, p.y)
+        const hq = bodyTop(q.x, q.y)
         if (hp <= 0 && hq <= 0) continue
         const ao = wallAo(isSolid, x, y, z, nx, ny)
         pushQuad(
@@ -1004,11 +862,11 @@ export function meshChunk(
     }
 
     /**
-     * The top face: a fan of the **ring**, flat at full height.
+     * The top face: a fan of the block's own cross-section, flat at full height.
      *
-     * Ring and outline carry the same vertex order, so the ring is inset on a bevelled side,
-     * flush on a shared one, and the plane simply carries on into the block next door
-     * wherever the two meet.
+     * The cap reaches the cell boundary on every side, shared or not, and the plane simply
+     * carries on into the block next door wherever the two meet — which is what makes a run
+     * of blocks one surface with no seam down it.
      *
      * A **cut** block is the exception, and only in one direction. Its top is the run's own
      * underside, so it follows the cut plane — but the cut only ever takes volume *away*: a
@@ -1021,7 +879,7 @@ export function meshChunk(
      */
     if (up) {
       const topAo = topAoAt(isSolid, x, y, z)
-      const cap = cutAt === null ? ring : body
+      const cap = body
       const cxm = cxCenter(cap)
       const cym = cyCenter(cap)
       /**
@@ -1066,11 +924,11 @@ export function meshChunk(
     // clipped cross-section, so the floor under it follows the same knife edge.
     if (down) {
       const ao = 0.6
-      // A plain block fans from its cell centre; a clipped one has to fan from
-      // inside its own cross-section, or the fan's hub lands where the cut has
-      // already emptied the block.
-      const cxm = cutAt === null ? 0.5 : cxCenter(body)
-      const cym = cutAt === null ? 0.5 : cyCenter(body)
+      // Fan from inside the block's own cross-section: a clipped one would otherwise
+      // hub where the cut has already emptied the block, and a 半墙's hub would fall
+      // outside the half of the cell its panel keeps.
+      const cxm = cxCenter(body)
+      const cym = cyCenter(body)
       for (let i = 0; i < body.length; i++) {
         const p = body[(i + 1) % body.length]
         const q = body[i]
@@ -1131,13 +989,13 @@ function sideOf(nx: number, ny: number): 'e' | 'w' | 'n' | 's' {
 }
 
 /**
- * The **area centroid** of a polygon, as the hub its top face fans from.
+ * The **area centroid** of a polygon, as the hub its top or bottom face fans from.
  *
- * A vertex mean is not good enough: the bevel ring has three points along each rounded
- * corner and only one at a flush edge, so its vertices are nowhere near evenly spread. On
- * a ring that is a plain inset square the mean falls *outside* the polygon, and every
- * triangle of the fan then reaches across the cell and folds back on itself. The area
- * centroid is always inside a convex polygon, which is the whole requirement here.
+ * A vertex mean is not good enough. A clipped cross-section has two vertices where the run's
+ * plane entered the cell and one along each side it left by, so its vertices are nowhere near
+ * evenly spread: on such a polygon the mean can fall *outside* it, and every triangle of the
+ * fan then reaches across the cell and folds back on itself. The area centroid is always
+ * inside a convex polygon, which is the whole requirement here.
  */
 function cxCenter(pts: Pt[]): number {
   return centroid(pts).x

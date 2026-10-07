@@ -1,278 +1,424 @@
-// Concept sheet 13 - the two-line interchange in isometric, one line over the
-// street on a viaduct and one under it in a box, with the whole transfer stack
-// between them. This is concept 02 (the vertical section) turned into a volume.
+// Concept sheet 13 — the two-line interchange, drawn as **fourteen flat layers**.
+//
+// This sheet is not a scene that happens to read well; it is a stack, and the stack is stated
+// once, at the top, and obeyed by everything below it. The reader's list, from the front of the
+// picture (the bottom of it) to the back (the top), is the order the layers are painted in —
+// last painted is nearest, so it covers what is behind it:
+//
+//    1 地下 A 列车      the consist on the near road, in front of everything
+//    2 地下 A 轨道      its rails, the first thing behind it
+//    3 地下站台的人      the crowd waiting on the island
+//    4 扶梯 / 楼梯      one set, in the middle of the island
+//    5 地下站台          the island itself
+//    6 地下 B 列车      the consist on the far road
+//    7 地下 B 轨道      its rails
+//    8 车站墙体          the wall behind the far road and the wall along the side
+//    9 高架站台雨棚      the viaduct canopy, and the columns holding it
+//   10 高架站台的人      the crowd up there
+//   11 高架站台          the viaduct platform
+//   12 高架列车          the A-type consist
+//   13 高架轨道          its rails, and the bridge deck they lie on
+//   14 桥墩              the piers, standing on the street under all of it
+//
+// Two things about that list are worth knowing before changing anything.
+//
+// **A band, not a position.** `Scene().out()` paints `fg` in ascending key, so a low key is far
+// away and a high one is near, and which of two shapes covers the other is decided by nothing
+// but which band its key falls in. A figure that spans the whole station — a 40 m consist, a
+// 40 m track, a 40 m wall — cannot be sorted against anything by its own screen position, so
+// each such figure is put in the band that says what it is. The bands are 200 apart and a
+// figure's own position only orders it *inside* its band, which is why a consist is always on
+// top of the rails it stands on and always behind the platform it stands beside.
+//
+// **The box is not a layer.** The ground the station is cut into is painted raw, before the
+// sort at all (`S.raw`), because every face of it is behind everything: it is the hole, not one
+// of the things in the hole.
+//
+// The pieces are the game's own throughout: the two consists and the viaduct's are
+// `buildTrain` photographed on this drawing's axes (`tools/render-train-cards.mjs`), and the
+// 扶梯 and 楼梯 are `EscalatorModel` and `StairModel` photographed the same way
+// (`tools/render-piece-views.mjs`). Nothing here is a box pretending to be equipment.
 import {
-  C, TW, TH, ZU, P, px, py, n, shade, poly, faceSvg, boxSvg, rboxSvg, quadSvg,
-  Scene, title, sheet, legend, callout, leader, T, MUL, rng, pstr,
-  amT, dashFlow, mover, group,
+  C, TW, P, n, boxSvg, rboxSvg, quadSvg, faceSvg, Scene, title, sheet, callout, T, MUL,
+  rng, amT, mover, group, bboxOf, fitToRect,
 } from './iso.mjs';
-import { isoCar, isoTrack, catenary } from './train-iso.mjs';
+import { isoTrack, catenary } from './train-iso.mjs';
+import { trainCard } from './train-cards.mjs';
+import { pieceView } from './piece-views.mjs';
 
-/* world plan, metres. z = 0 is the street.
- *   Line 1  viaduct   deck top +11.6   runs along x, over the back footway
- *   Line 2  box       platform -13.0   runs along x, under the street
- *   concourse B1 -5.5, station roof slab at 0, excavation open on +x / +y   */
-const K = 0.40, CX = 560, CY = 650;
-const OX = CX - px(18, 9) * K;
-const OY = CY - py(18, 9, -1) * K;
-const AT = (x, y, z) => [OX + px(x, y) * K, OY + py(x, y, z) * K];
+/* ============================================================ the world, in metres
+ * z = 0 is the street. The box is 40 m long (x), 20 m across (y) and 10.8 m deep, and it is
+ * cut open towards +y and +x — towards the reader's lower left and lower right — so the
+ * station inside it can be seen. `y = 2` is the wall behind the far road; `y = 22` is where
+ * the cut leaves the ground. */
+const X0 = 4, X1 = 44;                 // the box, end to end
+const YB = 2, YF = 22;                 // the far wall, and the open cut
+const ZB = -15.5;                      // the bottom of the block the box is cut into
+const ZF = -10.8;                      // pit floor, which is also the track bed
+const ZP = -9.5;                       // the island platform
+const ZT = -0.5;                       // the walls stop at the underside of the ground slab
+const ZR = ZF + 0.18;                  // rail top
+
+const RW = 3.2;                        // a road
+const RB = 3.0, RA = 17.2;             // the two road beds: y 3.0–6.2 and 17.2–20.4
+const CYB = RB + RW / 2;               // the far road's centre line, 4.6
+const CYA = RA + RW / 2;               // the near road's, 18.8
+const PB0 = 7.2, PB1 = 16.0;           // the island platform between them
+
+/* the viaduct: a deck on piers, a road and a platform on the deck, a canopy over it */
+const DX0 = -2, DX1 = 48;
+const DY0 = -7.4, DY1 = 1.2;           // the deck, across
+const ZD = 10.4, ZK = 11.6;            // deck soffit, deck top
+const ZRO = ZK + 0.18;                 // rail top up there
+const PK = -7.0;                       // the overground road's bed, 3.2 wide
+const CYC = PK + RW / 2;               // -5.4
+const PP0 = -3.4;                      // the overground platform's own far edge
+const PIER_X = [6, 17.3, 28.7, 40];
+const PIER_Y = [-5.4, -1.0];
+
+/* ============================================================ the layers
+ * Descending, because 1 is nearest: the arrays below are painted in reverse order, `piers`
+ * first, `trainA` last. `spacing` is 200 so a figure's own depth (see `depth`) can never
+ * reach out of its band. */
+const L = {
+  trainA: 2800, trackA: 2600, crowdU: 2400, runs: 2200, platformU: 2000,
+  trainB: 1800, trackB: 1600, wall: 1400,
+  roof: 1200, crowdO: 1000, platformO: 800, trainC: 600, trackC: 400, pier: 200,
+};
+
+/**
+ * How far a figure's own world position moves it inside its band.
+ *
+ * The kit draws more of `x + y + z` nearer the reader, so this is the projection's own depth
+ * measure at a scale small enough that nothing leaves a 200-wide band. It orders a crowd
+ * against itself, and the sleepers of a track, and the piers of one bent — nothing more. What
+ * decides the sheet is the band, not this.
+ */
+const depth = (x, y, z) => (x + y + z * 0.9) * 0.2;
 
 export function artTwoLine() {
-  const W = 1600, H = 1180;
+  const W = 1600, H = 1400;
+  /* Where the drawing goes, and the column the reading sits in. The framing is measured from
+   * the geometry that was just built (`bboxOf`) and fitted into this rectangle, so no part of
+   * the drawing — the far end of a consist, the last pier, the deepest corner of the box — can
+   * leave the sheet, and the annotation is placed through the same transform. */
+  const ART = { x: 24, y: 168, w: 1072, h: 992 };
+  const AX = 1120;
   const g = [];
-  g.push(title(48, 62, '概念 13 // 两条线路，两种深度',
-    '一条在街上，一条在街下',
-    '还是第 02 张那个换乘站，这回画成体块。你能造的东西都落在这两个盒子里；盒子之间换乘，是一段真要走的路。'));
+  g.push(title(48, 62, '一条在街上，一条在街下',
+    '还是第 02 张那个换乘站，这回画成体块：一条线在高架桥上，一条线在街面下的箱体里。'));
+
   const OV = [];
   const S = Scene();
+  const rr = rng(13);
+  /** Push a shape into one of the bands, letting its own position order it within the band. */
+  const put = (band, x, y, z, svg) => S.fg.push([band + depth(x, y, z), svg]);
 
-  /* ---------------- excavation and street ---------------- */
-  S.raw(boxSvg(-8, -8, -18, 12, 34, 18, C.soil, { tone: 1.0, sw: 0.8 }));      // left mass
-  S.raw(boxSvg(4, -8, -18, 40, 10, 18, C.soil, { tone: 0.92, sw: 0.8 }));      // back mass
-  S.raw(boxSvg(4, 2, -18.5, 40, 24, 0.6, C.soil2, { tone: 1.0, sw: 0.6 }));    // pit floor
-  // strata on the two exposed cut faces
-  for (const [zz, col] of [[-3.4, C.soil2], [-9.2, C.soil2], [-15.0, C.soil2]]) {
-    S.raw(faceSvg('y', 2.02, 4, 44, zz, zz + 0.9, col, { tone: 1.0, sw: 0 }));
-    S.raw(faceSvg('x', 4.02, 2, 26, zz, zz + 0.9, col, { tone: 0.94, sw: 0 }));
+  /* ============================================================ the box
+   * Painted raw, before the sort: it is the hole everything else sits in. Its top face is the
+   * street, its two cut faces are where the ground was sliced, and the block left under the pit
+   * floor is what the two roads and the island stand on. */
+  S.raw(boxSvg(-10, -10, ZB, 14, 32, -ZB, C.soil, { tone: 1.0, sw: 0.8 }));                 // the side mass
+  S.raw(boxSvg(X0, -10, ZB, X1 - X0, 12, -ZB, C.soil, { tone: 0.92, sw: 0.8 }));            // behind the wall
+  S.raw(boxSvg(X0, YB, ZB, X1 - X0, YF - YB, ZF - ZB, C.soil2, { tone: 1.0, sw: 0.7 }));    // under the pit
+  // strata, on the faces the cut left open: the side mass's front and the block's two
+  for (const [zz, tone] of [[-13.4, 1.06], [-5.8, 0.94], [-1.8, 1.02]]) {
+    S.raw(faceSvg('y', YF + 0.03, -10, X0, zz, zz + 0.7, C.soil, { tone, sw: 0 }));
+    S.raw(faceSvg('x', X1 + 0.03, -10, YB, zz + 0.35, zz + 1.05, C.soil, { tone: tone * 0.94, sw: 0 }));
   }
-  // street surface, outside the excavation only
-  S.raw(boxSvg(-8, -8, -0.5, 12, 34, 0.5, C.concrete, { tone: 1.0, sw: 0.6 }));
-  S.raw(boxSvg(4, -8, -0.5, 40, 10, 0.5, C.concrete, { tone: 0.95, sw: 0.6 }));
-  S.raw(quadSvg(-8, -8, 0.02, 12, 34, C.floorAlt, { tone: 1.0, sw: 0 }));
-  S.raw(quadSvg(4, -8, 0.02, 40, 10, C.floorAlt, { tone: 0.97, sw: 0 }));
+  for (const zz of [-14.7, -12.5]) {
+    S.raw(faceSvg('y', YF + 0.03, X0, X1, zz, zz + 0.6, C.soil, { tone: 1.05, sw: 0 }));
+    S.raw(faceSvg('x', X1 + 0.03, YB, YF, zz, zz + 0.6, C.soil, { tone: 0.98, sw: 0 }));
+  }
+  // the street: the ground's own top, where the cut did not take it away
+  S.raw(quadSvg(-10, -10, 0.02, 14, 32, C.floorAlt, { tone: 1.0, sw: 0 }));
+  S.raw(quadSvg(X0, -10, 0.02, X1 - X0, 12, C.floorAlt, { tone: 0.97, sw: 0 }));
 
-  /* ---------------- Line 2, the underground box ---------------- */
-  const zP = -13.0;                                       // platform surface
-  const zR = -14.12;                                      // rail top
-  S.raw(boxSvg(4, 2, zP - 0.7, 40, 16, 0.7, C.slab, { tone: 1.0, sw: 0.6 }));  // B2 slab
-  S.raw(quadSvg(4, 2, zP + 0.02, 40, 16, C.floor, { tone: 1.0, sw: 0.5 }));
-  S.raw(quadSvg(4, 5.6, zP + 0.04, 40, 5.6, C.floorAlt, { tone: 1.0, sw: 0.4 }));
-  for (const py0 of [5.6, 11.2]) {
-    S.raw(quadSvg(4, py0, zP + 0.06, 40, 1.0, C.tactile, { tone: 1.0, sw: 0.3 }));
-    S.raw(quadSvg(4, py0 + 1.0, zP + 0.06, 40, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
-    S.raw(quadSvg(4, py0 - 1.3, zP + 0.06, 40, 1.0, C.tactile, { tone: 1.0, sw: 0.3 }));
-    S.raw(quadSvg(4, py0 - 1.6, zP + 0.06, 40, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
-  }
-  isoTrack(S, { x: 4, y: 2.4, z: zR - 0.18, len: 40, w: 3.2, third: true });
-  isoTrack(S, { x: 4, y: 11.2, z: zR - 0.18, len: 40, w: 3.2, third: true });
-  // station side wall (the far one) + the back wall
-  S.fg.push([26 + 2.5 + (-9.25) * 0.9, boxSvg(4, 2, -16.6, 0.5, 16, 13.4, C.tile, { tone: 0.94 })]);
-  S.fg.push([24 + 2.25 + (-9.25) * 0.9, boxSvg(4, 2, -16.6, 40, 0.5, 13.4, C.tile, { tone: 0.9 })]);
-  // trains on both roads: each consist eases along its track and settles back
-  const trainAnim = (begin) => amT('0 0;0 0;54 27;54 27;0 0;0 0', '0;0.2;0.5;0.7;1', '18s',
-    '0.4 0 0.6 1;0 0 1 1;0 0 1 1;0.4 0 0.6 1', begin);
-  for (const [ty, col, begin] of [[2.4, C.lineB, '0s'], [11.4, C.lineB, '3s']]) {
-    for (let c = 0; c < 2; c++) {
-      isoCar(S, {
-        x: 4.5 + c * 19.9, y: ty, z: zP - 0.18, len: 19.5, w: 2.8, h: 3.8, col: '#eef2f6',
-        doors: 4, doorW: 1.3, cab: c === 0, stripe: col, dest: c === 0, destText: '五丝广场',
-        roofCol: '#dfe4ea', winCol: '#20303e', shoe: true, tone: 0.98,
-        anim: trainAnim(begin),
-      });
+  /* ============================================================ 14. the piers
+   * Painted first of everything sorted, because the deck has to land on top of them. A pair per
+   * bent, standing on the street with their heads at the deck's soffit — the deck is what hides
+   * the heads, so they can stand anywhere under it. */
+  for (const bx of PIER_X) {
+    for (const by of PIER_Y) {
+      put(L.pier, bx, by, 0, rboxSvg(bx - 0.15, by - 0.15, 0, 1.6, 1.6, 0.45, C.concreteD, { r: 0.16 }));
+      put(L.pier, bx, by, 0.45, rboxSvg(bx, by, 0.45, 1.3, 1.3, ZD - 1.05, C.concrete, { r: 0.2 }));
+      put(L.pier, bx, by, ZD - 0.6, rboxSvg(bx - 0.18, by - 0.18, ZD - 0.6, 1.66, 1.66, 0.6, C.concreteD, { r: 0.16 }));
     }
   }
-  // platform crowd
-  const rr = rng(31);
-  for (let i = 0; i < 26; i++) {
-    const gx = 5 + rr() * 38, gy = 6.4 + rr() * 4.4;
-    S.sprite(gx, gy, zP + 0.04, rr() > 0.85 ? 'personBag' : 'person',
-      { color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink][(rr() * 6) | 0] });
-  }
-  const walkX = (y, z, col, begin, dur = '9s', x0 = 7, x1 = 41) => {
-    const p0 = P(x0, y, z), p1 = P(x1, y, z);
-    S.fg.push([x0 + y + z * 0.9, mover(`M ${n(p0[0])} ${n(p0[1])} L ${n(p1[0])} ${n(p1[1])}`, col, begin,
-      { sprite: 'person', dur, f0: 0.02, f1: 0.08, f2: 0.9, f3: 0.96 })]);
-  };
-  walkX(7.2, zP + 0.06, C.red, '0s');
-  walkX(9.6, zP + 0.06, C.green, '1.8s');
-  walkX(8.4, zP + 0.06, C.purple, '3.4s');
 
-  /* ---------------- B1 concourse ---------------- */
-  const zC = -5.5;
-  S.raw(boxSvg(4, 2, zC - 0.7, 40, 16, 0.7, C.slab, { tone: 0.96, sw: 0.6 }));
-  S.raw(quadSvg(4, 2, zC + 0.02, 40, 5.0, C.floor, { tone: 1.0, sw: 0.4 }));      // back strip
-  S.raw(quadSvg(20, 7, zC + 0.02, 24, 11.0, C.floor, { tone: 1.0, sw: 0.4 }));    // east block
-  S.raw(quadSvg(4, 7, zC + 0.02, 4, 11.0, C.floor, { tone: 0.97, sw: 0.4 }));     // west block
-  S.raw(quadSvg(4, 2, zC + 0.05, 40, 0.35, C.floorInlay, { tone: 1.0, sw: 0, opacity: 0.5 }));
-  S.raw(quadSvg(4, 11.9, zC + 0.05, 40, 0.35, C.floorInlay, { tone: 1.0, sw: 0, opacity: 0.5 }));
-  // gate bank across the east block
-  for (let i = 0; i < 6; i++) {
-    const gx = 24 + i * 1.35;
-    S.rbox(gx, 12.2, zC, 1.15, 1.4, 0.95, C.steel, { r: 0.12, tone: 1.0, top: 1.2 });
-    S.rbox(gx - 0.03, 11.9, zC, 1.21, 0.42, 1.05, C.steel, { r: 0.14, tone: 0.98 });
-    S.rbox(gx - 0.03, 13.5, zC, 1.21, 0.42, 1.05, C.steel, { r: 0.14, tone: 0.98 });
-    S.box(gx + 0.06, 13.44, zC + 1.05, 1.03, 0.5, 0.1, C.green, { tone: 1.25 });
-    S.box(gx + 0.06, 12.1, zC + 1.05, 1.03, 0.5, 0.1, C.green, { tone: 1.25 });
-  }
-  S.rbox(22.0, 12.0, zC, 1.7, 1.8, 1.0, C.steel, { r: 0.14, tone: 1.02 });
-  S.box(22.05, 13.6, zC + 1.1, 1.6, 0.5, 0.1, C.blue, { tone: 1.25 });
-  // concourse columns, kept off the escalator well
-  for (const [cx0, cy0] of [[24, 8.6], [32, 8.6], [40, 8.6], [24, 16.4], [32, 16.4], [40, 16.4], [6, 8.6], [6, 16.4], [14, 3.6], [30, 3.6]]) {
-    S.rbox(cx0, cy0, zC + 0.1, 0.78, 0.78, 5.4, C.steel, { r: 0.16, tone: 1.0, top: 1.18 });
-    S.rbox(cx0 - 0.05, cy0 - 0.05, zC, 0.88, 0.88, 0.2, C.dark, { r: 0.18, tone: 1.0 });
-  }
-  // concourse crowd
-  for (let i = 0; i < 30; i++) {
-    const gx = 4.6 + rr() * 38, gy = 8 + rr() * 9;
-    if (gx > 20 && gx < 24 && gy > 12) continue;
-    S.sprite(gx, gy, zC + 0.03, 'person', { color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink, C.green][(rr() * 7) | 0], bias: -0.4 });
-  }
-  walkX(12.6, zC + 0.05, C.yellow, '0.6s');
-  walkX(9.0, zC + 0.05, C.blue, '2.4s');
+  /* ============================================================ 13. the viaduct's road
+   * The bridge deck and the road on it, in one band: the deck is the road's own support, and
+   * painting them apart is how a track ends up drawn on top of the thing carrying it. */
+  put(L.trackC, 23, -3.1, ZD + 0.6, boxSvg(DX0, DY0, ZD, DX1 - DX0, DY1 - DY0, 1.2, C.concrete, { tone: 1.0 }));
+  put(L.trackC, 23, DY1 + 0.17, ZK + 0.3, boxSvg(DX0, DY1, ZK, DX1 - DX0, 0.35, 0.7, C.concreteD, { tone: 0.98 }));
+  put(L.trackC, 23, DY0 - 0.17, ZK + 0.3, boxSvg(DX0, DY0 - 0.35, ZK, DX1 - DX0, 0.35, 0.7, C.concreteD, { tone: 0.98 }));
+  isoTrack(S, { x: DX0, y: PK, z: ZK, len: DX1 - DX0, w: RW, third: false, key: L.trackC + 60 });
+  catenary(S, { x: DX0, y: CYC, z: ZK, len: DX1 - DX0 }, L.trackC + 60);
 
-  /* ---------------- station roof / street slab over the box ---------------- */
-  S.raw(boxSvg(4, 2, -0.5, 40, 4.0, 0.5, C.concrete, { tone: 1.02, sw: 0.6 }));
-  S.raw(quadSvg(4, 2, 0.02, 40, 4.0, C.floorAlt, { tone: 1.0, sw: 0 }));
-  S.raw(boxSvg(38, 6, -0.5, 6, 12, 0.5, C.concrete, { tone: 1.0, sw: 0.6 }));
-  S.raw(quadSvg(38, 6, 0.02, 6, 12, C.floorAlt, { tone: 0.98, sw: 0 }));
+  /* ============================================================ 12. the consist up there
+   * The game's own A-type consist — the stock this line runs — photographed on this drawing's
+   * axes. It is anchored by the point its **origin** landed on, which the capture reports: the
+   * model is built centred on its origin and standing on it (`box.z[0]` is 0), so putting that
+   * point on the rail top stands the whole train on the track rather than near it.
+   *
+   * The picture is **mirrored**, because the render is taken on the far side of the kit's
+   * corner: without it the car faces the wrong way along its own rails. A mirror moves the
+   * anchored point (it lands at `1 − origin[0]` of the element), so the left edge is placed
+   * from the mirrored fraction. */
+  const trainImage = (card, x, y, z, anim) => {
+    const w = card.metres * TW * Math.SQRT2;
+    const h = card.verticalMetres * TW * Math.SQRT2;
+    const [ox, oy] = P(x, y, z);
+    const fx = 1 - card.origin[0];
+    const left = ox - fx * w;
+    const top = oy - card.origin[1] * h;
+    return group(
+      `<image x="${n(left)}" y="${n(top)}" width="${n(w)}" height="${n(h)}" href="${card.href}"` +
+      ` transform="translate(${n(2 * left + w)},0) scale(-1,1)"/>`,
+      anim,
+    );
+  };
+  /** A consist easing along its road and settling back: the same shunt on every train. */
+  const shunt = (begin, dur = '20s', dx = 44, dy = 25) =>
+    amT(`0 0;0 0;${dx} ${dy};${dx} ${dy};0 0;0 0`, '0;0.2;0.5;0.7;1', dur,
+      '0.4 0 0.6 1;0 0 1 1;0 0 1 1;0.4 0 0.6 1', begin);
+  const isoA = trainCard('iso-A');
+  // the model is centred on its origin, so the anchor is the point the consist is centred on
+  S.fg.push([L.trainC + 60, trainImage(isoA, 23, CYC, ZRO, shunt('1.6s', '23s'))]);
 
-  /* ---------------- vertical circulation ---------------- */
-  // B2 -> B1, two escalators and a stair in one well
-  const esc = (x0, z0, x1, z1, y, w, col) => {
-    S.deck(x0, y, z0, x1, w, z1, col ?? C.steelD, { truss: 0.55, tone: 1.0 });
-    S.handrailX(y - 0.02, x0, z0, x1, z1, 0.95, { panel: C.glass, panelTone: 1.28, capCol: C.dark });
-    S.handrailX(y + w + 0.02, x0, z0, x1, z1, 0.95, { panel: C.glass, panelTone: 1.28, capCol: C.dark });
-    // the treads run: dashes march up the flight
-    const c0 = P(x0 + 1, y + w / 2, z0 + 0.08), c1 = P(x1 - 1, y + w / 2, z1 + 0.08);
-    S.fg.push([95, `<path d="M${n(c0[0])},${n(c0[1])} L${n(c1[0])},${n(c1[1])}" stroke="#0d1116" stroke-width="3" stroke-dasharray="9 13" opacity="0.26" fill="none" ${dashFlow(22, '1.4s')}/>`]);
-  };
-  const ride = (x0, z0, x1, z1, y, begin, col) => {
-    const c0 = P(x0 + 1, y, z0 + 0.1), c1 = P(x1 - 1, y, z1 + 0.1);
-    S.fg.push([96, mover(`M ${n(c0[0])} ${n(c0[1])} L ${n(c1[0])} ${n(c1[1])}`, col, begin,
-      { sprite: 'person', dur: '7s', f0: 0.05, f1: 0.12, f2: 0.88, f3: 0.95 })]);
-  };
-  esc(8, zP, 20, zC, 6.4, 1.2);
-  esc(8, zP, 20, zC, 7.8, 1.2);
-  ride(8, zP, 20, zC, 6.6, '0s', C.orange);
-  ride(8, zP, 20, zC, 8.0, '2.6s', C.teal);
+  /* ============================================================ 11. the overground platform
+   * The floor of the viaduct station, on the near half of the deck, with its warning strip and
+   * its safety line along the road edge. It is painted after the train, which is what lets it
+   * hide the train's own skirt behind its edge — the order the list asks for, and the order the
+   * world has. */
+  put(L.platformO, 23, (PP0 + DY1) / 2, ZK + 0.02, boxSvg(DX0, PP0, ZK, DX1 - DX0, DY1 - PP0, 0.08, C.floor, { tone: 1.0, sw: 0.5 }));
+  put(L.platformO + 30, 23, PP0 + 0.45, ZK + 0.04, quadSvg(DX0, PP0 + 0.03, ZK + 0.06, DX1 - DX0, 0.88, C.tactile, { tone: 1.0, sw: 0.3 }));
+  put(L.platformO + 32, 23, PP0 + 1.35, ZK + 0.04, quadSvg(DX0, PP0 + 0.91, ZK + 0.06, DX1 - DX0, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
+
+  /* ============================================================ 10. the crowd up there */
   for (let i = 0; i < 16; i++) {
-    S.rbox(8 + i * 0.75, 9.3, zP + i * 0.47, 0.75, 1.2, 0.47, C.concrete, { r: 0.06, tone: 1.0 });
-  }
-  S.handrailX(9.28, 8, zP, 20, zC, 0.9, { panel: C.glass, panelTone: 1.24, capCol: C.dark });
-  S.handrailX(10.52, 8, zP, 20, zC, 0.9, { panel: C.glass, panelTone: 1.24, capCol: C.dark });
-  // B1 -> street, one run emerging under the roof strip
-  esc(20, zC, 32, -0.4, 3.0, 1.3);
-  // street -> viaduct platform, two flights with a landing
-  esc(18, 11.6, 27, 6.2, 2.3, 1.3);
-  esc(29, 6.2, 38, 0.4, 2.3, 1.3);
-  S.fg.push([27.5 + 2.9 + 3.3 * 0.9, boxSvg(27, 2.3, 6.0, 2.2, 1.6, 0.35, C.steel, { tone: 1.05 })]);
-
-  /* ---------------- entrance head house ---------------- */
-  S.box(9, -7.0, 0, 8.0, 8.0, 4.4, C.white, { tone: 1.02 });
-  S.box(8.7, -7.3, 4.4, 8.6, 8.6, 0.5, C.lineA, { tone: 1.05 });
-  S.face('y', 1.02, 9.5, 16.5, 0.3, 3.2, C.glass, { tone: 1.2, opacity: 0.9 });
-  S.face('y', 1.02, 9.5, 16.5, 3.3, 4.2, '#18324d', { tone: 1.2, sw: 0.8 });
-  S.face('x', 17.02, -6.5, -0.2, 0.3, 3.2, C.glass, { tone: 1.05, opacity: 0.9 });
-  S.box(9.5, 1.0, 3.4, 3.0, 1.6, 0.3, C.glass, { tone: 1.25, opacity: 0.85 });
-
-  /* ---------------- Line 1 viaduct ---------------- */
-  const zD = 10.4;                                        // deck soffit
-  // piers: two per bent, standing on the street slab
-  for (const bx of [6, 20, 34, 46]) {
-    for (const by of [-5.4, -1.4]) {
-      S.rbox(bx, by, 0, 1.3, 1.3, zD, C.concrete, { r: 0.2, tone: 1.0 });
-      S.rbox(bx - 0.15, by - 0.15, zD - 0.5, 1.6, 1.6, 0.6, C.concreteD, { r: 0.2, tone: 1.0 });
-      S.rbox(bx - 0.2, by - 0.2, 0, 1.7, 1.7, 0.4, C.concreteD, { r: 0.2, tone: 1.0 });
-    }
-  }
-  // deck
-  S.box(-2, -7.4, zD, 50, 8.6, 1.2, C.concrete, { tone: 1.0 });
-  S.box(-2, -7.4, zD + 1.2, 50, 0.35, 0.75, C.concreteD, { tone: 0.98 });
-  S.box(-2, 0.85, zD + 1.2, 50, 0.35, 0.75, C.concreteD, { tone: 0.98 });
-  isoTrack(S, { x: -2, y: -7.0, z: zD + 1.2, len: 50, w: 3.2, third: false });
-  catenary(S, { x: -2, y: -5.4, z: zD + 1.2, len: 50 });
-  // viaduct platform, on the near side of the deck
-  S.raw(quadSvg(-2, -3.4, zD + 1.22, 50, 4.4, C.floor, { tone: 1.0, sw: 0.5 }));
-  S.raw(quadSvg(-2, -3.4, zD + 1.24, 50, 0.9, C.tactile, { tone: 1.0, sw: 0.3 }));
-  S.raw(quadSvg(-2, -2.5, zD + 1.24, 50, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
-  // canopy
-  for (const bx of [4, 14, 24, 34, 44]) {
-    S.rbox(bx, -3.2, zD + 1.2, 0.5, 0.5, 3.6, C.steel, { r: 0.12, tone: 1.0 });
-    S.rbox(bx, 0.6, zD + 1.2, 0.5, 0.5, 3.6, C.steel, { r: 0.12, tone: 1.0 });
-  }
-  S.box(-2, -4.0, zD + 4.8, 50, 5.6, 0.4, C.panel, { tone: 1.05 });
-  S.box(-2, -4.0, zD + 4.5, 50, 5.6, 0.3, C.ceilBaffle, { tone: 0.95 });
-  // a train on the viaduct
-  for (let c = 0; c < 2; c++) {
-    isoCar(S, {
-      x: 2 + c * 22.6, y: -7.0, z: zD + 1.2 + 0.92, len: 22.0, w: 3.0, h: 3.8, col: '#eef2f6',
-      doors: 5, doorW: 1.4, cab: c === 0, stripe: C.lineA, dest: c === 0, destText: '广州南站',
-      roofCol: '#dfe4ea', winCol: '#20303e', panto: true, tone: 1.0,
+    const gx = 1 + rr() * 45;
+    const gy = PP0 + 1.9 + rr() * (DY1 - PP0 - 2.3);
+    S.sprite(gx, gy, ZK + 0.1, rr() > 0.86 ? 'personBag' : 'person', {
+      color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink, C.green][(rr() * 7) | 0],
+      k: L.crowdO + i,
     });
   }
-  for (let i = 0; i < 14; i++) {
-    const gx = 2 + rr() * 44, gy = -3.0 + rr() * 3.6;
-    S.sprite(gx, gy, zD + 1.22, 'person', { color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink][(rr() * 6) | 0] });
+  {
+    const p0 = P(0, DY1 - 0.6, ZK + 0.12);
+    const p1 = P(46, DY1 - 0.6, ZK + 0.12);
+    S.fg.push([L.crowdO + 80, mover(`M ${n(p0[0])} ${n(p0[1])} L ${n(p1[0])} ${n(p1[1])}`, C.pink, '0.8s',
+      { sprite: 'person', dur: '13s', f0: 0.02, f1: 0.1, f2: 0.88, f3: 0.96 })]);
   }
-  walkX(-2.2, zD + 1.24, C.pink, '1.2s', '8s', -1, 46);
-  walkX(-0.6, zD + 1.24, C.teal, '3.6s', '8s', -1, 46);
 
-  /* ---------------- callouts + annotation column ---------------- */
+  /* ============================================================ 9. the canopy
+   * Columns first, roof last: a column's head has to disappear into the slab, not through it.
+   * The columns belong to the platform they stand on as much as to the roof, but they are part
+   * of the roof's band here for the same reason the deck is part of the road's. */
+  for (const bx of [1, 11, 21, 31, 41]) {
+    put(L.roof + 20, bx, PP0 + 0.55, ZK, rboxSvg(bx, PP0 + 0.55, ZK, 0.42, 0.42, 4.5, C.steel, { r: 0.1 }));
+    put(L.roof + 20, bx, DY1 - 0.9, ZK, rboxSvg(bx, DY1 - 0.9, ZK, 0.42, 0.42, 4.5, C.steel, { r: 0.1 }));
+  }
+  put(L.roof + 40, 23, -3.1, ZK + 4.35, boxSvg(DX0, DY0 + 0.2, ZK + 4.5, DX1 - DX0, DY1 - DY0 - 0.2, 0.3, C.ceilBaffle, { tone: 0.95 }));
+  put(L.roof + 44, 23, -3.1, ZK + 4.8, boxSvg(DX0, DY0 + 0.2, ZK + 4.8, DX1 - DX0, DY1 - DY0 - 0.2, 0.45, C.panel, { tone: 1.05 }));
+
+  /* ============================================================ 8. the station's own walls
+   * The face behind the far road and the face along the side: the two the cut left standing.
+   * They take a band of their own rather than the box's, because a wall standing *inside* the
+   * hole has to sort against what is in the hole — written raw, the trains came out behind
+   * their own station. */
+  put(L.wall, 24, YB, 0, faceSvg('y', YB, X0, X1, ZF, ZT, C.tile, { tone: 0.9 }));
+  put(L.wall + 40, 24, (YB + YF) / 2, 0, faceSvg('x', X0, YB, YF, ZF, ZT, C.tile, { tone: 0.94 }));
+  // a skirting band at the foot of each, so the walls read as walls rather than as paper
+  put(L.wall + 60, 24, YB + 0.02, 0, faceSvg('y', YB + 0.02, X0, X1, ZF, ZF + 0.5, C.dark, { tone: 1.0, sw: 0 }));
+  put(L.wall + 60, 24, 0, 0, faceSvg('x', X0 + 0.02, YB, YF, ZF, ZF + 0.5, C.dark, { tone: 1.0, sw: 0 }));
+
+  /* ============================================================ 7. the far road */
+  isoTrack(S, { x: X0, y: RB, z: ZF, len: X1 - X0, w: RW, third: true, key: L.trackB });
+
+  /* ============================================================ 6. the consist on it
+   * A B-type pair, the stock the underground line runs. It is a band above its own rails and
+   * three bands *below* the island: the crowd, the 扶梯 and the platform all stand in front of
+   * it, which is what the reader asked for and what the world looks like from this corner. */
+  const isoB = trainCard('iso-B');
+  S.fg.push([L.trainB + 60, trainImage(isoB, (X0 + X1) / 2, CYB, ZR, shunt('4.5s', '24s'))]);
+
+  /* ============================================================ 5. the island platform
+   * One block, 8.8 m across, from the pit floor to 9.5 m below the street, with a warning strip
+   * at each road edge and the inlay band the floors wear in the rest of the drawings. */
+  put(L.platformU, (X0 + X1) / 2, (PB0 + PB1) / 2, ZF, boxSvg(X0, PB0, ZF, X1 - X0, PB1 - PB0, ZP - ZF, C.slab, { tone: 1.0, sw: 0.6 }));
+  put(L.platformU + 20, (X0 + X1) / 2, (PB0 + PB1) / 2, ZP + 0.02, quadSvg(X0, PB0, ZP + 0.02, X1 - X0, PB1 - PB0, C.floor, { tone: 1.0, sw: 0.5 }));
+  for (const [yy, s] of [[PB0, 1], [PB1, -1]]) {
+    const y0 = s > 0 ? yy + 0.04 : yy - 0.94;
+    const y1 = s > 0 ? yy + 0.94 : yy - 0.04;
+    put(L.platformU + 40, 24, yy, ZP + 0.05, quadSvg(X0, y0, ZP + 0.04, X1 - X0, 0.9, C.tactile, { tone: 1.0, sw: 0.3 }));
+    put(L.platformU + 42, 24, yy, ZP + 0.05, quadSvg(X0, s > 0 ? y1 - 0.3 : y1, ZP + 0.04, X1 - X0, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
+    put(L.platformU + 44, 24, yy, ZP + 0.05, quadSvg(X0, s > 0 ? yy - 0.12 : yy, ZP + 0.04, X1 - X0, 0.12, C.white, { tone: 1.0, sw: 0.25 }));
+  }
+
+  /* ============================================================ 4. the way up
+   * One set, in the middle of the island: a 扶梯 and a 楼梯 side by side, climbing out of the box.
+   * Both are the game's own models, photographed on this drawing's axes by
+   * `tools/render-piece-views.mjs` and placed at **one** scale for both axes, so what stands in
+   * the drawing is the picture the game's renderer took: no stretch, and no second opinion about
+   * what an escalator looks like.
+   *
+   * `RUN_S` is that scale, and it is the sheet's one stated number rather than a measurement. The
+   * game builds a 扶梯 and a 楼梯 for one 4 m storey of its grid (`sim/constants.ts`) and this box
+   * is 9.5 m deep, so the piece is drawn a little under twice its own size: big enough to read as
+   * circulation, small enough that the pair is not the largest object in the station. Drawn at its
+   * own size it would be a smudge; drawn to reach the street it draws a gradient the game does not
+   * have and makes the balustrade the tallest thing in the box.
+   *
+   * Every run is placed by the point its **origin** landed on — the node the model was built
+   * around, which the capture reports for exactly this — with the origin on the platform, so the
+   * run stands on the floor rather than near it. The 扶梯 is photographed `iso-flip` because its
+   * model's run points the other way along the cell from the 楼梯's, so its picture is mirrored to
+   * stand beside the stair climbing the same way. Neither run is animated: these two are the only
+   * figures in the drawing that are *placed* rather than *travelling*, and a bank that slides about
+   * says the opposite. */
+  const esc = pieceView('escalator');
+  const stair = pieceView('stair-straight');
+  /** The size the runs are drawn at — see above. */
+  const RUN_S = 1.15;
+  /**
+   * One run: its foot on the platform at `x`,`y`, climbing away from the reader.
+   *
+   * The piece is stood on the floor by its **content's lower-left corner**, which is where both
+   * runs' own feet are: for the 扶梯 that is its truss's near corner, for the 楼梯 the bottom of
+   * its stringer. Not `origin` — that node sits inside the picture, and on this pair it is a
+   * 扶梯's *upper* landing, so anchoring by it stands the escalator on its own head. Not the
+   * piece's lowest drawn pixel either: on the 楼梯 that is a handrail post hanging below the head
+   * of the run, and a whole flight placed by it lands a metre off its own foot.
+   *
+   * Both pictures climb the same way — to the right, which in this box is towards the far road —
+   * so the bank stands square without mirroring either one.
+   */
+  const run = (piece, x, y, o = {}) => {
+    const w = piece.metres * TW * Math.SQRT2 * RUN_S;
+    const h = piece.verticalMetres * TW * Math.SQRT2 * RUN_S;
+    const foot = P(x, y, ZP + (o.dz ?? 0));
+    const [c0, , , c3] = piece.content;
+    const left = foot[0] - c0 * w;
+    const top = foot[1] - c3 * h;
+    S.fg.push([L.runs + depth(x, y, ZP) + (o.d ?? 0), group(
+      `<image x="${n(left)}" y="${n(top)}" width="${n(w)}" height="${n(h)}" href="${piece.href}"/>`,
+    )]);
+  };
+  run(esc, 19.6, 15.3);
+  run(stair, 22.4, 15.3, { d: 1 });
+
+  /* ============================================================ 3. the crowd underground
+   * Waiting passengers either side of the runs, and two walkers on the long axis, so the busiest
+   * thing in the drawing is the thing the sheet is about. Both runs cross the island broadside at
+   * x 19–24, so that strip is left clear — a passenger standing inside an escalator reads as a
+   * mistake, and the band order would draw them on top of it and hide the piece entirely. */
+  for (let i = 0; i < 30; i++) {
+    const gx = 5 + rr() * 38;
+    const midRun = gx > 17.5 && gx < 25.5;
+    const gy = midRun
+      ? (rr() > 0.5 ? PB0 + 0.5 + rr() * 0.7 : 14.4 + rr() * 1.1)
+      : PB0 + 0.5 + rr() * (PB1 - PB0 - 1.0);
+    S.sprite(gx, gy, ZP + 0.06, rr() > 0.85 ? 'personBag' : 'person', {
+      color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink, C.green][(rr() * 7) | 0],
+      k: L.crowdU + i,
+    });
+  }
+  const walkU = (y, col, begin, dur) => {
+    const p0 = P(6, y, ZP + 0.08);
+    const p1 = P(42, y, ZP + 0.08);
+    S.fg.push([L.crowdU + 80 + y, mover(`M ${n(p0[0])} ${n(p0[1])} L ${n(p1[0])} ${n(p1[1])}`, col, begin,
+      { sprite: 'person', dur, f0: 0.03, f1: 0.12, f2: 0.86, f3: 0.95 })]);
+  };
+  walkU(8.0, C.red, '0s', '10s');
+  walkU(14.6, C.green, '2.6s', '11s');
+
+  /* ============================================================ 2. the near road */
+  isoTrack(S, { x: X0, y: RA, z: ZF, len: X1 - X0, w: RW, third: true, key: L.trackA });
+
+  /* ============================================================ 1. the near consist
+   * The nearest thing in the picture and the last thing painted, so it covers the island, the
+   * crowd, the runs and the far road alike. That is the whole point of the first line of the
+   * list: from this corner the near train is between the reader and the station. */
+  S.fg.push([L.trainA + 60, trainImage(isoB, (X0 + X1) / 2, CYA, ZR, shunt('0s', '21s'))]);
+
+  /* ============================================================ framing
+   * Measured from the finished geometry and fitted into the rectangle the reading column
+   * leaves: the drawing is exactly as wide as it turned out to be, so nothing can run off the
+   * edge — a cab sliced off flat by the margin is what a guessed frame buys. */
+  const scene = S.out();
+  const fit = fitToRect(bboxOf(scene), ART);
+  /** A world point, on the sheet. */
+  const at = (x, y, z) => fit.place(...P(x, y, z));
+
+  /* ============================================================ the layer badges
+   * Seven numbered balls on what the section is made of, hung off short leaders into the empty
+   * margins. They are placed through the same framing as the drawing, so a ball lands on the
+   * thing it names rather than near it. */
   const list = [];
   const co = (p, lx, ly, num) => {
-    const [ax, ay] = AT(p[0], p[1], p[2]);
+    const [ax, ay] = at(p[0], p[1], p[2]);
     callout(list, ax, ay, lx, ly, num, null);
   };
-  co([26, -5.4, zD + 5.4], 300, 150, 1);
-  co([10, -5.2, zD + 1.5], 210, 296, 2);
-  co([30, 8.5, zC + 1.2], 500, 470, 3);
-  co([14, 8.0, zP + 0.6], 300, 760, 4);
-  co([14, 3.2, zC + 0.2], 690, 690, 5);
-  co([24, 3.6, -0.1], 420, 350, 6);
-  co([13, -3.0, 2.2], 176, 452, 7);
-  co([12, 5.0, zP - 0.4], 132, 812, 8);
+  co([10, -3.2, ZK + 4.9], 104, 268, 1);               // the canopy over the viaduct
+  co([27, CYC, ZRO + 1.5], 104, 392, 2);               // the consist up there
+  co([5, -1.9, ZK + 0.2], 104, 516, 3);                // the viaduct platform
+  co([28.7, -1.0, ZD - 3.0], 104, 640, 4);             // a pier
+  co([36, CYB, ZR + 1.0], 132, 1104, 5);               // the consist on the far road
+  co([23, 12.0, ZP + 0.5], 392, 1176, 6);              // the island platform and the crowd
+  co([31, CYA, ZR + 1.1], 736, 1176, 7);               // the consist on the near road
   OV.push(list.join(''));
 
-  const ax0 = 1120;
-  g.push(`<rect x="${ax0}" y="170" width="432" height="356" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(ax0 + 24, 206, '两条线路', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+  /* ============================================================ the reading column */
+  g.push(`<rect x="${AX}" y="196" width="432" height="330" rx="14" fill="#111926" stroke="#243040"/>`);
+  g.push(T(AX + 24, 232, '两条线路', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
   const rows = [
-    ['1', C.lineA, '1 号线', '地面以上，高架桥面 +11.6 米', 'A 型 / 接触网 / 6-8 节'],
-    ['2', C.lineB, '2 号线', '地下，B2 站台 -13.0 米', 'B 型 / 第三轨 / 4-6 节'],
+    ['1', C.lineA, '1 号线', '地面以上：高架桥面 +11.6 米', 'A 型 / 接触网 / 6-8 节'],
+    ['2', C.lineB, '2 号线', '地下：B2 岛式站台 -9.5 米', 'B 型 / 第三轨 / 4-6 节'],
   ];
   rows.forEach(([id, col, name, sub, stock], i) => {
-    const y = 232 + i * 104;
-    g.push(`<rect x="${ax0 + 24}" y="${y}" width="384" height="88" rx="10" fill="${col}" opacity=".1" stroke="${col}" stroke-width="1.4"/>`);
-    g.push(`<circle cx="${ax0 + 52}" cy="${y + 30}" r="15" fill="${col}"/>`);
-    g.push(T(ax0 + 52, y + 35, id, { size: 15, weight: 800, fill: '#0b0e13', anchor: 'middle' }));
-    g.push(T(ax0 + 78, y + 28, name, { size: 14, weight: 700, fill: '#eaf0f6' }));
-    g.push(T(ax0 + 78, y + 48, sub, { size: 11.5, fill: '#a9b8c8', mono: true }));
-    g.push(T(ax0 + 78, y + 68, stock, { size: 11.5, fill: '#7d8ea3', mono: true }));
+    const y = 252 + i * 82;
+    g.push(`<rect x="${AX + 24}" y="${y}" width="384" height="72" rx="10" fill="${col}" opacity=".1" stroke="${col}" stroke-width="1.4"/>`);
+    g.push(`<circle cx="${AX + 52}" cy="${y + 24}" r="14" fill="${col}"/>`);
+    g.push(T(AX + 52, y + 29, id, { size: 14, weight: 800, fill: '#0b0e13', anchor: 'middle' }));
+    g.push(T(AX + 78, y + 23, name, { size: 14, weight: 700, fill: '#eaf0f6' }));
+    g.push(T(AX + 78, y + 42, sub, { size: 11.5, fill: '#a9b8c8', mono: true }));
+    g.push(T(AX + 78, y + 60, stock, { size: 11.5, fill: '#7d8ea3', mono: true }));
   });
-  g.push(T(ax0 + 24, 456, '落差 24.6 米。这座车站的意义，全在这儿：', { size: 12, fill: '#8fa0b3' }));
-  g.push(T(ax0 + 24, 476, '换乘就是一次爬升，而爬升本身就是客流。', { size: 12, fill: '#8fa0b3' }));
-  g.push(T(ax0 + 24, 500, '把各出口进出量定好，整座竖向叠层就从一头灌满。', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(AX + 24, 438, '落差 21.1 米：一次开挖，两个车站叠在一起。', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(AX + 24, 458, '换乘就是一次爬升，而爬升本身就是客流。', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(AX + 24, 478, '把各出口进出量定好，整座竖向叠层就从一头灌满。', { size: 12, fill: '#8fa0b3' }));
 
-  g.push(`<rect x="${ax0}" y="546" width="432" height="602" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(ax0 + 24, 582, '剖视图读法', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+  g.push(`<rect x="${AX}" y="546" width="432" height="440" rx="14" fill="#111926" stroke="#243040"/>`);
+  g.push(T(AX + 24, 582, '剖视图读法', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
+  g.push(T(AX + 24, 606, '从桥面读到坑底：这七样就是这座车站的全部。', { size: 11.5, fill: '#8fa0b3' }));
   const items = [
-    ['1', '1 号线雨棚与站台，高架桥面'],
-    ['2', 'A 型列车，接触网供电'],
-    ['3', 'B1 站厅：闸机、商铺、立柱'],
-    ['4', 'B2 岛式站台，双侧线路'],
-    ['5', '扶梯竖井：从 B2 上到 B1，敞着一个井道'],
-    ['6', '地面到站厅的扶梯，藏在顶板底下'],
-    ['7', '地面出入口雨棚'],
-    ['8', '地下线路的第三轨'],
+    ['1', '高架站台雨棚：顶板与立柱，遮住整条站台'],
+    ['2', '高架列车：A 型两节，接触网供电'],
+    ['3', '高架站台：桥面近侧的一半，1 号线'],
+    ['4', '桥墩：立在街面上，垫着上面全部'],
+    ['5', '地下 B 列车：远侧线路，B 型两节'],
+    ['6', '地下岛式站台：8.8 米宽，扶梯与楼梯在正中间'],
+    ['7', '地下 A 列车：近侧线路，第三轨供电'],
   ];
   items.forEach(([num, txt], i) => {
-    const y = 616 + i * 38;
-    g.push(`<circle cx="${ax0 + 40}" cy="${y}" r="12" fill="${C.yellow}"/>`);
-    g.push(T(ax0 + 40, y + 5, num, { size: 13, weight: 800, fill: C.ink, anchor: 'middle' }));
-    g.push(T(ax0 + 62, y + 5, txt, { size: 12.5, fill: '#c3d0de' }));
+    const y = 648 + i * 44;
+    g.push(`<circle cx="${AX + 40}" cy="${y - 4}" r="12.5" fill="${C.yellow}"/>`);
+    g.push(T(AX + 40, y + 0.5, num, { size: 13, weight: 800, fill: C.ink, anchor: 'middle' }));
+    g.push(T(AX + 64, y + 0.5, txt, { size: 12.5, fill: '#c3d0de' }));
   });
-  g.push(T(ax0 + 24, 954, '为什么它成立', { size: 12, weight: 800, fill: '#8fa0b3', ls: 1.2 }));
-  g.push(MUL(ax0 + 24, 980, [
-    '一次开挖，两个车站盒体。',
-    '高架只要打桥墩：便宜，',
-    '盒体建好再调线也来得及。',
-    '换乘只用这一个竖井，你就能',
-    '当成一条队伍来量，而不是三条。',
-    '把近处的四分之一切掉，照样能玩：',
-    '相机就是楼层选择器。',
-  ], { size: 12, fill: '#7d8ea3', lh: 19 }));
-  g.push(T(ax0 + 24, 1132, '沙盒模式：不算成本、不雇员工、不收票价', { size: 11.5, fill: '#5d6d80' }));
+  g.push(T(AX + 24, 968, '两个盒体之间换乘，是一段真要走的路：', { size: 11.5, fill: '#5d6d80' }));
 
-  const body = `<g transform="translate(${n(OX)},${n(OY)}) scale(${K})">${S.out()}</g>` + OV.join('') + g.join('');
-  return sheet(W, H, body);
+  g.push(`<rect x="${AX}" y="1004" width="432" height="176" rx="14" fill="#111926" stroke="#243040"/>`);
+  g.push(T(AX + 24, 1040, '沙盒模式', { size: 12, weight: 800, fill: '#8fa0b3', ls: 1.2 }));
+  g.push(MUL(AX + 24, 1066, [
+    '不算成本、不雇员工、不收票价。',
+    '盒体建好再调线也来得及；',
+    '高架只要打桥墩，便宜。',
+    '换乘只用这一组扶梯，队伍就能',
+    '当成一条来量，而不是三条。',
+    '相机就是楼层选择器。',
+  ], { size: 12, fill: '#7d8ea3', lh: 18 }));
+
+  return sheet(W, H, fit.group(scene) + OV.join('') + g.join(''));
 }

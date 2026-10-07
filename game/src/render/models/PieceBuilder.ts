@@ -34,10 +34,21 @@ export const C = {
   white: 0xeef1f4,
   exitRed: 0xc22f28,
   glass: 0xa8d8e6,
-  trainBody: 0xbcc2ca,
+  /**
+   * The car's own paint. A painted aluminium body is **not** a metal — the metal is under
+   * the paint — so this is a dielectric with a near-white albedo.
+   *
+   * It used to be `0xbcc2ca` at `metalness: 0.55`, which renders at about 86/255: at that
+   * metalness the albedo is specular-only, and with three directional lights and no
+   * environment map there is nothing for it to reflect. The car read as charcoal on the
+   * sheets and in the station alike. Even at `metalness: 0.22` a fifth of the diffuse is
+   * gone, which is why it is 0.
+   */
+  trainBody: 0xf7f9fc,
   trainBlue: 0x1f5fd0,
   trainDark: 0x23272e,
-  trainRoof: 0x8f959d,
+  /** The roof, a shade down from the body so the roofline still reads. */
+  trainRoof: 0xd8dde4,
   trainInterior: 0xe6dfd0,
   trainSeat: 0x4d6b8f,
   /** The cab's dark windscreen — darker and glossier than the car glass. */
@@ -585,10 +596,10 @@ export function createModelMaterials(): ModelMaterials {
     woodLight: new THREE.MeshStandardMaterial({ color: C.woodLight, roughness: 0.7, metalness: 0.04 }),
     woodDark: new THREE.MeshStandardMaterial({ color: C.woodDark, roughness: 0.66, metalness: 0.06 }),
     handrail: new THREE.MeshStandardMaterial({ color: C.rubber, roughness: 0.55, metalness: 0.1 }),
-    trainBody: new THREE.MeshStandardMaterial({ color: C.trainBody, roughness: 0.35, metalness: 0.55 }),
+    trainBody: new THREE.MeshStandardMaterial({ color: C.trainBody, roughness: 0.5, metalness: 0 }),
     trainBlue: new THREE.MeshStandardMaterial({ color: C.trainBlue, roughness: 0.3, metalness: 0.4 }),
     trainDark: new THREE.MeshStandardMaterial({ color: C.trainDark, roughness: 0.45, metalness: 0.3 }),
-    trainRoof: new THREE.MeshStandardMaterial({ color: C.trainRoof, roughness: 0.5, metalness: 0.4 }),
+    trainRoof: new THREE.MeshStandardMaterial({ color: C.trainRoof, roughness: 0.55, metalness: 0 }),
     trainInterior: new THREE.MeshStandardMaterial({ color: C.trainInterior, roughness: 0.85, metalness: 0.05, side: THREE.DoubleSide }),
     trainSeat: new THREE.MeshStandardMaterial({ color: C.trainSeat, roughness: 0.7, metalness: 0.1 }),
     trainGlass: new THREE.MeshStandardMaterial({ color: C.trainGlass, roughness: 0.12, metalness: 0.5 }),

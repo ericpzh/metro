@@ -200,7 +200,7 @@ function capAt(cuts, x, y, z, wx, wy) {
 
 /**
  * True when a drawn vertex is **on the shaved cap** of a cut block, rather than part of a whole
- * block's chamfered rim or of a cell the clamp has left whole (whose top is its own ceiling —
+ * block's own rim or of a cell the clamp has left whole (whose top is its own ceiling —
  * the one place the ground under a stair is legitimately over the soffit, because that cell is
  * the floor the piece stands on). Asked of a vertex on a cell boundary, so it answers for any
  * of the cells the vertex could belong to.

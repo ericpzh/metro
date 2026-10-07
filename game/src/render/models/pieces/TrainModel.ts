@@ -137,6 +137,15 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
 
     // Sliding doors onto the cabin: two leaves per side part to reveal the
     // interior the platform is about to trade passengers with.
+    //
+    // A leaf has to **read as a door**, not as a hole, and it has to wear the car's own
+    // paint. It used to be one `mats.trainDark` slab — the same value as the cabin's
+    // shadow behind the doorway — so a closed consist photographed as a row of black
+    // rectangles with no door in them, which is what the elevations on sheets 05 and 11
+    // showed. A leaf is now the body's own material with a **window** in its upper half,
+    // a kick plate at its foot, and a rubber seal standing at each jamb of the doorway it
+    // closes: the leaf is the door, the window is what the cabin is still watched through,
+    // and the two closed leaves stay two leaves.
     for (const dx of inCar) {
       for (const side of [-1, 1]) {
         const face = (side * s.width) / 2
@@ -147,8 +156,24 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
           pole.position.set(dx + px * (s.doorWidth / 3), side * (skinY - 0.16), doorZMid)
           g.add(pole)
         }
+        // The doorway's own seal, at each jamb: the skin's cut edge is body colour,
+        // and a door needs a frame to sit in. It does not move with the leaves.
+        for (const jamb of [-1, 1]) {
+          slab(g, mats.rubber, dx + (jamb * s.doorWidth) / 2, face + side * 0.015, doorZMid, 0.06, 0.03, doorH)
+        }
         for (const leaf of [-1, 1]) {
-          const m = slab(g, mats.trainDark, dx + (leaf * s.doorWidth) / 4, face + side * 0.03, 1.6, s.doorWidth / 2 - 0.03, 0.05, 2.1)
+          const lw = s.doorWidth / 2 - 0.03
+          // The leaf wears the **body's own paint** (`mats.trainBody`): a door is part of
+          // the car's skin, and the two have to read as one colour. It was `mats.steel`
+          // first, which is `metalness: 0.72` — with no environment map a metal has no
+          // diffuse, so the ambient light in the rig does not reach it and the leaf came out
+          // charcoal while the body beside it stayed near-white (the same trap `trainBody`
+          // itself records). Steel is for the fittings: the grab poles below.
+          const m = slab(g, mats.trainBody, dx + (leaf * s.doorWidth) / 4, face + side * 0.03, doorZMid, lw, 0.05, doorH)
+          // The leaf's window: at the car's own window line, and inset from the stiles.
+          slab(m, mats.glass, 0, side * 0.035, 0.28, lw - 0.18, 0.02, 0.86)
+          // The kick plate, so the leaf has a foot and the sill has a line.
+          slab(m, mats.rubber, 0, side * 0.035, -doorH / 2 + 0.14, lw, 0.02, 0.28)
           registerDoorLeaf(m, leaf, s.doorWidth / 2, doors, side)
         }
       }

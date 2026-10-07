@@ -11,6 +11,7 @@
 // apart.
 
 import * as THREE from 'three'
+import { addStationLights, applyStationRenderer } from '../render/scene/lightRig.ts'
 import { DEFAULT_ZONE, type Zone } from '../sim/types.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
 
@@ -78,21 +79,11 @@ export function renderZoneThumbnails(size = 132): Record<string, string> {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
   renderer.setSize(size, size, false)
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.02
+  // The station's own rig.
+  applyStationRenderer(renderer, { alpha: 0 })
 
   const scene = new THREE.Scene()
-  scene.add(new THREE.HemisphereLight(0xe4f1ff, 0x1d2c3d, 1.15))
-  const key = new THREE.DirectionalLight(0xffffff, 2.1)
-  key.position.set(5, -7, 9)
-  scene.add(key)
-  const fill = new THREE.DirectionalLight(0x9ecbff, 0.85)
-  fill.position.set(-7, 5, 4)
-  scene.add(fill)
-  const rim = new THREE.DirectionalLight(0x4e8fd0, 0.7)
-  rim.position.set(0, 7, -5)
-  scene.add(rim)
+  addStationLights(scene)
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 1000)
   // The world is Z-up, so the icon camera must be too.

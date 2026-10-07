@@ -2,7 +2,7 @@
 
 **A 3D sandbox about moving crowds through a metro station you build yourself.**
 
-Block-based construction (1 block = 1 m) with smooth-corner voxel art, real rolling stock, real
+Block-based construction (1 block = 1 m) with hard-edged voxel art, real rolling stock, real
 passenger flow. No money, no staff hiring, no upkeep: you build, the crowds arrive, and the
 station either copes or it does not.
 
@@ -19,8 +19,9 @@ station either copes or it does not.
 ## 1. Concept art
 
 All sheets are vector, generated from [`tools/gen-art.mjs`](tools/gen-art.mjs) (`node tools/gen-art.mjs`).
-They are drawn from the same isometric projection the game uses (2:1 dimetric, 1 block = 1 m),
-so they double as an art-direction target rather than loose mood boards. Every sheet is drawn in
+They are drawn in a **true isometric** projection (equal foreshortening on all three axes,
+1 block = 1 m), so they double as an art-direction target rather than loose mood boards and a
+rendered piece stands in a drawing undistorted. Every sheet is drawn in
 the shipping language, **Simplified Chinese**; only identifiers and units stay in Latin script
 (§9.2). Sheet 12 is animated (SMIL, self-contained).
 
@@ -46,9 +47,9 @@ simulation design.
 
 ![Concept 03 — block system](art/03-block-system.svg)
 
-One block = one cell with six faces. Faces carry surfaces (floor, ceiling, walls per side), an
-8-neighbour autotile mask decides the rounded corners, and bevelled top edges give the chunky,
-toy-like silhouette.
+One block = one cell with six faces. Faces carry surfaces (floor, ceiling, walls per side), and the
+8-neighbour autotile mask decides which of them are drawn: a side a solid neighbour shares draws
+nothing, so a run of blocks is one flat surface. A block itself is a hard cube.
 
 ### 1.4 What you can place
 
@@ -78,14 +79,7 @@ controls that shape all of it.
 Build rail on the left, inspector on the right, line manager and minimap along the bottom. The
 camera is the level selector. The mock is drawn in the shipping language, Simplified Chinese (§9.2).
 
-### 1.8 Software shape
-
-![Concept 08 — architecture](art/08-architecture.svg)
-
-React owns panels and state, three.js owns the scene, a worker owns three thousand agents walking
-to a train.
-
-### 1.9 Camera and views
+### 1.8 Camera and views
 
 ![Concept 09 — camera and views](art/09-camera-and-views.svg)
 
@@ -93,14 +87,12 @@ Full 360° orbit like a CAD viewport, plus true orthographic elevations. The sam
 six ways of looking at it — and the flat X-Z elevation is the view that tells you whether the
 vertical circulation actually works.
 
-### 1.10 Queue management
-
-![Concept 10 — queue management](art/10-queue-management.svg)
+### 1.9 Queue management
 
 A crowd that arrives as a blob blocks everything; the same crowd in single-file lanes is orderly,
 predictable, and fits in a quarter of the floor. This is the cheapest capacity in the game.
 
-### 1.11 Where the look comes from
+### 1.10 Where the look comes from
 
 The art direction is not invented. It is a stylised read of real Guangzhou Metro stations:
 high-key white baffle ceilings, glossy coloured enamel wall panels with visible seams, light
@@ -123,7 +115,7 @@ Reference photographs studied for this pass (Wikimedia Commons, CC BY-SA 4.0):
 These are references only. No photograph is shipped in the game or this repository; the palette and
 motifs are reinterpreted in `tools/iso.mjs`.
 
-### 1.12 Rolling stock in 3D
+### 1.11 Rolling stock in 3D
 
 ![Concept 11 — rolling stock in 3D](art/11-rolling-stock-3d.svg)
 
@@ -135,7 +127,7 @@ bumper band and the coupler — and differ only in their lamps: white at the end
 end that trails. The consist panel and the platform interface put the car against
 the screen doors and the third rail, and the power-pickup panel sets catenary against third rail.
 
-### 1.13 Platform doors and flow
+### 1.12 Platform doors and flow
 
 ![Concept 12 — platform doors and flow](art/12-platform-doors-flow.svg)
 
@@ -147,7 +139,7 @@ about 2.8 m, as on the real cars), so a three-door L car spreads its outer doors
 than bunching them in the middle, and the screen run repeats that same cadence. The sheet is
 animated: a 20 s enter / dock / open / board / close / leave loop.
 
-### 1.14 Two lines, two depths
+### 1.13 Two lines, two depths
 
 ![Concept 13 — two lines, two depths](art/13-two-line-interchange.svg)
 
@@ -283,22 +275,24 @@ cell = {
 Everything the game shows — walkability, cover, signage, whether rain reaches the platform — is
 derived from these six faces. That keeps the build model small and makes save files tiny.
 
-### 4.2 Smooth-corner autotiling
+### 4.2 Autotiling: which faces are drawn
 
 * **Mask.** Each cell computes an 8-neighbour mask (4 orthogonal + 4 diagonal).
-* **Geometry.** One variant per mask is generated once at load, in the same style as the
-  concept sheet: a **12.5 cm bevel on every top edge exposed to the air**.
-* **A shared edge is flush.** A side a solid neighbour shares is rounded and bevelled not at all:
-  it is the same building, so the two blocks' top faces are one plane and the cell boundary
-  between them is not drawn. A block's outline above the bevel is therefore a plain square —
-  rounded outer corners cannot coexist with the bevel, because at a 12.5 cm corner radius the
-  inset of the corner collapses to a point exactly where the 12.5 cm bevel ends. The bevel is the
-  measured one, so it is the rounding that gives way.
+* **Geometry.** A block is a **cube**: its six faces are the cell's own six faces, extruded on the
+  1 m grid. There is no top-rim chamfer and no corner rounding — the rim of a block is a square
+  edge, and the corner of a block is the corner of the cube. (Sheet 03 used to be titled 倒角方块
+  after the 12.5 cm bevel cut off every exposed top edge; that cut is gone, and the sheet follows.)
+* **A shared edge is flush.** A side a solid neighbour shares draws nothing at all: it is the same
+  building, so the two blocks' top faces are one plane and the cell boundary between them is not
+  drawn. A run of blocks is therefore one flat surface with no seam down it and no pit at a
+  four-block corner.
 * **Merging.** Blocks are merged per 16×16×16 chunk into a single `BufferGeometry`. Floor decals,
   tactile strips, signage and arrows are separate transparent quads drawn on top so they never
   break a merge.
-* **Why bevels.** The softened corners are what make a 1 m voxel grid read as a designed building
-  instead of a spreadsheet. See sheet 03.
+* **Why cubes.** A hard, axis-aligned edge is what the 1 m grid actually is, and it is what keeps
+  the renderer's one hard case — a corner where two open sides meet — from needing geometry of its
+  own. The softened look of a station comes from its finishes, its modules and its light instead.
+  See sheet 03.
 * **A cut top.** A block a 楼梯 / 扶梯 takes its volume out of — the ground under a run, which its
   truss or soffit hangs into — is not a full cube. Its top is the run's own **underside**, a plane
   sloping along the run, so the block reads as the filling under the slope and the run's truss sits
@@ -1604,8 +1598,9 @@ outlines; a bright interior against a dark world. The art must never be so detai
 
 * **Projection** — 2:1 dimetric isometric for the build view (a stylised ratio, not true isometric),
   with free 360° orbit and true orthographic elevations for reading the section. See §9.1.
-* **Silhouette** — blocky 1 m voxels, 12.5 cm bevels, 8-neighbour rounded corners. Placed modules
-  are rounded-corner boxes too: ticket machines, gates, totems, benches, lift shafts and columns
+* **Silhouette** — blocky 1 m voxels with hard, square edges; the grid is the grid, and a block's
+  own silhouette gives it away. Placed modules
+  are rounded-corner boxes: ticket machines, gates, totems, benches, lift shafts and columns
   all soften their vertical edges, so nothing reads as a raw cube.
 * **The interior is high key.** Light speckled granite floors with dark inlay bands, white panels,
   brushed stainless, glass. The world outside — soil, sky, surrounding buildings — stays dark, so
@@ -1642,7 +1637,7 @@ Each milestone is shippable and playable on its own.
 | # | Milestone | Contents | Done when |
 |---|---|---|---|
 | **M0** | Grid in the browser | 2×2 seed at (0,0,0), infinite sparse canvas (detached allowed), 360° orbit + nav cube + flat ortho views, level slices, base-block extrude, place/erase single blocks, undo | you can grow the seed into a detached underground box, orbit it, and look at it edge-on |
-| **M1** | Surfaces, zones and modules | whole-surface fill + per-block texture paint (地面/天花/墙面/轨道), autotile bevels, rounded-corner modules incl. named exits (§5.6), fare zones, module catalogue, settings page, file save/load snapshot | you can build the sheet-01 concourse by hand, paint it, zone it, name its exits, set options, download a `*.metro.json` snapshot and reload it paused |
+| **M1** | Surfaces, zones and modules | whole-surface fill + per-block texture paint (地面/天花/墙面/轨道), autotile edge culling, rounded-corner modules incl. named exits (§5.6), fare zones, module catalogue, settings page, file save/load snapshot | you can build the sheet-01 concourse by hand, paint it, zone it, name its exits, set options, download a `*.metro.json` snapshot and reload it paused |
 | **M2** | Track and trains | line tool + free junctions, third rail vs catenary validation, line manager (name/colour/type/cars/headway/route + capacity readout), A/B/C stock, PSDs | a train arrives, dwells and leaves on a headway |
 | **M3** | Agents | worker sim, station graph, walk/queue/gate, queue lanes + rails, platform boarding, LOS overlay | 500 agents enter through an exit, line up, board a train and leave |
 | **M4** | Waves, control and time | demand curves, calendar, per-exit rates, train-borne waves, transfers, timeline scrub + charts (§8.1) + day report | an AM peak breaks your station and you can see exactly where |
@@ -1736,23 +1731,23 @@ metro/
     05-trains-and-track.svg
     06-crowd-demand.svg
     07-interface.svg
-    08-architecture.svg
     09-camera-and-views.svg
-    10-queue-management.svg
     11-rolling-stock-3d.svg
     12-platform-doors-flow.svg
     13-two-line-interchange.svg
   tools/
     iso.mjs               <- shared isometric library: palette, projection, rounded boxes, stock, sprites
     train-iso.mjs         <- rolling stock in 3D: rounded-roof car section extruded along the run
-    sheets-a.mjs          <- sheets 02-04 (vertical section, blocks, catalogue)
+    sheets-a.mjs          <- sheet 02 (vertical section)
     sheet-01-hero.mjs     <- sheet 01, the isometric cutaway
-    sheets-b.mjs          <- sheets 05, 06, 08 (stock numbers, demand, software shape)
-    sheet-07-ui.mjs       <- sheet 07, the Chinese-only interface mock
+    sheet-05-trains.mjs   <- sheet 05, the stock's parameters: elevations off buildTrain
+    sheet-03-blocks.mjs   <- sheet 03, the block system, from the game's own mesher
+    sheet-04-modules.mjs  <- sheet 04, the catalogue, from the game's own rail thumbnails
+    sheet-06-demand.mjs   <- sheet 06, the demand window, photographed + sim/demand.ts read directly
+    sheet-07-interface.mjs<- sheet 07, the interface, photographed off the running game
     sheets-c.mjs          <- sheet 09, includes a tiny orthographic box renderer
-    sheets-d.mjs          <- sheet 10, plan-view diagrams for queueing
-    sheets-e.mjs          <- sheet 12, animated platform doors and passenger flow
-    sheet-11-trains3d.mjs <- sheet 11, rolling stock in 3D
+    sheets-e.mjs          <- sheet 12, animated platform doors and passenger flow (trains off buildTrain)
+    sheet-11-trains3d.mjs <- sheet 11, the consist buildTrain builds, photographed
     sheet-13-two-line.mjs <- sheet 13, two lines at two depths
     gen-art.mjs           <- node tools/gen-art.mjs  -> writes art/
     zoom.mjs              <- dev helper: crop a sheet for inspection

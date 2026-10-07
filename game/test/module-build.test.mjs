@@ -519,6 +519,19 @@ test('a consist is cars × carLength of body, with a cab and its doors on both s
     // One leaf per modelled door, and every door has two leaves a side.
     const cadence = doorCentres({ stock, cars: pose.cars })
     assert.equal(g.userData.doors.length, cadence.length * 4, `${stock}: every door has two leaves a side`)
+    // A leaf has to **read as a door** and wear the car's own paint. Both halves of that
+    // were learned the hard way: `trainDark` is the value of the cabin shadow behind the
+    // doorway, so a closed consist photographed as a row of black rectangles with no door
+    // in it (sheets 05 and 11), and `steel` is `metalness: 0.72` — with no environment map
+    // a metal has no diffuse, so the ambient light in the rig never reached the leaf and it
+    // came out charcoal beside a near-white body.
+    for (const leaf of g.userData.doors) {
+      assert.equal(leaf.material, mats.trainBody, `${stock}: a door leaf does not wear the body's paint`)
+      assert.ok(
+        leaf.children.some((c) => c.material === mats.glass),
+        `${stock}: a door leaf wears no window`,
+      )
+    }
     assert.equal(g.userData.ownedMats.length, 1, `${stock}: the consist owns the livery it minted`)
 
     // Both ends wear a cab, and only the lamps tell them apart: white leads, red trails.

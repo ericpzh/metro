@@ -1,15 +1,23 @@
-// The drawn floor surface: a run of blocks is **one flat plane**, and the only edge that
-// drops is the one genuinely open to the air — GAME-SPEC §4.2's 12.5 cm bevel.
+// The drawn floor surface: a run of blocks is **one flat plane**, out to a **square rim**.
 //
 // The mesher used to round and bevel every cell edge whatever stood beside it, so two
 // blocks always met along a shared edge that both of them insetted away from: the floor
 // came out as a field of shallow cones with a V-groove along every seam and a pit at
-// every four-block corner, 12.5 cm deep and plainly visible from above. These tests read
-// the height of the drawn surface, because that is the only thing that can tell a groove
-// from a smooth floor — a triangle count cannot.
+// every four-block corner, twelve and a half centimetres deep and plainly visible from
+// above. §4.2's 12.5 cm top-rim chamfer was then cut on the exposed edges only, which
+// fixed the seams but left the rim itself the fiddliest geometry in the renderer: the
+// 45° strips met at every convex corner in a facet that crossed its neighbours and stood
+// proud of the lid, and the mitre ring and the corner triangle that closed it were two
+// special cases whose whole job was to hide that.
+//
+// **The chamfer is gone.** A block is a cube: its top face is its own cross-section, its
+// walls run the whole way up to it, and the corner of the block is the corner of the
+// cube. These tests read the height of the drawn surface and the direction of every
+// triangle, because that is the only thing that can tell a chamfer from a cube — a
+// triangle count cannot.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { BEVEL, buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
+import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
 import { finishMapOf } from '../src/sim/finishes.ts'
 import { packKey } from '../src/sim/types.ts'
 import { rampFillKeys } from '../src/sim/openings.ts'
@@ -64,18 +72,14 @@ function surfaceAt(tris, px, py) {
 test('two blocks side by side are one flat floor across the seam between them', () => {
   const n = 3
   const tris = floorTris(floorPatch(n))
-  // The seam planes between cells, sampled along their **interior** run and a hair to each
-  // side. Each seam is only between two blocks over part of its length — the rest is the
-  // patch's outer rim, which is meant to be bevelled — so the run is named per seam and
-  // kept clear of the rim's own bevel band at both ends.
+  // The seam planes between cells, sampled along their interior run and a hair to each
+  // side: nothing may step down on either side of the boundary the two blocks share.
   const eps = 1e-6
-  const lo = 1 + BEVEL + 0.05
-  const hi = n - BEVEL - 0.05
   const seams = [
     // x = 1 divides the two columns; between two blocks over y ∈ [1, n].
-    { fixed: 1, along: 'y', from: lo, to: hi },
+    { fixed: 1, along: 'y', from: 1, to: n },
     // y = 1 divides the two rows; between two blocks over x ∈ [1, n].
-    { fixed: 1, along: 'x', from: lo, to: hi },
+    { fixed: 1, along: 'x', from: 1, to: n },
   ]
   for (const seam of seams) {
     for (let k = 2; k < 98; k++) {
@@ -97,53 +101,78 @@ test('two blocks side by side are one flat floor across the seam between them', 
   }
 })
 
-test('a whole floor is level, with no hole and no dip anywhere inside its own rim', () => {
+test('a whole floor is level, hole-free and dip-free right out to its own rim', () => {
   const n = 6
   const tris = floorTris(floorPatch(n))
   let lowest = Infinity
-  for (let i = 1; i < 120; i++) {
-    for (let j = 1; j < 120; j++) {
+  // The rim is included: with no chamfer cut off the edge, the surface runs to the cell
+  // boundary itself, so a floor's last centimetre is as flat as its middle.
+  for (let i = 0; i < 120; i++) {
+    for (let j = 0; j < 120; j++) {
       const px = (i / 120) * n
       const py = (j / 120) * n
-      // Inside the rim's own 12.5 cm bevel band the surface is meant to drop.
-      if (Math.min(px, py, n - px, n - py) <= BEVEL + 0.01) continue
       const z = surfaceAt(tris, px, py)
       assert.notEqual(z, -Infinity, `nothing is drawn over (${px.toFixed(3)}, ${py.toFixed(3)})`)
       lowest = Math.min(lowest, z)
     }
   }
-  assert.ok(Math.abs(lowest - 1) < 1e-6, `the floor dips to ${lowest} inside its own rim`)
+  assert.ok(Math.abs(lowest - 1) < 1e-6, `the floor dips to ${lowest} instead of staying level`)
 })
 
-test('a block with a neighbour on every side is a plain cube top: no bevel at all', () => {
+test('a block with a neighbour on every side is a plain cube top', () => {
   const n = 3
   const tris = floorTris(floorPatch(n))
   // The centre cell shares all four sides, so its top reaches the cell edge everywhere.
   for (const [px, py] of [[1.5, 1.5], [1 + 1e-6, 1.5], [2 - 1e-6, 1.5], [1.5, 1 + 1e-6], [1.5, 2 - 1e-6]]) {
-    assert.ok(Math.abs(surfaceAt(tris, px, py) - 1) < 1e-6, `the interior block is bevelled at (${px}, ${py})`)
+    assert.ok(Math.abs(surfaceAt(tris, px, py) - 1) < 1e-6, `the interior block is not flat at (${px}, ${py})`)
   }
 })
 
-test('the outer edge of the floor keeps its 12.5 cm bevel', () => {
-  const n = 3
-  const tris = floorTris(floorPatch(n))
-  // Right on the rim the bevel's foot sits a full BEVEL below the floor.
+test('a rim is square: the top face reaches the cell boundary at every corner', () => {
+  const cells = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  const corner = 1e-6
+  const tris = floorTris(cells)
+  // The lone block used to foot 12.5 cm below its ceiling at the rim, and its lid stopped
+  // 12.5 cm short of each corner. Both numbers are now the cell's own: 1 and 0 / 1.
   for (const [px, py, what] of [
-    [1e-6, 1.5, 'the west rim'],
-    [n - 1e-6, 1.5, 'the east rim'],
-    [1.5, 1e-6, 'the south rim'],
-    [1.5, n - 1e-6, 'the north rim'],
+    [corner, 0.5, 'the west rim'],
+    [1 - corner, 0.5, 'the east rim'],
+    [0.5, corner, 'the south rim'],
+    [0.5, 1 - corner, 'the north rim'],
+    [corner, corner, 'the south-west corner'],
+    [1 - corner, 1 - corner, 'the north-east corner'],
   ]) {
     const z = surfaceAt(tris, px, py)
-    assert.ok(Math.abs(z - (1 - BEVEL)) < 1e-4, `${what} should foot at z=${1 - BEVEL}, got ${z}`)
+    assert.ok(Math.abs(z - 1) < 1e-6, `${what} should reach z=1, got ${z}`)
   }
-  // And a little way in from it the floor is level again.
-  assert.ok(Math.abs(surfaceAt(tris, BEVEL + 0.02, 1.5) - 1) < 1e-6, 'the floor is not level inside the bevel')
+})
+
+test('no drawn face of a block leans: the 45° top-rim cut is gone', () => {
+  // The direct pin. A chamfer is four 45° strips plus a triangle at every corner, and every
+  // one of them is a triangle whose authored normal has two non-zero components. A cube has
+  // only axis-aligned faces, so this reads every triangle of the mesh — walls, lid, floor
+  // and all — and asks for exactly one non-zero component.
+  const show = (n) => `(${n.map((v) => v.toFixed(3)).join(', ')})`
+  for (const cells of [[{ x: 0, y: 0, z: 0, fill: 'solid' }], floorPatch(3)]) {
+    const chunk = meshChunk(buildSolidSet(cells), finishMapOf(cells), 0, 0, 0)
+    let drawn = 0
+    for (const part of chunk.parts) {
+      const N = part.normals
+      for (let i = 0; i < N.length; i += 3) {
+        const n = [N[i], N[i + 1], N[i + 2]]
+        drawn++
+        const off = n.filter((v) => Math.abs(v) > 1e-6)
+        assert.equal(off.length, 1, `a drawn face leans: ${show(n)}`)
+        assert.ok(Math.abs(Math.abs(off[0]) - 1) < 1e-6, `a drawn face is not square to its axis: ${show(n)}`)
+      }
+    }
+    assert.ok(drawn > 0, 'the probe drew nothing')
+  }
 })
 
 test('a floor beside a block one level up still meets it with no slit', () => {
-  // The step case: the upper block's bevel runs along an edge that is open to the air,
-  // while the lower block's lid must still reach the shared cell boundary underneath it.
+  // The step case: the upper block's wall runs down to the shared cell boundary, while the
+  // lower block's lid has to reach that same boundary underneath it.
   const cells = [
     { x: 0, y: 0, z: 0, fill: 'solid' },
     { x: 0, y: 0, z: 1, fill: 'solid' },
@@ -155,6 +184,8 @@ test('a floor beside a block one level up still meets it with no slit', () => {
   // The lower block's lid, beside it, is its own level — the step is a step, not a gap.
   assert.ok(Math.abs(surfaceAt(tris, 1.5, 0.5) - 1) < 1e-6, 'the lower block lid is not level')
   assert.ok(surfaceAt(tris, 1.5, 0.5) > -Infinity, 'the lower block lid is missing')
+  // And the lower lid reaches the boundary the two share, right up against the step.
+  assert.ok(Math.abs(surfaceAt(tris, 1 + 1e-6, 0.5) - 1) < 1e-6, 'the lower lid stops short of the step')
 })
 
 /** Every triangle of the floor part, with its authored normal. */
@@ -177,58 +208,27 @@ function floorTriangles(cells) {
   return out
 }
 
-test('every bevelled face is a flat 45° strip that agrees with the normal it is lit by', () => {
-  // A lone block wears its chamfer on all four sides. Each chamfer must be **planar**: the
-  // triangle's own geometric normal has to match the normal the face is shaded with. A
-  // bevel built by offsetting each wall's own line instead of the block's outline is not
-  // planar — its two triangles read 0.80 and −0.70 against the authored normal at once —
-  // and renders as a hard black wedge along the edge rather than a chamfer.
-  const cells = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
-  const tris = floorTriangles(cells)
-  let sloped = 0
-  for (const { v, n } of tris) {
-    if (Math.abs(n[2]) < 1e-6) continue // a vertical wall
-    if (Math.abs(n[0]) < 1e-6 && Math.abs(n[1]) < 1e-6) continue // the flat top
-    sloped++
-    const u = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]]
-    const w = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]]
-    const g = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]
-    const gm = Math.hypot(...g)
-    assert.ok(gm > 1e-9, 'a sloped face is degenerate')
-    const dot = (g[0] / gm) * n[0] + (g[1] / gm) * n[1] + (g[2] / gm) * n[2]
-    assert.ok(dot > 0.999, `a chamfer triangle faces ${dot.toFixed(3)} against its own normal`)
-    // And it really is a 45° chamfer, not a ramp over the floor.
-    assert.ok(Math.abs(Math.abs(n[2]) - Math.SQRT1_2) < 1e-6, `a chamfer leans at ${n[2].toFixed(3)}, not 45°`)
-  }
-  assert.ok(sloped >= 8, `a lone block should wear four chamfers, saw ${sloped} sloped triangles`)
-})
-
-test('a chamfer’s texture runs its whole depth, so it meets the flat top seamlessly', () => {
-  // The top face samples v ∈ [0, 1]. The chamfer beside it has to arrive at v = 1 where
-  // they meet: spanning the chamfer's v over the bevel's 12.5 cm instead leaves it sampling
-  // a sliver of the texture, and the join between them draws a hard seam along the edge.
+test('a wall reaches the ceiling it ends on, so the rim is one clean edge', () => {
+  // A wall used to stop 12.5 cm below its own ceiling, with the chamfer bridging the gap.
+  // Nothing bridges anything now: the wall's top vertices are at the block's own height.
   const cells = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
   const chunk = meshChunk(buildSolidSet(cells), finishMapOf(cells), 0, 0, 0, 0, new Set([packKey(0, 0, 0)]))
-  const part = chunk.parts.find((p) => p.finish === 'floor.granite')
-  const N = part.normals
-  const UV = part.uvs
-  for (let i = 0; i < N.length; i += 3) {
-    const nx = N[i]
-    const ny = N[i + 1]
-    const nz = N[i + 2]
-    if (Math.abs(nz) < 1e-6 || (Math.abs(nx) < 1e-6 && Math.abs(ny) < 1e-6)) continue
-    const v = UV[(i / 3) * 2 + 1]
-    assert.ok(v <= 1 + 1e-9 && v >= -1e-9, `a chamfer texel sits at v=${v}`)
+  assert.ok(Math.abs(surfaceAt(floorTris(cells), 0.5, 0.5) - 1) < 1e-6, 'the lone block is not level')
+  let walls = 0
+  for (const part of chunk.parts) {
+    const N = part.normals
+    const P = part.positions
+    const I = part.indices
+    for (let t = 0; t < I.length; t += 3) {
+      const o = [0, 1, 2].map((j) => I[t + j] * 3)
+      if (Math.abs(N[o[0] + 2]) > 1e-6) continue // the flat top, or a bottom face — not a wall
+      walls++
+      const top = Math.max(P[o[0] + 2], P[o[1] + 2], P[o[2] + 2])
+      assert.ok(top <= 1 + 1e-6, `a wall rises past the ceiling, to ${top}`)
+      assert.ok(top >= 1 - 1e-6, `a wall stops ${(1 - top).toFixed(3)} below the ceiling it ends on`)
+    }
   }
-  // The chamfer reaches v = 1 somewhere, which is the join with the top face.
-  let maxV = -Infinity
-  for (let i = 0; i < N.length; i += 3) {
-    const nz = N[i + 2]
-    if (Math.abs(nz) < 1e-6) continue
-    if (Math.abs(N[i]) < 1e-6 && Math.abs(N[i + 1]) < 1e-6) continue
-    maxV = Math.max(maxV, UV[(i / 3) * 2 + 1])
-  }
-  assert.ok(Math.abs(maxV - 1) < 1e-6, `the chamfer stops at v=${maxV}, so its texture does not meet the top's`)
+  assert.ok(walls >= 2, `the lone block drew ${walls} wall triangles`)
 })
 
 test('the filling under a run is a closed body, not four walls with no lid', () => {

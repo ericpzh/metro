@@ -11,8 +11,8 @@ import type { Module } from '../../../sim/types.ts'
 /**
  * How far the ink stands off the wall's face, metres. An inscription is brush
  * strokes *on* the wall, so the plate hangs a hand's width proud of it — close
- * enough to read as painted on, far enough that the wall's own bevels and paint
- * never poke through the characters.
+ * enough to read as painted on, far enough that the wall's own paint and the
+ * block faces behind it never poke through the characters.
  */
 const INK_OFFSET = 0.46
 

@@ -29,3 +29,11 @@ npm-debug.log*
 
 # Scratch preview/review outputs (browser profiles, experiment scripts, screenshots)
 .preview/
+slope-cut-preview/
+
+# One machine's own caches and one-off probes
+game/.rolldown-locked/
+tools/_probe-sweep.mjs
+
+# npm is this repo's manager; all three package-lock.json files are tracked
+web/pnpm-lock.yaml

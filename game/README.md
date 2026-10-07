@@ -2586,14 +2586,14 @@ approximated); neither needs WebGL.
   black paint instead of a cut: a ghost that never learned about the plane, and a slice still ghosting
   the storey the cut is going through.
 * `floor-surface.test.mjs` — the drawn **floor surface** (`render/chunkMesher.ts` `buildProfile`): a run of
-  blocks is one flat plane, and the only edge that drops is the one genuinely open to the air. It reads
-  the height of the drawn surface rather than counting triangles, because a count cannot tell a groove
-  from a smooth floor — a shared cell edge emits no wall and no bevel, so two top faces meet flush and a
-  2 × 2 patch of them has no pit in the middle; an exposed edge keeps §4.2's 12.5 cm bevel (`BEVEL`), and
-  that bevel is a **flat 45° strip**, wound outward, whose `v` spans its whole depth so its texture meets
-  the flat top's instead of stopping at a sliver. The shape this replaced — every cell edge rounded and
-  bevelled whatever stood beside it — left a V-groove along every seam and a 12.5 cm pit at every
-  four-block corner, plainly visible from above.
+  blocks is one flat plane, out to a **square rim**. It reads the height of the drawn surface rather than
+  counting triangles, because a count cannot tell a groove from a smooth floor — a shared cell edge emits no
+  wall, so two top faces meet flush and a 2 × 2 patch of them has no pit in the middle, and an exposed edge
+  runs level all the way to the cell boundary. It also reads every drawn triangle's normal, because a cube
+  has only axis-aligned faces and a chamfer does not: that is the pin on §4.2's 12.5 cm top-rim bevel having
+  been **removed**. The shape before both of those — every cell edge rounded and bevelled whatever stood
+  beside it — left a V-groove along every seam and a 12.5 cm pit at every four-block corner, plainly
+  visible from above.
 * `camera-vertical-pan.test.mjs` — Ctrl+Q / Ctrl+E, the camera's own pair of letters
   (`CameraSystem.panCameraVertical`): the camera **and the point it aims at** travel together along world
   Z, so the orbit offset — the view angle — is untouched and the station slides up or down the screen
@@ -2772,28 +2772,24 @@ skipped, and §7.6 determinism is untouched because the step size never moves.
 * **No react-three-fiber.** The scene is a plain three.js `SceneRenderer` driven by a
   React `Viewport` component. The renderer we judge at `/lab` is the renderer the game
   keeps either way; R3F would have added a reconciler between us and the chunk mesher.
-* **Inner fillets are dropped.** PLAN R2's named fallback: the mesher chamfers exposed
-  top edges by 12.5 cm, but does not fillet concave inner corners.
-* **A shared cell edge is not rounded.** §4.2 asks for rounded outer corners *and* a
-  12.5 cm bevel on exposed top edges, and the two cannot both exist at the top of a block:
-  at a 12.5 cm corner radius the inset of a rounded corner collapses to a point exactly
-  where the bevel ends. The bevel is the one the spec pins a number to, so the
-  outline above it is a plain square, and a side a solid neighbour shares is neither
-  rounded nor bevelled. That is what makes a floor one flat plane: rounding and bevelling
-  every cell edge whatever stood beside it left a V-groove along every seam and a pit at
-  every four-block corner, 12.5 cm deep. `test/floor-surface.test.mjs` reads the height of
-  the drawn surface and pins the flush seam, the level floor and the surviving rim bevel.
-* **A bevel is a flat 45° strip cut from the block's outline.** Insetting each *wall's* own
-  line instead sounds equivalent and is not: that wall's inner line then runs its whole cell
-  edge, so the chamfer over the west side leaves the cell boundary at the north-west corner
-  and arrives at the south-east one — a diagonal sail over the floor rather than a bevel.
-  The surface is not even planar, so the two triangles it splits into disagree with the
-  normal it is lit by (dots of 0.80 and −0.70 at once), which is what drew a bevelled edge
-  as a row of hard black wedges. The bevel ring is now the offset *outline*, the corner
-  between two open sides closes with its own small triangle, and the bevel's `v` spans its
-  full depth so its texture meets the flat top's instead of stopping at a 12.5 cm sliver.
-  `test/floor-surface.test.mjs` pins the planarity, the 45°, the outward winding and the UV
-  join, because a triangle count cannot see any of them.
+* **Inner fillets are dropped.** PLAN R2's named fallback: the mesher never fillets a concave
+  inner corner, and since the top-rim bevel went (below) it cuts nothing off a block at all.
+* **A block is a cube: no top-rim chamfer, no rounded corner.** §4.2 asked for a **12.5 cm bevel
+  on every top edge exposed to the air**, and in the same breath for rounded outer corners — which
+  cannot coexist with it, since at a 12.5 cm radius the corner's inset collapses exactly where the
+  bevel ends. Both are now **gone**: a block's rim is a square edge, its top face is the cell's own
+  cross-section, and its walls run the whole way up to it. The bevel was the renderer's one hard
+  case — its four 45° strips met at every convex corner in a facet that crossed its neighbours and
+  stood proud of the lid, and a mitre ring plus a corner triangle per corner existed only to hide
+  that — while a hard, axis-aligned edge is what a 1 m grid actually is. The station's softness
+  comes from its finishes, its modules and its light. `test/floor-surface.test.mjs` reads the
+  height of the drawn surface (flush seam, level floor, rim on the cell boundary) **and the
+  direction of every drawn normal** (a cube has no leaning face, a chamfer has nothing else), which
+  is the pin on the cut having gone.
+* **A shared cell edge draws nothing.** A side a solid neighbour shares emits no wall, so two top
+  faces meet flush and a run of blocks is one flat plane. Rounding and bevelling every cell edge
+  whatever stood beside it — which is what the mesher did first — left a V-groove along every seam
+  and a pit at every four-block corner, 12.5 cm deep and plainly visible from above.
 * **The filling under a run is a closed body.** `rampFillKeys` derives the wedge between the
   ground and a truss's underside, and the mesher draws it as the run's own body. Two things
   had to be true for it to read as solid. A fill cell must **not** count as solid when its
@@ -2801,8 +2797,8 @@ skipped, and §7.6 determinism is untouched because the step size never moves.
   the cell below believes a block stands on it, reports `up = false` and never draws a top
   face: the run came out as four walls with no lid, and the inside of the escalator showed
   through the gaps between them. And the top face's height is the **cell ceiling**, not the
-  wall's own top: a plain block's walls stop a bevel lower so the chamfer has somewhere to
-  be, and reading that height for the cap drops the whole floor 12.5 cm, opening a rim of
+  wall's own top: while the block wore a bevel the two differed by 12.5 cm, and reading the
+  wall's height for the cap dropped the whole floor and opened a rim of
   missing surface right round every block. `test/floor-surface.test.mjs` reads the filling's
   height rather than counting its triangles, because only the height can tell a lid from none.
 * **The day clock is real time at 1×, not 120×** (above).
@@ -2858,8 +2854,11 @@ On this machine (Node 24, desktop):
 B1's per-face materials make the mesher sort faces into one part per finish. A real station
 chunk is a thin floor slab and stays well inside the budget (1.9 ms); the figure that misses
 is a *fully solid* 16×16×8 block, which is geometry-bound rather than finish-bound and was
-near the line before B1 too. PLAN R2's fallback if that ever gets worse is to drop the rounded
-vertical corners and keep the top bevels only.
+near the line before B1 too. PLAN R2's fallback if that ever got worse was to drop the rounded
+vertical corners and keep the top bevels only — and both have since gone for reasons of their
+own: a block is a cube now (GAME-SPEC §4.2, and the divergence note above). That takes the
+chamfer ring and the per-corner triangle out of every mesh, so this budget is easier to hit
+than the figures above were measured against, not harder.
 
 ## Deploy
 

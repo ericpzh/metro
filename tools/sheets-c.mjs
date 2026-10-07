@@ -1,177 +1,224 @@
-// Concept sheet 09 - camera, projection and CAD-style navigation.
-// Includes a tiny orthographic box renderer so the same station model can be
-// shown from any azimuth/elevation, including the flat elevation views.
-import { C, T, MUL, title, sheet, n, poly, shade, legend, dashFlow, breathe, mover } from './iso.mjs';
+// Concept sheet 09 — the camera, the views, and the widget that drives them.
+//
+// Every tile on this sheet is a capture, and the sheet draws none of them: the view
+// tiles are the stage, driven through the game's own calls by
+// `tools/render-view-shots.mjs` (`CameraSystem.setPreset`, the 剖切 and 隐藏UI flags),
+// and the 视图控件 tile is the game's own DOM (`.viewNav`), photographed element and
+// all. Nothing about a view or a control is stated here — not the geometry, not the
+// framing, not the projection, not the widget's labels or its slider range.
+//
+// What the sheet adds is the key that reaches each [tile] and the reading beside it,
+// and the legend below, whose keys come from `app/windows/AppShell.tsx` and
+// `ViewCube.tsx`.
 
-/* ------------------------------------------------------------------ *
- * tiny orthographic renderer: boxes in, polygons out
- * ------------------------------------------------------------------ */
-const LIGHT = (() => { const v = [0.36, 0.26, 0.9]; const m = Math.hypot(...v); return v.map((c) => c / m); })();
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { C, T, MUL, title, sheet, n } from './iso.mjs'
 
-function render(boxes, az, el, s, ox, oy, ctr = [8, 6, -2.6]) {
-  const a = (az * Math.PI) / 180, e = (el * Math.PI) / 180;
-  const ca = Math.cos(a), sa = Math.sin(a), ce = Math.cos(e), se = Math.sin(e);
-  const cam = [ca * ce, sa * ce, se];
-  const proj = (x, y, z) => {
-    const X = x - ctr[0], Y = y - ctr[1], Z = z - ctr[2];
-    return [ox + (sa * X - ca * Y) * s, oy + (se * (ca * X + sa * Y) - ce * Z) * s];
-  };
-  const faces = [];
-  for (const [x, y, z, w, d, h, col] of boxes) {
-    const c = [[x, y, z], [x + w, y, z], [x + w, y + d, z], [x, y + d, z]];
-    const ct = [[x, y, z + h], [x + w, y, z + h], [x + w, y + d, z + h], [x, y + d, z + h]];
-    const defs = [
-      [ct, [0, 0, 1]],                       // top
-      [[c[0], c[1], ct[1], ct[0]], [-1, 0, 0]], // -x
-      [[c[1], c[2], ct[2], ct[1]], [1, 0, 0]],  // +x
-      [[c[2], c[3], ct[3], ct[2]], [0, 1, 0]],  // +y
-      [[c[3], c[0], ct[0], ct[3]], [0, -1, 0]], // -y
-      [[c[0], c[3], c[2], c[1]], [0, 0, -1]],   // bottom
-    ];
-    for (const [quad, nrm] of defs) {
-      if (dot(nrm, cam) <= 0.001) continue;
-      const cen = quad.reduce((acc, p) => [acc[0] + p[0] / 4, acc[1] + p[1] / 4, acc[2] + p[2] / 4], [0, 0, 0]);
-      const sh = 0.5 + 0.52 * Math.max(0, dot(nrm, LIGHT));
-      faces.push({ k: dot(cen, cam), pts: quad.map((p) => proj(...p)), fill: shade(col, sh) });
-    }
+const here = dirname(fileURLToPath(import.meta.url))
+const repo = resolve(here, '..')
+/** Where `node tools/render-view-shots.mjs` leaves its pixels and its index. */
+const SHOTS = resolve(repo, process.env.VIEW_SHOTS_DIR ?? join('.preview', 'view-shots'))
+
+/**
+ * The view tiles, in reading order, followed by 视图控件 as the **sixth tile** — five
+ * views and the control, two rows of three, which is what fills the top of the sheet.
+ *
+ * Each row is: the captured frame to show, the key that reaches it, its name, and what
+ * a reader is meant to take from it. Every frame hides the street plane (隐藏地面),
+ * because the station is mostly underground and the pavement is a lid over it; the
+ * tiles shot closer than the preset framing say by how much.
+ *
+ * The five are five **different** views: the isometric, the plan, the cut seen at an
+ * angle, the same cut seen square on from the south — the one view that shows the
+ * storeys stacked and the circulation between them — and the hall at eye height. A
+ * second isometric nearer in (a 站厅 · 贴近看) said nothing the first did not.
+ *
+ * The 平视 frame is the one the game has no key for: the capture finds a storey with
+ * air over its floor and a cell with a clear run to stand in and looks down it, at head
+ * height (`tools/render-view-shots.mjs`).
+ */
+const CARDS = [
+  ['iso', '1', '等轴测建造视图 · 3×', '透视。方位 45°、俯仰 30°，推近三倍看站体'],
+  ['plan', '2', '平面 / 俯视 · 4×', '正交。全站摊平推近四倍：五个楼层、两条线'],
+  ['section', 'C · R · Y', '剖切 · 收起剖切面 · 4×', '剖切面立着切过站体最密的地方：C 剖开、R 转 90° 看进站厅、Y 收起半透明的面'],
+  ['elevation', '4 · C · R×2', '正交 X-Z 剖面 · 3×', '剖开再正对着看：楼层怎么叠、楼扶梯怎么穿、闸机在哪一层'],
+  ['eye', 'U + 平视', '站厅 · 平视', '站在站厅里，眼高看过去：这是玩家走进去看到的样子'],
+]
+
+/** The captured views, or a clear failure: a sheet that drew no camera would be worse. */
+function loadShots() {
+  const indexPath = join(SHOTS, 'index.json')
+  if (!existsSync(indexPath)) {
+    throw new Error(`no view shots in ${SHOTS} — run:\n  npm run build:game\n  node tools/render-view-shots.mjs`)
   }
-  return faces.sort((p, q) => p.k - q.k).map((f) => poly(f.pts, f.fill, '#0d1116', 0.9)).join('');
-}
-
-/* ------------------------------------------------------------------ *
- * the reference station used in every card
- * ------------------------------------------------------------------ */
-const B = (x, y, z, w, d, h, col) => [x, y, z, w, d, h, col];
-function station() {
-  const o = [];
-  // ---- ground level
-  o.push(B(0, 0, 0, 16, 12, 0.45, C.floor));                     // concourse slab
-  o.push(B(0, -0.5, 0.45, 16, 0.5, 3.4, C.tile));                // back wall
-  o.push(B(-0.5, -0.5, 0.45, 0.5, 12.5, 3.4, C.tile2));          // side wall
-  o.push(B(0, -0.5, 3.85, 16, 0.5, 0.35, C.ceil));               // wall cap
-  o.push(B(0, 0, 3.9, 16, 5.5, 0.3, C.ceil));                    // partial ceiling
-  for (let i = 0; i < 5; i++) o.push(B(2.4 + i * 1.35, 5.4, 0.45, 1.15, 2, 1.05, C.steel));   // fare gates
-  for (let i = 0; i < 3; i++) o.push(B(2.0 + i * 1.25, 0.4, 0.45, 1.05, 0.95, 2.0, C.blueD)); // TVMs
-  o.push(B(11.6, 1.0, 0.45, 3.6, 5.0, 3.0, C.wood));             // retail unit
-  o.push(B(11.4, 0.8, 3.45, 4.0, 5.4, 0.35, C.lineE));           // retail fascia
-  for (const cx of [4.5, 9.0, 13.5]) o.push(B(cx, 9.0, 0.45, 0.8, 0.8, 3.4, C.steel));        // columns
-  // ---- vertical circulation down to B1
-  for (let i = 0; i < 9; i++) o.push(B(12.6, 6.4 + i * 0.62, 0.45 - (i + 1) * 0.42, 2.2, 0.62, 0.42, C.concrete));
-  for (const bx of [12.5, 14.8]) o.push(B(bx, 6.4, 0.0, 0.16, 5.6, 1.0, C.glass));             // stair rails
-  for (let i = 0; i < 10; i++) o.push(B(7.0, 6.2 + i * 0.6, 0.45 - (i + 1) * 0.42, 1.2, 0.6, 0.42, C.steel)); // escalator
-  // ---- B1
-  o.push(B(0, 0, -5.6, 16, 12, 0.5, C.floor));                   // platform slab
-  o.push(B(0, 0, -5.1, 16, 2.4, 0.5, C.maroon));                 // platform edge zone
-  o.push(B(0, 2.6, -5.0, 16, 0.8, 0.12, C.tactile));             // tactile strip
-  o.push(B(1.0, 3.4, -4.6, 13, 3.0, 3.7, '#d8dee6'));            // train body
-  o.push(B(1.0, 3.3, -1.5, 13, 0.12, 1.0, '#22323f'));           // window band
-  o.push(B(0.6, 0.2, -5.0, 14, 0.35, 3.6, C.glass));             // PSD line
-  o.push(B(0.6, 0.2, -1.9, 14, 0.4, 0.55, C.lineB));             // PSD header
-  o.push(B(0.6, 0.2, -5.0, 14, 0.4, 0.5, C.safety));             // warning band
-  for (let i = 0; i < 3; i++) o.push(B(2 + i * 4.6, 0.6, -5.1, 0.9, 0.9, 3.6, C.steel));       // platform columns
-  return o;
-}
-const MODEL = station();
-
-/* ------------------------------------------------------------------ *
- * card with a rendered viewport
- * ------------------------------------------------------------------ */
-function card(g, x, y, w, h, label, sub, az, el, opt = {}) {
-  g.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(`<rect x="${x + 12}" y="${y + 12}" width="${w - 24}" height="${h - 74}" rx="9" fill="#0b1119"/>`);
-  g.push(render(MODEL, az, el, opt.s ?? 9.5, x + w / 2 + (opt.dx ?? 0), y + (h - 62) / 2 + 12 + (opt.dy ?? 0)));
-  g.push(T(x + 18, y + h - 44, label, { size: 16, weight: 700, fill: '#eaf0f6' }));
-  g.push(T(x + 18, y + h - 24, sub, { size: 12.5, fill: '#8fa0b3' }));
-  g.push(`<rect x="${x + w - 116}" y="${y + 20}" width="104" height="24" rx="6" fill="#1b2530" stroke="#2b3746"/>`);
-  g.push(T(x + w - 64, y + 37, `方位 ${az}  俯仰 ${el}`, { size: 11, fill: '#7d8ea3', anchor: 'middle', mono: true }));
-}
-
-/* ------------------------------------------------------------------ *
- * navigation cube widget
- * ------------------------------------------------------------------ */
-function navCube(g, cx, cy, s) {
-  g.push(render([B(0, 0, 0, 1, 1, 1, '#2c3a4a')], 45, 30, s, cx, cy, [0.5, 0.5, 0.5]));
-  const lab = (x, y, t) => g.push(T(x, y, t, { size: 12, weight: 800, fill: '#dbe6f2', anchor: 'middle', ls: 1.4 }));
-  lab(cx, cy - s * 0.72, '顶');
-  lab(cx - s * 0.86, cy + s * 0.3, '前');
-  lab(cx + s * 0.86, cy + s * 0.26, '右');
-  g.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(s * 1.5)}" fill="none" stroke="#2f7ef2" stroke-width="2" stroke-dasharray="7 6" opacity=".8" ${dashFlow(13, '1.4s')}/>`);
-  for (const a of [0, 90, 180, 270]) {
-    const r = (a * Math.PI) / 180;
-    g.push(`<circle cx="${n(cx + Math.cos(r) * s * 1.5)}" cy="${n(cy + Math.sin(r) * s * 1.5)}" r="5" fill="#2f7ef2"/>`);
+  const index = JSON.parse(readFileSync(indexPath, 'utf8'))
+  const byId = new Map(index.views.map((v) => [v.id, v]))
+  return {
+    get(id) {
+      const view = byId.get(id)
+      if (!view) throw new Error(`no captured view "${id}" in ${indexPath}`)
+      const file = join(SHOTS, view.file)
+      if (!existsSync(file)) throw new Error(`view image is missing: ${view.file}`)
+      return { ...view, href: `data:image/png;base64,${readFileSync(file).toString('base64')}` }
+    },
   }
-  g.push(`<path d="M${n(cx + s * 1.5 - 16)},${n(cy - 8)} a16,16 0 0 1 16,16" fill="none" stroke="#2f7ef2" stroke-width="3"/>`);
-  // a camera marker orbits the cube: this is the drag, drawn. The orbit is a
-  // densely-sampled path, because a path is followed by transform keyframes.
-  {
-    const r = s * 1.5;
-    const N = 40;
-    let orbit = '';
-    for (let i = 0; i <= N; i++) {
-      const a = (i / N) * Math.PI * 2;
-      orbit += `${i ? 'L' : 'M'} ${n(cx + Math.cos(a) * r)} ${n(cy + Math.sin(a) * r)} `;
-    }
-    g.push(mover(orbit.trim(), '#f2b32c', '0s', { r: 6, dur: '9s', noFade: true }));
-  }
-  g.push(T(cx, cy + s * 1.9, '拖动任意面、棱或角', { size: 11.5, fill: '#8fa0b3', anchor: 'middle' }));
 }
 
 /* =================================================================== *
  * 09  CAMERA AND VIEWS
  * =================================================================== */
 export function artViews() {
-  const W = 1600, H = 1240;
-  const g = [];
-  g.push(title(48, 62, '概念 09 // 相机与视图',
-    '任意角度，也包括正交平视',
-    '像 CAD 视口那样 360° 随便转，也能切到真正的正交立面。同一个车站，六种看法。'));
+  const shots = loadShots()
 
-  const cw = 480, chh = 350, x0 = 48, y0 = 172, gapx = 16, gapy = 16;
-  card(g, x0, y0, cw, chh, '1.  等轴测建造视图', '默认：2:1 二测投影，方位角 45°，俯仰角 30°', 45, 30);
-  card(g, x0 + (cw + gapx), y0, cw, chh, '2.  自由环绕', '拖到任意方位和俯仰 —— 这里取方位 15°、俯仰 18°', 15, 18);
-  card(g, x0 + 2 * (cw + gapx), y0, cw, chh, '3.  平面 / 俯视', '垂直向下：摆网格、看流线', 0, 90, { s: 10.5, dy: 10 });
+  const X0 = 48
+  const COLS = 3
+  const CW = 478
+  const CH = 272
+  const GAP_X = 16
+  const GAP_Y = 16
+  const BOX_H = 172
+  const boxW = CW - 24
+  const W = X0 * 2 + COLS * CW + (COLS - 1) * GAP_X
+  const TOP = 172
+  /** The grid: the six views, the control in the seventh cell, two rows of three. */
+  const rows = Math.ceil((CARDS.length + 1) / COLS)
 
-  card(g, x0, y0 + chh + gapy, cw, chh, '4.  正交 X-Z 立面', '正交正立面 —— 就是剖面，没有透视', 90, 0, { s: 12, dy: 8 });
-  card(g, x0 + (cw + gapx), y0 + chh + gapy, cw, chh, '5.  正交 Y-Z 立面', '正交侧立面 —— 看深度和楼层叠合', 0, 0, { s: 10.5, dy: 8 });
-  card(g, x0 + 2 * (cw + gapx), y0 + chh + gapy, cw, chh, '6.  导航立方 + 预设', '1-5 键切换视图，O 键切换正交，F 键框选对象', 45, 30, { s: 6.5, dx: 118, dy: 4 });
-  navCube(g, x0 + 2 * (cw + gapx) + 116, y0 + chh + gapy + 168, 46);
+  const g = []
+  g.push(
+    title(
+      X0,
+      62,
+      '几个视角，同一座站',
+      '动物园站：街上那层收起来，站点就在下面；用 1 / 2 / C 和 视图 里的开关各看一遍。',
+    ),
+  )
 
-  /* ---- control legend ---- */
-  const ly = y0 + 2 * chh + 2 * gapy + 6;
-  g.push(`<rect x="48" y="${ly}" width="1504" height="212" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(72, ly + 34, '视口操作', { size: 14, weight: 800, fill: C.yellow, ls: 1.4 }));
+  /**
+   * The width a key needs in its chip, at the 12 px the chips are set in: a CJK glyph is
+   * a full em wide, everything else about 0.6 of one, plus the padding either side.
+   */
+  const keyChipW = (key) =>
+    20 + [...key].reduce((w, ch) => w + (/[\u2e80-\u9fff\uff00-\uffef]/.test(ch) ? 12 : 7.2), 0)
+
+  /** One view: the frame's pixels, the key that reaches it, and what it is for. */
+  const card = (col, row, id, key, label, note) => {
+    const x = X0 + col * (CW + GAP_X)
+    const y = TOP + row * (CH + GAP_Y)
+    const shot = shots.get(id)
+    const scale = Math.max(boxW / shot.width, BOX_H / shot.height)
+    const iw = shot.width * scale
+    const ih = shot.height * scale
+    g.push(`<rect x="${x}" y="${y}" width="${CW}" height="${CH}" rx="14" fill="#111926" stroke="#243040"/>`)
+    g.push(`<rect x="${x + 12}" y="${y + 12}" width="${boxW}" height="${BOX_H}" rx="9" fill="#0b1119"/>`)
+    // The photograph, centred in the window and cropped by it — no letterbox, because
+    // a view is a picture of a place rather than a diagram that must not be clipped.
+    g.push(
+      `<clipPath id="v-${id}"><rect x="${x + 12}" y="${y + 12}" width="${boxW}" height="${BOX_H}" rx="9"/></clipPath>` +
+        `<image x="${n(x + CW / 2 - iw / 2)}" y="${n(y + 12 + (BOX_H - ih) / 2)}" width="${n(iw)}" height="${n(ih)}" clip-path="url(#v-${id})" href="${shot.href}"/>`,
+    )
+    // The key it answers to, as a chip in the corner — **sized to the key**, because the
+    // keys are not all one character: `C · R · Y` is three of them, and a chip drawn to a
+    // fixed 34 units leaves the last one hanging out over the picture.
+    const kw = keyChipW(key)
+    g.push(`<rect x="${n(x + CW - 12 - kw)}" y="${y + 18}" width="${n(kw)}" height="22" rx="6" fill="#1b2530" stroke="#2b3746"/>`)
+    g.push(T(x + CW - 12 - kw / 2, y + 33, key, { size: 12, weight: 800, fill: '#9fd7ee', anchor: 'middle', mono: true }))
+    g.push(T(x + 18, y + CH - 48, label, { size: 15.5, weight: 700, fill: '#eaf0f6' }))
+    g.push(T(x + 18, y + CH - 26, note, { size: 12, fill: '#8fa0b3' }))
+  }
+
+  CARDS.forEach(([id, key, label, note], i) => card(i % COLS, Math.floor(i / COLS), id, key, label, note))
+
+  // The sixth tile is the control itself — **photographed, not drawn**. It is the
+  // game's own DOM (`.viewNav`), captured by the same pass that takes the views, so the
+  // card cannot drift from the widget the player has: the cube's face labels, the ⌂
+  // button, the two pan arrows, the depth rail and the 视场角 slider are all the
+  // shipping ones, and the sheet states nothing about them it did not photograph.
+  {
+    const col = COLS - 1
+    // The cell **after the last view**, which is what fills the grid: five views make
+    // the widget the sixth tile, and the block tops out at two rows of three.
+    const row = Math.floor(CARDS.length / COLS)
+    const x = X0 + col * (CW + GAP_X)
+    const y = TOP + row * (CH + GAP_Y)
+    const shot = shots.get('widget')
+    // **A tile the size of all the others.** The widget is a tall panel — its depth rail
+    // stands beside the cube — and the window it goes in is a wide short one, so its
+    // photograph is fitted **inside** the window: scaled by whichever side runs out
+    // first and centred, which leaves the padding either side of it. Drawing it at the
+    // window's full width, as this did, is what made the sixth tile twice the height of
+    // the other five and left the grid looking broken. Nothing of the widget is cropped.
+    const fit = Math.min(boxW / shot.width, BOX_H / shot.height)
+    const iw = shot.width * fit
+    const ih = shot.height * fit
+    g.push(`<rect x="${x}" y="${y}" width="${CW}" height="${CH}" rx="14" fill="#111926" stroke="#243040"/>`)
+    g.push(`<rect x="${x + 12}" y="${y + 12}" width="${boxW}" height="${BOX_H}" rx="9" fill="#0b1119"/>`)
+    g.push(
+      `<clipPath id="v-widget"><rect x="${x + 12}" y="${y + 12}" width="${boxW}" height="${BOX_H}" rx="9"/></clipPath>` +
+        `<image x="${n(x + 12 + (boxW - iw) / 2)}" y="${n(y + 12 + (BOX_H - ih) / 2)}" width="${n(iw)}" height="${n(ih)}" clip-path="url(#v-widget)" href="${shot.href}"/>`,
+    )
+    g.push(T(x + 18, y + CH - 48, '视图控件', { size: 15.5, weight: 700, fill: '#eaf0f6' }))
+    g.push(T(x + 18, y + CH - 26, '视图右上角就是它：拖立方转视角，箭头升降，滑块调镜头', { size: 12, fill: '#8fa0b3' }))
+  }
+
   const ctrls = [
-    ['中键拖拽', '360° 环绕 —— 方位和俯仰都随便'],
-    ['Shift + 中键', '平移视图'],
-    ['滚轮', '缩放（正交下为推拉）'],
-    ['Shift + 滚轮', '仅改变俯仰'],
-    ['1 / 2 / 3', '吸附到等轴测 / 平面 / 上次自定义角度'],
-    ['4 / 5', '正交 X-Z 立面 / 正交 Y-Z 立面'],
+    ['中键拖拽', '360° 环绕：方位和俯仰都随便'],
+    ['滚轮', '缩放；正交视图下是推拉'],
+    ['指针推到画布边缘', '平移视图'],
+    ['W A S D', '平移，按住 Shift 加速'],
+    ['Ctrl + Q / E', '升降视图（相机和瞄准点一起动）'],
+    ['1 / 2 / 4 / 5', '等轴测 / 平面 / 正交立面 / 正交侧立面'],
+    ['3', '回到上一个自定义角度'],
     ['O', '切换正交 ↔ 透视'],
-    ['F', '框选对象或当前楼层'],
-    ['Q / E', '楼层切片上移 / 下移'],
+    ['Home', '框住当前楼层'],
+    ['Ctrl + H', '回到默认视角（等轴测、透视、45°）'],
+    ['C，再按 R', '剖切开 / 关，R 把切面转 90°'],
     ['X', 'X 光：其他楼层变虚影'],
-    ['C', '剖切：把靠近镜头的那四分之一藏起来'],
+    ['Y', '隐藏剖切面，只留切开的模型'],
+    ['U', '隐藏UI：格网、楼层切片、界面一起收起来'],
     ['空格', '暂停 / 运行仿真'],
-  ];
-  ctrls.forEach(([k, v], i) => {
-    const col = i % 2, row = Math.floor(i / 2);
-    const x = 72 + col * 500, y = ly + 66 + row * 26;
-    g.push(`<rect x="${x}" y="${y - 15}" width="150" height="21" rx="5" fill="#0f1620" stroke="#243040"/>`);
-    g.push(T(x + 8, y, k, { size: 11.5, fill: '#9fd7ee', mono: true, weight: 700 }));
-    g.push(T(x + 160, y, v, { size: 12, fill: '#a9b8c8' }));
-  });
-  g.push(T(1072, ly + 66, '为什么这对搭站的人重要', { size: 12, weight: 800, fill: C.yellow, ls: 1.2 }));
-  g.push(MUL(1072, ly + 92, [
-    '转着看，能知道空间对不对味；正交立面，才知道',
-    '它行不行。竖向交通、净高、楼层叠合、竖井多深，',
-    '只有 X-Z 视图会老实告诉你——所以两样都得有，',
-    '落在同一个模型上，不用导出。',
-  ], { size: 12, fill: '#a9b8c8', lh: 20 }));
-  g.push(T(1072, ly + 172, '正交视图 = 图纸。透视视图 = 现场。', { size: 12, fill: '#7d8ea3' }));
+  ]
 
-  /* ---- a note on the renderer ---- */
-  g.push(T(48, H - 22, '六张卡片是同一份方盒列表，用同一个正交投影画出来：屏幕坐标 = f(方位角, 俯仰角, 缩放)。游戏里是同一套数学，建造视图内置了 2:1 比例。', { size: 12.5, fill: '#7d8ea3' }));
-  return sheet(W, H, g.join(''));
+  /* ---- the controls, in the game's own keys ---- */
+  // Below the grid: the six tiles are one size, so the row after the second one is free
+  // and the legend takes the whole of it.
+  const ly = TOP + rows * (CH + GAP_Y) + 24
+  // **Sized to its content**: the pairs in two columns, the header above them, and a
+  // row's worth of air under the last one. 空格 is the foot of the left column, and it
+  // is the row a reader sees hanging out of the bottom when the panel's height is a
+  // number someone typed rather than the rows it actually holds.
+  const ROW = 24
+  const KEY_W = 158
+  const KEY_DX = KEY_W + 12
+  const COL_DX = 520
+  const ctrlRows = Math.ceil(ctrls.length / 2)
+  const legendH = 66 + ctrlRows * ROW + 30
+  g.push(`<rect x="${X0}" y="${ly}" width="${W - X0 * 2}" height="${legendH}" rx="14" fill="#111926" stroke="#243040"/>`)
+  g.push(T(X0 + 24, ly + 34, '视口操作', { size: 14, weight: 800, fill: C.yellow, ls: 1.4 }))
+  ctrls.forEach(([k, v], i) => {
+    const x = X0 + 24 + (i % 2) * COL_DX
+    const y = ly + 66 + Math.floor(i / 2) * ROW
+    g.push(`<rect x="${x}" y="${y - 15}" width="${KEY_W}" height="20" rx="5" fill="#0f1620" stroke="#243040"/>`)
+    g.push(T(x + 9, y, k, { size: 11, fill: '#9fd7ee', mono: true, weight: 700 }))
+    g.push(T(x + KEY_DX, y, v, { size: 11.5, fill: '#a9b8c8' }))
+  })
+  g.push(T(X0 + 1024, ly + 66, '为什么这对搭站的人重要', { size: 12, weight: 800, fill: C.yellow, ls: 1.2 }))
+  g.push(
+    MUL(
+      X0 + 1024,
+      ly + 92,
+      [
+        '转着看，能知道空间对不对味；正交立面，才知道',
+        '它行不行。竖向交通、净高、楼层叠合、竖井多深，',
+        '只有 X-Z 视图会老实告诉你——所以两样都得有，',
+        '落在同一个模型上，不用导出。',
+      ],
+      { size: 12, fill: '#a9b8c8', lh: 20 },
+    ),
+  )
+  g.push(T(X0 + 1024, ly + 176, '正交视图 = 图纸。透视视图 = 现场。', { size: 12, fill: '#7d8ea3' }))
+
+  const H = ly + legendH + 26
+  return sheet(W, H, g.join(''))
 }

@@ -22,6 +22,10 @@
 import * as THREE from 'three'
 import { createModelMaterials, disposeModelMaterials, disposeObject, type ModelMaterials } from '../render/models.ts'
 import { buildTrain, setDoors } from '../render/models/pieces/TrainModel.ts'
+import { TrackModel } from '../render/models/pieces/TrackModel.ts'
+import type { ModuleContext } from '../render/models/PieceBuilder.ts'
+import { addStationLights, applyStationRenderer } from '../render/scene/lightRig.ts'
+import { RAIL_BED_DEPTH, makeTrack } from '../build/rail.ts'
 import {
   CABIN_FLOOR_Z,
   CABIN_HALF_W,
@@ -68,7 +72,7 @@ type Span = [number, number] | 'car' | 'nose'
  * below), so the picture is a drawing of the car: pixel distances are metres, and a
  * dimension line drawn on the sheet lands where the dimension is.
  */
-type Elevation = 'front' | 'side'
+type Elevation = 'front' | 'side' | 'plan' | 'iso'
 
 /** The direction a car is seen from for its shape: the side, plus a little of the end. */
 const CAR = new THREE.Vector3(1, -1.35, 0.62).normalize()
@@ -80,6 +84,12 @@ const NOSE = new THREE.Vector3(1, -0.85, 0.4).normalize()
 const FRONT_ON = new THREE.Vector3(1, 0, 0)
 /** Square on the car's flank — the side elevation, which is where the door cadence reads. */
 const SIDE_ON = new THREE.Vector3(0, -1, 0)
+/**
+ * Straight down, from **above** — the plan, which is where a platform and its queue
+ * lanes are laid out. `from` is the camera's offset from what it looks at, so +z here
+ * is over the roof; −z would be a view of the underframe.
+ */
+const PLAN_ON = new THREE.Vector3(0, 0, 1)
 
 /**
  * The world box every elevation is framed in, in metres — **the same box for every
@@ -92,8 +102,37 @@ const ELEV_Z: [number, number] = [-0.35, 4.05]
 const ELEV_HALF_Y = 1.7
 /** Half a 22 m car: the longest body, so the longest one exactly fills its frame. */
 const ELEV_HALF_X = 11
+/**
+ * Half a two-car consist plus its gangway, for the plan: the platform sheet needs the
+ * whole train it draws on the track, not one car of it.
+ */
+const PLAN_HALF_X = 21
 /** Pixels per metre the elevations are drawn at, so a frame's shape follows its box. */
+/**
+ * The drawing kit's screen axes — `tools/iso.mjs` projects with
+ * `px = (x - y) * TW`, `py = (x + y) * TH - z * ZU`.
+ *
+ * Its screen is **not** a true orthographic view: a metre of height is `ZU` pixels where a
+ * metre on the ground plane is `|(TW, TW, -ZU)|`. That matters because an orthographic
+ * camera has square pixels, so the render is made on the kit's axes at the height scale and
+ * the sheet stretches it back out sideways by `ISO_STRETCH`.
+ */
+const ISO_TW = 30, ISO_TH = ISO_TW / Math.sqrt(3), ISO_ZU = Math.hypot(ISO_TW, ISO_TH)
+// `py = (x + y) * TH - z * ZU`, so the screen's *down* row is `(TH, TH, -ZU)` — this was
+// built from TW, which tilted the rendering camera off the kit's by the difference and is
+// the reason the picture then needed a sideways squash to sit in a scene.
+const ISO_DOWN = new THREE.Vector3(ISO_TH, ISO_TH, -ISO_ZU).normalize()
+const ISO_RIGHT = new THREE.Vector3(1, -1, 0).normalize()
+const ISO_UP = ISO_DOWN.clone().negate()
+const ISO_FORWARD = new THREE.Vector3().crossVectors(ISO_UP, ISO_RIGHT).normalize()
+/** Pixels a metre of height is drawn at — the kit's own `ZU`. */
+const ISO_PX_PER_M = ISO_ZU / Math.abs(new THREE.Vector3(0, 0, 1).dot(ISO_UP))
+/** How much the sheet widens the picture: the kit draws an x-step `2 : 1`, an ortho camera `1.58 : 1`. */
+export const ISO_STRETCH = (ISO_TW / Math.SQRT1_2) / ISO_PX_PER_M
+
 const ELEV_PX_PER_M = 50
+/** The plan is drawn at the platform sheet's own 31 px/m so it drops straight in. */
+const PLAN_PX_PER_M = 31
 
 /** One consist to build, and how to look at it. */
 interface TrainScene {
@@ -104,6 +143,14 @@ interface TrainScene {
   span: Span
   /** Set for a true elevation, which frames a fixed box instead of the built geometry. */
   elevation?: Elevation
+  /** Cleared to nothing instead of a colour, so a sheet can lay the picture over its own drawing. */
+  transparent?: boolean
+  /**
+   * Build the **track** the consist runs on instead of the consist. One module, as long
+   * as the train (`trackPieceForLine`), because that is how the game lays it: a single
+   * piece per line, not a row of cells.
+   */
+  track?: boolean
 }
 
 /**
@@ -149,14 +196,24 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
   },
   // The two true elevations, one per class: the frontal one is where width and height
   // read, the side one is where the door cadence and the body's length read. Both are
-  // framed in the same box for every class, so the four can be laid side by side.
+  // framed in the same box for every class, so the four can be laid side by side, and
+  // both are cleared to nothing: an elevation is a drawing of a car, with no ground of
+  // its own, so a sheet composites it into its own drawing rather than into a box.
   ...STOCK_CLASSES.map((cls) => ({
     id: `front-${cls}`,
     label: `${cls} 型正面`,
     note: '正对车头看：宽和高',
     width: Math.round(2 * ELEV_HALF_Y * ELEV_PX_PER_M),
     height: Math.round((ELEV_Z[1] - ELEV_Z[0]) * ELEV_PX_PER_M),
-    scene: { stock: cls, cars: 2, doorsOpen: false, from: FRONT_ON, span: 'car' as Span, elevation: 'front' as Elevation },
+    scene: {
+      stock: cls,
+      cars: 2,
+      doorsOpen: false,
+      from: FRONT_ON,
+      span: 'car' as Span,
+      elevation: 'front' as Elevation,
+      transparent: true,
+    },
   })),
   ...STOCK_CLASSES.map((cls) => ({
     id: `side-${cls}`,
@@ -164,8 +221,73 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
     note: '正对车身看：长度和门的节奏',
     width: Math.round(2 * ELEV_HALF_X * ELEV_PX_PER_M),
     height: Math.round((ELEV_Z[1] - ELEV_Z[0]) * ELEV_PX_PER_M),
-    scene: { stock: cls, cars: 2, doorsOpen: false, from: SIDE_ON, span: 'car' as Span, elevation: 'side' as Elevation },
+    scene: {
+      stock: cls,
+      cars: 2,
+      doorsOpen: false,
+      from: SIDE_ON,
+      span: 'car' as Span,
+      elevation: 'side' as Elevation,
+      transparent: true,
+    },
   })),
+  // The drawing kit's own view, for the sheets drawn as isometric scenes: `tools/iso.mjs`
+  // projects with `px = (x - y) * TW`, `py = (x + y) * TH - z * ZU`, so a car for one of
+  // those has to be rendered **on the kit's screen axes** rather than on the world's.
+  ...(['A', 'B', 'L'] as StockClass[]).map((cls) => ({
+    id: `iso-${cls}`,
+    label: `${cls} 型等轴`,
+    note: '画法用等轴投影，和场景一套轴',
+    width: 1200,
+    height: 1150,
+    scene: {
+      stock: cls,
+      cars: 2,
+      doorsOpen: false,
+      from: new THREE.Vector3(1, 1, -1),
+      span: 'car' as Span,
+      elevation: 'iso' as Elevation,
+      transparent: true,
+    },
+  })),
+  // The plan, cleared to nothing: the platform sheet lays it over its own drawing of
+  // the platform, the track and the queue lanes, so it has to composite rather than
+  // sit in a box of its own. Drawn at that sheet's scale, not this one's.
+  {
+    id: 'plan-B',
+    label: 'B 型平面',
+    note: '从上看：两节车，中间是贯通道',
+    width: Math.round(2 * PLAN_HALF_X * PLAN_PX_PER_M),
+    height: Math.round(2 * ELEV_HALF_Y * PLAN_PX_PER_M),
+    scene: {
+      stock: 'B',
+      cars: 2,
+      doorsOpen: false,
+      from: PLAN_ON,
+      span: 'consist' as Span,
+      elevation: 'plan' as Elevation,
+      transparent: true,
+    },
+  },
+  // And the track it stands on — the game's own TrackModel, in the same box, so the two
+  // plans overlay each other exactly.
+  {
+    id: 'plan-track-B',
+    label: 'B 型轨道平面',
+    note: '一条线路就是一块轨道：和列车一样长，两条钢轨加中间的枕木',
+    width: Math.round(2 * PLAN_HALF_X * PLAN_PX_PER_M),
+    height: Math.round(2 * ELEV_HALF_Y * PLAN_PX_PER_M),
+    scene: {
+      stock: 'B',
+      cars: 2,
+      doorsOpen: false,
+      from: PLAN_ON,
+      span: 'consist' as Span,
+      elevation: 'plan' as Elevation,
+      transparent: true,
+      track: true,
+    },
+  },
 ]
 
 export interface TrainFrame {
@@ -185,6 +307,25 @@ export interface TrainPiece {
    * drawing's scale, which is what lets a dimension line land where the dimension is.
    */
   metres: number | null
+  /**
+   * Which way the car was looked at, so a sheet knows which axis is up the picture — one of
+   * `Elevation`, or null for a piece shot from no declared angle.
+   */
+  kind: Elevation | null
+  /**
+   * The box's span **up the picture**, in metres — the z extent for a front or a side,
+   * the y extent for a plan. A sheet needs both spans: one to get the scale, this one to
+   * keep the drawing from being squashed, since a car seen from the front is 3.4 m across
+   * and 4.4 m tall.
+   */
+  verticalMetres: number | null
+  /**
+   * The elevation's own box, in metres — `x`/`y`/`z` are `[min, max]`. A sheet needs it
+   * to know where a metre falls inside the picture: where the rail line sits (from `z`,
+   * which is how a car gets stood on the track bed rather than floated at the platform's
+   * own level) and where a door centre sits (from `x`, in the plan and the side).
+   */
+  box: { x: [number, number]; y: [number, number]; z: [number, number] } | null
 }
 
 export interface CapturedTrain {
@@ -192,6 +333,31 @@ export interface CapturedTrain {
   width: number
   height: number
   png: string
+  /**
+   * Where the model's **origin** lands in the picture, as a fraction of it: `u` across from
+   * the left, `v` down from the top.
+   *
+   * An isometric view has no horizontal datum to sit on — the ground is a diamond, not a
+   * line — so this is the point a sheet anchors the picture by. Null for the axis-aligned
+   * views, which have a rail or a centreline instead.
+   */
+  origin: [number, number] | null
+  /**
+   * The frustum the frame was drawn in, in metres across and up — the **real** extents of a
+   * fitted frame, which for an isometric consist is not the box's own span: the box is
+   * measured on the kit's screen rows and then padded, so a sheet that wants the picture's
+   * scale reads it here rather than reconstructing the pad.
+   */
+  frameMetres: number
+  frameVertical: number
+  /**
+   * The world box the frame was drawn around, in metres.
+   *
+   * An isometric view frames **its own geometry** rather than a fixed box, so its extents are
+   * only known once the consist has been built — a sheet reading `trainPieces` alone would have
+   * no box at all for it. That is why the render reports one back.
+   */
+  box: { x: [number, number]; y: [number, number]; z: [number, number] }
   /** The box that was framed and the frustum it was framed in, in metres. */
   debug: { box: number[]; mx: number; my: number; halfW: number; halfH: number }
 }
@@ -276,19 +442,83 @@ export function liveryTable(): Array<{ cls: string; line: string; colour: string
   return STOCK_CLASSES.map((cls) => ({ cls, line: LIVERY_LINE[cls], colour: liveryFor(cls) }))
 }
 
+/**
+ * The fixed box a true elevation is framed in, in metres, or null for a fitted view.
+ *
+ * Both the capture and the sheet's index go through here, so the box a sheet measures
+ * against is the box that was actually rendered rather than a second copy of it.
+ *
+ * The two axis-aligned elevations share a box so their classes can be laid side by side, and a
+ * plan is framed in the consist's own plan box. An **isometric** view is in neither camp: it is
+ * fitted to the consist that was built (see the render loop), so there is no box to state here
+ * — the capture hands back the one it measured instead.
+ */
+function elevationBox(scene: TrainScene): THREE.Box3 | null {
+  if (!scene.elevation || scene.elevation === 'iso') return null
+  const [x0, x1] = spanOf(scene)
+  const centre = (x0 + x1) / 2
+  if (scene.elevation === 'front') {
+    return new THREE.Box3(
+      new THREE.Vector3(x0, -ELEV_HALF_Y, ELEV_Z[0]),
+      new THREE.Vector3(x1, ELEV_HALF_Y, ELEV_Z[1]),
+    )
+  }
+  if (scene.elevation === 'side') {
+    return new THREE.Box3(
+      new THREE.Vector3(centre - ELEV_HALF_X, -ELEV_HALF_Y, ELEV_Z[0]),
+      new THREE.Vector3(centre + ELEV_HALF_X, ELEV_HALF_Y, ELEV_Z[1]),
+    )
+  }
+  const halfX = Math.max(PLAN_HALF_X, (STOCK[scene.stock].length * scene.cars) / 2 + 1)
+  return new THREE.Box3(
+    new THREE.Vector3(centre - halfX, -ELEV_HALF_Y, ELEV_Z[0]),
+    new THREE.Vector3(centre + halfX, ELEV_HALF_Y, ELEV_Z[1]),
+  )
+}
+
+/**
+ * The box's span across the picture, which is the axis the camera stands its right vector on.
+ *
+ * The isometric view had a row here too — `(Δx + Δy) / √2`, the kit's own across row. It is gone
+ * with `elevationBox`'s isometric case: that row is what a sheet already applies to the frame
+ * the render reports, and stating the same extent twice is how the two came to disagree.
+ */
+function elevationMetres(scene: TrainScene, box: THREE.Box3): number {
+  return scene.elevation === 'front' ? box.max.y - box.min.y : box.max.x - box.min.x
+}
+
+/** The box's span up the picture, which is the camera's other axis. */
+function elevationVertical(scene: TrainScene, box: THREE.Box3): number {
+  return scene.elevation === 'plan' ? box.max.y - box.min.y : box.max.z - box.min.z
+}
+
 /** The sheet's frames and the text each picture wears. */
 export function trainPieces(background = '#0d141d'): { frames: TrainFrame[]; pieces: TrainPiece[] } {
   const frames: TrainFrame[] = []
   const pieces: TrainPiece[] = []
   for (const show of SHOW) {
-    frames.push({ id: show.id, width: show.width, height: show.height, background })
-    const metres =
-      show.scene.elevation === 'front'
-        ? 2 * ELEV_HALF_Y
-        : show.scene.elevation === 'side'
-          ? 2 * ELEV_HALF_X
-          : null
-    pieces.push({ id: show.id, label: show.label, note: show.note, metres })
+    frames.push({
+      id: show.id,
+      width: show.width,
+      height: show.height,
+      background: show.scene.transparent ? undefined : background,
+    })
+    const box = elevationBox(show.scene)
+    pieces.push({
+      id: show.id,
+      label: show.label,
+      note: show.note,
+      metres: box ? elevationMetres(show.scene, box) : null,
+      kind: show.scene.elevation ?? null,
+      verticalMetres: box ? elevationVertical(show.scene, box) : null,
+      box: box
+        ? {
+            x: [box.min.x, box.max.x],
+            y: [box.min.y, box.max.y],
+            z: [box.min.z, box.max.z],
+          }
+        : null,
+    })
   }
   return { frames, pieces }
 }
@@ -319,24 +549,14 @@ export async function captureTrains(
   onProgress?: (done: number, total: number) => void,
 ): Promise<CapturedTrain[]> {
   const out: CapturedTrain[] = []
-  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true })
   renderer.setPixelRatio(2)
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.02
+  // The station's own rig and renderer settings, not a rig of this pass's own: the sheet
+  // exists to show what the player sees.
+  applyStationRenderer(renderer)
 
-  // The same rig the build rail's icons and the block sheet are shot with.
   const scene = new THREE.Scene()
-  scene.add(new THREE.HemisphereLight(0xe4f1ff, 0x1d2c3d, 1.15))
-  const key = new THREE.DirectionalLight(0xffffff, 2.1)
-  key.position.set(5, -7, 9)
-  scene.add(key)
-  const fill = new THREE.DirectionalLight(0x9ecbff, 0.85)
-  fill.position.set(-7, 5, 4)
-  scene.add(fill)
-  const rim = new THREE.DirectionalLight(0x4e8fd0, 0.7)
-  rim.position.set(0, 7, -5)
-  scene.add(rim)
+  addStationLights(scene)
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 2000)
   camera.up.set(0, 0, 1)
@@ -350,24 +570,52 @@ export async function captureTrains(
       const show = byId.get(frame.id)
       if (!show) continue
       const s = STOCK[show.scene.stock]
-      const group = buildTrain(mats, {
-        x: 0,
-        y: 0,
-        z: 0,
-        cars: show.scene.cars,
-        stock: show.scene.stock,
-        doorsOpen: show.scene.doorsOpen,
-        colour: liveryFor(show.scene.stock),
-        dirSign: 1,
-        yaw: 0,
-      })
+      // `TrackModel` reads only `ctx.mats` and `ctx.preview` off the context it is handed
+      // — the surface finishes, the ad artwork and the station data are for pieces that
+      // print something on themselves. Casting a two-field context is narrower than
+      // standing up the app's whole `ModuleContext` to draw two rails and some sleepers.
+      const trackCtx = { mats, preview: false } as unknown as ModuleContext
+      const group = show.scene.track
+        ? new TrackModel(trackCtx).build(
+            makeTrack({
+              id: show.id,
+              lineId: '5',
+              dir: 'up',
+              power: 'third-rail',
+              rot: 0,
+              // Centred on the world origin, so the track's centreline is y = 0 and its
+              // run is x ∈ [−w/2, w/2] — the same frame the consist is built in, which
+              // is what lets the two plans be laid over each other.
+              x: -trainLength(show.scene) / 2,
+              y: -RAIL_BED_DEPTH / 2,
+              z: 0,
+              w: Math.ceil(trainLength(show.scene)),
+              d: RAIL_BED_DEPTH,
+              tunnel: true,
+            }),
+          )
+        : buildTrain(mats, {
+            x: 0,
+            y: 0,
+            z: 0,
+            cars: show.scene.cars,
+            stock: show.scene.stock,
+            doorsOpen: show.scene.doorsOpen,
+            colour: liveryFor(show.scene.stock),
+            dirSign: 1,
+            yaw: 0,
+          })
       // The leaves are placed by `setDoors`, which the live scene drives from the
       // dwell's own progress — the pose's `doorsOpen` is a hint, not a control.
-      setDoors(group, show.scene.doorsOpen ? 1 : 0)
+      if (!show.scene.track) setDoors(group, show.scene.doorsOpen ? 1 : 0)
       scene.add(group)
 
       renderer.setSize(frame.width, frame.height, false)
-      renderer.setClearColor(frame.background ?? '#0d141d', 1)
+      if (show.scene.transparent) renderer.setClearAlpha(0)
+      else {
+        renderer.setClearAlpha(1)
+        renderer.setClearColor(frame.background ?? '#0d141d', 1)
+      }
 
       // Frame the part of the consist the picture is of. A true elevation frames a
       // **fixed box** instead, identical for every class, so the four share one scale.
@@ -375,45 +623,98 @@ export async function captureTrains(
       // geometry, so a single car fills its frame instead of shrinking into a 30 : 1
       // silhouette.
       const [x0, x1] = spanOf(show.scene)
-      let box = new THREE.Box3(
-        new THREE.Vector3(x0, -s.width / 2 - 0.2, -0.2),
-        new THREE.Vector3(x1, s.width / 2 + 0.2, s.height + 0.6),
-      )
-      if (show.scene.elevation === 'front') {
-        box = new THREE.Box3(
-          new THREE.Vector3(x0, -ELEV_HALF_Y, ELEV_Z[0]),
-          new THREE.Vector3(x1, ELEV_HALF_Y, ELEV_Z[1]),
+      /**
+       * `up` is the axis the camera treats as vertical, and it cannot be the axis it is
+       * looking along — so the plan, seen straight down, stands the train's width up.
+       */
+      const iso = show.scene.elevation === 'iso'
+      let box =
+        elevationBox(show.scene) ??
+        new THREE.Box3(
+          new THREE.Vector3(x0, -s.width / 2 - 0.2, -0.2),
+          new THREE.Vector3(x1, s.width / 2 + 0.2, s.height + 0.6),
         )
-      } else if (show.scene.elevation === 'side') {
-        const centre = (x0 + x1) / 2
-        box = new THREE.Box3(
-          new THREE.Vector3(centre - ELEV_HALF_X, -ELEV_HALF_Y, ELEV_Z[0]),
-          new THREE.Vector3(centre + ELEV_HALF_X, ELEV_HALF_Y, ELEV_Z[1]),
-        )
-      } else {
+      /**
+       * A fitted view frames the geometry, and the **isometric** one has to as well.
+       *
+       * `buildTrain` lays the cars out from the world origin, so a two-car consist sits at
+       * `x = 0…40`, while the box the isometric view used to be handed — the plan's ±21 m
+       * window, shared with `plan-B` — is centred half a consist behind that. The camera then
+       * aimed at a box the train was not inside: the figure came back shoved across its own
+       * frame, and the leading car's end was sliced off flat by the picture's edge. That is
+       * what reached sheet 13 as "the train's end is cropped", and no pad over the wrong box
+       * can fix it — the box is what has to be the train.
+       */
+      if (iso) {
+        const built = objectBox(group)
+        if (!built.isEmpty()) box = built
+      } else if (!show.scene.elevation) {
         const built = objectBox(group)
         if (!built.isEmpty()) box.intersect(built)
       }
+      camera.up.copy(iso ? ISO_UP : show.scene.elevation === 'plan' ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 0, 1))
 
       const aim = box.getCenter(new THREE.Vector3())
-      camera.position.copy(aim).addScaledVector(show.scene.from, 200)
-      camera.lookAt(aim)
+      // The fitted frame is symmetric about the camera's axis, so the camera has to look at
+      // the **centre of the consist**. It was looking at the view's `aim`, which sits about a
+      // car's length off it, and that is what sliced the far end of the train flat along the
+      // picture's own edge while leaving the cab end whole. (`aim` is recomputed later, so
+      // setting it here did nothing — the camera is what has to move.)
+      const framed = iso ? box.getCenter(new THREE.Vector3()) : aim
+      camera.position.copy(framed).addScaledVector(iso ? ISO_FORWARD : show.scene.from, 200)
+      // NOTE for the sheet: the drawing kit's projection is **left-handed** against a true
+      // view from this corner. `train-iso.mjs` draws a +x car with its nose to the right and
+      // its +y side near, and this camera — which sits on that same corner, so the faces are
+      // right — puts the nose on the left. `camera.scale.x = -1` here changes the file's
+      // bytes and not the picture (three.js builds the ortho frustum from `left/right` and
+      // leaves the camera's scale out of it), so the mirror belongs on the **image element**
+      // in the sheet, where the handedness lives anyway.
+      camera.lookAt(framed)
       camera.updateMatrixWorld(true)
       camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
 
       const aspect = frame.height > 0 ? frame.width / frame.height : 1
       let mx = 0
       let my = 0
+      // The kit's own screen axes are not the camera's, so the extents that frame an
+      // isometric car are measured along `ISO_RIGHT` / `ISO_UP` rather than in world x/z.
+      const along = iso
+        ? (v: THREE.Vector3) => [
+            (v.x - v.y) * Math.SQRT1_2,
+            (v.x + v.y) * (ISO_TH / Math.hypot(ISO_TH, ISO_TH, ISO_ZU)) - v.z * (ISO_ZU / Math.hypot(ISO_TH, ISO_TH, ISO_ZU)),
+          ]
+        : null
       for (let i = 0; i < 8; i++) {
-        const v = new THREE.Vector3(
+        const corner = new THREE.Vector3(
           i & 1 ? box.max.x : box.min.x,
           i & 2 ? box.max.y : box.min.y,
           i & 4 ? box.max.z : box.min.z,
-        ).applyMatrix4(camera.matrixWorldInverse)
+        )
+        if (along) {
+          const [rx, ry] = along(corner.clone().sub(box.getCenter(new THREE.Vector3())))
+          mx = Math.max(mx, Math.abs(rx))
+          my = Math.max(my, Math.abs(ry))
+          continue
+        }
+        const v = corner.applyMatrix4(camera.matrixWorldInverse)
         mx = Math.max(mx, Math.abs(v.x))
         my = Math.max(my, Math.abs(v.y))
       }
-      const PAD = 1.05
+      // A consist is long and runs across the kit's screen axes diagonally, so it needs more
+      // room than an axis-aligned view: at 1.05 the frame's edge cut the train's ends.
+      // Frame the **centre of the consist**, not wherever the view's aim happened to be. A
+      // fitted frame is symmetric about the camera's axis, so an aim that sits off-centre
+      // crops one end of the train — which is what cut the viaduct consist's nose off flat
+      // along the picture's own edge.
+      if (iso) aim.copy(box.getCenter(new THREE.Vector3()))
+      // **The isometric margin is measured on the drawing, not guessed.** `mx`/`my` above
+      // are the box's *corners* projected on the kit's axes, and a car is not its corners:
+      // its roof, its flank and its bogies all hang outside the line between two of them,
+      // so a pad that only just holds the eight corners still ends with the cab's own end
+      // face flat against the picture's edge and sliced off — which is what reached sheet
+      // 13 as "the train's end is cropped". The pad is generous because the room it buys
+      // costs nothing: the picture is transparent and the sheet anchors it by its origin.
+      const PAD = iso ? 1.4 : 1.05
       const halfH = Math.max(my, mx / aspect) * PAD
       const halfW = halfH * aspect
       camera.left = -halfW
@@ -425,12 +726,31 @@ export async function captureTrains(
       camera.updateProjectionMatrix()
       camera.updateMatrixWorld(true)
 
+      // Where the model's origin falls in the picture, for the views that need a point
+      // rather than a line to be anchored by.
+      let origin: [number, number] | null = null
+      if (along) {
+        const [ox, oy] = along(new THREE.Vector3().sub(box.getCenter(new THREE.Vector3())))
+        // `along`'s second component is the kit's **down** row, `(TH, TH, -ZU)`: a point
+        // lower on the screen measures larger. So the fraction *down* the picture is this
+        // plus a half. Subtracting it put every consist about a metre high.
+        origin = [0.5 + ox / (2 * halfW), 0.5 + oy / (2 * halfH)]
+      }
+
       renderer.render(scene, camera)
       out.push({
         id: frame.id,
         width: frame.width,
         height: frame.height,
         png: renderer.domElement.toDataURL('image/png'),
+        origin,
+        frameMetres: 2 * halfW,
+        frameVertical: 2 * halfH,
+        box: {
+          x: [box.min.x, box.max.x],
+          y: [box.min.y, box.max.y],
+          z: [box.min.z, box.max.z],
+        },
         debug: {
           box: [...box.min.toArray(), ...box.max.toArray()].map((v) => Math.round(v * 10) / 10),
           mx: Math.round(mx * 10) / 10,

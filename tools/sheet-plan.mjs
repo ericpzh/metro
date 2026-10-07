@@ -1,6 +1,9 @@
 // tools/sheet-plan.mjs — what each concept sheet is a picture of.
 //
-// One entry per sheet in `art/`, in the order the tool draws them. `id` is the
+// One entry per sheet the older photograph pass (`tools/shots.mjs`) still composes,
+// in the order it draws them. Sheets 08 and 10 are retired (see `DROPPED`), and 13
+// has no entry because `sheet-13-two-line.mjs` draws it from the game's own pieces
+// rather than from photographs. `id` is the
 // sheet's number in the spec and matches the file name's prefix; `file` is what
 // `web/public/art/` serves, so the site's `artworks.js` keeps pointing at the
 // same names.
@@ -83,8 +86,12 @@ export const SHEETS = [
   {
     id: '03',
     file: '03-block-system.svg',
-    // 一块方块，六个面: the block work itself, from a legible distance down to the
-    // rounded corners an eight-neighbour join produces.
+    // 一块方块，六个面: the block work itself. The sheet is drawn by
+    // `tools/sheet-03-blocks.mjs` from pictures the game rendered — the real chunk
+    // mesher and the real finish materials, captured by
+    // `tools/render-block-cards.mjs` — so the entries below belong to the older
+    // photograph pass (`tools/shots.mjs`) and would replace that sheet if it were
+    // asked for 03. They are kept for the demo station's own views of the blockwork.
     panels: [
       { place: [0, 0, 1920, 560], cam: { ...ISO, fov: 45, at: [83, 14, -9], region: BUILT }, view: { activeZ: -8, ghostOther: false, autoCeiling: false } },
       { place: [0, 560, 960, 520], cam: { from: [1, -1.3, 1.1], fov: 45, at: [80, 12, -8], region: { x: [64, 96], y: [2, 34], z: [-12, 1] } }, view: { activeZ: -8, ghostOther: false, autoCeiling: false } },
@@ -128,7 +135,10 @@ export const SHEETS = [
   {
     id: '07',
     file: '07-interface.svg',
-    // 建造栏、检查器、小地图: the game as it is played, interface and all.
+    // 建造栏、信息栏、底栏: the game as it is played, interface and all. The sheet is
+    // drawn by `tools/sheet-07-interface.mjs` from photographs the game took of
+    // itself (`tools/render-ui-shots.mjs`), so the panel below belongs to the older
+    // photograph pass and would replace that sheet if it were asked for 07.
     interface: true,
     panels: [{ place: [0, 0, 1920, 1080], cam: { ...ISO, fov: 45, at: [67, 14, -9], fov: 45, region: { x: [2, 133], y: [-5, 40], z: [-20, 1] } }, view: { activeZ: -8, ghostOther: true, autoCeiling: true } }],
   },
@@ -145,16 +155,6 @@ export const SHEETS = [
       { place: [1280, 360, 640, 360], cam: { ...SIDE, fov: 45, at: [83, 18, -8], region: BUILT }, view: { cutaway: true, hideSectionSurface: true, activeZ: -8, ghostOther: true, autoCeiling: true } },
       { place: [0, 720, 960, 360], cam: { ...ISO, fov: 45, at: [80, 10, -12], region: { x: [48, 112], y: [0, 34], z: [-18, -6] } }, view: { activeZ: -12, ghostOther: true, autoCeiling: true } },
       { place: [960, 720, 960, 360], cam: { ...PLAN, fov: 45, at: [66, 1, -14.5], region: PLATFORM }, view: { activeZ: -16, ghostOther: true, autoCeiling: true } },
-    ],
-  },
-  {
-    id: '10',
-    file: '10-queue-management.svg',
-    // 游戏里最便宜的运力: the fence runs the demo's platform is arranged with.
-    crowd: 12000,
-    panels: [
-      { place: [0, 0, 1920, 620], cam: { ...ISO, fov: 45, at: [72, 8, -12], region: { x: [46, 114], y: [-4, 20], z: [-18, -6] } }, view: { activeZ: -12, ghostOther: false, autoCeiling: false } },
-      { place: [0, 620, 1920, 460], cam: { ...PLAN, fov: 45, at: [70, 3, -12], region: { x: [48, 112], y: [-4, 12], z: [-16, -9] } }, view: { activeZ: -12, ghostOther: false, autoCeiling: false } },
     ],
   },
   {
@@ -183,7 +183,7 @@ export const SHEETS = [
 ]
 
 /** The sheets the site no longer shows (see web/src/artworks.js). */
-export const DROPPED = ['08', '13']
+export const DROPPED = ['08', '10']
 
 /** Hide every panel, so a photograph is only the station. */
 export const SHOT_CSS = `

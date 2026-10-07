@@ -4,7 +4,7 @@
 // the game draws it is to let the game draw it: every picture on that sheet comes
 // out of this pass, which meshes real cells with the game's own chunk mesher
 // (`render/chunkMesher.ts`) and renders them with the game's own finish materials
-// (`render/materials.ts`). So the 12.5 cm chamfer, the flush seam between two
+// (`render/materials.ts`). So the square rim, the flush seam between two
 // blocks and the procedural textures are the ones a player sees, rather than a
 // drawing of them that has to be kept in step by hand.
 //
@@ -25,6 +25,7 @@
 // nothing happens unless the query flag is present and the caller asks.
 
 import * as THREE from 'three'
+import { addStationLights, applyStationRenderer } from '../render/scene/lightRig.ts'
 import { meshChunk } from '../render/chunkMesher.ts'
 import { createMaterials } from '../render/materials.ts'
 import { finishPaletteGroups } from '../sim/finishes.ts'
@@ -254,7 +255,7 @@ export function blockPieces(background = '#0d141d', scale = 1): { frames: BlockF
  * Each picture is its own render: the mesher is cheap, the materials are minted
  * once and shared, and a canvas per frame only has to be resized. Frames come back
  * at **twice** the size asked for — the sheet embeds a 2× image into a 1× box and
- * lets the browser downsample it, which is what keeps a chamfer's edge and a
+ * lets the browser downsample it, which is what keeps a block's edge and a
  * granite speckle clean.
  */
 export async function captureBlockCards(
@@ -267,27 +268,16 @@ export async function captureBlockCards(
   // shot much larger than a tile, and a granite finish is high-entropy enough that
   // 2× of a 3 × 3 floor would be most of the sheet's weight on its own.
   renderer.setPixelRatio(1.5)
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.02
+  applyStationRenderer(renderer)
 
-  // The same rig the build rail's icons are shot with, so a block on this sheet is
-  // lit exactly like the block under the pointer in the game.
+  // The station's own rig: a block on this sheet is lit exactly like the block under
+  // the pointer in the game.
   const scene = new THREE.Scene()
-  scene.add(new THREE.HemisphereLight(0xe4f1ff, 0x1d2c3d, 1.15))
-  const key = new THREE.DirectionalLight(0xffffff, 2.1)
-  key.position.set(5, -7, 9)
-  scene.add(key)
-  const fill = new THREE.DirectionalLight(0x9ecbff, 0.85)
-  fill.position.set(-7, 5, 4)
-  scene.add(fill)
-  const rim = new THREE.DirectionalLight(0x4e8fd0, 0.7)
-  rim.position.set(0, 7, -5)
-  scene.add(rim)
+  addStationLights(scene)
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 1000)
   // The world is Z-up (see `SceneRenderer`), so the camera must be too — otherwise
-  // the blocks render lying on their side and no chamfer is where it should be.
+  // the blocks render lying on their side and no face ends up where it should be.
   camera.up.set(0, 0, 1)
 
   const materials = createMaterials()
@@ -301,8 +291,8 @@ export async function captureBlockCards(
 
       const solid = new Set<number>()
       for (const c of s.cells) solid.add(packKey(c.x, c.y, c.z))
-      // The mesher is the game's: same profile from the same neighbour exposure,
-      // same 12.5 cm bevel, same flush seam where two cells share a side.
+      // The mesher is the game's: same square profile from the same neighbour exposure,
+      // same flush seam where two cells share a side.
       const chunk = meshChunk(solid, s.finish ?? new Map(), 0, 0, 0, 3, undefined, undefined, s.cells, s.thin)
       if (!chunk.parts.length) continue
 

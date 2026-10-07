@@ -335,7 +335,7 @@ export function artHero() {
     <ellipse cx="${n(px(13, 11))}" cy="${n(py(13, 11, -1.6))}" rx="800" ry="360" fill="#000" opacity=".35" filter="url(#soft)"/>
     ${S.out()}
   </g>${legendBg}${A.join('')}${lg}`
-    + title(48, 62, '概念 01 // 等轴测剖视图', '地铁车站设计师',
+    + title(48, 62, '地铁车站设计师',
       'B1 站厅摘了顶板，顺着竖井往下，能看见 B2 站台。1 格 = 1 米。');
   return sheet(1600, 1180, body, { glow: true });
 }

@@ -1,240 +1,247 @@
-// Concept sheet 11 - the rolling stock in 3D. Cross-sections and side
-// elevations live on sheet 05; this sheet is the isometric read of the same
-// three cars, plus the consist, the platform interface and the two ways of
-// getting power into the train.
-import {
-  C, TW, TH, ZU, P, px, py, n, shade, poly, faceSvg, boxSvg, rboxSvg, quadSvg,
-  Scene, title, sheet, legend, callout, leader, T, MUL, rng, pstr, STOCK, carDoorCenters,
-  amT, sway, dashFlow, mover, group,
-} from './iso.mjs';
-import { isoCar, isoTrack, catenary } from './train-iso.mjs';
+// Concept sheet 11 — the rolling stock in 3D.
+//
+// Sheet 05 gives the numbers; this sheet is the shape, and the shape is the game's:
+// every picture is `buildTrain` — the consist the game runs down a platform — built
+// with the model kit's own materials and captured by `tools/render-train-cards.mjs`
+// into `.preview/train-cards/`. So the rounded body, the glazing band, the livery
+// broken at every doorway, the sliding leaves, the lining behind the seats and the two
+// bogies are the ones a player watches a crowd board.
+//
+// The **table** is the simulation's, not a transcription: the capture carries
+// `stockTable()` and `cabinFacts()` out of `sim/stock.ts`, so a retuned car — a longer
+// body, another door, a different capacity — arrives on this sheet by itself, and a
+// dimension printed here is one the spawn, the screen doors and the timetable read.
+//
+// Nothing on this sheet draws a train. Where it points at one, it points with a
+// leader at a part of the picture rather than at a shape of its own.
+//
+// It does not move: a rolling-stock sheet is a reference, and a car that animated
+// would read as a demo rather than as the stock.
 
-// Geometry comes from STOCK so the 3D car can never drift from the plan sheets.
-const EXTRA = {
-  A: {
-    cars: '6 - 8', perCar: 310, pwr: '接触网  1500 V 直流 / 25 kV 交流', panto: true, cab: true,
-    dest: '广州南站', lines: ['车体最宽', '跑干线 / 快线', '走高架，头顶是天空'],
-  },
-  B: {
-    cars: '4 - 6', perCar: 240, pwr: '第三轨  750 V 直流', shoe: true, cab: true,
-    dest: '五丝广场', lines: ['中国城市地铁的主力车型', '走隧道，配站台屏蔽门', 'B2 / B3 站台'],
-  },
-  C: {
-    cars: '4 - 6', perCar: 200, pwr: '第三轨  750 V 直流 / 直线电机', shoe: true, cab: true,
-    dest: '白云西', lines: ['轻车身，跑低需求支线', '自动化线路', '车更窄，土建更省'],
-  },
-};
-const T3 = ['A', 'B', 'C'].map((id) => ({ ...STOCK[id], ...EXTRA[id] }));
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { MUL, T, n, sheet, title } from './iso.mjs'
 
-/** Wrap a scene in a placement transform and return the world->sheet mapper. */
-function place(S, o, pcx, pcy, k) {
-  const cx = px(o.len / 2, o.w / 2);
-  const cy = py(o.len / 2, o.w / 2, o.h / 2);
-  const ox = pcx - cx * k, oy = pcy - cy * k;
-  return {
-    svg: `<g transform="translate(${n(ox)},${n(oy)}) scale(${k})">${S.out()}</g>`,
-    at: (x, y, z) => [ox + px(x, y) * k, oy + py(x, y, z) * k],
-  };
+const here = dirname(fileURLToPath(import.meta.url))
+const repo = resolve(here, '..')
+/** Where `node tools/render-train-cards.mjs` leaves its pixels and its index. */
+const CARDS = resolve(repo, process.env.TRAIN_CARDS_DIR ?? join('.preview', 'train-cards'))
+
+/** The game's own palette, from the custom properties in `game/src/styles.css`. */
+const G = {
+  line: '#1d3b58',
+  text: '#d6e7f7',
+  muted: '#7ea6c9',
+  accent: '#55b6ff',
+  ink: '#8fc4ee',
+  warn: '#ffc861',
 }
 
+const W = 1600
+
+/** The four class specimens, across the top. */
+const CAR_W = 360
+const CAR_PITCH = 372
+const CAR_X = 48
+
+/** A PNG's pixel size, straight out of its IHDR. */
+function pngSize(file) {
+  const head = readFileSync(file).subarray(0, 24)
+  return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) }
+}
+
+/**
+ * The pictures and the table, or a clear failure.
+ *
+ * The render needs a browser and the game's build, so it is a separate step by design
+ * (`tools/render-train-cards.mjs`); a sheet that silently drew nothing would be worse
+ * than one that stops.
+ */
+function loadCars() {
+  const indexPath = join(CARDS, 'index.json')
+  if (!existsSync(indexPath)) {
+    throw new Error(
+      `no rendered rolling stock in ${CARDS} — run:\n  npm run build:game\n  node tools/render-train-cards.mjs`,
+    )
+  }
+  const index = JSON.parse(readFileSync(indexPath, 'utf8'))
+  const pieces = new Map()
+  for (const piece of index.pieces) {
+    const file = join(CARDS, piece.file)
+    if (!existsSync(file)) throw new Error(`train image is missing: ${piece.file}`)
+    pieces.set(piece.id, {
+      ...piece,
+      // The capture supersamples at 2×, so a picture's own pixels are twice the size
+      // it is drawn at; the crop a wide frame carries is already in those pixels.
+      px: pngSize(file),
+      href: `data:image/png;base64,${readFileSync(file).toString('base64')}`,
+    })
+  }
+  return { pieces, stock: index.stock, cabin: index.cabin, livery: index.livery }
+}
+
+/* -------------------------------------------------------------------- sheet */
+
 export function artTrains3D() {
-  const W = 1600, H = 1240;
-  const g = [];
-  g.push(title(48, 62, '概念 11 // 列车三维图',
-    'A / B / C 型车，按游戏里的建法画',
-    '每节车厢，都是圆角顶棚的断面沿车长拽出来。第 05 张给参数，这张给你看到的形状。'));
-  const OV = [];                                              // overlay callouts
-
-  T3.forEach((t, i) => {
-    const px0 = 48, pw = 992, py0 = 170 + i * 352, ph = 336;
-    g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
-    g.push(`<rect x="${px0}" y="${py0}" width="8" height="${ph}" rx="4" fill="${t.col}"/>`);
-    g.push(T(px0 + 34, py0 + 54, `${t.id} 型`, { size: 44, weight: 800, fill: t.col }));
-    g.push(MUL(px0 + 36, py0 + 88, [
-      `宽 ${t.w.toFixed(1)} 米  ×  高 ${t.h.toFixed(1)} 米  ×  长 ${t.len.toFixed(1)} 米`,
-      `编组 ${t.cars} 节   |   每侧 ${t.doors} 门，门宽 ${t.doorW.toFixed(1)} 米`,
-      `单节拥挤定员 ${t.perCar} 人`,
-    ], { size: 12.5, fill: '#a9b8c8', lh: 21, mono: true }));
-    g.push(MUL(px0 + 36, py0 + 176, t.lines, { size: 12, fill: '#7d8ea3', lh: 20 }));
-    g.push(`<rect x="${px0 + 34}" y="${py0 + 238}" width="${t.pwr.length * 12 + 26}" height="26" rx="7" fill="${t.col}" opacity=".14" stroke="${t.col}" stroke-width="1.2"/>`);
-    g.push(T(px0 + 46, py0 + 256, t.pwr, { size: 12, fill: t.col, mono: true }));
-
-    /* the car itself */
-    const S = Scene();
-    isoCar(S, {
-      x: 0, y: 0, z: 0.92, len: t.len, w: t.w, h: t.h, col: '#eef2f6',
-      doors: t.doors, doorW: t.doorW, cab: t.cab, panto: t.panto, shoe: t.shoe,
-      stripe: t.col, dest: t.cab, destText: t.dest, roofCol: '#dfe4ea', winCol: '#20303e',
-      anim: sway(15, '5s', `${(i * 0.7).toFixed(1)}s`),
-    });
-    const pl = place(S, { len: t.len, w: t.w, h: t.h }, px0 + 548, py0 + 186, 0.5);
-    g.push(pl.svg);
-
-    /* numbered read of the same car */
-    const list = [];
-    const co = (p, lx, ly, num, txt) => {
-      const [ax, ay] = pl.at(p[0], p[1], p[2]);
-      callout(list, ax, ay, lx, ly, num, txt, { col: t.col, dx: 20, size: 12.5 });
-    };
-    co([t.len * 0.5, t.w * 0.5, t.h + 0.16], px0 + 804, py0 + 60, 1, '车顶 + 空调机组');
-    co([t.len * 0.62, t.w, t.h * 0.64], px0 + 830, py0 + 96, 2, '车窗带');
-    co([t.len * 0.5, t.w, t.h * 0.35], px0 + 836, py0 + 134, 3, '涂装色带，走线路色');
-    co([t.len * 0.72, t.w, t.h * 0.2], px0 + 832, py0 + 172, 4, '车门门板与门框');
-    co([t.len * 0.19, t.w * 0.5, 0.0], px0 + 812, py0 + 216, 5, '转向架、2 组车轮、集电靴');
-    co([t.len + 0.1, t.w * 0.5, t.h * 0.62], px0 + 830, py0 + 258, 6, '司机室 + 目的地显示屏');
-    if (t.panto) co([t.len * 0.5, t.w * 0.5, t.h + 1.05], px0 + 802, py0 + 296, 7, '受电弓：接触网线路');
-    if (t.shoe) co([t.len * 0.81, t.w * 0.62, -0.6], px0 + 820, py0 + 296, 7, '集电靴：第三轨线路');
-    OV.push(list.join(''));
-  });
-
-  /* ---------------- right column: consist ---------------- */
-  {
-    const px0 = 1064, pw = 488, py0 = 170, ph = 384;
-    g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
-    g.push(T(px0 + 24, py0 + 34, '列车编组', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, '完整 6 节编组，两头都带司机室', { size: 11.5, fill: '#7d8ea3' }));
-    const S = Scene();
-    const gap = 0.55, cars = 6, CL = 19.5, CW = 2.8, CH = 3.8;
-    for (let c = 0; c < cars; c++) {
-      const xx = c * (CL + gap);
-      isoCar(S, {
-        x: xx, y: 0, z: 0.92, len: CL, w: CW, h: CH, col: '#eef2f6',
-        doors: 4, doorW: 1.3, cab: c === 0 || c === cars - 1, stripe: C.lineB, dest: c === 0, destText: '五丝广场',
-        roofCol: '#dfe4ea', winCol: '#20303e',
-      });
-      if (c > 0) {
-        S.fg.push([xx + 3.0, poly(
-          [P(xx - 0.45, 1.0, 1.1), P(xx - 0.1, 1.0, 1.1),
-            P(xx - 0.1, 1.8, 1.1), P(xx - 0.45, 1.8, 1.1)],
-          shade('#3d454e', 1.0), C.ink, 0.5)]);
-      }
-    }
-    isoTrack(S, { x: -0.6, y: -0.2, z: -0.18, len: cars * (CL + gap) + 1, w: 3.2, third: true });
-    const pl = place(S, { len: cars * (CL + gap), w: CW, h: CH }, px0 + 244, py0 + 214, 0.115);
-    // the whole consist pulls out and eases back in
-    g.push(group(pl.svg, amT('0 0;0 0;34 17;34 17;0 0;0 0', '0;0.2;0.5;0.7;1', '18s',
-      '0.4 0 0.6 1;0 0 1 1;0 0 1 1;0.4 0 0.6 1')));
-    g.push(MUL(px0 + 24, py0 + 344, [
-      '6 × 19.5 米 + 5 处车钩间隙 = 全长 119.8 米。',
-      '站台至少这么长，还要留停车余量。',
-    ], { size: 11, fill: '#7d8ea3', lh: 15 }));
+  const { pieces, stock, cabin, livery } = loadCars()
+  const paint = new Map(livery.map((l) => [l.cls, l]))
+  const car = (id) => {
+    const p = pieces.get(id)
+    if (!p) throw new Error(`the capture has no \`${id}\` — re-run tools/render-train-cards.mjs`)
+    return p
   }
+  const image = (piece, x, y, w = piece.px.width / 2, h = piece.px.height / 2) =>
+    `<image x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" href="${piece.href}"/>`
+  const head = (x, y, text, col = G.accent) => T(x, y, text, { size: 12.5, weight: 800, fill: col, ls: 1.2 })
 
-  /* ---------------- right column: platform interface ---------------- */
-  {
-    const px0 = 1064, pw = 488, py0 = 574, ph = 320;
-    g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
-    g.push(T(px0 + 24, py0 + 34, '站台衔接', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, '列车停靠站台，屏蔽门关着，第三轨带着电', { size: 11.5, fill: '#7d8ea3' }));
-    const S = Scene();
-    const L = 11.0, w = 2.8, h = 3.8, zf = 0.92;
-    // tunnel shell behind the track
-    S.raw(boxSvg(0, -3.0, -1.1, L + 2, 0.5, 6.6, C.soffit, { tone: 1.0 }));
-    S.raw(boxSvg(-0.5, -3.0, 4.9, L + 3, 9, 0.5, C.soffit, { tone: 0.95 }));
-    S.raw(quadSvg(0, 2.75, zf, L + 1, 5.0, C.floor, { tone: 1.0 }));
-    S.raw(quadSvg(0, 2.75, zf + 0.01, L + 1, 0.95, C.tactile, { tone: 1.0 }));
-    S.raw(quadSvg(0, 2.75, zf + 0.02, L + 1, 0.3, C.maroon, { tone: 1.0 }));
-    isoTrack(S, { x: -0.5, y: -0.9, z: -0.18, len: L + 1.5, w: 3.2, third: true });
-    // PSD: glass panels with an opening where the car door lands. Vertical, so
-    // it must sort against the car rather than sit in the flat layer.
-    const psd = (a, b) => {
-      const kk = (a + b) / 2 + 2.78 + (zf + 1.2) * 0.9;
-      S.fg.push([kk, faceSvg('y', 2.78, a, b, zf, zf + 2.35, C.glass, { tone: 1.34, opacity: 0.4, sw: 0.6 })]);
-      for (const ex of [a, b]) S.fg.push([kk + 0.01, boxSvg(ex - 0.08, 2.72, zf, 0.16, 0.16, 2.35, C.steel, { tone: 1.05 })]);
-      S.fg.push([kk + 0.02, boxSvg(a, 2.7, zf + 2.35, b - a, 0.2, 0.12, C.steel, { tone: 1.05 })]);
-    };
-    // PSD panels are built around the car-door centres, so every opening lands
-    // exactly under a door leaf on the car (same cadence as sheets 05 and 12).
-    const doorC = carDoorCenters(L, 3, 1.3).map((o) => L / 2 + o);
-    const psdPanels = [];
-    let p0 = 0.1;
-    for (const d of doorC) {
-      if (d - 0.65 - 0.12 > p0) psdPanels.push([p0, d - 0.65 - 0.12]);
-      p0 = d + 0.65 + 0.12;
-    }
-    if (p0 < L) psdPanels.push([p0, L]);
-    for (const [a, b] of psdPanels) psd(a, b);
-    // screen-door leaves part at every opening, then close again
-    {
-      const kT = '0;0.3;0.42;0.72;0.84;1';
-      const kS = '0 0 1 1;0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1;0 0 1 1';
-      for (const d of doorC) {
-        const kL = d + 2.79 + (zf + 1.2) * 0.9 + 0.05;
-        S.fg.push([kL, group(faceSvg('y', 2.79, d - 0.65, d, zf, zf + 2.35, C.glass, { tone: 1.34, opacity: 0.4, sw: 0.6 }), amT('0 0;0 0;-16 -8;-16 -8;0 0;0 0', kT, '10s', kS))]);
-        S.fg.push([kL, group(faceSvg('y', 2.79, d, d + 0.65, zf, zf + 2.35, C.glass, { tone: 1.34, opacity: 0.4, sw: 0.6 }), amT('0 0;0 0;16 8;16 8;0 0;0 0', kT, '10s', kS))]);
-      }
-    }
-    S.fg.push([5.6 + 2.72 + (zf + 1.0) * 0.9, boxSvg(0.1, 2.72, zf + 1.0, 10.9, 0.16, 0.2, C.steelD, { tone: 1.0 })]);
-    isoCar(S, {
-      x: 0, y: -0.55, z: zf, len: L, w, h, col: '#eef2f6', doors: 3, doorW: 1.3,
-      stripe: C.lineB, roofCol: '#dfe4ea', winCol: '#20303e', tone: 0.96,
-      anim: sway(12, '4s'),
-    });
-    // platform crowd
-    const rr = rng(77);
-    for (let i = 0; i < 9; i++) {
-      const gx = 0.6 + rr() * (L - 1.2), gy = 3.9 + rr() * 3.4;
-      S.sprite(gx, gy, zf, 'person', { color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink][(rr() * 6) | 0] });
-    }
-    // passengers walk to a door and board through it
-    doorC.forEach((d, di) => {
-      const p0 = P(d, 6.4, zf + 0.02), p1 = P(d, 3.0, zf + 0.02);
-      S.fg.push([d + 6.4 + zf * 0.9, mover(`M ${n(p0[0])} ${n(p0[1])} L ${n(p1[0])} ${n(p1[1])}`,
-        [C.red, C.blue, C.teal][di % 3], `${(di * 0.6).toFixed(1)}s`,
-        { sprite: 'person', dur: '5s', f0: 0.05, f1: 0.12, f2: 0.86, f3: 0.94 })]);
-    });
-    const pl = place(S, { len: L, w, h }, px0 + 250, py0 + 176, 0.52);
-    g.push(pl.svg);
-    const list = [];
-    const co = (p, lx, ly, num, txt) => {
-      const [ax, ay] = pl.at(p[0], p[1], p[2]);
-      callout(list, ax, ay, lx, ly, num, txt, { col: C.lineB, dx: 18, size: 11.5 });
-    };
-    co([3.9, 2.9, 2.4], px0 + 360, py0 + 78, 1, '站台屏蔽门');
-    co([5.0, 1.0, 0.35], px0 + 376, py0 + 118, 2, '第三轨 + 集电靴');
-    co([2.0, 2.9, 1.1], px0 + 368, py0 + 158, 3, '站台边缘');
-    co([8.5, 1.2, 2.2], px0 + 360, py0 + 200, 4, '地板与站台齐平');
-    co([0.4, -2.7, 3.4], px0 + 364, py0 + 244, 5, '隧道顶板');
-    g.push(list.join(''));
-    g.push(MUL(px0 + 24, py0 + 282, [
-      '屏蔽门给每道门加一笔固定耗时：',
-      '上车要过门板、过门槛，变成两步。',
-    ], { size: 11, fill: '#7d8ea3', lh: 15 }));
-  }
+  const g = []
+  g.push(
+    title(
+      48,
+      62,
+      '四个等级，四种车体',
+      '圆角车体、玻璃带、在门口断开的涂装、两扇滑门、车里的座椅，和两条转向架。第 05 张给参数，这张给形状。',
+    ),
+  )
 
-  /* ---------------- right column: power pickup ---------------- */
-  {
-    const px0 = 1064, pw = 488, py0 = 918, ph = 266;
-    g.push(`<rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="14" fill="#111926" stroke="#243040"/>`);
-    g.push(T(px0 + 24, py0 + 34, '受电方式', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-    g.push(T(px0 + 24, py0 + 54, '怎么选，决定走隧道还是走高架', { size: 11.5, fill: '#7d8ea3' }));
-    const mini = (ox, oy, kind) => {
-      const S = Scene();
-      const L = 8.5;
-      S.raw(quadSvg(0, 0, -0.6, L + 1.5, 3.4, C.soil, { tone: 1.0, sw: 0.5 }));
-      isoTrack(S, { x: -0.5, y: 0, z: -0.18, len: L + 1.5, w: 3.2, third: kind === 'third' });
-      if (kind === 'catenary') catenary(S, { x: -0.5, y: 1.6, z: 0, len: L + 1.5 });
-      isoCar(S, {
-        x: 0, y: 0.2, z: 0.92, len: L, w: 2.8, h: 3.8, col: '#eef2f6', doors: 3, doorW: 1.3,
-        stripe: kind === 'catenary' ? C.lineA : C.lineB, panto: kind === 'catenary', shoe: kind === 'third',
-        roofCol: '#dfe4ea', winCol: '#20303e',
-        anim: amT('0 0;0 0;30 15;30 15;0 0;0 0', '0;0.2;0.5;0.7;1', '9s',
-          '0.4 0 0.6 1;0 0 1 1;0 0 1 1;0.4 0 0.6 1'),
-      });
-      const pl = place(S, { len: L, w: 2.8, h: 3.8 }, ox, oy, 0.3);
-      g.push(pl.svg);
-    };
-    mini(px0 + 130, py0 + 108, 'catenary');
-    mini(px0 + 356, py0 + 108, 'third');
-    g.push(T(px0 + 74, py0 + 176, '接触网 — A 型', { size: 11.5, weight: 700, fill: C.lineA, mono: true }));
-    g.push(T(px0 + 74, py0 + 194, '高架、露天、净空高', { size: 10.5, fill: '#7d8ea3' }));
-    g.push(T(px0 + 300, py0 + 176, '第三轨 — B / C 型', { size: 11.5, weight: 700, fill: C.lineB, mono: true }));
-    g.push(T(px0 + 300, py0 + 194, '仅限隧道或加盖区间', { size: 10.5, fill: '#7d8ea3' }));
-    g.push(MUL(px0 + 24, py0 + 222, [
-      '街道上方能架接触网高架，',
-      '同一座车站地下，又能跑第三轨线路。',
-    ], { size: 11, fill: '#7d8ea3', lh: 15 }));
-  }
+  /* ---------------- the four classes ---------------- */
+  g.push(head(48, 186, '四个等级'))
+  stock.forEach((s, i) => {
+    const x = CAR_X + i * CAR_PITCH
+    const piece = car(`car-${s.cls}`)
+    const l = paint.get(s.cls) ?? { line: '?', colour: G.muted }
+    g.push(T(x, 220, `${s.cls} 型`, { size: 22, weight: 800, fill: G.text }))
+    g.push(
+      T(x + 72, 220, `${s.length.toFixed(1)} × ${s.width.toFixed(1)} × ${s.height.toFixed(1)} 米`, {
+        size: 12,
+        fill: G.muted,
+        mono: true,
+      }),
+    )
+    g.push(image(piece, x, 234, CAR_W, (CAR_W / piece.px.width) * piece.px.height))
+    // The livery, named as the line whose sign colour it is, so a reader can check it
+    // against the game's own table rather than take the swatch on trust.
+    g.push(`<rect x="${n(x)}" y="${n(404)}" width="22" height="9" rx="2" fill="${l.colour}" stroke="#0b0e13" stroke-width="1"/>`)
+    g.push(T(x + 30, 412, `${l.line} 号线标志色 ${l.colour.toUpperCase()}`, { size: 11.5, fill: G.muted, mono: true }))
+    g.push(
+      T(x, 430, `每侧 ${s.doorsPerSide} 门 · 门宽 ${s.doorWidth.toFixed(1)} 米 · 门距 ${s.doorPitch ?? '—'} 米`, {
+        size: 11.5,
+        fill: G.muted,
+        mono: true,
+      }),
+    )
+  })
 
-  return sheet(W, H, g.join('') + OV.join(''));
+  /* ---------------- the table the simulation reads ---------------- */
+  const COLS = [
+    ['等级', 48, 60],
+    ['车体  长 × 宽 × 高', 130, 240],
+    ['每侧门', 390, 110],
+    ['单节定员  座 / 拥挤', 520, 210],
+    ['编组', 750, 90],
+    ['受电', 860, 90],
+    ['6 节  长 / 定员', 970, 240],
+    ['门中心距端头', 1230, 150],
+  ]
+  let ty = 486
+  g.push(`<rect x="48" y="${n(ty - 18)}" width="1404" height="1" fill="${G.line}"/>`)
+  for (const [label, x] of COLS) g.push(T(x, ty, label, { size: 11, fill: G.muted, weight: 700 }))
+  ty += 10
+  g.push(`<rect x="48" y="${n(ty)}" width="1404" height="1" fill="${G.line}"/>`)
+  stock.forEach((s) => {
+    ty += 24
+    const l = paint.get(s.cls) ?? { line: '?', colour: G.muted }
+    g.push(`<rect x="48" y="${n(ty - 9)}" width="22" height="9" rx="2" fill="${l.colour}" stroke="#0b0e13" stroke-width="1"/>`)
+    const cells = [
+      [`${s.cls} 型`, G.text, 1],
+      [`${s.length.toFixed(1)} × ${s.width.toFixed(1)} × ${s.height.toFixed(1)} 米`, G.muted, 0],
+      [`${s.doorsPerSide} 门 × ${s.doorWidth.toFixed(1)} 米`, G.muted, 0],
+      [`${s.ratedPerCar} / ${s.crushPerCar} 人`, G.muted, 0],
+      [`${s.consist[0]} – ${s.consist[1]} 节`, G.muted, 0],
+      [s.power, s.power === '接触网' ? G.warn : G.ink, 0],
+      [`${s.sixCarLength.toFixed(1)} 米 / ${s.sixCarRated} 人`, G.muted, 0],
+      [`${cabin.endInset} 米`, G.muted, 0],
+    ]
+    cells.forEach(([text, col, bold], i) => {
+      const x = COLS[i][1]
+      g.push(
+        T(i === 0 ? x + 30 : x, ty, String(text), {
+          size: 12.5,
+          fill: String(col),
+          mono: i !== 0,
+          weight: bold ? 800 : 0,
+        }),
+      )
+    })
+  })
+  ty += 12
+  g.push(`<rect x="48" y="${n(ty)}" width="1404" height="1" fill="${G.line}"/>`)
+  g.push(
+    T(48, ty + 20, '涂装只是把四个等级分开：一条线用哪个颜色由玩家挑，和车型没有绑定。这四种都是广州地铁的标志色。', {
+      size: 11.5,
+      fill: G.muted,
+    }),
+  )
+
+  /* ---------------- the whole consist ---------------- */
+  const consist = car('consist')
+  const demo = stock.find((s) => s.cls === 'L') ?? stock[stock.length - 1]
+  const bandY = ty + 46
+  g.push(head(48, bandY, '整列车'))
+  g.push(
+    T(
+      180,
+      bandY,
+      `动物园自己跑的那一列：${demo.cls} 型 6 节，5 号线涂装 —— 一列 ${demo.sixCarLength.toFixed(1)} 米。`,
+      { size: 12, fill: G.muted },
+    ),
+  )
+  const cw = 1440
+  const cx = 48 + (1504 - cw) / 2
+  const ch = (cw / consist.px.width) * consist.px.height
+  const cy = bandY + 16
+  g.push(image(consist, cx, cy, cw, ch))
+  // The cab is the far end of the picture, and the only place the model shows one. The
+  // label goes in the empty dark under the train's diagonal rather than on the cars.
+  const cabX = cx + cw * 0.95
+  const cabY = cy + ch * 0.88
+  const labX = cx + cw * 0.66
+  const labY = cy + ch * 0.96
+  g.push(
+    `<path d="M${n(labX - 6)},${n(labY - 5)} L${n(cabX)},${n(cabY)}" stroke="${G.warn}" stroke-width="1.6" stroke-dasharray="7 5" fill="none"/>` +
+      `<circle cx="${n(cabX)}" cy="${n(cabY)}" r="4.5" fill="${G.warn}"/>` +
+      T(labX - 14, labY, '车头，只有灯不同', { size: 12, fill: G.warn, weight: 800, anchor: 'end' }),
+  )
+  const afterConsist = cy + ch + 18
+
+  /* ---------------- two details ---------------- */
+  const detailY = afterConsist + 46
+  g.push(head(48, detailY, '开着门'))
+  g.push(head(640, detailY, '车头'))
+  const open = car('open')
+  const nose = car('nose')
+  const ow = 520
+  g.push(image(open, 48, detailY + 16, ow, (ow / open.px.width) * open.px.height))
+  const nw = 460
+  g.push(image(nose, 640, detailY + 16, nw, (nw / nose.px.width) * nose.px.height))
+  const detailBottom = detailY + 16 + Math.max((ow / open.px.width) * open.px.height, (nw / nose.px.width) * nose.px.height)
+
+  /* ---------------- the cabin both the model and the sim use ---------------- */
+  g.push(head(1160, detailY, '车厢里能站人'))
+  g.push(
+    MUL(1160, detailY + 28, [
+      `地板在 ${cabin.floor} 米，门口净高 ${cabin.doorClear} 米`,
+      `（${cabin.doorSill} – ${cabin.doorHead}），内壁半宽 ${cabin.halfWidth} 米。`,
+      '',
+      `仿真把人按 ${cabin.rowPitch} 米一排塞进这个盒子，`,
+      `一排两个，最多 ${cabin.maxRows} 排 —— 所以能看见`,
+      '乘客坐在车里，而不是在车旁边凭空出现。',
+      '',
+      `门中心离车厢端头 ${cabin.endInset} 米，屏蔽门就是`,
+      '照这份名单开洞的：车门的节奏和站台门一样。',
+    ], { size: 11.5, fill: G.muted, lh: 18 }),
+  )
+
+  return sheet(W, Math.ceil(Math.max(detailBottom, detailY + 200) + 40), g.join(''))
 }
