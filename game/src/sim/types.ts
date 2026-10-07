@@ -5,6 +5,7 @@ import type { StockClass } from './stock.ts'
 import type { SignLayout, SignMount } from './sign.ts'
 import type { PeakWindows, TimeSpan } from './constants.ts'
 import type { DemandKnobs } from './demand.ts'
+import type { SimCalendar } from './clock.ts'
 
 export type Fill = 'solid' | 'void'
 
@@ -764,6 +765,13 @@ export interface StationData {
    * file that carries one of them still loads; finished by `normalizeDemand`.
    */
   demand?: Partial<DemandKnobs>
+  /**
+   * The station's **calendar** (§9.6C 日期类型 / 日历系数): which date day 0 is, and which dates
+   * are 节假日 and 调休上班日. The day type the crowd's multiplier keys on is *derived* from it,
+   * so a station run on a Saturday runs a Saturday. Optional on the wire like the rest of the
+   * authored day; `toState` gives a file without one the shipped 2026 calendar.
+   */
+  calendar?: SimCalendar
 }
 
 /** Numeric agent states, §7.1. Const object rather than enum (erasable syntax). */

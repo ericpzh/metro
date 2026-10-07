@@ -23,6 +23,8 @@ import {
   normalizeDemand,
 } from '../src/sim/demand.ts'
 import { DEFAULT_PEAKS, DEFAULT_SERVICE, SIM_DAY } from '../src/sim/constants.ts'
+import { dayAt, DEFAULT_CALENDAR, simTimeAtDate } from '../src/sim/clock.ts'
+import { periodOf } from '../src/sim/constants.ts'
 import { World } from '../src/sim/world.ts'
 import { referenceStation } from '../src/data/reference-station.ts'
 
@@ -75,13 +77,17 @@ test('a knob moves the curve it names, and only that one', () => {
 
 test('the period and the day type are the two scales on top of the shape', () => {
   assert.deepEqual(PERIOD_FACTOR, { peak: 1, offpeak: 0.6, late: 0.25 })
-  assert.deepEqual(DAY_TYPE_FACTOR, { weekday: 1, saturday: 0.45, sunday: 0.35, holiday: 0.3 })
+  // A holiday is **above** a weekday, not below it: sheet 06's panel B (a statutory holiday is
+  // the day the platform is crowded, and it comes without warning) is the reference, and §7.4's
+  // 0.25–0.45 weekend band is what 周六 / 周日 carry.
+  assert.deepEqual(DAY_TYPE_FACTOR, { weekday: 1, saturday: 0.45, sunday: 0.35, holiday: 1.15 })
+  assert.ok(DAY_TYPE_FACTOR.holiday > DAY_TYPE_FACTOR.weekday)
   assert.equal(demandAt(8, 'peak', 'weekday'), demandShape(8))
   assert.equal(demandAt(8, 'offpeak', 'weekday'), demandShape(8) * 0.6)
   assert.equal(demandAt(8, 'late', 'weekday'), demandShape(8) * 0.25)
   assert.equal(demandAt(8, 'peak', 'saturday'), demandShape(8) * 0.45)
-  assert.equal(demandAt(8, 'peak', 'holiday'), demandShape(8) * 0.3)
-  // A weekend peak is the weekday's peak scaled — this is the whole of §7.4's calendar
+  assert.equal(demandAt(8, 'peak', 'holiday'), demandShape(8) * 1.15)
+  // A weekend or holiday peak is the weekday's peak scaled — this is the whole of §7.4's calendar
   // factor today; the *shape* difference (a later, longer holiday peak) is still to come.
   for (const dt of ['saturday', 'sunday', 'holiday']) {
     assert.equal(demandAt(18, 'peak', dt) / demandShape(18), DAY_TYPE_FACTOR[dt])
@@ -213,16 +219,61 @@ test('the authored day reaches the crowd: the knobs and the window are the arriv
 })
 
 test('the calendar day scales the crowd, and the same weekday is the same crowd', () => {
-  // Day 0 opens on a Thursday, so +2 days is the 周六 factor and +3 the 周日 one.
+  // The shipped 2026 calendar is why these are the dates they are: day 0 is 元旦 (a holiday),
+  // day 3 is the 调休 上班 Sunday, and the first plain week runs from day 4 (Monday 01-05) to
+  // day 10 (Sunday 01-11). A test anchored on "+2 days is the 周六" would now be measuring the
+  // holiday list instead.
   const morning = 6.5 * 3600
-  const weekday = arrivals({}, morning, 600)
-  const saturday = arrivals({}, 2 * SIM_DAY + morning, 600)
-  const sunday = arrivals({}, 3 * SIM_DAY + morning, 600)
+  const monday = arrivals({}, 4 * SIM_DAY + morning, 600)
+  const saturday = arrivals({}, 9 * SIM_DAY + morning, 600)
+  const sunday = arrivals({}, 10 * SIM_DAY + morning, 600)
   const near = (got, want) => Math.abs(got - want) <= Math.max(3, want * 0.3)
-  assert.ok(near(saturday, weekday * DAY_TYPE_FACTOR.saturday), `周六 arrives at ${DAY_TYPE_FACTOR.saturday} of a weekday (${saturday} vs ${weekday})`)
-  assert.ok(near(sunday, weekday * DAY_TYPE_FACTOR.sunday), `周日 at ${DAY_TYPE_FACTOR.sunday} (${sunday} vs ${weekday})`)
-  assert.ok(saturday < weekday && sunday < saturday, 'and the weekend is thinner, Sunday thinnest')
-  // A week later is the same weekday *and* the same RNG stream: the crowd is the
-  // crowd, to the person (§7.6).
-  assert.equal(arrivals({}, 7 * SIM_DAY + morning, 600), weekday, 'the same weekday a week later runs the same crowd')
+  assert.ok(near(saturday, monday * DAY_TYPE_FACTOR.saturday), `周六 arrives at ${DAY_TYPE_FACTOR.saturday} of a weekday (${saturday} vs ${monday})`)
+  assert.ok(near(sunday, monday * DAY_TYPE_FACTOR.sunday), `周日 at ${DAY_TYPE_FACTOR.sunday} (${sunday} vs ${monday})`)
+  assert.ok(saturday < monday && sunday < saturday, 'and the weekend is thinner, Sunday thinnest')
+  // The two dates the 2026 arrangement moves: 元旦 runs **above** a weekday (sheet 06's panel B
+  // — a statutory holiday is the crush), and the 调休 Sunday runs as the 工作日 it is.
+  const newYear = arrivals({}, morning, 600)
+  assert.ok(newYear > monday, `元旦 is busier than a plain Monday (${newYear} vs ${monday})`)
+  assert.equal(arrivals({}, 3 * SIM_DAY + morning, 600), monday, 'and the 调休 上班 Sunday runs a Monday’s crowd')
+  // A week later is the same weekday *and* the same RNG stream: the crowd is the crowd, to the
+  // person (§7.6).
+  assert.equal(arrivals({}, 11 * SIM_DAY + morning, 600), monday, 'the same weekday a week later runs the same crowd')
+})
+
+test('the calendar pick seeks the clock, and the crowd follows it', () => {
+  // What the 时刻 window's calendar does: `seekToDate` computes a sim time and the world moves its
+  // clock there. The day type is derived from the date the clock stands on, so a seek is how a
+  // player runs a Saturday — and the **dispatch schedule has to be re-based**, because
+  // `nextDispatch` holds absolute times: a seek backwards would otherwise stall every train until
+  // the clock came round to that date again.
+  const data = referenceStation()
+  const w = new World(data, data.seed)
+  const start = 7 * 3600
+  w.load(data, data.seed, start)
+  for (let i = 0; i < 600; i++) w.tickOnce()
+  assert.ok(w.nextDispatch.size > 0, 'the timetable holds absolute departure times')
+
+  // Forward, onto the first plain Saturday: the clock stands on it, the day type with it, and the
+  // schedule is re-based so the line dispatches from the new date rather than waiting.
+  const saturday = simTimeAtDate({ year: 2026, month: 1, day: 10 }, DEFAULT_CALENDAR.epoch, 8 * 3600)
+  w.seek(saturday)
+  assert.equal(w.metrics.simTime, saturday, 'the clock moved')
+  assert.equal(dayAt(w.simTime, w.data.calendar).dateKey, '2026-01-10')
+  assert.equal(dayAt(w.simTime, w.data.calendar).dayType, 'saturday')
+  assert.equal(w.metrics.period, periodOf(saturday, w.data.service ?? DEFAULT_SERVICE, w.data.peaks ?? DEFAULT_PEAKS))
+  assert.equal(w.nextDispatch.size, 0, 'and the timetable starts over from here')
+  w.tickOnce()
+  assert.ok(w.trains.length > 0, 'so a train is dispatched at the new time')
+
+  // Backwards, onto day 0: the same rule, and the arrivals that follow are the day-0 crowd.
+  const entered = w.totals.entered
+  w.seek(start)
+  assert.equal(dayAt(w.simTime, w.data.calendar).dateKey, '2026-01-01')
+  assert.equal(dayAt(w.simTime, w.data.calendar).dayType, 'holiday', '元旦')
+  assert.equal(w.nextDispatch.size, 0, 'a backwards seek re-bases the schedule too')
+  w.tickOnce()
+  assert.ok(w.trains.length > 0, 'instead of stalling the line until the old date comes round')
+  // A seek is not a reset: the counters the run has already recorded stay put.
+  assert.equal(w.totals.entered, entered)
 })

@@ -11,6 +11,7 @@
 // `setInterval` the test fires by hand.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { DEFAULT_CALENDAR, simTimeAtDate } from '../src/sim/clock.ts'
 
 const frames = []
 const listeners = []
@@ -69,4 +70,22 @@ test('a paused sim is told about the selection at once, still without stepping',
   assert.equal(frame.routeToken, 8)
   assert.equal(frame.routeAgent, -1, 'nobody is selected')
   assert.equal(frame.route.length, 0, 'so the preview line is empty')
+})
+
+test('a paused seek moves the clock and posts at once, stepping nothing', () => {
+  // The 时刻 window's calendar pick (§7.9's scrub): the clock moves, the station
+  // and the crowd stay. `World.seek` itself — the dropped dispatch schedule and
+  // the day type that follows — is pinned in `demand.test.mjs`; this is the
+  // worker half of the path, posted straight away because a paused sim has no
+  // stream to carry it later.
+  post({ type: 'control', playing: false, speed: 1 })
+  const held = lastState().metrics.tick
+  const n = frames.length
+
+  const saturday = simTimeAtDate({ year: 2026, month: 1, day: 10 }, DEFAULT_CALENDAR.epoch, 8 * 3600)
+  post({ type: 'seek', seconds: saturday })
+  assert.equal(frames.length, n + 1, 'a paused sim has no stream, so the moved clock is posted now')
+  const frame = lastState()
+  assert.equal(frame.metrics.simTime, saturday, 'the clock moved')
+  assert.equal(frame.metrics.tick, held, 'and moving it stepped nothing')
 })

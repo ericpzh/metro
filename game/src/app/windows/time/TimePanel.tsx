@@ -1,57 +1,38 @@
 // The floating **时刻** window (§9.6C 时刻 / 客流输入, sheet 06's panels A, B and D): what the
 // 信息栏's clock card opens when it is pressed.
 //
-// It is the day itself, in three blocks and a strip:
+// Two blocks and nothing else:
 //
-//   A. the **curve** (`DayCurve`) — the station's demand over 24 hours, the operating hours
-//      lit, the peaks shaded, now marked — drawn from `sim/demand.ts`, the module the spawn
-//      draws its arrivals from;
-//   B. the **calendar** — the date, the weekday and the day type with each type's calendar
-//      coefficient, which is §7.4's `calendar(dayOfYear)` factor;
-//   D. the **settings** — 营业时间, 早高峰 / 晚高峰 and the three 客流曲线 knobs, all of them
-//      station document data, so each edit is an undoable change the sim rebuilds from;
-//   and a strip of the metrics that are about time — population, the day's counters, the
-//      queues and the worst level of service.
+//   客流曲线 — the station's demand over 24 hours, drawn from `sim/demand.ts` (the module the
+//     spawn draws its arrivals from), with its **six boundaries draggable straight on the
+//     chart**: 营业时间's two ends and both peaks'. There are no time boxes — the line *is* the
+//     control, and each grip prints its own `HH:MM` beside it. Under the chart, the three
+//     客流曲线 knobs;
+//   日历 — the 2026 calendar, a month at a time, every date carrying the day type it derives
+//     (工作日 / 周六 / 周日 / 节假日, with 调休上班日 shown as the work days they are). Pressing a
+//     date makes it **第 1 天** of the run, which is how the player chooses the day type the
+//     crowd's calendar multiplier keys on.
 //
-// **A slider is a draft until the pointer lets go.** Dragging writes only local state, so
-// the curve redraws under the hand; the document is committed on release (or on the
-// keyboard's own keyup, or on blur). Committing per input event would push an undo frame —
-// and a worker rebuild — for every pixel of a drag.
+// **A gesture is a draft until it is let go.** A drag writes local state — so the curve redraws
+// under the hand — and the document is committed on release. Committing per pointer move would
+// push an undo frame and a worker rebuild for every pixel of a drag.
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../store.ts'
-import { LOS_LABELS } from '../../../sim/constants.ts'
 import {
-  DEFAULT_CALENDAR,
   DAY_TYPE_LABELS,
-  PERIOD_LABELS,
+  MONTH_GRID_HEADS,
+  MONTH_LABELS,
+  SERVICE_LATEST,
+  SERVICE_MIN_SPAN,
   clockTextOf,
-  secondsOfClock,
-  stampAt,
+  dayAt,
+  monthGrid,
+  type CalendarCell,
+  type SimDate,
 } from '../../../sim/clock.ts'
-import { DAY_TYPE_FACTOR, DEMAND_AM_HOUR, DEMAND_LIMITS, DEMAND_PM_HOUR, demandRate, type DemandInput, type DemandKnobs } from '../../../sim/demand.ts'
-import { DayCurve, DayCurveLegend } from './DayCurve.tsx'
-
-/** The four day types, in the order the spec's dropdown lists them (§9.6C 日期类型). */
-const DAY_TYPES = ['weekday', 'saturday', 'sunday', 'holiday'] as const
-
-/** A `HH:MM` box that commits one end of a span and leaves the other alone. */
-function TimeBox({ label, seconds, onCommit }: { label: string; seconds: number; onCommit: (s: number) => void }): React.ReactElement {
-  return (
-    <input
-      className="timeBox"
-      type="time"
-      step={60}
-      value={clockTextOf(seconds)}
-      aria-label={label}
-      // An empty or half-typed box changes nothing: `<input type="time">` reports `''`
-      // while the player is still in it, and the span must not jump to midnight in between.
-      onChange={(e) => {
-        const s = secondsOfClock(e.target.value)
-        if (s !== null) onCommit(s)
-      }}
-    />
-  )
-}
+import type { DemandInput, DemandKnobs } from '../../../sim/demand.ts'
+import type { PeakWindows, TimeSpan } from '../../../sim/constants.ts'
+import { DayCurve, type CurveBoundary } from './DayCurve.tsx'
 
 /** One knob: a slider in per-cent, its value, and the draft/commit rule. */
 function Knob({
@@ -98,27 +79,30 @@ export function TimePanel(): React.ReactElement | null {
   const open = useStore((s) => s.timePanel)
   const setTimePanel = useStore((s) => s.setTimePanel)
   const simTime = useStore((s) => s.metrics?.simTime ?? null)
-  const metrics = useStore((s) => s.metrics)
-  const playing = useStore((s) => s.playing)
   const station = useStore((s) => s.station)
   const setServiceWindow = useStore((s) => s.setServiceWindow)
   const setPeakWindow = useStore((s) => s.setPeakWindow)
   const setDemandKnobs = useStore((s) => s.setDemandKnobs)
-  const [draft, setDraft] = useState<DemandKnobs | null>(null)
-
-  // Escape closes it, the way it backs out of every other gesture in the game. The
-  // viewport's own key handler also reads Escape (it cancels a 吸取, a 移动 and an
-  // active drag), so one press can both close this window and back out of whatever
-  // gesture was armed behind it — which is what Escape means in both places, and why
-  // the window does not swallow the key.
-  //
-  // Closing **discards an uncommitted slider draft**: a drag the player never let go of is
-  // a gesture they walked away from, exactly as Escape throws away every other one. Without
-  // this the draft would still be sitting there when the window reopened, showing a day the
-  // sim is not running.
+  const seekToDate = useStore((s) => s.seekToDate)
+  const [knobDraft, setKnobDraft] = useState<DemandKnobs | null>(null)
+  const [spanDraft, setSpanDraft] = useState<{ service: TimeSpan; peaks: PeakWindows } | null>(null)
+  // The calendar view's own month, opened on 第 1 天's: the picker's subject is which date day 0
+  // is, so that is the month the player wants to look at. It stays where they put it afterwards.
+  // The calendar view's own month, opened on the day the station is standing on — the cell the
+  // player is picking *from* — and left where they put it afterwards. It is an initial value, not
+  // a subscription: a run that crosses into a new month must not yank the grid out from under a
+  // click.
+  const [month, setMonth] = useState(() =>
+    simTime === null ? station.calendar.epoch.month : dayAt(simTime, station.calendar).date.month,
+  )
+  // Escape closes it, the way it backs out of every other gesture in the game. Closing also
+  // **discards an uncommitted draft** — a drag or a slider the player never let go of is a
+  // gesture they walked away from, and a draft that outlived it would show a day the sim is not
+  // running.
   useEffect(() => {
     if (!open) {
-      setDraft(null)
+      setKnobDraft(null)
+      setSpanDraft(null)
       return
     }
     const onKey = (e: KeyboardEvent): void => {
@@ -128,158 +112,196 @@ export function TimePanel(): React.ReactElement | null {
     return () => window.removeEventListener('keydown', onKey)
   }, [open, setTimePanel])
 
-  const knobs = draft ?? station.demand
+  const knobs = knobDraft ?? station.demand
+  const spans = spanDraft ?? { service: station.service, peaks: station.peaks }
   const input: DemandInput = useMemo(
-    () => ({ service: station.service, peaks: station.peaks, knobs }),
-    [station.service, station.peaks, knobs],
+    () => ({ service: spans.service, peaks: spans.peaks, knobs }),
+    [spans.service, spans.peaks, knobs],
   )
-  const stamp = simTime === null ? null : stampAt(simTime, DEFAULT_CALENDAR, station.service, station.peaks)
 
   /**
-   * Let go of a slider: the draft becomes the document. A keystroke that repaired to what
-   * is already stored is not an edit and `setDemandKnobs` says so, so this cannot push an
-   * empty undo frame.
+   * A grip moved: write the draft only. Each span keeps its own shape while it is being dragged
+   * — a quarter of an hour at least, and inside the day — so the chart can never draw an
+   * inverted band and the commit's own repair has nothing left to do.
    */
-  const commitDraft = (): void => {
+  const dragBoundary = (b: CurveBoundary, hours: number): void => {
+    setSpanDraft(spanWith(spans, b, hours))
+  }
+
+  /**
+   * Let go: the draft becomes the document. The three setters are each a no-op when their own
+   * span did not move (`StationSlice` compares before committing), so one drag is one undo frame
+   * and one worker rebuild whichever of the six boundaries it was.
+   *
+   * It takes the value it is committing rather than reading the draft state: a keyboard nudge is
+   * a move *and* a release in one event, and state written in that event is not in this closure
+   * yet.
+   */
+  const commitSpans = (draft: { service: TimeSpan; peaks: PeakWindows } | null = spanDraft): void => {
     if (draft === null) return
-    setDemandKnobs(draft)
-    setDraft(null)
+    setServiceWindow(draft.service.from, draft.service.to)
+    setPeakWindow(0, draft.peaks[0].from, draft.peaks[0].to)
+    setPeakWindow(1, draft.peaks[1].from, draft.peaks[1].to)
+    setSpanDraft(null)
+  }
+
+  /** A keyboard nudge: move the boundary and commit it, from the spans this render holds. */
+  const nudgeBoundary = (b: CurveBoundary, hours: number): void => {
+    const next = spanWith(spans, b, hours)
+    setSpanDraft(null)
+    commitSpans(next)
+  }
+
+  const commitKnobs = (): void => {
+    if (knobDraft === null) return
+    setDemandKnobs(knobDraft)
+    setKnobDraft(null)
   }
 
   if (!open) return null
 
-  // What the station will actually take in over an hour at this instant: the exits'
-  // configured in-rates (an exit switched off contributes nothing) times the curve the
-  // plot is drawing. Zero exits is a legitimate answer — the 出入口 folder is where they
-  // are set — so the strip prints 0/小时 rather than hiding the block.
-  const totalInRate = station.modules.reduce((n, m) => (m.type === 'exit' && m.cfg.open !== false ? n + (m.cfg.inRate ?? 0) : n), 0)
-  const perHour = stamp === null ? 0 : Math.round(totalInRate * demandRate(stamp.simTime, stamp.dayType, input))
+  const calendar = station.calendar
+  const year = calendar.epoch.year
+  const grid = monthGrid(year, month, calendar)
+  // The date the run is standing on — the epoch plus the whole days it has run — read through
+  // `dayAt`, the same derivation the crowd's day type comes from, so the calendar's own
+  // highlight cannot disagree with the sim it is describing.
+  const today = simTime === null ? null : dayAt(simTime, calendar)
 
   return (
     <div className="timeModal" role="presentation">
-      {/* The scrim is the way out of a *non-modal* window: the station stays visible behind
-          it and a click anywhere outside the panel puts it away. It is a `button` so it is
+      {/* The scrim is the way out of a *non-modal* window: the station stays visible behind it
+          and a click anywhere outside the panel puts it away. It is a `button` so it is
           keyboard-reachable too, and every background state is reset so no `button` rule can
           tint the viewport. */}
       <button type="button" className="timeScrim" aria-label="关闭时刻窗口" onClick={() => setTimePanel(false)} />
       <div className="timeWindow" role="dialog" aria-modal={false} aria-label="时刻与客流">
         <div className="timeHead">
-          <span className="timeTitle">时刻 · 客流输入</span>
-          <span className="timeNow">{stamp ? stamp.readout : '—'}</span>
-          {!playing && <span className="clockChip off">已暂停</span>}
+          <span className="timeTitle">时刻 · 客流</span>
           <button type="button" className="timeClose" aria-label="关闭" onClick={() => setTimePanel(false)}>
             ✕
           </button>
         </div>
 
         <div className="timeBody">
-          {/* A. the day's curve */}
           <section className="timeBlock">
             <h4 className="timeBlockHead">
-              <span>A · 客流曲线</span>
-              <span className="timeBlockNote">
-                {stamp ? `${DAY_TYPE_LABELS[stamp.dayType]} · ${PERIOD_LABELS[stamp.period]} · ${stamp.isOpen ? '营业中' : '已闭站'}` : ''}
-                {stamp ? ` · 合计 ≈ ${perHour.toLocaleString()} 人/小时` : ''}
+              <span>客流曲线</span>
+            </h4>
+            <DayCurve
+              input={input}
+              dayType={today?.dayType ?? 'weekday'}
+              simTime={simTime ?? 0}
+              onDrag={dragBoundary}
+              onDragEnd={() => commitSpans()}
+              onNudge={nudgeBoundary}
+            />
+            {/* The three spans' own times, under the chart in one row: the plot itself carries the
+                curves and the bands and no type at all. It follows the **draft**, so the numbers
+                move with the grip being dragged. */}
+            <div className="curveSpans">
+              <span className="service">
+                营业 <b>{`${clockTextOf(spans.service.from)}–${clockTextOf(spans.service.to)}`}</b>
               </span>
-            </h4>
-            <DayCurve input={input} dayType={stamp?.dayType ?? 'weekday'} simTime={simTime ?? 0} />
-            <DayCurveLegend dayType={stamp?.dayType ?? 'weekday'} />
-          </section>
-
-          {/* B. the calendar */}
-          <section className="timeBlock">
-            <h4 className="timeBlockHead">
-              <span>B · 日历</span>
-              <span className="timeBlockNote">
-                {stamp ? `${stamp.dateLabel} ${stamp.weekdayLabel} · 第 ${stamp.dayIndex + 1} 天` : '—'}
+              <span>
+                早高峰 <b>{`${clockTextOf(spans.peaks[0].from)}–${clockTextOf(spans.peaks[0].to)}`}</b>
               </span>
-            </h4>
-            <div className="dayTypes">
-              {DAY_TYPES.map((t) => (
-                <span key={t} className={stamp?.dayType === t ? 'dayType active' : 'dayType'}>
-                  <b>{DAY_TYPE_LABELS[t]}</b>
-                  <i>×{DAY_TYPE_FACTOR[t]}</i>
-                </span>
-              ))}
-              <span className="dayTypeNote">日子由日期决定；节假日与活动日还需要日历表（未开放）</span>
+              <span>
+                晚高峰 <b>{`${clockTextOf(spans.peaks[1].from)}–${clockTextOf(spans.peaks[1].to)}`}</b>
+              </span>
             </div>
-          </section>
-
-          {/* D. the settings */}
-          <section className="timeBlock">
-            <h4 className="timeBlockHead">
-              <span>D · 时刻设置</span>
-              <span className="timeBlockNote">改动会立即作用于仿真，并进入撤销</span>
-            </h4>
-            <div className="timeRow">
-              <span className="timeLabel">营业时间</span>
-              <TimeBox label="开站时间" seconds={station.service.from} onCommit={(s) => setServiceWindow(s, station.service.to)} />
-              <span className="timeDash">—</span>
-              <TimeBox label="关站时间" seconds={station.service.to} onCommit={(s) => setServiceWindow(station.service.from, s)} />
-              {stamp && <span className={stamp.isOpen ? 'clockChip open' : 'clockChip shut'}>{stamp.isOpen ? '营业中' : '已闭站'}</span>}
-            </div>
-            {[0, 1].map((i) => (
-              <div className="timeRow" key={i}>
-                <span className="timeLabel">{i === 0 ? '早高峰' : '晚高峰'}</span>
-                <TimeBox
-                  label={`${i === 0 ? '早' : '晚'}高峰开始`}
-                  seconds={station.peaks[i].from}
-                  onCommit={(s) => setPeakWindow(i, s, station.peaks[i].to)}
-                />
-                <span className="timeDash">—</span>
-                <TimeBox
-                  label={`${i === 0 ? '早' : '晚'}高峰结束`}
-                  seconds={station.peaks[i].to}
-                  onCommit={(s) => setPeakWindow(i, station.peaks[i].from, s)}
-                />
-              </div>
-            ))}
             <div className="knobs">
               <Knob
                 label="早高峰量"
-                hint={`${String(DEMAND_AM_HOUR).padStart(2, '0')}:00 的高峰高度`}
+                hint="08:00 的高峰高度"
                 value={knobs.amPeak}
-                min={DEMAND_LIMITS.amPeak[0]}
-                max={DEMAND_LIMITS.amPeak[1]}
-                onDraft={(v) => setDraft({ ...knobs, amPeak: v })}
-                onCommit={commitDraft}
+                min={0}
+                max={2.5}
+                onDraft={(v) => setKnobDraft({ ...knobs, amPeak: v })}
+                onCommit={commitKnobs}
               />
               <Knob
                 label="晚高峰量"
-                hint={`${String(DEMAND_PM_HOUR).padStart(2, '0')}:00 的高峰高度`}
+                hint="18:00 的高峰高度"
                 value={knobs.pmPeak}
-                min={DEMAND_LIMITS.pmPeak[0]}
-                max={DEMAND_LIMITS.pmPeak[1]}
-                onDraft={(v) => setDraft({ ...knobs, pmPeak: v })}
-                onCommit={commitDraft}
+                min={0}
+                max={2.5}
+                onDraft={(v) => setKnobDraft({ ...knobs, pmPeak: v })}
+                onCommit={commitKnobs}
               />
               <Knob
                 label="波形陡峭度"
                 hint="高峰的宽窄（100% = 0.85 小时）"
                 value={knobs.sharpness}
-                min={DEMAND_LIMITS.sharpness[0]}
-                max={DEMAND_LIMITS.sharpness[1]}
-                onDraft={(v) => setDraft({ ...knobs, sharpness: v })}
-                onCommit={commitDraft}
+                min={0.4}
+                max={2}
+                onDraft={(v) => setKnobDraft({ ...knobs, sharpness: v })}
+                onCommit={commitKnobs}
               />
             </div>
           </section>
 
-          {/* The metrics that are about time, in the strip the bottom bar's own metrics use. */}
           <section className="timeBlock">
             <h4 className="timeBlockHead">
-              <span>当前统计</span>
-              <span className="timeBlockNote">客流、排队与服务等级</span>
+              <span>日历</span>
+              <span className="timeBlockNote">
+                <button
+                  type="button"
+                  className="calNav"
+                  aria-label="上个月"
+                  disabled={month === 1}
+                  onClick={() => setMonth((m) => Math.max(1, m - 1))}
+                >
+                  ‹
+                </button>
+                <span className="calTitle">{`${year} 年 ${MONTH_LABELS[month - 1]}`}</span>
+                <button
+                  type="button"
+                  className="calNav"
+                  aria-label="下个月"
+                  disabled={month === 12}
+                  onClick={() => setMonth((m) => Math.min(12, m + 1))}
+                >
+                  ›
+                </button>
+              </span>
             </h4>
-            <div className="timeStats">
-              <Stat label="站内人数" value={metrics ? metrics.population.toLocaleString() : '—'} />
-              <Stat label="最挤等级" value={metrics ? `${metrics.worstLos} ${LOS_LABELS[metrics.worstLos]}` : '—'} tone={metrics?.worstLos} />
-              <Stat label="闸机排队" value={metrics ? String(metrics.gateQueue) : '—'} />
-              <Stat label="扶梯排队" value={metrics ? String(metrics.escalatorQueue) : '—'} />
-              <Stat label="站台门排队" value={metrics ? String(metrics.doorQueue) : '—'} />
-              <Stat label="已上车" value={metrics ? String(metrics.boarded) : '—'} />
-              <Stat label="已出站" value={metrics ? String(metrics.exited) : '—'} />
-              <Stat label="滞留" value={metrics ? String(metrics.leftBehind) : '—'} warn={(metrics?.leftBehind ?? 0) > 0} />
+            <div className="calGrid">
+              {MONTH_GRID_HEADS.map((h) => (
+                <span key={h} className="calHeadCell" aria-hidden="true">
+                  {h}
+                </span>
+              ))}
+              {grid.flat().map((cell, i) =>
+                cell === null ? (
+                  <span key={`blank-${i}`} className="calCell empty" />
+                ) : (
+                  <button
+                    key={cell.dateKey}
+                    type="button"
+                    className={cellClass(cell, calendar.workdays, today?.date ?? null)}
+                    aria-label={`${cell.date.month} 月 ${cell.date.day} 日 ${DAY_TYPE_LABELS[cell.dayType]}`}
+                    aria-pressed={today !== null && sameDate(cell.date, today.date)}
+                    onClick={() => seekToDate(cell.date)}
+                  >
+                    {cell.date.day}
+                  </button>
+                ),
+              )}
+            </div>
+            <div className="calKeys">
+              <span>
+                <i className="calKey today" />
+                当前日期
+              </span>
+              <span>
+                <i className="calKey holiday" />
+                节假日
+              </span>
+              <span>
+                <i className="calKey workday" />
+                调休上班
+              </span>
             </div>
           </section>
         </div>
@@ -288,12 +310,51 @@ export function TimePanel(): React.ReactElement | null {
   )
 }
 
-function Stat({ label, value, warn, tone }: { label: string; value: string; warn?: boolean; tone?: string }): React.ReactElement {
-  const cls = warn ? 'timeStat warn' : tone === 'E' || tone === 'F' ? 'timeStat danger' : 'timeStat'
-  return (
-    <div className={cls}>
-      <span className="timeStatLabel">{label}</span>
-      <b>{value}</b>
-    </div>
-  )
+/** Whole minutes, to a five-minute grain: the drag's own unit, and what the document holds. */
+function snap(seconds: number): number {
+  return Math.round(seconds / 300) * 300
+}
+
+/**
+ * `base` with one boundary moved to `hours`, clamped so each span stays a span — at least a
+ * quarter of an hour long, inside the day — **and so the two peaks stay in order**: 早高峰's end
+ * is walled by 晚高峰's start and 晚高峰's start by 早高峰's end, which is the same invariant
+ * `normalizePeaks` holds on the way in. Shared by the drag and the keyboard nudge, so the two
+ * cannot clamp differently.
+ */
+function spanWith(
+  base: { service: TimeSpan; peaks: PeakWindows },
+  b: CurveBoundary,
+  hours: number,
+): { service: TimeSpan; peaks: PeakWindows } {
+  const seconds = snap(Math.max(0, Math.min(SERVICE_LATEST, hours * 3600)))
+  const next: { service: TimeSpan; peaks: PeakWindows } = {
+    service: { ...base.service },
+    peaks: [{ ...base.peaks[0] }, { ...base.peaks[1] }],
+  }
+  const span = b.kind === 'service' ? next.service : next.peaks[b.index]
+  if (b.end === 'from') {
+    const floor = b.kind === 'peak' && b.index === 1 ? next.peaks[0].to : 0
+    span.from = Math.max(floor, Math.min(seconds, span.to - SERVICE_MIN_SPAN))
+  } else {
+    const ceiling = b.kind === 'peak' && b.index === 0 ? next.peaks[1].from : SERVICE_LATEST
+    span.to = Math.min(ceiling, Math.max(seconds, span.from + SERVICE_MIN_SPAN))
+  }
+  return next
+}
+
+function sameDate(a: SimDate, b: SimDate): boolean {
+  return a.year === b.year && a.month === b.month && a.day === b.day
+}
+
+/** A cell's classes: its day type, the 调休上班 mark, and the **one** highlight the grid carries —
+ *  the day the station is standing on. Nothing else is marked: the run's own day 0 is where the
+ *  clock started, which is not something the player picked or needs to find. */
+function cellClass(cell: CalendarCell, workdays: readonly string[], today: SimDate | null): string {
+  let cls = `calCell ${cell.dayType}`
+  // A 调休上班日 derives 工作日 — that is the whole point of it — so the cell needs its own mark
+  // to say *why* a Saturday is one.
+  if (workdays.includes(cell.dateKey)) cls += ' workday'
+  if (today && sameDate(cell.date, today)) cls += ' today'
+  return cls
 }

@@ -23,7 +23,7 @@
 import { useMemo } from 'react'
 import { useStore } from '../../store.ts'
 import { SIM_DAY } from '../../../sim/constants.ts'
-import { DEFAULT_CALENDAR, DAY_TYPE_LABELS, PERIOD_LABELS, stampAt } from '../../../sim/clock.ts'
+import { DAY_TYPE_LABELS, PERIOD_LABELS, stampAt } from '../../../sim/clock.ts'
 
 /** A span of the day on the 24 h bar, as CSS. The window and every peak use it. */
 function span(from: number, to: number): { left: string; width: string } {
@@ -35,10 +35,11 @@ export function ClockCard(): React.ReactElement {
   const playing = useStore((s) => s.playing)
   const service = useStore((s) => s.station.service)
   const peaks = useStore((s) => s.station.peaks)
+  const calendar = useStore((s) => s.station.calendar)
   const setTimePanel = useStore((s) => s.setTimePanel)
   const stamp = useMemo(
-    () => (simTime === null ? null : stampAt(simTime, DEFAULT_CALENDAR, service, peaks)),
-    [simTime, service, peaks],
+    () => (simTime === null ? null : stampAt(simTime, calendar, service, peaks)),
+    [simTime, calendar, service, peaks],
   )
 
   return (

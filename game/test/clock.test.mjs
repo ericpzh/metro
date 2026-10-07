@@ -12,21 +12,28 @@ import assert from 'node:assert/strict'
 import {
   DAY_TYPE_LABELS,
   DEFAULT_CALENDAR,
+  MONTH_GRID_HEADS,
   PERIOD_LABELS,
   WEEKDAY_INITIALS,
   WEEKDAY_LABELS,
   civilFromDays,
   clockTextOf,
   dateKeyOf,
+  dayAt,
   dayTypeOf,
   daysFromCivil,
+  daysInMonth,
   isOpenAt,
+  monthGrid,
+  normalizeCalendar,
   normalizePeaks,
   normalizeService,
   secondsOfClock,
+  simTimeAtDate,
   SERVICE_LATEST,
   SERVICE_MIN_SPAN,
   stampAt,
+  weekdayOf,
 } from '../src/sim/clock.ts'
 import { DEFAULT_PEAKS, DEFAULT_SERVICE, SIM_DAY } from '../src/sim/constants.ts'
 
@@ -37,7 +44,7 @@ test('day 0 of the default calendar is 1月1日, whatever the run does after it'
   assert.equal(stamp.readout, '1月1日 00:00:00 四', 'a fresh station opens on the new year — 2026-01-01 was a Thursday')
   assert.equal(stamp.dayIndex, 0)
   assert.equal(stamp.dateKey, '2026-01-01')
-  assert.equal(stamp.dayType, 'weekday', 'a Thursday is a 工作日')
+  assert.equal(stamp.dayType, 'holiday', 'and 元旦 is a statutory holiday: the shipped calendar says so')
   assert.equal(stamp.period, 'late', '00:00 is outside the service window')
 })
 
@@ -86,16 +93,17 @@ test('a week of running lands back on the same weekday, a week later', () => {
 })
 
 test('the weekend is 周六 and 周日 by the date, not by a switch', () => {
-  // 2026-01-03 is a Saturday, 2026-01-04 a Sunday: 2 and 3 days after the epoch.
-  const sat = stampAt(2 * SIM_DAY + 10 * 3600)
-  const sun = stampAt(3 * SIM_DAY + 10 * 3600)
+  // 2026-01-10 is a Saturday and 2026-01-11 a Sunday: 9 and 10 days after the epoch. (The first
+  // weekend of the year is inside the 元旦 holiday, which is why the fixture starts here.)
+  const sat = stampAt(9 * SIM_DAY + 10 * 3600)
+  const sun = stampAt(10 * SIM_DAY + 10 * 3600)
   assert.equal(sat.weekdayLabel, '周六')
   assert.equal(sat.weekdayInitial, '六', 'which is the 六 a Chinese timetable column prints')
   assert.equal(sat.dayType, 'saturday')
   assert.equal(DAY_TYPE_LABELS[sat.dayType], '周六')
   assert.equal(sun.weekdayLabel, '周日')
   assert.equal(sun.dayType, 'sunday')
-  assert.equal(sun.dateKey, '2026-01-04')
+  assert.equal(sun.dateKey, '2026-01-11')
 })
 
 test('a holiday is a holiday whatever weekday it lands on', () => {
@@ -116,6 +124,100 @@ test('dayTypeOf is the four-way rule on its own', () => {
   assert.equal(dayTypeOf(6, '2026-03-07'), 'saturday')
   assert.equal(dayTypeOf(0, '2026-03-08'), 'sunday')
   assert.equal(dayTypeOf(6, '2026-03-07', ['2026-03-07']), 'holiday', 'the list wins over the weekday')
+  assert.equal(dayTypeOf(6, '2026-02-14', [], ['2026-02-14']), 'weekday', 'and a 调休 Saturday is a 工作日')
+  assert.equal(dayTypeOf(6, '2026-02-14', ['2026-02-14'], ['2026-02-14']), 'holiday', 'a date on both lists is a holiday')
+})
+
+/** A stamp for a date key, read off the shipped epoch: the tests' own way in. */
+function at(key, hour = 10) {
+  const [y, m, d] = key.split('-').map(Number)
+  return stampAt((daysFromCivil(y, m, d) - daysFromCivil(2026, 1, 1)) * SIM_DAY + hour * 3600)
+}
+
+test('the shipped calendar is the 2026 arrangement, holidays and 调休 both', () => {
+  // 国务院办公厅 国办发明电〔2025〕7号: 元旦 01-01…01-03 (01-04 上班), 春节 02-15…02-23 (02-14,
+  // 02-28 上班), 清明节 04-04…04-06, 劳动节 05-01…05-05 (05-09 上班), 端午节 06-19…06-21,
+  // 中秋节 09-25…09-27, 国庆节 10-01…10-07 (09-20, 10-10 上班).
+  assert.deepEqual(DEFAULT_CALENDAR.epoch, { year: 2026, month: 1, day: 1 })
+  assert.equal(DEFAULT_CALENDAR.holidays.length, 3 + 9 + 3 + 5 + 3 + 3 + 7, 'every 放假 date')
+  assert.equal(DEFAULT_CALENDAR.workdays.length, 6, 'every 调休 上班 date')
+  assert.equal(at('2026-01-03').dayType, 'holiday', '元旦 runs into the Saturday')
+  assert.equal(at('2026-01-04').dayType, 'weekday', 'and the Sunday after it is a 上班 day')
+  assert.equal(at('2026-02-17').dayType, 'holiday', '春节初一')
+  assert.equal(at('2026-02-28').dayType, 'weekday', 'a 上班 Saturday at the end of the festival')
+  assert.equal(at('2026-05-01').dayType, 'holiday')
+  assert.equal(at('2026-10-07').dayType, 'holiday')
+  assert.equal(at('2026-10-10').dayType, 'weekday', 'and the Saturday after 国庆 is worked')
+  assert.equal(at('2026-10-11').dayType, 'sunday', 'while the Sunday after that is a Sunday again')
+  assert.equal(at('2026-03-07').dayType, 'saturday', 'a plain weekend in a month with no holiday')
+  // Every key is a real 2026 date, and no date is on both lists.
+  for (const key of [...DEFAULT_CALENDAR.holidays, ...DEFAULT_CALENDAR.workdays]) {
+    assert.match(key, /^2026-\d{2}-\d{2}$/, `${key} is a date key`)
+    const [y, m, d] = key.split('-').map(Number)
+    assert.ok(d >= 1 && d <= daysInMonth(y, m), `${key} is a day February has`)
+  }
+  for (const key of DEFAULT_CALENDAR.workdays) assert.ok(!DEFAULT_CALENDAR.holidays.includes(key))
+})
+
+test('weekdayOf and daysInMonth are the arithmetic the grid stands on', () => {
+  assert.equal(weekdayOf({ year: 2026, month: 1, day: 1 }), 4, '2026-01-01 was a Thursday')
+  assert.equal(weekdayOf({ year: 2026, month: 1, day: 4 }), 0, 'and the 4th a Sunday')
+  assert.equal(weekdayOf({ year: 2024, month: 2, day: 29 }), 4, '2024-02-29 was a Thursday')
+  assert.equal(daysInMonth(2026, 2), 28, '2026 is not a leap year')
+  assert.equal(daysInMonth(2024, 2), 29)
+  assert.equal(daysInMonth(2000, 2), 29, '2000 is, under the century rule')
+  assert.equal(daysInMonth(1900, 2), 28, 'and 1900 is not')
+  assert.equal(daysInMonth(2026, 1), 31)
+  assert.equal(daysInMonth(2026, 12), 31)
+  assert.equal(daysInMonth(2026, 4), 30)
+})
+
+test('a month grid is whole Monday-first weeks, with each date’s day type on its cell', () => {
+  const jan = monthGrid(2026, 1)
+  assert.equal(jan.length, 5, 'January 2026 fits five weeks')
+  assert.ok(jan.every((w) => w.length === 7), 'every week is seven cells')
+  assert.deepEqual(jan[0].slice(0, 3), [null, null, null], '2026-01-01 is a Thursday, so three cells lead')
+  assert.equal(jan[0][3].dateKey, '2026-01-01')
+  assert.equal(jan[0][3].head, '四', 'and it wears the Thursday column head')
+  assert.equal(jan.flat().filter(Boolean).length, 31)
+  assert.equal(monthGrid(2026, 2).flat().filter(Boolean).length, 28, 'February 2026 is 28 days')
+  assert.equal(monthGrid(2024, 2).flat().filter(Boolean).length, 29, 'and February 2024 is 29')
+  // The day types are already on the cells — that is what the calendar view paints.
+  const cell = (key) => jan.flat().find((c) => c && c.dateKey === key)
+  assert.equal(cell('2026-01-01').dayType, 'holiday')
+  assert.equal(cell('2026-01-04').dayType, 'weekday', 'a 调休 Sunday reads as a work day')
+  assert.equal(cell('2026-01-04').weekday, 0, 'on a Sunday')
+  assert.equal(cell('2026-01-10').dayType, 'saturday')
+  // A Monday-first grid puts Sunday last: the head is the weekday shifted, not the weekday.
+  for (const c of jan.flat()) {
+    if (!c) continue
+    assert.equal(c.head, MONTH_GRID_HEADS[(c.weekday + 6) % 7], `${c.dateKey} sits in the right column`)
+  }
+})
+
+test('a calendar the day cannot hold is repaired, not refused', () => {
+  assert.deepEqual(normalizeCalendar(undefined), DEFAULT_CALENDAR, 'no calendar at all is the shipped one')
+  assert.deepEqual(normalizeCalendar({}), DEFAULT_CALENDAR, 'and neither is an empty object')
+  assert.deepEqual(normalizeCalendar({ epoch: { year: 2026, month: 2, day: 30 } }).epoch, { year: 2026, month: 2, day: 28 }, 'February has no 30th')
+  assert.deepEqual(normalizeCalendar({ epoch: { year: 2026, month: 13, day: 1 } }).epoch, { year: 2026, month: 12, day: 1 })
+  assert.deepEqual(normalizeCalendar({ epoch: { year: 0, month: 0, day: 0 } }).epoch, { year: 1970, month: 1, day: 1 })
+  assert.deepEqual(normalizeCalendar({ epoch: { year: 'x', month: null, day: Number.NaN } }).epoch, DEFAULT_CALENDAR.epoch)
+  // A list that is there is the player's own: junk keys are dropped rather than matched to
+  // nothing, and a date on both lists is a holiday.
+  const messy = normalizeCalendar({
+    epoch: DEFAULT_CALENDAR.epoch,
+    holidays: ['2026-01-01', 'not-a-date', 42, '2026-1-1', null],
+    workdays: ['2026-01-01', '2026-01-04'],
+  })
+  assert.deepEqual(messy.holidays, ['2026-01-01'])
+  assert.deepEqual(messy.workdays, ['2026-01-04'])
+  assert.deepEqual(normalizeCalendar({ epoch: DEFAULT_CALENDAR.epoch, holidays: 'none' }).holidays, [], 'a list that is not a list is empty')
+  assert.deepEqual(normalizeCalendar({ epoch: DEFAULT_CALENDAR.epoch }).holidays, DEFAULT_CALENDAR.holidays, 'but an absent one is the shipped list')
+  // What comes out is a calendar the sim can run on, whatever went in.
+  const junk = normalizeCalendar({ epoch: 'yesterday', holidays: {}, workdays: 7 })
+  assert.equal(at('2026-01-01').dayType, 'holiday')
+  assert.deepEqual(junk.epoch, DEFAULT_CALENDAR.epoch)
+  assert.deepEqual(junk.holidays, [], 'an object where a list belongs is an empty list')
 })
 
 test('the period is the sim’s own periodOf, boundaries included', () => {
@@ -239,21 +341,49 @@ test('a window the day cannot hold is bent into range, not refused', () => {
   for (const junk of ['06:30', 42, null, undefined]) assert.deepEqual(normalizeService(junk), DEFAULT_SERVICE)
 })
 
-test('the peak pair is repaired in place, and keeps its own order', () => {
+test('the peak pair is repaired in place, and held in order', () => {
   assert.deepEqual(normalizePeaks(undefined), DEFAULT_PEAKS, 'no peaks at all is the default pair')
   assert.deepEqual(normalizePeaks([]), DEFAULT_PEAKS)
-  // A half-edited pair: the first window is kept, the missing second falls back.
+  // A half-edited pair: the first window is kept, the missing second falls back — and the default
+  // evening peak already starts after the morning one ends, so nothing moves.
   assert.deepEqual(normalizePeaks([{ from: 10 * 3600, to: 11 * 3600 }]), [
     { from: 10 * 3600, to: 11 * 3600 },
     DEFAULT_PEAKS[1],
   ])
-  // **The order is the document's, not sorted**: a 晚高峰 typed earlier than the 早高峰 is an
-  // edit in progress, and `periodOf` scans both windows regardless.
-  assert.deepEqual(normalizePeaks([{ from: 18 * 3600, to: 19 * 3600 }, { from: 7 * 3600, to: 8 * 3600 }]), [
+  // **早高峰 ends no later than 晚高峰 begins.** An overlapping pair is not refused and not sorted:
+  // the evening peak is pushed to start where the morning one ends, which is the same wall the
+  // chart's grips apply while they are dragged.
+  assert.deepEqual(normalizePeaks([{ from: 7 * 3600, to: 18 * 3600 }, { from: 17 * 3600, to: 19 * 3600 }]), [
+    { from: 7 * 3600, to: 18 * 3600 },
     { from: 18 * 3600, to: 19 * 3600 },
-    { from: 7 * 3600, to: 8 * 3600 },
   ])
-  // Each window carries the same repair a span does, junk included.
+  // A crossed pair (the evening entirely inside the morning) slides the same way.
+  assert.deepEqual(normalizePeaks([{ from: 8 * 3600, to: 20 * 3600 }, { from: 9 * 3600, to: 10 * 3600 }]), [
+    { from: 8 * 3600, to: 20 * 3600 },
+    { from: 20 * 3600, to: 20 * 3600 + SERVICE_MIN_SPAN },
+  ])
+  // A morning peak that runs to the end of the day leaves the evening the last quarter hour
+  // rather than nowhere: the pair always fits inside one day.
+  const squeezed = normalizePeaks([{ from: 6 * 3600, to: 23 * 3600 + 59 * 60 }, { from: 17 * 3600, to: 19 * 3600 }])
+  assert.equal(squeezed[0].to, SERVICE_LATEST - SERVICE_MIN_SPAN)
+  assert.equal(squeezed[1].from, SERVICE_LATEST - SERVICE_MIN_SPAN)
+  assert.equal(squeezed[1].to, SERVICE_LATEST)
+  // The invariant holds for every pair the repair is handed, junk included.
+  const cases = [
+    [{ from: 0, to: 0 }, { from: 0, to: 0 }],
+    [{ from: 99 * 3600, to: 0 }, { from: 0, to: 99 * 3600 }],
+    ['morning', 'evening'],
+    [undefined, undefined],
+    [{ from: 12 * 3600, to: 12 * 3600 }, { from: 12 * 3600, to: 12 * 3600 }],
+  ]
+  for (const raw of cases) {
+    const [a, b] = normalizePeaks(raw)
+    assert.ok(a.to <= b.from, `the morning ends before the evening begins (${a.to} ≤ ${b.from})`)
+    assert.ok(a.to - a.from >= SERVICE_MIN_SPAN, 'and every window is at least a quarter hour')
+    assert.ok(b.to - b.from >= SERVICE_MIN_SPAN)
+    assert.ok(a.from >= 0 && b.to <= SERVICE_LATEST, 'inside the day')
+  }
+  // Each window carries the same span repair, junk included.
   assert.deepEqual(normalizePeaks([{ from: 9 * 3600, to: 9 * 3600 }, 'noon']), [
     { from: 9 * 3600, to: 9 * 3600 + SERVICE_MIN_SPAN },
     DEFAULT_PEAKS[1],
@@ -287,4 +417,22 @@ test('a time before the epoch reads as an earlier date, not as hour −1', () =>
   assert.equal(before.dateKey, '2025-12-31')
   assert.equal(before.dayIndex, -1)
   assert.equal(before.weekdayLabel, '周三', '2025-12-31 was a Wednesday')
+})
+
+test('the calendar pick is a seek: a date and a time of day become sim seconds', () => {
+  const epoch = DEFAULT_CALENDAR.epoch // 2026-01-01
+  // Forward: 9 days on is 2026-01-10, and the time of day is carried over untouched.
+  const saturday = simTimeAtDate({ year: 2026, month: 1, day: 10 }, epoch, 7 * 3600 + 15 * 60)
+  assert.equal(saturday, 9 * SIM_DAY + 7 * 3600 + 15 * 60)
+  assert.equal(dayAt(saturday).dateKey, '2026-01-10', 'and the clock stands on that date')
+  assert.equal(stampAt(saturday).clockSeconds, '07:15:00', 'at the time of day it was asked for')
+  assert.equal(dayAt(saturday).dayType, 'saturday', 'which is how a Saturday gets run')
+  // Backwards, onto a date before the epoch: a negative sim time is a real date, not a failure.
+  const before = simTimeAtDate({ year: 2025, month: 12, day: 25 }, epoch, 12 * 3600)
+  assert.ok(before < 0)
+  assert.equal(dayAt(before).dateKey, '2025-12-25')
+  // Day 0 is the epoch at the same time of day, and a leap day is a day like any other.
+  assert.equal(simTimeAtDate(epoch, epoch, 3600), 3600)
+  const leap = simTimeAtDate({ year: 2024, month: 2, day: 29 }, { year: 2024, month: 2, day: 28 }, 0)
+  assert.equal(leap, SIM_DAY)
 })

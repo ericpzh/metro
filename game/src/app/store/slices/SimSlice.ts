@@ -7,6 +7,8 @@ import type { GraphInfo, FromWorker } from '../../../sim/protocol.ts'
 import type { StationData } from '../../../sim/types.ts'
 import type { Metrics } from '../../../sim/world.ts'
 import type { SceneStats } from '../../../render/scene.ts'
+import { simTimeAtDate, type SimDate } from '../../../sim/clock.ts'
+import { timeOfDayOf } from '../../../sim/constants.ts'
 import type { AppState } from '../Store.ts'
 import { useStore } from '../Store.ts'
 
@@ -24,6 +26,13 @@ export interface SimSlice {
   setMetrics: (m: Metrics) => void
   setStats: (s: SceneStats) => void
   setGraph: (g: GraphInfo) => void
+  /**
+   * Move the station's clock to `date`, keeping the time of day — the 时刻 window's calendar pick
+   * (§7.9's scrub). The day type the crowd runs is derived from the date the clock stands on, so
+   * this is how the player chooses to run a Saturday or a statutory holiday: the date, the curve,
+   * the card's chip and the crowd are all that day's afterwards.
+   */
+  seekToDate: (date: SimDate) => void
 }
 
 function sendControl(playing: boolean, speed: number): void {
@@ -173,4 +182,11 @@ export const createSimSlice: StateCreator<AppState, [], [], SimSlice> = (set, ge
   setMetrics: (m) => set({ metrics: m }),
   setStats: (s) => set({ stats: s }),
   setGraph: (g) => set({ graph: g }),
+  seekToDate: (date) => {
+    const { station, metrics } = get()
+    // The time of day is kept, so picking a date asks "run this day", not "start it at midnight".
+    // A sim that has not reported a frame yet has no clock to keep: it seeks to midnight.
+    const timeOfDay = metrics === null ? 0 : timeOfDayOf(metrics.simTime)
+    client?.postMessage({ type: 'seek', seconds: simTimeAtDate(date, station.calendar.epoch, timeOfDay) })
+  },
 })

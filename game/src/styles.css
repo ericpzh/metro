@@ -1036,18 +1036,55 @@ button.ghost:hover {
     8px 8px,
     8px 8px;
   border-left: 1px solid var(--line);
-  padding: 10px 8px 16px;
-  overflow: auto;
+  /* The column is a **pinned head over a scroller**: the stamp and the clock sit in `.panelHead`,
+     everything else scrolls under them in `.panelBody`, and **both reserve the same scrollbar
+     gutter** so the two areas line up at the same right edge. */
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.panelHead {
+  flex: none;
+  /* **The same gutter the scroller below reserves.** `.panelBody` keeps `scrollbar-gutter: stable`
+     so its cards do not re-flow when the scrollbar appears; without the same reservation here the
+     stamp and the clock would run a scrollbar's width wider than every card under them — straight
+     over the scrollbar. The head never actually scrolls (two bands fit), so the gutter is empty
+     space and the bands line up with the column, left and right. */
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #24557f transparent;
+  padding: 10px 8px 0;
+}
+/* **`width: 100%` is load-bearing.** The clock card is a `<button>`, and a button does not fill its
+   container the way a `<div>` does — `width: auto` is the shrink-to-fit content width, which
+   measured 254.85 px against this column's 283 px and left the day bar short with it. An explicit
+   width is the one thing that beats that intrinsic sizing. */
+.panelHead > .railStamp,
+.panelHead > .card {
+  width: 100%;
+}
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 8px 16px;
   /* Reserve the scrollbar's track whether or not it is shown, so the inspector
      cards do not re-flow when the panel grows past the viewport (matches .rail). */
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: #24557f transparent;
 }
-.panel::-webkit-scrollbar {
+.panel::-webkit-scrollbar,
+.panelHead::-webkit-scrollbar,
+.panelBody::-webkit-scrollbar {
   width: 8px;
 }
-.panel::-webkit-scrollbar-thumb {
+.panel::-webkit-scrollbar-thumb,
+.panelHead::-webkit-scrollbar-thumb,
+.panelBody::-webkit-scrollbar-thumb {
   background: #1e4a72;
   border-radius: 4px;
 }
@@ -2292,15 +2329,6 @@ input[type='range'] {
   letter-spacing: 3px;
   color: #eaf5ff;
 }
-/* The live clock, in the head: the window's own one-line readout, so the panel can be read
-   while its card is behind it. */
-.timeNow {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-  white-space: nowrap;
-}
 .timeClose {
   flex: none;
   margin-left: auto;
@@ -2373,13 +2401,9 @@ input[type='range'] {
 }
 .dayCurve .curveLine {
   fill: none;
-  stroke: rgba(126, 166, 201, 0.5);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-.dayCurve .curveLine.active {
   stroke: var(--accent);
   stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
 }
 .dayCurve .curveNow {
   stroke: #eaf5ff;
@@ -2395,112 +2419,60 @@ input[type='range'] {
   font-size: 7px;
   letter-spacing: 0.5px;
 }
-.curveLegend {
+/* The three spans' times, under the chart: the operating hours and both peaks in one row. */
+.curveSpans {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  gap: 14px;
   margin-top: 4px;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 1px;
   color: var(--muted);
 }
-.curveKey {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.curveKey i {
-  display: inline-block;
-  width: 14px;
-  height: 2px;
-  background: rgba(126, 166, 201, 0.5);
-}
-.curveKey.active {
-  color: #eaf5ff;
-}
-.curveKey.active i {
-  background: var(--accent);
-}
-.curveKeyNote {
-  margin-left: auto;
-}
-/* B · 日历: the four day types with the calendar coefficient each one carries. */
-.dayTypes {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.dayType {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 2px 6px;
-  font-size: 10px;
-  color: var(--muted);
-  background: #081a2c;
-  border: 1px solid var(--bp-line);
-}
-.dayType b {
-  font-weight: 600;
-  letter-spacing: 1px;
-}
-.dayType i {
+.curveSpans b {
   font-family: var(--mono);
-  font-size: 9px;
-  font-style: normal;
-  color: var(--ink);
-}
-.dayType.active {
-  color: #eaf5ff;
-  border-color: var(--accent);
-  background: #16374f;
-}
-.dayTypeNote {
-  flex: 1 0 100%;
-  font-size: 9px;
-  line-height: 1.6;
-  color: var(--muted);
-}
-/* D · 时刻设置: one row per span — its name, the two ends, and (for the window) whether the
-   station is open right now. */
-.timeRow {
-  display: grid;
-  grid-template-columns: 62px minmax(0, 1fr) 10px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
-}
-.timeLabel {
   font-size: 10px;
-  letter-spacing: 2px;
-  color: var(--muted);
-}
-.timeDash {
-  text-align: center;
-  color: var(--muted);
-}
-/* A native time box wearing the panel's own flat drafting input rather than the browser's
-   rounded default. The picker's own indicator is hidden: it is drawn in the browser's
-   colours and does not fit the drafting look, and the times are typed or stepped. */
-.timeBox {
-  width: 100%;
-  min-width: 0;
-  font-family: var(--mono);
-  font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: #eaf5ff;
-  background: #081a2c;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  padding: 3px 5px;
+  font-weight: 500;
+  color: var(--warn);
+  margin-left: 3px;
+}
+/* The operating hours in the accent their lit band is drawn in, the peaks in the amber theirs is:
+   the row and the chart say which span is which without a legend. */
+.curveSpans .service b {
+  color: var(--accent);
+}
+/* The six grips. Each is a wide transparent hit box (a 1 px boundary is not a pointer target),
+   the line it moves, and a knob at the top so it reads as something you can take hold of. */
+.dayCurve .curveGripHit {
+  fill: transparent;
+  cursor: ew-resize;
   outline: none;
 }
-.timeBox:focus {
-  border-color: var(--accent);
+.dayCurve .curveGripLine {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
-.timeBox::-webkit-calendar-picker-indicator {
-  display: none;
+.dayCurve .curveGripKnob {
+  fill: var(--accent);
+  pointer-events: none;
+}
+.dayCurve .curveGrip.peak .curveGripLine {
+  stroke: var(--warn);
+}
+.dayCurve .curveGrip.peak .curveGripKnob {
+  fill: var(--warn);
+}
+.dayCurve .curveGrip:hover .curveGripLine,
+.dayCurve .curveGrip:focus-within .curveGripLine {
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+.dayCurve .curveGripHit:focus-visible + .curveGripLine {
+  stroke-width: 3;
+  stroke-dasharray: none;
 }
 /* The 客流曲线 knobs: sheet 06's panel D, three sliders across the panel. */
 .knobs {
@@ -2535,28 +2507,123 @@ input[type='range'] {
   font-size: 9px;
   color: var(--muted);
 }
-/* The time-shaped metrics, in the same label-over-value shape as the status bar's. */
-.timeStats {
+/* The month header: the panel's flat drafting buttons, the month between them. */
+.calNav {
+  width: 20px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  background: #081a2c;
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+.calNav:hover:not(:disabled) {
+  color: #eaf5ff;
+  border-color: var(--accent);
+}
+.calNav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.calTitle {
+  display: inline-block;
+  min-width: 96px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--ink);
+}
+/* The month itself: seven equal columns, a cell per date. */
+.calGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px 8px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
 }
-.timeStat {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
-.timeStatLabel {
+.calHeadCell {
+  padding-bottom: 2px;
+  text-align: center;
   font-size: 9px;
   color: var(--muted);
 }
-.timeStat b {
-  font-size: 12px;
+.calCell {
+  display: grid;
+  place-items: center;
+  height: 22px;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: #081a2c;
+  border: 1px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
 }
-.timeStat.warn b {
+.calCell:hover {
+  border-color: var(--line);
+}
+.calCell.empty {
+  background: none;
+  cursor: default;
+}
+/* A weekend is quieter and a holiday is busier (sheet 06's panel B): the cell's own ink says
+   which day type the demand multiplier will read. */
+.calCell.saturday,
+.calCell.sunday {
+  color: var(--muted);
+}
+.calCell.holiday {
   color: var(--warn);
+  background: rgba(255, 200, 97, 0.12);
+  border-color: rgba(255, 200, 97, 0.35);
 }
-.timeStat.danger b {
-  color: var(--danger);
+/* 调休上班: a weekend date the arrangement turns into a working day. It derives 工作日, so the
+   cell says so in ink of its own. */
+.calCell.workday {
+  color: var(--ink);
+  background: rgba(85, 182, 255, 0.08);
+  border-color: rgba(85, 182, 255, 0.3);
+}
+/* The day the station is **standing on** — the calendar's selection, and the day the curve, the
+   card's chip and the crowd are all describing. It is the only highlight the grid carries. */
+.calCell.today {
+  background: #16374f;
+  border-color: var(--accent);
+  color: #eaf5ff;
+  font-weight: 600;
+}
+.calKeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 9px;
+  color: var(--muted);
+}
+.calKeys span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.calKey {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--line);
+}
+.calKey.today {
+  background: #16374f;
+  border-color: var(--accent);
+}
+.calKey.holiday {
+  background: rgba(255, 200, 97, 0.35);
+  border-color: rgba(255, 200, 97, 0.6);
+}
+.calKey.workday {
+  background: #081a2c;
 }

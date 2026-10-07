@@ -38,7 +38,7 @@ import {
   type Los,
   type Period,
 } from '../constants.ts'
-import { dayAt, normalizePeaks, normalizeService, type DayType } from '../clock.ts'
+import { DEFAULT_CALENDAR, dayAt, normalizeCalendar, normalizePeaks, normalizeService, type DayType, type SimCalendar } from '../clock.ts'
 import {
   DEFAULT_DEMAND_INPUT,
   demandAt,
@@ -267,11 +267,34 @@ export class World {
    */
   private day: DemandInput = DEFAULT_DEMAND_INPUT
   /**
+   * The station's calendar (§9.6C 日期类型): which date day 0 is, and which dates are 节假日 or
+   * 调休上班日. Normalized here like the rest of the authored day, so `dayAt` is only ever asked
+   * about a calendar the day can hold — a pick in the 时刻 window's calendar included.
+   */
+  private calendar: SimCalendar = DEFAULT_CALENDAR
+  /**
    * The current day's type — §7.4's `calendar(dayOfYear)` multiplier. Refreshed when the
    * calendar day rolls over: `dayAt` per tick would compute a civil date 64 times a second
    * for an answer that changes once a day.
    */
   private dayTypeCache: { index: number; type: DayType } = { index: Number.NaN, type: 'weekday' }
+
+  /**
+   * Move the clock to `seconds` — the 时刻 window's calendar pick, and §7.9's scrub (§7.9 "drag the
+   * timeline to 07:50"). The crowd, the queues and the trains in flight are **untouched**: what
+   * changes is the day the demand is drawn from and the period the timetable is in.
+   *
+   * The **dispatch schedule is dropped**, because `nextDispatch` holds absolute sim times: seeking
+   * backwards from a run's 22nd day to its 1st would otherwise stall every train until the clock
+   * came round to that date again — the exact bug a scrubber has to avoid.
+   */
+  seek(seconds: number): void {
+    this.simTime = seconds
+    this.metrics.simTime = seconds
+    this.metrics.period = periodOf(seconds, this.day.service, this.day.peaks)
+    this.dayTypeCache.index = Number.NaN
+    this.nextDispatch.clear()
+  }
 
   /** Rebuild the graph from static data and reset derived state. */
   rebuild(): void {
@@ -282,6 +305,7 @@ export class World {
       peaks: normalizePeaks(this.data.peaks),
       knobs: normalizeDemand(this.data.demand),
     }
+    this.calendar = normalizeCalendar(this.data.calendar)
     this.dayTypeCache.index = Number.NaN
     this.graph = buildGraph(this.data, this.zoneBarriers)
     this.path = new PathFinder(this.graph)
@@ -486,7 +510,7 @@ export class World {
   private dayType(): DayType {
     const index = Math.floor(this.simTime / SIM_DAY)
     if (this.dayTypeCache.index !== index) {
-      this.dayTypeCache = { index, type: dayAt(this.simTime).dayType }
+      this.dayTypeCache = { index, type: dayAt(this.simTime, this.calendar).dayType }
     }
     return this.dayTypeCache.type
   }

@@ -12,6 +12,7 @@
 import { repairGrid, toData, toStateRepairing, type StationState } from '../build/model.ts'
 import type { PeakWindows, TimeSpan } from '../sim/constants.ts'
 import type { DemandKnobs } from '../sim/demand.ts'
+import type { SimCalendar } from '../sim/clock.ts'
 import type { Cell, LineDef, Module, StationData } from '../sim/types.ts'
 
 export const SAVE_FORMAT = 'metro-save' as const
@@ -36,6 +37,8 @@ export interface SaveFileV1 {
   service?: TimeSpan
   peaks?: PeakWindows
   demand?: Partial<DemandKnobs>
+  /** The station's calendar (§9.6C 日期类型): day 0's date and the two date lists. */
+  calendar?: SimCalendar
   static: {
     cells: Cell[]
     modules: Module[]
@@ -64,6 +67,7 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     service: state.service,
     peaks: state.peaks,
     demand: state.demand,
+    calendar: state.calendar,
     static: {
       cells: repaired.cells,
       modules: repaired.modules,
@@ -103,6 +107,7 @@ export function parse(text: string): ParseResult {
     ...(isRecord(d.service) ? { service: d.service as TimeSpan } : {}),
     ...(Array.isArray(d.peaks) ? { peaks: d.peaks as PeakWindows } : {}),
     ...(isRecord(d.demand) ? { demand: d.demand as Partial<DemandKnobs> } : {}),
+    ...(isRecord(d.calendar) ? { calendar: d.calendar as SimCalendar } : {}),
   }
   // A structurally valid station with damaged content still opens: the envelope is
   // what earns a refusal (`文件损坏` and friends), and the grid repair drops what it

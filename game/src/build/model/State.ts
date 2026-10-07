@@ -4,7 +4,7 @@
 
 import type { Cell, Module, StationData } from '../../sim/types.ts';
 import type { PeakWindows, TimeSpan } from '../../sim/constants.ts';
-import { normalizePeaks, normalizeService } from '../../sim/clock.ts';
+import { normalizeCalendar, normalizePeaks, normalizeService, type SimCalendar } from '../../sim/clock.ts';
 import { normalizeDemand, type DemandKnobs } from '../../sim/demand.ts';
 import { cloneCell } from './Cells.ts';
 import { assignAdPosters, ensureSignLayouts } from './Equipment.ts';
@@ -26,6 +26,8 @@ export interface StationState {
   service: TimeSpan;
   peaks: PeakWindows;
   demand: DemandKnobs;
+  /** The station's calendar (§9.6C 日期类型): day 0's date and the 节假日 / 调休上班日 lists. */
+  calendar: SimCalendar;
 }
 
 /**
@@ -69,6 +71,9 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
     service: normalizeService(data.service),
     peaks: normalizePeaks(data.peaks),
     demand: normalizeDemand(data.demand),
+    // The calendar is repaired the same way: an epoch that is not a date falls back to the
+    // shipped 2026-01-01, and a key that is not `YYYY-MM-DD` is dropped from its list.
+    calendar: normalizeCalendar(data.calendar),
   };
   // Rooms drawn before furniture became modules carry no shelf/desk pieces
   // yet — materialise them here so every load path (open, demo, new) agrees.
@@ -85,6 +90,7 @@ export function toData(s: StationState): StationData {
     service: s.service,
     peaks: s.peaks,
     demand: s.demand,
+    calendar: s.calendar,
   };
 }
 
@@ -111,5 +117,6 @@ export function cloneState(s: StationState): StationState {
     service: { ...s.service },
     peaks: [{ ...s.peaks[0] }, { ...s.peaks[1] }],
     demand: { ...s.demand },
+    calendar: { epoch: { ...s.calendar.epoch }, holidays: [...s.calendar.holidays], workdays: [...s.calendar.workdays] },
   };
 }

@@ -102,30 +102,33 @@ export function Inspector(): React.ReactElement {
 
   return (
     <div className="panel">
-      <div className="railStamp">
-        <span className="railStampTitle">信息栏</span>
-        <span className="railStampSub">METRO / INSPECTOR</span>
+      {/* The column's **fixed head**: the stamp and the clock, full width to the column's own
+          right edge (the head has no right padding, which is the gap the card used to keep),
+          and outside the scroller so the clock stays put while the folders below it move. */}
+      <div className="panelHead">
+        <div className="railStamp">
+          <span className="railStampTitle">信息栏</span>
+          <span className="railStampSub">METRO / INSPECTOR</span>
+        </div>
+        <ClockCard />
       </div>
 
-      {/* The station's clock, above the folders: the crowd, the timetable and the day
-          bar are all functions of this time (§7.4), so it is the one readout that
-          should not be behind a fold. */}
-      <ClockCard />
-
-      {/* Stacked in the table's order, so the Alt+letter that folds a folder and the row
-          it sits in are the same list read two ways (`INSPECTOR_FOLDERS`). */}
-      {INSPECTOR_FOLDERS.map(({ key, title, alt }) => (
-        <Folder
-          key={key}
-          title={title}
-          count={folders[key].count}
-          shortcut={`Alt+${alt}`}
-          open={open[key]}
-          onToggle={() => toggle(key)}
-        >
-          {folders[key].body}
-        </Folder>
-      ))}
+      <div className="panelBody">
+        {/* Stacked in the table's order, so the Alt+letter that folds a folder and the row
+            it sits in are the same list read two ways (`INSPECTOR_FOLDERS`). */}
+        {INSPECTOR_FOLDERS.map(({ key, title, alt }) => (
+          <Folder
+            key={key}
+            title={title}
+            count={folders[key].count}
+            shortcut={`Alt+${alt}`}
+            open={open[key]}
+            onToggle={() => toggle(key)}
+          >
+            {folders[key].body}
+          </Folder>
+        ))}
+      </div>
     </div>
   )
 }

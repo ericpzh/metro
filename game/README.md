@@ -1660,7 +1660,7 @@ at (64,15)/(70,16) among them, splitting the crowd 36/36 with the western stair 
 nobody in 2400 s instead of 12, and the station clears 3,476 people against 3,383. `wayfinding.test.mjs`
 pins the rule both ways up: the storey a run climbs is walled by its glass, the one under it is not.
 
-*The station's own paint, and why the fare line is off for now.* 6,809 of the 动物园 save's 11,625 floor
+*The station's own paint, and why the fare line is off for now.* 7,071 of the 动物园 save's 12,403 floor
 cells carry **no zone label**, and an unlabelled cell reads as `unpaid` (`DEFAULT_ZONE`). That is fine
 where the gate row is the line — and an invisible fare line everywhere a *painted* patch sits inside
 unpainted floor. Enforced, those lines are barriers (§4.5) and they sealed the −16 level's escalator
@@ -1730,18 +1730,34 @@ approximated); neither needs WebGL.
   while one drawn outside the hours serves nobody, the 06:30 / 22:30 shoulders are the day's
   rule rather than the window's — opening all day does not make 23:00 busy — and a window or a
   peak pair the day cannot hold is bent into range instead of refused, in whole minutes so it
-  always matches what the time boxes print.
+  always matches what the grips print. The **peak pair is also held in order** — 早高峰 ends no
+  later than 晚高峰 begins, an overlap is pushed out rather than sorted, and the pair still fits in
+  one day when the morning runs to midnight. And the **calendar**: the shipped 2026 arrangement, date
+  by date (元旦 runs into the Saturday, the Sunday after it is worked, 春节 is nine days, the
+  Saturday after 国庆 is worked, a plain weekend in March is a plain weekend), every key a real
+  date and no date on both lists, `weekdayOf` / `daysInMonth` against the century rule
+  (2000-02-29 exists, 1900-02-29 does not), a **month grid** pinned as whole Monday-first weeks
+  with its leading `null`s and each cell's own day type (a 调休 Sunday reads 工作日), and a
+  calendar the day cannot hold repaired rather than refused — 02-30 is 02-28, a key that is not
+  `YYYY-MM-DD` is dropped, a date on both lists is a holiday, and a list the document does not
+  carry at all is the shipped one.
 * `demand.test.mjs` — the crowd's day (`src/sim/demand.ts`, §7.4 / §9.6C 客流曲线): the
   **golden** case is that `demandShape` at `DEFAULT_DEMAND` equals the formula it replaced, at
   every five simulated minutes and to the last bit — the knobs were added under a running
   simulation, so a tolerance would hide exactly the drift this exists to catch. On top of that:
   a knob moves the curve it names and only that one; 波形陡峭度 narrows the day (so the apex
   barely moves and the *fall-off* is what changes); the period and day-type factors are the two
-  scales on the shape (peak 1.0 / off-peak 0.6 / late 0.25, weekday 1.0 down to holiday 0.3); a
-  series is 97 points that close back onto their first; a peak window inside the operating hours
-  is worth exactly peak-over-off-peak, and one drawn outside them is worth nothing because shut
-  is answered first; and every knob a document holds is clamped, rounded to two decimals and
-  defaulted field by field, so no `NaN` ever reaches the spawn.
+  scales on the shape (peak 1.0 / off-peak 0.6 / late 0.25, and 工作日 1.0 / 周六 0.45 / 周日 0.35 /
+  **节假日 1.15** — a holiday is the crush, not the lull); a series is 97 points that close back
+  onto their first; a peak window inside the operating hours is worth exactly
+  peak-over-off-peak, and one drawn outside them is worth nothing because shut is answered first;
+  and every knob a document holds is clamped, rounded to two decimals and defaulted field by
+  field, so no `NaN` ever reaches the spawn. Its second half runs the **real world** on the
+  shipped station: the authored day reaches the crowd (a silenced 早高峰 is a thinner crowd, a
+  doubled one is busier, a station shut at 06:30 runs a thin service), and the *calendar* does
+  too — 周六 at 0.45 of a weekday, 周日 at 0.35, the 元旦 holiday above a plain Monday, the 调休
+  上班 Sunday running a Monday's crowd, and the same weekday a week later running the same crowd
+  to the person (§7.6).
 * `demo.test.mjs` — the shipped demo (动物园, Line 5) is one connected circulation: every exit
   reaches every platform and screen door and back, and a run actually boards and clears a crowd.
   Its controlled rig lives in `test/support/scenario-station.ts` for the other sim tests.
@@ -1770,11 +1786,11 @@ approximated); neither needs WebGL.
   every failure mode (B1); a legacy line with no direction termini loads with empty ones; a
   block off the 1 m grid — or a `NaN`, which JSON writes as `null` — is **dropped** at both
   boundaries rather than refused, while a broken envelope is still refused whole. The
-  **authored day** — operating hours, peak windows and demand knobs — rides beside the name and
-  the seed: a v1 file written before any of it loads on the defaults (absent and defaulted are
-  one code path, and the cell schema `formatVersion` freezes has not moved), and a hand-edited
-  file with an inverted window, a one-ended peak pair or a knob past its slider still opens,
-  repaired field by field.
+  **authored day** — operating hours, peak windows, demand knobs and the calendar — rides beside
+  the name and the seed: a v1 file written before any of it loads on the defaults (absent and
+  defaulted are one code path, and the cell schema `formatVersion` freezes has not moved), and a
+  hand-edited file with an inverted window, a one-ended peak pair, a knob past its slider or a
+  calendar whose epoch is 02-31 still opens, repaired field by field.
 * `grid.test.mjs` — nothing in the game can put a cell off the 1 m grid. Every palette piece is
   placed at every rotation, width, direction and 闸机 door mode, every staircase shape at
   fractional legacy widths (1.2, 1.6 m), and 方块 / 墙 / 房间 / 电梯 / 站台 / 隧道 / 材质 / 分区 /
@@ -2507,49 +2523,82 @@ comment there explains the trade.
 
 **The clock those seconds are read through is one derivation** (`src/sim/clock.ts`). The sim
 counts seconds; a station lives on a calendar, so `stampAt(simTime)` lays day 0 on the
-calendar's epoch — 2026-01-01, a Thursday, until §9.6C's 时刻 window lets a station author its
-own epoch, 节假日 and 活动日 — and derives the date, the weekday and the day type (工作日 / 周六 /
-周日 / 节假日) from it. A long run therefore crosses midnight on its own: the date and the
-weekday walk forward while the crowd keeps its seconds. Every readout prints that one stamp —
-the 信息栏's clock card (with the 高峰 / 平峰 / 夜间 chip and the day bar), the status bar's
-时间, and the 电视 plates' own departure clock — so three drawings of the clock cannot
-disagree with each other or with the dispatcher, which asks the same `periodOf` for its
-headway.
+calendar's epoch — **2026-01-01** until the player picks another date — and derives the date,
+the weekday and the day type (工作日 / 周六 / 周日 / 节假日) from it. A long run therefore crosses
+midnight on its own: the date and the weekday walk forward while the crowd keeps its seconds,
+and the day type walks with them, which is what makes a weekend visible in a long run. Every
+readout prints that one stamp — the 信息栏's clock card (with the 高峰 / 平峰 / 夜间 chip and the
+day bar), the status bar's 时间, and the 电视 plates' own departure clock — so three drawings of
+the clock cannot disagree with each other or with the dispatcher, which asks the same `periodOf`
+for its headway.
 
-**The authored day is three fields of the station document**, all of them set in the floating
-**时刻** window (§9.6C, opened by pressing the clock card) and all of them carried in the save
-beside the name and the seed: the **operating hours** (`service`, 06:30–23:30 by default), the
-two **peak windows** (`peaks`, 07:30–09:00 and 17:30–19:00) and the **客流曲线** knobs
-(`demand`: 早高峰量, 晚高峰量, 波形陡峭度). Each is repaired into range on load rather than
-refused — whole minutes, one day, `to` after `from`, a knob inside its slider — so a
-hand-edited file still opens. `periodOf` gates the service periods on the first two: outside
-the window the station is 夜间 whatever the timetable would otherwise be doing, **shut is
-checked before the peaks** (a station that opens at 09:00 has no 08:00 peak to serve), and a
-peak window drawn outside the hours cannot sneak service into them. Both shipped defaults are
-deliberately **behaviour-preserving** — the hours they exclude were already 夜间 under the
-day's shoulders at 06:30 and 22:30, and the default peaks are the windows that were
-hard-coded — so shipping the windows and the knobs changed no crowd and an old run replays.
+**The authored day is four fields of the station document**, all of them set in the floating
+**时刻 · 客流** window (§9.6C, opened by pressing the clock card) and all of them carried in the
+save beside the name and the seed:
 
-**The curve is one function with two readers** (`src/sim/demand.ts`). `World.spawnStreet`
-draws its Poisson arrivals from `demandAt(hour, period, dayType, knobs)` and the 时刻 window
-plots `demandSeries(…)` — the same function sampled — so a slider dragged in the panel redraws
-the picture *and* moves the crowd, and the two cannot describe different days. The curve is
-§7.4's `λ = base × curve(timeOfDay) × calendar(dayOfYear)` split three ways:
+| field | what it is | default |
+|---|---|---|
+| `service` | 营业时间, the span the station runs at all | 06:30–23:30 |
+| `peaks` | 高峰时段, the two peak windows (早高峰 ends no later than 晚高峰 begins) | 07:30–09:00, 17:30–19:00 |
+| `demand` | 客流曲线: 早高峰量, 晚高峰量, 波形陡峭度 | 1.0, 0.78, 1.0 |
+| `calendar` | 日期类型: which date day 0 is, plus the 节假日 and 调休上班日 lists | 2026-01-01, the 2026 arrangement |
+
+Each is repaired into range on load rather than refused — whole minutes, one day, `to` after
+`from`, a knob inside its slider, a date that exists — so a hand-edited file still opens.
+`periodOf` gates the service periods on the first two: outside the window the station is 夜间
+whatever the timetable would otherwise be doing, **shut is checked before the peaks** (a station
+that opens at 09:00 has no 08:00 peak to serve), and a peak window drawn outside the hours cannot
+sneak service into them. Both shipped timing defaults are deliberately **behaviour-preserving** —
+the hours they exclude were already 夜间 under the day's shoulders at 06:30 and 22:30, and the
+default peaks are the windows that used to be hard-coded — so shipping them changed no crowd and
+an old run replays.
+
+**The calendar is the 2026 arrangement, and the day type is derived from it.**
+`DEFAULT_CALENDAR` carries 国务院办公厅 国办发明电〔2025〕7号 — every 放假 date of 2026 as a holiday
+and every 调休 上班 date as a work day (元旦 01-01…01-03 with 01-04 worked, 春节 02-15…02-23 with
+02-14 and 02-28 worked, 清明节 04-04…04-06, 劳动节 05-01…05-05 with 05-09 worked, 端午节
+06-19…06-21, 中秋节 09-25…09-27, 国庆节 10-01…10-07 with 09-20 and 10-10 worked). The 时刻 window
+draws it a month at a time — **Monday first**, each cell already carrying its day type — and
+pressing a date makes it **第 1 天** of the run, which is how the player chooses the day type
+without a dropdown that could disagree with the date the clock prints. `monthGrid` is pure
+arithmetic (whole weeks, leading `null`s, the head each date sits under) so a test can pin the
+grid rather than a person having to look at it.
+
+**The curve is one function with two readers** (`src/sim/demand.ts`). `World.spawnStreet` draws
+its Poisson arrivals from `demandAt(hour, period, dayType, knobs)` and the 时刻 window plots
+`demandSeries(…)` — the same function sampled — so a boundary dragged in the panel redraws the
+picture *and* moves the crowd, and the two cannot describe different days. The curve is §7.4's
+`λ = base × curve(timeOfDay) × calendar(dayOfYear)` split three ways:
 
 ```
 shape(hour)     the double peak: the two heights and 波形陡峭度 (0.85 h wide at 100%),
 × period       高峰 1.0 / 平峰 0.6 / 夜间 0.25, the timetable's own multiplier (§6.5),
-× day type     工作日 1.0 / 周六 0.45 / 周日 0.35 / 节假日 0.30 — §7.4's calendar factor.
+× day type     工作日 1.0 / 周六 0.45 / 周日 0.35 / 节假日 1.15 — §7.4's calendar factor.
 ```
 
 The **defaults are the pre-knob formula to the last bit** — `demand.test.mjs` compares
 `demandShape` against the `0.06 + gauss(8, 0.85) + 0.78 × gauss(18, 1.05) + 0.18 ×
 gauss(12.5, 2.2)` it replaced at every five simulated minutes, because that is the only proof
-that shipping the knobs under a running simulation changed no crowd. The day-type factor is
-what makes a long run's weekend visible; the *shape* difference §7.4 also asks for (a later,
-longer holiday peak) is not modelled yet, and the day is **derived from the date** rather
-than picked from the spec's 日期类型 dropdown — the epoch and holiday list are the next thing
-the 时刻 window authors.
+that shipping the knobs under a running simulation changed no crowd. A 节假日 is **above** a
+weekday and a 调休上班日 is a weekday, both because the arrangement says so; the *shape* difference
+§7.4 also asks for (a later, longer holiday peak) is still to come, and 活动日 rows are not
+modelled at all.
+
+**The six boundaries are draggable on the chart itself.** 营业时间's two ends and both peaks' are
+grips in the drawing — a wide transparent hit box, the line it moves, a knob, and an
+`aria-valuetext` of the time — moved by pointer or by the arrow keys. **早高峰 ends no later than
+晚高峰 begins**: that is an invariant of the pair, held by `normalizePeaks` on the way in and by
+the grips' own walls while they are dragged, so a morning peak cannot be dragged over the evening
+one and a hand-edited save cannot load crossed. A drag writes a **draft** (the curve redraws under
+the hand, and the two peaks' times print under the chart in the draft's own numbers) and commits on
+release: one undo frame and one worker rebuild per gesture, not one per pixel. That is also why a
+nudge is handed over as a nudge rather than as a drag plus a release — a key press is both in one
+event, and state written in it is not in the commit's closure yet.
+
+The speed group is **暂停 / 1× / 4× / 16× / 64×**. One tick is one simulated second at every
+multiplier — only the real interval between ticks changes (`intervalMs`) — so 64× asks for a
+tick every 15.6 ms and takes whatever rate the crowd's own tick cost allows; nothing is
+skipped, and §7.6 determinism is untouched because the step size never moves.
 
 The speed group is **暂停 / 1× / 4× / 16× / 64×**. One tick is one simulated second at every
 multiplier — only the real interval between ticks changes (`intervalMs`) — so 64× asks for a
@@ -2599,22 +2648,23 @@ skipped, and §7.6 determinism is untouched because the step size never moves.
   three places, and §7.9's fast-forward — "headless worker ticks with no rendering, a full
   day in a few seconds" — is not what this is: the crowd still draws at 64×, and the sim
   takes whatever rate its own tick cost allows (a tick every 15.6 ms is what 64× asks for).
-* **The day is authored from a floating 时刻 window, and its default window is 06:30–23:30.**
-  §9.6C puts 营业时间, 高峰时段 and 客流曲线 in the bottom rail's 时刻 panel as a 05:30–24:00 dual
-  slider and a 24-point spline editor; the bottom rail has no 时刻 tab yet, so pressing the
-  信息栏's clock card opens a floating window with the same three inputs in its place (time
-  boxes and three sliders), and the day lives in the station document (`StationData.service /
-  peaks / demand`). The operating default differs from the spec's and is chosen to change
-  nothing: every hour it excludes was already 夜间 service, and the shipped peaks are the
+* **The day is authored from a floating 时刻 · 客流 window, and its default window is 06:30–23:30.**
+  §9.6C puts 营业时间, 高峰时段, 客流曲线 and 日期类型 in the bottom rail's 时刻 panel as a 05:30–24:00
+  dual slider, a 24-point spline editor and a dropdown; the bottom rail has no 时刻 tab yet, so
+  pressing the 信息栏's clock card opens a floating window with the same four inputs in its place
+  — the six span boundaries **dragged on the curve itself** instead of sliders, three 客流曲线
+  knobs, and the calendar, and the day lives in the station document (`StationData.service /
+  peaks / demand / calendar`). The operating default differs from the spec's and is chosen to
+  change nothing: every hour it excludes was already 夜间 service, and the shipped peaks are the
   windows that used to be hard-coded. A window that crosses midnight is not expressible —
   营业时间 is one span of one day here, as it is in the spec's own slider.
-* **The day type is derived from the date, not picked from §9.6C's 日期类型 dropdown.** The
-  demand carries the calendar coefficient the four day types name (工作日 1.0 → 节假日 0.3), but
-  *which* day it is comes from the calendar's epoch and holiday list — still `DEFAULT_CALENDAR`
-  (day 0 is 2026-01-01, a Thursday) — rather than from a control, because a dropdown that
-  overrode the date would leave the clock's own date and weekday disagreeing with the crowd
-  they describe. Authoring the epoch, the 节假日 list and the 活动日 rows is the next thing that
-  window grows.
+* **The day type is chosen by date, not by §9.6C's 日期类型 dropdown.** The demand carries the
+  calendar coefficient the four day types name, but *which* day it is comes from the calendar —
+  a real 2026 date list with the 国办发明电〔2025〕7号 holidays and 调休 work days — and the player
+  picks it by pressing a date in the 时刻 window's calendar (that date becomes 第 1 天). A dropdown
+  that overrode the date would leave the clock's own date and weekday disagreeing with the crowd
+  they describe. The 节假日 and 调休上班日 lists are shipped data rather than editable rows, and
+  §9.6C's 活动日 (an event day with its own multiplier) is not modelled at all.
 * **Zones, surfaces, save/load, settings, charts and the module catalogue beyond
   escalator / gate / TVM / bench / exit are out of scope**, exactly as PLAN §7 lists.
 * **One line.** Transfers therefore resolve to an exit; §7.5 is not exercised.

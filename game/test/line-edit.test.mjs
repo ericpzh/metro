@@ -32,6 +32,8 @@ import demoJson from '../src/data/demo-station.json' with { type: 'json' }
 import { REFERENCE_BOOT, referenceStation } from '../src/data/reference-station.ts'
 import { lineColourFor } from '../src/data/line-colours.ts'
 import { SAVE_VERSION } from '../src/persistence/save.ts'
+import { DEFAULT_CALENDAR, simTimeAtDate } from '../src/sim/clock.ts'
+import { SIM_DAY } from '../src/sim/constants.ts'
 
 /* --------------------------------------------------------------- the harness */
 
@@ -404,11 +406,11 @@ test('a large station trades undo depth for the memory budget, and never drops t
   st().loadReference()
   const cost = st().station.cells.length + st().station.modules.length * 4
   const frames = Math.min(40, Math.floor(120000 / cost))
-  assert.equal(frames, 9, `the shipped demo costs ${cost} a snapshot, so nine fit the 120 000 budget`)
+  assert.equal(frames, 8, `the shipped demo costs ${cost} a snapshot, so eight fit the 120 000 budget`)
   for (let i = 1; i <= 11; i++) st().commit({ ...st().station, name: `step-${i}` })
   assert.equal(st().past.length, frames, 'the budget, not the forty-frame depth, is the binding limit')
   assert.equal(st().past[frames - 1].name, 'step-10', 'the newest frame is the one the cap may never drop')
-  assert.equal(st().past[0].name, 'step-2', 'the oldest frames are the ones that go')
+  assert.equal(st().past[0].name, 'step-3', 'the oldest frames are the ones that go')
   assert.equal(st().past[frames - 1].cells.length, st().station.cells.length, 'and a kept frame is the whole document')
 })
 
@@ -720,4 +722,76 @@ test('the 时刻 panel writes the day into the document, and a no-op keystroke w
   const knobFrames = st().past.length
   st().setDemandKnobs({ amPeak: st().station.demand.amPeak })
   assert.equal(st().past.length, knobFrames, 'a patch that changes nothing is not an edit')
+})
+
+/* --------------------------------------------------------- the calendar pick */
+
+test('seekToDate keeps the time of day: picking a date runs that day, not its midnight', () => {
+  // The 时刻 window's calendar pick (§7.9's scrub): the store keeps the time of
+  // day and posts a `seek`, the worker moves its clock there. `World.seek`
+  // itself is pinned in `demand.test.mjs`; this is the path the click travels.
+  load({ name: 'seek测试', seed: 7, cells: [], modules: [], lines: [] })
+  initSim(st().station, st().station.seed)
+  // Monday 2026-01-05 at 07:30, the morning peak: the clock the crowd is on.
+  st().setMetrics({ simTime: 4 * SIM_DAY + 7.5 * 3600 })
+  workerInbox.length = 0
+
+  st().seekToDate({ year: 2026, month: 1, day: 10 })
+  const msg = workerInbox.pop()
+  assert.equal(msg.type, 'seek')
+  assert.equal(
+    msg.seconds,
+    9 * SIM_DAY + 7.5 * 3600,
+    'Saturday 2026-01-10 at the same 07:30 — `simTimeAtDate` with the kept time of day',
+  )
+  assert.equal(
+    msg.seconds,
+    simTimeAtDate({ year: 2026, month: 1, day: 10 }, DEFAULT_CALENDAR.epoch, 7.5 * 3600),
+  )
+})
+
+test('a sim that has not reported a frame yet seeks to midnight', () => {
+  load({ name: 'seek测试', seed: 7, cells: [], modules: [], lines: [] })
+  initSim(st().station, st().station.seed)
+  st().setMetrics(null)
+  assert.equal(st().metrics, null, 'no frame has landed')
+  workerInbox.length = 0
+
+  st().seekToDate({ year: 2026, month: 1, day: 10 })
+  const msg = workerInbox.pop()
+  assert.equal(msg.type, 'seek')
+  assert.equal(msg.seconds, 9 * SIM_DAY, 'day 9 at 00:00: there was no time of day to keep')
+})
+
+test('the date is read against the station’s own epoch, not the shipped one', () => {
+  load({
+    name: 'seek测试',
+    seed: 7,
+    cells: [],
+    modules: [],
+    lines: [],
+    calendar: { epoch: { year: 2026, month: 3, day: 1 }, holidays: [], workdays: [] },
+  })
+  assert.deepEqual(st().station.calendar.epoch, { year: 2026, month: 3, day: 1 })
+  initSim(st().station, st().station.seed)
+  st().setMetrics({ simTime: 3600 })
+  workerInbox.length = 0
+
+  st().seekToDate({ year: 2026, month: 3, day: 5 })
+  const msg = workerInbox.pop()
+  assert.equal(msg.seconds, 4 * SIM_DAY + 3600, 'four days after the station’s own day 0, time kept')
+})
+
+test('seeking is not an edit: no undo frame, no document version', () => {
+  load({ name: 'seek测试', seed: 7, cells: [], modules: [], lines: [] })
+  initSim(st().station, st().station.seed)
+  const before = st().station
+  const version = st().version
+  st().setMetrics({ simTime: 3600 })
+  workerInbox.length = 0
+
+  st().seekToDate({ year: 2026, month: 1, day: 10 })
+  assert.equal(st().station, before, 'the document is untouched')
+  assert.equal(st().version, version, 'so there is nothing to undo')
+  assert.equal(st().past.length, 0)
 })

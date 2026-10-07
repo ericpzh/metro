@@ -63,16 +63,17 @@ export const DEMAND_LIMITS = {
 export const PERIOD_FACTOR: Record<Period, number> = { peak: 1, offpeak: 0.6, late: 0.25 }
 
 /**
- * The calendar's multiplier (§7.4, §9.6C 日历系数): a **weekday** is the baseline, the
- * weekend carries a quarter to a half of it, and a public holiday a little less again —
- * with a different *shape* (a later, longer peak) still to come, which is why the day
- * type is a first-class input here rather than a scale applied at the call site.
+ * The calendar's multiplier (§7.4, §9.6C 日历系数): a **weekday** is the baseline and the
+ * weekend carries a quarter to a half of it, exactly as §7.4 asks. A **节假日 is the other
+ * way** — sheet 06's panel B is explicit that a statutory holiday is the day the platform is
+ * crowded "and it comes without warning" — so a holiday runs *above* a weekday here. The
+ * later, longer holiday *shape* §7.4 also asks for is not modelled yet; this is its volume.
  */
 export const DAY_TYPE_FACTOR: Record<DayType, number> = {
   weekday: 1,
   saturday: 0.45,
   sunday: 0.35,
-  holiday: 0.3,
+  holiday: 1.15,
 }
 
 /** Seconds since midnight as hours (0–24, float). */

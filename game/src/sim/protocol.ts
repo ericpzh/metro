@@ -24,6 +24,9 @@ export type ToWorker =
   // A restart keeps the built station and the clock but empties the crowd: every
   // agent, train and queue is dropped and the sim runs on from here.
   | { type: 'restart' }
+  // Move the clock to `seconds` and keep everything else: the 时刻 window's calendar pick
+  // (§7.9's scrub). `simTime` is seconds since the run began, the same base the metrics report.
+  | { type: 'seek'; seconds: number }
   // The 选择 tool previews one passenger's route (`World.routeOf`). `id` is -1 to put
   // the preview away, and `token` is echoed back on every frame so the renderer can
   // tell "the worker has not seen my selection yet" from "that passenger is gone".

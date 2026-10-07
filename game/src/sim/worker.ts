@@ -177,6 +177,16 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       }
       break
     }
+    case 'seek': {
+      // The scrub (the 时刻 window's calendar pick): the clock moves, the station and the crowd
+      // stay. Posted straight away, because a paused sim has no stream to carry it later.
+      if (world) {
+        world.seek(msg.seconds)
+        dirty = true
+        run()
+      }
+      break
+    }
     case 'selectAgent': {
       // A preview is not an edit: the world — and so the clock the passenger is
       // walking on — is untouched. The renderer has to be told *now* only when

@@ -101,7 +101,7 @@ build/ →  sim/            (and neither render/ nor app/)
   into 73 walk-only islands and left **one** platform→exit route for the whole station, with 12 of its 30
   ramps carrying nobody. `wayfinding.test.mjs` pins both directions.
 * **The fare line is off by default.** A cell with no `zone` reads as `DEFAULT_ZONE` (`unpaid`), so sparse
-  zone paint — the demo has 6,809 of 11,625 cells unlabelled — invents ungated fare lines wherever a
+  zone paint — the demo has 7,071 of 12,403 cells unlabelled — invents ungated fare lines wherever a
   painted patch sits in unpainted floor, and they once sealed that platform's escalators into 6-cell
   pockets behind one narrow stair. So `ZONE_LINES_BLOCK` is **false**: a zone line does not block, and a
   gate is a queue the crowd may walk around. Put it back with that constant, or per station —
@@ -123,7 +123,7 @@ build/ →  sim/            (and neither render/ nor app/)
   §7.2's patience trigger for a gate or lift queue, moving an agent **only** when the new
   route queues at a different server.
 * **The worker** (`sim/worker.ts`, `sim/protocol.ts`) is the only sim code that
-  touches `postMessage`. Messages in: `init` / `build` / `control` / `restart`;
+  touches `postMessage`. Messages in: `init` / `build` / `control` / `restart` / `seek`;
   out: `ready`
   (graph) / `state` (agent `Float32Array`s, metrics, density, train poses,
   `intervalMs`). Payloads are copied, not transferred; the renderer interpolates
@@ -1071,22 +1071,47 @@ build/ →  sim/            (and neither render/ nor app/)
   `sim/protocol.ts`, `sim/worker.ts`, `build/model/State.ts`,
   `persistence/save.ts`, `app/store/slices/{SimSlice,StationSlice,ViewSlice}.ts`,
   `app/windows/time/**`, `app/windows/inspector/ClockCard.tsx`, `styles.css`;
-  tests `clock`, `demand`, `wayfinding`). 日期类型 / 营业时间 / 高峰时段 /
-  客流曲线 are **document data** (`StationData.service` / `peaks` / `demand`),
-  saved per station, repaired per field on load and re-normalized on every
-  `rebuild()` (`World.day`), so an edit lands through the same path a save does.
+  tests `clock`, `demand`, `save`, `line-edit`, `worker-preview`, `wayfinding`). 日期类型 / 营业时间 /
+  高峰时段 / 客流曲线 are **four document fields** (`StationData.service` /
+  `peaks` / `demand` / `calendar`), saved per station, repaired per field on
+  load and re-normalized on every `rebuild()` (`World.day` + `World.calendar`),
+  so an edit lands through the same path a save does.
   `periodOf(simTime, service, peaks)` checks **shut first** — a station that opens
   at 08:00 is not in its 高峰 at 07:00 — and `DEFAULT_SERVICE` is 06:30–23:30,
   deliberately the span the old fixed window plus shoulder rule already ran:
   `demand.test.mjs` proves an all-day window runs the identical crowd, and that a
   real crowd follows the knobs, the window and the calendar day
-  (`DAY_TYPE_FACTOR` 周六/周日/节假日 ≈ 0.45/0.35/0.3). `demandSeries` samples a
+  (`DAY_TYPE_FACTOR` 工作日 1.0 / 周六 0.45 / 周日 0.35 / **节假日 1.15** — a
+  holiday is the crush, not the lull). `demandSeries` samples a
   **uniform grid** so the last point closes onto the first for any step, and a
   step that is zero/negative/NaN falls back to 15 minutes rather than looping
   unbounded. `LOS_LABELS` is the single map both the status bar and the 时刻 strip
-  print. The panel reads its slider ends from `DEMAND_LIMITS` and its peak hours
-  from `DEMAND_AM_HOUR`/`DEMAND_PM_HOUR`, so the widget cannot offer a value
-  `normalizeDemand` then repairs.
+  print. The three knobs span 0–2.5 (peaks) and 0.4–2 (sharpness); a value past
+  its slider is repaired by `normalizeDemand`, never refused.
+* **The calendar is the 2026 arrangement, and the day type is derived from it,
+  never picked.** `DEFAULT_CALENDAR` carries 国务院办公厅 国办发明电〔2025〕7号 —
+  every 放假 date of 2026 as a holiday, every 调休 上班 date as a work day, day 0
+  on 2026-01-01 — and `dayTypeOf` reads holidays first (a date on both lists is
+  a holiday), then workdays (a 调休 Saturday is a 工作日), then the weekday.
+  `normalizeCalendar` repairs rather than refuses (a missing list is the shipped
+  one, a present-but-junk list is empty, a non-date epoch falls back, `02-30`
+  becomes `02-28`), and the **peak pair is held in order**: 早高峰 ends no later
+  than 晚高峰 begins (`normalizePeaks` pushes the evening out rather than
+  sorting, squeezing into the end of the day when the morning runs to midnight —
+  the same wall the chart grips drag against). `weekdayOf` / `daysInMonth` are
+  the arithmetic, `monthGrid` lays a Monday-first month of whole weeks (leading
+  `null`s, each cell already carrying its day type) so the view is pinned by a
+  test, and `simTimeAtDate` turns a picked date plus the kept time of day into
+  sim seconds. The pick **is a seek**: `SimSlice.seekToDate` keeps the time of
+  day (midnight when no frame has landed yet), posts a `seek`, `World.seek`
+  moves the clock and drops the absolute-time dispatch schedule (a backwards
+  scrub would otherwise stall every train) while the crowd, queues, trains and
+  counters stay — `seek.test.mjs` pins the store→worker path, `demand.test.mjs`
+  the world half. `ClockCard` reads `station.calendar`, so the chip and the day
+  bar are the day the sim runs. The chart's six boundaries (both 营业时间 ends,
+  both peaks') are grips on the curve itself (`curveBoundaries`: draft on move,
+  one undo frame and one rebuild on release, arrow keys nudge-and-commit as one
+  step via `onNudge`), and the calendar press makes that date 第 1 天.
 * **The fare line is a label by default** (`ZONE_LINES_BLOCK = false`,
   `sim/constants.ts`, `sim/station.ts`): §4.5's barrier is off until the station's
   zone paint is finished, because the shipped 动物园 save has 6,809 unlabelled
@@ -1121,8 +1146,13 @@ build/ →  sim/            (and neither render/ nor app/)
   store from a hook in `select-agent.test.mjs` reset the document under
   `pick-tool`'s tests. Files that stub a global or seed the store for their own
   suite may use a hook; files that only read them arrange themselves inside the
-  test. Snapshot after the gap-filling pass: **880 tests, 95.26 % lines /
-  88.53 % branches / 89.36 % functions**.
+  test. Snapshot after the gap-filling pass: **891 tests, 95.29 % lines /
+  88.65 % branches / 89.47 % functions**. New coverage lands in the file that
+  owns its harness, never a new one: the `seek` path is split across
+  `line-edit.test.mjs` (the store half, on its `Worker` stub) and
+  `worker-preview.test.mjs` (the worker half, on its `self` stub), because a
+  third file stubbing either global would steal the shared stub out from under
+  the other suites.
 * The **stock classification** gained the **L** linear-motor car (`sim/stock.ts`,
   `game/test/stock.test.mjs`): `STOCK_CLASSES` (`['A','B','C','L']`) is now the
   single ordering source, so the worker's pose index (`STOCK_CLASSES.indexOf`) and
@@ -1178,12 +1208,13 @@ build/ →  sim/            (and neither render/ nor app/)
   ever *refused*: refusal is for a broken envelope (`文件损坏`, 不是地铁车站存档,
   存档太新了, 缺少车站数据), and a station that is otherwise fine is not worth losing
   over a block no tool can see. A load that had to repair says so in the 打开 notice,
-  the shipped file is nonetheless kept clean (the current bake ships **11 625 cells and
-  395 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-06
-  16:32Z save — the copy it replaced was 11 627 cells / 394 modules of the same day —
-  and it carries the **new cut pieces**: two 半墙 courses and thirty-two 三角 courses the
-  author laid with the cut tiles, plus five free-standing 门, ordinary `wall` +
-  `half-wall:*` / `tri-*:*` cells and `door` modules that no suite has to know about),
+  the shipped file is nonetheless kept clean (the current bake ships **12 403 cells and
+  391 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-07
+  01:17Z save — the copy it replaced was 11 625 cells / 395 modules —
+  and it carries the **cut pieces**: thirty-two 三角 courses the
+  author laid with the cut tiles (sixteen `tri-upper` + sixteen `tri-lower`, no
+  半墙 courses this time), plus five free-standing 门, ordinary `wall` +
+  `tri-*:*` cells and `door` modules that no suite has to know about),
   and `demo.test.mjs` fails if one ever arrives. Nothing in the game can *mint* one —
   a pick names whole cells (`render/pickCell.ts`: the block hit, and the block one step
   out along the face it was hit on), pinned against real meshed geometry by
@@ -1421,7 +1452,7 @@ build/ →  sim/            (and neither render/ nor app/)
   (`SceneRenderer.raf`) and takes the module groups and the finish set with it (a painted
   colour the document no longer names gives its canvas texture back: `finishesInUse` /
   `MaterialSet.retain`). The undo stack is capped by frames **and memory**
-  (`StationSlice.pushPast` — on the shipped demo that is **nine** frames, where a fresh
+  (`StationSlice.pushPast` — on the shipped demo that is **eight** frames, where a fresh
   2 × 2 station keeps all forty), `cloneState` uses `structuredClone` instead of a
   per-module JSON round-trip, and a **live** 指示牌 preview raises `signVersion` rather
   than the document's `version`, so a preview stops looking like a document edit (no
