@@ -576,6 +576,7 @@ export class SceneRenderer {
     this.cameraSys.dispose()
     this.chunks.disposeChunks()
     this.ghostSys.dispose()
+    this.grid.dispose()
     this.sectionSys.dispose()
     this.modules.disposeSelection()
     // The module groups, the plates they carry and the builder-minted materials go

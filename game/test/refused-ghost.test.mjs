@@ -71,3 +71,33 @@ test('the wall pieces sit their own way: no contact blob under them', () => {
   assert.ok(blobRadius('bench') > 0, 'a 座椅 keeps its blob')
   assert.ok(blobRadius('tvm') > 0, 'and so does a 售票机')
 })
+
+test('disposing the scene releases the remove-drag pool mesh', () => {
+  // The instanced pool is scene-lifetime, not per-drag: a disposed scene that
+  // keeps its 4096-instance buffers keeps the scene. `disposeObject` spares
+  // shared materials, so the pool's own geometry and material go explicitly.
+  const scene = new THREE.Scene()
+  const ctx = new SceneContextData(scene, null, null, null)
+  const sys = new GhostSystem(ctx)
+  sys.modules = { fenceGroups: [] }
+  sys.setGhost(
+    [
+      [1, 2, 0],
+      [2, 2, 0],
+    ],
+    'remove',
+  )
+  const mesh = sys.ghostMesh
+  assert.ok(mesh, 'the remove drag mints the instanced pool mesh')
+  let geoGone = false
+  let matGone = false
+  mesh.geometry.addEventListener('dispose', () => (geoGone = true))
+  mesh.material.addEventListener('dispose', () => (matGone = true))
+
+  sys.dispose()
+
+  assert.equal(sys.ghostMesh, null, 'the pool reference goes with the scene')
+  assert.ok(!scene.children.includes(mesh), 'and the mesh leaves the scene')
+  assert.ok(geoGone, 'the pool geometry is freed')
+  assert.ok(matGone, 'and its material')
+})

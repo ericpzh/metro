@@ -914,6 +914,14 @@ export class PathFinder {
   cache: Map<string, Int32Array> = new Map()
   pending: PendingRequest[] = []
   /**
+   * Consumed prefix of `pending`. `process()` used to `shift()` every request,
+   * which memmoves the rest of the queue — O(n²) to drain a wave backs up behind
+   * the per-tick budget, and a long session that keeps a backlog pays it every
+   * tick. The head index makes dequeue O(1); the array is compacted once the dead
+   * prefix grows past a chunk.
+   */
+  private pendingHead = 0
+  /**
    * The congestion charge per node, in seconds: what the crowd standing there
    * adds to a route through it (§7.3). The world writes it once per tick from the
    * live crowd, before any search runs, and every search reads it — a budgeted
@@ -978,16 +986,18 @@ export class PathFinder {
   process(limit = MAX_REPATH_PER_TICK): PendingRequest[] {
     const done: PendingRequest[] = []
     let n = 0
-    while (this.pending.length > 0) {
-      const key = `${this.pending[0].from}|${this.pending[0].to}|${needsClass(this.pending[0].needs)}`
+    while (this.pendingHead < this.pending.length) {
+      const head = this.pending[this.pendingHead]
+      const key = `${head.from}|${head.to}|${needsClass(head.needs)}`
       if (this.cache.has(key)) {
-        const req = this.pending.shift() as PendingRequest
+        this.pendingHead++
         this.touch(key, this.cache.get(key) as Int32Array)
-        done.push(req)
+        done.push(head)
         continue
       }
       if (n >= limit) break
-      const req = this.pending.shift() as PendingRequest
+      this.pendingHead++
+      const req = head
       const path = this.astar(req.from, req.to, req.needs)
       if (path) {
         if (this.cache.size >= PATH_CACHE_MAX) {
@@ -1003,6 +1013,17 @@ export class PathFinder {
       done.push(req)
       n++
     }
+    // Reclaim the consumed prefix so a session-long backlog cannot pin every
+    // request object it ever queued. Kept amortised: compact only once the dead
+    // prefix is worth it.
+    if (this.pendingHead > 1024 && this.pendingHead * 2 >= this.pending.length) {
+      this.pending.splice(0, this.pendingHead)
+      this.pendingHead = 0
+    } else if (this.pendingHead >= this.pending.length) {
+      // Fully drained: drop the array rather than holding its capacity.
+      this.pending.length = 0
+      this.pendingHead = 0
+    }
     return done
   }
 
@@ -1012,7 +1033,7 @@ export class PathFinder {
   }
 
   get pendingCount(): number {
-    return this.pending.length
+    return this.pending.length - this.pendingHead
   }
 
   /** Plain A* over the CSR graph. Returns node ids from start to goal. */

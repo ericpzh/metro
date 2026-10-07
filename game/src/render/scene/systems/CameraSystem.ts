@@ -498,5 +498,8 @@ export class CameraSystem extends SceneSystem {
     this.canvas.removeEventListener('pointermove', this.onEdgePointerMove)
     this.canvas.removeEventListener('pointerleave', this.onEdgePointerLeave)
     this.canvas.removeEventListener('pointerup', this.onEdgePointerUp)
+    // OrbitControls wires its own pointer/wheel/contextmenu listeners onto the
+    // canvas; without this they survive the scene and keep the camera alive.
+    this.controls.dispose()
   }
 }

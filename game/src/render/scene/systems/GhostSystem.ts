@@ -645,6 +645,15 @@ export class GhostSystem extends SceneSystem {
     this.clearModulePreview()
     this.clearFencePreview()
     this.ghostMaterial?.dispose()
+    // The remove-drag pool is scene-lifetime, not per-drag: without this a
+    // disposed scene keeps its 4096-instance buffers and the scene reference.
+    if (this.ghostMesh) {
+      this.ctx.scene.remove(this.ghostMesh)
+      this.ghostMesh.geometry.dispose()
+      ;(this.ghostMesh.material as THREE.Material).dispose()
+      this.ghostMesh.dispose()
+      this.ghostMesh = null
+    }
     if (this.faceGhost) {
       this.ctx.scene.remove(this.faceGhost)
       this.faceGhost.geometry.dispose()

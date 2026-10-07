@@ -251,6 +251,15 @@ export const CONGESTION_CAP = 10
  */
 export const GATE_LOOKAHEAD = 8
 export const GATE_REPLAN_PER_TICK = 2
+/**
+ * §7.2's patience trigger (`World.reRouteAroundQueue`): the same synchronous
+ * search as the fare-line choice, fired when a queued passenger's wait passes
+ * patience. Unrationed it runs once per impatient agent per tick, so a saturated
+ * gate or lift fires hundreds of full A* searches in the same tick and every
+ * tick after — the long-session cliff a refresh clears. Rationed like the gate
+ * choice; an agent the ration skips keeps its place and retries next tick.
+ */
+export const REROUTE_REPLAN_PER_TICK = 4
 /** Train door, pax/s at a 1.4 m door, derated by crowding. */
 export const DOOR_RATE = 1.2
 

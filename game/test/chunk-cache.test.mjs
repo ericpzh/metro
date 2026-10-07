@@ -103,3 +103,30 @@ test('a rebuild still prunes chunks the station no longer has', () => {
     assert.equal(disposed.has(g), false, 'nothing live was disposed')
   }
 })
+
+test('disposing the chunks releases the wall-pick singletons and the tint caches', () => {
+  // The shop-wall pick proxies share one geometry/material for the scene's
+  // life, and the 显示其他层 / 隐藏墙壁 tints are keyed by dropped materials —
+  // so a disposed scene frees them instead of holding the scene and the maps.
+  const { ctx, chunks } = renderer()
+  mesh(chunks, row([2, 3, 4]), new Set())
+  assert.ok(ctx.scene.children.includes(chunks.wallPick), 'the pick proxies ride the scene')
+  const dim = new THREE.MeshBasicMaterial()
+  const clear = new THREE.MeshBasicMaterial()
+  let dimGone = false
+  let clearGone = false
+  let geoGone = false
+  dim.addEventListener('dispose', () => (dimGone = true))
+  clear.addEventListener('dispose', () => (clearGone = true))
+  chunks.wallPickGeo.addEventListener('dispose', () => (geoGone = true))
+  ctx.dimMats.set(dim, dim)
+  ctx.clearMats.set(clear, clear)
+
+  chunks.disposeChunks()
+
+  assert.ok(!ctx.scene.children.includes(chunks.wallPick), 'the proxies leave the scene')
+  assert.ok(geoGone, 'their shared geometry is freed')
+  assert.ok(dimGone && clearGone, 'the tint caches drop what is now unreachable')
+  assert.equal(ctx.dimMats.size, 0, 'and the maps go with the scene')
+  assert.equal(ctx.clearMats.size, 0, 'both of them')
+})

@@ -101,7 +101,7 @@ build/ →  sim/            (and neither render/ nor app/)
   into 73 walk-only islands and left **one** platform→exit route for the whole station, with 12 of its 30
   ramps carrying nobody. `wayfinding.test.mjs` pins both directions.
 * **The fare line is off by default.** A cell with no `zone` reads as `DEFAULT_ZONE` (`unpaid`), so sparse
-  zone paint — the demo has 7,071 of 12,403 cells unlabelled — invents ungated fare lines wherever a
+  zone paint — the demo has 7,199 of 12,035 cells unlabelled — invents ungated fare lines wherever a
   painted patch sits in unpainted floor, and they once sealed that platform's escalators into 6-cell
   pockets behind one narrow stair. So `ZONE_LINES_BLOCK` is **false**: a zone line does not block, and a
   gate is a queue the crowd may walk around. Put it back with that constant, or per station —
@@ -119,8 +119,12 @@ build/ →  sim/            (and neither render/ nor app/)
   luggage, `LIFT_AVOID_S` for anyone who could have walked — a **preference, not a ban**,
   so a jammed ramp or a shaft with no alternative still hands them the lift. `chooseGate`
   re-plans a leg the moment a gate is within `GATE_LOOKAHEAD` (rationed by
-  `GATE_REPLAN_PER_TICK`, because it skips the cache) and `World.reRouteAroundQueue` is
-  §7.2's patience trigger for a gate or lift queue, moving an agent **only** when the new
+  `GATE_REPLAN_PER_TICK`, because it skips the cache — at the gate's own cell
+  included, so a wave arriving together spreads its choices over ticks) and
+  `World.reRouteAroundQueue` is
+  §7.2's patience trigger for a gate or lift queue (rationed by
+  `REROUTE_REPLAN_PER_TICK`, a skipped agent keeping its place and retrying
+  after another patience interval), moving an agent **only** when the new
   route queues at a different server.
 * **The worker** (`sim/worker.ts`, `sim/protocol.ts`) is the only sim code that
   touches `postMessage`. Messages in: `init` / `build` / `control` / `restart` / `seek`;
@@ -1146,8 +1150,8 @@ build/ →  sim/            (and neither render/ nor app/)
   store from a hook in `select-agent.test.mjs` reset the document under
   `pick-tool`'s tests. Files that stub a global or seed the store for their own
   suite may use a hook; files that only read them arrange themselves inside the
-  test. Snapshot after the gap-filling pass: **891 tests, 95.29 % lines /
-  88.65 % branches / 89.47 % functions**. New coverage lands in the file that
+  test. Snapshot after the gap-filling pass: **897 tests, 95.50 % lines /
+  88.64 % branches / 89.79 % functions**. New coverage lands in the file that
   owns its harness, never a new one: the `seek` path is split across
   `line-edit.test.mjs` (the store half, on its `Worker` stub) and
   `worker-preview.test.mjs` (the worker half, on its `self` stub), because a
@@ -1208,9 +1212,9 @@ build/ →  sim/            (and neither render/ nor app/)
   ever *refused*: refusal is for a broken envelope (`文件损坏`, 不是地铁车站存档,
   存档太新了, 缺少车站数据), and a station that is otherwise fine is not worth losing
   over a block no tool can see. A load that had to repair says so in the 打开 notice,
-  the shipped file is nonetheless kept clean (the current bake ships **12 403 cells and
-  391 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-07
-  01:17Z save — the copy it replaced was 11 625 cells / 395 modules —
+  the shipped file is nonetheless kept clean (the current bake ships **12 035 cells and
+  397 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-07
+  01:50Z save — the copy it replaced was 12 403 cells / 391 modules —
   and it carries the **cut pieces**: thirty-two 三角 courses the
   author laid with the cut tiles (sixteen `tri-upper` + sixteen `tri-lower`, no
   半墙 courses this time), plus five free-standing 门, ordinary `wall` +

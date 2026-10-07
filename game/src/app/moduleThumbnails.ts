@@ -413,6 +413,10 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
    * Released with the rest of the pass in the `finally` below.
    */
   const faceCache = new Map<string, THREE.Material>()
+  // `signFace` mints a fresh wrapper material per call around a cached texture;
+  // `disposeObject` keeps materials, so the wrappers would survive the per-tile
+  // teardown below. Tracked here and released with the pass.
+  const signWrappers: THREE.Material[] = []
   const ctx: ModuleContext = {
     mats,
     ads,
@@ -445,7 +449,9 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
         })
         plateCache.set(key, t)
       }
-      return litPanelMaterial(t)
+      const wrapper = litPanelMaterial(t)
+      signWrappers.push(wrapper)
+      return wrapper
     },
     // A 站名 icon is the synthetic station's own name in that hand and axis —
     // real drawing code, so the sub-menu shows twelve hands rather than twelve tiles.
@@ -520,6 +526,7 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
   } finally {
     disposeModelMaterials(mats)
     ads.dispose()
+    lineMaps.dispose()
     // The 站名 ink and the 线网图 boards are minted for the tiles alone: nothing in
     // the scene shares them, so they go with the pass (each wraps a canvas of its
     // own, and the pass is one-shot for the session).
@@ -528,6 +535,11 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
       if (map) map.dispose()
       mat.dispose()
     }
+    // The 电视/指示牌 plate textures cached for the pass, plus the per-call wrapper
+    // materials around them (which `disposeObject` keeps, so the per-tile teardown
+    // above never frees them).
+    for (const m of signWrappers) m.dispose()
+    for (const t of plateCache.values()) t.dispose()
     for (const m of finishes.finishCache.values()) {
       m.map?.dispose()
       m.dispose()

@@ -1660,7 +1660,7 @@ at (64,15)/(70,16) among them, splitting the crowd 36/36 with the western stair 
 nobody in 2400 s instead of 12, and the station clears 3,476 people against 3,383. `wayfinding.test.mjs`
 pins the rule both ways up: the storey a run climbs is walled by its glass, the one under it is not.
 
-*The station's own paint, and why the fare line is off for now.* 7,071 of the 动物园 save's 12,403 floor
+*The station's own paint, and why the fare line is off for now.* 7,199 of the 动物园 save's 12,035 floor
 cells carry **no zone label**, and an unlabelled cell reads as `unpaid` (`DEFAULT_ZONE`). That is fine
 where the gate row is the line — and an invisible fare line everywhere a *painted* patch sits inside
 unpainted floor. Enforced, those lines are barriers (§4.5) and they sealed the −16 level's escalator

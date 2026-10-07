@@ -13,6 +13,7 @@ import {
   GATE_CLEAR_RADIUS,
   GATE_LOOKAHEAD,
   GATE_REPLAN_PER_TICK,
+  REROUTE_REPLAN_PER_TICK,
   LANE_SLOT,
   LIFT_BOARD_S,
   LIFT_DOOR_S,
@@ -190,9 +191,17 @@ export class World {
   /**
    * Gate re-choices spent this tick. The fare-line decision skips the path cache
    * (§7.2), so it is a synchronous search inside the tick and has to be rationed
-   * like one; an agent the ration skips still chooses at the gate's own cell.
+   * like one — at the gate's own cell too, where a wave arriving together used
+   * to choose all at once. An agent the ration skips keeps `gateChosen` false
+   * and retries next tick, so the wave spreads over ticks instead of stalling one.
    */
   private gateReplans = 0
+  /**
+   * Patience re-routes spent this tick (`reRouteAroundQueue`). Same rationing as
+   * the fare-line choice: without it every impatient agent runs a full synchronous
+   * A* in the same tick. Reset beside `gateReplans` in `moveAgents`.
+   */
+  private rerouteReplans = 0
   private nextTrainId = 1
   /** Scratch pose for `trainAt`, so pinning a cabin needs no allocation. */
   private poseScratch: TrainAt = { x: 0, y: 0, z: 0, fx: 1, fy: 0 }
@@ -1674,6 +1683,7 @@ export class World {
     // search this tick sees the same station.
     this.priceCongestion()
     this.gateReplans = 0
+    this.rerouteReplans = 0
     // Resolve path requests first, in agent id order.
     this.processRepaths()
 
@@ -1807,8 +1817,15 @@ export class World {
     // hand back the same cabin every time.
     if (s.kind === 'lift' && a.needs.stepFree) return false
     if (a.destNode < 0 || a.awaitingPath) return false
+    // Ration the synchronous search like the fare-line choice: `queueTime` calls
+    // this for every agent whose wait passed patience, so an unrationed crush
+    // runs one full A* per impatient agent in the same tick. Skipped agents keep
+    // their place and their patience clock restarts (`queueTime` resets `wait`),
+    // so they retry only after another patience interval.
+    if (this.rerouteReplans >= REROUTE_REPLAN_PER_TICK) return false
     const from = this.nearestNode(a.x, a.y, a.z)
     if (from < 0 || from === a.destNode) return false
+    this.rerouteReplans++
     const path = this.path.search(from, a.destNode, a.needs)
     if (!path || path.length === 0) return false
     if (this.firstQueueServer(path) === s.id) return false
@@ -1917,8 +1934,9 @@ export class World {
    * gate is the very next node, the passenger is standing in the crush it should
    * have walked around. `GATE_LOOKAHEAD` metres out is where the choice is still
    * free, and `GATE_REPLAN_PER_TICK` rations the synchronous searches that buys;
-   * an agent the ration skips re-chooses at the gate's own cell, exactly where
-   * every re-choice used to be made.
+   * an agent the ration skips retries next tick (`gateChosen` stays false) —
+   * at the gate's own cell too, where a wave arriving together used to choose
+   * all at once — so the wave spreads over ticks instead of stalling one.
    *
    * The re-plan deliberately skips the cache — it has to see the queues as they
    * are — and happens once per crossing, which the escalators already pace.
@@ -1944,12 +1962,13 @@ export class World {
       if (lead > GATE_LOOKAHEAD) break
     }
     if (gateAt < 0) return false
-    const atGate = gateAt === a.pathIdx
-    if (!atGate) {
-      if (lead > GATE_LOOKAHEAD) return false
-      if (this.gateReplans >= GATE_REPLAN_PER_TICK) return false
-      this.gateReplans++
-    }
+    if (gateAt !== a.pathIdx && lead > GATE_LOOKAHEAD) return false
+    // Rationed for agents standing at the gate too: a wave arriving together
+    // used to skip this check via `atGate` and run one synchronous search per
+    // agent in the same tick. A skipped agent retries next tick (`gateChosen`
+    // stays false), so the wave spreads over ticks instead of stalling one.
+    if (this.gateReplans >= GATE_REPLAN_PER_TICK) return false
+    this.gateReplans++
     a.gateChosen = true
     const from = this.nearestNode(a.x, a.y, a.z)
     if (from < 0 || a.destNode < 0 || from === a.destNode) return true

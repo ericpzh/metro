@@ -462,6 +462,12 @@ export class ChunkSystem extends SceneSystem {
     this.releaseChunks()
     this.ctx.scene.remove(...this.levelGroups.values())
     this.levelGroups.clear()
+    // The shop-wall pick proxies are scene-lifetime singletons sharing one
+    // geometry/material: without this a disposed scene keeps them and the group.
+    this.wallPick.clear()
+    this.ctx.scene.remove(this.wallPick)
+    this.wallPickGeo.dispose()
+    this.wallPickMat.dispose()
     // `dispose()` is the end of the road, so the cache's own references go too — the
     // geometry itself was already released by `releaseChunks` above.
     this.chunkCache.clear()
@@ -509,6 +515,8 @@ export class ChunkSystem extends SceneSystem {
     // each entry pins a material (and, through `Material.clone`, its `map` texture)
     // that nothing else references any more. Dropping what is now unreachable is
     // all this needs: every live material is re-cached on the next `applyLevel`.
+    for (const m of this.ctx.dimMats.values()) m.dispose()
+    for (const m of this.ctx.clearMats.values()) m.dispose()
     this.ctx.dimMats.clear()
     this.ctx.clearMats.clear()
     this.chunkMeshes = []

@@ -64,3 +64,27 @@ test('the lattice is rebuilt at the active storey whatever 隐藏UI says', () =>
   assert.ok(grid.grid.children.length > 0)
   assert.equal(grid.gridVisible, false)
 })
+
+test('disposing the scene takes the lattice and its cursor with it', () => {
+  // The lattice group, the cursor ring and its material are scene-lifetime: a
+  // disposed scene that keeps them keeps the scene itself. `clearGrid` already
+  // frees the per-build line segments; this is the rest.
+  const scene = new THREE.Scene()
+  const ctx = new SceneContextData(scene, {}, {}, {})
+  ctx.activeZ = -8
+  ctx.bounds.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(20, 20, 0))
+  const grid = new GridSystem(ctx)
+  grid.buildGrid()
+  assert.ok(grid.grid.children.length > 0, 'the lattice is drawn')
+  let geoGone = false
+  let matGone = false
+  grid.cursor.geometry.addEventListener('dispose', () => (geoGone = true))
+  grid.cursor.material.addEventListener('dispose', () => (matGone = true))
+
+  grid.dispose()
+
+  assert.ok(!scene.children.includes(grid.grid), 'the lattice group leaves the scene')
+  assert.ok(!scene.children.includes(grid.cursor), 'and so does the cursor ring')
+  assert.ok(geoGone, 'the cursor geometry is freed')
+  assert.ok(matGone, 'and its material')
+})

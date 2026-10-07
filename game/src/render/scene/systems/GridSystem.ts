@@ -100,4 +100,14 @@ export class GridSystem extends SceneSystem {
     const mat = this.cursor.material as THREE.MeshBasicMaterial
     mat.color.setHex(valid ? 0x6ee7ff : 0xff5d5d)
   }
+
+  override dispose(): void {
+    // Scene-lifetime objects: the lattice group, the cursor ring and its
+    // material. `clearGrid` already disposes per-build line segments.
+    this.clearGrid()
+    this.ctx.scene.remove(this.grid)
+    this.ctx.scene.remove(this.cursor)
+    this.cursor.geometry.dispose()
+    ;(this.cursor.material as THREE.Material).dispose()
+  }
 }

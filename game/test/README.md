@@ -123,10 +123,10 @@ The suites, by the thing they are about. Each one's full description is in
 
 ## Coverage, and the gaps that were closed
 
-Measured over the whole suite (`--experimental-test-coverage`, one process): **880 tests,
-95.26 % lines / 88.53 % branches / 89.36 % functions** across the `game/src` files the suite
-loads. The snapshot before this pass was 855 at 94.94 / 88.47 / 88.23, and before that 716
-at 94.66 / 87.96 / 87.98 — **these numbers are a snapshot of a moment, not a target**;
+Measured over the whole suite (`--experimental-test-coverage`, one process): **897 tests,
+95.50 % lines / 88.64 % branches / 89.79 % functions** across the `game/src` files the suite
+loads. The snapshot before this pass was 891 at 95.23 / 88.63 / 89.41, and before that 855
+at 94.94 / 88.47 / 88.23, and before that 716 at 94.66 / 87.96 / 87.98 — **these numbers are a snapshot of a moment, not a target**;
 regenerate them with the command above whenever the suite grows. The point of the table is
 the column that shows what an untested file was hiding.
 
@@ -153,13 +153,23 @@ the column that shows what an untested file was hiding.
 | `sim/stock.ts` (the cabin box) | 96.3 % | 100 % | `stock` |
 | `sim/world/World.ts` | 95.4 % | 96.6 % | `train-cabin`, `worker-preview` |
 | `sim/demand.ts` | 100 % | 100 % | `demand` — but the *crowd* it shapes was untested, which is the row that mattered |
+| `sim/station.ts` (the re-path queue) | 97.1 % | 97.5 % | `wayfinding` (the budgeted drain and the consumed-prefix compaction) |
+| `render/scene/systems/GridSystem.ts` (scene teardown) | 88.5 % | 100 % | `grid-visibility` |
+| `render/scene/systems/ChunkSystem.ts` (scene teardown) | 90.1 % | 92.6 % | `chunk-cache` (the wall-pick singletons and the tint caches) |
+| `render/scene/systems/GhostSystem.ts` (scene teardown) | 64.5 % | 73.5 % | `refused-ghost` (the remove-drag pool mesh) |
+
+Two behaviour pins move no coverage line — the rationed searches were already
+executed, just never capped — so they are verified by mutation instead: with the
+cap removed the crush test fails 6 ≠ 4 and the at-gate test fails 5 ≠ 2
+(`wayfinding`: `REROUTE_REPLAN_PER_TICK`, and the fare-line ration at the gate's
+own cell).
 
 The files still lowest after this pass, and why they are:
 
 | File | Lines | What is left |
 |---|---|---|
 | `build/model/Reference.ts` | 31 % | A barrel whose one consumer is the demo path; nothing imports it directly. |
-| `render/scene/systems/GhostSystem.ts` | 44 % | The hover-ghost limbs: they build meshes for a live scene and are driven by pointer moves (`gate-door`, `triangle` and `tv-pair` cover the keys and the wedge slope they read). |
+| `render/scene/systems/GhostSystem.ts` | 74 % | The hover-ghost limbs and the back-to-back face mesh: they build meshes for a live scene and are driven by pointer moves (`gate-door`, `triangle` and `tv-pair` cover the keys and the wedge slope they read). |
 | `app/store/slices/RailSlice.ts` | 46 % | The rail actions the UI calls; the pure edits underneath are covered by `rail` (`build/rail.ts`) and `line-edit`. |
 | `app/tools/BlockTool.ts`, `geometry/cells.ts`, `ToolController.ts` | 50-59 % | The pointer path: press/move/release against a canvas, of which `blocktool` and `triangle` drive the parts that need no DOM. |
 | `render/scene/systems/CameraSystem.ts` | 70 % | The `OrbitControls` rig: its own limbs are driven by real pointer events on a canvas. The pieces of it that are pure arithmetic are pinned (`camera-vertical-pan`, `camera-fov`, `camera-orbit`, `section-drag`), and 回到默认视角 through it is pinned by `view-home`. |
