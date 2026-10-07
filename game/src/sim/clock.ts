@@ -206,6 +206,35 @@ export function secondsOfClock(text: string): number | null {
 }
 
 /**
+ * Where an analogue clock's two hands stand at `seconds` into the run, in **degrees
+ * clockwise from 12 o'clock** — what the in-world 时钟's dial turns its hands by
+ * (`render/models/pieces/ClockModel.ts`).
+ *
+ * It lives here, beside the clock's own strings, because it is the same derivation: a 电视
+ * prints `stampAt().clock` while the dial beside it *points* at that minute, and a second
+ * implementation of "where is the minute hand" is a second answer the station could give.
+ * The one place a sim second becomes a time is this module, so the printed readouts, the
+ * crowd's demand and the hands on the wall all read it rather than three formatters.
+ *
+ * **The hour hand carries the minutes and the minute hand the seconds**, which is how a real
+ * movement reads: at 10:09 the hour hand stands at 304.5°, not 300°. `seconds` is kept
+ * fractional rather than floored, because the scene sweeps the hands between the worker's
+ * snapshots (`render/scene/systems/ClockSystem.ts`) — a floor here would make the minute
+ * hand step once a sim second instead of creeping.
+ */
+export function clockHandAngles(seconds: number): { hour: number; minute: number } {
+  // A time before the epoch (`simTime < 0`) reads as the hour it really is rather than as
+  // hour −1, the same floor-modulo `clockTextOf` applies to a time of day.
+  const t = ((seconds % SIM_DAY) + SIM_DAY) % SIM_DAY
+  return {
+    // Twelve hours to a full turn, so 30° an hour and 0.5° a minute the hour hand has walked.
+    hour: ((t % (12 * 3600)) / 3600) * 30,
+    // Sixty minutes to a full turn, so 6° a minute and 0.1° a second.
+    minute: ((t % 3600) / 60) * 6,
+  }
+}
+
+/**
  * One span of a station's day, repaired into something the day can hold: both ends
  * inside 00:00–23:59 and at least a quarter of an hour apart.
  *

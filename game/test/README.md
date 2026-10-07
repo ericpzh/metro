@@ -56,10 +56,10 @@ The suites, by the thing they are about. Each one's full description is in
 | Architecture | `layering`, `scene-wiring` |
 | Numbers | `rng`, `clock`, `demand` |
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement`, `openings`, `stairs`, `escalators`, `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route`, `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
-| The document and its edits | `save`, `grid`, `pick-cell`, `walls`, `halfwall`, `triangle`, `blocktool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation` |
+| The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation` — `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole and the edits that fill it back |
 | The furniture and the decor | `shelf`, `desk`, `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `sign`, `sign-model`, `sign-editor`, `billboard`, `glass-panel`, `calligraphy`, `line-map`, `booth-model`, `room-model` |
 | The models | `module-build`, `tv-screen`, `tv-pair` |
-| The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` |
+| The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` — `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away |
 | The pixels | `sign-render`, `station-display` |
 | The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit`, `select-agent` |
 
@@ -123,15 +123,19 @@ The suites, by the thing they are about. Each one's full description is in
 
 ## Coverage, and the gaps that were closed
 
-Measured over the whole suite (`--experimental-test-coverage`, one process): **897 tests,
-95.50 % lines / 88.64 % branches / 89.79 % functions** across the `game/src` files the suite
-loads. The snapshot before this pass was 891 at 95.23 / 88.63 / 89.41, and before that 855
-at 94.94 / 88.47 / 88.23, and before that 716 at 94.66 / 87.96 / 87.98 — **these numbers are a snapshot of a moment, not a target**;
+Measured over the whole suite (`--experimental-test-coverage`, one process): **938 tests,
+95.02 % lines / 88.36 % branches / 88.94 % functions** across the `game/src` files the suite
+loads — a denominator that grew by a whole feature's worth of code (the zone floor rule, 隐藏地面,
+the clock's hands) in the same pass, which is why the percentages step back while the suite grows.
+The snapshot before this pass was 897 at 95.50 / 88.64 / 89.79, and before that 891 at
+95.23 / 88.63 / 89.41, and before that 855 at 94.94 / 88.47 / 88.23, and before that 716 at
+94.66 / 87.96 / 87.98 — **these numbers are a snapshot of a moment, not a target**;
 regenerate them with the command above whenever the suite grows. The point of the table is
 the column that shows what an untested file was hiding.
 
 | File | Before | Now | The test that closed it |
 |---|---|---|---|
+| `sim/ground.ts` (the street plane) | — (new) | 100 % lines / 97.6 % branches | `ground` — the window, the three answers at a coordinate, the dig and the fill-back, the brushes that materialise the plane, and the two predicates that read it |
 | `render/models.ts` (the dispatcher) | 87.4 % | 100 % | `module-build` |
 | `render/models/pieces/PsdModel.ts` (站台门) | 11.1 % | 100 % | `module-build` |
 | `render/models/pieces/ExitModel.ts` | 17.2 % | 95.7 % | `module-build` |

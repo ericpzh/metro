@@ -103,14 +103,15 @@ export const ESCALATOR_BOOST = 1.08
  * `true` is the authored rule: a zone boundary is a movement barrier whose only
  * crossing is a gate cell, so an ungated fare line strands the crowd. The rule is
  * a statement about **painted floor**, though, and a cell with no `zone` reads as
- * `DEFAULT_ZONE` (`unpaid`). A station whose paint is unfinished therefore grows
- * invisible fare lines wherever a painted patch sits in unpainted floor — the
- * shipped 动物园 save has 6,809 of its 11,625 cells unlabelled — and those lines
- * wall off real circulation. Measured on that save: enforced, 5 of its 30 ramps
- * carry nobody and its −16 platform has exactly one usable way out (a single
- * stair, 265,572 queued agent-seconds in 2400 s); ignored, every ramp carries
- * somebody, the choke moves off that stair, 11 % more people clear and the peak
- * elevator queue falls from 47 to 10.
+ * 无分区, which the fare line counts with the unpaid side (`isUnpaidZone`). So a
+ * station whose paint is unfinished still grows invisible fare lines wherever a
+ * painted `paid` patch sits in floor nobody has zoned — the shipped 动物园 save has
+ * 7,199 of its 12,035 cells unlabelled — and those lines wall off real
+ * circulation. Measured on that save: enforced, 5 of its 30
+ * ramps carry nobody and its −16 platform has exactly one usable way out (a
+ * single stair, 265,572 queued agent-seconds in 2400 s); ignored, every ramp
+ * carries somebody, the choke moves off that stair, 11 % more people clear and
+ * the peak elevator queue falls from 47 to 10.
  *
  * So the barrier is **off for now**: zones stay labels, a gate is still a queue
  * the crowd walks through — and walks around when it is long — and the fare line

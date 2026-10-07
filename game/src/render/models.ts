@@ -117,6 +117,8 @@ export {
   refreshSignFaceMaterial,
 } from './models/PieceBuilder.ts'
 export { setGateWing } from './models/pieces/GateModel.ts'
+export { CLOCK_POSE_SECONDS, reposeClockHands } from './models/pieces/ClockModel.ts'
+export type { ClockRig } from './models/pieces/ClockModel.ts'
 export type { EscalatorRoll } from './models/pieces/EscalatorModel.ts'
 export { rollEscalator } from './models/pieces/EscalatorModel.ts'
 export type { TrainPose } from './models/pieces/TrainModel.ts'

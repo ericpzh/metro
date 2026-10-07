@@ -53,8 +53,10 @@ test('a track bed is not a walkable node', () => {
   let s = corridor()
   s = paintFace(s, 2, 0, 0, 'top', 'floor.track')
   const g = buildGraph(toData(s))
-  assert.equal(g.nodeCount, 4, 'the track cell should not become a node')
-  assert.equal(g.nodeIndex.has('2,0,0'), false)
+  // The corridor's own four cells are nodes; the track cell is not. (The street
+  // is virtual ground, so the raw node count is the window, not four.)
+  assert.equal(g.nodeIndex.has('2,0,0'), false, 'the track cell became a node')
+  for (const x of [0, 1, 3, 4]) assert.ok(g.nodeIndex.has(`${x},0,0`), `corridor cell ${x} lost its node`)
 })
 
 test('paint, fill and erase are immutable and reversible', () => {

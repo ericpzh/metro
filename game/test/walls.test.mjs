@@ -48,7 +48,7 @@ function rect(x0, y0, x1, y1, z = 0) {
   return out
 }
 
-const has = (cells, x, y, z) => cells.some((c) => c.x === x && c.y === y && c.z === z)
+const has = (cells, x, y, z) => cells.some((c) => c.x === x && c.y === y && c.z === z && c.fill === 'solid')
 const tagsAt = (cells, x, y, z) => cells.find((c) => c.x === x && c.y === y && c.z === z)?.tags ?? []
 const autoWalls = (cells) => cells.filter((c) => c.tags?.includes(AUTO_WALL))
 

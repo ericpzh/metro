@@ -74,8 +74,10 @@ export class LevelSystem extends SceneSystem {
    * (`sliceOptions`) and hands every mesh its **base** material back — not merely
    * a `visible` flag, which could turn a piece on but could not undo the ghost
    * clip the slice had already assigned it (`mesh.material = base` in the walk
-   * below; a wall comes back through `dressWall` instead). 隐藏墙壁 is the one
-   * toggle that stays: it is a deliberate look-through, not the slice.
+   * below; a wall comes back through `dressWall` instead). 隐藏墙壁 and 隐藏地面
+   * are the two toggles that stay: one is a deliberate look-through of the
+   * station's own walls and the other takes the street plane away altogether —
+   * neither is a way of drawing a storey.
    */
   applyLevel(): void {
     // This walks every chunk mesh and every module group in the station, so it is
@@ -84,7 +86,7 @@ export class LevelSystem extends SceneSystem {
     // and two of those usually change nothing — so skip a repeat with the same
     // slice. `setStation` clears the key because it rebuilds the meshes this
     // assigns materials to.
-    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideUI}|${this.ctx.cutaway}`
+    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideUI}|${this.ctx.cutaway}`
     if (key === this.ctx.levelKey) return
     this.ctx.levelKey = key
     // One record for the whole walk: what the view asks of the slice this frame.
@@ -113,6 +115,17 @@ export class LevelSystem extends SceneSystem {
         const mesh = child as THREE.Mesh
         if (!mesh.isMesh) continue
         const isOutline = this.chunks.outlineSet.has(mesh)
+        // **隐藏地面: the street plane, gone in every mode.** It is the generated
+        // window (`sim/ground.ts`), meshed as its own pass and tagged `ground`
+        // (`ChunkSystem.meshStation`), so this is one flag read per mesh and not a
+        // rebuild. Like 隐藏墙壁 it stands outside the slice — it is a surface the
+        // player asked to be rid of, not a way of drawing a storey — and like every
+        // other mesh here it gets its material and its `visible` flag back from the
+        // branches below the moment it is switched off.
+        if (this.ctx.hideGround && mesh.userData.ground === true) {
+          mesh.visible = false
+          continue
+        }
         if (straight) {
           mesh.visible = true
           const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
@@ -324,6 +337,17 @@ export class LevelSystem extends SceneSystem {
   /** 隐藏墙壁: fade every wall and platform screen door, or restore them. */
   setHideWalls(on: boolean): void {
     this.ctx.hideWalls = on
+    this.applyLevel()
+  }
+
+  /**
+   * 隐藏地面: draw the street plane, or take it away. It is the one surface with a
+   * pass of its own (`ChunkSystem.meshStation`), so the walk below is the whole of
+   * it — nothing about the station, the document or the walk graph moves.
+   */
+  setHideGround(on: boolean): void {
+    if (this.ctx.hideGround === on) return
+    this.ctx.hideGround = on
     this.applyLevel()
   }
 

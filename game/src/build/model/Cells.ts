@@ -2,6 +2,7 @@
 // Leaf module: only sim/ imports plus a type-only StationState.
 
 import { LEVEL_STEPS } from '../../sim/constants.ts';
+import { groundHoleAt, virtualSolidAt } from '../../sim/ground.ts';
 import { blockedCellsByLevel } from '../../sim/placement.ts';
 import { blockReason } from '../validation.ts';
 import type { Cell, Module } from '../../sim/types.ts';
@@ -28,9 +29,10 @@ export function nearestLevel(z: number): number {
  * The z of the at-grade (street) level — h = 0 m. A surface exit head-house is
  * rooted here and nowhere else: its opening and canopy belong at the ground, not
  * on a concourse or platform slab. There are no named levels any more; the
- * street is simply z = 0.
+ * street is simply z = 0 — and there is **one** definition of it, owned by
+ * `sim/ground.ts`, because that is the module the plane is stored inverted in.
  */
-export const GROUND_Z = 0;
+export { GROUND_Z } from '../../sim/ground.ts';
 
 export function cloneCell(c: Cell): Cell {
   return c.finish ? { ...c, finish: { ...c.finish } } : { ...c };
@@ -69,7 +71,17 @@ export function addCells(
   add: Array<[number, number, number]>,
   modules: readonly Module[] = [],
 ): { cells: Cell[]; changed: number; blocked: number } {
-  const have = new Set(cells.map((c) => cellKey(c.x, c.y, c.z)));
+  // "Already there" means already **solid**. A `void` record is the street's own
+  // hole (`sim/ground.ts`) and the one thing a drag may legitimately fill back —
+  // `checkBlockCells` offers exactly that cell, so a `have` set built from every
+  // record instead of every block made the ghost promise a block the release
+  // dropped (`addCells(cells, [[x, y, 0]])` on a dug hole returned `changed: 0`).
+  const have = new Set(cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
+  // Where each record sits, so a hole is **replaced** rather than shadowed: the
+  // document holds one record per coordinate, and appending a second block beside
+  // a `void` would leave which one wins to iteration order.
+  const at = new Map<string, number>();
+  cells.forEach((c, i) => at.set(cellKey(c.x, c.y, c.z), i));
   const out = cells.slice();
   let changed = 0;
   let blocked = 0;
@@ -77,13 +89,19 @@ export function addCells(
   // this is the same handful of modules every time a drag asks about another cell.
   const level = blockedCellsByLevel(modules);
   for (const [x, y, z] of add) {
-    if (have.has(cellKey(x, y, z))) continue;
+    // The street is already solid: laying a block into virtual ground is a
+    // no-op, not a duplicate record — the document stays the delta from the
+    // plane, so saves never carry the horizon.
+    if (have.has(cellKey(x, y, z)) || virtualSolidAt(cells, modules, x, y, z)) continue;
     if (!blockReason(cells, modules, x, y, z, level).ok) {
       blocked++;
       continue;
     }
-    have.add(cellKey(x, y, z));
-    out.push({ x, y, z, fill: 'solid' });
+    const k = cellKey(x, y, z);
+    have.add(k);
+    const hole = at.get(k);
+    if (hole === undefined) out.push({ x, y, z, fill: 'solid' });
+    else out[hole] = { x, y, z, fill: 'solid' };
     changed++;
   }
   return { cells: out, changed, blocked };
@@ -93,6 +111,15 @@ export function addCells(
 export function removeCells(state: StationState, remove: Array<[number, number, number]>): StationState {
   const kill = new Set(remove.map(([x, y, z]) => cellKey(x, y, z)));
   const cells = state.cells.filter((c) => !kill.has(cellKey(c.x, c.y, c.z)));
+  // Digging the street leaves a hole record: without it the virtual plane
+  // would pave the dig back over on the next read. Coordinates that are holes
+  // either way (a ramp corridor, an exit floor) need no record.
+  for (const [x, y, z] of remove) {
+    if (z !== 0) continue;
+    if (cells.some((c) => c.x === x && c.y === y && c.z === z)) continue;
+    if (groundHoleAt(cells, state.modules, x, y)) continue;
+    cells.push({ x, y, z, fill: 'void' });
+  }
   const modules = state.modules.filter((m) => !kill.has(cellKey(m.x, m.y, m.z)));
   return { ...state, cells, modules };
 }

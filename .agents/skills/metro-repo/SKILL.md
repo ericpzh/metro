@@ -19,8 +19,8 @@ the station either copes or it does not.
 | `game/README.md` | Game milestones, the time base, measured numbers, and deliberate divergences from the spec. **Read this before changing sim behaviour.** |
 | `game/plan.md` | **Deleted.** The parallel-edit rules it held (the R1–R6 / lane language) survive only as citations in `game/src` comments — treat them as historical. The layout it prescribed is what `references/module-map.md` in this skill now maps: every window, tool and model is one unit in one file, and the former giants are barrels over folders. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. |
-| `art/` | Generated SVG concept sheets — **authored drawings**, one per sheet, in the game's own 2:1 dimetric projection (`tools/iso.mjs`), animation included. Source of truth; copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited — `node tools/gen-art.mjs` rewrites them. |
-| `tools/` | The art generator (`node tools/gen-art.mjs` over `tools/sheet-*.mjs` / `sheets-*.mjs`, drawn with `tools/iso.mjs`) and its sheet viewer (`tools/serve.mjs`); the demo-save bake (`node tools/bake-demo-station.mjs`); the render-to-PNG probes (`tools/render-sign-panel.mjs`, `tools/render-tv-plate.mjs`); and `tools/preview.mjs` (`npm run preview:local`), which serves the two builds on one origin without wrangler. `tools/shots.mjs` + `tools/sheet-plan.mjs` are the **abandoned** screenshot pipeline — not the sheets (`PLAN-models.md`). |
+| `art/` | Generated SVG concept sheets, in the game's own 2:1 dimetric projection (`tools/iso.mjs`). Authored drawings for most sheets, animation included; **sheets 03, 04, 06, 07 and 11 are the game's own output** — 03's blocks are meshed by the game's chunk mesher and lit with its finish materials (captured by `tools/render-block-cards.mjs` into `.preview/block-cards/`, and its material table is read from `game/src/sim/finishes.ts`), 04's cards are PNGs the game produced through the build rail's own pass (captured by `tools/render-module-cards.mjs` into `.preview/module-cards/`), 06 is the 时刻 · 客流 window photographed in the four day types its calendar derives (and its numbers are `sim/demand.ts` + `sim/clock.ts` **imported**, so a retuned knob moves the sheet), 07 is the interface itself photographed region by region (captured by `tools/render-ui-shots.mjs` into `.preview/ui-shots/`), and 11 is the consist `buildTrain` builds (captured by `tools/render-train-cards.mjs` into `.preview/train-cards/`, with `stockTable()`/`cabinFacts()` out of `sim/stock.ts` beside it). Source of truth; copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited — `node tools/gen-art.mjs` rewrites them. |
+| `tools/` | The art generator (`node tools/gen-art.mjs` over `tools/sheet-*.mjs` / `sheets-*.mjs`, drawn with `tools/iso.mjs`) and its sheet viewer (`tools/serve.mjs`) plus `tools/sheet-png.mjs`, which rasterises one sheet so it can be looked at; **`tools/render-module-cards.mjs`**, which drives headless Chrome (through `tools/browser-harness.mjs`) to run the game's own thumbnail pass (`game/src/app/moduleThumbnails.ts`, exposed by `game/src/app/captureCards.ts` behind `?capture-cards`) and writes sheet 04's cards to `.preview/` — the sheet embeds them and states nothing about a piece's geometry, camera, lights, label, footprint or throughput; **`tools/render-block-cards.mjs`**, the same shape for sheet 03 (`game/src/app/captureBlocks.ts` behind `?capture-blocks`, meshing real cells with `game/src/render/chunkMesher.ts` and `game/src/render/materials.ts`); **`tools/render-ui-shots.mjs`**, the pass behind sheets 06 and 07 — it boots the game, drives it into a few real states through the store (including pressing the 时刻 window's own day buttons, which is how sheet 06 gets the four day types), and writes the window and each chrome region cropped to its own DOM box, at 2× (`--probe` prints the loaded station's modules and bounds, which is how a camera gets aimed at real numbers); **`tools/render-train-cards.mjs`**, sheet 11's pass — it builds each stock class with `buildTrain` (`game/src/app/captureTrains.ts` behind `?capture-trains`), frames one car or a whole consist, and crops a wide frame to what it contains in the browser that drew it (`--trim-only` re-crops without booting the game); **`node tools/game-tiles.mjs` starts the built game in headless Chrome and saves the rail's real preview tiles** for checking an art change against it; the demo-save bake (`node tools/bake-demo-station.mjs`); the render-to-PNG probes (`tools/render-sign-panel.mjs`, `tools/render-tv-plate.mjs`); and `tools/preview.mjs` (`npm run preview:local`), which serves the two builds on one origin without wrangler. `tools/shots.mjs` + `tools/sheet-plan.mjs` are the **abandoned** screenshot pipeline — not the sheets. |
 | `worker/` | The site's optional path-prefix rewrite entry. |
 | `wrangler.jsonc` | Root site Worker config. `game/wrangler.jsonc` is the game's. |
 
@@ -45,7 +45,12 @@ npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run build:game    # tsc --noEmit && vite build
 npm run deploy:game   # build, deploy metro-game, and attach its routes
 
+node tools/render-module-cards.mjs  # sheet 04's cards, rendered by the game (needs Chrome + game/dist)
+node tools/render-block-cards.mjs   # sheet 03's blocks, meshed and lit by the game (needs Chrome + game/dist)
+node tools/render-ui-shots.mjs      # sheets 06 and 07, photographed off the running game (needs Chrome + game/dist)
+node tools/render-train-cards.mjs   # sheet 11's rolling stock, built by buildTrain (needs Chrome + game/dist)
 node tools/gen-art.mjs  # regenerate art/*.svg (authored sheets, drawn via tools/iso.mjs)
+node tools/sheet-png.mjs 03  # rasterise one sheet, to look at the composition
 ```
 
 Inside `game/`: `npm run dev`, `npm run typecheck`, `npm run build`,
@@ -79,6 +84,33 @@ build/ →  sim/            (and neither render/ nor app/)
 
 ### The sim
 
+* **The street is an infinite plane, and it is stored inverted** (`sim/ground.ts`, §4.1). At
+  `z = 0` **absence means solid ground**: the document holds a `{ fill: 'void' }` record only where
+  somebody dug through it, and nothing anywhere else. An opening the *game* cut — a ramp's carved
+  corridor, an exit's floor — needs no record at all, because `rampOpeningAt` / `exitFloorAt` derive
+  it. So an empty document is a station standing on built ground (`emptyStation()` ships
+  `cells: []`, the old 2 × 2 at-grade seed is gone, and `buildGraph` gives the origin a node), and no
+  save carries the horizon. `withGround(cells, modules, margin)` materialises one bounded window —
+  the content's plan rectangle plus `GROUND_MARGIN` (16 m), a run's own `from`/`to` included — for
+  the two consumers that walk every cell, the walk graph and the chunk mesher, so what is drawn is
+  what is walked; everything else asks `solidAt` / `virtualSolidAt` / `groundHoleAt` in O(1) and
+  never generates a cell. The generated cells wear **`zone: 'outside'` (站外)** and no finish, and
+  that is load-bearing rather than cosmetic: `outside`↔`unpaid` is not a fare crossing
+  (`crossingDir`), so the plane never invents an ungated fare line around an unpaid concourse, while
+  a painted `paid` patch still needs a gate. The live solid set the tools read (`app/Viewport.tsx`
+  → `ToolContext.solids`) is the **effective** list, or the plane is real to the crowd and the mesher
+  and invisible to the pointer: no red box, no paintable top face, no zoned ground, nothing to dig.
+  A dig is the one edit that writes the plane — `removeCells` records the `void` at grade and nowhere
+  else, and `addCells` / `addFloor` **fill it back** by *replacing* that record, not shadowing it,
+  which is why both count **blocks** rather than records (`have` from `fill === 'solid'`, an index so
+  one coordinate keeps one cell); the 材质 brush materialises the pavement it paints, refused by the
+  same `blockReason` the 方块 brush asks and refused outright on a `void`, because a hole is not a
+  surface. Two things deliberately stay on the **document's** cells: `build/model/Floors.ts`'s
+  生成墙壁 ring at grade (the plane is one continuous floor, so a patch drawn on virgin ground has no
+  outer edge to wall — and `BlockTool` hands `addFloor` the preview's own `acceptedCells`, so the
+  release lays what the ghost drew) and `build/rail.ts`'s platform-edge derivation (the open street
+  beside a track bed is not a platform). `ground.test.mjs` pins both halves; `ground-visibility`
+  pins the window as its own mesh pass and the 隐藏地面 tile that takes it away whole.
 * **Time base.** `SIM_SECONDS_PER_TICK = 1.0`; 1× runs one tick per real second,
   so the crowd walks at true speed. Fast-forward multiplies ticks per second,
   never the step, so determinism is untouched. The one tuning number is in
@@ -100,13 +132,18 @@ build/ →  sim/            (and neither render/ nor app/)
   beneath it and a run's glass walls the floors it never reaches: on the 动物园 demo that cut the floor
   into 73 walk-only islands and left **one** platform→exit route for the whole station, with 12 of its 30
   ramps carrying nobody. `wayfinding.test.mjs` pins both directions.
-* **The fare line is off by default.** A cell with no `zone` reads as `DEFAULT_ZONE` (`unpaid`), so sparse
-  zone paint — the demo has 7,199 of 12,035 cells unlabelled — invents ungated fare lines wherever a
-  painted patch sits in unpainted floor, and they once sealed that platform's escalators into 6-cell
+* **The fare line is off by default.** A cell with no `zone` reads **`none` — 无分区**
+  (`DEFAULT_ZONE`, `zoneOf` in `sim/zones.ts`), which sits on the *unpaid* side of the line
+  (`isUnpaidZone('none')`) without pretending to be a fare zone the game picked, so sparse zone paint —
+  the demo has 7,199 of 12,035 cells unlabelled — invents ungated fare lines wherever a painted patch
+  sits in unpainted floor, and they once sealed that platform's escalators into 6-cell
   pockets behind one narrow stair. So `ZONE_LINES_BLOCK` is **false**: a zone line does not block, and a
   gate is a queue the crowd may walk around. Put it back with that constant, or per station —
   `buildGraph(data, true)` / `new World(data, seed, { zoneBarriers: true })`, which is how `zones`,
-  `gates` and `wayfinding` keep the §4.5 rule covered in both modes.
+  `gates` and `wayfinding` keep the §4.5 rule covered in both modes. A zone is painted on **floor**
+  (`isFloorCell`: solid, top face exposed, a walkable finish or a track bed at the foot of its column),
+  the 分区图 draws the storey being edited (`zoneMapFloorsAt`), and the folder's sixth tile is
+  无分区 as the *eraser* (`eraseZoneCells`, `isEraseBrush`) — see `zonetool.test.mjs`.
 * **The edge cost is §7.2's, and every term of it is load-bearing.** Arriving at a
   node costs the edge plus `waitQ` there, plus **the crowd** (`PathFinder.congestion`):
   `World.priceCongestion` scatters every standing body into its own collision cell
@@ -543,7 +580,15 @@ build/ →  sim/            (and neither render/ nor app/)
   horizontal along the radius). Aimed across the rim instead, the cardinals come out the wrong way
   round. That turn was read off the matrix, not derived: at each clock angle `a − π/2` dots 1.000
   against the radius where `π/2 − a` gives 0.105 to 0.5. The two faces are **one dial mounted twice**,
-  the far one inside a group turned half a turn. The dial is in the **X-Z plane and carries no
+  the far one inside a group turned half a turn **about the vertical axis `z`** — not about the dial's
+  own normal `y`, which hangs that face upside down (12 at the bottom). A ring of sixty evenly spaced
+  ticks is 2-fold symmetric, so only the hands can show it: they hang on **pivots** (`ClockRig`,
+  `reposeClockHands`) that `ClockSystem` turns every frame from `clockHandAngles` (`sim/clock.ts`), so
+  every 时钟 reads the sim's own clock — swept between worker snapshots, set on a seek, stopped when the
+  sim is paused — instead of the fixed 10:09 pose (`CLOCK_POSE_SECONDS`) a palette thumbnail still
+  draws. The **hover ghost**'s clock is turned with the placed pieces (`GhostSystem` hands its rigs to
+  the clock system, and drops them when the pointer moves on), because the preview is the piece a click
+  would place. The dial is in the **X-Z plane and carries no
   rotation**: a `CylinderGeometry` is Y-up, so its caps already face ±y and the printed face
   is the `−y` cap, out at the camera. A quarter-turn about x (`±π/2`) lays the disc flat in
   the X-horizontal plane instead — the wrong plane, and no sign of that turn fixes it, which is
@@ -1150,9 +1195,12 @@ build/ →  sim/            (and neither render/ nor app/)
   store from a hook in `select-agent.test.mjs` reset the document under
   `pick-tool`'s tests. Files that stub a global or seed the store for their own
   suite may use a hook; files that only read them arrange themselves inside the
-  test. Snapshot after the gap-filling pass: **897 tests, 95.50 % lines /
-  88.64 % branches / 89.79 % functions**. New coverage lands in the file that
-  owns its harness, never a new one: the `seek` path is split across
+  test. Snapshot after the street/coverage pass: **938 tests, 95.02 % lines /
+  88.36 % branches / 88.94 % functions** — a denominator grown by a whole
+  feature's worth of code in the same pass (the zone floor rule, 隐藏地面, the
+  clock's hands), which is why the percentages step back while the suite grows;
+  `sim/ground.ts` itself is at 100 % lines / 97.6 % branches. New coverage lands in
+  the file that owns its harness, never a new one: the `seek` path is split across
   `line-edit.test.mjs` (the store half, on its `Worker` stub) and
   `worker-preview.test.mjs` (the worker half, on its `self` stub), because a
   third file stubbing either global would steal the shared stub out from under
@@ -1214,7 +1262,11 @@ build/ →  sim/            (and neither render/ nor app/)
   over a block no tool can see. A load that had to repair says so in the 打开 notice,
   the shipped file is nonetheless kept clean (the current bake ships **12 035 cells and
   397 modules**, nothing off the grid and nothing dropped, from the author's 2026-10-07
-  01:50Z save — the copy it replaced was 12 403 cells / 391 modules —
+  03:19Z save — the copy it replaced was the same shape, 12 035 / 397, from 01:50Z the
+  same night, and the difference is **458 cells at grade re-paved**:
+  `floor.concrete` → `floor.granite` on the surface plaza's top faces, no cell and no
+  module added, removed or moved, and no line, day or demand field touched. The bake
+  before that was 12 403 cells / 391 modules —
   and it carries the **cut pieces**: thirty-two 三角 courses the
   author laid with the cut tiles (sixteen `tri-upper` + sixteen `tri-lower`, no
   半墙 courses this time), plus five free-standing 门, ordinary `wall` +

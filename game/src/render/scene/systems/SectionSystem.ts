@@ -279,6 +279,8 @@ export class SectionSystem extends SceneSystem {
       mat.clippingPlanes = planes
       mat.needsUpdate = true
     }
+    // The street ground is real chunk cells now, so the loop above already clips
+    // it with the station.
     for (const mat of this.crowd.clipMaterials()) {
       mat.clippingPlanes = planes
       mat.needsUpdate = true

@@ -100,6 +100,20 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M7 13l6-6" />
         </>,
       )
+    // 无分区 (the 分区 folder's last tile): the zone mark — the same dashed outline
+    // the 分区 tool's own tile wears — with a rubber laid across it. Taking a label
+    // off is what that tile does (`eraseZoneCells`): the cell goes back to reading
+    // 无分区, which is what an unpainted tile is.
+    case 'zoneErase':
+      return svg(
+        <>
+          <rect {...s} strokeDasharray="3 2.2" x="3.6" y="3.6" width="12.8" height="12.8" rx="1" />
+          <g transform="rotate(-45 10 10)">
+            <rect {...s} x="5.7" y="7.7" width="8.6" height="4.6" rx="1.1" />
+            <path {...s} d="M10.7 7.7v4.6" />
+          </g>
+        </>,
+      )
     case 'rail':
       return svg(
         <>
@@ -179,6 +193,18 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M4 10.4l6 2.6 6-2.6-6-2.6z" />
           <path {...s} strokeDasharray="3 2" d="M4 5.2h12" />
           <path {...s} d="M8 3.4l-1.2 1.8M12 3.4l1.2 1.8" />
+        </>,
+      )
+    // 隐藏地面: the street as a plate in section — the line the pavement is, the
+    // block it is a course of, and the plane lifted off it (dashed, the way 隐藏天花板
+    // draws the slab it takes away).
+    case 'ground':
+      return svg(
+        <>
+          <path {...s} d="M3 15.6h14" />
+          <path {...s} d="M5 18.4l-2-2.8M9 18.4l-2-2.8M13 18.4l-2-2.8M17 18.4l-2-2.8" />
+          <path {...s} strokeDasharray="3 2" d="M3 10.2h14" />
+          <path {...s} d="M6.6 8l-1.2-1.8M13.4 8l1.2-1.8" />
         </>,
       )
     // 自定义: the 指示牌 editor's own mark — a pencil, because the tile opens an

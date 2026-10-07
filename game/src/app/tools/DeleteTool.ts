@@ -222,8 +222,13 @@ export class DeleteTool extends ToolController {
     // A deliberate press draws the line of blocks the release removes — always
     // a straight line (`shift` pinned at the press), never a rectangle.
     const cells = rect ? rectCells(d.anchor, target, d.z, true) : [d.anchor]
+    // Only the document's own blocks count against the seed's integrity (§4.1):
+    // the implicit street at z = 0 is in the live solid set, and counting it would
+    // refuse every dig at grade — the gesture the hole records exist for. A line
+    // that takes none of the document's blocks is not the guard's business.
     const remove = pendingCells(cells, 'remove', this.ctx.solids())
-    if (st.station.cells.length - remove.length < 4) return
+    const authored = remove.filter(([x, y, z]) => st.station.cells.some((c) => c.x === x && c.y === y && c.z === z))
+    if (authored.length > 0 && st.station.cells.length - authored.length < 4) return
     // A dug auto-floor brings its wall ring along; a hand-placed block is
     // just removed.
     const next = removeFloor(st.station, remove)

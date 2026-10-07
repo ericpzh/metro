@@ -29,6 +29,7 @@ import { CrowdSystem } from './systems/CrowdSystem.ts'
 import { GridSystem } from './systems/GridSystem.ts'
 import { CameraSystem } from './systems/CameraSystem.ts'
 import { PlateSystem } from './systems/PlateSystem.ts'
+import { ClockSystem } from './systems/ClockSystem.ts'
 import { SectionSystem } from './systems/SectionSystem.ts'
 import type { PickResult } from './systems/SceneSystem.ts'
 import { DEFAULT_SECTION_AZIMUTH, sectionNormal } from '../section.ts'
@@ -50,6 +51,7 @@ export class SceneRenderer {
   private grid: GridSystem
   private cameraSys: CameraSystem
   private plates: PlateSystem
+  private clocks: ClockSystem
   private sectionSys: SectionSystem
   private lastFrame = 0
   private frameCount = 0
@@ -116,6 +118,7 @@ export class SceneRenderer {
 
     this.chunks = new ChunkSystem(this.ctx)
     this.plates = new PlateSystem(this.ctx)
+    this.clocks = new ClockSystem(this.ctx)
     this.trains = new TrainSystem(this.ctx)
     this.lifts = new LiftSystem(this.ctx)
     this.crowd = new CrowdSystem(this.ctx)
@@ -131,9 +134,11 @@ export class SceneRenderer {
     this.modules.lifts = this.lifts
     this.modules.crowd = this.crowd
     this.modules.plates = this.plates
+    this.modules.clocks = this.clocks
     this.modules.ghost = this.ghostSys
     this.ghostSys.plates = this.plates
     this.ghostSys.modules = this.modules
+    this.ghostSys.clocks = this.clocks
     // The slice walks the chunk meshes (`outlineSet`, `levelGroups`) as well as
     // the fixtures and the trains, so all three have to be wired before the
     // first `applyLevel` — which `setStation` calls on the station's first build.
@@ -204,7 +209,7 @@ export class SceneRenderer {
     // reprinted for the same reason: a rename or a recoloured line reaches the wall.
     this.plates.redrawSignPlates()
     this.plates.redrawDecorPlates()
-    this.chunks.meshStation(data)
+    this.chunks.meshStation()
     this.modules.buildModules(data, trackCells)
     this.grid.buildGrid()
     this.cameraSys.setPickables([...this.chunks.chunkMeshes, ...this.chunks.wallPick.children, ...this.lifts.liftPickMeshes])
@@ -251,13 +256,14 @@ export class SceneRenderer {
   }
 
   /**
-   * The simulation clock, printed in the plate's information column. Called from
-   * the worker's state frame. When the printed minute changes, every plate is
-   * redrawn in place — the meshes keep their geometry and material, so nothing
-   * rebuilds but the pixels.
+   * The simulation clock, printed in the plate's information column and **pointed at** by
+   * every 时钟's hands. Called from the worker's state frame. When the printed minute changes,
+   * every plate is redrawn in place — the meshes keep their geometry and material, so nothing
+   * rebuilds but the pixels — while the hands are swept between snapshots every frame.
    */
   setSimClock(simTime: number): void {
     this.plates.setSimClock(simTime)
+    this.clocks.setSimTime(simTime)
   }
 
   setTrains(buffer: Float32Array): void {
@@ -384,6 +390,17 @@ export class SceneRenderer {
   /** 隐藏墙壁: fade every wall and platform screen door, or restore them. */
   setHideWalls(on: boolean): void {
     this.level.setHideWalls(on)
+  }
+
+  /**
+   * 隐藏地面: draw the street plane, or take it away. It reaches the storey walk
+   * and nothing else: the street is meshed as its own pass
+   * (`ChunkSystem.meshStation`), so the toggle is a `visible` flag on meshes that
+   * already exist — no rebuild, no document write, and the walk graph is
+   * untouched (`sim/ground.ts` still walks the same window).
+   */
+  setHideGround(on: boolean): void {
+    this.level.setHideGround(on)
   }
 
   /* -------------------------------------------------------------- agents */
@@ -547,6 +564,7 @@ export class SceneRenderer {
     this.lifts.updateEscalators(dt * (1000 / this.ctx.stateIntervalMs))
     this.crowd.updateGates(dt * (1000 / this.ctx.stateIntervalMs))
     this.plates.updateAdScreens(now)
+    this.clocks.updateClocks(now)
     const cam = this.cameraSys.activeCamera()
     this.cameraSys.syncOrtho()
     this.renderer.render(this.ctx.scene, cam)

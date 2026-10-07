@@ -33,6 +33,7 @@ const ORCHESTRATOR_FIELDS = {
   GridSystem: 'grid',
   CameraSystem: 'cameraSys',
   PlateSystem: 'plates',
+  ClockSystem: 'clocks',
   SectionSystem: 'sectionSys',
 }
 

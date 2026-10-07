@@ -10,9 +10,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SceneRenderer, PAN_DOWN, PAN_UP, type PickResult } from '../render/scene.ts'
-import { cellKey, removeFloor, thinWallSideMap, toData, zoneMapFloors, zoneRegionLabels } from '../build/model.ts'
+import { cellKey, removeFloor, thinWallSideMap, toData, zoneFloorKeys, zoneMapFloorsAt, zoneRegionLabels } from '../build/model.ts'
+import { withGround } from '../sim/ground.ts'
 import type { CellShape } from '../sim/types.ts'
-import { zoneIndex } from '../sim/zones.ts'
+import { zoneIndexOf } from '../sim/zones.ts'
 import { dragOffset, snapOffset, walkAlong } from '../render/section.ts'
 import { placementPreviewKey, selectSimAgent, setFrameHandler, setRouteHandler, signModuleWithPreview, useStore, type Tool } from './store.ts'
 import { ViewCube } from './ViewCube.tsx'
@@ -62,6 +63,14 @@ export function Viewport(): React.ReactElement {
   const graphNodesRef = useRef<Float32Array>(new Float32Array(0))
   /** Solid cell keys, refreshed with the station, so a drag can tell blocks from void. */
   const solidRef = useRef<Set<string>>(new Set())
+  /**
+   * The keys of the cells a **zone may be painted on** — the station's floor, by
+   * the same rule the 分区 map draws with (`zoneFloorKeys`), refreshed with the
+   * station beside `solidRef`. A zone belongs to a floor cell (§4.5), so the 分区
+   * brush asks this rather than "is there a block here": a wall coping, a ceiling
+   * and the earth over a tunnel are solid and are not floor.
+   */
+  const floorRef = useRef<Set<string>>(new Set())
   /**
    * Every cell of the station that draws **half a block thick** — a 半墙 the player
    * laid and every block a ramp kept beside its run — by cell key → the side the
@@ -129,6 +138,7 @@ export function Viewport(): React.ReactElement {
       pickModule: (clientX, clientY) => sceneRef.current?.pickModule(clientX, clientY) ?? null,
       facing: () => sceneRef.current?.pickFacing(),
       solids: () => solidRef.current,
+      floors: () => floorRef.current,
       thins: () => thinRef.current,
       hover: hoverRef,
       drag: dragRef,
@@ -209,6 +219,7 @@ export function Viewport(): React.ReactElement {
   const hideSectionSurface = useStore((s) => s.hideSectionSurface)
   const section = useStore((s) => s.section)
   const hideWalls = useStore((s) => s.hideWalls)
+  const hideGround = useStore((s) => s.hideGround)
   const hideUI = useStore((s) => s.hideUI)
   const ortho = useStore((s) => s.ortho)
   const overlayOn = useStore((s) => s.overlayOn)
@@ -232,15 +243,25 @@ export function Viewport(): React.ReactElement {
       return
     }
     const station = useStore.getState().station
-    const floors = zoneMapFloors(station.cells, station.modules)
+    // One storey at a time: the map follows the Z axis, so what is tinted is the
+    // floor of the level being edited (`activeZ`) and never every storey's paint
+    // stacked into one picture. The labels come off the same floors, and no region
+    // spans storeys, so they follow with it.
+    const z = useStore.getState().activeZ
+    const floors = zoneMapFloorsAt(station.cells, z, station.modules)
     const quads = new Float32Array(floors.length * 3)
     const zones = new Uint8Array(floors.length)
     // A fingerprint of the picture the quads make, so an edit that touched no
     // walkable floor (a wall, a bench, a line colour) does not mint another overlay
-    // — and another set of labels — for the same map.
+    // — and another set of labels — for the same map. The storey is part of the
+    // fingerprint: the same floor plan painted the same way on another level is a
+    // different picture.
     let h = 2166136261
     floors.forEach((c, i) => {
-      const zone = zoneIndex(c.zone)
+      // A cell with no label of its own wears its storey's default colour — 站外
+      // on the street plane (`zoneIndexOf`) — so the map tints the floor the
+      // crowd and the graph already read it as.
+      const zone = zoneIndexOf(c)
       quads[i * 3] = c.x + 0.5
       quads[i * 3 + 1] = c.y + 0.5
       quads[i * 3 + 2] = c.z + 1.02
@@ -250,7 +271,7 @@ export function Viewport(): React.ReactElement {
       h = Math.imul(h ^ (c.z + 4096), 16777619)
       h = Math.imul(h ^ zone, 16777619)
     })
-    const key = `${floors.length}:${h >>> 0}`
+    const key = `${z}:${floors.length}:${h >>> 0}`
     if (key === zoneKeyRef.current) {
       scene.setZoneOverlayVisible(true)
       return
@@ -261,7 +282,7 @@ export function Viewport(): React.ReactElement {
 
   useEffect(() => {
     buildZoneOverlay()
-  }, [zoneOverlayOn, version])
+  }, [zoneOverlayOn, version, activeZ])
 
   useEffect(() => {
     if (!graph) return
@@ -298,6 +319,13 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setHideWalls(hideWalls)
   }, [hideWalls])
+
+  // 隐藏地面: the street plane, out of the picture. It is the one surface with a
+  // mesh pass of its own, so this is a visibility write on both ends — applied on
+  // mount like 隐藏天花板, and on every change after.
+  useEffect(() => {
+    sceneRef.current?.setHideGround(hideGround)
+  }, [hideGround])
 
   // 隐藏UI: the drawing lattice, its cell cursor, and the storey slice that puts
   // the ghost sheet over the floor under the camera. One flag, one effect: the
@@ -544,7 +572,18 @@ export function Viewport(): React.ReactElement {
     const scene = sceneRef.current
     if (!scene) return
     const st = useStore.getState()
-    solidRef.current = new Set(station.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)))
+    // The tools' live "is there a block here" set is the **effective** cell list —
+    // the document's own cells plus the generated street window (`withGround`) —
+    // not the raw document. The street is stored inverted (only holes are cells),
+    // so a scan of `station.cells` alone would leave the plane real to the crowd
+    // and to the mesher but invisible to the pointer: no red box, no paintable
+    // top face, no zoned ground, no block to remove.
+    const ground = withGround(station.cells, station.modules)
+    solidRef.current = new Set(ground.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)))
+    // The 分区 brush's own set, off the same effective list and by the same rule
+    // the map draws with — so a zone lands on the street, which the document does
+    // not store, and never on a wall coping, which the map could not tint.
+    floorRef.current = zoneFloorKeys(ground)
     thinRef.current = thinWallSideMap(station.cells, station.modules)
     // The board the editor is arranging, drawn where the sign it belongs to hangs —
     // and, for a piece 移动 has picked up, nothing at all: it is in the air,
@@ -555,6 +594,7 @@ export function Viewport(): React.ReactElement {
       .map((m) => signModuleWithPreview(m, st.signPreview))
     scene.setStation(toData({ ...station, modules }))
     scene.setAutoCeiling(st.autoCeiling)
+    scene.setHideGround(st.hideGround)
     scene.setLevel(st.activeZ, st.ghostOtherLevels)
     // The 剖切 surface is placed once, on the first build of a station: the
     // middle of its plan on the storey being edited, facing +y — the fixed cut

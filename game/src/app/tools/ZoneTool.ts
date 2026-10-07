@@ -1,10 +1,16 @@
 // The 分区 (zone) tool: drag a fare-zone patch, or a facility room when a room
 // brush is chosen; right-drag over a shop cuts wall openings (or swallows the
 // room to delete it). Moved verbatim from app/Viewport.tsx (GAME-SPEC §10).
+//
+// A fare zone is painted on **floor** and nowhere else (§4.5). The brush asks the
+// viewport's floor key set (`ToolContext.floors`, built by `zoneFloorKeys`), which
+// is the same rule the 分区 map draws with, so what the pointer accepts is exactly
+// what the overlay can tint.
 
 import {
   carveFacilityOpenings,
   cellKey,
+  eraseZoneCells,
   facilityAt,
   facilityCovers,
   facilityFloorCells,
@@ -21,7 +27,7 @@ import {
 } from '../../build/model.ts'
 import { isTrackCell } from '../../sim/placement.ts'
 import { ZONE_LIST } from '../../sim/zones.ts'
-import { FACILITY_OPTIONS, isFacilityBrush, moduleLabel, useStore, type ZoneBrush } from '../store.ts'
+import { FACILITY_OPTIONS, isEraseBrush, isFacilityBrush, moduleLabel, useStore, type ZoneBrush } from '../store.ts'
 import { rectCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
@@ -32,8 +38,16 @@ function facilityColour(kind: FacilityKind): number {
   return FACILITY_OPTIONS.find((f) => f.id === kind)?.colour ?? 0x7fe4ff
 }
 
+/**
+ * The eraser's preview colour: the same warning red the 材质 brush erases in
+ * (`app/tools/PaintTool.ts`), because it is the same gesture meaning the same
+ * thing — this rectangle is having something taken off it.
+ */
+const ERASE_PREVIEW = 0xff7a7a
+
 /** Preview colour of either brush the zone tool carries: a fare zone or a room. */
 function brushColour(brush: ZoneBrush): number {
+  if (isEraseBrush(brush)) return ERASE_PREVIEW
   if (isFacilityBrush(brush)) return facilityColour(brush)
   return ZONE_LIST.find((z) => z.id === brush)?.colour ?? 0x7fe4ff
 }
@@ -90,6 +104,14 @@ export class ZoneTool extends ToolController {
     // shop/booth is chosen, a painted zone patch when a fare zone is.
     info.preventDefault()
     const brush = st.zoneBrush
+    // §4.5: a zone belongs to a **floor** cell, so a fare-zone patch may not be
+    // started on a wall coping, a ceiling or the earth over a tunnel — the tiles
+    // that are solid and are not floor. Such a press paints nothing and says why,
+    // rather than opening a drag that would write a label no overlay can draw.
+    if (!isFacilityBrush(brush) && !this.ctx.floors().has(cellKey(hit.cell[0], hit.cell[1], hit.cell[2]))) {
+      st.setNotice(isEraseBrush(brush) ? '分区只能在地板上擦除' : '分区只能画在地板上')
+      return
+    }
     const z = isFacilityBrush(brush) ? st.activeZ : hit.cell[2]
     const anchor: [number, number, number] = [hit.cell[0], hit.cell[1], z]
     this.ctx.zoneDrag.current = {
@@ -137,9 +159,11 @@ export class ZoneTool extends ToolController {
         scene.setCursor(target, true)
         return
       }
-      // A fare-zone patch: tint exactly the floor the rectangle covers.
+      // A fare-zone patch: tint exactly the floor the rectangle covers. The
+      // brush's own floor set is the filter — a rectangle dragged across a wall
+      // row tints the floor it crosses and drops the copings it also swept.
       const cells = rectCells(zd.anchor, target, zd.z, false)
-      const floor = cells.filter(([x, y, z]) => this.ctx.solids().has(cellKey(x, y, z)))
+      const floor = cells.filter(([x, y, z]) => this.ctx.floors().has(cellKey(x, y, z)))
       scene.setGhost([], 'remove')
       scene.setFaceGhost(floor, 'top', brushColour(zd.brush))
       scene.setCursor(target, true)
@@ -167,11 +191,14 @@ export class ZoneTool extends ToolController {
       scene.setCursor(c, true)
       return
     }
-    // A fare-zone brush hovers as a single tinted floor cell, ready to drag.
+    // A fare-zone brush hovers as a single tinted floor cell, ready to drag — and
+    // only on floor: over a wall coping or a ceiling there is nothing a zone
+    // could be painted on, so the ghost goes and the cursor reads refused.
     scene.setGhost([], 'remove')
-    if (hit.solid) scene.setFaceGhost([hit.cell], 'top', brushColour(st.zoneBrush))
+    const onFloor = hit.solid && this.ctx.floors().has(cellKey(hit.cell[0], hit.cell[1], hit.cell[2]))
+    if (onFloor) scene.setFaceGhost([hit.cell], 'top', brushColour(st.zoneBrush))
     else scene.clearFaceGhost()
-    scene.setCursor(hit.cell, hit.solid)
+    scene.setCursor(hit.cell, onFloor)
   }
 
   onUp(info: PointerInfo): void {
@@ -215,12 +242,25 @@ export class ZoneTool extends ToolController {
       // A deliberate press becomes a rectangle; a quick tap stays one cell.
       const wasRect = performance.now() - zd.downTime >= LONG_PRESS_MS && isMoved(zd, info)
       if (!isFacilityBrush(zd.brush)) {
-        // A fare-zone patch: a quick tap tints one cell, a deliberate drag a
-        // rectangle of the chosen zone across the floor it covers.
+        // A zone patch: a quick tap is one cell and a deliberate drag a rectangle of
+        // the chosen zone — or, with the folder's **无分区** armed, the very same
+        // rectangle with the labels taken *off* it. Either way only the floor is
+        // asked about (§4.5), by the same rule the 分区 map draws with.
+        const erasing = isEraseBrush(zd.brush)
         const rect = rectCells(zd.anchor, wasRect ? target : zd.anchor, zd.z, false)
-        const floor = rect.filter(([x, y, z]) => this.ctx.solids().has(cellKey(x, y, z)))
-        const next = paintZoneCells(st.station, floor, zd.brush)
-        if (next !== st.station) st.commit(next)
+        const floor = rect.filter(([x, y, z]) => this.ctx.floors().has(cellKey(x, y, z)))
+        if (floor.length === 0) {
+          st.setNotice(erasing ? '分区只能在地板上擦除' : '分区只能画在地板上')
+          return
+        }
+        // The cells go back to **reading** their storey's default rather than being
+        // handed one (`eraseZoneCells`), which is the whole of what 无分区 does.
+        const next = isEraseBrush(zd.brush) ? eraseZoneCells(st.station, floor) : paintZoneCells(st.station, floor, zd.brush)
+        if (next === st.station) {
+          if (erasing) st.setNotice('这些格子上没有分区')
+          return
+        }
+        st.commit(next)
         return
       }
       const r = facilityRect(zd.anchor, wasRect ? target : zd.anchor, zd.z)

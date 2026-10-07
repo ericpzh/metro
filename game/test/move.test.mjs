@@ -106,13 +106,14 @@ test('a drop needs floor under every cell the piece stands on', () => {
   const cells = station().cells
   const gate = piece('gate', 2, 2)
   assert.equal(moveDropReason(cells, [gate], movedModule(gate, at(4, 4, 0), 0)), '')
-  // Off the slab, on the work plane: refused, and the reason says which rule fired.
-  const void_ = movedModule(gate, at(40, 40, 0), 0)
+  // The street is infinite, so "off the slab" is now a storey with no ground:
+  // the same drop one storey up is refused, and the reason says which rule fired.
+  const void_ = movedModule(gate, at(40, 40, 4), 0)
   assert.match(moveDropReason(cells, [gate], void_), /地板/)
-  // A 2 m 座椅 needs both of its cells: one of them over void is not enough.
+  // A 2 m 座椅 needs both of its cells: one of them a dug hole is not enough.
   const bench = piece('bench-steel-2', 2, 2)
   assert.equal(bench.w, 2)
-  const half = station().cells.filter((c) => !(c.x === 4 && c.y === 3))
+  const half = [...station().cells.filter((c) => !(c.x === 4 && c.y === 3)), { x: 4, y: 3, z: 0, fill: 'void' }]
   assert.match(moveDropReason(half, [bench], movedModule(bench, at(3, 3, 0), 0)), /地板/)
 })
 

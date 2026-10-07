@@ -612,7 +612,30 @@ export function cutAnchor(cut: CutMode): string {
  * hands the drag and the module the drag places cannot drift apart.
  */
 export type FacilityBrush = 'store' | 'toilet' | 'office' | 'ticket'
+
+/**
+ * The 分区 folder's **无分区** brush: the tile that takes a label off the floor
+ * instead of putting one on, so a cell goes back to reading `none` — 无分区 —
+ * which is the state an unpainted cell is in (`zoneOf`, `sim/zones.ts`). A zone is
+ * a label over that state, and before this brush there was no way back to it: a
+ * mis-painted patch could only be painted over with another zone.
+ *
+ * It is the zone id itself — the brush is *named* for the state it produces, and
+ * `isEraseBrush` is what tells the tool and the card that this one brush removes
+ * a label rather than writing one (the model refuses to *write* `none`: a reading
+ * is not a record).
+ */
+export type ZoneEraser = 'none'
+
 export type ZoneBrush = Zone | FacilityBrush
+
+/**
+ * The brush the 分区 folder opens on, and the one a fresh station is armed with:
+ * **非付费区**, the concourse most stations are mostly made of. Never 无分区 —
+ * that brush is the eraser (`isEraseBrush`), and a station's first click should
+ * paint something.
+ */
+export const DEFAULT_ZONE_BRUSH: ZoneBrush = 'unpaid'
 
 /**
  * The 房间 folder's tiles. Each wears a **line icon of what the room is for**
@@ -630,6 +653,17 @@ export const FACILITY_OPTIONS: Array<{ id: FacilityBrush; label: string; colour:
 
 export function isFacilityBrush(b: ZoneBrush): b is FacilityBrush {
   return b === 'store' || b === 'toilet' || b === 'office' || b === 'ticket'
+}
+
+/**
+ * Is this the 分区 folder's **无分区** brush — the one that **removes** a label
+ * rather than setting one? Every reader asks this instead of comparing the id, so
+ * the brush, the tile that arms it and the command that runs are one thing named
+ * once. `ZoneBrush` is still just zones and rooms: 无分区 is a zone id like any
+ * other, and this predicate is what says that arming it means "take the label off".
+ */
+export function isEraseBrush(b: ZoneBrush): b is ZoneEraser {
+  return b === 'none'
 }
 
 /** Friendly name for a module type, for the inspector and the bulldoze notice. */

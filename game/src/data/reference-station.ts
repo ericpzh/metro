@@ -1,6 +1,6 @@
 // The shipped demo station — 动物园 (Zoo), 广州地铁 5号线. Converted from the
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
-// 2026-10-07 01:50Z) by `tools/bake-demo-station.mjs`, which parses the envelope
+// 2026-10-07 03:19Z) by `tools/bake-demo-station.mjs`, which parses the envelope
 // with `persistence/save.ts` and writes the loader's own output, so the demo is
 // already the document the game builds when a player opens the file. It is a
 // real five-level station: surface plaza, a concourse/mezzanine, and a stacked
@@ -35,17 +35,17 @@ export function referenceStation(): StationData {
  */
 export const REFERENCE_BOOT = { startSeconds: 7.45 * 3600, warmup: 0 } as const
 
-/** The 2x2 at-grade seed a new station starts from (§3 step 1, §4.1). */
+/**
+ * A new station. There is nothing to seed: the street is an infinite plane of
+ * blocks at z = 0, stored inverted (only holes are recorded, `sim/ground.ts`),
+ * so an empty document already stands on built ground. The old 2 × 2 at-grade
+ * seed existed only because a station with no cells had no floor at all.
+ */
 export function emptyStation(name = '未命名车站'): StationData {
   return {
     name,
     seed: 7654321,
-    cells: [
-      { x: 0, y: 0, z: 0, fill: 'solid' },
-      { x: 1, y: 0, z: 0, fill: 'solid' },
-      { x: 0, y: 1, z: 0, fill: 'solid' },
-      { x: 1, y: 1, z: 0, fill: 'solid' },
-    ],
+    cells: [],
     modules: [],
     lines: [],
   }

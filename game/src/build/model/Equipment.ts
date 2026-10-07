@@ -12,14 +12,22 @@ import {
   isCalligraphyStyle,
 } from '../../sim/calligraphy.ts';
 import { escalatorModule, type EscalatorDir } from '../../sim/escalators.ts';
-import { exitFloorAt } from '../../sim/exits.ts';
+import { exitFloorAt, exitFootprintCells } from '../../sim/exits.ts';
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../../sim/glassPanels.ts';
 import { DEFAULT_DOOR_VARIANT, doorSpec } from '../../sim/doors.ts';
 import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../../sim/linemaps.ts';
-import { liftModule } from '../../sim/lifts.ts';
+import { liftModule, liftFootprintCells } from '../../sim/lifts.ts';
 import { carveRampOpenings } from '../../sim/openings.ts'
-import { moduleFootprint } from '../../sim/placement.ts';
-import { trackOriginForCentre } from '../../sim/track.ts';
+import {
+  benchCells,
+  billboardCells,
+  calligraphyCells,
+  doorCells,
+  glassCells,
+  lineMapCells,
+  moduleFootprint,
+} from '../../sim/placement.ts';
+import { trackCells, trackOriginForCentre, edgeCells } from '../../sim/track.ts';
 import { STAIR_WIDTH_NARROW, stairBuildWidth, stairFlightsFor, stairLandings, stairTurnCells } from '../../sim/stairs.ts';
 import { makeSignBoards, settleSignBoards, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
 import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
@@ -316,6 +324,82 @@ export function createModule(
     }
     default:
       return null;
+  }
+}
+
+/**
+ * The plan a catalogue piece occupies: every floor cell it stands on, at the
+ * origin, read from the builders that place it — so a 单跑楼梯 is its seven cells of
+ * run and an 电梯 its 2 × 2 shaft, and neither a palette row's `w`/`h` nor a
+ * hand-kept table can drift from the geometry. A caller takes the bounding box of
+ * these cells when it wants the footprint a card prints; the list is returned
+ * rather than the box because a caller may equally want to draw them.
+ *
+ * Reading the cells takes more than `moduleFootprint`, which is the **collision**
+ * rule and answers with each piece's anchor points: a 双跑楼梯's two landings are two
+ * cells a run apart, though the pair of flights stands four cells wide, and an
+ * 出入口's cells fall to `exitFloorAt` there so its own floor pad stays free for the
+ * ramp that descends through it. So the rooms, the panel runs and the ramps are
+ * read through the same rules the tool draws them with (`stairFlightsFor`: every
+ * landing, not just the first and the last), and only the fixed 1 × 1 pieces fall
+ * back to `moduleFootprint`.
+ *
+ * `variant` is the piece's size where one exists — a bench's run in metres, a
+ * 广告牌's cells, a 扶梯's step band — and is ignored by every fixed piece, exactly
+ * as in `createModule`.
+ */
+export function footprintCellsOf(type: string, variant?: number): Array<[number, number]> {
+  const anchor = { x: 0, y: 0, z: 0 };
+  const id = 'footprint';
+  const mod =
+    type === 'escalator' ? escalatorModule(anchor, 0, 'up', id)
+    : type === 'lift' ? liftModule(anchor, 0, id)
+    : createModule(type, 0, 0, 0, id, 0, variant);
+  if (!mod) return [[0, 0]];
+  switch (mod.type) {
+    case 'retail':
+    case 'shop':
+    case 'booth': {
+      const out: Array<[number, number]> = [];
+      for (let x = 0; x < mod.w; x++) for (let y = 0; y < mod.h; y++) out.push([x, y]);
+      return out;
+    }
+    case 'track':
+      return trackCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    case 'platform-edge':
+      return edgeCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    case 'exit':
+      return exitFootprintCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    case 'stair':
+    case 'escalator': {
+      // Every landing of the run: a switchback's two flights stand a run apart, and
+      // the ground the pair covers is the pair, not the cells it starts and stops on.
+      const seen = new Set<string>();
+      const out: Array<[number, number]> = [];
+      for (const f of [mod.from, mod.to, ...(mod.type === 'stair' ? (mod.cfg.flights ?? []).flatMap((f) => [f.from, f.to]) : [])]) {
+        const key = `${f.x},${f.y}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push([f.x, f.y]);
+      }
+      return out;
+    }
+    case 'lift':
+      return liftFootprintCells(mod);
+    case 'bench':
+      return benchCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    case 'billboard':
+      return billboardCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    case 'glass':
+      return glassCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    case 'door':
+      return doorCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    case 'calligraphy':
+      return calligraphyCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    case 'linemap':
+      return lineMapCells(mod).map(([x, y]) => [x, y] as [number, number]);
+    default:
+      return moduleFootprint(mod);
   }
 }
 

@@ -32,7 +32,18 @@ export {
   paintFaces,
   paintStairSurface,
 } from './model/Paint.ts';
-export { paintZone, paintZoneCells, zoneAt, zoneMapFloors, zoneRegionLabels, type ZoneLabel } from './model/Zones.ts';
+export {
+  eraseZoneCells,
+  paintZone,
+  paintZoneCells,
+  zoneAt,
+  zoneFloorAt,
+  zoneFloorKeys,
+  zoneMapFloors,
+  zoneMapFloorsAt,
+  zoneRegionLabels,
+  type ZoneLabel,
+} from './model/Zones.ts';
 export { addFloor, AUTO_FLOOR, plannedAutoWalls, removeFloor, syncAutoWalls } from './model/Floors.ts';
 export {
   addWalls,

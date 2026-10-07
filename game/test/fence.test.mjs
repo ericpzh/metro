@@ -155,10 +155,12 @@ test('a fence on a landing closes the flight it stands on', () => {
     for (let e = g.adjStart[a]; e < g.adjStart[a + 1]; e++) out.push(g.nodeKey[g.adjTo[e]])
     return out
   }
-  assert.deepEqual(edgesFrom(open, bottom), ['0,6,4'], 'the flight is the way up')
+  // The street is walkable ground, so the bottom landing also has edges to the
+  // ground beside it; the flight is the one that leads to the upper landing.
+  assert.ok(edgesFrom(open, bottom).includes('0,6,4'), 'the flight is the way up')
   const shut = buildGraph({ name: 't', seed: 1, cells, modules: [stair, guard], lines: [] })
   assert.equal(shut.nodeIndex.get('0,6,4'), undefined, 'the fenced landing is no node')
-  assert.deepEqual(edgesFrom(shut, shut.nodeIndex.get('0,0,0')), [], 'and the flight is gone')
+  assert.equal(edgesFrom(shut, shut.nodeIndex.get('0,0,0')).includes('0,6,4'), false, 'and the flight is gone')
 })
 
 

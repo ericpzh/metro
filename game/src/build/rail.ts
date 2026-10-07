@@ -88,7 +88,14 @@ export function setLinePower(state: StationState, lineId: string, power: 'third-
   return { ...state, lines, modules }
 }
 
-/** True when a cell is walkable platform floor: exposed, no wall/roof above. */
+/**
+ * True when a cell is walkable platform floor: exposed, no wall/roof above.
+ *
+ * The **document's** cells, deliberately: the implicit street at z = 0
+ * (`sim/ground.ts`) is the world outside the station, not a platform, so it never
+ * derives a screen door — a rail laid on virgin ground gets none until the player
+ * lays a surface of their own beside it.
+ */
 export function isPlatformCell(cells: readonly Cell[], x: number, y: number, z: number): boolean {
   const c = cells.find((cc) => cc.x === x && cc.y === y && cc.z === z)
   if (!c || c.fill !== 'solid' || floorSpeed(c) <= 0) return false

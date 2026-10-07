@@ -27,13 +27,14 @@ import {
 } from './constants.ts'
 import { floorSpeed } from './finishes.ts'
 import { gateAllows, gateHasLane } from './gates.ts'
+import { withGround } from './ground.ts'
 import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
 import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
 import { liftFootprintCells, liftLandingCells, liftStopZs } from './lifts.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
-import { crossingDir, zoneIndex } from './zones.ts'
+import { crossingDir, zoneIndexOf } from './zones.ts'
 
 export type ServerKind = 'gate' | 'escalator' | 'stair' | 'lift' | 'door' | 'stop'
 
@@ -169,14 +170,19 @@ interface EdgeDraft {
  * `zoneBarriers` is §4.5's fare line: with it on, a zone boundary is a movement
  * barrier and the only crossing is a gate cell that passes that direction. It
  * defaults to `ZONE_LINES_BLOCK`, which is **off** while the demo's paint is
- * unfinished — an unlabelled cell reads as `unpaid`, so a painted patch in
- * unpainted floor is an invisible fare line with no gate on it, and those walled
- * the 动物园 station's circulation in two (see the constant). Pass `true` to test
- * or to run one station with the rule enforced.
+ * unfinished — an unlabelled cell reads as 无分区, which the fare line counts with
+ * the unpaid side, so a painted `paid` patch in unpainted floor is an invisible
+ * fare line with no gate on it, and those walled the 动物园 station's circulation
+ * in two (see the constant). Pass `true` to test or to run one station with the
+ * rule enforced.
  */
 export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): StationGraph {
+  // The street is stored inverted (holes, not blocks), so the graph walks the
+  // effective list: the window's ground rides along as ordinary solids with
+  // default finish and zone, and the module openings stay holes.
+  const all = withGround(data.cells, data.modules)
   const solid = new Set<string>()
-  for (const c of data.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
+  for (const c of all) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
   // Cells that host a gate, and the direction each gate passes. Only a gate
   // whose policy allows the crossing force can cross the zone line here, so a
   // one-way gate is a barrier to the other direction (§4.5). A **doorless**
@@ -236,7 +242,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
-  for (const c of data.cells) {
+  for (const c of all) {
     if (c.fill !== 'solid') continue
     if (solid.has(cellKey(c.x, c.y, c.z + 1))) continue
     // A floor finish is gameplay (§4.3): a track bed has speed 0 and is not a
@@ -256,7 +262,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     ys.push(c.y + 0.5)
     zs.push(c.z + 1)
     sps.push(speed)
-    zns.push(zoneIndex(c.zone))
+    zns.push(zoneIndexOf(c))
     levelSet.add(c.z)
     if (c.x < minX) minX = c.x
     if (c.y < minY) minY = c.y

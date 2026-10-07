@@ -59,6 +59,7 @@ export {
   isGateType,
   isRotatableType,
   FACILITY_OPTIONS,
+  isEraseBrush,
   isFacilityBrush,
   moduleLabel,
   placementPreviewKey,

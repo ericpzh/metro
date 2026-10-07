@@ -278,6 +278,9 @@ test('the pieces the scene animates carry the handle it animates them by', () =>
   assert.ok(escalator.groupKeys.has('escalator'), 'a 扶梯 carries the rolling step band')
   assert.ok(escalator.instanced >= 2, 'whose steps are instanced batches, not one mesh a step')
 
+  const clock = build(palette('clock'))
+  assert.ok(clock.groupKeys.has('clockRig'), 'a 时钟 carries the pivots its hands turn on')
+
   const psd = build(edge('full'))
   assert.ok(psd.groupKeys.has('doors'), 'a 站台门 carries its own leaves')
   assert.ok(psd.groupKeys.has('line'), 'and knows the line it belongs to')

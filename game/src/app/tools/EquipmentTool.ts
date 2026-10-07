@@ -17,6 +17,7 @@ import {
 import { railModuleAt } from '../../build/rail.ts'
 import { ESCALATOR_BAND } from '../../sim/constants.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
+import { solidAt } from '../../sim/ground.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
   autofaceWallMount,
@@ -383,9 +384,12 @@ export class EquipmentTool extends ToolController {
     const rot = snap ? snap.rot : st.moduleRot
     const base: Vec3i = snap ? { x: snap.base.x, y: snap.base.y, z: snap.base.z } : { x: cell[0], y: cell[1], z: cell[2] }
     const placeable = (p: Vec3i): boolean => {
-      const floorHere =
-        st.station.cells.some((c) => c.fill === 'solid' && c.x === p.x && c.y === p.y && c.z === p.z) ||
-        exitFloorAt(st.station.modules, p.x, p.y, p.z)
+      // The floor a lane stands on is asked of the **effective** ground
+      // (`solidAt`), not of the raw document: the street at z = 0 is an implicit
+      // plane, so a scan of `cells` alone would plan a wide stair's lanes short
+      // on virgin ground — the first lane would report no floor and the rest of
+      // the flight would never be laid.
+      const floorHere = solidAt(st.station.cells, st.station.modules, p.x, p.y, p.z) || exitFloorAt(st.station.modules, p.x, p.y, p.z)
       if (!floorHere) return false
       const lane = createModule(type, p.x, p.y, p.z, id, rot, ESCALATOR_BAND, st.escalatorDir)
       return !!lane && !placementBlocked(st.station.modules, lane) && !placementOnTrack(st.station.cells, lane, st.station.modules)
@@ -466,7 +470,7 @@ export class EquipmentTool extends ToolController {
     // A wall 指示牌 whose board is open in the editor draws the board being arranged.
     const facing = autofaceWallMount(st.station.cells, draft, near)
     const mod = signModuleWithPreview(facing, st.signPreview)
-    return { mod, noWall: wallMountMissing(st.station.cells, mod) }
+    return { mod, noWall: wallMountMissing(st.station.cells, mod, st.station.modules) }
   }
 
   /**
@@ -484,7 +488,11 @@ export class EquipmentTool extends ToolController {
     const at = ceilingMountStandCell(cell, place)
     const mods = this.buildPlacementModules(st.moduleType, at, id)
     if (mods.length === 0) return { mods: [], noCeiling: true }
-    const noCeiling = mods.some((m) => ceilingMountMissing(st.station.cells, m))
+    // The modules ride along, or the ghost reads a **hung** piece's ceiling off the
+    // document alone and reports "no ceiling" for a fitting that hangs from the
+    // implicit street slab (`sim/ground.ts`) — a verdict `equipmentReason`, which
+    // is handed the modules, does not share. Preview and commit must agree.
+    const noCeiling = mods.some((m) => ceilingMountMissing(st.station.cells, m, st.station.modules))
     return { mods, noCeiling }
   }
 

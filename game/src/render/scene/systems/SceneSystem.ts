@@ -142,6 +142,15 @@ export interface SceneContext {
   /** 隐藏墙壁: true while walls and platform screen doors should read through. */
   hideWalls: boolean
   /**
+   * 隐藏地面: true while the street plane — the generated window
+   * (`sim/ground.ts`) — is not drawn at all. It is meshed as its own pass
+   * (`ChunkSystem.meshStation`) and tagged `ground`, so the toggle is a
+   * `visible` flag rather than a rebuild; like 隐藏墙壁 it hides in **every**
+   * mode, cut and 隐藏UI included, because it is a surface the player asked to
+   * be rid of rather than a way of drawing a storey.
+   */
+  hideGround: boolean
+  /**
    * 隐藏UI: the picture is the station rather than the storey being edited, so
    * the slice is put away (`levelSlicing.sliceOptions`) and every storey draws
    * as itself. It owns the editing lattice as well, but that flag lives with the
@@ -216,6 +225,7 @@ export class SceneContextData implements SceneContext {
   ghost = true
   autoCeiling = true
   hideWalls = false
+  hideGround = false
   hideUI = false
   cutaway = false
   levelKey = ''

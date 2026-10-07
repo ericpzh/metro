@@ -26,7 +26,12 @@ import { createModule } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { MODULE_OPTIONS, isDecorType, moduleLabel } from '../src/app/store.ts'
 import { sameSweepFamily, sweepFamily } from '../src/app/sweep.ts'
-import { buildModule } from '../src/render/models.ts'
+import { buildModule, CLOCK_POSE_SECONDS, reposeClockHands } from '../src/render/models.ts'
+import { ClockSystem } from '../src/render/scene/systems/ClockSystem.ts'
+import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
+import { ModuleSystem } from '../src/render/scene/systems/ModuleSystem.ts'
+import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
+import { clockHandAngles } from '../src/sim/clock.ts'
 
 /** The drawn height of each piece: the whole storey, floor top to ceiling. */
 const HUNG_H = 3.0
@@ -158,10 +163,11 @@ test('a hung piece answers to the slab, never to the ground under it', () => {
   // floor the piece was never standing on.
   const bed = [{ x: 2, y: 2, z: 0, fill: 'solid', finish: { top: 'floor.track' } }, ...slab]
   assert.equal(equipmentReason(bed, [], clock(2, 2), true), 'track')
-  // The same floorless cell still refuses a piece that really does stand: the
-  // exemption is the hung piece's, not the cell's.
-  const tvm = createModule('tvm', 2, 2, 0, 't', 0)
-  assert.equal(equipmentReason(slab, [], tvm, true), 'floor')
+  // The same floorless storey still refuses a piece that really does stand: the
+  // exemption is the hung piece's, not the cell's. Asked one storey up, where
+  // there is no street to stand on.
+  const tvm = createModule('tvm', 2, 2, 4, 't', 0)
+  assert.equal(equipmentReason([{ x: 2, y: 2, z: 8, fill: 'solid' }], [], tvm, true), 'floor')
 })
 
 test('a piece is found from its cell and refused on a track bed', () => {
@@ -438,22 +444,32 @@ test('the 时钟 is a slim black-wrapped case with a dial on each face', () => {
       assert.equal(runs, want, `face ${i}: the ${deg}° mark runs along ${want} (it runs along ${runs})`)
     }
     // **Each hand points at its own hour**, reading its tip's direction off the box corners: the
-    // hour hand near 10 o'clock (300°) and the minute hand past 2 (60°), because the pose is
-    // 10:09. A hand laid across its hour — the bug this test exists for — lands 90° out.
-    const poses = [[304, 0.19], [54, 0.27]]
+    // pose a bare build draws is the sim's **own derivation** at `CLOCK_POSE_SECONDS` (10:09), so
+    // the two hands are the two hands of *that* instant — the hour hand just past 10, the minute
+    // hand just past 10 past. A hand laid across its hour — the bug this test exists for — lands
+    // 90° out.
+    //
+    // The angle has to be read in the **dial's own frame**, which is the frame the marks' own
+    // angles live in and the one `clockHandAngles` speaks — not in world axes. The far dial hangs
+    // inside a mount turned half a turn about the vertical axis (so that its own 12 is up for the
+    // viewer on that side), and a hand measured in world axes therefore points the *other* way
+    // round there while reading its hour perfectly. This check used to compare the two, and the
+    // `|| off - 180` escape that made it pass is the seam the piece's upside-down far face hid in.
+    const productPose = clockHandAngles(CLOCK_POSE_SECONDS)
+    const mountTurn = new THREE.Quaternion()
+    group.getWorldQuaternion(mountTurn).invert()
+    const poses = [[productPose.hour, 0.19], [productPose.minute, 0.27]]
     for (const [deg, len] of poses) {
       const arm = hands.find((m) => Math.abs(m.geometry.parameters.width - len) < 0.02)
       assert.ok(arm, `face ${i}: the ${len === 0.19 ? 'hour' : 'minute'} hand`)
       // A hand carries its length along local **x**, like a mark, so its axis is the matrix's first
       // column. The radial direction at its hour `deg` is `(sin, cos)`; the hand must point that way.
       // A hand lying *across* its hour — the bug this guards — comes out 90° from this.
-      const axis = new THREE.Vector3(1, 0, 0).transformDirection(arm.matrixWorld)
+      const axis = new THREE.Vector3(1, 0, 0).transformDirection(arm.matrixWorld).applyQuaternion(mountTurn)
       const got = (Math.atan2(axis.x, axis.z) * 180) / Math.PI
-      const a = (deg * Math.PI) / 180
-      const want = (Math.atan2(Math.sin(a), Math.cos(a)) * 180) / Math.PI
-      let off = Math.abs(got - want) % 360
+      let off = Math.abs(got - deg) % 360
       if (off > 180) off = 360 - off
-      assert.ok(off < 6 || Math.abs(off - 180) < 6, `face ${i}: the ${len === 0.19 ? 'hour' : 'minute'} hand points at ${want.toFixed(0)}° (it points ${got.toFixed(0)}°)`)
+      assert.ok(off < 0.01, `face ${i}: the ${len === 0.19 ? 'hour' : 'minute'} hand points at ${deg.toFixed(1)}° (it points ${got.toFixed(1)}°)`)
     }
   }
   /* ---------------------------------------------------------------- the rod */
@@ -582,4 +598,298 @@ test('a turned 时钟 still reads: the dial turns with the piece', () => {
   for (const p of turned) {
     assert.ok(Math.abs(p.x - 0.5) <= 0.45 && Math.abs(p.y - 0.5) <= 0.45, 'every mark stays inside the cell')
   }
+})
+
+/* ----------------------------------------------------------------- the hands */
+
+/**
+ * The clock angle a hand's pivot points its arm at, in the **dial's own frame**: degrees
+ * clockwise from 12 o'clock, which is the frame the marks were laid out in and the one
+ * `clockHandAngles` speaks.
+ *
+ * Read off the **drawn arm** rather than off the pivot's own `rotation.y`. The pivot's rotation
+ * is the implementation; what has to be true is that 0.19 m of steel ends up over the hour it is
+ * meant to show — and on **both** faces, which are one dial mounted twice with the far one inside
+ * a group turned half a turn, so a face that was mirrored rather than mounted would point 180°
+ * out with its pivot set exactly right. Un-rotating by the mount's own world quaternion is what
+ * makes the two faces comparable.
+ */
+function handAngle(pivot, root) {
+  const arm = pivot.children[0]
+  root.updateMatrixWorld(true)
+  let frame = pivot
+  while (frame.parent && frame.parent !== root) frame = frame.parent
+  const q = new THREE.Quaternion()
+  frame.getWorldQuaternion(q).invert()
+  const axis = new THREE.Vector3(1, 0, 0).transformDirection(arm.matrixWorld).applyQuaternion(q)
+  return ((Math.atan2(axis.x, axis.z) * 180) / Math.PI + 360) % 360
+}
+
+test('a 时钟 hands the scene a pivot per hand, seated on the product pose', () => {
+  const { root } = build(clock(0, 0))
+  const rig = root.userData.clockRig
+  assert.ok(rig, 'the piece carries the rig the scene turns its hands by (`clockRig`)')
+  assert.equal(rig.hour.length, 2, 'an hour hand on each face')
+  assert.equal(rig.minute.length, 2, 'and a minute hand on each face')
+  for (const pivot of [...rig.hour, ...rig.minute]) {
+    assert.equal(pivot.isGroup, true, 'a hand hangs on a pivot group rather than being placed at an angle')
+    assert.equal(pivot.children.length, 1, 'and the pivot holds its arm and nothing else, so one number is the time')
+  }
+  // **A bare build draws the sim's own pose**, not a number typed into the builder: no scene is
+  // behind a palette thumbnail or a hover ghost, so the piece falls back to `CLOCK_POSE_SECONDS`
+  // — and 10:09 is then whatever `clockHandAngles` says 10:09 is.
+  const pose = clockHandAngles(CLOCK_POSE_SECONDS)
+  for (const pivot of rig.hour) assert.ok(Math.abs(handAngle(pivot, root) - pose.hour) < 1e-6, `the hour hand draws ${pose.hour}° (10:09)`)
+  for (const pivot of rig.minute) assert.ok(Math.abs(handAngle(pivot, root) - pose.minute) < 1e-6, `the minute hand draws ${pose.minute}° (10:09)`)
+})
+
+test('both dials read the sim clock: one time on the wall, whichever side it is read from', () => {
+  const { root } = build(clock(0, 0))
+  const rig = root.userData.clockRig
+  // An hour that lands a hand on a mark, a half hour, the product pose, the last second of the
+  // day, and a time well into a run (the day counter past 1). Every hand on **both** faces has to
+  // read the angle the clock's own derivation gives — a face that mirrored its hands instead of
+  // mounting them lands on 360° − that, and a fixed pose never moves at all.
+  for (const seconds of [0, 3 * 3600, 6 * 3600 + 30 * 60, 10 * 3600 + 9 * 60, 23 * 3600 + 59 * 60 + 59, 123456]) {
+    reposeClockHands(rig, seconds)
+    const want = clockHandAngles(seconds)
+    for (const pivot of rig.hour) {
+      assert.ok(Math.abs(handAngle(pivot, root) - want.hour) < 1e-6, `at ${seconds} s the hour hand reads ${want.hour}°`)
+    }
+    for (const pivot of rig.minute) {
+      assert.ok(Math.abs(handAngle(pivot, root) - want.minute) < 1e-6, `at ${seconds} s the minute hand reads ${want.minute}°`)
+    }
+  }
+  // The two faces are the same clock, not two: 06:30 puts the hour hand halfway between 6 and 7
+  // on each of them, so a passenger walking past reads one time whichever way they came.
+  reposeClockHands(rig, 6 * 3600 + 30 * 60)
+  const minutes = rig.minute.map((p) => handAngle(p, root))
+  assert.ok(Math.abs(minutes[0] - 180) < 1e-6 && Math.abs(minutes[1] - 180) < 1e-6, `both minute hands stand on 6 (${minutes.join(' / ')})`)
+})
+
+test('each face tells the time to the viewer standing in front of it', () => {
+  // **The property the hands exist for, and the one this piece did not have.** A face of sixty
+  // evenly spaced marks is **2-fold symmetric** — it looks exactly the same upside down, because
+  // nothing on a ring of ticks says where 12 is. Only the hands do. So a dial hung half a turn
+  // about its own normal read as a perfectly good clock face for the life of the piece while
+  // pointing at the wrong time: at 06:30 the minute hand stood on the mark the viewer reads as 12.
+  //
+  // What has to hold, for a piece at rot 0 **and** at rot 2 (half a turn, so the *other* dial is
+  // the one the camera sees), is that the face nearest the −y camera puts both hands at the
+  // clock's own angles **on that camera's screen** — screen right = +x, screen up = +z — and the
+  // far face does the same for the +y viewer, whose screen right is −x. An upside-down face lands
+  // 180° out on both.
+  const seconds = 6 * 3600 + 30 * 60 + 30 // 06:30:30: the hour hand has walked past 6, the minute hand sits between two marks
+  const want = clockHandAngles(seconds)
+  const screenAngle = (arm, fromPlusY) => {
+    const axis = new THREE.Vector3(1, 0, 0).transformDirection(arm.matrixWorld)
+    return ((Math.atan2(fromPlusY ? -axis.x : axis.x, axis.z) * 180) / Math.PI + 360) % 360
+  }
+  const off = (a, b) => {
+    const d = Math.abs(a - b) % 360
+    return d > 180 ? 360 - d : d
+  }
+  for (const rot of [0, 2]) {
+    const { mats, root } = build(clock(0, 0, 0, 'c', rot))
+    const rig = root.userData.clockRig
+    reposeClockHands(rig, seconds)
+    root.updateMatrixWorld(true)
+    // Which dial the −y camera is looking at is the mount nearest it; the piece's own rotation is
+    // what decides that, so it is read off the built geometry rather than assumed.
+    const faces = rig.hour.map((pivot, i) => {
+      let mount = pivot
+      while (mount.parent && mount.parent !== root) mount = mount.parent
+      return { i, mount, y: mount.getWorldPosition(new THREE.Vector3()).y }
+    })
+    faces.sort((a, b) => a.y - b.y)
+    for (const [viewer, face] of [[-1, faces[0]], [1, faces[1]]]) {
+      const arm = (which) => (which === 'hour' ? rig.hour : rig.minute)[face.i].children[0]
+      for (const [which, expected] of [['hour', want.hour], ['minute', want.minute]]) {
+        const got = screenAngle(arm(which), viewer > 0)
+        assert.ok(
+          off(got, expected) < 0.01,
+          `rot ${rot}, the ${viewer < 0 ? '−y' : '+y'} viewer's ${which} hand reads ${expected.toFixed(1)}° (it reads ${got.toFixed(1)}°)`,
+        )
+      }
+      // And **12 is up** on that face: the quarter mark the viewer sees at the top of the circle is
+      // the dial's own 12. That is the half-turn about the vertical axis, and the thing a face of
+      // symmetric ticks cannot show by itself.
+      const centre = face.mount.getWorldPosition(new THREE.Vector3())
+      const turn = new THREE.Quaternion()
+      face.mount.getWorldQuaternion(turn).invert()
+      let top = null
+      face.mount.traverse((o) => {
+        if (!o.isMesh || o.material !== mats.black || o.geometry.type !== 'BoxGeometry') return
+        if (Math.abs(o.geometry.parameters.width - 0.09) > 1e-6) return // the four quarter marks
+        const d = o.getWorldPosition(new THREE.Vector3()).sub(centre).applyQuaternion(turn)
+        if (!top || d.z > top.z) top = d
+      })
+      const atTop = ((Math.atan2(top.x, top.z) * 180) / Math.PI + 360) % 360
+      assert.ok(off(atTop, 0) < 0.01, `rot ${rot}, the ${viewer < 0 ? '−y' : '+y'} viewer has the ${atTop.toFixed(1)}° mark at the top of the circle, not 12`)
+    }
+  }
+})
+
+test('the scene sweeps the hands between snapshots, sets them on a seek, and stops when paused', () => {
+  const { root } = build(clock(0, 0))
+  const rig = root.userData.clockRig
+  // The renderer's own window: one snapshot at frame time 1000 ms, the next due 1000 ms later.
+  // `now` is the frame clock, so the two are driven independently and the arithmetic is visible.
+  const ctx = { lastStateTime: 1000, stateIntervalMs: 1000 }
+  const clocks = new ClockSystem(ctx)
+  clocks.clockRigs.push(rig)
+  const minute = () => handAngle(rig.minute[0], root)
+
+  // **No snapshot yet**: the station has not said what time it is, so the piece keeps the pose it
+  // was built with rather than jumping to midnight or stopping dead.
+  clocks.updateClocks(1000)
+  assert.ok(Math.abs(minute() - clockHandAngles(CLOCK_POSE_SECONDS).minute) < 1e-6, 'a clock built before the sim speaks keeps its built pose')
+
+  // The first snapshot **sets** the clock — there is nothing to sweep from, so 06:00 stands.
+  clocks.setSimTime(6 * 3600)
+  clocks.updateClocks(1000)
+  assert.equal(minute(), 0, 'the first snapshot sets the clock: 06:00, the minute hand on 12')
+
+  // The next snapshot is one tick later, and a tick is a sim second at any speed
+  // (`sim/constants.ts`: 1× runs one tick a second, fast-forward multiplies ticks and never the
+  // step). The hands **sweep** that second across the interval: a minute hand is 0.1° a second,
+  // so half way through the window it stands at 0.05° — between the two snapshots, which is the
+  // whole reason there is a sweep. A hand that only moved when a snapshot arrived would read 0
+  // here, and a hand driven off wall time by mistake would be at a minute's worth by now.
+  ctx.lastStateTime = 1000
+  clocks.setSimTime(6 * 3600 + 1)
+  clocks.updateClocks(1000)
+  assert.equal(minute(), 0, 'the sweep starts where the last snapshot left the clock')
+  clocks.updateClocks(1500)
+  assert.ok(Math.abs(minute() - 0.05) < 1e-9, `half way through the interval the minute hand has crept to 0.05° (${minute()})`)
+  clocks.updateClocks(2000)
+  assert.ok(Math.abs(minute() - 0.1) < 1e-9, `and it reaches the new snapshot at the end of the window (${minute()})`)
+
+  // **A seek is a set, not a sweep.** The 时刻 window's calendar pick moves the clock by hours, and
+  // a clock that swept there would wind through every hour in between — so at the first frame after
+  // the seek the hands already read the new time.
+  const sought = 6 * 3600 + 1 + 3 * 3600
+  clocks.setSimTime(sought)
+  ctx.lastStateTime = 2000
+  clocks.updateClocks(2000)
+  assert.ok(Math.abs(minute() - clockHandAngles(sought).minute) < 1e-6, 'a seek sets the hands at once, it does not wind them forward')
+  // And the same going back: a jump to an earlier time is set too, rather than the hands sweeping
+  // anticlockwise the way round the face.
+  const back = sought - 4 * 3600
+  clocks.setSimTime(back)
+  clocks.updateClocks(2000)
+  assert.ok(Math.abs(minute() - clockHandAngles(back).minute) < 1e-6, 'a step back in time sets them just as flatly')
+
+  // **Paused, the hands stop.** No snapshot arrives, so the interpolation reaches the end of its
+  // window and stays there however far the frame clock runs on.
+  clocks.updateClocks(999_999)
+  const stopped = minute()
+  assert.ok(Math.abs(stopped - clockHandAngles(back).minute) < 1e-6, 'the hands stand on the time the sim stopped on')
+  clocks.updateClocks(999_999 + 5000)
+  assert.equal(minute(), stopped, 'and five seconds of wall clock later they have not moved')
+})
+
+test('the scene hands a built 时钟 to the clock system, and takes it back with the piece', () => {
+  // **The one link no test of the model can see.** The dial's hands only follow the sim if
+  // `ModuleSystem` tells the scene that the piece it just built has hands to turn
+  // (`ClockSystem.clockRigs`) — a rig nobody is handed is a dial frozen at 10:09 for the whole
+  // session, which is exactly the bug this piece has just been fixed for, and it looks like a
+  // working clock in every other test. Mounted headless, the way `refused-ghost` mounts the
+  // ghost: a bare scene, a material stub per name, and the siblings the module pass walks as
+  // empty stubs.
+  const scene = new THREE.Scene()
+  const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshBasicMaterial({ name: String(k) })) })
+  const modelMats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
+  const ctx = new SceneContextData(scene, mats, modelMats, null)
+  const modules = new ModuleSystem(ctx)
+  const clocks = new ClockSystem(ctx)
+  modules.trains = { psdGroups: [] }
+  modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
+  modules.crowd = { gateWings: [] }
+  modules.clocks = clocks
+  modules.ghost = { clearFencePreview() {} }
+  modules.plates = {
+    adScreens: [],
+    tvScreens: [],
+    retainTvPlates() {},
+    retainSignPlates() {},
+    retainDecorPlates() {},
+    ownsTexture: () => false,
+  }
+  const station = { name: 't', seed: 1, cells: [{ x: 2, y: 2, z: 0, fill: 'solid' }], modules: [clock(2, 2)], lines: [] }
+  modules.buildModules(station, new Set())
+  const group = modules.moduleMeshes.children.find((c) => c.userData.moduleId === 'clock-1')
+  assert.ok(group, 'the pass built the placed 时钟')
+  const rig = group.userData.clockRig
+  assert.ok(rig, 'and the piece carries its rig')
+  assert.equal(clocks.clockRigs.length, 1, 'which the module pass handed to the clock system')
+  assert.equal(clocks.clockRigs[0], rig, 'the very rig the dial was built with, not a copy')
+
+  // Now the whole path is live: a snapshot sets the time and the piece on the screen turns to it.
+  clocks.setSimTime(9 * 3600)
+  clocks.updateClocks(0)
+  assert.ok(Math.abs(handAngle(rig.minute[0], group) - clockHandAngles(9 * 3600).minute) < 1e-6, '09:00 puts the minute hand on 12')
+  assert.ok(Math.abs(handAngle(rig.hour[0], group) - clockHandAngles(9 * 3600).hour) < 1e-6, 'and the hour hand on 9')
+
+  // A rebuild drops the rig with the dial it turns: the next pass adds its own, and the list
+  // holds the piece in front of the player rather than every dial the session ever built.
+  modules.buildModules(station, new Set())
+  assert.equal(clocks.clockRigs.length, 1, 'a rebuild leaves one rig, not two')
+  assert.notEqual(clocks.clockRigs[0], rig, 'and it is the rig of the group now on screen')
+})
+
+test('the hover ghost’s 时钟 reads the sim clock too, and gives its hands back when it goes', () => {
+  // **The ghost is the piece a click would place** (`GhostSystem.setModulePreview`), so a
+  // translucent clock previewing at 10:09 while every clock on the wall reads the sim's time would
+  // be the one surprise the hover exists to prevent — and the same translucent dial is what the
+  // 删除 tool, the 移动 drag and the 吸取 copy draw. Its rig is handed over on build like a placed
+  // piece's, and **dropped with the ghost**: a rig outliving its group is a pivot the clock system
+  // would go on turning in a piece that is no longer in the scene.
+  const scene = new THREE.Scene()
+  const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
+  // `MaterialSet.owns`' own answer, so every ghost material counts as the kit's and the preview
+  // keeps nothing to dispose. This is the one member of the material set the ghost asks about.
+  mats.owns = () => true
+  const modelMats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
+  const ctx = new SceneContextData(scene, mats, modelMats, null)
+  ctx.stationData = { name: 't', seed: 1, cells: [], modules: [], lines: [] }
+  const ghost = new GhostSystem(ctx)
+  const clocks = new ClockSystem(ctx)
+  ghost.clocks = clocks
+  ghost.plates = { ownsTexture: () => false }
+  ghost.modules = { fenceGroups: [] }
+
+  ghost.setModulePreview(clock(2, 2))
+  const group = ghost.previewGroup.children[0]
+  assert.ok(group && ghost.previewGroup.visible, 'the hover built its translucent piece')
+  const rig = group.userData.clockRig
+  assert.equal(clocks.previewRigs.length, 1, 'and handed its hands to the clock system')
+  assert.equal(clocks.previewRigs[0], rig, 'the very rig the ghost dial was built with')
+
+  // A snapshot sets the time, and the **ghost's** dial turns to it — 15:45, so the minute hand is
+  // on 9 and the hour hand three quarters of the way from 3 to 4: a pose the frozen 10:09 is not.
+  const quarterTo = 15 * 3600 + 45 * 60
+  clocks.setSimTime(quarterTo)
+  clocks.updateClocks(0)
+  assert.ok(Math.abs(handAngle(rig.minute[0], group) - clockHandAngles(quarterTo).minute) < 1e-6, 'the ghost’s minute hand stands on 9')
+  assert.ok(Math.abs(handAngle(rig.hour[0], group) - clockHandAngles(quarterTo).hour) < 1e-6, 'and its hour hand is on its way to 4')
+  // And it is **swept** by the same window a placed clock is, because it is the same clock rather
+  // than a second reading of the time: one sim second later, at the end of the interval.
+  ctx.lastStateTime = 0
+  ctx.stateIntervalMs = 1000
+  clocks.setSimTime(quarterTo + 1)
+  clocks.updateClocks(1000)
+  assert.ok(
+    Math.abs(handAngle(rig.minute[0], group) - clockHandAngles(quarterTo + 1).minute) < 1e-6,
+    'the ghost is swept to the new snapshot like a placed clock',
+  )
+
+  // The pointer moves off the cell: the ghost goes, and its hands are handed back.
+  ghost.clearModulePreview()
+  assert.equal(clocks.previewRigs.length, 0, 'clearing the ghost gives its rigs back')
+  assert.equal(ghost.previewGroup.children.length, 0, 'and its geometry with them')
+  // Setting the time again with no ghost up is a no-op rather than a turn of a pivot in a group the
+  // scene has dropped.
+  clocks.updateClocks(1000)
+  assert.equal(clocks.previewRigs.length, 0, 'and nothing comes back to be turned')
 })

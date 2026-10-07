@@ -99,6 +99,66 @@ the 闸机's **piece** (a working lane, or the fence machine that closes a 围�
 its hand is a rotation, `R`) has landed, but its in / out / both policy and queue anchor are still
 fixed.
 
+**The 分区 map follows the storey, and a zone is floor.** Two rules the map and the brush now share
+one definition of (`isFloorCell`, `build/model/Zones.ts`):
+
+* **One storey at a time.** The 分区图 used to tint every storey's paint at once, so a concourse
+  patch and a platform patch were one picture with two sets of labels stacked in it. It draws the
+  level being edited instead (`zoneMapFloorsAt(cells, activeZ, modules)`), and the map rolls with
+  **Q/E** — the storey is part of the overlay's fingerprint, so a step rebuilds the picture rather
+  than reusing the last one. A storey is `storeyBand`'s, the rule the level slice keys every mesh by:
+  a cell belongs to the grid line at or below it, so the demo's −6 landings are drawn with its −8
+  storey *and* tinted with it, where a plain `z === activeZ` filter would have left them paint no
+  storey ever showed. The labels come off the same floors and no region ever spanned storeys
+  (`zoneRegionLabels` walks the four in-plane neighbours), so they follow for free. 热力图 is still
+  every storey at once: it is a read of the crowd, and the crowd is everywhere.
+* **A zone belongs to a floor cell** (§4.5), which is not the same thing as "there is a block here".
+  The rule is the one the map already drew with — solid, top face exposed, and a floor finish that
+  walks (or a track bed at the foot of its column) — so the 分区 brush, its bucket, the 信息 card's
+  chips and the overlay all accept exactly the same cells: never the floor cell a wall column stands
+  in (its top is buried), never the earth roof over a tunnel, never a track coping. A refused press
+  says `分区只能画在地板上`; a rectangle that crosses a wall row drops the tiles it cannot paint and
+  tints the rest; the card's 分区 chips go dead with the reason beside them. The bottom of it is
+  `paintZoneCells`/`paintZone` themselves, so a zone can no longer be *written* anywhere the map
+  could not draw it — the 动物园 save's own paint is untouched, and the street is still floor a
+  rectangle may materialise and zone. `test/zonetool.test.mjs` drives the click (a tapped floor tile
+  paints, a tapped coping paints nothing and says so, a drag drops the non-floor tiles); `zones.test.mjs`
+  pins the rule in the model, the per-storey map, and that the map tints exactly the floor the brush
+  accepts.
+
+**无分区: an unpainted cell says so.** A cell with no `zone` label is not a cell in some zone the game
+picked for it: it reads **`none` — 无分区** (`zoneOf`, `sim/zones.ts`), and the 分区 map, the 信息 card and
+the sim all read that one answer through `zoneIndexOf`. It is a **reading, not a record** — nothing is
+written to the save, and the model refuses to *write* it (`paintZone` / `paintZoneCells` return the
+state unchanged), because the way to 无分区 is to take a label *off* — so a station whose paint is
+unfinished stays unfinished and now *says* so instead of masquerading as a zone. A tab of pavement that
+was 非付费区 by accident (the 动物园 save has 126 unlabelled floor cells at grade out of 458) is 无分区
+instead, which is the honest answer to "what is this?".
+
+无分区 sits on the **unpaid side of the fare line** (`isUnpaidZone`), so it is not a barrier of its own:
+an unlabelled station still grows no fare line, and `crossingDir('none', 'paid')` is still 1 — a painted
+`paid` patch inside unpainted floor is a line that needs a gate, exactly as before. That is why the
+change moves no crowd number: `demo`, `capacity` and `wayfinding` are unmoved, and the 动物园's measured
+figures stand. The **street plane is still 站外**, and that is not a default either: `withGround` labels
+its own cells `outside`, because the plane really *is* the world outside the station — which is why a
+tile the zone brush materialised over virgin street goes back to reading 站外 when its label comes off
+(see below). One thing came with it: `World.sampleTripFromStreet` took a machine's stop only when its
+node was **labelled** `unpaid`, so a 售票机 on the pavement outside an entrance would have dropped out of
+§7.4a's optional stop. It asks `isUnpaidZone` now — the side of the fare line, which is what that rule
+always meant.
+
+**无分区 is also the folder's sixth tile, and it is the eraser.** The tile takes a zone *off* the floor
+instead of putting one on — the one zone edit the game had no way to make, short of painting a patch
+over with another zone (`eraseZoneCells`, `build/model/Zones.ts`; the brush is the zone id itself,
+`isEraseBrush` in `app/store/catalog.ts`, so the tile, the brush and the state are one name). It drags
+the same rectangle the brush paints, previews in the 材质 brush's warning red, and the 信息 card's chip
+row is the same six states — 无分区 first, and it is the chip that erases (dead while the cell carries
+no label of its own). Nothing is validated: removing a label is legal wherever a label is, so this is
+the one zone edit that does not ask whether the cell is floor. A surface tile the brush had
+materialised — virgin street given a record so it could wear a label — goes *with* its label, because
+with nothing else on it that record *is* the plane the document stores inverted; a cell with a finish
+or a tag keeps its record and loses only the label, and reads 无分区 again.
+
 **The module art pass** (part of PLAN §3 item 6, ahead of B3/B4) replaced the unit-cube modules with
 `render/models.ts`: procedural ticket machines, turnstile cabinets, escalators, exits and platform
 screen doors, plus rolling stock. PSDs are drawn from the `platform-edge` run (the screen the graph
@@ -265,7 +325,28 @@ divisions** — twelve hour marks and 48 minute ticks — with two hands and a c
 proportions measured off the reference face (hour mark 0.20 R long by 0.055 R across, minute tick
 0.10 R by 0.02 R, both ending at the same inner rim; hands 0.5 R and 0.7 R). **Twelve bars alone
 read as a plate with marks on it** — the minute ticks are what make the ring read as a clock. The
-clock is **double-faced**: both ends carry the full dial, mirrored so 12 o'clock is up on each.
+clock is **double-faced**: both ends carry the full dial, the far one turned half a turn about the
+**vertical** axis so 12 o'clock is up on each.
+
+**And the hands tell the simulation's own time** (§7.9). Each one hangs on a **pivot** the scene
+turns, rather than being placed at an angle in the builder: `ClockRig` is the piece's two pivots per
+face, `clockHandAngles` (`sim/clock.ts`, beside the clock's own strings) is the derivation from sim
+seconds to the two angles — the hour hand carrying the minutes, the minute hand the seconds — and
+`reposeClockHands` is what `ClockSystem` calls every frame. The builder's own pose is
+`CLOCK_POSE_SECONDS`, 10:09, the pose the reference photographs show: it is what a **palette
+thumbnail** or a unit test draws, because neither has a sim clock behind it. A **placed** dial is
+seated on the real clock the frame after it is built, and so is the **hover ghost** — the preview is
+the piece a click would place, and a translucent clock previewing at 10:09 over floor where every
+clock on the wall reads the sim's time is exactly the surprise the hover exists to prevent, so
+`GhostSystem` hands its ghost's rigs to the clock system too and drops them when the pointer moves
+on. The time is swept between the
+worker's snapshots over the same `stateIntervalMs` window the consists glide on, so the hands run at
+whatever speed the sim is running at and **stop when it stops**; a snapshot more than a minute on
+(and any step back) is a **seek** or a load rather than the clock running, so the hands are *set*
+there instead of winding through every hour in between. Before this the two arms were nailed at
+10:09 for the life of the station while the sim's clock ran on beside them — a dial that agreed with
+the 电视 plate next to it exactly never. Giving them the time also exposed the face's own
+orientation, which the frozen pose had hidden: see the mount below.
 
 **A mark runs radially, and the turn that does it is `a − π/2`.** Every mark and both hands carry
 their length along their box's local x, so one turn serves them all; aimed **across** the rim
@@ -274,7 +355,18 @@ way round and very visible. The turn was read off the matrix rather than derived
 the hand derivation is one sign away from the wrong answer: at each clock angle `a − π/2` gives a
 dot of 1.000 against the radius where `π/2 − a` gives 0.105 to 0.5. A double-faced clock is likewise
 **one dial mounted twice** — the far one inside a group turned half a turn — rather than a builder
-branched on a `facing` sign, which is three chances to get a sign wrong per element.
+branched on a `facing` sign, which is three chances to get a sign wrong per element. **Which axis
+that half turn is about is load-bearing, and it was wrong for the whole life of the piece.** Turned
+about the dial's own normal (`y`) the far face hangs **upside down**, 12 at the bottom; turned about
+the **vertical** axis (`z`) it is the mirror the viewer on that side needs — 12 still up, 3 across to
+the other hand. Nothing showed the difference until the hands were given the time, because a ring of
+sixty evenly spaced ticks is **2-fold symmetric**: it looks identical upside down and only the hands
+say where 12 is. A hand is built at **12 o'clock** inside its pivot for the same reason the dial is
+built once — the pivot's own y rotation *is* the clock angle, so nothing in the builder has to know
+what time it will be — and one pair of angles, set in the dial's frame on both faces, then comes out
+right on each, because the mount is what mirrors them.
+
+
 Both of those are load-bearing. A canvas texture on the cap is one indirection between the source
 and the pixels, and it measured wrong on the built page — the texture reaching the GPU carried the
 marks' ink across the whole face while every unit test passed, because a test's canvas is a stub
@@ -637,7 +729,8 @@ room wears **no name plate**: the 招牌 that used to hang over a doorway only e
 厕所 / 办公室 (or 售票 over a booth) above the shelves and cubicles that already say so. The 房间
 folder's tiles wear a line icon of what the room is *for* — 商店, 售票亭, 办公室 and the 指示牌's own
 厕所 mark — rather than a colour field, which is the only way a 1 cm tile can tell "tickets" from
-"washroom" (`app/zoneThumbnails.ts` now renders the 分区 tiles alone).
+"washroom" (`app/zoneThumbnails.ts` now renders the 分区 tiles alone — the five zones; the folder's
+eraser is a line icon of its own, `Icon`'s `zoneErase`, since there is no zone to draw).
 
 **The booth's counter is laid like a picture frame, not as two runs of whole cells.** `buildBooth`
 draws a run that closes a corner across its own 1 m cell and stops the run meeting it one
@@ -677,22 +770,29 @@ building, not the storey being edited:
   are greyed out in the folder.
 
 No interface goes with either: the build rail, the inspector, the nav cube and every tool stay where
-they are, and the pointer goes on building and picking. **隐藏墙壁** stays live, because it is a
-look-through of the station's own walls rather than a way of drawing a storey.
+they are, and the pointer goes on building and picking. **隐藏墙壁** and **隐藏地面** stay live,
+because they are not ways of drawing a storey: one is a look-through of the station's own walls and
+the other takes the street plane away altogether (`sim/ground.ts` — the generated window, meshed as
+its own pass by `ChunkSystem.meshStation`, so the tile is a `visible` flag on meshes that already
+exist: no rebuild, no document write, and the walk graph goes on walking the same street). The
+street is deliberately **not** 隐藏天花板's business — that rule is about the ceilings a storey
+holds, and one plane the whole station stands under is nobody's ceiling — so 隐藏地面 hides it at
+every storey, cut and mode.
 
-The tile order is the folder's own reading order: 显示其他层 · 剖切 · 隐藏天花板 · 隐藏墙壁 · 热力图 ·
-分区图 · 隐藏UI — the slice tools first (剖切 folding its own **旋转** tile out at the foot of the row it
-sits in), the
-pair that takes station furniture away, the two overlays that paint the station, and last the one tile
-that draws the station whole. **The folder itself lives in the 信息栏** — between 信息 and 出入口 — because
+The tile order is the folder's own reading order, and the three rows say what they are:
+**显示其他层 · 剖切 · 隐藏UI** — the modes that decide how the station is drawn; then
+**隐藏天花板 · 隐藏墙壁 · 隐藏地面** — the surfaces taken away (剖切 folding its own **旋转** tile out
+at the foot of the row it sits in); then **分区图 · 热力图**, the overlays that paint the station
+rather than hide it. **The folder itself lives in the 信息栏** — between 信息 and 出入口 — because
 these are controls over how the station is drawn rather than pieces of it: it is the 信息栏's second row,
-on **Alt+W** (`INSPECTOR_FOLDERS`). **The panel is the wider column** (`.main` gives the build rail 232px
+on **Alt+W** (`INSPECTOR_FOLDERS`), and it **opens with the app** rather than folded, because the
+view toggles are the row a build starts from. **The panel is the wider column** (`.main` gives the build rail 232px
 and the inspector 300px), so its tile grid fits **three** to a row where the rail's fits two — 显示其他层 /
-剖切 / 隐藏天花板, 隐藏墙壁 / 热力图 / 分区图, 隐藏UI — and the 剖切 row that folds out under it is the same
+剖切 / 隐藏UI, 隐藏天花板 / 隐藏墙壁 / 隐藏地面, 分区图 / 热力图 — and the 剖切 row that folds out under it is the same
 three-wide grid (`styles.css` `.panel .blockGrid`). A folded-out row spans the grid
 (`grid-column: 1 / -1`) and can only be inserted *between* rows, so 剖切's row is placed **after the whole
 row that holds 剖切** (`ViewFolder.tsx`'s `<CutControls>`): back beside the tile it would break the first
-row after two tiles and leave the third cell of the 3-wide grid empty. **Seven tiles, and that header says 7**: the count beside
+row after two tiles and leave the third cell of the 3-wide grid empty. **Eight tiles, and that header says 8**: the count beside
 a folder name
 is the tiles that folder can show in the state the build is in, so it follows a mode that adds one (工具
 grows by 生成墙壁 under the plain 方块 tool — and only there: a cut piece takes that tile
@@ -1661,7 +1761,8 @@ nobody in 2400 s instead of 12, and the station clears 3,476 people against 3,38
 pins the rule both ways up: the storey a run climbs is walled by its glass, the one under it is not.
 
 *The station's own paint, and why the fare line is off for now.* 7,199 of the 动物园 save's 12,035 floor
-cells carry **no zone label**, and an unlabelled cell reads as `unpaid` (`DEFAULT_ZONE`). That is fine
+cells carry **no zone label**, and an unlabelled cell reads **无分区**, which the fare line counts with
+the unpaid side. That is fine
 where the gate row is the line — and an invisible fare line everywhere a *painted* patch sits inside
 unpainted floor. Enforced, those lines are barriers (§4.5) and they sealed the −16 level's escalator
 landings into 6-cell pockets: that platform's only way out was one narrow stair at (28,3), 270,450 queued
@@ -1717,8 +1818,8 @@ approximated); neither needs WebGL.
   in `src/`, so they are pinned here as the module's API surface rather than as live code.
 * `clock.test.mjs` — the simulated clock (`sim/clock.ts`, §7.9 / §9.6C): a sim second
   becomes a civil date, a weekday, a day type, a period and one readout string, and the
-  信息栏's clock card, the status bar's 时间 and the in-world 电视 plates all print that one
-  clock. The arithmetic is pinned against real calendar facts rather than against
+  信息栏's clock card, the status bar's 时间, the in-world 电视 plates **and every placed 时钟's
+  hands** all read that one clock. The arithmetic is pinned against real calendar facts rather than against
   itself — 1970-01-01 was a Thursday, 2024-02-29 exists, 1900-02-29 does not, and the two
   converters round-trip a leap day either side of the epoch — because a date one day out, a
   weekday one off and a midnight that never comes all *look* like a working clock. The
@@ -1740,7 +1841,13 @@ approximated); neither needs WebGL.
   with its leading `null`s and each cell's own day type (a 调休 Sunday reads 工作日), and a
   calendar the day cannot hold repaired rather than refused — 02-30 is 02-28, a key that is not
   `YYYY-MM-DD` is dropped, a date on both lists is a holiday, and a list the document does not
-  carry at all is the shipped one.
+  carry at all is the shipped one. `clockHandAngles` — the two hands of an analogue dial, in
+  degrees clockwise from 12 — is pinned beside the strings it agrees with: 3:00 puts the hour hand
+  on 3 and the minute hand on 12, 6:30 puts the hour hand **half way between 6 and 7** (the hour
+  hand carries the minutes) and the minute hand on 6, the seconds are kept **fractional** rather
+  than floored (the scene sweeps the hands between snapshots, so a floor would make them step), a
+  time before the epoch reads as the hour it really is, and the last second of the day is a hair
+  short of 12 on both hands.
 * `demand.test.mjs` — the crowd's day (`src/sim/demand.ts`, §7.4 / §9.6C 客流曲线): the
   **golden** case is that `demandShape` at `DEFAULT_DEMAND` equals the formula it replaced, at
   every five simulated minutes and to the last bit — the knobs were added under a running
@@ -1791,6 +1898,29 @@ approximated); neither needs WebGL.
   defaulted are one code path, and the cell schema `formatVersion` freezes has not moved), and a
   hand-edited file with an inverted window, a one-ended peak pair, a knob past its slider or a
   calendar whose epoch is 02-31 still opens, repaired field by field.
+* `ground.test.mjs` — the city's own floor (§4.1), which the document stores **inverted**: at
+  `z = 0` a `{ fill: 'void' }` record is a hole the player dug and *absence is ground*, so an empty
+  document already stands on built ground and no save ever carries the horizon. It pins both halves.
+  The module's own rules: `groundWindow` is the content's plan rectangle plus `GROUND_MARGIN` (16 m,
+  a run's `from`/`to` included, and ± margin at the origin for a station with nothing in it yet);
+  `withGround` materialises one bounded window for the two consumers that walk every cell (the walk
+  graph and the chunk mesher), never shadows an existing record — a `void` is skipped, so a hole is
+  not paved back over — and stamps the generated cells `zone: 'outside'` (站外) with no finish, which
+  is load-bearing: `outside`↔`unpaid` is not a fare crossing, so the plane never invents an ungated
+  fare line (a `paid` island in the street has no walk edge out of it; an `unpaid` one is the street
+  again); `groundHoleAt` / `virtualSolidAt` / `solidAt` are the three answers a coordinate can have,
+  and an opening the *game* cut — a ramp's carved corridor, an exit's floor — is a hole with no
+  record of its own, so the demo's surface openings stay out of its JSON. And the edits: `removeCells`
+  records the hole at grade and nowhere else, `addCells` / `addFloor` **fill it back** by replacing
+  that record instead of shadowing it (they count *blocks*, not records — counting records skipped
+  the very cell `checkBlockCells` had offered the drag, so the ghost promised a block the release
+  dropped), the 材质 brush materialises the pavement it paints and refuses a hole (a hole is not a
+  surface) and a cell the one placement rule set refuses, a zone rectangle materialises the ground it
+  covers while the bucket leaves the plane alone, and `moduleFloorOk` / `ceilingMountMissing` read it
+  — a machine stands on the street, and a fitting in a basement hangs from the slab above it.
+  `blocktool.test.mjs` drives the other end: a right-press on the pavement digs it and leaves the one
+  `void` record the plane keeps, and the document's own blocks are still the only ones the seed guard
+  counts.
 * `grid.test.mjs` — nothing in the game can put a cell off the 1 m grid. Every palette piece is
   placed at every rotation, width, direction and 闸机 door mode, every staircase shape at
   fractional legacy widths (1.2, 1.6 m), and 方块 / 墙 / 房间 / 电梯 / 站台 / 隧道 / 材质 / 分区 /
@@ -1813,7 +1943,26 @@ approximated); neither needs WebGL.
   `rebuild` keeps the crowd in place; `World.restart` empties the crowd and trains but keeps the
   station document and the clock.
 * `zones.test.mjs` — an ungated fare line strands the crowd (zero boardings); a gate restores
-  flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2).
+  flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2). Then
+  §4.5's later rules: the map draws **one storey** (`zoneMapFloorsAt`, with the labels on their
+  own level); a zone is painted on **floor** — a rectangle, a bucket flood and the 信息 card's own
+  point query all drop the cell under a wall column, the earth roof over a tunnel and a track coping,
+  and accept a walkable wall top and a track bed at the foot of its column — with the agreement itself
+  pinned: the map tints exactly the floor the brush accepts; and an unlabelled cell reads **无分区**
+  (`none`, on every storey — in `zoneAt`, the map's labels, the graph's `nodeZone` and `zoneIndexOf`),
+  with the model refusing to *write* that reading while 非付费区 is a real label, `none`↔`unpaid` and
+  `none`↔`outside` still one fare side so an unpainted station invents no fare line, and a coordinate
+  with no record at all reading 站外 at the ground plane (the street) and 无分区 anywhere else; and
+  `eraseZoneCells` — the 无分区 brush — takes a label off and leaves the cell reading 无分区, the
+  materialised street going with its label and a cell with a finish of its own keeping its record, and
+  does nothing where there is no label.
+* `zonetool.test.mjs` — the same floor rule through the **click** (`app/tools/ZoneTool.ts`,
+  `ToolContext.floors`): a tapped floor tile paints; a tapped coping paints nothing, opens no drag and
+  says `分区只能画在地板上`; a hover on one draws no tint at all; and a drag across a patch tints the
+  floor it crosses while the tile under the wall course and the course itself stay untouched. Then the
+  无分区 brush, which is the same zone id armed instead of a colour: it drags like the brush it erases,
+  takes a label off a zoned tile (which reads 无分区 again, with no record left behind), and says
+  `这些格子上没有分区` — committing nothing — when the patch carries no label at all.
 * `wayfinding.test.mjs` — how a crowd chooses (§7.2's path cost, §7.3's crowd, §7.4a's needs): the cost
   of a lift edge is a fact about the *passenger* (`liftPenalty` — nothing for a step-free passenger, the
   luggage figure for a suitcase, the full figure for a free walker) and the crowd charge is capped so a
@@ -2129,7 +2278,16 @@ approximated); neither needs WebGL.
   too, off the **geometry** rather than a texture: the clock is a true cylinder whose face disc
   hangs at 2.4 m with a **white** material, twelve hour markers and 48 minute ticks in **black**
   resting on its plane, two hands and a boss, and an **open-ended** bezel ring proud of it, so the
-  face cannot be covered by a cap and no text is printed anywhere on the piece; the camera is a
+  face cannot be covered by a cap and no text is printed anywhere on the piece; every hand is a
+  **pivot** the scene turns and is seated on the sim's own pose at `CLOCK_POSE_SECONDS` (10:09) when
+  nothing is behind the build, the rig is handed to the clock system by the module pass — and by the
+  **hover ghost**, which is turned with the placed pieces and gives its hands back when the pointer
+  moves on — and the hands follow the sim clock: **swept** between snapshots, **set** on a
+  seek (and on a step back), and stopped when the sim is paused. Its second half is the piece's
+  **readability**, which the hands are what make checkable: each face tells the time to the viewer
+  standing in front of it — measured on that viewer's own screen, for a rot 0 and a rot 2 piece, so
+  whichever dial the camera is looking at reads the clock — and the mark that viewer sees at the top
+  of the circle is the dial's own 12; the camera is a
   slim fitting — under 8% of the cell it reserves — with its lens, two illuminator LEDs and hood all
   on the local −y front, and half a turn round puts the lens on the other side of its own cell.
 * `wall-ceiling-snap.test.mjs` — the wall/ceiling snap contract (§5.7): a wall hover on an
@@ -2357,6 +2515,10 @@ approximated); neither needs WebGL.
   very same `actionRowOpen` call a 座椅's does, and a cut left armed in the store folds **no** row out of
   any other tool's grid — so the 旋转 a 半墙 shows is the equipment mechanism, not a second one beside it.
   `生成墙壁` is the one tile that comes and goes with the cut modes, and the folder count follows it.
+  The 分区 folder's own count is the same kind of arithmetic (`zoneFolderTiles`): the length of
+  `ZONE_LIST`, **无分区 included** — that tile is the folder's eraser, armed as the zone id `none`
+  (`isEraseBrush`) and reported by `armedRailTile` like any other tile, which is what keeps the grid the
+  folder draws, the header's count and the brush the drag runs one list.
 * `halfwall.test.mjs` — the **半墙** (§4.1/§4.3), the 方块 tool's half-block mode
   (`build/model.ts` `addWalls`'s `side`): the column is an ordinary tagged wall — a `half-wall:w` course
   that lifts, slices and carves like any other while the mesher draws it `HALF_WALL_T` thick in the half

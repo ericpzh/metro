@@ -7,8 +7,14 @@
 // `folderForAltKey` reads that. Both halves are pinned here — the columns stack their
 // folders in table order and print each key on the header, and the app's one keydown
 // listener turns a modified letter into the folder it names, wherever that folder lives.
+//
+// **视图's own body is pinned here too**, because it is the one folder whose *shape* is a
+// decision rather than data: its eight tiles in reading order — the three modes, the three
+// surfaces taken away, the two overlays — with 剖切's folded-out row at the foot of the row
+// 剖切 sits in, the header's count matching the tiles, and the folder opening with the app.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { INSPECTOR_FOLDERS, RAIL_FOLDERS, folderForAltKey, folderForShiftKey } from '../src/app/rail/helpers.ts'
 
 test('the rail is Shift+Q W E R T Y U, one letter a row down the stack', () => {
@@ -87,4 +93,65 @@ test('a modified letter resolves to its own column and nothing else does', () =>
   assert.equal(folderForAltKey('alt'), null, 'the modifier alone is not a folder')
   assert.equal(folderForShiftKey(''), null)
   assert.equal(folderForAltKey(''), null)
+})
+
+/* ------------------------------------------------------------- 视图's own shape */
+
+const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8')
+
+/** 视图's tile grid, as the JSX in that one block reads — labels in render order. */
+function viewTiles() {
+  const src = read('../src/app/rail/folders/ViewFolder.tsx')
+  const open = src.indexOf('<div className="blockGrid">')
+  assert.ok(open > 0, 'ViewFolder renders no blockGrid')
+  const grid = src.slice(open, src.indexOf('</div>', open))
+  return {
+    grid,
+    labels: [...grid.matchAll(/label="([^"]+)"/g)].map((m) => m[1]),
+  }
+}
+
+test('视图 draws eight tiles, in the folder’s reading order', () => {
+  const { labels } = viewTiles()
+  // Three rows of the 3-wide grid: the modes that decide how the station is drawn, the
+  // surfaces taken away under them, and the overlays that paint the station.
+  assert.deepEqual(
+    labels,
+    ['显示其他层', '剖切', '隐藏UI', '隐藏天花板', '隐藏墙壁', '隐藏地面', '分区图', '热力图'],
+    'the 视图 folder’s tiles moved',
+  )
+  // The header's count is the tiles the folder can show — the one number that would
+  // quietly disagree with the grid, so it is derived from it here rather than repeated.
+  const inspector = read('../src/app/windows/inspector/Inspector.tsx')
+  const count = inspector.match(/view:\s*\{\s*count:\s*(\d+)/)
+  assert.ok(count, 'the inspector no longer counts 视图’s tiles')
+  assert.equal(Number(count[1]), labels.length, '视图’s header count disagrees with the tiles it draws')
+})
+
+test('剖切’s folded-out row is at the foot of the row 剖切 sits in', () => {
+  // A folded-out row spans the grid and can only be inserted **between** rows: placed
+  // beside the tile it belongs to, it would break the row after two tiles and leave the
+  // third cell of the 3-wide grid empty (`ViewFolder.tsx`'s note on `<CutControls>`).
+  const { grid } = viewTiles()
+  const cut = grid.indexOf('<CutControls')
+  assert.ok(cut > 0, '剖切 folds nothing out')
+  assert.ok(cut > grid.indexOf('label="隐藏UI"'), 'the cut row is inside the first row rather than after it')
+  assert.ok(cut < grid.indexOf('label="隐藏天花板"'), 'the cut row broke the row after it')
+  // The row itself is the cut's own two controls, 旋转 wearing the angle it turns to.
+  const src = read('../src/app/rail/folders/ViewFolder.tsx')
+  assert.ok(src.includes('label="隐藏剖切面"'), '隐藏剖切面 left the cut row')
+  assert.ok(/RotateTile label=\{`旋转 \$\{next\}°`\}/.test(src), 'the cut row lost its 旋转 tile')
+})
+
+test('视图 opens with the app, like every other row of the 信息栏', () => {
+  const inspector = read('../src/app/windows/inspector/Inspector.tsx')
+  const seed = inspector.match(/useState<Record<InspectorFolderKey, boolean>>\(\{([\s\S]*?)\}\)/)
+  assert.ok(seed, 'the inspector no longer seeds its folders')
+  const open = Object.fromEntries([...seed[1].matchAll(/(\w+):\s*(true|false)/g)].map((m) => [m[1], m[2] === 'true']))
+  assert.deepEqual(Object.keys(open), ['info', 'view', 'exits', 'lines'], 'the seeded rows are not the column’s folders')
+  assert.equal(open.view, true, '视图 starts folded again')
+  assert.ok(
+    Object.values(open).every(Boolean),
+    'a row of the 信息栏 starts folded: every one of them is a read-out the player opened the panel for',
+  )
 })

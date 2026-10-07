@@ -28,6 +28,7 @@
 import { isWallBlock, packKey, shapeOf, type Cell, type CellShape, type FinishId, type Module, type Vec3i, type WallSide } from './types.ts'
 import { ESCALATOR_BALUSTRADE, ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { exitFloorAt } from './exits.ts'
+import { virtualSolidAt } from './ground.ts'
 import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
 
 /** Headroom above the walking line that must be clear, metres. */
@@ -700,7 +701,9 @@ interface Ramp {
 export function escalatorBasesSolid(cells: readonly Cell[], modules: readonly Module[], m: Module): boolean {
   if (m.type !== 'escalator') return true
   const has = (p: Vec3i): boolean =>
-    cells.some((c) => c.fill === 'solid' && c.x === p.x && c.y === p.y && c.z === p.z) || exitFloorAt(modules, p.x, p.y, p.z)
+    cells.some((c) => c.fill === 'solid' && c.x === p.x && c.y === p.y && c.z === p.z) ||
+    exitFloorAt(modules, p.x, p.y, p.z) ||
+    virtualSolidAt(cells, modules, p.x, p.y, p.z)
   return has(m.from) && has(m.to)
 }
 

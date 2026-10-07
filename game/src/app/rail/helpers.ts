@@ -18,6 +18,7 @@ import {
 } from '../store.ts'
 import type { AppState, Tool, ZoneBrush } from '../store.ts'
 import { finishBaseId } from '../../sim/finishes.ts'
+import { ZONE_LIST } from '../../sim/zones.ts'
 import type { Module, TriangleKind } from '../../sim/types.ts'
 
 /** One build-rail folder per key; `RAIL_FOLDERS` is the order they are stacked in. */
@@ -62,7 +63,7 @@ export const RAIL_FOLDERS: ReadonlyArray<{ key: RailFolderKey; title: string; sh
  * table in this order; `folderForAltKey` is how the app's listener names one).
  *
  * 视图 sits between 信息 and 出入口: it moved out of the build rail because its tiles
- * (显示其他层 / 剖切 / 隐藏天花板 / 隐藏墙壁 / 热力图 / 分区图 / 隐藏UI) are controls over
+ * (显示其他层 / 剖切 / 隐藏UI / 隐藏天花板 / 隐藏墙壁 / 隐藏地面 / 分区图 / 热力图) are controls over
  * how the station is *drawn* rather than pieces of it. A fifth folder would take
  * **Alt+T**, the next letter on this ladder.
  */
@@ -259,6 +260,16 @@ export function armedActionsAnchor(s: ArmedState): string | null {
 /** The 轨道 folder's two tiles, as `data-tile` ids (they are not palette options). */
 export const PLATFORM_TILE = '__platform'
 export const TUNNEL_TILE = '__tunnel'
+
+/**
+ * How many tiles the 分区 folder can put on screen: one per zone in `ZONE_LIST`,
+ * **无分区** included — that tile is the brush that takes a label off
+ * (`isEraseBrush`), and it is a zone id like any other, so the folder's grid is
+ * the zone list itself and the count cannot disagree with it.
+ */
+export function zoneFolderTiles(): number {
+  return ZONE_LIST.length
+}
 
 /** A rectangle, in the two numbers a "is it in view" test needs. */
 export interface ViewRect {

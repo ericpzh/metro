@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, plate, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { LIFT_STEP, liftStopZs } from '../../../sim/lifts.ts'
+import { solidAt } from '../../../sim/ground.ts'
 import type { Module, StationData } from '../../../sim/types.ts'
 
 /**
@@ -14,10 +15,15 @@ import type { Module, StationData } from '../../../sim/types.ts'
  */
 const LIFT_HEADROOM = 2.6
 
-/** True when `(x, y, z)` is walkable floor: solid, with nothing solid above it. */
+/**
+ * True when `(x, y, z)` is walkable floor: solid, with nothing solid above it.
+ * Asked of the **effective** ground (`solidAt`): a shaft rooted on the implicit
+ * street at z = 0 (`sim/ground.ts`) really does have floor under it, so its base
+ * landing gets the threshold and call panel every other landing gets, instead of
+ * standing unserved.
+ */
 function floorAt(data: StationData, x: number, y: number, z: number): boolean {
-  const solid = (zz: number): boolean => data.cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === zz)
-  return solid(z) && !solid(z + 1)
+  return solidAt(data.cells, data.modules, x, y, z) && !solidAt(data.cells, data.modules, x, y, z + 1)
 }
 
 /**

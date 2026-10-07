@@ -1,6 +1,7 @@
 // Build model: facilities — shop/toilet/office rooms, the booth, auto furniture (§5.7).
 
 import type { Cell, Module, RoomKind } from '../../sim/types.ts';
+import { virtualSolidAt } from '../../sim/ground.ts';
 import { cellKey } from './Cells.ts';
 import { nextModuleId } from './Equipment.ts';
 import type { StationState } from './State.ts';
@@ -424,10 +425,12 @@ export function placeFacility(
   if (w < FACILITY_MIN || h < FACILITY_MIN) return state;
   if (w * h > 400) return state;
   const solid = new Set(base.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
-  // Every rect cell must already be floor.
+  // Every rect cell must already be floor — and at z = 0 the implicit street
+  // (`sim/ground.ts`) is floor, so a room may be drawn on virgin ground. A cell
+  // the player dug through is not: the hole is the one thing the plane withholds.
   for (let x = rect.x0; x <= rect.x1; x++) {
     for (let y = rect.y0; y <= rect.y1; y++) {
-      if (!solid.has(cellKey(x, y, rect.z))) return state;
+      if (!solid.has(cellKey(x, y, rect.z)) && !virtualSolidAt(base.cells, base.modules, x, y, rect.z)) return state;
     }
   }
   // Openings inherited from a room being extended, kept only where they still

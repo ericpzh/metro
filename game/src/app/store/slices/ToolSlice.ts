@@ -5,9 +5,9 @@
 import type { StateCreator } from 'zustand'
 import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
-import { DEFAULT_ZONE, type GateDoor, type TriangleKind } from '../../../sim/types.ts'
+import type { GateDoor, TriangleKind } from '../../../sim/types.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
-import { isRotatableType, type CutMode, type ZoneBrush } from '../catalog.ts'
+import { DEFAULT_ZONE_BRUSH, isRotatableType, type CutMode, type ZoneBrush } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
 export type Tool = 'select' | 'pick' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
@@ -165,7 +165,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   stairWidth: STAIR_WIDTH_NARROW,
   escalatorDir: 'up',
   gateDoor: 'lane',
-  zoneBrush: DEFAULT_ZONE,
+  zoneBrush: DEFAULT_ZONE_BRUSH,
   zoneOverlayOn: false,
 
   setTool: (t) => set({ tool: t, wallSnapCycle: 0 }),

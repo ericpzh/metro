@@ -62,6 +62,40 @@ export const FINISH_LIST: readonly FinishDef[] = [
 
 const BY_ID = new Map<FinishId, FinishDef>(FINISH_LIST.map((f) => [f.id, f]))
 
+/** A family block in the 材质 folder's palette, as it is headed there. */
+export interface FinishGroup {
+  /** The family the block is *about*; `floor` also carries the track beds. */
+  fam: 'floor' | 'ceiling' | 'wall'
+  /** The heading the folder prints over the block. */
+  label: string
+  items: FinishDef[]
+}
+
+/**
+ * The 材质 folder's own palette: three blocks, in its order.
+ *
+ * The folder groups by **the face a finish can be painted on**, not by the raw
+ * family — which is why 地面 · 轨道 is one block and a track bed is not a fourth
+ * heading: `finishesForFace` offers the floor and the track beds to the same top
+ * face, so the picker has to show them together. 搪瓷板 sits last in 墙面 because
+ * it is the one tile that opens a colour sub-menu.
+ *
+ * It lives here, beside the table it reads, rather than in the folder: the rail and
+ * the concept sheets both print this palette, and two copies of the grouping is two
+ * chances to file a finish under the wrong heading.
+ */
+export function finishPaletteGroups(): FinishGroup[] {
+  const order = ['floor', 'ceiling', 'wall'] as const
+  const labels: Record<(typeof order)[number], string> = { floor: '地面 · 轨道', ceiling: '天花板', wall: '墙面' }
+  return order.map((fam) => {
+    const items = FINISH_LIST.filter((f) =>
+      fam === 'floor' ? f.family === 'floor' || f.family === 'track' : f.family === fam,
+    )
+    if (fam === 'wall') items.sort((a, b) => Number(a.id === 'wall.enamel') - Number(b.id === 'wall.enamel'))
+    return { fam, label: labels[fam], items }
+  })
+}
+
 /**
  * Separator joining a stock finish id to a custom tint, e.g.
  * `wall.enamel#2f7ef2`. A custom-tinted finish is still a real finish: the base

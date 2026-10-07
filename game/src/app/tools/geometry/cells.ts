@@ -4,7 +4,7 @@
 
 import { cellKey } from '../../../build/model/Cells.ts'
 import { checkBlockCells } from '../../../build/validation.ts'
-import type { Module } from '../../../sim/types.ts'
+import type { PlacementDoc } from '../../../build/validation.ts'
 
 /**
  * Narrow a drag rectangle to the cells it would actually **change**: the solid
@@ -16,15 +16,20 @@ import type { Module } from '../../../sim/types.ts'
  * `blockReason`), so a cell a 闸机 holds, a ramp's corridor or a rail's bed is not a
  * candidate at all — it is a **refusal** the preview draws in red, which is a
  * different question and is asked separately (`checkBlockCells` keeps both lists).
+ *
+ * The **station document** is what makes that judgement: at z = 0 the street is
+ * implicit (`sim/ground.ts`), so an empty document would read every pothole in the
+ * pavement as more pavement — a cell already the plane's is skipped, while a cell
+ * the player dug is a candidate the release really will fill (`addCells`).
  */
 export function pendingCells(
   cells: Array<[number, number, number]>,
   mode: 'add' | 'remove',
   solid: Set<string>,
-  modules: readonly Module[] = [],
+  station: PlacementDoc = { cells: [], modules: [] },
 ): Array<[number, number, number]> {
   if (mode === 'remove') return cells.filter(([x, y, z]) => solid.has(cellKey(x, y, z)))
-  return checkBlockCells({ cells: [], modules }, cells).acceptedCells
+  return checkBlockCells(station, cells).acceptedCells
 }
 
 export function rectCells(a: [number, number, number], b: [number, number, number], z: number, line: boolean): Array<[number, number, number]> {

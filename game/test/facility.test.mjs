@@ -131,7 +131,10 @@ test('rooms below the minimum size or without floor are rejected', () => {
     'a valid booth was rejected',
   )
   void FACILITY_MIN
-  const edge = placeFacility(st, 'store', facilityRect([8, 8, 0], [12, 12, 0], 0))
+  // One storey up, where there is no street: at z = 0 the cell outside the plate is
+  // implicit ground (`sim/ground.ts`) and is floor like any other, so "over void"
+  // has to be asked where void can actually be.
+  const edge = placeFacility(st, 'store', facilityRect([8, 8, 4], [12, 12, 4], 4))
   assert.equal(edge, st, 'a room over void was accepted')
 })
 

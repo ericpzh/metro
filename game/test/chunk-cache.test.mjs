@@ -47,8 +47,10 @@ function row(xs) {
  * time keeps its listener (a `Set` absorbs the repeats).
  */
 function mesh(chunks, data, disposed) {
+  // `prepareStation` picks the cell list up (the document's own cells plus the
+  // generated street window); `meshStation` meshes exactly that, so no argument.
   chunks.prepareStation(data)
-  chunks.meshStation(data)
+  chunks.meshStation()
   for (const mesh of [...chunks.chunkMeshes, ...chunks.outlineMeshes]) {
     const geometry = mesh.geometry
     geometry.addEventListener('dispose', () => disposed.add(geometry))
@@ -59,24 +61,33 @@ function mesh(chunks, data, disposed) {
 }
 
 test('an unchanged chunk keeps its geometry and outline material across a rebuild', () => {
-  // Two chunks far apart: an edit inside one must leave the other's buffers alone.
+  // Two clusters in different chunks: an edit inside one must leave the other's buffers
+  // alone. (The station's own cells are never the whole station any more — `withGround`
+  // meshes the street around them too — so a chunk here is as likely to be ground as
+  // blockwork, and the rule is the same either way.)
   const { chunks } = renderer()
   const disposed = new Set()
   mesh(chunks, row([2, 3, 4, 40, 41]), disposed)
   const before = chunks.chunkMeshes.map((m) => m.geometry)
-  const outlinesBefore = chunks.outlineMeshes.map((m) => m.material)
+  const outlinesBefore = chunks.outlineMeshes.slice()
   assert.ok(before.length > 0, 'the station meshed into chunk parts')
   assert.ok(chunks.chunkMeshes.length >= 4, 'and into more than one chunk')
 
-  // An edit four chunks away, so every chunk under test is byte-identical.
-  mesh(chunks, row([2, 3, 4, 40, 41, 90]), disposed)
+  // A block inside the far cluster's own chunk (40 → 32..47), so everything else —
+  // including the far cluster's own ground — is byte-identical.
+  mesh(chunks, row([2, 3, 4, 40, 41, 44]), disposed)
   const after = chunks.chunkMeshes.map((m) => m.geometry)
 
   const kept = before.filter((g) => after.includes(g))
   assert.ok(kept.length > 0, 'the untouched chunks came back as the same geometry objects')
   for (const g of kept) assert.equal(disposed.has(g), false, 'and none of them was disposed on the way')
-  for (const m of outlinesBefore) {
-    assert.equal(disposed.has(m), false, 'the per-chunk outline material survived too (no program recompile)')
+  // An outline mesh shares its chunk's geometry, so "kept" is measurable off it:
+  // the per-chunk outline material of a chunk whose buffers came back must not have
+  // been given up, or the rebuild recompiles that chunk's outline program.
+  const outlinesKept = outlinesBefore.filter((o) => kept.includes(o.geometry))
+  assert.ok(outlinesKept.length > 0, 'a kept chunk has outlines of its own')
+  for (const o of outlinesKept) {
+    assert.equal(disposed.has(o.material), false, 'the per-chunk outline material survived too (no program recompile)')
   }
 })
 
@@ -85,12 +96,19 @@ test('a chunk whose content changed releases the geometry it is done with', () =
   const disposed = new Set()
   mesh(chunks, row([2, 3, 4]), disposed)
   const before = chunks.chunkMeshes.map((m) => m.geometry)
+  const beforeSet = new Set(before)
 
-  // A block added inside the same chunk: it has to re-mesh, and the old buffers go.
+  // A block added inside the same chunk (0..15): that chunk has to re-mesh and its old
+  // buffers go, while the chunk that only carries ground is reused as it stands.
   mesh(chunks, row([2, 3, 4, 5]), disposed)
-  for (const g of before) assert.equal(disposed.has(g), true, 'a re-meshed chunk released its old geometry')
-  for (const g of chunks.chunkMeshes.map((m) => m.geometry)) assert.equal(disposed.has(g), false, 'and the fresh one is live')
-  assert.ok(chunks.chunkMeshes.some((m) => !before.includes(m.geometry)), 'the chunk was rebuilt, not reused')
+  const after = chunks.chunkMeshes.map((m) => m.geometry)
+  const gone = before.filter((g) => !after.includes(g))
+  const kept = before.filter((g) => after.includes(g))
+  assert.ok(gone.length > 0, 'the chunk that changed was rebuilt')
+  assert.ok(kept.length > 0, 'and the chunk that did not was reused')
+  for (const g of gone) assert.equal(disposed.has(g), true, 'a re-meshed chunk released its old geometry')
+  for (const g of after) assert.equal(disposed.has(g), false, 'and the fresh one is live')
+  assert.ok(after.some((g) => !beforeSet.has(g)), 'the chunk was rebuilt, not reused')
 })
 
 test('a rebuild still prunes chunks the station no longer has', () => {

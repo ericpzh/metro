@@ -6,15 +6,16 @@
 //
 // GAME-SPEC §3 item 6: modules are no longer unit cubes — `models.ts` gives
 // each one a silhouette from the reference art. This system owns the module
-// groups; the rigs a build discovers (lifts, gates, PSDs, screens) are handed
-// to the Train/Lift/Crowd/Plate systems, which animate them.
+// groups; the rigs a build discovers (lifts, gates, PSDs, screens, a 时钟's hand
+// pivots) are handed to the Train/Lift/Crowd/Plate/Clock systems, which animate
+// them.
 
 import * as THREE from 'three'
 import {
   buildModule,
   disposeObject,
 } from '../../models.ts'
-import type { EscalatorRoll, ModuleContext } from '../../models.ts'
+import type { ClockRig, EscalatorRoll, ModuleContext } from '../../models.ts'
 import { trackBedKeys } from '../../../sim/placement.ts'
 import { edgeCells, rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
@@ -25,6 +26,7 @@ import type { TrainSystem } from './TrainSystem.ts'
 import type { LiftSystem } from './LiftSystem.ts'
 import type { CrowdSystem } from './CrowdSystem.ts'
 import type { PlateSystem } from './PlateSystem.ts'
+import type { ClockSystem } from './ClockSystem.ts'
 import { TV_FIRST_SWAP_MS, TV_SWAP_JITTER_MS } from './PlateSystem.ts'
 import type { GhostSystem } from './GhostSystem.ts'
 
@@ -43,6 +45,7 @@ export class ModuleSystem extends SceneSystem {
   lifts!: LiftSystem
   crowd!: CrowdSystem
   plates!: PlateSystem
+  clocks!: ClockSystem
   ghost!: GhostSystem
 
   constructor(ctx: SceneContext) {
@@ -88,6 +91,12 @@ export class ModuleSystem extends SceneSystem {
       if (mod.type === 'escalator') {
         const roll = group.userData.escalator as EscalatorRoll | undefined
         if (roll) this.lifts.escalatorRolls.push(roll)
+      }
+      if (mod.type === 'clock') {
+        // The dial's two hands per face are pivots, not a pose: the clock system turns them
+        // from the sim clock every frame (`ClockSystem.updateClocks`).
+        const rig = group.userData.clockRig as ClockRig | undefined
+        if (rig) this.clocks.clockRigs.push(rig)
       }
       if (mod.type === 'lift') {
         const cabin = group.userData.liftCabin as THREE.Object3D | undefined
@@ -212,6 +221,7 @@ export class ModuleSystem extends SceneSystem {
     this.lifts.escalatorRolls.length = 0
     this.lifts.liftRigs.length = 0
     this.lifts.liftPickMeshes.length = 0
+    this.clocks.clockRigs.length = 0
     this.crowd.gateWings.length = 0
     this.plates.adScreens.length = 0
     this.plates.tvScreens.length = 0

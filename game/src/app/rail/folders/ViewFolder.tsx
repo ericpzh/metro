@@ -4,22 +4,27 @@
 //
 // **The grid is three wide**, not two: the inspector is the wider column (`.main` gives
 // the build rail 232px and the panel 300px), so `styles.css`'s `.panel .blockGrid` rule —
-// which this body and the 剖切 row it folds out both inherit — lays the seven tiles out
-// three to a row (显示其他层 / 剖切 / 隐藏天花板, 隐藏墙壁 / 热力图 / 分区图, 隐藏UI).
+// which this body and the 剖切 row it folds out both inherit — lays the eight tiles out
+// three to a row (显示其他层 / 剖切 / 隐藏UI, 隐藏天花板 / 隐藏墙壁 / 隐藏地面, 分区图 / 热力图).
 //
-// **The tile order is the menu order**, one row of the grid at a time, nearest
-// the tool the player is likely to want next: the two `X` / `C` slice toggles
-// first (显示其他层, 剖切), then the 隐藏 pair that takes station furniture away
-// (隐藏天花板, 隐藏墙壁), then the overlays that paint the station rather than
-// hide it (热力图, 分区图), and last 隐藏UI (**U**, the station drawn whole, and
-// the 1 m editing lattice and its cell cursor gone with the ghost sheet —
-// `render/levelSlicing.ts`, `render/scene/systems/GridSystem.ts`).
+// **The tile order is the menu order**, one row of the grid at a time, and it says what
+// the three rows are: the **modes** that decide how the station is drawn (显示其他层, 剖切,
+// and 隐藏UI — the station whole) on top, the 隐藏 row that takes a *surface* away
+// underneath it (隐藏天花板, 隐藏墙壁, 隐藏地面), and last the two overlays that paint the
+// station rather than hide it (分区图, 热力图).
+//
+// **隐藏地面 is the street plane and nothing else** (`sim/ground.ts`): the generated
+// window, which the document does not own and which is the one thing between a top-down
+// camera and an underground station. It is meshed as its own pass
+// (`ChunkSystem.meshStation`), so the tile is a `visible` flag and not a rebuild — and it
+// is **absolute** like 隐藏墙壁 rather than silenced by 隐藏UI like the two slice toggles
+// in the row above it: taking the pavement away is not a way of drawing a storey.
 //
 // 剖切 has exactly one control besides its toggle — **旋转**, one quarter turn a
 // press — and it folds out in the sub-menu row a folder already has for a tool's own
 // settings (`InlineExpand`), **at the foot of the row 剖切 sits in** rather than right
 // after the tile itself: a full-width row is inserted between grid rows, so at three
-// tiles a row that means after 隐藏天花板 (see the note on `<CutControls>` below).
+// tiles a row that means after 隐藏UI (see the note on `<CutControls>` below).
 // Everything else the cut used to
 // carry (a position slider and its box, 方位角, 倾角, the readout, the hint and
 // the 复位 / 翻转 pair) is gone: the surface is dragged in the viewport
@@ -37,6 +42,7 @@ export function ViewFolder(): React.ReactElement {
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
   const hideWalls = useStore((s) => s.hideWalls)
+  const hideGround = useStore((s) => s.hideGround)
   const hideUI = useStore((s) => s.hideUI)
   const overlayOn = useStore((s) => s.overlayOn)
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
@@ -55,6 +61,12 @@ export function ViewFolder(): React.ReactElement {
         onClick={() => st().setGhostOther(!ghost)}
       />
       <Block label="剖切" icon="cutaway" shortcut="C" active={cutaway} onClick={() => st().setCutaway(!cutaway)} />
+      <Block label="隐藏UI" icon="gridOff" shortcut="U" active={hideUI} onClick={() => st().setHideUI(!hideUI)} />
+      {/* 剖切's own row, **after the whole row that holds it**: a full-width row can only
+          be inserted between grid rows (`InlineExpand` spans `grid-column: 1 / -1`), so
+          placed any earlier it would break the row after two tiles and leave the third
+          cell of the first row empty. */}
+      <CutControls open={cutaway} />
       <Block
         label="隐藏天花板"
         icon="ceiling"
@@ -63,15 +75,10 @@ export function ViewFolder(): React.ReactElement {
         disabled={hideUI}
         onClick={() => st().setAutoCeiling(!autoCeiling)}
       />
-      {/* 剖切's own row, **after the whole row that holds it**: a full-width row can only
-          be inserted between grid rows (`InlineExpand` spans `grid-column: 1 / -1`), so
-          placed any earlier it would break the row after two tiles and leave the third
-          cell of the first row empty. */}
-      <CutControls open={cutaway} />
       <Block label="隐藏墙壁" icon="wall" active={hideWalls} onClick={() => st().setHideWalls(!hideWalls)} />
-      <Block label="热力图" icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
+      <Block label="隐藏地面" icon="ground" active={hideGround} onClick={() => st().setHideGround(!hideGround)} />
       <Block label="分区图" icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
-      <Block label="隐藏UI" icon="gridOff" shortcut="U" active={hideUI} onClick={() => st().setHideUI(!hideUI)} />
+      <Block label="热力图" icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
     </div>
   )
 }

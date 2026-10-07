@@ -141,6 +141,13 @@ export interface ToolContext {
   facing: () => [number, number] | undefined
   /** Solid cell keys, refreshed with the station. */
   solids: () => Set<string>
+  /**
+   * The keys of the cells a **zone may be painted on** — the station's floor by
+   * `build/model.ts`'s own rule (`zoneFloorKeys`) — refreshed with the station.
+   * The 分区 brush paints nothing else (§4.5): a wall coping and a ceiling are
+   * solid, and solid is not floor.
+   */
+  floors: () => Set<string>
   /** Half-block-thick cells (半墙 and ramp-kept panels), refreshed with the station. */
   thins: () => Map<string, CellShape>
   hover: { current: HoverTile | null }

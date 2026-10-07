@@ -24,6 +24,7 @@
 
 import { blockReason, equipmentReason, placementColliders } from '../sim/placement.ts'
 import type { BlockRefusal, EquipmentRefusal } from '../sim/placement.ts'
+import { virtualSolidAt } from '../sim/ground.ts'
 import type { Cell, Module } from '../sim/types.ts'
 
 export type { BlockRefusal, EquipmentRefusal }
@@ -97,7 +98,9 @@ export function checkBlockCells(station: PlacementDoc, cells: Array<[number, num
     const k = `${x},${y},${z}`
     if (seen.has(k)) continue
     seen.add(k)
-    if (held.has(k)) continue
+    // The street is already floor: like any held cell it is neither accepted
+    // nor refused, so a drag across virgin ground draws no red boxes.
+    if (held.has(k) || virtualSolidAt(station.cells, station.modules, x, y, z)) continue
     const check = blockReason(station.cells, station.modules, x, y, z)
     addPreview(out, k, check.ok, check.reason, [x, y, z], check.blockers)
   }

@@ -13,6 +13,7 @@ import { HALF_WALL_T } from '../src/sim/constants.ts'
 import { rampThinCells, thinWallCells } from '../src/sim/openings.ts'
 import { halfWallInnerFace, halfWallSide, halfWallTag, packKey } from '../src/sim/types.ts'
 import { addEquipment, addWalls, AUTO_FLOOR, createModule, syncAutoWalls, toState } from '../src/build/model.ts'
+import { withGround } from '../src/sim/ground.ts'
 import { placementPreviewKey, useStore } from '../src/app/store.ts'
 import { BlockTool } from '../src/app/tools/BlockTool.ts'
 
@@ -20,7 +21,7 @@ import { BlockTool } from '../src/app/tools/BlockTool.ts'
  * A ToolContext with the scene stubbed out to a recorder. The controllers read
  * only `scene()` and `solids()`, and commit through the store.
  */
-function ctxFor() {
+function ctxFor({ street = false } = {}) {
   const ghosts = []
   const scene = {
     setGhost: (cells, mode, module, thin) => ghosts.push({ cells, mode, thin }),
@@ -37,7 +38,14 @@ function ctxFor() {
       pick: () => null,
       pickModule: () => null,
       facing: () => undefined,
-      solids: () => new Set(useStore.getState().station.cells.map((c) => `${c.x},${c.y},${c.z}`)),
+      // The live solid set the app hands the tools: `withGround` is what
+      // `app/Viewport.tsx` builds it from, because the plane at z = 0 is stored
+      // inverted (`sim/ground.ts`) and a raw scan of `station.cells` hides it.
+      solids: () => {
+        const st = useStore.getState().station
+        const cells = street ? withGround(st.cells, st.modules) : st.cells
+        return new Set(cells.map((c) => `${c.x},${c.y},${c.z}`))
+      },
       thins: () => new Map(),
       hover: ref(),
       drag: ref(),
@@ -298,4 +306,42 @@ test('a 半墙 on top of an auto-wall ring keeps that ring course', () => {
   assert.equal(synced.cells.length, before)
   assert.ok(synced.cells.some((c) => c.x === 0 && c.y === 0 && c.z === 1))
   assert.ok(synced.cells.some((c) => c.x === 0 && c.y === 0 && c.z === 0), 'the floor under it stays')
+})
+
+/* ------------------------------------------- the street the pointer cannot see */
+
+test('a right-press on the pavement digs it, and the hole is recorded', () => {
+  // A brand-new station: no cells of its own, so every block under the pointer
+  // belongs to the implicit street (`sim/ground.ts`). The 方块 tool's right-press is
+  // the dig, and it is the **only** thing that writes a hole: without the record the
+  // plane paves the dig straight back over and the gesture does nothing at all.
+  useStore.setState({
+    tool: 'block',
+    halfWall: false,
+    autoWalls: false,
+    past: [],
+    future: [],
+    station: toState({ name: 't', seed: 1, cells: [], modules: [], lines: [] }),
+  })
+  const { tool } = ctxFor({ street: true })
+  tool.onDown(press([2, 2, 0], true, 2))
+  tool.onUp(press([2, 2, 0], true, 2))
+
+  const dug = useStore.getState().station
+  assert.deepEqual(dug.cells, [{ x: 2, y: 2, z: 0, fill: 'void' }], 'the dig is one recorded hole')
+  // And the plane really is open there now: `withGround` keeps the `void` record as
+  // it stands and generates no ground over it, so the cell the crowd used to walk is
+  // gone from the effective list.
+  assert.equal(
+    withGround(dug.cells, dug.modules).some((c) => c.x === 2 && c.y === 2 && c.fill === 'solid'),
+    false,
+    'the hole survived the read',
+  )
+
+  // The same press must not dig a storey that is not the street: absence is already
+  // void up there, so a record would be a block-file entry for nothing.
+  const { tool: upper } = ctxFor({ street: true })
+  upper.onDown(press([3, 3, 4], true, 2))
+  upper.onUp(press([3, 3, 4], true, 2))
+  assert.deepEqual(useStore.getState().station.cells, dug.cells, 'a dig off grade wrote a record')
 })

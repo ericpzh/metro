@@ -86,17 +86,13 @@ test('the demo hands out a fresh document every time, on the seed it boots with'
   assert.ok(second.modules.length >= 1, 'and the station built on it')
 })
 
-test('a new station is the 2 × 2 at-grade seed, with nothing built on it', () => {
+test('a new station starts on the infinite street, with nothing built on it', () => {
   const fresh = emptyStation()
   assert.equal(fresh.name, '未命名车站', 'a new station is unnamed until it is saved')
   assert.deepEqual(fresh.modules, [], 'nothing is placed on it')
   assert.deepEqual(fresh.lines, [], 'and no line is laid')
-  assert.equal(fresh.cells.length, 4, 'it starts on the 2 × 2 seed of §3 step 1')
-  assert.deepEqual(
-    fresh.cells.map((c) => `${c.x},${c.y},${c.z}`).sort(),
-    ['0,0,0', '0,1,0', '1,0,0', '1,1,0'],
-    'at the origin, one block each',
-  )
-  assert.ok(fresh.cells.every((c) => c.z === 0 && c.fill === 'solid'), 'solid, and at street level')
+  // The street is implicit (stored inverted: only holes are cells), so a new
+  // station is an empty document standing on infinite ground.
+  assert.deepEqual(fresh.cells, [], 'the street is virtual, not a seed of blocks')
   assert.equal(emptyStation('自定义').name, '自定义', 'and it can be named on the way in')
 })

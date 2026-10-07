@@ -526,12 +526,12 @@ test('an exit reserves the floor it lays over a hole', () => {
 
 test('building a block may not cover a reserved opening', () => {
   const r = rampRun()
-  // The first two candidates fall in the ramp's corridor; only the far cell may
-  // be built, and the refused count reports what the brush dropped.
+  // The two candidates that fall in the ramp's corridor are refused as reserved
+  // openings; the far cell is already the infinite street, so nothing is laid.
   const { cells, changed, blocked } = addCells([], [[0, 3, 0], [0, 4, 0], [5, 5, 0]], [r])
-  assert.equal(changed, 1)
+  assert.equal(changed, 0, 'the street already holds the far cell')
   assert.equal(blocked, 2)
-  assert.deepEqual(cells.map((c) => [c.x, c.y, c.z]), [[5, 5, 0]])
+  assert.deepEqual(cells, [])
 })
 
 /* ------------------------------------------- a block through a placed piece */
@@ -561,17 +561,19 @@ test('a block may not be built through a piece of equipment', () => {
   const esc = createModule('escalator', 4, 0, 0, 'e1', 0)
   assert.equal(moduleBlockedCells([esc], 0).size, 0, 'a run claims no block column')
   assert.equal(moduleBlockedCells([esc], 1).size, 0, 'nor the ground under its slope')
-  assert.equal(addCells([], [[4, 0, 0]], [esc]).changed, 1, 'the ground under a run is floor')
+  assert.equal(addCells([], [[4, 0, 0]], [esc]).blocked, 0, 'the ground under a run is not a reserved opening')
   // The corridor itself is still refused, by the carve rather than by silence.
   const corridor = addCells([], [[4, 3, 3]], [esc])
   assert.equal(corridor.changed, 0, 'the carved corridor took a block')
   assert.equal(corridor.blocked, 1, 'and reported it as a reserved opening')
   // A hung 指示牌 hangs in its own column over the cell it was dropped on, and that
-  // cell is reserved for it — the sign's rods really are in the way of a slab there.
+  // column is reserved for it — the sign's rods really are in the way of a slab there.
   const hung = createModule('sign', 9, 0, 0, 's1', 0)
   assert.equal(moduleBlockedCells([hung], 1).has('9,0,1'), true, 'the sign wants the column it hangs in')
   assert.equal(addCells([], [[9, 0, 1]], [hung]).blocked, 1, 'a block in the sign’s own column is refused')
-  assert.equal(addCells([], [[9, 0, 0]], [hung]).blocked, 1, 'and the cell its rods pass through')
+  // The floor cell its rods pass through is already the street, so the brush skips
+  // it rather than reporting a refusal.
+  assert.equal(addCells([], [[9, 0, 0]], [hung]).changed, 0, 'the street already holds the cell under the sign')
 })
 
 test('a floor patch carries on around a piece instead of burying it', () => {

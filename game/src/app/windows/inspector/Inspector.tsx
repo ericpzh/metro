@@ -9,7 +9,7 @@
 // **Alt+letter** its header badges — exactly as the build rail's stack is `RAIL_FOLDERS`
 // one column over. This file supplies only what a table cannot: the open-state, the count
 // and the body of each row. 视图 moved here from the build rail because its tiles
-// (显示其他层 / 剖切 / 隐藏天花板 / 隐藏墙壁 / 热力图 / 分区图 / 隐藏UI) are controls over how
+// (显示其他层 / 剖切 / 隐藏UI / 隐藏天花板 / 隐藏墙壁 / 隐藏地面 / 分区图 / 热力图) are controls over how
 // the station is *drawn* rather than pieces of it, and the panel is the wider column
 // (`styles.css` `.main` / `.panel .blockGrid`), so its tiles fit three to a row.
 import { useEffect, useMemo, useState } from 'react'
@@ -29,11 +29,13 @@ const INSPECTOR_FOLDER_KEYS: ReadonlySet<string> = new Set(INSPECTOR_FOLDERS.map
 export function Inspector(): React.ReactElement {
   const station = useStore((s) => s.station)
   const addLine = useStore((s) => s.addLine)
-  // Every row of the stack starts where it always was: the report sections open, 视图
-  // (which moved in from the build rail, where folders start closed) folded away.
+  // Every row of the stack opens where the player needs it: the report sections, and
+  // 视图 with them — the view toggles are the row a build starts from (which storey is
+  // drawn, the street and the walls off, the overlays on), so a folder that started
+  // folded would be one Alt+W before the first thing anyone wants.
   const [open, setOpen] = useState<Record<InspectorFolderKey, boolean>>({
     info: true,
-    view: false,
+    view: true,
     exits: true,
     lines: true,
   })
@@ -61,13 +63,13 @@ export function Inspector(): React.ReactElement {
   const exits = useMemo(() => station.modules.filter((m) => m.type === 'exit'), [station.modules])
 
   // What each row shows and the count its header prints — the one half of a folder the
-  // table cannot carry. 视图's is its own seven tiles (显示其他层 / 剖切 / 隐藏天花板 /
-  // 隐藏墙壁 / 热力图 / 分区图 / 隐藏UI): 剖切 folds its 旋转 + 隐藏剖切面 row out, and a
-  // folded-out row is not a tile — the rule the build rail's headers print by too
-  // (`rail/helpers.ts` `toolsFolderTiles`), so the count does not change with the cut.
+  // table cannot carry. 视图's is its own eight tiles (显示其他层 / 剖切 / 隐藏UI /
+  // 隐藏天花板 / 隐藏墙壁 / 隐藏地面 / 分区图 / 热力图): 剖切 folds its 旋转 + 隐藏剖切面 row
+  // out, and a folded-out row is not a tile — the rule the build rail's headers print by
+  // too (`rail/helpers.ts` `toolsFolderTiles`), so the count does not change with the cut.
   const folders: Record<InspectorFolderKey, { count?: number; body: React.ReactNode }> = {
     info: { body: <InfoCard /> },
-    view: { count: 7, body: <ViewFolder /> },
+    view: { count: 8, body: <ViewFolder /> },
     exits: {
       count: exits.length,
       body: (

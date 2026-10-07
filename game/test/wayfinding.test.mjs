@@ -241,10 +241,12 @@ test('an exit head-house walls its own storey, not the concourse underneath it',
   assert.ok(exitWallPlanes(exit).length > 0, 'the head-house has walls to test')
 
   // Every walk edge of the plan, at the head-house's own storey and one below.
+  // The scan stays inside the built plate (x ≤ 9, y ≤ 11): at the plate's own
+  // rim the street reaches past it, and that is the ground's edge, not a wall.
   let blockedAbove = 0
   let blockedBelow = 0
-  for (let x = 0; x <= 10; x++) {
-    for (let y = 0; y <= 12; y++) {
+  for (let x = 0; x <= 9; x++) {
+    for (let y = 0; y <= 11; y++) {
       for (const [dx, dy] of [
         [1, 0],
         [0, 1],
@@ -284,13 +286,17 @@ test('a passenger whose gate queue is past patience takes the next lane', () => 
   for (let i = 0; i < 5; i++) w.tickOnce()
   assert.ok(a.destNode >= 0 && a.path.length > 0, 'the passenger has a leg to walk')
 
-  // Stand it at the back of gate A's queue with no patience left.
+  // Stand it at the back of gate A's queue with no patience left. It may already
+  // have walked into the queue over those ticks, so take its own entry out first
+  // and push exactly one.
   a.x = 3.5
   a.y = 0.5
   a.state = 2
   a.server = gateA.id
   a.wait = 0
   a.patience = 0.5
+  const seated = gateA.queue.indexOf(a.id)
+  if (seated >= 0) gateA.queue.splice(seated, 1)
   gateA.queue.push(a.id)
 
   w.tickOnce()

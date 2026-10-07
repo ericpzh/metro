@@ -51,7 +51,7 @@ import { Rng } from '../rng.ts'
 import { gateLaneAllows } from '../gates.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
 import { liftDoorDir } from '../lifts.ts'
-import { crossingDir, ZONE_INDEX } from '../zones.ts'
+import { crossingDir, isUnpaidZone } from '../zones.ts'
 import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
 import { rotateLocal, trackFacing, type TrackModule } from '../track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
@@ -545,12 +545,14 @@ export class World {
 
   private sampleTripFromStreet(): Trip {
     // Optional stop at a ticket / vending machine: §7.4a, a quarter of unpaid
-    // entries. Both machine types are stops in the unpaid zone, where an
-    // entering passenger actually passes them (§4.5).
+    // entries. Both machine types are stops on the **unpaid side** of the fare
+    // line — 非付费区 or 站外, the side an entering passenger is already on — which
+    // is why this asks `isUnpaidZone` rather than "labelled unpaid": a machine on
+    // the street outside the entrance carries no label at all, and reads 站外.
     const stops: string[] = []
     if (this.rng.chance(0.25)) {
       const machines = this.graph.stops.filter(
-        (s) => (s.kind === 'tvm' || s.kind === 'vending') && this.graph.nodeZone[s.node] === ZONE_INDEX.unpaid,
+        (s) => (s.kind === 'tvm' || s.kind === 'vending') && isUnpaidZone(ZONES[this.graph.nodeZone[s.node]]),
       )
       if (machines.length > 0) {
         const pick = machines[this.rng.int(machines.length)]

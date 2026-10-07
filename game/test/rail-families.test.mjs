@@ -26,8 +26,11 @@ import {
   folderTiles,
   hasModuleActions,
   isDecorType,
+  isEraseBrush,
+  isFacilityBrush,
   isFamilyOption,
 } from '../src/app/store.ts'
+import { ZONE_LIST } from '../src/sim/zones.ts'
 import {
   armedActionsAnchor,
   armedCut,
@@ -37,6 +40,7 @@ import {
   showsAutoWalls,
   subMenuForModule,
   toolsFolderTiles,
+  zoneFolderTiles,
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
@@ -365,6 +369,7 @@ test('the armed thing names the tile the rail scrolls to', () => {
   assert.equal(armed({ tool: 'tunnel' }), '__tunnel')
   assert.equal(armed({ tool: 'zone', zoneBrush: 'paid' }), 'paid')
   assert.equal(armed({ tool: 'zone', zoneBrush: 'toilet' }), 'toilet')
+  assert.equal(armed({ tool: 'zone', zoneBrush: 'none' }), 'none', '无分区 is a tile of its own')
   assert.equal(armed({ tool: 'paint', paintFinish: 'wall.tile' }), 'wall.tile')
   assert.equal(armed({ tool: 'paint', paintFinish: 'wall.enamel#3fa9f5' }), 'wall.enamel', '搪瓷板 reveals the tile its colour is a shade of')
   // A cut piece is a tile too — the same derivation answers for it, which is why
@@ -376,6 +381,23 @@ test('the armed thing names the tile the rail scrolls to', () => {
   assert.equal(armed({ tool: 'select' }), null)
   assert.equal(armed({ tool: 'pick' }), null)
   assert.equal(armed({ tool: 'delete' }), null)
+})
+
+test('the 分区 folder is its zone list, 无分区 included, and that tile erases', () => {
+  // The folder draws one tile per zone in `ZONE_LIST`, and the header's count is
+  // that list's length — so a new zone, or a lost 无分区 tile, moves the number with
+  // it. 无分区 is the one tile that is *not* a slab: arming it takes a label off
+  // rather than writing one (`isEraseBrush`), which is why the folder's grid and the
+  // card's chip row both branch on it.
+  assert.equal(zoneFolderTiles(), ZONE_LIST.length)
+  assert.equal(ZONE_LIST[0].id, 'none', '无分区 leads: it is the state an unpainted cell is in')
+  assert.equal(zoneFolderTiles(), 6)
+  assert.equal(isEraseBrush('none'), true)
+  assert.equal(isEraseBrush('paid'), false)
+  assert.equal(isFacilityBrush('none'), false, 'and it is not a room brush either')
+  // Every other zone is a slab the folder renders: 无分区 is the only one without a
+  // thumbnail of its own (`app/zoneThumbnails.ts` skips it).
+  assert.equal(ZONE_LIST.filter((z) => z.id !== 'none').length, 5)
 })
 
 test('a tile already in view needs no scrolling, and one outside it does', () => {

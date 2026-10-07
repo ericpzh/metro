@@ -184,8 +184,8 @@ test('the equipment verdict is one rule set, with one sentence per rule', () => 
   assert.equal(equipmentReason(st.cells, st.modules, tvm), '')
   assert.equal(equipmentRefusalNotice(''), '')
 
-  // The same piece one cell over a void floor: no ground under it.
-  const offEdge = createModule('tvm', 9, 9, 0, 't2', 0)
+  // The same piece one storey up, where there is no street: no ground under it.
+  const offEdge = createModule('tvm', 9, 9, 4, 't2', 0)
   assert.equal(equipmentReason(st.cells, st.modules, offEdge), 'floor')
   assert.match(equipmentRefusalNotice('floor'), /地板/)
 
@@ -238,7 +238,8 @@ test('a lifted piece is judged by the same rule set as a fresh placement', () =>
 
 test('a movable piece is refused over void by the same floor rule', () => {
   const st = flatStation()
-  const bench = createModule('bench', 9, 9, 0, 'b1', 0)
+  // One storey up there is no street, so the same bench really is floorless.
+  const bench = createModule('bench', 9, 9, 4, 'b1', 0)
   assert.equal(moveDropReason(st.cells, st.modules, bench), equipmentRefusalNotice('floor'))
   // Placing the same piece is refused identically (it is the same rule set).
   assert.equal(equipmentReason(st.cells, st.modules, bench, true), 'floor')
@@ -317,9 +318,10 @@ test('a 电梯 is refused for its bay, in its own words', () => {
   // the 'lift-footprint' branch used to sit behind the generic floor check, where
   // no lift could ever reach it.
   const st = flatStation()
-  const bay = createModule('lift', 5, 5, 0, 'l1', 0)
+  // One storey up: nothing stands there, so the lift has no floor for its bay.
+  const bay = createModule('lift', 5, 5, 4, 'l1', 0)
   assert.deepEqual(moduleFootprint(bay).sort(), [[5, 5], [5, 6], [6, 5], [6, 6]].sort(), 'the footprint is the whole bay')
-  assert.equal(equipmentReason(st.cells, st.modules, bay), 'lift-footprint', 'over void the lift names its bay, not the floor')
+  assert.equal(equipmentReason(st.cells, st.modules, bay), 'lift-footprint', 'with no floor the lift names its bay, not the generic rule')
   assert.match(equipmentRefusalNotice('lift-footprint'), /2×2/, 'in the words the notice bar uses')
   assert.equal(moveDropReason(st.cells, st.modules, bay), equipmentRefusalNotice('lift-footprint'), 'the notice reads the same verdict a drop would')
   // The whole bay on floor, and the shaft stands.

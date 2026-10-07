@@ -19,6 +19,7 @@ import { EXIT_L, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { glassSpec, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
+import { GROUND_Z, groundHoleAt, virtualSolidAt } from './ground.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
@@ -637,7 +638,7 @@ export function ceilingMountStandCell(
  * function of the panel's own `rot`, like everything else about the mount, so
  * `autofaceWallMount` can simply turn the piece to a side that really backs it.
  */
-export function wallMountMissing(cells: readonly Cell[], candidate: Module): boolean {
+export function wallMountMissing(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
   if (!isWallMounted(candidate)) return false
   const [dx, dy] = wallSide(candidate.rot)
   // The half of the backing cell the panel's own back plane touches.
@@ -646,7 +647,10 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module): boo
     const nz = candidate.z + 1 + course
     for (const [bx, by] of baseCells(candidate)) {
       const back = cells.find((c) => c.fill === 'solid' && c.x === bx + dx && c.y === by + dy && c.z === nz)
-      if (back === undefined) return true
+      // A wall course at street level may be backed by the virtual street
+      // itself — the slab edge the panel bolts to — unless it is a dug hole.
+      if (back === undefined && (nz !== GROUND_Z || groundHoleAt(cells, modules, bx + dx, by + dy))) return true
+      if (back === undefined) continue
       const side = halfWallSide(back)
       if (side !== null && side !== needed) return true
     }
@@ -670,9 +674,9 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module): boo
  * has backing at all — that case is a genuine refusal, and
  * `wallMountMissing` reports it rather than being papered over here.
  */
-export function autofaceWallMount(cells: readonly Cell[], candidate: Module, near?: readonly [number, number]): Module {
+export function autofaceWallMount(cells: readonly Cell[], candidate: Module, near?: readonly [number, number], modules: readonly Module[] = []): Module {
   if (!isWallMounted(candidate)) return candidate
-  if (!wallMountMissing(cells, candidate)) return candidate
+  if (!wallMountMissing(cells, candidate, modules)) return candidate
 
   const [bx, by] = baseCells(candidate)[0] ?? [candidate.x, candidate.y]
   const courses = wallMountCourses(candidate)
@@ -685,9 +689,13 @@ export function autofaceWallMount(cells: readonly Cell[], candidate: Module, nea
     // course the panel crosses is backed — the same test `wallMountMissing` makes,
     // so the turn this picks is a turn that really hangs.
     const backed = courses.every((course) =>
-      baseCells(candidate).every(([cx, cy]) =>
-        cells.some((c) => c.fill === 'solid' && c.x === cx + dx && c.y === cy + dy && c.z === candidate.z + 1 + course),
-      ),
+      baseCells(candidate).every(([cx, cy]) => {
+        const z = candidate.z + 1 + course
+        return (
+          cells.some((c) => c.fill === 'solid' && c.x === cx + dx && c.y === cy + dy && c.z === z) ||
+          virtualSolidAt(cells, modules, cx + dx, cy + dy, z)
+        )
+      }),
     )
     if (!backed) continue
     const d = near === undefined ? 0 : Math.abs(bx + dx - near[0]) + Math.abs(by + dy - near[1])
@@ -713,13 +721,14 @@ export function autofaceWallMount(cells: readonly Cell[], candidate: Module, nea
  * Every cell of the piece needs a slab over it, asked through `baseCells` so that
  * a future multi-cell hung fitting is covered rather than only its anchor.
  */
-export function ceilingMountMissing(cells: readonly Cell[], candidate: Module): boolean {
+export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
   if (!isCeilingHung(candidate)) return false
   const ceilingZ = LEVEL_STEPS.find((z) => z > candidate.z)
   if (ceilingZ === undefined) return true
   return baseCells(candidate).some(
     ([bx, by]) =>
-      !cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === ceilingZ),
+      !cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === ceilingZ) &&
+      !virtualSolidAt(cells, modules, bx, by, ceilingZ),
   )
 }
 
@@ -1170,7 +1179,8 @@ export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[]
   for (const [bx, by] of moduleFootprint(candidate)) {
     const floor =
       cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === candidate.z) ||
-      exitFloorAt(modules, bx, by, candidate.z)
+      exitFloorAt(modules, bx, by, candidate.z) ||
+      virtualSolidAt(cells, modules, bx, by, candidate.z)
     if (!floor) return false
   }
   return true
@@ -1213,7 +1223,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   // is resolved from its backing and never from the ground. A **线网图's totem** is
   // not: it stands on the floor like a 售票机, so it falls through to the rules below.
   if (isWallMounted(candidate)) {
-    if (wallMountMissing(cells, candidate)) return 'wall'
+    if (wallMountMissing(cells, candidate, modules)) return 'wall'
     return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
   }
   // A **hung** 装饰 — a 指示牌, 电视, 时钟 or 监控 — is the wall panel's twin one step
@@ -1227,8 +1237,8 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   }
   if (placementOnTrack(cells, candidate, modules)) return 'track'
   if (placementColliders(modules, candidate).length > 0) return 'occupied'
-  if (wallMountMissing(cells, candidate)) return 'wall'
-  if (ceilingMountMissing(cells, candidate)) return 'ceiling'
+  if (wallMountMissing(cells, candidate, modules)) return 'wall'
+  if (ceilingMountMissing(cells, candidate, modules)) return 'ceiling'
   // A 扶梯 punches through whatever is in its way, so only its two landings matter.
   // (A 电梯's bay is already answered above: `moduleFloorOk` is its whole footprint,
   // so a lift short of floor reports 'lift-footprint', never the generic 'floor'.)
@@ -1292,6 +1302,6 @@ export function moveCandidate(
   at: Vec3i,
   rot: number,
 ): { module: Module; reason: string } {
-  const moved = autofaceWallMount(cells, movedModule(mod, at, rot))
+  const moved = autofaceWallMount(cells, movedModule(mod, at, rot), undefined, modules)
   return { module: moved, reason: moveDropReason(cells, modules, moved) }
 }

@@ -105,7 +105,7 @@ export class BlockTool extends ToolController {
       sy: info.clientY,
       downTime: performance.now(),
     }
-    scene.setGhost(pendingCells([anchor], mode, this.ctx.solids(), st.station.modules), mode)
+    scene.setGhost(pendingCells([anchor], mode, this.ctx.solids(), st.station), mode)
     this.ctx.showMeasure(info.clientX, info.clientY, '长 1 m × 宽 1 m')
   }
 
@@ -245,7 +245,16 @@ export class BlockTool extends ToolController {
         // union it with earlier patches and rebuild the auto wall ring around
         // the new edge. With the toggle off it takes the plain-block path below
         // even for a drag — no tags, no walls.
-        const next = addFloor(st.station, cells)
+        //
+        // The release lays the cells the ghost drew — `check.acceptedCells`, not the
+        // raw rectangle — which is what `addFloor`'s own contract asks for ("the patch
+        // lays exactly the accepted cells"). The two differ on the implicit street at
+        // z = 0 (`sim/ground.ts`): `checkBlockCells` holds the plane to be floor
+        // already and leaves it out of both lists, so a drag on virgin ground previews
+        // nothing and must lay nothing. Handing `addFloor` the raw rectangle instead
+        // poured 25 explicit blocks and a 4 m wall ring onto ground the file never
+        // stores, for a ghost that had shown the player none of it.
+        const next = addFloor(st.station, check.acceptedCells)
         if (next !== st.station) st.commit(next)
         if (check.blockedCells.length > 0) st.setNotice(blockRefusalNotice(dominantRefusal(check)))
       } else {
@@ -254,10 +263,19 @@ export class BlockTool extends ToolController {
         if (blocked > 0) st.setNotice(blockRefusalNotice(dominantRefusal(check)))
       }
     } else {
-      // Only real blocks count against the seed's integrity (§4.1); a rectangle
-      // drawn across void would otherwise trip the guard for nothing.
+      // Only the document's **own** blocks count against the seed's integrity
+      // (§4.1). The street at z = 0 is implicit (`sim/ground.ts`) and is in the
+      // live solid set, so counting it would make the arithmetic negative for any
+      // drag at grade and refuse every dig — the one gesture the hole records
+      // exist for. A drag that takes none of the document's blocks is not the
+      // guard's business at all, which is what keeps a brand-new station (no cells
+      // of its own) diggable. A rectangle drawn across void counts for nothing, as
+      // before.
       const remove = pendingCells(cells, 'remove', this.ctx.solids())
-      if (st.station.cells.length - remove.length < 4) return
+      const authored = remove.filter(([x, y, z]) =>
+        st.station.cells.some((c) => c.x === x && c.y === y && c.z === z),
+      )
+      if (authored.length > 0 && st.station.cells.length - authored.length < 4) return
       // A dug auto-floor brings its wall ring along; a hand-placed block is
       // just removed.
       const next = removeFloor(st.station, remove)

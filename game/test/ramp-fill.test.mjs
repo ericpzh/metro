@@ -95,7 +95,7 @@ function render(data) {
   const ctx = new SceneContextData(new THREE.Scene(), mats, undefined, undefined)
   const chunks = new ChunkSystem(ctx)
   chunks.prepareStation(data)
-  chunks.meshStation(data)
+  chunks.meshStation()
   return { chunks, ctx, asked }
 }
 
@@ -285,12 +285,15 @@ test('the mesher still draws a derived filling: the ground carried up to a run�
   assert.equal(rampFillKeys(new Set(), cuts).size, 0, 'a cut over void derived a filling')
 })
 
-test('a run hanging over void is left alone: nothing floats under a truss', () => {
-  // The one block of ground stands beside the run's column, never under it: the
-  // escalator is over air, and there is no filling to draw.
-  const data = station(ground(5, 1, [0]))
+test('a run hanging over a hole in the street is left alone: nothing floats under a truss', () => {
+  // The street is solid ground everywhere (`sim/ground.ts`), so "over air" at z = 0 is
+  // a **dug hole** — a stored `void` cell — and that is the only way the ground can be
+  // open there. The one block of ground stands beside the run's column, never under it,
+  // and the column's own cell is that hole: there is no filling to draw, and no block to
+  // draw one on.
+  const data = station([...ground(5, 1, [0]), { x: 5, y: 0, z: 0, fill: 'void' }])
   const { chunks, ctx } = render(data)
-  assert.equal(ctx.slopeFills.size, 0, 'a run over void has no filling to draw')
+  assert.equal(ctx.slopeFills.size, 0, 'a run over a hole has no filling to draw')
   assert.deepEqual(vertsInside(chunks, 5, 0), [], 'no ground was drawn under the run')
 })
 

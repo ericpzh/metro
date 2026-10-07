@@ -1,6 +1,9 @@
 // Build model: paint — face finishes, the 材质 brush and its floods (§4.3).
 
 import { finishOf } from '../../sim/finishes.ts';
+import { groundHoleAt } from '../../sim/ground.ts';
+import { blockedCellsByLevel } from '../../sim/placement.ts';
+import { blockReason } from '../validation.ts';
 import {
   halfWallInnerFace,
   isHalfWallShape,
@@ -83,7 +86,22 @@ export function faceOverride(cells: Cell[], x: number, y: number, z: number, fac
 /** Paint one exposed face. Returns the same state when nothing changed. */
 export function paintFace(state: StationState, x: number, y: number, z: number, face: Face, finish: FinishId): StationState {
   const i = state.cells.findIndex((c) => c.x === x && c.y === y && c.z === z);
-  if (i < 0) return state;
+  // A `void` record is the street's absence, not a surface: a hole takes no
+  // finish, and painting one wrote ink onto a cell nothing draws — which the
+  // block that later fills the hole back (`addCells`) then dropped on the floor
+  // with the record it replaced.
+  if (i >= 0 && state.cells[i].fill !== 'solid') return state;
+  // Virgin street takes paint by materialising: the brush lays the block the
+  // plane was standing in for, wearing the new finish. A hole the modules derive
+  // takes none — and neither does a cell the one placement rule set refuses, or
+  // the 材质 brush would pour a block into a 闸机 or a 售票机 the 方块 brush is
+  // told to keep out of (`addCells` asks the same `blockReason` before it lays
+  // one).
+  if (i < 0) {
+    if (z !== 0 || groundHoleAt(state.cells, state.modules, x, y)) return state;
+    if (!blockReason(state.cells, state.modules, x, y, z).ok) return state;
+    return { ...state, cells: [...state.cells, { x, y, z, fill: 'solid', finish: { [face]: finish } }] };
+  }
   const cur = state.cells[i];
   if (cur.finish?.[face] === finish) return state;
   const cells = state.cells.slice();
@@ -94,7 +112,7 @@ export function paintFace(state: StationState, x: number, y: number, z: number, 
 /** Erase a face back to its family default. */
 export function eraseFace(state: StationState, x: number, y: number, z: number, face: Face): StationState {
   const i = state.cells.findIndex((c) => c.x === x && c.y === y && c.z === z);
-  if (i < 0) return state;
+  if (i < 0 || state.cells[i].fill !== 'solid') return state;
   const cur = state.cells[i];
   if (!cur.finish?.[face]) return state;
   const finish = { ...cur.finish };
@@ -109,17 +127,30 @@ export function eraseFace(state: StationState, x: number, y: number, z: number, 
 
 /**
  * Paint one face across many cells at once — the `N`/`M` drag rectangle (§9.5).
- * Cells absent from the list, or already wearing the finish, are left untouched.
+ * Cells absent from the list, a `void` record, or a cell already wearing the
+ * finish are left untouched.
  */
 export function paintFaces(state: StationState, cells: Array<[number, number, number]>, face: Face, finish: FinishId): StationState {
   const keys = new Set(cells.map(([x, y, z]) => cellKey(x, y, z)));
   if (keys.size === 0) return state;
   let changed = false;
   const next = state.cells.map((c) => {
-    if (!keys.has(cellKey(c.x, c.y, c.z)) || c.finish?.[face] === finish) return c;
+    // A hole is not a surface (`paintFace`): only a block takes a finish.
+    if (c.fill !== 'solid' || !keys.has(cellKey(c.x, c.y, c.z)) || c.finish?.[face] === finish) return c;
     changed = true;
     return { ...c, finish: { ...c.finish, [face]: finish } };
   });
+  // Virgin street in the drag materialises wearing the finish, like `paintFace` —
+  // and, like it, only where the one placement rule set lets a block stand at all.
+  const level = blockedCellsByLevel(state.modules);
+  for (const [x, y, z] of cells) {
+    const k = cellKey(x, y, z);
+    if (state.cells.some((c) => cellKey(c.x, c.y, c.z) === k)) continue;
+    if (z !== 0 || groundHoleAt(state.cells, state.modules, x, y)) continue;
+    if (!blockReason(state.cells, state.modules, x, y, z, level).ok) continue;
+    changed = true;
+    next.push({ x, y, z, fill: 'solid', finish: { [face]: finish } });
+  }
   return changed ? { ...state, cells: next } : state;
 }
 
@@ -129,7 +160,7 @@ export function eraseFaces(state: StationState, cells: Array<[number, number, nu
   if (keys.size === 0) return state;
   let changed = false;
   const next = state.cells.map((c) => {
-    if (!keys.has(cellKey(c.x, c.y, c.z)) || !c.finish?.[face]) return c;
+    if (c.fill !== 'solid' || !keys.has(cellKey(c.x, c.y, c.z)) || !c.finish?.[face]) return c;
     changed = true;
     const finish = { ...c.finish };
     delete finish[face];
@@ -186,6 +217,9 @@ export function paintStairSurface(state: StationState, id: string, finish: Finis
  * "the same face".
  */
 export function fillSurface(state: StationState, x: number, y: number, z: number, face: Face, finish: FinishId): StationState {
+  // Explicit cells only: the 整面 flood paints the surfaces a player built, and
+  // must not spill onto the infinite street — the plane is uniform, so there is
+  // nothing there to fill, and materialising the horizon would bloat the save.
   const solid = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
   const thin = thinWallSideMap(state.cells, state.modules);
   const exposed = (px: number, py: number, pz: number): boolean => facePresent(solid, thin, px, py, pz, face);

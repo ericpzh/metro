@@ -19,8 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import { FACILITY_OPTIONS, folderTiles, isDecorType, isFacilityBrush, useStore } from '../store.ts'
 import type { Tool } from '../store.ts'
 import { FINISH_LIST } from '../../sim/finishes.ts'
-import { ZONE_LIST } from '../../sim/zones.ts'
-import { RAIL_FOLDERS, REVEAL_SETTLE_MS, armedCut, armedRailTile, findSelectedTrack, revealScrollDelta, subMenuForModule, toolsFolderTiles } from './helpers.ts'
+import { RAIL_FOLDERS, REVEAL_SETTLE_MS, armedCut, armedRailTile, findSelectedTrack, revealScrollDelta, subMenuForModule, toolsFolderTiles, zoneFolderTiles } from './helpers.ts'
 import type { FolderKey, RailFolderKey, SubMenuKey } from './helpers.ts'
 import { ToolsFolder } from './folders/ToolsFolder.tsx'
 import { RailFolder } from './folders/RailFolder.tsx'
@@ -219,7 +218,7 @@ export function LeftRail(): React.ReactElement {
       body: <PaintFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
     },
     rooms: { count: FACILITY_OPTIONS.length, body: <RoomFolder /> },
-    zones: { count: ZONE_LIST.length, body: <ZoneFolder /> },
+    zones: { count: zoneFolderTiles(), body: <ZoneFolder /> },
   }
 
   return (

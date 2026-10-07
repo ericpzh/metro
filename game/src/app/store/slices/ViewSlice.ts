@@ -35,6 +35,19 @@ export interface ViewSlice {
   /** 隐藏墙壁: draw every wall and platform screen door translucent. */
   hideWalls: boolean
   /**
+   * 隐藏地面: take the street plane off the picture.
+   *
+   * It is the generated window (`sim/ground.ts`), which is the one surface the
+   * document does not own and the one thing standing between a top-down camera
+   * and an underground station. It is deliberately **not** 隐藏天花板's business:
+   * that rule is about the ceilings a storey *holds*, and the street is nobody's
+   * ceiling — it is one plane the whole station stands under, so it gets a
+   * toggle of its own. Absolute like 隐藏墙壁 (it hides in every mode), and free
+   * to press: the street is meshed as its own pass (`ChunkSystem.meshStation`),
+   * so the toggle only writes a `visible` flag (`LevelSystem.applyLevel`).
+   */
+  hideGround: boolean
+  /**
    * 隐藏UI: take the drawing furniture off the picture — the 1 m editing lattice
    * and its cell cursor (`render/scene/systems/GridSystem.ts`). It hides nothing
    * of the station and nothing of the interface, so the rail, the panels and the
@@ -65,6 +78,8 @@ export interface ViewSlice {
   setCutaway: (on: boolean) => void
   setHideSectionSurface: (on: boolean) => void
   setHideWalls: (on: boolean) => void
+  /** 隐藏地面: draw the street plane, or take it away. */
+  setHideGround: (on: boolean) => void
   setHideUI: (on: boolean) => void
   setOrtho: (on: boolean) => void
   /** Open or close the floating 时刻 window. */
@@ -84,6 +99,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   cutaway: false,
   hideSectionSurface: false,
   hideWalls: false,
+  hideGround: false,
   hideUI: false,
   ortho: false,
   overlayOn: false,
@@ -103,6 +119,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setCutaway: (on) => set({ cutaway: on }),
   setHideSectionSurface: (on) => set({ hideSectionSurface: on }),
   setHideWalls: (on) => set({ hideWalls: on }),
+  setHideGround: (on) => set({ hideGround: on }),
   setHideUI: (on) => set({ hideUI: on }),
   setOrtho: (on) => set({ ortho: on }),
   setTimePanel: (open) => set({ timePanel: open }),

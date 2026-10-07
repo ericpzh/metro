@@ -14,6 +14,7 @@
 import * as THREE from 'three'
 import { CHUNK, meshChunk, wedgeSlope } from '../../chunkMesher.ts'
 import { buildModule, disposeObject } from '../../models.ts'
+import type { ClockRig } from '../../models.ts'
 import type { ModuleContext } from '../../models.ts'
 import { HALF_WALL_T } from '../../../sim/constants.ts'
 import { rampFillKeys, type SlopeCut } from '../../../sim/openings.ts'
@@ -25,6 +26,7 @@ import { moduleLevels, SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import type { PlateSystem } from './PlateSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
+import type { ClockSystem } from './ClockSystem.ts'
 
 /** Most cells one drag preview can highlight at once (the ghost instance pool). */
 const GHOST_MAX = 4096
@@ -80,6 +82,8 @@ export class GhostSystem extends SceneSystem {
   /** Sibling systems; wired by the orchestrator. */
   plates!: PlateSystem
   modules!: ModuleSystem
+  /** The clock system turns the hands of a 时钟 ghost, as it does a placed one's. */
+  clocks!: ClockSystem
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -463,6 +467,12 @@ export class GhostSystem extends SceneSystem {
     for (const piece of mods) {
       const group = buildModule(piece, ctx)
       if (!group) continue
+      // A 时钟's hands are turned by the clock system, the ghost's included: the preview is the
+      // piece a click would place, so it reads the time the sim is on rather than the 10:09 pose
+      // the model is built with. Its rigs go in their own list, which `clearModulePreview` empties
+      // with the ghost.
+      const rig = group.userData.clockRig as ClockRig | undefined
+      if (rig) this.clocks.previewRigs.push(rig)
       this.tintModuleGhost(group, piece, tint, 0.45, this.previewMats, this.previewBases, (m) => this.sceneOwns(m))
       this.previewGroup.add(group)
     }
@@ -571,6 +581,9 @@ export class GhostSystem extends SceneSystem {
     this.previewOwnedMats = []
     this.previewGroup.visible = false
     this.previewKey = ''
+    // The hands that went with it: a rig is a pivot inside the group just dropped, so the clock
+    // system must not keep turning one.
+    this.clocks.previewRigs.length = 0
   }
 
   /**

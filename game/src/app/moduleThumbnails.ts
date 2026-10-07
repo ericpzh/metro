@@ -361,12 +361,33 @@ function aimPoint(id: string, sphere: THREE.Sphere): THREE.Vector3 {
   return sphere.center.clone()
 }
 
-/** Render every palette entry once. Throws if WebGL is unavailable. */
-export async function renderModuleThumbnails(size = 132): Promise<Record<string, string>> {
+/**
+ * How a tile's frame is shaped. A tile is square; a drawing that reuses this pass
+ * may be any shape, and the frustum follows the frame rather than assuming a
+ * square, so a wide frame is margin and not a stretched piece.
+ */
+export interface ThumbnailSize {
+  width: number
+  height: number
+}
+
+const frameOf = (size: number | ThumbnailSize): ThumbnailSize =>
+  typeof size === 'number' ? { width: size, height: size } : { width: size.width, height: size.height }
+
+/**
+ * Render every palette entry once. Throws if WebGL is unavailable.
+ *
+ * `size` is the frame in **CSS pixels** — a number for the square rail tile, or
+ * `{ width, height }` for a drawing that needs another shape. The frames are
+ * drawn `devicePixelRatio` times that, which is what gives a card its edges when
+ * it is scaled up in a page.
+ */
+export async function renderModuleThumbnails(size: number | ThumbnailSize = 132): Promise<Record<string, string>> {
+  const frame = frameOf(size)
   const out: Record<string, string> = {}
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
-  renderer.setSize(size, size, false)
+  renderer.setSize(frame.width, frame.height, false)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.02
@@ -500,8 +521,13 @@ export async function renderModuleThumbnails(size = 132): Promise<Record<string,
       const sphere = objectBox(group).getBoundingSphere(new THREE.Sphere())
       const r = Math.max(0.35, sphere.radius)
       const half = r * 1.22
-      camera.left = -half
-      camera.right = half
+      // The frustum follows the **frame's** shape. A square tile is the same
+      // arithmetic either way; a wide frame is then margin around a piece of the
+      // same size, rather than the same frustum squeezed into it — which is what
+      // stretches a model sideways the moment a caller asks for a non-square icon.
+      const aspect = frame.height > 0 ? frame.width / frame.height : 1
+      camera.left = -half * aspect
+      camera.right = half * aspect
       camera.top = half
       camera.bottom = -half
       const dir = viewDir(opt.id)

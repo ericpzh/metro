@@ -421,10 +421,9 @@ test('newStation opens an empty 未命名车站 and keeps the station that was o
   st().newStation()
   assert.equal(st().station.name, '未命名车站')
   assert.equal(st().station.seed, 7654321, 'the fixed new-station seed')
-  // §4.1 / M0 say a new station seeds a flat 2 x 2 at-grade slab, and
-  // `emptyStation` in `data/reference-station.ts` builds exactly that — but it has no
-  // caller, and 新建 opens a document with no cells at all.
-  assert.equal(st().station.cells.length, 0, 'no cells are laid down: 新建 opens an empty document')
+  // A new station is an empty document: the street is an infinite implicit
+  // plane (only holes are stored), so there is no seed of blocks to lay.
+  assert.equal(st().station.cells.length, 0, 'no cells are laid down: the street is virtual')
   assert.equal(st().station.modules.length, 0)
   assert.deepEqual(st().station.lines, [])
   assert.equal(st().activeZ, 0, 'and the view comes up to grade')

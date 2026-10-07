@@ -11,6 +11,7 @@
 // apart.
 
 import * as THREE from 'three'
+import { DEFAULT_ZONE, type Zone } from '../sim/types.ts'
 import { ZONE_LIST } from '../sim/zones.ts'
 
 /** The isometric direction the game opens on (`SceneRenderer.setPreset('iso')`). */
@@ -71,7 +72,7 @@ function disposeIcon(root: THREE.Object3D): void {
   })
 }
 
-/** Render every fare-zone brush once. Throws if WebGL is unavailable. */
+/** Render every zone brush that has a slab to show — every one but 无分区. */
 export function renderZoneThumbnails(size = 132): Record<string, string> {
   const out: Record<string, string> = {}
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
@@ -97,7 +98,11 @@ export function renderZoneThumbnails(size = 132): Record<string, string> {
   // The world is Z-up, so the icon camera must be too.
   camera.up.set(0, 0, 1)
 
-  const icons: Array<[string, THREE.Group]> = ZONE_LIST.map((z): [string, THREE.Group] => [z.id, zoneIcon(z.colour)])
+  // 无分区 has no slab: it is the *absence* of a zone, and the tile that arms it is
+  // the folder's eraser (a line icon, not a render of a floor wearing a colour).
+  const icons: Array<[Zone, THREE.Group]> = ZONE_LIST.filter((z) => z.id !== DEFAULT_ZONE).map(
+    (z): [Zone, THREE.Group] => [z.id, zoneIcon(z.colour)],
+  )
 
   try {
     for (const [id, group] of icons) {

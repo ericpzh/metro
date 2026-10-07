@@ -70,7 +70,9 @@ export function plannedAutoWalls(
   const out: Array<[number, number, number]> = [];
   for (const [x, y, z] of floorCells) {
     // Already-existing floor, or a rail's dug bed the release will skip: no
-    // wall rises from a cell the patch does not actually lay.
+    // wall rises from a cell the patch does not actually lay. The live set the
+    // tools pass already carries the virtual street, so a patch drawn on
+    // virgin ground merges into it instead of ringing itself.
     if (covered.has(cellKey(x, y, z))) continue;
     // A screen door already stands here: never raise a wall through it.
     if (doors.has(cellKey(x, y, z))) continue;
@@ -232,9 +234,13 @@ export function syncAutoWalls(state: StationState): StationState {
  * refused by comparing the two lists.
  */
 export function addFloor(state: StationState, cells: Array<[number, number, number]>): StationState {
-  const have = new Set(state.cells.map((c) => cellKey(c.x, c.y, c.z)));
+  // "Already there" is already **solid** — see `addCells`: a `void` record is the
+  // street's own hole, and the drag that covers it fills it back.
+  const have = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
+  const at = new Map<string, number>();
+  state.cells.forEach((c, i) => at.set(cellKey(c.x, c.y, c.z), i));
   const level = blockedCellsByLevel(state.modules);
-  const grown: Cell[] = [];
+  const laid: Cell[] = [];
   for (const [x, y, z] of cells) {
     const k = cellKey(x, y, z);
     if (have.has(k)) continue;
@@ -244,10 +250,19 @@ export function addFloor(state: StationState, cells: Array<[number, number, numb
     // patch+track footprint (see `syncAutoWalls`).
     if (!blockReason(state.cells, state.modules, x, y, z, level).ok) continue;
     have.add(k);
-    grown.push({ x, y, z, fill: 'solid', tags: [AUTO_FLOOR] });
+    laid.push({ x, y, z, fill: 'solid', tags: [AUTO_FLOOR] });
   }
-  if (grown.length === 0) return state;
-  return syncAutoWalls({ ...state, cells: [...state.cells, ...grown] });
+  if (laid.length === 0) return state;
+  // One record per coordinate: a patch over a dug hole replaces the `void`, it does
+  // not shadow it.
+  const next = state.cells.slice();
+  const grown: Cell[] = [];
+  for (const c of laid) {
+    const hole = at.get(cellKey(c.x, c.y, c.z));
+    if (hole === undefined) grown.push(c);
+    else next[hole] = c;
+  }
+  return syncAutoWalls({ ...state, cells: [...next, ...grown] });
 }
 
 /**

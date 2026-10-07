@@ -17,6 +17,7 @@ import {
   WEEKDAY_INITIALS,
   WEEKDAY_LABELS,
   civilFromDays,
+  clockHandAngles,
   clockTextOf,
   dateKeyOf,
   dayAt,
@@ -69,6 +70,33 @@ test('the parts agree with the readout: one stamp, not three readings', () => {
     assert.equal(s.weekdayLabel, WEEKDAY_LABELS[s.weekday])
     assert.equal(s.weekdayInitial, WEEKDAY_INITIALS[s.weekday])
   }
+})
+
+test('the hands of an in-world 时钟 read the same instant the readout prints', () => {
+  // The dial's hands are geometry turned every frame (`render/models/pieces/ClockModel.ts`),
+  // and this is the derivation they turn by — so the clock on the wall cannot point at a
+  // different minute from the 电视 plate beside it. Degrees clockwise from 12 o'clock, pinned
+  // against the way a real face reads.
+  assert.deepEqual(clockHandAngles(3 * 3600), { hour: 90, minute: 0 }, '3:00 — the hour hand on 3, the minute hand on 12')
+  assert.deepEqual(clockHandAngles(9 * 3600), { hour: 270, minute: 0 }, '9:00 — a quarter turn the other way')
+  assert.deepEqual(clockHandAngles(0), { hour: 0, minute: 0 }, 'midnight: both hands on 12')
+  assert.deepEqual(clockHandAngles(NOON), { hour: 0, minute: 0 }, 'and noon is the same face twelve hours later')
+  // **The hour hand carries the minutes**: at 6:30 it stands halfway between 6 and 7, which is
+  // the whole difference between a clock face and a plate with two bars laid on it.
+  assert.deepEqual(clockHandAngles(6 * 3600 + 30 * 60), { hour: 195, minute: 180 }, '6:30 — the hour hand half past the hour, the minute hand on 6')
+  // The minute hand carries the seconds, **fractionally**: the scene sweeps the hands between
+  // worker snapshots, so a floor in here would make the hand step once a sim second instead of
+  // creeping the way a real movement's does.
+  assert.equal(clockHandAngles(45 * 60 + 30).minute, 273, '45:30 is 273°, not 270°')
+  assert.ok(Math.abs(clockHandAngles(45 * 60 + 30.5).minute - 273.05) < 1e-9, 'and half a second later it has moved a twentieth of a degree')
+  // A time before the epoch reads as the hour it really is rather than as hour −1, the same
+  // floor-modulo `clockTextOf` applies to a time of day.
+  assert.deepEqual(clockHandAngles(-3600), { hour: 330, minute: 0 }, 'an hour before day 0 is 11 o’clock')
+  // The last second of the day is a hair short of 12 on both hands, and 12:00 is 12:00 again.
+  const last = clockHandAngles(SIM_DAY - 1)
+  assert.ok(last.hour > 359.9 && last.hour <= 360, `the hour hand ends the day at ${last.hour}`)
+  assert.ok(last.minute > 359.8 && last.minute <= 360, `and the minute hand ends it at ${last.minute}`)
+  assert.deepEqual(clockHandAngles(SIM_DAY), clockHandAngles(0), 'which is where the next day starts')
 })
 
 test('midnight rolls the date, the weekday and the day index over', () => {

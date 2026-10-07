@@ -152,9 +152,10 @@ test('a door is not wall-mounted: it wants floor under it and no backing at all'
   // wall (`isWallMountedType` is what the tool asks).
   for (const v of DOOR_VARIANTS) assert.equal(isWallMountedType(`door-${v}`), false, `door-${v} is floor-standing`)
   // And the ground rules really do apply: every cell of the run needs floor, and a door
-  // on a floorless cell is refused for exactly that.
+  // on a floorless cell is refused for exactly that. On the street a missing block is
+  // a dug **hole**, recorded as a `void` cell — that is what makes it floorless.
   const cells = flatStation()
-  const hole = cells.filter((c) => !(c.x === 3 && c.y === 3))
+  const hole = [...cells.filter((c) => !(c.x === 3 && c.y === 3)), { x: 3, y: 3, z: 0, fill: 'void' }]
   assert.equal(moduleFloorOk(cells, [], door(2, 3, 0, 0, 'd', 'steel-2')), true, 'two floor cells carry a 双开 door')
   assert.equal(moduleFloorOk(hole, [], door(2, 3, 0, 0, 'd', 'steel-2')), false, 'and one missing cell refuses it')
   assert.equal(equipmentReason(hole, [], door(2, 3, 0, 0, 'd', 'steel-2')), 'floor')

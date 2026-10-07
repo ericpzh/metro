@@ -11,13 +11,14 @@ import * as THREE from 'three'
 import { buildSolidSet, CHUNK, meshChunk } from '../../chunkMesher.ts'
 import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
+import { GROUND_Z, withGround } from '../../../sim/ground.ts'
 import { trackBedKeys } from '../../../sim/placement.ts'
 import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
 import { stairTurnCells } from '../../../sim/stairs.ts'
 import { liftFootprintCells, liftStopZs } from '../../../sim/lifts.ts'
 import { facilityWallCells } from '../../../build/model.ts'
 import { packKey } from '../../../sim/types.ts'
-import type { CellShape, StationData } from '../../../sim/types.ts'
+import type { Cell, CellShape, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 
@@ -31,6 +32,15 @@ function shapeKey(shape: CellShape): number {
   const corner = shape.side.charCodeAt(0) * 31 + (shape.side.length > 1 ? shape.side.charCodeAt(1) : 0)
   return family * 1000 + corner
 }
+
+/**
+ * Which of the three passes a chunk's meshes came from: `s` the storey's own
+ * cells, `f` the plates among them with nothing under them, `g` the street window
+ * (`sim/ground.ts`). It is part of the chunk's cache key **and** of what the
+ * meshes are tagged with — a plate survives 隐藏天花板, the street is the one plate
+ * 隐藏地面 takes away whole (`LevelSystem.applyLevel`).
+ */
+type ChunkPass = 's' | 'f' | 'g'
 
 export class ChunkSystem extends SceneSystem {
   levelGroups = new Map<number, THREE.Group>()
@@ -64,6 +74,22 @@ export class ChunkSystem extends SceneSystem {
    */
   private chunkCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
   /**
+   * The effective cell list of the last `prepareStation`: the document's own
+   * cells plus the generated street window (`withGround`). `meshStation` meshes
+   * exactly this, so the drawn ground and the walked ground are one list.
+   */
+  private effectiveCells: Cell[] = []
+  /**
+   * The keys of the generated street cells (`withGround`): every effective cell
+   * the document does not hold. The street is the one surface the player can take
+   * away whole (隐藏地面), so it is meshed as **its own pass** and tagged
+   * (`ground`) rather than mixed into its storey's band with the blocks the
+   * document owns — which is what makes the toggle a `visible` flag instead of a
+   * rebuild. It is also why the plane is meshed once: emitted by the storey pass
+   * *and* by the unsupported-plate pass, every street cell used to be built twice.
+   */
+  private groundKeys = new Set<number>()
+  /**
    * Cache keys this rebuild intends to reuse, set only around the release call in
    * `setStation` so `releaseChunks` leaves their geometry — and the outline materials
    * that go with it — alone. Null outside that window, when everything is disposable.
@@ -89,13 +115,29 @@ export class ChunkSystem extends SceneSystem {
    * mesher, the ghosts and the picking path read about "which cells draw how".
    */
   prepareStation(data: StationData): void {
-    this.ctx.solid = buildSolidSet(data.cells)
-    this.ctx.finishes = finishMapOf(data.cells)
+    // The street is stored inverted (holes, not blocks), so the mesher works
+    // from the **effective** cells: the document's own plus the window's
+    // generated ground. The two consumers that walk every cell — this and the
+    // walk graph — read the same list, so what is drawn is what is walked.
+    this.effectiveCells = withGround(data.cells, data.modules)
+    // Which of them are the **street** and which are the document's: everything
+    // `withGround` added. `meshStation` meshes that set on its own pass, so the
+    // generated plane is one thing the view can hide (`隐藏地面`) and one thing
+    // that is built once.
+    this.groundKeys.clear()
+    const owned = new Set<number>()
+    for (const c of data.cells) owned.add(packKey(c.x, c.y, c.z))
+    for (const c of this.effectiveCells) {
+      const k = packKey(c.x, c.y, c.z)
+      if (!owned.has(k)) this.groundKeys.add(k)
+    }
+    this.ctx.solid = buildSolidSet(this.effectiveCells)
+    this.ctx.finishes = finishMapOf(this.effectiveCells)
     this.ctx.stationData = data
     this.ctx.trackCellSet = trackBedKeys(data.cells, data.modules)
     // A stair's turn landing is drawn by the stair model, not the block mesher.
     const solidKeys = new Set<number>()
-    for (const c of data.cells) if (c.fill === 'solid') solidKeys.add(packKey(c.x, c.y, c.z))
+    for (const c of this.effectiveCells) if (c.fill === 'solid') solidKeys.add(packKey(c.x, c.y, c.z))
     this.ctx.hiddenCells = new Set<number>()
     // Every cell that draws as less than a whole block — a 半墙 the player laid, a
     // 三角 corner, and every block a ramp kept beside its run (`thinWallCells`) — is
@@ -163,8 +205,11 @@ export class ChunkSystem extends SceneSystem {
    * Mesh every storey band into chunk meshes (the second half of `setStation`).
    * The orchestrator calls `prepareStation` first, then this, then rebuilds
    * modules, the grid and the level slice — in the order the old method did.
+   *
+   * Meshes the list `prepareStation` put in `effectiveCells` (document cells plus
+   * the generated street window), so the drawn ground is exactly the walked one.
    */
-  meshStation(data: StationData): void {
+  meshStation(): void {
     // **One release per rebuild, and it is the keep-aware one.** What the last
     // rebuild left is given back below, once `keep` is known (`releaseChunks` is
     // called a second time with `keepChunkGeometries` set). Releasing here as well
@@ -191,7 +236,7 @@ export class ChunkSystem extends SceneSystem {
     // even when its storey sits above the one being looked at. Anything with a
     // storey below it is that lower room's ceiling and goes with the cut.
     this.ctx.groundOf.clear()
-    for (const c of data.cells) {
+    for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
       const band = storeyBand(c.z)
       bandOfCell.set(packKey(c.x, c.y, c.z), band)
@@ -200,9 +245,23 @@ export class ChunkSystem extends SceneSystem {
       if (prev === undefined || band < prev) this.ctx.groundOf.set(col, band)
     }
     const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }>()
-    for (const c of data.cells) {
+    // The street's own pass. It is a storey of its own in everything but name: at
+    // `GROUND_Z` with the document holding nothing under it, so it is the plate
+    // with nothing under it (`float`) that 隐藏天花板 keeps — but it belongs to
+    // nobody's band, which is what lets 隐藏地面 take it away whole. The filling a
+    // run derives over the street travels with it, so a surface ramp still shaves
+    // the pavement it climbs out of.
+    const groundCells: Array<{ x: number; y: number; z: number }> = []
+    for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
-      const band = bandOfCell.get(packKey(c.x, c.y, c.z)) as number
+      const k = packKey(c.x, c.y, c.z)
+      const fill = this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1))
+      if (this.groundKeys.has(k)) {
+        groundCells.push({ x: c.x, y: c.y, z: c.z })
+        if (fill) groundCells.push({ x: c.x, y: c.y, z: c.z + 1 })
+        continue
+      }
+      const band = bandOfCell.get(k) as number
       let entry = byBand.get(band)
       if (!entry) {
         entry = { zLo: c.z, zHi: c.z, cells: [] }
@@ -215,14 +274,16 @@ export class ChunkSystem extends SceneSystem {
       // block's own storey: it is that block's top surface, not a storey of its own.
       // Listing it here is also what makes it part of the chunk's content hash, so a
       // chunk re-meshes when the ground it grows from changes.
-      if (this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1))) entry.cells.push({ x: c.x, y: c.y, z: c.z + 1 })
+      if (fill) entry.cells.push({ x: c.x, y: c.y, z: c.z + 1 })
     }
+    const groundEmit = new Set<number>()
+    for (const c of groundCells) groundEmit.add(packKey(c.x, c.y, c.z))
     // Solid set of just those unsupported plates, for meshing them on their own.
     // A block a ramp carve orphaned is skipped: it is the ceiling over that
     // opening (tagged by `carveRampOpenings`), so it belongs to the storey below
     // and is cut with it rather than ghosted above the active level.
     const floating = new Set<number>()
-    for (const c of data.cells) {
+    for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
       if (c.tags?.includes(OPENING_CEILING)) continue
       if (bandOfCell.get(packKey(c.x, c.y, c.z)) === this.ctx.groundOf.get(`${c.x},${c.y}`)) floating.add(packKey(c.x, c.y, c.z))
@@ -230,10 +291,11 @@ export class ChunkSystem extends SceneSystem {
     const box = new THREE.Box3()
     // Everything the mesher reads for one chunk, hashed. A chunk whose key is
     // unchanged meshes byte-identically, so its last meshes are reused as they are.
-    // `isFloat` is part of the key because the same cells are meshed on their own
-    // when they are unsupported plates: which pass a chunk belongs to is part of
-    // what it draws, and a chunk that changes pass must re-mesh.
-    const chunkKey = (levelZ: number, cx: number, cy: number, isFloat: boolean, cells: Array<{ x: number; y: number; z: number }>): string => {
+    // `pass` is part of the key because the same cells are meshed on their own when
+    // they are unsupported plates — and the street with them — so which pass a
+    // chunk belongs to is part of what it draws, and a chunk that changes pass must
+    // re-mesh.
+    const chunkKey = (levelZ: number, cx: number, cy: number, pass: ChunkPass, cells: Array<{ x: number; y: number; z: number }>): string => {
       let h = 2166136261
       let n = 0
       for (const c of cells) {
@@ -271,7 +333,7 @@ export class ChunkSystem extends SceneSystem {
         }
         n++
       }
-      return `${levelZ}|${isFloat ? 'f' : 's'}|${cx},${cy}|${n}:${h >>> 0}`
+      return `${levelZ}|${pass}|${cx},${cy}|${n}:${h >>> 0}`
     }
     const reuse = new Map(this.chunkCache)
     // Which cached chunks this rebuild will keep, decided **before** anything is
@@ -289,21 +351,27 @@ export class ChunkSystem extends SceneSystem {
         }
         return perChunk
       }
-      // Mirrors the two passes below exactly, so the keys match.
+      // Mirrors the three passes below exactly, so the keys match: the storey's
+      // own cells, the unsupported plates among them, and the street's pass.
       for (const [levelZ, band] of byBand) {
         for (const [k, list] of groupByChunk(band.cells)) {
           const [cx, cy] = k.split(',').map(Number)
-          const key = chunkKey(levelZ, cx, cy, false, list)
+          const key = chunkKey(levelZ, cx, cy, 's', list)
           if (reuse.has(key)) keep.add(key)
         }
         const floats = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
         if (floats.length > 0) {
           for (const [k, list] of groupByChunk(floats)) {
             const [cx, cy] = k.split(',').map(Number)
-            const key = chunkKey(levelZ, cx, cy, true, list)
+            const key = chunkKey(levelZ, cx, cy, 'f', list)
             if (reuse.has(key)) keep.add(key)
           }
         }
+      }
+      for (const [k, list] of groupByChunk(groundCells)) {
+        const [cx, cy] = k.split(',').map(Number)
+        const key = chunkKey(storeyBand(GROUND_Z), cx, cy, 'g', list)
+        if (reuse.has(key)) keep.add(key)
       }
     }
     // The one release: everything the last rebuild made that this rebuild is not
@@ -316,7 +384,7 @@ export class ChunkSystem extends SceneSystem {
     this.levelGroups.clear()
     this.keepChunkGeometries = null
     const nextCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
-    const meshBand = (group: THREE.Group, levelZ: number, cells: Array<{ x: number; y: number; z: number }>, solid: Set<number>, emit: Set<number>, isFloat: boolean): void => {
+    const meshBand = (group: THREE.Group, levelZ: number, cells: Array<{ x: number; y: number; z: number }>, solid: Set<number>, emit: Set<number>, pass: ChunkPass): void => {
       // Chunks are grouped once and meshed from that chunk's own cells, rather than
       // walking the whole 16³ volume with an `emit` test per cell: the volume is
       // mostly air, and a band that spans several z levels visited every column for
@@ -331,7 +399,7 @@ export class ChunkSystem extends SceneSystem {
         entry.cells.push(c)
       }
       for (const { cx, cy, cells: chunkCells } of byChunk.values()) {
-        const key = chunkKey(levelZ, cx, cy, isFloat, chunkCells)
+        const key = chunkKey(levelZ, cx, cy, pass, chunkCells)
         // Unchanged since the last rebuild: keep the meshes, their GPU geometry and
         // their material wiring, and only put them back in the group.
         const keptEntry = keep.has(key) ? reuse.get(key) : undefined
@@ -366,10 +434,14 @@ export class ChunkSystem extends SceneSystem {
           if (geo.boundingBox) box.union(geo.boundingBox)
           const mesh = new THREE.Mesh(geo, this.ctx.mats.finish(part.finish))
           mesh.userData.levelZ = levelZ
-          mesh.userData.float = isFloat
           mesh.userData.cells = chunkCells.length
           // Tag wall faces so 隐藏墙壁 can fade them (and their outline) alone.
           mesh.userData.wall = finishDef(part.finish).family === 'wall'
+          // An unsupported plate — and, on its own pass, the street: a plate is the
+          // one thing 隐藏天花板 keeps above the room being edited, and the street is
+          // the one plate 隐藏地面 can take away whole.
+          mesh.userData.float = pass !== 's'
+          mesh.userData.ground = pass === 'g'
           group.add(mesh)
           this.chunkMeshes.push(mesh)
           meshes.push(mesh)
@@ -381,7 +453,8 @@ export class ChunkSystem extends SceneSystem {
           // clone for the base and dim the hull again, and again.
           outline.userData.baseMaterial = outlineMat
           outline.userData.levelZ = levelZ
-          outline.userData.float = isFloat
+          outline.userData.float = pass !== 's'
+          outline.userData.ground = pass === 'g'
           outline.userData.wall = mesh.userData.wall
           outline.renderOrder = -1
           group.add(outline)
@@ -411,7 +484,7 @@ export class ChunkSystem extends SceneSystem {
       // The whole storey, then its unsupported plates on their own, so the two can
       // be shown separately: a storey below the active level draws whole, while a
       // plate hanging above it still stays on screen.
-      meshBand(group, levelZ, band.cells, this.ctx.solid, emit, false)
+      meshBand(group, levelZ, band.cells, this.ctx.solid, emit, 's')
       const plates = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
       if (plates.length > 0) {
         // The ground a plate carries up to a run's truss is meshed with it here too,
@@ -423,10 +496,29 @@ export class ChunkSystem extends SceneSystem {
             .filter((c) => this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1)))
             .map((c) => ({ x: c.x, y: c.y, z: c.z + 1 })),
         )
-        meshBand(group, levelZ, floats, floating, emit, true)
+        // `floating` — the whole set, the street included — is what this pass culls
+        // against, while only the plates the document owns are meshed here. The
+        // street is a plate too, but it has a pass of its own below: drawn by both
+        // would be the same surface twice.
+        meshBand(group, levelZ, floats, floating, emit, 'f')
       }
       this.levelGroups.set(levelZ, group)
       this.ctx.scene.add(group)
+    }
+    // The street's pass: the generated window, in the group of the storey it lies
+    // in, so the slice rules that already apply to band 0 apply to it — and so
+    // 隐藏地面 (`LevelSystem.applyLevel`) can take the whole plane away by hiding
+    // these meshes, with no rebuild and no cell of the document touched.
+    if (groundCells.length > 0) {
+      const groundBand = storeyBand(GROUND_Z)
+      let group = this.levelGroups.get(groundBand)
+      if (!group) {
+        group = new THREE.Group()
+        group.userData.levelZ = groundBand
+        this.levelGroups.set(groundBand, group)
+        this.ctx.scene.add(group)
+      }
+      meshBand(group, groundBand, groundCells, this.ctx.solid, groundEmit, 'g')
     }
     // Whatever the rebuild did not claim is a chunk that no longer exists (or that
     // changed): release its geometry and its per-chunk outline material, or the

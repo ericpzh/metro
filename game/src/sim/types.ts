@@ -18,12 +18,15 @@ export type FinishId = string
 
 /**
  * Fare zones — GAME-SPEC.md §4.5. Every floor cell belongs to exactly one, and
- * a gate is the only legal crossing between `unpaid` and `paid`. The default is
- * `unpaid`, so an unzoned station has a single zone and no internal barriers.
+ * a gate is the only legal crossing between `unpaid` and `paid`. A cell that
+ * carries no label reads `none` — **无分区**: nobody has said what it is, and the
+ * game does not guess (`zoneOf`, `sim/zones.ts`). 无分区 is on the unpaid side of
+ * the fare line, so an unzoned station has no internal barriers.
  */
-export type Zone = 'outside' | 'unpaid' | 'paid' | 'platform' | 'restricted'
-export const ZONES: readonly Zone[] = ['outside', 'unpaid', 'paid', 'platform', 'restricted']
-export const DEFAULT_ZONE: Zone = 'unpaid'
+export type Zone = 'none' | 'outside' | 'unpaid' | 'paid' | 'platform' | 'restricted'
+export const ZONES: readonly Zone[] = ['none', 'outside', 'unpaid', 'paid', 'platform', 'restricted']
+/** The zone of a cell with no label of its own: **无分区** (`zoneOf`). */
+export const DEFAULT_ZONE: Zone = 'none'
 
 /**
  * A fare gate's pass policy, §4.5. `in` is entry only (unpaid → paid), `out` is
@@ -78,7 +81,11 @@ export interface Cell {
    * family default, so untouched cells cost nothing in memory or in a save.
    */
   finish?: Partial<Record<Face, FinishId>>
-  /** Fare zone (§4.5). Absent = `DEFAULT_ZONE`. */
+  /**
+   * Fare zone (§4.5). Absent = **无分区** (`DEFAULT_ZONE`): the cell carries no
+   * label, and the game reads it as unzoned rather than guessing a fare side
+   * (`zoneOf`, `sim/zones.ts`).
+   */
   zone?: Zone
   tags?: string[]
 }

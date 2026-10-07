@@ -80,6 +80,10 @@ test('disposing the scene releases the remove-drag pool mesh', () => {
   const ctx = new SceneContextData(scene, null, null, null)
   const sys = new GhostSystem(ctx)
   sys.modules = { fenceGroups: [] }
+  // The hover preview's own teardown empties the clock system's list of ghost rigs
+  // (`GhostSystem.clearModulePreview`), so the clock system is stubbed here for the same reason
+  // the fence groups are: this file mounts the ghost alone, with no scene around it.
+  sys.clocks = { previewRigs: [] }
   sys.setGhost(
     [
       [1, 2, 0],
