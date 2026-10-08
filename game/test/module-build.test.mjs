@@ -57,6 +57,7 @@ const { buildModule, buildTrain, createModelMaterials, disposeObject, setDoors, 
 const { createModule } = await import('../src/build/model.ts')
 const { STOCK, doorCentres } = await import('../src/sim/stock.ts')
 const { STAIR_RISE, STAIR_RUN } = await import('../src/sim/stairs.ts')
+const { LIFT_STEP, LIFT_RISE, liftModule } = await import('../src/sim/lifts.ts')
 const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
@@ -221,7 +222,7 @@ const PIECES = [
   ['出入口 无盖 双向', palette('exit-uncovered-2'), 46, '4.04×8.08×1'],
   ['出入口 无盖 三向', palette('exit-uncovered-3'), 46, '5.04×8.08×1'],
   ['扶梯', palette('escalator'), 18, '0.98×7.55×5.563'],
-  ['电梯', palette('lift'), 17, '2.04×2.04×6.73'],
+  ['电梯', palette('lift'), 17, '2.04×2.04×7'],
   // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns
   // around them are read: a flight or half-landing a wall hugs loses that side's balustrade
   // (`stairWallSides` / `stairLandingWalls`). In the open, a 90° turn draws 90 meshes and a
@@ -259,6 +260,27 @@ test('every piece the palette can lay draws a model, at the size it draws it', (
 
 test('a piece the palette cannot lay draws nothing, and says so by returning null', () => {
   assert.equal(buildModule({ id: 'x', type: 'wall', x: 0, y: 0, z: 0, rot: 0, cfg: {} }, ctx), null)
+})
+
+test('the 电梯 shaft’s lid meets the slab above the top landing with no gap and no overrun', () => {
+  // The shaft is taller than the ride it gives (`LIFT_RISE`), because the cabin and its
+  // call panel need headroom over the top landing — but that overrun is **not** free
+  // height to spend: the lid's top face has to land on the storey grid line the block
+  // above that landing starts on, or the shaft stops a hand's width short of it and the
+  // station shows a strip of daylight around the cabin (and a fraction more would poke
+  // through the street floor). So the piece is exactly `to − from + LIFT_STEP − 1` m
+  // from its own floor, whatever the shaft's span.
+  for (const [fromZ, toZ] of [
+    [0, LIFT_RISE],
+    [0, 2 * LIFT_RISE],
+    [-12, -4],
+    [-16, -8],
+  ]) {
+    const base = liftModule({ x: 4, y: 4, z: fromZ }, 0, `lift-${fromZ}-${toZ}`)
+    const mod = { ...base, to: { x: base.to.x, y: base.to.y, z: toZ } }
+    const size = dims(build(mod).size)
+    assert.equal(size[2], toZ - fromZ + LIFT_STEP - 1, `电梯 ${fromZ} → ${toZ}: the lid lands on the ceiling grid line`)
+  }
 })
 
 test('the pieces the scene animates carry the handle it animates them by', () => {

@@ -16,7 +16,7 @@ import {
   trackPieceForLine,
 } from '../../../build/rail.ts'
 import { nextTrackRunLength, supportedTrackRunLength, trackOriginForCentre } from '../../../sim/track.ts'
-import type { LineDirection } from '../../../sim/types.ts'
+import type { BridgeRailing, LineDirection } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
 
 export interface RailSlice {
@@ -49,7 +49,7 @@ export interface RailSlice {
   /** Remove a rail and the screen doors derived from it. */
   removeRail: (trackId: string) => void
   /** Edit a rail's line/direction and re-derive its screen doors. */
-  updateRail: (trackId: string, patch: { line?: string; dir?: LineDirection }) => void
+  updateRail: (trackId: string, patch: { line?: string; dir?: LineDirection; bridgeRailing?: BridgeRailing }) => void
 }
 
 export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, get) => ({

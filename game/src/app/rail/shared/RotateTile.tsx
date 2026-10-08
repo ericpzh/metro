@@ -29,3 +29,26 @@ export function RotateTile({
 }): React.ReactElement {
   return <Block label={label} art={ROTATE_ART} shortcut="R" onClick={onClick} />
 }
+
+/** Plan view of a slim pillar's 3×3 in-cell positions, with the armed spot highlighted. */
+export function PositionTile({ position, onClick }: { position: number; onClick: () => void }): React.ReactElement {
+  // Keep this order in sync with sim/structures.ts `pillarOffset`.
+  const offsets = [[0, 0], [0.35, 0], [0, 0.35], [-0.35, 0], [0, -0.35], [0.35, 0.35], [-0.35, 0.35], [-0.35, -0.35], [0.35, -0.35]] as const
+  const [offsetX, offsetY] = offsets[((position % 9) + 9) % 9]
+  const pillarSize = 4.8
+  const pillarX = 10 + offsetX * 16 - pillarSize / 2
+  const pillarY = 10 - offsetY * 16 - pillarSize / 2
+  return (
+    <Block
+      label={`位置 ${position + 1}/9`}
+      art={
+        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="0.8">
+          <rect x="2" y="2" width="16" height="16" rx="0.6" opacity="0.45" />
+          <rect x={pillarX} y={pillarY} width={pillarSize} height={pillarSize} rx="0.6" fill="currentColor" strokeWidth="0" />
+        </svg>
+      }
+      shortcut="R"
+      onClick={onClick}
+    />
+  )
+}

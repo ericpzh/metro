@@ -196,6 +196,19 @@ test('picking any roof restores its truss style and width', () => {
   }
 })
 
+test('picking a bridge copies its barrier and length, and Esc restores both settings', () => {
+  const bridge = createModule('bridge', 0, 0, 4, 'picked')
+  bridge.w = 16
+  bridge.cfg.bridgeRailing = 'sound-barrier'
+  useStore.setState({ station: { ...st().station, modules: [bridge] }, bridgeLength: 32, bridgeRailing: 'railing' })
+  ctxFor('picked').onDown(press([0, 0, 4]))
+  assert.equal(st().bridgeRailing, 'sound-barrier')
+  assert.equal(st().bridgeLength, 16)
+  assert.equal(st().cancelPick(), true)
+  assert.equal(st().bridgeRailing, 'railing')
+  assert.equal(st().bridgeLength, 32)
+})
+
 test('a rail run hands to the 轨道 tool, a room to 分区, a screen door only selects', () => {
   ctxFor('t1').onDown(press([1, 2, 0]))
   assert.equal(st().tool, 'rail')

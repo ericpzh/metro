@@ -6,9 +6,10 @@
 // the whole module can be pre-rendered and turned with R like any equipment,
 // including across to the other axis. Pure document edits — no React, no three.
 
-import { pillarSupportsBridge } from '../sim/structures.ts'
+import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/structures.ts'
+import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
-import { boxesOverlap, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
+import { boxesOverlap, equipmentReason, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { doorCentres, trainLength } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, type TrackModule } from '../sim/track.ts'
 import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
@@ -287,6 +288,7 @@ export function trackClearanceBlocked(state: StationState, track: TrackModule): 
   if (track.cfg.tunnel) return false
   const solid = solidKeys(state)
   for (const [x, y, z] of trackCells(track)) {
+    if (track.cfg.bridge && solid.has(cellKey(x, y, z - BRIDGE_DECK_DEPTH))) return true
     for (let dz = 1; dz <= TUNNEL_HEADROOM; dz++) if (solid.has(cellKey(x, y, z + dz))) return true
   }
   return false
@@ -304,7 +306,7 @@ function trackSpace(track: TrackModule): ModuleBox {
     x1 = Math.max(x1, x + 1)
     y1 = Math.max(y1, y + 1)
   }
-  return { x0, y0, z0: track.z, x1, y1, z1: track.z + TUNNEL_HEADROOM + 1 }
+  return { x0, y0, z0: track.z - (track.cfg.bridge ? BRIDGE_DECK_DEPTH : 0), x1, y1, z1: track.z + TUNNEL_HEADROOM + 1 }
 }
 
 /**
@@ -347,7 +349,10 @@ export function trackBlockReason(state: StationState, track: TrackModule): Track
   if (trackInterferenceBlocked(state, track)) return 'interference'
   // A tunnel bores through walls and hangs over void; only a platform is held
   // to open air and solid ground under its whole footprint.
-  if (track.cfg.bridge && track.z < 0) return 'floor'
+  if (track.cfg.bridge && track.z < BRIDGE_MIN_Z) return 'floor'
+  if (track.cfg.bridge && bridgePillarCandidates(state.cells, state.modules, track).some((pillar) =>
+    equipmentReason(state.cells, [...state.modules, track], pillar, true) !== '',
+  )) return 'interference'
   if (!track.cfg.tunnel) {
     if (trackClearanceBlocked(state, track)) return 'wall'
     if (!track.cfg.bridge && trackFloorMissing(state, track)) return 'floor'
@@ -415,7 +420,7 @@ function commitTrackRaw(state: StationState, track: TrackModule): StationState {
   const modules = state.modules.filter((m) => !dug.has(cellKey(m.x, m.y, m.z)))
   let next: StationState = { ...state, cells, modules: [...modules, track] }
   if (track.cfg.tunnel) next = boreTunnel(next, track)
-  return { ...next, modules: [...next.modules, ...derivePlatformEdges(next, track)] }
+  return syncBridgePillars({ ...next, modules: [...next.modules, ...derivePlatformEdges(next, track)] })
 }
 
 /**
@@ -542,10 +547,10 @@ export function makeTunnel(src: TrackModule, end: 1 | -1, length: number, id: st
  * no track on it. Refuses (same state object) when no such rail exists or the
  * run would interfere with anything, so the caller can tell "no change".
  */
-export function makeBridge(src: TrackModule, end: 1 | -1, length: number, id: string): TrackModule {
+export function makeBridge(src: TrackModule, end: 1 | -1, length: number, id: string, railing: NonNullable<TrackModule['cfg']['bridgeRailing']> = src.cfg.bridgeRailing ?? 'railing'): TrackModule {
   const tunnel = makeTunnel(src, end, length, id)
   const { tunnel: _tunnel, ...cfg } = tunnel.cfg
-  return { ...tunnel, cfg: { ...cfg, bridge: true } }
+  return { ...tunnel, cfg: { ...cfg, bridge: true, bridgeRailing: railing } }
 }
 
 export function placeTunnel(state: StationState, sourceId: string, length: number, at?: readonly [number, number, number]): StationState {

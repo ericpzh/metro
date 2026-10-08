@@ -12,6 +12,7 @@ import {
   toData,
   toState,
   toStateRepairing,
+  syncBridgePillars,
   type StationState,
 } from '../../../build/model.ts'
 import { parse as parseSave, serialize as serializeSave } from '../../../persistence/save.ts'
@@ -169,6 +170,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
   },
 
   commit: (next) => {
+    next = syncBridgePillars(next)
     const cur = get().station
     set({ station: next, version: get().version + 1, past: pushPast(get().past, cloneState(cur)), future: [] })
     rebuildSim(toData(next))

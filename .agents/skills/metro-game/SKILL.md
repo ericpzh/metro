@@ -277,9 +277,10 @@ the four rules most changes trip over.
   unless the player painted the piece (`paintStairSurface`), and that finish reaches the
   ground under the run, since the cut's cap is the piece's own surface. A turning stair's
   half-landing floor is the **stair's** cell: `addEquipment` lays it, the mesher skips it
-  (the model draws the platform) and `removeModule` takes it back out with the piece.
-  `isMovableModule` refuses a stair outright, so it leaves and returns through delete and
-  place.
+  (the model draws the platform) and `removeModule` takes it back out with the piece. That
+  own cell is why a 移动 of a 楼梯 or a 扶梯 is a **tear-down and a rebuild**
+  (`moveRebuilds` → `moveEquipment`) rather than a translation, and why `movedModule`
+  re-lays the run's own `from`/`to` and flights.
 * **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a 2 × 2 m
   assembly with a 1.5 m carriage, dropped on a floor and serving the floor one storey up
   (`LIFT_RISE`); hovering its upper/lower half grows it a storey up/down
@@ -491,8 +492,9 @@ the four rules most changes trip over.
   path cache, and the worker's `selectAgent` handler builds a frame (`stepping()` false)
   instead of stepping the world. The leg memo (`World.routeTails`) is keyed by agent *and*
   leg and capped (`ROUTE_TAIL_MEMO_MAX`), and `rebuild()` drops it.
-* **The 移动 action moves a placed 设备 / 装饰 piece** (`isMovableModule` / `movedModule` /
-  `moveCandidate` / `moveDropReason` in `sim/placement.ts`, `replaceEquipment`,
+* **The 移动 action moves a placed 设备 / 装饰 / 出入口 piece and the two runs**
+  (`isMovableModule` / `movedModule` / `moveCandidate` / `moveDropReason` / `moveRebuilds`
+  in `sim/placement.ts`, `replaceEquipment` / `moveEquipment`,
   `app/store/slices/MoveSlice.ts`, `app/tools/MoveController.ts`, `test/move.test.mjs`).
   It is deliberately **neither a tool nor a second panel**: the piece is already selected
   (选择), so the way in is the inspector's `信息` card — pressing 移动 there lifts the
@@ -510,20 +512,33 @@ the four rules most changes trip over.
   on the ground, the card's 确认 (or `Enter`), and 取消 / `Esc` / a right press. A ghost
   carries a private id (`MOVE_GHOST_ID`), because a 指示牌's printed plate and a 电视's
   station plate are cached per module id and a preview may only dispose what it minted
-  itself. Structural pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms, 轨道 / 站台门 — are refused:
-  a translation would strand the openings they carved and the geometry derived from them.
+  itself. A **run** — a 楼梯 or a 扶梯 — is movable for the same reason 删除 may sweep one: it
+  owns cells of the document's (a turning stair's half-landing floor) and carves the slab it
+  climbs through, so its move is a tear-down and a rebuild (`moveEquipment`:
+  `removeModule` then `addEquipment`, still one commit) and `movedModule` re-lays its
+  `from`/`to` — and every flight of a turn, turned about the piece's own anchor in the
+  piece's own convention (`stairFacing`'s quarter turn, not `rotateLocal`'s, which is what a
+  楼梯块 uses), so a legacy off-grid piece keeps the run it has. The opening a run carved
+  where it stood stays open, as it does on a delete. Structural pieces still refused: a 电梯
+  shaft (grown a storey at a time without ever asking for floor), rooms, 轨道 / 站台门 — a
+  translation would strand the geometry derived from them.
 * **Above ground is pillars, roofs, doorway exits and stair blocks** (`sim/structures.ts`,
   `build/model/RoofPaint.ts`, `app/tools/TileEquipmentTool.ts` + `RoofTool.ts`,
   `app/rail/menus/StructurePanel.tsx`; `overground.test.mjs` + `roof-tool.test.mjs` +
   `structures-gaps.test.mjs`). A pillar is a slim (0.3 m) or thick (1 m) column grown
-  4 m at a time (`extendedPillar`, `PILLAR_STEP`); a roof is a 1×1 m thin tile or a
+  4 m at a time (`extendedPillar`, `PILLAR_STEP`); R places a slim pillar at one of nine
+  in-cell offsets (`pillarOffset`, its module `rot` is an index, not a quarter-turn),
+  shared by its drawn shaft and collision envelope. Thick pillars stay centred. A roof is a 1×1 m thin tile or a
   raised truss bay in 4/8/12 m widths (`ROOF_WIDTHS`, `nextRoofWidth` /
   `supportedRoofWidth` / `roofWidthLabel`, `trussRoofRidge`/`trussRoofTop`), painted
   per tile or per connected surface (`paintRoofSurface`, 材质 单块/整面) while the
   truss stays steel. A doorway exit (`ExitCfg.style: 'doorway'`) is a 1 m pad aligned
   to the block edge (`exitDoorwayOffset`) with no carved floor, no walls and no run
   snap. A stair block (`stair.cfg.block`, 高 1 m / 矮 0.5 m) is a solid 1×1 m step
-  with no rails; only the metre-high block connects storeys in the graph.
+  with no rails; only the metre-high block connects storeys in the graph. A bridge
+  (`track.cfg.bridge`) has a 1 m deck, one generated thick pier per complete 8 m bay,
+  and a cycling railing / sound-barrier setting; `BridgePillars.ts` owns support sync,
+  and the bridge finish applies to the deck alone.
 
 ## The document and the demo station
 

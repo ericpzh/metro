@@ -1,9 +1,9 @@
 // Track bed builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, slab } from '../PieceBuilder.ts'
+import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
-import { BRIDGE_DECK_DEPTH } from '../../../sim/structures.ts'
+import { BRIDGE_DECK_DEPTH, bridgeBarrierTop } from '../../../sim/structures.ts'
 import { TUNNEL_HEADROOM } from '../../../build/rail.ts'
 import type { Module } from '../../../sim/types.ts'
 
@@ -37,7 +37,7 @@ function buildDirectionArrow(mat: THREE.Material, x: number, y: number, z: numbe
   return g
 }
 
-function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, preview = false): THREE.Group {
+function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, preview = false, deckMat: THREE.Material = mats.white): THREE.Group {
   const g = new THREE.Group()
   const d = mod.d ?? 1
   // Build in the track's local frame: the run along +x, the amount across +y,
@@ -50,12 +50,25 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // walls; the module only supplies the bed and the power supply on top.
   slab(g, mats.black, cx, cy, 0.25, mod.w, d, 0.5)
   if (mod.cfg.bridge) {
-    // Concrete deck, edge girders and an open maintenance parapet (§5.4).
-    slab(g, mats.white, cx, cy, -BRIDGE_DECK_DEPTH / 2, mod.w, d, BRIDGE_DECK_DEPTH)
+    // One solid concrete deck (§5.4). Edge girders previously shared its outer
+    // face, making the underside flicker as the camera moved.
+    finishSlab(g, deckMat, cx, cy, -BRIDGE_DECK_DEPTH / 2, mod.w, d, BRIDGE_DECK_DEPTH)
     for (const y of [-0.42, d - 0.58]) {
-      slab(g, mats.darkSteel, cx, y, -0.16, mod.w, 0.16, 0.7)
-      slab(g, mats.steel, cx, y, 1.25, mod.w, 0.08, 0.08)
-      for (let x = 0; x < mod.w; x += 2) slab(g, mats.steel, x, y, 0.9, 0.08, 0.08, 0.7)
+      if (mod.cfg.bridgeRailing === 'sound-barrier' || mod.cfg.bridgeRailing === 'sound-barrier-half') {
+        // Absorbing lower panels with a clear upper band, framed on both sides.
+        const top = bridgeBarrierTop(mod.cfg.bridgeRailing)
+        const height = top - 0.5
+        const lowerHeight = height * 2 / 3
+        const upperHeight = height / 3
+        slab(g, mats.white, cx, y, 0.5 + lowerHeight / 2, mod.w, 0.08, lowerHeight)
+        slab(g, mats.glass, cx, y, top - upperHeight / 2, mod.w, 0.08, upperHeight)
+        slab(g, mats.steel, cx, y, 0.5 + lowerHeight, mod.w, 0.12, 0.08)
+        slab(g, mats.steel, cx, y, top - 0.04, mod.w, 0.12, 0.08)
+        for (let x = 0; x < mod.w; x += 2) slab(g, mats.steel, x, y, 0.5 + height / 2, 0.12, 0.12, height)
+      } else {
+        slab(g, mats.steel, cx, y, 1.25, mod.w, 0.08, 0.08)
+        for (let x = 0; x < mod.w; x += 2) slab(g, mats.steel, x, y, 0.9, 0.08, 0.08, 0.7)
+      }
     }
   }
   // Two rails on sleepers down the middle of the bed.
@@ -144,7 +157,7 @@ function buildBridgeCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<
 export class TrackModel extends PieceBuilder {
   readonly kind = 'track'
   build(mod: Extract<Module, { type: 'track' }>): THREE.Group {
-    return buildTrack(this.ctx.mats, mod, this.ctx.preview)
+    return buildTrack(this.ctx.mats, mod, this.ctx.preview, mod.cfg.bridgeFinish ? this.ctx.finish(mod.cfg.bridgeFinish) : this.ctx.mats.white)
   }
 }
 

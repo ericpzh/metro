@@ -160,7 +160,7 @@ export class PickTool extends ToolController {
       // folder (`findSelectedTrack`), which is the rail's half of the link.
       if (mod.type === 'track' && mod.cfg.bridge) {
         st.setModuleType('bridge')
-        st.setStructureOptions({ bridgeLength: mod.w })
+        st.setStructureOptions({ bridgeLength: mod.w, bridgeRailing: mod.cfg.bridgeRailing ?? 'railing' })
         st.setTool('module')
         return
       }

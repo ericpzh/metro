@@ -120,7 +120,11 @@ export function App(): React.ReactElement {
           st.setTool('delete')
           break
         case 'f':
+          // F is the plain 方块 tile's key: it always lands on a plain block,
+          // clearing any cut piece (半墙 / 三角) the tool was left in — the same
+          // thing clicking the 方块 tile does.
           st.setTool('block')
+          if (st.halfWall || st.triangles) st.setCutMode(null)
           break
         case 'g':
           st.setTool('wall')

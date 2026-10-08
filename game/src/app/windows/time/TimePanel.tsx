@@ -118,6 +118,16 @@ export function TimePanel(): React.ReactElement | null {
     () => ({ service: spans.service, peaks: spans.peaks, knobs }),
     [spans.service, spans.peaks, knobs],
   )
+  // Right axis scale: Σ open exits' inRate — the 人/时 the curve value multiplies in
+  // `World.spawnStreet`. Closed exits contribute nothing, so they are left out.
+  const baseRate = useMemo(
+    () =>
+      station.modules.reduce(
+        (sum, m) => (m.type === 'exit' && m.cfg.open ? sum + Math.max(0, m.cfg.inRate) : sum),
+        0,
+      ),
+    [station.modules],
+  )
 
   /**
    * A grip moved: write the draft only. Each span keeps its own shape while it is being dragged
@@ -192,6 +202,7 @@ export function TimePanel(): React.ReactElement | null {
               input={input}
               dayType={today?.dayType ?? 'weekday'}
               simTime={simTime ?? 0}
+              baseRate={baseRate}
               onDrag={dragBoundary}
               onDragEnd={() => commitSpans()}
               onNudge={nudgeBoundary}

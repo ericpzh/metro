@@ -8,12 +8,15 @@ import { solidAt } from '../../../sim/ground.ts'
 import type { Module, StationData } from '../../../sim/types.ts'
 
 /**
- * Headroom above the top landing, so the cabin and its call panel fit: the shaft
- * runs on to just under the slab above that floor. It must stay below that slab,
- * so a platform piece tops out at the concourse ceiling (0 m), never through the
- * street floor.
+ * The shaft's top course — its lid — in metres. The lid's **top face** lands on
+ * the storey grid line over the top landing, which is the underside of the slab
+ * above it (`LIFT_STEP - 1` m above that landing's own floor): the shaft closes
+ * flush against the tile above instead of stopping a hand's width short of it and
+ * leaving a strip of daylight around the cabin. It must not rise *past* that line
+ * either, or a platform piece would poke through the street floor; the headroom
+ * it leaves does the rest of the job — the cabin and its call panel fit under it.
  */
-const LIFT_HEADROOM = 2.6
+const LIFT_CAP = 0.14
 
 /**
  * True when `(x, y, z)` is walkable floor: solid, with nothing solid above it.
@@ -44,7 +47,12 @@ function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): 
   if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
 
   const runH = Math.max(LIFT_STEP, mod.to.z - mod.from.z)
-  const H = runH + LIFT_HEADROOM
+  // The ceiling over the top landing: the grid line the block above that landing
+  // starts on. The walls stop under the lid and the lid's top face is this line,
+  // so the shaft is exactly the blocks it fills and meets the tile above flush.
+  const ceiling = runH + LIFT_STEP - 1
+  const H = ceiling - LIFT_CAP
+  const capMid = ceiling - LIFT_CAP / 2
   const outer = 0.94 // wall centre-line, so the assembly reads as 2 m across
   const inner = 0.72 // 1.44 m clear carriage
   const midH = H / 2
@@ -65,7 +73,7 @@ function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): 
     slab(g, mats.black, 0.6, -outer - 0.03, L + 1.35, 0.3, 0.04, 0.18)
     slab(g, mats.ledGreen, 0.6, -outer - 0.05, L + 1.35, 0.12, 0.02, 0.07)
   }
-  slab(g, mats.darkSteel, 0, 0, H + 0.06, 2.04, 2.04, 0.14)
+  slab(g, mats.darkSteel, 0, 0, capMid, 2.04, 2.04, LIFT_CAP)
 
   // The cabin: floor, roof, back and sides, with the two door leaves at the
   // front. Its local origin is the cabin floor, so the renderer only sets z.

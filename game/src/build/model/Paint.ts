@@ -200,6 +200,21 @@ export function paintStairSurface(state: StationState, id: string, finish: Finis
   return changed ? { ...state, modules } : state;
 }
 
+/** Paint the visible body of a pillar; its steel collars keep their own finish. */
+export function paintPillarSurface(state: StationState, id: string, finish: FinishId | null): StationState {
+  let changed = false;
+  const modules = state.modules.map((m): typeof m => {
+    if (m.type !== 'pillar' || m.id !== id) return m;
+    if ((m.cfg.finish ?? null) === finish) return m;
+    changed = true;
+    const cfg = { ...m.cfg };
+    if (finish === null) delete cfg.finish;
+    else cfg.finish = finish;
+    return { ...m, cfg };
+  });
+  return changed ? { ...state, modules } : state;
+}
+
 /**
  * Flood-fill the connected exposed region of a face's plane with a finish
  * (§4.3, the 整面 brush). The region stops at unexposed faces and at the

@@ -744,8 +744,8 @@ export function moduleLabel(type: string, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'bridgeLength' | 'moduleType' | 'moduleRot' | 'stairWidth' | 'stairBlockHeight' | 'roofWidth' | 'escalatorDir' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'stairWidth' | 'stairBlockHeight' | 'roofWidth' | 'escalatorDir' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.bridgeLength}|${s.moduleType}|${s.moduleRot}|${s.stairWidth}|${s.stairBlockHeight}|${s.roofWidth}|${s.escalatorDir}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.stairWidth}|${s.stairBlockHeight}|${s.roofWidth}|${s.escalatorDir}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

@@ -16,11 +16,14 @@ export {
   nextExitName,
   nextModuleId,
   randomAdSlug,
+  moveEquipment,
   removeModule,
   replaceEquipment,
   type SignLineInput,
 } from './model/Equipment.ts';
 export { extendLift, liftInColumn } from './model/Lifts.ts';
+export { paintBridgeSurface } from './model/BridgePaint.ts';
+export { syncBridgePillars } from './model/BridgePillars.ts';
 export {
   eraseFace,
   eraseFaces,
@@ -31,6 +34,7 @@ export {
   paintFace,
   paintFaces,
   paintStairSurface,
+  paintPillarSurface,
 } from './model/Paint.ts';
 export {
   eraseZoneCells,

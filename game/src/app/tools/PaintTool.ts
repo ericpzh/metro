@@ -4,7 +4,7 @@
 // reach for — it lifts equipment as well as finishes. Moved verbatim from
 // app/Viewport.tsx (GAME-SPEC §8: 材质 paint tools).
 
-import { eraseFaces, faceFinish, fillSurface, paintFaces, paintRoofSurface, paintStairSurface } from '../../build/model.ts'
+import { eraseFaces, faceFinish, fillSurface, paintFaces, paintRoofSurface, paintStairSurface, paintPillarSurface, paintBridgeSurface } from '../../build/model.ts'
 import { DEFAULT_ROOF_FINISH } from '../../sim/structures.ts'
 import { finishDef } from '../../sim/finishes.ts'
 import type { FinishId } from '../../sim/types.ts'
@@ -32,6 +32,28 @@ export class PaintTool extends ToolController {
     // cell the ray hit — its treads, risers and half-landing are one material.
     const pickedId = this.pickModuleAt(info)
     const stair = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+    if (stair?.type === 'track' && stair.cfg.bridge) {
+      info.preventDefault()
+      if (st.paintMode === 'pick') {
+        st.setPaintFinish(stair.cfg.bridgeFinish ?? 'wall.plaster')
+        st.resumePaintMode()
+        return
+      }
+      const next = paintBridgeSurface(st.station, stair.id, info.button === 2 ? null : st.paintFinish)
+      if (next !== st.station) st.commit(next)
+      return
+    }
+    if (stair?.type === 'pillar') {
+      info.preventDefault()
+      if (st.paintMode === 'pick') {
+        st.setPaintFinish(stair.cfg.finish ?? (stair.cfg.size === 'thick' ? 'wall.plaster' : 'ceil.steel'))
+        st.resumePaintMode()
+        return
+      }
+      const next = paintPillarSurface(st.station, stair.id, info.button === 2 ? null : st.paintFinish)
+      if (next !== st.station) st.commit(next)
+      return
+    }
     if (stair?.type === 'roof') {
       info.preventDefault()
       if (st.paintMode === 'pick') {
@@ -92,7 +114,7 @@ export class PaintTool extends ToolController {
     // face is previewed (that would point at the wrong thing).
     const stairId = this.pickModuleAt(info)
     const stair = stairId ? st.station.modules.find((m) => m.id === stairId) : undefined
-    if (stair && (stair.type === 'stair' || stair.type === 'roof')) {
+    if (stair && (stair.type === 'stair' || stair.type === 'roof' || stair.type === 'pillar' || (stair.type === 'track' && stair.cfg.bridge))) {
       scene.clearFaceGhost()
       scene.setModulePreview(stair, false)
       scene.setCursor([stair.x, stair.y, stair.z], true)

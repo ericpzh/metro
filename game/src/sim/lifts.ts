@@ -4,11 +4,11 @@
 // climbs a whole number of storeys. One piece is a 2 × 2 m assembly (a 1.5 ×
 // 1.5 m carriage inside its walls) that sits on the floor it is dropped on and
 // serves the floor one storey up (`LIFT_RISE` blocks, the base module). Its
-// model is taller than that: it runs on up to the slab above the top landing, so
-// a piece placed on the platform (−8 m) tops out at the concourse ceiling (0 m)
-// without poking through the street. A player grows the shaft a storey at a
-// time: hovering the shaft's upper half adds a storey above, the lower half one
-// below.
+// model is taller than that: it runs on up to the slab above the top landing,
+// where its lid's top face is that slab's own underside — flush, so a piece
+// placed on the platform (−8 m) reaches the concourse ceiling (0 m) exactly and
+// never pokes through the street. A player grows the shaft a storey at a time:
+// hovering the shaft's upper half adds a storey above, the lower half one below.
 //
 // The sim serves the whole shaft with a single car (see `World.stepLift`): every
 // walkable floor between `from` and `to` is a stop, so the crowd rides straight

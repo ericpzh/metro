@@ -1,24 +1,26 @@
-// The 移动 slice: lifting a placed 设备 / 装饰 / 出入口 piece, aiming it and dropping it
-// (§9.5). A lift is deliberately *not* a document edit — the piece stays in the
-// station and only stops being drawn — so cancelling restores nothing and
+// The 移动 slice: lifting a placed 设备 / 装饰 / 出入口 / 楼梯 / 扶梯 piece, aiming it and
+// dropping it (§9.5). A lift is deliberately *not* a document edit — the piece stays in
+// the station and only stops being drawn — so cancelling restores nothing and
 // confirming is the one and only commit.
 
 import type { StateCreator } from 'zustand'
-import { replaceEquipment } from '../../../build/model.ts'
+import { moveEquipment } from '../../../build/model.ts'
 import { isMovableModule, moveDropReason, movedModule } from '../../../sim/placement.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
 import { isRotatableType, moduleLabel } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
 /**
- * A placed 设备 / 装饰 / 出入口 piece the 信息 card's **移动** has picked up (§9.5).
+ * A placed 设备 / 装饰 / 出入口 / 楼梯 / 扶梯 piece the 信息 card's **移动** has picked up (§9.5).
  *
  * The piece is **not** removed from the document while it is in the air. It keeps
  * its id and its whole `cfg` — a 指示牌's printed boards, a 闸机's lane, a 广告牌's
- * frozen poster — and only stops being drawn, so the translucent ghost under the
- * pointer is the only copy on screen and putting the piece back has nothing to
- * restore. Confirming the drop is one `commit` (so one `Ctrl+Z` undoes the move
- * whole), and cancelling is not an edit at all.
+ * frozen poster, a 楼梯's size and painted surface — and only stops being drawn, so
+ * the translucent ghost under the pointer is the only copy on screen and putting the
+ * piece back has nothing to restore. Confirming the drop is one `commit` (so one
+ * `Ctrl+Z` undoes the move whole) — a **run** (a 楼梯 / 扶梯) through
+ * `moveEquipment`, which is the tear-down and rebuild the piece owns cells for —
+ * and cancelling is not an edit at all.
  */
 export interface MoveDraft {
   /** The piece as it was placed. Its own cell and rotation are the way home. */
@@ -48,11 +50,12 @@ export interface MoveSlice {
   moveDraft: MoveDraft | null
 
   /**
-   * Lift a placed 设备 / 装饰 / 出入口 piece for 移动 (§9.5) — what the 移动 tool and 信息
-   * card's 移动 button do, and where the 确认 / 取消 that drop it live too. Not an
+   * Lift a placed 设备 / 装饰 / 出入口 / 楼梯 / 扶梯 piece for 移动 (§9.5) — what the 移动 tool
+   * and 信息 card's 移动 button do, and where the 确认 / 取消 that drop it live too. Not an
    * edit: nothing is committed and nothing leaves the document, the piece only stops
-   * being drawn until it is put down. Runs, rooms, track and platform doors are
-   * refused with a toast pointing at 删除; an exit head-house can move with its footprint.
+   * being drawn until it is put down. A run is rebuilt where it lands rather than
+   * translated (`moveEquipment`); a 电梯, a room, track and platform doors are refused
+   * with a toast pointing at 删除; an exit head-house can move with its footprint.
    */
   liftModule: (moduleId: string) => void
   /**
@@ -150,7 +153,7 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     }
     const label = moduleLabel(from.type, from.type === 'shop' ? from.cfg.kind : undefined)
     set({ moveDraft: null })
-    get().commit(replaceEquipment(st.station, to))
+    get().commit(moveEquipment(st.station, to))
     set({ notice: `${label}已移到 (${to.x}, ${to.y}, ${to.z})` })
   },
 })

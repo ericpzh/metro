@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { normalizeLevelBase } from '../src/sim/constants.ts'
 import {
   nextRoofWidth,
+  nextBridgeRailing,
+  bridgeRailingLabel,
   pillarSupportsBridge,
   roofWidthLabel,
   supportedRoofWidth,
@@ -13,6 +15,17 @@ import { paintRoofSurface } from '../src/build/model/RoofPaint.ts'
 import { createModule } from '../src/build/model.ts'
 import { toState } from '../src/build/model/State.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
+
+test('bridge railing tile cycles the three named variants and wraps', () => {
+  let variant = 'railing'
+  const labels = []
+  for (let i = 0; i < 3; i++) {
+    labels.push(bridgeRailingLabel(variant))
+    variant = nextBridgeRailing(variant)
+  }
+  assert.deepEqual(labels, ['栏杆', '半高声屏障', '全高声屏障'])
+  assert.equal(variant, 'railing')
+})
 
 test('normalizeLevelBase repairs rather than refuses', () => {
   assert.equal(normalizeLevelBase(undefined), 0, 'an old save with no base stays at 0 m')
@@ -31,7 +44,7 @@ test('roof width helpers cycle, clamp and label the three bays', () => {
   assert.equal(roofWidthLabel(4), '窄')
   assert.equal(roofWidthLabel(8), '中')
   assert.equal(roofWidthLabel(12), '宽')
-  assert.equal(trussRoofRidge(8), 6 + 8 * 0.1, 'the ridge rises one metre per ten of span')
+  assert.equal(trussRoofRidge(8), 7.88, 'the ridge leaves room for the skin within the four-metre assembly')
   assert.equal(trussRoofTop(8), trussRoofRidge(8) + 0.12, 'the cap sits 12 cm above the ridge')
 })
 

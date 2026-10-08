@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { PieceBuilder, finishSlab } from '../PieceBuilder.ts'
-import { DEFAULT_ROOF_FINISH, ROOF_THICKNESS, TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, trussRoofRidge } from '../../../sim/structures.ts'
+import { DEFAULT_ROOF_FINISH, ROOF_THICKNESS, TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, TRUSS_ROOF_SKIN, TRUSS_ROOF_CHORD, trussRoofRidge } from '../../../sim/structures.ts'
 import type { Module } from '../../../sim/types.ts'
 
 type Point = [number, number, number]
@@ -34,8 +34,14 @@ export class RoofModel extends PieceBuilder {
     const crestY = (width - 1) / 2
     const eaveY = width - 0.5
     const ridgeZ = trussRoofRidge(width)
-    const roofThickness = 0.12
+    const roofThickness = TRUSS_ROOF_SKIN
     const upper = (y: number): number => ridgeZ - (ridgeZ - TRUSS_ROOF_EAVE) * Math.abs(y - crestY) / (width / 2)
+    const lowerZ = TRUSS_ROOF_BASE + TRUSS_ROOF_CHORD / 2
+    // Full-length chords meet the next dragged bay at the shared block edge (§4.1).
+    const longitudinal = (y: number, z: number, thickness: number, name: string): void => {
+      const beam = finishSlab(group, metal, centreX, y, z, length, thickness, thickness)
+      beam.name = name
+    }
 
     // A shallow pitched shell: two continuous sheet runs, with the crest along X.
     // The eaves sit just inside the footprint after the sheets are tilted.
@@ -44,26 +50,33 @@ export class RoofModel extends PieceBuilder {
       const y1 = side < 0 ? crestY : eaveY - 0.02
       const z0 = upper(y0)
       const z1 = upper(y1)
-      const sheet = finishSlab(group, mat, centreX, (y0 + y1) / 2, (z0 + z1) / 2 + roofThickness / 2, length, Math.hypot(y1 - y0, z1 - z0), roofThickness)
-      sheet.rotation.x = Math.atan2(z1 - z0, y1 - y0)
+      const angle = Math.atan2(z1 - z0, y1 - y0)
+      // The tilted skin's highest corner finishes exactly at the four-metre cap.
+      const sheet = finishSlab(group, mat, centreX, (y0 + y1) / 2, (z0 + z1) / 2 + roofThickness - roofThickness * Math.cos(angle) / 2, length, Math.hypot(y1 - y0, z1 - z0), roofThickness)
+      sheet.rotation.x = angle
     }
 
     // All purlins and trusses run parallel to the central crest. None sits on
     // the supporting floor; the structure is wholly above the four-metre posts.
     for (let y = 0; y < width; y += 1) {
-      member(group, metal, [0, y, upper(y) - 0.1], [length - 1, y, upper(y) - 0.1], 0.11)
+      longitudinal(y, upper(y) - 0.1, 0.11, 'roof-purlin')
     }
 
     if (mod.cfg.variant === 'tapered-truss') {
-      // The second form draws each side of the roof down to one longitudinal
-      // bottom chord beneath the crest. Its V-shaped cross braces leave the
-      // sides open instead of making a wide horizontal rail at the bottom.
-      const bottomZ = TRUSS_ROOF_BASE + 0.08
-      member(group, metal, [0, crestY, bottomZ], [length - 1, crestY, bottomZ], 0.16)
+      // A closed triangular web: internal ribs and end ties carry the shell
+      // into the heavy central chord without adding walls or a second bottom rail.
+      longitudinal(crestY, lowerZ, TRUSS_ROOF_CHORD, 'roof-bottom-chord')
+      // Mirror alternate ribs to halve the web density while retaining both outer edges.
+      const ribYs: number[] = []
+      for (let y = 0; y < width / 2; y += 2) ribYs.push(y, width - 1 - y)
       for (let x = 0; x < length; x += 1) {
+        member(group, metal, [x, crestY, lowerZ], [x, crestY, ridgeZ - 0.12], 0.14)
+        for (const y of ribYs) {
+          member(group, metal, [x, crestY, lowerZ], [x, y, upper(y) - 0.12], 0.12)
+          if (x < length - 1) member(group, metal, [x, crestY, lowerZ], [x + 1, y, upper(y) - 0.12], 0.1)
+        }
         for (const y of [0, width - 1]) {
-          member(group, metal, [x, crestY, bottomZ], [x, y, upper(y) - 0.12], 0.11)
-          if (x < length - 1) member(group, metal, [x, crestY, bottomZ], [x + 1, y, upper(y) - 0.12], 0.08)
+          member(group, metal, [x, y, upper(y) - 0.12], [x, crestY, ridgeZ - 0.12], 0.14)
         }
       }
     } else {
@@ -71,9 +84,8 @@ export class RoofModel extends PieceBuilder {
       // now follow the crest, with one run roughly every four metres across.
       const trussYs = new Set<number>([0, width - 1])
       for (let y = 4; y < width - 1; y += 4) trussYs.add(y)
-      const lowerZ = TRUSS_ROOF_BASE + 0.78
       for (const y of trussYs) {
-        member(group, metal, [0, y, lowerZ], [length - 1, y, lowerZ], 0.16)
+        longitudinal(y, lowerZ, TRUSS_ROOF_CHORD, 'roof-bottom-chord')
         for (let x = 0; x < length; x += 1) {
           member(group, metal, [x, y, lowerZ], [x, y, upper(y) - 0.12], 0.1)
           if (x < length - 1) member(group, metal, [x, y, lowerZ], [x + 1, y, upper(y) - 0.12], 0.09)

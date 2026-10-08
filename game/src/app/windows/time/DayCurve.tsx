@@ -22,7 +22,7 @@ import { demandSeries, hourOfDay, type DemandInput } from '../../../sim/demand.t
 /** The drawn box, in viewBox units. */
 const W = 480
 const H = 112
-const PAD = { left: 26, right: 6, top: 14, bottom: 15 }
+const PAD = { left: 26, right: 38, top: 14, bottom: 15 }
 const PLOT_W = W - PAD.left - PAD.right
 const PLOT_H = H - PAD.top - PAD.bottom
 /** One sample every 15 simulated minutes: 97 points, the last closing onto the first. */
@@ -68,6 +68,7 @@ export function DayCurve({
   input,
   dayType,
   simTime,
+  baseRate,
   onDrag,
   onDragEnd,
   onNudge,
@@ -75,6 +76,9 @@ export function DayCurve({
   input: DemandInput
   dayType: DayType
   simTime: number
+  /** Station-wide street inflow at curve = 1 (Σ open exits' inRate, 人/时): the right
+      axis is `curve × baseRate`, the same product `World.spawnStreet` draws from. */
+  baseRate: number
   /** A grip moved: the boundary and where it now stands, in hours. */
   onDrag: (boundary: CurveBoundary, hours: number) => void
   /** The gesture finished — commit what the draft holds. */
@@ -102,6 +106,12 @@ export function DayCurve({
 
   const hour = hourOfDay(simTime)
   const at = Math.min(drawn.values.length - 1, Math.round((hour / 24) * (drawn.values.length - 1)))
+  // Right axis: the same curve in people — Σ open exits' inRate (人/时 at curve = 1)
+  // times the curve value, the product `World.spawnStreet` draws arrivals from.
+  const countAt = (v: number): string => Math.round(v * baseRate).toLocaleString('en-US')
+  const nowCount = countAt(drawn.values[at])
+  // The 100% baseline's own count, drawn only when it sits clear of both ends.
+  const showBase = drawn.y(1) - drawn.y(drawn.top) > 10 && PAD.top + PLOT_H - drawn.y(1) > 10
   const band = (from: number, to: number): { x: number; width: number } => {
     const a = x(from / 3600)
     return { x: a, width: Math.max(0, x(to / 3600) - a) }
@@ -159,7 +169,7 @@ export function DayCurve({
       // **Not `role="img"`**: the six grips are sliders inside this drawing, and an image role
       // hides its own children from a screen reader. A labelled group keeps them reachable.
       role="group"
-      aria-label={`24 小时客流曲线（${DAY_TYPE_LABELS[dayType]}），当前 ${Math.round(drawn.values[at] * 100)}%`}
+      aria-label={`24 小时客流曲线（${DAY_TYPE_LABELS[dayType]}），当前 ${Math.round(drawn.values[at] * 100)}% · 约 ${nowCount} 人/时`}
       onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={end}
@@ -185,6 +195,21 @@ export function DayCurve({
         {Math.round(drawn.top * 100)}%
       </text>
       <text className="curveTick" x={PAD.left - 4} y={PAD.top + PLOT_H} textAnchor="end">
+        0
+      </text>
+      {/* Right axis: the left percentages in people — curve × Σ open exits' inRate. */}
+      <text className="curveTick" x={PAD.left + PLOT_W + 4} y={PAD.top - 4} textAnchor="start">
+        人/时
+      </text>
+      <text className="curveTick" x={PAD.left + PLOT_W + 4} y={drawn.y(drawn.top) + 8} textAnchor="start">
+        {countAt(drawn.top)}
+      </text>
+      {showBase && (
+        <text className="curveTick" x={PAD.left + PLOT_W + 4} y={drawn.y(1) + 3} textAnchor="start">
+          {countAt(1)}
+        </text>
+      )}
+      <text className="curveTick" x={PAD.left + PLOT_W + 4} y={PAD.top + PLOT_H} textAnchor="start">
         0
       </text>
       {/* The spans' own times are **not** printed in here: the panel lists all three under the

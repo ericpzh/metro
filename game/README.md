@@ -1095,9 +1095,12 @@ lays its half-landing
 as a walkable cell, so the two
 flights connect — and that cell is the **stair's**, not the station's: the mesher skips it while the
 model draws the platform there, so bulldozing the stair takes it back out again (`removeModule`). A
-stair deleted on its own would otherwise leave a stray block in the middle of the station, which is
-exactly the shape a piece is torn down and rebuilt in — 移动 refuses a stair for that reason
-(`isMovableModule`), so a stair leaves and returns through delete and place. A straight stair lays no
+stair deleted on its own would otherwise leave a stray block in the middle of the station. That own
+cell is also why **移动 tears a 楼梯 (or a 扶梯) down and builds it again** rather than translating it
+(`moveRebuilds` → `moveEquipment`): the piece leaves through `removeModule`, which takes its landing
+floor back out (or leaves it under a piece that still stands on it), and returns through
+`addEquipment`, which lays the new landing and carves the opening it climbs through at the cell it was
+dropped on. A straight stair lays no
 such cell, and a block the player put there by hand is not the stair's to take away. The Wusi Square
 test rig keeps a single pre-placed stair — the straight run
 that replaces exit A's down escalator; `carveRampOpenings`
@@ -1324,10 +1327,14 @@ at 0.5 m/s over a 0.4 m pitch — 75/min, and exactly one rider per step on the 
 module on the hovered floor: a 2 × 2 m assembly with a 1.5 × 1.5 m carriage
 inside its walls (`sim/lifts.ts`, `LIFT_RISE = 4`) that serves the floor one
 storey up and stands on all four of its floor cells. The *model* is taller than
-the ride: it runs on up to the slab above its top landing, so a piece on the
-platform (−8 m) serves −8 m and −4 m and tops out at the concourse ceiling
-(0 m), never poking through the street. The player grows it a storey at a time — hovering
-the shaft's upper half extends it up, the lower half down (`LIFT_EXTEND = 4`).
+the ride: it runs on up to the slab above its top landing, and its lid **meets
+that slab's underside flush** — the lid's top face is the very grid line the
+block above the landing starts on, so the shaft tops out on the block grid with
+no strip of daylight around the cabin, and with no overrun either: a piece on the
+platform (−8 m) serves −8 m and −4 m and its lid is exactly the concourse
+ceiling's plane (0 m), never poking through the street. The player grows it a
+storey at a time — hovering the shaft's upper half extends it up, the lower half
+down (`LIFT_EXTEND = 4`).
 Extending never checks for floor, so a shaft may run past a level with no slab
 (it simply has no landing there); only a fresh piece must stand on floor. One
 shaft is **one car**: `buildGraph` makes the walkable landing tile in front of
@@ -1420,8 +1427,8 @@ lists both as unsweepable: a bank of either sweeps, each strictly within its own
 escalator never takes a lift, and the teardown is the same `removeModule` a single delete uses, so one
 `Ctrl+Z` restores the row. See `test/sweep.test.mjs`, which is where that decision is written down.
 
-**移动 moves a piece instead of rebuilding it.** It is neither a tool nor a second panel: select the
-设备 / 装饰 piece (`Z` 选择) and press the 移动 button in the right inspector's `信息` card, beside what
+**移动 moves a piece — and rebuilds a run.** It is neither a tool nor a second panel: select the
+设备 / 装饰 / 出入口 piece (`Z` 选择) and press the 移动 button in the right inspector's `信息` card, beside what
 the piece is — and that same card becomes the move's whole control surface while the piece is in the air, with
 the tick and the cross exactly where 移动 was, over the cell the drop would use and the rule a refused cell
 broke. The card's acts are **icons, not words**: 移动 wears `IoMdMove`, its lift's 确认 / 取消 are
@@ -1443,11 +1450,21 @@ disagree. There are three ways out: `左键` on the ground (or the tick, or `Ent
 `Esc` / a right press puts it back where it came from. A refused cell keeps it in the air and names the
 rule, exactly as a refused placement does. A ghost wears a private id (`MOVE_GHOST_ID`) because a
 指示牌's printed plate and a 电视's station plate are cached per module id, and a preview may only
-dispose what it minted itself. The structural pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms and 轨道 / 站台门
-— are refused, by the same rule that keeps 删除 from sweeping one: the card's button stays disabled,
-and the reason is a line of text under it (`整件结构不能移动：用删除 (B) 拆掉再放`), because a control the
-player cannot use is no place to hide why. A translation would leave behind the openings they carved and
-the geometry derived from them, so they are torn down and built again. Switching tools mid-lift puts the
+dispose what it minted itself. A **楼梯** and a **扶梯** move too, and a move of one is a **tear-down and a
+rebuild** rather than a translation (`moveRebuilds` → `moveEquipment`): a run carries its own `from`/`to`
+(and every flight a stair turns through) as world cells, a turning stair's half-landing floor is floor the
+document holds for it, and both kinds carve the opening they climb through — so the piece leaves through
+`removeModule` and returns through `addEquipment`, which is exactly the 删除 + 放 a player would drive by
+hand, and it stays **one** commit. `movedModule` re-lays the run at the same time: the landings and flights
+turn about the piece's own anchor in the piece's own quarter-turn convention (`stairFacing` for a 楼梯 /
+扶梯, `rotateLocal` for a 楼梯块), so a piece that was never on the block grid keeps the run it has instead
+of being rebuilt from the current sizes. What the run carved where it stood stays open, exactly as it does
+when a run is deleted — the 方块 tool may fill it, since it is no longer a reserved opening. The remaining
+structural pieces — a 电梯 (its shaft is grown a storey at a time, and `LIFT_EXTEND` never asks for floor,
+so no single verdict can say where a moved one lands), rooms and 轨道 / 站台门 — are refused, by the same
+rule that keeps 删除 from sweeping one: the card's button stays disabled, and the reason is a line of text
+under it (`整件结构不能移动：用删除 (B) 拆掉再放`), because a control the
+player cannot use is no place to hide why. Switching tools mid-lift puts the
 piece back, because a lift is not a mode to be lost in. See `test/move.test.mjs`.
 
 **No ramps stacked.** A ramp also has a collision envelope (`rampEnvelope` / `rampBlocked`): the tile
@@ -2440,14 +2457,17 @@ approximated); neither needs WebGL.
   (a fast flick that jumps a cell still collects what it crossed, a teleport is capped but never
   skipped), so a drag along a gate row collects exactly the gates and never twice; and the whole run
   folds into one state, leaving other modules and the floor under them untouched.
-* `move.test.mjs` — 移动 (§9.5, `sim/placement.ts` + `app/store.ts`), the `信息` card's action on the
+* `move.test.mjs` — 移动 (§9.5, `sim/placement.ts` + `build/model/Equipment.ts` + `app/store.ts`), the
+  `信息` card's action on the
   selected piece rather than a tool: it lifts whatever tool is active and leaves that tool alone; the
-  flat 设备 / 装饰 pieces are movable and a 楼梯 / 扶梯 / 电梯 / 出入口 / 房间 / 轨道 / 站台门 is refused; a
+  flat 设备 / 装饰 pieces, an 出入口 and the two runs (a 楼梯 and a 扶梯) are movable while a 电梯 / 房间 /
+  轨道 / 站台门 is refused; a
   moved piece is the same piece (id, `cfg`, poster and boards all travel) and never collides with the
   copy still standing at its origin; a drop needs floor under every cell it stands on (a 2 m 座椅 needs
-  both), refuses a track bed and an occupied cell, turns a 广告牌 to the wall that backs it (and lets it
+  both, and a 扶梯 needs the slab its upper landing arrives on), refuses a track bed and an occupied cell,
+  turns a 广告牌 to the wall that backs it (and lets it
   hang over the track where there is no floor in front of that wall), and requires a ceiling over a
-  指示牌 — which is the only thing it is asked for, since a hung piece is exempt from the ground; `replaceEquipment` swaps the piece in place keeping the list order; and in the store a lift is
+  指示牌 — which is the only thing it is asked for, since a hung piece is exempt from the ground; `replaceEquipment` swaps the piece in place keeping the list order; a **run** is re-laid instead: a moved 扶梯's `from`/`to` travel with it (and a turn swings the upper landing about the base, never the travel direction), a moved 楼梯 is the stair the factory would build at that cell and rotation for every shape and size (its flights, its width), a piece that was never on the block grid keeps the run it has, a turning stair's half-landing floor goes with it and the new one is laid, a moved 扶梯 carves its new opening while the one it left stays open as it does on a delete, and the whole move stays one commit that `Ctrl+Z` undoes (landing floor and all); and in the store a lift is
   not an edit (the piece stays in the document, nothing on the undo stack), `取消` puts it back with no
   commit, `确认` is one commit that `Ctrl+Z` undoes, a refused drop keeps the piece in the air and says
   why, a drop that changes nothing is not an edit while `R` + `确认` on the same cell is, and what lands
@@ -2894,13 +2914,15 @@ If the site's tab should point somewhere else — a preview URL, a different dom
 `VITE_GAME_URL` when building `web/`.
 
 
-Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, the 1×1 m thin roof and two raised truss styles in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with preview/release agreement and graph registration), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Roof bays place by click or rectangular drag and are painted through 材质.
+Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and two raised truss styles in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with preview/release agreement and graph registration), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Thin roof tiles place by click or rectangular drag, truss bays by click or a straight-line drag along their own crest axis, and both are painted through 材质.
 
-`roof-tool.test.mjs` verifies rectangular thin-roof previews, full truss-bay placement and removal including rotated 8 m bays, collision refusal, right-drag removal, and one undo step per drag. Each truss style has one tile; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover.
+`roof-tool.test.mjs` verifies rectangular thin-roof previews, truss-bay placement and removal as a straight run along the crest axis (a sideways wander never staggers it, backwards and right-drag removal included) including rotated 8 m bays, collision refusal, and one undo step per drag. Each truss style has one tile; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover.
 
 Small stair blocks: 楼梯块 under 楼梯 has a 1×1 m footprint and no railings. Tab switches 高 (1 m, four treads) / 矮 (0.5 m, two treads), with a live placement preview; the palette preview is turned 90° counter-clockwise. Click or rectangular drag places independent tiles on floor, R rotates them, and 材质 paints the whole stepped surface. The high block connects adjacent lower/upper floors without carving blocks; the short building piece does not create a full-metre walking connection on the whole-metre floor grid. `overground.test.mjs` pins dimensions, painting, collisions, floor preservation, save/load and both walking directions; `roof-tool.test.mjs` pins drag, rotation, undo and removal.
 
-Truss roof finishes: both roof styles use neutral white vertex colours and metre-scaled UVs on cladding and beams, so 材质 painting renders the selected finish on the roof sheets instead of black. Beams and braces keep the shared steel material. `overground.test.mjs` checks every mesh across all three widths.
+Bridges use a solid one-metre concrete deck beneath the track bed, with no coplanar edge girders. They generate one thick centre pier per complete eight-metre bay (four-metre bridges have no generated pier), standing on the highest available floor below the deck; existing supporting pillars are reused and bridge-owned piers are removed with their bridge. Older saves gain missing supports on load. B can remove each generated pier independently; the bridge records that deletion so edits and reloads do not regenerate it, while undo restores it. New bridges must keep their entire deck at or above the street surface. 材质 paints the concrete deck independently of the rails, sleepers, power equipment and edge barriers. The 轨道桥 panel uses one tile to cycle 栏杆 → 半高声屏障 → 全高声屏障 for new and selected bridges; sound barriers rise 1.5 / 3 m above the bed, with opaque lower panels and a clear upper band. `overground.test.mjs` checks deck geometry, support spacing and ownership, collision refusal, independent deck paint, barrier bounds and save/load; `pick-tool.test.mjs` checks copying and cancelling the bridge settings.
+
+Truss roof finishes: both roof styles use neutral white vertex colours and metre-scaled UVs on cladding and beams, so 材质 painting renders the selected finish on the roof sheets instead of black. Beams and braces keep the shared steel material. Both assemblies are exactly 4 m tall including the roof skin, above the 4 m support posts. Their 40 cm bottom chords and upper purlins span the full bay so dragged neighbours join at the shared edge. 收束 uses mirrored alternate internal ribs and longitudinal diagonals at half the original density, retaining both outer edges, centre supports and end ties around its single heavy central chord. `overground.test.mjs` checks mesh finishes, exact height, support contact and connections across all three widths and four rotations.
 
 `structures-gaps.test.mjs` pins the repair-shaped edges the feature suites use but never assert: `normalizeLevelBase` clamping/rounding, the roof width cycle/clamp/labels and ridge formula, the three ways a pillar refuses a bridge, and the roof-paint no-ops.
 

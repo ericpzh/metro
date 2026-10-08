@@ -27,6 +27,7 @@ import {
   glassCells,
   lineMapCells,
   moduleFootprint,
+  moveRebuilds,
 } from '../../sim/placement.ts';
 import { trackCells, trackOriginForCentre, edgeCells } from '../../sim/track.ts';
 import { TRUSS_ROOF_BAY, supportedRoofWidth } from '../../sim/structures.ts';
@@ -592,7 +593,12 @@ function cellsInUse(modules: readonly Module[]): Set<string> {
  */
 export function removeModule(state: StationState, id: string): StationState {
   const gone = state.modules.find((m) => m.id === id);
-  const modules = state.modules.filter((m) => m.id !== id);
+  const modules = state.modules.filter((m) => m.id !== id && !(m.type === 'pillar' && m.cfg.bridgeId === id)).map((m): Module => {
+    if (gone?.type !== 'pillar' || gone.cfg.bridgeId !== m.id || m.type !== 'track') return m;
+    // Deleting a generated pier is a persistent choice, carried by its bridge.
+    // Otherwise the next edit or load would silently regenerate the same pier.
+    return { ...m, cfg: { ...m.cfg, removedBridgePillars: [...new Set([...(m.cfg.removedBridgePillars ?? []), gone.id])] } };
+  });
   if (modules.length === state.modules.length) return state;
   if (!gone) return { ...state, modules };
   const keep = cellsInUse(modules);
@@ -613,14 +619,37 @@ export function removeModule(state: StationState, id: string): StationState {
  * air 移动 only stops *drawing* it — so a move is one replacement, and a
  * single `Ctrl+Z` puts the piece back where it came from.
  *
- * A 楼梯 is not moved this way (`isMovableModule`: its derived turn-landing floor would
- * be stranded by a translation), so a stair leaves and returns through `removeModule`
- * and `addEquipment`, which take its landing floor out and lay it again. An exit's
+ * A **run** is not moved this way (`moveRebuilds`): a 楼梯 / 扶梯 owns document cells of
+ * its own — a turning stair's half-landing floor, laid by `addEquipment` and taken back
+ * out by `removeModule` — so it goes through `moveEquipment` instead. An exit's
  * floor pad is derived from the module's live footprint, so replacing it moves the pad.
  */
 export function replaceEquipment(state: StationState, moved: Module): StationState {
   if (!state.modules.some((m) => m.id === moved.id)) return state;
   return { ...state, modules: state.modules.map((m) => (m.id === moved.id ? moved : m)) };
+}
+
+/**
+ * Apply one confirmed 移动 to the document. A flat piece is a plain replacement
+ * (`replaceEquipment`); a **run** — a 楼梯 or a 扶梯 — is **torn down and built again**,
+ * because it owns cells the document holds rather than only the place it stands:
+ *
+ *  * a turning stair lays its half-landing floor as its own walkable node, and
+ *    `removeModule` is what takes that block back out (or leaves it under a piece that
+ *    still stands on it);
+ *  * a stair or escalator carves the slab it climbs through, so the piece has to be in
+ *    `modules` *before* the carve runs at its new cell, and out of it while it is not.
+ *
+ * So the pair a player would drive by hand — 删除 then 放 — is exactly what a move of a run
+ * is, and it stays one commit: one `Ctrl+Z` restores the landing floor, the carve and the
+ * piece in one step. What the run carved where it stood stays open, as it does on a delete;
+ * a 方块 may be laid in it again once the run is no longer reserving it.
+ *
+ * A piece that had already left the document (an undo under a lift) is left alone.
+ */
+export function moveEquipment(state: StationState, moved: Module): StationState {
+  if (!state.modules.some((m) => m.id === moved.id)) return state;
+  return moveRebuilds(moved) ? addEquipment(removeModule(state, moved.id), moved) : replaceEquipment(state, moved);
 }
 
 /** A free `${type}-n` id, so bulldozing then placing again never reuses one. */

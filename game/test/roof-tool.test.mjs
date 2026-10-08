@@ -8,7 +8,7 @@ import { emptyStation } from '../src/data/reference-station.ts'
 
 function harness(cells = [], moduleType = 'roof') {
   const state = { ...toState(emptyStation()), cells }
-  useStore.setState({ station: state, past: [], future: [], moduleType, moduleRot: 0, roofWidth: 4, stairBlockHeight: 1, tool: 'module' })
+  useStore.setState({ station: state, past: [], future: [], moduleType, moduleRot: 0, roofWidth: 4, stairBlockHeight: 1, activeZ: 0, tool: 'module' })
   let ghost = []
   const drag = { current: null }
   const scene = { setModulePreview: (mods) => { ghost = mods ?? [] }, setGhost() {}, setCollisionHighlight() {}, setCursor() {} }
@@ -111,19 +111,33 @@ test('truss roof drag lays full bays and a click inside a bay removes the whole 
   assert.deepEqual(useStore.getState().station.modules.map((m) => m.x), [4])
 })
 
-test('the medium truss tiles by its rotated 8×4 m footprint', () => {
+test('the medium truss runs a straight line along its rotated crest axis', () => {
   const h = harness([], 'roof-truss')
   useStore.setState({ moduleRot: 1, roofWidth: 8 })
   h.tool.onDown(h.event(0, 0))
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
   h.tool.onMove(h.event(8, 4))
-  assert.deepEqual(h.ghost().map((m) => [m.x, m.y]), [[0, 0], [0, 4], [8, 0], [8, 4]])
+  assert.deepEqual(h.ghost().map((m) => [m.x, m.y]), [[0, 0], [0, 4]], 'the sideways wander off the crest never staggers the run')
   h.tool.onUp(h.event(8, 4))
-  assert.equal(useStore.getState().station.modules.length, 4)
+  assert.equal(useStore.getState().station.modules.length, 2)
   assert.ok(useStore.getState().station.modules.every((m) => m.w === 4 && m.d === 8 && m.rot === 1))
   h.tool.onDown(h.event(-3, 2, 2))
   h.tool.onUp(h.event(-3, 2, 2))
-  assert.equal(useStore.getState().station.modules.length, 3, 'a click anywhere in the rotated footprint removes that bay')
+  assert.equal(useStore.getState().station.modules.length, 1, 'a click anywhere in the rotated footprint removes that bay')
+})
+
+test('a truss drag ignores the lateral extent and runs backwards too', () => {
+  const h = harness([], 'roof-tapered')
+  h.tool.onDown(h.event(0, 0))
+  h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+  h.tool.onMove(h.event(8, 3))
+  assert.deepEqual(h.ghost().map((m) => m.x), [0, 4, 8])
+  h.tool.onUp(h.event(8, 3))
+  assert.deepEqual(useStore.getState().station.modules.map((m) => m.x), [0, 4, 8])
+  h.tool.onDown(h.event(8, 0, 2))
+  h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+  h.tool.onUp(h.event(0, 0, 2))
+  assert.equal(useStore.getState().station.modules.length, 0, 'a right-drag sweeps the same crest line back out')
 })
 
 test('Tab width setting cycles the one truss tile through 窄, 中 and 宽 in the hover', () => {

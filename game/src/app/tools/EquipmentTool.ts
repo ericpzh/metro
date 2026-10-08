@@ -14,6 +14,7 @@ import {
   removeModule,
 } from '../../build/model.ts'
 import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
+import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { ESCALATOR_BAND } from '../../sim/constants.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
@@ -55,7 +56,7 @@ export class EquipmentTool extends ToolController {
       const src = railModuleAt(st.station, ...hit.cell) ?? railModuleAt(st.station, ...hit.place)
       if (!src) { st.setNotice('先点一段现有轨道，轨道桥从端部接出'); return }
       if (info.button === 2) { st.removeRail(src.id); return }
-      const bridge = makeBridge(src, freeTunnelEnd(st.station, src, hit.cell), st.bridgeLength, nextModuleId(st.station.modules, 'track'))
+      const bridge = makeBridge(src, freeTunnelEnd(st.station, src, hit.cell), st.bridgeLength, nextModuleId(st.station.modules, 'track'), st.bridgeRailing)
       const next = commitTrack(st.station, bridge)
       if (next === st.station) { st.setNotice('轨道桥放不下：检查高度和沿线障碍'); return }
       st.commit(next)
@@ -538,9 +539,9 @@ export class EquipmentTool extends ToolController {
     if (st.moduleType === 'bridge') {
       const src = railModuleAt(st.station, ...h.cell) ?? railModuleAt(st.station, ...h.place)
       if (!src) { scene.setModulePreview(null); scene.setCursor(null); scene.setCollisionHighlight(null); return }
-      const bridge = makeBridge(src, freeTunnelEnd(st.station, src, h.cell), st.bridgeLength, 'preview')
+      const bridge = makeBridge(src, freeTunnelEnd(st.station, src, h.cell), st.bridgeLength, 'preview', st.bridgeRailing)
       const blocked = trackBlockReason(st.station, bridge) !== null
-      scene.setModulePreview(bridge, blocked)
+      scene.setModulePreview([bridge, ...bridgePillarCandidates(st.station.cells, st.station.modules, bridge)], blocked)
       scene.setCollisionHighlight(blocked ? trackColliders(st.station, bridge).map((m) => m.id) : null)
       scene.setCursor(null)
       return

@@ -10,7 +10,7 @@
 // viewport's own Escape already ends for a drag and for 移动.
 
 import type { StateCreator } from 'zustand'
-import type { GateDoor, FinishId } from '../../../sim/types.ts'
+import type { BridgeRailing, GateDoor, FinishId } from '../../../sim/types.ts'
 import type { SignBoards } from '../../../sim/sign.ts'
 import type { ZoneBrush } from '../catalog.ts'
 import type { PaintMode } from './PaintSlice.ts'
@@ -33,6 +33,8 @@ export interface PickDraft {
   moduleType: string
   moduleRot: number
   roofWidth: number
+  bridgeLength: number
+  bridgeRailing: BridgeRailing
   escalatorDir: 'up' | 'down'
   gateDoor: GateDoor
   zoneBrush: ZoneBrush
@@ -70,6 +72,8 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         moduleType: s.moduleType,
         moduleRot: s.moduleRot,
         roofWidth: s.roofWidth,
+        bridgeLength: s.bridgeLength,
+        bridgeRailing: s.bridgeRailing,
         escalatorDir: s.escalatorDir,
         gateDoor: s.gateDoor,
         zoneBrush: s.zoneBrush,
@@ -88,6 +92,8 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       moduleType: d.moduleType,
       moduleRot: d.moduleRot,
       roofWidth: d.roofWidth,
+      bridgeLength: d.bridgeLength,
+      bridgeRailing: d.bridgeRailing,
       escalatorDir: d.escalatorDir,
       gateDoor: d.gateDoor,
       zoneBrush: d.zoneBrush,

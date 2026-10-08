@@ -5,7 +5,7 @@
 import type { StateCreator } from 'zustand'
 import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
-import type { GateDoor, TriangleKind } from '../../../sim/types.ts'
+import type { BridgeRailing, GateDoor, TriangleKind } from '../../../sim/types.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
 import { nextRoofWidth, supportedRoofWidth } from '../../../sim/structures.ts'
@@ -84,7 +84,8 @@ export interface ToolSlice {
    * the piece. Carried into `cfg.door` on the piece placed.
    */
   bridgeLength: number
-  setStructureOptions: (patch: Partial<Pick<ToolSlice, 'bridgeLength'>>) => void
+  bridgeRailing: BridgeRailing
+  setStructureOptions: (patch: Partial<Pick<ToolSlice, 'bridgeLength' | 'bridgeRailing'>>) => void
   cycleBridgeLength: () => void
   gateDoor: GateDoor
   /** Active fare-zone brush, or a facility room (§5.7) built by rectangle. */
@@ -178,7 +179,11 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   roofWidth: 4,
   escalatorDir: 'up',
   bridgeLength: 32,
-  setStructureOptions: (patch) => set(patch.bridgeLength === undefined ? {} : { bridgeLength: supportedTrackRunLength(patch.bridgeLength) }),
+  bridgeRailing: 'railing',
+  setStructureOptions: (patch) => set({
+    ...(patch.bridgeLength === undefined ? {} : { bridgeLength: supportedTrackRunLength(patch.bridgeLength) }),
+    ...(patch.bridgeRailing === undefined ? {} : { bridgeRailing: patch.bridgeRailing }),
+  }),
   cycleBridgeLength: () => set((s) => ({ bridgeLength: nextTrackRunLength(s.bridgeLength) })),
   gateDoor: 'lane',
   zoneBrush: DEFAULT_ZONE_BRUSH,
@@ -194,7 +199,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // A fixed-angle piece simply ignores the turn, so the guard lives here as well
   // as on the rail button.
   rotateModule: () =>
-    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleRot + 3) % 4 } : {})),
+    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType === 'pillar-slim' ? (s.moduleRot + 1) % 9 : (s.moduleRot + 3) % 4) } : {})),
   rotateWallSnap: () => set((s) => ({ wallSnapCycle: s.wallSnapCycle + 1 })),
   setHalfWall: (on) => set({ halfWall: on, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
   toggleHalfWall: () => get().setHalfWall(!get().halfWall),
@@ -222,7 +227,10 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleGateDoor: () => set((s) => ({ gateDoor: nextGateDoor(s.gateDoor) })),
   setZoneBrush: (z) => set({ zoneBrush: z }),
   setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
-  setModuleRot: (rot) => set({ moduleRot: ((rot % 4) + 4) % 4 }),
+  setModuleRot: (rot) => set((s) => {
+    const count = s.moduleType === 'pillar-slim' ? 9 : 4
+    return { moduleRot: ((rot % count) + count) % count }
+  }),
   setEscalatorDir: (dir) => set({ escalatorDir: dir }),
   setGateDoor: (door) => set({ gateDoor: door }),
 })

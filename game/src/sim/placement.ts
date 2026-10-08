@@ -15,7 +15,7 @@
 //
 // Pure data — no three, no DOM.
 
-import { pillarSupportsBridge, pillarWidth, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop } from './structures.ts'
+import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
 import { EXIT_L, exitFloorBounds, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { glassSpec, glassWallCourses } from './glassPanels.ts'
@@ -27,7 +27,7 @@ import { billboardSpec } from './billboards.ts'
 import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
 import { PANEL_MIN_H, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
-import { edgeCells, rotateLocal, trackCellAt, trackCells } from './track.ts'
+import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
 import { halfWallSide, isWallBlock, type Cell, type Module, type Vec3i, type WallSide } from './types.ts'
 
@@ -283,7 +283,9 @@ function flatEnvelope(m: Module): ModuleBox | null {
     }
     case 'pillar': {
       const half = pillarWidth(m) / 2
-      return { x0: m.x + 0.5 - half, y0: m.y + 0.5 - half, x1: m.x + 0.5 + half, y1: m.y + 0.5 + half, z0, z1: z0 + m.cfg.height }
+      const offset = pillarOffset(m)
+      const height = m.cfg.height - (m.cfg.bridgeId ? BRIDGE_DECK_DEPTH + 1 : 0)
+      return { x0: m.x + 0.5 + offset.x - half, y0: m.y + 0.5 + offset.y - half, x1: m.x + 0.5 + offset.x + half, y1: m.y + 0.5 + offset.y + half, z0, z1: z0 + height }
     }
     case 'roof':
       return cellsAabb(trackCells(m), z0 + TRUSS_ROOF_BASE, z0 + (m.cfg.variant ? trussRoofTop(m.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS))
@@ -318,7 +320,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // A dug track bed: the module owns the whole trench volume (bed slab +
       // rails) from the block top to the platform surface, so no equipment can
       // be dropped into it.
-      return cellsAabb(trackCells(m), m.z, m.z + 1)
+      return cellsAabb(trackCells(m), m.z - (m.cfg.bridge ? BRIDGE_DECK_DEPTH : 0), m.z + (m.cfg.bridge ? bridgeBarrierTop(m.cfg.bridgeRailing) : 1))
     default:
       return null
   }
@@ -969,6 +971,10 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   if (!c) return out
   for (const m of modules) {
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
+    // The thin support is intentionally allowed to pass through a trussed roof.
+    // Its narrow shaft can share the roof volume without changing either piece.
+    if ((m.type === 'pillar' && m.cfg.size === 'slim' && candidate.type === 'roof' && candidate.cfg.variant)
+      || (candidate.type === 'pillar' && candidate.cfg.size === 'slim' && m.type === 'roof' && m.cfg.variant)) continue
     if (pillarSupportsBridge(m, candidate) || pillarSupportsBridge(candidate, m)) continue
     if (isExitRampPair(m, candidate)) continue
     if (isFurnitureRoomPair(m, candidate)) continue
@@ -1142,14 +1148,23 @@ export function moduleAt(
 
 /**
  * The equipment and decoration pieces the 移动 tool may lift, plus the 出入口
- * head-house. Exits have a live footprint derived from their position, so moving
- * one carries its floor pad with it without leaving carved cells behind.
+ * head-house and the two **runs** — a 楼梯 and a 扶梯.
  *
- * Other structural pieces are refused, by the same rule that keeps the delete tool from
- * sweeping one (§9.5): a 楼梯 / 扶梯 / 电梯 is a run whose **openings are carved**
- * when it is placed, a room owns the walls around it, and a 轨道 / 站台门 is sized and derived from its line.
- * A translation would leave every hole it cut behind and strand the geometry
- * derived from it, so those are torn down and built again instead.
+ * An exit has a live footprint derived from its position, so moving one carries its
+ * floor pad with it without leaving carved cells behind. A run is the piece whose own
+ * **cells** are the document's: a turning stair lays its half-landing floor when it is
+ * placed and takes it back out when it goes (`addEquipment` / `removeModule`), and both
+ * kinds carve the opening they climb through. A 移动 of one is therefore a **teardown and
+ * a rebuild** (`moveRebuilds`, driven by `moveEquipment` in `build/model/Equipment.ts`) —
+ * the very pair of calls a player would make by hand — and its `from`/`to` are world cells
+ * of their own, so `movedModule` re-lays those too. Without both, a run would arrive
+ * drawn, carved and walked at the cell it came from.
+ *
+ * The other structural pieces are refused, by the same rule that keeps the delete tool
+ * from sweeping one (§9.5): a room owns the walls around it, a 轨道 / 站台门 is sized and
+ * derived from its line, and a 电梯's landings are grown a storey at a time (`LIFT_EXTEND`
+ * never asks for floor), so no single verdict can say where a moved shaft lands. Those
+ * are torn down and built again by hand.
  */
 const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'gate',
@@ -1173,6 +1188,11 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'tv',
   'sign',
   'exit',
+  // The two runs: a 楼梯 (the 1 × 1 楼梯块 included) and a 扶梯. Both are re-laid through
+  // their own tear-down — a turning stair's half-landing floor is the stair's own cell,
+  // and both carve the slab they climb through.
+  'stair',
+  'escalator',
 ])
 
 /** True when 移动 may lift this placed piece (the tile and 信息 card ask). */
@@ -1181,11 +1201,73 @@ export function isMovableModule(m: Module): boolean {
 }
 
 /**
+ * True when a 移动 of this piece is a **teardown and a rebuild** rather than a
+ * translation: a 楼梯 (bar the 1 × 1 楼梯块, which owns no cell of the document's and
+ * carves nothing) or a 扶梯.
+ *
+ * Both are re-laid where they land rather than translated, and for two reasons: a turning
+ * stair owns floor the document holds for it — its half-landing, laid by `addEquipment` and
+ * taken back out by `removeModule` — and either kind opens the slab it climbs through, so the
+ * piece has to be out of `modules` while it is in the air and in them again before the carve
+ * runs at its new cell. That is exactly the pair a player would drive by hand
+ * (`moveEquipment`), and it is one commit: one `Ctrl+Z` puts the run back, landing floor and
+ * all. The opening a run **carved** where it stood is left behind, exactly as it is when a run
+ * is deleted; a 方块 may be laid in it again (it is no longer a reserved opening).
+ */
+export function moveRebuilds(m: Module): boolean {
+  return (m.type === 'stair' && m.cfg.block !== true) || m.type === 'escalator'
+}
+
+/**
  * The same piece moved to `at` and turned to `rot`. Nothing else is touched: the
  * id and the whole `cfg` — a 闸机's lane, a 指示牌's printed boards, a 广告牌's
- * poster — travel with it, so what comes up is what goes down.
+ * poster, a 楼梯's size and painted surface — travel with it, so what comes up is what
+ * goes down.
+ *
+ * A **run** is the piece whose own geometry is world cells: a 楼梯's `from`/`to` (and
+ * every flight of a turn) and a 扶梯's two landings are absolute, so they are re-laid
+ * here — turned about the piece's **anchor** (the cell it was dropped on, which is its
+ * lower landing) and shifted with it. Rewriting `x`/`y`/`z` alone would leave the run
+ * drawn, carved and walked at the cell it came from.
+ *
+ * The quarter turn is stepped in the piece's own convention, because the two kinds do not
+ * share one: a 楼梯 and a 扶梯 climb along `stairFacing`, whose next turn is
+ * `(x, y) → (y, −x)`, while a 楼梯块 is laid on `rotateLocal`, whose is
+ * `(x, y) → (−y, x)`. Turning the run it *has* — rather than rebuilding one from its
+ * settings — keeps a piece that was never on the grid (an older, off-grid 双跑楼梯) exactly
+ * as wide and as slid as it was placed.
  */
 export function movedModule(m: Module, at: Vec3i, rot: number): Module {
+  if (m.type === 'stair' || m.type === 'escalator') {
+    const steps = (((normRot(rot) - normRot(m.rot)) % 4) + 4) % 4
+    const blocky = m.type === 'stair' ? m.cfg.block === true : false
+    const shift = (p: Vec3i): Vec3i => {
+      let dx = p.x - m.x
+      let dy = p.y - m.y
+      for (let i = 0; i < steps; i++) {
+        const nx = blocky ? -dy : dy
+        const ny = blocky ? dx : -dx
+        dx = nx
+        dy = ny
+      }
+      return { x: at.x + dx, y: at.y + dy, z: at.z + (p.z - m.z) }
+    }
+    if (m.type === 'escalator') {
+      return { ...m, x: at.x, y: at.y, z: at.z, rot, from: shift(m.from), to: shift(m.to) }
+    }
+    return {
+      ...m,
+      x: at.x,
+      y: at.y,
+      z: at.z,
+      rot,
+      from: shift(m.from),
+      to: shift(m.to),
+      cfg: m.cfg.flights
+        ? { ...m.cfg, flights: m.cfg.flights.map((f) => ({ from: shift(f.from), to: shift(f.to) })) }
+        : m.cfg,
+    }
+  }
   return { ...m, x: at.x, y: at.y, z: at.z, rot }
 }
 
@@ -1206,6 +1288,7 @@ export type EquipmentRefusal =
   | ''
   | 'exit-on-slab'
   | 'exit-below-ground'
+  | 'bridge-below-ground'
   | 'floor'
   | 'track'
   | 'occupied'
@@ -1233,6 +1316,7 @@ export type EquipmentRefusal =
  * those produce the piece, not the verdict.
  */
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
+  if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
   if ((candidate.type === 'pillar' || candidate.type === 'roof') && candidate.z < 0) return 'exit-on-slab'
   if (candidate.type === 'roof') {
@@ -1289,6 +1373,8 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal): string {
       return '出入口只能放在地面'
     case 'exit-below-ground':
       return '地面出入口只能放在 0 米及以上'
+    case 'bridge-below-ground':
+      return '轨道桥的桥底必须在地面上方'
     case 'floor':
       return '这儿没有地板，设备要站在实心地板上'
     case 'track':

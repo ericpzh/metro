@@ -1,22 +1,25 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { createModule, toState, paintRoofSurface, paintStairSurface, addEquipment } from '../src/build/model.ts'
+import { createModule, toState, paintRoofSurface, paintStairSurface, addEquipment, syncBridgePillars, removeModule, paintBridgeSurface } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { extendedPillar } from '../src/sim/structures.ts'
 import { equipmentReason, moduleEnvelope, moduleFootprint, blockReason } from '../src/sim/placement.ts'
 import { checkModulePlacements } from '../src/build/validation.ts'
 import { exitDoorCell, exitFloorAt, exitWallPlanes, exitRunSnap, exitDoorwayOffset } from '../src/sim/exits.ts'
 import { buildGraph } from '../src/sim/station.ts'
-import { commitTrack, makeTrack, makeBridge, derivePlatformEdges } from '../src/build/rail.ts'
+import { commitTrack, makeTrack, makeBridge, derivePlatformEdges, trackBlockReason } from '../src/build/rail.ts'
 import { rotateLocal } from '../src/sim/track.ts'
 import { serialize, parse } from '../src/persistence/save.ts'
 import { finishesInUse } from '../src/render/materials.ts'
 import { PaintTool } from '../src/app/tools/PaintTool.ts'
+import { DeleteTool } from '../src/app/tools/DeleteTool.ts'
 import { useStore, folderTiles } from '../src/app/store.ts'
 import { PillarModel } from '../src/render/models/pieces/PillarModel.ts'
 import { RoofModel } from '../src/render/models/pieces/RoofModel.ts'
 import { StairModel } from '../src/render/models/pieces/StairModel.ts'
+import { TrackModel } from '../src/render/models/pieces/TrackModel.ts'
+import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import { moduleLevels } from '../src/render/scene/systems/SceneSystem.ts'
 
 const pillar = (size = 'slim') => createModule(`pillar-${size}`, 0, 0, 0, 'pillar')
@@ -83,6 +86,24 @@ test('pillars draw four-metre segments, extend by four and stop walkers on their
   }
 })
 
+test('the slim pillar R cycle selects nine in-cell positions used by both drawing and collision', () => {
+  const offsets = [[0, 0], [0.35, 0], [0, 0.35], [-0.35, 0], [0, -0.35], [0.35, 0.35], [-0.35, 0.35], [-0.35, -0.35], [0.35, -0.35]]
+  useStore.setState({ moduleType: 'pillar-slim', moduleRot: 0 })
+  for (let position = 0; position < 9; position++) {
+    const mod = { ...pillar('slim'), rot: position }
+    const box = moduleEnvelope(mod)
+    const model = new PillarModel(ctx).build(mod)
+    const bounds = new THREE.Box3().setFromObject(model)
+    const centre = bounds.getCenter(new THREE.Vector3())
+    assert.ok(Math.abs(offsets[position][0] - (centre.x - mod.x - 0.5)) < 1e-6 && Math.abs(offsets[position][1] - (centre.y - mod.y - 0.5)) < 1e-6, `R position ${position + 1} draws at its named in-cell offset`)
+    assert.ok(Math.abs(centre.x - (box.x0 + box.x1) / 2) < 1e-6, `position ${position + 1} drawing and collision share X`)
+    assert.ok(Math.abs(centre.y - (box.y0 + box.y1) / 2) < 1e-6, `position ${position + 1} drawing and collision share Y`)
+    useStore.getState().rotateModule()
+    assert.equal(useStore.getState().moduleRot, (position + 1) % 9, 'R cycles through all nine in-cell positions')
+  }
+  assert.equal(useStore.getState().moduleRot, 0, 'the ninth position wraps to the centre')
+})
+
 test('the roof places as a fixed 1x1 quarter-metre tile and uses the material finish', () => {
   const m = createModule('roof', 0, 0, 0, 'roof')
   assert.deepEqual(m.cfg, {})
@@ -132,10 +153,43 @@ test('both truss styles paint only their roof sheets and retain metal supports a
       assert.equal(equipmentReason([{ x: 2, y: Math.floor(width / 2), z: Math.floor(box.z1 - 0.1), fill: 'solid' }], [], roof, true), 'occupied', 'the ridge is part of placement')
       assert.equal(equipmentReason([], [roof], { ...roof, id: 'next', x: 4 }, true), '', 'adjacent bays join without overlap')
       assert.equal(equipmentReason([], [roof], { ...roof, id: 'overlap', x: 3 }, true), 'occupied')
-      const bottom = model.children.filter((child) => new THREE.Box3().setFromObject(child).max.z < (style === 'truss' ? 6 : 5.3))
+      const bottom = model.children.filter((child) => child.name === 'roof-bottom-chord')
       assert.ok(bottom.length > 0)
-      assert.ok(bottom.every((child) => sizeOf(child).x > 2.9 && sizeOf(child).y < 0.3), `${id} lower beams run parallel to the crest`)
+      assert.ok(bottom.every((child) => Math.abs(sizeOf(child).x - 4) < 1e-6 && Math.abs(sizeOf(child).y - 0.4) < 1e-6), `${id} lower beams span the whole bay with a heavy 40 cm section`)
       if (style === 'tapered-truss') assert.equal(bottom.length, 1, 'the tapered roof has one central bottom beam')
+    }
+  }
+})
+
+test('four-metre truss assemblies rest on the posts and connect lower frames across dragged bays', () => {
+  for (const style of ['roof-truss', 'roof-tapered']) {
+    for (const width of [4, 8, 12]) {
+      for (let rot = 0; rot < 4; rot++) {
+        const roof = createModule(style, 0, 0, 0, 'first', rot, width)
+        const model = new RoofModel(ctx).build(roof)
+        const bounds = new THREE.Box3().setFromObject(model)
+        const postTop = new THREE.Box3().setFromObject(new PillarModel(ctx).build(pillar())).max.z
+        assert.ok(Math.abs(bounds.min.z - postTop) < 1e-6, 'the lower frame meets the four-metre support top')
+        assert.ok(Math.abs(bounds.max.z - bounds.min.z - 4) < 1e-6, `${style} at ${width} m has exactly four metres of height including cladding`)
+        const envelope = moduleEnvelope(roof)
+        assert.ok(Math.abs(envelope.z0 - bounds.min.z) < 1e-6)
+        assert.ok(Math.abs(envelope.z1 - bounds.max.z) < 1e-6, 'placement reserves the full drawn height')
+        const [x, y] = rotateLocal(rot, 4, 0)
+        const next = new RoofModel(ctx).build({ ...roof, id: 'next', x, y })
+        next.updateMatrixWorld(true)
+        const firstChords = model.children.filter((child) => child.name === 'roof-bottom-chord')
+        const nextChords = next.children.filter((child) => child.name === 'roof-bottom-chord')
+        const axis = rot % 2 === 0 ? 'x' : 'y'
+        for (let i = 0; i < firstChords.length; i++) {
+          const a = new THREE.Box3().setFromObject(firstChords[i])
+          const b = new THREE.Box3().setFromObject(nextChords[i])
+          assert.ok(Math.min(Math.abs(a.max[axis] - b.min[axis]), Math.abs(b.max[axis] - a.min[axis])) < 1e-6, 'adjacent bottom chords meet without daylight at the bay seam')
+        }
+        if (style === 'roof-tapered') {
+          const ribs = model.children.filter((child) => child.geometry.parameters.width === 0.12)
+          assert.equal(ribs.length, 2 * width, 'the tapered web uses half the original ribs across every width')
+        }
+      }
     }
   }
 })
@@ -215,6 +269,112 @@ test('doorway exits accept supported floors at any nonnegative height and remain
   }
 })
 
+test('bridge piers are thick, centred, spaced eight metres, saved once and removed with the bridge', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const bridge = { ...createModule('bridge', 0, 0, 4, 'bridge', rot), w: 24 }
+    const state = commitTrack(toState(emptyStation()), bridge)
+    const piers = state.modules.filter((m) => m.type === 'pillar')
+    assert.equal(piers.length, 3)
+    assert.deepEqual(piers.map((m) => [m.x, m.y]), [4, 12, 20].map((x) => rotateLocal(rot, x, 1)))
+    assert.ok(piers.every((m) => m.cfg.size === 'thick' && m.cfg.bridgeId === bridge.id))
+    for (const pier of piers) {
+      const model = new PillarModel({ ...ctx, data: { ...ctx.data, modules: state.modules } }).build(pier)
+      assert.ok(Math.abs(new THREE.Box3().setFromObject(model).max.z - 3) < 1e-6, 'pier meets the deck underside')
+      assert.equal(moduleEnvelope(pier).z1, 3, 'collision stops at the same contact plane')
+    }
+    assert.equal(syncBridgePillars(state), state, 'repeated generation never duplicates piers')
+    assert.deepEqual(parse(serialize(state)).state.modules, state.modules)
+    assert.deepEqual(removeModule(state, bridge.id).modules, [], 'teardown removes only the bridge and its owned piers')
+  }
+})
+
+test('bridge piers reuse existing supports and refuse collisions beneath the deck', () => {
+  const bridge = createModule('bridge', 0, 0, 4, 'bridge')
+  const manual = createModule('pillar-thick', 4, 1, 0, 'manual')
+  const state = { ...toState(emptyStation()), modules: [manual] }
+  const built = commitTrack(state, bridge)
+  assert.equal(built.modules.filter((m) => m.type === 'pillar').length, 1)
+  assert.deepEqual(removeModule(built, bridge.id).modules, [manual], 'a manual support survives bridge removal')
+  const obstructed = { ...toState(emptyStation()), modules: [createModule('desk', 4, 1, 0, 'desk')] }
+  assert.equal(commitTrack(obstructed, bridge), obstructed, 'a pier cannot be placed through equipment below the bridge')
+})
+
+test('B deletes a generated pier permanently while preserving its bridge, with undo and redo', () => {
+  const bridge = { ...createModule('bridge', 0, 0, 4, 'bridge'), w: 24 }
+  const state = commitTrack(toState(emptyStation()), bridge)
+  const pier = state.modules.find((m) => m.type === 'pillar')
+  useStore.setState({ station: state, past: [], future: [], tool: 'delete' })
+  const scene = { setGhost() {}, setModulePreview() {}, setCollisionHighlight() {}, setCursor() {}, setFencePreview() {} }
+  const tool = new DeleteTool({ scene: () => scene, pickModule: () => pier.id, drag: { current: null } })
+  const info = { clientX: 0, clientY: 0, button: 0, buttons: 1, hit: { cell: [pier.x, pier.y, pier.z], solid: false }, preventDefault() {} }
+  tool.onDown(info)
+  tool.onUp(info)
+  const deleted = useStore.getState().station
+  assert.ok(deleted.modules.some((m) => m.id === bridge.id), 'deleting the pier leaves its bridge')
+  assert.ok(!deleted.modules.some((m) => m.id === pier.id))
+  assert.equal(deleted.modules.filter((m) => m.type === 'pillar').length, 2)
+  assert.equal(syncBridgePillars(deleted), deleted, 'automatic sync respects the deletion')
+  assert.ok(!parse(serialize(deleted)).state.modules.some((m) => m.id === pier.id), 'loading respects the deletion')
+  useStore.getState().undo()
+  assert.ok(useStore.getState().station.modules.some((m) => m.id === pier.id))
+  useStore.getState().redo()
+  useStore.getState().commit({ ...useStore.getState().station, name: 'edited after deletion' })
+  assert.ok(!useStore.getState().station.modules.some((m) => m.id === pier.id), 'later edits do not respawn it')
+})
+
+test('the whole bridge deck must clear the ground in every rotation and barrier variant', () => {
+  const state = toState(emptyStation())
+  for (let rot = 0; rot < 4; rot++) for (const railing of ['railing', 'sound-barrier-half', 'sound-barrier']) {
+    for (const z of [-4, 0, 1]) {
+      const bridge = { ...createModule('bridge', 0, 0, z, 'bridge', rot), w: 4 }
+      bridge.cfg.bridgeRailing = railing
+      assert.equal(trackBlockReason(state, bridge), 'floor')
+      assert.equal(commitTrack(state, bridge), state)
+      assert.equal(equipmentReason([], [], bridge, true), 'bridge-below-ground')
+      assert.equal(checkModulePlacements(state, [{ id: bridge.id, module: bridge, layer: true }]).refused.get(bridge.id), 'bridge-below-ground')
+    }
+    const above = { ...createModule('bridge', 0, 0, 2, 'above', rot), w: 4 }
+    above.cfg.bridgeRailing = railing
+    assert.equal(moduleEnvelope(above).z0, 1, 'underside rests at the street surface')
+    assert.equal(trackBlockReason(state, above), null)
+    assert.notEqual(commitTrack(state, above), state)
+  }
+})
+
+test('four-metre bridges have no piers and older four-metre spacing is replaced', () => {
+  const bridge = { ...createModule('bridge', 0, 0, 4, 'bridge'), w: 4 }
+  const short = commitTrack(toState(emptyStation()), bridge)
+  assert.equal(short.modules.filter((m) => m.type === 'pillar').length, 0)
+  const oldPiers = [2, 6, 10].map((x) => ({ ...createModule('pillar-thick', x, 1, 0, `bridge:pillar:${x}`), cfg: { size: 'thick', height: 4, bridgeId: 'bridge' } }))
+  const migrated = syncBridgePillars({ ...short, modules: [{ ...bridge, w: 12 }, ...oldPiers] })
+  assert.deepEqual(migrated.modules.filter((m) => m.type === 'pillar').map((m) => m.x), [4])
+  assert.equal(syncBridgePillars(migrated), migrated)
+})
+
+test('material brush paints the bridge deck while retaining rail, sleeper and barrier materials', () => {
+  const bridge = createModule('bridge', 0, 0, 4, 'bridge')
+  bridge.cfg.bridgeRailing = 'sound-barrier'
+  const state = syncBridgePillars({ ...toState(emptyStation()), modules: [bridge] })
+  useStore.setState({ station: state, past: [], future: [], paintMode: 'single', paintFinish: 'wall.enamel#2266cc' })
+  const tool = new PaintTool({ scene: () => ({}), pickModule: () => bridge.id })
+  tool.onDown({ clientX: 0, clientY: 0, button: 0, hit: null, preventDefault() {} })
+  const painted = useStore.getState().station.modules.find((m) => m.id === bridge.id)
+  assert.equal(painted.cfg.bridgeFinish, 'wall.enamel#2266cc', 'a module hit paints without falling through to floor cells')
+  assert.equal(useStore.getState().past.length, 1, 'painting is a single undoable edit')
+  const deckMat = new THREE.MeshStandardMaterial()
+  const mats = { white: mat, black: mat, steel: mat, darkSteel: mat, glass: mat, psu: mat }
+  const model = new TrackModel({ ...ctx, mats, finish: () => deckMat }).build(painted)
+  const coated = model.children.filter((child) => child.material === deckMat)
+  assert.equal(coated.length, 1, 'only the concrete deck takes the paint')
+  assert.equal(sizeOf(coated[0]).z, 1)
+  assert.ok(finishesInUse({ ...ctx.data, modules: [painted] }).has(painted.cfg.bridgeFinish))
+  assert.notEqual(moduleGhostKey(bridge), moduleGhostKey(painted))
+  assert.equal(parse(serialize(useStore.getState().station)).state.modules[0].cfg.bridgeFinish, painted.cfg.bridgeFinish)
+  const reset = paintBridgeSurface(useStore.getState().station, bridge.id, null)
+  assert.equal(reset.modules[0].cfg.bridgeFinish, undefined)
+  assert.equal(paintBridgeSurface(reset, bridge.id, null), reset)
+})
+
 test('bridges extend either end of rotated rails over void without a tunnel shell or platform doors', () => {
   for (let rot = 0; rot < 4; rot++) for (const end of [-1, 1]) {
     const src = makeTrack({ id: 'source', lineId: '1', dir: 'down', power: 'catenary', x: 0, y: 0, z: 4, w: 8, d: 3, rot })
@@ -237,10 +397,10 @@ test('bridges extend either end of rotated rails over void without a tunnel shel
 
 test('the new equipment survives a save/load round trip', () => {
   const modules = [extendedPillar(pillar('thick')), createModule('roof', 3, 0, 0, 'roof'), createModule('roof-truss', 4, 0, 0, 'truss'), createModule('roof-tapered', 5, 0, 0, 'tapered', 0, 12), createModule('exit-doorway-3', 9, 0, 0, 'exit'), createModule('bridge', 15, 0, 4, 'bridge')]
-  const state = { ...toState(emptyStation()), modules }
+  const state = syncBridgePillars({ ...toState(emptyStation()), modules })
   const loaded = parse(serialize(state))
   assert.equal(loaded.ok, true)
-  assert.deepEqual(loaded.state.modules, modules)
+  assert.deepEqual(loaded.state.modules, state.modules)
 })
 
  test('a thick support can hold a bridge at the next storey in either build order', () => {
@@ -251,8 +411,34 @@ test('the new equipment survives a save/load round trip', () => {
   assert.notEqual(commitTrack(state, bridge), state)
   assert.equal(equipmentReason([], [bridge], pier, true), '')
   const size = sizeOf(new PillarModel({ ...ctx, data: { ...ctx.data, modules: [bridge] } }).build(pier))
-  assert.ok(Math.abs(size.z - 2.4) < 1e-6, 'pier head terminates at the underside of the recessed bridge deck')
+  assert.ok(Math.abs(size.z - 2) < 1e-6, 'pier head terminates at the underside of the one-metre bridge deck')
  })
+
+test('bridge underside is one solid metre with no coplanar edge girders, in every rotation', () => {
+  const mats = { white: mat, black: mat, steel: mat, darkSteel: mat, glass: mat, psu: mat }
+  for (let rot = 0; rot < 4; rot++) {
+    const src = makeTrack({ id: 'src', lineId: '1', dir: 'up', power: 'third-rail', x: 0, y: 0, z: 8, w: 8, d: 3, rot })
+    for (const railing of ['railing', 'sound-barrier-half', 'sound-barrier']) {
+      const bridge = makeBridge(src, 1, 12, 'bridge', railing)
+      const model = new TrackModel({ ...ctx, mats }).build(bridge)
+      const underside = model.children.filter((child) => child.position.z < 0)
+      assert.equal(underside.length, 1, 'only the solid deck draws below the bed; no overlapping edge faces')
+      assert.equal(sizeOf(underside[0]).z, 1, 'the concrete deck is a full block deep')
+      const bounds = new THREE.Box3().setFromObject(model)
+      assert.equal(bounds.min.z, 7, 'the deck underside is one metre below the track anchor')
+      if (railing !== 'railing') {
+        const top = railing === 'sound-barrier-half' ? 10 : 11.5
+        assert.ok(Math.abs(bounds.max.z - top) < 1e-6, 'barriers rise 1.5 / 3 metres above the bed')
+        assert.equal(moduleEnvelope(bridge).z1, top, 'collision reserves the barrier height')
+      }
+      const loaded = parse(serialize({ ...toState(emptyStation()), modules: [bridge] }))
+      assert.equal(loaded.ok, true)
+      assert.equal(loaded.state.modules[0].cfg.bridgeRailing, railing)
+      const opposite = { ...bridge, cfg: { ...bridge.cfg, bridgeRailing: railing === 'railing' ? 'sound-barrier' : 'railing' } }
+      assert.notEqual(moduleGhostKey(bridge), moduleGhostKey(opposite), 'changing the barrier rebuilds the preview')
+    }
+  }
+})
 
 test('the paint pointer targets the roof model before the floor beneath it', () => {
   const roof = createModule('roof', 0, 0, 0, 'roof')

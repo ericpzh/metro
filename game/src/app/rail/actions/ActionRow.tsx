@@ -38,7 +38,7 @@ import { stairWidthLabel } from '../../../sim/stairs.ts'
 import { roofWidthLabel } from '../../../sim/structures.ts'
 import type { GateDoor } from '../../../sim/types.ts'
 import { Block } from '../shared/Block.tsx'
-import { RotateTile } from '../shared/RotateTile.tsx'
+import { PositionTile, RotateTile } from '../shared/RotateTile.tsx'
 import { InlineExpand } from '../shared/InlinePanel.tsx'
 
 /** The 闸机 tile's Tab cycle, in the label the action tile wears. */
@@ -97,7 +97,9 @@ function ActionTiles(): React.ReactElement {
         <RotateTile label="旋转" onClick={() => st().rotateWallSnap()} />
       ) : null}
       {piece !== null && isRotatableType(piece) ? (
-        <RotateTile label={`旋转 ${((4 - moduleRot) % 4) * 90}°`} onClick={() => st().rotateModule()} />
+        piece === 'pillar-slim'
+          ? <PositionTile position={moduleRot} onClick={() => st().rotateModule()} />
+          : <RotateTile label={`旋转 ${((4 - moduleRot) % 4) * 90}°`} onClick={() => st().rotateModule()} />
       ) : null}
       {/* Both 指示牌 mounts — the hung board and the wall board — are composed on the
           same board editor, so the tile follows the piece and not one palette id. */}

@@ -480,9 +480,11 @@ line, and where there is no block it
 hangs over its own well, open — a derived filling under it would stand in the run's own carved passage,
 a mass no block fits in and no 材质 brush can register on. The half-landing floor
 a turning staircase lays is the **stair's** own cell — the mesher skips it and the model draws the
-platform — so deleting the stair takes it back out with the piece; a straight staircase lays none, and
-**移动** refuses a staircase outright (`isMovableModule`), so one leaves and returns through delete and
-place.
+platform — so deleting the stair takes it back out with the piece, and a straight staircase lays none.
+**移动** takes a staircase — and an escalator — apart and builds it again at the cell it is dropped on
+rather than translating it (`moveRebuilds` / `moveEquipment`), because a run's `from`/`to` and flights are
+world cells of the document's, and because the slab it climbs through is opened where it now stands: the
+floor it owns, the opening it carves and the turn it makes all travel with the piece, in one commit.
 
 ### 5.2 Fare control and service
 
@@ -1365,7 +1367,7 @@ cancels it too) without deleting anything.
 already selected, so `移动` sits in the right inspector's `信息` card beside what the piece is, and
 that same card becomes the move's whole control surface the moment the piece is in the air — `确认`
 and `取消` appear exactly where `移动` was, over a readout of the cell the drop would use and, when
-that cell refuses it, the rule it broke. Press `移动` and the selected 设备 / 装饰 piece comes up — it
+that cell refuses it, the rule it broke. Press `移动` and the selected 设备 / 装饰 / 出入口 piece comes up — it
 stops being drawn where it stood and rides the pointer as the same translucent ghost a fresh placement
 shows, validity tint and all (`R` turns it in the air). **It is not an edit:** the piece keeps its id
 and its whole `cfg` — a 指示牌's printed boards, a 闸机's lane, a 广告牌's frozen poster — and never
@@ -1376,10 +1378,18 @@ all. A refused cell (no floor under a piece that stands on one, a track bed, ano
 behind a 广告牌 or a 墙面指示牌, no ceiling over a 吊挂指示牌 / 电视 — the slab a hung piece needs is its
 whole structural requirement, since it hangs over the floor cell rather than standing on it) keeps it in
 the air and
-names the rule, exactly as a fresh placement would. Structural
-pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms, 轨道 / 站台门 — are refused by the same rule that keeps 拆除
+names the rule, exactly as a fresh placement would. A **staircase** and an **escalator** move too, and a
+move of one is a tear-down and a rebuild rather than a translation (`moveEquipment`): the run's own
+`from`/`to` — and every flight a staircase turns through — are cells of the document's, a turning
+staircase's half-landing floor is floor it laid, and both open the slab they climb through, so the piece
+leaves through `removeModule` and returns through `addEquipment` at the cell it is dropped on, still as
+**one** commit. What it carved where it stood stays open, exactly as it does when a run is deleted, and the
+方块 tool may fill it again. Structural
+pieces — 电梯, rooms, 轨道 / 站台门 — are refused by the same rule that keeps 拆除
 from sweeping one: each is one piece whose carved openings, derived screen doors and room walls a
-translation would strand, so it is torn down and built again — the card's button says so rather than
+translation would strand — and a 电梯 shaft is grown a storey at a time without ever asking for floor, so no
+single verdict can say where a moved one lands — so it is torn down and built again, and
+the card's button says so rather than
 hiding. Switching tools mid-lift puts the piece back, because a lift is not a mode to be lost in.
 
 Conflict rules: camera never uses `左键` alone (that belongs to tools) and tools never use

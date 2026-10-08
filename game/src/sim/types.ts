@@ -423,8 +423,10 @@ export interface StairFlight {
   to: Vec3i
 }
 
+export type BridgeRailing = 'railing' | 'sound-barrier-half' | 'sound-barrier'
+
 export type Module =
-  | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number } })
+  | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number; finish?: FinishId; bridgeId?: string } })
   | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'truss' | 'tapered-truss'; finish?: FinishId } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor } })
@@ -712,7 +714,7 @@ export type Module =
       /** Bed depth in cells across the run (+y). Defaults to 1. */
       d?: number
       /** A pure tunnel run: an extension of a line's track, never platform doors. */
-      cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean }
+      cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean; bridgeRailing?: BridgeRailing; bridgeFinish?: FinishId; removedBridgePillars?: string[] }
     })
 
 export type ModuleType = Module['type']
