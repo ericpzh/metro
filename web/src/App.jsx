@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { gallery } from './artworks.js'
 import {
-  STORAGE_KEY,
   canonicalPath,
   detectLang,
   isGamePath,
@@ -25,15 +24,10 @@ export default function App() {
   const copy = gallery[lang]
   const t = ui[lang]
 
-  // Persist the choice, reflect it in <html lang> / title / meta, and pin it
-  // to the canonical path (/en/ for English) so the URL stays shareable.
+  // Reflect the language in <html lang> / title / meta, and pin it to the
+  // canonical path (/en/ for English) so the URL stays shareable.
   // Anchor hashes (#sheet-01 …) are preserved; alias hashes (#en) are dropped.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, lang)
-    } catch {
-      /* storage unavailable */
-    }
     document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN'
     document.title = t.doc.title
     setMeta('description', t.doc.desc)

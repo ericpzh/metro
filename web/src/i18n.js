@@ -3,10 +3,10 @@
 //
 // The English version is pinned to the `/en/` path (and `/en/game/` for the
 // game tab), so it is shareable. `?lang=en` and `#en` are accepted as aliases
-// on arrival and normalised to the path form. The choice is remembered in
-// localStorage; otherwise the browser language decides the first visit.
+// on arrival and normalised to the path form. The URL is the only signal:
+// `/metro/` always stays Chinese unless the URL asks for English — no
+// browser-language or stored-preference redirect.
 export const LANGS = ['zh', 'en']
-export const STORAGE_KEY = 'metro-lang'
 
 const zh = {
   doc: {
@@ -157,32 +157,7 @@ export function isLangHash(hash) {
 
 export function detectLang(href = window.location.href) {
   const url = new URL(href)
-  return (
-    langFromPath(url.pathname) ||
-    langFromQuery(url.search) ||
-    langFromHash(url.hash) ||
-    readStored() ||
-    (isEnBrowser() ? 'en' : 'zh')
-  )
-}
-
-function readStored() {
-  try {
-    const s = localStorage.getItem(STORAGE_KEY)
-    if (s === 'en' || s === 'zh') return s
-  } catch {
-    /* storage unavailable */
-  }
-  return null
-}
-
-function isEnBrowser() {
-  try {
-    const code = (navigator.language || navigator.languages?.[0] || '').toLowerCase()
-    return !!code && !code.startsWith('zh')
-  } catch {
-    return false
-  }
+  return langFromPath(url.pathname) || langFromQuery(url.search) || langFromHash(url.hash) || 'zh'
 }
 
 /** The game tab is the same document served from `<site>/game/` (or `<site>/en/game/`). */
