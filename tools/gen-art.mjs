@@ -10,7 +10,7 @@ import { mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { artSection } from './sheets-a.mjs';
-import { artHero } from './sheet-01-hero.mjs';
+import { artHeroBanded as artHero } from './sheet-01-hero-banded.mjs';
 // 05 is the rolling stock's parameters: a frontal and a side elevation per class,
 // rendered square-on by the same pass that draws sheet 11, with the numbers read out of
 // `sim/stock.ts` and `sim/constants.ts`.

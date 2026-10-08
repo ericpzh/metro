@@ -28,12 +28,24 @@
 //   train enters -> docks -> PSD leaves open -> queues feed the doors, people
 //   alight -> PSD closes -> train leaves -> repeat.
 import {
-  C, T, MUL, title, sheet, n, amT, mover, group, passT,
+  C, T, MUL, title, sheet, n, amT, mover, group, passT, rng,
 } from './iso.mjs'
-import { STOCK, STOCK_CLASSES, DOOR_END_INSET, doorCentres } from '../game/src/sim/stock.ts'
+import { STOCK, doorCentres } from '../game/src/sim/stock.ts'
 import { carImage, trainCard } from './train-cards.mjs'
+import { FINISH_LIST } from '../game/src/sim/finishes.ts'
+import { loadStationElevations, stationElevation } from './station-elevations.mjs'
 
 const car = trainCard
+const CONCRETE = '#' + FINISH_LIST.find(f => f.id === 'floor.concrete').tint.toString(16).padStart(6, '0');
+const planPerson = (x, y, col) => `<g transform="translate(${n(x)},${n(y)})">`
+  + '<ellipse cx="1" cy="2" rx="8" ry="6" fill="#23313c" opacity=".18"/>'
+  + `<rect x="-8" y="-4" width="16" height="8" rx="4" fill="${col}"/>`
+  + '<circle cx="0" cy="0" r="4.4" fill="#26303b" stroke="#c58e65" stroke-width="1.5"/></g>';
+const elevationPerson = (x, y, col) => `<g transform="translate(${n(x)},${n(y)})">`
+  + '<ellipse cx="0" cy="0" rx="6" ry="2" fill="#23313c" opacity=".2"/>'
+  + `<rect x="-5" y="-29" width="10" height="29" rx="4" fill="${col}"/>`
+  + '<circle cx="0" cy="-34" r="5.5" fill="#c58e65"/>'
+  + '<path d="M-5.5,-35 A5.5,5.5 0 0 1 5.5,-35" fill="#26303b"/></g>';
 
 /* ------------------------------------------------------------ flat helpers */
 const rect = (x, y, w, h, fill, o = {}) =>
@@ -96,14 +108,19 @@ const STAGGER_MAX = 1.2;
 
 /* =================================================================== sheet */
 export function artPlatformFlow() {
-  const W = 1600, H = 1380;
+  const W = 1600, H = 1060;
   const g = [];
+  const pieces = loadStationElevations();
+  const grain = rng(43);
+  const grainSvg = Array.from({ length: 90 }, (_, i) => `<circle cx="${n(grain() * 64)}" cy="${n(grain() * 64)}" r="${n(.2 + grain() * .6)}" fill="${i % 2 ? '#fff' : '#000'}" opacity=".12"/>`).join('');
 
   g.push(title(48, 62,
     '对齐的车门、自然形成的队列、来去的列车',
     '车门间距只算一次，其余全由它定位：屏蔽门开哪、队伍怎么排、上下车走哪条路。列车、车门和人群 20 秒一轮循环播放。'));
 
   g.push(`<defs>
+    <pattern id="platform-concrete-grain" width="64" height="64" patternUnits="userSpaceOnUse">${grainSvg}</pattern>
+    <g id="platform-plan-person">${planPerson(0, 0, 'currentColor')}</g>
     <marker id="arwPF" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9fb3c8"/></marker>
     <marker id="arwY" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${C.yellow}"/></marker>
   </defs>`);
@@ -138,7 +155,9 @@ export function artPlatformFlow() {
 
   /* platform floor + edge treatment */
   g.push(rect(PX0, Y_PTOP, platW, Y_PEDGE - Y_PTOP, '#cfd3d8', { rx: 3 }));
-  g.push(rect(PX0 + 4, Y_PTOP + 52, platW - 8, 3, C.floorInlay, { opacity: 0.32 }));
+  g.push(rect(PX0, Y_PTOP, platW, Y_PEDGE - Y_PTOP, 'url(#platform-concrete-grain)'));
+  g.push(rect(PX0, Y_PTOP, platW, 38, CONCRETE));
+  g.push(rect(PX0, Y_PTOP, platW, 38, 'url(#platform-concrete-grain)'));
   g.push(rect(PX0, Y_PEDGE - 26, platW, 12, C.maroon, { opacity: 0.9 }));
   g.push(rect(PX0, Y_PEDGE - 14, platW, 7, C.tactile, { opacity: 0.95 }));
 
@@ -182,7 +201,7 @@ export function artPlatformFlow() {
       for (let k = 0; k < 5; k++) {
         const sy = laneHead - 4 - k * 25;
         g.push(ln(lx - laneW / 2 + 2, sy, lx + laneW / 2 - 2, sy, '#ffffff', 1, '2 3'));
-        g.push(circ(lx, sy + 8, 6.2, AG[(i * 3 + k + (sgn > 0 ? 1 : 0)) % AG.length], { stroke: '#0d1116', sw: 1 }));
+        g.push(planPerson(lx, sy + 8, AG[(i * 3 + k + (sgn > 0 ? 1 : 0)) % AG.length]));
       }
       g.push(arrowLine(lx, laneTop + 2, lx, laneHead - 46, '#2f7ef2', 1.6));
     }
@@ -212,7 +231,7 @@ export function artPlatformFlow() {
      Every walker runs on the **train's** clock and only inside the doors-open window,
      so the crowd arrives with the train and is gone before it pulls out. */
   const movers = [];
-  const walk = { dur: DUR, win: [CROWD0, CROWD1] };
+  const walk = { dur: DUR, win: [CROWD0, CROWD1], sprite: 'platform-plan-person' };
   doorsPx.forEach((dx, i) => {
     const b = (i * 0.14).toFixed(2);
     for (const sgn of [-1, 1]) {
@@ -227,51 +246,60 @@ export function artPlatformFlow() {
   g.push(...movers);
 
   /* labels + the one annotated door */
-  g.push(T(PX0 + 8, Y_PTOP + 26, '站台', { size: 12.5, fill: '#5d6d80', weight: 700, ls: 0.6 }));
-  g.push(T(PX0 + platW - 14, Y_PTOP + 26, '屏蔽门开口对齐车门中心', { size: 11.5, fill: '#8fa0b3', anchor: 'end' }));
+  g.push(T(PX0 + 8, Y_PTOP + 26, '动物园站 · 5 号线站台', { size: 12.5, fill: '#273443', weight: 700, ls: 0.6 }));
+  g.push(T(PX0 + platW - 14, Y_PTOP + 26, '屏蔽门开口对齐车门中心', { size: 11.5, fill: '#273443', anchor: 'end' }));
   const d0 = doorsPx[2];
   g.push(arrowLine(d0 + 72, Y_TRACK + 32, d0 + 14, Y_TRACK + 6, C.white, 1.4));
   g.push(T(d0 + 78, Y_TRACK + 36, `车门 ${stock.doorWidth} 米`, { size: 11, fill: '#dfe7f0', weight: 700 }));
   g.push(ln(d0 - HALF, Y_PEDGE + 20, d0 - HALF - 58, Y_PEDGE + 44, C.glass, 1.2));
   g.push(T(d0 - HALF - 62, Y_PEDGE + 48, '屏蔽门门板', { size: 11, fill: C.glass, anchor: 'end', weight: 700 }));
-  g.push(ln(d0 + laneOff, laneHead - 66, d0 + laneOff + 70, laneHead - 84, '#a8d8ea', 1.2));
-  g.push(T(d0 + laneOff + 74, laneHead - 80, '排队通道', { size: 11, fill: '#a8d8ea', weight: 700 }));
+  g.push(ln(d0 + laneOff, laneHead - 66, d0 + laneOff + 70, laneHead - 84, '#164b89', 1.2));
+  g.push(T(d0 + laneOff + 74, laneHead - 80, '排队通道', { size: 11, fill: '#164b89', weight: 700 }));
   g.push(T(PX0 + 6, Y_TRK1 - 14, `5 号线  ·  B 型  ·  图示 2 节  ·  一列 ${total.toFixed(1)} 米`, { size: 11.5, fill: '#8fa0b3' }));
 
   /* ======================================= B. alignment, in side elevation */
   const BX = 48, BY = 602, BW = 712, BH = 410;
   panelBox(g, BX, BY, BW, BH, 'B.  车门对得上（立面）',
-    '屏蔽门线画在同一组车门中心上。车门、屏蔽门和排队通道，钉的是同一张表。');
+    '透过屏蔽门看列车：黄色中心线同时穿过车门与屏蔽门，尺寸直接从立面引出。');
 
   const sB = 28;
   const cx = BX + BW / 2;
   const railY = 792;
   const sideB = car('side-B');
   const sideImg = carImage(sideB, cx, railY, sB);
+  const platformY = railY - .5 * sB;
+  g.push(rect(BX + 22, BY + 76, BW - 44, 132, CONCRETE));
+  g.push(rect(BX + 22, BY + 76, BW - 44, 132, 'url(#platform-concrete-grain)'));
+  g.push(rect(BX + 22, platformY, BW - 44, 32, '#cfd3d8'));
+  g.push(rect(BX + 22, platformY, BW - 44, 4, C.tactile));
   g.push(sideImg.svg);
+  const psdPiece = pieces.get('platform-edge');
+  g.push(stationElevation(pieces, 'platform-edge', cx - psdPiece.metres * sB / 2, platformY, sB));
+  for (const [id, x] of [['bin', BX + 77], ['bench-steel-1', BX + 212], ['extinguisher', BX + 658]])
+    g.push(stationElevation(pieces, id, x, platformY + 29, sB));
+  for (let i = 0; i < 9; i++) g.push(elevationPerson(BX + 52 + i * 71, platformY + 29, AG[i]));
   const offB = carDoors('B');
   const dPx = offB.map((o) => cx + o * sB);
   const dwPx = STOCK.B.doorWidth * sB;
-  g.push(T(sideImg.x, sideImg.y - 8, '车身侧面  ·  B 型 19.5 米  ·  每侧 4 门', { size: 11.5, fill: '#8fa0b3' }));
-  const py0 = railY + 44;
-  let ss = sideImg.x;
+  g.push(T(sideImg.x, BY + 72, '动物园站 · 游戏屏蔽门与 B 型列车', { size: 11.5, fill: '#a9b8c8', weight: 700 }));
+  // Measure the actual elevation rather than repeating the doors as a plan strip.
+  const pitchY = 860, widthY = 898;
   for (const dx of dPx) {
-    if (dx - dwPx / 2 > ss) g.push(rect(ss, py0, dx - dwPx / 2 - ss, 10, '#cbd3dc', { stroke: C.ink, sw: 1 }));
-    ss = dx + dwPx / 2;
+    g.push(ln(dx, platformY - 78, dx, pitchY + 6, C.yellow, 1, '4 5'));
+    g.push(circ(dx, platformY, 2.5, C.yellow));
   }
-  g.push(rect(ss, py0, sideImg.x + sideImg.w - ss, 10, '#cbd3dc', { stroke: C.ink, sw: 1 }));
-  for (const dx of dPx) {
-    g.push(rect(dx - dwPx / 2, py0, dwPx, 10, '#7fb2d6', { stroke: C.ink, sw: 1 }));
-    g.push(ln(dx - dwPx / 2, py0 + 5, dx + dwPx / 2, py0 + 5, '#eef2f6', 1));
-    g.push(ln(dx, railY, dx, py0, C.yellow, 1, '4 4'));
-    g.push(ln(dx, py0 + 10, dx, py0 + 26, C.yellow, 1, '4 4'));
-    g.push(circ(dx, py0 + 34, 5.5, C.yellow, { stroke: '#0d1116', sw: 1 }));
+  const selectedDoor = dPx[1];
+  g.push(rect(selectedDoor - dwPx / 2, platformY - 76, dwPx, 76, 'none',
+    { stroke: C.yellow, sw: 1.8 }));
+  for (const edge of [selectedDoor - dwPx / 2, selectedDoor + dwPx / 2]) {
+    g.push(ln(edge, platformY + 33, edge, widthY + 5, C.glass, 1, '3 4'));
   }
-  g.push(T(sideImg.x, py0 + 60, '屏蔽门线  ·  开口在同一组中心  ·  门板左右滑动', { size: 11.5, fill: '#8fa0b3' }));
-  g.push(dimH(dPx[0], dPx[1], py0 + 88, `门距 ${(offB[1] - offB[0]).toFixed(2)} 米`));
-  g.push(dimH(dPx[1], dPx[1] + dwPx, py0 + 116, `门宽 ${STOCK.B.doorWidth} 米`, C.glass));
-  g.push(T(sideImg.x, py0 + 142, `距车中心的位置：${offB.map((o) => (o >= 0 ? '+' : '') + o.toFixed(2)).join('  ')} 米`, { size: 12, fill: '#a9b8c8', mono: true }));
-  g.push(T(sideImg.x, py0 + 160, '建造网格是 1 米一格，开口只能往外取整，所以屏蔽门永远不比车门窄。', { size: 11, fill: '#7d8ea3' }));
+  g.push(dimH(dPx[0], dPx[1], pitchY, `中心距 ${(offB[1] - offB[0]).toFixed(2)} 米`));
+  g.push(dimH(selectedDoor - dwPx / 2, selectedDoor + dwPx / 2, widthY,
+    `车门净宽 ${STOCK.B.doorWidth} 米`, C.glass));
+  g.push(T(sideImg.x, 937, '同一中心线：车门 → 屏蔽门开口 → 排队通道', { size: 12, fill: C.yellow, weight: 700 }));
+  g.push(T(sideImg.x, 961, `距车中心的位置：${offB.map((o) => (o >= 0 ? '+' : '') + o.toFixed(2)).join('  ')} 米`, { size: 12, fill: '#a9b8c8', mono: true }));
+  g.push(T(sideImg.x, 985, '屏蔽门开口按 1 米网格向外取整，始终完整覆盖车门净宽。', { size: 11, fill: '#7d8ea3' }));
 
   /* =========================================== C. auto-wayfinding / routing */
   const CX = 776, CY = 602, CW = 772, CH = 410;
@@ -296,7 +324,12 @@ export function artPlatformFlow() {
     g.push(rect(p.x, p.y, bw, 4, nodes[i][2], { rx: 2 }));
     g.push(T(p.x + 12, p.y + 24, nodes[i][0], { size: 12.5, fill: nodes[i][2], weight: 800, ls: 0.4 }));
     g.push(T(p.x + 12, p.y + 42, nodes[i][3], { size: 9.6, fill: '#8fa0b3' }));
-    g.push(T(p.x + bw - 10, p.y + 42, nodes[i][1], { size: 10, fill: '#5d6d80', anchor: 'end', mono: true }));
+    const iconId = { 0: 'platform-edge', 3: 'escalator', 5: 'gate', 6: 'exit-covered-1' }[i];
+    if (iconId) {
+      const piece = pieces.get(iconId);
+      const iconScale = Math.min(34 / piece.metres, 25 / piece.verticalMetres);
+      g.push(stationElevation(pieces, iconId, p.x + bw - 42, p.y + 32, iconScale));
+    } else g.push(T(p.x + bw - 10, p.y + 42, nodes[i][1], { size: 10, fill: '#5d6d80', anchor: 'end', mono: true }));
     if (i < nodes.length - 1) {
       const q = place(i + 1);
       if (p.y === q.y) {
@@ -322,54 +355,6 @@ export function artPlatformFlow() {
     '上车也一样：挑一道愿意接纳你的队伍；要坐的线路没进站，',
     '就在站台上等。导向设施只改你做决定的耗时，不改这几条规则。',
   ], { size: 10.6, fill: '#a9b8c8', lh: 17 }));
-
-  /* ========================================= D. the door cadence, per type */
-  const DX0 = 48, DY = 1034, DW = 1504, DH = 300;
-  panelBox(g, DX0, DY, DW, DH, 'D.  各车型的车门间距',
-    '一个函数，四种答案。同一组中心，决定车身、屏蔽门和通道。');
-
-  const sD = 16;
-  const railD = 1210;
-  /** Half a 22 m frame at 16 px/m: every class is drawn in the same box, so it shares this. */
-  const CAR_HALF_PX = 176;
-  STOCK_CLASSES.forEach((cls, ti) => {
-    const t = STOCK[cls];
-    const x = 76 + ti * 372;
-    const centre = x + CAR_HALF_PX;
-    const side = car(`side-${cls}`);
-    const img = carImage(side, centre, railD, sD);
-    g.push(T(x, railD - 88, `${cls} 型`, { size: 15, weight: 800, fill: C.white, ls: 0.6 }));
-    g.push(img.svg);
-    const offs = carDoors(cls);
-    const dwo = t.doorWidth * sD;
-    const py = railD + 22;
-    let p0 = img.x;
-    for (const o of offs) {
-      // From the picture's **centre**, which is the car's centre — not from its left
-      // edge, which for a 22 m class is the car's nose and for a 16.8 m one is 2.6 m of
-      // empty frame. Reading the door positions off the wrong end put every guide line
-      // and every screen-door opening up to 176 px away from the door above it.
-      const dx = centre + o * sD;
-      if (dx - dwo / 2 > p0) g.push(rect(p0, py, dx - dwo / 2 - p0, 8, '#cbd3dc', { stroke: C.ink, sw: 1 }));
-      g.push(rect(dx - dwo / 2, py, dwo, 8, '#7fb2d6', { stroke: C.ink, sw: 1 }));
-      g.push(ln(dx, railD, dx, py, C.yellow, 1, '3 4'));
-      p0 = dx + dwo / 2;
-    }
-    g.push(rect(p0, py, img.x + img.w - p0, 8, '#cbd3dc', { stroke: C.ink, sw: 1 }));
-    const pairs = offs
-      .filter((o) => o > 0.001)
-      .map((o) => o.toFixed(2))
-      .join(' / ');
-    g.push(T(x, py + 30, `${t.length} 米车体  ·  每侧 ${t.doorsPerSide} 门  ·  门宽 ${t.doorWidth} 米`, { size: 11, fill: '#a9b8c8', mono: true }));
-    g.push(T(x, py + 46, `门距 ${(offs[1] - offs[0]).toFixed(2)} 米  ·  中心距 ±${pairs} 米`, { size: 11, fill: C.yellow, mono: true }));
-  });
-  // L is the class whose cadence runs unbroken across a car boundary: three doors on a
-  // 5.6 m pitch leave the last door and the next car's first exactly one pitch apart.
-  const lOff = carDoors('L');
-  const lPitch = lOff[1] - lOff[0];
-  const lLastFromStart = STOCK.L.length / 2 + lOff[lOff.length - 1];
-  const lBoundary = STOCK.L.length - lLastFromStart + DOOR_END_INSET;
-  g.push(T(76, DY + DH - 22, `L 型只有 3 门，间距正好 ${lPitch.toFixed(1)} 米 —— 跨过车厢接缝也不断：末门到下一节首门 ${lBoundary.toFixed(1)} 米，还是同一个间距。`, { size: 11.5, fill: '#7d8ea3' }));
 
   g.push(T(48, H - 16, '动画的约定：车门间距说了算，屏蔽门跟着它走，排队通道也钉在同一个 x 上。换个车型，三样一起挪。', { size: 12.5, fill: '#7d8ea3' }));
   return sheet(W, H, g.join(''));

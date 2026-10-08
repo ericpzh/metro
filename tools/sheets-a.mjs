@@ -12,6 +12,8 @@ import {
   amT, sway, breathe, spin, dashFlow, mover, group,
 } from './iso.mjs';
 import { carImage, trainCard } from './train-cards.mjs';
+import { FINISH_LIST } from '../game/src/sim/finishes.ts';
+import { PSD_FULL_HEIGHT } from '../game/src/sim/constants.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +68,19 @@ function pieceAt(id, x, floorY) {
 
 /** The sheet's own scale: 26 px to the metre, the same one the section is drawn at. */
 const S = 26;
+const CONCRETE = '#' + FINISH_LIST.find(f => f.id === 'floor.concrete').tint.toString(16).padStart(6, '0');
+
+/** Front elevation figures share the sheet's metre scale with the photographed models. */
+function passenger(x, floor, color, phase = 0, bag = false) {
+  const body = `<g data-model="passenger" transform="translate(${n(x)},${n(floor)})">`
+    + '<ellipse cx="0" cy="0" rx="7" ry="2" fill="#23313c" opacity=".2"/>'
+    + `<rect x="-5" y="-30" width="10" height="30" rx="4" fill="${color}"/>`
+    + '<circle cx="0" cy="-35" r="5.5" fill="#c58e65"/>'
+    + '<path d="M-5.5,-36 A5.5,5.5 0 0 1 5.5,-36" fill="#26303b"/>'
+    + (bag ? '<rect x="5" y="-23" width="6" height="9" rx="2" fill="#efb735" stroke="#26303b"/>' : '')
+    + '</g>';
+  return group(body, amT('0 0;3 0;0 0', '', '10s', undefined, `${-phase}s`));
+}
 /** The game's datum — `sim/stock.ts`: the consist origin rides half a metre under the platform. */
 const ORIGIN_BELOW_PLATFORM = 0.5;
 
@@ -90,12 +105,13 @@ export function artSection() {
 
   g.push(`<rect x="0" y="0" width="${W}" height="${GY}" fill="#101825"/>`);
   g.push(`<rect x="0" y="0" width="${W}" height="${GY}" fill="url(#glow)"/>`);
-  for (const [cx, cy, s] of [[240, 130, 1], [560, 210, .75], [1180, 300, .8]]) {
-    g.push(`<g opacity=".09" fill="#9fc4ea" transform="translate(${cx},${cy}) scale(${s})"><ellipse cx="0" cy="0" rx="70" ry="24"/><ellipse cx="-50" cy="10" rx="45" ry="18"/><ellipse cx="45" cy="12" rx="40" ry="16"/></g>`);
-  }
   g.push(`<rect x="0" y="${GY}" width="${W}" height="${B3f + 160 - GY}" fill="url(#soilHatch)"/>`);
-  g.push(`<rect x="0" y="${GY}" width="${W}" height="9" fill="#2fb344" opacity=".5"/>`);
-  g.push(title(48, 56, '一座车站，叠了好几层'));
+  g.push(`<rect x="0" y="${GY}" width="${W}" height="9" fill="${CONCRETE}"/>`);
+  const grain = rng(43);
+  g.push('<defs><pattern id="section-concrete-grain" width="64" height="64" patternUnits="userSpaceOnUse">'
+    + Array.from({ length: 90 }, (_, i) => `<circle cx="${n(grain() * 64)}" cy="${n(grain() * 64)}" r="${n(.2 + grain() * .6)}" fill="${i % 2 ? '#fff' : '#000'}" opacity=".12"/>`).join('')
+    + '</pattern></defs>');
+  g.push(title(48, 56, '一座车站，叠了好几层', '动物园站：街面出入口、地下站厅与三条线路，共用一组竖向交通。'));
 
   /* ---- Line 1 on its viaduct: a real A-type car, wheels on the deck ---- */
   const deckY = GY - 8 * S;
@@ -120,20 +136,23 @@ export function artSection() {
     g.push(`<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="#0d1219" stroke="#2a3542" stroke-width="2"/>`);
 
   const room = (x0, x1, yTop, yFloor, name, col, sub) => {
-    g.push(`<rect x="${x0}" y="${yTop}" width="${x1 - x0}" height="${yFloor - yTop}" fill="#151d28"/>`);
+    g.push(`<rect x="${x0}" y="${yTop}" width="${x1 - x0}" height="${yFloor - yTop}" fill="${CONCRETE}"/>`);
+    g.push(`<rect x="${x0}" y="${yTop}" width="${x1 - x0}" height="${yFloor - yTop}" fill="url(#section-concrete-grain)"/>`);
     g.push(`<rect x="${x0}" y="${yTop}" width="${x1 - x0}" height="${yFloor - yTop}" fill="none" stroke="#39465a" stroke-width="2"/>`);
     g.push(`<rect x="${x0}" y="${yFloor - 18}" width="${x1 - x0}" height="18" fill="#5b6570"/>`);
-    g.push(`<rect x="${x0}" y="${yFloor - 18}" width="${x1 - x0}" height="4" fill="#79848f"/>`);
+    g.push(`<rect x="${x0}" y="${yFloor - 18}" width="${x1 - x0}" height="4" fill="#d4d7da"/>`);
+    g.push(`<path d="M${x0 + 12},${yTop + 7} H${x1 - 12}" stroke="#e8edf0" stroke-width="3"/>`);
     g.push(T(x0 + 18, yTop + 30, name, { size: 15, weight: 800, fill: col, ls: 1.2 }));
-    if (sub) g.push(T(x0 + 18, yTop + 50, sub, { size: 11.5, fill: '#6f8299' }));
+    if (sub) g.push(T(x0 + 18, yTop + 50, sub, { size: 11.5, fill: '#273443' }));
   };
 
   /* ---- the core first: it is a shaft in its own right ---- */
   stationBox(200, GY, 1140, B3f);
   stationBox(CORE0, GY - 104, CORE1, B3f);
   room(200, 1140, GY, B1f, '', '#8fa3ba', '');
-  room(200, 1140, B1f, B2f, 'B2   2 号线站台', L2, 'B 型车、第三轨、站台屏蔽门');
-  room(200, 1140, B2f, B3f, 'B3   3 号线站台', L3, 'C 型车、第三轨、与 1、2 号线垂直（90°）');
+  room(200, 1140, B1f, B2f, 'B2   2 号线站台', '#164b89', 'B 型车 / 第三轨 / 屏蔽门');
+  room(200, 1140, B2f, B3f, 'B3   3 号线站台', '#694500', 'C 型车 / 第三轨 / 横断面');
+  room(CORE0, CORE1, GY, B3f, '', '#273443', '');
 
   /* ---- surface: plaza, pavilion over the core, ad board ---- */
   g.push(T(600, 350, '地面   0.0 米', { size: 15, fill: '#cfe0f0', weight: 800, ls: 1.2 }));
@@ -158,23 +177,33 @@ export function artSection() {
   // placed by its lower floor and nothing is nudged. A 扶梯's balustrade stands a metre
   // or so above the floor it arrives at, which lands in the core's own void rather than
   // through a slab: the rooms stop at the core wall.
-  for (const y of [GY, B1f, B2f, B3f]) {
-    g.push(`<rect x="${CORE0}" y="${n(y - 18)}" width="${CORE1 - CORE0}" height="18" fill="#5b6570"/>`);
-    g.push(`<rect x="${CORE0}" y="${n(y - 18)}" width="${CORE1 - CORE0}" height="4" fill="#79848f"/>`);
-  }
   for (const floor of [B1f, B2f, B3f]) g.push(pieceAt('escalator', 1150, floor).svg);
   for (const floor of [B2f, B3f]) g.push(pieceAt('stair-straight', 1358, floor).svg);
+  // Continuous landing band spans the core on all four levels and covers the run heads.
+  for (const y of [GY, B1f, B2f, B3f]) {
+    g.push(`<rect data-layer="circulation-landing" x="${CORE0}" y="${y}" width="${CORE1 - CORE0}" height="10" fill="#5b6570"/>`);
+    g.push(`<rect x="${CORE0}" y="${y}" width="${CORE1 - CORE0}" height="3" fill="#d4d7da"/>`);
+  }
   g.push(T(1150, B3f + 22, '扶梯 ×3', { size: 11.5, fill: C.asc, weight: 800 }));
   g.push(T(1358, B3f + 22, '楼梯 ×2', { size: 11.5, fill: C.yellow, weight: 800 }));
   const shaft = pieceAt('lift-shaft', 1146, B3f);
-  g.push(shaft.svg);
+  // Cutaway treatment retains the game shaft silhouette but exposes the moving cabin.
+  g.push(`<g data-layer="lift-shaft-cutaway">`
+    + `<rect x="1146" y="${n(B3f - shaft.h)}" width="${n(shaft.w)}" height="${n(shaft.h)}" fill="#17222c"/>`
+    + `<g opacity=".24">${shaft.svg}</g>`
+    + `<path d="M1148,${n(B3f - shaft.h)} V${B3f} M${n(1146 + shaft.w - 2)},${n(B3f - shaft.h)} V${B3f}" stroke="#a3adb6" stroke-width="2"/>`
+    + '</g>');
   // one cab, travelling the shaft: ground down to B3 and back
   // The cabin is the game's too, and its own picture's bottom edge is its floor — so the
   // travel is the shaft's height and no more. (It used to be `B3f - GY - 4` from a cab
   // drawn with its *top* at the ground, which carried the car clean through the floor.)
   const cabin = pieceAt('lift-car', 1152, GY);
   const travel = B3f - GY;
-  g.push(group(cabin.svg,
+  const visibleCabin = cabin.svg
+    + `<rect x="1152" y="${n(GY - cabin.h)}" width="${n(cabin.w)}" height="${n(cabin.h)}" fill="none" stroke="#8ec9e6" stroke-width="1.8"/>`
+    + passenger(1167, GY - 5, C.teal, 0)
+    + passenger(1183, GY - 5, C.orange, 0);
+  g.push(group(visibleCabin,
     amT(`0 0;0 0;0 ${travel};0 ${travel};0 0;0 0`, '0;0.12;0.44;0.76;0.88;1', '13s',
       '0.4 0 0.2 1;0 0 1 1;0.4 0 0.2 1;0 0 1 1;0 0 1 1')));
   g.push(T(1171, GY - 14, '电梯', { size: 11.5, fill: '#9fb3c8', weight: 800, anchor: 'middle' }));
@@ -187,7 +216,7 @@ export function artSection() {
   const gatePitch = 34;
   for (let i = 0; i < 6; i++) g.push(pieceAt('gate', 700 + i * gatePitch, B1f).svg);
   g.push(`<rect x="696" y="${n(B1f - gate.h - 8)}" width="212" height="8" fill="${C.green}"/>`);
-  g.push(T(696, n(B1f - gate.h - 18), '闸机 —— 各扛各的客流', { size: 11.5, fill: C.green, weight: 700 }));
+  g.push(T(696, n(B1f - gate.h - 18), '闸机 · 付费区边界', { size: 11.5, fill: '#174f35', weight: 700 }));
   const tvm = pieceAt('tvm', 0, 0);
   for (let i = 0; i < 4; i++) g.push(pieceAt('tvm', 400 + i * (tvm.w + 3), B1f).svg);
   g.push(T(396, n(B1f - tvm.h - 12), '自动售票机', { size: 12, fill: C.blue, weight: 800 }));
@@ -195,30 +224,29 @@ export function artSection() {
   // here: shelves, desks, cubicles and sinks are modules of their own". So the room is
   // drawn and the fit-out is the game's: two 货架 standing inside it, front on, because a
   // shelf's stocked face is the one a shopper walks up to.
-  const shopX = 236, shopW = 124, shopTop = B1f - 78;
-  g.push(`<rect x="${shopX}" y="${shopTop}" width="${shopW}" height="9" fill="#a4703f" stroke="#2a1c0d" stroke-width="1"/>`);
-  g.push(`<rect x="${shopX}" y="${shopTop}" width="9" height="${B1f - shopTop}" fill="#8a5a2b" stroke="#2a1c0d" stroke-width="1"/>`);
-  g.push(`<rect x="${shopX + shopW - 9}" y="${shopTop}" width="9" height="${B1f - shopTop}" fill="#8a5a2b" stroke="#2a1c0d" stroke-width="1"/>`);
-  g.push(`<rect x="${shopX}" y="${B1f - 10}" width="${shopW}" height="10" fill="#7a4f27"/>`);
+  const shopX = 236, shopW = 124;
   g.push(pieceAt('shelf', shopX + 16, B1f).svg);
   g.push(pieceAt('shelf', shopX + 54, B1f).svg);
-  g.push(T(shopX + shopW + 4, B1f - 26, '商铺', { size: 11.5, fill: '#c99a63', weight: 800 }));
+  g.push(T(shopX + 16, B1f - 64, '货架', { size: 11.5, fill: '#473726', weight: 800 }));
   const vend = pieceAt('vending', 0, 0);
   for (let i = 0; i < 3; i++) g.push(pieceAt('vending', 950 + i * (vend.w + 3), B1f).svg);
-  g.push(T(950, n(B1f - vend.h - 12), '自动售货机', { size: 12, fill: C.teal, weight: 800 }));
+  g.push(T(950, n(B1f - vend.h - 12), '自动售货机', { size: 12, fill: '#15514d', weight: 800 }));
   const board = pieceAt('billboard-panorama', 0, 0);
   g.push(pieceAt('billboard-panorama', 604, n(B1f - 0.95 * S)).svg);
-  g.push(T(604, n(B1f - 0.95 * S - board.h - 8), '广告', { size: 12, fill: C.pink, weight: 800 }));
+  g.push(T(604, n(B1f - 0.95 * S - board.h - 8), '广告', { size: 12, fill: '#67334b', weight: 800 }));
   // B1's own name, last of the concourse's furniture so nothing stands in front of it.
-  g.push(T(230, GY + 30, 'B1   站厅', { size: 15, weight: 800, fill: '#8fa3ba', ls: 1.2 }));
-  g.push(T(230, GY + 50, '闸机外面就是非付费区；商铺、售票机、售货机沿墙摆', { size: 11.5, fill: '#6f8299' }));
-  // queue + walk shapes
-  for (let i = 0; i < 7; i++) {
-    const qx = 624 + i * 60;
-    g.push(`<circle cx="${qx}" cy="${B1f - 16}" r="6" fill="${C.yellow}" opacity=".8"/>`);
-    // each waiting passenger shuffles up the queue toward the gate line
-    g.push(mover(`M ${qx} ${B1f - 4} L ${qx} ${B1f - 62}`, C.yellow, `${(i * 0.35).toFixed(2)}s`, { r: 6, dur: '3s', f0: 0.02, f1: 0.1, f2: 0.84, f3: 0.94 }));
+  g.push(T(230, GY + 24, 'B1   水泥站厅', { size: 15, weight: 800, fill: '#273443', ls: 1.2 }));
+  const colors = [C.red, C.blue, C.teal, C.purple, C.orange, C.pink, C.green];
+  // Wall equipment and the barrier belong to the fixtures band; passengers paint last.
+  for (const [id, x] of [['extinguisher', 365], ['bin', 552], ['door-steel-2', 1072]])
+    g.push(pieceAt(id, x, B1f).svg);
+  for (const x of [664, 914, 1040]) g.push(pieceAt('fence', x, B1f).svg);
+  for (let i = 0; i < 19; i++) {
+    const x = 300 + i * 40 + (i % 3 - 1) * 5;
+    g.push(passenger(x, B1f - 2, colors[i % 7], i * .4, i % 4 === 0));
   }
+  for (const x of [540, 786, 1030]) g.push(passenger(x, GY - 2, colors[x % 7], x / 100, true));
+  g.push(pieceAt('bin', 1080, GY).svg);
 
   /* ---- trains on their platforms ---- */
   const plat = (fy, col, line, psd) => {
@@ -231,42 +259,46 @@ export function artSection() {
     // because it stands between the reader and the train — and its panels are glass, so the
     // car's own doors still read through it.
     const psdRun = psd ? pieceAt('platform-edge', 514, platformY) : null;
-    if (psdRun) g.push(psdRun.svg);
     // A B-type car on the platform, on the game's own datum: its origin rides half a
     // metre under the platform surface, which is what puts the door sill a hand's width
     // over the edge rather than at it.
     const car = carImage(trainCard(`side-${line === '2' ? 'B' : 'L'}`), 790, platformY + ORIGIN_BELOW_PLATFORM * S, S);
     g.push(trainRun(car.svg, 26, '14s'));
+    if (psdRun) g.push(`<g data-layer="b2-screen-doors">${psdRun.svg}</g>`);
     g.push(`<rect x="${n(car.x - 34)}" y="${platformY}" width="${n(car.w + 68)}" height="7" fill="${C.yellow}"/>`);
-    if (psd) g.push(T(510, n(platformY - 3.1 * S) - 10, '屏蔽门', { size: 12, fill: '#8ec9e6', weight: 800, anchor: 'end' }));
     for (const ax of [car.x + 100, car.x + 270, car.x + 440]) {
       g.push(`<path d="M${ax},${fy - 36} l0,12 m-6,-7 l6,7 l6,-7" stroke="${C.yellow}" stroke-width="2.5" fill="none"/>`);
       g.push(`<path d="M${ax + 24},${fy - 24} l0,-12 m-6,7 l6,-7 l6,7" stroke="#2fb344" stroke-width="2.5" fill="none"/>`);
     }
   };
   plat(B2f, L2, '2', true);
+  for (const [id, x] of [['bench-steel-1', 260], ['bin', 312], ['extinguisher', 460]])
+    g.push(pieceAt(id, x, B2f - 18).svg);
+  for (let i = 0; i < 16; i++) g.push(passenger(350 + i * 48 + (i % 4 - 1.5) * 4,
+    B2f - 18, colors[(i + 2) % 7], i, i % 5 === 0));
 
   /* ---- Line 3 is perpendicular to the other two, so the section cuts it
      across: the car is drawn end on and its tracks run into the page. ---- */
   const crossStation = (fy, col, line) => {
     const cx = 670;                                // middle of the B3 room
     const wallL = cx - 132, wallR = cx + 132;
-    const boxTop = B2f, floorTop = fy - 18;
-    const railY = floorTop - 6;
-    const trainB = railY - 4;
-    const platTop = trainB - 26;                   // platform surface, level with the car floor
+    const boxTop = B2f;
+    const platTop = fy - 18;                       // continuous with the surrounding B3 platform
+    const railY = platTop + ORIGIN_BELOW_PLATFORM * S;
+    const floorTop = railY + 19;                   // recessed track bed under the platform
 
-    g.push(`<rect x="${wallL}" y="${boxTop}" width="${wallR - wallL}" height="${B3f - boxTop}" fill="#0d1219" stroke="#39465a" stroke-width="2"/>`);
+    g.push(`<rect x="${wallL}" y="${boxTop}" width="${wallR - wallL}" height="${floorTop - boxTop}" fill="#0d1219" stroke="#39465a" stroke-width="2"/>`);
     g.push(`<rect x="${wallL}" y="${boxTop}" width="${wallR - wallL}" height="14" fill="#1b2430" stroke="#39465a" stroke-width="2"/>`);
     g.push(`<rect x="${wallL}" y="${boxTop}" width="12" height="${B3f - boxTop}" fill="#2a3542"/>`);
     g.push(`<rect x="${wallR - 12}" y="${boxTop}" width="12" height="${B3f - boxTop}" fill="#2a3542"/>`);
 
     // side platforms either side of the single track
     for (const s of [-1, 1]) {
-      const x0 = s < 0 ? cx - 38 - 62 : cx + 38;
-      g.push(`<rect x="${x0}" y="${platTop}" width="62" height="${floorTop - platTop}" fill="#5b6570"/>`);
-      g.push(`<rect x="${x0}" y="${platTop}" width="62" height="4" fill="#79848f"/>`);
-      g.push(`<rect x="${s < 0 ? x0 + 62 - 18 : x0}" y="${platTop}" width="18" height="6" fill="${C.yellow}"/>`);
+      const x0 = s < 0 ? wallL : cx + 38;
+      const w = wallR - (cx + 38);
+      g.push(`<rect x="${x0}" y="${platTop}" width="${w}" height="${floorTop - platTop}" fill="#5b6570"/>`);
+      g.push(`<rect x="${x0}" y="${platTop}" width="${w}" height="4" fill="#d4d7da"/>`);
+      g.push(`<rect x="${s < 0 ? cx - 38 - 18 : x0}" y="${platTop}" width="18" height="6" fill="${C.yellow}"/>`);
     }
     // track bed, running rails and third rail, all in cross-section
     g.push(`<rect x="${cx - 38}" y="${railY}" width="76" height="${floorTop - railY}" fill="#1a212b"/>`);
@@ -277,24 +309,34 @@ export function artSection() {
     // around it (walls, platforms, bed, running rails, third rail) is drawn: it is what
     // the section is of.
     g.push(carImage(trainCard('front-C'), cx, railY, S).svg);
-
-    g.push(T(218, 950, '3 号线跟 1、2 号线成直角（90°）。', { size: 12.5, fill: col, weight: 700 }));
-    g.push(T(218, 970, '这层是横断面：轨道插进图里，看到的是车头正面。', { size: 11, fill: '#7d8ea3' }));
+    // End-on section profiles: the PSDs run into the page beside the perpendicular
+    // track. Their full height is the game's, rather than a front elevation pasted sideways.
+    for (const x of [cx - 44, cx + 38]) {
+      const h = PSD_FULL_HEIGHT * S, top = platTop - h;
+      g.push(`<g data-layer="b3-screen-door-section">`
+        + `<rect x="${x}" y="${n(top)}" width="6" height="${n(h)}" fill="${C.glass}" fill-opacity=".65" stroke="#a7b5bf" stroke-width="1.2"/>`
+        + `<rect x="${x - 1}" y="${n(top)}" width="8" height="4" fill="#d4d7da"/>`
+        + `<rect x="${x - 1}" y="${n(top + 4)}" width="8" height="2" fill="${C.yellow}"/>`
+        + `<rect x="${x - 1}" y="${platTop - 3}" width="8" height="3" fill="#5b6570"/>`
+        + '</g>');
+    }
+    g.push(T(cx, floorTop + 20, '横断面 · 屏蔽门立在两侧站台边缘', { size: 11, fill: '#a9b8c8', anchor: 'middle' }));
 
   };
   crossStation(B3f, L3, '3');
-
-  g.push(T(232, B3f - 34, '黄向上是下车，绿向下是上车 —— 列车按时刻表走', { size: 11, fill: '#6f8299' }));
+  for (const [id, x] of [['bench-steel-1', 240], ['bin', 290], ['extinguisher', 490],
+    ['bench-steel-1', 850], ['door-steel-2', 1070], ['bin', 1032]])
+    g.push(pieceAt(id, x, B3f - 18).svg);
+  for (const [i, x] of [330, 362, 399, 430, 468, 837, 895, 929, 967, 1004].entries())
+    g.push(passenger(x, B3f - 18, colors[(i + 4) % 7], i * .6, i % 3 === 0));
 
   /* ---- depth dimensions ---- */
-  const dim = (y1, y2, txt) => {
-    const x = 120;
-    g.push(`<path d="M${x},${y1} L${x},${y2}" stroke="${C.yellow}" stroke-width="1.8"/>`);
-    g.push(`<path d="M${x - 6},${y1 + 10} L${x},${y1} L${x + 6},${y1 + 10} M${x - 6},${y2 - 10} L${x},${y2} L${x + 6},${y2 - 10}" fill="none" stroke="${C.yellow}" stroke-width="1.8"/>`);
-    g.push(T(x - 12, (y1 + y2) / 2 + 5, txt, { size: 13.5, fill: C.yellow, anchor: 'end', mono: true }));
-  };
-  dim(GY, B1f - 18, '-4 米'); dim(GY, B2f - 18, '-8 米'); dim(GY, B3f - 18, '-12 米');
-  dim(GY, deckY - 4, '+8 米');
+  g.push(`<path d="M120,${deckY} V${B3f}" stroke="${C.yellow}" stroke-width="1.8"/>`);
+  for (const [y, text] of [[deckY, '+8 米'], [GY, '0 米'], [B1f, '-4 米'], [B2f, '-8 米'], [B3f, '-12 米']]) {
+    g.push(`<path d="M112,${y} H128" stroke="${C.yellow}" stroke-width="2"/>`);
+    g.push(`<path d="M136,${y} H180" stroke="${C.yellow}" stroke-width="1" opacity=".35" stroke-dasharray="3 5"/>`);
+    g.push(T(104, y + 5, text, { size: 13.5, fill: C.yellow, anchor: 'end', mono: true }));
+  }
 
   /* ---- footnote strip ---- */
   const footY = B3f + 92;

@@ -113,9 +113,8 @@ const cropOf = (shots, shot, name) => {
 /**
  * A crop placed at the size the sheet wants, which is usually the **logical** size it
  * was measured at: the capture supersamples a region at 2× so the sheet can carry it
- * 1:1 and the browser downsamples the pixels, and only the hero is the other way
- * round — photographed below its own size because a full-colour 3D view is most of a
- * megabyte.
+ * 1:1 and the browser downsamples the pixels. The hero also carries a 2×
+ * capture, preserving the interface and 3D scene when the sheet is zoomed.
  */
 const image = (crop, x, y, w = crop.rect.width, h = crop.rect.height) =>
   `<image x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" href="${crop.href}"/>`
@@ -144,8 +143,8 @@ export function artInterface() {
 
   // The scale the window was photographed at, so a region's own box lands on its
   // pixels — the boxes come from the capture's DOM measurements, not from here.
-  const sx = win.px.width / shots.window.width
-  const sy = win.px.height / shots.window.height
+  const sx = HERO_W / shots.window.width
+  const sy = HERO_H / shots.window.height
   const inHero = (box) => ({
     x: HERO_X + box.x * sx,
     y: HERO_Y + box.y * sy,

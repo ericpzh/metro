@@ -32,6 +32,7 @@ const arg = (name, fallback) => {
 }
 const width = Number(arg('w', 1600))
 const height = Number(arg('h', 1000))
+const DEVICE_SCALE = 1
 const outDir = resolve(repo, arg('out', join('.preview', 'ui-shots')))
 const PORT = Number(arg('port', 4197))
 const DEBUG_PORT = Number(arg('debug-port', 9339))
@@ -134,11 +135,8 @@ const SHOTS = [
       return { gates: gates.length, storey: gates[0].z, span }
     })()`,
     crops: [
-      // The window is the one crop that is **downscaled** rather than supersampled:
-      // a 1600 × 1000 photograph of a 3D view is most of a sheet's weight on its own,
-      // and the sheet shows it as an overview, where 0.6 of the real pixels is
-      // already more than it can use.
-      ['window', 0.6],
+      // Supersample the overview too, so text and the 3D scene stay sharp when zoomed.
+      ['window', 2],
       ['topbar', 2],
       ['bottombar', 2],
       ['rail', 2, 620],
@@ -234,7 +232,9 @@ const shoot = async (clip) => {
     format: 'png',
     fromSurface: true,
     captureBeyondViewport: false,
-    clip: { ...clip, scale: clip.scale ?? 1 },
+    // CDP multiplies clip scale by device scale. Keep the requested output scale
+    // independent of DPR.
+    clip: { ...clip, scale: (clip.scale ?? 1) / DEVICE_SCALE },
   })
   if (!r?.data) throw new Error('no pixels came back')
   return Buffer.from(r.data, 'base64')
@@ -246,7 +246,7 @@ try {
   await session.send('Emulation.setDeviceMetricsOverride', {
     width,
     height,
-    deviceScaleFactor: 1,
+    deviceScaleFactor: DEVICE_SCALE,
     mobile: false,
     screenWidth: width,
     screenHeight: height,

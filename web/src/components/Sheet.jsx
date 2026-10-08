@@ -29,14 +29,20 @@ export default function Sheet({ art, onOpen }) {
       data-reveal
       style={{ '--accent': art.accent }}
     >
-      <button
+      {art.id === '06' ? (
+        <div className="sheet__zoom">
+          <object className="sheet__interactive" data={sheet(art.file)} type="image/svg+xml" aria-label={art.alt}>
+            <img src={sheet(art.file)} alt={art.alt} loading="lazy" />
+          </object>
+        </div>
+      ) : <button
         type="button"
         className="sheet__zoom"
         onClick={() => onOpen(art)}
         aria-label={`看大图：${art.title}`}
       >
         <img src={sheet(art.file)} alt={art.alt} loading="lazy" decoding="async" />
-      </button>
+      </button>}
 
       <article className={cls}>
         <header className="panel__head">

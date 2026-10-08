@@ -12,11 +12,8 @@
 // coefficient retuned changes this sheet's text as well as its pictures, and the sheet
 // cannot describe a day the simulation is not running.
 //
-// Nothing here plots the curve by hand. The chart is a photograph of the chart — this
-// file only says which day each one is and what the numbers behind it are.
-//
-// It does not move: a demand sheet is a reference, and a line that animated would read
-// as a demo of the window rather than as the window.
+// The main chart overlays a live preview using the sim's own samples and multipliers.
+// In an image embed it demonstrates moving boundaries; opened as SVG it supports dragging.
 
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -37,10 +34,13 @@ import {
   demandSeries,
 } from '../game/src/sim/demand.ts'
 import { CALENDAR_YEAR, DAY_TYPE_LABELS, DEFAULT_CALENDAR } from '../game/src/sim/clock.ts'
+import { demandAnimation } from './demand-animation.mjs'
 
 /** The grid the chart samples on, taken from the series itself rather than written here. */
 const SAMPLES = demandSeries('weekday', DEFAULT_DEMAND_INPUT).length
 const STEP_MINUTES = (24 * 60) / (SAMPLES - 1)
+const timeText = seconds => `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}`
+const spanText = span => `${timeText(span.from)}–${timeText(span.to)}`
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
@@ -114,7 +114,7 @@ export function artDemand() {
       48,
       62,
       '一天的客流，自己拖',
-      `每个出口有自己的进站速度；时段和日历再把它揉成一天的波。这条曲线不是装饰 —— 仿真就照它放人。`,
+      `拖动蓝色营业边界与黄色高峰边界，预览一天的客流变化；箭头键微调。每个出口自己的进站速度，再由时段和日历塑形。`,
     ),
   )
 
@@ -131,10 +131,19 @@ export function artDemand() {
   const badge = (p, num, col = G.accent, r = 14) =>
     `<circle cx="${n(p.x)}" cy="${n(p.y)}" r="${r}" fill="${col}" stroke="${G.bg}" stroke-width="2.5"/>` +
     T(p.x, p.y + 5, String(num), { size: 15, weight: 800, fill: G.bg, anchor: 'middle' })
-  g.push(badge(at(cropOf('time', 'curve')), 1))
   // The spans row is a line of text across the whole panel, so its badge goes at the
   // end of the row rather than on the middle of what it names.
   const spans = cropOf('time', 'curveSpans')
+  const curve = cropOf('time', 'curve')
+  g.push(demandAnimation(
+    MODAL_X + (curve.box.x - modal.rect.x) * scale,
+    MODAL_Y + (curve.box.y - modal.rect.y) * scale,
+    curve.rect.width * scale, curve.rect.height * scale,
+    { x: MODAL_X + (spans.box.x - modal.rect.x) * scale,
+      y: MODAL_Y + (spans.box.y - modal.rect.y) * scale,
+      w: spans.rect.width * scale, h: spans.rect.height * scale },
+  ))
+  g.push(badge({ x: MODAL_X + 16, y: at(curve).y }, 1, G.accent, 12))
   g.push(
     badge(
       {
@@ -165,7 +174,7 @@ export function artDemand() {
   g.push(head(KEY_X, 200, '窗口里有什么'))
   const KEY = [
     { n: 1, name: '客流曲线', lines: [`一天 ${SAMPLES} 个采样点，每 ${STEP_MINUTES} 分钟一个。纵轴是参考工作日的峰值 = 100%，那条虚线就是基准。`] },
-    { n: 2, name: '三段时间', lines: ['营业 06:30–23:30 · 早高峰 07:15–09:00 · 晚高峰 17:30–19:00，和图上三条竖带是同一份数据。'] },
+    { n: 2, name: '三段时间', lines: [`营业 ${spanText(DEFAULT_DEMAND_INPUT.service)} · 早高峰 ${spanText(DEFAULT_DEMAND_INPUT.peaks[0])} · 晚高峰 ${spanText(DEFAULT_DEMAND_INPUT.peaks[1])}。拖蓝色或黄色把手，预览边界变化。`] },
     { n: 3, name: '三个旋钮', lines: ['早高峰量、晚高峰量、波形陡峭度：只改形状，不改已经排好的车。'] },
     { n: 4, name: '日历', lines: [`${CALENDAR_YEAR} 年一整年，节假日和调休上班日都排好了。点一个日期，它就是这一趟的第 1 天。`] },
   ]

@@ -51,7 +51,11 @@ export default function Lightbox({ art, onClose }) {
         className={'lightbox__stage' + (full ? ' lightbox__stage--full' : '')}
         onClick={(e) => e.stopPropagation()}
       >
-        <img src={sheet(art.file)} alt={art.alt} />
+        {art.id === '06' ? (
+          <object className="sheet__interactive" data={sheet(art.file)} type="image/svg+xml" aria-label={art.alt}>
+            <img src={sheet(art.file)} alt={art.alt} />
+          </object>
+        ) : <img src={sheet(art.file)} alt={art.alt} />}
       </div>
 
       <p className="lightbox__foot" onClick={(e) => e.stopPropagation()}>

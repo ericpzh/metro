@@ -629,6 +629,14 @@ code {
   transition: filter 0.4s ease;
 }
 
+.sheet__interactive {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1600 / 1640;
+  border: 0;
+}
+
 .sheet__zoom:hover img,
 .sheet__zoom:focus-visible img {
   filter: brightness(1.09) saturate(1.05);
@@ -928,6 +936,11 @@ code {
 
 .lightbox__stage--full img {
   width: auto;
+  max-width: none;
+}
+
+.lightbox__stage--full .sheet__interactive {
+  width: 1600px;
   max-width: none;
 }
 

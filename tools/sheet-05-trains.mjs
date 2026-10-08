@@ -13,8 +13,7 @@
 // in code is the per-class power and typical use, which is GAME-SPEC §6.1 and quoted
 // as such.
 //
-// It does not move. A parameters sheet that animated would read as a demo; a dimension
-// that moved would be a lie.
+// The real door leaves and headlights cycle; the body, camera and dimensions stay fixed.
 
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -22,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { T, MUL, n, sheet, title } from './iso.mjs'
 import { DOOR_END_INSET, STOCK, STOCK_CLASSES, doorCentres, trainLength, trainRatedCapacity } from '../game/src/sim/stock.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } from '../game/src/sim/constants.ts'
+import { loadTrainAnimation, animatedTrain } from './train-animation.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
@@ -93,6 +93,7 @@ function loadCars() {
 /* -------------------------------------------------------------------- sheet */
 
 export function artTrains() {
+  const poses = loadTrainAnimation()
   const { pieces, livery, cabin } = loadCars()
   const paint = new Map(livery.map((l) => [l.cls, l]))
   const car = (id) => {
@@ -101,7 +102,8 @@ export function artTrains() {
     return p
   }
   const image = (piece, x, y, w, h) =>
-    `<image x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" href="${piece.href}"/>`
+    animatedTrain(poses, piece.id, x, y, w, h)
+      ?? `<image x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" href="${piece.href}"/>`
   const head = (x, y, text, col = G.accent) => T(x, y, text, { size: 12.5, weight: 800, fill: col, ls: 1.2 })
 
   const g = []

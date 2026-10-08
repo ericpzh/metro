@@ -43,7 +43,7 @@ const PX_PER_M = 26
  * left a blank cabinet on the sheet. The **货架** is the other way round: its stocked face
  * is the one a shopper walks up to, so it is the piece that has to be turned.
  */
-const FLIP = ['vending', 'tvm', 'shelf', 'platform-edge']
+const FLIP = ['vending', 'tvm', 'shelf', 'platform-edge', 'extinguisher', 'bin', 'door-steel-2', 'bench-steel-1', 'lift-car']
 /** The B2 platform's run, in metres = cells. */
 const PSD_CELLS = 21
 /** The section's core serves three storeys, so its 电梯 is one lift stacked three deep. */
@@ -69,6 +69,11 @@ const PIECES = [
   'exit-covered-1',
   // The screen across the 2 号线 platform, one run long enough for a whole platform.
   'platform-edge',
+  'fence',
+  'extinguisher',
+  'bin',
+  'door-steel-2',
+  'bench-steel-1',
 ]
 
 /** A PNG's pixel size, straight out of its IHDR. */
@@ -99,6 +104,7 @@ try {
       liftStoreys: ${LIFT_STOREYS},
       flip: ${JSON.stringify(FLIP)},
       psdCells: ${PSD_CELLS},
+      stationName: '动物园站',
     })
     return pngs
   })()`)

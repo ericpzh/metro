@@ -516,6 +516,8 @@ export interface ThumbnailSize {
  * by `pxPerMetre * scale`, which is exactly what a PNG's IHDR already says.
  */
 export interface PieceElevations {
+  /** Art capture's station identity, including text printed on screen doors. */
+  stationName?: string | null
   /** The palette ids to draw — a section needs a handful, not all sixty. */
   ids: string[]
   /** Pixels per metre. One figure for the lot, so the drawings compare. */
@@ -570,6 +572,16 @@ export interface PieceElevations {
  * it needs no angle of its own.
  */
 export interface PieceView {
+  /** Capture the same model under another id, for independently turned views. */
+  modelId?: string
+  /** Extra framing margin for small pieces with fine antialiased edges. */
+  padding?: number
+  /** Screen-wall length for an independently captured platform. */
+  psdCells?: number
+  /** Art-only turn around world Z; the built game's model stays unchanged. */
+  rotationZ?: number
+  /** Optional world point to anchor instead of the footprint's floor centre. */
+  anchor?: [number, number, number]
   /**
    * Which drawn corner to photograph from, in the kit's own terms.
    *
@@ -610,6 +622,8 @@ export interface PieceViews {
  * `metres × its own scale` across and `verticalMetres × its scale` up.
  */
 export interface PieceLayout {
+  /** A floor/landing point projected through the actual capture camera. */
+  anchor?: [number, number]
   /** The corner the camera stood on — `iso` or `iso-flip`. */
   from: 'iso' | 'iso-flip'
   /** The frame across the picture, in the drawing's own pixels. */
@@ -771,6 +785,7 @@ export async function renderModulePieces(
   // its marks missing and the tiles are cached for the session.
   await loadPictograms()
   const station = syntheticStation()
+  if (elevations?.stationName) station.name = elevations.stationName
   // A thumbnail has no live service to print, so the 电视 plate shows the station
   // name and a blank clock — the same shape the placed piece draws.
   const plateCache = new Map<string, THREE.Texture>()
@@ -877,6 +892,8 @@ export async function renderModulePieces(
      * big the frame is, where in it the piece is, and where the model's own origin landed.
      */
     const drawIsoView = async (id: string, view: PieceView, group: THREE.Object3D): Promise<void> => {
+      const turn = new THREE.Matrix4().makeRotationZ((view.rotationZ ?? 0) * Math.PI / 180)
+      if (view.rotationZ) group.applyMatrix4(turn)
       scene.add(group)
       const box = objectBox(group)
       /**
@@ -910,8 +927,9 @@ export async function renderModulePieces(
        * converted: `metres` is then the frame **as the picture's pixels already measure it**,
        * which is what makes a sheet's placement arithmetic rather than a measurement.
        */
-      const halfW = Math.max(0.5, ((sil.x[1] - sil.x[0]) / 2) * ISO_PAD)
-      const halfH = Math.max(0.5, ((sil.y[1] - sil.y[0]) / 2) * ISO_PAD)
+      const pad = view.padding ?? ISO_PAD
+      const halfW = Math.max(0.5, ((sil.x[1] - sil.x[0]) / 2) * pad)
+      const halfH = Math.max(0.5, ((sil.y[1] - sil.y[0]) / 2) * pad)
       const pxPerKit = PX_PER_KIT
       const wPx = Math.max(16, Math.round(halfW * 2 * pxPerKit))
       const hPx = Math.max(16, Math.round(halfH * 2 * pxPerKit))
@@ -920,8 +938,14 @@ export async function renderModulePieces(
       // silhouette, in the metres `halfW`/`halfH` are stated in.
       const cx = (sil.x[0] + sil.x[1]) / 2
       const cy = (sil.y[0] + sil.y[1]) / 2
-      virtual.position.copy(centre).addScaledVector(right, cx).addScaledVector(up, cy).addScaledVector(look, -400)
-      virtual.lookAt(centre.clone().addScaledVector(right, cx).addScaledVector(up, cy))
+      // Silhouette offsets are in camera space. Its horizontal basis has the
+      // opposite sign to the drawing's row; using `right` here clipped gates.
+      const basis = virtual.matrixWorld.elements
+      const frameRight = new THREE.Vector3(basis[0], basis[1], basis[2])
+      const frameUp = new THREE.Vector3(basis[4], basis[5], basis[6])
+      const aim = centre.clone().addScaledVector(frameRight, cx).addScaledVector(frameUp, cy)
+      virtual.position.copy(aim).addScaledVector(look, -400)
+      virtual.lookAt(aim)
       virtual.left = -halfW
       virtual.right = halfW
       virtual.top = halfH
@@ -931,6 +955,13 @@ export async function renderModulePieces(
       virtual.updateProjectionMatrix()
       virtual.updateMatrixWorld(true)
       renderer.render(scene, virtual)
+      // Unlike a silhouette corner, this point is on the model's real floor. Project it
+      // through the final camera so asymmetric models and turns retain their placement.
+      const anchorWorld = view.anchor
+        ? new THREE.Vector3(...view.anchor).applyMatrix4(turn)
+        : new THREE.Vector3((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.min.z)
+      const anchorNdc = anchorWorld.project(virtual)
+      const anchor: [number, number] = [(anchorNdc.x + 1) / 2, (1 - anchorNdc.y) / 2]
       let png = renderer.domElement.toDataURL('image/png')
       let px = { width: wPx, height: hPx }
       /**
@@ -1019,6 +1050,7 @@ export async function renderModulePieces(
        * where the model actually is — its floor, its head, and how long it is — and this is it.
        */
       layout[id] = {
+        anchor,
         from: view.from ?? 'iso',
         metres: frameMetres,
         verticalMetres: frameVertical,
@@ -1054,9 +1086,10 @@ export async function renderModulePieces(
       for (const id of ids) {
         if (seen.has(id)) continue
         seen.add(id)
-        const row = MODULE_OPTIONS.find((o) => o.id === id)
-        if (row) rows.push({ id: row.id, label: row.label })
-        else if (synthetic[id]) rows.push({ id, label: synthetic[id] })
+        const sourceId = views?.[id]?.modelId ?? id
+        const row = MODULE_OPTIONS.find((o) => o.id === sourceId)
+        if (row) rows.push({ id, label: row.label })
+        else if (synthetic[sourceId]) rows.push({ id, label: synthetic[sourceId] })
       }
       return rows
     }
@@ -1065,8 +1098,10 @@ export async function renderModulePieces(
       : rowsFor(MODULE_OPTIONS.map((o) => o.id))
     for (const opt of wanted) {
       // A `lift-car` is sampled as the lift it is a part of; everything else by its own id.
-      let mod = sampleModule(opt.id === 'lift-car' || opt.id === 'lift-shaft' ? 'lift' : opt.id, station)
-      if (mod && mod.type === 'platform-edge' && elevations?.psdCells) mod = { ...mod, w: elevations.psdCells }
+      const sourceId = views?.[opt.id]?.modelId ?? opt.id
+      let mod = sampleModule(sourceId === 'lift-car' || sourceId === 'lift-shaft' ? 'lift' : sourceId, station)
+      const psdCells = views?.[opt.id]?.psdCells ?? elevations?.psdCells
+      if (mod && mod.type === 'platform-edge' && psdCells) mod = { ...mod, w: psdCells }
       if (!mod) continue
       // A 电梯 is stacked to the storeys the caller asked for before anything is measured:
       // its shaft, not its rise, is what a section draws.
@@ -1075,6 +1110,31 @@ export async function renderModulePieces(
       }
       let group = buildModule(mod, ctx)
       if (!group) continue
+
+      /**
+       * The shaft and its cabin, separately — for **both** passes, not only the section.
+       *
+       * `LiftModel` leaves the cabin in `userData.liftCabin` with its origin on the cabin floor and
+       * bakes it in at the shaft's foot. A sheet that wants to *travel* a cabin, or to draw one at
+       * all, needs the two apart: `lift-shaft` is the shaft without it and `lift-car` is the cabin
+       * on its own.
+       *
+       * This used to sit inside the elevation branch, which the `views` path returns before — so a
+       * sheet asking for `lift-car` as an **isometric view** was handed the shaft again, byte for
+       * byte, and had no way to know: the same picture under two names, each with its own frame.
+       * Moving it here is what the comment beside it always claimed.
+       */
+      if (opt.id === 'lift-car' || opt.id === 'lift-shaft') {
+        const cabin = (group as THREE.Group).userData?.liftCabin as THREE.Group | undefined
+        if (!cabin) continue
+        group.remove(cabin)
+        if (opt.id === 'lift-car') {
+          disposeObject(group)
+          group = cabin
+        } else {
+          disposeObject(cabin)
+        }
+      }
 
       // A piece asked for as a `view` is photographed on the **drawing kit's own axes**, and
       // is finished with here: the elevation path below quarter-turns a long piece and frames
@@ -1093,25 +1153,8 @@ export async function renderModulePieces(
         // and a piece whose run lies along the viewing axis would come out end-on. So a
         // piece built the long way round is quarter-turned to lie across the page: the
         // section is drawn as a station would be laid out if the escalator ran left to
-        // right, not into the paper.
+        // right, not into the paper. (Reassigned inside that turn, hence `let`.)
         let box = objectBox(group)
-        // The shaft and its cabin, separately: `LiftModel` leaves the cabin in
-        // `userData.liftCabin` with its origin on the cabin floor and bakes it in at the
-        // shaft's foot. A sheet that wants to *travel* a cabin — rather than draw one —
-        // needs the two apart, so `lift-shaft` is the shaft without it and `lift-car` is
-        // the cabin on its own.
-        if (opt.id === 'lift-car' || opt.id === 'lift-shaft') {
-          const cabin = (group as THREE.Group).userData?.liftCabin as THREE.Group | undefined
-          if (!cabin) continue
-          group.remove(cabin)
-          if (opt.id === 'lift-car') {
-            disposeObject(group)
-            group = cabin
-          } else {
-            disposeObject(cabin)
-          }
-          box = objectBox(group)
-        }
         const runAlongY = box.max.y - box.min.y > box.max.x - box.min.x
         if (runAlongY) {
           scene.remove(group)

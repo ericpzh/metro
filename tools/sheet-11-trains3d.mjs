@@ -15,13 +15,13 @@
 // Nothing on this sheet draws a train. Where it points at one, it points with a
 // leader at a part of the picture rather than at a shape of its own.
 //
-// It does not move: a rolling-stock sheet is a reference, and a car that animated
-// would read as a demo rather than as the stock.
+// Real captured door poses loop on a fixed frame, keeping the reference dimensions still.
 
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MUL, T, n, sheet, title } from './iso.mjs'
+import { loadTrainAnimation, animatedTrain } from './train-animation.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
@@ -84,6 +84,7 @@ function loadCars() {
 /* -------------------------------------------------------------------- sheet */
 
 export function artTrains3D() {
+  const poses = loadTrainAnimation()
   const { pieces, stock, cabin, livery } = loadCars()
   const paint = new Map(livery.map((l) => [l.cls, l]))
   const car = (id) => {
@@ -92,7 +93,8 @@ export function artTrains3D() {
     return p
   }
   const image = (piece, x, y, w = piece.px.width / 2, h = piece.px.height / 2) =>
-    `<image x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" href="${piece.href}"/>`
+    animatedTrain(poses, piece.id, x, y, w, h)
+      ?? `<image x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" href="${piece.href}"/>`
   const head = (x, y, text, col = G.accent) => T(x, y, text, { size: 12.5, weight: 800, fill: col, ls: 1.2 })
 
   const g = []
@@ -184,39 +186,8 @@ export function artTrains3D() {
     }),
   )
 
-  /* ---------------- the whole consist ---------------- */
-  const consist = car('consist')
-  const demo = stock.find((s) => s.cls === 'L') ?? stock[stock.length - 1]
-  const bandY = ty + 46
-  g.push(head(48, bandY, '整列车'))
-  g.push(
-    T(
-      180,
-      bandY,
-      `动物园自己跑的那一列：${demo.cls} 型 6 节，5 号线涂装 —— 一列 ${demo.sixCarLength.toFixed(1)} 米。`,
-      { size: 12, fill: G.muted },
-    ),
-  )
-  const cw = 1440
-  const cx = 48 + (1504 - cw) / 2
-  const ch = (cw / consist.px.width) * consist.px.height
-  const cy = bandY + 16
-  g.push(image(consist, cx, cy, cw, ch))
-  // The cab is the far end of the picture, and the only place the model shows one. The
-  // label goes in the empty dark under the train's diagonal rather than on the cars.
-  const cabX = cx + cw * 0.95
-  const cabY = cy + ch * 0.88
-  const labX = cx + cw * 0.66
-  const labY = cy + ch * 0.96
-  g.push(
-    `<path d="M${n(labX - 6)},${n(labY - 5)} L${n(cabX)},${n(cabY)}" stroke="${G.warn}" stroke-width="1.6" stroke-dasharray="7 5" fill="none"/>` +
-      `<circle cx="${n(cabX)}" cy="${n(cabY)}" r="4.5" fill="${G.warn}"/>` +
-      T(labX - 14, labY, '车头，只有灯不同', { size: 12, fill: G.warn, weight: 800, anchor: 'end' }),
-  )
-  const afterConsist = cy + ch + 18
-
   /* ---------------- two details ---------------- */
-  const detailY = afterConsist + 46
+  const detailY = ty + 68
   g.push(head(48, detailY, '开着门'))
   g.push(head(640, detailY, '车头'))
   const open = car('open')

@@ -250,6 +250,32 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
       transparent: true,
     },
   })),
+  /**
+   * **One** car of the B type, isometric, for a sheet whose platform is short.
+   *
+   * The three above are two-car consists on purpose: a specimen a catalogue lays side by side
+   * wants one cab end and one gangway, and the sheets that carry rolling stock are about the
+   * stock. A station drawing is about the station, and its platform is whatever the plan says —
+   * sheet 01's is 24 m, so a 40 m consist hangs 8 m off each end of it. A one-car consist is
+   * reachable in the game (the 编组 slider runs 1–8), so this is the stock that fits, photographed
+   * and measured exactly like the rest.
+   */
+  {
+    id: 'iso-B1',
+    label: 'B 型等轴（单节）',
+    note: '单节编组：短站台站得下的那一节',
+    width: 1200,
+    height: 1150,
+    scene: {
+      stock: 'B',
+      cars: 1,
+      doorsOpen: false,
+      from: new THREE.Vector3(1, 1, -1),
+      span: 'car' as Span,
+      elevation: 'iso' as Elevation,
+      transparent: true,
+    },
+  },
   // The plan, cleared to nothing: the platform sheet lays it over its own drawing of
   // the platform, the track and the queue lanes, so it has to composite rather than
   // sit in a box of its own. Drawn at that sheet's scale, not this one's.
@@ -292,6 +318,10 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
 
 export interface TrainFrame {
   id: string
+  /** Capture-only pose variants reuse a specimen's fixed camera and frame. */
+  baseId?: string
+  doorProgress?: number
+  headlights?: boolean
   width: number
   height: number
   background?: string
@@ -567,7 +597,7 @@ export async function captureTrains(
 
   try {
     for (const frame of frames) {
-      const show = byId.get(frame.id)
+      const show = byId.get(frame.baseId ?? frame.id)
       if (!show) continue
       const s = STOCK[show.scene.stock]
       // `TrackModel` reads only `ctx.mats` and `ctx.preview` off the context it is handed
@@ -607,7 +637,8 @@ export async function captureTrains(
           })
       // The leaves are placed by `setDoors`, which the live scene drives from the
       // dwell's own progress — the pose's `doorsOpen` is a hint, not a control.
-      if (!show.scene.track) setDoors(group, show.scene.doorsOpen ? 1 : 0)
+      if (!show.scene.track) setDoors(group, frame.doorProgress ?? (show.scene.doorsOpen ? 1 : 0))
+      mats.headlight.color.setHex(frame.headlights === false ? 0x27303a : 0xfff6e2)
       scene.add(group)
 
       renderer.setSize(frame.width, frame.height, false)

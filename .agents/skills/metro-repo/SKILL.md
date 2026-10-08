@@ -71,7 +71,7 @@ commands.
 
 | Script | What it does |
 |---|---|
-| `gen-art.mjs [nn …]` | Regenerates every `art/*.svg` (or only the sheets named by leading number / file name), one `sheet-*.mjs` / `sheets-*.mjs` module per sheet, drawn through `iso.mjs`. Sheets 08 and 10 are retired; the eleven live ones are 01–07, 09, 11–13. |
+| `gen-art.mjs [nn …]` | Regenerates every `art/*.svg` (or only the sheets named by leading number / file name), one `sheet-*.mjs` / `sheets-*.mjs` module per sheet, drawn through `iso.mjs`. Sheet 01 is `sheet-01-hero-banded.mjs`. Sheets 08 and 10 are retired; the eleven live ones are 01–07, 09, 11–13. |
 | `sheet-png.mjs <nn>` | Rasterises one sheet in a headless browser so the composition can be **looked at** (`--at <s>` freezes an animated sheet). |
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
 | `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. |
@@ -79,8 +79,11 @@ commands.
 | `render-block-cards.mjs` | Sheet 03's blocks, meshed and lit by the game (same shape). |
 | `render-ui-shots.mjs` | Sheets 06 and 07: boots the game, drives it into real states, crops each window / chrome region to its own DOM box at 2×. |
 | `render-train-cards.mjs` | Sheets 02, 05, 11, 12 and 13: builds each stock class with `buildTrain`, frames one car or a consist (`--trim-only` re-crops without booting the game). |
+| `render-train-animation.mjs`, `train-animation.mjs` | Capture and place real rendered door/headlight poses for animated train details. The capture writes `.preview/train-animation/`; `gen-art.mjs` reads it when generating sheets that use these poses. |
 | `render-piece-elevations.mjs` | Sheet 02's pieces: the rail's own piece builder asked for square-on elevations, one scale, base on the picture's bottom edge. |
-| `render-piece-views.mjs` | Sheet 13's pieces: the same pieces on the drawing kit's isometric axes, with the layout (frame, pixels, origin) that lets a sheet scale a run to the floors it joins. |
+| `render-piece-views.mjs` | Sheets 01 and 13's pieces: the same pieces on the drawing kit's isometric axes, with the layout (frame, pixels, origin) that lets a sheet scale a run to the floors it joins. `--hero --scale 4` captures sheet 01's station layers separately in `.preview/hero-piece-views/`; the default capture feeds sheet 13 in `.preview/piece-views/`. |
+| `station-elevations.mjs`, `station-piece-images.mjs` | Read the square-on and isometric station-piece captures into authored sheet drawings, retaining each model's metre dimensions and placement anchor. |
+| `demand-animation.mjs` | Builds sheet 06's demand-curve preview from the game's demand and calendar rules. In an embedded SVG document, its time-boundary handles can be dragged or adjusted with arrow keys. |
 | `render-view-shots.mjs` | Photographs the demo station from each of the game's own camera presets (sheet 09's subject) into `.preview/view-shots/`, for looking at rather than asserting. |
 | `game-tiles.mjs` | Starts the built game in headless Chrome and saves the build rail's real preview tiles, for checking an art change against it. |
 | `browser-harness.mjs` | The shared headless-Chrome + static-server driver the `render-*` passes sit on. |

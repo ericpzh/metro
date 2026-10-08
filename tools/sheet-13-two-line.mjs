@@ -1,50 +1,21 @@
-// Concept sheet 13 — the two-line interchange, drawn as **fourteen flat layers**.
+// Sheet 13: an authored stack of street, elevated platform, B1 concourse and B2 island.
+// Equipment uses the same real models, 3D facing and measured landing anchors as sheet 01.
+// Capture: node tools/render-piece-views.mjs --hero --scale 4
+// Regenerate: node tools/gen-art.mjs 13
 //
-// This sheet is not a scene that happens to read well; it is a stack, and the stack is stated
-// once, at the top, and obeyed by everything below it. The reader's list, from the front of the
-// picture (the bottom of it) to the back (the top), is the order the layers are painted in —
-// last painted is nearest, so it covers what is behind it:
-//
-//    1 地下 A 列车      the consist on the near road, in front of everything
-//    2 地下 A 轨道      its rails, the first thing behind it
-//    3 地下站台的人      the crowd waiting on the island
-//    4 扶梯 / 楼梯      one set, in the middle of the island
-//    5 地下站台          the island itself
-//    6 地下 B 列车      the consist on the far road
-//    7 地下 B 轨道      its rails
-//    8 车站墙体          the wall behind the far road and the wall along the side
-//    9 高架站台雨棚      the viaduct canopy, and the columns holding it
-//   10 高架站台的人      the crowd up there
-//   11 高架站台          the viaduct platform
-//   12 高架列车          the A-type consist
-//   13 高架轨道          its rails, and the bridge deck they lie on
-//   14 桥墩              the piers, standing on the street under all of it
-//
-// Two things about that list are worth knowing before changing anything.
-//
-// **A band, not a position.** `Scene().out()` paints `fg` in ascending key, so a low key is far
-// away and a high one is near, and which of two shapes covers the other is decided by nothing
-// but which band its key falls in. A figure that spans the whole station — a 40 m consist, a
-// 40 m track, a 40 m wall — cannot be sorted against anything by its own screen position, so
-// each such figure is put in the band that says what it is. The bands are 200 apart and a
-// figure's own position only orders it *inside* its band, which is why a consist is always on
-// top of the rails it stands on and always behind the platform it stands beside.
-//
-// **The box is not a layer.** The ground the station is cut into is painted raw, before the
-// sort at all (`S.raw`), because every face of it is behind everything: it is the hole, not one
-// of the things in the hole.
-//
-// The pieces are the game's own throughout: the two consists and the viaduct's are
-// `buildTrain` photographed on this drawing's axes (`tools/render-train-cards.mjs`), and the
-// 扶梯 and 楼梯 are `EscalatorModel` and `StairModel` photographed the same way
-// (`tools/render-piece-views.mjs`). Nothing here is a box pretending to be equipment.
+// L states the paint order. Long floors, trains and screen walls stay in separate
+// bands; depth only orders the occupants within a band. The concourse is above
+// B2, its circulation paints over the main floor but under the landing apron,
+// and the near train stays in front.
+// Street equipment stands on uncut ground; the earth mass paints behind all layers.
 import {
-  C, TW, P, n, boxSvg, rboxSvg, quadSvg, faceSvg, Scene, title, sheet, callout, T, MUL,
+  C, TW, TH, ZU, P, n, poly, boxSvg, rboxSvg, quadSvg, faceSvg, Scene, title, sheet, callout, T, MUL,
   rng, amT, mover, group, bboxOf, fitToRect,
 } from './iso.mjs';
 import { isoTrack, catenary } from './train-iso.mjs';
 import { trainCard } from './train-cards.mjs';
-import { pieceView } from './piece-views.mjs';
+import { loadStationPieces, stationPieceImage } from './station-piece-images.mjs';
+import { FINISH_LIST } from '../game/src/sim/finishes.ts';
 
 /* ============================================================ the world, in metres
  * z = 0 is the street. The box is 40 m long (x), 20 m across (y) and 10.8 m deep, and it is
@@ -58,6 +29,11 @@ const ZF = -10.8;                      // pit floor, which is also the track bed
 const ZP = -9.5;                       // the island platform
 const ZT = -0.5;                       // the walls stop at the underside of the ground slab
 const ZR = ZF + 0.18;                  // rail top
+const ZC = ZP + 4;                    // B1 concourse: one real model storey above B2
+const CONCOURSE_END = 9.3;             // rear floor; the right apron reaches the upper landings
+const LANDING_X = X1 - 6, RUN_X = LANDING_X - 6;
+const RUN_Y = [10.4, 11.9];           // paired escalators across the island
+const CONCRETE = '#' + FINISH_LIST.find(f => f.id === 'floor.concrete').tint.toString(16).padStart(6, '0');
 
 const RW = 3.2;                        // a road
 const RB = 3.0, RA = 17.2;             // the two road beds: y 3.0–6.2 and 17.2–20.4
@@ -81,8 +57,9 @@ const PIER_Y = [-5.4, -1.0];
  * first, `trainA` last. `spacing` is 200 so a figure's own depth (see `depth`) can never
  * reach out of its band. */
 const L = {
-  trainA: 2800, trackA: 2600, crowdU: 2400, runs: 2200, platformU: 2000,
-  trainB: 1800, trackB: 1600, wall: 1400,
+  hall: 3400, landing: 3300, runs: 3200, concourse: 3000,
+  trainA: 2800, trackA: 2600, crowdU: 2400, platformU: 2000,
+  trainB: 1800, trackB: 1600, wall: 1400, street: 1300,
   roof: 1200, crowdO: 1000, platformO: 800, trainC: 600, trackC: 400, pier: 200,
 };
 
@@ -106,13 +83,16 @@ export function artTwoLine() {
   const AX = 1120;
   const g = [];
   g.push(title(48, 62, '一条在街上，一条在街下',
-    '还是第 02 张那个换乘站，这回画成体块：一条线在高架桥上，一条线在街面下的箱体里。'));
+    '动物园站：街面出入口、B1 站厅、B2 岛式站台，与高架线路叠在一起。'));
 
   const OV = [];
   const S = Scene();
+  const pieces = loadStationPieces();
   const rr = rng(13);
   /** Push a shape into one of the bands, letting its own position order it within the band. */
   const put = (band, x, y, z, svg) => S.fg.push([band + depth(x, y, z), svg]);
+  const model = (band, id, x, y, z) => put(band, x, y, z,
+    stationPieceImage(pieces, id, x, y, z));
 
   /* ============================================================ the box
    * Painted raw, before the sort: it is the hole everything else sits in. Its top face is the
@@ -133,6 +113,59 @@ export function artTwoLine() {
   // the street: the ground's own top, where the cut did not take it away
   S.raw(quadSvg(-10, -10, 0.02, 14, 32, C.floorAlt, { tone: 1.0, sw: 0 }));
   S.raw(quadSvg(X0, -10, 0.02, X1 - X0, 12, C.floorAlt, { tone: 0.97, sw: 0 }));
+
+  // Street equipment stays on the uncut ground, clear of the bridge piers.
+  model(L.street, 'exit-covered-1', -3.3, 8.5, 0);
+  model(L.street, 'bin', -3.3, 14.2, .02);
+  model(L.street, 'bench-steel-1', -6.3, 12.8, .02);
+  for (const [x, y] of [[-5.8, 9.2], [-2, 13], [-4.8, 15], [-7.4, 12]])
+    S.sprite(x, y, .05, 'personBag', { color: C.teal, k: L.street + depth(x, y, 0) });
+
+  // B1: a rear floor and side aprons leave B2 visible. The right apron meets
+  // the +x upper landings of the bank that runs parallel to the train roads.
+  const hallSlab = (x, y, w, d, band = L.concourse) => put(band, x + w / 2, y + d / 2, ZC,
+    `<g data-layer="${band === L.landing ? 'escalator-landing' : 'concourse-floor'}">${boxSvg(x, y, ZC - .4, w, d, .4, CONCRETE, { sw: .6 })}`
+      + quadSvg(x, y, ZC + .005, w, d, CONCRETE, { fill: 'url(#interchange-concrete-grain)', sw: 0 }) + '</g>');
+  hallSlab(X0, YB, X1 - X0, CONCOURSE_END - YB);
+  hallSlab(X0, CONCOURSE_END, 6, 3.2);
+  // The projecting apron covers the escalator heads independently of the rear floor.
+  hallSlab(LANDING_X, CONCOURSE_END, 6, 6, L.landing);
+
+  const hallPieces = [
+    ['door-steel-2', 6.1, 2.2], ['extinguisher', 9.3, 2.4],
+    ['bin', 10.3, 2.4], ['bin', 17.8, 2.4], ['extinguisher', 35.6, 2.4],
+    ...[11.5, 12.7, 13.9, 15.1, 16.3].map(x => ['tvm', x, 2.9]),
+    ...[38.1, 39.3, 40.5].map(x => ['vending', x, 2.9]),
+    ...[31.5, 32.8, 34.1].map(x => ['shelf', x, 2.6]),
+    ['bench-steel-1', 9.5, 6.2], ['bench-steel-1', 36.3, 7.6],
+    ...[18.5, 19.5, 20.5, 21.5, 22.5, 23.5].map(x => ['gate', x, 6.4]),
+    ...Array.from({ length: 14 }, (_, i) => ['fence', X0 + i + .5, 6.4]),
+    ...Array.from({ length: 20 }, (_, i) => ['fence', 24 + i + .5, 6.4]),
+  ];
+  for (const [id, x, y] of hallPieces) model(L.hall, id, x, y, ZC);
+  model(L.hall, 'billboard-panorama', 26.7, 2.2, ZC + 1.3);
+  // A real shaft spans both floors, with a separate cabin at its lower stop.
+  model(L.hall, 'lift-shaft', 8.5, 10.7, ZP);
+  model(L.hall, 'lift-car', 8.5, 10.7, ZP);
+  put(L.hall, 29, 2, ZC + 2.4,
+    `<text transform="matrix(${TW},${TH},0,${ZU},${n(P(29, 2.02, ZC + 2.4)[0])},${n(P(29, 2.02, ZC + 2.4)[1])})" font-size=".48" font-weight="700" fill="#273443">动物园站</text>`);
+  const guidance = [[13, 4.8], [20.5, 4.8], [20.5, 8], [LANDING_X + 2, 8],
+    [LANDING_X + 2, 11.9], [LANDING_X + .2, 11.9]];
+  for (const [band, points] of [[L.concourse, guidance.slice(0, 4)], [L.landing, guidance.slice(3)]])
+    put(band + 40, 20.5, 8, ZC + .02,
+      `<path d="M${points.map(p => P(...p, ZC + .02).map(n).join(',')).join(' L')}" fill="none" stroke="${C.tactile}" stroke-width="5" stroke-linejoin="round"/>`);
+  const hallCrowd = rng(131);
+  for (let i = 0; i < 48; i++) {
+    const x = 11 + hallCrowd() * 24, y = i < 32 ? 4.2 + hallCrowd() * 1.5 : 7.4 + hallCrowd() * 1.4;
+    S.sprite(x, y, ZC + .03, i % 7 ? 'person' : 'personBag', {
+      color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink, C.green][i % 7],
+      k: L.hall + depth(x, y, ZC),
+    });
+    if (i % 3 === 0) {
+      const entry = S.fg.at(-1);
+      entry[1] = group(entry[1], amT('0 0;6 3.5;0 0', '', `${9 + i % 4}s`, undefined, `${-i * .4}s`));
+    }
+  }
 
   /* ============================================================ 14. the piers
    * Painted first of everything sorted, because the deck has to land on top of them. A pair per
@@ -196,7 +229,9 @@ export function artTwoLine() {
   put(L.platformO + 32, 23, PP0 + 1.35, ZK + 0.04, quadSvg(DX0, PP0 + 0.91, ZK + 0.06, DX1 - DX0, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
 
   /* ============================================================ 10. the crowd up there */
-  for (let i = 0; i < 16; i++) {
+  for (const x of [7, 17, 27, 37]) model(L.crowdO, 'bench-steel-1', x, .25, ZK + .1);
+  for (const x of [3.5, 22.5, 43.5]) model(L.crowdO, 'bin', x, .45, ZK + .1);
+  for (let i = 0; i < 24; i++) {
     const gx = 1 + rr() * 45;
     const gy = PP0 + 1.9 + rr() * (DY1 - PP0 - 2.3);
     S.sprite(gx, gy, ZK + 0.1, rr() > 0.86 ? 'personBag' : 'person', {
@@ -227,8 +262,13 @@ export function artTwoLine() {
    * They take a band of their own rather than the box's, because a wall standing *inside* the
    * hole has to sort against what is in the hole — written raw, the trains came out behind
    * their own station. */
-  put(L.wall, 24, YB, 0, faceSvg('y', YB, X0, X1, ZF, ZT, C.tile, { tone: 0.9 }));
-  put(L.wall + 40, 24, (YB + YF) / 2, 0, faceSvg('x', X0, YB, YF, ZF, ZT, C.tile, { tone: 0.94 }));
+  // The same 水泥 tint and grain as the B1 floor, shaded for each wall face.
+  put(L.wall, 24, YB, 0, faceSvg('y', YB, X0, X1, ZF, ZT, CONCRETE, { tone: 0.9 })
+    + poly([P(X0, YB, ZF), P(X1, YB, ZF), P(X1, YB, ZT), P(X0, YB, ZT)],
+      'url(#interchange-concrete-grain)', null, 0));
+  put(L.wall + 40, 24, (YB + YF) / 2, 0, faceSvg('x', X0, YB, YF, ZF, ZT, CONCRETE, { tone: 0.94 })
+    + poly([P(X0, YB, ZF), P(X0, YF, ZF), P(X0, YF, ZT), P(X0, YB, ZT)],
+      'url(#interchange-concrete-grain)', null, 0));
   // a skirting band at the foot of each, so the walls read as walls rather than as paper
   put(L.wall + 60, 24, YB + 0.02, 0, faceSvg('y', YB + 0.02, X0, X1, ZF, ZF + 0.5, C.dark, { tone: 1.0, sw: 0 }));
   put(L.wall + 60, 24, 0, 0, faceSvg('x', X0 + 0.02, YB, YF, ZF, ZF + 0.5, C.dark, { tone: 1.0, sw: 0 }));
@@ -255,70 +295,26 @@ export function artTwoLine() {
     put(L.platformU + 42, 24, yy, ZP + 0.05, quadSvg(X0, s > 0 ? y1 - 0.3 : y1, ZP + 0.04, X1 - X0, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
     put(L.platformU + 44, 24, yy, ZP + 0.05, quadSvg(X0, s > 0 ? yy - 0.12 : yy, ZP + 0.04, X1 - X0, 0.12, C.white, { tone: 1.0, sw: 0.25 }));
   }
+  model(L.platformU + 80, 'platform-edge-40', 24, PB1, ZP);
+  model(L.platformU + 70, 'platform-edge-40-far', 24, PB0, ZP);
+  for (const [id, x, y] of [['bench-steel-1', 12, 12], ['bench-steel-1', 25, 12],
+    ['bin', 6, 12], ['bin', 41, 12]]) model(L.crowdU, id, x, y, ZP);
 
-  /* ============================================================ 4. the way up
-   * One set, in the middle of the island: a 扶梯 and a 楼梯 side by side, climbing out of the box.
-   * Both are the game's own models, photographed on this drawing's axes by
-   * `tools/render-piece-views.mjs` and placed at **one** scale for both axes, so what stands in
-   * the drawing is the picture the game's renderer took: no stretch, and no second opinion about
-   * what an escalator looks like.
-   *
-   * `RUN_S` is that scale, and it is the sheet's one stated number rather than a measurement. The
-   * game builds a 扶梯 and a 楼梯 for one 4 m storey of its grid (`sim/constants.ts`) and this box
-   * is 9.5 m deep, so the piece is drawn a little under twice its own size: big enough to read as
-   * circulation, small enough that the pair is not the largest object in the station. Drawn at its
-   * own size it would be a smudge; drawn to reach the street it draws a gradient the game does not
-   * have and makes the balustrade the tallest thing in the box.
-   *
-   * Every run is placed by the point its **origin** landed on — the node the model was built
-   * around, which the capture reports for exactly this — with the origin on the platform, so the
-   * run stands on the floor rather than near it. The 扶梯 is photographed `iso-flip` because its
-   * model's run points the other way along the cell from the 楼梯's, so its picture is mirrored to
-   * stand beside the stair climbing the same way. Neither run is animated: these two are the only
-   * figures in the drawing that are *placed* rather than *travelling*, and a bank that slides about
-   * says the opposite. */
-  const esc = pieceView('escalator');
-  const stair = pieceView('stair-straight');
-  /** The size the runs are drawn at — see above. */
-  const RUN_S = 1.15;
-  /**
-   * One run: its foot on the platform at `x`,`y`, climbing away from the reader.
-   *
-   * The piece is stood on the floor by its **content's lower-left corner**, which is where both
-   * runs' own feet are: for the 扶梯 that is its truss's near corner, for the 楼梯 the bottom of
-   * its stringer. Not `origin` — that node sits inside the picture, and on this pair it is a
-   * 扶梯's *upper* landing, so anchoring by it stands the escalator on its own head. Not the
-   * piece's lowest drawn pixel either: on the 楼梯 that is a handrail post hanging below the head
-   * of the run, and a whole flight placed by it lands a metre off its own foot.
-   *
-   * Both pictures climb the same way — to the right, which in this box is towards the far road —
-   * so the bank stands square without mirroring either one.
-   */
-  const run = (piece, x, y, o = {}) => {
-    const w = piece.metres * TW * Math.SQRT2 * RUN_S;
-    const h = piece.verticalMetres * TW * Math.SQRT2 * RUN_S;
-    const foot = P(x, y, ZP + (o.dz ?? 0));
-    const [c0, , , c3] = piece.content;
-    const left = foot[0] - c0 * w;
-    const top = foot[1] - c3 * h;
-    S.fg.push([L.runs + depth(x, y, ZP) + (o.d ?? 0), group(
-      `<image x="${n(left)}" y="${n(top)}" width="${n(w)}" height="${n(h)}" href="${piece.href}"/>`,
-    )]);
-  };
-  run(esc, 19.6, 15.3);
-  run(stair, 22.4, 15.3, { d: 1 });
+  // A real quarter-turn of the 3D models, not a rotated image. Both climb
+  // along +x into the projecting right apron, one 4 m storey, parallel to the trains.
+  model(L.runs, 'escalator-x', RUN_X, RUN_Y[0], ZP);
+  model(L.runs, 'escalator-x', RUN_X, RUN_Y[1], ZP);
 
   /* ============================================================ 3. the crowd underground
    * Waiting passengers either side of the runs, and two walkers on the long axis, so the busiest
-   * thing in the drawing is the thing the sheet is about. Both runs cross the island broadside at
-   * x 19–24, so that strip is left clear — a passenger standing inside an escalator reads as a
-   * mistake, and the band order would draw them on top of it and hide the piece entirely. */
-  for (let i = 0; i < 30; i++) {
+   * thing in the drawing is the thing the sheet is about. The longitudinal bank's
+   * footprint stays clear, including their lower landings and balustrades. */
+  for (let i = 0; i < 44; i++) {
     const gx = 5 + rr() * 38;
-    const midRun = gx > 17.5 && gx < 25.5;
-    const gy = midRun
-      ? (rr() > 0.5 ? PB0 + 0.5 + rr() * 0.7 : 14.4 + rr() * 1.1)
-      : PB0 + 0.5 + rr() * (PB1 - PB0 - 1.0);
+    const gy = PB0 + 0.5 + rr() * (PB1 - PB0 - 1.0);
+    if (gx > RUN_X - 1.2 && gx < LANDING_X + .6 && gy > 9.6 && gy < 12.7) continue;
+    if ((gx < 10 && gy > 9) || (Math.abs(gx - 12) < 1 && Math.abs(gy - 12) < 1)
+      || (Math.abs(gx - 25) < 1 && Math.abs(gy - 12) < 1)) continue;
     S.sprite(gx, gy, ZP + 0.06, rr() > 0.85 ? 'personBag' : 'person', {
       color: [C.red, C.blue, C.teal, C.purple, C.orange, C.pink, C.green][(rr() * 7) | 0],
       k: L.crowdU + i,
@@ -331,7 +327,7 @@ export function artTwoLine() {
       { sprite: 'person', dur, f0: 0.03, f1: 0.12, f2: 0.86, f3: 0.95 })]);
   };
   walkU(8.0, C.red, '0s', '10s');
-  walkU(14.6, C.green, '2.6s', '11s');
+  walkU(15.3, C.green, '2.6s', '11s');
 
   /* ============================================================ 2. the near road */
   isoTrack(S, { x: X0, y: RA, z: ZF, len: X1 - X0, w: RW, third: true, key: L.trackA });
@@ -367,6 +363,8 @@ export function artTwoLine() {
   co([36, CYB, ZR + 1.0], 132, 1104, 5);               // the consist on the far road
   co([23, 12.0, ZP + 0.5], 392, 1176, 6);              // the island platform and the crowd
   co([31, CYA, ZR + 1.1], 736, 1176, 7);               // the consist on the near road
+  co([-3.3, 8.5, 2.2], 104, 760, 8);                 // the street head house
+  co([27, 6.4, ZC + .7], 104, 890, 9);               // furnished B1 concourse
   OV.push(list.join(''));
 
   /* ============================================================ the reading column */
@@ -391,18 +389,20 @@ export function artTwoLine() {
 
   g.push(`<rect x="${AX}" y="546" width="432" height="440" rx="14" fill="#111926" stroke="#243040"/>`);
   g.push(T(AX + 24, 582, '剖视图读法', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-  g.push(T(AX + 24, 606, '从桥面读到坑底：这七样就是这座车站的全部。', { size: 11.5, fill: '#8fa0b3' }));
+  g.push(T(AX + 24, 606, '从桥面到街面，再从 B1 站厅读到 B2 站台。', { size: 11.5, fill: '#8fa0b3' }));
   const items = [
     ['1', '高架站台雨棚：顶板与立柱，遮住整条站台'],
     ['2', '高架列车：A 型两节，接触网供电'],
     ['3', '高架站台：桥面近侧的一半，1 号线'],
     ['4', '桥墩：立在街面上，垫着上面全部'],
     ['5', '地下 B 列车：远侧线路，B 型两节'],
-    ['6', '地下岛式站台：8.8 米宽，扶梯与楼梯在正中间'],
+    ['6', '地下岛式站台：8.8 米宽，双扶梯接右侧挑台'],
     ['7', '地下 A 列车：近侧线路，第三轨供电'],
+    ['8', '街面出入口：游戏中的实体出口模型'],
+    ['9', 'B1 水泥站厅：闸机、围栏、售票与商店设施'],
   ];
   items.forEach(([num, txt], i) => {
-    const y = 648 + i * 44;
+    const y = 648 + i * 36;
     g.push(`<circle cx="${AX + 40}" cy="${y - 4}" r="12.5" fill="${C.yellow}"/>`);
     g.push(T(AX + 40, y + 0.5, num, { size: 13, weight: 800, fill: C.ink, anchor: 'middle' }));
     g.push(T(AX + 64, y + 0.5, txt, { size: 12.5, fill: '#c3d0de' }));
@@ -415,10 +415,14 @@ export function artTwoLine() {
     '不算成本、不雇员工、不收票价。',
     '盒体建好再调线也来得及；',
     '高架只要打桥墩，便宜。',
-    '换乘只用这一组扶梯，队伍就能',
-    '当成一条来量，而不是三条。',
+    'B1 站厅先分流，再从双扶梯',
+    '或电梯下到 B2 岛式站台。',
     '相机就是楼层选择器。',
   ], { size: 12, fill: '#7d8ea3', lh: 18 }));
 
-  return sheet(W, H, fit.group(scene) + OV.join('') + g.join(''));
+  const grain = rng(43);
+  const concreteGrain = '<defs><pattern id="interchange-concrete-grain" width="64" height="64" patternUnits="userSpaceOnUse">'
+    + Array.from({ length: 90 }, (_, i) => `<circle cx="${n(grain() * 64)}" cy="${n(grain() * 64)}" r="${n(.2 + grain() * .6)}" fill="${i % 2 ? '#fff' : '#000'}" opacity=".12"/>`).join('')
+    + '</pattern></defs>';
+  return sheet(W, H, concreteGrain + fit.group(scene) + OV.join('') + g.join(''));
 }

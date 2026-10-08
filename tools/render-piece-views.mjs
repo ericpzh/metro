@@ -2,6 +2,10 @@
 // a sheet that draws a station as a volume.
 //
 //   node tools/render-piece-views.mjs [--out .preview/piece-views] [--scale 2]
+//   node tools/render-piece-views.mjs --hero --scale 4
+//
+// --hero captures sheet 01's individually turned equipment into a separate
+// directory, so revising its layout/facing cannot replace sheet 13's runs.
 //
 // `render-piece-elevations.mjs` shoots a piece square-on, which is what a *section* needs and
 // the wrong picture twice over for `art/13-two-line-interchange.svg`: that sheet is an
@@ -39,8 +43,10 @@ const arg = (name, fallback) => {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback
 }
 
-const OUT = resolve(repo, arg('out', join('.preview', 'piece-views')))
-const SCALE = Number(arg('scale', 2))
+const HERO = process.argv.includes('--hero')
+const OUT = resolve(repo, arg('out', join('.preview', HERO ? 'hero-piece-views' : 'piece-views')))
+// Four samples are plenty at sheet scale and keep a 40 m wall under 4096 px.
+const SCALE = Number(arg('scale', HERO ? 4 : 2))
 const PORT = Number(arg('port', 4218))
 const DEBUG_PORT = Number(arg('debug-port', 9352))
 
@@ -64,7 +70,32 @@ const DEBUG_PORT = Number(arg('debug-port', 9352))
  * turns, since a display, a stocked shelf or a screen wall faces the traveller and this corner
  * looks at the other flank.
  */
-const VIEWS = {
+const VIEWS = HERO ? {
+  // The camera sees +x/+y. Machines face local -y, so turn their actual models.
+  escalator: { from: 'iso', rotationZ: 180, anchor: [0.5, 0.5, 1] },
+  'stair-straight': { from: 'iso', rotationZ: 180, anchor: [0.5, 0.5, 1] },
+  // Sheet 13: uphill along +x, parallel to the two underground roads.
+  'escalator-x': { modelId: 'escalator', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1] },
+  'stair-straight-x': { modelId: 'stair-straight', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1] },
+  gate: { from: 'iso', padding: 1.12 },
+  fence: { from: 'iso' },
+  extinguisher: { from: 'iso', rotationZ: 180 },
+  bin: { from: 'iso', rotationZ: 180 },
+  'door-steel-2': { from: 'iso', rotationZ: 180 },
+  tvm: { from: 'iso', rotationZ: 180 },
+  vending: { from: 'iso', rotationZ: 180 },
+  shelf: { from: 'iso', rotationZ: 180 },
+  'bench-steel-1': { from: 'iso', rotationZ: 180 },
+  'billboard-panorama': { from: 'iso' },
+  'platform-edge': { from: 'iso' },
+  'platform-edge-far': { modelId: 'platform-edge', from: 'iso', rotationZ: 180 },
+  // Interchange: one 40 m screen wall per edge, and the street head house.
+  'platform-edge-40': { modelId: 'platform-edge', from: 'iso', psdCells: 40 },
+  'platform-edge-40-far': { modelId: 'platform-edge', from: 'iso', rotationZ: 180, psdCells: 40 },
+  'exit-covered-1': { from: 'iso', rotationZ: 180 },
+  'lift-shaft': { from: 'iso', rotationZ: 180 },
+  'lift-car': { from: 'iso', rotationZ: 180 },
+} : {
   escalator: { from: 'iso-flip' },
   'stair-straight': { from: 'iso' },
   // Sheet 01's nine zones: gates, TVMs, retail, the ad board, the entrance, the screen wall and
@@ -78,10 +109,10 @@ const VIEWS = {
   'billboard-panorama': { from: 'iso' },
   'exit-covered-1': { from: 'iso' },
   'platform-edge': { from: 'iso-flip' },
-  // `lift-car` is deliberately not asked for: the cabin is not separable in this pass — asked
-  // for on its own it returns the shaft again, byte for byte, and a sheet that embedded both
-  // would carry the same picture twice. A sheet stands the shaft and the cabin travels inside it.
+  // The shaft and the cabin it carries, asked for apart: sheet 01 stands the shaft and shows the
+  // cabin in it, which is the difference between a lift and one more stainless column.
   'lift-shaft': { from: 'iso' },
+  'lift-car': { from: 'iso' },
 }
 
 /** A PNG's pixel size, straight out of its IHDR. */
@@ -103,12 +134,27 @@ const session = await withPage({
 
 try {
   await waitFor(session.evaluate, 'Boolean(window.__pieceElevationsReady)', { what: 'the piece pass' })
+  /**
+   * How long a run of 屏蔽门 the `platform-edge` picture is, in cells.
+   *
+   * The piece is built to the length the caller asks for (`psdCells`), which is what makes it
+   * usable at all: a screen is not a thing that tiles, it is a *run* between two door openings, and
+   * sheet 01's runs are 2.86 m — the gap the game's own door cadence leaves between two doors of a
+   * B-type car (`(19.5 − 4 × 1.3) / 5`). Asked for at one cell it was a metre of screen that could
+   * neither fill a run nor line up with a door; asked for at the run's own length it is the run.
+   *
+   * The hero uses a complete 28 m run, including the model's own openings and
+   * end panels, on each edge. The other sheets retain their 2.86 m bay capture.
+   */
+  const PSD_CELLS = HERO ? 28 : 2.86
   const result = await session.evaluate(`(async () => {
     const { renderModulePieces } = window.__pieceElevations
     return await renderModulePieces(1024, {
       ids: [],
       pxPerMetre: 100,
       scale: ${SCALE},
+      psdCells: ${PSD_CELLS},
+      stationName: ${JSON.stringify(HERO ? '动物园站' : null)},
       views: ${JSON.stringify(VIEWS)},
     })
   })()`)
@@ -136,6 +182,7 @@ try {
       metres: at.metres,
       verticalMetres: at.verticalMetres,
       origin: at.origin,
+      anchor: at.anchor,
       // What was actually drawn, and where in the picture. The frame is drawn to a rectangle
       // and a piece is not one, so a sheet sizes a run by this rather than by the frame.
       content: at.content,

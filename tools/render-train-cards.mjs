@@ -58,7 +58,7 @@ const DEBUG_PORT = Number(arg('debug-port', 9340))
  * frames its own scene to a mostly empty rectangle, and the drawing shrinks inside it. The
  * crop is what makes the picture the size of the train.
  */
-const TRIM = new Set(['consist', 'iso-A', 'iso-B', 'iso-L'])
+const TRIM = new Set(['consist', 'iso-A', 'iso-B', 'iso-B1', 'iso-L'])
 
 /** A PNG's pixel size, straight out of its IHDR — no image library needed. */
 function pngSize(buffer) {
