@@ -31,14 +31,10 @@ import {
   DEMAND_SIGMA,
   DAY_TYPE_FACTOR,
   PERIOD_FACTOR,
-  demandSeries,
 } from '../game/src/sim/demand.ts'
 import { CALENDAR_YEAR, DAY_TYPE_LABELS, DEFAULT_CALENDAR } from '../game/src/sim/clock.ts'
 import { demandAnimation } from './demand-animation.mjs'
 
-/** The grid the chart samples on, taken from the series itself rather than written here. */
-const SAMPLES = demandSeries('weekday', DEFAULT_DEMAND_INPUT).length
-const STEP_MINUTES = (24 * 60) / (SAMPLES - 1)
 const timeText = seconds => `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}`
 const spanText = span => `${timeText(span.from)}–${timeText(span.to)}`
 
@@ -173,7 +169,7 @@ export function artDemand() {
   const KEY_W = 1552 - KEY_X
   g.push(head(KEY_X, 200, '窗口里有什么'))
   const KEY = [
-    { n: 1, name: '客流曲线', lines: [`一天 ${SAMPLES} 个采样点，每 ${STEP_MINUTES} 分钟一个。纵轴是参考工作日的峰值 = 100%，那条虚线就是基准。`] },
+    { n: 1, name: '客流曲线', lines: ['看一天的客流变化。纵轴以工作日峰值为 100%，虚线表示基准。'] },
     { n: 2, name: '三段时间', lines: [`营业 ${spanText(DEFAULT_DEMAND_INPUT.service)} · 早高峰 ${spanText(DEFAULT_DEMAND_INPUT.peaks[0])} · 晚高峰 ${spanText(DEFAULT_DEMAND_INPUT.peaks[1])}。拖蓝色或黄色把手，预览边界变化。`] },
     { n: 3, name: '三个旋钮', lines: ['早高峰量、晚高峰量、波形陡峭度：只改形状，不改已经排好的车。'] },
     { n: 4, name: '日历', lines: [`${CALENDAR_YEAR} 年一整年，节假日和调休上班日都排好了。点一个日期，它就是这一趟的第 1 天。`] },

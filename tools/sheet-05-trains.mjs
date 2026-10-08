@@ -7,11 +7,9 @@
 // metres and the four cars compare at one scale. That is what lets the dimension lines
 // below land where the dimensions are.
 //
-// The numbers are the simulation's, imported rather than copied: `game/src/sim/stock.ts`
-// for the classes, their doors and their capacity, `sim/constants.ts` for the screen
-// doors' two heights, and `sim/clock.ts` for nothing at all. The one table that is not
-// in code is the per-class power and typical use, which is GAME-SPEC §6.1 and quoted
-// as such.
+// Train and screen-door numbers come from the simulation's stock and constants modules.
+// Power and typical use are summarized from GAME-SPEC §6.1 because they are not stored
+// in the simulation's class table.
 //
 // The real door leaves and headlights cycle; the body, camera and dimensions stay fixed.
 
@@ -19,7 +17,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { T, MUL, n, sheet, title } from './iso.mjs'
-import { DOOR_END_INSET, STOCK, STOCK_CLASSES, doorCentres, trainLength, trainRatedCapacity } from '../game/src/sim/stock.ts'
+import { STOCK, STOCK_CLASSES, doorCentres, trainLength, trainRatedCapacity } from '../game/src/sim/stock.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } from '../game/src/sim/constants.ts'
 import { loadTrainAnimation, animatedTrain } from './train-animation.mjs'
 
@@ -46,10 +44,10 @@ const G = {
  * guessed at.
  */
 const SPEC = {
-  A: { power: '接触网 1500 V 直流 / 25 kV 交流', use: '干线。高架和敞口开挖，头顶是天空。' },
-  B: { power: '第三轨 750 V 直流', use: '隧道主力。中国城市地铁里最常见的一级。' },
-  C: { power: '第三轨 750 V 直流（有直线电机版本）', use: '支线和自动化线路：车窄、土建省。' },
-  L: { power: '第三轨 1500 V 直流 · 直线电机', use: '直线电机线路，比如广州的 4 / 5 / 6 号线。' },
+  A: { power: '接触网供电', use: '干线。高架和敞口开挖，头顶是天空。' },
+  B: { power: '第三轨供电', use: '隧道主力。中国城市地铁里最常见的一级。' },
+  C: { power: '第三轨供电 · 可选直线电机', use: '支线和自动化线路：车窄、土建省。' },
+  L: { power: '第三轨供电 · 直线电机', use: '直线电机线路：车短、每侧三门。' },
 }
 
 const W = 1600
@@ -62,6 +60,7 @@ const FRONT_W = 160
 const DIM_X = FRONT_X + FRONT_W + 20
 const SIDE_X = 600
 const SIDE_W = 952
+const BAND_H = 276
 
 /** A PNG's pixel size, straight out of its IHDR. */
 function pngSize(file) {
@@ -112,7 +111,7 @@ export function artTrains() {
       48,
       62,
       '车多宽，站台就退到哪',
-      '四个等级的尺寸、车门和定员，都是同一张表上的数；正对车头量宽高，正对车身量长度和门的节奏。第 11 张给形状，这张给参数。',
+      '四个等级的尺寸、车门和定员一目了然。正对车头量宽高，正对车身看长度和门距。第 11 张给形状，这张给参数。',
     ),
   )
 
@@ -138,15 +137,12 @@ export function artTrains() {
     const centres = doorCentres({ stock: cls, cars: 6 })
     const pitch = centres.length > 1 ? Math.round((centres[1] - centres[0]) * 100) / 100 : null
 
-    // The band, and the livery stripe that names which line's colour the car wears.
-    g.push(`<rect x="${ROW_X}" y="${n(y - 26)}" width="1504" height="252" rx="12" fill="#111926" stroke="#243040"/>`)
-    g.push(`<rect x="${ROW_X}" y="${n(y - 26)}" width="6" height="252" rx="3" fill="${l.colour}"/>`)
+    // The band carries the line's player-selected livery colour.
+    g.push(`<rect x="${ROW_X}" y="${n(y - 26)}" width="1504" height="${BAND_H}" rx="12" fill="#111926" stroke="#243040"/>`)
+    g.push(`<rect x="${ROW_X}" y="${n(y - 26)}" width="6" height="${BAND_H}" rx="3" fill="${l.colour}"/>`)
 
     /* the numbers */
     g.push(T(NUM_X, y + 24, `${cls} 型`, { size: 30, weight: 800, fill: G.text }))
-    g.push(
-      T(NUM_X, y + 48, `${l.line} 号线标志色 ${l.colour.toUpperCase()}`, { size: 10.5, fill: G.muted, mono: true }),
-    )
     g.push(
       MUL(NUM_X, y + 74, [
         `长 ${s.length.toFixed(1)} 米`,
@@ -189,15 +185,15 @@ export function artTrains() {
     g.push(
       `<path d="M${n(midX - halfPx)},${n(dimY)} L${n(midX + halfPx)},${n(dimY)}" stroke="${l.colour}" stroke-width="1.4" fill="none"/>` +
         `<path d="M${n(midX - halfPx)},${n(dimY - 5)} L${n(midX - halfPx)},${n(dimY + 5)} M${n(midX + halfPx)},${n(dimY - 5)} L${n(midX + halfPx)},${n(dimY + 5)}" stroke="${l.colour}" stroke-width="1.4" fill="none"/>` +
-        T(midX, dimY + 18, `${s.length.toFixed(1)} 米 · 端头到第一道门中心 ${DOOR_END_INSET} 米`, {
+        T(midX - halfPx, dimY + 18, `6 节 ${trainLength({ stock: cls, cars: 6 }).toFixed(1)} 米 · ${trainRatedCapacity({ stock: cls, cars: 6 })} 人`, {
           size: 10.5,
-          fill: l.colour,
-          anchor: 'middle',
+          fill: G.muted,
+          anchor: 'start',
           mono: true,
         }),
     )
-    g.push(T(SIDE_X, dimY + 18, `6 节 ${trainLength({ stock: cls, cars: 6 }).toFixed(1)} 米 · ${trainRatedCapacity({ stock: cls, cars: 6 })} 人`, { size: 10.5, fill: G.muted, mono: true }))
-    g.push(T(SIDE_X + SIDE_W, y + 246, spec.use, { size: 11, fill: G.muted, anchor: 'end' }))
+    g.push(T(midX + halfPx, dimY + 18, `${s.length.toFixed(1)} 米车体`, { size: 10.5, fill: l.colour, anchor: 'end', mono: true }))
+    g.push(T(SIDE_X + SIDE_W, y + 244, spec.use, { size: 11, fill: G.muted, anchor: 'end' }))
   })
 
   /* ---------------- the line is the unit the player edits ---------------- */
@@ -209,27 +205,27 @@ export function artTrains() {
     {
       title: '车型',
       lines: STOCK_CLASSES.map((cls) => `${cls}  ${STOCK[cls].ratedPerCar} / ${STOCK[cls].crushPerCar} 人`),
-      note: '单节定员 / 拥挤',
+      note: '单节座位数 / 最大载客量',
     },
     {
       title: '编组',
       lines: STOCK_CLASSES.map((cls) => `${cls}  ${STOCK[cls].consist[0]} – ${STOCK[cls].consist[1]} 节`),
-      note: '每个等级自己的范围',
+      note: '可选编组范围',
     },
     {
       title: '供电',
       lines: ['第三轨  隧道 / 有盖', '接触网  高架 / 敞口', '第三轨要盖住，接触网要 5 米净空'],
-      note: 'GAME-SPEC §6.2',
+      note: '轨道和供电方式要匹配',
     },
     {
       title: '屏蔽门',
       lines: [`全高  ${PSD_FULL_HEIGHT.toFixed(1)} 米`, `半高  ${PSD_HALF_HEIGHT.toFixed(1)} 米`, '只有隧道和有盖区间才装'],
-      note: 'sim/constants.ts',
+      note: '全高或半高站台门',
     },
     {
       title: '颜色与名字',
       lines: ['一条线一个颜色，刷在车身上', '上下行终点印在目的地屏上', '名字 + 颜色 + 车型 = 一条线'],
-      note: '线路 文件夹',
+      note: '每条线路可单独设置',
     },
   ]
   const cw = 286
@@ -312,7 +308,7 @@ export function artTrains() {
   g.push(`<rect x="48" y="${n(footY - 26)}" width="1504" height="1" fill="${G.line}"/>`)
   g.push(
     MUL(48, footY, [
-      '一条线的表：{车型, 编组, 供电, 屏蔽门, 颜色, 名称, 上下行终点, 人/列}。一列的载客量 = 单节定员 × 节数。',
+      '每条线路可设置车型、编组、供电、站台门、颜色、名称和终点。列车总载客量随车厢节数增加。',
       '装不下的乘客留在站台上 —— 那是这套参数里最要命的读数，底栏的「滞留」就是它。',
     ], { size: 12, fill: G.muted, lh: 19 }),
   )

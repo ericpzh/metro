@@ -139,7 +139,6 @@ export function artHeroBanded() {
   put('walls', -.3, 5, 5, boxSvg(-.4, -.4, 5, .4, 10.4, 3.4, C.tile, { sw: .7 }));
   put('walls', 14, 0, 8, faceSvg('y', .01, 0, 28, 7.8, 8.15, C.lineA, { sw: .3 }));
   put('walls', 0, 5, 8, faceSvg('x', .01, 0, 10, 7.8, 8.15, C.lineA, { sw: .3 }));
-  put('walls', 18, 0, 7.2, `<text transform="matrix(${TW},${TH},0,${ZU},${n(P(18, .02, 7.05)[0])},${n(P(18, .02, 7.05)[1])})" font-size=".52" font-weight="700" fill="#273443">动物园站</text>`);
 
   // Export real named groups; framing includes model rectangles as in sheet 13.
   const layers = HERO_LAYERS.slice().reverse().map(name => {
@@ -171,7 +170,7 @@ export function artHeroBanded() {
       + T(tx + 23, ty, `${i + 1}  ${text}`, { size: 15, fill: '#c3d0de' });
   }).join('');
   return sheet(1600, 1180,
-    title(48, 62, '地铁车站设计师', '动物园站 · B1 站厅 · B2 站台。逐层搭建，设备采用游戏中的真实模型，1 格 = 1 米。')
+    title(48, 62, '地铁车站设计师', 'B1 站厅 · B2 站台。逐层建造，1 格 = 1 米。')
     + concreteGrain + fit.group(layers) + annotations.join('')
     + '<rect x="42" y="997" width="1516" height="122" rx="12" fill="#0b0f16" opacity=".9"/>' + key,
     { glow: true });

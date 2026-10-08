@@ -104,7 +104,7 @@ try {
       liftStoreys: ${LIFT_STOREYS},
       flip: ${JSON.stringify(FLIP)},
       psdCells: ${PSD_CELLS},
-      stationName: '动物园站',
+      stationName: '地铁站',
     })
     return pngs
   })()`)

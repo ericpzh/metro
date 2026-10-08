@@ -111,7 +111,7 @@ export function artSection() {
   g.push('<defs><pattern id="section-concrete-grain" width="64" height="64" patternUnits="userSpaceOnUse">'
     + Array.from({ length: 90 }, (_, i) => `<circle cx="${n(grain() * 64)}" cy="${n(grain() * 64)}" r="${n(.2 + grain() * .6)}" fill="${i % 2 ? '#fff' : '#000'}" opacity=".12"/>`).join('')
     + '</pattern></defs>');
-  g.push(title(48, 56, '一座车站，叠了好几层', '动物园站：街面出入口、地下站厅与三条线路，共用一组竖向交通。'));
+  g.push(title(48, 56, '一座车站，叠了好几层', '街面出入口、地下站厅与三条线路，共用一组竖向交通。'));
 
   /* ---- Line 1 on its viaduct: a real A-type car, wheels on the deck ---- */
   const deckY = GY - 8 * S;
@@ -155,7 +155,7 @@ export function artSection() {
   room(CORE0, CORE1, GY, B3f, '', '#273443', '');
 
   /* ---- surface: plaza, pavilion over the core, ad board ---- */
-  g.push(T(600, 350, '地面   0.0 米', { size: 15, fill: '#cfe0f0', weight: 800, ls: 1.2 }));
+  g.push(T(600, 350, '地面', { size: 15, fill: '#cfe0f0', weight: 800, ls: 1.2 }));
   g.push(T(600, 372, '站前广场，公交和出租车停靠，两个出入口', { size: 12.5, fill: '#9fb3c8' }));
   // The entrance is the game's covered 出入口, on the ground and to scale — the box that
   // used to stand here was 12 m wide and 6 m tall, where the piece is 8.4 m by 3.9 m.

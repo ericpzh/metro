@@ -83,7 +83,7 @@ export function artTwoLine() {
   const AX = 1120;
   const g = [];
   g.push(title(48, 62, '一条在街上，一条在街下',
-    '动物园站：街面出入口、B1 站厅、B2 岛式站台，与高架线路叠在一起。'));
+    '街面出入口、B1 站厅、B2 岛式站台，与高架线路叠在一起。'));
 
   const OV = [];
   const S = Scene();
@@ -147,8 +147,6 @@ export function artTwoLine() {
   // A real shaft spans both floors, with a separate cabin at its lower stop.
   model(L.hall, 'lift-shaft', 8.5, 10.7, ZP);
   model(L.hall, 'lift-car', 8.5, 10.7, ZP);
-  put(L.hall, 29, 2, ZC + 2.4,
-    `<text transform="matrix(${TW},${TH},0,${ZU},${n(P(29, 2.02, ZC + 2.4)[0])},${n(P(29, 2.02, ZC + 2.4)[1])})" font-size=".48" font-weight="700" fill="#273443">动物园站</text>`);
   const guidance = [[13, 4.8], [20.5, 4.8], [20.5, 8], [LANDING_X + 2, 8],
     [LANDING_X + 2, 11.9], [LANDING_X + .2, 11.9]];
   for (const [band, points] of [[L.concourse, guidance.slice(0, 4)], [L.landing, guidance.slice(3)]])
@@ -371,8 +369,8 @@ export function artTwoLine() {
   g.push(`<rect x="${AX}" y="196" width="432" height="330" rx="14" fill="#111926" stroke="#243040"/>`);
   g.push(T(AX + 24, 232, '两条线路', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
   const rows = [
-    ['1', C.lineA, '1 号线', '地面以上：高架桥面 +11.6 米', 'A 型 / 接触网 / 6-8 节'],
-    ['2', C.lineB, '2 号线', '地下：B2 岛式站台 -9.5 米', 'B 型 / 第三轨 / 4-6 节'],
+    ['1', C.lineA, '1 号线', '地面以上：高架站台', 'A 型 / 接触网 / 6-8 节'],
+    ['2', C.lineB, '2 号线', '地下：B2 岛式站台', 'B 型 / 第三轨 / 4-6 节'],
   ];
   rows.forEach(([id, col, name, sub, stock], i) => {
     const y = 252 + i * 82;
@@ -383,7 +381,7 @@ export function artTwoLine() {
     g.push(T(AX + 78, y + 42, sub, { size: 11.5, fill: '#a9b8c8', mono: true }));
     g.push(T(AX + 78, y + 60, stock, { size: 11.5, fill: '#7d8ea3', mono: true }));
   });
-  g.push(T(AX + 24, 438, '落差 21.1 米：一次开挖，两个车站叠在一起。', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(AX + 24, 438, '两条线路上下叠放，共用一座换乘站。', { size: 12, fill: '#8fa0b3' }));
   g.push(T(AX + 24, 458, '换乘就是一次爬升，而爬升本身就是客流。', { size: 12, fill: '#8fa0b3' }));
   g.push(T(AX + 24, 478, '把各出口进出量定好，整座竖向叠层就从一头灌满。', { size: 12, fill: '#8fa0b3' }));
 
@@ -396,9 +394,9 @@ export function artTwoLine() {
     ['3', '高架站台：桥面近侧的一半，1 号线'],
     ['4', '桥墩：立在街面上，垫着上面全部'],
     ['5', '地下 B 列车：远侧线路，B 型两节'],
-    ['6', '地下岛式站台：8.8 米宽，双扶梯接右侧挑台'],
+    ['6', '地下岛式站台：双扶梯接右侧挑台'],
     ['7', '地下 A 列车：近侧线路，第三轨供电'],
-    ['8', '街面出入口：游戏中的实体出口模型'],
+    ['8', '街面出入口：连接站厅与地面'],
     ['9', 'B1 水泥站厅：闸机、围栏、售票与商店设施'],
   ];
   items.forEach(([num, txt], i) => {

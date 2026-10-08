@@ -154,7 +154,7 @@ try {
       pxPerMetre: 100,
       scale: ${SCALE},
       psdCells: ${PSD_CELLS},
-      stationName: ${JSON.stringify(HERO ? '动物园站' : null)},
+      stationName: ${JSON.stringify(HERO ? '地铁站' : null)},
       views: ${JSON.stringify(VIEWS)},
     })
   })()`)

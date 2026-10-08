@@ -220,9 +220,9 @@ export function artBlocks() {
   // The three roles a face can take, each leader landing on the face it names.
   const LX = AX + 268
   const roles = [
-    ['top', C.yellow, '顶面  →  地板', '走速、盲道、分区都挂在顶面。'],
-    ['east', C.pink, '4 个侧面  →  墙体', '挡住人，也能贴墙面装饰。'],
-    ['bottom', C.teal, '底面  →  天花板', '平时看不见，但一样能刷。'],
+    ['top', C.yellow, '顶面  →  地板', '盲道和分区铺在顶面。'],
+    ['east', C.pink, '4 个侧面  →  墙体', '可以贴墙面装饰。'],
+    ['bottom', C.teal, '底面  →  天花板', '可以铺设天花板。'],
   ]
   for (const [face, col, text, sub] of roles) {
     const piece = face === 'bottom' ? blockBelow : block
@@ -235,23 +235,15 @@ export function artBlocks() {
   }
   g.push(
     MUL(LX, 452, [
-      '一个格子有六个面，每个面各带一种',
-      '材质。材质属于哪一族，就定了那一面',
-      '的脾气：顶面管走速，天花管遮雨，',
-      '墙面挡人。',
+      '每个面都能单独选择材质。',
+      '顶面铺地板，底面铺天花板，',
+      '四个侧面组成墙。',
     ], { size: 12.5, fill: NOTE, lh: 20 }),
-  )
-  g.push(
-    MUL(LX, 556, [
-      '顶点上还写着一层环境光遮蔽，所以',
-      '两个面交出来的角是暗的 —— 方块的',
-      '体积感是从这儿来的，不是描边。',
-    ], { size: 12.5, fill: DIM, lh: 20 }),
   )
 
   /* ---------------- B. a shared side is not drawn ---------------- */
   g.push(T(BX, 190, 'B.  相邻的面就没了', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }))
-  g.push(T(BX, 214, '只有暴露的面才画墙，墙一直砌到顶面；共享的一面一个三角形都不生成。', { size: 13, fill: NOTE }))
+  g.push(T(BX, 214, '相邻方块会自动拼合，接缝处不会多出内墙。', { size: 13, fill: NOTE }))
 
   const p1 = plan(BX, 254, [[1, 1]], '一个方块', { sub: '四面都暴露' })
   const p2 = plan(BX + 144, 254, [[1, 1], [2, 1], [1, 2], [2, 2]], '2 × 2', { sub: '只有外圈' })
@@ -264,16 +256,14 @@ export function artBlocks() {
   g.push(draw(floor, rf))
   g.push(
     MUL(BX, 648, [
-      '所以一整片地面真的是一整片：九个格子之间',
-      '没有缝，也没有 V 形沟。外圈才有墙，而且墙',
-      '从地面一直砌到顶面 —— 方块是方的，外角是直角，',
-      '不是圆的，也不是削掉一个 45° 的角。',
+      '地面连续铺开，墙只沿外圈升起，',
+      '转角保持方正。',
     ], { size: 12.5, fill: NOTE, lh: 20 }),
   )
 
   /* ---------------- C. what one cell can be cut into ---------------- */
   g.push(T(CX, 190, 'C.  一格可以切成什么', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }))
-  g.push(T(CX, 214, '整块之外还有三种：半墙，和两种 45° 锯开的三角块。', { size: 13, fill: NOTE }))
+  g.push(T(CX, 214, '还有半墙和上下三角块。', { size: 13, fill: NOTE }))
 
   const half = get('half')
   const triUp = get('tri-upper')
@@ -317,7 +307,8 @@ export function artBlocks() {
       g.push(`<rect x="${n(px0)}" y="${n(gy)}" width="${CHIP}" height="${CHIP_H}" rx="8" fill="${f.tint}" stroke="#0b0e13" stroke-width="2"/>`)
       g.push(`<rect x="${n(px0)}" y="${n(gy)}" width="${CHIP}" height="9" rx="4" fill="${shadeOf(f.tint)}"/>`)
       g.push(T(cx, gy + CHIP_H + 17, f.label, { size: 12, fill: '#dbe4ee', anchor: 'middle', weight: 600 }))
-      g.push(T(cx, gy + CHIP_H + 33, valueOf(f), { size: 10.5, fill: DIM, anchor: 'middle', mono: true }))
+      const use = valueOf(f)
+      if (use) g.push(T(cx, gy + CHIP_H + 33, use, { size: 10.5, fill: DIM, anchor: 'middle', mono: true }))
     })
     gy += 112
   }
@@ -340,11 +331,9 @@ export function artBlocks() {
   )
   g.push(
     MUL(NX, 918, [
-      '共享的一面墙也不画，两个顶面直接是',
-      '同一个平面 —— 这就是「方块之间没有缝」。',
-      '渲染上，方块按 16³ 的分块并成一块',
-      'BufferGeometry；盲道、标识和分区是单独的',
-      '透明四边形，画在上面。',
+      '相邻方块贴合后，共用的内墙会隐藏，',
+      '地面连成一片。盲道、标识和分区',
+      '会显示在地面上，帮助乘客认路。',
     ], { size: 12.5, fill: DIM, lh: 20 }),
   )
 
@@ -369,11 +358,8 @@ function shadeOf(hex) {
  * changes this line by itself.
  */
 function valueOf(f) {
-  if (f.family === 'wall') return f.id === 'wall.enamel' ? '挡人 · 可调色' : '挡人'
-  // A speed only means something on a top face (`floorSpeed`), so a ceiling finish
-  // is quoted for the one thing it does carry — cover — rather than for a number the
-  // simulation never reads off it.
-  if (f.family === 'ceiling') return f.cover ? '遮雨' : '不遮雨'
-  if (f.speed === 0) return '不可走'
-  return `走速 ${f.speed.toFixed(1)}`
+  if (f.family === 'wall') return f.id === 'wall.enamel' ? '可调色' : ''
+  if (f.family === 'ceiling') return ''
+  if (f.speed === 0) return '不可通行'
+  return '可通行'
 }

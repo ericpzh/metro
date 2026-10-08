@@ -50,16 +50,10 @@ const elevationPerson = (x, y, col) => `<g transform="translate(${n(x)},${n(y)})
 /* ------------------------------------------------------------ flat helpers */
 const rect = (x, y, w, h, fill, o = {}) =>
   `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}"${o.rx ? ` rx="${n(o.rx)}"` : ''} fill="${fill}"${o.stroke ? ` stroke="${o.stroke}" stroke-width="${o.sw ?? 1.2}"` : ''}${o.opacity != null ? ` opacity="${o.opacity}"` : ''}/>`;
-const circ = (x, y, r, fill, o = {}) =>
-  `<circle cx="${n(x)}" cy="${n(y)}" r="${n(r)}" fill="${fill}"${o.stroke ? ` stroke="${o.stroke}" stroke-width="${o.sw ?? 1}"` : ''}${o.opacity != null ? ` opacity="${o.opacity}"` : ''}/>`;
 const ln = (x1, y1, x2, y2, col, w = 1.4, dash) =>
   `<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="${col}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ''}/>`;
 const arrowLine = (x1, y1, x2, y2, col, w = 2, marker = 'arwPF') =>
   `<path d="M${n(x1)},${n(y1)} L${n(x2)},${n(y2)}" stroke="${col}" stroke-width="${w}" fill="none" marker-end="url(#${marker})"/>`;
-const dimH = (x1, x2, y, txt, col = C.yellow, above = true) =>
-  ln(x1, y, x2, y, col, 1.2) +
-  ln(x1, y - 4, x1, y + 4, col, 1.2) + ln(x2, y - 4, x2, y + 4, col, 1.2) +
-  T((x1 + x2) / 2, above ? y - 7 : y + 15, txt, { size: 11.5, fill: col, anchor: 'middle', mono: true });
 const panelBox = (g, x, y, w, h, t, sub) => {
   g.push(rect(x, y, w, h, '#111926', { rx: 14, stroke: '#243040' }));
   if (t) g.push(T(x + 22, y + 32, t, { size: 14, weight: 800, fill: C.yellow, ls: 1.3 }));
@@ -68,25 +62,6 @@ const panelBox = (g, x, y, w, h, t, sub) => {
 const AG = [C.red, C.blue, C.green, C.purple, C.pink, C.teal, C.orange, '#d7dde5', '#3f4a58'];
 const upChevron = (x, y, col = '#5d6d80') =>
   `<path d="M${n(x - 9)},${n(y + 8)} L${n(x)},${n(y - 7)} L${n(x + 9)},${n(y + 8)}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
-
-/**
- * One car's door centres, in metres from **that car's** centre.
- *
- * Read off the middle car of a six-car consist rather than a car on its own, because
- * `doorCentres` rounds each offset to a decimetre *after* measuring it from the consist
- * centre — so a one-car consist rounds B's outer doors to ±7.0 and flattens the pitch to
- * 4.70, where the six-car list keeps them at ±6.95 and the pitch at the 4.60 the class
- * actually has (and which sheet 05 prints). Six cars is within every class's range.
- */
-function carDoors(cls) {
-  const doors = STOCK[cls].doorsPerSide
-  const middle = 3
-  const total = STOCK[cls].length * 6
-  const carCentre = middle * STOCK[cls].length + STOCK[cls].length / 2 - total / 2
-  return doorCentres({ stock: cls, cars: 6 })
-    .slice(middle * doors, middle * doors + doors)
-    .map((off) => off - carCentre)
-}
 
 /* --------------------------------------------------------------- animation */
 const DUR = '20s';                       // one full enter / dwell / leave cycle
@@ -224,7 +199,7 @@ export function artPlatformFlow() {
     leaves.push(group(rect(dx - HALF, Y_PEDGE + 4, HALF, 7, C.glass, { stroke: C.ink, sw: 0.8, opacity: 0.92 }), amT('0 0;0 0;-16 0;-16 0;0 0;0 0', pKT, DUR, pSpline)));
     leaves.push(group(rect(dx, Y_PEDGE + 4, HALF, 7, C.glass, { stroke: C.ink, sw: 0.8, opacity: 0.92 }), amT('0 0;0 0;16 0;16 0;0 0;0 0', pKT, DUR, pSpline)));
   }
-  g.push(rect(PX0, Y_PEDGE - 2, platW, 2, '#c70541', { opacity: 0.9 }));   // 5 号线 header
+  g.push(rect(PX0, Y_PEDGE - 2, platW, 2, '#c70541', { opacity: 0.9 }));
   g.push(...psd, ...leaves);
 
   /* passengers that move: board from the lane heads, alight down the middle.
@@ -246,21 +221,15 @@ export function artPlatformFlow() {
   g.push(...movers);
 
   /* labels + the one annotated door */
-  g.push(T(PX0 + 8, Y_PTOP + 26, '动物园站 · 5 号线站台', { size: 12.5, fill: '#273443', weight: 700, ls: 0.6 }));
-  g.push(T(PX0 + platW - 14, Y_PTOP + 26, '屏蔽门开口对齐车门中心', { size: 11.5, fill: '#273443', anchor: 'end' }));
+  g.push(T(PX0 + 8, Y_PTOP + 26, '站台平面', { size: 12.5, fill: '#273443', weight: 700, ls: 0.6 }));
   const d0 = doorsPx[2];
-  g.push(arrowLine(d0 + 72, Y_TRACK + 32, d0 + 14, Y_TRACK + 6, C.white, 1.4));
-  g.push(T(d0 + 78, Y_TRACK + 36, `车门 ${stock.doorWidth} 米`, { size: 11, fill: '#dfe7f0', weight: 700 }));
-  g.push(ln(d0 - HALF, Y_PEDGE + 20, d0 - HALF - 58, Y_PEDGE + 44, C.glass, 1.2));
-  g.push(T(d0 - HALF - 62, Y_PEDGE + 48, '屏蔽门门板', { size: 11, fill: C.glass, anchor: 'end', weight: 700 }));
   g.push(ln(d0 + laneOff, laneHead - 66, d0 + laneOff + 70, laneHead - 84, '#164b89', 1.2));
   g.push(T(d0 + laneOff + 74, laneHead - 80, '排队通道', { size: 11, fill: '#164b89', weight: 700 }));
-  g.push(T(PX0 + 6, Y_TRK1 - 14, `5 号线  ·  B 型  ·  图示 2 节  ·  一列 ${total.toFixed(1)} 米`, { size: 11.5, fill: '#8fa0b3' }));
 
   /* ======================================= B. alignment, in side elevation */
   const BX = 48, BY = 602, BW = 712, BH = 410;
-  panelBox(g, BX, BY, BW, BH, 'B.  车门对得上（立面）',
-    '透过屏蔽门看列车：黄色中心线同时穿过车门与屏蔽门，尺寸直接从立面引出。');
+  panelBox(g, BX, BY, BW, BH, 'B.  列车停靠（立面）',
+    '列车停靠在站台边缘，乘客从车门上下车。');
 
   const sB = 28;
   const cx = BX + BW / 2;
@@ -278,28 +247,7 @@ export function artPlatformFlow() {
   for (const [id, x] of [['bin', BX + 77], ['bench-steel-1', BX + 212], ['extinguisher', BX + 658]])
     g.push(stationElevation(pieces, id, x, platformY + 29, sB));
   for (let i = 0; i < 9; i++) g.push(elevationPerson(BX + 52 + i * 71, platformY + 29, AG[i]));
-  const offB = carDoors('B');
-  const dPx = offB.map((o) => cx + o * sB);
-  const dwPx = STOCK.B.doorWidth * sB;
-  g.push(T(sideImg.x, BY + 72, '动物园站 · 游戏屏蔽门与 B 型列车', { size: 11.5, fill: '#a9b8c8', weight: 700 }));
-  // Measure the actual elevation rather than repeating the doors as a plan strip.
-  const pitchY = 860, widthY = 898;
-  for (const dx of dPx) {
-    g.push(ln(dx, platformY - 78, dx, pitchY + 6, C.yellow, 1, '4 5'));
-    g.push(circ(dx, platformY, 2.5, C.yellow));
-  }
-  const selectedDoor = dPx[1];
-  g.push(rect(selectedDoor - dwPx / 2, platformY - 76, dwPx, 76, 'none',
-    { stroke: C.yellow, sw: 1.8 }));
-  for (const edge of [selectedDoor - dwPx / 2, selectedDoor + dwPx / 2]) {
-    g.push(ln(edge, platformY + 33, edge, widthY + 5, C.glass, 1, '3 4'));
-  }
-  g.push(dimH(dPx[0], dPx[1], pitchY, `中心距 ${(offB[1] - offB[0]).toFixed(2)} 米`));
-  g.push(dimH(selectedDoor - dwPx / 2, selectedDoor + dwPx / 2, widthY,
-    `车门净宽 ${STOCK.B.doorWidth} 米`, C.glass));
-  g.push(T(sideImg.x, 937, '同一中心线：车门 → 屏蔽门开口 → 排队通道', { size: 12, fill: C.yellow, weight: 700 }));
-  g.push(T(sideImg.x, 961, `距车中心的位置：${offB.map((o) => (o >= 0 ? '+' : '') + o.toFixed(2)).join('  ')} 米`, { size: 12, fill: '#a9b8c8', mono: true }));
-  g.push(T(sideImg.x, 985, '屏蔽门开口按 1 米网格向外取整，始终完整覆盖车门净宽。', { size: 11, fill: '#7d8ea3' }));
+  g.push(T(sideImg.x, 937, '车门与站台门对齐，乘客在此上下车。', { size: 12, fill: C.yellow, weight: 700 }));
 
   /* =========================================== C. auto-wayfinding / routing */
   const CX = 776, CY = 602, CW = 772, CH = 410;

@@ -33,6 +33,14 @@ the station either copes or it does not.
 | `worker/index.js` | The site's path-prefix rewrite entry (root Worker). `game/worker/index.js` is the game's. |
 | `wrangler.jsonc` | Root site Worker config, prefix `/metro`. `game/wrangler.jsonc` is the game's, prefix `/metro-game`. |
 
+### Player-facing concept art
+
+Write sheet copy for players: explain what a feature lets them build, change, or
+understand about the station and its passengers. Keep labels concise and inside
+their panels. Omit implementation terms, source-code references, exact model
+coordinates, and repeated specifications unless a player needs them to understand
+a gameplay choice. When trimming copy, preserve useful outcomes and interactions.
+
 The site and the game are **two apps and two Workers** in one repo. They build
 and deploy independently; the only coupling is a URL (`gameUrl` in
 `web/src/site.js`, overridable with `VITE_GAME_URL`).

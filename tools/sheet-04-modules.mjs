@@ -133,14 +133,7 @@ export function artModules() {
   }
 
   const foot = gridY + rows * (CH + GAP_Y) + 30
-  g.push(
-    T(X0, foot, '规矩一样：占地 + 通行量 + 标签。装饰件不处理客流，但挡路、聚人、指路，仿真都算。', {
-      size: 13,
-      fill: '#7d8ea3',
-    }),
-  )
-
-  return sheet(W, Math.max(1220, foot + 40), g.join(''))
+  return sheet(W, Math.max(1220, foot + 12), g.join(''))
 }
 
 /**

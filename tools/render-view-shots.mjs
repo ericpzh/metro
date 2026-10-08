@@ -535,6 +535,7 @@ try {
   // The demo station builds chunk by chunk; a dressed five-level station takes a
   // few seconds, and a photograph of half of it is worse than a slow one.
   await session.evaluate('new Promise((ok) => setTimeout(ok, 8000))')
+  await session.evaluate("(() => { window.__metro.getState().renameStation('地铁站'); return true })()")
 
   // The pointer rests at (0, 0) in a headless browser, which is inside the canvas
   // and against its edge: the camera's edge pan would walk the station out of frame

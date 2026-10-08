@@ -179,7 +179,7 @@ const status = {
   atPlatform: false,
   headway: 4,
 }
-drawStationDisplay(g, status, '动物园', '08:31')
+drawStationDisplay(g, status, '地铁站', '08:31')
 
 const svg = g.toSvg()
 await sharp(Buffer.from(svg)).png().toFile(out)

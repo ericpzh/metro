@@ -255,6 +255,7 @@ try {
   await waitFor(session.evaluate, '!!window.__scene && !!window.__metro', { what: 'the game' })
   // The demo station builds chunk by chunk; a dressed station takes a few seconds.
   await session.evaluate('new Promise((ok) => setTimeout(ok, 6000))')
+  await session.evaluate("(() => { window.__metro.getState().renameStation('地铁站'); return true })()")
 
   if (process.argv.includes('--probe')) {
     // What the station actually holds, so a camera can be aimed at real numbers

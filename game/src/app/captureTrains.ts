@@ -189,7 +189,7 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
   {
     id: 'consist',
     label: '整列车',
-    note: '动物园自己那一列：L 型 6 节，5 号线涂装',
+    note: 'L 型六节编组示例',
     width: 1504,
     height: 300,
     scene: { stock: 'L', cars: 6, doorsOpen: false, from: CONSIST, span: 'consist' as Span },
