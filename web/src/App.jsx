@@ -1,13 +1,58 @@
 import { useEffect, useState } from 'react'
-import { artworks, sections } from './artworks.js'
+import { gallery } from './artworks.js'
+import {
+  STORAGE_KEY,
+  canonicalPath,
+  detectLang,
+  isGamePath,
+  isLangHash,
+  ui,
+} from './i18n.js'
 import Nav from './components/Nav.jsx'
 import Hero from './components/Hero.jsx'
 import Rail from './components/Rail.jsx'
 import Section from './components/Section.jsx'
 import Footer from './components/Footer.jsx'
 
+function setMeta(name, content) {
+  const node = document.querySelector(`meta[name="${name}"]`)
+  if (node) node.setAttribute('content', content)
+}
+
 export default function App() {
-  const [active, setActive] = useState(artworks[0].id)
+  const [lang, setLang] = useState(() => detectLang())
+  const [active, setActive] = useState(gallery.zh.artworks[0].id)
+  const copy = gallery[lang]
+  const t = ui[lang]
+
+  // Persist the choice, reflect it in <html lang> / title / meta, and pin it
+  // to the canonical path (/en/ for English) so the URL stays shareable.
+  // Anchor hashes (#sheet-01 …) are preserved; alias hashes (#en) are dropped.
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, lang)
+    } catch {
+      /* storage unavailable */
+    }
+    document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN'
+    document.title = t.doc.title
+    setMeta('description', t.doc.desc)
+
+    const url = new URL(window.location.href)
+    const game = isGamePath(url.pathname)
+    if (isLangHash(url.hash)) url.hash = ''
+    if (url.searchParams.get('lang') != null) url.searchParams.delete('lang')
+    url.pathname = canonicalPath(lang, game)
+    const next = url.toString()
+    if (next !== window.location.href) window.history.replaceState(null, '', next)
+  }, [lang, t])
+
+  // Stay in sync when the user walks between / and /en/ with back/forward.
+  useEffect(() => {
+    const onPop = () => setLang(detectLang())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   // Reveal sheets as they enter the viewport.
   useEffect(() => {
@@ -51,16 +96,20 @@ export default function App() {
 
   return (
     <>
-      <Nav />
+      <Nav lang={lang} onLang={setLang} t={t} />
       <main>
-        <Hero />
+        <Hero t={t} copy={copy} lang={lang} />
         <div className="gallery" id="gallery">
-          <Rail active={active} />
-          {sections.map((section) => (
-            <Section key={section.id} section={section} />
+          <Rail active={active} t={t} copy={copy} />
+          {copy.sections.map((section) => (
+            <Section
+              key={section.id}
+              section={section}
+              sheets={copy.artworks.filter((art) => art.section === section.id)}
+            />
           ))}
         </div>
-        <Footer />
+        <Footer t={t} />
       </main>
     </>
   )

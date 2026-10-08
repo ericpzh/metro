@@ -1,31 +1,31 @@
 import { artUrl, repoUrl, specUrl } from '../site.js'
 
-export default function Footer() {
+export default function Footer({ t }) {
   return (
     <footer className="footer">
       <div className="footer__inner">
         <div className="footer__col">
-          <h2>继续搭你的车站</h2>
-          <p>从示例车站开始，或者从空地搭起。运行后看哪里拥堵，再试一种新的布局。</p>
-          <p className="footer__note">这些概念图使用游戏模型与界面，展示你能建造和调整的空间。</p>
+          <h2>{t.footer.buildTitle}</h2>
+          <p>{t.footer.buildBody}</p>
+          <p className="footer__note">{t.footer.buildNote}</p>
         </div>
 
         <div className="footer__col footer__col--links">
-          <h2>文档</h2>
+          <h2>{t.footer.docsTitle}</h2>
           <ul className="footer__links">
             <li>
               <a href={specUrl} target="_blank" rel="noreferrer">
-                游戏设计 <span>详细说明</span>
+                {t.footer.spec} <span>{t.footer.specSub}</span>
               </a>
             </li>
             <li>
               <a href={artUrl} target="_blank" rel="noreferrer">
-                概念图 <span>SVG 原图</span>
+                {t.footer.art} <span>{t.footer.artSub}</span>
               </a>
             </li>
             <li>
               <a href={repoUrl} target="_blank" rel="noreferrer">
-                代码仓库 <span>项目源码</span>
+                {t.footer.repo} <span>{t.footer.repoSub}</span>
               </a>
             </li>
           </ul>
@@ -33,9 +33,9 @@ export default function Footer() {
       </div>
 
       <div className="footer__base">
-        <p>地铁车站设计师</p>
+        <p>{t.footer.name}</p>
         <p>
-          搭一座车站，看人群来来去去。
+          {t.footer.line}
         </p>
       </div>
     </footer>

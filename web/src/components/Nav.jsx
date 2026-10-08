@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { gamePath, repoUrl } from '../site.js'
+import { repoUrl } from '../site.js'
+import { gameHref } from '../i18n.js'
 
-export default function Nav() {
+export default function Nav({ lang, onLang, t }) {
   const [progress, setProgress] = useState(0)
   const [solid, setSolid] = useState(false)
 
@@ -27,21 +28,39 @@ export default function Nav() {
         <a className="nav__brand" href="#top">
           <span className="nav__roundel" aria-hidden="true" />
           <span className="nav__name">
-            地铁站设计师
+            {t.nav.brand}
           </span>
         </a>
-        <nav className="tabs tabs--nav" aria-label="站点">
-          <a className="tab tab--on" href={gamePath} aria-current="page">
-            游戏
+        <nav className="tabs tabs--nav" aria-label={t.nav.siteLabel}>
+          <a className="tab tab--on" href={gameHref(lang)} aria-current="page">
+            {t.nav.game}
           </a>
         </nav>
         <span className="nav__spacer" />
         <nav className="nav__links">
-          <a href="#gallery">看图</a>
+          <a href="#gallery">{t.nav.gallery}</a>
           <a href={repoUrl} target="_blank" rel="noreferrer">
             GitHub
           </a>
         </nav>
+        <div className="langswitch" role="group" aria-label={t.nav.langLabel}>
+          <button
+            type="button"
+            onClick={() => onLang('zh')}
+            aria-pressed={lang === 'zh'}
+            lang="zh-CN"
+          >
+            中文
+          </button>
+          <button
+            type="button"
+            onClick={() => onLang('en')}
+            aria-pressed={lang === 'en'}
+            lang="en"
+          >
+            EN
+          </button>
+        </div>
       </div>
       <div className="nav__progress" aria-hidden="true">
         <span style={{ transform: `scaleX(${progress})` }} />

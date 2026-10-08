@@ -27,10 +27,10 @@ the station either copes or it does not.
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
-| `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. |
-| `art/` | The generated concept sheets — the source of truth, copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. `metro-web` covers the pipeline. |
+| `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
+| `art/` | The generated concept sheets — the source of truth, copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. Each sheet has a `*-en.svg` English sidecar (same rule) for the `/en/` route. `metro-web` covers the pipeline. |
 | `tools/` | Root-level Node/Python scripts: the art generator and viewer, the headless-Chrome passes that photograph the game, the demo-save bake, the pictogram asset prep. See the index below. |
-| `worker/index.js` | The site's path-prefix rewrite entry (root Worker). `game/worker/index.js` is the game's. |
+| `worker/index.js` | The site's path-prefix rewrite entry (root Worker): strips the `/metro` prefix, the `/game` tab alias, and the `/en` language pin for asset resolution. `game/worker/index.js` is the game's. |
 | `wrangler.jsonc` | Root site Worker config, prefix `/metro`. `game/wrangler.jsonc` is the game's, prefix `/metro-game`. |
 
 The concept gallery in `web/` groups its eleven sheets into four player-facing
@@ -86,10 +86,11 @@ commands.
 
 | Script | What it does |
 |---|---|
-| `gen-art.mjs [nn …]` | Regenerates every `art/*.svg` (or only the sheets named by leading number / file name), one `sheet-*.mjs` / `sheets-*.mjs` module per sheet, drawn through `iso.mjs`. Sheet 01 is `sheet-01-hero-banded.mjs`. Sheets 08 and 10 are retired; the eleven live ones are 01–07, 09, 11–13. |
+| `gen-art.mjs [nn …]` | Regenerates every `art/*.svg` (or only the sheets named by leading number / file name), one `sheet-*.mjs` / `sheets-*.mjs` module per sheet, drawn through `iso.mjs`. Sheet 01 is `sheet-01-hero-banded.mjs`. Sheets 08 and 10 are retired; the eleven live ones are 01–07, 09, 11–13. `--en` additionally writes each sheet's `*-en.svg` English sidecar via `sheet-i18n.mjs` (missing strings / bad markup fail the run). |
+| `sheet-i18n.mjs` | The English copy table for the sheets: every Chinese `<text>` string (plus sheet 06's slider `aria-label`s and live-readout script literals) mapped to terse English; `{ t, size }` pulls a long label's font-size down. Embedded game captures stay Chinese. |
 | `sheet-png.mjs <nn>` | Rasterises one sheet in a headless browser so the composition can be **looked at** (`--at <s>` freezes an animated sheet). |
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
-| `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. |
+| `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Worker does. |
 | `render-module-cards.mjs` | Sheet 04's cards: drives headless Chrome to run the game's own thumbnail pass. Needs Chrome + `game/dist`. |
 | `render-block-cards.mjs` | Sheet 03's blocks, meshed and lit by the game (same shape). |
 | `render-ui-shots.mjs` | Sheets 06 and 07: boots the game, drives it into real states, crops each window / chrome region to its own DOM box at 2×. |

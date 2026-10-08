@@ -15,6 +15,11 @@
  * root, rendered as a full-viewport iframe around the game's own Worker. It is
  * aliased back to the root so the document's relative `./assets/...` resolve
  * under `/game/` without a second HTML entry.
+ *
+ * `/<prefix>/en/` (and `/<prefix>/en/game/`) pins the English translation of
+ * the site. It is the same document — the client reads the `/en` segment and
+ * renders English copy — and the segment is stripped here for asset resolution
+ * for the same relative-path reason as `/game/`.
  */
 export default {
   async fetch(request, env) {
@@ -28,10 +33,23 @@ export default {
     if (!mine) return env.ASSETS.fetch(request)
 
     let rest = url.pathname.slice(prefix.length)
+
+    // Language pin: /en/... is the English site. A bare /en or /en/index.html
+    // snaps to /en/ so relative asset paths resolve one level down.
+    if (rest === '/en' || rest === '/en/index.html') {
+      url.pathname = prefix + '/en/'
+      return Response.redirect(url.toString(), 308)
+    }
+    let lang = null
+    if (rest.startsWith('/en/')) {
+      lang = 'en'
+      rest = rest.slice(3) || '/'
+    }
+
     // Where the bare/`index.html` redirects should land — the game tab stays
     // under /game/ rather than snapping back to the art page.
     const game = rest === '/game' || rest.startsWith('/game/')
-    const home = game ? prefix + '/game/' : prefix + '/'
+    const home = game ? prefix + (lang ? '/en/game/' : '/game/') : prefix + (lang ? '/en/' : '/')
 
     if (rest === '' || rest === '/index.html') {
       url.pathname = home

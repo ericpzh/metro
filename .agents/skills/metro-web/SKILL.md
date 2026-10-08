@@ -65,6 +65,16 @@ the **true isometric** projection kit — equal foreshortening on all three axes
 undistorted — with its box / quad / face / ramp primitives, the depth-sorting
 `Scene()`, `bboxOf` / `fitToRect` for framing a composed drawing, and the sheet
 furniture: `title`, `legend`, `callout`, `chart`, and the motion CSS.
+`node tools/gen-art.mjs --en` (or `node tools/gen-art.mjs 02 --en`) writes a
+`*-en.svg` English sidecar beside each sheet by swapping the Chinese strings in
+the built SVG via `tools/sheet-i18n.mjs` — `<text>` contents, sheet 06's slider
+`aria-label`s and its live-readout script literals; numbers from `sim/` are
+untouched. Bake problems fail the run (missing strings, unescaped markup).
+English is wider than Chinese, so keep translations terse and check the fit with
+`node tools/sheet-png.mjs <name>-en.svg`; `{ t, size }` table values pull a long
+label's font-size down. The embedded game captures stay Chinese; only the
+drawing's own text is translated. The site's `/en/` route shows the sidecars
+(`sync-art.mjs` copies them like any other sheet).
 `tools/sheet-plan.mjs` is the **panel plan for the older photograph pass**
 (`tools/shots.mjs`): one entry per sheet that pass still composes, naming the spec
 id, the file and the camera each panel is shot from. Sheets 08 and 10 are retired

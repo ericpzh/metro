@@ -75,9 +75,12 @@ async function pick(root, rel) {
 const server = createServer((req, res) => {
   void (async () => {
     const url = decodeURIComponent((req.url || '/').split('?')[0])
+    // Language pin: /en/... is the English site (same document — the client
+    // reads the segment). Strip it for file resolution, mirroring worker/.
+    const path = url === '/en' || url.startsWith('/en/') ? url.slice(3) || '/' : url
     // A game prefix owns the request; everything else is the site.
-    const prefix = GAME_PREFIXES.find((p) => url === p || url.startsWith(p + '/'))
-    const rest = prefix ? url.slice(prefix.length) || '/' : url
+    const prefix = GAME_PREFIXES.find((p) => path === p || path.startsWith(p + '/'))
+    const rest = prefix ? path.slice(prefix.length) || '/' : path
 
     // Both builds spell their assets relatively, so a prefixed request can mean
     // either of two files:

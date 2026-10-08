@@ -183,6 +183,47 @@ code {
   flex: 1;
 }
 
+/* ------------------------------------------------- language switcher ---- */
+
+.langswitch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  flex: none;
+}
+
+.langswitch button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 4px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.langswitch button:hover {
+  color: var(--ink);
+}
+
+.langswitch button[aria-pressed='true'] {
+  background: var(--amber);
+  color: #0a0d13;
+}
+
+.langswitch button:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
 /* --------------------------------------------------- tabs / game page ---- */
 
 .tabs {
@@ -292,6 +333,10 @@ code {
 }
 
 @media (max-width: 760px) {
+  .nav__inner {
+    gap: 12px;
+    padding: 13px 16px;
+  }
   .nav__links {
     display: none;
   }

@@ -2,7 +2,12 @@
 //
 //   node tools/gen-art.mjs            every sheet
 //   node tools/gen-art.mjs 01 13      only those, by leading number or by file name
+//   node tools/gen-art.mjs --en       every sheet, plus the English sidecar
+//   node tools/gen-art.mjs 02 --en    only sheet 02, plus English
 //
+// `--en` writes `<name>-en.svg` beside each sheet by swapping the Chinese
+// strings in the built SVG (see `tools/sheet-i18n.mjs`). The English files are
+// what the site's /en/ route shows; the embedded game captures stay Chinese.
 // The filter is here because a sheet is regenerated one at a time far more often than all
 // eleven are, and this script otherwise rewrites every `art/*.svg` on every run — which is
 // eleven files of churn while someone else is working in the same tree.
@@ -41,6 +46,7 @@ import { artModules } from './sheet-04-modules.mjs';
 // `tools/render-block-cards.mjs` into `.preview/block-cards/`, and its material
 // table is the rail's own (`sim/finishes.ts`), carried out with them.
 import { artBlocks } from './sheet-03-blocks.mjs';
+import { toEnglish } from './sheet-i18n.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const OUT = join(__dir, '..', 'art');
@@ -64,6 +70,7 @@ let fail = 0;
 // `01` and `01-isometric-cutaway.svg` both name the same sheet, the way `sheet-png.mjs` reads
 // them: by leading number, which is what the sheets' own file names are numbered for.
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const wantEn = process.argv.includes('--en');
 const num = (file) => String(Number(file.split('-')[0]));
 const chosen = wanted.length
   ? SHEETS.filter(([file]) => wanted.some((w) => w === file || num(w) === num(file)))
@@ -82,6 +89,29 @@ for (const [file, fn] of chosen) {
     writeFileSync(join(OUT, file), svg, 'utf8');
     const kb = (statSync(join(OUT, file)).size / 1024).toFixed(0);
     console.log(`ok    art/${file.padEnd(28)} ${String(kb).padStart(5)} KB`);
+    if (wantEn) {
+      const enFile = file.replace(/\.svg$/, '-en.svg');
+      const { svg: enSvg, missing } = toEnglish(svg);
+      if (missing.length) {
+        fail++;
+        console.error(`FAIL  art/${enFile}: no English for\n  ${missing.join('\n  ')}`);
+        continue;
+      }
+      // A bare & (or <) outside an entity breaks the whole document in a
+      // browser — the sheet renders nothing past the error. Fail here instead.
+      // Script bodies live in CDATA and may use && and < freely; skip them.
+      const markup = enSvg.replace(/<script[\s\S]*?<\/script>/g, '<script/>');
+      const bad = markup.match(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[\da-fA-F]+;)|<(?!\/|!|\?|[a-zA-Z/])/);
+      if (bad) {
+        fail++;
+        const at = bad.index ?? 0;
+        console.error(`FAIL  art/${enFile}: unescaped markup near “…${enSvg.slice(Math.max(0, at - 40), at + 40)}…”`);
+        continue;
+      }
+      writeFileSync(join(OUT, enFile), enSvg, 'utf8');
+      const enKb = (statSync(join(OUT, enFile)).size / 1024).toFixed(0);
+      console.log(`ok    art/${enFile.padEnd(28)} ${String(enKb).padStart(5)} KB`);
+    }
   } catch (e) {
     fail++;
     console.error(`FAIL  art/${file}: ${e.message}`);

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { sheet } from '../site.js'
+import { ui } from '../i18n.js'
 
-export default function Lightbox({ art, onClose }) {
+// Unused at the moment (the gallery renders sheets inline), but kept for a
+// future zoom view. Takes the same `t` strings as the rest of the page.
+export default function Lightbox({ art, onClose, t = ui.zh }) {
   const [full, setFull] = useState(false)
 
   useEffect(() => {
@@ -39,10 +42,10 @@ export default function Lightbox({ art, onClose }) {
             onClick={() => setFull((f) => !f)}
             aria-pressed={full}
           >
-            {full ? '适应屏幕' : '看原图'}
+            {full ? t.lightbox.fit : t.lightbox.full}
           </button>
           <button type="button" className="btn btn--small btn--close" onClick={onClose}>
-            关掉
+            {t.lightbox.close}
           </button>
         </div>
       </div>
