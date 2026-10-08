@@ -26,6 +26,19 @@ test('serialise -> parse is identity for the static station', () => {
   assert.deepEqual(r.state.calendar, state.calendar, 'and the calendar, holiday and 调休 lists included')
 })
 
+test('the level base round trips and old saves default to zero', () => {
+  const state = toState({ ...scenarioStation(), levelBase: 3 })
+  const doc = JSON.parse(serialize(state))
+  assert.equal(doc.levelBase, 3)
+  const loaded = parse(JSON.stringify(doc))
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.state.levelBase, 3)
+  delete doc.levelBase
+  const old = parse(JSON.stringify(doc))
+  assert.equal(old.ok, true)
+  assert.equal(old.state.levelBase, 0)
+})
+
 test('a file with no authored day opens on the defaults', () => {
   // The four fields are station-level config, not part of the cell schema, so a v1 file
   // written before them still loads: absent means the defaults, the same 06:30–23:30,

@@ -44,15 +44,15 @@ import {
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 9)
+  assert.equal(MODULE_FAMILIES.length, 11)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['stair', 'exit', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
+    ['roof', 'pillar', 'stair', 'exit', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
     assert.ok(family.label.length > 0, `${family.key} wears a label on its parent tile`)
-    assert.equal(family.folder, familiesIn('equipment').includes(family) ? 'equipment' : 'decor')
+    assert.equal(family.folder, ['rail', 'equipment', 'decor'].find((folder) => familiesIn(folder).includes(family)))
   }
   // The keys are unique, and the anchors they name are too: two families on one anchor
   // would open each other's list.
@@ -107,6 +107,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
     }
   }
   assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['stair', 'exit'])
+  assert.deepEqual(familiesIn('rail').map((f) => f.key), ['roof', 'pillar'])
   assert.deepEqual(familiesIn('decor').map((f) => f.key), ['bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
   // **The id has to answer as the type does.** The rail and the placement tool hold a
   // palette **id**, not a module: `LeftRail` folds the folder open by `isDecorType(moduleType)`
@@ -124,7 +125,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
 })
 
 test('a variant never appears twice: the grid holds only the plain tiles', () => {
-  for (const folder of ['equipment', 'decor']) {
+  for (const folder of ['rail', 'equipment', 'decor']) {
     const tiles = folderOptions(folder)
     for (const option of tiles) {
       assert.equal(isFamilyOption(option.id), false, `${option.id} is a variant, so it belongs in its family's list`)
@@ -137,7 +138,7 @@ test('a variant never appears twice: the grid holds only the plain tiles', () =>
     // Everything a folder can place is either a plain tile or a variant of one of its
     // families — nothing the palette offers is left undrawable.
     const drawn = new Set([...tiles.map((t) => t.id), ...familiesIn(folder).flatMap((f) => familyOptions(f).map((o) => o.id))])
-    const owned = MODULE_OPTIONS.filter((m) => (folder === 'decor' ? isDecorType(m.type) : !isDecorType(m.type)))
+    const owned = MODULE_OPTIONS.filter((m) => (folder === 'rail' ? m.type === 'roof' || m.type === 'pillar' : folder === 'decor' ? isDecorType(m.type) : !isDecorType(m.type) && m.type !== 'roof' && m.type !== 'pillar'))
     for (const option of owned) {
       // The 设备 folder leaves the exits and the runs to their own tools; everything it
       // sweeps up must be reachable from the grid.
@@ -176,7 +177,7 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     familyAnchor('stair'), familyAnchor('exit'),
   ])
 
-  for (const folder of ['equipment', 'decor']) {
+  for (const folder of ['rail', 'equipment', 'decor']) {
     const tiles = folderTiles(folder)
     const drawn = tiles.map((t) => t.anchor)
     assert.equal(new Set(drawn).size, drawn.length, `${folder}: no tile is drawn twice`)
@@ -309,14 +310,14 @@ test('生成墙壁 is not drawn while a cut piece owns the 方块 tool', () => {
 
   for (const cut of CUT_MODES) {
     assert.equal(showsAutoWalls('block', cut.id), false, `${cut.id}: the ring's tile is not in the folder`)
-    assert.equal(toolsFolderTiles('block', cut.id), 10, `${cut.id}: ten tiles, the ring's not among them`)
+    assert.equal(toolsFolderTiles(), 4, `${cut.id}: the editing tools retain four main tiles`)
   }
   assert.equal(showsAutoWalls('block', null), true, 'the plain 方块 tool keeps the ring')
-  assert.equal(toolsFolderTiles('block', null), 11)
+  assert.equal(toolsFolderTiles(), 4)
   // The tile belongs to the 方块 tool: another tool's folder shows its own ten.
   for (const tool of ['select', 'pick', 'delete', 'wall', 'paint']) {
     assert.equal(showsAutoWalls(tool, null), false, `${tool} has no ring to raise`)
-    assert.equal(toolsFolderTiles(tool, null), 10)
+    assert.equal(toolsFolderTiles(), 4)
   }
 })
 
@@ -338,7 +339,7 @@ test('a cut piece owns a 旋转 row, anchored to its own tile — the same row a
     assert.equal(actionRowOpen(cutAnchor(cut.id), null, null), false, 'and a row with no armed piece never opens')
   }
   // A plain 方块 owns neither: the ring tile beside it is a setting of the tool.
-  assert.deepEqual(armedTiles(armedState({ tool: 'block' })), { tile: null, actions: null })
+  assert.deepEqual(armedTiles(armedState({ tool: 'block' })), { tile: 'block', actions: null })
   // Only the 方块 tool has cuts. A cut left armed in the store must not fold a row out
   // of any other tool's grid: the 墙 tool turns its own corner face with R, and a 设备
   // grid folds out the *piece's* row and nothing else.
@@ -376,7 +377,8 @@ test('the armed thing names the tile the rail scrolls to', () => {
   // **Tab**-ing to another cut scrolls its tile into view like any other pick.
   assert.equal(armed({ tool: 'block', halfWall: true }), cutAnchor('half'))
   assert.equal(armed({ tool: 'block', triangles: true, triKind: 'lower' }), cutAnchor('lower'))
-  assert.equal(armed({ tool: 'block' }), null, 'a plain 方块 has no tile of its own')
+  assert.equal(armed({ tool: 'block' }), 'block', 'a plain 方块 reveals its structure tile')
+  assert.equal(armed({ tool: 'wall' }), 'wall')
   // Tools whose subject is a face, or a selection: nothing of their own to show.
   assert.equal(armed({ tool: 'select' }), null)
   assert.equal(armed({ tool: 'pick' }), null)

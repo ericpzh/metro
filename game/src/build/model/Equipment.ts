@@ -18,6 +18,7 @@ import { DEFAULT_DOOR_VARIANT, doorSpec } from '../../sim/doors.ts';
 import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../../sim/linemaps.ts';
 import { liftModule, liftFootprintCells } from '../../sim/lifts.ts';
 import { carveRampOpenings } from '../../sim/openings.ts'
+import { rotateLocal } from '../../sim/track.ts'
 import {
   benchCells,
   billboardCells,
@@ -28,6 +29,7 @@ import {
   moduleFootprint,
 } from '../../sim/placement.ts';
 import { trackCells, trackOriginForCentre, edgeCells } from '../../sim/track.ts';
+import { TRUSS_ROOF_BAY, supportedRoofWidth } from '../../sim/structures.ts';
 import { STAIR_WIDTH_NARROW, stairBuildWidth, stairFlightsFor, stairLandings, stairTurnCells } from '../../sim/stairs.ts';
 import { makeSignBoards, settleSignBoards, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
 import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
@@ -97,6 +99,18 @@ export function createModule(
   sign?: SignBoardsDraft,
 ): Module | null {
   switch (type) {
+    case 'pillar':
+    case 'pillar-slim':
+    case 'pillar-thick':
+      return { id, type: 'pillar', x, y, z, rot, cfg: { size: type === 'pillar-thick' ? 'thick' : 'slim', height: 4 } };
+    case 'roof':
+      return { id, type: 'roof', x, y, z, rot, w: 1, d: 1, cfg: {} };
+    case 'roof-truss':
+      return { id, type: 'roof', x, y, z, rot, w: TRUSS_ROOF_BAY, d: supportedRoofWidth(width), cfg: { variant: 'truss' } };
+    case 'roof-tapered':
+      return { id, type: 'roof', x, y, z, rot, w: TRUSS_ROOF_BAY, d: supportedRoofWidth(width), cfg: { variant: 'tapered-truss' } };
+    case 'bridge':
+      return { id, type: 'track', x, y, z, rot, w: 12, d: 3, cfg: { line: '1', power: 'third-rail', bridge: true } };
     case 'gate':
       return { id, type: 'gate', x, y, z, rot, cfg: { dir: 'both', door } };
     case 'fence':
@@ -260,6 +274,9 @@ export function createModule(
     case 'exit-covered-3':
     case 'exit-uncovered-1':
     case 'exit-uncovered-2':
+    case 'exit-doorway-1':
+    case 'exit-doorway-2':
+    case 'exit-doorway-3':
     case 'exit-uncovered-3': {
       // The palette id names the variant: `exit` (or -covered-) is the 有盖
       // head-house and -uncovered- is the open 无盖 railing exit; the trailing
@@ -272,7 +289,7 @@ export function createModule(
       // The placeholder name is the fallback: the placement caller swaps in the
       // next free A ~ Z letter (`nextExitName`), so a fresh exit reads like real
       // signage. A save with no name, or all 26 letters used, keeps it.
-      return { id, type: 'exit', x, y, z, rot, cfg: { name: '未命名口', inRate: 900, open: true, covered, bays } };
+      return { id, type: 'exit', x, y, z, rot, cfg: { name: '未命名口', inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } };
     }
     case 'escalator':
       // The one shared piece: the run always climbs from the dropped cell;
@@ -284,6 +301,13 @@ export function createModule(
       // shaft a storey at a time (`extendLift`), so a fresh piece is always two
       // stops.
       return liftModule({ x, y, z }, rot, id);
+    case 'stair-block': {
+      const [dx, dy] = rotateLocal(rot, 1, 0);
+      const blockHeight = width === 0.5 ? 0.5 : 1;
+      return { id, type: 'stair', x, y, z, rot,
+        from: { x: x - dx, y: y - dy, z }, to: { x: x + dx, y: y + dy, z: z + 1 },
+        cfg: { width: 1, block: true, blockHeight } };
+    }
     case 'stair': {
       const style = 'straight' as StairStyle;
       const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW);
@@ -364,6 +388,7 @@ export function footprintCellsOf(type: string, variant?: number): Array<[number,
       for (let x = 0; x < mod.w; x++) for (let y = 0; y < mod.h; y++) out.push([x, y]);
       return out;
     }
+    case 'roof':
     case 'track':
       return trackCells(mod).map(([x, y]) => [x, y] as [number, number]);
     case 'platform-edge':
@@ -372,6 +397,7 @@ export function footprintCellsOf(type: string, variant?: number): Array<[number,
       return exitFootprintCells(mod).map(([x, y]) => [x, y] as [number, number]);
     case 'stair':
     case 'escalator': {
+      if (mod.type === 'stair' && mod.cfg.block) return [[0, 0]];
       // Every landing of the run: a switchback's two flights stand a run apart, and
       // the ground the pair covers is the pair, not the cells it starts and stops on.
       const seen = new Set<string>();
@@ -506,7 +532,7 @@ export function ensureSignLayouts(modules: readonly Module[], lines: SignLineSou
 export function addEquipment(state: StationState, mod: Module): StationState {
   const modules = assignAdPosters([...state.modules, mod]);
   const isRamp = mod.type === 'escalator' || mod.type === 'stair' || mod.type === 'lift';
-  if (!isRamp) return { ...state, modules };
+  if (!isRamp || (mod.type === 'stair' && mod.cfg.block)) return { ...state, modules };
   const cells = state.cells.map(cloneCell);
   const have = new Set(cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
   const lay = (p: Vec3i): void => {
@@ -587,10 +613,10 @@ export function removeModule(state: StationState, id: string): StationState {
  * air 移动 only stops *drawing* it — so a move is one replacement, and a
  * single `Ctrl+Z` puts the piece back where it came from.
  *
- * A 楼梯 is not moved this way at all (`isMovableModule`: a structural piece's derived
- * geometry — a turn landing, a carve, a wellway — would be stranded by a translation), so a
- * stair leaves and returns through `removeModule` and `addEquipment`, which is where its
- * turn-landing floor is taken back out and laid again.
+ * A 楼梯 is not moved this way (`isMovableModule`: its derived turn-landing floor would
+ * be stranded by a translation), so a stair leaves and returns through `removeModule`
+ * and `addEquipment`, which take its landing floor out and lay it again. An exit's
+ * floor pad is derived from the module's live footprint, so replacing it moves the pad.
  */
 export function replaceEquipment(state: StationState, moved: Module): StationState {
   if (!state.modules.some((m) => m.id === moved.id)) return state;

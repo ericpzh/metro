@@ -15,7 +15,7 @@ import {
   trackBlockReason,
   trackPieceForLine,
 } from '../../../build/rail.ts'
-import { trackOriginForCentre } from '../../../sim/track.ts'
+import { nextTrackRunLength, supportedTrackRunLength, trackOriginForCentre } from '../../../sim/track.ts'
 import type { LineDirection } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
 
@@ -39,6 +39,7 @@ export interface RailSlice {
   layTrack: (at: [number, number, number]) => void
   /** Set the tunnel run length in metres. */
   setTunnelLength: (metres: number) => void
+  cycleTunnelLength: () => void
   /** Extend an existing rail with a tunnel run (dig + track module, no doors). */
   layTunnel: (sourceId: string, at?: readonly [number, number, number]) => void
   /** Re-derive a rail's screen doors after the platform floor changed. */
@@ -55,7 +56,7 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
   railLineId: '',
   railDir: 'up',
   railRot: 0,
-  tunnelLength: 30,
+  tunnelLength: 32,
 
   setRailLine: (id) => set({ railLineId: id }),
   setRailDir: (dir) => set({ railDir: dir }),
@@ -118,7 +119,8 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     const derived = track ? next.modules.filter((m) => m.type === 'platform-edge' && m.cfg.from === track.id).length : 0
     set({ notice: derived > 0 ? `轨道已铺设（${w} m），自动生成 ${derived} 段站台门` : `轨道已铺设（${w} m）；旁边没有站台，站台门暂未生成` })
   },
-  setTunnelLength: (metres) => set({ tunnelLength: Math.max(1, Math.min(400, Math.round(metres))) }),
+  setTunnelLength: (metres) => set({ tunnelLength: supportedTrackRunLength(metres) }),
+  cycleTunnelLength: () => set((s) => ({ tunnelLength: nextTrackRunLength(s.tunnelLength) })),
   layTunnel: (sourceId, at) => {
     const st = get()
     const next = placeTunnel(st.station, sourceId, st.tunnelLength, at)

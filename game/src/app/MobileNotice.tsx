@@ -4,7 +4,7 @@
 
 import { useState } from 'react'
 
-export function MobileNotice(): React.ReactElement {
+export function MobileNotice({ onProceed }: { onProceed: () => void }): React.ReactElement {
   const [copied, setCopied] = useState(false)
 
   const copy = async (): Promise<void> => {
@@ -34,6 +34,9 @@ export function MobileNotice(): React.ReactElement {
 
         <button className="primary mobileCopy" onClick={() => void copy()}>
           {copied ? '已复制，请粘贴到电脑浏览器' : '复制本页网址'}
+        </button>
+        <button className="mobileContinue" onClick={onProceed}>
+          仍要继续
         </button>
       </div>
     </div>

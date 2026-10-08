@@ -46,6 +46,16 @@ const OPTION_IDS = new Set(MODULE_OPTIONS.map((m) => m.id))
 function paletteIdForModule(mod: Module): string | null {
   let id: string | null = null
   switch (mod.type) {
+    case 'pillar':
+      id = `pillar-${mod.cfg.size}`
+      break
+    case 'roof':
+      id = mod.cfg.variant === 'tapered-truss'
+        ? 'roof-tapered'
+        : mod.cfg.variant === 'truss'
+          ? 'roof-truss'
+          : 'roof'
+      break
     case 'bench':
       id = `bench-${mod.cfg.variant ?? 'steel-1'}`
       break
@@ -71,11 +81,12 @@ function paletteIdForModule(mod: Module): string | null {
       id = signMountSpec(mod.cfg.mount).hung ? 'sign-ceiling' : 'sign-wall'
       break
     case 'stair':
-      id = `stair-${mod.cfg.style ?? 'straight'}`
+      id = mod.cfg.block ? 'stair-block' : `stair-${mod.cfg.style ?? 'straight'}`
       break
     case 'exit': {
       const covered = mod.cfg.covered ?? true
       const bays = mod.cfg.bays === 1 || mod.cfg.bays === 3 ? mod.cfg.bays : 2
+      if (mod.cfg.style === 'doorway') { id = `exit-doorway-${bays}`; break }
       id = covered
         ? bays === 1
           ? 'exit-covered-1'
@@ -147,6 +158,12 @@ export class PickTool extends ToolController {
       st.beginPick()
       // A rail run belongs to the 轨道 tool: selecting it reveals the 轨道
       // folder (`findSelectedTrack`), which is the rail's half of the link.
+      if (mod.type === 'track' && mod.cfg.bridge) {
+        st.setModuleType('bridge')
+        st.setStructureOptions({ bridgeLength: mod.w })
+        st.setTool('module')
+        return
+      }
       if (mod.type === 'track') {
         st.setTool('rail')
         st.select({ kind: 'module', key: mod.id, label })
@@ -179,8 +196,10 @@ export class PickTool extends ToolController {
       // the next click hangs are the one the player pointed at.
       if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
       st.setModuleType(optionId)
+      if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
       if (typeof mod.rot === 'number') st.setModuleRot(mod.rot)
       if (mod.type === 'escalator') st.setEscalatorDir(mod.cfg.dir)
+      if (mod.type === 'roof' && mod.cfg.variant) st.setRoofWidth(mod.d)
       if (mod.type === 'gate') st.setGateDoor(mod.cfg.door ?? 'lane')
       st.setTool('module')
       st.select({ kind: 'module', key: mod.id, label })

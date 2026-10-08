@@ -23,7 +23,7 @@ test('the rail is Shift+Q W E R T Y U, one letter a row down the stack', () => {
     ['Q', 'W', 'E', 'R', 'T', 'Y', 'U'],
   )
   assert.deepEqual(RAIL_FOLDERS[0], { key: 'tools', title: '工具', shift: 'Q' }, 'Shift+Q is the 工具 folder, the one already open')
-  assert.equal(RAIL_FOLDERS[1].key, 'rail', 'and Shift+W the 轨道 folder under it')
+  assert.deepEqual(RAIL_FOLDERS[1], { key: 'rail', title: '结构', shift: 'W' })
   assert.equal(RAIL_FOLDERS.at(-1).key, 'zones', '分区 ends the column')
 })
 
@@ -111,13 +111,13 @@ function viewTiles() {
   }
 }
 
-test('视图 draws eight tiles, in the folder’s reading order', () => {
+test('视图 draws nine tiles, with 隐藏屋顶 below 隐藏天花板', () => {
   const { labels } = viewTiles()
   // Three rows of the 3-wide grid: the modes that decide how the station is drawn, the
   // surfaces taken away under them, and the overlays that paint the station.
   assert.deepEqual(
     labels,
-    ['显示其他层', '剖切', '隐藏UI', '隐藏天花板', '隐藏墙壁', '隐藏地面', '分区图', '热力图'],
+    ['显示其他层', '剖切', '隐藏UI', '隐藏天花板', '隐藏墙壁', '隐藏地面', '隐藏屋顶', '分区图', '热力图'],
     'the 视图 folder’s tiles moved',
   )
   // The header's count is the tiles the folder can show — the one number that would

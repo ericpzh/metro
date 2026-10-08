@@ -7,6 +7,8 @@
 import type * as THREE from 'three'
 import type { Module } from '../sim/types.ts'
 import type { ModuleContext } from './models/PieceBuilder.ts'
+import { PillarModel } from './models/pieces/PillarModel.ts'
+import { RoofModel } from './models/pieces/RoofModel.ts'
 import { TvmModel } from './models/pieces/TvmModel.ts'
 import { VendingModel } from './models/pieces/VendingModel.ts'
 import { BenchModel } from './models/pieces/BenchModel.ts'
@@ -42,6 +44,8 @@ import { BoothModel } from './models/pieces/BoothModel.ts'
  */
 export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | null {
   switch (mod.type) {
+    case 'pillar': return new PillarModel(ctx).build(mod)
+    case 'roof': return new RoofModel(ctx).build(mod)
     case 'tvm':
       return new TvmModel(ctx).build(mod)
     case 'vending':

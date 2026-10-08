@@ -405,14 +405,14 @@ export function thinWallSideMap(cells: readonly Cell[], modules: readonly Module
  * auto-wall ring. Empty when the cell is not a wall of either kind.
  */
 export function wallColumnAt(state: StationState, x: number, y: number, z: number): Array<[number, number, number]> {
-  const band = storeyBand(z);
+  const band = storeyBand(z, state.levelBase);
   const tagged = new Set<number>();
   for (const c of state.cells) if (c.x === x && c.y === y && isWallCell(c)) tagged.add(c.z);
   if (!tagged.has(z)) return [];
   let a = z;
-  while (tagged.has(a - 1) && storeyBand(a - 1) === band) a--;
+  while (tagged.has(a - 1) && storeyBand(a - 1, state.levelBase) === band) a--;
   let b = z;
-  while (tagged.has(b + 1) && storeyBand(b + 1) === band) b++;
+  while (tagged.has(b + 1) && storeyBand(b + 1, state.levelBase) === band) b++;
   const out: Array<[number, number, number]> = [];
   for (let zz = a; zz <= b; zz++) out.push([x, y, zz]);
   return out;

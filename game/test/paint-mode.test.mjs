@@ -1,4 +1,4 @@
-// The 材质 folder's own setting (GAME-SPEC §4.3): `N` 单块 and `M` 整面 are the
+// The 材质 folder's own setting (GAME-SPEC §4.3): `N` 单块 and click-only 整面 are the
 // brush, and `I` 取色 only borrows it. Choosing a texture — a plain finish tile or
 // the 搪瓷板 colour picker — must not reset the mode, so the setting a player left
 // the folder in is still there after a detour through another folder on the left

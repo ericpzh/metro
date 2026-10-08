@@ -238,7 +238,7 @@ export class ChunkSystem extends SceneSystem {
     this.ctx.groundOf.clear()
     for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
-      const band = storeyBand(c.z)
+      const band = storeyBand(c.z, this.ctx.levelBase)
       bandOfCell.set(packKey(c.x, c.y, c.z), band)
       const col = `${c.x},${c.y}`
       const prev = this.ctx.groundOf.get(col)
@@ -295,7 +295,7 @@ export class ChunkSystem extends SceneSystem {
     // they are unsupported plates — and the street with them — so which pass a
     // chunk belongs to is part of what it draws, and a chunk that changes pass must
     // re-mesh.
-    const chunkKey = (levelZ: number, cx: number, cy: number, pass: ChunkPass, cells: Array<{ x: number; y: number; z: number }>): string => {
+        const chunkKey = (levelZ: number, cx: number, cy: number, pass: ChunkPass, cells: Array<{ x: number; y: number; z: number }>): string => {
       let h = 2166136261
       let n = 0
       for (const c of cells) {
@@ -370,7 +370,7 @@ export class ChunkSystem extends SceneSystem {
       }
       for (const [k, list] of groupByChunk(groundCells)) {
         const [cx, cy] = k.split(',').map(Number)
-        const key = chunkKey(storeyBand(GROUND_Z), cx, cy, 'g', list)
+        const key = chunkKey(storeyBand(GROUND_Z, this.ctx.levelBase), cx, cy, 'g', list)
         if (reuse.has(key)) keep.add(key)
       }
     }
@@ -510,7 +510,7 @@ export class ChunkSystem extends SceneSystem {
     // 隐藏地面 (`LevelSystem.applyLevel`) can take the whole plane away by hiding
     // these meshes, with no rebuild and no cell of the document touched.
     if (groundCells.length > 0) {
-      const groundBand = storeyBand(GROUND_Z)
+      const groundBand = storeyBand(GROUND_Z, this.ctx.levelBase)
       let group = this.levelGroups.get(groundBand)
       if (!group) {
         group = new THREE.Group()

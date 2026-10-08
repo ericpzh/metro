@@ -26,6 +26,12 @@ export interface ModuleOption {
  * a list that also has to keep each family's variants adjacent.
  */
 export const MODULE_OPTIONS: ModuleOption[] = [
+  { id: 'pillar-slim', label: '细支柱', type: 'pillar', w: 1, h: 1 },
+  { id: 'pillar-thick', label: '粗支柱', type: 'pillar', w: 1, h: 1 },
+  { id: 'roof', label: '薄板', type: 'roof', w: 1, h: 1 },
+  { id: 'roof-truss', label: '桁架', type: 'roof', w: 4, h: 4 },
+  { id: 'roof-tapered', label: '收束桁架', type: 'roof', w: 4, h: 4 },
+  { id: 'bridge', label: '轨道桥', type: 'track', w: 12, h: 3 },
   { id: 'gate', label: '闸机', type: 'gate', w: 1, h: 1 },
   { id: 'fence', label: '围栏', type: 'fence', w: 1, h: 1 },
   { id: 'tvm', label: '售票机', type: 'tvm', w: 1, h: 1 },
@@ -95,9 +101,13 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'exit-uncovered-1', label: '无盖 单向', type: 'exit', w: 1, h: 1 },
   { id: 'exit-uncovered-2', label: '无盖 双向', type: 'exit', w: 1, h: 1 },
   { id: 'exit-uncovered-3', label: '无盖 三向', type: 'exit', w: 1, h: 1 },
+  { id: 'exit-doorway-1', label: '地面 单向', type: 'exit', w: 3, h: 1 },
+  { id: 'exit-doorway-2', label: '地面 双向', type: 'exit', w: 4, h: 1 },
+  { id: 'exit-doorway-3', label: '地面 三向', type: 'exit', w: 5, h: 1 },
   { id: 'escalator', label: '扶梯', type: 'escalator', w: 1, h: 1 },
   { id: 'lift', label: '电梯', type: 'lift', w: 1, h: 1 },
   { id: 'stair-straight', label: '单跑楼梯', type: 'stair', w: 1, h: 1 },
+  { id: 'stair-block', label: '楼梯块', type: 'stair', w: 1, h: 1 },
   { id: 'stair-left90', label: '左转角楼梯', type: 'stair', w: 1, h: 1 },
   { id: 'stair-right90', label: '右转角楼梯', type: 'stair', w: 1, h: 1 },
   { id: 'stair-left180', label: '左双跑楼梯', type: 'stair', w: 1, h: 1 },
@@ -291,10 +301,11 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'stair' | 'exit' | 'bench' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
+export type ModuleFamilyKey = 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
 
 /** Which folder a family's parent tile and its variants live in. */
-export type ModuleFolder = 'equipment' | 'decor'
+/** `rail` is the internal key of the player-facing 结构 folder. */
+export type ModuleFolder = 'rail' | 'equipment' | 'decor'
 
 export interface ModuleFamily {
   key: ModuleFamilyKey
@@ -317,6 +328,8 @@ export interface ModuleFamily {
 
 /** The family a palette id belongs to, or null for a piece that is its own tile. */
 const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
+  { key: 'roof', owns: (id) => id === 'roof' || id === 'roof-truss' || id === 'roof-tapered' },
+  { key: 'pillar', owns: (id) => id === 'pillar' || id.startsWith('pillar-') },
   { key: 'stair', owns: isStairType },
   { key: 'exit', owns: isExitType },
   { key: 'bench', owns: isBenchType },
@@ -334,6 +347,8 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
+  { key: 'roof', label: '屋顶', folder: 'rail', owns: (id) => id === 'roof' || id === 'roof-truss' || id === 'roof-tapered' },
+  { key: 'pillar', label: '柱', folder: 'rail', owns: (id) => id === 'pillar' || id.startsWith('pillar-') },
   { key: 'stair', label: '楼梯', folder: 'equipment', owns: isStairType },
   { key: 'exit', label: '出入口', folder: 'equipment', owns: isExitType },
   { key: 'bench', label: '座椅', folder: 'decor', owns: isBenchType },
@@ -405,7 +420,7 @@ export function familiesIn(folder: ModuleFolder): ModuleFamily[] {
 
 /** True for the gear tiles the 设备 folder owns (everything that is not decor, a run or an exit). */
 function isGearTile(option: ModuleOption): boolean {
-  return !isDecorType(option.type) && !isStairType(option.type) && !isExitType(option.id)
+  return option.type !== 'roof' && option.type !== 'pillar' && option.type !== 'track' && !isDecorType(option.type) && !isStairType(option.type) && !isExitType(option.id)
 }
 
 /* -------------------------------------------------- the grid's tile order */
@@ -443,6 +458,7 @@ export type FolderTile =
  * exactly once.
  */
 const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
+  rail: [familyAnchor('roof'), familyAnchor('pillar')],
   equipment: ['gate', 'fence', 'tvm', 'vending', 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
   decor: [
     familyAnchor('sign'),
@@ -476,7 +492,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
  */
 export function folderTiles(folder: ModuleFolder): FolderTile[] {
   const families = familiesIn(folder)
-  const options = MODULE_OPTIONS.filter((m) => (folder === 'decor' ? isDecorType(m.type) : isGearTile(m)))
+  const options = MODULE_OPTIONS.filter((m) => (folder === 'rail' ? m.type === 'roof' || m.type === 'pillar' : folder === 'decor' ? isDecorType(m.type) : isGearTile(m)))
   return RAIL_ORDER[folder].flatMap((anchor): FolderTile[] => {
     const family = families.find((f) => familyAnchor(f.key) === anchor)
     if (family) return [{ kind: 'family', anchor, family }]
@@ -560,7 +576,7 @@ export function actionRowOpen(anchor: string, pieceAnchor: string | null, openFa
  * 方块 tool lays one instead of a block, so there is no `MODULE_OPTIONS` row to read
  * one from. The table lives here anyway, beside the families, because it is the same
  * kind of thing — a list of what the rail offers, read by every half that has to agree:
- * the 工具 folder's tiles (`CUT_MODES`), the store that arms the mode
+ * the 结构 folder's tiles (`CUT_MODES`), the store that arms the mode
  * (`setCutMode`) and the anchor each piece's action row folds out
  * under (`cutAnchor`).
  *
@@ -668,6 +684,8 @@ export function isEraseBrush(b: ZoneBrush): b is ZoneEraser {
 
 /** Friendly name for a module type, for the inspector and the bulldoze notice. */
 const MODULE_LABELS: Record<string, string> = {
+  pillar: '支柱',
+  roof: '车站屋顶',
   gate: '闸机',
   fence: '围栏',
   tvm: '售票机',
@@ -713,7 +731,7 @@ export function moduleLabel(type: string, roomKind?: string): string {
 
 /**
  * Everything a hover ghost is drawn from: the piece being placed, its rotation,
- * and every Tab cycle — the stair width, the escalator direction, the 闸机's lane
+ * and every Tab cycle — the stair and roof widths, the escalator direction, the 闸机's lane
  * or fence, and the 方块 tool's cut modes (**半墙** / **三角上** / **三角下**) with the
  * wall-face cycle they share. The viewport subscribes to this one key, so anything
  * that changes what a ghost looks like rebuilds it under the pointer at once
@@ -726,8 +744,8 @@ export function moduleLabel(type: string, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'moduleType' | 'moduleRot' | 'stairWidth' | 'escalatorDir' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'bridgeLength' | 'moduleType' | 'moduleRot' | 'stairWidth' | 'stairBlockHeight' | 'roofWidth' | 'escalatorDir' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.moduleType}|${s.moduleRot}|${s.stairWidth}|${s.escalatorDir}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.bridgeLength}|${s.moduleType}|${s.moduleRot}|${s.stairWidth}|${s.stairBlockHeight}|${s.roofWidth}|${s.escalatorDir}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

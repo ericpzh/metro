@@ -2,6 +2,7 @@
 // private StationName() editor and SPEEDS group.
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
+import { ExampleStationsButton } from './ExampleStationsButton.tsx'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -79,10 +80,13 @@ export function TopBar(): React.ReactElement {
   const setPlaying = useStore((s) => s.setPlaying)
   const setSpeed = useStore((s) => s.setSpeed)
   const newStation = useStore((s) => s.newStation)
-  const loadReference = useStore((s) => s.loadReference)
   const saveToFile = useStore((s) => s.saveToFile)
   const loadFromText = useStore((s) => s.loadFromText)
   const restartSim = useStore((s) => s.restartSim)
+  const undo = useStore((s) => s.undo)
+  const redo = useStore((s) => s.redo)
+  const canUndo = useStore((s) => s.past.length > 0)
+  const canRedo = useStore((s) => s.future.length > 0)
   const fileRef = useRef<HTMLInputElement>(null)
   // Ctrl+L opens the file picker, but the input lives here while the key
   // handler lives in App, so it arrives as an event.
@@ -115,18 +119,7 @@ export function TopBar(): React.ReactElement {
           <path d="M8 8.5v4M6 10.5h4" />
         </svg>
       </button>
-      <button
-        className="ghost iconBtn"
-        onClick={loadReference}
-        title="示例车站（Ctrl+Shift+N）"
-        aria-label="示例车站"
-        aria-keyshortcuts="Control+Shift+N"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M1.5 6 8 2l6.5 4" />
-          <path d="M3.5 6v6.5M12.5 6v6.5M6.2 6v6.5M9.8 6v6.5M1.5 12.5h13" />
-        </svg>
-      </button>
+      <ExampleStationsButton />
       <button
         className="ghost iconBtn"
         onClick={saveToFile}
@@ -162,6 +155,32 @@ export function TopBar(): React.ReactElement {
           e.target.value = ''
         }}
       />
+      <button
+        className="ghost iconBtn"
+        onClick={undo}
+        disabled={!canUndo}
+        title="撤销（Ctrl+Z）"
+        aria-label="撤销"
+        aria-keyshortcuts="Control+Z"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M6 4 2.5 7.5 6 11" />
+          <path d="M2.5 7.5H10a3.5 3.5 0 0 1 0 7H7" />
+        </svg>
+      </button>
+      <button
+        className="ghost iconBtn"
+        onClick={redo}
+        disabled={!canRedo}
+        title="重做（Ctrl+Y）"
+        aria-label="重做"
+        aria-keyshortcuts="Control+Y"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M10 4l3.5 3.5L10 11" />
+          <path d="M13.5 7.5H6a3.5 3.5 0 0 0 0 7h3" />
+        </svg>
+      </button>
       <div className="seg" role="group" aria-label="播放控制">
         <button
           className={!playing ? 'on' : ''}

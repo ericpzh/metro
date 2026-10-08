@@ -3,7 +3,7 @@
 // toStateRepairing, so Grid.ts stays a leaf and no State↔Grid cycle forms (C4).
 
 import type { Cell, Module, StationData } from '../../sim/types.ts';
-import type { PeakWindows, TimeSpan } from '../../sim/constants.ts';
+import { normalizeLevelBase, type PeakWindows, type TimeSpan } from '../../sim/constants.ts';
 import { normalizeCalendar, normalizePeaks, normalizeService, type SimCalendar } from '../../sim/clock.ts';
 import { normalizeDemand, type DemandKnobs } from '../../sim/demand.ts';
 import { cloneCell } from './Cells.ts';
@@ -14,6 +14,7 @@ import { repairGrid } from './Grid.ts';
 export interface StationState {
   name: string;
   seed: number;
+  levelBase: number;
   cells: Cell[];
   modules: Module[];
   lines: StationData['lines'];
@@ -53,6 +54,7 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
   const state: StationState = {
     name: data.name,
     seed: data.seed,
+    levelBase: normalizeLevelBase(data.levelBase),
     // Off-grid cells are dropped here, where every load path passes: they are
     // unreachable junk no tool can address, so a station that keeps them can never
     // be cleaned from inside the game (`repairGrid`).
@@ -84,6 +86,7 @@ export function toData(s: StationState): StationData {
   return {
     name: s.name,
     seed: s.seed,
+    levelBase: s.levelBase,
     cells: s.cells,
     modules: s.modules,
     lines: s.lines,
@@ -111,6 +114,7 @@ export function cloneState(s: StationState): StationState {
   return {
     name: s.name,
     seed: s.seed,
+    levelBase: s.levelBase,
     cells: s.cells.map(cloneCell),
     modules: s.modules.map((m) => deepCopy(m)),
     lines: s.lines.map((l) => deepCopy(l)),

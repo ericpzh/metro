@@ -45,7 +45,7 @@ export type FolderKey = RailFolderKey | InspectorFolderKey
  */
 export const RAIL_FOLDERS: ReadonlyArray<{ key: RailFolderKey; title: string; shift: string }> = [
   { key: 'tools', title: '工具', shift: 'Q' },
-  { key: 'rail', title: '轨道', shift: 'W' },
+  { key: 'rail', title: '结构', shift: 'W' },
   { key: 'equipment', title: '设备', shift: 'E' },
   { key: 'decor', title: '装饰', shift: 'R' },
   { key: 'surfaces', title: '材质', shift: 'T' },
@@ -110,8 +110,8 @@ export function subMenuForModule(moduleType: string): SubMenuKey | null {
 }
 
 /**
- * The placed platform/tunnel run the 轨道 folder edits, if the selection is one
- * (§7.2 rail editing). Shared by the shell — selecting a rail reveals the 轨道
+ * The placed platform/tunnel run the 结构 folder edits, if the selection is one
+ * (§7.2 rail editing). Shared by the shell — selecting a rail reveals the 结构
  * folder — and the 轨道 folder itself, which edits the run or, when null, the
  * defaults the next placement will use.
  */
@@ -141,17 +141,12 @@ export function showsAutoWalls(tool: Tool, cut: CutMode | null): boolean {
 }
 
 /**
- * How many tiles the 工具 folder can put on screen right now: 选择 / 吸取 / 方块 /
- * 删除 / 墙 / 半墙 / 上三角块 / 下三角块 / 撤销 / 重做, plus 生成墙壁 (**Tab**) in the plain
- * 方块 mode. The folder header prints this, and it is derived rather than hand-counted
- * so the count cannot disagree with the tiles the folder actually draws.
- *
- * **A folded-out row is not a tile**, here as in 设备 / 装饰: an armed cut piece's
- * 旋转 folds out under its own tile through the same `ActionRow` a 座椅's does, and
- * neither folder counts a row.
+ * The 工具 folder's four main tiles: 选择 / 吸取 / 移动 / 删除.
+ * Structure placement and its contextual controls live in 结构.
+ * 撤销 / 重做 live in the top bar, beside the file buttons.
  */
-export function toolsFolderTiles(tool: Tool, cut: CutMode | null): number {
-  return showsAutoWalls(tool, cut) ? 11 : 10
+export function toolsFolderTiles(): number {
+  return 4
 }
 
 /* ------------------------------------------------------ what the rail is armed with */
@@ -221,13 +216,16 @@ export function armedTiles(s: ArmedState): ArmedTiles {
         actions: hasModuleActions(s.moduleType) ? actionsAnchorFor(s.moduleType) : null,
       }
     case 'block': {
-      // A cut piece is its own tile and its own anchor. A plain 方块 has neither: the
-      // ring tile beside it is a **setting of the tool** (`showsAutoWalls`), not an
-      // action of an armed piece, so it folds nothing out.
+      // A cut piece owns its own action row; the plain block reveals its main
+      // structure tile, while its generated-wall setting folds out beneath it.
       const cut = armedCut(s)
-      const anchor = cut === null ? null : cutAnchor(cut)
-      return { tile: anchor, actions: anchor }
+      const anchor = cut === null ? 'block' : cutAnchor(cut)
+      return { tile: anchor, actions: cut === null ? null : anchor }
     }
+    case 'wall':
+      return { tile: 'wall', actions: null }
+    case 'move':
+      return { tile: 'move', actions: null }
     case 'rail':
       return { tile: PLATFORM_TILE, actions: null }
     case 'tunnel':
@@ -257,7 +255,7 @@ export function armedActionsAnchor(s: ArmedState): string | null {
 
 /* ----------------------------------------------------- what the rail keeps in view */
 
-/** The 轨道 folder's two tiles, as `data-tile` ids (they are not palette options). */
+/** The 结构 folder's platform and tunnel tiles, as `data-tile` ids. */
 export const PLATFORM_TILE = '__platform'
 export const TUNNEL_TILE = '__tunnel'
 

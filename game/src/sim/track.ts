@@ -14,6 +14,24 @@
 
 import type { Module } from './types.ts'
 
+/** Length presets shared by the tunnel and elevated track tools. */
+export const TRACK_RUN_LENGTHS = [4, 16, 32, 64, 128] as const
+const TRACK_RUN_LABELS = ['超短', '短', '中', '长', '超长'] as const
+
+export function supportedTrackRunLength(length: number): number {
+  return TRACK_RUN_LENGTHS.reduce((closest, candidate) =>
+    Math.abs(candidate - length) < Math.abs(closest - length) ? candidate : closest)
+}
+
+export function nextTrackRunLength(length: number): number {
+  const current = supportedTrackRunLength(length)
+  return TRACK_RUN_LENGTHS[(TRACK_RUN_LENGTHS.indexOf(current as (typeof TRACK_RUN_LENGTHS)[number]) + 1) % TRACK_RUN_LENGTHS.length]
+}
+
+export function trackRunLengthLabel(length: number): string {
+  return TRACK_RUN_LABELS[TRACK_RUN_LENGTHS.indexOf(supportedTrackRunLength(length) as (typeof TRACK_RUN_LENGTHS)[number])]
+}
+
 export type TrackModule = Extract<Module, { type: 'track' }>
 export type PlatformEdgeModule = Extract<Module, { type: 'platform-edge' }>
 
@@ -50,12 +68,12 @@ export function trackSide(rot: number | undefined): [number, number] {
 }
 
 /** Bed depth in cells (legacy modules omit `d` and are one cell deep). */
-export function trackDepth(m: TrackModule): number {
+export function trackDepth(m: Pick<TrackModule, 'd'>): number {
   return m.d ?? 1
 }
 
 /** Every world cell a track's bed covers. */
-export function trackCells(m: TrackModule): Array<[number, number, number]> {
+export function trackCells(m: Pick<TrackModule, 'x' | 'y' | 'z' | 'w' | 'd' | 'rot'>): Array<[number, number, number]> {
   const out: Array<[number, number, number]> = []
   const d = trackDepth(m)
   for (let i = 0; i < m.w; i++) {

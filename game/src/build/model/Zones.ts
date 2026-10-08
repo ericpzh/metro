@@ -293,9 +293,9 @@ export function zoneMapFloors(cells: readonly Cell[], modules: readonly Module[]
  * and no region ever spanned storeys (`zoneRegionLabels` walks the four in-plane
  * neighbours), so they follow for free.
  */
-export function zoneMapFloorsAt(cells: readonly Cell[], z: number, modules: readonly Module[] = []): Cell[] {
-  const storey = storeyBand(z);
-  return zoneMapFloors(cells, modules).filter((c) => storeyBand(c.z) === storey);
+export function zoneMapFloorsAt(cells: readonly Cell[], z: number, modules: readonly Module[] = [], base = 0): Cell[] {
+  const storey = storeyBand(z, base);
+  return zoneMapFloors(cells, modules).filter((c) => storeyBand(c.z, base) === storey);
 }
 
 /** A zone-name label for the zone map, in world coordinates. */

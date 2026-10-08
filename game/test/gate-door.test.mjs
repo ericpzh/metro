@@ -36,13 +36,14 @@ test('the choice is in the key the viewport rebuilds its hover ghost from', () =
   // Tab is not just tool state: the ghost already under the pointer has to be
   // redrawn the moment the choice changes, and the viewport does that by
   // subscribing to this one key (`placementPreviewKey`).
-  const base = { moduleType: 'gate', moduleRot: 0, stairWidth: 0.7, escalatorDir: 'up', gateDoor: 'lane' }
+  const base = { moduleType: 'gate', moduleRot: 0, stairWidth: 0.7, roofWidth: 4, escalatorDir: 'up', gateDoor: 'lane' }
   const key = placementPreviewKey(base)
   assert.equal(placementPreviewKey({ ...base }), key, 'the key must be stable')
   assert.notEqual(placementPreviewKey({ ...base, gateDoor: 'fence' }), key, 'the fence must rebuild the ghost')
   // Every other Tab cycle and R are in the same key, so one subscription covers
   // them all — and a new cycle joins by being added here.
   assert.notEqual(placementPreviewKey({ ...base, stairWidth: 1.4 }), key)
+  assert.notEqual(placementPreviewKey({ ...base, roofWidth: 8 }), key)
   assert.notEqual(placementPreviewKey({ ...base, escalatorDir: 'down' }), key)
   assert.notEqual(placementPreviewKey({ ...base, moduleRot: 1 }), key)
   assert.notEqual(placementPreviewKey({ ...base, moduleType: 'tvm' }), key)

@@ -115,7 +115,7 @@ export class TrainSystem extends SceneSystem {
         // rounds back to the floor block the train rides over. Without the
         // rounding a consist berthed at -16 banded to -16.5 — below the storey
         // it is standing on — and vanished with 显示其他层 off.
-        group.userData.levelZs = [storeyBand(Math.round(z - 1))]
+        group.userData.levelZs = [storeyBand(Math.round(z - 1), this.ctx.levelBase)]
         group.userData.doorT = [0, 0]
         this.trainGroup.add(group)
         entry = { group, sig, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(x, y, z), active: true, missed: 0 }

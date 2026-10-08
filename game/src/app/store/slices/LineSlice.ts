@@ -85,7 +85,7 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
       const line = lines.find((l) => l.id === lineId)
       if (line) {
         const { w } = trackPieceForLine(line)
-        const ids = station.modules.filter((m) => m.type === 'track' && m.cfg.line === lineId && !m.cfg.tunnel).map((m) => m.id)
+        const ids = station.modules.filter((m) => m.type === 'track' && m.cfg.line === lineId && !m.cfg.tunnel && !m.cfg.bridge).map((m) => m.id)
         for (const id of ids) {
           const track = station.modules.find((m) => m.id === id)
           if (track && track.type === 'track') station = resizeTrack(station, track, w)

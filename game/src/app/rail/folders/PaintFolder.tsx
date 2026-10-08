@@ -10,7 +10,7 @@
 //
 // Clicking 搪瓷板 selects the brush and folds its colour-picker row out below,
 // the way a variant sub-menu works. Neither it nor a plain finish tile touches
-// the `N`/`M` mode: the mode is the 材质 folder's own setting, so a texture
+// the brush mode: the mode is the 材质 folder's own setting, so a texture
 // picked here — including after a detour through another folder — leaves the
 // brush in 单块 or 整面 as it was left.
 
@@ -46,7 +46,7 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
 
   // 搪瓷板 wears a custom colour. The tile stays in 墙面; clicking it selects the
   // brush and folds out its colour-picker row, the way a variant sub-menu works.
-  // Neither it nor a plain finish tile touches the `N`/`M` mode: the mode is the
+  // Neither it nor a plain finish tile touches the brush mode: the mode is the
   // 材质 folder's own setting, so a texture picked here — including after a detour
   // through another folder — leaves the brush in 单块 or 整面 as it was left.
   const enamelOpen = subMenu === 'enamel'
@@ -73,7 +73,7 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
         {(
           [
             { id: 'single', label: '单块', icon: 'single', shortcut: 'N' },
-            { id: 'surface', label: '整面', icon: 'surface', shortcut: 'M' },
+            { id: 'surface', label: '整面', icon: 'surface', shortcut: undefined },
           ] as const
         ).map((m) => (
           <Block

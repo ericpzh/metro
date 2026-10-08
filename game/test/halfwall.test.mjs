@@ -190,7 +190,7 @@ test("**Tab** is the 生成墙壁 tile's key, and the cut pieces are click-only"
   assert.match(shell, /if \(st\.tool === 'block'\) \{\s*st\.setAutoWalls\(!st\.autoWalls\)/, 'Tab toggles the ring')
   assert.doesNotMatch(shell, /cycleCutMode/, 'and no cut-mode cycle is left on a key')
   assert.doesNotMatch(src('app/store/slices/ToolSlice.ts'), /cycleCutMode/, 'the cycle is gone from the store too')
-  const tools = src('app/rail/folders/ToolsFolder.tsx')
+  const tools = src('app/rail/folders/RailFolder.tsx')
   assert.match(tools, /label="生成墙壁"[\s\S]{0,80}shortcut="Tab"/, 'the tile wears the key it answers to')
   assert.doesNotMatch(tools, /自动生成墙壁/, 'and the old name is gone from the folder')
 })
@@ -283,7 +283,7 @@ test('the brush may paint a 半墙’s inner face, even with a solid block behin
   // exception, not a hole in the rule.
   assert.equal(facePresent(solid, new Map(), 1, 1, 0, 'e'), false)
 
-  // 整面 (M) from one column of the run paints the whole run — the surface a player
+  // 整面 from one column of the run paints the whole run — the surface a player
   // sees — and stops where the wall does.
   const filled = fillSurface(base, 1, 1, 0, 'e', 'wall.enamel')
   assert.deepEqual(

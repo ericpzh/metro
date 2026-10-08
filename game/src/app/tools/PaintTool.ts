@@ -4,7 +4,8 @@
 // reach for — it lifts equipment as well as finishes. Moved verbatim from
 // app/Viewport.tsx (GAME-SPEC §8: 材质 paint tools).
 
-import { eraseFaces, faceFinish, fillSurface, paintFaces, paintStairSurface } from '../../build/model.ts'
+import { eraseFaces, faceFinish, fillSurface, paintFaces, paintRoofSurface, paintStairSurface } from '../../build/model.ts'
+import { DEFAULT_ROOF_FINISH } from '../../sim/structures.ts'
 import { finishDef } from '../../sim/finishes.ts'
 import type { FinishId } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
@@ -31,6 +32,17 @@ export class PaintTool extends ToolController {
     // cell the ray hit — its treads, risers and half-landing are one material.
     const pickedId = this.pickModuleAt(info)
     const stair = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+    if (stair?.type === 'roof') {
+      info.preventDefault()
+      if (st.paintMode === 'pick') {
+        st.setPaintFinish(stair.cfg.finish ?? DEFAULT_ROOF_FINISH)
+        st.resumePaintMode()
+        return
+      }
+      const next = paintRoofSurface(st.station, stair.id, info.button === 2 ? null : st.paintFinish, st.paintMode === 'surface')
+      if (next !== st.station) st.commit(next)
+      return
+    }
     if (stair && stair.type === 'stair') {
       if (st.paintMode === 'pick') {
         st.setPaintFinish(stair.cfg.finish ?? faceFinish(st.station.cells, stair.from.x, stair.from.y, stair.from.z, 'top'))
@@ -73,20 +85,21 @@ export class PaintTool extends ToolController {
   onMove(info: PointerInfo): void {
     const scene = this.ctx.scene()
     const hit = info.hit
-    if (!scene || !hit) return
+    if (!scene) return
     const st = useStore.getState()
     // Over a stair the brush finishes the **piece**, not the floor the ray found
     // under its treads: the stair itself is ghosted as the target, and no cell
     // face is previewed (that would point at the wrong thing).
     const stairId = this.pickModuleAt(info)
     const stair = stairId ? st.station.modules.find((m) => m.id === stairId) : undefined
-    if (stair && stair.type === 'stair') {
+    if (stair && (stair.type === 'stair' || stair.type === 'roof')) {
       scene.clearFaceGhost()
       scene.setModulePreview(stair, false)
       scene.setCursor([stair.x, stair.y, stair.z], true)
       return
     }
     scene.setModulePreview(null)
+    if (!hit) return
     const p = this.ctx.paint.current
     if (p?.active) {
       // The rectangle runs to the cell under the pointer, on the anchor plane.

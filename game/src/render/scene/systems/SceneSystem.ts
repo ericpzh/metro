@@ -19,6 +19,7 @@ import type { AdArt } from '../../adArt.ts'
 import type { LineMapArt } from '../../lineMapArt.ts'
 import type { ModelMaterials } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
+import { ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop } from '../../../sim/structures.ts'
 import type { SlopeCut } from '../../../sim/openings.ts'
 import { stairLevels } from '../../../sim/stairs.ts'
 import { DEFAULT_SECTION_AZIMUTH } from '../../section.ts'
@@ -136,6 +137,7 @@ export interface SceneContext {
   /** Lowest storey each column reaches; a block there has nothing under it. */
   groundOf: Map<string, number>
   activeZ: number
+  levelBase: number
   ghost: boolean
   /** 隐藏天花板: drop the ceiling of the storey above the active one. */
   autoCeiling: boolean
@@ -150,6 +152,7 @@ export interface SceneContext {
    * be rid of rather than a way of drawing a storey.
    */
   hideGround: boolean
+  hideRoof: boolean
   /**
    * 隐藏UI: the picture is the station rather than the storey being edited, so
    * the slice is put away (`levelSlicing.sliceOptions`) and every storey draws
@@ -222,10 +225,12 @@ export class SceneContextData implements SceneContext {
   trackCellSet = new Set<string>()
   groundOf = new Map<string, number>()
   activeZ = 0
+  levelBase = 0
   ghost = true
   autoCeiling = true
   hideWalls = false
   hideGround = false
+  hideRoof = false
   hideUI = false
   cutaway = false
   levelKey = ''
@@ -282,21 +287,32 @@ export abstract class SceneSystem {
  * active storey would ever draw it. A run keeps both of its ends, and its landings
  * come out of `stairLevels` already on the grid.
  */
-export function moduleLevels(mod: Module): number[] {
+export function moduleLevels(mod: Module, base = 0): number[] {
   switch (mod.type) {
+    case 'roof': {
+      const lower = storeyBand(mod.z + TRUSS_ROOF_BASE, base)
+      const upper = storeyBand(mod.z + 1 + (mod.cfg.variant ? trussRoofTop(mod.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS) - 1e-4, base)
+      return lower === upper ? [lower] : [lower, upper]
+    }
+    case 'pillar': {
+      const levels: number[] = []
+      for (let z = mod.z; z < mod.z + mod.cfg.height; z += 4) levels.push(storeyBand(z, base))
+      return levels
+    }
     case 'escalator':
     case 'lift':
-      return [storeyBand(mod.from.z), storeyBand(mod.to.z)]
+      return [storeyBand(mod.from.z, base), storeyBand(mod.to.z, base)]
     case 'stair':
-      return stairLevels(mod).map(storeyBand)
+      return stairLevels(mod).map((z) => storeyBand(z, base))
     default:
-      return [storeyBand(mod.z)]
+      return [storeyBand(mod.z, base)]
   }
 }
 
 /** Contact-blob radius per module; long runs and ramps sit their own way. */
 export function blobRadius(type: Module['type']): number {
   switch (type) {
+    case 'roof': return 0
     case 'track':
     case 'platform-edge':
     case 'escalator':

@@ -202,7 +202,7 @@ export function paintStairSurface(state: StationState, id: string, finish: Finis
 
 /**
  * Flood-fill the connected exposed region of a face's plane with a finish
- * (§4.3, the `M` 整面 tool). The region stops at unexposed faces and at the
+ * (§4.3, the 整面 brush). The region stops at unexposed faces and at the
  * plane's edge, not at a change of current finish — you are painting a floor.
  *
  * A **半墙**'s inner face counts as exposed even when the cell across it is solid:

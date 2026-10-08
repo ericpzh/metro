@@ -100,8 +100,9 @@ export class CameraSystem extends SceneSystem {
     // fought the block tools' click and drag.)
     this.controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: null }
     this.controls.enablePan = false
-    // Orthographic views are zoomed by the wheel handler below, not by the
-    // orbit dolly (which only moves the perspective camera).
+    // Zoom is handled by onWheel for both projections. Keeping it here means
+    // a wheel event can zoom while OrbitControls is also tracking a middle drag.
+    this.controls.enableZoom = false
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
     canvas.addEventListener('pointermove', this.onEdgePointerMove)
     canvas.addEventListener('pointerleave', this.onEdgePointerLeave)
@@ -134,9 +135,8 @@ export class CameraSystem extends SceneSystem {
 
   setOrtho(on: boolean): void {
     this.orthoOn = on
-    // The orbit dolly does nothing to an orthographic frustum, so hand the
-    // wheel to `onWheel` (and back) whenever the projection changes.
-    this.controls.enableZoom = !on
+    // Both projections use the shared wheel handler.
+    this.controls.enableZoom = false
     this.applyOrtho()
     this.ortho.position.copy(this.camera.position)
     this.ortho.quaternion.copy(this.camera.quaternion)
@@ -160,14 +160,20 @@ export class CameraSystem extends SceneSystem {
     this.applyOrtho()
   }
 
-  /** Wheel zoom for flat views: scale the ortho frustum instead of dollying. */
+  /** Zoom either projection while OrbitControls can continue a middle drag. */
   private onWheel = (e: WheelEvent): void => {
-    // A perspective view zoom is OrbitControls' own dolly; only the flat views
-    // have to be zoomed here.
-    if (!this.orthoOn) return
     e.preventDefault()
-    this.orthoZoom = THREE.MathUtils.clamp(this.orthoZoom * Math.exp(e.deltaY * 0.001), 0.06, 16)
-    this.applyOrtho()
+    const factor = Math.exp(e.deltaY * 0.001)
+    if (this.orthoOn) {
+      this.orthoZoom = THREE.MathUtils.clamp(this.orthoZoom * factor, 0.06, 16)
+      this.applyOrtho()
+      return
+    }
+
+    const offset = this.camera.position.clone().sub(this.controls.target)
+    const distance = THREE.MathUtils.clamp(offset.length() * factor, this.controls.minDistance, this.controls.maxDistance)
+    this.camera.position.copy(this.controls.target).add(offset.setLength(distance))
+    this.controls.update()
   }
 
   /** Track the pointer for the edge pan. Outside the canvas the pan stops. */

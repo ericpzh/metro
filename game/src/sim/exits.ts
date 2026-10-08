@@ -27,6 +27,12 @@ export const EXIT_BAY_HALF = 0.5
 export const EXIT_L = 4.0
 /** Canopy height above the walk, metres. */
 export const EXIT_H = 3.2
+/** Doorway feet are 0.4 m deep; keep their near face on the anchor block's edge. */
+export const EXIT_DOORWAY_EDGE_IN = 0.4 / 2 - 0.5
+
+export function exitDoorwayOffset(rot: number | undefined): [number, number] {
+  return exitRotate(0, EXIT_DOORWAY_EDGE_IN, rot)
+}
 /** How far the canopy reaches over the escalator run (−y), metres. */
 export const EXIT_REACH = 5.6
 /** Canopy overhang past the street doorway (+y), metres. */
@@ -198,10 +204,10 @@ export function exitFloorBounds(m: ExitModule): { x0: number; y0: number; x1: nu
   let x1 = -Infinity
   let y1 = -Infinity
   for (const [lx, ly] of [
-    [lo, EXIT_BACK_Y],
-    [hi, EXIT_BACK_Y],
-    [lo, EXIT_BACK],
-    [hi, EXIT_BACK],
+    [lo, m.cfg.style === 'doorway' ? -0.5 : EXIT_BACK_Y],
+    [hi, m.cfg.style === 'doorway' ? -0.5 : EXIT_BACK_Y],
+    [lo, m.cfg.style === 'doorway' ? 0.5 : EXIT_BACK],
+    [hi, m.cfg.style === 'doorway' ? 0.5 : EXIT_BACK],
   ] as Array<[number, number]>) {
     const [wx, wy] = exitRotate(lx, ly, rot)
     x0 = Math.min(x0, cx + wx)
@@ -220,7 +226,7 @@ export function exitFloorBounds(m: ExitModule): { x0: number; y0: number; x1: nu
  */
 export function exitDoorCell(m: ExitModule): [number, number, number] {
   const { centre } = exitSpan(m)
-  const [dx, dy] = exitRotate(Math.round(centre), EXIT_DOOR_Y, m.rot)
+  const [dx, dy] = exitRotate(Math.round(centre), m.cfg.style === 'doorway' ? 0 : EXIT_DOOR_Y, m.rot)
   return [m.x + dx, m.y + dy, m.z]
 }
 
@@ -287,7 +293,7 @@ export interface ExitRunSnap {
 }
 
 export function exitRunSnap(modules: readonly Module[], x: number, y: number, z: number): ExitRunSnap | null {
-  const exit = modules.find((m): m is ExitModule => m.type === 'exit' && exitCoversCell(m, x, y, z))
+  const exit = modules.find((m): m is ExitModule => m.type === 'exit' && m.cfg.style !== 'doorway' && exitCoversCell(m, x, y, z))
   if (!exit) return null
   const [lx] = exitLocal(x - exit.x, y - exit.y, exit.rot)
   const bays = exitBays(exit)
@@ -312,6 +318,7 @@ export function exitRunSnap(modules: readonly Module[], x: number, y: number, z:
  * edges (`exitSpan`), so they always clear the runs the house holds.
  */
 export function exitWallPlanes(m: ExitModule): ExitWall[] {
+  if (m.cfg.style === 'doorway') return []
   const cx = m.x + 0.5
   const cy = m.y + 0.5
   const rot = quarter(m.rot)
@@ -358,7 +365,7 @@ export function exitFootprintCells(m: ExitModule): Array<[number, number, number
  */
 export function exitFloorAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
   for (const m of modules) {
-    if (m.type === 'exit' && exitCoversCell(m, x, y, z)) return true
+    if (m.type === 'exit' && m.cfg.style !== 'doorway' && exitCoversCell(m, x, y, z)) return true
   }
   return false
 }

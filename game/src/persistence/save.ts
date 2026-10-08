@@ -26,6 +26,8 @@ export interface SaveFileV1 {
   savedAt: string
   name: string
   seed: number
+  /** Base of the 4 m editing grid; absent in older saves. */
+  levelBase?: number
   /**
    * The station's authored day (§9.6C 时刻): its operating hours, its two peak windows and
    * the demand curve's knobs, beside the name and the seed because they are station-level
@@ -64,6 +66,7 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     savedAt: now.toISOString(),
     name: state.name,
     seed: state.seed,
+    levelBase: state.levelBase,
     service: state.service,
     peaks: state.peaks,
     demand: state.demand,
@@ -97,6 +100,7 @@ export function parse(text: string): ParseResult {
   const data: StationData = {
     name: typeof d.name === 'string' ? d.name : '未命名车站',
     seed: typeof d.seed === 'number' ? d.seed : 1234567,
+    levelBase: d.levelBase,
     cells: d.static.cells,
     modules: d.static.modules ?? [],
     lines: d.static.lines ?? [],

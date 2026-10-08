@@ -1,7 +1,6 @@
-// The 移动 controller: a carried piece owns the pointer, whichever tool was
-// active when the 信息 card lifted it. Moved verbatim from app/Viewport.tsx
-// (GAME-SPEC §9.5). Not a tool — the viewport consults it before dispatching to
-// the active tool, and the Enter/ESC keys confirm/cancel through the store.
+// The 移动 controller: its tile picks up equipment on the first click and drops
+// it on the next. An already-carried piece owns the pointer from either this tool
+// or the 信息 card flow (GAME-SPEC §9.5).
 
 import { exitFloorAt } from '../../sim/exits.ts'
 import { ceilingMountStandCell, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountStandCell } from '../../sim/placement.ts'
@@ -23,6 +22,21 @@ export class MoveController extends ToolController {
 
   onDown(info: PointerInfo): void {
     const st = useStore.getState()
+    // In the 移动 tool, the first click picks up the equipment under the pointer;
+    // a later click drops it. This is the select-then-move flow in one gesture.
+    if (!st.moveDraft) {
+      if (info.button !== 0) return
+      const id = this.ctx.pickModule(info.clientX, info.clientY)
+      if (!id) return
+      info.preventDefault()
+      st.liftModule(id)
+      const hit = info.hit
+      if (useStore.getState().moveDraft && hit) {
+        this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1]] }
+        this.refreshHover()
+      }
+      return
+    }
     // A right press puts the piece back where it came from (the card's 取消).
     if (info.button === 2) {
       info.preventDefault()

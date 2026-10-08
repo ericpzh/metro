@@ -8,6 +8,7 @@ import { REFERENCE_BOOT, referenceStation } from '../../../data/reference-statio
 import {
   cloneState,
   initialStation,
+  nearestLevel,
   toData,
   toState,
   toStateRepairing,
@@ -120,7 +121,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
       return
     }
     const s = r.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
     // A save that carried blocks off the 1 m grid (nothing in the game can mint one,
     // so they came from outside) is repaired by `toState` rather than refused — say
@@ -176,19 +177,19 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const { past, station, future } = get()
     if (past.length === 0) return
     const prev = past[past.length - 1]
-    set({ station: prev, past: past.slice(0, -1), future: [...future, cloneState(station)], version: get().version + 1 })
+    set({ station: prev, past: past.slice(0, -1), future: [...future, cloneState(station)], version: get().version + 1, activeZ: nearestLevel(get().activeZ - station.levelBase + prev.levelBase, prev.levelBase) })
     rebuildSim(toData(prev))
   },
   redo: () => {
     const { future, station, past } = get()
     if (future.length === 0) return
     const next = future[future.length - 1]
-    set({ station: next, future: future.slice(0, -1), past: pushPast(past, cloneState(station)), version: get().version + 1 })
+    set({ station: next, future: future.slice(0, -1), past: pushPast(past, cloneState(station)), version: get().version + 1, activeZ: nearestLevel(get().activeZ - station.levelBase + next.levelBase, next.levelBase) })
     rebuildSim(toData(next))
   },
   newStation: () => {
     const s = toState({ name: '未命名车站', seed: 7654321, cells: [], modules: [], lines: [] })
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: 0, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
   },
   loadReference: () => {
@@ -196,7 +197,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     // here: an off-grid block would be dropped rather than loaded, not refused.
     const repaired = toStateRepairing(referenceStation())
     const s = repaired.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: -8, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: -8 + s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
     if (repaired.droppedCells + repaired.droppedModules > 0) {
       set({ notice: `示例车站修复时删掉了 ${repaired.droppedCells + repaired.droppedModules} 个网格外的方块` })

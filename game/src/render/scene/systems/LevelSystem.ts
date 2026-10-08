@@ -54,6 +54,11 @@ export class LevelSystem extends SceneSystem {
     this.applyLevel()
   }
 
+  setHideRoof(on: boolean): void {
+    this.ctx.hideRoof = on
+    this.applyLevel()
+  }
+
   /**
    * Show, ghost or hide every storey for the active level. The rule itself is
    * `render/levelSlicing.ts`; this is only the walk over the scene.
@@ -86,7 +91,7 @@ export class LevelSystem extends SceneSystem {
     // and two of those usually change nothing — so skip a repeat with the same
     // slice. `setStation` clears the key because it rebuilds the meshes this
     // assigns materials to.
-    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideUI}|${this.ctx.cutaway}`
+    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}`
     if (key === this.ctx.levelKey) return
     this.ctx.levelKey = key
     // One record for the whole walk: what the view asks of the slice this frame.
@@ -176,6 +181,11 @@ export class LevelSystem extends SceneSystem {
    * (shadows, decals) always shows.
    */
   applyGroupLevel(root: THREE.Object3D, kind: 'module' | 'train'): void {
+    const roof = kind === 'module' && root.userData.roof === true
+    if (roof && this.ctx.hideRoof) {
+      root.visible = false
+      return
+    }
     const levels = root.userData.levelZs as number[] | undefined
     const lz = root.userData.levelZ as number | undefined
     const zs = levels ?? (lz !== undefined ? [lz] : undefined)
@@ -192,7 +202,7 @@ export class LevelSystem extends SceneSystem {
       // that is itself above it — the fixture's `float`, so 隐藏天花板 keeps it.
       const ground = root.userData.groundBand as number | undefined
       this.slice.unsupported = unsupportedAbove(this.ctx.activeZ, ground)
-      root.visible = levelVisible(side, this.slice)
+      root.visible = levelVisible(side, roof ? { ...this.slice, autoCeiling: false } : this.slice)
     }
     if (!root.visible) return
     const clip = this.ctx.cutaway ? this.clip : null

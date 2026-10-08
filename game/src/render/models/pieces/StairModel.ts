@@ -1,6 +1,7 @@
 // Stair builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { StairBlockModel } from './StairBlockModel.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials, ModuleContext } from '../PieceBuilder.ts'
 import { STAIR_BODY_DROP } from '../../../sim/openings.ts'
@@ -53,6 +54,7 @@ const NO_STAIR_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
  * its open side alone.
  */
 function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>): THREE.Group {
+  if (mod.cfg.block) return new StairBlockModel(ctx).build(mod)
   const g = new THREE.Group()
   const width = mod.cfg.width ?? STAIR_WIDTH_NARROW
   const surface = stairSurface(ctx, mod)
@@ -353,4 +355,3 @@ export class StairModel extends PieceBuilder {
     return buildStair(this.ctx, mod)
   }
 }
-

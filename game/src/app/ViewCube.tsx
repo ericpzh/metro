@@ -15,7 +15,7 @@ import * as THREE from 'three'
 import { DEFAULT_FOV, FOV_MAX_DEG, FOV_MIN_DEG, PAN_DOWN, PAN_UP, type SceneRenderer } from '../render/scene.ts'
 import { useStore } from './store.ts'
 import { goHomeView } from './viewHome.ts'
-import { LEVEL_STEPS } from '../sim/constants.ts'
+import { levelSteps } from '../sim/constants.ts'
 
 /** Cube half-extent in world units; the cube spans -HALF..HALF on each axis. */
 const HALF = 0.5
@@ -576,7 +576,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
             onChange={(e) => setFov(Number(e.target.value))}
             onPointerUp={(e) => e.currentTarget.blur()}
           />
-          <span className="viewFovVal">{fovDeg}°</span>
+          <span className="viewFovVal">FOV: {fovDeg}°</span>
         </div>
       </div>
     </div>
@@ -591,12 +591,32 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
 function DepthRail(): React.ReactElement {
   const activeZ = useStore((s) => s.activeZ)
   const setActiveZ = useStore((s) => s.setActiveZ)
+  const levelBase = useStore((s) => s.station.levelBase)
+  const setLevelBase = useStore((s) => s.setLevelBase)
   const trackRef = useRef<HTMLDivElement>(null)
+  const railRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
+  const [baseOpen, setBaseOpen] = useState(false)
 
-  // Fixed storeys (see `LEVEL_STEPS`): the rail always lists 12 down to -32
+  useEffect(() => {
+    if (!baseOpen) return
+    const closeOutside = (e: PointerEvent): void => {
+      if (!railRef.current?.contains(e.target as Node)) setBaseOpen(false)
+    }
+    const closeEscape = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setBaseOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeEscape)
+    }
+  }, [baseOpen])
+
+  // Fixed storeys (see `LEVEL_STEPS`): the rail always lists 24 down to -32
   // in steps of 4, so every stop is a real work plane.
-  const levels = LEVEL_STEPS
+  const levels = levelSteps(levelBase)
 
   const min = levels[0]
   const max = levels[levels.length - 1]
@@ -615,7 +635,7 @@ function DepthRail(): React.ReactElement {
   }
 
   return (
-    <div className="depthRail">
+    <div className="depthRail" ref={railRef}>
       <div
         className="depthTrack"
         ref={trackRef}
@@ -645,7 +665,7 @@ function DepthRail(): React.ReactElement {
       >
         <div className="depthLine" />
         {levels.map((z) => (
-          <div key={z} className={z === activeZ ? 'depthDot on' : 'depthDot'} style={{ top: `${frac(z) * 100}%` }}>
+          <div key={z} className={z === activeZ ? 'depthTick on' : 'depthTick'} style={{ top: `${frac(z) * 100}%` }}>
             <i />
           </div>
         ))}
@@ -653,7 +673,23 @@ function DepthRail(): React.ReactElement {
           <b>{activeZ}m</b>
         </div>
       </div>
-      <div className="depthTag">高度</div>
+      <button type="button" className="depthTag" aria-expanded={baseOpen} aria-controls="depthBaseMenu" onClick={() => setBaseOpen((open) => !open)}>高度</button>
+      {baseOpen && (
+        <div className="depthBaseMenu" id="depthBaseMenu" role="group" aria-label="高度基准">
+          <div className="depthBaseTitle">基准</div>
+          <div className="depthBaseChoices">
+            {[0, 1, 2, 3].map((base) => (
+              <button
+                key={base}
+                type="button"
+                className={base === levelBase ? 'depthBaseChoice on' : 'depthBaseChoice'}
+                aria-pressed={base === levelBase}
+                onClick={() => { setLevelBase(base); setBaseOpen(false) }}
+              >{base}m</button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

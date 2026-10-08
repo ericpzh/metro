@@ -55,6 +55,10 @@ export interface AreaDrag {
   wallDirs?: WallDir[]
   /** True for the 围栏 tool's drag, which lays one fence panel per cell. */
   fence?: boolean
+  /** Roof tiles or small stair blocks laid/removed on the pressed plane. */
+  roof?: boolean
+  /** Current tile rectangle, for live R/Tab preview updates while dragging. */
+  tileCells?: Array<[number, number, number]>
   /**
    * The delete tool's module drag: the ids it has collected, the pressed piece
    * first. A single id is the plain "remove this whole piece" press; a longer

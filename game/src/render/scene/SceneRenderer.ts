@@ -191,6 +191,7 @@ export class SceneRenderer {
   /* ------------------------------------------------------------ station */
 
   setStation(data: StationData, trackCells: Set<number> = new Set()): void {
+    this.ctx.levelBase = data.levelBase ?? 0
     this.chunks.prepareStation(data)
     // A painted colour the document no longer holds can go: each finish material
     // wraps a 128² canvas texture, and the colour picker hands out a new id per
@@ -278,6 +279,10 @@ export class SceneRenderer {
   /** 隐藏天花板: stop hiding the ceilings of the storey above the active one. */
   setAutoCeiling(on: boolean): void {
     this.level.setAutoCeiling(on)
+  }
+
+  setHideRoof(on: boolean): void {
+    this.level.setHideRoof(on)
   }
 
   /**

@@ -264,6 +264,17 @@ function syntheticStation(): StationData {
 /** One representative instance of each palette entry, placed at the origin. */
 function sampleModule(id: string, station: StationData): Module | null {
   switch (id) {
+    case 'pillar-slim':
+    case 'pillar-thick':
+      return { id, type: 'pillar', x: 0, y: 0, z: 0, cfg: { size: id === 'pillar-thick' ? 'thick' : 'slim', height: 4 } }
+    case 'roof':
+      return { id, type: 'roof', x: 0, y: 0, z: 0, w: 1, d: 1, cfg: {} }
+    case 'roof-truss':
+      return { id, type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 4, cfg: { variant: 'truss' } }
+    case 'roof-tapered':
+      return { id, type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 4, cfg: { variant: 'tapered-truss' } }
+    case 'bridge':
+      return { id, type: 'track', x: 0, y: 0, z: 0, w: 12, d: 3, cfg: { line: '1', power: 'third-rail', bridge: true } }
     case 'gate':
       // The palette tile shows the default lane gate; the choice itself is Tab.
       return { id, type: 'gate', x: 0, y: 0, z: 0, rot: 0, cfg: { dir: 'both', door: 'lane' } }
@@ -393,12 +404,15 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'exit-covered-3':
     case 'exit-uncovered-1':
     case 'exit-uncovered-2':
+    case 'exit-doorway-1':
+    case 'exit-doorway-2':
+    case 'exit-doorway-3':
     case 'exit-uncovered-3': {
       const parts = id.split('-')
       const covered = parts[1] !== 'uncovered'
       const n = Number(parts[2])
       const bays: ExitBays = n === 1 || n === 3 ? n : 2
-      return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'C口', inRate: 900, open: true, covered, bays } }
+      return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'C口', inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } }
     }
     case 'platform-edge': {
       const line = station.lines[0]
@@ -424,6 +438,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       return liftModule({ x: 0, y: 0, z: 0 }, 0, id)
     case 'stair-straight':
       return sampleStair('straight')
+    case 'stair-block':
+      return { id, type: 'stair', x: 0, y: 0, z: 0, rot: 1, from: { x: 0, y: -1, z: 0 }, to: { x: 0, y: 1, z: 1 }, cfg: { width: 1, block: true } }
     case 'stair-left90':
       return sampleStair('left90')
     case 'stair-right90':

@@ -35,6 +35,7 @@ import {
 } from '../../store.ts'
 import { armedCut } from '../helpers.ts'
 import { stairWidthLabel } from '../../../sim/stairs.ts'
+import { roofWidthLabel } from '../../../sim/structures.ts'
 import type { GateDoor } from '../../../sim/types.ts'
 import { Block } from '../shared/Block.tsx'
 import { RotateTile } from '../shared/RotateTile.tsx'
@@ -82,6 +83,8 @@ function ActionTiles(): React.ReactElement {
   const escalatorDir = useStore((s) => s.escalatorDir)
   const gateDoor = useStore((s) => s.gateDoor)
   const stairWidth = useStore((s) => s.stairWidth)
+  const stairBlockHeight = useStore((s) => s.stairBlockHeight)
+  const roofWidth = useStore((s) => s.roofWidth)
   const st = useStore.getState
   // The cut piece the 方块 click will lay, if any: its orientation is the one thing a
   // cut can be told about, and it is the same counter **R** turns.
@@ -107,10 +110,18 @@ function ActionTiles(): React.ReactElement {
       ) : null}
       {piece !== null && isStairType(piece) ? (
         <Block
-          label={stairWidthLabel(stairWidth)}
+          label={piece === 'stair-block' ? stairBlockHeight === 1 ? '高' : '矮' : stairWidthLabel(stairWidth)}
           icon="ortho"
           shortcut="Tab"
           onClick={() => st().cycleStairWidth()}
+        />
+      ) : null}
+      {piece !== null && (piece === 'roof-truss' || piece === 'roof-tapered') ? (
+        <Block
+          label={roofWidthLabel(roofWidth)}
+          icon="ortho"
+          shortcut="Tab"
+          onClick={() => st().cycleRoofWidth()}
         />
       ) : null}
       {piece !== null && isEscalatorType(piece) ? (

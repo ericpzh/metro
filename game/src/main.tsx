@@ -57,7 +57,9 @@ async function boot() {
   if (isMobileMode()) {
     // A phone or tablet gets a plain page. Neither the game nor its three.js
     // bundle is imported, so nothing renders, simulates or downloads here.
-    root.render(<MobileNotice />)
+    root.render(<MobileNotice onProceed={() => {
+      void import('./app/boot.tsx').then(({ renderGame }) => renderGame(root))
+    }} />)
     return
   }
   const { renderGame } = await import('./app/boot.tsx')

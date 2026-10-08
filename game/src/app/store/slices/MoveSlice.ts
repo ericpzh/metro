@@ -1,4 +1,4 @@
-// The 移动 slice: lifting a placed 设备 / 装饰 piece, aiming it and dropping it
+// The 移动 slice: lifting a placed 设备 / 装饰 / 出入口 piece, aiming it and dropping it
 // (§9.5). A lift is deliberately *not* a document edit — the piece stays in the
 // station and only stops being drawn — so cancelling restores nothing and
 // confirming is the one and only commit.
@@ -11,7 +11,7 @@ import { isRotatableType, moduleLabel } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
 /**
- * A placed 设备 / 装饰 piece the 信息 card's **移动** has picked up (§9.5).
+ * A placed 设备 / 装饰 / 出入口 piece the 信息 card's **移动** has picked up (§9.5).
  *
  * The piece is **not** removed from the document while it is in the air. It keeps
  * its id and its whole `cfg` — a 指示牌's printed boards, a 闸机's lane, a 广告牌's
@@ -39,9 +39,8 @@ export interface MoveDraft {
 
 export interface MoveSlice {
   /**
-   * The 设备 / 装饰 piece the **信息 card** has lifted for 移动, if any (§9.5). There
-   * is no move tool: the inspector's card on the selected piece is the one way in
-   * (`liftModule`), and this is the whole state of the lift from there on — the
+   * The 设备 / 装饰 / 出入口 piece lifted for 移动, if any (§9.5), whether from the 移动 tool
+   * or the inspector card (`liftModule`). This is the whole state of the lift — the
    * piece, its carried rotation, where it is aimed, the exact module the drop would
    * place and whether that cell will take it. Everything that draws or applies the
    * move reads it here, so the ghost, the 信息 card and the commit cannot disagree.
@@ -49,11 +48,11 @@ export interface MoveSlice {
   moveDraft: MoveDraft | null
 
   /**
-   * Lift a placed 设备 / 装饰 piece for 移动 (§9.5) — what the 信息 card's 移动 button
-   * does to the selected piece, and where the 确认 / 取消 that drop it live too. Not an
+   * Lift a placed 设备 / 装饰 / 出入口 piece for 移动 (§9.5) — what the 移动 tool and 信息
+   * card's 移动 button do, and where the 确认 / 取消 that drop it live too. Not an
    * edit: nothing is committed and nothing leaves the document, the piece only stops
-   * being drawn until it is put down. A structural piece (楼梯 / 扶梯 / 电梯 / 出入口 /
-   * 房间 / 轨道 / 站台门) is refused with a toast pointing at 删除.
+   * being drawn until it is put down. Runs, rooms, track and platform doors are
+   * refused with a toast pointing at 删除; an exit head-house can move with its footprint.
    */
   liftModule: (moduleId: string) => void
   /**
@@ -97,7 +96,7 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     set({
       moveDraft: { module: mod, rot: mod.rot ?? 0, at: null, candidate: null, reason: '' },
       selected: { kind: 'module', key: mod.id, label },
-      notice: `已拿起${label}：在右边 信息 栏里点「确认」放下，点「取消」放回原位`,
+      notice: `已拿起${label}：在要放的位置点击，或在信息栏点「确认」；点「取消」放回原位`,
     })
   },
   aimMove: (at, candidate, reason) => {

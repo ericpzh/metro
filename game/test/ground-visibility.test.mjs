@@ -26,6 +26,35 @@ import * as THREE from 'three'
 import { ChunkSystem } from '../src/render/scene/systems/ChunkSystem.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
+import { useStore } from '../src/app/store.ts'
+
+test('roof visibility is independent of ceiling slicing and hides in every view mode', () => {
+  assert.equal(new SceneContextData(new THREE.Scene(), kit()).hideRoof, false)
+  useStore.getState().setHideRoof(false)
+  useStore.getState().setAutoCeiling(true)
+  assert.equal(useStore.getState().hideRoof, false)
+  const { ctx, level } = rig(station([]))
+  const roof = new THREE.Group()
+  roof.userData = { roof: true, levelZs: [4], groundBand: 0 }
+  const ceilingFixture = new THREE.Group()
+  ceilingFixture.userData = { levelZs: [4], groundBand: 0 }
+  level.modules.moduleMeshes.add(roof, ceilingFixture)
+  level.setLevel(0, true)
+  level.setAutoCeiling(true)
+  assert.equal(roof.visible, true, '隐藏天花板 keeps actual roof modules')
+  assert.equal(ceilingFixture.visible, false, 'normal ceiling fixtures still follow ceiling slicing')
+  for (const [hideUI, cutaway] of [[false, false], [true, false], [false, true]]) {
+    ctx.hideUI = hideUI
+    ctx.cutaway = cutaway
+    level.setHideRoof(true)
+    assert.equal(roof.visible, false)
+    level.setHideRoof(false)
+    assert.equal(roof.visible, true)
+  }
+  useStore.getState().setHideRoof(true)
+  assert.equal(useStore.getState().autoCeiling, true, 'the roof toggle does not alter ceiling settings')
+  useStore.getState().setHideRoof(false)
+})
 
 /** A material kit just real enough for the mesher (no GL, no textures). */
 function kit() {

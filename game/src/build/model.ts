@@ -93,3 +93,5 @@ export {
   type FurnitureSpot,
 } from './model/Facilities.ts';
 export { initialStation, labStation } from './model/Reference.ts';
+
+export { paintRoofSurface } from './model/RoofPaint.ts';

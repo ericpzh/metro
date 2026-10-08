@@ -6,6 +6,7 @@
 // the whole module can be pre-rendered and turned with R like any equipment,
 // including across to the other axis. Pure document edits — no React, no three.
 
+import { pillarSupportsBridge } from '../sim/structures.ts'
 import { floorSpeed } from '../sim/finishes.ts'
 import { boxesOverlap, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { doorCentres, trainLength } from '../sim/stock.ts'
@@ -148,6 +149,7 @@ export function makeTrack(o: {
   w: number
   d: number
   tunnel?: boolean
+  bridge?: boolean
 }): TrackModule {
   return {
     id: o.id,
@@ -158,7 +160,7 @@ export function makeTrack(o: {
     w: o.w,
     d: o.d,
     rot: o.rot,
-    cfg: { line: o.lineId, power: o.power, dir: o.dir, ...(o.tunnel ? { tunnel: true } : {}) },
+    cfg: { line: o.lineId, power: o.power, dir: o.dir, ...(o.tunnel ? { tunnel: true } : {}), ...(o.bridge ? { bridge: true } : {}) },
   }
 }
 
@@ -191,7 +193,7 @@ function makeEdge(
  * rotation, so a north–south rail gets north–south screen doors.
  */
 export function derivePlatformEdges(state: StationState, track: Module): PlatformEdgeModule[] {
-  if (track.type !== 'track' || track.cfg.tunnel) return []
+  if (track.type !== 'track' || (track.cfg.tunnel || track.cfg.bridge)) return []
   const line = state.lines.find((l) => l.id === track.cfg.line)
   const dir: LineDirection = track.cfg.dir ?? line?.direction ?? 'up'
   const psd: PsdHeight = line?.psd ?? 'full'
@@ -315,7 +317,7 @@ export function trackColliders(state: StationState, track: TrackModule): Module[
   const box = trackSpace(track)
   const out: Module[] = []
   for (const m of state.modules) {
-    if (m.id === track.id) continue
+    if (m.id === track.id || pillarSupportsBridge(m, track)) continue
     const e = moduleEnvelope(m)
     if (e && boxesOverlap(box, e)) out.push(m)
   }
@@ -345,9 +347,10 @@ export function trackBlockReason(state: StationState, track: TrackModule): Track
   if (trackInterferenceBlocked(state, track)) return 'interference'
   // A tunnel bores through walls and hangs over void; only a platform is held
   // to open air and solid ground under its whole footprint.
+  if (track.cfg.bridge && track.z < 0) return 'floor'
   if (!track.cfg.tunnel) {
     if (trackClearanceBlocked(state, track)) return 'wall'
-    if (trackFloorMissing(state, track)) return 'floor'
+    if (!track.cfg.bridge && trackFloorMissing(state, track)) return 'floor'
   }
   return null
 }
@@ -539,6 +542,12 @@ export function makeTunnel(src: TrackModule, end: 1 | -1, length: number, id: st
  * no track on it. Refuses (same state object) when no such rail exists or the
  * run would interfere with anything, so the caller can tell "no change".
  */
+export function makeBridge(src: TrackModule, end: 1 | -1, length: number, id: string): TrackModule {
+  const tunnel = makeTunnel(src, end, length, id)
+  const { tunnel: _tunnel, ...cfg } = tunnel.cfg
+  return { ...tunnel, cfg: { ...cfg, bridge: true } }
+}
+
 export function placeTunnel(state: StationState, sourceId: string, length: number, at?: readonly [number, number, number]): StationState {
   const src = state.modules.find((m) => m.id === sourceId)
   if (!src || src.type !== 'track') return state

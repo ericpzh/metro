@@ -113,6 +113,9 @@ function footprintOf(id: string): string {
 const PICK_IDS: readonly string[] = [
   'gate',
   'fence',
+  'pillar',
+  'roof',
+  'bridge',
   'tvm',
   'vending',
   'exit',
@@ -132,7 +135,7 @@ const PICK_IDS: readonly string[] = [
 ]
 
 /** The family a pick-list entry names, for matching against the palette. */
-const PICK_FAMILY: Record<string, string> = { exit: 'exit', stair: 'stair', bench: 'bench' }
+const PICK_FAMILY: Record<string, string> = { pillar: 'pillar', exit: 'exit', stair: 'stair', bench: 'bench' }
 
 /**
  * The catalogue's cards: the picked families, in the rail's own order, with the text
@@ -278,6 +281,11 @@ const SERVICE: Record<string, string> = {
 
 /** The line under a card's footprint: the simulation's own note, or a family note. */
 function serviceOf(id: string): string {
+  if (id.startsWith('pillar')) return '每次加高 4 m'
+  if (id === 'roof') return '薄顶棚，材质可涂刷'
+  if (id.startsWith('roof-truss')) return '纵向桁架顶棚，4/8/12 m，可涂刷'
+  if (id.startsWith('roof-tapered')) return '收束桁架顶棚，单根底梁，可涂刷'
+  if (id === 'bridge') return '开放轨道桥，延伸线路'
   if (SERVICE[id]) return SERVICE[id]
   if (id.startsWith('exit')) return '每个出口单独设流量'
   if (id.startsWith('billboard')) return '把人往商铺那边引'

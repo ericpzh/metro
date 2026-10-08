@@ -11,6 +11,7 @@ import { pickCells } from '../src/render/pickCell.ts'
 import { settleSignBoards, signBoardsOf } from '../src/sim/sign.ts'
 import { useStore } from '../src/app/store.ts'
 import { PickTool } from '../src/app/tools/PickTool.ts'
+import { emptyStation } from '../src/data/reference-station.ts'
 import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
 
 const floor = (x, y, z = 0) => ({ x, y, z, fill: 'solid' })
@@ -64,6 +65,15 @@ const MODULES = [
 ]
 
 /** The picker with the scene stubbed and the drawn-model pick scripted. */
+test('picking a short stair block restores its height and rotation', () => {
+  const m = createModule('stair-block', 0, 0, 0, 'short', 2, 0.5)
+  useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, stairBlockHeight: 1 })
+  ctxFor(m.id).onDown(press([0, 0, 0]))
+  assert.equal(useStore.getState().moduleType, 'stair-block')
+  assert.equal(useStore.getState().stairBlockHeight, 0.5)
+  assert.equal(useStore.getState().moduleRot, 2)
+})
+
 function ctxFor(pickedId) {
   const ref = (v = null) => ({ current: v })
   return new PickTool({
@@ -104,6 +114,7 @@ test.beforeEach(() => {
     moduleType: 'gate',
     moduleRot: 0,
     stairWidth: STAIR_WIDTH_NARROW,
+    roofWidth: 4,
     escalatorDir: 'up',
     gateDoor: 'lane',
     zoneBrush: 'paid',
@@ -170,6 +181,19 @@ test('a legacy piece with no variant reads as the palette default it is drawn as
   // A 门 with no variant is the 单开 不锈钢 door, the one `doorSpec` falls back to.
   ctxFor('dr2').onDown(press([2, 3, 0]))
   assert.equal(st().moduleType, 'door-steel-1')
+})
+
+test('picking any roof restores its truss style and width', () => {
+  for (const [id, width] of [['roof', 4], ['roof-truss', 4], ['roof-truss', 8], ['roof-truss', 12], ['roof-tapered', 4], ['roof-tapered', 8], ['roof-tapered', 12]]) {
+    const roof = createModule(id, 0, 0, 0, 'picked', 1, width)
+    useStore.setState({ station: { ...st().station, modules: [roof] }, tool: 'pick', roofWidth: 4 })
+    ctxFor('picked').onDown(press([0, 0, 0]))
+    assert.equal(st().moduleType, id)
+    assert.equal(st().moduleRot, 1)
+    if (id !== 'roof') assert.equal(st().roofWidth, width)
+    assert.equal(st().cancelPick(), true)
+    assert.equal(st().roofWidth, 4, 'Esc restores the width armed before picking')
+  }
 })
 
 test('a rail run hands to the 轨道 tool, a room to 分区, a screen door only selects', () => {

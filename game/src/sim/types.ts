@@ -300,6 +300,7 @@ export function isWallBlock(c: { tags?: string[] }): boolean {
 export type ExitBays = 1 | 2 | 3
 
 export interface ExitCfg {
+  style?: 'doorway'
   name: string
   /** Street → station demand, pax/hour at peak. Outflow is unlimited: an exit
    *  is a pure opening and passes as many people as the corridors deliver. */
@@ -423,6 +424,8 @@ export interface StairFlight {
 }
 
 export type Module =
+  | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number } })
+  | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'truss' | 'tapered-truss'; finish?: FinishId } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor } })
   | (ModuleBase & { type: 'fence'; cfg: Record<string, never> })
@@ -436,8 +439,12 @@ export type Module =
        */
       from: Vec3i
       to: Vec3i
-      cfg: {
-        width: number
+        cfg: {
+          /** A solid 1×1×1 m stepped block, without rails or a carved well. */
+          block?: boolean
+          /** Height of a small stair block; existing saves default to 1 m. */
+          blockHeight?: 0.5 | 1
+          width: number
         style?: StairStyle
         /** Ordered flight segments, bottom → top. Defaults to one straight run. */
         flights?: StairFlight[]
@@ -705,7 +712,7 @@ export type Module =
       /** Bed depth in cells across the run (+y). Defaults to 1. */
       d?: number
       /** A pure tunnel run: an extension of a line's track, never platform doors. */
-      cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean }
+      cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean }
     })
 
 export type ModuleType = Module['type']
@@ -755,6 +762,8 @@ export interface LineDef {
 export interface StationData {
   name: string
   seed: number
+  /** 0–3 m base of the 4 m editing storey grid. */
+  levelBase?: number
   cells: Cell[]
   modules: Module[]
   lines: LineDef[]

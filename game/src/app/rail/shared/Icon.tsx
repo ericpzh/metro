@@ -5,6 +5,8 @@
 // apart. Kept as one dispatcher file; split into icons/ only if it regrows past
 // the ~300-line cap (plan.md Lane B).
 
+import { LuGrab } from 'react-icons/lu'
+
 export function Icon({ name }: { name: string }): React.ReactElement {
   const s = {
     fill: 'none',
@@ -19,6 +21,8 @@ export function Icon({ name }: { name: string }): React.ReactElement {
     </svg>
   )
   switch (name) {
+    case 'move':
+      return <LuGrab />
     case 'select':
       return svg(<path {...s} fill="currentColor" stroke="none" d="M5 3l10 7.2-4.3.6 2.5 4.4-1.9 1-2.4-4.4L5 15z" />)
     case 'block':
@@ -26,6 +30,32 @@ export function Icon({ name }: { name: string }): React.ReactElement {
         <>
           <path {...s} d="M10 3l6 3.4v7.2L10 17l-6-3.4V6.4z" />
           <path {...s} d="M4 6.4l6 3.4 6-3.4M10 9.8V17" />
+        </>,
+      )
+    // A thin roof plate, using the same outlined volume as the block tile.
+    case 'roof':
+      return svg(
+        <>
+          <path {...s} d="M10 5L17 9l-7 4-7-4zM3 9v2.5l7 4 7-4V9M10 13v2.5" />
+        </>,
+      )
+    case 'roof-truss':
+      return svg(<><path {...s} d="M2 7l8-3 8 3M2 7v2l8-3 8 3V7M3 10h14M3 15h14M3 10l3.5 5 3.5-5 3.5 5 3.5-5" /></>)
+    case 'roof-tapered':
+      return svg(<><path {...s} d="M2 7l8-3 8 3M2 7v2l8-3 8 3V7M3 10l7 6 7-6M5 12l5 4 5-4M4 16h12" /></>)
+    // A column with its head and foot plates; the variants change shaft width.
+    case 'pillar':
+    case 'pillar-thick':
+      return svg(
+        <>
+          <path {...s} d="M5 3h10v2H5zM7 5v10M13 5v10M5 15h10v2H5z" />
+          <path {...s} strokeWidth="0.9" d="M10 6.5v7" />
+        </>,
+      )
+    case 'pillar-slim':
+      return svg(
+        <>
+          <path {...s} d="M6 3h8v2H6zM9 5v10M11 5v10M6 15h8v2H6z" />
         </>,
       )
     // A brick wall: three courses, joints staggered.
@@ -119,6 +149,14 @@ export function Icon({ name }: { name: string }): React.ReactElement {
         <>
           <path {...s} d="M6 3v14M14 3v14" />
           <path {...s} d="M4 6h12M4 10h12M4 14h12" />
+        </>,
+      )
+    // An elevated track deck on two piers, with rails and sleepers above it.
+    case 'bridge':
+      return svg(
+        <>
+          <path {...s} d="M2 4h16M2 6.5h16M4 3v4.5M8 3v4.5M12 3v4.5M16 3v4.5" />
+          <path {...s} d="M2 8.5h16v2H2zM5 10.5V17h2v-6.5M13 10.5V17h2v-6.5M3.5 17h5M11.5 17h5" />
         </>,
       )
     // A tunnel mouth: an arch with the track running into it.

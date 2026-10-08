@@ -150,8 +150,8 @@ export function trainVisible(side: LevelSide, ghost: boolean, parked: boolean): 
  * draws every storey, so it draws everyone on them — the people on the floor
  * above are exactly what a station drawn whole shows.
  */
-export function crowdVisible(z: number, activeZ: number, ghost: boolean, showEveryStorey = false): boolean {
+export function crowdVisible(z: number, activeZ: number, ghost: boolean, showEveryStorey = false, base = 0): boolean {
   if (showEveryStorey) return true
-  const side = levelSide([storeyBand(z)], activeZ)
+  const side = levelSide([storeyBand(z, base)], activeZ)
   return side === 'active' || (ghost && side === 'below')
 }

@@ -83,7 +83,8 @@ export class ModuleSystem extends SceneSystem {
       const group = buildModule(mod, ctx)
       if (!group) continue
       group.userData.moduleId = mod.id
-      group.userData.levelZs = moduleLevels(mod)
+      group.userData.roof = mod.type === 'roof'
+      group.userData.levelZs = moduleLevels(mod, this.ctx.levelBase)
       const ground = this.ctx.groundOf.get(`${mod.x},${mod.y}`)
       group.userData.groundBand = ground
       this.moduleMeshes.add(group)

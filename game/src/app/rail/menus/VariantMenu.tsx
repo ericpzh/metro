@@ -32,7 +32,8 @@ export function VariantMenu({ family, open, thumbs }: { family: ModuleFamily; op
           key={m.id}
           label={family.tileLabel ? family.tileLabel(m) : m.label}
           tile={m.id}
-          thumb={thumbs[m.id]}
+          thumb={family.folder === 'rail' ? undefined : thumbs[m.id]}
+          icon={family.folder === 'rail' ? m.id : undefined}
           active={tool === 'module' && moduleType === m.id}
           onClick={() => {
             setModuleType(m.id)

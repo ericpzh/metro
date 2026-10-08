@@ -57,14 +57,14 @@ const flat = (mods = [], extra = []) => state(station(extra).cells, mods)
 
 /* ----------------------------------------------------------- what can move */
 
-test('the flat 设备 and 装饰 move; the structural pieces do not', () => {
+test('the flat 设备 and 装饰 and an exit move; derived structural runs do not', () => {
   for (const type of ['gate', 'fence', 'tvm', 'vending', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'bin', 'extinguisher', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign']) {
     assert.equal(isMovableModule(piece(type, 1, 1)), true, `${type} is movable`)
   }
-  // A run carves its openings, an exit lays its own floor, a room owns the walls
-  // around it and a rail is derived from its line: none of them survives being
-  // translated, so the tool refuses them and points at 删除.
-  for (const type of ['stair', 'escalator', 'lift', 'exit']) {
+  assert.equal(isMovableModule(piece('exit', 1, 1)), true, 'the head-house carries its live floor footprint')
+  // A run carves its openings, a room owns the walls around it and a rail is
+  // derived from its line: none of them survives being translated.
+  for (const type of ['stair', 'escalator', 'lift']) {
     assert.equal(isMovableModule(piece(type, 1, 1)), false, `${type} is not movable`)
   }
   // The pieces the palette does not build through the factory are still refused.
@@ -220,9 +220,6 @@ test('the lift is a state of the piece, not a tool', () => {
 test('a structural piece is refused, with the reason the player needs', () => {
   load(station().cells, [piece('stair', 2, 2), piece('exit', 6, 6, 0)])
   st().liftModule('stair-1')
-  assert.equal(st().moveDraft, null)
-  assert.match(st().notice, /不能移动/)
-  st().liftModule('exit-1')
   assert.equal(st().moveDraft, null)
   assert.match(st().notice, /不能移动/)
 })

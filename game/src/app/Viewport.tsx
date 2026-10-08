@@ -170,6 +170,7 @@ export function Viewport(): React.ReactElement {
     const byTool: Record<Tool, ToolController> = {
       select,
       pick,
+      move,
       block,
       wall,
       delete: del,
@@ -220,6 +221,7 @@ export function Viewport(): React.ReactElement {
   const section = useStore((s) => s.section)
   const hideWalls = useStore((s) => s.hideWalls)
   const hideGround = useStore((s) => s.hideGround)
+  const hideRoof = useStore((s) => s.hideRoof)
   const hideUI = useStore((s) => s.hideUI)
   const ortho = useStore((s) => s.ortho)
   const overlayOn = useStore((s) => s.overlayOn)
@@ -248,7 +250,7 @@ export function Viewport(): React.ReactElement {
     // stacked into one picture. The labels come off the same floors, and no region
     // spans storeys, so they follow with it.
     const z = useStore.getState().activeZ
-    const floors = zoneMapFloorsAt(station.cells, z, station.modules)
+    const floors = zoneMapFloorsAt(station.cells, z, station.modules, station.levelBase)
     const quads = new Float32Array(floors.length * 3)
     const zones = new Uint8Array(floors.length)
     // A fingerprint of the picture the quads make, so an edit that touched no
@@ -295,6 +297,10 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setAutoCeiling(autoCeiling)
   }, [autoCeiling])
+
+  useEffect(() => {
+    sceneRef.current?.setHideRoof(hideRoof)
+  }, [hideRoof])
 
   useEffect(() => {
     sceneRef.current?.setLevel(activeZ, ghostOther)
@@ -595,6 +601,7 @@ export function Viewport(): React.ReactElement {
     scene.setStation(toData({ ...station, modules }))
     scene.setAutoCeiling(st.autoCeiling)
     scene.setHideGround(st.hideGround)
+    scene.setHideRoof(st.hideRoof)
     scene.setLevel(st.activeZ, st.ghostOtherLevels)
     // The 剖切 surface is placed once, on the first build of a station: the
     // middle of its plan on the storey being edited, facing +y — the fixed cut
@@ -786,6 +793,7 @@ export function Viewport(): React.ReactElement {
    * plain block rectangles to 方块 — or to 删除 for its line-remove drag.
    */
   const ownerForRelease = (d: AreaDrag, current: Tool): ToolController => {
+    if (d.roof === true) return tools.equipment
     if (d.modules !== undefined) return tools.delete
     if (d.fence === true) return current === 'delete' ? tools.delete : tools.equipment
     if (d.wall === true) return d.single === true ? tools.block : tools.wall

@@ -34,14 +34,23 @@ export const SECONDS_PER_SIM_HOUR = 3600 / SIM_RATE
 export const SIM_DAY = 24 * 3600
 
 /**
- * The fixed storey grid, in blocks: every 4 m from +12 down to -32. One block is
+ * The fixed storey grid, in blocks: every 4 m from +24 down to -32. One block is
  * one metre, so a storey's floor sits on one of these and its 4 m wall climbs to
  * the next one. The builder's Q/E stepping and the depth rail list exactly these
  * (`nearestLevel` snaps a raw z to the nearest). The renderer also keys every
  * cell to the storey at or below it, so two floors one storey apart never merge
  * into a single band even when a wall column connects them.
  */
-export const LEVEL_STEPS: number[] = [12, 8, 4, 0, -4, -8, -12, -16, -20, -24, -28, -32].sort((a, b) => a - b)
+export const LEVEL_STEPS: number[] = [24, 20, 16, 12, 8, 4, 0, -4, -8, -12, -16, -20, -24, -28, -32].sort((a, b) => a - b)
+
+/** Shift the 4 m editing grid by whole metres, while keeping old saves at zero. */
+export function normalizeLevelBase(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(3, Math.round(value))) : 0
+}
+
+export function levelSteps(base = 0): number[] {
+  return LEVEL_STEPS.map((z) => z + normalizeLevelBase(base))
+}
 
 /**
  * The storey a cell at `z` belongs to: the fixed grid line at or below it. A
@@ -49,10 +58,9 @@ export const LEVEL_STEPS: number[] = [12, 8, 4, 0, -4, -8, -12, -16, -20, -24, -
  * storey down keeps its own, so a wall column that reaches the floor above does
  * not merge the two into a single band (the renderer keys every cell this way).
  */
-export function storeyBand(z: number): number {
-  let lo = LEVEL_STEPS[0]
-  for (const f of LEVEL_STEPS) if (f <= z) lo = f
-  return lo
+export function storeyBand(z: number, base = 0): number {
+  const offset = normalizeLevelBase(base)
+  return Math.max(LEVEL_STEPS[0] + offset, Math.min(LEVEL_STEPS[LEVEL_STEPS.length - 1] + offset, Math.floor((z - offset) / 4) * 4 + offset))
 }
 
 /**

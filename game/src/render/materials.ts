@@ -299,7 +299,7 @@ export function finishesInUse(data: StationData): Set<FinishId> {
     for (const id of Object.values(c.finish)) if (id) out.add(id)
   }
   for (const m of data.modules) {
-    if (m.type === 'stair' && m.cfg.finish) out.add(m.cfg.finish)
+    if ((m.type === 'stair' || m.type === 'roof') && m.cfg.finish) out.add(m.cfg.finish)
   }
   return out
 }

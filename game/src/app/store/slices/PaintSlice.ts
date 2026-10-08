@@ -1,5 +1,6 @@
-// The 材质 slice: the paint brush's mode and finish (§4.3). `N` 单块 / `M` 整面
-// is the folder's own setting; the `pick` overlay survives from when 取色 (`I`)
+// The 材质 slice: the paint brush's mode and finish (§4.3). `N` 单块 is the
+// folder's own shortcut; 整面 is click-only since `M` moved to 移动.
+// The `pick` overlay survives from when 取色 (`I`)
 // lived here — eyedropping moved to the 工具 folder's 吸取 (`P`), which lifts
 // equipment as well as finishes, and `I` now aliases that tool.
 
@@ -9,13 +10,13 @@ import type { FinishId } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
 
 export type PaintMode = 'single' | 'surface' | 'pick'
-/** The 材质 folder's own setting: the two modes `N` 单块 / `M` 整面 pick between. */
+/** The 材质 folder's own setting: the two modes `N` 单块 / 整面 pick between. */
 export type PaintBaseMode = 'single' | 'surface'
 
 export interface PaintSlice {
   paintMode: PaintMode
   /**
-   * The `N` 单块 / `M` 整面 half of `paintMode`, held separately because 取色
+   * The 单块 / 整面 half of `paintMode`, held separately because 取色
    * (`I`) is a momentary overlay on one of the two brushes rather than a third
    * one (§4.3). The mode is a setting of the 材质 folder, not of a tile or a
    * face: choosing a finish (or a fresh 搪瓷板 colour) and eyedropping a face
@@ -33,11 +34,11 @@ export interface PaintSlice {
   enamelColour: number
 
   setPaintMode: (m: PaintMode) => void
-  /** Hand the brush back after its own `pick` overlay, in whichever of `N`/`M` it was entered with. */
+  /** Hand the brush back after its own `pick` overlay, in whichever of 单块/整面 it was entered with. */
   resumePaintMode: () => void
   /**
    * The 材质 tile's click: point the brush at a finish and switch to the paint
-   * tool, keeping the folder's `N`/`M` setting — a texture is not a mode.
+   * tool, keeping the folder's 单块/整面 setting — a texture is not a mode.
    */
   selectPaintFinish: (id: FinishId) => void
   setPaintFinish: (id: FinishId) => void
@@ -58,7 +59,7 @@ export const createPaintSlice: StateCreator<AppState, [], [], PaintSlice> = (set
   resumePaintMode: () => set((s) => ({ paintMode: s.paintBaseMode })),
   selectPaintFinish: (id) => {
     // The 材质 tile's whole click: pick the brush's finish and, in the same move,
-    // put the brush back in the folder's `N`/`M` setting. A texture is not a mode.
+    // put the brush back in the folder's 单块/整面 setting. A texture is not a mode.
     get().setTool('paint')
     set((s) => ({ paintFinish: id, paintMode: s.paintBaseMode }))
   },

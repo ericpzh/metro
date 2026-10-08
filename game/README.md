@@ -2210,7 +2210,8 @@ approximated); neither needs WebGL.
 * `storey.test.mjs` — the renderer's storey bands key every cell to the fixed 4 m grid line at or
   below it (`storeyBand`), so a floor and its 4 m auto walls share a storey while a second floor one
   storey down stays its own; a lower floor's wall reaching the floor above must not merge the two
-  floors into one band.
+  floors into one band. The 高度 rail's 0–3 m base shifts every stop and band together; `save.test.mjs`
+  checks that the base survives a save and an older save defaults to 0 m.
 * `shelf.test.mjs` — the 货架 (§5.7): the factory builds it with the hover rotation, it may stand
   inside a walled room or booth (either side of the shelf ↔ room pair, while shelves still collide
   with each other and other equipment does not enter rooms), `moduleAt` prefers the furniture over
@@ -2457,7 +2458,7 @@ approximated); neither needs WebGL.
   it, and the setting survives a detour through another folder on the left rail.
 * `pick-tool.test.mjs` — the 工具 folder's **吸取** (`app/tools/PickTool.ts`, `P`): clicking a placed
   piece arms the placement with its exact palette variant — a 2 m backed 座椅, a 六 format 广告牌, a
-  right-双跑 楼梯, a 木 双开 门 — and copies its turn, 扶梯 direction and 闸机 door, selects the instance
+  right-双跑 楼梯, a 木 双开 门, or either 桁架屋顶 style at its placed width — and copies its turn, 扶梯 direction and 闸机 door, selects the instance
   and opens
   the owning folder; a legacy piece with no variant reads as the palette default it is drawn as; a
   rail run hands to 轨道, a walled room to 分区's own brush, a derived 站台门 only selects; and a bare
@@ -2891,3 +2892,16 @@ build needs no change either way.
 
 If the site's tab should point somewhere else — a preview URL, a different domain — set
 `VITE_GAME_URL` when building `web/`.
+
+
+Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, the 1×1 m thin roof and two raised truss styles in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with preview/release agreement and graph registration), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Roof bays place by click or rectangular drag and are painted through 材质.
+
+`roof-tool.test.mjs` verifies rectangular thin-roof previews, full truss-bay placement and removal including rotated 8 m bays, collision refusal, right-drag removal, and one undo step per drag. Each truss style has one tile; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover.
+
+Small stair blocks: 楼梯块 under 楼梯 has a 1×1 m footprint and no railings. Tab switches 高 (1 m, four treads) / 矮 (0.5 m, two treads), with a live placement preview; the palette preview is turned 90° counter-clockwise. Click or rectangular drag places independent tiles on floor, R rotates them, and 材质 paints the whole stepped surface. The high block connects adjacent lower/upper floors without carving blocks; the short building piece does not create a full-metre walking connection on the whole-metre floor grid. `overground.test.mjs` pins dimensions, painting, collisions, floor preservation, save/load and both walking directions; `roof-tool.test.mjs` pins drag, rotation, undo and removal.
+
+Truss roof finishes: both roof styles use neutral white vertex colours and metre-scaled UVs on cladding and beams, so 材质 painting renders the selected finish on the roof sheets instead of black. Beams and braces keep the shared steel material. `overground.test.mjs` checks every mesh across all three widths.
+
+`structures-gaps.test.mjs` pins the repair-shaped edges the feature suites use but never assert: `normalizeLevelBase` clamping/rounding, the roof width cycle/clamp/labels and ridge formula, the three ways a pillar refuses a bridge, and the roof-paint no-ops.
+
+Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋顶 is a separate view toggle, off by default, hiding all roof styles even in 隐藏UI / 剖切. It sits below 隐藏天花板 with 分区图 to its right. `ground-visibility.test.mjs` pins independent ceiling/roof visibility; `rail-folders.test.mjs` pins the nine-tile order and header count.

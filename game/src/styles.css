@@ -138,6 +138,54 @@ button.ghost:hover {
   background: #0c2136;
   border-bottom: 1px solid var(--line);
 }
+.exampleStationsMenu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 70px);
+  overflow: auto;
+  padding: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px #0008;
+}
+.exampleStationsHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.exampleStationsHeading > strong { font-size: 14px; }
+.exampleStationsHeading .iconBtn { font-size: 20px; }
+.exampleStationsGrid { display: grid; gap: 12px; }
+.exampleStationCard {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  border-radius: 6px;
+}
+.exampleStationCard:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.exampleStationCard img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2517 / 1490;
+  object-fit: cover;
+}
+.exampleStationCaption {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+.exampleStationCaption strong { font-size: 15px; }
+.exampleStationCaption > span { color: var(--muted); }
 .brand {
   display: flex;
   align-items: baseline;
@@ -966,26 +1014,26 @@ button.ghost:hover {
   border-radius: 0;
   background: #23466b;
 }
-.depthDot {
+.depthTick {
   position: absolute;
   left: 50%;
   width: 0;
   height: 0;
 }
-.depthDot i {
+.depthTick i {
   position: absolute;
   left: 0;
   top: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  width: 10px;
+  height: 3px;
+  border-radius: 1px;
   transform: translate(-50%, -50%);
   background: #2f4763;
   border: 1px solid #527199;
 }
-.depthDot.on i {
-  width: 10px;
-  height: 10px;
+.depthTick.on i {
+  width: 16px;
+  height: 5px;
   background: var(--accent);
   border-color: #bfe6ff;
 }
@@ -1013,11 +1061,57 @@ button.ghost:hover {
   font-variant-numeric: tabular-nums;
 }
 .depthTag {
+  width: 100%;
   text-align: center;
-  padding-top: 6px;
+  padding: 6px 0 0;
+  border: 0;
+  background: none;
   font-size: 10px;
   letter-spacing: 2px;
   color: var(--muted);
+  cursor: pointer;
+}
+.depthTag:hover,
+.depthTag[aria-expanded='true'] {
+  color: var(--accent);
+  background: transparent;
+}
+.depthBaseMenu {
+  position: absolute;
+  right: calc(100% + 7px);
+  bottom: 0;
+  z-index: 7;
+  width: 116px;
+  padding: 8px;
+  border: 1px solid #527199;
+  background: #0b1f36;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.36);
+}
+.depthBaseTitle {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.depthBaseChoices {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+.depthBaseChoice {
+  padding: 5px 0;
+  border: 1px solid #365778;
+  background: #123355;
+  color: #c4d9ed;
+  font-size: 11px;
+  border-radius: 0;
+  cursor: pointer;
+}
+.depthBaseChoice:hover,
+.depthBaseChoice.on {
+  border-color: #bfe6ff;
+  background: #1d527d;
+  color: #fff;
 }
 
 .panel {
@@ -2266,6 +2360,21 @@ input[type='range'] {
   width: 100%;
   padding: 10px;
   font-size: 13px;
+}
+.mobileContinue {
+  display: block;
+  margin: 12px auto 0;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  opacity: 0.72;
+}
+.mobileContinue:hover,
+.mobileContinue:focus-visible {
+  color: var(--ink);
+  opacity: 1;
 }
 
 /* --------------------------------------------------- the floating 时刻 window */

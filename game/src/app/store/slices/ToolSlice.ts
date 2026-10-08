@@ -1,5 +1,5 @@
 // The pointer-tool slice: the active tool, the equipment tool's piece and its
-// rotation, the 方块 tool's cut modes and 生成墙壁 ring, the Tab cycles (stair width,
+// rotation, the 方块 tool's cut modes and 生成墙壁 ring, the Tab cycles (stair and roof width,
 // escalator direction, 闸机 door) and the zone tool's brush (§4.5, §5.7).
 
 import type { StateCreator } from 'zustand'
@@ -7,10 +7,12 @@ import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
 import type { GateDoor, TriangleKind } from '../../../sim/types.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
+import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
+import { nextRoofWidth, supportedRoofWidth } from '../../../sim/structures.ts'
 import { DEFAULT_ZONE_BRUSH, isRotatableType, type CutMode, type ZoneBrush } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
-export type Tool = 'select' | 'pick' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
+export type Tool = 'select' | 'pick' | 'move' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
 
 export interface ToolSlice {
   tool: Tool
@@ -69,6 +71,9 @@ export interface ToolSlice {
    * to claim exactly six blocks across.
    */
   stairWidth: number
+  stairBlockHeight: 0.5 | 1
+  /** Width across a truss roof, cycled 窄 4 m → 中 8 m → 宽 12 m with Tab. */
+  roofWidth: number
   /** Escalator travel direction, cycled with Tab (up/down). */
   escalatorDir: 'up' | 'down'
   /**
@@ -78,6 +83,9 @@ export interface ToolSlice {
    * through its own cell. Which hand the lane is on is not a setting: **R** turns
    * the piece. Carried into `cfg.door` on the piece placed.
    */
+  bridgeLength: number
+  setStructureOptions: (patch: Partial<Pick<ToolSlice, 'bridgeLength'>>) => void
+  cycleBridgeLength: () => void
   gateDoor: GateDoor
   /** Active fare-zone brush, or a facility room (§5.7) built by rectangle. */
   zoneBrush: ZoneBrush
@@ -133,6 +141,9 @@ export interface ToolSlice {
   setTriKind: (kind: TriangleKind) => void
   /** Cycle the stair width one → two → three lanes (Tab). */
   cycleStairWidth: () => void
+  setStairBlockHeight: (height: 0.5 | 1) => void
+  cycleRoofWidth: () => void
+  setRoofWidth: (width: number) => void
   /** Flip the escalator travel direction up ↔ down (Tab). */
   cycleEscalatorDir: () => void
   /** Toggle the 闸机 between a working lane and the doorless fence machine (Tab). */
@@ -163,7 +174,12 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   triangles: false,
   triKind: 'upper',
   stairWidth: STAIR_WIDTH_NARROW,
+  stairBlockHeight: 1,
+  roofWidth: 4,
   escalatorDir: 'up',
+  bridgeLength: 32,
+  setStructureOptions: (patch) => set(patch.bridgeLength === undefined ? {} : { bridgeLength: supportedTrackRunLength(patch.bridgeLength) }),
+  cycleBridgeLength: () => set((s) => ({ bridgeLength: nextTrackRunLength(s.bridgeLength) })),
   gateDoor: 'lane',
   zoneBrush: DEFAULT_ZONE_BRUSH,
   zoneOverlayOn: false,
@@ -196,7 +212,12 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
     }),
   toggleTriangles: () => get().setTriangles(!get().triangles),
   setTriKind: (kind) => set({ triKind: kind }),
-  cycleStairWidth: () => set((s) => ({ stairWidth: nextStairWidth(s.stairWidth) })),
+  cycleStairWidth: () => set((s) => s.moduleType === 'stair-block'
+    ? { stairBlockHeight: s.stairBlockHeight === 1 ? 0.5 : 1 }
+    : { stairWidth: nextStairWidth(s.stairWidth) }),
+  setStairBlockHeight: (stairBlockHeight) => set({ stairBlockHeight }),
+  cycleRoofWidth: () => set((s) => ({ roofWidth: nextRoofWidth(s.roofWidth) })),
+  setRoofWidth: (width) => set({ roofWidth: supportedRoofWidth(width) }),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
   cycleGateDoor: () => set((s) => ({ gateDoor: nextGateDoor(s.gateDoor) })),
   setZoneBrush: (z) => set({ zoneBrush: z }),

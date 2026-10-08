@@ -3,6 +3,7 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
+import { BRIDGE_DECK_DEPTH } from '../../../sim/structures.ts'
 import { TUNNEL_HEADROOM } from '../../../build/rail.ts'
 import type { Module } from '../../../sim/types.ts'
 
@@ -48,6 +49,15 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // drops half a metre to this slab. The exposed block sides form the trench
   // walls; the module only supplies the bed and the power supply on top.
   slab(g, mats.black, cx, cy, 0.25, mod.w, d, 0.5)
+  if (mod.cfg.bridge) {
+    // Concrete deck, edge girders and an open maintenance parapet (§5.4).
+    slab(g, mats.white, cx, cy, -BRIDGE_DECK_DEPTH / 2, mod.w, d, BRIDGE_DECK_DEPTH)
+    for (const y of [-0.42, d - 0.58]) {
+      slab(g, mats.darkSteel, cx, y, -0.16, mod.w, 0.16, 0.7)
+      slab(g, mats.steel, cx, y, 1.25, mod.w, 0.08, 0.08)
+      for (let x = 0; x < mod.w; x += 2) slab(g, mats.steel, x, y, 0.9, 0.08, 0.08, 0.7)
+    }
+  }
   // Two rails on sleepers down the middle of the bed.
   for (const s of [-1, 1]) slab(g, mats.steel, cx, cy + s * 0.72, 0.6, mod.w, 0.1, 0.1)
   const nSleepers = Math.max(2, Math.round(mod.w / 0.6))
@@ -58,7 +68,8 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // rails, or an overhead wire hung over them. Both are drawn for every piece
   // bound to the line, platform and tunnel alike, so a power switch re-cuts all
   // of them when the module meshes are rebuilt.
-  if (mod.cfg.power === 'catenary') buildCatenary(g, mats, mod, cx, cy, d)
+  if (mod.cfg.bridge && mod.cfg.power === 'catenary') buildBridgeCatenary(g, mats, mod, cy, d)
+  else if (mod.cfg.power === 'catenary') buildCatenary(g, mats, mod, cx, cy, d)
   else buildThirdRail(g, mats, mod.w, cx, cy)
   // The ghost carries the travel direction (上行/下行) as arrows along the run.
   if (preview) {
@@ -118,6 +129,15 @@ function buildCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module
     const x = ((i + 0.5) / n) * w - 0.5
     slab(g, mats.steel, x, cy, (wireZ + ceilingBottom) / 2, 0.05, 0.05, ceilingBottom - wireZ)
     slab(g, mats.psu, x, cy, wireZ + 0.04, 0.1, 0.1, 0.05)
+  }
+}
+
+function buildBridgeCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, cy: number, d: number): void {
+  slab(g, mats.steel, (mod.w - 1) / 2, cy, 4.1, mod.w, 0.05, 0.05)
+  for (let x = 0; x < mod.w; x += 8) {
+    for (const y of [-0.42, d - 0.58]) slab(g, mats.darkSteel, x, y, 2.3, 0.12, 0.12, 4.6)
+    slab(g, mats.darkSteel, x, cy, 4.5, 0.12, d, 0.12)
+    slab(g, mats.steel, x, cy, 4.3, 0.05, 0.05, 0.4)
   }
 }
 

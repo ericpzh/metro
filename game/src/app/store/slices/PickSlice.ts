@@ -32,6 +32,7 @@ export interface PickDraft {
   tool: Tool
   moduleType: string
   moduleRot: number
+  roofWidth: number
   escalatorDir: 'up' | 'down'
   gateDoor: GateDoor
   zoneBrush: ZoneBrush
@@ -68,6 +69,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         tool: s.tool,
         moduleType: s.moduleType,
         moduleRot: s.moduleRot,
+        roofWidth: s.roofWidth,
         escalatorDir: s.escalatorDir,
         gateDoor: s.gateDoor,
         zoneBrush: s.zoneBrush,
@@ -85,6 +87,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       pickDraft: null,
       moduleType: d.moduleType,
       moduleRot: d.moduleRot,
+      roofWidth: d.roofWidth,
       escalatorDir: d.escalatorDir,
       gateDoor: d.gateDoor,
       zoneBrush: d.zoneBrush,

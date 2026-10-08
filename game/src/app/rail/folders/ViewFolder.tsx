@@ -5,7 +5,7 @@
 // **The grid is three wide**, not two: the inspector is the wider column (`.main` gives
 // the build rail 232px and the panel 300px), so `styles.css`'s `.panel .blockGrid` rule —
 // which this body and the 剖切 row it folds out both inherit — lays the eight tiles out
-// three to a row (显示其他层 / 剖切 / 隐藏UI, 隐藏天花板 / 隐藏墙壁 / 隐藏地面, 分区图 / 热力图).
+// three to a row (显示其他层 / 剖切 / 隐藏UI, 隐藏天花板 / 隐藏墙壁 / 隐藏地面, 隐藏屋顶 / 分区图 / 热力图).
 //
 // **The tile order is the menu order**, one row of the grid at a time, and it says what
 // the three rows are: the **modes** that decide how the station is drawn (显示其他层, 剖切,
@@ -43,6 +43,7 @@ export function ViewFolder(): React.ReactElement {
   const cutaway = useStore((s) => s.cutaway)
   const hideWalls = useStore((s) => s.hideWalls)
   const hideGround = useStore((s) => s.hideGround)
+  const hideRoof = useStore((s) => s.hideRoof)
   const hideUI = useStore((s) => s.hideUI)
   const overlayOn = useStore((s) => s.overlayOn)
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
@@ -77,6 +78,7 @@ export function ViewFolder(): React.ReactElement {
       />
       <Block label="隐藏墙壁" icon="wall" active={hideWalls} onClick={() => st().setHideWalls(!hideWalls)} />
       <Block label="隐藏地面" icon="ground" active={hideGround} onClick={() => st().setHideGround(!hideGround)} />
+      <Block label="隐藏屋顶" icon="roof" active={hideRoof} onClick={() => st().setHideRoof(!hideRoof)} />
       <Block label="分区图" icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
       <Block label="热力图" icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
     </div>

@@ -71,7 +71,7 @@ export function App(): React.ReactElement {
         }
         if (ck === 'n' && e.shiftKey) {
           e.preventDefault()
-          st.loadReference()
+          window.dispatchEvent(new CustomEvent('metro:examples'))
           return
         }
         if (ck === 'n') {
@@ -150,7 +150,7 @@ export function App(): React.ReactElement {
           else if (st.tool === 'block') {
             if (st.halfWall || st.triangles) st.rotateWallSnap()
           } else if (st.tool === 'rail') st.rotateRail()
-          else if (st.tool !== 'tunnel' && isRotatableType(st.moduleType)) st.rotateModule()
+          else if (st.tool === 'module' && isRotatableType(st.moduleType)) st.rotateModule()
           break
         case 'tab':
           // In the 方块 tool Tab raises the generated **生成墙壁** ring — the key the
@@ -162,23 +162,25 @@ export function App(): React.ReactElement {
           // three cut pieces are picked on their own tiles, one click each, and
           // **R** turns whichever is armed.
           // Everywhere else Tab keeps its own meaning for the piece being
-          // placed: rail direction, stair width, escalator direction, the 闸机's
+          // placed: rail direction, stair or roof width, escalator direction, the 闸机's
           // lane or fence.
           e.preventDefault()
           if (st.tool === 'block') {
             st.setAutoWalls(!st.autoWalls)
           } else if (st.tool === 'rail') st.cycleRailDir()
-          else if (isStairType(st.moduleType)) st.cycleStairWidth()
-          else if (isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
-          else if (isGateType(st.moduleType)) st.cycleGateDoor()
+          else if (st.tool === 'tunnel') st.cycleTunnelLength()
+          else if (st.tool === 'module' && st.moduleType === 'bridge') st.cycleBridgeLength()
+          else if (st.tool === 'module' && isStairType(st.moduleType)) st.cycleStairWidth()
+          else if (st.tool === 'module' && (st.moduleType === 'roof-truss' || st.moduleType === 'roof-tapered')) st.cycleRoofWidth()
+          else if (st.tool === 'module' && isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
+          else if (st.tool === 'module' && isGateType(st.moduleType)) st.cycleGateDoor()
           break
         case 'n':
           st.setTool('paint')
           st.setPaintMode('single')
           break
         case 'm':
-          st.setTool('paint')
-          st.setPaintMode('surface')
+          st.setTool('move')
           break
         case 'i':
           // `I` is the old 取色 key, kept as an alias: eyedropping moved to the

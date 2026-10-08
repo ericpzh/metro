@@ -213,6 +213,12 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   // plugs into divides the floor into areas the crowd can only cross at a gate.
   const fenceCells = new Set<string>()
   for (const m of data.modules) {
+    if (m.type === 'pillar') {
+      for (let z = m.z; z < m.z + m.cfg.height; z++) fenceCells.add(cellKey(m.x, m.y, z))
+    }
+    // A solid stair block fills the anchor's headroom; its flight connects the
+    // neighbouring lower and upper floors instead of walking through its body.
+    if (m.type === 'stair' && m.cfg.block) fenceCells.add(cellKey(m.x, m.y, m.z))
     if (m.type !== 'fence') continue
     fenceCells.add(cellKey(m.x, m.y, m.z))
   }
@@ -600,6 +606,9 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           })
           edges.push({ from: a, to: b, cost: ride, kind: KIND_ESCALATOR, server: id })
         } else if (m.type === 'stair') {
+          // Floor nodes use whole metre levels. A short block cannot bridge a
+          // full metre between them; keep it a half-height building piece.
+          if (m.cfg.block && m.cfg.blockHeight === 0.5) break
           // Each flight is its own capacity-limited, two-way edge, and the
           // landings between them are walkable nodes, so a turning stair is
           // walked one flight at a time (§5.1).

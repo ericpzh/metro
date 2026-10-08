@@ -4,12 +4,13 @@ import * as THREE from 'three'
 import { PieceBuilder, canvasTexture, drawMetroMark, slab, plate, ownedMaterial, placeLocal } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, exitRunOpenings, exitSpan } from '../../../sim/exits.ts'
+import { DoorwayExitModel } from './DoorwayExitModel.ts'
 import type { Module } from '../../../sim/types.ts'
 
 /**
  * The exit portal header: the metro logo, station name and the exit's name.
  */
-function exitHeaderCanvas(stationName: string, exitName: string): HTMLCanvasElement {
+export function exitHeaderCanvas(stationName: string, exitName: string): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = 512
   c.height = 96
@@ -273,6 +274,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
 export class ExitModel extends PieceBuilder {
   readonly kind = 'exit'
   build(mod: Extract<Module, { type: 'exit' }>): THREE.Group {
+    if (mod.cfg.style === 'doorway') return new DoorwayExitModel(this.ctx).build(mod)
     return placeLocal(buildExit(this.ctx, mod), mod)
   }
 }

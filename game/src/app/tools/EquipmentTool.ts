@@ -9,12 +9,12 @@ import {
   extendLift,
   facilityAt,
   fenceRotForLine,
-  GROUND_Z,
   nextExitName,
   nextModuleId,
   removeModule,
 } from '../../build/model.ts'
-import { railModuleAt } from '../../build/rail.ts'
+import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
+import { extendedPillar } from '../../sim/structures.ts'
 import { ESCALATOR_BAND } from '../../sim/constants.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
 import { solidAt } from '../../sim/ground.ts'
@@ -35,9 +35,10 @@ import {
 import { checkModulePlacements } from '../../build/validation.ts'
 import { planStairLanes, stairLanes } from '../../sim/stairs.ts'
 import type { Module, Vec3i } from '../../sim/types.ts'
-import { isDecorType, isExitType, isFenceType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
+import { isDecorType, isFenceType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
 import { straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
+import { TileEquipmentTool } from './TileEquipmentTool.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 
@@ -45,10 +46,32 @@ export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
 
   onDown(info: PointerInfo): void {
+    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).onDown(info); return }
     const scene = this.ctx.scene()
     const hit = info.hit
     if (!scene || !hit) return
     const st = useStore.getState()
+    if (st.moduleType === 'bridge') {
+      const src = railModuleAt(st.station, ...hit.cell) ?? railModuleAt(st.station, ...hit.place)
+      if (!src) { st.setNotice('先点一段现有轨道，轨道桥从端部接出'); return }
+      if (info.button === 2) { st.removeRail(src.id); return }
+      const bridge = makeBridge(src, freeTunnelEnd(st.station, src, hit.cell), st.bridgeLength, nextModuleId(st.station.modules, 'track'))
+      const next = commitTrack(st.station, bridge)
+      if (next === st.station) { st.setNotice('轨道桥放不下：检查高度和沿线障碍'); return }
+      st.commit(next)
+      return
+    }
+    if (st.moduleType.startsWith('pillar')) {
+      const old = moduleAt(st.station.modules, ...hit.cell)
+      if (old?.type === 'pillar' && info.button !== 2) {
+        const grown = extendedPillar(old)
+        const others = st.station.modules.filter((m) => m.id !== old.id)
+        const refusal = equipmentReason(st.station.cells, others, grown, true)
+        if (refusal) { st.setNotice(equipmentRefusalNotice(refusal)); return }
+        st.commit({ ...st.station, modules: st.station.modules.map((m) => m.id === old.id ? grown : m) })
+        return
+      }
+    }
     // A fence (围栏) drags out a run like the 墙 tool: press to anchor, drag
     // for a straight 90° line whose panels follow the drag direction, release
     // to lay one panel per cell. A quick tap stays a single panel with the R
@@ -125,6 +148,7 @@ export class EquipmentTool extends ToolController {
   }
 
   onMove(info: PointerInfo): void {
+    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block') || this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
     const hit = info.hit
     if (!scene || !hit) return
@@ -174,6 +198,7 @@ export class EquipmentTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
+    if (this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onUp(info); return }
     // The viewport routes only 围栏 runs here; any other drag release belongs
     // to its own tool. A fence run lays (or lifts) one panel per cell.
     const d = this.ctx.drag.current
@@ -503,18 +528,40 @@ export class EquipmentTool extends ToolController {
    * (`placementPreviewKey` names the settings of both).
    */
   override refreshHover(): void {
+    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).refreshHover(); return }
     const scene = this.ctx.scene()
     const h = this.ctx.hover.current
     if (!scene || !h) return
     const st = useStore.getState()
     if (st.tool !== 'module') return
     const [x, y, z] = h.cell
+    if (st.moduleType === 'bridge') {
+      const src = railModuleAt(st.station, ...h.cell) ?? railModuleAt(st.station, ...h.place)
+      if (!src) { scene.setModulePreview(null); scene.setCursor(null); scene.setCollisionHighlight(null); return }
+      const bridge = makeBridge(src, freeTunnelEnd(st.station, src, h.cell), st.bridgeLength, 'preview')
+      const blocked = trackBlockReason(st.station, bridge) !== null
+      scene.setModulePreview(bridge, blocked)
+      scene.setCollisionHighlight(blocked ? trackColliders(st.station, bridge).map((m) => m.id) : null)
+      scene.setCursor(null)
+      return
+    }
+    if (st.moduleType.startsWith('pillar')) {
+      const old = moduleAt(st.station.modules, ...h.cell)
+      if (old?.type === 'pillar') {
+        const grown = extendedPillar(old)
+        const others = st.station.modules.filter((m) => m.id !== old.id)
+        const blocked = equipmentReason(st.station.cells, others, grown, true) !== ''
+        scene.setModulePreview(grown, blocked)
+        scene.setCollisionHighlight(null)
+        scene.setCursor(null)
+        return
+      }
+    }
     // An exit lays its own floor: cells it covers count even where a ramp
     // carved a hole, so stairs and escalators can land through an exit.
     const floorHere = h.solid || exitFloorAt(st.station.modules, x, y, z)
     // A surface exit is rooted at the street (h = 0 m): it may not be dropped on
     // a concourse or platform slab.
-    const onGround = z === GROUND_Z
     // 广告牌 is wall-mounted and may hang over a track (there is no floor in front
     // of a station wall across the rails), so it is resolved from the wall alone.
     // The panel lives **on the wall**: the ghost is the panel itself, so no floor
@@ -550,7 +597,7 @@ export class EquipmentTool extends ToolController {
     // A ramp dropped inside an exit snaps into a bay and descends to the floor
     // below, so the exit's own floor is enough to stand its upper landing on.
     const snap = this.isStraightRamp(st.moduleType) ? exitRunSnap(st.station.modules, x, y, z) : null
-    const placeable = (floorHere || !!liftExt || !!snap) && (!isExitType(st.moduleType) || onGround)
+    const placeable = floorHere || !!liftExt || !!snap
     let mods: Module[] = []
     if (st.moduleType === 'lift') {
       if (liftExt) {
@@ -626,12 +673,6 @@ export class EquipmentTool extends ToolController {
     // Exit-covered holes count as floor, like the hover ghost above.
     const floorHere = solid || exitFloorAt(st.station.modules, cell[0], cell[1], cell[2])
     const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])
-    // A surface exit — any of the six variants — stands at the street (h = 0 m)
-    // and nowhere else.
-    if (isExitType(type) && at[2] !== GROUND_Z) {
-      st.setNotice(equipmentRefusalNotice('exit-on-slab'))
-      return
-    }
     const mods = this.buildPlacementModules(type, at, nextModuleId(st.station.modules, type))
     if (mods.length === 0) return
     // **One verdict, one refusal.** Every rule a module answers to lives in

@@ -386,7 +386,12 @@ the four rules most changes trip over.
   pointer (`makeTunnel` / `placeTunnel`, a pure run flagged `cfg.tunnel` that never spawns
   platform doors; a slider sets the length), may hang over void, clears the wall it bores
   through, and raises a side wall + ceiling around itself where missing (`boreTunnel`,
-  shell cells tagged `tunnel-shell:<id>`). The placement ghost draws the run's 上行/下行
+  shell cells tagged `tunnel-shell:<id>`). **轨道桥** (`cfg.bridge`, `makeBridge`) is the
+  same extension carried on pillars instead of bored through ground: it needs clearance
+  but no floor, derives no platform doors and raises no shell, and
+  `pillarSupportsBridge` (`sim/structures.ts`) exempts the pillar under its deck from
+  the collision. Tunnel and bridge share the five run lengths
+  (`TRACK_RUN_LENGTHS` 4/16/32/64/128, `track-run-length.test.mjs`). The placement ghost draws the run's 上行/下行
   direction as arrows (`buildTrack`; Tab toggles it in platform mode), a tunnel inherits
   its source's direction, and `computeLineAnchors` reads the train's travel sign from
   `cfg.dir`. `station.lines` holds many lines (added in the inspector, `LineCard`); each
@@ -507,6 +512,18 @@ the four rules most changes trip over.
   station plate are cached per module id and a preview may only dispose what it minted
   itself. Structural pieces — 楼梯 / 扶梯 / 电梯, 出入口, rooms, 轨道 / 站台门 — are refused:
   a translation would strand the openings they carved and the geometry derived from them.
+* **Above ground is pillars, roofs, doorway exits and stair blocks** (`sim/structures.ts`,
+  `build/model/RoofPaint.ts`, `app/tools/TileEquipmentTool.ts` + `RoofTool.ts`,
+  `app/rail/menus/StructurePanel.tsx`; `overground.test.mjs` + `roof-tool.test.mjs` +
+  `structures-gaps.test.mjs`). A pillar is a slim (0.3 m) or thick (1 m) column grown
+  4 m at a time (`extendedPillar`, `PILLAR_STEP`); a roof is a 1×1 m thin tile or a
+  raised truss bay in 4/8/12 m widths (`ROOF_WIDTHS`, `nextRoofWidth` /
+  `supportedRoofWidth` / `roofWidthLabel`, `trussRoofRidge`/`trussRoofTop`), painted
+  per tile or per connected surface (`paintRoofSurface`, 材质 单块/整面) while the
+  truss stays steel. A doorway exit (`ExitCfg.style: 'doorway'`) is a 1 m pad aligned
+  to the block edge (`exitDoorwayOffset`) with no carved floor, no walls and no run
+  snap. A stair block (`stair.cfg.block`, 高 1 m / 矮 0.5 m) is a solid 1×1 m step
+  with no rails; only the metre-high block connects storeys in the graph.
 
 ## The document and the demo station
 
@@ -572,11 +589,13 @@ the four rules most changes trip over.
   `test/floor-surface.test.mjs` reads the drawn surface's height (flush seam, level floor, rim on
   the cell boundary) **and every drawn normal**, which is the pin on there being no 45° face left
   anywhere on a block.
-  There are no named levels: the street is `z = 0` (`GROUND_Z`), a storey is the fixed 4 m
-  editing grid (`LEVEL_STEPS` / `storeyBand`) — every solid cell belongs to the grid line
+  There are no named levels: the street is `z = 0` (`GROUND_Z`), a storey is the 4 m
+  editing grid (`LEVEL_STEPS` / `storeyBand`, now from +24 down to −32) — every solid cell belongs to the grid line
   at or below it, so a floor and its walls share a storey while a second floor one storey
   down keeps its own even when a wall column connects them — and the depth rail slices
-  those bands. The save carries no `levels` field; old saves load with it ignored.
+  those bands. The 高度 rail shifts that whole grid by a 0–3 m `levelBase`
+  (`normalizeLevelBase` / `levelSteps(base)` / `storeyBand(z, base)`; old saves default
+  to 0, `storey.test.mjs` + `structures-gaps.test.mjs`). The save carries no `levels` field; old saves load with it ignored.
 * A **walled facility room** is the one `shop` module type; its fit-out lives in
   `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter and the `retail`
   shell). The rectangle drag runs through `placeFacility` (`build/model/Facilities.ts`) to create

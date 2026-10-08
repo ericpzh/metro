@@ -4,7 +4,7 @@
 
 import type { StateCreator } from 'zustand'
 import { nearestLevel } from '../../../build/model.ts'
-import { LEVEL_STEPS } from '../../../sim/constants.ts'
+import { levelSteps } from '../../../sim/constants.ts'
 import { DEFAULT_SECTION_AZIMUTH, nextAzimuth } from '../../../render/section.ts'
 import type { Section, Vec3 } from '../../../render/section.ts'
 import type { AppState } from '../Store.ts'
@@ -47,6 +47,7 @@ export interface ViewSlice {
    * so the toggle only writes a `visible` flag (`LevelSystem.applyLevel`).
    */
   hideGround: boolean
+  hideRoof: boolean
   /**
    * 隐藏UI: take the drawing furniture off the picture — the 1 m editing lattice
    * and its cell cursor (`render/scene/systems/GridSystem.ts`). It hides nothing
@@ -72,6 +73,7 @@ export interface ViewSlice {
 
   setActiveZ: (z: number) => void
   stepLevel: (dir: number) => void
+  setLevelBase: (base: number) => void
   setOverlay: (on: boolean) => void
   setGhostOther: (on: boolean) => void
   setAutoCeiling: (on: boolean) => void
@@ -80,6 +82,7 @@ export interface ViewSlice {
   setHideWalls: (on: boolean) => void
   /** 隐藏地面: draw the street plane, or take it away. */
   setHideGround: (on: boolean) => void
+  setHideRoof: (on: boolean) => void
   setHideUI: (on: boolean) => void
   setOrtho: (on: boolean) => void
   /** Open or close the floating 时刻 window. */
@@ -100,18 +103,28 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   hideSectionSurface: false,
   hideWalls: false,
   hideGround: false,
+  hideRoof: false,
   hideUI: false,
   ortho: false,
   overlayOn: false,
   timePanel: false,
   section: { anchor: [0, 0, -8], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH }, offset: 0 },
 
-  setActiveZ: (z) => set({ activeZ: nearestLevel(z) }),
+  setActiveZ: (z) => set({ activeZ: nearestLevel(z, get().station.levelBase) }),
   stepLevel: (dir) => {
-    const cur = nearestLevel(get().activeZ)
-    const idx = LEVEL_STEPS.indexOf(cur)
-    const ni = Math.max(0, Math.min(LEVEL_STEPS.length - 1, idx + dir))
-    set({ activeZ: LEVEL_STEPS[ni] })
+    const levels = levelSteps(get().station.levelBase)
+    const cur = nearestLevel(get().activeZ, get().station.levelBase)
+    const idx = levels.indexOf(cur)
+    const ni = Math.max(0, Math.min(levels.length - 1, idx + dir))
+    set({ activeZ: levels[ni] })
+  },
+  setLevelBase: (base) => {
+    const station = get().station
+    const next = Math.max(0, Math.min(3, Math.round(base)))
+    if (!Number.isFinite(next) || next === station.levelBase) return
+    const activeZ = nearestLevel(get().activeZ - station.levelBase + next, next)
+    get().commit({ ...station, levelBase: next })
+    set({ activeZ })
   },
   setOverlay: (on) => set({ overlayOn: on }),
   setGhostOther: (on) => set({ ghostOtherLevels: on }),
@@ -120,6 +133,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setHideSectionSurface: (on) => set({ hideSectionSurface: on }),
   setHideWalls: (on) => set({ hideWalls: on }),
   setHideGround: (on) => set({ hideGround: on }),
+  setHideRoof: (on) => set({ hideRoof: on }),
   setHideUI: (on) => set({ hideUI: on }),
   setOrtho: (on) => set({ ortho: on }),
   setTimePanel: (open) => set({ timePanel: open }),

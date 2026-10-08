@@ -5,7 +5,7 @@
 // into one band (the 方块 tool's auto walls).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { LEVEL_STEPS, storeyBand } from '../src/sim/constants.ts'
+import { LEVEL_STEPS, levelSteps, storeyBand } from '../src/sim/constants.ts'
 import { nearestLevel } from '../src/build/model.ts'
 
 test('every grid line is its own storey band', () => {
@@ -32,6 +32,17 @@ test('nearestLevel snaps a raw z to the closest grid line', () => {
   assert.equal(nearestLevel(-7.4), -8)
   assert.equal(nearestLevel(-5.9), -4)
   assert.equal(nearestLevel(3), 4)
-  assert.equal(nearestLevel(100), 12)
+  assert.equal(nearestLevel(22), 20)
+  assert.equal(nearestLevel(23), 24)
+  assert.equal(nearestLevel(100), 24)
   assert.equal(nearestLevel(-100), -32)
+})
+
+test('the base shifts every stop and its storey band together', () => {
+  assert.deepEqual(levelSteps(3).slice(0, 4), [-29, -25, -21, -17])
+  assert.equal(nearestLevel(2, 3), 3)
+  assert.equal(nearestLevel(-2, 3), -1)
+  assert.equal(storeyBand(3, 3), 3)
+  assert.equal(storeyBand(6, 3), 3)
+  assert.equal(storeyBand(-1, 3), -1)
 })

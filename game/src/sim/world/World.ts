@@ -430,7 +430,7 @@ export class World {
    */
   private serviceTracks(lineId: string): TrackModule[] {
     const bound = this.data.modules.filter((m): m is TrackModule => m.type === 'track' && m.cfg.line === lineId)
-    const platforms = bound.filter((t) => !t.cfg.tunnel)
+    const platforms = bound.filter((t) => !t.cfg.tunnel && !t.cfg.bridge)
     return platforms.length > 0 ? platforms : bound
   }
 

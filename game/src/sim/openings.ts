@@ -714,6 +714,7 @@ export function escalatorBasesSolid(cells: readonly Cell[], modules: readonly Mo
  * flush return run is carved and reserved where its treads really stand.
  */
 function rampSegments(m: Module): Ramp[] | null {
+  if (m.type === 'stair' && m.cfg.block) return null
   const bodyHalf = rampBodyHalf(m)
   const railHalf = rampCorridorHalf(m)
   if (m.type === 'escalator' || m.type === 'lift') return [{ from: m.from, to: m.to, bodyHalf, railHalf }]
@@ -723,6 +724,7 @@ function rampSegments(m: Module): Ramp[] | null {
 
 /** A stair's flights as ramp segments, each with its own body slide. */
 function stairSegments(m: Extract<Module, { type: 'stair' }>): Ramp[] {
+  if (m.cfg.block) return []
   const bodyHalf = rampBodyHalf(m)
   const railHalf = rampCorridorHalf(m)
   const slides = stairFlightSlides(m)

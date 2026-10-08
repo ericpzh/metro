@@ -15,7 +15,8 @@
 //
 // Pure data — no three, no DOM.
 
-import { EXIT_L, exitBays, exitFloorAt, exitWidth } from './exits.ts'
+import { pillarSupportsBridge, pillarWidth, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop } from './structures.ts'
+import { EXIT_L, exitFloorBounds, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { glassSpec, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
@@ -280,7 +281,17 @@ function flatEnvelope(m: Module): ModuleBox | null {
       if (rot % 2 === 1) return { x0: m.x + 0.45, y0: m.y, z0, x1: m.x + 0.55, y1: m.y + 1, z1 }
       return { x0: m.x, y0: m.y + 0.45, z0, x1: m.x + 1, y1: m.y + 0.55, z1 }
     }
+    case 'pillar': {
+      const half = pillarWidth(m) / 2
+      return { x0: m.x + 0.5 - half, y0: m.y + 0.5 - half, x1: m.x + 0.5 + half, y1: m.y + 0.5 + half, z0, z1: z0 + m.cfg.height }
+    }
+    case 'roof':
+      return cellsAabb(trackCells(m), z0 + TRUSS_ROOF_BASE, z0 + (m.cfg.variant ? trussRoofTop(m.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS))
     case 'exit': {
+      if (m.cfg.style === 'doorway') {
+        const b = exitFloorBounds(m)
+        return { ...b, z0, z1: z0 + 3.54 }
+      }
       const rx = exitWidth(exitBays(m)) / 2
       const ry = EXIT_L / 2
       const cx = m.x + 0.5
@@ -319,6 +330,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
  * (the ramp envelope's thin vertical column would not reserve the whole plan).
  */
 export function moduleEnvelope(m: Module): ModuleBox | null {
+  if (m.type === 'stair' && m.cfg.block) return { x0: m.x, y0: m.y, z0: m.z + 1, x1: m.x + 1, y1: m.y + 1, z1: m.z + 1 + (m.cfg.blockHeight ?? 1) }
   if (m.type === 'lift') return liftEnvelope(m)
   return rampEnvelope(m) ?? flatEnvelope(m)
 }
@@ -406,11 +418,13 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
       return lineMapCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'bench':
       return benchCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'roof':
     case 'track':
       return trackCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'lift':
       return liftFootprintCells(m)
     case 'stair':
+      if (m.cfg.block) return [[m.x, m.y]]
       return [m.from, m.to].map((p) => [p.x, p.y] as [number, number])
     case 'escalator':
       return [m.from, m.to].map((p) => [p.x, p.y] as [number, number])
@@ -786,7 +800,7 @@ const RUN_OR_RAIL: ReadonlySet<string> = new Set(['stair', 'escalator', 'lift', 
 export function moduleBlockedCells(modules: readonly Module[], z: number): Set<string> {
   const out = new Set<string>()
   for (const m of modules) {
-    if (RUN_OR_RAIL.has(m.type)) continue
+    if (RUN_OR_RAIL.has(m.type) && !(m.type === 'stair' && m.cfg.block)) continue
     for (const [x, y, mz] of occupyingCells(m)) if (mz === z) out.add(`${x},${y},${z}`)
     const e = moduleEnvelope(m)
     // A module with no envelope reserves nothing — its own cell is already in the
@@ -955,6 +969,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   if (!c) return out
   for (const m of modules) {
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
+    if (pillarSupportsBridge(m, candidate) || pillarSupportsBridge(candidate, m)) continue
     if (isExitRampPair(m, candidate)) continue
     if (isFurnitureRoomPair(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
@@ -1017,7 +1032,7 @@ function collisionBoxes(m: Module, other: Module, envelope: ModuleBox): ModuleBo
 
 /** A run whose body is the slope it sweeps: a stair or an escalator. */
 function isRampRun(m: Module): boolean {
-  return m.type === 'stair' || m.type === 'escalator'
+  return (m.type === 'stair' && !m.cfg.block) || m.type === 'escalator'
 }
 
 /** A piece whose own space is a run: a stair, an escalator or a lift shaft. */
@@ -1032,7 +1047,7 @@ function isRunPiece(m: Module): boolean {
  */
 function isExitRampPair(a: Module, b: Module): boolean {
   const isExit = (m: Module): boolean => m.type === 'exit'
-  const isRamp = (m: Module): boolean => m.type === 'stair' || m.type === 'escalator'
+  const isRamp = (m: Module): boolean => (m.type === 'stair' && !m.cfg.block) || m.type === 'escalator'
   return (isExit(a) && isRamp(b)) || (isExit(b) && isRamp(a))
 }
 
@@ -1126,14 +1141,13 @@ export function moduleAt(
 /* -------------------------------------------------------- moving a piece */
 
 /**
- * The pieces the 信息 card's **移动** may lift: the flat 设备 and 装饰 that stand on a
- * cell and whose whole state is a `cfg` plus a rotation — a 闸机's lane, a
- * 售票机, a 座椅, a 广告牌's frozen poster, a 指示牌's printed boards.
+ * The equipment and decoration pieces the 移动 tool may lift, plus the 出入口
+ * head-house. Exits have a live footprint derived from their position, so moving
+ * one carries its floor pad with it without leaving carved cells behind.
  *
- * A structural piece is refused, by the same rule that keeps the delete tool from
+ * Other structural pieces are refused, by the same rule that keeps the delete tool from
  * sweeping one (§9.5): a 楼梯 / 扶梯 / 电梯 is a run whose **openings are carved**
- * when it is placed, a 出入口 lays its own head-house floor over a hole, a room
- * owns the walls around it, and a 轨道 / 站台门 is sized and derived from its line.
+ * when it is placed, a room owns the walls around it, and a 轨道 / 站台门 is sized and derived from its line.
  * A translation would leave every hole it cut behind and strand the geometry
  * derived from it, so those are torn down and built again instead.
  */
@@ -1158,9 +1172,10 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'linemap',
   'tv',
   'sign',
+  'exit',
 ])
 
-/** True when 移动 may lift this placed piece (the 信息 card's button asks). */
+/** True when 移动 may lift this placed piece (the tile and 信息 card ask). */
 export function isMovableModule(m: Module): boolean {
   return MOVABLE_TYPES.has(m.type)
 }
@@ -1190,6 +1205,7 @@ export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[]
 export type EquipmentRefusal =
   | ''
   | 'exit-on-slab'
+  | 'exit-below-ground'
   | 'floor'
   | 'track'
   | 'occupied'
@@ -1217,7 +1233,27 @@ export type EquipmentRefusal =
  * those produce the piece, not the verdict.
  */
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
-  if (layer && candidate.type === 'exit' && candidate.z !== 0) return 'exit-on-slab'
+  if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
+  if ((candidate.type === 'pillar' || candidate.type === 'roof') && candidate.z < 0) return 'exit-on-slab'
+  if (candidate.type === 'roof') {
+    if (placementColliders(modules, candidate).length > 0) return 'occupied'
+    const box = moduleEnvelope(candidate)!
+    for (const c of cells) {
+      if (c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })) return 'occupied'
+    }
+    return ''
+  }
+  if (candidate.type === 'pillar') {
+    const box = moduleEnvelope(candidate)!
+    for (const c of cells) {
+      if (c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })) return 'occupied'
+    }
+  }
+  if (layer && candidate.type === 'exit') {
+    if (candidate.cfg.style === 'doorway') {
+      if (candidate.z < 0) return 'exit-below-ground'
+    } else if (candidate.z !== 0) return 'exit-on-slab'
+  }
   // A wall-mounted 装饰 — a 广告牌, a 玻璃板, a 站名 or the wall 线网图 — bolts to a
   // wall and may hang over the track where there is no floor in front of it, so it
   // is resolved from its backing and never from the ground. A **线网图's totem** is
@@ -1251,6 +1287,8 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal): string {
   switch (reason) {
     case 'exit-on-slab':
       return '出入口只能放在地面'
+    case 'exit-below-ground':
+      return '地面出入口只能放在 0 米及以上'
     case 'floor':
       return '这儿没有地板，设备要站在实心地板上'
     case 'track':
