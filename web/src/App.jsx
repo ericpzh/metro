@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { artworks, sections } from './artworks.js'
 import Nav from './components/Nav.jsx'
 import Hero from './components/Hero.jsx'
 import Rail from './components/Rail.jsx'
 import Section from './components/Section.jsx'
-import Lightbox from './components/Lightbox.jsx'
 import Footer from './components/Footer.jsx'
 
 export default function App() {
-  const [open, setOpen] = useState(null)
   const [active, setActive] = useState(artworks[0].id)
 
   // Reveal sheets as they enter the viewport.
@@ -33,7 +31,7 @@ export default function App() {
     return () => io.disconnect()
   }, [])
 
-  // Track which sheet is on screen for the side rail.
+  // Track which sheet is on screen for the topic navigation.
   useEffect(() => {
     const nodes = document.querySelectorAll('.sheet')
     if (!('IntersectionObserver' in window)) return
@@ -50,22 +48,20 @@ export default function App() {
     return () => io.disconnect()
   }, [])
 
-  const closeLightbox = useCallback(() => setOpen(null), [])
 
   return (
     <>
       <Nav />
       <main>
         <Hero />
-        <Rail active={active} />
         <div className="gallery" id="gallery">
+          <Rail active={active} />
           {sections.map((section) => (
-            <Section key={section.id} section={section} onOpen={setOpen} />
+            <Section key={section.id} section={section} />
           ))}
         </div>
         <Footer />
       </main>
-      <Lightbox art={open} onClose={closeLightbox} />
     </>
   )
 }

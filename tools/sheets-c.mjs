@@ -40,11 +40,11 @@ const SHOTS = resolve(repo, process.env.VIEW_SHOTS_DIR ?? join('.preview', 'view
  * height (`tools/render-view-shots.mjs`).
  */
 const CARDS = [
-  ['iso', '1', '等轴测建造视图 · 3×', '透视。方位 45°、俯仰 30°，推近三倍看站体'],
-  ['plan', '2', '平面 / 俯视 · 4×', '正交。全站摊平推近四倍：五个楼层、两条线'],
-  ['section', 'C · R · Y', '剖切 · 收起剖切面 · 4×', '剖切面立着切过站体最密的地方：C 剖开、R 转 90° 看进站厅、Y 收起半透明的面'],
-  ['elevation', '4 · C · R×2', '正交 X-Z 剖面 · 3×', '剖开再正对着看：楼层怎么叠、楼扶梯怎么穿、闸机在哪一层'],
-  ['eye', 'U + 平视', '站厅 · 平视', '站在站厅里，眼高看过去：这是玩家走进去看到的样子'],
+  ['iso', '1', '建造视角', '转着看，安排设备与通路。'],
+  ['plan', '2', '平面俯视', '从上往下看，检查布局。'],
+  ['section', 'C', '剖切', '打开外壳，看清车站内部。'],
+  ['elevation', '4', '楼层剖面', '检查楼层与换层设施的连接。'],
+  ['eye', '平视', '站厅平视', '靠近乘客，看看空间的样子。'],
 ]
 
 /** The captured views, or a clear failure: a sheet that drew no camera would be worse. */
@@ -91,7 +91,7 @@ export function artViews() {
       X0,
       62,
       '几个视角，同一座站',
-      '把街上那层收起来，就能看到地下站台；用 1 / 2 / C 和「视图」开关切换观察。',
+      '转动、俯视或剖开同一座车站，找到被遮住的通路。',
     ),
   )
 
@@ -159,66 +159,10 @@ export function artViews() {
         `<image x="${n(x + 12 + (boxW - iw) / 2)}" y="${n(y + 12 + (BOX_H - ih) / 2)}" width="${n(iw)}" height="${n(ih)}" clip-path="url(#v-widget)" href="${shot.href}"/>`,
     )
     g.push(T(x + 18, y + CH - 48, '视图控件', { size: 15.5, weight: 700, fill: '#eaf0f6' }))
-    g.push(T(x + 18, y + CH - 26, '视图右上角就是它：拖立方转视角，箭头升降，滑块调镜头', { size: 12, fill: '#8fa0b3' }))
+    g.push(T(x + 18, y + CH - 26, '拖动立方体转视角，用高度条切换观察楼层。', { size: 12, fill: '#8fa0b3' }))
   }
 
-  const ctrls = [
-    ['中键拖拽', '360° 环绕：方位和俯仰都随便'],
-    ['滚轮', '缩放；正交视图下是推拉'],
-    ['指针推到画布边缘', '平移视图'],
-    ['W A S D', '平移，按住 Shift 加速'],
-    ['Ctrl + Q / E', '升降视图（相机和瞄准点一起动）'],
-    ['1 / 2 / 4 / 5', '等轴测 / 平面 / 正交立面 / 正交侧立面'],
-    ['3', '回到上一个自定义角度'],
-    ['O', '切换正交 ↔ 透视'],
-    ['Home', '框住当前楼层'],
-    ['Ctrl + H', '回到默认视角（等轴测、透视、45°）'],
-    ['C，再按 R', '剖切开 / 关，R 把切面转 90°'],
-    ['X', 'X 光：其他楼层变虚影'],
-    ['Y', '隐藏剖切面，只留切开的模型'],
-    ['U', '隐藏UI：格网、楼层切片、界面一起收起来'],
-    ['空格', '暂停 / 运行仿真'],
-  ]
-
-  /* ---- the controls, in the game's own keys ---- */
-  // Below the grid: the six tiles are one size, so the row after the second one is free
-  // and the legend takes the whole of it.
-  const ly = TOP + rows * (CH + GAP_Y) + 24
-  // **Sized to its content**: the pairs in two columns, the header above them, and a
-  // row's worth of air under the last one. 空格 is the foot of the left column, and it
-  // is the row a reader sees hanging out of the bottom when the panel's height is a
-  // number someone typed rather than the rows it actually holds.
-  const ROW = 24
-  const KEY_W = 158
-  const KEY_DX = KEY_W + 12
-  const COL_DX = 520
-  const ctrlRows = Math.ceil(ctrls.length / 2)
-  const legendH = 66 + ctrlRows * ROW + 30
-  g.push(`<rect x="${X0}" y="${ly}" width="${W - X0 * 2}" height="${legendH}" rx="14" fill="#111926" stroke="#243040"/>`)
-  g.push(T(X0 + 24, ly + 34, '视口操作', { size: 14, weight: 800, fill: C.yellow, ls: 1.4 }))
-  ctrls.forEach(([k, v], i) => {
-    const x = X0 + 24 + (i % 2) * COL_DX
-    const y = ly + 66 + Math.floor(i / 2) * ROW
-    g.push(`<rect x="${x}" y="${y - 15}" width="${KEY_W}" height="20" rx="5" fill="#0f1620" stroke="#243040"/>`)
-    g.push(T(x + 9, y, k, { size: 11, fill: '#9fd7ee', mono: true, weight: 700 }))
-    g.push(T(x + KEY_DX, y, v, { size: 11.5, fill: '#a9b8c8' }))
-  })
-  g.push(T(X0 + 1024, ly + 66, '为什么这对搭站的人重要', { size: 12, weight: 800, fill: C.yellow, ls: 1.2 }))
-  g.push(
-    MUL(
-      X0 + 1024,
-      ly + 92,
-      [
-        '转着看，能知道空间对不对味；正交立面，才知道',
-        '它行不行。竖向交通、净高、楼层叠合、竖井多深，',
-        '只有 X-Z 视图会老实告诉你——所以两样都得有，',
-        '落在同一个模型上，不用导出。',
-      ],
-      { size: 12, fill: '#a9b8c8', lh: 20 },
-    ),
-  )
-  g.push(T(X0 + 1024, ly + 176, '正交视图 = 图纸。透视视图 = 现场。', { size: 12, fill: '#7d8ea3' }))
-
-  const H = ly + legendH + 26
-  return sheet(W, H, g.join(''))
+  const bottom = TOP + rows * (CH + GAP_Y) + 38
+  g.push(T(X0, bottom, '看不清的地方，换个角度再看。', { size: 22, weight: 700, fill: C.yellow }))
+  return sheet(W, bottom + 50, g.join(''))
 }

@@ -90,8 +90,8 @@ export function artPlatformFlow() {
   const grainSvg = Array.from({ length: 90 }, (_, i) => `<circle cx="${n(grain() * 64)}" cy="${n(grain() * 64)}" r="${n(.2 + grain() * .6)}" fill="${i % 2 ? '#fff' : '#000'}" opacity=".12"/>`).join('');
 
   g.push(title(48, 62,
-    '对齐的车门、自然形成的队列、来去的列车',
-    '车门间距只算一次，其余全由它定位：屏蔽门开哪、队伍怎么排、上下车走哪条路。列车、车门和人群 20 秒一轮循环播放。'));
+    '让上下车的人，各有一条路',
+    '车门两侧排队，中间留给下车乘客。观察人群怎样通过站台。'));
 
   g.push(`<defs>
     <pattern id="platform-concrete-grain" width="64" height="64" patternUnits="userSpaceOnUse">${grainSvg}</pattern>
@@ -103,7 +103,7 @@ export function artPlatformFlow() {
   /* ============================================== A. the boarding sequence */
   const AX = 48, AY = 150, AW = 1504, AH = 436;
   panelBox(g, AX, AY, AW, AH, 'A.  上车时序（平面）',
-    '列车进站停稳，屏蔽门滑开，两条队伍各自喂给一道门，乘客从中间下车，屏蔽门合上，列车出站。');
+    '列车停稳后开门，乘客从中间下车，从两侧上车。');
 
   const s = 31;                                   // px per metre
   const PX0 = 76;
@@ -252,17 +252,17 @@ export function artPlatformFlow() {
   /* =========================================== C. auto-wayfinding / routing */
   const CX = 776, CY = 602, CW = 772, CH = 410;
   panelBox(g, CX, CY, CW, CH, 'C.  乘客自己找路',
-    '没人会对某个人说「你去 2 号口」。它只能看自己当下的状态，一个点一个点地找。');
+    '连接车门、换层设施和出口，乘客会自己选择通路。');
 
   const nodes = [
     ['车门', '下车', C.safety, '让开门口'],
     ['站台', '步行', C.white, '走下车路径'],
-    ['导向', '读取', C.yellow, '立牌 8 米 · 地贴 −15 秒'],
+    ['导向', '读取', C.yellow, '标识帮助认路'],
     ['竖向', '选择', C.asc, '扶梯 / 楼梯 / 电梯'],
     ['站厅', '步行', C.lineB, '跟着黄色导向带'],
     ['闸机', '排队', C.green, '从队尾加入通道'],
     ['出口', '离开', '#d7dde5', '地面出口，进出可设'],
-    ['完成', '消失', '#5d6d80', '离开仿真'],
+    ['到达', '完成', '#5d6d80', '走出车站'],
   ];
   const bx = [800, 980, 1160, 1340], by1 = 692, by2 = 824, bw = 160, bh = 56;
   const place = (i) => ({ x: bx[i < 4 ? i : 7 - i], y: i < 4 ? by1 : by2 });
@@ -297,13 +297,10 @@ export function artPlatformFlow() {
   g.push(mover(routePath, C.yellow, '0s', { r: 7, dur: '11s', noFade: true }));
   g.push(mover(routePath, C.teal, '1.4s', { r: 5, dur: '11s', noFade: true }));
   g.push(mover(routePath, C.red, '2.8s', { r: 5, dur: '11s', noFade: true }));
-  g.push(MUL(796, 908, [
-    '规则一句话：挑预期等待还在你耐心内、代价又最低的那条路。哪条队等超过耐心，',
-    '就改道——闸机、扶梯、车门，用的都是同一条规则。坐轮椅的人，只考虑电梯和坡道。',
-    '上车也一样：挑一道愿意接纳你的队伍；要坐的线路没进站，',
-    '就在站台上等。导向设施只改你做决定的耗时，不改这几条规则。',
-  ], { size: 10.6, fill: '#a9b8c8', lh: 17 }));
+  g.push(MUL(796, 916, [
+    '队伍太长，乘客会尝试改道。留出更多可选通路。',
+    '轮椅乘客需要电梯或坡道，换层时也要照顾他们。',
+  ], { size: 17, fill: '#a9b8c8', lh: 29 }));
 
-  g.push(T(48, H - 16, '动画的约定：车门间距说了算，屏蔽门跟着它走，排队通道也钉在同一个 x 上。换个车型，三样一起挪。', { size: 12.5, fill: '#7d8ea3' }));
   return sheet(W, H, g.join(''));
 }

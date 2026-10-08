@@ -74,7 +74,7 @@ const L = {
 const depth = (x, y, z) => (x + y + z * 0.9) * 0.2;
 
 export function artTwoLine() {
-  const W = 1600, H = 1400;
+  const W = 1600, H = 1220;
   /* Where the drawing goes, and the column the reading sits in. The framing is measured from
    * the geometry that was just built (`bboxOf`) and fitted into this rectangle, so no part of
    * the drawing — the far end of a consist, the last pier, the deepest corner of the box — can
@@ -354,69 +354,28 @@ export function artTwoLine() {
     const [ax, ay] = at(p[0], p[1], p[2]);
     callout(list, ax, ay, lx, ly, num, null);
   };
-  co([10, -3.2, ZK + 4.9], 104, 268, 1);               // the canopy over the viaduct
-  co([27, CYC, ZRO + 1.5], 104, 392, 2);               // the consist up there
-  co([5, -1.9, ZK + 0.2], 104, 516, 3);                // the viaduct platform
-  co([28.7, -1.0, ZD - 3.0], 104, 640, 4);             // a pier
-  co([36, CYB, ZR + 1.0], 132, 1104, 5);               // the consist on the far road
-  co([23, 12.0, ZP + 0.5], 392, 1176, 6);              // the island platform and the crowd
-  co([31, CYA, ZR + 1.1], 736, 1176, 7);               // the consist on the near road
-  co([-3.3, 8.5, 2.2], 104, 760, 8);                 // the street head house
-  co([27, 6.4, ZC + .7], 104, 890, 9);               // furnished B1 concourse
+  co([5, -1.9, ZK + 0.2], 104, 350, 1);
+  co([27, 6.4, ZC + .7], 104, 730, 2);
+  co([23, 12.0, ZP + 0.5], 392, 1176, 3);
   OV.push(list.join(''));
 
-  /* ============================================================ the reading column */
-  g.push(`<rect x="${AX}" y="196" width="432" height="330" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(AX + 24, 232, '两条线路', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-  const rows = [
-    ['1', C.lineA, '1 号线', '地面以上：高架站台', 'A 型 / 接触网 / 6-8 节'],
-    ['2', C.lineB, '2 号线', '地下：B2 岛式站台', 'B 型 / 第三轨 / 4-6 节'],
+  g.push(T(AX + 12, 260, '换乘，要走过这些空间', { size: 24, weight: 800, fill: C.yellow }));
+  const steps = [
+    ['1  高架站台', '地面以上的 1 号线'],
+    ['2  B1 站厅', '在这里分流，连接不同楼层'],
+    ['3  B2 岛式站台', '地下的 2 号线'],
   ];
-  rows.forEach(([id, col, name, sub, stock], i) => {
-    const y = 252 + i * 82;
-    g.push(`<rect x="${AX + 24}" y="${y}" width="384" height="72" rx="10" fill="${col}" opacity=".1" stroke="${col}" stroke-width="1.4"/>`);
-    g.push(`<circle cx="${AX + 52}" cy="${y + 24}" r="14" fill="${col}"/>`);
-    g.push(T(AX + 52, y + 29, id, { size: 14, weight: 800, fill: '#0b0e13', anchor: 'middle' }));
-    g.push(T(AX + 78, y + 23, name, { size: 14, weight: 700, fill: '#eaf0f6' }));
-    g.push(T(AX + 78, y + 42, sub, { size: 11.5, fill: '#a9b8c8', mono: true }));
-    g.push(T(AX + 78, y + 60, stock, { size: 11.5, fill: '#7d8ea3', mono: true }));
+  steps.forEach(([name, note], i) => {
+    const y = 330 + i * 142;
+    g.push(T(AX + 24, y, name, { size: 23, weight: 700, fill: '#eaf0f6' }));
+    g.push(T(AX + 24, y + 34, note, { size: 18, fill: '#a9b8c8' }));
+    if (i < 2) g.push(T(AX + 32, y + 90, '↓  换层', { size: 20, fill: C.asc }));
   });
-  g.push(T(AX + 24, 438, '两条线路上下叠放，共用一座换乘站。', { size: 12, fill: '#8fa0b3' }));
-  g.push(T(AX + 24, 458, '换乘就是一次爬升，而爬升本身就是客流。', { size: 12, fill: '#8fa0b3' }));
-  g.push(T(AX + 24, 478, '把各出口进出量定好，整座竖向叠层就从一头灌满。', { size: 12, fill: '#8fa0b3' }));
-
-  g.push(`<rect x="${AX}" y="546" width="432" height="440" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(AX + 24, 582, '剖视图读法', { size: 15, weight: 800, fill: C.yellow, ls: 1.4 }));
-  g.push(T(AX + 24, 606, '从桥面到街面，再从 B1 站厅读到 B2 站台。', { size: 11.5, fill: '#8fa0b3' }));
-  const items = [
-    ['1', '高架站台雨棚：顶板与立柱，遮住整条站台'],
-    ['2', '高架列车：A 型两节，接触网供电'],
-    ['3', '高架站台：桥面近侧的一半，1 号线'],
-    ['4', '桥墩：立在街面上，垫着上面全部'],
-    ['5', '地下 B 列车：远侧线路，B 型两节'],
-    ['6', '地下岛式站台：双扶梯接右侧挑台'],
-    ['7', '地下 A 列车：近侧线路，第三轨供电'],
-    ['8', '街面出入口：连接站厅与地面'],
-    ['9', 'B1 水泥站厅：闸机、围栏、售票与商店设施'],
-  ];
-  items.forEach(([num, txt], i) => {
-    const y = 648 + i * 36;
-    g.push(`<circle cx="${AX + 40}" cy="${y - 4}" r="12.5" fill="${C.yellow}"/>`);
-    g.push(T(AX + 40, y + 0.5, num, { size: 13, weight: 800, fill: C.ink, anchor: 'middle' }));
-    g.push(T(AX + 64, y + 0.5, txt, { size: 12.5, fill: '#c3d0de' }));
-  });
-  g.push(T(AX + 24, 968, '两个盒体之间换乘，是一段真要走的路：', { size: 11.5, fill: '#5d6d80' }));
-
-  g.push(`<rect x="${AX}" y="1004" width="432" height="176" rx="14" fill="#111926" stroke="#243040"/>`);
-  g.push(T(AX + 24, 1040, '沙盒模式', { size: 12, weight: 800, fill: '#8fa0b3', ls: 1.2 }));
-  g.push(MUL(AX + 24, 1066, [
-    '不算成本、不雇员工、不收票价。',
-    '盒体建好再调线也来得及；',
-    '高架只要打桥墩，便宜。',
-    'B1 站厅先分流，再从双扶梯',
-    '或电梯下到 B2 岛式站台。',
-    '相机就是楼层选择器。',
-  ], { size: 12, fill: '#7d8ea3', lh: 18 }));
+  g.push(MUL(AX + 24, 820, [
+    '扶梯、楼梯与电梯的布局，',
+    '决定换乘要走多远、等多久。',
+    '观察换层口的队伍，再调整通路。',
+  ], { size: 19, fill: '#a9b8c8', lh: 34 }));
 
   const grain = rng(43);
   const concreteGrain = '<defs><pattern id="interchange-concrete-grain" width="64" height="64" patternUnits="userSpaceOnUse">'

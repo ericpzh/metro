@@ -129,8 +129,8 @@ export function artSection() {
   g.push(`<path d="M150,${deckY - 130} L1010,${deckY - 130}" stroke="#f0c000" stroke-width="3.5"/>`);
   for (let x = 200; x <= 960; x += 152) g.push(`<path d="M${x},${deckY - 130} L${x},${deckY - 116}" stroke="#f0c000" stroke-width="2"/>`);
   g.push(`<rect x="174" y="${deckY + 40}" width="356" height="42" rx="7" fill="#0b1119" opacity=".82"/>`);
-  g.push(T(180, deckY + 56, '1 号线  —  A 型 6 节  —  接触网 1500 V 直流  —  无屏蔽门', { size: 13, fill: L1, weight: 700 }));
-  g.push(T(180, deckY + 76, '地面以上：站台敞着，风吹日晒都躲不掉', { size: 12, fill: '#8fa0b3' }));
+  g.push(T(180, deckY + 56, '1 号线 · 高架站台', { size: 13, fill: L1, weight: 700 }));
+  g.push(T(180, deckY + 76, '从高架到地下，用换层设施连接。', { size: 12, fill: '#8fa0b3' }));
 
   const stationBox = (x0, y0, x1, y1) =>
     g.push(`<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="#0d1219" stroke="#2a3542" stroke-width="2"/>`);
@@ -150,8 +150,8 @@ export function artSection() {
   stationBox(200, GY, 1140, B3f);
   stationBox(CORE0, GY - 104, CORE1, B3f);
   room(200, 1140, GY, B1f, '', '#8fa3ba', '');
-  room(200, 1140, B1f, B2f, 'B2   2 号线站台', '#164b89', 'B 型车 / 第三轨 / 屏蔽门');
-  room(200, 1140, B2f, B3f, 'B3   3 号线站台', '#694500', 'C 型车 / 第三轨 / 横断面');
+  room(200, 1140, B1f, B2f, 'B2   2 号线站台', '#164b89', '地下站台');
+  room(200, 1140, B2f, B3f, 'B3   3 号线站台', '#694500', '更深一层的站台');
   room(CORE0, CORE1, GY, B3f, '', '#273443', '');
 
   /* ---- surface: plaza, pavilion over the core, ad board ---- */
@@ -342,17 +342,14 @@ export function artSection() {
   const footY = B3f + 92;
   g.push(`<rect x="48" y="${footY}" width="1504" height="74" rx="12" fill="#0f1620" stroke="#243040"/>`);
   const notes = [
-    [C.lineA, '1 号线在地面以上：接触网供电，站台敞着，没屏蔽门。'],
-    [C.lineB, '2 号线在 B2 的屏蔽门后面，上车得按门一扇扇来。'],
-    [C.lineC, '3 号线在 B3，还跟另外两条成直角：换乘＝竖着走一段，再横着走一段。'],
-    [C.asc, '扶梯、楼梯、电梯都要自己摆，运力和速度各不相同。'],
-    [C.green, '换乘客都是真人：走路、排队、刷卡、等车、上车。'],
-    [C.yellow, '深度不是摆设，它就是步行、排队和站台密度。'],
+    [C.asc, '扶梯、楼梯与电梯连接每一层。'],
+    [C.green, '乘客会走路、排队、刷卡和上车。'],
+    [C.yellow, '楼层越深，越需要照顾步行距离与换层队伍。'],
   ];
   notes.forEach(([col, s], i) => {
-    const cx = 70 + Math.floor(i / 3) * 740, cy = footY + 24 + (i % 3) * 18;
+    const cx = 70 + i * 490, cy = footY + 42;
     g.push(`<rect x="${cx}" y="${cy - 9}" width="10" height="10" rx="2.5" fill="${col}"/>`);
-    g.push(T(cx + 18, cy, s, { size: 11.5, fill: '#a9b8c8' }));
+    g.push(T(cx + 18, cy, s, { size: 16, fill: '#a9b8c8' }));
   });
   return sheet(W, footY + 74 + 28, g.join(''));
 }

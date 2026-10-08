@@ -33,12 +33,14 @@ npm run preview:local  # tools/preview.mjs — the built site and game on one or
 ## The site
 
 * `web/src/App.jsx` + `web/src/components/` — `Nav`, `Hero`, `Sheet`, `Rail`,
-  `Section`, `Lightbox`, `Footer`, `GamePage`. One component per region; the
-  gallery is data-driven.
-* `web/src/artworks.js` — the sheets as data: spec id, title, body copy,
-  the three reading sections. Its measured `panel` placement data is **currently
-  unused** — `Sheet.jsx` pins the text card to the lower-right corner — and is
-  kept as the reference for when per-sheet placement comes back.
+  `Section`, `Footer`, `GamePage`. One component per region; the gallery is
+  data-driven. The left-side `Rail` tracks the current sheet and links to four
+  reading sections. Sheets render at full width with their short introduction
+  above the image; the gallery does not open a lightbox.
+* `web/src/artworks.js` — the sheets as data: spec id, title, player-facing
+  introduction, alt text, section and order. The four paths are the station
+  (01, 02, 13), trains and boarding (11, 05, 12), building (03, 04, 09), and
+  passenger flow and interface (06, 07). Section notes introduce each group.
 * `web/src/site.js` — repo / spec / art links, `sheet(file)` (Vite
   `BASE_URL`-aware), `gamePath`, and `gameUrl` = `VITE_GAME_URL`, else the dev
   server `http://localhost:5174/`, else `/metro-game/`. The **游戏 tab**

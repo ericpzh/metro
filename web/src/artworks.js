@@ -1,242 +1,138 @@
-// The concept sheets, grouped for reading.
-//
-// `id` is the sheet's number in the spec (§1.1–§1.13) and is drawn into the
-// SVG itself, so it never changes — but the gallery is *not* shown in spec
-// order. The sheets are gathered into three sections (see `sections`) so a
-// human can read the site top to bottom: overview, then high-level features,
-// then the low-level detail.
-//
-// `panel` is where the text card may sit without covering the drawing. The
-// values were measured, not guessed: each sheet was rasterised at a 1440px
-// reference width and scanned with an edge-energy map for the quietest band
-// that keeps the whole card on screen. `mode: 'edge'` hugs the 5% margin;
-// `mode: 'free'` marks a genuinely empty pocket in the middle of the sheet.
-// Re-run that search before placing a panel by hand.
-//
-// NOTE: the panels are currently pinned to the lower-right corner of every
-// sheet in Sheet.jsx, so this data is unused for now — it is kept as the
-// measured reference in case the per-sheet placement comes back.
-//
-// `section` must match one of the `sections` ids below; the order of this
-// array is the order sheets appear inside each section.
-//
-// All rendered strings are Simplified Chinese: the shipping UI language is
-// Chinese only (§9.2 of the spec), and the sheets themselves are drawn in it.
+// Player-facing introductions. Each sheet has one main idea.
+export const tagline = "自由搭建，逐层连接。让人群走进车站，再把堵住的地方一点点改好。"
 
-export const tagline =
-  '娃娃屋一样一眼看懂的剖面，挤挤挨挨的客流，还有货真价实的中国地铁车厢。'
-
-// A: the whole picture. B: what the player does. C: how those systems are
-// actually built, in detail.
 export const sections = [
   {
-    id: 'overview',
-    kicker: 'A · 总览',
-    label: '概念图总览',
-    note: '先看全貌：剖切、剖面，两条线路上下叠着。',
+    "id": "overview",
+    "label": "站里的风景",
+    "note": "从站厅到站台，再把不同线路连接起来。"
   },
   {
-    id: 'features',
-    kicker: 'B · 玩法',
-    label: '高层特性',
-    note: '玩法：能放什么、要照顾哪些车、人群从哪来、界面什么样。',
+    "id": "trains",
+    "label": "沿轨道出发",
+    "note": "选择车体与编组，再安排停靠和上下车。"
   },
   {
-    id: 'details',
-    kicker: 'C · 细节',
-    label: '底层特性',
-    note: '细节：格子怎么拼、相机怎么看、车怎么造、车门怎么对站台。',
+    "id": "building",
+    "label": "一格格搭起",
+    "note": "用方块搭空间，摆好设备，换个视角检查通路。"
   },
+  {
+    "id": "simulation",
+    "label": "人潮的一天",
+    "note": "调整客流，观察排队，再回到建造中改善车站。"
+  }
 ]
 
 export const artworks = [
-  /* --------------------------------------------------------- A · 总览 ---- */
   {
-    id: '01',
-    section: 'overview',
-    file: '01-isometric-cutaway.svg',
-    nav: '剖切',
-    accent: '#e8556a',
-    panel: { mode: 'edge', side: 'right', top: '57.5%' },
-    kicker: '概念 01 · 等轴测剖视图',
-    title: '你要搭的车站',
-    lead:
-      '屋顶掀开，像掀开一间娃娃屋：B1 站厅，顺扶梯往下，能看见底下的 B2 站台。',
-    note:
-      '九个区域一眼认得：闸机、售票机、商铺、站台、竖向交通、出入口、广告、导向、电梯。能看见的都能放；每个人都带着目的地。',
-    tags: ['等轴测', '1 格 = 1 米', '屋顶掀开'],
-    alt:
-      '地铁车站站厅的等轴测剖视图：闸机、自动售票机、商铺、通往站台的扶梯，和成群结队的乘客。',
+    "id": "01",
+    "section": "overview",
+    "file": "01-isometric-cutaway.svg",
+    "nav": "剖切",
+    "accent": "#e8556a",
+    "title": "你要搭的车站",
+    "lead": "搭好站厅与站台，运行后观察人群怎样经过闸机、扶梯和车门。",
+    "alt": "两层车站的剖切图，展示闸机、换层设施、站台和乘客。"
   },
   {
-    id: '02',
-    section: 'overview',
-    file: '02-vertical-section.svg',
-    nav: '剖面',
-    accent: '#4aa3e8',
-    panel: { mode: 'edge', side: 'right', top: '39.1%' },
-    kicker: '概念 02 · 纵剖面',
-    title: '挖得越深，路就越长',
-    lead:
-      '一座车站叠好几层：高架桥、地面广场、B1 站厅，再往下是 B2 和更深的 B3。',
-    note:
-      '每换一层，就多走一段、多排一次，也多一个会卡住的地方。整套仿真就围着这张图转。',
-    tags: ['高架到地下', '多层叠合', '竖向交通才是瓶颈'],
-    alt:
-      '车站剖面图：高架桥、街道广场、B1 站厅，和上下叠放的 B2/B3 站台。',
+    "id": "02",
+    "section": "overview",
+    "file": "02-vertical-section.svg",
+    "nav": "剖面",
+    "accent": "#4aa3e8",
+    "title": "越深的车站，越要照顾换层",
+    "lead": "楼层可以上下叠放；连接它们的通路，会影响乘客的步行距离和等待。",
+    "alt": "高架、街面、站厅与两层地下站台的垂直剖面。"
   },
   {
-    id: '13',
-    section: 'overview',
-    file: '13-two-line-interchange.svg',
-    nav: '换乘',
-    accent: '#38b99a',
-    panel: { mode: 'edge', side: 'left', top: '56.8%' },
-    kicker: '概念 13 · 两条线路，两种深度',
-    title: '上下叠放的换乘',
-    lead:
-      '一条线架在地面以上，一条线埋在地下：高架站台与 B2 岛式站台上下相叠。',
-    note:
-      '乘客通过 B1 站厅和竖向交通换乘。桥墩支撑高架线路，地下站台在地面下方。',
-    tags: ['用桥墩，不用开挖', '一处换乘竖井', '不计成本，不要员工'],
-    alt:
-      '双线换乘站的剖切图：B1 站厅上方的地面高架线，和地下的 B2 岛式站台。',
-  },
-
-  /* ----------------------------------------------------- B · 高层特性 ---- */
-  {
-    id: '04',
-    section: 'features',
-    file: '04-module-catalogue.svg',
-    nav: '模块',
-    accent: '#46c98b',
-    panel: { mode: 'free', left: '32%', top: '11.7%' },
-    kicker: '概念 04 · 可放置模块',
-    title: '你能放下的东西',
-    lead:
-      '六十二件，各有占地，也各有一份仿真真会去读的通行量。',
-    note:
-      '占一块地、带一份容量、有服务时间，还给每个人留出站的位置。摆错地方不会报错，会排队。',
-    tags: ['62 件', '游戏模型本身', '仿真读取的通行量'],
-    alt:
-      '六十二件可放置车站模块的目录图，均以等轴测绘制并标注占地与通行量。',
+    "id": "13",
+    "section": "overview",
+    "file": "13-two-line-interchange.svg",
+    "nav": "换乘",
+    "accent": "#38b99a",
+    "title": "把两条线路连成一座站",
+    "lead": "高架和地下线路共用站厅，换层设施的布局决定换乘是否顺畅。",
+    "alt": "高架站台、B1 站厅与 B2 地下站台的双线换乘剖切图。"
   },
   {
-    id: '05',
-    section: 'features',
-    file: '05-trains-and-track.svg',
-    nav: '车辆',
-    accent: '#a98bf5',
-    panel: { mode: 'edge', side: 'left', top: '20.6%' },
-    kicker: '概念 05 · 列车与轨道',
-    title: '车多宽，站台就退到哪',
-    lead:
-      'A / B / C / L 四个等级：车多宽，站台边缘就退到哪；几扇门，上车就多快；怎么供电，决定钻隧道还是走高架。',
-    note:
-      '车不是背景板：屏蔽门开哪、队伍怎么排、停多久，连发车间隔都得跟着它变。',
-    tags: ['A / B / C / L', '每侧车门数', '接触网 vs 第三轨'],
-    alt:
-      '车辆图：四个等级各一张正面和侧面正视，带尺寸标注，以及屏蔽门全高与半高的断面。',
+    "id": "11",
+    "section": "trains",
+    "file": "11-rolling-stock-3d.svg",
+    "nav": "车体",
+    "accent": "#5c93f5",
+    "title": "靠近看看你的列车",
+    "lead": "四种车型各有外观，停靠后开门，乘客走进车厢。",
+    "alt": "四种列车外观、开门车厢与车头细节。"
   },
   {
-    id: '06',
-    section: 'features',
-    file: '06-crowd-demand.svg',
-    nav: '客流',
-    accent: '#f4804a',
-    panel: { mode: 'free', left: '21.5%', top: '42.7%' },
-    kicker: '概念 06 · 客流需求',
-    title: '一天的客流，自己拖',
-    lead:
-      '「时刻 · 客流」一个窗口管完：一条曲线、三段时间、三个旋钮，和一整年的日历。',
-    note:
-      '曲线画的是哪条线，仿真放的就是哪条线 —— 窗口和站台上的人读的是同一份数据。',
-    tags: ['六个把手', '三个旋钮', '日历系数 0.35–1.15'],
-    alt:
-      '「时刻 · 客流」窗口：客流曲线、三段时间、三个旋钮和日历；下面按节假日、工作日、周六、周日分别列出同一条曲线。',
+    "id": "05",
+    "section": "trains",
+    "file": "05-trains-and-track.svg",
+    "nav": "编组",
+    "accent": "#a98bf5",
+    "title": "让列车装得下等车的人",
+    "lead": "选择车型与编组，留出足够长的站台；载客不足时，乘客会滞留。",
+    "alt": "A、B、C、L 四种列车的正面、侧面与六节编组规模对比。"
   },
   {
-    id: '07',
-    section: 'features',
-    file: '07-interface.svg',
-    nav: '界面',
-    accent: '#35c8c8',
-    panel: { mode: 'free', left: '10.5%', top: '21.4%' },
-    kicker: '概念 07 · 界面',
-    title: '一屏四块',
-    lead: '顶上控制，左边建造栏，中间工地，右边信息栏，底下一排仿真读数。',
-    note:
-      '相机就是楼层选择器：看得见哪层，改的就是哪层。视图开关在信息栏里，不在建造栏 —— 图纸怎么画，和车站长什么样，分开管。',
-    tags: ['建造栏文件夹', '信息栏与视图', '仿真状态读数'],
-    alt:
-      '整个窗口标出了顶栏、建造栏、工地、信息栏和底栏，下面分别列出建造栏的文件夹、信息栏的视图开关和「时刻 · 客流」窗口。',
-  },
-
-  /* ----------------------------------------------------- C · 底层特性 ---- */
-  {
-    id: '03',
-    section: 'details',
-    file: '03-block-system.svg',
-    nav: '方块',
-    accent: '#f2b32c',
-    panel: { mode: 'edge', side: 'left', top: '17.6%' },
-    kicker: '概念 03 · 方块系统',
-    title: '一块方块，六个面',
-    lead:
-      '一个方块一格，六个面：顶面铺地板，底面当天花板，四面是墙。材质住在面上，不在格上。',
-    note:
-      '只有露在外面的面才画墙：和实心邻居贴着的一面什么都不画，两个顶面于是拼成一整片。方块是直角立方体 —— 顶边不倒角，外角也不倒圆。',
-    tags: ['每格 6 个面', '直角立方体', '相邻的面不画'],
-    alt:
-      '同一个方块从上、从下两张示意图，标注了六个面各自当什么用；旁边是 2 × 2 和 L 形的暴露面，以及九个格子拼成一整片的地面。',
+    "id": "12",
+    "section": "trains",
+    "file": "12-platform-doors-flow.svg",
+    "nav": "上下车",
+    "accent": "#ef86ae",
+    "title": "给上下车的人留出空间",
+    "lead": "车门两侧排队，中间留给下车乘客；再把站台接到换层设施和出口。",
+    "alt": "站台上下车动画、车门对齐示意与乘客出站路线。"
   },
   {
-    id: '09',
-    section: 'details',
-    file: '09-camera-and-views.svg',
-    nav: '视图',
-    accent: '#7f8bf0',
-    panel: { mode: 'free', left: '37%', top: '30.8%' },
-    kicker: '概念 09 · 相机与视图',
-    title: '看一座车站的六种方式',
-    lead: '能像 CAD 视口那样 360° 随便转，也能切到真正的正交立面。',
-    note:
-      '同一个模型，六种看法。正对 X-Z 的立面最有用：竖向交通够不够，只有它说得清。',
-    tags: ['360° 环绕', '正交立面', '按层切片'],
-    alt: '同一个车站模型以六种方式展示：等轴测、平面图，和四个正交立面。',
+    "id": "03",
+    "section": "building",
+    "file": "03-block-system.svg",
+    "nav": "方块",
+    "accent": "#f2b32c",
+    "title": "一米一格，慢慢搭",
+    "lead": "拼出地板、墙和天花板，换上喜欢的材质，再用半墙与斜块调整边界。",
+    "alt": "方块、连续地面、房间、半墙、三角块与材质示例。"
   },
   {
-    id: '11',
-    section: 'details',
-    file: '11-rolling-stock-3d.svg',
-    nav: '车辆三维',
-    accent: '#5c93f5',
-    panel: { mode: 'free', left: '14.5%', top: '36%' },
-    kicker: '概念 11 · 列车三维图',
-    title: '四个等级，四种车体',
-    lead:
-      '看四种车体、开门时的车厢和列车停靠时的上下客。',
-    note:
-      '乘客停靠后从车门上下车，并进入车厢；站台门开口与列车车门对齐。',
-    tags: ['A / B / C / L', '车门开合', '乘客进入车厢'],
-    alt:
-      '四个等级的列车三维图各一张，下面展示开着门的车厢、车头，以及乘客上下车和站台门对齐的说明。',
+    "id": "04",
+    "section": "building",
+    "file": "04-module-catalogue.svg",
+    "nav": "设备",
+    "accent": "#46c98b",
+    "title": "组织客流，也装点车站",
+    "lead": "摆放闸机、扶梯和电梯，再用座椅、标识与家具安排空间。",
+    "alt": "18 件车站设备与陈设的模型目录。"
   },
   {
-    id: '12',
-    section: 'details',
-    file: '12-platform-doors-flow.svg',
-    nav: '车门',
-    accent: '#ef86ae',
-    panel: { mode: 'free', left: '22%', top: '42.5%' },
-    kicker: '概念 12 · 站台：车门与客流',
-    title: '站台和列车怎么对上',
-    lead:
-      '平面画上车顺序，立面标车门位置，中间串起从车门到出站的整条路，最后对比四个等级的车门节奏。',
-    note:
-      '屏蔽门开口正对车门中心。站台边缘不是随手刷的，是整套布局要兑现的承诺。',
-    tags: ['列车停靠', '车门与站台门对齐', '下车 → 排队 → 出站'],
-    alt:
-      '站台与客流图：列车停靠、乘客上下车，以及从站台到出站口的寻路步骤。',
+    "id": "09",
+    "section": "building",
+    "file": "09-camera-and-views.svg",
+    "nav": "视角",
+    "accent": "#7f8bf0",
+    "title": "换个角度，看清通路",
+    "lead": "俯视检查布局，剖开检查楼层连接，靠近看看站厅的样子。",
+    "alt": "同一座车站的建造、俯视、剖切、楼层剖面与平视画面。"
   },
+  {
+    "id": "06",
+    "section": "simulation",
+    "file": "06-crowd-demand.svg",
+    "nav": "客流",
+    "accent": "#f4804a",
+    "title": "试试车站能扛住多大的高峰",
+    "lead": "直接拖动图里的时间边界，再到游戏中调整入口流量、观察队伍。",
+    "alt": "可拖动的客流曲线、日历与出入口流量设置。"
+  },
+  {
+    "id": "07",
+    "section": "simulation",
+    "file": "07-interface.svg",
+    "nav": "界面",
+    "accent": "#35c8c8",
+    "title": "建造、运行、再修改",
+    "lead": "左边选工具，右边调设置。看底栏的排队与滞留，找出下一处要改的地方。",
+    "alt": "游戏全屏界面及建造、调整、观察三个操作重点。"
+  }
 ]

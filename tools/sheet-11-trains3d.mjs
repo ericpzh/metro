@@ -94,13 +94,13 @@ export function artTrains3D() {
       48,
       62,
       '四个等级，四种车体',
-      '圆角车体、玻璃带、在门口断开的涂装、两扇滑门、车里的座椅，和两条转向架。第 05 张给参数，这张给形状。',
+      '四种车型的外观。停靠后开门，乘客走进车厢。',
     ),
   )
 
   /* ---------------- the four classes ---------------- */
   g.push(head(48, 186, '四个等级'))
-  stock.forEach((s) => {
+  stock.forEach((s, i) => {
     const x = CAR_X + i * CAR_PITCH
     const piece = car(`car-${s.cls}`)
     g.push(T(x, 220, `${s.cls} 型`, { size: 22, weight: 800, fill: G.text }))

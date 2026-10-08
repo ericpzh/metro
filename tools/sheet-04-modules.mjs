@@ -96,7 +96,7 @@ export function artModules() {
       X0,
       62,
       '可以放进车站的东西',
-      `处理客流的机器和装点空间的陈设都在这里：每件占 a × b 的地，带一份仿真真会读的通行量。共 ${cards.length} 件，按道具栏顺序排。`,
+      '用闸机、扶梯和电梯组织客流，再用家具与标识装点车站。',
     ),
   )
 
@@ -128,8 +128,8 @@ export function artModules() {
     g.push(`<image x="${ix}" y="${iy}" width="${width}" height="${height}" href="${card.href}"/>`)
 
     g.push(T(cx + 18, cy + 218, fits(card.label, 16.5, CW - 36), { size: 16.5, weight: 700, fill: '#eaf0f6' }))
-    g.push(T(cx + 18, cy + 240, card.footprint, { size: 12.5, fill: accent, mono: true }))
-    g.push(T(cx + 18, cy + 258, fits(card.service, 12, CW - 30), { size: 12, fill: '#8fa0b3' }))
+    if (card.footprint !== '1 × 1 格') g.push(T(cx + 18, cy + 240, card.footprint, { size: 12.5, fill: accent, mono: true }))
+    g.push(T(cx + 18, cy + 258, fits(card.service.replace('装饰，无通行', '装点车站').replace('信息屏，无通行', '显示信息').replace('无服务，被动吸引', '吸引乘客停留'), 12, CW - 30), { size: 12, fill: '#8fa0b3' }))
   }
 
   const foot = gridY + rows * (CH + GAP_Y) + 30

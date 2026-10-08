@@ -5,17 +5,9 @@ export default function Footer() {
     <footer className="footer">
       <div className="footer__inner">
         <div className="footer__col">
-          <h2>这些图是怎么来的</h2>
-          <p>
-            每一张都是游戏自己的截图：把正式构建跑在无头浏览器里，载入示例车站（动物园），
-            调好相机再拍下来——不是另画一遍的示意图。
-          </p>
-          <p className="footer__note">
-            画风取自真实广州地铁：白色挡板吊顶、亮面彩色搪瓷墙板、带深色斑点的花岗岩地面、
-            不锈钢柱子、顶部带线路色的全高屏蔽门，还有醒目的安全黄盲道。照片只看不进包；
-            这些图由 <code>node tools/shots.mjs</code> 生成，构图写在{' '}
-            <code>tools/sheet-plan.mjs</code> 里。
-          </p>
+          <h2>继续搭你的车站</h2>
+          <p>从示例车站开始，或者从空地搭起。运行后看哪里拥堵，再试一种新的布局。</p>
+          <p className="footer__note">这些概念图使用游戏模型与界面，展示你能建造和调整的空间。</p>
         </div>
 
         <div className="footer__col footer__col--links">
@@ -23,17 +15,17 @@ export default function Footer() {
           <ul className="footer__links">
             <li>
               <a href={specUrl} target="_blank" rel="noreferrer">
-                GAME-SPEC.md <span>完整设计</span>
+                游戏设计 <span>详细说明</span>
               </a>
             </li>
             <li>
               <a href={artUrl} target="_blank" rel="noreferrer">
-                art/ <span>截图源文件</span>
+                概念图 <span>SVG 原图</span>
               </a>
             </li>
             <li>
               <a href={repoUrl} target="_blank" rel="noreferrer">
-                代码仓库 <span>工具与生成器</span>
+                代码仓库 <span>项目源码</span>
               </a>
             </li>
           </ul>
@@ -41,9 +33,9 @@ export default function Footer() {
       </div>
 
       <div className="footer__base">
-        <p>地铁车站设计师 — 游戏截图，草稿 1。</p>
+        <p>地铁车站设计师</p>
         <p>
-          不差钱，不招人，也不用维护费。你尽管搭，人群自己会来；扛得住就皆大欢喜，扛不住就再改改。
+          搭一座车站，看人群来来去去。
         </p>
       </div>
     </footer>

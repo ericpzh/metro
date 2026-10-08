@@ -26,8 +26,7 @@ export default function GamePage() {
         <a className="nav__brand" href={backHref}>
           <span className="nav__roundel" aria-hidden="true" />
           <span className="nav__name">
-            地铁车站设计师
-            <em>游戏</em>
+            地铁站设计师
           </span>
         </a>
         <nav className="tabs">

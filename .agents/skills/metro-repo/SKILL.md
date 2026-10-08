@@ -33,6 +33,13 @@ the station either copes or it does not.
 | `worker/index.js` | The site's path-prefix rewrite entry (root Worker). `game/worker/index.js` is the game's. |
 | `wrangler.jsonc` | Root site Worker config, prefix `/metro`. `game/wrangler.jsonc` is the game's, prefix `/metro-game`. |
 
+The concept gallery in `web/` groups its eleven sheets into four player-facing
+paths: the station (01, 02, 13), trains and boarding (11, 05, 12), building
+(03, 04, 09), and passenger flow and interface (06, 07). `artworks.js` owns
+the order and copy; `Rail.jsx` is the left-side reading progress, and each
+section note introduces the sheets beneath it. The sheets remain full-width
+images; their one-line introductions sit above them.
+
 ### Player-facing concept art
 
 Write sheet copy for players: explain what a feature lets them build, change, or

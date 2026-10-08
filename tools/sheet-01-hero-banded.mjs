@@ -148,15 +148,9 @@ export function artHeroBanded() {
   }).join('');
   const fit = fitToRect(bboxOf(layers), { x: 65, y: 155, w: 1470, h: 805 });
   const notes = [
-    [10, 7, 5.7, 1400, 230, '闸机与围栏：完整的付费区边界', C.yellow],
-    [9, 1.2, 6, 175, 300, '售票机：正面朝向站厅', C.green],
-    [21, .6, 6, 1400, 365, '靠墙货架与自动售货机', C.red],
-    [17, 21.85, 2.6, 1400, 690, '双向列车与全长屏蔽门', C.blue],
-    [14, 13, 3, 170, 750, '上下扶梯与楼梯', C.asc],
-    [4.5, .3, 5.6, 175, 175, '墙边的门、灭火器与垃圾桶', C.steel],
-    [15.7, .25, 7, 1400, 165, '墙面广告灯箱', C.pink],
-    [15, 8.5, 5, 1400, 520, '盲道连接闸机与换层点', C.tactile],
-    [3.3, 11.8, 3.5, 170, 540, '电梯井与轿厢', C.teal],
+    [10, 7, 5.7, 1400, 230, '闸机：划出付费区，让人群有序进入', C.yellow],
+    [14, 13, 3, 170, 750, '扶梯与楼梯：连接站厅和站台', C.asc],
+    [17, 21.85, 2.6, 1400, 690, '站台：等车、排队、上下车', C.blue],
   ];
   const annotations = [];
   const grainRandom = rng(43);
@@ -169,9 +163,9 @@ export function artHeroBanded() {
     return `<rect x="${tx}" y="${ty - 12}" width="12" height="12" rx="3" fill="${col}"/>`
       + T(tx + 23, ty, `${i + 1}  ${text}`, { size: 15, fill: '#c3d0de' });
   }).join('');
-  return sheet(1600, 1180,
+  return sheet(1600, 1100,
     title(48, 62, '地铁车站设计师', 'B1 站厅 · B2 站台。逐层建造，1 格 = 1 米。')
     + concreteGrain + fit.group(layers) + annotations.join('')
-    + '<rect x="42" y="997" width="1516" height="122" rx="12" fill="#0b0f16" opacity=".9"/>' + key,
+    + '<rect x="42" y="997" width="1516" height="68" rx="12" fill="#0b0f16" opacity=".9"/>' + key,
     { glow: true });
 }
