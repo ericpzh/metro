@@ -190,25 +190,32 @@ export function isGamePath(pathname = window.location.pathname) {
   return /\/game\/?$/.test(pathname)
 }
 
-function siteBase() {
-  let base = '/'
-  try {
-    base = import.meta.env.BASE_URL || '/'
-  } catch {
-    base = '/'
-  }
-  return base.endsWith('/') ? base.slice(0, -1) : base
+function splitPath(pathname) {
+  return pathname.split('/').filter(Boolean)
 }
 
-/** Canonical shareable path for a language: `/`, `/en/`, `/game/`, `/en/game/` (under the Vite base). */
-export function canonicalPath(lang, game) {
-  const base = siteBase()
-  const root = lang === 'en' ? `${base}/en` : base
-  const path = game ? `${root}/game/` : `${root}/`
-  return path.replace(/\/{2,}/g, '/')
+/**
+ * Absolute site-root path, derived from the live URL rather than Vite's base
+ * (which is relative: './'). The root is whatever is left after peeling the
+ * game tab and the language pin — the deploy prefix (/metro/) or / — so the
+ * canonical URL below never drops the prefix. Assigning a relative path to
+ * `url.pathname` normalises away the prefix (./game/ -> /game/), which is how
+ * the tab once escaped to the domain root.
+ */
+export function siteRoot(pathname = window.location.pathname) {
+  const segs = splitPath(pathname)
+  if (segs[segs.length - 1] === 'game') segs.pop()
+  if (segs[segs.length - 1] === 'en') segs.pop()
+  return segs.length ? `/${segs.join('/')}/` : '/'
+}
+
+/** Canonical shareable path for a language: `/`, `/en/`, `/game/`, `/en/game/` (under the site root). */
+export function canonicalPath(lang, game, pathname = window.location.pathname) {
+  const root = siteRoot(pathname)
+  return `${root}${lang === 'en' ? 'en/' : ''}${game ? 'game/' : ''}`
 }
 
 /**Href of the game tab in a given language. */
-export function gameHref(lang) {
-  return canonicalPath(lang, true)
+export function gameHref(lang, pathname) {
+  return canonicalPath(lang, true, pathname)
 }
