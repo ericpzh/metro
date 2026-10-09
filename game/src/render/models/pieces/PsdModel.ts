@@ -43,7 +43,7 @@ function psdHeaderCanvas(colour: string, lineId: string, terminus: string, name:
   g.textAlign = 'left'
   g.fillStyle = '#1b6fd6'
   g.font = 'bold 22px "Microsoft YaHei", sans-serif'
-  g.fillText(`◀ ${terminus}方向 →`, 470, 56)
+  g.fillText(`◀ ${terminus}方向`, 470, 56)
   return c
 }
 

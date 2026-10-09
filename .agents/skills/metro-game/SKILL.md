@@ -45,6 +45,11 @@ build/ →  sim/            (and neither render/ nor app/)
   document), `reference-station.ts` and the 广州地铁 line colours.
 * `app/` — the React shell. Panels and pointer handling only; no sim logic.
 
+Inspector controls that edit placed equipment should call a store action and commit
+one station edit, so the worker, undo history and selected document stay in sync.
+For escalators, travel direction is encoded by both `cfg.dir` and ordered `from`/`to`
+endpoints; reverse both together. Pin the action in `game/test/escalators.test.mjs`.
+
 ### Conventions
 
 * **Imports carry the file extension** (`./foo.ts`, `./Bar.tsx`) and types use

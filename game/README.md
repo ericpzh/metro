@@ -1224,7 +1224,8 @@ the finished run previews as a translucent ghost; **R** turns it and **Tab** fli
 direction between up and down. The placement ghost carries a bright arrow over the run pointing the
 way it will carry people. Direction only orders `from`/`to` — the single one-way edge the sim reads —
 so an up and a down piece share one footprint, and two runs may stand flush in adjacent tiles (the
-tile rule above). The
+tile rule above). Selecting a placed run exposes a vertical switch control beneath Move; it reverses
+both endpoints and the direction setting in one undoable edit (`test/escalators.test.mjs`). The
 one piece lives in `sim/escalators.ts`, and the Wusi Square test rig builds its pre-placed runs from
 that exact constructor too, so the rig and the builder place the same equipment at the same
 dimensions. Its handrail wraps the end of the glass at both landings — a half-turn round the end and

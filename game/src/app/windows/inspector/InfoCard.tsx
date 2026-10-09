@@ -10,6 +10,7 @@
 // `aria-label` carries the name (which is also what a screen reader reads), and the
 // buttons wear no tooltip, here or anywhere else in this column.
 import { FaEdit } from 'react-icons/fa'
+import { HiSwitchVertical } from 'react-icons/hi'
 import { IoMdCheckmark, IoMdClose, IoMdMove } from 'react-icons/io'
 import { useStore, moduleLabel } from '../../store.ts'
 import { isMovableModule } from '../../../sim/placement.ts'
@@ -94,6 +95,15 @@ export function InfoCard(): React.ReactElement {
                     onClick={() => useStore.getState().liftModule(selected.key)}
                   >
                     <IoMdMove />
+                  </button>
+                )}
+                {selectedModule?.type === 'escalator' && (
+                  <button
+                    className="chip iconOnly"
+                    aria-label="切换扶梯方向"
+                    onClick={() => useStore.getState().switchEscalatorDirection(selectedModule.id)}
+                  >
+                    <HiSwitchVertical />
                   </button>
                 )}
                 {isSign && (

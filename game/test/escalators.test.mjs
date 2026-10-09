@@ -130,6 +130,33 @@ test('the direction cycle flips up ↔ down', () => {
   assert.equal(nextEscalatorDir('down'), 'up')
 })
 
+test('switching a selected escalator reverses travel and undo restores it', () => {
+  const before = useStore.getState()
+  try {
+    const escalator = createModule('escalator', 2, 3, 0, 'selected-escalator', 1, undefined, 'up')
+    assert.ok(escalator && escalator.type === 'escalator')
+    const station = toState({ name: 'direction switch', seed: 1, cells: [], modules: [escalator], lines: [] })
+    useStore.setState({ station, past: [], future: [], selected: { kind: 'module', key: escalator.id, label: '扶梯' } })
+
+    useStore.getState().switchEscalatorDirection(escalator.id)
+    const reversed = useStore.getState().station.modules[0]
+    assert.ok(reversed.type === 'escalator')
+    assert.equal(reversed.cfg.dir, 'down', 'the sim-facing direction changes')
+    assert.deepEqual(reversed.from, escalator.to, 'the new direction boards at the former exit')
+    assert.deepEqual(reversed.to, escalator.from, 'the new direction exits at the former entrance')
+    assert.equal(useStore.getState().past.length, 1, 'the direction change is one undoable edit')
+
+    useStore.getState().undo()
+    const restored = useStore.getState().station.modules[0]
+    assert.ok(restored.type === 'escalator')
+    assert.equal(restored.cfg.dir, 'up')
+    assert.deepEqual(restored.from, escalator.from)
+    assert.deepEqual(restored.to, escalator.to)
+  } finally {
+    useStore.setState(before)
+  }
+})
+
 test('the demo pre-places the equipment escalator, exact same dimensions', () => {
   const ramps = scenarioStation().modules.filter((m) => m.type === 'escalator')
   assert.ok(ramps.length > 0, 'the demo has no escalators')

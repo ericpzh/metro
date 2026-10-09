@@ -5,6 +5,7 @@
 
 import type { StateCreator } from 'zustand'
 import { moveEquipment } from '../../../build/model.ts'
+import { nextEscalatorDir } from '../../../sim/escalators.ts'
 import { isMovableModule, moveDropReason, movedModule } from '../../../sim/placement.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
 import { isRotatableType, moduleLabel } from '../catalog.ts'
@@ -58,6 +59,8 @@ export interface MoveSlice {
    * with a toast pointing at 删除; an exit head-house can move with its footprint.
    */
   liftModule: (moduleId: string) => void
+  /** Reverse a placed escalator's one-way travel without changing its footprint. */
+  switchEscalatorDirection: (moduleId: string) => void
   /**
    * Aim the lifted piece: the cell under the pointer, the exact module it would
    * become there and why that cell refuses it (`''` when it does not). Called by
@@ -102,6 +105,16 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
       selected: { kind: 'module', key: mod.id, label },
       notice: `已拿起${label}：在要放的位置点击，或在信息栏点「确认」；点「取消」放回原位`,
     })
+  },
+  switchEscalatorDirection: (moduleId) => {
+    const st = get()
+    const modules = st.station.modules.map((m) =>
+      m.id === moduleId && m.type === 'escalator'
+        ? { ...m, from: m.to, to: m.from, cfg: { ...m.cfg, dir: nextEscalatorDir(m.cfg.dir) } }
+        : m,
+    )
+    if (modules.every((m, i) => m === st.station.modules[i])) return
+    get().commit({ ...st.station, modules })
   },
   aimMove: (at, candidate, reason) => {
     const d = get().moveDraft

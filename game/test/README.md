@@ -8,7 +8,9 @@ harness: `sim/` is pure and DOM-free (`layering.test.mjs` fails if it stops bein
 the drawing helpers that have pixels take a 2D context, and `app/store.ts` is zustand
 with no view attached.
 
-`escalators` and `module-build` also pin the single two-block-wide escalator: its continuous
+`escalators` also pins the inspector's selected-run direction switch and its undo: travel reverses
+by swapping `from`/`to` together with `cfg.dir`. `escalators` and `module-build` also pin the
+single two-block-wide escalator: its continuous
 moving band, outer rails, rotated footprint, landing support and two-column opening.
 They also check the wider metal shoulders, flattening risers and covered step return;
 `slope-cut` checks the recessed upper landing beneath the terminal deck.
@@ -73,7 +75,7 @@ The suites, by the thing they are about. Each one's full description is in
 | The models | `module-build` (including sealed full-height PSDs and moving decals), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` — `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away |
 | The pixels | `sign-render`, `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
-| The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit`, `select-agent` |
+| The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit`, `select-agent` — `escalators` covers the placed-run direction action and undo |
 
 ## The rules a test here follows
 
