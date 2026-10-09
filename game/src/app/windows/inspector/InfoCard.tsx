@@ -1,6 +1,6 @@
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — the 信息 folder's
 // body: the selected-piece card with the 移动 lift (GAME-SPEC.md §9.5), the
-// 指示牌 board-editor entry (GAME-SPEC.md §5.8), and the cell ZoneCard.
+// 指示牌 board-editor entry (GAME-SPEC.md §5.8).
 //
 // The card's own acts are **icons, not words** — 移动 and 编辑指示牌面板 beside a
 // selected piece, and the lift's own 确认 / 取消, which are a tick and a cross
@@ -14,7 +14,6 @@ import { HiSwitchVertical } from 'react-icons/hi'
 import { IoMdCheckmark, IoMdClose, IoMdMove } from 'react-icons/io'
 import { useStore, moduleLabel } from '../../store.ts'
 import { isMovableModule } from '../../../sim/placement.ts'
-import { ZoneCard } from './ZoneCard.tsx'
 
 export function InfoCard(): React.ReactElement {
   const selected = useStore((s) => s.selected)
@@ -126,7 +125,6 @@ export function InfoCard(): React.ReactElement {
       ) : (
         <div className="muted small">暂未选中任何物品。</div>
       )}
-      {selected?.kind === 'cell' && <ZoneCard />}
     </>
   )
 }

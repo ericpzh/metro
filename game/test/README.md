@@ -125,7 +125,8 @@ Roof placement coverage in `roof-tool.test.mjs` includes pointer-centred footpri
   and `app/windows/**` are never loaded by the suite. They are a thin shell over the store and the
   scene, and it is those two that are tested (`move`, `sign-editor`, `paint-mode`, `line-edit`,
   and the camera tests, which drive `CameraSystem` behind the widget rather than the widget
-  itself). A component that renders nothing fails visibly; a store action that forgets a field
+  itself). Cell zones are painted and erased by the 分区 rail tool (`zonetool`), not by a
+  selected-cell inspector card. A component that renders nothing fails visibly; a store action that forgets a field
   does not.
 * **Vite-only modules.** `render/adArt.ts`, `render/pictograms.ts` and
   `render/lineMapArt.ts` resolve their  artwork through `import.meta.glob`, which plain Node does not implement. Tests that

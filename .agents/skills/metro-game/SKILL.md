@@ -47,6 +47,8 @@ build/ →  sim/            (and neither render/ nor app/)
 
 Inspector controls that edit placed equipment should call a store action and commit
 one station edit, so the worker, undo history and selected document stay in sync.
+The right-side inspector does not expose per-cell zone controls; paint and erase zones
+through the 分区 build-rail tool (`ZoneTool`).
 For escalators, travel direction is encoded by both `cfg.dir` and ordered `from`/`to`
 endpoints; reverse both together. Pin the action in `game/test/escalators.test.mjs`.
 

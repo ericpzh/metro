@@ -1,6 +1,6 @@
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — Inspector() is now
 // the column shell only (plan.md R1/R3): folder open-state plus list mapping.
-// Item bodies live in InfoCard / ExitCard / LineCard / ZoneCard. Folder still
+// Item bodies live in InfoCard / ExitCard / LineCard. Folder still
 // comes from ../LeftRail.tsx — it moves in Lane B, and this file must not
 // reach into that lane's future folders (plan.md C1).
 //
