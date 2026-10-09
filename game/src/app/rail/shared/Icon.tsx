@@ -5,7 +5,8 @@
 // apart. Kept as one dispatcher file; split into icons/ only if it regrows past
 // the ~300-line cap (plan.md Lane B).
 
-import { LuGrab } from 'react-icons/lu'
+import { GiBulldozer } from 'react-icons/gi'
+import { RiDragDropLine } from 'react-icons/ri'
 
 export function Icon({ name }: { name: string }): React.ReactElement {
   const s = {
@@ -22,7 +23,9 @@ export function Icon({ name }: { name: string }): React.ReactElement {
   )
   switch (name) {
     case 'move':
-      return <LuGrab />
+      return <RiDragDropLine />
+    case 'bulldozer':
+      return <GiBulldozer />
     case 'select':
       return svg(<path {...s} fill="currentColor" stroke="none" d="M5 3l10 7.2-4.3.6 2.5 4.4-1.9 1-2.4-4.4L5 15z" />)
     case 'block':

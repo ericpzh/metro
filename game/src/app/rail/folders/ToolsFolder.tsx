@@ -11,6 +11,6 @@ export function ToolsFolder(): React.ReactElement {
     <Block label="选择" icon="select" shortcut="Z" active={tool === 'select'} onClick={() => setTool('select')} />
     <Block label="吸取" icon="pick" shortcut="P" active={tool === 'pick'} onClick={() => setTool('pick')} />
     <Block label="移动" icon="move" tile="move" shortcut="M" active={tool === 'move'} onClick={() => setTool('move')} />
-    <Block label="删除" icon="delete" shortcut="B" active={tool === 'delete'} onClick={() => setTool('delete')} />
+    <Block label="删除" icon="bulldozer" shortcut="B" active={tool === 'delete'} onClick={() => setTool('delete')} />
   </div>
 }

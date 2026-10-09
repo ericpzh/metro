@@ -1340,6 +1340,23 @@ button.ghost:hover {
   flex-direction: column;
   gap: 6px;
 }
+.infoCardLayout {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.infoCardDetails {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.infoCardActions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 /* The card paired with the 3D selection (an exit): a bright ring and a soft
    glow, matching the selection box drawn around the model. */
 .card.sel {

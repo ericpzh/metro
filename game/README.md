@@ -1682,7 +1682,8 @@ translucent fence models while you drag. Every panel is built from its neighbour
 an L, T or + junction turns through the shared centre post with no overhang — dragging a new
 segment up to an existing end regenerates that end on the spot, dropping its old cap and post.
 A run plugs straight into a 闸机 row, and it also joins a stair or escalator: `railLandingAt` makes a
-fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short.
+fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short
+(a wide escalator's second landing column counts too, via `escalatorLandings`).
 That connection needs no collision exemption: a run reserves just its own tile, so the cell beside it
 is free ground and the fence's own thin box never meets the run's. The **landing tile itself** is free
 ground on a stair too — its treads stop half a landing cell short of each landing (`stairTreadTrim`) —
@@ -2264,7 +2265,8 @@ approximated); neither needs WebGL.
   fence cell is not a walkable node so the run plus its gates is a barrier the crowd only crosses
   at a gate, and `fenceArms` builds every joint from the neighbours — a lone panel caps both ends,
   a run end caps its free side, and an L / T / + turns through the centre with no overhang or cap;
-  `railLandingAt` lets a fence connect to a stair or escalator landing.
+  `railLandingAt` lets a fence connect to a stair or escalator landing, both landing columns of
+  a wide escalator included.
 * `storey.test.mjs` — the renderer's storey bands key every cell to the fixed 4 m grid line at or
   below it (`storeyBand`), so a floor and its 4 m auto walls share a storey while a second floor one
   storey down stays its own; a lower floor's wall reaching the floor above must not merge the two

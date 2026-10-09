@@ -210,7 +210,8 @@ the four rules most changes trip over.
   so a straight run is continuous, a dead end caps itself, and an L / T / + turns
   through the shared centre post with no overhang. A gate neighbour counts only on its
   machine side (`gateSolidFaces`), and `railLandingAt` also treats a stair/escalator
-  landing as a neighbour, so a run butts up to the handrail instead of stopping short.
+  landing as a neighbour — read through `escalatorLandings`, so both landing columns
+  of a wide escalator count — so a run butts up to the handrail instead of stopping short.
   A run reserves exactly the tile it stands in, so the cell beside it is free ground
   and `placementBlocked` needs no exemption for that pair (only a single piece wider
   than a cell — an old 1.6 m stair, or a 2–3 lane turning stair — reaches its neighbour

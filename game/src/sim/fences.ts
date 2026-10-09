@@ -11,6 +11,7 @@
 // booleans here are just "this side holds something a panel may meet".
 
 import { stairFlights } from './stairs.ts'
+import { escalatorLandings } from './escalators.ts'
 import type { Module } from './types.ts'
 
 /**
@@ -25,7 +26,7 @@ export function railLandingAt(modules: readonly Module[], x: number, y: number, 
         if ((f.from.x === x && f.from.y === y && f.from.z === z) || (f.to.x === x && f.to.y === y && f.to.z === z)) return true
       }
     } else if (m.type === 'escalator') {
-      if ((m.from.x === x && m.from.y === y && m.from.z === z) || (m.to.x === x && m.to.y === y && m.to.z === z)) return true
+      if (escalatorLandings(m).some((p) => p.x === x && p.y === y && p.z === z)) return true
     }
   }
   return false

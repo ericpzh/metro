@@ -128,6 +128,10 @@ test('a fence treats a stair or escalator landing as a neighbour', () => {
   assert.ok(esc)
   assert.equal(railLandingAt([esc], esc.from.x, esc.from.y, esc.from.z), true)
   assert.equal(railLandingAt([esc], esc.to.x, esc.to.y, esc.to.z), true)
+  const wide = { ...esc, cfg: { ...esc.cfg, width: 2 } }
+  assert.equal(railLandingAt([wide], 1, 0, 0), true, 'the extra lower landing cell connects')
+  assert.equal(railLandingAt([wide], 1, 6, 4), true, 'the extra upper landing cell connects')
+  assert.equal(railLandingAt([wide], 2, 0, 0), false, 'only the two landing columns connect')
   assert.equal(railLandingAt([], 0, 0, 0), false)
 })
 

@@ -71,6 +71,8 @@ export function InfoCard(): React.ReactElement {
             </>
           ) : (
             <>
+            <div className="infoCardLayout">
+              <div className="infoCardDetails">
               <div className="kv">
                 <span>已选</span>
                 <b>{selected.label}</b>
@@ -79,12 +81,11 @@ export function InfoCard(): React.ReactElement {
                 <span>类型</span>
                 <b>{selected.kind === 'module' ? '设备' : selected.kind === 'agent' ? '行人' : '方块'}</b>
               </div>
-              <div className="row">
-                {/* 移动 lives here rather than on a tile: the piece is already
-                    selected, so the card is where "move this one" belongs. Pressing
-                    it lifts the piece in the 3D view and turns this card into the
-                    move's own controls (above); a structure that cannot be moved
-                    says so in the line below and stays disabled. */}
+              {selected.kind === 'agent' && (
+                <div className="muted small">地面上的浅蓝线，是这位行人接下来要走的路线。</div>
+              )}
+              </div>
+              <div className="infoCardActions">
                 {selected.kind === 'module' && (
                   <button
                     className="chip primary iconOnly"
@@ -95,8 +96,6 @@ export function InfoCard(): React.ReactElement {
                     <IoMdMove />
                   </button>
                 )}
-                {/* A 指示牌 is composed on its own board (§5.8), so it is edited in
-                    the board editor rather than in a property list here. */}
                 {isSign && (
                   <button
                     className="chip iconOnly"
@@ -107,18 +106,9 @@ export function InfoCard(): React.ReactElement {
                   </button>
                 )}
               </div>
-              {/* The one thing the 移动 button's own tooltip used to say. A control
-                  the player cannot use is not a place to hide the reason: it is
-                  written here instead, where a disabled button cannot say it. */}
+            </div>
               {selected.kind === 'module' && !movable && (
                 <div className="muted small">整件结构不能移动：用删除 (B) 拆掉再放</div>
-              )}
-              {/* A selected passenger has no controls: what the 选择 tool does with one
-                  is show where they are going, and that drawing is in the 3D view
-                  rather than in this card. The line below is the only thing that has
-                  to be said about it. */}
-              {selected.kind === 'agent' && (
-                <div className="muted small">地面上的浅蓝线，是这位行人接下来要走的路线。</div>
               )}
             </>
           )}
