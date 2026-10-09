@@ -400,9 +400,12 @@ the four rules most changes trip over.
   island platform yields two — the Spanish solution), and `regenerateRailEdges` re-derives
   them after the floor changes. Every derived edge records which side the track lies on
   (`cfg.side`, shared by the derive, the renderer and `World.computeLineAnchors`), so the
-  printed header always faces the platform, never the rail. That same side sets the
-  consist's **door-side mask** (`LineAnchor.doorSides`, the 10th value of a train pose),
-  and the door cadence itself is `doorRunOffsets` off the rail, so the train opens only the
+  printed header always faces the platform, never the rail. The selected platform's 信息栏
+  refresh action calls `regenRail` for that track id only, resolving a selected screen door
+  through its `cfg.from`; the left rail does not expose an all-platform refresh. The pure
+  lookup is covered by `line-edit.test.mjs`. The track side also sets the consist's **door-side mask**
+  (`LineAnchor.doorSides`, the 10th value of a train pose), and `doorRunOffsets` sets the
+  door cadence off the rail, so the train opens only the
   bank that meets screen doors. Editing a line's 车型/编组 re-cuts its tracks
   (`resizeTrack`). A track bed is **either** the `floor.track` finish **or** a `track`
   module's footprint (`trackBedKeys` / `isTrackCell`), so the hand-built demo and placed

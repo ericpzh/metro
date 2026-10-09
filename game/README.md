@@ -2560,7 +2560,9 @@ approximated); neither needs WebGL.
   and wears its real 广州地铁 colour; `updateLine` lands 名字 / 颜色 / 上行终点 / 下行终点 / 车型 / 编组 /
   下车, clamps a consist to 1–8 cars and carries the per-car 下车 over, and its **供电** and **屏蔽门**
   switches reach every track and screen door bound to that line and no other (re-cutting a platform
-  rail while a hand-sized tunnel keeps its own length); `removeLine` takes the line, its tracks, their
+  rail while a hand-sized tunnel keeps its own length); refreshing a selected platform or one of
+  its screen doors resolves to that platform and re-derives only its doors; `removeLine` takes the
+  line, its tracks, their
   doors and any tunnel shell as **one** `Ctrl+Z`; the undo stack pushes the document as it was, walks
   both ways, and its memory cap trades depth on a large station without ever dropping the newest frame;
   and the station paths — 新建车站, 示例车站 (with the 打开 notice when a load had to be repaired), a

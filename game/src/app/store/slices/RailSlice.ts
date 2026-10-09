@@ -44,8 +44,6 @@ export interface RailSlice {
   layTunnel: (sourceId: string, at?: readonly [number, number, number]) => void
   /** Re-derive a rail's screen doors after the platform floor changed. */
   regenRail: (trackId: string) => void
-  /** Re-derive the selected rail's doors, or every rail's when none is selected. */
-  refreshRailDoors: () => void
   /** Remove a rail and the screen doors derived from it. */
   removeRail: (trackId: string) => void
   /** Edit a rail's line/direction and re-derive its screen doors. */
@@ -135,25 +133,6 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     const next = regenerateRailEdges(get().station, trackId)
     get().commit(next)
     set({ notice: '站台门已按当前站台重新生成' })
-  },
-  refreshRailDoors: () => {
-    const st = get()
-    const sel = st.selected
-    if (sel?.kind === 'module' && st.station.modules.some((m) => m.id === sel.key && m.type === 'track')) {
-      get().commit(regenerateRailEdges(st.station, sel.key))
-      set({ notice: '已刷新所选轨道的站台门' })
-      return
-    }
-    // Snapshot the ids first: regeneration grows `modules` as it goes.
-    const ids = st.station.modules.filter((m) => m.type === 'track').map((m) => m.id)
-    if (ids.length === 0) {
-      set({ notice: '还没有轨道' })
-      return
-    }
-    let next = st.station
-    for (const id of ids) next = regenerateRailEdges(next, id)
-    get().commit(next)
-    set({ notice: `已按当前站台刷新 ${ids.length} 条轨道的站台门` })
   },
   removeRail: (trackId) => {
     const cleaned = dropDerivedEdges(get().station, trackId)

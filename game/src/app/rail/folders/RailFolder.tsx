@@ -38,7 +38,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
   const railDirNow = track ? (track.cfg.dir ?? 'up') : railDir
   const railLineNow = track ? track.cfg.line : railLineId || stationLines[0]?.id || ''
   const trackSummary = track ? railSummary(track, stationLines.find((l) => l.id === track.cfg.line)) : null
-  // The platform-only controls (方向 / 线路 / 重置屏蔽门) make no sense for a
+  // The platform-only controls (方向 / 线路) make no sense for a
   // tunnel, so they are shown only while placing or editing a platform run.
   const editingTunnel = track ? !!(track.cfg.tunnel || track.cfg.bridge) : tool === 'tunnel'
   // Inline derived rows, same style as 设备 / 装饰: the platform row folds out
@@ -101,13 +101,6 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                     <div className="blockGrid">
                       {tool !== 'tunnel' && (
                         <RotateTile label={`旋转 ${((4 - railRot) % 4) * 90}°`} onClick={() => st().rotateRail()} />
-                      )}
-                      {!editingTunnel && (
-                        <Block
-                          label="重置屏蔽门"
-                          icon="refresh"
-                          onClick={() => st().refreshRailDoors()}
-                        />
                       )}
                     </div>
                   )}

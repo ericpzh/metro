@@ -23,6 +23,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useStore } from '../src/app/store.ts'
+import { refreshTrackForSelection } from '../src/app/windows/inspector/refreshPlatform.ts'
 import { initSim, selectSimAgent, setFrameHandler, setRouteHandler } from '../src/app/store/slices/SimSlice.ts'
 import { defaultLine, makeTrack, placeRail, placeTunnel, trackPieceForLine } from '../src/build/rail.ts'
 import { toState, toStateRepairing } from '../src/build/model.ts'
@@ -590,6 +591,27 @@ test('a save that cannot be trusted is refused whole, and the open station is un
   assert.equal(st().station, before, 'none of the four attempts moved the document')
   assert.equal(st().past.length, frames, 'nor the undo stack')
   assert.equal(st().station.lines.length, 2, 'and both lines are still there')
+})
+
+test('refreshing a selected platform regenerates only that platform’s screen doors', () => {
+  const data = twoLines()
+  const platform = data.modules.find((m) => m.type === 'track' && m.cfg.line === '1' && !m.cfg.tunnel)
+  assert.ok(platform)
+  load({ ...data, cells: data.cells.filter((c) => c.y !== 0) }, { selected: { kind: 'module', key: platform.id, label: '站台' } })
+  st().regenRail(platform.id)
+  assert.equal(edgesOf('1').length, 0, 'the selected platform no longer has floor for doors')
+  assert.equal(edgesOf('2').length, 1, 'the other platform’s screen door remains untouched')
+})
+
+test('the inspector resolves a selected screen door to its platform, but not to a tunnel', () => {
+  const data = twoLines()
+  const platform = data.modules.find((m) => m.type === 'track' && m.cfg.line === '1' && !m.cfg.tunnel)
+  const screenDoor = data.modules.find((m) => m.type === 'platform-edge' && m.cfg.from === platform.id)
+  const tunnel = data.modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.ok(platform && screenDoor && tunnel)
+  assert.equal(refreshTrackForSelection(data.modules, platform)?.id, platform.id, 'a selected platform refreshes itself')
+  assert.equal(refreshTrackForSelection(data.modules, screenDoor)?.id, platform.id, 'a selected screen door refreshes its owning platform')
+  assert.equal(refreshTrackForSelection(data.modules, tunnel), undefined, 'tunnel doors are not a platform refresh target')
 })
 
 test('station switches move stationEpoch, edits do not — the viewport homes on the epoch', async () => {

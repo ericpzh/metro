@@ -10,10 +10,11 @@
 // `aria-label` carries the name (which is also what a screen reader reads), and the
 // buttons wear no tooltip, here or anywhere else in this column.
 import { FaEdit } from 'react-icons/fa'
-import { HiSwitchVertical } from 'react-icons/hi'
+import { HiOutlineRefresh, HiSwitchVertical } from 'react-icons/hi'
 import { IoMdCheckmark, IoMdClose, IoMdMove } from 'react-icons/io'
 import { useStore, moduleLabel } from '../../store.ts'
 import { isMovableModule } from '../../../sim/placement.ts'
+import { refreshTrackForSelection } from './refreshPlatform.ts'
 
 export function InfoCard(): React.ReactElement {
   const selected = useStore((s) => s.selected)
@@ -22,6 +23,7 @@ export function InfoCard(): React.ReactElement {
   const openSignEditor = useStore((s) => s.openSignEditor)
   // The selected piece, when the selection is a placed module — what 移动 acts on.
   const selectedModule = selected?.kind === 'module' ? station.modules.find((m) => m.id === selected.key) : undefined
+  const refreshTrack = refreshTrackForSelection(station.modules, selectedModule)
   const isSign = selectedModule?.type === 'sign'
   const movable = selectedModule !== undefined && isMovableModule(selectedModule)
   // The lift's own controls take the card over the moment a piece is in the air, so
@@ -105,6 +107,15 @@ export function InfoCard(): React.ReactElement {
                     <HiSwitchVertical />
                   </button>
                 )}
+                {refreshTrack && (
+                  <button
+                    className="chip iconOnly"
+                    aria-label="刷新所选站台门"
+                    onClick={() => useStore.getState().regenRail(refreshTrack.id)}
+                  >
+                    <HiOutlineRefresh />
+                  </button>
+                )}
                 {isSign && (
                   <button
                     className="chip iconOnly"
@@ -116,9 +127,6 @@ export function InfoCard(): React.ReactElement {
                 )}
               </div>
             </div>
-              {selected.kind === 'module' && !movable && (
-                <div className="muted small">整件结构不能移动：用删除 (B) 拆掉再放</div>
-              )}
             </>
           )}
         </div>
