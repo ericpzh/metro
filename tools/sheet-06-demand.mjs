@@ -58,6 +58,7 @@ function loadShots() {
     }
     byShot.set(shot.id, { ...shot, crops })
   }
+  byShot.demand = index.demand
   return byShot
 }
 
@@ -83,6 +84,8 @@ export function artDemand() {
     { x: mx + (spans.box.x - modal.rect.x) * scale,
       y: my + (spans.box.y - modal.rect.y) * scale,
       w: spans.rect.width * scale, h: spans.rect.height * scale },
+    { ...shots.demand, placeBox: b => ({ x: mx + (b.x - modal.rect.x) * scale,
+      y: my + (b.y - modal.rect.y) * scale, w: b.width * scale, h: b.height * scale }) },
   ))
   const notes = [
     ['1  调整高峰', ['拖动时间边界，改变高峰持续多久。', '用下方滑块调整客流的强弱。']],

@@ -17,60 +17,32 @@ import { ExampleStationsButton } from './ExampleStationsButton.tsx'
 // because the step size never changes.
 const SPEEDS = [1, 4, 16, 64]
 
-/**
- * The station title in the top bar. Click to edit: Enter or blur keeps the
- * change, Escape throws it away. An empty name is refused by the store.
- */
+/** Edit both station names as one undoable document change. */
 function StationName(): React.ReactElement {
   const name = useStore((s) => s.station.name)
+  const nameEn = useStore((s) => s.station.nameEn ?? '')
   const renameStation = useStore((s) => s.renameStation)
-  const [draft, setDraft] = useState<string | null>(null)
-  const cancelled = useRef(false)
-
-  const start = (): void => {
-    cancelled.current = false
-    setDraft(name)
-  }
-  // Runs on blur and on Enter. Escape flags the field first, so the blur that
-  // follows an unmount does not overwrite the name it just discarded.
-  const save = (): void => {
-    if (cancelled.current) {
-      cancelled.current = false
-      return
-    }
-    if (draft !== null) renameStation(draft)
-    setDraft(null)
-  }
-  const cancel = (): void => {
-    cancelled.current = true
-    setDraft(null)
-  }
-
-  if (draft === null) {
-    return (
-      <button className="stationName" onClick={start} aria-label="车站名称，点击重命名">
-        {name || '未命名车站'}
-      </button>
-    )
-  }
+  const [draft, setDraft] = useState<{ name: string; nameEn: string } | null>(null)
   return (
-    <input
-      className="stationNameInput"
-      value={draft}
-      autoFocus
-      maxLength={24}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={save}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
+    <div className="stationNameEditor">
+      <button className="stationName" onClick={() => setDraft({ name, nameEn })} aria-label="车站名称，点击重命名">
+        {name || '未命名车站'}{nameEn && <span className="stationNameEnglish">{nameEn}</span>}
+      </button>
+      {draft && (
+        <form className="stationNameForm" aria-label="编辑车站名称" onSubmit={(e) => {
           e.preventDefault()
-          save()
-        } else if (e.key === 'Escape') {
-          e.preventDefault()
-          cancel()
-        }
-      }}
-    />
+          if (!draft.name.trim()) return
+          renameStation(draft.name, draft.nameEn)
+          setDraft(null)
+        }} onKeyDown={(e) => {
+          if (e.key === 'Escape') { e.preventDefault(); setDraft(null) }
+        }}>
+          <label>中文站名<input className="stationNameInput" autoFocus required maxLength={24} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+          <label>English station name<input className="stationNameInput" maxLength={80} value={draft.nameEn} onChange={(e) => setDraft({ ...draft, nameEn: e.target.value })} /></label>
+          <div className="stationNameActions"><button type="submit" disabled={!draft.name.trim()}>保存</button><button type="button" onClick={() => setDraft(null)}>取消</button></div>
+        </form>
+      )}
+    </div>
   )
 }
 

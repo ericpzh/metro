@@ -180,9 +180,11 @@ or exit ghosts with the floor it belongs to instead of drawing through it.
 
 **The 装饰 folder holds seating, room furniture and advertising.** 座椅 (the bench, moved
 out of 设备), 货架 (a stocked supermarket gondola), 办公桌 (the office desk + monitor + chair unit),
-厕所隔间 (the restroom cubicle), 洗手池 (the wash basin), 垃圾桶 (a stainless double bin) and 灭火器
-(the red fire-extinguisher cabinet on four legs) are all free-standing, rotatable pieces,
-and 广告牌, 电视, 指示牌, 时钟 and 监控 all live under 装饰 in the build rail. 垃圾桶 and 灭火器 are cosmetic like the
+厕所隔间 (the restroom cubicle), 洗手池 (the wash basin), 垃圾桶 (a stainless double bin), 灭火器
+(the red fire-extinguisher cabinet on four legs), 导向柱 (the exit-linked street pillar) and 公交站
+(the short/long shelter) are all free-standing pieces — everything but the round 灯具 turns with **R** —
+and 广告牌, 电视, 指示牌, 时钟, 监控, 灯具 (圆形 / 直条 ceiling fittings) and 通风口 (the ceiling grille)
+all live under 装饰 in the build rail. 垃圾桶 and 灭火器 are cosmetic like the
 rest of the furniture — no server and no stop — and both count as room furniture, so they may stand
 inside a walled 商店 / 厕所 / 办公室 / 售票亭 (`placementBlocked`'s furniture ↔ room exemption). 广告牌 is *wall-mounted*:
 `sim/placement.ts`'s `wallMountMissing` refuses it unless the facing neighbour has a solid block at
@@ -260,22 +262,21 @@ under a 线网图 board, a 售票机 under an inscription that hangs above its h
 from `glassCells` / `doorCells` / `calligraphyCells` / `lineMapCells` rather than from `x + w`, which would put the
 housing across the room on the rotations that run the other way.
 
-**A 电视 is a passenger-information screen, not a poster.** Its lit face is two panes: the station
-board down the left — line shield, 本趟 / 下趟 / 第三趟列车开往, the countdown and the departure clock —
-and a **content window** on the right where the network feed plays. `render/stationDisplay.ts` owns
-both the derivation ("what is the next train, and how long until it") and the pixels of the board.
+**A 电视 is a passenger-information screen.** Its blue layout follows the platform TV reference:
+three white destination cards fill the left quarter, the landscape video fills the upper right,
+and a station-name tile, service strip and date/clock sit along the bottom. Each card stacks its
+Chinese label, English gloss, destination and arrival time on separate lines.
 
-**The two panes tile the screen, with zero slack.** `TV_POSTER_RECT.x` is the split: the board column
-runs from the plate's left inset **to that split**, and the window takes **everything right of it, at
-full height** — so the artwork covers its whole half of the panel and no black strip survives above,
-below or beside it. The insets that keep text off the edge live *inside* the cards, never on the
-column's right, because slack there is dead black between the text and the picture. `stationDisplayLayout`
-separates this arithmetic from the drawing so a test can prove it without a canvas: the column's right
-edge *is* the window's left edge (`x + w === 1`), the text never runs under the window, and the clock
-belongs to the column rather than to a plate corner the artwork would paint over. Only the window
-cycles (`SceneRenderer.updateAdScreens`), on a period rolled per screen, so a row of them drifts apart
-instead of flipping as one wall, and it draws only artwork cut for a landscape panel — cropping is not
-stretching, and a portrait poster in a wide window would lose more than half its height.
+`World.trainServices()` publishes three arrivals per service track from the dispatch schedule
+and current train phase (§6.5). Forecasts account for the occupied track and headway at each future
+dispatch. `tvLineStatus` selects the nearest track in 3D, reads that track's direction and terminus,
+and converts seconds to whole minutes rounded up. No service prints 暂无班次. Every worker frame
+refreshes the information, but only a changed printed value causes a texture upload.
+
+The full-screen station plate sits behind the video, leaving the bottom blue strip visible.
+`TV_POSTER_RECT` is shared by the plate and model, so the overlay fits its reserved window. The
+video is slightly closer to the viewing face to avoid z-fighting. Only this video window cycles
+artwork, on a period rolled per screen; posters use a centred crop, never stretching.
 
 **A 电视 reads from one side.** Its board and its window ride the same single face (the local −y), so
 the panel is legible from one side and shows a plain dark back from the other — which is what the back
@@ -283,7 +284,7 @@ of a television looks like. This is a modelling constraint, not a taste: each li
 over a dark backing slab, and a pane on the slab's centre line is buried in it while a pane on the
 slab's surface z-fights it. Either way the window renders as a flat black rectangle with nothing in the
 console, which is why `LIT_STAND_OFF` puts every lit pane half a slab out *plus* a stand-off and why
-`test/tv-screen.test.mjs` pins the depth — and the tiling — rather than leaving either to a visual
+`test/tv-screen.test.mjs` pins the depth and footer clearance rather than leaving either to a visual
 check. 指示牌 is
 *ceiling-hung* like the 电视: `ceilingMountMissing` refuses either unless a solid slab sits one storey
 up (`LEVEL_STEPS`, the 4 m grid), and `render/models.ts` hangs each from that slab by two rods. The
@@ -1200,6 +1201,23 @@ wide — because its body genuinely fills more than one cell, so it needs a bay 
 collides. A run in the same column one
 storey down still stacks and is still refused.
 
+**扶梯 窄 / 宽** places one escalator spanning one or two blocks. The wide piece has a single
+continuous moving step band and balustrades only at the outer edges. Its two-block footprint,
+floor supports, carved openings and picker width follow the same piece in every rotation and
+travel direction. Older saves without a width retain the narrow model.
+
+The metal shoulders are 18 cm wide and the glass sits 8 cm further inward on each side.
+Steps follow a smooth bend into flat landing tracks; their risers collapse and the chain
+wraps beneath the comb plates. The upper landing block is recessed beneath that track,
+with a metal apron replacing its exposed top while the floor cell remains a graph support.
+The lower body is buried 2 cm into its supporting floor, with its lid and sides inset 5 mm
+from adjoining surfaces; landing aprons clear the floor by 5 mm to prevent depth-buffer flicker.
+Flush, parallel escalators also share a steel cap between their facing handrails, as does a
+stair beside an escalator. Both handrails remain; one escalator owns each cap so rebuilding
+or deleting a neighbour updates the seam without duplicate surfaces.
+The infill wraps around both rounded rail returns to seal the ends down to the landings,
+and a row of metal hemispheres follows its centreline, seated on the actual cap slope.
+
 **Escalators are placed the same way.** The **扶梯** button drops a fixed one-storey escalator: its
 base sits on the hovered floor cell, it rises `ESCALATOR_RUN` cells along the placement rotation, and
 the finished run previews as a translucent ghost; **R** turns it and **Tab** flips its travel
@@ -1323,7 +1341,13 @@ demo save carries the same carved openings, so it no longer shows escalators pun
 concourse floor. An escalator is single-direction and carries **one passenger per step**
 at 0.5 m/s over a 0.4 m pitch — 75/min, and exactly one rider per step on the run.
 
-**Elevators are a 2 × 2 m shaft with one car.** The **电梯** button drops a base
+**Elevators are a 2 × 2 m shaft with one car.** The default **玻璃** model has
+transparent side/rear panels in a stainless beam frame, panel clamps, exposed guide
+rails, glazed cabin walls, handrails and framed sliding doors. **Tab** (or the
+style action tile) switches to **钢板**, the previous enclosed model. The choice
+follows placement, hover previews, picking and saves; extending a shaft keeps its
+style. Older lifts without a style field use the glass model.
+The **电梯** button drops a base
 module on the hovered floor: a 2 × 2 m assembly with a 1.5 × 1.5 m carriage
 inside its walls (`sim/lifts.ts`, `LIFT_RISE = 4`) that serves the floor one
 storey up and stands on all four of its floor cells. The *model* is taller than
@@ -2075,8 +2099,9 @@ approximated); neither needs WebGL.
   is the run's own underside — an escalator's `RAMP_FOOT` or a stair's own `STAIR_BODY_DROP` below the
   line its treads climb at every point across the block,
   never above it — one block per tile of the run's own column and nothing beside or past it, a stair
-  cuts only the tiles its treads sweep (its landings stop the treads short), a landing column is never
-  cut, a **slid band** (`stairFlightSlides`) is cut across **both** blocks its line divides rather than
+  cuts only the tiles its treads sweep (its landings stop the treads short), stairs' landing columns
+  and escalators' lower landings stay level while their upper terminal blocks are recessed below the
+  landing deck, a **slid band** (`stairFlightSlides`) is cut across **both** blocks its line divides rather than
   the one tile it is named for (the second block was left standing in the flight's soffit), a run's
   **collision** body hangs to the same depth its drawn body does (a stair reserved at a truss's depth kept
   a 座椅 out of a band the model leaves clear), a cut block is drawn as a slope with no flat cap, **a turn
@@ -2172,11 +2197,19 @@ approximated); neither needs WebGL.
   never widens for a run outside it; the pad opens one wellway per run, exactly its own block (and
   wider only for a run wider than a block); the snap clamps the pointer into the bay group so runs can
   only be dropped side by side; and 无盖 keeps the same barrier planes as 有盖.
-* `escalators.test.mjs` — the placed escalator is a fixed one-storey piece: an up run travels from
+* `ramp-join.test.mjs` — shared metal caps between flush escalators and stair-escalator pairs:
+  rotations, travel directions, wide pieces, unique seam ownership and neighbour removal;
+  closed rounded end shells and true hemispheres seated along the sloping centreline.
+* `escalator-length.test.mjs` — 长 rises 8 m over a 12 m run, versus 短's 4 m / 6 m.
+  Both widths and travel directions retain their footprint, carve intermediate floors,
+  connect the crowd graph, snap into exit bays, move and survive saving. The rail controls
+  are 旋转 / 上行-下行, then 窄-宽 / 短-长; previews and picking carry the length.
+* `escalators.test.mjs` — the short escalator is a fixed one-storey piece: an up run travels from
   the dropped cell to the storey above, a down run keeps the same footprint entered from the top,
   the direction cycle flips up ↔ down, two runs may not share a footprint but the next bay over is
   free, placing one carves its slab, and the scenario rig's pre-placed runs are that same piece at the
-  same dimensions.
+  same dimensions. Wide places one two-block module with both landing columns supported and
+  carved in all rotations and directions; its hover key includes the width.
 * `lift.test.mjs` — the 电梯 (§5.1): a fresh piece is a 2 × 2 m assembly that
   serves the floor one storey up; extending grows it a storey up or down in the
   same column and keeps its id; the graph joins every floor in the shaft with one car,
@@ -2185,6 +2218,14 @@ approximated); neither needs WebGL.
   two lifts may not share space but a 2 m gap is free; and a passenger rides —
   walks in, is pinned to the 1.5 m cabin while it moves, and steps out on the
   floor above. The car pose is deterministic and its door fraction stays in 0..1.
+* `lift-style.test.mjs` — the 电梯's two housings (§5.1): glass is the default, steel keeps
+  the old enclosed shaft; Tab cycles the style with a live ghost refresh, picking adopts it
+  and Esc restores the armed one, the ghost key names it, and both styles survive extending
+  and the save round trip.
+* `psd-decals.test.mjs` — the printed safety vinyl on the platform face (§5.9): the fixed-pane
+  band prints mind-the-gap bilingual in red over yellow, the door band the same warning on
+  yellow, the warning placard the door-safety lines over yellow with white caution eyes, and
+  the opening arrow a white ring with a filled head.
 * `rail.test.mjs` — placing a rail digs the bed, lays the track module and derives one platform-edge
   per contiguous platform run (two on an island); the derived screen's `side` names the side the track
   lies on, so the header faces the platform and never the rail (checked on both sides of an island and
@@ -2284,7 +2325,7 @@ approximated); neither needs WebGL.
   is a symmetric stainless double bin with two recessed mouths and one printed 可回收物 / 其它垃圾 band
   proud of its front, and the cabinet is a red steel box standing on exactly four corner legs with one
   white lettered plate spanning both doors in front of them.
-* `ceiling-decor.test.mjs` — the other two ceiling-hung 装饰 pieces, 时钟 and 监控 (§5.7): the palette
+* `ceiling-decor.test.mjs` — the ceiling-hung 时钟 and 监控 (§5.7): the palette
   files both under 装饰 with their Chinese labels, the factory builds them with the hover rotation,
   each reserves exactly its own cell from the floor top to the storey ceiling, neither may be hung
   where there is no slab overhead while floor-standing pieces are never asked for one, a hung piece is
@@ -2308,6 +2349,24 @@ approximated); neither needs WebGL.
   of the circle is the dial's own 12; the camera is a
   slim fitting — under 8% of the cell it reserves — with its lens, two illuminator LEDs and hood all
   on the local −y front, and half a turn round puts the lens on the other side of its own cell.
+* `lights.test.mjs` — the ceiling 灯具 (§5.7): the palette files 圆形 and 直条 fittings under 装饰,
+  the factory stamps the variant, and each hangs flush from the slab overhead with its diffuser
+  10 mm under the steel; the rectangular batten walks the shared nine-spot in-cell cycle (Tab) and
+  turns 0°/90° (R) while the round one stays centred and fixed; ghost and collision match the drawn
+  housing; ceiling support, furniture clearance and structural clashes are judged like the other hung
+  pieces; and a batten is movable, sweeps by shape, and round-trips the save.
+* `vent.test.mjs` — the ceiling 通风口 (§5.7): its own decor tile, a square grille flush against the
+  slab with a recessed dark backing and nine blades turned by R; model and collision agree at every
+  rotation; ceiling support, furniture clearance and structural clashes as hung; movable, sweepable,
+  and round-trips the save.
+* `street-decor.test.mjs` — the outdoor 导向柱 and 公交站 (§5.7): above ground only, refused below
+  grade and on anything but whole solid floor, movable; the 4 m pillar binds the armed exit — or the
+  first one standing — and reprints the station and exit names live, dropping to 入口 when its exit is
+  gone; short and long shelters with frozen ad posters; rotated model bounds; exit binding, shelter
+  variants and posters survive the save round trip.
+* `exit-banner.test.mjs` — the exit header (§5.6): the red brand board prints the saved English station
+  name under the Chinese with the exit identifier beside it, white on red, with no 口 suffix and none
+  duplicated.
 * `wall-ceiling-snap.test.mjs` — the wall/ceiling snap contract (§5.7): a wall hover on an
   upper course anchors the panel to the storey floor below (`wallMountStandCell` + `storeyBand`,
   never a floating course height); a hung fitting hovered on the floor, the slab overhead or
@@ -2412,11 +2471,14 @@ approximated); neither needs WebGL.
   because the failure is silent: the content window's pane must stand clear of the dark backing slab
   that carries it, since a coplanar pane z-fights that slab and the window renders as a flat black
   rectangle with nothing in the console. Both panes are also asserted to be front-side-only on the same
-  local −y face, so the back of the case reads as a blank panel, and the window is cut at exactly the
-  region `TV_POSTER_RECT` reserves for it — board ends, window begins, window reaches the screen edge.
+  local −y face, so the back of the case reads as a blank panel, and the video overlays the
+  full-screen plate proud of it — reaching the top, standing clear in front, the bottom footer
+  still visible below, the station texture unscaled at repeat 1,1.
   `render/adArt.ts` is stubbed here rather than imported: it resolves its JPEGs through Vite's
   `import.meta.glob`, which plain Node has no implementation of, and nothing under test lives there.
-* `module-build.test.mjs` — every piece the station can draw, built through the real dispatcher and
+* `module-build.test.mjs` — full-height platform doors at 150% of car door width, closure across all stock classes and both
+  platform sides, including vinyl that travels with each leaf; every piece the station can draw,
+  built through the real dispatcher and
   the real material kit (`render/models.ts` `buildModule`), one row per palette piece: the meshes it
   draws (its instanced batches included) and the size its bounding box spans in metres, so a dropped
   part or a whole piece that stops being drawn is a failure and not a silent hole in the station; the
@@ -2434,17 +2496,14 @@ approximated); neither needs WebGL.
   asks for — where the 吊挂 board reaches the ceiling its rods bolt to); and a teardown, which frees
   every geometry a group owns — an `InstancedMesh`'s instance buffers included — while keeping the
   shared kit and the shared ad quads.
-* `station-display.test.mjs` — the 电视 board's own arithmetic (`render/stationDisplay.ts`), testable
-  without a canvas: `stationDisplayLayout` keeps the content window clear of the header, the three
-  cards, the service strip *and* the clock, in that order down the information column; the window
-  never leaves the plate; and `tvLineStatus` reads the next train off the live poses — an approaching
-  train becomes the countdown, one level with the berth reads 列车进站, one already past it is neither,
-  a train on the opposite track or another line is ignored, and an unset terminus falls back to the
-  line's own direction word. The **pixels** are pinned too, through a recording 2D context: an
-  unbound plate centres the station name and says 尚未铺设线路 instead of printing a broken countdown,
-  the three cards print the services the headway derives (`本趟` reads 即将进站 or 列车进站, in the
-  green or the alarm red), the shield drops the 号线 suffix for the roundel and wears the line's own
-  colour, and no word a line-bound plate draws reaches into the artwork's half of the screen.
+* `station-display.test.mjs` — the TV's blue reference layout: three stacked destination
+  cards, a wide video window, station footer and date/clock below the video. Arrival forecasts
+  come from the worker's per-track dispatch schedule and train phases; the test compares all
+  three forecasts with actual berth times, converts seconds to displayed minutes, and checks
+  nearest-track selection across rotated rails, opposite directions and storeys. Missing
+  services print 暂无班次 rather than an invented countdown, and a lineless plate still prints
+  the station under three empty cards. The six-second approach window ends inclusively. The model uses one full-screen
+  station texture beneath the video, with its own depth offset to avoid z-fighting.
 * `sweep.test.mjs` — the 删除 tool's same-type drag sweep (§9.5, `app/sweep.ts`): two 闸机 of either
   rotation are one family while a 售票机 at the end of the row never joins; the palette variant is the
   match, so a 2 m 座椅 leaves the 1 m ones standing, a 横版 广告牌 leaves the portrait panels and a
@@ -2918,6 +2977,8 @@ Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions
 
 `roof-tool.test.mjs` verifies rectangular thin-roof previews, truss-bay placement and removal as a straight run along the crest axis (a sideways wander never staggers it, backwards and right-drag removal included) including rotated 8 m bays, collision refusal, and one undo step per drag. Each truss style has one tile; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover.
 
+Roof placement centres the roof footprint on the mouse, snapping to the block grid for plain roofs and both truss styles. The pointer ray targets the roof's top height rather than the floor below, so elevated previews stay under the cursor in perspective and orthographic views. Click and drag release use the same centred anchor; rotation and width changes keep the centre in place. `roof-tool.test.mjs` checks centring, preview/release agreement and roof-height ray projection. Removal continues to target the existing roof footprint.
+
 Small stair blocks: 楼梯块 under 楼梯 has a 1×1 m footprint and no railings. Tab switches 高 (1 m, four treads) / 矮 (0.5 m, two treads), with a live placement preview; the palette preview is turned 90° counter-clockwise. Click or rectangular drag places independent tiles on floor, R rotates them, and 材质 paints the whole stepped surface. The high block connects adjacent lower/upper floors without carving blocks; the short building piece does not create a full-metre walking connection on the whole-metre floor grid. `overground.test.mjs` pins dimensions, painting, collisions, floor preservation, save/load and both walking directions; `roof-tool.test.mjs` pins drag, rotation, undo and removal.
 
 Bridges use a solid one-metre concrete deck beneath the track bed, with no coplanar edge girders. They generate one thick centre pier per complete eight-metre bay (four-metre bridges have no generated pier), standing on the highest available floor below the deck; existing supporting pillars are reused and bridge-owned piers are removed with their bridge. Older saves gain missing supports on load. B can remove each generated pier independently; the bridge records that deletion so edits and reloads do not regenerate it, while undo restores it. New bridges must keep their entire deck at or above the street surface. 材质 paints the concrete deck independently of the rails, sleepers, power equipment and edge barriers. The 轨道桥 panel uses one tile to cycle 栏杆 → 半高声屏障 → 全高声屏障 for new and selected bridges; sound barriers rise 1.5 / 3 m above the bed, with opaque lower panels and a clear upper band. `overground.test.mjs` checks deck geometry, support spacing and ownership, collision refusal, independent deck paint, barrier bounds and save/load; `pick-tool.test.mjs` checks copying and cancelling the bridge settings.
@@ -2927,3 +2988,19 @@ Truss roof finishes: both roof styles use neutral white vertex colours and metre
 `structures-gaps.test.mjs` pins the repair-shaped edges the feature suites use but never assert: `normalizeLevelBase` clamping/rounding, the roof width cycle/clamp/labels and ridge formula, the three ways a pillar refuses a bridge, and the roof-paint no-ops.
 
 Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋顶 is a separate view toggle, off by default, hiding all roof styles even in 隐藏UI / 剖切. It sits below 隐藏天花板 with 分区图 to its right. `ground-visibility.test.mjs` pins independent ceiling/roof visibility; `rail-folders.test.mjs` pins the nine-tile order and header count.
+
+Ceiling lights: 装饰 → 灯具 offers 圆形 and 直条 fittings attached flush to the ceiling slab. Tab cycles rectangular light positions; R toggles their 0°/90° orientation. Thin pillars cycle positions with R. Both position cycles run through centre, top-left, top-middle, top-right, middle-left, middle-right, bottom-left, bottom-middle and bottom-right. Each fitting remains inside its tile. `lights.test.mjs` checks ceiling contact, drawn/collision bounds, position order, ceiling support, structural clashes, ghost refresh and save/load.
+
+Ceiling vent: 装饰 → 通风口 is a separate square metal grille with recessed dark backing. It sits flush against the ceiling and R turns the blade direction. `vent.test.mjs` checks its tile, ceiling support, model/collision agreement, separated backing and blades, furniture clearance, structural collisions, movement, sweep and save/load.
+
+
+装饰新增地面街道设施（仅限 z ≥ 0，需完整实心地板，可旋转、吸取、移动和保存）：
+- **导向柱**：1×1 米占地、4 米高的红色三棱地铁柱，底面尖角为 30°；红柱截面另缩小 25%，黄色楔体保持原有尺寸，高度不变；黄色标识段为水平金字塔形楔体，与红柱朝向一致；后底面靠近红柱并略内凹，尖端在中高处向前突出，上下边斜收，侧视也为三角形；红柱中段保留前端填充，后边裁到黄色底面，去除后方红色条带，两侧标记使用各自正确的阅读方向，三个面都印“广州地铁”标记。文字与图标自上而下为竖排站名、广州地铁、出口字母、蓝色轨道图标，全部集中在柱体上半段；站名字号按字符数放大或缩小，以填满顶部面板。旋转旁的小出入口按钮选择绑定的出口；站名与出口改名实时重印，出口标识省略“口”后缀（例如 B口 → B），出口删除后显示“入口”。
+- **公交站**：绿色候车棚，短版 4×2 米、长版 8×2 米，3 米高；带线路信息板、座椅和广告灯箱。复用现有广告素材，长版两个灯箱共用同一张固定海报；作为装饰，不增加公交模拟。
+
+The TV's passenger information now follows `World.trainServices()` (§6.5), including the
+next dispatch, the current train's approach/dwell/departure phase, and headway period changes.
+Headways are seconds; the three cards round remaining seconds up to minutes. Each TV selects
+its nearest track and that track's direction/terminus. The blue layout keeps a full-width
+service strip and simulation date/clock below the video; it refreshes from each worker frame
+and only uploads a texture when its printed information changes.

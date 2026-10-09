@@ -17,6 +17,7 @@ import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockReason, trackCollide
 import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { ESCALATOR_BAND } from '../../sim/constants.ts'
+import { escalatorModule, ESCALATOR_LONG_RUN, ESCALATOR_LONG_RISE } from '../../sim/escalators.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
 import { solidAt } from '../../sim/ground.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
@@ -341,8 +342,8 @@ export class EquipmentTool extends ToolController {
   /**
    * Build the module a pointer at `cell` would place. A straight stair or
    * escalator dropped inside an exit head-house snaps into a bay: its upper
-   * landing on the street in the column under the pointer, its base one storey
-   * down toward the mouth, so
+   * landing on the street in the column under the pointer, its base the chosen
+   * rise down toward the mouth, so
    * the pointer positions the run on the top floor the exit opens onto rather
    * than the floor it climbs from. Everywhere else the cell is the base.
    */
@@ -350,10 +351,14 @@ export class EquipmentTool extends ToolController {
     const st = useStore.getState()
     let mod: Module | null
     if (this.isStraightRamp(type)) {
-      const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2])
-      mod = snap
-        ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, st.stairWidth, st.escalatorDir)
-        : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, st.stairWidth, st.escalatorDir)
+      const width = type === 'escalator' ? (st.escalatorWide ? 2 : 1) : st.stairWidth
+      const long = type === 'escalator' && st.escalatorLong
+      const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2], long ? ESCALATOR_LONG_RUN : undefined, long ? ESCALATOR_LONG_RISE : undefined)
+      mod = type === 'escalator'
+        ? escalatorModule(snap ? snap.base : { x: cell[0], y: cell[1], z: cell[2] }, snap ? snap.rot : st.moduleRot, st.escalatorDir, id, st.escalatorWide ? 2 : 1, long)
+        : snap
+          ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, width, st.escalatorDir)
+          : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, width, st.escalatorDir)
     } else {
       // `st.gateDoor` rides along like the escalator direction: the 闸机's door
       // side is a tool setting, cycled with Tab, and lands in the piece's
@@ -375,6 +380,12 @@ export class EquipmentTool extends ToolController {
         st.currentBoards,
       )
     }
+    if (mod?.type === 'guidepost') {
+      const exit = st.station.modules.find((m) => m.type === 'exit' && m.id === st.guideExitId) ?? st.station.modules.find((m) => m.type === 'exit');
+      mod.cfg.exitId = exit?.id;
+    }
+    if (mod?.type === 'lift') mod.cfg.style = st.liftStyle
+    if (mod?.type === 'light') mod.cfg.position = st.lightPosition
     // A sign whose board is open in the editor draws the board being arranged.
     if (mod) mod = signModuleWithPreview(mod, st.signPreview)
     // A fresh exit letters itself A ~ Z rather than wearing the 未命名口
@@ -604,7 +615,7 @@ export class EquipmentTool extends ToolController {
       if (liftExt) {
         mods = [liftExt.mod]
       } else if (floorHere) {
-        const lift = createModule('lift', x, y, z, 'preview', st.moduleRot, st.stairWidth, st.escalatorDir)
+        const lift = this.buildPlacementModule('lift', [x, y, z], 'preview')
         if (lift) mods = [lift]
       }
     } else if (placeable) {

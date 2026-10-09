@@ -47,6 +47,10 @@ test('the choice is in the key the viewport rebuilds its hover ghost from', () =
   assert.notEqual(placementPreviewKey({ ...base, escalatorDir: 'down' }), key)
   assert.notEqual(placementPreviewKey({ ...base, moduleRot: 1 }), key)
   assert.notEqual(placementPreviewKey({ ...base, moduleType: 'tvm' }), key)
+  assert.notEqual(placementPreviewKey({ ...base, guideExitId: 'exit-a' }), key, 'a re-linked guidepost rebuilds the ghost')
+  assert.notEqual(placementPreviewKey({ ...base, lightPosition: 3 }), key, 'a moved battens spot rebuilds the ghost')
+  assert.notEqual(placementPreviewKey({ ...base, escalatorWide: true }), key, 'the wide band rebuilds the ghost')
+  assert.notEqual(placementPreviewKey({ ...base, escalatorLong: true }), key, 'the long run rebuilds the ghost')
 })
 
 test('and the scene rebuilds a gate ghost when the choice changes', () => {

@@ -294,18 +294,23 @@ test('a wall-mounted 广告牌 does not fight the floor, only the wall', () => {
 
 /* --------------------------------------- runs stand on their ends, not their middles */
 
-test('a 扶梯 is refused for its landings, and reads them as its footprint', () => {
-  // The run climbs +y from (0, 0): six cells over, one storey up. The ground under
-  // its upper landing at the base level counts as floor for the verdict, but the
-  // landing itself — one storey up — is void, so the run has nowhere to arrive.
+test('a 扶梯 stands on its lower base; the upper landing is carved, not required', () => {
+  // The run climbs +y from (0, 0): six cells over, one storey up. Only the lower
+  // base needs solid floor (or an exit's floor): the upper landing and everything
+  // between the ends are carved on placement, so a void upper landing is no refusal.
   const step = flatStation([{ x: 0, y: 6, z: 0, fill: 'solid' }])
   const run = createModule('escalator', 0, 0, 0, 'e1', 0, undefined, 'up')
   assert.deepEqual([run.from, run.to], [{ x: 0, y: 0, z: 0 }, { x: 0, y: 6, z: 4 }], 'the piece climbs six cells to the storey above')
   assert.deepEqual(moduleFootprint(run), [[0, 0], [0, 6]], 'its footprint is the two landings, not the slope between them')
-  assert.equal(equipmentReason(step.cells, step.modules, run), 'escalator-bases')
-  assert.match(equipmentRefusalNotice('escalator-bases'), /两端/, 'in the words the notice bar uses')
+  assert.equal(equipmentReason(step.cells, step.modules, run), '', 'the upper landing is carved on placement')
+  assert.match(equipmentRefusalNotice('escalator-bases'), /底端/, 'in the words the notice bar uses')
+  // Dig the lower base out and the same run has nowhere to stand: the generic floor
+  // rule answers first, because the base plan cell is in the footprint it checks.
+  const dug = flatStation([{ x: 0, y: 6, z: 0, fill: 'solid' }])
+  dug.cells = dug.cells.map((c) => (c.x === 0 && c.y === 0 && c.z === 0 ? { ...c, fill: 'void' } : c))
+  assert.equal(equipmentReason(dug.cells, dug.modules, run), 'floor')
   // Everything between the landings is carved on placement, so a void middle is no
-  // refusal: give the upper landing its floor and the same run stands.
+  // refusal: give the run its base and the same run stands.
   const landed = flatStation([
     { x: 0, y: 6, z: 0, fill: 'solid' },
     { x: 0, y: 6, z: 4, fill: 'solid' },

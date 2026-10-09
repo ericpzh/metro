@@ -14,6 +14,21 @@
 // most labels sit in fixed boxes drawn for Chinese, and English is wider.
 // `node tools/sheet-png.mjs <nn>` rasterises a sheet so the fit can be looked at.
 const EN = {
+  '人/时': 'people/h',
+  '支柱': 'Pillar',
+  '每次加高 4 m': 'Raise by 4 m',
+  '车站屋顶': 'Station roof',
+  '薄顶棚，材质可涂刷': 'Thin canopy; paint its finish',
+  '4 × 4 格': '4 × 4 cells',
+  '纵向桁架顶棚，4/8/12 m，可涂刷': { t: 'Truss canopy; 4/8/12 m; paintable', size: 11 },
+  '轨道': 'Track',
+  '12 × 3 格': '12 × 3 cells',
+  '开放轨道桥，延伸线路': 'Open viaduct; extend the line',
+  '导向柱': 'Wayfinding pylon',
+  '公交站': 'Bus stop',
+  '4 × 2 格': '4 × 2 cells',
+  '灯具': 'Lighting',
+  '通风口': 'Vent',
   // 01 — isometric cutaway
   '地铁车站设计师': 'Metro Station Designer',
   'B1 站厅 · B2 站台。逐层建造，1 格 = 1 米。': 'B1 concourse · B2 platforms. Build floor by floor; 1 cell = 1 m.',
@@ -240,6 +255,9 @@ const EN = {
 
 // Sheet 06's slider handles expose Chinese aria-labels (attributes, not <text>).
 const EN_ATTR = {
+  '早高峰量': 'AM peak volume',
+  '晚高峰量': 'PM peak volume',
+  '波形陡峭度': 'Peak width',
   '开站时间': 'Opens',
   '关站时间': 'Closes',
   '早高峰开始': 'AM peak starts',

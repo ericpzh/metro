@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { SceneRenderer, PAN_DOWN, PAN_UP, type PickResult } from '../render/scene.ts'
 import { cellKey, removeFloor, thinWallSideMap, toData, zoneFloorKeys, zoneMapFloorsAt, zoneRegionLabels } from '../build/model.ts'
 import { withGround } from '../sim/ground.ts'
+import { ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop } from '../sim/structures.ts'
 import type { CellShape } from '../sim/types.ts'
 import { zoneIndexOf } from '../sim/zones.ts'
 import { dragOffset, snapOffset, walkAlong } from '../render/section.ts'
@@ -202,7 +203,7 @@ export function Viewport(): React.ReactElement {
   const moveId = useStore((s) => s.moveDraft?.module.id ?? null)
   // The carried piece and its rotation: the two things an R or a fresh lift change
   // about the ghost, so they are all the ghost effect has to watch.
-  const moveKey = useStore((s) => (s.moveDraft ? `${s.moveDraft.module.id}|${s.moveDraft.rot}` : ''))
+  const moveKey = useStore((s) => (s.moveDraft ? `${s.moveDraft.module.id}|${s.moveDraft.rot}|${s.moveDraft.module.type === 'light' ? s.moveDraft.module.cfg.position ?? 0 : ''}` : ''))
   const tool = useStore((s) => s.tool)
   // Everything the equipment ghost is drawn from, as one key: the piece, its
   // rotation and each Tab cycle. Subscribing to the key — rather than to the
@@ -465,12 +466,12 @@ export function Viewport(): React.ReactElement {
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(canvas)
-    setFrameHandler((count, agents, density, trains, lifts, intervalMs, simTime) => {
+    setFrameHandler((count, agents, density, trains, lifts, intervalMs, simTime, trainServices) => {
       scene.setAgents(agents, count, intervalMs)
       scene.setTrains(trains)
       scene.setLifts(lifts)
       // The 电视 station plate prints the station clock, so it follows the sim.
-      scene.setSimClock(simTime)
+      scene.setSimClock(simTime, trainServices)
       if (overlayRef.current && graphNodesRef.current.length === density.length * 3) {
         scene.setDensity(graphNodesRef.current, density, true)
       }
@@ -647,10 +648,17 @@ export function Viewport(): React.ReactElement {
     selectSimAgent(tool === 'select' && selected?.kind === 'agent' ? Number(selected.key) : null)
   }, [selected, tool])
 
-  const pickAt = (clientX: number, clientY: number): PickResult | null => {
+  const pickAt = (clientX: number, clientY: number, button = 0): PickResult | null => {
     const scene = sceneRef.current
     if (!scene) return null
-    return scene.pick(clientX, clientY, useStore.getState().activeZ)
+    const st = useStore.getState()
+    if (!st.moveDraft && st.tool === 'module' && st.moduleType.startsWith('roof') && button !== 2 && dragRef.current?.mode !== 'remove') {
+      const top = st.moduleType === 'roof' ? TRUSS_ROOF_BASE + ROOF_THICKNESS : trussRoofTop(st.roofWidth)
+      const hit = scene.pickHorizontalPlane(clientX, clientY, st.activeZ + 1 + top, st.activeZ)
+      if (hit && st.moduleType !== 'roof') hit.cell = [Math.round(hit.point[0]), Math.round(hit.point[1]), st.activeZ]
+      return hit
+    }
+    return scene.pick(clientX, clientY, st.activeZ)
   }
 
   const toInfo = (e: React.PointerEvent, hit: PickResult | null): PointerInfo => ({
@@ -703,7 +711,7 @@ export function Viewport(): React.ReactElement {
       return
     }
     const st = useStore.getState()
-    const info = toInfo(e, pickAt(e.clientX, e.clientY))
+    const info = toInfo(e, pickAt(e.clientX, e.clientY, e.button))
     // 移动 (§9.5): a piece in the air owns the pointer, whichever tool was active
     // when the 信息 card lifted it.
     if (st.moveDraft) {
@@ -760,7 +768,7 @@ export function Viewport(): React.ReactElement {
         }
       }
     }
-    const hit = pickAt(e.clientX, e.clientY)
+    const hit = pickAt(e.clientX, e.clientY, e.buttons & 2 ? 2 : 0)
     if (!hit) {
       hoverRef.current = null
       setBuildMeasure(null)
@@ -793,7 +801,7 @@ export function Viewport(): React.ReactElement {
    * plain block rectangles to 方块 — or to 删除 for its line-remove drag.
    */
   const ownerForRelease = (d: AreaDrag, current: Tool): ToolController => {
-    if (d.roof === true) return tools.equipment
+    if (d.roof === true) return d.deleteTile === true ? tools.delete : tools.equipment
     if (d.modules !== undefined) return tools.delete
     if (d.fence === true) return current === 'delete' ? tools.delete : tools.equipment
     if (d.wall === true) return d.single === true ? tools.block : tools.wall
@@ -831,7 +839,7 @@ export function Viewport(): React.ReactElement {
       }
       if (e.button === 1) return
     }
-    const info = toInfo(e, pickAt(e.clientX, e.clientY))
+    const info = toInfo(e, pickAt(e.clientX, e.clientY, e.button))
     // Route to whichever drag is active; each controller nulls its own ref and
     // applies the release. No drag active means the press already committed
     // (click tools) and the release owns nothing.

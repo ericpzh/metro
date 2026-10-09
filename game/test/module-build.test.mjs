@@ -58,7 +58,7 @@ const { createModule } = await import('../src/build/model.ts')
 const { STOCK, doorCentres } = await import('../src/sim/stock.ts')
 const { STAIR_RISE, STAIR_RUN } = await import('../src/sim/stairs.ts')
 const { LIFT_STEP, LIFT_RISE, liftModule } = await import('../src/sim/lifts.ts')
-const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
+const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
 
@@ -153,6 +153,112 @@ function build(mod, preview = false) {
 }
 
 const palette = (id, rot = 0, dir = 'up', door = 'lane') => createModule(id, 4, 4, 0, 'm-' + id, rot, undefined, dir, door, [LINE])
+
+test('escalator newel lights show entry arrows and exit bars facing their landings', () => {
+  for (const width of [1, 2]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+    const { group } = build(createModule('escalator', 4, 4, 0, 'lights', rot, width, dir))
+    group.updateMatrixWorld(true)
+    const lights = []
+    group.traverse((o) => { if (o.name === 'escalator-indicator') lights.push(o) })
+    assert.equal(lights.length, 4, 'a light on each newel at both landings')
+    const entry = lights.filter((o) => o.userData.indication === 'entry')
+    const stop = lights.filter((o) => o.userData.indication === 'stop')
+    assert.equal(entry.length, 2)
+    assert.equal(stop.length, 2)
+    const entryCentre = entry[0].getWorldPosition(new THREE.Vector3())
+    const exitCentre = stop[0].getWorldPosition(new THREE.Vector3())
+    assert.equal(Math.sign(exitCentre.z - entryCentre.z), dir === 'up' ? 1 : -1,
+      'up enters below and stops above; down reverses the landing lights')
+    const travel = new THREE.Vector3(1, 0, 0).applyQuaternion(group.quaternion)
+    travel.z = 0
+    travel.normalize()
+    for (const light of lights) {
+      const isEntry = light.userData.indication === 'entry'
+      const symbol = light.getObjectByName(isEntry ? 'entry-arrow' : 'stop-bar')
+      assert.ok(symbol)
+      assert.equal(symbol.material, isEntry ? mats.ledGreen : mats.ledRed)
+      const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(symbol.getWorldQuaternion(new THREE.Quaternion()))
+      assert.ok(facing.dot(travel) * (isEntry ? -1 : 1) > 0.999, 'light faces the approaching passenger')
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(symbol.getWorldQuaternion(new THREE.Quaternion()))
+      assert.ok(up.z > 0.8, 'arrow points upward on the display at every rotation')
+    }
+  }
+})
+
+test('a two-block escalator has one continuous moving band and only two outer balustrades', () => {
+  for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+    const narrow = build(createModule('escalator', 4, 4, 0, 'narrow', rot, 1, dir))
+    const wide = build(createModule('escalator', 4, 4, 0, 'wide', rot, 2, dir))
+    assert.equal(wide.meshes, narrow.meshes, 'widening adds no second escalator or centre rails')
+    let bands = 0
+    let glass = 0
+    wide.group.traverse((o) => {
+      if (o.userData.escalator) bands++
+      if (o.isMesh && o.material === mats.glass) glass++
+    })
+    assert.equal(bands, 1)
+    assert.equal(glass, 2, 'glass only at the outer edges')
+    const part = wide.group.userData.escalator.parts[0]
+    part.geometry.computeBoundingBox()
+    assert.equal(round(part.geometry.boundingBox.max.y - part.geometry.boundingBox.min.y), 1.52, 'the broader shoulders narrow the moving band by 8 cm per side')
+    const bounds = box(wide.group)
+    const size = bounds.getSize(new THREE.Vector3())
+    assert.equal(round(rot % 2 === 0 ? size.x : size.y), 2, 'landing aprons fit exactly inside two blocks')
+    rollEscalator(wide.group.userData.escalator, 2)
+    assert.ok(wide.group.userData.escalator.phase > 0)
+  }
+})
+
+test('escalator steps flatten smoothly at both combs and wrap while hidden', () => {
+  for (const width of [1, 2]) for (const dir of ['up', 'down']) {
+    const { group } = build(createModule('escalator', 4, 4, 0, 'terminal', 0, width, dir))
+    const roll = group.userData.escalator
+    const matrix = new THREE.Matrix4()
+    const scale = new THREE.Vector3()
+    const position = new THREE.Vector3()
+    const rotation = new THREE.Quaternion()
+    let lowerFlat = false
+    let upperFlat = false
+    let partialRiser = false
+    let hidden = false
+    for (let frame = 0; frame < 64; frame++) {
+      rollEscalator(roll, 0.07)
+      for (let i = 0; i < roll.count; i++) {
+        roll.parts[0].getMatrixAt(i, matrix)
+        matrix.decompose(position, rotation, scale)
+        if (matrix.getMaxScaleOnAxis() < 0.01) { hidden = true; continue }
+        assert.ok(position.z >= 0.015 - 1e-5 && position.z <= 4.015 + 1e-5, 'no tread leaps above a landing')
+        if (Math.abs(position.z - 0.015) < 1e-5) lowerFlat = true
+        if (Math.abs(position.z - 4.015) < 1e-5) upperFlat = true
+        roll.risers.getMatrixAt(i, matrix)
+        matrix.decompose(position, rotation, scale)
+        const riserScale = Math.abs(matrix.elements[10])
+        assert.ok(riserScale <= 1.001, 'no terminal step keeps an oversized riser')
+        if (riserScale < 1e-6) assert.ok(matrix.getMaxScaleOnAxis() < 1e-6, 'a collapsed riser disappears completely instead of leaving a flat strip past the comb')
+        if (riserScale > 0.01 && riserScale < 0.99) partialRiser = true
+      }
+    }
+    assert.ok(lowerFlat && upperFlat, 'both ends carry level steps')
+    assert.ok(partialRiser, 'risers shrink gradually through the bend')
+    assert.ok(hidden, 'step return is covered by the fixed combs')
+    const skirts = []
+    group.traverse((o) => { if (o.name === 'side-skirt') skirts.push(o) })
+    assert.equal(skirts.length, 2)
+    for (const skirt of skirts) {
+      assert.equal(round(skirt.geometry.parameters.height), 0.18, 'the metal shoulder is three times its former 6 cm width')
+    }
+  }
+})
+
+test('escalator landing aprons sit above floor caps, with no coplanar top faces', () => {
+  for (let rot = 0; rot < 4; rot++) for (const width of [1, 2]) for (const dir of ['up', 'down']) {
+    const mod = createModule('escalator', 4, 4, 0, 'clearance', rot, width, dir)
+    const { group } = build(mod)
+    const tops = []
+    group.traverse((o) => { if (o.name === 'landing-deck') tops.push(box(o).max.z) })
+    assert.deepEqual(tops.sort((a, b) => a - b).map(round), [1 + ESCALATOR_SURFACE_CLEARANCE, 5 + ESCALATOR_SURFACE_CLEARANCE], 'both metal aprons clear their floor by 5 mm')
+  }
+})
 /**
  * A 站名 is cut from the **station's name**, not from its palette id, so it is
  * built through the whole document (`data.name` is 动物园 here): its panel is three
@@ -186,13 +292,19 @@ const PIECES = [
   ['灭火器', palette('extinguisher'), 13, '0.743×0.487×1.1'],
   ['时钟', palette('clock'), 131, '0.8×0.236×1.05'],
   ['监控', palette('cctv'), 14, '0.298×0.429×0.463'],
+  ['灯具 圆形', palette('light-circular'), 2, '0.5×0.5×0.08'],
+  ['灯具 直条', palette('light-rectangular'), 2, '0.8×0.12×0.08'],
+  ['通风口', palette('vent'), 14, '0.7×0.7×0.06'],
+  ['导向柱', palette('guidepost'), 17, '0.16×0.589×4'],
+  ['公交站 短版', palette('busstop-short'), 21, '3.88×1.88×3'],
+  ['公交站 长版', palette('busstop-long'), 30, '7.91×1.88×3'],
   ['广告牌 横版', palette('billboard-wide'), 5, '0.98×0.185×0.86'],
   ['广告牌 标准', palette('billboard-standard'), 5, '1.84×0.185×1.14'],
   ['广告牌 大横版', palette('billboard-large'), 5, '1.98×0.185×1.33'],
   ['广告牌 长幅', palette('billboard-panorama'), 5, '2.94×0.185×1.13'],
   ['广告牌 竖版', palette('billboard-portrait'), 5, '0.92×0.185×1.54'],
   ['广告牌 方形', palette('billboard-square'), 5, '0.92×0.185×1.18'],
-  ['电视', palette('tv'), 13, '1.56×0.16×1.32'],
+  ['电视', palette('tv'), 12, '1.56×0.16×1.32'],
   ['指示牌 吊挂', palette('sign-ceiling'), 7, '2.15×0.16×1'],
   ['指示牌 墙面', palette('sign-wall'), 3, '2.15×0.197×0.7'],
   // The wall pieces (§5.7). A 玻璃板 is the outer frame and one pane whatever its
@@ -215,14 +327,17 @@ const PIECES = [
   ['站名 楷书 竖排', calligraphy('calligraphy-kai-v'), 1, '0.98×0×2.6'],
   ['线网图 墙面', palette('linemap-wall'), 3, '1.92×0.185×1.939'],
   ['线网图 立式', palette('linemap-stand'), 5, '1.86×0.62×2.279'],
-  ['出入口 有盖 单向', palette('exit-covered-1'), 75, '3.1×8.118×3.75'],
-  ['出入口 有盖 双向', palette('exit'), 75, '4.1×8.118×3.75'],
-  ['出入口 有盖 三向', palette('exit-covered-3'), 75, '5.1×8.118×3.75'],
-  ['出入口 无盖 单向', palette('exit-uncovered-1'), 44, '3.04×8.08×1'],
-  ['出入口 无盖 双向', palette('exit-uncovered-2'), 46, '4.04×8.08×1'],
-  ['出入口 无盖 三向', palette('exit-uncovered-3'), 46, '5.04×8.08×1'],
-  ['扶梯', palette('escalator'), 18, '0.98×7.55×5.563'],
-  ['电梯', palette('lift'), 17, '2.04×2.04×7'],
+  ['出入口 有盖 单向', palette('exit-covered-1'), 76, '3.1×8.118×4'],
+  ['出入口 有盖 双向', palette('exit'), 76, '4.1×8.118×4'],
+  ['出入口 有盖 三向', palette('exit-covered-3'), 76, '5.1×8.118×4'],
+  ['出入口 无盖 单向', palette('exit-uncovered-1'), 45, '3.04×8.08×1.25'],
+  ['出入口 无盖 双向', palette('exit-uncovered-2'), 47, '4.04×8.08×1.25'],
+  ['出入口 无盖 三向', palette('exit-uncovered-3'), 47, '5.04×8.08×1.25'],
+  ['出入口 地面 单向', palette('exit-doorway-1'), 8, '3×0.4×3.54'],
+  ['出入口 地面 双向', palette('exit-doorway-2'), 8, '4×0.4×3.54'],
+  ['出入口 地面 三向', palette('exit-doorway-3'), 8, '5×0.4×3.54'],
+  ['扶梯', palette('escalator'), 33, '1×7.533×5.563'],
+  ['电梯', palette('lift'), 102, '2.04×2.04×7'],
   // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns
   // around them are read: a flight or half-landing a wall hugs loses that side's balustrade
   // (`stairWallSides` / `stairLandingWalls`). In the open, a 90° turn draws 90 meshes and a
@@ -260,6 +375,29 @@ test('every piece the palette can lay draws a model, at the size it draws it', (
 
 test('a piece the palette cannot lay draws nothing, and says so by returning null', () => {
   assert.equal(buildModule({ id: 'x', type: 'wall', x: 0, y: 0, z: 0, rot: 0, cfg: {} }, ctx), null)
+})
+
+test('glass lifts expose their frame and moving car; steel keeps the original model', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const mod = palette('lift', rot)
+    const { group } = build(mod)
+    const panels = []
+    group.traverse((o) => { if (o.name === 'shaft-glass') panels.push(o) })
+    assert.ok(panels.length >= 6)
+    assert.ok(panels.every((p) => p.material.transparent && !p.material.depthWrite))
+    const cabin = group.userData.liftCabin
+    const leaves = group.userData.doors
+    assert.equal(leaves.length, 2)
+    assert.ok(leaves.every((d) => d.parent === cabin && d.children.length > 0))
+    const shut = leaves.map((d) => d.position.x)
+    setDoors(group, 1)
+    leaves.forEach((leaf, i) => assert.equal(leaf.position.x, shut[i] + leaf.userData.openSign * 0.7))
+    setDoors(group, 0)
+    assert.equal(sizeOf(group), '2.04×2.04×7')
+    const old = build({ ...mod, cfg: { style: 'steel' } })
+    assert.equal(old.meshes, 17)
+    assert.equal(old.size, '2.04×2.04×7')
+  }
 })
 
 test('the 电梯 shaft’s lid meets the slab above the top landing with no gap and no overrun', () => {
@@ -338,7 +476,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   const width = (id) => round(box(build(palette(id)).group).getSize(new THREE.Vector3()).x)
   assert.deepEqual([width('exit-covered-1'), width('exit'), width('exit-covered-3')], [3.1, 4.1, 5.1], '有盖: 单向 / 双向 / 三向 are 3 / 4 / 5 blocks across')
   assert.deepEqual([width('exit-uncovered-1'), width('exit-uncovered-2'), width('exit-uncovered-3')], [3.04, 4.04, 5.04], '无盖: the same plan under a railing')
-  assert.ok(box(build(palette('exit-uncovered-2')).group).getSize(new THREE.Vector3()).z < 1.1, 'and 无盖 has no roof to stand on')
+  assert.ok(box(build(palette('exit-uncovered-2')).group).getSize(new THREE.Vector3()).z < 1.35, 'and 无盖 has no roof to stand on')
 
   // A stair climbs its own rise over its own run.
   const stair = box(build(palette('stair-straight')).group).getSize(new THREE.Vector3())
@@ -466,12 +604,12 @@ test('a 扶梯 carries its own solid under the truss, over the course the ground
   const slope = (mod.to.z - mod.from.z) / Math.hypot(mod.to.x - mod.from.x, mod.to.y - mod.from.y)
   const cutAt = (y) => mod.from.z + 1 + (y - (mod.from.y + 0.5)) * slope - RAMP_FOOT
   const b = box(solid)
-  assert.equal(round(b.min.z), mod.from.z + 1, 'it does not stand on the lower landing’s floor')
+  assert.equal(round(b.min.z), mod.from.z + 1 - ESCALATOR_BASE_BURY, 'the base is buried 2 cm below the floor to prevent coplanar faces')
   assert.equal(round(b.min.y), round(mod.from.y + 0.5 + 0.75), 'it does not start where the lid meets the floor')
   assert.equal(round(b.max.y), round(mod.from.y + 0.5 + 2.5), 'it does not finish on the cell edge it crosses')
-  assert.equal(round(b.max.z), round(cutAt(b.max.y)), 'its top is not the plane the ground is shaved to')
+  assert.equal(round(b.max.z), round(cutAt(b.max.y) - ESCALATOR_SURFACE_CLEARANCE), 'its lid is 5 mm inside the ground cut, still buried in the truss')
   assert.ok(b.max.z > mod.from.z + 1 + 1, 'its lid flattens off at the course line instead of following the ground up')
-  assert.equal(round(b.getSize(new THREE.Vector3()).x), round(ESCALATOR_BALUSTRADE), 'not flush with the truss box’s flanks')
+  assert.equal(round(b.getSize(new THREE.Vector3()).x), round(ESCALATOR_BALUSTRADE - 2 * ESCALATOR_SURFACE_CLEARANCE), 'the flanks sit 5 mm inside the truss instead of sharing its faces')
 
   // Solid from below over that course — a ray straight up under the run meets the body, never the
   // gap between the truss and the floor — and no further: past it the run is the shell it was.
@@ -490,17 +628,15 @@ test('a 扶梯 carries its own solid under the truss, over the course the ground
   for (const s of [1, 1.5, 2, 2.4]) assert.equal(under(s), 'undercroft', `nothing solid under the run ${s} m up from the landing`)
   for (const s of [3.5, 4.5, 5.5]) assert.notEqual(under(s), 'undercroft', `the body reaches past the course the ground stops at (${s} m)`)
 
-  // Its lid **is** that plane, to the body's very end: the body and the shaved ground meet in one
-  // surface instead of leaving a step beside the run or a slit at the trench the cut opens at its
-  // foot — and its top is buried in the truss box the whole way, so no slit opens under the truss
-  // where a flat cap would have stopped short of it. Nothing may stand proud of the plane: a
-  // vertex above it would poke through the ground the player sees.
+  // The lid stays 5 mm below that plane, to the body's very end. It remains
+  // buried in the truss without sharing the terrain cap's depth or opening a
+  // slit where a flat cap would stop short of the truss's underside.
   let worst = -Infinity
   for (let i = 0; i < pos.count; i++) {
     const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(solid.matrixWorld)
     worst = Math.max(worst, v.z - cutAt(v.y))
   }
-  assert.ok(Math.abs(worst) < 1e-6, `the body is ${worst.toFixed(4)} m off the plane the ground is shaved to`)
+  assert.ok(Math.abs(worst + ESCALATOR_SURFACE_CLEARANCE) < 1e-6, `the body's lid must stay inside the cut plane, got ${worst.toFixed(4)} m`)
 
   // And no slit under the truss. The body's lid has to sit **above** the truss box's own underside
   // wherever the two overlap, or its last stretch — and its end face — stands in the open with the
@@ -691,10 +827,97 @@ test('a teardown frees every geometry a group owns — the instance buffers incl
   assert.deepEqual([...killed], [], 'a group teardown never frees the shared material kit')
 })
 
+test('full-height platform doors seal the opening and carry their decals while sliding', () => {
+  for (const side of ['left', 'right']) for (const stock of ['A', 'B', 'C', 'L']) {
+    const mod = { id: 'psd-seals', type: 'platform-edge', x: 0, y: 0, z: 0, w: 24, cfg: { line: LINE.id, dir: 'up', side, psd: 'full' } }
+    ctx.data = { ...data, lines: [{ ...LINE, stock }], modules: [mod] }
+    const group = buildModule(mod, ctx)
+    const leaves = group.userData.doors
+    const glazing = leaves.filter((o) => o.material === mats.tintedGlass)
+    assert.ok(glazing.length >= 2)
+    for (let i = 0; i < glazing.length; i += 2) {
+      const left = glazing[i], right = glazing[i + 1]
+      const leftW = left.geometry.parameters.width, rightW = right.geometry.parameters.width
+      const seam = left.position.x + leftW / 2
+      assert.ok(Math.abs(seam - (right.position.x - rightW / 2)) < 1e-6, 'closed leaves meet without a centre opening')
+      assert.ok(Math.abs(right.position.x + rightW / 2 - (left.position.x - leftW / 2) - STOCK[stock].doorWidth * 1.5) < 1e-6, 'screen glazing spans 150% of the car door width')
+      const bottom = left.position.z - left.geometry.parameters.depth / 2
+      assert.ok(Math.abs(bottom - 1.12) < 1e-6, 'glazing meets the sill')
+      assert.ok(Math.abs(left.position.z + left.geometry.parameters.depth / 2 - 3.62) < 1e-6, 'glazing meets the header')
+    }
+    const decals = leaves.filter((o) => o.geometry.type === 'PlaneGeometry')
+    assert.equal(decals.length, glazing.length * 3, 'each leaf carries a band, warning and opening arrow')
+    const closed = leaves.map((o) => o.position.x)
+    setDoors(group, 1)
+    leaves.forEach((o, i) => assert.ok(Math.abs(o.position.x - closed[i] - o.userData.openSign * STOCK[stock].doorWidth * 1.5 / 2) < 1e-6, 'frames and vinyl clear the wider opening with the glazing'))
+    setDoors(group, 0)
+    leaves.forEach((o, i) => assert.equal(o.position.x, closed[i], 'closing restores the seal'))
+    disposeObject(group)
+  }
+})
+
 test('the pieces whose numbers come from the sim use the sim’s numbers', () => {
   // These are the values two modules have to agree on. A renderer that keeps its own
   // copy of one is a piece that stops matching the station the crowd walks.
   assert.equal(round(HALF_WALL_T), 0.5, 'a room panel is the half-block wall the 切角 tile lays')
   assert.ok(PSD_FULL_HEIGHT > PSD_HALF_HEIGHT, 'the two screen heights the graph reserves')
   assert.ok(STAIR_RUN > 0 && STAIR_RISE > 0, 'a flight runs and climbs, and the model draws both')
+})
+
+
+test('raised concrete exits meet connected runs without covering escalator terminal tracks', async () => {
+  const { exitRunSnap } = await import('../src/sim/exits.ts')
+  const { escalatorRun } = await import('../src/sim/escalators.ts')
+  const { EXIT_BASE_HEIGHT, exitLandingHeight } = await import('../src/render/models/pieces/ExitLanding.ts')
+  for (let rot = 0; rot < 4; rot++) for (const covered of [true, false]) {
+    const exit = { id: 'raised-exit', type: 'exit', x: 0, y: 0, z: 0, rot, cfg: { bays: 3, covered } }
+    const snap = exitRunSnap([exit], 0, 0, 0)
+    for (const width of [1, 2]) for (const dir of ['up', 'down']) {
+      const run = createModule('escalator', snap.base.x, snap.base.y, snap.base.z, 'run', snap.rot, width, dir)
+      ctx.data = { ...data, modules: [exit, run] }
+      const original = JSON.stringify(run)
+      const portal = buildModule(exit, ctx)
+      const escalator = buildModule(run, ctx)
+      portal.updateMatrixWorld(true)
+      const floor = exit.z + 1
+      const pads = []
+      portal.traverse((o) => { if (o.name === 'exit-concrete-base') pads.push(o) })
+      assert.ok(pads.length >= 4)
+      assert.equal(pads[0].material, ctx.finish('floor.concrete'))
+      assert.equal(round(box(pads[0]).max.z), floor + EXIT_BASE_HEIGHT)
+      assert.equal(round(box(pads[1]).max.z), floor + EXIT_BASE_HEIGHT / 2)
+      assert.equal(round(box(pads[1]).min.z), floor)
+      assert.ok(pads[0].geometry.getAttribute('color'), 'concrete supports finish vertex colours')
+      assert.ok(pads[0].geometry.getAttribute('uv'), 'concrete uses metre-scaled texture UVs')
+      const centred = escalatorRun(run)
+      const top = centred.from.z > centred.to.z ? centred.from : centred.to
+      assert.equal(exitLandingHeight([exit], top), EXIT_BASE_HEIGHT)
+      assert.equal(exitLandingHeight([{ ...exit, cfg: { style: 'doorway' } }], top), 0)
+      escalator.updateMatrixWorld(true)
+      const roll = escalator.userData.escalator
+      const terminal = roll.parts[0].localToWorld(roll.climb.clone().multiplyScalar(roll.inclineLen))
+      assert.equal(round(terminal.z), floor + EXIT_BASE_HEIGHT, 'moving track reaches the raised landing')
+      const decks = []
+      escalator.traverse((o) => { if (o.name === 'landing-deck') decks.push(o) })
+      assert.equal(round(Math.max(...decks.map((o) => box(o).max.z))), round(floor + EXIT_BASE_HEIGHT + ESCALATOR_SURFACE_CLEARANCE))
+      for (const pad of pads) {
+        const b = box(pad)
+        // Probe the track at the centre and just before the upper comb.
+        for (const distance of [0, 0.15]) {
+          const point = roll.parts[0].localToWorld(roll.climb.clone().multiplyScalar(roll.inclineLen).add(new THREE.Vector3(roll.climb.x, roll.climb.y, 0).normalize().multiplyScalar(distance)))
+          assert.equal(b.containsPoint(point), false, 'concrete leaves upper moving treads clear')
+        }
+      }
+      assert.equal(JSON.stringify(run), original, 'render offsets preserve graph and module endpoints')
+      disposeObject(portal); disposeObject(escalator)
+    }
+    const stair = createModule('stair-straight', snap.base.x, snap.base.y, snap.base.z, 'stair', snap.rot)
+    ctx.data = { ...data, modules: [stair] }
+    const plain = buildModule(stair, ctx)
+    ctx.data = { ...data, modules: [exit, stair] }
+    const raised = buildModule(stair, ctx)
+    assert.equal(round(box(raised).max.z - box(plain).max.z), EXIT_BASE_HEIGHT, 'stair and its top rail meet the raised pad')
+    assert.equal(raised.children[0].position.z, plain.children[0].position.z, 'lower stair landing stays on its floor')
+    disposeObject(plain); disposeObject(raised)
+  }
 })

@@ -9,6 +9,7 @@
 // changes, only the artwork inside cycles, on its own cadence per screen.
 
 import * as THREE from 'three'
+import type { TrainService } from '../../../sim/trainSchedule.ts'
 import { canvasTexture, litPanelMaterial } from '../../models.ts'
 import type { PrintedFace } from '../../models.ts'
 import { drawStationDisplay, STATION_PLATE, tvLineStatus } from '../../stationDisplay.ts'
@@ -51,6 +52,13 @@ export class PlateSystem extends SceneSystem {
   tvScreens: Array<{ screen: THREE.Mesh; moduleId: string; poster: string; nextAt: number }> = []
   /** The lit station plate per 电视 module, drawn from the live document. */
   tvPlates = new Map<string, THREE.CanvasTexture>()
+  private services: TrainService[] = []
+  private dateText = ''
+  private tvInk = new Map<string, string>()
+
+  private tvStatus(x: number, y: number, z: number) {
+    return tvLineStatus(this.ctx.stationData?.lines ?? [], this.services, [x, y, z])
+  }
   /**
    * The lit face of each 指示牌 per side (`id|left`, `id|right`), composed from the
    * module's own layout. A board's plate is a document render like the 电视's — it
@@ -103,6 +111,7 @@ export class PlateSystem extends SceneSystem {
   clearTvPlates(): void {
     for (const tex of this.tvPlates.values()) tex.dispose()
     this.tvPlates.clear()
+    this.tvInk.clear()
   }
 
   /**
@@ -111,7 +120,7 @@ export class PlateSystem extends SceneSystem {
    * A rebuild used to dispose every plate and redraw it — a 640×304 canvas and its
    * upload per television — for an edit that touched one wall. The plate is a
    * function of the module's id (its position only moves the next-train countdown,
-   * which `setSimClock` refreshes every minute).
+   * which `setSimClock` refreshes from worker frames).
    */
   retainTvPlates(data: StationData): void {
     const stamp = `${data.name}|${data.lines
@@ -413,48 +422,36 @@ export class PlateSystem extends SceneSystem {
     }
   }
 
-  /**
-   * The lit station plate for one 电视: the frame the content window sits inside.   *
-   * It is station information, not artwork, so it is drawn from the live document
-   * — the line's own name, colour and terminus, the clock, and how close the next
-   * train is — and cached per module. It only has to be redrawn when one of those
-   * changes, which `setSimClock` does once a minute rather than every frame.
-   *
-   * The line is the station's **first** line. A 电视 is ceiling furniture rather
-   * than platform equipment, so it belongs to no platform and carries no line of
-   * its own; once a station runs several lines, this is the one place to revisit
-   * (a board per platform would want the line whose track is nearest).
-   */
+  /** Station plate for one TV, with service selected from its nearest track (§6.5). */
   makeTvPlate(id: string, x: number, y: number): THREE.Texture {
     const existing = this.tvPlates.get(id)
     if (existing) return existing
-    const line = this.ctx.stationData?.lines[0]
-    const status = line ? tvLineStatus(line, this.ctx.trainPoses, [x, y]) : null
+    const mod = this.ctx.stationData?.modules.find((m) => m.id === id)
+    const status = this.tvStatus(x, y, mod?.z ?? 0)
     const t = canvasTexture(STATION_PLATE.width, STATION_PLATE.height, (g) => {
-      drawStationDisplay(g, status, this.ctx.stationData?.name ?? '', this.ctx.clockText)
+      drawStationDisplay(g, status, this.ctx.stationData?.name ?? '', this.ctx.clockText, this.dateText)
     })
     this.mintedTextures.add(t)
     this.tvPlates.set(id, t)
     return t
   }
 
-  /**
-   * The simulation clock, printed in the plate's information column. Called from
-   * the worker's state frame. When the printed minute changes, every plate is
-   * redrawn in place — the meshes keep their geometry and material, so nothing
-   * rebuilds but the pixels.
-   */
-  setSimClock(simTime: number): void {
-    const next = stampAt(simTime).clock
-    if (next === this.ctx.clockText) return
-    this.ctx.clockText = next
+  /** Refresh on every worker frame, uploading only when the printed arrivals or clock change. */
+  setSimClock(simTime: number, services: TrainService[] = []): void {
+    this.services = services
+    const data = this.ctx.stationData
+    const stamp = stampAt(simTime, data?.calendar)
+    this.ctx.clockText = stamp.clock
+    this.dateText = stamp.dateLabel
     for (const [id, tex] of this.tvPlates) {
-      const canvas = tex.image as HTMLCanvasElement
-      const g = canvas.getContext('2d') as CanvasRenderingContext2D
-      const line = this.ctx.stationData?.lines[0]
-      const mod = this.ctx.stationData?.modules.find((m) => m.id === id)
-      const status = line ? tvLineStatus(line, this.ctx.trainPoses, [mod ? mod.x + 0.5 : 0.5, mod ? mod.y + 0.5 : 0.5]) : null
-      drawStationDisplay(g, status, this.ctx.stationData?.name ?? '', this.ctx.clockText)
+      const mod = data?.modules.find((m) => m.id === id)
+      const status = this.tvStatus(mod ? mod.x + 0.5 : 0.5, mod ? mod.y + 0.5 : 0.5, mod?.z ?? 0)
+      const ink = JSON.stringify([status, data?.name, stamp.clock, stamp.dateLabel])
+      if (this.tvInk.get(id) === ink) continue
+      this.tvInk.set(id, ink)
+      const g = (tex.image as HTMLCanvasElement).getContext('2d')
+      if (!g) continue
+      drawStationDisplay(g, status, data?.name ?? '', stamp.clock, stamp.dateLabel)
       tex.needsUpdate = true
     }
   }

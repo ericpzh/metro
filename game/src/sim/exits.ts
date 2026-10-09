@@ -6,7 +6,8 @@
 // sides or the back wall (§5.6). Pure data — no three, no DOM.
 
 import type { ExitBays, Module, Vec3i } from './types.ts'
-import { ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
+import { ESCALATOR_CASING_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
+import { escalatorBodyWidth, escalatorRun } from './escalators.ts'
 import { LIFT_SIZE } from './lifts.ts'
 import { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_NARROW, stairRotFor } from './stairs.ts'
 
@@ -106,7 +107,7 @@ export function exitCentre(bays: ExitBays): number {
 export function exitRunHalf(run: Module): number {
   const swept =
     run.type === 'escalator'
-      ? ESCALATOR_BAND / 2 + ESCALATOR_RAIL_PROUD
+      ? escalatorBodyWidth(run) / 2 + ESCALATOR_CASING_PROUD
       : run.type === 'stair'
         ? (run.cfg.width ?? STAIR_WIDTH_NARROW) / 2 + STAIR_RAIL_PROUD
         : run.type === 'lift'
@@ -126,6 +127,10 @@ export interface ExitSpan {
 /** The upper (street) landing of a run — the end that stands under the exit. */
 function runTop(run: Module): Vec3i | null {
   if (run.type !== 'escalator' && run.type !== 'stair' && run.type !== 'lift') return null
+  if (run.type === 'escalator') {
+    const centred = escalatorRun(run)
+    return centred.from.z >= centred.to.z ? centred.from : centred.to
+  }
   return run.from.z >= run.to.z ? run.from : run.to
 }
 
@@ -286,13 +291,13 @@ export interface ExitRunSnap {
   bay: number
   /** The run's upper landing: the bay cell at the exit's level. */
   top: Vec3i
-  /** The run's lower landing, one storey below and toward the mouth. */
+  /** The run's lower landing, its chosen rise below and toward the mouth. */
   base: Vec3i
   /** Placement rotation for a straight run climbing base → top. */
   rot: number
 }
 
-export function exitRunSnap(modules: readonly Module[], x: number, y: number, z: number): ExitRunSnap | null {
+export function exitRunSnap(modules: readonly Module[], x: number, y: number, z: number, run = STAIR_RUN, rise = STAIR_RISE): ExitRunSnap | null {
   const exit = modules.find((m): m is ExitModule => m.type === 'exit' && m.cfg.style !== 'doorway' && exitCoversCell(m, x, y, z))
   if (!exit) return null
   const [lx] = exitLocal(x - exit.x, y - exit.y, exit.rot)
@@ -300,13 +305,13 @@ export function exitRunSnap(modules: readonly Module[], x: number, y: number, z:
   const bay = Math.max(0, Math.min(bays - 1, lx))
   const [tx, ty, tz] = exitBayCell(exit, bay)
   // The run climbs from the mouth (local −y) up to the bay, so its base lies a
-  // full run back along the head-house's own +y, one storey down.
+  // full run back along the head-house's own +y, its chosen rise down.
   const [fx, fy] = exitRotate(0, 1, exit.rot)
   return {
     exit,
     bay,
     top: { x: tx, y: ty, z: tz },
-    base: { x: tx - fx * STAIR_RUN, y: ty - fy * STAIR_RUN, z: tz - STAIR_RISE },
+    base: { x: tx - fx * run, y: ty - fy * run, z: tz - rise },
     rot: stairRotFor(fx, fy),
   }
 }

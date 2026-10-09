@@ -8,7 +8,6 @@
 import {
   CONGESTION_CAP,
   CONGESTION_S,
-  ESCALATOR_BALUSTRADE,
   ESCALATOR_RATE,
   ESCALATOR_SPEED,
   GATE_RATE,
@@ -26,6 +25,7 @@ import {
   ZONE_LINES_BLOCK,
 } from './constants.ts'
 import { floorSpeed } from './finishes.ts'
+import { escalatorRun, escalatorBalustradeWidth } from './escalators.ts'
 import { gateAllows, gateHasLane } from './gates.ts'
 import { withGround } from './ground.ts'
 import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
@@ -366,12 +366,12 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     // no wall either — the crowd may step between lanes at the landings. Two
     // stairs placed separately keep their rails *and* their walls: their steps
     // meet, but you cannot walk from one to the other.
-    const segs = m.type === 'stair' ? stairFlights(m) : [{ from: m.from, to: m.to }]
+    const segs = m.type === 'stair' ? stairFlights(m) : [escalatorRun(m)]
     // A stair flight's body may stand off its own walking line (a switchback's
     // flush return run): the balustrade the crowd walks along is the one drawn
     // beside those treads, not the one beside the cell its landings sit on.
     const slides = m.type === 'stair' ? stairFlightSlides(m) : []
-    const half = m.type === 'escalator' ? ESCALATOR_BALUSTRADE / 2 : (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
+    const half = m.type === 'escalator' ? escalatorBalustradeWidth(m) / 2 : (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
     const laneMates = m.type === 'stair' ? stairLaneMates(data.modules, m) : []
     // The flight ends that meet an **interior turn landing** of the same stair.
     // A balustrade stops dead at the flight there: the crowd has to walk the

@@ -193,7 +193,6 @@ export interface SceneContext {
    */
   ownedMats: THREE.Material[]
   /** The live train poses, so a plate can count down to the next service. */
-  trainPoses: Array<{ x: number; y: number; colour: number }>
   /** The simulation clock, as the plate's clock field. */
   clockText: string
   /** Interpolation window in ms, sent by the worker (varies with speed). */
@@ -238,7 +237,6 @@ export class SceneContextData implements SceneContext {
   clearMats = new Map<THREE.Material, THREE.Material>()
   section: Section = { anchor: [0, 0, 0], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH }, offset: 0 }
   ownedMats: THREE.Material[] = []
-  trainPoses: Array<{ x: number; y: number; colour: number }> = []
   clockText = '--:--'
   stateIntervalMs = 200
   lastStateTime = 0

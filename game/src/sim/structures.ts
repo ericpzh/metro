@@ -1,4 +1,5 @@
 // Above-ground equipment; dimensions shared by placement and the models (§4.1, §5).
+import { inCellOffset } from './inCellPositions.ts'
 import { trackCellAt } from './track.ts'
 import type { BridgeRailing, Module } from './types.ts'
 export const PILLAR_STEP = 4
@@ -26,15 +27,9 @@ export function trussRoofTop(width: number): number { return trussRoofRidge(widt
 export const DEFAULT_ROOF_FINISH = 'wall.plaster'
 export type PillarModule = Extract<Module, { type: 'pillar' }>
 export function pillarWidth(m: PillarModule): number { return m.cfg.size === 'thick' ? 1 : 0.3 }
-/** Offset of a slim pillar within its block: centre, four edge centres, then corners. */
+/** Slim supports follow the shared centre-then-reading-order cycle. */
 export function pillarOffset(m: PillarModule): { x: number; y: number } {
-  if (m.cfg.size !== 'slim') return { x: 0, y: 0 }
-  const positions = [
-    [0, 0], [0.35, 0], [0, 0.35], [-0.35, 0], [0, -0.35],
-    [0.35, 0.35], [-0.35, 0.35], [-0.35, -0.35], [0.35, -0.35],
-  ] as const
-  const [x, y] = positions[((m.rot ?? 0) % positions.length + positions.length) % positions.length]
-  return { x, y }
+  return m.cfg.size === 'slim' ? inCellOffset(m.rot ?? 0, pillarWidth(m)) : { x: 0, y: 0 }
 }
 export const BRIDGE_DECK_DEPTH = 1
 /** The whole deck must clear the street slab, whose top is z=1 (§4.1). */

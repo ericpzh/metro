@@ -36,7 +36,7 @@ if (!wanted) {
 // `3` and `03-block-system.svg` both name the same sheet.
 const files = readdirSync(join(repo, 'art')).filter((f) => f.endsWith('.svg'))
 const num = String(Number(wanted.replace(/\.svg$/, '').split('-')[0]))
-const file = files.find((f) => f === wanted || String(Number(f.split('-')[0])) === num)
+const file = files.find((f) => f === wanted) ?? files.find((f) => String(Number(f.split('-')[0])) === num)
 if (!file) throw new Error(`no sheet matches ${wanted} — art/ holds:\n  ${files.join('\n  ')}`)
 
 // The sheet's own size decides the window: a screenshot of the page is the
@@ -84,6 +84,11 @@ try {
       const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
       style.textContent = '*{animation-play-state:paused !important;animation-delay:${-Number(at)}s !important}'
       document.documentElement.appendChild(style)
+      for (const svg of [document.documentElement, ...document.querySelectorAll('svg')]) {
+        if (typeof svg.pauseAnimations !== 'function') continue
+        svg.pauseAnimations()
+        svg.setCurrentTime(${Number(at)})
+      }
       return ${JSON.stringify(String(at))}
     })()`)
   }

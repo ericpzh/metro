@@ -56,6 +56,10 @@ export class RoofModel extends PieceBuilder {
       sheet.rotation.x = angle
     }
 
+    // The standalone pitched shell is just the two finished roof sheets: no
+    // purlins, chords, webs or other support members.
+    if (mod.cfg.variant === 'shell') return this.placeLocal(group, mod)
+
     // All purlins and trusses run parallel to the central crest. None sits on
     // the supporting floor; the structure is wholly above the four-metre posts.
     for (let y = 0; y < width; y += 1) {

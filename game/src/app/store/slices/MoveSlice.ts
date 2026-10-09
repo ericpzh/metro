@@ -67,6 +67,7 @@ export interface MoveSlice {
   aimMove: (at: Vec3i | null, candidate: Module | null, reason: string) => void
   /** Turn the carried piece a quarter clockwise (**R**). */
   rotateMove: () => void
+  cycleMoveLightPosition: () => void
   /**
    * Put a lifted piece back where it came from. A lift was never an edit, so this
    * is not an undo — the piece has been standing there all along.
@@ -108,13 +109,22 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     const sameAt = d.at?.x === at?.x && d.at?.y === at?.y && d.at?.z === at?.z
     // Re-aiming at the same cell with the same piece and the same verdict changes
     // nothing the player can see, so the card is not re-rendered for it.
-    if (sameAt && d.reason === reason && (d.candidate?.rot ?? 0) === (candidate?.rot ?? 0)) return
+    const samePosition = d.candidate?.type !== 'light' || candidate?.type !== 'light' || d.candidate.cfg.position === candidate.cfg.position
+    if (samePosition && sameAt && d.reason === reason && (d.candidate?.rot ?? 0) === (candidate?.rot ?? 0)) return
     set({ moveDraft: { ...d, at, candidate, reason } })
   },
   rotateMove: () => {
     const d = get().moveDraft
     if (!d || !isRotatableType(d.module.type)) return
-    set({ moveDraft: { ...d, rot: (d.rot + 3) % 4 } })
+    if (d.module.type === 'light' && d.module.cfg.variant === 'circular') return
+    const rot = d.module.type === 'light' ? (d.rot + 1) % 2 : (d.rot + 3) % 4
+    set({ moveDraft: { ...d, rot } })
+  },
+  cycleMoveLightPosition: () => {
+    const d = get().moveDraft
+    if (!d || d.module.type !== 'light' || d.module.cfg.variant !== 'rectangular') return
+    const module = { ...d.module, cfg: { ...d.module.cfg, position: ((d.module.cfg.position ?? 0) + 1) % 9 } }
+    set({ moveDraft: { ...d, module } })
   },
   cancelMove: (announce = true) => {
     if (!get().moveDraft) return

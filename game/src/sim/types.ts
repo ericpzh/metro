@@ -427,11 +427,11 @@ export type BridgeRailing = 'railing' | 'sound-barrier-half' | 'sound-barrier'
 
 export type Module =
   | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number; finish?: FinishId; bridgeId?: string } })
-  | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'truss' | 'tapered-truss'; finish?: FinishId } })
+  | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss'; finish?: FinishId } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor } })
   | (ModuleBase & { type: 'fence'; cfg: Record<string, never> })
-  | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down' } })
+  | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down'; width?: 1 | 2 } })
   | (ModuleBase & {
       type: 'stair'
       /**
@@ -471,7 +471,7 @@ export type Module =
         finish?: FinishId
       }
     })
-  | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: { style?: 'glass' | 'steel' } })
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
   /**
    * A drinks vending machine (自动贩卖机): the same 1 × 1 m equipment footprint
@@ -526,6 +526,8 @@ export type Module =
    * that turns with the placement rotation like any equipment, and purely
    * cosmetic: it is no server and no stop, so it never changes the crowd.
    */
+  | (ModuleBase & { type: 'guidepost'; cfg: { exitId?: string } })
+  | (ModuleBase & { type: 'busstop'; w: number; d: number; cfg: { variant: 'short' | 'long'; poster?: string } })
   | (ModuleBase & { type: 'bin'; cfg: Record<string, never> })
   /**
    * A fire-extinguisher cabinet (灭火器, 装饰): the red steel box on four legs of
@@ -546,6 +548,8 @@ export type Module =
    * is meaningless to a round dial and is kept only so it turns with every other
    * piece.
    */
+  | (ModuleBase & { type: 'vent'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'light'; cfg: { variant: 'circular' | 'rectangular'; position?: number } })
   | (ModuleBase & { type: 'clock'; cfg: Record<string, never> })
   /**
    * A ceiling camera (监控, 装饰): the bracket-and-swivel housing of the reference,
@@ -763,6 +767,8 @@ export interface LineDef {
 
 export interface StationData {
   name: string
+  /** English station name printed below the Chinese exit banner name. */
+  nameEn?: string
   seed: number
   /** 0–3 m base of the 4 m editing storey grid. */
   levelBase?: number

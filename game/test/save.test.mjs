@@ -231,3 +231,21 @@ test('each failure names a Chinese reason and loads nothing', () => {
   const missing = parse(JSON.stringify({ format: SAVE_FORMAT, formatVersion: 1 }))
   assert.deepEqual(missing, { ok: false, error: '缺少车站数据' })
 })
+
+
+test('English station names survive saving, cloning and old save files', async () => {
+  const { cloneState, toData } = await import('../src/build/model.ts')
+  const state = toState({ ...scenarioStation(), nameEn: '  Zoo  ' })
+  assert.equal(state.nameEn, 'Zoo')
+  assert.equal(cloneState(state).nameEn, 'Zoo')
+  assert.equal(toData(state).nameEn, 'Zoo')
+  const doc = JSON.parse(serialize(state))
+  assert.equal(doc.nameEn, 'Zoo')
+  assert.equal(parse(JSON.stringify(doc)).state.nameEn, 'Zoo')
+  for (const value of [undefined, null, 123]) {
+    doc.nameEn = value
+    const old = parse(JSON.stringify(doc))
+    assert.equal(old.ok, true)
+    assert.equal(old.state.nameEn, '')
+  }
+})

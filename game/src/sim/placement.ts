@@ -15,6 +15,8 @@
 //
 // Pure data — no three, no DOM.
 
+import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
+import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
 import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
 import { EXIT_L, exitFloorBounds, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
@@ -25,6 +27,7 @@ import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
 import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
+import { escalatorLandings } from './escalators.ts'
 import { PANEL_MIN_H, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
 import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './track.ts'
@@ -208,6 +211,10 @@ function flatEnvelope(m: Module): ModuleBox | null {
       const spec = doorSpec(m.cfg?.variant)
       return cellsAabb(doorCells(m), z0, z0 + spec.h)
     }
+    case 'guidepost':
+      return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + 4 }
+    case 'busstop':
+      return cellsAabb(trackCells(m), z0, z0 + 3)
     case 'gate':
     case 'tvm':
     case 'vending':
@@ -221,6 +228,19 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'cctv':
     case 'tv':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
+    case 'vent': {
+      const half = VENT_WIDTH / 2
+      const ceiling = ventCeilingZ(m)
+      return { x0: m.x + 0.5 - half, y0: m.y + 0.5 - half, z0: ceiling - VENT_DEPTH, x1: m.x + 0.5 + half, y1: m.y + 0.5 + half, z1: ceiling }
+    }
+    case 'light': {
+      const { width, depth } = lightSpec(m)
+      const offset = lightOffset(m)
+      const cx = m.x + 0.5 + offset.x
+      const cy = m.y + 0.5 + offset.y
+      const ceiling = lightCeilingZ(m)
+      return { x0: cx - width / 2, y0: cy - depth / 2, z0: ceiling - LIGHT_DEPTH, x1: cx + width / 2, y1: cy + depth / 2, z1: ceiling }
+    }
     case 'sign': {
       // A **hanging** 指示牌 spans the whole storey column, like the 电视 and the
       // clock above. A **wall** board is bolted flat to the wall behind it, so it
@@ -420,6 +440,7 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
       return lineMapCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'bench':
       return benchCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'busstop':
     case 'roof':
     case 'track':
       return trackCells(m).map(([x, y]) => [x, y] as [number, number])
@@ -429,7 +450,7 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
       if (m.cfg.block) return [[m.x, m.y]]
       return [m.from, m.to].map((p) => [p.x, p.y] as [number, number])
     case 'escalator':
-      return [m.from, m.to].map((p) => [p.x, p.y] as [number, number])
+      return escalatorLandings(m).map((p) => [p.x, p.y] as [number, number])
     default:
       return [[m.x, m.y]]
   }
@@ -451,6 +472,7 @@ function baseCells(m: Module): Array<[number, number]> {
     case 'glass':
     case 'calligraphy':
     case 'linemap':
+    case 'busstop':
     case 'bench':
     case 'door':
     case 'track':
@@ -510,7 +532,7 @@ const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'glass', 'callig
  * behind one type, so `isCeilingHung` answers a sign (and the bare `sign-ceiling` id)
  * from `cfg.mount` before this lookup.
  */
-const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv'])
+const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv', 'light', 'light-circular', 'light-rectangular', 'vent'])
 
 /**
  * True when a piece is bolted flat to a wall. Every wall-mounted type is, except
@@ -1012,6 +1034,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
 function isHangingShare(a: Module, b: Module): boolean {
   const hung = isCeilingHung(a) ? a : isCeilingHung(b) ? b : null
   if (hung === null) return false
+  if (a.type === 'light' || b.type === 'light' || a.type === 'vent' || b.type === 'vent') return false
   const other = hung === a ? b : a
   return !isCeilingHung(other) && !isRunPiece(other)
 }
@@ -1176,8 +1199,12 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'desk',
   'cubicle',
   'sink',
+  'guidepost',
+  'busstop',
   'bin',
   'extinguisher',
+  'vent',
+  'light',
   'clock',
   'cctv',
   'billboard',
@@ -1289,6 +1316,7 @@ export type EquipmentRefusal =
   | 'exit-on-slab'
   | 'exit-below-ground'
   | 'bridge-below-ground'
+  | 'outdoor-below-ground'
   | 'floor'
   | 'track'
   | 'occupied'
@@ -1316,6 +1344,7 @@ export type EquipmentRefusal =
  * those produce the piece, not the verdict.
  */
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
+  if ((candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
   if ((candidate.type === 'pillar' || candidate.type === 'roof') && candidate.z < 0) return 'exit-on-slab'
@@ -1359,7 +1388,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   if (placementColliders(modules, candidate).length > 0) return 'occupied'
   if (wallMountMissing(cells, candidate, modules)) return 'wall'
   if (ceilingMountMissing(cells, candidate, modules)) return 'ceiling'
-  // A 扶梯 punches through whatever is in its way, so only its two landings matter.
+  // A 扶梯 punches through whatever is in its way; only its lower base needs support.
   // (A 电梯's bay is already answered above: `moduleFloorOk` is its whole footprint,
   // so a lift short of floor reports 'lift-footprint', never the generic 'floor'.)
   if (candidate.type === 'escalator' && !escalatorBasesSolid(cells, modules, candidate)) return 'escalator-bases'
@@ -1375,6 +1404,8 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal): string {
       return '地面出入口只能放在 0 米及以上'
     case 'bridge-below-ground':
       return '轨道桥的桥底必须在地面上方'
+    case 'outdoor-below-ground':
+      return '导向柱和公交站只能放在 0 米及以上的地板上'
     case 'floor':
       return '这儿没有地板，设备要站在实心地板上'
     case 'track':
@@ -1386,7 +1417,7 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal): string {
     case 'ceiling':
       return '吊挂指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）；墙面指示牌不用吊，贴在墙上就行'
     case 'escalator-bases':
-      return '扶梯两端都得有实心地板'
+      return '扶梯底端要有实心地板'
     case 'lift-footprint':
       return '电梯占地 2×2 米：四个格子都要有地板'
     default:

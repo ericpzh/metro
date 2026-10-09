@@ -343,7 +343,10 @@ test('the mesher’s truss-width band still fits the escalator’s own truss', a
   globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: stubContext }) }
   const { buildModule, createModelMaterials } = await import('../src/render/models.ts')
   const mats = createModelMaterials()
-  const group = buildModule(escalator, { mats })
+  // The escalator's landings read the station for the exit-plinth offset
+  // (`exitLandingHeight`); with no exits the run draws exactly on its own line.
+  const data = { name: 'fill', seed: 1, cells: [], modules: [], lines: [] }
+  const group = buildModule(escalator, { mats, data })
   group.updateMatrixWorld(true)
   const truss = []
   // The truss alone: the piece also carries its own solid under it (`EscalatorModel`'s

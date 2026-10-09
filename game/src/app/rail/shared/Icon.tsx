@@ -39,6 +39,8 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M10 5L17 9l-7 4-7-4zM3 9v2.5l7 4 7-4V9M10 13v2.5" />
         </>,
       )
+    case 'roof-shell':
+      return svg(<path {...s} d="M2 8l8-4 8 4M3 8v2l7 4 7-4V8M4 11h12" />)
     case 'roof-truss':
       return svg(<><path {...s} d="M2 7l8-3 8 3M2 7v2l8-3 8 3V7M3 10h14M3 15h14M3 10l3.5 5 3.5-5 3.5 5 3.5-5" /></>)
     case 'roof-tapered':

@@ -6,9 +6,11 @@
 // iteration order, so `seed + tick -> identical crowd` (§7.6).
 
 import { AgentPool, type Agent } from '../agents.ts'
+import { serviceArrivals, type TrainService } from '../trainSchedule.ts'
 import {
   CONGESTION_CAP,
   CONGESTION_S,
+  DEFAULT_SIM_TIME,
   DOOR_RATE,
   GATE_CLEAR_RADIUS,
   GATE_LOOKAHEAD,
@@ -92,9 +94,6 @@ const SEPARATION_MAX = 0.6
  * PERSONAL_SPACE, instead of every body in a 6 m square.
  */
 const COLLISION_CELL = 1.0
-
-/** Default clock for a station that does not override it: 06:30. */
-const DEFAULT_SIM_TIME = 6.5 * 3600
 
 /** A zeroed metrics block for a freshly constructed or loaded world. */
 function freshMetrics(simTime: number): Metrics {
@@ -600,6 +599,28 @@ export class World {
 
   private headwayFor(line: LineDef, period: 'peak' | 'offpeak' | 'late'): number {
     return period === 'peak' ? line.headwayProfile.peak : period === 'offpeak' ? line.headwayProfile.offpeak : line.headwayProfile.late
+  }
+
+  /** The same per-track dispatch schedule that runs the trains, for platform TVs (§6.5). */
+  trainServices(): TrainService[] {
+    const services: TrainService[] = []
+    for (const line of this.data.lines) {
+      const tracks = this.serviceTracks(line.id)
+      for (const track of tracks.length ? tracks : [undefined]) {
+        const trackId = track?.id ?? ''
+        const key = trainKey(line.id, trackId)
+        const anchor = this.lineAnchors.get(key)
+        if (!anchor) continue
+        const active = this.trains.find((t) => t.line === line.id && t.track === trackId)
+        services.push({
+          lineId: line.id, trackId, direction: track?.cfg.dir ?? line.direction,
+          x: anchor.x, y: anchor.y, z: anchor.z, fx: anchor.fx, fy: anchor.fy,
+          halfLength: track ? track.w / 2 : 0,
+          arrivals: serviceArrivals(this.simTime, this.nextDispatch.get(key) ?? this.simTime, active, line, this.day.service, this.day.peaks),
+        })
+      }
+    }
+    return services
   }
 
   private dispatchTrains(period: 'peak' | 'offpeak' | 'late'): void {

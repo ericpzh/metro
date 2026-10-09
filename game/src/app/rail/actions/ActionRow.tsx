@@ -80,7 +80,14 @@ function ActionTiles(): React.ReactElement {
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
   const moduleRot = useStore((s) => s.moduleRot)
+  const guideExitId = useStore((s) => s.guideExitId)
+  const exits = useStore((s) => s.station.modules).filter((m) => m.type === 'exit')
+  const selectedExitId = exits.find((m) => m.id === guideExitId)?.id ?? exits[0]?.id
+  const lightPosition = useStore((s) => s.lightPosition)
   const escalatorDir = useStore((s) => s.escalatorDir)
+  const escalatorWide = useStore((s) => s.escalatorWide)
+  const escalatorLong = useStore((s) => s.escalatorLong)
+  const liftStyle = useStore((s) => s.liftStyle)
   const gateDoor = useStore((s) => s.gateDoor)
   const stairWidth = useStore((s) => s.stairWidth)
   const stairBlockHeight = useStore((s) => s.stairBlockHeight)
@@ -99,7 +106,20 @@ function ActionTiles(): React.ReactElement {
       {piece !== null && isRotatableType(piece) ? (
         piece === 'pillar-slim'
           ? <PositionTile position={moduleRot} onClick={() => st().rotateModule()} />
-          : <RotateTile label={`旋转 ${((4 - moduleRot) % 4) * 90}°`} onClick={() => st().rotateModule()} />
+          : <RotateTile label={`旋转 ${piece === 'light-rectangular' ? (moduleRot % 2) * 90 : ((4 - moduleRot) % 4) * 90}°`} onClick={() => st().rotateModule()} />
+      ) : null}
+      {piece === 'lift' ? (
+        <Block label={liftStyle === 'glass' ? '玻璃' : '钢板'} icon="block" shortcut="Tab" onClick={() => st().cycleLiftStyle()} />
+      ) : null}
+      {piece === 'guidepost' ? (
+        <div className="guideExitTiles" role="group" aria-label="选择出入口">
+          {exits.length === 0 ? <span>暂无出入口</span> : exits.map((exit) => (
+            <button type="button" key={exit.id} aria-pressed={selectedExitId === exit.id} onClick={() => st().setGuideExitId(exit.id)}>{exit.cfg.name || '口'}</button>
+          ))}
+        </div>
+      ) : null}
+      {piece === 'light-rectangular' ? (
+        <PositionTile position={lightPosition} shortcut="Tab" onClick={() => st().cycleLightPosition()} />
       ) : null}
       {/* Both 指示牌 mounts — the hung board and the wall board — are composed on the
           same board editor, so the tile follows the piece and not one palette id. */}
@@ -118,7 +138,7 @@ function ActionTiles(): React.ReactElement {
           onClick={() => st().cycleStairWidth()}
         />
       ) : null}
-      {piece !== null && (piece === 'roof-truss' || piece === 'roof-tapered') ? (
+      {piece !== null && (piece === 'roof-shell' || piece === 'roof-truss' || piece === 'roof-tapered') ? (
         <Block
           label={roofWidthLabel(roofWidth)}
           icon="ortho"
@@ -127,12 +147,16 @@ function ActionTiles(): React.ReactElement {
         />
       ) : null}
       {piece !== null && isEscalatorType(piece) ? (
-        <Block
-          label={escalatorDir === 'up' ? '上行' : '下行'}
-          icon={escalatorDir === 'up' ? 'up' : 'down'}
-          shortcut="Tab"
-          onClick={() => st().cycleEscalatorDir()}
-        />
+        <>
+          <Block
+            label={escalatorDir === 'up' ? '上行' : '下行'}
+            icon={escalatorDir === 'up' ? 'up' : 'down'}
+            shortcut="Tab"
+            onClick={() => st().cycleEscalatorDir()}
+          />
+          <Block label={escalatorWide ? '宽' : '窄'} icon="ortho" onClick={() => st().toggleEscalatorWidth()} />
+          <Block label={escalatorLong ? '长' : '短'} icon="ortho" onClick={() => st().toggleEscalatorLength()} />
+        </>
       ) : null}
       {piece !== null && isGateType(piece) ? (
         <Block

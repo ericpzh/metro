@@ -48,9 +48,6 @@ function station(extra = []) {
 const ceilingSlab = { x: 3, y: 3, z: 4, fill: 'solid' }
 /** The same, one cell along: enough ceiling for a sign moved from (3,3) to (4,3). */
 const ceilingRun = [ceilingSlab, { x: 4, y: 3, z: 4, fill: 'solid' }]
-/** The one block a run climbing from `z = 0` arrives on, one storey up. */
-const upperSlab = (x, y) => [{ x, y, z: 4, fill: 'solid' }]
-
 const at = (x, y, z = 0) => ({ x, y, z })
 
 /** A piece built by the real factory, so its `cfg` is the one the game makes. */
@@ -180,14 +177,16 @@ test('a piece that was never on the block grid keeps the run it has', () => {
   assert.deepEqual(moved.cfg.flights, [{ from: { x: 2, y: 3, z: 0 }, to: { x: 8, y: 3, z: 4 } }])
 })
 
-test('a run is refused where its own landings have no floor', () => {
-  // An escalator climbs a whole storey, so the drop needs floor under **both** of its
-  // landings: the slab at z = 4 is the upper one, and without it the run has nowhere to
-  // arrive. The verdict is the placement verdict, so the notice is the placement notice.
+test('a run is refused only where its own lower base has no floor', () => {
+  // An escalator climbs a whole storey, but the drop needs floor under its lower
+  // base alone: the upper landing is carved on placement, so the slab at z = 4 is
+  // never asked for. The verdict is the placement verdict, so the notice is the
+  // placement notice.
   const esc = piece('escalator', 2, 2)
-  assert.match(moveDropReason(station().cells, [esc], movedModule(esc, at(6, 4, 0), 0)), /地板/)
-  const withUpper = station(upperSlab(6, 10)).cells
-  assert.equal(moveDropReason(withUpper, [esc], movedModule(esc, at(6, 4, 0), 0)), '')
+  assert.equal(moveDropReason(station().cells, [esc], movedModule(esc, at(6, 4, 0), 0)), '', 'the upper landing is carved, not required')
+  // Dig the base out and the same drop is refused for want of floor.
+  const dug = station().cells.map((c) => (c.x === 6 && c.y === 4 && c.z === 0 ? { ...c, fill: 'void' } : c))
+  assert.match(moveDropReason(dug, [esc], movedModule(esc, at(6, 4, 0), 0)), /地板/)
 })
 
 /* ------------------------------------------------------------ the drop rules */

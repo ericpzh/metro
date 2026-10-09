@@ -169,14 +169,17 @@ export function App(): React.ReactElement {
           // placed: rail direction, stair or roof width, escalator direction, the 闸机's
           // lane or fence.
           e.preventDefault()
-          if (st.tool === 'block') {
+          if (st.moveDraft?.module.type === 'light') st.cycleMoveLightPosition()
+          else if (st.tool === 'module' && st.moduleType === 'light-rectangular') st.cycleLightPosition()
+          else if (st.tool === 'block') {
             st.setAutoWalls(!st.autoWalls)
           } else if (st.tool === 'rail') st.cycleRailDir()
           else if (st.tool === 'tunnel') st.cycleTunnelLength()
           else if (st.tool === 'module' && st.moduleType === 'bridge') st.cycleBridgeLength()
           else if (st.tool === 'module' && isStairType(st.moduleType)) st.cycleStairWidth()
-          else if (st.tool === 'module' && (st.moduleType === 'roof-truss' || st.moduleType === 'roof-tapered')) st.cycleRoofWidth()
+          else if (st.tool === 'module' && (st.moduleType === 'roof-shell' || st.moduleType === 'roof-truss' || st.moduleType === 'roof-tapered')) st.cycleRoofWidth()
           else if (st.tool === 'module' && isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
+          else if (st.tool === 'module' && st.moduleType === 'lift') st.cycleLiftStyle()
           else if (st.tool === 'module' && isGateType(st.moduleType)) st.cycleGateDoor()
           break
         case 'n':

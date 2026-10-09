@@ -14,6 +14,7 @@ import { syncBridgePillars } from './BridgePillars.ts';
 
 export interface StationState {
   name: string;
+  nameEn?: string;
   seed: number;
   levelBase: number;
   cells: Cell[];
@@ -54,6 +55,7 @@ export function toState(data: StationData): StationState {
 function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>): StationState {
   const state: StationState = {
     name: data.name,
+    nameEn: typeof data.nameEn === 'string' ? data.nameEn.trim() : '',
     seed: data.seed,
     levelBase: normalizeLevelBase(data.levelBase),
     // Off-grid cells are dropped here, where every load path passes: they are
@@ -86,6 +88,7 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
 export function toData(s: StationState): StationData {
   return {
     name: s.name,
+    nameEn: s.nameEn,
     seed: s.seed,
     levelBase: s.levelBase,
     cells: s.cells,
@@ -114,6 +117,7 @@ function deepCopy<T>(value: T): T {
 export function cloneState(s: StationState): StationState {
   return {
     name: s.name,
+    nameEn: s.nameEn,
     seed: s.seed,
     levelBase: s.levelBase,
     cells: s.cells.map(cloneCell),

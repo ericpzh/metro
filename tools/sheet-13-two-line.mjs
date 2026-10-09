@@ -118,6 +118,8 @@ export function artTwoLine() {
   model(L.street, 'exit-covered-1', -3.3, 8.5, 0);
   model(L.street, 'bin', -3.3, 14.2, .02);
   model(L.street, 'bench-steel-1', -6.3, 12.8, .02);
+  model(L.street, 'guidepost', -1.5, 16.5, .02);
+  model(L.street, 'busstop-short', -7.5, 18.5, .02);
   for (const [x, y] of [[-5.8, 9.2], [-2, 13], [-4.8, 15], [-7.4, 12]])
     S.sprite(x, y, .05, 'personBag', { color: C.teal, k: L.street + depth(x, y, 0) });
 
@@ -225,6 +227,12 @@ export function artTwoLine() {
   put(L.platformO, 23, (PP0 + DY1) / 2, ZK + 0.02, boxSvg(DX0, PP0, ZK, DX1 - DX0, DY1 - PP0, 0.08, C.floor, { tone: 1.0, sw: 0.5 }));
   put(L.platformO + 30, 23, PP0 + 0.45, ZK + 0.04, quadSvg(DX0, PP0 + 0.03, ZK + 0.06, DX1 - DX0, 0.88, C.tactile, { tone: 1.0, sw: 0.3 }));
   put(L.platformO + 32, 23, PP0 + 1.35, ZK + 0.04, quadSvg(DX0, PP0 + 0.91, ZK + 0.06, DX1 - DX0, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
+  // Wrap the exposed outer edge and both ends, leaving the boarding edge open.
+  for (let x = DX0 + .5; x < DX1; x += 1)
+    model(L.crowdO + 90, 'fence', x, DY1 - .15, ZK + .08);
+  for (const x of [DX0 + .15, DX1 - .15])
+    for (let y = PP0 + .5; y < DY1; y += 1)
+      model(L.crowdO + 90, 'fence-end', x, y, ZK + .08);
 
   /* ============================================================ 10. the crowd up there */
   for (const x of [7, 17, 27, 37]) model(L.crowdO, 'bench-steel-1', x, .25, ZK + .1);
@@ -248,12 +256,13 @@ export function artTwoLine() {
    * Columns first, roof last: a column's head has to disappear into the slab, not through it.
    * The columns belong to the platform they stand on as much as to the roof, but they are part
    * of the roof's band here for the same reason the deck is part of the road's. */
-  for (const bx of [1, 11, 21, 31, 41]) {
-    put(L.roof + 20, bx, PP0 + 0.55, ZK, rboxSvg(bx, PP0 + 0.55, ZK, 0.42, 0.42, 4.5, C.steel, { r: 0.1 }));
-    put(L.roof + 20, bx, DY1 - 0.9, ZK, rboxSvg(bx, DY1 - 0.9, ZK, 0.42, 0.42, 4.5, C.steel, { r: 0.1 }));
+  for (const bx of [0, 8, 16, 24, 32, 40, 46]) {
+    model(L.roof + 20, 'pillar-slim', bx, PP0 + .55, ZK + .08);
+    model(L.roof + 20, 'pillar-slim', bx, DY1 - .85, ZK + .08);
   }
-  put(L.roof + 40, 23, -3.1, ZK + 4.35, boxSvg(DX0, DY0 + 0.2, ZK + 4.5, DX1 - DX0, DY1 - DY0 - 0.2, 0.3, C.ceilBaffle, { tone: 0.95 }));
-  put(L.roof + 44, 23, -3.1, ZK + 4.8, boxSvg(DX0, DY0 + 0.2, ZK + 4.8, DX1 - DX0, DY1 - DY0 - 0.2, 0.45, C.panel, { tone: 1.05 }));
+  // The game's four-metre truss bays share a ridge along the platform.
+  for (let x = DX0; x < DX1 - 2; x += 4)
+    model(L.roof + 40, 'roof-truss', x + 2, PP0 + 2.3, ZK + 4 + .08);
 
   /* ============================================================ 8. the station's own walls
    * The face behind the far road and the face along the side: the two the cut left standing.

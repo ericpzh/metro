@@ -432,6 +432,17 @@ export class CameraSystem extends SceneSystem {
     return null
   }
 
+  /** Pointer intersection at a fitting's height, independent of blocks beneath it. */
+  pickHorizontalPlane(clientX: number, clientY: number, height: number, anchorZ: number): PickResult | null {
+    const rect = this.canvas.getBoundingClientRect()
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
+    this.raycaster.setFromCamera(ndc, this.activeCamera())
+    const point = new THREE.Vector3()
+    if (!this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -height), point)) return null
+    const cell: [number, number, number] = [Math.floor(point.x), Math.floor(point.y), anchorZ]
+    return { cell, place: cell, solid: false, normal: [0, 0, 1], point: [point.x, point.y, point.z] }
+  }
+
   activeCamera(): THREE.Camera {
     return this.orthoOn ? this.ortho : this.camera
   }

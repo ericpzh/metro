@@ -16,7 +16,7 @@ export class DoorwayExitModel extends PieceBuilder {
     }
     slab(g, this.ctx.mats.exitRed, centre, 0, 2.86, width, 0.28, 0.24)
     slab(g, this.ctx.mats.darkSteel, centre, 0, 3.25, width, 0.16, 0.58)
-    const map = canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(this.ctx.data.name || '地铁', mod.cfg.name), 0, 0))
+    const map = canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(this.ctx.data.name || '地铁', mod.cfg.name, this.ctx.data.nameEn), 0, 0))
     const mat = this.ownedMaterial(new THREE.MeshBasicMaterial({ map }))
     plate(g, mat, width - 0.16, 0.48, centre, 0.09, 3.25, Math.PI)
     plate(g, mat, width - 0.16, 0.48, centre, -0.09, 3.25, 0)

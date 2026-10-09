@@ -57,6 +57,12 @@ export interface AreaDrag {
   fence?: boolean
   /** Roof tiles or small stair blocks laid/removed on the pressed plane. */
   roof?: boolean
+  /** This roof/stair-block drag was started from 删除. */
+  deleteTile?: boolean
+  /** The tile family and geometry captured when a roof/stair-block delete drag starts. */
+  tileType?: string
+  tileRot?: number
+  tileWidth?: number
   /** Current tile rectangle, for live R/Tab preview updates while dragging. */
   tileCells?: Array<[number, number, number]>
   /**

@@ -155,12 +155,15 @@ export function artSection() {
   room(CORE0, CORE1, GY, B3f, '', '#273443', '');
 
   /* ---- surface: plaza, pavilion over the core, ad board ---- */
-  g.push(T(600, 350, '地面', { size: 15, fill: '#cfe0f0', weight: 800, ls: 1.2 }));
-  g.push(T(600, 372, '站前广场，公交和出租车停靠，两个出入口', { size: 12.5, fill: '#9fb3c8' }));
+  g.push(T(600, 300, '地面', { size: 15, fill: '#cfe0f0', weight: 800, ls: 1.2 }));
+  g.push(T(600, 322, '站前广场，公交和出租车停靠，两个出入口', { size: 12.5, fill: '#9fb3c8' }));
   // The entrance is the game's covered 出入口, on the ground and to scale — the box that
   // used to stand here was 12 m wide and 6 m tall, where the piece is 8.4 m by 3.9 m.
   const entry = pieceAt('exit-covered-1', (CORE0 + CORE1) / 2 - (8.35 * S) / 2, GY);
   g.push(entry.svg);
+  g.push(pieceAt('guidepost', 1005, GY).svg);
+  g.push(pieceAt('busstop-short', 790, GY).svg);
+  g.push(passenger(955, GY, C.teal, 2, true));
   g.push(T((CORE0 + CORE1) / 2, GY - 3.88 * S - 58, '地铁', { size: 26, weight: 800, fill: '#cfe0f0', anchor: 'middle', ls: 4 }));
   g.push(T((CORE0 + CORE1) / 2, GY - 3.88 * S - 22, '出入口', { size: 11.5, fill: C.exitRed, weight: 800, anchor: 'middle' }));
 

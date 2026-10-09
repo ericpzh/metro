@@ -29,6 +29,11 @@ export interface ToolSlice {
   moduleType: string
   /** Quarter-turn applied to the equipment being placed: 0..3. */
   moduleRot: number
+  guideExitId: string | null
+  setGuideExitId: (id: string | null) => void
+  lightPosition: number
+  setLightPosition: (position: number) => void
+  cycleLightPosition: () => void
   /**
    * The 墙 tool's picked wall face at a corner, as a step through the snap
    * candidates **R** offers (`build/model.ts` `wallSnap`). It only encodes the
@@ -76,6 +81,10 @@ export interface ToolSlice {
   roofWidth: number
   /** Escalator travel direction, cycled with Tab (up/down). */
   escalatorDir: 'up' | 'down'
+  /** Whether a newly placed escalator spans two blocks. */
+  escalatorWide: boolean
+  /** Whether a newly placed escalator rises 8 m (长) instead of 4 m (短). */
+  escalatorLong: boolean
   /**
    * The 闸机 tool's piece (§4.5), toggled with Tab: `lane` (the default) is the
    * working turnstile — machine body on one half of the block, lane with its leaf
@@ -87,6 +96,7 @@ export interface ToolSlice {
   bridgeRailing: BridgeRailing
   setStructureOptions: (patch: Partial<Pick<ToolSlice, 'bridgeLength' | 'bridgeRailing'>>) => void
   cycleBridgeLength: () => void
+  liftStyle: 'glass' | 'steel'
   gateDoor: GateDoor
   /** Active fare-zone brush, or a facility room (§5.7) built by rectangle. */
   zoneBrush: ZoneBrush
@@ -147,7 +157,12 @@ export interface ToolSlice {
   setRoofWidth: (width: number) => void
   /** Flip the escalator travel direction up ↔ down (Tab). */
   cycleEscalatorDir: () => void
+  /** Toggle a narrow or two-block-wide escalator from its rail tile. */
+  toggleEscalatorWidth: () => void
+  toggleEscalatorLength: () => void
   /** Toggle the 闸机 between a working lane and the doorless fence machine (Tab). */
+  cycleLiftStyle: () => void
+  setLiftStyle: (style: 'glass' | 'steel') => void
   cycleGateDoor: () => void
   setZoneBrush: (z: ZoneBrush) => void
   setZoneOverlay: (on: boolean) => void
@@ -170,6 +185,11 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   autoWalls: false,
   moduleType: 'gate',
   moduleRot: 0,
+  guideExitId: null,
+  setGuideExitId: (id) => set({ guideExitId: id }),
+  lightPosition: 0,
+  setLightPosition: (position) => set({ lightPosition: ((position % 9) + 9) % 9 }),
+  cycleLightPosition: () => set((s) => ({ lightPosition: (s.lightPosition + 1) % 9 })),
   wallSnapCycle: 0,
   halfWall: false,
   triangles: false,
@@ -178,6 +198,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   stairBlockHeight: 1,
   roofWidth: 4,
   escalatorDir: 'up',
+  escalatorWide: false,
+  escalatorLong: false,
   bridgeLength: 32,
   bridgeRailing: 'railing',
   setStructureOptions: (patch) => set({
@@ -185,6 +207,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
     ...(patch.bridgeRailing === undefined ? {} : { bridgeRailing: patch.bridgeRailing }),
   }),
   cycleBridgeLength: () => set((s) => ({ bridgeLength: nextTrackRunLength(s.bridgeLength) })),
+  liftStyle: 'glass',
   gateDoor: 'lane',
   zoneBrush: DEFAULT_ZONE_BRUSH,
   zoneOverlayOn: false,
@@ -199,7 +222,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // A fixed-angle piece simply ignores the turn, so the guard lives here as well
   // as on the rail button.
   rotateModule: () =>
-    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType === 'pillar-slim' ? (s.moduleRot + 1) % 9 : (s.moduleRot + 3) % 4) } : {})),
+    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType === 'pillar-slim' ? (s.moduleRot + 1) % 9 : s.moduleType === 'light-rectangular' ? (s.moduleRot + 1) % 2 : (s.moduleRot + 3) % 4) } : {})),
   rotateWallSnap: () => set((s) => ({ wallSnapCycle: s.wallSnapCycle + 1 })),
   setHalfWall: (on) => set({ halfWall: on, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
   toggleHalfWall: () => get().setHalfWall(!get().halfWall),
@@ -224,11 +247,15 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleRoofWidth: () => set((s) => ({ roofWidth: nextRoofWidth(s.roofWidth) })),
   setRoofWidth: (width) => set({ roofWidth: supportedRoofWidth(width) }),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
+  toggleEscalatorWidth: () => set((s) => ({ escalatorWide: !s.escalatorWide })),
+  toggleEscalatorLength: () => set((s) => ({ escalatorLong: !s.escalatorLong })),
+  cycleLiftStyle: () => set((s) => ({ liftStyle: s.liftStyle === 'glass' ? 'steel' : 'glass' })),
+  setLiftStyle: (style) => set({ liftStyle: style }),
   cycleGateDoor: () => set((s) => ({ gateDoor: nextGateDoor(s.gateDoor) })),
   setZoneBrush: (z) => set({ zoneBrush: z }),
   setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
   setModuleRot: (rot) => set((s) => {
-    const count = s.moduleType === 'pillar-slim' ? 9 : 4
+    const count = s.moduleType === 'pillar-slim' ? 9 : s.moduleType === 'light-rectangular' ? 2 : 4
     return { moduleRot: ((rot % count) + count) % count }
   }),
   setEscalatorDir: (dir) => set({ escalatorDir: dir }),

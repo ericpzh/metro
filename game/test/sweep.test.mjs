@@ -21,6 +21,10 @@ const stair = (x, y, z, id = 'stair-1') => ({ id, type: 'stair', x, y, z, rot: 0
 const shop = (id = 'shop-1') => ({ id, type: 'shop', x: 0, y: 0, z: 0, w: 5, h: 5, cfg: { kind: 'store', door: [] } })
 const platformEdge = (x, y, z, id = 'pe-1') => ({ id, type: 'platform-edge', x, y, z, w: 6, cfg: { name: '1站台', line: 'A', dir: 'up', side: 'left' } })
 const sign = (x, y, z, mount, id = 'sign-1') => ({ id, type: 'sign', x, y, z, rot: 0, cfg: { mount, front: [], back: [] } })
+const busstop = (x, y, z, variant, id = 'bus-1') => ({ id, type: 'busstop', x, y, z, rot: 0, cfg: { variant } })
+const light = (x, y, z, variant, id = 'light-1') => ({ id, type: 'light', x, y, z, rot: 0, cfg: { variant } })
+const guidepost = (x, y, z, id = 'gp-1') => ({ id, type: 'guidepost', x, y, z, rot: 0, cfg: {} })
+const vent = (x, y, z, id = 'vent-1') => ({ id, type: 'vent', x, y, z, rot: 0, cfg: {} })
 
 test('a sweep matches the same equipment type, whatever the rotation', () => {
   assert.equal(sweepFamily(gate(0, 0, 0)), 'gate')
@@ -57,6 +61,18 @@ test('a sweep keeps the palette variant apart', () => {
   assert.equal(sameSweepFamily(sign(0, 0, 0, 'wall', 'a'), sign(1, 0, 0, 'wall', 'b')), true)
   assert.equal(sameSweepFamily(sign(0, 0, 0, 'wall', 'a'), sign(1, 0, 0, 'ceiling', 'b')), false)
   assert.equal(sameSweepFamily(sign(0, 0, 0, undefined, 'a'), sign(1, 0, 0, 'ceiling', 'b')), true)
+  // A 公交站 sweeps by shelter length and a 灯具 by housing shape: a short
+  // shelter leaves the long ones standing, and a round diffuser leaves the
+  // rectangular battens — the key is the variant, as with benches and doors.
+  assert.equal(sweepFamily(busstop(0, 0, 0, 'short')), 'busstop:short')
+  assert.equal(sameSweepFamily(busstop(0, 0, 0, 'short', 'a'), busstop(1, 0, 0, 'short', 'b')), true)
+  assert.equal(sameSweepFamily(busstop(0, 0, 0, 'short', 'a'), busstop(1, 0, 0, 'long', 'b')), false)
+  assert.equal(sweepFamily(light(0, 0, 0, 'circular')), 'light-circular')
+  assert.equal(sameSweepFamily(light(0, 0, 0, 'circular', 'a'), light(1, 0, 0, 'circular', 'b')), true)
+  assert.equal(sameSweepFamily(light(0, 0, 0, 'circular', 'a'), light(1, 0, 0, 'rectangular', 'b')), false)
+  // A 导向柱 and a 通风口 have no variant: the type alone is the family.
+  assert.equal(sweepFamily(guidepost(0, 0, 0)), 'guidepost')
+  assert.equal(sweepFamily(vent(0, 0, 0)), 'vent')
 })
 
 test('a legacy piece with no variant reads as the palette default it is drawn as', () => {
@@ -84,11 +100,14 @@ test('every 设备 / 装饰 type a sweep may collect is listed', () => {
   // The list is deliberately explicit: adding a palette piece without deciding
   // its teardown leaves it un-sweepable (a safe default), and this test is where
   // that decision is written down.
-  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'bin', 'extinguisher', 'clock', 'cctv', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign']
+  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'guidepost', 'busstop', 'bin', 'extinguisher', 'vent', 'light', 'clock', 'cctv', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign']
+  // A 灯具 and a 公交站 only exist with a variant, so the list entry carries
+  // the palette default the piece is drawn as.
+  const variantCfg = { busstop: { variant: 'short' }, light: { variant: 'circular' } }
   for (const type of sweepable) {
-    const mod = { id: `m-${type}`, type, x: 0, y: 0, z: 0, cfg: {} }
+    const mod = { id: `m-${type}`, type, x: 0, y: 0, z: 0, cfg: variantCfg[type] ?? {} }
     const family = sweepFamily(mod)
-    assert.ok(family === type || family.startsWith(`${type}:`), `${type} should be sweepable, got ${family}`)
+    assert.ok(family === type || family.startsWith(`${type}:`) || family.startsWith(`${type}-`), `${type} should be sweepable, got ${family}`)
     // The same piece turned a quarter is the same target.
     assert.equal(sameSweepFamily(mod, { ...mod, id: 'other', rot: 3 }), true, `${type} should match its own type`)
   }

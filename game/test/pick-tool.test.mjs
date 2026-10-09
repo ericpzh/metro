@@ -13,6 +13,25 @@ import { useStore } from '../src/app/store.ts'
 import { PickTool } from '../src/app/tools/PickTool.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
+import { escalatorModule } from '../src/sim/escalators.ts'
+
+test('picking short or long escalators copies length and Esc restores it', () => {
+  const before = useStore.getState()
+  try {
+    for (const long of [false, true]) {
+      const m = escalatorModule({ x: 0, y: 0, z: -8 }, 2, 'down', 'picked-escalator', 2, long)
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, escalatorLong: !long })
+      ctxFor(m.id).onDown(press([0, 0, -8]))
+      assert.equal(useStore.getState().escalatorLong, long)
+      assert.equal(useStore.getState().escalatorWide, true)
+      assert.equal(useStore.getState().escalatorDir, 'down')
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().escalatorLong, !long)
+    }
+  } finally {
+    useStore.setState(before)
+  }
+})
 
 const floor = (x, y, z = 0) => ({ x, y, z, fill: 'solid' })
 
@@ -65,6 +84,21 @@ const MODULES = [
 ]
 
 /** The picker with the scene stubbed and the drawn-model pick scripted. */
+test('picking either lift style copies it, and Esc restores the previous style', () => {
+  for (const style of ['glass', 'steel']) {
+    const m = createModule('lift', 0, 0, 0, 'picked-lift', 2)
+    m.cfg.style = style
+    useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, liftStyle: style === 'glass' ? 'steel' : 'glass' })
+    const before = useStore.getState().liftStyle
+    ctxFor(m.id).onDown(press([0, 0, 0]))
+    assert.equal(useStore.getState().moduleType, 'lift')
+    assert.equal(useStore.getState().liftStyle, style)
+    assert.equal(useStore.getState().moduleRot, 2)
+    useStore.getState().cancelPick()
+    assert.equal(useStore.getState().liftStyle, before)
+  }
+})
+
 test('picking a short stair block restores its height and rotation', () => {
   const m = createModule('stair-block', 0, 0, 0, 'short', 2, 0.5)
   useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, stairBlockHeight: 1 })
@@ -171,6 +205,42 @@ test('picking equipment arms its exact variant, copies its turn, and selects it'
   ctxFor('es1').onDown(press([0, 2, 0]))
   assert.equal(st().moduleType, 'escalator')
   assert.equal(st().escalatorDir, 'down')
+})
+
+test('picking a 灯具, 导向柱, wide 扶梯 or shell roof arms its tile and settings', () => {
+  // A rectangular batten off-centre, a pillar bound to an exit, a wide run and
+  // a shell bay: the pick arms each tile and adopts the setting behind it.
+  const light = { id: 'l1', type: 'light', x: 0, y: 0, z: -4, rot: 1, cfg: { variant: 'rectangular', position: 5 } }
+  const guide = { id: 'gp1', type: 'guidepost', x: 1, y: 0, z: 0, rot: 0, cfg: { exitId: 'e1' } }
+  const wide = {
+    id: 'es2', type: 'escalator', x: 0, y: 2, z: -4, rot: 0,
+    from: { x: 0, y: 2, z: -4 }, to: { x: 0, y: 8, z: 0 }, cfg: { dir: 'up', width: 2 },
+  }
+  const shell = createModule('roof-shell', 2, 2, 4, 'r1', 0, 8)
+  const cells = []
+  for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) cells.push(floor(x, y))
+  useStore.setState({
+    station: toState({ name: 't', seed: 1, cells, modules: [light, guide, wide, shell], lines: [] }),
+    tool: 'pick', escalatorWide: false, lightPosition: 0, guideExitId: null, roofWidth: 4,
+  })
+
+  ctxFor('l1').onDown(press([0, 0, 0]))
+  assert.equal(st().moduleType, 'light-rectangular', 'a batten arms its own shape')
+  assert.equal(st().lightPosition, 5, 'and the in-cell spot it hangs from')
+
+  ctxFor('gp1').onDown(press([1, 0, 0]))
+  assert.equal(st().moduleType, 'guidepost', 'a pillar is a placement, not just a selection')
+  assert.equal(st().guideExitId, 'e1', 'and it stays bound to its exit')
+
+  ctxFor('es2').onDown(press([0, 2, 0]))
+  assert.equal(st().moduleType, 'escalator')
+  assert.equal(st().escalatorWide, true, 'a wide run arms the wide band')
+
+  ctxFor('r1').onDown(press([2, 2, 4]))
+  assert.equal(st().moduleType, 'roof-shell', 'a shell bay arms the shell tile')
+  assert.equal(st().roofWidth, 8)
+  assert.equal(st().cancelPick(), true)
+  assert.equal(st().roofWidth, 4, 'Esc restores the width armed before picking')
 })
 
 test('a legacy piece with no variant reads as the palette default it is drawn as', () => {

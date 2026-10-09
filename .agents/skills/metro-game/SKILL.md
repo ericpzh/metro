@@ -177,7 +177,7 @@ the four rules most changes trip over.
 * **The worker** (`sim/worker.ts`, `sim/protocol.ts`) is the only sim code that
   touches `postMessage`. Messages in: `init` / `build` / `control` / `restart` /
   `seek`; out: `ready` (graph) / `state` (agent `Float32Array`s, metrics, density,
-  train poses, `intervalMs`). Payloads are copied, not transferred; the renderer
+  train poses, the `trainServices` timetable forecast, `intervalMs`). Payloads are copied, not transferred; the renderer
   interpolates over `intervalMs`. Each tick is synchronous. `build` is a live edit:
   it calls `World.rebuild()` and keeps the crowd. A station switch (打开 / 新建 /
   示例车站) re-sends `init`, which calls `World.load()` — a full reset of agents,
@@ -221,9 +221,23 @@ the four rules most changes trip over.
   any slab the flight merely climbs *underneath* are free ground — a 围栏, a 闸机 or a
   bench stands at the head of a well or over the low half of a flight, which is how the
   demo guards each of its platform stairs — while two runs still meet on the full
-  envelope and can never share a landing. An escalator is the exception: its truss,
+  envelope and can never share a landing. A **narrow** escalator is the exception: its truss,
   step band and balustrades run landing centre to landing centre, so every tile of its
-  run, landings included, is its own. A fence *on* a landing is read the same way as
+  run, landings included, is its own. A **wide** escalator (`cfg.width: 2`, the 宽 tile)
+  is one continuous two-block band with rails on its outer edges only — no centre rail —
+  and reserves exactly two blocks across (`escalators.test.mjs` pins the envelope in all
+  rotations and directions). Its step band runs the incline plus a flat at each end
+  (`ESCALATOR_FLAT_LENGTH`, comb plates and a landing deck of its own), its steps level
+  through `escalatorStepHeight` while risers collapse on the flats (`rollEscalator`), its
+  four newels carry entry-arrow / stop-bar lights (`EscalatorIndicatorModel`), and flush
+  neighbours share stainless infill caps (`RampJoinModel`, `ramp-join.test.mjs`). The
+  piece draws its own body (`SlopeCut.ownBody`), so the mesher derives no filling under
+  one — `ramp-fill.test.mjs` keeps the mesher's band honest against the real truss. A run
+  that lands inside a covered exit rides +0.25 m (`exitLandingHeight`, the head-house
+  plinth; the graph stays on the storey). A 長 escalator climbs two storeys (8 m over a
+  12 m run, `ESCALATOR_LONG_*`); length is read off its endpoints (`escalatorIsLong`, no
+  `cfg` flag), cycled on the rail with 短-长, and the exit-bay snap takes the long run
+  (`escalator-length.test.mjs`). A fence *on* a landing is read the same way as
   one beside it: the fence cell is not a walkable node, so that flight drops out of the
   walk graph and fencing the head of a stair really closes it off.
 * **A stair is lanes** (`sim/stairs.ts`, §5.1). Tab cycles three **sizes**, which the
@@ -294,6 +308,10 @@ the four rules most changes trip over.
   The car is a real state machine (`World.stepLift`: park → open → dwell → close → move,
   eased), and riders are `STATE_RIDING` pinned inside the cabin by `stepLiftRide`, so
   they visibly move with it; `World.liftRenderState` sends one car pose per snapshot.
+  The shaft comes in two housings (`cfg.style`, Tab cycles it): glass is the default —
+  corner posts, panel bays, guide rails and a glazed cabin — and steel keeps the old
+  enclosed shaft; both keep the animated-car contract and survive extending and saving
+  (`lift-style.test.mjs`).
 * **Finishes** (`sim/finishes.ts`): the *family* decides behaviour (floor walk speed,
   track bed not walkable, wall blocks), the finish decides look. The renderer reads the
   same table, so a surface cannot look like one thing and behave like another.
@@ -308,7 +326,7 @@ the four rules most changes trip over.
   hovered floor, or on the face-adjacent cell when the pointer is on a wall itself —
   dropped to that wall's own storey floor (`storeyBand`) — so an ad can bolt to the
   station wall across the track where there is no floor in front of it. The **hanging**
-  指示牌, the 电视, the 时钟 and the 监控 are instead *ceiling-hung*:
+  指示牌, the 电视, the 时钟, the 监控, the 灯具 (both tiles) and the 通风口 are instead *ceiling-hung*:
   `ceilingMountMissing` refuses them unless a solid slab sits above every cell of the
   piece one storey up (`LEVEL_STEPS`, the 4 m grid), and `ceilingMountStandCell` resolves
   the hover to the floor the piece hangs over from any face. A 指示牌's **wall** mount is
@@ -325,7 +343,8 @@ the four rules most changes trip over.
   away from the run — the same path a player's own 半墙 takes, so its faces keep their
   finishes and the 材质 brush can paint it (`thinWallCells` is the one list both come
   through). The floor beside a run stays buildable and a railing can sit against a wall; a
-  tile-sized run (an escalator, a stair lane) reaches nothing beside it. A **半墙** the
+  tile-sized run (a stair lane, a narrow escalator) reaches nothing beside it — a width-2
+  escalator is two blocks by construction. A **半墙** the
   player laid is skipped: that cell is already a half block thick, and its side is theirs.
   The ground **under** a run: a run's body hangs below its walking line — an escalator's
   truss by `RAMP_FOOT` (0.5 m), a stair's stringers and soffit by `STAIR_BODY_DROP`
@@ -402,10 +421,14 @@ the four rules most changes trip over.
   tunnel. `LineDef.upTerminus` / `downTerminus` are the per-direction destinations, and
   every platform screen prints the bound line's terminus for its own `cfg.dir` (falling
   back to 上行/下行). Each line also chooses its 屏蔽门 height (`cfg.psd`, 全高 by default):
-  `full` reserves the whole storey with the header on a top band, `half` is a 1.5 m screen
+  `full` reserves the whole storey with a deep signage fascia sized from `PSD_FULL_HEIGHT`,
+  openings 1.5× the car-door width (`PSD_FULL_DOOR_WIDTH_SCALE`), and sliding vinyl bands —
+  fixed-pane band, door band, warning placard and opening arrow (`PsdDecals.ts`, printed
+  canvases registered as door leaves so they slide); `half` is a 1.5 m screen
   with the header on the glass; switching re-derives every edge on the line
   (`regenerateRailEdges`), so the model and the collision envelope agree
-  (`PSD_FULL_HEIGHT` / `PSD_HALF_HEIGHT`).
+  (`PSD_FULL_HEIGHT` / `PSD_HALF_HEIGHT`). The header prints the station's own
+  `name` / `nameEn`, never a hardcoded terminus.
 * **`STOCK_CLASSES` (`['A','B','C','L']`) is the single ordering source** (`sim/stock.ts`), so
   the worker's pose index (`indexOf`) and the renderer's decode (`STOCK_CLASSES[stockIdx]`)
   cannot desync, and the inspector's 车型 chips iterate it too. L is the 2.8 m wide, 16.8 m
@@ -508,7 +531,9 @@ the four rules most changes trip over.
   exists so the copy at its origin is never the obstacle. A carried wall panel aims through
   `wallMountStandCell` and a hung fitting through `ceilingMountStandCell`
   (`MoveController.moveAnchorAt`, reading the placed module's own mount), and either
-  previews with no floor cursor: the ghost is the highlight. The ways out are a left press
+  previews with no floor cursor: the ghost is the highlight. A moved rectangular 灯具
+  carries its in-cell spot with it (`cycleMoveLightPosition`, Tab; in the ghost key),
+  and a picked one adopts the spot it hung from. The ways out are a left press
   on the ground, the card's 确认 (or `Enter`), and 取消 / `Esc` / a right press. A ghost
   carries a private id (`MOVE_GHOST_ID`), because a 指示牌's printed plate and a 电视's
   station plate are cached per module id and a preview may only dispose what it minted
@@ -527,8 +552,10 @@ the four rules most changes trip over.
   `app/rail/menus/StructurePanel.tsx`; `overground.test.mjs` + `roof-tool.test.mjs` +
   `structures-gaps.test.mjs`). A pillar is a slim (0.3 m) or thick (1 m) column grown
   4 m at a time (`extendedPillar`, `PILLAR_STEP`); R places a slim pillar at one of nine
-  in-cell offsets (`pillarOffset`, its module `rot` is an index, not a quarter-turn),
-  shared by its drawn shaft and collision envelope. Thick pillars stay centred. A roof is a 1×1 m thin tile or a
+  in-cell offsets on the shared centre-then-reading-order cycle (`sim/inCellPositions.ts`,
+  which also drives a rectangular 灯具's Tab `position`; a slim pillar's module `rot` is
+  an index, not a quarter-turn), shared by its drawn shaft and collision envelope.
+  Thick pillars stay centred. A roof is a 1×1 m thin tile, a truss-less shell bay, or a
   raised truss bay in 4/8/12 m widths (`ROOF_WIDTHS`, `nextRoofWidth` /
   `supportedRoofWidth` / `roofWidthLabel`, `trussRoofRidge`/`trussRoofTop`), painted
   per tile or per connected surface (`paintRoofSurface`, 材质 单块/整面) while the
@@ -554,10 +581,10 @@ the four rules most changes trip over.
   `test/grid.test.mjs` is the guard on the commands downstream of the pick — extend it if you add
   a tool that writes cells — and `save.test.mjs` pins both boundaries.
 * **The demo is the author's real 动物园 (广州地铁 5号线) save**, shipped as
-  `data/demo-station.json` (12,035 cells, 397 modules, seed `7654321`) and handed out by
+  `data/demo-station.json` (12,031 cells, 604 modules, seed `7654321`) and handed out by
   `referenceStation()` as a `structuredClone` so an edit never leaks back into the shared
-  document. It opens cold at 07:27 sim time, warmup 0 (`REFERENCE_BOOT` in
-  `data/reference-station.ts`), and `app/boot.tsx` seeds the world from `station.seed`, so a cold
+  document. It opens cold at 06:30 sim time, warmup 0 (`REFERENCE_BOOT` in
+  `data/reference-station.ts`, pinned to `DEFAULT_SIM_TIME`), and `app/boot.tsx` seeds the world from `station.seed`, so a cold
   boot and an 打开 of the same document run the same crowd. The old hand-built Wusi Square rig
   moved to `test/support/scenario-station.ts`, so the capacity / stair / escalator / opening tests
   keep their controlled knobs; `demo.test.mjs` guards that the shipped save is one connected
@@ -635,9 +662,10 @@ the four rules most changes trip over.
   corner squares while the north and south runs butt between them, and the four glass sheets
   run out to each other's inner faces with a corner mullion over every joint
   (`booth-model.test.mjs` pins the box).
-* The **装饰 folder** holds the free-standing, rotatable pieces — 座椅, 货架, 办公桌,
-  厕所隔间, 洗手池, 垃圾桶, 灭火器 and 门 — plus 广告牌 and the **墙面指示牌** (wall-mounted,
-  `wallMountMissing`) and 电视 / **吊挂指示牌** / 时钟 / 监控 (ceiling-hung) — the 指示牌
+* The **装饰 folder** holds the free-standing pieces — 座椅, 货架, 办公桌,
+  厕所隔间, 洗手池, 垃圾桶, 灭火器, 门, 导向柱 and 公交站 (its own family: 短/长 shelters) —
+  plus 广告牌 and the **墙面指示牌** (wall-mounted,
+  `wallMountMissing`) and 电视 / **吊挂指示牌** / 时钟 / 监控 / 灯具 / 通风口 (ceiling-hung) — the 指示牌
   being one piece with both mounts, offered as two tiles (`sign-ceiling` / `sign-wall`) and
   read from its own `cfg.mount`. 座椅 is a nested sub-menu of four variants from
   `sim/benches.ts`: a plain stainless bench with no back and an upholstered seat with a back
@@ -672,6 +700,12 @@ the four rules most changes trip over.
   built page while every unit test passed), which is why the ring is `openEnded`. 监控 is the
   bracketed bullet camera (`buildCctv`) — the drawn housing is under 8% of the cell it
   reserves; both are cosmetic props hung the whole storey and neither is room furniture.
+  灯具 is the ceiling fitting in two housings — 圆形 (centred, fixed) and 直条 (the shared
+  nine-spot cycle, Tab, turned 0°/90° by R) with an emissive diffuser under the steel —
+  and 通风口 the square grille with a recessed dark backing and nine blades (`lights` /
+  `vent` suites pin the tiles, the mounts and the save round trip). A 导向柱 is the 4 m
+  red street pillar bound to one exit (armed, else the first standing; `street-decor.test.mjs`),
+  and picking a 灯具 / 导向柱 / wide 扶梯 adopts its spot / exit / width (`pick-tool.test.mjs`).
   广告牌 is a nested sub-menu of six formats whose run length and poster aspect come from
   `sim/billboards.ts`, so the thumbnail, the collision envelope and the drawn housing cannot
   disagree. 电视 hangs by rods from the ceiling, and the **吊挂指示牌** with it. A 指示牌 is
@@ -685,11 +719,16 @@ the four rules most changes trip over.
   it a 广告牌's thin slab on that wall rather than the hung board's whole storey column. The
   two mounts are two pieces to a sweep (`sign:wall` / `sign:ceiling`), to the hover ghost
   (`moduleGhostKey`) and to the palette, and one type everywhere else. The 电视 is
-  **single-sided** — its station board (line shield, 本趟/下趟/第三趟 cards, clock) and its
-  content window both ride the local −y face, so the back is a plain dark panel — and every
+  **single-sided** — its station board and its content window both ride the local −y face,
+  so the back is a plain dark panel — and every
   lit pane there lies over a dark backing slab, so it must stand half a slab out plus
   `LIT_STAND_OFF` (`test/tv-screen.test.mjs` pins the sampling, the depth and the tiling).
-  `电视` cycles the shared ad posters in that window, each screen rolling its own period, and
+  The board is three arrival cards, a video window and a blue footer (`render/stationDisplay.ts`):
+  `tvLineStatus(lines, services, at)` picks the nearest service track in 3D and forecasts
+  three arrivals off the worker's timetable (`sim/trainSchedule.ts`, pure — no RNG, no world
+  mutation), printing minutes (ceil), an arriving word inside `TRAIN_APPROACH_S` (6 s) and a
+  platform word at the berth; with no line the plate still draws three empty cards under the
+  station name (`station-display.test.mjs`). `电视` cycles the shared ad posters in that window, each screen rolling its own period, and
   only artwork cut for a landscape panel is eligible (cropping is not stretching).
   `render/stationDisplay.ts` owns the board's derivation and pixels, and
   `stationDisplayLayout` keeps its geometry testable without a canvas. **Two 电视 may share
@@ -806,8 +845,13 @@ the four rules most changes trip over.
   floor each end, so `exitWidth` is 3 / 4 / 5 blocks. `cfg.covered: false` drops the canopy and
   walls for a glass railing, but `exitWallPlanes` returns the same barriers, so only the look
   changes; the covered piece is a red steel portal frame under a blue waved roof, and the exit's
-  name board moves with the roof (有盖 hangs it at the street doorway meeting the roof
-  underside; 无盖 lays the same board over the *mouth* railing's glass, which carries it).
+  name board is the red brand header (`ExitModel`): the station name with the saved English
+  (`StationData.nameEn`) under it and the exit identifier beside it — no 口 suffix
+  (`exit-banner.test.mjs`). The house stands on a raised 0.25 m concrete plinth
+  (`EXIT_BASE_HEIGHT`, `ExitLanding.ts`) with a street-edge step, and runs landing inside
+  it draw +0.25 m up while the graph stays on the storey. The station itself is renamed the
+  same way its exits are: the top bar's two-field form (中文站名 + English name) commits both
+  as one undoable edit, and the envelope carries `nameEn` (trimmed, `''` by default).
   `exitRunSnap` snaps a straight stair/escalator dropped inside a head-house into the column
   under the pointer, clamped to the bay group; turning stairs are left un-snapped. A
   head-house's plan is `cfg.bays` **alone**, and `exitRunOpenings` walks the runs actually
@@ -887,7 +931,8 @@ the four rules most changes trip over.
   before the station existed — while later edits leave the camera alone (`framedRef`). **A Tab
   cycle must redraw the ghost already under the pointer**, and that takes two keys, not one: the
   viewport subscribes to `placementPreviewKey` (`app/store/catalog.ts`, reached through the
-  `app/store.ts` barrel — the piece, its `rot` and every Tab cycle, `gateDoor` included, plus the
+  `app/store.ts` barrel — the piece, its `rot` and every Tab cycle: stair/roof widths, escalator
+  direction, width and length, lift style, 闸机 `gateDoor`, the guidepost's exit, a batten's in-cell spot, plus the
   方块 tool's `halfWall` mode and wall-face cycle) so the effect re-runs, and the renderer's ghost
   identity
   (`render/moduleGhostKey.ts`) has to name the same setting — a stair's painted `finish`
@@ -908,7 +953,8 @@ the four rules most changes trip over.
   (`isDecorType('sign-ceiling')`), because the rail folds a folder open and the tool guards a
   right-click by the **id** it is armed with, before any module exists. **The action row is one
   component for the whole rail** — `rail/actions/ActionRow.tsx` holds the fold, the open rule
-  (`actionRowOpen`) and every action tile (旋转 / 自定义 / 窄 中 宽 / 上行-下行 / 有门-围栏), and
+  (`actionRowOpen`) and every action tile (旋转 / 自定义 / 窄 中 宽 / 上行-下行 / 宽-窄 / 短-长 /
+  有门-围栏 / 玻璃-钢板 / the batten's Tab position tile / the guidepost's exit picker), and
   the **工具 folder mounts the very same row** under its cut pieces. The 旋转 tile is
   `rail/shared/RotateTile.tsx` (one glyph and one **R** badge for the piece, a cut piece, a
   轨道 run and the 剖切 surface alike); which tile a row belongs to is one derivation for pieces
@@ -923,6 +969,9 @@ the four rules most changes trip over.
   detour through another folder on the left rail. `P` 吸取 (the 工具 folder's eyedropper) lifts
   a bare face's finish into the brush and a placed piece into the placement; a **指示牌** is
   copied as its own printed **boards** (`SignSlice.adoptSignBoards`), not merely as its tile,
+  and a picked 灯具 / 导向柱 / wide 扶梯 / shell roof brings its spot / exit / width / bay along
+  (`PickTool` adopts each; a 导向柱 maps back to its tile like any variant piece, so the pick
+  arms the placement rather than only selecting),
   and the whole gesture is put back by **Esc** through the `PickSlice` draft the picker notes
   before it writes (`beginPick` / `cancelPick` — the tool, the piece, its settings, the brush
   and the boards); the rail scrolls to the armed tile as it changes (`armedRailTile` +
@@ -944,13 +993,17 @@ the four rules most changes trip over.
   `SIGN_DRAWN_ICONS` (`signIconIsDrawn`), which is what `pictograms.ts` asks before reporting a
   missing asset (`tools/sign-icons-sheet.py` prints the contact sheet for review).
 * **The 删除 drag sweeps same-type runs** (`app/sweep.ts`, §9.5). A tap removes the piece under
-  the pointer; a held drag keeps collecting same-family neighbours — rotation and 自动 origin
+  the pointer — drawn as the module ghost itself with no floor cursor (`setCursor(null)`,
+  the wall/ceiling special cases gone); roof and stair-block deletes delegate to the tile
+  tool, keeping the clicked tile's own type/rotation/width. A held drag keeps collecting
+  same-family neighbours — rotation and 自动 origin
   ignored, variant matched, so a 2 m 座椅 never takes the 1 m ones and a 闸机 row never takes the
   售票机 at its end — sampling the path between pointer events so a fast flick skips none, and
   the release bulldozes the run in **one** commit (one Ctrl+Z puts it back). Rooms, rails,
   出入口, 楼梯, screen doors and 围栏 are never swept — one piece, own teardown — while a bank of
   **escalators** or of **lift** shafts does sweep, each strictly inside its own family; that pair
-  is a deliberate divergence from §9.5, which lists both as unsweepable, and `test/sweep.test.mjs`
+  is a deliberate divergence from §9.5, which lists both as unsweepable. 导向柱, 公交站 (by
+  shelter length), 灯具 (by housing shape) and 通风口 sweep as families too, and `test/sweep.test.mjs`
   is where the decision is written down. `sweep.ts` is the one app module written browser-free so
   Node can import it.
 * **The 广告牌 / 电视 posters are a catalogue, cropped never stretched** (`sim/billboards.ts`
@@ -971,7 +1024,8 @@ the four rules most changes trip over.
   exactly once, keep-aware (`meshStation` used to release the last rebuild twice), and
   `chunk-cache.test.mjs` pins the very buffer objects a kept chunk comes back with. 电视 / 指示牌
   plates are **retained** across a rebuild (`PlateSystem.retainTvPlates` / `retainSignPlates`:
-  the station's name and its lines are the only inputs a rebuild can change), a consist
+  the station's name, lines, services, clock and date are the inputs a rebuild can change;
+  per-frame clock/service refreshes upload only when the printed ink changed), a consist
   configuration that left is evicted after a few snapshots (`TRAIN_MISSES_ALLOWED` /
   `dropConsist`), an overlay's quad and material are freed where the overlay is replaced
   (`CrowdSystem.dropOverlay`), the 区域 map is rebuilt only when the picture changes

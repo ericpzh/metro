@@ -3,10 +3,13 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
-import { ESCALATOR_BALUSTRADE, ESCALATOR_SPEED, ESCALATOR_STEP_PITCH } from '../../../sim/constants.ts'
+import { exitLandingHeight } from './ExitLanding.ts'
+import { addRampJoins } from './RampJoinModel.ts'
+import { addEscalatorIndicators } from './EscalatorIndicatorModel.ts'
+import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH, ESCALATOR_FLAT_LENGTH, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY } from '../../../sim/constants.ts'
+import { escalatorBalustradeWidth, escalatorBodyWidth, escalatorBandWidth, escalatorRun, escalatorStepHeight } from '../../../sim/escalators.ts'
 import { RAMP_FOOT } from '../../../sim/openings.ts'
 import type { Module } from '../../../sim/types.ts'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 /* --------------------------------------------------- ramp-adjacent blocks */
 
@@ -43,13 +46,12 @@ const UNDERCROFT_COURSE = 1
  * directly over a block, which is one course deep and truss-width. The escalator carries that
  * body itself instead, drawn for every escalator rather than depending on the ground beneath it.
  *
- * Its lid is the plane the ground under a run is **shaved to** (`RAMP_FOOT` below the walking
- * line, `rampSlopeCuts` in `sim/openings.ts`), not the truss box's own underside. That is what
- * makes the two one surface: the body meets the shaved ground level and the trench the cut opens
- * at the foot closes exactly where the body begins. The truss's underside hangs lower still, so
- * the body's top and flanks are buried inside the box — flush with its flanks at
- * `ESCALATOR_BALUSTRADE` across, with no step for the eye and no face for the depth buffer to
- * fight over, since both wear the same steel. The lid follows that plane **to the body's very
+ * Its lid follows the plane the ground under a run is **shaved to** (`RAMP_FOOT` below the walking
+ * line, `rampSlopeCuts` in `sim/openings.ts`), inset by `ESCALATOR_SURFACE_CLEARANCE`. Its flanks
+ * have the same inset from the truss and its base sits `ESCALATOR_BASE_BURY` below the floor.
+ * These hidden joins avoid coplanar floor, terrain-cap and casing faces without exposing a gap:
+ * the truss's underside hangs lower still, so the lid remains buried inside its box.
+ * The lid follows that plane **to the body's very
  * end** rather than flattening off at the course line, so the end face meets the truss's own
  * underside instead of stopping a hand's width short of it and leaving a slit to see through.
  * The body reaches as far as the ground's filling did and no further: the cells the shaved plane
@@ -61,7 +63,7 @@ const UNDERCROFT_COURSE = 1
  * is the unit run from the lower landing to the upper one. Returns null for a run with no room
  * under it (a level one, or one whose lid is already on the floor).
  */
-function undercroftSolid(climb: THREE.Vector3, len: number, mat: THREE.Material): THREE.Mesh | null {
+function undercroftSolid(climb: THREE.Vector3, len: number, width: number, mat: THREE.Material): THREE.Mesh | null {
   const cosT = Math.hypot(climb.x, climb.y)
   const sinT = climb.z
   if (sinT < 0.05 || cosT < 0.05) return null
@@ -81,12 +83,16 @@ function undercroftSolid(climb: THREE.Vector3, len: number, mat: THREE.Material)
   if (top < 0.05 || end < foot + 0.05) return null
 
   const section = new THREE.Shape()
-  section.moveTo(foot, 0)
-  section.lineTo(end, 0)
-  section.lineTo(end, top)
+  // Keep a closed body, but bury its base and inset its lid/flanks: sharing
+  // the floor cap or the truss side plane causes depth-buffer flicker (§5.1).
+  section.moveTo(foot, -ESCALATOR_BASE_BURY)
+  section.lineTo(end, -ESCALATOR_BASE_BURY)
+  section.lineTo(end, top - ESCALATOR_SURFACE_CLEARANCE)
+  section.lineTo(foot, -ESCALATOR_SURFACE_CLEARANCE)
   section.closePath()
-  const geo = new THREE.ExtrudeGeometry(section, { depth: ESCALATOR_BALUSTRADE, bevelEnabled: false })
-  geo.translate(0, 0, -ESCALATOR_BALUSTRADE / 2) // centred on the run's own line
+  const insetWidth = width - 2 * ESCALATOR_SURFACE_CLEARANCE
+  const geo = new THREE.ExtrudeGeometry(section, { depth: insetWidth, bevelEnabled: false })
+  geo.translate(0, 0, -insetWidth / 2) // centred on the run's own line
 
   const solid = new THREE.Mesh(geo, mat)
   solid.name = 'undercroft'
@@ -108,7 +114,7 @@ export interface EscalatorRoll {
   count: number
   /** Unit vector up the incline, from the lower landing to the upper one. */
   climb: THREE.Vector3
-  /** Run length along the incline, metres. */
+  /** Complete exposed chain path including flat landing sections, metres. */
   runLen: number
   /** Step pitch along the incline, metres. */
   pitch: number
@@ -118,6 +124,15 @@ export interface EscalatorRoll {
   phase: number
   /** Tread yaw within the world-aligned band. */
   yaw: number
+  /** Separate risers shrink to zero as adjacent treads reach the flat landings. */
+  risers: THREE.InstancedMesh
+  /** Length of the incline before the flat terminal tracks are added. */
+  inclineLen: number
+  /** Flat terminal length expressed in the chain's incline-distance parameter. */
+  flat: number
+  /** Horizontal tread depth and maximum riser height. */
+  stepRun: number
+  stepRise: number
 }
 
 /** Wrap `v` into [0, m). */
@@ -129,24 +144,40 @@ function wrapMod(v: number, m: number): number {
 const _rot = new THREE.Matrix4()
 const _m = new THREE.Matrix4()
 const _p = new THREE.Vector3()
+const _scale = new THREE.Vector3()
 
 /** Advance a step band by `simDt` simulated seconds and repose every step. */
 export function rollEscalator(roll: EscalatorRoll, simDt: number): void {
   roll.phase = wrapMod(roll.phase + roll.dir * ESCALATOR_SPEED * simDt, roll.runLen)
   _rot.makeRotationZ(roll.yaw)
+  const horizontalPerM = Math.hypot(roll.climb.x, roll.climb.y)
   for (let i = 0; i < roll.count; i++) {
     const u = wrapMod(i * roll.pitch + roll.phase, roll.runLen)
-    _p.copy(roll.climb).multiplyScalar(u)
+    const along = u - roll.flat
+    const height = escalatorStepHeight(along, roll.inclineLen, roll.climb.z, horizontalPerM)
+    _p.set(roll.climb.x * along, roll.climb.y * along, height + 0.015)
     _m.makeTranslation(_p.x, _p.y, _p.z).multiply(_rot)
+    // The chain returns beneath the fixed combs. Wrap only while covered, so
+    // no full-height step pops from the upper landing back onto the lower one.
+    const covered = along < -roll.flat + roll.pitch / 2 || along > roll.inclineLen + roll.flat - roll.pitch / 2
+    if (covered) _m.scale(_scale.set(0, 0, 0))
     for (const part of roll.parts) part.setMatrixAt(i, _m)
+    const nextHeight = escalatorStepHeight(along + roll.pitch, roll.inclineLen, roll.climb.z, horizontalPerM)
+    const riserHeight = nextHeight - height
+    _m.makeTranslation(_p.x, _p.y, _p.z).multiply(_rot)
+    if (covered || riserHeight < 1e-6) _m.scale(_scale.set(0, 0, 0))
+    else _m.scale(_scale.set(1, 1, riserHeight / roll.stepRise))
+    roll.risers.setMatrixAt(i, _m)
   }
   for (const part of roll.parts) part.instanceMatrix.needsUpdate = true
+  roll.risers.instanceMatrix.needsUpdate = true
 }
 
 function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escalator' }>): THREE.Group {
   const mats = ctx.mats
-  const a = new THREE.Vector3(mod.from.x + 0.5, mod.from.y + 0.5, mod.from.z + 1)
-  const b = new THREE.Vector3(mod.to.x + 0.5, mod.to.y + 0.5, mod.to.z + 1)
+  const run = escalatorRun(mod)
+  const a = new THREE.Vector3(run.from.x + 0.5, run.from.y + 0.5, run.from.z + 1 + exitLandingHeight(ctx.data.modules, run.from))
+  const b = new THREE.Vector3(run.to.x + 0.5, run.to.y + 0.5, run.to.z + 1 + exitLandingHeight(ctx.data.modules, run.to))
   const len = a.distanceTo(b)
   const t = b.clone().sub(a).normalize()
   const up = new THREE.Vector3(0, 0, 1)
@@ -156,18 +187,20 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
   g.position.copy(a)
   g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(t, side, n))
 
-  const W = ESCALATOR_BALUSTRADE // balustrade spacing
+  const W = escalatorBodyWidth(mod)
+  const railW = escalatorBalustradeWidth(mod)
   const rise = 1.0 // handrail height
-  // One run, one tile: the handrails reach only 0.49 m from the centreline, so the
-  // whole assembly — truss, skirts, glass, rails — stays inside its own cell. Two
-  // runs in adjacent cells therefore never touch: each keeps both of its
-  // balustrades, and the pair reads as a bank of two rails side by side. Truss and
-  // side skirts are trimmed to the run, so the ramp never pokes past its landings
-  // into the floor it connects to.
+  // One continuous band with rails on its outer edges (§5.1). Narrow occupies
+  // one block; wide adds a block to the band, truss and plates together, so no
+  // centre balustrade divides it into two escalators. Both fit their own cells.
   const truss = slab(g, mats.darkSteel, len / 2, 0, -TRUSS_DROP, len, W, TRUSS_DEPTH)
   truss.name = 'truss'
-  slab(g, mats.steel, len / 2, W / 2, 0.0, len, 0.06, 0.62)
-  slab(g, mats.steel, len / 2, -W / 2, 0.0, len, 0.06, 0.62)
+  const stepW = escalatorBandWidth(mod)
+  const skirtW = (W - stepW) / 2 + 0.03
+  for (const s of [-1, 1]) {
+    const skirt = slab(g, mats.steel, len / 2, s * (stepW / 2 + skirtW / 2), 0, len, skirtW, 0.62)
+    skirt.name = 'side-skirt'
+  }
 
   // The step band lives in a child that cancels the truss's rotation, so a box
   // left unrotated about z keeps its top face level and the run reads as steps.
@@ -181,33 +214,34 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
   g.add(band)
 
   const yaw = Math.atan2(climb.y, climb.x)
-  const stepW = W - 0.14
-  const nSteps = Math.max(4, Math.round(len / ESCALATOR_STEP_PITCH))
-  const pitch = len / nSteps // along the incline
+  const flat = ESCALATOR_FLAT_LENGTH / runPerM
+  const chainLen = len + 2 * flat
+  const nSteps = Math.max(4, Math.round(chainLen / ESCALATOR_STEP_PITCH))
+  const pitch = chainLen / nSteps // same horizontal pitch through incline and flats
   const stepRise = Math.max(0.05, climb.z * pitch) // vertical rise per step
   const stepRun = Math.max(0.05, runPerM * pitch) // horizontal advance per step
-  // A step is a tread at the incline line with a riser standing on its upper
-  // edge, plus the yellow nosing along the leading edge (real escalator steps).
+  // Separate treads and risers: the latter collapse as the chain levels out at
+  // each landing, while the horizontal treads continue beneath the comb teeth.
   const tread = new THREE.BoxGeometry(stepRun * 1.02, stepW, 0.06).translate(0, 0, -0.03)
   const riser = new THREE.BoxGeometry(0.05, stepW, stepRise).translate(stepRun / 2, 0, stepRise / 2)
   const nosing = new THREE.BoxGeometry(0.06, stepW, 0.08).translate(stepRun / 2 - 0.03, 0, -0.01)
-  const stepGeo = mergeGeometries([tread, riser])
-  tread.dispose()
-  riser.dispose()
-  const steps = new THREE.InstancedMesh(stepGeo ?? new THREE.BufferGeometry(), mats.steel, nSteps)
+  const steps = new THREE.InstancedMesh(tread, mats.steel, nSteps)
   steps.frustumCulled = false // the band is reposed every frame
   band.add(steps)
   const noseMesh = new THREE.InstancedMesh(nosing, mats.orange, nSteps)
   noseMesh.frustumCulled = false
   band.add(noseMesh)
+  const risers = new THREE.InstancedMesh(riser, mats.steel, nSteps)
+  risers.frustumCulled = false
+  band.add(risers)
 
   // Glass balustrades and black handrails. The handrail wraps the end of the
   // glass at both landings — a half-turn in the balustrade plane from the top
   // edge, round the end, and down onto the floor — instead of stopping dead in
   // mid-air, and a flat newel plate closes the foot of each balustrade.
   for (const s of [1, -1]) {
-    slab(g, mats.glass, len / 2, (s * W) / 2, rise / 2, len, 0.03, rise)
-    slab(g, mats.handrail, len / 2, (s * W) / 2 + s * 0.03, rise, len, 0.1, 0.08)
+    slab(g, mats.glass, len / 2, (s * railW) / 2, rise / 2, len, 0.03, rise)
+    slab(g, mats.handrail, len / 2, (s * railW) / 2 + s * 0.03, rise, len, 0.1, 0.08)
   }
   const railReturn = new THREE.TorusGeometry(rise / 2, 0.045, 8, 18, Math.PI)
   railReturn.rotateX(Math.PI / 2) // into the balustrade plane (local x-z)
@@ -215,7 +249,7 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
   for (const endX of [0, len]) {
     for (const s of [1, -1]) {
       const rail = new THREE.Mesh(railReturn, mats.handrail)
-      rail.position.set(endX, s * (W / 2 + 0.03), rise / 2)
+      rail.position.set(endX, s * (railW / 2 + 0.03), rise / 2)
       if (endX === 0) rail.rotation.z = Math.PI // bulge the other way at the start
       g.add(rail)
     }
@@ -230,7 +264,7 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
   // The solid under the truss. `g` carries the run's own incline, so the wedge — built in
   // world axes, its floor level and its lid on the incline — goes in through the inverse of
   // that rotation, exactly as the step band does.
-  const solid = undercroftSolid(climb, len, mats.darkSteel)
+  const solid = undercroftSolid(climb, len, W, mats.darkSteel)
   if (solid) {
     const inv = g.quaternion.clone().invert()
     const across = new THREE.Vector3().crossVectors(hdir, up).normalize() // (hdir, up, across) is right-handed
@@ -241,26 +275,51 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
     g.add(solid)
     g.userData.undercroft = solid
   }
-  const plateLen = 0.5
-  // The band's outer tread overhangs the landing node by about `stepRun / 2`.
-  // The plate starts just past that and is pulled a quarter tile (0.25 m) back
-  // in from the previous stand-off, so it sits at the foot of the run.
-  const inner = stepRun / 2 - 0.15
+  const plateLen = 0.3
   for (const dir of [-1, 1]) {
     const end = dir < 0 ? new THREE.Vector3() : climb.clone().multiplyScalar(len)
-    const out = hdir.clone().multiplyScalar(dir * (inner + plateLen / 2))
-    const comb = slab(band, mats.orange, end.x + out.x, end.y + out.y, end.z + 0.04, plateLen, W - 0.2, 0.05)
+    const out = hdir.clone().multiplyScalar(dir * (ESCALATOR_FLAT_LENGTH - plateLen / 2))
+    const comb = slab(band, mats.orange, end.x + out.x, end.y + out.y, end.z + 0.045, plateLen, stepW, 0.05)
     comb.rotation.z = yaw
+    comb.name = 'comb-plate'
+    // Cover the outer half of the landing block cut beneath the flat track.
+    const halfW = mod.cfg.width === 2 ? 1 : 0.5
+    const inner = ESCALATOR_FLAT_LENGTH - plateLen
+    // A U-shaped deck leaves the moving flat treads exposed right up to the
+    // comb teeth. Its shoulders replace the cut block beside the step band.
+    const deckShape = new THREE.Shape()
+    deckShape.moveTo(0, -halfW)
+    deckShape.lineTo(ESCALATOR_FLAT_LENGTH, -halfW)
+    deckShape.lineTo(ESCALATOR_FLAT_LENGTH, halfW)
+    deckShape.lineTo(0, halfW)
+    deckShape.lineTo(0, stepW / 2)
+    deckShape.lineTo(inner, stepW / 2)
+    deckShape.lineTo(inner, -stepW / 2)
+    deckShape.lineTo(0, -stepW / 2)
+    deckShape.closePath()
+    const deckGeo = new THREE.ExtrudeGeometry(deckShape, { depth: 0.09, bevelEnabled: false })
+    deckGeo.translate(0, 0, -0.09)
+    const deck = new THREE.Mesh(deckGeo, mats.steel)
+    deck.position.copy(end)
+    deck.position.z += ESCALATOR_SURFACE_CLEARANCE // lower apron overlays real floor
+    deck.rotation.z = yaw + (dir < 0 ? Math.PI : 0)
+    band.add(deck)
+    deck.name = 'landing-deck'
   }
   const roll: EscalatorRoll = {
     parts: [steps, noseMesh],
     count: nSteps,
     climb,
-    runLen: len,
+    runLen: chainLen,
     pitch,
     dir: ascends ? 1 : -1,
     phase: 0,
     yaw,
+    risers,
+    inclineLen: len,
+    flat,
+    stepRun,
+    stepRise,
   }
   rollEscalator(roll, 0) // seat the band before its first animated frame
   g.userData.escalator = roll
@@ -276,6 +335,8 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
     head.position.set(len * 0.62, 0, arrowZ)
     g.add(head)
   }
+  addRampJoins(ctx, mod, g)
+  addEscalatorIndicators(ctx, g, len, railW)
   return g
 }
 
@@ -285,4 +346,3 @@ export class EscalatorModel extends PieceBuilder {
     return buildEscalator(this.ctx, mod)
   }
 }
-

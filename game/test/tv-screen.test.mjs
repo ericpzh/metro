@@ -145,7 +145,7 @@ test('the content window is lit in front of its own backing, not inside it', () 
   // And the backing it sits in front of is really there, matching the window.
   const backdrop = meshesOf(group).find(({ box }) => {
     const size = box.getSize(new THREE.Vector3())
-    return Math.abs(size.x - win.w) < 1e-6 && Math.abs(size.z - win.h) < 1e-6
+    return Math.abs(size.x - 1.42) < 1e-6 && Math.abs(size.z - 0.8) < 1e-6
   })
   assert.ok(backdrop, 'no backing slab behind the content window')
   const centre = backdrop.box.getCenter(new THREE.Vector3())
@@ -186,89 +186,19 @@ test('the station board and the window are lit on one viewing face only', () => 
   assert.ok(ys[0] < 0, 'the viewing face should be the local −y face, as documented')
 })
 
-test('the window fills the region the board leaves it, top to bottom', () => {
+test('the video overlays the full plate and leaves its bottom footer visible', () => {
   const { group } = buildTv()
   const screen = group.userData.adScreen
   const win = screen.userData.adWindow
-  const SW = 1.42
-  const SH = 0.8
-  const lit = meshesOf(group).filter(({ mesh }) => mesh.userData.adPoster !== undefined || mesh.userData.adStationPlate !== undefined)
-  // The window is the whole right region of the screen, at full height: the
-  // artwork covers its entire half of the panel with no margin above or below.
-  assert.ok(Math.abs(win.h - SH) < 0.005, `window height ${win.h} does not reach the screen edges`)
-  assert.ok(Math.abs(win.w - SW * TV_POSTER_RECT.w) < 0.005, `window width ${win.w} does not match the reserved region`)
-  // Each pane is measured from its own edge of the opening, so together they cover
-  // it exactly and neither can drift into the bezel post beside it. A pane that
-  // overhangs the opening is clipped by that post, which shows up as a black band
-  // down the side of the artwork.
-  //
-  // Measured in the module group's frame: `buildModule` puts the group at the
-  // cell's centre, so absolute world X is not comparable to the local opening.
-  const originX = new THREE.Vector3()
-  group.getWorldPosition(originX)
-  const opening = { min: -SW / 2, max: SW / 2 }
-  for (const { box, mesh } of lit) {
-    const what = mesh.userData.adPoster !== undefined ? 'window' : 'board'
-    const lo = box.min.x - originX.x
-    const hi = box.max.x - originX.x
-    assert.ok(lo >= opening.min - 0.005, `the ${what} starts past the screen's left edge (${lo.toFixed(4)})`)
-    assert.ok(hi <= opening.max + 0.005, `the ${what} runs into the bezel post at the right (${hi.toFixed(4)})`)
-  }
-})
-
-test('nothing sits between the board and the window', () => {
-  const { group } = buildTv()
-  const lit = meshesOf(group).filter(({ mesh }) => mesh.userData.adPoster !== undefined || mesh.userData.adStationPlate !== undefined)
-  assert.equal(lit.length, 2, 'there should be exactly two lit panes')
-  // Compare the panes to each other, not to absolute coordinates: `buildModule`
-  // puts the group at the cell's centre (`mod.x + 0.5`), so only their shared edge
-  // is meaningful in world space.
-  const byX = [...lit].sort((a, b) => a.box.min.x - b.box.min.x)
-  const [board, window_] = byX
-  // The board's right edge and the window's left edge must MEET. Any slack here is
-  // dead black between the text and the picture — exactly the gap a doubled inset
-  // left behind.
-  const gap = window_.box.min.x - board.box.max.x
-  assert.ok(Math.abs(gap) < 0.005, `there is a ${gap.toFixed(4)} m gap between the board and the window`)
-  // Each pane reaches its own edge of the screen, so neither falls short of the panel.
-  const SW = 1.42
-  assert.ok(Math.abs(board.box.min.x - window_.box.min.x + 0) >= 0, 'sanity')
-  const boardW = board.box.max.x - board.box.min.x
-  const winW = window_.box.max.x - window_.box.min.x
-  assert.ok(Math.abs(boardW + winW - SW) < 0.005, `the two panes cover ${(boardW + winW).toFixed(4)} m of a ${SW} m screen`)
-  // Both are full height: no letterbox strip above or below the artwork.
-  const SH = 0.8
-  for (const { box, mesh } of lit) {
-    const what = mesh.userData.adPoster !== undefined ? 'window' : 'board'
-    assert.ok(Math.abs(box.max.z - box.min.z - SH) < 0.005, `the ${what} is ${(box.max.z - box.min.z).toFixed(3)} m tall, not the screen's ${SH}`)
-  }
-})
-
-test('the board samples its own column of the plate, so the text meets the artwork', () => {
-  const { group } = buildTv()
-  const board = meshesOf(group).find(({ mesh }) => mesh.userData.adStationPlate !== undefined)
-  assert.ok(board, 'the station board pane is missing')
-  const tex = board.mesh.material.map
-  assert.ok(tex, 'the board has no plate texture')
-
-  // `drawStationDisplay` draws into a **whole-screen** canvas (`STATION_PLATE`): the
-  // board's column is its left `TV_POSTER_RECT.x`, and the artwork's region is the
-  // rest. The board mesh is only the column, so its texture must address that slice
-  // and stop where the column stops. A full-width map squeezes the entire plate into
-  // the left `TV_POSTER_RECT.x` of the mesh: that is the black band between the cards
-  // and the artwork, with the text beside it condensed by 1 / x. Geometry-only tests
-  // cannot see it, because the panes still tile the screen perfectly — only the
-  // sampling is wrong.
-  const { poster } = stationDisplayLayout()
-  const sampled = tex.offset.x + tex.repeat.x * STATION_PLATE.width
-  // The sampled slice must end on the same line the layout draws the column's right
-  // edge on — that line is the seam the artwork starts from.
-  assert.ok(
-    Math.abs(sampled - poster.x) < 1e-6,
-    `the board samples ${sampled.toFixed(2)} px of the ${STATION_PLATE.width} px plate, but the drawn column ends at ${poster.x.toFixed(2)} px`,
-  )
-  assert.equal(tex.offset.x, 0, "the board must start at the plate's left edge")
-  assert.equal(tex.repeat.y, 1, 'the plate and the board are the same height')
-  // Wrapping would fold the artwork's pixels round into the column's right edge.
-  assert.equal(tex.wrapS, THREE.ClampToEdgeWrapping, 'the plate slice must not wrap')
+  assert.ok(Math.abs(win.w - 1.42 * TV_POSTER_RECT.w) < 1e-6)
+  assert.ok(Math.abs(win.h - 0.8 * TV_POSTER_RECT.h) < 1e-6)
+  const board = meshesOf(group).find(({mesh}) => mesh.userData.adStationPlate !== undefined)
+  const video = meshesOf(group).find(({mesh}) => mesh === screen)
+  assert.ok(Math.abs(board.box.max.x - board.box.min.x - 1.42) < 1e-6)
+  assert.ok(Math.abs(board.box.max.z - board.box.min.z - 0.8) < 1e-6)
+  assert.ok(video.box.min.z > board.box.min.z, 'footer remains below the video')
+  assert.ok(Math.abs(video.box.max.z - board.box.max.z) < 1e-6, 'video reaches the top')
+  assert.ok(video.box.min.y < board.box.min.y, 'video stands in front, avoiding z-fighting')
+  assert.equal(board.mesh.material.map.repeat.x, 1, 'whole-screen station texture keeps the footer full width')
+  assert.equal(board.mesh.material.map.repeat.y, 1)
 })

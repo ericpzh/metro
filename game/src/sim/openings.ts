@@ -18,7 +18,8 @@
 //     so there is nothing to carve cell-by-cell;
 //   * an escalator cuts a taller corridor (ESCALATOR_HEADROOM) along its run,
 //     so ceiling slabs and wall columns in the way are removed automatically.
-//     Placement only needs both landings to be solid floor;
+//     Placement needs only the run's lower base to be solid floor — the upper
+//     landing is carved on placement, not required;
 //   * the corridor is as wide as the whole assembly — balustrades and handrails
 //     included — so the rails never surface through the blocks left and right
 //     of the opening (`rampCorridorHalf`). Every piece is built to fit one cell,
@@ -26,7 +27,8 @@
 //   * pure data, no DOM, no three.
 
 import { isWallBlock, packKey, shapeOf, type Cell, type CellShape, type FinishId, type Module, type Vec3i, type WallSide } from './types.ts'
-import { ESCALATOR_BALUSTRADE, ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
+import { ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, ESCALATOR_CASING_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
+import { escalatorBandWidth, escalatorBodyWidth, escalatorRun, escalatorLandings } from './escalators.ts'
 import { exitFloorAt } from './exits.ts'
 import { virtualSolidAt } from './ground.ts'
 import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
@@ -36,8 +38,7 @@ const HEADROOM = 1.3
 /**
  * Clearance an escalator cuts along its run, metres. Tall enough to clear a
  * person and the balustrade and to take out the storey's wall columns above the
- * walking line, so a run can punch through a wall as long as both landings are
- * solid floor. It must not reach the slab of the storey *above* the one the run
+ * walking line, so a run standing on its lower base alone can punch through a wall. It must not reach the slab of the storey *above* the one the run
  * lands on: a run stops on top of a floor, so everything higher than headroom
  * over the landing belongs to the room it lands in, not to the shaft. The old
  * 3.2 m over-carve reached the concourse roof above the platform runs and the
@@ -89,6 +90,7 @@ const ESCALATOR_CORRIDOR_HALF = ESCALATOR_BAND / 2 + ESCALATOR_RAIL_PROUD
  */
 export function rampCorridorHalf(m: Module): number {
   if (m.type === 'stair') return (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2 + STAIR_RAIL_PROUD
+  if (m.type === 'escalator') return escalatorBodyWidth(m) / 2 + ESCALATOR_CASING_PROUD
   return ESCALATOR_CORRIDOR_HALF
 }
 
@@ -100,6 +102,7 @@ export function rampCorridorHalf(m: Module): number {
  */
 export function rampBodyHalf(m: Module): number {
   if (m.type === 'stair') return (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
+  if (m.type === 'escalator') return escalatorBandWidth(m) / 2
   // The escalator's step band is the shared `ESCALATOR_BAND`, so its half is
   // 0.34 m — well inside one cell, so an adjacent cell is not carved.
   return ESCALATOR_BAND / 2
@@ -169,7 +172,7 @@ export function rampEnvelope(m: Module): RampBox | null {
   const segs = rampSegments(m)
   if (!segs) return null
   // A run reserves its own cell; only a body wider than a cell claims more.
-  const half = Math.max(RAMP_TILE_HALF, rampBodyHalf(m))
+  const half = m.type === 'escalator' && m.cfg.width === 2 ? 1 : Math.max(RAMP_TILE_HALF, rampBodyHalf(m))
   let x0 = Infinity
   let y0 = Infinity
   let x1 = -Infinity
@@ -188,11 +191,14 @@ export function rampEnvelope(m: Module): RampBox | null {
     lo = Math.min(lo, s.from.z, s.to.z)
     hi = Math.max(hi, s.from.z, s.to.z)
   }
+  const wide = m.type === 'escalator' && m.cfg.width === 2
+  const hx = wide && m.from.x !== m.to.x ? RAMP_TILE_HALF : half
+  const hy = wide && m.from.y !== m.to.y ? RAMP_TILE_HALF : half
   return {
-    x0: x0 - half,
-    x1: x1 + half,
-    y0: y0 - half,
-    y1: y1 + half,
+    x0: x0 - hx,
+    x1: x1 + hx,
+    y0: y0 - hy,
+    y1: y1 + hy,
     z0: lo + 1 - RAMP_FOOT - RAMP_CLEAR,
     z1: hi + 1 + RAMP_HEADROOM + RAMP_CLEAR,
   }
@@ -358,13 +364,15 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
     // Only a run that climbs: a lift's shaft is vertical, so it has no walking line
     // to hang anything under and nothing to cut.
     if (m.type !== 'stair' && m.type !== 'escalator') continue
-    // The landing columns are graph nodes and walkable floor: a block under one is
-    // left level with the surface the crowd walks on, never cut on the run's slope.
+    // Keep stairs' landing floors and the lower escalator floor level. The
+    // escalator's upper terminal instead replaces the block cap with its deck;
+    // the solid cell is retained for graph support while its top is recessed.
     if (m.type === 'stair') {
       for (const p of stairLandings(m)) protectPoint(p)
     } else {
-      protectPoint(m.from)
-      protectPoint(m.to)
+      // The lower floor stays level. Cut the upper landing back under the step
+      // track; its outer half is covered by the model's level landing deck.
+      for (const p of escalatorLandings(m)) if (p.z === Math.min(m.from.z, m.to.z)) protectPoint(p)
     }
     const segs = rampSegments(m)
     if (!segs) continue
@@ -439,7 +447,7 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
             // under it is drawn as that box. A stair's treads run out to the cell edge, so
             // its cut stays cell-wide.
             if (m.type === 'escalator') {
-              cut.half = ESCALATOR_BALUSTRADE / 2
+              cut.half = escalatorBodyWidth(m) / 2
               // …and the 扶梯 draws that body itself now, so no filling is derived over it.
               cut.ownBody = true
             }
@@ -693,10 +701,9 @@ interface Ramp {
 }
 
 /**
- * Both ends of an escalator run must stand on solid floor — the lower base and
- * the upper landing — or on an exit's floor: any cell an exit covers counts,
- * even a hole a ramp carved there. Everything in between (ceiling slabs, wall
- * columns) is carved on placement, so intermediate solids never block it.
+ * Only the lower base of an escalator run needs solid floor — or an exit's floor:
+ * any cell an exit covers counts, even a hole a ramp carved there. The upper
+ * landing and everything between the ends are carved as needed on placement.
  */
 export function escalatorBasesSolid(cells: readonly Cell[], modules: readonly Module[], m: Module): boolean {
   if (m.type !== 'escalator') return true
@@ -704,7 +711,8 @@ export function escalatorBasesSolid(cells: readonly Cell[], modules: readonly Mo
     cells.some((c) => c.fill === 'solid' && c.x === p.x && c.y === p.y && c.z === p.z) ||
     exitFloorAt(modules, p.x, p.y, p.z) ||
     virtualSolidAt(cells, modules, p.x, p.y, p.z)
-  return has(m.from) && has(m.to)
+  const baseZ = Math.min(m.from.z, m.to.z)
+  return escalatorLandings(m).filter((p) => p.z === baseZ).every(has)
 }
 
 /**
@@ -717,7 +725,8 @@ function rampSegments(m: Module): Ramp[] | null {
   if (m.type === 'stair' && m.cfg.block) return null
   const bodyHalf = rampBodyHalf(m)
   const railHalf = rampCorridorHalf(m)
-  if (m.type === 'escalator' || m.type === 'lift') return [{ from: m.from, to: m.to, bodyHalf, railHalf }]
+  if (m.type === 'escalator') return [{ ...escalatorRun(m), bodyHalf, railHalf }]
+  if (m.type === 'lift') return [{ from: m.from, to: m.to, bodyHalf, railHalf }]
   if (m.type === 'stair') return stairSegments(m)
   return null
 }
@@ -744,7 +753,7 @@ function rampList(modules: readonly Module[]): Ramp[] {
       ramps.push(...stairSegments(m))
     } else if (m.type === 'escalator' || m.type === 'lift') {
       const headroom = m.type === 'escalator' ? ESCALATOR_HEADROOM : undefined
-      ramps.push({ from: m.from, to: m.to, headroom, bodyHalf: rampBodyHalf(m), railHalf: rampCorridorHalf(m) })
+      ramps.push({ ...(m.type === 'escalator' ? escalatorRun(m) : { from: m.from, to: m.to }), headroom, bodyHalf: rampBodyHalf(m), railHalf: rampCorridorHalf(m) })
     }
   }
   return ramps
@@ -867,8 +876,7 @@ export function carveRampOpenings(cells: Cell[], modules: readonly Module[]): nu
     } else if (m.type === 'escalator' || m.type === 'lift') {
       // An escalator cuts the full wall/ceiling corridor along its run; only
       // its two landing cells are kept as graph nodes.
-      protectPoint(m.from)
-      protectPoint(m.to)
+      for (const p of m.type === 'escalator' ? escalatorLandings(m) : [m.from, m.to]) protectPoint(p)
     }
   }
   if (ramps.length === 0) return 0

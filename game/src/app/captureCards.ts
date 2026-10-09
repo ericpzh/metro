@@ -113,9 +113,6 @@ function footprintOf(id: string): string {
 const PICK_IDS: readonly string[] = [
   'gate',
   'fence',
-  'pillar',
-  'roof',
-  'bridge',
   'tvm',
   'vending',
   'exit',
@@ -124,14 +121,14 @@ const PICK_IDS: readonly string[] = [
   'stair',
   'bench',
   'shelf',
-  'desk',
   'bin',
+  'guidepost',
+  'busstop',
   'extinguisher',
   'clock',
   'billboard',
   'tv',
   'sign',
-  'door',
 ]
 
 /** The family a pick-list entry names, for matching against the palette. */
@@ -215,6 +212,9 @@ export async function captureModuleCards(frames: CardFrame[], onProgress?: (done
  * drawn once is what makes the catalogue a catalogue rather than a parts list.
  */
 function familyOf(id: string): string {
+  if (id.startsWith('pillar')) return 'pillar'
+  if (id.startsWith('busstop')) return 'busstop'
+  if (id.startsWith('light-')) return 'light'
   if (id === 'bench' || id.startsWith('bench-')) return 'bench'
   if (id.startsWith('billboard')) return 'billboard'
   if (id.startsWith('glass')) return 'glass'
@@ -284,6 +284,7 @@ function serviceOf(id: string): string {
   if (id.startsWith('pillar')) return '每次加高 4 m'
   if (id === 'roof') return '薄顶棚，材质可涂刷'
   if (id.startsWith('roof-truss')) return '纵向桁架顶棚，4/8/12 m，可涂刷'
+  if (id.startsWith('roof-shell')) return '无桁架双坡屋顶，4/8/12 m，可涂刷'
   if (id.startsWith('roof-tapered')) return '收束桁架顶棚，单根底梁，可涂刷'
   if (id === 'bridge') return '开放轨道桥，延伸线路'
   if (SERVICE[id]) return SERVICE[id]

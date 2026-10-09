@@ -9,12 +9,70 @@ import { escalatorModule } from '../src/sim/escalators.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { moduleEnvelope, placementBlocked } from '../src/sim/placement.ts'
 import { stairFacing } from '../src/sim/stairs.ts'
+import { escalatorLandings } from '../src/sim/escalators.ts'
+import { escalatorBasesSolid, rampOpeningAt, rampSlopeCuts } from '../src/sim/openings.ts'
+import { packKey } from '../src/sim/types.ts'
+import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
+import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
+import { useStore } from '../src/app/store.ts'
 
 const floor = (x0, x1, y0, y1, z) => {
   const cells = []
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) cells.push({ x, y, z, fill: 'solid' })
   return cells
 }
+
+test('a wide escalator is one two-block piece in every rotation and direction', () => {
+  for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+    const wide = createModule('escalator', 0, 0, -4, 'wide', rot, 2, dir)
+    const narrow = createModule('escalator', 0, 0, -4, 'narrow', rot, 1, dir)
+    const [dx, dy] = stairFacing(rot)
+    const e = moduleEnvelope(wide)
+    assert.equal(dx === 0 ? e.x1 - e.x0 : e.y1 - e.y0, 2, 'reserves exactly two blocks across')
+    assert.equal(dx === 0 ? e.y1 - e.y0 : e.x1 - e.x0, ESCALATOR_RUN + 1, 'keeps the same run length')
+    assert.notEqual(moduleGhostKey(wide), moduleGhostKey(narrow), 'width change redraws the ghost')
+    const lower = { x: 0, y: 0, z: -4 }
+    const upper = { x: dx * ESCALATOR_RUN, y: dy * ESCALATOR_RUN, z: 0 }
+    const second = { x: dy, y: -dx, z: -4 }
+    assert.equal(placementBlocked([wide], createModule('escalator', second.x, second.y, -4, 'overlap', rot)), true)
+    assert.equal(placementBlocked([wide], createModule('escalator', 2 * dy, -2 * dx, -4, 'beside', rot)), false)
+    const cells = escalatorLandings(wide).map((p) => ({ ...p, fill: 'solid' }))
+    const cuts = rampSlopeCuts([wide])
+    for (const p of escalatorLandings(wide)) {
+      assert.equal(cuts.has(packKey(p.x, p.y, p.z)), p.z === 0, 'only upper landing floors are recessed beneath the terminal track')
+    }
+    assert.equal(escalatorBasesSolid(cells, [], wide), true)
+    assert.equal(escalatorBasesSolid(cells.filter((c) => c.x !== second.x || c.y !== second.y || c.z !== second.z), [], wide), false, 'both blocks need lower support')
+    for (const offset of [0, 1]) {
+      assert.equal(rampOpeningAt([wide], 3 * dx + offset * dy, 3 * dy - offset * dx, 0), true, 'opens both columns')
+    }
+    const state = toState({ name: 'wide', seed: 1, cells: [...floor(-8, 8, -8, 8, 0), ...floor(-8, 8, -8, 8, -4)], modules: [], lines: [] })
+    const placed = addEquipment(state, wide)
+    assert.equal(placed.modules.length, 1, 'placement creates one module')
+    for (const p of escalatorLandings(wide)) assert.ok(placed.cells.some((c) => c.x === p.x && c.y === p.y && c.z === p.z), 'retains every landing floor')
+    assert.deepEqual(wide.from, dir === 'up' ? lower : upper)
+  }
+})
+
+test('the wide escalator tool previews one piece, including downward travel', () => {
+  const before = useStore.getState()
+  try {
+    const station = toState({ name: 'wide tool', seed: 1, cells: [], modules: [], lines: [] })
+    const tool = new EquipmentTool({})
+    for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+      useStore.setState({ station, moduleRot: rot, escalatorWide: true, escalatorDir: dir })
+      const pieces = tool.buildPlacementModules('escalator', [3, 5, -4], 'wide')
+      assert.equal(pieces.length, 1, 'wide never creates a second escalator')
+      assert.equal(pieces[0].cfg.width, 2)
+      assert.equal(pieces[0].cfg.dir, dir)
+      assert.deepEqual([pieces[0].x, pieces[0].y, pieces[0].z], [3, 5, -4], 'direction never changes the placement anchor')
+      useStore.setState({ escalatorWide: false })
+      assert.equal(tool.buildPlacementModules('escalator', [3, 5, -4], 'narrow')[0].cfg.width ?? 1, 1)
+    }
+  } finally {
+    useStore.setState(before)
+  }
+})
 
 test('an up escalator rises from the dropped cell to the storey above', () => {
   for (let rot = 0; rot < 4; rot++) {

@@ -157,7 +157,7 @@ if (layoutMode) {
     g.fillText(label, r.x + 4, r.y + 4)
   }
   rect(L.poster, '#1f9c63', 'WINDOW')
-  rect(L.header, '#1b6fd6', 'header')
+  rect(L.station, '#1b6fd6', 'header')
   L.cards.forEach((c, i) => rect(c, '#1b6fd6', `card${i}`))
   rect(L.strip, '#1b6fd6', 'strip')
   rect(L.clock, '#1b6fd6', 'clock')
@@ -172,14 +172,14 @@ const g = recordingContext(STATION_PLATE.width, STATION_PLATE.height)
 
 // A representative service, so the plate prints real countdowns.
 const status = {
-  name: '5号线',
-  colour: '#c8102e',
-  terminus: '番禺广场',
-  minutes: 2,
-  atPlatform: false,
-  headway: 4,
+  name: '5号线', colour: '#c8102e', terminus: '文冲',
+  arrivals: [
+    { minutes: 0, atPlatform: false, arriving: true },
+    { minutes: 2, atPlatform: false, arriving: false },
+    { minutes: 5, atPlatform: false, arriving: false },
+  ],
 }
-drawStationDisplay(g, status, '地铁站', '08:31')
+drawStationDisplay(g, status, '动物园', '09:34', '8月20日')
 
 const svg = g.toSvg()
 await sharp(Buffer.from(svg)).png().toFile(out)

@@ -13,6 +13,7 @@
 // the press does.
 
 import { AiOutlineRotateRight } from 'react-icons/ai'
+import { IN_CELL_POSITIONS } from '../../../sim/inCellPositions.ts'
 import { Block } from './Block.tsx'
 
 /** The rail's 旋转 mark, drawn once here: `Block`'s `art`, because no line icon is it. */
@@ -31,10 +32,10 @@ export function RotateTile({
 }
 
 /** Plan view of a slim pillar's 3×3 in-cell positions, with the armed spot highlighted. */
-export function PositionTile({ position, onClick }: { position: number; onClick: () => void }): React.ReactElement {
-  // Keep this order in sync with sim/structures.ts `pillarOffset`.
-  const offsets = [[0, 0], [0.35, 0], [0, 0.35], [-0.35, 0], [0, -0.35], [0.35, 0.35], [-0.35, 0.35], [-0.35, -0.35], [0.35, -0.35]] as const
-  const [offsetX, offsetY] = offsets[((position % 9) + 9) % 9]
+export function PositionTile({ position, onClick, shortcut = 'R' }: { position: number; onClick: () => void; shortcut?: string }): React.ReactElement {
+  const [x, y] = IN_CELL_POSITIONS[((position % 9) + 9) % 9]
+  const offsetX = x * 0.35
+  const offsetY = y * 0.35
   const pillarSize = 4.8
   const pillarX = 10 + offsetX * 16 - pillarSize / 2
   const pillarY = 10 - offsetY * 16 - pillarSize / 2
@@ -47,7 +48,7 @@ export function PositionTile({ position, onClick }: { position: number; onClick:
           <rect x={pillarX} y={pillarY} width={pillarSize} height={pillarSize} rx="0.6" fill="currentColor" strokeWidth="0" />
         </svg>
       }
-      shortcut="R"
+      shortcut={shortcut}
       onClick={onClick}
     />
   )

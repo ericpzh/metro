@@ -87,7 +87,7 @@ test('pillars draw four-metre segments, extend by four and stop walkers on their
 })
 
 test('the slim pillar R cycle selects nine in-cell positions used by both drawing and collision', () => {
-  const offsets = [[0, 0], [0.35, 0], [0, 0.35], [-0.35, 0], [0, -0.35], [0.35, 0.35], [-0.35, 0.35], [-0.35, -0.35], [0.35, -0.35]]
+  const offsets = [[0, 0], [-0.35, 0.35], [0, 0.35], [0.35, 0.35], [-0.35, 0], [0.35, 0], [-0.35, -0.35], [0, -0.35], [0.35, -0.35]]
   useStore.setState({ moduleType: 'pillar-slim', moduleRot: 0 })
   for (let position = 0; position < 9; position++) {
     const mod = { ...pillar('slim'), rot: position }

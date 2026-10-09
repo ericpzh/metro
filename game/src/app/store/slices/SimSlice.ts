@@ -6,6 +6,7 @@ import type { StateCreator } from 'zustand'
 import type { GraphInfo, FromWorker } from '../../../sim/protocol.ts'
 import type { StationData } from '../../../sim/types.ts'
 import type { Metrics } from '../../../sim/world.ts'
+import type { TrainService } from '../../../sim/trainSchedule.ts'
 import type { SceneStats } from '../../../render/scene.ts'
 import { simTimeAtDate, type SimDate } from '../../../sim/clock.ts'
 import { timeOfDayOf } from '../../../sim/constants.ts'
@@ -50,6 +51,7 @@ let frameCb:
       intervalMs: number,
       /** Sim seconds since midnight, for the in-world clocks (a 电视 plate). */
       simTime: number,
+      trainServices: TrainService[],
     ) => void)
   | null = null
 
@@ -73,6 +75,7 @@ export function setFrameHandler(
         intervalMs: number,
         /** Sim seconds since midnight, for the in-world clocks (a 电视 plate). */
         simTime: number,
+        trainServices: TrainService[],
       ) => void)
     | null,
 ): void {
@@ -123,7 +126,7 @@ function ensureClient(): Worker {
         agentSelected = -1
         useStore.getState().select(null)
       }
-      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime)
+      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime, msg.trainServices)
       // After the frame: the route is drawn against the positions just posted. A
       // frame answering an *older* request is dropped rather than fed to the scene —
       // a click that moves the preview to another passenger must not flash the last

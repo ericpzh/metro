@@ -77,13 +77,6 @@ export class TrainSystem extends SceneSystem {
   setTrains(buffer: Float32Array): void {
     const STRIDE = 10
     const n = Math.min(Math.floor(buffer.length / STRIDE), 64)
-    // Keep the live poses: the 电视 station plate counts down to the next train,
-    // so it has to see where the trains actually are (`tvLineStatus`).
-    this.ctx.trainPoses.length = 0
-    for (let i = 0; i < n; i++) {
-      const o = i * STRIDE
-      this.ctx.trainPoses.push({ x: buffer[o], y: buffer[o + 1], colour: buffer[o + 6] & 0xffffff })
-    }
     for (const entry of this.trainSlots.values()) {
       entry.active = false
       entry.missed++

@@ -48,8 +48,12 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
   'desk',
   'cubicle',
   'sink',
+  'guidepost',
+  'busstop',
   'bin',
   'extinguisher',
+  'vent',
+  'light',
   'clock',
   'cctv',
   'billboard',
@@ -72,6 +76,8 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
  * same piece as a hand-placed one.
  */
 export function sweepFamily(mod: Module): string | null {
+  if (mod.type === 'busstop') return `busstop:${mod.cfg.variant}`
+  if (mod.type === 'light') return `light-${mod.cfg.variant}`
   if (!SWEEP_TYPES.has(mod.type)) return null
   // The variant tables are the one place a variant's width and look are
   // described, so the family key is read from them rather than from the module.

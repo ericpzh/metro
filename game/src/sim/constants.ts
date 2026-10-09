@@ -28,6 +28,13 @@ export const BASE_TICK_MS = SIM_SECONDS_PER_TICK * 1000
 export const SIM_RATE = 1000 / BASE_TICK_MS
 /** Real seconds that make up one simulated hour (3600 s = one real hour at 1x). */
 export const SECONDS_PER_SIM_HOUR = 3600 / SIM_RATE
+/**
+ * Default clock for a station that does not override it: 06:30, the service
+ * opening. A fresh load (`World.load` with no `startSeconds`) and the shipped
+ * demo (`REFERENCE_BOOT` in `data/reference-station.ts`) both open here, so
+ * 打开 and 示例车站 start the same crowd.
+ */
+export const DEFAULT_SIM_TIME = 6.5 * 3600
 
 
 /** A simulated day, in simulated seconds. */
@@ -80,6 +87,23 @@ export function storeyBand(z: number, base = 0): number {
  */
 export const ESCALATOR_BALUSTRADE = 0.82
 export const ESCALATOR_BAND = 0.68
+/** Wider metal shoulders: glass and tread edges move inward by this amount on each side. */
+export const ESCALATOR_SKIRT_INSET = 0.08
+/** Flat moving step track inside each landing cell, metres. */
+export const ESCALATOR_FLAT_LENGTH = 0.5
+/** Horizontal length of each half of the smooth incline-to-flat bend. */
+export const ESCALATOR_TRANSITION_LENGTH = 0.3
+/** Casing clearance beyond its original balustrade centreline. */
+export const ESCALATOR_CASING_PROUD = 0.08
+/** Separate overlapping casing/terrain faces without changing the reserved footprint. */
+export const ESCALATOR_SURFACE_CLEARANCE = 0.005
+/** Bury the lower body's base beneath the floor rather than sharing its top face. */
+export const ESCALATOR_BASE_BURY = 0.02
+/** Steel infill between the handrails of adjoining ramp pieces. */
+export const RAMP_JOIN_THICKNESS = 0.05
+export const RAMP_JOIN_RAIL_OVERLAP = 0.02
+export const RAMP_JOIN_DOME_RADIUS = 0.065
+export const RAMP_JOIN_DOME_SPACING = 1.5
 /** An escalator's handrail stands this far proud of its step band, metres. */
 export const ESCALATOR_RAIL_PROUD = 0.15
 /** A stair handrail runs this far proud of the tread edge, metres. */
@@ -280,6 +304,8 @@ export const DOOR_RATE = 1.2
  */
 export const PSD_FULL_HEIGHT = 3.1
 export const PSD_HALF_HEIGHT = 1.5
+/** Full-height screen openings are wider than the car doors they align with (§5.9). */
+export const PSD_FULL_DOOR_WIDTH_SCALE = 1.5
 
 /**
  * Train stop choreography, in simulated seconds. A stop is a fixed sequence

@@ -79,6 +79,11 @@ const VIEWS = HERO ? {
   'stair-straight-x': { modelId: 'stair-straight', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1] },
   gate: { from: 'iso', padding: 1.12 },
   fence: { from: 'iso' },
+  'fence-end': { modelId: 'fence', from: 'iso', rotationZ: 90 },
+  guidepost: { from: 'iso', rotationZ: 180 },
+  'busstop-short': { from: 'iso', rotationZ: 180 },
+  'pillar-slim': { from: 'iso' },
+  'roof-truss': { from: 'iso' },
   extinguisher: { from: 'iso', rotationZ: 180 },
   bin: { from: 'iso', rotationZ: 180 },
   'door-steel-2': { from: 'iso', rotationZ: 180 },
@@ -147,24 +152,26 @@ try {
    * end panels, on each edge. The other sheets retain their 2.86 m bay capture.
    */
   const PSD_CELLS = HERO ? 28 : 2.86
-  const result = await session.evaluate(`(async () => {
-    const { renderModulePieces } = window.__pieceElevations
-    return await renderModulePieces(1024, {
-      ids: [],
-      pxPerMetre: 100,
-      scale: ${SCALE},
-      psdCells: ${PSD_CELLS},
-      stationName: ${JSON.stringify(HERO ? '地铁站' : null)},
-      views: ${JSON.stringify(VIEWS)},
-    })
-  })()`)
-
-  const images = result?.images
-  const layout = result?.layout
-  if (!images || !layout) throw new Error('the pass returned nothing')
-
   const index = []
+  // Release the WebGL context between pieces; long screen walls otherwise retain
+  // enough capture buffers to stall the browser before it returns the full batch.
   for (const [id, view] of Object.entries(VIEWS)) {
+    const result = await session.evaluate(`(async () => {
+      const { renderModulePieces } = window.__pieceElevations
+      return await renderModulePieces(1024, {
+        ids: [],
+        pxPerMetre: 100,
+        scale: ${SCALE},
+        psdCells: ${PSD_CELLS},
+        stationName: ${JSON.stringify(HERO ? '地铁站' : null)},
+        views: ${JSON.stringify({ [id]: view })},
+      })
+    })()`)
+
+    const images = result?.images
+    const layout = result?.layout
+    if (!images || !layout) throw new Error('the pass returned nothing')
+
     // The pass hands pictures back **per piece**. It used to hand them back per corner, which
     // silently gave every piece after the first one on a corner the last render's pixels.
     const png = images[id]

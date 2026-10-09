@@ -4,10 +4,11 @@
 // itself lives in app/sweep.ts; this file only owns the pointer gesture.
 
 import { removeFloor, removeModule } from '../../build/model.ts'
-import { isCeilingHung, isWallMounted, moduleAt } from '../../sim/placement.ts'
+import { moduleAt } from '../../sim/placement.ts'
 import type { Module } from '../../sim/types.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from '../sweep.ts'
 import { moduleLabel, useStore } from '../store.ts'
+import { TileEquipmentTool } from './TileEquipmentTool.ts'
 import { pendingCells, rectCells, straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
@@ -30,6 +31,24 @@ export class DeleteTool extends ToolController {
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     if (picked) {
+      if (picked.type === 'roof' || (picked.type === 'stair' && picked.cfg.block)) {
+        info.preventDefault()
+        const stairBlock = picked.type === 'stair'
+        const tileType = stairBlock
+          ? 'stair-block'
+          : picked.cfg.variant === 'shell' ? 'roof-shell'
+            : picked.cfg.variant === 'truss' ? 'roof-truss'
+            : picked.cfg.variant === 'tapered-truss' ? 'roof-tapered' : 'roof'
+        const width = picked.type === 'roof' ? picked.d : 1
+        const anchor: [number, number, number] = [picked.x, picked.y, picked.z]
+        this.ctx.drag.current = {
+          active: true, roof: true, deleteTile: true, button: info.button, mode: 'remove', anchor, z: picked.z,
+          shift: false, sx: info.clientX, sy: info.clientY, downTime: performance.now(),
+          tileType, tileRot: picked.rot ?? 0, tileWidth: width,
+        }
+        new TileEquipmentTool(this.ctx).refreshHover()
+        return
+      }
       info.preventDefault()
       // A fence panel is one cell of a run, so the delete tool drags it like
       // the 围栏 tool: press anchors, a drag draws a straight line, and the
@@ -57,12 +76,12 @@ export class DeleteTool extends ToolController {
         sy: info.clientY,
         downTime: performance.now(),
       }
-      scene.setModulePreview(fence ? null : picked, true)
+      scene.setModulePreview(picked, true)
       scene.setCollisionHighlight(null)
-      scene.setGhost(fence ? [[picked.x, picked.y, picked.z]] : [], 'remove')
-      // A wall panel or a hung fitting is the pending delete itself: its own
-      // red ghost is the highlight, never the floor cell beneath it.
-      scene.setCursor(isWallMounted(picked) || isCeilingHung(picked) ? null : [picked.x, picked.y, picked.z], true)
+      scene.setGhost([], 'remove')
+      // The equipment model is the delete preview; a cell cursor underneath it
+      // makes the floor look like the thing being removed.
+      scene.setCursor(null)
       return
     }
     if (!hit.solid) return
@@ -84,6 +103,7 @@ export class DeleteTool extends ToolController {
   }
 
   onMove(info: PointerInfo): void {
+    if (this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
     const hit = info.hit
     if (!scene || !hit) return
@@ -98,17 +118,17 @@ export class DeleteTool extends ToolController {
         const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
         const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
         const seen = new Set<string>()
-        const cells: Array<[number, number, number]> = []
+        const modules: Module[] = []
         for (const [x, y, z] of line) {
           const mod = moduleAt(st.station.modules, x, y, z)
           if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
           seen.add(mod.id)
-          cells.push([mod.x, mod.y, mod.z])
+          modules.push(mod)
         }
-        scene.setModulePreview(null)
+        scene.setModulePreview(modules, true)
         scene.setCollisionHighlight(null)
-        scene.setGhost(cells, 'remove')
-        scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
+        scene.setGhost([], 'remove')
+        scene.setCursor(null)
         return
       }
       if (d.modules) {
@@ -136,6 +156,7 @@ export class DeleteTool extends ToolController {
         scene.setGhost([], 'remove')
         scene.setCollisionHighlight(null)
         scene.setModulePreview(mods, true)
+        scene.setCursor(null)
         return
       }
       // A deliberate press draws the line of blocks the release will remove;
@@ -155,7 +176,7 @@ export class DeleteTool extends ToolController {
       scene.setGhost([], 'remove')
       scene.setCollisionHighlight(null)
       scene.setModulePreview(picked, true)
-      scene.setCursor(isWallMounted(picked) || isCeilingHung(picked) ? null : [picked.x, picked.y, picked.z], true)
+      scene.setCursor(null)
     } else {
       scene.setModulePreview(null)
       scene.setCollisionHighlight(null)
@@ -169,6 +190,7 @@ export class DeleteTool extends ToolController {
     // placement run — that release belongs to the equipment tool). Each branch
     // below is the delete side of the release the press promised.
     const d = this.ctx.drag.current
+    if (d?.roof) { new TileEquipmentTool(this.ctx).onUp(info); return }
     this.ctx.drag.current = null
     const scene = this.ctx.scene()
     if (!scene || !d?.active) return

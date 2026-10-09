@@ -1,3 +1,4 @@
+import { escalatorIsLong } from '../../sim/escalators.ts'
 // The 吸取 (picker) tool (工具栏, `P`): click anything built and take it into
 // the brush — the generalised form of the old 材质 folder's 取色 (`I`), which
 // only lifted a face finish. Clicking a placed piece of equipment / 装饰 arms
@@ -46,18 +47,26 @@ const OPTION_IDS = new Set(MODULE_OPTIONS.map((m) => m.id))
 function paletteIdForModule(mod: Module): string | null {
   let id: string | null = null
   switch (mod.type) {
+    case 'light':
+      id = `light-${mod.cfg.variant}`
+      break
     case 'pillar':
       id = `pillar-${mod.cfg.size}`
       break
     case 'roof':
       id = mod.cfg.variant === 'tapered-truss'
         ? 'roof-tapered'
-        : mod.cfg.variant === 'truss'
-          ? 'roof-truss'
-          : 'roof'
+        : mod.cfg.variant === 'shell'
+          ? 'roof-shell'
+          : mod.cfg.variant === 'truss'
+            ? 'roof-truss'
+            : 'roof'
       break
     case 'bench':
       id = `bench-${mod.cfg.variant ?? 'steel-1'}`
+      break
+    case 'busstop':
+      id = `busstop-${mod.cfg.variant}`
       break
     case 'billboard':
       id = `billboard-${mod.cfg.variant ?? 'wide'}`
@@ -102,6 +111,7 @@ function paletteIdForModule(mod: Module): string | null {
     }
     case 'gate':
     case 'fence':
+    case 'guidepost':
     case 'tvm':
     case 'vending':
     case 'shelf':
@@ -110,6 +120,7 @@ function paletteIdForModule(mod: Module): string | null {
     case 'sink':
     case 'bin':
     case 'extinguisher':
+    case 'vent':
     case 'clock':
     case 'cctv':
     case 'tv':
@@ -196,10 +207,17 @@ export class PickTool extends ToolController {
       // the next click hangs are the one the player pointed at.
       if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
       st.setModuleType(optionId)
+      if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)
+      if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)
       if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
       if (typeof mod.rot === 'number') st.setModuleRot(mod.rot)
-      if (mod.type === 'escalator') st.setEscalatorDir(mod.cfg.dir)
+      if (mod.type === 'escalator') {
+        st.setEscalatorDir(mod.cfg.dir)
+        if (st.escalatorWide !== (mod.cfg.width === 2)) st.toggleEscalatorWidth()
+        if (st.escalatorLong !== escalatorIsLong(mod)) st.toggleEscalatorLength()
+      }
       if (mod.type === 'roof' && mod.cfg.variant) st.setRoofWidth(mod.d)
+      if (mod.type === 'lift') st.setLiftStyle(mod.cfg.style === 'steel' ? 'steel' : 'glass')
       if (mod.type === 'gate') st.setGateDoor(mod.cfg.door ?? 'lane')
       st.setTool('module')
       st.select({ kind: 'module', key: mod.id, label })

@@ -25,6 +25,7 @@ export interface SaveFileV1 {
   gameVersion: string
   savedAt: string
   name: string
+  nameEn?: string
   seed: number
   /** Base of the 4 m editing grid; absent in older saves. */
   levelBase?: number
@@ -65,6 +66,7 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     gameVersion: GAME_VERSION,
     savedAt: now.toISOString(),
     name: state.name,
+    nameEn: state.nameEn,
     seed: state.seed,
     levelBase: state.levelBase,
     service: state.service,
@@ -99,6 +101,7 @@ export function parse(text: string): ParseResult {
   if (!d.static || !Array.isArray(d.static.cells)) return { ok: false, error: '缺少车站数据' }
   const data: StationData = {
     name: typeof d.name === 'string' ? d.name : '未命名车站',
+    nameEn: typeof d.nameEn === 'string' ? d.nameEn : '',
     seed: typeof d.seed === 'number' ? d.seed : 1234567,
     levelBase: d.levelBase,
     cells: d.static.cells,

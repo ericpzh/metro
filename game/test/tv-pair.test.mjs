@@ -337,7 +337,7 @@ test('the pair hangs from one set of rods, and only one of the two draws them', 
   // The paired element brings only its own screens: one backing per pane, and no
   // second screen's worth of backing inside the shared body.
   for (const built of [a, b]) {
-    assert.equal(built.meshes.filter(isBacking).length, 2, 'each 电视 has one backing per pane')
+    assert.equal(built.meshes.filter(isBacking).length, 1, 'each face has one full-screen backing')
   }
 })
 
@@ -372,7 +372,7 @@ test('each element of the pair lights its own face, and only its own', () => {
   // Mirrored about the middle of the cell, so the pair is symmetric: the +y element's
   // board is at +0.515 where the −y one's is at −0.515.
   const ya = yOf(a).sort((p, q) => p - q)
-  const yb = yOf(b).sort((p, q) => p - q)
+  const yb = yOf(b).sort((p, q) => q - p)
   for (let i = 0; i < ya.length; i++) assert.ok(Math.abs(ya[i] + yb[i]) < 1e-9, `${ya[i]} + ${yb[i]} is not 0`)
 })
 
@@ -435,9 +435,9 @@ test('the pair is one housing, and two solo models are what it replaces', () => 
   for (const built of [a, b]) {
     const board = built.meshes.find((m) => m.board)
     const win = built.meshes.find((m) => m.lit && !m.board)
-    assert.ok(Math.abs(board.size.x + win.size.x - SW) < 0.005, 'the board and window no longer cover the screen')
+    assert.ok(Math.abs(board.size.x - SW) < 0.005, 'the station plate must cover the whole screen behind the video')
     assert.ok(Math.abs(win.size.x - SW * TV_POSTER_RECT.w) < 0.005, 'the window is not the region the board leaves')
-    assert.ok(Math.abs(win.size.z - SH) < 0.005, 'the window does not reach the screen edges')
+    assert.ok(Math.abs(win.size.z - SH * TV_POSTER_RECT.h) < 0.005, 'the video must leave room for the footer')
     assert.ok(Math.abs(board.size.z - SH) < 0.005, 'the board does not reach the screen edges')
   }
 })
@@ -466,14 +466,14 @@ test('a screen has a back: no lit pane is double-sided', () => {
   }
 })
 
-test('a lone 电视 is drawn exactly as it was, so nothing else moved', () => {
+test('a lone 电视 keeps its hardware and overlays video in front of the plate', () => {
   const [solo] = buildStation([pairModules()[0]])
   const lit = solo.meshes.filter((m) => m.lit)
   assert.equal(lit.length, 2)
   // The slim casing, the two rods and their plates, and one bezel: the model the
   // station has always drawn.
-  assert.equal(solo.meshes.length, 13)
-  assert.equal(solo.meshes.filter((m) => !m.lit).length, 11)
+  assert.equal(solo.meshes.length, 12)
+  assert.equal(solo.meshes.filter((m) => !m.lit).length, 10)
   // Its panes print on local −y, `LIT_STAND_OFF` clear of the body's outer surface.
   // A lone 电视's body is its slim casing (0.05 m either side of the module origin),
   // so the pane rides at `−(0.05 + LIT_STAND_OFF)` — the relationship that keeps a
@@ -481,7 +481,7 @@ test('a lone 电视 is drawn exactly as it was, so nothing else moved', () => {
   for (const m of lit) {
     assert.equal(Math.sign(m.centre.y), -1)
     assert.ok(
-      Math.abs(m.centre.y - -(SOLO_HALF + LIT_STAND_OFF)) < 1e-6,
+      Math.abs(m.centre.y - -(SOLO_HALF + LIT_STAND_OFF + (m.board ? 0 : 0.001))) < 1e-6,
       `a pane sits at ${m.centre.y}, not ${-(SOLO_HALF + LIT_STAND_OFF)}`,
     )
   }

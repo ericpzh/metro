@@ -9,6 +9,7 @@
 // `/lab` page keep importing the path they always did.
 
 import * as THREE from 'three'
+import type { TrainService } from '../../sim/trainSchedule.ts'
 import { createMaterials, finishesInUse } from '../materials.ts'
 import type { MaterialSet } from '../materials.ts'
 import { createModelMaterials, disposeModelMaterials, refreshSignFaceMaterial } from '../models.ts'
@@ -256,8 +257,8 @@ export class SceneRenderer {
    * every plate is redrawn in place — the meshes keep their geometry and material, so nothing
    * rebuilds but the pixels — while the hands are swept between snapshots every frame.
    */
-  setSimClock(simTime: number): void {
-    this.plates.setSimClock(simTime)
+  setSimClock(simTime: number, services: TrainService[] = []): void {
+    this.plates.setSimClock(simTime, services)
     this.clocks.setSimTime(simTime)
   }
 
@@ -529,6 +530,10 @@ export class SceneRenderer {
 
   pick(clientX: number, clientY: number, workPlaneZ: number): PickResult | null {
     return this.cameraSys.pick(clientX, clientY, workPlaneZ)
+  }
+
+  pickHorizontalPlane(clientX: number, clientY: number, height: number, anchorZ: number): PickResult | null {
+    return this.cameraSys.pickHorizontalPlane(clientX, clientY, height, anchorZ)
   }
 
   pickModule(clientX: number, clientY: number): string | null {

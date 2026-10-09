@@ -11,7 +11,7 @@ import {
   isCalligraphyAxis,
   isCalligraphyStyle,
 } from '../../sim/calligraphy.ts';
-import { escalatorModule, type EscalatorDir } from '../../sim/escalators.ts';
+import { escalatorModule, escalatorLandings, type EscalatorDir } from '../../sim/escalators.ts';
 import { exitFloorAt, exitFootprintCells } from '../../sim/exits.ts';
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../../sim/glassPanels.ts';
 import { DEFAULT_DOOR_VARIANT, doorSpec } from '../../sim/doors.ts';
@@ -70,8 +70,8 @@ function stationNameOf(source: SignLineInput): string {
 }/**
  * Build a fresh module payload for one cell. Shared by the placement tool and
  * the on-hover ghost, so the preview is the exact module the click would add.
- * `width` is the stair width — omitted, a stair is the narrow piece, exactly the
- * escalator's step band — `dir` the escalator direction and `door` the 闸机 piece
+ * `width` is the stair's clear width, or an escalator's block count (1 or 2).
+ * Omitted, either is narrow. `dir` is the escalator direction and `door` the 闸机 piece
  * (a working lane or the fence machine, toggled with Tab); other types ignore
  * them. Returns null for a type the placement UI cannot create yet.
  *
@@ -106,6 +106,8 @@ export function createModule(
       return { id, type: 'pillar', x, y, z, rot, cfg: { size: type === 'pillar-thick' ? 'thick' : 'slim', height: 4 } };
     case 'roof':
       return { id, type: 'roof', x, y, z, rot, w: 1, d: 1, cfg: {} };
+    case 'roof-shell':
+      return { id, type: 'roof', x, y, z, rot, w: TRUSS_ROOF_BAY, d: supportedRoofWidth(width), cfg: { variant: 'shell' } };
     case 'roof-truss':
       return { id, type: 'roof', x, y, z, rot, w: TRUSS_ROOF_BAY, d: supportedRoofWidth(width), cfg: { variant: 'truss' } };
     case 'roof-tapered':
@@ -141,6 +143,14 @@ export function createModule(
       return { id, type: 'cubicle', x, y, z, rot, cfg: {} };
     case 'sink':
       return { id, type: 'sink', x, y, z, rot, cfg: {} };
+    case 'guidepost':
+      return { id, type: 'guidepost', x, y, z, rot, cfg: {} };
+    case 'busstop-short':
+    case 'busstop-long': {
+      const w = type === 'busstop-long' ? 8 : 4;
+      const [ox, oy] = trackOriginForCentre(rot, x, y, w, 2);
+      return { id, type: 'busstop', x: ox, y: oy, z, rot, w, d: 2, cfg: { variant: type === 'busstop-long' ? 'long' : 'short' } };
+    }
     case 'bin':
       // A litter bin (垃圾桶) and a fire-extinguisher cabinet (灭火器) are single
       // free-standing decorations: no variant, no `cfg`, turned by the hover
@@ -148,6 +158,11 @@ export function createModule(
       return { id, type: 'bin', x, y, z, rot, cfg: {} };
     case 'extinguisher':
       return { id, type: 'extinguisher', x, y, z, rot, cfg: {} };
+    case 'vent':
+      return { id, type: 'vent', x, y, z, rot, cfg: {} };
+    case 'light-circular':
+    case 'light-rectangular':
+      return { id, type: 'light', x, y, z, rot, cfg: { variant: type === 'light-rectangular' ? 'rectangular' : 'circular' } };
     case 'clock':
       // A station clock (时钟) and a ceiling camera (监控): no variant, no `cfg` —
       // the clock is round, so its rotation is purely cosmetic, and the camera's
@@ -296,7 +311,7 @@ export function createModule(
       // The one shared piece: the run always climbs from the dropped cell;
       // `dir` only orders from/to, which is what the sim reads as the one-way
       // travel and the label.
-      return escalatorModule({ x, y, z }, rot, dir, id);
+      return escalatorModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1);
     case 'lift':
       // An elevator: one storey up from the dropped cell. The player grows the
       // shaft a storey at a time (`extendLift`), so a fresh piece is always two
@@ -403,7 +418,7 @@ export function footprintCellsOf(type: string, variant?: number): Array<[number,
       // the ground the pair covers is the pair, not the cells it starts and stops on.
       const seen = new Set<string>();
       const out: Array<[number, number]> = [];
-      for (const f of [mod.from, mod.to, ...(mod.type === 'stair' ? (mod.cfg.flights ?? []).flatMap((f) => [f.from, f.to]) : [])]) {
+      for (const f of mod.type === 'escalator' ? escalatorLandings(mod) : [mod.from, mod.to, ...(mod.cfg.flights ?? []).flatMap((f) => [f.from, f.to])]) {
         const key = `${f.x},${f.y}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -450,7 +465,7 @@ export function randomAdSlug(mod: Module): string {
 
 /** True for an ad screen (广告牌 / 电视) that has no poster yet. */
 function needsPoster(mod: Module): boolean {
-  return (mod.type === 'billboard' || mod.type === 'tv') && mod.cfg.poster === undefined;
+  return (mod.type === 'billboard' || mod.type === 'tv' || mod.type === 'busstop') && mod.cfg.poster === undefined;
 }
 
 /**
@@ -470,6 +485,7 @@ export function assignAdPosters(modules: readonly Module[]): Module[] {
     changed = true;
     const poster = randomAdSlug(mod);
     if (mod.type === 'billboard') return { ...mod, cfg: { ...mod.cfg, poster } };
+    if (mod.type === 'busstop') return { ...mod, cfg: { ...mod.cfg, poster } };
     if (mod.type === 'tv') return { ...mod, cfg: { ...mod.cfg, poster } };
     return mod;
   });
@@ -548,7 +564,7 @@ export function addEquipment(state: StationState, mod: Module): StationState {
   // Landings on exit floor count even as holes: lay the cell so the graph can
   // stand on it. Laid before the carve, which protects landing cells.
   const landings: Vec3i[] =
-    mod.type === 'stair' ? stairLandings(mod) : mod.type === 'escalator' || mod.type === 'lift' ? [mod.from, mod.to] : [];
+    mod.type === 'stair' ? stairLandings(mod) : mod.type === 'escalator' ? escalatorLandings(mod) : mod.type === 'lift' ? [mod.from, mod.to] : [];
   for (const p of landings) {
     if (!have.has(cellKey(p.x, p.y, p.z)) && exitFloorAt(modules, p.x, p.y, p.z)) lay(p);
   }

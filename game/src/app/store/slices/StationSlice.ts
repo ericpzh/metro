@@ -75,7 +75,7 @@ export interface StationSlice {
   loadFromText: (text: string) => void
   select: (sel: AppState['selected']) => void
   /** Rename the station (top-bar title). Blank names are ignored. */
-  renameStation: (name: string) => void
+  renameStation: (name: string, nameEn?: string) => void
   /**
    * Set the station's operating hours (§9.6C 营业时间), in seconds since midnight. The
    * pair is repaired by `normalizeService` before it lands, so an inverted or
@@ -136,11 +136,12 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
   },
   select: (sel) => set({ selected: sel }),
 
-  renameStation: (name) => {
+  renameStation: (name, nameEn) => {
     const s = get().station
     const trimmed = name.trim()
-    if (!trimmed || trimmed === s.name) return
-    get().commit({ ...s, name: trimmed })
+    const english = nameEn === undefined ? (s.nameEn ?? '') : nameEn.trim()
+    if (!trimmed || (trimmed === s.name && english === (s.nameEn ?? ''))) return
+    get().commit({ ...s, name: trimmed, nameEn: english })
   },
 
   setServiceWindow: (from, to) => {

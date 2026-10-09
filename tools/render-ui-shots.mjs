@@ -320,6 +320,7 @@ try {
   mkdirSync(outDir, { recursive: true })
 
   const index = []
+  let demand = null
   // Which folders are open, tracked here because `metro:folder` flips one rather
   // than naming a state: the presses a state needs are the ones it differs by.
   const folders = { ...DEFAULT_FOLDERS }
@@ -366,10 +367,22 @@ try {
       crops.push({ name, file, selector, box, rect, scale, px, kb: Math.round(png.length / 1024) })
       console.log(`  ${shot.id.padEnd(10)} ${name.padEnd(11)} ${rect.width}x${rect.height} @${scale}x -> ${px.width}x${px.height}  ${Math.round(png.length / 1024)} kB`)
     }
+    if (shot.id === 'time') demand = await session.evaluate(`(() => {
+      const s = window.__metro.getState().station
+      const rect = el => { const b = el.getBoundingClientRect(); return { x:b.x, y:b.y, width:b.width, height:b.height } }
+      return {
+        input: { service:s.service, peaks:s.peaks, knobs:s.demand },
+        baseRate: s.modules.reduce((sum,m) => m.type === 'exit' && m.cfg.open ? sum + Math.max(0,m.cfg.inRate) : sum, 0),
+        sliders: [...document.querySelectorAll('.knob')].map(el => ({
+          label:el.querySelector('.knobLabel').textContent,
+          range:rect(el.querySelector('input')), value:rect(el.querySelector('.knobValue')),
+        })),
+      }
+    })()`)
     index.push({ id: shot.id, note: shot.note, crops })
   }
 
-  writeFileSync(join(outDir, 'index.json'), JSON.stringify({ width, height, shots: index }, null, 1))
+  writeFileSync(join(outDir, 'index.json'), JSON.stringify({ width, height, demand, shots: index }, null, 1))
   console.log(`ui shots: ${index.length} states -> ${outDir}`)
 } finally {
   await session.close()

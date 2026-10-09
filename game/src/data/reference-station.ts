@@ -1,6 +1,6 @@
 // The shipped demo station — 动物园 (Zoo), 广州地铁 5号线. Converted from the
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
-// 2026-10-07 03:19Z) by `tools/bake-demo-station.mjs`, which parses the envelope
+// 2026-10-09 04:21Z) by `tools/bake-demo-station.mjs`, which parses the envelope
 // with `persistence/save.ts` and writes the loader's own output, so the demo is
 // already the document the game builds when a player opens the file. It is a
 // real five-level station: surface plaza, a concourse/mezzanine, and a stacked
@@ -8,8 +8,9 @@
 // five stairs and fourteen escalators, with a store, two ticket booths, a gated
 // fare line, and the author's prop pass over it — twelve 时钟, thirty-four 监控,
 // eleven 垃圾桶, thirteen 灭火器, five free-standing 门, the advertising, and the
-// guard runs along the platform. Two head-houses feed the concourse — a covered
-// C口 and an open B口 — and the line's up direction runs to 文冲.
+// guard runs along the platform, and the author's lighting pass over it —
+// two hundred and two 灯具 and two 通风口. Two open exits feed the concourse — B口 and C口,
+// each with a surface guidepost — and the line's up direction runs to 文冲.
 //
 // The raw document lives beside this file as `demo-station.json` so it is not
 // hand-edited; `referenceStation()` hands back a fresh clone each call, because
@@ -20,6 +21,7 @@
 // `test/support/scenario-station.ts`.
 
 import type { StationData } from '../sim/types.ts'
+import { DEFAULT_SIM_TIME } from '../sim/constants.ts'
 import demo from './demo-station.json' with { type: 'json' }
 
 const DEMO = demo as unknown as StationData
@@ -30,10 +32,11 @@ export function referenceStation(): StationData {
 }
 
 /**
- * Cold-boot runtime for the demo: 07:27, no warmup, so the page opens on an
- * empty floor as the first Line 5 train runs in. The seed lives on the station.
+ * Cold-boot runtime for the demo: the service opening, no warmup, so the page
+ * opens on an empty floor — the same clock a fresh 打开 of any save gets
+ * (`DEFAULT_SIM_TIME`). The seed lives on the station.
  */
-export const REFERENCE_BOOT = { startSeconds: 7.45 * 3600, warmup: 0 } as const
+export const REFERENCE_BOOT = { startSeconds: DEFAULT_SIM_TIME, warmup: 0 } as const
 
 /**
  * A new station. There is nothing to seed: the street is an infinite plane of

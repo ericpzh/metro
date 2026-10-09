@@ -1,4 +1,4 @@
-// Procedural module models — dispatcher plus compatibility barrel (Lane E).
+// Procedural module models â€” dispatcher plus compatibility barrel (Lane E).
 //
 // buildModule keeps its signature and routes each module type to its piece
 // builder (render/models/pieces/*, one class per piece extending PieceBuilder).
@@ -16,8 +16,11 @@ import { ShelfModel } from './models/pieces/ShelfModel.ts'
 import { DeskModel } from './models/pieces/DeskModel.ts'
 import { CubicleModel } from './models/pieces/CubicleModel.ts'
 import { SinkModel } from './models/pieces/SinkModel.ts'
+import { GuidepostModel, BusstopModel } from './models/pieces/StreetDecorModel.ts'
 import { BinModel } from './models/pieces/BinModel.ts'
 import { ExtinguisherModel } from './models/pieces/ExtinguisherModel.ts'
+import { VentModel } from './models/pieces/VentModel.ts'
+import { LightModel } from './models/pieces/LightModel.ts'
 import { ClockModel } from './models/pieces/ClockModel.ts'
 import { CctvModel } from './models/pieces/CctvModel.ts'
 import { BillboardModel } from './models/pieces/BillboardModel.ts'
@@ -60,10 +63,16 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return new CubicleModel(ctx).build(mod)
     case 'sink':
       return new SinkModel(ctx).build(mod)
+    case 'guidepost': return new GuidepostModel(ctx).build(mod)
+    case 'busstop': return new BusstopModel(ctx).build(mod)
     case 'bin':
       return new BinModel(ctx).build(mod)
     case 'extinguisher':
       return new ExtinguisherModel(ctx).build(mod)
+    case 'vent':
+      return new VentModel(ctx).build(mod)
+    case 'light':
+      return new LightModel(ctx).build(mod)
     case 'clock':
       return new ClockModel(ctx).build(mod)
     case 'cctv':

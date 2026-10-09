@@ -3,8 +3,13 @@ import assert from 'node:assert/strict'
 import { RoofTool } from '../src/app/tools/RoofTool.ts'
 import { LONG_PRESS_MS } from '../src/app/tools/geometry/pointer.ts'
 import { MODULE_OPTIONS, useStore } from '../src/app/store.ts'
+import { createModule } from '../src/build/model.ts'
+import { supportedRoofWidth } from '../src/sim/structures.ts'
 import { toState } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
+import * as THREE from 'three'
+import { cameraRig } from './support/camera-rig.mjs'
+import { RoofModel } from '../src/render/models/pieces/RoofModel.ts'
 
 function harness(cells = [], moduleType = 'roof') {
   const state = { ...toState(emptyStation()), cells }
@@ -103,12 +108,12 @@ test('truss roof drag lays full bays and a click inside a bay removes the whole 
   h.tool.onDown(h.event(0, 0))
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
   h.tool.onMove(h.event(5, 0))
-  assert.deepEqual(h.ghost().map((m) => m.x), [0, 4])
+  assert.deepEqual(h.ghost().map((m) => m.x), [-2, 2])
   h.tool.onUp(h.event(5, 0))
-  assert.deepEqual(useStore.getState().station.modules.map((m) => [m.x, m.w, m.cfg.variant]), [[0, 4, 'truss'], [4, 4, 'truss']])
-  h.tool.onDown(h.event(2, 2, 2))
-  h.tool.onUp(h.event(2, 2, 2))
-  assert.deepEqual(useStore.getState().station.modules.map((m) => m.x), [4])
+  assert.deepEqual(useStore.getState().station.modules.map((m) => [m.x, m.w, m.cfg.variant]), [[-2, 4, 'truss'], [2, 4, 'truss']])
+  h.tool.onDown(h.event(1, 1, 2))
+  h.tool.onUp(h.event(1, 1, 2))
+  assert.deepEqual(useStore.getState().station.modules.map((m) => m.x), [2])
 })
 
 test('the medium truss runs a straight line along its rotated crest axis', () => {
@@ -117,12 +122,12 @@ test('the medium truss runs a straight line along its rotated crest axis', () =>
   h.tool.onDown(h.event(0, 0))
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
   h.tool.onMove(h.event(8, 4))
-  assert.deepEqual(h.ghost().map((m) => [m.x, m.y]), [[0, 0], [0, 4]], 'the sideways wander off the crest never staggers the run')
+  assert.deepEqual(h.ghost().map((m) => [m.x, m.y]), [[3, -2], [3, 2]], 'the sideways wander off the crest never staggers the run')
   h.tool.onUp(h.event(8, 4))
   assert.equal(useStore.getState().station.modules.length, 2)
   assert.ok(useStore.getState().station.modules.every((m) => m.w === 4 && m.d === 8 && m.rot === 1))
-  h.tool.onDown(h.event(-3, 2, 2))
-  h.tool.onUp(h.event(-3, 2, 2))
+  h.tool.onDown(h.event(-3, 1, 2))
+  h.tool.onUp(h.event(-3, 1, 2))
   assert.equal(useStore.getState().station.modules.length, 1, 'a click anywhere in the rotated footprint removes that bay')
 })
 
@@ -131,17 +136,59 @@ test('a truss drag ignores the lateral extent and runs backwards too', () => {
   h.tool.onDown(h.event(0, 0))
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
   h.tool.onMove(h.event(8, 3))
-  assert.deepEqual(h.ghost().map((m) => m.x), [0, 4, 8])
+  assert.deepEqual(h.ghost().map((m) => m.x), [-2, 2, 6])
   h.tool.onUp(h.event(8, 3))
-  assert.deepEqual(useStore.getState().station.modules.map((m) => m.x), [0, 4, 8])
+  assert.deepEqual(useStore.getState().station.modules.map((m) => m.x), [-2, 2, 6])
   h.tool.onDown(h.event(8, 0, 2))
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
   h.tool.onUp(h.event(0, 0, 2))
   assert.equal(useStore.getState().station.modules.length, 0, 'a right-drag sweeps the same crest line back out')
 })
 
-test('Tab width setting cycles the one truss tile through 窄, 中 and 宽 in the hover', () => {
-  assert.deepEqual(MODULE_OPTIONS.filter((m) => m.type === 'roof').map((m) => m.id), ['roof', 'roof-truss', 'roof-tapered'])
+test('roof previews and click placements centre on the pointer at every width and rotation', () => {
+  const material = new THREE.MeshStandardMaterial()
+  for (const type of ['roof', 'roof-truss', 'roof-tapered']) {
+    for (const width of type === 'roof' ? [1] : [4, 8, 12]) {
+      for (let rot = 0; rot < 4; rot++) {
+        const h = harness([], type)
+        useStore.setState({ moduleRot: rot, roofWidth: width })
+        h.tool.onMove(h.event(10, -6))
+        h.tool.refreshHover()
+        const preview = h.ghost()[0]
+        const model = new RoofModel({ finish: () => material, mats: { steel: material } }).build(preview)
+        const centre = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3())
+        const offset = type === 'roof' ? 0.5 : 0
+        assert.ok(Math.abs(centre.x - (10 + offset)) < 0.03, 'the roof footprint is centred horizontally at the pointer')
+        assert.ok(Math.abs(centre.y - (-6 + offset)) < 0.03, 'rotation and width preserve the pointer centre')
+        h.tool.onDown(h.event(10, -6))
+        h.tool.onUp(h.event(10, -6))
+        const placed = useStore.getState().station.modules[0]
+        assert.deepEqual([placed.x, placed.y, placed.rot, placed.d], [preview.x, preview.y, preview.rot, preview.d], 'release uses the centred preview anchor')
+      }
+    }
+  }
+})
+
+test('roof-height picking keeps the cursor on the roof in perspective and orthographic views', () => {
+  const { cam } = cameraRig()
+  try {
+    for (const ortho of [false, true]) {
+      cam.setOrtho(ortho)
+      cam.activeCamera().updateMatrixWorld(true)
+      for (const height of [5.25, 9]) {
+        const hit = cam.pickHorizontalPlane(640, 410, height, 0)
+        assert.ok(hit)
+        assert.equal(hit.point[2], height)
+        const screen = new THREE.Vector3(...hit.point).project(cam.activeCamera())
+        assert.ok(Math.abs(screen.x) < 1e-6 && Math.abs(screen.y) < 1e-6, 'the roof-plane target projects back to the mouse')
+        assert.equal(hit.cell[2], 0, 'roof height does not change the supporting storey')
+      }
+    }
+  } finally { cam.dispose() }
+})
+
+test('Tab width setting cycles the truss tiles through 窄, 中 and 宽 in the hover', () => {
+  assert.deepEqual(MODULE_OPTIONS.filter((m) => m.type === 'roof').map((m) => m.id), ['roof', 'roof-shell', 'roof-truss', 'roof-tapered'])
   const h = harness([], 'roof-tapered')
   h.tool.onMove(h.event(0, 0))
   assert.equal(h.ghost()[0].d, 4)
@@ -151,4 +198,17 @@ test('Tab width setting cycles the one truss tile through 窄, 中 and 宽 in th
     assert.equal(useStore.getState().roofWidth, width)
     assert.equal(h.ghost()[0].d, width)
   }
+})
+
+test('the shell roof is the truss bay without the truss', () => {
+  // The palette id names the variant: a shell bay spans the same 4 m bay as a
+  // truss one and takes the same 4/8/12 widths, but its piece carries no
+  // purlins or trusses — two finished sheets only (`RoofModel`).
+  const shell = createModule('roof-shell', 0, 0, 4, 'shell', 1, 8)
+  assert.equal(shell.type, 'roof')
+  assert.equal(shell.cfg.variant, 'shell')
+  assert.equal(shell.w, 4, 'a shell bay is one 4 m bay')
+  assert.equal(shell.d, 8, 'at the armed width')
+  assert.equal(createModule('roof-shell', 0, 0, 4, 'shell5', 1, 5).d, supportedRoofWidth(5), 'an off-list width reads as the bay it fits')
+  assert.equal(supportedRoofWidth(5), 4)
 })

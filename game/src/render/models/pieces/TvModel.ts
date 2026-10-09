@@ -120,48 +120,24 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
     for (const x of [-(sw + bw) / 2, (sw + bw) / 2]) slab(g, mats.darkSteel, x, 0, zc, bw, depth, sh)
   }
 
-  // The screen splits into exactly two regions that tile it: the board column on
-  // the left, the content window on the right. Each is measured **from its own
-  // edge of the opening** rather than from the split, so the two of them add up to
-  // the opening exactly and neither can drift into the bezel post or stop short of
-  // its neighbour. `TV_POSTER_RECT.w === 1 - TV_POSTER_RECT.x`, so the two halves
-  // always meet at the same line.
-  const left = -sw / 2
-  const right = sw / 2
-  const splitX = left + sw * TV_POSTER_RECT.x
-  const boardW = splitX - left
-  const boardX = left + boardW / 2
-  const winW = right - splitX
-  const winX = splitX + winW / 2
-  // Full height, both of them: the artwork covers its whole half of the panel.
-  const boardH = sh
-
-  // Station board: one dark backing with the lit texture on its viewing face. The
-  // pixels come from the scene (`ctx.tvPlate`), which is the only place that holds
-  // the clock and the live train poses.
-  slab(g, mats.black, boardX, -backingCentre, zc, boardW, backingDepth, boardH)
+  // The video overlays the full station plate; shared fractions keep the footer clear.
+  const winW = sw * TV_POSTER_RECT.w
+  const winX = -sw / 2 + sw * (TV_POSTER_RECT.x + TV_POSTER_RECT.w / 2)
+  // The station plate covers the screen behind the video, leaving its footer visible.
+  slab(g, mats.black, 0, -backingCentre, zc, sw, backingDepth, sh)
   const plateTex = ctx.tvPlate(mod.id, mod.x + 0.5, mod.y + 0.5)
-  // The plate canvas is the **whole screen** — the board column on the left and the
-  // region the artwork covers on the right — because that is the surface
-  // `drawStationDisplay` lays its column out against. The board mesh is only the
-  // column, so it samples the column's own slice of that canvas. Mapping the full
-  // width onto the mesh instead squeezes the entire plate into the left
-  // `TV_POSTER_RECT.x` of the column and leaves everything right of it as bare
-  // backing: dead black between the text and the picture, with nothing in the
-  // console to say so. Both the black band and the 2.4x-condensed text around it
-  // come from this one omission.
   plateTex.wrapS = THREE.ClampToEdgeWrapping
-  plateTex.repeat.set(TV_POSTER_RECT.x, 1)
+  plateTex.repeat.set(1, 1)
   plateTex.offset.set(0, 0)
-  const plateMesh = plate(g, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: plateTex })), boardW, boardH, boardX, surface - LIT_STAND_OFF, zc, 0)
+  const plateMesh = plate(g, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: plateTex })), sw, sh, 0, surface - LIT_STAND_OFF, zc, 0)
   plateMesh.renderOrder = 1
   plateMesh.userData.adStationPlate = mod.id
 
   // Content window: the artwork, cropped to the window's aspect. The scene may
   // re-point this at another poster later, so the mesh is registered by role and
   // the module's frozen slug is only the opening frame.
-  const winH = sh
-  slab(g, mats.black, winX, -backingCentre, zc, winW, backingDepth, winH)
+  const winH = sh * TV_POSTER_RECT.h
+  const winZ = zc + sh / 2 - sh * (TV_POSTER_RECT.y + TV_POSTER_RECT.h / 2)
   const poster = posterFor(mod.cfg.poster)
   const face = ctx.ads.adFace(poster.slug, winW, winH)
   // **Proud of its own backing, and clear of it.** Both the board and the window
@@ -169,10 +145,10 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   // slab's surface merely z-fights it — either way the window renders as a flat
   // black rectangle with no error anywhere. The pane goes half a slab out plus a
   // stand-off, the same relationship the 广告牌 uses for its poster.
-  const screen = plateOf(g, face.geometry, face.material, winX, surface - LIT_STAND_OFF, zc, 0)
+  const screen = plateOf(g, face.geometry, face.material, winX, surface - LIT_STAND_OFF - 0.001, winZ, 0)
   screen.renderOrder = 2
   screen.userData.adPoster = poster.slug
-  screen.userData.adWindow = { x: winX, z: zc, w: winW, h: winH }
+  screen.userData.adWindow = { x: winX, z: winZ, w: winW, h: winH }
   // Power / status light on the lower bezel, on this element's own side.
   plate(g, mats.ledGreen, 0.05, 0.05, sw / 2 - 0.09, surface - 0.005, zc - sh / 2, 0)
   g.userData.adScreen = screen

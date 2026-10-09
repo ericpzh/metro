@@ -183,13 +183,14 @@ const SILHOUETTE_POSTER: Record<BillboardShape, AdPoster> = {
 
 /** Which way to look at a given piece, so its silhouette is the readable one. */
 function viewDir(id: string): THREE.Vector3 {
+  // The TV's lit screen is on local -y; FRONT sees its blank backing.
+  if (id === 'tv') return ISO
   // Wall-mounted decor faces +y, so its thumbnail looks at the lit front — for
   // every billboard format (`billboard-wide`, `-portrait`, `-square`, `-large`),
   // the glass panels, the station-name inscriptions and the two network maps. A
   // **门** is floor-standing (it carries its own frame), but the readable face of a
   // door is its leaf, which is the same view.
   if (
-    id === 'tv' ||
     id === 'billboard' ||
     id.startsWith('billboard-') ||
     id.startsWith('glass') ||
@@ -208,7 +209,7 @@ function viewDir(id: string): THREE.Vector3 {
   // below the piece. A 监控 reads from the front and slightly below, where its lens
   // and hood are.
   if (id === 'clock') return CLOCK
-  if (id === 'cctv') return CEILING
+  if (id === 'cctv' || id === 'vent' || id.startsWith('light-')) return CEILING
   // A backed seat reads best from the front (its cushions and arms), but the
   // backless stainless bench has nothing to hide and looks best on the lit
   // isometric angle.
@@ -269,6 +270,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'pillar', x: 0, y: 0, z: 0, cfg: { size: id === 'pillar-thick' ? 'thick' : 'slim', height: 4 } }
     case 'roof':
       return { id, type: 'roof', x: 0, y: 0, z: 0, w: 1, d: 1, cfg: {} }
+    case 'roof-shell':
+      return { id, type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 4, cfg: { variant: 'shell' } }
     case 'roof-truss':
       return { id, type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 4, cfg: { variant: 'truss' } }
     case 'roof-tapered':
@@ -301,10 +304,20 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'cubicle', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'sink':
       return { id, type: 'sink', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'guidepost':
+      return { id, type: 'guidepost', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'busstop-short':
+    case 'busstop-long':
+      return { id, type: 'busstop', x: 0, y: 0, z: 0, rot: 0, w: id === 'busstop-long' ? 8 : 4, d: 2, cfg: { variant: id === 'busstop-long' ? 'long' : 'short' } }
     case 'bin':
       return { id, type: 'bin', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'extinguisher':
       return { id, type: 'extinguisher', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'vent':
+      return { id, type: 'vent', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'light-circular':
+    case 'light-rectangular':
+      return { id, type: 'light', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: id === 'light-rectangular' ? 'rectangular' : 'circular' } }
     case 'clock':
       return { id, type: 'clock', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'cctv':
@@ -826,7 +839,7 @@ export async function renderModulePieces(
       let t = plateCache.get(id)
       if (!t) {
         t = canvasTexture(STATION_PLATE.width, STATION_PLATE.height, (g) => {
-          drawStationDisplay(g, tvLineStatus(station.lines[0], [], [0.5, 0.5]), station.name, '08:20')
+          drawStationDisplay(g, tvLineStatus(station.lines, [], [0.5, 0.5, 0]), station.name, '08:20')
         })
         plateCache.set(id, t)
       }

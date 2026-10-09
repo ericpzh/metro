@@ -1,6 +1,7 @@
 // Stair builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { exitLandingHeight } from './ExitLanding.ts'
 import { StairBlockModel } from './StairBlockModel.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials, ModuleContext } from '../PieceBuilder.ts'
@@ -72,7 +73,11 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
     const slide = slides[i] ?? NO_STAIR_SLIDE
     const from = { x: f.from.x, y: f.from.y, z: f.from.z }
     const to = { x: f.to.x, y: f.to.y, z: f.to.z }
-    g.add(buildStairFlight(ctx.mats, surface, from, to, width, outer, mates, stairWallSides(ctx.data.cells, from, to, width, slide), slide))
+    const walls = stairWallSides(ctx.data.cells, from, to, width, slide)
+    const renderOuter = new Set([from, to].filter((p) => outer.has(`${p.x},${p.y},${p.z}`)).map((p) => `${p.x},${p.y},${p.z + exitLandingHeight(ctx.data.modules, p)}`))
+    from.z += exitLandingHeight(ctx.data.modules, f.from)
+    to.z += exitLandingHeight(ctx.data.modules, f.to)
+    g.add(buildStairFlight(ctx.mats, surface, from, to, width, renderOuter, mates, walls, slide))
   }
   for (let i = 0; i + 1 < flights.length; i++) {
     g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], stairLandingShape(mod, i), stairLandingWalls(ctx.data.cells, mod, i)))

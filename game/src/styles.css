@@ -2736,3 +2736,15 @@ input[type='range'] {
 .calKey.workday {
   background: #081a2c;
 }
+
+.guideExitTiles { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; }
+.guideExitTiles button { min-width: 34px; min-height: 34px; padding: 5px 8px; border: 1px solid #566b72; border-radius: 4px; background: #182c33; color: #e9f4f4; cursor: pointer; }
+.guideExitTiles button[aria-pressed="true"] { background: #c72035; border-color: #ffdc23; }
+.guideExitTiles span { font-size: 12px; }
+
+.stationNameEditor { position: relative; }
+.stationNameEnglish { display: inline; margin-left: 8px; font-size: 11px; }
+.stationNameForm { position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; width: 280px; padding: 14px; display: grid; gap: 12px; background: #081a2c; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px #0006; }
+.stationNameForm label { display: grid; gap: 5px; font-size: 12px; color: #eaf5ff; }
+.stationNameForm .stationNameInput { width: 100%; box-sizing: border-box; }
+.stationNameActions { display: flex; gap: 8px; }

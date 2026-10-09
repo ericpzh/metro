@@ -407,15 +407,18 @@ test('the ground under a painted stair is painted with it', () => {
   for (const cut of rampSlopeCuts([stair()]).values()) assert.equal(cut.finish, undefined, 'an unpainted stair paints the ground under it')
 })
 
-test('a landing column is never cut: it is the run’s graph node and its floor', () => {
+test('the lower escalator landing stays level, while the upper block is cut under the terminal track', () => {
   const esc = escalator()
   const cuts = rampSlopeCuts([esc])
-  for (const p of [esc.from, esc.to]) {
+  for (const p of [esc.from]) {
     for (const k of cuts.keys()) {
       const [x, y] = unpack(k)
       assert.ok(!(x === p.x && y === p.y), `the landing at ${p.x},${p.y} is cut`)
     }
   }
+  const upper = cuts.get(packKey(esc.to.x, esc.to.y, esc.to.z))
+  assert.ok(upper, 'the final upper floor block no longer protrudes between incoming steps')
+  assert.ok(upper.lo < 1 && upper.hi < 1, 'the casing fits below the level landing deck')
 })
 
 test('a stair cuts the tiles its treads sweep, not the landings they stop short of', () => {

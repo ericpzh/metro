@@ -29,6 +29,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'pillar-slim', label: '细支柱', type: 'pillar', w: 1, h: 1 },
   { id: 'pillar-thick', label: '粗支柱', type: 'pillar', w: 1, h: 1 },
   { id: 'roof', label: '薄板', type: 'roof', w: 1, h: 1 },
+  { id: 'roof-shell', label: '无桁架', type: 'roof', w: 4, h: 4 },
   { id: 'roof-truss', label: '桁架', type: 'roof', w: 4, h: 4 },
   { id: 'roof-tapered', label: '收束桁架', type: 'roof', w: 4, h: 4 },
   { id: 'bridge', label: '轨道桥', type: 'track', w: 12, h: 3 },
@@ -44,8 +45,14 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'desk', label: '办公桌', type: 'desk', w: 1, h: 1 },
   { id: 'cubicle', label: '厕所隔间', type: 'cubicle', w: 1, h: 1 },
   { id: 'sink', label: '洗手池', type: 'sink', w: 1, h: 1 },
+  { id: 'guidepost', label: '导向柱', type: 'guidepost', w: 1, h: 1 },
+  { id: 'busstop-short', label: '短', type: 'busstop', w: 4, h: 2 },
+  { id: 'busstop-long', label: '长', type: 'busstop', w: 8, h: 2 },
   { id: 'bin', label: '垃圾桶', type: 'bin', w: 1, h: 1 },
   { id: 'extinguisher', label: '灭火器', type: 'extinguisher', w: 1, h: 1 },
+  { id: 'vent', label: '通风口', type: 'vent', w: 1, h: 1 },
+  { id: 'light-circular', label: '圆形', type: 'light', w: 1, h: 1 },
+  { id: 'light-rectangular', label: '直条', type: 'light', w: 1, h: 1 },
   { id: 'clock', label: '时钟', type: 'clock', w: 1, h: 1 },
   { id: 'cctv', label: '监控', type: 'cctv', w: 1, h: 1 },
   { id: 'billboard-wide', label: '横版 16:9', type: 'billboard', w: 1, h: 1 },
@@ -161,8 +168,11 @@ export function isDecorType(type: string): boolean {
     type === 'desk' ||
     type === 'cubicle' ||
     type === 'sink' ||
+    type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
     type === 'bin' ||
     type === 'extinguisher' ||
+    (type === 'light' || type.startsWith('light-')) ||
+    type === 'vent' ||
     type === 'clock' ||
     type === 'cctv' ||
     isSignType(type) ||
@@ -271,7 +281,7 @@ export function isGateType(type: string): boolean {
  * gate body). The rail's 旋转 button and the R key both read `isRotatableType`,
  * so adding a type here removes the control for it automatically.
  */
-const FIXED_ANGLE_TYPES: ReadonlySet<string> = new Set<string>([])
+const FIXED_ANGLE_TYPES: ReadonlySet<string> = new Set<string>(['light-circular'])
 
 /** True when the player may turn this equipment before placing it (R / 旋转). */
 export function isRotatableType(type: string): boolean {
@@ -301,7 +311,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
+export type ModuleFamilyKey = 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -328,10 +338,12 @@ export interface ModuleFamily {
 
 /** The family a palette id belongs to, or null for a piece that is its own tile. */
 const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
-  { key: 'roof', owns: (id) => id === 'roof' || id === 'roof-truss' || id === 'roof-tapered' },
+  { key: 'roof', owns: (id) => id === 'roof' || id === 'roof-shell' || id === 'roof-truss' || id === 'roof-tapered' },
   { key: 'pillar', owns: (id) => id === 'pillar' || id.startsWith('pillar-') },
   { key: 'stair', owns: isStairType },
   { key: 'exit', owns: isExitType },
+  { key: 'busstop', owns: (id) => id === 'busstop' || id.startsWith('busstop-') },
+  { key: 'light', owns: (id) => id === 'light' || id.startsWith('light-') },
   { key: 'bench', owns: isBenchType },
   { key: 'billboard', owns: isBillboardType },
   { key: 'glass', owns: isGlassType },
@@ -347,10 +359,12 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
-  { key: 'roof', label: '屋顶', folder: 'rail', owns: (id) => id === 'roof' || id === 'roof-truss' || id === 'roof-tapered' },
+  { key: 'roof', label: '屋顶', folder: 'rail', owns: (id) => id === 'roof' || id === 'roof-shell' || id === 'roof-truss' || id === 'roof-tapered' },
   { key: 'pillar', label: '柱', folder: 'rail', owns: (id) => id === 'pillar' || id.startsWith('pillar-') },
   { key: 'stair', label: '楼梯', folder: 'equipment', owns: isStairType },
   { key: 'exit', label: '出入口', folder: 'equipment', owns: isExitType },
+  { key: 'busstop', label: '公交站', folder: 'decor', owns: (id) => id === 'busstop' || id.startsWith('busstop-') },
+  { key: 'light', label: '灯具', folder: 'decor', owns: (id) => id === 'light' || id.startsWith('light-') },
   { key: 'bench', label: '座椅', folder: 'decor', owns: isBenchType },
   { key: 'billboard', label: '广告牌', folder: 'decor', owns: isBillboardType },
   {
@@ -444,7 +458,7 @@ export type FolderTile =
  *
  * 设备：闸机 围栏 / 售票机 自动贩卖机 / 扶梯 电梯 / 楼梯 出入口
  * 装饰：指示牌 广告牌 / 座椅 站名 / 线网图 电视 / 垃圾桶 灭火器 / 时钟 监控 /
- * 货架 办公桌 / 玻璃板 门 / 厕所隔间 洗手池
+ * 货架 办公桌 / 玻璃板 门 / 厕所隔间 洗手池 / 灯具 通风口 / 导向柱 公交站
  *
  * The anchors are palette ids and `familyAnchor` keys — the very names the grid hangs its
  * tiles, its sub-menus and its action rows on — so this one list says both what a row holds
@@ -477,10 +491,16 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     // though only the 玻璃板 is wall-mounted: the 门 is a free-standing doorway.
     familyAnchor('glass'),
     familyAnchor('door'),
-    // 厕所's own fit-out is the folder's last row — a cubicle and a basin are room
-    // furniture like the shelf and the desk, and they come **after** the wall row.
+    // 厕所's own fit-out comes **before** the ceiling and street pairs — a cubicle and a
+    // basin are room furniture like the shelf and the desk, and they used to close the folder.
     'cubicle',
     'sink',
+    // The ceiling pair sits just above the street pair: 灯具 and 通风口 hang overhead,
+    // while 导向柱 and 公交站 stand outside the station.
+    familyAnchor('light'),
+    'vent',
+    'guidepost',
+    familyAnchor('busstop'),
   ],
 }
 
@@ -695,8 +715,12 @@ const MODULE_LABELS: Record<string, string> = {
   desk: '办公桌',
   cubicle: '厕所隔间',
   sink: '洗手池',
+  guidepost: '导向柱',
+  busstop: '公交站',
   bin: '垃圾桶',
   extinguisher: '灭火器',
+  vent: '通风口',
+  light: '灯具',
   clock: '时钟',
   cctv: '监控',
   billboard: '广告牌',
@@ -744,8 +768,8 @@ export function moduleLabel(type: string, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'stairWidth' | 'stairBlockHeight' | 'roofWidth' | 'escalatorDir' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'roofWidth' | 'escalatorDir' | 'escalatorWide' | 'escalatorLong' | 'liftStyle' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.stairWidth}|${s.stairBlockHeight}|${s.roofWidth}|${s.escalatorDir}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.roofWidth}|${s.escalatorDir}|${s.escalatorWide}|${s.escalatorLong}|${s.liftStyle}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

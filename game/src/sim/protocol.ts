@@ -4,6 +4,7 @@
 
 import type { Metrics } from './world.ts'
 import type { StationData } from './types.ts'
+import type { TrainService } from './trainSchedule.ts'
 
 export interface GraphInfo {
   nodeCount: number
@@ -42,6 +43,7 @@ export type FromWorker =
       density: Float32Array
       /** One rolling-stock pose per live train; see `World.trainRenderState`. */
       trains: Float32Array
+      trainServices: TrainService[]
       /** One pose per elevator car; see `World.liftRenderState`. */
       lifts: Float32Array
       /** Real milliseconds the renderer should interpolate one snapshot over. */

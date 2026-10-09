@@ -91,6 +91,7 @@ function run(): void {
     metrics: metricsOf(w),
     density: density.slice(),
     trains: w.trainRenderState(),
+    trainServices: w.trainServices(),
     lifts: w.liftRenderState(),
     // The renderer interpolates between snapshots over exactly this window, so
     // speed stays even no matter which multiplier is selected.

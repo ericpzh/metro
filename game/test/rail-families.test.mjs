@@ -44,10 +44,10 @@ import {
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 11)
+  assert.equal(MODULE_FAMILIES.length, 13)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['roof', 'pillar', 'stair', 'exit', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
+    ['roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
@@ -108,7 +108,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
   }
   assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['stair', 'exit'])
   assert.deepEqual(familiesIn('rail').map((f) => f.key), ['roof', 'pillar'])
-  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
+  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['busstop', 'light', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
   // **The id has to answer as the type does.** The rail and the placement tool hold a
   // palette **id**, not a module: `LeftRail` folds the folder open by `isDecorType(moduleType)`
   // and `EquipmentTool` asks the same predicate before its 装饰 right-click guard. A family
@@ -156,7 +156,7 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
   // The rail is a **2-column** grid (`interleaveRows`), so `folderTiles`'s order *is* the
   // row layout: two entries, one row. 装饰's is the palette order the pieces were laid out
   // in — 指示牌 广告牌 / 座椅 站名 / 线网图 电视 / 垃圾桶 灭火器 / 时钟 监控 / 货架 办公桌 /
-  // 玻璃板 门 / 厕所隔间 洗手池 — and a family's parent tile takes its place in that order like
+  // 玻璃板 门 / 厕所隔间 洗手池 / 灯具 通风口 / 导向柱 公交站 — and a family's parent tile takes its place in that order like
   // any other tile, which is why the order cannot be read out of `MODULE_OPTIONS`.
   const anchors = (folder) => folderTiles(folder).map((t) => t.anchor)
   assert.deepEqual(anchors('decor'), [
@@ -169,6 +169,8 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     familyAnchor('glass'),
     familyAnchor('door'),
     'cubicle', 'sink',
+    familyAnchor('light'), 'vent',
+    'guidepost', familyAnchor('busstop'),
   ])
   assert.deepEqual(anchors('equipment'), [
     'gate', 'fence',
@@ -239,7 +241,7 @@ test('every piece with an action row anchors to a tile its folder really draws',
     // The row only opens at all when the piece has something to put in it: every piece
     // the palette offers has one (everything rotates), and a family option is no
     // exception — the 旋转 tile is the whole orientation of a wall-mounted piece.
-    assert.equal(hasModuleActions(option.id), true, `${option.id} opens an action row of its own`)
+    assert.equal(hasModuleActions(option.id), option.id !== 'light-circular', `${option.id} opens an action row of its own`)
   }
 })
 
