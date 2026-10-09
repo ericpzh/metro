@@ -9,9 +9,9 @@
 //     panel has one sill, one head and two end posts around the whole run, with
 //     nothing between them, so a three-cell panel is **one** window rather than
 //     three windows butted together.
-//   * **It comes in sizes.** Six of them — one, two or three cells wide, each in
-//     a 1 m and a 2 m height — picked from the rail's sub-menu rather than cycled
-//     with Tab, because a size is a choice of furniture rather than a mode.
+//   * **It comes in sizes.** Short panels are wall-mounted; the 2×4, 3×4 and 4×4
+//     panels stand on a floor edge like a doorway. All are picked from the rail's
+//     sub-menu rather than cycled with Tab.
 //
 // This one table is shared by the builder (the module it creates), the placement
 // rules (its run, its height and the wall courses it needs behind it), the
@@ -38,10 +38,16 @@ export const GLASS_SPECS: Record<GlassVariant, GlassSpec> = {
   '1x2': { variant: '1x2', label: '玻璃板 1×2', w: 1, h: 2 },
   '2x2': { variant: '2x2', label: '玻璃板 2×2', w: 2, h: 2 },
   '3x2': { variant: '3x2', label: '玻璃板 3×2', w: 3, h: 2 },
+  '2x4': { variant: '2x4', label: '玻璃板 2×4', w: 2, h: 4 },
+  '3x4': { variant: '3x4', label: '玻璃板 3×4', w: 3, h: 4 },
+  '4x4': { variant: '4x4', label: '玻璃板 4×4', w: 4, h: 4 },
 }
 
 /** Every size, in palette order: the 1 m band first, the tall ones after it. */
-export const GLASS_VARIANTS: readonly GlassVariant[] = ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2']
+export const GLASS_VARIANTS: readonly GlassVariant[] = ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2', '2x4', '3x4', '4x4']
+
+/** The four-metre panels stand on floor edges like a doorway instead of needing a wall. */
+export function glassStandsOnFloor(spec: GlassSpec): boolean { return spec.h >= 4 }
 
 /** The size the palette shows first in the 玻璃板 sub-menu. */
 export const DEFAULT_GLASS_VARIANT: GlassVariant = '1x1'

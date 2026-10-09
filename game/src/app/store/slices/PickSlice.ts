@@ -34,6 +34,7 @@ export interface PickDraft {
   moduleRot: number
   guideExitId: string | null
   lightPosition: number
+  pillarLength: 2 | 4
   roofWidth: number
   bridgeLength: number
   bridgeRailing: BridgeRailing
@@ -78,6 +79,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         moduleRot: s.moduleRot,
         guideExitId: s.guideExitId,
         lightPosition: s.lightPosition,
+        pillarLength: s.pillarLength,
         roofWidth: s.roofWidth,
         bridgeLength: s.bridgeLength,
         bridgeRailing: s.bridgeRailing,
@@ -103,6 +105,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       moduleRot: d.moduleRot,
       guideExitId: d.guideExitId,
       lightPosition: d.lightPosition,
+      pillarLength: d.pillarLength,
       roofWidth: d.roofWidth,
       bridgeLength: d.bridgeLength,
       bridgeRailing: d.bridgeRailing,

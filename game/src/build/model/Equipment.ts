@@ -197,7 +197,10 @@ export function createModule(
     case 'glass-3x1':
     case 'glass-1x2':
     case 'glass-2x2':
-    case 'glass-3x2': {
+    case 'glass-3x2':
+    case 'glass-2x4':
+    case 'glass-3x4':
+    case 'glass-4x4': {
       // The palette id names the size; a bare `glass` (an old caller) is the
       // single-cell 1 m panel. The run is centred on the hovered cell like a
       // billboard's, so a three-cell window grows evenly either side of the pointer.

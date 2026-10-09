@@ -58,6 +58,12 @@ function pushPast(past: readonly StationState[], snap: StationState): StationSta
 export interface StationSlice {
   station: StationState
   version: number
+  /**
+   * Counts station switches (打开存档 / 示例车站 / 新建), never edits: the
+   * viewport resets the camera home when this moves, after the fresh bounds
+   * exist, while commits and undo leave the view alone.
+   */
+  stationEpoch: number
   /** Transient toast line (save/load results). */
   notice: string | null
   /**
@@ -96,6 +102,7 @@ export interface StationSlice {
 export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = (set, get) => ({
   station: initialStation(),
   version: 0,
+  stationEpoch: 0,
   notice: null,
   selected: null,
   past: [],
@@ -122,7 +129,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
       return
     }
     const s = r.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
     // A save that carried blocks off the 1 m grid (nothing in the game can mint one,
     // so they came from outside) is repaired by `toState` rather than refused — say
@@ -192,7 +199,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
   },
   newStation: () => {
     const s = toState({ name: '未命名车站', seed: 7654321, cells: [], modules: [], lines: [] })
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
   },
   loadReference: () => {
@@ -200,7 +207,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     // here: an off-grid block would be dropped rather than loaded, not refused.
     const repaired = toStateRepairing(referenceStation())
     const s = repaired.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, activeZ: -8 + s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: -8 + s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
     if (repaired.droppedCells + repaired.droppedModules > 0) {
       set({ notice: `示例车站修复时删掉了 ${repaired.droppedCells + repaired.droppedModules} 个网格外的方块` })

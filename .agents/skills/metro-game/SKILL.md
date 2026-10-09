@@ -556,8 +556,9 @@ the four rules most changes trip over.
 * **Above ground is pillars, roofs, doorway exits and stair blocks** (`sim/structures.ts`,
   `build/model/RoofPaint.ts`, `app/tools/TileEquipmentTool.ts` + `RoofTool.ts`,
   `app/rail/menus/StructurePanel.tsx`; `overground.test.mjs` + `roof-tool.test.mjs` +
-  `structures-gaps.test.mjs`). A pillar is a slim (0.3 m) or thick (1 m) column grown
-  4 m at a time (`extendedPillar`, `PILLAR_STEP`); R places a slim pillar at one of nine
+  `structures-gaps.test.mjs` + `pillar-length.test.mjs` + `pick-tool.test.mjs`). A pillar is a slim (0.3 m) or thick (1 m) column grown
+  in 2 m or 4 m sections (`extendedPillar`, `PILLAR_SHORT_STEP` / `PILLAR_STEP`), chosen
+  with Tab and copied when picked; R places a slim pillar at one of nine
   in-cell offsets on the shared centre-then-reading-order cycle (`sim/inCellPositions.ts`,
   which also drives a rectangular 灯具's Tab `position`; a slim pillar's module `rot` is
   an index, not a quarter-turn), shared by its drawn shaft and collision envelope.
@@ -755,8 +756,9 @@ the four rules most changes trip over.
   itself, never as the floor beneath it: the build preview, the 选择 hover ghost, the 删除 red
   ghost and the 移动 ghost all draw the piece with `setCursor(null)` — selection still commits
   the blue `setSelection` box round the model, picked from the drawn mesh (`pickModule`) before
-  the cell. **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`, six sizes)
-  is the 围栏's wall-mounted cousin: **one outer frame** round the whole run, with a single
+  the cell. **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`, nine sizes)
+  has six short wall-mounted sizes and three 4 m floor-edge sizes. Each is **one outer frame**
+  round the whole run, with a single
   pane between them. 站名 (`sim/calligraphy.ts` + `render/calligraphyFace.ts`) is the
   **station's own name** as an ink inscription: the module carries only the hand (楷书 / 行书 /
   隶书 / 魏碑 / 黑体 / 宋体) and the axis (横排 / 竖排), the plate is **transparent** and holds

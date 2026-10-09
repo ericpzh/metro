@@ -20,7 +20,7 @@ import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
 import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
 import { EXIT_L, exitFloorBounds, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
-import { glassSpec, glassWallCourses } from './glassPanels.ts'
+import { glassSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
 import { GROUND_Z, groundHoleAt, virtualSolidAt } from './ground.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
@@ -272,6 +272,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // floor top — the air in front of it is the room's, and a bench or a 闸机
       // against the same wall stands in it freely.
       const spec = glassSpec(m.cfg?.variant)
+      if (glassStandsOnFloor(spec)) return cellsAabb(glassCells(m), z0, z0 + spec.h)
       return wallPanelBox(m, glassCells(m), z0, z0 + spec.h)
     }
     case 'calligraphy': {
@@ -544,6 +545,7 @@ const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv', 'li
 export function isWallMounted(m: Module): boolean {
   if (m.type === 'sign') return !signMountSpec(m.cfg.mount).hung
   if (!WALL_MOUNTED.has(m.type)) return false
+  if (m.type === 'glass') return !glassStandsOnFloor(glassSpec(m.cfg.variant))
   return m.type === 'linemap' ? lineMapSpec(m.cfg.mount).mount === 'wall' : true
 }
 

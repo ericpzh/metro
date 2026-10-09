@@ -66,7 +66,7 @@ export class EquipmentTool extends ToolController {
     if (st.moduleType.startsWith('pillar')) {
       const old = moduleAt(st.station.modules, ...hit.cell)
       if (old?.type === 'pillar' && info.button !== 2) {
-        const grown = extendedPillar(old)
+        const grown = extendedPillar(old, st.pillarLength)
         const others = st.station.modules.filter((m) => m.id !== old.id)
         const refusal = equipmentReason(st.station.cells, others, grown, true)
         if (refusal) { st.setNotice(equipmentRefusalNotice(refusal)); return }
@@ -380,6 +380,7 @@ export class EquipmentTool extends ToolController {
         st.currentBoards,
       )
     }
+    if (mod?.type === 'pillar') mod.cfg.height = st.pillarLength
     if (mod?.type === 'guidepost') {
       const exit = st.station.modules.find((m) => m.type === 'exit' && m.id === st.guideExitId) ?? st.station.modules.find((m) => m.type === 'exit');
       mod.cfg.exitId = exit?.id;
@@ -560,7 +561,7 @@ export class EquipmentTool extends ToolController {
     if (st.moduleType.startsWith('pillar')) {
       const old = moduleAt(st.station.modules, ...h.cell)
       if (old?.type === 'pillar') {
-        const grown = extendedPillar(old)
+        const grown = extendedPillar(old, st.pillarLength)
         const others = st.station.modules.filter((m) => m.id !== old.id)
         const blocked = equipmentReason(st.station.cells, others, grown, true) !== ''
         scene.setModulePreview(grown, blocked)

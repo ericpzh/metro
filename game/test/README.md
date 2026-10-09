@@ -72,7 +72,7 @@ The suites, by the thing they are about. Each one's full description is in
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement`, `openings`, `stairs`, `escalators`, `escalator-length`, `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route`, `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
 | The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation`, `overground`, `roof-tool`, `track-run-length`, `structures-gaps` — `storey` checks the 0–3 m height base and `save` checks its persistence and older-save default; `overground` + `roof-tool` are the pillars/roofs/doorway-exits/stair-blocks/bridges, `track-run-length` the shared tunnel/bridge lengths, `structures-gaps` the repair-shaped edges; `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole and the edits that fill it back |
 | The furniture and the decor | `shelf`, `desk`, `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `lights`, `vent`, `street-decor`, `sign`, `sign-model`, `sign-editor`, `billboard`, `glass-panel`, `calligraphy`, `line-map`, `booth-model`, `room-model` |
-| The models | `module-build` (including sealed full-height PSDs and moving decals), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
+| The models | `module-build` (including sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` — `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away |
 | The pixels | `sign-render`, `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
 | The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit`, `select-agent` — `escalators` covers the placed-run direction action and undo |
@@ -80,6 +80,8 @@ The suites, by the thing they are about. Each one's full description is in
 ## The rules a test here follows
 
 Roof placement coverage in `roof-tool.test.mjs` includes pointer-centred footprints for plain, shell and truss roofs at all widths and rotations, matching hover and click anchors, the shell bay's truss-less variant passthrough, and roof-height ray projection in perspective and orthographic views.
+
+`overground.test.mjs` covers pillar dimensions and 4 m extension. `pillar-length.test.mjs` pins the Tab choice of 2 m / 4 m sections for both pillar widths; `pick-tool.test.mjs` pins copying the choice and restoring it on Esc.
 
 1. **Import the source, not a copy.** `import { buildGraph } from '../src/sim/station.ts'`
    — no build step, no bundler, no `dist/`. If a module is hard to test, that is a

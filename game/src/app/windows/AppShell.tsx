@@ -176,6 +176,7 @@ export function App(): React.ReactElement {
           } else if (st.tool === 'rail') st.cycleRailDir()
           else if (st.tool === 'tunnel') st.cycleTunnelLength()
           else if (st.tool === 'module' && st.moduleType === 'bridge') st.cycleBridgeLength()
+          else if (st.tool === 'module' && st.moduleType.startsWith('pillar')) st.togglePillarLength()
           else if (st.tool === 'module' && isStairType(st.moduleType)) st.cycleStairWidth()
           else if (st.tool === 'module' && (st.moduleType === 'roof-shell' || st.moduleType === 'roof-truss' || st.moduleType === 'roof-tapered')) st.cycleRoofWidth()
           else if (st.tool === 'module' && isEscalatorType(st.moduleType)) st.cycleEscalatorDir()

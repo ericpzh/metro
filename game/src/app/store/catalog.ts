@@ -68,7 +68,8 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   // are **built from that table** (`SIGN_MOUNTS` / `signMountSpec`), so a mount's label
   // and its palette id cannot drift apart.
   ...SIGN_MOUNTS.map((mount) => ({ id: `sign-${mount}`, label: signMountSpec(mount).label, type: 'sign', w: 1, h: 1 })),
-  // The wall-mounted 装饰 pieces (§5.7): glass panels in six sizes, the station-name
+  // The 装饰 panels (§5.7): six wall-mounted glass sizes plus three floor-standing 4 m
+  // edge panels, the station-name
   // inscription in six hands × two axes, the network map as a wall board or a
   // free-standing totem, and the 指示牌 on its wall mount (its hanging sibling above is
   // the ceiling's). A run's length is the piece's own (`sim/glassPanels.ts`,
@@ -80,6 +81,9 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'glass-1x2', label: '玻璃板 1×2', type: 'glass', w: 1, h: 1 },
   { id: 'glass-2x2', label: '玻璃板 2×2', type: 'glass', w: 2, h: 1 },
   { id: 'glass-3x2', label: '玻璃板 3×2', type: 'glass', w: 3, h: 1 },
+  { id: 'glass-2x4', label: '玻璃板 2×4', type: 'glass', w: 2, h: 1 },
+  { id: 'glass-3x4', label: '玻璃板 3×4', type: 'glass', w: 3, h: 1 },
+  { id: 'glass-4x4', label: '玻璃板 4×4', type: 'glass', w: 4, h: 1 },
   // The 门 (装饰 §5.7): the free-standing doorway — threshold, posts, head and the
   // leaves between them — in the four pieces 单开 / 双开 × 不锈钢 / 木 (`sim/doors.ts`).
   // A single door is one cell wide and a double one two — the run a 双开 wants is the
@@ -768,8 +772,8 @@ export function moduleLabel(type: string, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'roofWidth' | 'escalatorDir' | 'escalatorWide' | 'escalatorLong' | 'liftStyle' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'escalatorDir' | 'escalatorWide' | 'escalatorLong' | 'liftStyle' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.roofWidth}|${s.escalatorDir}|${s.escalatorWide}|${s.escalatorLong}|${s.liftStyle}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.escalatorDir}|${s.escalatorWide}|${s.escalatorLong}|${s.liftStyle}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

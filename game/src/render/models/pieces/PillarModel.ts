@@ -24,7 +24,7 @@ export class PillarModel extends PieceBuilder {
     }
     // Steel collars make each four-metre extension legible without enlarging its footprint.
     for (let z = 0; z <= h; z += 4) slab(g, this.ctx.mats.steel, offset.x, offset.y, Math.max(0.05, Math.min(h - 0.05, z)), w, w, 0.1)
-    if (bridge) slab(g, this.ctx.mats.steel, offset.x, offset.y, h - 0.05, w, w, 0.1)
+    if (bridge || h % 4 !== 0) slab(g, this.ctx.mats.steel, offset.x, offset.y, h - 0.05, w, w, 0.1)
     // Slim pillar `rot` selects one of nine in-cell positions; the offset above
     // already expresses that position, so applying it again as a model turn
     // would collapse several edge and corner choices onto the same locations.

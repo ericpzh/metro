@@ -281,7 +281,7 @@ const SERVICE: Record<string, string> = {
 
 /** The line under a card's footprint: the simulation's own note, or a family note. */
 function serviceOf(id: string): string {
-  if (id.startsWith('pillar')) return '每次加高 4 m'
+  if (id.startsWith('pillar')) return 'Tab 切换每次加高 2 / 4 m'
   if (id === 'roof') return '薄顶棚，材质可涂刷'
   if (id.startsWith('roof-truss')) return '纵向桁架顶棚，4/8/12 m，可涂刷'
   if (id.startsWith('roof-shell')) return '无桁架双坡屋顶，4/8/12 m，可涂刷'

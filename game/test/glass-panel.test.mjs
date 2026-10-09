@@ -1,4 +1,4 @@
-// Glass panels (装饰 玻璃板, §5.7): the 围栏's wall-mounted cousin.
+// Glass panels (装饰 玻璃板, §5.7): short sizes clad a wall; the 4 m sizes stand on a floor edge.
 //
 // Two things make the piece what it is, and both are mechanical rather than
 // artistic — which is why they are pinned here rather than checked by eye:
@@ -7,14 +7,13 @@
 //     rails *per cell*; a glass panel draws one sill, one head and two end posts
 //     around the whole run and **one pane** between them. `module-build` pins the
 //     mesh count (five, at every size) and this file pins what those five are.
-//   * **It is cladding on a wall.** It reserves a slab on the wall rather than a
-//     cell, it needs solid backing on **every course the panel crosses** (so a 1 m
-//     wall carries the 1 m band and refuses the 2 m window), and it may hang over a
-//     track where there is no floor in front of it at all.
+//   * **It has two mounting modes.** Short panels reserve a slab on the wall and
+//     need backing on every course; 4 m panels reserve their full floor-edge cells
+//     and do not need a wall. Their geometry and collision envelopes follow suit.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { DEFAULT_GLASS_VARIANT, GLASS_FRAME, GLASS_SPECS, GLASS_VARIANTS, glassSpec, glassWallCourses } from '../src/sim/glassPanels.ts'
+import { DEFAULT_GLASS_VARIANT, GLASS_FRAME, GLASS_SPECS, GLASS_VARIANTS, glassSpec, glassStandsOnFloor, glassWallCourses } from '../src/sim/glassPanels.ts'
 import {
   autofaceWallMount,
   glassCells,
@@ -59,12 +58,12 @@ function walled(courses = 4, cells = 3) {
   return out
 }
 
-test('the six sizes are one table: a run in cells and a height in metres', () => {
-  assert.equal(GLASS_VARIANTS.length, 6, 'six sizes in the sub-menu')
+test('nine sizes share one table: wall panels and tall floor-edge panels', () => {
+  assert.equal(GLASS_VARIANTS.length, 9, 'six wall sizes and three tall floor-edge sizes')
   assert.deepEqual(
     GLASS_VARIANTS.map((v) => `${GLASS_SPECS[v].w}x${GLASS_SPECS[v].h}`),
-    ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2'],
-    'the palette reads 1/2/3 cells wide, in a 1 m and a 2 m height',
+    ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2', '2x4', '3x4', '4x4'],
+    'the palette reads 1/2/3 cells at 1/2 m and 2/3/4 cells at 4 m',
   )
   // Every palette id is a real size, and every size is in the palette: a tile that
   // names a variant the table does not have is a piece that cannot be built.
@@ -73,8 +72,9 @@ test('the six sizes are one table: a run in cells and a height in metres', () =>
   for (const v of GLASS_VARIANTS) {
     const spec = glassSpec(v)
     assert.equal(spec.variant, v)
-    assert.ok(spec.w >= 1 && spec.w <= 3, `${v}: a panel is one to three cells wide`)
-    assert.ok(spec.h === 1 || spec.h === 2, `${v}: a panel is a 1 m band or a 2 m window`)
+    assert.ok(spec.w >= 1 && spec.w <= 4, `${v}: a panel is one to four cells wide`)
+    assert.ok([1, 2, 4].includes(spec.h), `${v}: a panel is 1, 2 or 4 m high`)
+    assert.equal(glassStandsOnFloor(spec), spec.h === 4, `${v}: only the 4 m variants stand on a floor edge`)
     assert.ok(spec.label.includes(`${spec.w}×${spec.h}`), `${v}: its label says its size (${spec.label})`)
   }
   assert.equal(glassSpec(undefined).variant, DEFAULT_GLASS_VARIANT, 'a legacy module is the 1 × 1 band')
@@ -98,7 +98,7 @@ test('the factory builds a panel of its size, centred on the hovered cell', () =
   assert.equal(glassSpec('nonsense').variant, DEFAULT_GLASS_VARIANT)
 })
 
-test('a glass panel reserves a slab on its wall, not the cell in front of it', () => {
+test('short panels reserve the wall slab; tall panels reserve their floor-edge run', () => {
   const band = moduleEnvelope(glass(2, 3, 0, 0, 'g', '2x1'))
   // Flat against the wall at rot 0, which is the local −y face: the thin axis is y,
   // and the housing keeps the wall's own quarter of the cell (`PANEL_DEPTH` in from the
@@ -110,6 +110,10 @@ test('a glass panel reserves a slab on its wall, not the cell in front of it', (
   assert.equal(band.z1, 2, 'and the head at 1 m for a 1x1')
   const tall = moduleEnvelope(glass(2, 3, 0, 0, 'g', '1x2'))
   assert.equal(tall.z1, 3, 'a 1×2 window reaches 2 m')
+  const standing = moduleEnvelope(glass(2, 3, 0, 0, 'g', '3x4'))
+  assert.deepEqual([standing.x0, standing.x1, standing.y0, standing.y1, standing.z0, standing.z1], [2, 5, 3, 4, 1, 5], 'the 3×4 panel occupies three full edge cells and four metres of height')
+  assert.equal(isWallMounted(glass(2, 3, 0, 0, 'g', '3x4')), false, 'a tall panel does not require a backing wall')
+  assert.equal(isWallMounted(glass(2, 3, 0, 0, 'g', '3x2')), true, 'a short panel remains wall-mounted')
   // A quarter-turn swaps which axis is thin, and the run follows it.
   const turned = moduleEnvelope(glass(2, 3, 0, 1, 'g', '2x1'))
   assert.ok(Math.abs(turned.x0 - 2.75) < 1e-9 && Math.abs(turned.x1 - 3) < 1e-9, `rot 1 hugs the +x wall (x ${turned.x0}–${turned.x1})`)
@@ -133,7 +137,7 @@ test('the run is the panel: every cell of it is the footprint and the base', () 
   ])
 })
 
-test('the wall it hangs on must back every course the panel crosses', () => {
+test('only short panels need a wall backing every course they cross', () => {
   assert.deepEqual(glassWallCourses(glassSpec('1x1')), [0], 'a 1 m band wants the first course')
   assert.deepEqual(glassWallCourses(glassSpec('3x2')), [0, 1], 'a 2 m window wants two')
   assert.deepEqual(wallMountCourses(glass(0, 0, 0, 2, 'g', '1x2')), [0, 1])
@@ -145,6 +149,7 @@ test('the wall it hangs on must back every course the panel crosses', () => {
   assert.equal(wallMountMissing(oneCourse, glass(0, 0, 0, 2, 'g', '1x2')), true, 'and refuses the 2 m window')
   const twoCourses = walled(2)
   assert.equal(wallMountMissing(twoCourses, glass(0, 0, 0, 2, 'g', '1x2')), false, 'two courses carry the window')
+  assert.equal(wallMountMissing(floor, glass(0, 0, 0, 2, 'g', '2x4')), false, 'a standing panel needs no backing wall')
   // A multi-cell run needs a wall behind **every** cell of it, or the window hangs
   // off the end of the wall. At rot 2 the run lies along −x from the anchor, so a
   // 2-cell panel anchored at x = 1 covers x = 1 and x = 0.
@@ -256,9 +261,12 @@ test('the frame is an outer frame only, around one pane', () => {
     assert.ok(Math.abs(box.min.z) < 1e-6, `${variant}: the sill stands on the floor`)
     assert.ok(Math.abs(box.max.x - box.min.x - spec.w) < 1e-6, `${variant}: the run is ${spec.w} cells of ${spec.w} m`)
     assert.ok(Math.abs(box.max.y - box.min.y - depth) < 1e-6, `${variant}: the assembly is one frame deep`)
-    // It hangs **on** the wall (local −y), not in the middle of the room: the whole
-    // piece is in the half of the cell nearest the backing.
-    assert.ok(box.min.y < -0.4 && box.max.y < -0.3, `${variant}: bolted flat to the −y wall (y ${box.min.y}..${box.max.y})`)
+    if (glassStandsOnFloor(spec)) {
+      assert.ok(box.min.y < -0.5 && box.max.y < 0, `${variant}: frame sits along the tile's leading edge`)
+    } else {
+      // Short panels hang in the half-cell nearest the backing wall.
+      assert.ok(box.min.y < -0.4 && box.max.y < -0.3, `${variant}: bolted flat to the −y wall (y ${box.min.y}..${box.max.y})`)
+    }
     // The pane is inset by the posts at each end and by the rails top and bottom.
     const pane = panes[0]
     assert.ok(Math.abs(pane.geometry.parameters.width - (spec.w - post * 2)) < 1e-6, `${variant}: the pane stops at the posts`)

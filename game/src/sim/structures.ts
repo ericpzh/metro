@@ -3,6 +3,7 @@ import { inCellOffset } from './inCellPositions.ts'
 import { trackCellAt } from './track.ts'
 import type { BridgeRailing, Module } from './types.ts'
 export const PILLAR_STEP = 4
+export const PILLAR_SHORT_STEP = 2
 export const ROOF_THICKNESS = 0.25
 export const TRUSS_ROOF_BAY = 4
 export const ROOF_WIDTHS = [4, 8, 12] as const
@@ -49,6 +50,6 @@ export function pillarSupportsBridge(pillar: Module, track: Module): boolean {
   return pillar.type === 'pillar' && track.type === 'track' && track.cfg.bridge === true
     && pillar.z + pillar.cfg.height === track.z && trackCellAt(track, pillar.x, pillar.y, track.z)
 }
-export function extendedPillar(m: PillarModule): PillarModule {
-  return { ...m, cfg: { ...m.cfg, height: m.cfg.height + PILLAR_STEP } }
+export function extendedPillar(m: PillarModule, step = PILLAR_STEP): PillarModule {
+  return { ...m, cfg: { ...m.cfg, height: m.cfg.height + step } }
 }

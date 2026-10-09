@@ -2285,6 +2285,8 @@ approximated); neither needs WebGL.
   rotation, it may stand inside a walled room, `moduleAt` prefers it over the room, placing an
   office stocks one auto desk per grid spot, each desk deletes on its own while bulldozing keeps
   hand-placed ones, legacy offices migrate once, and everything round-trips the save.
+* `restroom-model.test.mjs` — three-panel cubicles with privacy doors, flush rear joins,
+  one shared partition across rotations, separate floors, previews and neighbour removal.
 * `restroom.test.mjs` — 厕所 fixtures and the 售票亭 staff seats (§5.7): cubicles and sinks build
   with the hover rotation and stand inside a walled room, placing a restroom stocks cubicles on the
   back row and sinks on the front (a door cell gets none) and a booth one bench per back-row cell,
@@ -2403,9 +2405,9 @@ approximated); neither needs WebGL.
   back to the catalogue head rather than to a blank face; and all six panels fit their run, the wall
   band their collision envelope reserves (`panelZ` ± `panelH` / 2, so a poster never claims the floor
   under it) and the 4 m storey.
-* `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers six (one, two or three cells
-  wide, in a 1 m and a 2 m height), one palette tile per size, and a legacy or unknown value reads as
-  the 1 × 1 band; the factory centres the run on the hovered cell; the envelope is a **slab on a wall**
+* `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers nine (six wall sizes and three
+  4 m floor-edge sizes), one palette tile per size, and a legacy or unknown value reads as the 1 × 1
+  band; the factory centres the run on the hovered cell; short-panel envelopes are a **slab on a wall**
   rather than a cell (`x + w` is not the run — at rot 2 it lies along −x, and `wallPanelBox` reads the
   module's own cells so the housing stays on the wall on every rotation); every cell of the run needs
   backing, and so does **every course the panel crosses** (a 1 m wall carries the 1 m band and refuses
@@ -2977,6 +2979,8 @@ If the site's tab should point somewhere else — a preview URL, a different dom
 
 
 Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and two raised truss styles in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with preview/release agreement and graph registration), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Thin roof tiles place by click or rectangular drag, truss bays by click or a straight-line drag along their own crest axis, and both are painted through 材质.
+
+细支柱 and 粗支柱 each have one palette tile. Tab switches the section added by a click between 2 m（短） and 4 m（长）; clicking a pillar adds that selected length while retaining its width, position and finish, so 2 m → 4 m → 2 m becomes one continuous 8 m pillar. Existing pillar saves keep their heights.
 
 `roof-tool.test.mjs` verifies rectangular thin-roof previews, truss-bay placement and removal as a straight run along the crest axis (a sideways wander never staggers it, backwards and right-drag removal included) including rotated 8 m bays, collision refusal, and one undo step per drag. Each truss style has one tile; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover.
 

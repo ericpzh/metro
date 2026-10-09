@@ -592,6 +592,27 @@ test('a save that cannot be trusted is refused whole, and the open station is un
   assert.equal(st().station.lines.length, 2, 'and both lines are still there')
 })
 
+test('station switches move stationEpoch, edits do not — the viewport homes on the epoch', async () => {
+  load(twoLines())
+  const epoch = st().stationEpoch
+  st().commit({ ...st().station, name: '改名' })
+  assert.equal(st().stationEpoch, epoch, 'an edit is not a switch')
+  st().undo()
+  assert.equal(st().stationEpoch, epoch, 'nor is undo')
+  st().redo()
+  assert.equal(st().stationEpoch, epoch, 'nor redo')
+  st().newStation()
+  assert.equal(st().stationEpoch, epoch + 1, '新建 is a switch')
+  st().loadReference()
+  assert.equal(st().stationEpoch, epoch + 2, '示例车站 is a switch')
+  const { text } = await saveToText()
+  st().loadFromText(text)
+  assert.equal(st().stationEpoch, epoch + 3, '打开存档 is a switch')
+  const refused = st().stationEpoch
+  st().loadFromText('{ not json')
+  assert.equal(st().stationEpoch, refused, 'a refused file moves nothing, not even the epoch')
+})
+
 /* ------------------------------------------------------- the rail re-cut trap */
 
 test('a 车型 edit on a rail whose own tunnel runs off its end drops the rail instead of refusing', () => {

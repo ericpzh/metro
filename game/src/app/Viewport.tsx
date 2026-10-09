@@ -84,6 +84,12 @@ export function Viewport(): React.ReactElement {
   /** True once the first station build has framed the home view (refresh only, not edits). */
   const framedRef = useRef(false)
   /**
+   * The last `stationEpoch` the home view was applied to. A switch (打开 /
+   * 示例车站 / 新建) moves the epoch, so the rebuild below runs home against
+   * the fresh bounds; an edit keeps it, so the camera stays put.
+   */
+  const homeEpochRef = useRef(-1)
+  /**
    * True once the first station build has placed the 剖切 surface. A station
    * switch puts it back (`initSim` reloads the document but this is the only
    * place that knows the new station's own extents), while an edit leaves it
@@ -186,6 +192,7 @@ export function Viewport(): React.ReactElement {
 
   const version = useStore((s) => s.version)
   const station = useStore((s) => s.station)
+  const stationEpoch = useStore((s) => s.stationEpoch)
   // A 指示牌 whose board the editor has open draws the board being arranged, not the
   // one committed (`signModuleWithPreview`). Subscribing to the id rather than to the
   // whole preview keeps this from re-rendering the viewport on every dragged bin.
@@ -571,6 +578,7 @@ export function Viewport(): React.ReactElement {
       scene.dispose()
       sceneRef.current = null
       framedRef.current = false
+      homeEpochRef.current = -1
     }
   }, [])
 
@@ -604,23 +612,27 @@ export function Viewport(): React.ReactElement {
     scene.setHideGround(st.hideGround)
     scene.setHideRoof(st.hideRoof)
     scene.setLevel(st.activeZ, st.ghostOtherLevels)
-    // The 剖切 surface is placed once, on the first build of a station: the
-    // middle of its plan on the storey being edited, facing +y — the fixed cut
-    // the old toggle drew. It is deliberately **not** re-placed on every edit,
-    // so moving a wall never throws away the cut the player positioned.
-    if (!sectionSeededRef.current) {
+    // The 剖切 surface starts at the middle of the plan on the storey being
+    // edited, facing +y — the fixed cut the old toggle drew. A switch re-places
+    // it against the fresh bounds; an edit leaves the player's cut alone, so
+    // moving a wall never throws it away.
+    const switched = stationEpoch !== homeEpochRef.current
+    if (!sectionSeededRef.current || switched) {
       sectionSeededRef.current = true
       st.placeSection(scene.defaultSection().anchor)
     }
     scene.setSection(useStore.getState().section, st.cutaway)
-    // On a fresh page load the demo station must open on the home view; the
-    // constructor's preset ran before the station existed, so frame it now. A
-    // later edit rebuilds the station but must not yank the camera.
-    if (!framedRef.current) {
+    // The home view: on a fresh page load the demo must open on it (the
+    // constructor's preset ran before the station existed, so frame it now),
+    // and a station switch (打开 / 示例车站 / 新建) returns to it against the
+    // fresh bounds — iso in perspective through the default lens. A later edit
+    // rebuilds the station but must not yank the camera.
+    if (!framedRef.current || switched) {
       framedRef.current = true
-      scene.setPreset('iso')
+      homeEpochRef.current = stationEpoch
+      goHomeView(scene)
     }
-  }, [version, station, signPreviewId, signVersion, moveId])
+  }, [version, station, stationEpoch, signPreviewId, signVersion, moveId])
 
   // A lifted piece (移动) is drawn from its own ghost, so a fresh lift or an R while
   // it is in the air rebuilds that ghost at once instead of waiting for the next

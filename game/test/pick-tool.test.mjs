@@ -33,6 +33,23 @@ test('picking short or long escalators copies length and Esc restores it', () =>
   }
 })
 
+test('picking a pillar copies its section length and Esc restores the chosen length', () => {
+  const before = useStore.getState()
+  try {
+    for (const height of [2, 4, 8]) {
+      const m = createModule('pillar-slim', 0, 0, 0, `picked-pillar-${height}`)
+      m.cfg.height = height
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, pillarLength: height === 2 ? 4 : 2 })
+      ctxFor(m.id).onDown(press([0, 0, 0]))
+      assert.equal(useStore.getState().pillarLength, height === 2 ? 2 : 4, `${height} m pillar selects its next section length`)
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().pillarLength, height === 2 ? 4 : 2, 'Esc restores the pre-pick choice')
+    }
+  } finally {
+    useStore.setState(before)
+  }
+})
+
 const floor = (x, y, z = 0) => ({ x, y, z, fill: 'solid' })
 
 /** The two faces of the 指示牌 below: a label and the 出口 plate, plus an empty back. */

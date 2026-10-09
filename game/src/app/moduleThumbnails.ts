@@ -345,7 +345,10 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'glass-3x1':
     case 'glass-1x2':
     case 'glass-2x2':
-    case 'glass-3x2': {
+    case 'glass-3x2':
+    case 'glass-2x4':
+    case 'glass-3x4':
+    case 'glass-4x4': {
       const variant: GlassVariant = id === 'glass' ? DEFAULT_GLASS_VARIANT : (id.slice('glass-'.length) as GlassVariant)
       const spec = glassSpec(variant)
       // The sample is drawn at its own run's centre, exactly as a placed piece is,

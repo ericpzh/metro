@@ -367,10 +367,10 @@ export type BenchVariant = 'steel-1' | 'steel-2' | 'seat-1' | 'seat-2'
 
 /**
  * A glass panel's size (装饰 玻璃板, §5.7): the run in cells by the height in
- * metres, as `1x1` … `3x2`. The 围栏's wall-mounted cousin — one pane in an outer
- * frame, in six sizes (`sim/glassPanels.ts`).
+ * metres, as `1x1` … `4x4`. The short sizes are wall-mounted; the 4 m panels stand
+ * on floor edges like a doorway (`sim/glassPanels.ts`).
  */
-export type GlassVariant = '1x1' | '2x1' | '3x1' | '1x2' | '2x2' | '3x2'
+export type GlassVariant = '1x1' | '2x1' | '3x1' | '1x2' | '2x2' | '3x2' | '2x4' | '3x4' | '4x4'
 
 /**
  * The two things a 门 is made of (装饰, §5.7): the leaf count and the material. A

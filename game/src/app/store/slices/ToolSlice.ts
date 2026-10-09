@@ -77,6 +77,8 @@ export interface ToolSlice {
    */
   stairWidth: number
   stairBlockHeight: 0.5 | 1
+  /** New pillar section length, toggled between 2 m and 4 m with Tab. */
+  pillarLength: 2 | 4
   /** Width across a truss roof, cycled 窄 4 m → 中 8 m → 宽 12 m with Tab. */
   roofWidth: number
   /** Escalator travel direction, cycled with Tab (up/down). */
@@ -153,6 +155,7 @@ export interface ToolSlice {
   /** Cycle the stair width one → two → three lanes (Tab). */
   cycleStairWidth: () => void
   setStairBlockHeight: (height: 0.5 | 1) => void
+  togglePillarLength: () => void
   cycleRoofWidth: () => void
   setRoofWidth: (width: number) => void
   /** Flip the escalator travel direction up ↔ down (Tab). */
@@ -196,6 +199,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   triKind: 'upper',
   stairWidth: STAIR_WIDTH_NARROW,
   stairBlockHeight: 1,
+  pillarLength: 4,
   roofWidth: 4,
   escalatorDir: 'up',
   escalatorWide: false,
@@ -222,7 +226,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // A fixed-angle piece simply ignores the turn, so the guard lives here as well
   // as on the rail button.
   rotateModule: () =>
-    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType === 'pillar-slim' ? (s.moduleRot + 1) % 9 : s.moduleType === 'light-rectangular' ? (s.moduleRot + 1) % 2 : (s.moduleRot + 3) % 4) } : {})),
+    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType.startsWith('pillar-slim') ? (s.moduleRot + 1) % 9 : s.moduleType === 'light-rectangular' ? (s.moduleRot + 1) % 2 : (s.moduleRot + 3) % 4) } : {})),
   rotateWallSnap: () => set((s) => ({ wallSnapCycle: s.wallSnapCycle + 1 })),
   setHalfWall: (on) => set({ halfWall: on, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
   toggleHalfWall: () => get().setHalfWall(!get().halfWall),
@@ -244,6 +248,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
     ? { stairBlockHeight: s.stairBlockHeight === 1 ? 0.5 : 1 }
     : { stairWidth: nextStairWidth(s.stairWidth) }),
   setStairBlockHeight: (stairBlockHeight) => set({ stairBlockHeight }),
+  togglePillarLength: () => set((s) => ({ pillarLength: s.pillarLength === 4 ? 2 : 4 })),
   cycleRoofWidth: () => set((s) => ({ roofWidth: nextRoofWidth(s.roofWidth) })),
   setRoofWidth: (width) => set({ roofWidth: supportedRoofWidth(width) }),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
@@ -255,7 +260,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   setZoneBrush: (z) => set({ zoneBrush: z }),
   setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
   setModuleRot: (rot) => set((s) => {
-    const count = s.moduleType === 'pillar-slim' ? 9 : s.moduleType === 'light-rectangular' ? 2 : 4
+    const count = s.moduleType.startsWith('pillar-slim') ? 9 : s.moduleType === 'light-rectangular' ? 2 : 4
     return { moduleRot: ((rot % count) + count) % count }
   }),
   setEscalatorDir: (dir) => set({ escalatorDir: dir }),

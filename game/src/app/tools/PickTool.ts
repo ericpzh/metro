@@ -209,6 +209,7 @@ export class PickTool extends ToolController {
       st.setModuleType(optionId)
       if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)
       if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)
+      if (mod.type === 'pillar') useStore.setState({ pillarLength: mod.cfg.height === 2 ? 2 : 4 })
       if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
       if (typeof mod.rot === 'number') st.setModuleRot(mod.rot)
       if (mod.type === 'escalator') {

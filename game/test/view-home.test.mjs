@@ -108,6 +108,32 @@ test('a missing scene is not a crash', () => {
   assert.doesNotThrow(() => goHomeView(null))
 })
 
+test('a station switch returns to the home view against the fresh bounds', () => {
+  const src = (p) => fs.readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
+  // The switch signal: all three document switches move it, nothing else does —
+  // the epoch counts 打开存档 / 示例车站 / 新建, never edits. Pinned here beside
+  // the home action because the viewport below is what reads it.
+  const slice = src('app/store/slices/StationSlice.ts')
+  for (const action of ['loadFromText', 'newStation', 'loadReference']) {
+    assert.match(
+      slice,
+      new RegExp(action + '[\\s\\S]*?stationEpoch: get\\(\\)\\.stationEpoch \\+ 1'),
+      `${action} moves the switch signal`,
+    )
+  }
+  assert.equal(
+    slice.match(/stationEpoch: get\(\)\.stationEpoch \+ 1/g)?.length ?? 0,
+    3,
+    'only the three switches move the signal — commit, undo and redo leave it alone',
+  )
+  // The viewport rebuilds the meshes, then homes on a switch — after `setStation`,
+  // so the iso distance is measured off the fresh bounds — and leaves the camera
+  // on an edit.
+  const viewport = src('app/Viewport.tsx')
+  assert.match(viewport, /stationEpoch !== homeEpochRef\.current/, 'the rebuild tells a switch from an edit by the epoch')
+  assert.match(viewport, /goHomeView\(scene\)/, 'and a switch runs the one home action, after setStation')
+})
+
 test('Ctrl+H, the ⌂ button and the metro:home hand-over are one action', () => {
   const src = (p) => fs.readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
   // The shell owns the keyboard, the viewport owns the scene, and the two meet at

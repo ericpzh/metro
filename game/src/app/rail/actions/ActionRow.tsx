@@ -91,6 +91,7 @@ function ActionTiles(): React.ReactElement {
   const gateDoor = useStore((s) => s.gateDoor)
   const stairWidth = useStore((s) => s.stairWidth)
   const stairBlockHeight = useStore((s) => s.stairBlockHeight)
+  const pillarLength = useStore((s) => s.pillarLength)
   const roofWidth = useStore((s) => s.roofWidth)
   const st = useStore.getState
   // The cut piece the 方块 click will lay, if any: its orientation is the one thing a
@@ -104,9 +105,12 @@ function ActionTiles(): React.ReactElement {
         <RotateTile label="旋转" onClick={() => st().rotateWallSnap()} />
       ) : null}
       {piece !== null && isRotatableType(piece) ? (
-        piece === 'pillar-slim'
+        piece.startsWith('pillar-slim')
           ? <PositionTile position={moduleRot} onClick={() => st().rotateModule()} />
           : <RotateTile label={`旋转 ${piece === 'light-rectangular' ? (moduleRot % 2) * 90 : ((4 - moduleRot) % 4) * 90}°`} onClick={() => st().rotateModule()} />
+      ) : null}
+      {piece !== null && piece.startsWith('pillar') ? (
+        <Block label={pillarLength === 2 ? '短' : '长'} icon="ortho" shortcut="Tab" onClick={() => st().togglePillarLength()} />
       ) : null}
       {piece === 'lift' ? (
         <Block label={liftStyle === 'glass' ? '玻璃' : '钢板'} icon="block" shortcut="Tab" onClick={() => st().cycleLiftStyle()} />
