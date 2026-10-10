@@ -2725,6 +2725,8 @@ approximated); neither needs WebGL.
   triples it; a locked step never changes the orbit distance, so the wheel's own 4 m / 400 m limits have
   nothing to clamp and a long hold keeps the angle; and a *plain* Q/E — the storey step — leaves the
   view exactly where it is, which is why the key set carries the modifier in its token.
+  It also pins the frame loop's active-storey aim: the camera follows the selected floor at `activeZ + 1 m`
+  across a baseline shift while preserving orbit and zoom.
 * `camera-fov.test.mjs` — 视场角, the lens slider under the nav cube (`CameraSystem.fov` / `setFov`): a
   degree count reads back as itself, which is what stops the thumb creeping, since the slider follows the
   camera rather than leading it; the **30° end genuinely magnifies and the 120° end genuinely opens the

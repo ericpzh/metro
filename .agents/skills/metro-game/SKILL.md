@@ -72,6 +72,7 @@ landing plane. Pin slope clearance and real body overlap in
 * **Pack cell coordinates with `packKey`** (number arithmetic, ±4096 m). Never use
   bit shifts — the old `(x + 4096) << 20` collided neighbours.
 * **Axes:** `+z` is up; `n` is `+y`, `e` is `+x`, `+z` = top face.
+* **Camera follows the edited storey:** `CameraSystem.frame()` aims at `activeZ + 1 m` and translates the camera with the target, preserving orbit and zoom. Keep this pinned in `game/test/camera-vertical-pan.test.mjs` when changing storey or baseline behavior.
 * **All tuning numbers live in `sim/constants.ts`** (or `stock.ts`).
 * **The code is organised for parallel edits:** every window, subwindow, list
   item, tool and 3D model is its own unit in its own file, and shared

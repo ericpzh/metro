@@ -25,9 +25,10 @@ export function stubElement() {
 export function cameraRig() {
   const keys = new Set()
   const bounds = new THREE.Box3(new THREE.Vector3(-20, -20, -20), new THREE.Vector3(20, 20, 20))
-  const cam = new CameraSystem(stubElement(), { keys, bounds }, { setSize() {} })
+  const ctx = { keys, bounds, activeZ: 0 }
+  const cam = new CameraSystem(stubElement(), ctx, { setSize() {} })
   cam.setPreset('iso')
-  return { cam, keys }
+  return { cam, ctx, keys }
 }
 
 /** `CameraSystem.moveSpeed`: the rate both pans travel at, from the orbit distance. */

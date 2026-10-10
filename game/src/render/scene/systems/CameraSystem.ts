@@ -198,7 +198,14 @@ export class CameraSystem extends SceneSystem {
 
   frame(): void {
     const c = this.ctx.bounds.getCenter(new THREE.Vector3())
-    this.controls.target.copy(c)
+    // Keep the plan centre, but follow the edited storey vertically. The old
+    // bounds centre made the camera stay on the station's fixed -8/-4/0/4 m
+    // grid when the height baseline moved. Translate the camera with the aim
+    // point so changing storeys preserves the user's orbit and zoom.
+    c.z = this.ctx.activeZ + 1
+    const delta = c.sub(this.controls.target)
+    this.controls.target.add(delta)
+    this.camera.position.add(delta)
     this.controls.update()
   }
 

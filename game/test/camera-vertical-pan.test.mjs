@@ -109,6 +109,22 @@ test('a long hold keeps the angle and the distance exactly, so nothing clamps it
   assert.ok(Number.isFinite(cam.camera.position.z), 'the rig never went NaN')
 })
 
+test('the camera follows the active storey height while preserving its orbit', () => {
+  const { cam, ctx } = cameraRig()
+  const offset = cam.camera.position.clone().sub(cam.controls.target)
+
+  ctx.activeZ = -7
+  cam.frame()
+  assert.equal(cam.controls.target.z, -6, 'the aim sits one metre above the active floor')
+  assert.ok(cam.camera.position.clone().sub(cam.controls.target).distanceTo(offset) < 1e-12,
+    'following a floor preserves the camera orbit and zoom')
+
+  ctx.activeZ = 5
+  cam.frame()
+  assert.equal(cam.controls.target.z, 6, 'a shifted height baseline moves the aim with the active floor')
+  assert.ok(cam.camera.position.clone().sub(cam.controls.target).distanceTo(offset) < 1e-12)
+})
+
 test('the vertical pan is wired: the frame loop drives it and both sources hold its tokens', () => {
   // A camera method that nothing calls is the failure this guards: it compiles, it
   // has a test, and the control does nothing in the game. `SceneRenderer.animate`
