@@ -1143,6 +1143,12 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (isPsdCornerPair(m, candidate) || isPsdEndJoin(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
     if (isHangingShare(m, candidate)) continue
+    // A station-side 广告牌 can sit on the wall behind the platform screen doors.
+    // Their coarse envelopes overlap in height, but the poster is mounted at the
+    // back wall while the doors occupy the track edge; they are separated across
+    // the platform and must coexist.
+    if ((m.type === 'billboard' && candidate.type === 'platform-edge')
+      || (candidate.type === 'billboard' && m.type === 'platform-edge')) continue
     // A 围栏 meets a 玻璃板 arm to edge-strip, not envelope to strip: a panel on
     // the edge of a turning cell shares the tile unless an arm pierces it.
     if (isFenceGlassPair(m, candidate)) {

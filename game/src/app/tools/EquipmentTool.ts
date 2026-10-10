@@ -46,6 +46,7 @@ import { TileEquipmentTool } from './TileEquipmentTool.ts'
 import { snapBoardingMark } from '../../sim/floorDecor.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
+import { deletionTarget } from './deletionTarget.ts'
 
 export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
@@ -133,30 +134,30 @@ export class EquipmentTool extends ToolController {
       if ((shaft && shaft.type === 'lift') || hit.solid) this.placeLift(hit)
       return
     }
-    // Equipment rides on a floor block; bare void has nothing to stand on.
-    if (!hit.solid) return
     if (info.button === 2) {
-      // A 装饰 right-click lifts a placed piece — including every shelf unit
-      // of a store, which are modules of their own since stocking. Pointing
-      // at the room itself (or bare floor) has nothing to lift.
+      // Use the drawn module under the pointer first. Wall/ceiling fixtures and
+      // tall equipment often sit above a void, wall, or rail cell, where the
+      // grid cell alone can identify the wrong object (or none at all).
       if (isDecorType(st.moduleType)) {
-        const rail = railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2])
-        if (rail) {
-          this.bulldoze(hit.cell, hit.place, this.facing())
-          return
-        }
-        const pointed = moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2])
+        const pointed = deletionTarget(st.station.modules, this.pickModuleAt(info), hit.cell, this.facing())
         if (pointed && pointed.type !== 'shop' && pointed.type !== 'booth' && pointed.type !== 'retail') {
-          this.bulldoze(hit.cell, hit.place, this.facing())
+          this.removePlacedModule(pointed)
           return
         }
         const room = facilityAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2])
         st.setNotice(room ? '货架要一个一个拆：点中货架再右键' : '这里没有可拆的装饰')
         return
       }
+      const pointed = deletionTarget(st.station.modules, this.pickModuleAt(info), hit.cell, this.facing())
+      if (pointed) {
+        this.removePlacedModule(pointed)
+        return
+      }
       this.bulldoze(hit.cell, hit.place, this.facing())
       return
     }
+    // Equipment rides on a floor block; bare void has nothing to stand on.
+    if (!hit.solid) return
     this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]])
   }
 

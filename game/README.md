@@ -2446,6 +2446,9 @@ approximated); neither needs WebGL.
   back to the catalogue head rather than to a blank face; and all six panels fit their run, the wall
   band their collision envelope reserves (`panelZ` ± `panelH` / 2, so a poster never claims the floor
   under it) and the 4 m storey.
+* `equipment-deletion.test.mjs` — equipment right-click teardown targets the ray-picked visible module
+  before the grid cell underneath it, so a poster above a rail removes the poster; when no model is
+  picked, the grid cell remains the fallback.
 * `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers nine (six wall sizes and three
   4 m floor-edge sizes), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
   band; the factory centres the run on the hovered cell; short-panel envelopes are a **slab on a wall**

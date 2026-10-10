@@ -1046,6 +1046,9 @@ the four rules most changes trip over.
   while 盲道 never sweeps: its own straight-run drag owns it. `test/sweep.test.mjs`
   is where the decision is written down. `sweep.ts` is the one app module written browser-free so
   Node can import it.
+  Equipment-tool right-click teardown resolves the ray-picked visible module before falling back to
+  the hit grid cell; wall posters, ceiling fixtures and tall pieces can overlap a different cell or
+  rail beneath them. Keep the target resolver pure and pin it in `test/equipment-deletion.test.mjs`.
 * **The 广告牌 / 电视 posters are a catalogue, cropped never stretched** (`sim/billboards.ts`
   `AD_POSTERS`, `render/adArt.ts`, `render/panelUv.ts`). Twelve campaign slugs in
   `src/assets/posters/`, each tagged with the silhouettes it is cut for, so a panel is only ever
