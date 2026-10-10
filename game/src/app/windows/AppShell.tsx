@@ -117,7 +117,7 @@ export function App(): React.ReactElement {
           setTool('select' as const)
           break
         case 'b':
-          st.setTool('delete')
+          st.setTool(st.tool === 'delete' ? st.previousTool : 'delete')
           break
         case 'f':
           // F is the plain 方块 tile's key: it always lands on a plain block,
@@ -193,7 +193,7 @@ export function App(): React.ReactElement {
           st.setPaintMode('single')
           break
         case 'm':
-          st.setTool('move')
+          st.setTool(st.tool === 'move' ? st.previousTool : 'move')
           break
         case 'i':
           // `I` is the old 取色 key, kept as an alias: eyedropping moved to the
@@ -256,7 +256,7 @@ export function App(): React.ReactElement {
           }
           break
         case 'p':
-          st.setTool('pick')
+          st.setTool(st.tool === 'pick' ? st.previousTool : 'pick')
           break
         case 't':
           st.setTool('zone')

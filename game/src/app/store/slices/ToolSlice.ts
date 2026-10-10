@@ -16,6 +16,8 @@ export type Tool = 'select' | 'pick' | 'move' | 'block' | 'wall' | 'delete' | 'm
 
 export interface ToolSlice {
   tool: Tool
+  /** Tool active immediately before the current one; used by toggle shortcuts. */
+  previousTool: Tool
   /**
    * The 方块 tool: a dragged floor patch raises its 4 m auto-wall ring. **Off when
    * the game opens.** The ring is the one thing the tool does that the player did
@@ -194,6 +196,7 @@ export interface ToolSlice {
 
 export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, get) => ({
   tool: 'select',
+  previousTool: 'select',
   // Off when the game opens: a 方块 drag lays bare floor unless the player asks for
   // the ring on its own tile.
   autoWalls: false,
@@ -234,7 +237,11 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   zoneBrush: DEFAULT_ZONE_BRUSH,
   zoneOverlayOn: false,
 
-  setTool: (t) => set({ tool: t, wallSnapCycle: 0 }),
+  setTool: (t) => set((s) => ({
+    tool: t,
+    previousTool: t === s.tool ? s.previousTool : s.tool,
+    wallSnapCycle: 0,
+  })),
   // The cut modes of the 方块 tool are exclusive with the generated ring: a 半墙 or a
   // 三角 is what the patch grows instead of the ring, so either one refuses the
   // toggle while it owns the tool.

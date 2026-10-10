@@ -45,6 +45,11 @@ build/ →  sim/            (and neither render/ nor app/)
   document), `reference-station.ts` and the 广州地铁 line colours.
 * `app/` — the React shell. Panels and pointer handling only; no sim logic.
 
+The B 删除, P 吸取 and M 移动 shortcuts are toggle modes: pressing the active
+shortcut returns to the tool that was active before it. `ToolSlice.setTool` keeps
+that predecessor current as tools change; keep the key handlers and
+`game/test/tool-shortcuts.test.mjs` aligned when changing these bindings.
+
 Inspector controls that edit placed equipment should call a store action and commit
 one station edit, so the worker, undo history and selected document stay in sync.
 The right-side inspector does not expose per-cell zone controls; paint and erase zones

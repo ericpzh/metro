@@ -94,7 +94,7 @@ The suites, by the thing they are about. Each one's full description is in
 | The models | `module-build` (including slab-track sleepers, seats, clips and rail heads; enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` — `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away |
 | The pixels | `sign-render`, `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
-| The app | `move`, `delete-tool` (block delete rectangles, Shift lines and one-step undo), `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit`, `select-agent` — `escalators` covers the placed-run direction action and undo |
+| The app | `move`, `delete-tool` (block delete rectangles, Shift lines and one-step undo), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool), `rail-folders`, `rail-families`, `line-edit`, `select-agent` — `escalators` covers the placed-run direction action and undo |
 
 ## The rules a test here follows
 

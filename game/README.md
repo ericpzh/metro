@@ -2570,6 +2570,8 @@ approximated); neither needs WebGL.
   are what the brush keeps, so choosing a texture — a plain finish tile, or a fresh 搪瓷板 colour,
   which reaches the brush in the same click rather than the previous render's value — never resets
   it, and the setting survives a detour through another folder on the left rail.
+* `tool-shortcuts.test.mjs` — B 删除, P 吸取 and M 移动 toggle back to the tool that was active
+  before the mode; changing tools records the previous one, and each shortcut cancels its own mode.
 * `pick-tool.test.mjs` — the 工具 folder's **吸取** (`app/tools/PickTool.ts`, `P`): clicking a placed
   piece arms the placement with its exact palette variant — a 2 m backed 座椅, a 六 format 广告牌, a
   right-双跑 楼梯, a 木 双开 门, or either 桁架屋顶 style at its placed width — and copies its turn, 扶梯 direction and 闸机 door, selects the instance
