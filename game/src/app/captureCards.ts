@@ -193,7 +193,7 @@ export async function captureModuleCards(frames: CardFrame[], onProgress?: (done
   for (const group of bySize.values()) {
     const { width, height, background } = group[0]
     const size: ThumbnailSize = { width, height }
-    const rendered = await renderModuleThumbnails(size)
+    const rendered = await renderModuleThumbnails(size, null, { hideSecondGateDoor: true })
     for (const frame of group) {
       const png = rendered[frame.id] ?? rendered[railRowFor(frame.id)] ?? null
       if (!png) continue

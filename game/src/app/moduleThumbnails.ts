@@ -787,8 +787,9 @@ async function cropToAlpha(dataUrl: string): Promise<{ png: string; rect: { x: n
 export async function renderModuleThumbnails(
   size: number | ThumbnailSize = 132,
   elevations: PieceElevations | null = null,
+  options: { hideSecondGateDoor?: boolean } = {},
 ): Promise<Record<string, string>> {
-  return (await renderModulePieces(size, elevations)).images
+  return (await renderModulePieces(size, elevations, options)).images
 }
 
 /**
@@ -803,6 +804,7 @@ export async function renderModuleThumbnails(
 export async function renderModulePieces(
   size: number | ThumbnailSize = 132,
   elevations: PieceElevations | null = null,
+  options: { hideSecondGateDoor?: boolean } = {},
 ): Promise<PieceViewResult> {
   const frame = frameOf(size)
   const out: Record<string, string> = {}
@@ -1170,6 +1172,13 @@ export async function renderModulePieces(
       }
       let group = buildModule(mod, ctx)
       if (!group) continue
+      // A lone palette/catalogue gate has no neighbouring cabinet to receive
+      // its far leaf. Hide that leaf in these previews only; the placed model
+      // and its animation keep both sides.
+      if (options.hideSecondGateDoor && mod.type === 'gate' && (opt.id === 'gate' || opt.id === 'gate-new')) {
+        const farLeaf = (group.userData.wing as THREE.Group | undefined)?.getObjectByName('right-leaf')
+        if (farLeaf) farLeaf.visible = false
+      }
 
       /**
        * The shaft and its cabin, separately — for **both** passes, not only the section.
@@ -1363,7 +1372,7 @@ export function getModuleThumbnails(): Promise<Record<string, string>> {
       const run = (): void => {
         // The pass awaits the ad artwork (see `renderModuleThumbnails`), so it
         // resolves a promise rather than a record.
-        renderModuleThumbnails()
+        renderModuleThumbnails(132, null, { hideSecondGateDoor: true })
           .then((rendered) => {
             cache = rendered
             resolve(rendered)
