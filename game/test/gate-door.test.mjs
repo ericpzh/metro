@@ -12,7 +12,10 @@ import { GATE_DOORS, gateDoorOf, gateHasLane, gateMachineSide, gateSolidFaces, n
 import { placementPreviewKey } from '../src/app/store.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import { buildModule } from '../src/render/models.ts'
-import { createModule } from '../src/build/model.ts'
+import { setGateWing } from '../src/render/models/pieces/GateModel.ts'
+import { parse, serialize } from '../src/persistence/save.ts'
+import { sweepFamily } from '../src/app/sweep.ts'
+import { createModule, toState } from '../src/build/model.ts'
 
 test('Tab toggles the 闸机 between a working lane and the fence machine', () => {
   assert.deepEqual([...GATE_DOORS], ['lane', 'fence'])
@@ -202,10 +205,11 @@ test('the head is a trapezoid — its top is shorter than its base', () => {
   const { base, top, z0, z1 } = taperOf(head)
   assert.ok(Math.abs(base - 0.9) < 1e-6, `base depth was ${base}`)
   assert.ok(top < base, `the top must be shorter than the base (${top} vs ${base})`)
-  // The taper is the reference's 115° shoulder: 25° off vertical. It has to be a
-  // slope, not a step — every course between is narrower than the one below.
+  // The long reader slope begins at 0.8 m and leaves a short crown.
   const offVertical = (Math.atan((base - top) / 2 / (z1 - z0)) * 180) / Math.PI
-  assert.ok(Math.abs(offVertical - 25) < 0.5, `shoulder was ${offVertical.toFixed(1)}° off vertical`)
+  assert.ok(Math.abs(offVertical - 36.254) < 0.5, `shoulder was ${offVertical.toFixed(1)}° off vertical`)
+  assert.ok(Math.abs(z0 - 0.80) < 1e-6, 'the longer sloped fascia starts at 0.8 m')
+  assert.ok(top < 0.31, 'the crown is shorter than the former broad top')
   // …and the machine is the reference's 1250 mm overall, not a 1 m cube.
   const all = bodyBox(group)
   assert.ok(Math.abs(all.max.z - all.min.z - 1.25) < 1e-6, `height was ${all.max.z - all.min.z}`)
@@ -223,11 +227,11 @@ test('R is the mirror: a half turn puts the machine on the other hand', () => {
   // x = 0) with the lane — and the leaf — on the other, which is the hand a 右
   // gate used to be.
   assert.ok(Math.abs(straight.body.min.x - 0) < 1e-6 && straight.body.max.x < 0.5)
-  assert.ok(straight.leaf.min.x > 0.4 && Math.abs(straight.leaf.max.x - 1) < 1e-6)
+  assert.ok(Math.abs(straight.leaf.min.x - 0.3) < 1e-6 && Math.abs(straight.leaf.max.x - 1) < 1e-6)
   // A half turn swaps both, exactly as the old 左 did — so the mirror needs no
   // setting of its own.
   assert.ok(Math.abs(turned.body.max.x - 1) < 1e-6 && turned.body.min.x > 0.5)
-  assert.ok(turned.leaf.max.x < 0.6 && Math.abs(turned.leaf.min.x - 0) < 1e-6)
+  assert.ok(Math.abs(turned.leaf.max.x - 0.7) < 1e-6 && Math.abs(turned.leaf.min.x - 0) < 1e-6)
 })
 
 test('a fence machine keeps its half of the block and fences the other half', () => {
@@ -240,10 +244,10 @@ test('a fence machine keeps its half of the block and fences the other half', ()
   assert.ok(deep.length > 0, 'the machine body is missing')
   for (const b of deep) assert.ok(b.max.x <= 0.5 + 1e-6, `the body crossed into the fence half (${b.min.x}..${b.max.x})`)
   // The other half is a fence panel: the glass runs from the machine's inner face
-  // (0.44) out to the far cell edge (1.0), with a 6 mm clamp clearance at each end.
+  // (0.30) out to the far cell edge (1.0), with a 6 mm clamp clearance at each end.
   const glass = boxes.filter((b) => b.max.y - b.min.y < 0.05 && b.max.z - b.min.z > 0.5)
   assert.equal(glass.length, 1, 'the fence half should draw one panel')
-  assert.ok(Math.abs(glass[0].min.x - 0.446) < 1e-6, `the panel must clear its clamp (was ${glass[0].min.x})`)
+  assert.ok(Math.abs(glass[0].min.x - 0.306) < 1e-6, `the panel must clear its clamp (was ${glass[0].min.x})`)
   assert.ok(Math.abs(glass[0].max.x - 0.994) < 1e-6, `the panel must reach the end clamp (was ${glass[0].max.x})`)
   const endPost = (boxes2) => boxes2.filter((b) => b.max.z - b.min.z > 0.9 && Math.abs((b.min.x + b.max.x) / 2 - 0.96) < 0.02)
   assert.ok(endPost(boxes).length > 0, 'the run must cap itself where nothing carries on')
@@ -277,4 +281,78 @@ test('a fence butts the machine side and ends at the doorway on the lane side', 
   // …and the two lane sides are the mirror of each other too.
   assert.deepEqual(ends([fence, gate('lane', 0, -1)]), new Set([-46, 46]))
   assert.deepEqual(ends([fence, gate('lane', 2, -1)]), new Set([46]))
+})
+
+
+test('new and old gates have slim bodies, split leaves and approach indicators', () => {
+  for (const variant of ['old', 'new']) {
+    const mod = { ...gate('lane'), cfg: { dir: 'both', door: 'lane', variant } }
+    const g = buildModule(mod, ctxFor([]))
+    assert.ok(bodyBox(g).max.x < 0.5, 'the cabinet stays in its own half')
+    const leaves = g.userData.wing.children
+    assert.equal(leaves.length, 2)
+    const leafGeometry = leaves[0].geometry
+    leafGeometry.computeBoundingBox()
+    assert.ok(leafGeometry.boundingBox.max.z - leafGeometry.boundingBox.min.z < 0.44, 'smaller red doors')
+    const vertices = leafGeometry.getAttribute('position')
+    const span = (low, high) => {
+      const xs = []
+      for (let i = 0; i < vertices.count; i++) if (vertices.getZ(i) >= low && vertices.getZ(i) <= high) xs.push(vertices.getX(i))
+      return Math.max(...xs) - Math.min(...xs)
+    }
+    assert.ok(span(0.14, 0.24) > span(-0.22, -0.20) * 2, 'fan top extends farther than its short lower edge')
+    const bounds = () => { g.updateWorldMatrix(false, true); return leaves.map((l) => new THREE.Box3().setFromObject(l)) }
+    const closed = bounds()
+    assert.ok(Math.abs(closed[1].min.x - closed[0].max.x - 0.012) < 1e-6, 'closed leaves leave a slim centre seam')
+    setGateWing(g, 0.5)
+    const half = bounds()
+    assert.ok(half[0].max.x < closed[0].max.x && half[1].min.x > closed[1].min.x, 'both leaves retract outward')
+    setGateWing(g, 1)
+    const opened = bounds()
+    assert.ok(Math.abs(opened[0].min.x - closed[0].min.x) < 0.003)
+    assert.ok(Math.abs(opened[1].max.x - closed[1].max.x) < 0.003)
+    assert.ok(opened[1].min.x - opened[0].max.x > 0.64, 'open lane clears the passenger')
+    const arrows = g.children.filter((c) => c.name === 'entry-arrow')
+    assert.equal(arrows.length, 2)
+    assert.notEqual(arrows[0].material, arrows[1].material, 'opposite faces use mirrored diagonal arrows')
+    assert.equal(arrows[0].rotation.z, 0, 'the arrow artwork rotates inside an upright panel')
+    assert.equal(arrows[1].rotation.z, Math.PI)
+    const fence = buildModule({ ...mod, cfg: { ...mod.cfg, door: 'fence' } }, ctxFor([]))
+    assert.equal(fence.children.filter((c) => c.name === 'no-entry-cross').length, 2)
+    assert.equal(fence.children.filter((c) => c.name === 'entry-arrow').length, 0)
+  }
+  const old = createModule('gate', 0, 0, 0, 'old')
+  const modern = createModule('gate-new', 0, 0, 0, 'new')
+  assert.equal(modern.cfg.variant, 'new')
+  assert.notEqual(moduleGhostKey(old), moduleGhostKey(modern))
+})
+
+
+test('gate styles survive saves and stay separate when swept', () => {
+  const old = createModule('gate', 0, 0, 0, 'old')
+  const modern = createModule('gate-new', 1, 0, 0, 'new', 2, undefined, 'up', 'fence')
+  const legacy = { ...old, id: 'legacy', x: 2, cfg: { dir: 'both' } }
+  const saved = parse(serialize(toState({ ...ctxFor([]).data, modules: [old, modern, legacy] })))
+  assert.equal(saved.ok, true)
+  assert.deepEqual(saved.state.modules, [old, modern, legacy])
+  assert.equal(sweepFamily(old), sweepFamily(legacy))
+  assert.notEqual(sweepFamily(modern), sweepFamily(old))
+  assert.equal(moduleGhostKey(legacy), moduleGhostKey({ ...legacy, cfg: { ...legacy.cfg, variant: 'old' } }))
+})
+
+
+test('old front has a flat sticker on its long sloped fascia and no status lamps', () => {
+  const ctx = ctxFor([])
+  const g = buildModule(gate('lane'), ctx)
+  const stickers = g.children.filter((m) => m.name === 'reader-sticker')
+  assert.equal(stickers.length, 2)
+  assert.equal(g.children.filter((m) => m.name === 'old-reader-fascia').length, 2)
+  for (const sticker of stickers) {
+    assert.equal(sticker.geometry.type, 'CircleGeometry', 'printed circle has no cylindrical thickness')
+    assert.equal(sticker.position.z, 0.985, 'sticker sits between the screen and lower fascia')
+    assert.ok(Math.abs(sticker.rotation.x - (Math.PI / 2 - Math.atan(0.33 / 0.45))) < 1e-6, 'sticker follows the slanted face')
+    const faceY = 0.45 - (sticker.position.z - 0.80) * 0.33 / 0.45
+    assert.ok(Math.abs(Math.abs(sticker.position.y) - faceY - 0.004) < 1e-6, 'sticker is flush with the fascia')
+  }
+  assert.equal(g.children.some((m) => m.material === ctx.mats.ledRed || m.material === ctx.mats.ledGreen), false, 'no red/green status lamps on the reader')
 })

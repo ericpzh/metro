@@ -116,7 +116,8 @@ export function createModule(
     case 'bridge':
       return { id, type: 'track', x, y, z, rot, w: 12, d: 3, cfg: { line: '1', power: 'third-rail', bridge: true } };
     case 'gate':
-      return { id, type: 'gate', x, y, z, rot, cfg: { dir: 'both', door } };
+    case 'gate-new':
+      return { id, type: 'gate', x, y, z, rot, cfg: { dir: 'both', door, variant: type === 'gate-new' ? 'new' : 'old' } };
     case 'psd-end':
       return { id, type: 'psd-end', x, y, z, rot, cfg: { psd: 'half' } };
     case 'fence':

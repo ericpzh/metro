@@ -253,3 +253,7 @@ Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋�
 `hanger.test.mjs` covers 挂架: roof suspended and central post supports in 4/6/8m, roof attachments, sign/clock/TV mounting, rotated steel geometry, open walking space, post footing, preview identity and save/load.
 
 `door-panel` checks all six 单开 / 双开 × 不锈钢 / 木 / 玻璃 variants, palette and width selection, the translucent glass pane in its steel frame, satin stainless and timber finishes, exposed hinges, both-face handle clearance and mirrored double-door pulls, plus placement bounds. `glass-panel` pins door snapping to rotated curtain runs, the fitted placement exemption, crosswise refusal, and the lower-pane opening while retaining upper and uncovered glazing.
+
+`gate-door` also checks the 新/旧 turnstiles: slim cabinets, smaller opposing leaves retracting left and right, approach arrows and red crosses on fence-only machines, legacy/save compatibility and separate variant sweeps. `pick-tool` checks copying and cancelling 新/旧 choices.
+
+`gate-door` pins the curved fan leaves (long top, short bottom) and the old gate's longer sloping fascia, flush reader sticker and absence of red/green reader lamps.

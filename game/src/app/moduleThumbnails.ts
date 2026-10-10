@@ -284,8 +284,9 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'bridge':
       return { id, type: 'track', x: 0, y: 0, z: 0, w: 12, d: 3, cfg: { line: '1', power: 'third-rail', bridge: true } }
     case 'gate':
+    case 'gate-new':
       // The palette tile shows the default lane gate; the choice itself is Tab.
-      return { id, type: 'gate', x: 0, y: 0, z: 0, rot: 0, cfg: { dir: 'both', door: 'lane' } }
+      return { id, type: 'gate', x: 0, y: 0, z: 0, rot: 0, cfg: { dir: 'both', door: 'lane', variant: id === 'gate-new' ? 'new' : 'old' } }
     case 'psd-end':
       return createModule('psd-end', 0, 0, 0, id)
     case 'fence':

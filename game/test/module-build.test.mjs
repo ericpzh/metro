@@ -276,8 +276,8 @@ const track = (cfg) => ({ id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, 
  * being built is invisible in every other way.
  */
 const PIECES = [
-  ['闸机 lane', palette('gate'), 31, '1×0.986×1.25'],
-    ['闸机 fence', palette('gate', 0, 'up', 'fence'), 43, '1.015×0.986×1.25'],
+  ['闸机 lane', palette('gate'), 33, '1×0.944×1.25'],
+    ['闸机 fence', palette('gate', 0, 'up', 'fence'), 45, '1.015×0.944×1.25'],
     ['玻璃围栏', palette('fence'), 18, '1.03×0.11×0.999'],
   ['售票机', palette('tvm'), 32, '0.74×0.671×1.84'],
   ['自动贩卖机', palette('vending'), 58, '0.78×0.701×1.88'],
@@ -869,16 +869,15 @@ test('a consist is cars × carLength of body, with a cab and its doors on both s
 test('the per-frame setters move the piece they are given, and nothing else', () => {
   // The 闸机's leaf slides into its cabinet with its hinge end held fixed.
   const gate = build(palette('gate')).group
-  const wing = gate.userData.wing
-  const fullW = wing.userData.fullW
-  const edgeX = wing.userData.edgeX
-  const hinge = () => round(wing.position.x - (fullW * wing.scale.x) / 2)
-  setGateWing(gate, 0)
-  assert.equal(round(wing.scale.x), 1, 'shut: the leaf is its full length')
-  assert.equal(hinge(), round(edgeX), 'and its hinge sits on the machine face')
-  setGateWing(gate, 1)
-  assert.ok(wing.scale.x < 0.2, 'open: the leaf is compressed into the panel')
-  assert.equal(hinge(), round(edgeX), 'while the hinge end never moves')
+  const gateLeaves = gate.userData.wing.children
+  for (const open of [0, 0.5, 1]) {
+    setGateWing(gate, open)
+    for (const leaf of gateLeaves) {
+      const { fullW, edgeX, sign } = leaf.userData
+      assert.equal(round(leaf.position.x - sign * fullW * leaf.scale.x / 2), round(edgeX), 'each cabinet edge stays fixed')
+      assert.equal(round(leaf.scale.x), round(1 - open * (1 - 0.025 / fullW)))
+    }
+  }
   setGateWing(build(palette('gate', 0, 'up', 'fence')).group, 1) // a fence machine has no leaf: a no-op, not a throw
 
   // The 扶梯's band rolls with the clock, wraps in its own run, and reverses with the

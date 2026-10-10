@@ -86,6 +86,8 @@ export interface ModelMaterials {
    * The 闸机's lane panel: the black fascia with its lit green arrow, printed as
    * one unlit canvas so the arrow reads as LEDs rather than a painted shape.
    */
+  gateCross: THREE.MeshBasicMaterial
+  gatePanelBack: THREE.MeshBasicMaterial
   gatePanel: THREE.MeshBasicMaterial
   green: THREE.MeshStandardMaterial
   blue: THREE.MeshStandardMaterial
@@ -596,13 +598,16 @@ export function drawMetroMark(g: CanvasRenderingContext2D, cx: number, cy: numbe
  * shaft under a triangle, never a bar with points at both ends), and an up arrow
  * is mirror-symmetric, so it reads the same on both faces.
  */
-function gateArrowCanvas(): HTMLCanvasElement {
+function gateArrowCanvas(turn = 3 * Math.PI / 4): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = 64
   c.height = 76
   const g = c.getContext('2d') as CanvasRenderingContext2D
   g.fillStyle = '#0b0d11'
   g.fillRect(0, 0, 64, 76)
+  g.translate(32, 38)
+  g.rotate(turn)
+  g.translate(-32, -38)
   // The arrow on an 8 × 8 grid of lamps: a four-row head over a shaft.
   const cells: Array<[number, number]> = [
     [3, 0], [4, 0],
@@ -652,6 +657,13 @@ export function createModelMaterials(): ModelMaterials {
     rubber: new THREE.MeshStandardMaterial({ color: C.rubber, roughness: 0.8, metalness: 0.05 }),
     gateRed: new THREE.MeshStandardMaterial({ color: C.gateRed, roughness: 0.35, metalness: 0.1, transparent: true, opacity: 0.82, side: THREE.DoubleSide }),
     gateNavy: new THREE.MeshStandardMaterial({ color: C.gateNavy, roughness: 0.42, metalness: 0.3 }),
+    gateCross: new THREE.MeshBasicMaterial({ map: canvasTexture(64, 76, (g) => {
+      g.fillStyle = '#0b0d11'; g.fillRect(0, 0, 64, 76)
+      g.strokeStyle = '#ff4545'; g.lineWidth = 9
+      g.beginPath(); g.moveTo(15, 19); g.lineTo(49, 57)
+      g.moveTo(49, 19); g.lineTo(15, 57); g.stroke()
+    }) }),
+    gatePanelBack: new THREE.MeshBasicMaterial({ map: canvasTexture(64, 76, (g) => g.drawImage(gateArrowCanvas(-3 * Math.PI / 4), 0, 0)) }),
     gatePanel: new THREE.MeshBasicMaterial({ map: canvasTexture(64, 76, (g) => g.drawImage(gateArrowCanvas(), 0, 0)) }),
     green: new THREE.MeshStandardMaterial({ color: C.green, roughness: 0.3, metalness: 0.15 }),
     blue: new THREE.MeshStandardMaterial({ color: C.blue, roughness: 0.3, metalness: 0.2 }),

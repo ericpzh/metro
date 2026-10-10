@@ -45,10 +45,10 @@ import {
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 19)
+  assert.equal(MODULE_FAMILIES.length, 20)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['fence', 'hanger', 'cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
+    ['gate', 'fence', 'hanger', 'cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
@@ -107,7 +107,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
       )
     }
   }
-  assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['fence', 'stair', 'exit'])
+  assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['gate', 'fence', 'stair', 'exit'])
   assert.deepEqual(familiesIn('rail').map((f) => f.key), ['roof', 'pillar'])
   assert.deepEqual(familiesIn('decor').map((f) => f.key), ['hanger', 'cctv', 'tactile', 'floor-mark', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
   // **The id has to answer as the type does.** The rail and the placement tool hold a
@@ -178,7 +178,7 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     'ac-unit', 'electrical-cabinet',
   ])
   assert.deepEqual(anchors('equipment'), [
-    'gate', familyAnchor('fence'),
+    familyAnchor('gate'), familyAnchor('fence'),
     'tvm', 'vending',
     'escalator', 'lift',
     familyAnchor('stair'), familyAnchor('exit'),
@@ -223,7 +223,7 @@ test('the open slot follows the family table, so a variant cannot fold its own l
     }
   }
   assert.equal(subMenuForModule('bin'), null, 'a piece of its own closes every list')
-  assert.equal(subMenuForModule('gate'), null)
+  assert.equal(subMenuForModule('gate'), 'gate')
 })
 
 test('every piece with an action row anchors to a tile its folder really draws', () => {

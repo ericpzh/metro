@@ -126,6 +126,8 @@ function paletteIdForModule(mod: Module): string | null {
       id = mod.cfg.variant === 'gate' ? 'fence-gate' : mod.cfg.variant === 'iron' ? 'fence-iron' : 'fence'
       break
     case 'gate':
+      id = mod.cfg.variant === 'new' ? 'gate-new' : 'gate'
+      break
     case 'psd-end':
     case 'guidepost':
     case 'tvm':

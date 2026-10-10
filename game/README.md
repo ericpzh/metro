@@ -3084,3 +3084,7 @@ and only uploads a texture when its printed information changes.
 `hanger.test.mjs` covers 挂架: roof suspended and central post supports in 4/6/8m, roof attachments, sign/clock/TV mounting, rotated steel geometry, open walking space, post footing, preview identity and save/load.
 
 装饰 → 挂架只有吊装与立柱两个变体。选中后用动作栏的旋转和短／中／长（4m／6m／8m）设置横杆；吊装两端连接屋顶或顶板，立柱款在横杆中央落一根钢柱至地面。指示牌、时钟、电视、监控可挂在横杆下，指示牌与电视的方向须沿横杆，且两根吊杆都在横杆范围内。
+
+`gate-door` also checks the 新/旧 turnstiles: slim cabinets, smaller opposing leaves retracting left and right, approach arrows and red crosses on fence-only machines, legacy/save compatibility and separate variant sweeps. `pick-tool` checks copying and cancelling 新/旧 choices.
+
+`gate-door` pins the curved fan leaves (long top, short bottom) and the old gate's longer sloping fascia, flush reader sticker and absence of red/green reader lamps.

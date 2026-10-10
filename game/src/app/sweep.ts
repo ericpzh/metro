@@ -82,6 +82,7 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
  * same piece as a hand-placed one.
  */
 export function sweepFamily(mod: Module): string | null {
+  if (mod.type === 'gate') return mod.cfg.variant === 'new' ? 'gate-new' : 'gate'
   if (mod.type === 'psd-end') return `psd-end:${mod.cfg.psd}`
   if (mod.type === 'floor-mark') return `floor-mark:${mod.cfg.variant}`
   if (mod.type === 'busstop') return `busstop:${mod.cfg.variant}`

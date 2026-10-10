@@ -41,7 +41,7 @@ export function moduleGhostKey(mod: Module): string {
               : mod.type === 'bench'
                 ? `:${mod.w ?? 1}:${mod.cfg.variant}`
                 : mod.type === 'gate'
-                  ? `:${gateDoorOf(mod)}`
+                  ? `:${gateDoorOf(mod)}:${mod.cfg.variant ?? 'old'}:${mod.cfg.dir}`
                   : mod.type === 'glass'
                     ? `:${mod.w}:${mod.cfg.variant}`
                     : mod.type === 'door'

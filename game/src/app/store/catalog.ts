@@ -43,7 +43,8 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'roof-truss', label: '桁架', type: 'roof', w: 4, h: 4 },
   { id: 'roof-tapered', label: '收束桁架', type: 'roof', w: 4, h: 4 },
   { id: 'bridge', label: '轨道桥', type: 'track', w: 12, h: 3 },
-  { id: 'gate', label: '闸机', type: 'gate', w: 1, h: 1 },
+  { id: 'gate', label: '旧', type: 'gate', w: 1, h: 1 },
+  { id: 'gate-new', label: '新', type: 'gate', w: 1, h: 1 },
   { id: 'psd-end', label: '屏蔽端门', type: 'psd-end', w: 1, h: 1 },
   { id: 'fence', label: '玻璃围栏', type: 'fence', w: 1, h: 1 },
   { id: 'fence-gate', label: '门', type: 'fence', w: 1, h: 1 },
@@ -289,11 +290,11 @@ export function isEscalatorType(type: string): boolean {
 }
 
 /**
- * True for the fare gate (闸机), whose Tab cycle picks the side its door — and so
- * its lane — is on (§4.5).
+ * True for the fare gate (闸机), whose Tab cycle picks a working lane or
+ * a fence-only machine (§4.5); both housing styles share the choice.
  */
 export function isGateType(type: string): boolean {
-  return type === 'gate'
+  return type === 'gate' || type === 'gate-new'
 }
 
 /**
@@ -333,7 +334,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'fence' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
+export type ModuleFamilyKey = 'gate' | 'fence' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -360,6 +361,7 @@ export interface ModuleFamily {
 
 /** The family a palette id belongs to, or null for a piece that is its own tile. */
 const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
+  { key: 'gate', owns: isGateType },
   { key: 'fence', owns: isFenceType },
   { key: 'hanger', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
   { key: 'cctv', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
@@ -387,6 +389,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
+  { key: 'gate', label: '闸机', folder: 'equipment', owns: isGateType },
   { key: 'fence', label: '围栏', folder: 'equipment', owns: isFenceType },
   { key: 'hanger', label: '挂架', folder: 'decor', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
   { key: 'cctv', label: '监控', folder: 'decor', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
@@ -505,7 +508,7 @@ export type FolderTile =
  */
 const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
   rail: [familyAnchor('roof'), familyAnchor('pillar')],
-  equipment: ['gate', familyAnchor('fence'), 'tvm', 'vending', 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
+  equipment: [familyAnchor('gate'), familyAnchor('fence'), 'tvm', 'vending', 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
   decor: [
     familyAnchor('sign'),
     familyAnchor('billboard'),

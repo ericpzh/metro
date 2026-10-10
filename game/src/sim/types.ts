@@ -431,7 +431,7 @@ export type Module =
   | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number; finish?: FinishId; bridgeId?: string } })
   | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss'; finish?: FinishId } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
-  | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor } })
+  | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor; variant?: 'old' | 'new' } })
   | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; offset?: [number, number]; corner?: string } })
   | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' } })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down'; width?: 1 | 2 } })

@@ -516,3 +516,22 @@ test('picking each shelf variant and a legacy shelf copies its style and rotatio
     assert.equal(st().moduleType, 'gate')
   }
 })
+
+
+test('picking 新/旧 turnstiles copies style, rotation and door, and Esc restores them', () => {
+  const before = useStore.getState()
+  try {
+    for (const type of ['gate', 'gate-new']) {
+      const m = createModule(type, 0, 0, 0, 'picked-gate', 2, undefined, 'up', 'fence')
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, tool: 'module', moduleType: 'tvm', moduleRot: 0, gateDoor: 'lane' })
+      ctxFor(m.id).onDown(press([0, 0, 0]))
+      assert.equal(useStore.getState().moduleType, type)
+      assert.equal(useStore.getState().moduleRot, 2)
+      assert.equal(useStore.getState().gateDoor, 'fence')
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().moduleType, 'tvm')
+      assert.equal(useStore.getState().moduleRot, 0)
+      assert.equal(useStore.getState().gateDoor, 'lane')
+    }
+  } finally { useStore.setState(before) }
+})
