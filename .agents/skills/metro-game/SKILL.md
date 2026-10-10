@@ -717,9 +717,10 @@ the four rules most changes trip over.
   room furniture. 门 (`sim/doors.ts`) is the folder's one **doorway**: a threshold, a post at
   each end, a head across them and the leaf hung between, so the piece carries its own frame
   and stands on a floor tile like a 货架 — it is *not* wall-mounted (`WALL_MOUNTED` leaves it
-  out) and it reserves its whole cells from the floor top to its head. Four variants, 单开 /
-  双开 × 不锈钢 / 木, and **R** turns it; nothing on a leaf is glazed, and every fitting
-  stands proud of the leaf's face by `DOOR_FRAME`'s own stand-off, because a plate lying a
+  out) and it reserves its whole cells from the floor top to its head. Six variants, 单开 /
+  双开 × 不锈钢 / 木 / 玻璃, and **R** turns it; the glass variant uses a translucent pane
+  in the steel frame, while steel and wood leaves stay solid. Every fitting stands proud of
+  the leaf's face by `DOOR_FRAME`'s own stand-off, because a plate lying a
   few millimetres off the leaf z-fights and shimmers as the camera moves. The **office reuses
   the very same builder** (`pieces/DoorModel.ts` `buildDoor`), so a hung 门 and a room's door
   are one drawing. 时钟 is the round station clock (`buildClock`): an **open-ended** dark
@@ -794,7 +795,13 @@ the four rules most changes trip over.
   the blue `setSelection` box round the model, picked from the drawn mesh (`pickModule`) before
   the cell. **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`) has six
   short wall-mounted sizes (one to three cells wide, 1 m / 2 m tall); the 4 m floor-edge
-  glass is its own **玻璃幕墙** tile instead (Tab cycles 窄 / 中 / 宽, 2 / 3 / 4 m).
+  glass is its own **玻璃幕墙** tile instead (Tab cycles 超窄 / 窄 / 中 / 宽, 1 / 2 / 3 / 4 m).
+  A door placed over a floor-standing
+  curtain snaps to the curtain's run and rotation; `placement.ts` permits only a door fully
+  inside that same-storey run, and `GlassModel` removes the lower doorway section while keeping
+  upper and uncovered glazing. Keep rotated/double-door snapping, collision refusal and partial
+  glass drawing pinned in `test/glass-panel.test.mjs`. Door pulls must stand on both leaf faces;
+  pin the two face positions and clearance in `test/door-panel.test.mjs`.
   Each panel is **one outer frame**
   round the whole run, with a single
   pane between them. The floor-standing 玻璃幕墙 (`h >= 4`) may share any of its
@@ -888,10 +895,11 @@ the four rules most changes trip over.
   the model. A click tests the drawn meshes (`SceneRenderer.pickModule`) before the collision
   envelope, so a large head-house is selected (or deleted) by any visible part of its model; a
   fresh exit letters itself for the first free A ~ Z (`nextExitName`), and a delete frees its
-  letter. **Exits come in six variants** (`sim/exits.ts`): 有盖 / 无盖 × 单向 / 双向 / 三向, and
-  their runs always stand **side by side**. `cfg.bays` (1, 2 or 3) is how many adjacent columns
-  the house holds, and `exitSpan` builds the plan around that group with one full block of
-  floor each end, so `exitWidth` is 3 / 4 / 5 blocks. `cfg.covered: false` drops the canopy and
+  letter. **Exits have covered, uncovered and ground-doorway variants** (`sim/exits.ts`): 有盖 /
+  无盖 each support 单向 / 双向 / 三向, and 地面 supports 单向 / 双向 / 三向 / 四向. Their runs
+  always stand **side by side**. `cfg.bays` (1–4) is how many adjacent columns the house holds,
+  and `exitSpan` builds the plan around that group with one full block of floor each end, so
+  `exitWidth` is 3–6 m; the four-way ground exit is 1 m wider than the three-way. `cfg.covered: false` drops the canopy and
   walls for a glass railing, but `exitWallPlanes` returns the same barriers, so only the look
   changes; the covered piece is a red steel portal frame under a blue waved roof, and the exit's
   name board is the red brand header (`ExitModel`): the station name with the saved English

@@ -154,7 +154,7 @@ test('the corner hover is accepted and the click commits the same snapped pose',
   } finally { useStore.setState(before) }
 })
 
-test('curtain wall has one tile beside the screen end, three Tab widths, and pick restores its width', () => {
+test('curtain wall has one tile beside the screen end, four Tab widths, and pick restores its width', () => {
   const tiles = folderTiles('decor').map((t) => t.anchor)
   const index = tiles.indexOf('psd-end')
   assert.equal(index % 2, 0)
@@ -162,7 +162,7 @@ test('curtain wall has one tile beside the screen end, three Tab widths, and pic
   const before = useStore.getState()
   try {
     useStore.setState({ curtainWidth: 2 })
-    for (const width of [2, 3, 4]) {
+    for (const width of [2, 3, 4, 1]) {
       assert.equal(useStore.getState().curtainWidth, width)
       const p = createModule('curtain-wall', 0, 0, 0, 'wall', 0, width)
       assert.equal(p.w, width)

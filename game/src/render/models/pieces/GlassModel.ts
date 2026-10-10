@@ -5,6 +5,8 @@ import * as THREE from 'three'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { GLASS_FRAME, glassSpec, glassStandsOnFloor } from '../../../sim/glassPanels.ts'
+import { doorSpec } from '../../../sim/doors.ts'
+import { curtainDoorShare, doorCells, glassCells } from '../../../sim/placement.ts'
 import { normRot, rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
 
@@ -45,6 +47,54 @@ function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>)
   const h = spec.h
   const y = glassStandsOnFloor(spec) ? 0 : -WALL_OFFSET
   const { depth, rail, post, pane } = GLASS_FRAME
+
+  // A 门 fitted into a curtain replaces the lower doorway-sized section of
+  // that panel. Keep the upper glazing continuous, and retain lower glazing only
+  // in the run cells the door does not occupy.
+  const fittedDoors = glassStandsOnFloor(spec)
+    ? ctx.data.modules.filter((other): other is Extract<Module, { type: 'door' }> => other.type === 'door' && curtainDoorShare(mod, other))
+    : []
+  if (fittedDoors.length > 0) {
+    const covered = new Set<number>()
+    const runCells = glassCells(mod)
+    for (const door of fittedDoors) {
+      for (const [x, y] of doorCells(door)) {
+        const i = runCells.findIndex(([gx, gy]) => gx === x && gy === y)
+        if (i >= 0) covered.add(i)
+      }
+    }
+    const cut = Math.max(...fittedDoors.map((door) => doorSpec(door.cfg?.variant).h))
+    const centerX = (i: number): number => i - (w - 1) / 2
+    const paneH = Math.max(0.05, h - cut - rail * 2)
+    slab(g, ctx.mats.darkSteel, 0, y, cut + rail / 2, w, depth, rail)
+    slab(g, ctx.mats.darkSteel, 0, y, h - rail / 2, w, depth, rail)
+    const upperPostH = Math.max(0, h - cut - rail * 2)
+    slab(g, ctx.mats.steel, -(w / 2 - post / 2), y, cut + rail + upperPostH / 2, post, depth, upperPostH)
+    slab(g, ctx.mats.steel, w / 2 - post / 2, y, cut + rail + upperPostH / 2, post, depth, upperPostH)
+    const upper = slab(g, ctx.mats.glass, 0, y + pane, cut + rail + paneH / 2, Math.max(0.05, w - post * 2), pane, paneH)
+    upper.userData.glassPane = true
+
+    // Draw lower panel sections one uninterrupted span at a time. Door jambs
+    // replace the inner end posts wherever the door occupies a cell.
+    let i = 0
+    while (i < w) {
+      if (covered.has(i)) { i++; continue }
+      const first = i
+      while (i + 1 < w && !covered.has(i + 1)) i++
+      const last = i
+      const sectionW = last - first + 1
+      const cx = (centerX(first) + centerX(last)) / 2
+      slab(g, ctx.mats.darkSteel, cx, y, rail / 2, sectionW, depth, rail)
+      slab(g, ctx.mats.darkSteel, cx, y, cut - rail / 2, sectionW, depth, rail)
+      const lowerPaneH = Math.max(0.05, cut - rail * 2)
+      const lower = slab(g, ctx.mats.glass, cx, y + pane, cut / 2, sectionW - (first === 0 ? post / 2 : 0) - (last === w - 1 ? post / 2 : 0), pane, lowerPaneH)
+      lower.userData.glassPane = true
+      if (first === 0) slab(g, ctx.mats.steel, -w / 2 + post / 2, y, cut / 2, post, depth, cut - rail * 2)
+      if (last === w - 1) slab(g, ctx.mats.steel, w / 2 - post / 2, y, cut / 2, post, depth, cut - rail * 2)
+      i++
+    }
+    return g
+  }
 
   // The outer frame: a sill on the floor, a head at the top, and one post at each
   // end of the run. Nothing between them — five meshes for a panel of any size,

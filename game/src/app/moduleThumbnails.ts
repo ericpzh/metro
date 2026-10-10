@@ -369,6 +369,7 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'glass-3x2':
     case 'glass-2x4':
     case 'glass-3x4':
+    case 'glass-1x4':
     case 'glass-4x4': {
       const variant: GlassVariant = id === 'glass' ? DEFAULT_GLASS_VARIANT : (id.slice('glass-'.length) as GlassVariant)
       const spec = glassSpec(variant)
@@ -380,7 +381,9 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'door-steel-1':
     case 'door-steel-2':
     case 'door-wood-1':
-    case 'door-wood-2': {
+    case 'door-wood-2':
+    case 'door-glass-1':
+    case 'door-glass-2': {
       const variant: DoorVariant = id === 'door' ? DEFAULT_DOOR_VARIANT : (id.slice('door-'.length) as DoorVariant)
       const spec = doorSpec(variant)
       // The sample is drawn at its own run's centre, exactly as a placed piece is, so
@@ -444,11 +447,12 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'exit-doorway-1':
     case 'exit-doorway-2':
     case 'exit-doorway-3':
+    case 'exit-doorway-4':
     case 'exit-uncovered-3': {
       const parts = id.split('-')
       const covered = parts[1] !== 'uncovered'
       const n = Number(parts[2])
-      const bays: ExitBays = n === 1 || n === 3 ? n : 2
+      const bays: ExitBays = n === 1 || n === 3 || n === 4 ? n : 2
       // Thumbnail turn: the head-house doorway is local +y, away from the ISO
       // camera at (1, -1.2, 0.85), so rot 2 turns the exit 180° about Z to face outwards.
       return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 2, cfg: { name: 'C口', inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } }

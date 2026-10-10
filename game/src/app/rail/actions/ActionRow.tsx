@@ -131,7 +131,7 @@ function ActionTiles(): React.ReactElement {
         <Block label={hangerLength === 4 ? '短' : hangerLength === 6 ? '中' : '长'} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleHangerLength()} />
       ) : null}
       {piece === 'curtain-wall' ? (
-        <Block label={curtainWidth === 2 ? '窄' : curtainWidth === 3 ? '中' : '宽'} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleCurtainWidth()} />
+        <Block label={curtainWidth === 1 ? '超窄' : curtainWidth === 2 ? '窄' : curtainWidth === 3 ? '中' : '宽'} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleCurtainWidth()} />
       ) : null}
       {piece !== null && piece.startsWith('pillar') ? (
         <Block label={pillarLength === 2 ? '短' : '长'} art={<AiOutlineColumnHeight />} shortcut="Tab" onClick={() => st().togglePillarLength()} />

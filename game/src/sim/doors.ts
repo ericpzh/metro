@@ -9,8 +9,8 @@
 //   * **It carries its own frame.** The two posts and the head are what hold the leaf
 //     up, so the piece is a doorway in its own right: a player can stand it in a hall,
 //     across a corridor or at a room's mouth, on any tile with floor under it.
-//   * **It comes in four variants.** 单开 (one leaf) or 双开 (a pair meeting in the
-//     middle) × 不锈钢 (stainless) or 木. A single door is one cell wide and a double one
+//   * **It comes in six variants.** 单开 (one leaf) or 双开 (a pair meeting in the
+//     middle) × 不锈钢 (stainless), 木 or 玻璃. A single door is one cell wide and a double one
 //     two, so the leaf count and the space the piece asks for are the same choice.
 //   * **The office reuses it.** Rooms draw their doorway with the very same builder
 //     (`render/models/pieces/DoorModel.ts`), at the opening's own width, so a door
@@ -40,6 +40,7 @@ export interface DoorSpec {
 export const DOOR_MATERIAL_LABEL: Record<DoorMaterial, string> = {
   steel: '不锈钢',
   wood: '木',
+  glass: '玻璃',
 }
 
 /** The leaf count's own name: 单开 / 双开. */
@@ -57,14 +58,15 @@ export const DOOR_SPECS: Record<DoorVariant, DoorSpec> = {
   'steel-2': { variant: 'steel-2', label: doorLabel('steel', 2), w: 2, h: 2.05, material: 'steel', leaves: 2 },
   'wood-1': { variant: 'wood-1', label: doorLabel('wood', 1), w: 1, h: 2.05, material: 'wood', leaves: 1 },
   'wood-2': { variant: 'wood-2', label: doorLabel('wood', 2), w: 2, h: 2.05, material: 'wood', leaves: 2 },
+  'glass-1': { variant: 'glass-1', label: doorLabel('glass', 1), w: 1, h: 2.05, material: 'glass', leaves: 1 },
+  'glass-2': { variant: 'glass-2', label: doorLabel('glass', 2), w: 2, h: 2.05, material: 'glass', leaves: 2 },
 }
 
 /**
- * Every variant, in palette order: the two stainless pieces first, the two wooden
- * ones after them, and the single leaf before the pair at each material — the same
- * order the 座椅 sub-menu reads (a material's own runs together).
+ * Every variant, in palette order: stainless, wood and glass, with the single leaf
+ * before the pair for each material — the same order the 座椅 sub-menu reads.
  */
-export const DOOR_VARIANTS: readonly DoorVariant[] = ['steel-1', 'steel-2', 'wood-1', 'wood-2']
+export const DOOR_VARIANTS: readonly DoorVariant[] = ['steel-1', 'steel-2', 'wood-1', 'wood-2', 'glass-1', 'glass-2']
 
 /** The variant the palette shows first in the 门 sub-menu. */
 export const DEFAULT_DOOR_VARIANT: DoorVariant = 'steel-1'

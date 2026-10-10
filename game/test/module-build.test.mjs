@@ -319,8 +319,8 @@ const PIECES = [
   ['玻璃板 3×2', palette('glass-3x2'), 5, '3×0.1×2'],
   // The 门 (§5.7) is a free-standing doorway. Stainless now includes exposed hardware;
   // wood retains its simpler pull and kick plate.
-  ['门 不锈钢 窄', palette('door-steel-1'), 17, '1×0.19×2.05'],
-  ['门 木 窄', palette('door-wood-1'), 9, '1×0.19×2.05'],
+  ['门 不锈钢 窄', palette('door-steel-1'), 20, '1×0.19×2.05'],
+  ['门 木 窄', palette('door-wood-1'), 12, '1×0.19×2.05'],
   ['站名 楷书 横排', calligraphy('calligraphy-kai-h'), 1, '3×0×1'],
   ['站名 楷书 竖排', calligraphy('calligraphy-kai-v'), 1, '0.98×0×2.6'],
   ['线网图 墙面', palette('linemap-wall'), 3, '1.92×0.185×1.939'],
@@ -334,6 +334,7 @@ const PIECES = [
   ['出入口 地面 单向', palette('exit-doorway-1'), 8, '3×0.4×3.54'],
   ['出入口 地面 双向', palette('exit-doorway-2'), 8, '4×0.4×3.54'],
   ['出入口 地面 三向', palette('exit-doorway-3'), 8, '5×0.4×3.54'],
+  ['出入口 地面 四向', palette('exit-doorway-4'), 8, '6×0.4×3.54'],
   ['扶梯', palette('escalator'), 33, '1×7.533×5.563'],
   ['电梯', palette('lift'), 102, '2.04×2.04×7'],
   // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns
@@ -356,8 +357,8 @@ const PIECES = [
   // (`render/models/pieces/DoorModel.ts`): the same standing doorway — threshold, posts,
   // head and the leaf between them — set into the opening they cut, so the room's box
   // grows by the threshold's own step past the wall's face and nothing more.
-  ['厕所房间', room('shop', 'toilet'), 35, '5×4.09×3'],
-  ['办公室房间', room('shop', 'office'), 35, '5×4.09×3'],
+  ['厕所房间', room('shop', 'toilet'), 38, '5×4.09×3'],
+  ['办公室房间', room('shop', 'office'), 38, '5×4.09×3'],
   ['零售外壳', room('retail', undefined), 18, '5×4×3'],
 ]
 
@@ -669,15 +670,14 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   const oneLeaf = roomDoor([[6, 4]])
   assert.ok(Math.abs(oneLeaf.size.z - 2.05) < 1e-6, `a room doorway is cut to the 门 piece's own height (${round(oneLeaf.size.z)})`)
   assert.ok(Math.abs(oneLeaf.size.x - single.x) < 1e-6, 'and a one-cell opening draws one leaf of it')
-  assert.equal(oneLeaf.meshes, 17, 'a doorway draws exactly the parts a standing 门 does')
+  assert.equal(oneLeaf.meshes, 20, 'a doorway draws exactly the parts a standing 门 does')
   const twoLeaves = roomDoor([
     [6, 4],
     [7, 4],
   ])
   assert.ok(Math.abs(twoLeaves.size.x - pair.x) < 1e-6, 'a two-cell opening draws the pair')
-  // The fittings are one set per leaf and nothing else, so the extra meshes are the
-  // second leaf's own five — the same five a 双开 门 adds over a 单开.
-  assert.equal(twoLeaves.meshes - oneLeaf.meshes, 10, 'the second leaf adds its hinges and fittings')
+  // The second leaf adds its panel, hinges, two-face handles and studs.
+  assert.equal(twoLeaves.meshes - oneLeaf.meshes, 13, 'the second leaf adds its mirrored fittings')
 
   // 供电: 接触网 hangs a wire overhead, 第三轨 guards a conductor rail at track level.
   const rail = box(build(track({ power: 'third-rail' })).group).getSize(new THREE.Vector3())

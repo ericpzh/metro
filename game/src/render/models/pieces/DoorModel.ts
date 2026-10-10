@@ -3,7 +3,7 @@
 //
 // This is the **one** door in the game. Both callers build through `buildDoor`:
 //
-//   * the 装饰 门 piece — a doorway standing on the floor, in the four variants of
+//   * the 装饰 门 piece — a doorway standing on the floor, in the six variants of
 //     `sim/doors.ts`, and
 //   * the 办公室 / 厕所 doorway (`render/models/pieces/RoomModel.ts`), which closes the
 //     opening it cut in its own wall with the very same frame, leaves and fittings, at
@@ -16,7 +16,8 @@
 // from the floor top and `y` across it, with the opening's centre plane at `y = 0`. The
 // caller owns the turn that puts that frame where the door really stands.
 //
-// Nothing is glazed and every fitting stands clear of the leaf's face: two surfaces a
+// Steel and wood leaves are solid; 玻璃 uses the station's translucent glass material.
+// Every fitting stands clear of the leaf's face: two surfaces a
 // few millimetres apart z-fight, which shimmers as the camera moves, and the frames and
 // panels that caused it are gone.
 
@@ -49,7 +50,9 @@ export interface DoorMaterials {
 export function doorMaterials(mats: ModuleContext['mats'], material: DoorMaterial): DoorMaterials {
   return material === 'wood'
     ? { frame: mats.wood, leaf: mats.woodLight, handle: mats.woodDark, kick: mats.steel }
-    : { frame: mats.binSteel, leaf: mats.binSteel, handle: mats.steel, kick: mats.binSteel, stainless: true }
+    : material === 'glass'
+      ? { frame: mats.binSteel, leaf: mats.glass, handle: mats.steel, kick: mats.binSteel, stainless: true }
+      : { frame: mats.binSteel, leaf: mats.binSteel, handle: mats.steel, kick: mats.binSteel, stainless: true }
 }
 
 /**
@@ -110,12 +113,15 @@ export function buildDoor(
       // Service doors have uninterrupted sheet-metal faces and upright pulls near
       // the meeting edge. The exposed hinge plates and barrels sit on the outer edge.
       const meets = i === 0 ? 1 : -1
-      const front = leafSet + leaf / 2
       const pullX = cx + meets * (lw / 2 - Math.min(0.1, lw / 3))
-      for (const z of [0.88, 1.16]) {
-        box(mats.handle, pullX, z, front + studProud, 0.032, 0.032, 0.04)
+      for (const side of [-1, 1]) {
+        const face = leafSet + side * (leaf / 2)
+        for (const z of [0.88, 1.16]) {
+          box(mats.handle, pullX, z, face + side * studProud, 0.032, 0.032, 0.04)
+        }
+        box(mats.handle, pullX, 1.02, face + side * handle, 0.032, 0.32, 0.05)
       }
-      box(mats.handle, pullX, 1.02, front + handle, 0.032, 0.32, 0.05)
+      const front = leafSet + leaf / 2
       const hingeX = cx - meets * lw / 2
       for (const z of [threshold + 0.2, threshold + leafH / 2, threshold + leafH - 0.2]) {
         box(mats.handle, hingeX + meets * 0.025, z, front + 0.014, 0.045, 0.085, 0.016)
@@ -156,10 +162,12 @@ export function buildDoor(
       ? Math.min(want, free - (pullW / 2 + studAt + 0.01))
       : Math.max(want, free + (pullW / 2 + studAt + 0.01))
     const studX = Math.min(studAt, pullW / 2 - 0.02)
-    const front = leafSet + leaf / 2
-    box(mats.handle, pullX - studX, 1.02, front + studProud, 0.03, 0.03, 0.04)
-    box(mats.handle, pullX + studX, 1.02, front + studProud, 0.03, 0.03, 0.04)
-    box(mats.handle, pullX, 1.02, front + handle, pullW, 0.04, 0.05)
+    for (const side of [-1, 1]) {
+      const face = leafSet + side * (leaf / 2)
+      box(mats.handle, pullX - studX, 1.02, face + side * studProud, 0.03, 0.03, 0.04)
+      box(mats.handle, pullX + studX, 1.02, face + side * studProud, 0.03, 0.03, 0.04)
+      box(mats.handle, pullX, 1.02, face + side * handle, pullW, 0.04, 0.05)
+    }
   }
   return g
 }

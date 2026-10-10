@@ -99,6 +99,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   // Door material is chosen in the family menu; 窄/宽 is the action-row setting.
   { id: 'door-steel-1', label: '不锈钢', type: 'door', w: 1, h: 1 },
   { id: 'door-wood-1', label: '木', type: 'door', w: 1, h: 1 },
+  { id: 'door-glass-1', label: '玻璃', type: 'door', w: 1, h: 1 },
   { id: 'calligraphy-kai-h', label: '楷书 横排', type: 'calligraphy', w: 1, h: 1 },
   { id: 'calligraphy-kai-v', label: '楷书 竖排', type: 'calligraphy', w: 1, h: 1 },
   { id: 'calligraphy-xing-h', label: '行书 横排', type: 'calligraphy', w: 1, h: 1 },
@@ -122,6 +123,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'exit-doorway-1', label: '地面 单向', type: 'exit', w: 3, h: 1 },
   { id: 'exit-doorway-2', label: '地面 双向', type: 'exit', w: 4, h: 1 },
   { id: 'exit-doorway-3', label: '地面 三向', type: 'exit', w: 5, h: 1 },
+  { id: 'exit-doorway-4', label: '地面 四向', type: 'exit', w: 6, h: 1 },
   { id: 'escalator', label: '扶梯', type: 'escalator', w: 1, h: 1 },
   { id: 'lift', label: '电梯', type: 'lift', w: 1, h: 1 },
   { id: 'stair-straight', label: '单跑楼梯', type: 'stair', w: 1, h: 1 },

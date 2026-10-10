@@ -38,13 +38,14 @@ export const GLASS_SPECS: Record<GlassVariant, GlassSpec> = {
   '1x2': { variant: '1x2', label: '玻璃板 1×2', w: 1, h: 2 },
   '2x2': { variant: '2x2', label: '玻璃板 2×2', w: 2, h: 2 },
   '3x2': { variant: '3x2', label: '玻璃板 3×2', w: 3, h: 2 },
+  '1x4': { variant: '1x4', label: '玻璃幕墙 超窄 1×4', w: 1, h: 4 },
   '2x4': { variant: '2x4', label: '玻璃板 2×4', w: 2, h: 4 },
   '3x4': { variant: '3x4', label: '玻璃板 3×4', w: 3, h: 4 },
   '4x4': { variant: '4x4', label: '玻璃板 4×4', w: 4, h: 4 },
 }
 
 /** Every size, in palette order: the 1 m band first, the tall ones after it. */
-export const GLASS_VARIANTS: readonly GlassVariant[] = ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2', '2x4', '3x4', '4x4']
+export const GLASS_VARIANTS: readonly GlassVariant[] = ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2', '1x4', '2x4', '3x4', '4x4']
 
 /** The four-metre panels stand on floor edges like a doorway instead of needing a wall. */
 export function glassStandsOnFloor(spec: GlassSpec): boolean { return spec.h >= 4 }

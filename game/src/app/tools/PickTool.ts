@@ -85,7 +85,7 @@ function paletteIdForModule(mod: Module): string | null {
       id = (mod.cfg.variant ?? '').endsWith('x4') ? 'curtain-wall' : `glass-${mod.cfg.variant ?? '1x1'}`
       break
     case 'door':
-      id = `door-${(mod.cfg.variant ?? 'steel-1').startsWith('wood') ? 'wood' : 'steel'}-1`
+      id = `door-${(mod.cfg.variant ?? 'steel-1').split('-')[0]}-1`
       break
     case 'calligraphy':
       id = `calligraphy-${mod.cfg.style ?? 'kai'}-${mod.cfg.axis ?? 'h'}`
@@ -104,7 +104,7 @@ function paletteIdForModule(mod: Module): string | null {
       break
     case 'exit': {
       const covered = mod.cfg.covered ?? true
-      const bays = mod.cfg.bays === 1 || mod.cfg.bays === 3 ? mod.cfg.bays : 2
+      const bays = mod.cfg.bays === 1 || mod.cfg.bays === 3 || mod.cfg.bays === 4 ? mod.cfg.bays : 2
       if (mod.cfg.style === 'doorway') { id = `exit-doorway-${bays}`; break }
       id = covered
         ? bays === 1
@@ -231,7 +231,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
       st.setModuleType(optionId)
       if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
-      if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: mod.w === 4 ? 4 : mod.w === 3 ? 3 : 2 })
+      if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4 })
       if (mod.type === 'psd-end') useStore.setState({ psdEndHeight: mod.cfg.psd })
       if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
       if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)

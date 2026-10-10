@@ -4,7 +4,7 @@
 // Three things make the piece what it is, and all three are mechanical rather than
 // artistic, which is why they are pinned here rather than checked by eye:
 //
-//   * **Four variants are one table.** 单开 / 双开 × 不锈钢 / 木, with the run in cells
+//   * **Six variants are one table.** 单开 / 双开 × 不锈钢 / 木 / 玻璃, with the run in cells
 //     and the material in `sim/doors.ts`; the palette id names the variant while a
 //     placed module's `type` is the bare `door`.
 //   * **It stands on the ground.** It carries its own structure — a threshold, a post at
@@ -67,13 +67,13 @@ function flatStation() {
   return cells
 }
 
-test('the four variants are one table: 单开 / 双开 × 不锈钢 / 木', () => {
-  assert.equal(DOOR_VARIANTS.length, 4, 'four pieces in the sub-menu')
-  assert.deepEqual(DOOR_VARIANTS, ['steel-1', 'steel-2', 'wood-1', 'wood-2'], 'each material’s own runs together')
+test('the six variants are one table: 单开 / 双开 × 不锈钢 / 木 / 玻璃', () => {
+  assert.equal(DOOR_VARIANTS.length, 6, 'six width and material combinations')
+  assert.deepEqual(DOOR_VARIANTS, ['steel-1', 'steel-2', 'wood-1', 'wood-2', 'glass-1', 'glass-2'], 'each material’s own runs together')
   // Every palette id is a real variant, and every variant is in the palette: a tile
   // that names a piece the table does not have is a piece that cannot be built.
   const paletteIds = MODULE_OPTIONS.filter((m) => isDoorType(m.id)).map((m) => m.id)
-  assert.deepEqual(paletteIds, ['door-steel-1', 'door-wood-1'], 'material tiles are separate from the narrow/wide width setting')
+  assert.deepEqual(paletteIds, ['door-steel-1', 'door-wood-1', 'door-glass-1'], 'material tiles are separate from the narrow/wide width setting')
   for (const v of DOOR_VARIANTS) {
     const spec = doorSpec(v)
     assert.equal(spec.variant, v)
@@ -98,6 +98,8 @@ test('the factory builds a door of its variant, centred on the hovered cell', ()
   const pair = createModule('door-wood-2', 5, 6, 0, 'd2', 0)
   assert.equal(pair.w, 2)
   assert.deepEqual(pair.cfg, { variant: 'wood-2' })
+  const glass = createModule('door-glass-1', 5, 6, 0, 'd-glass', 0)
+  assert.deepEqual(glass.cfg, { variant: 'glass-1' })
   // A two-cell door grows evenly either side of the pointer, like a billboard's run:
   // the pointer names the middle of the doorway, not one leaf.
   assert.ok(pair.x <= 5 && pair.x + pair.w > 5, `a 双开 door covers the hovered cell (x=${pair.x})`)
@@ -265,11 +267,12 @@ test('stainless doors use stainless throughout, with exposed hinges and upright 
     const hinges = b.meshes.filter((m) => m.geometry.type === 'CylinderGeometry')
     assert.equal(hinges.length, leaves * 3, 'three exposed hinge barrels on each leaf')
     const pulls = b.meshes.filter((m) => m.geometry.parameters.depth === 0.32)
-    assert.equal(pulls.length, leaves, 'one upright pull on each leaf')
+    assert.equal(pulls.length, leaves * 2, 'one upright pull on each face of every leaf')
     for (const pull of pulls) {
       const leaf = b.meshes.find((m) => m.geometry.parameters.height === DOOR_FRAME.leaf && m.geometry.parameters.depth > 1 && Math.abs(m.position.x - pull.position.x) < 0.5)
       assert.ok(leaf, 'each pull belongs to a leaf')
-      assert.ok(pull.position.y - pull.geometry.parameters.height / 2 > leaf.position.y + DOOR_FRAME.leaf / 2, 'the pull clears the sheet face')
+      const faceDistance = Math.abs(pull.position.y - leaf.position.y)
+      assert.ok(faceDistance - pull.geometry.parameters.height / 2 > DOOR_FRAME.leaf / 2, 'the pull clears its sheet face')
     }
   }
 })
@@ -296,12 +299,12 @@ test('the door stands on the edge of the block it is placed on', () => {
   assert.ok(turned.max.x - turned.min.x < 0.25, `nor when it is turned (${turned.max.x - turned.min.x})`)
 })
 
-test('every fitting stands proud of the leaf, so nothing is coplanar with it', () => {
+test('both-side pulls stand proud of the leaf, so nothing is coplanar with it', () => {
   // The flicker this guards against: a plate lying on the leaf's face z-fights it, and
   // the two surfaces shimmer as the camera moves. So each fitting is drawn a real
   // stand-off in front of the leaf — measured here **off the leaf's own face**, which is
   // the relationship that matters, rather than off any absolute coordinate.
-  const { leaf, kick } = DOOR_FRAME
+  const { leaf, leafSet, kick } = DOOR_FRAME
   const parts = build(door(0, 0, 0, 0, 'd', 'wood-1')).meshes
   // A box's `height` is its thickness across the doorway — a member's depth off its plane
   // — while `depth` is its run along z, so the across-way half is `height / 2`.
@@ -314,25 +317,25 @@ test('every fitting stands proud of the leaf, so nothing is coplanar with it', (
   const leafFace = front(leafMesh)
   // The fittings are the light steel: a kick plate, a pull, and the pull's two studs.
   const fittings = parts.filter((m) => ['steel', 'woodDark'].includes(m.material.name))
-  assert.equal(fittings.length, 4, 'a kick plate plus a pull on its two studs')
+  assert.equal(fittings.length, 7, 'a kick plate plus pulls and studs on both faces')
   const studs = fittings.filter((m) => m.geometry.parameters.height === 0.04)
-  assert.equal(studs.length, 2, 'the pull is carried on two studs')
+  assert.equal(studs.length, 4, 'each pull is carried on two studs')
   const kickPlate = fittings.find((m) => m.geometry.parameters.height === 0.008)
-  const pull = fittings.find((m) => m.geometry.parameters.width === 0.3)
-  assert.ok(kickPlate && pull, 'and the plate and the pull are both drawn')
-  const clear = (m) => m.position.y - half(m) - leafFace
-  // Every fitting starts in front of the leaf, never inside it — a stud whose back lies
-  // flat **on** the leaf's face is fine (the leaf's own silhouette hides the seam), a
-  // fitting sunk into it is not.
-  for (const m of fittings) assert.ok(clear(m) >= -1e-9, `a fitting starts on or in front of the leaf (${clear(m)})`)
-  // The stand-offs are real — the plate and the studs clear the leaf, and the pull clears
-  // it by more still, because its box straddles its own stand-off — and the pull is the
-  // piece's frontmost member, as a pull on a closed door is.
-  assert.ok(clear(kickPlate) > 0, `the kick plate clears the leaf (${clear(kickPlate)})`)
-  for (const m of studs) assert.ok(clear(m) >= -1e-9, `a stud starts on or in front of it (${clear(m)})`)
-  assert.ok(clear(pull) > clear(studs[0]), `and the pull's back is beyond the studs (${clear(pull)})`)
-  const pullFront = pull.position.y + (pull.geometry.parameters.height ?? 0) / 2
-  assert.ok(fittings.every((m) => pullFront >= m.position.y + (m.geometry.parameters.height ?? 0) / 2), 'the pull is the frontmost thing on the door')
+  const pulls = fittings.filter((m) => m.geometry.parameters.width === 0.3)
+  assert.ok(kickPlate && pulls.length === 2, 'the plate and one pull on each face are drawn')
+  const leafBack = leafFace - leaf
+  const clearOnSide = (m, side) => side > 0
+    ? m.position.y - half(m) - leafFace
+    : leafBack - (m.position.y + half(m))
+  assert.ok(clearOnSide(kickPlate, 1) > 0, 'the kick plate clears the front face')
+  for (const side of [-1, 1]) {
+    const facePull = pulls.find((m) => Math.sign(m.position.y - leafSet) === side)
+    const faceStuds = studs.filter((m) => Math.sign(m.position.y - leafSet) === side)
+    assert.ok(facePull, `a pull is fitted on face ${side}`)
+    assert.equal(faceStuds.length, 2, `face ${side} pull has two studs`)
+    assert.ok(clearOnSide(facePull, side) > 0, `face ${side} pull clears the leaf`)
+    assert.ok(faceStuds.every((m) => clearOnSide(m, side) >= -1e-9), `face ${side} studs clear the leaf`)
+  }
   // The fittings are sized from the one table, so a change there cannot leave the drawn
   // body and `DOOR_FRAME` describing two different doors.
   assert.equal(kickPlate.geometry.parameters.depth, kick, 'the kick plate is its own height')
@@ -346,15 +349,16 @@ test('a 双开 pair carries its two pulls at the meeting line, mirrored', () => 
   // close together at the centre of the doorway.
   const pair = build(door(0, 0, 0, 0, 'd', 'steel-2'))
   const pulls = pair.meshes.filter((m) => m.geometry.parameters.depth === 0.32)
-  assert.equal(pulls.length, 2, 'a pair draws one pull per leaf')
-  const [left, right] = pulls.sort((a, b) => a.position.x - b.position.x)
-  assert.ok(left.position.x < 0 && right.position.x > 0, `one pull on each leaf (${left.position.x}, ${right.position.x})`)
-  assert.ok(Math.abs(left.position.x + right.position.x) < 1e-6, `the pair is mirrored about the meeting line (${left.position.x} + ${right.position.x})`)
-  // Each bar reaches its leaf's meeting edge and no further, and the two meet in the
-  // middle: the clear gap between them is a fraction of a leaf.
-  const inner = (m, side) => m.position.x + side * 0.016
-  const gap = inner(right, -1) - inner(left, 1)
-  assert.ok(gap > 0 && gap < 0.45, `the two hang together at the middle (clear gap ${gap.toFixed(3)})`)
+  assert.equal(pulls.length, 4, 'each of two leaves draws a pull on both faces')
+  const byFace = [-1, 1].map((side) => pulls.filter((m) => Math.sign(m.position.y) === side))
+  for (const face of byFace) {
+    const [left, right] = face.sort((a, b) => a.position.x - b.position.x)
+    assert.ok(left.position.x < 0 && right.position.x > 0, `one pull on each leaf (${left.position.x}, ${right.position.x})`)
+    assert.ok(Math.abs(left.position.x + right.position.x) < 1e-6, `the pair is mirrored about the meeting line (${left.position.x} + ${right.position.x})`)
+    const inner = (m, side) => m.position.x + side * 0.016
+    const gap = inner(right, -1) - inner(left, 1)
+    assert.ok(gap > 0 && gap < 0.45, `the two hang together at the middle (clear gap ${gap.toFixed(3)})`)
+  }
   // `handle` is the bar's stand-off, so a pull's inner face sits well inside the doorway's
   // half width rather than out at the leaf's hinge edge.
   const half = 1
@@ -363,19 +367,26 @@ test('a 双开 pair carries its two pulls at the meeting line, mirrored', () => 
   // edge of the cell it fills.
   const single = build(door(0, 0, 0, 0, 'd', 'steel-1'))
   const one = single.meshes.filter((m) => m.geometry.parameters.depth === 0.32)
-  assert.equal(one.length, 1, 'a 单开 door draws one pull')
+  assert.equal(one.length, 2, 'a 单开 door draws a pull on both faces')
   assert.ok(one[0].position.x > 0, `toward its free edge (x ${one[0].position.x})`)
+  assert.ok(one[0].position.y * one[1].position.y < 0, 'the single-door pulls oppose one another')
 })
 
-test('the two materials are two finishes, and both span the same door', () => {
+test('the three materials are three finishes, and all span the same door', () => {
   const steel = build(door(0, 0, 0, 0, 'd', 'steel-1'))
   const wood = build(door(0, 0, 0, 0, 'd', 'wood-1'))
+  const glass = build(door(0, 0, 0, 0, 'd', 'glass-1'))
   const count = (b, mat) => b.meshes.filter((m) => m.material === mat).length
   assert.ok(steel.meshes.every((m) => m.material === steel.mats.binSteel || m.material === steel.mats.steel), 'stainless covers every surface')
   assert.equal(count(wood, wood.mats.wood), 4, 'the wooden frame stays timber')
   assert.equal(count(wood, wood.mats.woodLight), 1, 'the wooden leaf stays pale timber')
-  assert.equal(count(wood, wood.mats.woodDark), 3, 'the wooden pull stays timber')
+  assert.equal(count(wood, wood.mats.woodDark), 6, 'both wooden pulls and their studs stay timber')
   assert.equal(count(wood, wood.mats.steel), 1, 'the wooden door keeps its steel kick plate')
+  assert.equal(count(glass, glass.mats.glass), 1, 'the pane uses the station glass material')
+  assert.equal(count(glass, glass.mats.binSteel), 4, 'the glass door keeps a stainless frame')
+  const glassPulls = glass.meshes.filter((m) => m.geometry.parameters.depth === 0.32)
+  assert.equal(glassPulls.length, 2, 'the glass-leaf door also has a pull on each face')
+  assert.ok(glassPulls[0].position.y * glassPulls[1].position.y < 0, 'the glass-door pulls oppose one another')
   assert.ok(Math.abs(steel.box.max.z - steel.box.min.z - doorSpec('steel-1').h) < 1e-6, 'and it is drawn its own height')
 })
 

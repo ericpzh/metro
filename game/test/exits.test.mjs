@@ -97,20 +97,24 @@ test('the solid planes turn with the exit', () => {
   near(back1.at, 0.5 - EXIT_BACK_Y)
 })
 
-test('the bay count scales the width, side by side: 3 / 4 / 5 blocks', () => {
+test('the bay count scales the width, side by side: 3 / 4 / 5 / 6 blocks', () => {
   assert.equal(exitBays(variant(0, {})), 2, 'a bare exit is the reference two-bay piece')
   assert.equal(exitBays(variant(0, { bays: 1 })), 1)
   assert.equal(exitBays(variant(0, { bays: 3 })), 3)
+  assert.equal(exitBays(variant(0, { bays: 4 })), 4)
   // The runs stand side by side in adjacent columns.
   assert.deepEqual(exitBayOffsets(1), [0])
   assert.deepEqual(exitBayOffsets(2), [0, 1])
   assert.deepEqual(exitBayOffsets(3), [0, 1, 2])
+  assert.deepEqual(exitBayOffsets(4), [0, 1, 2, 3])
   assert.equal(exitCentre(1), 0)
   assert.equal(exitCentre(2), 0.5)
   assert.equal(exitCentre(3), 1)
+  assert.equal(exitCentre(4), 1.5)
   near(exitWidth(1), 3)
   near(exitWidth(2), EXIT_W)
   near(exitWidth(3), 5)
+  assert.ok(Math.abs(exitWidth(4) - exitWidth(3) - 1) < CLOSE, 'the four-way ground exit is 1 m wider than the three-way')
   near(EXIT_W, 4)
 })
 
@@ -126,6 +130,7 @@ test('the floor and side planes widen with the bay count', () => {
   near(Math.min(...sides.map((w) => w.at)), -1.0 + 0.06)
   near(Math.max(...sides.map((w) => w.at)), 4.0 - 0.06)
   near(exitSide(3), 2.44)
+  near(exitSide(4), 2.94)
 })
 
 test('a head-house keeps its fixed width regardless of placed runs', () => {

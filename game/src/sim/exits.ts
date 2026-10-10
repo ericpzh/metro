@@ -61,17 +61,16 @@ export type ExitModule = Extract<Module, { type: 'exit' }>
 /** The default bay count of an exit: the reference 双向 head-house. */
 export const DEFAULT_EXIT_BAYS: ExitBays = 2
 
-/** Normalise the bay count: only 1, 2 or 3 are valid; anything else reads 2. */
+/** Normalise the bay count: only 1–4 are valid; anything else reads 2. */
 export function exitBays(m: ExitModule): ExitBays {
-  return m.cfg.bays === 1 || m.cfg.bays === 3 ? m.cfg.bays : DEFAULT_EXIT_BAYS
+  return m.cfg.bays === 1 || m.cfg.bays === 3 || m.cfg.bays === 4 ? m.cfg.bays : DEFAULT_EXIT_BAYS
 }
 
 /**
  * The local x columns an exit's runs stand in: **side by side**, one run per bay
- * — a 单向 at 0, a 双向 at 0 and 1, a 三向 at 0, 1 and 2. The player drops a stair
+ * — one run per bay at offsets 0…bays−1. The player drops a stair
  * or escalator on each; the head-house is built around the group, with one full
- * block of floor at each end (`exitSpan`), so the three variants are 3, 4 and 5
- * blocks across.
+ * block of floor at each end (`exitSpan`), so one to four bays span 3–6 blocks.
  */
 export function exitBayOffsets(bays: ExitBays): number[] {
   const out: number[] = []
@@ -81,8 +80,7 @@ export function exitBayOffsets(bays: ExitBays): number[] {
 
 /**
  * Width of the run group a head-house is built for, metres: one block per bay
- * plus a full block of floor each side — 3 / 4 / 5 blocks for the 单向 / 双向 /
- * 三向.
+ * plus a full block of floor each side — 3–6 blocks for one to four bays.
  */
 export function exitWidth(bays: ExitBays): number {
   return bays + 2
@@ -137,7 +135,7 @@ function runTop(run: Module): Vec3i | null {
 /**
  * The plan a head-house is drawn over and lays floor on: the flush bay group
  * with one full block of floor at each end — 3 / 4 / 5 blocks for the
- * 单向 / 双向 / 三向. No other width exists.
+ * 单向 / 双向 / 三向 / 四向.
  */
 export function exitSpan(m: ExitModule): ExitSpan {
   const bays = exitBays(m)

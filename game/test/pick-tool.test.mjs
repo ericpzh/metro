@@ -97,6 +97,7 @@ const MODULES = [
     cfg: { width: STAIR_WIDTH_NARROW, style: 'right180' },
   },
   { id: 'e1', type: 'exit', x: 3, y: 1, z: 0, rot: 0, cfg: { name: 'A口', inRate: 600, open: true, covered: false, bays: 3 } },
+  { id: 'e2', type: 'exit', x: 4, y: 1, z: 0, rot: 0, cfg: { name: 'B口', inRate: 600, open: true, covered: true, bays: 4, style: 'doorway' } },
   {
     id: 'es1',
     type: 'escalator',
@@ -250,6 +251,9 @@ test('picking equipment arms its exact variant, copies its turn, and selects it'
 
   ctxFor('e1').onDown(press([3, 1, 0]))
   assert.equal(st().moduleType, 'exit-uncovered-3')
+
+  ctxFor('e2').onDown(press([4, 1, 0]))
+  assert.equal(st().moduleType, 'exit-doorway-4', 'a four-way ground exit keeps its palette variant when picked')
 
   ctxFor('es1').onDown(press([0, 2, 0]))
   assert.equal(st().moduleType, 'escalator')

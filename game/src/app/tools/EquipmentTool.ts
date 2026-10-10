@@ -21,6 +21,7 @@ import { ESCALATOR_BAND } from '../../sim/constants.ts'
 import { escalatorModule, ESCALATOR_LONG_RUN, ESCALATOR_LONG_RISE } from '../../sim/escalators.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
 import { solidAt } from '../../sim/ground.ts'
+import { glassSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
   autofaceWallMount,
@@ -34,6 +35,8 @@ import {
   placementOnTrack,
   wallMountMissing,
   wallMountStandCell,
+  glassCells,
+  snapDoorToCurtain,
 } from '../../sim/placement.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
 import { planStairLanes, stairLanes } from '../../sim/stairs.ts'
@@ -402,6 +405,15 @@ export class EquipmentTool extends ToolController {
       )
     }
     if (mod?.type === 'pillar') mod.cfg.height = st.pillarLength
+    // Fit a door into the curtain panel under the pointer. Use the curtain's
+    // own axis and edge as the snap frame, then clamp a double door to its run.
+    if (mod?.type === 'door') {
+      const curtain = st.station.modules.find((placed) => placed.type === 'glass'
+        && placed.z === cell[2]
+        && glassStandsOnFloor(glassSpec(placed.cfg?.variant))
+        && glassCells(placed).some(([x, y]) => x === cell[0] && y === cell[1]))
+      if (curtain?.type === 'glass') mod = snapDoorToCurtain(mod, curtain, [cell[0], cell[1]])
+    }
     if (mod?.type === 'guidepost') {
       const exit = st.station.modules.find((m) => m.type === 'exit' && m.id === st.guideExitId) ?? st.station.modules.find((m) => m.type === 'exit');
       mod.cfg.exitId = exit?.id;

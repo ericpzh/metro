@@ -17,6 +17,9 @@ import { DEFAULT_GLASS_VARIANT, GLASS_FRAME, GLASS_SPECS, GLASS_VARIANTS, glassS
 import {
   autofaceWallMount,
   glassCells,
+  doorCells,
+  curtainDoorShare,
+  snapDoorToCurtain,
   isWallMounted,
   moduleAt,
   moduleEnvelope,
@@ -43,6 +46,9 @@ const glass = (x, y, z = 0, rot = 0, id = 'glass-1', variant = '1x1') => ({
   w: glassSpec(variant).w,
   cfg: { variant },
 })
+const door = (x, y, z = 0, rot = 0, id = 'door-1', w = 1) => ({
+  id, type: 'door', x, y, z, rot, w, cfg: { variant: w === 2 ? 'steel-2' : 'steel-1' },
+})
 
 /**
  * `cells` floor blocks in a row at y = 0, with a wall column behind them at y = 1
@@ -58,12 +64,12 @@ function walled(courses = 4, cells = 3) {
   return out
 }
 
-test('nine sizes share one table: wall panels and tall floor-edge panels', () => {
-  assert.equal(GLASS_VARIANTS.length, 9, 'six wall sizes and three tall floor-edge sizes')
+test('ten sizes share one table: wall panels and tall floor-edge panels', () => {
+  assert.equal(GLASS_VARIANTS.length, 10, 'six wall sizes and four tall floor-edge sizes')
   assert.deepEqual(
     GLASS_VARIANTS.map((v) => `${GLASS_SPECS[v].w}x${GLASS_SPECS[v].h}`),
-    ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2', '2x4', '3x4', '4x4'],
-    'the palette reads 1/2/3 cells at 1/2 m and 2/3/4 cells at 4 m',
+    ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2', '1x4', '2x4', '3x4', '4x4'],
+    'the palette reads 1/2/3 cells at 1/2 m and 1/2/3/4 cells at 4 m',
   )
   // Every palette id is a real size, and every size is in the palette: a tile that
   // names a variant the table does not have is a piece that cannot be built.
@@ -245,6 +251,19 @@ test('both pieces round-trip the save', () => {
   assert.deepEqual(r.state.modules, station.modules)
 })
 
+test('a door snaps to the curtain axis and shares only its fitted run', () => {
+  const curtain = glass(10, 20, 0, 1, 'curtain', '3x4')
+  const panels = glassCells(curtain)
+  const fitted = snapDoorToCurtain(door(0, 0, 0, 0, 'entry', 2), curtain, panels[2].slice(0, 2))
+  assert.equal(fitted.rot, curtain.rot, 'the curtain sets the door rotation')
+  assert.deepEqual(doorCells(fitted), panels.slice(1, 3), 'a double door centres on the hovered panel and stays inside the run')
+  assert.equal(curtainDoorShare(curtain, fitted), true, 'the fitted double door shares the curtain run')
+  assert.equal(placementBlocked([curtain], fitted), false, 'the fitted panel and door can occupy the same tile')
+  const crosswise = { ...fitted, rot: 0 }
+  assert.equal(curtainDoorShare(curtain, crosswise), false, 'a crosswise door is not a fitting')
+  assert.equal(placementBlocked([curtain], crosswise), true, 'unfitted overlaps remain blocked')
+})
+
 test('a drag sweep takes the same size, and leaves the others', () => {
   assert.equal(sweepFamily(glass(0, 0, 0, 0, 'a', '2x1')), 'glass:2x1')
   assert.equal(sameSweepFamily(glass(0, 0, 0, 0, 'a', '2x1'), glass(1, 0, 0, 3, 'b', '2x1')), true)
@@ -266,9 +285,9 @@ test('a different size is a different hover ghost, so the palette click redraws 
  * name (so a mesh can be recognised by the material it was handed). The glass builder
  * draws no canvas, so no station and no DOM are involved.
  */
-function build(mod) {
+function build(mod, modules = [mod]) {
   const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
-  const group = buildModule(mod, { mats, data: { name: 't', seed: 1, cells: [], modules: [], lines: [] }, trackCells: new Set(), finish: () => mats.steel })
+  const group = buildModule(mod, { mats, data: { name: 't', seed: 1, cells: [], modules, lines: [] }, trackCells: new Set(), finish: () => mats.steel })
   const meshes = []
   group.traverse((o) => {
     if (o.isMesh) meshes.push(o)
@@ -317,6 +336,18 @@ test('the frame is an outer frame only, around one pane', () => {
       `${variant}: the posts are the run's two ends`,
     )
   }
+})
+
+test('a fitted door replaces the lower glass only across its own tiles', () => {
+  const curtain = glass(0, 0, 0, 0, 'curtain', '2x4')
+  const entry = door(0, 0, 0, 0, 'entry')
+  assert.equal(curtainDoorShare(curtain, entry), true)
+  const { mats, meshes } = build(curtain, [curtain, entry])
+  const panes = meshes.filter((m) => m.material === mats.glass)
+  assert.equal(panes.length, 2, 'the upper curtain pane and the uncovered lower pane remain')
+  const heights = panes.map((m) => m.geometry.parameters.depth).sort((a, b) => a - b)
+  assert.ok(Math.abs(heights[0] - 1.75) < 1e-9 && Math.abs(heights[1] - 1.85) < 1e-9, 'the upper glass begins above the 2.05 m door and the remaining lower bay stays glazed')
+  assert.ok(panes.some((m) => m.position.x > 0), 'the uncovered bay retains its lower glass')
 })
 
 test('a fence of the same length is a row of frames; a glass panel is one', () => {

@@ -212,16 +212,16 @@ snaps into a screen run’s endpoint tile so the two cap rails meet at the corne
 The corner panel shortens to its tile boundary (0.84 m); subsequent panels are exactly
 1 m long, with the cap/frame and placement reservation contained in each tile so
 adjacent blocks and equipment remain placeable. **门** is a **free-standing doorway** the player stands
-on a floor tile, in the four pieces `sim/doors.ts` names: **单开** (one leaf, one cell) or **双开** (a pair
-meeting in the middle, two cells) × **不锈钢** or **木** — a threshold on the floor, a post at each end, a
+on a floor tile, in the six pieces `sim/doors.ts` names: **单开** (one leaf, one cell) or **双开** (a pair
+meeting in the middle, two cells) × **不锈钢**, **木** or **玻璃** — a threshold on the floor, a post at each end, a
 head across their tops and the leaves hung between them, from the floor top up to 2.05 m. It carries its
 own structure, so it stands like a 货架 and needs **no wall behind it**: it is placed on any tile with
 floor under it, it is *not* wall-mounted (`isWallMounted` / `isWallMountedType` both say so), and it stands
 on the **leading edge of the block it is placed on** — the doorway's own line is that block's edge and the
 run reaches one cell (two for a 双开) into the cells the ghost highlights — rather than in the middle of the
-tile. **Nothing on a leaf is glazed**: a panel lying a few
-millimetres off the leaf's face is coplanar enough to z-fight it, and the two surfaces shimmer as the
-camera moves — the vision panels the first cut carried were removed for exactly that, and every fitting
+tile. The 玻璃 variant uses the station's translucent pane in a steel frame; the steel and wood leaves stay
+solid. Fittings stand clear of the leaf's face, since a panel lying a few millimetres off it is coplanar
+enough to z-fight and shimmer as the camera moves — every fitting
 now stands proud of the leaf by a real `DOOR_FRAME` stand-off rather than lying on it. The 不锈钢 door is
 the game's **钢板** itself: the frame and the leaf are the kit's `darkSteel` — the colour and gloss the 钢板
 ceiling finish is tinted with and the 扶梯's truss (and the ground under it) is drawn in — with a
@@ -2226,7 +2226,7 @@ approximated); neither needs WebGL.
   on the treads' edge, in the cell the cut shaves — an overhang buried the foot of the flight 0.36 m
   deep in a block `rampSlopeCuts` never touches, and the floor's own surface cut it off there).
 * `exits.test.mjs` — the 出入口 (§5.6): the plan is the runs' group with one full block of floor at
-  each end, so a 单向 / 双向 / 三向 is 3 / 4 / 5 blocks across and the runs stand side by side in
+  each end, so a 单向 / 双向 / 三向 / 四向 is 3 / 4 / 5 / 6 blocks across and the runs stand side by side in
   columns 0 … bays − 1; the floor, street-opening node and glass/back walls all follow the placement
   rotation; the house's plan is `cfg.bays` alone — one full block of pad each end and no other
   width, so `exitRunOpenings` keeps the wellways of the runs that fixed span covers and the house
@@ -2452,28 +2452,29 @@ approximated); neither needs WebGL.
 * `equipment-placement-input.test.mjs` — wall and ceiling mounted equipment can be placed when the
   pointer is over open air and let the support verdict decide; floor-standing equipment still needs
   a solid floor hit.
-* `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers nine (six wall sizes and three
-  4 m floor-edge sizes), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
+* `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers ten (six wall sizes and four
+  4 m floor-edge sizes, including 1 m 超窄), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
   band; the factory centres the run on the hovered cell; short-panel envelopes are a **slab on a wall**
   rather than a cell (`x + w` is not the run — at rot 2 it lies along −x, and `wallPanelBox` reads the
   module's own cells so the housing stays on the wall on every rotation); every cell of the run needs
   backing, and so does **every course the panel crosses** (a 1 m wall carries the 1 m band and refuses
   the 2 m window); a panel turns itself to a wall that backs it; two may not share a cell; the pieces
   round-trip the save and sweep by size. The model is where "outer frame only" becomes a number: five
-  meshes at **every** size — a sill, a head, two end posts and one pane — against a 围栏 run of the same
-  length, which stands one frame up per cell.
-* `door-panel.test.mjs` — the 门 (§5.7), the **free-standing doorway**: two material variants (不锈钢 / 木) in the 门 family menu, plus a 窄 / 宽 action tile
+  meshes at **every** unmodified size — a sill, a head, two end posts and one pane — against a 围栏 run of the same
+  length, which stands one frame up per cell. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here.
+* `door-panel.test.mjs` — the 门 (§5.7), the **free-standing doorway**: three material variants (不锈钢 / 木 / 玻璃) in the 门 family menu, plus a 窄 / 宽 action tile
   that also cycles with Tab, and a legacy value reading as the narrow stainless door; the factory centres a 双开 run on the hovered cell; the piece **stands on the
   floor** — it reserves its whole cells from the floor top to its head, wants no wall behind it
   (`isWallMounted` and `isWallMountedType` are both false, `wallMountCourses` is empty) and is refused for
   missing floor like any furniture; it round-trips the save and sweeps by variant (rotation is not part of a
   sweep family). Two tests pin where it stands: it is set on the block's **leading edge** with the run
   filling exactly the cells the ghost highlights — one cell for a 单开, two for a 双开, at either rotation —
-  and a 双开 pair's two pulls are mirrored at the meeting line, where a pair of doors is opened from. The
+  and a 双开 pair's pulls on both faces are mirrored at the meeting line, where a pair of doors is opened from. Each door leaf has handles on both sides, pinned with their stand-off clearance. The
   stainless model uses satin brushed stainless on every surface: frame, uninterrupted leaves,
   three exposed hinges per leaf, upright pulls and the active leaf's lock escutcheon. The tests
   check the finish throughout, hinge count, pull clearance and mirrored pulls at the meeting line.
-  The wooden variant keeps its timber frame, leaf and pull, with a steel kick plate. Both sizes
+  The wooden variant keeps its timber frame, leaf and pull, with a steel kick plate; the glass
+  variant has a translucent pane with the steel frame. Both sizes
   retain their placement bounds, and rooms reuse the same door builder.
 * `calligraphy.test.mjs` — the 站名 (§5.7): six hands (楷书 / 行书 / 隶书 / 魏碑 / 黑体 / 宋体, each
   with its own font stack, ink, tracking and second strike) on two axes, twelve palette tiles whose

@@ -164,6 +164,31 @@ export function doorCells(m: Extract<Module, { type: 'door' }>): Array<[number, 
   return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
 }
 
+/** Snap a door dropped on a curtain to its axis and edge, centring its run on the hovered panel cell. */
+export function snapDoorToCurtain(
+  door: Extract<Module, { type: 'door' }>,
+  glass: Extract<Module, { type: 'glass' }>,
+  cell: [number, number],
+): Extract<Module, { type: 'door' }> {
+  if (glass.z !== door.z || !glassStandsOnFloor(glassSpec(glass.cfg?.variant))) return door
+  const run = glassCells(glass)
+  const index = run.findIndex(([x, y]) => x === cell[0] && y === cell[1])
+  if (index < 0 || door.w > run.length) return door
+  const first = Math.max(0, Math.min(run.length - door.w, index - Math.floor((door.w - 1) / 2)))
+  const [dx, dy] = rotateLocal(glass.rot, first, 0)
+  return { ...door, x: glass.x + dx, y: glass.y + dy, rot: glass.rot }
+}
+
+/** A door fitted into a floor-standing glass curtain: same storey and plane, with the door wholly inside the glass run. */
+export function curtainDoorShare(a: Module, b: Module): boolean {
+  const glass = a.type === 'glass' ? a : b.type === 'glass' ? b : undefined
+  const door = a.type === 'door' ? a : b.type === 'door' ? b : undefined
+  if (!glass || !door || glass.z !== door.z || normRot(glass.rot) !== normRot(door.rot)) return false
+  if (!glassStandsOnFloor(glassSpec(glass.cfg?.variant))) return false
+  const wallCells = new Set(glassCells(glass).map(([x, y]) => `${x},${y}`))
+  return doorCells(door).every(([x, y]) => wallCells.has(`${x},${y}`))
+}
+
 /** Every cell a 站名's run covers — its panel is its run, in whole cells. */
 export function calligraphyCells(m: Extract<Module, { type: 'calligraphy' }>): Array<[number, number, number]> {
   return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
@@ -1150,6 +1175,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (isPsdCornerPair(m, candidate) || isPsdEndJoin(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
     if (isHangingShare(m, candidate)) continue
+    if (curtainDoorShare(m, candidate)) continue
     // A station-side 广告牌 can sit on the wall behind the platform screen doors.
     // Their coarse envelopes overlap in height, but the poster is mounted at the
     // back wall while the doors occupy the track edge; they are separated across

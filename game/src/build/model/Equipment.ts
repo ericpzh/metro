@@ -224,7 +224,7 @@ export function createModule(
     case 'tv':
       return { id, type: 'tv', x, y, z, rot, cfg: {} };
     case 'curtain-wall': {
-      const variant: GlassVariant = width === 4 ? '4x4' : width === 3 ? '3x4' : '2x4';
+      const variant: GlassVariant = width === 4 ? '4x4' : width === 3 ? '3x4' : width === 2 ? '2x4' : '1x4';
       const w = glassSpec(variant).w;
       const [ox, oy] = trackOriginForCentre(rot, x, y, w, 1);
       return { id, type: 'glass', x: ox, y: oy, z, rot, w, cfg: { variant } };
@@ -238,6 +238,7 @@ export function createModule(
     case 'glass-3x2':
     case 'glass-2x4':
     case 'glass-3x4':
+    case 'glass-1x4':
     case 'glass-4x4': {
       // The palette id names the size; a bare `glass` (an old caller) is the
       // single-cell 1 m panel. The run is centred on the hovered cell like a
@@ -251,7 +252,9 @@ export function createModule(
     case 'door-steel-1':
     case 'door-steel-2':
     case 'door-wood-1':
-    case 'door-wood-2': {
+    case 'door-wood-2':
+    case 'door-glass-1':
+    case 'door-glass-2': {
       // The palette id names the variant; a bare `door` (an old caller, or the
       // room builder's own doorway) is the single stainless piece. The run is
       // centred on the hovered cell like a 玻璃板's, so a 双开 door grows evenly
@@ -334,6 +337,7 @@ export function createModule(
     case 'exit-doorway-1':
     case 'exit-doorway-2':
     case 'exit-doorway-3':
+    case 'exit-doorway-4':
     case 'exit-uncovered-3': {
       // The palette id names the variant: `exit` (or -covered-) is the 有盖
       // head-house and -uncovered- is the open 无盖 railing exit; the trailing
@@ -342,7 +346,7 @@ export function createModule(
       const parts = type.split('-');
       const covered = parts[1] !== 'uncovered';
       const n = Number(parts[2]);
-      const bays: ExitBays = n === 1 || n === 3 ? n : 2;
+      const bays: ExitBays = n === 1 || n === 3 || n === 4 ? n : 2;
       // The placeholder name is the fallback: the placement caller swaps in the
       // next free A ~ Z letter (`nextExitName`), so a fresh exit reads like real
       // signage. A save with no name, or all 26 letters used, keeps it.

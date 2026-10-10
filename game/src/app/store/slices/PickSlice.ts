@@ -44,7 +44,7 @@ export interface PickDraft {
   escalatorLong: boolean
   liftStyle: 'glass' | 'steel'
   hangerLength: 4 | 6 | 8
-  curtainWidth: 2 | 3 | 4
+  curtainWidth: 1 | 2 | 3 | 4
   psdEndHeight: 'half' | 'full'
   gateDoor: GateDoor
   doorWide: boolean

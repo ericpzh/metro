@@ -294,11 +294,11 @@ export function isWallBlock(c: { tags?: string[] }): boolean {
 
 /**
  * Number of escalator/stair bays an exit head-house opens (出入口 §5.6): one
- * (单向), two (双向, the reference head-house) or three (三向). The bays sit at
+ * (单向), two (双向, the reference head-house), three (三向) or four (四向). The bays sit at
  * fixed local x offsets (`exitBayOffsets`), and the floor, walls and model all
  * widen to match, so the drawn openings and the sim barrier agree.
  */
-export type ExitBays = 1 | 2 | 3
+export type ExitBays = 1 | 2 | 3 | 4
 
 export interface ExitCfg {
   style?: 'doorway'
@@ -321,7 +321,7 @@ export interface ExitCfg {
    * look changes.
    */
   covered?: boolean
-  /** How many bays the head-house opens: 1, 2 (default) or 3. */
+  /** How many bays the head-house opens: 1, 2 (default), 3 or 4. */
   bays?: ExitBays
 }
 
@@ -371,23 +371,23 @@ export type BenchVariant = 'steel-1' | 'steel-2' | 'seat-1' | 'seat-2'
  * metres, as `1x1` … `4x4`. The short sizes are wall-mounted; the 4 m panels stand
  * on floor edges like a doorway (`sim/glassPanels.ts`).
  */
-export type GlassVariant = '1x1' | '2x1' | '3x1' | '1x2' | '2x2' | '3x2' | '2x4' | '3x4' | '4x4'
+export type GlassVariant = '1x1' | '2x1' | '3x1' | '1x2' | '2x2' | '3x2' | '1x4' | '2x4' | '3x4' | '4x4'
 
 /**
  * The two things a 门 is made of (装饰, §5.7): the leaf count and the material. A
  * 单开 door is one leaf and one cell wide, a 双开 a pair meeting in the middle over
- * two cells; the material is 不锈钢 or 木, which is the finish of the frame, the
+ * two cells; the material is 不锈钢, 木 or 玻璃, which is the finish of the frame, the
  * leaves and the handle together (`sim/doors.ts` paints both from one table).
  */
-export type DoorMaterial = 'steel' | 'wood'
+export type DoorMaterial = 'steel' | 'wood' | 'glass'
 
 /**
  * A swing door's variant (装饰 门, §5.7): `<material>-<leaves>`, as `steel-1` …
- * `wood-2`. The piece is the same framed door the 办公室 closes its doorway with
+ * `glass-2`. The piece is the same framed door the 办公室 closes its doorway with
  * (`render/models/pieces/DoorModel.ts`), so the variant names one piece of
  * furniture rather than a mount.
  */
-export type DoorVariant = 'steel-1' | 'steel-2' | 'wood-1' | 'wood-2'
+export type DoorVariant = 'steel-1' | 'steel-2' | 'wood-1' | 'wood-2' | 'glass-1' | 'glass-2'
 
 /**
  * The hand a 站名 inscription is written in (§5.7): 楷书, 行书, 隶书, 魏碑, 黑体

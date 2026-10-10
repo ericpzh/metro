@@ -92,3 +92,9 @@ orchestrator.
 When a behaviour change touches the sim, the README's rule stands: keep `sim/`
 pure, add a focused `.test.mjs`, and update `game/README.md` if the change is
 player-visible.
+
+For the fitted 门 / 玻璃幕墙 joint, keep the snap arithmetic in the pure placement
+module and pin a rotated curtain, a door clamped inside its run, allowed fitted overlap,
+rejected crosswise overlap, and the clipped lower-pane geometry in `glass-panel.test.mjs`.
+Pin front and back handle geometry and stand-off in `door-panel.test.mjs`; room and
+standalone doors share `DoorModel.buildDoor`, so both use the same assertion.

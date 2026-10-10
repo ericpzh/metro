@@ -105,7 +105,7 @@ export interface ToolSlice {
   liftStyle: 'glass' | 'steel'
   hangerLength: 4 | 6 | 8
   cycleHangerLength: () => void
-  curtainWidth: 2 | 3 | 4
+  curtainWidth: 1 | 2 | 3 | 4
   cycleCurtainWidth: () => void
   psdEndHeight: 'half' | 'full'
   cyclePsdEndHeight: () => void
@@ -230,7 +230,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   hangerLength: 4,
   cycleHangerLength: () => set((s) => ({ hangerLength: s.hangerLength === 4 ? 6 : s.hangerLength === 6 ? 8 : 4 })),
   curtainWidth: 2,
-  cycleCurtainWidth: () => set((s) => ({ curtainWidth: s.curtainWidth === 2 ? 3 : s.curtainWidth === 3 ? 4 : 2 })),
+  cycleCurtainWidth: () => set((s) => ({ curtainWidth: s.curtainWidth === 1 ? 2 : s.curtainWidth === 2 ? 3 : s.curtainWidth === 3 ? 4 : 1 })),
   psdEndHeight: 'half',
   cyclePsdEndHeight: () => set((s) => ({ psdEndHeight: s.psdEndHeight === 'half' ? 'full' : 'half' })),
   gateDoor: 'lane',
