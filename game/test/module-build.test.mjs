@@ -684,6 +684,15 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   const wire = box(build(track({ power: 'catenary' })).group).getSize(new THREE.Vector3())
   assert.equal(round(rail.x), 8, 'a rail is exactly as long as its run')
   assert.ok(wire.z > rail.z * 3, 'the catenary reaches over the train; the third rail does not')
+  const trackGroup = build(track({ power: 'third-rail' })).group
+  const instance = (name) => trackGroup.getObjectByName(name)
+  assert.equal(instance('concrete sleepers').count, 13, 'slab track seats a regular sleeper along the run')
+  assert.equal(instance('rail seats').count, 26, 'both rail webs have a seat at every sleeper')
+  assert.equal(instance('spring clips').count, 52, 'each seat is retained at both edges')
+  assert.equal(instance('anchor bolts').count, 52, 'each rail seat is anchored at both edges')
+  let railHeads = 0
+  trackGroup.traverse((o) => { if (o.geometry?.type === 'ExtrudeGeometry' && o.material === mats.steel) railHeads++ })
+  assert.equal(railHeads, 2, 'both running rails have a shaped steel head')
   // A tunnel's shell is the chunk mesher's, not the piece's: the model is the same.
   assert.equal(build(track({ tunnel: true })).meshes, build(track({})).meshes, 'a tunneled rail draws the same track')
 

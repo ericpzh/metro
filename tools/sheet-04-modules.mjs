@@ -35,7 +35,7 @@ const CARDS = resolve(repo, process.env.MODULE_CARDS_DIR ?? join('.preview', 'mo
 /** Cards per row, and the card's own frame. */
 /**
  * The grid: six to a row, which is the shape this sheet has always had and the
- * roomiest one for a twenty-card catalogue. The card's own frame lives here, and
+ * roomiest one for the growing catalogue. The card's own frame lives here, and
  * the window a model is drawn into is the rest of it.
  */
 const COLS = 6

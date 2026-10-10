@@ -48,6 +48,8 @@ const FLIP = ['vending', 'tvm', 'shelf', 'platform-edge', 'extinguisher', 'bin',
 const PSD_CELLS = 21
 /** The section's core serves three storeys, so its 电梯 is one lift stacked three deep. */
 const LIFT_STOREYS = 3
+// Keep the sheet's placement key while photographing the current palette variant.
+const modelId = (id) => id === 'shelf' ? 'shelf-dark-tall' : id === 'door-steel-2' ? 'door-steel-1' : id
 /** The palette entries to ask for. `lift-car` is not in the catalogue: it is the cabin the
  *  lift model already draws, asked for on its own. */
 const PIECES = [
@@ -100,11 +102,11 @@ try {
   const result = await session.evaluate(`(async () => {
     const { renderModuleThumbnails } = window.__pieceElevations
     const pngs = await renderModuleThumbnails(132, {
-      ids: ${JSON.stringify(PIECES)},
+      ids: ${JSON.stringify(PIECES.map(modelId))},
       pxPerMetre: ${PX_PER_M},
       scale: ${SCALE},
       liftStoreys: ${LIFT_STOREYS},
-      flip: ${JSON.stringify(FLIP)},
+      flip: ${JSON.stringify(FLIP.map(modelId))},
       psdCells: ${PSD_CELLS},
       stationName: '地铁站',
     })
@@ -113,7 +115,7 @@ try {
 
   const index = []
   for (const id of PIECES) {
-    const png = result[id]
+    const png = result[modelId(id)]
     if (!png) throw new Error(`the pass returned nothing for \`${id}\``)
     const buffer = Buffer.from(png.split(',')[1], 'base64')
     const file = `${id}.png`

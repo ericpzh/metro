@@ -1,127 +1,157 @@
-// Ticket booth (售票亭) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
-
+// Reference service counters (§5): white information island / glazed ticket kiosk.
 import * as THREE from 'three'
-import { PieceBuilder, slab } from '../PieceBuilder.ts'
+import { PieceBuilder, slab, plate, ownedMaterial } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 
-/**
- * Ticket booth (售票亭): a service desk ringing the floor, with a glass screen
- * above the counter. There is no solid voxel base and no doorway — the desk is
- * a thin counter the crowd is served across, open overhead. Like a walled room,
- * the booth wears **no name plate**: a desk with a glass screen already reads as
- * a service point, and a 1.8 m 售票 board over it only repeated the palette tile
- * it was built from.
- *
- * The ring is a **closed box**, and every side of it is measured *inward from that
- * side's own outer face* — the module's cell boundary. That one rule is what the
- * four sides of the box share, and it is what the earlier pass got wrong: the east
- * run measured outward from the boundary and hung its counter and screen 0.55 m
- * out in the next cell, the north run measured from its last cell instead of the
- * boundary and stood a whole cell inside the room, and the capping boards stood a
- * lip proud of every face. Nothing on the piece may leave the cells the module
- * reserves, so every run now draws between its face and its face ± its depth.
- *
- * The counter is laid the way a picture frame is: the west and east runs own the
- * four corner squares and the north and south runs stop one counter depth short of
- * them, so the desk band is one connected ring with no overlapping slab at a corner
- * — drawing both runs through a corner is what used to make a 1 × 1 m pad of desk
- * there. (The boards butt at the corner squares rather than lapping over each other,
- * so they stay inside the footprint and the band still reads as one frame.)
- *
- * The screens are the box's own four walls: each side's screen stands against its
- * outer face across the whole run, and the north and south sheets run out to the
- * **inner face** of the west and east sheets, so two screens meet and butt at every
- * corner instead of stopping a counter-depth short with a hole beside them. A
- * corner mullion caps each of those joints. World space, origin at the floor.
- */
+/** Printed fascia belongs to this piece and is released with it on rebuild. */
+function serviceSign(ctx: ModuleContext): THREE.Material {
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, name: 'booth-service-sign' })
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas')
+    canvas.width = 768
+    canvas.height = 192
+    const ink = canvas.getContext('2d')!
+    ink.fillStyle = '#242631'
+    ink.fillRect(0, 0, 768, 192)
+    ink.strokeStyle = '#ffffff'
+    ink.lineWidth = 4
+    ink.strokeRect(75, 34, 112, 124)
+    for (const x of [105, 159]) {
+      ink.beginPath()
+      ink.arc(x, 59, 10, 0, Math.PI * 2)
+      ink.fillStyle = '#ffffff'
+      ink.fill()
+      ink.fillRect(x - 10, 76, 20, 40)
+    }
+    ink.fillRect(96, 112, 7, 34)
+    ink.fillRect(109, 112, 7, 34)
+    ink.fillRect(133, 109, 48, 5)
+    ink.fillRect(137, 114, 5, 31)
+    ink.font = '58px "Microsoft YaHei", sans-serif'
+    ink.fillText('客服中心', 225, 89)
+    ink.font = '30px Arial, sans-serif'
+    ink.fillText('Customer Service Center', 228, 139)
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.colorSpace = THREE.SRGBColorSpace
+    mat.map = tex
+  }
+  return ownedMaterial(ctx, mat)
+}
+
+/** Extrude an x/z profile inward along y for the accessible counter's sloped shoulders. */
+function profile(g: THREE.Group, mat: THREE.Material, points: Array<[number, number]>, y: number, depth: number): void {
+  const shape = new THREE.Shape()
+  points.forEach(([x, z], i) => i ? shape.lineTo(x, z) : shape.moveTo(x, z))
+  shape.closePath()
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, steps: 1 })
+  geo.rotateX(Math.PI / 2)
+  geo.translate(0, y + depth, 0)
+  g.add(new THREE.Mesh(geo, mat))
+}
+
 function buildBooth(ctx: ModuleContext, mod: Extract<Module, { type: 'booth' }>): THREE.Group {
-  const mats = ctx.mats
+  const { mats } = ctx
   const g = new THREE.Group()
-  const z0 = mod.z + 1
-  const glazed = mod.cfg.kind !== 'info'
-  // The room's own rectangle in world space: `x0`/`y0` are the module's first cells
-  // and `x1`/`y1` the outer faces one cell past its last, which is where every run
-  // measures its depth from.
-  const x0 = mod.x
-  const y0 = mod.y
-  const x1 = mod.x + mod.w
-  const y1 = mod.y + mod.h
-  const DESK = 0.9 // counter height, metres
-  const GLASS_TOP = 2.0
-  /** Counter depth — a desk, not a wall: also the size of a corner square. */
-  const DEPTH = 0.55
-  /** The capping board's thickness. */
-  const CAP_T = 0.06
-  /** The screen stands against the counter's outer face. */
-  const GLASS_T = 0.04
-  const GLASS_INSET = 0.02
-  /** Widest bar in the screen band: the screen's own top rail. */
-  const RAIL = 0.07
-  /** The corner mullion's width: wider than the screen band on both axes. */
-  const POST = 0.09
-  /** The screen's inner face — where a screen meeting it butts. */
-  const GLASS_END = GLASS_INSET + GLASS_T
-  /** How far the screen's foot is buried in the counter's board, so no faces meet. */
-  const GLASS_FOOT = 0.01
-
-  /**
-   * One side of the ring. `side` names the outer face the run stands on; its counter,
-   * board and screen all measure **inward** from that face, so no piece can leave the
-   * module's cells. `a`/`b` are the counter's span along the side and `ga`/`gb` the
-   * screen's — the two differ at a corner, where the side meeting another gives up the
-   * joint to `GLASS_END` so the sheets butt instead of crossing.
-   */
-  const counterRun = (side: 's' | 'n' | 'w' | 'e', a: number, b: number, ga: number, gb: number): void => {
-    // `at(u, v)` maps "u along the side, v inward from its outer face" to world x/y.
-    const at = (u: number, v: number): [number, number] =>
-      side === 'w' ? [x0 + v, u] : side === 'e' ? [x1 - v, u] : side === 's' ? [u, y0 + v] : [u, y1 - v]
-    const alongX = side === 's' || side === 'n'
-    // Desk: its span along the side, DEPTH across it, its outer face on the wall line.
-    const len = b - a
-    const [dx, dy] = at((a + b) / 2, DEPTH / 2)
-    slab(g, mats.steel, dx, dy, z0 + DESK / 2, alongX ? len : DEPTH, alongX ? DEPTH : len, DESK)
-    // The capping board sits **on** the desk rather than let into it (the old board
-    // was centred on the counter top, and once its `LIP` was gone its outer face lay
-    // in the desk's own plane — steel against dark steel, fighting for the depth).
-    slab(g, mats.darkSteel, dx, dy, z0 + DESK + CAP_T / 2, alongX ? len : DEPTH, alongX ? DEPTH : len, CAP_T)
-    // The screen: against the outer face, its foot inside that board and its head
-    // inside the rail, so it only ever shows a clean sheet of glass in between.
-    const gLen = gb - ga
-    const [gx, gy] = at((ga + gb) / 2, GLASS_INSET + GLASS_T / 2)
-    if (glazed) {
-      const h = GLASS_TOP - DESK - GLASS_FOOT
-      slab(g, mats.glass, gx, gy, z0 + DESK + GLASS_FOOT + h / 2, alongX ? gLen : GLASS_T, alongX ? GLASS_T : gLen, h)
-      slab(g, mats.darkSteel, gx, gy, z0 + GLASS_TOP, alongX ? gLen : RAIL, alongX ? RAIL : gLen, CAP_T)
+  const info = mod.cfg.kind === 'info'
+  const x0 = mod.x, x1 = mod.x + mod.w
+  const y0 = mod.y, y1 = mod.y + mod.h
+  const z = mod.z + 1
+  // Measure inward from the footprint; the overhead frame fits the existing 2.4 m envelope.
+  const depth = Math.min(0.55, mod.w / 3, mod.h / 3)
+  const cap = 0.08
+  const top = info ? 1.02 : 0.96
+  const body = info ? mats.white : mats.binSteel
+  const rim = info ? mats.white : mats.steel
+  const a = x0 + depth, b = x1 - depth
+  const mid = (a + b) / 2
+  // Side runs own the corners; the back and service face butt between them.
+  for (const x of [x0 + depth / 2, x1 - depth / 2]) {
+    slab(g, body, x, (y0 + y1) / 2, z + (top + 0.11) / 2, depth, mod.h, top - 0.11)
+    slab(g, rim, x, (y0 + y1) / 2, z + top + cap / 2, depth, mod.h, cap)
+  }
+  slab(g, body, mid, y1 - depth / 2, z + (top + 0.11) / 2, b - a, depth, top - 0.11)
+  slab(g, rim, mid, y1 - depth / 2, z + top + cap / 2, b - a, depth, cap)
+  const lowWidth = Math.min(0.9, (b - a) * 0.36)
+  const shoulder = Math.min(0.32, (b - a) * 0.16)
+  const line: Array<[number, number]> = info ? [
+    [a, z + top], [mid - lowWidth / 2 - shoulder, z + top],
+    [mid - lowWidth / 2, z + 0.72], [mid + lowWidth / 2, z + 0.72],
+    [mid + lowWidth / 2 + shoulder, z + top], [b, z + top],
+  ] : [[a, z + top], [b, z + top]]
+  profile(g, body, [[a, z + 0.11], [b, z + 0.11], ...[...line].reverse()], y0, depth)
+  profile(g, rim, [...line, ...[...line].reverse().map(([x, h]): [number, number] => [x, h + cap])], y0, depth)
+  // Recessed stainless kick strips sit below the cabinet panels, avoiding coplanar faces.
+  for (const y of [y0 + 0.015, y1 - 0.015]) {
+    slab(g, info ? mats.steel : mats.darkSteel, mid, y, z + 0.055, mod.w, 0.03, 0.11)
+  }
+  for (const x of [x0 + 0.015, x1 - 0.015]) {
+    slab(g, info ? mats.steel : mats.darkSteel, x, (y0 + y1) / 2, z + 0.055, 0.03, mod.h, 0.11)
+  }
+  const headerBottom = 2.08
+  const headerTop = 2.4
+  // The trim occupies its own vertical band below the fascia. Embedding it in
+  // the dark frame gave both materials the same outer faces (visible z-fighting).
+  const fasciaBottom = info ? headerBottom + 0.045 : headerBottom
+  const band = info ? mats.darkSteel : mats.binSteel
+  // Open rectangular overhead frame: the staff bay remains visible from above.
+  for (const x of [x0 + 0.09, x1 - 0.09]) {
+    slab(g, band, x, (y0 + y1) / 2, z + (fasciaBottom + headerTop) / 2, 0.18, mod.h, headerTop - fasciaBottom)
+  }
+  for (const y of [y0 + 0.098, y1 - 0.098]) {
+    slab(g, band, mid, y, z + (fasciaBottom + headerTop) / 2, mod.w - 0.36, 0.18, headerTop - fasciaBottom)
+  }
+  if (info) {
+    // White underside light and burgundy seam follow the suspended frame.
+    for (const x of [x0 + 0.09, x1 - 0.09]) {
+      slab(g, mats.white, x, (y0 + y1) / 2, z + headerBottom + 0.015, 0.18, mod.h, 0.03)
+      slab(g, mats.gateRed, x, (y0 + y1) / 2, z + headerBottom + 0.0375, 0.18, mod.h, 0.015)
+    }
+    for (const y of [y0 + 0.098, y1 - 0.098]) {
+      slab(g, mats.white, mid, y, z + headerBottom + 0.015, mod.w - 0.36, 0.18, 0.03)
+      slab(g, mats.gateRed, mid, y, z + headerBottom + 0.0375, mod.w - 0.36, 0.18, 0.015)
+    }
+    for (const y of [y0 + 0.1, y1 - 0.1]) {
+      slab(g, mats.headlight, mid, y, z + headerBottom - 0.015, mod.w - 0.36, 0.12, 0.03)
+    }
+    for (const x of [x0 + 0.1, x1 - 0.1]) {
+      slab(g, mats.headlight, x, (y0 + y1) / 2, z + headerBottom - 0.015, 0.12, mod.h - 0.36, 0.03)
+    }
+  } else {
+    const post = 0.08
+    const glassBottom = top + cap
+    // Corner mullions frame clear glazing; the front transfer gap is an actual opening.
+    for (const x of [x0 + post / 2, x1 - post / 2]) {
+      for (const y of [y0 + post / 2, y1 - post / 2]) {
+        slab(g, mats.darkSteel, x, y, z + (glassBottom + headerBottom) / 2, post, post, headerBottom - glassBottom)
+      }
+      slab(g, mats.glass, x, (y0 + y1) / 2, z + (glassBottom + headerBottom) / 2, 0.025, mod.h - 2 * post, headerBottom - glassBottom)
+    }
+    slab(g, mats.glass, mid, y1 - 0.04, z + (glassBottom + headerBottom) / 2, mod.w - 2 * post, 0.025, headerBottom - glassBottom)
+    const bays = Math.max(1, Math.floor((mod.w - 0.16) / 1.6))
+    const bayWidth = (mod.w - 2 * post) / bays
+    for (let i = 0; i < bays; i++) {
+      const x = x0 + post + bayWidth * (i + 0.5)
+      const sill = glassBottom + 0.16
+      slab(g, mats.glass, x, y0 + 0.04, z + (sill + headerBottom) / 2, bayWidth - 0.03, 0.025, headerBottom - sill)
+      slab(g, mats.steel, x, y0 + 0.04, z + sill, bayWidth - 0.03, 0.045, 0.035)
+      if (i > 0) slab(g, mats.darkSteel, x - bayWidth / 2, y0 + 0.04, z + (glassBottom + headerBottom) / 2, 0.03, 0.06, headerBottom - glassBottom)
     }
   }
-
-  // The west and east runs close all four corners; the south and north runs butt
-  // between them, and their screens run out to the west and east screens' inner faces.
-  for (const side of ['w', 'e'] as const) counterRun(side, y0, y1, y0, y1)
-  for (const side of ['s', 'n'] as const) counterRun(side, x0 + DEPTH, x1 - DEPTH, x0 + GLASS_END, x1 - GLASS_END)
-  // A mullion on each corner, standing over the joint where two screens meet: wider
-  // than the screen band on both axes and reaching the outer faces, so the corner is
-  // filled rather than notched, and buried in the board at its foot like the screens.
-  // It may lie in the board's own planes (they are the same dark steel, so a shared
-  // plane is one surface drawn twice and cannot flicker); what it must never share is
-  // a plane with the steel desk or the `DoubleSide` glass.
-  for (const cx of glazed ? [x0, x1 - POST] : []) {
-    for (const cy of [y0, y1 - POST]) {
-      slab(
-        g,
-        mats.darkSteel,
-        cx + POST / 2,
-        cy + POST / 2,
-        z0 + DESK + GLASS_FOOT + (GLASS_TOP - DESK - GLASS_FOOT) / 2,
-        POST,
-        POST,
-        GLASS_TOP - DESK - GLASS_FOOT,
-      )
-    }
+  const sign = serviceSign(ctx)
+  const signW = Math.min(mod.w - 0.4, 2.4)
+  for (const [y, yaw] of [[y0 + 0.004, 0], [y1 - 0.004, Math.PI]]) {
+    plate(g, sign, signW, 0.29, mid, y, z + 2.245, yaw)
   }
-  // The staff benches are `bench` modules of their own, so each is
-  // individually deletable; nothing solid is drawn inside the counter.
+  // Counter fittings; staff seats remain individually editable bench modules.
+  const screenXs = info ? [a + (b - a) * 0.16] : [a + (b - a) * 0.2, b - (b - a) * 0.2]
+  for (const x of screenXs) {
+    const y = y0 + depth * 0.67
+    slab(g, mats.black, x, y, z + top + cap + 0.025, 0.28, 0.18, 0.035)
+    slab(g, mats.darkSteel, x, y, z + top + cap + 0.10, 0.035, 0.04, 0.15)
+    slab(g, mats.black, x, y, z + top + cap + 0.23, 0.34, 0.045, 0.23)
+    plate(g, mats.screen, 0.30, 0.19, x, y - 0.024, z + top + cap + 0.23, 0)
+  }
   return g
 }
 
@@ -131,4 +161,3 @@ export class BoothModel extends PieceBuilder {
     return buildBooth(this.ctx, mod)
   }
 }
-

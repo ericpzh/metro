@@ -422,3 +422,6 @@ export function periodOf(simTime: number, service: TimeSpan = DEFAULT_SERVICE, p
   if (t < SHOULDER_OPEN || t >= SHOULDER_CLOSE) return 'late'
   return 'offpeak'
 }
+/** Floor furniture clearance, including displays (GAME-SPEC §5.7). */
+export const DESK_HEIGHT = 1.22
+export const CHECKOUT_HEIGHT = 1.42

@@ -91,6 +91,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   // Single glass surfaces avoid competing front/back faces at grazing angles.
   const fixedGlass = ownedMaterial(ctx, mats.glass.clone())
   const movingGlass = ownedMaterial(ctx, mats.tintedGlass.clone())
+  const fullHeightIndicator = ownedMaterial(ctx, new THREE.MeshBasicMaterial({ color: 0xffd43b, side: THREE.DoubleSide }))
   fixedGlass.depthWrite = false
   movingGlass.depthWrite = false
   const platYaw = toward < 0 ? Math.PI : 0
@@ -254,8 +255,8 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
         registerDoorLeaf(arrow, s, leafW, leaves)
       }
     }
-    // Green "open" indicator above each pair.
-    plate(g, mats.ledGreen, 0.3, 0.06, half ? dx - doorW / 2 - 0.2 : dx, yWall - toward * 0.14, half ? z0 + 1.34 : z0 + 2.7, platYaw)
+    // Only full-height screens have an indicator, and it is yellow.
+    if (!half) plate(g, fullHeightIndicator, 0.3, 0.06, dx, yWall - toward * 0.14, z0 + 2.7, platYaw)
   }
   g.userData.doors = leaves
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)

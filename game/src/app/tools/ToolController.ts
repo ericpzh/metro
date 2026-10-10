@@ -57,7 +57,7 @@ export abstract class ToolController {
     st.select(null)
     this.ctx.scene()?.setModulePreview(null)
     this.ctx.scene()?.setCollisionHighlight(null)
-    st.setNotice(`已拆掉${moduleLabel(mod.type, mod.type === 'shop' || mod.type === 'booth' ? mod.cfg.kind : undefined)}`)
+    st.setNotice(`已拆掉${moduleLabel(mod)}`)
   }
 
   /**

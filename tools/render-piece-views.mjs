@@ -86,10 +86,10 @@ const VIEWS = HERO ? {
   'roof-truss': { from: 'iso' },
   extinguisher: { from: 'iso', rotationZ: 180 },
   bin: { from: 'iso', rotationZ: 180 },
-  'door-steel-2': { from: 'iso', rotationZ: 180 },
+  'door-steel-2': { modelId: 'door-steel-1', from: 'iso', rotationZ: 180 },
   tvm: { from: 'iso', rotationZ: 180 },
   vending: { from: 'iso', rotationZ: 180 },
-  shelf: { from: 'iso', rotationZ: 180 },
+  shelf: { modelId: 'shelf-dark-tall', from: 'iso', rotationZ: 180 },
   'bench-steel-1': { from: 'iso', rotationZ: 180 },
   'billboard-panorama': { from: 'iso' },
   'platform-edge': { from: 'iso' },
@@ -110,7 +110,7 @@ const VIEWS = HERO ? {
   // Not `iso-flip` like its neighbours: turned, a 自动售货机 shows the plain back of its cabinet
   // and no display at all, which is what the first pass of this list came back with.
   vending: { from: 'iso' },
-  shelf: { from: 'iso-flip' },
+  shelf: { modelId: 'shelf-dark-tall', from: 'iso-flip' },
   'billboard-panorama': { from: 'iso' },
   'exit-covered-1': { from: 'iso' },
   'platform-edge': { from: 'iso-flip' },

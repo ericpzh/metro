@@ -62,7 +62,7 @@ export class SelectTool extends ToolController {
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     const mod = picked ?? rail ?? (hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
-    const label = mod ? moduleLabel(mod.type, mod.type === 'shop' || mod.type === 'booth' ? mod.cfg.kind : undefined) : ''
+    const label = mod ? moduleLabel(mod) : ''
     st.select(mod ? { kind: 'module', key: mod.id, label } : { kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
     scene.setGhost([], 'add')
     // A hover ghost on a wall/ceiling piece must not outlive the click: the blue

@@ -36,23 +36,20 @@ export interface DoorMaterials {
   handle: THREE.Material
   /** Under the pull: a steel kick plate, on every door. */
   kick: THREE.Material
+  /** Stainless service-door hardware, as opposed to the timber pull. */
+  stainless?: boolean
 }
 
 /**
  * The materials one variant is drawn in. A shared table rather than a branch per mesh:
- * the 不锈钢 door is the game's own **钢板** — the `darkSteel` every steel fitting in the
- * kit is cast in (`PieceBuilder`'s `C.darkSteel`, the same colour and gloss as the 钢板
- * ceiling finish and the 扶梯 truss, roughness 0.55 / metalness 0.4) — with a
- * brushed-stainless pull, and the 木 one a warm frame around a pale timber leaf. Neither
- * can give its leaf one finish and its frame another by accident.
- *
- * The leaf is deliberately **not** the kit's `white`: an enamel leaf read as a white
- * door, which is not the piece the palette offers.
+ * the 不锈钢 door uses satin brushed stainless throughout, including its frame and
+ * hardware. The broad faces retain diffuse light under the station's lighting rig.
+ * The 木 one has a warm frame around a pale timber leaf.
  */
 export function doorMaterials(mats: ModuleContext['mats'], material: DoorMaterial): DoorMaterials {
   return material === 'wood'
     ? { frame: mats.wood, leaf: mats.woodLight, handle: mats.woodDark, kick: mats.steel }
-    : { frame: mats.darkSteel, leaf: mats.darkSteel, handle: mats.steel, kick: mats.steel }
+    : { frame: mats.binSteel, leaf: mats.binSteel, handle: mats.steel, kick: mats.binSteel, stainless: true }
 }
 
 /**
@@ -73,7 +70,7 @@ export type DoorFramePoint = (x: number, z: number, y: number) => [number, numbe
  * Build one standing doorway into `g`: a threshold on the floor, a post at each end of
  * `span` metres, a head across their tops, and `leaves` leaves hung between them.
  *
- * Every member is a box, so the piece is measurable and so are its parts: it spans
+ * Frame and leaves are boxes, with round stainless hinge barrels: it spans
  * `span` × `panelH` and stands on `y = 0` of its own frame.
  */
 export function buildDoor(
@@ -109,6 +106,32 @@ export function buildDoor(
     const cx = centres[i]
     const lw = widths[i]
     box(mats.leaf, cx, threshold + leafH / 2, leafSet, lw, leafH, leaf)
+    if (mats.stainless) {
+      // Service doors have uninterrupted sheet-metal faces and upright pulls near
+      // the meeting edge. The exposed hinge plates and barrels sit on the outer edge.
+      const meets = i === 0 ? 1 : -1
+      const front = leafSet + leaf / 2
+      const pullX = cx + meets * (lw / 2 - Math.min(0.1, lw / 3))
+      for (const z of [0.88, 1.16]) {
+        box(mats.handle, pullX, z, front + studProud, 0.032, 0.032, 0.04)
+      }
+      box(mats.handle, pullX, 1.02, front + handle, 0.032, 0.32, 0.05)
+      const hingeX = cx - meets * lw / 2
+      for (const z of [threshold + 0.2, threshold + leafH / 2, threshold + leafH - 0.2]) {
+        box(mats.handle, hingeX + meets * 0.025, z, front + 0.014, 0.045, 0.085, 0.016)
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.1, 10), mats.handle)
+        barrel.rotation.x = Math.PI / 2
+        barrel.position.set(...at(hingeX, z, front + 0.027))
+        g.add(barrel)
+      }
+      // One stainless lock escutcheon on the active leaf; its slot is recessed geometry.
+      if (i === widths.length - 1) {
+        box(mats.handle, pullX, 0.72, front + 0.014, 0.035, 0.065, 0.012)
+        box(mats.handle, pullX - 0.009, 0.72, front + 0.024, 0.008, 0.036, 0.008)
+        box(mats.handle, pullX + 0.009, 0.72, front + 0.024, 0.008, 0.036, 0.008)
+      }
+      continue
+    }
     // The kick plate along the foot of the leaf, in steel on the wooden door too. It is a
     // plate **on** the leaf, so it stands proud of the leaf's face by its own `kickProud`
     // — two surfaces a couple of millimetres apart would z-fight, and a plate that

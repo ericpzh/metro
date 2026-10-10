@@ -1,10 +1,9 @@
-// The 删除 tool: button-agnostic teardown — tap a block, drag a line of blocks,
-// press a module to remove the whole piece, or sweep same-type 设备/装饰 in one
+// The 删除 tool: button-agnostic teardown — tap a block, drag an area of blocks
+// (a line with Shift, exactly like the 方块 tool's right-drag), or sweep same-type 设备/装饰 in one
 // commit. Moved verbatim from app/Viewport.tsx (GAME-SPEC §9.5). The sweep rule
 // itself lives in app/sweep.ts; this file only owns the pointer gesture.
 
 import { removeFloor, removeModule } from '../../build/model.ts'
-import { moduleAt } from '../../sim/placement.ts'
 import type { Module } from '../../sim/types.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from '../sweep.ts'
 import { moduleLabel, useStore } from '../store.ts'
@@ -24,8 +23,9 @@ export class DeleteTool extends ToolController {
     if (!scene || !hit) return
     const st = useStore.getState()
     // The delete tool is button-agnostic: press a block and tap (one block) or
-    // drag a line (a run of blocks). It reuses the `drag` ref in remove mode
-    // with `shift` pinned, so the release takes the block tool's line path.
+    // drag an area (a rectangle of blocks, a line with Shift). It reuses the `drag`
+    // ref in remove mode with `shift` following the key, so the release takes the
+    // block tool's right-drag path.
     // A drawn module under the pointer is the pending delete instead — the
     // whole piece goes, not the floor block beneath it — except a 围栏 panel,
     // which drags out a line of its own like the 围栏 tool (see below).
@@ -94,7 +94,7 @@ export class DeleteTool extends ToolController {
       mode: 'remove',
       anchor: hit.cell,
       z: hit.cell[2],
-      shift: true,
+      shift: info.shiftKey,
       sx: info.clientX,
       sy: info.clientY,
       downTime: performance.now(),
@@ -102,6 +102,7 @@ export class DeleteTool extends ToolController {
     scene.setGhost(pendingCells([hit.cell], 'remove', this.ctx.solids()), 'remove')
     scene.setCollisionHighlight(null)
     scene.setCursor(hit.cell, true)
+    this.ctx.showMeasure?.(info.clientX, info.clientY, '长 1 m × 宽 1 m')
   }
 
   onMove(info: PointerInfo): void {
@@ -123,7 +124,7 @@ export class DeleteTool extends ToolController {
         const seen = new Set<string>()
         const modules: Module[] = []
         for (const [x, y, z] of line) {
-          const mod = moduleAt(st.station.modules, x, y, z)
+          const mod = st.station.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
           if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
           seen.add(mod.id)
           modules.push(mod)
@@ -162,12 +163,17 @@ export class DeleteTool extends ToolController {
         scene.setCursor(null)
         return
       }
-      // A deliberate press draws the line of blocks the release will remove;
-      // a quick tap stays one block even if the pointer jitters.
+      // A deliberate press draws the area of blocks the release will remove —
+      // a rectangle like the 方块 tool's right-drag (a line with Shift); a quick
+      // tap stays one block even if the pointer jitters.
+      d.shift = info.shiftKey
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
-      const line = dragging ? rectCells(d.anchor, hit.cell, d.z, true) : [d.anchor]
+      const line = dragging ? rectCells(d.anchor, hit.cell, d.z, info.shiftKey) : [d.anchor]
       scene.setGhost(pendingCells(line, 'remove', this.ctx.solids()), 'remove')
       scene.setCursor(dragging ? hit.cell : d.anchor, true)
+      const dx = dragging ? Math.abs(hit.cell[0] - d.anchor[0]) + 1 : 1
+      const dy = dragging ? Math.abs(hit.cell[1] - d.anchor[1]) + 1 : 1
+      this.ctx.showMeasure?.(info.clientX, info.clientY, `长 ${dx} m × 宽 ${dy} m`)
       return
     }
     // Hover: a drawn module under the pointer is the pending delete, shown as
@@ -202,6 +208,7 @@ export class DeleteTool extends ToolController {
     scene.setModulePreview(null)
     scene.setFencePreview(null)
     scene.setCollisionHighlight(null)
+    this.ctx.clearMeasure?.()
     const hit = info.hit
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
     const target = hit ? hit.cell : d.anchor
@@ -221,7 +228,7 @@ export class DeleteTool extends ToolController {
       st.commit(removeSweptModules(st.station, swept.map((m) => m.id)))
       st.select(null)
       const head = swept[0]
-      const label = moduleLabel(head.type, head.type === 'shop' || head.type === 'booth' ? head.cfg.kind : undefined)
+      const label = moduleLabel(head)
       st.setNotice(`已拆掉 ${swept.length} 件${label}`)
       return
     }
@@ -232,7 +239,7 @@ export class DeleteTool extends ToolController {
       let next = st.station
       let removed = 0
       for (const [x, y, z] of line) {
-        const mod = moduleAt(next.modules, x, y, z)
+        const mod = next.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
         if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
         seen.add(mod.id)
         next = removeModule(next, mod.id)
@@ -245,12 +252,12 @@ export class DeleteTool extends ToolController {
       }
       return
     }
-    // A deliberate press draws the line of blocks the release removes — always
-    // a straight line (`shift` pinned at the press), never a rectangle.
-    const cells = rect ? rectCells(d.anchor, target, d.z, true) : [d.anchor]
+    // A deliberate press draws the area of blocks the release removes — a
+    // rectangle like the 方块 tool's right-drag (a line with Shift).
+    const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
     // Only the document's own blocks count against the seed's integrity (§4.1):
     // the implicit street at z = 0 is in the live solid set, and counting it would
-    // refuse every dig at grade — the gesture the hole records exist for. A line
+    // refuse every dig at grade — the gesture the hole records exist for. An area
     // that takes none of the document's blocks is not the guard's business.
     const remove = pendingCells(cells, 'remove', this.ctx.solids())
     const authored = remove.filter(([x, y, z]) => st.station.cells.some((c) => c.x === x && c.y === y && c.z === z))

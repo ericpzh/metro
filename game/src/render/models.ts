@@ -9,11 +9,13 @@ import type { Module } from '../sim/types.ts'
 import type { ModuleContext } from './models/PieceBuilder.ts'
 import { PillarModel } from './models/pieces/PillarModel.ts'
 import { RoofModel } from './models/pieces/RoofModel.ts'
+import { HangerModel } from './models/pieces/HangerModel.ts'
 import { TvmModel } from './models/pieces/TvmModel.ts'
 import { VendingModel } from './models/pieces/VendingModel.ts'
 import { BenchModel } from './models/pieces/BenchModel.ts'
 import { ShelfModel } from './models/pieces/ShelfModel.ts'
 import { DeskModel } from './models/pieces/DeskModel.ts'
+import { CheckoutModel } from './models/pieces/CheckoutModel.ts'
 import { CubicleModel } from './models/pieces/CubicleModel.ts'
 import { SinkModel } from './models/pieces/SinkModel.ts'
 import { GuidepostModel, BusstopModel } from './models/pieces/StreetDecorModel.ts'
@@ -34,6 +36,7 @@ import { CalligraphyModel } from './models/pieces/CalligraphyModel.ts'
 import { LineMapModel } from './models/pieces/LineMapModel.ts'
 import { TvModel } from './models/pieces/TvModel.ts'
 import { SignModel } from './models/pieces/SignModel.ts'
+import { hangerLiftFor } from '../sim/hangers.ts'
 import { GateModel } from './models/pieces/GateModel.ts'
 import { FenceModel } from './models/pieces/FenceModel.ts'
 import { EscalatorModel } from './models/pieces/EscalatorModel.ts'
@@ -51,7 +54,12 @@ import { BoothModel } from './models/pieces/BoothModel.ts'
  * with nothing to draw. The caller owns disposal.
  */
 export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | null {
+  const raised = (model: THREE.Object3D): THREE.Object3D => {
+    model.position.z += hangerLiftFor(ctx.data.modules, mod)
+    return model
+  }
   switch (mod.type) {
+    case 'hanger': return new HangerModel(ctx).build(mod)
     case 'pillar': return new PillarModel(ctx).build(mod)
     case 'roof': return new RoofModel(ctx).build(mod)
     case 'tvm':
@@ -64,6 +72,8 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return new ShelfModel(ctx).build(mod)
     case 'desk':
       return new DeskModel(ctx).build(mod)
+    case 'checkout':
+      return new CheckoutModel(ctx).build(mod)
     case 'cubicle':
       return new CubicleModel(ctx).build(mod)
     case 'sink':
@@ -83,9 +93,9 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
     case 'light':
       return new LightModel(ctx).build(mod)
     case 'clock':
-      return new ClockModel(ctx).build(mod)
+      return raised(new ClockModel(ctx).build(mod))
     case 'cctv':
-      return new CctvModel(ctx).build(mod)
+      return raised(new CctvModel(ctx).build(mod))
     case 'billboard':
       return new BillboardModel(ctx).build(mod)
     case 'glass':
@@ -97,9 +107,9 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
     case 'linemap':
       return new LineMapModel(ctx).build(mod)
     case 'tv':
-      return new TvModel(ctx).build(mod)
+      return raised(new TvModel(ctx).build(mod))
     case 'sign':
-      return new SignModel(ctx).build(mod)
+      return raised(new SignModel(ctx).build(mod))
     case 'gate':
       return new GateModel(ctx).build(mod)
     case 'fence':

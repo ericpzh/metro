@@ -24,6 +24,7 @@ import { createModelMaterials, disposeModelMaterials, disposeObject, type ModelM
 import { buildTrain, setDoors } from '../render/models/pieces/TrainModel.ts'
 import { TrackModel } from '../render/models/pieces/TrackModel.ts'
 import type { ModuleContext } from '../render/models/PieceBuilder.ts'
+import { createMaterials } from '../render/materials.ts'
 import { addStationLights, applyStationRenderer } from '../render/scene/lightRig.ts'
 import { RAIL_BED_DEPTH, makeTrack } from '../build/rail.ts'
 import {
@@ -592,6 +593,7 @@ export async function captureTrains(
   camera.up.set(0, 0, 1)
 
   const mats: ModelMaterials = createModelMaterials()
+  const finishes = createMaterials()
   const byId = new Map(SHOW.map((s) => [s.id, s]))
   let done = 0
 
@@ -600,11 +602,8 @@ export async function captureTrains(
       const show = byId.get(frame.baseId ?? frame.id)
       if (!show) continue
       const s = STOCK[show.scene.stock]
-      // `TrackModel` reads only `ctx.mats` and `ctx.preview` off the context it is handed
-      // — the surface finishes, the ad artwork and the station data are for pieces that
-      // print something on themselves. Casting a two-field context is narrower than
-      // standing up the app's whole `ModuleContext` to draw two rails and some sleepers.
-      const trackCtx = { mats, preview: false } as unknown as ModuleContext
+      // Track beds use the station's concrete finish as well as the shared model kit.
+      const trackCtx = { mats, preview: false, finish: finishes.finish } as unknown as ModuleContext
       const group = show.scene.track
         ? new TrackModel(trackCtx).build(
             makeTrack({
@@ -799,6 +798,7 @@ export async function captureTrains(
       onProgress?.(++done, frames.length)
     }
   } finally {
+    finishes.dispose()
     disposeModelMaterials(mats)
     renderer.dispose()
     renderer.forceContextLoss()

@@ -16,7 +16,11 @@
 // Pure data — no three, no DOM.
 
 import { shelfSpec } from './shelves.ts'
-import { isPsdCornerPair, isPsdEndJoin, snapPsdEnd } from './psdEnds.ts'
+import { CHECKOUT_HEIGHT, DESK_HEIGHT } from './constants.ts'
+import { hangerBoxes, hangerCells, hangerPostCells, hangerRoofMissing, hangerSupports } from './hangers.ts'
+import { fenceArms, railLandingAt, type FenceNeighbours } from './fences.ts'
+import { gateSolidFaces } from './gates.ts'
+import { isPsdCornerPair, isPsdEndJoin, psdEndOffset, psdEndSpan, snapPsdEnd } from './psdEnds.ts'
 import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker } from './floorDecor.ts'
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
@@ -61,13 +65,14 @@ const PANEL_DEPTH = 0.25
 const FRAME_PAD = 0.14
 
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk' | 'checkout' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.3,
   fence: 1.0,
   tvm: 1.9,
   vending: 1.9,
   bench: 1.0,
-  desk: 0.9,
+  desk: DESK_HEIGHT,
+  checkout: CHECKOUT_HEIGHT,
   cubicle: 1.8,
   sink: 0.9,
   // A litter bin (垃圾桶) and a fire-extinguisher cabinet (灭火器) are single
@@ -200,6 +205,14 @@ function wallPanelBox(m: Module, cells: ReadonlyArray<[number, number, number]>,
 function flatEnvelope(m: Module): ModuleBox | null {
   const z0 = m.z + 1
   switch (m.type) {
+    case 'hanger': {
+      const boxes = hangerBoxes(m)
+      return {
+        x0: Math.min(...boxes.map((b) => b.x0)), x1: Math.max(...boxes.map((b) => b.x1)),
+        y0: Math.min(...boxes.map((b) => b.y0)), y1: Math.max(...boxes.map((b) => b.y1)),
+        z0: Math.min(...boxes.map((b) => b.z0)), z1: Math.max(...boxes.map((b) => b.z1)),
+      }
+    }
     case 'bench':
       // A bench runs `w` cells along local +x (a 2 m bench chains two seats),
       // so its box is the AABB of the whole run.
@@ -221,6 +234,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'tvm':
     case 'vending':
     case 'desk':
+    case 'checkout':
     case 'cubicle':
     case 'sink':
     case 'bin':
@@ -275,13 +289,17 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return wallPanelBox(m, billboardCells(m), pz - half, pz + half)
     }
     case 'glass': {
-      // A 玻璃板 is wall-mounted like the 广告牌 above, so it reserves the same
-      // **slab on a wall** rather than a cell: the run along local +x and the band
-      // of wall the panel really covers. It is cladding, so that band starts at the
-      // floor top — the air in front of it is the room's, and a bench or a 闸机
-      // against the same wall stands in it freely.
+      // A 玻璃板 reserves a **slab on an edge** rather than a cell: the run along
+      // local +x and a thin strip on its local −y edge (`wallSide`). A short panel
+      // is cladding bolted to the wall behind it, so that strip hugs the wall; a
+      // tall 4 m panel stands on the floor edge like a doorway, so the same strip
+      // is its leading edge with no wall behind it. Either way the strip is the
+      // housing the model draws (`GlassModel`), and the air beside it is the
+      // room's — which is why a 围栏 through the middle of the same tile co-exists
+      // with a parallel panel (centre 0.45–0.55 vs edge 0–0.25) while a crossing
+      // one still overlaps and is refused. Nothing is exempted by hand: the boxes
+      // decide.
       const spec = glassSpec(m.cfg?.variant)
-      if (glassStandsOnFloor(spec)) return cellsAabb(glassCells(m), z0, z0 + spec.h)
       return wallPanelBox(m, glassCells(m), z0, z0 + spec.h)
     }
     case 'calligraphy': {
@@ -302,10 +320,12 @@ function flatEnvelope(m: Module): ModuleBox | null {
     }
     case 'psd-end': {
       const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : PSD_FULL_HEIGHT
-      const [ox, oy] = m.cfg.offset ?? [0, 0]
-      const corners = [[-0.5, -0.48], [0.5, -0.20]].map(([x, y]) => rotateLocal(m.rot, x + ox, y + oy))
-      // The short corner extension shares the neighbouring screen's cap.
-      // Reserve the panel's own tile so that joining at 90 degrees remains legal.
+      const [ox, oy] = psdEndOffset(m)
+      const [a, b] = psdEndSpan(m)
+      // The model trims the corner's length and clips its cap to the tile too.
+      // Neighbouring blocks must see the same bounded footprint (§5.3).
+      const corners = [[a + ox, Math.max(-0.5, -0.48 + oy)], [b + ox, Math.min(0.5, -0.20 + oy)]]
+        .map(([x, y]) => rotateLocal(m.rot, x, y))
       return {
         x0: m.x + 0.5 + Math.min(...corners.map((p) => p[0])),
         x1: m.x + 0.5 + Math.max(...corners.map((p) => p[0])),
@@ -443,6 +463,7 @@ export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], 
  */
 export function moduleFootprint(m: Module): Array<[number, number]> {
   switch (m.type) {
+    case 'hanger': return hangerCells(m)
     case 'ac-unit':
     case 'electrical-cabinet':
     case 'tactile':
@@ -503,6 +524,7 @@ function baseCells(m: Module): Array<[number, number]> {
     case 'linemap':
     case 'busstop':
     case 'bench':
+    case 'hanger':
     case 'door':
     case 'track':
     case 'lift':
@@ -625,6 +647,8 @@ export function wallMountCourses(m: Module): number[] {
  * board itself — answers no.
  */
 export function isCeilingHung(m: { type: string; cfg?: object }): boolean {
+  if (m.type === 'hanger-roof' || m.type.startsWith('hanger-roof-')) return true
+  if (m.type === 'hanger') return (m.cfg as { mount?: string } | undefined)?.mount === 'roof'
   if (m.type === 'sign' || m.type === 'sign-ceiling') return signMountSpec(signMountOf(m.cfg)).hung
   return CEILING_MOUNTED.has(m.type)
 }
@@ -790,7 +814,9 @@ export function autofaceWallMount(cells: readonly Cell[], candidate: Module, nea
  * a future multi-cell hung fitting is covered rather than only its anchor.
  */
 export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
+  if (candidate.type === 'hanger') return hangerRoofMissing(cells, modules, candidate)
   if (!isCeilingHung(candidate)) return false
+  if (modules.some((m) => hangerSupports(m, candidate))) return false
   const ceilingZ = LEVEL_STEPS.find((z) => z > candidate.z)
   if (ceilingZ === undefined) return true
   return baseCells(candidate).some(
@@ -803,6 +829,64 @@ export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, m
 /** Strict overlap, so modules in adjacent cells (a gate line) do not collide. */
 export function boxesOverlap(a: ModuleBox, b: ModuleBox): boolean {
   return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0 && a.z0 < b.z1 && a.z1 > b.z0
+}
+
+/**
+ * Which of a fence cell's four same-level sides hold something its panel meets —
+ * the placement-side mirror of the renderer's neighbour read (`FenceModel`): an
+ * adjacent 围栏, a 闸机 on its machine side (`gateSolidFaces`), or a stair /
+ * escalator landing whose handrail the run butts into (`railLandingAt`). Glass
+ * never counts: it stands on the tile edge, not in the run.
+ */
+function fenceNeighbourFlags(modules: readonly Module[], fence: Module): FenceNeighbours {
+  const joined = (x: number, y: number): boolean => {
+    for (const m of modules) {
+      if (m.z !== fence.z || m.id === fence.id || m.x !== x || m.y !== y) continue
+      if (m.type === 'fence') return true
+      if (m.type === 'gate' && gateSolidFaces(m, fence.x - x, fence.y - y)) return true
+    }
+    return railLandingAt(modules, x, y, fence.z)
+  }
+  return { e: joined(fence.x + 1, fence.y), w: joined(fence.x - 1, fence.y), n: joined(fence.x, fence.y + 1), s: joined(fence.x, fence.y - 1) }
+}
+
+/**
+ * The thin boxes a fence really draws in its cell, one per arm `fenceArms`
+ * describes — the same arms the renderer builds, at the same half-thickness the
+ * envelope reserves (0.45–0.55). A lone or straight run is exactly its envelope;
+ * an L / T / + junction is only the halves it reaches, so a 玻璃板 on a side no
+ * arm touches is parallel clearance, not a crossing.
+ */
+function fenceArmBoxes(fence: Module, nb: FenceNeighbours): ModuleBox[] {
+  const arms = fenceArms(fence.rot, nb)
+  const cx = fence.x + 0.5
+  const cy = fence.y + 0.5
+  const z0 = fence.z + 1
+  const z1 = z0 + FLAT_HEIGHT.fence
+  const t = 0.05
+  const out: ModuleBox[] = []
+  if (arms.x1 > arms.x0) out.push({ x0: cx + arms.x0, x1: cx + arms.x1, y0: cy - t, y1: cy + t, z0, z1 })
+  if (arms.y1 > arms.y0) out.push({ x0: cx - t, x1: cx + t, y0: cy + arms.y0, y1: cy + arms.y1, z0, z1 })
+  return out
+}
+
+/** True for a 围栏↔玻璃板 pair, in either order. */
+function isFenceGlassPair(a: Module, b: Module): boolean {
+  return (a.type === 'fence' && b.type === 'glass') || (a.type === 'glass' && b.type === 'fence')
+}
+
+/**
+ * True when a fence and a glass panel in one verdict share space — asked of the
+ * arms the fence draws rather than of its full-cell envelope, so a panel on the
+ * edge of a turning cell co-exists with the run unless an arm really pierces it.
+ * `sources` is the neighbour list the fence reads: placed modules for a placed
+ * fence, placed-minus-origin for a lifted or fresh candidate.
+ */
+function fenceGlassBlocked(sources: readonly Module[], fence: Module, glass: Module): boolean {
+  const g = moduleEnvelope(glass)
+  if (!g) return false
+  const nb = fenceNeighbourFlags(sources, fence)
+  return fenceArmBoxes(fence, nb).some((a) => boxesOverlap(a, g))
 }
 
 /**
@@ -855,6 +939,15 @@ export function moduleBlockedCells(modules: readonly Module[], z: number): Set<s
   const out = new Set<string>()
   for (const m of modules) {
     if (RUN_OR_RAIL.has(m.type) && !(m.type === 'stair' && m.cfg.block)) continue
+    if (m.type === 'hanger') {
+      for (const box of hangerBoxes(m)) {
+        if (box.z1 <= z || box.z0 >= z + 1) continue
+        for (let x = Math.floor(box.x0); x < Math.ceil(box.x1); x++) {
+          for (let y = Math.floor(box.y0); y < Math.ceil(box.y1); y++) out.add(`${x},${y},${z}`)
+        }
+      }
+      continue
+    }
     for (const [x, y, mz] of occupyingCells(m)) if (mz === z) out.add(`${x},${y},${z}`)
     const e = moduleEnvelope(m)
     // A module with no envelope reserves nothing — its own cell is already in the
@@ -945,10 +1038,20 @@ export function equipmentBlockingCell(modules: readonly Module[], x: number, y: 
   // The 1 m box of the block the cell would hold, in world space.
   const box: ModuleBox = { x0: x, y0: y, z0: z, x1: x + 1, y1: y + 1, z1: z + 1 }
   for (const m of modules) {
+    if (m.type === 'hanger') {
+      if (hangerBoxes(m).some((b) => boxesOverlap(b, box))) out.push(m)
+      continue
+    }
     // The piece's own space, **not** its anchor's z: a 闸机 dropped on the floor at
     // z stands in the column above it (`m.z + 1` and up), and a run reaches the
     // storeys it climbs through. Asking `m.z === z` would find only the piece
     // dropped on this very course and miss every piece standing on the one below.
+    // A stair is only its slope (`rampBodyBoxes`), never the vertical column
+    // beneath it — otherwise every block under its upper half names it.
+    if (m.type === 'stair' && !m.cfg.block) {
+      if (rampBodyBoxes(m).some((b) => boxesOverlap(b, box))) out.push(m)
+      continue
+    }
     const e = moduleEnvelope(m)
     if (e && boxesOverlap(e, box)) out.push(m)
   }
@@ -975,9 +1078,10 @@ export function equipmentBlockingCell(modules: readonly Module[], x: number, y: 
  * body it draws (`collisionBoxes` → `rampBodyBoxes`), not by its reservation: the
  * body is the slope the run sweeps, tile by tile, so a stair's landing tiles — the
  * treads stop at their edge — and any slab a flight climbs *underneath* are floor a
- * 围栏, a gate or a bench may stand on. The reservation still decides every pairing
- * of two runs, so a second run can never be dropped through the first or share its
- * landing.
+ * 围栏, a gate or a bench may stand on. A **stair** is always its slope — even
+ * against another run — so it never reserves the vertical column beneath it. An
+ * escalator or lift keeps its full reservation against runs, so a second run can
+ * never be stacked through one or share its landing.
  *
  * A shelf or desk is the other exception: room furniture, so it may stand
  * inside a walled room or booth (either side of the pair may be the
@@ -1023,6 +1127,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   if (!c) return out
   for (const m of modules) {
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
+    if (hangerSupports(m, candidate) || hangerSupports(candidate, m)) continue
     // The thin support is intentionally allowed to pass through a trussed roof.
     // Its narrow shaft can share the roof volume without changing either piece.
     if ((m.type === 'pillar' && m.cfg.size === 'slim' && candidate.type === 'roof' && candidate.cfg.variant)
@@ -1032,9 +1137,22 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (isFurnitureRoomPair(m, candidate)) continue
     // Floor vinyl can run along a screen-door strip; the glass stands above it (§9.5).
     if ((isFloorSticker(m) && candidate.type === 'platform-edge') || (isFloorSticker(candidate) && m.type === 'platform-edge')) continue
+    // The gate leaf clears the pavement (§5.2): tactile tiles and floor vinyl
+    // fit underneath in either placement order, while other equipment still collides.
+    if ((isFloorSticker(m) && candidate.type === 'fence' && candidate.cfg.variant === 'gate')
+      || (isFloorSticker(candidate) && m.type === 'fence' && m.cfg.variant === 'gate')) continue
     if (isPsdCornerPair(m, candidate) || isPsdEndJoin(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
     if (isHangingShare(m, candidate)) continue
+    // A 围栏 meets a 玻璃板 arm to edge-strip, not envelope to strip: a panel on
+    // the edge of a turning cell shares the tile unless an arm pierces it.
+    if (isFenceGlassPair(m, candidate)) {
+      const fence = m.type === 'fence' ? m : candidate
+      const glass = m.type === 'fence' ? candidate : m
+      const sources = fence === candidate ? modules.filter((s) => s.id !== fence.id) : modules
+      if (fenceGlassBlocked(sources, fence, glass)) out.push(m)
+      continue
+    }
     const e = moduleEnvelope(m)
     if (!e) continue
     let hit = false
@@ -1048,6 +1166,21 @@ export function placementColliders(modules: readonly Module[], candidate: Module
       }
     }
     if (hit) out.push(m)
+  }
+  // A fresh fence can turn a placed one toward placed glass: the run it joins
+  // grows a new arm, and that arm may pierce a panel the old run cleared. Read
+  // the neighbours as they will be after the commit (the lifted origin excluded,
+  // the candidate included) so both build orders answer alike.
+  if (candidate.type === 'fence') {
+    const glasses = modules.filter((m) => m.type === 'glass' && m.id !== candidate.id)
+    if (glasses.length > 0) {
+      const after = [...modules.filter((m) => m.id !== candidate.id), candidate]
+      for (const m of modules) {
+        if (m.type !== 'fence' || m.id === candidate.id || out.includes(m)) continue
+        if (m.z !== candidate.z || Math.abs(m.x - candidate.x) + Math.abs(m.y - candidate.y) !== 1) continue
+        if (glasses.some((g) => fenceGlassBlocked(after, m, g))) out.push(m)
+      }
+    }
   }
   return out
 }
@@ -1065,6 +1198,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
  * air, so neither pair is let through here.
  */
 function isHangingShare(a: Module, b: Module): boolean {
+  if (a.type === 'hanger' || b.type === 'hanger') return false
   const hung = isCeilingHung(a) ? a : isCeilingHung(b) ? b : null
   if (hung === null) return false
   if (a.type === 'light' || b.type === 'light' || a.type === 'vent' || b.type === 'vent') return false
@@ -1081,13 +1215,25 @@ function isHangingShare(a: Module, b: Module): boolean {
  * a well, or stands on the floor over the low half of the flight, is exactly that.
  *
  * The pairing stays symmetric: whichever piece was placed first, the question is
- * the same one, and two runs (a stair, an escalator or a lift shaft) always meet
- * on their full envelopes so they can never be stacked or share a landing. A run
- * the box list cannot measure falls back to its envelope, so a degenerate piece is
- * never read as clear space.
+ * the same one. A **stair** is always its slope — even against another run — so
+ * the space under its upper half stays free and it never reserves the whole
+ * vertical column beneath it. An escalator or lift keeps its full envelope
+ * against runs, so a second run can never be stacked through one or share its
+ * landing. A run the box list cannot measure falls back to its envelope, so a
+ * degenerate piece is never read as clear space.
  */
 function collisionBoxes(m: Module, other: Module, envelope: ModuleBox): ModuleBox[] {
-  if (!isRampRun(m) || isRunPiece(other)) return [envelope]
+  if (m.type === 'hanger') return hangerBoxes(m)
+  if (!isRampRun(m)) return [envelope]
+  // A stair is only the slope it sweeps: its per-tile body boxes follow the run,
+  // so the space under the upper half stays free — even for another run. An
+  // escalator keeps its full reservation against runs (landing to landing), so a
+  // second run can never be stacked through the first or share its landing.
+  if (m.type === 'stair') {
+    const body = rampBodyBoxes(m)
+    return body.length > 0 ? body : [envelope]
+  }
+  if (isRunPiece(other)) return [envelope]
   const body = rampBodyBoxes(m)
   return body.length > 0 ? body : [envelope]
 }
@@ -1124,6 +1270,7 @@ function isFurnitureRoomPair(a: Module, b: Module): boolean {
   const isFurniture = (m: Module): boolean =>
     m.type === 'shelf' ||
     m.type === 'desk' ||
+    m.type === 'checkout' ||
     m.type === 'cubicle' ||
     m.type === 'sink' ||
     m.type === 'bench' ||
@@ -1180,6 +1327,7 @@ export function moduleAt(
   const hits = (skipRooms: boolean): Module | undefined => {
     for (const m of modules) {
       if (skipRooms && (m.type === 'shop' || m.type === 'booth' || m.type === 'retail')) continue
+      if (skipRooms && m.type === 'hanger') continue
       const e = moduleEnvelope(m)
       if (e && boxesOverlap(e, cell)) return m
     }
@@ -1223,6 +1371,7 @@ export function moduleAt(
  * are torn down and built again by hand.
  */
 const MOVABLE_TYPES: ReadonlySet<string> = new Set([
+  'hanger',
   'ac-unit', 'electrical-cabinet', 'tactile', 'floor-mark',
   'gate',
   'psd-end',
@@ -1232,6 +1381,7 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'bench',
   'shelf',
   'desk',
+  'checkout',
   'cubicle',
   'sink',
   'guidepost',
@@ -1335,7 +1485,8 @@ export function movedModule(m: Module, at: Vec3i, rot: number): Module {
 
 /** True when every cell of a module's footprint is solid floor or an exit's floor. */
 export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[], candidate: Module): boolean {
-  for (const [bx, by] of moduleFootprint(candidate)) {
+  const footprint = candidate.type === 'hanger' ? hangerPostCells(candidate) : moduleFootprint(candidate)
+  for (const [bx, by] of footprint) {
     const floor =
       cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === candidate.z) ||
       exitFloorAt(modules, bx, by, candidate.z) ||
@@ -1379,7 +1530,15 @@ export type EquipmentRefusal =
  * those produce the piece, not the verdict.
  */
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
-  if (candidate.type === 'shelf' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
+  if (candidate.type === 'hanger') {
+    if (hangerRoofMissing(cells, modules, candidate)) return 'ceiling'
+    if (!moduleFloorOk(cells, modules, candidate)) return 'floor'
+    const boxes = hangerBoxes(candidate)
+    if (cells.some((c) => c.fill === 'solid' && boxes.some((box) => boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })))) return 'occupied'
+    if (placementOnTrack(cells, candidate, modules)) return 'track'
+    return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
+  }
+  if (candidate.type === 'shelf' || candidate.type === 'checkout' || candidate.type === 'desk' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
     const box = moduleEnvelope(candidate)!
     if (cells.some((c) => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
   }

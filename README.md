@@ -63,7 +63,7 @@ A dark, single scrolling page: every concept sheet runs edge to edge, and its de
 translucent glass panel floating over the drawing. Click any sheet to open it at full resolution.
 
 Seven sheets are **photographs of the game** rather than drawings of it: 03's blocks come from the game's own
-chunk mesher, 04's modules from the pass the build rail uses, 06 is the 时刻 · 客流 window in the four day
+chunk mesher, 04's modules from the pass the build rail uses, 06 is the 客流 window in the four day
 types its calendar derives, 07 is the interface itself region by region, and 05, 11 and 12's rolling stock is
 `buildTrain` — the consist the platform actually runs — all rendered in a headless browser. Sheet 12 is the
 one that composites: its plan is rendered with a **cleared alpha** so it slides over the platform the sheet
@@ -287,7 +287,7 @@ line runs which car. A wide frame is **cropped to what it contains** in the brow
 consist fills 47 % of the frame it is rendered into), and `--trim-only` re-crops pictures already on disk
 without booting the game.
 
-**Sheet 06 is the 时刻 · 客流 window, photographed in four days.** `tools/render-ui-shots.mjs` presses the
+**Sheet 06 is the 客流 window, photographed in four days.** `tools/render-ui-shots.mjs` presses the
 window's own day buttons — 元旦, a Monday, a Saturday, a Sunday — and captures the chart each time, so the
 sheet shows the calendar coefficient as the game draws it rather than as a description of it. The numbers
 around it are **imported, not copied**: `tools/sheet-06-demand.mjs` reads `game/src/sim/demand.ts` and

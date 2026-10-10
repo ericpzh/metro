@@ -189,14 +189,14 @@ function steelCanvas(colour: number): HTMLCanvasElement {
   return c
 }
 
-/** Safety-yellow tactile strip marking the platform edge (§11). */
+/** Dark grey-green tactile strip marking the platform edge (§11). */
 function tactileCanvas(): HTMLCanvasElement {
   const { c, g } = canvas(64)
-  g.fillStyle = '#f7d84b'
+  g.fillStyle = '#505b4b'
   g.fillRect(0, 0, 64, 64)
-  g.fillStyle = 'rgba(120,96,10,0.55)'
+  g.fillStyle = 'rgba(18,26,17,0.55)'
   for (let x = 0; x < 64; x += 8) g.fillRect(x, 0, 2, 64)
-  g.fillStyle = 'rgba(255,255,255,0.4)'
+  g.fillStyle = 'rgba(255,255,255,0.18)'
   for (let x = 2; x < 64; x += 8) g.fillRect(x, 0, 1, 64)
   return c
 }

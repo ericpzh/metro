@@ -187,7 +187,7 @@ export function TimePanel(): React.ReactElement | null {
       <button type="button" className="timeScrim" aria-label="关闭时刻窗口" onClick={() => setTimePanel(false)} />
       <div className="timeWindow" role="dialog" aria-modal={false} aria-label="时刻与客流">
         <div className="timeHead">
-          <span className="timeTitle">时刻 · 客流</span>
+          <span className="timeTitle">客流</span>
           <button type="button" className="timeClose" aria-label="关闭" onClick={() => setTimePanel(false)}>
             ✕
           </button>

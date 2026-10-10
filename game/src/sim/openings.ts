@@ -671,12 +671,15 @@ function flightBodyBoxes(s: Ramp, trimLandings: boolean, extra: number, drop: nu
  * barrier the crowd walks around (`rampWalls` in `sim/station.ts`).
  */
 export function rampBlocked(modules: readonly Module[], candidate: Module): boolean {
-  const c = rampEnvelope(candidate)
-  if (!c) return false
+  const cands =
+    candidate.type === 'stair' && !candidate.cfg.block ? rampBodyBoxes(candidate) : rampEnvelope(candidate) ? [rampEnvelope(candidate)!] : []
+  if (cands.length === 0) return false
   for (const m of modules) {
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
-    const e = rampEnvelope(m)
-    if (e && boxesOverlap(c, e)) return true
+    // A stair reserves only its slope, never the vertical column beneath it.
+    const boxes =
+      m.type === 'stair' && !m.cfg.block ? rampBodyBoxes(m) : rampEnvelope(m) ? [rampEnvelope(m)!] : []
+    if (boxes.some((e) => cands.some((c) => boxesOverlap(c, e)))) return true
   }
   return false
 }

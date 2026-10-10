@@ -72,10 +72,9 @@ const HEIGHT = 1000
  * middle of the station's bounds, which a hundred and sixty metres of track drags off
  * the concourse and onto a roof slab. `aimAt` names a point outright.
  *
- * **`hotspot` is where a cut goes.** The platform edge and the middle of the bounds are
- * both arbitrary; the fullest 8 m bin of the active storey's modules is the concourse,
- * and that is what a section is for. It anchors the cut there *and* aims the frame at
- * it, so the tile holds the part of the station with the most in it. `tilt` is the
+ * **`hotspot` is where a cut goes.** It finds the fullest 8 m bin of the active
+ * storey's modules. Sheet 09 instead names its reference section planes explicitly,
+ * so adding decoration cannot move either cut onto an outside wall. `tilt` is the
  * other half of a readable cut: it drops the eye from the preset's 30° to whatever
  * `z`-component it names, because a vertical cut read from 30° up is mostly the roof
  * slabs the cut left standing.
@@ -88,22 +87,20 @@ const HEIGHT = 1000
 const VIEWS = [
   { id: 'iso', label: '等轴测建造视图', preset: 'iso', zoom: 3 },
   { id: 'plan', label: '平面 / 俯视', preset: 'plan', zoom: 4 },
-  // **The cutaway.** `cut: 1` is the quarter turn that matters: the plane's normal is
-  // `+x` at 90°, so the half it keeps is the station west of the anchor and the camera —
-  // east of it and above — looks straight into the rooms the cut has opened. Left at the
-  // default (normal `+y`) the same camera sees the outside of the south wall, which is
-  // the pale slab this tile used to be.
+  // Both reference views look into the north half of the hall from its south side.
+  // Use the north-facing cut explicitly, rather than inheriting the previous angle.
   //
   // `tilt` then drops the eye from the preset's 30° to about 17°. A *vertical* cut read
   // from 30° up is mostly a picture of the roof slabs the cut left standing — 剖切 does
   // not lift ceilings, so the slab over each room is still there to be looked at — and
-  // `zoom` closes on the concourse once `hotspot` has put the cut through it.
-  { id: 'section', label: '剖切 · 收起剖切面', preset: 'iso', cut: 1, surface: false, hotspot: true, aim: true, tilt: 0.3, zoom: 4, pan: 12 },
+  // `zoom` closes on the concourse. Both section planes stay at the reference
+  // composition instead of following whichever prop cluster is currently densest.
+  { id: 'section', label: '剖切 · 收起剖切面', preset: 'iso', cut: 0, surface: false, sectionAt: [52, 19, -12], aimAt: [52.5, 19.5, -11], tilt: 0.3, zoom: 4, pan: 12 },
   // **The flat one**, and the only view that says how the storeys stack: the station cut
   // through its length and photographed from the south, square on. `front` alone is a
   // picture of the outside of the south wall — the cut is what makes it a section, and
   // `bare` (隐藏UI) is what keeps every storey drawn as itself rather than ghosted.
-  { id: 'elevation', label: '正交 X-Z 剖面', preset: 'front', bare: true, cut: 2, surface: false, hotspot: true, zoom: 3 },
+  { id: 'elevation', label: '正交 X-Z 剖面', preset: 'front', bare: true, cut: 0, surface: false, sectionAt: [52, 19, -12], zoom: 3 },
   { id: 'eye', label: '站厅 · 平视', preset: 'custom', bare: true, eye: true, fov: 74 },
   // The control itself, photographed from the page instead of redrawn on the sheet. It
   // comes last so its depth rail shows the storey the last view stood on, and it is
@@ -166,25 +163,20 @@ const MOUNT_JS = [
   '      // `placeSection` writes the store, and the renderer only re-reads it when the',
   '      // station rebuilds — which a section move does not do. Hand it over directly, so',
   '      // the plane the picture is taken with is the one that was just chosen.',
-  '      window.__scene.setSection(s.section, true)',
+  '      window.__scene.setSection(window.__metro.getState().section, true)',
   '    }',
   '  }',
   '  // A view may name the exact spot its cut is placed at, instead of the platform.',
   '  if (__SECTION_AT__) {',
   '    s.placeSection(__SECTION_AT__)',
-  '    window.__scene.setSection(s.section, true)',
+  '    window.__scene.setSection(window.__metro.getState().section, true)',
   '  }',
   '  // The storey the camera stands on, which is what the game slices the station to:',
   '  // a view of a station the player is not standing in comes back as its ceiling.',
   '  // The platform is the deepest storey the demo builds, and the most interesting',
   '  // section of it.',
   '  s.setActiveZ(__DEPTH__)',
-  '  // **Cut where the station is busiest.** Not at the platform edge and not at the middle',
-  '  // of the bounds, which a hundred and sixty metres of track drags off everything: the',
-  '  // densest clump of the storey being drawn — the concourse, where the gates, the ticket',
-  '  // machines, the shops and the signs all are. Modules are binned into 8 m squares and',
-  '  // the fullest bin wins; the cut goes through its middle, so what the camera looks into',
-  '  // is the part of the station with the most in it, and the framing is aimed there too.',
+  '  // Optional automatic placement for views without an authored section plane.',
   '  let hotspot = null',
   '  if (__HOTSPOT__) {',
   '    const z = s.activeZ',
@@ -201,7 +193,7 @@ const MOUNT_JS = [
   '    if (best) {',
   '      hotspot = [best.x / best.n, best.y / best.n, z]',
   '      s.placeSection(hotspot)',
-  '      window.__scene.setSection(s.section, true)',
+  '      window.__scene.setSection(window.__metro.getState().section, true)',
   '    }',
   '  }',
   '  const preset = __PRESET__',
@@ -231,10 +223,10 @@ const MOUNT_JS = [
   '    // the store keeps whatever the last view left, so a view that asks for two turns gets',
   '    // two more than the view before it. Step it to the angle this view names rather than',
   '    // to a number of presses, so each tile\'s cut is the one its card describes.',
-  '    for (let i = 0; i < 4 && s.section.orientation.azimuth !== __CUT_AZ__; i++) s.rotateSection()',
+  '    for (let i = 0; i < 4 && window.__metro.getState().section.orientation.azimuth !== __CUT_AZ__; i++) s.rotateSection()',
   '    // The renderer keeps the plane it was last handed, so without this the turn above',
   '    // changes the card\'s key and nothing else, and all four turns photograph one cut.',
-  '    window.__scene.setSection(s.section, true)',
+  '    window.__scene.setSection(window.__metro.getState().section, true)',
   '  }',
   '  cs.pointerInside = false',
   '',
@@ -353,6 +345,13 @@ const MOUNT_JS = [
   '        if (!runBest || run > runBest.run) runBest = { run, dx, dy }',
   '      }',
   '      const toward = runBest && runBest.run >= 12 ? runBest : { dx: ux, dy: uy }',
+  '      // Leave room in front of the nearest gate bank. Block-only visibility',
+  '      // can choose a clear cell just two metres from its equipment.',
+  '      for (let step = 0; step < 3; step++) {',
+  '        const nx = at2.x - toward.dx, ny = at2.y - toward.dy',
+  '        if (solidAt(Math.round(nx), Math.round(ny), pick.zEye) || !solidAt(Math.round(nx), Math.round(ny), pick.z)) break',
+  '        at2 = { x: nx, y: ny }',
+  '      }',
   '      const at = new THREE(at2.x + 0.5, at2.y + 0.5, pick.z + 2)',
   '      const aim = new THREE(at.x + toward.dx * 45, at.y + toward.dy * 45, at.z)',
   '      cs.setOrtho(false)',
@@ -742,6 +741,9 @@ try {
     viewport.height = Math.round(
       (chrome?.bottombar ? Math.min(canvas.y + canvas.height, chrome.bottombar.top) - GUARD : canvas.y + canvas.height) - viewport.y,
     )
+    // The interior fills the camera frame. Its hidden side panels must not
+    // narrow the photographed field of view and enlarge the nearest gates.
+    if (view.eye) Object.assign(viewport, canvas)
     // **Shoot the page, crop the pixels in the page.** `Page.captureScreenshot`'s clip
     // is a trap here: with a device-metrics override in force it comes back offset from
     // the rectangle asked for, which is how a strip of the build rail kept appearing
@@ -805,7 +807,7 @@ try {
     const vy = Math.round(viewport.y * inkScale)
     const vw = Math.round(viewport.width * inkScale)
     const vh = Math.round(viewport.height * inkScale)
-    const crop = box
+    let crop = box
       ? {
           x: Math.max(0, vx + box.x0 - pad),
           y: Math.max(0, vy + box.y0 - pad),
@@ -813,6 +815,12 @@ try {
           height: Math.min(box.h, h + pad * 2),
         }
       : { x: vx, y: vy, width: vw, height: vh }
+    if (view.eye) {
+      // Match sheet 09's wide window at capture time: retain the full horizontal
+      // view and centre on eye level, without the sheet applying a second crop.
+      const height = Math.round(vw * 172 / 454)
+      crop = { x: vx, y: vy + Math.round((vh - height) / 2), width: vw, height }
+    }
 
     // **Downscale to the size the sheet draws at.** A 3D view is the one picture on a
     // sheet that is mostly gradient and texture, so at full size eight of them are

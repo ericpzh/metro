@@ -72,6 +72,9 @@ function paletteIdForModule(mod: Module): string | null {
     case 'bench':
       id = `bench-${mod.cfg.variant ?? 'steel-1'}`
       break
+    case 'hanger':
+      id = `hanger-${mod.cfg.mount}`
+      break
     case 'busstop':
       id = `busstop-${mod.cfg.variant}`
       break
@@ -82,7 +85,7 @@ function paletteIdForModule(mod: Module): string | null {
       id = (mod.cfg.variant ?? '').endsWith('x4') ? 'curtain-wall' : `glass-${mod.cfg.variant ?? '1x1'}`
       break
     case 'door':
-      id = `door-${mod.cfg.variant ?? 'steel-1'}`
+      id = `door-${(mod.cfg.variant ?? 'steel-1').startsWith('wood') ? 'wood' : 'steel'}-1`
       break
     case 'calligraphy':
       id = `calligraphy-${mod.cfg.style ?? 'kai'}-${mod.cfg.axis ?? 'h'}`
@@ -119,13 +122,16 @@ function paletteIdForModule(mod: Module): string | null {
     case 'cctv':
       id = mod.cfg.variant === 'ptz' ? 'cctv-ptz' : mod.cfg.variant === 'dome' ? 'cctv-dome' : 'cctv'
       break
+    case 'fence':
+      id = mod.cfg.variant === 'gate' ? 'fence-gate' : mod.cfg.variant === 'iron' ? 'fence-iron' : 'fence'
+      break
     case 'gate':
     case 'psd-end':
-    case 'fence':
     case 'guidepost':
     case 'tvm':
     case 'vending':
     case 'desk':
+    case 'checkout':
     case 'cubicle':
     case 'sink':
     case 'bin':
@@ -174,7 +180,7 @@ export class PickTool extends ToolController {
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     const mod = picked ?? rail ?? (hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
     if (mod) {
-      const label = moduleLabel(mod.type, mod.type === 'shop' || mod.type === 'booth' ? mod.cfg.kind : undefined)
+      const label = moduleLabel(mod)
       // A derived screen door has no placement of its own: select it, stay.
       if (mod.type === 'platform-edge') {
         st.select({ kind: 'module', key: mod.id, label })
@@ -224,6 +230,7 @@ export class PickTool extends ToolController {
       // the next click hangs are the one the player pointed at.
       if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
       st.setModuleType(optionId)
+      if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
       if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: mod.w === 4 ? 4 : mod.w === 3 ? 3 : 2 })
       if (mod.type === 'psd-end') useStore.setState({ psdEndHeight: mod.cfg.psd })
       if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
@@ -231,6 +238,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)
       if (mod.type === 'pillar') useStore.setState({ pillarLength: mod.cfg.height === 2 ? 2 : 4 })
       if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
+      if (mod.type === 'door') st.setDoorWidth((mod.cfg.variant ?? 'steel-1').endsWith('-2'))
       if (typeof mod.rot === 'number') st.setModuleRot(mod.rot)
       if (mod.type === 'escalator') {
         st.setEscalatorDir(mod.cfg.dir)

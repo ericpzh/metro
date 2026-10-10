@@ -96,13 +96,9 @@ function footprintOf(id: string): string {
 /**
  * The pieces the catalogue holds, in the order they are read.
  *
- * This is editorial, and it is the one place in the pipeline where something is
- * chosen rather than read: the palette holds twenty-four families, which is more
- * than a reader can take in across one sheet, so six are left out — the second
- * sanitary fitting, the second 线网图, the ceiling camera, the glass panel, and one of
- * the twelve 站名 hands, whose folder holds a dozen of the same board written
- * differently. Everything else follows the build rail's own order, so the sheet reads
- * in the order a player meets the pieces.
+ * This is editorial: the sheet shows a selection of families, including the
+ * station's maintenance equipment, surveillance, wayfinding and shop furniture.
+ * Variants share a single card so the catalogue stays readable as it grows.
  *
  * One flat list rather than the blocks it used to be cut into. The rail's own
  * divisions are 设备 and 装饰, and this list holds both — the machines of the first
@@ -121,14 +117,20 @@ const PICK_IDS: readonly string[] = [
   'stair',
   'bench',
   'shelf',
+  'checkout',
   'bin',
   'guidepost',
   'busstop',
   'extinguisher',
   'clock',
+  'cctv',
   'billboard',
   'tv',
   'sign',
+  'linemap',
+  'ac-unit',
+  'electrical-cabinet',
+  'desk',
 ]
 
 /** The family a pick-list entry names, for matching against the palette. */
@@ -212,6 +214,8 @@ export async function captureModuleCards(frames: CardFrame[], onProgress?: (done
  * drawn once is what makes the catalogue a catalogue rather than a parts list.
  */
 function familyOf(id: string): string {
+  if (id === 'cctv' || id.startsWith('cctv-')) return 'cctv'
+  if (id === 'shelf' || id.startsWith('shelf-')) return 'shelf'
   if (id.startsWith('pillar')) return 'pillar'
   if (id.startsWith('busstop')) return 'busstop'
   if (id.startsWith('light-')) return 'light'
@@ -290,10 +294,11 @@ function serviceOf(id: string): string {
   if (SERVICE[id]) return SERVICE[id]
   if (id.startsWith('exit')) return '每个出口单独设流量'
   if (id.startsWith('billboard')) return '把人往商铺那边引'
-  if (id.startsWith('glass')) return '隔断，看得见走不过'
+  if (id === 'curtain-wall' || id.startsWith('glass')) return '隔断，看得见走不过'
   if (id.startsWith('door')) return '1.2 人/秒，关上挡路'
   if (id.startsWith('calligraphy')) return '站名，挂在墙上'
   if (id.startsWith('linemap')) return '线网图，指路'
+  if (id.startsWith('shelf-')) return SERVICE.shelf
   return '装饰，无通行'
 }
 

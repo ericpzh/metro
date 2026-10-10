@@ -57,6 +57,9 @@ const AGENT_PICK_HEIGHT = 0.45
 /** How much nearer than the passenger a solid face has to be before it hides them. */
 const AGENT_PICK_CLEARANCE = 0.8
 
+/** The Shapes crowd figure is 0.86 m tall before scaling; target a human-scale 1.5 m. */
+const AGENT_MODEL_SCALE = 1.5 / 0.86
+
 /** Sim seconds a turnstile leaf takes to slide open, hold, and shut. */
 const GATE_OPEN_S = 0.25
 const GATE_HOLD_S = 0.45
@@ -83,6 +86,7 @@ const HAIR_COLORS = [0x2b2320, 0x4a3423, 0x6b4a2b, 0xb98a4a, 0x9a9a9a, 0x3a2f2a]
 function humanoidBody(): THREE.BufferGeometry {
   const g = new RoundedBoxGeometry(0.29, 0.32, 0.58, 3, 0.13)
   g.translate(0, 0, 0.29)
+  g.scale(AGENT_MODEL_SCALE, AGENT_MODEL_SCALE, AGENT_MODEL_SCALE)
   return g
 }
 
@@ -90,6 +94,7 @@ function humanoidBody(): THREE.BufferGeometry {
 function humanoidHead(): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(0.145, 16, 12)
   g.translate(0, 0, 0.71)
+  g.scale(AGENT_MODEL_SCALE, AGENT_MODEL_SCALE, AGENT_MODEL_SCALE)
   return g
 }
 
@@ -103,6 +108,7 @@ function humanoidHair(): THREE.BufferGeometry {
   const cap = new THREE.SphereGeometry(0.15, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)
   cap.rotateX(Math.PI / 2)
   cap.translate(0, 0, 0.735)
+  cap.scale(AGENT_MODEL_SCALE, AGENT_MODEL_SCALE, AGENT_MODEL_SCALE)
   return cap
 }
 

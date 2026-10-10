@@ -427,12 +427,13 @@ export interface StairFlight {
 export type BridgeRailing = 'railing' | 'sound-barrier-half' | 'sound-barrier'
 
 export type Module =
+    | (ModuleBase & { type: 'hanger'; w: 4 | 6 | 8; cfg: { mount: 'roof' | 'post' } })
   | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number; finish?: FinishId; bridgeId?: string } })
   | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss'; finish?: FinishId } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor } })
   | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; offset?: [number, number]; corner?: string } })
-  | (ModuleBase & { type: 'fence'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' } })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down'; width?: 1 | 2 } })
   | (ModuleBase & {
       type: 'stair'
@@ -508,6 +509,7 @@ export type Module =
    * and `cfg.auto` marks a unit the room builder laid out itself.
    */
   | (ModuleBase & { type: 'desk'; cfg: { auto?: boolean } })
+  | (ModuleBase & { type: 'checkout'; cfg: Record<string, never> })
   /**
    * One cubicle of a restroom (隔间, 装饰): the partition + WC + tank unit the
    * 厕所 fit-out stocks along its back row (§5.7), as a free-standing floor

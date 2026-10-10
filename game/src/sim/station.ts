@@ -25,6 +25,7 @@ import {
   ZONE_LINES_BLOCK,
 } from './constants.ts'
 import { floorDecorCells } from './floorDecor.ts'
+import { hangerPostCells } from './hangers.ts'
 import { floorSpeed } from './finishes.ts'
 import { escalatorRun, escalatorBalustradeWidth } from './escalators.ts'
 import { gateAllows, gateHasLane } from './gates.ts'
@@ -217,6 +218,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     if (m.type === 'pillar') {
       for (let z = m.z; z < m.z + m.cfg.height; z++) fenceCells.add(cellKey(m.x, m.y, z))
     }
+    if (m.type === 'hanger') for (const [x, y] of hangerPostCells(m)) fenceCells.add(cellKey(x, y, m.z))
     // A solid stair block fills the anchor's headroom; its flight connects the
     // neighbouring lower and upper floors instead of walking through its body.
     if (m.type === 'stair' && m.cfg.block) fenceCells.add(cellKey(m.x, m.y, m.z))

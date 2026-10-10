@@ -25,8 +25,11 @@ export function drawFloorMark(g: CanvasRenderingContext2D, variant: FloorMarkVar
     g.fillStyle = '#303638'
     g.fillRect(0, 0, 768, 512)
     g.fillStyle = '#f5f5ed'
-    for (const x of [80, 240, 528, 688]) {
-      g.save(); g.translate(x, 256); g.scale(0.125, 1); arrow(g, 0, 0, 350); g.restore()
+    // Canvas pixels map 8:1 anisotropically onto the 3 m × 0.25 m vinyl, which the
+    // 0.125 x-squeeze compensates. Rotate before squeezing so the turn stays rigid
+    // in floor space (squeeze-then-turn would read as ~6x longer on the platform).
+    for (const [x, r] of [[80, Math.PI / 4], [240, Math.PI / 4], [528, -Math.PI / 4], [688, -Math.PI / 4]] as const) {
+      g.save(); g.translate(x, 256); g.scale(0.125, 1); g.rotate(r); arrow(g, 0, 0, 350); g.restore()
     }
     g.fillStyle = '#21b58b'
     g.save(); g.translate(384, 256); g.scale(0.125, 1); arrow(g, 0, 0, 400, true); g.restore()

@@ -43,9 +43,11 @@ export interface PickDraft {
   escalatorWide: boolean
   escalatorLong: boolean
   liftStyle: 'glass' | 'steel'
+  hangerLength: 4 | 6 | 8
   curtainWidth: 2 | 3 | 4
   psdEndHeight: 'half' | 'full'
   gateDoor: GateDoor
+  doorWide: boolean
   zoneBrush: ZoneBrush
   paintMode: PaintMode
   paintFinish: FinishId
@@ -91,9 +93,11 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         escalatorWide: s.escalatorWide,
         escalatorLong: s.escalatorLong,
         liftStyle: s.liftStyle,
+        hangerLength: s.hangerLength,
         curtainWidth: s.curtainWidth,
         psdEndHeight: s.psdEndHeight,
         gateDoor: s.gateDoor,
+        doorWide: s.doorWide,
         zoneBrush: s.zoneBrush,
         paintMode: s.paintMode,
         paintFinish: s.paintFinish,
@@ -120,9 +124,11 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       escalatorWide: d.escalatorWide,
       escalatorLong: d.escalatorLong,
       liftStyle: d.liftStyle,
+      hangerLength: d.hangerLength,
       curtainWidth: d.curtainWidth,
       psdEndHeight: d.psdEndHeight,
       gateDoor: d.gateDoor,
+      doorWide: d.doorWide,
       zoneBrush: d.zoneBrush,
       paintMode: d.paintMode,
       paintFinish: d.paintFinish,

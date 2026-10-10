@@ -120,7 +120,9 @@ export function createModule(
     case 'psd-end':
       return { id, type: 'psd-end', x, y, z, rot, cfg: { psd: 'half' } };
     case 'fence':
-      return { id, type: 'fence', x, y, z, rot, cfg: {} };
+    case 'fence-gate':
+    case 'fence-iron':
+      return { id, type: 'fence', x, y, z, rot, cfg: { variant: type === 'fence-gate' ? 'gate' : type === 'fence-iron' ? 'iron' : 'glass' } };
     case 'tvm':
       return { id, type: 'tvm', x, y, z, rot, cfg: {} };
     case 'vending':
@@ -148,12 +150,20 @@ export function createModule(
       return { id, type: 'shelf', x, y, z, rot, cfg: { variant: shelfVariant(type.slice(6)) } };
     case 'desk':
       return { id, type: 'desk', x, y, z, rot, cfg: {} };
+    case 'checkout':
+      return { id, type: 'checkout', x, y, z, rot, cfg: {} };
     case 'cubicle':
       return { id, type: 'cubicle', x, y, z, rot, cfg: {} };
     case 'sink':
       return { id, type: 'sink', x, y, z, rot, cfg: {} };
     case 'guidepost':
       return { id, type: 'guidepost', x, y, z, rot, cfg: {} };
+    case 'hanger-roof':
+    case 'hanger-post': {
+      const w = (width === 6 || width === 8 ? width : 4) as 4 | 6 | 8;
+      const [ox, oy] = trackOriginForCentre(rot, x, y, w, 1);
+      return { id, type: 'hanger', x: ox, y: oy, z, rot, w, cfg: { mount: type === 'hanger-post' ? 'post' : 'roof' } };
+    }
     case 'busstop-short':
     case 'busstop-long': {
       const w = type === 'busstop-long' ? 8 : 4;

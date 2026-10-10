@@ -164,7 +164,7 @@ const SHOTS = [
   },
   {
     id: 'time',
-    note: '时刻 · 客流：一天的客流曲线用手拖，日历上一个日期就是这一趟的第 1 天。',
+    note: '客流：一天的客流曲线用手拖，日历上一个日期就是这一趟的第 1 天。',
     folders: { info: true, exits: true, lines: true },
     setup: `(() => { window.__metro.getState().setTimePanel(true); return true })()`,
     // The window's own pieces are captured beside it, so the sheet's callouts can sit

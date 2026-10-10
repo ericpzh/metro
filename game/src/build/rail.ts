@@ -10,6 +10,7 @@ import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/st
 import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
 import { boxesOverlap, equipmentReason, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
+import { rampBodyBoxes } from '../sim/openings.ts'
 import { doorCentres, trainLength } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, type TrackModule } from '../sim/track.ts'
 import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
@@ -320,6 +321,12 @@ export function trackColliders(state: StationState, track: TrackModule): Module[
   const out: Module[] = []
   for (const m of state.modules) {
     if (m.id === track.id || pillarSupportsBridge(m, track)) continue
+    // A stair is only its slope, never the vertical column beneath it — a rail
+    // may pass under the upper half of a flight.
+    if (m.type === 'stair' && !m.cfg.block) {
+      if (rampBodyBoxes(m).some((b) => boxesOverlap(box, b))) out.push(m)
+      continue
+    }
     const e = moduleEnvelope(m)
     if (e && boxesOverlap(box, e)) out.push(m)
   }

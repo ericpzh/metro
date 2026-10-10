@@ -76,6 +76,8 @@ export interface ToolSlice {
    * to claim exactly six blocks across.
    */
   stairWidth: number
+  /** Width of a newly placed swing door, cycled 窄/宽 like the stair width. */
+  doorWide: boolean
   stairBlockHeight: 0.5 | 1
   /** New pillar section length, toggled between 2 m and 4 m with Tab. */
   pillarLength: 2 | 4
@@ -99,6 +101,8 @@ export interface ToolSlice {
   setStructureOptions: (patch: Partial<Pick<ToolSlice, 'bridgeLength' | 'bridgeRailing'>>) => void
   cycleBridgeLength: () => void
   liftStyle: 'glass' | 'steel'
+  hangerLength: 4 | 6 | 8
+  cycleHangerLength: () => void
   curtainWidth: 2 | 3 | 4
   cycleCurtainWidth: () => void
   psdEndHeight: 'half' | 'full'
@@ -158,6 +162,8 @@ export interface ToolSlice {
   setTriKind: (kind: TriangleKind) => void
   /** Cycle the stair width one → two → three lanes (Tab). */
   cycleStairWidth: () => void
+  toggleDoorWidth: () => void
+  setDoorWidth: (wide: boolean) => void
   cycleBenchWidth: () => void
   setStairBlockHeight: (height: 0.5 | 1) => void
   togglePillarLength: () => void
@@ -203,6 +209,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   triangles: false,
   triKind: 'upper',
   stairWidth: STAIR_WIDTH_NARROW,
+  doorWide: false,
   stairBlockHeight: 1,
   pillarLength: 4,
   roofWidth: 4,
@@ -217,6 +224,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   }),
   cycleBridgeLength: () => set((s) => ({ bridgeLength: nextTrackRunLength(s.bridgeLength) })),
   liftStyle: 'glass',
+  hangerLength: 4,
+  cycleHangerLength: () => set((s) => ({ hangerLength: s.hangerLength === 4 ? 6 : s.hangerLength === 6 ? 8 : 4 })),
   curtainWidth: 2,
   cycleCurtainWidth: () => set((s) => ({ curtainWidth: s.curtainWidth === 2 ? 3 : s.curtainWidth === 3 ? 4 : 2 })),
   psdEndHeight: 'half',
@@ -256,6 +265,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleStairWidth: () => set((s) => s.moduleType === 'stair-block'
     ? { stairBlockHeight: s.stairBlockHeight === 1 ? 0.5 : 1 }
     : { stairWidth: nextStairWidth(s.stairWidth) }),
+  toggleDoorWidth: () => set((s) => ({ doorWide: !s.doorWide })),
+  setDoorWidth: (doorWide) => set({ doorWide }),
   setStairBlockHeight: (stairBlockHeight) => set({ stairBlockHeight }),
   togglePillarLength: () => set((s) => ({ pillarLength: s.pillarLength === 4 ? 2 : 4 })),
   cycleBenchWidth: () => set((s) => isBenchType(s.moduleType)

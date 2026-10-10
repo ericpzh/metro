@@ -190,7 +190,7 @@ export class EquipmentTool extends ToolController {
         const seen = new Set<string>()
         const cells: Array<[number, number, number]> = []
         for (const [x, y, z] of line) {
-          const mod = moduleAt(st.station.modules, x, y, z)
+          const mod = st.station.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
           if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
           seen.add(mod.id)
           cells.push([mod.x, mod.y, mod.z])
@@ -249,7 +249,7 @@ export class EquipmentTool extends ToolController {
         const k = cellKey(x, y, z)
         if (seen.has(k)) continue
         seen.add(k)
-        const mod = createModule('fence', x, y, z, nextModuleId(next.modules, 'fence'), rot)
+        const mod = createModule(st.moduleType, x, y, z, nextModuleId(next.modules, 'fence'), rot)
         if (!mod) continue
         // A fence stands on floor like any equipment, and is refused by the one
         // verdict every other piece answers to (`equipmentReason`), which already
@@ -276,7 +276,7 @@ export class EquipmentTool extends ToolController {
       let next = st.station
       let removed = 0
       for (const [x, y, z] of line) {
-        const mod = moduleAt(next.modules, x, y, z)
+        const mod = next.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
         if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
         seen.add(mod.id)
         next = removeModule(next, mod.id)
@@ -307,7 +307,7 @@ export class EquipmentTool extends ToolController {
       const k = cellKey(x, y, z)
       if (seen.has(k)) continue
       seen.add(k)
-      const mod = createModule('fence', x, y, z, 'preview', rot)
+      const mod = createModule(st.moduleType, x, y, z, 'preview', rot)
       if (!mod) continue
       // The same verdict the release asks, so the red run under the drag is the run
       // the release refuses.
@@ -362,6 +362,9 @@ export class EquipmentTool extends ToolController {
    */
   private buildPlacementModule(type: string, cell: [number, number, number], id: string): Module | null {
     const st = useStore.getState()
+    const placementType = type.startsWith('door-')
+      ? type.replace(/-[12]$/, st.doorWide ? '-2' : '-1')
+      : type
     let mod: Module | null
     if (this.isStraightRamp(type)) {
       const width = type === 'escalator' ? (st.escalatorWide ? 2 : 1) : st.stairWidth
@@ -380,13 +383,13 @@ export class EquipmentTool extends ToolController {
       // player's 1号线 shield, and the **current** boards, so the sign is hung with
       // the pair the editor is showing.
       mod = createModule(
-        type,
+        placementType,
         cell[0],
         cell[1],
         cell[2],
         id,
         st.moduleRot,
-        type === 'curtain-wall' ? st.curtainWidth : st.stairWidth,
+        type === 'curtain-wall' ? st.curtainWidth : type === 'hanger-roof' || type === 'hanger-post' ? st.hangerLength : st.stairWidth,
         st.escalatorDir,
         st.gateDoor,
         st.station,

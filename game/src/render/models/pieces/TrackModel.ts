@@ -6,6 +6,7 @@ import type { ModelMaterials } from '../PieceBuilder.ts'
 import { BRIDGE_DECK_DEPTH, bridgeBarrierTop } from '../../../sim/structures.ts'
 import { TUNNEL_HEADROOM } from '../../../build/rail.ts'
 import type { Module } from '../../../sim/types.ts'
+import { buildTrackDetails } from './TrackDetails.ts'
 
 /* ------------------------------------------------------------------ track */
 
@@ -37,7 +38,7 @@ function buildDirectionArrow(mat: THREE.Material, x: number, y: number, z: numbe
   return g
 }
 
-function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, preview = false, deckMat: THREE.Material = mats.white): THREE.Group {
+function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white): THREE.Group {
   const g = new THREE.Group()
   const d = mod.d ?? 1
   // Build in the track's local frame: the run along +x, the amount across +y,
@@ -48,7 +49,9 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // The bed is a trench: placing the rail dug the cell, so the platform top
   // drops half a metre to this slab. The exposed block sides form the trench
   // walls; the module only supplies the bed and the power supply on top.
-  slab(g, mats.black, cx, cy, 0.25, mod.w, d, 0.5)
+  finishSlab(g, concrete, cx, cy, 0.225, mod.w, d, 0.45)
+  // Raised centre slab leaves the drainage troughs below the sleeper bearing surface.
+  finishSlab(g, concrete, cx, cy, 0.47, mod.w, Math.max(0.8, d - 0.52), 0.04)
   if (mod.cfg.bridge) {
     // One solid concrete deck (§5.4). Edge girders previously shared its outer
     // face, making the underside flicker as the camera moved.
@@ -71,12 +74,7 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
       }
     }
   }
-  // Two rails on sleepers down the middle of the bed.
-  for (const s of [-1, 1]) slab(g, mats.steel, cx, cy + s * 0.72, 0.6, mod.w, 0.1, 0.1)
-  const nSleepers = Math.max(2, Math.round(mod.w / 0.6))
-  for (let i = 0; i < nSleepers; i++) {
-    slab(g, mats.black, ((i + 0.5) / nSleepers) * mod.w - 0.5, cy, 0.55, 0.24, Math.max(1.9, d - 0.2), 0.08)
-  }
+  buildTrackDetails(g, mats, concrete, railWeb, mod.w, d)
   // The line's 供电 decides the model: a conductor rail beside the running
   // rails, or an overhead wire hung over them. Both are drawn for every piece
   // bound to the line, platform and tunnel alike, so a power switch re-cuts all
@@ -109,7 +107,10 @@ function buildThirdRail(g: THREE.Group, mats: ModelMaterials, w: number, cx: num
   slab(g, mats.psu, cx, ty - 0.28, 0.7, w, 0.05, 0.22)
   const n = Math.max(2, Math.round(w / 4))
   for (let i = 0; i < n; i++) {
-    slab(g, mats.white, ((i + 0.5) / n) * w - 0.5, ty, 0.51, 0.1, 0.1, 0.14)
+    const x = ((i + 0.5) / n) * w - 0.5
+    slab(g, mats.darkSteel, x, ty, 0.5, 0.24, 0.28, 0.025)
+    slab(g, mats.white, x, ty, 0.54, 0.13, 0.13, 0.08)
+    slab(g, mats.darkSteel, x, ty, 0.59, 0.2, 0.17, 0.025)
   }
 }
 
@@ -135,11 +136,13 @@ function buildCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module
     slab(g, mats.white, cx, cy, ceilingBottom + 0.05, w, d, 0.1)
     for (const j of [-0.5, d - 0.5]) slab(g, mats.darkSteel, cx, j, ceilingBottom + 0.04, w, 0.12, 0.12)
   }
-  // Contact wire down the track centre, on short hangers from the ceiling.
-  slab(g, mats.steel, cx, cy, wireZ, w, 0.05, 0.05)
+  // Rigid conductor with a narrow copper contact strip and transverse ceiling brackets.
+  slab(g, mats.steel, cx, cy, wireZ + 0.016, w, 0.09, 0.032)
+  slab(g, mats.wood, cx, cy, wireZ - 0.006, w, 0.018, 0.012)
   const n = Math.max(2, Math.round(w / 4))
   for (let i = 0; i < n; i++) {
     const x = ((i + 0.5) / n) * w - 0.5
+    slab(g, mats.darkSteel, x, cy, ceilingBottom - 0.015, 0.14, 0.62, 0.03)
     slab(g, mats.steel, x, cy, (wireZ + ceilingBottom) / 2, 0.05, 0.05, ceilingBottom - wireZ)
     slab(g, mats.psu, x, cy, wireZ + 0.04, 0.1, 0.1, 0.05)
   }
@@ -157,7 +160,8 @@ function buildBridgeCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<
 export class TrackModel extends PieceBuilder {
   readonly kind = 'track'
   build(mod: Extract<Module, { type: 'track' }>): THREE.Group {
-    return buildTrack(this.ctx.mats, mod, this.ctx.preview, mod.cfg.bridgeFinish ? this.ctx.finish(mod.cfg.bridgeFinish) : this.ctx.mats.white)
+    const railWeb = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: 0x62564c, roughness: 0.82, metalness: 0.25 }))
+    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, mod.cfg.bridgeFinish ? this.ctx.finish(mod.cfg.bridgeFinish) : this.ctx.mats.white)
   }
 }
 

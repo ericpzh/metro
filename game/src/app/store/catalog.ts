@@ -4,7 +4,7 @@
 // instead of reaching into a slice.
 
 import type { AppState } from './Store.ts'
-import type { TriangleKind, Zone } from '../../sim/types.ts'
+import type { Module, TriangleKind, Zone } from '../../sim/types.ts'
 import { SHELF_VARIANTS, shelfSpec } from '../../sim/shelves.ts'
 import { SIGN_MOUNTS, signMountSpec } from '../../sim/sign.ts'
 
@@ -27,6 +27,8 @@ export interface ModuleOption {
  * a list that also has to keep each family's variants adjacent.
  */
 export const MODULE_OPTIONS: ModuleOption[] = [
+  { id: 'hanger-roof', label: '吊装', type: 'hanger', w: 4, h: 1 },
+  { id: 'hanger-post', label: '立柱', type: 'hanger', w: 4, h: 1 },
   { id: 'ac-unit', label: '空调风机', type: 'ac-unit', w: 3, h: 2 },
   { id: 'electrical-cabinet', label: '设备柜', type: 'electrical-cabinet', w: 3, h: 1 },
   { id: 'tactile-guide', label: '条形导向', type: 'tactile', w: 1, h: 1 },
@@ -43,13 +45,16 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'bridge', label: '轨道桥', type: 'track', w: 12, h: 3 },
   { id: 'gate', label: '闸机', type: 'gate', w: 1, h: 1 },
   { id: 'psd-end', label: '屏蔽端门', type: 'psd-end', w: 1, h: 1 },
-  { id: 'fence', label: '围栏', type: 'fence', w: 1, h: 1 },
+  { id: 'fence', label: '玻璃围栏', type: 'fence', w: 1, h: 1 },
+  { id: 'fence-gate', label: '门', type: 'fence', w: 1, h: 1 },
+  { id: 'fence-iron', label: '铁围栏', type: 'fence', w: 1, h: 1 },
   { id: 'tvm', label: '售票机', type: 'tvm', w: 1, h: 1 },
   { id: 'vending', label: '自动贩卖机', type: 'vending', w: 1, h: 1 },
   { id: 'bench-steel-1', label: '不锈钢', type: 'bench', w: 1, h: 1 },
   { id: 'bench-seat-1', label: '靠背座椅', type: 'bench', w: 1, h: 1 },
   ...SHELF_VARIANTS.map((variant) => ({ id: `shelf-${variant}`, label: shelfSpec(variant).label, type: 'shelf', w: 1, h: 1 })),
   { id: 'desk', label: '办公桌', type: 'desk', w: 1, h: 1 },
+  { id: 'checkout', label: '收银台', type: 'checkout', w: 1, h: 1 },
   { id: 'cubicle', label: '厕所隔间', type: 'cubicle', w: 1, h: 1 },
   { id: 'sink', label: '洗手池', type: 'sink', w: 1, h: 1 },
   { id: 'guidepost', label: '导向柱', type: 'guidepost', w: 1, h: 1 },
@@ -91,14 +96,9 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'glass-1x2', label: '玻璃板 1×2', type: 'glass', w: 1, h: 1 },
   { id: 'glass-2x2', label: '玻璃板 2×2', type: 'glass', w: 2, h: 1 },
   { id: 'glass-3x2', label: '玻璃板 3×2', type: 'glass', w: 3, h: 1 },
-  // The 门 (装饰 §5.7): the free-standing doorway — threshold, posts, head and the
-  // leaves between them — in the four pieces 单开 / 双开 × 不锈钢 / 木 (`sim/doors.ts`).
-  // A single door is one cell wide and a double one two — the run a 双开 wants is the
-  // same choice as its leaf count — so the cell counts here are the piece's own.
-  { id: 'door-steel-1', label: '门 单开 不锈钢', type: 'door', w: 1, h: 1 },
-  { id: 'door-steel-2', label: '门 双开 不锈钢', type: 'door', w: 2, h: 1 },
-  { id: 'door-wood-1', label: '门 单开 木', type: 'door', w: 1, h: 1 },
-  { id: 'door-wood-2', label: '门 双开 木', type: 'door', w: 2, h: 1 },
+  // Door material is chosen in the family menu; 窄/宽 is the action-row setting.
+  { id: 'door-steel-1', label: '不锈钢', type: 'door', w: 1, h: 1 },
+  { id: 'door-wood-1', label: '木', type: 'door', w: 1, h: 1 },
   { id: 'calligraphy-kai-h', label: '楷书 横排', type: 'calligraphy', w: 1, h: 1 },
   { id: 'calligraphy-kai-v', label: '楷书 竖排', type: 'calligraphy', w: 1, h: 1 },
   { id: 'calligraphy-xing-h', label: '行书 横排', type: 'calligraphy', w: 1, h: 1 },
@@ -178,12 +178,14 @@ export function isBenchType(type: string): boolean {
  */
 export function isDecorType(type: string): boolean {
   return (
+    type === 'hanger' || type.startsWith('hanger-') ||
     type === 'tactile' || type.startsWith('tactile-') || type === 'floor-mark' || type.startsWith('floor-mark-') ||
     type === 'ac-unit' || type === 'electrical-cabinet' ||
     isBenchType(type) ||
     type === 'curtain-wall' || type === 'psd-end' ||
     isShelfType(type) ||
     type === 'desk' ||
+    type === 'checkout' ||
     type === 'cubicle' ||
     type === 'sink' ||
     type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
@@ -266,7 +268,7 @@ export function isWallMountedType(type: string): boolean {
 
 /** True for the fence piece, which drags out a run like the wall tool. */
 export function isFenceType(type: string): boolean {
-  return type === 'fence'
+  return type === 'fence' || type === 'fence-gate' || type === 'fence-iron'
 }
 
 /**
@@ -329,7 +331,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
+export type ModuleFamilyKey = 'fence' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -356,6 +358,8 @@ export interface ModuleFamily {
 
 /** The family a palette id belongs to, or null for a piece that is its own tile. */
 const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
+  { key: 'fence', owns: isFenceType },
+  { key: 'hanger', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
   { key: 'cctv', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
   { key: 'tactile', owns: (id) => id === 'tactile' || id.startsWith('tactile-') },
   { key: 'floor-mark', owns: (id) => id === 'floor-mark' || id.startsWith('floor-mark-') },
@@ -381,6 +385,8 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
+  { key: 'fence', label: '围栏', folder: 'equipment', owns: isFenceType },
+  { key: 'hanger', label: '挂架', folder: 'decor', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
   { key: 'cctv', label: '监控', folder: 'decor', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
   { key: 'tactile', label: '盲道', folder: 'decor', owns: (id) => id === 'tactile' || id.startsWith('tactile-') },
   { key: 'floor-mark', label: '地面指示', folder: 'decor', owns: (id) => id === 'floor-mark' || id.startsWith('floor-mark-') },
@@ -407,10 +413,8 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
     label: '门',
     folder: 'decor',
     owns: isDoorType,
-    // The tiles sit inside the 门 list, so the family's own name is dropped and the
-    // piece reads as what it is — 单开 不锈钢, 双开 木 — the way the 玻璃板 list reads
-    // 1×1 / 3×2 and the 座椅 list reads 不锈钢 1m.
-    tileLabel: (m) => m.label.replace('门 ', ''),
+    // The two variants choose only the door's finish; its width has a separate Tab tile.
+    tileLabel: (m) => m.label,
   },
   {
     key: 'calligraphy',
@@ -484,7 +488,7 @@ export type FolderTile =
  *
  * 设备：闸机 围栏 / 售票机 自动贩卖机 / 扶梯 电梯 / 楼梯 出入口
  * 装饰：指示牌 广告牌 / 座椅 站名 / 线网图 电视 / 垃圾桶 灭火器 / 时钟 监控 /
- * 货架 办公桌 / 玻璃板 门 / 厕所隔间 洗手池 / 灯具 通风口 / 导向柱 公交站
+ * 货架 收银台 / 玻璃板 门 / 厕所隔间 洗手池 / 灯具 通风口 / 挂架 办公桌 / 导向柱 公交站
  *
  * The anchors are palette ids and `familyAnchor` keys — the very names the grid hangs its
  * tiles, its sub-menus and its action rows on — so this one list says both what a row holds
@@ -499,7 +503,7 @@ export type FolderTile =
  */
 const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
   rail: [familyAnchor('roof'), familyAnchor('pillar')],
-  equipment: ['gate', 'fence', 'tvm', 'vending', 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
+  equipment: ['gate', familyAnchor('fence'), 'tvm', 'vending', 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
   decor: [
     familyAnchor('sign'),
     familyAnchor('billboard'),
@@ -515,7 +519,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     'clock',
     familyAnchor('cctv'),
     familyAnchor('shelf'),
-    'desk',
+    'checkout',
     // 玻璃板 and 门 share a palette row — the window and the doorway of the same vocabulary —
     // though only the 玻璃板 is wall-mounted: the 门 is a free-standing doorway.
     familyAnchor('glass'),
@@ -528,6 +532,8 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     // while 导向柱 and 公交站 stand outside the station.
     familyAnchor('light'),
     'vent',
+    familyAnchor('hanger'),
+    'desk',
     'guidepost',
     familyAnchor('busstop'),
     'ac-unit', 'electrical-cabinet',
@@ -570,8 +576,10 @@ export function folderOptions(folder: ModuleFolder): ModuleOption[] {
 export function hasModuleActions(moduleType: string): boolean {
   return (
     isRotatableType(moduleType) ||
+    moduleType === 'hanger-roof' || moduleType === 'hanger-post' ||
     isSignType(moduleType) ||
     isStairType(moduleType) ||
+    isDoorType(moduleType) ||
     isEscalatorType(moduleType) ||
     isGateType(moduleType)
   )
@@ -732,16 +740,18 @@ export function isEraseBrush(b: ZoneBrush): b is ZoneEraser {
 
 /** Friendly name for a module type, for the inspector and the bulldoze notice. */
 const MODULE_LABELS: Record<string, string> = {
+  hanger: '挂架',
   pillar: '支柱',
   roof: '车站屋顶',
   gate: '闸机',
   'psd-end': '屏蔽端门',
-  fence: '围栏',
+  fence: '玻璃围栏',
   tvm: '售票机',
   vending: '自动贩卖机',
   bench: '座椅',
   shelf: '货架',
   desk: '办公桌',
+  checkout: '收银台',
   cubicle: '厕所隔间',
   sink: '洗手池',
   guidepost: '导向柱',
@@ -781,7 +791,11 @@ const ROOM_KIND_LABELS: Record<string, string> = {
   office: '办公室',
 }
 
-export function moduleLabel(type: string, roomKind?: string): string {
+export function moduleLabel(type: string | Module, roomKind?: string): string {
+  if (typeof type !== 'string') {
+    if (type.type === 'fence') return type.cfg.variant === 'gate' ? '门' : type.cfg.variant === 'iron' ? '铁围栏' : '玻璃围栏'
+    return moduleLabel(type.type, type.type === 'shop' || type.type === 'booth' ? type.cfg.kind : undefined)
+  }
   if (type === 'shop') return ROOM_KIND_LABELS[roomKind ?? 'store'] ?? MODULE_LABELS.shop
   if (type === 'booth' && roomKind === 'info') return '问讯处'
   if (type.startsWith('cctv-')) return MODULE_OPTIONS.find((m) => m.id === type)?.label ?? MODULE_LABELS.cctv
@@ -803,8 +817,8 @@ export function moduleLabel(type: string, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'railLineId' | 'curtainWidth' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'escalatorDir' | 'escalatorWide' | 'escalatorLong' | 'liftStyle' | 'gateDoor' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'railLineId' | 'hangerLength' | 'curtainWidth' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'escalatorDir' | 'escalatorWide' | 'escalatorLong' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.railLineId}|${s.curtainWidth}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.escalatorDir}|${s.escalatorWide}|${s.escalatorLong}|${s.liftStyle}|${s.gateDoor}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.escalatorDir}|${s.escalatorWide}|${s.escalatorLong}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

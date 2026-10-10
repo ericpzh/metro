@@ -94,10 +94,12 @@ function ActionTiles(): React.ReactElement {
   const escalatorWide = useStore((s) => s.escalatorWide)
   const escalatorLong = useStore((s) => s.escalatorLong)
   const liftStyle = useStore((s) => s.liftStyle)
+  const hangerLength = useStore((s) => s.hangerLength)
   const curtainWidth = useStore((s) => s.curtainWidth)
   const psdEndHeight = useStore((s) => s.psdEndHeight)
   const gateDoor = useStore((s) => s.gateDoor)
   const stairWidth = useStore((s) => s.stairWidth)
+  const doorWide = useStore((s) => s.doorWide)
   const stairBlockHeight = useStore((s) => s.stairBlockHeight)
   const pillarLength = useStore((s) => s.pillarLength)
   const roofWidth = useStore((s) => s.roofWidth)
@@ -124,6 +126,9 @@ function ActionTiles(): React.ReactElement {
         <div className="floorLineTiles" role="group" aria-label="选择地面指引线路">
           {lines.length ? lines.map((line) => <Block key={line.id} label={line.name} tone={line.colour} active={floorLine?.id === line.id} onClick={() => st().setRailLine(line.id)} />) : <span>暂无线路</span>}
         </div>
+      ) : null}
+      {piece === 'hanger-roof' || piece === 'hanger-post' ? (
+        <Block label={hangerLength === 4 ? '短' : hangerLength === 6 ? '中' : '长'} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleHangerLength()} />
       ) : null}
       {piece === 'curtain-wall' ? (
         <Block label={curtainWidth === 2 ? '窄' : curtainWidth === 3 ? '中' : '宽'} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleCurtainWidth()} />
@@ -163,6 +168,9 @@ function ActionTiles(): React.ReactElement {
           shortcut="Tab"
           onClick={() => st().cycleStairWidth()}
         />
+      ) : null}
+      {piece !== null && piece.startsWith('door-') ? (
+        <Block label={doorWide ? '宽' : '窄'} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().toggleDoorWidth()} />
       ) : null}
       {piece !== null && (piece === 'roof-shell' || piece === 'roof-truss' || piece === 'roof-tapered') ? (
         <Block

@@ -179,12 +179,12 @@ over one shared material kit — no image or GLB assets. Modules are level-aware
 or exit ghosts with the floor it belongs to instead of drawing through it.
 
 **The 装饰 folder holds seating, room furniture and advertising.** 座椅 (the bench, moved
-out of 设备), 货架 (a stocked supermarket gondola), 办公桌 (the office desk + monitor + chair unit),
+out of 设备), 货架 (a stocked supermarket gondola), 收银台 (white checkout counter with a stocked front display, cash drawer, POS and payment reader), 办公桌 (a control-room desk with two monitors and a mesh office chair),
 厕所隔间 (the restroom cubicle), 洗手池 (the wash basin), 垃圾桶 (a stainless double bin), 灭火器
 (the red fire-extinguisher cabinet on four legs), 导向柱 (the exit-linked street pillar) and 公交站
 (the short/long shelter) are all free-standing pieces — everything but the round 灯具 turns with **R** —
 and 广告牌, 电视, 指示牌, 时钟, 监控, 灯具 (圆形 / 直条 ceiling fittings) and 通风口 (the ceiling grille)
-all live under 装饰 in the build rail. 垃圾桶 and 灭火器 are cosmetic like the
+all live under 装饰 in the build rail. 收银台 shares a palette row with 货架, and 办公桌 with 挂架. Both computers show a blue desktop with shortcuts and a taskbar, separate from the ticket-machine UI. 垃圾桶 and 灭火器 are cosmetic like the
 rest of the furniture — no server and no stop — and both count as room furniture, so they may stand
 inside a walled 商店 / 厕所 / 办公室 / 售票亭 (`placementBlocked`'s furniture ↔ room exemption). 广告牌 is *wall-mounted*:
 `sim/placement.ts`'s `wallMountMissing` refuses it unless the facing neighbour has a solid block at
@@ -208,7 +208,10 @@ a fence run of the same length stands three frames up — in six sizes (one, two
 a 1 m and a 2 m height) from `sim/glassPanels.ts`. The separate **玻璃幕墙** tile stands
 4 m tall with **Tab** cycling **窄 / 中 / 宽** (2 / 3 / 4 m wide). Beside it, **屏蔽端门**
 reuses fixed platform-screen glass with **半高 / 全高** heights; a perpendicular panel
-snaps into a screen run’s endpoint tile so the two cap rails meet at the corner. **门** is a **free-standing doorway** the player stands
+snaps into a screen run’s endpoint tile so the two cap rails meet at the corner.
+The corner panel shortens to its tile boundary (0.84 m); subsequent panels are exactly
+1 m long, with the cap/frame and placement reservation contained in each tile so
+adjacent blocks and equipment remain placeable. **门** is a **free-standing doorway** the player stands
 on a floor tile, in the four pieces `sim/doors.ts` names: **单开** (one leaf, one cell) or **双开** (a pair
 meeting in the middle, two cells) × **不锈钢** or **木** — a threshold on the floor, a post at each end, a
 head across their tops and the leaves hung between them, from the floor top up to 2.05 m. It carries its
@@ -1694,7 +1697,12 @@ armed that tile is not drawn
 (`showsAutoWalls`), since the two are exclusive. See `test/walls.test.mjs`.
 
 **Fences divide areas with gates.** The 设备 folder's 围栏 (§5.2) is a 1 m high, very thin
-metal frame around a glass panel standing through the middle of its block. A single click drops
+stainless railing standing through the middle of its block. Its three variants are 玻璃围栏
+(round handrail, slim posts and clamped glass), 门 (a raised glass leaf with hinges and latch,
+no centre upright or floor sill), and 铁围栏 (closely spaced vertical bars and transverse feet).
+门 allows 盲道 and 地面指示 underneath, in either placement order; deleting the gate preserves
+the ground decoration. It remains a closed barrier for the crowd. Older fences use 玻璃围栏.
+A single click drops
 one panel turned with **R**; press-and-drag lays a straight run like the 墙 tool with the panels
 following the drag direction, and right-drag lifts the run back out. The 删除 tool drags the same
 straight line: press a panel, drag along the run, and release to lift every panel on it at once (a
@@ -2044,7 +2052,7 @@ approximated); neither needs WebGL.
   through, the two-way single-lane rule (`nextGateIndex`), and the spellings an older save may carry
   for the 闸机 piece (`right` / `left` → lane, `none` → fence). `gate-door.test.mjs` pins the piece
   and its Tab cycle; this one pins the rules underneath.
-* `psd-end.test.mjs` — 屏蔽端门: one-unit fixed screen glass, 半高/全高 Tab switching, snapping to shared screen-door corners in every rotation, continuous one-metre extensions of the snapped return, accepted hover/click placement, undo, walk barrier and save/load; a snapped return draws shifted onto the shared endpoint tile and re-snaps through the move path; the 玻璃幕墙 tile cycles its three widths and preserves them through picking.
+* `psd-end.test.mjs` — 屏蔽端门: one-unit fixed screen glass, 半高/全高 Tab switching, snapping to shared screen-door corners in every rotation, shortened corner glass followed by continuous one-metre extensions, tile-contained cap/frame and reservations with neighbouring block/equipment placement, accepted hover/click placement, undo, walk barrier and save/load; a snapped return re-snaps through the move path; the 玻璃幕墙 tile cycles its three widths and preserves them through picking.
 * `gate-door.test.mjs` — the 闸机's two states (§5.2): `Tab` toggles a working **lane** and the
   **fence** machine, and a save written while the door *side* was a setting (`right` / `left`) reads
   as a lane while the old `none` reads as fence. The machine's solid side is the half its body stands
@@ -2286,7 +2294,9 @@ approximated); neither needs WebGL.
   ground: the ring wraps a dug rail bed instead of walling the platform edge, the drag never pours
   a block into the trench, and no auto wall rises through a platform screen door a full track
   sliced through the patch.
-* `fence.test.mjs` — the 围栏 (§5.2): a 1 m high thin panel through the block middle (R turns a
+* `fence.test.mjs` — 玻璃围栏 / 门 / 铁围栏 (§5.2): variant save/preview/pick identity, drag placement,
+  raised gate geometry and decals underneath in either placement order, iron bars, deletion preserving
+  ground decals; a 1 m high thin panel through the block middle (R turns a
   single, a drag lays a run along the drag direction); a dragged run plugs into a gate row, the
   fence cell is not a walkable node so the run plus its gates is a barrier the crowd only crosses
   at a gate, and `fenceArms` builds every joint from the neighbours — a lone panel caps both ends,
@@ -2306,7 +2316,8 @@ approximated); neither needs WebGL.
   stocks and builds nothing, legacy rooms only gain `stocked` on load (the dead `cfg.bare` flag buys
   nothing), and everything
   round-trips the save.
-* `desk.test.mjs` — the 办公桌 (§5.7), same model as shelves: the factory builds it with the hover
+* `checkout.test.mjs` — 收银台 shop placement, move/sweep and save round-trip; checkout and control-room workstation bounds in every rotation, low-ceiling clearance, exposed merchandise and monitor faces, and the mesh chair.
+* `desk.test.mjs` — the 办公桌 (§5.7): the factory builds it with the hover
   rotation, it may stand inside a room footprint, `moduleAt` prefers it over the room, placing an
   office builds no walls and stocks no desks, each desk deletes on its own while bulldozing keeps
   hand-placed ones and drops auto-flagged ones, legacy offices only gain `stocked`, and everything round-trips the save.
@@ -2318,16 +2329,11 @@ approximated); neither needs WebGL.
   stocks one bench per back-row cell,
   each unit deletes on its own while bulldozing keeps hand-placed ones and drops auto-flagged ones,
   legacy rooms only gain `stocked`, and everything round-trips the save.
-* `booth-model.test.mjs` — the 售票亭 model itself (§5.7, `render/models.ts` `buildBooth`), the one
-  facility piece that is hand-built geometry rather than voxels. What it pins is the box: nothing on
-  the piece leaves the cells or the height `moduleEnvelope` reserves for it (3 × 3 through 6 × 4),
-  each of the four counter runs stands on its own outer face and runs into both corners, the four
-  screen sheets butt at the corners against the sheets they meet and a mullion caps each joint, so
-  the counter band and the screen band each run the whole way round with no gap at any sample of
-  their centre lines — and the piece is the same on all four sides, sample by sample. The bug it was
-  written against measured each side from a different line: the east counter and screen hung 0.55 m
-  out in the next cell, the north run stood a whole cell inside the room, the capping boards stood a
-  lip proud of every face, and every screen stopped a counter-depth short of its corner.
+* `booth-model.test.mjs` — the reference-based 问讯处 / 售票亭 models (§5.7): both stay
+  within their footprint and 2.4 m height, the white information counter has a lowered
+  accessible centre, the stainless ticket kiosk has clear transfer apertures beneath its
+  service glazing, and both open overhead frames carry visible, owned sign materials.
+  Translation is checked on every mesh.
 * `room-model.test.mjs` — the walled room's own model (`render/models.ts` `buildRoom`), the perimeter
   ring of 0.5 m panels that stands in for a room's wall voxels. What it pins is the square corner:
   three quarters of every corner cell are wall and the quarter the room keeps for furniture is empty
@@ -2446,27 +2452,19 @@ approximated); neither needs WebGL.
   round-trip the save and sweep by size. The model is where "outer frame only" becomes a number: five
   meshes at **every** size — a sill, a head, two end posts and one pane — against a 围栏 run of the same
   length, which stands one frame up per cell.
-* `door-panel.test.mjs` — the 门 (§5.7), the **free-standing doorway**: four variants in one table
-  (单开 / 双开 × 不锈钢 / 木), one palette tile each whose label names both, and a legacy value reading
-  as the 单开 不锈钢 door; the factory centres a 双开 run on the hovered cell; the piece **stands on the
+* `door-panel.test.mjs` — the 门 (§5.7), the **free-standing doorway**: two material variants (不锈钢 / 木) in the 门 family menu, plus a 窄 / 宽 action tile
+  that also cycles with Tab, and a legacy value reading as the narrow stainless door; the factory centres a 双开 run on the hovered cell; the piece **stands on the
   floor** — it reserves its whole cells from the floor top to its head, wants no wall behind it
   (`isWallMounted` and `isWallMountedType` are both false, `wallMountCourses` is empty) and is refused for
   missing floor like any furniture; it round-trips the save and sweeps by variant (rotation is not part of a
   sweep family). Two tests pin where it stands: it is set on the block's **leading edge** with the run
   filling exactly the cells the ghost highlights — one cell for a 单开, two for a 双开, at either rotation —
   and a 双开 pair's two pulls are mirrored at the meeting line, where a pair of doors is opened from. The
-  model is where the piece becomes numbers: a 单开 door is nine meshes
-  (a threshold, two posts and a head, plus the leaf's own kick plate, two studs and a pull) and a 双开
-  fourteen, the frame being what holds both leaves up. **Nothing is glazed**, and
-  one test pins why: every fitting's back face is drawn in front of the leaf's own face, by a real
-  `DOOR_FRAME` stand-off, so no two surfaces of the piece are coplanar enough to flicker. The materials
-  are pinned
-  too, because the 不锈钢 door is the game's **钢板**: its frame and leaf are the one `darkSteel` the 钢板
-  ceiling finish and the 扶梯 truss are (`C.darkSteel` **is** `finishDef(RAMP_SOFFIT_FINISH).tint`), its
-  pull and kick plate the brushed steel, and **no part of it is the kit's white enamel** — the 木 door is
-  the same piece in the three timbers. Its last tests pin the
-  **office reuse**: a room's doorway is drawn to the 门's own height and width by the same builder, and a
-  two-cell opening adds exactly the second leaf's parts and nothing else.
+  stainless model uses satin brushed stainless on every surface: frame, uninterrupted leaves,
+  three exposed hinges per leaf, upright pulls and the active leaf's lock escutcheon. The tests
+  check the finish throughout, hinge count, pull clearance and mirrored pulls at the meeting line.
+  The wooden variant keeps its timber frame, leaf and pull, with a steel kick plate. Both sizes
+  retain their placement bounds, and rooms reuse the same door builder.
 * `calligraphy.test.mjs` — the 站名 (§5.7): six hands (楷书 / 行书 / 隶书 / 魏碑 / 黑体 / 宋体, each
   with its own font stack, ink, tracking and second strike) on two axes, twelve palette tiles whose
   labels name both; the characters are the station's own name, capped at eight and never blank; the
@@ -2815,7 +2813,7 @@ the clock cannot disagree with each other or with the dispatcher, which asks the
 for its headway.
 
 **The authored day is four fields of the station document**, all of them set in the floating
-**时刻 · 客流** window (§9.6C, opened by pressing the clock card) and all of them carried in the
+**客流** window (§9.6C, opened by pressing the clock card) and all of them carried in the
 save beside the name and the seed:
 
 | field | what it is | default |
@@ -2926,7 +2924,7 @@ skipped, and §7.6 determinism is untouched because the step size never moves.
   three places, and §7.9's fast-forward — "headless worker ticks with no rendering, a full
   day in a few seconds" — is not what this is: the crowd still draws at 64×, and the sim
   takes whatever rate its own tick cost allows (a tick every 15.6 ms is what 64× asks for).
-* **The day is authored from a floating 时刻 · 客流 window, and its default window is 06:30–23:30.**
+* **The day is authored from a floating 客流 window, and its default window is 06:30–23:30.**
   §9.6C puts 营业时间, 高峰时段, 客流曲线 and 日期类型 in the bottom rail's 时刻 panel as a 05:30–24:00
   dual slider, a 24-point spline editor and a dropdown; the bottom rail has no 时刻 tab yet, so
   pressing the 信息栏's clock card opens a floating window with the same four inputs in its place
@@ -3066,3 +3064,7 @@ Headways are seconds; the three cards round remaining seconds up to minutes. Eac
 its nearest track and that track's direction/terminus. The blue layout keeps a full-width
 service strip and simulation date/clock below the video; it refreshes from each worker frame
 and only uploads a texture when its printed information changes.
+
+`hanger.test.mjs` covers 挂架: roof suspended and central post supports in 4/6/8m, roof attachments, sign/clock/TV mounting, rotated steel geometry, open walking space, post footing, preview identity and save/load.
+
+装饰 → 挂架只有吊装与立柱两个变体。选中后用动作栏的旋转和短／中／长（4m／6m／8m）设置横杆；吊装两端连接屋顶或顶板，立柱款在横杆中央落一根钢柱至地面。指示牌、时钟、电视、监控可挂在横杆下，指示牌与电视的方向须沿横杆，且两根吊杆都在横杆范围内。

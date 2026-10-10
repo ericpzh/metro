@@ -1,6 +1,6 @@
 // Concept 06 — the crowd's demand.
 //
-// The screenshots are the game's own **时刻 · 客流** window, photographed by
+// The screenshots are the game's own **客流** window, photographed by
 // `tools/render-ui-shots.mjs` in the four states the calendar derives — 节假日 /
 // 工作日 / 周六 / 周日 — by pressing the window's own day buttons. So the curve, the
 // grips, the knobs and the calendar are the ones a player authors the day with.

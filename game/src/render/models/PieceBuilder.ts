@@ -5,6 +5,7 @@
 // builders that own them; only genuinely-shared geometry lives here.
 
 import * as THREE from 'three'
+import { drawDesktopScreen } from './desktopScreen.ts'
 import type { FenceArms } from '../../sim/fences.ts'
 import { PANEL_SIZE, makeSignBoards, signPlate } from '../../sim/sign.ts'
 import type { SignBoards, SignLayout, SignPanelSize } from '../../sim/sign.ts'
@@ -31,6 +32,8 @@ export const C = {
   orange: 0xf0a128,
   /** Third-rail / catenary warning yellow, matching the art kit's `C.psu`. */
   psu: 0xf0c000,
+  /** 盲道 tiles — dark grey-green, not safety yellow. */
+  tactile: 0x505b4b,
   white: 0xeef1f4,
   exitRed: 0xc22f28,
   glass: 0xa8d8e6,
@@ -89,6 +92,8 @@ export interface ModelMaterials {
   orange: THREE.MeshStandardMaterial
   /** Warning yellow for the third rail and catenary fittings. */
   psu: THREE.MeshStandardMaterial
+  /** 盲道 tiles — dark grey-green. */
+  tactile: THREE.MeshStandardMaterial
   white: THREE.MeshStandardMaterial
   exitRed: THREE.MeshStandardMaterial
   glass: THREE.MeshStandardMaterial
@@ -118,6 +123,8 @@ export interface ModelMaterials {
   taillight: THREE.MeshBasicMaterial
   /** Unlit canvases: LCD panels, LED strips, printed headers. */
   screen: THREE.MeshBasicMaterial
+  /** Office and checkout computer desktop; the TVM keeps its ticketing screen. */
+  desktopScreen: THREE.MeshBasicMaterial
   /**
    * The 自动贩卖机 front control strip: the 刷脸支付 header, the promo card, the
    * payment panel, the keypad and the dispenser mouth, printed as one unlit
@@ -650,6 +657,7 @@ export function createModelMaterials(): ModelMaterials {
     blue: new THREE.MeshStandardMaterial({ color: C.blue, roughness: 0.3, metalness: 0.2 }),
     orange: new THREE.MeshStandardMaterial({ color: C.orange, roughness: 0.4, metalness: 0.1 }),
     psu: new THREE.MeshStandardMaterial({ color: C.psu, roughness: 0.5, metalness: 0.15 }),
+    tactile: new THREE.MeshStandardMaterial({ color: C.tactile, roughness: 0.7, metalness: 0.05 }),
     white: new THREE.MeshStandardMaterial({ color: C.white, roughness: 0.45, metalness: 0.05 }),
     exitRed: new THREE.MeshStandardMaterial({ color: C.exitRed, roughness: 0.4, metalness: 0.35 }),
     glass,
@@ -673,6 +681,7 @@ export function createModelMaterials(): ModelMaterials {
     headlight: new THREE.MeshBasicMaterial({ color: 0xfff6e2 }),
     taillight: new THREE.MeshBasicMaterial({ color: 0xff2318 }),
     screen: new THREE.MeshBasicMaterial({ map: canvasTexture(128, 96, (g) => g.drawImage(lcdCanvas(), 0, 0)), side: THREE.DoubleSide }),
+    desktopScreen: new THREE.MeshBasicMaterial({ map: canvasTexture(256, 160, drawDesktopScreen), side: THREE.DoubleSide }),
     vendingPanel: new THREE.MeshBasicMaterial({ map: canvasTexture(128, 576, (g) => g.drawImage(vendingPanelCanvas(), 0, 0)), side: THREE.DoubleSide }),
     vendingBase: new THREE.MeshBasicMaterial({ map: canvasTexture(384, 96, (g) => g.drawImage(vendingBaseCanvas(), 0, 0)), side: THREE.DoubleSide }),
     // The fallback 指示牌 face, for a caller with no station document behind it:
@@ -1064,10 +1073,24 @@ export function ownedMaterial<T extends THREE.Material>(ctx: ModuleContext, mat:
 
 /* ----------------------------------------------------------------- fence */
 
-/** One fence post: a base plate and the 1 m steel upright over it. */
+/** Round stainless tubes, as in the station railings (§5.2). */
+function fenceTube(g: THREE.Group, mat: THREE.Material, from: [number, number, number], to: [number, number, number], radius: number): void {
+  const a = new THREE.Vector3(...from)
+  const b = new THREE.Vector3(...to)
+  const delta = b.clone().sub(a)
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, delta.length(), 12), mat)
+  mesh.position.copy(a.add(b).multiplyScalar(0.5))
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize())
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  g.add(mesh)
+}
+
+/** Floor shoe, upright and two glass clamps on a stainless fence post. */
 export function fencePost(g: THREE.Group, mats: ModelMaterials, x: number, y: number): void {
-  slab(g, mats.darkSteel, x, y, 0.02, 0.16, 0.16, 0.04)
-  slab(g, mats.steel, x, y, 0.5, 0.08, 0.08, 1.0)
+  slab(g, mats.steel, x, y, 0.018, 0.11, 0.11, 0.036)
+  fenceTube(g, mats.steel, [x, y, 0.035], [x, y, 0.97], 0.026)
+  for (const z of [0.23, 0.78]) slab(g, mats.steel, x, y, z, 0.075, 0.055, 0.035)
 }
 
 /**
@@ -1076,35 +1099,62 @@ export function fencePost(g: THREE.Group, mats: ModelMaterials, x: number, y: nu
  * and by the fence half of a **doorless** 闸机, so a run drawn across both reads
  * as one barrier. The arms are in cell-centre metres, ±0.5 being a cell edge.
  */
-export function drawFence(g: THREE.Group, mats: ModelMaterials, arms: FenceArms, centrePost = true): void {
+export function drawFence(g: THREE.Group, mats: ModelMaterials, arms: FenceArms, centrePost = true, variant: 'glass' | 'gate' | 'iron' = 'glass'): void {
   const { x0, x1, y0, y1, capE, capW, capN, capS } = arms
-  // A panel run along X from x0 to x1 through the centre: top and bottom rails
-  // with the glass between them. The glass spans the run exactly, so consecutive
-  // cells' glass meets at the shared edge and the centre posts cover the seam.
-  const railX = (a: number, b: number): void => {
+  const gate = variant === 'gate'
+  const iron = variant === 'iron'
+  // Glass is held by clamps with an exposed lower edge. The gate raises the
+  // leaf and omits the sill and middle upright, keeping the ground decal clear.
+  const rail = (a: number, b: number, alongY: boolean): void => {
     const len = b - a
-    const cx = (a + b) / 2
-    slab(g, mats.steel, cx, 0, 0.955, len, 0.07, 0.09)
-    slab(g, mats.steel, cx, 0, 0.06, len, 0.07, 0.08)
-    slab(g, mats.glass, cx, 0, 0.52, len, 0.03, 0.76)
+    const at = (s: number, z: number): [number, number, number] => alongY ? [0, s, z] : [s, 0, z]
+    fenceTube(g, mats.steel, at(a, 0.97), at(b, 0.97), 0.029)
+    if (iron) {
+      fenceTube(g, mats.steel, at(a, 0.13), at(b, 0.13), 0.019)
+      const count = Math.max(1, Math.round(len / 0.125))
+      for (let i = 0; i < count; i++) {
+        const s = a + (i + 0.5) * len / count
+        fenceTube(g, mats.steel, at(s, 0.13), at(s, 0.945), 0.012)
+      }
+    } else {
+      const bottom = gate ? 0.2 : 0.11
+      const height = 0.89 - bottom
+      const mid = (a + b) / 2
+      slab(g, mats.glass, alongY ? 0 : mid, alongY ? mid : 0, bottom + height / 2,
+        alongY ? 0.012 : len - 0.012, alongY ? len - 0.012 : 0.012, height)
+      // Paired clamps hold the panel without a heavy bottom crossbar.
+      for (const s of [a + 0.045, b - 0.045]) {
+        for (const z of [bottom + 0.07, 0.78]) {
+          slab(g, mats.steel, alongY ? 0 : s, alongY ? s : 0, z, alongY ? 0.044 : 0.055, alongY ? 0.055 : 0.044, 0.032)
+        }
+      }
+      if (gate) {
+        // Raised leaf edge, hinge barrels and latch distinguish the 门.
+        fenceTube(g, mats.steel, at(a + 0.04, 0.2), at(b - 0.04, 0.2), 0.018)
+        for (const z of [0.3, 0.77]) fenceTube(g, mats.steel, at(a + 0.045, z - 0.045), at(a + 0.045, z + 0.045), 0.038)
+        const [x, y] = at(b - 0.09, 0.76)
+        slab(g, mats.darkSteel, x, y, 0.76, alongY ? 0.065 : 0.1, alongY ? 0.1 : 0.065, 0.035)
+      }
+    }
   }
-  const railY = (a: number, b: number): void => {
-    const len = b - a
-    const cy = (a + b) / 2
-    slab(g, mats.steel, 0, cy, 0.955, 0.07, len, 0.09)
-    slab(g, mats.steel, 0, cy, 0.06, 0.07, len, 0.08)
-    slab(g, mats.glass, 0, cy, 0.52, 0.03, len, 0.76)
-  }
-  if (x1 - x0 > 1e-6) railX(x0, x1)
-  if (y1 - y0 > 1e-6) railY(y0, y1)
+  if (x1 - x0 > 1e-6) rail(x0, x1, false)
+  if (y1 - y0 > 1e-6) rail(y0, y1, true)
   // Posts: the centre joint — a plain 围栏 cell's own; the fence half of a
   // doorless 闸机 stands its jamb post against the machine instead — plus an end
   // post on every capped end.
-  if (centrePost) fencePost(g, mats, 0, 0)
-  if (capE) fencePost(g, mats, 0.46, 0)
-  if (capW) fencePost(g, mats, -0.46, 0)
-  if (capN) fencePost(g, mats, 0, 0.46)
-  if (capS) fencePost(g, mats, 0, -0.46)
+  const post = (x: number, y: number): void => {
+    if (!iron) return fencePost(g, mats, x, y)
+    fenceTube(g, mats.steel, [x, y, 0.035], [x, y, 0.97], 0.024)
+    // Portable iron barrier feet run across the railing, like the reference.
+    const alongY = Math.abs(y) > 0 || (x1 === x0 && y1 > y0)
+    fenceTube(g, mats.steel, [x - (alongY ? 0.18 : 0), y - (alongY ? 0 : 0.18), 0.035],
+      [x + (alongY ? 0.18 : 0), y + (alongY ? 0 : 0.18), 0.035], 0.022)
+  }
+  if (centrePost && !gate) post(0, 0)
+  if (capE || (gate && x1 > 0)) post(0.46, 0)
+  if (capW || (gate && x0 < 0)) post(-0.46, 0)
+  if (capN || (gate && y1 > 0)) post(0, 0.46)
+  if (capS || (gate && y0 < 0)) post(0, -0.46)
 }
 
 /**

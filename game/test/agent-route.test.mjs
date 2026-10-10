@@ -304,6 +304,16 @@ function agentBuffer(agents) {
   return buf
 }
 
+test('the crowd figure is scaled to a 1.5 m person', () => {
+  const crowd = crowdSystem()
+  crowd.agents.geometry.computeBoundingBox()
+  crowd.heads.geometry.computeBoundingBox()
+  const bodyTop = crowd.agents.geometry.boundingBox.max.z
+  const personTop = crowd.heads.geometry.boundingBox.max.z
+  assert.ok(bodyTop > 1 && bodyTop < 1.1, `torso reaches the shoulders (${bodyTop.toFixed(3)} m)`)
+  assert.ok(Math.abs(personTop - 1.5) < 0.02, `head reaches a human-scale height (${personTop.toFixed(3)} m)`)
+})
+
 test('the route is drawn as a ribbon and ringed at its destination', () => {
   const crowd = crowdSystem()
   const points = new Float32Array([0, 0, B2 + 1, 5, 0, B2 + 1, 5, 6, B2 + 1])

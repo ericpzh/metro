@@ -3,7 +3,7 @@
 // the global keyboard shortcuts and the notice toast. Kept under the App name
 // so the old import path (via the App.tsx barrel) keeps working.
 import { useEffect } from 'react'
-import { useStore, isBenchType, isEscalatorType, isGateType, isRotatableType, isStairType } from '../store.ts'
+import { useStore, isBenchType, isDoorType, isEscalatorType, isGateType, isRotatableType, isStairType } from '../store.ts'
 import { LeftRail } from '../LeftRail.tsx'
 import { Viewport, isTypingTarget } from '../Viewport.tsx'
 import { SignEditor } from '../SignEditor.tsx'
@@ -178,10 +178,12 @@ export function App(): React.ReactElement {
           else if (st.tool === 'module' && st.moduleType === 'bridge') st.cycleBridgeLength()
           else if (st.tool === 'module' && st.moduleType.startsWith('pillar')) st.togglePillarLength()
           else if (st.tool === 'module' && isStairType(st.moduleType)) st.cycleStairWidth()
+          else if (st.tool === 'module' && isDoorType(st.moduleType)) st.toggleDoorWidth()
           else if (st.tool === 'module' && isBenchType(st.moduleType)) st.cycleBenchWidth()
           else if (st.tool === 'module' && (st.moduleType === 'roof-shell' || st.moduleType === 'roof-truss' || st.moduleType === 'roof-tapered')) st.cycleRoofWidth()
           else if (st.tool === 'module' && isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
           else if (st.tool === 'module' && st.moduleType === 'lift') st.cycleLiftStyle()
+          else if (st.tool === 'module' && (st.moduleType === 'hanger-roof' || st.moduleType === 'hanger-post')) st.cycleHangerLength()
           else if (st.tool === 'module' && st.moduleType === 'curtain-wall') st.cycleCurtainWidth()
           else if (st.tool === 'module' && st.moduleType === 'psd-end') st.cyclePsdEndHeight()
           else if (st.tool === 'module' && isGateType(st.moduleType)) st.cycleGateDoor()

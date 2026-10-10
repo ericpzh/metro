@@ -127,7 +127,7 @@ test('every 设备 / 装饰 type a sweep may collect is listed', () => {
   // The list is deliberately explicit: adding a palette piece without deciding
   // its teardown leaves it un-sweepable (a safe default), and this test is where
   // that decision is written down.
-  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'guidepost', 'busstop', 'bin', 'extinguisher', 'vent', 'light', 'clock', 'cctv', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign', 'psd-end', 'floor-mark', 'ac-unit', 'electrical-cabinet']
+  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'checkout', 'cubicle', 'sink', 'guidepost', 'busstop', 'bin', 'extinguisher', 'vent', 'light', 'clock', 'cctv', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign', 'psd-end', 'floor-mark', 'ac-unit', 'electrical-cabinet']
   // A 灯具 and a 公交站 only exist with a variant, so the list entry carries
   // the palette default the piece is drawn as — and so do the 屏蔽端门 and the
   // 地面指示, whose sweep family is their height and their marking.

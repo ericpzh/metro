@@ -20,7 +20,7 @@ import { artHeroBanded as artHero } from './sheet-01-hero-banded.mjs';
 // rendered square-on by the same pass that draws sheet 11, with the numbers read out of
 // `sim/stock.ts` and `sim/constants.ts`.
 import { artTrains } from './sheet-05-trains.mjs';
-// 06 is the game's own 时刻 · 客流 window, photographed in the four day types the
+// 06 is the game's own 客流 window, photographed in the four day types the
 // calendar derives, and its numbers are `sim/demand.ts` and `sim/clock.ts` verbatim —
 // imported, not copied, so a retuned knob moves the sheet's text too.
 import { artDemand } from './sheet-06-demand.mjs';

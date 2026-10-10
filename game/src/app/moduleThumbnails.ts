@@ -289,7 +289,9 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'psd-end':
       return createModule('psd-end', 0, 0, 0, id)
     case 'fence':
-      return { id, type: 'fence', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'fence-gate':
+    case 'fence-iron':
+      return createModule(id, 0, 0, 0, id)
     case 'tvm':
       return { id, type: 'tvm', x: 0, y: 0, z: 0, cfg: {} }
     case 'vending':
@@ -313,6 +315,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'shelf', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: shelfVariant(id.slice(6)) } }
     case 'desk':
       return { id, type: 'desk', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'checkout':
+      return { id, type: 'checkout', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'cubicle':
       return { id, type: 'cubicle', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'sink':
@@ -445,7 +449,9 @@ function sampleModule(id: string, station: StationData): Module | null {
       const covered = parts[1] !== 'uncovered'
       const n = Number(parts[2])
       const bays: ExitBays = n === 1 || n === 3 ? n : 2
-      return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'C口', inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } }
+      // Thumbnail turn: the head-house doorway is local +y, away from the ISO
+      // camera at (1, -1.2, 0.85), so rot 2 turns the exit 180° about Z to face outwards.
+      return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 2, cfg: { name: 'C口', inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } }
     }
     case 'platform-edge': {
       const line = station.lines[0]
