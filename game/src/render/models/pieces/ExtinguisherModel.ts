@@ -1,7 +1,7 @@
 // Fire-extinguisher cabinet (灭火器) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, slab, plate, placeLocal } from '../PieceBuilder.ts'
+import { PieceBuilder, slab, plate, placeLocalAtEdge } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 
@@ -45,7 +45,7 @@ function buildExtinguisher(mats: ModelMaterials): THREE.Group {
 export class ExtinguisherModel extends PieceBuilder {
   readonly kind = 'extinguisher'
   build(mod: Extract<Module, { type: 'extinguisher' }>): THREE.Group {
-    return placeLocal(buildExtinguisher(this.ctx.mats), mod)
+    return placeLocalAtEdge(buildExtinguisher(this.ctx.mats), mod, 0.534)
   }
 }
 

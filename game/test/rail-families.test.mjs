@@ -12,6 +12,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CUT_MODES,
+  FACILITY_OPTIONS,
   MODULE_FAMILIES,
   MODULE_OPTIONS,
   actionRowOpen,
@@ -44,10 +45,10 @@ import {
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 13)
+  assert.equal(MODULE_FAMILIES.length, 17)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
+    ['cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
@@ -108,7 +109,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
   }
   assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['stair', 'exit'])
   assert.deepEqual(familiesIn('rail').map((f) => f.key), ['roof', 'pillar'])
-  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['busstop', 'light', 'bench', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
+  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['cctv', 'tactile', 'floor-mark', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
   // **The id has to answer as the type does.** The rail and the placement tool hold a
   // palette **id**, not a module: `LeftRail` folds the folder open by `isDecorType(moduleType)`
   // and `EquipmentTool` asks the same predicate before its 装饰 right-click guard. A family
@@ -162,15 +163,18 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
   assert.deepEqual(anchors('decor'), [
     familyAnchor('sign'), familyAnchor('billboard'),
     familyAnchor('bench'), familyAnchor('calligraphy'),
+    familyAnchor('tactile'), familyAnchor('floor-mark'),
     familyAnchor('linemap'), 'tv',
+    'psd-end', 'curtain-wall',
     'bin', 'extinguisher',
-    'clock', 'cctv',
-    'shelf', 'desk',
+    'clock', familyAnchor('cctv'),
+    familyAnchor('shelf'), 'desk',
     familyAnchor('glass'),
     familyAnchor('door'),
     'cubicle', 'sink',
     familyAnchor('light'), 'vent',
     'guidepost', familyAnchor('busstop'),
+    'ac-unit', 'electrical-cabinet',
   ])
   assert.deepEqual(anchors('equipment'), [
     'gate', 'fence',
@@ -387,18 +391,26 @@ test('the armed thing names the tile the rail scrolls to', () => {
   assert.equal(armed({ tool: 'delete' }), null)
 })
 
-test('the 分区 folder is its zone list, 无分区 included, and that tile erases', () => {
-  // The folder draws one tile per zone in `ZONE_LIST`, and the header's count is
-  // that list's length — so a new zone, or a lost 无分区 tile, moves the number with
-  // it. 无分区 is the one tile that is *not* a slab: arming it takes a label off
-  // rather than writing one (`isEraseBrush`), which is why the folder's grid and the
-  // card's chip row both branch on it.
-  assert.equal(zoneFolderTiles(), ZONE_LIST.length)
+test('the 分区 folder is its zone list plus the three room brushes, 无分区 included, and that tile erases', () => {
+  // The folder draws one tile per zone in `ZONE_LIST` plus the three walled-room
+  // brushes (商店 / 厕所 / 办公室 — 售票亭 and 问讯处 stay in 房间), and the
+  // header's count is that sum — so a new zone, a lost 无分区 tile or a missing
+  // room brush moves the number with it. 无分区 is the one tile that is *not* a
+  // slab: arming it takes a label off rather than writing one (`isEraseBrush`),
+  // which is why the folder's grid and the card's chip row both branch on it.
+  assert.equal(zoneFolderTiles(), ZONE_LIST.length + 3)
   assert.equal(ZONE_LIST[0].id, 'none', '无分区 leads: it is the state an unpainted cell is in')
-  assert.equal(zoneFolderTiles(), 6)
+  assert.equal(zoneFolderTiles(), 9)
+  assert.deepEqual(
+    FACILITY_OPTIONS.filter((f) => f.id !== 'ticket' && f.id !== 'info').map((f) => f.id),
+    ['store', 'toilet', 'office'],
+    'the three room brushes are the facility options outside 售票亭 / 问讯处',
+  )
   assert.equal(isEraseBrush('none'), true)
   assert.equal(isEraseBrush('paid'), false)
+  assert.equal(isEraseBrush('store'), false, 'a room brush paints a room, it does not erase')
   assert.equal(isFacilityBrush('none'), false, 'and it is not a room brush either')
+  assert.equal(isFacilityBrush('toilet'), true)
   // Every other zone is a slab the folder renders: 无分区 is the only one without a
   // thumbnail of its own (`app/zoneThumbnails.ts` skips it).
   assert.equal(ZONE_LIST.filter((z) => z.id !== 'none').length, 5)

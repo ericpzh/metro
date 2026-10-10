@@ -93,7 +93,7 @@ export class ZoneTool extends ToolController {
       if (fac) {
         st.commit(removeFacility(st.station, fac.id))
         st.select(null)
-        st.setNotice(`已拆掉${moduleLabel(fac.type)}`)
+        st.setNotice(`已拆掉${moduleLabel(fac.type, fac.type === 'booth' ? fac.cfg.kind : undefined)}`)
         return
       }
       if (hit.solid) this.bulldoze(hit.cell, hit.place, this.facing())

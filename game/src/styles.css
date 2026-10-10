@@ -556,6 +556,19 @@ button.ghost:hover {
   object-fit: contain;
   pointer-events: none;
 }
+
+/* Station names keep their real black lettering against a light backing in the palette. */
+[data-tile="__calligraphy"] .bpBlockArt,
+[data-tile^="calligraphy-"] .bpBlockArt {
+  background: #e5e8e6;
+  border-radius: 4px;
+}
+.floorLineTiles {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
 .bpBlockArt svg {
   width: 34px;
   height: 34px;

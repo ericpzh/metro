@@ -35,7 +35,9 @@ import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../sim/linemaps.ts'
 import { liftModule } from '../sim/lifts.ts'
 import { stairFlightsFor, type StairStyle } from '../sim/stairs.ts'
 import { BILLBOARD_SPECS, posterFor, type AdPoster } from '../sim/billboards.ts'
+import { shelfVariant } from '../sim/shelves.ts'
 import { benchSpec } from '../sim/benches.ts'
+import { createModule } from '../build/model.ts'
 import type { BenchVariant, BillboardShape, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GlassVariant, LineMapVariant, Module, StationData, Vec3i } from '../sim/types.ts'
 import { MODULE_OPTIONS } from './store.ts'
 
@@ -165,6 +167,8 @@ const FRONT = new THREE.Vector3(1, 1.15, 0.8).normalize()
 const CLOCK = new THREE.Vector3(0.9, 0.75, -0.55).normalize()
 /** The 监控's readable angle: its lens front and a little below it. */
 const CEILING = new THREE.Vector3(1, 1, -0.17).normalize()
+/** Camera optics face local −y; look from that side and below the dome. */
+const CCTV = new THREE.Vector3(0.8, -1, -0.5).normalize()
 
 /**
  * The poster each silhouette's palette thumbnail shows. Fixed rather than
@@ -209,7 +213,8 @@ function viewDir(id: string): THREE.Vector3 {
   // below the piece. A 监控 reads from the front and slightly below, where its lens
   // and hood are.
   if (id === 'clock') return CLOCK
-  if (id === 'cctv' || id === 'vent' || id.startsWith('light-')) return CEILING
+  if (id === 'cctv' || id.startsWith('cctv-')) return CCTV
+  if (id === 'vent' || id.startsWith('light-')) return CEILING
   // A backed seat reads best from the front (its cushions and arms), but the
   // backless stainless bench has nothing to hide and looks best on the lit
   // isometric angle.
@@ -281,6 +286,8 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'gate':
       // The palette tile shows the default lane gate; the choice itself is Tab.
       return { id, type: 'gate', x: 0, y: 0, z: 0, rot: 0, cfg: { dir: 'both', door: 'lane' } }
+    case 'psd-end':
+      return createModule('psd-end', 0, 0, 0, id)
     case 'fence':
       return { id, type: 'fence', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'tvm':
@@ -297,7 +304,13 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'bench', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant } }
     }
     case 'shelf':
-      return { id, type: 'shelf', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'shelf-dark-tall':
+    case 'shelf-white-tall':
+    case 'shelf-white-short':
+    case 'shelf-wire':
+    case 'shelf-cooler':
+    case 'shelf-cooler-dark':
+      return { id, type: 'shelf', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: shelfVariant(id.slice(6)) } }
     case 'desk':
       return { id, type: 'desk', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'cubicle':
@@ -321,7 +334,9 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'clock':
       return { id, type: 'clock', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'cctv':
-      return { id, type: 'cctv', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'cctv-ptz':
+    case 'cctv-dome':
+      return { id, type: 'cctv', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: id === 'cctv-ptz' ? 'ptz' : id === 'cctv-dome' ? 'dome' : 'bullet' } }
     case 'billboard-wide':
     case 'billboard-standard':
     case 'billboard-large':
@@ -339,6 +354,8 @@ function sampleModule(id: string, station: StationData): Module | null {
     }
     case 'tv':
       return { id, type: 'tv', x: 0, y: 0, z: 0, rot: 0, cfg: { poster: SILHOUETTE_POSTER.landscape.slug } }
+    case 'curtain-wall':
+      return createModule('curtain-wall', 0, 0, 0, id)
     case 'glass':
     case 'glass-1x1':
     case 'glass-2x1':
@@ -465,7 +482,7 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'stair-left180':
       return sampleStair('left180')
     default:
-      return null
+      return createModule(id, 0, 0, 0, id, 0)
   }
 }
 
@@ -519,7 +536,7 @@ function objectBox(root: THREE.Object3D): THREE.Box3 {
  * is the middle of an empty storey below the hardware (see `viewDir`).
  */
 function aimPoint(id: string, sphere: THREE.Sphere): THREE.Vector3 {
-  if (id === 'clock' || id === 'cctv') {
+  if (id === 'clock') {
     return sphere.center.clone().add(new THREE.Vector3(0, 0, sphere.radius * 0.42))
   }
   return sphere.center.clone()

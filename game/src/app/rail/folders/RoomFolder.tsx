@@ -15,7 +15,7 @@ export function RoomFolder(): React.ReactElement {
   const st = useStore.getState
   return (
     <div className="blockGrid">
-      {FACILITY_OPTIONS.map((f) => (
+      {FACILITY_OPTIONS.filter((f) => f.id === 'ticket' || f.id === 'info').map((f) => (
         <Block
           key={f.id}
           label={f.label}

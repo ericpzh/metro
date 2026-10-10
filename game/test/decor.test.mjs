@@ -146,7 +146,7 @@ function build(mod) {
 /** One mesh's box in the same cell frame as `build`'s group box. */
 const meshBox = (mesh) => new THREE.Box3().setFromObject(mesh).translate(new THREE.Vector3(-0.5, -0.5, -1))
 
-test('the bin is a double stainless bin: two mouths, one printed band, symmetric', () => {
+test('the bin is an enclosed stainless cabinet: two hopper mouths, one sticker plate, symmetric', () => {
   const { mats, meshes, box } = build(bin(0, 0))
   // It fits the cell it reserves and stands on the floor, exactly as tall as its
   // collision envelope says.
@@ -154,19 +154,33 @@ test('the bin is a double stainless bin: two mouths, one printed band, symmetric
   assert.ok(box.min.y >= -0.5 && box.max.y <= 0.5, 'fits the cell in depth')
   assert.ok(Math.abs(box.min.z) < 1e-6, 'stands on the floor')
   assert.ok(Math.abs(box.max.z - BIN_H) < 1e-6, `drawn height is the reserved ${BIN_H} m`)
-  // Two compartments: two dark mouths recessed into the top, astride the centre
-  // bar, and the shell symmetric about x because they are.
-  const mouths = meshes.filter((m) => m.material === mats.black && m.position.z > 0.8)
-  assert.equal(mouths.length, 2, 'two bin mouths')
-  assert.ok(Math.sign(mouths[0].position.x) === -Math.sign(mouths[1].position.x), 'one each side of centre')
+  // Two streams: a dark well under each hopper mouth, one each side of the
+  // centre, and the shell symmetric about x because they are.
+  const wells = meshes.filter((m) => m.material === mats.black)
+  assert.equal(wells.length, 2, 'two mouths, each with its dark well')
+  assert.ok(Math.sign(wells[0].position.x) === -Math.sign(wells[1].position.x), 'one each side of centre')
   assert.ok(Math.abs(box.min.x + box.max.x) < 1e-6, 'the shell is symmetric')
-  // The stainless shell is the body, and the printed band is a decal on its front
-  // (local −y) that stands proud of the shell rather than coplanar with it.
-  assert.ok(meshes.filter((m) => m.material === mats.steel).length >= 6, 'the shell is steel')
-  const decals = meshes.filter((m) => m.material === mats.binLabels)
-  assert.equal(decals.length, 1, 'one printed 可回收物 / 其它垃圾 band')
-  assert.ok(decals[0].position.y < 0, 'the band faces the local −y front')
-  assert.ok(decals[0].position.y <= box.min.y + 1e-9, 'the decal is proud of the shell')
+  // The enclosed shell is stainless, and the sorting stickers are one plate on
+  // its front (local −y) that stands proud of the shell rather than coplanar
+  // with it.
+  assert.ok(meshes.filter((m) => m.material === mats.binSteel).length >= 8, 'the cabinet is stainless steel')
+  const stickers = meshes.filter((m) => m.material === mats.binLabels)
+  assert.equal(stickers.length, 1, 'one printed sorting-sticker plate')
+  assert.equal(stickers[0].geometry.parameters.width, 0.76, 'the plate spans the cabinet front')
+  assert.equal(stickers[0].geometry.parameters.height, 0.57, 'and most of its height')
+  assert.ok(stickers[0].position.y < 0, 'the plate faces the local −y front')
+  // The plate floats just off the front panel — close enough to read as printed
+  // on it, far enough that the two surfaces never z-fight. The face is the
+  // front-most stainless box at the plate's own height (the jutting sill is at
+  // foot level, below the plate).
+  const atPlateHeight = meshes.filter((m) =>
+    m.material === mats.binSteel &&
+    m.geometry.type === 'BoxGeometry' &&
+    m.position.z - m.geometry.parameters.depth / 2 < 0.49 &&
+    m.position.z + m.geometry.parameters.depth / 2 > 0.49)
+  const face = Math.min(...atPlateHeight.map((m) => m.position.y - m.geometry.parameters.height / 2))
+  const standOff = face - stickers[0].position.y
+  assert.ok(standOff > 0 && standOff < 0.01, `the plate stands ${standOff} m off the front panel`)
 })
 
 test('the 灭火器箱 is a red steel box on four legs, lettered in white', () => {

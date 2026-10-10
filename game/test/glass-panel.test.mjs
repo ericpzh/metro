@@ -68,7 +68,7 @@ test('nine sizes share one table: wall panels and tall floor-edge panels', () =>
   // Every palette id is a real size, and every size is in the palette: a tile that
   // names a variant the table does not have is a piece that cannot be built.
   const paletteIds = MODULE_OPTIONS.filter((m) => isGlassType(m.id)).map((m) => m.id)
-  assert.deepEqual(paletteIds, GLASS_VARIANTS.map((v) => `glass-${v}`), 'one tile per size')
+  assert.deepEqual(paletteIds, GLASS_VARIANTS.filter((v) => !v.endsWith('x4')).map((v) => `glass-${v}`), 'wall sizes stay in the glass submenu')
   for (const v of GLASS_VARIANTS) {
     const spec = glassSpec(v)
     assert.equal(spec.variant, v)

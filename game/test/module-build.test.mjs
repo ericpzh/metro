@@ -61,6 +61,7 @@ const { LIFT_STEP, LIFT_RISE, liftModule } = await import('../src/sim/lifts.ts')
 const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
+const { TrainSystem } = await import('../src/render/scene/systems/TrainSystem.ts')
 
 const LINE = {
   id: '5',
@@ -284,14 +285,14 @@ const PIECES = [
   ['座椅 不锈钢 2m', palette('bench-steel-2'), 7, '1.9×0.415×0.49'],
   ['座椅 靠背 1m', palette('bench-seat-1'), 13, '1.04×0.685×1.105'],
   ['座椅 连排 2m', palette('bench-seat-2'), 21, '2.04×0.685×1.105'],
-  ['货架', palette('shelf'), 20, '0.99×0.5×1.9'],
+  ['货架', palette('shelf'), 25, '0.96×0.5×1.9'],
   ['办公桌', palette('desk'), 5, '1.1×0.95×0.77'],
   ['厕所隔间', palette('cubicle'), 31, '1.07×1.064×1.978'],
   ['洗手池', palette('sink'), 15, '0.689×0.585×1.042'],
-  ['垃圾桶', palette('bin'), 18, '0.88×0.433×0.95'],
+  ['垃圾桶', palette('bin'), 28, '0.88×0.42×0.95'],
   ['灭火器', palette('extinguisher'), 13, '0.743×0.487×1.1'],
   ['时钟', palette('clock'), 131, '0.8×0.236×1.05'],
-  ['监控', palette('cctv'), 14, '0.298×0.429×0.463'],
+  ['监控 枪机', palette('cctv'), 24, '0.31×0.369×0.48'],
   ['灯具 圆形', palette('light-circular'), 2, '0.5×0.5×0.08'],
   ['灯具 直条', palette('light-rectangular'), 2, '0.8×0.12×0.08'],
   ['通风口', palette('vent'), 14, '0.7×0.7×0.06'],
@@ -370,6 +371,31 @@ test('every piece the palette can lay draws a model, at the size it draws it', (
     assert.ok(built.meshes > 0, `${label}: a piece with no mesh is invisible in the station`)
     assert.equal(built.meshes, meshes, `${label}: mesh count`)
     assert.equal(built.size, size, `${label}: bounding box (x×y×z metres)`)
+  }
+})
+
+test('the bin has an enclosed front and both hoppers face into their openings in every rotation', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const { group, meshes, size } = build(palette('bin', rot))
+    assert.equal(meshes, 28)
+    assert.equal(size, rot % 2 ? '0.42×0.88×0.95' : '0.88×0.42×0.95')
+    const ray = new THREE.Raycaster()
+    const cast = (origin, direction) => {
+      ray.set(group.localToWorld(new THREE.Vector3(...origin)), new THREE.Vector3(...direction).applyQuaternion(group.quaternion))
+      return ray.intersectObject(group, true)[0]
+    }
+    assert.ok(cast([0, -0.5, 0.3], [0, 1, 0]), 'the lower front is a closed cabinet')
+    for (const cx of [-0.2085, 0.2085]) {
+      for (const [x, y] of [[cx, 0.12], [cx, -0.15], [cx - 0.17, 0], [cx + 0.17, 0]]) {
+        const hit = cast([x, y, 1.1], [0, 0, -1])
+        assert.ok(hit && hit.point.z > group.position.z + 0.755, 'each inclined hopper face is visible from the open mouth')
+        assert.ok(hit.face.normal.z > 0, 'the hopper faces upward into the cavity, without backface gaps')
+      }
+      assert.equal(cast([cx, 0, 1.1], [0, 0, -1]).object.material, mats.black, 'the mouth stays open onto its recessed dark well')
+    }
+    const decal = group.children.find((mesh) => mesh.material === mats.binLabels)
+    assert.equal(decal.geometry.parameters.height, 0.57, 'large sorting stickers occupy the front panel')
+    assert.ok(decal.position.y < -0.2, 'the stickers stand in front of the cabinet face')
   }
 })
 
@@ -458,6 +484,131 @@ test('the pieces the scene animates carry the handle it animates them by', () =>
 
   const shop = build(room('shop', 'store'))
   assert.ok(shop.meshKeys.has('wall'), 'every room wall panel is tagged, so the level slice knows it is a wall')
+})
+
+test('half-height screen caps slide clear with each door leaf', () => {
+  const { group } = build(edge('half'))
+  const caps = group.userData.doors.filter((m) => m.name === 'half-door-cap')
+  assert.ok(caps.length > 0, 'the low doors have moving black caps')
+  const before = caps.map((m) => m.position.x)
+  setDoors(group, 1)
+  caps.forEach((cap, i) => {
+    assert.equal(round(Math.abs(cap.position.x - before[i])), round(STOCK.B.doorWidth / 2), 'each cap travels a full leaf width')
+  })
+  const openingCentre = (before[0] + before[1]) / 2
+  group.updateMatrixWorld(true)
+  const ray = new THREE.Raycaster(new THREE.Vector3(openingCentre + group.position.x, group.position.y - 3, group.position.z + 1 + PSD_HALF_HEIGHT), new THREE.Vector3(0, 1, 0))
+  assert.equal(ray.intersectObject(group, true).length, 0, 'no fixed black rail crosses an open doorway')
+  setDoors(group, 0)
+  caps.forEach((cap, i) => assert.equal(cap.position.x, before[i], 'the cap returns with its door'))
+})
+
+test('train roofs share body paint and meet the cab without overlapping shells', () => {
+  for (const stock of ['A', 'B', 'C', 'L']) {
+    const g = buildTrain(mats, { x: 0, y: 0, z: 0, cars: 1, stock, doorsOpen: false, colour: '#1f5fd0', dirSign: 1, yaw: 0 })
+    g.updateMatrixWorld(true)
+    const roof = g.getObjectByName('car-roof')
+    assert.equal(roof.material, mats.trainBody, 'the roof uses the same paint as the body')
+    const roofBounds = box(roof)
+    g.traverse((o) => {
+      if (o.name !== 'cab-shell') return
+      const bounds = box(o)
+      if (o.position.x > 0) assert.ok(Math.abs(bounds.min.x - roofBounds.max.x) < 1e-5, 'front shell meets the roof at a single seam')
+      else assert.ok(Math.abs(bounds.max.x - roofBounds.min.x) < 1e-5, 'rear shell meets the roof at a single seam')
+    })
+  }
+})
+
+test('train motion interpolates every frame and resumes from the drawn pose', () => {
+  const ctx = { scene: new THREE.Scene(), modelMats: mats, levelBase: 0, lastStateTime: performance.now(), stateIntervalMs: 1000 }
+  const system = new TrainSystem(ctx)
+  system.level = { applyGroupLevel: (group) => { group.visible = true } }
+  const pose = (x) => new Float32Array([x, 0, 0, 1, 3, 0, 0xc8102e, 1, 0, 1])
+  system.setTrains(pose(0))
+  ctx.lastStateTime = performance.now()
+  system.setTrains(pose(10))
+  const train = system.trainGroup.children[0]
+  for (const [ms, x] of [[250, 2.5], [500, 5], [750, 7.5]]) {
+    system.updateTrains(ctx.lastStateTime + ms, 0)
+    assert.ok(Math.abs(train.position.x - x) < 1e-6, `the train should be at ${x} m between snapshots, got ${train.position.x}`)
+  }
+  ctx.lastStateTime = performance.now()
+  system.setTrains(pose(20))
+  system.updateTrains(ctx.lastStateTime + 500, 0)
+  assert.ok(Math.abs(train.position.x - 13.75) < 1e-6, 'an early snapshot continues from the last drawn 7.5 m pose')
+  system.setTrains(new Float32Array())
+  ctx.lastStateTime = performance.now()
+  system.setTrains(pose(-30))
+  assert.equal(train.position.x, -30, 'a new service starts at its approach pose instead of interpolating backward')
+  system.dispose()
+})
+
+test('half-height caps sit above white rails and keep a compact slide lane', () => {
+  const { group } = build(edge('half'))
+  const rails = group.children.filter((o) => o.name === 'psd-fixed-rail' || o.name === 'half-door-rail')
+  const caps = group.children.filter((o) => o.name === 'psd-fixed-cap' || o.name === 'half-door-cap')
+  for (const cap of caps) {
+    const bounds = box(cap)
+    assert.ok(Math.abs(bounds.min.z - (1 + PSD_HALF_HEIGHT)) < 1e-6, 'the cap starts at the white rail top instead of intersecting it')
+    assert.ok(bounds.getSize(new THREE.Vector3()).y < 0.101, 'the black cap is only 10 cm deep')
+  }
+  for (const rail of rails) assert.ok(Math.abs(box(rail).max.z - (1 + PSD_HALF_HEIGHT)) < 1e-6)
+  const pane = group.getObjectByName('psd-fixed-glass')
+  const moving = group.getObjectByName('psd-door-glass')
+  assert.ok(Math.abs(Math.abs(pane.position.y - moving.position.y) - 0.11) < 1e-6, 'the sliding pane sits 11 cm from the fixed pane')
+  for (const glass of [pane, moving]) {
+    assert.equal(glass.material.depthWrite, false, 'transparent glass cannot occlude another pane at grazing angles')
+    assert.equal(glass.geometry.type, 'PlaneGeometry', 'each pane draws a single glass surface')
+  }
+})
+
+test('the cabin carries formed benches, seat-end guards, straps and ceiling lighting', () => {
+  const g = buildTrain(mats, { x: 0, y: 0, z: 0, cars: 1, stock: 'L', doorsOpen: false, colour: '#c8102e', dirSign: 1, yaw: 0 })
+  for (const name of ['cabin-bench', 'seat-end-panel', 'seat-end-handrail', 'overhead-handrail', 'hanging-strap', 'cabin-centre-pole', 'cabin-ring-light', 'cabin-light-strip', 'cabin-floor']) {
+    assert.ok(g.getObjectByName(name), `the cabin is missing ${name}`)
+  }
+  assert.equal(g.getObjectByName('cabin-bench').material, mats.steel, 'the formed bench is stainless steel')
+  assert.equal(g.getObjectByName('seat-end-handrail').material, mats.gateRed, 'the seat-end handrail follows the red reference fittings')
+})
+
+test('train-door glazing sits in an aperture with no painted backing in any pose', () => {
+  const g = buildTrain(mats, { x: 0, y: 0, z: 0, cars: 1, stock: 'B', doorsOpen: false, colour: '#1f5fd0', dirSign: 1, yaw: 0 })
+  for (const t of [0, 0.5, 1]) {
+    setDoors(g, t)
+    g.updateMatrixWorld(true)
+    for (const leaf of g.userData.doors) {
+      const pane = leaf.getObjectByName('train-door-window')
+      assert.ok(pane, 'each train door has a glazed aperture')
+      const origin = leaf.localToWorld(new THREE.Vector3(0, -0.5, pane.position.z))
+      const ray = new THREE.Raycaster(origin, new THREE.Vector3(0, 1, 0))
+      assert.equal(ray.intersectObject(leaf, false).length, 0, 'no opaque painted surface backs the window')
+      assert.ok(ray.intersectObject(pane, false).length > 0, 'the window still contains a glass pane')
+    }
+  }
+})
+
+test('screen-door slide lanes clear fixed glass, posts and caps in every pose', () => {
+  for (const height of ['half', 'full']) {
+    for (const side of ['left', 'right']) {
+      const mod = edge(height)
+      mod.cfg.side = side
+      const { group } = build(mod)
+      const fixed = []
+      group.traverse((o) => { if (o.name.startsWith('psd-fixed-')) fixed.push(o) })
+      for (const t of [0, 0.25, 0.5, 1]) {
+        setDoors(group, t)
+        group.updateMatrixWorld(true)
+        for (const leaf of group.userData.doors) {
+          const movingBox = box(leaf)
+          for (const panel of fixed) {
+            const fixedBox = box(panel)
+            const gap = side === 'left' ? movingBox.min.y - fixedBox.max.y : fixedBox.min.y - movingBox.max.y
+            assert.ok(gap >= 0.0099, `${height}/${side}/${t}: moving fittings must clear the fixed screen by at least 1 cm, got ${gap}`)
+          }
+        }
+      }
+    }
+  }
 })
 
 test('the sizes that are contracts hold, and not just the numbers above', () => {
@@ -671,9 +822,10 @@ test('a consist is cars × carLength of body, with a cab and its doors on both s
     const length = s.length * pose.cars
     const size = box(g).getSize(new THREE.Vector3())
     // The body is exactly the consist: only the coupler hangs past the nose.
-    assert.ok(size.x > length && size.x < length + 1.5, `${stock}: body is cars × carLength (${round(size.x)} vs ${round(length)})`)
-    // The body is the stock's own width; lamp housings and marker bars reach a hair past it.
-    assert.ok(size.y >= s.width && size.y < s.width + 0.2, `${stock}: the body is the stock's width (${round(size.y)} vs ${s.width})`)
+    assert.ok(size.x > length && size.x < length + 1.8, `${stock}: only the two projecting couplers extend beyond cars × carLength (${round(size.x)} vs ${round(length)})`)
+    // The shell is the stock's width; the sliding door lanes and kick plates
+    // stand up to 12 cm proud on each side to clear the stationary seals.
+    assert.ok(size.y >= s.width && size.y < s.width + 0.25, `${stock}: shell plus door fittings (${round(size.y)} vs ${s.width})`)
     // One leaf per modelled door, and every door has two leaves a side.
     const cadence = doorCentres({ stock, cars: pose.cars })
     assert.equal(g.userData.doors.length, cadence.length * 4, `${stock}: every door has two leaves a side`)
@@ -690,7 +842,7 @@ test('a consist is cars × carLength of body, with a cab and its doors on both s
         `${stock}: a door leaf wears no window`,
       )
     }
-    assert.equal(g.userData.ownedMats.length, 1, `${stock}: the consist owns the livery it minted`)
+    assert.equal(g.userData.ownedMats.length, 2, `${stock}: the consist owns its livery and cabin floor materials`)
 
     // Both ends wear a cab, and only the lamps tell them apart: white leads, red trails.
     const head = []
@@ -833,7 +985,7 @@ test('full-height platform doors seal the opening and carry their decals while s
     ctx.data = { ...data, lines: [{ ...LINE, stock }], modules: [mod] }
     const group = buildModule(mod, ctx)
     const leaves = group.userData.doors
-    const glazing = leaves.filter((o) => o.material === mats.tintedGlass)
+    const glazing = leaves.filter((o) => o.name === 'psd-door-glass')
     assert.ok(glazing.length >= 2)
     for (let i = 0; i < glazing.length; i += 2) {
       const left = glazing[i], right = glazing[i + 1]
@@ -841,11 +993,11 @@ test('full-height platform doors seal the opening and carry their decals while s
       const seam = left.position.x + leftW / 2
       assert.ok(Math.abs(seam - (right.position.x - rightW / 2)) < 1e-6, 'closed leaves meet without a centre opening')
       assert.ok(Math.abs(right.position.x + rightW / 2 - (left.position.x - leftW / 2) - STOCK[stock].doorWidth * 1.5) < 1e-6, 'screen glazing spans 150% of the car door width')
-      const bottom = left.position.z - left.geometry.parameters.depth / 2
+      const bottom = left.position.z - left.geometry.parameters.height / 2
       assert.ok(Math.abs(bottom - 1.12) < 1e-6, 'glazing meets the sill')
-      assert.ok(Math.abs(left.position.z + left.geometry.parameters.depth / 2 - 3.62) < 1e-6, 'glazing meets the header')
+      assert.ok(Math.abs(left.position.z + left.geometry.parameters.height / 2 - 3.62) < 1e-6, 'glazing meets the header')
     }
-    const decals = leaves.filter((o) => o.geometry.type === 'PlaneGeometry')
+    const decals = leaves.filter((o) => o.geometry.type === 'PlaneGeometry' && o.name !== 'psd-door-glass')
     assert.equal(decals.length, glazing.length * 3, 'each leaf carries a band, warning and opening arrow')
     const closed = leaves.map((o) => o.position.x)
     setDoors(group, 1)

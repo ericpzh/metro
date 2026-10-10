@@ -190,6 +190,33 @@ test('the zone map labels one area per contiguous zone patch', () => {
   assert.equal(zoneAt(state.cells, Math.floor(paid.x), 0, 0), 'paid')
 })
 
+test('the zone map names the walled rooms standing on it', () => {
+  // `zoneRegionLabels` takes the rooms as an optional second argument: each one
+  // earns a label of its own (商店 / 厕所 / 办公室), on top of the fare-zone
+  // labels the floor patches already earn — which is what makes the 分区图 a map
+  // of the rooms as well as of the zones.
+  const cells = []
+  for (let x = 0; x <= 11; x++) for (let y = 0; y <= 3; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
+  const floors = zoneMapFloors(state.cells)
+  const room = (id, kind, x) => ({ id, type: 'shop', x, y: 0, z: 0, w: 3, h: 3, cfg: { kind, door: [] } })
+  const labels = zoneRegionLabels(floors, [room('s', 'store', 0), room('t', 'toilet', 4), room('o', 'office', 8)])
+  const named = labels.filter((l) => l.label !== undefined)
+  assert.deepEqual(
+    named.map((l) => l.label).sort(),
+    ['办公室', '厕所', '商店'],
+    'each walled room earns a label of its own',
+  )
+  for (const l of named) {
+    assert.ok(l.x >= 0 && l.x <= 12 && l.y >= 0 && l.y <= 4, `${l.label} sits inside its own room`)
+    assert.equal(l.z, 1.08, `${l.label} rides at the room-label height, above the zone labels`)
+  }
+  // A 售票亭 / 问讯处 is a room too, but it keeps no name on the map: only the
+  // three walled-room brushes the 分区 folder arms are labelled.
+  const booth = zoneRegionLabels(floors, [room('b', 'ticket', 0)])
+  assert.equal(booth.filter((l) => l.label !== undefined).length, 0, 'a 售票亭 earns no room label')
+})
+
 /* ------------------------------------------- the map follows the storey (§4.5) */
 
 /** Two storeys of the same 8 × 2 plan: a paid concourse at grade, an unpaid

@@ -25,6 +25,7 @@
 
 import {
   actionRowOpen,
+  isBenchType,
   isEscalatorType,
   isGateType,
   isRotatableType,
@@ -33,6 +34,8 @@ import {
   useStore,
   type ModuleFamilyKey,
 } from '../../store.ts'
+import { AiOutlineColumnHeight } from 'react-icons/ai'
+import { RiExpandWidthFill } from 'react-icons/ri'
 import { armedCut } from '../helpers.ts'
 import { stairWidthLabel } from '../../../sim/stairs.ts'
 import { roofWidthLabel } from '../../../sim/structures.ts'
@@ -80,6 +83,9 @@ function ActionTiles(): React.ReactElement {
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
   const moduleRot = useStore((s) => s.moduleRot)
+  const lines = useStore((s) => s.station.lines)
+  const railLineId = useStore((s) => s.railLineId)
+  const floorLine = lines.find((l) => l.id === railLineId) ?? lines.find((l) => l.id === '5') ?? lines[0]
   const guideExitId = useStore((s) => s.guideExitId)
   const exits = useStore((s) => s.station.modules).filter((m) => m.type === 'exit')
   const selectedExitId = exits.find((m) => m.id === guideExitId)?.id ?? exits[0]?.id
@@ -88,6 +94,8 @@ function ActionTiles(): React.ReactElement {
   const escalatorWide = useStore((s) => s.escalatorWide)
   const escalatorLong = useStore((s) => s.escalatorLong)
   const liftStyle = useStore((s) => s.liftStyle)
+  const curtainWidth = useStore((s) => s.curtainWidth)
+  const psdEndHeight = useStore((s) => s.psdEndHeight)
   const gateDoor = useStore((s) => s.gateDoor)
   const stairWidth = useStore((s) => s.stairWidth)
   const stairBlockHeight = useStore((s) => s.stairBlockHeight)
@@ -109,8 +117,19 @@ function ActionTiles(): React.ReactElement {
           ? <PositionTile position={moduleRot} onClick={() => st().rotateModule()} />
           : <RotateTile label={`旋转 ${piece === 'light-rectangular' ? (moduleRot % 2) * 90 : ((4 - moduleRot) % 4) * 90}°`} onClick={() => st().rotateModule()} />
       ) : null}
+      {piece === 'psd-end' ? (
+        <Block label={psdEndHeight === 'half' ? '半高' : '全高'} art={<AiOutlineColumnHeight />} shortcut="Tab" onClick={() => st().cyclePsdEndHeight()} />
+      ) : null}
+      {piece === 'floor-mark-direction' ? (
+        <div className="floorLineTiles" role="group" aria-label="选择地面指引线路">
+          {lines.length ? lines.map((line) => <Block key={line.id} label={line.name} tone={line.colour} active={floorLine?.id === line.id} onClick={() => st().setRailLine(line.id)} />) : <span>暂无线路</span>}
+        </div>
+      ) : null}
+      {piece === 'curtain-wall' ? (
+        <Block label={curtainWidth === 2 ? '窄' : curtainWidth === 3 ? '中' : '宽'} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleCurtainWidth()} />
+      ) : null}
       {piece !== null && piece.startsWith('pillar') ? (
-        <Block label={pillarLength === 2 ? '短' : '长'} icon="ortho" shortcut="Tab" onClick={() => st().togglePillarLength()} />
+        <Block label={pillarLength === 2 ? '短' : '长'} art={<AiOutlineColumnHeight />} shortcut="Tab" onClick={() => st().togglePillarLength()} />
       ) : null}
       {piece === 'lift' ? (
         <Block label={liftStyle === 'glass' ? '玻璃' : '钢板'} icon="block" shortcut="Tab" onClick={() => st().cycleLiftStyle()} />
@@ -134,10 +153,13 @@ function ActionTiles(): React.ReactElement {
           onClick={() => st().openSignComposer()}
         />
       ) : null}
+      {piece !== null && isBenchType(piece) ? (
+        <Block label={piece.endsWith('-2') ? '宽' : '窄'} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleBenchWidth()} />
+      ) : null}
       {piece !== null && isStairType(piece) ? (
         <Block
           label={piece === 'stair-block' ? stairBlockHeight === 1 ? '高' : '矮' : stairWidthLabel(stairWidth)}
-          icon="ortho"
+          art={piece === 'stair-block' ? <AiOutlineColumnHeight /> : <RiExpandWidthFill />}
           shortcut="Tab"
           onClick={() => st().cycleStairWidth()}
         />
@@ -145,7 +167,7 @@ function ActionTiles(): React.ReactElement {
       {piece !== null && (piece === 'roof-shell' || piece === 'roof-truss' || piece === 'roof-tapered') ? (
         <Block
           label={roofWidthLabel(roofWidth)}
-          icon="ortho"
+          art={<RiExpandWidthFill />}
           shortcut="Tab"
           onClick={() => st().cycleRoofWidth()}
         />
@@ -158,8 +180,8 @@ function ActionTiles(): React.ReactElement {
             shortcut="Tab"
             onClick={() => st().cycleEscalatorDir()}
           />
-          <Block label={escalatorWide ? '宽' : '窄'} icon="ortho" onClick={() => st().toggleEscalatorWidth()} />
-          <Block label={escalatorLong ? '长' : '短'} icon="ortho" onClick={() => st().toggleEscalatorLength()} />
+          <Block label={escalatorWide ? '宽' : '窄'} art={<RiExpandWidthFill />} onClick={() => st().toggleEscalatorWidth()} />
+          <Block label={escalatorLong ? '长' : '短'} art={<AiOutlineColumnHeight />} onClick={() => st().toggleEscalatorLength()} />
         </>
       ) : null}
       {piece !== null && isGateType(piece) ? (

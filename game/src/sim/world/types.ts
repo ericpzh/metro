@@ -27,8 +27,8 @@ export interface Train {
   /* ------------------------------------------------ the cabin (§1.13) */
   /**
    * Alighting queues by doorway: the rider ids standing in the cabin, the front
-   * row first. The wave the train brings rides in on these, so the consist pulls
-   * in already full and steps its passengers out of their own doorways.
+   * row first. The wave is seated once the train stops, before opening, and
+   * steps out through its own doorways. Closed doors clear remaining riders.
    */
   cabins: number[][]
   /** Rows each doorway's queue was loaded to — where boarders stand behind it. */

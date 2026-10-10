@@ -55,6 +55,8 @@ export interface AreaDrag {
   wallDirs?: WallDir[]
   /** True for the 围栏 tool's drag, which lays one fence panel per cell. */
   fence?: boolean
+  /** A tactile paving run, placed or deleted along a straight floor line. */
+  tactile?: boolean
   /** Roof tiles or small stair blocks laid/removed on the pressed plane. */
   roof?: boolean
   /** This roof/stair-block drag was started from 删除. */

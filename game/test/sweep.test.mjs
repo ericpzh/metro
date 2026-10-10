@@ -75,6 +75,33 @@ test('a sweep keeps the palette variant apart', () => {
   assert.equal(sweepFamily(vent(0, 0, 0)), 'vent')
 })
 
+test('a sweep collects the floor equipment by variant, and never the tactile', () => {
+  const psd = (height, id = 'psd-1') => ({ id, type: 'psd-end', x: 0, y: 0, z: 0, cfg: { psd: height } })
+  const mark = (variant, id = 'mark-1') => ({ id, type: 'floor-mark', x: 0, y: 0, z: 0, cfg: { variant } })
+  const unit = (id = 'ac-1') => ({ id, type: 'ac-unit', x: 0, y: 0, z: 0, cfg: {} })
+  const cabinet = (id = 'cab-1') => ({ id, type: 'electrical-cabinet', x: 0, y: 0, z: 0, cfg: {} })
+  const strip = (variant, id = 'tac-1') => ({ id, type: 'tactile', x: 0, y: 0, z: 0, cfg: { variant } })
+  // A 屏蔽端门 sweeps by screen height: a 半高 return leaves the 全高 ones standing.
+  assert.equal(sweepFamily(psd('half')), 'psd-end:half')
+  assert.equal(sweepFamily(psd('full')), 'psd-end:full')
+  assert.equal(sameSweepFamily(psd('half', 'a'), psd('half', 'b')), true)
+  assert.equal(sameSweepFamily(psd('half', 'a'), psd('full', 'b')), false)
+  // A 地面指示 sweeps by marking: a boarding queue leaves the waiting boxes alone.
+  assert.equal(sweepFamily(mark('boarding')), 'floor-mark:boarding')
+  assert.equal(sameSweepFamily(mark('boarding', 'a'), mark('boarding', 'b')), true)
+  assert.equal(sameSweepFamily(mark('boarding', 'a'), mark('waiting', 'b')), false)
+  // An 空调风机 and a 设备柜 have no variant: the type alone is the family.
+  assert.equal(sweepFamily(unit()), 'ac-unit')
+  assert.equal(sweepFamily(cabinet()), 'electrical-cabinet')
+  assert.equal(sameSweepFamily(unit('a'), unit('b')), true)
+  assert.equal(sameSweepFamily(unit('a'), cabinet('b')), false)
+  // A 盲道 is deliberately unswept: it is laid (and torn out) as a straight run
+  // by its own drag, so a delete sweep must not collect it.
+  assert.equal(sweepFamily(strip('guide')), null)
+  assert.equal(sweepFamily(strip('warning')), null)
+  assert.equal(sameSweepFamily(strip('guide', 'a'), strip('guide', 'b')), false)
+})
+
 test('a legacy piece with no variant reads as the palette default it is drawn as', () => {
   // A pre-variant save (or a station built by an older room builder) carries no
   // `cfg.variant`; the family key comes from the same spec table the model is
@@ -100,10 +127,11 @@ test('every 设备 / 装饰 type a sweep may collect is listed', () => {
   // The list is deliberately explicit: adding a palette piece without deciding
   // its teardown leaves it un-sweepable (a safe default), and this test is where
   // that decision is written down.
-  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'guidepost', 'busstop', 'bin', 'extinguisher', 'vent', 'light', 'clock', 'cctv', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign']
+  const sweepable = ['gate', 'tvm', 'vending', 'escalator', 'lift', 'bench', 'shelf', 'desk', 'cubicle', 'sink', 'guidepost', 'busstop', 'bin', 'extinguisher', 'vent', 'light', 'clock', 'cctv', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'tv', 'sign', 'psd-end', 'floor-mark', 'ac-unit', 'electrical-cabinet']
   // A 灯具 and a 公交站 only exist with a variant, so the list entry carries
-  // the palette default the piece is drawn as.
-  const variantCfg = { busstop: { variant: 'short' }, light: { variant: 'circular' } }
+  // the palette default the piece is drawn as — and so do the 屏蔽端门 and the
+  // 地面指示, whose sweep family is their height and their marking.
+  const variantCfg = { busstop: { variant: 'short' }, light: { variant: 'circular' }, 'psd-end': { psd: 'half' }, 'floor-mark': { variant: 'boarding' } }
   for (const type of sweepable) {
     const mod = { id: `m-${type}`, type, x: 0, y: 0, z: 0, cfg: variantCfg[type] ?? {} }
     const family = sweepFamily(mod)

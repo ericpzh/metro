@@ -1,7 +1,7 @@
 // Vending machine (自动贩卖机) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, slab, plate, capTop, placeLocal } from '../PieceBuilder.ts'
+import { PieceBuilder, slab, plate, capTop, placeLocalAtEdge } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 
@@ -52,7 +52,7 @@ function buildVending(mats: ModelMaterials): THREE.Group {
 export class VendingModel extends PieceBuilder {
   readonly kind = 'vending'
   build(mod: Extract<Module, { type: 'vending' }>): THREE.Group {
-    return placeLocal(buildVending(this.ctx.mats), mod)
+    return placeLocalAtEdge(buildVending(this.ctx.mats), mod, 0.732)
   }
 }
 

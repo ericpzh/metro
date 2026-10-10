@@ -15,6 +15,13 @@ moving band, outer rails, rotated footprint, landing support and two-column open
 They also check the wider metal shoulders, flattening risers and covered step return;
 `slope-cut` checks the recessed upper landing beneath the terminal deck.
 `module-build` also checks floor/apron clearance and the body's inset, buried joins.
+It pins train roof/body paint and non-overlapping cab seams, plus half-height screen-door caps
+that slide clear with their leaves. `train-cabin` pins spawning at the stopped berth before opening,
+and clearing riders after closing while the train is still stationary.
+`module-build` also checks clear train-door window apertures and screen-door slide-lane clearance
+for both screen heights, both track sides, and closed, partial and fully open poses.
+It also pins the slim half-height rails, cap/rail vertical separation, single glass surfaces,
+reference cabin fittings, and train interpolation between snapshots including early updates and reappearance.
 `escalator-length` checks the 8 m 长 variant in both widths, rotations and directions,
 its two-floor openings, graph ride time, exit snap, preview refresh, move and save round-trip;
 `pick-tool` checks copying 短/长 and restoring the previous length with Esc.
@@ -22,7 +29,11 @@ its two-floor openings, graph ride time, exit snap, preview refresh, move and sa
 including wide pieces, rotation, reversed travel, single seam ownership and neighbour removal.
 It also checks the closed end shells and centreline hemispheres seated on the metal cap.
 
+The `shelf` suite also pins tall/short, wire and cooler variants, their save/preview/sweep identity, rotated model bounds, ceiling clearance and cooler shell and tall/short gondola plinth/trim separation to prevent flickering.
+
 ## Running them
+
+`ceiling-decor` also covers the 监控 枪机 / 球机 / 半球机 variants: legacy saves, variant save round-trips, ceiling support, ghost refresh, same-variant sweeps and rotated dome bounds. The 枪机 checks also pin the curved hood, rounded white surround, inset dark panel, contained IR ring and downward-facing circular lens. `pick-tool` checks copying each camera variant and restoring the previous selection with Esc.
 
 ```powershell
 cd game
@@ -69,10 +80,11 @@ The suites, by the thing they are about. Each one's full description is in
 |---|---|
 | Architecture | `layering`, `scene-wiring` |
 | Numbers | `rng`, `clock`, `demand` |
+| 屏蔽端门 | `psd-end` — fixed glass stack, matching heights, Tab preview refresh, shared corner snapping and continuous extensions, hover/click placement, undo, walk barrier and save/load; curtain-wall widths and picking |
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement`, `openings`, `stairs`, `escalators`, `escalator-length`, `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route`, `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
 | The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation`, `overground`, `roof-tool`, `track-run-length`, `structures-gaps` — `storey` checks the 0–3 m height base and `save` checks its persistence and older-save default; `overground` + `roof-tool` are the pillars/roofs/doorway-exits/stair-blocks/bridges, `track-run-length` the shared tunnel/bridge lengths, `structures-gaps` the repair-shaped edges; `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole and the edits that fill it back |
-| The furniture and the decor | `shelf`, `desk`, `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `lights`, `vent`, `street-decor`, `sign`, `sign-model`, `sign-editor`, `billboard`, `glass-panel`, `calligraphy`, `line-map`, `booth-model`, `room-model` |
-| The models | `module-build` (including sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
+| The furniture and the decor | `shelf`, `desk`, `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `lights`, `vent`, `floor-decor`, `street-decor`, `sign`, `sign-model`, `sign-editor`, `billboard`, `glass-panel`, `calligraphy`, `line-map`, `booth-model`, `room-model` |
+| The models | `module-build` (including enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` — `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away |
 | The pixels | `sign-render`, `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
 | The app | `move`, `sweep`, `paint-mode`, `rail-folders`, `rail-families`, `line-edit`, `select-agent` — `escalators` covers the placed-run direction action and undo |
@@ -144,12 +156,12 @@ Roof placement coverage in `roof-tool.test.mjs` includes pointer-centred footpri
 
 ## Coverage, and the gaps that were closed
 
-Measured over the whole suite (`--experimental-test-coverage`, one process): **1035 tests,
-92.79 % lines / 88.52 % branches / 88.80 % functions** across the `game/src` files the suite
-loads — a denominator that grew by several features' worth of code (ceiling fittings, street
-decor, the escalator rebuild, the exit rebrand, the TV rewrite, the timetable) in the same
+Measured over the whole suite (`--experimental-test-coverage`, one process): **1094 tests,
+93.29 % lines / 87.78 % branches / 89.01 % functions** across the `game/src` files the suite
+loads — a denominator that grew by several features' worth of code (floor decor, screen returns,
+the shelf and camera variants, the room rebrand, the train rebuild) in the same
 passes, which is why the percentages step back while the suite grows.
-The snapshot before this pass was 938 at 95.02 / 88.36 / 88.94, and before that 897 at
+The snapshot before this pass was 1035 at 92.79 / 88.52 / 88.80, and before that 938 at 95.02 / 88.36 / 88.94, and before that 897 at
 95.50 / 88.64 / 89.79, and before that 891 at 95.23 / 88.63 / 89.41, and before that 855 at
 94.94 / 88.47 / 88.23 — **these numbers are a snapshot of a moment, not a target**;
 regenerate them with the command above whenever the suite grows. The point of the table is

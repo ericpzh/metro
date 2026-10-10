@@ -8,6 +8,7 @@ import { moduleAt } from '../../sim/placement.ts'
 import type { Module } from '../../sim/types.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from '../sweep.ts'
 import { moduleLabel, useStore } from '../store.ts'
+import { TactileTool } from './TactileTool.ts'
 import { TileEquipmentTool } from './TileEquipmentTool.ts'
 import { pendingCells, rectCells, straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
@@ -31,6 +32,7 @@ export class DeleteTool extends ToolController {
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     if (picked) {
+      if (picked.type === 'tactile') { new TactileTool(this.ctx).onDown(info); return }
       if (picked.type === 'roof' || (picked.type === 'stair' && picked.cfg.block)) {
         info.preventDefault()
         const stairBlock = picked.type === 'stair'
@@ -103,6 +105,7 @@ export class DeleteTool extends ToolController {
   }
 
   onMove(info: PointerInfo): void {
+    if (this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onMove(info); return }
     if (this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
     const hit = info.hit
@@ -186,6 +189,7 @@ export class DeleteTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
+    if (this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onUp(info); return }
     // The viewport routes module/fence/plain-block drags here (never a 围栏
     // placement run — that release belongs to the equipment tool). Each branch
     // below is the delete side of the release the press promised.
@@ -217,7 +221,7 @@ export class DeleteTool extends ToolController {
       st.commit(removeSweptModules(st.station, swept.map((m) => m.id)))
       st.select(null)
       const head = swept[0]
-      const label = moduleLabel(head.type, head.type === 'shop' ? head.cfg.kind : undefined)
+      const label = moduleLabel(head.type, head.type === 'shop' || head.type === 'booth' ? head.cfg.kind : undefined)
       st.setNotice(`已拆掉 ${swept.length} 件${label}`)
       return
     }

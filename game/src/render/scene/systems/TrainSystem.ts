@@ -119,7 +119,7 @@ export class TrainSystem extends SceneSystem {
         // two of the sim splicing it out) snaps to its approach start rather than
         // streaking back across the platform; one absent for longer than
         // `TRAIN_MISSES_ALLOWED` was evicted above, so this branch never sees it.
-        if (entry.active) entry.from.copy(entry.to)
+        if (entry.missed === 1) entry.from.copy(entry.group.position)
         else entry.from.set(x, y, z)
         entry.to.set(x, y, z)
         entry.active = true

@@ -262,11 +262,11 @@ export const TUNNEL_TILE = '__tunnel'
 /**
  * How many tiles the 分区 folder can put on screen: one per zone in `ZONE_LIST`,
  * **无分区** included — that tile is the brush that takes a label off
- * (`isEraseBrush`), and it is a zone id like any other, so the folder's grid is
- * the zone list itself and the count cannot disagree with it.
+ * (`isEraseBrush`) — plus the three walled-room brushes (商店 / 厕所 / 办公室)
+ * the folder also arms, so the count is the zone list plus those three.
  */
 export function zoneFolderTiles(): number {
-  return ZONE_LIST.length
+  return ZONE_LIST.length + 3
 }
 
 /** A rectangle, in the two numbers a "is it in view" test needs. */

@@ -15,6 +15,9 @@
 //
 // Pure data — no three, no DOM.
 
+import { shelfSpec } from './shelves.ts'
+import { isPsdCornerPair, isPsdEndJoin, snapPsdEnd } from './psdEnds.ts'
+import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker } from './floorDecor.ts'
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
 import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
@@ -58,13 +61,12 @@ const PANEL_DEPTH = 0.25
 const FRAME_PAD = 0.14
 
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'shelf' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.3,
   fence: 1.0,
   tvm: 1.9,
   vending: 1.9,
   bench: 1.0,
-  shelf: 1.9,
   desk: 0.9,
   cubicle: 1.8,
   sink: 0.9,
@@ -218,7 +220,6 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'gate':
     case 'tvm':
     case 'vending':
-    case 'shelf':
     case 'desk':
     case 'cubicle':
     case 'sink':
@@ -228,6 +229,14 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'cctv':
     case 'tv':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
+    case 'shelf':
+      return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + shelfSpec(m.cfg.variant).height }
+    case 'ac-unit':
+    case 'electrical-cabinet':
+    case 'tactile':
+      return cellsAabb(floorDecorCells(m).map(([x, y]) => [x, y, m.z]), z0, z0 + floorDecorSpec(m).h)
+    case 'floor-mark':
+      return floorDecorBounds(m)
     case 'vent': {
       const half = VENT_WIDTH / 2
       const ceiling = ventCeilingZ(m)
@@ -290,6 +299,20 @@ function flatEnvelope(m: Module): ModuleBox | null {
       if (spec.mount === 'stand') return cellsAabb(lineMapCells(m), z0, z0 + spec.height)
       const bottom = spec.panelZ - spec.panelH / 2
       return wallPanelBox(m, lineMapCells(m), z0 + bottom - LINE_MAP_FRAME_PAD, z0 + bottom + spec.panelH + LINE_MAP_FRAME_PAD)
+    }
+    case 'psd-end': {
+      const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : PSD_FULL_HEIGHT
+      const [ox, oy] = m.cfg.offset ?? [0, 0]
+      const corners = [[-0.5, -0.48], [0.5, -0.20]].map(([x, y]) => rotateLocal(m.rot, x + ox, y + oy))
+      // The short corner extension shares the neighbouring screen's cap.
+      // Reserve the panel's own tile so that joining at 90 degrees remains legal.
+      return {
+        x0: m.x + 0.5 + Math.min(...corners.map((p) => p[0])),
+        x1: m.x + 0.5 + Math.max(...corners.map((p) => p[0])),
+        y0: m.y + 0.5 + Math.min(...corners.map((p) => p[1])),
+        y1: m.y + 0.5 + Math.max(...corners.map((p) => p[1])),
+        z0, z1: z0 + h,
+      }
     }
     case 'fence': {
       // A 1 m high, very thin panel through the middle of its block (§5.2): the
@@ -420,6 +443,11 @@ export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], 
  */
 export function moduleFootprint(m: Module): Array<[number, number]> {
   switch (m.type) {
+    case 'ac-unit':
+    case 'electrical-cabinet':
+    case 'tactile':
+    case 'floor-mark':
+      return floorDecorCells(m)
     case 'retail':
     case 'shop':
     case 'booth': {
@@ -533,7 +561,7 @@ const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'glass', 'callig
  * behind one type, so `isCeilingHung` answers a sign (and the bare `sign-ceiling` id)
  * from `cfg.mount` before this lookup.
  */
-const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv', 'light', 'light-circular', 'light-rectangular', 'vent'])
+const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'light', 'light-circular', 'light-rectangular', 'vent'])
 
 /**
  * True when a piece is bolted flat to a wall. Every wall-mounted type is, except
@@ -1002,6 +1030,9 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (pillarSupportsBridge(m, candidate) || pillarSupportsBridge(candidate, m)) continue
     if (isExitRampPair(m, candidate)) continue
     if (isFurnitureRoomPair(m, candidate)) continue
+    // Floor vinyl can run along a screen-door strip; the glass stands above it (§9.5).
+    if ((isFloorSticker(m) && candidate.type === 'platform-edge') || (isFloorSticker(candidate) && m.type === 'platform-edge')) continue
+    if (isPsdCornerPair(m, candidate) || isPsdEndJoin(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
     if (isHangingShare(m, candidate)) continue
     const e = moduleEnvelope(m)
@@ -1097,7 +1128,7 @@ function isFurnitureRoomPair(a: Module, b: Module): boolean {
     m.type === 'sink' ||
     m.type === 'bench' ||
     m.type === 'bin' ||
-    m.type === 'extinguisher'
+    m.type === 'extinguisher' || m.type === 'ac-unit' || m.type === 'electrical-cabinet' || isFloorSticker(m)
   const isRoom = (m: Module): boolean => m.type === 'shop' || m.type === 'booth' || m.type === 'retail'
   return (isFurniture(a) && isRoom(b)) || (isRoom(a) && isFurniture(b))
 }
@@ -1192,7 +1223,9 @@ export function moduleAt(
  * are torn down and built again by hand.
  */
 const MOVABLE_TYPES: ReadonlySet<string> = new Set([
+  'ac-unit', 'electrical-cabinet', 'tactile', 'floor-mark',
   'gate',
+  'psd-end',
   'fence',
   'tvm',
   'vending',
@@ -1346,6 +1379,10 @@ export type EquipmentRefusal =
  * those produce the piece, not the verdict.
  */
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
+  if (candidate.type === 'shelf' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
+    const box = moduleEnvelope(candidate)!
+    if (cells.some((c) => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
+  }
   if ((candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
@@ -1459,6 +1496,7 @@ export function moveCandidate(
   at: Vec3i,
   rot: number,
 ): { module: Module; reason: string } {
-  const moved = autofaceWallMount(cells, movedModule(mod, at, rot), undefined, modules)
+  let moved = autofaceWallMount(cells, movedModule(mod, at, rot), undefined, modules)
+  if (moved.type === 'psd-end') moved = snapPsdEnd(moved, modules)
   return { module: moved, reason: moveDropReason(cells, modules, moved) }
 }

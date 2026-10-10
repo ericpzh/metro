@@ -643,7 +643,10 @@ export class World {
       switch (train.state) {
         case 'approach':
           // Running in; the consist comes to a stand at the platform mark.
-          if (train.t >= TRAIN_APPROACH_S) this.setTrainState(train, 'berth')
+          if (train.t >= TRAIN_APPROACH_S) {
+            this.setTrainState(train, 'berth')
+            this.loadAlighting(train)
+          }
           break
         case 'berth':
           // Held at the mark, doors shut, before they cycle.
@@ -667,7 +670,10 @@ export class World {
           break
         case 'closing':
           // The leaves shut; the queues have already been abandoned.
-          if (train.t >= TRAIN_DOOR_TRAVEL) this.setTrainState(train, 'hold')
+          if (train.t >= TRAIN_DOOR_TRAVEL) {
+            this.setTrainState(train, 'hold')
+            this.emptyTrain(train)
+          }
           break
         case 'hold':
           // Sealed, waiting to pull out.
@@ -711,10 +717,7 @@ export class World {
         alightLeft: 0,
         alightT: 0,
       }
-      // The wave this consist brings is seated before it is on the road at all:
-      // it rides in down the tunnel, so the cabin is already full when the train
-      // pulls in and there is nothing to pop into being in front of the platform.
-      this.loadAlighting(train)
+      // Cabin passengers are created at berth, before opening (§1.13, §5.9).
       this.trains.push(train)
       this.nextDispatch.set(key, this.simTime + this.headwayFor(line, period))
     }
@@ -755,8 +758,8 @@ export class World {
   /**
    * Seat the alighting wave this consist brings (§5.9, §7.4). The whole cohort
    * is placed in the doorway queues it will leave by — the front pair at its own
-   * door, the rows behind it receding inboard — before the train is on the road,
-   * so the cabin draws full as the consist runs in and the platform sees people
+   * door, the rows behind it receding inboard — once the train has stopped,
+   * before the doors open, so the platform sees people
    * step out of a train rather than appear around a screen door.
    *
    * A wave too big for the cabin (a station left on a crush setting) keeps the
@@ -1040,7 +1043,7 @@ export class World {
   }
 
   /**
-   * A consist leaves the world with everyone still aboard: the boarders ride out
+   * Closed doors clear everyone still aboard before departure: the boarders ride out
    * (they boarded it), and a member of the wave that never got off is stranded
    * on the train — the one way an arrival is lost.
    */

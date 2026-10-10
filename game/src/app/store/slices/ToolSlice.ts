@@ -9,7 +9,7 @@ import type { BridgeRailing, GateDoor, TriangleKind } from '../../../sim/types.t
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
 import { nextRoofWidth, supportedRoofWidth } from '../../../sim/structures.ts'
-import { DEFAULT_ZONE_BRUSH, isRotatableType, type CutMode, type ZoneBrush } from '../catalog.ts'
+import { DEFAULT_ZONE_BRUSH, isBenchType, isRotatableType, type CutMode, type ZoneBrush } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
 export type Tool = 'select' | 'pick' | 'move' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
@@ -99,6 +99,10 @@ export interface ToolSlice {
   setStructureOptions: (patch: Partial<Pick<ToolSlice, 'bridgeLength' | 'bridgeRailing'>>) => void
   cycleBridgeLength: () => void
   liftStyle: 'glass' | 'steel'
+  curtainWidth: 2 | 3 | 4
+  cycleCurtainWidth: () => void
+  psdEndHeight: 'half' | 'full'
+  cyclePsdEndHeight: () => void
   gateDoor: GateDoor
   /** Active fare-zone brush, or a facility room (§5.7) built by rectangle. */
   zoneBrush: ZoneBrush
@@ -154,6 +158,7 @@ export interface ToolSlice {
   setTriKind: (kind: TriangleKind) => void
   /** Cycle the stair width one → two → three lanes (Tab). */
   cycleStairWidth: () => void
+  cycleBenchWidth: () => void
   setStairBlockHeight: (height: 0.5 | 1) => void
   togglePillarLength: () => void
   cycleRoofWidth: () => void
@@ -212,6 +217,10 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   }),
   cycleBridgeLength: () => set((s) => ({ bridgeLength: nextTrackRunLength(s.bridgeLength) })),
   liftStyle: 'glass',
+  curtainWidth: 2,
+  cycleCurtainWidth: () => set((s) => ({ curtainWidth: s.curtainWidth === 2 ? 3 : s.curtainWidth === 3 ? 4 : 2 })),
+  psdEndHeight: 'half',
+  cyclePsdEndHeight: () => set((s) => ({ psdEndHeight: s.psdEndHeight === 'half' ? 'full' : 'half' })),
   gateDoor: 'lane',
   zoneBrush: DEFAULT_ZONE_BRUSH,
   zoneOverlayOn: false,
@@ -249,6 +258,9 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
     : { stairWidth: nextStairWidth(s.stairWidth) }),
   setStairBlockHeight: (stairBlockHeight) => set({ stairBlockHeight }),
   togglePillarLength: () => set((s) => ({ pillarLength: s.pillarLength === 4 ? 2 : 4 })),
+  cycleBenchWidth: () => set((s) => isBenchType(s.moduleType)
+    ? { moduleType: s.moduleType === 'bench' ? 'bench-steel-2' : s.moduleType.replace(/-[12]$/, s.moduleType.endsWith('-2') ? '-1' : '-2') }
+    : {}),
   cycleRoofWidth: () => set((s) => ({ roofWidth: nextRoofWidth(s.roofWidth) })),
   setRoofWidth: (width) => set({ roofWidth: supportedRoofWidth(width) }),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),

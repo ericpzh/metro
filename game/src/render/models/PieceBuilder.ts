@@ -71,6 +71,8 @@ export const C = {
 
 export interface ModelMaterials {
   steel: THREE.MeshStandardMaterial
+  /** Broad satin stainless panels; subtle grain under the station light rig. */
+  binSteel: THREE.MeshStandardMaterial
   darkSteel: THREE.MeshStandardMaterial
   black: THREE.MeshStandardMaterial
   rubber: THREE.MeshStandardMaterial
@@ -143,9 +145,8 @@ export interface ModelMaterials {
   shelfPanel: THREE.MeshStandardMaterial  /** Base white material for the shelf goods; each instance tints it. */
   shelfGoods: THREE.MeshStandardMaterial
   /**
-   * The 垃圾桶 front band: the 可回收物 loop and the 其它垃圾 mark, printed on a
-   * transparent ground so the brushed steel shows between them, the way the
-   * reference bin's stickers do.
+   * The 垃圾桶's two white sorting stickers and smaller waste-example strips.
+   * The transparent space between stickers leaves the cabinet's steel exposed.
    */
   binLabels: THREE.MeshBasicMaterial
   /** The 灭火器箱 doors' white lettering (灭火器箱 / FIRE EXTINGUISHER BOX / 火119警). */
@@ -397,51 +398,115 @@ function drawRecycleMark(g: CanvasRenderingContext2D, cx: number, cy: number, r:
 }
 
 /**
- * The 其它垃圾 mark: a lidded bin with a white arrow dropping into it — the
- * "everything else" half of a two-stream pair, in black so it reads against the
- * green loop beside it.
+ * The reference's 其它垃圾 mark: an open triangular loop ending in a downward
+ * arrow, distinct from the three-arrow green recycling loop.
  */
 function drawOtherWasteMark(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, colour: string): void {
+  g.strokeStyle = colour
+  g.lineWidth = r * 0.15
+  g.lineCap = 'round'
+  g.lineJoin = 'round'
+  g.beginPath()
+  g.moveTo(cx - r * 0.15, cy - r * 0.82)
+  g.lineTo(cx - r * 0.85, cy + r * 0.48)
+  g.quadraticCurveTo(cx - r, cy + r * 0.7, cx - r * 0.67, cy + r * 0.7)
+  g.lineTo(cx - r * 0.22, cy + r * 0.7)
+  g.moveTo(cx + r * 0.05, cy - r * 0.9)
+  g.quadraticCurveTo(cx + r * 0.22, cy - r * 0.95, cx + r * 0.36, cy - r * 0.68)
+  g.lineTo(cx + r * 0.85, cy + r * 0.38)
+  g.quadraticCurveTo(cx + r, cy + r * 0.7, cx + r * 0.63, cy + r * 0.7)
+  g.lineTo(cx + r * 0.14, cy + r * 0.7)
+  g.stroke()
   g.fillStyle = colour
-  g.fillRect(cx - r * 0.55, cy - r * 0.72, r * 1.1, r * 0.2)
-  g.fillRect(cx - r * 0.16, cy - r * 0.94, r * 0.32, r * 0.16)
   g.beginPath()
-  g.moveTo(cx - r * 0.44, cy - r * 0.44)
-  g.lineTo(cx + r * 0.44, cy - r * 0.44)
-  g.lineTo(cx + r * 0.3, cy + r * 0.86)
-  g.lineTo(cx - r * 0.3, cy + r * 0.86)
-  g.closePath()
-  g.fill()
-  g.fillStyle = '#ffffff'
-  g.fillRect(cx - r * 0.07, cy - r * 0.3, r * 0.14, r * 0.5)
-  g.beginPath()
-  g.moveTo(cx, cy + r * 0.64)
-  g.lineTo(cx - r * 0.21, cy + r * 0.24)
-  g.lineTo(cx + r * 0.21, cy + r * 0.24)
+  g.moveTo(cx + r * 0.28, cy + r * 0.48)
+  g.lineTo(cx - r * 0.08, cy + r * 0.7)
+  g.lineTo(cx + r * 0.14, cy + r * 1.05)
   g.closePath()
   g.fill()
 }
 
 /**
- * The 垃圾桶's front band: the two waste marks the reference bin wears on its
- * stainless lintel — 可回收物 in green on the left, 其它垃圾 in black on the right.
- * Drawn on a transparent ground, so the brushed steel shows between and around
- * them exactly as it does around the printed stickers they are.
+ * White adhesive sorting plates and example strips, drawn together on a clear
+ * canvas so the steel between them retains its shading (GAME-SPEC §5.7).
  */
 function binLabelCanvas(): HTMLCanvasElement {
   const c = document.createElement('canvas')
-  c.width = 512
-  c.height = 128
+  c.width = 1024
+  c.height = 768
   const g = c.getContext('2d') as CanvasRenderingContext2D
-  drawRecycleMark(g, 128, 42, 34, '#1a9c4a')
-  drawOtherWasteMark(g, 384, 42, 30, '#20242b')
   g.textAlign = 'center'
   g.textBaseline = 'middle'
-  g.fillStyle = '#1a9c4a'
-  g.font = 'bold 28px "Microsoft YaHei", sans-serif'
-  g.fillText('可回收物', 128, 106)
-  g.fillStyle = '#20242b'
-  g.fillText('其它垃圾', 384, 106)
+  for (const [i, cx] of [256, 768].entries()) {
+    g.fillStyle = '#f4f5f1'
+    g.beginPath()
+    g.roundRect(cx - 183, 36, 366, 426, 14)
+    g.fill()
+    g.beginPath()
+    g.roundRect(cx - 183, 484, 366, 142, 10)
+    g.fill()
+    if (i === 0) drawRecycleMark(g, cx, 224, 142, '#08754f')
+    else drawOtherWasteMark(g, cx, 222, 135, '#50584d')
+    g.fillStyle = '#394940'
+    g.font = 'bold 36px "Microsoft YaHei", sans-serif'
+    g.fillText(i === 0 ? '可回收物' : '其他垃圾', cx, 392)
+    g.font = 'bold 22px Arial, sans-serif'
+    g.fillText(i === 0 ? 'Recyclable waste' : 'Other waste', cx, 430)
+    // Small category examples use drawn silhouettes, so system emoji fonts do
+    // not change the printed plate between browsers.
+    const names = i === 0 ? ['纸类', '塑料', '金属', '玻璃'] : ['果皮', '残渣', '纸巾', '尘土']
+    for (let j = 0; j < 4; j++) {
+      const x = cx - 132 + j * 88
+      g.fillStyle = i === 0 ? '#1762a4' : '#929b96'
+      g.beginPath()
+      g.arc(x, 534, 31, 0, Math.PI * 2)
+      g.fill()
+      g.strokeStyle = '#ffffff'
+      g.fillStyle = '#ffffff'
+      g.lineWidth = 3
+      g.lineCap = 'round'
+      g.lineJoin = 'round'
+      g.beginPath()
+      if (i === 1) {
+        if (j === 0) {
+          g.arc(x, 532, 16, 0.2, Math.PI - 0.2)
+          g.quadraticCurveTo(x, 539, x + 16, 535)
+        } else if (j === 1) {
+          g.moveTo(x - 19, 534); g.lineTo(x + 13, 534)
+          for (const dx of [-9, 0, 9]) {
+            g.moveTo(x + dx - 4, 524); g.lineTo(x + dx, 534); g.lineTo(x + dx - 4, 544)
+          }
+          g.moveTo(x + 13, 534); g.lineTo(x + 21, 527); g.lineTo(x + 21, 541); g.closePath()
+        } else if (j === 2) {
+          g.moveTo(x - 17, 522); g.lineTo(x - 3, 516); g.lineTo(x + 16, 525)
+          g.lineTo(x + 12, 550); g.lineTo(x - 15, 546); g.closePath()
+          g.moveTo(x - 3, 516); g.lineTo(x + 1, 540); g.lineTo(x + 12, 550)
+        } else {
+          for (const [dx, dy] of [[-13, 9], [0, 13], [13, 7], [-4, -2], [9, -10]]) {
+            g.moveTo(x + dx + 2, 534 + dy); g.arc(x + dx, 534 + dy, 2, 0, Math.PI * 2)
+          }
+        }
+      } else if (j === 0) {
+        g.rect(x - 12, 517, 24, 32)
+        g.moveTo(x - 7, 526); g.lineTo(x + 7, 526)
+        g.moveTo(x - 7, 534); g.lineTo(x + 7, 534)
+      } else if (j === 1 || j === 3) {
+        g.moveTo(x - 6, 514); g.lineTo(x + 6, 514)
+        g.lineTo(x + 6, 523); g.lineTo(x + 12, 529)
+        g.lineTo(x + 12, 552); g.lineTo(x - 12, 552)
+        g.lineTo(x - 12, 529); g.lineTo(x - 6, 523)
+        g.closePath()
+      } else {
+        g.rect(x - 12, 519, 24, 31)
+        g.moveTo(x - 12, 525); g.lineTo(x + 12, 525)
+        g.moveTo(x - 12, 544); g.lineTo(x + 12, 544)
+      }
+      g.stroke()
+      g.fillStyle = '#53645d'
+      g.font = '19px "Microsoft YaHei", sans-serif'
+      g.fillText(names[j], x, 592)
+    }
+  }
   return c
 }
 
@@ -622,11 +687,23 @@ export function createModelMaterials(): ModelMaterials {
     ),
     shelfPanel: new THREE.MeshStandardMaterial({ map: canvasTexture(128, 256, (g) => g.drawImage(shelfPanelCanvas(), 0, 0)), roughness: 0.6, metalness: 0.35 }),
     shelfGoods: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0.05 }),
-    // The 垃圾桶 / 灭火器 decorations' printed faces. Both are **transparent** decals
-    // rather than lit panels: the ink is white or coloured and everything else must
-    // let the brushed steel behind it through, or a bin would wear a grey band and a
-    // cabinet a red one over its own shading.
-    binLabels: new THREE.MeshBasicMaterial({ map: canvasTexture(512, 128, (g) => g.drawImage(binLabelCanvas(), 0, 0)), transparent: true, side: THREE.DoubleSide }),
+    // Satin stainless shared by every bin, released with the model material kit.
+    binSteel: new THREE.MeshStandardMaterial({
+      map: canvasTexture(128, 128, (g) => {
+        g.fillStyle = '#cecec6'
+        g.fillRect(0, 0, 128, 128)
+        for (let y = 0; y < 128; y++) {
+          const v = 160 + (y * 37 % 70)
+          g.fillStyle = `rgba(${v},${v},${v},0.09)`
+          g.fillRect(0, y, 128, 1)
+        }
+      }),
+      // Broad faces need diffuse light: the station rig has no environment map.
+      metalness: 0.23,
+      roughness: 0.4,
+    }),
+    // Clear decal backgrounds preserve the cabinet shading between the stickers.
+    binLabels: new THREE.MeshBasicMaterial({ map: canvasTexture(1024, 768, (g) => g.drawImage(binLabelCanvas(), 0, 0)), transparent: true }),
     fireLabels: new THREE.MeshBasicMaterial({ map: canvasTexture(320, 400, (g) => g.drawImage(fireLabelCanvas(), 0, 0)), transparent: true, side: THREE.DoubleSide }),
     ledGreen: new THREE.MeshBasicMaterial({ color: 0x48e08a }),
     ledRed: new THREE.MeshBasicMaterial({ color: 0xff5d47 }),
@@ -959,6 +1036,17 @@ export interface ModuleContext {
 /** Position a locally-built group at its cell and apply the 90° rotation. */
 export function placeLocal(group: THREE.Group, mod: Module): THREE.Group {
   group.position.set(mod.x + 0.5, mod.y + 0.5, mod.z + 1)
+  if (mod.rot) group.rotation.z = (mod.rot * Math.PI) / 2
+  return group
+}
+
+/** Place a floor-standing model with its local +y back on the tile's trailing edge. */
+export function placeLocalAtEdge(group: THREE.Group, mod: Module, depth: number): THREE.Group {
+  const inset = 0.5 - depth / 2
+  const rot = ((mod.rot ?? 0) % 4 + 4) % 4
+  const offsets: Array<[number, number]> = [[0, inset], [-inset, 0], [0, -inset], [inset, 0]]
+  const [dx, dy] = offsets[rot]!
+  group.position.set(mod.x + 0.5 + dx, mod.y + 0.5 + dy, mod.z + 1)
   if (mod.rot) group.rotation.z = (mod.rot * Math.PI) / 2
   return group
 }

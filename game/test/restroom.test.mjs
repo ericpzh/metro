@@ -1,7 +1,8 @@
-// Restroom fixtures (厕所) and the ticket booth's staff seats (售票亭), GAME-SPEC
-// §5.7. A restroom stocks one `cubicle` per back-row cell and one `sink` per
-// front-row cell; a booth stocks one `bench` per back-row cell facing the
-// counter. Each is an individually bulldozable module, migrated on load.
+// Restroom fixtures (厕所) and the booths' staff seats (售票亭 / 问讯处),
+// GAME-SPEC §5.7. Restrooms are footprint-only — placing one stocks no
+// cubicles or sinks; the player fits the room out by hand. A booth (ticket or
+// info) still stocks one `bench` per back-row cell facing the counter. Each
+// hand-placed unit is an individually bulldozable module.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { moduleAt, placementBlocked } from '../src/sim/placement.ts'
@@ -54,21 +55,22 @@ test('moduleAt prefers a restroom fixture over the room around it', () => {
   assert.equal(moduleAt([c, r], 1, 2, 0)?.id, c.id)
 })
 
-test('placing a restroom stocks cubicles on the back row and sinks on the front', () => {
-  const next = placeFacility(flatStation(), 'toilet', facilityRect([2, 2, 0], [5, 5, 0], 0), 'toilet-1')
+test('placing a restroom lays a footprint only — no cubicles, no sinks, no walls', () => {
+  const before = flatStation()
+  const next = placeFacility(before, 'toilet', facilityRect([2, 2, 0], [5, 5, 0], 0), 'toilet-1')
   const room = next.modules.find((m) => m.id === 'toilet-1')
+  assert.ok(room && room.type === 'shop', 'the room module comes first')
+  assert.equal(room.cfg.kind, 'toilet', 'the brush fit-out was not recorded')
+  assert.deepEqual(room.cfg.door, [], 'a fresh footprint should carry no door')
   assert.equal(room.cfg.stocked, true)
-  const cubes = of(next, 'cubicle')
-  const sinks = of(next, 'sink')
-  // 4x4 room: interior columns x = 3,4; back row y = 4, front row y = 2.
-  assert.deepEqual(cubes.map((m) => [m.x, m.y]).sort(), [[3, 4], [4, 4]])
-  assert.deepEqual(sinks.map((m) => [m.x, m.y]).sort(), [[3, 2], [4, 2]])
-  assert.ok([...cubes, ...sinks].every((m) => m.cfg.auto === true), 'every stocked unit is marked auto')
+  assert.equal(of(next, 'cubicle').length, 0, 'placing a restroom stocked cubicles')
+  assert.equal(of(next, 'sink').length, 0, 'placing a restroom stocked sinks')
+  assert.equal(next.cells.length, before.cells.length, 'placing a restroom built wall cells')
 })
 
-test('a door cell gets no fixture', () => {
-  // Carve the back-middle opening before stocking via the migration path: draw
-  // the legacy room with a door recorded at (3,4).
+test('a recorded door stocks no fixture — rooms stock nothing at all', () => {
+  // A legacy room with a carved opening still migrates to stocked-and-empty,
+  // keeping its door markers.
   const legacy = {
     name: 't',
     seed: 1,
@@ -77,9 +79,10 @@ test('a door cell gets no fixture', () => {
     lines: [],
   }
   const st = toState(legacy)
-  const cubes = of(st, 'cubicle').map((m) => [m.x, m.y])
-  assert.ok(!cubes.some(([x, y]) => x === 3 && y === 4), 'a fixture was stocked over a door')
-  assert.deepEqual(cubes.sort(), [[4, 4]])
+  assert.equal(of(st, 'cubicle').length, 0, 'a fixture was stocked')
+  assert.equal(of(st, 'sink').length, 0, 'a fixture was stocked')
+  assert.deepEqual(st.modules[0].cfg.door, [[3, 4]], 'the recorded door was lost')
+  assert.equal(st.modules[0].cfg.stocked, true)
 })
 
 test('placing a booth stocks one staff bench per back-row cell, facing the counter', () => {
@@ -93,13 +96,24 @@ test('placing a booth stocks one staff bench per back-row cell, facing the count
 
 test('each fixture deletes on its own, and bulldozing keeps hand-placed ones', () => {
   let st = placeFacility(flatStation(), 'toilet', facilityRect([2, 2, 0], [5, 5, 0], 0), 'toilet-1')
-  const first = of(st, 'cubicle')[0]
-  const cut = removeModule(st, first.id)
-  assert.equal(of(cut, 'cubicle').length, of(st, 'cubicle').length - 1)
+  st = addEquipment(st, createModule('cubicle', 3, 3, 0, 'c-hand'))
+  const cut = removeModule(st, 'c-hand')
+  assert.equal(of(cut, 'cubicle').length, 0)
   assert.ok(cut.modules.some((m) => m.id === 'toilet-1'), 'the room went with its fixture')
+  assert.equal(cut.cells.length, st.cells.length, 'a fixture bulldoze touched the voxels')
+  st = cut
 
   const hand = createModule('sink', 3, 3, 0, 'hand-1')
   st = addEquipment(st, hand)
+  // Auto-flagged units (what the old stocking used to lay) still go with the room.
+  st = {
+    ...st,
+    modules: [
+      ...st.modules,
+      { id: 'auto-1', type: 'sink', x: 4, y: 4, z: 0, rot: 0, cfg: { auto: true } },
+      { id: 'auto-2', type: 'cubicle', x: 3, y: 4, z: 0, rot: 0, cfg: { auto: true } },
+    ],
+  }
   const gone = removeFacility(st, 'toilet-1')
   assert.deepEqual(gone.modules.filter((m) => m.type === 'sink').map((m) => m.id), ['hand-1'], 'auto sinks stayed or the hand sink went')
   assert.equal(of(gone, 'cubicle').length, 0, 'auto cubicles outlived the room')
@@ -111,7 +125,7 @@ test('bulldozing a booth drops its auto benches', () => {
   assert.equal(of(gone, 'bench').length, 0, 'auto benches stayed after bulldozing the booth')
 })
 
-test('legacy restrooms and booths migrate on load, once', () => {
+test('legacy restrooms mark stocked without materialising; booths still stock benches', () => {
   const cells = flatStation().cells
   const legacy = {
     name: 't',
@@ -123,12 +137,13 @@ test('legacy restrooms and booths migrate on load, once', () => {
   const once = toState(legacy)
   assert.equal(once.modules.find((m) => m.id === 'toilet-1').cfg.stocked, true)
   assert.equal(once.modules.find((m) => m.id === 'booth-1').cfg.stocked, true)
-  const cubeCount = of(once, 'cubicle').length
-  const sinkCount = of(once, 'sink').length
+  assert.equal(of(once, 'cubicle').length, 0, 'cubicles were materialised')
+  assert.equal(of(once, 'sink').length, 0, 'sinks were materialised')
   const benchCount = of(once, 'bench').length
-  assert.ok(cubeCount > 0 && sinkCount > 0 && benchCount > 0, 'fixtures were not materialised')
+  assert.ok(benchCount > 0, 'booth benches were not materialised')
   const twice = toState(toData(once))
-  assert.equal(of(twice, 'cubicle').length, cubeCount, 'a reload re-stocked the restroom')
+  assert.equal(of(twice, 'cubicle').length, 0, 'a reload stocked the restroom')
+  assert.equal(of(twice, 'sink').length, 0, 'a reload stocked the restroom')
   assert.equal(of(twice, 'bench').length, benchCount, 'a reload re-stocked the booth')
 })
 

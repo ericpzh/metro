@@ -305,6 +305,8 @@ export interface ZoneLabel {
   z: number;
   /** Dense zone index (see `ZONE_INDEX`). */
   zone: number;
+  /** Facility name, when the label names a room instead of a fare zone. */
+  label?: string;
 }
 
 /** Smallest area that earns a text label, so stray single cells stay unlabelled. */
@@ -315,7 +317,7 @@ const LABEL_MIN_CELLS = 6;
  * zone map then names each area (付费区, 站台 …) instead of leaving the player to
  * read colours — the text is what makes it a map.
  */
-export function zoneRegionLabels(floors: readonly Cell[]): ZoneLabel[] {
+export function zoneRegionLabels(floors: readonly Cell[], modules: readonly Module[] = []): ZoneLabel[] {
   const byKey = new Map<string, Cell>();
   for (const c of floors) byKey.set(cellKey(c.x, c.y, c.z), c);
   const seen = new Set<string>();
@@ -357,6 +359,28 @@ export function zoneRegionLabels(floors: readonly Cell[]): ZoneLabel[] {
       }
     }
     labels.push({ x: best.x + 0.5, y: best.y + 0.5, z: best.z + 1.06, zone });
+  }
+  for (const m of modules) {
+    if (m.type !== 'shop') continue;
+    const kind = m.cfg.kind ?? 'store';
+    const label = kind === 'store' ? '商店' : kind === 'toilet' ? '厕所' : kind === 'office' ? '办公室' : undefined;
+    if (!label) continue;
+    const cx = m.x + (m.w ?? 1) / 2;
+    const cy = m.y + (m.h ?? 1) / 2;
+    // A room can sit on the implicit street plane, which deliberately has no
+    // materialised floor cells. Its name must still appear on the zone map.
+    const roomFloors = floors.filter((c) => c.z === m.z && c.x >= m.x && c.x < m.x + (m.w ?? 1) && c.y >= m.y && c.y < m.y + (m.h ?? 1));
+    let best = roomFloors[0];
+    if (!best) {
+      labels.push({ x: cx, y: cy, z: m.z + 1.08, zone: zoneIndexOf({}), label });
+      continue;
+    }
+    let bestD = Infinity;
+    for (const c of roomFloors) {
+      const d = (c.x + 0.5 - cx) ** 2 + (c.y + 0.5 - cy) ** 2;
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    labels.push({ x: best.x + 0.5, y: best.y + 0.5, z: best.z + 1.08, zone: zoneIndexOf(best), label });
   }
   return labels;
 }

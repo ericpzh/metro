@@ -157,6 +157,23 @@ function press(cell, solid = true, button = 0) {
   }
 }
 
+test('picking a camera copies its variant and rotation, including legacy 枪机', () => {
+  const before = useStore.getState()
+  try {
+    for (const [variant, id] of [[undefined, 'cctv'], ['bullet', 'cctv'], ['ptz', 'cctv-ptz'], ['dome', 'cctv-dome']]) {
+      const m = { id: 'camera-picked', type: 'cctv', x: 1, y: 1, z: 0, rot: 3, cfg: variant ? { variant } : {} }
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, tool: 'pick', moduleType: 'gate', pickDraft: null })
+      ctxFor(m.id).onDown(press([1, 1, 0]))
+      assert.equal(useStore.getState().moduleType, id)
+      assert.equal(useStore.getState().moduleRot, 3)
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().moduleType, 'gate')
+    }
+  } finally {
+    useStore.setState(before)
+  }
+})
+
 test.beforeEach(() => {
   const cells = []
   for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) cells.push(floor(x, y))
@@ -465,4 +482,18 @@ test('a pick notes nothing when it changes nothing', () => {
   assert.equal(st().selected.key, 'pe1')
   assert.equal(st().pickDraft, null)
   assert.equal(st().tool, 'pick', 'and the tool is left where it was')
+})
+
+
+test('picking each shelf variant and a legacy shelf copies its style and rotation', () => {
+  for (const variant of ['dark-tall', 'white-tall', 'white-short', 'wire', 'cooler', 'cooler-dark', undefined]) {
+    const m = { id: 'shelf-picked', type: 'shelf', x: 1, y: 1, z: 0, rot: 3, cfg: { variant } }
+    useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, tool: 'pick', moduleType: 'gate', pickDraft: null })
+    ctxFor(m.id).onDown(press([1, 1, 0]))
+    assert.equal(st().moduleType, `shelf-${variant ?? 'dark-tall'}`)
+    assert.equal(st().moduleRot, 3)
+    assert.equal(st().selected.key, m.id)
+    st().cancelPick()
+    assert.equal(st().moduleType, 'gate')
+  }
 })

@@ -32,6 +32,7 @@ export interface PickDraft {
   tool: Tool
   moduleType: string
   moduleRot: number
+  railLineId: string
   guideExitId: string | null
   lightPosition: number
   pillarLength: 2 | 4
@@ -42,6 +43,8 @@ export interface PickDraft {
   escalatorWide: boolean
   escalatorLong: boolean
   liftStyle: 'glass' | 'steel'
+  curtainWidth: 2 | 3 | 4
+  psdEndHeight: 'half' | 'full'
   gateDoor: GateDoor
   zoneBrush: ZoneBrush
   paintMode: PaintMode
@@ -77,6 +80,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         tool: s.tool,
         moduleType: s.moduleType,
         moduleRot: s.moduleRot,
+        railLineId: s.railLineId,
         guideExitId: s.guideExitId,
         lightPosition: s.lightPosition,
         pillarLength: s.pillarLength,
@@ -87,6 +91,8 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         escalatorWide: s.escalatorWide,
         escalatorLong: s.escalatorLong,
         liftStyle: s.liftStyle,
+        curtainWidth: s.curtainWidth,
+        psdEndHeight: s.psdEndHeight,
         gateDoor: s.gateDoor,
         zoneBrush: s.zoneBrush,
         paintMode: s.paintMode,
@@ -103,6 +109,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       pickDraft: null,
       moduleType: d.moduleType,
       moduleRot: d.moduleRot,
+      railLineId: d.railLineId,
       guideExitId: d.guideExitId,
       lightPosition: d.lightPosition,
       pillarLength: d.pillarLength,
@@ -113,6 +120,8 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       escalatorWide: d.escalatorWide,
       escalatorLong: d.escalatorLong,
       liftStyle: d.liftStyle,
+      curtainWidth: d.curtainWidth,
+      psdEndHeight: d.psdEndHeight,
       gateDoor: d.gateDoor,
       zoneBrush: d.zoneBrush,
       paintMode: d.paintMode,

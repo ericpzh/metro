@@ -1,6 +1,7 @@
 // Build model: equipment modules — placement payloads, posters, add/remove (§5).
 // Sign-board repair lives here too: a 指示牌 is equipment with a document.
 
+import { shelfVariant } from '../../sim/shelves.ts';
 import { benchSpec } from '../../sim/benches.ts';
 import { BILLBOARD_SPECS, billboardSpec, postersFor } from '../../sim/billboards.ts';
 import {
@@ -116,6 +117,8 @@ export function createModule(
       return { id, type: 'track', x, y, z, rot, w: 12, d: 3, cfg: { line: '1', power: 'third-rail', bridge: true } };
     case 'gate':
       return { id, type: 'gate', x, y, z, rot, cfg: { dir: 'both', door } };
+    case 'psd-end':
+      return { id, type: 'psd-end', x, y, z, rot, cfg: { psd: 'half' } };
     case 'fence':
       return { id, type: 'fence', x, y, z, rot, cfg: {} };
     case 'tvm':
@@ -136,7 +139,13 @@ export function createModule(
       return { id, type: 'bench', x: ox, y: oy, z, rot, w: spec.w, cfg: { variant: spec.variant } };
     }
     case 'shelf':
-      return { id, type: 'shelf', x, y, z, rot, cfg: {} };
+    case 'shelf-dark-tall':
+    case 'shelf-white-tall':
+    case 'shelf-white-short':
+    case 'shelf-wire':
+    case 'shelf-cooler':
+    case 'shelf-cooler-dark':
+      return { id, type: 'shelf', x, y, z, rot, cfg: { variant: shelfVariant(type.slice(6)) } };
     case 'desk':
       return { id, type: 'desk', x, y, z, rot, cfg: {} };
     case 'cubicle':
@@ -158,20 +167,33 @@ export function createModule(
       return { id, type: 'bin', x, y, z, rot, cfg: {} };
     case 'extinguisher':
       return { id, type: 'extinguisher', x, y, z, rot, cfg: {} };
+    case 'ac-unit':
+      return { id, type: 'ac-unit', x, y, z, rot, cfg: {} };
+    case 'electrical-cabinet':
+      return { id, type: 'electrical-cabinet', x, y, z, rot, cfg: {} };
+    case 'tactile-guide':
+    case 'tactile-warning':
+      return { id, type: 'tactile', x, y, z, rot, cfg: { variant: type === 'tactile-warning' ? 'warning' : 'guide' } };
+    case 'floor-mark-boarding':
+    case 'floor-mark-waiting':
+    case 'floor-mark-direction':
+      return { id, type: 'floor-mark', x, y, z, rot, cfg: { variant: type === 'floor-mark-waiting' ? 'waiting' : type === 'floor-mark-direction' ? 'direction' : 'boarding' } };
     case 'vent':
       return { id, type: 'vent', x, y, z, rot, cfg: {} };
     case 'light-circular':
     case 'light-rectangular':
       return { id, type: 'light', x, y, z, rot, cfg: { variant: type === 'light-rectangular' ? 'rectangular' : 'circular' } };
     case 'clock':
-      // A station clock (时钟) and a ceiling camera (监控): no variant, no `cfg` —
+      // A station clock (时钟): no variant, no `cfg` —
       // the clock is round, so its rotation is purely cosmetic, and the camera's
       // rotation is the direction it watches. Unlike the bin and the cabinet these
       // two hang from the ceiling rather than standing on the floor
       // (`ceilingMountMissing`, `sim/placement.ts`).
       return { id, type: 'clock', x, y, z, rot, cfg: {} };
     case 'cctv':
-      return { id, type: 'cctv', x, y, z, rot, cfg: {} };
+    case 'cctv-ptz':
+    case 'cctv-dome':
+      return { id, type: 'cctv', x, y, z, rot, cfg: { variant: type === 'cctv-ptz' ? 'ptz' : type === 'cctv-dome' ? 'dome' : 'bullet' } };
     case 'billboard':
     case 'billboard-wide':
     case 'billboard-standard':
@@ -191,6 +213,12 @@ export function createModule(
     }
     case 'tv':
       return { id, type: 'tv', x, y, z, rot, cfg: {} };
+    case 'curtain-wall': {
+      const variant: GlassVariant = width === 4 ? '4x4' : width === 3 ? '3x4' : '2x4';
+      const w = glassSpec(variant).w;
+      const [ox, oy] = trackOriginForCentre(rot, x, y, w, 1);
+      return { id, type: 'glass', x: ox, y: oy, z, rot, w, cfg: { variant } };
+    }
     case 'glass':
     case 'glass-1x1':
     case 'glass-2x1':

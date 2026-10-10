@@ -6,6 +6,7 @@ import type { ModelMaterials } from '../PieceBuilder.ts'
 import { STOCK, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { buildCab } from './CabModel.ts'
+import { buildTrainInterior } from './TrainInterior.ts'
 
 /* ------------------------------------------------------------------ trains */
 
@@ -60,7 +61,8 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
   // The consist's own livery is minted per build (it wears the line's colour), so the
   // group owns it: everything else on a train is the shared kit, which `disposeObject`
   // deliberately keeps. `TrainSystem` releases these when it evicts the consist.
-  g.userData.ownedMats = [blue]
+  const floor = new THREE.MeshStandardMaterial({ color: 0x586879, roughness: 0.85, metalness: 0 })
+  g.userData.ownedMats = [blue, floor]
   const carDoors = doorCentres({ stock: pose.stock, cars: pose.cars })
   const doors: THREE.Mesh[] = []
   g.userData.doors = doors
@@ -70,6 +72,10 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     const carCentre = carStart + s.length / 2 - total / 2
     const bodyLen = s.length - 0.25
     const halfLen = bodyLen / 2
+    const shellStart = carCentre - halfLen + (c === 0 ? 1.875 : 0)
+    const shellEnd = carCentre + halfLen - (c === pose.cars - 1 ? 1.875 : 0)
+    const shellCentre = (shellStart + shellEnd) / 2
+    const shellLen = shellEnd - shellStart
     // Doors in this car. `doorCentres` offsets are already measured from the
     // consist centre, the same frame the car centres use.
     const inCar = carDoors.filter((off) => off > carCentre - s.length / 2 && off < carCentre + s.length / 2).sort((a, b) => a - b)
@@ -96,17 +102,35 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     const skinY = s.width / 2 - 0.03
     const doorH = DOOR_HEAD_Z - DOOR_SILL_Z
     const doorZMid = (DOOR_SILL_Z + DOOR_HEAD_Z) / 2
-    slab(g, mats.trainInterior, carCentre, 0, CABIN_FLOOR_Z - 0.06, bodyLen, coreW + 0.24, 0.12)
     slab(g, mats.trainInterior, carCentre, 0, DOOR_HEAD_Z + 0.05, bodyLen, coreW + 0.24, 0.1)
-    for (const e of [-1, 1]) slab(g, mats.trainBody, carCentre + e * (halfLen - 0.04), 0, 1.75, 0.08, s.width, 2.5)
-    slab(g, mats.trainRoof, carCentre, 0, 3.05, bodyLen, s.width - 0.2, 0.2)
-    slab(g, mats.trainDark, carCentre, 0, 0.335, bodyLen, s.width - 0.1, 0.37)
+    for (const e of [-1, 1]) {
+      if ((e < 0 && c === 0) || (e > 0 && c === pose.cars - 1)) continue
+      slab(g, mats.trainBody, carCentre + e * (halfLen - 0.04), 0, 1.75, 0.08, s.width - 0.08, 2.5)
+    }
+    // A rolled shoulder joins the flat side to the roof without a square eave.
+    const roofSection = new THREE.Shape()
+    const hw = s.width / 2
+    roofSection.moveTo(-hw, 2.75)
+    roofSection.quadraticCurveTo(-hw, 3.15, -hw + 0.4, 3.15)
+    roofSection.lineTo(hw - 0.4, 3.15)
+    roofSection.quadraticCurveTo(hw, 3.15, hw, 2.75)
+    roofSection.lineTo(-hw, 2.75)
+    roofSection.closePath()
+    const roofGeometry = new THREE.ExtrudeGeometry(roofSection, { depth: shellLen, bevelEnabled: false, curveSegments: 32 })
+    roofGeometry.rotateY(Math.PI / 2)
+    roofGeometry.rotateX(Math.PI / 2)
+    const roof = new THREE.Mesh(roofGeometry, mats.trainBody)
+    roof.name = 'car-roof'
+    roof.position.set(shellStart, 0, 0)
+    g.add(roof)
+    // Keep the underframe between the wheel backs rather than filling their space.
+    slab(g, mats.trainDark, carCentre, 0, 0.39, bodyLen, 1.25, 0.22)
     for (const side of [-1, 1]) {
       const y = side * skinY
       // Full-length sill and header, then infill panels between the doors.
-      slab(g, mats.trainBody, carCentre, y, 0.51, bodyLen, 0.06, 0.12)
-      slab(g, mats.trainBody, carCentre, y, 2.82, bodyLen, 0.06, 0.38)
-      for (const [a, b] of sideRuns(carCentre - halfLen, carCentre + halfLen, 0)) {
+      slab(g, mats.trainBody, shellCentre, y, 0.51, shellLen, 0.06, 0.12)
+      slab(g, mats.trainBody, shellCentre, y, 2.69, shellLen, 0.06, 0.12)
+      for (const [a, b] of sideRuns(shellStart, shellEnd, 0)) {
         // Below the waist: body. Above it: the glazing that makes the cabin visible.
         slab(g, mats.trainBody, (a + b) / 2, y, (DOOR_SILL_Z + WINDOW_SILL_Z) / 2, b - a, 0.06, WINDOW_SILL_Z - DOOR_SILL_Z)
         slab(g, mats.glass, (a + b) / 2, y, (WINDOW_SILL_Z + DOOR_HEAD_Z) / 2, b - a, 0.04, DOOR_HEAD_Z - WINDOW_SILL_Z)
@@ -121,19 +145,16 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     // is glass now, so nothing opaque covers the cabin.
     for (const side of [-1, 1]) {
       const face = (side * s.width) / 2
-      for (const [a, b] of sideRuns(carCentre - bodyLen / 2, carCentre + bodyLen / 2, 0.05)) {
+      for (const [a, b] of sideRuns(shellStart, shellEnd, 0.05)) {
         slab(g, blue, (a + b) / 2, face + side * 0.02, 1.05, b - a, 0.05, 0.34)
       }
       // Longitudinal seating in the bays between the doors, under the windows —
       // the doorways themselves stay clear for the people walking out of them.
-      for (const [a, b] of sideRuns(carCentre - halfLen + 0.1, carCentre + halfLen - 0.1, 0.25)) {
-        if (b - a < 1.2) continue
-        slab(g, mats.trainSeat, (a + b) / 2, side * (CABIN_HALF_W - 0.3), CABIN_FLOOR_Z + 0.22, b - a - 0.1, 0.5, 0.44)
-      }
     }
 
     // Ceiling lighting down the cabin, so the interior reads as a lit room.
-    slab(g, mats.glow, carCentre, 0, DOOR_HEAD_Z + 0.02, bodyLen - 1.2, 0.16, 0.03)
+    buildTrainInterior(g, mats, carCentre - halfLen, carCentre + halfLen,
+      sideRuns(shellStart + 0.1, shellEnd - 0.1, 0.25), inCar, floor)
 
     // Sliding doors onto the cabin: two leaves per side part to reveal the
     // interior the platform is about to trade passengers with.
@@ -153,7 +174,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
           const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, doorH - 0.12, 8), mats.steel)
           // A cylinder's axis is +y; the cabin's up is +z, so tip it upright.
           pole.rotation.x = Math.PI / 2
-          pole.position.set(dx + px * (s.doorWidth / 3), side * (skinY - 0.16), doorZMid)
+          pole.position.set(dx + px * (s.doorWidth / 2 + 0.1), side * (skinY - 0.16), doorZMid)
           g.add(pole)
         }
         // The doorway's own seal, at each jamb: the skin's cut edge is body colour,
@@ -169,11 +190,33 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
           // diffuse, so the ambient light in the rig does not reach it and the leaf came out
           // charcoal while the body beside it stayed near-white (the same trap `trainBody`
           // itself records). Steel is for the fittings: the grab poles below.
-          const m = slab(g, mats.trainBody, dx + (leaf * s.doorWidth) / 4, face + side * 0.03, doorZMid, lw, 0.05, doorH)
-          // The leaf's window: at the car's own window line, and inset from the stiles.
-          slab(m, mats.glass, 0, side * 0.035, 0.28, lw - 0.18, 0.02, 0.86)
+          // A real aperture: a glass box against an uncut painted slab shares
+          // its back face and flickers. The frame surrounds the pane (§1.13).
+          const frame = new THREE.Shape()
+          frame.moveTo(-lw / 2, -doorH / 2)
+          frame.lineTo(lw / 2, -doorH / 2)
+          frame.lineTo(lw / 2, doorH / 2)
+          frame.lineTo(-lw / 2, doorH / 2)
+          frame.closePath()
+          const window = new THREE.Path()
+          const windowHalfW = (lw - 0.18) / 2
+          window.moveTo(-windowHalfW, 0.28 - 0.43)
+          window.lineTo(-windowHalfW, 0.28 + 0.43)
+          window.lineTo(windowHalfW, 0.28 + 0.43)
+          window.lineTo(windowHalfW, 0.28 - 0.43)
+          window.closePath()
+          frame.holes.push(window)
+          const geometry = new THREE.ExtrudeGeometry(frame, { depth: 0.05, bevelEnabled: false })
+          geometry.rotateX(Math.PI / 2)
+          geometry.translate(0, 0.025, 0)
+          const m = new THREE.Mesh(geometry, mats.trainBody)
+          m.position.set(dx + (leaf * s.doorWidth) / 4, face + side * 0.065, doorZMid)
+          g.add(m)
+          // Inset 5 mm from the aperture edges; the pane has no opaque backing.
+          const pane = slab(m, mats.glass, 0, 0, 0.28, lw - 0.19, 0.02, 0.85)
+          pane.name = 'train-door-window'
           // The kick plate, so the leaf has a foot and the sill has a line.
-          slab(m, mats.rubber, 0, side * 0.035, -doorH / 2 + 0.14, lw, 0.02, 0.28)
+          slab(m, mats.rubber, 0, side * 0.041, -doorH / 2 + 0.14, lw, 0.02, 0.28)
           registerDoorLeaf(m, leaf, s.doorWidth / 2, doors, side)
         }
       }
@@ -181,14 +224,23 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     // Two bogies.
     for (const b of [-1, 1]) {
       const bx = carCentre + (b * s.length) / 3
-      slab(g, mats.black, bx, 0, 0.35, 2.2, 1.9, 0.4)
-      for (const wy of [-1, 1]) {
-        // A rail wheel's axle runs across the car (+y), which is the cylinder's
-        // default axis, so it needs no rotation — radius 0.36 puts the tread on
-        // the rail at z = 0.
-        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.12, 10), mats.rubber)
-        wheel.position.set(bx, (wy * 1.5) / 2 + wy * 0.2, 0.36)
-        g.add(wheel)
+      slab(g, mats.darkSteel, bx, 0, 0.37, 2.2, 1.22, 0.16)
+      // The fixed cabin floor starts at z=.50 underneath. Wheels touch the rail
+      // at zero and stop at .48, leaving clearance without moving the doors (§1.13).
+      for (const axle of [-1, 1]) {
+        const ax = bx + axle * 0.72
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.65, 10), mats.darkSteel)
+        shaft.position.set(ax, 0, 0.24)
+        g.add(shaft)
+        for (const wy of [-1, 1]) {
+          const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.13, 20), mats.darkSteel)
+          wheel.position.set(ax, wy * 0.75, 0.24)
+          g.add(wheel)
+          const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.145, 12), mats.steel)
+          hub.position.copy(wheel.position)
+          g.add(hub)
+          slab(g, mats.darkSteel, ax, wy * 0.57, 0.39, 0.22, 0.18, 0.16)
+        }
       }
     }
   }

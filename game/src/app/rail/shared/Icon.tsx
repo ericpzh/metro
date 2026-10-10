@@ -7,6 +7,7 @@
 
 import { GiBulldozer } from 'react-icons/gi'
 import { RiDragDropLine } from 'react-icons/ri'
+import { BsInfoCircleFill } from 'react-icons/bs'
 
 export function Icon({ name }: { name: string }): React.ReactElement {
   const s = {
@@ -352,6 +353,8 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <circle {...s} cx="14.8" cy="10" r="0.62" />
         </>,
       )
+    case 'roomInfo':
+      return <BsInfoCircleFill />
     // 办公室: a desk with a monitor on it and a chair drawn up to the near side.
     case 'roomOffice':
       return svg(

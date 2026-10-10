@@ -9,9 +9,9 @@
 // fallback.
 
 import { useEffect, useState } from 'react'
-import { useStore } from '../../store.ts'
+import { FACILITY_OPTIONS, useStore, type ZoneBrush } from '../../store.ts'
 import { getZoneThumbnails } from '../../zoneThumbnails.ts'
-import { DEFAULT_ZONE, type Zone } from '../../../sim/types.ts'
+import { DEFAULT_ZONE } from '../../../sim/types.ts'
 import { ZONE_LIST } from '../../../sim/zones.ts'
 import { Block } from '../shared/Block.tsx'
 
@@ -32,7 +32,7 @@ export function ZoneFolder(): React.ReactElement {
     }
   }, [])
 
-  const arm = (id: Zone): void => {
+  const arm = (id: ZoneBrush): void => {
     st().setZoneBrush(id)
     setTool('zone')
   }
@@ -64,6 +64,16 @@ export function ZoneFolder(): React.ReactElement {
           />
         ),
       )}
+      {FACILITY_OPTIONS.filter((f) => f.id !== 'ticket' && f.id !== 'info').map((f) => (
+        <Block
+          key={f.id}
+          label={f.label}
+          tile={f.id}
+          icon={f.icon}
+          active={tool === 'zone' && zoneBrush === f.id}
+          onClick={() => arm(f.id)}
+        />
+      ))}
     </div>
   )
 }

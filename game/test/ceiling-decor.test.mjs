@@ -26,6 +26,7 @@ import { createModule } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { MODULE_OPTIONS, isDecorType, moduleLabel } from '../src/app/store.ts'
 import { sameSweepFamily, sweepFamily } from '../src/app/sweep.ts'
+import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import { buildModule, CLOCK_POSE_SECONDS, reposeClockHands } from '../src/render/models.ts'
 import { ClockSystem } from '../src/render/scene/systems/ClockSystem.ts'
 import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
@@ -53,7 +54,7 @@ const ceilingAt = (x, y) => ({ x, y, z: 4, fill: 'solid' })
 
 /* ------------------------------------------------------------- the catalogue */
 
-test('the factory builds both pieces with the hover rotation and no cfg', () => {
+test('the factory builds both pieces with the hover rotation', () => {
   const c = createModule('clock', 3, 4, -4, 'c', 2)
   assert.equal(c?.type, 'clock')
   assert.equal(c?.rot, 2)
@@ -61,13 +62,15 @@ test('the factory builds both pieces with the hover rotation and no cfg', () => 
   const v = createModule('cctv', 3, 4, -4, 'v', 1)
   assert.equal(v?.type, 'cctv')
   assert.equal(v?.rot, 1)
-  assert.deepEqual(v?.cfg, {})
+  assert.deepEqual(v?.cfg, { variant: 'bullet' })
 })
 
 test('the palette files both under 装饰, with their Chinese labels', () => {
   for (const [id, label] of [
     ['clock', '时钟'],
-    ['cctv', '监控'],
+    ['cctv', '枪机'],
+    ['cctv-ptz', '球机'],
+    ['cctv-dome', '半球机'],
   ]) {
     const option = MODULE_OPTIONS.find((m) => m.id === id)
     assert.ok(option, `${id} is in the palette`)
@@ -75,7 +78,7 @@ test('the palette files both under 装饰, with their Chinese labels', () => {
     assert.equal(option.w, 1)
     assert.equal(option.h, 1)
     assert.equal(isDecorType(id), true, `${id} belongs to the 装饰 folder`)
-    assert.equal(moduleLabel(id), label)
+    assert.equal(moduleLabel(id), id === 'cctv' ? '监控' : label)
   }
 })
 
@@ -192,7 +195,7 @@ test('both are movable decorations, and both round-trip the save', () => {
 
 test('a drag sweep collects a run of either piece, and nothing else', () => {
   assert.equal(sweepFamily(clock(0, 0)), 'clock')
-  assert.equal(sweepFamily(cctv(0, 0)), 'cctv')
+  assert.equal(sweepFamily(cctv(0, 0)), 'cctv:bullet')
   // A run of clocks is one sweep whatever way each is turned — a round dial has no
   // meaningful hand, so rotation never splits the family.
   assert.equal(sameSweepFamily(clock(0, 0, 0, 'a', 0), clock(1, 0, 0, 'b', 3)), true)
@@ -225,6 +228,44 @@ function build(mod) {
   const box = new THREE.Box3().setFromObject(group).translate(new THREE.Vector3(-0.5, -0.5, -1))
   return { mats, meshes, box, root: group }
 }
+
+test('camera variants keep their shape through save, ghost refresh and same-variant sweep', () => {
+  const pieces = ['cctv', 'cctv-ptz', 'cctv-dome'].map((id) => createModule(id, 2, 2, 0, id, 3))
+  const legacy = cctv(2, 2, 0, 'legacy', 3)
+  const state = { ...flatStation(), modules: [...pieces, legacy] }
+  assert.deepEqual(parse(serialize(state)).state.modules, state.modules)
+  assert.equal(moduleGhostKey(legacy), moduleGhostKey(pieces[0]), 'legacy saves render as 枪机')
+  assert.equal(new Set(pieces.map(moduleGhostKey)).size, 3, 'a palette change refreshes the ghost in place')
+  assert.equal(sameSweepFamily(legacy, pieces[0]), true)
+  for (const a of pieces) for (const b of pieces) assert.equal(sameSweepFamily(a, b), a === b, 'a sweep keeps other camera shapes')
+  for (const mod of pieces) {
+    assert.equal(ceilingMountMissing(flatStation().cells, mod), true)
+    assert.equal(ceilingMountMissing(flatStation([ceilingAt(2, 2)]).cells, mod), false)
+  }
+})
+
+test('球机 hangs below its arm and 半球机 sits flush beneath the ceiling in every rotation', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const ptz = build(createModule('cctv-ptz', 0, 0, 0, 'ptz', rot))
+    const dome = build(createModule('cctv-dome', 0, 0, 0, 'dome', rot))
+    for (const { box, meshes } of [ptz, dome]) {
+      assert.ok(box.min.x > -0.5 && box.max.x < 0.5 && box.min.y > -0.5 && box.max.y < 0.5, 'hardware stays inside its tile')
+      assert.ok(Math.abs(box.max.z - 3) < 1e-6, 'mount touches the slab without protruding through it')
+      const shell = meshes.find((m) => m.geometry.type === 'SphereGeometry' && m.geometry.parameters.thetaStart === Math.PI / 2)
+      assert.ok(shell, 'the glass cover is a lower hemisphere')
+      const glassBox = new THREE.Box3().setFromObject(shell)
+      assert.ok(glassBox.max.z - glassBox.min.z > 0.12, 'cover has depth rather than a flat disc')
+      assert.equal(shell.material.depthWrite, false, 'cover does not hide the lens behind it')
+      assert.equal(shell.material.opacity, 0.32)
+      const lens = meshes.find((m) => m.geometry.type === 'CylinderGeometry' && m.geometry.parameters.height === 0.008 && m.material.name === 'tintedGlass')
+      assert.ok(lens, 'an optical disc is inside the cover')
+      const axis = new THREE.Vector3(0, -1, 0).transformDirection(lens.matrixWorld)
+      assert.ok(axis.z < -0.2, 'the optical face points down into the concourse')
+    }
+    assert.ok(ptz.box.min.z < 2.4, '球机 hangs well below its bracket')
+    assert.ok(dome.box.min.z > 2.7, '半球机 stays close to the slab')
+  }
+})
 
 /**
  * The direction a dial part's **length** runs, in the dial's plane.
@@ -513,19 +554,39 @@ test('the 监控 is a bracketed bullet camera whose lens faces local −y', () =
   assert.ok(drawnX <= 0.32, `the drawn housing is slim across (${drawnX.toFixed(2)} m)`)
   assert.ok(drawnY <= 0.45, `and shallow into the room (${drawnY.toFixed(2)} m)`)
   assert.ok(drawnX * drawnY * drawnZ <= 0.08, `a slim fitting, not a box (${(drawnX * drawnY * drawnZ).toFixed(3)} m³ of a 1 m³ cell)`)
-  // The head is dark and the lens is out front, on the −y side of its own body.
+  // The dark optics are contained inside a rounded white front surround.
+  const body = meshes.find((m) => m.name === 'cctv-body')
+  const surround = meshes.find((m) => m.name === 'cctv-front-surround')
+  const panel = meshes.find((m) => m.name === 'cctv-optical-panel')
+  const hood = meshes.find((m) => m.name === 'cctv-sun-hood')
+  assert.equal(body.material, mats.white)
+  assert.equal(surround.material, mats.white)
+  assert.equal(panel.material, mats.black)
+  assert.equal(hood.material, mats.white)
+  for (const m of [body, surround, panel]) {
+    m.geometry.computeBoundingBox()
+    assert.ok(m.geometry.parameters.shapes.curves.some((c) => c.type === 'QuadraticBezierCurve'), 'rounded enclosure corners')
+  }
+  const frontSize = surround.geometry.boundingBox.getSize(new THREE.Vector3())
+  const panelSize = panel.geometry.boundingBox.getSize(new THREE.Vector3())
+  assert.ok(frontSize.x - panelSize.x > 0.05 && frontSize.y - panelSize.y > 0.05, 'a visible white border on all sides of the dark insert')
+  assert.ok(panel.position.y < surround.position.y, 'the insert sits visibly on the front face')
+  assert.ok(hood.geometry.parameters.shapes.curves.filter((c) => c.type === 'QuadraticBezierCurve').length >= 4, 'the hood is an arched shell, not a flat plate')
+  // The lens is out front, on the −y side of its own body.
   const lens = meshes.filter((m) => m.material === mats.black && m.geometry.type === 'CylinderGeometry')
   assert.ok(lens.length >= 1, 'a lens barrel')
   const lensY = Math.min(...lens.map((m) => m.position.y))
   assert.ok(lensY < -0.1, 'the lens sits on the −y front')
   assert.ok(lens[0].geometry.parameters.radiusTop <= 0.06, 'a small lens, not a porthole')
-  // The two illuminator LEDs ride beside the lens, in the same front plane.
-  const leds = meshes.filter((m) => m.material === mats.ledRed)
-  assert.equal(leds.length, 2, 'a two-LED illuminator')
+  const opticalAxis = new THREE.Vector3(0, -1, 0).transformDirection(lens[0].matrixWorld)
+  assert.ok(opticalAxis.z < -0.2, 'the circular lens faces forward and down into the corridor')
+  // Clear illuminators stay entirely inside the dark window.
+  const leds = meshes.filter((m) => m.name === 'cctv-ir-led')
+  assert.equal(leds.length, 12, 'an IR ring around the lens')
   assert.ok(leds.every((m) => m.position.y < -0.02), 'both LEDs are on the front face')
-  assert.ok(Math.sign(leds[0].position.x) !== Math.sign(leds[1].position.x), 'one each side of the lens')
+  assert.ok(leds.every((m) => Math.abs(m.position.x) + 0.005 < panelSize.x / 2 && Math.abs(m.position.z) + 0.005 < panelSize.y / 2), 'no black panel or LED spills onto the white surround')
   // A sun hood over the head, and the ceiling plate the stem drops from.
-  assert.ok(meshes.filter((m) => m.material === mats.steel).length >= 3, 'hood, stem and arm are steel')
+  assert.ok(meshes.filter((m) => m.material === mats.steel).length >= 3, 'stem, arm and IR reflectors are steel')
   assert.ok(meshes.some((m) => m.material === mats.darkSteel && m.position.z > 2.9), 'a ceiling plate at the top')
   // The piece looks one way: the lens is the front, not a thing on the side.
   assert.ok(Math.abs(lens[0].position.x) < 0.2, 'the lens is centred on the head, not off to a side')

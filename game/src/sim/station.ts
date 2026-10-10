@@ -24,6 +24,7 @@ import {
   WALK_SPEED,
   ZONE_LINES_BLOCK,
 } from './constants.ts'
+import { floorDecorCells } from './floorDecor.ts'
 import { floorSpeed } from './finishes.ts'
 import { escalatorRun, escalatorBalustradeWidth } from './escalators.ts'
 import { gateAllows, gateHasLane } from './gates.ts'
@@ -219,7 +220,10 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     // A solid stair block fills the anchor's headroom; its flight connects the
     // neighbouring lower and upper floors instead of walking through its body.
     if (m.type === 'stair' && m.cfg.block) fenceCells.add(cellKey(m.x, m.y, m.z))
-    if (m.type !== 'fence') continue
+    if (m.type === 'ac-unit' || m.type === 'electrical-cabinet') {
+      for (const [x, y] of floorDecorCells(m)) fenceCells.add(cellKey(x, y, m.z))
+    }
+    if (m.type !== 'fence' && m.type !== 'psd-end') continue
     fenceCells.add(cellKey(m.x, m.y, m.z))
   }
 

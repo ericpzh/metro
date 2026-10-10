@@ -10,8 +10,8 @@
 //     nothing between them, so a three-cell panel is **one** window rather than
 //     three windows butted together.
 //   * **It comes in sizes.** Short panels are wall-mounted; the 2×4, 3×4 and 4×4
-//     panels stand on a floor edge like a doorway. All are picked from the rail's
-//     sub-menu rather than cycled with Tab.
+//     panels stand on a floor edge like a doorway. Short sizes use the 玻璃板 sub-menu; the tall panels use the separate
+//     玻璃幕墙 tile, with Tab cycling 窄 / 中 / 宽.
 //
 // This one table is shared by the builder (the module it creates), the placement
 // rules (its run, its height and the wall courses it needs behind it), the

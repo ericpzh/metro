@@ -216,7 +216,7 @@ export function LeftRail(): React.ReactElement {
       count: FINISH_LIST.length + 2,
       body: <PaintFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
     },
-    rooms: { count: FACILITY_OPTIONS.length, body: <RoomFolder /> },
+    rooms: { count: FACILITY_OPTIONS.filter((f) => f.id === 'ticket' || f.id === 'info').length, body: <RoomFolder /> },
     zones: { count: zoneFolderTiles(), body: <ZoneFolder /> },
   }
 

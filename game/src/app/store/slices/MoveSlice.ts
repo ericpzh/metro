@@ -95,7 +95,7 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     const st = get()
     const mod = st.station.modules.find((m) => m.id === moduleId)
     if (!mod) return
-    const label = moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined)
+    const label = moduleLabel(mod.type, mod.type === 'shop' || mod.type === 'booth' ? mod.cfg.kind : undefined)
     if (!isMovableModule(mod)) {
       set({ notice: `${label}不能移动：用删除 (B) 拆掉再放` })
       return
@@ -174,7 +174,7 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
       set({ moveDraft: null, notice: '位置没变' })
       return
     }
-    const label = moduleLabel(from.type, from.type === 'shop' ? from.cfg.kind : undefined)
+    const label = moduleLabel(from.type, from.type === 'shop' || from.type === 'booth' ? from.cfg.kind : undefined)
     set({ moveDraft: null })
     get().commit(moveEquipment(st.station, to))
     set({ notice: `${label}已移到 (${to.x}, ${to.y}, ${to.z})` })

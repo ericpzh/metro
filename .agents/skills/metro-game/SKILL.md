@@ -650,25 +650,31 @@ the four rules most changes trip over.
   those bands. The 高度 rail shifts that whole grid by a 0–3 m `levelBase`
   (`normalizeLevelBase` / `levelSteps(base)` / `storeyBand(z, base)`; old saves default
   to 0, `storey.test.mjs` + `structures-gaps.test.mjs`). The save carries no `levels` field; old saves load with it ignored.
-* A **walled facility room** is the one `shop` module type; its fit-out lives in
-  `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter and the `retail`
-  shell). The rectangle drag runs through `placeFacility` (`build/model/Facilities.ts`) to create
-  商店 / 厕所 / 办公室 / 售票亭, and the matching model draws the sign — 厕所 / 办公室 hang a real door on
-  their openings, 商店 keeps an open front. Two rooms merge only when their type *and*
-  fit-out match. A room stocks its furniture as individual modules (a store one `shelf` per
-  island row and wall run, an office one `desk` per grid spot, a restroom its
-  `cubicle`/`sink`, a booth its `bench`), so every unit is right-clickable; the room carries
-  `cfg.stocked` and old saves migrate once via `ensureRoomFurniture` in `toState`. Deleting
-  a room takes its `cfg.auto` furniture but leaves hand-placed pieces. A room's walls meet
+* A **facility room** is the one `shop` module type; its fit-out lives in
+  `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter in
+  `ticket` / `info` 问讯处 and the `retail` shell). The rectangle drag runs through `placeFacility` (`build/model/Facilities.ts`) to mark a
+  商店 / 厕所 / 办公室 footprint or a 售票亭 / 问讯处, and the matching model draws the sign — 厕所 / 办公室 hang a real door on
+  their openings, 商店 keeps an open front. The brush builds **no walls and no
+  fit-out**: the player walls the footprint with the 方块 / 墙 tools and
+  furnishes it piece by piece, so every unit is right-clickable; the room carries
+  `cfg.stocked` and old saves migrate once via `ensureRoomFurniture` in `toState`,
+  which only marks legacy store / office / toilet rooms stocked and never
+  recreates their old auto fit-out. Only a booth still stocks itself (one `bench`
+  per back-row cell). Deleting
+  a room takes its `cfg.auto` furniture but leaves hand-placed pieces. Extending
+  a room over the same kind unions the footprint and clears only the absorbed
+  ring the union buries — the player's walls on the new edge stay. Two rooms merge only when their type *and*
+  fit-out match. A room's walls meet
   at **square** corners — `mitreCap` is deleted — with the west/east panel taking the corner
   cell's outer half across the cell's whole depth and the south/north panel stopping one
   `WALL_T` short to butt its inner face, so three quarters of the corner cell are wall and
   the room-facing quarter is left free for furniture (`room-model.test.mjs` pins the square
   ring, the empty quarter, and that every wall mesh is a `BoxGeometry`). Rooms and the booth
-  wear no name plate. The 房间 folder's tiles are line icons of use (商店 / 售票亭 / 办公室 /
-  厕所), not colour chips, and `app/zoneThumbnails.ts` renders the 分区 brushes alone. Brush
-  ids are `store` / `toilet` / `office` / `ticket` (the walled rooms share the `shop`
-  module, the booth is `booth`). The **售票亭** (`buildBooth`) is hand-built geometry rather
+  wear no name plate. The 房间 folder's tiles are line icons of use (商店 / 售票亭 / 问讯处 /
+  办公室 / 厕所), not colour chips, and `app/zoneThumbnails.ts` renders the 分区 brushes alone. Brush
+  ids are `store` / `toilet` / `office` / `ticket` / `info` (the footprint rooms share the `shop`
+  module, the booths are `booth`). The 分区 folder arms the three footprint brushes beside its
+  zones (`zoneFolderTiles` = zones + 3). The **售票亭** (`buildBooth`) is hand-built geometry rather
   than voxels, and it must be a **closed box inside the module's own cells** — every side
   measures *inward from that side's outer face*, the west and east counter runs own the four
   corner squares while the north and south runs butt between them, and the four glass sheets
@@ -679,10 +685,14 @@ the four rules most changes trip over.
   plus 广告牌 and the **墙面指示牌** (wall-mounted,
   `wallMountMissing`) and 电视 / **吊挂指示牌** / 时钟 / 监控 / 灯具 / 通风口 (ceiling-hung) — the 指示牌
   being one piece with both mounts, offered as two tiles (`sign-ceiling` / `sign-wall`) and
-  read from its own `cfg.mount`. 座椅 is a nested sub-menu of four variants from
-  `sim/benches.ts`: a plain stainless bench with no back and an upholstered seat with a back
-  and arm rests, each 1 m or 2 m; the 2 m piece is a real two-cell run. 货架 draws a stocked
-  supermarket gondola (perforated back panel, five shelves, price rails, instanced goods).
+  read from its own `cfg.mount` — plus the floor kit (条形导向 / 圆点提示 盲道 tiles,
+  屏蔽门箭头 / 排队等候线 / 方向指引 floor vinyl, the 空调风机 and 设备柜 machinery)
+  and the 屏蔽端门 return that caps a screen run. 座椅 is a nested sub-menu of two styles from
+  `sim/benches.ts` — a plain stainless bench with no back and an upholstered seat with a back
+  and arm rests — one tile per style, with **Tab** cycling each between its 1 m and 2 m
+  run (`cycleBenchWidth`); the 2 m piece is a real two-cell run, and a pick arms its exact
+  `-2` id. 货架 is a six-variant family from `sim/shelves.ts` (tall/short, wire and cooler):
+  each variant is its own tile, and a pick copies the style.
   垃圾桶 is the stainless double bin (`buildBin`) and 灭火器 the red steel cabinet on four
   legs (`buildExtinguisher`); both are cosmetic — no server, no stop — and both count as
   room furniture. 门 (`sim/doors.ts`) is the folder's one **doorway**: a threshold, a post at
@@ -709,15 +719,17 @@ the four rules most changes trip over.
   10:09 pose (`CLOCK_POSE_SECONDS`) a palette thumbnail still draws. The **hover ghost**'s
   clock is turned with the placed pieces (`GhostSystem` hands its rigs to the clock system).
   The face is **geometry, not a printed canvas** (a texture on the cap measured wrong on the
-  built page while every unit test passed), which is why the ring is `openEnded`. 监控 is the
-  bracketed bullet camera (`buildCctv`) — the drawn housing is under 8% of the cell it
-  reserves; both are cosmetic props hung the whole storey and neither is room furniture.
+  built page while every unit test passed), which is why the ring is `openEnded`. 监控 is one
+  family in three housings — 枪机 (the bracketed bullet, the legacy default), 球机 and 半球机 —
+  each its own tile; all three are cosmetic props hung the whole storey and none is room furniture.
   灯具 is the ceiling fitting in two housings — 圆形 (centred, fixed) and 直条 (the shared
   nine-spot cycle, Tab, turned 0°/90° by R) with an emissive diffuser under the steel —
   and 通风口 the square grille with a recessed dark backing and nine blades (`lights` /
   `vent` suites pin the tiles, the mounts and the save round trip). A 导向柱 is the 4 m
   red street pillar bound to one exit (armed, else the first standing; `street-decor.test.mjs`),
-  and picking a 灯具 / 导向柱 / wide 扶梯 adopts its spot / exit / width (`pick-tool.test.mjs`).
+  and picking a 灯具 / 导向柱 / wide 扶梯 / shell roof / curtain wall / 屏蔽端门 / floor-mark
+  方向指引 adopts its spot / exit / width (band, roof bay and curtain alike) / height / line
+  (`pick-tool.test.mjs`, `psd-end.test.mjs`).
   广告牌 is a nested sub-menu of six formats whose run length and poster aspect come from
   `sim/billboards.ts`, so the thumbnail, the collision envelope and the drawn housing cannot
   disagree. 电视 hangs by rods from the ceiling, and the **吊挂指示牌** with it. A 指示牌 is
@@ -761,8 +773,10 @@ the four rules most changes trip over.
   itself, never as the floor beneath it: the build preview, the 选择 hover ghost, the 删除 red
   ghost and the 移动 ghost all draw the piece with `setCursor(null)` — selection still commits
   the blue `setSelection` box round the model, picked from the drawn mesh (`pickModule`) before
-  the cell. **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`, nine sizes)
-  has six short wall-mounted sizes and three 4 m floor-edge sizes. Each is **one outer frame**
+  the cell. **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`) has six
+  short wall-mounted sizes (one to three cells wide, 1 m / 2 m tall); the 4 m floor-edge
+  glass is its own **玻璃幕墙** tile instead (Tab cycles 窄 / 中 / 宽, 2 / 3 / 4 m).
+  Each panel is **one outer frame**
   round the whole run, with a single
   pane between them. 站名 (`sim/calligraphy.ts` + `render/calligraphyFace.ts`) is the
   **station's own name** as an ink inscription: the module carries only the hand (楷书 / 行书 /
@@ -1016,7 +1030,9 @@ the four rules most changes trip over.
   出入口, 楼梯, screen doors and 围栏 are never swept — one piece, own teardown — while a bank of
   **escalators** or of **lift** shafts does sweep, each strictly inside its own family; that pair
   is a deliberate divergence from §9.5, which lists both as unsweepable. 导向柱, 公交站 (by
-  shelter length), 灯具 (by housing shape) and 通风口 sweep as families too, and `test/sweep.test.mjs`
+  shelter length), 灯具 (by housing shape) and 通风口 sweep as families too, and so do the
+  floor kit (空调风机, 设备柜, each 地面指示 variant) and the 屏蔽端门 (by 半高/全高) —
+  while 盲道 never sweeps: its own straight-run drag owns it. `test/sweep.test.mjs`
   is where the decision is written down. `sweep.ts` is the one app module written browser-free so
   Node can import it.
 * **The 广告牌 / 电视 posters are a catalogue, cropped never stretched** (`sim/billboards.ts`

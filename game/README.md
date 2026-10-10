@@ -205,7 +205,10 @@ is no walkable floor in front of it.
 wall-mounted cousin: a sheet of glass in an **outer frame only** — one sill, one head and two end
 posts around the whole run, with a single pane between them, so a three-cell panel is one window where
 a fence run of the same length stands three frames up — in six sizes (one, two or three cells wide, in
-a 1 m and a 2 m height) from `sim/glassPanels.ts`. **门** is a **free-standing doorway** the player stands
+a 1 m and a 2 m height) from `sim/glassPanels.ts`. The separate **玻璃幕墙** tile stands
+4 m tall with **Tab** cycling **窄 / 中 / 宽** (2 / 3 / 4 m wide). Beside it, **屏蔽端门**
+reuses fixed platform-screen glass with **半高 / 全高** heights; a perpendicular panel
+snaps into a screen run’s endpoint tile so the two cap rails meet at the corner. **门** is a **free-standing doorway** the player stands
 on a floor tile, in the four pieces `sim/doors.ts` names: **单开** (one leaf, one cell) or **双开** (a pair
 meeting in the middle, two cells) × **不锈钢** or **木** — a threshold on the floor, a post at each end, a
 head across their tops and the leaves hung between them, from the floor top up to 2.05 m. It carries its
@@ -317,6 +320,8 @@ bench or a hung 时钟 shares the tile with a poster, while a 售票机 tall eno
 collides. No piece-hand-written exemption: the boxes decide, which is the same rule the 装饰 folder's
 own tests read.
 
+监控的子菜单提供 **枪机 / 球机 / 半球机**：枪机保留原来的支架与镜头，球机采用白色吊臂与锥形机身，半球机紧贴天花板安装。两种新机型都带烟色半球罩与内部镜头；旧存档的监控默认显示为枪机。吸取保留机型，拖动删除只收集同机型，切换机型立即刷新预览。`ceiling-decor` 与 `pick-tool` 测试覆盖存档、吊挂、旋转、预览和机型选择。
+
 **时钟 and 监控 are the same ceiling-hung contract with different hardware.** 时钟 is a **round**
 station clock: a white face with black hour marks, minute ticks and hands and *nothing* printed on
 it — no numerals, no name — under a dark bezel ring, hung on a bracket from a rod off the ceiling
@@ -385,7 +390,7 @@ it is wrong here only because the game's camera never looks at it from underneat
 0.15 m ceiling plate, so the box covers a quarter of the dial's diameter. A 0.30 m box on a
 0.045 m rod photographed from below as the clock's body rather than its mount, which is what the
 piece looked like before; the face has to be the object and the mount a line. 监控 is the bracketed bullet camera of
-the reference — a dark head with its lens, a two-LED illuminator and a sun hood on a steel arm
+the reference — a rounded white enclosure and curved sun hood, with a central dark lens panel and IR ring on a steel arm
 from a ceiling plate. `rot` **aims** it: the head looks along the piece's local −y, the same face a
 电视 and a 指示牌 print on, so a camera dropped at a corridor mouth can be swung to watch the
 approach. Both are props — no server, no stop, and for the camera no line of sight either, so
@@ -654,14 +659,15 @@ serves every format that prints it. The pixels are decoded **before** any materi
 minted around a texture that has no image yet renders blank for good (the GPU upload happens once,
 empty, and the image that arrives later never reaches it), so `AdArt.load()` awaits every JPEG and
 `SceneRenderer` redraws the modules once they land — until then a screen prints a placeholder face.
-座椅 is the same kind of nested sub-menu: two families —
+座椅 is the same kind of nested sub-menu: two style tiles —
 a plain stainless bench with no back and an upholstered seat with a back and arm rests that chains
-into a row — each 1 m or 2 m wide, from the shared `sim/benches.ts` table. A 2 m bench is a real
+into a row — from the shared `sim/benches.ts` table, with **Tab** cycling each tile between a 1 m
+and a 2 m run. A 2 m bench is a real
 two-cell run: its `w` fixes the collision envelope and its base cells (`benchCells`), the renderer
 draws the whole run from the run's centre, and a legacy bench with neither `w` nor a variant is the
-1 m stainless piece. Room furniture (shelf / desk / cubicle / sink / bench) may
-stand inside a walled room or booth (`placementBlocked` exempts the furniture ↔ room pair, and
-`moduleAt` prefers the furniture over the room around it). A store stocks one `shelf` module per layout
+1 m stainless piece. 货架 now offers six variants: 深色高架 / 白色高架 (1.9 m), 白色矮架 (1.25 m), 移动网篮架 (1.6 m), and 白色冷柜 / 深色冷柜 (2.05 m). The shared `sim/shelves.ts` table sets their deck heights and placement clearance; legacy shelves remain tall dark gondolas. Stock is batched across decks, with paired product facings, bottle caps, package labels and price tickets. Room furniture (shelf / desk / cubicle / sink / bench, and the floor vinyl with them) may
+stand inside a room footprint or booth (`placementBlocked` exempts the furniture ↔ room pair, and
+`moduleAt` prefers the furniture over the room around it). A room brush marks a footprint only —
 
 **A variant family is one row in one table, and the whole rail reads it.** A family in this rail is four
 things that have to agree: the parent **tile** (its label, and the variant its icon shows), the **list**
@@ -705,16 +711,17 @@ that table**, and adding a cut piece is one row in `CUT_MODES` beside it: the gr
 list, the open slot, the count, the anchor, the row and the reveal all follow, and
 `test/rail-families.test.mjs` proves in Node that they agree for every family and every palette id — and
 for every cut piece.
-spot (`storeShelfSpots`: island rows plus wall runs), each wall unit turned so its perforated back
-panel faces the wall and its stocked front faces the room, an office one `desk` per grid spot
-(`officeDeskSpots`), a restroom one `cubicle` per back-row cell and one `sink` per front-row cell
-(`restroomSpots`), and a booth one `bench` per back-row cell (`boothBenchSpots`), so every auto unit is
-individually right-clickable; bulldozing the room takes its auto (`cfg.auto`) furniture but leaves
-hand-placed pieces, and rooms drawn before this carry a `cfg.stocked` migration
-(`ensureRoomFurniture`, via `toState`) instead of drawn units.
+no walls and no fit-out: the player walls the footprint with the 方块 / 墙 tools and
+furnishes it piece by piece (`storeShelfSpots` / `officeDeskSpots` / `restroomSpots` name the
+old layout spots a hand fit-out follows), so every unit is individually right-clickable. Only
+a booth still stocks itself — one `bench` per back-row cell (`boothBenchSpots`), for 售票亭
+and 问讯处 alike. Bulldozing a room takes its auto (`cfg.auto`) furniture but leaves
+hand-placed pieces; extending one clears only the absorbed ring the union buries and keeps
+the player's walls on the new edge. Rooms drawn before this carry only the `cfg.stocked`
+mark (`ensureRoomFurniture`, via `toState`) — their old auto fit-out is never recreated.
 
-**A room's walls are one panel thick, and its corners are square.** The wall voxels a room
-raises are hidden from the chunk mesher (`SceneRenderer.setStation`'s `hiddenCells`, leaving an
+**A room's walls are one panel thick, and its corners are square.** The wall columns
+standing on a room's perimeter are hidden from the chunk mesher (`SceneRenderer.setStation`'s `hiddenCells`, leaving an
 invisible pick box so the wall tools still address them) and `render/models.ts` draws each wall as a
 0.5 m panel instead, which is what frees the inner half of every wall cell for furniture. Where the
 west/east run meets the south/north run the two panels must not both want the same cell — two 0.5 m
@@ -1026,10 +1033,10 @@ test rig (`test/support/scenario-station.ts`) builds its bed from the same dig, 
 save carries the recessed bed too.
 
 **A consist is a cabin the crowd actually rides in, not a counter that teleports people onto the
-platform.** The alighting wave a service brings is **seated before it is on the road at all**:
+platform.** The alighting wave a service brings is **seated after stopping, before its doors open**:
 `World.loadAlighting` puts the whole cohort into the doorway queues it will leave by — the front pair
-at its own door, the rows behind it receding inboard — at dispatch, so the car is already full as it
-runs in and nothing pops into being beside a screen door (§5.9). `stock.ts` owns the cabin box the
+at its own door, the rows behind it receding inboard — during the doors-shut berth phase (§5.9).
+Passengers are absent during approach. `stock.ts` owns the cabin box the
 sim's slots and the car model are both cut from (`cabinSlot`, `CABIN_FLOOR_Z`, `CABIN_HALF_W`,
 `CABIN_ROW_PITCH`), so a rider is drawn standing on the floor the model draws and leaves through the
 doorway it was walked to — the same contract `doorCentres` holds between a car door and the screen
@@ -1042,14 +1049,28 @@ Doors first serve the wave: `World.openDoors` holds each doorway shut to boarder
 `CABIN_ALIGHT_PAIR_S` (§5.9: alighting is the doorway's own business). Its turn is bounded by
 `CABIN_ALIGHT_MAX_S`, because a dwell has to be shared — past it the rest of the wave rides on and is
 counted among the stop's left-behind arrivals rather than a platform that silently never boards.
-Boarders take the cabin behind that queue (`boardRider`), ride out drawn in the car, and leave the
-world with the consist. The car itself is hollow — floor, ceiling, lining to the waist rail, a glazed
+Boarders take the cabin behind that queue (`boardRider`). Cabin riders leave the world once the
+doors close, during the stationary hold before departure. The car itself is hollow — floor, ceiling, lining to the waist rail, a glazed
 window band, longitudinal seating in the bays between the doors and grab poles at each doorway
 (`render/models/pieces/TrainModel.ts`) — which is what lets the player watch the queue inside and
 step out of the doorway rather than appear beside the train. `test/train-cabin.test.mjs` pins it:
 the whole wave is aboard before the doors open, a doorway passes a row at its own cadence, boarders
-wait for their doorway, everybody still in the cabin leaves the world with it, and a wave too big for
+wait for their doorway, everybody still in the cabin despawns after closing and before motion, and a wave too big for
 the dwell is counted rather than lost.
+
+The passengers follow the web concept sheets' rounded body, circular head and curved hair cap,
+retaining three instanced draws for the crowd. Train roofs use the body's own paint and meet
+the cab at a cut seam without overlapping shells. Half-height screen-door top rails are split
+at every opening, and each leaf carries its own white and black cap as it slides clear.
+Train-door glazing occupies a real cut-out in its painted frame. Screen-door leaves use separate
+slide lanes with clearance around the fixed glass, jambs and cap rails, preventing surface flicker
+throughout opening and closing.
+The half-height rails now use slim 8 cm white members and 10 cm black caps, stacked without
+intersections, with an 11 cm glass slide lane. Screen panes draw one transparent surface without
+writing depth. The cabin has formed stainless benches, white seat-end guards, red curved rails and
+straps, overhead handrails, centre poles, ring lights and ceiling light strips over a grey-blue floor.
+Train animation interpolates from the last drawn pose to each new worker snapshot; marking a
+snapshot inactive no longer discards the previous position and makes the train jump at 1 Hz.
 
 **Escalators are staircases, and they turn over.** `models.ts` builds each run as a band of
 instanced steps whose treads stay world-horizontal (riser, then the yellow nosing along the
@@ -2023,6 +2044,7 @@ approximated); neither needs WebGL.
   through, the two-way single-lane rule (`nextGateIndex`), and the spellings an older save may carry
   for the 闸机 piece (`right` / `left` → lane, `none` → fence). `gate-door.test.mjs` pins the piece
   and its Tab cycle; this one pins the rules underneath.
+* `psd-end.test.mjs` — 屏蔽端门: one-unit fixed screen glass, 半高/全高 Tab switching, snapping to shared screen-door corners in every rotation, continuous one-metre extensions of the snapped return, accepted hover/click placement, undo, walk barrier and save/load; a snapped return draws shifted onto the shared endpoint tile and re-snaps through the move path; the 玻璃幕墙 tile cycles its three widths and preserves them through picking.
 * `gate-door.test.mjs` — the 闸机's two states (§5.2): `Tab` toggles a working **lane** and the
   **fence** machine, and a save written while the door *side* was a setting (`right` / `left`) reads
   as a lane while the old `none` reads as fence. The machine's solid side is the half its body stands
@@ -2247,11 +2269,14 @@ approximated); neither needs WebGL.
   3.1 m to 1.5 m; the reference
   station builds its bed from the same dig and its hand-authored edge
   matches what the derive would place.
-* `facility.test.mjs` — the rectangle-drag facilities: 商店 / 厕所 / 办公室 are walled rooms (one
-  `shop` module type, the fit-out in `cfg.kind`) while 售票亭 is an open desk; same-fit-out drags
-  extend a room, different ones clash; right-click carves wall openings (the renderer then hangs a
+* `facility.test.mjs` — the rectangle-drag facilities: 商店 / 厕所 / 办公室 place a footprint
+  module only (one `shop` module type, the fit-out in `cfg.kind`, `door` and `stocked`) — no
+  walls are built (the player walls the footprint with the block tool) — while 售票亭 and 问讯处
+  are open-desk booths (`cfg.kind` ticket / info) that keep their staff benches; same-fit-out drags
+  extend a room, different ones clash (including ticket vs info); right-click carves the
+  player-built wall openings (the renderer then hangs a
   3D door on a 厕所 / 办公室 opening and leaves the 商店 front open) and a room with no wall left is
-  removed; the demo's shop and booth stay connected with live sim stops.
+  removed; picking an info booth arms the info zone brush; the demo's shop and booth stay connected with live sim stops.
 * `walls.test.mjs` — the 建造 tool's deliberate drag draws a walled floor patch: a 4 m auto wall
   ring rises on the patch's outer edge, overlapping or abutting two patches unions them (the buried
   wall goes, the new edge is walled) while a hand-placed wall survives, digging an edge moves the
@@ -2273,25 +2298,26 @@ approximated); neither needs WebGL.
   storey down stays its own; a lower floor's wall reaching the floor above must not merge the two
   floors into one band. The 高度 rail's 0–3 m base shifts every stop and band together; `save.test.mjs`
   checks that the base survives a save and an older save defaults to 0 m.
-* `shelf.test.mjs` — the 货架 (§5.7): the factory builds it with the hover rotation, it may stand
-  inside a walled room or booth (either side of the shelf ↔ room pair, while shelves still collide
+* `shelf.test.mjs` — the 货架 (§5.7): six variants keep their configuration through factory/save/ghost/sweep; every rotated model stays inside its tile and matches its clearance height, and a low ceiling blocks the cooler. Cooler panels butt between the lid and base, with proud trim to prevent flickering at coplanar surfaces. Tall and short gondolas recess the plinth 12 mm behind the toe strip, and their back panels/posts start above it. the factory builds it with the hover rotation, it may stand
+  inside a room footprint or booth (either side of the shelf ↔ room pair, while shelves still collide
   with each other and other equipment does not enter rooms), `moduleAt` prefers the furniture over
-  the room around it, placing a store stocks one auto shelf per layout spot with each wall unit
-  turned to back its panel onto its own wall, each shelf deletes on
-  its own while bulldozing the room keeps hand-placed ones, merges never stack two units on a cell,
-  legacy rooms migrate once on load (a cleared `cfg.bare` room stays empty), and everything
+  the room around it, placing a store builds no walls and stocks no shelves, each shelf deletes on
+  its own while bulldozing the room keeps hand-placed ones and drops auto-flagged ones, extending
+  stocks and builds nothing, legacy rooms only gain `stocked` on load (the dead `cfg.bare` flag buys
+  nothing), and everything
   round-trips the save.
 * `desk.test.mjs` — the 办公桌 (§5.7), same model as shelves: the factory builds it with the hover
-  rotation, it may stand inside a walled room, `moduleAt` prefers it over the room, placing an
-  office stocks one auto desk per grid spot, each desk deletes on its own while bulldozing keeps
-  hand-placed ones, legacy offices migrate once, and everything round-trips the save.
+  rotation, it may stand inside a room footprint, `moduleAt` prefers it over the room, placing an
+  office builds no walls and stocks no desks, each desk deletes on its own while bulldozing keeps
+  hand-placed ones and drops auto-flagged ones, legacy offices only gain `stocked`, and everything round-trips the save.
 * `restroom-model.test.mjs` — three-panel cubicles with privacy doors, flush rear joins,
   one shared partition across rotations, separate floors, previews and neighbour removal.
-* `restroom.test.mjs` — 厕所 fixtures and the 售票亭 staff seats (§5.7): cubicles and sinks build
-  with the hover rotation and stand inside a walled room, placing a restroom stocks cubicles on the
-  back row and sinks on the front (a door cell gets none) and a booth one bench per back-row cell,
-  each unit deletes on its own while bulldozing keeps hand-placed ones and drops auto ones, legacy
-  rooms migrate once, and everything round-trips the save.
+* `restroom.test.mjs` — 厕所 fixtures and the booth staff seats (§5.7): cubicles and sinks build
+  with the hover rotation and stand inside a room footprint, placing a restroom builds no walls and
+  stocks nothing (a recorded door is kept, still with no fixtures) while a ticket or info booth
+  stocks one bench per back-row cell,
+  each unit deletes on its own while bulldozing keeps hand-placed ones and drops auto-flagged ones,
+  legacy rooms only gain `stocked`, and everything round-trips the save.
 * `booth-model.test.mjs` — the 售票亭 model itself (§5.7, `render/models.ts` `buildBooth`), the one
   facility piece that is hand-built geometry rather than voxels. What it pins is the box: nothing on
   the piece leaves the cells or the height `moduleEnvelope` reserves for it (3 × 3 through 6 × 4),
@@ -2327,8 +2353,9 @@ approximated); neither needs WebGL.
   two may not share a cell while a neighbour or the storey above is free, both are room furniture that
   may stand inside a 商店 / 售票亭, both are refused over a track bed, both round-trip the save, and a
   drag sweep collects a run of either one without taking the other. The models are measured too: the bin
-  is a symmetric stainless double bin with two recessed mouths and one printed 可回收物 / 其它垃圾 band
-  proud of its front, and the cabinet is a red steel box standing on exactly four corner legs with one
+  is an enclosed stainless cabinet (`binSteel`) with two hopper mouths over dark wells and one
+  0.76 × 0.57 m sorting-sticker plate floating just off its front panel, symmetric about x,
+  and the cabinet is a red steel box standing on exactly four corner legs with one
   white lettered plate spanning both doors in front of them.
 * `ceiling-decor.test.mjs` — the ceiling-hung 时钟 and 监控 (§5.7): the palette
   files both under 装饰 with their Chinese labels, the factory builds them with the hover rotation,
@@ -2364,6 +2391,10 @@ approximated); neither needs WebGL.
   slab with a recessed dark backing and nine blades turned by R; model and collision agree at every
   rotation; ceiling support, furniture clearance and structural clashes as hung; movable, sweepable,
   and round-trips the save.
+* `floor-decor.test.mjs` — industrial floor equipment, two tactile tiles and three floor markings:
+  rotated model/placement bounds, floor support and wall collisions, machinery blocking the walk
+  graph while floor vinyl stays walkable, screen-door clearance, straight tactile drag placement
+  and deletion in one undo step, variant-safe removal, printed markings and save round trips.
 * `street-decor.test.mjs` — the outdoor 导向柱 and 公交站 (§5.7): above ground only, refused below
   grade and on anything but whole solid floor, movable; the 4 m pillar binds the armed exit — or the
   first one standing — and reprints the station and exit names live, dropping to 入口 when its exit is
@@ -2406,7 +2437,7 @@ approximated); neither needs WebGL.
   band their collision envelope reserves (`panelZ` ± `panelH` / 2, so a poster never claims the floor
   under it) and the 4 m storey.
 * `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers nine (six wall sizes and three
-  4 m floor-edge sizes), one palette tile per size, and a legacy or unknown value reads as the 1 × 1
+  4 m floor-edge sizes), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
   band; the factory centres the run on the hovered cell; short-panel envelopes are a **slab on a wall**
   rather than a cell (`x + w` is not the run — at rot 2 it lies along −x, and `wallPanelBox` reads the
   module's own cells so the housing stays on the wall on every rotation); every cell of the run needs
@@ -2481,7 +2512,8 @@ approximated); neither needs WebGL.
   still visible below, the station texture unscaled at repeat 1,1.
   `render/adArt.ts` is stubbed here rather than imported: it resolves its JPEGs through Vite's
   `import.meta.glob`, which plain Node has no implementation of, and nothing under test lives there.
-* `module-build.test.mjs` — full-height platform doors at 150% of car door width, closure across all stock classes and both
+* `module-build.test.mjs` — enclosed stainless double bins, inward-facing hopper walls and recessed wells in all four rotations;
+  full-height platform doors at 150% of car door width, closure across all stock classes and both
   platform sides, including vinyl that travels with each leaf; every piece the station can draw,
   built through the real dispatcher and
   the real material kit (`render/models.ts` `buildModule`), one row per palette piece: the meshes it
@@ -2603,7 +2635,8 @@ approximated); neither needs WebGL.
   any other tool's grid — so the 旋转 a 半墙 shows is the equipment mechanism, not a second one beside it.
   `生成墙壁` is the one tile that comes and goes with the cut modes, and the folder count follows it.
   The 分区 folder's own count is the same kind of arithmetic (`zoneFolderTiles`): the length of
-  `ZONE_LIST`, **无分区 included** — that tile is the folder's eraser, armed as the zone id `none`
+  `ZONE_LIST` **plus the three walled-room brushes** (商店 / 厕所 / 办公室 — 售票亭 / 问讯处 stay in
+  房间), **无分区 included** — that tile is the folder's eraser, armed as the zone id `none`
   (`isEraseBrush`) and reported by `armedRailTile` like any other tile, which is what keeps the grid the
   folder draws, the header's count and the brush the drag runs one list.
 * `halfwall.test.mjs` — the **半墙** (§4.1/§4.3), the 方块 tool's half-block mode
@@ -3001,6 +3034,26 @@ Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋�
 Ceiling lights: 装饰 → 灯具 offers 圆形 and 直条 fittings attached flush to the ceiling slab. Tab cycles rectangular light positions; R toggles their 0°/90° orientation. Thin pillars cycle positions with R. Both position cycles run through centre, top-left, top-middle, top-right, middle-left, middle-right, bottom-left, bottom-middle and bottom-right. Each fitting remains inside its tile. `lights.test.mjs` checks ceiling contact, drawn/collision bounds, position order, ceiling support, structural clashes, ghost refresh and save/load.
 
 Ceiling vent: 装饰 → 通风口 is a separate square metal grille with recessed dark backing. It sits flush against the ceiling and R turns the blade direction. `vent.test.mjs` checks its tile, ceiling support, model/collision agreement, separated backing and blades, furniture clearance, structural collisions, movement, sweep and save/load.
+
+Floor equipment and vinyl: the final two 装饰 tiles are stainless-steel 空调风机, a 3×2 m industrial central AC unit with twin top fans,
+coil grilles and service panels; 设备柜 is a 3×1 m electrical switchboard with meters, breakers,
+status lamps and red fascia. Both stand on floors, rotate with R, move and block pedestrian access
+through their footprint. 装饰 → 盲道 offers 条形导向 and 圆点提示: thin yellow strips laid by click or
+straight line drag, with the guide ribs following the drag axis. Right drag or 删除 removes a run of
+the pressed variant; each release is one undo step and preserves the floor. 圆点提示 automatically
+connects to adjoining strips, forming L, T and cross junctions. 盲道 and 地面指示 sit immediately
+below the 座椅 / 站名 row. The station-name previews have light backings for legibility. 地面指示 offers
+屏蔽门箭头, 排队等候线 and 方向指引, printed flush on the floor and rotatable with R. Boarding strips
+are 0.25 m deep and snap their green central arrow to train-aligned screen-door openings on the
+same floor within 1.5 m, facing the track. Direction decals carry a saved line binding; the line
+tiles below the tool choose it, and its current name and colour print live. They can share a
+screen-door strip, remain walkable and retain their variant, binding and alignment in saves.
+Waiting lines first snap behind nearby boarding ink (within 2.5 m), otherwise to a screen-door
+opening using the same alignment; their front edge leaves a 2.5 cm gap behind the boarding strip.
+Direction arrow ink fills its whole 1×2 m decal. Tactile right-drag erasure starts on movement,
+survives the browser context-menu event, and remains one undo step. Bench widths are 窄 (1 m)
+and 宽 (2 m), toggled by Tab or the width tile while preserving the steel/backrest style.
+All width action tiles use `RiExpandWidthFill`; height and length controls keep their own icons.
 
 
 装饰新增地面街道设施（仅限 z ≥ 0，需完整实心地板，可旋转、吸取、移动和保存）：

@@ -1,6 +1,7 @@
 // Station data model. Pure types shared by the build tools, the sim graph and
 // the save format (§10.5). Ids stay ASCII per §9.2 even though the UI is Chinese.
 
+import type { ShelfVariant } from './shelves.ts'
 import type { StockClass } from './stock.ts'
 import type { SignLayout, SignMount } from './sign.ts'
 import type { PeakWindows, TimeSpan } from './constants.ts'
@@ -430,6 +431,7 @@ export type Module =
   | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss'; finish?: FinishId } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor } })
+  | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; offset?: [number, number]; corner?: string } })
   | (ModuleBase & { type: 'fence'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down'; width?: 1 | 2 } })
   | (ModuleBase & {
@@ -498,7 +500,7 @@ export type Module =
    * `cfg.auto` marks a shelf the room builder laid out itself, so bulldozing
    * the room takes its own shelves but leaves hand-placed ones behind.
    */
-  | (ModuleBase & { type: 'shelf'; cfg: { auto?: boolean } })
+  | (ModuleBase & { type: 'shelf'; cfg: { auto?: boolean; variant?: ShelfVariant } })
   /**
    * An office desk (办公桌, 装饰): the desk + monitor + chair unit the 办公室
    * fit-out stocks on its grid (§5.7), as a free-standing floor piece. Like a
@@ -548,20 +550,25 @@ export type Module =
    * is meaningless to a round dial and is kept only so it turns with every other
    * piece.
    */
+  | (ModuleBase & { type: 'ac-unit'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'electrical-cabinet'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'tactile'; cfg: { variant: 'guide' | 'warning' } })
+  | (ModuleBase & { type: 'floor-mark'; cfg: { variant: 'boarding' | 'waiting' | 'direction'; line?: string; edgeId?: string; offset?: { x: number; y: number } } })
   | (ModuleBase & { type: 'vent'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'light'; cfg: { variant: 'circular' | 'rectangular'; position?: number } })
   | (ModuleBase & { type: 'clock'; cfg: Record<string, never> })
   /**
    * A ceiling camera (监控, 装饰): the bracket-and-swivel housing of the reference,
-   * a dark bullet head with its lens, a two-LED illuminator and a sun hood,
+   * a rounded white housing with a central dark optical panel, IR ring and curved sun hood,
    * carried on a steel arm from a ceiling plate. `rot` aims it — the head looks
    * along the piece's local −y, the same face a 电视 and a 指示牌 print on — so a
    * camera dropped at a corridor mouth can be turned to watch it.
    *
-   * Ceiling-mounted (`ceilingMountMissing`) and cosmetic: a camera is a prop, not
+   * `cfg.variant` selects 枪机 (bullet, also the legacy default), 球机 (ptz) or
+   * 半球机 (dome). Ceiling-mounted (`ceilingMountMissing`) and cosmetic: a camera is a prop, not
    * a line of sight, so it never changes what an agent sees or where one walks.
    */
-  | (ModuleBase & { type: 'cctv'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'cctv'; cfg: { variant?: 'bullet' | 'ptz' | 'dome' } })
   /**
    * Wall-mounted decoration (装饰): a lightbox advertisement (广告牌). It is fixed
    * to the wall block behind it — the placement rotation names which face — so it
@@ -690,7 +697,7 @@ export type Module =
   | (ModuleBase & { type: 'sign'; cfg: { mount?: SignMount; components?: SignLayout; front?: SignLayout; back?: SignLayout } })
   | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom'; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]>; bare?: boolean; stocked?: boolean } })
-  | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket'; door?: Array<[number, number]>; stocked?: boolean } })
+  | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket' | 'info'; door?: Array<[number, number]>; stocked?: boolean } })
   | (ModuleBase & {
       type: 'platform-edge'
       /** Length in cells along +x from (x, y, z). */

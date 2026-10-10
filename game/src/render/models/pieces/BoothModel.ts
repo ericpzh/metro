@@ -39,6 +39,7 @@ function buildBooth(ctx: ModuleContext, mod: Extract<Module, { type: 'booth' }>)
   const mats = ctx.mats
   const g = new THREE.Group()
   const z0 = mod.z + 1
+  const glazed = mod.cfg.kind !== 'info'
   // The room's own rectangle in world space: `x0`/`y0` are the module's first cells
   // and `x1`/`y1` the outer faces one cell past its last, which is where every run
   // measures its depth from.
@@ -88,9 +89,11 @@ function buildBooth(ctx: ModuleContext, mod: Extract<Module, { type: 'booth' }>)
     // inside the rail, so it only ever shows a clean sheet of glass in between.
     const gLen = gb - ga
     const [gx, gy] = at((ga + gb) / 2, GLASS_INSET + GLASS_T / 2)
-    const h = GLASS_TOP - DESK - GLASS_FOOT
-    slab(g, mats.glass, gx, gy, z0 + DESK + GLASS_FOOT + h / 2, alongX ? gLen : GLASS_T, alongX ? GLASS_T : gLen, h)
-    slab(g, mats.darkSteel, gx, gy, z0 + GLASS_TOP, alongX ? gLen : RAIL, alongX ? RAIL : gLen, CAP_T)
+    if (glazed) {
+      const h = GLASS_TOP - DESK - GLASS_FOOT
+      slab(g, mats.glass, gx, gy, z0 + DESK + GLASS_FOOT + h / 2, alongX ? gLen : GLASS_T, alongX ? GLASS_T : gLen, h)
+      slab(g, mats.darkSteel, gx, gy, z0 + GLASS_TOP, alongX ? gLen : RAIL, alongX ? RAIL : gLen, CAP_T)
+    }
   }
 
   // The west and east runs close all four corners; the south and north runs butt
@@ -103,7 +106,7 @@ function buildBooth(ctx: ModuleContext, mod: Extract<Module, { type: 'booth' }>)
   // It may lie in the board's own planes (they are the same dark steel, so a shared
   // plane is one surface drawn twice and cannot flicker); what it must never share is
   // a plane with the steel desk or the `DoubleSide` glass.
-  for (const cx of [x0, x1 - POST]) {
+  for (const cx of glazed ? [x0, x1 - POST] : []) {
     for (const cy of [y0, y1 - POST]) {
       slab(
         g,

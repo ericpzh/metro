@@ -1,6 +1,7 @@
 // Office desks (办公桌, GAME-SPEC §5.7): the office grid unit as a placeable,
-// rotatable 装饰 piece. An office stocks one `desk` module per grid spot, each
-// individually bulldozable, and legacy offices are migrated on load.
+// rotatable 装饰 piece that may stand inside a facility footprint. Facility
+// rooms are footprint-only — placing an office stocks no desks; the player fits
+// the room out by hand, and legacy offices are only marked stocked on load.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { moduleAt, placementBlocked } from '../src/sim/placement.ts'
@@ -50,35 +51,36 @@ test('moduleAt prefers a desk over the room around it', () => {
   assert.equal(moduleAt([d, o], 3, 3, 0)?.id, d.id)
 })
 
-test('placing an office stocks one desk module per grid spot', () => {
-  // 5x4 room: one grid row (y=3), two grid columns (x=3,5).
-  const next = placeFacility(flatStation(), 'office', facilityRect([2, 2, 0], [6, 5, 0], 0), 'office-1')
+test('placing an office lays a footprint only — no desks, no walls', () => {
+  const before = flatStation()
+  const next = placeFacility(before, 'office', facilityRect([2, 2, 0], [6, 5, 0], 0), 'office-1')
   const room = next.modules.find((m) => m.id === 'office-1')
   assert.ok(room && room.type === 'shop', 'the room module comes first')
+  assert.equal(room.cfg.kind, 'office', 'the brush fit-out was not recorded')
+  assert.deepEqual(room.cfg.door, [], 'a fresh footprint should carry no door')
   assert.equal(room.cfg.stocked, true)
-  const stocked = desksOf(next)
-  assert.equal(stocked.length, 2, `expected 2 auto desks, got ${stocked.length}`)
-  assert.ok(stocked.every((m) => m.cfg.auto === true), 'every stocked desk is marked auto')
-  assert.deepEqual(
-    stocked.map((m) => [m.x, m.y, m.rot]).sort(),
-    [[3, 3, 0], [5, 3, 0]],
-  )
+  assert.equal(desksOf(next).length, 0, 'placing an office stocked desks')
+  assert.equal(next.cells.length, before.cells.length, 'placing an office built wall cells')
 })
 
 test('each desk deletes on its own, leaving room and neighbours', () => {
-  const next = placeFacility(flatStation(), 'office', facilityRect([2, 2, 0], [6, 5, 0], 0), 'office-1')
-  const first = desksOf(next)[0]
-  const cut = removeModule(next, first.id)
-  assert.equal(desksOf(cut).length, desksOf(next).length - 1)
+  let st = placeFacility(flatStation(), 'office', facilityRect([2, 2, 0], [6, 5, 0], 0), 'office-1')
+  st = addEquipment(st, createModule('desk', 3, 3, 0, 'desk-a', 0))
+  st = addEquipment(st, createModule('desk', 5, 3, 0, 'desk-b', 0))
+  const cut = removeModule(st, 'desk-a')
+  assert.equal(desksOf(cut).length, 1)
+  assert.ok(cut.modules.some((m) => m.id === 'desk-b'), 'the neighbouring desk went too')
   assert.ok(cut.modules.some((m) => m.id === 'office-1'), 'the room went with its desk')
-  assert.equal(cut.cells.length, next.cells.length, 'a desk bulldoze touched the voxels')
+  assert.equal(cut.cells.length, st.cells.length, 'a desk bulldoze touched the voxels')
 })
 
-test('bulldozing an office drops its auto desks but keeps hand-placed ones', () => {
+test('bulldozing an office keeps hand-placed desks and drops auto ones', () => {
   let st = placeFacility(flatStation(), 'office', facilityRect([2, 2, 0], [6, 5, 0], 0), 'office-1')
   const hand = createModule('desk', 4, 4, 0, 'hand-1', 1)
   st = addEquipment(st, hand)
-  assert.equal(desksOf(st).length, 3)
+  // An auto-flagged unit (what the old stocking used to lay) still goes with the room.
+  st = { ...st, modules: [...st.modules, { id: 'auto-1', type: 'desk', x: 3, y: 3, z: 0, rot: 0, cfg: { auto: true } }] }
+  assert.equal(desksOf(st).length, 2)
   const gone = removeFacility(st, 'office-1')
   assert.deepEqual(
     desksOf(gone).map((m) => m.id),
@@ -87,14 +89,13 @@ test('bulldozing an office drops its auto desks but keeps hand-placed ones', () 
   )
 })
 
-test('legacy offices are migrated on load, once', () => {
+test('legacy offices are marked stocked on load, with nothing materialised', () => {
   const legacy = { name: 't', seed: 1, cells: flatStation().cells, modules: [office()], lines: [] }
   const once = toState(legacy)
   assert.equal(once.modules.find((m) => m.id === 'office-1').cfg.stocked, true)
-  const count = desksOf(once).length
-  assert.ok(count > 0, 'no desks were materialised')
+  assert.equal(desksOf(once).length, 0, 'desks were materialised')
   const twice = toState(toData(once))
-  assert.equal(desksOf(twice).length, count, 'a reload re-stocked the office')
+  assert.equal(desksOf(twice).length, 0, 'a reload stocked the office')
 })
 
 test('a stocked office and its desks survive the save round trip', () => {

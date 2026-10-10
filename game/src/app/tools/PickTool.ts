@@ -47,6 +47,10 @@ const OPTION_IDS = new Set(MODULE_OPTIONS.map((m) => m.id))
 function paletteIdForModule(mod: Module): string | null {
   let id: string | null = null
   switch (mod.type) {
+    case 'tactile':
+    case 'floor-mark':
+      id = `${mod.type}-${mod.cfg.variant}`
+      break
     case 'light':
       id = `light-${mod.cfg.variant}`
       break
@@ -62,6 +66,9 @@ function paletteIdForModule(mod: Module): string | null {
             ? 'roof-truss'
             : 'roof'
       break
+    case 'shelf':
+      id = `shelf-${mod.cfg.variant ?? 'dark-tall'}`
+      break
     case 'bench':
       id = `bench-${mod.cfg.variant ?? 'steel-1'}`
       break
@@ -72,7 +79,7 @@ function paletteIdForModule(mod: Module): string | null {
       id = `billboard-${mod.cfg.variant ?? 'wide'}`
       break
     case 'glass':
-      id = `glass-${mod.cfg.variant ?? '1x1'}`
+      id = (mod.cfg.variant ?? '').endsWith('x4') ? 'curtain-wall' : `glass-${mod.cfg.variant ?? '1x1'}`
       break
     case 'door':
       id = `door-${mod.cfg.variant ?? 'steel-1'}`
@@ -109,12 +116,15 @@ function paletteIdForModule(mod: Module): string | null {
             : 'exit-uncovered-2'
       break
     }
+    case 'cctv':
+      id = mod.cfg.variant === 'ptz' ? 'cctv-ptz' : mod.cfg.variant === 'dome' ? 'cctv-dome' : 'cctv'
+      break
     case 'gate':
+    case 'psd-end':
     case 'fence':
     case 'guidepost':
     case 'tvm':
     case 'vending':
-    case 'shelf':
     case 'desk':
     case 'cubicle':
     case 'sink':
@@ -122,7 +132,6 @@ function paletteIdForModule(mod: Module): string | null {
     case 'extinguisher':
     case 'vent':
     case 'clock':
-    case 'cctv':
     case 'tv':
     case 'escalator':
     case 'lift':
@@ -133,6 +142,14 @@ function paletteIdForModule(mod: Module): string | null {
       break
   }
   if (id !== null && !OPTION_IDS.has(id)) id = OPTION_IDS.has(mod.type) ? mod.type : null
+  // A 2 m 座椅 has no tile of its own — width is the Tab cycle
+  // (`cycleBenchWidth`) — but the `-2` id is still a placement the rail draws
+  // (the 座椅 family anchor owns it, the 宽/窄 action tile names it, and
+  // `createModule` builds it), so a pick arms it exactly rather than selecting
+  // only.
+  if (id === null && mod.type === 'bench' && /^bench-(steel|seat)-2$/.test(`bench-${mod.cfg.variant ?? ''}`)) {
+    id = `bench-${mod.cfg.variant}`
+  }
   return id
 }
 
@@ -157,7 +174,7 @@ export class PickTool extends ToolController {
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     const mod = picked ?? rail ?? (hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
     if (mod) {
-      const label = moduleLabel(mod.type, mod.type === 'shop' ? mod.cfg.kind : undefined)
+      const label = moduleLabel(mod.type, mod.type === 'shop' || mod.type === 'booth' ? mod.cfg.kind : undefined)
       // A derived screen door has no placement of its own: select it, stay.
       if (mod.type === 'platform-edge') {
         st.select({ kind: 'module', key: mod.id, label })
@@ -184,8 +201,8 @@ export class PickTool extends ToolController {
       // A walled room belongs to the 分区 tool's room brush: arming that brush
       // reveals the 房间 folder, the room's own tile.
       if (mod.type === 'shop' || mod.type === 'booth' || mod.type === 'retail') {
-        const kind = mod.type === 'booth' ? 'ticket' : (mod.cfg.kind ?? 'store')
-        st.setZoneBrush(kind === 'toilet' || kind === 'office' || kind === 'ticket' ? kind : 'store')
+        const kind = mod.type === 'booth' ? (mod.cfg.kind ?? 'ticket') : (mod.cfg.kind ?? 'store')
+        st.setZoneBrush(kind === 'toilet' || kind === 'office' || kind === 'ticket' || kind === 'info' ? kind : 'store')
         st.setTool('zone')
         st.select({ kind: 'module', key: mod.id, label })
         st.setNotice(`已吸取${label}`)
@@ -207,6 +224,9 @@ export class PickTool extends ToolController {
       // the next click hangs are the one the player pointed at.
       if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
       st.setModuleType(optionId)
+      if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: mod.w === 4 ? 4 : mod.w === 3 ? 3 : 2 })
+      if (mod.type === 'psd-end') useStore.setState({ psdEndHeight: mod.cfg.psd })
+      if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
       if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)
       if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)
       if (mod.type === 'pillar') useStore.setState({ pillarLength: mod.cfg.height === 2 ? 2 : 4 })

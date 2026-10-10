@@ -44,7 +44,7 @@ export function InfoCard(): React.ReactElement {
             <>
               <div className="kv">
                 <span>移动</span>
-                <b>{moduleLabel(moveDraft.module.type, moveDraft.module.type === 'shop' ? moveDraft.module.cfg.kind : undefined)}</b>
+                <b>{moduleLabel(moveDraft.module.type, moveDraft.module.type === 'shop' || moveDraft.module.type === 'booth' ? moveDraft.module.cfg.kind : undefined)}</b>
               </div>
               <div className="kv">
                 <span>位置</span>

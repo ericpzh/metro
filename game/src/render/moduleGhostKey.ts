@@ -20,7 +20,11 @@ import type { Module } from '../sim/types.ts'
 
 /** The ghost identity of one module, ignoring its id (a ghost is a prototype). */
 export function moduleGhostKey(mod: Module): string {
+  if (mod.type === 'cctv') return `cctv:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'bullet'}`
+  if (mod.type === 'shelf') return `shelf:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'dark-tall'}`
+  if (mod.type === 'tactile' || mod.type === 'floor-mark') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${JSON.stringify(mod.cfg)}`
   if (mod.type === 'guidepost' || mod.type === 'busstop' || mod.type === 'light' || mod.type === 'pillar' || mod.type === 'roof' || mod.type === 'exit') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${JSON.stringify(mod)}`
+  if (mod.type === 'psd-end') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.psd}:${JSON.stringify(mod.cfg.offset ?? [])}:${mod.cfg.corner ?? ''}`
   const span =
     mod.type === 'stair'
       ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}:${mod.cfg.finish ?? ''}`

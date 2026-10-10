@@ -425,7 +425,7 @@ export class SceneRenderer {
   setZoneOverlay(
     quads: Float32Array,
     zones: Uint8Array,
-    labels: Array<{ x: number; y: number; z: number; zone: number }>,
+    labels: Array<{ x: number; y: number; z: number; zone: number; label?: string }>,
     on: boolean,
   ): void {
     this.crowd.setZoneOverlay(quads, zones, labels, on)

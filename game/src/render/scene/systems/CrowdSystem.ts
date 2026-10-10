@@ -16,7 +16,7 @@
 // `pickAgent` and `setRoute` never touch the sim.
 
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { setGateWing } from '../../models.ts'
 import { ZONE_LIST } from '../../../sim/zones.ts'
 import { crowdVisible } from '../../levelSlicing.ts'
@@ -74,41 +74,36 @@ const SKIN_COLORS = [0xf1c9a5, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac, 0xa9744a]
 const HAIR_COLORS = [0x2b2320, 0x4a3423, 0x6b4a2b, 0xb98a4a, 0x9a9a9a, 0x3a2f2a]
 
 /**
- * The body: a squat frustum — the neck (top) is wide, the base wider still, and
- * both are broader than the head. No arms and no legs: the crowd are the
+ * Rounded straight-sided body, like the pill silhouette on the web sheets.
+ * No arms and no legs: the crowd are the
  * "Shapes", limb-less sprites that are a body and a head (`tools/iso.mjs`
  * #person). The base sits at z = 0 and the figure faces +x, matching the crowd
- * yaw. Ten sides, smooth-shaded, so it reads as a rounded cone at low poly.
+ * yaw. The rounded shoulders and hem keep the silhouette soft at every angle.
  */
 function humanoidBody(): THREE.BufferGeometry {
-  const g = new THREE.CylinderGeometry(0.15, 0.22, 0.58, 10, 1)
-  g.rotateX(Math.PI / 2)
+  const g = new RoundedBoxGeometry(0.29, 0.32, 0.58, 3, 0.13)
   g.translate(0, 0, 0.29)
   return g
 }
 
-/** The head, a block on top of the neck. Feet at z = 0, faces +x. */
+/** Round head, matching the circle on the web's #person sprite. */
 function humanoidHead(): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(0.26, 0.26, 0.26)
+  const g = new THREE.SphereGeometry(0.145, 16, 12)
   g.translate(0, 0, 0.71)
   return g
 }
 
 /**
- * The hair cap: a shell over the top of the head plus a panel down the back, the
+ * The hair cap: a hemisphere over the top of the round head, the
  * semicircle the concept sheets draw (`tools/iso.mjs` #person). Every face is
  * offset a hair outside the head — a cap that shares a plane with the head
  * z-fights and flickers. Feet at z = 0, faces +x.
  */
 function humanoidHair(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = []
-  const cap = new THREE.BoxGeometry(0.3, 0.3, 0.17)
-  cap.translate(0, 0, 0.765) // 0.68 .. 0.85, just proud of the head's 0.84 top
-  parts.push(cap)
-  const back = new THREE.BoxGeometry(0.05, 0.28, 0.2)
-  back.translate(-0.145, 0, 0.72)
-  parts.push(back)
-  return mergeGeometries(parts, false) as THREE.BufferGeometry
+  const cap = new THREE.SphereGeometry(0.15, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)
+  cap.rotateX(Math.PI / 2)
+  cap.translate(0, 0, 0.735)
+  return cap
 }
 
 function losIndex(m2: number): number {
@@ -135,7 +130,7 @@ export class CrowdSystem extends SceneSystem {
   /** Flat text labels naming the zone of each area, shown with the zone map. */
   zoneLabels: THREE.Group = new THREE.Group()
   /** One label material per zone, cached: the text texture is the same everywhere. */
-  private zoneLabelMats = new Map<number, THREE.MeshBasicMaterial>()
+  private zoneLabelMats = new Map<string, THREE.MeshBasicMaterial>()
   /** Shared quad the zone labels are drawn on, so a rebuild allocates no geometry. */
   private zoneLabelGeo: THREE.PlaneGeometry | null = null
   prev = new Float32Array(0)
@@ -173,7 +168,7 @@ export class CrowdSystem extends SceneSystem {
 
   constructor(ctx: SceneContext) {
     super(ctx)
-    // Agents. Prison Architect register: a limb-less body ("Shape"), a head and
+    // Agents. Web concept-sheet silhouette: a rounded body, a round head and
     // a hair cap, so 3,000 people are still three instanced draws. The body
     // wears the crowd palette, the head a skin tone, the hair a colour. Low-poly
     // on purpose: the silhouette matters, not the facet count.
@@ -459,7 +454,7 @@ export class CrowdSystem extends SceneSystem {
   setZoneOverlay(
     quads: Float32Array,
     zones: Uint8Array,
-    labels: Array<{ x: number; y: number; z: number; zone: number }>,
+    labels: Array<{ x: number; y: number; z: number; zone: number; label?: string }>,
     on: boolean,
   ): void {
     const n = zones.length
@@ -488,11 +483,11 @@ export class CrowdSystem extends SceneSystem {
   }
 
   /** Rebuild the flat zone-name labels (one per contiguous zone area). */
-  private buildZoneLabels(labels: Array<{ x: number; y: number; z: number; zone: number }>, on: boolean): void {
+  private buildZoneLabels(labels: Array<{ x: number; y: number; z: number; zone: number; label?: string }>, on: boolean): void {
     this.clearZoneLabels()
     if (!this.zoneLabelGeo) this.zoneLabelGeo = new THREE.PlaneGeometry(3.2, 1.2)
     for (const l of labels) {
-      const mesh = new THREE.Mesh(this.zoneLabelGeo, this.zoneLabelMaterial(l.zone))
+      const mesh = new THREE.Mesh(this.zoneLabelGeo, this.zoneLabelMaterial(l.zone, l.label))
       mesh.position.set(l.x, l.y, l.z)
       mesh.renderOrder = 3
       mesh.frustumCulled = false
@@ -506,8 +501,9 @@ export class CrowdSystem extends SceneSystem {
   }
 
   /** One cached text material per zone, drawn as a dark pill in the zone colour. */
-  private zoneLabelMaterial(index: number): THREE.MeshBasicMaterial {
-    let m = this.zoneLabelMats.get(index)
+  private zoneLabelMaterial(index: number, label?: string): THREE.MeshBasicMaterial {
+    const key = `${index}:${label ?? ''}`
+    let m = this.zoneLabelMats.get(key)
     if (m) return m
     const def = ZONE_LIST[index]
     const c = document.createElement('canvas')
@@ -526,11 +522,11 @@ export class CrowdSystem extends SceneSystem {
     g.font = 'bold 42px "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif'
     g.textAlign = 'center'
     g.textBaseline = 'middle'
-    g.fillText(def?.label ?? '', c.width / 2, c.height / 2 + 2)
+    g.fillText(label ?? def?.label ?? '', c.width / 2, c.height / 2 + 2)
     const t = new THREE.CanvasTexture(c)
     t.colorSpace = THREE.SRGBColorSpace
     m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, side: THREE.DoubleSide })
-    this.zoneLabelMats.set(index, m)
+    this.zoneLabelMats.set(key, m)
     return m
   }
 

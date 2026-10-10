@@ -16,7 +16,7 @@ import type { StationState } from './State.ts';
  * ids `FACILITY_OPTIONS` carries — so a brush and the piece it builds share one
  * vocabulary; only the *saved* module keeps its own `shop` / `booth` type.
  */
-export type FacilityKind = 'store' | 'toilet' | 'office' | 'ticket';
+export type FacilityKind = 'store' | 'toilet' | 'office' | 'ticket' | 'info';
 
 /** The walled-room brushes, mapped to the module `cfg.kind` each one builds. */
 const WALLED_ROOM: Record<'store' | 'toilet' | 'office', RoomKind> = {
@@ -25,14 +25,15 @@ const WALLED_ROOM: Record<'store' | 'toilet' | 'office', RoomKind> = {
   office: 'office',
 };
 
-/** True for a brush that builds a walled room — every facility kind but the booth. */
+/** True for a brush that builds a walled room — stores, toilets and offices. */
 export function isWalledRoomKind(kind: FacilityKind): kind is 'store' | 'toilet' | 'office' {
-  return kind !== 'ticket';
+  return kind !== 'ticket' && kind !== 'info';
 }
 
 /** The fit-out of a walled room, defaulting legacy shops to a store. */
 function roomKindOf(m: Module): string | undefined {
-  return m.type === 'shop' ? (m.cfg.kind ?? 'store') : undefined;
+  if (m.type === 'shop') return m.cfg.kind ?? 'store';
+  return m.type === 'booth' ? (m.cfg.kind ?? 'ticket') : undefined;
 }
 
 /**
@@ -42,12 +43,13 @@ function roomKindOf(m: Module): string | undefined {
  * is likewise a clash.
  */
 function facilitySignature(type: string, roomKind?: string): string {
-  return type === 'shop' ? `shop:${roomKind ?? 'store'}` : type;
+  if (type === 'shop') return `shop:${roomKind ?? 'store'}`;
+  return type === 'booth' ? `booth:${roomKind ?? 'ticket'}` : type;
 }
 
 /** The signature a brush builds — the twin of `facilitySignature`. */
 function brushSignature(kind: FacilityKind): string {
-  return isWalledRoomKind(kind) ? `shop:${WALLED_ROOM[kind]}` : 'booth';
+  return isWalledRoomKind(kind) ? `shop:${WALLED_ROOM[kind]}` : `booth:${kind}`;
 }
 
 /** Minimum room size: walls + at least 1 m of walkable interior. */
@@ -345,14 +347,14 @@ function markRoomStocked(state: StationState, id: string): StationState {
 }
 
 /**
- * Bring legacy rooms up to the furniture-module model: a store-kind room drawn
- * before auto shelves became individually placed pieces gets one `shelf`
- * module per layout spot, an office one `desk` per grid spot, a restroom its
- * cubicles and sinks, and a booth its staff benches. A room the player already
- * cleared of its drawn shelving (the old `cfg.bare`) just has the flag
- * consumed. Rooms that already went through this carry `cfg.stocked` and are
- * left alone, so re-running never duplicates a unit — deleting every unit
- * stays deleted across a reload.
+ * Bring legacy rooms up to the furniture-module model. Rooms drawn before
+ * furniture became individually placed pieces keep nothing generated: a
+ * store / office / toilet room is only marked `stocked` (its old auto
+ * fit-out is never recreated), while a booth keeps its staff benches via
+ * `boothBenchSpots`. A room the player already cleared (the old `cfg.bare`)
+ * gains nothing either — the flag is simply tolerated. Rooms that already
+ * went through this carry `cfg.stocked` and are left alone, so re-running
+ * never duplicates a unit.
  * Returns the same state when nothing changed.
  */
 export function ensureRoomFurniture(state: StationState): StationState {
@@ -364,25 +366,12 @@ export function ensureRoomFurniture(state: StationState): StationState {
     // and a walled room says so itself in `cfg.kind`.
     const fitOut = m.type === 'retail' ? 'store' : m.type === 'booth' ? 'ticket' : (m.cfg.kind ?? 'store');
     if ((fitOut !== 'store' && fitOut !== 'office' && fitOut !== 'toilet' && fitOut !== 'ticket') || m.cfg.stocked) continue;
-    // The old clear-the-room flag only ever existed on stores; booths never had it.
-    const bare = m.type !== 'booth' && m.cfg.bare === true;
-    if (bare) {
+    if (fitOut === 'store' || fitOut === 'office' || fitOut === 'toilet') {
+      // Loading or editing a legacy room must not silently recreate its
+      // generated wallside fit-out after this change.
       next = markRoomStocked(next, m.id);
     } else {
-      const rect = facilityRectOf(m);
-      if (fitOut === 'store') {
-        const doorPairs: Array<[number, number]> = m.type === 'shop' ? (m.cfg.door ?? []) : [];
-        const doors = new Set(doorPairs.map(([x, y]) => `${x},${y}`));
-        next = addAutoFurniture(next, m.z, storeShelfSpots(next.cells, rect, doors));
-      } else if (fitOut === 'office') {
-        next = addAutoFurniture(next, m.z, officeDeskSpots(rect));
-      } else if (fitOut === 'toilet') {
-        const doorPairs: Array<[number, number]> = m.type === 'shop' ? (m.cfg.door ?? []) : [];
-        const doors = new Set(doorPairs.map(([x, y]) => `${x},${y}`));
-        next = addAutoFurniture(next, m.z, restroomSpots(rect, doors));
-      } else {
-        next = addAutoFurniture(next, m.z, boothBenchSpots(rect));
-      }
+      next = addAutoFurniture(next, m.z, boothBenchSpots(facilityRectOf(m)));
       next = markRoomStocked(next, m.id);
     }
     changed = true;
@@ -395,11 +384,12 @@ export function ensureRoomFurniture(state: StationState): StationState {
  * the same kind when the drag overlaps one (a different kind is never overlapped
  * — `facilityPlan` reports the clash so the UI can explain).
  *
- * A **walled room** is a small building: full-height solid walls around its
- * floor. There is deliberately **no doorway** — the player right-clicks the wall
- * to cut an opening afterwards, so the room is exactly as sealed as they made
- * it. Walls are skipped where an existing wall column already encloses that
- * side. The brush (`kind`) picks the fit-out the renderer draws via `cfg.kind`.
+ * A **walled room** marks a footprint only — full-height solid walls around
+ * its floor are the player's own work (the 方块 / 墙 tools), so the room is
+ * exactly as sealed as they made it. The drag records which perimeter cells
+ * are doors (`cfg.door`) as the player cuts them open with a right-click
+ * afterwards. The brush (`kind`) picks the fit-out the renderer draws via
+ * `cfg.kind`.
  *
  * A **booth** is not a walled room at all: just a desk counter around the floor
  * (a thin model, no voxel base) enclosing a staff area the crowd is served from
@@ -417,9 +407,13 @@ export function placeFacility(
   const plan = facilityPlan(state, kind, r);
   if (plan.blockedBy) return state;
   const rect = plan.rect;
-  // Absorbed same-type rooms go first, so their walls are rebuilt around the
-  // extended footprint instead of being left stranded inside it.
-  const base = plan.merge.length > 0 ? removeFacilitySet(state, new Set(plan.merge.map((m) => m.id))) : state;
+  // Absorbed same-type rooms go first, so an interior wall between the old
+  // and new ground does not split the union — but the union's own perimeter
+  // is the player's (a room builds no walls of its own), so columns still on
+  // the new edge are kept and only interior ones are cleared.
+  const base = plan.merge.length > 0
+    ? removeFacilitySet(state, new Set(plan.merge.map((m) => m.id)), unionPerimeterKeep(plan.rect))
+    : state;
   const w = rect.x1 - rect.x0 + 1;
   const h = rect.y1 - rect.y0 + 1;
   if (w < FACILITY_MIN || h < FACILITY_MIN) return state;
@@ -443,42 +437,19 @@ export function placeFacility(
   }
   const add: Cell[] = [];
   const keptDoors: Array<[number, number]> = [];
-  if (isWalledRoomKind(kind)) {
-    const have = new Set(solid);
-    for (let x = rect.x0; x <= rect.x1; x++) {
-      for (let y = rect.y0; y <= rect.y1; y++) {
-        if (!isPerimeter(rect, x, y)) continue;
-        if (doors.has(`${x},${y}`)) {
-          keptDoors.push([x, y]);
-          continue;
-        }
-        // Skip a side an existing wall column already encloses.
-        const [ox, oy] = outsideOf(rect, x, y);
-        if (touchingExistingWall(solid, ox, oy, rect.z)) continue;
-        for (let dz = 1; dz <= SHOP_WALL_H; dz++) {
-          const kk = cellKey(x, y, rect.z + dz);
-          if (have.has(kk)) continue;
-          have.add(kk);
-          add.push({ x, y, z: rect.z + dz, fill: 'solid' });
-        }
-      }
+  for (const key of doors) {
+    const [x, y] = key.split(',').map(Number);
+    if (x >= rect.x0 && x <= rect.x1 && y >= rect.y0 && y <= rect.y1 && isPerimeter(rect, x, y)) {
+      keptDoors.push([x, y]);
     }
   }
+  // The store, toilet and office brushes mark a room footprint only. Build
+  // their walls with the block tool so the player controls the room geometry.
   // Keep the original room's id when extending, so selection and saves follow it.
   const modId = id ?? plan.merge[0]?.id ?? nextModuleId(state.modules, kind);
-  // A store stocks its own shelves as individual `shelf` modules, an office
-  // its desks as `desk` modules, a restroom its cubicles and sinks, and a
-  // booth its staff benches — one module per layout spot — so every unit is
-  // right-clickable on its own. Absorbed rooms bring no auto furniture along
-  // (their walls move); hand-placed pieces stay, and fresh units skip cells a
-  // hand-placed unit already holds.
-  const fitOut = isWalledRoomKind(kind) ? WALLED_ROOM[kind] : null;
-  const stocksShelves = fitOut === 'store';
-  const stocksDesks = fitOut === 'office';
-  const stocksRestroom = fitOut === 'toilet';
-  // The one brush that is not a walled room — so it is the one that stocks seats.
-  const stocksBooth = kind === 'ticket';
-  const stocked = stocksShelves || stocksDesks || stocksRestroom || stocksBooth;
+  // Preserve the room kind and any door markers so the existing area remains editable.
+  // Room furniture is placed by the player. The open ticket booth keeps its seats.
+  const stocksBooth = kind === 'ticket' || kind === 'info';
   const module = (
     isWalledRoomKind(kind)
       ? {
@@ -489,23 +460,31 @@ export function placeFacility(
           z: rect.z,
           w,
           h,
-          cfg: { kind: WALLED_ROOM[kind], door: keptDoors, ...(stocked ? { stocked: true } : {}) },
+          cfg: { kind: WALLED_ROOM[kind], door: keptDoors, stocked: true },
         }
-      : { id: modId, type: 'booth', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind: 'ticket', stocked: true } }
+      : { id: modId, type: 'booth', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind, stocked: true } }
   ) as StationState['modules'][number];
   let next = { ...base, cells: [...base.cells, ...add], modules: [...base.modules, module] };
-  if (stocksShelves) {
-    const doorKeys = new Set(keptDoors.map(([x, y]) => `${x},${y}`));
-    next = addAutoFurniture(next, rect.z, storeShelfSpots(next.cells, rect, doorKeys));
-  } else if (stocksDesks) {
-    next = addAutoFurniture(next, rect.z, officeDeskSpots(rect));
-  } else if (stocksRestroom) {
-    const doorKeys = new Set(keptDoors.map(([x, y]) => `${x},${y}`));
-    next = addAutoFurniture(next, rect.z, restroomSpots(rect, doorKeys));
-  } else if (stocksBooth) {
+  if (stocksBooth) {
     next = addAutoFurniture(next, rect.z, boothBenchSpots(rect));
   }
   return next;
+}
+
+/**
+ * The wall columns standing on a footprint's own perimeter. A merge keeps
+ * these: rooms build no walls of their own, so every column still on the
+ * union's edge is the player's (`placeFacility`).
+ */
+function unionPerimeterKeep(rect: FacilityRect): Set<string> {
+  const keep = new Set<string>();
+  for (let x = rect.x0; x <= rect.x1; x++) {
+    for (let y = rect.y0; y <= rect.y1; y++) {
+      if (!isPerimeter(rect, x, y)) continue;
+      for (let dz = 1; dz <= SHOP_WALL_H; dz++) keep.add(cellKey(x, y, rect.z + dz));
+    }
+  }
+  return keep;
 }
 
 /**
@@ -599,9 +578,11 @@ export function carveFacilityOpenings(
  * A removed room's auto-generated furniture goes with it; hand-placed 货架/办公桌 stay —
  * except on the extend path, where `placeFacility` re-stocks the union fresh
  * (absorbed rooms' units are dropped first, so a merge never stacks two units
- * on one cell).
+ * on one cell). Callers merging rooms pass the union's own perimeter columns as
+ * `keepCells`: rooms build no walls of their own any more, so every column
+ * still on the new edge is the player's and only interior ones are cleared.
  */
-function removeFacilitySet(state: StationState, ids: ReadonlySet<string>): StationState {
+function removeFacilitySet(state: StationState, ids: ReadonlySet<string>, keepCells: ReadonlySet<string> = new Set()): StationState {
   const kill = new Set<string>();
   const rooms: Array<{ x: number; y: number; z: number; w: number; h: number }> = [];
   for (const m of state.modules) {
@@ -619,7 +600,7 @@ function removeFacilitySet(state: StationState, ids: ReadonlySet<string>): Stati
   }
   const cells = state.cells.filter((c) => {
     const k = cellKey(c.x, c.y, c.z);
-    return !(kill.has(k) && !keep.has(k));
+    return !(kill.has(k) && !keep.has(k) && !keepCells.has(k));
   });
   let next: StationState = { ...state, cells, modules: state.modules.filter((m) => !ids.has(m.id)) };
   for (const r of rooms) {

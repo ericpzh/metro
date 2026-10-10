@@ -22,7 +22,10 @@ function buildBench(ctx: ModuleContext, mod: Extract<Module, { type: 'bench' }>)
   const spec = benchSpec(mod.cfg.variant)
   const g = spec.style === 'steel' ? steelBench(ctx.mats, spec.w) : seatBench(ctx.mats, spec.w)
   const [dx, dy] = rotateLocal(mod.rot, (spec.w - 1) / 2, 0)
-  g.position.set(mod.x + 0.5 + dx, mod.y + 0.5 + dy, mod.z + 1)
+  // Keep the bench on the opposite edge so its front faces into the tile.
+  const edgeInset = 0.5 - 0.85 / 2
+  const [ex, ey] = rotateLocal(mod.rot, 0, edgeInset)
+  g.position.set(mod.x + 0.5 + dx + ex, mod.y + 0.5 + dy + ey, mod.z + 1)
   g.rotation.z = (normRot(mod.rot) * Math.PI) / 2
   return g
 }

@@ -1,7 +1,7 @@
 // Ticket vending machine (售票机) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, canvasTexture, slab, plate, capTop, ownedMaterial, placeLocal } from '../PieceBuilder.ts'
+import { PieceBuilder, canvasTexture, slab, plate, capTop, ownedMaterial, placeLocalAtEdge } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 
@@ -57,7 +57,7 @@ function buildTvm(ctx: ModuleContext): THREE.Group {
 export class TvmModel extends PieceBuilder {
   readonly kind = 'tvm'
   build(mod: Extract<Module, { type: 'tvm' }>): THREE.Group {
-    return placeLocal(buildTvm(this.ctx), mod)
+    return placeLocalAtEdge(buildTvm(this.ctx), mod, 0.6)
   }
 }
 

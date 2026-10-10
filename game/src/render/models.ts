@@ -19,6 +19,10 @@ import { SinkModel } from './models/pieces/SinkModel.ts'
 import { GuidepostModel, BusstopModel } from './models/pieces/StreetDecorModel.ts'
 import { BinModel } from './models/pieces/BinModel.ts'
 import { ExtinguisherModel } from './models/pieces/ExtinguisherModel.ts'
+import { AcUnitModel } from './models/pieces/AcUnitModel.ts'
+import { ElectricalCabinetModel } from './models/pieces/ElectricalCabinetModel.ts'
+import { TactileModel } from './models/pieces/TactileModel.ts'
+import { FloorMarkModel } from './models/pieces/FloorMarkModel.ts'
 import { VentModel } from './models/pieces/VentModel.ts'
 import { LightModel } from './models/pieces/LightModel.ts'
 import { ClockModel } from './models/pieces/ClockModel.ts'
@@ -36,6 +40,7 @@ import { EscalatorModel } from './models/pieces/EscalatorModel.ts'
 import { StairModel } from './models/pieces/StairModel.ts'
 import { LiftModel } from './models/pieces/LiftModel.ts'
 import { ExitModel } from './models/pieces/ExitModel.ts'
+import { PsdEndModel } from './models/pieces/PsdEndModel.ts'
 import { PsdModel } from './models/pieces/PsdModel.ts'
 import { TrackModel } from './models/pieces/TrackModel.ts'
 import { RoomModel } from './models/pieces/RoomModel.ts'
@@ -69,6 +74,10 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return new BinModel(ctx).build(mod)
     case 'extinguisher':
       return new ExtinguisherModel(ctx).build(mod)
+    case 'ac-unit': return new AcUnitModel(ctx).build(mod)
+    case 'electrical-cabinet': return new ElectricalCabinetModel(ctx).build(mod)
+    case 'tactile': return new TactileModel(ctx).build(mod)
+    case 'floor-mark': return new FloorMarkModel(ctx).build(mod)
     case 'vent':
       return new VentModel(ctx).build(mod)
     case 'light':
@@ -103,6 +112,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return new LiftModel(ctx).build(mod)
     case 'exit':
       return new ExitModel(ctx).build(mod)
+    case 'psd-end': return new PsdEndModel(ctx).build(mod)
     case 'platform-edge':
       return new PsdModel(ctx).build(mod)
     case 'track':

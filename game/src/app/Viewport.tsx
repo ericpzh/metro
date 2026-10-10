@@ -281,13 +281,19 @@ export function Viewport(): React.ReactElement {
       h = Math.imul(h ^ (c.z + 4096), 16777619)
       h = Math.imul(h ^ zone, 16777619)
     })
+    const labels = zoneRegionLabels(floors, station.modules)
+    for (const l of labels) {
+      h = Math.imul(h ^ Math.round(l.x * 100), 16777619)
+      h = Math.imul(h ^ Math.round(l.y * 100), 16777619)
+      for (const ch of l.label ?? '') h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+    }
     const key = `${z}:${floors.length}:${h >>> 0}`
     if (key === zoneKeyRef.current) {
       scene.setZoneOverlayVisible(true)
       return
     }
     zoneKeyRef.current = key
-    scene.setZoneOverlay(quads, zones, zoneRegionLabels(floors), true)
+    scene.setZoneOverlay(quads, zones, labels, true)
   }
 
   useEffect(() => {
@@ -815,6 +821,7 @@ export function Viewport(): React.ReactElement {
   const ownerForRelease = (d: AreaDrag, current: Tool): ToolController => {
     if (d.roof === true) return d.deleteTile === true ? tools.delete : tools.equipment
     if (d.modules !== undefined) return tools.delete
+    if (d.tactile === true) return current === 'delete' ? tools.delete : tools.equipment
     if (d.fence === true) return current === 'delete' ? tools.delete : tools.equipment
     if (d.wall === true) return d.single === true ? tools.block : tools.wall
     return current === 'delete' ? tools.delete : tools.block
@@ -871,6 +878,8 @@ export function Viewport(): React.ReactElement {
   // its own pointerdown never arrived — so it cancels any previewing drag too.
   const onContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault()
+    // The browser can fire this at right-down; tactile erasure owns that drag.
+    if (dragRef.current?.tactile && dragRef.current.button === 2 && !(e.buttons & 1)) return
     cancelActiveDrag()
   }
 

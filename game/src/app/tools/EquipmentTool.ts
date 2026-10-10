@@ -15,6 +15,7 @@ import {
 } from '../../build/model.ts'
 import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
 import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
+import { snapPsdEnd } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { ESCALATOR_BAND } from '../../sim/constants.ts'
 import { escalatorModule, ESCALATOR_LONG_RUN, ESCALATOR_LONG_RISE } from '../../sim/escalators.ts'
@@ -40,7 +41,9 @@ import type { Module, Vec3i } from '../../sim/types.ts'
 import { isDecorType, isFenceType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
 import { straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
+import { TactileTool } from './TactileTool.ts'
 import { TileEquipmentTool } from './TileEquipmentTool.ts'
+import { snapBoardingMark } from '../../sim/floorDecor.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 
@@ -48,11 +51,19 @@ export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
 
   onDown(info: PointerInfo): void {
+    if (useStore.getState().moduleType.startsWith('tactile-')) { new TactileTool(this.ctx).onDown(info); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).onDown(info); return }
     const scene = this.ctx.scene()
     const hit = info.hit
     if (!scene || !hit) return
     const st = useStore.getState()
+    if (info.button === 2 && st.moduleType.startsWith('floor-mark-')) {
+      // Vinyl can share a screen-door strip: erase the print the ray hits,
+      // rather than tearing down the screen standing over that floor (§9.5).
+      const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
+      if (picked?.type === 'floor-mark') this.removePlacedModule(picked)
+      return
+    }
     if (st.moduleType === 'bridge') {
       const src = railModuleAt(st.station, ...hit.cell) ?? railModuleAt(st.station, ...hit.place)
       if (!src) { st.setNotice('先点一段现有轨道，轨道桥从端部接出'); return }
@@ -150,6 +161,7 @@ export class EquipmentTool extends ToolController {
   }
 
   onMove(info: PointerInfo): void {
+    if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onMove(info); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block') || this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
     const hit = info.hit
@@ -200,6 +212,7 @@ export class EquipmentTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
+    if (this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onUp(info); return }
     if (this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onUp(info); return }
     // The viewport routes only 围栏 runs here; any other drag release belongs
     // to its own tool. A fence run lays (or lifts) one panel per cell.
@@ -373,7 +386,7 @@ export class EquipmentTool extends ToolController {
         cell[2],
         id,
         st.moduleRot,
-        st.stairWidth,
+        type === 'curtain-wall' ? st.curtainWidth : st.stairWidth,
         st.escalatorDir,
         st.gateDoor,
         st.station,
@@ -385,8 +398,16 @@ export class EquipmentTool extends ToolController {
       const exit = st.station.modules.find((m) => m.type === 'exit' && m.id === st.guideExitId) ?? st.station.modules.find((m) => m.type === 'exit');
       mod.cfg.exitId = exit?.id;
     }
+    if (mod?.type === 'psd-end') {
+      mod.cfg.psd = st.psdEndHeight
+      mod = snapPsdEnd(mod, st.station.modules, st.station.lines)
+    }
     if (mod?.type === 'lift') mod.cfg.style = st.liftStyle
     if (mod?.type === 'light') mod.cfg.position = st.lightPosition
+    if (mod?.type === 'floor-mark') {
+      if (mod.cfg.variant === 'direction') mod.cfg.line = st.station.lines.find((l) => l.id === st.railLineId)?.id || st.station.lines.find((l) => l.id === '5')?.id || st.station.lines[0]?.id || '5'
+      mod = snapBoardingMark(mod, st.station.modules, st.station.lines)
+    }
     // A sign whose board is open in the editor draws the board being arranged.
     if (mod) mod = signModuleWithPreview(mod, st.signPreview)
     // A fresh exit letters itself A ~ Z rather than wearing the 未命名口
@@ -541,6 +562,7 @@ export class EquipmentTool extends ToolController {
    * (`placementPreviewKey` names the settings of both).
    */
   override refreshHover(): void {
+    if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).refreshHover(); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).refreshHover(); return }
     const scene = this.ctx.scene()
     const h = this.ctx.hover.current

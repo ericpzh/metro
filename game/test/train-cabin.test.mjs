@@ -5,8 +5,7 @@
 // walk into the same cabin. `World.seatAlighter` / `stepAlighting` /
 // `boardRider` / `stepTrainRider` are that behaviour, and these are its pins:
 //
-//   * the whole wave is aboard before the train is drawn anywhere, so nothing
-//     pops into being beside a screen door;
+//   * the whole wave appears in the stopped cabin before the doors open;
 //   * a doorway passes one row of two at its own cadence, so the platform sees a
 //     stream rather than a dump;
 //   * boarders are held off a doorway until its own queue has drained;
@@ -66,12 +65,18 @@ function runTo(w, state, limit = 120) {
   return -1
 }
 
-test('the wave rides in: the cabin is seated before the doors ever open', () => {
+test('the wave spawns after stopping and before the doors open', () => {
   const w = new World(platformStation(192), 99)
   w.tickOnce()
   const train = w.trains[0]
   assert.ok(train, 'the line dispatched a consist')
   assert.ok(train.doors.length > 0, 'the consist has doorways to serve')
+  assert.equal(aboard(w).length, 0, 'the approaching train has no cabin passengers yet')
+  while (train.state === 'approach') {
+    assert.equal(aboard(w).length, 0, 'passengers spawned while the train was moving')
+    w.tickOnce()
+  }
+  assert.equal(train.state, 'berth', 'the train stopped with its doors shut')
   assert.equal(aboard(w).length, 192, 'every passenger of the wave is already in a car')
   assert.equal(w.totals.alighted, 0, 'and nobody has stepped onto the platform yet')
 
@@ -154,6 +159,12 @@ test('boarders ride in the cabin and leave the world with the train', () => {
   for (const a of riding) {
     assert.ok(Math.abs(a.z - (pose[2] + CABIN_FLOOR_Z)) < 0.2, 'a boarder is drawn off the cabin floor')
   }
+  runTo(w, 'closing')
+  assert.ok(aboard(w).length > 0, 'riders remain while the doors close')
+  const train = w.trains[0]
+  runTo(w, 'hold')
+  assert.equal(train.state, 'hold', 'the train is sealed and has not started moving')
+  assert.equal(aboard(w).length, 0, 'cabin riders despawn after closing and before moving')
   // The consist departs with them: nobody is left standing on the platform.
   for (let i = 0; i < 80; i++) {
     w.tickOnce()
@@ -185,7 +196,7 @@ test('a consist in the cabin is priced as a train, not as a platform crush', () 
   // 384 bodies pinned inside one consist: if the crowd passes saw them, the
   // platform under the train would read as the worst crush in the station.
   const w = new World(platformStation(384), 99)
-  w.tickOnce()
+  runTo(w, 'berth')
   assert.equal(aboard(w).length, 384, 'the wave is aboard')
   assert.notEqual(w.metrics.worstLos, 'F', `the cabin was counted as a platform crush (worst ${w.metrics.worstLos})`)
 })
@@ -251,7 +262,7 @@ test('boarders stand behind the wave, never in its slots', () => {
   // out of a slot by somebody walking in behind it.
   const w = new World(platformStation(96, 6000), 99)
   const train = berth(w)
-  for (let i = 0; i < 40; i++) w.tickOnce()
+  runTo(w, 'closing')
   const boarders = w.pool.live.filter((a) => a.train >= 0 && a.state === 6)
   assert.ok(boarders.length > 0, 'nobody walked in')
   for (const a of boarders) {
