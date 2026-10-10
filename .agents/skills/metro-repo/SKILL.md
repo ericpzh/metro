@@ -55,6 +55,12 @@ and deploy independently; the only coupling is a URL (`gameUrl` in
 `game/plan.md` and the root `PLAN.md` are **gone**. Source comments that cite
 them — the R1–R6 / lane language included — are historical; do not follow them.
 
+The equipment palette includes roof/post hangers and their 4/6/8 m lengths,
+checkout counters, and glass/gate/iron fence variants. Door material is selected
+in the variant menu and door width is a separate narrow/wide setting. Their
+simulation, placement, rendering, and picker behavior belongs to `game/src/`;
+coverage belongs in `game/test/` and follows `metro-game-test`.
+
 ## Commands
 
 Run from the repo root (PowerShell):

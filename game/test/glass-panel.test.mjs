@@ -98,7 +98,7 @@ test('the factory builds a panel of its size, centred on the hovered cell', () =
   assert.equal(glassSpec('nonsense').variant, DEFAULT_GLASS_VARIANT)
 })
 
-test('short panels reserve the wall slab; tall panels reserve their floor-edge run', () => {
+test('short panels reserve the wall slab; tall panels reserve their floor edge', () => {
   const band = moduleEnvelope(glass(2, 3, 0, 0, 'g', '2x1'))
   // Flat against the wall at rot 0, which is the local −y face: the thin axis is y,
   // and the housing keeps the wall's own quarter of the cell (`PANEL_DEPTH` in from the
@@ -111,7 +111,7 @@ test('short panels reserve the wall slab; tall panels reserve their floor-edge r
   const tall = moduleEnvelope(glass(2, 3, 0, 0, 'g', '1x2'))
   assert.equal(tall.z1, 3, 'a 1×2 window reaches 2 m')
   const standing = moduleEnvelope(glass(2, 3, 0, 0, 'g', '3x4'))
-  assert.deepEqual([standing.x0, standing.x1, standing.y0, standing.y1, standing.z0, standing.z1], [2, 5, 3, 4, 1, 5], 'the 3×4 panel occupies three full edge cells and four metres of height')
+  assert.deepEqual([standing.x0, standing.x1, standing.y0, standing.y1, standing.z0, standing.z1], [2, 5, 3, 3.25, 1, 5], 'the 3×4 panel is a thin strip on its leading edge, four metres tall')
   assert.equal(isWallMounted(glass(2, 3, 0, 0, 'g', '3x4')), false, 'a tall panel does not require a backing wall')
   assert.equal(isWallMounted(glass(2, 3, 0, 0, 'g', '3x2')), true, 'a short panel remains wall-mounted')
   // A quarter-turn swaps which axis is thin, and the run follows it.
@@ -181,6 +181,41 @@ test('two panels may not share a cell, and neighbours may not', () => {
   // A 1 m panel standing on the floor and a bench against the same wall want the
   // same metre of air, so the pair collides — the bench is not "under" the band.
   assert.equal(placementBlocked([glass(2, 2, 0, 0, 'a', '1x1')], { id: 'b', type: 'bench', x: 2, y: 2, z: 0, w: 1, cfg: {} }), true)
+})
+
+test('a fence shares a tile with a parallel panel, and refuses a crossing one', () => {
+  // A 围栏 runs through the middle of its tile (0.45–0.55) while a 玻璃板 hugs the
+  // edge (0–0.25 at rot 0), so the pair co-exists when parallel and collides when
+  // perpendicular — for both the wall-mounted band and the floor-standing curtain.
+  const fence = (x, y, rot, id = 'f') => ({ id, type: 'fence', x, y, z: 0, rot, cfg: {} })
+  assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 0, 'g', '1x1')), false, 'parallel band shares the tile')
+  assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 1, 'g', '1x1')), true, 'crossing band is refused')
+  assert.equal(placementBlocked([fence(2, 2, 1)], glass(2, 2, 0, 1, 'g', '1x1')), false, 'parallel band the other way shares it too')
+  assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 0, 'g', '3x4')), false, 'parallel curtain shares the tile')
+  assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 1, 'g', '3x4')), true, 'crossing curtain is refused')
+  assert.equal(placementBlocked([fence(2, 2, 1)], glass(2, 2, 0, 1, 'g', '2x4')), false, 'parallel curtain the other way shares it too')
+})
+
+test('a panel shares the turning cell of a fence run on the sides no arm reaches', () => {
+  // A turning cell draws only the halves it reaches (E+N is a quarter, not a
+  // full strip), so a panel on a side no arm touches is clearance while one
+  // across a run exit is refused — whichever was placed first.
+  const fence = (x, y, rot, id) => ({ id, type: 'fence', x, y, z: 0, rot, cfg: {} })
+  const corner = [fence(2, 2, 0, 'f'), fence(3, 2, 0, 'e'), fence(2, 3, 1, 'n')]
+  assert.equal(placementBlocked(corner, glass(2, 2, 0, 0, 'g', '1x1')), false, 'south of an E+N corner is free')
+  assert.equal(placementBlocked(corner, glass(2, 2, 0, 3, 'g', '1x1')), false, 'west of it is free too')
+  assert.equal(placementBlocked(corner, glass(2, 2, 0, 2, 'g', '1x1')), true, 'north blocks the N exit')
+  assert.equal(placementBlocked(corner, glass(2, 2, 0, 1, 'g', '1x1')), true, 'east blocks the E exit')
+  const tee = [...corner, fence(1, 2, 0, 'w')]
+  assert.equal(placementBlocked(tee, glass(2, 2, 0, 0, 'g', '1x1')), false, 'south of a T is still free')
+  assert.equal(placementBlocked(tee, glass(2, 2, 0, 2, 'g', '1x1')), true, 'its N exit is not')
+  // The other build order answers alike: a fence lifted into the corner reads
+  // the arms it will draw, and a run joined toward glass is refused with it.
+  assert.equal(placementBlocked([glass(2, 2, 0, 0, 'g', '1x1'), fence(3, 2, 0, 'e'), fence(2, 3, 1, 'n')], fence(2, 2, 0, 'f')), false)
+  assert.equal(placementBlocked([glass(2, 2, 0, 2, 'g', '1x1'), fence(3, 2, 0, 'e'), fence(2, 3, 1, 'n')], fence(2, 2, 0, 'f')), true)
+  const straight = [fence(2, 2, 0, 'f'), fence(1, 2, 0, 'w')]
+  assert.equal(placementBlocked([...straight, glass(2, 2, 0, 2, 'g', '1x1')], fence(2, 3, 0, 'c')), true, 'joining north turns the run into its panel')
+  assert.equal(placementBlocked([...straight, glass(2, 2, 0, 0, 'g', '1x1')], fence(2, 3, 0, 'c')), false, 'joining away from it stays legal')
 })
 
 test('a glass panel is found from its own cell, and the palette files it under 装饰', () => {

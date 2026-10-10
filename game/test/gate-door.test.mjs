@@ -240,12 +240,12 @@ test('a fence machine keeps its half of the block and fences the other half', ()
   assert.ok(deep.length > 0, 'the machine body is missing')
   for (const b of deep) assert.ok(b.max.x <= 0.5 + 1e-6, `the body crossed into the fence half (${b.min.x}..${b.max.x})`)
   // The other half is a fence panel: the glass runs from the machine's inner face
-  // (0.44) out to the far cell edge (1.0), where an end post caps the run.
+  // (0.44) out to the far cell edge (1.0), with a 6 mm clamp clearance at each end.
   const glass = boxes.filter((b) => b.max.y - b.min.y < 0.05 && b.max.z - b.min.z > 0.5)
   assert.equal(glass.length, 1, 'the fence half should draw one panel')
-  assert.ok(Math.abs(glass[0].min.x - 0.44) < 1e-6, `the panel must start at the machine's face (was ${glass[0].min.x})`)
-  assert.ok(Math.abs(glass[0].max.x - 1) < 1e-6, `the panel must reach the cell edge (was ${glass[0].max.x})`)
-  const endPost = (boxes2) => boxes2.filter((b) => Math.abs((b.min.x + b.max.x) / 2 - 0.96) < 0.02)
+  assert.ok(Math.abs(glass[0].min.x - 0.446) < 1e-6, `the panel must clear its clamp (was ${glass[0].min.x})`)
+  assert.ok(Math.abs(glass[0].max.x - 0.994) < 1e-6, `the panel must reach the end clamp (was ${glass[0].max.x})`)
+  const endPost = (boxes2) => boxes2.filter((b) => b.max.z - b.min.z > 0.9 && Math.abs((b.min.x + b.max.x) / 2 - 0.96) < 0.02)
   assert.ok(endPost(boxes).length > 0, 'the run must cap itself where nothing carries on')
   // A fence in the neighbour cell carries the run on instead: no end post.
   const fence = { id: 'f', type: 'fence', x: 1, y: 0, z: 0, rot: 0, cfg: {} }
@@ -259,7 +259,9 @@ test('a fence butts the machine side and ends at the doorway on the lane side', 
   const ends = (modules) => {
     const g = buildModule(fence, ctxFor(modules))
     const xs = new Set()
-    for (const c of g.children) if (Math.abs(c.position.x) > 0.4) xs.add(Math.round(c.position.x * 100))
+    for (const c of g.children) {
+      if (c.geometry?.type === 'CylinderGeometry' && c.geometry.parameters.height > 0.9 && Math.abs(c.position.x) > 0.4) xs.add(Math.round(c.position.x * 100))
+    }
     return xs
   }
   // The gate east of the fence is a lane one at rot 0: its body stands on the

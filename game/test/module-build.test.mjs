@@ -277,16 +277,17 @@ const track = (cfg) => ({ id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, 
  */
 const PIECES = [
   ['闸机 lane', palette('gate'), 31, '1×0.986×1.25'],
-  ['闸机 fence', palette('gate', 0, 'up', 'fence'), 36, '1.04×0.986×1.25'],
-  ['围栏', palette('fence'), 9, '1.08×0.16×1'],
-  ['售票机', palette('tvm'), 14, '0.8×0.665×1.87'],
+    ['闸机 fence', palette('gate', 0, 'up', 'fence'), 43, '1.015×0.986×1.25'],
+    ['玻璃围栏', palette('fence'), 18, '1.03×0.11×0.999'],
+  ['售票机', palette('tvm'), 32, '0.74×0.671×1.84'],
   ['自动贩卖机', palette('vending'), 58, '0.78×0.701×1.88'],
   ['座椅 不锈钢 1m', palette('bench-steel-1'), 7, '0.9×0.415×0.49'],
   ['座椅 不锈钢 2m', palette('bench-steel-2'), 7, '1.9×0.415×0.49'],
   ['座椅 靠背 1m', palette('bench-seat-1'), 13, '1.04×0.685×1.105'],
   ['座椅 连排 2m', palette('bench-seat-2'), 21, '2.04×0.685×1.105'],
   ['货架', palette('shelf'), 25, '0.96×0.5×1.9'],
-  ['办公桌', palette('desk'), 5, '1.1×0.95×0.77'],
+  ['办公桌', palette('desk'), 56, '0.98×0.965×1.22'],
+  ['收银台', palette('checkout'), 35, '0.98×0.878×1.393'],
   ['厕所隔间', palette('cubicle'), 31, '1.07×1.064×1.978'],
   ['洗手池', palette('sink'), 15, '0.689×0.585×1.042'],
   ['垃圾桶', palette('bin'), 28, '0.88×0.42×0.95'],
@@ -316,14 +317,10 @@ const PIECES = [
   ['玻璃板 1×1', palette('glass-1x1'), 5, '1×0.1×1'],
   ['玻璃板 3×1', palette('glass-3x1'), 5, '3×0.1×1'],
   ['玻璃板 3×2', palette('glass-3x2'), 5, '3×0.1×2'],
-  // The 门 (§5.7) is a **free-standing doorway** — threshold, two posts, head and the
-  // leaves hung between them — so it stands on a floor tile and needs no wall. Nine
-  // meshes for a 单开 (four frame members plus the leaf's own five) and fourteen for a
-  // 双开, so the leaf count is a number the model really draws.
-  ['门 单开 不锈钢', palette('door-steel-1'), 9, '1×0.19×2.05'],
-  ['门 双开 不锈钢', palette('door-steel-2'), 14, '2×0.19×2.05'],
-  ['门 单开 木', palette('door-wood-1'), 9, '1×0.19×2.05'],
-  ['门 双开 木', palette('door-wood-2'), 14, '2×0.19×2.05'],
+  // The 门 (§5.7) is a free-standing doorway. Stainless now includes exposed hardware;
+  // wood retains its simpler pull and kick plate.
+  ['门 不锈钢 窄', palette('door-steel-1'), 17, '1×0.19×2.05'],
+  ['门 木 窄', palette('door-wood-1'), 9, '1×0.19×2.05'],
   ['站名 楷书 横排', calligraphy('calligraphy-kai-h'), 1, '3×0×1'],
   ['站名 楷书 竖排', calligraphy('calligraphy-kai-v'), 1, '0.98×0×2.6'],
   ['线网图 墙面', palette('linemap-wall'), 3, '1.92×0.185×1.939'],
@@ -353,14 +350,14 @@ const PIECES = [
   ['楼梯 右转 90°', palette('stair-right90'), 90, '3.57×3.57×5.315'],
   ['楼梯 左双跑', palette('stair-left180'), 90, '2×3.625×5.315'],
   ['楼梯 右双跑', palette('stair-right180'), 90, '2×3.625×5.315'],
-  ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 20, '3×3×2.03'],
+  ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 35, '3×3×2.4'],
   ['商店房间', room('shop', 'store'), 18, '5×4×3'],
   // 厕所 / 办公室 close their doorway with the shared 门 builder
   // (`render/models/pieces/DoorModel.ts`): the same standing doorway — threshold, posts,
   // head and the leaf between them — set into the opening they cut, so the room's box
   // grows by the threshold's own step past the wall's face and nothing more.
-  ['厕所房间', room('shop', 'toilet'), 27, '5×4.09×3'],
-  ['办公室房间', room('shop', 'office'), 27, '5×4.09×3'],
+  ['厕所房间', room('shop', 'toilet'), 35, '5×4.09×3'],
+  ['办公室房间', room('shop', 'office'), 35, '5×4.09×3'],
   ['零售外壳', room('retail', undefined), 18, '5×4×3'],
 ]
 
@@ -644,7 +641,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   // placement rotation, so `Box3.setFromObject` comes back a few ulps out.)
   const doorSize = (id) => box(build(palette(id)).group).getSize(new THREE.Vector3())
   const single = doorSize('door-steel-1')
-  const pair = doorSize('door-steel-2')
+  const pair = box(build(createModule('door-steel-2', 4, 4, 0, 'wide-door', 0)).group).getSize(new THREE.Vector3())
   assert.ok(Math.abs(single.z - 2.05) < 1e-6, `a 门 is drawn to its own height (${round(single.z)})`)
   assert.equal(round(pair.x), 2, 'and a 双开 door spans the two cells it reserves')
   assert.equal(round(single.y), round(pair.y), 'every 门 is one panel deep, whatever its width')
@@ -672,7 +669,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   const oneLeaf = roomDoor([[6, 4]])
   assert.ok(Math.abs(oneLeaf.size.z - 2.05) < 1e-6, `a room doorway is cut to the 门 piece's own height (${round(oneLeaf.size.z)})`)
   assert.ok(Math.abs(oneLeaf.size.x - single.x) < 1e-6, 'and a one-cell opening draws one leaf of it')
-  assert.equal(oneLeaf.meshes, 9, 'a doorway draws exactly the parts a standing 门 does')
+  assert.equal(oneLeaf.meshes, 17, 'a doorway draws exactly the parts a standing 门 does')
   const twoLeaves = roomDoor([
     [6, 4],
     [7, 4],
@@ -680,7 +677,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   assert.ok(Math.abs(twoLeaves.size.x - pair.x) < 1e-6, 'a two-cell opening draws the pair')
   // The fittings are one set per leaf and nothing else, so the extra meshes are the
   // second leaf's own five — the same five a 双开 门 adds over a 单开.
-  assert.equal(twoLeaves.meshes - oneLeaf.meshes, 5, 'the second leaf adds its own five parts')
+  assert.equal(twoLeaves.meshes - oneLeaf.meshes, 10, 'the second leaf adds its hinges and fittings')
 
   // 供电: 接触网 hangs a wire overhead, 第三轨 guards a conductor rail at track level.
   const rail = box(build(track({ power: 'third-rail' })).group).getSize(new THREE.Vector3())

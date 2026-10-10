@@ -45,10 +45,10 @@ import {
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 17)
+  assert.equal(MODULE_FAMILIES.length, 19)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
+    ['fence', 'hanger', 'cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
@@ -107,9 +107,9 @@ test('a family is filed in the folder its own pieces are filed in', () => {
       )
     }
   }
-  assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['stair', 'exit'])
+  assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['fence', 'stair', 'exit'])
   assert.deepEqual(familiesIn('rail').map((f) => f.key), ['roof', 'pillar'])
-  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['cctv', 'tactile', 'floor-mark', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
+  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['hanger', 'cctv', 'tactile', 'floor-mark', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
   // **The id has to answer as the type does.** The rail and the placement tool hold a
   // palette **id**, not a module: `LeftRail` folds the folder open by `isDecorType(moduleType)`
   // and `EquipmentTool` asks the same predicate before its 装饰 right-click guard. A family
@@ -168,16 +168,17 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     'psd-end', 'curtain-wall',
     'bin', 'extinguisher',
     'clock', familyAnchor('cctv'),
-    familyAnchor('shelf'), 'desk',
+    familyAnchor('shelf'), 'checkout',
     familyAnchor('glass'),
     familyAnchor('door'),
     'cubicle', 'sink',
     familyAnchor('light'), 'vent',
+    familyAnchor('hanger'), 'desk',
     'guidepost', familyAnchor('busstop'),
     'ac-unit', 'electrical-cabinet',
   ])
   assert.deepEqual(anchors('equipment'), [
-    'gate', 'fence',
+    'gate', familyAnchor('fence'),
     'tvm', 'vending',
     'escalator', 'lift',
     familyAnchor('stair'), familyAnchor('exit'),

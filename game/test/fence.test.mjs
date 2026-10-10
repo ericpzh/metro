@@ -5,10 +5,107 @@
 // plus its gate row is a barrier the crowd only crosses at a gate.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boxesOverlap, moduleEnvelope, placementBlocked, placementOnTrack } from '../src/sim/placement.ts'
+import { boxesOverlap, equipmentReason, moduleEnvelope, placementBlocked, placementOnTrack } from '../src/sim/placement.ts'
 import { fenceArms, railLandingAt } from '../src/sim/fences.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { createModule, fenceRotForLine } from '../src/build/model.ts'
+import { toState } from '../src/build/model.ts'
+import { emptyStation } from '../src/data/reference-station.ts'
+import { parse, serialize } from '../src/persistence/save.ts'
+import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
+import * as THREE from 'three'
+import { FenceModel } from '../src/render/models/pieces/FenceModel.ts'
+import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
+import { useStore, moduleLabel } from '../src/app/store.ts'
+import { LONG_PRESS_MS } from '../src/app/tools/geometry/pointer.ts'
+
+test('gate model clears the centre pavement and iron replaces glass with eight upright bars', () => {
+  const mats = { steel: new THREE.MeshStandardMaterial(), darkSteel: new THREE.MeshStandardMaterial(), glass: new THREE.MeshStandardMaterial() }
+  const ctx = { mats, data: emptyStation() }
+  try {
+    for (const rot of [0, 1]) {
+      const mod = createModule('fence-gate', 0, 0, 0, 'gate', rot)
+      const group = new FenceModel(ctx).build(mod)
+      group.updateMatrixWorld(true)
+      const pavement = new THREE.Box3(new THREE.Vector3(0.35, 0.35, 1), new THREE.Vector3(0.65, 0.65, 1.15))
+      group.traverse((o) => {
+        if (!o.isMesh) return
+        assert.equal(new THREE.Box3().setFromObject(o).intersectsBox(pavement), false, 'no middle post or sill through tactile paving')
+        o.geometry.dispose()
+      })
+    }
+    const group = new FenceModel(ctx).build(createModule('fence-iron', 0, 0, 0, 'iron'))
+    let bars = 0
+    group.traverse((o) => {
+      if (!o.isMesh) return
+      assert.notEqual(o.material, mats.glass)
+      if (o.geometry.type === 'CylinderGeometry' && o.geometry.parameters.radiusTop === 0.012) bars++
+      o.geometry.dispose()
+    })
+    assert.equal(bars, 8, 'vertical bars spaced every 125 mm')
+  } finally {
+    Object.values(mats).forEach((m) => m.dispose())
+  }
+})
+
+test('fence drag previews and places the selected variant, and deletion leaves decals behind', () => {
+  const before = useStore.getState()
+  try {
+    for (const type of ['fence', 'fence-gate', 'fence-iron']) {
+      const decals = type === 'fence-gate' ? [createModule('tactile-guide', 0, 0, 0, 'decal')] : []
+      useStore.setState({ station: toState({ ...emptyStation(), modules: decals }), past: [], future: [], tool: 'module', moduleType: type, moduleRot: 0 })
+      let ghost = []
+      const scene = { setFencePreview: (mods) => { ghost = mods ?? [] }, setModulePreview() {}, setCollisionHighlight() {}, setGhost() {}, setCursor() {} }
+      const drag = { current: null }
+      const tool = new EquipmentTool({ scene: () => scene, drag, hover: { current: null } })
+      const event = (x, button = 0) => ({ clientX: x * 20, clientY: 0, button, buttons: button === 2 ? 2 : 1, hit: { cell: [x, 0, 0], place: [x, 0, 1], solid: true }, preventDefault() {} })
+      tool.onDown(event(0))
+      drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+      tool.onMove(event(2))
+      assert.equal(ghost.length, 3)
+      assert.ok(ghost.every((m) => m.cfg.variant === createModule(type, 0, 0, 0, 'expected').cfg.variant))
+      tool.onUp(event(2))
+      const placed = useStore.getState().station.modules.filter((m) => m.type === 'fence')
+      assert.equal(placed.length, 3)
+      assert.equal(useStore.getState().past.length, 1)
+      assert.equal(moduleLabel(placed[0]), type === 'fence-gate' ? '门' : type === 'fence-iron' ? '铁围栏' : '玻璃围栏')
+      tool.onDown(event(0, 2))
+      drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+      tool.onUp(event(2, 2))
+      assert.deepEqual(useStore.getState().station.modules, decals)
+      useStore.getState().undo()
+      assert.equal(useStore.getState().station.modules.filter((m) => m.type === 'fence').length, 3)
+    }
+  } finally { useStore.setState(before) }
+})
+
+test('fence variants keep their save and preview identity, including legacy glass', () => {
+  const modules = ['fence', 'fence-gate', 'fence-iron'].map((id, x) => createModule(id, x * 3, 0, 0, id, 1))
+  assert.deepEqual(modules.map((m) => m.cfg.variant), ['glass', 'gate', 'iron'])
+  const state = toState({ ...emptyStation(), modules: [...modules, fence(12, 0, 0, 0, 'legacy')] })
+  const loaded = parse(serialize(state))
+  assert.equal(loaded.ok, true)
+  assert.deepEqual(loaded.state.modules, state.modules)
+  assert.equal(new Set(modules.map((m) => moduleGhostKey({ ...m, x: 0 }))).size, 3)
+  assert.equal(moduleGhostKey(fence(0, 0, 0)), moduleGhostKey(createModule('fence', 0, 0, 0, 'new')))
+})
+
+test('the raised fence gate admits tactile paving and floor decals in either placement order', () => {
+  for (const rot of [0, 1, 2, 3]) {
+    const gate = createModule('fence-gate', 0, 0, 0, 'fg', rot)
+    for (const id of ['tactile-guide', 'tactile-warning', 'floor-mark-direction', 'floor-mark-boarding', 'floor-mark-waiting']) {
+      const decal = createModule(id, 0, 0, 0, 'decal', rot)
+      assert.equal(equipmentReason([], [gate], decal), '', `${id} beneath gate, rotation ${rot}`)
+      assert.equal(equipmentReason([], [decal], gate), '', `gate over ${id}, rotation ${rot}`)
+    }
+    assert.equal(placementBlocked([gate], createModule('tvm', 0, 0, 0, 'tvm')), true)
+    for (const id of ['fence', 'fence-iron']) {
+      assert.equal(placementBlocked([createModule(id, 0, 0, 0, 'f', rot)], createModule('tactile-guide', 0, 0, 0, 't')), true)
+    }
+    const graph = buildGraph({ ...emptyStation(), modules: [gate] })
+    assert.equal(graph.nodeIndex.has('0,0,0'), false, 'a closed gate leaf remains a barrier')
+  }
+})
 
 const fence = (x, y, z, rot = 0, id = 'f') => ({ id, type: 'fence', x, y, z, rot, cfg: {} })
 const gate = (x, y, z, id = 'g') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })

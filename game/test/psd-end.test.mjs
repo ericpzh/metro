@@ -5,7 +5,7 @@ import { createModule, toState } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { psdEndSpan, snapPsdEnd } from '../src/sim/psdEnds.ts'
 import { rotateLocal } from '../src/sim/track.ts'
-import { moduleEnvelope, equipmentReason, moduleFootprint, placementBlocked, moveCandidate, movedModule } from '../src/sim/placement.ts'
+import { moduleEnvelope, equipmentReason, moduleFootprint, placementBlocked, moveCandidate, movedModule, blockReason } from '../src/sim/placement.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { useStore, placementPreviewKey, folderTiles } from '../src/app/store.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
@@ -33,16 +33,13 @@ test('one decor tile switches height and refreshes a stationary ghost', () => {
   } finally { useStore.setState({ psdEndHeight: before }) }
 })
 
-test('glass planes meet at 90 degrees in every rotation and screen side', () => {
+test('neighbouring screens never stretch a panel beyond its own metre', () => {
   for (const psd of ['half', 'full']) for (let rot = 0; rot < 4; rot++) for (const side of ['left', 'right']) for (const direction of [-1, 1]) {
     const p = panel(rot, psd)
     const [x, y] = rotateLocal(rot, direction, 0)
     const s = { ...screen((rot + 1) % 4, side, psd), x, y }
-    const [wx] = rotateLocal(1, 0, side === 'left' ? -0.34 : 0.34)
-    const cross = direction + wx
     const span = psdEndSpan(p, [p, s])
-    if (Math.abs(cross) <= 0.84) assert.ok(Math.abs((direction < 0 ? span[0] : span[1]) - cross) < 1e-9)
-    else assert.deepEqual(span, [-0.5, 0.5], 'do not bridge empty ground')
+    assert.deepEqual(span, [-0.5, 0.5], 'a neighbouring screen cannot enlarge the tile piece')
     assert.equal(equipmentReason([], [s], p, true), '', 'corner placement is legal')
   }
   assert.deepEqual(psdEndSpan(panel(), [{ ...screen(1), x: 1, z: 4 }]), [-0.5, 0.5])
@@ -84,21 +81,28 @@ test('model reuses screen fixed glass, matches its cap height, and has no slidin
   } finally { if (old === undefined) delete globalThis.document; else globalThis.document = old }
 })
 
-test('a snapped return draws shifted onto the shared endpoint tile', () => {
+test('corner glass is shortened and all frame meshes stay inside their tile', () => {
   const old = globalThis.document
   globalThis.document = { createElement: () => { const { g } = stubCanvas(); return { width: 0, height: 0, getContext: () => g } } }
   try {
-    // A corner snap carries the half-metre offset into the screen's tile, and
-    // the model shifts the whole return onto it rather than drawing centred.
-    const p = { ...panel(0, 'half'), cfg: { psd: 'half', corner: 'screen', offset: [0.25, -0.25] } }
     const mats = new Proxy({}, { get: (t, k) => t[k] ??= new THREE.MeshStandardMaterial() })
-    const ctx = { mats, data: { ...emptyStation(), modules: [p] }, trackCells: new Set(), finish: () => mats.steel, owned: [] }
-    const g = buildModule(p, ctx)
-    const plain = buildModule(panel(0, 'half'), ctx)
-    assert.ok(g.children.length > 0, 'the snapped return drew nothing to shift')
-    for (let i = 0; i < g.children.length; i++) {
-      assert.ok(Math.abs(g.children[i].position.x - plain.children[i].position.x - 0.25) < 1e-9)
-      assert.ok(Math.abs(g.children[i].position.y - plain.children[i].position.y + 0.25) < 1e-9)
+    for (const psd of ['half', 'full']) for (let rot = 0; rot < 4; rot++) for (const side of ['left', 'right']) for (const atEnd of [false, true]) {
+      const s = screen(rot, side, psd)
+      const [x, y] = rotateLocal(rot, atEnd ? s.w - 1 : 0, 0)
+      for (const turn of [1, 3]) {
+        const p = snapPsdEnd({ ...panel((rot + turn) % 4, psd), x, y }, [s])
+        const [dx, dy] = rotateLocal(rot, 0, side === 'right' ? -1 : 1)
+        const next = snapPsdEnd({ ...p, id: 'next', x: x + dx, y: y + dy }, [s, p])
+        const ctx = { mats, data: { ...emptyStation(), modules: [s, p, next] }, trackCells: new Set(), finish: () => mats.steel, owned: [] }
+        for (const m of [p, next]) {
+          const g = buildModule(m, ctx)
+          const glass = g.children.find((c) => c.name === 'psd-fixed-glass')
+          assert.ok(Math.abs(glass.geometry.parameters.width - (m === p ? 0.84 : 1)) < 1e-9, 'only the corner is shorter than a metre')
+          const bounds = new THREE.Box3().setFromObject(g)
+          assert.ok(bounds.min.x >= m.x - 1e-6 && bounds.max.x <= m.x + 1 + 1e-6, 'cap/frame never protrude along x')
+          assert.ok(bounds.min.y >= m.y - 1e-6 && bounds.max.y <= m.y + 1 + 1e-6, 'cap/frame never protrude along y')
+        }
+      }
     }
   } finally { if (old === undefined) delete globalThis.document; else globalThis.document = old }
 })
@@ -199,6 +203,18 @@ test('a corner return extends through successive tiles without losing its snappe
       const last = modules.at(-1)
       const box = moduleEnvelope(extension)
       const previous = moduleEnvelope(last)
+      assert.deepEqual(psdEndSpan(extension), [-0.5, 0.5], 'each continuation stays exactly one metre')
+      assert.equal(extension.cfg.offset[0], 0, 'do not inherit the corner length offset')
+      for (const m of [first, extension]) {
+        const bounds = moduleEnvelope(m)
+        assert.ok(bounds.x0 >= m.x - 1e-6 && bounds.x1 <= m.x + 1 + 1e-6)
+        assert.ok(bounds.y0 >= m.y - 1e-6 && bounds.y1 <= m.y + 1 + 1e-6)
+        for (const [nx, ny] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          assert.equal(blockReason([], [m], m.x + nx, m.y + ny, 1).ok, true, 'every neighbouring tile accepts a block')
+          const equipment = createModule('tvm', m.x + nx, m.y + ny, 0, 'neighbour', 0)
+          assert.equal(placementBlocked([m], equipment), false, 'every neighbouring tile accepts equipment')
+        }
+      }
       assert.ok(Math.abs(dx ? (dx > 0 ? box.x0 - previous.x1 : box.x1 - previous.x0) : (dy > 0 ? box.y0 - previous.y1 : box.y1 - previous.y0)) < 1e-6, 'panel ends touch with no gap or overlap')
       assert.equal(placementBlocked([extension], { ...extension, id: 'duplicate' }), true)
       modules.push(extension)
@@ -223,11 +239,12 @@ test('a lifted screen return re-snaps through the move path, not just the placem
   } finally { useStore.setState(before) }
 })
 
-test('a snapped panel keeps the default span instead of reaching for the glass', () => {
+test('the first snapped panel trims at the tile edge', () => {
   const s = screen()
   const snapped = snapPsdEnd(panel(1), [s])
   assert.ok(snapped.cfg.offset, 'the corner snap shifts the panel inside its tile')
-  assert.deepEqual(psdEndSpan(snapped, [snapped, s]), [-0.5, 0.5], 'an in-cell offset panel never extends its span')
+  const [a, b] = psdEndSpan(snapped, [snapped, s])
+  assert.ok(Math.abs(b - a - 0.84) < 1e-9, 'the corner is 0.84 m; the following panels are 1 m')
 })
 
 test('hover and click extend the snapped return, and undo removes only the extension', () => {

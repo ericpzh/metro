@@ -148,7 +148,7 @@ test('warning tiles connect perpendicular ribs, T joins and crosses without corn
   assert.equal(tactileArms(dot, neighbors.slice(1)).length, 3)
   assert.equal(tactileArms(dot, neighbors).length, 4)
   assert.equal(tactileArms(dot, [{ ...neighbors[0], rot: 1 }]).length, 0, 'sideways ribs do not connect')
-  const mats = { psu: new THREE.MeshStandardMaterial() }
+  const mats = { tactile: new THREE.MeshStandardMaterial() }
   for (const mod of [dot, neighbors[0], neighbors[2]]) {
     const model = new TactileModel({ mats, data: { modules: [dot, ...neighbors] } }).build(mod)
     const bounds = new THREE.Box3().setFromObject(model)
@@ -158,7 +158,7 @@ test('warning tiles connect perpendicular ribs, T joins and crosses without corn
     }
     model.traverse((o) => { o.geometry?.dispose(); if (o.isInstancedMesh) o.dispose() })
   }
-  mats.psu.dispose()
+  mats.tactile.dispose()
 })
 
 test('boarding strip snaps to the real train-aligned opening in every rotation and side', () => {
@@ -304,7 +304,7 @@ test('switching the direction sticker line refreshes the placement ghost', () =>
 test('rendered machinery and floor decor stay inside their rotated reserved volume', () => {
   const previous = globalThis.document
   globalThis.document = { createElement: () => ({ getContext: () => stubCanvas(768, 512).g }) }
-  const mats = Object.fromEntries(['white', 'steel', 'darkSteel', 'black', 'green', 'orange', 'gateRed', 'psu'].map((key) => [key, new THREE.MeshStandardMaterial()]))
+  const mats = Object.fromEntries(['white', 'steel', 'darkSteel', 'black', 'green', 'orange', 'gateRed', 'psu', 'tactile'].map((key) => [key, new THREE.MeshStandardMaterial()]))
   const builders = { 'ac-unit': AcUnitModel, 'electrical-cabinet': ElectricalCabinetModel, tactile: TactileModel, 'floor-mark': FloorMarkModel }
   try {
     for (const id of ids) for (const rot of [0, 1, 2, 3]) {

@@ -15,6 +15,20 @@ import { emptyStation } from '../src/data/reference-station.ts'
 import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
 import { escalatorModule } from '../src/sim/escalators.ts'
 
+test('picking each fence variant copies it and Esc restores the previous piece', () => {
+  const before = useStore.getState()
+  try {
+    for (const type of ['fence', 'fence-gate', 'fence-iron']) {
+      const m = createModule(type, 0, 0, 0, 'picked-fence', 1)
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, tool: 'module', moduleType: 'tvm' })
+      ctxFor(m.id).onDown(press([0, 0, 0]))
+      assert.equal(useStore.getState().moduleType, type)
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().moduleType, 'tvm')
+    }
+  } finally { useStore.setState(before) }
+})
+
 test('picking short or long escalators copies length and Esc restores it', () => {
   const before = useStore.getState()
   try {
@@ -226,7 +240,8 @@ test('picking equipment arms its exact variant, copies its turn, and selects it'
   assert.equal(st().moduleType, 'linemap-stand')
 
   ctxFor('dr1').onDown(press([1, 3, 0]))
-  assert.equal(st().moduleType, 'door-wood-2', 'a 门 arms its own leaf count and material')
+  assert.equal(st().moduleType, 'door-wood-1', 'a 门 arms its material tile')
+  assert.equal(st().doorWide, true, 'and restores the picked door width')
   assert.equal(st().moduleRot, 3)
 
   ctxFor('s1').onDown(press([2, 1, 0]))

@@ -47,8 +47,6 @@ import { MODULE_OPTIONS, isDecorType, isDoorType, isWallMountedType, moduleLabel
 import { sameSweepFamily, sweepFamily } from '../src/app/sweep.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import { buildModule } from '../src/render/models.ts'
-import { C } from '../src/render/models/PieceBuilder.ts'
-import { RAMP_SOFFIT_FINISH, finishDef } from '../src/sim/finishes.ts'
 import { blobRadius } from '../src/render/scene/systems/SceneSystem.ts'
 
 const door = (x, y, z = 0, rot = 0, id = 'door-1', variant = 'steel-1') => ({
@@ -75,7 +73,7 @@ test('the four variants are one table: 单开 / 双开 × 不锈钢 / 木', () =
   // Every palette id is a real variant, and every variant is in the palette: a tile
   // that names a piece the table does not have is a piece that cannot be built.
   const paletteIds = MODULE_OPTIONS.filter((m) => isDoorType(m.id)).map((m) => m.id)
-  assert.deepEqual(paletteIds, DOOR_VARIANTS.map((v) => `door-${v}`), 'one tile per variant')
+  assert.deepEqual(paletteIds, ['door-steel-1', 'door-wood-1'], 'material tiles are separate from the narrow/wide width setting')
   for (const v of DOOR_VARIANTS) {
     const spec = doorSpec(v)
     assert.equal(spec.variant, v)
@@ -259,25 +257,21 @@ function build(mod) {
   return { mats, meshes, box }
 }
 
-test('a 单开 door draws the frame it stands in, plus one leaf and its fittings', () => {
-  // Nine meshes for a 单开: the threshold, two posts and the head are four, and the leaf
-  // brings its own five (the leaf, a kick plate, two studs and a pull). A 双开 door adds a
-  // second leaf's own five and nothing else — the frame is what holds them both up.
-  const single = build(door(0, 0, 0, 0, 'd', 'steel-1'))
-  assert.equal(single.meshes.length, 9, 'a 单开 door')
-  const pair = build(door(0, 0, 0, 0, 'd', 'steel-2'))
-  assert.equal(pair.meshes.length, 14, 'a 双开 door')
-  // The stainless door is the kit's **钢板**: frame and leaf are the one `darkSteel` the
-  // 扶梯 truss and the 钢板 finish are, with brushed-steel fittings — so no part of it is
-  // the white enamel it used to be cut from, and no part is glass.
-  const steel = (b) => b.meshes.filter((m) => m.material === b.mats.darkSteel).length
-  assert.equal(single.meshes.filter((m) => m.material === single.mats.white).length, 0, 'no part of it is white')
-  assert.equal(single.meshes.filter((m) => m.material === single.mats.glass).length, 0, 'and no part of it is glazed')
-  assert.equal(steel(single), 4 + 1, 'the frame is four members and there is one leaf in it')
-  assert.equal(steel(pair), 4 + 2, 'and a 双开 hangs two leaves in the same frame')
-  // A kick plate and a pull on two studs per leaf.
-  assert.equal(single.meshes.filter((m) => m.material === single.mats.steel).length, 1 + 3, 'each leaf has a steel kick plate and a pull')
-  assert.equal(pair.meshes.filter((m) => m.material === pair.mats.steel).length, 2 * (1 + 3), 'and a 双开 draws them twice')
+test('stainless doors use stainless throughout, with exposed hinges and upright pulls', () => {
+  for (const variant of ['steel-1', 'steel-2']) {
+    const b = build(door(0, 0, 0, 0, 'd', variant))
+    const leaves = doorSpec(variant).leaves
+    assert.ok(b.meshes.every((m) => m.material === b.mats.binSteel || m.material === b.mats.steel), 'panels, frame and hardware are all stainless')
+    const hinges = b.meshes.filter((m) => m.geometry.type === 'CylinderGeometry')
+    assert.equal(hinges.length, leaves * 3, 'three exposed hinge barrels on each leaf')
+    const pulls = b.meshes.filter((m) => m.geometry.parameters.depth === 0.32)
+    assert.equal(pulls.length, leaves, 'one upright pull on each leaf')
+    for (const pull of pulls) {
+      const leaf = b.meshes.find((m) => m.geometry.parameters.height === DOOR_FRAME.leaf && m.geometry.parameters.depth > 1 && Math.abs(m.position.x - pull.position.x) < 0.5)
+      assert.ok(leaf, 'each pull belongs to a leaf')
+      assert.ok(pull.position.y - pull.geometry.parameters.height / 2 > leaf.position.y + DOOR_FRAME.leaf / 2, 'the pull clears the sheet face')
+    }
+  }
 })
 
 test('the door stands on the edge of the block it is placed on', () => {
@@ -308,18 +302,18 @@ test('every fitting stands proud of the leaf, so nothing is coplanar with it', (
   // stand-off in front of the leaf — measured here **off the leaf's own face**, which is
   // the relationship that matters, rather than off any absolute coordinate.
   const { leaf, kick } = DOOR_FRAME
-  const parts = build(door(0, 0, 0, 0, 'd', 'steel-1')).meshes
+  const parts = build(door(0, 0, 0, 0, 'd', 'wood-1')).meshes
   // A box's `height` is its thickness across the doorway — a member's depth off its plane
   // — while `depth` is its run along z, so the across-way half is `height / 2`.
   const half = (m) => (m.geometry.parameters.height ?? 0) / 2
   const front = (m) => m.position.y + half(m)
   // The leaf is the only 钢板 member that is as thick as the leaf says.
-  const steel = parts.filter((m) => m.material.name === 'darkSteel')
+  const steel = parts.filter((m) => m.material.name === 'woodLight')
   const leafMesh = steel.find((m) => Math.abs(m.geometry.parameters.height - leaf) < 1e-9)
   assert.ok(leafMesh, 'the model draws the leaf it says it does')
   const leafFace = front(leafMesh)
   // The fittings are the light steel: a kick plate, a pull, and the pull's two studs.
-  const fittings = parts.filter((m) => m.material.name === 'steel')
+  const fittings = parts.filter((m) => ['steel', 'woodDark'].includes(m.material.name))
   assert.equal(fittings.length, 4, 'a kick plate plus a pull on its two studs')
   const studs = fittings.filter((m) => m.geometry.parameters.height === 0.04)
   assert.equal(studs.length, 2, 'the pull is carried on two studs')
@@ -351,24 +345,24 @@ test('a 双开 pair carries its two pulls at the meeting line, mirrored', () => 
   // from its left, the right leaf's in from its right — and their **inner faces** come
   // close together at the centre of the doorway.
   const pair = build(door(0, 0, 0, 0, 'd', 'steel-2'))
-  const pulls = pair.meshes.filter((m) => m.geometry.parameters.width === 0.3)
+  const pulls = pair.meshes.filter((m) => m.geometry.parameters.depth === 0.32)
   assert.equal(pulls.length, 2, 'a pair draws one pull per leaf')
   const [left, right] = pulls.sort((a, b) => a.position.x - b.position.x)
   assert.ok(left.position.x < 0 && right.position.x > 0, `one pull on each leaf (${left.position.x}, ${right.position.x})`)
   assert.ok(Math.abs(left.position.x + right.position.x) < 1e-6, `the pair is mirrored about the meeting line (${left.position.x} + ${right.position.x})`)
   // Each bar reaches its leaf's meeting edge and no further, and the two meet in the
   // middle: the clear gap between them is a fraction of a leaf.
-  const inner = (m, side) => m.position.x + side * 0.15
+  const inner = (m, side) => m.position.x + side * 0.016
   const gap = inner(right, -1) - inner(left, 1)
   assert.ok(gap > 0 && gap < 0.45, `the two hang together at the middle (clear gap ${gap.toFixed(3)})`)
   // `handle` is the bar's stand-off, so a pull's inner face sits well inside the doorway's
   // half width rather than out at the leaf's hinge edge.
   const half = 1
-  for (const m of pulls) assert.ok(Math.abs(m.position.x) + 0.15 < half, `a pull is inside the doorway, not at its hinge edge (${m.position.x})`)
+  for (const m of pulls) assert.ok(Math.abs(m.position.x) + 0.016 < half, `a pull is inside the doorway, not at its hinge edge (${m.position.x})`)
   // A 单开 door has one leaf and nothing to meet, so its single pull sits toward the free
   // edge of the cell it fills.
   const single = build(door(0, 0, 0, 0, 'd', 'steel-1'))
-  const one = single.meshes.filter((m) => m.geometry.parameters.width === 0.3)
+  const one = single.meshes.filter((m) => m.geometry.parameters.depth === 0.32)
   assert.equal(one.length, 1, 'a 单开 door draws one pull')
   assert.ok(one[0].position.x > 0, `toward its free edge (x ${one[0].position.x})`)
 })
@@ -376,25 +370,12 @@ test('a 双开 pair carries its two pulls at the meeting line, mirrored', () => 
 test('the two materials are two finishes, and both span the same door', () => {
   const steel = build(door(0, 0, 0, 0, 'd', 'steel-1'))
   const wood = build(door(0, 0, 0, 0, 'd', 'wood-1'))
-  // A wooden door is the same piece in another finish: the stainless door's frame and
-  // leaf are the kit's 钢板 with brushed-steel fittings, and the wooden one's are timber.
   const count = (b, mat) => b.meshes.filter((m) => m.material === mat).length
-  assert.equal(count(steel, steel.mats.white), 0, 'the 不锈钢 door wears no enamel')
-  assert.equal(count(steel, steel.mats.wood), 0, 'and no timber')
-  assert.equal(count(steel, steel.mats.darkSteel), 4 + 1, 'it is one steel doorway: four frame members and a leaf')
-  assert.equal(count(steel, steel.mats.glass), 0, 'with nothing glazed on it')
-  assert.equal(count(wood, wood.mats.white), 0, 'the 木 door wears no enamel')
-  assert.equal(count(wood, wood.mats.darkSteel), 0, 'and no 钢板')
-  assert.equal(count(wood, wood.mats.wood), 4, 'its frame is the timber')
-  assert.equal(count(wood, wood.mats.woodLight), 1, 'and its leaf the light timber')
-  assert.equal(count(wood, wood.mats.woodDark), 3, 'with a dark wooden pull')
-  // Both variants' kick plate is the brushed steel, whichever the leaf is.
-  assert.equal(count(steel, steel.mats.steel), 1 + 3, 'one steel kick plate and one steel pull')
-  assert.equal(count(wood, wood.mats.steel), 1, 'and the wooden door keeps the steel kick plate')
-  // The stainless door is literally the same steel as the game's 钢板: the colour the
-  // kit casts `darkSteel` in is the one the 钢板 ceiling finish is tinted with and the
-  // 扶梯 truss (and the ground under it) is drawn in.
-  assert.equal(C.darkSteel, finishDef(RAMP_SOFFIT_FINISH).tint, 'the stainless door, the 钢板 finish and the 扶梯 truss are one steel')
+  assert.ok(steel.meshes.every((m) => m.material === steel.mats.binSteel || m.material === steel.mats.steel), 'stainless covers every surface')
+  assert.equal(count(wood, wood.mats.wood), 4, 'the wooden frame stays timber')
+  assert.equal(count(wood, wood.mats.woodLight), 1, 'the wooden leaf stays pale timber')
+  assert.equal(count(wood, wood.mats.woodDark), 3, 'the wooden pull stays timber')
+  assert.equal(count(wood, wood.mats.steel), 1, 'the wooden door keeps its steel kick plate')
   assert.ok(Math.abs(steel.box.max.z - steel.box.min.z - doorSpec('steel-1').h) < 1e-6, 'and it is drawn its own height')
 })
 
