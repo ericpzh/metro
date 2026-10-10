@@ -56,6 +56,11 @@ The right-side inspector does not expose per-cell zone controls; paint and erase
 through the 分区 build-rail tool (`ZoneTool`).
 For escalators, travel direction is encoded by both `cfg.dir` and ordered `from`/`to`
 endpoints; reverse both together. Pin the action in `game/test/escalators.test.mjs`.
+Escalator equipment collisions use `rampBodyBoxes`'s per-tile slope, even against
+another run; do not substitute the landing-to-landing vertical envelope there.
+Runs may occupy vertically adjacent storeys when their bodies only meet at the
+landing plane. Pin slope clearance and real body overlap in
+`game/test/placement.test.mjs` and `game/test/bay.test.mjs`.
 
 ### Conventions
 

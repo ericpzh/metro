@@ -1078,10 +1078,9 @@ export function equipmentBlockingCell(modules: readonly Module[], x: number, y: 
  * body it draws (`collisionBoxes` → `rampBodyBoxes`), not by its reservation: the
  * body is the slope the run sweeps, tile by tile, so a stair's landing tiles — the
  * treads stop at their edge — and any slab a flight climbs *underneath* are floor a
- * 围栏, a gate or a bench may stand on. A **stair** is always its slope — even
- * against another run — so it never reserves the vertical column beneath it. An
- * escalator or lift keeps its full reservation against runs, so a second run can
- * never be stacked through one or share its landing.
+ * 围栏, a gate or a bench may stand on. Stairs and escalators use that same slope
+ * even against another run, so an escalator does not reserve the vertical column
+ * above its lower section. Their actual body volumes still collide where they overlap.
  *
  * A shelf or desk is the other exception: room furniture, so it may stand
  * inside a walled room or booth (either side of the pair may be the
@@ -1156,9 +1155,9 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     const e = moduleEnvelope(m)
     if (!e) continue
     let hit = false
-    for (const a of collisionBoxes(candidate, m, c)) {
+    for (const a of collisionBoxes(candidate, c)) {
       if (hit) break
-      for (const b of collisionBoxes(m, candidate, e)) {
+      for (const b of collisionBoxes(m, e)) {
         if (boxesOverlap(a, b)) {
           hit = true
           break
@@ -1215,25 +1214,17 @@ function isHangingShare(a: Module, b: Module): boolean {
  * a well, or stands on the floor over the low half of the flight, is exactly that.
  *
  * The pairing stays symmetric: whichever piece was placed first, the question is
- * the same one. A **stair** is always its slope — even against another run — so
- * the space under its upper half stays free and it never reserves the whole
- * vertical column beneath it. An escalator or lift keeps its full envelope
- * against runs, so a second run can never be stacked through one or share its
- * landing. A run the box list cannot measure falls back to its envelope, so a
- * degenerate piece is never read as clear space.
+ * the same one. A stair or escalator uses its slope even against another run, so
+ * the space beneath an elevated section stays free. A run the box list cannot
+ * measure falls back to its envelope, so a degenerate piece is never read as clear
+ * space.
  */
-function collisionBoxes(m: Module, other: Module, envelope: ModuleBox): ModuleBox[] {
+function collisionBoxes(m: Module, envelope: ModuleBox): ModuleBox[] {
   if (m.type === 'hanger') return hangerBoxes(m)
   if (!isRampRun(m)) return [envelope]
-  // A stair is only the slope it sweeps: its per-tile body boxes follow the run,
-  // so the space under the upper half stays free — even for another run. An
-  // escalator keeps its full reservation against runs (landing to landing), so a
-  // second run can never be stacked through the first or share its landing.
-  if (m.type === 'stair') {
-    const body = rampBodyBoxes(m)
-    return body.length > 0 ? body : [envelope]
-  }
-  if (isRunPiece(other)) return [envelope]
+  // Stairs and escalators occupy their per-tile body slope, even against another
+  // run. This leaves the space below an elevated section free while preserving
+  // collisions where the actual bodies or landings overlap.
   const body = rampBodyBoxes(m)
   return body.length > 0 ? body : [envelope]
 }

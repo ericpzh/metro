@@ -333,6 +333,17 @@ test('an escalator keeps its landing tiles: the step band runs to the centre', (
   assert.equal(placementBlocked([esc], createModule('fence', 1, 6, 0, 'f', 0)), false, 'beside the upper landing')
 })
 
+test('an escalator collision follows the incline instead of its vertical envelope', () => {
+  const esc = createModule('escalator', 0, 0, -4, 'e', 0)
+  assert.ok(esc)
+  // At this lower run tile the escalator is still well below the z = 0 floor.
+  // Its old landing-to-landing envelope wrongly reserved that whole vertical box.
+  const aboveLowRun = createModule('fence', 0, 1, 0, 'f-high', 0)
+  assert.equal(placementBlocked([esc], aboveLowRun), false, 'clear above the low section')
+  assert.equal(placementBlocked([aboveLowRun], esc), false, 'the body check is symmetric')
+  assert.equal(placementBlocked([esc], createModule('fence', 0, 1, -4, 'f-low', 0)), true, 'the low treads still collide')
+})
+
 test('the demo station’s platform stairs take a fence over the run and on the −12 landing', () => {
   // The shipped 动物园 station climbs from the z = −16 track up to z = −12 on two
   // straight stairs, each already guarded by a 围栏 run one row in front

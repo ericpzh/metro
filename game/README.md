@@ -2092,6 +2092,10 @@ approximated); neither needs WebGL.
   reusing a letter freed by a delete or rename, and falling back to 未命名口 once all 26 are taken.
   A wall-mounted ad may also stand in the face-adjacent cell when the pointer is on a wall itself
   (`wallMountStandCell`), so it can bolt to the station wall across the track.
+  Escalator equipment collisions follow the sloped, per-tile body even against another run: the
+  floor above the lower section stays free, and vertically adjacent runs may meet at the landing
+  plane without reserving the whole shaft. Placement and bay tests pin that clearance and real
+  body overlap.
 * `validation.test.mjs` — **the preview and the release are one verdict** (`build/validation.ts`
   over `sim/placement.ts`'s `blockReason` / `equipmentReason`), which is the property the player
   sees: a cell the ghost promises is a cell the edit commits, and a cell it refuses is one the

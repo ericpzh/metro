@@ -98,10 +98,11 @@ test('what does not fit a tile still collides', () => {
   assert.ok(placementBlocked([e], wide))
   assert.ok(rampBlocked([e], wide))
   assert.ok(placementBlocked([wide], e))
-  // The same column is one run per column, whichever way it travels, and a run
-  // one storey below the next one still stacks.
+  // The same column still collides whichever way the run travels. One run on
+  // the next storey only meets at the landing plane, so the sloped bodies do not
+  // reserve the entire vertical column between them.
   assert.ok(placementBlocked([e], esc('same', 0, 'down')))
-  assert.ok(placementBlocked([e], esc('below', 0, 'down', -8)))
+  assert.equal(placementBlocked([e], esc('below', 0, 'down', -8)), false)
   // A turning stair spans its corner, so its envelope covers the neighbouring
   // cell too.
   const turn = createModule('stair-left90', 1, 0, -4, 't', 0, STAIR_WIDTH_NARROW)
