@@ -2449,6 +2449,9 @@ approximated); neither needs WebGL.
 * `equipment-deletion.test.mjs` — equipment right-click teardown targets the ray-picked visible module
   before the grid cell underneath it, so a poster above a rail removes the poster; when no model is
   picked, the grid cell remains the fallback.
+* `equipment-placement-input.test.mjs` — wall and ceiling mounted equipment can be placed when the
+  pointer is over open air and let the support verdict decide; floor-standing equipment still needs
+  a solid floor hit.
 * `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers nine (six wall sizes and three
   4 m floor-edge sizes), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
   band; the factory centres the run on the hovered cell; short-panel envelopes are a **slab on a wall**
@@ -2604,7 +2607,8 @@ approximated); neither needs WebGL.
   line, its tracks, their
   doors and any tunnel shell as **one** `Ctrl+Z`; the undo stack pushes the document as it was, walks
   both ways, and its memory cap trades depth on a large station without ever dropping the newest frame;
-  and the station paths — 新建车站, 示例车站 (with the 打开 notice when a load had to be repaired), a
+  and the station paths — 新建车站 asks for confirmation from both the top-bar button and Ctrl+N,
+  with a reminder to save anything to keep (`new-station-confirmation.test.mjs`); 示例车站 (with the 打开 notice when a load had to be repaired), a
   rename that trims and never commits twice, and a save written and opened back — land on the document
   and the notice they say they do, while a save that cannot be trusted is refused whole.
 * `rail-folders.test.mjs` — the two folder ladders (`app/rail/helpers.ts` `RAIL_FOLDERS` +

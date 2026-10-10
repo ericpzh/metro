@@ -76,7 +76,7 @@ export function App(): React.ReactElement {
         }
         if (ck === 'n') {
           e.preventDefault()
-          st.newStation()
+          window.dispatchEvent(new CustomEvent('metro:new-station'))
           return
         }
         if (ck === 'l') {

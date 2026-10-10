@@ -153,6 +153,27 @@ button.ghost:hover {
   border-radius: 8px;
   box-shadow: 0 12px 36px #0008;
 }
+.newStationDialog {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 7, 13, 0.72);
+}
+.newStationPanel {
+  width: min(380px, 100%);
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px #0008;
+}
+.newStationPanel h2 { margin: 0 0 10px; color: #eaf5ff; font-size: 16px; }
+.newStationPanel p { margin: 0; color: var(--muted); line-height: 1.6; }
+.newStationActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.newStationActions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .exampleStationsHeading {
   display: flex;
   align-items: center;

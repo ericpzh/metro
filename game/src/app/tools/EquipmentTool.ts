@@ -47,6 +47,7 @@ import { snapBoardingMark } from '../../sim/floorDecor.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 import { deletionTarget } from './deletionTarget.ts'
+import { canPlaceWithoutFloorHit } from './placementInput.ts'
 
 export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
@@ -156,8 +157,11 @@ export class EquipmentTool extends ToolController {
       this.bulldoze(hit.cell, hit.place, this.facing())
       return
     }
-    // Equipment rides on a floor block; bare void has nothing to stand on.
-    if (!hit.solid) return
+    // Wall/ceiling mounts are placed from their backing surface, so the pointer
+    // may be in open air even though the hover has resolved a valid wall or slab.
+    // Let their placement checks decide; floor-standing equipment still needs
+    // an actual solid floor hit.
+    if (!hit.solid && !canPlaceWithoutFloorHit(st.moduleType)) return
     this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]])
   }
 

@@ -50,6 +50,14 @@ shortcut returns to the tool that was active before it. `ToolSlice.setTool` keep
 that predecessor current as tools change; keep the key handlers and
 `game/test/tool-shortcuts.test.mjs` aligned when changing these bindings.
 
+New station replaces the current document. Both its top-bar button and Ctrl+N
+must open the same confirmation; invoke `newStation` only after the player chooses
+新建车站, and let cancel, Escape and clicking outside dismiss it. The warning must
+tell players to save anything they want to keep; do not promise that Undo restores
+the replaced station. Pin the prompt and shortcut wiring in
+`game/test/new-station-confirmation.test.mjs` (React views are tested as source
+contracts because the Node suite does not mount them).
+
 Inspector controls that edit placed equipment should call a store action and commit
 one station edit, so the worker, undo history and selected document stay in sync.
 The right-side inspector does not expose per-cell zone controls; paint and erase zones
@@ -789,7 +797,10 @@ the four rules most changes trip over.
   glass is its own **玻璃幕墙** tile instead (Tab cycles 窄 / 中 / 宽, 2 / 3 / 4 m).
   Each panel is **one outer frame**
   round the whole run, with a single
-  pane between them. 站名 (`sim/calligraphy.ts` + `render/calligraphyFace.ts`) is the
+  pane between them. The floor-standing 玻璃幕墙 (`h >= 4`) may share any of its
+  occupied tiles with a 围栏, including a perpendicular crossing; the shared tile is
+  the frame connection. Keep both placement orders pinned in `test/glass-panel.test.mjs`.
+  站名 (`sim/calligraphy.ts` + `render/calligraphyFace.ts`) is the
   **station's own name** as an ink inscription: the module carries only the hand (楷书 / 行书 /
   隶书 / 魏碑 / 黑体 / 宋体) and the axis (横排 / 竖排), the plate is **transparent** and holds
   the name and nothing else, and a rename reprints every inscription in place. A 横排 panel is
@@ -1049,6 +1060,9 @@ the four rules most changes trip over.
   Equipment-tool right-click teardown resolves the ray-picked visible module before falling back to
   the hit grid cell; wall posters, ceiling fixtures and tall pieces can overlap a different cell or
   rail beneath them. Keep the target resolver pure and pin it in `test/equipment-deletion.test.mjs`.
+  On left-click, wall- and ceiling-mounted pieces may be aimed from open air: do not apply the floor-hit
+  guard before their wall/slab support verdict runs. Floor-standing pieces still need a solid hit;
+  `test/equipment-placement-input.test.mjs` pins both paths.
 * **The 广告牌 / 电视 posters are a catalogue, cropped never stretched** (`sim/billboards.ts`
   `AD_POSTERS`, `render/adArt.ts`, `render/panelUv.ts`). Twelve campaign slugs in
   `src/assets/posters/`, each tagged with the silhouettes it is cut for, so a panel is only ever

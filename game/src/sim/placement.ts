@@ -889,6 +889,13 @@ function fenceGlassBlocked(sources: readonly Module[], fence: Module, glass: Mod
   return fenceArmBoxes(fence, nb).some((a) => boxesOverlap(a, g))
 }
 
+/** A floor-standing 玻璃幕墙 shares its tile with a 围栏; their frames meet at the crossing. */
+function fenceCurtainShareTile(fence: Module, glass: Module): boolean {
+  if (fence.type !== 'fence' || glass.type !== 'glass' || fence.z !== glass.z) return false
+  if (!glassStandsOnFloor(glassSpec(glass.cfg?.variant))) return false
+  return glassCells(glass).some(([x, y]) => fence.x === x && fence.y === y)
+}
+
 /**
  * Every cell a module **stands in**: its own base cells (a room's whole plan, a
  * rail's bed, a bench's run) plus its anchor — the single cell every other piece
@@ -1154,6 +1161,8 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (isFenceGlassPair(m, candidate)) {
       const fence = m.type === 'fence' ? m : candidate
       const glass = m.type === 'fence' ? candidate : m
+      // On a shared curtain tile the crossing is the intended frame connection.
+      if (fenceCurtainShareTile(fence, glass)) continue
       const sources = fence === candidate ? modules.filter((s) => s.id !== fence.id) : modules
       if (fenceGlassBlocked(sources, fence, glass)) out.push(m)
       continue

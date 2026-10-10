@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
 import { ExampleStationsButton } from './ExampleStationsButton.tsx'
+import { NewStationButton } from './NewStationButton.tsx'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -51,7 +52,6 @@ export function TopBar(): React.ReactElement {
   const speed = useStore((s) => s.speed)
   const setPlaying = useStore((s) => s.setPlaying)
   const setSpeed = useStore((s) => s.setSpeed)
-  const newStation = useStore((s) => s.newStation)
   const saveToFile = useStore((s) => s.saveToFile)
   const loadFromText = useStore((s) => s.loadFromText)
   const restartSim = useStore((s) => s.restartSim)
@@ -78,19 +78,7 @@ export function TopBar(): React.ReactElement {
         <StationName />
       </div>
       <div className="spacer" />
-      <button
-        className="ghost iconBtn"
-        onClick={newStation}
-        title="新建车站（Ctrl+N）"
-        aria-label="新建"
-        aria-keyshortcuts="Control+N"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M4 1.5h5l3 3V14.5H4z" />
-          <path d="M9 1.5v3h3" />
-          <path d="M8 8.5v4M6 10.5h4" />
-        </svg>
-      </button>
+      <NewStationButton />
       <ExampleStationsButton />
       <button
         className="ghost iconBtn"

@@ -183,17 +183,19 @@ test('two panels may not share a cell, and neighbours may not', () => {
   assert.equal(placementBlocked([glass(2, 2, 0, 0, 'a', '1x1')], { id: 'b', type: 'bench', x: 2, y: 2, z: 0, w: 1, cfg: {} }), true)
 })
 
-test('a fence shares a tile with a parallel panel, and refuses a crossing one', () => {
-  // A 围栏 runs through the middle of its tile (0.45–0.55) while a 玻璃板 hugs the
-  // edge (0–0.25 at rot 0), so the pair co-exists when parallel and collides when
-  // perpendicular — for both the wall-mounted band and the floor-standing curtain.
+test('a fence shares parallel wall glass and may cross a floor-standing curtain', () => {
+  // A 围栏 runs through the middle of its tile while wall-mounted 玻璃板 hugs an
+  // edge, so those share only when parallel. A floor-standing 玻璃幕墙 explicitly
+  // joins a 围栏 on the same tile, even when their frames cross.
   const fence = (x, y, rot, id = 'f') => ({ id, type: 'fence', x, y, z: 0, rot, cfg: {} })
   assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 0, 'g', '1x1')), false, 'parallel band shares the tile')
   assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 1, 'g', '1x1')), true, 'crossing band is refused')
   assert.equal(placementBlocked([fence(2, 2, 1)], glass(2, 2, 0, 1, 'g', '1x1')), false, 'parallel band the other way shares it too')
   assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 0, 'g', '3x4')), false, 'parallel curtain shares the tile')
-  assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 1, 'g', '3x4')), true, 'crossing curtain is refused')
+  assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 1, 'g', '3x4')), false, 'crossing curtain joins on its tile')
+  assert.equal(placementBlocked([glass(2, 2, 0, 1, 'g', '3x4')], fence(2, 2, 0)), false, 'the curtain may be placed over a crossing fence')
   assert.equal(placementBlocked([fence(2, 2, 1)], glass(2, 2, 0, 1, 'g', '2x4')), false, 'parallel curtain the other way shares it too')
+  assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 1, 'g', '1x1')), true, 'crossing wall-mounted glass remains blocked')
 })
 
 test('a panel shares the turning cell of a fence run on the sides no arm reaches', () => {
