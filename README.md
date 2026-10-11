@@ -24,19 +24,20 @@ Vite config, tests and Cloudflare Worker (`metro-game`). It reads nothing from
 
 It is reachable two ways, and both are the same build:
 
-* **The site's 游戏 tab** — `https://ericpzh.rest/metro/game/` renders the site
-  document as a full-viewport iframe around the game's Worker. The art page and
-  the game never share a viewport.
-* **The game's own URL** — `https://ericpzh.rest/metro-game/`, which also works
-  on its `workers.dev` root.
+* **The game's English URL** — `https://ericpzh.rest/metro/game/en/` loads the
+  game directly in English; `/metro/game/` loads it in Chinese.
+* **The site's 游戏 tab** — `https://ericpzh.rest/metro/en/game/` renders the
+  site document as a full-viewport iframe around the game's Worker.
+* **The game's legacy URL** — `https://ericpzh.rest/metro-game/` remains available,
+  as does the Worker's `workers.dev` root.
 
 The tab points at the game Worker rather than bundling it, so the two apps still
 build and deploy independently. The only coupling is a URL: `gameUrl` in
 [`web/src/site.js`](web/src/site.js), overridable with `VITE_GAME_URL`.
 
-`game/wrangler.jsonc` declares the game's two routes, so `npm run deploy:game`
-creates them along with the Worker — there is no dashboard step and nothing to
-keep in sync by hand.
+`game/wrangler.jsonc` declares both pairs of game routes, so
+`npm run deploy:game` creates them along with the Worker — there is no dashboard
+step and nothing to keep in sync by hand.
 
 ```bash
 npm start             # build the game, then serve it at http://localhost:4174
@@ -158,7 +159,7 @@ way, and needs the same login.
 
 When wrangler is not available — no Cloudflare account, no network, or a machine that will not let
 it spawn — `npm run preview:local` serves the same two builds from `.dist` on one origin instead:
-the site at `/`, and the game at `/game/` and `/metro-game/`. It is plain Node with no children, so
+the site at `/`, and the game at `/game/`, `/metro/game/` and `/metro-game/`. It is plain Node with no children, so
 it starts anywhere:
 
 ```bash
@@ -172,12 +173,14 @@ The site is served from a path prefix — **`https://ericpzh.rest/metro/`** — 
 root. `ASSET_PREFIX` in `wrangler.jsonc` is `/metro`, and [`worker/index.js`](worker/index.js)
 rewrites prefixed requests down to the asset root.
 
-The site and the game are **two Workers in the same zone**, each with two routes:
+The site and the game are **two Workers in the same zone**. The site has two routes; the game has two route pairs:
 
 | Route pattern | Worker | Attached by |
 |---|---|---|
 | `ericpzh.rest/metro` | `metro` | hand, once |
 | `ericpzh.rest/metro/*` | `metro` | hand, once |
+| `ericpzh.rest/metro/game` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
+| `ericpzh.rest/metro/game/*` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
 | `ericpzh.rest/metro-game` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
 | `ericpzh.rest/metro-game/*` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
 
@@ -186,16 +189,16 @@ left alone. The site's two are added once: Workers & Pages → `metro` → **Set
 Routes** → **Add** → **Route**. The game's are not added by hand — they are declared under `routes`
 in [`game/wrangler.jsonc`](game/wrangler.jsonc), so deploying the game creates them.
 
-Two routes per Worker, not one, because `/metro/*` does *not* match the bare `/metro` — the literal
-`/` after `metro` is required. Never collapse a pair into `/metro*` or `/metro-game*`: `*` matches
+Each prefix needs a bare route and a `/*` route because `/metro/*` does *not* match the bare `/metro` — the literal
+`/` after the prefix is required. Never collapse a pair into `/metro*` or `/metro-game*`: `*` matches
 across `/`, so `/metro*` would also swallow `/metro-game…` and hand it to the site's Worker, which
 can only 404 it.
 
 There is **no `ericpzh.rest/*` route**: the apex is a Pages project bound as a Custom Domain, so any
 path matching no Worker route falls through to it. That is what `/metro-game/` did before the game's
 routes existed — the 游戏 tab rendered, and its iframe showed the Pages site instead of the game.
-Route patterns are ranked by specificity, so `ericpzh.rest/metro/*` and `ericpzh.rest/metro-game/*`
-win over the apex.
+Route patterns are ranked by specificity, so the game's `/metro/game/*` wins over the site's
+broader `/metro/*` route; both also win over the apex.
 
 > **`*.ericpzh.rest/metro/*` will not work for this.** A leading wildcard matches subdomains only and
 > never the apex, so `ericpzh.rest/metro/` would never reach the Worker. Add
@@ -220,15 +223,16 @@ This combination is tested with `wrangler dev`:
 | `/metro/art/01-isometric-cutaway.svg` | `200` `image/svg+xml` |
 | `/metro/assets/*.css` | `200` `text/css` |
 | `/metro/game` | `308` → `/metro/game/` |
-| `/metro/game/` | `200` `index.html` — the 游戏 tab |
-| `/metro/game/assets/*.css` | `200` — the same assets, aliased back to the root |
-| `/metro/game/deep/route` | `200` `index.html` — the SPA fallback |
+| `/metro/game/` | `200` game `index.html` |
+| `/metro/game/en/` | `200` game `index.html`, English route |
+| `/metro/game/en/assets/*.js` | `200` — game assets, aliased back to the root |
+| `/metro/game/lab` | `200` game `index.html` — the SPA fallback |
 | `/` | `200` — served straight from assets, the Worker is not invoked |
 | `/metropolis`, `/nope` | `404` |
 
-`/metro/game/` is the site document served one level down, so its relative `./assets/...` resolve
-under `/game/`; the Worker aliases that subpath back to the root rather than shipping a second HTML
-entry. The same table applies to the game's Worker with `/metro-game/` as the prefix.
+`/metro/game/` is the game's document served one level down, so its relative `./assets/...` resolve
+under `/metro/game/`; the game Worker strips that prefix before the asset layer reads the files.
+`/metro-game/` remains an equivalent address.
 
 When the game deploys, `wrangler` warns that the routes "will attempt to serve Assets on a configured
 path" — it goes looking for `game/dist/metro-game/*`, because the routes are declared next to

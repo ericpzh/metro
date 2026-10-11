@@ -5,7 +5,7 @@
 // equipment as well as finishes, and `I` now aliases that tool.
 
 import type { StateCreator } from 'zustand'
-import { finishDef } from '../../../sim/finishes.ts'
+import { DEFAULT_MATERIAL, finishDef } from '../../../sim/finishes.ts'
 import type { FinishId } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
 
@@ -24,7 +24,7 @@ export interface PaintSlice {
    * player's last choice survives a detour through another folder.
    */
   paintBaseMode: PaintBaseMode
-  /** Active finish brush — the face's family decides which ones apply. */
+  /** Active material brush; applies to every exposed face. */
   paintFinish: FinishId
   /**
    * The custom colour the 搪瓷板 wall finish paints with (§4.3). The brush's
@@ -32,6 +32,7 @@ export interface PaintSlice {
    * its own colour; this is just the current picker setting.
    */
   enamelColour: number
+  plasterColour: number
 
   setPaintMode: (m: PaintMode) => void
   /** Hand the brush back after its own `pick` overlay, in whichever of 单块/整面 it was entered with. */
@@ -44,13 +45,15 @@ export interface PaintSlice {
   setPaintFinish: (id: FinishId) => void
   /** Remember the 搪瓷板 picker's colour for the next enamel paint. */
   setEnamelColour: (colour: number) => void
+  setPlasterColour: (colour: number) => void
 }
 
 export const createPaintSlice: StateCreator<AppState, [], [], PaintSlice> = (set, get) => ({
   paintMode: 'single',
   paintBaseMode: 'single',
-  paintFinish: 'floor.granite',
+  paintFinish: DEFAULT_MATERIAL,
   enamelColour: finishDef('wall.enamel').tint,
+  plasterColour: finishDef('wall.plaster').tint,
 
   // 取色 is a mode the player leaves the moment they pick a face, so it never
   // becomes the brush's setting; only 单块 / 整面 replace what `resumePaintMode`
@@ -65,4 +68,5 @@ export const createPaintSlice: StateCreator<AppState, [], [], PaintSlice> = (set
   },
   setPaintFinish: (id) => set({ paintFinish: id }),
   setEnamelColour: (colour) => set({ enamelColour: colour }),
+  setPlasterColour: (colour) => set({ plasterColour: colour }),
 })

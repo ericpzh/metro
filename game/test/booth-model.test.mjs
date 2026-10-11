@@ -2,7 +2,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { moduleEnvelope } from '../src/sim/placement.ts'
+import { equipmentReason, moduleEnvelope } from '../src/sim/placement.ts'
 import { buildModule } from '../src/render/models.ts'
 const EPS = 1e-6
 const near = (a, b) => Math.abs(a - b) < EPS
@@ -55,16 +55,22 @@ test('ticket glass encloses the sides and leaves a real transfer aperture at eac
     assert.ok(!covers(boxes,x,0.04,2.12),'clear gap above the countertop')
   }
 })
-test('both overhead frames leave the staff bay open and keep printed signs ahead of the fascia',()=>{
+test('both overhead frames leave the staff bay open with no built-in banner',()=>{
   for(const kind of ['info','ticket']) {
     const {boxes,owned}=build(booth(kind))
     assert.ok(!covers(boxes,2,1.5,3.25),'no solid roof across staff bay')
     const signs=boxes.filter(b=>b.mat.name==='booth-service-sign')
-    assert.equal(signs.length,2)
-    assert.ok(owned.includes(signs[0].mat),'sign material follows module disposal')
-    const front=signs.find(b=>near(b.box.min.y,0.004))
-    assert.ok(front)
-    assert.ok(!covers(boxes.filter(b=>b!==front),2,0.004,3.245),'sign is not buried in header')
+    assert.equal(signs.length,0,'the player supplies an editable sign')
+    assert.equal(owned.length,0,'no hard-coded banner texture is allocated')
+  }
+})
+test('an editable customer-service sign can hang inside either booth type',()=>{
+  for(const kind of ['info','ticket']) {
+    const mod=booth(kind)
+    const sign={id:'service-sign',type:'sign',x:1,y:1,z:0,rot:0,cfg:{mount:'ceiling',front:[
+      {id:'service',kind:'icon',icon:'customer-service',x:0.3,y:0.2,scale:1,side:'both'},
+    ],back:[]}}
+    assert.equal(equipmentReason([{x:1,y:1,z:4,fill:'solid'}],[mod],sign),'',kind)
   }
 })
 test('counter geometry follows translated room coordinates',()=>{

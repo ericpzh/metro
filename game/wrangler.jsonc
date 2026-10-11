@@ -2,9 +2,11 @@
   // Metro Station Designer — the game. Its own Worker project, separate from
   // the art site (`metro`).
   //
-  // Served from the path prefix https://ericpzh.rest/metro-game/ so the website
-  // can embed it same-origin. The prefix Worker strips the prefix; the Worker's
-  // own workers.dev root still serves the game directly. Attach two routes:
+  // Served at /metro/game/ and /metro-game/. The prefix Worker strips either
+  // prefix; the Worker's own workers.dev root still serves the game directly.
+  // Attach both route pairs:
+  //   ericpzh.rest/metro/game
+  //   ericpzh.rest/metro/game/*
   //   ericpzh.rest/metro-game     (the bare path)
   //   ericpzh.rest/metro-game/*   (everything under it)
   "$schema": "../node_modules/wrangler/config-schema.json",
@@ -12,10 +14,12 @@
   "compatibility_date": "2026-09-29",
 
   // Attaching the routes here means `wrangler deploy` creates them; there is no
-  // dashboard step. Two routes, not one: `/metro-game/*` does not match the
+  // dashboard step. Each prefix has a bare route and a wildcard route: `/metro-game/*` does not match the
   // bare `/metro-game`, and never collapse them into `/metro-game*` — `*` spans
   // `/`, so it would also swallow `/metro-gameplay` and hand it to this Worker.
   "routes": [
+    { "pattern": "ericpzh.rest/metro/game", "zone_name": "ericpzh.rest" },
+    { "pattern": "ericpzh.rest/metro/game/*", "zone_name": "ericpzh.rest" },
     { "pattern": "ericpzh.rest/metro-game", "zone_name": "ericpzh.rest" },
     { "pattern": "ericpzh.rest/metro-game/*", "zone_name": "ericpzh.rest" }
   ],
@@ -29,8 +33,9 @@
     "not_found_handling": "none"
   },
 
-  // Must match the routes attached to the Worker. To host the game at its own
-  // workers.dev root instead, delete `main`, the assets binding, and this var,
+  // ASSET_PREFIX keeps /metro-game/ working; the Worker also recognizes
+  // /metro/game/. To host the game at its own workers.dev root, delete `main`,
+  // the assets binding, and this var,
   // and set `not_found_handling` back to "single-page-application".
   "vars": { "ASSET_PREFIX": "/metro-game" }
 }

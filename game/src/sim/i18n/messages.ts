@@ -1,5 +1,42 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  // Fixed English captions on bilingual model decals; keep both locales identical.
+  "printed_queue": { "zh": "Please queue", "en": "Please queue" },
+  "printed_line_value": { "zh": "Line {0}", "en": "Line {0}" },
+  "printed_face_payment": { "zh": "Face scan payment", "en": "Face scan payment" },
+  "printed_recyclable_waste": { "zh": "Recyclable waste", "en": "Recyclable waste" },
+  "printed_other_waste": { "zh": "Other waste", "en": "Other waste" },
+  "printed_extinguisher": { "zh": "FIRE EXTINGUISHER", "en": "FIRE EXTINGUISHER" },
+  "printed_network_map": { "zh": "Transport System Map", "en": "Transport System Map" },
+  "printed_no_lines": { "zh": "no lines yet", "en": "no lines yet" },
+  "printed_more_lines": { "zh": "+{0} more lines", "en": "+{0} more lines" },
+  "printed_guangzhou_metro": { "zh": "Guangzhou Metro", "en": "Guangzhou Metro" },
+  "printed_entrance": { "zh": "Entrance", "en": "Entrance" },
+  "printed_ticket": { "zh": "Ticket", "en": "Ticket" },
+  "printed_mind_gap_full": { "zh": "Mind the gap between train and platform", "en": "Mind the gap between train and platform" },
+  "printed_mind_gap": { "zh": "Mind the gap", "en": "Mind the gap" },
+  "printed_closing_doors": { "zh": "Stand clear of closing doors", "en": "Stand clear of closing doors" },
+  "printed_do_not_touch": { "zh": "CAUTION! Do not touch", "en": "CAUTION! Do not touch" },
+  "printed_exit": { "zh": "EXIT", "en": "EXIT" },
+  "printed_first_train": { "zh": "The First Train", "en": "The First Train" },
+  "printed_next_train": { "zh": "The Next Train", "en": "The Next Train" },
+  "printed_third_train": { "zh": "The Third Train", "en": "The Third Train" },
+  "printed_metro_station": { "zh": "Metro Station", "en": "Metro Station" },
+  "material_stone": { "zh": "石材", "en": "Stone" },
+  "material_metal": { "zh": "金属", "en": "Metal" },
+  "material_wood": { "zh": "木材", "en": "Wood" },
+  "material_other": { "zh": "其他", "en": "Other" },
+  "marble": { "zh": "大理石", "en": "Marble" },
+  "limestone": { "zh": "石灰石", "en": "Limestone" },
+  "sandstone": { "zh": "砂岩", "en": "Sandstone" },
+  "slate": { "zh": "板石", "en": "Slate" },
+  "obsidian": { "zh": "黑曜石", "en": "Obsidian" },
+  "softwood": { "zh": "软木", "en": "Softwood" },
+  "hardwood": { "zh": "硬木", "en": "Hardwood" },
+  "aluminum_panels": { "zh": "铝板", "en": "Aluminum panels" },
+  "hide_panel": { "zh": "隐藏{0}", "en": "Hide {0}" },
+  "show_panel": { "zh": "显示{0}", "en": "Show {0}" },
+  "view_cube": { "zh": "视角方块", "en": "view cube" },
   "one_block_one_cell": {
     "zh": "一个方块 = 一个格",
     "en": "One block = one cell"
@@ -578,7 +615,7 @@ export const messages = {
   },
   "section": {
     "zh": "剖切",
-    "en": "Section"
+    "en": "Section View"
   },
   "hide_ui": {
     "zh": "隐藏UI",
@@ -594,7 +631,7 @@ export const messages = {
   },
   "hide_floors": {
     "zh": "隐藏地面",
-    "en": "Hide floors"
+    "en": "Hide ground plane"
   },
   "hide_roofs": {
     "zh": "隐藏屋顶",
@@ -630,7 +667,7 @@ export const messages = {
   },
   "materials": {
     "zh": "材质",
-    "en": "Materials"
+    "en": "Surface"
   },
   "rooms": {
     "zh": "房间",
@@ -1424,6 +1461,22 @@ export const messages = {
     "zh": "底",
     "en": "Bottom"
   },
+  "compass_east": {
+    "zh": "东",
+    "en": "E"
+  },
+  "compass_west": {
+    "zh": "西",
+    "en": "W"
+  },
+  "compass_north": {
+    "zh": "北",
+    "en": "N"
+  },
+  "compass_south": {
+    "zh": "南",
+    "en": "S"
+  },
   "east": {
     "zh": "东",
     "en": "East"
@@ -1552,9 +1605,9 @@ export const messages = {
     "zh": "行人",
     "en": "Passenger"
   },
-  "the_light_blue_ground_line_shows_this_passenger_s_next_route": {
-    "zh": "地面上的浅蓝线，是这位行人接下来的路线。",
-    "en": "The light-blue ground line shows this passenger's next route."
+  "passenger_eye_view": {
+    "zh": "乘客视角（Esc 返回）",
+    "en": "Passenger eye view (Esc to return)"
   },
   "move_value": {
     "zh": "移动{0}",
@@ -2074,11 +2127,11 @@ export const messages = {
   },
   "alighting_area": {
     "zh": "下车区",
-    "en": "Alighting area"
+    "en": "Keep clear"
   },
   "let_passengers_off_first": {
     "zh": "先下后上",
-    "en": "Let passengers off first"
+    "en": "Let others off first"
   },
   "network_map_520": {
     "zh": "线网示意图",
@@ -2106,43 +2159,43 @@ export const messages = {
   },
   "select_destination": {
     "zh": "选择目的地",
-    "en": "Select destination"
+    "en": "Destination"
   },
   "buy_ticket": {
     "zh": "购票",
-    "en": "Buy ticket"
+    "en": "Buy"
   },
   "face_payment": {
     "zh": "刷脸支付",
-    "en": "Face payment"
+    "en": "Face scan"
   },
   "tmall_select": {
     "zh": "天猫优选",
-    "en": "Tmall Select"
+    "en": "Special offer"
   },
   "ride_for_0_01": {
     "zh": "1分钱乘车",
-    "en": "Ride for ¥0.01"
+    "en": "Save on fares"
   },
   "select_payment_method": {
     "zh": "请选择支付方式",
-    "en": "Select payment method"
+    "en": "Payment"
   },
   "collection_tray": {
     "zh": "取物口",
-    "en": "Collection tray"
+    "en": "Collect here"
   },
   "customer_hotline_anmei": {
     "zh": "客服热线 / 安美咨询",
-    "en": "Customer hotline / Anmei"
+    "en": "Help hotline"
   },
   "recyclables": {
     "zh": "可回收物",
-    "en": "Recyclables"
+    "en": "Recycling"
   },
   "other_waste": {
     "zh": "其他垃圾",
-    "en": "Other waste"
+    "en": "General waste"
   },
   "paper": {
     "zh": "纸类",
@@ -2162,7 +2215,7 @@ export const messages = {
   },
   "food_waste": {
     "zh": "残渣",
-    "en": "Food waste"
+    "en": "Food"
   },
   "tissues": {
     "zh": "纸巾",
@@ -2174,7 +2227,7 @@ export const messages = {
   },
   "fire_extinguisher_box": {
     "zh": "灭火器箱",
-    "en": "Fire extinguisher box"
+    "en": "EXTINGUISHER"
   },
   "fire": {
     "zh": "火",
@@ -2202,19 +2255,19 @@ export const messages = {
   },
   "mind_the_gap_between_the_platform_and_train": {
     "zh": "注意站台与列车之间的空隙",
-    "en": "Mind the gap between the platform and train"
+    "en": "Mind the gap"
   },
   "do_not_board_or_alight_when_lights_flash_and_bells_ring": {
     "zh": "灯闪铃响，勿上下车。",
-    "en": "Do not board or alight when lights flash and bells ring."
+    "en": "Stand clear of closing doors"
   },
   "do_not_rush_closing_doors": {
     "zh": "冲门危险，顾己及人。",
-    "en": "Do not rush closing doors."
+    "en": "Do not rush"
   },
   "caution_keep_clear": {
     "zh": "小心！别碰我！",
-    "en": "Caution! Keep clear!"
+    "en": "Keep clear"
   },
   "toward_value": {
     "zh": "◀ {0}方向",
@@ -2222,7 +2275,7 @@ export const messages = {
   },
   "waiting_area_travel_courteously": {
     "zh": "候车  ·  文明出行",
-    "en": "Waiting area · Travel courteously"
+    "en": "Waiting area"
   },
   "tickets": {
     "zh": "车票",

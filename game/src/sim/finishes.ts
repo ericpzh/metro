@@ -22,6 +22,8 @@ export type FinishFamily = 'floor' | 'ceiling' | 'wall' | 'track'
  * look anywhere else they want it.
  */
 export const RAMP_SOFFIT_FINISH = 'ceil.steel'
+/** Unpainted construction and the initial material brush (§4.3). */
+export const DEFAULT_MATERIAL = 'floor.concrete'
 
 export interface FinishDef {
   id: FinishId
@@ -33,15 +35,21 @@ export interface FinishDef {
   /** Rain cover / light, cosmetic in the base game (§4.3). */
   cover: boolean
   /** Which procedural base the renderer draws. */
-  look: 'granite' | 'concrete' | 'tile' | 'track' | 'baffle' | 'metal' | 'steel' | 'plaster' | 'enamel' | 'stainless' | 'soil'
+  look: 'granite' | 'concrete' | 'marble' | 'limestone' | 'sandstone' | 'slate' | 'obsidian' | 'softwood' | 'hardwood' | 'tile' | 'track' | 'baffle' | 'metal' | 'steel' | 'plaster' | 'enamel' | 'stainless' | 'soil'
   /** Base tint, hexadecimal. */
   tint: number
 }
 
 export const FINISH_LIST: readonly FinishDef[] = [
   // 地面 Floor finish — top face.
-  { id: 'floor.granite', label: msg('granite'), family: 'floor', speed: 1.0, cover: false, look: 'granite', tint: 0xc9ccd1 },
+  { id: 'floor.granite', label: msg('granite'), family: 'floor', speed: 1.0, cover: false, look: 'granite', tint: 0xc58d7a },
   { id: 'floor.concrete', label: msg('concrete'), family: 'floor', speed: 0.9, cover: false, look: 'concrete', tint: 0x8d9299 },
+  { id: 'floor.marble', label: msg('marble'), family: 'floor', speed: 1, cover: false, look: 'marble', tint: 0xe4d6b9 },
+  { id: 'floor.limestone', label: msg('limestone'), family: 'floor', speed: 1, cover: false, look: 'limestone', tint: 0xdcd4b9 },
+  { id: 'floor.sandstone', label: msg('sandstone'), family: 'floor', speed: 1, cover: false, look: 'sandstone', tint: 0xc5a76a },
+  { id: 'floor.slate', label: msg('slate'), family: 'floor', speed: 1, cover: false, look: 'slate', tint: 0x727773 },
+  { id: 'floor.softwood', label: msg('softwood'), family: 'floor', speed: 1, cover: false, look: 'softwood', tint: 0xc9a36b },
+  { id: 'floor.hardwood', label: msg('hardwood'), family: 'floor', speed: 1, cover: false, look: 'hardwood', tint: 0x805333 },
   { id: 'floor.tile', label: msg('floor_tiles'), family: 'floor', speed: 1.0, cover: false, look: 'tile', tint: 0xd7dbe1 },
   // 轨道 Track bed — a top-face variant that is not walkable (§4.3).
   { id: 'floor.track', label: msg('track_bed'), family: 'track', speed: 0, cover: false, look: 'track', tint: 0x2c313a },
@@ -57,44 +65,32 @@ export const FINISH_LIST: readonly FinishDef[] = [
   // 墙面 Wall finish — n/e/s/w.
   { id: 'wall.plaster', label: msg('paint'), family: 'wall', speed: 1.0, cover: false, look: 'plaster', tint: 0xe4e6ea },
   { id: 'wall.enamel', label: msg('enamel_panels'), family: 'wall', speed: 1.0, cover: false, look: 'enamel', tint: 0x2f7ef2 },
-  { id: 'wall.stainless', label: msg('brushed_steel'), family: 'wall', speed: 1.0, cover: false, look: 'stainless', tint: 0x9aa2ab },
-  { id: 'wall.soil', label: msg('earth_wall'), family: 'wall', speed: 1.0, cover: false, look: 'soil', tint: 0x232a34 },
+  { id: 'wall.stainless', label: msg('stainless_steel'), family: 'wall', speed: 1.0, cover: false, look: 'stainless', tint: 0x9aa2ab },
+  { id: 'wall.aluminum', label: msg('aluminum_panels'), family: 'wall', speed: 1, cover: false, look: 'metal', tint: 0xc2c8cd },
+  { id: 'floor.obsidian', label: msg('obsidian'), family: 'floor', speed: 1.0, cover: false, look: 'obsidian', tint: 0x282b2a },
 ] as const
 
 const BY_ID = new Map<FinishId, FinishDef>(FINISH_LIST.map((f) => [f.id, f]))
+// Preserve earth walls in existing saves without keeping a duplicate palette tile.
+BY_ID.set('wall.soil', { id: 'wall.soil', label: msg('earth_wall'), family: 'wall', speed: 1, cover: false, look: 'soil', tint: 0x232a34 })
 
 /** A family block in the 材质 folder's palette, as it is headed there. */
 export interface FinishGroup {
-  /** The family the block is *about*; `floor` also carries the track beds. */
-  fam: 'floor' | 'ceiling' | 'wall'
+  /** Material category; independent of the legacy face family. */
+  fam: 'stone' | 'metal' | 'wood' | 'other'
   /** The heading the folder prints over the block. */
   label: string
   items: FinishDef[]
 }
 
-/**
- * The 材质 folder's own palette: three blocks, in its order.
- *
- * The folder groups by **the face a finish can be painted on**, not by the raw
- * family — which is why 地面 · 轨道 is one block and a track bed is not a fourth
- * heading: `finishesForFace` offers the floor and the track beds to the same top
- * face, so the picker has to show them together. 搪瓷板 sits last in 墙面 because
- * it is the one tile that opens a colour sub-menu.
- *
- * It lives here, beside the table it reads, rather than in the folder: the rail and
- * the concept sheets both print this palette, and two copies of the grouping is two
- * chances to file a finish under the wrong heading.
- */
+/** Shared palette order for the rail and captures (§4.3). Every material paints every face. */
 export function finishPaletteGroups(): FinishGroup[] {
-  const order = ['floor', 'ceiling', 'wall'] as const
-  const labels: Record<(typeof order)[number], string> = { floor: msg('floor_track'), ceiling: msg('ceiling'), wall: msg('wall_surface') }
-  return order.map((fam) => {
-    const items = FINISH_LIST.filter((f) =>
-      fam === 'floor' ? f.family === 'floor' || f.family === 'track' : f.family === fam,
-    )
-    if (fam === 'wall') items.sort((a, b) => Number(a.id === 'wall.enamel') - Number(b.id === 'wall.enamel'))
-    return { fam, label: labels[fam], items }
-  })
+  return [
+    { fam: 'stone', label: msg('material_stone'), ids: ['floor.concrete', 'floor.granite', 'floor.marble', 'floor.limestone', 'floor.sandstone', 'floor.slate', 'floor.soil', 'floor.obsidian'] },
+    { fam: 'metal', label: msg('material_metal'), ids: ['wall.stainless', RAMP_SOFFIT_FINISH, 'wall.aluminum', 'ceil.metal'] },
+    { fam: 'wood', label: msg('material_wood'), ids: ['floor.softwood', 'floor.hardwood'] },
+    { fam: 'other', label: msg('material_other'), ids: ['wall.enamel', 'wall.plaster', 'ceil.baffle', 'floor.track', 'floor.tile'] },
+  ].map(({ fam, label, ids }) => ({ fam: fam as FinishGroup['fam'], label, items: ids.map((id) => finishDef(id)) }))
 }
 
 /**
@@ -128,12 +124,12 @@ export function finishTint(id: FinishId): number | null {
 
 /** Default finish for each face, used when a cell has no override. */
 export const DEFAULT_FINISH: Record<Face, FinishId> = {
-  top: 'floor.granite',
-  bottom: 'ceil.baffle',
-  n: 'wall.plaster',
-  e: 'wall.plaster',
-  s: 'wall.plaster',
-  w: 'wall.plaster',
+  top: DEFAULT_MATERIAL,
+  bottom: DEFAULT_MATERIAL,
+  n: DEFAULT_MATERIAL,
+  e: DEFAULT_MATERIAL,
+  s: DEFAULT_MATERIAL,
+  w: DEFAULT_MATERIAL,
 }
 
 export function finishDef(id: FinishId): FinishDef {
@@ -145,18 +141,16 @@ export function finishDef(id: FinishId): FinishDef {
   const base = BY_ID.get(finishBaseId(id))
   const tint = finishTint(id)
   if (base && tint !== null) return { ...base, id, tint }
-  return BY_ID.get('floor.granite') as FinishDef
+  return BY_ID.get(DEFAULT_MATERIAL) as FinishDef
 }
 
 export function finishLabel(id: FinishId): string {
   return finishDef(id).label
 }
 
-/** Finishes a paint brush may apply to a given face (the family's palette). */
-export function finishesForFace(face: Face): FinishDef[] {
-  if (face === 'top') return FINISH_LIST.filter((f) => f.family === 'floor' || f.family === 'track')
-  if (face === 'bottom') return FINISH_LIST.filter((f) => f.family === 'ceiling')
-  return FINISH_LIST.filter((f) => f.family === 'wall')
+/** Face families retain legacy behaviour and defaults, without restricting the brush. */
+export function finishesForFace(_face: Face): FinishDef[] {
+  return [...FINISH_LIST]
 }
 
 /** The finish actually wearing a given face of a cell. */

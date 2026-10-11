@@ -304,14 +304,13 @@ function agentBuffer(agents) {
   return buf
 }
 
-test('the crowd figure is scaled to a 1.5 m person', () => {
+test('the crowd figure is a human-scale continuous mesh', () => {
   const crowd = crowdSystem()
   crowd.agents.geometry.computeBoundingBox()
-  crowd.heads.geometry.computeBoundingBox()
-  const bodyTop = crowd.agents.geometry.boundingBox.max.z
-  const personTop = crowd.heads.geometry.boundingBox.max.z
-  assert.ok(bodyTop > 1 && bodyTop < 1.1, `torso reaches the shoulders (${bodyTop.toFixed(3)} m)`)
-  assert.ok(Math.abs(personTop - 1.5) < 0.02, `head reaches a human-scale height (${personTop.toFixed(3)} m)`)
+  const box = crowd.agents.geometry.boundingBox
+  assert.ok(Math.abs(box.max.z - 1.73) < 0.002, 'head reaches a human-scale height')
+  assert.ok(Math.abs(box.min.z) < 0.002, 'feet meet the walk surface')
+  crowd.dispose()
 })
 
 test('the route is drawn as a ribbon and ringed at its destination', () => {
@@ -422,7 +421,7 @@ test('the pick answers with the passenger under the pointer', () => {
     { id: 12, x: 6, y: 5, z: B2 + 1 },
   ]), 2, 200)
 
-  const p11 = at(2, 3, B2 + 1 + 0.45)
+  const p11 = at(2, 3, B2 + 1 + 1.05)
   assert.equal(crowd.pickAgent(p11.x, p11.y, camera, rect, Infinity), 11, 'a click on the body picks that passenger')
   assert.equal(crowd.pickAgent(p11.x + 6, p11.y, camera, rect, Infinity), 11, 'and a click beside it, inside the radius, still does')
   assert.equal(crowd.pickAgent(p11.x + 40, p11.y, camera, rect, Infinity), -1, 'a click on open floor picks nobody')

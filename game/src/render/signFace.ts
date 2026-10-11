@@ -187,7 +187,7 @@ function drawExitPlate(g: CanvasRenderingContext2D, x: number, y: number, w: num
   g.font = `bold ${h * 0.46}px ${CJK}`
   g.fillText(t('out'), x + w / 2, y + h * 0.34)
   g.font = `bold ${h * 0.2}px ${LATIN}`
-  g.fillText('EXIT', x + w / 2, y + h * 0.76)
+  g.fillText(t('printed_exit'), x + w / 2, y + h * 0.76)
 }
 
 /**
@@ -256,8 +256,34 @@ function drawIcon(g: CanvasRenderingContext2D, icon: SignIcon, x: number, y: num
     drawStopMark(g, ox, oy, s, s)
     return
   }
+  if (icon === 'customer-service') {
+    drawCustomerServiceMark(g, ox, oy, s)
+    return
+  }
   const art = iconArt.get(icon)
   if (art) g.drawImage(art, ox, oy, s, s)
+}
+
+/** The service-counter pictogram, reusable on an authored board (§5.8). */
+function drawCustomerServiceMark(g: CanvasRenderingContext2D, x: number, y: number, size: number): void {
+  g.save()
+  g.translate(x, y)
+  g.scale(size / 132, size / 132)
+  g.strokeStyle = INK
+  g.fillStyle = INK
+  g.lineWidth = 4
+  g.strokeRect(10, 4, 112, 124)
+  for (const cx of [40, 94]) {
+    g.beginPath()
+    g.arc(cx, 29, 10, 0, Math.PI * 2)
+    g.fill()
+    g.fillRect(cx - 10, 46, 20, 40)
+  }
+  g.fillRect(31, 82, 7, 34)
+  g.fillRect(44, 82, 7, 34)
+  g.fillRect(68, 79, 48, 5)
+  g.fillRect(72, 84, 5, 31)
+  g.restore()
 }
 
 /* ------------------------------------------------------------- components */
@@ -606,7 +632,7 @@ export function drawSignPanel(
   const ppm = ctx.ppm ?? PX_PER_METRE
   const W = canvas?.width ?? Math.round(ctx.panel.w * ppm)
   const H = canvas?.height ?? Math.round(ctx.panel.h * ppm)
-  const { w: contentW, h: contentH } = signContentBox(ctx.panel)
+  const { w: contentW } = signContentBox(ctx.panel)
   // The printed area's top-left corner on the canvas. The frame is the panel's
   // own inset all round, so a taller board has a proportionally thicker border.
   const padX = W * (PANEL_INSET / (1 - PANEL_INSET * 2))
@@ -665,9 +691,9 @@ export function drawSignPanel(
     const inkH = piece.inkH * ppm
     const box: PaintBox = {
       x: offX + piece.x * ppm - inkW / 2,
-      // The panel's origin is its bottom-left; the canvas grows downward, so the
-      // printed area's *bottom* edge is where the panel's y = 0 sits.
-      y: padY + (contentH - piece.y) * ppm - inkH / 2,
+      // A sign has one row (§5.8). Centre it on the actual texture, including
+      // existing saves whose stored y still names the older, taller panel.
+      y: H / 2 - inkH / 2,
       w: inkW,
       h: inkH,
     }

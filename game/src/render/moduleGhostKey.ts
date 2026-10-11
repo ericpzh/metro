@@ -55,7 +55,7 @@ export function moduleGhostKey(mod: Module): string {
                           // the wall board, and anything else — including a mount a save
                           // does not spell (`DEFAULT_SIGN_MOUNT`, `sim/sign.ts`) — is the
                           // hanging board it is drawn as.
-                          ? `:${mod.cfg.mount === 'wall' ? 'wall' : 'ceiling'}`
+                          ? `:${mod.cfg.mount === 'wall' ? 'wall' : 'ceiling'}:${mod.cfg.boothId ?? ''}:${JSON.stringify(mod.cfg.boothOffset ?? {})}`
                           : ''
   return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}${span}`
 }

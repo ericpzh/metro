@@ -11,7 +11,7 @@ import { useLanguage } from '../../i18n.ts'
 // read as text where the rail reads as tiles; the glyph carries the meaning and the
 // `aria-label` carries the name (which is also what a screen reader reads), and the
 // buttons wear no tooltip, here or anywhere else in this column.
-import { FaEdit } from 'react-icons/fa'
+import { FaEdit, FaRegEye } from 'react-icons/fa'
 import { HiOutlineRefresh, HiSwitchVertical } from 'react-icons/hi'
 import { IoMdCheckmark, IoMdClose, IoMdMove } from 'react-icons/io'
 import { useStore, moduleLabel } from '../../store.ts'
@@ -21,6 +21,7 @@ import { refreshTrackForSelection } from './refreshPlatform.ts'
 export function InfoCard(): React.ReactElement {
   useLanguage()
   const selected = useStore((s) => s.selected)
+  const followAgentId = useStore((s) => s.followAgentId)
   const station = useStore((s) => s.station)
   const moveDraft = useStore((s) => s.moveDraft)
   const openSignEditor = useStore((s) => s.openSignEditor)
@@ -86,11 +87,19 @@ export function InfoCard(): React.ReactElement {
                 <span>{t('type')}</span>
                 <b>{translate(selected.kind === 'module' ? msg('equipment') : selected.kind === 'agent' ? msg('passenger') : msg('block'))}</b>
               </div>
-              {selected.kind === 'agent' && (
-                <div className="muted small">{t('the_light_blue_ground_line_shows_this_passenger_s_next_route')}</div>
-              )}
               </div>
               <div className="infoCardActions">
+                {selected.kind === 'agent' && (
+                  <button className="chip iconOnly" aria-label={t('passenger_eye_view')}
+                    aria-pressed={followAgentId === Number(selected.key)}
+                    onClick={() => {
+                      const st = useStore.getState()
+                      if (st.followAgentId !== null) st.endPassengerView()
+                      else st.followPassenger(Number(selected.key))
+                    }}>
+                    <FaRegEye />
+                  </button>
+                )}
                 {selected.kind === 'module' && (
                   <button
                     className="chip primary iconOnly"

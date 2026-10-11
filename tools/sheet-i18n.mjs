@@ -14,6 +14,7 @@
 // most labels sit in fixed boxes drawn for Chinese, and English is wider.
 // `node tools/sheet-png.mjs <nn>` rasterises a sheet so the fit can be looked at.
 import { messages } from '../game/src/sim/i18n/messages.ts';
+import { tForLanguage } from '../game/src/sim/i18n.ts';
 
 // Exact UI labels always use the game's bilingual catalog. Sheet-only prose and
 // font sizes stay here because their layout belongs to the drawing.
@@ -279,20 +280,31 @@ const EN_ATTR = {
   '波形陡峭度': 'Peak width',
   '开站时间': 'Opens',
   '关站时间': 'Closes',
-  '早高峰开始': messages.value_peak_starts.en.replace('{0}', messages.morning.en),
-  '早高峰结束': messages.value_peak_ends.en.replace('{0}', messages.morning.en),
-  '晚高峰开始': messages.value_peak_starts.en.replace('{0}', messages.evening.en),
-  '晚高峰结束': messages.value_peak_ends.en.replace('{0}', messages.evening.en),
+  '早高峰开始': tForLanguage('en', 'value_peak_starts', tForLanguage('en', 'morning')),
+  '早高峰结束': tForLanguage('en', 'value_peak_ends', tForLanguage('en', 'morning')),
+  '晚高峰开始': tForLanguage('en', 'value_peak_starts', tForLanguage('en', 'evening')),
+  '晚高峰结束': tForLanguage('en', 'value_peak_ends', tForLanguage('en', 'evening')),
 };
 
 // Sheet 06's live readout rebuilds its line from these literals while dragging.
 const EN_SCRIPT = {
-  '营业 ': messages.service.en + ' ',
-  '早高峰 ': messages.morning_peak.en + ' ',
-  '晚高峰 ': messages.evening_peak.en + ' ',
+  '营业 ': tForLanguage('en', 'service') + ' ',
+  '早高峰 ': tForLanguage('en', 'morning_peak') + ' ',
+  '晚高峰 ': tForLanguage('en', 'evening_peak') + ' ',
 };
 
 const CJK = /[㐀-䶿一-鿿豈-﫿]+/;
+
+/** Resolve sheet copy before drawing when its translated width affects layout. */
+export function sheetText(text, language = 'zh') {
+  if (language !== 'en') return text;
+  const entry = GAME_EN.get(text) ?? EN[text];
+  if (entry === undefined) {
+    if (CJK.test(text)) throw new Error(`Missing sheet translation: ${text}`);
+    return text;
+  }
+  return typeof entry === 'string' ? entry : entry.t;
+}
 
 /** English copy can use plain `&`; SVG text and attributes cannot. */
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

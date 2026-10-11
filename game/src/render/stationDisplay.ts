@@ -69,7 +69,7 @@ export function drawStationDisplay(g: CanvasRenderingContext2D, status: TvLineSt
   g.clearRect(0, 0, W, H)
   g.fillStyle = '#258cdd'; g.fillRect(0, 0, W, H)
   g.fillStyle = '#080a0c'; g.fillRect(layout.poster.x, 0, layout.poster.w, layout.strip.y)
-  const labels = [[t('this_train_goes_to'), 'The First Train'], [t('next_train_goes_to'), 'The Next Train'], [t('third_train_goes_to'), 'The Third Train']]
+  const labels = [[t('this_train_goes_to'), t('printed_first_train')], [t('next_train_goes_to'), t('printed_next_train')], [t('third_train_goes_to'), t('printed_third_train')]]
   layout.cards.forEach((box, i) => {
     card(g, box)
     const cx = box.x + box.w / 2

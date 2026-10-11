@@ -54,6 +54,7 @@ import { useLanguage } from '../../i18n.ts'
 // and the carried ghost (`dragGhost.ts`). This file owns the drag state that binds them.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { useStore } from '../../store.ts'
 import { Icon } from '../../LeftRail.tsx'
 import {
@@ -447,7 +448,10 @@ export function SignEditor(): React.ReactElement | null {
     const place = over || inLibrary ? null : placeAt(x, y)
     if (place?.face === placeRef.current?.face && place?.index === placeRef.current?.index) return
     placeRef.current = place
-    setInsertAt(place === null ? null : place.index)
+    // Keep the attempted place for the release's refusal, but only show a drop
+    // cue when the target can take the mark. Reordering its own marks stays legal.
+    const accepts = place !== null && (d.remove.face === place.face || signMarkFits(boardsRef.current[place.face], mark))
+    setInsertAt(accepts ? place.index : null)
     setHoverFace(place === null ? null : place.face)
     // A move reorders **as it is dragged**, so the place being hovered really does hold
     // the mark by the time the pointer is released. A drag that ends off the rows changes
@@ -928,11 +932,13 @@ export function SignEditor(): React.ReactElement | null {
 
           {/* 1c. the boards — 正面 and 背面, each a labelled row of places drawn the way the
               sign prints it. They are two independent boards, so each has its own row, its own
-              order and its own (possibly empty) content. The label sits in a gutter to the
-              **left** of the row, so the two plates line up one over the other and read as the
-              two faces of one sign. */}
+              order and its own (possibly empty) content. Each label sits above its board,
+              leaving the full workspace width for larger preview marks. */}
           <div className="signWorkspace">
-            <div className="signBoards">
+            <div
+              className="signBoards"
+              style={{ '--sign-preview-slots': Math.max(9, ...rows.map((row) => row.layout.length)) } as CSSProperties}
+            >
               {rows.map((row) => (
                 <div key={row.face} className={focusedFace === row.face ? 'signFaceRow on' : 'signFaceRow'}>
                   <button

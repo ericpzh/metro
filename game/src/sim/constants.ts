@@ -284,7 +284,11 @@ export const CONGESTION_CAP = 10
  * choice used to be made every time.
  */
 export const GATE_LOOKAHEAD = 8
-export const GATE_REPLAN_PER_TICK = 2
+export const GATE_REPLAN_PER_TICK = 8
+/** Nearby committed arrivals included in a gate's queue forecast (§7.2). */
+export const GATE_FORECAST_SECONDS = 12
+/** Bound the drain-time forecast when an approaching wave fills a two-way lane. */
+export const GATE_FORECAST_MIN_DRAIN_FRACTION = 0.1
 /**
  * §7.2's patience trigger (`World.reRouteAroundQueue`): the same synchronous
  * search as the fare-line choice, fired when a queued passenger's wait passes

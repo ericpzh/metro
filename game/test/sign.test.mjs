@@ -195,7 +195,7 @@ test('a 指示牌 is wall-mounted on its wall mount, and never on its ceiling on
 })
 
 test('a wall 指示牌 is backed on the one wall course its panel crosses', () => {
-  // The board is 0.7 m tall and sits at 1.65 m, so it crosses the wall's **second**
+  // The board is 0.4 m tall and sits at 1.65 m, so it crosses the wall's **second**
   // course — the band from 2 to 3 m above the floor top — and nothing else.
   assert.deepEqual(signWallCourses('wall'), [1])
   assert.deepEqual(wallMountCourses(wallSign(2, 3, 0)), [1])
@@ -218,7 +218,8 @@ test('a wall 指示牌 is backed on the one wall course its panel crosses', () =
 test('a wall 指示牌 reserves a slab on its wall, not the whole storey column', () => {
   const wall = wallSign(2, 3, 0)
   const hung = sign(2, 3, 0)
-  assert.deepEqual(moduleEnvelope(wall), { x0: 2, y0: 3, z0: 2.3, x1: 3, y1: 3.25, z1: 3 })
+  const envelope = moduleEnvelope(wall)
+  assert.deepEqual({ ...envelope, z0: Number(envelope.z0.toFixed(3)) }, { x0: 2, y0: 3, z0: 2.45, x1: 3, y1: 3.25, z1: 2.85 })
   assert.deepEqual(moduleEnvelope(hung), { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 4 }, 'the hung board keeps its column')
   // It is found from the floor cell it hangs over, like every other piece.
   assert.equal(moduleAt([wall], 2, 3, 0)?.id, 'sign-w')
@@ -379,7 +380,7 @@ test('a component is its ink plus a pad, so two marks cannot touch', () => {
   // The one exception to the padding rule is a drawn mark whose own shape matters:
   // an arrow keeps its 1.6:1 ink whatever its box is.
   const arrow = signInkSize({ ...bare, kind: 'arrow', arrow: 'right' })
-  assert.equal(arrow.w / arrow.h, 1.6)
+  assert.ok(Math.abs(arrow.w / arrow.h - 1.6) < 1e-9)
 })
 
 test('the row grows longer with its content, and never taller', () => {
@@ -460,8 +461,8 @@ test('no two components on a board ever overlap', () => {
  * How many marks a board really holds — the count the palette has to obey.
  *
  * This is the bug the check exists for: the palette used to hand marks out against the
- * twenty-place ceiling alone, so a board of six arrows (3.24 m of a 3.4 m panel) would take
- * a seventh, `packSignRow` would fold it back inside, and the print drew two marks stacked
+ * twenty-place ceiling alone, so a board of nine arrows (3.24 m of a 3.4 m panel) would take
+ * a tenth, `packSignRow` would fold it back inside, and the print drew two marks stacked
  * on one place while the row of bins showed seven separate ones. The count is not a
  * constant: it depends on which marks they are, so the rule is asked per mark.
  */
@@ -478,20 +479,20 @@ test('a board takes exactly as many marks as fit, and no more', () => {
     return layout
   }
 
-  // Six arrows fill the board: 6 × 0.48 m of ink, and the piece's pad between them.
+  // Nine arrows fill the board: 9 × 0.32 m of ink, and the piece's pad between them.
   const arrows = capacity('arrow')
-  assert.equal(arrows.length, 6, `${arrows.length} arrows fit`)
+  assert.equal(arrows.length, 9, `${arrows.length} arrows fit`)
   const arrowPanel = signPanelSize(packSignRow(arrows))
-  assert.ok(arrowPanel.w > 3.0 && arrowPanel.w <= PANEL_MAX_W, `six arrows: ${arrowPanel.w} m`)
-  // Six arrows need the ceiling to move: 3.24 m of row plus a quiet end pad at each
+  assert.ok(arrowPanel.w > 3.0 && arrowPanel.w <= PANEL_MAX_W, `nine arrows: ${arrowPanel.w} m`)
+  // Nine arrows need the ceiling to move: 3.24 m of row plus a quiet end pad at each
   // end is 3.48 m of steel, and a board narrower than that cannot hold them centred.
   // The ceiling is what makes that possible, so it is stated here rather than left to
   // be rediscovered — a ceiling that squeezes a legal row leaves the print off centre,
   // which is the report this file's render tests pin (`sign-render.test.mjs`).
-  assert.ok(arrowPanel.w >= 3.48 - 0.05, `six arrows are given their own steel: ${arrowPanel.w} m`)
+  assert.ok(arrowPanel.w >= 3.48 - 0.05, `nine arrows are given their own steel: ${arrowPanel.w} m`)
 
-  // A smaller mark fits more — the rule is width, not kind. (A shield is 0.42 m of ink
-  // to an arrow's 0.48, so a seventh still lands inside the ceiling.)
+  // A smaller mark fits more — the rule is width, not kind. (A shield is 0.28 m of ink
+  // to an arrow's 0.32, so a tenth still lands inside the ceiling.)
   assert.ok(capacity('icon').length > arrows.length, 'pictograms are narrower than arrows')
   assert.ok(capacity('line').length > arrows.length, 'a shield is narrower than an arrow')
 
@@ -588,7 +589,7 @@ test('a settled board refuses the mark that would stack, not only the one that w
     if (!signMarkFits(layout, comp)) break
     layout = settleSignLayout([...layout, comp]).layout
   }
-  assert.equal(layout.length, 6, `${layout.length} arrows fit once the row is settled`)
+  assert.equal(layout.length, 9, `${layout.length} arrows fit once the row is settled`)
   const boxes = signPieces(packSignRow(layout), signPanelSize(packSignRow(layout)))
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
@@ -598,28 +599,28 @@ test('a settled board refuses the mark that would stack, not only the one that w
   }
 })
 
-test('both black ends of a board match', () => {
+test('packed boards keep their quiet end margins, including the minimum width', () => {
   const ends = (layout) => {
     const settled = settleSignLayout(layout)
     const lefts = settled.layout.map((c) => c.x - signPieceSize(c).w / 2)
     const rights = settled.layout.map((c) => c.x + signPieceSize(c).w / 2)
-    return { left: Math.min(...lefts), right: settled.panel.w - Math.max(...rights) }
+    return { left: Math.min(...lefts), right: settled.panel.w - Math.max(...rights), width: settled.panel.w }
   }
   // The pack starts the row one end pad from the frame and the panel ends one
   // pad past the last mark — the panel's 5 cm rounding is the only slack, so
-  // the back face mirrors the same ends. (A board shorter than the floor keeps
-  // its slack on the right; these boards all outgrow it.)
+  // the back face mirrors the same ends. A board shorter than the floor keeps
+  // spare room in its layout; the renderer centres that row on the printed face.
   const station = { lines: [LINE_2] }
   const fresh = defaultSignLayout(station)
   for (const [name, layout] of [
     ['fresh', fresh],
-    ['grown', stampSignBlock(fresh, 'text', { x: 3.0 })],
+    ['grown', Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, kind: 'arrow', arrow: 'right', x: 0, y: 0.35, scale: 1, side: 'both' }))],
     ['stored', settleSignBoards({ front: fresh, back: [] }).front],
   ]) {
     const e = ends(layout)
-    assert.ok(Math.abs(e.left - PANEL_END_PAD) < 0.03, `${name} leading ${e.left}`)
-    assert.ok(Math.abs(e.right - PANEL_END_PAD) < 0.03, `${name} trailing ${e.right}`)
-    assert.ok(Math.abs(e.left - e.right) < 0.03, `${name} ends differ: ${e.left} vs ${e.right}`)
+    assert.ok(e.left >= PANEL_END_PAD - 0.03, `${name} leading ${e.left}`)
+    assert.ok(e.right >= PANEL_END_PAD - 0.03, `${name} trailing ${e.right}`)
+    if (e.width > PANEL_MIN_W) assert.ok(Math.abs(e.left - e.right) < 0.03, `${name} ends differ: ${e.left} vs ${e.right}`)
   }
 })
 
@@ -635,7 +636,7 @@ test('the block the player holds keeps its place; what it lands on moves', () =>
   // A board that shoved the held block out from under the pointer would read as a
   // bug, so the held one stays exactly where it was put.
   assert.equal(byId.get('hold').x, 1.0)
-  assert.equal(byId.get('hold').y, 0.35)
+  assert.equal(byId.get('hold').y, PANEL_MIN_H / 2)
   assert.notEqual(byId.get('other').x, 1.0)
 })
 
@@ -686,15 +687,15 @@ test('the panel conversion is one number, derived from the panel', () => {
 test('text is measured, and estimated the same way without a canvas', () => {
   // The fallback measure is what the Node tests and a cold font both get, so it
   // has to be in the right ballpark: a CJK glyph is one em, digits a bit over half.
-  const cjk = estimateSignTextWidth('出站', 0.16)
-  assert.ok(Math.abs(cjk - 0.32) < 1e-9, `${cjk}`)
+  const cjk = estimateSignTextWidth('出站', 0.107)
+  assert.ok(Math.abs(cjk - 0.214) < 1e-9, `${cjk}`)
   const latin = estimateSignTextWidth('EXIT', 0.16)
   assert.ok(latin > 0.3 && latin < 0.5, `${latin}`)
   // A real canvas measurement replaces it, and the ink follows the measurement.
   const measured = (text, size) => text.length * size
   const comp = { id: 'c', kind: 'text', text: '出站', x: 1, y: 0.35, scale: 1, side: 'both' }
   assert.ok(Math.abs(signInkSize(comp).w - cjk) < 1e-9)
-  assert.ok(Math.abs(signInkSize(comp, measured).w - 0.32) < 1e-9)
+  assert.ok(Math.abs(signInkSize(comp, measured).w - 0.214) < 1e-9)
   assert.equal(signInkSize(comp, measured).h, signInkSize(comp).h)
   // The padded box is that ink plus the pad either side.
   assert.ok(Math.abs(signPieceSize(comp).w - (cjk + SIGN_PIECE_PAD * 2)) < 1e-9)
@@ -897,8 +898,8 @@ test('the panel lays components out in metres, bottom-left first', () => {
   const arrow = byId.get('b')
   // A position is the piece's own centre, in metres from the panel's corner.
   assert.ok(Math.abs(text.left + text.w / 2 - 1) < 1e-9)
-  assert.ok(Math.abs(text.bottom + text.h / 2 - 0.35) < 1e-9)
-  // The arrow's *ink* is a 1.6:1 mark, 0.48 m long at scale 1.
+  assert.ok(Math.abs(text.bottom + text.h / 2 - PANEL_MIN_H / 2) < 1e-9)
+  // The arrow's *ink* is a 1.6:1 mark, 0.32 m long at scale 1.
   assert.ok(Math.abs(arrow.inkW / arrow.inkH - 1.6) < 1e-9, `${arrow.inkW / arrow.inkH}`)
   assert.ok(arrow.left < text.left)
   // Every box is inside the board.
@@ -931,13 +932,13 @@ test('the hit test picks what the player can see', () => {
     { id: 'over', kind: 'icon', icon: 'stairs', x: 1, y: 0.35, scale: 1, side: 'both' },
   ]
   // Two components in the same place: the later one paints on top and is picked.
-  assert.equal(hitSignComponent(layout, 1, 0.35, PANEL_SIZE)?.id, 'over')
+  assert.equal(hitSignComponent(layout, 1, PANEL_MIN_H / 2, PANEL_SIZE)?.id, 'over')
   // Empty panel: nothing to pick.
   assert.equal(hitSignComponent(layout, 0.05, 0.65, PANEL_SIZE), null)
   // A face-bound component is not pickable from the other face.
   const sided = [{ id: 'l', kind: 'icon', icon: 'lift', x: 1, y: 0.35, scale: 1, side: 'left' }]
-  assert.equal(hitSignComponent(sided, 1, 0.35, PANEL_SIZE, 'left')?.id, 'l')
-  assert.equal(hitSignComponent(sided, 1, 0.35, PANEL_SIZE, 'right'), null)
+  assert.equal(hitSignComponent(sided, 1, PANEL_MIN_H / 2, PANEL_SIZE, 'left')?.id, 'l')
+  assert.equal(hitSignComponent(sided, 1, PANEL_MIN_H / 2, PANEL_SIZE, 'right'), null)
 })
 
 test('the drop rule swaps two blocks, and only the ones it was given', () => {
@@ -946,12 +947,12 @@ test('the drop rule swaps two blocks, and only the ones it was given', () => {
     { id: 'b', kind: 'icon', icon: 'lift', x: 1.4, y: 0.35, scale: 1, side: 'both' },
   ]
   // The block under the point, which is what a drag swaps places with.
-  assert.equal(signComponentAt(layout, 1.4, 0.35, undefined, PANEL_SIZE)?.id, 'b')
-  assert.equal(signComponentAt(layout, 0.9, 0.35, undefined, PANEL_SIZE), null)
+  assert.equal(signComponentAt(layout, 1.4, PANEL_MIN_H / 2, undefined, PANEL_SIZE)?.id, 'b')
+  assert.equal(signComponentAt(layout, 0.9, PANEL_MIN_H / 2, undefined, PANEL_SIZE), null)
   // Excluding the one being dragged keeps a block from swapping with itself.
-  assert.equal(signComponentAt(layout, 1.4, 0.35, new Set(['a']), PANEL_SIZE)?.id, 'b')
-  assert.equal(signComponentAt(layout, 0.35, 0.35, new Set(['b']), PANEL_SIZE)?.id, 'a')
-  assert.equal(signComponentAt(layout, 0.35, 0.35, new Set(['a', 'b']), PANEL_SIZE), null)
+  assert.equal(signComponentAt(layout, 1.4, PANEL_MIN_H / 2, new Set(['a']), PANEL_SIZE)?.id, 'b')
+  assert.equal(signComponentAt(layout, 0.35, PANEL_MIN_H / 2, new Set(['b']), PANEL_SIZE)?.id, 'a')
+  assert.equal(signComponentAt(layout, 0.35, PANEL_MIN_H / 2, new Set(['a', 'b']), PANEL_SIZE), null)
 })
 
 test('a fresh board carries the station line, and a legacy board is backfilled', () => {

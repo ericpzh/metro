@@ -22,11 +22,15 @@ function format(template: string, args: readonly unknown[]): string {
 }
 /** Canonical copy for data, stored notices and validation results. */
 export function msg(key: MessageKey, ...args: readonly unknown[]): string {
-  return format(messages[key].zh, args)
+  return tForLanguage('zh-CN', key, ...args)
+}
+/** Explicit-language copy for tools and fixed bilingual captions; never changes UI state. */
+export function tForLanguage(locale: Language, key: MessageKey, ...args: readonly unknown[]): string {
+  return format(messages[key][locale === 'en' ? 'en' : 'zh'], args)
 }
 /** Use a key directly when authoring new UI. Arguments may include authored names. */
 export function t(key: MessageKey, ...args: readonly unknown[]): string {
-  return format(messages[key][language === 'en' ? 'en' : 'zh'], args)
+  return tForLanguage(language, key, ...args)
 }
 const exact = new Map<string, string>(Object.values(messages).map(({ zh, en }) => [zh, en]))
 const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

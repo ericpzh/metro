@@ -36,7 +36,8 @@ import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
 import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
 import { escalatorLandings } from './escalators.ts'
-import { PANEL_MIN_H, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
+import { PANEL_MIN_H, mountedSignBoards, signBoardsOf, signBoardsPanel, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
+import { BOOTH_SIGN_PANEL_Z, BOOTH_SIGN_STAND_OFF, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
 import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
@@ -299,7 +300,22 @@ function flatEnvelope(m: Module): ModuleBox | null {
       if (isCeilingHung(m)) return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT.sign }
       const spec = signMountSpec(m.cfg.mount)
       const half = PANEL_MIN_H / 2
-      return wallPanelBox(m, [[m.x, m.y, m.z]], z0 + spec.panelZ - half, z0 + spec.panelZ + half)
+      const panelZ = m.cfg.boothId ? BOOTH_SIGN_PANEL_Z : spec.panelZ
+      if (m.cfg.boothId) {
+        const width = signBoardsPanel(mountedSignBoards('wall', signBoardsOf(m.cfg))).w
+        const dx = m.cfg.boothOffset?.x ?? 0, dy = m.cfg.boothOffset?.y ?? 0
+        const rot = normRot(m.rot)
+        const cx = m.x + 0.5 + dx, cy = m.y + 0.5 + dy
+        const [sx, sy] = wallSide(rot)
+        const bx = cx + sx * 0.5, by = cy + sy * 0.5
+        // Reserve only the tiny gap from the header to the printed sheet.
+        return { x0: rot % 2 ? Math.min(bx, bx - sx * BOOTH_SIGN_STAND_OFF) : cx - width / 2,
+          x1: rot % 2 ? Math.max(bx, bx - sx * BOOTH_SIGN_STAND_OFF) : cx + width / 2,
+          y0: rot % 2 ? cy - width / 2 : Math.min(by, by - sy * BOOTH_SIGN_STAND_OFF),
+          y1: rot % 2 ? cy + width / 2 : Math.max(by, by - sy * BOOTH_SIGN_STAND_OFF),
+          z0: z0 + panelZ - half, z1: z0 + panelZ + half }
+      }
+      return wallPanelBox(m, [[m.x, m.y, m.z]], z0 + panelZ - half, z0 + panelZ + half)
     }
     case 'billboard': {
       // A 广告牌 is **bolted to a wall**, so what it reserves is the panel on that
@@ -776,6 +792,9 @@ export function ceilingMountStandCell(
  */
 export function wallMountMissing(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
   if (!isWallMounted(candidate)) return false
+  if (candidate.type === 'sign' && candidate.cfg.boothId) {
+    return !modules.some((m) => boothSupportsSign(m, candidate))
+  }
   const [dx, dy] = wallSide(candidate.rot)
   // The half of the backing cell the panel's own back plane touches.
   const needed = stepSide(-dx, -dy)
@@ -820,6 +839,7 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module, modu
  */
 export function autofaceWallMount(cells: readonly Cell[], candidate: Module, near?: readonly [number, number], modules: readonly Module[] = []): Module {
   if (!isWallMounted(candidate)) return candidate
+  if (candidate.type === 'sign' && candidate.cfg.boothId) return candidate
   if (!wallMountMissing(cells, candidate, modules)) return candidate
 
   const [bx, by] = baseCells(candidate)[0] ?? [candidate.x, candidate.y]
@@ -1185,6 +1205,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   if (!c) return out
   for (const m of modules) {
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
+    if (boothSupportsSign(m, candidate) || boothSupportsSign(candidate, m)) continue
     if (hangerSupports(m, candidate) || hangerSupports(candidate, m)) continue
     // The thin support is intentionally allowed to pass through a trussed roof.
     // Its narrow shaft can share the roof volume without changing either piece.
@@ -1824,8 +1845,13 @@ export function moveCandidate(
   mod: Module,
   at: Vec3i,
   rot: number,
+  near?: readonly [number, number],
 ): { module: Module; reason: string } {
-  let moved = autofaceWallMount(cells, movedModule(mod, at, rot), undefined, modules)
+  let moved = movedModule(mod, at, rot)
+  if (moved.type === 'sign' && moved.cfg.mount === 'wall') {
+    moved = snapSignToBooth(modules, moved, near ?? [at.x + 0.5, at.y + 0.5], at.z)
+  }
+  moved = autofaceWallMount(cells, moved, near, modules)
   if (moved.type === 'psd-end') moved = snapPsdEnd(moved, modules)
   return { module: moved, reason: moveDropReason(cells, modules, moved) }
 }

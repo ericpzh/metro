@@ -1,4 +1,5 @@
 import { msg } from './i18n.ts'
+import { DEFAULT_MATERIAL } from './finishes.ts'
 // Above-ground equipment; dimensions shared by placement and the models (§4.1, §5).
 import { inCellOffset } from './inCellPositions.ts'
 import { trackCellAt } from './track.ts'
@@ -26,7 +27,7 @@ export const TRUSS_ROOF_SKIN = 0.12
 export const TRUSS_ROOF_CHORD = 0.4
 export function trussRoofRidge(_width: number): number { return TRUSS_ROOF_BASE + TRUSS_ROOF_HEIGHT - TRUSS_ROOF_SKIN }
 export function trussRoofTop(width: number): number { return trussRoofRidge(width) + TRUSS_ROOF_SKIN }
-export const DEFAULT_ROOF_FINISH = 'wall.plaster'
+export const DEFAULT_ROOF_FINISH = DEFAULT_MATERIAL
 export type PillarModule = Extract<Module, { type: 'pillar' }>
 export function pillarWidth(m: PillarModule): number { return m.cfg.size === 'thick' ? 1 : 0.3 }
 /** Slim supports follow the shared centre-then-reading-order cycle. */

@@ -186,7 +186,7 @@ test('the plane is 站外, so it never invents an ungated fare line', () => {
 
   const unpaid = { ...paid, cells: [{ x: 1, y: 0, z: 0, fill: 'solid', zone: 'unpaid' }] }
   const open = buildGraph(unpaid, true)
-  assert.equal(edgesFrom(open, open.nodeIndex.get('1,0,0')).length, 4, 'while 非付费区 beside 站外 is one continuous floor')
+  assert.equal(edgesFrom(open, open.nodeIndex.get('1,0,0')).length, 8, 'while 非付费区 beside 站外 is one continuous floor')
 })
 
 /* ------------------------------------------------- digging a hole and filling it */

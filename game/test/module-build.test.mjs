@@ -340,8 +340,8 @@ const PIECES = [
   ['广告牌 竖版', palette('billboard-portrait'), 5, '0.92×0.185×1.54'],
   ['广告牌 方形', palette('billboard-square'), 5, '0.92×0.185×1.18'],
   ['电视', palette('tv'), 12, '1.56×0.16×1.32'],
-  ['指示牌 吊挂', palette('sign-ceiling'), 7, '2.15×0.16×1'],
-  ['指示牌 墙面', palette('sign-wall'), 3, '2.15×0.197×0.7'],
+  ['指示牌 吊挂', palette('sign-ceiling'), 7, '2.1×0.16×0.85'],
+  ['指示牌 墙面', palette('sign-wall'), 3, '2.1×0.197×0.4'],
   // The wall pieces (§5.7). A 玻璃板 is the outer frame and one pane whatever its
   // size — five meshes for a 1 × 1 band and for a 3 × 2 window alike, which is what
   // "no inner frame" means as a number. A 站名 is its single ink plane, cut to the
@@ -384,7 +384,7 @@ const PIECES = [
   ['楼梯 右转 90°', palette('stair-right90'), 90, '3.57×3.57×5.315'],
   ['楼梯 左双跑', palette('stair-left180'), 90, '2×3.625×5.315'],
   ['楼梯 右双跑', palette('stair-right180'), 90, '2×3.625×5.315'],
-  ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 35, '3×3×2.4'],
+  ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 33, '3×3×2.4'],
   ['商店房间', room('shop', 'store'), 18, '5×4×3'],
   // 厕所 / 办公室 close their doorway with the shared 门 builder
   // (`render/models/pieces/DoorModel.ts`): the same standing doorway — threshold, posts,
@@ -755,8 +755,8 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   const hungSign = box(build(palette('sign-ceiling')).group)
   assert.equal(round(wallSign.min.y), 4, 'the wall board is flush with the wall plane')
   assert.ok(wallSign.max.y - wallSign.min.y < 0.25, 'and stands only its own body proud of it')
-  assert.equal(round(wallSign.min.z - 1), 1.3, 'the wall board hangs at the eye height its courses name')
-  assert.equal(round(wallSign.max.z - 1), 2, 'and its panel crosses exactly the one wall course it asks for')
+  assert.equal(round(wallSign.min.z - 1), 1.45, 'the wall board hangs at the eye height its courses name')
+  assert.equal(round(wallSign.max.z - 1), 1.85, 'and its panel crosses exactly the one wall course it asks for')
   assert.ok(hungSign.max.z - 1 > 2.9, 'a 吊挂 board reaches the ceiling its rods bolt to')
   assert.ok(hungSign.min.z > wallSign.max.z, 'and hangs over the concourse rather than at reading height')
 })

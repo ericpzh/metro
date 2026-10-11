@@ -415,6 +415,10 @@ export class SceneRenderer {
     this.crowd.setAgents(buffer, count, intervalMs)
   }
 
+  setPlaying(on: boolean): void {
+    this.crowd.setPlaying(on)
+  }
+
   setDensity(nodes: Float32Array, density: Float32Array, on: boolean): void {
     this.crowd.setDensity(nodes, density, on)
   }
@@ -482,6 +486,10 @@ export class SceneRenderer {
     this.cameraSys.setViewDirection(dir, useOrtho)
   }
 
+  zoomBy(factor: number): void {
+    this.cameraSys.zoomBy(factor)
+  }
+
   orbitBy(dxPx: number, dyPx: number): void {
     this.cameraSys.orbitBy(dxPx, dyPx)
   }
@@ -546,6 +554,10 @@ export class SceneRenderer {
     return this.cameraSys.pickModule(clientX, clientY)
   }
 
+  pickModuleHit(clientX: number, clientY: number): { moduleId: string; point: [number, number, number] } | null {
+    return this.cameraSys.pickModuleHit(clientX, clientY)
+  }
+
   pickFacing(): [number, number] {
     return this.cameraSys.pickFacing()
   }
@@ -555,6 +567,18 @@ export class SceneRenderer {
   }
 
   /* --------------------------------------------------------------- loop */
+
+  followPassenger(id: number | null, onLost?: () => void): void {
+    this.crowd.followAgentId = id
+    this.crowd.onFollowLost = onLost
+    if (id === null) {
+      this.crowd.onEyePose = undefined
+      this.cameraSys.endEyeView()
+    } else {
+      this.cameraSys.beginEyeView()
+      this.crowd.onEyePose = (x, y, z, yaw) => this.cameraSys.setEyePose(x, y, z, yaw)
+    }
+  }
 
   private animate = (): void => {
     // A disposed renderer must not keep drawing: the loop used to run for the rest

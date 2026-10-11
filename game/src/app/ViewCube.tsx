@@ -1,4 +1,6 @@
-import { msg, translate, t } from '../sim/i18n.ts'
+import { CollapseButton } from './windows/shared/CollapseButton.tsx'
+import { translate, t } from '../sim/i18n.ts'
+import type { MessageKey } from '../sim/i18n.ts'
 import { useLanguage } from './i18n.ts'
 // The view cube: a small, stylised orientation widget in the corner of the
 // stage. A face click snaps the camera to that projection, a corner click drops
@@ -33,16 +35,16 @@ interface FaceDef {
   axis: Axis
   sgn: number
   dir: [number, number, number]
-  label: string
+  label: MessageKey
 }
 
 const FACES: FaceDef[] = [
-  { key: 'top', axis: 'z', sgn: 1, dir: [0, 0, 1], label: msg('top') },
-  { key: 'bottom', axis: 'z', sgn: -1, dir: [0, 0, -1], label: msg('bottom') },
-  { key: 'e', axis: 'x', sgn: 1, dir: [1, 0, 0], label: msg('east') },
-  { key: 'w', axis: 'x', sgn: -1, dir: [-1, 0, 0], label: msg('west') },
-  { key: 'n', axis: 'y', sgn: 1, dir: [0, 1, 0], label: msg('north') },
-  { key: 's', axis: 'y', sgn: -1, dir: [0, -1, 0], label: msg('south') },
+  { key: 'top', axis: 'z', sgn: 1, dir: [0, 0, 1], label: 'top' },
+  { key: 'bottom', axis: 'z', sgn: -1, dir: [0, 0, -1], label: 'bottom' },
+  { key: 'e', axis: 'x', sgn: 1, dir: [1, 0, 0], label: 'compass_east' },
+  { key: 'w', axis: 'x', sgn: -1, dir: [-1, 0, 0], label: 'compass_west' },
+  { key: 'n', axis: 'y', sgn: 1, dir: [0, 1, 0], label: 'compass_north' },
+  { key: 's', axis: 'y', sgn: -1, dir: [0, -1, 0], label: 'compass_south' },
 ]
 
 const AXIS_OF: Record<Axis, number> = { x: 0, y: 1, z: 2 }
@@ -123,7 +125,7 @@ function edgeFaces(a: [number, number, number], b: [number, number, number]): st
 }
 
 interface CubeGeometry {
-  faces: Array<{ key: string; label: string; points: string; lx: number; ly: number }>
+  faces: Array<{ key: string; label: MessageKey; points: string; lx: number; ly: number }>
   edges: Array<{ key: string; a: number; b: number; x1: number; y1: number; x2: number; y2: number; bx1: number; by1: number; bx2: number; by2: number; visible: boolean }>
   corners: Array<{ i: number; x: number; y: number; stubs: Array<{ x1: number; y1: number; x2: number; y2: number }> }>
   axes: Array<{ key: string; color: string; x: number; y: number; lx: number; ly: number }>
@@ -250,6 +252,7 @@ function buildCube(qt: [number, number, number, number]): CubeGeometry {
 
 export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer | null> }): React.ReactElement {
   useLanguage()
+  const [open, setOpen] = useState(true)
   const [qt, setQt] = useState<[number, number, number, number]>([0, 0, 0, 1])
   /** The lens in whole degrees, for the slider — the camera is the truth. */
   const [fovDeg, setFovDeg] = useState(DEFAULT_FOV)
@@ -415,7 +418,9 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
   }
 
   return (
-    <div className="viewNav">
+    <div className={`viewNavShell${open ? '' : ' closed'}`}>
+      <CollapseButton open={open} onToggle={() => { holdPan(0); setOpen((value) => !value) }} controls="viewNavigation" label={t('view_cube')} direction="right" />
+      <div id="viewNavigation" className="viewNav" inert={!open}>
       <DepthRail />
       <div className="viewCube">
         <div className="viewCubeStage">
@@ -484,7 +489,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
 
             {geo.faces.map((f) => (
               <text key={'t' + f.key} className="cubeLabel" x={f.lx} y={f.ly} textAnchor="middle" dominantBaseline="central">
-                {translate(f.label)}
+                {t(f.label)}
               </text>
             ))}
 
@@ -581,6 +586,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
           />
           <span className="viewFovVal">{t('fov_label')} {translate(fovDeg)}°</span>
         </div>
+      </div>
       </div>
     </div>
   )

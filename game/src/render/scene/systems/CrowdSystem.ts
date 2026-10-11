@@ -5,10 +5,9 @@
 // `clearZoneLabels`, `zoneLabelMaterial`, `renderAgents`, `setAgentsVisible`,
 // `agentLevelVisible`, `detectGateCrossings`, `updateGates`, `stepGateWing`).
 //
-// GAME-SPEC §11 (crowd): limb-less "Shapes" — one body, one head, one hair cap —
-// so thousands of people stay a handful of instanced draws, with a palette that
-// never matches a line colour. The gate cycle is crowd-driven: each counted
-// crossing queues one open/hold/close leaf cycle.
+// Authored, animated grey human silhouettes in one instanced draw. This
+// intentionally replaces §11's limb-less Shapes style. Each gate
+// cycle is crowd-driven: every crossing queues one open/hold/close leaf cycle.
 //
 // The route preview belongs here because it belongs to a person: one passenger's
 // remaining walk, painted light blue on the floor by `render/routeLine.ts`, with a
@@ -16,8 +15,9 @@
 // `pickAgent` and `setRoute` never touch the sim.
 
 import * as THREE from 'three'
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { passengerMesh, passengerFrames, passengerAppearance, PASSENGER_WALK_FRAMES, PASSENGER_STRIDE, PASSENGER_EYE_HEIGHT } from '../../passengerModel.ts'
 import { setGateWing } from '../../models.ts'
+import { AgentState } from '../../../sim/types.ts'
 import { ZONE_LIST } from '../../../sim/zones.ts'
 import { crowdVisible } from '../../levelSlicing.ts'
 import {
@@ -30,9 +30,6 @@ import {
 } from '../../routeLine.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { GateWing, SceneContext } from './SceneSystem.ts'
-
-/** Crowd hue palette — §11: never matches a line colour. */
-const AGENT_COLORS = [0xe4572e, 0xf2a541, 0xf7d84b, 0x3fb27f, 0x42a5c4, 0xb07cc6, 0xe07a9b, 0xd9dce1]
 
 /**
  * The route preview's colour — the light blue §9.5's 选择 tool draws a passenger's
@@ -52,13 +49,10 @@ const AGENT_PICK_RADIUS = 14
 const AGENT_PICK_TIE_PX = 3
 
 /** How far up a body the pick aims: mid-torso, so a click on the head still lands. */
-const AGENT_PICK_HEIGHT = 0.45
+const AGENT_PICK_HEIGHT = 1.05
 
 /** How much nearer than the passenger a solid face has to be before it hides them. */
 const AGENT_PICK_CLEARANCE = 0.8
-
-/** The Shapes crowd figure is 0.86 m tall before scaling; target a human-scale 1.5 m. */
-const AGENT_MODEL_SCALE = 1.5 / 0.86
 
 /** Sim seconds a turnstile leaf takes to slide open, hold, and shut. */
 const GATE_OPEN_S = 0.25
@@ -69,48 +63,6 @@ const GATE_SHUT_S = 0.35
  *  which holds the queue at 0.62 m). Used to tell "stepping into the gate" from
  *  "waiting outside it". */
 const GATE_EDGE = 0.5
-
-/** Skin tones for the crowd's heads, so a person reads as a person. */
-const SKIN_COLORS = [0xf1c9a5, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac, 0xa9744a]
-
-/** Hair colours for the crowd, so a head reads as a person and not a mannequin. */
-const HAIR_COLORS = [0x2b2320, 0x4a3423, 0x6b4a2b, 0xb98a4a, 0x9a9a9a, 0x3a2f2a]
-
-/**
- * Rounded straight-sided body, like the pill silhouette on the web sheets.
- * No arms and no legs: the crowd are the
- * "Shapes", limb-less sprites that are a body and a head (`tools/iso.mjs`
- * #person). The base sits at z = 0 and the figure faces +x, matching the crowd
- * yaw. The rounded shoulders and hem keep the silhouette soft at every angle.
- */
-function humanoidBody(): THREE.BufferGeometry {
-  const g = new RoundedBoxGeometry(0.29, 0.32, 0.58, 3, 0.13)
-  g.translate(0, 0, 0.29)
-  g.scale(AGENT_MODEL_SCALE, AGENT_MODEL_SCALE, AGENT_MODEL_SCALE)
-  return g
-}
-
-/** Round head, matching the circle on the web's #person sprite. */
-function humanoidHead(): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(0.145, 16, 12)
-  g.translate(0, 0, 0.71)
-  g.scale(AGENT_MODEL_SCALE, AGENT_MODEL_SCALE, AGENT_MODEL_SCALE)
-  return g
-}
-
-/**
- * The hair cap: a hemisphere over the top of the round head, the
- * semicircle the concept sheets draw (`tools/iso.mjs` #person). Every face is
- * offset a hair outside the head — a cap that shares a plane with the head
- * z-fights and flickers. Feet at z = 0, faces +x.
- */
-function humanoidHair(): THREE.BufferGeometry {
-  const cap = new THREE.SphereGeometry(0.15, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)
-  cap.rotateX(Math.PI / 2)
-  cap.translate(0, 0, 0.735)
-  cap.scale(AGENT_MODEL_SCALE, AGENT_MODEL_SCALE, AGENT_MODEL_SCALE)
-  return cap
-}
 
 function losIndex(m2: number): number {
   if (m2 >= 1.2) return 0
@@ -128,8 +80,6 @@ function losColor(i: number): number {
 
 export class CrowdSystem extends SceneSystem {
   agents: THREE.InstancedMesh
-  heads: THREE.InstancedMesh
-  hair: THREE.InstancedMesh
   blobs: THREE.InstancedMesh
   overlay: THREE.InstancedMesh | null = null
   zoneOverlay: THREE.InstancedMesh | null = null
@@ -144,8 +94,9 @@ export class CrowdSystem extends SceneSystem {
   /** Frame-to-frame id -> slot lookups, so interpolation pairs the same agent. */
   private prevId = new Map<number, number>()
   private nextId = new Map<number, number>()
-  /** Agent id whose colour currently occupies each slot, so colours stay put. */
-  private colorIds = new Int32Array(0)
+  followAgentId: number | null = null
+  onEyePose?: (x: number, y: number, z: number, yaw: number) => void
+  onFollowLost?: () => void
   agentCount = 0
   /** Turnstile leaves, slid open as the crowd passes through their lanes. */
   gateWings: GateWing[] = []
@@ -164,35 +115,27 @@ export class CrowdSystem extends SceneSystem {
   /** Scratch for `pickAgent`: one point, cloned into view space and into NDC. */
   private pickView = new THREE.Matrix4()
   private pickVec = new THREE.Vector3()
+  private pickTop = new THREE.Vector3()
+  private playing = true
+  private resumeSnapshotPending = false
+  private frozen = new Map<number, { position: THREE.Vector3; yaw: number; pose: [number, number, number, number] }>()
   private yaws = new Float32Array(0)
+  private gaitPhases = new Float32Array(0)
+  private gaitWeights = new Float32Array(0)
+  private lastRenderTime = 0
+  private poseScratch: [number, number, number, number] = [0, 0, 0, 0]
+  private appearanceScratch: [number, number, number, number] = [0, 0, 0, 0]
+  private passengerColor = new THREE.Color()
   private zAxis = new THREE.Vector3(0, 0, 1)
   private tmpQ = new THREE.Quaternion()
   private tmpM = new THREE.Matrix4()
   private tmpP = new THREE.Vector3()
   private tmpS = new THREE.Vector3(1, 1, 1)
-  private tmpColor = new THREE.Color()
 
   constructor(ctx: SceneContext) {
     super(ctx)
-    // Agents. Web concept-sheet silhouette: a rounded body, a round head and
-    // a hair cap, so 3,000 people are still three instanced draws. The body
-    // wears the crowd palette, the head a skin tone, the hair a colour. Low-poly
-    // on purpose: the silhouette matters, not the facet count.
-    this.agents = new THREE.InstancedMesh(humanoidBody(), new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0.05 }), 8000)
-    this.agents.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-    this.agents.frustumCulled = false
-    // Colours are per agent, not per slot: the live list shifts as people come
-    // and go, so a slot's colour would otherwise change identity every frame.
-    // `renderAgents` paints each slot from the id it currently holds.
+    this.agents = passengerMesh(8000)
     this.ctx.scene.add(this.agents)
-    this.heads = new THREE.InstancedMesh(humanoidHead(), new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 }), 8000)
-    this.heads.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-    this.heads.frustumCulled = false
-    this.ctx.scene.add(this.heads)
-    this.hair = new THREE.InstancedMesh(humanoidHair(), new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0.02 }), 8000)
-    this.hair.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-    this.hair.frustumCulled = false
-    this.ctx.scene.add(this.hair)
 
     const blobGeo = new THREE.CircleGeometry(0.42, 10)
     this.blobs = new THREE.InstancedMesh(blobGeo, this.ctx.mats.blob, 8000)
@@ -277,8 +220,6 @@ export class CrowdSystem extends SceneSystem {
   clipMaterials(): THREE.Material[] {
     return [
       this.agents.material,
-      this.heads.material,
-      this.hair.material,
       this.blobs.material,
       // The route preview is drawn in the station too: a cut that hides the floor
       // it lies on has to hide the line as well.
@@ -311,7 +252,8 @@ export class CrowdSystem extends SceneSystem {
    */
   pickAgent(clientX: number, clientY: number, camera: THREE.Camera, rect: DOMRect, blocker: number): number {
     const n = this.agentCount
-    if (n === 0) return -1
+    if (n === 0 || !this.agentsShown) return -1
+    const alpha = Math.max(0, Math.min(1, ((this.lastRenderTime >= this.ctx.lastStateTime ? this.lastRenderTime : performance.now()) - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
     const left = clientX - rect.left
     const top = clientY - rect.top
     this.pickView.copy(camera.matrixWorldInverse)
@@ -321,19 +263,33 @@ export class CrowdSystem extends SceneSystem {
     const tie2 = AGENT_PICK_TIE_PX * AGENT_PICK_TIE_PX
     for (let i = 0; i < n; i++) {
       const o = i * 6
-      const x = this.cur[o]
-      const y = this.cur[o + 1]
-      const z = this.cur[o + 2]
+      const id = this.cur[o + 5]
+      if (id === this.followAgentId) continue
+      const frozen = this.frozen.get(id)
+      const p = i * 3
+      const x = frozen?.position.x ?? this.prev[p] + (this.cur[o] - this.prev[p]) * alpha
+      const y = frozen?.position.y ?? this.prev[p + 1] + (this.cur[o + 1] - this.prev[p + 1]) * alpha
+      const z = frozen?.position.z ?? this.prev[p + 2] + (this.cur[o + 2] - this.prev[p + 2]) * alpha
       if (!this.agentLevelVisible(z)) continue
-      const wy = z + AGENT_PICK_HEIGHT
+      const height = passengerAppearance(id, this.appearanceScratch)[1]
+      const wy = z + AGENT_PICK_HEIGHT * height
       this.pickVec.set(x, y, wy).applyMatrix4(this.pickView)
       // View space looks down -z, so anything at or behind the lens has no screen
       // position at all — projecting it would mirror it back into the picture.
       if (this.pickVec.z > -0.2) continue
       const depth = -this.pickVec.z
-      this.pickVec.set(x, y, wy).project(camera)
-      const dx = ((this.pickVec.x + 1) / 2) * rect.width - left
-      const dy = ((1 - this.pickVec.y) / 2) * rect.height - top
+      // A screen-space capsule spans feet to head, rather than making only one
+      // point on a now much taller body selectable. It follows the drawn pose.
+      this.pickVec.set(x, y, z + 0.12 * height).project(camera)
+      this.pickTop.set(x, y, z + 1.7 * height).project(camera)
+      const bx = ((this.pickVec.x + 1) / 2) * rect.width
+      const by = ((1 - this.pickVec.y) / 2) * rect.height
+      const sx = (this.pickTop.x - this.pickVec.x) * rect.width / 2
+      const sy = (this.pickVec.y - this.pickTop.y) * rect.height / 2
+      const length2 = sx * sx + sy * sy
+      const along = length2 > 0 ? Math.max(0, Math.min(1, ((left - bx) * sx + (top - by) * sy) / length2)) : 0
+      const dx = bx + sx * along - left
+      const dy = by + sy * along - top
       const dist2 = dx * dx + dy * dy
       if (dist2 > AGENT_PICK_RADIUS * AGENT_PICK_RADIUS) continue
       if (depth > blocker + AGENT_PICK_CLEARANCE) continue
@@ -346,8 +302,48 @@ export class CrowdSystem extends SceneSystem {
     return best
   }
 
+  /** Pause captures the displayed pose, including an unfinished stride. Control
+   * snapshots may repeat or reorder agents without turning walkers into idle. */
+  setPlaying(on: boolean, now = performance.now()): void {
+    if (on === this.playing) return
+    if (!on) {
+      this.renderAgents(now)
+      const alpha = Math.max(0, Math.min(1, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
+      const pose = this.agents.geometry.getAttribute('passengerPose')
+      for (let i = 0; i < this.agentCount; i++) {
+        const p = i * 3, o = i * 6
+        this.frozen.set(this.cur[o + 5], {
+          position: new THREE.Vector3(this.prev[p] + (this.cur[o] - this.prev[p]) * alpha,
+            this.prev[p + 1] + (this.cur[o + 1] - this.prev[p + 1]) * alpha,
+            this.prev[p + 2] + (this.cur[o + 2] - this.prev[p + 2]) * alpha),
+          yaw: this.yaws[i], pose: [pose.getX(i), pose.getY(i), pose.getZ(i), pose.getW(i)],
+        })
+      }
+    } else {
+      for (let i = 0; i < this.agentCount; i++) {
+        const frozen = this.frozen.get(this.cur[i * 6 + 5])
+        if (!frozen) continue
+        frozen.position.toArray(this.prev, i * 3)
+        this.yaws[i] = frozen.yaw
+        this.gaitPhases[i] = (frozen.pose[0] - 1 + frozen.pose[2]) / PASSENGER_WALK_FRAMES
+        this.gaitWeights[i] = frozen.pose[3]
+      }
+      this.ctx.lastStateTime = now
+      this.frozen.clear()
+      this.resumeSnapshotPending = true
+    }
+    this.lastRenderTime = now
+    this.playing = on
+  }
+
   setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
     const floats = count * 6
+    // Play/pause controls publish a copy of the latest sim state. The first
+    // resume copy must not replace the frozen origin with its future endpoint.
+    if (this.resumeSnapshotPending) {
+      this.resumeSnapshotPending = false
+      if (count === this.agentCount && buffer.subarray(0, floats).every((value, i) => value === this.cur[i])) return
+    }
     if (this.cur.length < floats) {
       // Preserve the old frame so ids that survive the resize still interpolate
       // from where they were rather than streaking in from the origin.
@@ -356,11 +352,13 @@ export class CrowdSystem extends SceneSystem {
       this.cur = grown
     }
     if (this.prev.length < count * 3) this.prev = new Float32Array(Math.max(count * 3, 4096))
-    if (this.yaws.length < count) this.yaws = new Float32Array(Math.max(count, 1024))
-    if (this.colorIds.length < count) {
-      const grown = new Int32Array(Math.max(count, 1024))
-      grown.fill(-1)
-      this.colorIds = grown
+    if (this.yaws.length < count) {
+      const capacity = Math.max(count, 1024)
+      for (const key of ['yaws', 'gaitPhases', 'gaitWeights'] as const) {
+        const grown = new Float32Array(capacity)
+        grown.set(this[key])
+        this[key] = grown
+      }
     }
     this.ctx.stateIntervalMs = intervalMs > 0 ? intervalMs : this.ctx.stateIntervalMs
     // Match each incoming agent to its previous-frame position by id before
@@ -369,13 +367,29 @@ export class CrowdSystem extends SceneSystem {
     // two different people and send them flying across the station.
     const prevId = this.prevId
     const nextId = this.nextId
+    const oldYaws = this.yaws.slice()
+    const oldPhases = this.gaitPhases.slice()
+    const oldWeights = this.gaitWeights.slice()
+    // Finish phases before remapping: writing new prev slots must not overwrite
+    // another passenger's previous-frame distance during compaction/reordering.
+    for (let old = 0; old < this.agentCount; old++) {
+      const q = old * 6
+      const p = old * 3
+      if (this.cur[q + 3] !== AgentState.Riding) {
+        const walked = Math.hypot(this.cur[q] - this.prev[p], this.cur[q + 1] - this.prev[p + 1])
+        oldPhases[old] = (oldPhases[old] + walked / PASSENGER_STRIDE) % 1
+      }
+    }
     nextId.clear()
     for (let i = 0; i < count; i++) {
       const o = i * 6
       const p = i * 3
       const old = prevId.get(buffer[o + 5])
       if (old !== undefined) {
+        this.yaws[i] = oldYaws[old]
         const q = old * 6
+        this.gaitPhases[i] = oldPhases[old]
+        this.gaitWeights[i] = oldWeights[old]
         this.prev[p] = this.cur[q]
         this.prev[p + 1] = this.cur[q + 1]
         this.prev[p + 2] = this.cur[q + 2]
@@ -385,6 +399,8 @@ export class CrowdSystem extends SceneSystem {
         this.prev[p + 1] = buffer[o + 1]
         this.prev[p + 2] = buffer[o + 2]
         this.yaws[i] = 0
+        this.gaitPhases[i] = (buffer[o + 5] * 0.61803398875) % 1
+        this.gaitWeights[i] = 0
       }
       nextId.set(buffer[o + 5], i)
     }
@@ -392,6 +408,7 @@ export class CrowdSystem extends SceneSystem {
     this.prevId = nextId
     this.nextId = prevId
     this.agentCount = count
+    for (const id of this.frozen.keys()) if (!this.prevId.has(id)) this.frozen.delete(id)
     this.ctx.lastStateTime = performance.now()
     // One crossing count per worker snapshot, now that `prev`/`cur` are final.
     this.detectGateCrossings()
@@ -538,19 +555,28 @@ export class CrowdSystem extends SceneSystem {
 
   renderAgents(now: number): void {
     const alpha = Math.min(1, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs)
+    const pose = this.agents.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute
+    const outfit = this.agents.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute
+    const dt = this.playing && this.lastRenderTime > 0 ? Math.max(0, Math.min(0.05, (now - this.lastRenderTime) / 1000)) : 0
+    this.lastRenderTime = now
     const m = this.tmpM
     const q = this.tmpQ
     const pos = this.tmpP
     const scale = this.tmpS
     const axis = this.zAxis
     const n = this.agentCount
-    let colorDirty = false
+    let followed = false
     /** True once the previewed passenger was drawn: the route goes with them. */
     let agentOn = false
     for (let i = 0; i < n; i++) {
       const o = i * 6
       const p = i * 3
       const id = this.cur[o + 5]
+      const appearance = passengerAppearance(id, this.appearanceScratch)
+      scale.set(appearance[2], appearance[2], appearance[1])
+      outfit.setX(i, appearance[0])
+      this.passengerColor.setRGB(appearance[3], appearance[3], appearance[3])
+      this.agents.setColorAt(i, this.passengerColor)
       const px = this.prev[p]
       const py = this.prev[p + 1]
       const pz = this.prev[p + 2]
@@ -562,22 +588,30 @@ export class CrowdSystem extends SceneSystem {
       const dy = cy - py
       if (dx * dx + dy * dy > 1e-6) this.yaws[i] = Math.atan2(dy, dx)
       q.setFromAxisAngle(axis, this.yaws[i])
+      const travelled = this.cur[o + 3] !== AgentState.Riding ? Math.hypot(dx, dy) : 0
+      const moving = travelled > 1e-5 ? 1 : 0
+      this.gaitWeights[i] += (moving - this.gaitWeights[i]) * Math.min(1, dt * 12)
+      const frames = passengerFrames(travelled * alpha, this.gaitPhases[i], this.gaitWeights[i], this.poseScratch)
+      const frozen = this.frozen.get(id)
+      if (frozen) {
+        pos.copy(frozen.position)
+        this.yaws[i] = frozen.yaw
+        q.setFromAxisAngle(axis, frozen.yaw)
+      }
+      const shown = frozen?.pose ?? frames
+      pose.setXYZW(i, shown[0], shown[1], shown[2], shown[3])
       // Only the crowd on the storeys that are actually drawn: an agent on a
       // hidden floor above (or a ghosted one below) would otherwise float over
       // the visible floor, reading as "seen through" it.
-      const drawn = this.agentLevelVisible(pos.z)
+      const drawn = this.agentLevelVisible(pos.z) && id !== this.followAgentId
       if (drawn) {
         m.compose(pos, q, scale)
         this.agents.setMatrixAt(i, m)
-        this.heads.setMatrixAt(i, m)
-        this.hair.setMatrixAt(i, m)
         m.makeTranslation(pos.x, pos.y, pos.z + 0.03)
         this.blobs.setMatrixAt(i, m)
       } else {
         m.makeScale(0, 0, 0)
         this.agents.setMatrixAt(i, m)
-        this.heads.setMatrixAt(i, m)
-        this.hair.setMatrixAt(i, m)
         this.blobs.setMatrixAt(i, m)
       }
       // The 选择 tool's ring sits on the body it belongs to, moved with it through
@@ -586,34 +620,26 @@ export class CrowdSystem extends SceneSystem {
         this.agentRing.position.set(pos.x, pos.y, pos.z + 0.02)
         agentOn = drawn
       }
-      // Paint the slot only when the agent occupying it changes, so a person
-      // keeps their colour for their whole life instead of swapping each frame.
-      if (this.colorIds[i] !== id) {
-        this.colorIds[i] = id
-        this.agents.setColorAt(i, this.tmpColor.setHex(AGENT_COLORS[id % AGENT_COLORS.length]))
-        this.heads.setColorAt(i, this.tmpColor.setHex(SKIN_COLORS[id % SKIN_COLORS.length]))
-        this.hair.setColorAt(i, this.tmpColor.setHex(HAIR_COLORS[id % HAIR_COLORS.length]))
-        colorDirty = true
+      if (id === this.followAgentId) {
+        followed = true
+        this.onEyePose?.(pos.x, pos.y, pos.z + PASSENGER_EYE_HEIGHT * appearance[1], this.yaws[i])
       }
+
     }
     this.agents.count = n
-    this.heads.count = n
-    this.hair.count = n
     this.blobs.count = n
     // The route follows the passenger it belongs to: a storey that does not draw
     // the person does not draw the line they are walking either.
-    this.agentRing.visible = agentOn && this.agentsShown
-    this.route.visible = this.routeDrawn && agentOn && this.agentsShown
-    this.destRing.visible = this.destDrawn && agentOn && this.agentsShown
+    this.agentRing.visible = agentOn && this.agentsShown && this.followAgentId === null
+    this.route.visible = this.routeDrawn && agentOn && this.agentsShown && this.followAgentId === null
+    this.destRing.visible = this.destDrawn && agentOn && this.agentsShown && this.followAgentId === null
+    pose.needsUpdate = true
+    outfit.needsUpdate = true
+    if (this.agents.instanceColor) this.agents.instanceColor.needsUpdate = true
     this.agents.instanceMatrix.needsUpdate = true
-    this.heads.instanceMatrix.needsUpdate = true
-    this.hair.instanceMatrix.needsUpdate = true
     this.blobs.instanceMatrix.needsUpdate = true
-    if (colorDirty) {
-      if (this.agents.instanceColor) this.agents.instanceColor.needsUpdate = true
-      if (this.heads.instanceColor) this.heads.instanceColor.needsUpdate = true
-      if (this.hair.instanceColor) this.hair.instanceColor.needsUpdate = true
-    }
+    if (this.followAgentId !== null && !followed) this.onFollowLost?.()
+
   }
 
   setAgentsVisible(on: boolean): void {
@@ -622,8 +648,6 @@ export class CrowdSystem extends SceneSystem {
     // it — otherwise hiding the crowd would leave one passenger's route drawn.
     this.agentsShown = on
     this.agents.visible = on
-    this.heads.visible = on
-    this.hair.visible = on
     this.blobs.visible = on
     if (!on) {
       this.agentRing.visible = false
@@ -727,10 +751,11 @@ export class CrowdSystem extends SceneSystem {
       m.dispose()
     }
     this.zoneLabelMats.clear()
-    // The crowd's own instanced draws. They are one batch per body part for the
-    // scene's lifetime, so they go with it — geometry, material, instance buffers.
+    // The crowd's human and shadow draws live with the scene, including the
+    // outfit/pose textures, geometry, material and instance buffers.
     // `blobs` wears the shared `mats.blob`, which the material set disposes itself.
-    for (const mesh of [this.agents, this.heads, this.hair, this.blobs]) {
+    this.agents.userData.disposePassenger()
+    for (const mesh of [this.agents, this.blobs]) {
       mesh.geometry.dispose()
       if (mesh !== this.blobs) (mesh.material as THREE.Material).dispose()
       mesh.dispose()

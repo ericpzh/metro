@@ -1,3 +1,4 @@
+import { drawModelText } from '../../modelLabels.ts'
 import { t } from '../../../sim/i18n.ts'
 // Platform screen door builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
@@ -36,7 +37,7 @@ function psdHeaderCanvas(colour: string, lineId: string, terminus: string, name:
   g.fillStyle = '#ffffff'
   g.font = 'bold 30px sans-serif'
   g.textAlign = 'center'
-  g.fillText(lineId, 920, 69)
+  drawModelText(g, lineId, 920, 69, 44)
   // Direction sticker. The destination is the line's own terminus for the
   // direction this screen serves (`mod.cfg.dir`), so the header reads the bound
   // line instead of a hardcoded place name. An unset terminus falls back to the
@@ -44,7 +45,7 @@ function psdHeaderCanvas(colour: string, lineId: string, terminus: string, name:
   g.textAlign = 'left'
   g.fillStyle = '#1b6fd6'
   g.font = 'bold 22px "Microsoft YaHei", sans-serif'
-  g.fillText(t('toward_value', terminus), 470, 56)
+  drawModelText(g, t('toward_value', terminus), 470, 56, 390)
   return c
 }
 

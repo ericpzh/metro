@@ -14,6 +14,8 @@ const zh = {
     desc: '《地铁车站设计师》是一款 3D 沙盒小游戏：亲手搭一座地铁车站，看人群在里面挤挤挨挨地走。这里是它的概念图和设计笔记。',
   },
   nav: {
+    languageZh: '中文',
+    languageEn: 'EN',
     brand: '地铁站设计师',
     game: '游戏',
     gallery: '看图',
@@ -71,6 +73,8 @@ const en = {
     desc: 'Metro Station Designer is a 3D sandbox toy: build a metro station by hand and watch crowds squeeze through it. These are its concept sheets and design notes.',
   },
   nav: {
+    languageZh: '中文',
+    languageEn: 'EN',
     brand: 'Metro Station Designer',
     game: 'Game',
     gallery: 'Gallery',

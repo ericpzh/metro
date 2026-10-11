@@ -7,12 +7,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { buildGraph } from '../src/sim/station.ts'
-import { finishOf, floorSpeed, finishMapOf, customFinishId, finishBaseId, finishDef, finishLabel, finishTint } from '../src/sim/finishes.ts'
+import { FINISH_LIST, finishPaletteGroups, finishesForFace, finishOf, floorSpeed, finishMapOf, customFinishId, finishBaseId, finishDef, finishLabel, finishTint } from '../src/sim/finishes.ts'
+import { parse, serialize } from '../src/persistence/save.ts'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
 import { buildModule } from '../src/render/models.ts'
 import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
 import { packKey } from '../src/sim/types.ts'
-import { createModule, eraseFace, eraseFaces, fillSurface, paintFace, paintFaces, paintStairSurface, toData, toState } from '../src/build/model.ts'
+import { createModule, eraseFace, eraseFaces, faceFinish, fillSurface, paintFace, paintFaces, paintStairSurface, toData, toState } from '../src/build/model.ts'
 
 function corridor() {
   const cells = []
@@ -26,8 +27,65 @@ function corridor() {
   })
 }
 
+test('the material palette lists each finish once in stone, metal, wood and other', () => {
+  const groups = finishPaletteGroups()
+  assert.deepEqual(groups.map((g) => g.label), ['石材', '金属', '木材', '其他'])
+  assert.deepEqual(groups.map((g) => g.items.map((f) => f.label)), [
+    ['混凝土', '花岗岩', '大理石', '石灰石', '砂岩', '板石', '覆土', '黑曜石'],
+    ['不锈钢', '钢板', '铝板', '金属吊顶'],
+    ['软木', '硬木'],
+    ['搪瓷板', '涂料', '格栅天花', '轨道床', '地砖'],
+  ])
+  const ids = groups.flatMap((g) => g.items.map((f) => f.id))
+  assert.equal(new Set(ids).size, FINISH_LIST.length)
+  assert.equal(ids.length, FINISH_LIST.length)
+  for (const face of ['top', 'bottom', 'n', 'e', 's', 'w']) {
+    assert.deepEqual(finishesForFace(face).map((f) => f.id), FINISH_LIST.map((f) => f.id))
+    for (const id of ids) {
+      const painted = paintFace(corridor(), 0, 0, 0, face, id)
+      assert.equal(finishOf(painted.cells[0], face), id, `${id} must apply on ${face}`)
+    }
+  }
+})
+
+test('unpainted faces and the eyedropper default to concrete', () => {
+  const cell = { x: 0, y: 0, z: 0, fill: 'solid' }
+  for (const face of ['top', 'bottom', 'n', 'e', 's', 'w']) {
+    assert.equal(finishOf(cell, face), 'floor.concrete')
+    assert.equal(faceFinish([], 0, 0, 0, face), 'floor.concrete', 'virtual ground uses the same material')
+  }
+})
+
+test('red granite and obsidian have distinct identities while legacy earth walls still load', () => {
+  const granite = finishDef('floor.granite')
+  assert.ok((granite.tint >> 16) > ((granite.tint >> 8) & 255), 'granite has a warm red hue')
+  assert.equal(finishDef('floor.obsidian').look, 'obsidian')
+  assert.equal(finishDef('wall.soil').look, 'soil', 'existing earth walls must retain their finish')
+  assert.equal(finishDef('wall.soil#775533').tint, 0x775533)
+})
+
+test('custom paint colours retain their look on every face through save and meshing', () => {
+  const red = customFinishId('wall.plaster', 0xff2211)
+  const green = customFinishId('wall.plaster', 0x22ff11)
+  assert.equal(finishDef(red).look, 'plaster')
+  assert.equal(finishDef(red).tint, 0xff2211)
+  let state = corridor()
+  for (const face of ['top', 'bottom', 'n', 'e', 's', 'w']) state = paintFace(state, 0, 0, 0, face, red)
+  state = paintFace(state, 2, 0, 0, 'n', green)
+  const loaded = parse(serialize(state))
+  assert.equal(loaded.ok, true)
+  for (const face of ['top', 'bottom', 'n', 'e', 's', 'w']) assert.equal(finishOf(loaded.state.cells[0], face), red)
+  const cells = loaded.state.cells
+  const chunk = meshChunk(buildSolidSet(cells), finishMapOf(cells), 0, 0, 0)
+  const finishes = new Set(chunk.parts.map((p) => p.finish))
+  assert.ok(finishes.has(red))
+  assert.ok(finishes.has(green), 'separate paint colours need separate material parts')
+})
+
 test('a slow floor finish is a real detour', () => {
-  const plain = buildGraph(toData(corridor()))
+  let fast = corridor()
+  for (let x = 0; x < 5; x++) fast = paintFace(fast, x, 0, 0, 'top', 'floor.granite')
+  const plain = buildGraph(toData(fast))
   let slow = corridor()
   for (const x of [1, 2, 3]) slow = paintFace(slow, x, 0, 0, 'top', 'floor.concrete')
   const slowGraph = buildGraph(toData(slow))
@@ -73,10 +131,10 @@ test('paint, fill and erase are immutable and reversible', () => {
 
   const one = paintFace(base, 1, 1, 0, 'top', 'floor.tile')
   assert.equal(finishOf(one.cells.find((c) => c.x === 1 && c.y === 1), 'top'), 'floor.tile')
-  assert.equal(finishOf(base.cells.find((c) => c.x === 1 && c.y === 1), 'top'), 'floor.granite', 'paint mutated the base state')
+  assert.equal(finishOf(base.cells.find((c) => c.x === 1 && c.y === 1), 'top'), 'floor.concrete', 'paint mutated the base state')
 
   const back = eraseFace(one, 1, 1, 0, 'top')
-  assert.equal(finishOf(back.cells.find((c) => c.x === 1 && c.y === 1), 'top'), 'floor.granite')
+  assert.equal(finishOf(back.cells.find((c) => c.x === 1 && c.y === 1), 'top'), 'floor.concrete')
   assert.equal(back.cells.find((c) => c.x === 1 && c.y === 1).finish, undefined, 'erase should drop the empty map')
 
   const filled = fillSurface(base, 0, 0, 0, 'top', 'floor.concrete')
@@ -88,13 +146,13 @@ test('paint, fill and erase are immutable and reversible', () => {
 test('the chunk mesher groups faces into one part per finish', () => {
   const cells = [
     { x: 0, y: 0, z: 0, fill: 'solid' },
-    { x: 1, y: 0, z: 0, fill: 'solid', finish: { top: 'floor.concrete' } },
+    { x: 1, y: 0, z: 0, fill: 'solid', finish: { top: 'floor.granite' } },
   ]
   const solid = buildSolidSet(cells)
   const chunk = meshChunk(solid, finishMapOf(cells), 0, 0, 0)
   const finishes = new Set(chunk.parts.map((p) => p.finish))
-  assert.ok(finishes.has('floor.granite'), 'default top finish missing')
-  assert.ok(finishes.has('floor.concrete'), 'painted top finish missing')
+  assert.ok(finishes.has('floor.concrete'), 'default top finish missing')
+  assert.ok(finishes.has('floor.granite'), 'painted top finish missing')
   assert.ok(chunk.triangles > 0)
 })
 

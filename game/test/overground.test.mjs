@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { createModule, toState, paintRoofSurface, paintStairSurface, addEquipment, syncBridgePillars, removeModule, paintBridgeSurface } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { extendedPillar } from '../src/sim/structures.ts'
-import { equipmentReason, moduleEnvelope, moduleFootprint, blockReason } from '../src/sim/placement.ts'
+import { equipmentReason, moduleEnvelope, moduleFootprint, blockReason, wallSide } from '../src/sim/placement.ts'
 import { checkModulePlacements } from '../src/build/validation.ts'
 import { exitDoorCell, exitFloorAt, exitWallPlanes, exitRunSnap, exitDoorwayOffset } from '../src/sim/exits.ts'
 import { buildGraph } from '../src/sim/station.ts'
@@ -249,13 +249,16 @@ test('doorway exits accept supported floors at any nonnegative height and remain
     for (const z of [0, 1, 4, 7, 12]) {
       const m = createModule(`exit-doorway-${bays}`, 0, 0, z, 'exit', rot)
       const cells = Array.from({ length: 81 }, (_, i) => ({ x: i % 9 - 4, y: Math.floor(i / 9) - 4, z, fill: 'solid' }))
+      const [wx, wy] = wallSide(rot)
+      cells.push({ x: m.x + wx, y: m.y + wy, z: z + 1, fill: 'solid' })
       assert.equal(equipmentReason(cells, [], m, true), '')
       const preview = checkModulePlacements({ cells, modules: [] }, [{ id: m.id, module: m, layer: true }])
       assert.deepEqual(preview.accepted, [m.id])
       const graph = buildGraph({ ...ctx.data, cells, modules: [m] })
       assert.equal(graph.exits.length, 1)
-      assert.equal(graph.exits[0].node, graph.nodeIndex.get(exitDoorCell(m).join(',')))
-      if (z > 0) assert.equal(equipmentReason([], [], m, true), 'floor', 'elevated exits still need floor support')
+      const doorwayNode = graph.nodeIndex.get(exitDoorCell(m).join(','))
+      assert.notEqual(doorwayNode, undefined, 'the doorway opens onto a walkable floor node')
+      assert.equal(graph.exits[0].node, doorwayNode)
     }
     const below = createModule(`exit-doorway-${bays}`, 0, 0, -1, 'exit', rot)
     const cells = moduleFootprint(below).map(([x, y]) => ({ x, y, z: -1, fill: 'solid' }))

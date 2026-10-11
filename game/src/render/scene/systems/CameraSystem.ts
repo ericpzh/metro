@@ -100,13 +100,90 @@ export class CameraSystem extends SceneSystem {
     // fought the block tools' click and drag.)
     this.controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: null }
     this.controls.enablePan = false
+    this.controls.touches = { ONE: null, TWO: null }
     // Zoom is handled by onWheel for both projections. Keeping it here means
     // a wheel event can zoom while OrbitControls is also tracking a middle drag.
     this.controls.enableZoom = false
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
     canvas.addEventListener('pointermove', this.onEdgePointerMove)
+    canvas.addEventListener('pointerdown', this.onEyePointerDown)
     canvas.addEventListener('pointerleave', this.onEdgePointerLeave)
     canvas.addEventListener('pointerup', this.onEdgePointerUp)
+  }
+
+  private eyeView: {
+    position: THREE.Vector3; quaternion: THREE.Quaternion; target: THREE.Vector3;
+    ortho: boolean; zoom: number; fov: number; near: number; enabled: boolean;
+  } | null = null
+  private eyeYaw = 0
+  private eyePitch = 0
+  private eyeFacingSet = false
+  private eyePointer: [number, number] | null = null
+
+  beginEyeView(): void {
+    if (this.eyeView) return
+    // Drain residual orbit input so it cannot disturb the restored view.
+    const damping = this.controls.enableDamping
+    this.controls.enableDamping = false
+    this.controls.update()
+    this.controls.enableDamping = damping
+    this.eyeView = { position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(),
+      target: this.controls.target.clone(), ortho: this.orthoOn, zoom: this.orthoZoom,
+      fov: this.camera.fov, near: this.camera.near, enabled: this.controls.enabled }
+    this.ctx.keys.clear()
+    this.eyeFacingSet = false
+    this.eyePointer = null
+    this.eyePitch = 0
+    this.controls.enabled = false
+    this.setOrtho(false)
+    this.camera.fov = 75
+    this.camera.near = 0.05
+    this.camera.updateProjectionMatrix()
+  }
+
+  setEyePose(x: number, y: number, z: number, yaw: number): void {
+    if (!this.eyeView) return
+    this.camera.position.set(x, y, z)
+    // Face the passenger's direction on entry only. Subsequent route turns
+    // move the eye position while leaving the player's own look direction.
+    if (!this.eyeFacingSet) {
+      this.eyeYaw = yaw
+      this.eyeFacingSet = true
+    }
+    this.aimEyeView()
+  }
+
+  lookEyeBy(dx: number, dy: number): void {
+    if (!this.eyeView || !this.eyeFacingSet) return
+    this.eyeYaw -= dx * 0.003
+    this.eyePitch = THREE.MathUtils.clamp(this.eyePitch - dy * 0.003, -Math.PI / 2 + POLAR_EPS, Math.PI / 2 - POLAR_EPS)
+    this.aimEyeView()
+  }
+
+  private aimEyeView(): void {
+    const p = this.camera.position
+    const horizontal = Math.cos(this.eyePitch)
+    this.controls.target.set(p.x + horizontal * Math.cos(this.eyeYaw), p.y + horizontal * Math.sin(this.eyeYaw), p.z + Math.sin(this.eyePitch))
+    this.camera.lookAt(this.controls.target)
+  }
+
+  endEyeView(): void {
+    const saved = this.eyeView
+    if (!saved) return
+    this.eyeView = null
+    this.eyePointer = null
+    this.eyeFacingSet = false
+    this.camera.position.copy(saved.position)
+    this.camera.quaternion.copy(saved.quaternion)
+    this.controls.target.copy(saved.target)
+    this.camera.fov = saved.fov
+    this.camera.near = saved.near
+    this.camera.updateProjectionMatrix()
+    this.orthoZoom = saved.zoom
+    this.setOrtho(saved.ortho)
+    this.controls.enabled = saved.enabled
+    this.ctx.keys.clear()
+    this.pointerInside = false
   }
 
   /** The block/module meshes the current station made pickable. */
@@ -116,7 +193,7 @@ export class CameraSystem extends SceneSystem {
 
   /** The four flat/overhead presets (iso, plan, front, side) plus `custom`. */
   setPreset(name: 'iso' | 'plan' | 'front' | 'side' | 'custom'): void {
-    if (name === 'custom') return
+    if (this.eyeView || name === 'custom') return
     const c = this.ctx.bounds.getCenter(new THREE.Vector3())
     const dirs: Record<'iso' | 'plan' | 'front' | 'side', THREE.Vector3> = {
       iso: new THREE.Vector3(1, -1.2, 0.85).normalize(),
@@ -163,7 +240,13 @@ export class CameraSystem extends SceneSystem {
   /** Zoom either projection while OrbitControls can continue a middle drag. */
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault()
-    const factor = Math.exp(e.deltaY * 0.001)
+    if (this.eyeView) return
+    this.zoomBy(Math.exp(e.deltaY * 0.001))
+  }
+
+  /** Wheel and two-finger pinch share the same limits in both projections. */
+  zoomBy(factor: number): void {
+    if (this.eyeView || !Number.isFinite(factor) || factor <= 0) return
     if (this.orthoOn) {
       this.orthoZoom = THREE.MathUtils.clamp(this.orthoZoom * factor, 0.06, 16)
       this.applyOrtho()
@@ -177,7 +260,18 @@ export class CameraSystem extends SceneSystem {
   }
 
   /** Track the pointer for the edge pan. Outside the canvas the pan stops. */
+  private onEyePointerDown = (e: PointerEvent): void => {
+    if (this.eyeView && e.pointerType !== 'touch') this.eyePointer = [e.clientX, e.clientY]
+  }
+
   private onEdgePointerMove = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') { this.pointerInside = false; return }
+    if (this.eyeView) {
+      if (e.buttons === 0) { this.eyePointer = null; return }
+      if (this.eyePointer) this.lookEyeBy(e.clientX - this.eyePointer[0], e.clientY - this.eyePointer[1])
+      this.eyePointer = [e.clientX, e.clientY]
+      return
+    }
     const rect = this.canvas.getBoundingClientRect()
     this.pointerX = e.clientX - rect.left
     this.pointerY = e.clientY - rect.top
@@ -187,16 +281,19 @@ export class CameraSystem extends SceneSystem {
   }
 
   private onEdgePointerLeave = (): void => {
+    this.eyePointer = null
     this.pointerInside = false
     this.pointerButtons = 0
   }
 
   /** Keep the button state fresh so a released orbit never leaves the pan off. */
   private onEdgePointerUp = (e: PointerEvent): void => {
+    if (e.buttons === 0) this.eyePointer = null
     this.pointerButtons = e.buttons
   }
 
   frame(): void {
+    if (this.eyeView) return
     const c = this.ctx.bounds.getCenter(new THREE.Vector3())
     // Keep the plan centre, but follow the edited storey vertically. The old
     // bounds centre made the camera stay on the station's fixed -8/-4/0/4 m
@@ -216,6 +313,7 @@ export class CameraSystem extends SceneSystem {
    * projections, corners an isometric perspective.
    */
   setViewDirection(dir: THREE.Vector3, useOrtho: boolean): void {
+    if (this.eyeView) return
     const c = this.ctx.bounds.getCenter(new THREE.Vector3())
     const dist = Math.max(40, this.ctx.bounds.getSize(new THREE.Vector3()).length() * 0.9)
     const d = dir.clone().normalize()
@@ -237,6 +335,7 @@ export class CameraSystem extends SceneSystem {
    * the poles so the view never flips.
    */
   orbitBy(dxPx: number, dyPx: number): void {
+    if (this.eyeView) return
     const offset = this.camera.position.clone().sub(this.controls.target)
     const up = new THREE.Vector3(0, 0, 1)
     offset.applyAxisAngle(up, -dxPx * 0.008)
@@ -347,7 +446,7 @@ export class CameraSystem extends SceneSystem {
    * own vertical pair is Ctrl+Q / Ctrl+E (`panCameraVertical`).
    */
   panCamera(dt: number): void {
-    if (dt <= 0) return
+    if (this.eyeView || dt <= 0) return
     const { forward, strafe } = this.panInput()
     if (forward === 0 && strafe === 0) return
     const dir = new THREE.Vector3()
@@ -393,7 +492,7 @@ export class CameraSystem extends SceneSystem {
    * neither, because that letter is the storey step in the app.
    */
   panCameraVertical(dt: number): void {
-    if (dt <= 0) return
+    if (this.eyeView || dt <= 0) return
     let lift = 0
     if (this.ctx.keys.has(PAN_UP)) lift += 1
     if (this.ctx.keys.has(PAN_DOWN)) lift -= 1
@@ -462,6 +561,11 @@ export class CameraSystem extends SceneSystem {
    * matching the level slicing. Null over bare floor or station geometry.
    */
   pickModule(clientX: number, clientY: number): string | null {
+    return this.pickModuleHit(clientX, clientY)?.moduleId ?? null
+  }
+
+  /** Actual visible surface, so a booth-mounted sign snaps to the frame under the ray. */
+  pickModuleHit(clientX: number, clientY: number): { moduleId: string; point: [number, number, number] } | null {
     const rect = this.canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, this.activeCamera())
@@ -483,7 +587,7 @@ export class CameraSystem extends SceneSystem {
     const blocks = this.pickables.filter((m) => m.visible && (!m.parent || m.parent.visible))
     const blockHits = this.raycaster.intersectObjects(blocks, false)
     if (blockHits.length > 0 && blockHits[0].distance < modHit.distance) return null
-    return moduleId
+    return { moduleId, point: [modHit.point.x, modHit.point.y, modHit.point.z] }
   }
 
   /**
@@ -520,6 +624,7 @@ export class CameraSystem extends SceneSystem {
   override dispose(): void {
     this.canvas.removeEventListener('wheel', this.onWheel)
     this.canvas.removeEventListener('pointermove', this.onEdgePointerMove)
+    this.canvas.removeEventListener('pointerdown', this.onEyePointerDown)
     this.canvas.removeEventListener('pointerleave', this.onEdgePointerLeave)
     this.canvas.removeEventListener('pointerup', this.onEdgePointerUp)
     // OrbitControls wires its own pointer/wheel/contextmenu listeners onto the

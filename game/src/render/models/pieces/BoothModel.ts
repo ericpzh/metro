@@ -1,44 +1,8 @@
-import { t } from '../../../sim/i18n.ts'
 // Reference service counters (§5): white information island / glazed ticket kiosk.
 import * as THREE from 'three'
-import { PieceBuilder, slab, plate, ownedMaterial } from '../PieceBuilder.ts'
+import { PieceBuilder, slab, plate } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
-
-/** Printed fascia belongs to this piece and is released with it on rebuild. */
-function serviceSign(ctx: ModuleContext): THREE.Material {
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, name: 'booth-service-sign' })
-  if (typeof document !== 'undefined') {
-    const canvas = document.createElement('canvas')
-    canvas.width = 768
-    canvas.height = 192
-    const ink = canvas.getContext('2d')!
-    ink.fillStyle = '#242631'
-    ink.fillRect(0, 0, 768, 192)
-    ink.strokeStyle = '#ffffff'
-    ink.lineWidth = 4
-    ink.strokeRect(75, 34, 112, 124)
-    for (const x of [105, 159]) {
-      ink.beginPath()
-      ink.arc(x, 59, 10, 0, Math.PI * 2)
-      ink.fillStyle = '#ffffff'
-      ink.fill()
-      ink.fillRect(x - 10, 76, 20, 40)
-    }
-    ink.fillRect(96, 112, 7, 34)
-    ink.fillRect(109, 112, 7, 34)
-    ink.fillRect(133, 109, 48, 5)
-    ink.fillRect(137, 114, 5, 31)
-    ink.font = '58px "Microsoft YaHei", sans-serif'
-    ink.fillText(t('customer_service'), 225, 89)
-    ink.font = '30px Arial, sans-serif'
-    ink.fillText('Customer Service Center', 228, 139)
-    const tex = new THREE.CanvasTexture(canvas)
-    tex.colorSpace = THREE.SRGBColorSpace
-    mat.map = tex
-  }
-  return ownedMaterial(ctx, mat)
-}
 
 /** Extrude an x/z profile inward along y for the accessible counter's sloped shoulders. */
 function profile(g: THREE.Group, mat: THREE.Material, points: Array<[number, number]>, y: number, depth: number): void {
@@ -138,11 +102,6 @@ function buildBooth(ctx: ModuleContext, mod: Extract<Module, { type: 'booth' }>)
       slab(g, mats.steel, x, y0 + 0.04, z + sill, bayWidth - 0.03, 0.045, 0.035)
       if (i > 0) slab(g, mats.darkSteel, x - bayWidth / 2, y0 + 0.04, z + (glassBottom + headerBottom) / 2, 0.03, 0.06, headerBottom - glassBottom)
     }
-  }
-  const sign = serviceSign(ctx)
-  const signW = Math.min(mod.w - 0.4, 2.4)
-  for (const [y, yaw] of [[y0 + 0.004, 0], [y1 - 0.004, Math.PI]]) {
-    plate(g, sign, signW, 0.29, mid, y, z + 2.245, yaw)
   }
   // Counter fittings; staff seats remain individually editable bench modules.
   const screenXs = info ? [a + (b - a) * 0.16] : [a + (b - a) * 0.2, b - (b - a) * 0.2]

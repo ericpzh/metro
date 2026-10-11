@@ -297,7 +297,7 @@ export function drawLineMapPlaceholder(g: CanvasRenderingContext2D, opts: LineMa
   g.fillText(t('network_map_520'), MARGIN * ppm, (0.03 + titleSize) * ppm)
   g.fillStyle = MUTED
   g.font = `${titleSize * 0.38 * ppm}px ${LATIN}`
-  g.fillText('Transport System Map', MARGIN * ppm, (layout.titleY + titleSize * 0.42) * ppm)
+  g.fillText(t('printed_network_map'), MARGIN * ppm, (layout.titleY + titleSize * 0.42) * ppm)
 
   if (layout.station !== '') {
     const plate = layout.station.endsWith(t('station')) ? layout.station : t('value_station', layout.station)
@@ -337,7 +337,7 @@ export function drawLineMapPlaceholder(g: CanvasRenderingContext2D, opts: LineMa
     g.textAlign = 'center'
     g.fillText(t('no_lines_laid_yet'), W / 2, ((layout.area.y0 + layout.area.y1) / 2) * ppm)
     g.font = `${size * 0.5 * ppm}px ${LATIN}`
-    g.fillText('no lines yet', W / 2, ((layout.area.y0 + layout.area.y1) / 2 + size * 1.3) * ppm)
+    g.fillText(t('printed_no_lines'), W / 2, ((layout.area.y0 + layout.area.y1) / 2 + size * 1.3) * ppm)
     g.textAlign = 'left'
   }
 
@@ -411,7 +411,7 @@ export function drawLineMapPlaceholder(g: CanvasRenderingContext2D, opts: LineMa
   g.fillText(t('value_lines_value_stations', lines.length, layout.stations), MARGIN * ppm, layout.footerY * ppm)
   g.textAlign = 'right'
   g.font = `${footSize * ppm}px ${LATIN}`
-  g.fillText(layout.hiddenLines > 0 ? `+${layout.hiddenLines} more lines` : 'Guangzhou Metro', W - MARGIN * ppm, layout.footerY * ppm)
+  g.fillText(layout.hiddenLines > 0 ? t('printed_more_lines', layout.hiddenLines) : t('printed_guangzhou_metro'), W - MARGIN * ppm, layout.footerY * ppm)
   g.textAlign = 'left'
 
   return layout

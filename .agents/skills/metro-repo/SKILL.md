@@ -61,6 +61,38 @@ in the variant menu and door width is a separate narrow/wide setting. Their
 simulation, placement, rendering, and picker behavior belongs to `game/src/`;
 coverage belongs in `game/test/` and follows `metro-game-test`.
 
+## Repo rule: translations use the existing i18n infrastructure
+
+All built-in player-facing copy must come from the owning catalogue, including
+interface labels, tooltips, notices, model decals, canvas text and capture tools.
+Do not introduce inline language ternaries, local translation tables or manual
+template replacement at call sites.
+
+* **Game:** `game/src/sim/i18n/messages.ts`; use the shared API in
+  `game/src/sim/i18n.ts`: `t` for current-language copy, `msg` for canonical
+  data/notices, `translate` at existing catalogue/notice presentation boundaries,
+  and `tForLanguage` for tools requiring a specific locale without changing UI state.
+* **Site:** `web/src/i18n.js` for chrome and `web/src/artworks.js` for sheet metadata.
+* **Generated art:** `tools/sheet-i18n.mjs`; reuse game catalogue entries for exact
+  game labels, and `sheetText` when translated text width affects layout.
+
+An English-copy request changes English entries only unless the user also requests
+a Chinese change. Keep CN wording and field semantics intact. Short English labels
+are welcome when they fit better; abbreviations belong in catalogue keys too.
+Keep authored station names, sign text and line termini untouched. Fixed English
+glosses on bilingual physical signs still belong in the catalogue (`printed_*` keys
+with identical values in both locales); switching UI language must not erase them.
+
+After changing copy or its rendering, run `npm run audit:i18n` from the repo root.
+It checks runtime JSX and canvas/model text sinks, not every indirect data path;
+review those paths as well. Run relevant language/renderer tests and inspect affected
+text in both locales for clipping and CN regressions. Art generation must report
+no missing translations. Follow the owning subskill for layout and cache refresh.
+
+Passenger sources: `game/src/assets/passenger-human.json` is baked, not authored —
+`game/src/assets/PASSENGERS.md` names the CC0 Quaternius outfits and
+`tools/bake-passengers.mjs` regenerates the atlas. Never hand-edit the JSON.
+
 ## Commands
 
 Run from the repo root (PowerShell):
@@ -96,7 +128,9 @@ commands.
 | `sheet-i18n.mjs` | The English copy table for the sheets: every Chinese `<text>` string (plus sheet 06's slider `aria-label`s and live-readout script literals) mapped to terse English; `{ t, size }` pulls a long label's font-size down. Embedded game captures stay Chinese. |
 | `sheet-png.mjs <nn>` | Rasterises one sheet in a headless browser so the composition can be **looked at** (`--at <s>` freezes an animated sheet). |
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
-| `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Worker does. |
+| `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/`, `/metro/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Worker does. |
+| `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
+| `bake-passengers.mjs` | Regenerates `game/src/assets/passenger-human.json` from the CC0 sources listed in `game/src/assets/PASSENGERS.md` (see `metro-game`). |
 | `render-module-cards.mjs` | Sheet 04's cards: drives headless Chrome to run the game's own thumbnail pass. Needs Chrome + `game/dist`. |
 | `render-block-cards.mjs` | Sheet 03's blocks, meshed and lit by the game (same shape). |
 | `render-ui-shots.mjs` | Sheets 06 and 07: boots the game, drives it into real states, crops each window / chrome region to its own DOM box at 2×. |
@@ -125,11 +159,15 @@ to `main` ships both:
 * `metro` — the site, root `wrangler.jsonc`, assets from `web/dist`, served at
   `ericpzh.rest/metro/` with `ASSET_PREFIX=/metro`.
 * `metro-game` — the game, `game/wrangler.jsonc`, assets from `game/dist`, served
-  at `ericpzh.rest/metro-game/` with `ASSET_PREFIX=/metro-game` and its routes
-  declared in its own config (so `wrangler deploy` creates them; no dashboard
-  step).
+  at `ericpzh.rest/metro/game/` (canonical; `/metro/game/en/` for English) plus
+  the legacy `ericpzh.rest/metro-game/` pair, with `ASSET_PREFIX=/metro-game` and
+  its routes declared in its own config (so `wrangler deploy` creates them; no dashboard
+  step). `game/worker/index.js` longest-prefix matches `ASSET_PREFIX` and
+  `/metro/game` so both prefixes resolve assets at the Worker root.
 
 Route gotchas: each Worker needs **two** routes (bare + `/*`) because `/metro/*`
-does not match `/metro`; never collapse them to `/metro-game*` — `*` spans `/`
-and would swallow paths belonging to the other Worker. Routes need the hostname
+does not match `/metro`; the game owns two pairs (canonical `/metro/game` +
+legacy `/metro-game`). Never collapse them to `/metro-game*` — `*` spans `/`
+and would swallow paths belonging to the other Worker. `/metro/game/*` beats
+site `/metro/*` on specificity. Routes need the hostname
 proxied in DNS. The root `README.md` holds the full routing table.

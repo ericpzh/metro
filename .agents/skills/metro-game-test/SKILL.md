@@ -93,6 +93,12 @@ When a behaviour change touches the sim, the README's rule stands: keep `sim/`
 pure, add a focused `.test.mjs`, and update `game/README.md` if the change is
 player-visible.
 
+New-behaviour pins: `booth-sign` (booth-header snap, faces, bounds, save/move),
+`gate-traffic` (forecast reservations, directional drain, cleanup, wait
+accounting), `diagonal-walk` (√2 cost, 2×2 clearance, barrier awareness),
+`passenger-view` (instanced humans, gait, pause, picking, eye restore),
+`touch-zoom` (pinch direction, cancel, release suppression).
+
 For the fitted 门 / 玻璃幕墙 joint, keep the snap arithmetic in the pure placement
 module and pin a rotated curtain, a door clamped inside its run, allowed fitted overlap,
 rejected crosswise overlap, and the clipped lower-pane geometry in `glass-panel.test.mjs`.

@@ -64,6 +64,15 @@ Draft 1's vertical slice is **done** (V0–V5). The base game plan picks it up a
 | **B2** | Fare zones, the zone boundary as a movement barrier, zone paint + overlay | an ungated fare line strands the crowd; a gate restores flow | **core done** |
 | B3–B6 | Capacity kit, draw kit, authored time + charts + snapshot, ship | see [`../PLAN.md`](../PLAN.md) §4 | planned |
 
+The 材质 palette groups by 石材 / 金属 / 木材 / 其他, with 19 materials that can be
+applied to any exposed face. Stone includes marble, limestone, sandstone and slate;
+wood includes softwood and hardwood; metal includes aluminum panels. 涂料 and 搪瓷板
+have independent custom colour pickers, with each painted colour preserved in saves.
+Unpainted faces, roof cladding, stair surfaces and thick pillar shafts default to 混凝土,
+and the material brush starts on 混凝土. Explicitly painted finishes keep their overrides.
+花岗岩 uses pink-red mineral grains. 黑曜石 replaces the duplicate 土墙 tile with
+dark polished stone and pale flowing veins; existing saved earth walls keep their finish.
+
 **B1** shipped `sim/finishes.ts` (the finish table), faces in `sim/types.ts`, one chunk-mesh part per
 finish, the walk-speed rule, the `N`/`M` paint tools, the tactile-strip decal layer along
 platform edges, and `persistence/save.ts` (`formatVersion: 1`, static). The mesher's cell-key
@@ -1798,9 +1807,15 @@ crush from becoming a wall — past it, one more body is not another second of d
 **The fare line is decided while it is still ahead.** `chooseGate` used to fire when a gate was the
 agent's *next* node, and by then the passenger is standing in the crush it should have walked around. It
 now re-plans the rest of the leg the moment a gate comes within `GATE_LOOKAHEAD` (8 m), skipping the path
-cache so it sees the queues as they are; `GATE_REPLAN_PER_TICK` rations those synchronous searches,
-because this one is not amortised like a leg's, and an agent the ration skips still chooses at the
-gate's own cell. A queue that is past patience gets §7.2's other trigger: `reRouteAroundQueue` re-plans
+cache so it sees the queues as they are; `GATE_REPLAN_PER_TICK` permits eight synchronous checks per
+simulated second. A passenger whose check is deferred keeps approaching but cannot join a gate queue
+until checked. `GateTraffic` includes nearby committed walkers (a 12-second free-flow horizon), updates
+reservations after each choice, and prices each crossing direction separately. Opposing-direction waits
+include the active queue's estimated drain time while its approaching wave replenishes it. These are
+forecasts, capped at ten minutes; gate throughput and lane policy stay unchanged. Queue re-routing starts
+on the approach side so starting A* inside a gate cannot hide its queue cost. Total queue wait and the
+patience timer are separate, and a budget-deferred patience check retries next tick.
+A queue that is past patience gets §7.2's other trigger: `reRouteAroundQueue` re-plans
 against the live crowd and **moves only when the new route queues somewhere else**, so a passenger that
 finds nothing better keeps its place instead of walking to the back of the lane it is already in (and a
 step-free passenger waiting for a lift is never sent round in a circle).
@@ -1957,7 +1972,8 @@ approximated); neither needs WebGL.
   `systems/*System.ts` and asserts the orchestrator assigns each one, and a second case asserts the
   reader actually sees the claims it guards (a check that parsed nothing would pass forever).
 * `surfaces.test.mjs` — a slow floor finish is a real detour, a track bed is not a walkable
-  node, paint/fill/erase are immutable, and the mesher groups by finish (B1); 搪瓷板 takes a
+  node, paint/fill/erase are immutable, and the mesher groups by finish (B1); material
+  grouping/order and all-face application; custom 涂料 save/mesh preservation; 搪瓷板 takes a
   custom tint encoded in its finish id without changing the wall family, and the mesher keeps
   two tints in separate parts; a stair wears the floor it climbs from until it is painted, then
   its own `cfg.finish` (with the pieces around it untouched, and `null` handing the surface back).
@@ -2048,6 +2064,8 @@ approximated); neither needs WebGL.
   ran into: a ramp's balustrade walls the storeys its run climbs and not the one below it, and a
   head-house walls its own storey and not the concourse underneath it — a plane with no height on it left
   the demo with one usable route and 12 of its 30 ramps idle.
+* `gate-traffic.test.mjs` — approaching-wave reservations, directional drain forecasts, stale-reservation
+  cleanup, pressure near a gate preserving its queue cost, and full wait accounting across patience checks.
 * `gates.test.mjs` — the gate **policy** predicates (`sim/gates.ts`): which direction a lane lets
   through, the two-way single-lane rule (`nextGateIndex`), and the spellings an older save may carry
   for the 闸机 piece (`right` / `left` → lane, `none` → fence). `gate-door.test.mjs` pins the piece
@@ -2336,8 +2354,15 @@ approximated); neither needs WebGL.
 * `booth-model.test.mjs` — the reference-based 问讯处 / 售票亭 models (§5.7): both stay
   within their footprint and 2.4 m height, the white information counter has a lowered
   accessible centre, the stainless ticket kiosk has clear transfer apertures beneath its
-  service glazing, and both open overhead frames carry visible, owned sign materials.
-  Translation is checked on every mesh.
+  service glazing, and both open overhead frames have no built-in 客服中心 banner.
+  Customer-service pictograms are available in the sign editor; editable hanging signs fit
+  inside either booth type under a ceiling slab. `sign-render` pins the pictogram's ink.
+* `booth-sign.test.mjs` — wall signs snap to the nearest outer face of either booth's
+  overhead frame, centred with their top edge flush to the header. Pins all four faces,
+  odd/even room sizes, preview collision bounds, duplicate rejection, save/load and moving
+  between a booth and a normal wall. Booth signs need no ceiling slab or wall blocks.
+  Snapped signs attach as a single printed sheet, 3 mm off the header, without a back housing.
+  Translation is checked on every mesh; its camera rig checks the actual module ray and block occlusion.
 * `room-model.test.mjs` — the walled room's own model (`render/models.ts` `buildRoom`), the perimeter
   ring of 0.5 m panels that stands in for a room's wall voxels. What it pins is the square corner:
   three quarters of every corner cell are wall and the quarter the room keeps for furniture is empty
@@ -2769,6 +2794,7 @@ approximated); neither needs WebGL.
   current and the next sign hung carries a copy, covering the full compose→place→print flow — and a
   **wall** 指示牌 keeps its mount through an edit and is never given a back (the wall is its second
   face), while a wall board hung as the current one drops the back that pair carries.
+  A rejected tenth arrow never enters the hover preview or shrinks its tiles.
 * `sign-model.test.mjs` — the 指示牌 board document path (`sim/sign.ts` `buildSign`): one lit
   face per composed board with a default-front/empty-back fallback, one vs two mounted faces,
   and the shared panel sized to the longer board. The two mounts are measured off the geometry: a
@@ -2779,6 +2805,8 @@ approximated); neither needs WebGL.
   a back the document still carries cannot widen its steel or shift its plate (`mountedSignBoards`), where the
   hung board — the one that really mounts both — is cut to the longer of its two faces.
 * `sign-render.test.mjs` — the 指示牌 board pixels (`render/signFace.ts` `drawSignPanel`): a
+  0.4 m panel with smaller marks (nine default arrows fit the 3.5 m ceiling), and existing
+  saves' content centred vertically and horizontally on each printed face;
   fresh sign prints ink rather than black, per-face boards, the empty-face stand-in, panel-vs-
   plate size agreement, label row pitch and separation, every palette mark printing, the PNG
   pictograms square/white/clear, and the save round-trip. Two marks are **geometry, not art**, and both
@@ -3029,7 +3057,7 @@ If the site's tab should point somewhere else — a preview URL, a different dom
 `VITE_GAME_URL` when building `web/`.
 
 
-Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and two raised truss styles in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with preview/release agreement and graph registration), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Thin roof tiles place by click or rectangular drag, truss bays by click or a straight-line drag along their own crest axis, and both are painted through 材质.
+Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and two raised truss styles in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with an explicit backing wall, preview/release agreement and a graph node that exists), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Thin roof tiles place by click or rectangular drag, truss bays by click or a straight-line drag along their own crest axis, and both are painted through 材质.
 
 细支柱 and 粗支柱 each have one palette tile. Tab switches the section added by a click between 2 m（短） and 4 m（长）; clicking a pillar adds that selected length while retaining its width, position and finish, so 2 m → 4 m → 2 m becomes one continuous 8 m pillar. Existing pillar saves keep their heights.
 
@@ -3095,8 +3123,35 @@ and only uploads a texture when its printed information changes.
 
 The game supports 简体中文 and English. `/en/` (including `/metro-game/en/`) opens the English game; the language button beside restart switches either route without replacing the station or restarting the simulation. Each route remembers its selected language locally. Authored station names, line names, termini, sign documents and supplied poster/map artwork remain station content.
 
-All built-in copy lives in `src/sim/i18n/messages.ts`. Use `t(key, ...args)` in subscribed React views and renderers, `msg(key, ...args)` for canonical data and stored errors, and `translate(value)` where those values reach the UI. `useLanguage()` refreshes mounted views; the locale stays out of saves and worker messages.
+All built-in copy lives in `src/sim/i18n/messages.ts`. Fixed English glosses on bilingual model decals use the `printed_*` keys, keeping their existing captions in Chinese mode. `tForLanguage(locale, key, ...args)` formats capture/tool copy without changing the active locale. Use `t(key, ...args)` in subscribed React views and renderers, `msg(key, ...args)` for canonical data and stored errors, and `translate(value)` where those values reach the UI. `useLanguage()` refreshes mounted views; the locale stays out of saves and worker messages.
 
 In English mode, station fields are labelled Primary name / Secondary name and sign fields Primary text / Secondary text. Their authored contents and order stay intact. Clock rows and longer labels wrap within their panels, and the demand chart reserves a gutter for translated units and counts.
 
-`i18n.test.mjs` pins both catalogues, interpolation, existing-notice language switching, canonical simulation labels, and root/prefixed English-route asset resolution.
+`i18n.test.mjs` pins both catalogues, interpolation, existing-notice language switching, canonical simulation labels, explicit-language formatting without locale mutation, and root/prefixed English-route asset resolution. Run `npm run audit:i18n` from the repo root to check runtime JSX, accessible labels, and canvas/model decal calls for inline copy. The site uses `web/src/i18n.js` and `web/src/artworks.js`; generated art uses `tools/sheet-i18n.mjs`, including labels measured before drawing.
+
+`passenger-view.test.mjs` pins the CC0 clothed human meshes, stable outfit/build/height/tone variation through buffer reordering, grounded animated arm/leg poses, travel-driven gait, idle/riding transitions, mid-stride pause/resume through duplicate and reordered snapshots, selection at the displayed head/legs, phase identity through crowd compaction, interpolated eye position, departure handling, click-held first-person mouse look after the initial heading, and restoration of the camera and display settings.
+
+Passengers use four authored Quaternius clothed models and neutral standing/walk poses (CC0): shirt, hoodie, suit and a casual women's outfit. Stable passenger identities choose an outfit, height, build and grey tone; all retain translucent paint shading. Arms swing, knees bend and feet step according to distance travelled; waiting passengers settle into a standing pose. The crowd shares one instanced draw. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
+
+The build palette, inspector and view cube each have an independent hide/show button with a short animation; their settings stay mounted while hidden. Reduced-motion preferences disable these transitions. Two-finger pinch on the viewport zooms both perspective and orthographic views. Single-finger taps select or place on release, so the first contact of a pinch cannot edit the station.
+
+`touch-zoom.test.mjs` pins pinch direction, release suppression, cancelled/extra fingers and projection zoom limits.
+
+
+`diagonal-walk.test.mjs` pins eight-direction walking in clear space (§7.2):
+diagonal edges cost their actual √2 m distance with their endpoint finish speeds, require both cardinal routes
+around a clear same-height square, and cannot cut past holes, walls, fare
+barriers or turnstiles. `wayfinding.test.mjs` also checks diagonal ramp-glass
+barriers at the ramp's own storey and clear diagonal movement below it.
+
+`render-regressions.test.mjs` pins shrink-to-fit model ink, thick round pillars'
+recessed textured shafts and steel collars, periodic obsidian pixels, and the roughness
+and metalness tuning for obsidian, steel and wood.
+
+
+The station graph now includes diagonal walk edges wherever a 2×2 square is
+clear and all four directed cardinal edges around it are legal. Costs use
+√2 / local speed; the Euclidean A* heuristic and continuous movement already
+support these edges. Gates keep cardinal approaches, and exit/ramp wall checks
+also apply to the direct diagonal segment. This expands open-floor walking
+without changing the capacity-limited stair, escalator, lift or gate rules.

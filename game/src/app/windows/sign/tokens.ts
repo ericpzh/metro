@@ -14,6 +14,7 @@ import {
   signTextLineScale,
   signTextLines,
   signTextSize,
+  signMarkFits,
   type SignArrow,
   type SignComponent,
   type SignFaceName,
@@ -295,6 +296,9 @@ export function markFor(payload: string): SignComponent | null {
  */
 export function withHover(layout: readonly SignComponent[], mark: SignComponent | null, index: number | null): readonly SignComponent[] {
   if (index === null || !mark || mark.id !== DRAG_MARK_ID) return layout
+  // A rejected drop must not borrow space in the preview (§5.8). Ask the same
+  // capacity rule as the release before inserting the carried palette mark.
+  if (!signMarkFits(layout, mark)) return layout
   const at = Math.max(0, Math.min(index, layout.length))
   return [...layout.slice(0, at), mark, ...layout.slice(at)]
 }

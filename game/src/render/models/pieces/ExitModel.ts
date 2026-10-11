@@ -26,11 +26,11 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   g.font = 'bold 19px "Microsoft YaHei", sans-serif'
   g.fillText(t('guangzhou_metro'), 64, 39, 108)
   g.font = '11px Arial, sans-serif'
-  g.fillText('Guangzhou Metro', 64, 61, 108)
+  g.fillText(t('printed_guangzhou_metro'), 64, 61, 108)
 
   // Keep long station names within the centre field, clear of the brand and exit.
   const station = (stationName || t('metro')).trim()
-  const stationLabel = station.endsWith(t('station')) ? station : station + t('station')
+  const stationLabel = station.endsWith(t('station')) ? station : t('value_station', station)
   g.textAlign = 'center'
   g.font = 'bold 29px "Microsoft YaHei", sans-serif'
   const stationCentre = width / 2 + 24
@@ -50,7 +50,7 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
     g.font = 'bold 21px "Microsoft YaHei", sans-serif'
     g.fillText(t('entrance'), width - 30, 39, 48)
     g.font = '10px Arial, sans-serif'
-    g.fillText('Entrance', width - 30, 62, 48)
+    g.fillText(t('printed_entrance'), width - 30, 62, 48)
   } else {
     g.font = 'bold 25px "Microsoft YaHei", sans-serif'
     g.fillText(label, width - 61, 48, 106)

@@ -135,10 +135,12 @@ export const createSignSlice: StateCreator<AppState, [], [], SignSlice> = (set, 
       if (m.id !== moduleId || m.type !== 'sign') return m
       // The **mount** is the piece's own and is not the editor's to write: a wall
       // board stays bolted to its wall and a hung board stays on its rods however the
-      // boards are rearranged. Everything else the config might carry is the legacy
-      // `components` list, which the pair replaces (`ensureSignLayouts`).
+      // boards are rearranged. Preserve the booth attachment as well; only the legacy
+      // `components` list is replaced (`ensureSignLayouts`).
       const cfg: typeof m.cfg = { front: next.front, back: next.back }
       if (m.cfg.mount !== undefined) cfg.mount = m.cfg.mount
+      if (m.cfg.boothId !== undefined) cfg.boothId = m.cfg.boothId
+      if (m.cfg.boothOffset !== undefined) cfg.boothOffset = { ...m.cfg.boothOffset }
       return { ...m, cfg }
     })
     get().commit({ ...st.station, modules })
@@ -244,5 +246,7 @@ export function signModuleWithPreview(mod: Module, preview: AppState['signPrevie
   if (!preview || mod.type !== 'sign' || mod.id !== preview.moduleId) return mod
   const cfg: typeof mod.cfg = { front: preview.boards.front, back: preview.boards.back }
   if (mod.cfg.mount !== undefined) cfg.mount = mod.cfg.mount
+  if (mod.cfg.boothId !== undefined) cfg.boothId = mod.cfg.boothId
+  if (mod.cfg.boothOffset !== undefined) cfg.boothOffset = { ...mod.cfg.boothOffset }
   return { ...mod, cfg }
 }

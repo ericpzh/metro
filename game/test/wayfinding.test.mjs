@@ -228,6 +228,8 @@ test('a ramp balustrade blocks the storeys its run climbs, and no others', () =>
   // The edge through the glass, beside the run's lower landing: refused there…
   assert.equal(edgeBetween(g, [4, 3, -4], [5, 3, -4]), false, 'a walk edge through the balustrade was allowed')
   assert.equal(edgeBetween(g, [5, 3, -4], [6, 3, -4]), false, 'the other balustrade let the crowd through')
+  assert.equal(edgeBetween(g, [4, 3, -4], [5, 4, -4]), false, 'a diagonal cannot cross ramp glass')
+  assert.equal(edgeBetween(g, [4, 3, -8], [5, 4, -8]), true, 'diagonal walking is free below the ramp')
   // …and free on a storey the run does not reach. A plane with no height on it
   // walled off every floor of the station below a ramp, which is what left the
   // 动物园 demo with one usable route out of its platform.
@@ -348,8 +350,16 @@ test('patience re-routes are rationed: a crush retries over ticks, not all at on
   const stayed = six.filter((a) => gateA.queue.includes(a.id))
   assert.equal(moved.length, REROUTE_REPLAN_PER_TICK, 'every impatient agent re-routed in the same tick')
   assert.equal(stayed.length, six.length - REROUTE_REPLAN_PER_TICK, 'a skipped agent lost its place in the queue')
-  for (const a of stayed) assert.equal(a.wait, 0, 'a skipped agent retries only after another patience interval')
+  for (const a of stayed) {
+    assert.equal(a.wait, 1, 'a skipped search preserves the measured queue wait')
+    assert.ok(a.patienceWait > a.patience, 'a skipped search stays due for the next tick')
+  }
   for (const a of moved) assert.equal(gateAlong(g, a.path), gateB.id, 'a re-routed agent did not take the other lane')
+  const retries = new Set()
+  const reRoute = w.reRouteAroundQueue.bind(w)
+  w.reRouteAroundQueue = (a, s) => { retries.add(a.id); return reRoute(a, s) }
+  w.tickOnce()
+  assert.ok(stayed.every((a) => retries.has(a.id)), 'skipped passengers did not retry on the next tick')
 })
 
 test('the fare-line ration holds at the gate: a wave chooses over ticks', () => {
@@ -361,13 +371,16 @@ test('the fare-line ration holds at the gate: a wave chooses over ticks', () => 
   const g = w.graph
   const gateNode = g.nodeIndex.get('4,0,0')
   const five = []
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < GATE_REPLAN_PER_TICK + 3; i++) {
     five.push(w.pool.spawn({ origin: '', stops: [], dest: 'exit:exit-1' }, 1.5, 0.5, 1, 0))
   }
   for (let i = 0; i < 3; i++) w.tickOnce()
   for (const a of five) {
-    const idx = a.path.indexOf(gateNode)
-    assert.ok(idx >= 0, 'the wave walks through gate A')
+    // Put the wave at this gate explicitly: diagonal routes and crowd costs
+    // can choose either lane during warmup; this test pins the at-gate ration.
+    a.path = w.path.astar(gateNode, a.destNode, a.needs)
+    assert.ok(a.path && a.path[0] === gateNode, 'the gate has a route to the destination')
+    const idx = 0
     for (const s of g.servers) {
       const qi = s.queue.indexOf(a.id)
       if (qi >= 0) s.queue.splice(qi, 1)
@@ -384,6 +397,9 @@ test('the fare-line ration holds at the gate: a wave chooses over ticks', () => 
 
   w.tickOnce()
   assert.equal(five.filter((a) => a.gateChosen).length, GATE_REPLAN_PER_TICK, 'the whole wave chose at the gate in one tick')
+  assert.ok(five.filter((a) => !a.gateChosen).every((a) => a.server < 0), 'unchecked passengers joined the stale gate queue')
+  w.tickOnce()
+  assert.ok(five.every((a) => a.gateChosen), 'deferred passengers never got a live gate choice')
 })
 
 test('the re-path queue drains on a budget and compacts its consumed prefix', () => {

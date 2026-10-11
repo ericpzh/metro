@@ -1,10 +1,11 @@
-import { translate } from '../../sim/i18n.ts'
+import { t, translate } from '../../sim/i18n.ts'
 import { useLanguage } from '../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — App() composes the
 // five windows (TopBar + LeftRail + Viewport + Inspector + BottomBar) and owns
 // the global keyboard shortcuts and the notice toast. Kept under the App name
 // so the old import path (via the App.tsx barrel) keeps working.
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { CollapseButton } from './shared/CollapseButton.tsx'
 import { useStore, isBenchType, isDoorType, isEscalatorType, isGateType, isRotatableType, isStairType } from '../store.ts'
 import { LeftRail } from '../LeftRail.tsx'
 import { Viewport, isTypingTarget } from '../Viewport.tsx'
@@ -17,6 +18,8 @@ import { TimePanel } from './time/TimePanel.tsx'
 
 export function App(): React.ReactElement {
   useLanguage()
+  const [leftOpen, setLeftOpen] = useState(true)
+  const [rightOpen, setRightOpen] = useState(true)
   const setTool = useStore((s) => s.setTool)
   const notice = useStore((s) => s.notice)
 
@@ -33,6 +36,7 @@ export function App(): React.ReactElement {
       // While the 指示牌 board editor is up it owns the keyboard: Space, R, Tab and
       // Delete all mean something to the board being composed, not to the station
       // behind it. Its own Delete binding lives on the board (SignEditor).
+      if (st.followAgentId !== null && e.key !== ' ') return
       if (st.signEditorFor !== null || st.signComposing) return
       // Ctrl shortcuts for the top-bar icon actions (their accessible names say so).
       // Handled before the single-letter tool keys so Ctrl+N never also grabs
@@ -276,12 +280,18 @@ export function App(): React.ReactElement {
   return (
     <div className="app">
       <TopBar />
-      <div className="main">
-        <LeftRail />
+      <div className={`main${leftOpen ? '' : ' leftClosed'}${rightOpen ? '' : ' rightClosed'}`}>
+        <div className="sideShell leftShell">
+          <div id="leftMenu" className="sideContent" inert={!leftOpen}><LeftRail /></div>
+          <CollapseButton open={leftOpen} onToggle={() => setLeftOpen((open) => !open)} controls="leftMenu" label={t('build_palette')} direction="left" />
+        </div>
         <div className="stage">
           <Viewport />
         </div>
-        <Inspector />
+        <div className="sideShell rightShell">
+          <div id="rightMenu" className="sideContent" inert={!rightOpen}><Inspector /></div>
+          <CollapseButton open={rightOpen} onToggle={() => setRightOpen((open) => !open)} controls="rightMenu" label={t('inspector')} direction="right" />
+        </div>
       </div>
       <BottomBar />
       {/* The 时刻 window floats over the game rather than covering it: the station it

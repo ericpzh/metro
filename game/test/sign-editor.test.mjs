@@ -33,6 +33,21 @@ import { settleSignBoards } from '../src/sim/sign.ts'
 import { drawSignPanel } from '../src/render/signFace.ts'
 import { signBoardsPanel, signPlate } from '../src/sim/sign.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
+import { DRAG_MARK_ID, withHover } from '../src/app/windows/sign/tokens.ts'
+
+test('a full board rejects the tenth arrow before changing its hover preview', () => {
+  const arrow = (id) => ({ id, kind: 'arrow', arrow: 'right', x: 0, y: 0.2, scale: 1, side: 'both' })
+  const row = settleSignBoards({ front: Array.from({ length: 9 }, (_, i) => arrow(`a${i}`)), back: [] }).front
+  const carried = arrow(DRAG_MARK_ID)
+  for (const index of [0, 4, 9]) {
+    assert.equal(withHover(row, carried, index), row, 'a rejected item leaves the preview and tile count untouched')
+  }
+  const shorter = row.slice(0, 8)
+  const accepted = withHover(shorter, carried, 4)
+  assert.equal(accepted.length, 9, 'the ninth arrow still previews when it fits')
+  assert.equal(accepted[4], carried, 'an accepted mark previews at the hovered place')
+  assert.equal(withHover(row, row[0], 4), row, 'existing marks can still be dragged without adding a duplicate')
+})
 
 const LINE = {
   id: '5',

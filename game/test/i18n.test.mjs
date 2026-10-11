@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { messages } from '../src/sim/i18n/messages.ts'
-import { getLanguage, languageForPath, msg, setLanguage, subscribeLanguage, t, translate } from '../src/sim/i18n.ts'
+import { getLanguage, languageForPath, msg, setLanguage, subscribeLanguage, t, tForLanguage, translate } from '../src/sim/i18n.ts'
 import worker from '../worker/index.js'
 
 test('both catalogues cover the same copy and interpolation slots', () => {
@@ -11,6 +11,24 @@ test('both catalogues cover the same copy and interpolation slots', () => {
     const slots = (text) => [...text.matchAll(/\{(\d+)\}/g)].map(m => m[1]).sort()
     assert.deepEqual(slots(copy.en), slots(copy.zh), `${key} loses an interpolation argument`)
   }
+})
+
+test('explicit-language formatting leaves the active locale and authored arguments intact', () => {
+  const initial = getLanguage()
+  const events = []
+  const unsubscribe = subscribeLanguage(() => events.push(getLanguage()))
+  try {
+    setLanguage('zh-CN')
+    const count = events.length
+    assert.equal(tForLanguage('en', 'move_value', '我的车站'), 'Move 我的车站')
+    assert.equal(tForLanguage('en', 'compass_north'), 'N')
+    assert.equal(t('compass_north'), '北', 'English captures cannot alter the Chinese game')
+    assert.equal(getLanguage(), 'zh-CN')
+    assert.equal(events.length, count, 'formatting emits no UI or renderer refresh')
+    setLanguage('en')
+    assert.equal(translate(msg('north')), 'North', 'the compact cube key does not replace canonical direction copy')
+    assert.equal(tForLanguage('zh-CN', 'printed_exit'), 'EXIT', 'bilingual physical captions retain their printed English')
+  } finally { unsubscribe(); setLanguage(initial) }
 })
 
 test('switching translates existing errors and catalogues while canonical data stays stable', () => {
@@ -40,10 +58,10 @@ test('switching translates existing errors and catalogues while canonical data s
 })
 
 test('English routes work at the root and under game hosting prefixes', async () => {
-  for (const path of ['/', '/metro-game/', '/game/']) assert.equal(languageForPath(path), 'zh-CN')
-  for (const path of ['/en', '/en/', '/metro-game/en/', '/game/en/']) assert.equal(languageForPath(path), 'en')
+  for (const path of ['/', '/metro-game/', '/metro/game/', '/game/']) assert.equal(languageForPath(path), 'zh-CN')
+  for (const path of ['/en', '/en/', '/metro-game/en/', '/metro/game/en/', '/game/en/']) assert.equal(languageForPath(path), 'en')
   assert.equal(languageForPath('/engineering'), 'zh-CN')
-  for (const prefix of ['', '/metro-game']) {
+  for (const prefix of ['', '/metro-game', '/metro/game']) {
     const fetched = []
     const env = { ASSET_PREFIX: prefix, ASSETS: { fetch: async (request) => {
       const path = new URL(request.url).pathname

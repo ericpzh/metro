@@ -379,7 +379,7 @@ test('a bare face lends its finish to the 材质 brush, and a right press picks 
   useStore.setState({ station: toState({ name: 't', seed: 1, cells, modules: [], lines: [] }) })
   ctxFor(null).onDown(press([0, 3, 0]))
   assert.equal(st().tool, 'paint')
-  assert.equal(st().paintFinish, 'floor.granite')
+  assert.equal(st().paintFinish, 'floor.concrete')
   assert.equal(st().paintMode, 'single', 'the finish lands in the folder’s own mode')
 
   useStore.setState({ tool: 'pick', selected: null })

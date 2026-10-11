@@ -99,7 +99,7 @@ export function folderForAltKey(letter: string): InspectorFolderKey | null {
  * 材质 folder's 搪瓷板 colour list, which is a paint brush's swatches rather than a family
  * of pieces. At most one is expanded at a time.
  */
-export type SubMenuKey = ModuleFamilyKey | 'enamel'
+export type SubMenuKey = ModuleFamilyKey | 'enamel' | 'plaster'
 
 /**
  * Which nested variant sub-menu owns a module, or null when it owns none. Derived from

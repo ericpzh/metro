@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { C, T, MUL, title, sheet, n } from './iso.mjs'
+import { sheetText } from './sheet-i18n.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
@@ -123,7 +124,7 @@ export function artViews({ language = 'zh-CN' } = {}) {
     // The key it answers to, as a chip in the corner — **sized to the key**, because the
     // keys are not all one character: `C · R · Y` is three of them, and a chip drawn to a
     // fixed 34 units leaves the last one hanging out over the picture.
-    const displayKey = language === 'en' && key === '平视' ? 'Eye view' : key
+    const displayKey = sheetText(key, language)
     const kw = keyChipW(displayKey)
     g.push(`<rect x="${n(x + CW - 12 - kw)}" y="${y + 18}" width="${n(kw)}" height="22" rx="6" fill="#1b2530" stroke="#2b3746"/>`)
     g.push(T(x + CW - 12 - kw / 2, y + 33, displayKey, { size: 12, weight: 800, fill: '#9fd7ee', anchor: 'middle', mono: true }))

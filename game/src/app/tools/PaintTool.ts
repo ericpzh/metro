@@ -6,7 +6,7 @@
 
 import { eraseFaces, faceFinish, fillSurface, paintFaces, paintRoofSurface, paintStairSurface, paintPillarSurface, paintBridgeSurface } from '../../build/model.ts'
 import { DEFAULT_ROOF_FINISH } from '../../sim/structures.ts'
-import { finishDef } from '../../sim/finishes.ts'
+import { DEFAULT_MATERIAL, finishDef } from '../../sim/finishes.ts'
 import type { FinishId } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { dominantFace, faceTargets, planeCells } from './geometry/faces.ts'
@@ -35,7 +35,7 @@ export class PaintTool extends ToolController {
     if (stair?.type === 'track' && stair.cfg.bridge) {
       info.preventDefault()
       if (st.paintMode === 'pick') {
-        st.setPaintFinish(stair.cfg.bridgeFinish ?? 'wall.plaster')
+        st.setPaintFinish(stair.cfg.bridgeFinish ?? DEFAULT_MATERIAL)
         st.resumePaintMode()
         return
       }
@@ -46,7 +46,7 @@ export class PaintTool extends ToolController {
     if (stair?.type === 'pillar') {
       info.preventDefault()
       if (st.paintMode === 'pick') {
-        st.setPaintFinish(stair.cfg.finish ?? (stair.cfg.size === 'thick' ? 'wall.plaster' : 'ceil.steel'))
+        st.setPaintFinish(stair.cfg.finish ?? (stair.cfg.size === 'thick' ? DEFAULT_MATERIAL : 'ceil.steel'))
         st.resumePaintMode()
         return
       }

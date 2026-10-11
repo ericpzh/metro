@@ -83,10 +83,22 @@ raised gate clearance, eight iron uprights, ground decals in either placement or
 that leaves the ground decal intact.
 
 `booth-model` checks the information counter's accessible notch, the ticket kiosk's
-transfer openings, open overhead frames, visible sign faces, footprint bounds and translation.
+transfer openings, open overhead frames without built-in banners, editable sign placement in
+both booth types, footprint bounds and translation. `sign-render` covers the reusable
+customer-service pictogram.
+`booth-sign` checks wall signs snapping to either booth's header, all four faces,
+centred geometry and collision bounds, saving, moving and missing support.
+Snapped signs render only the printed sheet with 3 mm of surface clearance; it also
+drives the real camera ray, including its block-occlusion rule.
 
 The suites, by the thing they are about. Each one's full description is in
 `../README.md`'s test list — that list is the detail, this is the map:
+
+`surfaces` also covers the four material categories, all-face application, and custom
+涂料 colours surviving save/load and meshing. `paint-mode` covers independent 涂料
+and 搪瓷板 picker colours while retaining 单块 / 整面.
+`render-regressions` pins model-label shrink-to-fit arithmetic, the round/recessed
+thick-pillar shaft and collars, periodic obsidian pixels, and material roughness.
 
 | Area | Files |
 |---|---|
@@ -95,11 +107,12 @@ The suites, by the thing they are about. Each one's full description is in
 | 屏蔽端门 | `psd-end` — fixed glass stack, matching heights, Tab preview refresh, shortened corner snapping and exact 1 m extensions, tile-contained meshes/reservations and adjacent block/equipment placement, hover/click placement, undo, walk barrier and save/load; curtain-wall widths and picking |
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement` (including escalator collision clearance along its sloped body), `openings`, `stairs`, `escalators`, `escalator-length`, `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route` (including the 1.5 m figure scale), `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
 | The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation`, `overground`, `roof-tool`, `track-run-length`, `structures-gaps` — `storey` checks the 0–3 m height base and `save` checks its persistence and older-save default; `overground` + `roof-tool` are the pillars/roofs/doorway-exits/stair-blocks/bridges, `track-run-length` the shared tunnel/bridge lengths, `structures-gaps` the repair-shaped edges; `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole and the edits that fill it back |
-| The furniture and the decor | `hanger`, `shelf`, `desk`, `checkout` (shop placement, saves, rotated bounds, screen/stock visibility and workstation chair), `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `lights`, `vent`, `floor-decor`, `street-decor`, `sign`, `sign-model`, `sign-editor`, `billboard`, `glass-panel` (including fitted doors), `door-panel` (both-face handles), `calligraphy`, `line-map`, `booth-model`, `room-model` |
+| The furniture and the decor | `hanger`, `shelf`, `desk`, `checkout` (shop placement, saves, rotated bounds, screen/stock visibility and workstation chair), `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `lights`, `vent`, `floor-decor`, `street-decor`, `sign`, `sign-model`, `sign-editor` (including rejection before hover insertion), `billboard`, `glass-panel` (including fitted doors), `door-panel` (both-face handles), `calligraphy`, `line-map`, `booth-model`, `room-model` |
 | The models | `module-build` (including slab-track sleepers, seats, clips and rail heads; enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
+| Touch navigation | `touch-zoom` — pinch direction, cancellation and release suppression; shared zoom and limits in both projections |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` — `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away |
-| The pixels | `sign-render`, `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
-| Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, root/prefixed English routes and assets |
+| The pixels | `sign-render` (short 0.4 m signs, nine-arrow capacity and centred existing content), `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
+| Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, explicit-language formatting without changing UI state, root/prefixed English routes and assets |
 | The app | `move`, `delete-tool` (block delete rectangles, Shift lines and one-step undo), `equipment-deletion` (visible module before underlying grid cell), `equipment-placement-input` (wall/ceiling support placement from open air), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool), `tool-hover-preview` (blue previews for move/picker/select, red preview for bulldoze), `rail-folders`, `rail-families`, `line-edit`, `new-station-confirmation` (the top-bar button and Ctrl+N require confirmation before replacing the station), `select-agent` — `escalators` covers the placed-run direction action and undo |
 
 ## The rules a test here follows
@@ -215,9 +228,14 @@ the column that shows what an untested file was hiding.
 | `render/models/pieces/EscalatorModel.ts` (rebuilt band) | — (rebuilt) | 98.0 % lines | `module-build`, `escalators`, `ramp-fill` |
 | `render/models/pieces/DoorwayExitModel.ts` | 31 % | 100 % lines | `module-build` (doorway rows: one row per bay, widths 3/4/5 m) |
 
+`gate-traffic.test.mjs` covers committed approaching passengers, route changes to a spare lane,
+opposing-direction drain forecasts, reservation cleanup, gate-node pressure and total wait accounting.
+`wayfinding.test.mjs` also pins deferred choices staying outside the queue and patience retries on the
+next tick; the eight-search gate budget remains bounded during a wave.
+
 Two behaviour pins move no coverage line — the rationed searches were already
 executed, just never capped — so they are verified by mutation instead: with the
-cap removed the crush test fails 6 ≠ 4 and the at-gate test fails 5 ≠ 2
+cap removed the crush test fails 6 ≠ 4 and the at-gate test fails 11 ≠ 8
 (`wayfinding`: `REROUTE_REPLAN_PER_TICK`, and the fare-line ration at the gate's
 own cell).
 
@@ -236,7 +254,7 @@ The files still lowest after this pass, and why they are:
 
 
 
-Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and the truss and shell bays in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with preview/release agreement and graph registration), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Roof bays place by click or rectangular drag and are painted through 材质.
+Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and the truss and shell bays in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with an explicit backing wall, preview/release agreement and a graph node that exists), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Roof bays place by click or rectangular drag and are painted through 材质.
 
 `roof-tool.test.mjs` verifies rectangular thin-roof previews, full truss-bay placement and removal including rotated 8 m bays, collision refusal, right-drag removal, and one undo step per drag. Each bay style has one tile, the shell bay carrying no truss; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover. `overground.test.mjs` also verifies exactly 4 m of truss assembly height including the skin, contact with support posts, continuous 40 cm bottom chords across bay seams, and half-density internal ribs in 收束 at all widths and rotations.
 
@@ -259,3 +277,12 @@ Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋�
 `gate-door` also checks the 新/旧 turnstiles: slim cabinets, smaller opposing leaves retracting left and right, approach arrows and red crosses on fence-only machines, legacy/save compatibility and separate variant sweeps. `pick-tool` checks copying and cancelling 新/旧 choices.
 
 `gate-door` pins the curved fan leaves (long top, short bottom) and the old gate's longer sloping fascia, flush reader sticker and absence of red/green reader lamps.
+
+`passenger-view.test.mjs` pins the CC0 clothed human meshes, stable outfit/build/height/tone variation through buffer reordering, grounded animated arm/leg poses, travel-driven gait, idle/riding transitions, mid-stride pause/resume through duplicate and reordered snapshots, selection at the displayed head/legs, phase identity through crowd compaction, interpolated eye position, departure handling, click-held first-person mouse look after the initial heading, and restoration of the camera and display settings.
+
+
+`diagonal-walk.test.mjs` pins eight-direction walking in clear space (§7.2):
+diagonal edges cost their actual √2 m distance with their endpoint finish speeds, require both cardinal routes
+around a clear same-height square, and cannot cut past holes, walls, fare
+barriers or turnstiles. `wayfinding.test.mjs` also checks diagonal ramp-glass
+barriers at the ramp's own storey and clear diagonal movement below it.

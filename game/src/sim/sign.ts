@@ -42,19 +42,19 @@ import type { LineDef, Module } from './types.ts'
  * over it.
  */
 export const PANEL_MIN_W = 2.1
-export const PANEL_MIN_H = 0.7
+export const PANEL_MIN_H = 0.4
 
 /**
  * The board's ceiling. A sign that needs more room than this has too much on it:
  * the editor stops growing here and the layout is clamped inside, which is what
  * keeps a board from becoming a wall across the concourse.
  *
- * It is 3.5 m because that is the least steel a **legal full row** fits in: six
- * arrows are `6 × (0.48 + 2 × SIGN_PIECE_PAD)` = 3.24 m of row, and a board can only
+ * It is 3.5 m because that is the least steel a **legal full row** fits in: nine
+ * arrows are `9 × (0.32 + 2 × SIGN_PIECE_PAD)` = 3.24 m of row, and a board can only
  * hold them *centred* — which is what the print does — if it also has the quiet end
- * pad at each end, 3.48 m. A ceiling of 3.4 m packed six arrows against one frame and
- * printed them off centre (the report this was raised for); 3.5 m fits all six and a
- * seventh still does not (`test/sign.test.mjs` pins both halves).
+ * pad at each end, 3.48 m. A ceiling of 3.4 m would squeeze that row against the frame;
+ * 3.5 m fits all nine and a
+ * tenth still does not (`test/sign.test.mjs` pins both halves).
  */
 export const PANEL_MAX_W = 3.5
 export const PANEL_MAX_H = 1.6
@@ -127,7 +127,7 @@ export interface SignLineSource {
  * The wayfinding pictograms a component may wear, in the order the inspector
  * lists them. Most are **bitmaps** — `render/signFace.ts` prints the asset
  * `prep-sign-icons.py` makes from the reference photographs — so a mark's look is
- * decided by the artwork and not by a drawing routine here; the two exceptions are
+ * decided by the artwork and not by a drawing routine here; three exceptions are
  * drawn geometry instead (`SIGN_DRAWN_ICONS`), and the list is the
  * one place the catalogue and the files have to agree.
  */
@@ -140,6 +140,7 @@ export type SignIcon =
   | 'stairs'
   | 'exit'
   | 'stop'
+  | 'customer-service'
 
 export const SIGN_ICONS: readonly SignIcon[] = [
   'train',
@@ -150,6 +151,7 @@ export const SIGN_ICONS: readonly SignIcon[] = [
   'stairs',
   'exit',
   'stop',
+  'customer-service',
 ]
 
 /** What each pictogram is called, in the inspector's own words. */
@@ -162,17 +164,19 @@ export const SIGN_ICON_LABEL: Record<SignIcon, string> = {
   stairs: msg('stairs'),
   exit: msg('exit_667'),
   stop: msg('prohibited'),
+  'customer-service': msg('customer_service'),
 }
 
 /**
  * The marks a board **draws** rather than loading: the 出口 plate, which is a printed
  * plate and not a pictogram at all, and the 禁止 roundel, which is two shapes and no
- * artwork. Every other icon is a bitmap (`src/assets/pictograms/`), and this list is
+ * artwork, plus the customer-service counter mark formerly printed on booths.
+ * Every other icon is a bitmap (`src/assets/pictograms/`), and this list is
  * what tells the two apart — `render/signFace.ts` draws one and blits the other, and
  * `render/pictograms.ts` asks it before reporting a missing asset, so a drawn mark can
  * never be reported as a missing picture nor waited on as one.
  */
-export const SIGN_DRAWN_ICONS: readonly SignIcon[] = ['exit', 'stop']
+export const SIGN_DRAWN_ICONS: readonly SignIcon[] = ['exit', 'stop', 'customer-service']
 
 /** True for an icon whose look is drawn by the renderer rather than supplied as art. */
 export function signIconIsDrawn(icon: SignIcon): boolean {
@@ -381,15 +385,15 @@ export const SIGN_COMPONENT_MAX = 10
 /** Base sizes in metres, before `scale`. One conversion drives both faces. */
 export const SIGN_SIZE: Record<SignComponentKind, { w: number; h: number }> = {
   // An arrow is a long mark: a 1.6:1 shape pointing along the panel.
-  arrow: { w: 0.48, h: 0.3 },
+  arrow: { w: 0.32, h: 0.2 },
   // A line shield. Wide enough for 1号线 over Line 1, like the reference plates;
   // a shield printing only its number leaves the lower rows empty.
-  line: { w: 0.42, h: 0.28 },
+  line: { w: 0.28, h: 0.187 },
   // One line of type. The measured width is what actually matters, so this is
   // only the height the drawing uses.
-  text: { w: 0, h: 0.16 },
+  text: { w: 0, h: 0.107 },
   // A pictogram, printed from its own bitmap (`render/pictograms.ts`).
-  icon: { w: 0.3, h: 0.3 },
+  icon: { w: 0.2, h: 0.2 },
 }
 
 /** The smallest and largest multiplier a component may be scaled by. */
@@ -502,7 +506,7 @@ export function signTextSize(scale: number): number {
  * both axes, so the box a component occupies — and therefore the box the row packs
  * around — is always slightly larger than the ink.
  */
-export const SIGN_PIECE_PAD = 0.03
+export const SIGN_PIECE_PAD = 0.02
 
 /**
  * A component's size in metres, **including** `SIGN_PIECE_PAD` on every side: the
@@ -905,8 +909,8 @@ export function signPanelSize(layout: readonly SignComponent[], measure: SignMea
  * had to **put it on top of** something that was already there. If it did, the mark would be
  * printed stacked on another one, and the board is full.
  *
- * The number of marks that fit therefore depends on **which** marks they are: six arrows are
- * 3.36 m of row and nine pictograms are 3.36 m of it (and reach the ceiling). Asking
+ * The number of marks that fit therefore depends on **which** marks they are: nine arrows
+ * need 3.48 m including end margins, while pictograms take less room. Asking
  * this per mark is what keeps the palette, the board's own size and the print honest about one
  * another, instead of a count that would be wrong for every kind but one.
  *
@@ -1047,7 +1051,7 @@ export function signLineNumber(name: string): string {
 export function signLineEnglish(name: string): string {
   const digits = signLineNumber(name)
   if (digits.includes('APM')) return 'APM'
-  return /^[0-9]+$/.test(digits) ? `Line ${digits}` : digits
+  return /^[0-9]+$/.test(digits) ? msg('printed_line_value', digits) : digits
 }
 
 /* -------------------------------------------------------------- defaults */
@@ -1304,8 +1308,8 @@ export const SIGN_CEILING_PANEL_Z = 2.35
 
 /**
  * The panel's centre above the floor top for the **wall** board, metres: read at a
- * standing eye's height rather than over the concourse. Its 0.7 m panel then spans
- * 1.30–2.00 m, which crosses exactly the wall's **second** course (`wallCourses`) —
+ * standing eye's height rather than over the concourse. Its 0.4 m panel then spans
+ * 1.45–1.85 m, which crosses exactly the wall's **second** course (`wallCourses`) —
  * clear of the metre a 座椅 occupies under it, while a 售票机 (1.9 m) still reaches
  * into the band, so a tall machine in front of the board really is in its way. That
  * band is what the board's backing rule asks for, so the courses it asks for are the

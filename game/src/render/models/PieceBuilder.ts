@@ -1,4 +1,5 @@
-import { t } from '../../sim/i18n.ts'
+import { drawModelText } from '../modelLabels.ts'
+import { getLanguage, t } from '../../sim/i18n.ts'
 // Shared procedural-model kit behind render/models.ts (Lane E, step 0).
 // Palette, material printers, canvas/ink helpers, the slab/plate/prism kit,
 // ModuleContext, and the PieceBuilder abstract base every piece extends.
@@ -219,17 +220,17 @@ function lcdCanvas(): HTMLCanvasElement {
   g.fillRect(0, 0, 128, 16)
   g.fillStyle = '#dfe8f5'
   g.font = 'bold 10px sans-serif'
-  g.fillText(t('line_2_525'), 6, 12)
+  drawModelText(g, t('line_2_525'), 6, 12, 116)
   g.fillStyle = '#1b4f86'
   for (let r = 0; r < 3; r++) for (let col = 0; col < 4; col++) g.fillRect(6 + col * 30, 24 + r * 20, 26, 16)
   g.fillStyle = '#9ec0e8'
   g.font = '9px sans-serif'
-  g.fillText(t('select_destination'), 8, 36)
+  drawModelText(g, t('select_destination'), 8, 36, 112)
   g.fillStyle = '#47c07a'
   g.fillRect(88, 66, 34, 22)
   g.fillStyle = '#06301c'
   g.font = 'bold 9px sans-serif'
-  g.fillText(t('buy_ticket'), 96, 80)
+  drawModelText(g, t('buy_ticket'), 92, 80, 26)
   return c
 }
 
@@ -280,20 +281,20 @@ function vendingPanelCanvas(): HTMLCanvasElement {
   g.fillRect(0, 0, 128, 68)
   g.fillStyle = '#ffffff'
   g.font = 'bold 20px "Microsoft YaHei", sans-serif'
-  g.fillText(t('face_payment'), 64, 34)
+  drawModelText(g, t('face_payment'), 64, 34, 112)
   g.font = '10px sans-serif'
-  g.fillText('Face scan payment', 64, 52)
+  g.fillText(t('printed_face_payment'), 64, 52)
   // Red promo card (天猫优选).
   g.fillStyle = '#d3231e'
   g.fillRect(8, 78, 112, 92)
   g.fillStyle = '#ffd54a'
   g.font = 'bold 15px "Microsoft YaHei", sans-serif'
-  g.fillText(t('tmall_select'), 64, 112)
+  drawModelText(g, t('tmall_select'), 64, 112, 100)
   g.fillStyle = '#ffffff'
   g.fillRect(18, 124, 92, 38)
   g.fillStyle = '#d3231e'
   g.font = 'bold 11px "Microsoft YaHei", sans-serif'
-  g.fillText(t('ride_for_0_01'), 64, 149)
+  drawModelText(g, t('ride_for_0_01'), 64, 149, 84)
   // Payment method grid.
   g.fillStyle = '#ffffff'
   g.fillRect(8, 180, 112, 120)
@@ -316,7 +317,7 @@ function vendingPanelCanvas(): HTMLCanvasElement {
   g.fillRect(8, 308, 112, 26)
   g.fillStyle = '#ffffff'
   g.font = 'bold 12px "Microsoft YaHei", sans-serif'
-  g.fillText(t('select_payment_method'), 64, 326)
+  drawModelText(g, t('select_payment_method'), 64, 326, 100)
   // Numeric keypad.
   g.fillStyle = '#f2f5f8'
   g.fillRect(8, 342, 112, 100)
@@ -337,7 +338,7 @@ function vendingPanelCanvas(): HTMLCanvasElement {
   g.fillRect(26, 542, 76, 18)
   g.fillStyle = '#ffffff'
   g.font = 'bold 12px "Microsoft YaHei", sans-serif'
-  g.fillText(t('collection_tray'), 64, 556)
+  drawModelText(g, t('collection_tray'), 64, 556, 70)
   return c
 }
 
@@ -362,7 +363,7 @@ function vendingBaseCanvas(): HTMLCanvasElement {
   g.textAlign = 'center'
   g.fillStyle = '#5b6570'
   g.font = '16px "Microsoft YaHei", sans-serif'
-  g.fillText(t('customer_hotline_anmei'), 192, 40)
+  drawModelText(g, t('customer_hotline_anmei'), 192, 40, 304)
   g.fillStyle = '#1b6fd6'
   g.font = 'bold 26px "Microsoft YaHei", sans-serif'
   g.fillText('4001-528-528', 192, 74)
@@ -459,9 +460,9 @@ function binLabelCanvas(): HTMLCanvasElement {
     else drawOtherWasteMark(g, cx, 222, 135, '#50584d')
     g.fillStyle = '#394940'
     g.font = 'bold 36px "Microsoft YaHei", sans-serif'
-    g.fillText(i === 0 ? t('recyclables') : t('other_waste'), cx, 392)
+    drawModelText(g, i === 0 ? t('recyclables') : t('other_waste'), cx, 392, 338)
     g.font = 'bold 22px Arial, sans-serif'
-    g.fillText(i === 0 ? 'Recyclable waste' : 'Other waste', cx, 430)
+    g.fillText(i === 0 ? t('printed_recyclable_waste') : t('printed_other_waste'), cx, 430)
     // Small category examples use drawn silhouettes, so system emoji fonts do
     // not change the printed plate between browsers.
     const names = i === 0 ? [t('paper'), t('plastic'), t('metal'), t('glass')] : [t('peels'), t('food_waste'), t('tissues'), t('dust')]
@@ -514,7 +515,7 @@ function binLabelCanvas(): HTMLCanvasElement {
       g.stroke()
       g.fillStyle = '#53645d'
       g.font = '19px "Microsoft YaHei", sans-serif'
-      g.fillText(names[j], x, 592)
+      drawModelText(g, names[j], x, 592, 78)
     }
   }
   return c
@@ -535,9 +536,16 @@ function fireLabelCanvas(): HTMLCanvasElement {
   g.textBaseline = 'middle'
   g.fillStyle = '#ffffff'
   g.font = 'bold 62px "Microsoft YaHei", sans-serif'
-  g.fillText(t('fire_extinguisher_box'), 160, 60)
+  drawModelText(g, t('fire_extinguisher_box'), 160, 60, 288)
   g.font = '19px "Arial Narrow", "Microsoft YaHei", sans-serif'
-  g.fillText('FIRE  EXTINGUISHER  BOX', 160, 122)
+  drawModelText(g, t('printed_extinguisher'), 160, 122, 288)
+  if (getLanguage() === 'en') {
+    g.font = 'bold 32px sans-serif'
+    drawModelText(g, t('fire'), 160, 224, 288)
+    g.font = 'bold 74px sans-serif'
+    drawModelText(g, '119', 160, 286, 288)
+    return c
+  }
   // 火119警: the small 火 and 警 flank the number, as the reference prints it.
   const parts: Array<[string, number]> = [
     [t('fire'), 40],

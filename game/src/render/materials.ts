@@ -25,22 +25,72 @@ function tex(c: HTMLCanvasElement, repeat: number, aniso = true): THREE.Texture 
   return t
 }
 
-/** Light speckled granite with the dark inlay band the spec asks for. */
-function graniteCanvas(): HTMLCanvasElement {
-  const { c, g } = canvas(128)
-  g.fillStyle = '#c9ccd1'
-  g.fillRect(0, 0, 128, 128)
-  for (let i = 0; i < 2600; i++) {
-    const v = 150 + Math.floor(Math.random() * 90)
-    g.fillStyle = `rgba(${v},${v},${v + 6},${0.15 + Math.random() * 0.35})`
-    const s = Math.random() < 0.85 ? 1 : 2
-    g.fillRect(Math.floor(Math.random() * 128), Math.floor(Math.random() * 128), s, s)
+/** Pink-red feldspar crystals among pale quartz and dark mineral flecks. */
+function graniteCanvas(colour: number): HTMLCanvasElement {
+  const { c, g } = canvas(256)
+  g.fillStyle = '#d6c5ae'
+  g.fillRect(0, 0, 256, 256)
+  const red = (colour >> 16) & 255, green = (colour >> 8) & 255, blue = colour & 255
+  for (let i = 0; i < 1900; i++) {
+    const x = Math.random() * 256, y = Math.random() * 256
+    const mineral = Math.random()
+    const r = mineral < 0.55 ? 3 + Math.random() * 6 : 1 + Math.random() * 3
+    const shade = Math.round(Math.random() * 34 - 17)
+    g.fillStyle = mineral < 0.55 ? `rgb(${red + shade},${green + shade},${blue + shade})`
+      : mineral < 0.8 ? '#e6dcc8' : '#41413c'
+    const radii = Array.from({ length: 6 }, () => r * (0.6 + Math.random() * 0.4))
+    // Wrap crystals crossing the texture boundary so the repeated stone has no seam.
+    for (const [dx, dy] of seamlessTextureOffsets(256)) {
+      g.beginPath()
+      radii.forEach((radius, j) => {
+        const a = j / 6 * Math.PI * 2
+        const px = x + dx + Math.cos(a) * radius, py = y + dy + Math.sin(a) * radius
+        if (j === 0) g.moveTo(px, py)
+        else g.lineTo(px, py)
+      })
+      g.closePath()
+      g.fill()
+    }
   }
-  g.fillStyle = 'rgba(35,38,46,0.85)'
-  g.fillRect(0, 60, 128, 4)
-  g.fillStyle = 'rgba(255,255,255,0.35)'
-  g.fillRect(0, 64, 128, 1)
+  for (let i = 0; i < 7000; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(255,249,233,0.18)' : 'rgba(28,25,22,0.18)'
+    g.fillRect(Math.random() * 256, Math.random() * 256, 1, 1)
+  }
   return c
+}
+
+/** Every translated copy needed for an edge-crossing mark to tile without seams. */
+export function seamlessTextureOffsets(size: number): readonly (readonly [number, number])[] {
+  return [-size, 0, size].flatMap((x) => [-size, 0, size].map((y) => [x, y] as const))
+}
+
+/** Dark polished stone with flowing pale veins, periodic across both texture edges. */
+function obsidianCanvas(): HTMLCanvasElement {
+  const { c, g } = canvas(256)
+  const pixels = g.createImageData(256, 256)
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+    const i = (y * 256 + x) * 4
+    const pixel = obsidianPixelAt(x, y)
+    pixels.data[i] = pixel[0]
+    pixels.data[i + 1] = pixel[1]
+    pixels.data[i + 2] = pixel[2]
+    pixels.data[i + 3] = 255
+  }
+  g.putImageData(pixels, 0, 0)
+  return c
+}
+
+/** The polished-stone grain is periodic, so adjacent repeated tiles meet cleanly. */
+export function obsidianPixelAt(x: number, y: number, size = 256): readonly [number, number, number] {
+  const u = x / size * Math.PI * 2, v = y / size * Math.PI * 2
+  const bend = Math.sin(u + Math.sin(v)) * 1.7 + Math.sin(2 * u - v) * 0.45
+  const phase = v * 2 + bend
+  const grain = Math.sin(u * 17 + v * 31) * 5 + Math.sin(u * 43 - v * 19) * 4
+  const ripple = Math.sin(phase * 21 + Math.sin(u * 5) * 2) * 5
+  const vein = Math.pow(Math.max(0, Math.cos(phase + Math.sin(u * 9 + v * 7) * 0.08)), 24)
+  const fineVein = Math.pow(Math.max(0, Math.cos(phase * 3 + Math.sin(u * 4) * 0.2)), 90) * 0.2
+  const light = Math.min(1, vein + fineVein)
+  return [38 + grain + ripple + light * 181, 41 + grain + ripple + light * 170, 40 + grain + ripple + light * 148]
 }
 
 /** Poured concrete — mottled, no inlay. */
@@ -189,6 +239,56 @@ function steelCanvas(colour: number): HTMLCanvasElement {
   return c
 }
 
+/** Natural stone grain and strata, in the palette's reference tones. */
+function stoneCanvas(def: FinishDef): HTMLCanvasElement {
+  const { c, g } = canvas(256)
+  g.fillStyle = `#${def.tint.toString(16).padStart(6, '0')}`
+  g.fillRect(0, 0, 256, 256)
+  for (let i = 0; i < 10000; i++) {
+    const light = Math.random() > 0.5
+    const alpha = def.look === 'sandstone' ? 0.22 : 0.07
+    g.fillStyle = light ? `rgba(255,255,255,${alpha})` : `rgba(35,30,20,${alpha})`
+    g.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random(), 1 + Math.random())
+  }
+  if (def.look === 'marble' || def.look === 'slate') {
+    const marble = def.look === 'marble'
+    for (let y = -30; y < 290; y += marble ? 12 : 7) {
+      g.beginPath()
+      for (let x = 0; x <= 256; x += 2) {
+        const wave = Math.sin(x / 256 * Math.PI * 2 + y * 0.06) * (marble ? 12 : 3)
+          + Math.sin(x / 256 * Math.PI * 6 + y * 0.1) * (marble ? 4 : 1.5)
+        if (x === 0) g.moveTo(x, y + wave)
+        else g.lineTo(x, y + wave)
+      }
+      g.strokeStyle = y % 3 === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(65,58,44,0.16)'
+      g.lineWidth = marble ? 1 + Math.random() * 4 : 1.5
+      g.stroke()
+    }
+  }
+  return c
+}
+
+/** Long timber grain with plank seams; softwood is pale, hardwood warm and dark. */
+function woodCanvas(def: FinishDef): HTMLCanvasElement {
+  const { c, g } = canvas(256)
+  g.fillStyle = `#${def.tint.toString(16).padStart(6, '0')}`
+  g.fillRect(0, 0, 256, 256)
+  for (let x = 0; x < 256; x += 2) {
+    g.beginPath()
+    for (let y = 0; y <= 256; y += 4) {
+      const grain = x + Math.sin(y / 256 * Math.PI * 2 + x * 0.2) * 2
+      if (y === 0) g.moveTo(grain, y)
+      else g.lineTo(grain, y)
+    }
+    g.strokeStyle = x % 6 === 0 ? 'rgba(255,232,189,0.14)' : 'rgba(49,24,10,0.18)'
+    g.lineWidth = 0.5 + Math.random()
+    g.stroke()
+  }
+  g.fillStyle = 'rgba(35,19,9,0.3)'
+  for (let x = 0; x < 256; x += 64) g.fillRect(x, 0, 1, 256)
+  return c
+}
+
 /** Dark grey-green tactile strip marking the platform edge (§11). */
 function tactileCanvas(): HTMLCanvasElement {
   const { c, g } = canvas(64)
@@ -218,9 +318,19 @@ export function contactShadowTexture(): THREE.Texture {
 function canvasFor(def: FinishDef): HTMLCanvasElement {
   switch (def.look) {
     case 'granite':
-      return graniteCanvas()
+      return graniteCanvas(def.tint)
+    case 'obsidian':
+      return obsidianCanvas()
     case 'concrete':
       return concreteCanvas(def.tint)
+    case 'marble':
+    case 'limestone':
+    case 'sandstone':
+    case 'slate':
+      return stoneCanvas(def)
+    case 'softwood':
+    case 'hardwood':
+      return woodCanvas(def)
     case 'tile':
       return tileCanvas(def.tint)
     case 'track':
@@ -228,6 +338,7 @@ function canvasFor(def: FinishDef): HTMLCanvasElement {
     case 'baffle':
       return baffleCanvas()
     case 'metal':
+      return steelCanvas(def.tint)
     case 'stainless':
       return metalCanvas()
     case 'steel':
@@ -242,17 +353,26 @@ function canvasFor(def: FinishDef): HTMLCanvasElement {
 }
 
 function finishMaterial(def: FinishDef): THREE.MeshStandardMaterial {
-  const glossy = def.look === 'metal' || def.look === 'steel' || def.look === 'stainless' || def.look === 'enamel'
+  const props = finishMaterialProperties(def)
   return new THREE.MeshStandardMaterial({
     map: tex(canvasFor(def), 1),
     vertexColors: true,
     // 钢板 is the run's own truss colour: the escalator's dark steel is roughness
     // 0.55 / metalness 0.4 (`PieceBuilder` C.darkSteel), so the filling and the truss
     // it meets read as one surface.
-    roughness: def.look === 'enamel' ? 0.22 : def.look === 'steel' ? 0.55 : glossy ? 0.35 : def.look === 'track' ? 0.95 : 0.78,
-    metalness: def.look === 'steel' ? 0.4 : glossy ? 0.6 : 0.02,
+    roughness: props.roughness,
+    metalness: props.metalness,
     side: def.family === 'ceiling' ? THREE.DoubleSide : THREE.FrontSide,
   })
+}
+
+/** Pure material tuning, shared with renderer tests without a browser canvas. */
+export function finishMaterialProperties(def: FinishDef): { roughness: number; metalness: number } {
+  const glossy = def.look === 'metal' || def.look === 'steel' || def.look === 'stainless' || def.look === 'enamel'
+  return {
+    roughness: def.look === 'enamel' ? 0.22 : def.look === 'obsidian' ? 0.24 : def.look === 'marble' ? 0.3 : def.look === 'steel' ? 0.55 : glossy ? 0.35 : def.look === 'track' ? 0.95 : 0.78,
+    metalness: def.look === 'steel' ? 0.4 : glossy ? 0.6 : 0.02,
+  }
 }
 
 export interface MaterialSet {

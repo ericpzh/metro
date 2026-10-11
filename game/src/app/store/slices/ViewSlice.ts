@@ -10,6 +10,10 @@ import type { Section, Vec3 } from '../../../render/section.ts'
 import type { AppState } from '../Store.ts'
 
 export interface ViewSlice {
+  followAgentId: number | null
+  passengerViewBefore: Pick<ViewSlice, 'hideUI' | 'ortho' | 'cutaway' | 'overlayOn' | 'hideSectionSurface'> & { zoneOverlayOn: boolean } | null
+  followPassenger: (id: number) => void
+  endPassengerView: () => void
   activeZ: number
   /**
    * 显示其他层, on by default: off it draws the edited storey alone at every
@@ -96,6 +100,23 @@ export interface ViewSlice {
 }
 
 export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, get) => ({
+  followAgentId: null,
+  passengerViewBefore: null,
+  followPassenger: (id) => {
+    if (!Number.isFinite(id) || id < 0) return
+    const s = get()
+    const passengerViewBefore = s.passengerViewBefore ?? {
+      hideUI: s.hideUI, ortho: s.ortho, cutaway: s.cutaway,
+      overlayOn: s.overlayOn, hideSectionSurface: s.hideSectionSurface, zoneOverlayOn: s.zoneOverlayOn,
+    }
+    set({ followAgentId: id, passengerViewBefore, hideUI: true, ortho: false,
+      cutaway: false, overlayOn: false, hideSectionSurface: true, zoneOverlayOn: false })
+  },
+  endPassengerView: () => {
+    const saved = get().passengerViewBefore
+    if (!saved) return
+    set({ ...saved, followAgentId: null, passengerViewBefore: null })
+  },
   activeZ: -8,
   ghostOtherLevels: true,
   autoCeiling: true,

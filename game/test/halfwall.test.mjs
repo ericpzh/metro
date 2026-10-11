@@ -256,7 +256,7 @@ test('a painted face of a 半墙 colours the surface it names, not the whole pan
   const m = panel('w', painted.cells, finishMapOf(painted.cells))
   const enamel = m.chunk.parts.find((p) => p.finish === 'wall.enamel')
   assert.ok(enamel, 'the painted face should be its own part')
-  assert.ok(m.chunk.parts.some((p) => p.finish === 'wall.plaster'), 'the other faces keep the stock wall finish')
+  assert.ok(m.chunk.parts.some((p) => p.finish === 'floor.concrete'), 'the other faces keep the stock concrete finish')
   let sum = 0
   for (let i = 0; i < enamel.positions.length; i += 3) sum += enamel.positions[i]
   const mean = sum / (enamel.positions.length / 3)

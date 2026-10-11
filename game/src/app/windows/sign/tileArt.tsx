@@ -73,8 +73,8 @@ export function MarkArt({ mark, lines, ready }: { mark: SignComponent; lines: re
  * mark centred on it at the size that fills the square.
  *
  * `size` is the canvas's own side in the drawing's units and `artPx` the side it will be
- * *shown* at, in CSS pixels. They are two different things on purpose: the panel the board
- * is stated in is `size × size` and the conversion to pixels is `artPx / size`, so a caller
+ * *shown* at, in CSS pixels. They are two different things on purpose: the virtual panel
+ * is fitted around the mark and the conversion to pixels follows `artPx`, so a caller
  * that wants a bigger picture passes a bigger `artPx` and the mark inside it grows in step
  * — which is exactly what the carried mark in a drag needs, and what it did not do while the
  * two were the same number (`TILE_ART`): the ghost was a bigger box around a picture drawn
@@ -88,14 +88,16 @@ export function drawTileMark(
   artPx = TILE_ART,
   frame = false,
 ): void {
-  const panel: SignPanelSize = { w: size, h: size }
-  const ppm = artPx / size
   // The mark is **scaled to the tile** rather than drawn at its board size: a tile is
   // a picture of the mark, so a 0.3 m pictogram and a 0.5 m arrow both fill it.
   const ink = markInk(mark)
-  const fit = Math.min(panel.w / Math.max(0.01, ink.w), panel.h / Math.max(0.01, ink.h)) * 0.82
+  const fit = Math.min(size / Math.max(0.01, ink.w), size / Math.max(0.01, ink.h)) * 0.82
+  // Fit the virtual canvas around the mark instead of enlarging its component
+  // scale: real signs cap that scale at 2, which made small preview icons tiny.
+  const panel: SignPanelSize = { w: size / fit, h: size / fit }
+  const ppm = artPx / panel.w
   // `frame: false` by default: a tile is a patch of the board's lit face, so it prints
   // the board's own black ground with the mark on it and no border — the border belongs
   // to the panel's edge, and a tile is not the panel's edge.
-  drawSignPanel(g, [{ ...mark, x: panel.w / 2, y: panel.h / 2, scale: fit }], { lines: [...lines], panel, ppm, frame }, 'both')
+  drawSignPanel(g, [{ ...mark, x: panel.w / 2, y: panel.h / 2, scale: 1 }], { lines: [...lines], panel, ppm, frame }, 'both')
 }

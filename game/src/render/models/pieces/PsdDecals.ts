@@ -1,3 +1,4 @@
+import { drawModelText } from '../../modelLabels.ts'
 import { t } from '../../../sim/i18n.ts'
 // Printed safety vinyl on the platform face of the glass (§5.9).
 export function drawPsdBand(g: CanvasRenderingContext2D): void {
@@ -8,9 +9,9 @@ export function drawPsdBand(g: CanvasRenderingContext2D): void {
   g.fillStyle = '#fff4d8'
   g.textAlign = 'center'
   g.font = 'bold 36px "Microsoft YaHei", sans-serif'
-  g.fillText(t('mind_the_gap_between_the_platform_and_train'), 512, 47)
+  drawModelText(g, t('mind_the_gap_between_the_platform_and_train'), 512, 47, 980)
   g.font = '24px sans-serif'
-  g.fillText('Mind the gap between train and platform', 512, 86)
+  drawModelText(g, t('printed_mind_gap_full'), 512, 86, 980)
 }
 
 export function drawPsdDoorBand(g: CanvasRenderingContext2D): void {
@@ -21,9 +22,9 @@ export function drawPsdDoorBand(g: CanvasRenderingContext2D): void {
   g.fillStyle = '#171b1c'
   g.textAlign = 'center'
   g.font = 'bold 36px "Microsoft YaHei", sans-serif'
-  g.fillText(t('mind_the_gap_between_the_platform_and_train'), 320, 47, 620)
+  drawModelText(g, t('mind_the_gap_between_the_platform_and_train'), 320, 47, 600)
   g.font = '22px sans-serif'
-  g.fillText('Mind the gap', 320, 86)
+  g.fillText(t('printed_mind_gap'), 320, 86)
 }
 
 export function drawPsdWarning(g: CanvasRenderingContext2D): void {
@@ -34,10 +35,10 @@ export function drawPsdWarning(g: CanvasRenderingContext2D): void {
   g.fillStyle = '#171b1c'
   g.textAlign = 'center'
   g.font = 'bold 33px "Microsoft YaHei", sans-serif'
-  g.fillText(t('do_not_board_or_alight_when_lights_flash_and_bells_ring'), 320, 57)
-  g.fillText(t('do_not_rush_closing_doors'), 320, 103)
+  drawModelText(g, t('do_not_board_or_alight_when_lights_flash_and_bells_ring'), 320, 57, 590)
+  drawModelText(g, t('do_not_rush_closing_doors'), 320, 103, 590)
   g.font = '19px sans-serif'
-  g.fillText('Stand clear of closing doors', 320, 143)
+  g.fillText(t('printed_closing_doors'), 320, 143)
   // A yellow caution character, matching the shape and palette of the reference.
   g.beginPath()
   g.moveTo(320, 188)
@@ -76,10 +77,10 @@ export function drawPsdWarning(g: CanvasRenderingContext2D): void {
   g.fill()
   g.fillStyle = '#b52630'
   g.font = 'bold 31px "Microsoft YaHei", sans-serif'
-  g.fillText(t('caution_keep_clear'), 320, 416)
+  drawModelText(g, t('caution_keep_clear'), 320, 416, 470)
   g.fillStyle = '#171b1c'
   g.font = '22px sans-serif'
-  g.fillText('CAUTION! Do not touch', 320, 448)
+  g.fillText(t('printed_do_not_touch'), 320, 448)
 }
 
 export function drawPsdArrow(g: CanvasRenderingContext2D, sign: number): void {

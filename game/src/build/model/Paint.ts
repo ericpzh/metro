@@ -1,6 +1,6 @@
 // Build model: paint — face finishes, the 材质 brush and its floods (§4.3).
 
-import { finishOf } from '../../sim/finishes.ts';
+import { DEFAULT_FINISH, finishOf } from '../../sim/finishes.ts';
 import { groundHoleAt } from '../../sim/ground.ts';
 import { blockedCellsByLevel } from '../../sim/placement.ts';
 import { blockReason } from '../validation.ts';
@@ -270,5 +270,5 @@ export function fillSurface(state: StationState, x: number, y: number, z: number
 /** The finish a face currently wears — used by the eyedropper. */
 export function faceFinish(cells: Cell[], x: number, y: number, z: number, face: Face): FinishId {
   const c = cells.find((cc) => cc.x === x && cc.y === y && cc.z === z);
-  return c ? finishOf(c, face) : 'floor.granite';
+  return c ? finishOf(c, face) : DEFAULT_FINISH[face];
 }

@@ -1629,7 +1629,7 @@ html[lang="en"] .depthTag {
      2 × 14 px padding. */
   --sign-gap: 6px;
   --sign-lib: 266px; /* 4 × 56 + 3 × 6 tiles' row, plus the library's padding and border */
-  --sign-work: 440px; /* the widest board a palette builds, plus the cluster under its right end */
+  --sign-work: 440px; /* fixed workspace; compact board marks fit all ten places */
   position: relative;
   z-index: 1;
   display: grid;
@@ -1637,7 +1637,7 @@ html[lang="en"] .depthTag {
   gap: 10px;
   /* Library + gap + workspace + the panel's own 2 × 14 px padding — and on a window too
      narrow for that, the whole window with a hair to spare. */
-  width: min(calc(var(--sign-lib) + var(--sign-gap) + var(--sign-work) + 28px), 96vw);
+  width: min(calc(var(--sign-lib) + 14px + var(--sign-work) + 30px), 96vw);
   /* The height is a constant, and one of the two things that used to jump: the library's shelf
      is as tall as the group that is open, so `auto` made the modal resize at every tab press.
      It is also **sized to the tallest shelf there is**, and to nothing more: a row of four
@@ -1974,27 +1974,32 @@ html[lang="en"] .depthTag {
    and no spare place on the end: the row *is* the panel, read left to right, and a mark
    goes in at whatever place the pointer is over.
    There are **two** of these, one per face: `.signBoards` stacks 正面 over 背面, and each
-   row is its own board. The word for a face sits in a gutter to the **left** of its row, so
-   the two plates line up one over the other — a sign is two faces of one piece of steel, and
-   a caption above each row would read as two separate boards. */
+   row is its own board. Each label sits above its board, leaving the whole workspace
+   width for the marks: front label, front board, back label, back board. */
 .signBoards {
+  /* Nine marks fill the workspace; a tenth shares the same fixed width (§5.8). */
+  --sign-preview-slots: 9;
+  --tile: calc(var(--sign-work) / var(--sign-preview-slots));
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* Keep every mark reachable on a viewport narrower than the fixed modal. */
+  overflow-x: auto;
+  flex-shrink: 0;
 }
-/* A row and the word for it: the caption is a fixed gutter so both rows' plates begin on the
-   same line, and the row itself is the second column. */
+/* A face is two rows: its label, then a board with the full column width. */
 .signFaceRow {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: max-content;
+  gap: 4px;
   align-items: center;
 }
 /* The face's name, and the control that points the palette at it. It reads as a caption
    first and a button second: a row of bins is a board, and the word beside it is which
    board — not a tab in a toolbar. */
 .signFaceLabel {
-  justify-self: end;
+  justify-self: start;
   padding: 2px 7px;
   font-size: 12px;
   letter-spacing: 0.08em;
@@ -2842,3 +2847,34 @@ input[type='range'] {
 .stationNameForm label { display: grid; gap: 5px; font-size: 12px; color: #eaf5ff; }
 .stationNameForm .stationNameInput { width: 100%; box-sizing: border-box; }
 .stationNameActions { display: flex; gap: 8px; }
+
+/* Independent panel folds keep their contents and drafts mounted (§9.6). */
+.main { grid-template-rows: minmax(0, 1fr); transition: grid-template-columns 240ms ease; }
+.main.leftClosed { grid-template-columns: 0px 1fr 300px; }
+.main.rightClosed { grid-template-columns: 232px 1fr 0px; }
+.main.leftClosed.rightClosed { grid-template-columns: 0px 1fr 0px; }
+.sideShell { position: relative; min-width: 0; min-height: 0; z-index: 7; }
+.sideContent { height: 100%; transition: transform 240ms ease, opacity 240ms ease, visibility 240ms; }
+.leftShell .sideContent { width: 232px; }
+.rightShell .sideContent { position: absolute; top: 0; right: 0; width: 300px; }
+.sideContent > .rail, .sideContent > .panel { height: 100%; box-sizing: border-box; }
+.leftClosed .leftShell .sideContent { transform: translateX(-100%); opacity: 0; visibility: hidden; }
+.rightClosed .rightShell .sideContent { transform: translateX(100%); opacity: 0; visibility: hidden; }
+.main { overflow: clip; }
+.collapseButton { display: grid; place-items: center; width: 26px; height: 32px; padding: 0; border: 1px solid var(--line); background: #0b1f36; color: var(--text); }
+.collapseButton:hover { background: #16374f; }
+.collapseButton:focus-visible { outline: 2px solid #4ea8ff; outline-offset: 2px; }
+.sideShell > .collapseButton { position: absolute; top: auto; bottom: 12px; }
+.leftShell > .collapseButton { left: 100%; }
+.rightShell > .collapseButton { right: 100%; }
+.collapseButton.left:not(.open) svg, .collapseButton.right.open svg { transform: rotate(180deg); }
+.collapseButton.up svg { transform: rotate(90deg); }
+.collapseButton.up:not(.open) svg { transform: rotate(-90deg); }
+.viewNavShell { position: absolute; top: 12px; right: 12px; z-index: 6; transition: transform 240ms ease; }
+.viewNavShell.closed { transform: translateX(calc(100% + 16px)); }
+.viewNavShell > .collapseButton { position: absolute; top: 0; right: auto; left: -30px; }
+.viewNavShell .viewNav { position: relative; top: 0; right: 0; transition: opacity 240ms ease, visibility 240ms; }
+.viewNavShell.closed .viewNav { opacity: 0; visibility: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .main, .sideContent, .viewNavShell, .viewNavShell .viewNav { transition: none; }
+}

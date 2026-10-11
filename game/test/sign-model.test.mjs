@@ -321,7 +321,9 @@ test('a wall sign is cut to the face it mounts, never to a back it never prints'
   // mounted, printed or *sized*: the panel is the pair's wider face, so a long back would
   // otherwise cut the piece to a board that is not on it and centre 正面 on that steel.
   // `mountedSignBoards` is the one place that answers it.
-  const longBack = [{ id: 'b1', kind: 'text', text: '往文冲方向的长目的地，请从B口出站换乘公交', x: 0.27, y: 0.35, scale: 1, side: 'both' }]
+  const longBack = Array.from({ length: 9 }, (_, i) => ({
+    id: `b${i + 1}`, kind: 'arrow', arrow: 'right', x: 0, y: 0.35, scale: 1, side: 'both',
+  }))
   const withBack = buildSignMeshes({ front: FRONT, back: longBack }, 'sign-wall')
   const frontOnly = buildSignMeshes({ front: FRONT, back: [] }, 'sign-wall')
   assert.deepEqual(withBack.plates.map((p) => p.face), ['left'], 'the wall board still mounts 正面 alone')

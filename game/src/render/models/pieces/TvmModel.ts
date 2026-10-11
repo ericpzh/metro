@@ -1,4 +1,5 @@
-import { t } from '../../../sim/i18n.ts'
+import { drawModelText } from '../../modelLabels.ts'
+import { getLanguage, t } from '../../../sim/i18n.ts'
 // Ticket vending machine (售票机) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
@@ -16,13 +17,20 @@ function signCanvas(): HTMLCanvasElement {
   g.fillRect(0, 0, 256, 64)
   g.strokeStyle = '#e8b23a'
   g.lineWidth = 3
+  if (getLanguage() === 'en') {
+    g.textAlign = 'center'
+    g.fillStyle = '#e8b23a'
+    g.font = 'bold 30px sans-serif'
+    drawModelText(g, t('tickets'), 128, 42, 224)
+    return c
+  }
   g.strokeRect(40, 6, 56, 52)
   g.fillStyle = '#e8b23a'
   g.font = 'bold 30px "Microsoft YaHei", sans-serif'
   g.fillText(t('tickets'), 48, 46)
   g.fillStyle = '#eef1f4'
   g.font = 'bold 22px sans-serif'
-  g.fillText('Ticket', 118, 42)
+  g.fillText(t('printed_ticket'), 118, 42)
   return c
 }
 

@@ -576,6 +576,8 @@ export function ensureSignLayouts(modules: readonly Module[], lines: SignLineSou
     // before the wall variant existed is, and a sign this repair never has to touch.
     const cfg: Extract<Module, { type: 'sign' }>['cfg'] = { front: boards.front, back: boards.back };
     if (mod.cfg.mount !== undefined) cfg.mount = mod.cfg.mount;
+    if (mod.cfg.boothId !== undefined) cfg.boothId = mod.cfg.boothId;
+    if (mod.cfg.boothOffset !== undefined) cfg.boothOffset = { ...mod.cfg.boothOffset };
     return { ...mod, cfg };
   });
   return changed ? out : [...modules];

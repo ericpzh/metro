@@ -26,8 +26,8 @@ const SITE = join(repo, 'web', 'dist')
 const GAME = join(repo, 'game', 'dist')
 const port = Number(process.argv[2] || 4173)
 
-/** The two prefixes the game answers on: this repo's own, and the deployed one. */
-const GAME_PREFIXES = ['/game', '/metro-game']
+/** The game Worker addresses, plus the local site's /game/ shortcut. */
+const GAME_PREFIXES = ['/metro/game', '/game', '/metro-game']
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -128,5 +128,5 @@ const server = createServer((req, res) => {
 server.listen(port, '127.0.0.1', () => {
   console.log(`preview:  http://127.0.0.1:${port}/`)
   console.log(`  site  <- ${SITE}`)
-  console.log(`  game  <- ${GAME}   (/game/ and /metro-game/)`)
+  console.log(`  game  <- ${GAME}   (/metro/game/, /game/ and /metro-game/)`)
 })

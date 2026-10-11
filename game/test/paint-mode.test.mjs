@@ -21,6 +21,7 @@ test.beforeEach(() => {
     paintBaseMode: 'single',
     paintFinish: 'floor.granite',
     enamelColour: finishDef('wall.enamel').tint,
+    plasterColour: finishDef('wall.plaster').tint,
     moduleType: 'gate',
   })
 })
@@ -58,6 +59,17 @@ test('a fresh 搪瓷板 colour keeps the mode and reaches the brush', () => {
   assert.equal(st().paintMode, 'surface')
   assert.equal(finishBaseId(st().paintFinish), 'wall.enamel')
   assert.equal(finishTint(st().paintFinish), 0xff8800, 'the brush must carry the picked colour, not the previous one')
+})
+
+test('涂料 remembers its own colour and keeps the surface brush mode', () => {
+  st().setPaintMode('surface')
+  st().setEnamelColour(0x1188ee)
+  st().setPlasterColour(0xff8800)
+  st().selectPaintFinish(customFinishId('wall.plaster', st().plasterColour))
+  assert.equal(st().paintMode, 'surface')
+  assert.equal(finishBaseId(st().paintFinish), 'wall.plaster')
+  assert.equal(finishTint(st().paintFinish), 0xff8800)
+  assert.equal(st().enamelColour, 0x1188ee, 'paint and enamel keep independent colours')
 })
 
 test('取色 borrows the brush and hands it back in the mode it was entered with', () => {

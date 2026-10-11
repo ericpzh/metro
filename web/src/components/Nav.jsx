@@ -50,7 +50,7 @@ export default function Nav({ lang, onLang, t }) {
             aria-pressed={lang === 'zh'}
             lang="zh-CN"
           >
-            中文
+            {t.nav.languageZh}
           </button>
           <button
             type="button"
@@ -58,7 +58,7 @@ export default function Nav({ lang, onLang, t }) {
             aria-pressed={lang === 'en'}
             lang="en"
           >
-            EN
+            {t.nav.languageEn}
           </button>
         </div>
       </div>

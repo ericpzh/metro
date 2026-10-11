@@ -698,7 +698,7 @@ export type Module =
    * `cfg.mount` is the same story for the hang: absent — every save written before
    * the wall board existed — reads as the overhead board it was.
    */
-  | (ModuleBase & { type: 'sign'; cfg: { mount?: SignMount; components?: SignLayout; front?: SignLayout; back?: SignLayout } })
+  | (ModuleBase & { type: 'sign'; cfg: { mount?: SignMount; boothId?: string; boothOffset?: { x: number; y: number }; components?: SignLayout; front?: SignLayout; back?: SignLayout } })
   | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom'; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]>; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket' | 'info'; door?: Array<[number, number]>; stocked?: boolean } })

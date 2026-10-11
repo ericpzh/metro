@@ -1,3 +1,4 @@
+import { drawModelText } from './modelLabels.ts'
 import { t } from '../sim/i18n.ts'
 import type { FloorMarkVariant } from '../sim/floorDecor.ts'
 
@@ -49,12 +50,12 @@ export function drawFloorMark(g: CanvasRenderingContext2D, variant: FloorMarkVar
     arrow(g, 384, 210, 190, true)
     g.fillStyle = '#172522'
     g.font = 'bold 32px "Microsoft YaHei", sans-serif'
-    g.fillText(t('alighting_area'), 384, 170)
+    drawModelText(g, t('alighting_area'), 384, 170, 240)
     g.fillStyle = '#f3cf19'
     g.font = 'bold 28px "Microsoft YaHei", sans-serif'
-    g.fillText(t('let_passengers_off_first'), 384, 390)
+    drawModelText(g, t('let_passengers_off_first'), 384, 390, 240)
     g.font = '22px sans-serif'
-    g.fillText('Please queue', 384, 445)
+    g.fillText(t('printed_queue'), 384, 445)
   } else {
     const directionArrow = (inset: number): void => {
       g.beginPath()
@@ -76,6 +77,6 @@ export function drawFloorMark(g: CanvasRenderingContext2D, variant: FloorMarkVar
     g.font = 'bold 65px "Microsoft YaHei", sans-serif'
     g.fillText(line.name, 384, 245, 330)
     g.font = 'bold 34px sans-serif'
-    g.fillText(`Line ${line.id}`, 384, 310, 330)
+    g.fillText(t('printed_line_value', line.id), 384, 310, 330)
   }
 }

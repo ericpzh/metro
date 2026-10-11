@@ -54,6 +54,8 @@ import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 import { deletionTarget } from './deletionTarget.ts'
 import { canPlaceWithoutFloorHit } from './placementInput.ts'
+import { snapSignToBooth } from '../../sim/boothSigns.ts'
+import { boothSignHit } from './boothSignHit.ts'
 
 /** Rotation whose local back points from the stand cell to the hit block. */
 function wallRotationForSide(dx: number, dy: number): number | null {
@@ -71,8 +73,11 @@ export class EquipmentTool extends ToolController {
     if (useStore.getState().moduleType.startsWith('tactile-')) { new TactileTool(this.ctx).onDown(info); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).onDown(info); return }
     const scene = this.ctx.scene()
-    const hit = info.hit
-    if (!scene || !hit) return
+    if (!scene) return
+    const hit = useStore.getState().moduleType === 'sign-wall'
+      ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
+      : info.hit
+    if (!hit) return
     const st = useStore.getState()
     if (info.button === 2 && st.moduleType.startsWith('floor-mark-')) {
       // Vinyl can share a screen-door strip: erase the print the ray hits,
@@ -206,8 +211,11 @@ export class EquipmentTool extends ToolController {
     if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onMove(info); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block') || this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
-    const hit = info.hit
-    if (!scene || !hit) return
+    if (!scene) return
+    const hit = useStore.getState().moduleType === 'sign-wall'
+      ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
+      : info.hit
+    if (!hit) return
     const st = useStore.getState()
     // An in-progress fence drag previews the straight run the release would
     // lay — one panel per cell, snapped to the dominant axis like the wall —
@@ -590,8 +598,11 @@ export class EquipmentTool extends ToolController {
     if (!draft) return { mod: null, noWall: true }
     if (groundExit && hitBlock && draft.type === 'exit') draft.cfg.mountZ = cell[2]
     // A wall 指示牌 whose board is open in the editor draws the board being arranged.
-    const facing = autofaceWallMount(st.station.cells, draft, near)
-    const mod = signModuleWithPreview(facing, st.signPreview)
+    const printed = signModuleWithPreview(draft, st.signPreview)
+    const snapped = printed.type === 'sign' && near
+      ? snapSignToBooth(st.station.modules, printed, near, cell[2])
+      : printed
+    const mod = autofaceWallMount(st.station.cells, snapped, near, st.station.modules)
     return { mod, noWall: wallMountMissing(st.station.cells, mod, st.station.modules) }
   }
 

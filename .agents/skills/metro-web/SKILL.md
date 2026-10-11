@@ -32,6 +32,13 @@ npm run preview:local  # tools/preview.mjs — the built site and game on one or
 
 ## The site
 
+Follow the [repo translation rule](../metro-repo/SKILL.md#repo-rule-translations-use-the-existing-i18n-infrastructure).
+Keep translations in the existing site/art catalogues, including language-switch
+labels and capture-tool output. Use the game's `tForLanguage` in capture tools
+instead of hand-formatting translated templates; use `sheetText` from
+`tools/sheet-i18n.mjs` before drawing when English width affects layout. An
+English-copy change must preserve the Chinese catalogue and default captures.
+
 * `web/src/App.jsx` + `web/src/components/` — `Nav`, `Hero`, `Sheet`, `Rail`,
   `Section`, `Footer`, `GamePage`. One component per region; the gallery is
   data-driven. The left-side `Rail` tracks the current sheet and links to four
@@ -73,7 +80,8 @@ untouched. Bake problems fail the run (missing strings, unescaped markup).
 English is wider than Chinese, so keep translations terse and check the fit with
 `node tools/sheet-png.mjs <name>-en.svg`; `{ t, size }` table values pull a long
 label's font-size down. Exact UI labels use `game/src/sim/i18n/messages.ts`; keep
-sheet-only explanatory copy in the art table. Sheets 06, 07 and 09 must embed
+sheet-only explanatory copy in the art table. Use `sheetText(key, language)` for
+any label measured before drawing (e.g. sheet 09's key chips). Sheets 06, 07 and 09 must embed
 captures in the sheet's locale: run `node tools/render-ui-shots.mjs --lang en`
 and `node tools/render-view-shots.mjs --lang en` for English, then
 `node tools/gen-art.mjs 06 07 09 --en-only` to refresh only English sidecars.

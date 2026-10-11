@@ -21,6 +21,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { messages } from '../game/src/sim/i18n/messages.ts'
+import { tForLanguage } from '../game/src/sim/i18n.ts'
 import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -70,9 +71,10 @@ const REGIONS = {
  * picking the day the station runs, which is what the curve is drawn for.
  */
 const pickDate = (month, day, dayType) => {
-  const label = language === 'en'
-    ? messages.value_value_value.en.replace('{0}', String(month)).replace('{1}', String(day)).replace('{2}', Object.values(messages).find(v => v.zh === dayType).en)
-    : `${month} 月 ${day} 日 ${dayType}`
+  const locale = language === 'en' ? 'en' : 'zh-CN'
+  const dayKey = Object.keys(messages).find(key => messages[key].zh === dayType)
+  if (!dayKey) throw new Error(`Unknown calendar day type: ${dayType}`)
+  const label = tForLanguage(locale, 'value_value_value', month, day, tForLanguage(locale, dayKey))
   return `(() => {
     const el = document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)})
     if (!el) throw new Error('no day button for ${month}/${day} ${dayType}')
@@ -264,7 +266,7 @@ try {
   await waitFor(session.evaluate, '!!window.__scene && !!window.__metro', { what: 'the game' })
   // The demo station builds chunk by chunk; a dressed station takes a few seconds.
   await session.evaluate('new Promise((ok) => setTimeout(ok, 6000))')
-  await session.evaluate(`(() => { window.__metro.getState().renameStation(${JSON.stringify(language === 'en' ? 'Metro station' : '地铁站')}); return true })()`)
+  await session.evaluate(`(() => { window.__metro.getState().renameStation(${JSON.stringify(tForLanguage(language === 'en' ? 'en' : 'zh-CN', 'metro_station'))}); return true })()`)
 
   if (process.argv.includes('--probe')) {
     // What the station actually holds, so a camera can be aimed at real numbers

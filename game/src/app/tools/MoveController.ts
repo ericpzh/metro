@@ -8,6 +8,7 @@ import type { Vec3i } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
+import { boothSignHit } from './boothSignHit.ts'
 
 /**
  * The id a carried piece (移动) wears as a ghost. A translated piece must not mint
@@ -46,7 +47,7 @@ export class MoveController extends ToolController {
     }
     // A left press drops it at the pointer — aimed from the press itself, so a
     // touch that never saw a pointer move still lands where it was tapped.
-    const hit = info.hit
+    const hit = this.signHit(info)
     if (hit) {
       this.ctx.hover.current = {
         cell: hit.cell,
@@ -66,7 +67,7 @@ export class MoveController extends ToolController {
     // the pointer could do — selecting, building, painting — happens until it is
     // dropped or put back.
     const scene = this.ctx.scene()
-    const hit = info.hit
+    const hit = this.signHit(info)
     if (!scene) return
     if (!useStore.getState().moveDraft) {
       const id = this.pickModuleAt(info)
@@ -84,6 +85,15 @@ export class MoveController extends ToolController {
 
   // The drop commits on press; the release owns nothing.
   onUp(_info: PointerInfo): void {}
+
+  private signHit(info: PointerInfo) {
+    const st = useStore.getState()
+    const mod = st.moveDraft?.module
+    const scene = this.ctx.scene()
+    return scene && mod?.type === 'sign' && mod.cfg.mount === 'wall'
+      ? boothSignHit(scene, st.station.modules, info.clientX, info.clientY, info.hit)
+      : info.hit
+  }
 
   /**
    * The cell a carried piece is aimed at: the floor block under the pointer, or —
@@ -159,7 +169,9 @@ export class MoveController extends ToolController {
         else if (dx === -1 && dy === 0) rot = 3
       }
     }
-    const { module: candidate, reason } = moveCandidate(st.station.cells, st.station.modules, current, at, rot)
+    const { module: candidate, reason } = h || !d.candidate
+      ? moveCandidate(st.station.cells, st.station.modules, current, at, rot, h?.point)
+      : { module: d.candidate, reason: d.reason }
     // A ghost carries a private id: a 指示牌's printed plate and a 电视's station
     // plate are cached per module id, and a preview must never mint into the copy a
     // placed piece owns (`setModulePreview` disposes what its ghost created).

@@ -481,6 +481,30 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     }
   }
 
+  // §7.2: diagonal walking costs its real distance, and is legal only inside a
+  // clear 2×2 square. Require both cardinal routes around the square: neither
+  // side may be a hole, obstacle, fare barrier or balustrade. Turnstile approach
+  // remains cardinal so a diagonal cannot slip around its queued lane.
+  const cardinalWalk = new Set(edges.map(e => e.from * nodeCount + e.to))
+  const cardinalAllows = (from: number, to: number): boolean => cardinalWalk.has(from * nodeCount + to)
+  for (let i = 0; i < nodeCount; i++) {
+    const x = nodeX[i] - 0.5, y = nodeY[i] - 0.5, z = nodeZ[i] - 1
+    if (gateModes.has(cellKey(x, y, z))) continue
+    for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nx = x + dx, ny = y + dy
+      const j = nodeIndex.get(cellKey(nx, ny, z))
+      const a = nodeIndex.get(cellKey(nx, y, z))
+      const b = nodeIndex.get(cellKey(x, ny, z))
+      if (j === undefined || a === undefined || b === undefined) continue
+      if (gateModes.has(cellKey(nx, ny, z)) || gateModes.has(cellKey(nx, y, z)) || gateModes.has(cellKey(x, ny, z))) continue
+      if (!cardinalAllows(i, a) || !cardinalAllows(a, j) || !cardinalAllows(i, b) || !cardinalAllows(b, j)) continue
+      if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
+      if (crossesRampWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
+      const speed = (nodeSpeed[i] + nodeSpeed[j]) / 2
+      edges.push({ from: i, to: j, cost: Math.SQRT2 / (WALK_SPEED * speed), kind: KIND_WALK, server: -1 })
+    }
+  }
+
   const nodeAt = (v: { x: number; y: number; z: number }): number => nodeIndex.get(cellKey(v.x, v.y, v.z)) ?? -1
 
   for (const m of data.modules) {
@@ -933,6 +957,8 @@ export interface PendingRequest {
 
 export class PathFinder {
   graph: StationGraph
+  /** Live directional gate forecasts, supplied by the world (§7.2). */
+  gateWait: ((server: ServerDef, dir: GateDir) => number) | null = null
   cache: Map<string, Int32Array> = new Map()
   pending: PendingRequest[] = []
   /**
@@ -1107,7 +1133,19 @@ export class PathFinder {
         if (sv >= 0) ecost += queueWait(servers[sv])
         let ng = gs + ecost
         const gsv = serverForNode.get(nb)
-        if (gsv !== undefined) ng += queueWait(servers[gsv])
+        if (gsv !== undefined) {
+          const s = servers[gsv]
+          if (s.kind === 'gate' && this.gateWait) {
+            // A gate's own painted zone may be either side of the fare line.
+            // Infer the crossing from the approach side and its other neighbours.
+            let dir: GateDir = 0
+            for (let ge = adjStart[nb]; ge < adjStart[nb + 1]; ge++) {
+              dir = crossingDir(ZONES[g.nodeZone[cur]], ZONES[g.nodeZone[adjTo[ge]]])
+              if (dir !== 0) break
+            }
+            ng += this.gateWait(s, dir)
+          } else ng += queueWait(s)
+        }
         if (this.seen[nb] === ep && this.gScore[nb] <= ng) continue
         this.seen[nb] = ep
         this.gScore[nb] = ng

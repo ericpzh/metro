@@ -97,11 +97,21 @@ landing plane. Pin slope clearance and real body overlap in
 
 ### Game language and text layout
 
+Follow the [repo translation rule](../metro-repo/SKILL.md#repo-rule-translations-use-the-existing-i18n-infrastructure)
+for all built-in copy, including 3D decals. English-only wording changes must
+preserve CN entries. Store compact labels in dedicated catalogue keys; do not
+replace canonical direction labels with view-cube abbreviations. Where keys share
+the same Chinese value, keep canonical entries after context-specific entries:
+`translate`'s exact lookup uses the last matching entry.
+
 `src/sim/i18n/messages.ts` owns built-in UI, catalogue, validation and display
 copy (`zh` / `en`). Keep interpolation slots present in both translations.
 `src/sim/i18n.ts` is the pure shared API: `msg(key, ...args)` creates canonical
 Chinese data/notice strings, `t(key, ...args)` creates current-language copy,
 and `translate(value)` presents existing catalogue labels and stored notices.
+Use `tForLanguage(locale, key, ...args)` for explicit-language tool output; never
+change global language merely to format a string. Fixed English captions on
+bilingual signs use `printed_*` catalogue keys with the same value in both locales.
 React views subscribe with `app/i18n.ts`'s `useLanguage()` so open panels and
 errors change immediately. Keep locale out of station saves and worker state;
 switching it must preserve edits, undo history, drafts and the simulation.
@@ -645,6 +655,47 @@ the four rules most changes trip over.
   and a cycling railing / sound-barrier setting; `BridgePillars.ts` owns support sync,
   and the bridge finish applies to the deck alone.
 
+* **Gate waits are forecasts, not queue lengths** (`sim/gateTraffic.ts`,
+  `sim/constants.ts`, `sim/world/World.ts`). `GateTraffic` keeps per-server
+  `queued`/`incoming` counts plus `reservations` for committed walkers inside a
+  `GATE_FORECAST_SECONDS` (12 s) free-flow horizon. `wait` prices each direction
+  separately, adds the opposing wave's drain time, and caps at 600 s; throughput
+  and lane policy are unchanged. `World.rebuild` wires it as `path.gateWait`,
+  `refresh` runs each tick after congestion pricing, and `chooseGate` /
+  `joinServer` / `serve` reserve, join and release. `GATE_REPLAN_PER_TICK` is 8:
+  a deferred choice keeps approaching but never joins a stale queue, and a
+  deferred patience check keeps `wait` and retries next tick (`Agent.patienceWait`
+  vs `wait`). Pin in `game/test/gate-traffic.test.mjs`.
+* **Open floor walks diagonally** (`sim/station.ts`, §7.2). A `2×2` square with
+  four walk nodes and legal cardinal edges in both directions gains both diagonal
+  `KIND_WALK` edges at `√2/(speed)` cost. Gates keep cardinal approaches; exit /
+  ramp / fare checks apply to the diagonal segment too. Pin in
+  `game/test/diagonal-walk.test.mjs`.
+* **Finishes are material categories that paint any face** (`sim/finishes.ts`,
+  `build/model/Paint.ts`). `finishPaletteGroups()` groups `stone` / `metal` /
+  `wood` / `other` (marble, limestone, sandstone, slate, softwood, hardwood,
+  aluminum, obsidian included); `finishesForFace` returns every finish, so any
+  material paints any exposed face. `DEFAULT_MATERIAL` is `floor.concrete` and
+  the brush, roof cladding, stair fallback and pillar shaft default to it;
+  explicitly painted finishes keep their overrides. Granite is pink-red;
+  `wall.soil` stays loadable but left the palette for obsidian. Pin in
+  `game/test/surfaces.test.mjs` + `paint-mode.test.mjs` (independent 涂料/搪瓷板
+  pickers, mode survives tile switches).
+* **Wall signs snap to booth headers** (`sim/boothSigns.ts`, `sim/placement.ts`,
+  `sim/types.ts`). A `sign-wall` with `cfg.boothId`/`boothOffset` is backed by
+  the booth's overhead frame, not by wall courses or a ceiling slab:
+  `snapSignToBooth` picks the nearest face and centres the board with its top
+  flush to the header; `boothSupportsSign` is the backing check; `flatEnvelope`
+  is a 3 mm sheet; the pair is exempt from `placementColliders`. The booth model
+  carries no baked banner (`BoothModel.ts`); the sign model draws ink only for
+  booth mounts. `moveCandidate` takes the pointer point (`near`) so wall signs
+  re-snap while carried. Pin in `game/test/booth-sign.test.mjs`.
+* **Hanging signs are smaller** (`sim/sign.ts`): `PANEL_MIN_H` 0.4 m, nine-arrow
+  capacity at 3.5 m, smaller arrow/line/text/icon geometry. Saved content is
+  vertically centred on reprint; a rejected tenth arrow never enters the hover
+  preview. New `customer-service` drawn mark. Pin in `game/test/sign.test.mjs` +
+  `sign-render.test.mjs`.
+
 ## The document and the demo station
 
 * **Both boundaries repair rather than refuse.** `persistence/save.ts` owns the `metro-save`
@@ -1155,6 +1206,38 @@ the four rules most changes trip over.
   指示牌 preview raises `signVersion` rather than the document's `version`, so a preview stops
   looking like a document edit. In the sim the worker stays quiet while paused with nothing
   `dirty`, and `AgentPool` drops a dead agent's id entry as it recycles the object.
+
+* **Passengers are instanced humans with an eye view** (`src/assets/passenger-human.json`,
+  `src/assets/PASSENGERS.md`, `tools/bake-passengers.mjs`,
+  `render/passengerModel.ts`, `render/scene/systems/CrowdSystem.ts`,
+  `render/scene/systems/CameraSystem.ts`, `app/store/slices/ViewSlice.ts`,
+  `app/windows/inspector/InfoCard.tsx`, `app/Viewport.tsx`). Four CC0 Quaternius
+  outfits baked to a vertex-atlas `InstancedMesh` (one draw, gait by distance,
+  idle when waiting/riding, frozen while paused). `followPassenger(id)` forces
+  隐藏UI + perspective and snapshots the display state; the camera rides
+  `PASSENGER_EYE_HEIGHT` facing travel direction, mouse-drag looks after the
+  entry yaw, Space still pauses, Esc / departure restores everything. The
+  inspector eye chip is the way in; keyboard/pan/tool input is ignored while
+  following. Pin in `game/test/passenger-view.test.mjs`.
+* **Canvas ink shares one shrink-to-fit helper** (`render/modelLabels.ts`):
+  `drawModelText` with `t('printed_*')` captions. No hardcoded English on
+  models, PSD decals, TVMs, floor marks, line maps or signs.
+* **Viewport chrome folds without unmounting** (`app/windows/AppShell.tsx`,
+  `app/windows/shared/CollapseButton.tsx`, `app/ViewCube.tsx`, `styles.css`).
+  Left rail, inspector and view cube each keep an independent hide/show button
+  (`aria-expanded` + `aria-controls`); contents and drafts stay mounted,
+  `prefers-reduced-motion` disables the transition. Compass faces use
+  `compass_*` catalogue keys via `t()`, not view-cube abbreviations.
+* **Touch is tap-on-release plus pinch zoom** (`app/touchZoom.ts`,
+  `app/Viewport.tsx`, `render/scene/systems/CameraSystem.ts`). First finger
+  never builds until release (>8 px = no tap); two fingers drive shared
+  `zoomBy` in both projections; the session owns release/cancel. Pin in
+  `game/test/touch-zoom.test.mjs`.
+* **Wall/ceiling sign aims read the drawn surface** (`app/tools/boothSignHit.ts`,
+  `render/scene/systems/CameraSystem.ts` `pickModuleHit`,
+  `app/tools/EquipmentTool.ts`, `app/tools/MoveController.ts`). `sign-wall`
+  raycasts the module first so a booth header is clickable; open-air aim still
+  reaches wall/ceiling mounts before any floor-hit guard.
 
 ## Current state, and where its history lives
 

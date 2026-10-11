@@ -161,7 +161,7 @@ export class TrackModel extends PieceBuilder {
   readonly kind = 'track'
   build(mod: Extract<Module, { type: 'track' }>): THREE.Group {
     const railWeb = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: 0x62564c, roughness: 0.82, metalness: 0.25 }))
-    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, mod.cfg.bridgeFinish ? this.ctx.finish(mod.cfg.bridgeFinish) : this.ctx.mats.white)
+    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'))
   }
 }
 

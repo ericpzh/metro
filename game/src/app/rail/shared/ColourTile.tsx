@@ -1,6 +1,6 @@
 import { translate } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
-// The colour picker tile for 搪瓷板 (§6.3 custom enamel).
+// The shared colour picker tile for 搪瓷板 and 涂料 (§4.3).
 //
 // It is a palette tile like any other, but its art is a native colour input, so
 // one click opens the OS picker rather than opening a sub-menu. `hexColour` is

@@ -1,3 +1,4 @@
+import { TouchZoom } from './touchZoom.ts'
 import { translate } from '../sim/i18n.ts'
 import { useLanguage } from './i18n.ts'
 // The viewport: owns the SceneRenderer lifecycle and dispatches pointer input
@@ -249,6 +250,7 @@ export function Viewport(): React.ReactElement {
   const hideWalls = useStore((s) => s.hideWalls)
   const hideGround = useStore((s) => s.hideGround)
   const hideRoof = useStore((s) => s.hideRoof)
+  const followAgentId = useStore((s) => s.followAgentId)
   const hideUI = useStore((s) => s.hideUI)
   const ortho = useStore((s) => s.ortho)
   const overlayOn = useStore((s) => s.overlayOn)
@@ -440,6 +442,23 @@ export function Viewport(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    sceneRef.current?.followPassenger(followAgentId, () => useStore.getState().endPassengerView())
+    return () => sceneRef.current?.followPassenger(null)
+  }, [followAgentId])
+
+  useEffect(() => {
+    const exitEyeView = (e: KeyboardEvent): void => {
+      const st = useStore.getState()
+      if (st.followAgentId === null || e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      st.endPassengerView()
+    }
+    window.addEventListener('keydown', exitEyeView, true)
+    return () => window.removeEventListener('keydown', exitEyeView, true)
+  }, [])
+
   // A ghost belongs to a tool; leaving one must not strand a preview — and a piece
   // in the air is put back where it came from, because a lift is not an edit and
   // switching tools is not a way to lose one.
@@ -486,6 +505,10 @@ export function Viewport(): React.ReactElement {
     if (!canvas) return
     const scene = new SceneRenderer(canvas)
     sceneRef.current = scene
+    scene.setPlaying(useStore.getState().playing)
+    const unsubscribePlaying = useStore.subscribe((state, previous) => {
+      if (state.playing !== previous.playing) scene.setPlaying(state.playing)
+    })
     // A fresh scene owns no overlay, so the fingerprint of the last one means
     // nothing to it: the next build has to mint the map again.
     zoneKeyRef.current = ''
@@ -554,6 +577,7 @@ export function Viewport(): React.ReactElement {
     // Chrome's address-bar search and Ctrl+Q quits Firefox.
     const panKeys = new Set(['w', 'a', 's', 'd', 'shift'])
     const onKeyDown = (e: KeyboardEvent): void => {
+      if (useStore.getState().followAgentId !== null) return
       if (isTypingTarget(e.target)) return
       const k = e.key.toLowerCase()
       // **Alt+letter folds a 信息栏 folder** (`rail/helpers.ts` `INSPECTOR_FOLDERS`:
@@ -590,6 +614,7 @@ export function Viewport(): React.ReactElement {
     window.addEventListener('metro:home', onHome)
     window.addEventListener('metro:delete', onDelete)
     return () => {
+      unsubscribePlaying()
       setFrameHandler(null)
       setRouteHandler(null)
       window.removeEventListener('keydown', onKeyDown)
@@ -720,7 +745,25 @@ export function Viewport(): React.ReactElement {
    * as usual. The surface snaps under the mouse for the same reason: a hover
    * lights it up and switches the cursor to a grab hand.
    */
+  const touchZoom = useRef(new TouchZoom())
+  const touchPress = useRef<React.PointerEvent | null>(null)
+
   const onPointerDown = (e: React.PointerEvent): void => {
+    // Defer touch edits until release so the first finger of a pinch never builds.
+    if (e.pointerType === 'touch') {
+      e.preventDefault()
+      e.currentTarget.setPointerCapture(e.pointerId)
+      touchZoom.current.down(e.pointerId, e.clientX, e.clientY)
+      touchPress.current = touchPress.current ?? e
+      cancelActiveDrag()
+      sectionDragRef.current = null
+      return
+    }
+    startPointerTool(e)
+  }
+
+  const startPointerTool = (e: React.PointerEvent): void => {
+    if (useStore.getState().followAgentId !== null) return
     const scene = sceneRef.current
     if (!scene || e.button === 1) return
     // The section surface owns the pointer when it is under it, before any of
@@ -764,6 +807,13 @@ export function Viewport(): React.ReactElement {
   }
 
   const onPointerMove = (e: React.PointerEvent): void => {
+    if (e.pointerType === 'touch') {
+      e.preventDefault()
+      const factor = touchZoom.current.move(e.pointerId, e.clientX, e.clientY)
+      if (factor !== 1) sceneRef.current?.zoomBy(factor)
+      return
+    }
+    if (useStore.getState().followAgentId !== null) return
     if (activeTool === 'move') {
       const rect = canvasRef.current?.getBoundingClientRect()
       if (rect) setMovePointer({ left: e.clientX - rect.left, top: e.clientY - rect.top })
@@ -868,6 +918,15 @@ export function Viewport(): React.ReactElement {
   }
 
   const onPointerUp = (e: React.PointerEvent): void => {
+    if (e.pointerType === 'touch') {
+      e.preventDefault()
+      const tap = touchZoom.current.up(e.pointerId)
+      const press = touchPress.current
+      touchPress.current = null
+      if (!tap || !press || press.pointerId !== e.pointerId || Math.hypot(e.clientX - press.clientX, e.clientY - press.clientY) > 8) return
+      startPointerTool(e)
+    }
+    if (useStore.getState().followAgentId !== null) return
     setBuildMeasure(null)
     // 剖切: the slide ends here. The offset is already in the store (every move
     // committed it), so the release only has to let the surface go.
@@ -931,6 +990,18 @@ export function Viewport(): React.ReactElement {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={(e) => {
+          touchZoom.current.cancel(e.pointerId)
+          touchPress.current = null
+          cancelActiveDrag()
+          sectionDragRef.current = null
+        }}
+        onLostPointerCapture={(e) => {
+          if (e.pointerType === 'touch') {
+            touchZoom.current.cancel(e.pointerId)
+            touchPress.current = null
+          }
+        }}
         onContextMenu={onContextMenu}
         onPointerLeave={() => {
           hoverRef.current = null

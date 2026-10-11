@@ -1,3 +1,4 @@
+import { drawModelText } from '../../modelLabels.ts'
 import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import { PieceBuilder, slab, plate, plateOf, placeLocal, ownedMaterial, canvasTexture, drawMetroMark } from '../PieceBuilder.ts'
@@ -108,7 +109,7 @@ function guideLogoFace(triangular = false, leftSide = false): HTMLCanvasElement 
   const x = triangular ? leftSide ? 150 : 362 : 256
   drawMetroMark(g, x, 218, 140, '#26272a')
   g.fillStyle = '#26272a'; g.textAlign = 'center'; g.font = 'bold 36px "Microsoft YaHei", sans-serif'
-  g.fillText(t('guangzhou_metro'), x, 342)
+  drawModelText(g, t('guangzhou_metro'), x, 342, triangular ? 224 : 448)
   return c
 }
 
@@ -169,7 +170,7 @@ export class GuidepostModel extends PieceBuilder {
     if (typeof document !== 'undefined') {
       const ink = guideFace(labels.station, labels.exit)
       const upper = ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ transparent: true, map: canvasTexture(256, 277, c => c.drawImage(ink, 0, 0, 256, 277, 0, 0, 256, 277)) }))
-      const englishInk = guideEnglishFace(this.ctx.data.nameEn?.trim() || 'Metro Station')
+      const englishInk = guideEnglishFace(this.ctx.data.nameEn?.trim() || t('printed_metro_station'))
       const rear = ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ transparent: true,
         map: canvasTexture(englishInk.width, englishInk.height, c => c.drawImage(englishInk, 0, 0)) }))
       threeFaces(g, 1, [upper, upper, rear], GUIDE_LOGO_TOP, 4, 'guide-station-face')
@@ -193,7 +194,7 @@ function routeFace(name: string): HTMLCanvasElement {
   g.fillStyle = '#9bd058'; g.fillRect(0, 0, 256, 768)
   g.fillStyle = '#f4f3e9'; g.fillRect(0, 0, 256, 120)
   g.fillStyle = '#173f35'; g.font = 'bold 30px "Microsoft YaHei", sans-serif'; g.textAlign = 'center'
-  g.fillText(name, 128, 50, 236); g.font = '24px sans-serif'; g.fillText(t('bus_stop'), 128, 92)
+  g.fillText(name, 128, 50, 236); g.font = '24px sans-serif'; drawModelText(g, t('bus_stop'), 128, 92, 236)
   for (let row = 0; row < 6; row++) {
     const y = 155 + row * 86
     g.fillStyle = '#216549'; g.fillRect(8, y, 46, 56)
@@ -204,7 +205,7 @@ function routeFace(name: string): HTMLCanvasElement {
     g.fillStyle = '#427339'; g.fillRect(65, y + 40, 173, 3)
   }
   g.fillStyle = '#173f35'; g.fillRect(0, 692, 256, 76)
-  g.fillStyle = '#fff'; g.font = '23px "Microsoft YaHei", sans-serif'; g.fillText(t('waiting_area_travel_courteously'), 128, 738)
+  g.fillStyle = '#fff'; g.font = '23px "Microsoft YaHei", sans-serif'; drawModelText(g, t('waiting_area_travel_courteously'), 128, 738, 236)
   return c
 }
 

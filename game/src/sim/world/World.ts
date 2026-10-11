@@ -51,6 +51,7 @@ import {
 } from '../demand.ts'
 import { Rng } from '../rng.ts'
 import { gateLaneAllows } from '../gates.ts'
+import { GateTraffic } from '../gateTraffic.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
 import { liftDoorDir } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
@@ -195,6 +196,7 @@ export class World {
    * and retries next tick, so the wave spreads over ticks instead of stalling one.
    */
   private gateReplans = 0
+  private gateTraffic!: GateTraffic
   /**
    * Patience re-routes spent this tick (`reRouteAroundQueue`). Same rationing as
    * the fare-line choice: without it every impatient agent runs a full synchronous
@@ -317,6 +319,8 @@ export class World {
     this.dayTypeCache.index = Number.NaN
     this.graph = buildGraph(this.data, this.zoneBarriers)
     this.path = new PathFinder(this.graph)
+    this.gateTraffic = new GateTraffic(this.graph)
+    this.path.gateWait = (s, dir) => this.gateTraffic.wait(s, dir)
     // A tail is a list of node ids, so every one of them is stale the moment the
     // graph is re-cut — dropped here rather than left to the identity check in
     // `routeTail`, which only fires on the next preview.
@@ -394,6 +398,8 @@ export class World {
       a.fromNode = -1
       a.destNode = -1
       a.server = -1
+      a.wait = 0
+      a.patienceWait = 0
       a.state = STATE_ARRIVING
       // A rider is *not* unpinned here: the loop above sets a consist's riders
       // down only when its doorways were re-cut, and a rebuild that left them
@@ -1519,6 +1525,7 @@ export class World {
     s.waitCount++
     a.server = -1
     a.wait = 0
+    a.patienceWait = 0
     if (s.exitNode >= 0) {
       const g = this.graph
       a.state = STATE_RIDING
@@ -1545,6 +1552,9 @@ export class World {
 
   private joinServer(a: Agent, serverId: number): void {
     const s = this.graph.servers[serverId]
+    a.wait = 0
+    a.patienceWait = 0
+    if (s.kind === 'gate') this.gateTraffic.join(a, s)
     a.server = serverId
     a.state = STATE_QUEUING
     a.timer = 0
@@ -1708,6 +1718,7 @@ export class World {
     // Price that crowd onto the graph before anything plans against it, so every
     // search this tick sees the same station.
     this.priceCongestion()
+    this.gateTraffic.refresh(this.pool)
     this.gateReplans = 0
     this.rerouteReplans = 0
     // Resolve path requests first, in agent id order.
@@ -1792,7 +1803,8 @@ export class World {
 
   private queueTime(a: Agent): void {
     a.wait += SIM_DT
-    if (a.wait <= a.patience) return
+    a.patienceWait += SIM_DT
+    if (a.patienceWait <= a.patience) return
     const s = a.server >= 0 ? this.graph.servers[a.server] : null
     if (s && s.kind === 'door') {
       // Re-pick the cheapest door (§5.9).
@@ -1820,8 +1832,12 @@ export class World {
     // §7.2's other re-path trigger: a wait past patience re-picks the next-cheapest
     // edge. Keep the place when there is nothing better, and let the patience clock
     // start again rather than asking a synchronous search every tick.
-    this.reRouteAroundQueue(a, s)
-    a.wait = 0
+    // A skipped search retries next tick; a completed check restarts patience
+    // while preserving the total wait if the passenger keeps its queue place.
+    if (s && (s.kind === 'gate' || s.kind === 'lift') && this.rerouteReplans >= REROUTE_REPLAN_PER_TICK) return
+    const moved = this.reRouteAroundQueue(a, s)
+    a.patienceWait = 0
+    if (moved) a.wait = 0
   }
 
   /**
@@ -1843,13 +1859,11 @@ export class World {
     // hand back the same cabin every time.
     if (s.kind === 'lift' && a.needs.stepFree) return false
     if (a.destNode < 0 || a.awaitingPath) return false
-    // Ration the synchronous search like the fare-line choice: `queueTime` calls
-    // this for every agent whose wait passed patience, so an unrationed crush
-    // runs one full A* per impatient agent in the same tick. Skipped agents keep
-    // their place and their patience clock restarts (`queueTime` resets `wait`),
-    // so they retry only after another patience interval.
+    // Bound the synchronous searches (§7.2). A skipped passenger keeps its place
+    // and its overdue patience clock, so the next tick can give it a turn.
     if (this.rerouteReplans >= REROUTE_REPLAN_PER_TICK) return false
-    const from = this.nearestNode(a.x, a.y, a.z)
+    const from = s.kind === 'gate' && a.gateWaitNode >= 0
+      ? a.gateWaitNode : this.nearestNode(a.x, a.y, a.z)
     if (from < 0 || from === a.destNode) return false
     this.rerouteReplans++
     const path = this.path.search(from, a.destNode, a.needs)
@@ -1857,6 +1871,7 @@ export class World {
     if (this.firstQueueServer(path) === s.id) return false
     const idx = s.queue.indexOf(a.id)
     if (idx >= 0) s.queue.splice(idx, 1)
+    if (s.kind === 'gate') this.gateTraffic.leave(a, s)
     a.server = -1
     a.liftBoard = -1
     a.liftDest = -1
@@ -1993,10 +2008,22 @@ export class World {
     // used to skip this check via `atGate` and run one synchronous search per
     // agent in the same tick. A skipped agent retries next tick (`gateChosen`
     // stays false), so the wave spreads over ticks instead of stalling one.
-    if (this.gateReplans >= GATE_REPLAN_PER_TICK) return false
+    if (this.gateReplans >= GATE_REPLAN_PER_TICK) {
+      // Keep walking toward the decision point, but never join a stale gate
+      // queue before the budget gives this passenger a live route check.
+      if (gateAt === a.pathIdx) { a.vx = 0; a.vy = 0; return true }
+      return false
+    }
     this.gateReplans++
     a.gateChosen = true
-    const from = this.nearestNode(a.x, a.y, a.z)
+    this.gateTraffic.release(a)
+    let from = this.nearestNode(a.x, a.y, a.z)
+    // Collision pressure can put the body nearest the gate node itself. Starting
+    // A* there would skip its arrival charge and make that lane look free.
+    const nearServer = this.graph.serverForNode.get(from)
+    if (gateAt > 0 && nearServer !== undefined && this.graph.servers[nearServer].kind === 'gate') {
+      from = a.path[gateAt - 1]
+    }
     if (from < 0 || a.destNode < 0 || from === a.destNode) return true
     const path = this.path.search(from, a.destNode, a.needs)
     if (path && path.length > 0) {
@@ -2007,6 +2034,7 @@ export class World {
         return true
       }
       a.state = STATE_WALKING
+      this.gateTraffic.reserve(a)
       return false
     }
     return true

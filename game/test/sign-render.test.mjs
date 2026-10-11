@@ -50,6 +50,18 @@ function paint(layout, lines = [LINE], face = 'left') {
   return { ops, panel, plate }
 }
 
+test('customer-service pictogram prints as reusable white ink without a caption', () => {
+  const layout = settleSignBins([
+    { id: 'service', kind: 'icon', icon: 'customer-service', x: 0, y: 0, scale: 1, side: 'both' },
+  ]).layout
+  for (const face of ['left', 'right']) {
+    const { ops } = paint(layout, [LINE], face)
+    assert.ok(ops.filled.includes('#f4f7fa'), `${face}: the service-counter figures print`)
+    assert.deepEqual(ops.texts, [], 'wording is supplied separately by the player')
+    assert.deepEqual(ops.drawn, [], 'the pictogram needs no external bitmap')
+  }
+})
+
 test('a fresh sign prints marks, not a black panel', () => {
   const mod = createModule('sign', 2, 3, 0, 'sign-1', 0, undefined, 'up', 'right', [LINE])
   assert.equal(mod.type, 'sign')
@@ -185,6 +197,25 @@ test('the printed ink of a full board is centred, end pads and all', () => {
       `${face}: ink centred — left ${leftGap.toFixed(4)} m vs right ${rightGap.toFixed(4)} m`,
     )
     assert.ok(leftGap > 0.04, `${face}: the leading end keeps its margin (${leftGap.toFixed(4)} m)`)
+  }
+})
+
+test('existing sign content is centred vertically on the shorter panel', () => {
+  const layout = [
+    { id: 'old-arrow', kind: 'arrow', arrow: 'up', x: 0.5, y: 0.35, scale: 1, side: 'both' },
+    { id: 'old-line', kind: 'line', lineId: '5', english: true, x: 1.2, y: 0.35, scale: 1, side: 'both' },
+  ]
+  const panel = signPanelSize(layout)
+  assert.equal(panel.h, 0.4, 'the model and printed face use the shorter panel')
+  const plate = signPlate(panel)
+  for (const face of ['left', 'right']) {
+    const { g, ink } = trackingCanvas(plate.width, plate.height)
+    drawSignPanel(g, layout, { lines: [LINE], panel }, face)
+    const ys = ink().flatMap((p) => p.points.map((point) => point[1]))
+    const top = Math.min(...ys)
+    const bottom = Math.max(...ys)
+    assert.ok(Math.abs((top + bottom) / 2 - plate.height / 2) < 1, `${face}: old marks stay centred`)
+    assert.ok(top > 0 && bottom < plate.height, 'the vertical arrow fits inside the frame')
   }
 })
 

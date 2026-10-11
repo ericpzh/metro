@@ -25,8 +25,10 @@ export interface Agent {
   speed: number
   /** Dwell/service countdown, seconds. */
   timer: number
-  /** Seconds waited in the current queue (metrics + patience). */
+  /** Total seconds waited in the current queue; never reset by a failed re-route. */
   wait: number
+  /** Seconds since the last patience check, separate from measured wait. */
+  patienceWait: number
   patience: number
   trip: Trip
   legs: Array<{ node: number; kind: 'stop' | 'exit' | 'line'; ref: string }>
@@ -136,6 +138,7 @@ export class AgentPool {
     a.speed = 1.34
     a.timer = 0
     a.wait = 0
+    a.patienceWait = 0
     a.patience = this.rng.range(PATIENCE_MIN, PATIENCE_MAX)
     a.trip = trip
     a.legs = []

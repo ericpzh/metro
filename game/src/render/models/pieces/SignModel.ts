@@ -6,6 +6,7 @@ import type { ModuleContext } from '../PieceBuilder.ts'
 import { mountedSignBoards, signBoardsOf, signBoardsPanel, signMountSpec } from '../../../sim/sign.ts'
 import type { SignBoards, SignLayout, SignPanelSize } from '../../../sim/sign.ts'
 import type { Module } from '../../../sim/types.ts'
+import { BOOTH_SIGN_PANEL_Z, BOOTH_SIGN_STAND_OFF } from '../../../sim/boothSigns.ts'
 
 /* ----------------------------------------------------------------- sign */
 
@@ -74,7 +75,7 @@ function buildSign(ctx: ModuleContext, mod: Extract<Module, { type: 'sign' }>): 
   const boards = mountedSignBoards(mod.cfg.mount, signBoardsOf(mod.cfg, ctx.data))
   const panel = signBoardsPanel(boards)
   if (spec.hung) mountHangingSign(ctx, mod, boards, panel, spec.panelZ, g)
-  else mountWallSign(ctx, mod, boards, panel, spec.panelZ, g)
+  else mountWallSign(ctx, mod, boards, panel, mod.cfg.boothId ? BOOTH_SIGN_PANEL_Z : spec.panelZ, g)
   return g
 }
 
@@ -142,6 +143,14 @@ function mountWallSign(
 ): void {
   const W = panel.w
   const H = panel.h
+  if (mod.cfg.boothId) {
+    // The booth header is the backing: attach only the printed sheet (§5.8).
+    if (!signFaceHasInk(boards.front, 'left')) return
+    const mat = ctx.signFace ? ctx.signFace(mod.id, boards.front, 'left', panel) : ctx.mats.signFace
+    const sheet = plate(g, mat, W, H, 0, -0.5 + BOOTH_SIGN_STAND_OFF, zc, Math.PI)
+    sheet.renderOrder = 1
+    return
+  }
   // The body: a dark steel box whose back face is the wall's own plane. It carries no
   // rods — there is nothing overhead to hang from — and the black lightbox is laid
   // **over its front**, a hair thicker, so the front stands proud of the steel (the two
@@ -165,6 +174,11 @@ function signFaceHasInk(layout: SignLayout, face: 'left' | 'right'): boolean {
 export class SignModel extends PieceBuilder {
   readonly kind = 'sign'
   build(mod: Extract<Module, { type: 'sign' }>): THREE.Group {
-    return placeLocal(buildSign(this.ctx, mod), mod)
+    const group = placeLocal(buildSign(this.ctx, mod), mod)
+    if (mod.cfg.mount === 'wall' && mod.cfg.boothId) {
+      group.position.x += mod.cfg.boothOffset?.x ?? 0
+      group.position.y += mod.cfg.boothOffset?.y ?? 0
+    }
+    return group
   }
 }

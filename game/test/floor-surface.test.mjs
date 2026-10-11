@@ -18,7 +18,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
-import { finishMapOf } from '../src/sim/finishes.ts'
+import { DEFAULT_FINISH, finishMapOf } from '../src/sim/finishes.ts'
 import { packKey } from '../src/sim/types.ts'
 import { rampFillKeys } from '../src/sim/openings.ts'
 
@@ -34,7 +34,7 @@ function floorTris(cells) {
   const chunk = meshChunk(buildSolidSet(cells), finishMapOf(cells), 0, 0, 0)
   const out = []
   for (const part of chunk.parts) {
-    if (part.finish !== 'floor.granite') continue
+    if (part.finish !== DEFAULT_FINISH.top) continue
     const P = part.positions
     const I = part.indices
     for (let i = 0; i < I.length; i += 3) {
@@ -193,7 +193,7 @@ function floorTriangles(cells) {
   const chunk = meshChunk(buildSolidSet(cells), finishMapOf(cells), 0, 0, 0, 0, new Set(cells.map((c) => packKey(c.x, c.y, c.z))))
   const out = []
   for (const part of chunk.parts) {
-    if (part.finish !== 'floor.granite') continue
+    if (part.finish !== DEFAULT_FINISH.top) continue
     const P = part.positions
     const N = part.normals
     const I = part.indices

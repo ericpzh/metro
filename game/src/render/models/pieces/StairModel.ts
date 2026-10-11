@@ -1,6 +1,7 @@
 // Stair builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { DEFAULT_MATERIAL } from '../../../sim/finishes.ts'
 import { exitLandingHeight } from './ExitLanding.ts'
 import { StairBlockModel } from './StairBlockModel.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
@@ -97,14 +98,14 @@ const STAIR_SOFFIT_T = 0.06
 /**
  * The finish a stair wears: the one painted on the piece itself (`cfg.finish`,
  * 材质), or else the top finish of the cell at its lower landing, falling back to
- * granite. So a stair in a tiled hall is tiled — unless the player has finished
+ * concrete. So a stair in a tiled hall is tiled — unless the player has finished
  * the staircase by hand, in which case that is what its treads, their risers and
  * its half-landing are made of wherever it stands.
  */
 function stairSurface(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>): THREE.Material {
   if (mod.cfg.finish) return ctx.finish(mod.cfg.finish)
   const at = ctx.data.cells.find((c) => c.x === mod.from.x && c.y === mod.from.y && c.z === mod.from.z)
-  return ctx.finish(at?.finish?.top ?? 'floor.granite')
+  return ctx.finish(at?.finish?.top ?? DEFAULT_MATERIAL)
 }
 
 /**
