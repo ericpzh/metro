@@ -109,8 +109,8 @@ Roof placement coverage in `roof-tool.test.mjs` includes pointer-centred footpri
 1. **Import the source, not a copy.** `import { buildGraph } from '../src/sim/station.ts'`
    — no build step, no bundler, no `dist/`. If a module is hard to test, that is a
    statement about the module: `sim/` is kept pure for exactly this reason.
-2. **Pin a number and say what it means.** `assert.equal(height, 1.25, 'the 闸机 is the
-   reference’s 1250 mm machine, not a 1 m cube')` beats `assert.ok(height > 1)`: the
+2. **Pin a number and say what it means.** `assert.equal(height, 1.02, 'the 闸机 is a
+   1020 mm machine, not a 1 m cube')` beats `assert.ok(height > 1)`: the
    failure message is then the spec, and a reviewer can check it against the source.
 3. **Test the silent failure.** The bugs this suite exists for are the ones that throw
    nothing: a lit pane buried in its own backing (`tv-screen`), a plate that prints no

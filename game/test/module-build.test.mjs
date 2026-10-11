@@ -276,8 +276,8 @@ const track = (cfg) => ({ id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, 
  * being built is invisible in every other way.
  */
 const PIECES = [
-  ['闸机 lane', palette('gate'), 33, '1×0.944×1.25'],
-    ['闸机 fence', palette('gate', 0, 'up', 'fence'), 45, '1.015×0.944×1.25'],
+  ['闸机 lane', palette('gate'), 33, '1×0.944×1.02'],
+    ['闸机 fence', palette('gate', 0, 'up', 'fence'), 45, '1.015×0.944×1.02'],
     ['玻璃围栏', palette('fence'), 18, '1.03×0.11×0.999'],
   ['售票机', palette('tvm'), 32, '0.74×0.671×1.84'],
   ['自动贩卖机', palette('vending'), 58, '0.78×0.701×1.88'],
@@ -610,8 +610,8 @@ test('screen-door slide lanes clear fixed glass, posts and caps in every pose', 
 })
 
 test('the sizes that are contracts hold, and not just the numbers above', () => {
-  // The 闸机 is the reference's 1250 mm machine, not a 1 m cube.
-  assert.equal(round(box(build(palette('gate')).group).getSize(new THREE.Vector3()).z), 1.25)
+  // The 闸机 is a 1020 mm machine, not a 1 m cube.
+  assert.equal(round(box(build(palette('gate')).group).getSize(new THREE.Vector3()).z), 1.02)
 
   // A screen door is drawn to the height the graph reserves for it, so the glass the
   // player sees is the barrier the crowd queues behind.

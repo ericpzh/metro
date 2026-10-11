@@ -224,11 +224,14 @@ the four rules most changes trip over.
   **doorless** machine: the same body with fence on the lane's half (drawn by
   `drawFence`, the shared fence geometry), and `buildGraph` gives it no node and no
   server, so it blocks its cell and crosses no fare line — the piece for finishing a
-  run. `buildGate` (`render/models/`) is the 广州地铁 photo gate: a 1250 mm machine
-  with a 957 mm shoulder and a head tapering at 115° (its top shorter than its base,
-  via `prism`), a stainless body, a navy head carrying the tilted screen, the round
-  reader, the QR window and the lane lights, a black fascia with a single **up** green
-  arrow, and the translucent red leaf.
+  run. `buildGate` (`render/models/`) is the 广州地铁 photo gate in two housings:
+  the default old one is a 1020 mm machine with a 0.80 m shoulder and a head cut
+  short at the reference shoulder angle (its crown lands wider and lower, via
+  `prism`), a stainless body, a navy head carrying the small tilted screen, the
+  round reader, the small QR window and the small lane lights, a black fascia with
+  a single **up** green arrow, and opaque red leaves (their own enamel material —
+  the kit's shared `gateRed` stays translucent for the fittings that borrow it);
+  `gate-new` is the modern rounded stainless housing with the blue belt.
 * **Fences are barriers too** (`sim/fences.ts`, 围栏 §5.2). A fence is a 1 m thin
   panel through its cell's middle and its cell is not a walkable node, so a dragged
   run plus the gate row it plugs into divides the floor into areas the crowd only

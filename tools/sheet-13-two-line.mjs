@@ -140,7 +140,7 @@ export function artTwoLine() {
     ...[38.1, 39.3, 40.5].map(x => ['vending', x, 2.9]),
     ...[31.5, 32.8, 34.1].map(x => ['shelf', x, 2.6]),
     ['bench-steel-1', 9.5, 6.2], ['bench-steel-1', 36.3, 7.6],
-    ...[18.5, 19.5, 20.5, 21.5, 22.5, 23.5].map(x => ['gate', x, 6.4]),
+    ...[18.5, 19.5, 20.5, 21.5, 22.5, 23.5].map(x => ['gate-new', x, 6.4]),
     ...Array.from({ length: 14 }, (_, i) => ['fence', X0 + i + .5, 6.4]),
     ...Array.from({ length: 20 }, (_, i) => ['fence', 24 + i + .5, 6.4]),
   ];

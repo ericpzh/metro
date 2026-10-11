@@ -1,7 +1,7 @@
 // Turnstile (闸机) housings and opposing retracting leaves — GAME-SPEC.md §5.2.
 
 import * as THREE from 'three'
-import { PieceBuilder, slab, plate, plateOf, prism, placeLocal, drawFence, fencePost } from '../PieceBuilder.ts'
+import { C, PieceBuilder, ownedMaterial, slab, plate, plateOf, prism, placeLocal, drawFence, fencePost } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { gateHasLane, gateSolidFaces } from '../../../sim/gates.ts'
 import { rotateLocal } from '../../../sim/track.ts'
@@ -14,9 +14,10 @@ const GATE_D = 0.9
 const GATE_PLINTH_H = 0.08
 const GATE_BODY_TOP = 0.62
 const GATE_SHOULDER = 0.80
-const GATE_H = 1.25
-// The older reader has a long sloping fascia and a short flat crown.
-const GATE_SHOULDER_TILT = Math.atan(0.33 / (GATE_H - GATE_SHOULDER))
+const GATE_H = 1.02
+// The older reader keeps the reference's shoulder angle, cut shorter: the same
+// 0.33 inset over the original 0.45 rise, so the crown lands wider and lower.
+const GATE_SHOULDER_TILT = Math.atan(0.33 / 0.45)
 /** The machine's depth at a height up in the tapered head. */
 function gateDepthAt(z: number): number {
   return GATE_D - 2 * (z - GATE_SHOULDER) * Math.tan(GATE_SHOULDER_TILT)
@@ -87,26 +88,26 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
       // All reader details follow the fascia plane, rather than standing on
       // the vertical front. The NFC circle is printed ink, not a raised button.
       const onSlope = (z: number, offset = 0.002) => fy * (gateDepthAt(z) / 2 + offset)
-      const fascia = plate(g, mats.gateNavy, 0.25, 0.47, cx, onSlope(1.005), 1.005, yaw, GATE_SHOULDER_TILT)
+      const fascia = plate(g, mats.gateNavy, 0.22, 0.18, cx, onSlope(0.89), 0.89, yaw, GATE_SHOULDER_TILT)
       fascia.name = 'old-reader-fascia'
-      plate(g, mats.black, 0.215, 0.145, cx, onSlope(1.125, 0.004), 1.125, yaw, GATE_SHOULDER_TILT)
-      plate(g, mats.trainGlass, 0.18, 0.11, cx, onSlope(1.125, 0.005), 1.125, yaw, GATE_SHOULDER_TILT)
-      const sticker = plateOf(g, new THREE.CircleGeometry(0.067, 32), mats.white, cx, onSlope(0.985, 0.004), 0.985, yaw, GATE_SHOULDER_TILT)
+      plate(g, mats.black, 0.18, 0.075, cx, onSlope(0.93, 0.004), 0.93, yaw, GATE_SHOULDER_TILT)
+      plate(g, mats.trainGlass, 0.15, 0.055, cx, onSlope(0.93, 0.005), 0.93, yaw, GATE_SHOULDER_TILT)
+      const sticker = plateOf(g, new THREE.CircleGeometry(0.038, 32), mats.white, cx, onSlope(0.845, 0.004), 0.845, yaw, GATE_SHOULDER_TILT)
       sticker.name = 'reader-sticker'
-      for (const radius of [0.025, 0.041]) {
-        plateOf(g, new THREE.RingGeometry(radius, radius + 0.002, 32), mats.gateNavy, cx, onSlope(0.985, 0.0045), 0.985, yaw, GATE_SHOULDER_TILT)
+      for (const radius of [0.014, 0.023]) {
+        plateOf(g, new THREE.RingGeometry(radius, radius + 0.002, 32), mats.gateNavy, cx, onSlope(0.845, 0.0045), 0.845, yaw, GATE_SHOULDER_TILT)
       }
-      plate(g, mats.gateNavy, 0.022, 0.026, cx, onSlope(0.985, 0.005), 0.985, yaw, GATE_SHOULDER_TILT)
+      plate(g, mats.gateNavy, 0.013, 0.015, cx, onSlope(0.845, 0.005), 0.845, yaw, GATE_SHOULDER_TILT)
       // QR/token reader below the sloped card reader, inset into its dark bezel.
-      slab(g, mats.black, cx, at(0.005), 0.70, 0.15, 0.018, 0.11)
-      plate(g, mats.blue, 0.115, 0.075, cx, at(0.015), 0.70, yaw)
-      plate(g, mats.white, 0.093, 0.060, cx, at(0.016), 0.70, yaw)
-      plate(g, mats.black, 0.018, 0.018, cx, at(0.017), 0.70, yaw)
+      slab(g, mats.black, cx, at(0.005), 0.70, 0.11, 0.018, 0.08)
+      plate(g, mats.blue, 0.088, 0.058, cx, at(0.015), 0.70, yaw)
+      plate(g, mats.white, 0.070, 0.044, cx, at(0.016), 0.70, yaw)
+      plate(g, mats.black, 0.014, 0.014, cx, at(0.017), 0.70, yaw)
     }
     // Each approach face points diagonally down toward the lane beside it.
-    slab(g, mats.black, cx, at(0.008), 0.44, 0.20, 0.024, 0.27)
+    slab(g, mats.black, cx, at(0.008), 0.44, 0.15, 0.024, 0.20)
     const allowed = lane && (mod.cfg.dir === 'both' || (fy === -1 ? mod.cfg.dir === 'in' : mod.cfg.dir === 'out'))
-    const indicator = plate(g, allowed ? (fy === -1 ? mats.gatePanel : mats.gatePanelBack) : mats.gateCross, 0.18, 0.23, cx, at(0.022), 0.44, yaw)
+    const indicator = plate(g, allowed ? (fy === -1 ? mats.gatePanel : mats.gatePanelBack) : mats.gateCross, 0.13, 0.17, cx, at(0.022), 0.44, yaw)
     indicator.name = allowed ? 'entry-arrow' : 'no-entry-cross'
     indicator.renderOrder = 3
   }
@@ -115,6 +116,9 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
     wings.name = 'wing'
     g.add(wings)
     g.userData.wing = wings
+    // The leaves are solid enamel, not the kit's translucent red: the shared
+    // `gateRed` stays transparent for the fittings that borrow it elsewhere.
+    const leafMat = ownedMaterial(ctx, new THREE.MeshStandardMaterial({ color: C.gateRed, roughness: 0.35, metalness: 0.1, side: THREE.DoubleSide }))
     const fullW = (0.5 - inner) / 2
     for (const [edgeX, sign] of [[inner, 1], [0.5, -1]]) {
       // Fan-shaped flaps: broad curved top, short lower edge and an angled
@@ -135,7 +139,7 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
         pos.setXYZ(i, sign * (x - fullW / 2), thickness - 0.0175, height)
       }
       geom.computeVertexNormals()
-      const wing = new THREE.Mesh(geom, mats.gateRed)
+      const wing = new THREE.Mesh(geom, leafMat)
       wing.position.z = 0.64
       wings.add(wing)
       wing.name = sign === 1 ? 'left-leaf' : 'right-leaf'

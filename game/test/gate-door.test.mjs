@@ -205,14 +205,15 @@ test('the head is a trapezoid — its top is shorter than its base', () => {
   const { base, top, z0, z1 } = taperOf(head)
   assert.ok(Math.abs(base - 0.9) < 1e-6, `base depth was ${base}`)
   assert.ok(top < base, `the top must be shorter than the base (${top} vs ${base})`)
-  // The long reader slope begins at 0.8 m and leaves a short crown.
+  // The reader slope begins at 0.8 m with the reference's shoulder angle, cut
+  // shorter: the crown lands wider and lower than the old tall head.
   const offVertical = (Math.atan((base - top) / 2 / (z1 - z0)) * 180) / Math.PI
   assert.ok(Math.abs(offVertical - 36.254) < 0.5, `shoulder was ${offVertical.toFixed(1)}° off vertical`)
-  assert.ok(Math.abs(z0 - 0.80) < 1e-6, 'the longer sloped fascia starts at 0.8 m')
-  assert.ok(top < 0.31, 'the crown is shorter than the former broad top')
-  // …and the machine is the reference's 1250 mm overall, not a 1 m cube.
+  assert.ok(Math.abs(z0 - 0.80) < 1e-6, 'the sloped fascia starts at 0.8 m')
+  assert.ok(Math.abs(top - 0.636) < 0.005, `the cut crown was ${top}`)
+  // …and the machine is 1020 mm overall, not a 1 m cube.
   const all = bodyBox(group)
-  assert.ok(Math.abs(all.max.z - all.min.z - 1.25) < 1e-6, `height was ${all.max.z - all.min.z}`)
+  assert.ok(Math.abs(all.max.z - all.min.z - 1.02) < 1e-6, `height was ${all.max.z - all.min.z}`)
 })
 
 test('R is the mirror: a half turn puts the machine on the other hand', () => {
@@ -291,6 +292,10 @@ test('new and old gates have slim bodies, split leaves and approach indicators',
     assert.ok(bodyBox(g).max.x < 0.5, 'the cabinet stays in its own half')
     const leaves = g.userData.wing.children
     assert.equal(leaves.length, 2)
+    for (const leaf of leaves) {
+      assert.equal(leaf.material.transparent, false, `${variant}: the leaves are solid enamel, not the kit's translucent red`)
+      assert.equal(leaf.material.opacity, 1, `${variant}: opaque leaves`)
+    }
     const leafGeometry = leaves[0].geometry
     leafGeometry.computeBoundingBox()
     assert.ok(leafGeometry.boundingBox.max.z - leafGeometry.boundingBox.min.z < 0.44, 'smaller red doors')
@@ -341,7 +346,7 @@ test('gate styles survive saves and stay separate when swept', () => {
 })
 
 
-test('old front has a flat sticker on its long sloped fascia and no status lamps', () => {
+test('old front has a flat sticker on its short sloped fascia and no status lamps', () => {
   const ctx = ctxFor([])
   const g = buildModule(gate('lane'), ctx)
   const stickers = g.children.filter((m) => m.name === 'reader-sticker')
@@ -349,7 +354,7 @@ test('old front has a flat sticker on its long sloped fascia and no status lamps
   assert.equal(g.children.filter((m) => m.name === 'old-reader-fascia').length, 2)
   for (const sticker of stickers) {
     assert.equal(sticker.geometry.type, 'CircleGeometry', 'printed circle has no cylindrical thickness')
-    assert.equal(sticker.position.z, 0.985, 'sticker sits between the screen and lower fascia')
+    assert.equal(sticker.position.z, 0.845, 'sticker sits between the screen and lower fascia')
     assert.ok(Math.abs(sticker.rotation.x - (Math.PI / 2 - Math.atan(0.33 / 0.45))) < 1e-6, 'sticker follows the slanted face')
     const faceY = 0.45 - (sticker.position.z - 0.80) * 0.33 / 0.45
     assert.ok(Math.abs(Math.abs(sticker.position.y) - faceY - 0.004) < 1e-6, 'sticker is flush with the fascia')

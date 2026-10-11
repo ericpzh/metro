@@ -78,6 +78,8 @@ const VIEWS = HERO ? {
   'escalator-x': { modelId: 'escalator', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1] },
   'stair-straight-x': { modelId: 'stair-straight', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1] },
   gate: { from: 'iso', padding: 1.12 },
+  // Sheet 13's concourse bank is the modern housing; sheet 01 keeps `gate`.
+  'gate-new': { modelId: 'gate-new', from: 'iso', padding: 1.12 },
   fence: { from: 'iso' },
   'fence-end': { modelId: 'fence', from: 'iso', rotationZ: 90 },
   guidepost: { from: 'iso', rotationZ: 180 },
