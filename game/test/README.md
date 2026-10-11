@@ -88,8 +88,9 @@ both booth types, footprint bounds and translation. `sign-render` covers the reu
 customer-service pictogram.
 `booth-sign` checks wall signs snapping to either booth's header, all four faces,
 centred geometry and collision bounds, saving, moving and missing support.
-Snapped signs render only the printed sheet with 3 mm of surface clearance; it also
-drives the real camera ray, including its block-occlusion rule.
+Wall signs render only the printed sheet with 3 mm of surface clearance, including ordinary wall
+mounts in all rotations; booth signs keep the same thin sheet. The suite also drives the real camera
+ray, including its block-occlusion rule.
 
 The suites, by the thing they are about. Each one's full description is in
 `../README.md`'s test list — that list is the detail, this is the map:

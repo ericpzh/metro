@@ -37,7 +37,7 @@ import { billboardSpec } from './billboards.ts'
 import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
 import { escalatorLandings } from './escalators.ts'
 import { PANEL_MIN_H, mountedSignBoards, signBoardsOf, signBoardsPanel, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
-import { BOOTH_SIGN_PANEL_Z, BOOTH_SIGN_STAND_OFF, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
+import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
 import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
@@ -293,29 +293,40 @@ function flatEnvelope(m: Module): ModuleBox | null {
     }
     case 'sign': {
       // A **hanging** 指示牌 spans the whole storey column, like the 电视 and the
-      // clock above. A **wall** board is bolted flat to the wall behind it, so it
-      // reserves what a 广告牌 reserves — a thin slab on that wall, over the band its
-      // own panel crosses — and the air under it (a 座椅) and the room in front of it
-      // stay the room's, which is the whole difference between the two mounts.
+      // clock above. A **wall** board reserves only its printed sheet's 3 mm stand-off
+      // on the wall and the band the panel crosses; the air below and in front stays
+      // available, which is the whole difference between the two mounts.
       if (isCeilingHung(m)) return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT.sign }
       const spec = signMountSpec(m.cfg.mount)
       const half = PANEL_MIN_H / 2
       const panelZ = m.cfg.boothId ? BOOTH_SIGN_PANEL_Z : spec.panelZ
+      const width = signBoardsPanel(mountedSignBoards('wall', signBoardsOf(m.cfg))).w
       if (m.cfg.boothId) {
-        const width = signBoardsPanel(mountedSignBoards('wall', signBoardsOf(m.cfg))).w
         const dx = m.cfg.boothOffset?.x ?? 0, dy = m.cfg.boothOffset?.y ?? 0
         const rot = normRot(m.rot)
         const cx = m.x + 0.5 + dx, cy = m.y + 0.5 + dy
         const [sx, sy] = wallSide(rot)
         const bx = cx + sx * 0.5, by = cy + sy * 0.5
         // Reserve only the tiny gap from the header to the printed sheet.
-        return { x0: rot % 2 ? Math.min(bx, bx - sx * BOOTH_SIGN_STAND_OFF) : cx - width / 2,
-          x1: rot % 2 ? Math.max(bx, bx - sx * BOOTH_SIGN_STAND_OFF) : cx + width / 2,
-          y0: rot % 2 ? cy - width / 2 : Math.min(by, by - sy * BOOTH_SIGN_STAND_OFF),
-          y1: rot % 2 ? cy + width / 2 : Math.max(by, by - sy * BOOTH_SIGN_STAND_OFF),
+        return { x0: rot % 2 ? Math.min(bx, bx - sx * WALL_SIGN_STAND_OFF) : cx - width / 2,
+          x1: rot % 2 ? Math.max(bx, bx - sx * WALL_SIGN_STAND_OFF) : cx + width / 2,
+          y0: rot % 2 ? cy - width / 2 : Math.min(by, by - sy * WALL_SIGN_STAND_OFF),
+          y1: rot % 2 ? cy + width / 2 : Math.max(by, by - sy * WALL_SIGN_STAND_OFF),
           z0: z0 + panelZ - half, z1: z0 + panelZ + half }
       }
-      return wallPanelBox(m, [[m.x, m.y, m.z]], z0 + panelZ - half, z0 + panelZ + half)
+      // A wall-mounted wayfinding sign is just its printed sheet, held 3 mm clear
+      // of the backing to prevent z-fighting; reserve that thin plane, not a box.
+      const rot = normRot(m.rot)
+      const [sx, sy] = wallSide(rot)
+      const cx = m.x + 0.5, cy = m.y + 0.5
+      const wallX = cx + sx * 0.5, wallY = cy + sy * 0.5
+      return {
+        x0: rot % 2 ? Math.min(wallX, wallX - sx * WALL_SIGN_STAND_OFF) : cx - width / 2,
+        x1: rot % 2 ? Math.max(wallX, wallX - sx * WALL_SIGN_STAND_OFF) : cx + width / 2,
+        y0: rot % 2 ? cy - width / 2 : Math.min(wallY, wallY - sy * WALL_SIGN_STAND_OFF),
+        y1: rot % 2 ? cy + width / 2 : Math.max(wallY, wallY - sy * WALL_SIGN_STAND_OFF),
+        z0: z0 + panelZ - half, z1: z0 + panelZ + half,
+      }
     }
     case 'billboard': {
       // A 广告牌 is **bolted to a wall**, so what it reserves is the panel on that

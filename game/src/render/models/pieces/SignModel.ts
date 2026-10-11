@@ -6,25 +6,12 @@ import type { ModuleContext } from '../PieceBuilder.ts'
 import { mountedSignBoards, signBoardsOf, signBoardsPanel, signMountSpec } from '../../../sim/sign.ts'
 import type { SignBoards, SignLayout, SignPanelSize } from '../../../sim/sign.ts'
 import type { Module } from '../../../sim/types.ts'
-import { BOOTH_SIGN_PANEL_Z, BOOTH_SIGN_STAND_OFF } from '../../../sim/boothSigns.ts'
+import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF } from '../../../sim/boothSigns.ts'
 
 /* ----------------------------------------------------------------- sign */
 
-/** How deep the board's own dark body is, metres (the hung panel's thickness). */
+/** How deep the hung board's own dark body is, metres. */
 const BOARD_T = 0.08
-
-/**
- * The wall body's own thickness, metres — its back face is **flush with the wall** and
- * its front is this far into the room, so the piece stands off the wall by its body
- * rather than by a bracket (the hung body is the thinner `BOARD_T`). The same frameless
- * steel box the hung board is, bolted flat: a housing, a black lightbox and the lit
- * plate a few centimetres proud of it, exactly as a 广告牌 mounts its poster.
- */
-const WALL_BODY_DEPTH = 0.16
-
-/** How far the lit plate stands off the **lightbox**'s face, metres (so its own face is
- * `blackT` + this off the steel). */
-const FACE_STAND_OFF = 0.025
 
 /**
  * Wayfinding sign (指示牌, 装饰), in the two mounts `sim/sign.ts` describes:
@@ -37,13 +24,14 @@ const FACE_STAND_OFF = 0.025
  *    R aims it along the concourse or across it.
  *  * **墙面** (`cfg.mount: 'wall'`) — the same board bolted flat to the wall on the
  *    piece's local −y face, at the eye height `SIGN_WALL_PANEL_Z` names, read from the
- *    room it faces. It hangs on nothing and so carries no rods: the body's own back
- *    is the wall. Its wall is the placement rotation's, exactly as a 广告牌's is, so
+ *    room it faces. It hangs on nothing and so carries no rods or housing; its printed
+ *    sheet sits 3 mm proud of the wall. Its wall is the placement rotation's, exactly
+ *    as a 广告牌's is, so
  *    `autofaceWallMount` can turn it and the rule that asks for backing and the model
  *    that draws the panel agree about which way it faces.
  *
  * Either way the panel is **cut to the content the mount carries**
- * (`mountedSignBoards` → `signBoardsPanel`): a wide board is a wide piece of steel, and
+ * (`mountedSignBoards` → `signBoardsPanel`): a wide board is a wide panel, and
  * on the hung board — the one that mounts both faces — a short back prints on the same
  * panel as a long front, while a wall board is sized to its 正面 alone however long a
  * back its `cfg` still carries.
@@ -57,9 +45,8 @@ const FACE_STAND_OFF = 0.025
  * back read correctly from behind without any redrawing of the plate. A **wall**
  * board has one face: the wall is behind it, so `cfg.back` is not read at all.
  *
- * A face with nothing on it is **not** mounted at all, and the model's own black
- * lightbox shows through: that is what the back of a freshly placed sign is, and
- * what a genuinely one-way sign is from behind.
+ * A face with nothing on it is **not** mounted at all. The hung sign's black lightbox
+ * shows through on its unprinted back; a wall sign shows the wall behind its sheet.
  */
 function buildSign(ctx: ModuleContext, mod: Extract<Module, { type: 'sign' }>): THREE.Group {
   const g = new THREE.Group()
@@ -67,8 +54,7 @@ function buildSign(ctx: ModuleContext, mod: Extract<Module, { type: 'sign' }>): 
   // document, or one that lost its own — prints the station's default board on the
   // **front** rather than a blank face, which is the board `toState` backfills it
   // with. The front is the one face that is never allowed to be empty: a sign with
-  // nothing on either side is a black rectangle in the station with nothing
-  // anywhere to say why.
+  // nothing on either side has no message to show.
   const spec = signMountSpec(mod.cfg.mount)
   // The boards the **mount** actually mounts: a wall board is 正面 alone, so a stray back
   // in the document can neither widen its steel nor shift its plate (`mountedSignBoards`).
@@ -124,13 +110,11 @@ function mountHangingSign(
 }
 
 /**
- * The **wall** board: the same panel bolted flat to the local −y wall at eye height,
- * with 正面 on the one face a passenger can read.
+ * The **wall** board: its printed sheet sits just off the local −y wall at eye height,
+ * with 正面 on the one face a passenger can read. There is no housing behind it.
  *
- * The body's back face sits **on** the wall's plane (local y = −0.5 is the cell's own
- * edge, which is where a wall block's face is), so the panel is flush with the wall
- * it is bolted to rather than floating in front of it, and the room in front of it is
- * the room's — which is what `flatEnvelope`'s thin slab on a wall reserves.
+ * The wall is its only backing; omitting the steel body keeps the sign close to the
+ * wall while leaving the room in front of it clear.
  */
 function mountWallSign(
   ctx: ModuleContext,
@@ -147,22 +131,15 @@ function mountWallSign(
     // The booth header is the backing: attach only the printed sheet (§5.8).
     if (!signFaceHasInk(boards.front, 'left')) return
     const mat = ctx.signFace ? ctx.signFace(mod.id, boards.front, 'left', panel) : ctx.mats.signFace
-    const sheet = plate(g, mat, W, H, 0, -0.5 + BOOTH_SIGN_STAND_OFF, zc, Math.PI)
+    const sheet = plate(g, mat, W, H, 0, -0.5 + WALL_SIGN_STAND_OFF, zc, Math.PI)
     sheet.renderOrder = 1
     return
   }
-  // The body: a dark steel box whose back face is the wall's own plane. It carries no
-  // rods — there is nothing overhead to hang from — and the black lightbox is laid
-  // **over its front**, a hair thicker, so the front stands proud of the steel (the two
-  // back faces coincide on the wall plane by design: that plane *is* the wall, and the
-  // steel is what it shows from inside the room).
-  const blackT = WALL_BODY_DEPTH + 0.012
-  slab(g, ctx.mats.darkSteel, 0, -0.5 + WALL_BODY_DEPTH / 2, zc, W, WALL_BODY_DEPTH, H)
-  slab(g, ctx.mats.black, 0, -0.5 + blackT / 2, zc, W - 0.03, blackT, H - 0.03)
-  // 正面, facing into the room. A wall sign has no second face: the wall is behind it.
+  // 正面, facing into the room. The wall itself backs this plate; a box here would
+  // stand proud of the wall and obscure adjacent equipment in a narrow passage.
   if (!signFaceHasInk(boards.front, 'left')) return
   const mat = ctx.signFace ? ctx.signFace(mod.id, boards.front, 'left', panel) : ctx.mats.signFace
-  const mesh = plate(g, mat, W - 0.06, H - 0.06, 0, -0.5 + blackT + FACE_STAND_OFF, zc, Math.PI)
+  const mesh = plate(g, mat, W, H, 0, -0.5 + WALL_SIGN_STAND_OFF, zc, Math.PI)
   mesh.renderOrder = 1
 }
 

@@ -8,8 +8,8 @@ type Booth = Extract<Module, { type: 'booth' }>
 /** Align the sign's top with the booth header, rather than the glazing below it. */
 export const BOOTH_SIGN_PANEL_Z = 2.4 - PANEL_MIN_H / 2
 
-/** Keep the printed sheet clear of the header surface without a lightbox housing. */
-export const BOOTH_SIGN_STAND_OFF = 0.003
+/** Keep the printed wall sheet clear of its backing without a housing. */
+export const WALL_SIGN_STAND_OFF = 0.003
 
 function faceAnchor(booth: Booth, rot: number): { x: number; y: number; z: number; rot: number } {
   const cx = Math.floor(booth.x + booth.w / 2 - 0.5)

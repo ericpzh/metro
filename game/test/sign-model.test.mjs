@@ -106,8 +106,8 @@ const STATION = toState({
  * state the two faces as the two boards they are, including an empty back. `type` picks
  * the mount, which is the piece's own (`sign-ceiling` / `sign-wall`).
  */
-function buildSignMeshes(boards = { front: [], back: [] }, type = 'sign') {
-  const mod = createModule(type, 2, 3, 0, `sign-${type}`, 0, undefined, 'up', 'right', [LINE], boards)
+function buildSignMeshes(boards = { front: [], back: [] }, type = 'sign', rot = 0) {
+  const mod = createModule(type, 2, 3, 0, `sign-${type}`, rot, undefined, 'up', 'right', [LINE], boards)
   assert.equal(mod.type, 'sign')
   const plates = []
   const mats = createModelMaterials()
@@ -292,11 +292,11 @@ test('a wall sign is a panel on the wall: one lit face into the room, and no rod
   assert.equal(lit[0].material?.isMeshBasicMaterial, true, 'and it wears a material, not a bare texture')
   assert.equal(Math.round(faceNormalY(lit[0])), 1, 'facing the room, not the wall')
 
-  // The piece is the panel and nothing above it: the hung board is the same panel plus
-  // two rods and their two ceiling plates, so five meshes fewer is exactly "there is no
-  // suspension".
+  // A wall board is only its printed sheet. It has neither the hung board's rods nor
+  // the steel and black boxes that remain on a ceiling-hung sign.
   const hung = buildSignMeshes({ front: FRONT, back: BACK })
-  assert.equal(hung.meshes.length - wall.meshes.length, 5, 'the wall board carries no rods')
+  assert.equal(wall.meshes.length, 1, 'the sticking sign is only its printed plane')
+  assert.equal(wall.meshes[0].geometry.type, 'PlaneGeometry')
 
   // It is bolted **on** the wall: the piece's own back face is the wall's plane (the
   // cell's −y edge, local y = −0.5), so no part of the body floats in front of it, and
@@ -306,8 +306,8 @@ test('a wall sign is a panel on the wall: one lit face into the room, and no rod
   const mm = (n) => Math.round(n * 1000) / 1000
   const wallBox = new THREE.Box3().setFromObject(wall.group)
   const hungBox = new THREE.Box3().setFromObject(hung.group)
-  assert.equal(mm(wallBox.min.y), 3, 'the body’s back face is the wall plane')
-  assert.ok(wallBox.max.y - wallBox.min.y < 0.25, `and its own body is the only thing proud of it (${(wallBox.max.y - wallBox.min.y).toFixed(3)} m)`)
+  assert.equal(mm(wallBox.min.y), 3.003, 'the printed sheet sits 3 mm proud of the wall')
+  assert.ok(wallBox.max.y - wallBox.min.y < 0.001, 'the wall sign has no projecting back box')
   assert.equal(mm(wallBox.min.z - 1), mm(SIGN_WALL_PANEL_Z - PANEL_MIN_H / 2), 'the panel’s foot is the course line its backing rule asks from')
   assert.equal(mm(wallBox.max.z - 1), mm(SIGN_WALL_PANEL_Z + PANEL_MIN_H / 2), 'and its head the next one')
   assert.ok(Math.abs(hungBox.max.z - 4) < 0.06, 'the hung board still reaches the ceiling its rods bolt to')
@@ -318,8 +318,8 @@ test('a wall sign is a panel on the wall: one lit face into the room, and no rod
 test('a wall sign is cut to the face it mounts, never to a back it never prints', () => {
   // A wall board has the wall behind it, so 背面 is not mounted — and a **back the
   // document still carries** (an imported or hand-written save's) must therefore not be
-  // mounted, printed or *sized*: the panel is the pair's wider face, so a long back would
-  // otherwise cut the piece to a board that is not on it and centre 正面 on that steel.
+  // mounted, printed or *sized*: the panel follows 正面, so a long back cannot change the
+  // printed sheet that is actually on the wall.
   // `mountedSignBoards` is the one place that answers it.
   const longBack = Array.from({ length: 9 }, (_, i) => ({
     id: `b${i + 1}`, kind: 'arrow', arrow: 'right', x: 0, y: 0.35, scale: 1, side: 'both',
@@ -333,9 +333,20 @@ test('a wall sign is cut to the face it mounts, never to a back it never prints'
     'the panel is the front’s own, not the wider pair’s',
   )
   const width = (r) => Math.round(new THREE.Box3().setFromObject(r.group).max.x * 1000)
-  assert.equal(width(withBack), width(frontOnly), 'and the drawn body is that panel wide either way')
+  assert.equal(width(withBack), width(frontOnly), 'and the drawn sheet is that panel wide either way')
   // The hung board is the pair's, as it always was: it really does mount both faces.
   const hung = buildSignMeshes({ front: FRONT, back: longBack })
   assert.deepEqual(hung.plates.map((p) => p.face), ['left', 'right'], 'the hung board still mounts both')
   assert.ok(hung.plates[0].canvas.width > frontOnly.plates[0].canvas.width, 'and is cut to the longer of the two')
+})
+
+test('sticking signs stay as a thin printed sheet at every wall rotation', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const { group, meshes } = buildSignMeshes({ front: FRONT, back: BACK }, 'sign-wall', rot)
+    group.updateMatrixWorld(true)
+    assert.equal(meshes.length, 1, `rotation ${rot}: no frame, lightbox or rear casing`)
+    const box = new THREE.Box3().setFromObject(group)
+    const spans = ['x', 'y'].map(axis => box.max[axis] - box.min[axis]).sort((a, b) => b - a)
+    assert.ok(spans[0] > 0.5 && spans[1] < 0.005, `rotation ${rot}: one broad face and no depth`)
+  }
 })

@@ -473,8 +473,8 @@ face a 广告牌 hangs on, so `autofaceWallMount` turns it and the tool never as
 first — read from one side only: the wall is behind it, so `cfg.back` is not mounted at all, the board
 editor shows 正面 alone for it, and `createModule` drops the back a current pair may carry. It hangs at
 `SIGN_WALL_PANEL_Z` (1.65 m), so its 0.7 m panel crosses exactly the wall's **second** course
-(`signWallCourses` → `wallMountCourses`), and `flatEnvelope` gives it the 广告牌's shape: a thin slab on
-that wall over that band, not a cell. A 座椅 under it therefore shares the tile while a 售票机 tall
+(`signWallCourses` → `wallMountCourses`), and `flatEnvelope` reserves only its 3 mm printed sheet
+on that wall, not a projecting box. A 座椅 under it therefore shares the tile while a 售票机 tall
 enough to reach the panel collides, and a cell with open sky over it is exactly where it belongs. The
 two mounts are two pieces to a sweep (`sign:wall` / `sign:ceiling`) and to the hover ghost
 (`moduleGhostKey`), and one type everywhere else — a save, a pick, the inspector and the board editor
@@ -2563,8 +2563,8 @@ approximated); neither needs WebGL.
   hinge end never moves — `setDoors`, `setDoorsSides`, `rollEscalator`); the 扶梯's own **body under
   its truss**, which is walked as a closed shell and measured against the lower landing, the course
   the ground leaves, the cell edges it spans and the truss's width, and rayed straight up over that
-  course and past it; a 指示牌's **two mounts** measured the same way (the wall board flush with the wall
-  plane, its body only its own depth proud of it, its panel spanning 1.3–2.0 m — the one wall course it
+  course and past it; a 指示牌's **two mounts** measured the same way (the wall board's printed face 3 mm
+  proud of the wall plane with no housing, its panel spanning 1.3–2.0 m — the one wall course it
   asks for — where the 吊挂 board reaches the ceiling its rods bolt to); and a teardown, which frees
   every geometry a group owns — an `InstancedMesh`'s instance buffers included — while keeping the
   shared kit and the shared ad quads.
@@ -2799,9 +2799,9 @@ approximated); neither needs WebGL.
   face per composed board with a default-front/empty-back fallback, one vs two mounted faces,
   and the shared panel sized to the longer board. The two mounts are measured off the geometry: a
   **wall** board mounts **正面 alone** as one lit face into the room (the back's own label never reaches
-  the wall), carries **no rods** (five meshes fewer than the hung board) and stands its panel across the
-  one wall course its backing rule asks from (`SIGN_WALL_PANEL_Z ± PANEL_MIN_H / 2`), with its body's back
-  face on the wall plane and the same board width as the hung one. It is **cut to the face it mounts**, too:
+  the wall), carries **no housing or rods**, reserves only 3 mm of stand-off and spans the one wall course
+  its backing rule asks from (`SIGN_WALL_PANEL_Z ± PANEL_MIN_H / 2`), with the same board width as the hung
+  one. It is **cut to the face it mounts**, too:
   a back the document still carries cannot widen its steel or shift its plate (`mountedSignBoards`), where the
   hung board — the one that really mounts both — is cut to the longer of its two faces.
 * `sign-render.test.mjs` — the 指示牌 board pixels (`render/signFace.ts` `drawSignPanel`): a

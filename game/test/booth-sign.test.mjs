@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { BOOTH_SIGN_STAND_OFF, snapSignToBooth, boothSupportsSign } from '../src/sim/boothSigns.ts'
+import { WALL_SIGN_STAND_OFF, snapSignToBooth, boothSupportsSign } from '../src/sim/boothSigns.ts'
 import { equipmentReason, moduleEnvelope, moveCandidate, autofaceWallMount, placementColliders, wallMountMissing } from '../src/sim/placement.ts'
 import { createModule, toState } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
@@ -43,7 +43,7 @@ test('wall signs centre on every booth face and align their top with the header'
       const e = moduleEnvelope(sign)
       for (const axis of ['x', 'y', 'z']) {
         const normal = axis === (sign.rot % 2 ? 'x' : 'y')
-        const tolerance = normal ? BOOTH_SIGN_STAND_OFF + 1e-6 : 1e-6
+        const tolerance = normal ? WALL_SIGN_STAND_OFF + 1e-6 : 1e-6
         assert.ok(Math.abs(box.min[axis] - e[`${axis}0`]) < tolerance, `${axis}: sheet is inside collision bounds`)
         assert.ok(Math.abs(box.max[axis] - e[`${axis}1`]) < tolerance, `${axis}: sheet is inside collision bounds`)
         if (normal) {
@@ -91,6 +91,15 @@ test('booth snap leaves other mounts and other storeys alone', () => {
   assert.equal(snapSignToBooth([b], sign, points(b)[0], 4).cfg.boothId, undefined)
   const hung = createModule('sign-ceiling', 0, 0, 0, 'hung')
   assert.deepEqual(snapSignToBooth([b], hung, points(b)[0], 0), hung)
+})
+
+test('ordinary sticking signs reserve only their 3 mm printed sheet at every rotation', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const sign = { ...wallSign(), rot }
+    const box = moduleEnvelope(sign)
+    const depth = rot % 2 ? box.x1 - box.x0 : box.y1 - box.y0
+    assert.ok(Math.abs(depth - 0.003) < 1e-9, `rotation ${rot} reserves a sheet, not a 25 cm back box`)
+  }
 })
 
 test('booth face ties use the documented stable rotation order, and non-booth hits fall back', () => {
