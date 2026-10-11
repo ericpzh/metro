@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Equipment footprints and collision, GAME-SPEC §5.
 //
 // Everything the builder drops is a module with a real plan footprint and a
@@ -1665,34 +1666,34 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
  *
  * `blockers` names the pieces standing in the way (`placementColliders` /
  * `equipmentBlockingCell`): when a placement is refused for `occupied` the
- * notice says which conflict it is — `被闸机挡住了` — instead of only saying
+ * notice says which conflict it is — `被闸机阻挡` — instead of only saying
  * the cell is held. The base sentence is kept verbatim so the reason stays
  * searchable, and an empty list leaves it unchanged. */
 export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: readonly Module[] = []): string {
   const base = (() => {
     switch (reason) {
       case 'exit-on-slab':
-        return '出入口只能放在地面'
+        return msg('entrances_must_be_placed_at_ground_level')
       case 'exit-below-ground':
-        return '地面出入口只能放在 0 米及以上'
+        return msg('ground_entrances_must_be_at_0_m_or_above')
       case 'bridge-below-ground':
-        return '轨道桥的桥底必须在地面上方'
+        return msg('the_bridge_underside_must_be_above_ground')
       case 'outdoor-below-ground':
-        return '导向柱和公交站只能放在 0 米及以上的地板上'
+        return msg('wayfinding_posts_and_bus_stops_need_a_floor_at_0_m_or_above')
       case 'floor':
-        return '这儿没有地板，设备要站在实心地板上'
+        return msg('equipment_needs_a_solid_floor_here')
       case 'track':
-        return '轨道上不能放设备'
+        return msg('cannot_place_equipment_on_track')
       case 'occupied':
-        return '这儿已经有设备了，换个地方'
+        return msg('equipment_already_occupies_this_location')
       case 'wall':
-        return '墙面装饰（广告牌、玻璃板、站名、线网图、墙面指示牌、地面出口）要贴在墙上：背后得有实心墙板'
+        return msg('wall_decorations_need_a_solid_wall_behind_them')
       case 'ceiling':
-        return '吊挂指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）；墙面指示牌不用吊，贴在墙上就行'
+        return msg('hung_signs_tvs_clocks_and_cameras_need_a_slab_4_m_above_wall_sig')
       case 'escalator-bases':
-        return '扶梯底端要有实心地板'
+        return msg('the_escalator_bottom_needs_a_solid_floor')
       case 'lift-footprint':
-        return '电梯占地 2×2 米：四个格子都要有地板'
+        return msg('a_lift_needs_a_floor_in_all_four_cells_of_its_2_2_m_footprint')
       default:
         return ''
     }
@@ -1701,7 +1702,7 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
   // Only the collision names a piece; every other rule already names its own
   // cause (no floor, no wall, no ceiling, the rails).
   if (reason !== 'occupied') return base
-  return `${base}：被${blockerLabels(blockers)}挡住了`
+  return msg('value_blocked_by_value', base, blockerLabels(blockers))
 }
 
 /**
@@ -1711,67 +1712,67 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
  * Mirrors `app/store/catalog.ts`'s `MODULE_LABELS`.
  */
 export function moduleTypeLabel(m: Module): string {
-  if (m.type === 'fence') return m.cfg.variant === 'gate' ? '门' : m.cfg.variant === 'iron' ? '铁围栏' : '玻璃围栏'
+  if (m.type === 'fence') return m.cfg.variant === 'gate' ? msg('door') : m.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
   if (m.type === 'shop') {
     const kind = (m.cfg as { kind?: string } | undefined)?.kind
-    if (kind === 'toilet') return '厕所'
-    if (kind === 'office') return '办公室'
-    return '商店'
+    if (kind === 'toilet') return msg('restroom')
+    if (kind === 'office') return msg('office')
+    return msg('store')
   }
-  if (m.type === 'booth' && (m.cfg as { kind?: string } | undefined)?.kind === 'info') return '问讯处'
+  if (m.type === 'booth' && (m.cfg as { kind?: string } | undefined)?.kind === 'info') return msg('information_desk')
   if (m.type === 'cctv') {
     const variant = (m.cfg as { variant?: string } | undefined)?.variant
-    if (variant === 'ball') return '球机'
-    if (variant === 'dome') return '半球机'
-    return '监控'
+    if (variant === 'ball') return msg('ptz_camera')
+    if (variant === 'dome') return msg('dome_camera')
+    return msg('cctv')
   }
   return MODULE_TYPE_LABELS[m.type] ?? m.type
 }
 
 /** Friendly name per module type, for refusal notices (§9.5). */
 const MODULE_TYPE_LABELS: Record<string, string> = {
-  hanger: '挂架',
-  pillar: '支柱',
-  roof: '车站屋顶',
-  gate: '闸机',
-  'psd-end': '屏蔽端门',
-  fence: '玻璃围栏',
-  tvm: '售票机',
-  vending: '自动贩卖机',
-  bench: '座椅',
-  shelf: '货架',
-  desk: '办公桌',
-  checkout: '收银台',
-  cubicle: '厕所隔间',
-  sink: '洗手池',
-  guidepost: '导向柱',
-  busstop: '公交站',
-  bin: '垃圾桶',
-  extinguisher: '灭火器',
-  'ac-unit': '空调风机',
-  'electrical-cabinet': '设备柜',
-  tactile: '盲道',
-  'floor-mark': '地面指示',
-  vent: '通风口',
-  light: '灯具',
-  clock: '时钟',
-  cctv: '监控',
-  billboard: '广告牌',
-  glass: '玻璃板',
-  door: '门',
-  calligraphy: '站名',
-  linemap: '线网图',
-  tv: '电视',
-  sign: '指示牌',
-  exit: '出入口',
-  escalator: '扶梯',
-  stair: '楼梯',
-  lift: '电梯',
-  retail: '商铺',
-  shop: '商店',
-  booth: '售票亭',
-  'platform-edge': '站台门',
-  track: '轨道',
+  hanger: msg('hanger'),
+  pillar: msg('support_pillar'),
+  roof: msg('station_roof'),
+  gate: msg('fare_gate'),
+  'psd-end': msg('screen_end_door'),
+  fence: msg('glass_fence'),
+  tvm: msg('ticket_machine'),
+  vending: msg('vending_machine'),
+  bench: msg('bench'),
+  shelf: msg('shelf'),
+  desk: msg('desk'),
+  checkout: msg('checkout'),
+  cubicle: msg('toilet_cubicle'),
+  sink: msg('sink'),
+  guidepost: msg('wayfinding_post'),
+  busstop: msg('bus_stop'),
+  bin: msg('bin'),
+  extinguisher: msg('extinguisher'),
+  'ac-unit': msg('air_conditioner'),
+  'electrical-cabinet': msg('equipment_cabinet'),
+  tactile: msg('tactile_paving'),
+  'floor-mark': msg('floor_markings'),
+  vent: msg('vent'),
+  light: msg('light'),
+  clock: msg('clock'),
+  cctv: msg('cctv'),
+  billboard: msg('billboard'),
+  glass: msg('glass_panel'),
+  door: msg('door'),
+  calligraphy: msg('station_name'),
+  linemap: msg('network_map'),
+  tv: msg('tv'),
+  sign: msg('sign'),
+  exit: msg('entrances'),
+  escalator: msg('escalator'),
+  stair: msg('stairs'),
+  lift: msg('lift'),
+  retail: msg('shop'),
+  shop: msg('store'),
+  booth: msg('ticket_booth'),
+  'platform-edge': msg('platform_doors'),
+  track: msg('track'),
 }
 
 /**
@@ -1786,7 +1787,7 @@ export function blockerLabels(blockers: readonly Module[]): string {
     if (seen.length >= 3 && blockers.length > 3) break
   }
   const shown = blockers.length > 3 ? seen.slice(0, 3) : [...new Set(blockers.map(moduleTypeLabel))].slice(0, 3)
-  if (blockers.length > 3) return `${shown.join('、')}等${blockers.length}件`
+  if (blockers.length > 3) return msg('value_and_value_items', shown.join('、'), blockers.length)
   return shown.join('、')
 }
 

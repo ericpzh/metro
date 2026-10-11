@@ -27,7 +27,7 @@ import { T, n, sheet, title } from './iso.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
 /** Where `node tools/render-ui-shots.mjs` leaves its pixels and its index. */
-const SHOTS = resolve(repo, process.env.UI_SHOTS_DIR ?? join('.preview', 'ui-shots'))
+const shotsDir = language => resolve(repo, process.env[language === 'en' ? 'UI_SHOTS_EN_DIR' : 'UI_SHOTS_DIR'] ?? join('.preview', language === 'en' ? 'ui-shots-en' : 'ui-shots'))
 
 /**
  * The game's own palette, from the custom properties at the top of
@@ -55,7 +55,8 @@ const W = 1600
  * design (`tools/render-ui-shots.mjs`); a sheet that silently drew nothing would be
  * worse than one that stops.
  */
-function loadShots() {
+function loadShots(language) {
+  const SHOTS = shotsDir(language)
   const indexPath = join(SHOTS, 'index.json')
   if (!existsSync(indexPath)) {
     throw new Error(
@@ -63,6 +64,7 @@ function loadShots() {
     )
   }
   const index = JSON.parse(readFileSync(indexPath, 'utf8'))
+  if (language === 'en' && index.language !== 'en') throw new Error(`recapture English game UI in ${SHOTS} with --lang en`)
   const byShot = new Map()
   for (const shot of index.shots) {
     const crops = new Map()
@@ -96,8 +98,8 @@ const image = (crop, x, y, w = crop.rect.width, h = crop.rect.height) =>
 
 /* -------------------------------------------------------------------- sheet */
 
-export function artInterface() {
-  const shots = loadShots()
+export function artInterface({ language = 'zh-CN' } = {}) {
+  const shots = loadShots(language)
   const g = [title(48, 62, '边搭边看，哪里挤就改哪里', '左边选工具，右边调设置，底栏看排队和滞留。')]
   const win = cropOf(shots, 'played', 'window')
   const w = 1504, h = w * shots.window.height / shots.window.width

@@ -1,3 +1,4 @@
+import { msg } from '../../../sim/i18n.ts'
 // The sim slice: the worker plumbing and the live readouts it feeds. The station
 // document lives in the store; the sim lives in the worker and is driven by the
 // messages in `sim/protocol.ts`. Panels only — no sim logic.
@@ -180,7 +181,7 @@ export const createSimSlice: StateCreator<AppState, [], [], SimSlice> = (set, ge
   },
   restartSim: () => {
     client?.postMessage({ type: 'restart' })
-    set({ notice: '已清空所有行人' })
+    set({ notice: msg('all_passengers_cleared') })
   },
   setMetrics: (m) => set({ metrics: m }),
   setStats: (s) => set({ stats: s }),

@@ -1,3 +1,4 @@
+import { msg } from '../../../sim/i18n.ts'
 // The 吸取 (picker) slice: what a pick changed, and the one way back out of it.
 //
 // A pick is not an edit — nothing in the document moves, so there is nothing for
@@ -139,7 +140,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
     // is written back after it, not with the rest of the fields above.
     get().setTool(d.tool)
     set({ wallSnapCycle: d.wallSnapCycle })
-    get().setNotice('已取消吸取')
+    get().setNotice(msg('pick_cancelled'))
     return true
   },
 })

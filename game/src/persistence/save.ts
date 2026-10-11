@@ -1,3 +1,4 @@
+import { msg } from '../sim/i18n.ts'
 // Save / load — GAME-SPEC.md §9.4, §10.5; PLAN.md §6.
 //
 // One save is one UTF-8 JSON document. B1 ships `formatVersion: 1`: the
@@ -91,16 +92,16 @@ export function parse(text: string): ParseResult {
   try {
     doc = JSON.parse(text)
   } catch {
-    return { ok: false, error: '文件损坏' }
+    return { ok: false, error: msg('corrupt_file') }
   }
-  if (typeof doc !== 'object' || doc === null) return { ok: false, error: '文件损坏' }
+  if (typeof doc !== 'object' || doc === null) return { ok: false, error: msg('corrupt_file') }
   const d = doc as Partial<SaveFileV1>
-  if (d.format !== SAVE_FORMAT) return { ok: false, error: '不是地铁车站存档' }
+  if (d.format !== SAVE_FORMAT) return { ok: false, error: msg('this_is_not_a_metro_station_save') }
   const version = typeof d.formatVersion === 'number' ? d.formatVersion : 0
-  if (version > SAVE_VERSION) return { ok: false, error: '存档太新了，先更新游戏' }
-  if (!d.static || !Array.isArray(d.static.cells)) return { ok: false, error: '缺少车站数据' }
+  if (version > SAVE_VERSION) return { ok: false, error: msg('this_save_is_too_new_update_the_game_first') }
+  if (!d.static || !Array.isArray(d.static.cells)) return { ok: false, error: msg('missing_station_data') }
   const data: StationData = {
-    name: typeof d.name === 'string' ? d.name : '未命名车站',
+    name: typeof d.name === 'string' ? d.name : msg('unnamed_station'),
     nameEn: typeof d.nameEn === 'string' ? d.nameEn : '',
     seed: typeof d.seed === 'number' ? d.seed : 1234567,
     levelBase: d.levelBase,

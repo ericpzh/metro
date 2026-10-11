@@ -72,8 +72,14 @@ the built SVG via `tools/sheet-i18n.mjs` — `<text>` contents, sheet 06's slide
 untouched. Bake problems fail the run (missing strings, unescaped markup).
 English is wider than Chinese, so keep translations terse and check the fit with
 `node tools/sheet-png.mjs <name>-en.svg`; `{ t, size }` table values pull a long
-label's font-size down. The embedded game captures stay Chinese; only the
-drawing's own text is translated. The site's `/en/` route shows the sidecars
+label's font-size down. Exact UI labels use `game/src/sim/i18n/messages.ts`; keep
+sheet-only explanatory copy in the art table. Sheets 06, 07 and 09 must embed
+captures in the sheet's locale: run `node tools/render-ui-shots.mjs --lang en`
+and `node tools/render-view-shots.mjs --lang en` for English, then
+`node tools/gen-art.mjs 06 07 09 --en-only` to refresh only English sidecars.
+Default captures stay Chinese. English captures live in `.preview/ui-shots-en/`
+and `.preview/view-shots-en/` (`UI_SHOTS_EN_DIR` / `VIEW_SHOTS_EN_DIR` overrides).
+Check the animated demand overlay as well as screenshots for clipped labels. The site's `/en/` route shows the sidecars
 (`sync-art.mjs` copies them like any other sheet).
 `tools/sheet-plan.mjs` is the **panel plan for the older photograph pass**
 (`tools/shots.mjs`): one entry per sheet that pass still composes, naming the spec
@@ -107,6 +113,7 @@ exist first, and every capture needs Chrome plus a built `game/dist`:
 | 05, 11, 12, 13 | `tools/render-train-cards.mjs` | `.preview/train-cards/` |
 | 13 | `tools/render-piece-views.mjs` | `.preview/piece-views/` |
 | 06, 07 | `tools/render-ui-shots.mjs` | `.preview/ui-shots/` |
+| 09 | `tools/render-view-shots.mjs` | `.preview/view-shots/` |
 
 A **car** goes into a drawing at its own scale (`train-cards.mjs` `carImage` /
 `trainCard`); a **run** is scaled to reach the floors it joins, which is the

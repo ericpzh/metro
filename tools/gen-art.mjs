@@ -4,10 +4,11 @@
 //   node tools/gen-art.mjs 01 13      only those, by leading number or by file name
 //   node tools/gen-art.mjs --en       every sheet, plus the English sidecar
 //   node tools/gen-art.mjs 02 --en    only sheet 02, plus English
+//   node tools/gen-art.mjs 06 07 09 --en-only  refresh only English sidecars
 //
 // `--en` writes `<name>-en.svg` beside each sheet by swapping the Chinese
 // strings in the built SVG (see `tools/sheet-i18n.mjs`). The English files are
-// what the site's /en/ route shows; the embedded game captures stay Chinese.
+// what the site's /en/ route shows; sheets 06, 07 and 09 use English game captures.
 // The filter is here because a sheet is regenerated one at a time far more often than all
 // eleven are, and this script otherwise rewrites every `art/*.svg` on every run — which is
 // eleven files of churn while someone else is working in the same tree.
@@ -70,7 +71,8 @@ let fail = 0;
 // `01` and `01-isometric-cutaway.svg` both name the same sheet, the way `sheet-png.mjs` reads
 // them: by leading number, which is what the sheets' own file names are numbered for.
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const wantEn = process.argv.includes('--en');
+const enOnly = process.argv.includes('--en-only');
+const wantEn = enOnly || process.argv.includes('--en');
 const num = (file) => String(Number(file.split('-')[0]));
 const chosen = wanted.length
   ? SHEETS.filter(([file]) => wanted.some((w) => w === file || num(w) === num(file)))
@@ -84,14 +86,14 @@ for (const [file, fn] of chosen) {
     // A sheet builds synchronously and returns its SVG; the two that need a
     // browser (03's blocks, 04's cards) are captured into `.preview/` before this
     // runs, not here.
-    const svg = await fn();
+    const svg = await fn(enOnly ? { language: 'en' } : {});
     if (!svg || !svg.startsWith('<svg')) throw new Error('no svg returned');
-    writeFileSync(join(OUT, file), svg, 'utf8');
-    const kb = (statSync(join(OUT, file)).size / 1024).toFixed(0);
-    console.log(`ok    art/${file.padEnd(28)} ${String(kb).padStart(5)} KB`);
+    if (!enOnly) writeFileSync(join(OUT, file), svg, 'utf8');
+    const kb = (Buffer.byteLength(svg) / 1024).toFixed(0);
+    if (!enOnly) console.log(`ok    art/${file.padEnd(28)} ${String(kb).padStart(5)} KB`);
     if (wantEn) {
       const enFile = file.replace(/\.svg$/, '-en.svg');
-      const { svg: enSvg, missing } = toEnglish(svg);
+      const { svg: enSvg, missing } = toEnglish(!enOnly && ['06', '07', '09'].includes(file.slice(0, 2)) ? await fn({ language: 'en' }) : svg);
       if (missing.length) {
         fail++;
         console.error(`FAIL  art/${enFile}: no English for\n  ${missing.join('\n  ')}`);

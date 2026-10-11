@@ -479,10 +479,10 @@ export type Module =
   | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: { style?: 'glass' | 'steel' } })
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
   /**
-   * A drinks vending machine (自动贩卖机): the same 1 × 1 m equipment footprint
+   * A drinks vending machine (自动售货机): the same 1 × 1 m equipment footprint
    * and stop behaviour as a TVM, with a different cabinet — a glass display of
    * drinks beside a face-pay control strip. A distinct type so the renderer can
-   * draw it and the label reads 自动贩卖机.
+   * draw it and the label reads 自动售货机.
    */
   | (ModuleBase & { type: 'vending'; cfg: Record<string, never> })
   /**

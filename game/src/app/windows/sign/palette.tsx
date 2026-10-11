@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // 指示牌 editor (§5.8) — the palette: a group's tile, one option's tile, and the row that
 // folds an open group's options out beside it. Presentation only; the drag logic lives in
 // `SignEditor.tsx`.
@@ -36,6 +38,7 @@ export function GroupTile({
   label: string
   onToggle: () => void
 }): React.ReactElement {
+  useLanguage()
   const { marks, split } = groupMarks(id, lines)
   return (
     <button
@@ -45,7 +48,7 @@ export function GroupTile({
       // tab of the open group looked exactly like the three shut ones. It wears the same `on`
       // as a picked mark, which is what the rest of the modal uses for "this is the live one".
       className={['tile', 'group', active ? 'on' : '', split ? 'split' : ''].filter(Boolean).join(' ')}
-      aria-label={label}
+      aria-label={translate(label)}
       // A group's tile is a toggle, and `aria-pressed` says which way it stands. It also
       // carries `aria-expanded`, because what it opens is the shelf beneath it.
       aria-pressed={active}
@@ -99,13 +102,14 @@ export function MarkTile({
   onPointerDown?: (e: React.PointerEvent) => void
   onClick?: () => void
 }): React.ReactElement {
+  useLanguage()
   return (
     <button
       type="button"
       // `grab` only where the gesture is a drag: a 线路 tile is clicked, and the cursor is
       // the one thing that says which of the two a tile is.
       className={['tile', active ? 'on' : '', onPointerDown ? 'grab' : ''].filter(Boolean).join(' ')}
-      aria-label={label}
+      aria-label={translate(label)}
       onPointerDown={onPointerDown}
       onClick={onClick}
     >
@@ -138,10 +142,11 @@ export function MarkTile({
  * `inert` are what make a clipped row inert; React's own state is what keeps it honest.
  */
 export function PaletteRow({ open, children }: { open: boolean; children: React.ReactNode }): React.ReactElement {
+  useLanguage()
   return (
     <div className={open ? 'signRow open' : 'signRow'} aria-hidden={!open} inert={!open}>
       <div className="signRowInner">
-        <div className="signRowPad">{children}</div>
+        <div className="signRowPad">{translate(children)}</div>
       </div>
     </div>
   )

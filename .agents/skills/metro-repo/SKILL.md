@@ -23,7 +23,7 @@ the station either copes or it does not.
 | Path | What it is |
 |---|---|
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
-| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). |
+| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). Bilingual: Chinese by default, English at `/en/`, with a language toggle beside restart; game copy lives in `game/src/sim/i18n/messages.ts`. See `metro-game` for field semantics and text layout. |
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |

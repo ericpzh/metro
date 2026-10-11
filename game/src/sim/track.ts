@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Track geometry and orientation — GAME-SPEC §5.4 track kit, §4.3 track bed.
 //
 // A track piece is a fixed-footprint bed: `w` cells of run along its local +x
@@ -16,7 +17,7 @@ import type { Module } from './types.ts'
 
 /** Length presets shared by the tunnel and elevated track tools. */
 export const TRACK_RUN_LENGTHS = [4, 16, 32, 64, 128] as const
-const TRACK_RUN_LABELS = ['超短', '短', '中', '长', '超长'] as const
+const TRACK_RUN_LABELS = [msg('extra_short'), msg('short'), msg('medium'), msg('long'), msg('extra_long')] as const
 
 export function supportedTrackRunLength(length: number): number {
   return TRACK_RUN_LENGTHS.reduce((closest, candidate) =>

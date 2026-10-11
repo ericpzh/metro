@@ -1,3 +1,5 @@
+import { msg, translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The 信息栏's clock: the station's own time, at the top of the column above the
 // folders, so no fold hides it.
 //
@@ -31,6 +33,7 @@ function span(from: number, to: number): { left: string; width: string } {
 }
 
 export function ClockCard(): React.ReactElement {
+  useLanguage()
   const simTime = useStore((s) => s.metrics?.simTime ?? null)
   const playing = useStore((s) => s.playing)
   const service = useStore((s) => s.station.service)
@@ -51,19 +54,19 @@ export function ClockCard(): React.ReactElement {
       className={playing ? 'card clockCard' : 'card clockCard paused'}
       onClick={() => setTimePanel(true)}
       aria-haspopup="dialog"
-      aria-label={stamp ? `模拟时间 ${stamp.readout}，打开时刻与客流设置` : '打开时刻与客流设置'}
+      aria-label={translate(stamp ? msg('simulation_time_value_open_time_and_passenger_settings', stamp.readout) : msg('open_time_and_passenger_settings'))}
     >
       <span className="clockTop">
-        <b className="clockDigits">{stamp ? stamp.clockSeconds : '--:--:--'}</b>
-        {stamp && <span className={`clockChip ${stamp.period}`}>{PERIOD_LABELS[stamp.period]}</span>}
-        {!playing && <span className="clockChip off">已暂停</span>}
-        <span className="clockMore">时刻 ›</span>
+        <b className="clockDigits">{translate(stamp ? stamp.clockSeconds : '--:--:--')}</b>
+        {stamp && <span className={`clockChip ${stamp.period}`}>{translate(PERIOD_LABELS[stamp.period])}</span>}
+        {!playing && <span className="clockChip off">{t('paused')}</span>}
+        <span className="clockMore">{t('time')}</span>
       </span>
       <span className="clockDate">
-        <span className="clockDateText">{stamp ? `${stamp.dateLabel} ${stamp.weekdayLabel}` : '—'}</span>
-        {stamp && <span className="clockChip day">{DAY_TYPE_LABELS[stamp.dayType]}</span>}
-        {stamp && <span className={stamp.isOpen ? 'clockChip open' : 'clockChip shut'}>{stamp.isOpen ? '营业中' : '已闭站'}</span>}
-        {stamp && stamp.dayIndex > 0 && <span className="clockChip day">第 {stamp.dayIndex + 1} 天</span>}
+        <span className="clockDateText">{stamp ? `${translate(stamp.dateLabel)} ${translate(stamp.weekdayLabel)}` : '—'}</span>
+        {stamp && <span className="clockChip day">{translate(DAY_TYPE_LABELS[stamp.dayType])}</span>}
+        {stamp && <span className={stamp.isOpen ? 'clockChip open' : 'clockChip shut'}>{translate(stamp.isOpen ? msg('open_for_service') : msg('closed_for_service'))}</span>}
+        {stamp && stamp.dayIndex > 0 && <span className="clockChip day">{t('day_index', stamp.dayIndex + 1)}</span>}
       </span>
       {/* The day: 00:00 to 24:00, the **operating hours** lit — everything outside them is
           a shut station — the two 高峰 windows shaded on top of that, and the playhead at

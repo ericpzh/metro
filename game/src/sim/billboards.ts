@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Billboard formats and the advertising poster catalogue — the 装饰 广告牌
 // variants and the artwork they print, GAME-SPEC §5.7.
 //
@@ -46,7 +47,7 @@ export interface BillboardSpec {
 export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
   wide: {
     variant: 'wide',
-    label: '横版 16:9',
+    label: msg('landscape_16_9'),
     w: 1,
     panelW: 0.86,
     panelH: 0.48,
@@ -56,7 +57,7 @@ export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
   },
   standard: {
     variant: 'standard',
-    label: '标准 2.25:1',
+    label: msg('standard_2_25_1'),
     w: 2,
     panelW: 1.72,
     panelH: 0.76,
@@ -66,7 +67,7 @@ export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
   },
   large: {
     variant: 'large',
-    label: '大横版 16:9',
+    label: msg('large_landscape_16_9'),
     w: 2,
     panelW: 1.86,
     panelH: 0.95,
@@ -76,7 +77,7 @@ export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
   },
   panorama: {
     variant: 'panorama',
-    label: '长幅 3.75:1',
+    label: msg('wide_3_75_1'),
     w: 3,
     panelW: 2.82,
     panelH: 0.75,
@@ -86,7 +87,7 @@ export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
   },
   portrait: {
     variant: 'portrait',
-    label: '竖版 0.7:1',
+    label: msg('portrait_0_7_1'),
     w: 1,
     // 0.8 × 1.16 is 0.69:1 — the two portrait posters in the catalogue are
     // 0.68:1 and 0.75:1, so the tall panel is cut for the artwork rather than
@@ -99,7 +100,7 @@ export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
   },
   square: {
     variant: 'square',
-    label: '方形 1:1',
+    label: msg('square_1_1'),
     w: 1,
     panelW: 0.8,
     panelH: 0.8,
@@ -145,21 +146,21 @@ export interface AdPoster {
  */
 export const AD_POSTERS: readonly AdPoster[] = [
   // Landscape — a standard poster, at home on 横版 / 标准 / 大横版.
-  { slug: 'metro-security', subject: '广州地铁 进站安检', shapes: ['landscape', 'wide'] },
-  { slug: 'property-hotline', subject: '售楼处预约专线', shapes: ['landscape', 'wide'] },
-  { slug: 'games-2025-blue', subject: '十五运会 激情全运会', shapes: ['landscape', 'wide'] },
-  { slug: 'guangdong-league', subject: '粤超 一战城名', shapes: ['landscape', 'wide'] },
-  { slug: 'cloud-security', subject: '云安全是什么', shapes: ['landscape', 'wide'] },
+  { slug: 'metro-security', subject: msg('guangzhou_metro_security_check'), shapes: ['landscape', 'wide'] },
+  { slug: 'property-hotline', subject: msg('property_viewing_hotline'), shapes: ['landscape', 'wide'] },
+  { slug: 'games-2025-blue', subject: msg('15th_national_games'), shapes: ['landscape', 'wide'] },
+  { slug: 'guangdong-league', subject: msg('guangdong_super_league'), shapes: ['landscape', 'wide'] },
+  { slug: 'cloud-security', subject: msg('what_is_cloud_security'), shapes: ['landscape', 'wide'] },
   // Wide — a 2.25:1 poster, cut for 标准; 横版 crops it rather than stretching.
-  { slug: 'heinz-league', subject: '想赢的番茄在亨氏里', shapes: ['wide', 'landscape'] },
-  { slug: 'animal-help', subject: '一撕一拉 流浪猫一餐', shapes: ['wide', 'landscape'] },
-  { slug: 'rhinitis-spray', subject: '中药雾化治鼻炎', shapes: ['wide', 'landscape'] },
+  { slug: 'heinz-league', subject: msg('heinz_tomatoes_that_want_to_win'), shapes: ['wide', 'landscape'] },
+  { slug: 'animal-help', subject: msg('a_meal_for_a_stray_cat'), shapes: ['wide', 'landscape'] },
+  { slug: 'rhinitis-spray', subject: msg('herbal_rhinitis_spray'), shapes: ['wide', 'landscape'] },
   // Panorama — a long strip, only the three-cell 长幅 shows it whole.
-  { slug: 'yupao-hiring', subject: '鱼泡直聘 找工作', shapes: ['panorama'] },
-  { slug: 'haoyibao', subject: '好医保 支持上海医保', shapes: ['panorama'] },
+  { slug: 'yupao-hiring', subject: msg('yupao_recruitment'), shapes: ['panorama'] },
+  { slug: 'haoyibao', subject: msg('haoyibao_insurance'), shapes: ['panorama'] },
   // Portrait and square.
-  { slug: 'games-2025-red', subject: '十五运会 广州开幕', shapes: ['portrait'] },
-  { slug: 'heinz-body', subject: '用身体去回答人体的可能', shapes: ['portrait', 'square'] },
+  { slug: 'games-2025-red', subject: msg('15th_national_games_guangzhou'), shapes: ['portrait'] },
+  { slug: 'heinz-body', subject: msg('discover_what_the_body_can_do'), shapes: ['portrait', 'square'] },
 ]
 
 /** Every poster slug, in catalogue order. */

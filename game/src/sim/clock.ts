@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // The simulated clock (§7.9, §9.6C): the one place a sim second becomes a civil
 // date, a weekday, a time of day and a period. Pure — no DOM, no worker, no three —
 // so the panel readouts (`app/windows/**`), the in-world plates (`render/`) and the
@@ -106,29 +107,29 @@ export const CALENDAR_YEAR = DEFAULT_CALENDAR.epoch.year
 
 /** 一月 … 十二月, as a month header prints them. */
 export const MONTH_LABELS: readonly string[] = [
-  '一月', '二月', '三月', '四月', '五月', '六月',
-  '七月', '八月', '九月', '十月', '十一月', '十二月',
+  msg('january'), msg('february'), msg('march'), msg('april'), msg('may'), msg('june'),
+  msg('july'), msg('august'), msg('september'), msg('october'), msg('november'), msg('december'),
 ]
 
 /** 一 二 三 四 五 六 日 — the month grid's own column heads, Monday first. */
-export const MONTH_GRID_HEADS: readonly string[] = ['一', '二', '三', '四', '五', '六', '日']
+export const MONTH_GRID_HEADS: readonly string[] = [msg('mon'), msg('tue'), msg('wed'), msg('thu'), msg('fri'), msg('sat'), msg('sun')]
 
 /** 周日 … 周六, indexed by `stampAt().weekday`. */
-export const WEEKDAY_LABELS: readonly string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+export const WEEKDAY_LABELS: readonly string[] = [msg('sunday'), msg('monday'), msg('tuesday'), msg('wednesday'), msg('thursday'), msg('friday'), msg('saturday')]
 
 /** The same seven days as a timetable prints them in a column: 日一二三四五六, one character. */
-export const WEEKDAY_INITIALS: readonly string[] = ['日', '一', '二', '三', '四', '五', '六']
+export const WEEKDAY_INITIALS: readonly string[] = [msg('sun'), msg('mon'), msg('tue'), msg('wed'), msg('thu'), msg('fri'), msg('sat')]
 
 /** 工作日 / 周六 / 周日 / 节假日, as a chip prints them. */
 export const DAY_TYPE_LABELS: Record<DayType, string> = {
-  weekday: '工作日',
-  saturday: '周六',
-  sunday: '周日',
-  holiday: '节假日',
+  weekday: msg('weekday'),
+  saturday: msg('saturday'),
+  sunday: msg('sunday'),
+  holiday: msg('holiday'),
 }
 
 /** 高峰 / 平峰 / 夜间 — the three periods the timetable keys its headway on (§6.5). */
-export const PERIOD_LABELS: Record<Period, string> = { peak: '高峰', offpeak: '平峰', late: '夜间' }
+export const PERIOD_LABELS: Record<Period, string> = { peak: msg('peak'), offpeak: msg('off_peak'), late: msg('night') }
 
 /**
  * Everything a readout needs about one instant of simulated time. One object rather
@@ -532,7 +533,7 @@ export function stampAt(
   const hour = Math.floor(timeOfDay / 3600)
   const minute = Math.floor((timeOfDay % 3600) / 60)
   const second = timeOfDay % 60
-  const dateLabel = `${day.date.month}月${day.date.day}日`
+  const dateLabel = msg('value_value_621', day.date.month, day.date.day)
   const clock = `${pad2(hour)}:${pad2(minute)}`
   const clockSeconds = `${clock}:${pad2(second)}`
   const weekdayInitial = WEEKDAY_INITIALS[day.weekday]

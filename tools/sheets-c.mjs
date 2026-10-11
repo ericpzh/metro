@@ -19,7 +19,7 @@ import { C, T, MUL, title, sheet, n } from './iso.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
 /** Where `node tools/render-view-shots.mjs` leaves its pixels and its index. */
-const SHOTS = resolve(repo, process.env.VIEW_SHOTS_DIR ?? join('.preview', 'view-shots'))
+const shotsDir = language => resolve(repo, process.env[language === 'en' ? 'VIEW_SHOTS_EN_DIR' : 'VIEW_SHOTS_DIR'] ?? join('.preview', language === 'en' ? 'view-shots-en' : 'view-shots'))
 
 /**
  * The view tiles, in reading order, followed by 视图控件 as the **sixth tile** — five
@@ -48,12 +48,14 @@ const CARDS = [
 ]
 
 /** The captured views, or a clear failure: a sheet that drew no camera would be worse. */
-function loadShots() {
+function loadShots(language) {
+  const SHOTS = shotsDir(language)
   const indexPath = join(SHOTS, 'index.json')
   if (!existsSync(indexPath)) {
     throw new Error(`no view shots in ${SHOTS} — run:\n  npm run build:game\n  node tools/render-view-shots.mjs`)
   }
   const index = JSON.parse(readFileSync(indexPath, 'utf8'))
+  if (language === 'en' && index.language !== 'en') throw new Error(`recapture English game UI in ${SHOTS} with --lang en`)
   const byId = new Map(index.views.map((v) => [v.id, v]))
   return {
     get(id) {
@@ -69,8 +71,8 @@ function loadShots() {
 /* =================================================================== *
  * 09  CAMERA AND VIEWS
  * =================================================================== */
-export function artViews() {
-  const shots = loadShots()
+export function artViews({ language = 'zh-CN' } = {}) {
+  const shots = loadShots(language)
 
   const X0 = 48
   const COLS = 3
@@ -121,9 +123,10 @@ export function artViews() {
     // The key it answers to, as a chip in the corner — **sized to the key**, because the
     // keys are not all one character: `C · R · Y` is three of them, and a chip drawn to a
     // fixed 34 units leaves the last one hanging out over the picture.
-    const kw = keyChipW(key)
+    const displayKey = language === 'en' && key === '平视' ? 'Eye view' : key
+    const kw = keyChipW(displayKey)
     g.push(`<rect x="${n(x + CW - 12 - kw)}" y="${y + 18}" width="${n(kw)}" height="22" rx="6" fill="#1b2530" stroke="#2b3746"/>`)
-    g.push(T(x + CW - 12 - kw / 2, y + 33, key, { size: 12, weight: 800, fill: '#9fd7ee', anchor: 'middle', mono: true }))
+    g.push(T(x + CW - 12 - kw / 2, y + 33, displayKey, { size: 12, weight: 800, fill: '#9fd7ee', anchor: 'middle', mono: true }))
     g.push(T(x + 18, y + CH - 48, label, { size: 15.5, weight: 700, fill: '#eaf0f6' }))
     g.push(T(x + 18, y + CH - 26, note, { size: 12, fill: '#8fa0b3' }))
   }

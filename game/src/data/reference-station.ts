@@ -1,3 +1,4 @@
+import { msg } from '../sim/i18n.ts'
 // The shipped demo station — 动物园 (Zoo), 广州地铁 5号线. Converted from the
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
 // 2026-10-10 05:27Z) by `tools/bake-demo-station.mjs`, which parses the envelope
@@ -45,7 +46,7 @@ export const REFERENCE_BOOT = { startSeconds: DEFAULT_SIM_TIME, warmup: 0 } as c
  * so an empty document already stands on built ground. The old 2 × 2 at-grade
  * seed existed only because a station with no cells had no floor at all.
  */
-export function emptyStation(name = '未命名车站'): StationData {
+export function emptyStation(name = msg('unnamed_station')): StationData {
   return {
     name,
     seed: 7654321,

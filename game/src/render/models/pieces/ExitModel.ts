@@ -1,3 +1,4 @@
+import { t } from '../../../sim/i18n.ts'
 // Exit portal (出入口) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
@@ -23,13 +24,13 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   g.textBaseline = 'middle'
   g.textAlign = 'left'
   g.font = 'bold 19px "Microsoft YaHei", sans-serif'
-  g.fillText('广州地铁', 64, 39, 108)
+  g.fillText(t('guangzhou_metro'), 64, 39, 108)
   g.font = '11px Arial, sans-serif'
   g.fillText('Guangzhou Metro', 64, 61, 108)
 
   // Keep long station names within the centre field, clear of the brand and exit.
-  const station = (stationName || '地铁').trim()
-  const stationLabel = station.endsWith('站') ? station : station + '站'
+  const station = (stationName || t('metro')).trim()
+  const stationLabel = station.endsWith(t('station')) ? station : station + t('station')
   g.textAlign = 'center'
   g.font = 'bold 29px "Microsoft YaHei", sans-serif'
   const stationCentre = width / 2 + 24
@@ -41,13 +42,13 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   }
 
   // Preserve multi-character identifiers such as C1; named exits remain readable.
-  const label = (exitName || '入口').trim()
+  const label = (exitName || t('entrance')).trim()
   const identifier = label.match(/^([A-Za-z]\d*)(?:入口|出口|口)?$/)?.[1]
   if (identifier) {
     g.font = 'bold 40px Arial, sans-serif'
     g.fillText(identifier.toUpperCase(), width - 85, 48, 64)
     g.font = 'bold 21px "Microsoft YaHei", sans-serif'
-    g.fillText('入口', width - 30, 39, 48)
+    g.fillText(t('entrance'), width - 30, 39, 48)
     g.font = '10px Arial, sans-serif'
     g.fillText('Entrance', width - 30, 62, 48)
   } else {
@@ -307,7 +308,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const signY = covered ? hl - 0.02 : BACKY
   const signZ = covered ? topAt(hl + 0.06) - signBoard / 2 - 0.02 : 0.52
   slab(house, mats.darkSteel, xc, signY, signZ, W - 0.06, 0.12, signBoard)
-  const header = plate(house, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || '地铁', mod.cfg.name || '出入口', ctx.data.nameEn), 0, 0)) })), W - 0.3, 0.5, xc, signY + 0.08, signZ, Math.PI)
+  const header = plate(house, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || t('metro'), mod.cfg.name || t('entrances'), ctx.data.nameEn), 0, 0)) })), W - 0.3, 0.5, xc, signY + 0.08, signZ, Math.PI)
   header.renderOrder = 1
   return g
 }

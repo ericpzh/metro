@@ -1,3 +1,4 @@
+import { t } from '../../../sim/i18n.ts'
 // Platform screen door builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
@@ -43,7 +44,7 @@ function psdHeaderCanvas(colour: string, lineId: string, terminus: string, name:
   g.textAlign = 'left'
   g.fillStyle = '#1b6fd6'
   g.font = 'bold 22px "Microsoft YaHei", sans-serif'
-  g.fillText(`◀ ${terminus}方向`, 470, 56)
+  g.fillText(t('toward_value', terminus), 470, 56)
   return c
 }
 
@@ -68,13 +69,13 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const line = ctx.data.lines.find((l) => l.id === mod.cfg.line) ?? ctx.data.lines[0]
   const colour = line?.colour ?? '#1b6fd6'
   const lineId = line?.id ?? '2'
-  const name = ctx.data.name || '地铁站'
+  const name = ctx.data.name || t('metro_station')
   const nameEn = ctx.data.nameEn || ''
   // The header's destination is the bound line's terminus for this screen's
   // direction, so an up platform points where the up track runs and a down one
   // the other way (the terminus fields are the per-line inputs).
   const terminus =
-    ((mod.cfg.dir === 'down' ? line?.downTerminus : line?.upTerminus) ?? '').trim() || (mod.cfg.dir === 'down' ? '下行' : '上行')
+    ((mod.cfg.dir === 'down' ? line?.downTerminus : line?.upTerminus) ?? '').trim() || (mod.cfg.dir === 'down' ? t('down') : t('up'))
   const cars = line?.cars ?? 6
   const stock = (line?.stock ?? 'B') as StockClass
   // 屏蔽门 全高 / 半高. The half-height screen (半高) stands 1.5 m and carries

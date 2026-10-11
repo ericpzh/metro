@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Staircase geometry — GAME-SPEC.md §5.1.
 //
 // A stair climbs exactly one storey, like an escalator, but it is walkable in
@@ -46,7 +47,7 @@ export const STAIR_WIDTHS: readonly number[] = [STAIR_WIDTH_NARROW, STAIR_WIDTH_
  * business (see the block-grid note), and a player who wants a wider 双跑楼梯
  * wants "宽", not "2.04 m".
  */
-export const STAIR_WIDTH_LABELS = ['窄', '中', '宽'] as const
+export const STAIR_WIDTH_LABELS = [msg('narrow'), msg('medium'), msg('wide')] as const
 
 /** The name the Tab tile wears for a stair width: 窄 / 中 / 宽. */
 export function stairWidthLabel(width: number): string {

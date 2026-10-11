@@ -15,6 +15,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { msg } from '../src/sim/i18n.ts'
 import { INSPECTOR_FOLDERS, RAIL_FOLDERS, folderForAltKey, folderForShiftKey } from '../src/app/rail/helpers.ts'
 
 test('the rail is Shift+Q W E R T Y U, one letter a row down the stack', () => {
@@ -107,7 +108,7 @@ function viewTiles() {
   const grid = src.slice(open, src.indexOf('</div>', open))
   return {
     grid,
-    labels: [...grid.matchAll(/label="([^"]+)"/g)].map((m) => m[1]),
+    labels: [...grid.matchAll(/label=\{t\('([^']+)'\)\}/g)].map((m) => msg(m[1])),
   }
 }
 
@@ -135,12 +136,12 @@ test('剖切’s folded-out row is at the foot of the row 剖切 sits in', () =>
   const { grid } = viewTiles()
   const cut = grid.indexOf('<CutControls')
   assert.ok(cut > 0, '剖切 folds nothing out')
-  assert.ok(cut > grid.indexOf('label="隐藏UI"'), 'the cut row is inside the first row rather than after it')
-  assert.ok(cut < grid.indexOf('label="隐藏天花板"'), 'the cut row broke the row after it')
+  assert.ok(cut > grid.indexOf("label={t('hide_ui')}"), 'the cut row is inside the first row rather than after it')
+  assert.ok(cut < grid.indexOf("label={t('hide_ceilings')}"), 'the cut row broke the row after it')
   // The row itself is the cut's own two controls, 旋转 wearing the angle it turns to.
   const src = read('../src/app/rail/folders/ViewFolder.tsx')
-  assert.ok(src.includes('label="隐藏剖切面"'), '隐藏剖切面 left the cut row')
-  assert.ok(/RotateTile label=\{`旋转 \$\{next\}°`\}/.test(src), 'the cut row lost its 旋转 tile')
+  assert.ok(src.includes("label={t('hide_section_plane')}"), '隐藏剖切面 left the cut row')
+  assert.ok(/RotateTile label=\{t\('rotate_value', next\)\}/.test(src), 'the cut row lost its 旋转 tile')
 })
 
 test('视图 opens with the app, like every other row of the 信息栏', () => {

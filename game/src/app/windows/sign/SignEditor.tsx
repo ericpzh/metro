@@ -1,3 +1,5 @@
+import { msg, translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The 指示牌 board editor (§5.8 custom text signage) — a modal, on demand.
 //
 // It is **two boards**, and they are shown as the two things they are:
@@ -100,6 +102,7 @@ import {
  * set" left the editor up with its own ✕ unable to close it.
  */
 export function SignEditor(): React.ReactElement | null {
+  useLanguage()
   // Every tile in the modal is a picture of the mark it makes, and a pictogram's
   // picture is a bitmap, so the modal waits on the art — however it was opened.
   const ready = usePictogramsReady()
@@ -183,7 +186,7 @@ export function SignEditor(): React.ReactElement | null {
    * this notice once the board has room again, instead of leaving a stale toast
    * up after the mark was moved to the other face or deleted.
    */
-  const SIGN_FULL_NOTICE = '这块牌子放不下了 — 先删掉一些内容'
+  const SIGN_FULL_NOTICE = msg('no_room_on_this_sign_remove_some_content_first')
 
   /**
    * The one place a board is written: the editor's own two lists, the bins, the hover
@@ -209,7 +212,7 @@ export function SignEditor(): React.ReactElement | null {
       setBoards(trimmed)
       previewSignLayout(trimmed)
       const cur = useStore.getState().notice
-      if (cur === SIGN_FULL_NOTICE || cur?.startsWith('一块指示牌最多放') === true) {
+      if (cur === SIGN_FULL_NOTICE || cur?.startsWith(msg('a_sign_can_hold_at_most')) === true) {
         useStore.getState().setNotice(null)
       }
     },
@@ -663,7 +666,7 @@ export function SignEditor(): React.ReactElement | null {
    */
   const noticeFull = (comp: SignComponent): boolean => {
     if (layout.length >= SIGN_COMPONENT_MAX) {
-      setNotice(`一块指示牌最多放 ${SIGN_COMPONENT_MAX} 格内容`)
+      setNotice(msg('a_sign_can_hold_at_most_value_content_cells', SIGN_COMPONENT_MAX))
       return true
     }
     if (signMarkFits(layout, comp)) return false
@@ -815,7 +818,7 @@ export function SignEditor(): React.ReactElement | null {
     return { face, layout: shown === board.layout ? board.layout : settleSignBins(shown).layout }
   })
   return (
-    <div className="signModal" role="dialog" aria-modal="true" aria-label="指示牌编辑器">
+    <div className="signModal" role="dialog" aria-modal="true" aria-label={t('sign_editor')}>
       <div className={dragMark === null ? 'signPanel' : 'signPanel dragging'}>
         {/* 0. the header: the way out, on the **right**. It is a bar of its own rather than a
             corner of the action cluster so that ✕ is not one more button inside the gesture's
@@ -824,7 +827,7 @@ export function SignEditor(): React.ReactElement | null {
             指示牌 editor by virtue of being open, and a title bar with a name in it only takes
             room from the board. */}
         <div className="signHead">
-          <button type="button" className="signClose" aria-label="放弃修改" onClick={cancel}>
+          <button type="button" className="signClose" aria-label={t('discard_changes')} onClick={cancel}>
             ✕
           </button>
         </div>
@@ -852,7 +855,7 @@ export function SignEditor(): React.ReactElement | null {
                   lines={lines}
                   ready={ready}
                   active={group === g.id}
-                  label={g.label}
+                  label={translate(g.label)}
                   onToggle={() => toggleGroup(g.id)}
                 />
               ))}
@@ -871,7 +874,7 @@ export function SignEditor(): React.ReactElement | null {
                     mark={paletteMark({ kind: 'arrow', arrow: a })}
                     lines={lines}
                     active={selected?.kind === 'arrow' && selected.arrow === a}
-                    label={`箭头 ${ARROW_ANGLE[a]}°`}
+                    label={t('arrow_value', ARROW_ANGLE[a])}
                     onPointerDown={(e) => armPaletteDrag(`arrow:${a}`, e)}
                   />
                 ))}
@@ -885,7 +888,7 @@ export function SignEditor(): React.ReactElement | null {
                     lines={lines}
                     ready={ready}
                     active={selected?.kind === 'icon' && selected.icon === m.icon}
-                    label={m.label}
+                    label={translate(m.label)}
                     onPointerDown={(e) => armPaletteDrag(`icon:${m.icon}`, e)}
                   />
                 ))}
@@ -903,7 +906,7 @@ export function SignEditor(): React.ReactElement | null {
                       mark={paletteMark({ kind: 'line', lineId: l.id })}
                       lines={lines}
                       active={active}
-                      label={l.name}
+                      label={translate(l.name)}
                       onPointerDown={(e) => armPaletteDrag(`line:${l.id}`, e)}
                       onClick={() => setLine(l.id)}
                     />
@@ -938,7 +941,7 @@ export function SignEditor(): React.ReactElement | null {
                     aria-pressed={focusedFace === row.face}
                     onClick={() => focusFace(row.face)}
                   >
-                    {FACE_LABEL[row.face]}
+                    {translate(FACE_LABEL[row.face])}
                   </button>
                   <BinStrip
                     face={row.face}
@@ -957,7 +960,7 @@ export function SignEditor(): React.ReactElement | null {
                     }}
                     lineDefs={lines}
                     ready={ready}
-                    label={`${FACE_LABEL[row.face]} · ${FACE_ROW_LABEL[row.face]}`}
+                    label={translate(`${FACE_LABEL[row.face]} · ${FACE_ROW_LABEL[row.face]}`)}
                   />
                 </div>
               ))}
@@ -1000,7 +1003,7 @@ export function SignEditor(): React.ReactElement | null {
                 ]
                   .filter(Boolean)
                   .join(' ')}
-                aria-label="删除拖入的内容，或点击清空正反面"
+                aria-label={t('drop_content_here_to_delete_or_click_to_clear_both_sides')}
                 // A **click** on a bin that is holding nothing: the whole board goes. A press
                 // that became a drag never gets here — the browser withholds the click once the
                 // pointer has moved, and the drag's own end (`endDrag`) has already deleted the
@@ -1009,14 +1012,14 @@ export function SignEditor(): React.ReactElement | null {
               >
                 <Icon name="delete" />
               </button>
-              <button type="button" className="signAct ok" aria-label="完成" onClick={confirm}>
+              <button type="button" className="signAct ok" aria-label={t('done')} onClick={confirm}>
                 ✓
               </button>
             </div>
           </div>
         </div>
       </div>
-      <button className="signModalScrim" aria-label="关闭编辑器" onClick={cancel} />
+      <button className="signModalScrim" aria-label={t('close_editor')} onClick={cancel} />
     </div>
   )
 }

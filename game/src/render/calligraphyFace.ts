@@ -1,3 +1,4 @@
+import { t } from '../sim/i18n.ts'
 // The 站名 pixels — the station's own name, cut as an ink inscription.
 //
 // This is the *only* drawing code for a station-name inscription. A placed piece's
@@ -190,7 +191,7 @@ export function drawCalligraphyPanel(g: CanvasRenderingContext2D, opts: Calligra
   const ppm = opts.ppm ?? PX_PER_METRE
   const spec = calligraphyStyle(opts.style)
   const chars = Array.from(opts.text.trim())
-  const layout = calligraphyLayout(chars.length > 0 ? chars : ['未'], opts.axis, opts.style, opts.panel)
+  const layout = calligraphyLayout(chars.length > 0 ? chars : [t('unknown')], opts.axis, opts.style, opts.panel)
 
   // The plate is the ink alone: the wall behind the piece is the inscription's
   // paper, so nothing here fills a ground. Both alignments are centred, because

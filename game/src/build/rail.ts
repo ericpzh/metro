@@ -1,3 +1,4 @@
+import { msg } from '../sim/i18n.ts'
 // Rail placement and the platform edges it derives (GAME-SPEC §5.4 track kit,
 // §5.9 platforms). A rail is a `track` module: placing one digs the bed cells
 // (half a storey of trench, §4.3 track bed) and the screen doors are generated
@@ -60,7 +61,7 @@ export function railRect(a: readonly [number, number, number], b: readonly [numb
 export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' | 'catenary'): LineDef {
   return {
     id,
-    name: `${id}号线`,
+    name: msg('line_value', id),
     colour: lineColourFor(id),
     stock: 'B',
     cars: 6,
@@ -183,7 +184,7 @@ function makeEdge(
     z: track.z,
     w,
     rot: track.rot,
-    cfg: { name: '站台门', line: track.cfg.line, dir, side, psd, from: track.id },
+    cfg: { name: msg('platform_doors'), line: track.cfg.line, dir, side, psd, from: track.id },
   }
 }
 
@@ -360,11 +361,11 @@ export type TrackBlock = 'interference' | 'wall' | 'floor'
 export function trackBlockNotice(state: StationState, track: TrackModule, block: TrackBlock): string {
   if (block === 'interference') {
     const colliders = trackColliders(state, track)
-    const names = colliders.length > 0 ? `：被${blockerLabels(colliders)}挡住了` : ''
-    return `这儿有设备、房间、站台或别的轨道挡着，放不下${names}`
+    const names = colliders.length > 0 ? msg('blocked_by_value', blockerLabels(colliders)) : ''
+    return msg('cannot_place_value_equipment_rooms_platforms_or_other_tracks_are', names)
   }
-  if (block === 'wall') return '轨道中间有墙，站台放不下；这里可以用隧道穿过'
-  return '站台轨道要铺在整片地面上（至少三格宽）'
+  if (block === 'wall') return msg('a_wall_crosses_this_track_use_a_tunnel_instead_of_a_platform_her')
+  return msg('platform_track_needs_a_solid_floor_at_least_three_cells_wide')
 }
 
 export function trackBlockReason(state: StationState, track: TrackModule): TrackBlock | null {

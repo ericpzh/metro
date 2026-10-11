@@ -1,3 +1,4 @@
+import { msg } from '../../../sim/i18n.ts'
 // The station-document slice: the document itself, the undo stack, the
 // selection, the transient toast, and opening/saving/renaming/reference
 // stations. Every mutation goes through `commit` so the worker (`rebuildSim`)
@@ -120,7 +121,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     a.download = `${s.name || 'station'}.metro.json`
     a.click()
     URL.revokeObjectURL(url)
-    set({ notice: '已保存' })
+    set({ notice: msg('saved') })
   },
   loadFromText: (text) => {
     const r = parseSave(text)
@@ -137,8 +138,8 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const repaired = r.droppedCells + r.droppedModules
     set({
       notice: repaired > 0
-        ? `已打开（存档 v${r.version}）：修复时删掉了 ${repaired} 个网格外的方块`
-        : `已打开（存档 v${r.version}）`,
+        ? msg('opened_save_vvalue_repair_removed_value_blocks_outside_the_grid', r.version, repaired)
+        : msg('opened_save_vvalue', r.version),
     })
   },
   select: (sel) => set({ selected: sel }),
@@ -198,7 +199,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     rebuildSim(toData(next))
   },
   newStation: () => {
-    const s = toState({ name: '未命名车站', seed: 7654321, cells: [], modules: [], lines: [] })
+    const s = toState({ name: msg('unnamed_station'), seed: 7654321, cells: [], modules: [], lines: [] })
     set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
   },
@@ -210,7 +211,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: -8 + s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
     if (repaired.droppedCells + repaired.droppedModules > 0) {
-      set({ notice: `示例车站修复时删掉了 ${repaired.droppedCells + repaired.droppedModules} 个网格外的方块` })
+      set({ notice: msg('example_station_repair_removed_value_blocks_outside_the_grid', repaired.droppedCells + repaired.droppedModules) })
     }
   },
 })

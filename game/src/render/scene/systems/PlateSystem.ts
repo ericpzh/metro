@@ -9,6 +9,7 @@
 // changes, only the artwork inside cycles, on its own cadence per screen.
 
 import * as THREE from 'three'
+import { getLanguage, translate } from '../../../sim/i18n.ts'
 import type { TrainService } from '../../../sim/trainSchedule.ts'
 import { canvasTexture, litPanelMaterial } from '../../models.ts'
 import type { PrintedFace } from '../../models.ts'
@@ -123,7 +124,7 @@ export class PlateSystem extends SceneSystem {
    * which `setSimClock` refreshes from worker frames).
    */
   retainTvPlates(data: StationData): void {
-    const stamp = `${data.name}|${data.lines
+    const stamp = `${getLanguage()}|${data.name}|${data.lines
       .map((l) => `${l.id},${l.name},${l.colour},${l.direction},${l.upTerminus},${l.downTerminus},${l.headwayProfile.peak},${l.travelSign}`)
       .join('|')}`
     if (stamp !== this.tvPlateStamp) {
@@ -266,7 +267,7 @@ export class PlateSystem extends SceneSystem {
     }
     if (mod.type === 'linemap') {
       const spec = lineMapSpec(mod.cfg?.mount)
-      return `${mod.id}|linemap|${spec.panelW.toFixed(3)}x${spec.panelH.toFixed(3)}`
+      return `${mod.id}|linemap|${spec.panelW.toFixed(3)}x${spec.panelH.toFixed(3)}${getLanguage() === 'en' ? '|en' : ''}`
     }
     return null
   }
@@ -346,7 +347,7 @@ export class PlateSystem extends SceneSystem {
    * needs no window of its own.
    */
   makeLineMapPlate(id: string, panel: { w: number; h: number }): PrintedFace {
-    const key = `${id}|linemap|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+    const key = `${id}|linemap|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}${getLanguage() === 'en' ? '|en' : ''}`
     const existing = this.decorPlates.get(key)
     if (existing) return existing.face
     const art = this.ctx.lineMaps
@@ -442,7 +443,7 @@ export class PlateSystem extends SceneSystem {
     const data = this.ctx.stationData
     const stamp = stampAt(simTime, data?.calendar)
     this.ctx.clockText = stamp.clock
-    this.dateText = stamp.dateLabel
+    this.dateText = translate(stamp.dateLabel)
     for (const [id, tex] of this.tvPlates) {
       const mod = data?.modules.find((m) => m.id === id)
       const status = this.tvStatus(mod ? mod.x + 0.5 : 0.5, mod ? mod.y + 0.5 : 0.5, mod?.z ?? 0)

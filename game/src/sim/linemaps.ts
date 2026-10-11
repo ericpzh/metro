@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Line system maps — the 装饰 线网图 pieces (GAME-SPEC §5.7).
 //
 // A 线网图 is the network poster a real station hangs on its wall or stands in its
@@ -76,7 +77,7 @@ export interface LineMapSpec {
 export const LINE_MAP_SPECS: Record<LineMapVariant, LineMapSpec> = {
   wall: {
     variant: 'wall',
-    label: '墙面线网图',
+    label: msg('wall_network_map'),
     mount: 'wall',
     w: 2,
     panelW: LINE_MAP_PANEL_W,
@@ -92,7 +93,7 @@ export const LINE_MAP_SPECS: Record<LineMapVariant, LineMapSpec> = {
   },
   stand: {
     variant: 'stand',
-    label: '立式线网图',
+    label: msg('standing_network_map'),
     mount: 'stand',
     w: 2,
     // The **same board** as the wall piece, on a plinth: a passenger reads the same

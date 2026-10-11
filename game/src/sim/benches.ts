@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Bench variants — the 装饰 座椅 pieces, GAME-SPEC §5.7.
 //
 // A bench is a free-standing seat whose run is `w` cells along its local +x and
@@ -21,10 +22,10 @@ export interface BenchSpec {
 }
 
 export const BENCH_SPECS: Record<BenchVariant, BenchSpec> = {
-  'steel-1': { variant: 'steel-1', label: '不锈钢 1m', style: 'steel', w: 1 },
-  'steel-2': { variant: 'steel-2', label: '不锈钢 2m', style: 'steel', w: 2 },
-  'seat-1': { variant: 'seat-1', label: '靠背 1m', style: 'seat', w: 1 },
-  'seat-2': { variant: 'seat-2', label: '连排 2m', style: 'seat', w: 2 },
+  'steel-1': { variant: 'steel-1', label: msg('stainless_steel_1_m'), style: 'steel', w: 1 },
+  'steel-2': { variant: 'steel-2', label: msg('stainless_steel_2_m'), style: 'steel', w: 2 },
+  'seat-1': { variant: 'seat-1', label: msg('backed_seat_1_m'), style: 'seat', w: 1 },
+  'seat-2': { variant: 'seat-2', label: msg('linked_seats_2_m'), style: 'seat', w: 2 },
 }
 
 /** Every variant, in palette order. */

@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The 隧道 tool: hang a fixed-length extension off the end of the hovered rail,
 // along that rail's own axis. Moved verbatim from app/Viewport.tsx (GAME-SPEC
 // §7). A tunnel never touches the platform track's own cells — the run starts
@@ -24,7 +25,7 @@ export class TunnelTool extends ToolController {
     // A tunnel hangs off an existing rail: with no rail under the pointer say
     // so instead of dropping the click.
     if (!src) {
-      st.setNotice('先点一段现有轨道，隧道从端部接出')
+      st.setNotice(msg('select_existing_track_first_the_tunnel_connects_to_its_end'))
       return
     }
     if (info.button === 2) {

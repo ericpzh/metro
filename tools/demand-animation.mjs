@@ -7,7 +7,7 @@ import { SHOULDER_OPEN, SHOULDER_CLOSE } from '../game/src/sim/constants.ts';
 
 const KEYS = ['amPeak', 'pmPeak', 'sharpness'];
 const LABELS = ['开站时间', '关站时间', '早高峰开始', '早高峰结束', '晚高峰开始', '晚高峰结束'];
-const px = hour => 26 + hour / 24 * 416; // DayCurve's current 26 / 38 margins.
+const px = hour => 26 + hour / 24 * 394; // DayCurve's current 26 / 60 margins.
 const clock = hour => { const m=Math.round(hour*60); return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); };
 const times = b => `营业 ${clock(b[0])}–${clock(b[1])} · 早高峰 ${clock(b[2])}–${clock(b[3])} · 晚高峰 ${clock(b[4])}–${clock(b[5])}`;
 
@@ -32,19 +32,19 @@ export function demandAnimation(x, y, w, h, spansBox, capture) {
   const readout=(id,values,tx,ty,attrs='')=>`<g id="${id}" ${attrs}>`+[...new Set(values)].map(v=>
     `<text x="${n(tx)}" y="${n(ty)}" opacity="${v===values[0]?1:0}">${v}${anim('opacity',values.map(s=>s===v?'1':'0'),true)}</text>`).join('')+'</g>';
   const svg=[`<svg id="demand-edit-chart" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" viewBox="0 0 480 112" style="touch-action:none">`,
-    '<rect width="480" height="112" fill="#0b1b2c"/><rect x="26" y="14" width="416" height="83" fill="#06111d"/>'];
+    '<rect width="480" height="112" fill="#0b1b2c"/><rect x="26" y="14" width="394" height="83" fill="#06111d"/>'];
   for(const i of [0,2,4]) svg.push(`<rect id="demand-band-${i}" x="${n(px(bounds[i]))}" y="14" width="${n(px(bounds[i+1])-px(bounds[i]))}" height="83" fill="${i?'#ffc861':'#55b6ff'}" opacity=".14">`
     +anim('x',frames.map(f=>n(px(f.bounds[i]))))+anim('width',frames.map(f=>n(px(f.bounds[i+1])-px(f.bounds[i]))))+'</rect>');
-  svg.push(`<line id="demand-baseline" x1="26" x2="442" y1="${n(initial.baseY)}" y2="${n(initial.baseY)}" stroke="#7ea6c9" stroke-dasharray="3 4" opacity=".4">`
+  svg.push(`<line id="demand-baseline" x1="26" x2="420" y1="${n(initial.baseY)}" y2="${n(initial.baseY)}" stroke="#7ea6c9" stroke-dasharray="3 4" opacity=".4">`
     +anim('y1',frames.map(f=>n(f.baseY)))+anim('y2',frames.map(f=>n(f.baseY)))+'</line>',
     `<polyline id="demand-live-line" points="${initial.points}" fill="none" stroke="#55b6ff" stroke-width="1.5">${anim('points',frames.map(f=>f.points))}</polyline>`);
   for(let i=0;i<9;i++) svg.push(`<text x="${n(px(i*3))}" y="108" font-size="6" text-anchor="${i===0?'start':i===8?'end':'middle'}" fill="#7ea6c9">${String(i*3).padStart(2,'0')}</text>`);
   svg.push(readout('demand-top',frames.map(f=>Math.round(f.top*100)+'%'),22,22,'font-size="6" text-anchor="end" fill="#7ea6c9"'),
     '<text x="22" y="97" text-anchor="end" font-size="6" fill="#7ea6c9">0</text>',
-    '<text x="446" y="10" font-size="6" fill="#7ea6c9">人/时</text>',
-    readout('demand-count-top',frames.map(f=>Math.round(f.top*baseRate).toLocaleString('en-US')),446,22,'font-size="6" fill="#7ea6c9"'),
-    `<text id="demand-count-base" x="446" y="${n(initial.baseY+3)}" font-size="6" fill="#7ea6c9">${baseRate.toLocaleString('en-US')}${anim('y',frames.map(f=>n(f.baseY+3)))}</text>`,
-    '<text x="446" y="97" font-size="6" fill="#7ea6c9">0</text>');
+    '<text x="476" text-anchor="end" y="10" font-size="6" fill="#7ea6c9">人/时</text>',
+    readout('demand-count-top',frames.map(f=>Math.round(f.top*baseRate).toLocaleString('en-US')),476,22,'text-anchor="end" font-size="6" fill="#7ea6c9"'),
+    `<text id="demand-count-base" x="476" text-anchor="end" y="${n(initial.baseY+3)}" font-size="6" fill="#7ea6c9">${baseRate.toLocaleString('en-US')}${anim('y',frames.map(f=>n(f.baseY+3)))}</text>`,
+    '<text x="476" text-anchor="end" y="97" font-size="6" fill="#7ea6c9">0</text>');
   bounds.forEach((v,i)=>svg.push(`<g id="demand-grip-${i}" transform="translate(${n(px(v))},0)">`
     +`<animateTransform class="demand-motion" attributeName="transform" type="translate" dur="24s" repeatCount="indefinite" keyTimes="${keyTimes}" values="${frames.map(f=>n(px(f.bounds[i]))+' 0').join(';')}"/>`
     +`<line y1="6" y2="97" stroke="${i<2?'#55b6ff':'#ffc861'}" stroke-width="1" stroke-dasharray="2 3"/><rect x="-3.5" y="3" width="7" height="7" fill="${i<2?'#55b6ff':'#ffc861'}"/>`
@@ -91,7 +91,7 @@ export function demandAnimation(x, y, w, h, spansBox, capture) {
         text('demand-slider-value-'+i,Math.round(v*100)+'%');root.querySelector('[data-knob="'+i+'"]').setAttribute('aria-valuenow',Math.round(v*100));});};
     const set=(hit,clientX,clientY,delta)=>{stop();
       if(hit.hasAttribute('data-boundary')){const i=Number(hit.dataset.boundary),p=new DOMPoint(clientX,clientY).matrixTransform(chart.getScreenCTM().inverse());
-        const v=delta===undefined?(p.x-26)/416*24:bounds[i]+delta/60;
+        const v=delta===undefined?(p.x-26)/394*24:bounds[i]+delta/60;
         bounds[i]=Math.max(i%2?bounds[i-1]+.25:0,Math.min(i%2?24:bounds[i+1]-.25,Math.round(v*60)/60));
       }else{const s=sliders[Number(hit.dataset.knob)],p=new DOMPoint(clientX,clientY).matrixTransform(root.getScreenCTM().inverse());
         const v=delta===undefined?s.limits[0]+(p.x-s.range.x-6)/(s.range.w-12)*(s.limits[1]-s.limits[0]):knobs[s.key]+delta/100;

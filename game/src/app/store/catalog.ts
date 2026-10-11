@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The build-rail catalogue: every placeable piece option, type predicate and
 // label the rail, the viewport ghost and the inspector share. Pure data and
 // predicates — no store wiring — so slices and components import it directly
@@ -27,56 +28,56 @@ export interface ModuleOption {
  * a list that also has to keep each family's variants adjacent.
  */
 export const MODULE_OPTIONS: ModuleOption[] = [
-  { id: 'hanger-roof', label: '吊装', type: 'hanger', w: 4, h: 1 },
-  { id: 'hanger-post', label: '立柱', type: 'hanger', w: 4, h: 1 },
-  { id: 'ac-unit', label: '空调风机', type: 'ac-unit', w: 3, h: 2 },
-  { id: 'electrical-cabinet', label: '设备柜', type: 'electrical-cabinet', w: 3, h: 1 },
-  { id: 'tactile-guide', label: '条形导向', type: 'tactile', w: 1, h: 1 },
-  { id: 'tactile-warning', label: '圆点提示', type: 'tactile', w: 1, h: 1 },
-  { id: 'floor-mark-boarding', label: '屏蔽门箭头', type: 'floor-mark', w: 3, h: 1 },
-  { id: 'floor-mark-waiting', label: '排队等候线', type: 'floor-mark', w: 3, h: 2 },
-  { id: 'floor-mark-direction', label: '方向指引', type: 'floor-mark', w: 1, h: 2 },
-  { id: 'pillar-slim', label: '细支柱', type: 'pillar', w: 1, h: 1 },
-  { id: 'pillar-thick', label: '粗支柱', type: 'pillar', w: 1, h: 1 },
-  { id: 'roof', label: '薄板', type: 'roof', w: 1, h: 1 },
-  { id: 'roof-shell', label: '无桁架', type: 'roof', w: 4, h: 4 },
-  { id: 'roof-truss', label: '桁架', type: 'roof', w: 4, h: 4 },
-  { id: 'roof-tapered', label: '收束桁架', type: 'roof', w: 4, h: 4 },
-  { id: 'bridge', label: '轨道桥', type: 'track', w: 12, h: 3 },
-  { id: 'gate', label: '旧', type: 'gate', w: 1, h: 1 },
-  { id: 'gate-new', label: '新', type: 'gate', w: 1, h: 1 },
-  { id: 'psd-end', label: '屏蔽端门', type: 'psd-end', w: 1, h: 1 },
-  { id: 'fence', label: '玻璃围栏', type: 'fence', w: 1, h: 1 },
-  { id: 'fence-gate', label: '门', type: 'fence', w: 1, h: 1 },
-  { id: 'fence-iron', label: '铁围栏', type: 'fence', w: 1, h: 1 },
-  { id: 'tvm', label: '售票机', type: 'tvm', w: 1, h: 1 },
-  { id: 'vending', label: '自动贩卖机', type: 'vending', w: 1, h: 1 },
-  { id: 'bench-steel-1', label: '不锈钢', type: 'bench', w: 1, h: 1 },
-  { id: 'bench-seat-1', label: '靠背座椅', type: 'bench', w: 1, h: 1 },
+  { id: 'hanger-roof', label: msg('roof_hanger'), type: 'hanger', w: 4, h: 1 },
+  { id: 'hanger-post', label: msg('post_hanger'), type: 'hanger', w: 4, h: 1 },
+  { id: 'ac-unit', label: msg('air_conditioner'), type: 'ac-unit', w: 3, h: 2 },
+  { id: 'electrical-cabinet', label: msg('equipment_cabinet'), type: 'electrical-cabinet', w: 3, h: 1 },
+  { id: 'tactile-guide', label: msg('tactile_guide'), type: 'tactile', w: 1, h: 1 },
+  { id: 'tactile-warning', label: msg('tactile_warning'), type: 'tactile', w: 1, h: 1 },
+  { id: 'floor-mark-boarding', label: msg('door_arrows'), type: 'floor-mark', w: 3, h: 1 },
+  { id: 'floor-mark-waiting', label: msg('queue_lines'), type: 'floor-mark', w: 3, h: 2 },
+  { id: 'floor-mark-direction', label: msg('direction_guide'), type: 'floor-mark', w: 1, h: 2 },
+  { id: 'pillar-slim', label: msg('slim_pillar'), type: 'pillar', w: 1, h: 1 },
+  { id: 'pillar-thick', label: msg('thick_pillar'), type: 'pillar', w: 1, h: 1 },
+  { id: 'roof', label: msg('slab'), type: 'roof', w: 1, h: 1 },
+  { id: 'roof-shell', label: msg('no_truss'), type: 'roof', w: 4, h: 4 },
+  { id: 'roof-truss', label: msg('truss'), type: 'roof', w: 4, h: 4 },
+  { id: 'roof-tapered', label: msg('tapered_truss'), type: 'roof', w: 4, h: 4 },
+  { id: 'bridge', label: msg('railway_bridge'), type: 'track', w: 12, h: 3 },
+  { id: 'gate', label: msg('old'), type: 'gate', w: 1, h: 1 },
+  { id: 'gate-new', label: msg('new'), type: 'gate', w: 1, h: 1 },
+  { id: 'psd-end', label: msg('screen_end_door'), type: 'psd-end', w: 1, h: 1 },
+  { id: 'fence', label: msg('glass_fence'), type: 'fence', w: 1, h: 1 },
+  { id: 'fence-gate', label: msg('door'), type: 'fence', w: 1, h: 1 },
+  { id: 'fence-iron', label: msg('iron_fence'), type: 'fence', w: 1, h: 1 },
+  { id: 'tvm', label: msg('ticket_machine'), type: 'tvm', w: 1, h: 1 },
+  { id: 'vending', label: msg('vending_machine'), type: 'vending', w: 1, h: 1 },
+  { id: 'bench-steel-1', label: msg('stainless_steel'), type: 'bench', w: 1, h: 1 },
+  { id: 'bench-seat-1', label: msg('backed_seats'), type: 'bench', w: 1, h: 1 },
   ...SHELF_VARIANTS.map((variant) => ({ id: `shelf-${variant}`, label: shelfSpec(variant).label, type: 'shelf', w: 1, h: 1 })),
-  { id: 'desk', label: '办公桌', type: 'desk', w: 1, h: 1 },
-  { id: 'checkout', label: '收银台', type: 'checkout', w: 1, h: 1 },
-  { id: 'cubicle', label: '厕所隔间', type: 'cubicle', w: 1, h: 1 },
-  { id: 'sink', label: '洗手池', type: 'sink', w: 1, h: 1 },
-  { id: 'guidepost', label: '导向柱', type: 'guidepost', w: 1, h: 1 },
-  { id: 'busstop-short', label: '短', type: 'busstop', w: 4, h: 2 },
-  { id: 'busstop-long', label: '长', type: 'busstop', w: 8, h: 2 },
-  { id: 'bin', label: '垃圾桶', type: 'bin', w: 1, h: 1 },
-  { id: 'extinguisher', label: '灭火器', type: 'extinguisher', w: 1, h: 1 },
-  { id: 'vent', label: '通风口', type: 'vent', w: 1, h: 1 },
-  { id: 'light-circular', label: '圆形', type: 'light', w: 1, h: 1 },
-  { id: 'light-rectangular', label: '直条', type: 'light', w: 1, h: 1 },
-  { id: 'clock', label: '时钟', type: 'clock', w: 1, h: 1 },
-  { id: 'cctv', label: '枪机', type: 'cctv', w: 1, h: 1 },
-  { id: 'cctv-ptz', label: '球机', type: 'cctv', w: 1, h: 1 },
-  { id: 'cctv-dome', label: '半球机', type: 'cctv', w: 1, h: 1 },
-  { id: 'billboard-wide', label: '横版 16:9', type: 'billboard', w: 1, h: 1 },
-  { id: 'billboard-standard', label: '标准 2.25:1', type: 'billboard', w: 2, h: 1 },
-  { id: 'billboard-large', label: '大横版 16:9', type: 'billboard', w: 2, h: 1 },
-  { id: 'billboard-panorama', label: '长幅 3.75:1', type: 'billboard', w: 3, h: 1 },
-  { id: 'billboard-portrait', label: '竖版 0.7:1', type: 'billboard', w: 1, h: 1 },
-  { id: 'billboard-square', label: '方形 1:1', type: 'billboard', w: 1, h: 1 },
-  { id: 'tv', label: '电视', type: 'tv', w: 1, h: 1 },
+  { id: 'desk', label: msg('desk'), type: 'desk', w: 1, h: 1 },
+  { id: 'checkout', label: msg('checkout'), type: 'checkout', w: 1, h: 1 },
+  { id: 'cubicle', label: msg('toilet_cubicle'), type: 'cubicle', w: 1, h: 1 },
+  { id: 'sink', label: msg('sink'), type: 'sink', w: 1, h: 1 },
+  { id: 'guidepost', label: msg('wayfinding_post'), type: 'guidepost', w: 1, h: 1 },
+  { id: 'busstop-short', label: msg('short'), type: 'busstop', w: 4, h: 2 },
+  { id: 'busstop-long', label: msg('long'), type: 'busstop', w: 8, h: 2 },
+  { id: 'bin', label: msg('bin'), type: 'bin', w: 1, h: 1 },
+  { id: 'extinguisher', label: msg('extinguisher'), type: 'extinguisher', w: 1, h: 1 },
+  { id: 'vent', label: msg('vent'), type: 'vent', w: 1, h: 1 },
+  { id: 'light-circular', label: msg('round'), type: 'light', w: 1, h: 1 },
+  { id: 'light-rectangular', label: msg('strip'), type: 'light', w: 1, h: 1 },
+  { id: 'clock', label: msg('clock'), type: 'clock', w: 1, h: 1 },
+  { id: 'cctv', label: msg('bullet_camera'), type: 'cctv', w: 1, h: 1 },
+  { id: 'cctv-ptz', label: msg('ptz_camera'), type: 'cctv', w: 1, h: 1 },
+  { id: 'cctv-dome', label: msg('dome_camera'), type: 'cctv', w: 1, h: 1 },
+  { id: 'billboard-wide', label: msg('landscape_16_9'), type: 'billboard', w: 1, h: 1 },
+  { id: 'billboard-standard', label: msg('standard_2_25_1'), type: 'billboard', w: 2, h: 1 },
+  { id: 'billboard-large', label: msg('large_landscape_16_9'), type: 'billboard', w: 2, h: 1 },
+  { id: 'billboard-panorama', label: msg('wide_3_75_1'), type: 'billboard', w: 3, h: 1 },
+  { id: 'billboard-portrait', label: msg('portrait_0_7_1'), type: 'billboard', w: 1, h: 1 },
+  { id: 'billboard-square', label: msg('square_1_1'), type: 'billboard', w: 1, h: 1 },
+  { id: 'tv', label: msg('tv'), type: 'tv', w: 1, h: 1 },
   // The 指示牌's two mounts (§5.8): the overhead board hung from the ceiling and read
   // from both sides, and the same board bolted flat to a wall. Two tiles, one piece —
   // the 线网图's wall/stand pair read the other way round (`sim/sign.ts`) — and the tiles
@@ -90,49 +91,49 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   // the ceiling's). A run's length is the piece's own (`sim/glassPanels.ts`,
   // `sim/calligraphy.ts`, `sim/linemaps.ts`), so the cell counts here name the
   // smallest piece of each family.
-  { id: 'curtain-wall', label: '玻璃幕墙', type: 'glass', w: 2, h: 1 },
-  { id: 'glass-1x1', label: '玻璃板 1×1', type: 'glass', w: 1, h: 1 },
-  { id: 'glass-2x1', label: '玻璃板 2×1', type: 'glass', w: 2, h: 1 },
-  { id: 'glass-3x1', label: '玻璃板 3×1', type: 'glass', w: 3, h: 1 },
-  { id: 'glass-1x2', label: '玻璃板 1×2', type: 'glass', w: 1, h: 1 },
-  { id: 'glass-2x2', label: '玻璃板 2×2', type: 'glass', w: 2, h: 1 },
-  { id: 'glass-3x2', label: '玻璃板 3×2', type: 'glass', w: 3, h: 1 },
+  { id: 'curtain-wall', label: msg('curtain_wall'), type: 'glass', w: 2, h: 1 },
+  { id: 'glass-1x1', label: msg('glass_panel_1_1'), type: 'glass', w: 1, h: 1 },
+  { id: 'glass-2x1', label: msg('glass_panel_2_1'), type: 'glass', w: 2, h: 1 },
+  { id: 'glass-3x1', label: msg('glass_panel_3_1'), type: 'glass', w: 3, h: 1 },
+  { id: 'glass-1x2', label: msg('glass_panel_1_2'), type: 'glass', w: 1, h: 1 },
+  { id: 'glass-2x2', label: msg('glass_panel_2_2'), type: 'glass', w: 2, h: 1 },
+  { id: 'glass-3x2', label: msg('glass_panel_3_2'), type: 'glass', w: 3, h: 1 },
   // Door material is chosen in the family menu; 窄/宽 is the action-row setting.
-  { id: 'door-steel-1', label: '不锈钢', type: 'door', w: 1, h: 1 },
-  { id: 'door-wood-1', label: '木', type: 'door', w: 1, h: 1 },
-  { id: 'door-glass-1', label: '玻璃', type: 'door', w: 1, h: 1 },
-  { id: 'calligraphy-kai-h', label: '楷书 横排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-kai-v', label: '楷书 竖排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-xing-h', label: '行书 横排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-xing-v', label: '行书 竖排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-li-h', label: '隶书 横排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-li-v', label: '隶书 竖排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-wei-h', label: '魏碑 横排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-wei-v', label: '魏碑 竖排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-hei-h', label: '黑体 横排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-hei-v', label: '黑体 竖排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-song-h', label: '宋体 横排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'calligraphy-song-v', label: '宋体 竖排', type: 'calligraphy', w: 1, h: 1 },
-  { id: 'linemap-wall', label: '墙面线网图', type: 'linemap', w: 2, h: 1 },
-  { id: 'linemap-stand', label: '立式线网图', type: 'linemap', w: 1, h: 1 },
-  { id: 'exit-covered-1', label: '有盖 单向', type: 'exit', w: 1, h: 1 },
-  { id: 'exit', label: '有盖 双向', type: 'exit', w: 1, h: 1 },
-  { id: 'exit-covered-3', label: '有盖 三向', type: 'exit', w: 1, h: 1 },
-  { id: 'exit-uncovered-1', label: '无盖 单向', type: 'exit', w: 1, h: 1 },
-  { id: 'exit-uncovered-2', label: '无盖 双向', type: 'exit', w: 1, h: 1 },
-  { id: 'exit-uncovered-3', label: '无盖 三向', type: 'exit', w: 1, h: 1 },
-  { id: 'exit-doorway-1', label: '地面 单向', type: 'exit', w: 3, h: 1 },
-  { id: 'exit-doorway-2', label: '地面 双向', type: 'exit', w: 4, h: 1 },
-  { id: 'exit-doorway-3', label: '地面 三向', type: 'exit', w: 5, h: 1 },
-  { id: 'exit-doorway-4', label: '地面 四向', type: 'exit', w: 6, h: 1 },
-  { id: 'escalator', label: '扶梯', type: 'escalator', w: 1, h: 1 },
-  { id: 'lift', label: '电梯', type: 'lift', w: 1, h: 1 },
-  { id: 'stair-straight', label: '单跑楼梯', type: 'stair', w: 1, h: 1 },
-  { id: 'stair-block', label: '楼梯块', type: 'stair', w: 1, h: 1 },
-  { id: 'stair-left90', label: '左转角楼梯', type: 'stair', w: 1, h: 1 },
-  { id: 'stair-right90', label: '右转角楼梯', type: 'stair', w: 1, h: 1 },
-  { id: 'stair-left180', label: '左双跑楼梯', type: 'stair', w: 1, h: 1 },
-  { id: 'stair-right180', label: '右双跑楼梯', type: 'stair', w: 1, h: 1 },
+  { id: 'door-steel-1', label: msg('stainless_steel'), type: 'door', w: 1, h: 1 },
+  { id: 'door-wood-1', label: msg('wood'), type: 'door', w: 1, h: 1 },
+  { id: 'door-glass-1', label: msg('glass'), type: 'door', w: 1, h: 1 },
+  { id: 'calligraphy-kai-h', label: msg('regular_script_horizontal'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-kai-v', label: msg('regular_script_vertical'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-xing-h', label: msg('running_script_horizontal'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-xing-v', label: msg('running_script_vertical'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-li-h', label: msg('clerical_script_horizontal'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-li-v', label: msg('clerical_script_vertical'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-wei-h', label: msg('wei_stele_horizontal'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-wei-v', label: msg('wei_stele_vertical'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-hei-h', label: msg('sans_serif_horizontal'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-hei-v', label: msg('sans_serif_vertical'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-song-h', label: msg('song_serif_horizontal'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'calligraphy-song-v', label: msg('song_serif_vertical'), type: 'calligraphy', w: 1, h: 1 },
+  { id: 'linemap-wall', label: msg('wall_network_map'), type: 'linemap', w: 2, h: 1 },
+  { id: 'linemap-stand', label: msg('standing_network_map'), type: 'linemap', w: 1, h: 1 },
+  { id: 'exit-covered-1', label: msg('covered_one_way'), type: 'exit', w: 1, h: 1 },
+  { id: 'exit', label: msg('covered_two_ways'), type: 'exit', w: 1, h: 1 },
+  { id: 'exit-covered-3', label: msg('covered_three_ways'), type: 'exit', w: 1, h: 1 },
+  { id: 'exit-uncovered-1', label: msg('uncovered_one_way'), type: 'exit', w: 1, h: 1 },
+  { id: 'exit-uncovered-2', label: msg('uncovered_two_ways'), type: 'exit', w: 1, h: 1 },
+  { id: 'exit-uncovered-3', label: msg('uncovered_three_ways'), type: 'exit', w: 1, h: 1 },
+  { id: 'exit-doorway-1', label: msg('ground_one_way'), type: 'exit', w: 3, h: 1 },
+  { id: 'exit-doorway-2', label: msg('ground_two_ways'), type: 'exit', w: 4, h: 1 },
+  { id: 'exit-doorway-3', label: msg('ground_three_ways'), type: 'exit', w: 5, h: 1 },
+  { id: 'exit-doorway-4', label: msg('ground_four_ways'), type: 'exit', w: 6, h: 1 },
+  { id: 'escalator', label: msg('escalator'), type: 'escalator', w: 1, h: 1 },
+  { id: 'lift', label: msg('lift'), type: 'lift', w: 1, h: 1 },
+  { id: 'stair-straight', label: msg('straight_stairs'), type: 'stair', w: 1, h: 1 },
+  { id: 'stair-block', label: msg('stair_block'), type: 'stair', w: 1, h: 1 },
+  { id: 'stair-left90', label: msg('left_quarter_turn_stairs'), type: 'stair', w: 1, h: 1 },
+  { id: 'stair-right90', label: msg('right_quarter_turn_stairs'), type: 'stair', w: 1, h: 1 },
+  { id: 'stair-left180', label: msg('left_switchback_stairs'), type: 'stair', w: 1, h: 1 },
+  { id: 'stair-right180', label: msg('right_switchback_stairs'), type: 'stair', w: 1, h: 1 },
 ]
 
 /** True for any of the five fixed staircase shapes in the palette. */
@@ -389,33 +390,33 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
-  { key: 'gate', label: '闸机', folder: 'equipment', owns: isGateType },
-  { key: 'fence', label: '围栏', folder: 'equipment', owns: isFenceType },
-  { key: 'hanger', label: '挂架', folder: 'decor', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
-  { key: 'cctv', label: '监控', folder: 'decor', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
-  { key: 'tactile', label: '盲道', folder: 'decor', owns: (id) => id === 'tactile' || id.startsWith('tactile-') },
-  { key: 'floor-mark', label: '地面指示', folder: 'decor', owns: (id) => id === 'floor-mark' || id.startsWith('floor-mark-') },
-  { key: 'roof', label: '屋顶', folder: 'rail', owns: (id) => id === 'roof' || id === 'roof-shell' || id === 'roof-truss' || id === 'roof-tapered' },
-  { key: 'pillar', label: '柱', folder: 'rail', owns: (id) => id === 'pillar' || id.startsWith('pillar-') },
-  { key: 'stair', label: '楼梯', folder: 'equipment', owns: isStairType },
-  { key: 'exit', label: '出入口', folder: 'equipment', owns: isExitType },
-  { key: 'busstop', label: '公交站', folder: 'decor', owns: (id) => id === 'busstop' || id.startsWith('busstop-') },
-  { key: 'light', label: '灯具', folder: 'decor', owns: (id) => id === 'light' || id.startsWith('light-') },
-  { key: 'bench', label: '座椅', folder: 'decor', owns: isBenchType },
-  { key: 'shelf', label: '货架', folder: 'decor', owns: isShelfType },
-  { key: 'billboard', label: '广告牌', folder: 'decor', owns: isBillboardType },
+  { key: 'gate', label: msg('fare_gate'), folder: 'equipment', owns: isGateType },
+  { key: 'fence', label: msg('fence'), folder: 'equipment', owns: isFenceType },
+  { key: 'hanger', label: msg('hanger'), folder: 'decor', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
+  { key: 'cctv', label: msg('cctv'), folder: 'decor', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
+  { key: 'tactile', label: msg('tactile_paving'), folder: 'decor', owns: (id) => id === 'tactile' || id.startsWith('tactile-') },
+  { key: 'floor-mark', label: msg('floor_markings'), folder: 'decor', owns: (id) => id === 'floor-mark' || id.startsWith('floor-mark-') },
+  { key: 'roof', label: msg('roof'), folder: 'rail', owns: (id) => id === 'roof' || id === 'roof-shell' || id === 'roof-truss' || id === 'roof-tapered' },
+  { key: 'pillar', label: msg('pillar'), folder: 'rail', owns: (id) => id === 'pillar' || id.startsWith('pillar-') },
+  { key: 'stair', label: msg('stairs'), folder: 'equipment', owns: isStairType },
+  { key: 'exit', label: msg('entrances'), folder: 'equipment', owns: isExitType },
+  { key: 'busstop', label: msg('bus_stop'), folder: 'decor', owns: (id) => id === 'busstop' || id.startsWith('busstop-') },
+  { key: 'light', label: msg('light'), folder: 'decor', owns: (id) => id === 'light' || id.startsWith('light-') },
+  { key: 'bench', label: msg('bench'), folder: 'decor', owns: isBenchType },
+  { key: 'shelf', label: msg('shelf'), folder: 'decor', owns: isShelfType },
+  { key: 'billboard', label: msg('billboard'), folder: 'decor', owns: isBillboardType },
   {
     key: 'glass',
-    label: '玻璃板',
+    label: msg('glass_panel'),
     folder: 'decor',
     owns: isGlassType,
     // The tiles sit inside the 玻璃板 list, so the family name is not repeated on every
-    // one of them — the way 座椅's own variants read 不锈钢 1m, not 座椅 不锈钢 1m.
-    tileLabel: (m) => m.label.replace('玻璃板 ', ''),
+    // one of them — the way 座椅's own variants read 不锈钢 1 m, not 座椅 不锈钢 1 m.
+    tileLabel: (m) => m.label.replace(msg('glass_panel_265'), ''),
   },
   {
     key: 'door',
-    label: '门',
+    label: msg('door'),
     folder: 'decor',
     owns: isDoorType,
     // The two variants choose only the door's finish; its width has a separate Tab tile.
@@ -423,19 +424,19 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
   },
   {
     key: 'calligraphy',
-    label: '站名',
+    label: msg('station_name'),
     folder: 'decor',
     owns: isCalligraphyType,
   },
   {
     key: 'linemap',
-    label: '线网图',
+    label: msg('network_map'),
     folder: 'decor',
     owns: isLineMapType,
   },
   {
     key: 'sign',
-    label: '指示牌',
+    label: msg('sign'),
     folder: 'decor',
     owns: isSignType,
   },
@@ -491,7 +492,7 @@ export type FolderTile =
  * The grid order of each folder's tiles — **read two at a time by the 2-column grid**
  * (`rail/shared/InlinePanel.tsx` `interleaveRows`), so a line here is a row of the palette:
  *
- * 设备：闸机 围栏 / 售票机 自动贩卖机 / 扶梯 电梯 / 楼梯 出入口
+ * 设备：闸机 围栏 / 售票机 自动售货机 / 扶梯 电梯 / 楼梯 出入口
  * 装饰：指示牌 广告牌 / 座椅 站名 / 线网图 电视 / 垃圾桶 灭火器 / 时钟 监控 /
  * 货架 收银台 / 玻璃板 门 / 厕所隔间 洗手池 / 灯具 通风口 / 挂架 办公桌 / 导向柱 公交站
  *
@@ -559,7 +560,7 @@ export function folderTiles(folder: ModuleFolder): FolderTile[] {
     if (family) return [{ kind: 'family', anchor, family }]
     const option = options.find((m) => m.id === anchor)
     // A family's variants are its sub-menu's tiles, never the grid's: an anchor that names
-    // one is skipped rather than drawn twice (the 座椅's "不锈钢 1m" is under 座椅).
+    // one is skipped rather than drawn twice (the 座椅's "不锈钢 1 m" is under 座椅).
     return option && !isFamilyOption(option.id) ? [{ kind: 'option', anchor, option }] : []
   })
 }
@@ -656,9 +657,9 @@ export interface CutModeSpec {
 }
 
 export const CUT_MODES: readonly CutModeSpec[] = [
-  { id: 'half', label: '半墙', icon: 'halfwall' },
-  { id: 'upper', label: '上三角块', icon: 'triUpper' },
-  { id: 'lower', label: '下三角块', icon: 'triLower' },
+  { id: 'half', label: msg('half_wall'), icon: 'halfwall' },
+  { id: 'upper', label: msg('upper_wedge'), icon: 'triUpper' },
+  { id: 'lower', label: msg('lower_wedge'), icon: 'triLower' },
 ]
 
 /** One cut piece's row, defaulting to 半墙 for an id the table does not carry. */
@@ -721,11 +722,11 @@ export const DEFAULT_ZONE_BRUSH: ZoneBrush = 'unpaid'
  * `colour` tints the drag preview and placement ghost.
  */
 export const FACILITY_OPTIONS: Array<{ id: FacilityBrush; label: string; colour: number; icon: string }> = [
-  { id: 'store', label: '商店', colour: 0xb07cc6, icon: 'roomStore' },
-  { id: 'toilet', label: '厕所', colour: 0x5fb7a6, icon: 'roomRestroom' },
-  { id: 'office', label: '办公室', colour: 0xd9a24b, icon: 'roomOffice' },
-  { id: 'ticket', label: '售票亭', colour: 0x42a5c4, icon: 'roomTicket' },
-  { id: 'info', label: '问讯处', colour: 0x42a5c4, icon: 'roomInfo' },
+  { id: 'store', label: msg('store'), colour: 0xb07cc6, icon: 'roomStore' },
+  { id: 'toilet', label: msg('restroom'), colour: 0x5fb7a6, icon: 'roomRestroom' },
+  { id: 'office', label: msg('office'), colour: 0xd9a24b, icon: 'roomOffice' },
+  { id: 'ticket', label: msg('ticket_booth'), colour: 0x42a5c4, icon: 'roomTicket' },
+  { id: 'info', label: msg('information_desk'), colour: 0x42a5c4, icon: 'roomInfo' },
 ]
 
 export function isFacilityBrush(b: ZoneBrush): b is FacilityBrush {
@@ -745,64 +746,64 @@ export function isEraseBrush(b: ZoneBrush): b is ZoneEraser {
 
 /** Friendly name for a module type, for the inspector and the bulldoze notice. */
 const MODULE_LABELS: Record<string, string> = {
-  hanger: '挂架',
-  pillar: '支柱',
-  roof: '车站屋顶',
-  gate: '闸机',
-  'psd-end': '屏蔽端门',
-  fence: '玻璃围栏',
-  tvm: '售票机',
-  vending: '自动贩卖机',
-  bench: '座椅',
-  shelf: '货架',
-  desk: '办公桌',
-  checkout: '收银台',
-  cubicle: '厕所隔间',
-  sink: '洗手池',
-  guidepost: '导向柱',
-  busstop: '公交站',
-  bin: '垃圾桶',
-  extinguisher: '灭火器',
-  'ac-unit': '空调风机',
-  'electrical-cabinet': '设备柜',
-  tactile: '盲道',
-  'floor-mark': '地面指示',
-  vent: '通风口',
-  light: '灯具',
-  clock: '时钟',
-  cctv: '监控',
-  billboard: '广告牌',
-  glass: '玻璃板',
-  door: '门',
-  calligraphy: '站名',
-  linemap: '线网图',
-  tv: '电视',
-  sign: '指示牌',
-  exit: '出入口',
-  escalator: '扶梯',
-  stair: '楼梯',
-  lift: '电梯',
-  retail: '商铺',
-  shop: '商店',
-  booth: '售票亭',
-  'platform-edge': '站台门',
-  track: '轨道',
+  hanger: msg('hanger'),
+  pillar: msg('support_pillar'),
+  roof: msg('station_roof'),
+  gate: msg('fare_gate'),
+  'psd-end': msg('screen_end_door'),
+  fence: msg('glass_fence'),
+  tvm: msg('ticket_machine'),
+  vending: msg('vending_machine'),
+  bench: msg('bench'),
+  shelf: msg('shelf'),
+  desk: msg('desk'),
+  checkout: msg('checkout'),
+  cubicle: msg('toilet_cubicle'),
+  sink: msg('sink'),
+  guidepost: msg('wayfinding_post'),
+  busstop: msg('bus_stop'),
+  bin: msg('bin'),
+  extinguisher: msg('extinguisher'),
+  'ac-unit': msg('air_conditioner'),
+  'electrical-cabinet': msg('equipment_cabinet'),
+  tactile: msg('tactile_paving'),
+  'floor-mark': msg('floor_markings'),
+  vent: msg('vent'),
+  light: msg('light'),
+  clock: msg('clock'),
+  cctv: msg('cctv'),
+  billboard: msg('billboard'),
+  glass: msg('glass_panel'),
+  door: msg('door'),
+  calligraphy: msg('station_name'),
+  linemap: msg('network_map'),
+  tv: msg('tv'),
+  sign: msg('sign'),
+  exit: msg('entrances'),
+  escalator: msg('escalator'),
+  stair: msg('stairs'),
+  lift: msg('lift'),
+  retail: msg('shop'),
+  shop: msg('store'),
+  booth: msg('ticket_booth'),
+  'platform-edge': msg('platform_doors'),
+  track: msg('track'),
 }
 
 /** Friendly names for a walled room's fit-out, keyed by `shop.cfg.kind`. */
 const ROOM_KIND_LABELS: Record<string, string> = {
-  store: '商店',
-  toilet: '厕所',
-  office: '办公室',
+  store: msg('store'),
+  toilet: msg('restroom'),
+  office: msg('office'),
 }
 
 export function moduleLabel(type: string | Module, roomKind?: string): string {
   if (typeof type !== 'string') {
-    if (type.type === 'fence') return type.cfg.variant === 'gate' ? '门' : type.cfg.variant === 'iron' ? '铁围栏' : '玻璃围栏'
+    if (type.type === 'fence') return type.cfg.variant === 'gate' ? msg('door') : type.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
     return moduleLabel(type.type, type.type === 'shop' || type.type === 'booth' ? type.cfg.kind : undefined)
   }
   if (type === 'shop') return ROOM_KIND_LABELS[roomKind ?? 'store'] ?? MODULE_LABELS.shop
-  if (type === 'booth' && roomKind === 'info') return '问讯处'
+  if (type === 'booth' && roomKind === 'info') return msg('information_desk')
   if (type.startsWith('cctv-')) return MODULE_OPTIONS.find((m) => m.id === type)?.label ?? MODULE_LABELS.cctv
   return MODULE_LABELS[type] ?? MODULE_OPTIONS.find((m) => m.type === type)?.label ?? type
 }

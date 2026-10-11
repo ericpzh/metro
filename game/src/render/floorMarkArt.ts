@@ -1,3 +1,4 @@
+import { t } from '../sim/i18n.ts'
 import type { FloorMarkVariant } from '../sim/floorDecor.ts'
 
 function arrow(g: CanvasRenderingContext2D, x: number, y: number, size: number, down = false): void {
@@ -18,7 +19,7 @@ function arrow(g: CanvasRenderingContext2D, x: number, y: number, size: number, 
 }
 
 /** Printed floor vinyl, transparent beyond its ink; canvas top points local +y (§9.5). */
-export function drawFloorMark(g: CanvasRenderingContext2D, variant: FloorMarkVariant, line = { id: '5', name: '5号线', colour: '#c8102e' }): void {
+export function drawFloorMark(g: CanvasRenderingContext2D, variant: FloorMarkVariant, line = { id: '5', name: t('line_5'), colour: '#c8102e' }): void {
   g.clearRect(0, 0, 768, 512)
   g.textAlign = 'center'
   if (variant === 'boarding') {
@@ -48,10 +49,10 @@ export function drawFloorMark(g: CanvasRenderingContext2D, variant: FloorMarkVar
     arrow(g, 384, 210, 190, true)
     g.fillStyle = '#172522'
     g.font = 'bold 32px "Microsoft YaHei", sans-serif'
-    g.fillText('下车区', 384, 170)
+    g.fillText(t('alighting_area'), 384, 170)
     g.fillStyle = '#f3cf19'
     g.font = 'bold 28px "Microsoft YaHei", sans-serif'
-    g.fillText('先下后上', 384, 390)
+    g.fillText(t('let_passengers_off_first'), 384, 390)
     g.font = '22px sans-serif'
     g.fillText('Please queue', 384, 445)
   } else {

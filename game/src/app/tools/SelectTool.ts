@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The 选择 tool: click to inspect, right-click to bulldoze. Moved verbatim from
 // app/Viewport.tsx (GAME-SPEC §9.5). Hover is just the cursor — the inspector's
 // selection box is drawn by the viewport effect, not by this tool.
@@ -17,7 +18,7 @@ import type { PointerInfo } from './ToolContext.ts'
 
 /** The label the 信息 card prints for a picked passenger. */
 function agentLabel(id: number): string {
-  return `行人 #${id}`
+  return msg('passenger_value', id)
 }
 
 export class SelectTool extends ToolController {

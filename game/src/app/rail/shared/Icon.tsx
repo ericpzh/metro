@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // A blueprint line icon, drawn in `currentColor` on a 20 × 20 grid (§5.8 tile art).
 //
 // The rail's tiles wear them, and so does the 指示牌 editor's bin — the one icon
@@ -10,6 +12,7 @@ import { RiDragDropLine } from 'react-icons/ri'
 import { BsInfoCircleFill } from 'react-icons/bs'
 
 export function Icon({ name }: { name: string }): React.ReactElement {
+  useLanguage()
   const s = {
     fill: 'none',
     stroke: 'currentColor',
@@ -19,7 +22,7 @@ export function Icon({ name }: { name: string }): React.ReactElement {
   }
   const svg = (children: React.ReactNode): React.ReactElement => (
     <svg viewBox="0 0 20 20" aria-hidden="true">
-      {children}
+      {translate(children)}
     </svg>
   )
   switch (name) {

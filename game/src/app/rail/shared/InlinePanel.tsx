@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // Full-width fold-out rows for the rail's tile grids (§5 build-rail chrome).
 //
 // A derived row folds out right below its parent tile's row, reusing the subMenu
@@ -16,13 +18,14 @@ import { useRef } from 'react'
  * row while the new one expands instead of popping.
  */
 export function InlineExpand({ open, children }: { open: boolean; children: React.ReactNode }): React.ReactElement {
+  useLanguage()
   const retained = useRef(children)
   if (open) retained.current = children
   return (
     <div className={open ? 'subMenu open inlineExpand' : 'subMenu inlineExpand'} aria-hidden={!open} inert={!open}>
       <div className="subMenuInner">
         <div className="subMenuPad">
-          <div className="blockGrid">{open ? children : retained.current}</div>
+          <div className="blockGrid">{translate(open ? children : retained.current)}</div>
         </div>
       </div>
     </div>
@@ -35,12 +38,13 @@ export function InlineExpand({ open, children }: { open: boolean; children: Reac
  * InlineExpand, but without forcing a tile grid inside.
  */
 export function InlinePanel({ open, children }: { open: boolean; children: React.ReactNode }): React.ReactElement {
+  useLanguage()
   const retained = useRef(children)
   if (open) retained.current = children
   return (
     <div className={open ? 'subMenu open inlineExpand' : 'subMenu inlineExpand'} aria-hidden={!open} inert={!open}>
       <div className="subMenuInner">
-        <div className="subMenuPad">{open ? children : retained.current}</div>
+        <div className="subMenuPad">{translate(open ? children : retained.current)}</div>
       </div>
     </div>
   )

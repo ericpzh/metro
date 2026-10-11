@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Surface finishes — GAME-SPEC.md §4.3.
 //
 // Pure data, no DOM, no three. The *family* decides behaviour (a floor finish
@@ -39,25 +40,25 @@ export interface FinishDef {
 
 export const FINISH_LIST: readonly FinishDef[] = [
   // 地面 Floor finish — top face.
-  { id: 'floor.granite', label: '花岗岩', family: 'floor', speed: 1.0, cover: false, look: 'granite', tint: 0xc9ccd1 },
-  { id: 'floor.concrete', label: '水泥', family: 'floor', speed: 0.9, cover: false, look: 'concrete', tint: 0x8d9299 },
-  { id: 'floor.tile', label: '地砖', family: 'floor', speed: 1.0, cover: false, look: 'tile', tint: 0xd7dbe1 },
+  { id: 'floor.granite', label: msg('granite'), family: 'floor', speed: 1.0, cover: false, look: 'granite', tint: 0xc9ccd1 },
+  { id: 'floor.concrete', label: msg('concrete'), family: 'floor', speed: 0.9, cover: false, look: 'concrete', tint: 0x8d9299 },
+  { id: 'floor.tile', label: msg('floor_tiles'), family: 'floor', speed: 1.0, cover: false, look: 'tile', tint: 0xd7dbe1 },
   // 轨道 Track bed — a top-face variant that is not walkable (§4.3).
-  { id: 'floor.track', label: '轨道床', family: 'track', speed: 0, cover: false, look: 'track', tint: 0x2c313a },
+  { id: 'floor.track', label: msg('track_bed'), family: 'track', speed: 0, cover: false, look: 'track', tint: 0x2c313a },
   // 覆土 Cover soil — earth above a tunnel: solid ground, but nobody walks on it.
-  { id: 'floor.soil', label: '覆土', family: 'floor', speed: 0, cover: false, look: 'soil', tint: 0x232a34 },
+  { id: 'floor.soil', label: msg('earth_cover'), family: 'floor', speed: 0, cover: false, look: 'soil', tint: 0x232a34 },
   // 天花 Ceiling finish — bottom face.
-  { id: 'ceil.baffle', label: '格栅天花', family: 'ceiling', speed: 1.0, cover: true, look: 'baffle', tint: 0xe8ebef },
-  { id: 'ceil.metal', label: '金属吊顶', family: 'ceiling', speed: 1.0, cover: true, look: 'metal', tint: 0x6b7480 },
+  { id: 'ceil.baffle', label: msg('grille_ceiling'), family: 'ceiling', speed: 1.0, cover: true, look: 'baffle', tint: 0xe8ebef },
+  { id: 'ceil.metal', label: msg('metal_ceiling'), family: 'ceiling', speed: 1.0, cover: true, look: 'metal', tint: 0x6b7480 },
   // 钢板: dark brushed steel, the finish a 楼梯 / 扶梯 soffit wears — and the one the
   // derived filling under a run's truss is drawn in, so the escalator reads as one
   // body from the step band down to the ground (`rampFillKeys`, `chunkMesher`'s `fill`).
-  { id: RAMP_SOFFIT_FINISH, label: '钢板', family: 'ceiling', speed: 1.0, cover: true, look: 'steel', tint: 0x3c434c },
+  { id: RAMP_SOFFIT_FINISH, label: msg('steel'), family: 'ceiling', speed: 1.0, cover: true, look: 'steel', tint: 0x3c434c },
   // 墙面 Wall finish — n/e/s/w.
-  { id: 'wall.plaster', label: '涂料', family: 'wall', speed: 1.0, cover: false, look: 'plaster', tint: 0xe4e6ea },
-  { id: 'wall.enamel', label: '搪瓷板', family: 'wall', speed: 1.0, cover: false, look: 'enamel', tint: 0x2f7ef2 },
-  { id: 'wall.stainless', label: '拉丝不锈钢', family: 'wall', speed: 1.0, cover: false, look: 'stainless', tint: 0x9aa2ab },
-  { id: 'wall.soil', label: '土墙', family: 'wall', speed: 1.0, cover: false, look: 'soil', tint: 0x232a34 },
+  { id: 'wall.plaster', label: msg('paint'), family: 'wall', speed: 1.0, cover: false, look: 'plaster', tint: 0xe4e6ea },
+  { id: 'wall.enamel', label: msg('enamel_panels'), family: 'wall', speed: 1.0, cover: false, look: 'enamel', tint: 0x2f7ef2 },
+  { id: 'wall.stainless', label: msg('brushed_steel'), family: 'wall', speed: 1.0, cover: false, look: 'stainless', tint: 0x9aa2ab },
+  { id: 'wall.soil', label: msg('earth_wall'), family: 'wall', speed: 1.0, cover: false, look: 'soil', tint: 0x232a34 },
 ] as const
 
 const BY_ID = new Map<FinishId, FinishDef>(FINISH_LIST.map((f) => [f.id, f]))
@@ -86,7 +87,7 @@ export interface FinishGroup {
  */
 export function finishPaletteGroups(): FinishGroup[] {
   const order = ['floor', 'ceiling', 'wall'] as const
-  const labels: Record<(typeof order)[number], string> = { floor: '地面 · 轨道', ceiling: '天花板', wall: '墙面' }
+  const labels: Record<(typeof order)[number], string> = { floor: msg('floor_track'), ceiling: msg('ceiling'), wall: msg('wall_surface') }
   return order.map((fam) => {
     const items = FINISH_LIST.filter((f) =>
       fam === 'floor' ? f.family === 'floor' || f.family === 'track' : f.family === fam,

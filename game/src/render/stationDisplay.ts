@@ -1,3 +1,4 @@
+import { t } from '../sim/i18n.ts'
 // Passenger-information TV: three service cards, a video window and blue footer (§5.7).
 import { TRAIN_APPROACH_S } from '../sim/constants.ts'
 import type { LineDef } from '../sim/types.ts'
@@ -28,7 +29,7 @@ export function tvLineStatus(lines: readonly LineDef[], services: readonly Train
   const direction = nearest?.direction ?? line.direction
   return {
     name: line.name, colour: line.colour,
-    terminus: (direction === 'up' ? line.upTerminus : line.downTerminus) || (direction === 'up' ? '上行' : '下行'),
+    terminus: (direction === 'up' ? line.upTerminus : line.downTerminus) || (direction === 'up' ? t('up') : t('down')),
     arrivals: nearest?.arrivals.map((arrival) => ({
       minutes: Math.ceil(arrival.seconds / 60), atPlatform: arrival.atPlatform,
       arriving: !arrival.atPlatform && arrival.seconds <= TRAIN_APPROACH_S,
@@ -68,16 +69,16 @@ export function drawStationDisplay(g: CanvasRenderingContext2D, status: TvLineSt
   g.clearRect(0, 0, W, H)
   g.fillStyle = '#258cdd'; g.fillRect(0, 0, W, H)
   g.fillStyle = '#080a0c'; g.fillRect(layout.poster.x, 0, layout.poster.w, layout.strip.y)
-  const labels = [['本趟列车开往', 'The First Train'], ['下趟列车开往', 'The Next Train'], ['第三趟列车开往', 'The Third Train']]
+  const labels = [[t('this_train_goes_to'), 'The First Train'], [t('next_train_goes_to'), 'The Next Train'], [t('third_train_goes_to'), 'The Third Train']]
   layout.cards.forEach((box, i) => {
     card(g, box)
     const cx = box.x + box.w / 2
     g.textAlign = 'center'; g.textBaseline = 'top'; g.fillStyle = '#101418'
     fitText(g, labels[i][0], box.w - 12, 28, 'bold'); g.fillText(labels[i][0], cx, box.y + 8)
     fitText(g, labels[i][1], box.w - 16, 15, 'bold'); g.fillText(labels[i][1], cx, box.y + 39)
-    fitText(g, status?.terminus ?? '暂无线路', box.w - 16, 32); g.fillText(status?.terminus ?? '暂无线路', cx, box.y + 65)
+    fitText(g, status?.terminus ?? t('no_lines_yet'), box.w - 16, 32); g.fillText(status?.terminus ?? t('no_lines_yet'), cx, box.y + 65)
     const arrival = status?.arrivals[i]
-    const value = !arrival ? '暂无班次' : arrival.atPlatform ? '列车停站' : arrival.arriving ? '即将到站' : `${arrival.minutes} 分钟`
+    const value = !arrival ? t('no_services') : arrival.atPlatform ? t('train_at_platform') : arrival.arriving ? t('arriving_soon') : t('value_minutes', arrival.minutes)
     fitText(g, value, box.w - 16, 32); g.fillText(value, cx, box.y + box.h - 41)
   })
   card(g, layout.station)
@@ -85,8 +86,8 @@ export function drawStationDisplay(g: CanvasRenderingContext2D, status: TvLineSt
   fitText(g, stationName, layout.station.w - 16, 27)
   g.fillText(stationName, layout.station.x + layout.station.w / 2, layout.station.y + layout.station.h / 2)
   g.textAlign = 'left'; g.fillStyle = '#eef6ff'
-  fitText(g, '文明乘车  请注意脚下安全', layout.strip.w - 24, 26)
-  g.fillText('文明乘车  请注意脚下安全', layout.strip.x + 16, layout.strip.y + layout.strip.h / 2)
+  fitText(g, t('travel_courteously_watch_your_step'), layout.strip.w - 24, 26)
+  g.fillText(t('travel_courteously_watch_your_step'), layout.strip.x + 16, layout.strip.y + layout.strip.h / 2)
   g.textAlign = 'center'; g.fillStyle = '#062346'; g.textBaseline = 'top'
   g.font = `bold 18px ${CJK}`; g.fillText(date, layout.clock.x + layout.clock.w / 2, layout.clock.y + 3)
   g.font = `bold 29px ${CJK}`; g.fillText(clock, layout.clock.x + layout.clock.w / 2, layout.clock.y + 23)

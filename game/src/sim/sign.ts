@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // The 指示牌 panel — the layout model behind a sign's printed faces.
 //
 // A sign used to print one fixed wayfinding board for the whole station: every
@@ -153,14 +154,14 @@ export const SIGN_ICONS: readonly SignIcon[] = [
 
 /** What each pictogram is called, in the inspector's own words. */
 export const SIGN_ICON_LABEL: Record<SignIcon, string> = {
-  train: '列车',
-  lift: '电梯',
-  accessible: '无障碍',
-  restroom: '卫生间',
-  escalator: '扶梯',
-  stairs: '楼梯',
-  exit: '出口',
-  stop: '禁止',
+  train: msg('train'),
+  lift: msg('lift'),
+  accessible: msg('accessible'),
+  restroom: msg('restroom_666'),
+  escalator: msg('escalator'),
+  stairs: msg('stairs'),
+  exit: msg('exit_667'),
+  stop: msg('prohibited'),
 }
 
 /**
@@ -219,8 +220,8 @@ export const SIGN_ARROW_LABEL: Record<SignArrow, string> = {  left: '←',
   'up-right': '↗',
   'down-left': '↙',
   'down-right': '↘',
-  'uturn-right': '掉头向右',
-  'uturn-left': '掉头向左',
+  'uturn-right': msg('u_turn_right'),
+  'uturn-left': msg('u_turn_left'),
 }
 
 /**
@@ -1118,7 +1119,7 @@ export function makeSignComponent(kind: SignComponentKind, id: string, lineId = 
     case 'line':
       return { ...base, kind: 'line', lineId, english: true }
     case 'text':
-      return { ...base, kind: 'text', text: '出站' }
+      return { ...base, kind: 'text', text: msg('exit_station') }
     case 'icon':
       return { ...base, kind: 'icon', icon: 'restroom' }
   }
@@ -1141,18 +1142,18 @@ export interface SignBlockSpec {
 }
 
 export const SIGN_BLOCKS: readonly SignBlockSpec[] = [
-  { id: 'train', label: '列车', kind: 'icon', count: 1 },
-  { id: 'lift', label: '电梯', kind: 'icon', count: 1 },
-  { id: 'accessible', label: '无障碍', kind: 'icon', count: 1 },
-  { id: 'restroom', label: '卫生间', kind: 'icon', count: 1 },
-  { id: 'escalator', label: '扶梯', kind: 'icon', count: 1 },
-  { id: 'stairs', label: '楼梯', kind: 'icon', count: 1 },
-  { id: 'exit', label: '出口', kind: 'icon', count: 1 },
-  { id: 'exit-text', label: '出站 + 出口', kind: 'text', count: 2 },
-  { id: 'line', label: '线路牌', kind: 'line', count: 1 },
-  { id: 'text', label: '文字', kind: 'text', count: 1 },
-  { id: 'arrow', label: '箭头', kind: 'arrow', count: 1 },
-  { id: 'exit-arrow', label: '箭头 + 出口', kind: 'arrow', count: 2 },
+  { id: 'train', label: msg('train'), kind: 'icon', count: 1 },
+  { id: 'lift', label: msg('lift'), kind: 'icon', count: 1 },
+  { id: 'accessible', label: msg('accessible'), kind: 'icon', count: 1 },
+  { id: 'restroom', label: msg('restroom_666'), kind: 'icon', count: 1 },
+  { id: 'escalator', label: msg('escalator'), kind: 'icon', count: 1 },
+  { id: 'stairs', label: msg('stairs'), kind: 'icon', count: 1 },
+  { id: 'exit', label: msg('exit_667'), kind: 'icon', count: 1 },
+  { id: 'exit-text', label: msg('exit_station_exit'), kind: 'text', count: 2 },
+  { id: 'line', label: msg('line_badge'), kind: 'line', count: 1 },
+  { id: 'text', label: msg('text'), kind: 'text', count: 1 },
+  { id: 'arrow', label: msg('arrow'), kind: 'arrow', count: 1 },
+  { id: 'exit-arrow', label: msg('arrow_exit'), kind: 'arrow', count: 2 },
 ]
 
 /**
@@ -1174,11 +1175,11 @@ export function signBlockComponents(blockId: string, lineId = ''): SignComponent
     // carries a word with its mark, stamped as two components because that is what
     // the renderer draws.
     case 'exit-text':
-      return [ink('text', { text: '出站' }), ink('icon', { icon: 'exit' })]
+      return [ink('text', { text: msg('exit_station') }), ink('icon', { icon: 'exit' })]
     case 'line':
       return [ink('line', { lineId, english: true })]
     case 'text':
-      return [ink('text', { text: '出站' })]
+      return [ink('text', { text: msg('exit_station') })]
     case 'arrow':
       return [ink('arrow', { arrow: 'right' })]
     case 'exit-arrow':
@@ -1329,8 +1330,8 @@ export interface SignMountSpec {
 }
 
 export const SIGN_MOUNT_SPECS: Record<SignMount, SignMountSpec> = {
-  ceiling: { mount: 'ceiling', label: '吊挂指示牌', panelZ: SIGN_CEILING_PANEL_Z, hung: true, doubleSided: true },
-  wall: { mount: 'wall', label: '墙面指示牌', panelZ: SIGN_WALL_PANEL_Z, hung: false, doubleSided: false },
+  ceiling: { mount: 'ceiling', label: msg('hung_sign'), panelZ: SIGN_CEILING_PANEL_Z, hung: true, doubleSided: true },
+  wall: { mount: 'wall', label: msg('wall_sign'), panelZ: SIGN_WALL_PANEL_Z, hung: false, doubleSided: false },
 }
 
 /** The spec for a mount, defaulting to the hung board for a legacy or unknown value. */

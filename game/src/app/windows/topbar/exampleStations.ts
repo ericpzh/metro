@@ -1,3 +1,4 @@
+import { msg } from '../../../sim/i18n.ts'
 import zooPreview from '../../../assets/stations/zoo.png'
 import { useStore } from '../../store.ts'
 
@@ -6,8 +7,8 @@ import { useStore } from '../../store.ts'
 export const EXAMPLE_STATIONS = [
   {
     id: 'zoo',
-    name: '动物园',
-    description: '广州地铁 · 5号线',
+    name: msg('zoo'),
+    description: msg('guangzhou_metro_line_5'),
     preview: zooPreview,
     load: (): void => useStore.getState().loadReference(),
   },

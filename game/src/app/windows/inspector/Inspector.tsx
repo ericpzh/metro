@@ -1,3 +1,5 @@
+import { translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — Inspector() is now
 // the column shell only (plan.md R1/R3): folder open-state plus list mapping.
 // Item bodies live in InfoCard / ExitCard / LineCard. Folder still
@@ -27,6 +29,7 @@ import { LineCard } from './LineCard.tsx'
 const INSPECTOR_FOLDER_KEYS: ReadonlySet<string> = new Set(INSPECTOR_FOLDERS.map((f) => f.key))
 
 export function Inspector(): React.ReactElement {
+  useLanguage()
   const station = useStore((s) => s.station)
   const addLine = useStore((s) => s.addLine)
   // Every row of the stack opens where the player needs it: the report sections, and
@@ -74,7 +77,7 @@ export function Inspector(): React.ReactElement {
       count: exits.length,
       body: (
         <>
-          {exits.length === 0 && <div className="muted small">还没建出入口。</div>}
+          {exits.length === 0 && <div className="muted small">{t('no_exits_built_yet')}</div>}
           {exits.map((m) => (m.type === 'exit' ? <ExitCard key={m.id} mod={m} /> : null))}
         </>
       ),
@@ -84,7 +87,7 @@ export function Inspector(): React.ReactElement {
       body: (
         <>
           {station.lines.length === 0 && (
-            <div className="muted small">还没配线路。铺下第一段轨道时会自动新建，也可以在这里手动加。</div>
+            <div className="muted small">{t('no_lines_configured_laying_track_creates_one_automatically_or_ad')}</div>
           )}
           {station.lines.map((line) => (
             <LineCard
@@ -95,8 +98,7 @@ export function Inspector(): React.ReactElement {
             />
           ))}
           <button className="chip" onClick={addLine}>
-            + 新建线路
-          </button>
+            {t('new_line')}</button>
         </>
       ),
     },
@@ -109,8 +111,8 @@ export function Inspector(): React.ReactElement {
           and outside the scroller so the clock stays put while the folders below it move. */}
       <div className="panelHead">
         <div className="railStamp">
-          <span className="railStampTitle">信息栏</span>
-          <span className="railStampSub">METRO / INSPECTOR</span>
+          <span className="railStampTitle">{t('inspector')}</span>
+          <span className="railStampSub">{t('inspector_caption')}</span>
         </div>
         <ClockCard />
       </div>
@@ -121,13 +123,13 @@ export function Inspector(): React.ReactElement {
         {INSPECTOR_FOLDERS.map(({ key, title, alt }) => (
           <Folder
             key={key}
-            title={title}
+            title={translate(title)}
             count={folders[key].count}
             shortcut={`Alt+${alt}`}
             open={open[key]}
             onToggle={() => toggle(key)}
           >
-            {folders[key].body}
+            {translate(folders[key].body)}
           </Folder>
         ))}
       </div>

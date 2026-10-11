@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Station-name calligraphy — the 装饰 站名 pieces (GAME-SPEC §5.7).
 //
 // A 站名 is the station's own name, drawn as a large ink inscription and bolted
@@ -61,7 +62,7 @@ export interface CalligraphyStyleSpec {
 export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> = {
   kai: {
     style: 'kai',
-    label: '楷书',
+    label: msg('regular_script'),
     weight: '400',
     italic: false,
     family: '"KaiTi", "STKaiti", "Kaiti SC", "Kaiti TC", "DFKai-SB", "SimSun", serif',
@@ -72,7 +73,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   },
   xing: {
     style: 'xing',
-    label: '行书',
+    label: msg('running_script'),
     weight: '400',
     italic: true,
     family: '"STXingkai", "Xingkai SC", "KaiTi", "STKaiti", "DFKai-SB", cursive',
@@ -83,7 +84,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   },
   li: {
     style: 'li',
-    label: '隶书',
+    label: msg('clerical_script'),
     weight: '400',
     italic: false,
     family: '"LiSu", "Baoli SC", "SimLi", "STLiti", "STSong", serif',
@@ -94,7 +95,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   },
   wei: {
     style: 'wei',
-    label: '魏碑',
+    label: msg('wei_stele'),
     weight: '700',
     italic: false,
     family: '"STXinwei", "Weibei SC", "SimHei", "Microsoft YaHei", sans-serif',
@@ -105,7 +106,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   },
   hei: {
     style: 'hei',
-    label: '黑体',
+    label: msg('sans_serif'),
     weight: '700',
     italic: false,
     family: '"Microsoft YaHei", "PingFang SC", "Heiti SC", "SimHei", sans-serif',
@@ -118,7 +119,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   },
   song: {
     style: 'song',
-    label: '宋体',
+    label: msg('song_serif'),
     weight: '400',
     italic: false,
     family: '"SimSun", "Songti SC", "STSong", "Noto Serif SC", serif',
@@ -136,7 +137,7 @@ export const CALLIGRAPHY_STYLE_LIST: readonly CalligraphyStyle[] = ['kai', 'xing
 export const CALLIGRAPHY_AXES: readonly CalligraphyAxis[] = ['h', 'v']
 
 /** What each axis is called in the palette. */
-export const CALLIGRAPHY_AXIS_LABEL: Record<CalligraphyAxis, string> = { h: '横排', v: '竖排' }
+export const CALLIGRAPHY_AXIS_LABEL: Record<CalligraphyAxis, string> = { h: msg('horizontal'), v: msg('vertical') }
 
 /** The hand and the axis a legacy or hand-written module falls back to. */
 export const DEFAULT_CALLIGRAPHY_STYLE: CalligraphyStyle = 'kai'
@@ -170,7 +171,7 @@ export const CALLIGRAPHY_PAD = 0.3
 export const CALLIGRAPHY_MAX_CHARS = 8
 
 /** What a name that has none of its own is printed as (`StationData.name` is never blank). */
-export const CALLIGRAPHY_FALLBACK_NAME = '未命名车站'
+export const CALLIGRAPHY_FALLBACK_NAME = msg('unnamed_station')
 
 /**
  * 横排: a band one course high at eye height — 1.2 m up, so the characters run

@@ -1,3 +1,5 @@
+import { translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // 指示牌 editor (§5.8) — one face's row of places. A bin is a place in a list, and the list
 // it belongs to is the face whose row it is.
 
@@ -55,12 +57,13 @@ export function BinStrip({
   /** Which face's row this is, for the row's own label. */
   label: string
 }): React.ReactElement {
+  useLanguage()
   return (
-    <div className={dropping ? 'bins drop' : 'bins'} data-face={face} role="list" aria-label={label}>
+    <div className={dropping ? 'bins drop' : 'bins'} data-face={face} role="list" aria-label={translate(label)}>
       {layout.map((comp) => {
         // An empty face's one place: a well, drawn and measured as nothing, so the row
         // has somewhere to take the first mark and nothing else about it changes.
-        if (comp.id === SIGN_BACK_MARK.id) return <div key={comp.id} className="bin empty" role="listitem" aria-label="空" />
+        if (comp.id === SIGN_BACK_MARK.id) return <div key={comp.id} className="bin empty" role="listitem" aria-label={t('empty')} />
         // A mark carries **no ✕**: a bin is dragged out to the rail's bin to delete it, so
         // the square holds nothing but the piece of sign that will stand there, and the
         // corner of a small canvas is not a target the player has to find.
@@ -69,7 +72,7 @@ export function BinStrip({
             key={comp.id}
             className={comp.id === selectedId ? 'bin on' : 'bin'}
             role="listitem"
-            aria-label={`${componentName(comp)} · 拖到别处换位置，拖出面板删除`}
+            aria-label={t('value_drag_to_rearrange_drag_off_the_board_to_delete', componentName(comp))}
             // The press only arms a possible drag: the window listeners in the editor
             // decide whether it became one, so a click still selects.
             onPointerDown={(e) => onPickStart(comp.id, e)}

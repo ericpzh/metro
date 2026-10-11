@@ -1,3 +1,4 @@
+import { msg } from '../../../sim/i18n.ts'
 // The line slice: the 线路 panel's edits to shared line parameters. A line owns
 // its rolling stock and its tracks' sizing, so consist, power and 屏蔽门 edits
 // fan out to every bound rail (§7).
@@ -32,7 +33,7 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
     const id = String(n)
     const line = defaultLine(id, st.railDir, 'third-rail')
     get().commit({ ...st.station, lines: [...st.station.lines, line] })
-    set({ railLineId: id, notice: `已新建 ${line.name}，铺轨时自动绑定` })
+    set({ railLineId: id, notice: msg('created_value_new_track_will_bind_automatically', line.name) })
   },
   removeLine: (lineId) => {
     const st = get()
@@ -51,7 +52,7 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
     set({
       railLineId,
       selected,
-      notice: `已删除线路 ${line.name}${trackIds.length > 0 ? `，连同 ${trackIds.length} 段轨道` : ''}`,
+      notice: msg('deleted_line_valuevalue', line.name, trackIds.length > 0 ? msg('including_value_track_sections', trackIds.length) : ''),
     })
   },
   updateLine: (lineId, patch) => {

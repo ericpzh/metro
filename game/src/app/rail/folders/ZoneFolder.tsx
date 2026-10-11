@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The 分区 folder body (§5.7 fare zones).
 //
 // One tile per zone, in `ZONE_LIST`'s own order. A fare zone wears its overlay
@@ -16,6 +18,7 @@ import { ZONE_LIST } from '../../../sim/zones.ts'
 import { Block } from '../shared/Block.tsx'
 
 export function ZoneFolder(): React.ReactElement {
+  useLanguage()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const zoneBrush = useStore((s) => s.zoneBrush)
@@ -46,7 +49,7 @@ export function ZoneFolder(): React.ReactElement {
           // it (`Icon`'s `zoneErase`).
           <Block
             key={z.id}
-            label={z.label}
+            label={translate(z.label)}
             tile={z.id}
             icon="zoneErase"
             active={tool === 'zone' && zoneBrush === z.id}
@@ -55,7 +58,7 @@ export function ZoneFolder(): React.ReactElement {
         ) : (
           <Block
             key={z.id}
-            label={z.label}
+            label={translate(z.label)}
             tile={z.id}
             thumb={zoneThumbs[z.id]}
             tone={`#${z.colour.toString(16).padStart(6, '0')}`}
@@ -67,7 +70,7 @@ export function ZoneFolder(): React.ReactElement {
       {FACILITY_OPTIONS.filter((f) => f.id !== 'ticket' && f.id !== 'info').map((f) => (
         <Block
           key={f.id}
-          label={f.label}
+          label={translate(f.label)}
           tile={f.id}
           icon={f.icon}
           active={tool === 'zone' && zoneBrush === f.id}

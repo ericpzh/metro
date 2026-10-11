@@ -1,3 +1,4 @@
+import { t } from '../../../sim/i18n.ts'
 // Reference service counters (§5): white information island / glazed ticket kiosk.
 import * as THREE from 'three'
 import { PieceBuilder, slab, plate, ownedMaterial } from '../PieceBuilder.ts'
@@ -29,7 +30,7 @@ function serviceSign(ctx: ModuleContext): THREE.Material {
     ink.fillRect(133, 109, 48, 5)
     ink.fillRect(137, 114, 5, 31)
     ink.font = '58px "Microsoft YaHei", sans-serif'
-    ink.fillText('客服中心', 225, 89)
+    ink.fillText(t('customer_service'), 225, 89)
     ink.font = '30px Arial, sans-serif'
     ink.fillText('Customer Service Center', 228, 139)
     const tex = new THREE.CanvasTexture(canvas)

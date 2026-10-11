@@ -1,3 +1,4 @@
+import { msg } from '../../../sim/i18n.ts'
 // The rail slice: the 站台/隧道 tools' bound line, direction, rotation and
 // tunnel length, and every rail edit — laying, extending, re-deriving screen
 // doors and removing (§7).
@@ -107,13 +108,13 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     }
     const next = placeTrack(station, { lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d })
     if (next === station) {
-      set({ notice: '这里已经有轨道了' })
+      set({ notice: msg('there_is_already_track_here') })
       return
     }
     get().commit(next)
     const track = [...next.modules].reverse().find((m) => m.type === 'track')
     const derived = track ? next.modules.filter((m) => m.type === 'platform-edge' && m.cfg.from === track.id).length : 0
-    set({ notice: derived > 0 ? `轨道已铺设（${w} m），自动生成 ${derived} 段站台门` : `轨道已铺设（${w} m）；旁边没有站台，站台门暂未生成` })
+    set({ notice: derived > 0 ? msg('track_laid_value_m_generated_value_platform_door_sections', w, derived) : msg('track_laid_value_m_no_adjacent_platform_so_no_platform_doors_yet', w) })
   },
   setTunnelLength: (metres) => set({ tunnelLength: supportedTrackRunLength(metres) }),
   cycleTunnelLength: () => set((s) => ({ tunnelLength: nextTrackRunLength(s.tunnelLength) })),
@@ -131,25 +132,25 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
       set({
         notice:
           names.length > 0
-            ? `隧道接不上去：被${blockerLabels(names)}挡住了`
-            : '隧道接不上去：这里被设备、房间、站台或别的轨道挡住了',
+            ? msg('cannot_connect_tunnel_blocked_by_value', blockerLabels(names))
+            : msg('cannot_connect_tunnel_equipment_rooms_platforms_or_other_tracks_'),
       })
       return
     }
     get().commit(next)
-    set({ notice: `隧道已接通（${st.tunnelLength} m）` })
+    set({ notice: msg('tunnel_connected_value_m', st.tunnelLength) })
   },
   regenRail: (trackId) => {
     const next = regenerateRailEdges(get().station, trackId)
     get().commit(next)
-    set({ notice: '站台门已按当前站台重新生成' })
+    set({ notice: msg('platform_doors_regenerated_for_the_current_platform') })
   },
   removeRail: (trackId) => {
     const cleaned = dropDerivedEdges(get().station, trackId)
     // A tunnel takes the shell it raised with it; a platform has none.
     const without = stripTunnelShell(removeModule(cleaned, trackId), trackId)
     get().commit(without)
-    set({ notice: '轨道已拆除' })
+    set({ notice: msg('track_removed') })
   },
   updateRail: (trackId, patch) => {
     const st = get()

@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // Build model: reference — the lab station and the default station (§4 V1).
 
 import { referenceStation } from '../../data/reference-station.ts';
@@ -23,10 +24,10 @@ export function labStation(): StationData {
     { id: 'lab-gate2', type: 'gate', x: 1, y: 6, z: 1, cfg: { dir: 'both' } },
     { id: 'lab-tvm', type: 'tvm', x: 7, y: 6, z: 1, cfg: {} },
     { id: 'lab-bench', type: 'bench', x: 4, y: 6, z: 1, cfg: {} },
-    { id: 'lab-exit', type: 'exit', x: 6, y: 0, z: 0, cfg: { name: 'A口', inRate: 900, open: true } },
+    { id: 'lab-exit', type: 'exit', x: 6, y: 0, z: 0, cfg: { name: msg('exit_a'), inRate: 900, open: true } },
   ];
   return {
-    name: '材质试验台',
+    name: msg('material_lab'),
     seed: 1,
     cells,
     modules,

@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // One rail line row in the 轨道 folder (plan.md R3).
 //
 // A list file maps over items and never implements an item: the 轨道 folder
@@ -7,9 +9,10 @@
 import { Block } from '../shared/Block.tsx'
 
 export function LineItem({ lineId, colour, active, onSelect }: { lineId: string; colour: string; active: boolean; onSelect: () => void }): React.ReactElement {
+  useLanguage()
   return (
     <Block
-      label={lineId}
+      label={translate(lineId)}
       tone={colour}
       active={active}
       onClick={onSelect}

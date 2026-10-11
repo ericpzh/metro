@@ -1,3 +1,5 @@
+import { translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The floating **时刻** window (§9.6C 时刻 / 客流输入, sheet 06's panels A, B and D): what the
 // 信息栏's clock card opens when it is pressed.
 //
@@ -52,11 +54,12 @@ function Knob({
   onDraft: (v: number) => void
   onCommit: () => void
 }): React.ReactElement {
+  useLanguage()
   return (
     <label className="knob">
       <span className="knobHead">
-        <span className="knobLabel">{label}</span>
-        <b className="knobValue">{Math.round(value * 100)}%</b>
+        <span className="knobLabel">{translate(label)}</span>
+        <b className="knobValue">{translate(Math.round(value * 100))}%</b>
       </span>
       <input
         type="range"
@@ -64,18 +67,19 @@ function Knob({
         max={max}
         step={0.01}
         value={value}
-        aria-label={label}
+        aria-label={translate(label)}
         onChange={(e) => onDraft(Number(e.target.value))}
         onPointerUp={onCommit}
         onKeyUp={onCommit}
         onBlur={onCommit}
       />
-      <span className="knobHint">{hint}</span>
+      <span className="knobHint">{translate(hint)}</span>
     </label>
   )
 }
 
 export function TimePanel(): React.ReactElement | null {
+  useLanguage()
   const open = useStore((s) => s.timePanel)
   const setTimePanel = useStore((s) => s.setTimePanel)
   const simTime = useStore((s) => s.metrics?.simTime ?? null)
@@ -184,11 +188,11 @@ export function TimePanel(): React.ReactElement | null {
           and a click anywhere outside the panel puts it away. It is a `button` so it is
           keyboard-reachable too, and every background state is reset so no `button` rule can
           tint the viewport. */}
-      <button type="button" className="timeScrim" aria-label="关闭时刻窗口" onClick={() => setTimePanel(false)} />
-      <div className="timeWindow" role="dialog" aria-modal={false} aria-label="时刻与客流">
+      <button type="button" className="timeScrim" aria-label={t('close_time_window')} onClick={() => setTimePanel(false)} />
+      <div className="timeWindow" role="dialog" aria-modal={false} aria-label={t('time_and_passengers')}>
         <div className="timeHead">
-          <span className="timeTitle">客流</span>
-          <button type="button" className="timeClose" aria-label="关闭" onClick={() => setTimePanel(false)}>
+          <span className="timeTitle">{t('demand')}</span>
+          <button type="button" className="timeClose" aria-label={t('close')} onClick={() => setTimePanel(false)}>
             ✕
           </button>
         </div>
@@ -196,7 +200,7 @@ export function TimePanel(): React.ReactElement | null {
         <div className="timeBody">
           <section className="timeBlock">
             <h4 className="timeBlockHead">
-              <span>客流曲线</span>
+              <span>{t('demand_curve')}</span>
             </h4>
             <DayCurve
               input={input}
@@ -212,19 +216,19 @@ export function TimePanel(): React.ReactElement | null {
                 move with the grip being dragged. */}
             <div className="curveSpans">
               <span className="service">
-                营业 <b>{`${clockTextOf(spans.service.from)}–${clockTextOf(spans.service.to)}`}</b>
+                {t('service')}<b>{translate(`${clockTextOf(spans.service.from)}–${clockTextOf(spans.service.to)}`)}</b>
               </span>
               <span>
-                早高峰 <b>{`${clockTextOf(spans.peaks[0].from)}–${clockTextOf(spans.peaks[0].to)}`}</b>
+                {t('morning_peak')}<b>{translate(`${clockTextOf(spans.peaks[0].from)}–${clockTextOf(spans.peaks[0].to)}`)}</b>
               </span>
               <span>
-                晚高峰 <b>{`${clockTextOf(spans.peaks[1].from)}–${clockTextOf(spans.peaks[1].to)}`}</b>
+                {t('evening_peak')}<b>{translate(`${clockTextOf(spans.peaks[1].from)}–${clockTextOf(spans.peaks[1].to)}`)}</b>
               </span>
             </div>
             <div className="knobs">
               <Knob
-                label="早高峰量"
-                hint="08:00 的高峰高度"
+                label={t('morning_demand')}
+                hint={t('peak_height_at_08_00')}
                 value={knobs.amPeak}
                 min={0}
                 max={2.5}
@@ -232,8 +236,8 @@ export function TimePanel(): React.ReactElement | null {
                 onCommit={commitKnobs}
               />
               <Knob
-                label="晚高峰量"
-                hint="18:00 的高峰高度"
+                label={t('evening_demand')}
+                hint={t('peak_height_at_18_00')}
                 value={knobs.pmPeak}
                 min={0}
                 max={2.5}
@@ -241,8 +245,8 @@ export function TimePanel(): React.ReactElement | null {
                 onCommit={commitKnobs}
               />
               <Knob
-                label="波形陡峭度"
-                hint="高峰的宽窄（100% = 0.85 小时）"
+                label={t('peak_steepness')}
+                hint={t('peak_width_100_0_85_hours')}
                 value={knobs.sharpness}
                 min={0.4}
                 max={2}
@@ -254,22 +258,22 @@ export function TimePanel(): React.ReactElement | null {
 
           <section className="timeBlock">
             <h4 className="timeBlockHead">
-              <span>日历</span>
+              <span>{t('calendar')}</span>
               <span className="timeBlockNote">
                 <button
                   type="button"
                   className="calNav"
-                  aria-label="上个月"
+                  aria-label={t('previous_month')}
                   disabled={month === 1}
                   onClick={() => setMonth((m) => Math.max(1, m - 1))}
                 >
                   ‹
                 </button>
-                <span className="calTitle">{`${year} 年 ${MONTH_LABELS[month - 1]}`}</span>
+                <span className="calTitle">{t('value_value', year, translate(MONTH_LABELS[month - 1]))}</span>
                 <button
                   type="button"
                   className="calNav"
-                  aria-label="下个月"
+                  aria-label={t('next_month')}
                   disabled={month === 12}
                   onClick={() => setMonth((m) => Math.min(12, m + 1))}
                 >
@@ -280,7 +284,7 @@ export function TimePanel(): React.ReactElement | null {
             <div className="calGrid">
               {MONTH_GRID_HEADS.map((h) => (
                 <span key={h} className="calHeadCell" aria-hidden="true">
-                  {h}
+                  {translate(h)}
                 </span>
               ))}
               {grid.flat().map((cell, i) =>
@@ -291,11 +295,11 @@ export function TimePanel(): React.ReactElement | null {
                     key={cell.dateKey}
                     type="button"
                     className={cellClass(cell, calendar.workdays, today?.date ?? null)}
-                    aria-label={`${cell.date.month} 月 ${cell.date.day} 日 ${DAY_TYPE_LABELS[cell.dayType]}`}
+                    aria-label={t('value_value_value', cell.date.month, cell.date.day, translate(DAY_TYPE_LABELS[cell.dayType]))}
                     aria-pressed={today !== null && sameDate(cell.date, today.date)}
                     onClick={() => seekToDate(cell.date)}
                   >
-                    {cell.date.day}
+                    {translate(cell.date.day)}
                   </button>
                 ),
               )}
@@ -303,16 +307,13 @@ export function TimePanel(): React.ReactElement | null {
             <div className="calKeys">
               <span>
                 <i className="calKey today" />
-                当前日期
-              </span>
+                {t('current_date')}</span>
               <span>
                 <i className="calKey holiday" />
-                节假日
-              </span>
+                {t('holiday')}</span>
               <span>
                 <i className="calKey workday" />
-                调休上班
-              </span>
+                {t('make_up_workday')}</span>
             </div>
           </section>
         </div>

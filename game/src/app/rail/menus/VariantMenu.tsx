@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The rail's variant sub-menu — **one** component for every family (§5.4).
 //
 // A family's variants are a list of palette tiles, and every family's list behaves
@@ -21,6 +23,7 @@ import { InlineExpand } from '../shared/InlinePanel.tsx'
 import { useStore } from '../../store.ts'
 
 export function VariantMenu({ family, open, thumbs }: { family: ModuleFamily; open: boolean; thumbs: Record<string, string> }): React.ReactElement {
+  useLanguage()
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
   const setTool = useStore((s) => s.setTool)
@@ -30,7 +33,7 @@ export function VariantMenu({ family, open, thumbs }: { family: ModuleFamily; op
       {familyOptions(family).map((m) => (
         <Block
           key={m.id}
-          label={family.tileLabel ? family.tileLabel(m) : m.label}
+          label={translate(family.tileLabel ? family.tileLabel(m) : m.label)}
           tile={m.id}
           thumb={family.folder === 'rail' ? undefined : thumbs[m.id]}
           icon={family.folder === 'rail' ? m.id : undefined}

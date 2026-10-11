@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 import type { Module, LineDef } from './types.ts'
 import { rotateLocal } from './track.ts'
 import { doorRunOffsets, STOCK } from './stock.ts'
@@ -66,7 +67,7 @@ export function tactileArms(m: Extract<Module, { type: 'tactile' }>, modules: re
 }
 
 export function floorMarkLine(m: Extract<Module, { type: 'floor-mark' }>, lines: readonly LineDef[]): { name: string; colour: string; id: string } {
-  const fallback = { id: '5', name: '5号线', colour: '#c8102e' }
+  const fallback = { id: '5', name: msg('line_5'), colour: '#c8102e' }
   // Unbound thumbnails and older saves open on Line 5; placed pieces carry an explicit binding.
   if (!m.cfg.line) return lines.find((l) => l.id === '5') ?? fallback
   return lines.find((l) => l.id === m.cfg.line) ?? lines.find((l) => l.id === '5') ?? lines[0] ?? fallback

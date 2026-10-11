@@ -1,3 +1,5 @@
+import { translate } from '../sim/i18n.ts'
+import { useLanguage } from './i18n.ts'
 // The viewport: owns the SceneRenderer lifecycle and dispatches pointer input
 // to the active tool controller. Panels stay in React; only this file (and the
 // controllers it dispatches to) touches three directly.
@@ -66,6 +68,7 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 export function Viewport(): React.ReactElement {
+  const language = useLanguage()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sceneRef = useRef<SceneRenderer | null>(null)
   const overlayRef = useRef(false)
@@ -659,7 +662,7 @@ export function Viewport(): React.ReactElement {
       homeEpochRef.current = stationEpoch
       goHomeView(scene)
     }
-  }, [version, station, stationEpoch, signPreviewId, signVersion, moveId])
+  }, [version, station, stationEpoch, signPreviewId, signVersion, moveId, language])
 
   // A lifted piece (移动) is drawn from its own ghost, so a fresh lift or an R while
   // it is in the air rebuilds that ghost at once instead of waiting for the next
@@ -971,7 +974,7 @@ export function Viewport(): React.ReactElement {
       )}
       {buildMeasure && (
         <div className="buildMeasure" style={{ left: buildMeasure.left + 14, top: buildMeasure.top + 14 }}>
-          {buildMeasure.text}
+          {translate(buildMeasure.text)}
         </div>
       )}
       <ViewCube sceneRef={sceneRef} />

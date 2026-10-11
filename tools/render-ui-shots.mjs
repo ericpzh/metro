@@ -1,6 +1,6 @@
 // Photographs the game's real interface, region by region.
 //
-//   node tools/render-ui-shots.mjs [--w 1600] [--h 1000] [--out .preview/ui-shots]
+//   node tools/render-ui-shots.mjs [--w 1600] [--h 1000] [--out .preview/ui-shots] [--lang en]
 //
 // Sheet 07 is about the interface, and the only honest way to draw an interface is
 // to photograph the one that ships: this boots the built game in headless Chrome,
@@ -11,15 +11,16 @@
 // Nothing about the interface is stated in this file or on the sheet: the region
 // names come from the DOM, the labels in the pictures are the ones the components
 // render, and the readout values are the running simulation's (see `BottomBar.tsx`
-// for 站内人数 / 最挤等级 / 闸机排队 …, `RAIL_FOLDERS` and `INSPECTOR_FOLDERS` in
+// for 站内人数 / 最拥挤等级 / 闸机排队 …, `RAIL_FOLDERS` and `INSPECTOR_FOLDERS` in
 // `rail/helpers.ts` for the two folder stacks, and `TopBar.tsx` for the speed group).
 //
 // The regions are found by class name, which is what the app's own layout CSS uses;
 // a rename there is a failure here rather than a silently empty crop.
 
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { messages } from '../game/src/sim/i18n/messages.ts'
 import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -33,7 +34,11 @@ const arg = (name, fallback) => {
 const width = Number(arg('w', 1600))
 const height = Number(arg('h', 1000))
 const DEVICE_SCALE = 1
-const outDir = resolve(repo, arg('out', join('.preview', 'ui-shots')))
+const language = arg('lang', 'zh-CN')
+if (!['zh-CN', 'en'].includes(language)) throw new Error('--lang must be zh-CN or en')
+const outDir = resolve(repo, arg('out', join('.preview', language === 'en' ? 'ui-shots-en' : 'ui-shots')))
+const outputRelative = relative(repo, outDir)
+if (!outputRelative || outputRelative.startsWith('..') || isAbsolute(outputRelative)) throw new Error('capture output must be inside the workspace')
 const PORT = Number(arg('port', 4197))
 const DEBUG_PORT = Number(arg('debug-port', 9339))
 
@@ -64,13 +69,17 @@ const REGIONS = {
  * A calendar date as the 时刻 window's own day button labels it — the real handler for
  * picking the day the station runs, which is what the curve is drawn for.
  */
-const pickDate = (month, day, dayType) =>
-  `(() => {
-    const el = document.querySelector(${JSON.stringify(`[aria-label="${month} 月 ${day} 日 ${dayType}"]`)})
+const pickDate = (month, day, dayType) => {
+  const label = language === 'en'
+    ? messages.value_value_value.en.replace('{0}', String(month)).replace('{1}', String(day)).replace('{2}', Object.values(messages).find(v => v.zh === dayType).en)
+    : `${month} 月 ${day} 日 ${dayType}`
+  return `(() => {
+    const el = document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)})
     if (!el) throw new Error('no day button for ${month}/${day} ${dayType}')
     el.click()
     return true
   })()`
+}
 
 /**
  * The states the interface is photographed in, in the order the sheet reads them.
@@ -205,13 +214,13 @@ const SHOTS = [
     note: '出入口：每一条口子自己一条进站速度，和一个开关。',
     folders: { tools: true, info: false, view: false, exits: true, lines: false },
     setup: `(() => { window.__metro.getState().setTimePanel(false); return true })()`,
-    crops: [['inspector', 2, 430]],
+    crops: [['inspector', 2]],
   },
 ]
 
 const server = await serveDir(DIST, PORT)
 const session = await withPage({
-  url: `http://127.0.0.1:${PORT}/`,
+  url: `http://127.0.0.1:${PORT}/${language === 'en' ? 'en' : ''}`,
   profile: join(repo, '.preview', `.chrome-ui-shots-${process.pid}`),
   debugPort: DEBUG_PORT,
   windowSize: `${width},${height}`,
@@ -255,7 +264,7 @@ try {
   await waitFor(session.evaluate, '!!window.__scene && !!window.__metro', { what: 'the game' })
   // The demo station builds chunk by chunk; a dressed station takes a few seconds.
   await session.evaluate('new Promise((ok) => setTimeout(ok, 6000))')
-  await session.evaluate("(() => { window.__metro.getState().renameStation('地铁站'); return true })()")
+  await session.evaluate(`(() => { window.__metro.getState().renameStation(${JSON.stringify(language === 'en' ? 'Metro station' : '地铁站')}); return true })()`)
 
   if (process.argv.includes('--probe')) {
     // What the station actually holds, so a camera can be aimed at real numbers
@@ -359,7 +368,12 @@ try {
       // its tail is not a different interface, only more of the same list. The
       // element's own full box is reported beside the captured rect, because a
       // sheet that labels a region wants the region and not the crop of it.
-      const rect = maxH && box.height > maxH ? { ...box, height: maxH } : box
+      let rect = maxH && box.height > maxH ? { ...box, height: maxH } : box
+      if (shot.id === 'exits' && name === 'inspector') {
+        // Include a complete entrance card instead of cutting its Open control.
+        const bottom = await session.evaluate(`document.querySelector('.panel .lineNameInput').closest('.card').getBoundingClientRect().bottom`)
+        rect = { ...box, height: Math.min(box.height, Math.ceil(bottom - box.y) + 8) }
+      }
       const png = await shoot({ ...rect, scale })
       const file = `${shot.id}-${name}.png`
       writeFileSync(join(outDir, file), png)
@@ -382,7 +396,7 @@ try {
     index.push({ id: shot.id, note: shot.note, crops })
   }
 
-  writeFileSync(join(outDir, 'index.json'), JSON.stringify({ width, height, demand, shots: index }, null, 1))
+  writeFileSync(join(outDir, 'index.json'), JSON.stringify({ language, width, height, demand, shots: index }, null, 1))
   console.log(`ui shots: ${index.length} states -> ${outDir}`)
 } finally {
   await session.close()

@@ -238,7 +238,7 @@ export function artSection() {
   g.push(pieceAt('billboard-panorama', 604, n(B1f - 0.95 * S)).svg);
   g.push(T(604, n(B1f - 0.95 * S - board.h - 8), '广告', { size: 12, fill: '#67334b', weight: 800 }));
   // B1's own name, last of the concourse's furniture so nothing stands in front of it.
-  g.push(T(230, GY + 24, 'B1   水泥站厅', { size: 15, weight: 800, fill: '#273443', ls: 1.2 }));
+  g.push(T(230, GY + 24, 'B1   混凝土站厅', { size: 15, weight: 800, fill: '#273443', ls: 1.2 }));
   const colors = [C.red, C.blue, C.teal, C.purple, C.orange, C.pink, C.green];
   // Wall equipment and the barrier belong to the fixtures band; passengers paint last.
   for (const [id, x] of [['extinguisher', 365], ['bin', 552], ['door-steel-2', 1072]])

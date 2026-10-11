@@ -1,4 +1,4 @@
-// Vending machine (自动贩卖机) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
+// Vending machine (自动售货机) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
 import { PieceBuilder, slab, plate, capTop, placeLocalAtEdge } from '../PieceBuilder.ts'
@@ -8,7 +8,7 @@ import type { Module } from '../../../sim/types.ts'
 /* --------------------------------------------------------------- vending */
 
 /**
- * Vending machine (自动贩卖机): a tall white cabinet with a glass-fronted drink
+ * Vending machine (自动售货机): a tall white cabinet with a glass-fronted drink
  * display on the left and a face-pay control strip on the right, following the
  * reference photo. The same 1 × 1 m footprint as a TVM; the front faces −y.
  */

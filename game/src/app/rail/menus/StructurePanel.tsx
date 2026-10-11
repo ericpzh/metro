@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 import { useStore } from '../../store.ts'
 import { trackRunLengthLabel } from '../../../sim/track.ts'
 import { Block } from '../shared/Block.tsx'
@@ -6,6 +8,7 @@ import { findSelectedTrack } from '../helpers.ts'
 import { bridgeRailingLabel, nextBridgeRailing } from '../../../sim/structures.ts'
 
 export function StructurePanel({ anchor }: { anchor: string }): React.ReactElement {
+  useLanguage()
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
   const bridgeLength = useStore((s) => s.bridgeLength)
@@ -25,8 +28,8 @@ export function StructurePanel({ anchor }: { anchor: string }): React.ReactEleme
   }
   return <InlinePanel open={placing || bridge !== undefined}>
     <div className="blockGrid">
-      {placing && <Block label={trackRunLengthLabel(bridgeLength)} icon="ortho" shortcut="Tab" onClick={cycleBridgeLength} />}
-      <Block label={bridgeRailingLabel(railing)} icon={railing === 'railing' ? 'fence' : 'glass'} onClick={cycleRailing} />
+      {placing && <Block label={translate(trackRunLengthLabel(bridgeLength))} icon="ortho" shortcut="Tab" onClick={cycleBridgeLength} />}
+      <Block label={translate(bridgeRailingLabel(railing))} icon={railing === 'railing' ? 'fence' : 'glass'} onClick={cycleRailing} />
     </div>
   </InlinePanel>
 }

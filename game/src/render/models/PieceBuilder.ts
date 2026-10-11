@@ -1,3 +1,4 @@
+import { t } from '../../sim/i18n.ts'
 // Shared procedural-model kit behind render/models.ts (Lane E, step 0).
 // Palette, material printers, canvas/ink helpers, the slab/plate/prism kit,
 // ModuleContext, and the PieceBuilder abstract base every piece extends.
@@ -128,12 +129,12 @@ export interface ModelMaterials {
   /** Office and checkout computer desktop; the TVM keeps its ticketing screen. */
   desktopScreen: THREE.MeshBasicMaterial
   /**
-   * The 自动贩卖机 front control strip: the 刷脸支付 header, the promo card, the
+   * The 自动售货机 front control strip: the 刷脸支付 header, the promo card, the
    * payment panel, the keypad and the dispenser mouth, printed as one unlit
    * panel so the cabinet reads as a real vending machine.
    */
   vendingPanel: THREE.MeshBasicMaterial
-  /** The 自动贩卖机 base band: the service hotline and phone number. */
+  /** The 自动售货机 base band: the service hotline and phone number. */
   vendingBase: THREE.MeshBasicMaterial
   /** The 指示牌 overhead sign face: the lit, double-sided wayfinding board. */
   signFace: THREE.MeshBasicMaterial
@@ -218,17 +219,17 @@ function lcdCanvas(): HTMLCanvasElement {
   g.fillRect(0, 0, 128, 16)
   g.fillStyle = '#dfe8f5'
   g.font = 'bold 10px sans-serif'
-  g.fillText('2 号线', 6, 12)
+  g.fillText(t('line_2_525'), 6, 12)
   g.fillStyle = '#1b4f86'
   for (let r = 0; r < 3; r++) for (let col = 0; col < 4; col++) g.fillRect(6 + col * 30, 24 + r * 20, 26, 16)
   g.fillStyle = '#9ec0e8'
   g.font = '9px sans-serif'
-  g.fillText('选择目的地', 8, 36)
+  g.fillText(t('select_destination'), 8, 36)
   g.fillStyle = '#47c07a'
   g.fillRect(88, 66, 34, 22)
   g.fillStyle = '#06301c'
   g.font = 'bold 9px sans-serif'
-  g.fillText('购票', 96, 80)
+  g.fillText(t('buy_ticket'), 96, 80)
   return c
 }
 
@@ -260,7 +261,7 @@ function shelfPanelCanvas(): HTMLCanvasElement {
 }
 
 /**
- * The 自动贩卖机's right-hand control strip, drawn as one vertical panel: the
+ * The 自动售货机's right-hand control strip, drawn as one vertical panel: the
  * 刷脸支付 header, a red promo card, the payment-icon grid, the keypad and the
  * 取物口 dispenser mouth. Matches the reference photo's right column and maps
  * 1:1 onto the cabinet's 0.32 × 1.44 m front plate.
@@ -279,7 +280,7 @@ function vendingPanelCanvas(): HTMLCanvasElement {
   g.fillRect(0, 0, 128, 68)
   g.fillStyle = '#ffffff'
   g.font = 'bold 20px "Microsoft YaHei", sans-serif'
-  g.fillText('刷脸支付', 64, 34)
+  g.fillText(t('face_payment'), 64, 34)
   g.font = '10px sans-serif'
   g.fillText('Face scan payment', 64, 52)
   // Red promo card (天猫优选).
@@ -287,12 +288,12 @@ function vendingPanelCanvas(): HTMLCanvasElement {
   g.fillRect(8, 78, 112, 92)
   g.fillStyle = '#ffd54a'
   g.font = 'bold 15px "Microsoft YaHei", sans-serif'
-  g.fillText('天猫优选', 64, 112)
+  g.fillText(t('tmall_select'), 64, 112)
   g.fillStyle = '#ffffff'
   g.fillRect(18, 124, 92, 38)
   g.fillStyle = '#d3231e'
   g.font = 'bold 11px "Microsoft YaHei", sans-serif'
-  g.fillText('1分钱乘车', 64, 149)
+  g.fillText(t('ride_for_0_01'), 64, 149)
   // Payment method grid.
   g.fillStyle = '#ffffff'
   g.fillRect(8, 180, 112, 120)
@@ -315,7 +316,7 @@ function vendingPanelCanvas(): HTMLCanvasElement {
   g.fillRect(8, 308, 112, 26)
   g.fillStyle = '#ffffff'
   g.font = 'bold 12px "Microsoft YaHei", sans-serif'
-  g.fillText('请选择支付方式', 64, 326)
+  g.fillText(t('select_payment_method'), 64, 326)
   // Numeric keypad.
   g.fillStyle = '#f2f5f8'
   g.fillRect(8, 342, 112, 100)
@@ -336,11 +337,11 @@ function vendingPanelCanvas(): HTMLCanvasElement {
   g.fillRect(26, 542, 76, 18)
   g.fillStyle = '#ffffff'
   g.font = 'bold 12px "Microsoft YaHei", sans-serif'
-  g.fillText('取物口', 64, 556)
+  g.fillText(t('collection_tray'), 64, 556)
   return c
 }
 
-/** The 自动贩卖机's base band: the service hotline printed on blue. */
+/** The 自动售货机's base band: the service hotline printed on blue. */
 function vendingBaseCanvas(): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = 384
@@ -361,7 +362,7 @@ function vendingBaseCanvas(): HTMLCanvasElement {
   g.textAlign = 'center'
   g.fillStyle = '#5b6570'
   g.font = '16px "Microsoft YaHei", sans-serif'
-  g.fillText('客服热线 / 安美咨询', 192, 40)
+  g.fillText(t('customer_hotline_anmei'), 192, 40)
   g.fillStyle = '#1b6fd6'
   g.font = 'bold 26px "Microsoft YaHei", sans-serif'
   g.fillText('4001-528-528', 192, 74)
@@ -458,12 +459,12 @@ function binLabelCanvas(): HTMLCanvasElement {
     else drawOtherWasteMark(g, cx, 222, 135, '#50584d')
     g.fillStyle = '#394940'
     g.font = 'bold 36px "Microsoft YaHei", sans-serif'
-    g.fillText(i === 0 ? '可回收物' : '其他垃圾', cx, 392)
+    g.fillText(i === 0 ? t('recyclables') : t('other_waste'), cx, 392)
     g.font = 'bold 22px Arial, sans-serif'
     g.fillText(i === 0 ? 'Recyclable waste' : 'Other waste', cx, 430)
     // Small category examples use drawn silhouettes, so system emoji fonts do
     // not change the printed plate between browsers.
-    const names = i === 0 ? ['纸类', '塑料', '金属', '玻璃'] : ['果皮', '残渣', '纸巾', '尘土']
+    const names = i === 0 ? [t('paper'), t('plastic'), t('metal'), t('glass')] : [t('peels'), t('food_waste'), t('tissues'), t('dust')]
     for (let j = 0; j < 4; j++) {
       const x = cx - 132 + j * 88
       g.fillStyle = i === 0 ? '#1762a4' : '#929b96'
@@ -534,14 +535,14 @@ function fireLabelCanvas(): HTMLCanvasElement {
   g.textBaseline = 'middle'
   g.fillStyle = '#ffffff'
   g.font = 'bold 62px "Microsoft YaHei", sans-serif'
-  g.fillText('灭火器箱', 160, 60)
+  g.fillText(t('fire_extinguisher_box'), 160, 60)
   g.font = '19px "Arial Narrow", "Microsoft YaHei", sans-serif'
   g.fillText('FIRE  EXTINGUISHER  BOX', 160, 122)
   // 火119警: the small 火 and 警 flank the number, as the reference prints it.
   const parts: Array<[string, number]> = [
-    ['火', 40],
+    [t('fire'), 40],
     ['119', 74],
-    ['警', 40],
+    [t('alarm'), 40],
   ]
   const widths = parts.map(([text, size]) => {
     g.font = `bold ${size}px "Microsoft YaHei", sans-serif`
@@ -740,7 +741,7 @@ export function createModelMaterials(): ModelMaterials {
       map: canvasTexture(
         calligraphyPlate(CALLIGRAPHY_FALLBACK_PANEL).width,
         calligraphyPlate(CALLIGRAPHY_FALLBACK_PANEL).height,
-        (g) => drawCalligraphyPanel(g, { text: '地铁站', style: 'kai', axis: 'h', panel: CALLIGRAPHY_FALLBACK_PANEL }),
+        (g) => drawCalligraphyPanel(g, { text: t('metro_station'), style: 'kai', axis: 'h', panel: CALLIGRAPHY_FALLBACK_PANEL }),
       ),
       transparent: true,
       side: THREE.FrontSide,

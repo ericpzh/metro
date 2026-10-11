@@ -1,3 +1,5 @@
+import { msg, translate, t } from '../sim/i18n.ts'
+import { useLanguage } from './i18n.ts'
 // The view cube: a small, stylised orientation widget in the corner of the
 // stage. A face click snaps the camera to that projection, a corner click drops
 // into an isometric from that corner, and dragging the cube orbits. It only ever
@@ -35,12 +37,12 @@ interface FaceDef {
 }
 
 const FACES: FaceDef[] = [
-  { key: 'top', axis: 'z', sgn: 1, dir: [0, 0, 1], label: '顶' },
-  { key: 'bottom', axis: 'z', sgn: -1, dir: [0, 0, -1], label: '底' },
-  { key: 'e', axis: 'x', sgn: 1, dir: [1, 0, 0], label: '东' },
-  { key: 'w', axis: 'x', sgn: -1, dir: [-1, 0, 0], label: '西' },
-  { key: 'n', axis: 'y', sgn: 1, dir: [0, 1, 0], label: '北' },
-  { key: 's', axis: 'y', sgn: -1, dir: [0, -1, 0], label: '南' },
+  { key: 'top', axis: 'z', sgn: 1, dir: [0, 0, 1], label: msg('top') },
+  { key: 'bottom', axis: 'z', sgn: -1, dir: [0, 0, -1], label: msg('bottom') },
+  { key: 'e', axis: 'x', sgn: 1, dir: [1, 0, 0], label: msg('east') },
+  { key: 'w', axis: 'x', sgn: -1, dir: [-1, 0, 0], label: msg('west') },
+  { key: 'n', axis: 'y', sgn: 1, dir: [0, 1, 0], label: msg('north') },
+  { key: 's', axis: 'y', sgn: -1, dir: [0, -1, 0], label: msg('south') },
 ]
 
 const AXIS_OF: Record<Axis, number> = { x: 0, y: 1, z: 2 }
@@ -247,6 +249,7 @@ function buildCube(qt: [number, number, number, number]): CubeGeometry {
 }
 
 export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer | null> }): React.ReactElement {
+  useLanguage()
   const [qt, setQt] = useState<[number, number, number, number]>([0, 0, 0, 1])
   /** The lens in whole degrees, for the slider — the camera is the truth. */
   const [fovDeg, setFovDeg] = useState(DEFAULT_FOV)
@@ -481,7 +484,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
 
             {geo.faces.map((f) => (
               <text key={'t' + f.key} className="cubeLabel" x={f.lx} y={f.ly} textAnchor="middle" dominantBaseline="central">
-                {f.label}
+                {translate(f.label)}
               </text>
             ))}
 
@@ -514,13 +517,13 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
                   <line x1={GIZMO.x} y1={GIZMO.y} x2={a.x} y2={a.y} stroke={a.color} strokeWidth={1.6} />
                   <circle cx={a.x} cy={a.y} r={1.8} fill={a.color} />
                   <text x={a.lx} y={a.ly} fill={a.color} textAnchor="middle" dominantBaseline="central">
-                    {a.key}
+                    {translate(a.key)}
                   </text>
                 </g>
               ))}
             </g>
           </svg>
-          <button type="button" className="viewNavBtn viewHomeBtn" onClick={goHome} aria-label="回到默认视角">
+          <button type="button" className="viewNavBtn viewHomeBtn" onClick={goHome} aria-label={t('reset_view')}>
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 10.5 12 3l9 7.5" />
               <path d="M5 9.5V21h14V9.5" />
@@ -531,7 +534,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
             <button
               type="button"
               className="viewNavBtn viewPanBtn"
-              aria-label="视角升高"
+              aria-label={t('raise_view')}
               onPointerDown={(e) => panDown(e, 1)}
               onPointerUp={() => holdPan(0)}
               onPointerCancel={() => holdPan(0)}
@@ -544,7 +547,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
             <button
               type="button"
               className="viewNavBtn viewPanBtn"
-              aria-label="视角降低"
+              aria-label={t('lower_view')}
               onPointerDown={(e) => panDown(e, -1)}
               onPointerUp={() => holdPan(0)}
               onPointerCancel={() => holdPan(0)}
@@ -572,11 +575,11 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
             max={FOV_MAX_DEG}
             step={1}
             value={fovDeg}
-            aria-label="视场角"
+            aria-label={t('field_of_view')}
             onChange={(e) => setFov(Number(e.target.value))}
             onPointerUp={(e) => e.currentTarget.blur()}
           />
-          <span className="viewFovVal">FOV: {fovDeg}°</span>
+          <span className="viewFovVal">{t('fov_label')} {translate(fovDeg)}°</span>
         </div>
       </div>
     </div>
@@ -589,6 +592,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
  * (or the Q/E keys) steps it. A chip names the current level and its z.
  */
 function DepthRail(): React.ReactElement {
+  useLanguage()
   const activeZ = useStore((s) => s.activeZ)
   const setActiveZ = useStore((s) => s.setActiveZ)
   const levelBase = useStore((s) => s.station.levelBase)
@@ -670,13 +674,13 @@ function DepthRail(): React.ReactElement {
           </div>
         ))}
         <div className="depthChip" style={{ top: `${frac(activeZ) * 100}%` }}>
-          <b>{activeZ}m</b>
+          <b>{translate(activeZ)}m</b>
         </div>
       </div>
-      <button type="button" className="depthTag" aria-expanded={baseOpen} aria-controls="depthBaseMenu" onClick={() => setBaseOpen((open) => !open)}>高度</button>
+      <button type="button" className="depthTag" aria-expanded={baseOpen} aria-controls="depthBaseMenu" onClick={() => setBaseOpen((open) => !open)}>{t('height')}</button>
       {baseOpen && (
-        <div className="depthBaseMenu" id="depthBaseMenu" role="group" aria-label="高度基准">
-          <div className="depthBaseTitle">基准</div>
+        <div className="depthBaseMenu" id="depthBaseMenu" role="group" aria-label={t('height_origin')}>
+          <div className="depthBaseTitle">{t('origin')}</div>
           <div className="depthBaseChoices">
             {[0, 1, 2, 3].map((base) => (
               <button
@@ -685,7 +689,7 @@ function DepthRail(): React.ReactElement {
                 className={base === levelBase ? 'depthBaseChoice on' : 'depthBaseChoice'}
                 aria-pressed={base === levelBase}
                 onClick={() => { setLevelBase(base); setBaseOpen(false) }}
-              >{base}m</button>
+              >{translate(base)}m</button>
             ))}
           </div>
         </div>

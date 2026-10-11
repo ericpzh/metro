@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The 房间 folder body (§5.6 facility rooms).
 //
 // One tile per FacilityBrush. The tile shows the room's **type** — store,
@@ -9,6 +11,7 @@ import { FACILITY_OPTIONS, useStore } from '../../store.ts'
 import { Block } from '../shared/Block.tsx'
 
 export function RoomFolder(): React.ReactElement {
+  useLanguage()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const zoneBrush = useStore((s) => s.zoneBrush)
@@ -18,7 +21,7 @@ export function RoomFolder(): React.ReactElement {
       {FACILITY_OPTIONS.filter((f) => f.id === 'ticket' || f.id === 'info').map((f) => (
         <Block
           key={f.id}
-          label={f.label}
+          label={translate(f.label)}
           tile={f.id}
           // The tile shows the room's **type** — store, ticket desk, office,
           // washroom — not a colour chip: which of the four a drag will build

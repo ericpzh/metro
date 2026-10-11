@@ -1,3 +1,4 @@
+import { msg } from '../../../sim/i18n.ts'
 // The 移动 slice: lifting a placed 设备 / 装饰 / 出入口 / 楼梯 / 扶梯 piece, aiming it and
 // dropping it (§9.5). A lift is deliberately *not* a document edit — the piece stays in
 // the station and only stops being drawn — so cancelling restores nothing and
@@ -97,13 +98,13 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     if (!mod) return
     const label = moduleLabel(mod)
     if (!isMovableModule(mod)) {
-      set({ notice: `${label}不能移动：用删除 (B) 拆掉再放` })
+      set({ notice: msg('cannot_move_value_remove_it_with_delete_b_then_place_it_again', label) })
       return
     }
     set({
       moveDraft: { module: mod, rot: mod.rot ?? 0, at: null, candidate: null, reason: '' },
       selected: { kind: 'module', key: mod.id, label },
-      notice: `已拿起${label}：在要放的位置点击，或在信息栏点「确认」；点「取消」放回原位`,
+      notice: msg('picked_up_value_click_its_new_location_or_confirm_in_info_cancel', label),
     })
   },
   switchEscalatorDirection: (moduleId) => {
@@ -141,21 +142,21 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
   },
   cancelMove: (announce = true) => {
     if (!get().moveDraft) return
-    set(announce ? { moveDraft: null, notice: '已放回原位' } : { moveDraft: null })
+    set(announce ? { moveDraft: null, notice: msg('returned_to_the_original_position') } : { moveDraft: null })
   },
   confirmMove: () => {
     const st = get()
     const d = st.moveDraft
     if (!d) return
     if (!d.at || !d.candidate) {
-      set({ notice: d.reason || '先把指针移到要放的位置，再点「确认」' })
+      set({ notice: d.reason || msg('move_the_pointer_to_the_new_location_before_confirming') })
       return
     }
     // The piece must still be there: an undo, or a load, under a lift would
     // otherwise drop a copy of something that no longer exists.
     const from = st.station.modules.find((m) => m.id === d.module.id)
     if (!from) {
-      set({ moveDraft: null, notice: '刚才拿起的东西已经不在了' })
+      set({ moveDraft: null, notice: msg('the_picked_up_item_no_longer_exists') })
       return
     }
     // What lands is the piece as the document holds it **now** — today's boards,
@@ -171,12 +172,12 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
       return
     }
     if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0)) {
-      set({ moveDraft: null, notice: '位置没变' })
+      set({ moveDraft: null, notice: msg('position_unchanged') })
       return
     }
     const label = moduleLabel(from)
     set({ moveDraft: null })
     get().commit(moveEquipment(st.station, to))
-    set({ notice: `${label}已移到 (${to.x}, ${to.y}, ${to.z})` })
+    set({ notice: msg('moved_value_to_value_value_value', label, to.x, to.y, to.z) })
   },
 })

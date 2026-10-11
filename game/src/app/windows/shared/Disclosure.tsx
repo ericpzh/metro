@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx. The inspector's
 // fold chrome lives here so line cards and future sections share it by
 // composition (plan.md R5) instead of each reimplementing a fold.
@@ -19,14 +21,15 @@ export function Disclosure({
   className?: string
   children: React.ReactNode
 }): React.ReactElement {
+  useLanguage()
   return (
     <div className={className ? `disclosure ${className}` : 'disclosure'}>
       <button type="button" className={open ? 'disclosureHead open' : 'disclosureHead'} onClick={onToggle} aria-expanded={open}>
-        {head}
+        {translate(head)}
         <span className="disclosureCaret" aria-hidden="true" />
       </button>
       <div className={open ? 'foldBody open' : 'foldBody'} aria-hidden={!open} inert={!open}>
-        <div className="foldInner">{children}</div>
+        <div className="foldInner">{translate(children)}</div>
       </div>
     </div>
   )

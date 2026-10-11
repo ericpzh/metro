@@ -191,7 +191,7 @@ test("**Tab** is the 生成墙壁 tile's key, and the cut pieces are click-only"
   assert.doesNotMatch(shell, /cycleCutMode/, 'and no cut-mode cycle is left on a key')
   assert.doesNotMatch(src('app/store/slices/ToolSlice.ts'), /cycleCutMode/, 'the cycle is gone from the store too')
   const tools = src('app/rail/folders/RailFolder.tsx')
-  assert.match(tools, /label="生成墙壁"[\s\S]{0,80}shortcut="Tab"/, 'the tile wears the key it answers to')
+  assert.match(tools, /label=\{t\('generate_walls'\)\}[\s\S]{0,80}shortcut="Tab"/, 'the tile wears the key it answers to')
   assert.doesNotMatch(tools, /自动生成墙壁/, 'and the old name is gone from the folder')
 })
 

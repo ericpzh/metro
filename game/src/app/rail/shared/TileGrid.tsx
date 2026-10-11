@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // A folder's tile grid â€” **one** component for the è®¾å¤‡ and è£…é¥° folders (Â§5.4).
 //
 // Both folders are the same thing: the folder's **tiles in rail order** â€” its plain tiles
@@ -48,6 +50,7 @@ export function TileGrid({
   subMenu: SubMenuKey | null
   onToggleSubMenu: (k: SubMenuKey) => void
 }): React.ReactElement {
+  useLanguage()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const moduleType = useStore((s) => s.moduleType)
@@ -89,7 +92,7 @@ export function TileGrid({
             tile.kind === 'family' ? (
               <Block
                 key={tile.anchor}
-                label={tile.family.label}
+                label={translate(tile.family.label)}
                 tile={tile.anchor}
                 // The parent's icon is its first variant's, so a closed list still shows
                 // what is behind it â€” the same rule for every family.
@@ -115,7 +118,7 @@ export function TileGrid({
             ) : (
               <Block
                 key={tile.anchor}
-                label={tile.option.label}
+                label={translate(tile.option.label)}
                 tile={tile.option.id}
                 thumb={folder === 'rail' ? undefined : thumbs[tile.option.id]}
                 icon={folder === 'rail' ? tile.option.id : undefined}
@@ -141,5 +144,5 @@ export function TileGrid({
           return rows
         },
       )
-  return embedded ? <>{rows}</> : <div className="blockGrid">{rows}</div>
+  return embedded ? <>{translate(rows)}</> : <div className="blockGrid">{translate(rows)}</div>
 }

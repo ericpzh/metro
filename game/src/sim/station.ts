@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // The station graph — GAME-SPEC.md §7.2.
 //
 // Every walkable cell is a node; every placeable thing that moves people is a
@@ -501,7 +502,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
         if (n !== undefined) {
           const id = addServer({
             kind: 'gate',
-            label: m.cfg.dir === 'both' ? '闸机' : m.cfg.dir === 'in' ? '进站闸机' : '出站闸机',
+            label: m.cfg.dir === 'both' ? msg('fare_gate') : m.cfg.dir === 'in' ? msg('entry_gate') : msg('exit_gate'),
             rate: GATE_RATE,
             node: n,
             exitNode: -1,
@@ -518,7 +519,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
       case 'vending': {
         const n = nodeIndex.get(cellKey(m.x, m.y, m.z))
         if (n !== undefined) {
-          const label = m.type === 'vending' ? '自动贩卖机' : '售票机'
+          const label = m.type === 'vending' ? msg('vending_machine') : msg('ticket_machine')
           const id = addServer({ kind: 'stop', label, rate: TVM_RATE, node: n, exitNode: -1, ride: 0, batch: 1, cycle: 0 })
           stops.push({ id: m.id, node: n, kind: m.type })
           serverForNode.set(n, id)
@@ -602,7 +603,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           const ride = dist / ESCALATOR_SPEED
           const id = addServer({
             kind: 'escalator',
-            label: m.cfg.dir === 'up' ? '上行扶梯' : '下行扶梯',
+            label: m.cfg.dir === 'up' ? msg('up_escalator') : msg('down_escalator'),
             rate: ESCALATOR_RATE,
             node: a,
             exitNode: b,
@@ -631,7 +632,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             const down = nodeZ[fa] > nodeZ[fb]
             const idDown = addServer({
               kind: 'stair',
-              label: '楼梯',
+              label: msg('stairs'),
               rate: (down ? STAIR_RATE_DOWN : STAIR_RATE_UP) * m.cfg.width,
               node: fa,
               exitNode: fb,
@@ -642,7 +643,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             edges.push({ from: fa, to: fb, cost: fride, kind: KIND_STAIR, server: idDown })
             const idUp = addServer({
               kind: 'stair',
-              label: '楼梯',
+              label: msg('stairs'),
               rate: (down ? STAIR_RATE_UP : STAIR_RATE_DOWN) * m.cfg.width,
               node: fb,
               exitNode: fa,
@@ -676,7 +677,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           const ride = LIFT_CYCLE
           const id = addServer({
             kind: 'lift',
-            label: '无障碍电梯',
+            label: msg('accessible_lift'),
             rate: LIFT_BATCH / LIFT_CYCLE,
             node: stops[0],
             exitNode: -1,
@@ -752,7 +753,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           if (n === undefined) continue
           const id = addServer({
             kind: 'door',
-            label: '站台门',
+            label: msg('platform_doors'),
             rate: 0,
             node: n,
             exitNode: -1,

@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The colour picker tile for 搪瓷板 (§6.3 custom enamel).
 //
 // It is a palette tile like any other, but its art is a native colour input, so
@@ -10,6 +12,7 @@ export function hexColour(colour: number): string {
 }
 
 export function ColourTile({ colour, onChange }: { colour: number; onChange: (colour: number) => void }): React.ReactElement {
+  useLanguage()
   return (
     <label className="bpBlock">
       <span className="bpBlockArt">
@@ -20,7 +23,7 @@ export function ColourTile({ colour, onChange }: { colour: number; onChange: (co
           onChange={(e) => onChange(Number.parseInt(e.target.value.slice(1), 16))}
         />
       </span>
-      <span className="bpBlockLabel">{hexColour(colour).toUpperCase()}</span>
+      <span className="bpBlockLabel">{translate(hexColour(colour).toUpperCase())}</span>
     </label>
   )
 }

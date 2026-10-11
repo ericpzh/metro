@@ -1,8 +1,11 @@
+import { t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
 
 /** The button and Ctrl+N share one confirmation before replacing the current station. */
 export function NewStationButton(): React.ReactElement {
+  useLanguage()
   const newStation = useStore((s) => s.newStation)
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -45,8 +48,8 @@ export function NewStationButton(): React.ReactElement {
         ref={triggerRef}
         className="ghost iconBtn"
         onClick={() => setOpen(true)}
-        title="新建车站（Ctrl+N）"
-        aria-label="新建"
+        title={t('new_station_ctrl_n')}
+        aria-label={t('new_479')}
         aria-keyshortcuts="Control+N"
         aria-haspopup="dialog"
       >
@@ -61,11 +64,11 @@ export function NewStationButton(): React.ReactElement {
           if (e.target === e.currentTarget) cancel()
         }}>
           <section className="newStationPanel" role="dialog" aria-modal="true" aria-labelledby="newStationTitle" aria-describedby="newStationMessage">
-            <h2 id="newStationTitle">新建车站？</h2>
-            <p id="newStationMessage">当前车站将被新车站替换。请先保存需要保留的内容。</p>
+            <h2 id="newStationTitle">{t('new_station')}</h2>
+            <p id="newStationMessage">{t('the_current_station_will_be_replaced_save_anything_you_want_to_k')}</p>
             <div className="newStationActions">
-              <button type="button" onClick={cancel}>取消</button>
-              <button ref={confirmRef} type="button" className="primary" onClick={confirm}>新建车站</button>
+              <button type="button" onClick={cancel}>{t('cancel')}</button>
+              <button ref={confirmRef} type="button" className="primary" onClick={confirm}>{t('new_station_483')}</button>
             </div>
           </section>
         </div>

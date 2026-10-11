@@ -123,7 +123,7 @@ export function artHeroBanded() {
   slab('concourse', 0, 0, PLAN.upper, PLAN.width, PLAN.hallEnd);
   slab('concourse', 0, 10, 5, 5.5, 3);
   slab('concourse', 22.5, 10, 5, 5.5, 3);
-  // 水泥 uses the game's finish tint and a fine grain, without granite inlays.
+  // 混凝土 uses the game's finish tint and a fine grain, without granite inlays.
   const route = [[6, 5], [10.5, 5], [10.5, 8.5], [15, 8.5], [15, 9.8]];
   put('concourse', 12, 8, 5.04, `<path d="M${route.map(p => P(...p, 5.04).map(n).join(',')).join(' L')}" fill="none" stroke="${C.tactile}" stroke-width="5" stroke-linejoin="round"/>`);
   // 3. This crowd can be occluded by the upper-floor edge; the other cannot.

@@ -1,3 +1,5 @@
+import { msg, translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — the 信息 folder's
 // body: the selected-piece card with the 移动 lift (GAME-SPEC.md §9.5), the
 // 指示牌 board-editor entry (GAME-SPEC.md §5.8).
@@ -17,6 +19,7 @@ import { isMovableModule } from '../../../sim/placement.ts'
 import { refreshTrackForSelection } from './refreshPlatform.ts'
 
 export function InfoCard(): React.ReactElement {
+  useLanguage()
   const selected = useStore((s) => s.selected)
   const station = useStore((s) => s.station)
   const moveDraft = useStore((s) => s.moveDraft)
@@ -43,28 +46,28 @@ export function InfoCard(): React.ReactElement {
             // will land, and the two ways out of it.
             <>
               <div className="kv">
-                <span>移动</span>
-                <b>{moduleLabel(moveDraft.module)}</b>
+                <span>{t('move')}</span>
+                <b>{translate(moduleLabel(moveDraft.module))}</b>
               </div>
               <div className="kv">
-                <span>位置</span>
+                <span>{t('position')}</span>
                 <b className={canDrop ? undefined : 'bad'}>
-                  {moveDraft.at ? `(${moveDraft.at.x}, ${moveDraft.at.y}, ${moveDraft.at.z})` : '移到要放的位置'}
+                  {translate(moveDraft.at ? `(${moveDraft.at.x}, ${moveDraft.at.y}, ${moveDraft.at.z})` : msg('move_to_the_new_location'))}
                 </b>
               </div>
-              {moveDraft.reason !== '' && <div className="moveReason small">{moveDraft.reason}</div>}
+              {moveDraft.reason !== '' && <div className="moveReason small">{translate(moveDraft.reason)}</div>}
               <div className="row">
                 <button
                   className="chip primary iconOnly"
                   disabled={!canDrop}
-                  aria-label="确认移动"
+                  aria-label={t('confirm_move')}
                   onClick={() => useStore.getState().confirmMove()}
                 >
                   <IoMdCheckmark />
                 </button>
                 <button
                   className="chip iconOnly"
-                  aria-label="取消移动"
+                  aria-label={t('cancel_move')}
                   onClick={() => useStore.getState().cancelMove()}
                 >
                   <IoMdClose />
@@ -76,15 +79,15 @@ export function InfoCard(): React.ReactElement {
             <div className="infoCardLayout">
               <div className="infoCardDetails">
               <div className="kv">
-                <span>已选</span>
-                <b>{selected.label}</b>
+                <span>{t('selected')}</span>
+                <b>{translate(selected.label)}</b>
               </div>
               <div className="kv">
-                <span>类型</span>
-                <b>{selected.kind === 'module' ? '设备' : selected.kind === 'agent' ? '行人' : '方块'}</b>
+                <span>{t('type')}</span>
+                <b>{translate(selected.kind === 'module' ? msg('equipment') : selected.kind === 'agent' ? msg('passenger') : msg('block'))}</b>
               </div>
               {selected.kind === 'agent' && (
-                <div className="muted small">地面上的浅蓝线，是这位行人接下来要走的路线。</div>
+                <div className="muted small">{t('the_light_blue_ground_line_shows_this_passenger_s_next_route')}</div>
               )}
               </div>
               <div className="infoCardActions">
@@ -92,7 +95,7 @@ export function InfoCard(): React.ReactElement {
                   <button
                     className="chip primary iconOnly"
                     disabled={!movable}
-                    aria-label={`移动${selected.label}`}
+                    aria-label={t('move_value', translate(selected.label))}
                     onClick={() => useStore.getState().liftModule(selected.key)}
                   >
                     <IoMdMove />
@@ -101,7 +104,7 @@ export function InfoCard(): React.ReactElement {
                 {selectedModule?.type === 'escalator' && (
                   <button
                     className="chip iconOnly"
-                    aria-label="切换扶梯方向"
+                    aria-label={t('reverse_escalator')}
                     onClick={() => useStore.getState().switchEscalatorDirection(selectedModule.id)}
                   >
                     <HiSwitchVertical />
@@ -110,7 +113,7 @@ export function InfoCard(): React.ReactElement {
                 {refreshTrack && (
                   <button
                     className="chip iconOnly"
-                    aria-label="刷新所选站台门"
+                    aria-label={t('refresh_selected_platform_doors')}
                     onClick={() => useStore.getState().regenRail(refreshTrack.id)}
                   >
                     <HiOutlineRefresh />
@@ -119,7 +122,7 @@ export function InfoCard(): React.ReactElement {
                 {isSign && (
                   <button
                     className="chip iconOnly"
-                    aria-label="编辑指示牌面板"
+                    aria-label={t('edit_sign_board')}
                     onClick={() => openSignEditor(selected.key)}
                   >
                     <FaEdit />
@@ -131,7 +134,7 @@ export function InfoCard(): React.ReactElement {
           )}
         </div>
       ) : (
-        <div className="muted small">暂未选中任何物品。</div>
+        <div className="muted small">{t('nothing_selected_yet')}</div>
       )}
     </>
   )

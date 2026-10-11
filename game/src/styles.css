@@ -629,6 +629,14 @@ button.ghost:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+html[lang="en"] .bpBlockLabel {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .bpBlock.on .bpBlockLabel {
   color: #eaf5ff;
 }
@@ -1052,6 +1060,12 @@ button.ghost:hover {
   border-radius: 0;
   background: #0b1f36;
 }
+html[lang="en"] .depthRail {
+  width: 56px;
+}
+html[lang="en"] .depthTag {
+  letter-spacing: 0;
+}
 .depthTrack {
   position: relative;
   flex: 1;
@@ -1278,10 +1292,12 @@ button.ghost:hover {
 }
 .clockTop {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
 }
 .clockDigits {
+  flex: none;
   font-family: var(--mono);
   font-size: 24px;
   font-weight: 600;
@@ -1292,6 +1308,7 @@ button.ghost:hover {
 }
 .clockDate {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   font-size: 11px;
@@ -2284,6 +2301,11 @@ button.ghost:hover {
   grid-column: 1 / -1;
   color: var(--muted);
 }
+.signText,
+.signCaption {
+  min-width: 0;
+  width: 100%;
+}
 .signText:focus,
 .signCaption:focus {
   outline: none;
@@ -2602,6 +2624,7 @@ input[type='range'] {
 /* The three spans' times, under the chart: the operating hours and both peaks in one row. */
 .curveSpans {
   display: flex;
+  flex-wrap: wrap;
   gap: 14px;
   margin-top: 4px;
   font-size: 10px;

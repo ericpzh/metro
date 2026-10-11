@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Sim constants — GAME-SPEC.md §10.3. Pure data, no DOM, no three, no worker.
 //
 // Every number the simulation consumes lives here or in stock.ts. The whole
@@ -164,16 +165,16 @@ export type Los = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
 
 /**
  * The letters as the panels print them (§7.3). One map, because two readouts show a level
- * of service — the status bar's 最挤等级 and the 时刻 window's own strip — and two maps is
+ * of service — the status bar's 最拥挤等级 and the 时刻 window's own strip — and two maps is
  * two chances for them to disagree about what D means.
  */
 export const LOS_LABELS: Record<Los, string> = {
-  A: '畅通',
-  B: '顺畅',
-  C: '有点挤',
-  D: '拥挤',
-  E: '很挤',
-  F: '挤爆',
+  A: msg('free_flow'),
+  B: msg('comfortable'),
+  C: msg('busy'),
+  D: msg('crowded'),
+  E: msg('very_crowded'),
+  F: msg('overcrowded'),
 }
 
 /** Density speed derate, §10.3: 1.0 at ≥1.2 m²/pax, ~0.35 at crush. */

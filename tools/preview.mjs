@@ -80,7 +80,9 @@ const server = createServer((req, res) => {
     const path = url === '/en' || url.startsWith('/en/') ? url.slice(3) || '/' : url
     // A game prefix owns the request; everything else is the site.
     const prefix = GAME_PREFIXES.find((p) => path === p || path.startsWith(p + '/'))
-    const rest = prefix ? path.slice(prefix.length) || '/' : path
+    const gameRest = prefix ? path.slice(prefix.length) || '/' : path
+    const rest = gameRest === '/en' || gameRest.startsWith('/en/')
+      ? gameRest.slice(3) || '/' : gameRest
 
     // Both builds spell their assets relatively, so a prefixed request can mean
     // either of two files:

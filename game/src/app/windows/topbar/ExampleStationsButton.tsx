@@ -1,8 +1,11 @@
+import { translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 import { useEffect, useRef, useState } from 'react'
 import { EXAMPLE_STATIONS } from './exampleStations.ts'
 
 /** The button and shortcut open the same chooser; only a card loads a station. */
 export function ExampleStationsButton(): React.ReactElement {
+  useLanguage()
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -28,8 +31,8 @@ export function ExampleStationsButton(): React.ReactElement {
         ref={buttonRef}
         className="ghost iconBtn"
         onClick={() => open ? menuRef.current?.hidePopover() : show()}
-        title="示例车站（Ctrl+Shift+N）"
-        aria-label="示例车站"
+        title={t('example_stations_ctrl_shift_n')}
+        aria-label={t('example_stations')}
         aria-keyshortcuts="Control+Shift+N"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -46,13 +49,13 @@ export function ExampleStationsButton(): React.ReactElement {
         className="exampleStationsMenu"
         popover="auto"
         role="dialog"
-        aria-label="示例车站"
+        aria-label={t('example_stations')}
         onToggle={(e) => setOpen(e.newState === 'open')}
         onKeyDown={(e) => e.stopPropagation()}
       >
         <div className="exampleStationsHeading">
-          <strong>示例车站</strong>
-          <button className="ghost iconBtn" aria-label="关闭示例车站" onClick={() => menuRef.current?.hidePopover()}>×</button>
+          <strong>{t('example_stations')}</strong>
+          <button className="ghost iconBtn" aria-label={t('close_example_stations')} onClick={() => menuRef.current?.hidePopover()}>×</button>
         </div>
         <div className="exampleStationsGrid">
           {EXAMPLE_STATIONS.map((station) => (
@@ -63,12 +66,12 @@ export function ExampleStationsButton(): React.ReactElement {
                 menuRef.current?.hidePopover()
                 station.load()
               }}
-              aria-label={`打开${station.name}示例车站`}
+              aria-label={t('open_the_value_example_station', translate(station.name))}
             >
-              <img src={station.preview} alt={`${station.name}站大厅预览`} />
+              <img src={station.preview} alt={t('value_station_concourse_preview', translate(station.name))} />
               <span className="exampleStationCaption">
-                <strong>{station.name}</strong>
-                <span>{station.description}</span>
+                <strong>{translate(station.name)}</strong>
+                <span>{translate(station.description)}</span>
               </span>
             </button>
           ))}

@@ -1,3 +1,5 @@
+import { translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — one card per exit
 // (plan.md R3). The card is the RHS half of the selection link with the 3D view.
 import { useEffect, useRef, useState } from 'react'
@@ -11,6 +13,7 @@ import type { Module } from '../../../sim/types.ts'
  * or focusing any control selects the exit so the 3D box follows.
  */
 export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): React.ReactElement {
+  useLanguage()
   const station = useStore((s) => s.station)
   const commit = useStore((s) => s.commit)
   const selected = useStore((s) => s.selected)
@@ -38,13 +41,13 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
   return (
     <div ref={ref} className={isSelected ? 'card sel' : 'card'} onClick={pick} onFocus={pick}>
       <label className="field">
-        <span>名称</span>
+        <span>{t('name')}</span>
         <input
           className="lineNameInput"
           value={name}
           maxLength={12}
-          placeholder="出入口名"
-          aria-label="出入口名称"
+          placeholder={t('exit_name')}
+          aria-label={t('exit_name_377')}
           onChange={(e) => setName(e.target.value)}
           onBlur={commitName}
           onKeyDown={(e) => {
@@ -57,12 +60,12 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
         />
       </label>
       <label className="field">
-        <span>进站 {mod.cfg.inRate} 人/时</span>
+        <span>{t('entering')}{' '}{translate(mod.cfg.inRate)} {' '}{t('people_h')}</span>
         <input type="range" min={0} max={6000} step={10} value={mod.cfg.inRate} onChange={(e) => patch({ inRate: Number(e.target.value) })} />
       </label>
       <label className="field inline">
         <input type="checkbox" checked={mod.cfg.open} onChange={(e) => patch({ open: e.target.checked })} />
-        <span>开放</span>
+        <span>{t('open')}</span>
       </label>
     </div>
   )

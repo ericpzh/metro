@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // Types and pure helpers shared by the rail shell and its folders (plan.md R6).
 //
 // `FolderKey` (and the two tables it spans — the rail's Shift ladder and the 信息栏's Alt
@@ -44,13 +45,13 @@ export type FolderKey = RailFolderKey | InspectorFolderKey
  * every key below it, so keep the ladder in step with the render.
  */
 export const RAIL_FOLDERS: ReadonlyArray<{ key: RailFolderKey; title: string; shift: string }> = [
-  { key: 'tools', title: '工具', shift: 'Q' },
-  { key: 'rail', title: '结构', shift: 'W' },
-  { key: 'equipment', title: '设备', shift: 'E' },
-  { key: 'decor', title: '装饰', shift: 'R' },
-  { key: 'surfaces', title: '材质', shift: 'T' },
-  { key: 'rooms', title: '房间', shift: 'Y' },
-  { key: 'zones', title: '分区', shift: 'U' },
+  { key: 'tools', title: msg('tools'), shift: 'Q' },
+  { key: 'rail', title: msg('structure'), shift: 'W' },
+  { key: 'equipment', title: msg('equipment'), shift: 'E' },
+  { key: 'decor', title: msg('decor'), shift: 'R' },
+  { key: 'surfaces', title: msg('materials'), shift: 'T' },
+  { key: 'rooms', title: msg('rooms'), shift: 'Y' },
+  { key: 'zones', title: msg('zones'), shift: 'U' },
 ]
 
 /**
@@ -68,10 +69,10 @@ export const RAIL_FOLDERS: ReadonlyArray<{ key: RailFolderKey; title: string; sh
  * **Alt+T**, the next letter on this ladder.
  */
 export const INSPECTOR_FOLDERS: ReadonlyArray<{ key: InspectorFolderKey; title: string; alt: string }> = [
-  { key: 'info', title: '信息', alt: 'Q' },
-  { key: 'view', title: '视图', alt: 'W' },
-  { key: 'exits', title: '出入口', alt: 'E' },
-  { key: 'lines', title: '线路', alt: 'R' },
+  { key: 'info', title: msg('info'), alt: 'Q' },
+  { key: 'view', title: msg('view'), alt: 'W' },
+  { key: 'exits', title: msg('entrances'), alt: 'E' },
+  { key: 'lines', title: msg('line'), alt: 'R' },
 ]
 
 /**

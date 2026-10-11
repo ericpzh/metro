@@ -24,7 +24,7 @@ import { demandAnimation } from './demand-animation.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
 /** Where `node tools/render-ui-shots.mjs` leaves its pixels and its index. */
-const SHOTS = resolve(repo, process.env.UI_SHOTS_DIR ?? join('.preview', 'ui-shots'))
+const shotsDir = language => resolve(repo, process.env[language === 'en' ? 'UI_SHOTS_EN_DIR' : 'UI_SHOTS_DIR'] ?? join('.preview', language === 'en' ? 'ui-shots-en' : 'ui-shots'))
 
 /** The game's own palette, from the custom properties in `game/src/styles.css`. */
 const G = {
@@ -40,7 +40,8 @@ const G = {
 const W = 1600
 
 /** One crop, by the state it was photographed in and the region it is. */
-function loadShots() {
+function loadShots(language) {
+  const SHOTS = shotsDir(language)
   const indexPath = join(SHOTS, 'index.json')
   if (!existsSync(indexPath)) {
     throw new Error(
@@ -48,6 +49,7 @@ function loadShots() {
     )
   }
   const index = JSON.parse(readFileSync(indexPath, 'utf8'))
+  if (language === 'en' && index.language !== 'en') throw new Error(`recapture English game UI in ${SHOTS} with --lang en`)
   const byShot = new Map()
   for (const shot of index.shots) {
     const crops = new Map()
@@ -64,8 +66,8 @@ function loadShots() {
 
 /* -------------------------------------------------------------------- sheet */
 
-export function artDemand() {
-  const shots = loadShots()
+export function artDemand({ language = 'zh-CN' } = {}) {
+  const shots = loadShots(language)
   const cropOf = (shot, name) => {
     const c = shots.get(shot)?.crops.get(name)
     if (!c) throw new Error(`missing demand capture: ${shot}.${name}`)

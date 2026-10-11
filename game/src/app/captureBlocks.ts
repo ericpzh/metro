@@ -1,3 +1,4 @@
+import { msg } from '../sim/i18n.ts'
 // A rendering pass for concept sheet 03, on demand from a page.
 //
 // Sheet 03 is about the **block**, and the only honest way to draw a block the way
@@ -181,13 +182,13 @@ export interface CapturedBlock {
  * cell from below, what a run of them merges into, then the three cut pieces.
  */
 const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: number; height: number }> = [
-  { id: 'block', label: '一个方块 = 一个格', note: '1 × 1 × 1 米，六个面各带一种材质', width: 208, height: 180 },
-  { id: 'block-below', label: '同一个方块，从下面看', note: '底面  →  天花板', width: 208, height: 180 },
-  { id: 'floor', label: '3 × 3 地面', note: '相邻的面不画，九个顶面是一整片', width: 296, height: 196 },
-  { id: 'half', label: '半墙', note: '同一米，半个格厚，剩下半格能放东西', width: 240, height: 176 },
-  { id: 'tri-upper', label: '上三角块', note: '45° 锯开，平面留在地上', width: 188, height: 168 },
-  { id: 'tri-lower', label: '下三角块', note: '45° 锯开，平面贴在天花上', width: 188, height: 168 },
-  { id: 'room', label: '三种材质同时在场', note: '花岗岩地面 · 涂料墙 · 搪瓷板墙', width: 300, height: 208 },
+  { id: 'block', label: msg('one_block_one_cell'), note: msg('1_1_1_m_with_a_material_on_each_of_six_faces'), width: 208, height: 180 },
+  { id: 'block-below', label: msg('the_same_block_viewed_from_below'), note: msg('bottom_face_ceiling'), width: 208, height: 180 },
+  { id: 'floor', label: msg('3_3_floor'), note: msg('shared_faces_are_hidden_nine_top_faces_form_one_surface'), width: 296, height: 196 },
+  { id: 'half', label: msg('half_wall'), note: msg('half_a_cell_thick_leaving_room_for_equipment'), width: 240, height: 176 },
+  { id: 'tri-upper', label: msg('upper_wedge'), note: msg('cut_at_45_with_its_flat_face_on_the_ground'), width: 188, height: 168 },
+  { id: 'tri-lower', label: msg('lower_wedge'), note: msg('cut_at_45_with_its_flat_face_against_the_ceiling'), width: 188, height: 168 },
+  { id: 'room', label: msg('three_materials_together'), note: msg('granite_floor_painted_wall_enamel_wall'), width: 300, height: 208 },
 ]
 
 /** One finish, as the rail's 材质 folder files it and as the simulation reads it. */

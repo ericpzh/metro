@@ -17,7 +17,7 @@ import type { Module, Vec3i } from '../../../sim/types.ts'
 // glass and screens.
 //
 //   TVM        售票机     stainless body, green housing, an LCD and a 车票 sign
-//   vending    自动贩卖机  white cabinet, glass drink display, face-pay strip
+//   vending    自动售货机  white cabinet, glass drink display, face-pay strip
 //   gate       闸机      navy head, screen / reader / QR, red leaf, lane arrow
 //   escalator  扶梯      truss, steps, glass balustrade, black handrail
 //   exit       出入口    红色钢架, glass walls, a canopy over an up/down pair

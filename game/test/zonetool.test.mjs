@@ -169,6 +169,6 @@ test('the 无分区 brush takes a label off, and says when there is none', () =>
   useStore.setState({ notice: null })
   tool.onDown(press([0, 1, 0]))
   tool.onUp(press([0, 1, 0]))
-  assert.equal(useStore.getState().notice, '这些格子上没有分区')
+  assert.equal(useStore.getState().notice, '这些格子没有分区')
   assert.equal(useStore.getState().station, before, 'a no-op must not commit')
 })

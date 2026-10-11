@@ -1,3 +1,4 @@
+import { useLanguage } from '../../i18n.ts'
 // The 设备 folder body (§5.4 equipment palette).
 //
 // A thin wrapper: the grid itself — the folder's tiles in rail order, the two variant
@@ -9,5 +10,6 @@ import { TileGrid } from '../shared/TileGrid.tsx'
 import type { SubMenuKey } from '../helpers.ts'
 
 export function EquipmentFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey | null; onToggleSubMenu: (k: SubMenuKey) => void }): React.ReactElement {
+  useLanguage()
   return <TileGrid folder="equipment" subMenu={subMenu} onToggleSubMenu={onToggleSubMenu} />
 }

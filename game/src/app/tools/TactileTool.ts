@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 import { addEquipment, createModule, fenceRotForLine, nextModuleId, removeModule } from '../../build/model.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
 import { tactileAt } from '../../sim/floorDecor.ts'
@@ -20,7 +21,7 @@ export class TactileTool extends ToolController {
     const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
     const old = picked?.type === 'tactile' ? picked : tactileAt(st.station.modules, ...info.hit.cell)
     if (removing && old?.type !== 'tactile') {
-      st.setNotice('这里没有可拆的盲道')
+      st.setNotice(msg('no_tactile_paving_to_remove_here'))
       return
     }
     if (!removing && !info.hit.solid) {
@@ -116,6 +117,6 @@ export class TactileTool extends ToolController {
     }
     if (next !== st.station) { st.commit(next); if (d.mode === 'remove') st.select(null) }
     if (why) st.setNotice(why)
-    else if (next === st.station) st.setNotice(d.mode === 'remove' && removed === 0 ? '这里没有可拆的盲道' : '这里放不下盲道：换个地方')
+    else if (next === st.station) st.setNotice(d.mode === 'remove' && removed === 0 ? msg('no_tactile_paving_to_remove_here') : msg('cannot_place_tactile_paving_here_choose_another_location'))
   }
 }

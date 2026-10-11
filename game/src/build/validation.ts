@@ -1,3 +1,4 @@
+import { msg } from '../sim/i18n.ts'
 // One question, one answer: may this go here, and what is in the way?
 //
 // The builder asks it twice for every piece — the **preview** under the pointer
@@ -148,23 +149,23 @@ export function dominantRefusal(preview: PlacementPreview): BlockRefusal | Equip
 /** A refused **block**, in the words the notice bar uses.
  *
  * `blockers` names the pieces standing in the way, so an `equipment` refusal
- * says which conflict it is (`被闸机挡住了`) rather than only saying the cell
+ * says which conflict it is (`被闸机阻挡`) rather than only saying the cell
  * is held. Kept verbatim without blockers so the reason stays searchable. */
 export function blockRefusalNotice(reason: BlockRefusal | EquipmentRefusal | '', blockers: readonly Module[] = []): string {
   const base = (() => {
     switch (reason) {
       case 'opening':
-        return '预留开口要留空：楼梯、扶梯和出入口的地板不能用方块盖住'
+        return msg('keep_openings_clear_do_not_cover_stairs_escalators_or_entrances_')
       case 'equipment':
-        return '这格已经有设备了，方块放不下：先挪开或拆掉它'
+        return msg('equipment_occupies_this_cell_move_or_remove_it_before_placing_a_')
       case 'track':
-        return '轨道上不能铺方块'
+        return msg('cannot_place_blocks_on_track')
       default:
-        return '这一格放不下方块'
+        return msg('cannot_place_a_block_in_this_cell')
     }
   })()
   if (reason !== 'equipment' || blockers.length === 0) return base
-  return `${base}：被${blockerLabels(blockers)}挡住了`
+  return msg('value_blocked_by_value', base, blockerLabels(blockers))
 }
 
 /**

@@ -1,3 +1,5 @@
+import { msg, translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The 材质 folder body (§6 finishes).
 //
 // Brush modes (单块 / 整面) plus one tile per finish, grouped by family
@@ -22,9 +24,10 @@ import { ColourTile, hexColour } from '../shared/ColourTile.tsx'
 import { InlineExpand, interleaveRows } from '../shared/InlinePanel.tsx'
 import type { SubMenuKey } from '../helpers.ts'
 
-const FAMILY_LABEL: Record<string, string> = { floor: '地面 · 轨道', ceiling: '天花板', wall: '墙面' }
+const FAMILY_LABEL: Record<string, string> = { floor: msg('floor_track'), ceiling: msg('ceiling'), wall: msg('wall_surface') }
 
 export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey | null; onToggleSubMenu: (k: SubMenuKey) => void }): React.ReactElement {
+  useLanguage()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const paintMode = useStore((s) => s.paintMode)
@@ -72,13 +75,13 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
       <div className="blockGrid">
         {(
           [
-            { id: 'single', label: '单块', icon: 'single', shortcut: 'N' },
-            { id: 'surface', label: '整面', icon: 'surface', shortcut: undefined },
+            { id: 'single', label: msg('single_block'), icon: 'single', shortcut: 'N' },
+            { id: 'surface', label: msg('whole_face'), icon: 'surface', shortcut: undefined },
           ] as const
         ).map((m) => (
           <Block
             key={m.id}
-            label={m.label}
+            label={translate(m.label)}
             icon={m.icon}
             shortcut={m.shortcut}
             active={tool === 'paint' && paintMode === m.id}
@@ -91,13 +94,13 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
       </div>
       {finishFamilies.map(({ fam, items }) => (
         <div className="bpSub" key={fam}>
-          <div className="bpSubTitle">{FAMILY_LABEL[fam]}</div>
+          <div className="bpSubTitle">{translate(FAMILY_LABEL[fam])}</div>
           <div className="blockGrid">
             {fam !== 'wall'
               ? items.map((f) => (
                   <Block
                     key={f.id}
-                    label={finishLabel(f.id)}
+                    label={translate(finishLabel(f.id))}
                     tile={f.id}
                     tone={`#${f.tint.toString(16).padStart(6, '0')}`}
                     active={tool === 'paint' && paintFinish === f.id}
@@ -115,7 +118,7 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
                       node: (
                         <Block
                           key={f.id}
-                          label={finishLabel(f.id)}
+                          label={translate(finishLabel(f.id))}
                           tile={f.id}
                           tone={enamel ? hexColour(enamelColour) : `#${f.tint.toString(16).padStart(6, '0')}`}
                           active={enamel ? enamelActive : tool === 'paint' && paintFinish === f.id}

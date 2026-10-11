@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The 设备 (equipment) tool: press to place the chosen module — fence runs drag
 // out like walls, lifts extend in-column, stairs lay lane by lane, billboards
 // autoface their wall. Moved verbatim from app/Viewport.tsx (GAME-SPEC §5–§6).
@@ -78,12 +79,12 @@ export class EquipmentTool extends ToolController {
       // rather than tearing down the screen standing over that floor (§9.5).
       const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
       if (picked?.type === 'floor-mark') this.removePlacedModule(picked)
-      else st.setNotice('这里没有可擦的地面指示')
+      else st.setNotice(msg('no_floor_marking_to_erase_here'))
       return
     }
     if (st.moduleType === 'bridge') {
       const src = railModuleAt(st.station, ...hit.cell) ?? railModuleAt(st.station, ...hit.place)
-      if (!src) { st.setNotice('先点一段现有轨道，轨道桥从端部接出'); return }
+      if (!src) { st.setNotice(msg('select_existing_track_first_the_bridge_connects_to_its_end')); return }
       if (info.button === 2) { st.removeRail(src.id); return }
       const bridge = makeBridge(src, freeTunnelEnd(st.station, src, hit.cell), st.bridgeLength, nextModuleId(st.station.modules, 'track'), st.bridgeRailing)
       const next = commitTrack(st.station, bridge)
@@ -94,8 +95,8 @@ export class EquipmentTool extends ToolController {
           block
             ? trackBlockNotice(st.station, bridge, block)
             : colliders.length > 0
-              ? `轨道桥放不下：被${blockerLabels(colliders)}挡住了`
-              : '轨道桥放不下：检查高度和沿线障碍',
+              ? msg('cannot_place_bridge_blocked_by_value', blockerLabels(colliders))
+              : msg('cannot_place_bridge_check_its_height_and_obstacles_along_the_rou'),
         )
         return
       }
@@ -178,7 +179,7 @@ export class EquipmentTool extends ToolController {
           return
         }
         const room = facilityAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2])
-        st.setNotice(room ? '货架要一个一个拆：点中货架再右键' : '这里没有可拆的装饰')
+        st.setNotice(room ? msg('remove_shelves_one_at_a_time_point_at_a_shelf_and_right_click') : msg('no_decoration_to_remove_here'))
         return
       }
       const pointed = deletionTarget(st.station.modules, this.pickModuleAt(info), hit.cell, this.facing())
@@ -308,8 +309,8 @@ export class EquipmentTool extends ToolController {
       if (blocked > 0) {
         st.setNotice(
           placed > 0
-            ? `围栏放下了 ${placed} 段，${blocked} 格被挡住了${why ? `（${why}）` : ''}`
-            : `这儿放不下围栏：${why || '换个地方'}`,
+            ? msg('placed_value_fence_sections_value_cells_blockedvalue', placed, blocked, why ? `（${why}）` : '')
+            : msg('cannot_place_a_fence_here_value', why || msg('choose_another_location')),
         )
       }
     } else {
@@ -326,9 +327,9 @@ export class EquipmentTool extends ToolController {
       if (removed > 0) {
         st.commit(next)
         st.select(null)
-        st.setNotice(`已拆掉${removed}段围栏`)
+        st.setNotice(msg('removed_value_fence_sections', removed))
       } else {
-        st.setNotice('这里没有可拆的围栏')
+        st.setNotice(msg('no_fence_to_remove_here'))
       }
     }
   }
@@ -467,7 +468,7 @@ export class EquipmentTool extends ToolController {
     if (mod) mod = signModuleWithPreview(mod, st.signPreview)
     // A fresh exit letters itself A ~ Z rather than wearing the 未命名口
     // placeholder, so the card and the 3D header read like real signage.
-    if (mod && mod.type === 'exit' && mod.cfg.name === '未命名口') mod.cfg.name = nextExitName(st.station.modules)
+    if (mod && mod.type === 'exit' && mod.cfg.name === msg('unnamed_exit')) mod.cfg.name = nextExitName(st.station.modules)
     return mod
   }
 
@@ -738,7 +739,7 @@ export class EquipmentTool extends ToolController {
       const { mod, noWall } = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near)
       if (!mod || noWall) {
         st.setNotice(type.startsWith('exit-doorway-')
-          ? '地面出口要贴在方块侧面：背后需有一个实心方块'
+          ? msg('ground_exits_need_a_solid_block_behind_their_wall_facing_side')
           : equipmentRefusalNotice('wall'))
         return
       }
@@ -774,7 +775,7 @@ export class EquipmentTool extends ToolController {
     const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])
     const mods = this.buildPlacementModules(type, at, nextModuleId(st.station.modules, type))
     if (mods.length === 0) {
-      st.setNotice('这里放不下设备：换个地方')
+      st.setNotice(msg('cannot_place_equipment_here_choose_another_location'))
       return
     }
     // **One verdict, one refusal.** Every rule a module answers to lives in
@@ -814,11 +815,11 @@ export class EquipmentTool extends ToolController {
       const grown = up ? liftExtendedUp(shaft) : liftExtendedDown(shaft)
       const blockers = placementColliders(st.station.modules, grown)
       if (blockers.length > 0) {
-        st.setNotice(`这层有设备挡着，电梯伸不过去：被${blockerLabels(blockers)}挡住了`)
+        st.setNotice(msg('cannot_extend_the_lift_through_this_floor_blocked_by_value', blockerLabels(blockers)))
         return
       }
       st.commit(extendLift(st.station, shaft.id, up))
-      st.setNotice(up ? '电梯向上加了一层' : '电梯向下加了一层')
+      st.setNotice(up ? msg('lift_extended_up_one_floor') : msg('lift_extended_down_one_floor'))
       return
     }
     this.placeModule(hit.cell, hit.place, hit.solid, 'lift')

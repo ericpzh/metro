@@ -1,3 +1,4 @@
+import { t } from '../sim/i18n.ts'
 // The 指示牌 pixels — one flat wayfinding board, drawn from `sim/sign.ts`'s
 // layout.
 //
@@ -184,7 +185,7 @@ function drawExitPlate(g: CanvasRenderingContext2D, x: number, y: number, w: num
   g.textAlign = 'center'
   g.textBaseline = 'middle'
   g.font = `bold ${h * 0.46}px ${CJK}`
-  g.fillText('出', x + w / 2, y + h * 0.34)
+  g.fillText(t('out'), x + w / 2, y + h * 0.34)
   g.font = `bold ${h * 0.2}px ${LATIN}`
   g.fillText('EXIT', x + w / 2, y + h * 0.76)
 }
@@ -418,7 +419,7 @@ function drawLineBadge(
   roundRect(g, x, y, w, h, Math.min(w, h) * 0.14)
   g.fill()
 
-  const name = line?.name ?? '未配线路'
+  const name = line?.name ?? t('no_line_assigned')
   const en = comp.english ? signLineEnglish(name) : ''
 
   g.fillStyle = '#ffffff'

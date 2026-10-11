@@ -269,7 +269,7 @@ export function artTwoLine() {
    * They take a band of their own rather than the box's, because a wall standing *inside* the
    * hole has to sort against what is in the hole — written raw, the trains came out behind
    * their own station. */
-  // The same 水泥 tint and grain as the B1 floor, shaded for each wall face.
+  // The same 混凝土 tint and grain as the B1 floor, shaded for each wall face.
   put(L.wall, 24, YB, 0, faceSvg('y', YB, X0, X1, ZF, ZT, CONCRETE, { tone: 0.9 })
     + poly([P(X0, YB, ZF), P(X1, YB, ZF), P(X1, YB, ZT), P(X0, YB, ZT)],
       'url(#interchange-concrete-grain)', null, 0));

@@ -1,3 +1,4 @@
+import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import type { Module } from '../../../sim/types.ts'
 import { psdEndOffset, psdEndSpan } from '../../../sim/psdEnds.ts'
@@ -9,7 +10,7 @@ export class PsdEndModel extends PieceBuilder {
   readonly kind = 'psd-end'
   build(mod: Extract<Module, { type: 'psd-end' }>): THREE.Group {
     const group = buildPsd(this.ctx, { ...mod, type: 'platform-edge', w: 1,
-      cfg: { name: '屏蔽端门', dir: 'up', line: '', side: 'left', psd: mod.cfg.psd } }, psdEndSpan(mod, this.ctx.data.modules, this.ctx.data.lines))
+      cfg: { name: t('screen_end_door'), dir: 'up', line: '', side: 'left', psd: mod.cfg.psd } }, psdEndSpan(mod, this.ctx.data.modules, this.ctx.data.lines))
     const [ox, oy] = psdEndOffset(mod)
     for (const child of [...group.children]) {
       child.position.x += ox

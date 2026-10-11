@@ -1,3 +1,5 @@
+import { translate, t } from '../../sim/i18n.ts'
+import { useLanguage } from '../i18n.ts'
 // The build rail (left column) shell.
 //
 // A blueprint-styled stack of folders. Each folder body lives in its own file
@@ -40,6 +42,7 @@ interface FolderProps {
 }
 
 export function Folder({ title, count, shortcut, open, onToggle, children }: FolderProps): React.ReactElement {
+  useLanguage()
   return (
     <section className={open ? 'folder open' : 'folder'}>
       {/* The key is the ladder's (`RAIL_FOLDERS`), and it is worn the way a tile
@@ -55,18 +58,18 @@ export function Folder({ title, count, shortcut, open, onToggle, children }: Fol
         aria-expanded={open}
         aria-keyshortcuts={shortcut}
       >
-        <span className="folderName">{title}</span>
-        {typeof count === 'number' ? <span className="folderCount">{count}</span> : null}
+        <span className="folderName">{translate(title)}</span>
+        {typeof count === 'number' ? <span className="folderCount">{translate(count)}</span> : null}
         <span className="folderCaret" aria-hidden="true" />
         {shortcut ? (
           <span className="folderKey" aria-hidden="true">
-            {shortcut}
+            {translate(shortcut)}
           </span>
         ) : null}
       </button>
       <div className="folderBody" aria-hidden={!open} inert={!open}>
         <div className="folderInner">
-          <div className="folderPad">{children}</div>
+          <div className="folderPad">{translate(children)}</div>
         </div>
       </div>
     </section>
@@ -91,6 +94,7 @@ const FOLDER_FOR_TOOL: Record<Tool, RailFolderKey> = {
 const RAIL_FOLDER_KEYS: ReadonlySet<string> = new Set(RAIL_FOLDERS.map((f) => f.key))
 
 export function LeftRail(): React.ReactElement {
+  useLanguage()
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
   const zoneBrush = useStore((s) => s.zoneBrush)
@@ -223,8 +227,8 @@ export function LeftRail(): React.ReactElement {
   return (
     <div className="rail" ref={railRef}>
       <div className="railStamp">
-        <span className="railStampTitle">建造栏</span>
-        <span className="railStampSub">METRO / BUILD</span>
+        <span className="railStampTitle">{t('build_palette')}</span>
+        <span className="railStampSub">{t('build_caption')}</span>
       </div>
 
       {/* Stacked in ladder order, so the Shift+letter that folds a folder and the
@@ -232,13 +236,13 @@ export function LeftRail(): React.ReactElement {
       {RAIL_FOLDERS.map(({ key, title, shift }) => (
         <Folder
           key={key}
-          title={title}
+          title={translate(title)}
           count={folders[key].count}
           shortcut={`Shift+${shift}`}
           open={open[key]}
           onToggle={() => toggle(key)}
         >
-          {folders[key].body}
+          {translate(folders[key].body)}
         </Folder>
       ))}
 

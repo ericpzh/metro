@@ -1,3 +1,4 @@
+import { t } from '../sim/i18n.ts'
 // Ad art — the twelve supplied posters as lit screen material.
 //
 // GAME-SPEC §5.7's 装饰 screens (广告牌, 电视) print real artwork: the JPEGs in
@@ -106,7 +107,7 @@ function missingCanvas(slug: string): HTMLCanvasElement {
   g.fillStyle = '#9fb2c6'
   g.textAlign = 'center'
   g.font = 'bold 64px "Microsoft YaHei", sans-serif'
-  g.fillText('广告', 256, 140)
+  g.fillText(t('advertisement'), 256, 140)
   g.font = '24px "Microsoft YaHei", sans-serif'
   g.fillText(slug, 256, 190)
   return c

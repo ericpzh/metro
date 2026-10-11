@@ -1,3 +1,4 @@
+import { msg } from '../../../sim/i18n.ts'
 // 指示牌 board editor (§5.8) — pure model: sizes, the four groups, the faces, and the
 // mark arithmetic the tiles, the bins and the drag all share. No JSX and no canvas, so
 // the layout rules can be read (and imported) without the modal around them.
@@ -66,10 +67,10 @@ export const DRAG_MARK_ID = 'drag'
 export type SignGroupId = 'arrow' | 'icon' | 'line' | 'text'
 
 export const SIGN_GROUPS: ReadonlyArray<{ id: SignGroupId; label: string }> = [
-  { id: 'arrow', label: '箭头' },
-  { id: 'icon', label: '图标' },
-  { id: 'line', label: '线路' },
-  { id: 'text', label: '文字' },
+  { id: 'arrow', label: msg('arrow') },
+  { id: 'icon', label: msg('icon') },
+  { id: 'line', label: msg('line') },
+  { id: 'text', label: msg('text') },
 ]
 
 /**
@@ -126,12 +127,12 @@ export function markKey(comp: SignComponent): string {
 export const SIGN_FACES: ReadonlyArray<SignFaceName> = ['front', 'back']
 
 /** What each face is called on screen: the words over its row of bins. */
-export const FACE_LABEL: Record<SignFaceName, string> = { front: '正面', back: '背面' }
+export const FACE_LABEL: Record<SignFaceName, string> = { front: msg('front'), back: msg('back') }
 
 /** A bin row's own aria-label: which face of the sign it is, and which way it reads. */
 export const FACE_ROW_LABEL: Record<SignFaceName, string> = {
-  front: '正面（从左到右）',
-  back: '背面（从左到右）',
+  front: msg('front_left_to_right'),
+  back: msg('back_left_to_right'),
 }
 
 /**
@@ -228,7 +229,7 @@ export function groupMarks(id: SignGroupId, lines: readonly LineDef[]): { marks:
       return { marks: marks.length > 0 ? marks : [paletteMark({ kind: 'line', lineId: '' })], split: marks.length > 1 }
     }
     case 'text':
-      return { marks: [paletteMark({ kind: 'text', text: '文字\nText' })], split: false }
+      return { marks: [paletteMark({ kind: 'text', text: msg('text_429') })], split: false }
   }
 }
 
@@ -276,7 +277,7 @@ export function markFor(payload: string): SignComponent | null {
   // not make room for the place it lands in.
   if (payload.startsWith('text:')) {
     const text = payload.slice(5)
-    return { id: DRAG_MARK_ID, kind: 'text', text: text.trim() === '' ? '文字' : text, x: 0, y: 0, scale: 1, side: 'both' }
+    return { id: DRAG_MARK_ID, kind: 'text', text: text.trim() === '' ? msg('text') : text, x: 0, y: 0, scale: 1, side: 'both' }
   }
   return null
 }
@@ -305,13 +306,13 @@ export function componentName(comp: SignComponent): string {
       // A direction is its degrees; a **turn back** has no angle to quote, so it is the name the
       // model gives it (掉头向右 / 掉头向左), which is also what its palette tile is labelled.
       const deg = ARROW_ANGLE[comp.arrow]
-      return deg === undefined ? SIGN_ARROW_LABEL[comp.arrow] : `箭头 ${deg}°`
+      return deg === undefined ? SIGN_ARROW_LABEL[comp.arrow] : msg('arrow_value', deg)
     }
     case 'line':
-      return '线路牌'
+      return msg('line_badge')
     case 'text':
-      return signTextLines(comp.text)[0] ?? '文字'
+      return signTextLines(comp.text)[0] ?? msg('text')
     case 'icon':
-      return MARK_LABEL[comp.icon] ?? '图标'
+      return MARK_LABEL[comp.icon] ?? msg('icon')
   }
 }

@@ -209,10 +209,10 @@ test('a drop needs floor under every cell the piece stands on', () => {
 test('a drop is refused on a track bed and where equipment already stands', () => {
   const gate = piece('gate', 2, 2)
   const bed = station().cells.map((c) => (c.x === 6 && c.y === 6 ? { ...c, finish: { top: 'floor.track' } } : c))
-  assert.equal(moveDropReason(bed, [gate], movedModule(gate, at(6, 6, 0), 0)), '轨道上不能放设备')
+  assert.equal(moveDropReason(bed, [gate], movedModule(gate, at(6, 6, 0), 0)), '轨道上不能放置设备')
   const other = piece('vending', 7, 7)
-  assert.match(moveDropReason(station().cells, [gate, other], movedModule(gate, at(7, 7, 0), 0)), /已经有设备/)
-  assert.match(moveDropReason(station().cells, [gate, other], movedModule(gate, at(7, 7, 0), 0)), /自动贩卖机/)
+  assert.match(moveDropReason(station().cells, [gate, other], movedModule(gate, at(7, 7, 0), 0)), /已有设备/)
+  assert.match(moveDropReason(station().cells, [gate, other], movedModule(gate, at(7, 7, 0), 0)), /自动售货机/)
 })
 
 test('a 指示牌 is refused without a ceiling and moves under one', () => {
@@ -543,6 +543,6 @@ test('a piece that vanished under the lift is not dropped back into being', () =
   useStore.setState({ station: { ...st().station, modules: [] } })
   st().confirmMove()
   assert.equal(st().moveDraft, null)
-  assert.match(st().notice, /不在了/)
+  assert.match(st().notice, /不存在/)
   assert.equal(st().station.modules.length, 0)
 })

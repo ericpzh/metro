@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Glass panel sizes — the 装饰 玻璃板 pieces (GAME-SPEC §5.7).
 //
 // A 玻璃板 is the 围栏's wall-mounted cousin: a sheet of glass held by a frame and
@@ -32,16 +33,16 @@ export interface GlassSpec {
 }
 
 export const GLASS_SPECS: Record<GlassVariant, GlassSpec> = {
-  '1x1': { variant: '1x1', label: '玻璃板 1×1', w: 1, h: 1 },
-  '2x1': { variant: '2x1', label: '玻璃板 2×1', w: 2, h: 1 },
-  '3x1': { variant: '3x1', label: '玻璃板 3×1', w: 3, h: 1 },
-  '1x2': { variant: '1x2', label: '玻璃板 1×2', w: 1, h: 2 },
-  '2x2': { variant: '2x2', label: '玻璃板 2×2', w: 2, h: 2 },
-  '3x2': { variant: '3x2', label: '玻璃板 3×2', w: 3, h: 2 },
-  '1x4': { variant: '1x4', label: '玻璃幕墙 超窄 1×4', w: 1, h: 4 },
-  '2x4': { variant: '2x4', label: '玻璃板 2×4', w: 2, h: 4 },
-  '3x4': { variant: '3x4', label: '玻璃板 3×4', w: 3, h: 4 },
-  '4x4': { variant: '4x4', label: '玻璃板 4×4', w: 4, h: 4 },
+  '1x1': { variant: '1x1', label: msg('glass_panel_1_1'), w: 1, h: 1 },
+  '2x1': { variant: '2x1', label: msg('glass_panel_2_1'), w: 2, h: 1 },
+  '3x1': { variant: '3x1', label: msg('glass_panel_3_1'), w: 3, h: 1 },
+  '1x2': { variant: '1x2', label: msg('glass_panel_1_2'), w: 1, h: 2 },
+  '2x2': { variant: '2x2', label: msg('glass_panel_2_2'), w: 2, h: 2 },
+  '3x2': { variant: '3x2', label: msg('glass_panel_3_2'), w: 3, h: 2 },
+  '1x4': { variant: '1x4', label: msg('curtain_wall_extra_narrow_1_4'), w: 1, h: 4 },
+  '2x4': { variant: '2x4', label: msg('glass_panel_2_4'), w: 2, h: 4 },
+  '3x4': { variant: '3x4', label: msg('glass_panel_3_4'), w: 3, h: 4 },
+  '4x4': { variant: '4x4', label: msg('glass_panel_4_4'), w: 4, h: 4 },
 }
 
 /** Every size, in palette order: the 1 m band first, the tall ones after it. */

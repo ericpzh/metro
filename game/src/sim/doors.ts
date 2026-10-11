@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Swing-door sizes and hardware — the 装饰 门 pieces (GAME-SPEC §5.7), and the one
 // table the **room doorway** is built from as well.
 //
@@ -38,19 +39,19 @@ export interface DoorSpec {
 
 /** The material's own name, for a label or a notice. */
 export const DOOR_MATERIAL_LABEL: Record<DoorMaterial, string> = {
-  steel: '不锈钢',
-  wood: '木',
-  glass: '玻璃',
+  steel: msg('stainless_steel'),
+  wood: msg('wood'),
+  glass: msg('glass'),
 }
 
 /** The leaf count's own name: 单开 / 双开. */
 export function doorLeafLabel(leaves: number): string {
-  return leaves > 1 ? '双开' : '单开'
+  return leaves > 1 ? msg('double') : msg('single')
 }
 
 /** The label one variant's tile wears: `门 单开 不锈钢`. */
 export function doorLabel(material: DoorMaterial, leaves: number): string {
-  return `门 ${doorLeafLabel(leaves)} ${DOOR_MATERIAL_LABEL[material]}`
+  return msg('door_value_value', doorLeafLabel(leaves), DOOR_MATERIAL_LABEL[material])
 }
 
 export const DOOR_SPECS: Record<DoorVariant, DoorSpec> = {

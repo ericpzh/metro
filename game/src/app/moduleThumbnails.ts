@@ -1,3 +1,4 @@
+import { msg } from '../sim/i18n.ts'
 // Equipment thumbnails for the build rail.
 //
 // The left rail shows the *actual* in-game equipment, not a stand-in glyph: this
@@ -241,14 +242,14 @@ function syntheticStation(): StationData {
   // A track bed one cell north, for models that look for one.
   cells.push({ x: 0, y: -1, z: 0, fill: 'solid', finish: { top: 'floor.track' } })
   return {
-    name: '地铁站',
+    name: msg('metro_station'),
     seed: 1,
     cells,
     modules: [],
     lines: [
       {
         id: '2',
-        name: '2号线',
+        name: msg('line_2'),
         colour: '#00679e',
         stock: 'B',
         cars: 6,
@@ -456,7 +457,7 @@ function sampleModule(id: string, station: StationData): Module | null {
       const bays: ExitBays = n === 1 || n === 3 || n === 4 ? n : 2
       // Thumbnail turn: the head-house doorway is local +y, away from the ISO
       // camera at (1, -1.2, 0.85), so rot 2 turns the exit 180° about Z to face outwards.
-      return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 2, cfg: { name: 'C口', inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } }
+      return { id, type: 'exit', x: 0, y: 0, z: 0, rot: 2, cfg: { name: msg('exit_c'), inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } }
     }
     case 'platform-edge': {
       const line = station.lines[0]
@@ -1139,9 +1140,9 @@ export async function renderModulePieces(
      */
     const rowsFor = (ids: readonly string[]): Array<{ id: string; label: string }> => {
       const synthetic: Record<string, string> = {
-        'lift-car': '电梯轿厢',
-        'lift-shaft': '电梯井',
-        'platform-edge': '屏蔽门',
+        'lift-car': msg('lift_cabin'),
+        'lift-shaft': msg('lift_shaft'),
+        'platform-edge': msg('screen_doors'),
       }
       const seen = new Set<string>()
       const rows: Array<{ id: string; label: string }> = []

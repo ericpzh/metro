@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 import { escalatorIsLong } from '../../sim/escalators.ts'
 // The 吸取 (picker) tool (工具栏, `P`): click anything built and take it into
 // the brush — the generalised form of the old 材质 folder's 取色 (`I`), which
@@ -203,7 +204,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'track') {
         st.setTool('rail')
         st.select({ kind: 'module', key: mod.id, label })
-        st.setNotice(`已吸取${label}`)
+        st.setNotice(msg('picked_value', label))
         return
       }
       // A walled room belongs to the 分区 tool's room brush: arming that brush
@@ -213,7 +214,7 @@ export class PickTool extends ToolController {
         st.setZoneBrush(kind === 'toilet' || kind === 'office' || kind === 'ticket' || kind === 'info' ? kind : 'store')
         st.setTool('zone')
         st.select({ kind: 'module', key: mod.id, label })
-        st.setNotice(`已吸取${label}`)
+        st.setNotice(msg('picked_value', label))
         return
       }
       const optionId = paletteIdForModule(mod)
@@ -252,7 +253,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'gate') st.setGateDoor(mod.cfg.door ?? 'lane')
       st.setTool('module')
       st.select({ kind: 'module', key: mod.id, label })
-      st.setNotice(`已吸取${label}`)
+      st.setNotice(msg('picked_value', label))
       return
     }
     // No piece under the pointer: a solid face lends its finish to the 材质
@@ -272,7 +273,7 @@ export class PickTool extends ToolController {
       st.beginPick()
       st.selectPaintFinish(finish)
       st.select({ kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
-      st.setNotice(`已吸取${finishLabel(finish)}`)
+      st.setNotice(msg('picked_value', finishLabel(finish)))
     }
   }
 

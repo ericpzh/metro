@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The 删除 tool: button-agnostic teardown — tap a block, drag an area of blocks
 // (a line with Shift, exactly like the 方块 tool's right-drag), or sweep same-type 设备/装饰 in one
 // commit. Moved verbatim from app/Viewport.tsx (GAME-SPEC §9.5). The sweep rule
@@ -102,7 +103,7 @@ export class DeleteTool extends ToolController {
     scene.setGhost(pendingCells([hit.cell], 'remove', this.ctx.solids()), 'remove')
     scene.setCollisionHighlight(null)
     scene.setCursor(hit.cell, true)
-    this.ctx.showMeasure?.(info.clientX, info.clientY, '长 1 m × 宽 1 m')
+    this.ctx.showMeasure?.(info.clientX, info.clientY, msg('length_1_m_width_1_m'))
   }
 
   onMove(info: PointerInfo): void {
@@ -173,7 +174,7 @@ export class DeleteTool extends ToolController {
       scene.setCursor(dragging ? hit.cell : d.anchor, true)
       const dx = dragging ? Math.abs(hit.cell[0] - d.anchor[0]) + 1 : 1
       const dy = dragging ? Math.abs(hit.cell[1] - d.anchor[1]) + 1 : 1
-      this.ctx.showMeasure?.(info.clientX, info.clientY, `长 ${dx} m × 宽 ${dy} m`)
+      this.ctx.showMeasure?.(info.clientX, info.clientY, msg('length_value_m_width_value_m', dx, dy))
       return
     }
     // Hover: a drawn module under the pointer is the pending delete, shown as
@@ -221,7 +222,7 @@ export class DeleteTool extends ToolController {
         .map((id) => st.station.modules.find((m) => m.id === id))
         .filter((m): m is Module => m !== undefined)
       if (swept.length === 0) {
-        st.setNotice('这里没有可拆的东西')
+        st.setNotice(msg('nothing_to_remove_here'))
         return
       }
       if (swept.length === 1) {
@@ -232,7 +233,7 @@ export class DeleteTool extends ToolController {
       st.select(null)
       const head = swept[0]
       const label = moduleLabel(head)
-      st.setNotice(`已拆掉 ${swept.length} 件${label}`)
+      st.setNotice(msg('removed_value_value', swept.length, label))
       return
     }
     if (d.fence) {
@@ -251,9 +252,9 @@ export class DeleteTool extends ToolController {
       if (removed > 0) {
         st.commit(next)
         st.select(null)
-        st.setNotice(`已拆掉${removed}段围栏`)
+        st.setNotice(msg('removed_value_fence_sections', removed))
       } else {
-        st.setNotice('这里没有可拆的围栏')
+        st.setNotice(msg('no_fence_to_remove_here'))
       }
       return
     }
@@ -268,7 +269,7 @@ export class DeleteTool extends ToolController {
     const authored = remove.filter(([x, y, z]) => st.station.cells.some((c) => c.x === x && c.y === y && c.z === z))
     // The seed guard refuses rather than digs: say why instead of silence.
     if (authored.length > 0 && st.station.cells.length - authored.length < 4) {
-      st.setNotice('不能再删了：车站至少保留 4 格方块')
+      st.setNotice(msg('cannot_delete_more_keep_at_least_4_blocks_in_the_station'))
       return
     }
     // A dug auto-floor brings its wall ring along; a hand-placed block is
@@ -278,6 +279,6 @@ export class DeleteTool extends ToolController {
     // dropped that commit and the block could never be dug back out.
     const next = removeFloor(st.station, remove)
     if (!sameCells(next.cells, st.station.cells)) st.commit(next)
-    else st.setNotice('这里没有可删的方块')
+    else st.setNotice(msg('no_block_to_delete_here'))
   }
 }

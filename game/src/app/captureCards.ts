@@ -1,3 +1,4 @@
+import { msg } from '../sim/i18n.ts'
 // A rendering pass for the concept sheets, on demand from a page.
 //
 // The sheets draw the game's pieces, and the only honest way to draw a piece the
@@ -90,7 +91,7 @@ function footprintOf(id: string): string {
   const ys = cells.map(([, y]) => y)
   const w = Math.max(...xs) - Math.min(...xs) + 1
   const h = Math.max(...ys) - Math.min(...ys) + 1
-  return `${w} × ${h} 格`
+  return msg('value_value_cells', w, h)
 }
 
 /**
@@ -244,7 +245,7 @@ function railRowFor(id: string): string {
  */
 const perMin = (perSecond: number): number => Math.round(perSecond * 60)
 
-const STAIR_RATE = `上 ${perMin(STAIR_RATE_UP)} / 下 ${perMin(STAIR_RATE_DOWN)} 人/分`
+const STAIR_RATE = msg('up_value_down_value_people_min', perMin(STAIR_RATE_UP), perMin(STAIR_RATE_DOWN))
 
 /**
  * What the simulation reads off a piece, keyed by palette id.
@@ -255,27 +256,27 @@ const STAIR_RATE = `上 ${perMin(STAIR_RATE_UP)} / 下 ${perMin(STAIR_RATE_DOWN)
  * art notes.
  */
 const SERVICE: Record<string, string> = {
-  gate: `进出各 ${perMin(GATE_RATE)} 人/分`,
-  fence: '不通行，只围边界',
-  tvm: `${(TVM_RATE * 60).toFixed(1)} 张/分，队伍排这儿`,
-  vending: '无服务，被动吸引',
-  'bench-steel-1': '舒适度，可坐 1 人',
-  'bench-steel-2': '舒适度，可坐 2 人',
-  'bench-seat-1': '舒适度，可坐 1 人',
-  'bench-seat-2': '舒适度，可坐 2 人',
-  shelf: '商铺货架，聚人',
-  desk: '办公位，吸引职员',
-  cubicle: '卫生间设施',
-  sink: '卫生间设施',
-  bin: '装饰，无通行',
-  extinguisher: '装饰，无通行',
-  clock: '全站时间参照',
-  cctv: '监控，无通行',
-  tv: '信息屏，无通行',
-  'sign-ceiling': '导向，吊在头顶',
-  'sign-wall': '导向，贴在墙上',
-  escalator: `单向，${perMin(ESCALATOR_RATE)} 人/分`,
-  lift: `无障碍，每趟 ${LIFT_BATCH} 人`,
+  gate: msg('value_people_min_in_each_direction', perMin(GATE_RATE)),
+  fence: msg('boundary_only_no_passage'),
+  tvm: msg('value_tickets_min_queue_here', (TVM_RATE * 60).toFixed(1)),
+  vending: msg('no_service_attracts_passengers'),
+  'bench-steel-1': msg('seating_for_1_person'),
+  'bench-steel-2': msg('seating_for_2_people'),
+  'bench-seat-1': msg('seating_for_1_person'),
+  'bench-seat-2': msg('seating_for_2_people'),
+  shelf: msg('shop_shelving_attracts_shoppers'),
+  desk: msg('desk_attracts_staff'),
+  cubicle: msg('restroom_fixture'),
+  sink: msg('restroom_fixture'),
+  bin: msg('decoration_no_passage'),
+  extinguisher: msg('decoration_no_passage'),
+  clock: msg('station_clock_reference'),
+  cctv: msg('camera_no_passage'),
+  tv: msg('information_screen_no_passage'),
+  'sign-ceiling': msg('wayfinding_hung_overhead'),
+  'sign-wall': msg('wayfinding_mounted_on_a_wall'),
+  escalator: msg('one_way_value_people_min', perMin(ESCALATOR_RATE)),
+  lift: msg('accessible_value_people_trip', LIFT_BATCH),
   'stair-straight': STAIR_RATE,
   'stair-left90': STAIR_RATE,
   'stair-right90': STAIR_RATE,
@@ -285,21 +286,21 @@ const SERVICE: Record<string, string> = {
 
 /** The line under a card's footprint: the simulation's own note, or a family note. */
 function serviceOf(id: string): string {
-  if (id.startsWith('pillar')) return 'Tab 切换每次加高 2 / 4 m'
-  if (id === 'roof') return '薄顶棚，材质可涂刷'
-  if (id.startsWith('roof-truss')) return '纵向桁架顶棚，4/8/12 m，可涂刷'
-  if (id.startsWith('roof-shell')) return '无桁架双坡屋顶，4/8/12 m，可涂刷'
-  if (id.startsWith('roof-tapered')) return '收束桁架顶棚，单根底梁，可涂刷'
-  if (id === 'bridge') return '开放轨道桥，延伸线路'
+  if (id.startsWith('pillar')) return msg('tab_adds_2_4_m_of_height')
+  if (id === 'roof') return msg('thin_canopy_can_be_painted')
+  if (id.startsWith('roof-truss')) return msg('longitudinal_truss_roof_4_8_12_m_can_be_painted')
+  if (id.startsWith('roof-shell')) return msg('gabled_roof_without_trusses_4_8_12_m_can_be_painted')
+  if (id.startsWith('roof-tapered')) return msg('tapered_truss_roof_with_a_single_bottom_beam_can_be_painted')
+  if (id === 'bridge') return msg('open_railway_bridge_extends_the_line')
   if (SERVICE[id]) return SERVICE[id]
-  if (id.startsWith('exit')) return '每个出口单独设流量'
-  if (id.startsWith('billboard')) return '把人往商铺那边引'
-  if (id === 'curtain-wall' || id.startsWith('glass')) return '隔断，看得见走不过'
-  if (id.startsWith('door')) return '1.2 人/秒，关上挡路'
-  if (id.startsWith('calligraphy')) return '站名，挂在墙上'
-  if (id.startsWith('linemap')) return '线网图，指路'
+  if (id.startsWith('exit')) return msg('set_demand_for_each_exit')
+  if (id.startsWith('billboard')) return msg('draw_passengers_toward_shops')
+  if (id === 'curtain-wall' || id.startsWith('glass')) return msg('transparent_partition_blocks_passage')
+  if (id.startsWith('door')) return msg('1_2_people_second_blocks_passage_when_closed')
+  if (id.startsWith('calligraphy')) return msg('station_name_mounted_on_a_wall')
+  if (id.startsWith('linemap')) return msg('network_map_for_wayfinding')
   if (id.startsWith('shelf-')) return SERVICE.shelf
-  return '装饰，无通行'
+  return msg('decoration_no_passage')
 }
 
 /**

@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // Roof bays and small stair blocks share the block tool's rectangular gesture
 // and equipment's placement verdict.
 //
@@ -221,6 +222,6 @@ export class TileEquipmentTool extends ToolController {
     }
     if (next !== st.station) st.commit(next)
     if (why) st.setNotice(why)
-    else if (next === st.station) st.setNotice(drag.mode === 'remove' && removed === 0 ? '这里没有可拆的屋顶' : '这里放不下屋顶：换个地方')
+    else if (next === st.station) st.setNotice(drag.mode === 'remove' && removed === 0 ? msg('no_roof_to_remove_here') : msg('cannot_place_a_roof_here_choose_another_location'))
   }
 }

@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Fare zones — GAME-SPEC.md §4.5. Pure data shared by the sim, the build tools
 // and the overlay: the sim decides who may cross, the game shows the same
 // colour the player painted.
@@ -28,12 +29,12 @@ export interface ZoneDef {
  * station should read as unpainted, not as a sixth kind of area.
  */
 export const ZONE_LIST: readonly ZoneDef[] = [
-  { id: 'none', label: '无分区', colour: 0x9aa2ab },
-  { id: 'outside', label: '站外', colour: 0x5b6472 },
-  { id: 'unpaid', label: '非付费区', colour: 0x3fb27f },
-  { id: 'paid', label: '付费区', colour: 0x4ea8ff },
-  { id: 'platform', label: '站台', colour: 0xf2a541 },
-  { id: 'restricted', label: '设备区', colour: 0xe4572e },
+  { id: 'none', label: msg('no_zone'), colour: 0x9aa2ab },
+  { id: 'outside', label: msg('outside'), colour: 0x5b6472 },
+  { id: 'unpaid', label: msg('unpaid_area'), colour: 0x3fb27f },
+  { id: 'paid', label: msg('paid_area'), colour: 0x4ea8ff },
+  { id: 'platform', label: msg('platform'), colour: 0xf2a541 },
+  { id: 'restricted', label: msg('equipment_area'), colour: 0xe4572e },
 ]
 
 /** Dense index for a zone, for typed arrays in the graph and the mesh. */

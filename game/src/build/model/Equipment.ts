@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // Build model: equipment modules — placement payloads, posters, add/remove (§5).
 // Sign-board repair lives here too: a 指示牌 is equipment with a document.
 
@@ -351,7 +352,7 @@ export function createModule(
       // The placeholder name is the fallback: the placement caller swaps in the
       // next free A ~ Z letter (`nextExitName`), so a fresh exit reads like real
       // signage. A save with no name, or all 26 letters used, keeps it.
-      return { id, type: 'exit', x, y, z, rot, cfg: { name: '未命名口', inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } };
+      return { id, type: 'exit', x, y, z, rot, cfg: { name: msg('unnamed_exit'), inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } };
     }
     case 'escalator':
       // The one shared piece: the run always climbs from the dropped cell;
@@ -738,9 +739,9 @@ export function nextExitName(modules: readonly Module[]): string {
   }
   for (let i = 0; i < 26; i++) {
     const letter = String.fromCharCode(65 + i);
-    if (!used.has(letter)) return `${letter}口`;
+    if (!used.has(letter)) return msg('exit_value', letter);
   }
-  return '未命名口';
+  return msg('unnamed_exit');
 }
 
 /**

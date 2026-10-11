@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The 方块 (block) tool: click for one block, long-press + drag for a rectangle
 // patch (with an auto-wall ring when 生成墙壁 is on, which **Tab** and the ring's
 // own tile raise), one **半墙** / 三角 block at a time when a cut piece is armed,
@@ -107,7 +108,7 @@ export class BlockTool extends ToolController {
       downTime: performance.now(),
     }
     scene.setGhost(pendingCells([anchor], mode, this.ctx.solids(), st.station), mode)
-    this.ctx.showMeasure(info.clientX, info.clientY, '长 1 m × 宽 1 m')
+    this.ctx.showMeasure(info.clientX, info.clientY, msg('length_1_m_width_1_m'))
   }
 
   onMove(info: PointerInfo): void {
@@ -174,13 +175,13 @@ export class BlockTool extends ToolController {
       // pointer so the player can size a foundation before releasing.
       const dx = dragging ? Math.abs(target[0] - d.anchor[0]) + 1 : 1
       const dy = dragging ? Math.abs(target[1] - d.anchor[1]) + 1 : 1
-      this.ctx.showMeasure(info.clientX, info.clientY, `长 ${dx} m × 宽 ${dy} m`)
+      this.ctx.showMeasure(info.clientX, info.clientY, msg('length_value_m_width_value_m', dx, dy))
       return
     }
     const c = hit.solid ? hit.place : hit.cell
     const check = this.showAddGhost([c])
     scene.setCursor(c, check.blockedCells.length === 0)
-    this.ctx.showMeasure(info.clientX, info.clientY, '长 1 m × 宽 1 m')
+    this.ctx.showMeasure(info.clientX, info.clientY, msg('length_1_m_width_1_m'))
   }
 
   /**
@@ -246,7 +247,7 @@ export class BlockTool extends ToolController {
         // stays blue over it — so a click that lays nothing there says so
         // instead of dropping the press in silence.
         if (blocked > 0) st.setNotice(previewNotice(st.station, checkBlockCells(st.station, [d.anchor])))
-        else if (changed === 0) st.setNotice(`这里放不下${triangle ? '三角块' : '半墙'}：已经有方块了`)
+        else if (changed === 0) st.setNotice(msg('cannot_place_value_here_a_block_already_exists', triangle ? msg('wedge') : msg('half_wall')))
       } else if (rect && st.autoWalls) {
         // A deliberate 方块 drag with 生成墙壁 on draws a walled floor patch:
         // union it with earlier patches and rebuild the auto wall ring around
@@ -270,7 +271,7 @@ export class BlockTool extends ToolController {
         const { cells: next, changed, blocked } = addCells(st.station.cells, cells, st.station.modules)
         if (changed > 0) st.commit({ ...st.station, cells: next })
         if (blocked > 0) st.setNotice(previewNotice(st.station, check))
-        else if (changed === 0) st.setNotice('这里放不下方块：已经有方块了')
+        else if (changed === 0) st.setNotice(msg('cannot_place_a_block_here_a_block_already_exists'))
       }
     } else {
       // Only the document's **own** blocks count against the seed's integrity
@@ -288,7 +289,7 @@ export class BlockTool extends ToolController {
       // The seed guard refuses rather than digs: say why instead of dropping the
       // gesture in silence — the station keeps at least four blocks.
       if (authored.length > 0 && st.station.cells.length - authored.length < 4) {
-        st.setNotice('不能再删了：车站至少保留 4 格方块')
+        st.setNotice(msg('cannot_delete_more_keep_at_least_4_blocks_in_the_station'))
         return
       }
       // A dug auto-floor brings its wall ring along; a hand-placed block is
@@ -298,7 +299,7 @@ export class BlockTool extends ToolController {
       // dropped that commit and the block could never be dug back out.
       const next = removeFloor(st.station, remove)
       if (!sameCells(next.cells, st.station.cells)) st.commit(next)
-      else st.setNotice('这里没有可删的方块')
+      else st.setNotice(msg('no_block_to_delete_here'))
     }
   }
 

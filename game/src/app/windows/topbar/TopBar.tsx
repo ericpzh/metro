@@ -1,9 +1,13 @@
+import { translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — TopBar() plus its
 // private StationName() editor and SPEEDS group.
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
 import { ExampleStationsButton } from './ExampleStationsButton.tsx'
 import { NewStationButton } from './NewStationButton.tsx'
+import { IoLanguageSharp } from 'react-icons/io5'
+import { getLanguage, setLanguage } from '../../i18n.ts'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -20,17 +24,18 @@ const SPEEDS = [1, 4, 16, 64]
 
 /** Edit both station names as one undoable document change. */
 function StationName(): React.ReactElement {
+  useLanguage()
   const name = useStore((s) => s.station.name)
   const nameEn = useStore((s) => s.station.nameEn ?? '')
   const renameStation = useStore((s) => s.renameStation)
   const [draft, setDraft] = useState<{ name: string; nameEn: string } | null>(null)
   return (
     <div className="stationNameEditor">
-      <button className="stationName" onClick={() => setDraft({ name, nameEn })} aria-label="车站名称，点击重命名">
-        {name || '未命名车站'}{nameEn && <span className="stationNameEnglish">{nameEn}</span>}
+      <button className="stationName" onClick={() => setDraft({ name, nameEn })} aria-label={t('station_name_click_to_rename')}>
+        {name || t('unnamed_station')}{nameEn && <span className="stationNameEnglish">{nameEn}</span>}
       </button>
       {draft && (
-        <form className="stationNameForm" aria-label="编辑车站名称" onSubmit={(e) => {
+        <form className="stationNameForm" aria-label={t('edit_station_name')} onSubmit={(e) => {
           e.preventDefault()
           if (!draft.name.trim()) return
           renameStation(draft.name, draft.nameEn)
@@ -38,9 +43,9 @@ function StationName(): React.ReactElement {
         }} onKeyDown={(e) => {
           if (e.key === 'Escape') { e.preventDefault(); setDraft(null) }
         }}>
-          <label>中文站名<input className="stationNameInput" autoFocus required maxLength={24} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-          <label>English station name<input className="stationNameInput" maxLength={80} value={draft.nameEn} onChange={(e) => setDraft({ ...draft, nameEn: e.target.value })} /></label>
-          <div className="stationNameActions"><button type="submit" disabled={!draft.name.trim()}>保存</button><button type="button" onClick={() => setDraft(null)}>取消</button></div>
+          <label>{t('chinese_station_name')}<input className="stationNameInput" autoFocus required maxLength={24} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+          <label>{t('english_station_name')}<input className="stationNameInput" maxLength={80} value={draft.nameEn} onChange={(e) => setDraft({ ...draft, nameEn: e.target.value })} /></label>
+          <div className="stationNameActions"><button type="submit" disabled={!draft.name.trim()}>{t('save')}</button><button type="button" onClick={() => setDraft(null)}>{t('cancel')}</button></div>
         </form>
       )}
     </div>
@@ -48,6 +53,7 @@ function StationName(): React.ReactElement {
 }
 
 export function TopBar(): React.ReactElement {
+  useLanguage()
   const playing = useStore((s) => s.playing)
   const speed = useStore((s) => s.speed)
   const setPlaying = useStore((s) => s.setPlaying)
@@ -74,7 +80,7 @@ export function TopBar(): React.ReactElement {
   return (
     <div className="topbar">
       <div className="brand">
-        <span className="logo">地铁站设计师</span>
+        <span className="logo">{t('metro_station_designer')}</span>
         <StationName />
       </div>
       <div className="spacer" />
@@ -83,8 +89,8 @@ export function TopBar(): React.ReactElement {
       <button
         className="ghost iconBtn"
         onClick={saveToFile}
-        title="保存到文件（Ctrl+S）"
-        aria-label="保存"
+        title={t('save_to_file_ctrl_s')}
+        aria-label={t('save')}
         aria-keyshortcuts="Control+S"
       >
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -96,8 +102,8 @@ export function TopBar(): React.ReactElement {
       <button
         className="ghost iconBtn"
         onClick={() => fileRef.current?.click()}
-        title="打开存档（Ctrl+L）"
-        aria-label="打开"
+        title={t('open_save_ctrl_l')}
+        aria-label={t('open_490')}
         aria-keyshortcuts="Control+L"
       >
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -119,8 +125,8 @@ export function TopBar(): React.ReactElement {
         className="ghost iconBtn"
         onClick={undo}
         disabled={!canUndo}
-        title="撤销（Ctrl+Z）"
-        aria-label="撤销"
+        title={t('undo_ctrl_z')}
+        aria-label={t('undo')}
         aria-keyshortcuts="Control+Z"
       >
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -132,8 +138,8 @@ export function TopBar(): React.ReactElement {
         className="ghost iconBtn"
         onClick={redo}
         disabled={!canRedo}
-        title="重做（Ctrl+Y）"
-        aria-label="重做"
+        title={t('redo_ctrl_y')}
+        aria-label={t('redo')}
         aria-keyshortcuts="Control+Y"
       >
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -141,13 +147,13 @@ export function TopBar(): React.ReactElement {
           <path d="M13.5 7.5H6a3.5 3.5 0 0 0 0 7h3" />
         </svg>
       </button>
-      <div className="seg" role="group" aria-label="播放控制">
+      <div className="seg" role="group" aria-label={t('playback_controls')}>
         <button
           className={!playing ? 'on' : ''}
           onClick={() => {
             if (playing) setPlaying(false)
           }}
-          aria-label="暂停"
+          aria-label={t('pause')}
           aria-pressed={!playing}
         >
           {playing ? (
@@ -166,24 +172,32 @@ export function TopBar(): React.ReactElement {
             key={s}
             className={playing && speed === s ? 'on' : ''}
             onClick={() => playAt(s)}
-            aria-label={`${s} 倍速`}
+            aria-label={t('value_speed', s)}
             aria-pressed={playing && speed === s}
           >
-            {s}×
+            {translate(s)}×
           </button>
         ))}
       </div>
       <button
         className="ghost iconBtn"
         onClick={restartSim}
-        title="重启仿真（Ctrl+R）"
-        aria-label="重启"
+        title={t('restart_simulation_ctrl_r')}
+        aria-label={t('restart')}
         aria-keyshortcuts="Control+R"
       >
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
           <path d="M13.5 1.8v3h-3" />
         </svg>
+      </button>
+      <button
+        className="ghost iconBtn"
+        onClick={() => setLanguage(getLanguage() === 'en' ? 'zh-CN' : 'en')}
+        title={t('switch_language')}
+        aria-label={t('switch_language')}
+      >
+        <IoLanguageSharp aria-hidden="true" />
       </button>
     </div>
   )

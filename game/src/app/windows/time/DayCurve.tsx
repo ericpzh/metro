@@ -1,3 +1,5 @@
+import { msg, translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The day's demand curve, drawn **and authored** (§7.4, sheet 06's panels A and D): one line
 // per kind of day over 00:00–24:00, the station's operating hours lit behind them, the two
 // 高峰 windows shaded on top, a playhead at now — and the **six boundaries that shape all of
@@ -22,7 +24,8 @@ import { demandSeries, hourOfDay, type DemandInput } from '../../../sim/demand.t
 /** The drawn box, in viewBox units. */
 const W = 480
 const H = 112
-const PAD = { left: 26, right: 38, top: 14, bottom: 15 }
+// Reserve a full gutter for translated units and passenger counts, inside the SVG.
+const PAD = { left: 26, right: 60, top: 14, bottom: 15 }
 const PLOT_W = W - PAD.left - PAD.right
 const PLOT_H = H - PAD.top - PAD.bottom
 /** One sample every 15 simulated minutes: 97 points, the last closing onto the first. */
@@ -53,13 +56,13 @@ export interface CurveBoundary {
 /** The six boundaries of `input`, in the order the chart draws their grips. */
 export function curveBoundaries(input: DemandInput): CurveBoundary[] {
   const list: CurveBoundary[] = [
-    { kind: 'service', index: 0, end: 'from', seconds: input.service.from, label: '开站时间', hours: input.service.from / 3600 },
-    { kind: 'service', index: 0, end: 'to', seconds: input.service.to, label: '关站时间', hours: input.service.to / 3600 },
+    { kind: 'service', index: 0, end: 'from', seconds: input.service.from, label: msg('opening_time'), hours: input.service.from / 3600 },
+    { kind: 'service', index: 0, end: 'to', seconds: input.service.to, label: msg('closing_time'), hours: input.service.to / 3600 },
   ]
   input.peaks.forEach((p, i) => {
-    const whose = i === 0 ? '早' : '晚'
-    list.push({ kind: 'peak', index: i, end: 'from', seconds: p.from, label: `${whose}高峰开始`, hours: p.from / 3600 })
-    list.push({ kind: 'peak', index: i, end: 'to', seconds: p.to, label: `${whose}高峰结束`, hours: p.to / 3600 })
+    const whose = i === 0 ? msg('morning') : msg('evening')
+    list.push({ kind: 'peak', index: i, end: 'from', seconds: p.from, label: msg('value_peak_starts', whose), hours: p.from / 3600 })
+    list.push({ kind: 'peak', index: i, end: 'to', seconds: p.to, label: msg('value_peak_ends', whose), hours: p.to / 3600 })
   })
   return list
 }
@@ -86,6 +89,7 @@ export function DayCurve({
   /** A keyboard nudge: move the boundary **and** commit it, in one step. */
   onNudge: (boundary: CurveBoundary, hours: number) => void
 }): React.ReactElement {
+  useLanguage()
   const svgRef = useRef<SVGSVGElement>(null)
   const held = useRef<CurveBoundary | null>(null)
 
@@ -169,7 +173,7 @@ export function DayCurve({
       // **Not `role="img"`**: the six grips are sliders inside this drawing, and an image role
       // hides its own children from a screen reader. A labelled group keeps them reachable.
       role="group"
-      aria-label={`24 小时客流曲线（${DAY_TYPE_LABELS[dayType]}），当前 ${Math.round(drawn.values[at] * 100)}% · 约 ${nowCount} 人/时`}
+      aria-label={t('24_hour_demand_curve_value_now_value_about_value_people_h', translate(DAY_TYPE_LABELS[dayType]), Math.round(drawn.values[at] * 100), nowCount)}
       onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={end}
@@ -188,28 +192,27 @@ export function DayCurve({
       <circle className="curveDot" cx={x(hour)} cy={drawn.y(drawn.values[at])} r={2.5} />
       {HOUR_TICKS.map((h) => (
         <text key={h} className="curveTick" x={x(h)} y={H - 4} textAnchor={h === 0 ? 'start' : h === 24 ? 'end' : 'middle'}>
-          {String(h).padStart(2, '0')}
+          {translate(String(h).padStart(2, '0'))}
         </text>
       ))}
       <text className="curveTick" x={PAD.left - 4} y={drawn.y(drawn.top) + 8} textAnchor="end">
-        {Math.round(drawn.top * 100)}%
+        {translate(Math.round(drawn.top * 100))}%
       </text>
       <text className="curveTick" x={PAD.left - 4} y={PAD.top + PLOT_H} textAnchor="end">
         0
       </text>
       {/* Right axis: the left percentages in people — curve × Σ open exits' inRate. */}
-      <text className="curveTick" x={PAD.left + PLOT_W + 4} y={PAD.top - 4} textAnchor="start">
-        人/时
-      </text>
-      <text className="curveTick" x={PAD.left + PLOT_W + 4} y={drawn.y(drawn.top) + 8} textAnchor="start">
-        {countAt(drawn.top)}
+      <text className="curveTick" x={W - 4} y={PAD.top - 4} textAnchor="end">
+        {t('people_h')}</text>
+      <text className="curveTick" x={W - 4} y={drawn.y(drawn.top) + 8} textAnchor="end">
+        {translate(countAt(drawn.top))}
       </text>
       {showBase && (
-        <text className="curveTick" x={PAD.left + PLOT_W + 4} y={drawn.y(1) + 3} textAnchor="start">
-          {countAt(1)}
+        <text className="curveTick" x={W - 4} y={drawn.y(1) + 3} textAnchor="end">
+          {translate(countAt(1))}
         </text>
       )}
-      <text className="curveTick" x={PAD.left + PLOT_W + 4} y={PAD.top + PLOT_H} textAnchor="start">
+      <text className="curveTick" x={W - 4} y={PAD.top + PLOT_H} textAnchor="end">
         0
       </text>
       {/* The spans' own times are **not** printed in here: the panel lists all three under the
@@ -227,7 +230,7 @@ export function DayCurve({
             height={PLOT_H + 8}
             tabIndex={0}
             role="slider"
-            aria-label={b.label}
+            aria-label={translate(b.label)}
             aria-valuenow={Math.round(b.seconds / 60)}
             aria-valuemin={0}
             aria-valuemax={23 * 60 + 59}

@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Above-ground equipment; dimensions shared by placement and the models (§4.1, §5).
 import { inCellOffset } from './inCellPositions.ts'
 import { trackCellAt } from './track.ts'
@@ -12,7 +13,7 @@ export function nextRoofWidth(width: number): number {
   return ROOF_WIDTHS[(index + 1) % ROOF_WIDTHS.length]
 }
 export function roofWidthLabel(width: number): string {
-  return width === 8 ? '中' : width === 12 ? '宽' : '窄'
+  return width === 8 ? msg('medium') : width === 12 ? msg('wide') : msg('narrow')
 }
 export function supportedRoofWidth(width?: number): number {
   return width === 8 || width === 12 ? width : 4
@@ -44,7 +45,7 @@ export function nextBridgeRailing(railing: BridgeRailing): BridgeRailing {
   return railing === 'railing' ? 'sound-barrier-half' : railing === 'sound-barrier-half' ? 'sound-barrier' : 'railing'
 }
 export function bridgeRailingLabel(railing: BridgeRailing): string {
-  return railing === 'sound-barrier-half' ? '半高声屏障' : railing === 'sound-barrier' ? '全高声屏障' : '栏杆'
+  return railing === 'sound-barrier-half' ? msg('half_height_noise_barrier') : railing === 'sound-barrier' ? msg('full_height_noise_barrier') : msg('railing')
 }
 export function pillarSupportsBridge(pillar: Module, track: Module): boolean {
   return pillar.type === 'pillar' && track.type === 'track' && track.cfg.bridge === true

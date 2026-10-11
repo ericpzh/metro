@@ -1,3 +1,4 @@
+import { msg } from '../sim/i18n.ts'
 // A rendering pass for concept sheet 11, on demand from a page.
 //
 // Sheet 05 gives the rolling stock's numbers; sheet 11 is the shape, and the only
@@ -165,32 +166,32 @@ interface TrainScene {
 const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: number; height: number; scene: TrainScene }> = [
   ...STOCK_CLASSES.map((cls) => ({
     id: `car-${cls}`,
-    label: `${cls} 型`,
-    note: `${STOCK[cls].length.toFixed(1)} 米 × ${STOCK[cls].width.toFixed(1)} 米，每侧 ${STOCK[cls].doorsPerSide} 门`,
+    label: msg('type_value', cls),
+    note: msg('value_m_value_m_value_doors_per_side', STOCK[cls].length.toFixed(1), STOCK[cls].width.toFixed(1), STOCK[cls].doorsPerSide),
     width: 470,
     height: 200,
     scene: { stock: cls, cars: 2, doorsOpen: false, from: CAR, span: 'car' as Span },
   })),
   {
     id: 'open',
-    label: '开着门',
-    note: '两扇门叶滑开，露出车厢里面',
+    label: msg('doors_open'),
+    note: msg('both_leaves_slide_apart_to_reveal_the_interior'),
     width: 470,
     height: 200,
     scene: { stock: 'B', cars: 2, doorsOpen: true, from: CAR, span: 'car' as Span },
   },
   {
     id: 'nose',
-    label: '车头',
-    note: '车头不是加出来的一节：它是末节车厢最后 2 米的重新蒙皮，只有灯分前后',
+    label: msg('cab'),
+    note: msg('the_cab_is_the_last_2_m_of_the_end_car_with_different_front_and_'),
     width: 420,
     height: 250,
     scene: { stock: 'B', cars: 2, doorsOpen: false, from: NOSE, span: 'nose' as Span },
   },
   {
     id: 'consist',
-    label: '整列车',
-    note: 'L 型六节编组示例',
+    label: msg('full_train'),
+    note: msg('example_six_car_type_l_train'),
     width: 1504,
     height: 300,
     scene: { stock: 'L', cars: 6, doorsOpen: false, from: CONSIST, span: 'consist' as Span },
@@ -202,8 +203,8 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
   // its own, so a sheet composites it into its own drawing rather than into a box.
   ...STOCK_CLASSES.map((cls) => ({
     id: `front-${cls}`,
-    label: `${cls} 型正面`,
-    note: '正对车头看：宽和高',
+    label: msg('type_value_front', cls),
+    note: msg('front_view_width_and_height'),
     width: Math.round(2 * ELEV_HALF_Y * ELEV_PX_PER_M),
     height: Math.round((ELEV_Z[1] - ELEV_Z[0]) * ELEV_PX_PER_M),
     scene: {
@@ -218,8 +219,8 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
   })),
   ...STOCK_CLASSES.map((cls) => ({
     id: `side-${cls}`,
-    label: `${cls} 型侧面`,
-    note: '正对车身看：长度和门的节奏',
+    label: msg('type_value_side', cls),
+    note: msg('side_view_length_and_door_spacing'),
     width: Math.round(2 * ELEV_HALF_X * ELEV_PX_PER_M),
     height: Math.round((ELEV_Z[1] - ELEV_Z[0]) * ELEV_PX_PER_M),
     scene: {
@@ -237,8 +238,8 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
   // those has to be rendered **on the kit's screen axes** rather than on the world's.
   ...(['A', 'B', 'L'] as StockClass[]).map((cls) => ({
     id: `iso-${cls}`,
-    label: `${cls} 型等轴`,
-    note: '画法用等轴投影，和场景一套轴',
+    label: msg('type_value_isometric', cls),
+    note: msg('isometric_projection_uses_the_scene_s_axes'),
     width: 1200,
     height: 1150,
     scene: {
@@ -263,8 +264,8 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
    */
   {
     id: 'iso-B1',
-    label: 'B 型等轴（单节）',
-    note: '单节编组：短站台站得下的那一节',
+    label: msg('type_b_isometric_one_car'),
+    note: msg('single_car_train_for_a_short_platform'),
     width: 1200,
     height: 1150,
     scene: {
@@ -282,8 +283,8 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
   // sit in a box of its own. Drawn at that sheet's scale, not this one's.
   {
     id: 'plan-B',
-    label: 'B 型平面',
-    note: '从上看：两节车，中间是贯通道',
+    label: msg('type_b_plan'),
+    note: msg('top_view_two_cars_joined_by_a_gangway'),
     width: Math.round(2 * PLAN_HALF_X * PLAN_PX_PER_M),
     height: Math.round(2 * ELEV_HALF_Y * PLAN_PX_PER_M),
     scene: {
@@ -300,8 +301,8 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
   // plans overlay each other exactly.
   {
     id: 'plan-track-B',
-    label: 'B 型轨道平面',
-    note: '一条线路就是一块轨道：和列车一样长，两条钢轨加中间的枕木',
+    label: msg('type_b_track_plan'),
+    note: msg('a_line_is_a_train_length_track_with_two_rails_and_sleepers'),
     width: Math.round(2 * PLAN_HALF_X * PLAN_PX_PER_M),
     height: Math.round(2 * ELEV_HALF_Y * PLAN_PX_PER_M),
     scene: {
@@ -435,7 +436,7 @@ export function stockTable(): StockRow[] {
       crushPerCar: s.crushPerCar,
       ratedPerCar: s.ratedPerCar,
       consist: s.consist,
-      power: s.power === 'catenary' ? '接触网' : '第三轨',
+      power: s.power === 'catenary' ? msg('overhead_wire') : msg('third_rail'),
       doorPitch: pitch,
       sixCarLength: trainLength({ stock: cls, cars: 6 }),
       sixCarRated: trainRatedCapacity({ stock: cls, cars: 6 }),

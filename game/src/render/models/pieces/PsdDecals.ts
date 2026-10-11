@@ -1,3 +1,4 @@
+import { t } from '../../../sim/i18n.ts'
 // Printed safety vinyl on the platform face of the glass (§5.9).
 export function drawPsdBand(g: CanvasRenderingContext2D): void {
   g.fillStyle = '#b52630'
@@ -7,7 +8,7 @@ export function drawPsdBand(g: CanvasRenderingContext2D): void {
   g.fillStyle = '#fff4d8'
   g.textAlign = 'center'
   g.font = 'bold 36px "Microsoft YaHei", sans-serif'
-  g.fillText('注意站台与列车之间的空隙', 512, 47)
+  g.fillText(t('mind_the_gap_between_the_platform_and_train'), 512, 47)
   g.font = '24px sans-serif'
   g.fillText('Mind the gap between train and platform', 512, 86)
 }
@@ -20,7 +21,7 @@ export function drawPsdDoorBand(g: CanvasRenderingContext2D): void {
   g.fillStyle = '#171b1c'
   g.textAlign = 'center'
   g.font = 'bold 36px "Microsoft YaHei", sans-serif'
-  g.fillText('注意站台与列车之间的空隙', 320, 47, 620)
+  g.fillText(t('mind_the_gap_between_the_platform_and_train'), 320, 47, 620)
   g.font = '22px sans-serif'
   g.fillText('Mind the gap', 320, 86)
 }
@@ -33,8 +34,8 @@ export function drawPsdWarning(g: CanvasRenderingContext2D): void {
   g.fillStyle = '#171b1c'
   g.textAlign = 'center'
   g.font = 'bold 33px "Microsoft YaHei", sans-serif'
-  g.fillText('灯闪铃响，勿上下车。', 320, 57)
-  g.fillText('冲门危险，顾己及人。', 320, 103)
+  g.fillText(t('do_not_board_or_alight_when_lights_flash_and_bells_ring'), 320, 57)
+  g.fillText(t('do_not_rush_closing_doors'), 320, 103)
   g.font = '19px sans-serif'
   g.fillText('Stand clear of closing doors', 320, 143)
   // A yellow caution character, matching the shape and palette of the reference.
@@ -75,7 +76,7 @@ export function drawPsdWarning(g: CanvasRenderingContext2D): void {
   g.fill()
   g.fillStyle = '#b52630'
   g.font = 'bold 31px "Microsoft YaHei", sans-serif'
-  g.fillText('小心！别碰我！', 320, 416)
+  g.fillText(t('caution_keep_clear'), 320, 416)
   g.fillStyle = '#171b1c'
   g.font = '22px sans-serif'
   g.fillText('CAUTION! Do not touch', 320, 448)

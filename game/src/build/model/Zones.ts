@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // Build model: zones — the zone brush, its bucket, the floor rule both of them
 // publish, and the 分区 map (§4.5: a zone belongs to a floor cell, and the map
 // draws one storey at a time).
@@ -363,7 +364,7 @@ export function zoneRegionLabels(floors: readonly Cell[], modules: readonly Modu
   for (const m of modules) {
     if (m.type !== 'shop') continue;
     const kind = m.cfg.kind ?? 'store';
-    const label = kind === 'store' ? '商店' : kind === 'toilet' ? '厕所' : kind === 'office' ? '办公室' : undefined;
+    const label = kind === 'store' ? msg('store') : kind === 'toilet' ? msg('restroom') : kind === 'office' ? msg('office') : undefined;
     if (!label) continue;
     const cx = m.x + (m.w ?? 1) / 2;
     const cy = m.y + (m.h ?? 1) / 2;

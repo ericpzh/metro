@@ -17,19 +17,21 @@ export default {
     const prefix = env.ASSET_PREFIX ?? ''
     const url = new URL(request.url)
 
-    // Domain-root hosting: nothing to rewrite.
-    if (!prefix) return env.ASSETS.fetch(request)
-
     const mine = url.pathname === prefix || url.pathname.startsWith(prefix + '/')
-    if (!mine) return env.ASSETS.fetch(request)
-
-    let rest = url.pathname.slice(prefix.length)
+    let rest = mine ? url.pathname.slice(prefix.length) : url.pathname
+    const base = mine ? prefix : ''
+    if (rest === '/en' || rest === '/en/index.html') {
+      url.pathname = base + '/en/'
+      return Response.redirect(url.toString(), 308)
+    }
+    const english = rest.startsWith('/en/')
+    if (english) rest = rest.slice(3)
 
     // The directory URL must carry its trailing slash or the game's relative
     // `./assets/...` would resolve one level too high. Same for an explicit
     // /index.html, which the asset layer would otherwise redirect to the root.
     if (rest === '' || rest === '/index.html') {
-      url.pathname = prefix + '/'
+      url.pathname = base + (english ? '/en/' : '/')
       return Response.redirect(url.toString(), 308)
     }
 

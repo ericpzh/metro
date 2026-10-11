@@ -76,7 +76,8 @@ landing plane. Pin slope clearance and real body overlap in
   `import type`. The tsconfig is strict with `verbatimModuleSyntax`,
   `erasableSyntaxOnly`, `noUnusedLocals`, `noUnusedParameters`.
 * **No enums** (`erasableSyntaxOnly`). Use `as const` objects, e.g. `AgentState`.
-* **ASCII ids, Simplified Chinese labels** for anything a player reads (§9.2).
+* **ASCII ids; centralised bilingual copy** for anything a player reads (§9.2).
+  The game supports Simplified Chinese and English; follow the i18n rules below.
 * **Equipment hover previews:** 移动, 吸取 and 选择 show the actual targeted module as a vivid blue translucent preview; 删除 uses the same preview shape in red. Keep tint strength and opacity in `render/scene/systems/GhostSystem.ts`, and pin the tool-to-preview colors in `game/test/tool-hover-preview.test.mjs` when changing this behavior.
 * **Pack cell coordinates with `packKey`** (number arithmetic, ±4096 m). Never use
   bit shifts — the old `(x + 4096) << 20` collided neighbours.
@@ -93,6 +94,34 @@ landing plane. Pin slope clearance and real body overlap in
   still resolves. Keep the rule when adding a unit: one unit per file, and the
   barrel re-exports it.
 * Comments explain *why*, and cite `GAME-SPEC.md` sections.
+
+### Game language and text layout
+
+`src/sim/i18n/messages.ts` owns built-in UI, catalogue, validation and display
+copy (`zh` / `en`). Keep interpolation slots present in both translations.
+`src/sim/i18n.ts` is the pure shared API: `msg(key, ...args)` creates canonical
+Chinese data/notice strings, `t(key, ...args)` creates current-language copy,
+and `translate(value)` presents existing catalogue labels and stored notices.
+React views subscribe with `app/i18n.ts`'s `useLanguage()` so open panels and
+errors change immediately. Keep locale out of station saves and worker state;
+switching it must preserve edits, undo history, drafts and the simulation.
+
+`/en` and `/en/`, including `/metro-game/en/`, open the English game. The
+`IoLanguageSharp` button beside restart switches either route; each route keeps
+its preference in local storage. Worker, Vite preview and `tools/preview.mjs`
+must resolve the English document's relative assets. Locale changes refresh
+rendered copy and the retained TV/map plate caches, without resetting the camera.
+
+English station-name fields are **Primary name / Secondary name**; sign-text
+fields are **Primary text / Secondary text**. These describe the existing first
+and second fields: do not swap, translate or rewrite their authored contents.
+Chinese mode keeps 中文 / 英文 labels and the existing field limits.
+
+Inspect translated UI at desktop widths in both locales. Clock/status rows and
+long control labels must wrap within their panels; SVG axis text must fit inside
+the viewBox with enough gutter for English units and counts. Do not hide overflow
+to disguise chopped labels. `test/i18n.test.mjs` covers catalogue/interpolation,
+live notices, canonical labels and English route assets; check layout in a browser.
 
 ### Placement is one verdict, asked twice
 

@@ -1,3 +1,5 @@
+import { t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The 视图 folder body (§8 view toggles) — the 信息栏's second row, folded by **Alt+W**
 // between 信息 and 出入口 (`windows/inspector/Inspector.tsx`), because these are controls
 // over what the station *looks like* rather than pieces of it.
@@ -38,6 +40,7 @@ import { RotateTile } from '../shared/RotateTile.tsx'
 import { InlineExpand } from '../shared/InlinePanel.tsx'
 
 export function ViewFolder(): React.ReactElement {
+  useLanguage()
   const ghost = useStore((s) => s.ghostOtherLevels)
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
@@ -54,33 +57,33 @@ export function ViewFolder(): React.ReactElement {
           it draws every storey with no ceiling lifted — so the rule is
           discoverable. */}
       <Block
-        label="显示其他层"
+        label={t('show_other_floors')}
         icon="ghost"
         shortcut="X"
         active={ghost}
         disabled={hideUI}
         onClick={() => st().setGhostOther(!ghost)}
       />
-      <Block label="剖切" icon="cutaway" shortcut="C" active={cutaway} onClick={() => st().setCutaway(!cutaway)} />
-      <Block label="隐藏UI" icon="gridOff" shortcut="U" active={hideUI} onClick={() => st().setHideUI(!hideUI)} />
+      <Block label={t('section')} icon="cutaway" shortcut="C" active={cutaway} onClick={() => st().setCutaway(!cutaway)} />
+      <Block label={t('hide_ui')} icon="gridOff" shortcut="U" active={hideUI} onClick={() => st().setHideUI(!hideUI)} />
       {/* 剖切's own row, **after the whole row that holds it**: a full-width row can only
           be inserted between grid rows (`InlineExpand` spans `grid-column: 1 / -1`), so
           placed any earlier it would break the row after two tiles and leave the third
           cell of the first row empty. */}
       <CutControls open={cutaway} />
       <Block
-        label="隐藏天花板"
+        label={t('hide_ceilings')}
         icon="ceiling"
         shortcut="H"
         active={autoCeiling}
         disabled={hideUI}
         onClick={() => st().setAutoCeiling(!autoCeiling)}
       />
-      <Block label="隐藏墙壁" icon="wall" active={hideWalls} onClick={() => st().setHideWalls(!hideWalls)} />
-      <Block label="隐藏地面" icon="ground" active={hideGround} onClick={() => st().setHideGround(!hideGround)} />
-      <Block label="隐藏屋顶" icon="roof" active={hideRoof} onClick={() => st().setHideRoof(!hideRoof)} />
-      <Block label="分区图" icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
-      <Block label="热力图" icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
+      <Block label={t('hide_walls')} icon="wall" active={hideWalls} onClick={() => st().setHideWalls(!hideWalls)} />
+      <Block label={t('hide_floors')} icon="ground" active={hideGround} onClick={() => st().setHideGround(!hideGround)} />
+      <Block label={t('hide_roofs')} icon="roof" active={hideRoof} onClick={() => st().setHideRoof(!hideRoof)} />
+      <Block label={t('zone_map')} icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
+      <Block label={t('heatmap')} icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
     </div>
   )
 }
@@ -97,6 +100,7 @@ export function ViewFolder(): React.ReactElement {
  * 隐藏 tile in the folder.
  */
 function CutControls({ open }: { open: boolean }): React.ReactElement {
+  useLanguage()
   const azimuth = useStore((s) => s.section.orientation.azimuth)
   const rotateSection = useStore((s) => s.rotateSection)
   const hideSurface = useStore((s) => s.hideSectionSurface)
@@ -104,9 +108,9 @@ function CutControls({ open }: { open: boolean }): React.ReactElement {
   const next = nextAzimuth(azimuth)
   return (
     <InlineExpand open={open}>
-      <RotateTile label={`旋转 ${next}°`} onClick={rotateSection} />
+      <RotateTile label={t('rotate_value', next)} onClick={rotateSection} />
       <Block
-        label="隐藏剖切面"
+        label={t('hide_section_plane')}
         icon="cutSurface"
         shortcut="Y"
         active={hideSurface}

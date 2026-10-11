@@ -192,7 +192,7 @@ test('the equipment verdict is one rule set, with one sentence per rule', () => 
   // Two pieces in one cell, whichever side is asked.
   const crowded = flatStation([], [gate(1, 1, 0, 'g1')])
   assert.equal(equipmentReason(crowded.cells, crowded.modules, tvm), 'occupied')
-  assert.match(equipmentRefusalNotice('occupied'), /已经有设备/)
+  assert.match(equipmentRefusalNotice('occupied'), /已有设备/)
 
   // A hung piece with nothing overhead: the envelope reaches the storey ceiling,
   // and the slab it needs is the first grid line above.
@@ -230,7 +230,7 @@ test('a lifted piece is judged by the same rule set as a fresh placement', () =>
   // The same cell a fresh 售票机 is refused in, refused in the same words — the
   // 移动 card and the hover cannot drift — with the conflicting piece named.
   assert.equal(moveDropReason(st.cells, st.modules, tvm), equipmentRefusalNotice(equipmentReason(st.cells, st.modules, tvm), placementColliders(st.modules, tvm)))
-  assert.match(moveDropReason(st.cells, st.modules, tvm), /已经有设备/)
+  assert.match(moveDropReason(st.cells, st.modules, tvm), /已有设备/)
   assert.match(moveDropReason(st.cells, st.modules, tvm), /闸机/)
   // A free cell moves without complaint.
   const free = createModule('tvm', 4, 4, 0, 't9', 0)
@@ -354,7 +354,7 @@ test('first and dominant refusals read the preview, not the rectangle order', ()
   assert.match(blockRefusalNotice('opening'), /预留开口/, 'a carved corridor keeps its own sentence')
   assert.match(blockRefusalNotice('track'), /轨道/, 'as does a rail bed')
   assert.match(blockRefusalNotice('equipment'), /设备/, 'and a held cell')
-  assert.match(blockRefusalNotice(''), /放不下/, 'with a fallback for no refusal at all')
+  assert.match(blockRefusalNotice(''), /无法放置/, 'with a fallback for no refusal at all')
 })
 
 /* --------------------------------------- a course is [c, c + 1) */
@@ -376,11 +376,11 @@ test('an occupied refusal names the piece standing in the way', () => {
   const blockers = placementColliders(st.modules, tvm)
   assert.equal(blockers.length, 1)
   // The base sentence is kept, with the 闸机 named beside it.
-  assert.match(equipmentRefusalNotice('occupied', blockers), /已经有设备/)
+  assert.match(equipmentRefusalNotice('occupied', blockers), /已有设备/)
   assert.match(equipmentRefusalNotice('occupied', blockers), /闸机/)
-  assert.match(equipmentRefusalNotice('occupied', blockers), /挡住了/)
+  assert.match(equipmentRefusalNotice('occupied', blockers), /阻挡/)
   // Without blockers the old sentence is unchanged.
-  assert.equal(equipmentRefusalNotice('occupied'), '这儿已经有设备了，换个地方')
+  assert.equal(equipmentRefusalNotice('occupied'), '此处已有设备，请另选位置')
   // Other rules already name their own cause and take no suffix.
   assert.equal(equipmentRefusalNotice('floor', blockers), equipmentRefusalNotice('floor'))
 })

@@ -129,7 +129,7 @@ export function artModules() {
 
     g.push(T(cx + 18, cy + 218, fits(card.label, 16.5, CW - 36), { size: 16.5, weight: 700, fill: '#eaf0f6' }))
     if (card.footprint !== '1 × 1 格') g.push(T(cx + 18, cy + 240, card.footprint, { size: 12.5, fill: accent, mono: true }))
-    g.push(T(cx + 18, cy + 258, fits(card.service.replace('装饰，无通行', '装点车站').replace('信息屏，无通行', '显示信息').replace('无服务，被动吸引', '吸引乘客停留'), 12, CW - 30), { size: 12, fill: '#8fa0b3' }))
+    g.push(T(cx + 18, cy + 258, fits(card.service.replace('装饰，无通行', '装点车站').replace('信息屏，无通行', '显示信息').replace('无服务，被动吸引客流', '吸引乘客停留'), 12, CW - 30), { size: 12, fill: '#8fa0b3' }))
   }
 
   const foot = gridY + rows * (CH + GAP_Y) + 30

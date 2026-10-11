@@ -1,3 +1,5 @@
+import { msg, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // 指示牌 editor (§5.8) — the 文字 group's two boxes. 中文 on the first line, English on the
 // second, and to their left the label they add up to, drawn like every other tile's mark.
 
@@ -33,6 +35,7 @@ export function TextFields({
   /** And a press that never moved is a click, which picks the label already up. */
   onPick: () => void
 }): React.ReactElement {
+  useLanguage()
   const rows = comp ? signTextLines(comp.text) : []
   const [zh, setZh] = useState(rows[0] ?? '')
   const [en, setEn] = useState(rows[1] ?? '')
@@ -62,10 +65,10 @@ export function TextFields({
   return (
     <>
       <MarkTile
-        mark={paletteMark({ kind: 'text', text: text === '' ? '文字' : text })}
+        mark={paletteMark({ kind: 'text', text: text === '' ? msg('text') : text })}
         lines={stationLines}
         active={comp !== undefined}
-        label={text === '' ? '文字' : text.replace('\n', ' / ')}
+        label={text === '' ? msg('text') : text.replace('\n', ' / ')}
         onPointerDown={(e) => onArmDrag(text, e)}
         onClick={onPick}
       />
@@ -73,8 +76,8 @@ export function TextFields({
         className="signText"
         value={zh}
         maxLength={SIGN_TEXT_MAX}
-        placeholder={'中文'}
-        aria-label="中文"
+        placeholder={t('primary_sign_text')}
+        aria-label={t('primary_sign_text')}
         onChange={(e) => {
           setZh(e.target.value)
           push(e.target.value, en)
@@ -84,8 +87,8 @@ export function TextFields({
         className="signCaption"
         value={en}
         maxLength={SIGN_TEXT_EN_MAX}
-        placeholder="English"
-        aria-label="English"
+        placeholder={t('secondary_sign_text')}
+        aria-label={t('secondary_sign_text')}
         onChange={(e) => {
           setEn(e.target.value)
           push(zh, e.target.value)

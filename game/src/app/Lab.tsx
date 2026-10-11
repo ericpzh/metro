@@ -1,3 +1,5 @@
+import { translate, t } from '../sim/i18n.ts'
+import { useLanguage } from './i18n.ts'
 // /lab — the V1 material lab (PLAN.md §4 V1). The renderer we judge here is the
 // renderer the game keeps: rounded-corner autotile, outline pass, contact blobs,
 // AO + light rig, and procedural granite / enamel / baffle materials. It also
@@ -8,6 +10,7 @@ import { SceneRenderer } from '../render/scene.ts'
 import { labStation } from '../build/model.ts'
 
 export function Lab(): React.ReactElement {
+  useLanguage()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [chunkMs, setChunkMs] = useState(0)
   const [fps, setFps] = useState(0)
@@ -37,42 +40,36 @@ export function Lab(): React.ReactElement {
     <div className="lab">
       <canvas ref={canvasRef} className="viewport" />
       <div className="labPanel">
-        <h1>材质试验台</h1>
-        <p className="muted">一块 8×8 的板，中间开个洞，远侧有台阶。观感先在这看，觉得行再拿去当游戏本体。</p>
+        <h1>{t('material_lab')}</h1>
+        <p className="muted">{t('an_8_8_slab_with_a_hole_and_steps_at_the_far_side_try_materials_')}</p>
         <ul>
           <li>
-            <b>自铺装</b>：8 邻域掩码，共享的一面不画，方块是直角立方体。
-          </li>
+            <b>{t('auto_tiling')}</b>{t('eight_neighbour_masks_shared_faces_are_hidden_blocks_are_right_a')}</li>
           <li>
-            <b>描边</b>：反向外壳，约 0.05 m（设计尺度上 ≈ 0.8 px）。
-          </li>
+            <b>{t('outlines')}</b>{t('inverted_hull_about_0_05_m_0_8_px_at_design_scale')}</li>
           <li>
-            <b>接触阴影</b>：每个设备与行人下方一张软阴影贴片。
-          </li>
+            <b>{t('contact_shadows')}</b>{t('soft_shadow_beneath_every_piece_and_passenger')}</li>
           <li>
-            <b>环境光遮蔽 + 布光</b>：顶点 AO 烘焙 + 主光 / 天光 / 补光。
-          </li>
+            <b>{t('ambient_occlusion_lighting')}</b>{t('baked_vertex_ao_key_sky_fill_lights')}</li>
           <li>
-            <b>程序化材质</b>：花岗岩斑点、搪瓷板缝、白色格栅天花、拉丝不锈钢。
-          </li>
+            <b>{t('procedural_materials')}</b>{t('granite_speckles_enamel_seams_white_ceiling_grilles_brushed_stee')}</li>
         </ul>
         <div className="labStats">
           <div className="kv">
-            <span>区块网格构建</span>
-            <b className={chunkMs > 4 ? 'bad' : 'good'}>{chunkMs.toFixed(2)} ms</b>
+            <span>{t('chunk_meshing')}</span>
+            <b className={chunkMs > 4 ? 'bad' : 'good'}>{translate(chunkMs.toFixed(2))} ms</b>
           </div>
           <div className="kv">
-            <span>预算</span>
-            <b>&lt; 4 ms / 区块</b>
+            <span>{t('budget')}</span>
+            <b>{t('lt_4_ms_chunk')}</b>
           </div>
           <div className="kv">
-            <span>FPS</span>
-            <b>{fps}</b>
+            <span>{t('fps')}</span>
+            <b>{translate(fps)}</b>
           </div>
         </div>
         <a className="back" href="./">
-          ← 回到游戏
-        </a>
+          {t('back_to_game')}</a>
       </div>
     </div>
   )

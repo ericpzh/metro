@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The 分区 (zone) tool: drag a fare-zone patch, or a facility room when a room
 // brush is chosen; right-drag over a shop cuts wall openings (or swallows the
 // room to delete it). Moved verbatim from app/Viewport.tsx (GAME-SPEC §10).
@@ -93,7 +94,7 @@ export class ZoneTool extends ToolController {
       if (fac) {
         st.commit(removeFacility(st.station, fac.id))
         st.select(null)
-        st.setNotice(`已拆掉${moduleLabel(fac.type, fac.type === 'booth' ? fac.cfg.kind : undefined)}`)
+        st.setNotice(msg('removed_value', moduleLabel(fac.type, fac.type === 'booth' ? fac.cfg.kind : undefined)))
         return
       }
       if (hit.solid) this.bulldoze(hit.cell, hit.place, this.facing())
@@ -109,7 +110,7 @@ export class ZoneTool extends ToolController {
     // that are solid and are not floor. Such a press paints nothing and says why,
     // rather than opening a drag that would write a label no overlay can draw.
     if (!isFacilityBrush(brush) && !this.ctx.floors().has(cellKey(hit.cell[0], hit.cell[1], hit.cell[2]))) {
-      st.setNotice(isEraseBrush(brush) ? '分区只能在地板上擦除' : '分区只能画在地板上')
+      st.setNotice(isEraseBrush(brush) ? msg('zones_can_only_be_erased_on_floors') : msg('zones_can_only_be_painted_on_floors'))
       return
     }
     const z = isFacilityBrush(brush) ? st.activeZ : hit.cell[2]
@@ -219,17 +220,17 @@ export class ZoneTool extends ToolController {
       if (facilityCovers(mod, r)) {
         st.commit(removeFacility(st.station, mod.id))
         st.select(null)
-        st.setNotice('房间拆掉了')
+        st.setNotice(msg('room_removed'))
         return
       }
       const walls = facilityOpeningCells(st.station.cells, mod, r)
       if (walls.length === 0) {
-        st.setNotice('在墙上右键拖拽开门；框住整个房间就是拆除')
+        st.setNotice(msg('right_drag_on_a_wall_to_open_a_door_select_the_entire_room_to_re'))
         return
       }
       const cut = carveFacilityOpenings(st.station, mod.id, walls)
       st.commit(cut)
-      if (!cut.modules.some((m) => m.id === mod.id)) st.setNotice('房间的墙全拆光了')
+      if (!cut.modules.some((m) => m.id === mod.id)) st.setNotice(msg('all_room_walls_removed'))
       return
     }
     const zd = this.ctx.zoneDrag.current
@@ -250,14 +251,14 @@ export class ZoneTool extends ToolController {
         const rect = rectCells(zd.anchor, wasRect ? target : zd.anchor, zd.z, false)
         const floor = rect.filter(([x, y, z]) => this.ctx.floors().has(cellKey(x, y, z)))
         if (floor.length === 0) {
-          st.setNotice(erasing ? '分区只能在地板上擦除' : '分区只能画在地板上')
+          st.setNotice(erasing ? msg('zones_can_only_be_erased_on_floors') : msg('zones_can_only_be_painted_on_floors'))
           return
         }
         // The cells go back to **reading** their storey's default rather than being
         // handed one (`eraseZoneCells`), which is the whole of what 无分区 does.
         const next = isEraseBrush(zd.brush) ? eraseZoneCells(st.station, floor) : paintZoneCells(st.station, floor, zd.brush)
         if (next === st.station) {
-          if (erasing) st.setNotice('这些格子上没有分区')
+          if (erasing) st.setNotice(msg('these_cells_have_no_zone'))
           return
         }
         st.commit(next)
@@ -269,39 +270,39 @@ export class ZoneTool extends ToolController {
       // the pointer covered.
       const plan = facilityPlan(st.station, zd.brush, r)
       if (plan.blockedBy) {
-        st.setNotice('不同类型房间不能重叠')
+        st.setNotice(msg('different_room_types_cannot_overlap'))
         return
       }
       const area = plan.rect
       const aw = area.x1 - area.x0 + 1
       const ah = area.y1 - area.y0 + 1
       if (aw < FACILITY_MIN || ah < FACILITY_MIN) {
-        st.setNotice(`房间最小 ${FACILITY_MIN}×${FACILITY_MIN}，现在才 ${aw}×${ah}，再画大点`)
+        st.setNotice(msg('room_minimum_is_value_value_current_size_is_value_value_draw_a_l', FACILITY_MIN, FACILITY_MIN, aw, ah))
         return
       }
       // A room may not straddle the rails: its floor must not be a track bed.
       for (let x = area.x0; x <= area.x1; x++) {
         for (let y = area.y0; y <= area.y1; y++) {
           if (isTrackCell(st.station.cells, st.station.modules, x, y, area.z)) {
-            st.setNotice('轨道上不能建房间')
+            st.setNotice(msg('cannot_build_rooms_on_track'))
             return
           }
         }
       }
       const next = placeFacility(st.station, zd.brush, r)
       if (next === st.station) {
-        st.setNotice('这里画不了房间，得先铺好整块地面')
+        st.setNotice(msg('lay_a_complete_floor_before_drawing_a_room_here'))
         return
       }
       st.commit(next)
       st.select({ kind: 'cell', key: cellKey(area.x0, area.y0, area.z), label: `(${area.x0}, ${area.y0}, ${area.z}) ${aw}×${ah}` })
-      const built = FACILITY_OPTIONS.find((f) => f.id === zd.brush)?.label ?? '房间'
+      const built = FACILITY_OPTIONS.find((f) => f.id === zd.brush)?.label ?? msg('rooms')
       st.setNotice(
         plan.merge.length > 0
-          ? '房间已扩大到新的范围'
+          ? msg('room_expanded_to_the_new_bounds')
           : zd.brush === 'ticket'
-            ? `${built}建好了，四周是柜台，从外面服务`
-            : `${built}建好了，在墙上右键拖拽开门`,
+            ? msg('built_value_with_counters_around_it_serving_from_outside', built)
+            : msg('built_value_right_drag_on_its_wall_to_open_a_door', built),
       )
     }
   }

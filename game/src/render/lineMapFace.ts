@@ -1,3 +1,4 @@
+import { t } from '../sim/i18n.ts'
 // The 线网图's **placeholder** pixels — the station's own network drawn as a system
 // map, for the frames before the supplied poster has decoded.
 //
@@ -293,13 +294,13 @@ export function drawLineMapPlaceholder(g: CanvasRenderingContext2D, opts: LineMa
   const titleSize = Math.min(0.24, Math.max(0.1, panel.h * 0.13))
   g.fillStyle = INK
   g.font = `bold ${titleSize * ppm}px ${CJK}`
-  g.fillText('线网示意图', MARGIN * ppm, (0.03 + titleSize) * ppm)
+  g.fillText(t('network_map_520'), MARGIN * ppm, (0.03 + titleSize) * ppm)
   g.fillStyle = MUTED
   g.font = `${titleSize * 0.38 * ppm}px ${LATIN}`
   g.fillText('Transport System Map', MARGIN * ppm, (layout.titleY + titleSize * 0.42) * ppm)
 
   if (layout.station !== '') {
-    const plate = layout.station.endsWith('站') ? layout.station : `${layout.station}站`
+    const plate = layout.station.endsWith(t('station')) ? layout.station : t('value_station', layout.station)
     const size = Math.min(0.13, Math.max(0.07, panel.h * 0.075))
     const pad = size * 0.4
     g.font = `bold ${size * ppm}px ${CJK}`
@@ -334,7 +335,7 @@ export function drawLineMapPlaceholder(g: CanvasRenderingContext2D, opts: LineMa
     const size = Math.min(0.16, Math.max(0.09, panel.h * 0.1))
     g.font = `bold ${size * ppm}px ${CJK}`
     g.textAlign = 'center'
-    g.fillText('尚未铺设线路', W / 2, ((layout.area.y0 + layout.area.y1) / 2) * ppm)
+    g.fillText(t('no_lines_laid_yet'), W / 2, ((layout.area.y0 + layout.area.y1) / 2) * ppm)
     g.font = `${size * 0.5 * ppm}px ${LATIN}`
     g.fillText('no lines yet', W / 2, ((layout.area.y0 + layout.area.y1) / 2 + size * 1.3) * ppm)
     g.textAlign = 'left'
@@ -407,7 +408,7 @@ export function drawLineMapPlaceholder(g: CanvasRenderingContext2D, opts: LineMa
   const footSize = Math.min(0.09, Math.max(0.055, panel.h * 0.05))
   g.fillStyle = MUTED
   g.font = `${footSize * ppm}px ${CJK}`
-  g.fillText(`共 ${lines.length} 条线路 · ${layout.stations} 座车站`, MARGIN * ppm, layout.footerY * ppm)
+  g.fillText(t('value_lines_value_stations', lines.length, layout.stations), MARGIN * ppm, layout.footerY * ppm)
   g.textAlign = 'right'
   g.font = `${footSize * ppm}px ${LATIN}`
   g.fillText(layout.hiddenLines > 0 ? `+${layout.hiddenLines} more lines` : 'Guangzhou Metro', W - MARGIN * ppm, layout.footerY * ppm)

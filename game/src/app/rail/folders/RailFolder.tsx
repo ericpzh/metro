@@ -1,3 +1,5 @@
+import { translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The 结构 folder: six block/rail/cut tiles, the two roof/pillar families,
 // then tunnel and bridge. Each tool keeps its own inline controls.
 
@@ -15,6 +17,7 @@ import { TileGrid } from '../shared/TileGrid.tsx'
 import { LineItem } from '../items/LineItem.tsx'
 
 export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey | null; onToggleSubMenu: (key: SubMenuKey) => void }): React.ReactElement {
+  useLanguage()
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
   const setModuleType = useStore((s) => s.setModuleType)
@@ -62,14 +65,14 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
           [
             {
               anchor: 'block',
-              node: <Block key="block" label="方块" icon="block" shortcut="F" tile="block" active={tool === 'block' && cut === null} onClick={() => { setTool('block'); if (cut !== null) st().setCutMode(null) }} />,
+              node: <Block key="block" label={t('block')} icon="block" shortcut="F" tile="block" active={tool === 'block' && cut === null} onClick={() => { setTool('block'); if (cut !== null) st().setCutMode(null) }} />,
             },
             {
               anchor: '__platform',
               node: (
                 <Block
                   key="__platform"
-                  label="站台"
+                  label={t('platform')}
                   icon="rail"
                   tile={PLATFORM_TILE}
                   active={tool === 'rail'}
@@ -79,16 +82,16 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                 />
               ),
             },
-            { anchor: 'wall', node: <Block key="wall" label="墙" icon="wall" shortcut="G" tile="wall" active={tool === 'wall'} onClick={() => setTool('wall')} /> },
+            { anchor: 'wall', node: <Block key="wall" label={t('wall')} icon="wall" shortcut="G" tile="wall" active={tool === 'wall'} onClick={() => setTool('wall')} /> },
             ...CUT_MODES.map((c) => ({
               anchor: cutAnchor(c.id),
-              node: <Block key={cutAnchor(c.id)} label={c.label} icon={c.icon} tile={cutAnchor(c.id)} active={tool === 'block' && cut === c.id} onClick={() => { setTool('block'); st().setCutMode(c.id) }} />,
+              node: <Block key={cutAnchor(c.id)} label={translate(c.label)} icon={c.icon} tile={cutAnchor(c.id)} active={tool === 'block' && cut === c.id} onClick={() => { setTool('block'); st().setCutMode(c.id) }} />,
             })),
           ],
           (anchor) => {
             if (anchor === 'block') return [
               <InlineExpand key="auto-walls" open={tool === 'block' && cut === null}>
-                <Block label="生成墙壁" icon="wall" shortcut="Tab" active={autoWalls} onClick={() => st().setAutoWalls(!autoWalls)} />
+                <Block label={t('generate_walls')} icon="wall" shortcut="Tab" active={autoWalls} onClick={() => st().setAutoWalls(!autoWalls)} />
               </InlineExpand>,
             ]
             if (anchor.startsWith('__cut-')) return [
@@ -100,21 +103,21 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                   {(tool !== 'tunnel' || !editingTunnel) && (
                     <div className="blockGrid">
                       {tool !== 'tunnel' && (
-                        <RotateTile label={`旋转 ${((4 - railRot) % 4) * 90}°`} onClick={() => st().rotateRail()} />
+                        <RotateTile label={t('rotate_value', ((4 - railRot) % 4) * 90)} onClick={() => st().rotateRail()} />
                       )}
                     </div>
                   )}
                   {!editingTunnel && (
                     <>
                       <div className="bpSub">
-                        <div className="bpSubTitle">方向</div>
+                        <div className="bpSubTitle">{t('direction')}</div>
                         <div className="blockGrid two">
-                          <Block label="上行" icon="up" shortcut="Tab" active={railDirNow === 'up'} onClick={() => setRailDirNow('up')} />
-                          <Block label="下行" icon="down" shortcut="Tab" active={railDirNow === 'down'} onClick={() => setRailDirNow('down')} />
+                          <Block label={t('up')} icon="up" shortcut="Tab" active={railDirNow === 'up'} onClick={() => setRailDirNow('up')} />
+                          <Block label={t('down')} icon="down" shortcut="Tab" active={railDirNow === 'down'} onClick={() => setRailDirNow('down')} />
                         </div>
                       </div>
                       <div className="bpSub">
-                        <div className="bpSubTitle">线路</div>
+                        <div className="bpSubTitle">{t('line')}</div>
                         <div className="blockGrid">
                           {stationLines.map((l) => (
                             <LineItem
@@ -137,17 +140,17 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
         )}
         <TileGrid folder="rail" subMenu={subMenu} onToggleSubMenu={onToggleSubMenu} embedded />
         {interleaveRows([
-          { anchor: '__tunnel', node: <Block key="__tunnel" label="隧道" icon="tunnel" tile={TUNNEL_TILE} active={tool === 'tunnel'} submenu={tunnelOpen} onClick={() => setTool('tunnel')} /> },
-          { anchor: 'bridge', node: <Block key="bridge" label="轨道桥" icon="bridge" tile="bridge" active={bridgeOpen} submenu={bridgeOpen} onClick={() => { setModuleType('bridge'); setTool('module') }} /> },
+          { anchor: '__tunnel', node: <Block key="__tunnel" label={t('tunnel')} icon="tunnel" tile={TUNNEL_TILE} active={tool === 'tunnel'} submenu={tunnelOpen} onClick={() => setTool('tunnel')} /> },
+          { anchor: 'bridge', node: <Block key="bridge" label={t('railway_bridge')} icon="bridge" tile="bridge" active={bridgeOpen} submenu={bridgeOpen} onClick={() => { setModuleType('bridge'); setTool('module') }} /> },
         ], (anchor) => anchor === '__tunnel' ? [
           <InlinePanel key="tunnel-derived" open={tunnelOpen}>
-            <div className="blockGrid"><Block label={trackRunLengthLabel(tunnelLength)} icon="ortho" shortcut="Tab" onClick={() => st().cycleTunnelLength()} /></div>
+            <div className="blockGrid"><Block label={translate(trackRunLengthLabel(tunnelLength))} icon="ortho" shortcut="Tab" onClick={() => st().cycleTunnelLength()} /></div>
           </InlinePanel>,
         ] : [<StructurePanel key="bridge-derived" anchor="bridge" />])}
       </div>
       {track && (
         <div className="muted small railStatus">
-          {`已选${track.cfg.bridge ? '轨道桥' : track.cfg.tunnel ? '隧道' : '轨道'} · ${track.w} m × ${track.d ?? 1} m${trackSummary && !track.cfg.tunnel && !track.cfg.bridge ? ` · ${trackSummary.cars} 节 ${trackSummary.trainLength} m · ${trackSummary.doors} 门` : ''}`}
+          {t('selected_value_value_m_value_mvalue', track.cfg.bridge ? t('railway_bridge') : track.cfg.tunnel ? t('tunnel') : t('track'), track.w, track.d ?? 1, trackSummary && !track.cfg.tunnel && !track.cfg.bridge ? t('value_cars_value_m_value_doors', trackSummary.cars, trackSummary.trainLength, trackSummary.doors) : '')}
         </div>
       )}
     </>

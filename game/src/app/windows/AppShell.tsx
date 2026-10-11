@@ -1,3 +1,5 @@
+import { translate } from '../../sim/i18n.ts'
+import { useLanguage } from '../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — App() composes the
 // five windows (TopBar + LeftRail + Viewport + Inspector + BottomBar) and owns
 // the global keyboard shortcuts and the notice toast. Kept under the App name
@@ -14,6 +16,7 @@ import { BottomBar } from './statusbar/BottomBar.tsx'
 import { TimePanel } from './time/TimePanel.tsx'
 
 export function App(): React.ReactElement {
+  useLanguage()
   const setTool = useStore((s) => s.setTool)
   const notice = useStore((s) => s.notice)
 
@@ -286,7 +289,7 @@ export function App(): React.ReactElement {
       <TimePanel />
       {notice && (
         <div className="toast" onClick={() => useStore.getState().setNotice(null)}>
-          {notice}
+          {translate(notice)}
         </div>
       )}
       {/* The 指示牌 board editor is a modal over everything, so the board is as big

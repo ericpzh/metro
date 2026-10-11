@@ -1,3 +1,4 @@
+import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import { PieceBuilder, slab, plate, canvasTexture } from '../PieceBuilder.ts'
 import { exitSpan } from '../../../sim/exits.ts'
@@ -18,7 +19,7 @@ export class DoorwayExitModel extends PieceBuilder {
     // brand, station name and exit identifier get wider.
     const headerWidth = Math.round(512 * (width - 0.12) / 2.88)
     const map = canvasTexture(headerWidth, 96, (c) => c.drawImage(
-      exitHeaderCanvas(this.ctx.data.name || '地铁', mod.cfg.name, this.ctx.data.nameEn, headerWidth),
+      exitHeaderCanvas(this.ctx.data.name || t('metro'), mod.cfg.name, this.ctx.data.nameEn, headerWidth),
       0, 0,
     ))
     const mat = this.ownedMaterial(new THREE.MeshBasicMaterial({ map }))

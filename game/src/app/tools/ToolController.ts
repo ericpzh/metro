@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The pointer-tool base class (plan.md Lane C, R4 + R5): one subclass per tool,
 // one file per subclass. The base owns the event shape (`onDown`/`onMove`/`onUp`
 // plus the `refreshHover` ghost hook the R/Tab effects call) and the two
@@ -57,7 +58,7 @@ export abstract class ToolController {
     st.select(null)
     this.ctx.scene()?.setModulePreview(null)
     this.ctx.scene()?.setCollisionHighlight(null)
-    st.setNotice(`已拆掉${moduleLabel(mod)}`)
+    st.setNotice(msg('removed_value', moduleLabel(mod)))
   }
 
   /**
@@ -81,6 +82,6 @@ export abstract class ToolController {
     }
     const mod = moduleAt(st.station.modules, cell[0], cell[1], cell[2], facing)
     if (mod) this.removePlacedModule(mod)
-    else st.setNotice('这里没有可拆的东西')
+    else st.setNotice(msg('nothing_to_remove_here'))
   }
 }

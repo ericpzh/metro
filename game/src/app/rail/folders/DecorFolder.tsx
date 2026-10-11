@@ -1,3 +1,4 @@
+import { useLanguage } from '../../i18n.ts'
 // The 装饰 folder body (§5.4 decor palette).
 //
 // A thin wrapper: the grid itself — the folder's tiles in rail order, the plain ones and
@@ -11,5 +12,6 @@ import { TileGrid } from '../shared/TileGrid.tsx'
 import type { SubMenuKey } from '../helpers.ts'
 
 export function DecorFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey | null; onToggleSubMenu: (k: SubMenuKey) => void }): React.ReactElement {
+  useLanguage()
   return <TileGrid folder="decor" subMenu={subMenu} onToggleSubMenu={onToggleSubMenu} />
 }

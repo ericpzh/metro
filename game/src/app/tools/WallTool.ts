@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The 墙 tool: press to anchor a full-height wall column, drag for a straight
 // 90° run, right-drag to lift the same run back out. Moved verbatim from
 // app/Viewport.tsx (GAME-SPEC §4). This controller also owns the release of the
@@ -128,11 +129,11 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       // Name the conflict the red boxes showed — the piece, the corridor, the
       // rail bed — from the same preview the ghost drew.
       if (blocked > 0) st.setNotice(previewNotice(st.station, check))
-      else if (changed === 0) st.setNotice('这里放不下墙：已经有墙了')
+      else if (changed === 0) st.setNotice(msg('cannot_place_a_wall_here_a_wall_already_exists'))
     } else {
       const remove = wallColumnsAt(st.station, line)
       if (remove.length === 0) {
-        st.setNotice('这里没有可拆的墙')
+        st.setNotice(msg('no_wall_to_remove_here'))
         return
       }
       st.commit(removeCells(st.station, remove))

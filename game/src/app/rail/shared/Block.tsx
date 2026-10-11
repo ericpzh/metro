@@ -1,3 +1,5 @@
+import { translate } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // The rail's square tile button (§5 build-rail chrome).
 //
 // Art is one of four, in that order of preference: the real model thumbnail, a caller's
@@ -53,6 +55,7 @@ interface BlockProps {
 }
 
 export function Block({ label, active, onClick, thumb, art, icon, tone, submenu, shortcut, disabled, tile }: BlockProps): React.ReactElement {
+  useLanguage()
   return (
     <button
       type="button"
@@ -65,7 +68,7 @@ export function Block({ label, active, onClick, thumb, art, icon, tone, submenu,
     >
       {shortcut ? (
         <span className="bpKey" aria-hidden="true">
-          {shortcut}
+          {translate(shortcut)}
         </span>
       ) : null}
       <span className="bpBlockArt">
@@ -85,7 +88,7 @@ export function Block({ label, active, onClick, thumb, art, icon, tone, submenu,
         ) : null}
         {submenu !== undefined ? <span className={submenu ? 'bpCaret on' : 'bpCaret'} aria-hidden="true" /> : null}
       </span>
-      <span className="bpBlockLabel">{label}</span>
+      <span className="bpBlockLabel">{translate(label)}</span>
     </button>
   )
 }

@@ -2,6 +2,9 @@ import { createRoot } from 'react-dom/client'
 import { MobileNotice } from './app/MobileNotice.tsx'
 import { isMobileMode } from './app/mobile.ts'
 import './styles.css'
+import { initLanguage } from './app/i18n.ts'
+
+initLanguage()
 
 const root = createRoot(document.getElementById('root') as HTMLElement)
 

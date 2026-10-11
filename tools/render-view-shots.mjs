@@ -1,6 +1,6 @@
 // Photographs the demo station from each of the game's own views.
 //
-//   node tools/render-view-shots.mjs [--out .preview/view-shots] [--scale 2] [--port 4198]
+//   node tools/render-view-shots.mjs [--out .preview/view-shots] [--lang en] [--scale 2] [--port 4198]
 //
 // Sheet 09 is about the camera, and the only honest way to draw what a view looks
 // like is to let the game take it: this boots the built game — which loads the
@@ -21,7 +21,7 @@
 // clear colour, so each card is the station rather than the stage.
 
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 
@@ -33,7 +33,11 @@ const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`)
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback
 }
-const outDir = resolve(repo, arg('out', join('.preview', 'view-shots')))
+const language = arg('lang', 'zh-CN')
+if (!['zh-CN', 'en'].includes(language)) throw new Error('--lang must be zh-CN or en')
+const outDir = resolve(repo, arg('out', join('.preview', language === 'en' ? 'view-shots-en' : 'view-shots')))
+const outputRelative = relative(repo, outDir)
+if (!outputRelative || outputRelative.startsWith('..') || isAbsolute(outputRelative)) throw new Error('capture output must be inside the workspace')
 const scale = Number(arg('scale', 1))
 /**
  * The widest pixel frame kept for a card, in image pixels. A card shows its view
@@ -115,7 +119,7 @@ const VIEWS = [
 
 const server = await serveDir(DIST, PORT)
 const session = await withPage({
-  url: `http://127.0.0.1:${PORT}/`,
+  url: `http://127.0.0.1:${PORT}/${language === 'en' ? 'en' : ''}`,
   profile: join(repo, '.preview', `.chrome-view-shots-${process.pid}`),
   debugPort: DEBUG_PORT,
   windowSize: `${WIDTH},${HEIGHT}`,
@@ -637,7 +641,7 @@ try {
   rmSync(outDir, { recursive: true, force: true })
   mkdirSync(outDir, { recursive: true })
 
-  const index = { width: 0, height: 0, views: [] }
+  const index = { language, width: 0, height: 0, views: [] }
   let first = null
 
   for (const view of VIEWS) {

@@ -1,3 +1,5 @@
+import { msg, translate, t } from '../../../sim/i18n.ts'
+import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — one card per line
 // (plan.md R3). The per-line fold (Disclosure + LineFields + rolling-stock /
 // power / 屏蔽门 / load controls) previously lived inline in Inspector()'s
@@ -13,6 +15,7 @@ import { Disclosure } from '../shared/Disclosure.tsx'
  * commit rebuilds the worker's station, so typing should not spam it.
  */
 function LineFields({ line }: { line: LineDef }): React.ReactElement {
+  useLanguage()
   const updateLine = useStore((s) => s.updateLine)
   const removeLine = useStore((s) => s.removeLine)
   const [name, setName] = useState(line.name)
@@ -57,8 +60,8 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
           className="lineNameInput"
           value={name}
           maxLength={16}
-          placeholder="线路名"
-          aria-label="线路名"
+          placeholder={t('line_name')}
+          aria-label={t('line_name')}
           onChange={(e) => setName(e.target.value)}
           onBlur={commitName}
           onKeyDown={(e) => {
@@ -73,14 +76,14 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
           type="color"
           className="lineColourInput"
           value={colour}
-          aria-label="线路颜色"
+          aria-label={t('line_colour')}
           onChange={(e) => setColour(e.target.value)}
           onBlur={commitColour}
         />
         <button
           type="button"
           className="lineDeleteBtn"
-          aria-label="删除线路"
+          aria-label={t('delete_line')}
           onClick={() => removeLine(line.id)}
         >
           <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -89,7 +92,7 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
         </button>
       </div>
       <label className="field">
-        <span>上行终点</span>
+        <span>{t('up_terminus')}</span>
         <input
           className="lineNameInput"
           value={upTerminus}
@@ -100,7 +103,7 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
         />
       </label>
       <label className="field">
-        <span>下行终点</span>
+        <span>{t('down_terminus')}</span>
         <input
           className="lineNameInput"
           value={downTerminus}
@@ -115,6 +118,7 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
 }
 
 export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolean; onToggle: () => void }): React.ReactElement {
+  useLanguage()
   const updateLine = useStore((s) => s.updateLine)
   // The slider is per car; the readout is the whole train. So the shown
   // 载客量 is a function of both 编组 and the per-car load, and 人/时 folds
@@ -128,8 +132,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
       head={
         <span className="kv">
           <b>
-            <i className="swatch" style={{ background: line.colour }} /> {line.name} · {line.stock}型{line.cars}节
-          </b>
+            <i className="swatch" style={{ background: line.colour }} /> {line.name} · {t('train_formation', line.stock, line.cars)}</b>
         </span>
       }
       open={open}
@@ -137,52 +140,50 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
     >
       <LineFields line={line} />
       <div className="row">
-        <span className="muted small">车型</span>
+        <span className="muted small">{t('train_type')}</span>
         {STOCK_CLASSES.map((s) => (
           <button key={s} className={line.stock === s ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { stock: s })}>
-            {s}型
-          </button>
+            {t('type_value', s)}</button>
         ))}
       </div>
       <label className="field">
-        <span>编组 {line.cars} 节</span>
+        <span>{t('formation')}{' '}{translate(line.cars)} {' '}{t('cars')}</span>
         <input type="range" min={1} max={8} step={1} value={line.cars} onChange={(e) => updateLine(line.id, { cars: Number(e.target.value) })} />
       </label>
       <div className="row">
-        <span className="muted small">供电</span>
+        <span className="muted small">{t('power')}</span>
         {(['third-rail', 'catenary'] as const).map((p) => (
           <button
             key={p}
             className={line.power === p ? 'chip on' : 'chip'}
             onClick={() => updateLine(line.id, { power: p })}
           >
-            {p === 'third-rail' ? '第三轨' : '接触网'}
+            {translate(p === 'third-rail' ? msg('third_rail') : msg('overhead_wire'))}
           </button>
         ))}
       </div>
       <div className="row">
-        <span className="muted small">屏蔽门</span>
+        <span className="muted small">{t('screen_doors')}</span>
         {(['full', 'half'] as const).map((p) => (
           <button
             key={p}
             className={(line.psd ?? 'full') === p ? 'chip on' : 'chip'}
             onClick={() => updateLine(line.id, { psd: p })}
           >
-            {p === 'full' ? '全高' : '半高'}
+            {translate(p === 'full' ? msg('full_height') : msg('half_height'))}
           </button>
         ))}
       </div>
       <label className="field">
         <span>
-          {line.alightPerTrain} 人/列 · {perHour.toLocaleString()} 人/时
-        </span>
+          {translate(line.alightPerTrain)} {' '}{t('people_train')}{' '}{translate(perHour.toLocaleString())} {t('people_h')}</span>
         <input
           type="range"
           min={0}
           max={400}
           step={10}
           value={perCar}
-          aria-label="每节载客量"
+          aria-label={t('capacity_per_car')}
           onChange={(e) => updateLine(line.id, { alightPerTrain: Number(e.target.value) * line.cars })}
         />
       </label>

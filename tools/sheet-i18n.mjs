@@ -13,6 +13,11 @@
 // and the element's font-size is pulled down to fit. Keep translations terse:
 // most labels sit in fixed boxes drawn for Chinese, and English is wider.
 // `node tools/sheet-png.mjs <nn>` rasterises a sheet so the fit can be looked at.
+import { messages } from '../game/src/sim/i18n/messages.ts';
+
+// Exact UI labels always use the game's bilingual catalog. Sheet-only prose and
+// font sizes stay here because their layout belongs to the drawing.
+const GAME_EN = new Map(Object.values(messages).filter(v => !v.zh.includes('{')).map(v => [v.zh, v.en]));
 const EN = {
   '人/时': 'people/h',
   '支柱': 'Pillar',
@@ -20,7 +25,7 @@ const EN = {
   '车站屋顶': 'Station roof',
   '薄顶棚，材质可涂刷': 'Thin canopy; paint its finish',
   '4 × 4 格': '4 × 4 cells',
-  '纵向桁架顶棚，4/8/12 m，可涂刷': { t: 'Truss canopy; 4/8/12 m; paintable', size: 11 },
+  '纵向桁架顶棚，4 / 8 / 12 m，可涂刷': { t: 'Truss canopy; 4/8/12 m; paintable', size: 11 },
   '轨道': 'Track',
   '12 × 3 格': '12 × 3 cells',
   '开放轨道桥，延伸线路': 'Open viaduct; extend the line',
@@ -57,7 +62,7 @@ const EN = {
   '货架': 'Shelves',
   '自动售货机': 'Vending machines',
   '广告': 'Ads',
-  'B1   水泥站厅': 'B1   Concrete concourse',
+  'B1   混凝土站厅': 'B1   Concrete concourse',
   '横断面 · 屏蔽门立在两侧站台边缘': 'Cross-section · screen doors on both platform edges',
   '+8 米': '+8 m',
   '0 米': '0 m',
@@ -82,7 +87,7 @@ const EN = {
   '半墙与斜块，让角落和边界更灵活。': 'Half-walls and wedges free up corners and edges.',
   '地面、墙面、天花板材质': 'Floor, wall and ceiling finishes',
   '花岗岩': 'Granite',
-  '水泥': 'Concrete',
+  '混凝土': 'Concrete',
   '地砖': 'Floor tiles',
   '轨道床': 'Track bed',
   '覆土': 'Soil cover',
@@ -101,13 +106,12 @@ const EN = {
   '进出各 25 人/分': '25/min each way',
   '围栏': 'Fences',
   '玻璃围栏': 'Glass barriers',
-  '不通行，只围边界': 'Blocks passage, bounds areas',
+  '仅作边界，不可通行': 'Blocks passage, bounds areas',
   '售票机': 'Ticket machines',
-  '1.5 张/分，队伍排这儿': '1.5 tickets/min — queues here',
-  '自动贩卖机': 'Vending machines',
+  '1.5 张/分，在此排队': '1.5 tickets/min — queues here',
   '吸引乘客停留': 'Draws lingering passengers',
   '3 × 8 格': '3 × 8 cells',
-  '每个出口单独设流量': 'Flow set per exit',
+  '每个出入口单独设客流': 'Flow set per exit',
   '扶梯': 'Escalators',
   '1 × 7 格': '1 × 7 cells',
   '单向，75 人/分': 'One-way, 75/min',
@@ -117,7 +121,7 @@ const EN = {
   '上 25 / 下 33 人/分': 'Up 25 / down 33 per min',
   '座椅': 'Seats',
   '舒适度，可坐 1 人': 'Comfort, seats 1',
-  '商铺货架，聚人': 'Shop shelves draw crowds',
+  '商铺货架，吸引客流': 'Shop shelves draw crowds',
   '办公桌': 'Desks',
   '收银台': 'Checkout counters',
   '办公位，吸引职员': 'Workspaces draw staff',
@@ -126,11 +130,11 @@ const EN = {
   '空调风机': 'Air conditioning units',
   '设备柜': 'Equipment cabinets',
   '玻璃幕墙': 'Glass curtain walls',
-  '隔断，看得见走不过': 'Transparent partitions block passage',
+  '透明隔断，可透视不可通行': 'Transparent partitions block passage',
   '监控': 'CCTV',
   '监控，无通行': 'Station surveillance',
   '线网图': 'Network maps',
-  '线网图，指路': 'Maps for wayfinding',
+  '线网图，用于导向': 'Maps for wayfinding',
   '3 × 2 格': '3 × 2 cells',
   '3 × 1 格': '3 × 1 cells',
   '2 × 1 格': '2 × 1 cells',
@@ -138,15 +142,15 @@ const EN = {
   '装点车站': 'Dresses the station',
   '灭火器': 'Fire extinguishers',
   '时钟': 'Clocks',
-  '全站时间参照': 'Station-wide time reference',
+  '全站时间基准': 'Station-wide time reference',
   '广告牌': 'Billboards',
-  '把人往商铺那边引': 'Pulls people toward the shops',
+  '引导客流前往商铺': 'Pulls people toward the shops',
   '电视': 'TVs',
   '显示信息': 'Shows information',
   '指示牌': 'Signs',
-  '导向，吊在头顶': 'Wayfinding, hung overhead',
+  '导向，吊挂': 'Wayfinding, hung overhead',
   '门': 'Doors',
-  '1.2 人/秒，关上挡路': '1.2 people/s; closed doors block',
+  '1.2 人/秒，关闭时阻断通行': '1.2 people/s; closed doors block',
   // 05 — trains and track
   '选列车，也在选站台的规模': 'Picking trains picks platform scale too',
   '四种车型按同一比例展示。编组越长，载客越多，也需要更长的站台。': 'All four types at one scale. Longer consists carry more — and need longer platforms.',
@@ -173,7 +177,7 @@ const EN = {
   '拖动时间边界，改变高峰持续多久。': 'Drag the time edges to stretch the peaks.',
   '用下方滑块调整客流的强弱。': 'Use the sliders below for crowd strength.',
   '2  换一天试试': '2  Try another day',
-  '选择工作日、周末或节假日，': 'Pick a workday, weekend or holiday,',
+  '选择工作日、周末或节假日，': 'Pick a weekday, weekend or holiday,',
   '观察不同日子的客流压力。': "and feel each day's pressure.",
   '3  决定从哪里进站': '3  Choose where they enter',
   '每个出入口都能单独设置流量。': 'Every entrance sets its own flow.',
@@ -185,7 +189,7 @@ const EN = {
   '1  建造': '1  Build',
   '选择方块和设备，逐层搭出车站。': 'Pick blocks and kit, raise the station floor by floor.',
   '2  调整': '2  Tune',
-  '在信息栏设置出入口、线路和客流。': 'Set entrances, lines and demand in the info panel.',
+  '在信息栏设置出入口、线路和客流。': 'Set entrances, lines and demand in the Inspector.',
   '3  观察': '3  Watch',
   '运行后看排队与滞留，再回到工地修改。': 'Run it, read queues and stranded, go back and rebuild.',
   // 09 — camera and views
@@ -275,17 +279,17 @@ const EN_ATTR = {
   '波形陡峭度': 'Peak width',
   '开站时间': 'Opens',
   '关站时间': 'Closes',
-  '早高峰开始': 'AM peak starts',
-  '早高峰结束': 'AM peak ends',
-  '晚高峰开始': 'PM peak starts',
-  '晚高峰结束': 'PM peak ends',
+  '早高峰开始': messages.value_peak_starts.en.replace('{0}', messages.morning.en),
+  '早高峰结束': messages.value_peak_ends.en.replace('{0}', messages.morning.en),
+  '晚高峰开始': messages.value_peak_starts.en.replace('{0}', messages.evening.en),
+  '晚高峰结束': messages.value_peak_ends.en.replace('{0}', messages.evening.en),
 };
 
 // Sheet 06's live readout rebuilds its line from these literals while dragging.
 const EN_SCRIPT = {
-  '营业 ': 'Open ',
-  '早高峰 ': 'AM peak ',
-  '晚高峰 ': 'PM peak ',
+  '营业 ': messages.service.en + ' ',
+  '早高峰 ': messages.morning_peak.en + ' ',
+  '晚高峰 ': messages.evening_peak.en + ' ',
 };
 
 const CJK = /[㐀-䶿一-鿿豈-﫿]+/;
@@ -306,8 +310,9 @@ export function toEnglish(svg) {
     const patch = {};
     let next = inner;
     if (CJK.test(inner)) {
-      if (Object.hasOwn(EN, inner)) {
-        const v = EN[inner];
+      if ((Object.hasOwn(EN, inner) || GAME_EN.has(inner))) {
+        const local = EN[inner];
+        const v = GAME_EN.has(inner) ? (typeof local === 'object' ? { ...local, t: GAME_EN.get(inner) } : GAME_EN.get(inner)) : local;
         if (typeof v === 'string') next = esc(v);
         else {
           next = esc(v.t);
@@ -315,8 +320,9 @@ export function toEnglish(svg) {
         }
       } else {
         const t = inner.trim();
-        if (Object.hasOwn(EN, t)) {
-          const v = EN[t];
+        if ((Object.hasOwn(EN, t) || GAME_EN.has(t))) {
+          const local = EN[t];
+          const v = GAME_EN.has(t) ? (typeof local === 'object' ? { ...local, t: GAME_EN.get(t) } : GAME_EN.get(t)) : local;
           const body = esc(typeof v === 'string' ? v : v.t);
           if (typeof v !== 'string') patch.size = v.size;
           const i = inner.indexOf(t);
@@ -335,14 +341,14 @@ export function toEnglish(svg) {
   });
   // aria-labels on the interactive handles.
   out = out.replace(/aria-label="([^"]*)"/g, (m, v) =>
-    CJK.test(v) && Object.hasOwn(EN_ATTR, v) ? `aria-label="${esc(EN_ATTR[v])}"` : (CJK.test(v) && missing.add(`aria:${v}`), m),
+    CJK.test(v) && (GAME_EN.has(v) || Object.hasOwn(EN_ATTR, v)) ? `aria-label="${esc(GAME_EN.get(v) ?? EN_ATTR[v])}"` : (CJK.test(v) && missing.add(`aria:${v}`), m),
   );
   // Script literals the live readout rebuilds from (longest first).
   for (const k of Object.keys(EN_SCRIPT).sort((a, b) => b.length - a.length)) {
     out = out.split(k).join(EN_SCRIPT[k]);
   }
   // Anything Chinese left is either a gap or a false friend — report it.
-  for (const m of out.matchAll(/<text\b[^>]*>([^<]*)<\/text>/g)) {
+  for (const m of out.matchAll(/<text\b[^>]*>([^<]*)/g)) {
     if (CJK.test(m[1]) && !Object.hasOwn(EN, m[1].trim())) missing.add(m[1]);
   }
   return { svg: out, missing: [...missing] };
@@ -351,7 +357,7 @@ export function toEnglish(svg) {
 /** Every Chinese string across the built sheets, for coverage checks. */
 export function auditZh(svg) {
   const found = new Set();
-  for (const m of svg.matchAll(/<text\b[^>]*>([^<]*)<\/text>/g)) {
+  for (const m of svg.matchAll(/<text\b[^>]*>([^<]*)/g)) {
     if (CJK.test(m[1])) found.add(m[1].trim());
   }
   for (const m of svg.matchAll(/aria-label="([^"]*)"/g)) {

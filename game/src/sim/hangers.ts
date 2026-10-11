@@ -1,3 +1,4 @@
+import { msg } from './i18n.ts'
 // Steel hanging supports, GAME-SPEC §5.7–5.8. Shared placement/model dimensions.
 import { rotateLocal, trackCells } from './track.ts'
 import { TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, trussRoofRidge } from './structures.ts'
@@ -12,7 +13,7 @@ export const HANGER_BAR_DEPTH = 0.2
 export const HANGER_POST_WIDTH = 0.18
 // The post meets the rear of the bar, leaving the hanging panels clear of its shaft.
 export const HANGER_POST_OFFSET = 0.17
-export const HANGER_LENGTH_LABELS = ['短', '中', '长'] as const
+export const HANGER_LENGTH_LABELS = [msg('short'), msg('medium'), msg('long')] as const
 
 export function hangerCells(m: HangerModule): Array<[number, number]> {
   return Array.from({ length: m.w }, (_, i) => {

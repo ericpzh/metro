@@ -1,4 +1,4 @@
-// Vending machines (自动贩卖机, GAME-SPEC §7.4a): a drinks machine that behaves
+// Vending machines (自动售货机, GAME-SPEC §7.4a): a drinks machine that behaves
 // like a ticket machine — the same 1 × 1 m equipment footprint, the same stop
 // rate in the unpaid zone — with a different cabinet model.
 import test from 'node:test'
@@ -42,7 +42,7 @@ test('the graph makes a vending machine an unpaid-zone stop at the TVM rate', ()
   const server = g.servers.find((s) => s.kind === 'stop' && s.node === vs.node)
   assert.ok(server, 'no stop server')
   assert.equal(server.rate, TVM_RATE)
-  assert.equal(server.label, '自动贩卖机')
+  assert.equal(server.label, '自动售货机')
   assert.ok(g.stops.some((s) => s.kind === 'tvm'), 'the TVM stop went missing')
 })
 

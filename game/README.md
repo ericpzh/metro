@@ -1512,7 +1512,7 @@ when a run is deleted — the 方块 tool may fill it, since it is no longer a r
 structural pieces — a 电梯 (its shaft is grown a storey at a time, and `LIFT_EXTEND` never asks for floor,
 so no single verdict can say where a moved one lands), rooms and 轨道 / 站台门 — are refused, by the same
 rule that keeps 删除 from sweeping one: the card's button stays disabled, and the reason is a line of text
-under it (`整件结构不能移动：用删除 (B) 拆掉再放`), because a control the
+under it (`整件结构不能移动：用删除 (B) 拆除后重新放置`), because a control the
 player cannot use is no place to hide why. Switching tools mid-lift puts the
 piece back, because a lift is not a mode to be lost in. See `test/move.test.mjs`.
 
@@ -2349,9 +2349,9 @@ approximated); neither needs WebGL.
   its wall and never through it — a doorway whose members were only *moved* into the turn (the old
   `turnedDoorFrame`) had its run and depth swapped on the two x-sides and stood its head and leaves
   0.43 m outside the building, which no south-wall test could see.
-* `vending.test.mjs` — the 自动贩卖机 (§7.4a): the factory builds it with the hover rotation, its
+* `vending.test.mjs` — the 自动售货机 (§7.4a): the factory builds it with the hover rotation, its
   1 × 1 m envelope is identical to a TVM's (so the two block each other), and `buildGraph` gives it
-  the same unpaid-zone `stop` server and rate as a ticket machine under the 自动贩卖机 label.
+  the same unpaid-zone `stop` server and rate as a ticket machine under the 自动售货机 label.
 * `bench.test.mjs` — the 座椅 variants (§5.7): the table offers two families (stainless with no back,
   backed seat) at two widths; the factory builds each with the hover rotation and a legacy bench is
   the 1 m stainless piece; a 2 m bench covers two cells in its own direction (and quarter-turned),
@@ -3090,3 +3090,13 @@ and only uploads a texture when its printed information changes.
 `gate-door` also checks the 新/旧 turnstiles: slim cabinets, smaller opposing leaves retracting left and right, approach arrows and red crosses on fence-only machines, legacy/save compatibility and separate variant sweeps. `pick-tool` checks copying and cancelling 新/旧 choices.
 
 `gate-door` pins the curved fan leaves (long top, short bottom) and the old gate's longer sloping fascia, flush reader sticker and absence of red/green reader lamps.
+
+### Game language
+
+The game supports 简体中文 and English. `/en/` (including `/metro-game/en/`) opens the English game; the language button beside restart switches either route without replacing the station or restarting the simulation. Each route remembers its selected language locally. Authored station names, line names, termini, sign documents and supplied poster/map artwork remain station content.
+
+All built-in copy lives in `src/sim/i18n/messages.ts`. Use `t(key, ...args)` in subscribed React views and renderers, `msg(key, ...args)` for canonical data and stored errors, and `translate(value)` where those values reach the UI. `useLanguage()` refreshes mounted views; the locale stays out of saves and worker messages.
+
+In English mode, station fields are labelled Primary name / Secondary name and sign fields Primary text / Secondary text. Their authored contents and order stay intact. Clock rows and longer labels wrap within their panels, and the demand chart reserves a gutter for translated units and counts.
+
+`i18n.test.mjs` pins both catalogues, interpolation, existing-notice language switching, canonical simulation labels, and root/prefixed English-route asset resolution.

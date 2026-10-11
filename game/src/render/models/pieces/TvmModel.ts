@@ -1,3 +1,4 @@
+import { t } from '../../../sim/i18n.ts'
 // Ticket vending machine (售票机) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
@@ -18,7 +19,7 @@ function signCanvas(): HTMLCanvasElement {
   g.strokeRect(40, 6, 56, 52)
   g.fillStyle = '#e8b23a'
   g.font = 'bold 30px "Microsoft YaHei", sans-serif'
-  g.fillText('车票', 48, 46)
+  g.fillText(t('tickets'), 48, 46)
   g.fillStyle = '#eef1f4'
   g.font = 'bold 22px sans-serif'
   g.fillText('Ticket', 118, 42)

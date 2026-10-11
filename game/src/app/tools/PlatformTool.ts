@@ -1,3 +1,4 @@
+import { msg } from '../../sim/i18n.ts'
 // The 站台 rail tool: click drops the whole pre-sized track module for the bound
 // line (R turns it), right-click removes one. Moved verbatim from
 // app/Viewport.tsx (GAME-SPEC §7: 站台/隧道 rail tools).
@@ -25,7 +26,7 @@ export class PlatformTool extends ToolController {
         st.removeRail(rail.id)
         st.select(null)
       } else {
-        st.setNotice('这里没有可拆的轨道')
+        st.setNotice(msg('no_track_to_remove_here'))
       }
       return
     }
@@ -33,7 +34,7 @@ export class PlatformTool extends ToolController {
     // pre-sized module (R turns it), a right-click removes one. Pressing void
     // is a `floor` refusal, not silence.
     if (!hit.solid) {
-      st.setNotice('站台轨道要铺在整片地面上（至少三格宽）')
+      st.setNotice(msg('platform_track_needs_a_solid_floor_at_least_three_cells_wide'))
       return
     }
     info.preventDefault()

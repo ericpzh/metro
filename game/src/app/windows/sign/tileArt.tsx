@@ -1,3 +1,4 @@
+import { useLanguage } from '../../i18n.ts'
 // 指示牌 editor (§5.8) — the tile pictures. Every tile is a photograph of the mark it
 // makes, drawn by the sign's own renderer onto a canvas, so the palette, the bins and the
 // mark in the air are all the same picture at different sizes. No state, no drag logic.
@@ -62,6 +63,7 @@ export function useTileArt(mark: SignComponent, lines: readonly LineDef[], ready
 
 /** One mark, as the picture a tile shows. */
 export function MarkArt({ mark, lines, ready }: { mark: SignComponent; lines: readonly LineDef[]; ready: boolean }): React.ReactElement | null {
+  useLanguage()
   const url = useTileArt(mark, lines, ready)
   return url ? <img src={url} alt="" draggable={false} /> : null
 }
