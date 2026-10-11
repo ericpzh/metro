@@ -22,13 +22,13 @@
 //
 // Pure data — no three, no DOM, no store.
 
-import { blockReason, equipmentReason, placementColliders } from '../sim/placement.ts'
+import { blockReason, blockerLabels, equipmentReason, equipmentRefusalNotice, placementColliders } from '../sim/placement.ts'
 import type { BlockRefusal, EquipmentRefusal } from '../sim/placement.ts'
 import { virtualSolidAt } from '../sim/ground.ts'
 import type { Cell, Module } from '../sim/types.ts'
 
 export type { BlockRefusal, EquipmentRefusal }
-export { blockReason, equipmentReason, equipmentRefusalNotice } from '../sim/placement.ts'
+export { blockReason, blockerLabels, equipmentReason, equipmentRefusalNotice } from '../sim/placement.ts'
 
 /** The part of a station a placement decision reads. */
 export interface PlacementDoc {
@@ -145,16 +145,53 @@ export function dominantRefusal(preview: PlacementPreview): BlockRefusal | Equip
   return best as BlockRefusal | EquipmentRefusal | ''
 }
 
-/** A refused **block**, in the words the notice bar uses. */
-export function blockRefusalNotice(reason: BlockRefusal | EquipmentRefusal | ''): string {
-  switch (reason) {
-    case 'opening':
-      return '预留开口要留空：楼梯、扶梯和出入口的地板不能用方块盖住'
-    case 'equipment':
-      return '这格已经有设备了，方块放不下：先挪开或拆掉它'
-    case 'track':
-      return '轨道上不能铺方块'
-    default:
-      return '这一格放不下方块'
+/** A refused **block**, in the words the notice bar uses.
+ *
+ * `blockers` names the pieces standing in the way, so an `equipment` refusal
+ * says which conflict it is (`被闸机挡住了`) rather than only saying the cell
+ * is held. Kept verbatim without blockers so the reason stays searchable. */
+export function blockRefusalNotice(reason: BlockRefusal | EquipmentRefusal | '', blockers: readonly Module[] = []): string {
+  const base = (() => {
+    switch (reason) {
+      case 'opening':
+        return '预留开口要留空：楼梯、扶梯和出入口的地板不能用方块盖住'
+      case 'equipment':
+        return '这格已经有设备了，方块放不下：先挪开或拆掉它'
+      case 'track':
+        return '轨道上不能铺方块'
+      default:
+        return '这一格放不下方块'
+    }
+  })()
+  if (reason !== 'equipment' || blockers.length === 0) return base
+  return `${base}：被${blockerLabels(blockers)}挡住了`
+}
+
+/**
+ * The placed pieces a refused preview names: `colliderIds` resolved back to
+ * modules, in document order. The ghost already boxes these ids in red; the
+ * notice prints their names beside it, so the two read as one answer.
+ */
+export function previewBlockers(station: PlacementDoc, preview: PlacementPreview): Module[] {
+  const out: Module[] = []
+  for (const id of preview.colliderIds) {
+    const m = station.modules.find((mod) => mod.id === id)
+    if (m && !out.includes(m)) out.push(m)
   }
+  return out
+}
+
+/**
+ * One notice line for a whole refused preview: the dominant reason, with the
+ * offending pieces named. A block drag that meets a 闸机 says the 闸机; an
+ * equipment run says the same through its own `equipmentRefusalNotice`.
+ */
+export function previewNotice(station: PlacementDoc, preview: PlacementPreview): string {
+  const reason = dominantRefusal(preview)
+  if (reason === '') return ''
+  const blockers = previewBlockers(station, preview)
+  // Block-only reasons (and the block-side `equipment`) read from the block
+  // table; every other equipment reason reads from its own.
+  if (reason === 'opening' || reason === 'track' || reason === 'equipment') return blockRefusalNotice(reason, blockers)
+  return equipmentRefusalNotice(reason as EquipmentRefusal, blockers)
 }

@@ -24,12 +24,18 @@ export class PlatformTool extends ToolController {
       if (rail) {
         st.removeRail(rail.id)
         st.select(null)
+      } else {
+        st.setNotice('这里没有可拆的轨道')
       }
       return
     }
     // A track piece sits on floor like equipment: a click drops the whole
-    // pre-sized module (R turns it), a right-click removes one.
-    if (!hit.solid) return
+    // pre-sized module (R turns it), a right-click removes one. Pressing void
+    // is a `floor` refusal, not silence.
+    if (!hit.solid) {
+      st.setNotice('站台轨道要铺在整片地面上（至少三格宽）')
+      return
+    }
     info.preventDefault()
     st.layTrack(hit.cell)
   }

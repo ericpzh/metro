@@ -266,7 +266,7 @@ export function isSignType(type: string): boolean {
  * stands on a floor tile like a 货架 and the tool resolves it from the ground.
  */
 export function isWallMountedType(type: string): boolean {
-  return isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || type === 'sign-wall' || (isLineMapType(type) && type !== 'linemap-stand')
+  return isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || type === 'sign-wall' || type.startsWith('exit-doorway-') || (isLineMapType(type) && type !== 'linemap-stand')
 }
 
 /** True for the fence piece, which drags out a run like the wall tool. */

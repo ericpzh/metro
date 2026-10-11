@@ -2522,6 +2522,7 @@ approximated); neither needs WebGL.
   `render/adArt.ts` is stubbed here rather than imported: it resolves its JPEGs through Vite's
   `import.meta.glob`, which plain Node has no implementation of, and nothing under test lives there.
 * `module-build.test.mjs` — enclosed stainless double bins, inward-facing hopper walls and recessed wells in all four rotations;
+  the 地面 X向 exit header fills its full canvas red and keeps fixed-size text as wider bays add spacing;
   full-height platform doors at 150% of car door width, closure across all stock classes and both
   platform sides, including vinyl that travels with each leaf; every piece the station can draw,
   built through the real dispatcher and
@@ -2583,6 +2584,7 @@ approximated); neither needs WebGL.
   it, and the setting survives a detour through another folder on the left rail.
 * `tool-shortcuts.test.mjs` — B 删除, P 吸取 and M 移动 toggle back to the tool that was active
   before the mode; changing tools records the previous one, and each shortcut cancels its own mode.
+* `tool-hover-preview.test.mjs` — 移动, 吸取 and 选择 tint the equipment under the pointer blue; 删除 uses the red bulldozer preview.
 * `pick-tool.test.mjs` — the 工具 folder's **吸取** (`app/tools/PickTool.ts`, `P`): clicking a placed
   piece arms the placement with its exact palette variant — a 2 m backed 座椅, a 六 format 广告牌, a
   right-双跑 楼梯, a 木 双开 门, or either 桁架屋顶 style at its placed width — and copies its turn, 扶梯 direction and 闸机 door, selects the instance

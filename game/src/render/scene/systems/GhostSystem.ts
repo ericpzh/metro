@@ -32,9 +32,9 @@ import type { ClockSystem } from './ClockSystem.ts'
 const GHOST_MAX = 4096
 
 /** Hue the module hover ghost fades toward, matching the placement cursor. */
-const MODULE_GHOST_TINT = new THREE.Color(0x7fe4ff)
+const MODULE_GHOST_TINT = new THREE.Color(0x168cff)
 /** Hue the ghost turns when the placement would collide with existing equipment. */
-const MODULE_GHOST_BAD = new THREE.Color(0xff5d5d)
+const MODULE_GHOST_BAD = new THREE.Color(0xff3030)
 
 /** Outward normal of each face, in cell units; also the paint plane's axis. */
 const FACE_NORMAL: Record<Face, [number, number, number]> = {
@@ -438,9 +438,9 @@ export class GhostSystem extends SceneSystem {
    * model is built through the same factory as a placed module and then every
    * surface is swapped for a faded clone; passing `null` clears it.
    */
-  setModulePreview(mod: Module | readonly Module[] | null, blocked = false): void {
+  setModulePreview(mod: Module | readonly Module[] | null, blocked = false, tintOverride?: number): void {
     const mods = mod ? (Array.isArray(mod) ? mod : [mod]) : []
-    const key = mods.length === 0 ? '' : `${mods.map(moduleGhostKey).join('|')}:${blocked ? 'x' : '-'}`
+    const key = mods.length === 0 ? '' : `${mods.map(moduleGhostKey).join('|')}:${blocked ? 'x' : '-'}:${tintOverride ?? ''}`
     if (key === this.previewKey) return
     this.clearModulePreview()
     this.previewKey = key
@@ -463,7 +463,7 @@ export class GhostSystem extends SceneSystem {
       lineMapFace: (id, panel) => this.plates.makeLineMapPlate(id, panel),
       owned: this.previewOwnedMats,
     }
-    const tint = blocked ? MODULE_GHOST_BAD : MODULE_GHOST_TINT
+    const tint = blocked ? MODULE_GHOST_BAD : tintOverride === undefined ? MODULE_GHOST_TINT : new THREE.Color(tintOverride)
     for (const piece of mods) {
       const group = buildModule(piece, ctx)
       if (!group) continue
@@ -473,7 +473,7 @@ export class GhostSystem extends SceneSystem {
       // with the ghost.
       const rig = group.userData.clockRig as ClockRig | undefined
       if (rig) this.clocks.previewRigs.push(rig)
-      this.tintModuleGhost(group, piece, tint, 0.45, this.previewMats, this.previewBases, (m) => this.sceneOwns(m))
+      this.tintModuleGhost(group, piece, tint, 0.72, this.previewMats, this.previewBases, (m) => this.sceneOwns(m))
       this.previewGroup.add(group)
     }
     this.previewGroup.visible = true
@@ -547,7 +547,7 @@ export class GhostSystem extends SceneSystem {
         // A track bed lives *inside* the floor block until it is dug, so its ghost
         // must ignore depth or the block hides it entirely.
         if (mod.type === 'track') any.depthTest = false
-        if (tint && any.color) any.color = any.color.clone().lerp(tint, 0.4)
+        if (tint && any.color) any.color = any.color.clone().lerp(tint, 0.72)
         ghostOf.set(base, ghost)
         owned.push(ghost)
         // A factory material may be shared scene-wide; a module-local one is the

@@ -9,7 +9,7 @@
 import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/structures.ts'
 import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
-import { boxesOverlap, equipmentReason, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
+import { boxesOverlap, blockerLabels, equipmentReason, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { rampBodyBoxes } from '../sim/openings.ts'
 import { doorCentres, trainLength } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, type TrackModule } from '../sim/track.ts'
@@ -351,6 +351,21 @@ export function trackFloorMissing(state: StationState, track: TrackModule): bool
 
 /** Why a track may not be placed, or null when it is eligible. */
 export type TrackBlock = 'interference' | 'wall' | 'floor'
+
+/**
+ * A refused rail, in the words the notice bar uses — with the pieces in the
+ * way named, so an `interference` says which conflict it is rather than only
+ * saying the run is blocked.
+ */
+export function trackBlockNotice(state: StationState, track: TrackModule, block: TrackBlock): string {
+  if (block === 'interference') {
+    const colliders = trackColliders(state, track)
+    const names = colliders.length > 0 ? `：被${blockerLabels(colliders)}挡住了` : ''
+    return `这儿有设备、房间、站台或别的轨道挡着，放不下${names}`
+  }
+  if (block === 'wall') return '轨道中间有墙，站台放不下；这里可以用隧道穿过'
+  return '站台轨道要铺在整片地面上（至少三格宽）'
+}
 
 export function trackBlockReason(state: StationState, track: TrackModule): TrackBlock | null {
   if (trackInterferenceBlocked(state, track)) return 'interference'

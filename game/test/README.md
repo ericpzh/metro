@@ -24,6 +24,7 @@ and clearing riders after closing while the train is still stationary.
 for both screen heights, both track sides, and closed, partial and fully open poses.
 It also pins the slim half-height rails, cap/rail vertical separation, single glass surfaces,
 reference cabin fittings, and train interpolation between snapshots including early updates and reappearance.
+It pins the 地面 X向 exit header's full-width red fill and unchanged font sizes as wider bays add spacing between text blocks.
 `escalator-length` checks the 8 m 长 variant in both widths, rotations and directions,
 its two-floor openings, graph ride time, exit snap, preview refresh, move and save round-trip;
 `pick-tool` checks copying 短/长 and restoring the previous length with Esc.
@@ -98,7 +99,7 @@ The suites, by the thing they are about. Each one's full description is in
 | The models | `module-build` (including slab-track sleepers, seats, clips and rail heads; enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost` — `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away |
 | The pixels | `sign-render`, `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
-| The app | `move`, `delete-tool` (block delete rectangles, Shift lines and one-step undo), `equipment-deletion` (visible module before underlying grid cell), `equipment-placement-input` (wall/ceiling support placement from open air), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool), `rail-folders`, `rail-families`, `line-edit`, `new-station-confirmation` (the top-bar button and Ctrl+N require confirmation before replacing the station), `select-agent` — `escalators` covers the placed-run direction action and undo |
+| The app | `move`, `delete-tool` (block delete rectangles, Shift lines and one-step undo), `equipment-deletion` (visible module before underlying grid cell), `equipment-placement-input` (wall/ceiling support placement from open air), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool), `tool-hover-preview` (blue previews for move/picker/select, red preview for bulldoze), `rail-folders`, `rail-families`, `line-edit`, `new-station-confirmation` (the top-bar button and Ctrl+N require confirmation before replacing the station), `select-agent` — `escalators` covers the placed-run direction action and undo |
 
 ## The rules a test here follows
 

@@ -21,7 +21,12 @@ export class TunnelTool extends ToolController {
     const src =
       railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
       railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2])
-    if (!src) return
+    // A tunnel hangs off an existing rail: with no rail under the pointer say
+    // so instead of dropping the click.
+    if (!src) {
+      st.setNotice('先点一段现有轨道，隧道从端部接出')
+      return
+    }
     if (info.button === 2) {
       st.removeRail(src.id)
       st.select(null)

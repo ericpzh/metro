@@ -211,7 +211,8 @@ test('a drop is refused on a track bed and where equipment already stands', () =
   const bed = station().cells.map((c) => (c.x === 6 && c.y === 6 ? { ...c, finish: { top: 'floor.track' } } : c))
   assert.equal(moveDropReason(bed, [gate], movedModule(gate, at(6, 6, 0), 0)), '轨道上不能放设备')
   const other = piece('vending', 7, 7)
-  assert.equal(moveDropReason(station().cells, [gate, other], movedModule(gate, at(7, 7, 0), 0)), '这儿已经有设备了，换个地方')
+  assert.match(moveDropReason(station().cells, [gate, other], movedModule(gate, at(7, 7, 0), 0)), /已经有设备/)
+  assert.match(moveDropReason(station().cells, [gate, other], movedModule(gate, at(7, 7, 0), 0)), /自动贩卖机/)
 })
 
 test('a 指示牌 is refused without a ceiling and moves under one', () => {

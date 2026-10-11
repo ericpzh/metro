@@ -7,14 +7,19 @@ import { removeModule } from '../../../build/model.ts'
 import {
   defaultLine,
   dropDerivedEdges,
+  freeTunnelEnd,
   makeTrack,
+  makeTunnel,
   placeTrack,
   placeTunnel,
   regenerateRailEdges,
   stripTunnelShell,
+  trackBlockNotice,
   trackBlockReason,
+  trackColliders,
   trackPieceForLine,
 } from '../../../build/rail.ts'
+import { blockerLabels } from '../../../sim/placement.ts'
 import { nextTrackRunLength, supportedTrackRunLength, trackOriginForCentre } from '../../../sim/track.ts'
 import type { BridgeRailing, LineDirection } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
@@ -97,14 +102,7 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     const candidate = makeTrack({ id: 'probe', lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d })
     const block = trackBlockReason(station, candidate)
     if (block) {
-      set({
-        notice:
-          block === 'interference'
-            ? '这儿有设备、房间、站台或别的轨道挡着，放不下'
-            : block === 'wall'
-              ? '轨道中间有墙，站台放不下；这里可以用隧道穿过'
-              : '站台轨道要铺在整片地面上（至少三格宽）',
-      })
+      set({ notice: trackBlockNotice(station, candidate, block) })
       return
     }
     const next = placeTrack(station, { lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d })
@@ -121,9 +119,21 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
   cycleTunnelLength: () => set((s) => ({ tunnelLength: nextTrackRunLength(s.tunnelLength) })),
   layTunnel: (sourceId, at) => {
     const st = get()
+    const src = st.station.modules.find((m) => m.id === sourceId)
+    const probe =
+      src && src.type === 'track'
+        ? makeTunnel(src, freeTunnelEnd(st.station, src, at), st.tunnelLength, 'probe')
+        : null
     const next = placeTunnel(st.station, sourceId, st.tunnelLength, at)
     if (next === st.station) {
-      set({ notice: '隧道接不上去：这里被设备、房间、站台或别的轨道挡住了' })
+      // Name the run the tunnel met, from the same probe the ghost drew.
+      const names = probe ? trackColliders(st.station, probe) : []
+      set({
+        notice:
+          names.length > 0
+            ? `隧道接不上去：被${blockerLabels(names)}挡住了`
+            : '隧道接不上去：这里被设备、房间、站台或别的轨道挡住了',
+      })
       return
     }
     get().commit(next)

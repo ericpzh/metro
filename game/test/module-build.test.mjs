@@ -62,6 +62,39 @@ const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCA
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
 const { TrainSystem } = await import('../src/render/scene/systems/TrainSystem.ts')
+const { exitHeaderCanvas } = await import('../src/render/models/pieces/ExitModel.ts')
+
+test('wide 地面 exit headers keep their text size and fill the full red background', () => {
+  const drawHeader = (width) => {
+    const recorded = { fills: [], words: [] }
+    const context = {
+      fillStyle: '#000', font: '', textAlign: '', textBaseline: '',
+      fillRect: (...args) => recorded.fills.push({ colour: context.fillStyle, args }),
+      fillText: (text, x, y) => recorded.words.push({ text, x, y, font: context.font }),
+      beginPath() {}, moveTo() {}, lineTo() {}, quadraticCurveTo() {}, closePath() {}, fill() {},
+    }
+    const previousDocument = globalThis.document
+    globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => context }) }
+    try {
+      const canvas = exitHeaderCanvas('动物园', 'A口', '', width)
+      return { canvas, ...recorded }
+    } finally {
+      globalThis.document = previousDocument
+    }
+  }
+
+  const standard = drawHeader(512)
+  const wide = drawHeader(1024)
+  assert.equal(standard.fills[0].colour, '#c22f28')
+  assert.deepEqual(standard.fills[0].args, [0, 0, 512, 96])
+  assert.deepEqual(wide.fills[0].args, [0, 0, 1024, 96], 'the wider texture must not leave its unused half transparent/black')
+  assert.equal(wide.canvas.width, 1024)
+  assert.deepEqual(wide.words.map(({ text, font }) => [text, font]), standard.words.map(({ text, font }) => [text, font]), 'wider bays add spacing without enlarging text')
+  assert.equal(standard.words.find(({ text }) => text === '动物园站').x, 280)
+  assert.equal(wide.words.find(({ text }) => text === '动物园站').x, 536)
+  assert.equal(standard.words.find(({ text }) => text === 'A').x, 427)
+  assert.equal(wide.words.find(({ text }) => text === 'A').x, 939)
+})
 
 const LINE = {
   id: '5',
@@ -331,10 +364,10 @@ const PIECES = [
   ['出入口 无盖 单向', palette('exit-uncovered-1'), 45, '3.04×8.08×1.25'],
   ['出入口 无盖 双向', palette('exit-uncovered-2'), 47, '4.04×8.08×1.25'],
   ['出入口 无盖 三向', palette('exit-uncovered-3'), 47, '5.04×8.08×1.25'],
-  ['出入口 地面 单向', palette('exit-doorway-1'), 8, '3×0.4×3.54'],
-  ['出入口 地面 双向', palette('exit-doorway-2'), 8, '4×0.4×3.54'],
-  ['出入口 地面 三向', palette('exit-doorway-3'), 8, '5×0.4×3.54'],
-  ['出入口 地面 四向', palette('exit-doorway-4'), 8, '6×0.4×3.54'],
+  ['出入口 地面 单向', palette('exit-doorway-1'), 3, '3×0.072×0.78'],
+  ['出入口 地面 双向', palette('exit-doorway-2'), 3, '4×0.072×0.78'],
+  ['出入口 地面 三向', palette('exit-doorway-3'), 3, '5×0.072×0.78'],
+  ['出入口 地面 四向', palette('exit-doorway-4'), 3, '6×0.072×0.78'],
   ['扶梯', palette('escalator'), 33, '1×7.533×5.563'],
   ['电梯', palette('lift'), 102, '2.04×2.04×7'],
   // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns

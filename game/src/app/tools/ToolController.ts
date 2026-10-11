@@ -81,5 +81,6 @@ export abstract class ToolController {
     }
     const mod = moduleAt(st.station.modules, cell[0], cell[1], cell[2], facing)
     if (mod) this.removePlacedModule(mod)
+    else st.setNotice('这里没有可拆的东西')
   }
 }

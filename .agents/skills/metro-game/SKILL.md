@@ -77,6 +77,7 @@ landing plane. Pin slope clearance and real body overlap in
   `erasableSyntaxOnly`, `noUnusedLocals`, `noUnusedParameters`.
 * **No enums** (`erasableSyntaxOnly`). Use `as const` objects, e.g. `AgentState`.
 * **ASCII ids, Simplified Chinese labels** for anything a player reads (§9.2).
+* **Equipment hover previews:** 移动, 吸取 and 选择 show the actual targeted module as a vivid blue translucent preview; 删除 uses the same preview shape in red. Keep tint strength and opacity in `render/scene/systems/GhostSystem.ts`, and pin the tool-to-preview colors in `game/test/tool-hover-preview.test.mjs` when changing this behavior.
 * **Pack cell coordinates with `packKey`** (number arithmetic, ±4096 m). Never use
   bit shifts — the old `(x + 4096) << 20` collided neighbours.
 * **Axes:** `+z` is up; `n` is `+y`, `e` is `+x`, `+z` = top face.
@@ -103,7 +104,16 @@ accepted cells, refused cells, offending pieces). So the red ghost, the refusal
 notice and the release all read one answer, and `moveDropReason` is that verdict
 in words. **Never inline a placement rule in a tool**: add it to the verdict and
 both the preview and the release get it. `game/test/validation.test.mjs` pins the
-agreement cell for cell.
+agreement cell for cell. Refusals name the offending piece (`被闸机挡住了` via
+`blockerLabels`), and no failed press or release stays silent — a held cell the
+preview skips reads blue under the cursor, so the release toasts it instead.
+
+Two grade-level traps this rule has already paid for, at `z = 0` where a `solid`
+and its dug `void` share one coordinate: `addWalls` must fill a `void` back by
+*replacing* the record exactly as `addCells` / `addFloor` do (its `have` set is
+solids-only), or the ghost promises a 半墙 / 三角 the release drops; and a delete
+commit is gated on `sameCells`, never on `cells.length`, or a dug-out block can
+never be dug again.
 
 ## The sim
 
@@ -912,7 +922,10 @@ the four rules most changes trip over.
   changes; the covered piece is a red steel portal frame under a blue waved roof, and the exit's
   name board is the red brand header (`ExitModel`): the station name with the saved English
   (`StationData.nameEn`) under it and the exit identifier beside it — no 口 suffix
-  (`exit-banner.test.mjs`). The house stands on a raised 0.25 m concrete plinth
+  (`exit-banner.test.mjs`). The 地面 X向 doorway is a wall-fixed poster panel: it has no floor
+  legs, attaches to the exact solid backing block course, and its header canvas grows with bay width
+  while keeping font sizes fixed, so wider variants add spacing instead of stretching the text;
+  `module-build.test.mjs` pins the full-width red fill and the fixed-size, spaced text layout. The house stands on a raised 0.25 m concrete plinth
   (`EXIT_BASE_HEIGHT`, `ExitLanding.ts`) with a street-edge step, and runs landing inside
   it draw +0.25 m up while the graph stays on the storey. The station itself is renamed the
   same way its exits are: the top bar's two-field form (中文站名 + English name) commits both

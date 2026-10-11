@@ -5,7 +5,7 @@
 // the viewport routes any non-single `wall` drag here.
 
 import { addWalls, removeCells } from '../../build/model.ts'
-import { blockRefusalNotice, checkBlockCells, dominantRefusal } from '../../build/validation.ts'
+import { checkBlockCells, previewNotice } from '../../build/validation.ts'
 import { useStore } from '../store.ts'
 import { straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
@@ -125,10 +125,16 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       const check = checkBlockCells(st.station, d.single === true ? [d.anchor] : wallRun(line))
       const { state: next, changed, blocked } = addWalls(st.station, line, side, d.single === true ? 1 : undefined)
       if (changed > 0) st.commit(next)
-      if (blocked > 0) st.setNotice(blockRefusalNotice(dominantRefusal(check)))
+      // Name the conflict the red boxes showed — the piece, the corridor, the
+      // rail bed — from the same preview the ghost drew.
+      if (blocked > 0) st.setNotice(previewNotice(st.station, check))
+      else if (changed === 0) st.setNotice('这里放不下墙：已经有墙了')
     } else {
       const remove = wallColumnsAt(st.station, line)
-      if (remove.length === 0) return
+      if (remove.length === 0) {
+        st.setNotice('这里没有可拆的墙')
+        return
+      }
       st.commit(removeCells(st.station, remove))
     }
   }

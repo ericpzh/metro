@@ -25,7 +25,7 @@ import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker } fro
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
 import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
-import { EXIT_L, exitFloorBounds, exitBays, exitFloorAt, exitWidth } from './exits.ts'
+import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { glassSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
@@ -380,8 +380,15 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return cellsAabb(trackCells(m), z0 + TRUSS_ROOF_BASE, z0 + (m.cfg.variant ? trussRoofTop(m.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS))
     case 'exit': {
       if (m.cfg.style === 'doorway') {
-        const b = exitFloorBounds(m)
-        return { ...b, z0, z1: z0 + 3.54 }
+        const { centre, half } = exitSpan(m)
+        const cells: Array<[number, number, number]> = []
+        for (let x = Math.ceil(centre - half - 1e-6); x < Math.ceil(centre + half - 1e-6); x++) {
+          const [dx, dy] = rotateLocal(m.rot, x, 0)
+          cells.push([m.x + dx, m.y + dy, m.z])
+        }
+        // The header is attached to the exact 1 m block course it was dropped on.
+        const panelBottom = m.cfg.mountZ ?? z0
+        return wallPanelBox(m, cells, panelBottom + 0.04, panelBottom + 0.96)
       }
       const rx = exitWidth(exitBays(m)) / 2
       const ry = EXIT_L / 2
@@ -539,6 +546,9 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
  */
 function baseCells(m: Module): Array<[number, number]> {
   switch (m.type) {
+    case 'exit':
+      // The wall support is one block; the exit's ground opening is derived separately.
+      return [[m.x, m.y]]
     case 'retail':
     case 'shop':
     case 'booth':
@@ -615,9 +625,10 @@ const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv', 'cc
  * the 线网图's free-standing totem: it stands on the floor on its own plinth, so it
  * answers to the ground rules like a 售票机 and never to the wall's
  * (`equipmentReason`). A 指示牌 answers from its own mount: the wall board is, the
- * hanging one is not.
+ * hanging one is not. 地面 出入口 uses its doorway style as a wall-mounted exit panel.
  */
 export function isWallMounted(m: Module): boolean {
+  if (m.type === 'exit') return m.cfg.style === 'doorway'
   if (m.type === 'sign') return !signMountSpec(m.cfg.mount).hung
   if (!WALL_MOUNTED.has(m.type)) return false
   if (m.type === 'glass') return !glassStandsOnFloor(glassSpec(m.cfg.variant))
@@ -629,7 +640,7 @@ export function isWallMounted(m: Module): boolean {
  * piece needs solid backing on, from the table that owns the piece's own height:
  * a 广告牌 and a 1 m 玻璃板 want the first course, a 2 m panel the first two, a
  * 站名 and a wall 线网图 the band their panel really crosses, and a wall 指示牌 the
- * band its own 0.7 m board is bolted at.
+ * band its own 0.7 m board is bolted at. 地面 出入口 needs only the first course.
  *
  * One list per type, because "how tall is this panel and where does it sit" is the
  * table's business and this is the rule that reads it — a piece whose courses and
@@ -641,6 +652,9 @@ export function wallMountCourses(m: Module): number[] {
       // A poster is one course: the billboard's variants hang inside the first
       // metre of their wall whatever their panel size.
       return [0]
+    case 'exit':
+      // 地面 exits use the anchor block as their single wall attachment.
+      return m.cfg.style === 'doorway' ? [0] : []
     case 'glass':
       return glassWallCourses(glassSpec(m.cfg?.variant))
     case 'door':
@@ -695,15 +709,19 @@ export function wallSide(rot: number | undefined): [number, number] {
  * is no walkable floor in front — it is the face-adjacent `place` cell in front
  * of that wall, dropped to that wall's own storey floor (`storeyBand`): a hover
  * on an upper wall course still anchors the panel to the floor below, not to a
- * floating course height. The caller still checks `wallMountMissing` for the backing.
+ * floating course height. Ground exits can opt into treating any solid block face
+ * as the hit surface; other mounts still require a wall-tagged cell here.
  */
 export function wallMountStandCell(
   cells: readonly Cell[],
   cell: readonly [number, number, number],
   place: readonly [number, number, number],
+  snapToSolidBlock = false,
 ): [number, number, number] {
   const hit = cells.find((c) => c.x === cell[0] && c.y === cell[1] && c.z === cell[2])
-  const onWall = hit !== undefined && hit.fill === 'solid' && isWallBlock(hit)
+  // 地面 exits attach to an ordinary block face too; they do not require the
+  // block to carry one of the station-wall tags used by wall decorations.
+  const onWall = hit !== undefined && hit.fill === 'solid' && (snapToSolidBlock || isWallBlock(hit))
   if (!onWall) return [cell[0], cell[1], cell[2]]
   return [place[0], place[1], storeyBand(place[2])]
 }
@@ -761,9 +779,17 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module, modu
   // The half of the backing cell the panel's own back plane touches.
   const needed = stepSide(-dx, -dy)
   for (const course of wallMountCourses(candidate)) {
-    const nz = candidate.z + 1 + course
+    const nz = candidate.type === 'exit' && candidate.cfg.style === 'doorway'
+      ? candidate.cfg.mountZ ?? candidate.z + 1 + course
+      : candidate.z + 1 + course
     for (const [bx, by] of baseCells(candidate)) {
       const back = cells.find((c) => c.fill === 'solid' && c.x === bx + dx && c.y === by + dy && c.z === nz)
+      // The 地面 exit is a shallow sign on the face of any solid 1 m block.
+      // Its support is only the existence of that block, not wall tags or half-wall facing.
+      if (candidate.type === 'exit' && candidate.cfg.style === 'doorway') {
+        if (back === undefined) return true
+        continue
+      }
       // A wall course at street level may be backed by the virtual street
       // itself — the slab edge the panel bolts to — unless it is a dug hole.
       if (back === undefined && (nz !== GROUND_Z || groundHoleAt(cells, modules, bx + dx, by + dy))) return true
@@ -1482,6 +1508,16 @@ export function moveRebuilds(m: Module): boolean {
  * as wide and as slid as it was placed.
  */
 export function movedModule(m: Module, at: Vec3i, rot: number): Module {
+  if (m.type === 'exit' && m.cfg.style === 'doorway' && m.cfg.mountZ !== undefined) {
+    return {
+      ...m,
+      x: at.x,
+      y: at.y,
+      z: at.z,
+      rot,
+      cfg: { ...m.cfg, mountZ: at.z + (m.cfg.mountZ - m.z) },
+    }
+  }
   if (m.type === 'stair' || m.type === 'escalator') {
     const steps = (((normRot(rot) - normRot(m.rot)) % 4) + 4) % 4
     const blocky = m.type === 'stair' ? m.cfg.block === true : false
@@ -1625,34 +1661,133 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   return ''
 }
 
-/** A module refusal, in the words the notice bar uses. */
-export function equipmentRefusalNotice(reason: EquipmentRefusal): string {
-  switch (reason) {
-    case 'exit-on-slab':
-      return '出入口只能放在地面'
-    case 'exit-below-ground':
-      return '地面出入口只能放在 0 米及以上'
-    case 'bridge-below-ground':
-      return '轨道桥的桥底必须在地面上方'
-    case 'outdoor-below-ground':
-      return '导向柱和公交站只能放在 0 米及以上的地板上'
-    case 'floor':
-      return '这儿没有地板，设备要站在实心地板上'
-    case 'track':
-      return '轨道上不能放设备'
-    case 'occupied':
-      return '这儿已经有设备了，换个地方'
-    case 'wall':
-      return '墙面装饰（广告牌、玻璃板、站名、线网图、墙面指示牌）要贴在墙上：背后得有一堵实心墙，而且面板跨过的每一米都要有'
-    case 'ceiling':
-      return '吊挂指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）；墙面指示牌不用吊，贴在墙上就行'
-    case 'escalator-bases':
-      return '扶梯底端要有实心地板'
-    case 'lift-footprint':
-      return '电梯占地 2×2 米：四个格子都要有地板'
-    default:
-      return ''
+/** A module refusal, in the words the notice bar uses.
+ *
+ * `blockers` names the pieces standing in the way (`placementColliders` /
+ * `equipmentBlockingCell`): when a placement is refused for `occupied` the
+ * notice says which conflict it is — `被闸机挡住了` — instead of only saying
+ * the cell is held. The base sentence is kept verbatim so the reason stays
+ * searchable, and an empty list leaves it unchanged. */
+export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: readonly Module[] = []): string {
+  const base = (() => {
+    switch (reason) {
+      case 'exit-on-slab':
+        return '出入口只能放在地面'
+      case 'exit-below-ground':
+        return '地面出入口只能放在 0 米及以上'
+      case 'bridge-below-ground':
+        return '轨道桥的桥底必须在地面上方'
+      case 'outdoor-below-ground':
+        return '导向柱和公交站只能放在 0 米及以上的地板上'
+      case 'floor':
+        return '这儿没有地板，设备要站在实心地板上'
+      case 'track':
+        return '轨道上不能放设备'
+      case 'occupied':
+        return '这儿已经有设备了，换个地方'
+      case 'wall':
+        return '墙面装饰（广告牌、玻璃板、站名、线网图、墙面指示牌、地面出口）要贴在墙上：背后得有实心墙板'
+      case 'ceiling':
+        return '吊挂指示牌、电视、时钟和监控要吊在天花板下：上面得有一层楼板（四米高）；墙面指示牌不用吊，贴在墙上就行'
+      case 'escalator-bases':
+        return '扶梯底端要有实心地板'
+      case 'lift-footprint':
+        return '电梯占地 2×2 米：四个格子都要有地板'
+      default:
+        return ''
+    }
+  })()
+  if (base === '' || blockers.length === 0) return base
+  // Only the collision names a piece; every other rule already names its own
+  // cause (no floor, no wall, no ceiling, the rails).
+  if (reason !== 'occupied') return base
+  return `${base}：被${blockerLabels(blockers)}挡住了`
+}
+
+/**
+ * Friendly name for a placed piece, for a refusal notice. Pure data, kept in
+ * `sim/` so the verdict layer can name the conflict without importing the app's
+ * catalogue (`build/` may not import `app/`, and `sim/` imports nothing at all).
+ * Mirrors `app/store/catalog.ts`'s `MODULE_LABELS`.
+ */
+export function moduleTypeLabel(m: Module): string {
+  if (m.type === 'fence') return m.cfg.variant === 'gate' ? '门' : m.cfg.variant === 'iron' ? '铁围栏' : '玻璃围栏'
+  if (m.type === 'shop') {
+    const kind = (m.cfg as { kind?: string } | undefined)?.kind
+    if (kind === 'toilet') return '厕所'
+    if (kind === 'office') return '办公室'
+    return '商店'
   }
+  if (m.type === 'booth' && (m.cfg as { kind?: string } | undefined)?.kind === 'info') return '问讯处'
+  if (m.type === 'cctv') {
+    const variant = (m.cfg as { variant?: string } | undefined)?.variant
+    if (variant === 'ball') return '球机'
+    if (variant === 'dome') return '半球机'
+    return '监控'
+  }
+  return MODULE_TYPE_LABELS[m.type] ?? m.type
+}
+
+/** Friendly name per module type, for refusal notices (§9.5). */
+const MODULE_TYPE_LABELS: Record<string, string> = {
+  hanger: '挂架',
+  pillar: '支柱',
+  roof: '车站屋顶',
+  gate: '闸机',
+  'psd-end': '屏蔽端门',
+  fence: '玻璃围栏',
+  tvm: '售票机',
+  vending: '自动贩卖机',
+  bench: '座椅',
+  shelf: '货架',
+  desk: '办公桌',
+  checkout: '收银台',
+  cubicle: '厕所隔间',
+  sink: '洗手池',
+  guidepost: '导向柱',
+  busstop: '公交站',
+  bin: '垃圾桶',
+  extinguisher: '灭火器',
+  'ac-unit': '空调风机',
+  'electrical-cabinet': '设备柜',
+  tactile: '盲道',
+  'floor-mark': '地面指示',
+  vent: '通风口',
+  light: '灯具',
+  clock: '时钟',
+  cctv: '监控',
+  billboard: '广告牌',
+  glass: '玻璃板',
+  door: '门',
+  calligraphy: '站名',
+  linemap: '线网图',
+  tv: '电视',
+  sign: '指示牌',
+  exit: '出入口',
+  escalator: '扶梯',
+  stair: '楼梯',
+  lift: '电梯',
+  retail: '商铺',
+  shop: '商店',
+  booth: '售票亭',
+  'platform-edge': '站台门',
+  track: '轨道',
+}
+
+/**
+ * Which pieces a refusal names: unique labels in document order, at most three,
+ * then `等N件`. Capped so a drag across a gate line does not print the whole row.
+ */
+export function blockerLabels(blockers: readonly Module[]): string {
+  const seen: string[] = []
+  for (const b of blockers) {
+    const label = moduleTypeLabel(b)
+    if (!seen.includes(label)) seen.push(label)
+    if (seen.length >= 3 && blockers.length > 3) break
+  }
+  const shown = blockers.length > 3 ? seen.slice(0, 3) : [...new Set(blockers.map(moduleTypeLabel))].slice(0, 3)
+  if (blockers.length > 3) return `${shown.join('、')}等${blockers.length}件`
+  return shown.join('、')
 }
 
 /**
@@ -1666,7 +1801,9 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal): string {
  * re-checked: a 移动 may not be refused for where the piece already is.
  */
 export function moveDropReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module): string {
-  return equipmentRefusalNotice(equipmentReason(cells, modules, candidate))
+  const reason = equipmentReason(cells, modules, candidate)
+  if (reason === '') return ''
+  return equipmentRefusalNotice(reason, placementColliders(modules, candidate))
 }
 
 /**

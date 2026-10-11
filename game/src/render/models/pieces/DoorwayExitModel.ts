@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab, plate, canvasTexture } from '../PieceBuilder.ts'
-import { exitSpan, exitDoorwayOffset } from '../../../sim/exits.ts'
+import { exitSpan } from '../../../sim/exits.ts'
 import { exitHeaderCanvas } from './ExitModel.ts'
 import type { Module } from '../../../sim/types.ts'
 export class DoorwayExitModel extends PieceBuilder {
@@ -9,21 +9,24 @@ export class DoorwayExitModel extends PieceBuilder {
     const g = new THREE.Group()
     const { centre, half } = exitSpan(mod)
     const width = half * 2
-    for (const side of [-1, 1]) {
-      const x = centre + side * (half - 0.12)
-      slab(g, this.ctx.mats.exitRed, x, 0, 1.4, 0.24, 0.28, 2.8)
-      slab(g, this.ctx.mats.steel, x, 0, 0.08, 0.24, 0.4, 0.16)
-    }
-    slab(g, this.ctx.mats.exitRed, centre, 0, 2.86, width, 0.28, 0.24)
-    slab(g, this.ctx.mats.darkSteel, centre, 0, 3.25, width, 0.16, 0.58)
-    const map = canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(this.ctx.data.name || '地铁', mod.cfg.name, this.ctx.data.nameEn), 0, 0))
+    // 地面 X向 is a wall-fixed exit panel: the anchor's −y face sits flush
+    // against a one-metre block. The old floor feet made it read as a totem.
+    slab(g, this.ctx.mats.darkSteel, centre, -0.475, 0.5, width, 0.05, 0.78)
+    slab(g, this.ctx.mats.exitRed, centre, -0.441, 0.5, width - 0.06, 0.02, 0.68)
+    // Keep the header's pixel density constant as the bay count grows. The
+    // artwork's text stays the same physical size; only the gaps between the
+    // brand, station name and exit identifier get wider.
+    const headerWidth = Math.round(512 * (width - 0.12) / 2.88)
+    const map = canvasTexture(headerWidth, 96, (c) => c.drawImage(
+      exitHeaderCanvas(this.ctx.data.name || '地铁', mod.cfg.name, this.ctx.data.nameEn, headerWidth),
+      0, 0,
+    ))
     const mat = this.ownedMaterial(new THREE.MeshBasicMaterial({ map }))
-    plate(g, mat, width - 0.16, 0.48, centre, 0.09, 3.25, Math.PI)
-    plate(g, mat, width - 0.16, 0.48, centre, -0.09, 3.25, 0)
+    plate(g, mat, width - 0.12, 0.48, centre, -0.428, 0.5, Math.PI)
     this.placeLocal(g, mod)
-    const [dx, dy] = exitDoorwayOffset(mod.rot)
-    g.position.x += dx
-    g.position.y += dy
+    // The logical exit remains on the floor storey; only the sign follows the
+    // exact backing block course the player clicked.
+    g.position.z += (mod.cfg.mountZ ?? mod.z + 1) - (mod.z + 1)
     return g
   }
 }

@@ -10,7 +10,7 @@
 
 import { cellKey } from '../../build/model.ts'
 import { railModuleAt } from '../../build/rail.ts'
-import { isCeilingHung, isWallMounted, moduleAt } from '../../sim/placement.ts'
+import { moduleAt } from '../../sim/placement.ts'
 import { moduleLabel, useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -26,6 +26,7 @@ export class SelectTool extends ToolController {
   onDown(info: PointerInfo): void {
     const scene = this.ctx.scene()
     if (!scene) return
+    scene.setHoverHighlight?.(null)
     const hit = info.hit
     const st = useStore.getState()
     // Right-click bulldozes the equipment under the pointer.
@@ -73,19 +74,25 @@ export class SelectTool extends ToolController {
   onMove(info: PointerInfo): void {
     const scene = this.ctx.scene()
     const hit = info.hit
-    if (!scene || !hit) return
+    if (!scene) return
+    if (!hit) {
+      scene.setHoverHighlight?.(null)
+      scene.setModulePreview(null)
+      scene.setCursor(null)
+      return
+    }
     // A wall panel or a hung fitting lives on its surface, not on the floor
     // below it: hovering the drawn model highlights the piece itself (the same
     // translucent ghost the build tool shows) and no floor cell is ringed.
     const pickedId = this.pickModuleAt(info)
     if (pickedId) {
       const picked = useStore.getState().station.modules.find((m) => m.id === pickedId)
-      if (picked && (isWallMounted(picked) || isCeilingHung(picked))) {
-        scene.setCursor(null)
-        scene.setModulePreview(picked, false)
-        return
-      }
+      scene.setHoverHighlight?.(null)
+      scene.setModulePreview(picked ?? null, false, 0x168cff)
+      scene.setCursor(null)
+      return
     }
+    scene.setHoverHighlight?.(null)
     scene.setModulePreview(null)
     const c = hit.solid ? hit.place : hit.cell
     scene.setCursor(c, true)

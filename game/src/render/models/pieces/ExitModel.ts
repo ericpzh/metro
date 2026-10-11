@@ -11,13 +11,13 @@ import type { Module } from '../../../sim/types.ts'
 /**
  * The exit portal header: the metro logo, station name and the exit's name.
  */
-export function exitHeaderCanvas(stationName: string, exitName: string, stationNameEn = ''): HTMLCanvasElement {
+export function exitHeaderCanvas(stationName: string, exitName: string, stationNameEn = '', width = 512): HTMLCanvasElement {
   const c = document.createElement('canvas')
-  c.width = 512
+  c.width = width
   c.height = 96
   const g = c.getContext('2d') as CanvasRenderingContext2D
   g.fillStyle = '#c22f28'
-  g.fillRect(0, 0, 512, 96)
+  g.fillRect(0, 0, width, 96)
   drawMetroMark(g, 34, 48, 46, '#ffffff')
   g.fillStyle = '#ffffff'
   g.textBaseline = 'middle'
@@ -32,10 +32,12 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   const stationLabel = station.endsWith('站') ? station : station + '站'
   g.textAlign = 'center'
   g.font = 'bold 29px "Microsoft YaHei", sans-serif'
-  g.fillText(stationLabel, 280, stationNameEn.trim() ? 36 : 48, 198)
+  const stationCentre = width / 2 + 24
+  const stationWidth = Math.max(198, width - 314)
+  g.fillText(stationLabel, stationCentre, stationNameEn.trim() ? 36 : 48, stationWidth)
   if (stationNameEn.trim()) {
     g.font = '16px Arial, sans-serif'
-    g.fillText(stationNameEn.trim(), 280, 64, 198)
+    g.fillText(stationNameEn.trim(), stationCentre, 64, stationWidth)
   }
 
   // Preserve multi-character identifiers such as C1; named exits remain readable.
@@ -43,14 +45,14 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   const identifier = label.match(/^([A-Za-z]\d*)(?:入口|出口|口)?$/)?.[1]
   if (identifier) {
     g.font = 'bold 40px Arial, sans-serif'
-    g.fillText(identifier.toUpperCase(), 427, 48, 64)
+    g.fillText(identifier.toUpperCase(), width - 85, 48, 64)
     g.font = 'bold 21px "Microsoft YaHei", sans-serif'
-    g.fillText('入口', 482, 39, 48)
+    g.fillText('入口', width - 30, 39, 48)
     g.font = '10px Arial, sans-serif'
-    g.fillText('Entrance', 482, 62, 48)
+    g.fillText('Entrance', width - 30, 62, 48)
   } else {
     g.font = 'bold 25px "Microsoft YaHei", sans-serif'
-    g.fillText(label, 451, 48, 106)
+    g.fillText(label, width - 61, 48, 106)
   }
   return c
 }

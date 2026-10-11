@@ -190,13 +190,17 @@ export class TileEquipmentTool extends ToolController {
     const st = useStore.getState()
     let next = st.station
     let why = ''
+    let removed = 0
     const type = drag.tileType ?? st.moduleType
     const rot = drag.tileRot ?? st.moduleRot
     const width = drag.tileWidth ?? st.roofWidth
     for (const [x, y, z] of cells) {
       if (drag.mode === 'remove') {
         const roof = pieceAt(next.modules, x, y, z, type)
-        if (roof) next = removeModule(next, roof.id)
+        if (roof) {
+          next = removeModule(next, roof.id)
+          removed++
+        }
         continue
       }
       const mod = centredModule(type, x, y, z, nextModuleId(next.modules, type === 'stair-block' ? 'stair' : 'roof'), rot, type === 'stair-block' ? st.stairBlockHeight : width)
@@ -205,12 +209,18 @@ export class TileEquipmentTool extends ToolController {
       if (roof?.x === mod.x && roof.y === mod.y) continue
       const check = checkModulePlacements(next, [{ id: mod.id, module: mod, layer: true }])
       if (check.refused.size) {
-        why ||= equipmentRefusalNotice(check.refused.values().next().value as Parameters<typeof equipmentRefusalNotice>[0])
+        // Name the conflict the red ghost boxed, from the same preview.
+        const reason = check.refused.values().next().value as Parameters<typeof equipmentRefusalNotice>[0]
+        const blockers = check.colliderIds
+          .map((id) => next.modules.find((m) => m.id === id))
+          .filter((m): m is Module => m !== undefined)
+        why ||= equipmentRefusalNotice(reason, blockers)
         continue
       }
       next = addEquipment(next, mod)
     }
     if (next !== st.station) st.commit(next)
     if (why) st.setNotice(why)
+    else if (next === st.station) st.setNotice(drag.mode === 'remove' && removed === 0 ? '这里没有可拆的屋顶' : '这里放不下屋顶：换个地方')
   }
 }

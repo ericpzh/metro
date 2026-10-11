@@ -269,7 +269,14 @@ export function addWalls(
   height: number = AUTO_WALL_H,
   triangle: { kind: TriangleKind; side: TriSide } | null = null,
 ): { state: StationState; changed: number; blocked: number } {
-  const have = new Set(state.cells.map((c) => cellKey(c.x, c.y, c.z)));
+  // "Already there" means already **solid**, exactly as `addCells` reads it: a
+  // `void` record is the street's own dug hole, and a wall course laid over it
+  // fills it back rather than skipping it in silence. Reading every record as
+  // held made the ghost (which asks `checkBlockCells`, and fills the hole)
+  // promise a 半墙 / 三角 the release then dropped — blue cursor, no block.
+  const have = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
+  const at = new Map<string, number>();
+  state.cells.forEach((c, i) => at.set(cellKey(c.x, c.y, c.z), i));
   const tags =
     triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
   const added: Cell[] = [];
@@ -289,7 +296,16 @@ export function addWalls(
     added.push({ x, y, z, fill: 'solid', tags: [...tags] });
   }
   if (added.length === 0) return { state, changed: 0, blocked };
-  return { state: { ...state, cells: [...state.cells, ...added] }, changed: added.length, blocked };
+  // One record per coordinate: a course over a dug hole replaces the `void`, it
+  // does not shadow it.
+  const next = state.cells.slice();
+  const grown: Cell[] = [];
+  for (const c of added) {
+    const hole = at.get(cellKey(c.x, c.y, c.z));
+    if (hole === undefined) grown.push(c);
+    else next[hole] = c;
+  }
+  return { state: { ...state, cells: [...next, ...grown] }, changed: added.length, blocked };
 }
 
 /**

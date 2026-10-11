@@ -13,6 +13,22 @@ export function cellKey(x: number, y: number, z: number): string {
 }
 
 /**
+ * True when two cell lists hold the same records — same coordinates with the
+ * same fill. Length alone cannot tell: digging a block at grade (`z = 0`)
+ * swaps a `solid` for the street's `void` hole record, so the list is the same
+ * length but the station changed. The delete tools gate their commit on this
+ * rather than on length, or a block laid into a dug hole can never be dug back
+ * out (GAME-SPEC §4.1: the plane is stored inverted).
+ */
+export function sameCells(a: readonly Cell[], b: readonly Cell[]): boolean {
+  if (a.length !== b.length) return false;
+  const fills = new Map<string, string>();
+  for (const c of a) fills.set(cellKey(c.x, c.y, c.z), c.fill);
+  for (const c of b) if (fills.get(cellKey(c.x, c.y, c.z)) !== c.fill) return false;
+  return true;
+}
+
+/**
  * Snap an arbitrary z to the nearest fixed storey. The storey grid itself lives
  * in `sim/constants.ts` (`LEVEL_STEPS`); Q/E steps through it and the depth rail
  * lists exactly it, so the work plane is always on the 4-unit grid the reference

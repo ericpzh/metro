@@ -19,9 +19,9 @@
 //   4. the equipment verdict is one rule set, and a lifted piece asks the same one.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { blockReason, blockRefusalNotice, checkBlockCells, checkModulePlacements, dominantRefusal, equipmentReason, equipmentRefusalNotice, firstRefusal } from '../src/build/validation.ts'
-import { addCells, addEquipment, addFloor, createModule, toState, wallRun, addWalls } from '../src/build/model.ts'
-import { moduleEnvelope, moduleFootprint, moveDropReason } from '../src/sim/placement.ts'
+import { blockReason, blockRefusalNotice, checkBlockCells, checkModulePlacements, dominantRefusal, equipmentReason, equipmentRefusalNotice, firstRefusal, previewBlockers, previewNotice } from '../src/build/validation.ts'
+import { addCells, addEquipment, addFloor, createModule, removeFloor, sameCells, toState, wallRun, addWalls } from '../src/build/model.ts'
+import { moduleEnvelope, moduleFootprint, moveDropReason, placementColliders } from '../src/sim/placement.ts'
 import { wallCourses } from '../src/sim/courses.ts'
 
 /** Open floor: a 6 × 6 slab at z = 0, plus a ceiling slab one storey up. */
@@ -228,9 +228,10 @@ test('a lifted piece is judged by the same rule set as a fresh placement', () =>
   const st = flatStation([], [gate(1, 1, 0, 'g1')])
   const tvm = createModule('tvm', 1, 1, 0, 't9', 0)
   // The same cell a fresh 售票机 is refused in, refused in the same words — the
-  // 移动 card and the hover cannot drift.
-  assert.equal(moveDropReason(st.cells, st.modules, tvm), equipmentRefusalNotice(equipmentReason(st.cells, st.modules, tvm)))
+  // 移动 card and the hover cannot drift — with the conflicting piece named.
+  assert.equal(moveDropReason(st.cells, st.modules, tvm), equipmentRefusalNotice(equipmentReason(st.cells, st.modules, tvm), placementColliders(st.modules, tvm)))
   assert.match(moveDropReason(st.cells, st.modules, tvm), /已经有设备/)
+  assert.match(moveDropReason(st.cells, st.modules, tvm), /闸机/)
   // A free cell moves without complaint.
   const free = createModule('tvm', 4, 4, 0, 't9', 0)
   assert.equal(moveDropReason(st.cells, st.modules, free), '')
@@ -365,4 +366,82 @@ test('wallCourses claims a course the panel crosses, never one it merely touches
   assert.deepEqual(wallCourses(0, 2), [0, 1], 'a 2 m panel standing on the floor crosses the first two')
   assert.deepEqual(wallCourses(1, 1), [1], 'edges exactly on a course line do not claim the course merely touched')
   assert.deepEqual(wallCourses(2, 0.5), [2], 'a short panel inside one course claims exactly it')
+})
+
+/* --------------------------------------- refusals name the conflict */
+
+test('an occupied refusal names the piece standing in the way', () => {
+  const st = flatStation([], [gate(1, 1, 0, 'g1')])
+  const tvm = createModule('tvm', 1, 1, 0, 't9', 0)
+  const blockers = placementColliders(st.modules, tvm)
+  assert.equal(blockers.length, 1)
+  // The base sentence is kept, with the 闸机 named beside it.
+  assert.match(equipmentRefusalNotice('occupied', blockers), /已经有设备/)
+  assert.match(equipmentRefusalNotice('occupied', blockers), /闸机/)
+  assert.match(equipmentRefusalNotice('occupied', blockers), /挡住了/)
+  // Without blockers the old sentence is unchanged.
+  assert.equal(equipmentRefusalNotice('occupied'), '这儿已经有设备了，换个地方')
+  // Other rules already name their own cause and take no suffix.
+  assert.equal(equipmentRefusalNotice('floor', blockers), equipmentRefusalNotice('floor'))
+})
+
+test('a refused block names the equipment holding the cell', () => {
+  const st = flatStation([], [gate(1, 1, 0, 'g1')])
+  // The course above the 闸机 is the column its body fills — a block there is
+  // refused for `equipment`, with the piece named.
+  const check = checkBlockCells(st, [[1, 1, 1]])
+  assert.equal(dominantRefusal(check), 'equipment')
+  const blockers = previewBlockers(st, check)
+  assert.equal(blockers.length, 1)
+  assert.match(blockRefusalNotice('equipment', blockers), /设备/)
+  assert.match(blockRefusalNotice('equipment', blockers), /闸机/)
+  // The whole preview reads as one notice line, conflict included.
+  assert.match(previewNotice(st, check), /闸机/)
+  // Block-only reasons keep their own sentences.
+  assert.match(blockRefusalNotice('opening'), /预留开口/)
+  assert.match(blockRefusalNotice('track'), /轨道/)
+})
+
+/* ------------------------- a dug hole at grade fills back, and digs back out */
+
+test('a wall course over a dug hole fills it back, like a block does', () => {
+  // (8,-4,0) in the wild: an escalator carved the corridor and a dig left the
+  // `void` record. The ghost asks `checkBlockCells`, which offers the hole —
+  // so the release must lay into it rather than skip it in silence (blue
+  // cursor, no block was the bug).
+  const cells = []
+  for (let x = 0; x < 6; x++) for (let y = 0; y < 6; y++) if (x !== 2 || y !== 2) cells.push({ x, y, z: 0, fill: 'solid' })
+  cells.push({ x: 2, y: 2, z: 0, fill: 'void' })
+  const st = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
+  const ghost = checkBlockCells(st, [[2, 2, 0]])
+  assert.deepEqual(ghost.acceptedCells, [[2, 2, 0]])
+  const laid = addWalls(st, [[2, 2, 0]], null, 1, { kind: 'upper', side: 'n' })
+  assert.equal(laid.changed, 1)
+  assert.equal(laid.blocked, 0)
+  const records = laid.state.cells.filter((c) => c.x === 2 && c.y === 2 && c.z === 0)
+  assert.equal(records.length, 1, 'one record per coordinate: the void is replaced, not shadowed')
+  assert.equal(records[0].fill, 'solid')
+})
+
+test('digging a block at grade is a change even though the list is the same length', () => {
+  // The dig swaps a `solid` for the street's `void` hole record, so a
+  // length-gated commit drops it and the block can never be dug back out.
+  const st = flatStation()
+  const dug = removeFloor(st, [[1, 1, 0]])
+  assert.equal(dug.cells.length, st.cells.length)
+  assert.equal(sameCells(dug.cells, st.cells), false, 'solid→void is a change')
+  assert.equal(dug.cells.find((c) => c.x === 1 && c.y === 1 && c.z === 0).fill, 'void')
+  // A true no-op — aiming at derived visuals with no document cell — reads same.
+  const noop = removeFloor(st, [[9, 9, 2]])
+  assert.equal(sameCells(noop.cells, st.cells), true)
+})
+
+test('a wall course onto a held cell lays nothing, and refuses nothing', () => {
+  // The release skips what the station already holds rather than reporting it
+  // as blocked; the tool's own toast names the held cell, so the click still
+  // answers instead of dropping the press in silence.
+  const st = flatStation()
+  const laid = addWalls(st, [[1, 1, 0]], null, 1, { kind: 'upper', side: 'n' })
+  assert.equal(laid.changed, 0)
+  assert.equal(laid.blocked, 0)
 })

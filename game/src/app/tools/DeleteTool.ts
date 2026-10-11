@@ -3,7 +3,7 @@
 // commit. Moved verbatim from app/Viewport.tsx (GAME-SPEC §9.5). The sweep rule
 // itself lives in app/sweep.ts; this file only owns the pointer gesture.
 
-import { removeFloor, removeModule } from '../../build/model.ts'
+import { removeFloor, removeModule, sameCells } from '../../build/model.ts'
 import type { Module } from '../../sim/types.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from '../sweep.ts'
 import { moduleLabel, useStore } from '../store.ts'
@@ -220,7 +220,10 @@ export class DeleteTool extends ToolController {
       const swept = d.modules
         .map((id) => st.station.modules.find((m) => m.id === id))
         .filter((m): m is Module => m !== undefined)
-      if (swept.length === 0) return
+      if (swept.length === 0) {
+        st.setNotice('这里没有可拆的东西')
+        return
+      }
       if (swept.length === 1) {
         this.removePlacedModule(swept[0])
         return
@@ -249,6 +252,8 @@ export class DeleteTool extends ToolController {
         st.commit(next)
         st.select(null)
         st.setNotice(`已拆掉${removed}段围栏`)
+      } else {
+        st.setNotice('这里没有可拆的围栏')
       }
       return
     }
@@ -261,10 +266,18 @@ export class DeleteTool extends ToolController {
     // that takes none of the document's blocks is not the guard's business.
     const remove = pendingCells(cells, 'remove', this.ctx.solids())
     const authored = remove.filter(([x, y, z]) => st.station.cells.some((c) => c.x === x && c.y === y && c.z === z))
-    if (authored.length > 0 && st.station.cells.length - authored.length < 4) return
+    // The seed guard refuses rather than digs: say why instead of silence.
+    if (authored.length > 0 && st.station.cells.length - authored.length < 4) {
+      st.setNotice('不能再删了：车站至少保留 4 格方块')
+      return
+    }
     // A dug auto-floor brings its wall ring along; a hand-placed block is
-    // just removed.
+    // just removed. The change is read by content, not by length: digging a
+    // block at grade swaps a `solid` for the street's `void` hole record, so
+    // the list is the same length but the station changed — gating on length
+    // dropped that commit and the block could never be dug back out.
     const next = removeFloor(st.station, remove)
-    if (next.cells.length !== st.station.cells.length) st.commit(next)
+    if (!sameCells(next.cells, st.station.cells)) st.commit(next)
+    else st.setNotice('这里没有可删的方块')
   }
 }

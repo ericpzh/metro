@@ -35,6 +35,9 @@ export class ModuleSystem extends SceneSystem {
   /** The selected module's id and its highlight box, kept across a rebuild. */
   private selectedModuleId: string | null = null
   private selectionHelper: THREE.Box3Helper | null = null
+  /** The equipment under the pointer in move, picker and select tools. */
+  private hoverModuleId: string | null = null
+  private hoverHelper: THREE.Box3Helper | null = null
   /** Ids of placed modules a blocked preview collides with, boxed in red. */
   private colliderIds: string[] = []
   private colliderHelpers: THREE.Box3Helper[] = []
@@ -277,6 +280,31 @@ export class ModuleSystem extends SceneSystem {
   setSelection(moduleId: string | null): void {
     this.selectedModuleId = moduleId
     this.refreshSelection()
+  }
+
+  setHoverHighlight(moduleId: string | null): void {
+    this.hoverModuleId = moduleId
+    this.refreshHoverHighlight()
+  }
+
+  refreshHoverHighlight(): void {
+    if (this.hoverHelper) {
+      this.ctx.scene.remove(this.hoverHelper)
+      this.hoverHelper.geometry.dispose()
+      ;(this.hoverHelper.material as THREE.Material).dispose()
+      this.hoverHelper = null
+    }
+    const id = this.hoverModuleId
+    if (!id || id === this.selectedModuleId) return
+    const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
+    if (!group) return
+    const box = new THREE.Box3().setFromObject(group)
+    if (box.isEmpty()) return
+    box.expandByScalar(0.06)
+    const helper = new THREE.Box3Helper(box, 0x55b6ff)
+    helper.renderOrder = 4
+    this.hoverHelper = helper
+    this.ctx.scene.add(helper)
   }
 
   /**

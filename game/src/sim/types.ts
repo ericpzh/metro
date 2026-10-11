@@ -302,6 +302,8 @@ export type ExitBays = 1 | 2 | 3 | 4
 
 export interface ExitCfg {
   style?: 'doorway'
+  /** Exact backing block course for a wall-mounted 地面 exit panel. */
+  mountZ?: number
   name: string
   /** Street → station demand, pax/hour at peak. Outflow is unlimited: an exit
    *  is a pure opening and passes as many people as the corridors deliver. */

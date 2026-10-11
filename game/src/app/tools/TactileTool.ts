@@ -1,7 +1,7 @@
 import { addEquipment, createModule, fenceRotForLine, nextModuleId, removeModule } from '../../build/model.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
 import { tactileAt } from '../../sim/floorDecor.ts'
-import { equipmentReason, equipmentRefusalNotice } from '../../sim/placement.ts'
+import { equipmentReason, equipmentRefusalNotice, placementColliders } from '../../sim/placement.ts'
 import type { Module } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { straightLineCells } from './geometry/cells.ts'
@@ -19,8 +19,14 @@ export class TactileTool extends ToolController {
     const removing = st.tool === 'delete' || info.button === 2
     const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
     const old = picked?.type === 'tactile' ? picked : tactileAt(st.station.modules, ...info.hit.cell)
-    if (removing && old?.type !== 'tactile') return
-    if (!removing && !info.hit.solid) return
+    if (removing && old?.type !== 'tactile') {
+      st.setNotice('这里没有可拆的盲道')
+      return
+    }
+    if (!removing && !info.hit.solid) {
+      st.setNotice(equipmentRefusalNotice('floor'))
+      return
+    }
     info.preventDefault()
     const anchor: [number, number, number] = removing && old ? [old.x, old.y, old.z] : info.hit.cell
     this.ctx.drag.current = {
@@ -94,16 +100,22 @@ export class TactileTool extends ToolController {
     const st = useStore.getState()
     let next = st.station
     let why = ''
+    let removed = 0
     for (const mod of mods) {
-      if (d.mode === 'remove') { next = removeModule(next, mod.id); continue }
+      if (d.mode === 'remove') {
+        next = removeModule(next, mod.id)
+        removed++
+        continue
+      }
       const check = checkModulePlacements(next, [{ id: mod.id, module: mod }])
       if (check.refused.size) {
-        why ||= equipmentRefusalNotice(equipmentReason(next.cells, next.modules, mod))
+        why ||= equipmentRefusalNotice(equipmentReason(next.cells, next.modules, mod), placementColliders(next.modules, mod))
         continue
       }
       next = addEquipment(next, { ...mod, id: nextModuleId(next.modules, 'tactile') })
     }
     if (next !== st.station) { st.commit(next); if (d.mode === 'remove') st.select(null) }
     if (why) st.setNotice(why)
+    else if (next === st.station) st.setNotice(d.mode === 'remove' && removed === 0 ? '这里没有可拆的盲道' : '这里放不下盲道：换个地方')
   }
 }

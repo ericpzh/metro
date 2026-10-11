@@ -217,6 +217,7 @@ export class SceneRenderer {
     // does not drop the highlight.
     this.modules.refreshSelection()
     this.modules.refreshCollisionHighlight()
+    this.modules.refreshHoverHighlight()
   }
 
   /**
@@ -239,6 +240,11 @@ export class SceneRenderer {
    */
   setSelection(moduleId: string | null): void {
     this.modules.setSelection(moduleId)
+  }
+
+  /** Blue outline for the equipment currently under a tool pointer. */
+  setHoverHighlight(moduleId: string | null): void {
+    this.modules.setHoverHighlight(moduleId)
   }
 
   /**
@@ -514,8 +520,8 @@ export class SceneRenderer {
     this.ghostSys.clearFaceGhost()
   }
 
-  setModulePreview(mod: Module | readonly Module[] | null, blocked = false): void {
-    this.ghostSys.setModulePreview(mod, blocked)
+  setModulePreview(mod: Module | readonly Module[] | null, blocked = false, tintOverride?: number): void {
+    this.ghostSys.setModulePreview(mod, blocked, tintOverride)
   }
 
   setFencePreview(mods: Module[] | null, blocked = false): void {

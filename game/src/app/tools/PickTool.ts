@@ -26,7 +26,7 @@ import { escalatorIsLong } from '../../sim/escalators.ts'
 import { cellKey, faceFinish, facePresent } from '../../build/model.ts'
 import { railModuleAt } from '../../build/rail.ts'
 import { finishLabel } from '../../sim/finishes.ts'
-import { isCeilingHung, isWallMounted, moduleAt } from '../../sim/placement.ts'
+import { moduleAt } from '../../sim/placement.ts'
 import { signBoardsOf, signMountSpec } from '../../sim/sign.ts'
 import type { Module } from '../../sim/types.ts'
 import { MODULE_OPTIONS, moduleLabel, useStore } from '../store.ts'
@@ -279,21 +279,23 @@ export class PickTool extends ToolController {
   onMove(info: PointerInfo): void {
     const scene = this.ctx.scene()
     const hit = info.hit
-    if (!scene || !hit) return
-    // Hover is just the highlight: the drawn model ghosts itself (a wall panel
-    // or hung fitting rings no floor cell), otherwise the floor cell is ringed.
-    const pickedId = this.pickModuleAt(info)
-    const picked = pickedId ? useStore.getState().station.modules.find((m) => m.id === pickedId) : undefined
-    if (picked && (isWallMounted(picked) || isCeilingHung(picked))) {
+    if (!scene) return
+    if (!hit) {
+      scene.setHoverHighlight?.(null)
+      scene.setModulePreview(null)
       scene.setCursor(null)
-      scene.setModulePreview(picked, false)
       return
     }
-    if (picked) {
-      scene.setModulePreview(picked, false)
-      scene.setCursor(hit.cell, true)
+    // Outline the actual equipment under the pointer so the pick target is clear.
+    const pickedId = this.pickModuleAt(info)
+    if (pickedId) {
+      const picked = useStore.getState().station.modules.find((m) => m.id === pickedId)
+      scene.setHoverHighlight?.(null)
+      scene.setModulePreview(picked ?? null, false, 0x168cff)
+      scene.setCursor(null)
       return
     }
+    scene.setHoverHighlight?.(null)
     scene.setModulePreview(null)
     scene.setCursor(hit.solid ? hit.place : hit.cell, true)
   }

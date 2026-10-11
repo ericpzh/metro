@@ -9,6 +9,9 @@
 // their controllers (GAME-SPEC §9.5 gestures).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { TfiHandDrag } from 'react-icons/tfi'
+import { TbBulldozer } from 'react-icons/tb'
+import { CgColorPicker } from 'react-icons/cg'
 import { SceneRenderer, PAN_DOWN, PAN_UP, type PickResult } from '../render/scene.ts'
 import { cellKey, removeFloor, thinWallSideMap, toData, zoneFloorKeys, zoneMapFloorsAt, zoneRegionLabels } from '../build/model.ts'
 import { withGround } from '../sim/ground.ts'
@@ -38,6 +41,11 @@ interface BuildMeasure {
   left: number
   top: number
   text: string
+}
+
+interface PointerPosition {
+  left: number
+  top: number
 }
 
 /**
@@ -132,6 +140,14 @@ export function Viewport(): React.ReactElement {
 
   /** The 方块 tool's pending patch size, pinned to the pointer while previewing. */
   const [buildMeasure, setBuildMeasure] = useState<BuildMeasure | null>(null)
+  const [movePointer, setMovePointer] = useState<PointerPosition | null>(null)
+  const [deletePointer, setDeletePointer] = useState<PointerPosition | null>(null)
+  const [pickerPointer, setPickerPointer] = useState<PointerPosition | null>(null)
+  const activeTool = useStore((state) => state.tool)
+
+  useEffect(() => {
+    sceneRef.current?.setHoverHighlight(null)
+  }, [activeTool])
   /** The pointer is on the 剖切 surface: the crosshair becomes a grab hand. */
   const [sectionHot, setSectionHot] = useState(false)
 
@@ -745,6 +761,18 @@ export function Viewport(): React.ReactElement {
   }
 
   const onPointerMove = (e: React.PointerEvent): void => {
+    if (activeTool === 'move') {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (rect) setMovePointer({ left: e.clientX - rect.left, top: e.clientY - rect.top })
+    }
+    if (activeTool === 'delete') {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (rect) setDeletePointer({ left: e.clientX - rect.left, top: e.clientY - rect.top })
+    }
+    if (activeTool === 'pick') {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (rect) setPickerPointer({ left: e.clientX - rect.left, top: e.clientY - rect.top })
+    }
     const scene = sceneRef.current
     if (!scene) return
     // 剖切: a slide in progress owns the move. The pointer's travel is measured
@@ -767,7 +795,10 @@ export function Viewport(): React.ReactElement {
       scene.setSectionHover(hot)
       setSectionHot(hot)
     }
-    if (hot) return
+    if (hot) {
+      scene.setHoverHighlight(null)
+      return
+    }
     // Right-click cancel while the left button is still held: the second
     // pointerdown is unreliable (one mouse pointer, button already down), but
     // the buttons bitmask on the move is not — a left drag that gains the
@@ -794,6 +825,7 @@ export function Viewport(): React.ReactElement {
     const hit = pickAt(e.clientX, e.clientY, e.buttons & 2 ? 2 : 0)
     if (!hit) {
       hoverRef.current = null
+      scene.setHoverHighlight(null)
       setBuildMeasure(null)
       // A carried piece (移动) keeps its parked ghost: only where it is aimed, not
       // whether it exists, depends on the pointer.
@@ -892,13 +924,14 @@ export function Viewport(): React.ReactElement {
     <>
       <canvas
         ref={canvasRef}
-        className={sectionHot ? 'viewport grab' : 'viewport'}
+        className={`${sectionHot ? 'viewport grab' : 'viewport'}${activeTool === 'move' || activeTool === 'delete' || activeTool === 'pick' ? ' toolPointer' : ''}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onContextMenu={onContextMenu}
         onPointerLeave={() => {
           hoverRef.current = null
+          sceneRef.current?.setHoverHighlight(null)
           setBuildMeasure(null)
           if (sectionHotRef.current) {
             sectionHotRef.current = false
@@ -915,6 +948,27 @@ export function Viewport(): React.ReactElement {
           sceneRef.current?.clearFaceGhost()
         }}
       />
+      {activeTool === 'move' && movePointer && (
+        <TfiHandDrag
+          className="movePointer"
+          aria-hidden="true"
+          style={{ left: movePointer.left + 5, top: movePointer.top + 5 }}
+        />
+      )}
+      {activeTool === 'delete' && deletePointer && (
+        <TbBulldozer
+          className="deletePointer"
+          aria-hidden="true"
+          style={{ left: deletePointer.left + 5, top: deletePointer.top + 5 }}
+        />
+      )}
+      {activeTool === 'pick' && pickerPointer && (
+        <CgColorPicker
+          className="pickerPointer"
+          aria-hidden="true"
+          style={{ left: pickerPointer.left + 5, top: pickerPointer.top + 5 }}
+        />
+      )}
       {buildMeasure && (
         <div className="buildMeasure" style={{ left: buildMeasure.left + 14, top: buildMeasure.top + 14 }}>
           {buildMeasure.text}

@@ -13,7 +13,7 @@ import {
   nextModuleId,
   removeModule,
 } from '../../build/model.ts'
-import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
+import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockNotice, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
 import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
 import { snapPsdEnd } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
@@ -25,6 +25,7 @@ import { glassSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
   autofaceWallMount,
+  blockerLabels,
   ceilingMountMissing,
   ceilingMountStandCell,
   equipmentReason,
@@ -32,6 +33,7 @@ import {
   isCeilingHung,
   moduleAt,
   placementBlocked,
+  placementColliders,
   placementOnTrack,
   wallMountMissing,
   wallMountStandCell,
@@ -52,6 +54,15 @@ import type { PointerInfo } from './ToolContext.ts'
 import { deletionTarget } from './deletionTarget.ts'
 import { canPlaceWithoutFloorHit } from './placementInput.ts'
 
+/** Rotation whose local back points from the stand cell to the hit block. */
+function wallRotationForSide(dx: number, dy: number): number | null {
+  if (dx === 0 && dy === -1) return 0
+  if (dx === 1 && dy === 0) return 1
+  if (dx === 0 && dy === 1) return 2
+  if (dx === -1 && dy === 0) return 3
+  return null
+}
+
 export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
 
@@ -67,6 +78,7 @@ export class EquipmentTool extends ToolController {
       // rather than tearing down the screen standing over that floor (§9.5).
       const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
       if (picked?.type === 'floor-mark') this.removePlacedModule(picked)
+      else st.setNotice('这里没有可擦的地面指示')
       return
     }
     if (st.moduleType === 'bridge') {
@@ -75,7 +87,18 @@ export class EquipmentTool extends ToolController {
       if (info.button === 2) { st.removeRail(src.id); return }
       const bridge = makeBridge(src, freeTunnelEnd(st.station, src, hit.cell), st.bridgeLength, nextModuleId(st.station.modules, 'track'), st.bridgeRailing)
       const next = commitTrack(st.station, bridge)
-      if (next === st.station) { st.setNotice('轨道桥放不下：检查高度和沿线障碍'); return }
+      if (next === st.station) {
+        const block = trackBlockReason(st.station, bridge)
+        const colliders = trackColliders(st.station, bridge)
+        st.setNotice(
+          block
+            ? trackBlockNotice(st.station, bridge, block)
+            : colliders.length > 0
+              ? `轨道桥放不下：被${blockerLabels(colliders)}挡住了`
+              : '轨道桥放不下：检查高度和沿线障碍',
+        )
+        return
+      }
       st.commit(next)
       return
     }
@@ -85,7 +108,7 @@ export class EquipmentTool extends ToolController {
         const grown = extendedPillar(old, st.pillarLength)
         const others = st.station.modules.filter((m) => m.id !== old.id)
         const refusal = equipmentReason(st.station.cells, others, grown, true)
-        if (refusal) { st.setNotice(equipmentRefusalNotice(refusal)); return }
+        if (refusal) { st.setNotice(equipmentRefusalNotice(refusal, placementColliders(others, grown))); return }
         st.commit({ ...st.station, modules: st.station.modules.map((m) => m.id === old.id ? grown : m) })
         return
       }
@@ -96,7 +119,12 @@ export class EquipmentTool extends ToolController {
     // rotation. Right-drag lifts the run back out, one panel at a time.
     if (isFenceType(st.moduleType)) {
       const mode: 'add' | 'remove' = info.button === 2 ? 'remove' : 'add'
-      if (mode === 'add' && !hit.solid) return
+      // A fence stands on floor like any equipment: pressing void is a `floor`
+      // refusal, not a silent no-op.
+      if (mode === 'add' && !hit.solid) {
+        st.setNotice(equipmentRefusalNotice('floor'))
+        return
+      }
       info.preventDefault()
       this.ctx.drag.current = {
         active: true,
@@ -136,6 +164,7 @@ export class EquipmentTool extends ToolController {
       }
       const shaft = moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2])
       if ((shaft && shaft.type === 'lift') || hit.solid) this.placeLift(hit)
+      else st.setNotice(equipmentRefusalNotice('lift-footprint'))
       return
     }
     if (info.button === 2) {
@@ -163,8 +192,12 @@ export class EquipmentTool extends ToolController {
     // Wall/ceiling mounts are placed from their backing surface, so the pointer
     // may be in open air even though the hover has resolved a valid wall or slab.
     // Let their placement checks decide; floor-standing equipment still needs
-    // an actual solid floor hit.
-    if (!hit.solid && !canPlaceWithoutFloorHit(st.moduleType)) return
+    // an actual solid floor hit — and a press on void says so instead of
+    // dropping the click in silence.
+    if (!hit.solid && !canPlaceWithoutFloorHit(st.moduleType)) {
+      st.setNotice(equipmentRefusalNotice('floor'))
+      return
+    }
     this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]])
   }
 
@@ -265,7 +298,7 @@ export class EquipmentTool extends ToolController {
         const refusal = equipmentReason(next.cells, next.modules, mod)
         if (refusal !== '') {
           blocked++
-          why ||= equipmentRefusalNotice(refusal)
+          why ||= equipmentRefusalNotice(refusal, placementColliders(next.modules, mod))
           continue
         }
         next = addEquipment(next, mod)
@@ -294,6 +327,8 @@ export class EquipmentTool extends ToolController {
         st.commit(next)
         st.select(null)
         st.setNotice(`已拆掉${removed}段围栏`)
+      } else {
+        st.setNotice('这里没有可拆的围栏')
       }
     }
   }
@@ -527,7 +562,13 @@ export class EquipmentTool extends ToolController {
     near?: readonly [number, number],
   ): { mod: Module | null; noWall: boolean } {
     const st = useStore.getState()
-    const at = wallMountStandCell(st.station.cells, cell, place)
+    const groundExit = st.moduleType.startsWith('exit-doorway-')
+    const at = wallMountStandCell(st.station.cells, cell, place, groundExit)
+    const hitBlock = st.station.cells.some((block) => block.fill === 'solid'
+      && block.x === cell[0] && block.y === cell[1] && block.z === cell[2])
+    const snappedRot = groundExit && hitBlock
+      ? wallRotationForSide(cell[0] - at[0], cell[1] - at[1])
+      : null
     // The piece is built the way the hung one is — the tool's own settings, and for a
     // 指示牌 the station's lines and the **current** boards, so a wall board hung while
     // its editor is open carries what is on screen and a bare one still wears the
@@ -538,7 +579,7 @@ export class EquipmentTool extends ToolController {
       at[1],
       at[2],
       id,
-      st.moduleRot,
+      snappedRot ?? st.moduleRot,
       st.stairWidth,
       st.escalatorDir,
       st.gateDoor,
@@ -546,6 +587,7 @@ export class EquipmentTool extends ToolController {
       st.currentBoards,
     )
     if (!draft) return { mod: null, noWall: true }
+    if (groundExit && hitBlock && draft.type === 'exit') draft.cfg.mountZ = cell[2]
     // A wall 指示牌 whose board is open in the editor draws the board being arranged.
     const facing = autofaceWallMount(st.station.cells, draft, near)
     const mod = signModuleWithPreview(facing, st.signPreview)
@@ -695,12 +737,14 @@ export class EquipmentTool extends ToolController {
       // failure left is "there is no wall here at all".
       const { mod, noWall } = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near)
       if (!mod || noWall) {
-        st.setNotice(equipmentRefusalNotice('wall'))
+        st.setNotice(type.startsWith('exit-doorway-')
+          ? '地面出口要贴在方块侧面：背后需有一个实心方块'
+          : equipmentRefusalNotice('wall'))
         return
       }
       const refusal = equipmentReason(st.station.cells, st.station.modules, mod)
       if (refusal !== '') {
-        st.setNotice(equipmentRefusalNotice(refusal))
+        st.setNotice(equipmentRefusalNotice(refusal, placementColliders(st.station.modules, mod)))
         return
       }
       st.commit(addEquipment(st.station, mod))
@@ -718,7 +762,7 @@ export class EquipmentTool extends ToolController {
       for (const mod of mods) {
         const refusal = equipmentReason(st.station.cells, st.station.modules, mod, true)
         if (refusal !== '') {
-          st.setNotice(equipmentRefusalNotice(refusal))
+          st.setNotice(equipmentRefusalNotice(refusal, placementColliders(st.station.modules, mod)))
           return
         }
       }
@@ -729,14 +773,18 @@ export class EquipmentTool extends ToolController {
     const floorHere = solid || exitFloorAt(st.station.modules, cell[0], cell[1], cell[2])
     const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])
     const mods = this.buildPlacementModules(type, at, nextModuleId(st.station.modules, type))
-    if (mods.length === 0) return
+    if (mods.length === 0) {
+      st.setNotice('这里放不下设备：换个地方')
+      return
+    }
     // **One verdict, one refusal.** Every rule a module answers to lives in
     // `build/validation.ts` (which reads `equipmentReason`), so the piece the red
-    // ghost refused is the piece this refuses, in the same words.
+    // ghost refused is the piece this refuses, in the same words — with the
+    // conflicting piece named.
     for (const mod of mods) {
       const refusal = equipmentReason(st.station.cells, st.station.modules, mod, true)
       if (refusal !== '') {
-        st.setNotice(equipmentRefusalNotice(refusal))
+        st.setNotice(equipmentRefusalNotice(refusal, placementColliders(st.station.modules, mod)))
         return
       }
     }
@@ -764,8 +812,9 @@ export class EquipmentTool extends ToolController {
       const hi = Math.max(shaft.from.z, shaft.to.z)
       const up = z >= (lo + hi) / 2
       const grown = up ? liftExtendedUp(shaft) : liftExtendedDown(shaft)
-      if (placementBlocked(st.station.modules, grown)) {
-        st.setNotice('这层有设备挡着，电梯伸不过去')
+      const blockers = placementColliders(st.station.modules, grown)
+      if (blockers.length > 0) {
+        st.setNotice(`这层有设备挡着，电梯伸不过去：被${blockerLabels(blockers)}挡住了`)
         return
       }
       st.commit(extendLift(st.station, shaft.id, up))

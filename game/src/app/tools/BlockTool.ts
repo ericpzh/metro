@@ -10,11 +10,12 @@ import {
   addWalls,
   plannedAutoWalls,
   removeFloor,
+  sameCells,
   wallColumnAt,
   wallColumnsAt,
   wallSnap,
 } from '../../build/model.ts'
-import { blockRefusalNotice, checkBlockCells, dominantRefusal, newPreview } from '../../build/validation.ts'
+import { checkBlockCells, newPreview, previewNotice } from '../../build/validation.ts'
 import type { PlacementPreview } from '../../build/validation.ts'
 import type { CellShape } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
@@ -239,7 +240,13 @@ export class BlockTool extends ToolController {
         const triangle = shape?.kind === 'triangle' ? { kind: shape.triangle, side: shape.side } : null
         const { state: next, changed, blocked } = addWalls(st.station, [d.anchor], shapeWallSide(shape), 1, triangle)
         if (changed > 0) st.commit(next)
-        if (blocked > 0) st.setNotice(blockRefusalNotice('equipment'))
+        // The cut piece answers to the same block verdict, so name the same
+        // conflict the red ghost boxed rather than a bare `equipment`. A cell
+        // the station already holds is neither accepted nor refused — the ghost
+        // stays blue over it — so a click that lays nothing there says so
+        // instead of dropping the press in silence.
+        if (blocked > 0) st.setNotice(previewNotice(st.station, checkBlockCells(st.station, [d.anchor])))
+        else if (changed === 0) st.setNotice(`这里放不下${triangle ? '三角块' : '半墙'}：已经有方块了`)
       } else if (rect && st.autoWalls) {
         // A deliberate 方块 drag with 生成墙壁 on draws a walled floor patch:
         // union it with earlier patches and rebuild the auto wall ring around
@@ -256,11 +263,14 @@ export class BlockTool extends ToolController {
         // stores, for a ghost that had shown the player none of it.
         const next = addFloor(st.station, check.acceptedCells)
         if (next !== st.station) st.commit(next)
-        if (check.blockedCells.length > 0) st.setNotice(blockRefusalNotice(dominantRefusal(check)))
+        // The notice names the conflict — the 闸机, the ramp corridor, the rail
+        // bed — from the same preview the ghost drew, so the two cannot disagree.
+        if (check.blockedCells.length > 0) st.setNotice(previewNotice(st.station, check))
       } else {
         const { cells: next, changed, blocked } = addCells(st.station.cells, cells, st.station.modules)
         if (changed > 0) st.commit({ ...st.station, cells: next })
-        if (blocked > 0) st.setNotice(blockRefusalNotice(dominantRefusal(check)))
+        if (blocked > 0) st.setNotice(previewNotice(st.station, check))
+        else if (changed === 0) st.setNotice('这里放不下方块：已经有方块了')
       }
     } else {
       // Only the document's **own** blocks count against the seed's integrity
@@ -275,11 +285,20 @@ export class BlockTool extends ToolController {
       const authored = remove.filter(([x, y, z]) =>
         st.station.cells.some((c) => c.x === x && c.y === y && c.z === z),
       )
-      if (authored.length > 0 && st.station.cells.length - authored.length < 4) return
+      // The seed guard refuses rather than digs: say why instead of dropping the
+      // gesture in silence — the station keeps at least four blocks.
+      if (authored.length > 0 && st.station.cells.length - authored.length < 4) {
+        st.setNotice('不能再删了：车站至少保留 4 格方块')
+        return
+      }
       // A dug auto-floor brings its wall ring along; a hand-placed block is
-      // just removed.
+      // just removed. The change is read by content, not by length: digging a
+      // block at grade swaps a `solid` for the street's `void` hole record, so
+      // the list is the same length but the station changed — gating on length
+      // dropped that commit and the block could never be dug back out.
       const next = removeFloor(st.station, remove)
-      if (next.cells.length !== st.station.cells.length) st.commit(next)
+      if (!sameCells(next.cells, st.station.cells)) st.commit(next)
+      else st.setNotice('这里没有可删的方块')
     }
   }
 

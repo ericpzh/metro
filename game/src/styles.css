@@ -790,6 +790,26 @@ button.ghost:hover {
 .viewport.grab:active {
   cursor: grabbing;
 }
+.viewport.toolPointer {
+  cursor: none;
+}
+.movePointer,
+.deletePointer,
+.pickerPointer {
+  position: absolute;
+  z-index: 9;
+  width: 22px;
+  height: 22px;
+  color: var(--text);
+  filter: drop-shadow(0 1px 2px var(--surface));
+  pointer-events: none;
+}
+.deletePointer {
+  color: var(--danger);
+}
+.pickerPointer {
+  color: var(--accent);
+}
 
 /* The 方块 tool's live patch size, pinned beside the pointer. */
 .buildMeasure {

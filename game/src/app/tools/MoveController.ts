@@ -65,7 +65,18 @@ export class MoveController extends ToolController {
     // While a piece is in the air every move only aims it. Nothing else
     // the pointer could do — selecting, building, painting — happens until it is
     // dropped or put back.
+    const scene = this.ctx.scene()
     const hit = info.hit
+    if (!scene) return
+    if (!useStore.getState().moveDraft) {
+      const id = this.pickModuleAt(info)
+      const mod = id ? useStore.getState().station.modules.find((m) => m.id === id) : undefined
+      scene.setHoverHighlight?.(null)
+      scene.setModulePreview(mod ?? null, false, 0x168cff)
+      scene.setCursor(null)
+      return
+    }
+    scene.setHoverHighlight?.(null)
     if (!hit) return
     this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1]] }
     this.refreshHover()
@@ -84,7 +95,8 @@ export class MoveController extends ToolController {
     const st = useStore.getState()
     const d = st.moveDraft
     if (d && isWallMounted(d.module)) {
-      const [x, y, z] = wallMountStandCell(st.station.cells, h.cell, h.place)
+      const groundExit = d.module.type === 'exit' && d.module.cfg.style === 'doorway'
+      const [x, y, z] = wallMountStandCell(st.station.cells, h.cell, h.place, groundExit)
       return { x, y, z }
     }
     if (d && isCeilingHung(d.module)) {
@@ -99,6 +111,7 @@ export class MoveController extends ToolController {
   clearPreview(): void {
     this.ctx.scene()?.setModulePreview(null)
     this.ctx.scene()?.setCollisionHighlight(null)
+    this.ctx.scene()?.setHoverHighlight?.(null)
     this.ctx.scene()?.setCursor(null)
   }
 
@@ -129,8 +142,24 @@ export class MoveController extends ToolController {
     // edited, or an undo taken, while it is in the air shows up under the pointer
     // instead of a lift-time snapshot — its `cfg` is the live one; only the cell
     // and the rotation are the player's aim.
-    const current = st.station.modules.find((m) => m.id === d.module.id) ?? d.module
-    const { module: candidate, reason } = moveCandidate(st.station.cells, st.station.modules, current, at, d.rot)
+    let current = st.station.modules.find((m) => m.id === d.module.id) ?? d.module
+    let rot = d.rot
+    if (h && current.type === 'exit' && current.cfg.style === 'doorway') {
+      const backing = st.station.cells.find((c) => c.fill === 'solid'
+        && c.x === h.cell[0] && c.y === h.cell[1] && c.z === h.cell[2])
+      if (backing) {
+        // A ground exit is supported by the exact block face under the pointer.
+        // Carrying the old mountZ offset makes a higher target snap one course up.
+        current = { ...current, cfg: { ...current.cfg, mountZ: current.z + (backing.z - at.z) } }
+        const dx = backing.x - at.x
+        const dy = backing.y - at.y
+        if (dx === 0 && dy === -1) rot = 0
+        else if (dx === 1 && dy === 0) rot = 1
+        else if (dx === 0 && dy === 1) rot = 2
+        else if (dx === -1 && dy === 0) rot = 3
+      }
+    }
+    const { module: candidate, reason } = moveCandidate(st.station.cells, st.station.modules, current, at, rot)
     // A ghost carries a private id: a 指示牌's printed plate and a 电视's station
     // plate are cached per module id, and a preview must never mint into the copy a
     // placed piece owns (`setModulePreview` disposes what its ghost created).
