@@ -113,7 +113,7 @@ test('outfits, proportions and grey washes follow identity through buffer reorde
   const before = appearance(1)
   frame([7, 23, 3])
   assert.deepEqual(appearance(0), before)
-  const identities = Array.from({length: 100}, (_,i) => passengerAppearance(i))
+  const identities = Array.from({length: 1000}, (_,i) => passengerAppearance(i))
   assert.equal(new Set(identities.map(a => a[0])).size, PASSENGER_OUTFITS.length)
   assert.ok(new Set(identities.map(a => a[1])).size > 20)
   assert.ok(new Set(identities.map(a => a[2])).size > 20)
@@ -123,17 +123,62 @@ test('outfits, proportions and grey washes follow identity through buffer reorde
     assert.notDeepEqual(idle, passengerPose(1, outfit))
     let min = Infinity, max = -Infinity
     for(let i=2; i<idle.length; i+=3) { min=Math.min(min,idle[i]);max=Math.max(max,idle[i]) }
-    assert.ok(Math.abs(min) < 0.002 && Math.abs(max - 1.73) < 0.002)
+    assert.ok(Math.abs(min) < 0.002 && max >= 1.73 && max < 1.85)
     if(outfit > 0) assert.notDeepEqual(idle, passengerPose(0, 0))
   }
   crowd.dispose()
   ctx.mats.blob.dispose()
 })
 
+test('every outfit has six distinct hairstyles attached to the animated head', () => {
+  for (let outfit = 0; outfit < 4; outfit++) {
+    const heads = []
+    for (let hair = 0; hair < 6; hair++) {
+      const variant = outfit * 6 + hair
+      const idle = passengerPose(0, variant)
+      heads.push(Array.from(idle).filter((_, i) => idle[i - i % 3 + 2] > 1.5))
+      for (const frame of [1, 7, 13, 19]) {
+        const walk = passengerPose(frame, variant)
+        let top = 0, foot = Infinity
+        for (let i = 2; i < walk.length; i += 3) {
+          top = Math.max(top, walk[i]); foot = Math.min(foot, walk[i])
+        }
+        assert.ok(top > 1.6 && top < 1.9, 'hair stays on the head through the walk cycle')
+        assert.ok(Math.abs(foot) < 0.002, 'hair never pulls the supporting foot below the floor')
+      }
+    }
+    assert.equal(new Set(heads.map(h => JSON.stringify(h))).size, 6, 'all hairstyles have different visible geometry')
+  }
+})
+
+test('child-sized passengers retain smaller builds, eye heights and selection', () => {
+  const identities = Array.from({length: 1000}, (_,id) => ({id, appearance: passengerAppearance(id)}))
+  const kids = identities.filter(({appearance:a}) => a[1] < 0.82)
+  assert.ok(kids.length > 80 && kids.length < 170, 'kids form a minority of the crowd')
+  assert.ok(kids.some(({appearance:a}) => a[1] * 1.73 < 1.1))
+  assert.ok(identities.some(({appearance:a}) => a[1] * 1.73 > 1.9))
+  for (const {appearance:a} of kids) assert.ok(a[2] < 0.97, 'child width shrinks with height')
+  const ctx = { scene: new THREE.Scene(), mats: { blob: new THREE.MeshBasicMaterial() },
+    activeZ: 0, levelBase: 0, ghost: false, hideUI: true, stateIntervalMs: 1000 }
+  const crowd = new CrowdSystem(ctx), kid = kids[0]
+  let eye
+  crowd.followAgentId = kid.id
+  crowd.onEyePose = (...args) => { eye = args }
+  crowd.setAgents(new Float32Array([0,0,0,2,0,kid.id]), 1, 1000)
+  crowd.renderAgents(ctx.lastStateTime + 1000)
+  assert.ok(Math.abs(eye[2] - PASSENGER_EYE_HEIGHT * kid.appearance[1]) < 1e-5)
+  crowd.followAgentId = null
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 100)
+  camera.up.set(0,0,1);camera.position.set(0,-5,1);camera.lookAt(0,0,1);camera.updateMatrixWorld(true)
+  const p = new THREE.Vector3(0,0,1.6*kid.appearance[1]).project(camera)
+  assert.equal(crowd.pickAgent((p.x+1)*400,(1-p.y)*400,camera,{left:0,top:0,width:800,height:800},Infinity),kid.id)
+  crowd.dispose();ctx.mats.blob.dispose()
+})
+
 test('authored human mesh has human scale, grey paint shading and grounded walk poses', () => {
   const body = passengerBody()
   body.computeBoundingBox()
-  assert.ok(Math.abs(body.boundingBox.max.z - 1.73) < 0.002)
+  assert.ok(body.boundingBox.max.z >= 1.73 && body.boundingBox.max.z < 1.85)
   assert.ok(body.index.count / 3 <= 2500, 'authored anatomy is reduced for large crowds')
   const vertex = body.attributes.position
   let volume = 0

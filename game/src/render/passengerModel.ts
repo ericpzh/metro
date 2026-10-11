@@ -6,6 +6,7 @@ export const PASSENGER_EYE_HEIGHT = 1.57
 export const PASSENGER_STRIDE = human.stride
 export const PASSENGER_WALK_FRAMES = human.walkFrames
 export const PASSENGER_OUTFITS = human.variants
+export const PASSENGER_HAIRSTYLES = human.hairstyles
 
 /** Identity, rather than buffer slot, keeps each commuter's appearance stable. */
 export function passengerAppearance(id: number, out: [number, number, number, number] = [0, 0, 0, 0]): [number, number, number, number] {
@@ -13,8 +14,12 @@ export function passengerAppearance(id: number, out: [number, number, number, nu
   hash = Math.imul(hash ^ (hash >>> 16), 0xc2b2ae35) >>> 0
   hash ^= hash >>> 16
   out[0] = (hash >>> 0) % PASSENGER_OUTFITS.length
-  out[1] = 0.93 + ((hash >>> 8) & 255) / 255 * 0.12
-  out[2] = 0.9 + ((hash >>> 16) & 255) / 255 * 0.2
+  const height = ((hash >>> 8) & 255) / 255
+  // About one in eight passengers is child-sized (1.0–1.4 m); the rest
+  // span shorter adults through tall commuters (1.47–1.94 m).
+  const child = (hash & 255) < 32
+  out[1] = child ? 0.58 + height * 0.23 : 0.85 + height * 0.27
+  out[2] = (0.9 + ((hash >>> 16) & 255) / 255 * 0.2) * (child ? out[1] * 1.08 : 1)
   out[3] = 0.9 + ((hash >>> 24) & 255) / 255 * 0.15
   return out
 }
@@ -28,7 +33,7 @@ const bakedNormals = new Int8Array(bytes(human.normals).buffer)
 const bakedIndices = new Uint16Array(bytes(human.indices).buffer)
 
 function expanded(values: Int16Array | Int8Array, frame: number, outfit: number, divisor: number): Float32Array {
-  const offset = (outfit * human.frames + frame) * human.vertices * 3
+  const offset = frame * human.vertices * 3
   const result = new Float32Array(human.corners * 3)
   for (let i = 0; i < human.corners; i++) {
     const vertex = offset + bakedIndices[outfit * human.corners + i] * 3
@@ -53,14 +58,15 @@ export function passengerBody(): THREE.BufferGeometry {
 }
 
 function atlas(values: Int16Array | Int8Array, divisor: number): THREE.DataTexture {
-  const rows = human.frames * PASSENGER_OUTFITS.length
-  const pixels = new Float32Array(human.vertices * rows * 4)
+  const width = 1024
+  const rows = Math.ceil(human.vertices * human.frames / width)
+  const pixels = new Float32Array(width * rows * 4)
   for (let i = 0; i < values.length / 3; i++) {
     pixels[i * 4] = values[i * 3] / divisor
     pixels[i * 4 + 1] = values[i * 3 + 1] / divisor
     pixels[i * 4 + 2] = values[i * 3 + 2] / divisor
   }
-  const texture = new THREE.DataTexture(pixels, human.vertices, rows, THREE.RGBAFormat, THREE.FloatType)
+  const texture = new THREE.DataTexture(pixels, width, rows, THREE.RGBAFormat, THREE.FloatType)
   texture.needsUpdate = true
   return texture
 }
@@ -82,14 +88,17 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
   const normals = atlas(bakedNormals, human.normalScale)
   // Each outfit has its own indexed topology. A small lookup maps the shared
   // triangle corners to its vertices without duplicating all 25 baked poses.
-  const indices = new THREE.DataTexture(Float32Array.from(bakedIndices), human.corners, PASSENGER_OUTFITS.length, THREE.RedFormat, THREE.FloatType)
+  const indexRows = Math.ceil(bakedIndices.length / 1024)
+  const indexPixels = new Float32Array(1024 * indexRows)
+  indexPixels.set(bakedIndices)
+  const indices = new THREE.DataTexture(indexPixels, 1024, indexRows, THREE.RedFormat, THREE.FloatType)
   indices.needsUpdate = true
   const material = passengerMaterial()
   material.onBeforeCompile = (shader) => {
     shader.uniforms.passengerPositions = { value: positions }
     shader.uniforms.passengerNormals = { value: normals }
     shader.uniforms.passengerIndices = { value: indices }
-    shader.uniforms.passengerAtlasSize = { value: new THREE.Vector2(human.vertices, human.frames * PASSENGER_OUTFITS.length) }
+    shader.uniforms.passengerAtlasSize = { value: new THREE.Vector2(positions.image.width, positions.image.height) }
     shader.vertexShader = `
       attribute float passengerVertex;
       attribute vec4 passengerPose;
@@ -99,10 +108,12 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
       uniform sampler2D passengerIndices;
       uniform vec2 passengerAtlasSize;
       vec3 passengerSample(sampler2D data, float frame) {
-        float vertex = texture2D(passengerIndices, vec2((passengerVertex + 0.5) / ${human.corners.toFixed(1)},
-          (passengerOutfit + 0.5) / ${PASSENGER_OUTFITS.length.toFixed(1)})).r;
-        return texture2D(data, vec2((vertex + 0.5) / passengerAtlasSize.x,
-          (frame + passengerOutfit * ${human.frames.toFixed(1)} + 0.5) / passengerAtlasSize.y)).xyz;
+        float corner = passengerVertex + passengerOutfit * ${human.corners.toFixed(1)};
+        float vertex = texture2D(passengerIndices, vec2((mod(corner, 1024.0) + 0.5) / 1024.0,
+          (floor(corner / 1024.0) + 0.5) / ${indexRows.toFixed(1)})).r;
+        float pixel = vertex + frame * ${human.vertices.toFixed(1)};
+        return texture2D(data, vec2((mod(pixel, passengerAtlasSize.x) + 0.5) / passengerAtlasSize.x,
+          (floor(pixel / passengerAtlasSize.x) + 0.5) / passengerAtlasSize.y)).xyz;
       }
       vec3 passengerAnimated(sampler2D data) {
         vec3 idle = passengerSample(data, 0.0);
@@ -115,7 +126,7 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
       .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(passengerAnimated(passengerNormals));')
       .replace('#include <begin_vertex>', 'vec3 transformed = passengerAnimated(passengerPositions);')
   }
-  material.customProgramCacheKey = () => 'passenger-clothed-poses-v2'
+  material.customProgramCacheKey = () => 'passenger-clothed-hair-poses-v3'
   const mesh = new THREE.InstancedMesh(geometry, material, capacity)
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
   mesh.frustumCulled = false

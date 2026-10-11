@@ -15,20 +15,28 @@ Source files include their own rigged
 `Idle_Neutral` and `Walk` clips. No separate animation library is required.
 
 `passenger-human.json` contains four texture-free clothed silhouettes: shirt,
-hoodie, suit, and a casual women's outfit. Each has one relaxed standing pose
-and 24 walking poses. Models are reduced to about 1,200 triangles with smooth
-matte grey shading and a 1.73 m base height. The suit's optional pistol node is omitted. No detailed facial textures remain.
+hoodie, suit, and a casual women's outfit. Each comes with six locally authored
+hairstyles: cropped, swept, bob, ponytail, twin buns, and curly. Hair is bound to
+the source head bone before baking, so it follows the head through every pose.
+Each of the 24 combinations has one relaxed standing pose
+and 24 walking poses. Bodies are reduced to about 1,200 triangles, with up to
+2,232 triangles including hair, smooth matte grey shading and a 1.73 m base
+body height. The suit's optional pistol node is omitted. No detailed facial textures remain.
 Positions are quantized to 1/4096 m and normals to signed bytes. Supporting feet
 are grounded in every pose.
 
 The crowd uses one instanced draw with a per-instance outfit attribute. A small
 index texture maps shared triangle corners to each outfit's own topology; this
-keeps the pose atlas compact (732 vertices per row, 100 rows). Degenerate padding
+shares identical body vertices between hairstyles. Pose and index textures wrap
+at 1,024 pixels so no texture requires a wide GPU limit. Degenerate padding
 fills shorter outfits. Walking advances by distance travelled and settles to idle
 when waiting. Pausing freezes the displayed stride and position until play resumes,
 including worker control snapshots that repeat the same simulation state. A stable hash of passenger id chooses outfit, height, build and grey
 wash; reordering or compacting worker buffers never changes appearance. Eye-view
-height follows that passenger's height scale.
+height follows that passenger's height scale. Roughly one in eight passengers
+has a child-sized body, spanning approximately 1.0–1.4 m; adults span 1.47–1.94 m
+before hair. Children also have proportionally narrower builds. These are visual
+variations selected from the passenger id, without changing simulation needs.
 
 To regenerate, download the four source glTF files into one folder and rename
 them `shirt.gltf`, `hoodie.gltf`, `suit.gltf`, `casual-woman.gltf`, then run:
@@ -37,10 +45,11 @@ them `shirt.gltf`, `hoodie.gltf`, `suit.gltf`, `casual-woman.gltf`, then run:
 node tools/bake-passengers.mjs '<source folder>'
 ```
 
-The offline tool uses the game's installed Three.js GLTFLoader and
+`tools/passenger-hair.mjs` authors the hair geometry; the bake includes it in the
+same draw and animation atlas as the body. The offline tool uses the game's installed Three.js GLTFLoader and
 meshoptimizer 1.1.1 (MIT, installed by the locked Vite toolchain). Source archives,
 an asset service and per-passenger skeletons are unnecessary at runtime. The
-locally bundled derived asset is approximately 918 kB before gzip.
+locally bundled derived asset is approximately 2.96 MB before gzip.
 
 Source glTF SHA-256 hashes:
 

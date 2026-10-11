@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import * as THREE from '../game/node_modules/three/build/three.module.js'
 import { GLTFLoader } from '../game/node_modules/three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptSimplifier } from '../game/node_modules/meshoptimizer/meshopt_simplifier.js'
+import { HAIRSTYLES, passengerHair } from './passenger-hair.mjs'
 
 // Offline CC0 outfit preparation. Source folder contains shirt.gltf, hoodie.gltf,
 // suit.gltf and casual-woman.gltf; see assets/PASSENGERS.md for provenance.
@@ -62,6 +63,8 @@ for (const name of names) {
  const walk=model.animations.find(c=>c.name==='Walk')
  const v=new THREE.Vector3()
  const poses=[], normals=[]
+ const headTransforms=[]
+ const headBone=model.scene.getObjectByName('Head')
  let scale=1, floor=0
  function setClip(clip,time) {
   mixer.stopAllAction();mixer.clipAction(clip).play();mixer.setTime(time)
@@ -84,6 +87,7 @@ for (const name of names) {
  floor=box.min.z;scale=1.73/(box.max.z-box.min.z)
  function sample() {
   rawPositions()
+  headTransforms.push(headBone.matrixWorld.clone())
   let foot=Infinity
   for(const {geo}of parts)for(let i=2;i<geo.attributes.position.array.length;i+=3)foot=Math.min(foot,geo.attributes.position.array[i])
   const p=[],n=[]
@@ -99,30 +103,77 @@ for (const name of names) {
   poses.push(p);normals.push(n)
  }
  sample()
+ const headBox=new THREE.Box3()
+ for(const {mesh,geo} of parts) if(/head/i.test(mesh.name+' '+mesh.parent?.name)) {
+  for(let i=0;i<geo.attributes.position.count;i++)headBox.expandByPoint(v.fromBufferAttribute(geo.attributes.position,i))
+ }
+ if(headBox.isEmpty())throw new Error(`Missing head geometry: ${parts.map(p=>p.mesh.name).join(', ')}`)
  for(let i=0;i<WALK_FRAMES;i++) {setClip(walk, i*walk.duration/WALK_FRAMES);sample()}
  const indices=[]
  let offset=0
  for(const {geo}of parts) {indices.push(...Array.from(geo.index.array,i=>i+offset));offset+=geo.attributes.position.count}
  console.log({name,vertices:offset,triangles:indices.length/3,walkDuration:walk.duration})
- variants.push({name,poses,normals,indices})
+ // Bind hair to the animated head once, then bake it with every idle/walk pose.
+ // It remains part of the same instanced draw as the clothing.
+ const bindInverse=headTransforms[0].clone().invert()
+ for(const style of HAIRSTYLES) {
+  const hair=passengerHair(style,headBox), local=[]
+  for(let i=0;i<hair.attributes.position.count;i++) {
+   v.fromBufferAttribute(hair.attributes.position,i)
+   v.set(v.y/scale,v.z/scale+floor,v.x/scale).applyMatrix4(bindInverse)
+   local.push(v.clone())
+  }
+  const hairPoses=[],hairNormals=[]
+  for(let frame=0;frame<FRAMES;frame++) {
+   const p=hair.attributes.position.array
+   // Recover the same foot grounding offset used by the body sample.
+   setClip(frame===0?idle:walk,frame===0?0:(frame-1)*walk.duration/WALK_FRAMES)
+   rawPositions()
+   let foot=Infinity
+   for(const {geo}of parts)for(let i=2;i<geo.attributes.position.array.length;i+=3)foot=Math.min(foot,geo.attributes.position.array[i])
+   for(let i=0;i<local.length;i++) {
+    v.copy(local[i]).applyMatrix4(headTransforms[frame])
+    p[i*3]=v.z*scale;p[i*3+1]=v.x*scale;p[i*3+2]=(v.y-floor)*scale-foot
+   }
+   hair.computeVertexNormals()
+   hairPoses.push([...poses[frame],...p])
+   hairNormals.push([...normals[frame],...hair.attributes.normal.array])
+  }
+  variants.push({name:`${name}-${style}`,poses:hairPoses,normals:hairNormals,
+   indices:[...indices,...Array.from(hair.index.array,i=>i+offset)]})
+  hair.dispose()
+ }
 }
-const vertices=Math.max(...variants.map(v=>v.poses[0].length/3))
-const positions=new Int16Array(vertices*3*FRAMES*variants.length)
+// Share identical animated vertices across hairstyles instead of baking each
+// clothed body six times. Vertex zero supplies safe degenerate padding.
+const unique=[{p:Array(FRAMES*3).fill(0),n:Array.from({length:FRAMES*3},(_,i)=>i%3===2?127:0)}]
+const lookup=new Map()
+for(const variant of variants) {
+ const remap=[]
+ for(let i=0;i<variant.poses[0].length/3;i++) {
+  const p=variant.poses.flatMap(frame=>frame.slice(i*3,i*3+3).map(n=>Math.round(n*4096)))
+  const n=variant.normals.flatMap(frame=>frame.slice(i*3,i*3+3).map(n=>Math.round(n*127)))
+  const key=p.join(',')+';'+n.join(',')
+  if(!lookup.has(key)){lookup.set(key,unique.length);unique.push({p,n})}
+  remap.push(lookup.get(key))
+ }
+ variant.indices=variant.indices.map(i=>remap[i])
+}
+const vertices=unique.length
+if(vertices>65535)throw new Error('Passenger vertex lookup exceeds Uint16 capacity')
+const positions=new Int16Array(vertices*3*FRAMES)
 const normals=new Int8Array(positions.length)
-for(let variant=0;variant<variants.length;variant++)for(let frame=0;frame<FRAMES;frame++) {
- const row=(variant*FRAMES+frame)*vertices*3
- positions.set(Int16Array.from(variants[variant].poses[frame],n=>Math.round(n*4096)),row)
- normals.set(Int8Array.from(variants[variant].normals[frame],n=>Math.round(n*127)),row)
- // Degenerate padding has a valid normal to avoid NaNs in lighting.
- for(let i=variants[variant].poses[frame].length+2;i<vertices*3;i+=3)normals[row+i]=127
+for(let i=0;i<vertices;i++)for(let frame=0;frame<FRAMES;frame++) {
+ positions.set(unique[i].p.slice(frame*3,frame*3+3),(frame*vertices+i)*3)
+ normals.set(unique[i].n.slice(frame*3,frame*3+3),(frame*vertices+i)*3)
 }
 const corners=Math.max(...variants.map(v=>v.indices.length))
 const index=new Uint16Array(corners*variants.length)
 for(let variant=0;variant<variants.length;variant++)index.set(variants[variant].indices,variant*corners)
 const encode=a=>Buffer.from(a.buffer).toString('base64')
 const baked={source:'Quaternius Ultimate Modular Men and Women',license:'CC0-1.0',
- variants:names,vertices,corners,triangles:corners/3,frames:FRAMES,walkFrames:WALK_FRAMES,height:1.73,
+ variants:variants.map(v=>v.name),hairstyles:HAIRSTYLES,vertices,corners,triangles:corners/3,frames:FRAMES,walkFrames:WALK_FRAMES,height:1.73,
  stride:1.1,positionScale:4096,normalScale:127,indices:encode(index),positions:encode(positions),normals:encode(normals)}
 const out=resolve('game/src/assets/passenger-human.json')
 writeFileSync(out,JSON.stringify(baked)+'\n')
-console.log({vertices,triangles:baked.triangles,variants:names.length,bytes:readFileSync(out).length})
+console.log({vertices,triangles:baked.triangles,variants:variants.length,bytes:readFileSync(out).length})

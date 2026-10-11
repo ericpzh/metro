@@ -308,7 +308,7 @@ test('the crowd figure is a human-scale continuous mesh', () => {
   const crowd = crowdSystem()
   crowd.agents.geometry.computeBoundingBox()
   const box = crowd.agents.geometry.boundingBox
-  assert.ok(Math.abs(box.max.z - 1.73) < 0.002, 'head reaches a human-scale height')
+  assert.ok(box.max.z >= 1.73 && box.max.z < 1.85, 'head and hair reach a human-scale height')
   assert.ok(Math.abs(box.min.z) < 0.002, 'feet meet the walk surface')
   crowd.dispose()
 })

@@ -1154,6 +1154,9 @@ the four rules most changes trip over.
   geometry** instead — the green 出口/EXIT plate and the red 禁止 roundel, listed in
   `SIGN_DRAWN_ICONS` (`signIconIsDrawn`), which is what `pictograms.ts` asks before reporting a
   missing asset (`tools/sign-icons-sheet.py` prints the contact sheet for review).
+  The **wall-mounted** sign is a single printed sheet, 3 mm proud of its backing; it has no steel
+  back box or black lightbox. Its placement envelope reserves only that stand-off. The hanging sign
+  keeps its steel body, black lightbox and two-sided faces.
 * **The 删除 drag sweeps same-type runs** (`app/sweep.ts`, §9.5). A tap removes the piece under
   the pointer — drawn as the module ghost itself with no floor cursor (`setCursor(null)`,
   the wall/ceiling special cases gone); roof and stair-block deletes delegate to the tile
@@ -1212,8 +1215,15 @@ the four rules most changes trip over.
   `render/passengerModel.ts`, `render/scene/systems/CrowdSystem.ts`,
   `render/scene/systems/CameraSystem.ts`, `app/store/slices/ViewSlice.ts`,
   `app/windows/inspector/InfoCard.tsx`, `app/Viewport.tsx`). Four CC0 Quaternius
-  outfits baked to a vertex-atlas `InstancedMesh` (one draw, gait by distance,
-  idle when waiting/riding, frozen while paused). `followPassenger(id)` forces
+  outfits, each with six baked hairstyles, share a compact pose atlas and one
+  crowd `InstancedMesh`; hair follows the animated head. Passenger identity picks
+  outfit, hairstyle, height, build and grey tone. About one in eight passengers
+  is child-sized (roughly 1.0–1.4 m); adults span roughly 1.47–1.94 m, and a
+  child's narrower build and eye height scale with their body. Keep those values
+  in `passengerAppearance`, while `tools/passenger-hair.mjs` and
+  `tools/bake-passengers.mjs` own the authored hair and its pose bake. The
+  crowd has one draw, gait by distance, idle when waiting/riding, frozen while
+  paused. `followPassenger(id)` forces
   隐藏UI + perspective and snapshots the display state; the camera rides
   `PASSENGER_EYE_HEIGHT` facing travel direction, mouse-drag looks after the
   entry yaw, Space still pauses, Esc / departure restores everything. The
