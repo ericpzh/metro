@@ -335,6 +335,15 @@ export class ChunkSystem extends SceneSystem {
             h = Math.imul(h ^ id.length, 16777619)
           }
         }
+        // A cap lives or dies by the cover over it, which is no chunk of its own:
+        // the storey pass reads it from its own emit (hashed above as cells), but
+        // the plate and street passes read cover the chunk does not hold — so a
+        // slab laid overhead must change their key, or the old cap is reused.
+        if (pass !== 's') {
+          const covered =
+            this.ctx.solid.has(packKey(c.x, c.y, c.z + 1)) || this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1))
+          h = Math.imul(h ^ (covered ? 11 : 3), 16777619)
+        }
         n++
       }
       return `${levelZ}|${pass}|${cx},${cy}|${n}:${h >>> 0}`
@@ -388,7 +397,7 @@ export class ChunkSystem extends SceneSystem {
     this.levelGroups.clear()
     this.keepChunkGeometries = null
     const nextCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
-    const meshBand = (group: THREE.Group, levelZ: number, cells: Array<{ x: number; y: number; z: number }>, solid: Set<number>, emit: Set<number>, pass: ChunkPass): void => {
+    const meshBand = (group: THREE.Group, levelZ: number, cells: Array<{ x: number; y: number; z: number }>, solid: Set<number>, emit: Set<number>, pass: ChunkPass, cover?: ReadonlySet<number>): void => {
       // Chunks are grouped once and meshed from that chunk's own cells, rather than
       // walking the whole 16³ volume with an `emit` test per cell: the volume is
       // mostly air, and a band that spans several z levels visited every column for
@@ -421,7 +430,7 @@ export class ChunkSystem extends SceneSystem {
           }
           continue
         }
-        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills)
+        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills, cover)
         if (chunk.triangles === 0) continue
         this.ctx.lastChunkMs = Math.max(this.ctx.lastChunkMs, chunk.ms)
         const meshes: THREE.Mesh[] = []
@@ -503,8 +512,9 @@ export class ChunkSystem extends SceneSystem {
         // `floating` — the whole set, the street included — is what this pass culls
         // against, while only the plates the document owns are meshed here. The
         // street is a plate too, but it has a pass of its own below: drawn by both
-        // would be the same surface twice.
-        meshBand(group, levelZ, floats, floating, emit, 'f')
+        // would be the same surface twice. Caps additionally cull against the whole
+        // station (`cover`), so this pass never draws a cap the storey pass culls.
+        meshBand(group, levelZ, floats, floating, emit, 'f', this.ctx.solid)
       }
       this.levelGroups.set(levelZ, group)
       this.ctx.scene.add(group)

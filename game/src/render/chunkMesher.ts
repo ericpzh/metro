@@ -599,7 +599,11 @@ function buildThinProfile(side: WallSide, E: boolean, W: boolean, N: boolean, S:
  * station holds **no block** in (`rampFillKeys`): each is drawn as if its block
  * existed — shaved by the same `slope` entry, wearing the finish of the block it
  * stands on, solid to every neighbour so the ground below joins it seamlessly — so
- * the wedge under a truss is filled without a cell no tool could address.
+ * the wedge under a truss is filled without a cell no tool could address. `cover`,
+ * finally, is the whole station's solid set for a pass whose own `solid` is a
+ * subset of it (the unsupported-plate pass): a plate's top is culled by a cover
+ * standing on it even when that cover is not a plate itself, so the two passes
+ * agree about every cap instead of one drawing what the other culls.
  */
 export function meshChunk(
   solid: Set<number>,
@@ -614,6 +618,7 @@ export function meshChunk(
   thin?: ReadonlyMap<number, CellShape>,
   slope?: ReadonlyMap<number, SlopeCut>,
   fill?: ReadonlySet<number>,
+  cover?: ReadonlySet<number>,
 ): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
   // What a cell *voted* for its neighbours' exposure, and what it *draws*, are not the same
@@ -665,9 +670,19 @@ export function meshChunk(
     if (!draws(x, y, z)) continue
     if (skip !== undefined && skip.has(key(x, y, z))) continue
     if (emit !== undefined && !emit.has(key(x, y, z))) continue
-    // A cell is open above unless something is drawn there — the block above, or the
-    // filling under a run. Only a real block ever culls a face on a *side*.
-    const up = !draws(x, y, z + 1)
+    // A cell is open above unless a cover stands on it. Which set answers that
+    // depends on the pass: the storey pass culls only against a cover drawn in
+    // the same pass (`emit`), so a solo storey keeps the caps a hidden storey
+    // stands over — otherwise whether a cap survives depends on how deep its
+    // column goes rather than on anything on screen, and two neighbouring columns
+    // come out different. The plate pass instead culls against the whole station
+    // (`cover`), so it never draws a cap the storey pass culls. Only a real block
+    // ever culls a face on a *side*.
+    const above = key(x, y, z + 1)
+    const up =
+      cover !== undefined
+        ? !(cover.has(above) || (fill !== undefined && fill.has(above)))
+        : !(draws(x, y, z + 1) && (emit === undefined || emit.has(above)))
     const down = !standsOn(x, y, z)
     const E = !isSolid(x + 1, y, z)
     const W = !isSolid(x - 1, y, z)

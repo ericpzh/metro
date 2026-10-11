@@ -929,6 +929,10 @@ the four rules most changes trip over.
   a slab one storey up is that room's ceiling, so with the toggle on a storey above keeps only
   the pieces with nothing under them (the chunk mesher's `float` plate, a fixture whose column's
   lowest storey is above the active one). It only has an effect while 显示其他层 is on.
+  A storey's caps do not depend on how deep each column goes: the storey pass culls a top
+  only against a cover drawn in the same pass (`emit`), and the plate pass culls against the
+  whole station (`cover`, hashed into the chunk key), so the two passes agree about every cap
+  instead of one column showing what its neighbour loses (`ground-visibility.test.mjs`).
   **隐藏墙壁** (`hideWalls`) fades every wall face and platform screen door to 16% with
   `depthWrite` off and drops their outline — except while a **剖切** cut is on, where a wall
   goes completely instead. **隐藏UI** (`hideUI`, `U`) is the mode that hides no interface: it

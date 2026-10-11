@@ -195,3 +195,52 @@ test('隐藏地面 is a visibility flag, not a rebuild', () => {
     'the street was rebuilt rather than hidden',
   )
 })
+
+/** Up-facing triangles strictly inside one column's square, on one plane. */
+function capTris(chunks, x, y, plane) {
+  let n = 0
+  for (const mesh of chunks.chunkMeshes) {
+    const pos = mesh.geometry.getAttribute('position')
+    const nor = mesh.geometry.getAttribute('normal')
+    const idx = mesh.geometry.getIndex()
+    for (let i = 0; i < idx.count; i += 3) {
+      let ok = 0
+      for (let v = 0; v < 3; v++) {
+        const vi = idx.getX(i + v)
+        if (
+          Math.abs(nor.getZ(vi) - 1) < 1e-6 &&
+          Math.abs(pos.getZ(vi) - plane) < 1e-6 &&
+          pos.getX(vi) >= x &&
+          pos.getX(vi) <= x + 1 &&
+          pos.getY(vi) >= y &&
+          pos.getY(vi) <= y + 1
+        )
+          ok++
+      }
+      if (ok === 3) n++
+    }
+  }
+  return n
+}
+
+test('one storey caps whole, however deep each column goes', () => {
+  // Two neighbouring columns under one cover slab: (0,0) bottoms out in this
+  // storey (a hanging plate), (1,0) keeps going down (a supported ceiling). The
+  // old mesher drew the plate in both the storey pass and the plate pass while
+  // culling the ceiling's top against the whole station, so one column showed a
+  // cap and its neighbour did not — and the double-drawn sides shimmered at a
+  // glancing angle. A storey pass now holds no plates, and a top is culled only
+  // by a cover drawn in the same pass.
+  const cells = []
+  for (const z of [-3, -2, -1, 0, 1]) cells.push({ x: 0, y: 0, z, fill: 'solid' })
+  for (const z of [-7, -6, -5, -4, -3, -2, -1, 0, 1]) cells.push({ x: 1, y: 0, z, fill: 'solid' })
+  const data = station(cells)
+  const ctx = new SceneContextData(new THREE.Scene(), kit(), undefined, undefined)
+  ctx.levelBase = 1
+  const chunks = new ChunkSystem(ctx)
+  chunks.prepareStation(data)
+  chunks.meshStation()
+  // One quad cap fans to four triangles; a double-drawn cap would read eight.
+  assert.equal(capTris(chunks, 0, 0, 1), 4, 'the hanging plate caps, drawn once')
+  assert.equal(capTris(chunks, 1, 0, 1), 4, 'the supported ceiling caps the same')
+})
