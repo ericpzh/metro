@@ -613,7 +613,12 @@ export function Viewport(): React.ReactElement {
     const modules = station.modules
       .filter((m) => m.id !== lifted)
       .map((m) => signModuleWithPreview(m, st.signPreview))
-    scene.setStation(toData({ ...station, modules }))
+    // Hand the street this effect already built to the mesher: `prepareStation`
+    // would materialise the same window again per commit, the second
+    // window-wide pass of this edit (the walk graph builds the third, in the
+    // worker). The lifted piece stays out of the drawn data but in this list's
+    // window — at most its own anchor plus margin, never a missing street cell.
+    scene.setStation(toData({ ...station, modules }), undefined, ground)
     scene.setAutoCeiling(st.autoCeiling)
     scene.setHideGround(st.hideGround)
     scene.setHideRoof(st.hideRoof)

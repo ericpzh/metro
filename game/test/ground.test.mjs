@@ -18,6 +18,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { GROUND_MARGIN, GROUND_Z, groundHoleAt, groundWindow, solidAt, virtualSolidAt, withGround } from '../src/sim/ground.ts'
+import { rampOpeningAt, rampOpeningsInWindow } from '../src/sim/openings.ts'
+import { exitFloorAt, exitFootprintCells } from '../src/sim/exits.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { ceilingMountMissing, equipmentReason, moduleFloorOk } from '../src/sim/placement.ts'
 import { addCells, addFloor, createModule, paintFace, paintFaces, paintZone, paintZoneCells, removeCells, toState, zoneMapFloors } from '../src/build/model.ts'
@@ -118,6 +120,48 @@ test('an opening the game derived is a hole with no record of its own', () => {
   const out = withGround([], [ramp()], 2)
   assert.equal(out.some((c) => c.x === 0 && c.y === 3), false, 'the corridor was paved back over')
   assert.equal(out.some((c) => c.x === 0 && c.y === 0), true, 'the landing is still ground under the run')
+})
+
+test('the street enumerates its derived holes by run, not per street cell', () => {
+  // `withGround` used to ask `rampOpeningAt`/`exitFloorAt` per street cell —
+  // O(window × runs), most of a commit on a large station. It now enumerates
+  // each run's own bounding box plus each head-house footprint with the same
+  // predicates, so pin the two answers together: every derived hole in the
+  // window, and nothing else, stays unpaved.
+  const across = { id: 'e2', type: 'escalator', x: 4, y: -2, z: 0, from: { x: 4, y: -2, z: 0 }, to: { x: 10, y: -2, z: -4 }, cfg: { dir: 'down' } }
+  const lift = { id: 'l1', type: 'lift', x: 6, y: 4, z: 0, from: { x: 6, y: 4, z: 0 }, to: { x: 6, y: 4, z: 4 }, cfg: {} }
+  const doorway = { id: 'x2', type: 'exit', x: -4, y: -4, z: 0, cfg: { name: 'B口', inRate: 900, open: true, style: 'doorway' } }
+  const upstairs = { id: 'x3', type: 'exit', x: 8, y: 8, z: -4, cfg: { name: 'C口', inRate: 900, open: true } }
+  const modules = [ramp(), across, lift, exit(), doorway, upstairs]
+  const cells = [
+    { x: 0, y: 3, z: GROUND_Z, fill: 'solid' },
+    { x: 2, y: 2, z: GROUND_Z, fill: 'void' },
+  ]
+  const margin = 2
+  const w = groundWindow(cells, modules, margin)
+  // The naive answer: the per-cell predicates, asked over the whole window.
+  const naive = new Set()
+  for (let x = w.x0; x <= w.x1; x++) {
+    for (let y = w.y0; y <= w.y1; y++) {
+      if (rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)) naive.add(`${x},${y}`)
+    }
+  }
+  const enumerated = rampOpeningsInWindow(modules, GROUND_Z, w)
+  for (const m of modules) {
+    if (m.type !== 'exit' || m.cfg.style === 'doorway' || m.z !== GROUND_Z) continue
+    for (const [x, y] of exitFootprintCells(m)) {
+      if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) continue
+      enumerated.add(`${x},${y}`)
+    }
+  }
+  assert.deepEqual([...enumerated].sort(), [...naive].sort(), 'run-by-run enumeration names the same holes')
+  const out = withGround(cells, modules, margin)
+  for (const key of naive) {
+    const [x, y] = key.split(',').map(Number)
+    // An explicit record wins over a derived hole: the document speaks first.
+    if (cells.some((c) => c.x === x && c.y === y && c.z === GROUND_Z)) continue
+    assert.equal(out.some((c) => c.x === x && c.y === y && c.z === GROUND_Z), false, `derived hole ${key} was paved over`)
+  }
 })
 
 /* -------------------------------------------------------- the plane in the game */

@@ -18,11 +18,11 @@
 // that walk every cell — the walk graph and the chunk mesher — while every
 // point query (`solidAt`) and every membership skip (`virtualSolidAt`) answers
 // in O(1) without generating a cell. Pure data, no DOM, no three.
-import { exitFloorAt } from './exits.ts'
+import { exitFloorAt, exitFootprintCells } from './exits.ts'
 // Function-level cycle with `openings.ts` (it reads `virtualSolidAt` for the
 // escalator landings): both sides only call across at runtime, never at module
 // evaluation, so the bindings are settled by the first call.
-import { rampOpeningAt } from './openings.ts'
+import { rampOpeningAt, rampOpeningsInWindow } from './openings.ts'
 import type { Cell, Module } from './types.ts'
 
 /** The street storey: the one plane the document stores inverted. */
@@ -115,11 +115,26 @@ export function withGround(
   const w = groundWindow(cells, modules, margin)
   const explicit = new Set<string>()
   for (const c of cells) explicit.add(key(c.x, c.y, c.z))
+  // The street's derived holes, enumerated by run and by head-house instead of
+  // asked per street cell: `rampOpeningAt` rebuilds the run list per call, so a
+  // window-wide loop over it was O(window × runs) — most of this function's
+  // cost on a large station, paid on every commit (`prepareStation`,
+  // `buildGraph`, the viewport's live sets). Same predicates, asked once each:
+  // `rampOpeningsInWindow` scans each run's own bounding box with `intrudes`,
+  // and an exit's footprint is exactly the cells `exitCoversCell` names.
+  const openings = rampOpeningsInWindow(modules, GROUND_Z, w)
+  for (const m of modules) {
+    if (m.type !== 'exit' || m.cfg.style === 'doorway' || m.z !== GROUND_Z) continue
+    for (const [x, y] of exitFootprintCells(m)) {
+      if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) continue
+      openings.add(`${x},${y}`)
+    }
+  }
   const out = cells.slice() as Cell[]
   for (let x = w.x0; x <= w.x1; x++) {
     for (let y = w.y0; y <= w.y1; y++) {
       if (explicit.has(key(x, y, GROUND_Z))) continue
-      if (rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)) continue
+      if (openings.has(`${x},${y}`)) continue
       // The street is the **outside** zone, not `unpaid`: `outside`↔`unpaid` is
       // not a fare crossing (`crossingDir`), so the plane never invents an
       // ungated fare line around an unpaid concourse — while a painted `paid`

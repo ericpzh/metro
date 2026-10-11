@@ -860,6 +860,43 @@ export function rampOpeningAt(modules: readonly Module[], x: number, y: number, 
 }
 
 /**
+ * Every `(x, y)` at level `z` a ramp corridor opens, enumerated by run instead
+ * of by window cell (§4.1, the street's derived holes).
+ *
+ * `withGround` used to ask `rampOpeningAt` per street cell, rebuilding the run
+ * list and walking every run for every cell — O(window × runs), ~115 ms of a
+ * ~140 ms `withGround` on the 动物园 demo, paid on every commit. A run only
+ * reaches the cells around its own segment, so each run scans its bounding box
+ * (±2 cells covers the centreline tube `within` tests, including a switchback's
+ * slide) and the same `intrudes` predicate decides. Same answer, O(runs × run
+ * length + window).
+ */
+export function rampOpeningsInWindow(
+  modules: readonly Module[],
+  z: number,
+  w: { x0: number; x1: number; y0: number; y1: number },
+): Set<string> {
+  const out = new Set<string>()
+  const ramps = rampList(modules)
+  if (ramps.length === 0) return out
+  const probe: Cell = { x: 0, y: 0, z, fill: 'solid' }
+  for (const r of ramps) {
+    const x0 = Math.max(w.x0, Math.floor(Math.min(r.from.x, r.to.x)) - 2)
+    const x1 = Math.min(w.x1, Math.ceil(Math.max(r.from.x, r.to.x)) + 2)
+    const y0 = Math.max(w.y0, Math.floor(Math.min(r.from.y, r.to.y)) - 2)
+    const y1 = Math.min(w.y1, Math.ceil(Math.max(r.from.y, r.to.y)) + 2)
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        probe.x = x
+        probe.y = y
+        if (intrudes(probe, r)) out.add(`${x},${y}`)
+      }
+    }
+  }
+  return out
+}
+
+/**
  * Remove every solid cell that a ramp passes through, in place. Returns how many
  * were removed. Safe to call more than once (idempotent once carved).
  */

@@ -18,7 +18,7 @@ import { createAdArt } from '../adArt.ts'
 import { createLineMapArt } from '../lineMapArt.ts'
 import { loadPictograms } from '../pictograms.ts'
 import { addStationLights, applyStationRenderer, STATION_CLEAR } from './lightRig.ts'
-import type { CellShape, Face, Module, StationData } from '../../sim/types.ts'
+import type { Cell, CellShape, Face, Module, StationData } from '../../sim/types.ts'
 import { SceneContextData } from './systems/SceneSystem.ts'
 import type { SceneStats } from './systems/SceneSystem.ts'
 import { ChunkSystem } from './systems/ChunkSystem.ts'
@@ -191,9 +191,9 @@ export class SceneRenderer {
 
   /* ------------------------------------------------------------ station */
 
-  setStation(data: StationData, trackCells: Set<number> = new Set()): void {
+  setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.ctx.levelBase = data.levelBase ?? 0
-    this.chunks.prepareStation(data)
+    this.chunks.prepareStation(data, effective)
     // A painted colour the document no longer holds can go: each finish material
     // wraps a 128² canvas texture, and the colour picker hands out a new id per
     // shade, so a long painting session used to keep every shade it ever tried.

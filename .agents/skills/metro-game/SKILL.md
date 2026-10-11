@@ -122,6 +122,11 @@ the four rules most changes trip over.
   `from`/`to` included — for the two consumers that walk every cell, the walk graph
   and the chunk mesher, so what is drawn is what is walked; everything else asks
   `solidAt` / `virtualSolidAt` / `groundHoleAt` in O(1) and never generates a cell.
+  Derived holes are enumerated by run (`rampOpeningsInWindow` over each run's own
+  bounding box, same `intrudes` predicate — never `rampOpeningAt` per street cell,
+  which cost O(window × runs) on every commit), and the viewport hands its
+  effective list into `setStation`/`prepareStation`, so one commit materialises the
+  window once on the main thread (the worker's graph builds its own).
   The generated cells wear **`zone: 'outside'` (站外)** and no finish, and that is
   load-bearing rather than cosmetic: `outside`↔`unpaid` is not a fare crossing
   (`crossingDir`), so the plane never invents an ungated fare line around an unpaid

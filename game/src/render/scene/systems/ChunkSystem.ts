@@ -113,13 +113,17 @@ export class ChunkSystem extends SceneSystem {
    * Station culling prep: the solid set, finishes, track-bed cells, hidden cells
    * (stair landings, shop walls, lift shafts) and thin sides. Everything the
    * mesher, the ghosts and the picking path read about "which cells draw how".
+   *
+   * `effective` is the `withGround` list the caller already built for the same
+   * document (the viewport's live sets): reusing it saves a second window-wide
+   * materialisation per commit. Omitted callers (tests, `/lab`) build it here.
    */
-  prepareStation(data: StationData): void {
+  prepareStation(data: StationData, effective?: Cell[]): void {
     // The street is stored inverted (holes, not blocks), so the mesher works
     // from the **effective** cells: the document's own plus the window's
     // generated ground. The two consumers that walk every cell — this and the
     // walk graph — read the same list, so what is drawn is what is walked.
-    this.effectiveCells = withGround(data.cells, data.modules)
+    this.effectiveCells = effective ?? withGround(data.cells, data.modules)
     // Which of them are the **street** and which are the document's: everything
     // `withGround` added. `meshStation` meshes that set on its own pass, so the
     // generated plane is one thing the view can hide (`隐藏地面`) and one thing
