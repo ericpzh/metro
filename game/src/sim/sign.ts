@@ -37,11 +37,10 @@ import type { LineDef, Module } from './types.ts'
 /* ------------------------------------------------------------------ panel */
 
 /**
- * The board's floor: the smallest panel a sign may be, set just above the standard
- * row's own length so the default board is exactly the floor rather than a hair
- * over it.
+ * The board's floor: a one-tile panel for short signs. Longer layouts grow from
+ * their measured marks, so a small sign does not keep the old two-tile footprint.
  */
-export const PANEL_MIN_W = 2.1
+export const PANEL_MIN_W = 1.0
 export const PANEL_MIN_H = 0.4
 
 /**
@@ -320,11 +319,11 @@ export const SIGN_TEXT_MAX = 8
 /**
  * The longest a label's gloss (English) line may carry. The gloss sets smaller
  * (`SIGN_TEXT_EN_SCALE`) and Latin advances are narrower than a CJK em, so
- * sixteen English characters measure about like eight Chinese — the board stays
+ * twenty-four English characters measure about like eight Chinese — the board stays
  * the width §5.8 sizes it. A lone single line may also be the gloss (the editor
  * drops empty rows when it joins its two boxes), so it keeps this limit too.
  */
-export const SIGN_TEXT_EN_MAX = 16
+export const SIGN_TEXT_EN_MAX = 24
 
 /** The character limit of a label's line `i` (0-based): the name, then the gloss. */
 export function signTextLineMax(i: number): number {

@@ -17,6 +17,8 @@
     "build:game": "npm --prefix game ci && npm --prefix game run build",
     "deploy:game": "npm run build:game && wrangler deploy -c game/wrangler.jsonc",
     "test:game": "npm --prefix game test",
+    "bench:sim": "node tools/bench-sim.mjs",
+    "bench:browser": "npm --prefix game run build && node tools/bench-browser.mjs",
     "audit:i18n": "node tools/audit-i18n.mjs"
   },
   "devDependencies": {

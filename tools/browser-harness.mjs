@@ -73,7 +73,7 @@ export function serveDir(root, port) {
  * directory open, and the next run's `rmSync` then fails with EPERM on Windows
  * before it draws anything.
  */
-export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false }) {
+export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false, softwareGpu = true }) {
   const chromePath = findChrome()
   rmSync(profile, { recursive: true, force: true })
   const logPath = `${profile}.log`
@@ -86,8 +86,9 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
       '--no-sandbox',
       // SwiftShader: a headless box has no GPU, and the thumbnails are a WebGL
       // pass like any other.
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
+      ...(softwareGpu ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []),
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
       '--disable-dev-shm-usage',
       '--hide-scrollbars',
       '--enable-logging=stderr',

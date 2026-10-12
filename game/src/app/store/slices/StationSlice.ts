@@ -18,7 +18,7 @@ import {
 } from '../../../build/model.ts'
 import { parse as parseSave, serialize as serializeSave } from '../../../persistence/save.ts'
 import { normalizePeaks, normalizeService } from '../../../sim/clock.ts'
-import { normalizeDemand, type DemandKnobs } from '../../../sim/demand.ts'
+import { normalizeDayDemand, type DayDemand, type DemandKnobs } from '../../../sim/demand.ts'
 import type { PeakWindows } from '../../../sim/constants.ts'
 import type { AppState } from '../Store.ts'
 import { loadSim, rebuildSim } from './SimSlice.ts'
@@ -91,8 +91,8 @@ export interface StationSlice {
   setServiceWindow: (from: number, to: number) => void
   /** Set one of the two peak windows (§9.6C 高峰时段): 0 早高峰, 1 晚高峰. */
   setPeakWindow: (index: number, from: number, to: number) => void
-  /** Set the 客流曲线 knobs (§9.6C): any subset, repaired into its written range. */
-  setDemandKnobs: (patch: Partial<DemandKnobs>) => void
+  /** Set the 客流曲线 knobs (§9.6C) of one of the two saved curves: any subset, repaired into its written range. */
+  setDemandKnobs: (kind: keyof DayDemand, patch: Partial<DemandKnobs>) => void
   commit: (next: StationState) => void
   undo: () => void
   redo: () => void
@@ -171,10 +171,14 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     get().commit({ ...s, peaks: next })
   },
 
-  setDemandKnobs: (patch) => {
+  setDemandKnobs: (kind, patch) => {
     const s = get().station
-    const next = normalizeDemand({ ...s.demand, ...patch })
-    if (next.amPeak === s.demand.amPeak && next.pmPeak === s.demand.pmPeak && next.sharpness === s.demand.sharpness) return
+    const next = normalizeDayDemand({ ...s.demand, [kind]: { ...s.demand[kind], ...patch } })
+    if (
+      next.workday.amPeak === s.demand.workday.amPeak && next.workday.pmPeak === s.demand.workday.pmPeak &&
+      next.workday.sharpness === s.demand.workday.sharpness && next.offday.amPeak === s.demand.offday.amPeak &&
+      next.offday.pmPeak === s.demand.offday.pmPeak && next.offday.sharpness === s.demand.offday.sharpness
+    ) return
     get().commit({ ...s, demand: next })
   },
 

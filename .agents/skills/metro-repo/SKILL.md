@@ -108,6 +108,8 @@ npm run setup:game    # install game/ deps
 npm run dev:game      # game dev server at http://localhost:5174
 npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run build:game    # install game/ deps, then tsc --noEmit && vite build
+npm run bench:sim     # demo-station simulation + build CPU timings
+npm run bench:browser # production app/worker/browser FPS + edit-to-frame timings
 npm run deploy:game   # build:game, deploy metro-game, attach its routes
 
 npm run preview:local # tools/preview.mjs — both built apps on one origin
@@ -144,6 +146,7 @@ commands.
 | `demand-animation.mjs` | Builds sheet 06's demand-curve preview from the game's demand and calendar rules. In an embedded SVG document, its time-boundary handles can be dragged or adjusted with arrow keys. |
 | `render-view-shots.mjs` | Photographs the demo station from each of the game's own camera presets (sheet 09's subject) into `.preview/view-shots/`, for looking at rather than asserting. |
 | `game-tiles.mjs` | Starts the built game in headless Chrome and saves the build rail's real preview tiles, for checking an art change against it. |
+| `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Measure the shipped demo's simulation/build CPU costs and the production browser's FPS, draw calls and edit latency. Reports go under `.preview/perf/`; see `game/PERFORMANCE.md` for controls and interpretation. These are local diagnostics, not CI thresholds. |
 | `browser-harness.mjs` | The shared headless-Chrome + static-server driver the `render-*` passes sit on. |
 | `train-cards.mjs`, `piece-views.mjs` | The two placement helpers the sheets share: a captured car / run and the metres it covers, so a sheet stands the game's picture on its own line at its own scale. |
 | `zoom.mjs` | Crops a detail out of a sheet and writes a `*-zoom.svg` beside it (`sync-art.mjs` skips those). |

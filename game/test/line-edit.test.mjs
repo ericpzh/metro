@@ -197,22 +197,37 @@ test('updateLine lands 名字 / 颜色 / 上行终点 / 下行终点 / 车型 / 
   assert.equal(st().past.length, 2, 'each accepted edit is one undo frame')
 })
 
-test('the 编组 clamp holds a train at 1–8 cars and carries the per-car 下车 over', () => {
+test('the 编组 snap holds a train on 2/3/4/6/8 cars and carries the per-car 下车 over', () => {
   load(twoLines())
   assert.equal(line('1').cars, 6, 'a fresh line is six cars')
   assert.equal(line('1').alightPerTrain, 200, 'and 200 下车 for the whole train')
+  st().updateLine('1', { cars: 4 })
+  assert.equal(line('1').cars, 4)
+  assert.equal(line('1').alightPerTrain, 133, '200 over six cars is 133 over four: the chips keep the per-car load')
   st().updateLine('1', { cars: 3 })
   assert.equal(line('1').cars, 3)
-  assert.equal(line('1').alightPerTrain, 100, '200 over six cars is 100 over three: the slider is per car')
+  assert.equal(line('1').alightPerTrain, 100, 'three is on the menu, so it lands as drawn')
   st().updateLine('1', { cars: 0 })
-  assert.equal(line('1').cars, 1, 'a zero-car train is not a train')
-  assert.equal(line('1').alightPerTrain, 33, 'and the per-car figure follows the clamp')
+  assert.equal(line('1').cars, 2, 'a zero-car train is not a train: it snaps to the bottom of the menu')
+  assert.equal(line('1').alightPerTrain, 67, 'and the per-car figure follows the snap')
   st().updateLine('1', { cars: 99 })
-  assert.equal(line('1').cars, 8, 'eight cars is the top of the range')
-  assert.equal(line('1').alightPerTrain, 264)
-  st().updateLine('1', { cars: 4.6 })
-  assert.equal(line('1').cars, 5, 'the 编组 slider is whole cars')
-  assert.equal(line('1').alightPerTrain, 165)
+  assert.equal(line('1').cars, 8, 'eight cars is the top of the menu')
+  assert.equal(line('1').alightPerTrain, 268)
+  st().updateLine('1', { cars: 5 })
+  assert.equal(line('1').cars, 4, 'five snaps to the nearest menu entry')
+  assert.equal(line('1').alightPerTrain, 134)
+})
+
+test('a 行车间隔 edit clamps leg by leg and keeps the legs it did not touch', () => {
+  load(twoLines())
+  st().updateLine('1', { headwayProfile: { peak: 90, offpeak: 300, late: 480 } })
+  assert.deepEqual(line('1').headwayProfile, { peak: 90, offpeak: 300, late: 480 })
+  st().updateLine('1', { headwayProfile: { peak: 20, offpeak: 9999, late: 480 } })
+  assert.deepEqual(
+    line('1').headwayProfile,
+    { peak: 60, offpeak: 1200, late: 480 },
+    'below the consist cycle and past a night service both clamp into range',
+  )
 })
 
 test('updateLine with an id the document does not hold still spends an undo frame', () => {
@@ -276,9 +291,9 @@ test('a 车型 / 编组 edit re-cuts the line platform rails and leaves its tunn
   assert.deepEqual(edgesOf('1').map((e) => e.cfg.from), [platformId], 'and its screen doors were re-derived from the new run')
   assert.equal(tracksOf('2')[0].w, 6, 'another line keeps its own rails')
 
-  st().updateLine('1', { cars: 3 })
-  assert.equal(trackPieceForLine(line('1')).w, 66, 'three 22 m A cars')
-  assert.equal(tracksOf('1').find((t) => t.id === platformId).w, 66, 'a 编组 edit re-cuts the same rail again')
+  st().updateLine('1', { cars: 4 })
+  assert.equal(trackPieceForLine(line('1')).w, 88, 'four 22 m A cars')
+  assert.equal(tracksOf('1').find((t) => t.id === platformId).w, 88, 'a 编组 edit re-cuts the same rail again')
   assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).w, 4)
 })
 
@@ -647,7 +662,7 @@ test('a 车型 edit on a rail whose own tunnel runs off its end drops the rail i
   load(twoLines())
   const platform = tracksOf('1').find((t) => !t.cfg.tunnel)
   assert.equal(edgesOf('1').length, 1, 'the fixture has the rail, its doors and its tunnel run')
-  st().updateLine('1', { cars: 3 })
+  st().updateLine('1', { cars: 4 })
   assert.equal(st().station.modules.some((m) => m.id === platform.id), false, 'the platform rail is gone')
   assert.equal(edgesOf('1').length, 0, 'and so are the screen doors derived from it')
   assert.equal(tracksOf('1').length, 1, 'the tunnel run survives: it is a track of the same line')
@@ -753,16 +768,18 @@ test('the 时刻 panel writes the day into the document, and a no-op keystroke w
   st().setPeakWindow(0, 8 * 3600, 10 * 3600)
   assert.equal(st().past.length, peakFrames, 'and the same window again is not an edit')
 
-  // A knob is a patch, clamped to its slider and rounded to the slider's grain.
-  const knobs = { ...st().station.demand }
-  st().setDemandKnobs({ amPeak: 1.5 })
-  assert.equal(st().station.demand.amPeak, 1.5)
-  assert.equal(st().station.demand.pmPeak, knobs.pmPeak, 'the other knobs keep their values')
-  assert.equal(st().station.demand.sharpness, knobs.sharpness)
-  st().setDemandKnobs({ amPeak: 99 })
-  assert.ok(st().station.demand.amPeak <= 2.5, 'a knob past its slider is the slider’s end')
+  // A knob is a patch on one of the two saved curves, clamped to its slider and
+  // rounded to the slider's grain.
+  const knobs = { ...st().station.demand.workday }
+  st().setDemandKnobs('workday', { amPeak: 1.5 })
+  assert.equal(st().station.demand.workday.amPeak, 1.5)
+  assert.equal(st().station.demand.workday.pmPeak, knobs.pmPeak, 'the other knobs keep their values')
+  assert.equal(st().station.demand.workday.sharpness, knobs.sharpness)
+  assert.deepEqual(st().station.demand.offday, { amPeak: 0.35, pmPeak: 0.4, sharpness: 1.5 }, 'the offday curve is untouched')
+  st().setDemandKnobs('workday', { amPeak: 99 })
+  assert.ok(st().station.demand.workday.amPeak <= 2.5, 'a knob past its slider is the slider’s end')
   const knobFrames = st().past.length
-  st().setDemandKnobs({ amPeak: st().station.demand.amPeak })
+  st().setDemandKnobs('workday', { amPeak: st().station.demand.workday.amPeak })
   assert.equal(st().past.length, knobFrames, 'a patch that changes nothing is not an edit')
 })
 

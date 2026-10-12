@@ -2525,6 +2525,10 @@ export const messages = {
     "zh": "工作日",
     "en": "Weekday"
   },
+  "offday": {
+    "zh": "非工作日",
+    "en": "Non-workday"
+  },
   "peak": {
     "zh": "高峰",
     "en": "Peak"
@@ -2872,5 +2876,53 @@ export const messages = {
   "train_formation": {
     "zh": "{0} 型 · {1} 节",
     "en": "Type {0} · {1} cars"
+  },
+  "peak_headway": {
+    "zh": "高峰间隔",
+    "en": "Peak headway"
+  },
+  "offpeak_headway": {
+    "zh": "平峰间隔",
+    "en": "Off-peak headway"
+  },
+  "late_headway": {
+    "zh": "离峰间隔",
+    "en": "Late headway"
+  },
+  "minutes_short": {
+    "zh": "分",
+    "en": "min"
+  },
+  "seconds_short": {
+    "zh": "秒",
+    "en": "s"
+  },
+  "trains_h": {
+    "zh": "列/时",
+    "en": "trains/h"
+  },
+  "entry_demand_curve": {
+    "zh": "进站客流曲线",
+    "en": "Entrance demand"
+  },
+  "train_demand_curve": {
+    "zh": "列车客流曲线",
+    "en": "Train demand"
+  },
+  "entry_curve_note": {
+    "zh": "经由出入口进站",
+    "en": "Via station entrances"
+  },
+  "train_curve_note": {
+    "zh": "各线路下车合计",
+    "en": "Alighting across all lines"
+  },
+  "now_about_value_people_h": {
+    "zh": "当前约{0}人/时",
+    "en": "Now about {0} people/h"
+  },
+  "train_curve_now_about_value_people_h": {
+    "zh": "列车客流，当前约{0}人/时",
+    "en": "Train demand, now about {0} people/h"
   }
 } as const

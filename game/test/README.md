@@ -1,5 +1,11 @@
 # `game/test` — how the game is tested
 
+`render-performance` checks static module batching preserves transformed bounds,
+triangle counts, ray picking and buffer disposal, keeps animated/shared/transparent
+parts intact, and invalidates floor-paint reuse for structural edits, station metadata,
+stair start finishes and room wall finishes. Performance timings live outside the test
+suite in `tools/bench-sim.mjs` and `tools/bench-browser.mjs`.
+
 The suite is `node --test` over `test/**/*.test.mjs`. Nothing here runs in a browser:
 the tests import the TypeScript sources **directly** (Node strips the types) and drive
 them the way the app does — the sim in-process, the renderer helpers headless, and the
@@ -113,14 +119,14 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Area | Files |
 |---|---|
 | Architecture | `layering`, `scene-wiring` |
-| Numbers | `rng`, `clock`, `demand` |
+| Numbers | `rng`, `clock`, `demand`, `headway` |
 | 屏蔽端门 | `psd-end` — fixed glass stack, matching heights, Tab preview refresh, shortened corner snapping and exact 1 m extensions, tile-contained meshes/reservations and adjacent block/equipment placement, hover/click placement, undo, walk barrier and save/load; curtain-wall widths and picking |
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement` (including escalator collision clearance along its sloped body), `openings`, `stairs`, `escalators`, `escalator-length`, `ramp-passengers` (ramp lane spacing, body clearance, collision recovery, stair-turn access and queue-preserving detours), `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route` (including the 1.5 m figure scale), `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
 | The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation`, `overground`, `roof-tool`, `track-run-length`, `structures-gaps` — `storey` checks the 0–3 m height base and `save` checks its persistence and older-save default; `overground` + `roof-tool` are the pillars/roofs/doorway-exits/stair-blocks/bridges, `track-run-length` the shared tunnel/bridge lengths, `structures-gaps` the repair-shaped edges; `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole and the edits that fill it back |
 | The furniture and the decor | `hanger`, `shelf`, `desk`, `checkout` (shop placement, saves, rotated bounds, screen/stock visibility and workstation chair), `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `lights`, `vent`, `floor-decor`, `street-decor`, `sign`, `sign-model`, `sign-editor` (including rejection before hover insertion), `billboard` (WebP headers, compact sizes, panel filling, shared per-poster materials and per-size geometry), `glass-panel` (including fitted doors), `door-panel` (both-face handles), `calligraphy`, `line-map`, `booth-model`, `room-model` |
 | The models | `module-build` (including slab-track sleepers, seats, clips and rail heads; enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
 | Touch navigation | `touch-zoom` — pinch direction, cancellation and release suppression; shared zoom and limits in both projections |
-| The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost`, `sim-pause` — `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away; `sim-pause` is the paused-sim freeze: escalator bands, 闸机 leaves and train/screen doors hold their pose while consists glide to their latest snapshot |
+| The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `render-performance`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost`, `sim-pause` — `render-performance` pins static module batching and safe reuse after floor paint; `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away; `sim-pause` is the paused-sim freeze: escalator bands, 闸机 leaves and train/screen doors hold their pose while consists glide to their latest snapshot |
 | The pixels | `sign-render` (short 0.4 m signs, nine-arrow capacity and centred existing content), `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
 | Concept art | `capture-passengers` — the `?capture-passengers` route wiring, the live crowd mesh photographed with alpha, every field the sheet tools place by (foot origin, scale, stride) and full-stride gait captures in plan, elevation and isometric views. `art-passenger-heading` projects facing through the capture camera and compares it with all eight isometric travel directions, preventing sideways walking. Browser playback is checked separately with `node tools/test-passenger-animation.mjs` after captures and art generation. |
 | Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, explicit-language formatting without changing UI state, root/prefixed English routes and assets |
@@ -193,15 +199,14 @@ Roof placement coverage in `roof-tool.test.mjs` includes pointer-centred footpri
 
 ## Coverage, and the gaps that were closed
 
-Measured over the whole suite (`--experimental-test-coverage`, one process): **1094 tests,
-93.29 % lines / 87.78 % branches / 89.01 % functions** across the `game/src` files the suite
-loads — a denominator that grew by several features' worth of code (floor decor, screen returns,
-the shelf and camera variants, the room rebrand, the train rebuild) in the same
-passes, which is why the percentages step back while the suite grows.
+Measured over the whole suite (`--experimental-test-coverage`, one process): **1238 tests,
+93.42 % lines / 87.96 % branches / 88.23 % functions** across the loaded source files. This
+snapshot includes the day-specific demand curves, train headways and headway curve, and
+static module batching / safe paint reuse added in this pass. The denominator grows as
+features and diagnostics become testable, so these percentages are a record, not a target.
 The snapshot before this pass was 1035 at 92.79 / 88.52 / 88.80, and before that 938 at 95.02 / 88.36 / 88.94, and before that 897 at
 95.50 / 88.64 / 89.79, and before that 891 at 95.23 / 88.63 / 89.41, and before that 855 at
-94.94 / 88.47 / 88.23 — **these numbers are a snapshot of a moment, not a target**;
-regenerate them with the command above whenever the suite grows. The point of the table is
+94.94 / 88.47 / 88.23; regenerate the figures above whenever the suite grows. The point of the table is
 the column that shows what an untested file was hiding.
 
 | File | Before | Now | The test that closed it |
@@ -233,6 +238,9 @@ the column that shows what an untested file was hiding.
 | `render/scene/systems/ChunkSystem.ts` (scene teardown) | 92.6 % | 93.7 % | `chunk-cache` (the wall-pick singletons and the tint caches) |
 | `render/scene/systems/GhostSystem.ts` (scene teardown) | 73.5 % | 85.1 % | `refused-ghost` (the remove-drag pool mesh) |
 | `sim/trainSchedule.ts` (the timetable forecast) | — (new) | 100 % lines / 100 % branches | `station-display` (forecasts checked against the real dispatcher) |
+| `sim/headway.ts` (formation and train curve) | — (new) | 100 % lines / 82.5 % branches | `headway` (repair, dispatch count, readouts and the train curve) |
+| `render/batchStaticModule.ts` | — (new) | 100 % lines / 90 % branches | `render-performance` (bounds, triangles, picking, disposal and exclusions) |
+| `render/retainPaintedModules.ts` | — (new) | 100 % lines / 94.4 % branches | `render-performance` (paint reuse and structural invalidation) |
 | `sim/lights.ts` / `sim/vents.ts` / `sim/inCellPositions.ts` | — (new) | 100 % lines | `lights`, `vent` |
 | `render/models/pieces/LightModel.ts` / `VentModel.ts` / `StreetDecorModel.ts` | — (new) | 100 % lines | `lights`, `vent`, `street-decor`, `module-build` |
 | `render/models/pieces/RampJoinModel.ts` | — (new) | 98.7 % lines | `ramp-join`, `module-build` |

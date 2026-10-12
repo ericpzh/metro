@@ -1938,14 +1938,14 @@ approximated); neither needs WebGL.
   peak pair the day cannot hold is bent into range instead of refused, in whole minutes so it
   always matches what the grips print. The **peak pair is also held in order** — 早高峰 ends no
   later than 晚高峰 begins, an overlap is pushed out rather than sorted, and the pair still fits in
-  one day when the morning runs to midnight. And the **calendar**: the shipped 2026 arrangement, date
-  by date (元旦 runs into the Saturday, the Sunday after it is worked, 春节 is nine days, the
-  Saturday after 国庆 is worked, a plain weekend in March is a plain weekend), every key a real
-  date and no date on both lists, `weekdayOf` / `daysInMonth` against the century rule
+  one day when the morning runs to midnight. And the **calendar**: the shipped 2026 holidays, date
+  by date (元旦 runs into the Saturday, the Sunday after it rests like any Sunday, 春节 is nine days, the
+  Saturday after 国庆 rests too, a plain weekend in March is a plain weekend), every key a real
+  date and no 调休 list riding with it, `weekdayOf` / `daysInMonth` against the century rule
   (2000-02-29 exists, 1900-02-29 does not), a **month grid** pinned as whole Monday-first weeks
-  with its leading `null`s and each cell's own day type (a 调休 Sunday reads 工作日), and a
+  with its leading `null`s and each cell's own day type (workday / offday, no holiday ink), and a
   calendar the day cannot hold repaired rather than refused — 02-30 is 02-28, a key that is not
-  `YYYY-MM-DD` is dropped, a date on both lists is a holiday, and a list the document does not
+  `YYYY-MM-DD` is dropped, a removed 调休 list does not survive, and a list the document does not
   carry at all is the shipped one. `clockHandAngles` — the two hands of an analogue dial, in
   degrees clockwise from 12 — is pinned beside the strings it agrees with: 3:00 puts the hour hand
   on 3 and the minute hand on 12, 6:30 puts the hour hand **half way between 6 and 7** (the hour
@@ -1958,17 +1958,20 @@ approximated); neither needs WebGL.
   every five simulated minutes and to the last bit — the knobs were added under a running
   simulation, so a tolerance would hide exactly the drift this exists to catch. On top of that:
   a knob moves the curve it names and only that one; 波形陡峭度 narrows the day (so the apex
-  barely moves and the *fall-off* is what changes); the period and day-type factors are the two
-  scales on the shape (peak 1.0 / off-peak 0.6 / late 0.25, and 工作日 1.0 / 周六 0.45 / 周日 0.35 /
-  **节假日 1.15** — a holiday is the crush, not the lull); a series is 97 points that close back
-  onto their first; a peak window inside the operating hours is worth exactly
-  peak-over-off-peak, and one drawn outside them is worth nothing because shut is answered first;
-  and every knob a document holds is clamped, rounded to two decimals and defaulted field by
-  field, so no `NaN` ever reaches the spawn. Its second half runs the **real world** on the
-  shipped station: the authored day reaches the crowd (a silenced 早高峰 is a thinner crowd, a
-  doubled one is busier, a station shut at 06:30 runs a thin service), and the *calendar* does
-  too — 周六 at 0.45 of a weekday, 周日 at 0.35, the 元旦 holiday above a plain Monday, the 调休
-  上班 Sunday running a Monday's crowd, and the same weekday a week later running the same crowd
+  barely moves and the *fall-off* is what changes); the period is the scale on the shape
+  (peak 1.0 / off-peak 0.6 / late 0.25), and there are **two saved curves** — the calendar date
+  picks the workday or the offday set, so an offday 08:00 reads its own curve at 平峰 weight and
+  moving the peak windows moves the workday line and leaves the offday one alone; a series is
+  97 points that close back onto their first; a peak window inside the operating hours is worth
+  exactly peak-over-off-peak, and one drawn outside them is worth nothing because shut is
+  answered first; every knob a document holds is clamped, rounded to two decimals and
+  defaulted leg by leg — a pre-split flat set stays the workday curve — so no `NaN` ever
+  reaches the spawn. Its second half runs the **real world** on the
+  shipped station: the authored day reaches the crowd (a silenced offday morning is a thinner
+  crowd, a doubled one is busier, a silenced 早高峰 thins a Monday the same way, a station
+  shut at 06:30 runs a thin service), and the *calendar date* picks the curve — a Saturday
+  morning runs the flatter offday set, two offdays are the same crowd to the person, 元旦 runs
+  an ordinary offday, and the same workday a week later runs the same crowd
   to the person (§7.6).
 * `demo.test.mjs` — the shipped demo (动物园, Line 5) is one connected circulation: every exit
   reaches every platform and screen door and back, and a run actually boards and clears a crowd.
@@ -2115,6 +2118,15 @@ approximated); neither needs WebGL.
   the L linear-motor car is the short 2.8 m three-door third-rail stock, its door cadence is
   symmetric, spread to the car ends on one uniform pitch rather than bunched mid-car, and the
   worker's pose index decodes back to the same class.
+* `headway.test.mjs` — the line running gear (`sim/headway.ts`, §6.3/§6.5): the consist menu
+  is the fixed 2/3/4/6/8 grouping and a count snaps to its nearest entry, ties down (a snapped
+  train never outgrows its platform; a single car is not a consist); headways clamp to whole
+  seconds inside 60–1200 (below the consist cycle clamps to the floor); the 分/秒 split
+  round-trips through the join; the 列/时 · 人/时 readouts halve when the headway doubles; a
+  line dispatches one consist per platform rail (tunnel runs are extensions, a tunnel-only or
+  rail-less line still runs one train); and the train curve is per-train 下车 over the running
+  headway times the consists — 08:00 rides the peak headway on a workday and steps down to
+  the offpeak one off-day — sampled with the entrance curve and zero when there is no line.
 * `placement.test.mjs` — `sim/placement.ts` gives every module a world footprint: two may not
   share space (a gate line in adjacent cells is fine, a module on the storey above is not a
   conflict), a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
@@ -2656,7 +2668,8 @@ approximated); neither needs WebGL.
 * `line-edit.test.mjs` — the 线路 card's own actions (`app/store/slices/LineSlice.ts` +
   `StationSlice.ts`, `build/rail.ts`): `addLine` mints the next free id in the document's own numbering
   and wears its real 广州地铁 colour; `updateLine` lands 名字 / 颜色 / 上行终点 / 下行终点 / 车型 / 编组 /
-  下车, clamps a consist to 1–8 cars and carries the per-car 下车 over, and its **供电** and **屏蔽门**
+  下车 / 行车间隔, snaps a consist onto the 2/3/4/6/8 menu (ties down) and carries the per-car 下车
+  over, clamps each headway leg into 60–1200 s keeping the legs it did not touch, and its **供电** and **屏蔽门**
   switches reach every track and screen door bound to that line and no other (re-cutting a platform
   rail while a hand-sized tunnel keeps its own length); refreshing a selected platform or one of
   its screen doors resolves to that platform and re-derives only its doors; `removeLine` takes the
@@ -2856,6 +2869,21 @@ approximated); neither needs WebGL.
   with it, and the pick answers with the passenger under the pointer — inside the radius, behind a nearer
   solid face (no), on a hidden storey (no), and the nearer of two bodies that overlap.
 
+## Performance benchmarks
+
+From the repository root, `npm run bench:sim` measures the shipped demo's simulation
+at opening, settled service and the morning peak, with tick-stage percentiles, actual
+population ranges, undo cloning, paint helpers, ground generation, live graph rebuilds
+and worker snapshot construction/copying. `npm run bench:browser` builds production
+and runs the actual React app and worker in a fresh headless Chrome profile. It measures
+paused and 16× FPS/frame intervals, draw calls, triangles, long tasks, render submission,
+paint and structural block commits, scene rebuild stages and edit-to-frame delay.
+
+JSON reports go to `.preview/perf/`. See [the benchmark guide](PERFORMANCE.md) for
+controls, measurement limitations, the baseline and remaining bottlenecks. These are
+diagnostics, not timing assertions in CI. `render-performance.test.mjs` pins the batching
+and paint-reuse correctness contracts without a GPU.
+
 ## The simulation's time base
 
 GAME-SPEC §10.3 asks for 24 simulated hours in ~12 real minutes *and* a 5 Hz continuous
@@ -2878,7 +2906,7 @@ comment there explains the trade.
 **The clock those seconds are read through is one derivation** (`src/sim/clock.ts`). The sim
 counts seconds; a station lives on a calendar, so `stampAt(simTime)` lays day 0 on the
 calendar's epoch — **2026-01-01** until the player picks another date — and derives the date,
-the weekday and the day type (工作日 / 周六 / 周日 / 节假日) from it. A long run therefore crosses
+the weekday and the day type (工作日 / 非工作日) from it. A long run therefore crosses
 midnight on its own: the date and the weekday walk forward while the crowd keeps its seconds,
 and the day type walks with them, which is what makes a weekend visible in a long run. Every
 readout prints that one stamp — the 信息栏's clock card (with the 高峰 / 平峰 / 夜间 chip and the
@@ -2894,8 +2922,8 @@ save beside the name and the seed:
 |---|---|---|
 | `service` | 营业时间, the span the station runs at all | 06:30–23:30 |
 | `peaks` | 高峰时段, the two peak windows (早高峰 ends no later than 晚高峰 begins) | 07:30–09:00, 17:30–19:00 |
-| `demand` | 客流曲线: 早高峰量, 晚高峰量, 波形陡峭度 | 1.0, 0.78, 1.0 |
-| `calendar` | 日期类型: which date day 0 is, plus the 节假日 and 调休上班日 lists | 2026-01-01, the 2026 arrangement |
+| `demand` | 客流曲线: one set of 早高峰量, 晚高峰量, 波形陡峭度 for 工作日 and one for 非工作日 | 1.0, 0.78, 1.0 / 0.35, 0.4, 1.5 |
+| `calendar` | 日期类型: which date day 0 is, plus the holiday list | 2026-01-01, the 2026 holidays |
 
 Each is repaired into range on load rather than refused — whole minutes, one day, `to` after
 `from`, a knob inside its slider, a date that exists — so a hand-edited file still opens.

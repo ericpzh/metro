@@ -6,9 +6,11 @@ import { useLanguage } from '../../i18n.ts'
 // 线路 folder; it now lives with its item so the list file only maps.
 import { useEffect, useState } from 'react'
 import { useStore } from '../../store.ts'
+import { FORMATION_OPTIONS, servedPerHour, trainsPerHour } from '../../../sim/headway.ts'
 import { STOCK_CLASSES } from '../../../sim/stock.ts'
 import type { LineDef } from '../../../sim/types.ts'
 import { Disclosure } from '../shared/Disclosure.tsx'
+import { HeadwayInput } from './HeadwayInput.tsx'
 
 /**
  * Line name + colour. Edits commit on blur / Enter, not per keystroke: every
@@ -120,11 +122,13 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
 export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolean; onToggle: () => void }): React.ReactElement {
   useLanguage()
   const updateLine = useStore((s) => s.updateLine)
-  // The slider is per car; the readout is the whole train. So the shown
-  // 载客量 is a function of both 编组 and the per-car load, and 人/时 folds
-  // in the peak headway.
+  // The load slider is per car; the readout is the whole train. So the shown
+  // 载客量 is a function of both 编组 and the per-car load, and each headway
+  // row folds its own interval into 人/时 below.
   const perCar = Math.max(0, Math.round(line.alightPerTrain / Math.max(1, line.cars)))
-  const perHour = Math.round((line.alightPerTrain * 3600) / line.headwayProfile.peak)
+  const peakServed = servedPerHour(line.alightPerTrain, line.headwayProfile.peak)
+  const offpeakServed = servedPerHour(line.alightPerTrain, line.headwayProfile.offpeak)
+  const lateServed = servedPerHour(line.alightPerTrain, line.headwayProfile.late)
   return (
     <Disclosure
       key={line.id}
@@ -146,10 +150,37 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
             {t('type_value', s)}</button>
         ))}
       </div>
-      <label className="field">
-        <span>{t('formation')}{' '}{translate(line.cars)} {' '}{t('cars')}</span>
-        <input type="range" min={1} max={8} step={1} value={line.cars} onChange={(e) => updateLine(line.id, { cars: Number(e.target.value) })} />
-      </label>
+      <div className="row">
+        <span className="muted small">{t('formation')}</span>
+        {FORMATION_OPTIONS.map((n) => (
+          <button key={n} className={line.cars === n ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { cars: n })}>
+            {translate(n)}</button>
+        ))}
+      </div>
+      <HeadwayInput
+        label={t('peak_headway')}
+        seconds={line.headwayProfile.peak}
+        onCommit={(peak) => updateLine(line.id, { headwayProfile: { ...line.headwayProfile, peak } })}
+      />
+      <div className="row">
+        <span className="muted small">{translate(trainsPerHour(line.headwayProfile.peak))} {t('trains_h')} · {translate(peakServed.toLocaleString())} {t('people_h')}</span>
+      </div>
+      <HeadwayInput
+        label={t('offpeak_headway')}
+        seconds={line.headwayProfile.offpeak}
+        onCommit={(offpeak) => updateLine(line.id, { headwayProfile: { ...line.headwayProfile, offpeak } })}
+      />
+      <div className="row">
+        <span className="muted small">{translate(trainsPerHour(line.headwayProfile.offpeak))} {t('trains_h')} · {translate(offpeakServed.toLocaleString())} {t('people_h')}</span>
+      </div>
+      <HeadwayInput
+        label={t('late_headway')}
+        seconds={line.headwayProfile.late}
+        onCommit={(late) => updateLine(line.id, { headwayProfile: { ...line.headwayProfile, late } })}
+      />
+      <div className="row">
+        <span className="muted small">{translate(trainsPerHour(line.headwayProfile.late))} {t('trains_h')} · {translate(lateServed.toLocaleString())} {t('people_h')}</span>
+      </div>
       <div className="row">
         <span className="muted small">{t('power')}</span>
         {(['third-rail', 'catenary'] as const).map((p) => (
@@ -176,7 +207,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
       </div>
       <label className="field">
         <span>
-          {translate(line.alightPerTrain)} {' '}{t('people_train')}{' '}{translate(perHour.toLocaleString())} {t('people_h')}</span>
+          {translate(line.alightPerTrain)} {' '}{t('people_train')}</span>
         <input
           type="range"
           min={0}

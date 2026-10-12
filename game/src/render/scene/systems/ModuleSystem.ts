@@ -11,6 +11,9 @@
 // them.
 
 import * as THREE from 'three'
+import { batchStaticModule } from '../../batchStaticModule.ts'
+import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
+import { getLanguage } from '../../../sim/i18n.ts'
 import {
   buildModule,
   disposeObject,
@@ -31,6 +34,15 @@ import { TV_FIRST_SWAP_MS, TV_SWAP_JITTER_MS } from './PlateSystem.ts'
 import type { GhostSystem } from './GhostSystem.ts'
 
 export class ModuleSystem extends SceneSystem {
+  private builtData: StationData | null = null
+  private builtLanguage: ReturnType<typeof getLanguage> | null = null
+
+  /** Keep the geometry and animated rigs when only unrelated floor ink changed. */
+  retainPaintedModules(data: StationData): boolean {
+    if (!this.builtData || this.builtLanguage !== getLanguage() || !canRetainPaintedModules(this.builtData, data)) return false
+    this.builtData = data
+    return true
+  }
   moduleMeshes: THREE.Group = new THREE.Group()
   /** The selected module's id and its highlight box, kept across a rebuild. */
   private selectedModuleId: string | null = null
@@ -85,6 +97,7 @@ export class ModuleSystem extends SceneSystem {
     for (const mod of data.modules) {
       const group = buildModule(mod, ctx)
       if (!group) continue
+      batchStaticModule(group, mod.type)
       group.userData.moduleId = mod.id
       group.userData.roof = mod.type === 'roof'
       group.userData.levelZs = moduleLevels(mod, this.ctx.levelBase)
@@ -175,6 +188,8 @@ export class ModuleSystem extends SceneSystem {
     }
     const decal = this.tactileDecals(data)
     if (decal) this.moduleMeshes.add(decal)
+    this.builtData = data
+    this.builtLanguage = getLanguage()
   }
 
   /**
@@ -189,6 +204,7 @@ export class ModuleSystem extends SceneSystem {
    * every plate goes.
    */
   clearModules(data?: StationData): void {
+    this.builtData = null
     this.ghost.clearFencePreview()
     if (data) {
       this.plates.retainTvPlates(data)

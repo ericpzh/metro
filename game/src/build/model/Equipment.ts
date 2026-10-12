@@ -34,7 +34,7 @@ import {
 import { trackCells, trackOriginForCentre, edgeCells } from '../../sim/track.ts';
 import { TRUSS_ROOF_BAY, supportedRoofWidth } from '../../sim/structures.ts';
 import { STAIR_WIDTH_NARROW, stairBuildWidth, stairFlightsFor, stairLandings, stairTurnCells } from '../../sim/stairs.ts';
-import { makeSignBoards, settleSignBoards, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
+import { makeSignBoards, normalizeSignLayout, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
 import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
 import { cellKey, cloneCell } from './Cells.ts';
 import type { StationState } from './State.ts';
@@ -314,8 +314,18 @@ export function createModule(
       // empty unless the player has composed one: a sign is one-sided until it is
       // said otherwise — and a **wall** sign has no back at all, because the wall is
       // behind it (`signMountSpec(...).doubleSided`), so only 正面 is carried.
+      // The pair is repaired, not re-settled: every write path already settles the
+      // boards it holds, and the bins rewrite is the editor's presentation — running
+      // it again here moves marks the preview has already placed, so what hangs
+      // would drift from what was arranged.
       const mount: SignMount = type === 'sign-wall' ? 'wall' : DEFAULT_SIGN_MOUNT
-      const boards = sign ? settleSignBoards(sign, linesOf(lines)) : makeSignBoards(undefined, linesOf(lines))
+      const source = sign ? { front: sign.front, back: signMountSpec(mount).doubleSided ? sign.back : [] } : null
+      const boards = source
+        ? {
+            front: normalizeSignLayout(source.front, linesOf(lines)),
+            back: source.back.length > 0 ? normalizeSignLayout(source.back, linesOf(lines)) : [],
+          }
+        : makeSignBoards(undefined, linesOf(lines))
       return {
         id,
         type: 'sign',

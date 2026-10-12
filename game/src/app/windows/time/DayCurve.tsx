@@ -1,9 +1,14 @@
 import { msg, translate, t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
-// The day's demand curve, drawn **and authored** (§7.4, sheet 06's panels A and D): one line
+// The day's **entrance** demand curve, drawn **and authored** (§7.4, sheet 06's panels A and D): one line
 // per kind of day over 00:00–24:00, the station's operating hours lit behind them, the two
 // 高峰 windows shaded on top, a playhead at now — and the **six boundaries that shape all of
-// it** as draggable grips.
+// it** as draggable grips. On a 非工作日 the peaks do not apply, so their bands and grips
+// are hidden and only the service pair stays grabbable.
+//
+// The left axis is people (人/时): curve × Σ open exits' inRate, the product the spawn
+// draws arrivals from. The right axis is the same line in per-cent, the unit the knobs
+// are authored in.
 //
 // The lines are `sim/demand.ts`'s own samples — the same `demandAt` the spawn draws its
 // arrivals from — so a boundary dragged here redraws the picture *and* changes the crowd, and
@@ -18,14 +23,14 @@ import { useLanguage } from '../../i18n.ts'
 // scale with it instead of stretching, and every stroke carries
 // `vector-effect: non-scaling-stroke` so a line stays a line at any width.
 import { useMemo, useRef } from 'react'
-import { DAY_TYPE_LABELS, clockTextOf, type DayType } from '../../../sim/clock.ts'
+import { DAY_TYPE_LABELS, clockTextOf } from '../../../sim/clock.ts'
 import { demandSeries, hourOfDay, type DemandInput } from '../../../sim/demand.ts'
 
 /** The drawn box, in viewBox units. */
 const W = 480
 const H = 112
-// Reserve a full gutter for translated units and passenger counts, inside the SVG.
-const PAD = { left: 26, right: 60, top: 14, bottom: 15 }
+// The left gutter carries translated passenger counts, the right the per-cent scale.
+const PAD = { left: 60, right: 26, top: 14, bottom: 15 }
 const PLOT_W = W - PAD.left - PAD.right
 const PLOT_H = H - PAD.top - PAD.bottom
 /** One sample every 15 simulated minutes: 97 points, the last closing onto the first. */
@@ -69,7 +74,7 @@ export function curveBoundaries(input: DemandInput): CurveBoundary[] {
 
 export function DayCurve({
   input,
-  dayType,
+  workday,
   simTime,
   baseRate,
   onDrag,
@@ -77,7 +82,8 @@ export function DayCurve({
   onNudge,
 }: {
   input: DemandInput
-  dayType: DayType
+  /** Which of the two saved curves to draw: 工作日 or 非工作日. */
+  workday: boolean
   simTime: number
   /** Station-wide street inflow at curve = 1 (Σ open exits' inRate, 人/时): the right
       axis is `curve × baseRate`, the same product `World.spawnStreet` draws from. */
@@ -97,7 +103,7 @@ export function DayCurve({
   // the *day* — the panel around this re-renders on every worker frame while the sim runs, and 97
   // samples plus their point strings per frame is work that changes only when the day does.
   const drawn = useMemo(() => {
-    const values = demandSeries(dayType, input, STEP_MINUTES)
+    const values = demandSeries(workday, input, STEP_MINUTES)
     const top = Math.ceil(Math.max(1, ...values) * 10) / 10 + 0.1
     const y = (v: number): number => PAD.top + PLOT_H - (v / top) * PLOT_H
     return {
@@ -106,7 +112,7 @@ export function DayCurve({
       y,
       points: values.map((v, i) => `${x((i * STEP_MINUTES) / 60).toFixed(1)},${y(v).toFixed(1)}`).join(' '),
     }
-  }, [dayType, input])
+  }, [workday, input])
 
   const hour = hourOfDay(simTime)
   const at = Math.min(drawn.values.length - 1, Math.round((hour / 24) * (drawn.values.length - 1)))
@@ -173,16 +179,17 @@ export function DayCurve({
       // **Not `role="img"`**: the six grips are sliders inside this drawing, and an image role
       // hides its own children from a screen reader. A labelled group keeps them reachable.
       role="group"
-      aria-label={t('24_hour_demand_curve_value_now_value_about_value_people_h', translate(DAY_TYPE_LABELS[dayType]), Math.round(drawn.values[at] * 100), nowCount)}
+      aria-label={t('24_hour_demand_curve_value_now_value_about_value_people_h', translate(DAY_TYPE_LABELS[workday ? 'workday' : 'offday']), Math.round(drawn.values[at] * 100), nowCount)}
       onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={end}
     >
       {/* Shut, open, then the two peaks — the same three bands the 信息栏's clock card draws
-          across its own day bar, from the same station document. */}
+          across its own day bar, from the same station document. Off-days run no peaks,
+          so their bands stay off with the grips. */}
       <rect className="curveClosed" x={PAD.left} y={PAD.top} width={PLOT_W} height={PLOT_H} />
       <rect className="curveOpen" y={PAD.top} height={PLOT_H} {...band(input.service.from, input.service.to)} />
-      {input.peaks.map((p, i) => (
+      {workday && input.peaks.map((p, i) => (
         <rect key={i} className="curvePeak" y={PAD.top} height={PLOT_H} {...band(p.from, p.to)} />
       ))}
       {/* The baseline the knobs are relative to: the reference weekday's peak is 100%. */}
@@ -195,23 +202,24 @@ export function DayCurve({
           {translate(String(h).padStart(2, '0'))}
         </text>
       ))}
-      <text className="curveTick" x={PAD.left - 4} y={drawn.y(drawn.top) + 8} textAnchor="end">
-        {translate(Math.round(drawn.top * 100))}%
-      </text>
-      <text className="curveTick" x={PAD.left - 4} y={PAD.top + PLOT_H} textAnchor="end">
-        0
-      </text>
-      {/* Right axis: the left percentages in people — curve × Σ open exits' inRate. */}
-      <text className="curveTick" x={W - 4} y={PAD.top - 4} textAnchor="end">
+      {/* Left axis: the line in people — curve × Σ open exits' inRate, the product
+          `World.spawnStreet` draws arrivals from. Right axis: the same line in per-cent. */}
+      <text className="curveTick" x={PAD.left - 4} y={PAD.top - 4} textAnchor="end">
         {t('people_h')}</text>
-      <text className="curveTick" x={W - 4} y={drawn.y(drawn.top) + 8} textAnchor="end">
+      <text className="curveTick" x={PAD.left - 4} y={drawn.y(drawn.top) + 8} textAnchor="end">
         {translate(countAt(drawn.top))}
       </text>
       {showBase && (
-        <text className="curveTick" x={W - 4} y={drawn.y(1) + 3} textAnchor="end">
+        <text className="curveTick" x={PAD.left - 4} y={drawn.y(1) + 3} textAnchor="end">
           {translate(countAt(1))}
         </text>
       )}
+      <text className="curveTick" x={PAD.left - 4} y={PAD.top + PLOT_H} textAnchor="end">
+        0
+      </text>
+      <text className="curveTick" x={W - 4} y={drawn.y(drawn.top) + 8} textAnchor="end">
+        {translate(Math.round(drawn.top * 100))}%
+      </text>
       <text className="curveTick" x={W - 4} y={PAD.top + PLOT_H} textAnchor="end">
         0
       </text>
@@ -219,8 +227,9 @@ export function DayCurve({
           chart (`营业 05:55–23:30 · 早高峰 07:30–09:00 · 晚高峰 17:30–19:00`), where they read as one
           row instead of two labels sitting on the curves' shoulders. The grips keep their
           `aria-label`s, so the numbers are still there for anyone who cannot see the chart. */}
-      {/* The six grips. A drag anywhere on one of them moves that boundary and nothing else. */}
-      {curveBoundaries(input).map((b) => (
+      {/* The six grips — the peak four only on a 工作日. A drag anywhere on one of them
+          moves that boundary and nothing else. */}
+      {curveBoundaries(input).filter((b) => workday || b.kind === 'service').map((b) => (
         <g key={`${b.kind}${b.index}${b.end}`} className={`curveGrip ${b.kind}`}>
           <rect
             className="curveGripHit"

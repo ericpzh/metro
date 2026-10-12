@@ -12,6 +12,7 @@ import {
   setLinePower,
   trackPieceForLine,
 } from '../../../build/rail.ts'
+import { normalizeHeadwayProfile, snapFormation } from '../../../sim/headway.ts'
 import type { LineDef } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
 
@@ -58,14 +59,22 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
   updateLine: (lineId, patch) => {
     const st = get()
     const prev = st.station.lines.find((l) => l.id === lineId)
-    // Consist is 1–8 cars for every stock class; clamp so a bad save or a stale
-    // caller cannot produce a zero-length train.
-    let fixed = patch.cars !== undefined ? { ...patch, cars: Math.max(1, Math.min(8, Math.round(patch.cars))) } : patch
+    // Consist is one of the fixed menu entries in `sim/headway.ts`; snap so a bad
+    // save or a stale caller cannot produce a one- or five-car train.
+    let fixed = patch.cars !== undefined ? { ...patch, cars: snapFormation(patch.cars) } : patch
+    // A headway edit clamps leg by leg (60–1200 s), keeping the legs the patch
+    // did not touch — the panel only ever sends peak/offpeak.
+    if (patch.headwayProfile !== undefined) {
+      fixed = {
+        ...fixed,
+        headwayProfile: normalizeHeadwayProfile(patch.headwayProfile, prev?.headwayProfile),
+      }
+    }
     // The load slider is per car, so a 编组 change keeps that per-car value and
     // scales the stored whole-train total with the new car count. A patch that
     // sets the total itself (the slider) is left alone.
     if (patch.cars !== undefined && patch.alightPerTrain === undefined && prev) {
-      const cars = Math.max(1, Math.min(8, Math.round(patch.cars)))
+      const cars = snapFormation(patch.cars)
       fixed = { ...fixed, alightPerTrain: Math.round((prev.alightPerTrain / prev.cars) * cars) }
     }
     const lines = st.station.lines.map((l) => (l.id === lineId ? { ...l, ...fixed } : l))

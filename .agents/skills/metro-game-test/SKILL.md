@@ -47,6 +47,14 @@ pure: a test will fail if it imports three, React, or reaches outside `sim/`.**
 and checks that every sibling a scene system claims is actually wired by the
 orchestrator.
 
+`render-performance.test.mjs` pins batching bounds, triangles, ray picking and
+geometry disposal, plus the exclusions for animated, transparent and shared parts.
+It also guards the station changes that must invalidate floor-paint module reuse.
+The renderer/GPU is not exercised by Node tests; use the root `npm run bench:browser`
+for local frame-rate, draw-call and edit-latency measurements, and `npm run bench:sim`
+for simulation tick and build-helper timings. These diagnostics are hardware-dependent
+and are not test assertions or CI thresholds; see `game/PERFORMANCE.md`.
+
 ## Rules that matter most when adding a test
 
 1. Import the source, not a copy — no build step, no `dist/`. If a module is hard

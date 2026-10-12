@@ -12,7 +12,7 @@ import { msg } from '../sim/i18n.ts'
 
 import { repairGrid, toData, toStateRepairing, type StationState } from '../build/model.ts'
 import type { PeakWindows, TimeSpan } from '../sim/constants.ts'
-import type { DemandKnobs } from '../sim/demand.ts'
+import type { DayDemand } from '../sim/demand.ts'
 import type { SimCalendar } from '../sim/clock.ts'
 import type { Cell, LineDef, Module, StationData } from '../sim/types.ts'
 
@@ -40,8 +40,8 @@ export interface SaveFileV1 {
    */
   service?: TimeSpan
   peaks?: PeakWindows
-  demand?: Partial<DemandKnobs>
-  /** The station's calendar (§9.6C 日期类型): day 0's date and the two date lists. */
+  demand?: DayDemand
+  /** The station's calendar (§9.6C 日期类型): day 0's date and the holiday list. */
   calendar?: SimCalendar
   static: {
     cells: Cell[]
@@ -114,7 +114,7 @@ export function parse(text: string): ParseResult {
     // its slider, a peak list of one, are all `normalize*`'s business, not a refusal.
     ...(isRecord(d.service) ? { service: d.service as TimeSpan } : {}),
     ...(Array.isArray(d.peaks) ? { peaks: d.peaks as PeakWindows } : {}),
-    ...(isRecord(d.demand) ? { demand: d.demand as Partial<DemandKnobs> } : {}),
+    ...(isRecord(d.demand) ? { demand: d.demand as StationData['demand'] } : {}),
     ...(isRecord(d.calendar) ? { calendar: d.calendar as SimCalendar } : {}),
   }
   // A structurally valid station with damaged content still opens: the envelope is

@@ -1,30 +1,30 @@
-// The crowd's day (§7.4, §9.6C 客流曲线): the curve the station's arrivals are shaped by,
+// The crowd's day (§7.4, §9.6C 客流曲线): the curves the station's arrivals are shaped by,
 // as data rather than as a private formula inside the world.
 //
-// **One function, two readers.** `World.spawnStreet` draws its Poisson arrivals from this
-// curve, and the 时刻 window plots the very same samples — so a slider the player drags
+// **One module, three readers.** `World.spawnStreet` draws its Poisson arrivals from these
+// curves, and the 时刻 window plots the very same samples — so a slider the player drags
 // moves the picture and the crowd together, and neither can describe a day the other is
 // not running. That is why the shape lives here and not in either of them.
 //
-// The curve is §7.4's `λ = base × curve(timeOfDay) × calendar(dayOfYear) × …`, split the
-// way the two knobs in sheet 06's panel D are:
+// The curve is §7.4's `λ = base × curve(timeOfDay) × …`, split the way the two knobs in
+// sheet 06's panel D are:
 //
 //   shape(hour)   the double peak itself — the 早高峰 / 晚高峰 heights and their width,
-//   period factor 高峰 / 平峰 / 夜间, the timetable's own multiplier (§6.5),
-//   day factor    工作日 / 周六 / 周日 / 节假日, the calendar's (§7.4: weekend ≈ 0.25–0.45).
+//   period factor 高峰 / 平峰 / 离峰, the timetable's own multiplier (§6.5).
 //
-// The **defaults reproduce the pre-knob curve exactly** — `demandShape` at
+// There are **two saved curves**: the 工作日 one (peaky, with its 高峰) and the 非工作日
+// one (flatter — a 非工作日 runs 平峰/离峰 only, so the timetable never asks for its
+// peak weight). The calendar date decides which one the spawn and the chart read; the
+// old weekend/holiday volume multipliers are gone, folded into the curves themselves.
+// The **defaults reproduce the pre-knob curve exactly on 工作日** — `demandShape` at
 // `DEFAULT_DEMAND` is the `0.06 + gauss(8, 0.85) + 0.78 × gauss(18, 1.05) + 0.18 ×
 // gauss(12.5, 2.2)` this replaced, to the last bit — so shipping the knobs changed no
-// crowd, and a **工作日** run still replays. (The day factor below is new, so a replay
-// that crosses into a 周六 is thinner than it used to be: that is the calendar being
-// read at all, which is what §7.4 asks for.) `demand.test.mjs` pins the golden curve
-// against the old numbers and the day factor against a real crowd.
+// crowd, and a **工作日** run still replays. `demand.test.mjs` pins the golden curve
+// against the old numbers.
 //
 // Pure: no DOM, no worker, no three. `sim/` imports nothing (§7.6).
 
 import { DEFAULT_PEAKS, DEFAULT_SERVICE, SIM_DAY, periodOf, timeOfDayOf, type PeakWindows, type Period, type TimeSpan } from './constants.ts'
-import type { DayType } from './clock.ts'
 
 /** The three knobs sheet 06's panel D puts in the player's hands (§9.6C 客流曲线). */
 export interface DemandKnobs {
@@ -38,6 +38,15 @@ export interface DemandKnobs {
 
 /** The reference weekday: what a station that has not touched the sliders runs. */
 export const DEFAULT_DEMAND: DemandKnobs = { amPeak: 1, pmPeak: 0.78, sharpness: 1 }
+
+/** The reference off-day: lower and flatter — no commute spikes to author away. */
+export const DEFAULT_OFFDAY: DemandKnobs = { amPeak: 0.35, pmPeak: 0.4, sharpness: 1.5 }
+
+/** The two saved curves: one for 工作日, one for 非工作日. */
+export interface DayDemand {
+  workday: DemandKnobs
+  offday: DemandKnobs
+}
 
 /** Where the two peaks and the midday shelf sit, in hours after midnight. */
 export const DEMAND_AM_HOUR = 8
@@ -58,23 +67,9 @@ export const DEMAND_LIMITS = {
 
 /**
  * The timetable's multiplier (§6.5): a peak headway moves the full crowd, 平峰 a little
- * over half of it, 夜间 a quarter.
+ * over half of it, 离峰 a quarter.
  */
 export const PERIOD_FACTOR: Record<Period, number> = { peak: 1, offpeak: 0.6, late: 0.25 }
-
-/**
- * The calendar's multiplier (§7.4, §9.6C 日历系数): a **weekday** is the baseline and the
- * weekend carries a quarter to a half of it, exactly as §7.4 asks. A **节假日 is the other
- * way** — sheet 06's panel B is explicit that a statutory holiday is the day the platform is
- * crowded "and it comes without warning" — so a holiday runs *above* a weekday here. The
- * later, longer holiday *shape* §7.4 also asks for is not modelled yet; this is its volume.
- */
-export const DAY_TYPE_FACTOR: Record<DayType, number> = {
-  weekday: 1,
-  saturday: 0.45,
-  sunday: 0.35,
-  holiday: 1.15,
-}
 
 /** Seconds since midnight as hours (0–24, float). */
 export function hourOfDay(simTime: number): number {
@@ -103,13 +98,13 @@ export function demandShape(hour: number, knobs: DemandKnobs = DEFAULT_DEMAND): 
 
 /**
  * The multiplier the spawn applies at one instant: the shape, scaled by the period the
- * timetable is in **and** by the day type's calendar coefficient.
+ * timetable is in.
  *
  * The period is handed in rather than derived — the world has already asked `periodOf`
  * this tick, and asking twice is two chances to answer differently.
  */
-export function demandAt(hour: number, period: Period, dayType: DayType, knobs: DemandKnobs = DEFAULT_DEMAND): number {
-  return demandShape(hour, knobs) * PERIOD_FACTOR[period] * DAY_TYPE_FACTOR[dayType]
+export function demandAt(hour: number, period: Period, knobs: DemandKnobs = DEFAULT_DEMAND): number {
+  return demandShape(hour, knobs) * PERIOD_FACTOR[period]
 }
 
 /** The station's whole authored day, in one object: what every caller of this module
@@ -117,17 +112,17 @@ export function demandAt(hour: number, period: Period, dayType: DayType, knobs: 
 export interface DemandInput {
   service: TimeSpan
   peaks: PeakWindows
-  knobs: DemandKnobs
+  workday: DemandKnobs
+  offday: DemandKnobs
 }
 
 /** `demandAt` for a station whose period has not been worked out yet — the 时刻 window's
  *  own entry point, and the one the chart's samples go through. */
-export function demandRate(simTime: number, dayType: DayType, input: DemandInput): number {
+export function demandRate(simTime: number, workday: boolean, input: DemandInput): number {
   return demandAt(
     hourOfDay(simTime),
-    periodOf(simTime, input.service, input.peaks),
-    dayType,
-    input.knobs,
+    periodOf(simTime, input.service, input.peaks, workday),
+    workday ? input.workday : input.offday,
   )
 }
 
@@ -139,11 +134,11 @@ export function demandRate(simTime: number, dayType: DayType, input: DemandInput
  * that is zero, negative or not a number falls back to the default instead of
  * asking for an unbounded number of them.
  */
-export function demandSeries(dayType: DayType, input: DemandInput, stepMinutes = 15): number[] {
+export function demandSeries(workday: boolean, input: DemandInput, stepMinutes = 15): number[] {
   const step = Number.isFinite(stepMinutes) && stepMinutes > 0 ? stepMinutes : 15
   const steps = Math.max(1, Math.round((24 * 60) / step))
   const out: number[] = []
-  for (let i = 0; i <= steps; i++) out.push(demandRate((i * SIM_DAY) / steps, dayType, input))
+  for (let i = 0; i <= steps; i++) out.push(demandRate((i * SIM_DAY) / steps, workday, input))
   return out
 }
 
@@ -152,22 +147,42 @@ export function demandSeries(dayType: DayType, input: DemandInput, stepMinutes =
  * decimals (a slider's own grain), and back to the default when the field is missing or
  * is not a number at all. Repairs rather than refuses, like every other load path.
  */
-export function normalizeDemand(raw: unknown): DemandKnobs {
+export function normalizeDemand(raw: unknown, fallback: DemandKnobs = DEFAULT_DEMAND): DemandKnobs {
   return {
-    amPeak: knob(raw, 'amPeak'),
-    pmPeak: knob(raw, 'pmPeak'),
-    sharpness: knob(raw, 'sharpness'),
+    amPeak: knob(raw, 'amPeak', fallback.amPeak),
+    pmPeak: knob(raw, 'pmPeak', fallback.pmPeak),
+    sharpness: knob(raw, 'sharpness', fallback.sharpness),
   }
 }
 
-function knob(raw: unknown, key: keyof DemandKnobs): number {
+/**
+ * The two curves a document actually holds. A save from before the split carries one
+ * flat set of knobs — that was the 工作日 curve, so it stays the 工作日 one and the
+ * 非工作日 curve is the default.
+ */
+export function normalizeDayDemand(raw: unknown): DayDemand {
+  const source = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
+  if (!('workday' in source || 'offday' in source)) {
+    return { workday: normalizeDemand(raw), offday: { ...DEFAULT_OFFDAY } }
+  }
+  return {
+    workday: normalizeDemand(source.workday),
+    offday: normalizeDemand(source.offday, DEFAULT_OFFDAY),
+  }
+}
+
+function knob(raw: unknown, key: keyof DemandKnobs, fallback: number): number {
   const value = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>)[key] : undefined
-  const fallback = DEFAULT_DEMAND[key]
-  const [lo, hi] = DEMAND_LIMITS[key]
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  const [lo, hi] = DEMAND_LIMITS[key]
   const clamped = value < lo ? lo : value > hi ? hi : value
   return Math.round(clamped * 100) / 100
 }
 
 /** The day's worth of input a document with none authored runs on. */
-export const DEFAULT_DEMAND_INPUT: DemandInput = { service: DEFAULT_SERVICE, peaks: DEFAULT_PEAKS, knobs: DEFAULT_DEMAND }
+export const DEFAULT_DEMAND_INPUT: DemandInput = {
+  service: DEFAULT_SERVICE,
+  peaks: DEFAULT_PEAKS,
+  workday: DEFAULT_DEMAND,
+  offday: DEFAULT_OFFDAY,
+}

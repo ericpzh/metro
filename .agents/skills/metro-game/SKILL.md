@@ -511,8 +511,12 @@ the four rules most changes trip over.
   direction as arrows (`buildTrack`; Tab toggles it in platform mode), a tunnel inherits
   its source's direction, and `computeLineAnchors` reads the train's travel sign from
   `cfg.dir`. `station.lines` holds many lines (added in the inspector, `LineCard`); each
-  carries stock/cars/headway and a power mode, and its colour comes from
-  `data/line-colours.ts` (real 广州地铁 sign colours by line number). Platform-only
+  carries stock/cars/headwayProfile and a power mode, and its colour comes from
+  `data/line-colours.ts` (real 广州地铁 sign colours by line number). The consist is one of
+  the fixed `FORMATION_OPTIONS` 2/3/4/6/8 chips (`sim/headway.ts` snaps, ties down so a
+  snapped train never outgrows its platform), and each leg of the headway is a 分/秒 row —
+  高峰/平峰/离峰, clamped 60–1200 s with its own 列/时 · 人/时 readout (`HeadwayInput`,
+  commit on blur like the line name). Platform-only
   controls (方向, 线路, 重置屏蔽门) show only while placing or editing a platform, not a
   tunnel. `LineDef.upTerminus` / `downTerminus` are the per-direction destinations, and
   every platform screen prints the bound line's terminus for its own `cfg.dir` (falling
@@ -559,26 +563,37 @@ the four rules most changes trip over.
   日期类型 / 营业时间 / 高峰时段 / 客流曲线 are `StationData.service` / `peaks` / `demand` /
   `calendar`, saved per station, repaired per field on load and re-normalized on every
   `rebuild()` (`World.day` + `World.calendar`), so an edit lands through the same path a
-  save does. `periodOf(simTime, service, peaks)` checks **shut first** — a station that
+  save does. `periodOf(simTime, service, peaks, workday)` checks **shut first** — a station that
   opens at 08:00 is not in its 高峰 at 07:00 — and `DEFAULT_SERVICE` is 06:30–23:30.
-  `DAY_TYPE_FACTOR` is 工作日 1.0 / 周六 0.45 / 周日 0.35 / **节假日 1.15** (a holiday is the
-  crush, not the lull). `demandSeries` samples a **uniform grid** so the last point closes
+  A **非工作日 runs 平峰/离峰 only**: the peak windows do not apply, so an open off-day
+  is 平峰 all day and only shut hours and shoulders are 离峰 — dispatcher, TV forecast,
+  clock chip and both charts read the same flag. There are **two saved curves**, one set
+  of knobs for 工作日 and one for 非工作日 (`DayDemand`: `normalizeDayDemand` repairs each
+  leg, and a pre-split file keeps its knobs as the workday curve); the calendar date picks
+  which one the spawn and the charts read, so there is no weekend/holiday volume multiplier
+  left — the volume lives in the curves. `demandSeries` samples a **uniform grid** so the last point closes
   onto the first for any step. `LOS_LABELS` is the single map both the status bar and the
   时刻 strip print. The knobs span 0–2.5 (peaks) and 0.4–2 (sharpness); a value past its
   slider is repaired by `normalizeDemand`, never refused. **The calendar is the 2026
-  arrangement** (`DEFAULT_CALENDAR`: 国务院办公厅 国办发明电〔2025〕7号, day 0 =
-  2026-01-01) and the day type is **derived, never picked**: `dayTypeOf` reads holidays
-  first, then 调休 workdays, then the weekday. `normalizeCalendar` repairs rather than
+  holidays** (`DEFAULT_CALENDAR`: 国务院办公厅 国办发明电〔2025〕7号, day 0 =
+  2026-01-01) and the day type is **derived, never picked**: `dayTypeOf` reads the holiday
+  list, then the weekend — there is no 调休 list, and a file that still carries one has it
+  dropped on load. `normalizeCalendar` repairs rather than
   refuses (`02-30` becomes `02-28`), and `normalizePeaks` keeps the peak pair in order —
   早高峰 ends no later than 晚高峰 begins. `monthGrid` lays a Monday-first month of whole
   weeks so the view is pinned by a test, and `simTimeAtDate` turns a picked date plus the
   kept time of day into sim seconds. **The pick is a seek**: `SimSlice.seekToDate` keeps
   the time of day, posts a `seek`, and `World.seek` moves the clock and drops the
   absolute-time dispatch schedule (a backwards scrub would otherwise stall every train)
-  while the crowd, queues, trains and counters stay. The chart's six boundaries (both
-  营业时间 ends, both peaks') are grips on the curve itself (`curveBoundaries`: draft on
+  while the crowd, queues, trains and counters stay. The chart's boundaries (both
+  营业时间 ends, both peaks' on a workday) are grips on the curve itself (`curveBoundaries`: draft on
   move, one undo frame and one rebuild on release, arrow keys nudge-and-commit as one
-  step). `game/test/clock.test.mjs`, `demand.test.mjs` and `line-edit.test.mjs` (the store
+  step); on an off-day the peak bands and grips stay off. The second chart is the trains'
+  own curve (`TrainCurve`, `trainAlightSeries` in `sim/headway.ts`: per-train 下车 over the
+  running headway times each line's consists, counted the way `World.serviceTracks`
+  dispatches them), read-only on the same bands — a headway or 编组 edit moves it and
+  leaves the entrance curve alone. `game/test/clock.test.mjs`, `demand.test.mjs`,
+  `headway.test.mjs` and `line-edit.test.mjs` (the store
   half) pin it.
 * **A consist is a cabin the crowd rides in** (`sim/stock.ts`, `sim/agents.ts`,
   `sim/world/World.ts`, `render/models/pieces/TrainModel.ts`,
@@ -1234,6 +1249,16 @@ the four rules most changes trip over.
   指示牌 preview raises `signVersion` rather than the document's `version`, so a preview stops
   looking like a document edit. In the sim the worker stays quiet while paused with nothing
   `dirty`, and `AgentPool` drops a dead agent's id entry as it recycles the object.
+  The demo performance harnesses are `npm run bench:sim` and `npm run bench:browser`
+  from the repository root; `game/PERFORMANCE.md` records how to run and compare them.
+  Opaque static siblings are batched per module by `render/batchStaticModule.ts`; keep the
+  module root and nested groups for picking and storey visibility, and leave transparent,
+  shared/tagged geometry, mutable screens and animated rigs separate. `SceneRenderer`
+  may retain built equipment only when `canRetainPaintedModules` proves the edit is an
+  unrelated top-face paint: station/module metadata, cell geometry, room side finishes,
+  stair starting finishes or language changes require the full rebuild. Block drag
+  previews build one `blockedCellsByLevel` index per rectangle and pass it to each
+  `blockReason`; preview and release must continue to share the same placement verdict.
 
 * **Passengers are instanced humans with an eye view** (`src/assets/passenger-human.json`,
   `src/assets/PASSENGERS.md`, `tools/bake-passengers.mjs`,

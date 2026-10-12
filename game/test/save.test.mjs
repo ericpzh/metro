@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { parse, serialize, SAVE_VERSION, SAVE_FORMAT } from '../src/persistence/save.ts'
 import { toState } from '../src/build/model.ts'
 import { DEFAULT_PEAKS, DEFAULT_SERVICE } from '../src/sim/constants.ts'
-import { DEFAULT_DEMAND } from '../src/sim/demand.ts'
+import { DEFAULT_DEMAND, DEFAULT_OFFDAY } from '../src/sim/demand.ts'
 import { DEFAULT_CALENDAR, SERVICE_MIN_SPAN } from '../src/sim/clock.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 
@@ -22,8 +22,8 @@ test('serialise -> parse is identity for the static station', () => {
   assert.deepEqual(r.state.lines, state.lines)
   assert.deepEqual(r.state.service, state.service, 'the operating hours ride beside the name and the seed')
   assert.deepEqual(r.state.peaks, state.peaks, 'and so do the two peak windows')
-  assert.deepEqual(r.state.demand, state.demand, 'and the demand knobs')
-  assert.deepEqual(r.state.calendar, state.calendar, 'and the calendar, holiday and 调休 lists included')
+  assert.deepEqual(r.state.demand, state.demand, 'and the demand curves')
+  assert.deepEqual(r.state.calendar, state.calendar, 'and the calendar with its holiday list')
 })
 
 test('the level base round trips and old saves default to zero', () => {
@@ -47,7 +47,7 @@ test('a file with no authored day opens on the defaults', () => {
   const doc = JSON.parse(serialize(state))
   assert.deepEqual(doc.service, DEFAULT_SERVICE, 'and the envelope writes all four out')
   assert.deepEqual(doc.peaks, DEFAULT_PEAKS)
-  assert.deepEqual(doc.demand, DEFAULT_DEMAND)
+  assert.deepEqual(doc.demand, { workday: DEFAULT_DEMAND, offday: DEFAULT_OFFDAY })
   assert.deepEqual(doc.calendar, DEFAULT_CALENDAR)
   delete doc.service
   delete doc.peaks
@@ -57,7 +57,7 @@ test('a file with no authored day opens on the defaults', () => {
   assert.equal(r.ok, true)
   assert.deepEqual(r.state.service, DEFAULT_SERVICE)
   assert.deepEqual(r.state.peaks, DEFAULT_PEAKS)
-  assert.deepEqual(r.state.demand, DEFAULT_DEMAND)
+  assert.deepEqual(r.state.demand, { workday: DEFAULT_DEMAND, offday: DEFAULT_OFFDAY })
   assert.deepEqual(r.state.calendar, DEFAULT_CALENDAR)
 })
 
@@ -81,7 +81,10 @@ test('an authored day the day cannot hold is bent into range on load', () => {
     { from: 8 * 3600, to: 8 * 3600 + SERVICE_MIN_SPAN },
     DEFAULT_PEAKS[1],
   ])
-  assert.deepEqual(repaired.state.demand, { amPeak: 2.5, pmPeak: DEFAULT_DEMAND.pmPeak, sharpness: 0.5 })
+  assert.deepEqual(repaired.state.demand, {
+    workday: { amPeak: 2.5, pmPeak: DEFAULT_DEMAND.pmPeak, sharpness: 0.5 },
+    offday: DEFAULT_OFFDAY,
+  }, 'a pre-split flat set stays the workday curve')
   // An **array** is not a record: `isRecord([])` is true in JavaScript, so a
   // hand-edited `service: []` has to be refused by shape and fall back to the
   // shipped day rather than be read as a window with no ends.
@@ -91,17 +94,17 @@ test('an authored day the day cannot hold is bent into range on load', () => {
   const shaped = parse(JSON.stringify(doc))
   assert.equal(shaped.ok, true)
   assert.deepEqual(shaped.state.service, DEFAULT_SERVICE, 'an empty array is not a window')
-  assert.deepEqual(shaped.state.demand, DEFAULT_DEMAND, 'nor is it a set of knobs')
+  assert.deepEqual(shaped.state.demand, { workday: DEFAULT_DEMAND, offday: DEFAULT_OFFDAY }, 'nor is it a set of knobs')
   assert.deepEqual(shaped.state.peaks, DEFAULT_PEAKS, 'and an object is not the pair of windows')
   // The calendar is repaired the same way: an epoch that is not a date falls back to the shipped
-  // one, a key that is not `YYYY-MM-DD` is dropped from its list, and a date a hand-edit put on
-  // both lists is a holiday.
+  // one, a key that is not `YYYY-MM-DD` is dropped from its list, and the removed 调休上班
+  // list is dropped on the way in.
   doc.calendar = { epoch: { year: 2026, month: 2, day: 31 }, holidays: ['2026-03-01', 'March'], workdays: ['2026-03-01'] }
   const cal = parse(JSON.stringify(doc))
   assert.equal(cal.ok, true)
   assert.deepEqual(cal.state.calendar.epoch, { year: 2026, month: 2, day: 28 }, 'February has no 31st')
   assert.deepEqual(cal.state.calendar.holidays, ['2026-03-01'])
-  assert.deepEqual(cal.state.calendar.workdays, [], 'a date on both lists is a holiday')
+  assert.ok(!('workdays' in cal.state.calendar), 'the 调休 list does not survive the load path')
   doc.calendar = 'the year 2026'
   const noCal = parse(JSON.stringify(doc))
   assert.equal(noCal.ok, true)

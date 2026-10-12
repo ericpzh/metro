@@ -2779,23 +2779,9 @@ input[type='range'] {
   background: none;
   cursor: default;
 }
-/* A weekend is quieter and a holiday is busier (sheet 06's panel B): the cell's own ink says
-   which day type the demand multiplier will read. */
-.calCell.saturday,
-.calCell.sunday {
+/* An offday is quieter: the cell's own ink says which of the two saved curves the date runs. */
+.calCell.offday {
   color: var(--muted);
-}
-.calCell.holiday {
-  color: var(--warn);
-  background: rgba(255, 200, 97, 0.12);
-  border-color: rgba(255, 200, 97, 0.35);
-}
-/* 调休上班: a weekend date the arrangement turns into a working day. It derives 工作日, so the
-   cell says so in ink of its own. */
-.calCell.workday {
-  color: var(--ink);
-  background: rgba(85, 182, 255, 0.08);
-  border-color: rgba(85, 182, 255, 0.3);
 }
 /* The day the station is **standing on** — the calendar's selection, and the day the curve, the
    card's chip and the crowd are all describing. It is the only highlight the grid carries. */
@@ -2828,12 +2814,8 @@ input[type='range'] {
   background: #16374f;
   border-color: var(--accent);
 }
-.calKey.holiday {
-  background: rgba(255, 200, 97, 0.35);
-  border-color: rgba(255, 200, 97, 0.6);
-}
-.calKey.workday {
-  background: #081a2c;
+.calKey.offday {
+  border-color: var(--muted);
 }
 
 .guideExitTiles { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; }

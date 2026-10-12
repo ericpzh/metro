@@ -199,14 +199,17 @@ export class SceneRenderer {
     // shade, so a long painting session used to keep every shade it ever tried.
     this.ctx.mats.retain(finishesInUse(data))
     this.ghostSys.clearModulePreview()
+    const retainedModules = this.modules.retainPaintedModules(data)
     // A 指示牌 prints the station's lines, so a line edit reprints every face
     // already hanging before the rebuild replaces them — and the two 装饰 pieces that
     // carry the station's own words, a 站名's name and a 线网图's network, are
     // reprinted for the same reason: a rename or a recoloured line reaches the wall.
-    this.plates.redrawSignPlates()
-    this.plates.redrawDecorPlates()
+    if (!retainedModules) {
+      this.plates.redrawSignPlates()
+      this.plates.redrawDecorPlates()
+    }
     this.chunks.meshStation()
-    this.modules.buildModules(data, trackCells)
+    if (!retainedModules) this.modules.buildModules(data, trackCells)
     this.grid.buildGrid()
     this.cameraSys.setPickables([...this.chunks.chunkMeshes, ...this.chunks.wallPick.children, ...this.lifts.liftPickMeshes])
     this.level.applyLevel()

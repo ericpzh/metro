@@ -26,7 +26,7 @@ const ticks = (seconds: number): number => Math.max(0, Math.ceil(seconds / DT)) 
 const cycle = PHASES.reduce((sum, [, duration]) => sum + ticks(duration), 0)
 
 /** Forecast without advancing the world or drawing from its RNG. Dispatch precedes phase stepping. */
-export function serviceArrivals(now: number, next: number, active: Train | undefined, line: LineDef, service: TimeSpan, peaks: PeakWindows): TrainService['arrivals'] {
+export function serviceArrivals(now: number, next: number, active: Train | undefined, line: LineDef, service: TimeSpan, peaks: PeakWindows, workday = true): TrainService['arrivals'] {
   const arrivals: TrainService['arrivals'] = []
   let freeAt = now + DT
   if (active) {
@@ -39,7 +39,10 @@ export function serviceArrivals(now: number, next: number, active: Train | undef
   let dispatch = Math.max(now + Math.max(DT, ticks(next - now)), freeAt)
   while (arrivals.length < 3) {
     arrivals.push({ seconds: dispatch + ticks(TRAIN_APPROACH_S) - DT - now, atPlatform: false })
-    const period = periodOf(dispatch, service, peaks)
+    // The forecast holds the current day type across its horizon: a midnight
+    // crossing mid-forecast reads the wrong period for its last trainful, and
+    // the dispatcher re-reads the real day every tick anyway.
+    const period = periodOf(dispatch, service, peaks, workday)
     const headway = line.headwayProfile[period]
     dispatch += Math.max(DT, ticks(headway), cycle)
   }

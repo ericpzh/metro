@@ -1,17 +1,18 @@
-// The crowd's day (`sim/demand.ts`): the curve the station's arrivals are shaped by, the
-// three knobs sheet 06's panel D puts in the player's hands, and the calendar coefficient
-// §7.4's `calendar(dayOfYear)` is made of.
+// The crowd's day (`sim/demand.ts`): the two curves the station's arrivals are shaped by —
+// one for 工作日, one for 非工作日 — the three knobs sheet 06's panel D puts in the
+// player's hands, and the calendar date that picks between them.
 //
 // The load-bearing test here is the **golden one**: `demandShape` at `DEFAULT_DEMAND` must
 // equal the formula it replaced, value for value. The knobs were added under a running
 // simulation, so the only proof that shipping them changed no crowd is that the default
-// curve is the old curve — a tolerance would hide exactly the drift this exists to catch.
+// workday curve is the old curve — a tolerance would hide exactly the drift this exists
+// to catch.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  DAY_TYPE_FACTOR,
   DEFAULT_DEMAND,
   DEFAULT_DEMAND_INPUT,
+  DEFAULT_OFFDAY,
   DEMAND_FLOOR,
   DEMAND_LIMITS,
   PERIOD_FACTOR,
@@ -20,6 +21,7 @@ import {
   demandSeries,
   demandShape,
   hourOfDay,
+  normalizeDayDemand,
   normalizeDemand,
 } from '../src/sim/demand.ts'
 import { DEFAULT_PEAKS, DEFAULT_SERVICE, SIM_DAY } from '../src/sim/constants.ts'
@@ -75,63 +77,33 @@ test('a knob moves the curve it names, and only that one', () => {
   assert.ok(demandShape(9, flat) > demandShape(9))
 })
 
-test('the period and the day type are the two scales on top of the shape', () => {
+test('the period is the scale on top of the shape', () => {
   assert.deepEqual(PERIOD_FACTOR, { peak: 1, offpeak: 0.6, late: 0.25 })
-  // A holiday is **above** a weekday, not below it: sheet 06's panel B (a statutory holiday is
-  // the day the platform is crowded, and it comes without warning) is the reference, and §7.4's
-  // 0.25–0.45 weekend band is what 周六 / 周日 carry.
-  assert.deepEqual(DAY_TYPE_FACTOR, { weekday: 1, saturday: 0.45, sunday: 0.35, holiday: 1.15 })
-  assert.ok(DAY_TYPE_FACTOR.holiday > DAY_TYPE_FACTOR.weekday)
-  assert.equal(demandAt(8, 'peak', 'weekday'), demandShape(8))
-  assert.equal(demandAt(8, 'offpeak', 'weekday'), demandShape(8) * 0.6)
-  assert.equal(demandAt(8, 'late', 'weekday'), demandShape(8) * 0.25)
-  assert.equal(demandAt(8, 'peak', 'saturday'), demandShape(8) * 0.45)
-  assert.equal(demandAt(8, 'peak', 'holiday'), demandShape(8) * 1.15)
-  // A weekend or holiday peak is the weekday's peak scaled — this is the whole of §7.4's calendar
-  // factor today; the *shape* difference (a later, longer holiday peak) is still to come.
-  for (const dt of ['saturday', 'sunday', 'holiday']) {
-    assert.equal(demandAt(18, 'peak', dt) / demandShape(18), DAY_TYPE_FACTOR[dt])
-  }
+  assert.equal(demandAt(8, 'peak'), demandShape(8))
+  assert.equal(demandAt(8, 'offpeak'), demandShape(8) * 0.6)
+  assert.equal(demandAt(8, 'late'), demandShape(8) * 0.25)
+  // The knobs are the curve's own: a second set of knobs draws a second curve.
+  assert.equal(demandAt(8, 'peak', DEFAULT_OFFDAY), demandShape(8, DEFAULT_OFFDAY))
+  assert.ok(demandShape(8, DEFAULT_OFFDAY) < demandShape(8), 'the reference offday has no commute spike')
 })
 
 test('the rate a caller gets is the shape, the period and the day, in one number', () => {
-  // 07:27 on the shipped window: open, off-peak, a weekday.
+  // 07:27 on the shipped window: open, off-peak, a workday.
   const morning = 7 * 3600 + 27 * 60
-  assert.equal(demandRate(morning, 'weekday', DEFAULT_DEMAND_INPUT), demandShape(7.45) * 0.6)
+  assert.equal(demandRate(morning, true, DEFAULT_DEMAND_INPUT), demandShape(7.45) * 0.6)
   // 08:00 is inside the AM peak window, so the same shape runs at full weight.
-  assert.equal(demandRate(8 * 3600, 'weekday', DEFAULT_DEMAND_INPUT), demandShape(8) * 1)
-  // 02:00 is outside the operating hours: shut, so 夜间 whatever the shape says.
-  assert.equal(demandRate(2 * 3600, 'weekday', DEFAULT_DEMAND_INPUT), demandShape(2) * 0.25)
-  // 23:45 is shut too, and 18:00 on a Sunday is a Sunday.
-  assert.equal(demandRate(23 * 3600 + 45 * 60, 'weekday', DEFAULT_DEMAND_INPUT), demandShape(23.75) * 0.25)
-  assert.equal(demandRate(18 * 3600, 'sunday', DEFAULT_DEMAND_INPUT), demandShape(18) * 0.35)
+  assert.equal(demandRate(8 * 3600, true, DEFAULT_DEMAND_INPUT), demandShape(8) * 1)
+  // 02:00 is outside the operating hours: shut, so 离峰 whatever the shape says.
+  assert.equal(demandRate(2 * 3600, true, DEFAULT_DEMAND_INPUT), demandShape(2) * 0.25)
+  // 23:45 is shut too.
+  assert.equal(demandRate(23 * 3600 + 45 * 60, true, DEFAULT_DEMAND_INPUT), demandShape(23.75) * 0.25)
+  // On an offday the peak windows do not apply: 08:00 reads the offday curve at 平峰 weight.
+  assert.equal(demandRate(8 * 3600, false, DEFAULT_DEMAND_INPUT), demandShape(8, DEFAULT_OFFDAY) * 0.6)
+  assert.equal(demandRate(18 * 3600, false, DEFAULT_DEMAND_INPUT), demandShape(18, DEFAULT_OFFDAY) * 0.6)
   // The hour the clock prints and the hour the curve is read at are the same number.
   assert.equal(hourOfDay(8 * 3600 + 1800), 8.5)
   assert.equal(hourOfDay(-1800), 23.5, 'and a time before midnight reads as the day before')
   assert.equal(hourOfDay(30 * SIM_DAY + 3600), 1, 'and a wrapped one as its own hour')
-})
-
-test('a series is the whole day, sampled, and closes back onto its first point', () => {
-  const series = demandSeries('weekday', DEFAULT_DEMAND_INPUT, 15)
-  assert.equal(series.length, 97, '15-minute steps across 24 hours, both ends included')
-  assert.equal(series[0], series[96], '00:00 and 24:00 are the same instant')
-  assert.equal(series[32], demandRate(8 * 3600, 'weekday', DEFAULT_DEMAND_INPUT), '08:00 is index 32')
-  assert.equal(demandSeries('weekday', DEFAULT_DEMAND_INPUT, 60).length, 25, 'and an hour a step is 25 points')
-  assert.ok(Math.max(...series) > 1, 'the reference day does peak above the 100% baseline')
-  assert.ok(Math.min(...series) > 0, 'and never touches zero: a shut night is thin, not empty')
-  // The station's own windows move the line: shut hours are the 夜间 factor, and a peak
-  // window drawn *inside* the operating hours takes the 高峰 weight with it.
-  const night = demandSeries('weekday', DEFAULT_DEMAND_INPUT, 60)[3]
-  const shut = demandSeries('weekday', { ...DEFAULT_DEMAND_INPUT, service: { from: 9 * 3600, to: 21 * 3600 } }, 60)[3]
-  assert.equal(shut, night, '03:00 was already shut, so narrowing the window changed nothing there')
-  const moved = demandSeries('weekday', { ...DEFAULT_DEMAND_INPUT, peaks: [{ from: 13 * 3600, to: 14 * 3600 }, DEFAULT_PEAKS[1]] }, 60)
-  const noon = demandSeries('weekday', DEFAULT_DEMAND_INPUT, 60)
-  assert.ok(moved[13] > noon[13], 'a 13:00 peak makes 13:00 peak service')
-  assert.ok(Math.abs(moved[13] / noon[13] - 1 / 0.6) < 1e-9, 'which is exactly the peak-over-off-peak factor')
-  // A peak drawn *outside* the window is still a shut station: `periodOf` asks the window
-  // first, so no peak window can sneak service into hours the station is not open.
-  const early = demandSeries('weekday', { ...DEFAULT_DEMAND_INPUT, peaks: [{ from: 3 * 3600, to: 4 * 3600 }, DEFAULT_PEAKS[1]] }, 60)
-  assert.equal(early[3], night, '03:00 stays 夜间 under its own peak window')
 })
 
 test('a step that does not divide the day still closes the series', () => {
@@ -139,16 +111,48 @@ test('a step that does not divide the day still closes the series', () => {
   // whatever the step: samples on a uniform grid make that a property of the
   // series rather than of 1440 being divisible by 7.
   for (const step of [7, 25, 90]) {
-    const series = demandSeries('weekday', DEFAULT_DEMAND_INPUT, step)
+    const series = demandSeries(true, DEFAULT_DEMAND_INPUT, step)
     assert.equal(series[0], series[series.length - 1], `a ${step}-minute step closes onto 00:00`)
     assert.ok(series.length > 1, `and a ${step}-minute step draws a line`)
   }
   // A step that is not a positive finite number is the default, not an unbounded
   // loop: this function is pure, and a NaN step must not hang the worker.
   for (const step of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
-    const series = demandSeries('weekday', DEFAULT_DEMAND_INPUT, step)
+    const series = demandSeries(true, DEFAULT_DEMAND_INPUT, step)
     assert.equal(series.length, 97, `a step of ${String(step)} is the default 15 minutes`)
   }
+})
+test('a series is the whole day, sampled, and closes back onto its first point', () => {
+  const series = demandSeries(true, DEFAULT_DEMAND_INPUT, 15)
+  assert.equal(series.length, 97, '15-minute steps across 24 hours, both ends included')
+  assert.equal(series[0], series[96], '00:00 and 24:00 are the same instant')
+  assert.equal(series[32], demandRate(8 * 3600, true, DEFAULT_DEMAND_INPUT), '08:00 is index 32')
+  assert.equal(demandSeries(true, DEFAULT_DEMAND_INPUT, 60).length, 25, 'and an hour a step is 25 points')
+  assert.ok(Math.max(...series) > 1, 'the reference day does peak above the 100% baseline')
+  assert.ok(Math.min(...series) > 0, 'and never touches zero: a shut night is thin, not empty')
+  // The station's own windows move the line: shut hours are the 离峰 factor, and a peak
+  // window drawn *inside* the operating hours takes the 高峰 weight with it.
+  const night = demandSeries(true, DEFAULT_DEMAND_INPUT, 60)[3]
+  const shut = demandSeries(true, { ...DEFAULT_DEMAND_INPUT, service: { from: 9 * 3600, to: 21 * 3600 } }, 60)[3]
+  assert.equal(shut, night, '03:00 was already shut, so narrowing the window changed nothing there')
+  const moved = demandSeries(true, { ...DEFAULT_DEMAND_INPUT, peaks: [{ from: 13 * 3600, to: 14 * 3600 }, DEFAULT_PEAKS[1]] }, 60)
+  const noon = demandSeries(true, DEFAULT_DEMAND_INPUT, 60)
+  assert.ok(moved[13] > noon[13], 'a 13:00 peak makes 13:00 peak service')
+  assert.ok(Math.abs(moved[13] / noon[13] - 1 / 0.6) < 1e-9, 'which is exactly the peak-over-off-peak factor')
+  // A peak drawn *outside* the window is still a shut station: `periodOf` asks the window
+  // first, so no peak window can sneak service into hours the station is not open.
+  const early = demandSeries(true, { ...DEFAULT_DEMAND_INPUT, peaks: [{ from: 3 * 3600, to: 4 * 3600 }, DEFAULT_PEAKS[1]] }, 60)
+  assert.equal(early[3], night, '03:00 stays 离峰 under its own peak window')
+})
+
+test('the offday series reads the offday curve and ignores the peak windows', () => {
+  const off = demandSeries(false, DEFAULT_DEMAND_INPUT, 60)
+  assert.equal(off.length, 25)
+  assert.equal(off[8], demandRate(8 * 3600, false, DEFAULT_DEMAND_INPUT), '08:00 is the offday curve at 平峰 weight')
+  // Moving the peak windows moves the workday line and leaves this one alone.
+  const moved = demandSeries(false, { ...DEFAULT_DEMAND_INPUT, peaks: [{ from: 13 * 3600, to: 14 * 3600 }, DEFAULT_PEAKS[1]] }, 60)
+  assert.deepEqual(moved, off, 'a 非工作日 runs 平峰/离峰 only')
+  assert.ok(Math.max(...off) < Math.max(...demandSeries(true, DEFAULT_DEMAND_INPUT, 60)), 'and lower than the workday')
 })
 
 test('the knobs a document holds are clamped, rounded and defaulted', () => {
@@ -170,7 +174,22 @@ test('the knobs a document holds are clamped, rounded and defaulted', () => {
 })
 
 test('the default input is the shipped day', () => {
-  assert.deepEqual(DEFAULT_DEMAND_INPUT, { service: DEFAULT_SERVICE, peaks: DEFAULT_PEAKS, knobs: DEFAULT_DEMAND })
+  assert.deepEqual(DEFAULT_DEMAND_INPUT, { service: DEFAULT_SERVICE, peaks: DEFAULT_PEAKS, workday: DEFAULT_DEMAND, offday: DEFAULT_OFFDAY })
+})
+
+test('the two saved curves repair leg by leg, and a pre-split file stays the workday curve', () => {
+  assert.deepEqual(normalizeDayDemand(undefined), { workday: DEFAULT_DEMAND, offday: DEFAULT_OFFDAY })
+  assert.deepEqual(normalizeDayDemand({}), { workday: DEFAULT_DEMAND, offday: DEFAULT_OFFDAY })
+  assert.deepEqual(
+    normalizeDayDemand({ amPeak: 0.5 }),
+    { workday: { ...DEFAULT_DEMAND, amPeak: 0.5 }, offday: DEFAULT_OFFDAY },
+    'a flat pre-split set was the workday curve',
+  )
+  assert.deepEqual(
+    normalizeDayDemand({ workday: { amPeak: 2 }, offday: { sharpness: 0 } }),
+    { workday: { ...DEFAULT_DEMAND, amPeak: 2 }, offday: { ...DEFAULT_OFFDAY, sharpness: 0.4 } },
+    'each side keeps its own defaults and its own range',
+  )
 })
 
 /* --------------------------------------------------- the day, in a real crowd */
@@ -196,12 +215,21 @@ function arrivals(patch, startSeconds, ticks) {
 }
 
 test('the authored day reaches the crowd: the knobs and the window are the arrival rate', () => {
-  const midPeak = 8.5 * 3600
-  const quiet = arrivals({ demand: { amPeak: 0 } }, midPeak, 300)
-  const normal = arrivals({}, midPeak, 300)
-  const busy = arrivals({ demand: { amPeak: 2.5 } }, midPeak, 300)
-  assert.ok(quiet < normal / 2, `a silenced 早高峰 is a thinner crowd (${quiet} vs ${normal})`)
-  assert.ok(busy > normal * 2, `a doubled 早高峰 is a busier one (${busy} vs ${normal})`)
+  // Day 0 is 元旦 week (offday), so the knob half of this runs on the offday curve;
+  // the window half is day-type independent.
+  const midMorning = 8.5 * 3600
+  const off = (knobs) => ({ demand: { workday: DEFAULT_DEMAND, offday: { ...DEFAULT_OFFDAY, ...knobs } } })
+  const quiet = arrivals(off({ amPeak: 0 }), midMorning, 300)
+  const normal = arrivals({}, midMorning, 300)
+  const busy = arrivals(off({ amPeak: 2.5 }), midMorning, 300)
+  assert.ok(quiet < normal / 2, `a silenced offday morning is a thinner crowd (${quiet} vs ${normal})`)
+  assert.ok(busy > normal * 2, `a doubled offday morning is a busier one (${busy} vs ${normal})`)
+  // And the workday knobs move a workday the same way: Monday 2026-01-05.
+  const monday = 4 * SIM_DAY + midMorning
+  const work = (knobs) => ({ demand: { workday: { ...DEFAULT_DEMAND, ...knobs }, offday: DEFAULT_OFFDAY } })
+  const calm = arrivals(work({ amPeak: 0 }), monday, 300)
+  const rush = arrivals(work({}), monday, 300)
+  assert.ok(calm < rush / 2, `a silenced 早高峰 is a thinner crowd (${calm} vs ${rush})`)
 
   // The shipped window (06:30–23:30) is what an un-authored station runs, and the
   // wider window §6.5's shoulders are cut from changes nothing: every hour it adds
@@ -213,32 +241,26 @@ test('the authored day reaches the crowd: the knobs and the window are the arriv
   assert.equal(explicit, shipped, 'the same window, written down, is the same crowd')
   assert.equal(allDay, shipped, 'and a station open all day is the day the shoulders already ran')
   // A station that opens at 09:00 does not: 06:30 is outside its window, so the
-  // hours run at the 夜间 factor rather than at the 平峰 one.
+  // hours run at the 离峰 factor rather than at the 平峰 one.
   const late = arrivals({ service: { from: 9 * 3600, to: 21 * 3600 } }, morning, 600)
   assert.ok(late < shipped * 0.7, `a station shut at 06:30 runs a thin service (${late} vs ${shipped})`)
 })
 
-test('the calendar day scales the crowd, and the same weekday is the same crowd', () => {
-  // The shipped 2026 calendar is why these are the dates they are: day 0 is 元旦 (a holiday),
-  // day 3 is the 调休 上班 Sunday, and the first plain week runs from day 4 (Monday 01-05) to
-  // day 10 (Sunday 01-11). A test anchored on "+2 days is the 周六" would now be measuring the
-  // holiday list instead.
-  const morning = 6.5 * 3600
+test('the calendar date picks the curve, and the same date is the same crowd', () => {
+  // The shipped 2026 calendar is why these are the dates they are: day 0 is 元旦 week
+  // (offday), and the first plain week runs from day 4 (Monday 01-05) to day 10
+  // (Sunday 01-11).
+  const morning = 8.5 * 3600
   const monday = arrivals({}, 4 * SIM_DAY + morning, 600)
   const saturday = arrivals({}, 9 * SIM_DAY + morning, 600)
   const sunday = arrivals({}, 10 * SIM_DAY + morning, 600)
-  const near = (got, want) => Math.abs(got - want) <= Math.max(3, want * 0.3)
-  assert.ok(near(saturday, monday * DAY_TYPE_FACTOR.saturday), `周六 arrives at ${DAY_TYPE_FACTOR.saturday} of a weekday (${saturday} vs ${monday})`)
-  assert.ok(near(sunday, monday * DAY_TYPE_FACTOR.sunday), `周日 at ${DAY_TYPE_FACTOR.sunday} (${sunday} vs ${monday})`)
-  assert.ok(saturday < monday && sunday < saturday, 'and the weekend is thinner, Sunday thinnest')
-  // The two dates the 2026 arrangement moves: 元旦 runs **above** a weekday (sheet 06's panel B
-  // — a statutory holiday is the crush), and the 调休 Sunday runs as the 工作日 it is.
-  const newYear = arrivals({}, morning, 600)
-  assert.ok(newYear > monday, `元旦 is busier than a plain Monday (${newYear} vs ${monday})`)
-  assert.equal(arrivals({}, 3 * SIM_DAY + morning, 600), monday, 'and the 调休 上班 Sunday runs a Monday’s crowd')
-  // A week later is the same weekday *and* the same RNG stream: the crowd is the crowd, to the
-  // person (§7.6).
-  assert.equal(arrivals({}, 11 * SIM_DAY + morning, 600), monday, 'the same weekday a week later runs the same crowd')
+  assert.ok(saturday < monday * 0.7, `a Saturday morning runs the flatter offday curve (${saturday} vs ${monday})`)
+  assert.equal(saturday, sunday, 'and two offdays are the same crowd to the person')
+  // A holiday is an offday like any other now: no crush multiplier, just the curve.
+  assert.equal(arrivals({}, morning, 600), saturday, '元旦 runs an ordinary offday')
+  // A week later is the same workday *and* the same RNG stream: the crowd is the crowd,
+  // to the person (§7.6).
+  assert.equal(arrivals({}, 11 * SIM_DAY + morning, 600), monday, 'the same workday a week later runs the same crowd')
 })
 
 test('the calendar pick seeks the clock, and the crowd follows it', () => {
@@ -254,14 +276,15 @@ test('the calendar pick seeks the clock, and the crowd follows it', () => {
   for (let i = 0; i < 600; i++) w.tickOnce()
   assert.ok(w.nextDispatch.size > 0, 'the timetable holds absolute departure times')
 
-  // Forward, onto the first plain Saturday: the clock stands on it, the day type with it, and the
-  // schedule is re-based so the line dispatches from the new date rather than waiting.
+  // Forward, onto the first plain Saturday: the clock stands on it, the offday with it,
+  // and the schedule is re-based so the line dispatches from the new date rather than waiting.
   const saturday = simTimeAtDate({ year: 2026, month: 1, day: 10 }, DEFAULT_CALENDAR.epoch, 8 * 3600)
   w.seek(saturday)
   assert.equal(w.metrics.simTime, saturday, 'the clock moved')
   assert.equal(dayAt(w.simTime, w.data.calendar).dateKey, '2026-01-10')
-  assert.equal(dayAt(w.simTime, w.data.calendar).dayType, 'saturday')
-  assert.equal(w.metrics.period, periodOf(saturday, w.data.service ?? DEFAULT_SERVICE, w.data.peaks ?? DEFAULT_PEAKS))
+  assert.equal(dayAt(w.simTime, w.data.calendar).dayType, 'offday')
+  assert.equal(w.metrics.period, 'offpeak', '08:00 on an offday is 平峰: the peak windows do not apply')
+  assert.equal(w.metrics.period, periodOf(saturday, w.data.service ?? DEFAULT_SERVICE, w.data.peaks ?? DEFAULT_PEAKS, false))
   assert.equal(w.nextDispatch.size, 0, 'and the timetable starts over from here')
   w.tickOnce()
   assert.ok(w.trains.length > 0, 'so a train is dispatched at the new time')
@@ -270,7 +293,7 @@ test('the calendar pick seeks the clock, and the crowd follows it', () => {
   const entered = w.totals.entered
   w.seek(start)
   assert.equal(dayAt(w.simTime, w.data.calendar).dateKey, '2026-01-01')
-  assert.equal(dayAt(w.simTime, w.data.calendar).dayType, 'holiday', '元旦')
+  assert.equal(dayAt(w.simTime, w.data.calendar).dayType, 'offday', '元旦 week runs the offday curve')
   assert.equal(w.nextDispatch.size, 0, 'a backwards seek re-bases the schedule too')
   w.tickOnce()
   assert.ok(w.trains.length > 0, 'instead of stalling the line until the old date comes round')

@@ -45,48 +45,43 @@ export interface SimDate {
 }
 
 /**
- * The four kinds of day a station's demand is authored against (§7.4, §9.6C):
- * 工作日 / 周六 / 周日 / 节假日. It is **derived** from the date — the calendar's two lists say
- * which dates are 节假日 and which are 调休上班, the weekday decides the rest — so the clock can
- * never disagree with the day it is printing.
+ * The two kinds of day a station's demand is authored against (§7.4, §9.6C):
+ * 工作日 / 非工作日. It is **derived** from the date — the calendar's holiday list
+ * says which dates are 非工作日, the weekend is 非工作日, and the rest is 工作日 —
+ * so the clock can never disagree with the day it is printing. There is no 调休
+ *上班 list: a Saturday is never a 工作日.
  */
-export type DayType = 'weekday' | 'saturday' | 'sunday' | 'holiday'
+export type DayType = 'workday' | 'offday'
 
-/** The station's calendar: what day 0 is, and which dates are holidays or 调休 work days. */
+/** The station's calendar: what day 0 is, and which dates are holidays. */
 export interface SimCalendar {
   /** The civil date `simTime = 0` stands on, at 00:00 — 第 1 天 of the run. */
   epoch: SimDate
   /**
-   * 节假日, as `YYYY-MM-DD` keys. A date on this list is a holiday whatever weekday it falls
-   * on, and it **outranks `workdays`** if a file puts a date on both. §9.6C's 活动日 rows are
-   * the same idea with a multiplier attached and belong beside it, keyed by the same `dateKey`.
+   * Holidays, as `YYYY-MM-DD` keys. A date on this list is 非工作日 whatever
+   * weekday it falls on. §9.6C's 活动日 rows are the same idea with a multiplier
+   * attached and belong beside it, keyed by the same `dateKey`.
    */
   holidays: readonly string[]
-  /**
-   * 调休上班日 — the weekend days a holiday arrangement moves *into* the working week. A date
-   * here is 工作日 whatever weekday it falls on, which is what makes a Saturday that everyone
-   * works on read as one (§9.6C 日期类型).
-   */
-  workdays: readonly string[]
 }
 
 /**
- * The shipped calendar: **day 0 is 2026-01-01**, and the two lists are 国务院办公厅
- * 国办发明电〔2025〕7号 (the 2026 public-holiday arrangement, published 2025-11-04) — every
- * 放假 date as a holiday and every 调休 上班 date as a work day:
+ * The shipped calendar: **day 0 is 2026-01-01**, and the holidays are 国务院办公厅
+ * 国办发明电〔2025〕7号 (the 2026 public-holiday arrangement, published 2025-11-04) —
+ * every 放假 date:
  *
  * | | |
  * |---|---|
- * | 元旦 | 01-01 … 01-03 (01-04 上班) |
- * | 春节 | 02-15 … 02-23, nine days (02-14, 02-28 上班) |
+ * | 元旦 | 01-01 … 01-03 |
+ * | 春节 | 02-15 … 02-23, nine days |
  * | 清明节 | 04-04 … 04-06 |
- * | 劳动节 | 05-01 … 05-05 (05-09 上班) |
+ * | 劳动节 | 05-01 … 05-05 |
  * | 端午节 | 06-19 … 06-21 |
  * | 中秋节 | 09-25 … 09-27 |
- * | 国庆节 | 10-01 … 10-07 (09-20, 10-10 上班) |
+ * | 国庆节 | 10-01 … 10-07 |
  *
- * A station may carry its own lists (the 时刻 window's calendar is where that will be edited);
- * these are the ones a station that has not authored any runs.
+ * A station may carry its own list (the 时刻 window's calendar is where that will be
+ * edited); these are the ones a station that has not authored any runs.
  */
 export const DEFAULT_CALENDAR: SimCalendar = {
   epoch: { year: 2026, month: 1, day: 1 },
@@ -99,7 +94,6 @@ export const DEFAULT_CALENDAR: SimCalendar = {
     '2026-09-25', '2026-09-26', '2026-09-27',
     '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07',
   ],
-  workdays: ['2026-01-04', '2026-02-14', '2026-02-28', '2026-05-09', '2026-09-20', '2026-10-10'],
 }
 
 /** The year the shipped calendar belongs to — what the 时刻 window's calendar opens on. */
@@ -120,12 +114,10 @@ export const WEEKDAY_LABELS: readonly string[] = [msg('sunday'), msg('monday'), 
 /** The same seven days as a timetable prints them in a column: 日一二三四五六, one character. */
 export const WEEKDAY_INITIALS: readonly string[] = [msg('sun'), msg('mon'), msg('tue'), msg('wed'), msg('thu'), msg('fri'), msg('sat')]
 
-/** 工作日 / 周六 / 周日 / 节假日, as a chip prints them. */
+/** 工作日 / 非工作日, as a chip prints them. */
 export const DAY_TYPE_LABELS: Record<DayType, string> = {
-  weekday: msg('weekday'),
-  saturday: msg('saturday'),
-  sunday: msg('sunday'),
-  holiday: msg('holiday'),
+  workday: msg('weekday'),
+  offday: msg('offday'),
 }
 
 /** 高峰 / 平峰 / 夜间 — the three periods the timetable keys its headway on (§6.5). */
@@ -289,10 +281,11 @@ export function normalizePeaks(raw: unknown): PeakWindows {
 }
 
 /**
- * The station's calendar (§9.6C 日期类型): a real date for day 0, and two lists of `YYYY-MM-DD`
- * keys. Repaired rather than refused, like every other load path — an epoch that is not a date
- * falls back to the shipped one, a nonsense month rolls to the nearest legal one, and a key
- * that is not `YYYY-MM-DD` is dropped from its list rather than left to match nothing.
+ * The station's calendar (§9.6C 日期类型): a real date for day 0, and the `YYYY-MM-DD`
+ * holiday keys. Repaired rather than refused, like every other load path — an epoch
+ * that is not a date falls back to the shipped one, and a key that is not
+ * `YYYY-MM-DD` is dropped from the list rather than left to match nothing. A file
+ * that still carries the removed 调休上班 list has it dropped on the way in.
  */
 export function normalizeCalendar(raw: unknown): SimCalendar {
   const epoch = normalizeDate(epochOf(raw))
@@ -300,14 +293,7 @@ export function normalizeCalendar(raw: unknown): SimCalendar {
   // 2026 arrangement is known, and a station that only ever picked a date still wants its
   // holidays. A list that *is* there but is junk is the player's own (empty) list.
   const holidays = fieldOf(raw, 'holidays') === undefined ? [...DEFAULT_CALENDAR.holidays] : keyList(fieldOf(raw, 'holidays'))
-  const workdays = fieldOf(raw, 'workdays') === undefined ? [...DEFAULT_CALENDAR.workdays] : keyList(fieldOf(raw, 'workdays'))
-  return {
-    epoch,
-    holidays,
-    // A date that is on both lists is a holiday: the shop is shut, whatever the arrangement
-    // said about working weekends.
-    workdays: workdays.filter((k) => !holidays.includes(k)),
-  }
+  return { epoch, holidays }
 }
 
 /** One date off the wire, clamped to a day that exists. */
@@ -409,22 +395,18 @@ export function simTimeAtDate(date: SimDate, epoch: SimDate, timeOfDay: number):
 }
 
 /**
- * Which of §9.6C's four day types a date is: a holiday if the station lists it, else
- * 周六 / 周日 by the weekday, else 工作日. **A 调休上班日 is a 工作日** even on a Saturday — a
- * holiday arrangement that moves a working day into the weekend is exactly the case §9.6C's
- * 日期类型 has to be able to say, and it is the reason the list is checked before the weekday.
+ * Which of §9.6C's two day types a date is: 非工作日 if the station lists it as a
+ * holiday or it falls on a weekend, else 工作日. Weekends are never working days —
+ * there is no 调休 list to consult.
  */
 export function dayTypeOf(
   weekday: number,
   dateKey: string,
   holidays: readonly string[] = [],
-  workdays: readonly string[] = [],
 ): DayType {
-  if (holidays.includes(dateKey)) return 'holiday'
-  if (workdays.includes(dateKey)) return 'weekday'
-  if (weekday === 6) return 'saturday'
-  if (weekday === 0) return 'sunday'
-  return 'weekday'
+  if (holidays.includes(dateKey)) return 'offday'
+  if (weekday === 6 || weekday === 0) return 'offday'
+  return 'workday'
 }
 
 /**
@@ -486,7 +468,7 @@ export function monthGrid(year: number, month: number, calendar: SimCalendar = D
       dateKey,
       weekday,
       head: MONTH_GRID_HEADS[(weekday + 6) % 7],
-      dayType: dayTypeOf(weekday, dateKey, calendar.holidays, calendar.workdays),
+      dayType: dayTypeOf(weekday, dateKey, calendar.holidays),
     })
   }
   while (cells.length % 7 !== 0) cells.push(null)
@@ -512,7 +494,7 @@ export function dayAt(simTime: number, calendar: SimCalendar = DEFAULT_CALENDAR)
     date,
     dateKey,
     weekday,
-    dayType: dayTypeOf(weekday, dateKey, calendar.holidays, calendar.workdays),
+    dayType: dayTypeOf(weekday, dateKey, calendar.holidays),
   }
 }
 
@@ -560,7 +542,8 @@ export function stampAt(
     // The sim's own period, not a second reading of the windows: the clock can never
     // say 平峰 while the dispatcher is running its peak headway (§6.5). Read off the
     // displayed second and against the same windows the sim was given, so the chip
-    // describes the time printed beside it.
-    period: periodOf(seconds, service, peaks),
+    // describes the time printed beside it — on a 非工作日 the peak windows do not
+    // apply, which is exactly what the dispatcher's own `periodOf` says.
+    period: periodOf(seconds, service, peaks, day.dayType === 'workday'),
   }
 }

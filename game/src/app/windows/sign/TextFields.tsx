@@ -52,7 +52,7 @@ export function TextFields({
     setEn(next[1] ?? '')
   }, [comp])
   const push = (a: string, b: string): void => {
-    // Each box keeps its own limit — 中文 eight, English sixteen — so typing the
+    // Each box keeps its own limit — 中文 eight, English twenty-four — so typing the
     // gloss never eats the name and the joined label is what `signTextLines`
     // reads back out of the component.
     const zh = [...a].slice(0, SIGN_TEXT_MAX).join('')

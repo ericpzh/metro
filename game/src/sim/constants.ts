@@ -427,11 +427,14 @@ export type Period = 'peak' | 'offpeak' | 'late'
  *
  * **Shut is checked first**, and on purpose: a station that opens at 08:00 is not in
  * its 高峰 for the half hour before it opens, however the peak windows are drawn.
+ *
+ * A 非工作日 runs 平峰/离峰 only: the peak windows do not apply, so an open
+ * off-day is 平峰 all day and only the shut hours and the shoulders are 离峰.
  */
-export function periodOf(simTime: number, service: TimeSpan = DEFAULT_SERVICE, peaks: PeakWindows = DEFAULT_PEAKS): Period {
+export function periodOf(simTime: number, service: TimeSpan = DEFAULT_SERVICE, peaks: PeakWindows = DEFAULT_PEAKS, workday = true): Period {
   const t = timeOfDayOf(simTime)
   if (!withinSpan(t, service)) return 'late'
-  for (const p of peaks) if (withinSpan(t, p)) return 'peak'
+  if (workday) for (const p of peaks) if (withinSpan(t, p)) return 'peak'
   if (t < SHOULDER_OPEN || t >= SHOULDER_CLOSE) return 'late'
   return 'offpeak'
 }

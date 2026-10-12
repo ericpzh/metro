@@ -219,9 +219,9 @@ test('a wall 指示牌 reserves a slab on its wall, not the whole storey column'
   const wall = wallSign(2, 3, 0)
   const hung = sign(2, 3, 0)
   const envelope = moduleEnvelope(wall)
-  // The sheet is the reservation: the 2.1 m panel centred on the cell, 3 mm off
+  // The sheet is the reservation: the 1 m panel centred on the cell, 3 mm off
   // the wall — no housing box, so a neighbour cell and the room in front stay free.
-  assert.deepEqual({ ...envelope, y1: Number(envelope.y1.toFixed(3)), z0: Number(envelope.z0.toFixed(3)) }, { x0: 1.45, y0: 3, z0: 2.45, x1: 3.55, y1: 3.003, z1: 2.85 })
+  assert.deepEqual({ ...envelope, y1: Number(envelope.y1.toFixed(3)), z0: Number(envelope.z0.toFixed(3)) }, { x0: 2, y0: 3, z0: 2.45, x1: 3, y1: 3.003, z1: 2.85 })
   assert.deepEqual(moduleEnvelope(hung), { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 4 }, 'the hung board keeps its column')
   // It is found from the floor cell it hangs over, like every other piece.
   assert.equal(moduleAt([wall], 2, 3, 0)?.id, 'sign-w')
@@ -231,9 +231,9 @@ test('a wall 指示牌 reserves a slab on its wall, not the whole storey column'
   assert.equal(placementBlocked([wall], createModule('tvm', 2, 3, 0, 't', 0)), true)
   // Two wall boards in one cell want the same slab of wall, so they collide.
   assert.equal(placementBlocked([wall], wallSign(2, 3, 0, 'sign-w2')), true)
-  // The 2.1 m sheet overhangs its cell by 5 cm a side, so the cells alongside
-  // are not free either — only two cells along clears the panel.
-  assert.equal(placementBlocked([wall], wallSign(3, 3, 0, 'sign-w3')), true, 'the sheet overhangs into the next cell')
+  // The 1 m sheet fills its cell exactly, so the cells alongside are free —
+  // edge to edge is not an overlap — while the same slab of wall still is not.
+  assert.equal(placementBlocked([wall], wallSign(3, 3, 0, 'sign-w3')), false, 'the sheet ends at its cell edge')
   assert.equal(placementBlocked([wall], wallSign(5, 3, 0, 'sign-w5')), false, 'two cells along is free')
   // The course the panel covers is not the block brush's to lay — the wall has to be
   // there first — while the storey the hung board holds is the wall board's no longer.
@@ -389,11 +389,13 @@ test('a component is its ink plus a pad, so two marks cannot touch', () => {
 })
 
 test('the row grows longer with its content, and never taller', () => {
-  // The standard board is a legal board, and the floor is the smallest a sign gets.
+  // The standard board is a legal board; its LINE_2 row measures under two metres
+  // of content, so the 1.0 m floor does not bind it the way the old 2.1 m one did.
   const standard = defaultSignLayout({ lines: [LINE_2] })
   const floor = signPanelSize(standard)
-  assert.ok(floor.w >= PANEL_MIN_W && floor.w <= PANEL_MIN_W + 0.2, `${floor.w}`)
+  assert.ok(floor.w > PANEL_MIN_W && floor.w < 2.1, `${floor.w}`)
   assert.equal(floor.h, PANEL_MIN_H)
+  assert.deepEqual(signPanelSize([]), { w: PANEL_MIN_W, h: PANEL_MIN_H }, 'an empty board is the floor')
 
   // Adding to the row is a list insert: the board gets longer, and it stays one row.
   const wide = stampSignBlock(standard, 'text', { x: 3.0 })
@@ -706,16 +708,16 @@ test('text is measured, and estimated the same way without a canvas', () => {
   assert.ok(Math.abs(signPieceSize(comp).w - (cjk + SIGN_PIECE_PAD * 2)) < 1e-9)
 })
 
-test('a label is 中文 of eight and English of sixteen, and no more', () => {
+test('a label is 中文 of eight and English of twenty-four, and no more', () => {
   assert.deepEqual(signTextLines('出站方向'), ['出站方向'])
   assert.deepEqual(signTextLines('换乘二号线\n请往前走'), ['换乘二号线', '请往前走'])
   // The name is cut to its own limit, the gloss to its longer one, and a third
   // line is dropped.
-  const long = signTextLines('123456789012\nabcdefghijklmnopqrs\nthird')
-  assert.deepEqual(long, ['12345678', 'abcdefghijklmnop'])
+  const long = signTextLines('123456789012\nabcdefghijklmnopqrstuvwxyz\nthird')
+  assert.deepEqual(long, ['12345678', 'abcdefghijklmnopqrstuvwx'])
   // A lone line may be the gloss with no name above it, so it keeps the gloss
   // limit rather than being cut to the name's.
-  assert.deepEqual(signTextLines('abcdefghijklmnopqrs'), ['abcdefghijklmnop'])
+  assert.deepEqual(signTextLines('abcdefghijklmnopqrstuvwxyz'), ['abcdefghijklmnopqrstuvwx'])
   assert.equal(signTextLines('').length, 0)
   assert.equal(signTextLines('a\n\nb').length, 2)
 })
@@ -858,7 +860,8 @@ test('the bins fill the board, so a place on the screen is a place on the sign',
   // enough for the widest mark on it — that is what makes the bins a preview.
   const three = settleSignBins(list.slice(0, 3))
   assert.equal(three.bins, 4)
-  assert.ok(three.pitch + 1e-9 >= 0.48, `${three.pitch}`)
+  const widest = Math.max(...list.slice(0, 3).map((c) => signPieceSize(c).w))
+  assert.ok(three.pitch + 1e-9 >= widest, `${three.pitch} vs widest mark ${widest}`)
 })
 
 test('a component is clamped onto the panel, not off it', () => {
@@ -896,7 +899,10 @@ test('the panel lays components out in metres, bottom-left first', () => {
     { id: 'a', kind: 'text', text: '出站', x: 1, y: 0.35, scale: 1, side: 'both' },
     { id: 'b', kind: 'arrow', arrow: 'left', x: 0.4, y: 0.35, scale: 1, side: 'both' },
   ]
-  const pieces = signPieces(layout, PANEL_SIZE)
+  // On a board sized for its content the written positions are honoured as-is;
+  // the 1 m floor is only the smallest a board gets, not the board everything is read on.
+  const panel = signPanelSize(layout)
+  const pieces = signPieces(layout, panel)
   assert.equal(pieces.length, 2)
   const byId = new Map(pieces.map((p) => [p.id, p]))
   const text = byId.get('a')
@@ -909,8 +915,8 @@ test('the panel lays components out in metres, bottom-left first', () => {
   assert.ok(arrow.left < text.left)
   // Every box is inside the board.
   for (const p of pieces) {
-    assert.ok(p.left >= -1e-9 && p.left + p.w <= PANEL_MIN_W + 1e-9, `${p.id} x ${p.left}…${p.left + p.w}`)
-    assert.ok(p.bottom >= -1e-9 && p.bottom + p.h <= PANEL_MIN_H + 1e-9, `${p.id} y ${p.bottom}…${p.bottom + p.h}`)
+    assert.ok(p.left >= -1e-9 && p.left + p.w <= panel.w + 1e-9, `${p.id} x ${p.left}…${p.left + p.w}`)
+    assert.ok(p.bottom >= -1e-9 && p.bottom + p.h <= panel.h + 1e-9, `${p.id} y ${p.bottom}…${p.bottom + p.h}`)
   }
 })
 
@@ -951,13 +957,16 @@ test('the drop rule swaps two blocks, and only the ones it was given', () => {
     { id: 'a', kind: 'icon', icon: 'accessible', x: 0.35, y: 0.35, scale: 1, side: 'both' },
     { id: 'b', kind: 'icon', icon: 'lift', x: 1.4, y: 0.35, scale: 1, side: 'both' },
   ]
+  // The probes assume a board that holds the layout — the 1 m floor would clamp
+  // the second mark back onto itself, so the panel is measured, not defaulted.
+  const panel = signPanelSize(layout)
   // The block under the point, which is what a drag swaps places with.
-  assert.equal(signComponentAt(layout, 1.4, PANEL_MIN_H / 2, undefined, PANEL_SIZE)?.id, 'b')
-  assert.equal(signComponentAt(layout, 0.9, PANEL_MIN_H / 2, undefined, PANEL_SIZE), null)
+  assert.equal(signComponentAt(layout, 1.4, PANEL_MIN_H / 2, undefined, panel)?.id, 'b')
+  assert.equal(signComponentAt(layout, 0.9, PANEL_MIN_H / 2, undefined, panel), null)
   // Excluding the one being dragged keeps a block from swapping with itself.
-  assert.equal(signComponentAt(layout, 1.4, PANEL_MIN_H / 2, new Set(['a']), PANEL_SIZE)?.id, 'b')
-  assert.equal(signComponentAt(layout, 0.35, PANEL_MIN_H / 2, new Set(['b']), PANEL_SIZE)?.id, 'a')
-  assert.equal(signComponentAt(layout, 0.35, PANEL_MIN_H / 2, new Set(['a', 'b']), PANEL_SIZE), null)
+  assert.equal(signComponentAt(layout, 1.4, PANEL_MIN_H / 2, new Set(['a']), panel)?.id, 'b')
+  assert.equal(signComponentAt(layout, 0.35, PANEL_MIN_H / 2, new Set(['b']), panel)?.id, 'a')
+  assert.equal(signComponentAt(layout, 0.35, PANEL_MIN_H / 2, new Set(['a', 'b']), panel), null)
 })
 
 test('a fresh board carries the station line, and a legacy board is backfilled', () => {

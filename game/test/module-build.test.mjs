@@ -341,8 +341,8 @@ const PIECES = [
   ['广告牌 竖版', palette('billboard-portrait'), 5, '0.92×0.185×1.54'],
   ['广告牌 方形', palette('billboard-square'), 5, '0.92×0.185×1.18'],
   ['电视', palette('tv'), 12, '1.56×0.16×1.32'],
-  ['指示牌 吊挂', palette('sign-ceiling'), 7, '2.1×0.16×0.85'],
-  ['指示牌 墙面', palette('sign-wall'), 1, '2.1×0×0.4'],
+  ['指示牌 吊挂', palette('sign-ceiling'), 7, '1.9×0.16×0.85'],
+  ['指示牌 墙面', palette('sign-wall'), 1, '1.9×0×0.4'],
   // The wall pieces (§5.7). A 玻璃板 is the outer frame and one pane whatever its
   // size — five meshes for a 1 × 1 band and for a 3 × 2 window alike, which is what
   // "no inner frame" means as a number. A 站名 is its single ink plane, cut to the

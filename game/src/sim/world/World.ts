@@ -47,7 +47,7 @@ import {
   DEFAULT_DEMAND_INPUT,
   demandAt,
   hourOfDay,
-  normalizeDemand,
+  normalizeDayDemand,
   type DemandInput,
 } from '../demand.ts'
 import { Rng } from '../rng.ts'
@@ -273,23 +273,24 @@ export class World {
 
   /**
    * The station's authored day (§9.6C 时刻): its operating hours, its two peak windows and
-   * the demand curve's knobs, normalized once per `rebuild()` so the tick loop only ever
-   * reads plain numbers. Document data read there rather than cached at construction, so
-   * an edit that reaches `this.data` takes effect with no second copy to keep in step.
+   * the demand curves' knobs (one set for 工作日, one for 非工作日), normalized once per
+   * `rebuild()` so the tick loop only ever reads plain numbers. Document data read there
+   * rather than cached at construction, so an edit that reaches `this.data` takes effect
+   * with no second copy to keep in step.
    */
   private day: DemandInput = DEFAULT_DEMAND_INPUT
   /**
-   * The station's calendar (§9.6C 日期类型): which date day 0 is, and which dates are 节假日 or
-   * 调休上班日. Normalized here like the rest of the authored day, so `dayAt` is only ever asked
+   * The station's calendar (§9.6C 日期类型): which date day 0 is, and which dates are
+   * holidays. Normalized here like the rest of the authored day, so `dayAt` is only ever asked
    * about a calendar the day can hold — a pick in the 时刻 window's calendar included.
    */
   private calendar: SimCalendar = DEFAULT_CALENDAR
   /**
-   * The current day's type — §7.4's `calendar(dayOfYear)` multiplier. Refreshed when the
+   * The current day's kind — §7.4's `calendar(dayOfYear)`. Refreshed when the
    * calendar day rolls over: `dayAt` per tick would compute a civil date 64 times a second
    * for an answer that changes once a day.
    */
-  private dayTypeCache: { index: number; type: DayType } = { index: Number.NaN, type: 'weekday' }
+  private dayTypeCache: { index: number; type: DayType } = { index: Number.NaN, type: 'workday' }
 
   /**
    * Move the clock to `seconds` — the 时刻 window's calendar pick, and §7.9's scrub (§7.9 "drag the
@@ -303,7 +304,7 @@ export class World {
   seek(seconds: number): void {
     this.simTime = seconds
     this.metrics.simTime = seconds
-    this.metrics.period = periodOf(seconds, this.day.service, this.day.peaks)
+    this.metrics.period = periodOf(seconds, this.day.service, this.day.peaks, dayAt(seconds, this.calendar).dayType === 'workday')
     this.dayTypeCache.index = Number.NaN
     this.nextDispatch.clear()
   }
@@ -315,7 +316,7 @@ export class World {
     this.day = {
       service: normalizeService(this.data.service),
       peaks: normalizePeaks(this.data.peaks),
-      knobs: normalizeDemand(this.data.demand),
+      ...normalizeDayDemand(this.data.demand),
     }
     this.calendar = normalizeCalendar(this.data.calendar)
     this.dayTypeCache.index = Number.NaN
@@ -464,7 +465,8 @@ export class World {
     const t0 = performanceNowMs()
     this.tick++
     this.simTime += SIM_DT
-    const period = periodOf(this.simTime, this.day.service, this.day.peaks)
+    const workday = this.dayType() === 'workday'
+    const period = periodOf(this.simTime, this.day.service, this.day.peaks, workday)
 
     this.dispatchTrains(period)
     this.spawnStreet(period)
@@ -514,13 +516,15 @@ export class World {
   /* ------------------------------------------------------------ spawning */
 
   /**
-   * The demand multiplier at this instant: `sim/demand.ts`'s curve — the same samples the
-   * 时刻 window plots — scaled by the period the timetable is in and by the day type's
-   * calendar coefficient (§7.4). The period is handed in because `tickOnce` has already
+   * The demand multiplier at this instant: `sim/demand.ts`'s curve for the day the
+   * calendar is on — the same samples the 时刻 window plots — scaled by the period
+   * the timetable is in. The period is handed in because `tickOnce` has already
    * asked for it: asking twice is two chances to answer differently.
    */
   private curve(period: Period): number {
-    return demandAt(hourOfDay(this.simTime), period, this.dayType(), this.day.knobs)
+    const workday = this.dayType() === 'workday'
+    const knobs = workday ? this.day.workday : this.day.offday
+    return demandAt(hourOfDay(this.simTime), period, knobs)
   }
 
   /** The day type the calendar is on, refreshed when the simulated day rolls over. */
@@ -625,7 +629,7 @@ export class World {
           lineId: line.id, trackId, direction: track?.cfg.dir ?? line.direction,
           x: anchor.x, y: anchor.y, z: anchor.z, fx: anchor.fx, fy: anchor.fy,
           halfLength: track ? track.w / 2 : 0,
-          arrivals: serviceArrivals(this.simTime, this.nextDispatch.get(key) ?? this.simTime, active, line, this.day.service, this.day.peaks),
+          arrivals: serviceArrivals(this.simTime, this.nextDispatch.get(key) ?? this.simTime, active, line, this.day.service, this.day.peaks, this.dayType() === 'workday'),
         })
       }
     }

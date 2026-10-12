@@ -5,7 +5,7 @@ import type { ShelfVariant } from './shelves.ts'
 import type { StockClass } from './stock.ts'
 import type { SignLayout, SignMount } from './sign.ts'
 import type { PeakWindows, TimeSpan } from './constants.ts'
-import type { DemandKnobs } from './demand.ts'
+import type { DayDemand, DemandKnobs } from './demand.ts'
 import type { SimCalendar } from './clock.ts'
 
 export type Fill = 'solid' | 'void'
@@ -796,15 +796,17 @@ export interface StationData {
   /** The two **peak windows** (§9.6C 高峰时段): 早高峰 then 晚高峰. Same rule as `service`. */
   peaks?: PeakWindows
   /**
-   * The **客流曲线** knobs (§9.6C: 早高峰量 / 晚高峰量 / 波形陡峭度). Partial on the wire so a
-   * file that carries one of them still loads; finished by `normalizeDemand`.
+   * The **客流曲线** knobs (§9.6C: 早高峰量 / 晚高峰量 / 波形陡峭度), one set for 工作日
+   * and one for 非工作日. Partial on the wire — a file that carries a single flat set
+   * of knobs (from before the split) still loads, as the 工作日 curve — finished by
+   * `normalizeDayDemand`.
    */
-  demand?: Partial<DemandKnobs>
+  demand?: Partial<DayDemand> & Partial<DemandKnobs>
   /**
-   * The station's **calendar** (§9.6C 日期类型 / 日历系数): which date day 0 is, and which dates
-   * are 节假日 and 调休上班日. The day type the crowd's multiplier keys on is *derived* from it,
-   * so a station run on a Saturday runs a Saturday. Optional on the wire like the rest of the
-   * authored day; `toState` gives a file without one the shipped 2026 calendar.
+   * The station's **calendar** (§9.6C 日期类型): which date day 0 is, and which dates
+   * are holidays. The 工作日/非工作日 the crowd keys on is *derived* from it, so a
+   * station run on a Saturday runs a Saturday. Optional on the wire like the rest of
+   * the authored day; `toState` gives a file without one the shipped 2026 calendar.
    */
   calendar?: SimCalendar
 }

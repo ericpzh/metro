@@ -5,7 +5,8 @@
 import type { Cell, Module, StationData } from '../../sim/types.ts';
 import { normalizeLevelBase, type PeakWindows, type TimeSpan } from '../../sim/constants.ts';
 import { normalizeCalendar, normalizePeaks, normalizeService, type SimCalendar } from '../../sim/clock.ts';
-import { normalizeDemand, type DemandKnobs } from '../../sim/demand.ts';
+import { normalizeDayDemand, type DayDemand } from '../../sim/demand.ts';
+import { repairLineRunning } from '../../sim/headway.ts';
 import { cloneCell } from './Cells.ts';
 import { assignAdPosters, ensureSignLayouts } from './Equipment.ts';
 import { ensureRoomFurniture } from './Facilities.ts';
@@ -22,14 +23,14 @@ export interface StationState {
   lines: StationData['lines'];
   /**
    * The station's authored day (§9.6C 时刻): its operating hours, its two peak windows and
-   * its demand curve's knobs. Always present here, where a save or a demo file that
-   * predates them is given the defaults rather than carrying an absence through every
-   * readout and every spawn that wants them.
+   * its two demand curves' knobs (工作日 and 非工作日). Always present here, where a save
+   * or a demo file that predates them is given the defaults rather than carrying an
+   * absence through every readout and every spawn that wants them.
    */
   service: TimeSpan;
   peaks: PeakWindows;
-  demand: DemandKnobs;
-  /** The station's calendar (§9.6C 日期类型): day 0's date and the 节假日 / 调休上班日 lists. */
+  demand: DayDemand;
+  /** The station's calendar (§9.6C 日期类型): day 0's date and the holiday list. */
   calendar: SimCalendar;
 }
 
@@ -68,14 +69,16 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
     modules: ensureSignLayouts(assignAdPosters(repaired.modules), data).map((m) => ({ ...m })),
     // Older saves predate the per-line direction termini; default them to ''
     // so the screen header falls back to the direction word instead of undefined.
-    lines: data.lines.map((l) => ({ ...l, upTerminus: l.upTerminus ?? '', downTerminus: l.downTerminus ?? '' })),
+    // A pre-chip save may also hold any integer consist or an out-of-range
+    // headway, so snap both here where every load path passes.
+    lines: data.lines.map((l) => repairLineRunning({ ...l, upTerminus: l.upTerminus ?? '', downTerminus: l.downTerminus ?? '' })),
     // Same for the authored day (§9.6C): a file that never carried one opens on the
     // defaults, and one that carries a window the day cannot hold (an inverted pair, a
     // stray second, a knob past its slider) is bent into range here, where every load
     // path passes.
     service: normalizeService(data.service),
     peaks: normalizePeaks(data.peaks),
-    demand: normalizeDemand(data.demand),
+    demand: normalizeDayDemand(data.demand),
     // The calendar is repaired the same way: an epoch that is not a date falls back to the
     // shipped 2026-01-01, and a key that is not `YYYY-MM-DD` is dropped from its list.
     calendar: normalizeCalendar(data.calendar),
@@ -125,7 +128,7 @@ export function cloneState(s: StationState): StationState {
     lines: s.lines.map((l) => deepCopy(l)),
     service: { ...s.service },
     peaks: [{ ...s.peaks[0] }, { ...s.peaks[1] }],
-    demand: { ...s.demand },
-    calendar: { epoch: { ...s.calendar.epoch }, holidays: [...s.calendar.holidays], workdays: [...s.calendar.workdays] },
+    demand: { workday: { ...s.demand.workday }, offday: { ...s.demand.offday } },
+    calendar: { epoch: { ...s.calendar.epoch }, holidays: [...s.calendar.holidays] },
   };
 }

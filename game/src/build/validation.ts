@@ -23,7 +23,7 @@ import { msg } from '../sim/i18n.ts'
 //
 // Pure data — no three, no DOM, no store.
 
-import { blockReason, blockerLabels, equipmentReason, equipmentRefusalNotice, placementColliders } from '../sim/placement.ts'
+import { blockReason, blockedCellsByLevel, blockerLabels, equipmentReason, equipmentRefusalNotice, placementColliders } from '../sim/placement.ts'
 import type { BlockRefusal, EquipmentRefusal } from '../sim/placement.ts'
 import { virtualSolidAt } from '../sim/ground.ts'
 import type { Cell, Module } from '../sim/types.ts'
@@ -94,6 +94,7 @@ export function checkBlockCells(station: PlacementDoc, cells: Array<[number, num
   const out = newPreview()
   const seen = new Set<string>()
   const held = new Set<string>()
+  const occupied = blockedCellsByLevel(station.modules)
   for (const c of station.cells) if (c.fill === 'solid') held.add(`${c.x},${c.y},${c.z}`)
   for (const [x, y, z] of cells) {
     const k = `${x},${y},${z}`
@@ -102,7 +103,7 @@ export function checkBlockCells(station: PlacementDoc, cells: Array<[number, num
     // The street is already floor: like any held cell it is neither accepted
     // nor refused, so a drag across virgin ground draws no red boxes.
     if (held.has(k) || virtualSolidAt(station.cells, station.modules, x, y, z)) continue
-    const check = blockReason(station.cells, station.modules, x, y, z)
+    const check = blockReason(station.cells, station.modules, x, y, z, occupied)
     addPreview(out, k, check.ok, check.reason, [x, y, z], check.blockers)
   }
   return out

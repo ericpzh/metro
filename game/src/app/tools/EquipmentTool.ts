@@ -12,6 +12,7 @@ import {
   fenceRotForLine,
   nextExitName,
   nextModuleId,
+  randomAdSlug,
   removeModule,
 } from '../../build/model.ts'
 import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockNotice, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
@@ -468,6 +469,11 @@ export class EquipmentTool extends ToolController {
     }
     if (mod?.type === 'lift') mod.cfg.style = st.liftStyle
     if (mod?.type === 'light') mod.cfg.position = st.lightPosition
+    // The ghost and the eventual commit share this prospective id. Ads freeze their
+    // campaign from that id when placed, so carry the same poster in the preview.
+    if (mod?.type === 'billboard' && mod.cfg.poster === undefined) {
+      mod.cfg.poster = randomAdSlug(mod)
+    }
     if (mod?.type === 'floor-mark') {
       if (mod.cfg.variant === 'direction') mod.cfg.line = st.station.lines.find((l) => l.id === st.railLineId)?.id || st.station.lines.find((l) => l.id === '5')?.id || st.station.lines[0]?.id || '5'
       mod = snapBoardingMark(mod, st.station.modules, st.station.lines)
@@ -597,6 +603,9 @@ export class EquipmentTool extends ToolController {
     )
     if (!draft) return { mod: null, noWall: true }
     if (groundExit && hitBlock && draft.type === 'exit') draft.cfg.mountZ = cell[2]
+    if (draft.type === 'billboard' && draft.cfg.poster === undefined) {
+      draft.cfg.poster = randomAdSlug(draft)
+    }
     // A wall 指示牌 whose board is open in the editor draws the board being arranged.
     const printed = signModuleWithPreview(draft, st.signPreview)
     const snapped = printed.type === 'sign' && near
@@ -676,7 +685,12 @@ export class EquipmentTool extends ToolController {
     // The panel lives **on the wall**: the ghost is the panel itself, so no floor
     // cell is highlighted with it.
     if (isWallMountedType(st.moduleType)) {
-      const { mod: billboard, noWall } = this.wallMountPlacement(h.cell, h.place, 'preview', h.point)
+      const { mod: billboard, noWall } = this.wallMountPlacement(
+        h.cell,
+        h.place,
+        nextModuleId(st.station.modules, st.moduleType),
+        h.point,
+      )
       const check = billboard ? checkModulePlacements(st.station, [{ id: billboard.id, module: billboard }]) : null
       // No wall at all is a refusal of its own: a panel has nowhere to bolt.
       const blocked = noWall || check === null || check.refused.size > 0
@@ -716,7 +730,7 @@ export class EquipmentTool extends ToolController {
         if (lift) mods = [lift]
       }
     } else if (placeable) {
-      mods = this.buildPlacementModules(st.moduleType, h.cell, 'preview')
+      mods = this.buildPlacementModules(st.moduleType, h.cell, nextModuleId(st.station.modules, st.moduleType))
     }
     // **One verdict, one display.** The rules are `build/validation.ts`'s (the same
     // ones the release asks), so a piece is refused here for exactly the reason it
