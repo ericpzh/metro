@@ -19,7 +19,7 @@ import type { Module } from '../../../sim/types.ts'
  * The artwork is the module's own `cfg.poster`, frozen at placement — the panel
  * prints one real poster and never changes, so a row of billboards is a row of
  * different campaigns rather than a wall of flicker. `ctx.ads.adFace` crops
- * the image to the panel instead of stretching it, and `userData.adPoster` names
+ * the image to fill the panel, and `userData.adPoster` names
  * the slug the face shows (what the picker and the tests read).
  */
 function buildBillboard(ctx: ModuleContext, mod: Extract<Module, { type: 'billboard' }>): THREE.Group {
@@ -35,8 +35,7 @@ function buildBillboard(ctx: ModuleContext, mod: Extract<Module, { type: 'billbo
   // Housing flat against the wall, with a steel edge frame around it.
   slab(g, ctx.mats.darkSteel, 0, -0.42, pz, pw + 0.08, 0.16, ph + 0.2)
   slab(g, ctx.mats.steel, 0, -0.34, pz, pw + 0.12, 0.04, ph + 0.24)
-  // The lit advertisement, facing into the room. Its geometry carries the UV
-  // window that crops the poster to this panel (`ctx.ads.adFace`).
+  // The artwork fills the panel with a centred crop, without stretching.
   const face = ctx.ads.adFace(poster.slug, pw, ph)
   const ad = plateOf(g, face.geometry, face.material, 0, -0.315, pz, Math.PI)
   ad.renderOrder = 1

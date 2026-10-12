@@ -57,6 +57,8 @@ export class TrainSystem extends SceneSystem {
   psdGroups: Array<{ group: THREE.Object3D; x: number; y: number; z: number; half: number; fx: number; fy: number }> = []
   /** Level slicing for newly arrived consists; wired by the orchestrator. */
   level!: LevelSystem
+  /** False while the sim is paused: doors hold their pose like the crowd. */
+  private playing = true
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -173,12 +175,21 @@ export class TrainSystem extends SceneSystem {
   /** Place every visible consist between its last two worker poses, and ease doors. */
   updateTrains(now: number, dt: number): void {
     const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
+    // Consists still glide to their latest snapshot while paused (the
+    // interpolation settles and holds, like the station clocks); only the
+    // door leaves freeze, holding whatever pose they had.
+    const doorDt = this.playing ? dt : 0
     for (const entry of this.trainSlots.values()) {
       if (!entry.group.visible) continue
       entry.group.position.lerpVectors(entry.from, entry.to, alpha)
-      this.advanceTrainDoors(entry.group, dt)
+      this.advanceTrainDoors(entry.group, doorDt)
     }
-    for (const psd of this.psdGroups) this.advanceDoors(psd.group, dt)
+    for (const psd of this.psdGroups) this.advanceDoors(psd.group, doorDt)
+  }
+
+  /** Freeze door leaves while paused; resume easing on play. */
+  setPlaying(on: boolean): void {
+    this.playing = on
   }
 
   /**

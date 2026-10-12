@@ -32,20 +32,15 @@ import {
 } from './iso.mjs'
 import { STOCK, doorCentres } from '../game/src/sim/stock.ts'
 import { carImage, trainCard } from './train-cards.mjs'
+import { passengerImage, walkingPlanSprite } from './passenger-cards.mjs'
 import { FINISH_LIST } from '../game/src/sim/finishes.ts'
 import { loadStationElevations, stationElevation } from './station-elevations.mjs'
 
 const car = trainCard
 const CONCRETE = '#' + FINISH_LIST.find(f => f.id === 'floor.concrete').tint.toString(16).padStart(6, '0');
-const planPerson = (x, y, col) => `<g transform="translate(${n(x)},${n(y)})">`
-  + '<ellipse cx="1" cy="2" rx="8" ry="6" fill="#23313c" opacity=".18"/>'
-  + `<rect x="-8" y="-4" width="16" height="8" rx="4" fill="${col}"/>`
-  + '<circle cx="0" cy="0" r="4.4" fill="#26303b" stroke="#c58e65" stroke-width="1.5"/></g>';
-const elevationPerson = (x, y, col) => `<g transform="translate(${n(x)},${n(y)})">`
-  + '<ellipse cx="0" cy="0" rx="6" ry="2" fill="#23313c" opacity=".2"/>'
-  + `<rect x="-5" y="-29" width="10" height="29" rx="4" fill="${col}"/>`
-  + '<circle cx="0" cy="-34" r="5.5" fill="#c58e65"/>'
-  + '<path d="M-5.5,-35 A5.5,5.5 0 0 1 5.5,-35" fill="#26303b"/></g>';
+const planPerson = (x, y, identity, walking = false, heading) =>
+  passengerImage('plan', x, y, 31, identity, walking, 1, heading);
+const elevationPerson = (x, y, col, scale) => passengerImage('elevation', x, y, scale, Math.round(x + col.length));
 
 /* ------------------------------------------------------------ flat helpers */
 const rect = (x, y, w, h, fill, o = {}) =>
@@ -60,8 +55,6 @@ const panelBox = (g, x, y, w, h, t, sub) => {
   if (sub) g.push(T(x + 22, y + 54, sub, { size: 12.5, fill: '#8fa0b3' }));
 };
 const AG = [C.red, C.blue, C.green, C.purple, C.pink, C.teal, C.orange, '#d7dde5', '#3f4a58'];
-const upChevron = (x, y, col = '#5d6d80') =>
-  `<path d="M${n(x - 9)},${n(y + 8)} L${n(x)},${n(y - 7)} L${n(x + 9)},${n(y + 8)}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
 
 /* --------------------------------------------------------------- animation */
 const DUR = '20s';                       // one full enter / dwell / leave cycle
@@ -95,7 +88,6 @@ export function artPlatformFlow() {
 
   g.push(`<defs>
     <pattern id="platform-concrete-grain" width="64" height="64" patternUnits="userSpaceOnUse">${grainSvg}</pattern>
-    <g id="platform-plan-person">${planPerson(0, 0, 'currentColor')}</g>
     <marker id="arwPF" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9fb3c8"/></marker>
     <marker id="arwY" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${C.yellow}"/></marker>
   </defs>`);
@@ -110,8 +102,7 @@ export function artPlatformFlow() {
   const PLATLEN = 46;
   const platW = PLATLEN * s;
   const MX = (m) => PX0 + m * s;
-  const Y_BAND0 = 214, Y_BAND1 = 250;
-  const Y_PTOP = 262, Y_PEDGE = 450;
+  const Y_PTOP = 214, Y_PEDGE = 450;
   /** The track centreline: both rails straddle it, and so does the consist. */
   const Y_TRACK = 515;
   const BED_W = 3;                                 // the game's own bed: RAIL_BED_DEPTH
@@ -136,11 +127,6 @@ export function artPlatformFlow() {
   g.push(rect(PX0, Y_PEDGE - 26, platW, 12, C.maroon, { opacity: 0.9 }));
   g.push(rect(PX0, Y_PEDGE - 14, platW, 7, C.tactile, { opacity: 0.95 }));
 
-  /* concourse / vertical circulation band across the top */
-  g.push(rect(PX0, Y_BAND0, platW, Y_BAND1 - Y_BAND0, '#161e2b', { rx: 6, stroke: '#243040' }));
-  for (let cvx = PX0 + 60; cvx < PX0 + platW - 26; cvx += 66) g.push(upChevron(cvx, (Y_BAND0 + Y_BAND1) / 2));
-  g.push(T(PX0 + 14, Y_BAND0 + 26, '↑ 通往站厅   扶梯 + 楼梯 + 电梯   （出站走这边）', { size: 12.5, fill: C.yellow, weight: 700 }));
-
   /* track bed, then the game's own track on it: one module as long as the train, its two
      rails 1.44 m apart and its sleepers — the thing the consist actually stands on. */
   g.push(rect(PX0, Y_TRACK - (BED_W * s) / 2, platW, BED_W * s, '#232a33', { rx: 3 }));
@@ -156,7 +142,7 @@ export function artPlatformFlow() {
 
   /* door alignment guides: car door -> PSD opening -> alight path. Drawn over the
      train, because a door is under the roof in plan — a concealed element, dashed. */
-  for (const dx of doorsPx) g.push(ln(dx, Y_BAND1 + 6, dx, Y_TRK1 - 6, C.yellow, 1, '4 5'));
+  for (const dx of doorsPx) g.push(ln(dx, Y_PTOP + 38, dx, Y_TRK1 - 6, C.yellow, 1, '4 5'));
   // The doorway itself, marked where the roof hides it.
   for (const dx of doorsPx) g.push(rect(dx - HALF, Y_TRACK - 46, DOORW, 92, C.yellow, { opacity: 0.1 }));
 
@@ -176,7 +162,9 @@ export function artPlatformFlow() {
       for (let k = 0; k < 5; k++) {
         const sy = laneHead - 4 - k * 25;
         g.push(ln(lx - laneW / 2 + 2, sy, lx + laneW / 2 - 2, sy, '#ffffff', 1, '2 3'));
-        g.push(planPerson(lx, sy + 8, AG[(i * 3 + k + (sgn > 0 ? 1 : 0)) % AG.length]));
+        const identity = i * 10 + k + (sgn > 0 ? 5 : 0);
+        g.push(`<g data-role="queue">${planPerson(lx, sy + 8, identity, false,
+          (identity * 3 % 8) * Math.PI / 4)}</g>`);
       }
       g.push(arrowLine(lx, laneTop + 2, lx, laneHead - 46, '#2f7ef2', 1.6));
     }
@@ -206,17 +194,26 @@ export function artPlatformFlow() {
      Every walker runs on the **train's** clock and only inside the doors-open window,
      so the crowd arrives with the train and is gone before it pulls out. */
   const movers = [];
-  const walk = { dur: DUR, win: [CROWD0, CROWD1], sprite: 'platform-plan-person' };
+  const walk = { dur: DUR, win: [CROWD0, CROWD1] };
+  const walkingSeconds = parseFloat(DUR) * (CROWD1 - CROWD0);
   doorsPx.forEach((dx, i) => {
     const b = (i * 0.14).toFixed(2);
     for (const sgn of [-1, 1]) {
       const lx = dx + sgn * laneOff;
       const path = `M ${n(lx)} ${n(laneHead - 6)} L ${n(dx + sgn * 15)} ${n(Y_PEDGE + 4)} L ${n(dx + sgn * 6)} ${n(Y_TRACK + 6)}`;
-      movers.push(mover(path, AG[(i * 3 + (sgn > 0 ? 1 : 0)) % AG.length], `${b}s`, walk));
+      const sprite = `platform-board-${i}-${sgn > 0 ? 'right' : 'left'}`;
+      const distance = Math.hypot(dx + sgn * 15 - lx, Y_PEDGE + 4 - (laneHead - 6))
+        + Math.hypot(9, Y_TRACK + 6 - (Y_PEDGE + 4));
+      g.push(`<defs>${walkingPlanSprite(sprite, i * 2 + (sgn > 0 ? 1 : 0), -Math.PI / 2, distance / s / walkingSeconds)}</defs>`);
+      movers.push(mover(path, AG[(i * 3 + (sgn > 0 ? 1 : 0)) % AG.length], `${b}s`, { ...walk, sprite }));
     }
     const aPath = `M ${n(dx)} ${n(Y_TRACK + 8)} L ${n(dx)} ${n(Y_PEDGE + 6)} L ${n(dx)} ${n(laneTop - 6)}`;
-    movers.push(mover(aPath, AG[(i * 2 + 4) % AG.length], `${(i * 0.12).toFixed(2)}s`, walk));
-    movers.push(mover(aPath, AG[(i * 2 + 6) % AG.length], `${(0.3 + i * 0.12).toFixed(2)}s`, walk));
+    for (let k = 0; k < 2; k++) {
+      const sprite = `platform-alight-${i}-${k}`;
+      g.push(`<defs>${walkingPlanSprite(sprite, i * 2 + k + 24, Math.PI / 2,
+        (Y_TRACK + 8 - (laneTop - 6)) / s / walkingSeconds)}</defs>`);
+      movers.push(mover(aPath, AG[(i * 2 + 4 + k * 2) % AG.length], `${(k * .3 + i * .12).toFixed(2)}s`, { ...walk, sprite }));
+    }
   });
   g.push(...movers);
 
@@ -239,14 +236,15 @@ export function artPlatformFlow() {
   const platformY = railY - .5 * sB;
   g.push(rect(BX + 22, BY + 76, BW - 44, 132, CONCRETE));
   g.push(rect(BX + 22, BY + 76, BW - 44, 132, 'url(#platform-concrete-grain)'));
+  // The foreground platform hides the undercarriage below the door-sill datum.
+  g.push(sideImg.svg);
   g.push(rect(BX + 22, platformY, BW - 44, 32, '#cfd3d8'));
   g.push(rect(BX + 22, platformY, BW - 44, 4, C.tactile));
-  g.push(sideImg.svg);
   const psdPiece = pieces.get('platform-edge');
   g.push(stationElevation(pieces, 'platform-edge', cx - psdPiece.metres * sB / 2, platformY, sB));
   for (const [id, x] of [['bin', BX + 77], ['bench-steel-1', BX + 212], ['extinguisher', BX + 658]])
     g.push(stationElevation(pieces, id, x, platformY + 29, sB));
-  for (let i = 0; i < 9; i++) g.push(elevationPerson(BX + 52 + i * 71, platformY + 29, AG[i]));
+  for (let i = 0; i < 9; i++) g.push(elevationPerson(BX + 52 + i * 71, platformY + 29, AG[i], sB));
   g.push(T(sideImg.x, 937, '车门与站台门对齐，乘客在此上下车。', { size: 12, fill: C.yellow, weight: 700 }));
 
   /* =========================================== C. auto-wayfinding / routing */
@@ -272,7 +270,7 @@ export function artPlatformFlow() {
     g.push(rect(p.x, p.y, bw, 4, nodes[i][2], { rx: 2 }));
     g.push(T(p.x + 12, p.y + 24, nodes[i][0], { size: 12.5, fill: nodes[i][2], weight: 800, ls: 0.4 }));
     g.push(T(p.x + 12, p.y + 42, nodes[i][3], { size: 9.6, fill: '#8fa0b3' }));
-    const iconId = { 0: 'platform-edge', 3: 'escalator', 5: 'gate', 6: 'exit-covered-1' }[i];
+    const iconId = { 0: 'platform-edge', 3: 'escalator', 5: 'gate-single', 6: 'exit-covered-1' }[i];
     if (iconId) {
       const piece = pieces.get(iconId);
       const iconScale = Math.min(34 / piece.metres, 25 / piece.verticalMetres);

@@ -3,7 +3,7 @@
 // Edit PIECES and PLAN independently; equipment is never drawn as substitute boxes.
 import { readFileSync } from 'node:fs';
 import { C, PCOL, TW, TH, ZU, P, n, Scene, boxSvg, quadSvg, faceSvg,
-  title, sheet, T, rng, bboxOf, fitToRect, callout, amT, group } from './iso.mjs';
+  title, sheet, T, rng, bboxOf, fitToRect, callout, amT, group, mover } from './iso.mjs';
 import { trainCard } from './train-cards.mjs';
 import { isoTrack } from './train-iso.mjs';
 import { FINISH_LIST } from '../game/src/sim/finishes.ts';
@@ -106,15 +106,14 @@ export function artHeroBanded() {
     for (let i = 0; i < count; i++) {
       const x = rect[0] + rr() * rect[2], y = rect[1] + rr() * rect[3];
       if (!clear(x, y)) continue;
-      S.sprite(x, y, z, i % 7 === 0 ? 'personBag' : 'person', {
-        color: PCOL[i % PCOL.length], k: L[layer] + (x + y) * .2 });
-      // Small staggered translations stay within the passenger's clear floor
-      // patch. Animate a parent, retaining the sprite's own world placement.
       if (i % 3 === 0) {
-        const entry = S.fg.at(-1);
-        entry[1] = group(`<g data-motion="passenger">${entry[1]}</g>`,
-          amT(`0 0;${n(TW * .2)} ${n(TH * .2)};0 0`, '', `${9 + i % 4}s`, undefined, `${-i * .4}s`));
-      }
+        const direction = x < rect[0] + rect[2] / 2 ? 1 : -1;
+        const p0 = P(x, y, z), p1 = P(x + direction * .8, y, z);
+        S.fg.push([L[layer] + (x + y) * .2,
+          mover(`M ${p0.map(n).join(' ')} L ${p1.map(n).join(' ')}`, PCOL[i % PCOL.length], `${-i * .4}s`,
+            { sprite: 'person', identity: i, dur: '2s', win: [.2, .8] })]);
+      } else S.sprite(x, y, z, i % 7 === 0 ? 'personBag' : 'person', {
+        color: PCOL[i % PCOL.length], k: L[layer] + (x + y) * .2 });
     }
   };
   crowd('crowdFront', 28, [5.5, 17.2, 20, 3.2], 1.03);

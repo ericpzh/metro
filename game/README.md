@@ -17,6 +17,22 @@ npm run test       # node --test: determinism, tick budgets, capacity ladder
 
 ## Where things live
 
+Stairs and escalators carry passengers single-file on narrow runs and in two
+spaced columns on wide runs. Wide escalators serve twice the narrow rate.
+Boarding times within a tick keep successive escalator riders on separate steps;
+narrow stair flights let the current direction clear before admitting opposing
+traffic. `test/ramp-passengers.test.mjs` pins spacing, rotated/reversed escalators,
+wide throughput, opposing stair traffic, collision clearance, waypoint recovery,
+and queued detours around rails.
+Crowd shoves and walking also respect those ramp rails with swept body clearance,
+including landing ends, so pressure cannot push passengers through the glass or
+handrails. The same suite checks repeated crowd pressure, sliding, clear landing
+entry and unobstructed movement on storeys below a ramp.
+Ramp routes use the same body clearance as movement, including around landing
+rail ends. Crowd pushes preserve a clear approach to the next waypoint;
+displaced walkers and queued passengers can detour around a rail end without
+crossing it or losing their place in the queue.
+
 ```
 src/
   sim/       PURE TypeScript. No DOM, no worker, no three. Runs in Node.
@@ -612,7 +628,7 @@ module's own (`signModuleWithPreview`) and the undo stack is untouched (`preview
 `commitSignLayout`), so a drag per bin is not an edit. The hung sign still grows with its list, since
 `signPanelSize` measures the row it is given.
 
-**The ads are real posters.** The twelve supplied campaign JPEGs live in
+**The ads are real posters.** The 74 supplied campaign WebPs live in
 `game/src/assets/posters/` and are the artwork a 广告牌 or a 电视's content window plays;
 `sim/billboards.ts` carries the
 slug table (`AD_POSTERS`, `postersFor`, `posterFor`) and `render/adArt.ts` pairs a slug with its file.
@@ -664,13 +680,15 @@ would keep the marks off it for the session. `SceneRenderer` starts the decode b
 then), the rail's thumbnails await it, and the board editor's tiles redraw off the same promise
 (`usePictogramsReady`) — so no route into a board can print a plate of empty squares.
 
-**A poster is cropped, never stretched.** `render/panelUv.ts` computes the centred window of the image
-that matches the panel's aspect, and `render/adArt.ts` writes it into the quad's own UVs — so a 16:9
-campaign on a 2.25:1 lightbox loses its edges instead of smearing sideways, and one texture per poster
-serves every format that prints it. The pixels are decoded **before** any material is made: a material
-minted around a texture that has no image yet renders blank for good (the GPU upload happens once,
-empty, and the image that arrives later never reaches it), so `AdArt.load()` awaits every JPEG and
-`SceneRenderer` redraws the modules once they land — until then a screen prints a placeholder face.
+**A poster fills its panel, never stretched.** `tools/prep-posters.py` replaces the old
+catalogue from a supplied image folder (currently `C:/Users/ericp/Downloads/posters`), strips
+metadata and writes quality-76 WebP: square 384 × 384, portrait 288 × 512 and landscape 512 × 288.
+Images are resized with a centred crop to fill those canvases without baked black margins.
+The generated `sim/posterCatalogue.ts` records source filenames and allowed silhouettes.
+`render/panelUv.ts` then fills each ad/TV panel with a centred UV crop; one cached texture and
+material per poster serve all panel sizes. `AdArt.load()` awaits decoding and clears placeholder
+materials and geometry before the scene redraws.
+Regenerate with `python tools/prep-posters.py C:/Users/ericp/Downloads/posters` (Pillow required).
 座椅 is the same kind of nested sub-menu: two style tiles —
 a plain stainless bench with no back and an upholstered seat with a back and arm rests that chains
 into a row — from the shared `sim/benches.ts` table, with **Tab** cycling each tile between a 1 m
@@ -2051,6 +2069,10 @@ approximated); neither needs WebGL.
   无分区 brush, which is the same zone id armed instead of a colour: it drags like the brush it erases,
   takes a label off a zoned tile (which reads 无分区 again, with no record left behind), and says
   `这些格子上没有分区` — committing nothing — when the patch carries no label at all.
+* `ramp-passengers.test.mjs` — narrow/wide passenger columns and same-tick boarding; swept body
+  clearance under crowd pressure; routes that respect rail clearance; recovery around escalator ends
+  for walkers and queues without losing queue order; opposing traffic on narrow stairs; and actual
+  access across each turning-stair half-landing in every rotation.
 * `wayfinding.test.mjs` — how a crowd chooses (§7.2's path cost, §7.3's crowd, §7.4a's needs): the cost
   of a lift edge is a fact about the *passenger* (`liftPenalty` — nothing for a step-free passenger, the
   luggage figure for a suitcase, the full figure for a free walker) and the crowd charge is capped so a
@@ -2463,14 +2485,13 @@ approximated); neither needs WebGL.
   only, and the hit test picks what the player can see; a fresh board carries the station's own line and
   a legacy board is backfilled once; an unreadable layout (duplicate ids, forty components, a 99×
   scale) is repaired rather than trusted; and a palette block is a content group that stamps as a run.
-* `billboard.test.mjs` — the 广告牌 formats and their posters (§5.7): the catalogue and the JPEGs in
-  `src/assets/posters/` name the same twelve slugs; a panel is only ever offered artwork cut for its own
-  silhouette; every poster a format can roll is cropped by less than 1.45× and the window that does the
-  cropping keeps the image's own aspect (`panelUvWindow`), so nothing is ever stretched; the window is
-  the centred crop and the cropped quad's UV corners walk it in three's own order; an unknown slug falls
-  back to the catalogue head rather than to a blank face; and all six panels fit their run, the wall
-  band their collision envelope reserves (`panelZ` ± `panelH` / 2, so a poster never claims the floor
-  under it) and the 4 m storey.
+* `billboard.test.mjs` — the 广告牌 formats and posters (§5.7): reads real WebP headers to check
+  catalogue/file agreement and the three compact sizes; every panel has a matching silhouette;
+  cropped faces fill the panel bounds without stretching, including TV and panorama.
+  The shared crop helper's UV order remains pinned for its other users; unknown slugs fall back to
+  the catalogue head, and all six panels fit their run and reserved wall band.
+  The ad-face cache is pinned as source (`render/adArt.ts` needs Vite): one material per poster
+  shared across panel sizes, one cropped quad per panel, both cleared before the post-decode redraw.
 * `equipment-deletion.test.mjs` — equipment right-click teardown targets the ray-picked visible module
   before the grid cell underneath it, so a poster above a rail removes the poster; when no model is
   picked, the grid cell remains the fallback.
@@ -2517,6 +2538,13 @@ approximated); neither needs WebGL.
   character, so a rebuild reprints the same wall instead of twitching. The scene's own plate cache is
   driven too: a rename repaints every inscription **in place** (retained by module id), a different
   hand is a different texture, and a module the document no longer holds gives its plate back.
+* `capture-passengers.test.mjs` — the passenger concept-art capture (§9.5), pinned as source because it
+  needs WebGL: the `?capture-passengers` route exposes the capture once ready and the driver waits on
+  that flag; the capture photographs the live crowd mesh and pose atlas with alpha; every field the
+  sheet tools place by (foot origin, pixels-per-metre, view, variant, heading, stride) comes out of the
+  capture — `stride` is the model's own gait length, since the sheet divides it by path speed and a
+  missing value is a NaN animation that never runs; and the gait-cycle capture is plan-only walking
+  frames sweeping the whole baked walk cycle, which the sheet rotates to its path heading.
 * `line-map.test.mjs` — the 线网图 (§5.7): the two mounts are one table — a wall board (two cells,
   single-sided, on a wall on every course it crosses, with its frame's bottom 1.06 m up so a 座椅
   stands under it) and a free-standing totem (the **same two-cell board** on a plinth and a post,
@@ -2544,9 +2572,9 @@ approximated); neither needs WebGL.
   local −y face, so the back of the case reads as a blank panel, and the video overlays the
   full-screen plate proud of it — reaching the top, standing clear in front, the bottom footer
   still visible below, the station texture unscaled at repeat 1,1.
-  `render/adArt.ts` is stubbed here rather than imported: it resolves its JPEGs through Vite's
+  `render/adArt.ts` is stubbed here rather than imported: it resolves its WebPs through Vite's
   `import.meta.glob`, which plain Node has no implementation of, and nothing under test lives there.
-* `module-build.test.mjs` — enclosed stainless double bins, inward-facing hopper walls and recessed wells in all four rotations;
+* `module-build.test.mjs` — lift landing doors stay closed on empty floors and slide with the aligned car in both styles and all rotations; enclosed stainless double bins, inward-facing hopper walls and recessed wells in all four rotations;
   the 地面 X向 exit header fills its full canvas red and keeps fixed-size text as wider bays add spacing;
   full-height platform doors at 150% of car door width, closure across all stock classes and both
   platform sides, including vinyl that travels with each leaf; every piece the station can draw,
@@ -3131,7 +3159,9 @@ In English mode, station fields are labelled Primary name / Secondary name and s
 
 `passenger-view.test.mjs` pins the CC0 clothed human meshes, stable outfit/build/height/tone variation through buffer reordering, grounded animated arm/leg poses, travel-driven gait, idle/riding transitions, mid-stride pause/resume through duplicate and reordered snapshots, selection at the displayed head/legs, phase identity through crowd compaction, interpolated eye position, departure handling, click-held first-person mouse look after the initial heading, and restoration of the camera and display settings.
 
-Passengers use four authored Quaternius clothed models and neutral standing/walk poses (CC0): shirt, hoodie, suit and a casual women's outfit. Stable passenger identities choose an outfit, height, build and grey tone; all retain translucent paint shading. Arms swing, knees bend and feet step according to distance travelled; waiting passengers settle into a standing pose. The crowd shares one instanced draw. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
+`sim-pause.test.mjs` pins the rest of the pause: an escalator's step band holds its phase while paused and rolls on from it on resume, a 闸机 leaf never starts its cycle (the crossing stays queued), paused train and screen doors hold mid-travel while the consist itself still glides to its latest snapshot, and the orchestrator forwards pause to the crowd, the lifts and the trains.
+
+Passengers use four authored Quaternius clothed models and neutral standing/walk poses (CC0): shirt, hoodie, suit and a casual women's outfit. Each outfit has cropped, swept, bob, ponytail, twin-bun and curly hairstyles, baked onto its animated head. Stable passenger identities choose an outfit, hairstyle, height, build and grey tone; about one in eight is child-sized (1.0–1.4 m), with a proportionally narrower build, alongside adults of 1.47–1.94 m; all retain translucent paint shading. Arms swing, knees bend and feet step according to distance travelled; waiting passengers settle into a standing pose. The crowd shares one instanced draw. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
 
 The build palette, inspector and view cube each have an independent hide/show button with a short animation; their settings stay mounted while hidden. Reduced-motion preferences disable these transitions. Two-finger pinch on the viewport zooms both perspective and orthographic views. Single-finger taps select or place on release, so the first contact of a pinch cannot edit the station.
 

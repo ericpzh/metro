@@ -264,10 +264,18 @@ node tools/render-ui-shots.mjs           # -> .preview/ui-shots/        (needs C
 node tools/render-train-cards.mjs        # -> .preview/train-cards/     (needs Chrome; --trim-only needs neither)
 node tools/render-piece-elevations.mjs   # -> .preview/piece-elevations/ (needs Chrome)
 node tools/render-piece-views.mjs        # -> .preview/piece-views/     (needs Chrome)
+node tools/render-passenger-cards.mjs    # -> .preview/passenger-cards/ (clothed humans for 01, 02, 12, 13)
 node tools/gen-art.mjs                   # rewrites art/*.svg
 node tools/sheet-png.mjs 03              # rasterise one sheet, to look at it
 node tools/serve.mjs                     # a small local viewer for the sheets
 ```
+
+Sheets 01, 02, 12 and 13 use the game's clothed human mesh and pose atlas, captured
+in isometric, elevation and plan views. Refresh passenger cards after changing
+the human model; refresh UI and camera captures in both languages as well.
+Moving people cycle full strides facing their paths; queues remain standing.
+After regenerating these sheets, run `node tools/test-passenger-animation.mjs`
+to check visible frames and SVG image playback in all three camera views.
 
 Every sheet is drawn in the same **true isometric** projection — equal foreshortening on all three
 axes, which is what lets a rendered piece stand in a drawing undistorted — so they double as an

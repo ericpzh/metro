@@ -24,6 +24,7 @@ import {
   MAX_AGENTS,
   NEIGHBOUR_CELL,
   PERSONAL_SPACE,
+  RAMP_PASSENGER_COLUMN_SPACING,
   SIM_DAY,
   SIM_SECONDS_PER_TICK,
   TRAIN_APPROACH_S,
@@ -52,6 +53,7 @@ import {
 import { Rng } from '../rng.ts'
 import { gateLaneAllows } from '../gates.ts'
 import { GateTraffic } from '../gateTraffic.ts'
+import { rampMoveClear } from '../rampCollision.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
 import { liftDoorDir } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
@@ -398,6 +400,7 @@ export class World {
       a.fromNode = -1
       a.destNode = -1
       a.server = -1
+      a.rampApproach = undefined
       a.wait = 0
       a.patienceWait = 0
       a.state = STATE_ARRIVING
@@ -1249,6 +1252,11 @@ export class World {
       // correct at any step size.
       s.cooldown -= dt
       while (s.cooldown <= 0 && s.queue.length > 0) {
+        const traffic = s.ramp?.traffic
+        if (traffic && traffic.direction !== s.id && traffic.until > this.simTime) {
+          s.cooldown = 0
+          break
+        }
         const id = s.queue.shift() as number
         const a = this.pool.all().get(id)
         if (!a || a.dead) {
@@ -1524,6 +1532,7 @@ export class World {
     s.waitAccum += a.wait
     s.waitCount++
     a.server = -1
+    a.rampApproach = undefined
     a.wait = 0
     a.patienceWait = 0
     if (s.exitNode >= 0) {
@@ -1537,6 +1546,31 @@ export class World {
       a.rideToZ = g.nodeZ[s.exitNode]
       a.rideTotal = Math.max(0.2, s.ride)
       a.rideT = a.rideTotal
+      if (s.ramp) {
+        const dx = g.nodeX[s.exitNode] - g.nodeX[s.node]
+        const dy = g.nodeY[s.exitNode] - g.nodeY[s.node]
+        const length = Math.hypot(dx, dy)
+        const column = s.ramp.columns === 1 ? 0
+          : s.kind === 'stair' ? RAMP_PASSENGER_COLUMN_SPACING / 2
+          : ((s.ramp.next++ % 2) - 0.5) * RAMP_PASSENGER_COLUMN_SPACING
+        const ox = s.ramp.dx + (length > 0 ? dy / length * column : 0)
+        const oy = s.ramp.dy - (length > 0 ? dx / length * column : 0)
+        a.rideFromX = g.nodeX[s.node] + ox
+        a.rideFromY = g.nodeY[s.node] + oy
+        a.rideFromZ = g.nodeZ[s.node]
+        a.rideToX += ox
+        a.rideToY += oy
+        // stepRide advances a full tick after boarding. Preserve each service's
+        // time within that tick so single-file riders never stack (§5.1).
+        a.rideT += SIM_DT + s.cooldown
+        if (s.ramp.traffic) {
+          s.ramp.traffic.direction = s.id
+          s.ramp.traffic.until = this.simTime + a.rideTotal + s.cooldown
+        }
+        a.x = a.rideFromX
+        a.y = a.rideFromY
+        a.z = a.rideFromZ
+      }
     } else if (s.kind === 'door') {
       // Boarded: the passenger steps into the car and rides (§1.13), drawn in
       // the cabin until the consist leaves the world.
@@ -1553,6 +1587,7 @@ export class World {
   private joinServer(a: Agent, serverId: number): void {
     const s = this.graph.servers[serverId]
     a.wait = 0
+    a.rampApproach = undefined
     a.patienceWait = 0
     if (s.kind === 'gate') this.gateTraffic.join(a, s)
     a.server = serverId
@@ -1612,10 +1647,25 @@ export class World {
     const node = s.kind === 'gate' && a.gateWaitNode >= 0 ? a.gateWaitNode : s.node
     // A lift queue waits on the landing, just in front of the cabin doors, so
     // the crowd visibly walks in when the car opens.
-    const tx = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitX : g.nodeX[node]
-    const ty = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitY : g.nodeY[node]
+    let tx = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitX : g.nodeX[node]
+    let ty = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitY : g.nodeY[node]
+    let detouring = false
+    if (s.ramp && !rampMoveClear(g.rampWalls, a.x, a.y, tx, ty, Math.round(a.z) - 1)) {
+      if (!a.rampApproach || !rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[a.rampApproach[0]], g.nodeY[a.rampApproach[0]], Math.round(a.z) - 1)) {
+        a.rampApproach = this.recoverRampRoute(a, node) ?? undefined
+      }
+      if (!a.rampApproach) return
+      while (a.rampApproach.length > 1 && Math.hypot(g.nodeX[a.rampApproach[0]] - a.x, g.nodeY[a.rampApproach[0]] - a.y) < 0.05) {
+        a.rampApproach = a.rampApproach.subarray(1)
+      }
+      tx = g.nodeX[a.rampApproach[0]]
+      ty = g.nodeY[a.rampApproach[0]]
+      detouring = true
+    } else {
+      a.rampApproach = undefined
+    }
     const dist = Math.hypot(tx - a.x, ty - a.y)
-    const standoff = PERSONAL_SPACE * 0.3
+    const standoff = detouring ? 0 : PERSONAL_SPACE * 0.3
     if (dist > standoff) {
       const n = this.localDensity(a)
       const m2PerPax = n > 0 ? 12.57 / (n + 1) : 12.57
@@ -1686,18 +1736,27 @@ export class World {
         px = (px / pm) * SEPARATION_MAX
         py = (py / pm) * SEPARATION_MAX
       }
-      this.tryMove(a, ax + px, ay + py)
+      this.tryMove(a, ax + px, ay + py, true)
     }
   }
 
-  /** Move an agent, but never onto a cell that is not floor. */
-  private tryMove(a: Agent, nx: number, ny: number): void {
-    if (this.onFloor(nx, ny, a.z)) {
+  /** Crowd shoves stay on floor and cannot push a body through a ramp rail (§10.3). */
+  private tryMove(a: Agent, nx: number, ny: number, preserveApproach = false): void {
+    const g = this.graph
+    const floorZ = Math.round(a.z) - 1
+    const target = a.server >= 0 && (g.servers[a.server].kind === 'escalator' || g.servers[a.server].kind === 'stair')
+      ? g.servers[a.server].node : a.state === STATE_WALKING ? a.path[a.pathIdx] : undefined
+    const holdApproach = preserveApproach && target !== undefined &&
+      rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[target], g.nodeY[target], floorZ)
+    const clear = (x: number, y: number): boolean => this.onFloor(x, y, a.z) &&
+      rampMoveClear(g.rampWalls, a.x, a.y, x, y, floorZ) &&
+      (!holdApproach || rampMoveClear(g.rampWalls, x, y, g.nodeX[target!], g.nodeY[target!], floorZ))
+    if (clear(nx, ny)) {
       a.x = nx
       a.y = ny
-    } else if (this.onFloor(nx, a.y, a.z)) {
+    } else if (clear(nx, a.y)) {
       a.x = nx
-    } else if (this.onFloor(a.x, ny, a.z)) {
+    } else if (clear(a.x, ny)) {
       a.y = ny
     }
   }
@@ -1930,6 +1989,19 @@ export class World {
     const tx = g.nodeX[target]
     const ty = g.nodeY[target]
     const tz = g.nodeZ[target]
+    // Crowd displacement (or a station edit) can put a rail between a body and
+    // its next waypoint. Rejoin the graph on the reachable side (§7.2 / §10.3).
+    if (!rampMoveClear(g.rampWalls, a.x, a.y, tx, ty, Math.round(a.z) - 1)) {
+      const path = this.recoverRampRoute(a, a.destNode)
+      if (path) {
+        a.path = path
+        a.pathIdx = 0
+        a.fromNode = path[0]
+      }
+      a.vx = 0
+      a.vy = 0
+      return
+    }
     const dist = Math.hypot(tx - a.x, ty - a.y)
 
     // Density derate from the live neighbour count (§10.3). localDensity
@@ -1946,8 +2018,8 @@ export class World {
       const srv = this.graph.serverForNode.get(target)
       const gateNode = srv !== undefined && this.graph.servers[srv].kind === 'gate'
       if (!gateNode) {
-        a.x = tx
-        a.y = ty
+        this.tryMove(a, tx, ty)
+        if (Math.hypot(tx - a.x, ty - a.y) > 1e-6) return
         a.z = tz
       }
       a.vx = 0
@@ -1956,11 +2028,28 @@ export class World {
       return
     }
     const inv = budget / dist
-    a.x += (tx - a.x) * inv
-    a.y += (ty - a.y) * inv
+    this.tryMove(a, a.x + (tx - a.x) * inv, a.y + (ty - a.y) * inv)
     a.z += (tz - a.z) * inv
     a.vx = ((tx - a.x) / Math.max(dist, 1e-6)) * speed
     a.vy = ((ty - a.y) / Math.max(dist, 1e-6)) * speed
+  }
+
+  private recoverRampRoute(a: Agent, destination: number): Int32Array | null {
+    if (destination < 0 || this.rerouteReplans >= REROUTE_REPLAN_PER_TICK) return null
+    const g = this.graph
+    const cx = Math.floor(a.x), cy = Math.floor(a.y), cz = Math.round(a.z) - 1
+    let from = -1, best = Infinity
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const node = g.nodeIndex.get(cellKey(cx + dx, cy + dy, cz))
+      if (node === undefined) continue
+      const distance = Math.hypot(g.nodeX[node] - a.x, g.nodeY[node] - a.y)
+      if (distance >= best || !rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[node], g.nodeY[node], cz)) continue
+      best = distance
+      from = node
+    }
+    if (from < 0) return null
+    this.rerouteReplans++
+    return this.path.search(from, destination, a.needs)
   }
 
   /**

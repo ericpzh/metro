@@ -97,7 +97,9 @@ New-behaviour pins: `booth-sign` (booth-header snap, faces, bounds, save/move),
 `gate-traffic` (forecast reservations, directional drain, cleanup, wait
 accounting), `diagonal-walk` (√2 cost, 2×2 clearance, barrier awareness),
 `passenger-view` (instanced humans, gait, pause, picking, eye restore),
-`touch-zoom` (pinch direction, cancel, release suppression).
+`touch-zoom` (pinch direction, cancel, release suppression),
+`sim-pause` (escalator bands, gate leaves and train/screen doors hold while
+paused; consists settle; orchestrator forwarding).
 
 For the fitted 门 / 玻璃幕墙 joint, keep the snap arithmetic in the pure placement
 module and pin a rotated curtain, a door clamped inside its run, allowed fitted overlap,

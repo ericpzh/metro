@@ -1,9 +1,10 @@
 import { msg } from '../sim/i18n.ts'
 // The shipped demo station — 动物园 (Zoo), 广州地铁 5号线. Converted from the
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
-// 2026-10-10 05:27Z) by `tools/bake-demo-station.mjs`, which parses the envelope
+// 2026-10-12 00:11Z) by `tools/bake-demo-station.mjs`, which parses the envelope
 // with `persistence/save.ts` and writes the loader's own output, so the demo is
-// already the document the game builds when a player opens the file. It is a
+// already the document the game builds when a player opens the file: 12,075
+// cells and 727 modules. It is a
 // real five-level station: surface plaza, a concourse/mezzanine, and a stacked
 // two-level platform (up track at z = -16, down at z = -12) served by two lifts,
 // five stairs and fourteen escalators, with two ticket booths, a gated

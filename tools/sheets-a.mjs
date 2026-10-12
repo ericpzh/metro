@@ -72,14 +72,10 @@ const CONCRETE = '#' + FINISH_LIST.find(f => f.id === 'floor.concrete').tint.toS
 
 /** Front elevation figures share the sheet's metre scale with the photographed models. */
 function passenger(x, floor, color, phase = 0, bag = false) {
-  const body = `<g data-model="passenger" transform="translate(${n(x)},${n(floor)})">`
-    + '<ellipse cx="0" cy="0" rx="7" ry="2" fill="#23313c" opacity=".2"/>'
-    + `<rect x="-5" y="-30" width="10" height="30" rx="4" fill="${color}"/>`
-    + '<circle cx="0" cy="-35" r="5.5" fill="#c58e65"/>'
-    + '<path d="M-5.5,-36 A5.5,5.5 0 0 1 5.5,-36" fill="#26303b"/>'
-    + (bag ? '<rect x="5" y="-23" width="6" height="9" rx="2" fill="#efb735" stroke="#26303b"/>' : '')
-    + '</g>';
-  return group(body, amT('0 0;3 0;0 0', '', '10s', undefined, `${-phase}s`));
+  const identity = Math.round(x + phase * 7);
+  const direction = identity % 2 ? 1 : -1;
+  return mover(`M ${x} ${floor} L ${x + direction * 18} ${floor}`, color, `${-phase}s`,
+    { sprite: 'person', walkView: 'elevation', walkScale: S, identity, dur: '3s', win: [.2, .8] });
 }
 /** The game's datum — `sim/stock.ts`: the consist origin rides half a metre under the platform. */
 const ORIGIN_BELOW_PLATFORM = 0.5;

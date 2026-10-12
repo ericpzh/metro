@@ -62,6 +62,7 @@ const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCA
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
 const { TrainSystem } = await import('../src/render/scene/systems/TrainSystem.ts')
+const { LiftSystem } = await import('../src/render/scene/systems/LiftSystem.ts')
 const { exitHeaderCanvas } = await import('../src/render/models/pieces/ExitModel.ts')
 
 test('wide 地面 exit headers keep their text size and fill the full red background', () => {
@@ -116,7 +117,7 @@ const LINE = {
 
 /**
  * The ad-artwork surface a 广告牌 / 电视 prints through, cut down to a lit pane: the
- * real module resolves its JPEGs with Vite's `import.meta.glob`, which plain Node has
+ * real module resolves its WebPs with Vite's `import.meta.glob`, which plain Node has
  * no implementation of. Nothing under test lives there.
  */
 const adsStub = {
@@ -341,7 +342,7 @@ const PIECES = [
   ['广告牌 方形', palette('billboard-square'), 5, '0.92×0.185×1.18'],
   ['电视', palette('tv'), 12, '1.56×0.16×1.32'],
   ['指示牌 吊挂', palette('sign-ceiling'), 7, '2.1×0.16×0.85'],
-  ['指示牌 墙面', palette('sign-wall'), 3, '2.1×0.197×0.4'],
+  ['指示牌 墙面', palette('sign-wall'), 1, '2.1×0×0.4'],
   // The wall pieces (§5.7). A 玻璃板 is the outer frame and one pane whatever its
   // size — five meshes for a 1 × 1 band and for a 3 × 2 window alike, which is what
   // "no inner frame" means as a number. A 站名 is its single ink plane, cut to the
@@ -434,7 +435,7 @@ test('a piece the palette cannot lay draws nothing, and says so by returning nul
   assert.equal(buildModule({ id: 'x', type: 'wall', x: 0, y: 0, z: 0, rot: 0, cfg: {} }, ctx), null)
 })
 
-test('glass lifts expose their frame and moving car; steel keeps the original model', () => {
+test('glass lifts expose their frame and moving car; steel keeps its solid enclosure', () => {
   for (let rot = 0; rot < 4; rot++) {
     const mod = palette('lift', rot)
     const { group } = build(mod)
@@ -454,6 +455,57 @@ test('glass lifts expose their frame and moving car; steel keeps the original mo
     const old = build({ ...mod, cfg: { style: 'steel' } })
     assert.equal(old.meshes, 17)
     assert.equal(old.size, '2.04×2.04×7')
+  }
+})
+
+test('landing doors close the shaft at each served floor and open only with the aligned car', () => {
+  for (const style of ['glass', 'steel']) for (let rot = 0; rot < 4; rot++) {
+    const mod = liftModule({ x: 4, y: 4, z: -8 }, rot, 'doors')
+    mod.to.z = 0
+    mod.cfg.style = style
+    const cells = [-8, 0].map((z) => ({ x: 4, y: 4, z, fill: 'solid' }))
+    const group = buildModule(mod, { ...ctx, data: { ...data, cells, modules: [mod] } })
+    const cabin = group.userData.liftCabin
+    const landings = group.userData.liftLandings
+    assert.deepEqual(landings.map((landing) => landing.position.z), [0, 8], 'the floorless intermediate storey has no landing door')
+    assert.ok(landings.every((landing) => landing.parent === group && landing.userData.doors.length === 2))
+    const sceneCtx = { lastStateTime: 0, stateIntervalMs: 1000 }
+    const system = new LiftSystem(sceneCtx)
+    system.liftRigs.push({ key: '4,4,-8', group, cabin, originZ: -7, baseFrom: -7, baseTo: -7, doorFrom: 0, doorTo: 0, have: false })
+    const pose = (height, open) => new Float32Array([4, 4, -8, 0, height, open])
+    const checkDoors = (owner, fraction) => {
+      for (const leaf of owner.userData.doors) {
+        assert.ok(Math.abs(leaf.position.x - leaf.userData.closedX - leaf.userData.openSign * 0.7 * fraction) < 1e-6)
+      }
+    }
+    system.setLifts(pose(-7, 1))
+    system.updateLifts(1000)
+    checkDoors(group, 1)
+    checkDoors(landings[0], 1)
+    checkDoors(landings[1], 0)
+    system.setLifts(pose(-7, 0))
+    system.updateLifts(500)
+    checkDoors(group, 0.5)
+    checkDoors(landings[0], 0.5)
+    system.updateLifts(1000)
+    system.setLifts(pose(1, 0))
+    system.updateLifts(500)
+    assert.equal(cabin.position.z, 4)
+    assert.deepEqual(landings.map((landing) => landing.position.z), [0, 8], 'landing doors stay on their floors as the car travels')
+    landings.forEach((landing) => checkDoors(landing, 0))
+    system.updateLifts(1000)
+    system.setLifts(pose(1, 1))
+    system.updateLifts(500)
+    checkDoors(group, 0.5)
+    checkDoors(landings[0], 0)
+    checkDoors(landings[1], 0.5)
+    group.updateMatrixWorld(true)
+    setDoors(landings[0], 0)
+    const localOrigin = new THREE.Vector3(0, -2, 1.24)
+    const origin = group.localToWorld(localOrigin)
+    const direction = new THREE.Vector3(0, 1, 0).applyQuaternion(group.quaternion)
+    const ray = new THREE.Raycaster(origin, direction)
+    assert.ok(ray.intersectObject(landings[0], true).length > 0, 'the empty lower floor is visibly closed by its own doors')
   }
 })
 
@@ -744,17 +796,17 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   assert.equal(retail.size, store.size, 'drawn to the same size')
   assert.notEqual(build(room('shop', 'toilet')).meshes, store.meshes, 'a 厕所 fits out its own interior')
 
-  // The 指示牌's two mounts are one board hung two ways. The **wall** board is bolted
-  // flat to its wall — its body's back face is the cell's own −y edge (the plane a wall
-  // block's face is at, local y = −0.5), so the panel stands on the wall rather than
-  // floating in front of it — and it hangs at reading height with no rods, while the
+  // The 指示牌's two mounts are a hung board and a stuck sheet. The **wall** board
+  // is only its printed sheet, sitting 3 mm proud of the wall — no housing, no
+  // lightbox — so the panel stands on the wall rather than floating in front of
+  // it, and it hangs at reading height with no rods, while the
   // overhead board reaches the storey slab it is suspended from. Every box is in world
   // metres and the piece stands on a block top at z = 1, so the heights below are read
   // back off it.
   const wallSign = box(build(palette('sign-wall')).group)
   const hungSign = box(build(palette('sign-ceiling')).group)
-  assert.equal(round(wallSign.min.y), 4, 'the wall board is flush with the wall plane')
-  assert.ok(wallSign.max.y - wallSign.min.y < 0.25, 'and stands only its own body proud of it')
+  assert.equal(round(wallSign.min.y), 4.003, 'the wall sheet sits 3 mm proud of the wall plane')
+  assert.ok(wallSign.max.y - wallSign.min.y < 0.001, 'and has no projecting back box')
   assert.equal(round(wallSign.min.z - 1), 1.45, 'the wall board hangs at the eye height its courses name')
   assert.equal(round(wallSign.max.z - 1), 1.85, 'and its panel crosses exactly the one wall course it asks for')
   assert.ok(hungSign.max.z - 1 > 2.9, 'a 吊挂 board reaches the ceiling its rods bolt to')

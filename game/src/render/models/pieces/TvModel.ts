@@ -133,7 +133,7 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   plateMesh.renderOrder = 1
   plateMesh.userData.adStationPlate = mod.id
 
-  // Content window: the artwork, cropped to the window's aspect. The scene may
+  // Content window: the artwork, cropped to fill the window. The scene may
   // re-point this at another poster later, so the mesh is registered by role and
   // the module's frozen slug is only the opening frame.
   const winH = sh * TV_POSTER_RECT.h

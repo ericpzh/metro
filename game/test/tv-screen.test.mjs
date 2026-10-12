@@ -16,7 +16,7 @@
 // one. Only the calls the TV builder actually makes are implemented.
 //
 // The ad artwork interface is hand-stubbed rather than importing `render/adArt.ts`:
-// that module resolves its JPEGs through Vite's `import.meta.glob`, which plain Node
+// that module resolves its WebPs through Vite's `import.meta.glob`, which plain Node
 // has no implementation of. Nothing under test lives there — the geometry this file
 // pins is `buildTv`'s.
 import test from 'node:test'

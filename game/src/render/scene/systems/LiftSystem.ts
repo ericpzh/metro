@@ -42,6 +42,8 @@ export class LiftSystem extends SceneSystem {
   liftPickMeshes: THREE.Mesh[] = []
   /** Live escalator step bands, rolled every frame from the sim clock. */
   escalatorRolls: EscalatorRoll[] = []
+  /** False while the sim is paused: the step bands hold their pose like the crowd. */
+  private playing = true
 
   /**
    * One pose per elevator car, stride 6: plan x, plan y, lower cell z, upper
@@ -82,15 +84,29 @@ export class LiftSystem extends SceneSystem {
       rig.cabin.position.z = z - rig.originZ
       const door = rig.doorFrom + (rig.doorTo - rig.doorFrom) * alpha
       setDoors(rig.group, door)
+      // Only the landing aligned with the car can open; the other floors
+      // remain enclosed while the cabin travels through the shaft (§5.1).
+      const landings = rig.group.userData.liftLandings as THREE.Object3D[] | undefined
+      for (const landing of landings ?? []) {
+        const aligned = Math.abs(rig.cabin.position.z - landing.position.z) < 0.01
+        setDoors(landing, aligned ? door : 0)
+      }
     }
   }
 
   /**
    * Roll every escalator's step band by the same simulated time the crowd
    * advances, so the steps move at `ESCALATOR_SPEED` m/s however fast the clock
-   * runs. Called with `simDt`, not wall time.
+   * runs. Called with `simDt`, not wall time. While paused the bands hold
+   * their pose, like the crowd and the station clocks.
    */
   updateEscalators(simDt: number): void {
+    if (!this.playing) return
     for (const roll of this.escalatorRolls) rollEscalator(roll, simDt)
+  }
+
+  /** Freeze the step bands while paused; resume rolling on play. */
+  setPlaying(on: boolean): void {
+    this.playing = on
   }
 }

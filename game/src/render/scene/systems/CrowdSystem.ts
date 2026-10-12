@@ -715,6 +715,7 @@ export class CrowdSystem extends SceneSystem {
    * instead of being held open by whoever is waiting.
    */
   updateGates(simDt: number): void {
+    if (!this.playing) return
     for (const g of this.gateWings) this.stepGateWing(g, simDt)
   }
 

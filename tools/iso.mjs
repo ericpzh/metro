@@ -25,6 +25,8 @@
 // strips), and the renderer in `game/src/render/` still answers to it.
 // True isometric projection, 1 block = 1 m, z is height in metres.
 
+import { passengerSprites, walkingDefinitions, walkingSprite } from './passenger-cards.mjs';
+
 export const C = {
   bg0: '#0c1017', soil: '#3b3229', soil2: '#4a4034',
   // ---- interiors are high key: light speckled stone, white panels, brushed metal.
@@ -347,8 +349,12 @@ export function Scene() {
         o.opacity ? `opacity="${o.opacity}"` : ''));
     },
     sprite(x, y, z, sprite, o = {}) {
-      const t = o.scale && o.scale !== 1
-        ? `transform="translate(${n(px(x, y))},${n(py(x, y, z))}) scale(${o.scale})"`
+      const identity = Math.abs(Math.round(x * 31 + y * 47 + z * 13));
+      const human = ['person', 'personBag', 'personSeat'].includes(sprite);
+      if (human) sprite = `human-${identity % 96}`;
+      const scale = o.scale ?? 1;
+      const t = scale !== 1
+        ? `transform="translate(${n(px(x, y))},${n(py(x, y, z))}) scale(${scale})"`
         : `x="${n(px(x, y))}" y="${n(py(x, y, z))}"`;
       push(o.k ?? (x + y + z * 0.9 + (o.bias ?? 0)),
         `<use href="#${sprite}" ${t}${o.color ? ` style="color:${o.color}"` : ''}/>`);
@@ -359,24 +365,6 @@ export function Scene() {
 
 /* ------------------------------------------------------------ sprites */
 export const SPRITES = `
-<g id="person">
-  <ellipse cx="0" cy="1" rx="11" ry="5" fill="#000" opacity=".32"/>
-  <rect x="-7.5" y="-30" width="15" height="31" rx="6.5" fill="currentColor"/>
-  <rect x="-7.5" y="-30" width="15" height="31" rx="6.5" fill="#000" opacity=".16"/>
-  <circle cx="0" cy="-36" r="7.4" fill="#c98d63"/>
-  <path d="M-7.6 -38 a7.6 7.6 0 0 1 15.2 0 z" fill="#22272f"/>
-</g>
-<g id="personBag">
-  <use href="#person"/>
-  <rect x="9" y="-21" width="12" height="16" rx="3" fill="#f2b32c" stroke="#0b0e13" stroke-width="1.2"/>
-</g>
-<g id="personSeat">
-  <ellipse cx="0" cy="1" rx="11" ry="5" fill="#000" opacity=".3"/>
-  <rect x="-8" y="-21" width="16" height="22" rx="7" fill="currentColor"/>
-  <rect x="-8" y="-21" width="16" height="22" rx="7" fill="#000" opacity=".2"/>
-  <circle cx="0" cy="-27" r="7.4" fill="#c98d63"/>
-  <path d="M-7.6 -29 a7.6 7.6 0 0 1 15.2 0 z" fill="#22272f"/>
-</g>
 <pattern id="soilHatch" width="18" height="18" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
   <rect width="18" height="18" fill="#3b3229"/>
   <line x1="0" y1="0" x2="0" y2="18" stroke="#4a4034" stroke-width="4"/>
@@ -452,7 +440,7 @@ export function sheet(w, h, body, o = {}) {
   _kf.length = 0;
   _kfSeq = 0;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" font-family="Inter,'Noto Sans SC','Source Han Sans SC','Microsoft YaHei','PingFang SC','Hiragino Sans GB',Segoe UI,Helvetica,Arial,sans-serif">
-<defs>${SPRITES}</defs>
+<defs>${SPRITES}${/href="#(?:person|human-)/.test(body) ? passengerSprites() : ''}${walkingDefinitions()}</defs>
 ${css}
 <rect width="${w}" height="${h}" fill="url(#sheetBg)"/>
 ${o.glow ? `<rect width="${w}" height="${h}" fill="url(#glow)"/>` : ''}
@@ -592,9 +580,20 @@ export const mover = (path, col, begin = 0, o = {}) => {
   if (win[1] < 1) steps.push(`100%{${at(pts[pts.length - 1])}}`);
   const name = `kf${++_kfSeq}`;
   _kf.push(`@keyframes ${name}{${steps.join('')}}`);
-  const body = o.sprite
+  let body = o.sprite
     ? `<use href="#${o.sprite}" x="0" y="0" style="color:${col}"/>`
     : `<circle cx="0" cy="0" r="${n(o.r ?? 6.5)}" fill="${col}" stroke="#0d1116" stroke-width="1"/>`;
+  if (['person', 'personBag'].includes(o.sprite)) {
+    const view = o.walkView ?? 'iso';
+    const dx = pts.at(-1)[0] - pts[0][0], dy = pts.at(-1)[1] - pts[0][1];
+    const heading = view === 'iso' ? Math.atan2(dy / TH - dx / TW, dy / TH + dx / TW)
+      : dx >= 0 ? 0 : Math.PI;
+    const metres = view === 'iso' ? Math.hypot(dx / TW + dy / TH, dy / TH - dx / TW) / 2
+      : total / (o.walkScale ?? 26);
+    const scale = view === 'iso' ? Math.sqrt(TW * TW + TH * TH) / Math.sqrt(2 / 3) : o.walkScale ?? 26;
+    body = walkingSprite(view, `walker-${_kfSeq}`, o.identity ?? _kfSeq, heading,
+      metres / (parseFloat(dur) * span), scale);
+  }
   // A window needs its own fade — the shared one ramps against the whole loop, not
   // against the part of it this walker is allowed to be on the platform for.
   let fade = 'mFade';

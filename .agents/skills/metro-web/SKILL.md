@@ -89,6 +89,38 @@ Default captures stay Chinese. English captures live in `.preview/ui-shots-en/`
 and `.preview/view-shots-en/` (`UI_SHOTS_EN_DIR` / `VIEW_SHOTS_EN_DIR` overrides).
 Check the animated demand overlay as well as screenshots for clipped labels. The site's `/en/` route shows the sidecars
 (`sync-art.mjs` copies them like any other sheet).
+
+Sheets 01, 02, 12 and 13 place PNG captures of the game's actual passenger mesh.
+After changing `passenger-human.json`, its bake, hair, pose atlas or crowd material,
+run `npm run build:game`, `node tools/render-passenger-cards.mjs`, then
+`node tools/gen-art.mjs --en` so both language versions use the refreshed humans.
+The capture pass freezes four samples per outfit in isometric, elevation and plan
+views: three are mid-stride and one is idle. It applies `passengerAppearance` for
+the same outfit, height, build, heading and grey-tone variation the crowd uses.
+Check the resulting sheets with `node tools/sheet-png.mjs 01`, `02`, `12` and `13`;
+the figures should remain foot-anchored and varied, with most shown walking.
+The same capture pass also writes `walking-index.json`: complete 24-frame strides
+for eight appearances in plan, elevation (two headings) and isometric (eight
+headings) views. The driver captures each camera/heading in a bounded batch;
+keep that batching when extending the pass so the CDP response does not exceed
+its message limit. Movers in sheets 01, 02, 12 and 13 must cycle these poses
+rather than slide a frozen human. `mover` selects the camera, heading and gait speed for
+human sprites; use `walkView: 'elevation'` for sections. Short loops fade out
+before resetting, so figures never walk backward to their starting point.
+In sheet 12-A, queue figures must use idle poses
+with varied headings. Boarding and alighting figures cycle these strides facing
+toward and away from the train, respectively. `walkingDefinitions` embeds each
+used bitmap once per sheet; `walkingSprite` and `walkingPlanSprite` phase the gait
+at the path's speed. Keep
+movers confined to the doors-open interval. Check live SVG playback as an image,
+and frozen previews at multiple times; `sheet-png --at` must preserve frame delays.
+Run `node tools/test-passenger-animation.mjs` after regeneration: it checks for
+missing or overlapping frames and real gait changes in SVG images for all cameras.
+In 12-B, draw the foreground platform after the train so it hides the wheels.
+In 12-C, use the `gate-single` elevation capture, which hides the spare gate leaf
+using the game's `hideSecondGateDoor` capture option.
+Sheet 13's near platform screen door is the inside-facing model and sorts in front
+of the crowd, so its printed face is hidden from the cutaway camera.
 `tools/sheet-plan.mjs` is the **panel plan for the older photograph pass**
 (`tools/shots.mjs`): one entry per sheet that pass still composes, naming the spec
 id, the file and the camera each panel is shot from. Sheets 08 and 10 are retired
@@ -97,7 +129,7 @@ id, the file and the camera each panel is shot from. Sheets 08 and 10 are retire
 
 | Sheet | Module |
 |---|---|
-| 01 isometric cutaway | `sheet-01-hero.mjs` |
+| 01 isometric cutaway | `sheet-01-hero-banded.mjs` |
 | 02 vertical section | `sheets-a.mjs` (`artSection`) |
 | 03 block system | `sheet-03-blocks.mjs` |
 | 04 module catalogue | `sheet-04-modules.mjs` |
@@ -109,9 +141,9 @@ id, the file and the camera each panel is shot from. Sheets 08 and 10 are retire
 | 12 platform doors and flow | `sheets-e.mjs` (`artPlatformFlow`) |
 | 13 two-line interchange | `sheet-13-two-line.mjs` |
 
-**Nine sheets embed PNGs the game rendered**: 02, 03, 04, 05, 06, 07, 11, 12 and
-13. A sheet builds *synchronously* and only reads files, so the capture has to
-exist first, and every capture needs Chrome plus a built `game/dist`:
+Eleven sheets embed game-rendered PNGs: 01, 02, 03, 04, 05, 06, 07, 09, 11, 12 and 13.
+A sheet builds *synchronously* and only reads files, so captures must exist first;
+the browser passes need Chrome plus a built `game/dist`:
 
 | Sheet | Capture | Reads from |
 |---|---|---|
@@ -122,6 +154,7 @@ exist first, and every capture needs Chrome plus a built `game/dist`:
 | 13 | `tools/render-piece-views.mjs` | `.preview/piece-views/` |
 | 06, 07 | `tools/render-ui-shots.mjs` | `.preview/ui-shots/` |
 | 09 | `tools/render-view-shots.mjs` | `.preview/view-shots/` |
+| 01, 02, 12, 13 | `tools/render-passenger-cards.mjs` | `.preview/passenger-cards/` |
 
 A **car** goes into a drawing at its own scale (`train-cards.mjs` `carImage` /
 `trainCard`); a **run** is scaled to reach the floors it joins, which is the
@@ -130,7 +163,7 @@ A **car** goes into a drawing at its own scale (`train-cards.mjs` `carImage` /
 own isometric axes (`piece-views`).
 
 (`TRAIN_CARDS_DIR` / `PIECE_ELEVATIONS_DIR` / `PIECE_VIEWS_DIR` / `UI_SHOTS_DIR`
-override those directories.) The pictures are the game's — a sheet adds the
+override those directories.) The captures are the game's — a sheet adds the
 numbered key and the reading, and **nothing about a
 piece's geometry, camera, label or throughput is stated on it**. Several sheets
 also read their numbers out of `sim/` **by import** (`stock.ts`, `constants.ts`,

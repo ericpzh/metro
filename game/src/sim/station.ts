@@ -18,6 +18,7 @@ import {
   LIFT_CYCLE,
   MAX_REPATH_PER_TICK,
   PATH_CACHE_MAX,
+  RAMP_TURN_LANDING_INSET,
   STAIR_RATE_DOWN,
   STAIR_RATE_UP,
   STAIR_SPEED,
@@ -36,6 +37,7 @@ import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
 import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
 import { liftFootprintCells, liftLandingCells, liftStopZs } from './lifts.ts'
+import { rampMoveClear, type RampWall } from './rampCollision.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndexOf } from './zones.ts'
 
@@ -60,6 +62,8 @@ export interface ServerDef {
   /** Live queue of agent ids, front = being served. */
   queue: number[]
   cooldown: number
+  /** Centre shift and passenger columns on a ramp (§5.1); narrow runs are single-file. */
+  ramp?: { dx: number; dy: number; columns: number; next: number; traffic?: { direction: number; until: number } }
   served: number
   waitAccum: number
   waitCount: number
@@ -138,6 +142,8 @@ export interface StationGraph {
   servers: ServerDef[]
   serverForNode: Map<number, number>
   platforms: PlatformEdge[]
+  /** The same ramp barriers used by routing and continuous crowd movement. */
+  rampWalls: RampWall[]
   exits: Array<{ id: string; node: number; name: string }>
   stops: Array<{ id: string; node: number; kind: 'tvm' | 'vending' | 'bench' | 'retail' | 'shop' | 'booth' }>
   /** Node grid bounds, for density overlays. */
@@ -355,16 +361,8 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   // street to B1 also walled the concourse two storeys below at the same plan
   // position, and a floor plate read as an archipelago of islands the crowd
   // could only hop between by riding the one ramp that happened to fit.
-  interface RampWall {
-    ax: number
-    ay: number
-    bx: number
-    by: number
-    /** Floor-block levels the flight spans; a walk edge outside them is free. */
-    z0: number
-    z1: number
-  }
   const rampWalls: RampWall[] = []
+  const crowdRampWalls: RampWall[] = []
   for (const m of data.modules) {
     if (m.type !== 'escalator' && m.type !== 'stair') continue
     // A stair may turn: every flight gets its own side walls, so the crowd
@@ -410,13 +408,24 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
         if (laneMates.some((mate) => mate.sameFlight && Math.sign(mate.step[0] * -uy + mate.step[1] * ux) === s)) continue
         const ox = -uy * half * s
         const oy = ux * half * s
-        rampWalls.push({
+        const wall: RampWall = {
           ax: ax - ux * extFrom + ox,
           ay: ay - uy * extFrom + oy,
           bx: ax + dx + ux * extTo + ox,
           by: ay + dy + uy * extTo + oy,
           z0: Math.min(seg.from.z, seg.to.z),
           z1: Math.max(seg.from.z, seg.to.z),
+          inwardX: uy * s,
+          inwardY: -ux * s,
+        }
+        rampWalls.push(wall)
+        // The interior landing is a free half tile (§5.1), unlike an outer
+        // landing with projecting newels. Keep body clearance off its crossing.
+        const startInset = extFrom === 0 ? RAMP_TURN_LANDING_INSET : 0
+        const endInset = extTo === 0 ? RAMP_TURN_LANDING_INSET : 0
+        crowdRampWalls.push({ ...wall,
+          ax: wall.ax + ux * startInset, ay: wall.ay + uy * startInset,
+          bx: wall.bx - ux * endInset, by: wall.by - uy * endInset,
         })
       }
     }
@@ -474,6 +483,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
       if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
       // §5.4: a ramp's balustrade is a barrier — board at the landing, along the run.
       if (crossesRampWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
+      if (!rampMoveClear(crowdRampWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
       // Cost carries the finish speed of both ends, so a concrete floor is a
       // real detour and routing prefers the faster surface.
       const speed = (nodeSpeed[i] + nodeSpeed[j]) / 2
@@ -500,6 +510,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
       if (!cardinalAllows(i, a) || !cardinalAllows(a, j) || !cardinalAllows(i, b) || !cardinalAllows(b, j)) continue
       if (crossesExitWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
       if (crossesRampWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
+      if (!rampMoveClear(crowdRampWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue
       const speed = (nodeSpeed[i] + nodeSpeed[j]) / 2
       edges.push({ from: i, to: j, cost: Math.SQRT2 / (WALK_SPEED * speed), kind: KIND_WALK, server: -1 })
     }
@@ -628,7 +639,8 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           const id = addServer({
             kind: 'escalator',
             label: m.cfg.dir === 'up' ? msg('up_escalator') : msg('down_escalator'),
-            rate: ESCALATOR_RATE,
+            rate: ESCALATOR_RATE * (m.cfg.width === 2 ? 2 : 1),
+            ramp: { dx: escalatorRun(m).from.x - m.from.x, dy: escalatorRun(m).from.y - m.from.y, columns: m.cfg.width === 2 ? 2 : 1, next: 0 },
             node: a,
             exitNode: b,
             ride,
@@ -643,7 +655,9 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           // Each flight is its own capacity-limited, two-way edge, and the
           // landings between them are walkable nodes, so a turning stair is
           // walked one flight at a time (§5.1).
-          for (const f of stairFlights(m)) {
+          const flights = stairFlights(m)
+          const slides = stairFlightSlides(m)
+          for (const [flightIndex, f] of flights.entries()) {
             const fa = nodeAt(f.from)
             const fb = nodeAt(f.to)
             // A landing that is no node — a 围栏 or a doorless 闸机 standing on it —
@@ -654,10 +668,13 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             const fv = Math.abs(nodeZ[fa] - nodeZ[fb])
             const fride = Math.hypot(fh, fv) / STAIR_SPEED
             const down = nodeZ[fa] > nodeZ[fb]
+            // A narrow flight cannot pass opposing bodies abreast (§5.1).
+            const traffic = m.cfg.width < 2 * STAIR_WIDTH_NARROW ? { direction: -1, until: 0 } : undefined
             const idDown = addServer({
               kind: 'stair',
               label: msg('stairs'),
               rate: (down ? STAIR_RATE_DOWN : STAIR_RATE_UP) * m.cfg.width,
+              ramp: { ...slides[flightIndex], columns: m.cfg.width >= 2 * STAIR_WIDTH_NARROW ? 2 : 1, next: 0, traffic },
               node: fa,
               exitNode: fb,
               ride: fride,
@@ -669,6 +686,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
               kind: 'stair',
               label: msg('stairs'),
               rate: (down ? STAIR_RATE_UP : STAIR_RATE_DOWN) * m.cfg.width,
+              ramp: { ...slides[flightIndex], columns: m.cfg.width >= 2 * STAIR_WIDTH_NARROW ? 2 : 1, next: 0, traffic },
               node: fb,
               exitNode: fa,
               ride: fride,
@@ -830,6 +848,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     servers,
     serverForNode,
     platforms,
+    rampWalls: crowdRampWalls,
     exits,
     stops,
     minX: Number.isFinite(minX) ? minX : 0,

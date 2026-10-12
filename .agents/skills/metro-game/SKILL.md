@@ -69,6 +69,15 @@ another run; do not substitute the landing-to-landing vertical envelope there.
 Runs may occupy vertically adjacent storeys when their bodies only meet at the
 landing plane. Pin slope clearance and real body overlap in
 `game/test/placement.test.mjs` and `game/test/bay.test.mjs`.
+Crowd movement has its own ramp-body clearance (`sim/rampCollision.ts`): use the
+same storey-bounded `rampWalls` as routing, sweep the whole movement segment so a
+crowd shove cannot tunnel through a rail, and keep a reachable next waypoint when
+resolving pressure. Routing and collision clearance must agree at rail ends;
+otherwise passengers can be pushed or routed into a dead end. Interior stair
+turns retain the half landing, and displaced walkers or ramp queues recover around
+the rail end. Keep these invariants covered in
+`game/test/ramp-passengers.test.mjs` whenever changing ramp walls, graph edges,
+crowd movement, queue approaches or stair turns.
 
 ### Conventions
 
@@ -979,13 +988,20 @@ the four rules most changes trip over.
   dragged line merged in, so an end you drag up to loses its cap as you move
   (`SceneRenderer.setFencePreview`).
 * The **电梯** (设备) draws a full-height shaft in world space (`buildLift`): corner posts and
-  back/side walls, a threshold sill and green call panel at each real landing, and a cabin
-  group left in `userData.liftCabin` whose two leaves are registered `doors`. The base cell
+  back/side walls, a threshold sill and green call panel at each real landing, and a pair of
+  sliding landing doors at every served floor. The two landing leaves belong to their fixed
+  `landing-doors` group in `userData.liftLandings`; the cabin remains a separate moving group
+  in `userData.liftCabin` with its own pair of leaves in `userData.doors`. Both steel and glass
+  styles carry landing doors. `LiftSystem.updateLifts` opens only the landing aligned with the
+  car pose, easing it with the car doors; every other floor stays shut during travel. Do not
+  add a door at a floorless level. The base cell
   stays solid (the shaft stands on it) but every slab at a stop above is hidden
   (`SceneRenderer` `hiddenCells`), so the mesher cuts a real opening while the graph still sees
   the nodes. `SceneRenderer.setLifts` pairs each 6-float car pose with its shaft and glides the
   cabin / eases the doors between snapshots; the hover finds a shaft via `moduleAt` and
   previews the extension, its upper/lower half choosing up/down.
+  `test/module-build.test.mjs` pins served-floor doors, independent car doors, and the aligned
+  landing animation in both styles and all four rotations.
 * **An exit is named and selected in both views.** The RHS 出入口 folder lists one card per
   exit (`app/windows/inspector/ExitCard.tsx`): name (Enter/blur commits, and the model's street
   header reprints it), demand and open toggle. Clicking or focusing a control selects the exit,
@@ -1125,6 +1141,11 @@ the four rules most changes trip over.
   `title` — is how an icon-only control is named. `app/LeftRail.tsx` is a barrel over
   `app/rail/`; thumbnails are rendered from the real models by `app/moduleThumbnails.ts` /
   `app/zoneThumbnails.ts`.
+  Concept-art passengers are game-owned too: `app/capturePassengers.ts` renders
+  `passengerMesh` from `render/passengerModel.ts` for sheets 01, 02, 12 and 13. If
+  the baked human, hair, pose atlas, appearance or crowd material changes, rebuild
+  and run `node tools/render-passenger-cards.mjs` before regenerating `art/`. It
+  records varied identities and frozen idle/walking poses in `.preview/passenger-cards/`.
 * **The 材质 brush keeps its mode.** `N` 单块 / `M` 整面 are the 材质 folder's own setting
   (`paintBaseMode`), not a property of a tile: clicking a finish tile — or a fresh 搪瓷板
   colour, which reaches the brush in the same click — leaves the mode alone, so it survives a
@@ -1179,14 +1200,18 @@ the four rules most changes trip over.
   On left-click, wall- and ceiling-mounted pieces may be aimed from open air: do not apply the floor-hit
   guard before their wall/slab support verdict runs. Floor-standing pieces still need a solid hit;
   `test/equipment-placement-input.test.mjs` pins both paths.
-* **The 广告牌 / 电视 posters are a catalogue, cropped never stretched** (`sim/billboards.ts`
-  `AD_POSTERS`, `render/adArt.ts`, `render/panelUv.ts`). Twelve campaign slugs in
-  `src/assets/posters/`, each tagged with the silhouettes it is cut for, so a panel is only ever
-  offered artwork cut for its own shape; `panelUvWindow` takes the centred fitting crop and
-  `croppedPlane` walks it in three's UV order, and every offered crop stays under 1.45×. The
-  posters live beside the code as `posters/`, not `ads/` — EasyList blocks `/assets/ads/*`, which
-  in dev would reject the importing module's whole graph. `test/billboard.test.mjs` pins the
-  catalogue, the crop and the UVs.
+* **The 广告牌 / 电视 posters fill their panels without stretching** (`sim/billboards.ts`
+  `AD_POSTERS`, `sim/posterCatalogue.ts`, `render/adArt.ts`, `render/panelUv.ts`). The 74
+  optimized WebPs in `src/assets/posters/` have square (384 × 384), portrait (288 × 512), or
+  landscape (512 × 288) canvases. `tools/prep-posters.py` regenerates them from the supplied
+  source folder, with a centred crop, WebP quality 76, and source-filename slugs. Each catalogue
+  entry limits a poster to matching panel silhouettes; `panelUvWindow` crops again as needed to
+  fill the panel, and `croppedPlane` walks the UV window in three's UV order. Artwork is decoded
+  before materials are made; after it arrives, placeholder materials, textures and geometry are
+  released before the scene redraws. Keep the folder named `posters/`, not `ads/` — EasyList blocks
+  `/assets/ads/*`, which in dev would reject the importing module's whole graph.
+  `test/billboard.test.mjs` reads the real WebP dimensions and pins catalogue agreement, panel
+  filling, crop arithmetic and UV order.
 * `app/store.ts` is zustand (a barrel over `app/store/`: `Store.ts` wiring + one slice per
   concern + `catalog.ts`): the station document lives here, the sim lives in the worker.
   `app/boot.tsx` is lazy-imported so `app/mobile.ts` + `MobileNotice.tsx` can show a plain notice
@@ -1223,7 +1248,11 @@ the four rules most changes trip over.
   in `passengerAppearance`, while `tools/passenger-hair.mjs` and
   `tools/bake-passengers.mjs` own the authored hair and its pose bake. The
   crowd has one draw, gait by distance, idle when waiting/riding, frozen while
-  paused. `followPassenger(id)` forces
+  paused — and so is every other sim-driven animation: escalator step bands
+  (`LiftSystem`), 闸机 leaves (`CrowdSystem.updateGates`) and train/screen doors
+  (`TrainSystem`, whose consists still glide to their latest snapshot while the
+  leaves hold). `SceneRenderer.setPlaying` forwards pause to all three systems.
+  Pin in `game/test/sim-pause.test.mjs`. `followPassenger(id)` forces
   隐藏UI + perspective and snapshots the display state; the camera rides
   `PASSENGER_EYE_HEIGHT` facing travel direction, mouse-drag looks after the
   entry yaw, Space still pauses, Esc / departure restores everything. The

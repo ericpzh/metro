@@ -1,39 +1,43 @@
-// Advertising panels (GAME-SPEC §5.7): the poster catalogue and the UV window
-// that fits a poster to a panel without stretching it.
+// Advertising panels (GAME-SPEC §5.7): compact WebP catalogue, matching formats,
+// and the centred crop that fills each panel without stretching the artwork.
 //
-// The window arithmetic decides whether a 16:9 campaign smears across a 2.25:1
-// lightbox or loses its edges, and whether a poster reads the right way up on
-// the wall — so it is checked here in Node, on the real table, rather than by
-// eye in the browser.
+// The real pixel dimensions and window arithmetic pin the compact asset formats,
+// full panel coverage and upright UV order directly in Node.
 import test from 'node:test'
+import { readdirSync, readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import { croppedPlane, panelUvWindow } from '../src/render/panelUv.ts'
 import { AD_POSTERS, BILLBOARD_SPECS, BILLBOARD_VARIANTS, billboardSpec, posterFor, postersFor } from '../src/sim/billboards.ts'
 
-/**
- * The real pixel size of every poster asset, read from `src/assets/posters/*.jpg`.
- * The catalogue is pure data and cannot measure its own artwork, so the file
- * side of the fit guarantee lives here — a poster that is replaced with a
- * differently shaped image fails the fit test below rather than silently
- * cropping to a sliver.
- */
-const ART_ASPECT = {
-  'metro-security': 1000 / 507,
-  'property-hotline': 2270 / 1279,
-  'games-2025-blue': 576 / 324,
-  'guangdong-league': 576 / 324,
-  'cloud-security': 464 / 251,
-  'heinz-league': 680 / 310,
-  'animal-help': 833 / 358,
-  'rhinitis-spray': 637 / 283,
-  'yupao-hiring': 874 / 235,
-  'haoyibao': 490 / 180,
-  'games-2025-red': 368 / 543,
-  'heinz-body': 194 / 259,
-}
+// Read the actual WebP pixel dimensions, rather than a second hand-written catalogue.
+const folder = new URL('../src/assets/posters/', import.meta.url)
+const ART_SIZE = Object.fromEntries(readdirSync(folder).map((file) => {
+  assert.ok(file.endsWith('.webp'), `old/unoptimized asset remains: ${file}`)
+  const data = readFileSync(new URL(file, folder))
+  assert.equal(data.toString('ascii', 0, 4), 'RIFF')
+  assert.equal(data.toString('ascii', 8, 12), 'WEBP')
+  let size
+  for (let offset = 12; offset + 8 < data.length;) {
+    const tag = data.toString('ascii', offset, offset + 4)
+    const length = data.readUInt32LE(offset + 4)
+    if (tag === 'VP8 ') {
+      size = [data.readUInt16LE(offset + 14) & 0x3fff, data.readUInt16LE(offset + 16) & 0x3fff]
+      break
+    }
+    offset += 8 + length + (length % 2)
+  }
+  assert.ok(size, `${file}: expected compact lossy WebP`)
+  return [file.replace(/\.webp$/, ''), size]
+}))
 
-test('every catalogue slug is a poster file, and every file is a catalogue slug', () => {
-  assert.deepEqual(new Set(AD_POSTERS.map((p) => p.slug)), new Set(Object.keys(ART_ASPECT)))
+test('every catalogue slug is a compact poster file, and every file is a catalogue slug', () => {
+  assert.deepEqual(new Set(AD_POSTERS.map((p) => p.slug)), new Set(Object.keys(ART_SIZE)))
+  assert.equal(AD_POSTERS.length, new Set(AD_POSTERS.map((p) => p.slug)).size)
+  for (const poster of AD_POSTERS) {
+    const size = poster.shapes.includes('square') ? [384, 384]
+      : poster.shapes.includes('portrait') ? [288, 512] : [512, 288]
+    assert.deepEqual(ART_SIZE[poster.slug], size)
+  }
 })
 
 test('a panel offers only artwork cut for its own silhouette', () => {
@@ -47,22 +51,22 @@ test('a panel offers only artwork cut for its own silhouette', () => {
   for (const poster of AD_POSTERS) assert.ok(poster.shapes.length > 0, `${poster.slug} claims no silhouette`)
 })
 
-test('a poster is cropped to the panel, never stretched', () => {
-  for (const variant of BILLBOARD_VARIANTS) {
-    const spec = billboardSpec(variant)
-    const panelAspect = spec.panelW / spec.panelH
+test('artwork fills every offered panel without stretching or margins', () => {
+  const panels = [...BILLBOARD_VARIANTS.map((v) => billboardSpec(v)),
+    { shape: 'landscape', panelW: 1.2, panelH: .7 }]
+  for (const spec of panels) {
     for (const poster of postersFor(spec.shape)) {
-      const imageAspect = ART_ASPECT[poster.slug]
-      // The crop is the ratio between the two: 1.0 would be a perfect match, and
-      // anything under ~1.45 keeps the campaign's subject and its type readable.
-      const crop = Math.max(imageAspect / panelAspect, panelAspect / imageAspect)
-      assert.ok(crop < 1.45, `${variant} (${panelAspect.toFixed(2)}) would crop ${poster.slug} (${imageAspect.toFixed(2)}) to ${crop.toFixed(2)}`)
-      // And the window that does the cropping keeps the image's own aspect: the
-      // visible window, measured back in pixels, is the panel's shape.
+      const [w, h] = ART_SIZE[poster.slug]
+      const imageAspect = w / h
+      const panelAspect = spec.panelW / spec.panelH
       const win = panelUvWindow(imageAspect, panelAspect)
-      const windowAspect = ((win.u1 - win.u0) * imageAspect) / (win.v1 - win.v0)
-      assert.ok(Math.abs(windowAspect - panelAspect) < 1e-9, `${variant} window aspect ${windowAspect.toFixed(3)} != panel ${panelAspect.toFixed(3)}`)
-      assert.ok(win.u0 >= 0 && win.u1 <= 1 && win.v0 >= 0 && win.v1 <= 1, 'the window must stay inside the image')
+      const visibleAspect = imageAspect * (win.u1 - win.u0) / (win.v1 - win.v0)
+      assert.ok(Math.abs(visibleAspect - panelAspect) < 1e-9, 'crop preserves the source aspect')
+      const geo = croppedPlane(spec.panelW, spec.panelH, win)
+      assert.equal(geo.parameters.width, spec.panelW, 'art fills the panel width')
+      assert.equal(geo.parameters.height, spec.panelH, 'art fills the panel height')
+      assert.ok(win.u0 >= 0 && win.u1 <= 1 && win.v0 >= 0 && win.v1 <= 1)
+      geo.dispose()
     }
   }
 })
@@ -100,7 +104,7 @@ test('the cropped quad walks the window in the geometry UV order', () => {
 test('a format prints the poster it was given, and an unknown slug a placeholder', () => {
   // The slug is opaque to the sim: the renderer resolves it against the table
   // and falls back to the catalogue head rather than drawing nothing.
-  assert.equal(posterFor('games-2025-red').slug, 'games-2025-red')
+  assert.equal(posterFor(AD_POSTERS[0].slug).slug, AD_POSTERS[0].slug)
   assert.equal(posterFor('no-such-poster').slug, AD_POSTERS[0].slug)
   assert.equal(posterFor(undefined).slug, AD_POSTERS[0].slug)
 })
@@ -117,4 +121,36 @@ test('the six formats are a palette of real panels', () => {
     assert.ok(spec.panelZ - spec.panelH / 2 > 0.2, `${variant}: the panel would sit on the floor`)
     assert.ok(spec.panelZ + spec.panelH / 2 < 2.4, `${variant}: the panel would poke through the ceiling`)
   }
+})
+
+test('one material per poster serves every panel size; one geometry per panel', () => {
+  // `render/adArt.ts` resolves its WebPs through Vite's `import.meta.glob`, which
+  // plain Node has no implementation of — so the cache contract is pinned here as
+  // source, the way `scene-wiring` pins the orchestrator. The split is the whole
+  // point of the cache: a material keyed per panel size re-uploads one texture
+  // per poster per panel (and a rebuild mints them all again), while a geometry
+  // shared across sizes stretches one panel's crop onto another poster's shape.
+  // Either regression is silent — the station just draws, heavier or smeared.
+  const src = readFileSync(new URL('../src/render/adArt.ts', import.meta.url), 'utf8')
+  // Materials are keyed by slug alone, never by dimensions.
+  assert.match(src, /const materialKey = slug \?\? ''/)
+  assert.match(src, /materials\.get\(materialKey\)/)
+  assert.match(src, /materials\.set\(materialKey, material\)/)
+  assert.ok(!/materials\.(get|set)\(key\b/.test(src), 'a material keyed per panel size re-uploads every poster per panel')
+  // Geometries are keyed by slug and panel size, and the key carries both.
+  assert.match(src, /const key = faceKey\(slug, w, h\)/)
+  assert.match(src, /geometries\.get\(key\)/)
+  assert.match(src, /geometries\.set\(key, geometry\)/)
+  assert.match(src, /function faceKey\(slug[^\n]*w[^\n]*h[^\n]*\{\s*\n\s*return `[^`]*@\$\{w\.toFixed\(3\)\}x\$\{h\.toFixed\(3\)\}`/)
+  // The quad is cut from the decoded pixels, not the panel aspect: a poster that
+  // lands after first paint still fills its panel rather than inheriting a
+  // placeholder's crop.
+  assert.match(src, /panelUvWindow\(imageAspect, w \/ h\)/)
+  // Decoding clears both caches before the scene redraws, so no face keeps a
+  // placeholder's material or a wrong-aspect quad.
+  const load = src.slice(src.indexOf('async function load'))
+  assert.ok(load.includes('materials.clear()') && load.includes('geometries.clear()'),
+    'decoded posters must invalidate both caches')
+  assert.ok(load.indexOf('onReady()') > Math.max(load.indexOf('materials.clear()'), load.indexOf('geometries.clear()')),
+    'the redraw must run after the caches are cleared')
 })

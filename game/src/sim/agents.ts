@@ -43,6 +43,8 @@ export interface Agent {
   comfort: number
   /** Server the agent is queued in, or -1. */
   server: number
+  /** Temporary floor approach after crowd displacement behind a ramp rail. */
+  rampApproach?: Int32Array
   /** Gate/stop server already handled on this leg. */
   servedFor: number
   /**
@@ -151,6 +153,7 @@ export class AgentPool {
     a.group = 1
     a.comfort = 1
     a.server = -1
+    a.rampApproach = undefined
     a.servedFor = -1
     a.gateWaitNode = -1
     a.gateDir = 0

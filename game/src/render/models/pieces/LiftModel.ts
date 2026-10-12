@@ -18,6 +18,28 @@ import type { Module, StationData } from '../../../sim/types.ts'
  */
 const LIFT_CAP = 0.14
 
+/** Landing doors stay on the shaft; car doors travel with the cabin (§5.1). */
+function landingDoors(g: THREE.Group, height: number, panel: THREE.Material, steel: THREE.Material, glazed: boolean): void {
+  const landing = new THREE.Group()
+  landing.name = 'landing-doors'
+  landing.position.z = height
+  g.add(landing)
+  const doors: THREE.Mesh[] = []
+  for (const sign of [-1, 1]) {
+    const leaf = slab(landing, panel, sign * 0.36, -0.82, 1.19, 0.72, 0.035, 2.24)
+    leaf.name = 'landing-door-leaf'
+    if (glazed) {
+      for (const x of [-0.33, 0.33]) slab(leaf, steel, x, 0, 0, 0.06, 0.06, 2.24)
+      for (const z of [-1.08, 1.08]) slab(leaf, steel, 0, 0, z, 0.72, 0.06, 0.08)
+      slab(leaf, steel, 0, 0, -0.855, 0.72, 0.06, 0.45)
+    }
+    registerDoorLeaf(leaf, sign, 0.7, doors)
+  }
+  landing.userData.doors = doors
+  const landings = (g.userData.liftLandings ??= []) as THREE.Group[]
+  landings.push(landing)
+}
+
 /**
  * True when `(x, y, z)` is walkable floor: solid, with nothing solid above it.
  * Asked of the **effective** ground (`solidAt`): a shaft rooted on the implicit
@@ -31,7 +53,7 @@ function floorAt(data: StationData, x: number, y: number, z: number): boolean {
 
 /**
  * An elevator (电梯). A 2 × 2 m vertical shaft with a moving 1.5 × 1.5 m cabin:
- * a steel frame and back/side walls around an open front, a threshold and a
+ * a steel frame and back/side walls, landing doors, a threshold and a
  * call panel at every floor the shaft actually serves, and a cabin whose doors
  * slide apart. Only real landings get a sill/panel — a shaft that runs past a
  * floorless level shows nothing there. The cabin group is left in
@@ -69,6 +91,9 @@ function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): 
   for (const z of liftStopZs(mod.from.z, mod.to.z)) {
     if (!floorAt(ctx.data, mod.x, mod.y, z)) continue
     const L = z - mod.from.z
+    landingDoors(g, L, mats.steel, mats.steel, false)
+    for (const x of [-0.79, 0.79]) slab(g, mats.darkSteel, x, -outer, L + 1.16, 0.18, 0.16, 2.32)
+    slab(g, mats.darkSteel, 0, -outer, L + 2.43, 1.74, 0.16, 0.22)
     slab(g, mats.darkSteel, 0, -outer + 0.02, L + 0.03, 1.9, 0.22, 0.06)
     slab(g, mats.black, 0.6, -outer - 0.03, L + 1.35, 0.3, 0.04, 0.18)
     slab(g, mats.ledGreen, 0.6, -outer - 0.05, L + 1.35, 0.12, 0.02, 0.07)
@@ -142,6 +167,7 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
   for (const z of liftStopZs(mod.from.z, mod.to.z)) {
     const L = z - mod.from.z
     if (!floorAt(ctx.data, mod.x, mod.y, z)) continue
+    landingDoors(g, L, glass, steel, true)
     slab(g, steel, 0, -outer + 0.04, L + 0.035, 1.88, 0.22, 0.07)
     // Stainless landing portal and its glazed transom leave the doorway clear.
     for (const x of [-0.79, 0.79]) slab(g, steel, x, -outer, L + 1.16, 0.18, 0.16, 2.32)

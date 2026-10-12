@@ -58,7 +58,7 @@ const PIER_Y = [-5.4, -1.0];
  * reach out of its band. */
 const L = {
   hall: 3400, landing: 3300, runs: 3200, concourse: 3000,
-  trainA: 2800, trackA: 2600, crowdU: 2400, platformU: 2000,
+  trainA: 2800, trackA: 2600, screenNear: 2500, crowdU: 2400, platformU: 2000,
   trainB: 1800, trackB: 1600, wall: 1400, street: 1300,
   roof: 1200, crowdO: 1000, platformO: 800, trainC: 600, trackC: 400, pier: 200,
 };
@@ -302,8 +302,10 @@ export function artTwoLine() {
     put(L.platformU + 42, 24, yy, ZP + 0.05, quadSvg(X0, s > 0 ? y1 - 0.3 : y1, ZP + 0.04, X1 - X0, 0.3, C.maroon, { tone: 1.0, sw: 0.3 }));
     put(L.platformU + 44, 24, yy, ZP + 0.05, quadSvg(X0, s > 0 ? yy - 0.12 : yy, ZP + 0.04, X1 - X0, 0.12, C.white, { tone: 1.0, sw: 0.25 }));
   }
-  model(L.platformU + 80, 'platform-edge-40', 24, PB1, ZP);
-  model(L.platformU + 70, 'platform-edge-40-far', 24, PB0, ZP);
+  // The near wall faces into the island: its printed face is hidden from this
+  // corner. Paint it after the crowd so passengers remain behind its glass.
+  model(L.screenNear, 'platform-edge-40-far', 24, PB1, ZP);
+  model(L.platformU + 70, 'platform-edge-40', 24, PB0, ZP);
   for (const [id, x, y] of [['bench-steel-1', 12, 12], ['bench-steel-1', 25, 12],
     ['bin', 6, 12], ['bin', 41, 12]]) model(L.crowdU, id, x, y, ZP);
 

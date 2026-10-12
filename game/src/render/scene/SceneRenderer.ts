@@ -417,6 +417,8 @@ export class SceneRenderer {
 
   setPlaying(on: boolean): void {
     this.crowd.setPlaying(on)
+    this.lifts.setPlaying(on)
+    this.trains.setPlaying(on)
   }
 
   setDensity(nodes: Float32Array, density: Float32Array, on: boolean): void {

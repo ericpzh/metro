@@ -127,6 +127,14 @@ export const STAIR_SPEED = 1.0
 export const ESCALATOR_SPEED = 0.5
 /** Escalator step pitch, m. One passenger per step is the capacity model. */
 export const ESCALATOR_STEP_PITCH = 0.4
+/** Separation between the two passenger columns of a wide ramp (§5.1), metres. */
+export const RAMP_PASSENGER_COLUMN_SPACING = 0.7
+/** Body clearance from the inside of a ramp rail; fits the narrow tread (§5.1). */
+export const RAMP_BODY_RADIUS = 0.25
+/** Outside clearance includes the shoulder and projecting handrail. */
+export const RAMP_OUTSIDE_CLEARANCE = 0.4
+/** Interior stair turns reserve a half landing tile before each flight's rail. */
+export const RAMP_TURN_LANDING_INSET = 0.5
 /** Extra speed an agent gains riding an escalator (carried). */
 export const ESCALATOR_BOOST = 1.08
 

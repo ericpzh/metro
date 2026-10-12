@@ -18,7 +18,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { serveDir, withPage } from './browser-harness.mjs'
+import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
@@ -62,6 +62,9 @@ const session = await withPage({
 })
 
 try {
+  await waitFor(session.evaluate,
+    "document.readyState === 'complete' && document.documentElement.localName === 'svg'",
+    { what: 'the SVG sheet' })
   // Give the sheet a frame of ground so a dark sheet is not read as a blank shot,
   // pin the viewport to the sheet's own pixels, and take away the margin a browser
   // puts around a document it is handed — otherwise the capture is the sheet
@@ -76,14 +79,14 @@ try {
     root.setAttribute('height', String(${sheetH}))
     return [root.clientWidth, root.clientHeight]
   })()`)
-  // Freeze the loop at a chosen second. A negative delay advances every animation to
-  // that moment and `paused` holds it there; the elements' own delays (the stagger on
-  // a crowd) go with it, which is what "the sheet at 8 s" has to mean.
+  // Seek CSS timelines without overwriting their individual delays: crowd stagger
+  // and the phase of every walking frame must survive a frozen preview.
   if (at !== null) {
     await session.evaluate(`(() => {
-      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
-      style.textContent = '*{animation-play-state:paused !important;animation-delay:${-Number(at)}s !important}'
-      document.documentElement.appendChild(style)
+      for (const animation of document.getAnimations()) {
+        animation.pause()
+        animation.currentTime = ${Number(at) * 1000}
+      }
       for (const svg of [document.documentElement, ...document.querySelectorAll('svg')]) {
         if (typeof svg.pauseAnimations !== 'function') continue
         svg.pauseAnimations()

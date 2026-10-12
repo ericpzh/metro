@@ -113,8 +113,12 @@ try {
     return pngs
   })()`)
 
+  // A single icon has no adjacent cabinet to receive the second leaf.
+  const single = await session.evaluate(`window.__pieceElevations.renderModuleThumbnails(132,
+    {ids:['gate'], pxPerMetre:${PX_PER_M}, scale:${SCALE}}, {hideSecondGateDoor:true})`)
+  result['gate-single'] = single.gate
   const index = []
-  for (const id of PIECES) {
+  for (const id of [...PIECES, 'gate-single']) {
     const png = result[modelId(id)]
     if (!png) throw new Error(`the pass returned nothing for \`${id}\``)
     const buffer = Buffer.from(png.split(',')[1], 'base64')

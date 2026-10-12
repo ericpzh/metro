@@ -219,7 +219,9 @@ test('a wall 指示牌 reserves a slab on its wall, not the whole storey column'
   const wall = wallSign(2, 3, 0)
   const hung = sign(2, 3, 0)
   const envelope = moduleEnvelope(wall)
-  assert.deepEqual({ ...envelope, z0: Number(envelope.z0.toFixed(3)) }, { x0: 2, y0: 3, z0: 2.45, x1: 3, y1: 3.25, z1: 2.85 })
+  // The sheet is the reservation: the 2.1 m panel centred on the cell, 3 mm off
+  // the wall — no housing box, so a neighbour cell and the room in front stay free.
+  assert.deepEqual({ ...envelope, y1: Number(envelope.y1.toFixed(3)), z0: Number(envelope.z0.toFixed(3)) }, { x0: 1.45, y0: 3, z0: 2.45, x1: 3.55, y1: 3.003, z1: 2.85 })
   assert.deepEqual(moduleEnvelope(hung), { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 4 }, 'the hung board keeps its column')
   // It is found from the floor cell it hangs over, like every other piece.
   assert.equal(moduleAt([wall], 2, 3, 0)?.id, 'sign-w')
@@ -229,7 +231,10 @@ test('a wall 指示牌 reserves a slab on its wall, not the whole storey column'
   assert.equal(placementBlocked([wall], createModule('tvm', 2, 3, 0, 't', 0)), true)
   // Two wall boards in one cell want the same slab of wall, so they collide.
   assert.equal(placementBlocked([wall], wallSign(2, 3, 0, 'sign-w2')), true)
-  assert.equal(placementBlocked([wall], wallSign(3, 3, 0, 'sign-w3')), false, 'a cell along is free')
+  // The 2.1 m sheet overhangs its cell by 5 cm a side, so the cells alongside
+  // are not free either — only two cells along clears the panel.
+  assert.equal(placementBlocked([wall], wallSign(3, 3, 0, 'sign-w3')), true, 'the sheet overhangs into the next cell')
+  assert.equal(placementBlocked([wall], wallSign(5, 3, 0, 'sign-w5')), false, 'two cells along is free')
   // The course the panel covers is not the block brush's to lay — the wall has to be
   // there first — while the storey the hung board holds is the wall board's no longer.
   assert.equal(moduleBlockedCells([wall], 2).has('2,3,2'), true, 'the panel’s own course is spoken for')

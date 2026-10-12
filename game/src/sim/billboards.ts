@@ -1,4 +1,5 @@
 import { msg } from './i18n.ts'
+import { POSTER_CATALOGUE } from './posterCatalogue.ts'
 // Billboard formats and the advertising poster catalogue — the 装饰 广告牌
 // variants and the artwork they print, GAME-SPEC §5.7.
 //
@@ -11,7 +12,7 @@ import { msg } from './i18n.ts'
 //
 // The second table is the poster catalogue. Like the billboard formats it is
 // pure data, but only the slugs live here: the artwork itself is a real image
-// under `src/assets/posters/<slug>.jpg`, and `render/adArt.ts` (browser-only) is the
+// under `src/assets/posters/<slug>.webp`, and `render/adArt.ts` (browser-only) is the
 // one place that pairs the two. Keeping the catalogue here means the placement
 // code can roll a poster without touching the DOM.
 
@@ -89,9 +90,7 @@ export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
     variant: 'portrait',
     label: msg('portrait_0_7_1'),
     w: 1,
-    // 0.8 × 1.16 is 0.69:1 — the two portrait posters in the catalogue are
-    // 0.68:1 and 0.75:1, so the tall panel is cut for the artwork rather than
-    // the other way round.
+    // The full portrait artwork fits within this panel with narrow margins.
     panelW: 0.8,
     panelH: 1.16,
     panelZ: 1.7,
@@ -127,41 +126,21 @@ export function billboardSpec(variant: BillboardVariant | undefined): BillboardS
 /* ------------------------------------------------------------ poster catalogue */
 
 export interface AdPoster {
-  /** The asset stem: `src/assets/posters/<slug>.jpg` (`render/adArt.ts`). */
+  /** The asset stem: `src/assets/posters/<slug>.webp` (`render/adArt.ts`). */
   slug: string
   /** What the artwork is, for the reading of this table and the test suite. */
   subject: string
   /**
    * The panels this poster may be printed on. A format's `shape` must be in
-   * here, or the lit face would show the picture squeezed into the wrong
-   * rectangle — the placement roll filters by it (`postersFor`).
+   * here, or the poster would be rolled for a mismatched display family — the
+   * placement roll filters by it (`postersFor`). The render fit uses a centred
+   * crop so the image fills its panel without stretching.
    */
   shapes: readonly BillboardShape[]
 }
 
-/**
- * The twelve supplied posters, in palette order. This is the whole catalogue:
- * `adSlugs()` is its order and `postersFor()` filters it, so a new image is one
- * row here plus the JPEG beside it.
- */
-export const AD_POSTERS: readonly AdPoster[] = [
-  // Landscape — a standard poster, at home on 横版 / 标准 / 大横版.
-  { slug: 'metro-security', subject: msg('guangzhou_metro_security_check'), shapes: ['landscape', 'wide'] },
-  { slug: 'property-hotline', subject: msg('property_viewing_hotline'), shapes: ['landscape', 'wide'] },
-  { slug: 'games-2025-blue', subject: msg('15th_national_games'), shapes: ['landscape', 'wide'] },
-  { slug: 'guangdong-league', subject: msg('guangdong_super_league'), shapes: ['landscape', 'wide'] },
-  { slug: 'cloud-security', subject: msg('what_is_cloud_security'), shapes: ['landscape', 'wide'] },
-  // Wide — a 2.25:1 poster, cut for 标准; 横版 crops it rather than stretching.
-  { slug: 'heinz-league', subject: msg('heinz_tomatoes_that_want_to_win'), shapes: ['wide', 'landscape'] },
-  { slug: 'animal-help', subject: msg('a_meal_for_a_stray_cat'), shapes: ['wide', 'landscape'] },
-  { slug: 'rhinitis-spray', subject: msg('herbal_rhinitis_spray'), shapes: ['wide', 'landscape'] },
-  // Panorama — a long strip, only the three-cell 长幅 shows it whole.
-  { slug: 'yupao-hiring', subject: msg('yupao_recruitment'), shapes: ['panorama'] },
-  { slug: 'haoyibao', subject: msg('haoyibao_insurance'), shapes: ['panorama'] },
-  // Portrait and square.
-  { slug: 'games-2025-red', subject: msg('15th_national_games_guangzhou'), shapes: ['portrait'] },
-  { slug: 'heinz-body', subject: msg('discover_what_the_body_can_do'), shapes: ['portrait', 'square'] },
-]
+/** Optimized square, portrait and landscape artwork from the supplied folder. */
+export const AD_POSTERS: readonly AdPoster[] = POSTER_CATALOGUE
 
 /** Every poster slug, in catalogue order. */
 export function adSlugs(): string[] {

@@ -1,30 +1,7 @@
 import { t } from '../sim/i18n.ts'
-// Ad art — the twelve supplied posters as lit screen material.
-//
-// GAME-SPEC §5.7's 装饰 screens (广告牌, 电视) print real artwork: the JPEGs in
-// `src/assets/posters/` are the campaign posters of a real station, and this module
-// is the one place the catalogue (`sim/billboards.ts`) meets the files. It is
-// browser-only — `import.meta.glob` and the DOM image element are Vite and DOM —
-// which is why the slug table lives on the sim side and the pixels live here.
-//
-// Three things matter for the look:
-//
-//   * **The artwork is cropped, never stretched.** A poster is cut to the
-//     panel's aspect ratio by clipping the quad's UV window to the middle of the
-//     image, so a 16:9 poster on a 2.25:1 panel loses its edges instead of
-//     smearing sideways. The window is written into the *geometry*, not into
-//     the texture's `repeat`/`offset`: one texture per poster then serves every
-//     format that prints it, and the crop is a property of the panel rather than
-//     a transform three has to apply per draw.
-//   * **A screen is static.** One slug, one texture, cached — a station of fifty
-//     billboards holds twelve textures and one material per poster and format,
-//     and nothing re-uploads when the module rebuilds.
-//   * **The pixels are decoded before any material is made.** `load()` awaits
-//     every JPEG, because a material minted around a texture that has no image
-//     yet renders blank for good — the GPU upload happens once, empty, and the
-//     image that arrives later never reaches it. Until the decode lands a screen
-//     prints the placeholder face, and `SceneRenderer` redraws the modules once
-//     the artwork is in (`onReady`).
+// GAME-SPEC §5.7: compact WebP artwork, one cached texture per poster.
+// Every face fills its panel with a centred UV crop, without stretching.
+// Files are decoded before materials are rebuilt, so no empty GPU upload sticks.
 
 import * as THREE from 'three'
 import { AD_POSTERS } from '../sim/billboards.ts'
@@ -37,7 +14,7 @@ import { croppedPlane, panelUvWindow } from './panelUv.ts'
 // blocked poster rejects this module's whole graph and the game never boots.
 //
 // Every poster's asset URL, keyed by its file stem (the catalogue slug).
-const AD_ART_URLS: Record<string, string> = import.meta.glob('../assets/posters/*.jpg', {
+const AD_ART_URLS: Record<string, string> = import.meta.glob('../assets/posters/*.webp', {
   eager: true,
   query: '?url',
   import: 'default',
@@ -46,7 +23,7 @@ const AD_ART_URLS: Record<string, string> = import.meta.glob('../assets/posters/
 const URL_BY_SLUG = new Map<string, string>()
 for (const [path, url] of Object.entries(AD_ART_URLS)) {
   const file = path.split('/').pop() ?? ''
-  URL_BY_SLUG.set(file.replace(/\.jpg$/, ''), url)
+  URL_BY_SLUG.set(file.replace(/\.webp$/, ''), url)
 }
 
 /**
@@ -188,19 +165,23 @@ export function createAdArt(renderer?: THREE.WebGLRenderer): AdArt {
       console.warn(`[ads] no image for poster slug(s): ${[...absent].join(', ')}`)
     }
     // Any screen drawn with a placeholder is now wrong: let the scene rebuild its
-    // modules so every lit face is cut from real pixels. Dropping the cached
-    // materials is enough — the geometry's UV window was written for the panel,
-    // not for a particular image.
+    // modules with the decoded image aspect. Placeholder geometry must also
+    // be dropped, since the crop window depends on those pixels.
     if (gained) {
       for (const mat of materials.values()) mat.dispose()
       materials.clear()
+      for (const tex of placeholders.values()) tex.dispose()
+      placeholders.clear()
+      for (const geo of geometries.values()) geo.dispose()
+      geometries.clear()
       onReady()
     }
   }
 
   function adFace(slug: string | undefined, w: number, h: number): AdFace {
     const key = faceKey(slug, w, h)
-    let material = materials.get(key)
+    const materialKey = slug ?? ''
+    let material = materials.get(materialKey)
     let texture: THREE.Texture
     if (material?.map) {
       texture = material.map
@@ -226,7 +207,7 @@ export function createAdArt(renderer?: THREE.WebGLRenderer): AdArt {
       // the black backing — and that is what the back of a television looks like.
       material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide })
       material.userData.adSlug = slug
-      materials.set(key, material)
+      materials.set(materialKey, material)
     }
     const image = texture.image as { width?: number; height?: number } | undefined
     const imageAspect = image?.width && image.height ? image.width / image.height : w / h
@@ -242,10 +223,7 @@ export function createAdArt(renderer?: THREE.WebGLRenderer): AdArt {
     load,
     adFace,
     adWindow(w: number, h: number): AdFace & { slug: string } {
-      // Only artwork cut for a landscape panel. The window is wide, and cropping is
-      // not stretching: a portrait poster in it would lose over half its height, so
-      // a feed that may show *anything* still shows only what it can show whole.
-      // The pick is what makes a wall of screens stop moving as one.
+      // Landscape artwork fills the TV feed with a centred crop.
       const feed = AD_POSTERS.filter((p) => p.shapes.includes('landscape') || p.shapes.includes('wide'))
       const pool = feed.length > 0 ? feed : AD_POSTERS
       const poster = pool[Math.floor(Math.random() * pool.length)] ?? AD_POSTERS[0]
