@@ -25,7 +25,7 @@
 // strips), and the renderer in `game/src/render/` still answers to it.
 // True isometric projection, 1 block = 1 m, z is height in metres.
 
-import { passengerSprites, walkingDefinitions, walkingSprite } from './passenger-cards.mjs';
+import { passengerSprites, walkingDefinitions, walkingSprite, walkingHeading } from './passenger-cards.mjs';
 
 export const C = {
   bg0: '#0c1017', soil: '#3b3229', soil2: '#4a4034',
@@ -586,8 +586,7 @@ export const mover = (path, col, begin = 0, o = {}) => {
   if (['person', 'personBag'].includes(o.sprite)) {
     const view = o.walkView ?? 'iso';
     const dx = pts.at(-1)[0] - pts[0][0], dy = pts.at(-1)[1] - pts[0][1];
-    const heading = view === 'iso' ? Math.atan2(dy / TH - dx / TW, dy / TH + dx / TW)
-      : dx >= 0 ? 0 : Math.PI;
+    const heading = walkingHeading(view, dx, dy, TW, TH);
     const metres = view === 'iso' ? Math.hypot(dx / TW + dy / TH, dy / TH - dx / TW) / 2
       : total / (o.walkScale ?? 26);
     const scale = view === 'iso' ? Math.sqrt(TW * TW + TH * TH) / Math.sqrt(2 / 3) : o.walkScale ?? 26;

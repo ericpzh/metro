@@ -107,6 +107,11 @@ its message limit. Movers in sheets 01, 02, 12 and 13 must cycle these poses
 rather than slide a frozen human. `mover` selects the camera, heading and gait speed for
 human sprites; use `walkView: 'elevation'` for sections. Short loops fade out
 before resetting, so figures never walk backward to their starting point.
+Use `walkingHeading` for camera-relative facing: the isometric camera projects
++X left/down and +Y right/down, opposite the drawing's horizontal axes. Its
+capture heading swaps the drawing's world X/Y. Keep the eight-direction
+`art-passenger-heading` projection test passing; gait playback alone cannot
+detect people walking sideways.
 In sheet 12-A, queue figures must use idle poses
 with varied headings. Boarding and alighting figures cycle these strides facing
 toward and away from the train, respectively. `walkingDefinitions` embeds each

@@ -35,6 +35,14 @@ export function passengerSprites() {
 }
 
 let walkingCards;
+/** Heading in the capture camera, rather than the drawing's world axes. */
+export function walkingHeading(view, dx, dy, pixelsPerX, pixelsPerY) {
+  // P(x,y) projects +X to screen-right/down. The capture camera at (+1,+1,+1)
+  // projects +X to screen-left/down and +Y to screen-right/down: swap X and Y.
+  return view === 'iso' ? Math.atan2(dy / pixelsPerY + dx / pixelsPerX, dy / pixelsPerY - dx / pixelsPerX)
+    : dx >= 0 ? 0 : Math.PI;
+}
+
 function loadWalking() {
   if (!walkingCards) {
     const dir = resolve(import.meta.dirname, '../.preview/passenger-cards');
