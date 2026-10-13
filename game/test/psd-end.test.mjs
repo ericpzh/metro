@@ -51,7 +51,7 @@ test('fixed glass blocks walking and keeps both heights through save/load', () =
     const p = panel(0, psd)
     assert.deepEqual(moduleFootprint(p), [[0, 0]])
     const envelope = moduleEnvelope(p)
-    assert.ok(Math.abs(envelope.z1 - envelope.z0 - (psd === 'half' ? 1.5 : 3.1)) < 1e-9)
+    assert.ok(Math.abs(envelope.z1 - envelope.z0 - (psd === 'half' ? 1.45 : 2.95)) < 1e-9)
     const data = { ...emptyStation(), modules: [p] }
     assert.equal(buildGraph(data).nodeIndex.has('0,0,0'), false)
     const loaded = parse(serialize(toState(data)))
@@ -72,7 +72,7 @@ test('model reuses screen fixed glass, matches its cap height, and has no slidin
       const glass = g.children.filter((c) => c.name === 'psd-fixed-glass')
       assert.equal(glass.length, 1)
       assert.equal(glass[0].geometry.parameters.width, 1)
-      assert.equal(glass[0].geometry.parameters.height, psd === 'half' ? 1.26 : 2.5)
+      assert.ok(Math.abs(glass[0].geometry.parameters.height - (psd === 'half' ? 1.16 : 2.5)) < 1e-9)
       assert.deepEqual(g.userData.doors, [])
       assert.ok(g.children.every((c) => c.userData.wall))
       const reference = buildModule({ ...screen(0, 'left', psd), w: 1 }, ctx)
@@ -94,13 +94,20 @@ test('corner glass is shortened and all frame meshes stay inside their tile', ()
         const [dx, dy] = rotateLocal(rot, 0, side === 'right' ? -1 : 1)
         const next = snapPsdEnd({ ...p, id: 'next', x: x + dx, y: y + dy }, [s, p])
         const ctx = { mats, data: { ...emptyStation(), modules: [s, p, next] }, trackCells: new Set(), finish: () => mats.steel, owned: [] }
-        for (const m of [p, next]) {
+        for (const m of [s, p, next]) {
           const g = buildModule(m, ctx)
           const glass = g.children.find((c) => c.name === 'psd-fixed-glass')
-          assert.ok(Math.abs(glass.geometry.parameters.width - (m === p ? 0.84 : 1)) < 1e-9, 'only the corner is shorter than a metre')
+          if (m !== s) assert.ok(Math.abs(glass.geometry.parameters.width - (m === p ? 0.84 : 1)) < 1e-9, 'only the corner is shorter than a metre')
           const bounds = new THREE.Box3().setFromObject(g)
-          assert.ok(bounds.min.x >= m.x - 1e-6 && bounds.max.x <= m.x + 1 + 1e-6, 'cap/frame never protrude along x')
-          assert.ok(bounds.min.y >= m.y - 1e-6 && bounds.max.y <= m.y + 1 + 1e-6, 'cap/frame never protrude along y')
+          if (m !== s) {
+            assert.ok(bounds.min.x >= m.x - 1e-6 && bounds.max.x <= m.x + 1 + 1e-6, 'cap/frame never protrude along x')
+            assert.ok(bounds.min.y >= m.y - 1e-6 && bounds.max.y <= m.y + 1 + 1e-6, 'cap/frame never protrude along y')
+          }
+          const ceilingZ = m.z + (psd === 'full' ? 4 : 3)
+          assert.ok(bounds.max.z <= ceilingZ - 0.0499, 'the complete screen fits below the overhead block')
+          assert.ok(Math.abs(bounds.max.z - moduleEnvelope(m).z1) < 1e-6, 'the cap stays inside the placement reservation')
+          assert.equal(blockReason([], [m], m.x, m.y, ceilingZ).ok, true, 'the overhead block can be placed')
+          if (m !== s) assert.equal(blockReason([], [m], m.x, m.y, ceilingZ - 1).ok, false, 'a block inside the extension is still refused')
         }
       }
     }
@@ -127,6 +134,95 @@ test('snap shares the screen endpoint tile in every rotation, end and track side
   }
   assert.equal(snapPsdEnd({ ...panel(1), x: 3 }, [screen()]).cfg.corner, undefined, 'no snap through the middle of the run')
   assert.equal(snapPsdEnd(panel(0), [screen()]).cfg.corner, undefined, 'parallel panel is not a corner')
+})
+
+test('trimmed extension fittings have no competing coplanar faces', () => {
+  const old = globalThis.document
+  globalThis.document = { createElement: () => { const { g } = stubCanvas(); return { width: 0, height: 0, getContext: () => g } } }
+  try {
+    const mats = new Proxy({}, { get: (t, k) => t[k] ??= new THREE.MeshStandardMaterial() })
+    for (const psd of ['half', 'full']) for (let rot = 0; rot < 4; rot++) for (const side of ['left', 'right']) for (const atEnd of [false, true]) for (const turn of [1, 3]) {
+      const s = screen(rot, side, psd)
+      const [x, y] = rotateLocal(rot, atEnd ? s.w - 1 : 0, 0)
+      const corner = snapPsdEnd({ ...panel((rot + turn) % 4, psd), x, y }, [s])
+      const [dx, dy] = rotateLocal(rot, 0, side === 'right' ? -1 : 1)
+      const next = snapPsdEnd({ ...corner, id: 'next', x: x + dx, y: y + dy, rot: (corner.rot + 2) % 4 }, [s, corner])
+      const ctx = { mats, data: { ...emptyStation(), modules: [s, corner, next] }, trackCells: new Set(), finish: () => mats.steel, owned: [] }
+      for (const p of [corner, next]) {
+        const g = buildModule(p, ctx)
+        const screenGroup = buildModule(s, ctx)
+        screenGroup.updateMatrixWorld(true)
+        g.updateMatrixWorld(true)
+        if (p === corner) {
+          const [ox] = p.cfg.offset
+          const span = psdEndSpan(p)
+          for (const [height, material, depth] of psd === 'full'
+            ? [[3.8, mats.white, 0.12], [3.925, mats.black, 0.14]]
+            : [[1.06, mats.white, 0.09], [2.425, mats.darkSteel, 0.05]]) {
+            const fitting = g.children.find((c) => {
+              if (c.material !== material || !(c.geometry instanceof THREE.BoxGeometry)) return false
+              c.updateMatrix()
+              const bounds = c.geometry.boundingBox.clone().applyMatrix4(c.matrix)
+              return bounds.min.z < height && bounds.max.z > height
+            })
+            assert.ok(fitting, 'the corner retains its fascia/cap')
+            const bounds = fitting.geometry.boundingBox.clone().applyMatrix4(fitting.matrix)
+            const end = ox > 0 ? bounds.min.x : bounds.max.x
+            const contact = ox > 0 ? span[0] + ox + depth : span[1] + ox - depth
+            assert.ok(Math.abs(end - contact) < 1e-6, 'fascia/cap meets the actual housing face without a clearance slit')
+          }
+        }
+        for (const fitting of g.children.filter((c) => c.geometry instanceof THREE.BoxGeometry)) {
+          const bounds = new THREE.Box3().setFromObject(fitting)
+          for (const housing of screenGroup.children.filter((c) => c.geometry instanceof THREE.BoxGeometry)) {
+            const other = new THREE.Box3().setFromObject(housing)
+            assert.ok(!['x', 'y', 'z'].every((key) => Math.min(bounds.max[key], other.max[key]) - Math.max(bounds.min[key], other.min[key]) > 1e-6), `extension fittings clear the ${psd} screen housing at rotation ${rot}, ${side} side, turn ${turn}`)
+          }
+        }
+        const boxes = g.children.filter((c) => c.geometry instanceof THREE.BoxGeometry).map((mesh) => {
+          mesh.updateMatrix()
+          return { mesh, bounds: mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrix) }
+        })
+        for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i], b = boxes[j]
+          if (a.mesh.material === b.mesh.material) continue
+          for (const axis of ['x', 'y', 'z']) for (const face of ['min', 'max']) {
+            if (Math.abs(a.bounds[face][axis] - b.bounds[face][axis]) > 1e-6) continue
+            const others = ['x', 'y', 'z'].filter((key) => key !== axis)
+            assert.ok(!others.every((key) => Math.min(a.bounds.max[key], b.bounds.max[key]) - Math.max(a.bounds.min[key], b.bounds.min[key]) > 1e-6), `${psd} fittings must not overlap on the same ${axis} face`)
+          }
+        }
+        const glass = g.children.find((c) => c.name === 'psd-fixed-glass')
+        assert.ok(Math.abs(glass.position.y - (-0.34 + p.cfg.offset[1])) < 1e-9, 'the glass retains its snapped plane')
+      }
+    }
+  } finally { if (old === undefined) delete globalThis.document; else globalThis.document = old }
+})
+
+test('PSD exposed ends have a single visible fitting face and preserve sliding leaves', () => {
+  const old = globalThis.document
+  globalThis.document = { createElement: () => { const { g } = stubCanvas(); return { width: 0, height: 0, getContext: () => g } } }
+  try {
+    const mats = new Proxy({}, { get: (t, k) => t[k] ??= new THREE.MeshStandardMaterial() })
+    for (const psd of ['half', 'full']) for (const side of ['left', 'right']) {
+      const p = screen(0, side, psd)
+      const ctx = { mats, data: { ...emptyStation(), modules: [p] }, trackCells: new Set(), finish: () => mats.steel, owned: [] }
+      const g = buildModule(p, ctx)
+      g.updateMatrixWorld(true)
+      const fixed = g.children.filter((c) => c.geometry instanceof THREE.BoxGeometry && c.userData.closedX === undefined)
+      for (const direction of [-1, 1]) for (const offset of [-0.045, 0.013, 0.043]) for (const z of [1.11, 1.13, 1.16, 2.35, 2.425, 3.585, 3.63, 3.67, 3.8]) {
+        const ray = new THREE.Raycaster(new THREE.Vector3(direction < 0 ? -1 : p.w + 1, 0.5 + (side === 'left' ? -0.34 : 0.34) + offset, z), new THREE.Vector3(-direction, 0, 0))
+        const hits = ray.intersectObjects(fixed)
+        for (let i = 0; i < hits.length; i++) for (let j = i + 1; j < hits.length; j++) {
+          if (hits[i].object === hits[j].object) continue
+          assert.ok(Math.abs(hits[i].distance - hits[j].distance) > 1e-6, 'an end-view ray must not see competing coplanar fitting faces')
+        }
+      }
+      for (const leaf of g.userData.doors.filter((c) => c.geometry instanceof THREE.BoxGeometry)) {
+        assert.equal(leaf.geometry.getAttribute('position').count, 24, 'moving fittings keep their complete box faces')
+      }
+    }
+  } finally { if (old === undefined) delete globalThis.document; else globalThis.document = old }
 })
 
 function pointer() { return { button: 0, clientX: 0, clientY: 0, buttons: 0, preventDefault() {}, hit: { cell: [0, 0, 0], place: [0, 0, 1], point: [0.5, 0.5, 1], solid: true } } }

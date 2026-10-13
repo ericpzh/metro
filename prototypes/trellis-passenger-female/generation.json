@@ -1,0 +1,23 @@
+{
+  "tool": "pwilkin/trellis.cpp",
+  "version": "v0.8.1",
+  "variant": "female",
+  "reference": "reference.png",
+  "referenceSha256": "5ab099bec00a251895bf386d2a838522cceb884f911151cb9e4e1f543eb86247",
+  "args": [
+    "--res",
+    "1024",
+    "--seed",
+    "42",
+    "--steps",
+    "12",
+    "--atlas",
+    "2048",
+    "--webp",
+    "off",
+    "--dump-bg",
+    "--require-gpu"
+  ],
+  "elapsedSeconds": 108.503,
+  "rigged": false
+}

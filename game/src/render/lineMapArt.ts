@@ -1,7 +1,7 @@
 // Line-map art — the supplied 广州地铁 线网示意图 as a lit material.
 //
 // The network a 线网图 prints is the poster the station wall really carries, saved as
-// an asset: `src/assets/linemaps/network-map.jpg` (2048 × 2047). This module is the
+// an asset: `src/assets/linemaps/network-map.jpg` (1080 × 1080). This module is the
 // one place that file meets the panel `sim/linemaps.ts` describes, exactly as
 // `render/adArt.ts` pairs an ad slug with its JPEG — the table names the size, this
 // holds the pixels.

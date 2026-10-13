@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Female commuter — shared body</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#eeefed;color:#444;font:14px system-ui}main{height:100dvh;display:grid;grid-template-rows:auto 1fr auto}header,footer{padding:18px 26px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:19px;margin:0;font-weight:500}p{margin:6px 0 0;color:#777}a{color:inherit}section{display:grid;grid-template-columns:minmax(150px,24%) 1fr;min-height:0}aside{display:flex;flex-direction:column;align-items:center;padding:12px 20px;min-height:0}aside img{width:100%;height:calc(100% - 28px);object-fit:contain}aside p{font-size:12px}#view{position:relative;min-height:300px}canvas{display:block;touch-action:none}button,select{padding:8px 12px;border:1px solid #bbb;border-radius:6px;background:transparent;color:#444;cursor:pointer;font:inherit}button[aria-pressed=true]{background:#d6d8d3}.buttons{display:flex;gap:5px;flex-wrap:wrap}#status{position:absolute;inset:45% 0 auto;text-align:center}@media(max-width:600px){section{grid-template-columns:25% 1fr}aside{padding:8px}header,footer{padding:14px}}</style>
+<script type="importmap">{"imports":{"three":"/game/node_modules/three/build/three.module.js","three/addons/":"/game/node_modules/three/examples/jsm/"}}</script></head>
+<body><main><header><div><h1>Female commuter — shared body</h1><p>Bob hairstyle · light cardigan · approved walk</p></div><a href="./passenger-female-walk.glb" download>Download model (.glb)</a></header>
+<section><aside><img src="../trellis-passenger/reference.png" alt="Approved body reference"><p>Approved body reference</p></aside><div id="view"><div id="status">Loading model…</div></div></section>
+<footer><div class="buttons"><button data-view="front" aria-pressed="true">Front</button><button data-view="three">¾ view</button><button data-view="side">Side</button><button data-view="back">Back</button></div><div class="buttons"><button id="walk" aria-pressed="true">Pause walk</button><select id="profile" aria-label="Walk profile"><option value="0">Slow</option><option value="1" selected>Medium</option><option value="2">Fast</option></select><button id="rotate" aria-pressed="false">Auto rotate</button></div><p>Drag to rotate · scroll to zoom</p></footer></main>
+<script type="module">
+import * as THREE from 'three';
+import {createFemaleVariant,HAIRSTYLES} from './variant.js';
+
+import {createPassengerWalkPoser} from '/tools/passenger-walk-poses.mjs';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
+const profiles=(await (await fetch('./walk-profiles.json')).json()).map(p=>({...p,name:p.name[0].toUpperCase()+p.name.slice(1)}));
+const host=document.querySelector('#view'),renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;host.append(renderer.domElement);
+const scene=new THREE.Scene(),camera=new THREE.OrthographicCamera(-1,1,1,-1,.01,100),controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.autoRotateSpeed=1.1;controls.minZoom=.4;controls.maxZoom=5;
+const ground=new THREE.Mesh(new THREE.CircleGeometry(.55,64),new THREE.MeshBasicMaterial({color:0xd8dad5,transparent:true,opacity:.5}));ground.rotation.x=-Math.PI/2;ground.position.y=-.01;scene.add(ground);
+function size(){const w=host.clientWidth,h=host.clientHeight;renderer.setSize(w,h);const half=1.01;camera.left=-half*w/h;camera.right=half*w/h;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix()}new ResizeObserver(size).observe(host);size();
+const views={front:[0,.84,5],three:[3,1.18,4],side:[5,.84,0],back:[0,.84,-5],backThree:[3,1.18,-4],left:[-5,.84,0]};
+function setView(name){camera.position.set(...views[name]);controls.target.set(0,.82,0);camera.zoom=1;camera.updateProjectionMatrix();controls.update();document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===name))}setView('front');
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));document.querySelector('#rotate').onclick=e=>{controls.autoRotate=!controls.autoRotate;e.target.setAttribute('aria-pressed',controls.autoRotate)};
+let model,mixer,action,clips,walking=true,lastFrame=0;
+function setWalking(on){walking=on;document.querySelector('#walk').textContent=on?'Pause walk':'Play walk';document.querySelector('#walk').setAttribute('aria-pressed',on)}
+function setProfile(i){mixer.stopAllAction();action=mixer.clipAction(clips[i]);action.play();document.querySelector('#profile').value=String(i)}
+document.querySelector('#walk').onclick=()=>setWalking(!walking);document.querySelector('#profile').onchange=e=>setProfile(Number(e.target.value));
+try{
+ const gltf=await new GLTFLoader().loadAsync('../trellis-passenger/passenger-b-walk-forward.glb');
+ const rig=createFemaleVariant(gltf.scene);model=rig.model;const pose=createPassengerWalkPoser(model),bones=rig.skeleton.bones;
+ const hairstyle=document.createElement('select');hairstyle.setAttribute('aria-label','Hairstyle');
+ for(const [value,style] of Object.entries(HAIRSTYLES)){const option=document.createElement('option');option.value=value;option.textContent=style.label;hairstyle.append(option)}
+ document.querySelector('#profile').after(hairstyle);
+ const bag=document.createElement('select');bag.setAttribute('aria-label','Backpack');bag.innerHTML='<option value="1">With backpack</option><option value="0">Without backpack</option>';hairstyle.after(bag);
+ function refreshVariant(){const style=rig.getStyle(),withBag=rig.hasBag();hairstyle.value=style;bag.value=withBag?'1':'0';document.querySelector('header p').textContent=HAIRSTYLES[style].label+' · '+(withBag?'with backpack':'without backpack')+' · light cardigan';document.querySelector('header a').href=withBag?(style==='bob'?'./passenger-female-walk.glb':`./passenger-female-${style}-walk.glb`):`./passenger-female-no-bag-${style}-walk.glb`}
+ function setHairstyle(style){rig.setHairstyle(style);refreshVariant()}
+ function setBag(enabled){rig.setBag(enabled);refreshVariant()}
+ bag.onchange=()=>setBag(bag.value==='1');
+ hairstyle.title='Long hair is available without a backpack; selecting it removes the backpack.';
+ hairstyle.onchange=()=>setHairstyle(hairstyle.value);
+ const requestedStyle=new URL(location.href).searchParams.get('hair');setHairstyle(HAIRSTYLES[requestedStyle]?requestedStyle:'bob');
+ if(new URL(location.href).searchParams.get('bag')==='0')setBag(false);
+ clips=profiles.map(profile=>{
+  const times=[],quats=bones.map(()=>[]),positions=[];
+  for(let i=0;i<=48;i++){times.push(i*profile.cycleSeconds/48);pose((i%48)/48,profile);bones.forEach((b,j)=>quats[j].push(...b.quaternion.toArray()));positions.push(...bones[0].position.toArray())}
+  const tracks=bones.map((b,j)=>new THREE.QuaternionKeyframeTrack(b.name+'.quaternion',times,quats[j]));tracks.push(new THREE.VectorKeyframeTrack('Hips.position',times,positions));
+  return new THREE.AnimationClip('Walk_'+profile.name,profile.cycleSeconds,tracks);
+ });
+ rig.skeleton.pose();model.updateMatrixWorld(true);scene.add(model);mixer=new THREE.AnimationMixer(model);setProfile(1);document.querySelector('#status').remove();
+ window.__femalePreview={model,renderer,scene,camera,controls,mixer,clips,setView,setWalking,setProfile,setHairstyle,setBag,getStyle:rig.getStyle,hasBag:rig.hasBag,setTime:t=>{mixer.setTime(t);model.updateMatrixWorld(true);rig.skeleton.update()}};
+ window.__exportFemale=async(animate=true)=>{mixer.stopAllAction();rig.skeleton.pose();model.updateMatrixWorld(true);window.__femaleBinary=new Uint8Array(await new GLTFExporter().parseAsync(model,{binary:true,animations:animate?clips:[]}));setProfile(1);return window.__femaleBinary.length};
+ window.__femaleChunk=offset=>{let text='';const b=window.__femaleBinary.subarray(offset,offset+196608);for(let i=0;i<b.length;i+=8192)text+=String.fromCharCode(...b.subarray(i,i+8192));return btoa(text)};
+ window.__femaleReady=true;
+}catch(e){document.querySelector('#status').textContent='Model failed to load.';console.error(e)}
+renderer.setAnimationLoop(now=>{const dt=lastFrame?Math.min((now-lastFrame)/1000,.05):0;lastFrame=now;if(mixer&&walking)mixer.update(dt);controls.update();renderer.render(scene,camera)});
+</script></body></html>

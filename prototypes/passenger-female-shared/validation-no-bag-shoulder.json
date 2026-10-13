@@ -1,0 +1,44 @@
+{
+  "source": "../trellis-passenger/passenger-b-walk-forward.glb",
+  "sourceSha256": "4bb4a7ded62d5e5eeb97dcee6d3add711631b9bcc15210444ea113381bd2ef4a",
+  "approvedBodyGeometryIdentical": false,
+  "bodyPositionsOutsideCleanupRegionsIdentical": true,
+  "correctedTrouserVertices": 5384,
+  "otherSkinWeightsPreserved": true,
+  "maxWeightDifference": 5.960464477539063e-8,
+  "onlyHairGeometryReplaced": false,
+  "meshes": 3,
+  "triangles": 348211,
+  "bones": 16,
+  "cleanColours": true,
+  "walks": [
+    {
+      "clip": "Walk_Slow",
+      "maxStanceSlide": 7.27913941345193e-8,
+      "groundRange": [
+        -2.6957309727335284e-8,
+        2.3768175522069555e-8
+      ]
+    },
+    {
+      "clip": "Walk_Medium",
+      "maxStanceSlide": 8.229997977560188e-8,
+      "groundRange": [
+        -2.3011574267860072e-8,
+        3.045414629396406e-8
+      ]
+    },
+    {
+      "clip": "Walk_Fast",
+      "maxStanceSlide": 1.0526657262532879e-7,
+      "groundRange": [
+        -2.7033606252449755e-8,
+        3.1818765190243226e-8
+      ]
+    }
+  ],
+  "hairstyle": "shoulder",
+  "withBag": false,
+  "jacketBackFill": true,
+  "foreheadSamplesCovered": 7
+}

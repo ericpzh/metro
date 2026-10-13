@@ -56,7 +56,7 @@ globalThis.document = { createElement: () => stubCanvas() }
 const { buildModule, buildTrain, createModelMaterials, disposeObject, setDoors, setDoorsSides, setGateWing, rollEscalator } = await import('../src/render/models.ts')
 const { createModule } = await import('../src/build/model.ts')
 const { STOCK, doorCentres } = await import('../src/sim/stock.ts')
-const { STAIR_RISE, STAIR_RUN } = await import('../src/sim/stairs.ts')
+const { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairRight } = await import('../src/sim/stairs.ts')
 const { LIFT_STEP, LIFT_RISE, liftModule } = await import('../src/sim/lifts.ts')
 const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
@@ -244,6 +244,36 @@ test('a two-block escalator has one continuous moving band and only two outer ba
   }
 })
 
+test('escalator glass fills the rounded handrail returns at both ends', () => {
+  for (const width of [1, 2]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+    const mod = createModule('escalator', 4, 4, 0, 'glass-ends', rot, width, dir)
+    const { group } = build(mod)
+    const panes = group.children.filter((o) => o.material === mats.glass)
+    assert.equal(panes.length, 2, 'each outer side has one seamless glass pane')
+    const len = group.children.find((o) => o.name === 'truss').geometry.parameters.width
+    for (const pane of panes) {
+      pane.geometry.computeBoundingBox()
+      const bounds = pane.geometry.boundingBox
+      assert.equal(round(bounds.min.x), -0.5, 'glass reaches the centre of the starting rounded return')
+      assert.equal(round(bounds.max.x), round(len + 0.5), 'glass reaches the centre of the other return')
+      assert.equal(round(bounds.min.z), 0)
+      assert.equal(round(bounds.max.z), 1)
+      const positions = pane.geometry.attributes.position
+      let left = 0, right = 0
+      for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i), z = positions.getZ(i)
+        if (x >= 0 && x <= len) continue
+        const endX = x < 0 ? 0 : len
+        assert.ok((x - endX) ** 2 + (z - 0.5) ** 2 <= 0.25 + 1e-6,
+          'rounded infill stays within the handrail curve instead of adding square corners')
+        if (x < -0.49) left++
+        if (x > len + 0.49) right++
+      }
+      assert.ok(left > 0 && right > 0, 'both previously empty ends carry glass')
+    }
+  }
+})
+
 test('escalator steps flatten smoothly at both combs and wrap while hidden', () => {
   for (const width of [1, 2]) for (const dir of ['up', 'down']) {
     const { group } = build(createModule('escalator', 4, 4, 0, 'terminal', 0, width, dir))
@@ -353,12 +383,12 @@ const PIECES = [
   ['玻璃板 3×2', palette('glass-3x2'), 5, '3×0.1×2'],
   // The 门 (§5.7) is a free-standing doorway. Stainless now includes exposed hardware;
   // wood retains its simpler pull and kick plate.
-  ['门 不锈钢 窄', palette('door-steel-1'), 20, '1×0.19×2.05'],
-  ['门 木 窄', palette('door-wood-1'), 12, '1×0.19×2.05'],
+  ['门 不锈钢 窄', palette('door-steel-1'), 20, '1×0.19×1.99'],
+  ['门 木 窄', palette('door-wood-1'), 12, '1×0.19×1.99'],
   ['站名 楷书 横排', calligraphy('calligraphy-kai-h'), 1, '3×0×1'],
   ['站名 楷书 竖排', calligraphy('calligraphy-kai-v'), 1, '0.98×0×2.6'],
-  ['线网图 墙面', palette('linemap-wall'), 3, '1.92×0.185×1.939'],
-  ['线网图 立式', palette('linemap-stand'), 5, '1.86×0.62×2.279'],
+  ['线网图 墙面', palette('linemap-wall'), 3, '1.92×0.185×1.94'],
+  ['线网图 立式', palette('linemap-stand'), 5, '1.86×0.62×2.28'],
   ['出入口 有盖 单向', palette('exit-covered-1'), 76, '3.1×8.118×4'],
   ['出入口 有盖 双向', palette('exit'), 76, '4.1×8.118×4'],
   ['出入口 有盖 三向', palette('exit-covered-3'), 76, '5.1×8.118×4'],
@@ -380,11 +410,11 @@ const PIECES = [
   // beams are trimmed by `thickness · tan θ` so they end on the treads' own edge, inside the
   // cell the cut shaves. An overhang put the piece's lowest point 0.36 m deep in the landing's
   // block, which is deliberately never cut — the flight's foot sank into the floor it stands on.
-  ['楼梯 单跑', palette('stair-straight'), 71, '0.89×6.25×5.323'],
-  ['楼梯 左转 90°', palette('stair-left90'), 87, '3.57×3.57×5.315'],
-  ['楼梯 右转 90°', palette('stair-right90'), 90, '3.57×3.57×5.315'],
-  ['楼梯 左双跑', palette('stair-left180'), 90, '2×3.625×5.315'],
-  ['楼梯 右双跑', palette('stair-right180'), 90, '2×3.625×5.315'],
+  ['楼梯 单跑', palette('stair-straight'), 79, '1×6.25×5.323'],
+  ['楼梯 左转 90°', palette('stair-left90'), 100, '3.57×3.57×5.315'],
+  ['楼梯 右转 90°', palette('stair-right90'), 104, '3.57×3.57×5.315'],
+  ['楼梯 左双跑', palette('stair-left180'), 104, '2×3.625×5.315'],
+  ['楼梯 右双跑', palette('stair-right180'), 104, '2×3.625×5.315'],
   ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 33, '3×3×2.4'],
   ['商店房间', room('shop', 'store'), 18, '5×4×3'],
   // 厕所 / 办公室 close their doorway with the shared 门 builder
@@ -403,6 +433,108 @@ test('every piece the palette can lay draws a model, at the size it draws it', (
     assert.ok(built.meshes > 0, `${label}: a piece with no mesh is invisible in the station`)
     assert.equal(built.meshes, meshes, `${label}: mesh count`)
     assert.equal(built.size, size, `${label}: bounding box (x×y×z metres)`)
+  }
+})
+
+test('left, centre and right forward stairs render both flights and the middle landing', () => {
+  const previous = ctx.data
+  try {
+    for (const style of ['leftForward', 'centerForward', 'rightForward']) {
+      for (const width of [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]) {
+        for (let rot = 0; rot < 4; rot++) {
+          const mod = createModule(`stair-${style}`, 0, 0, 0, `forward-${style}-${width}-${rot}`, rot, width)
+          ctx.data = { ...previous, cells: [], modules: [mod] }
+          const group = buildModule(mod, ctx)
+          assert.equal(group.children.length, 3, `${style}/${width}/${rot}: two flights and one landing`)
+          for (const [index, flight] of group.children.slice(0, 2).entries()) {
+            assert.ok(flight.children.some((part) => part.geometry?.type === 'BoxGeometry'),
+              `${style}/${width}/${rot}: flight ${index} has visible treads`)
+            assert.ok(flight.children.some((part) => part.material === mats.glass),
+              `${style}/${width}/${rot}: flight ${index} has its rail glazing`)
+          }
+          const landing = group.children[2]
+          assert.ok(landing.children.some((part) => part.geometry?.type === 'BoxGeometry'),
+            `${style}/${width}/${rot}: middle landing is visible`)
+        }
+      }
+    }
+  } finally {
+    ctx.data = previous
+  }
+})
+
+test('stair glass fills both sloped railings and landing returns around a continuous wide tread', () => {
+  const previous = ctx.data
+  try {
+    for (const [width, treadWidth] of [[0.68, 0.79], [1.36, 1.79], [2.04, 2.79]]) {
+      for (let rot = 0; rot < 4; rot++) {
+        const mod = createModule('stair-straight', 0, 0, 0, 'stair', rot, width)
+        ctx.data = { ...previous, cells: [], modules: [mod] }
+        const group = buildModule(mod, ctx)
+        const flight = group.children[0]
+        const panes = flight.children.filter((o) => o.material === mats.glass)
+        assert.equal(panes.length, 8, 'two sloping panels and two landing returns on each side')
+        for (const pane of panes) {
+          assert.ok(Math.abs(Math.abs(pane.position.y - 0.0125) - (treadWidth / 2 + 0.07)) < 1e-6,
+            'all glass stays at the outer rails, with no divider in the stair centre')
+          pane.geometry.computeBoundingBox()
+          assert.ok(pane.geometry.boundingBox.getSize(new THREE.Vector3()).z > 0.5,
+            'the glass fills the railing opening vertically')
+        }
+        const treads = flight.children.filter((o) => o.geometry.type === 'BoxGeometry'
+          && Math.abs(o.geometry.parameters.depth - 0.09) < 1e-6)
+        assert.equal(treads.length, 24, 'the full-width flight has one tread per step, without lane seams')
+        for (const tread of treads) assert.ok(Math.abs(tread.geometry.parameters.height - treadWidth) < 1e-6)
+      }
+    }
+  } finally {
+    ctx.data = previous
+  }
+})
+
+test('new medium and wide straight stairs shift from the hovered lane toward the run’s right side', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const narrow = createModule('stair-straight', 0, 0, 0, 'narrow', rot, STAIR_WIDTH_NARROW)
+    const narrowFlight = build(narrow).group.children[0]
+    const [rightX, rightY] = stairRight(rot)
+    for (const [width, shift] of [[STAIR_WIDTH_DOUBLE, 0.5], [STAIR_WIDTH_TRIPLE, 1]]) {
+      const wide = createModule('stair-straight', 0, 0, 0, `wide-${width}`, rot, width)
+      const flight = build(wide).group.children[0]
+      assert.ok(Math.abs(flight.position.x - narrowFlight.position.x - rightX * shift) < 1e-6,
+        `width ${width}, rotation ${rot}: shift is ${shift} m along +stairRight`)
+      assert.ok(Math.abs(flight.position.y - narrowFlight.position.y - rightY * shift) < 1e-6,
+        `width ${width}, rotation ${rot}: preserve the same lateral anchor after rotation`)
+      assert.equal(flight.position.z, narrowFlight.position.z, 'size changes do not move the flight vertically')
+    }
+
+    const legacy = createModule('stair-straight', 0, 0, 0, 'legacy', rot, 1.6)
+    const legacyFlight = build(legacy).group.children[0]
+    assert.ok(legacyFlight.position.distanceTo(narrowFlight.position) < 1e-6,
+      'legacy off-grid width keeps its saved centre line')
+  }
+})
+
+test('straight stairs fill their block edges with outer rails in every size and rotation', () => {
+  const previous = ctx.data
+  try {
+    for (let rot = 0; rot < 4; rot++) {
+      const [rx, ry] = stairRight(rot)
+      for (const [width, blocks] of [[0.68, 1], [1.36, 2], [2.04, 3]]) {
+        const mod = createModule('stair-straight', 0, 0, 0, 'stair', rot, width)
+        ctx.data = { ...previous, cells: [], modules: [mod] }
+        const group = buildModule(mod, ctx)
+        const bounds = new THREE.Box3().setFromObject(group)
+        const lo = rx ? bounds.min.x : bounds.min.y
+        const hi = rx ? bounds.max.x : bounds.max.y
+        const direction = rx || ry
+        assert.ok(Math.abs(lo - (direction > 0 ? 0 : 1 - blocks)) < 1e-6,
+          `size ${blocks}, rotation ${rot}: first outer rail meets the block edge`)
+        assert.ok(Math.abs(hi - (direction > 0 ? blocks : 1)) < 1e-6,
+          `size ${blocks}, rotation ${rot}: last outer rail meets the block edge`)
+      }
+    }
+  } finally {
+    ctx.data = previous
   }
 })
 
@@ -632,15 +764,18 @@ test('half-height caps sit above white rails and keep a compact slide lane', () 
   const caps = group.children.filter((o) => o.name === 'psd-fixed-cap' || o.name === 'half-door-cap')
   for (const cap of caps) {
     const bounds = box(cap)
-    assert.ok(Math.abs(bounds.min.z - (1 + PSD_HALF_HEIGHT)) < 1e-6, 'the cap starts at the white rail top instead of intersecting it')
+    assert.ok(Math.abs(bounds.min.z - (1 + PSD_HALF_HEIGHT - 0.05)) < 1e-6, 'the cap starts at the white rail top instead of intersecting it')
+    assert.ok(Math.abs(bounds.max.z - (1 + PSD_HALF_HEIGHT)) < 1e-6, 'the cap stays inside the reserved height')
     assert.ok(bounds.getSize(new THREE.Vector3()).y < 0.101, 'the black cap is only 10 cm deep')
   }
-  for (const rail of rails) assert.ok(Math.abs(box(rail).max.z - (1 + PSD_HALF_HEIGHT)) < 1e-6)
+  for (const rail of rails) assert.ok(Math.abs(box(rail).max.z - (1 + PSD_HALF_HEIGHT - 0.05)) < 1e-6)
   const pane = group.getObjectByName('psd-fixed-glass')
   const moving = group.getObjectByName('psd-door-glass')
   assert.ok(Math.abs(Math.abs(pane.position.y - moving.position.y) - 0.11) < 1e-6, 'the sliding pane sits 11 cm from the fixed pane')
   for (const glass of [pane, moving]) {
     assert.equal(glass.material.depthWrite, false, 'transparent glass cannot occlude another pane at grazing angles')
+    assert.equal(glass.material.polygonOffset, true, 'PSD glass stays ahead of a flush platform wall in the depth buffer')
+    assert.equal(glass.material.polygonOffsetFactor, -1)
     assert.equal(glass.geometry.type, 'PlaneGeometry', 'each pane draws a single glass surface')
   }
 })
@@ -728,7 +863,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   const doorSize = (id) => box(build(palette(id)).group).getSize(new THREE.Vector3())
   const single = doorSize('door-steel-1')
   const pair = box(build(createModule('door-steel-2', 4, 4, 0, 'wide-door', 0)).group).getSize(new THREE.Vector3())
-  assert.ok(Math.abs(single.z - 2.05) < 1e-6, `a 门 is drawn to its own height (${round(single.z)})`)
+  assert.ok(Math.abs(single.z - 1.99) < 1e-6, `a 门 fits below a two-block wall opening (${round(single.z)})`)
   assert.equal(round(pair.x), 2, 'and a 双开 door spans the two cells it reserves')
   assert.equal(round(single.y), round(pair.y), 'every 门 is one panel deep, whatever its width')
 
@@ -753,7 +888,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
     return { meshes, size: box.getSize(new THREE.Vector3()) }
   }
   const oneLeaf = roomDoor([[6, 4]])
-  assert.ok(Math.abs(oneLeaf.size.z - 2.05) < 1e-6, `a room doorway is cut to the 门 piece's own height (${round(oneLeaf.size.z)})`)
+  assert.ok(Math.abs(oneLeaf.size.z - 1.99) < 1e-6, `a room doorway is cut to the 门 piece's own height (${round(oneLeaf.size.z)})`)
   assert.ok(Math.abs(oneLeaf.size.x - single.x) < 1e-6, 'and a one-cell opening draws one leaf of it')
   assert.equal(oneLeaf.meshes, 20, 'a doorway draws exactly the parts a standing 门 does')
   const twoLeaves = roomDoor([

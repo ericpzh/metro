@@ -62,6 +62,52 @@ test('customer-service pictogram prints as reusable white ink without a caption'
   }
 })
 
+test('the separator prints one white vertical line and nothing else', () => {
+  const layout = settleSignBins([
+    { id: 'sep', kind: 'icon', icon: 'separator', x: 0, y: 0, scale: 1, side: 'both' },
+  ]).layout
+  for (const face of ['left', 'right']) {
+    const { ops } = paint(layout, [LINE], face)
+    assert.ok(ops.filled.includes('#f4f7fa'), `${face}: the divider prints in pale ink`)
+    assert.deepEqual(ops.texts, [], 'a divider carries no wording')
+    assert.deepEqual(ops.drawn, [], 'and needs no external bitmap')
+  }
+  // The geometry itself: a tall narrow box, upright, full bleed of its own square.
+  const panel = signPanelSize(layout)
+  const plate = signPlate(panel)
+  const tracked = trackingCanvas(plate.width, plate.height)
+  drawSignPanel(tracked.g, layout, { lines: [LINE], panel }, 'left')
+  const line = tracked.painted.find((p) => p.kind === 'fill' && p.colour === '#f4f7fa')
+  assert.ok(line, 'the divider is a filled path')
+  const xs = line.points.map((p) => p[0])
+  const ys = line.points.map((p) => p[1])
+  const width = Math.max(...xs) - Math.min(...xs)
+  const height = Math.max(...ys) - Math.min(...ys)
+  assert.ok(Math.abs(height - SIGN_SIZE.icon.h * PX_PER_METRE) < 1, `full bleed top to bottom (${height.toFixed(1)} px)`)
+  assert.ok(width < height / 4, `a line, not a slab (${width.toFixed(1)}×${height.toFixed(1)} px)`)
+  // Upright: two vertical edges, two level ones.
+  assert.equal(new Set(xs.map((x) => Math.round(x * 100) / 100)).size, 2, 'two vertical edges')
+  assert.equal(new Set(ys.map((y) => Math.round(y * 100) / 100)).size, 2, 'two level edges')
+})
+
+test('the blank divider prints nothing but still holds its place on the row', () => {
+  const gap = { id: 'g1', kind: 'icon', icon: 'gap', x: 0, y: 0.35, scale: 1, side: 'both' }
+  const layout = settleSignBins([gap]).layout
+  const { ops } = paint(layout, [LINE], 'left')
+  // Pure black tile: the board's own ground and frame, no ink, no words, no pictures.
+  assert.deepEqual(ops.filled, ['#0d1116'], `a blank divider prints only the ground: ${JSON.stringify(ops.filled)}`)
+  assert.deepEqual(ops.texts, [], 'and no wording')
+  assert.equal(ops.images, 0, 'and no bitmap')
+  // But it is a mark with a footprint, not an absence: a pictogram's own square, so
+  // it separates two groups by a fixed slot — and swapping it for the divider line
+  // keeps the board exactly as wide.
+  const ink = signInkSize(gap)
+  assert.ok(Math.abs(ink.w - SIGN_SIZE.icon.w) < 1e-9 && Math.abs(ink.h - SIGN_SIZE.icon.h) < 1e-9, `a pictogram's box: ${ink.w}×${ink.h}`)
+  assert.equal(signPieces(layout, signPanelSize(layout)).length, 1, 'the row still carries it as a piece')
+  const lined = settleSignBins([{ ...gap, id: 's1', icon: 'separator' }])
+  assert.ok(Math.abs(signPanelSize(layout).w - lined.panel.w) < 1e-9, 'line and blank dividers are interchangeable slots')
+})
+
 test('a fresh sign prints marks, not a black panel', () => {
   const mod = createModule('sign', 2, 3, 0, 'sign-1', 0, undefined, 'up', 'right', [LINE])
   assert.equal(mod.type, 'sign')
@@ -340,7 +386,9 @@ test('every mark the palette offers prints on its own', () => {
     { id: 'c1', kind: 'arrow', arrow: 'up-left', x: 0, y: 0.35, scale: 1, side: 'both' },
     { id: 'c2', kind: 'line', lineId: '5', english: true, x: 0, y: 0.35, scale: 1, side: 'both' },
     { id: 'c3', kind: 'text', text: '出站\nExit', x: 0, y: 0.35, scale: 1, side: 'both' },
-    ...SIGN_ICONS.map((icon, i) => ({ id: `i${i}`, kind: 'icon', icon, x: 0, y: 0.35, scale: 1, side: 'both' })),
+    // Every pictogram but the blank divider, which prints nothing by design (pinned
+    // on its own below): a board carrying only it is ground and frame, not a mark.
+    ...SIGN_ICONS.filter((icon) => icon !== 'gap').map((icon, i) => ({ id: `i${i}`, kind: 'icon', icon, x: 0, y: 0.35, scale: 1, side: 'both' })),
   ]
   for (const mark of marks) {
     const layout = settleSignBins([mark]).layout
@@ -354,9 +402,9 @@ test('every mark the palette offers prints on its own', () => {
     const printed = ops.filled.some((c) => c !== BOARD) || ops.texts.length > 0 || ops.images > 0
     assert.ok(printed, `${what}: nothing was drawn (fills ${JSON.stringify(ops.filled)}, no words, no pictures)`)
     // A **bitmap** mark is drawn as one square picture of its own asset, so the drawing
-    // and the catalogue cannot disagree about which mark a component wears. The two
-    // drawn marks — the 出/EXIT plate and the 禁止 roundel — are paths instead, and are
-    // pinned by their own tests below.
+    // and the catalogue cannot disagree about which mark a component wears. The
+    // drawn marks are paths instead (or, for the blank divider, nothing at all),
+    // and are pinned by their own tests below.
     if (mark.kind === 'icon' && !signIconIsDrawn(mark.icon)) {
       assert.deepEqual(ops.drawn.map((d) => d.icon), [mark.icon], `${what}: the wrong picture was printed`)
       assert.equal(ops.drawn[0].w, ops.drawn[0].h, `${what}: a pictogram is drawn square`)
@@ -501,6 +549,26 @@ test('a two-line label is set at its own size, one row under the other, on the p
   assert.ok(en.y - zh.y > en.size, `the rows are stacked, not overprinted: ${en.y - zh.y}px apart`)
   assert.ok(zh.y - zh.size > 0, `the upper row runs off the plate: baseline ${zh.y}, size ${zh.size}`)
   assert.ok(en.y < plate.height, `the lower row runs off the plate: baseline ${en.y} of ${plate.height}`)
+})
+
+/**
+ * A lone primary line takes over the gloss row: set twice as large, filling the
+ * two-row stack a two-line label holds. The editor's tile preview shows the primary
+ * grown into the secondary's space, and the printed board is where that promise is
+ * kept — a primary that printed at its one-row size would sit small in the middle
+ * of the plate while the preview showed it large.
+ */
+test('a primary-only label is set twice as large, filling the gloss row', () => {
+  const label = { id: 'c1', kind: 'text', text: '出站', x: 0, y: 0.35, scale: 1, side: 'both' }
+  const { ops, plate } = paint(settleSignBins([label]).layout, [LINE], 'left')
+  assert.ok(ops.words.length > 0, 'the primary printed')
+  // Every glyph at twice the label's own size.
+  for (const word of ops.words) {
+    assert.ok(Math.abs(word.size - SIGN_SIZE.text.h * 2 * PX_PER_METRE) < 0.5, `primary set at ${word.size}px`)
+  }
+  // And centred on the plate it fills, like the two-line stack it replaces.
+  const ys = ops.words.map((word) => word.y)
+  assert.ok(Math.min(...ys) > 0 && Math.max(...ys) < plate.height, 'the grown primary stays on the plate')
 })
 
 /**

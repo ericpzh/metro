@@ -35,7 +35,7 @@ import { withGround } from './ground.ts'
 import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
-import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
+import { STAIR_WIDTH_NARROW, stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
 import { liftFootprintCells, liftLandingCells, liftStopZs } from './lifts.ts'
 import { rampMoveClear, type RampWall } from './rampCollision.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
@@ -376,7 +376,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     // flush return run): the balustrade the crowd walks along is the one drawn
     // beside those treads, not the one beside the cell its landings sit on.
     const slides = m.type === 'stair' ? stairFlightSlides(m) : []
-    const half = m.type === 'escalator' ? escalatorBalustradeWidth(m) / 2 : (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
+    const half = m.type === 'escalator' ? escalatorBalustradeWidth(m) / 2 : stairTreadWidth(m) / 2
     const laneMates = m.type === 'stair' ? stairLaneMates(data.modules, m) : []
     // The flight ends that meet an **interior turn landing** of the same stair.
     // A balustrade stops dead at the flight there: the crowd has to walk the

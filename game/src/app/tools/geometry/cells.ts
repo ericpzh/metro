@@ -68,3 +68,40 @@ export function straightLineCells(a: [number, number, number], b: [number, numbe
   }
   return out
 }
+
+export type TriSideAxis = 'x' | 'y'
+
+/**
+ * Which axis a 三角 run travels: its ridge — the axis the wedge is *not* cut
+ * across — so a dragged line of them joins slope to slope as one smooth surface.
+ * A wedge hugging e/w is cut across x, so its two triangular ends face s/n and
+ * the run travels north–south (y); one hugging n/s travels east–west (x).
+ */
+export function triangleRidgeAxis(side: string): TriSideAxis {
+  return side === 'e' || side === 'w' ? 'y' : 'x'
+}
+
+/**
+ * A 三角 drag line: the straight run through `a` along the ridge of `side`,
+ * extended toward `b`. Only the ridge axis is read off `b` — the other axis
+ * stays on the anchor — so the drag can never turn the run across its own cut,
+ * which is what would leave a step between slope and slope.
+ */
+export function triangleLineCells(
+  a: [number, number, number],
+  b: [number, number, number],
+  z: number,
+  side: string,
+): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = []
+  if (triangleRidgeAxis(side) === 'x') {
+    const x0 = Math.min(a[0], b[0])
+    const x1 = Math.max(a[0], b[0])
+    for (let x = x0; x <= x1; x++) out.push([x, a[1], z])
+  } else {
+    const y0 = Math.min(a[1], b[1])
+    const y1 = Math.max(a[1], b[1])
+    for (let y = y0; y <= y1; y++) out.push([a[0], y, z])
+  }
+  return out
+}

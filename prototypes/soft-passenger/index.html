@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B — Soft minimal passenger</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f0f0ee;color:#41413f;font:14px system-ui,sans-serif}main{height:100dvh;display:flex;flex-direction:column}header{padding:24px 30px 12px;display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap}h1{font-size:20px;font-weight:500;margin:0}p{color:#73736f;font-size:13px;margin:6px 0 0}a{color:inherit}#view{position:relative;flex:1;min-height:320px}canvas{width:100%;height:100%;display:block;touch-action:none}footer{padding:12px 30px 24px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between}.controls{display:flex;gap:6px;flex-wrap:wrap}button{font:inherit;background:transparent;color:inherit;border:1px solid #c6c6c0;border-radius:7px;padding:9px 14px;cursor:pointer}button[aria-pressed=true]{background:#deded8;border-color:#979790}#status{position:absolute;inset:45% 0 auto;text-align:center;color:#73736f}@media(max-width:600px){header,footer{padding-left:16px;padding-right:16px}footer{justify-content:center}h1{font-size:18px}}
+</style>
+<script type="importmap">{"imports":{"three":"/game/node_modules/three/build/three.module.js","three/addons/":"/game/node_modules/three/examples/jsm/"}}</script>
+</head>
+<body>
+<main>
+<header><div><h1>B — Soft minimal</h1><p>Grey, faceless commuter · 3D prototype</p></div><a href="./passenger-b.glb" download>Download 3D model (.glb)</a></header>
+<div id="view"><div id="status">Loading model…</div></div>
+<footer><div class="controls" aria-label="Camera views"><button data-view="front">Front</button><button data-view="three" aria-pressed="true">¾ view</button><button data-view="side">Side</button><button data-view="back">Back</button></div><div class="controls" aria-label="Pose"><button data-pose="idle" aria-pressed="true">Standing</button><button data-pose="walk">Walking</button></div><p>Drag to rotate · scroll to zoom</p></footer>
+</main>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const host=document.getElementById('view');
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;
+host.append(renderer.domElement);
+const scene=new THREE.Scene();
+const camera=new THREE.OrthographicCamera(-1,1,1,-1,.01,50);camera.position.set(2.8,1.8,4);
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.88,0);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.88;controls.minZoom=.5;controls.maxZoom=4;
+const shadow=new THREE.Mesh(new THREE.CircleGeometry(.31,64),new THREE.MeshBasicMaterial({color:0xddddda,transparent:true,opacity:.55,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.position.y=-.008;shadow.scale.y=.62;scene.add(shadow);
+let model,mixer,action;
+function size(){const w=host.clientWidth,h=host.clientHeight;renderer.setSize(w,h);const half=1.05;camera.left=-half*w/h;camera.right=half*w/h;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix()};new ResizeObserver(size).observe(host);size();
+const views={front:[0,1.05,5],three:[2.8,1.8,4],side:[5,1.05,0],back:[0,1.05,-5]};
+function setView(name){camera.position.set(...views[name]);controls.target.set(0,.88,0);camera.zoom=1;camera.updateProjectionMatrix();controls.update();document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===name))}
+function setPose(name){if(!mixer)return;mixer.stopAllAction();if(name==='walk')action.reset().play();else{mixer.update(0);model.traverse(n=>{if(n.userData.restQuaternion)n.quaternion.fromArray(n.userData.restQuaternion)})}document.querySelectorAll('[data-pose]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.pose===name))}
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));document.querySelectorAll('[data-pose]').forEach(b=>b.onclick=()=>setPose(b.dataset.pose));
+try{const gltf=await new GLTFLoader().loadAsync('./passenger-b.glb');model=gltf.scene;model.traverse(n=>n.userData.restQuaternion=n.quaternion.toArray());scene.add(model);mixer=new THREE.AnimationMixer(model);action=mixer.clipAction(gltf.animations[0]);document.getElementById('status').remove();window.__passengerPreview={model,mixer,action,setView,setPose,renderer,camera,scene};window.__passengerReady=true;}catch(e){document.getElementById('status').textContent='Unable to load the model.';console.error(e)}
+const clock=new THREE.Clock();renderer.setAnimationLoop(()=>{mixer?.update(Math.min(clock.getDelta(),.05));controls.update();renderer.render(scene,camera)});
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-# Metro Station Designer
+# Station Designer
 
 **A 3D sandbox about moving crowds through a metro station you build yourself.**
 
@@ -607,8 +607,8 @@ carries. It comes in **two mounts**, and the mount is the piece's own (`cfg.moun
 is a panel bolted flat to a wall at reading height and read from one — the wall is
 behind it, so 背面 is not mounted. A wall board therefore wants solid backing on the one
 course its 0.7 m panel crosses and nothing overhead, and a hung one the reverse. Its
-marks include the red 禁止 roundel (a ring with a level strip across its diameter) and the green
-出/EXIT plate, the two marks the renderer draws rather than loading as pictogram art.
+marks include the red 禁止 roundel (a ring with a level strip across its diameter), the green
+出/EXIT plate, the white divider line and the blank divider, the drawn marks the renderer paints rather than loading as pictogram art.
 
 **PSD header display (屏蔽门上方, automatic, not typed):**
 

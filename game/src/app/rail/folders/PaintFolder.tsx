@@ -4,17 +4,19 @@ import { useEffect } from 'react'
 import { useStore } from '../../store.ts'
 import { finishPaletteGroups, customFinishId, finishBaseId, finishTint } from '../../../sim/finishes.ts'
 import { Block } from '../shared/Block.tsx'
-import { ColourTile, hexColour } from '../shared/ColourTile.tsx'
-import { InlineExpand, interleaveRows } from '../shared/InlinePanel.tsx'
+import { ColourTile, NewColorTile, hexColour } from '../shared/ColourTile.tsx'
+import { InlinePanel, interleaveRows } from '../shared/InlinePanel.tsx'
 import type { SubMenuKey } from '../helpers.ts'
+import { customPaintColoursInStation } from '../paintColours.ts'
 
 // Material categories are shared with the capture pass. Choosing a finish or a
-// custom colour preserves the folder's 单块 / 整面 brush setting (§4.3).
+// custom colour preserves the brush mode; each finish tile owns its mode submenu (§4.3).
 export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey | null; onToggleSubMenu: (k: SubMenuKey) => void }): React.ReactElement {
   useLanguage()
   const tool = useStore((s) => s.tool)
   const paintMode = useStore((s) => s.paintMode)
   const paintFinish = useStore((s) => s.paintFinish)
+  const station = useStore((s) => s.station)
   const enamelColour = useStore((s) => s.enamelColour)
   const plasterColour = useStore((s) => s.plasterColour)
   const st = useStore.getState
@@ -36,42 +38,56 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
 
   return (
     <>
-      <div className="blockGrid">
-        {([
-          { id: 'single', label: msg('single_block'), icon: 'single', shortcut: 'N' },
-          { id: 'surface', label: msg('whole_face'), icon: 'surface', shortcut: undefined },
-        ] as const).map((m) => (
-          <Block key={m.id} label={translate(m.label)} icon={m.icon} shortcut={m.shortcut}
-            active={tool === 'paint' && paintMode === m.id}
-            onClick={() => { st().setTool('paint'); st().setPaintMode(m.id) }} />
-        ))}
-      </div>
       {finishPaletteGroups().map(({ fam, label, items }) => (
         <div className="bpSub" key={fam}>
           <div className="bpSubTitle">{translate(label)}</div>
           <div className="blockGrid">
             {interleaveRows(items.map((f) => {
-              const menu = menuFor(f.id)
+              const colourMenu = menuFor(f.id)
+              const menu = `paint:${f.id}` as const
               return {
                 anchor: f.id,
                 node: (
                   <Block key={f.id} label={translate(f.label)} tile={f.id}
-                    tone={hexColour(menu ? colourFor(f.id) : f.tint)}
+                    tone={hexColour(colourMenu ? colourFor(f.id) : f.tint)}
                     active={tool === 'paint' && finishBaseId(paintFinish) === f.id}
-                    submenu={menu ? subMenu === menu : undefined}
+                    submenu={subMenu === menu}
                     onClick={() => {
-                      st().selectPaintFinish(menu ? customFinishId(f.id, colourFor(f.id)) : f.id)
-                      if (menu) onToggleSubMenu(menu)
+                      st().selectPaintFinish(colourMenu ? customFinishId(f.id, colourFor(f.id)) : f.id)
+                      onToggleSubMenu(menu)
                     }} />
                 ),
               }
             }), (anchor) => {
-              const menu = menuFor(anchor)
-              return menu ? [
-                <InlineExpand key={`${menu}-picker`} open={subMenu === menu}>
-                  <ColourTile colour={colourFor(anchor)} onChange={(colour) => changeColour(anchor, colour)} />
-                </InlineExpand>,
-              ] : []
+              const colourMenu = menuFor(anchor)
+              const colours = colourMenu ? customPaintColoursInStation(station, anchor) : []
+              const menu = `paint:${anchor}` as const
+              return [
+                <InlinePanel key={`${menu}-options`} open={subMenu === menu}>
+                  <div className="blockGrid">
+                    {([
+                      { id: 'single', label: msg('single_block'), icon: 'single' },
+                      { id: 'surface', label: msg('whole_face'), icon: 'surface' },
+                    ] as const).map((mode) => (
+                      <Block key={mode.id} label={translate(mode.label)} icon={mode.icon} shortcut="Tab"
+                        active={tool === 'paint' && paintMode === mode.id}
+                        onClick={() => { st().setTool('paint'); st().setPaintMode(mode.id) }} />
+                    ))}
+                  </div>
+                  {colours.length > 0 ? (
+                    <div className="blockGrid">
+                      {colours.map((colour) => (
+                        <ColourTile key={colour} colour={colour} onChange={(next) => changeColour(anchor, next)} />
+                      ))}
+                      <NewColorTile colour={colourFor(anchor)} onChange={(colour) => changeColour(anchor, colour)} />
+                    </div>
+                  ) : colourMenu ? (
+                    <div className="blockGrid">
+                      <NewColorTile colour={colourFor(anchor)} onChange={(colour) => changeColour(anchor, colour)} />
+                    </div>
+                  ) : null}
+                </InlinePanel>,
+              ]
             })}
           </div>
         </div>

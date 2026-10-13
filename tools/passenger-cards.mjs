@@ -4,7 +4,7 @@ import { resolve, join } from 'node:path';
 let cards;
 function load() {
   if (cards) return cards;
-  const dir = resolve(import.meta.dirname, '../.preview/passenger-cards');
+  const dir = resolve(process.env.PASSENGER_CARDS_DIR ?? resolve(import.meta.dirname, '../.preview/passenger-cards'));
   try {
     cards = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')).map(p => ({ ...p,
       href: `data:image/png;base64,${readFileSync(join(dir, p.file)).toString('base64')}` }));
@@ -23,15 +23,17 @@ export function passengerImage(view, x, y, pixelsPerMetre, variant = 0, walking,
   // exact heading change, retaining the captured stride and appearance.
   const turn = view === 'plan' && heading !== undefined
     ? ` transform="rotate(${(p.heading - heading) * 180 / Math.PI} ${x} ${y})"` : '';
-  return `<image data-model="passenger-human" data-pose="${p.walking ? 'walk' : 'idle'}" x="${x - p.origin[0] * s}" y="${y - p.origin[1] * s}" width="${p.width * s}" height="${p.height * s}" href="${p.href}"${turn}/>`;
+  return `<image data-variant="${p.model}" data-model="passenger-human" data-pose="${p.walking ? 'walk' : 'idle'}" x="${x - p.origin[0] * s}" y="${y - p.origin[1] * s}" width="${p.width * s}" height="${p.height * s}" href="${p.href}"${turn}/>`;
 }
+
+export function passengerSpriteCount() { return load().filter(p => p.view === 'iso').length; }
 
 export function passengerSprites() {
   const isoScale = Math.sqrt(30 * 30 + (30 / Math.sqrt(3)) ** 2) / Math.sqrt(2 / 3);
-  return Array.from({ length: 96 }, (_, i) => `<g id="human-${i}">${passengerImage('iso', 0, 0, isoScale, i)}</g>`).join('')
+  return Array.from({ length: passengerSpriteCount() }, (_, i) => `<g id="human-${i}">${passengerImage('iso', 0, 0, isoScale, i)}</g>`).join('')
     + `<g id="person">${passengerImage('iso', 0, 0, isoScale, 0, true)}</g>`
-    + '<g id="personBag"><use href="#human-7"/></g>'
-    + '<g id="personSeat"><use href="#human-14"/></g>';
+    + `<g id="personBag"><use href="#human-${7 % passengerSpriteCount()}"/></g>`
+    + `<g id="personSeat"><use href="#human-${14 % passengerSpriteCount()}"/></g>`;
 }
 
 let walkingCards;
@@ -45,7 +47,7 @@ export function walkingHeading(view, dx, dy, pixelsPerX, pixelsPerY) {
 
 function loadWalking() {
   if (!walkingCards) {
-    const dir = resolve(import.meta.dirname, '../.preview/passenger-cards');
+    const dir = resolve(process.env.PASSENGER_CARDS_DIR ?? resolve(import.meta.dirname, '../.preview/passenger-cards'));
     walkingCards = JSON.parse(readFileSync(join(dir, 'walking-index.json'), 'utf8')).map(p => ({ ...p,
       href: `data:image/png;base64,${readFileSync(join(dir, p.file)).toString('base64')}` }));
   }
@@ -76,7 +78,7 @@ export function walkingSprite(view, id, identity, heading, speedMetresPerSecond,
   if (!(speedMetresPerSecond > 0) || !frames.length) throw new Error('walking sprite needs captured frames and positive speed');
   const duration = frames[0].stride / speedMetresPerSecond;
   const turn = view === 'plan' ? ` rotate(${-heading * 180 / Math.PI})` : '';
-  return `<g id="${id}" data-pose="animated-walk" data-view="${view}" data-heading="${capturedHeading}" transform="scale(${pixelsPerMetre})${turn}">`
+  return `<g id="${id}" data-variant="${frames[0].model}" data-pose="animated-walk" data-view="${view}" data-heading="${capturedHeading}" transform="scale(${pixelsPerMetre})${turn}">`
     + frames.map((p, i) => {
       const frameId = `passenger-cycle-${view}-${p.variant}-${headings.indexOf(capturedHeading)}-${p.sample}`;
       const s = 1 / p.pixelsPerMetre;

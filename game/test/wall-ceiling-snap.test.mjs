@@ -8,6 +8,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  ceilingMountHeight,
   ceilingMountMissing,
   ceilingMountStandCell,
   equipmentReason,
@@ -42,6 +43,24 @@ test('a ceiling hover resolves to the floor below, from any face', () => {
   assert.deepEqual(ceilingMountStandCell([2, 1, 1], [2, 2, 1]), [2, 2, 0])
   // Void work plane passes through untouched.
   assert.deepEqual(ceilingMountStandCell([5, 5, 0], [5, 5, 0]), [5, 5, 0])
+})
+
+test('a shifted floor snaps to its actual ceiling instead of a fixed 4 m grid line', () => {
+  const cells = [floor(2, 2, 1), floor(2, 2, 5)]
+  // The underside of the z=5 slab belongs to the z=1 storey when the level base is 1.
+  const at = ceilingMountStandCell([2, 2, 5], [2, 2, 4], 1)
+  assert.deepEqual(at, [2, 2, 1])
+  const sign = createModule('sign-ceiling', at[0], at[1], at[2], 'shifted-sign', 0)
+  assert.ok(sign)
+  assert.equal(ceilingMountMissing(cells, sign), false, 'the shifted ceiling slab supports the sign')
+  assert.equal(ceilingMountHeight(cells, sign), 3, 'the support height is measured from the actual slab')
+  assert.equal(equipmentReason(cells, [], sign, true), '', 'preview/release verdict accepts the same support')
+
+  // A taller room is valid too: support comes from its actual slab, not the next 4 m line.
+  const tallCells = [floor(2, 2, 1), floor(2, 2, 6)]
+  assert.deepEqual(ceilingMountStandCell([2, 2, 6], [2, 2, 5], 1, tallCells), [2, 2, 1], 'an underside aim finds the exposed floor four metres below')
+  assert.equal(ceilingMountMissing(tallCells, sign), false)
+  assert.equal(ceilingMountHeight(tallCells, sign), 4)
 })
 
 test('a hung piece aimed from the ceiling slab passes the shared verdict', () => {

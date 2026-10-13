@@ -1,0 +1,17 @@
+[
+  {
+    "name": "slow",
+    "speed": 0.9,
+    "cycleSeconds": 1.12
+  },
+  {
+    "name": "medium",
+    "speed": 1.15,
+    "cycleSeconds": 1.12
+  },
+  {
+    "name": "fast",
+    "speed": 1.4,
+    "cycleSeconds": 1.12
+  }
+]

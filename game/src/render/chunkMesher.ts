@@ -645,6 +645,26 @@ export function meshChunk(
   /** Is there something under this cell to stand on — a block, or a run's filling? */
   const standsOn = (x: number, y: number, z: number): boolean => draws(x, y, z - 1)
 
+  /**
+   * Does the neighbour cell fully cover the square it shares with the current
+   * one — i.e. is the interface interior with nothing to draw? A whole block
+   * (and, to keep their runs seamless, a 半墙 panel) always does; a 三角 does
+   * only when its full-height face is the interface (`side` facing the current
+   * cell). Anything else — a thin edge, a triangular end — leaves part of the
+   * square open, so the current cell must still draw its side there. Without
+   * this a full block beside a wedge culls the very face the wedge leaves
+   * exposed, which is the black hole in the report.
+   */
+  const coversSide = (nx: number, ny: number, nz: number, facing: 'e' | 'w' | 'n' | 's'): boolean => {
+    const shape = thin?.get(key(nx, ny, nz))
+    if (shape === undefined) return true
+    if (shape.kind === 'half') return true
+    return shape.side === facing
+  }
+  /** A side is drawn unless a covering block stands against it. */
+  const sideOpen = (_x: number, _y: number, _z: number, nx: number, ny: number, facing: 'e' | 'w' | 'n' | 's'): boolean =>
+    !isSolid(nx, ny, _z) || !coversSide(nx, ny, _z, facing)
+
   // Faces are sorted into one builder per finish, so a chunk yields a handful of
   // parts (one per material) instead of one part repainted per face. A dense
   // array indexed by finish keeps the per-face selection off the string Map.
@@ -679,15 +699,29 @@ export function meshChunk(
     // (`cover`), so it never draws a cap the storey pass culls. Only a real block
     // ever culls a face on a *side*.
     const above = key(x, y, z + 1)
-    const up =
+    let up =
       cover !== undefined
         ? !(cover.has(above) || (fill !== undefined && fill.has(above)))
         : !(draws(x, y, z + 1) && (emit === undefined || emit.has(above)))
-    const down = !standsOn(x, y, z)
-    const E = !isSolid(x + 1, y, z)
-    const W = !isSolid(x - 1, y, z)
-    const N = !isSolid(x, y + 1, z)
-    const S = !isSolid(x, y - 1, z)
+    let down = !standsOn(x, y, z)
+    // A wedge's slope leaves the square above/below it half open: a block under
+    // an 上 wedge's tip (or over a 下 one's) still shows its cap there. Only a
+    // wedge whose flat base faces the cell covers it — 上 below, 下 above.
+    if (!up) {
+      const over = thin?.get(above)
+      if (over?.kind === 'triangle' && over.triangle !== 'upper') up = true
+    }
+    if (!down) {
+      const under = thin?.get(key(x, y, z - 1))
+      if (under?.kind === 'triangle' && under.triangle !== 'lower') down = true
+    }
+    // Sides cull only against a covering block (`coversSide`): a full block, or
+    // a wedge whose full-height face is the interface. A wedge's thin edge or
+    // triangular end leaves the neighbour's side exposed.
+    let E = sideOpen(x, y, z, x + 1, y, 'w')
+    let W = sideOpen(x, y, z, x - 1, y, 'e')
+    let N = sideOpen(x, y, z, x, y + 1, 's')
+    let S = sideOpen(x, y, z, x, y - 1, 'n')
     if (!up && !down && !E && !W && !N && !S) continue
 
     const k = key(x, y, z)
@@ -736,6 +770,23 @@ export function meshChunk(
     // the profile machinery below applies to it, so it is done with its cell here.
     const thinShape = thin?.get(k)
     if (isTriangleShape(thinShape)) {
+      // A ridge-locked run joins end to end with no face between its wedges:
+      // the two triangular ends are the same triangle, so drawing both would
+      // z-fight. `sideOpen` above leaves them open (a wedge never fully covers
+      // its ridge neighbour), so close the continuing run again here. Ends
+      // meeting anything else — a full block, a different wedge — stay open,
+      // which is what keeps the connection surface drawn.
+      const sameAt = (nx: number, ny: number): boolean => {
+        const s = thin?.get(key(nx, ny, z))
+        return s?.kind === 'triangle' && s.triangle === thinShape.triangle && s.side === thinShape.side
+      }
+      if (thinShape.side === 'e' || thinShape.side === 'w') {
+        if (sameAt(x, y + 1)) N = false
+        if (sameAt(x, y - 1)) S = false
+      } else {
+        if (sameAt(x + 1, y)) E = false
+        if (sameAt(x - 1, y)) W = false
+      }
       pushWedge(builderForIndex, isSolid, x, y, z, { e: E, w: W, n: N, s: S, up, down }, thinShape.triangle, thinShape.side, {
         top: topI,
         bottom: bottomI,

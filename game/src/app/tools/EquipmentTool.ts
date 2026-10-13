@@ -1,6 +1,6 @@
 import { msg } from '../../sim/i18n.ts'
 // The 设备 (equipment) tool: press to place the chosen module — fence runs drag
-// out like walls, lifts extend in-column, stairs lay lane by lane, billboards
+// out like walls, lifts extend in-column, stairs place as complete flights, billboards
 // autoface their wall. Moved verbatim from app/Viewport.tsx (GAME-SPEC §5–§6).
 
 import {
@@ -19,10 +19,8 @@ import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockNotice, trackBlockRe
 import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
 import { snapPsdEnd } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
-import { ESCALATOR_BAND } from '../../sim/constants.ts'
 import { escalatorModule, ESCALATOR_LONG_RUN, ESCALATOR_LONG_RISE } from '../../sim/escalators.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
-import { solidAt } from '../../sim/ground.ts'
 import { glassSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
@@ -34,17 +32,14 @@ import {
   equipmentRefusalNotice,
   isCeilingHung,
   moduleAt,
-  placementBlocked,
   placementColliders,
-  placementOnTrack,
   wallMountMissing,
   wallMountStandCell,
   glassCells,
   snapDoorToCurtain,
 } from '../../sim/placement.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
-import { planStairLanes, stairLanes } from '../../sim/stairs.ts'
-import type { Module, Vec3i } from '../../sim/types.ts'
+import type { Module } from '../../sim/types.ts'
 import { isDecorType, isFenceType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
 import { straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
@@ -486,74 +481,8 @@ export class EquipmentTool extends ToolController {
     return mod
   }
 
-  /**
-   * A straight-flight stair: the one shape the builder lays as **lanes**. A
-   * turning stair is a single piece — its flights turn, so its landings cannot be
-   * shared lane by lane.
-   */
-  private isStraightStair(type: string): boolean {
-    return type === 'stair' || type === 'stair-straight'
-  }
-
-  /**
-   * The lane pieces a stair tool would place. A wide stair is literally `lanes`
-   * narrow flights side by side (`stairLanes(st.stairWidth)`, each exactly the
-   * escalator's band), and every lane of the one action carries the same
-   * `cfg.flight` token: that is what makes them **one staircase** — the rail
-   * along the seam is dropped and the steps run together — while two stairs
-   * dropped separately, even flush, keep their rails (`sim/stairs.ts`).
-   * `planStairLanes` picks the arrangement: the hovered cell as the first lane,
-   * or shifted back so the flight butts against a stair on its left or its right
-   * instead of overlapping it. Inside a head-house the lanes follow the exit's
-   * own column and climb direction.
-   */
-  private buildStairLanes(type: string, cell: [number, number, number], id: string): Module[] {
-    const st = useStore.getState()
-    const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2])
-    const rot = snap ? snap.rot : st.moduleRot
-    const base: Vec3i = snap ? { x: snap.base.x, y: snap.base.y, z: snap.base.z } : { x: cell[0], y: cell[1], z: cell[2] }
-    const placeable = (p: Vec3i): boolean => {
-      // The floor a lane stands on is asked of the **effective** ground
-      // (`solidAt`), not of the raw document: the street at z = 0 is an implicit
-      // plane, so a scan of `cells` alone would plan a wide stair's lanes short
-      // on virgin ground — the first lane would report no floor and the rest of
-      // the flight would never be laid.
-      const floorHere = solidAt(st.station.cells, st.station.modules, p.x, p.y, p.z) || exitFloorAt(st.station.modules, p.x, p.y, p.z)
-      if (!floorHere) return false
-      const lane = createModule(type, p.x, p.y, p.z, id, rot, ESCALATOR_BAND, st.escalatorDir)
-      return !!lane && !placementBlocked(st.station.modules, lane) && !placementOnTrack(st.station.cells, lane, st.station.modules)
-    }
-    const plan = planStairLanes(base, rot, stairLanes(st.stairWidth), placeable)
-    // Every lane needs its own id — a lane deleted on its own can leave a
-    // suffixed id behind, so the free one is picked from what is already there.
-    const taken = new Set(st.station.modules.map((m) => m.id))
-    const laneId = (i: number): string => {
-      let cand = i === 0 ? id : `${id}-${i + 1}`
-      let n = i + 1
-      while (taken.has(cand)) cand = `${id}-${++n}`
-      taken.add(cand)
-      return cand
-    }
-    // The flight token is the group's own id. A lane deleted on its own can leave
-    // that token behind, so a token no piece is using is picked.
-    const usedFlights = new Set(st.station.modules.flatMap((m) => (m.type === 'stair' && m.cfg.flight ? [m.cfg.flight] : [])))
-    let flight = id
-    for (let n = 1; usedFlights.has(flight); n++) flight = `${id}~${n}`
-    return plan.lanes
-      .map((p, i) => {
-        const lane = createModule(type, p.x, p.y, p.z, laneId(i), rot, ESCALATOR_BAND, st.escalatorDir)
-        if (lane && lane.type === 'stair') lane.cfg.flight = flight
-        return lane
-      })
-      .filter((m): m is Module => m !== null)
-  }
-
-  /**
-   * Every piece a placement would drop at `cell`: one module for most equipment,
-   * and one lane per cell for a wide straight stair.
-   */
+  /** Preview and commit both place one complete module at every stair width. */
   private buildPlacementModules(type: string, cell: [number, number, number], id: string): Module[] {
-    if (this.isStraightStair(type) && stairLanes(useStore.getState().stairWidth) > 1) return this.buildStairLanes(type, cell, id)
     const one = this.buildPlacementModule(type, cell, id)
     return one ? [one] : []
   }
@@ -627,7 +556,7 @@ export class EquipmentTool extends ToolController {
     id: string,
   ): { mods: Module[]; noCeiling: boolean } {
     const st = useStore.getState()
-    const at = ceilingMountStandCell(cell, place)
+    const at = ceilingMountStandCell(cell, place, st.station.levelBase, st.station.cells)
     const mods = this.buildPlacementModules(st.moduleType, at, id)
     if (mods.length === 0) return { mods: [], noCeiling: true }
     // The modules ride along, or the ghost reads a **hung** piece's ceiling off the

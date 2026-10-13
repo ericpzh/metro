@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, placeLocal } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { clockHandAngles } from '../../../sim/clock.ts'
+import { ceilingMountHeight } from '../../../sim/placement.ts'
 import type { Module } from '../../../sim/types.ts'
 
 /* ------------------------------------------------------ ceiling decoration */
@@ -77,11 +78,10 @@ export function reposeClockHands(rig: ClockRig, seconds: number): void {
  * exactly the gap between the ceiling plate and the regulator box on top of the dial.
  * Nothing reaches the floor: the whole piece hangs.
  */
-function buildClock(mats: ModelMaterials): THREE.Group {
+function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const g = new THREE.Group()
   const faceR = 0.38 // the dial radius; the case is a shade larger all round
   const caseR = 0.4
-  const ceiling = 3.0 // the storey ceiling underside, above the block top
   // **A slim body, white at both ends and black round the rim.** The white cylinder is the dial
   // material; the black wrap hides its barrel so the white reads as a **face** at each end rather
   // than as a white drum. The clock is double-faced, because a concourse clock is read from either
@@ -261,7 +261,7 @@ function buildClock(mats: ModelMaterials): THREE.Group {
 export class ClockModel extends PieceBuilder {
   readonly kind = 'clock'
   build(mod: Extract<Module, { type: 'clock' }>): THREE.Group {
-    return placeLocal(buildClock(this.ctx.mats), mod)
+    return placeLocal(buildClock(this.ctx.mats, ceilingMountHeight(this.ctx.data.cells, mod, this.ctx.data.modules) ?? 3), mod)
   }
 }
 

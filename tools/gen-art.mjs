@@ -1,4 +1,4 @@
-// Generates the concept-art sheets for the Metro Station Designer spec.
+// Generates the concept-art sheets for the Station Designer spec.
 //
 //   node tools/gen-art.mjs            every sheet
 //   node tools/gen-art.mjs 01 13      only those, by leading number or by file name
@@ -13,40 +13,30 @@
 // eleven are, and this script otherwise rewrites every `art/*.svg` on every run — which is
 // eleven files of churn while someone else is working in the same tree.
 import { mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { setTimeout as retryDelay } from 'node:timers/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { artSection } from './sheets-a.mjs';
-import { artHeroBanded as artHero } from './sheet-01-hero-banded.mjs';
 // 05 is the rolling stock's parameters: a frontal and a side elevation per class,
 // rendered square-on by the same pass that draws sheet 11, with the numbers read out of
 // `sim/stock.ts` and `sim/constants.ts`.
-import { artTrains } from './sheet-05-trains.mjs';
 // 06 is the game's own 客流 window, photographed in the four day types the
 // calendar derives, and its numbers are `sim/demand.ts` and `sim/clock.ts` verbatim —
 // imported, not copied, so a retuned knob moves the sheet's text too.
-import { artDemand } from './sheet-06-demand.mjs';
 // 07 is the game's own interface, photographed region by region by
 // `tools/render-ui-shots.mjs` into `.preview/ui-shots/` — same division as 03 and 04:
 // the pictures are the game's, and the sheet is only the numbered key and the reading.
-import { artInterface } from './sheet-07-interface.mjs';
-import { artViews } from './sheets-c.mjs';
-import { artPlatformFlow } from './sheets-e.mjs';
 // 11 is the game's own consist: `buildTrain` and the model kit, captured by
 // `tools/render-train-cards.mjs` into `.preview/train-cards/`, with the stock table
 // read out of `sim/stock.ts` rather than transcribed.
-import { artTrains3D } from './sheet-11-trains3d.mjs';
-import { artTwoLine } from './sheet-13-two-line.mjs';
 // 04 draws the game's own module models: its cards are PNGs the **game** rendered,
 // captured ahead of time by `tools/render-module-cards.mjs` (which needs a browser,
 // because a piece's display, marquee, poster and inscription are canvases the game
 // paints at render time). So this builds like every other sheet — synchronously —
 // and simply embeds what that capture left in `.preview/module-cards/`.
-import { artModules } from './sheet-04-modules.mjs';
 // 03 draws the game's own blocks, the same way: its pictures are PNGs the **game**
 // rendered from the real chunk mesher, captured ahead of time by
 // `tools/render-block-cards.mjs` into `.preview/block-cards/`, and its material
 // table is the rail's own (`sim/finishes.ts`), carried out with them.
-import { artBlocks } from './sheet-03-blocks.mjs';
 import { toEnglish } from './sheet-i18n.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -54,18 +44,30 @@ const OUT = join(__dir, '..', 'art');
 mkdirSync(OUT, { recursive: true });
 
 const SHEETS = [
-  ['01-isometric-cutaway.svg', artHero],
-  ['02-vertical-section.svg', artSection],
-  ['03-block-system.svg', artBlocks],
-  ['04-module-catalogue.svg', artModules],
-  ['05-trains-and-track.svg', artTrains],
-  ['06-crowd-demand.svg', artDemand],
-  ['07-interface.svg', artInterface],
-  ['09-camera-and-views.svg', artViews],
-  ['11-rolling-stock-3d.svg', artTrains3D],
-  ['12-platform-doors-flow.svg', artPlatformFlow],
-  ['13-two-line-interchange.svg', artTwoLine],
+  ['01-isometric-cutaway.svg', './sheet-01-hero-banded.mjs', 'artHeroBanded'],
+  ['02-vertical-section.svg', './sheets-a.mjs', 'artSection'],
+  ['03-block-system.svg', './sheet-03-blocks.mjs', 'artBlocks'],
+  ['04-module-catalogue.svg', './sheet-04-modules.mjs', 'artModules'],
+  ['05-trains-and-track.svg', './sheet-05-trains.mjs', 'artTrains'],
+  ['06-crowd-demand.svg', './sheet-06-demand.mjs', 'artDemand'],
+  ['07-interface.svg', './sheet-07-interface.mjs', 'artInterface'],
+  ['09-camera-and-views.svg', './sheets-c.mjs', 'artViews'],
+  ['11-rolling-stock-3d.svg', './sheet-11-trains3d.mjs', 'artTrains3D'],
+  ['12-platform-doors-flow.svg', './sheets-e.mjs', 'artPlatformFlow'],
+  ['13-two-line-interchange.svg', './sheet-13-two-line.mjs', 'artTwoLine'],
 ];
+
+// Windows indexers/viewers can briefly hold a generated SVG during refresh.
+// Retry only sharing/access failures; keep real generator errors visible.
+async function writeSheet(path, svg) {
+  for(let attempt=0;;attempt++) {
+    try { writeFileSync(path, svg, 'utf8'); return; }
+    catch(error) {
+      if(attempt>=9 || !['EBUSY','EPERM','EACCES','UNKNOWN'].includes(error.code)) throw error;
+      await retryDelay(100);
+    }
+  }
+}
 
 let fail = 0;
 // `01` and `01-isometric-cutaway.svg` both name the same sheet, the way `sheet-png.mjs` reads
@@ -81,14 +83,17 @@ if (!chosen.length) {
   console.error(`no sheet matches ${wanted.join(', ')} — art/ holds:\n  ${SHEETS.map((s) => s[0]).join('\n  ')}`);
   process.exit(1);
 }
-for (const [file, fn] of chosen) {
+for (const [file, module, exported] of chosen) {
   try {
+    // A targeted refresh must not load unrelated sheets' simulation/capture
+    // dependencies: e.g. changing passengers needs only 01, 02, 12 and 13.
+    const fn = (await import(module))[exported];
     // A sheet builds synchronously and returns its SVG; the two that need a
     // browser (03's blocks, 04's cards) are captured into `.preview/` before this
     // runs, not here.
     const svg = await fn(enOnly ? { language: 'en' } : {});
     if (!svg || !svg.startsWith('<svg')) throw new Error('no svg returned');
-    if (!enOnly) writeFileSync(join(OUT, file), svg, 'utf8');
+    if (!enOnly) await writeSheet(join(OUT, file), svg);
     const kb = (Buffer.byteLength(svg) / 1024).toFixed(0);
     if (!enOnly) console.log(`ok    art/${file.padEnd(28)} ${String(kb).padStart(5)} KB`);
     if (wantEn) {
@@ -110,7 +115,7 @@ for (const [file, fn] of chosen) {
         console.error(`FAIL  art/${enFile}: unescaped markup near “…${enSvg.slice(Math.max(0, at - 40), at + 40)}…”`);
         continue;
       }
-      writeFileSync(join(OUT, enFile), enSvg, 'utf8');
+      await writeSheet(join(OUT, enFile), enSvg);
       const enKb = (statSync(join(OUT, enFile)).size / 1024).toFixed(0);
       console.log(`ok    art/${enFile.padEnd(28)} ${String(enKb).padStart(5)} KB`);
     }

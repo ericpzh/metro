@@ -1,0 +1,41 @@
+{
+  "height": 1.650000054841101,
+  "meshes": 8,
+  "triangles": 340855,
+  "bones": 16,
+  "validWeights": true,
+  "cleanColours": true,
+  "trouserVerticesWithoutArmWeights": 71584,
+  "fingerlessHands": 2,
+  "continuousStraps": 2,
+  "originalHandFragmentsRemoved": true,
+  "walks": [
+    {
+      "clip": "Walk_Slow",
+      "duration": 1.1200000047683716,
+      "maxStanceSlide": 6.280334963193468e-8,
+      "groundRange": [
+        -3.084351724846608e-8,
+        2.4915464942373564e-8
+      ]
+    },
+    {
+      "clip": "Walk_Medium",
+      "duration": 1.1200000047683716,
+      "maxStanceSlide": 9.336181905350571e-8,
+      "groundRange": [
+        -2.7910539141255856e-8,
+        2.943744908985732e-8
+      ]
+    },
+    {
+      "clip": "Walk_Fast",
+      "duration": 1.1200000047683716,
+      "maxStanceSlide": 1.1785913733852738e-7,
+      "groundRange": [
+        -3.105107302485139e-8,
+        2.429709949248991e-8
+      ]
+    }
+  ]
+}

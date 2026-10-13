@@ -1,5 +1,22 @@
 # `game/test` — how the game is tested
 
+`demo` pins complete stairs from the current catalogue, explicit block-fitted
+widths and unchanged landing plans. Its circulation check resolves platform door
+server IDs through `graph.servers[id].node`; a negative case substitutes an
+unreachable node to ensure the check still rejects a disconnected boarding point.
+`stairs` also pins size labels and Tab cycling for explicit fitted widths.
+
+`psd-end` checks that screens, snapped corners and continuations fit below their
+overhead blocks, match their reserved height, and still refuse blocks inside extensions.
+It also checks both screen heights and every snapped orientation for competing
+coplanar fitting faces after trimming and overlap with the screen housing at the
+corner joint, while preserving the snapped glass plane. Fascia/cap joints must
+also close without a clearance slit; rays through exposed PSD ends must not
+hit duplicate faces, and moving leaf fittings retain their full geometry.
+
+`trains` checks stopped train centres and every screen-door opening in all four
+track rotations and both directions, using the four-car, 68 m Line 6 layout.
+
 `render-performance` checks static module batching preserves transformed bounds,
 triangle counts, ray picking and buffer disposal, keeps animated/shared/transparent
 parts intact, and invalidates floor-paint reuse for structural edits, station metadata,
@@ -20,7 +37,10 @@ reserve an entire shared shaft. `escalators` also pins the inspector's selected-
 by swapping `from`/`to` together with `cfg.dir`. `escalators` and `module-build` also pin the
 single two-block-wide escalator: its continuous
 moving band, outer rails, rotated footprint, landing support and two-column opening.
-They also check the wider metal shoulders, flattening risers and covered step return;
+They also check seamless glass filling both rounded handrail returns at either end,
+for narrow/wide escalators in every rotation and travel direction; the glass stays
+inside the rail curve and makes one pane per side. The wider metal shoulders, flattening
+risers and covered step return are checked too;
 `slope-cut` checks the recessed upper landing beneath the terminal deck.
 `module-build` also checks floor/apron clearance and the body's inset, buried joins.
 It pins train roof/body paint and non-overlapping cab seams, plus half-height screen-door caps
@@ -39,6 +59,14 @@ including wide pieces, rotation, reversed travel, single seam ownership and neig
 It also checks the closed end shells and centreline hemispheres seated on the metal cap.
 `exits` pins one-to-four-bay head-house geometry, including the 6 m 四向 ground exit; `module-build`
 checks its rendered 6 m width and `pick-tool` checks that picking it restores the matching palette tile.
+
+`stairs` checks standalone straight-stair placement at every size and rotation.
+It also checks saved catalogue sizes fill their block band in carving and collision,
+detect walls at the outer edges and preserve adjacent blocks without thinning.
+`module-build` checks continuous full-width treads and glass beneath outer stair rails and returns,
+including exact 1/2/3-block outer bounds in every rotation,
+plus medium/wide straight-flight offsets along the block side in all rotations and unchanged legacy
+off-grid centrelines.
 
 The `shelf` suite also pins tall/short, wire and cooler variants, their save/preview/sweep identity, rotated model bounds, ceiling clearance and cooler shell and tall/short gondola plinth/trim separation to prevent flickering.
 
@@ -112,7 +140,8 @@ The suites, by the thing they are about. Each one's full description is in
 
 `surfaces` also covers the four material categories, all-face application, and custom
 涂料 colours surviving save/load and meshing. `paint-mode` covers independent 涂料
-and 搪瓷板 picker colours while retaining 单块 / 整面.
+and 搪瓷板 picker colors, persistent 单块 / 整面 mode, Tab cycling, saved station color
+swatches, and the compact picker-tile UI source contracts.
 `render-regressions` pins model-label shrink-to-fit arithmetic, the round/recessed
 thick-pillar shaft and collars, periodic obsidian pixels, and material roughness.
 
@@ -124,13 +153,14 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones`, `lift`, `placement` (including escalator collision clearance along its sloped body), `openings`, `stairs`, `escalators`, `escalator-length`, `ramp-passengers` (ramp lane spacing, body clearance, collision recovery, stair-turn access and queue-preserving detours), `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route` (including the 1.5 m figure scale), `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
 | The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool`, `facility`, `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail`, `validation`, `overground`, `roof-tool`, `track-run-length`, `structures-gaps` — `storey` checks the 0–3 m height base and `save` checks its persistence and older-save default; `overground` + `roof-tool` are the pillars/roofs/doorway-exits/stair-blocks/bridges, `track-run-length` the shared tunnel/bridge lengths, `structures-gaps` the repair-shaped edges; `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole and the edits that fill it back |
 | The furniture and the decor | `hanger`, `shelf`, `desk`, `checkout` (shop placement, saves, rotated bounds, screen/stock visibility and workstation chair), `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `lights`, `vent`, `floor-decor`, `street-decor`, `sign`, `sign-model`, `sign-editor` (including rejection before hover insertion), `billboard` (WebP headers, compact sizes, panel filling, shared per-poster materials and per-size geometry), `glass-panel` (including fitted doors), `door-panel` (both-face handles), `calligraphy`, `line-map`, `booth-model`, `room-model` |
+| Passenger library | `passenger-library` — all 11 approved variants, equal selection independent of physique/speed, every walk on every model, pack presence/absence, valid padded topology, single instanced draw and atlas disposal; `passenger-view` retains identity, ground contact, flat greys, pause, picking and eye view. |
 | The models | `module-build` (including slab-track sleepers, seats, clips and rail heads; enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join`, `tv-screen`, `tv-pair` |
 | Touch navigation | `touch-zoom` — pinch direction, cancellation and release suppression; shared zoom and limits in both projections |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `render-performance`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost`, `sim-pause` — `render-performance` pins static module batching and safe reuse after floor paint; `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away; `sim-pause` is the paused-sim freeze: escalator bands, 闸机 leaves and train/screen doors hold their pose while consists glide to their latest snapshot |
-| The pixels | `sign-render` (short 0.4 m signs, nine-arrow capacity and centred existing content), `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
-| Concept art | `capture-passengers` — the `?capture-passengers` route wiring, the live crowd mesh photographed with alpha, every field the sheet tools place by (foot origin, scale, stride) and full-stride gait captures in plan, elevation and isometric views. `art-passenger-heading` projects facing through the capture camera and compares it with all eight isometric travel directions, preventing sideways walking. Browser playback is checked separately with `node tools/test-passenger-animation.mjs` after captures and art generation. |
+| The pixels | `sign-render` (short 0.4 m signs, nine-arrow capacity and centred existing content, primary-only labels at twice the size, the divider line and the blank divider), `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
+| Concept art | `passenger-art-pipeline` — growing catalogues, bounded browser batches, complete standing/stride coverage, stale build rejection and duplicate capture files; `capture-passengers` — the `?capture-passengers` route wiring, the live crowd mesh photographed with alpha, every field the sheet tools place by (foot origin, scale, stride) and full-stride gait captures in plan, elevation and isometric views. `art-passenger-heading` projects facing through the capture camera and compares it with all eight isometric travel directions, preventing sideways walking. Browser playback is checked separately with `node tools/test-passenger-animation.mjs` after captures and art generation. |
 | Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, explicit-language formatting without changing UI state, root/prefixed English routes and assets |
-| The app | `move`, `delete-tool` (block delete rectangles, Shift lines and one-step undo), `equipment-deletion` (visible module before underlying grid cell), `equipment-placement-input` (wall/ceiling support placement from open air), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool), `tool-hover-preview` (blue previews for move/picker/select, red preview for bulldoze), `rail-folders`, `rail-families`, `line-edit`, `new-station-confirmation` (the top-bar button and Ctrl+N require confirmation before replacing the station), `select-agent` — `escalators` covers the placed-run direction action and undo |
+| The app | `move`, `delete-tool` (block delete rectangles, Shift lines and one-step undo), `equipment-deletion` (visible module before underlying grid cell), `equipment-placement-input` (wall/ceiling support placement from open air), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool), `tool-hover-preview` (blue previews for move/picker/select, red preview for bulldoze), `rail-folders`, `rail-families`, `line-edit`, `new-station-confirmation` (the top-bar button and Ctrl+N require confirmation before replacing the station), `topbar-report-issue` (the FaBug issue-tracker link beside restart), `select-agent` — `escalators` covers the placed-run direction action and undo |
 
 ## The rules a test here follows
 
@@ -291,13 +321,15 @@ Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋�
 
 `hanger.test.mjs` covers 挂架: roof suspended and central post supports in 4/6/8m, roof attachments, sign/clock/TV mounting, rotated steel geometry, open walking space, post footing, preview identity and save/load.
 
-`door-panel` checks all six 单开 / 双开 × 不锈钢 / 木 / 玻璃 variants, palette and width selection, the translucent glass pane in its steel frame, satin stainless and timber finishes, exposed hinges, both-face handle clearance and mirrored double-door pulls, plus placement bounds. `glass-panel` pins door snapping to rotated curtain runs, the fitted placement exemption, crosswise refusal, and the lower-pane opening while retaining upper and uncovered glazing.
+`wall-ceiling-snap.test.mjs` pins ceiling aiming with a shifted `levelBase` and accepts an actual overhead slab at a nonstandard height; `sign-model.test.mjs` checks that the hanging sign's rods terminate at that slab.
+
+`door-panel` checks all six 单开 / 双开 × 不锈钢 / 木 / 玻璃 variants, palette and width selection, the translucent glass pane in its steel frame, satin stainless and timber finishes, exposed hinges, both-face handle clearance and mirrored double-door pulls, plus placement bounds. It also pins 1 cm of lintel clearance in two-block-high wall openings for every variant, rotation and tested storey, while permitting the overhead block and refusing a block through the leaf. `glass-panel` pins door snapping to rotated curtain runs, the fitted placement exemption, crosswise refusal, and the lower-pane opening while retaining upper and uncovered glazing.
 
 `gate-door` also checks the 新/旧 turnstiles: slim cabinets, smaller opposing leaves retracting left and right, approach arrows and red crosses on fence-only machines, legacy/save compatibility and separate variant sweeps. `pick-tool` checks copying and cancelling 新/旧 choices.
 
 `gate-door` pins the curved fan leaves (long top, short bottom) and the old gate's longer sloping fascia, flush reader sticker and absence of red/green reader lamps.
 
-`passenger-view.test.mjs` pins the CC0 clothed human meshes, six animated hairstyles per outfit, child/adult height and build ranges, child eye height and picking, stable outfit/build/height/tone variation through buffer reordering, grounded animated arm/leg poses, travel-driven gait, idle/riding transitions, mid-stride pause/resume through duplicate and reordered snapshots, selection at the displayed head/legs, phase identity through crowd compaction, interpolated eye position, departure handling, click-held first-person mouse look after the initial heading, and restoration of the camera and display settings.
+`passenger-view.test.mjs` pins the anime silhouettes, shallow head/body proportions, opaque unlit ink, complete eye/hair/clothing colour regions, CC0 clothed walking poses, six animated hairstyles per outfit, child/adult height and build ranges, child eye height and picking, stable outfit/build/height/tone variation through buffer reordering, grounded animated arm/leg poses, travel-driven gait, idle/riding transitions, mid-stride pause/resume through duplicate and reordered snapshots, selection at the displayed head/legs, phase identity through crowd compaction, interpolated eye position, departure handling, click-held first-person mouse look after the initial heading, and restoration of the camera and display settings.
 
 
 `diagonal-walk.test.mjs` pins eight-direction walking in clear space (§7.2):
@@ -305,3 +337,13 @@ diagonal edges cost their actual √2 m distance with their endpoint finish spee
 around a clear same-height square, and cannot cut past holes, walls, fare
 barriers or turnstiles. `wayfinding.test.mjs` also checks diagonal ramp-glass
 barriers at the ramp's own storey and clear diagonal movement below it.
+
+`stairs.test.mjs` covers 左/中/右直跑楼梯: two forward flights, block-fitted middle landings, all widths and rotations, and bidirectional passenger routes. `module-build.test.mjs` checks visible treads, railing glass and landing geometry for all three styles, sizes and rotations.
+
+
+Approved library integration: the live crowd uses all eleven reviewed variants from passenger-approved.json. `passenger-library` and `passenger-view` pin selection, flat greys, walks, identity, picking and eye view; `passenger-art-pipeline` and `capture-passengers` pin scalable model captures and stale-build rejection.
+
+`walking-profiles` pins stable randomized slow/medium/fast speed assignment,
+pool reuse and physique scaling, plus matching sim speed and full-cycle travel.
+`passenger-view` checks all three longer walk ranges and less than 1 cm of planted
+shoe motion in world space, then profile-aware compaction, pause and resume.

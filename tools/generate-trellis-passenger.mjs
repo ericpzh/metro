@@ -1,0 +1,22 @@
+import {spawn} from 'node:child_process';
+import {existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {resolve} from 'node:path';
+const repo=resolve(import.meta.dirname,'..');
+const binary=resolve(repo,'.cache/trellis/runtime/trellis-cli.exe');
+const models=resolve(repo,'.cache/trellis/models');
+const options=process.argv.slice(2);
+function take(name,fallback){const i=options.indexOf(name);if(i<0)return fallback;const value=options[i+1];if(!value||value.startsWith('--'))throw Error(`Missing ${name}`);options.splice(i,2);return value}
+const variant=take('--variant','b');if(!/^[a-z][a-z0-9-]*$/.test(variant))throw Error('Variant must be a lowercase name');
+const out=resolve(repo,variant==='b'?'prototypes/trellis-passenger':`prototypes/trellis-passenger-${variant}`);mkdirSync(out,{recursive:true});
+const reference=resolve(repo,take('--reference',resolve(out,'reference.png')));
+const target=resolve(out,`passenger-${variant}.glb`);
+if(!existsSync(binary)||!existsSync(resolve(repo,'.cache/trellis/models-manifest.json')))throw Error('Install the CUDA runtime and run node tools/setup-trellis.mjs first.');
+if(!existsSync(reference))throw Error(`Missing reference: ${reference}`);
+const args=[reference,target,'--models',models,'--res','1024','--seed','42','--steps','12','--atlas','2048','--webp','off','--dump-bg','--require-gpu',...options];
+const start=Date.now();console.log(`Generating ${variant} from the character reference locally.`);
+const p=spawn(binary,args,{stdio:'inherit',cwd:repo});
+const code=await new Promise((done,fail)=>{p.on('error',fail);p.on('exit',done)});
+if(code!==0)throw Error(`trellis-cli exited ${code}`);
+writeFileSync(resolve(out,'generation.json'),JSON.stringify({tool:'pwilkin/trellis.cpp',version:'v0.8.1',variant,reference:'reference.png',referenceSha256:createHash('sha256').update(readFileSync(reference)).digest('hex'),args:args.slice(4),elapsedSeconds:(Date.now()-start)/1000,rigged:false},null,2));
+console.log(`Generated: ${target}`);

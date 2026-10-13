@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, placeLocal } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
+import { ceilingMountHeight } from '../../../sim/placement.ts'
 
 /**
  * Ceiling camera (监控, 装饰): a rounded white bullet housing, a recessed dark
@@ -17,9 +18,8 @@ import type { Module } from '../../../sim/types.ts'
  * is the one rotation that leaves its lens dead ahead and its tilt down the −y axis
  * whatever `rot` does to the piece as a whole.
  */
-function buildCctv(mats: ModelMaterials): THREE.Group {
+function buildCctv(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const g = new THREE.Group()
-  const ceiling = 3.0 // the storey ceiling underside
   // The mount is slim: a 0.14 m ceiling plate, a thin stem, a small clamp.
   slab(g, mats.darkSteel, 0.1, 0, ceiling - 0.02, 0.14, 0.14, 0.04)
   slab(g, mats.steel, 0.1, 0, (2.78 + ceiling) / 2, 0.028, 0.028, ceiling - 2.78)
@@ -139,10 +139,11 @@ function cameraDome(g: THREE.Group, mats: ModelMaterials, radius: number, x: num
 }
 
 /** 球机: substantial mounting arm, tapered white housing and suspended dark globe. */
-function buildPtz(mats: ModelMaterials): THREE.Group {
+function buildPtz(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const g = new THREE.Group()
-  slab(g, mats.white, 0.18, 0.07, 2.98, 0.16, 0.18, 0.04)
-  slab(g, mats.white, 0.18, 0.07, 2.87, 0.1, 0.12, 0.2)
+  const e = ceiling - 3
+  slab(g, mats.white, 0.18, 0.07, 2.98 + e, 0.16, 0.18, 0.04)
+  slab(g, mats.white, 0.18, 0.07, 2.87 + e / 2, 0.1, 0.12, 0.2 + e)
   slab(g, mats.white, 0.065, 0.07, 2.8, 0.31, 0.12, 0.09)
   housing(g, mats.white, 0.115, 0.115, 0.1, -0.04, 0, 2.765)
   housing(g, mats.darkSteel, 0.116, 0.116, 0.012, -0.04, 0, 2.714)
@@ -153,15 +154,16 @@ function buildPtz(mats: ModelMaterials): THREE.Group {
 }
 
 /** 半球机: low circular base bolted flush to the slab, with a compact glass dome. */
-function buildDome(mats: ModelMaterials): THREE.Group {
+function buildDome(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const g = new THREE.Group()
-  housing(g, mats.white, 0.165, 0.165, 0.06, 0, 0, 2.97)
-  housing(g, mats.steel, 0.166, 0.166, 0.008, 0, 0, 2.937)
-  housing(g, mats.white, 0.165, 0.145, 0.085, 0, 0, 2.892)
-  housing(g, mats.white, 0.145, 0.132, 0.022, 0, 0, 2.84)
-  cameraDome(g, mats, 0.123, 0, 0, 2.827)
+  const e = ceiling - 3
+  housing(g, mats.white, 0.165, 0.165, 0.06, 0, 0, 2.97 + e)
+  housing(g, mats.steel, 0.166, 0.166, 0.008, 0, 0, 2.937 + e)
+  housing(g, mats.white, 0.165, 0.145, 0.085, 0, 0, 2.892 + e)
+  housing(g, mats.white, 0.145, 0.132, 0.022, 0, 0, 2.84 + e)
+  cameraDome(g, mats, 0.123, 0, 0, 2.827 + e)
   // Recessed fasteners on opposite sides of the underside ring.
-  for (const x of [-0.137, 0.137]) housing(g, mats.darkSteel, 0.009, 0.009, 0.006, x, 0, 2.846)
+  for (const x of [-0.137, 0.137]) housing(g, mats.darkSteel, 0.009, 0.009, 0.006, x, 0, 2.846 + e)
   return g
 }
 
@@ -169,7 +171,8 @@ export class CctvModel extends PieceBuilder {
   readonly kind = 'cctv'
   build(mod: Extract<Module, { type: 'cctv' }>): THREE.Group {
     const mats = this.ctx.mats
-    const model = mod.cfg.variant === 'ptz' ? buildPtz(mats) : mod.cfg.variant === 'dome' ? buildDome(mats) : buildCctv(mats)
+    const ceiling = ceilingMountHeight(this.ctx.data.cells, mod, this.ctx.data.modules) ?? 3
+    const model = mod.cfg.variant === 'ptz' ? buildPtz(mats, ceiling) : mod.cfg.variant === 'dome' ? buildDome(mats, ceiling) : buildCctv(mats, ceiling)
     return placeLocal(model, mod)
   }
 }

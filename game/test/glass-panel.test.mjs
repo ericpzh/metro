@@ -346,7 +346,7 @@ test('a fitted door replaces the lower glass only across its own tiles', () => {
   const panes = meshes.filter((m) => m.material === mats.glass)
   assert.equal(panes.length, 2, 'the upper curtain pane and the uncovered lower pane remain')
   const heights = panes.map((m) => m.geometry.parameters.depth).sort((a, b) => a - b)
-  assert.ok(Math.abs(heights[0] - 1.75) < 1e-9 && Math.abs(heights[1] - 1.85) < 1e-9, 'the upper glass begins above the 2.05 m door and the remaining lower bay stays glazed')
+  assert.ok(Math.abs(heights[0] - 1.79) < 1e-9 && Math.abs(heights[1] - 1.81) < 1e-9, 'the upper glass begins above the 1.99 m door and the remaining lower bay stays glazed')
   assert.ok(panes.some((m) => m.position.x > 0), 'the uncovered bay retains its lower glass')
 })
 

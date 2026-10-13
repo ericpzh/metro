@@ -3,8 +3,10 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { cameraRig, look } from './support/camera-rig.mjs'
 import { CrowdSystem } from '../src/render/scene/systems/CrowdSystem.ts'
-import { passengerBody, passengerPose, passengerFrames, passengerMaterial, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_EYE_HEIGHT, PASSENGER_STRIDE } from '../src/render/passengerModel.ts'
+import { passengerBody, passengerPose, passengerFrames, passengerMaterial, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_EYE_HEIGHT, PASSENGER_STRIDE, PASSENGER_WALK_PROFILES } from '../src/render/passengerModel.ts'
+import { passengerWalkProfile, passengerWalkSpeed } from '../src/sim/walking.ts'
 import { useStore } from '../src/app/store.ts'
+import human from '../src/assets/passenger-approved.json' with { type: 'json' }
 
 for (const preset of ['iso', 'plan']) {
   test(`passenger eye view restores the ${preset} camera, lens and projection`, () => {
@@ -94,7 +96,7 @@ test('eye pose uses interpolated positions and stable identity through crowd com
   ctx.mats.blob.dispose()
 })
 
-test('outfits, proportions and grey washes follow identity through buffer reordering', () => {
+test('outfits, proportions and ink tones follow identity through buffer reordering', () => {
   const ctx = { scene: new THREE.Scene(), mats: { blob: new THREE.MeshBasicMaterial() },
     activeZ: 0, levelBase: 0, ghost: false, hideUI: true, stateIntervalMs: 1000 }
   const crowd = new CrowdSystem(ctx)
@@ -113,6 +115,12 @@ test('outfits, proportions and grey washes follow identity through buffer reorde
   const before = appearance(1)
   frame([7, 23, 3])
   assert.deepEqual(appearance(0), before)
+  const previousMesh = crowd.agents, previousBuffer = crowd.cur
+  frame(Array.from({length: 1300}, (_, id) => id))
+  assert.notEqual(crowd.cur, previousBuffer, 'snapshot capacity actually grows')
+  assert.equal(crowd.agents, previousMesh, 'snapshot growth reuses the existing instanced draw')
+  frame([7, 23, 3])
+  assert.deepEqual(appearance(0), before, 'variant, scale and ink survive snapshot growth and compaction')
   const identities = Array.from({length: 1000}, (_,i) => passengerAppearance(i))
   assert.equal(new Set(identities.map(a => a[0])).size, PASSENGER_OUTFITS.length)
   assert.ok(new Set(identities.map(a => a[1])).size > 20)
@@ -123,34 +131,23 @@ test('outfits, proportions and grey washes follow identity through buffer reorde
     assert.notDeepEqual(idle, passengerPose(1, outfit))
     let min = Infinity, max = -Infinity
     for(let i=2; i<idle.length; i+=3) { min=Math.min(min,idle[i]);max=Math.max(max,idle[i]) }
-    assert.ok(Math.abs(min) < 0.002 && max >= 1.73 && max < 1.85)
+    assert.ok(Math.abs(min) < 0.002 && max >= 1.62 && max < 1.85)
     if(outfit > 0) assert.notDeepEqual(idle, passengerPose(0, 0))
   }
   crowd.dispose()
   ctx.mats.blob.dispose()
 })
 
-test('every outfit has six distinct hairstyles attached to the animated head', () => {
-  for (let outfit = 0; outfit < 4; outfit++) {
-    const heads = []
-    for (let hair = 0; hair < 6; hair++) {
-      const variant = outfit * 6 + hair
-      const idle = passengerPose(0, variant)
-      heads.push(Array.from(idle).filter((_, i) => idle[i - i % 3 + 2] > 1.5))
-      for (const frame of [1, 7, 13, 19]) {
-        const walk = passengerPose(frame, variant)
-        let top = 0, foot = Infinity
-        for (let i = 2; i < walk.length; i += 3) {
-          top = Math.max(top, walk[i]); foot = Math.min(foot, walk[i])
-        }
-        assert.ok(top > 1.6 && top < 1.9, 'hair stays on the head through the walk cycle')
-        assert.ok(Math.abs(foot) < 0.002, 'hair never pulls the supporting foot below the floor')
-      }
-    }
-    assert.equal(new Set(heads.map(h => JSON.stringify(h))).size, 6, 'all hairstyles have different visible geometry')
+test('approved faceless head and backpack stay attached through grounded walking poses', () => {
+  assert.equal(PASSENGER_OUTFITS.length, 11)
+  for (const frame of Array.from({length:human.frames-1},(_,i)=>i+1)) {
+    const walk = passengerPose(frame)
+    let top = 0, foot = Infinity
+    for (let i = 2; i < walk.length; i += 3) {top = Math.max(top,walk[i]);foot = Math.min(foot,walk[i])}
+    assert.ok(top > 1.5 && top < 1.9, 'approved hair follows the head as the hips lower for a longer step')
+    assert.ok(Math.abs(foot) < .002, 'supporting foot remains grounded')
   }
 })
-
 test('child-sized passengers retain smaller builds, eye heights and selection', () => {
   const identities = Array.from({length: 1000}, (_,id) => ({id, appearance: passengerAppearance(id)}))
   const kids = identities.filter(({appearance:a}) => a[1] < 0.82)
@@ -175,11 +172,11 @@ test('child-sized passengers retain smaller builds, eye heights and selection', 
   crowd.dispose();ctx.mats.blob.dispose()
 })
 
-test('authored human mesh has human scale, grey paint shading and grounded walk poses', () => {
+test('illustrated human mesh has human scale, flat ink shading and grounded walk poses', () => {
   const body = passengerBody()
   body.computeBoundingBox()
-  assert.ok(body.boundingBox.max.z >= 1.73 && body.boundingBox.max.z < 1.85)
-  assert.ok(body.index.count / 3 <= 2500, 'authored anatomy is reduced for large crowds')
+  assert.ok(body.boundingBox.max.z >= 1.70 && body.boundingBox.max.z < 1.85)
+  assert.ok(body.index.count / 3 <= 11000, 'clean coats and complete straps retain a bounded shared crowd budget')
   const vertex = body.attributes.position
   let volume = 0
   for (let i = 0; i < body.index.count; i += 3) {
@@ -188,7 +185,7 @@ test('authored human mesh has human scale, grey paint shading and grounded walk 
     const c = new THREE.Vector3().fromBufferAttribute(vertex, body.index.getX(i + 2))
     volume += a.dot(b.cross(c)) / 6
   }
-  assert.ok(volume > 0.04 && volume < 0.12, 'axis conversion preserves outward-facing human surfaces, not inside-out triangles')
+  assert.ok(volume > 0.025 && volume < 0.22, 'axis conversion preserves outward-facing human surfaces, not inside-out triangles')
   const idle = passengerPose(0)
   let movingArms = 0, movingLegs = 0
   for (let frame = 1; frame <= 24; frame++) {
@@ -205,14 +202,45 @@ test('authored human mesh has human scale, grey paint shading and grounded walk 
   assert.ok(movingArms > 50, 'authored walk swings arms as well as legs')
   assert.ok(movingLegs > 100, 'knees and feet change pose')
   const material = passengerMaterial()
-  assert.equal(material.isMeshStandardMaterial, true)
-  assert.equal(material.roughness, 1)
-  assert.equal(material.metalness, 0)
-  assert.equal(material.transparent, true)
-  assert.equal(material.opacity, 0.94)
-  assert.ok(Math.abs(material.color.r - material.color.g) < 0.02)
+  assert.equal(material.isMeshBasicMaterial, true, 'station lights cannot sculpt gradients into flat illustration colours')
+  assert.equal(material.toneMapped, false, 'station exposure must not wash out the ink palette')
+  assert.equal(material.transparent, false, 'overlapping passengers remain distinct, opaque silhouettes')
+  assert.equal(material.opacity, 1)
   body.dispose()
   material.dispose()
+})
+
+test('approved variants retain flat grey boundaries through the pose lookup', () => {
+  const regions = Buffer.from(human.regions, 'base64')
+  const raw = Buffer.from(human.indices, 'base64')
+  const indices = new (human.indexBits === 32 ? Uint32Array : Uint16Array)(raw.buffer, raw.byteOffset, raw.byteLength / (human.indexBits / 8))
+  assert.equal(regions.length, human.vertices)
+  for(let i=0;i<indices.length;i+=3){
+    assert.equal(regions[indices[i]],regions[indices[i+1]],'reduction must keep each triangle in one grey region')
+    assert.equal(regions[indices[i]],regions[indices[i+2]],'backpack, hair and neckline boundaries must not blend')
+  }
+  for (let outfit = 0; outfit < PASSENGER_OUTFITS.length; outfit++) {
+    const used = new Set()
+    for (let i = 0; i < human.corners; i++) {
+      const vertex = indices[outfit * human.corners + i]
+      assert.ok(vertex < human.vertices, 'colour lookup must address a baked vertex')
+      used.add(regions[vertex])
+    }
+    for (const region of [human.palette.indexOf(.78), human.palette.indexOf(human.library[outfit].character === 'male' ? .89 : .62)]) {
+      assert.ok(used.has(region), `outfit ${outfit}: missing approved grey region (${region})`)
+    }
+    const pose = passengerPose(0, outfit)
+    const head = new THREE.Box3(), torso = new THREE.Box3()
+    for (let i = 0; i < pose.length; i += 3) {
+      const point = new THREE.Vector3(pose[i], pose[i + 1], pose[i + 2])
+      if (point.z > 1.32) head.expandByPoint(point)
+      if (point.z > 0.9 && point.z < 1.3) torso.expandByPoint(point)
+    }
+    const headSize = head.getSize(new THREE.Vector3())
+    const torsoSize = torso.getSize(new THREE.Vector3())
+    assert.ok(headSize.x < headSize.y * 1.4, 'the illustrated head has a shallow profile')
+    assert.ok(torsoSize.x < torsoSize.y * 1.15, 'the body reads as a flatter silhouette')
+  }
 })
 
 test('gait covers one complete walk cycle per stride and interpolates through its loop seam', () => {
@@ -221,6 +249,50 @@ test('gait covers one complete walk cycle per stride and interpolates through it
   assert.equal(before[1], 1)
   assert.ok(before[2] > 0.7)
   assert.deepEqual(passengerFrames(PASSENGER_STRIDE, 0, 1), passengerFrames(0, 0, 1))
+})
+
+test('planted shoes hold their world position for all three longer strides', () => {
+  const rest = passengerPose(0)
+  for (const profile of PASSENGER_WALK_PROFILES) for (const side of [-1,1]) {
+    const shoes = []
+    for (let i=0;i<rest.length;i+=3) if(rest[i+2]<0.10 && rest[i+1]*side>0) shoes.push(i)
+    const x = Array.from({length:12}, (_,f) => {
+      const pose = passengerPose(profile.firstFrame+(f+(side>0?12:0))%24)
+      const grounded = Math.min(...shoes.map(i=>pose[i+2]))
+      assert.ok(grounded<0.01, `${profile.name} stance sole stays on the floor`)
+      return shoes.reduce((sum,i)=>sum+pose[i],0)/shoes.length + profile.stride*f/24
+    })
+    assert.ok(Math.max(...x)-Math.min(...x)<0.01, `${profile.name} planted shoe slides less than 1 cm through the stance`)
+  }
+})
+
+test('cadence follows displayed speed and the scaled step length for adults and children', () => {
+  const ctx = {scene:new THREE.Scene(),mats:{blob:new THREE.MeshBasicMaterial()},
+    activeZ:0,levelBase:0,ghost:false,hideUI:true,stateIntervalMs:1000}
+  const crowd = new CrowdSystem(ctx)
+  const child = Array.from({length:100},(_,i)=>i+1).find(id=>passengerAppearance(id)[1]<0.82)
+  const adult = Array.from({length:100},(_,i)=>i+1).find(id=>passengerAppearance(id)[1]>0.9)
+  const ids = [child,adult]
+  const frame = x => crowd.setAgents(new Float32Array(ids.flatMap(id=>[x,0,0,1,0,id])),2,1000)
+  const phase = slot => {
+    const p=crowd.agents.geometry.getAttribute('passengerPose')
+    const first=PASSENGER_WALK_PROFILES[passengerWalkProfile(ids[slot])].firstFrame
+    return (p.getX(slot)-first+p.getZ(slot))/24
+  }
+  frame(0);frame(0.1)
+  crowd.renderAgents(ctx.lastStateTime)
+  const start=ids.map((_,i)=>phase(i))
+  crowd.renderAgents(ctx.lastStateTime+500)
+  const half=ids.map((_,i)=>phase(i))
+  crowd.renderAgents(ctx.lastStateTime+1000)
+  ids.forEach((id,i)=>{
+    const step=PASSENGER_WALK_PROFILES[passengerWalkProfile(id)].stride*passengerAppearance(id)[2]
+    assert.ok(Math.abs(((half[i]-start[i]+1)%1)-0.05/step)<1e-5, 'half the translation advances half the stride phase')
+    assert.ok(Math.abs(((phase(i)-start[i]+1)%1)-0.1/step)<1e-5, 'the end pose uses the same travel as the instance position')
+  })
+  const advances=ids.map(id=>passengerWalkSpeed(id)/(PASSENGER_WALK_PROFILES[passengerWalkProfile(id)].stride*passengerAppearance(id)[2]))
+  assert.ok(Math.abs(advances[0]-advances[1])<1e-10, 'free-flow children and adults keep the same natural cadence')
+  crowd.dispose();ctx.mats.blob.dispose()
 })
 
 test('gait follows travelled distance, survives slot reordering and settles when waiting or riding', () => {
@@ -244,7 +316,8 @@ test('gait follows travelled distance, survives slot reordering and settles when
   assert.deepEqual(pose(1).slice(0,3), atEnd.slice(0,3), 'paused/no further movement never advances the stride')
   const phase = crowd.gaitPhases[1]
   frame([10.4,0,0,2,0,7, 0.5,0,0,2,0,3])
-  assert.ok(Math.abs(crowd.gaitPhases[0] - ((phase + 0.4/PASSENGER_STRIDE)%1)) < 1e-5, 'phase follows identity through reorder')
+  const stride=PASSENGER_WALK_PROFILES[passengerWalkProfile(7)].stride*passengerAppearance(7)[2]
+  assert.ok(Math.abs(crowd.gaitPhases[0] - ((phase + 0.4/stride)%1)) < 1e-5, 'phase follows identity through reorder')
   time = ctx.lastStateTime
   for(let i=0;i<20;i++) crowd.renderAgents(time+i*50)
   assert.ok(pose(0)[3] < 0.001, 'queued passengers settle into idle')

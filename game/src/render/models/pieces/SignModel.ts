@@ -7,6 +7,7 @@ import { mountedSignBoards, signBoardsOf, signBoardsPanel, signMountSpec } from 
 import type { SignBoards, SignLayout, SignPanelSize } from '../../../sim/sign.ts'
 import type { Module } from '../../../sim/types.ts'
 import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF } from '../../../sim/boothSigns.ts'
+import { ceilingMountHeight } from '../../../sim/placement.ts'
 
 /* ----------------------------------------------------------------- sign */
 
@@ -83,7 +84,7 @@ function mountHangingSign(
 ): void {
   const W = panel.w
   const H = panel.h
-  const ceiling = 3.0 // the storey ceiling underside
+  const ceiling = ceilingMountHeight(ctx.data.cells, mod, ctx.data.modules) ?? 3
   const rodX = Math.max(0.22, W / 2 - 0.35)
   for (const x of [-rodX, rodX]) {
     slab(g, ctx.mats.steel, x, 0, (zc + H / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + H / 2) - 0.04)

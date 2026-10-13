@@ -226,7 +226,7 @@ test('each failure names a Chinese reason and loads nothing', () => {
   assert.deepEqual(broken, { ok: false, error: '文件损坏' })
 
   const wrong = parse(JSON.stringify({ format: 'something-else' }))
-  assert.deepEqual(wrong, { ok: false, error: '不是地铁车站存档' })
+  assert.deepEqual(wrong, { ok: false, error: '不是车站存档' })
 
   const newer = parse(JSON.stringify({ format: SAVE_FORMAT, formatVersion: SAVE_VERSION + 1, static: { cells: [] } }))
   assert.deepEqual(newer, { ok: false, error: '存档版本过新，请先更新游戏' })

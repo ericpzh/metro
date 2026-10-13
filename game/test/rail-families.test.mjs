@@ -412,8 +412,7 @@ test('the 分区 folder is its zone list plus the three room brushes, 无分区 
   assert.equal(isEraseBrush('store'), false, 'a room brush paints a room, it does not erase')
   assert.equal(isFacilityBrush('none'), false, 'and it is not a room brush either')
   assert.equal(isFacilityBrush('toilet'), true)
-  // Every other zone is a slab the folder renders: 无分区 is the only one without a
-  // thumbnail of its own (`app/zoneThumbnails.ts` skips it).
+  // Every other zone has its own area icon in the folder; 无分区 keeps the eraser icon.
   assert.equal(ZONE_LIST.filter((z) => z.id !== 'none').length, 5)
 })
 

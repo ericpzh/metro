@@ -48,7 +48,7 @@ test('a wide stair is lanes, so every lane merges with what is beside it', () =>
   const lanes = stairLaneBases({ x: 1, y: 0, z: -4 }, 0, 2).map((p, i) => stair(`s${i}`, p.x, STAIR_WIDTH_NARROW, p.z, p.y))
   assert.equal(lanes.length, 2)
   for (const lane of lanes) {
-    assert.ok(rampCorridorHalf(lane) < 0.5)
+    assert.equal(rampCorridorHalf(lane), 0.5, 'the stair rails fill their block exactly')
     assert.equal(placementBlocked([e], lane), false, 'a lane butts against the escalator')
     assert.equal(placementBlocked([lane], e), false)
   }
@@ -63,14 +63,14 @@ test('a wide stair is lanes, so every lane merges with what is beside it', () =>
   assert.ok(rampBlocked([e], wide))
 })
 
-test('a run sweeps less than half a cell: body and handrails fit one tile', () => {
+test('body and handrails fit one tile, with stair rails exactly on the block edges', () => {
   const e = esc('e', 0)
   const s = stair('s', 0)
   // The escalator's overall width — balustrade spacing plus a handrail each side
   // — is what must fit, and it does, with a centimetre to spare.
   assert.ok(ESCALATOR_BALUSTRADE / 2 + 0.08 < 0.5, 'an escalator handrail crosses its cell edge')
   assert.ok(rampCorridorHalf(e) < 0.5, `the escalator sweeps ${rampCorridorHalf(e)}`)
-  assert.ok(rampCorridorHalf(s) < 0.5, `the narrow stair sweeps ${rampCorridorHalf(s)}`)
+  assert.equal(rampCorridorHalf(s), 0.5, 'the narrow stair fills exactly one block')
   assert.ok(rampBodyHalf(e) < 0.5 && rampBodyHalf(s) < 0.5)
 })
 
@@ -207,7 +207,7 @@ test('a run draws both of its own balustrades, inside its own cell', () => {
   assert.equal(east.length, 0, `the escalator crosses the shared edge with ${east.length} meshes`)
   const west = meshBoxes(s, modules).filter((b) => b.min.x < BOUNDARY - 1e-6)
   assert.equal(west.length, 0, `the stair crosses the shared edge with ${west.length} meshes`)
-  // Each run's own outermost handrail stops just short of the edge, so the pair
+  // The stair handrail meets the edge and the escalator stays inside it, so the pair
   // reads as a double balustrade on the boundary — the two rails stand a
   // handrail's breadth apart rather than a slot the crowd could see through.
   const escalator = meshBoxes(e, modules, [], true)
@@ -216,7 +216,7 @@ test('a run draws both of its own balustrades, inside its own cell', () => {
   const eRail = outermost(escalator, (b) => b.max.x)
   const sRail = outermost(stairBoxes, (b) => -b.min.x)
   assert.ok(eRail.max.x < BOUNDARY, 'the escalator handrail stops short of the edge')
-  assert.ok(sRail.min.x > BOUNDARY, 'the stair handrail stops short of the edge')
+  assert.ok(Math.abs(sRail.min.x - BOUNDARY) < 1e-6, 'the stair handrail meets the block edge')
   assert.ok(sRail.min.x - eRail.max.x < 0.18, 'the inset escalator rail leaves room for its broader metal shoulder')
 })
 
@@ -264,7 +264,7 @@ test('two stairs side by side: the steps meet, the rails between them stay', () 
   const beside = stair('s', 1)
   const bank = [e, beside]
   assert.ok(slimIn(at(beside, bank)).some((x) => Math.abs(centre(x) - 1.09) < 0.06), 'the stair kept its rail beside the escalator')
-  assert.ok(span(at(beside, bank))[0] > 1.0, 'the stair reached under the escalator')
+  assert.ok(Math.abs(span(at(beside, bank))[0] - 1.0) < 1e-6, 'the stair meets the edge without reaching under the escalator')
 })
 
 test('the crowd may cross between the lanes of one wide flight, not between two stairs', () => {
@@ -481,8 +481,9 @@ test('a wall hugging one side of a flight takes that side’s handrail with it',
   assert.ok(high(walled, -1).length > 0, 'the west handrail went with the east one')
   // The stringer against the wall survives: the flight's own edge still runs the
   // whole incline out at the tread edge, on the wall's line.
-  const stringer = walled.filter((b) => Math.abs((b.min.x + b.max.x) / 2 - 0.9) < 0.03 && b.max.y - b.min.y > 4)
+  const stringer = walled.filter((b) => Math.abs((b.min.x + b.max.x) / 2 - 0.945) < 1e-6 && b.max.y - b.min.y > 4)
   assert.ok(stringer.length > 0, 'the stringer against the wall was dropped')
+  assert.ok(stringer.every((b) => Math.abs(b.max.x - 1) < 1e-6), 'the stringer meets the wall with no exposed strip')
 })
 
 test('a wall that does not hug the whole flight keeps both handrails', () => {

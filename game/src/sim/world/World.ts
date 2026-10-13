@@ -1117,10 +1117,12 @@ export class World {
             v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : maxCentre
           }
         }
-        // The run midpoint on the bed, turned into world cell coordinates.
-        const [ox, oy] = rotateLocal(rot, track.w / 2, v)
-        const x = track.x + ox
-        const y = track.y + oy
+        // Rotate about the first cell's centre, like the track and PSD models
+        // (§1.13). Rotating the cell corner instead shifts a turned berth by
+        // up to one metre and separates the train doors from their screens.
+        const [ox, oy] = rotateLocal(rot, (track.w - 1) / 2, v - 0.5)
+        const x = track.x + 0.5 + ox
+        const y = track.y + 0.5 + oy
         // A train rides the rail surface: the recessed bed slab sits half a metre
         // below the platform, so the consist drops with it.
         const z = track.z + 0.5

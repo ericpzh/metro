@@ -43,6 +43,7 @@ import {
 } from '../src/build/model.ts'
 import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
 import { faceTargets } from '../src/app/tools/geometry/faces.ts'
+import { triangleLineCells, triangleRidgeAxis } from '../src/app/tools/geometry/cells.ts'
 import { placementPreviewKey, useStore } from '../src/app/store.ts'
 import { BlockTool } from '../src/app/tools/BlockTool.ts'
 
@@ -649,4 +650,115 @@ test('a 三角 survives a stair placed beside it, shape and all', () => {
     { x: 2, y: 4, z: 1, shape: { kind: 'triangle', triangle: 'upper', side: 's' } },
     'and the mesher still draws it as that wedge',
   )
+})
+
+/* ------------------------------------------------- the drag line (ridge) */
+
+test('a 三角 drag line travels its ridge, never across its cut', () => {
+  // A dragged run of wedges must join slope to slope as one smooth surface: a
+  // wedge hugging e/w is cut across x, so its ends face s/n and the run goes
+  // north–south; one hugging n/s goes east–west. The off-axis extent of the
+  // drag is dropped, so the line can never step the run.
+  assert.equal(triangleRidgeAxis('w'), 'y')
+  assert.equal(triangleRidgeAxis('e'), 'y')
+  assert.equal(triangleRidgeAxis('n'), 'x')
+  assert.equal(triangleRidgeAxis('s'), 'x')
+  assert.deepEqual(triangleLineCells([2, 2, 1], [5, 4, 1], 1, 'w'), [[2, 2, 1], [2, 3, 1], [2, 4, 1]])
+  assert.deepEqual(triangleLineCells([2, 2, 1], [5, 4, 1], 1, 'e'), [[2, 2, 1], [2, 3, 1], [2, 4, 1]])
+  assert.deepEqual(triangleLineCells([2, 2, 1], [5, 4, 1], 1, 'n'), [[2, 2, 1], [3, 2, 1], [4, 2, 1], [5, 2, 1]])
+  assert.deepEqual(triangleLineCells([2, 2, 1], [5, 4, 1], 1, 's'), [[2, 2, 1], [3, 2, 1], [4, 2, 1], [5, 2, 1]])
+  // Backwards too, and a tap stays one wedge.
+  assert.deepEqual(triangleLineCells([2, 4, 1], [2, 2, 1], 1, 'w'), [[2, 2, 1], [2, 3, 1], [2, 4, 1]])
+  assert.deepEqual(triangleLineCells([5, 2, 1], [2, 2, 1], 1, 'n'), [[2, 2, 1], [3, 2, 1], [4, 2, 1], [5, 2, 1]])
+  assert.deepEqual(triangleLineCells([1, 1, 0], [1, 1, 0], 0, 'w'), [[1, 1, 0]])
+})
+
+test('a 三角 line lays one shape on every cell, so the slopes join smooth', () => {
+  // The release lays the ridge line with the press's own side on each course —
+  // the same side the ghost drew — so a dragged run is one ramp, not a row of
+  // steps. Delete lifts the same line back out (wallColumnsAt over it).
+  const st = addWalls(empty(), [[0, 0, 1], [0, 1, 1], [0, 2, 1]], null, 1, { kind: 'upper', side: 'w' }).state
+  for (const y of [0, 1, 2]) {
+    const c = st.cells.find((c) => c.x === 0 && c.y === y && c.z === 1)
+    assert.ok(c, `course at y=${y} was laid`)
+    assert.deepEqual(triangleOf(c), { kind: 'upper', side: 'w' })
+  }
+})
+
+/* ------------------------------------ the connection surface stays drawn */
+
+/** Every drawn triangle, with its normal and area. */
+function meshFaces(cells, thin) {
+  const chunk = meshChunk(buildSolidSet(cells), finishMapOf(cells), 0, 0, 0, 15, undefined, undefined, cells, thin)
+  const out = []
+  for (const part of chunk.parts) {
+    for (let i = 0; i < part.indices.length; i += 3) {
+      const idx = [part.indices[i], part.indices[i + 1], part.indices[i + 2]]
+      const v = idx.map((n) => [part.positions[n * 3], part.positions[n * 3 + 1], part.positions[n * 3 + 2]])
+      const n = [part.normals[idx[0] * 3], part.normals[idx[0] * 3 + 1], part.normals[idx[0] * 3 + 2]]
+      const a = v[1].map((c, j) => c - v[0][j])
+      const b = v[2].map((c, j) => c - v[0][j])
+      const area = Math.hypot(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]) / 2
+      out.push({ v, n, area })
+    }
+  }
+  return out
+}
+
+/** Total area of faces pointing `n` whose corners all sit on the plane `axis = at`. */
+function areaOn(faces, n, axis, at) {
+  const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2
+  let area = 0
+  for (const f of faces) {
+    if (Math.abs(f.n[0] - n[0]) > 1e-6 || Math.abs(f.n[1] - n[1]) > 1e-6 || Math.abs(f.n[2] - n[2]) > 1e-6) continue
+    if (!f.v.every((p) => Math.abs(p[ai] - at) < 1e-6)) continue
+    area += f.area
+  }
+  return area
+}
+
+test('a full block beside a 三角 keeps the face the wedge leaves open', () => {
+  // The black hole in the report: a full block culled the side a neighbouring
+  // wedge only half covers, and the wedge has no square of its own to hide
+  // behind — so the seam showed the void. The neighbour now draws its side
+  // wherever the wedge is a thin edge or a triangular end.
+  const wedge = { x: 0, y: 0, z: 0, fill: 'solid', tags: [WALL, triangleTag('upper', 'w')] }
+  // Thin edge: the wedge falls to nothing at x=1, so the block's west face is whole.
+  {
+    const block = { x: 1, y: 0, z: 0, fill: 'solid' }
+    const faces = meshFaces([wedge, block], new Map([[packKey(0, 0, 0), { kind: 'triangle', triangle: 'upper', side: 'w' }]]))
+    assert.ok(Math.abs(areaOn(faces, [-1, 0, 0], 'x', 1) - 1) < 1e-6, 'the thin-edge neighbour draws its whole side')
+  }
+  // Triangular end: the block's south face above the slope is still a square.
+  {
+    const block = { x: 0, y: 1, z: 0, fill: 'solid' }
+    const faces = meshFaces([wedge, block], new Map([[packKey(0, 0, 0), { kind: 'triangle', triangle: 'upper', side: 'w' }]]))
+    assert.ok(Math.abs(areaOn(faces, [0, -1, 0], 'y', 1) - 1) < 1e-6, 'the end neighbour draws its whole side too')
+  }
+  // Full contact stays shut: a wedge hugging the block shares the whole square,
+  // so neither side draws the seam.
+  {
+    const hugged = { x: 1, y: 0, z: 0, fill: 'solid', tags: [WALL, triangleTag('upper', 'w')] }
+    const block = { x: 0, y: 0, z: 0, fill: 'solid' }
+    const faces = meshFaces([block, hugged], new Map([[packKey(1, 0, 0), { kind: 'triangle', triangle: 'upper', side: 'w' }]]))
+    assert.ok(areaOn(faces, [1, 0, 0], 'x', 1) < 1e-6, 'no east face where the wedge hugs')
+    assert.ok(areaOn(faces, [-1, 0, 0], 'x', 1) < 1e-6, 'and no west face back')
+  }
+})
+
+test('a ridge run of 三角 joins with no faces between its wedges', () => {
+  // The other half of the seam: two wedges continuing one ridge share one
+  // triangular end, so both drop it — drawing both would z-fight, drawing
+  // neither leaves the run smooth. The outer ends stay.
+  const a = { x: 0, y: 0, z: 0, fill: 'solid', tags: [WALL, triangleTag('upper', 'w')] }
+  const b = { x: 0, y: 1, z: 0, fill: 'solid', tags: [WALL, triangleTag('upper', 'w')] }
+  const thin = new Map([
+    [packKey(0, 0, 0), { kind: 'triangle', triangle: 'upper', side: 'w' }],
+    [packKey(0, 1, 0), { kind: 'triangle', triangle: 'upper', side: 'w' }],
+  ])
+  const faces = meshFaces([a, b], thin)
+  assert.ok(areaOn(faces, [0, 1, 0], 'y', 1) < 1e-6, 'no north face inside the run')
+  assert.ok(areaOn(faces, [0, -1, 0], 'y', 1) < 1e-6, 'and no south face back')
+  assert.ok(Math.abs(areaOn(faces, [0, -1, 0], 'y', 0) - 0.5) < 1e-6, 'the outer south end stays')
+  assert.ok(Math.abs(areaOn(faces, [0, 1, 0], 'y', 2) - 0.5) < 1e-6, 'and the outer north end stays')
 })

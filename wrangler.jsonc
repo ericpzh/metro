@@ -1,5 +1,5 @@
 {
-  // Metro Station Designer — deployed to Cloudflare Workers as static assets.
+  // Station Designer — deployed to Cloudflare Workers as static assets.
   // The site is built into web/dist by `npm run build`; nothing runs on a server.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "metro",

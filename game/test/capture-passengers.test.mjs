@@ -58,7 +58,7 @@ test('every field the sheet tools place by comes out of the capture', () => {
   // `stride` is the model's own gait length, not a second copy of it: the sheet
   // divides it by path speed for the animation duration, so a missing or
   // hand-written value is a NaN animation — invisible walkers, no error.
-  assert.ok(push.includes('stride: PASSENGER_STRIDE'), 'the gait cycle must come from the passenger model')
+  assert.ok(push.includes('stride: profile.stride') && capture.includes('PASSENGER_WALK_PROFILES'), 'the gait cycle must come from the selected passenger walk profile')
   // The driver turns each data URL into the file the sheets place by.
   assert.ok(readTool('render-passenger-cards.mjs').includes('Buffer.from(png.split'),
     'the driver must save capture pngs to the files the sheets read')
@@ -79,4 +79,18 @@ test('the gait-cycle capture covers each sheet camera and one full stride', () =
     'a gait capture sweeps the whole baked walk cycle, not the four preview samples')
   assert.ok(capture.includes('const walking = cycles || sample !== 0') && capture.includes('heading = cycleHeading ??'),
     'every gait frame walks at the captured heading, with one stable identity across its stride')
+})
+
+
+test('capture includes every model and bounds optional walking batches without a fixed catalogue limit', () => {
+  const capture = read('app/capturePassengers.ts'), driver = readTool('render-passenger-cards.mjs')
+  assert.ok(capture.includes('variant < PASSENGER_OUTFITS.length'))
+  assert.ok(!capture.includes('variant % 3'), 'the old subset must not exclude newly approved models')
+  assert.ok(capture.includes('options.cycleVariants.includes(variant)'))
+  assert.ok(capture.includes('model: PASSENGER_OUTFITS[variant]'))
+  assert.ok(capture.includes('sourceSha256: PASSENGER_LIBRARY[variant].sourceSha256'))
+  assert.ok(driver.includes('passengerCaptureBatches') && driver.includes('validatePassengerCaptures'))
+  const sprites = readTool('passenger-cards.mjs'), iso = readTool('iso.mjs')
+  assert.ok(sprites.includes('length: passengerSpriteCount()'))
+  assert.ok(iso.includes('identity % passengerSpriteCount()'), 'the static pool grows with future models')
 })

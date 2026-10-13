@@ -1,5 +1,5 @@
-// The 材质 slice: the paint brush's mode and finish (§4.3). `N` 单块 is the
-// folder's own shortcut; 整面 is click-only since `M` moved to 移动.
+// The 材质 slice: the paint brush's mode and finish (§4.3). Each material submenu
+// offers 单块 / 整面, and Tab cycles the brush between them; `N` remains a 单块 shortcut.
 // The `pick` overlay survives from when 取色 (`I`)
 // lived here — eyedropping moved to the 工具 folder's 吸取 (`P`), which lifts
 // equipment as well as finishes, and `I` now aliases that tool.
@@ -10,7 +10,7 @@ import type { FinishId } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
 
 export type PaintMode = 'single' | 'surface' | 'pick'
-/** The 材质 folder's own setting: the two modes `N` 单块 / 整面 pick between. */
+/** The 材质 brush setting: the two modes each material submenu offers. */
 export type PaintBaseMode = 'single' | 'surface'
 
 export interface PaintSlice {
@@ -39,7 +39,7 @@ export interface PaintSlice {
   resumePaintMode: () => void
   /**
    * The 材质 tile's click: point the brush at a finish and switch to the paint
-   * tool, keeping the folder's 单块/整面 setting — a texture is not a mode.
+   * tool, keeping the brush's 单块/整面 setting — a texture is not a mode.
    */
   selectPaintFinish: (id: FinishId) => void
   setPaintFinish: (id: FinishId) => void

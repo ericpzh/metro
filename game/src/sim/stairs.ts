@@ -20,12 +20,12 @@ type StairModule = Extract<Module, { type: 'stair' }>
 
 /**
  * The three sizes a stair comes in, cycled with Tab in the builder: **窄 / 中 / 宽**
- * (`STAIR_WIDTH_LABELS`). Each is a whole number of **lanes**, each exactly the
- * escalator's step band (`ESCALATOR_BAND`): one lane fits one 1 m cell, handrails
- * included, so a lane stands flush against an escalator or another lane and the pair
- * reads as one bank (§5.1). A wide straight stair is literally `lanes` narrow stairs
- * side by side — the builder drops one lane piece per cell — so the middle of a wide
- * flight wears the same two balustrades a stair next to an escalator does.
+ * (`STAIR_WIDTH_LABELS`). Their stored palette sizes are multiples of the
+ * escalator's step band (`ESCALATOR_BAND`). A straight stair's actual tread
+ * width is `stairTreadWidth`: its blocks less its two outer balustrades (§5.1),
+ * so the whole piece fills exactly 1/2/3 m. Medium and wide straight stairs are single modules
+ * spanning the selected width, with balustrades only at their outer edges. The lane
+ * helpers below retain support for older saves made from linked narrow pieces.
  *
  * `STAIR_WIDTHS` is the tool's step, and the **size** is what the player picks: the
  * action tile wears the name (窄 / 中 / 宽), never the metre, because the width a *piece*
@@ -40,6 +40,21 @@ export const STAIR_WIDTH_NARROW = ESCALATOR_BAND
 export const STAIR_WIDTH_DOUBLE = 2 * ESCALATOR_BAND
 export const STAIR_WIDTH_TRIPLE = 3 * ESCALATOR_BAND
 export const STAIR_WIDTHS: readonly number[] = [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]
+
+/**
+ * Actual tread width (§5.1). Straight catalogue sizes, including saved pieces,
+ * fill 1/2/3 blocks with only two outer balustrades. Their stored width remains
+ * the palette size so picking, size cycling and old saves use the same token.
+ * Linked legacy lanes still join at their shared cell edges. Custom widths and
+ * turning pieces keep their authored dimensions.
+ */
+export function stairTreadWidth(m: StairModule): number {
+  const width = m.cfg.width ?? STAIR_WIDTH_NARROW
+  const size = STAIR_WIDTHS.findIndex((w) => Math.abs(width - w) < 1e-6)
+  return !m.cfg.block && stairFlights(m).length === 1 && size >= 0
+    ? size + 1 - 2 * STAIR_RAIL_PROUD
+    : width
+}
 
 /**
  * What the three sizes are called on the rail, in the order `STAIR_WIDTHS` cycles
@@ -88,13 +103,13 @@ export function stairOnBlockGrid(width: number): boolean {
 }
 
 /**
- * The tread width a piece of `style` is **built** at from the tool's size: a straight or
- * 90° run is the width itself — a lane, or the single wide piece it always was — while a
+ * The width a piece of `style` **stores** from the tool's size: a straight or
+ * 90° run keeps the palette size (straight treads resolve through `stairTreadWidth`), while a
  * switchback's runs are laid on the block grid (`stairSwitchbackRunWidth`), because its
  * two flush runs are what has to fill whole blocks.
  */
 export function stairBuildWidth(style: StairStyle, width: number = STAIR_WIDTH_NARROW): number {
-  return style === 'right180' || style === 'left180' ? stairSwitchbackRunWidth(width) : width
+  return style === 'right180' || style === 'left180' || style.endsWith('Forward') ? stairSwitchbackRunWidth(width) : width
 }
 
 /** The most lanes one stair may be built from (the 3-block width). */
@@ -102,7 +117,8 @@ export const STAIR_LANES_MAX = 3
 
 /** The next stair width in the cycle (narrow → double → triple → narrow). */
 export function nextStairWidth(width: number): number {
-  const i = STAIR_WIDTHS.findIndex((w) => Math.abs(w - width) < 0.05)
+  const i = stairOnBlockGrid(width) ? stairRunBlocks(width) - 1
+    : STAIR_WIDTHS.findIndex((w) => Math.abs(w - width) < 0.05)
   return STAIR_WIDTHS[(i + 1 + STAIR_WIDTHS.length) % STAIR_WIDTHS.length]
 }
 
@@ -113,6 +129,7 @@ export function nextStairWidth(width: number): number {
  * blocks) or a station saved with the old 1.6 m stair — reads as the nearest one.
  */
 export function stairLanes(width: number): number {
+  if (stairOnBlockGrid(width)) return stairRunBlocks(width)
   const lanes = Math.round(width / ESCALATOR_BAND)
   return Math.max(1, Math.min(STAIR_LANES_MAX, lanes))
 }
@@ -303,7 +320,7 @@ export function stairLaneMates(modules: readonly Module[], m: Module): StairLane
  */
 function laneSpan(m: Module): { lower: Vec3i; upper: Vec3i; axis: [number, number]; flight?: string } | null {
   if (m.type !== 'stair') return null
-  if ((m.cfg.width ?? STAIR_WIDTH_NARROW) > STAIR_WIDTH_NARROW + 1e-9) return null
+  if (stairTreadWidth(m) > 1 - 2 * STAIR_RAIL_PROUD + 1e-9) return null
   const flights = stairFlights(m)
   if (flights.length !== 1) return null
   const f = flights[0]
@@ -491,6 +508,15 @@ export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, wid
         { from: base, to: at(STAIR_FLIGHT_RUN, 0, STAIR_FLIGHT_RISE) },
         { from: at(STAIR_FLIGHT_RUN, -span, STAIR_FLIGHT_RISE), to: at(0, -span, STAIR_RISE) },
       ]
+    case 'leftForward':
+    case 'centerForward':
+    case 'rightForward': {
+      const across = style === 'leftForward' ? -span : style === 'rightForward' ? span : 0
+      return [
+        { from: base, to: at(STAIR_FLIGHT_RUN, 0, STAIR_FLIGHT_RISE) },
+        { from: at(STAIR_FLIGHT_RUN, across, STAIR_FLIGHT_RISE), to: at(STAIR_RUN, across, STAIR_RISE) },
+      ]
+    }
     case 'straight':
     default:
       return [{ from: base, to: at(STAIR_RUN, 0, STAIR_RISE) }]
@@ -619,6 +645,8 @@ const NO_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
 /**
  * How far each flight's **treads** are slid across from its own walking line, in
  * cells — one entry per flight, in the same order as `stairFlights`.
+ * A straight block-sized flight grows along its right from the hovered cell,
+ * so every consumer uses the same half-block / whole-block offset at 2/3 blocks.
  *
  * A switchback moves in two ways, and both are what puts it on the block grid:
  *
@@ -641,6 +669,18 @@ const NO_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
 export function stairFlightSlides(m: StairModule): StairFlightSlide[] {
   const flights = stairFlights(m)
   const out: StairFlightSlide[] = flights.map(() => NO_SLIDE)
+  if (flights.length === 1) {
+    const width = stairTreadWidth(m)
+    const shift = stairOnBlockGrid(width) ? (stairRunBlocks(width) - 1) / 2 : 0
+    const f = flights[0]
+    const lower = f.from.z <= f.to.z ? f.from : f.to
+    const upper = f.from.z <= f.to.z ? f.to : f.from
+    const dx = upper.x - lower.x
+    const dy = upper.y - lower.y
+    const run = Math.hypot(dx, dy)
+    if (run > 1e-6) out[0] = { dx: dy / run * shift || 0, dy: -dx / run * shift || 0 }
+    return out
+  }
   if (flights.length !== 2) return out
   const width = m.cfg.width ?? STAIR_WIDTH_NARROW
   const [first, second] = flights
@@ -693,8 +733,9 @@ export function stairTurnCells(m: StairModule): Vec3i[] {
     const acy = a.y + 0.5 + slides[i].dy
     const bcx = b.x + 0.5 + slides[i + 1].dx
     const bcy = b.y + 0.5 + slides[i + 1].dy
-    const acrossIsX = a.x !== b.x
-    const acrossIsY = a.y !== b.y
+    const alignedForward = m.cfg.style === 'centerForward'
+    const acrossIsX = a.x !== b.x || (alignedForward && flights[i].from.x === a.x)
+    const acrossIsY = a.y !== b.y || (alignedForward && flights[i].from.y === a.y)
     const x0 = acrossIsX ? Math.floor(Math.min(acx, bcx) - half + 1e-9) : Math.min(a.x, b.x)
     const x1 = acrossIsX ? Math.ceil(Math.max(acx, bcx) + half - 1e-9) - 1 : Math.max(a.x, b.x)
     const y0 = acrossIsY ? Math.floor(Math.min(acy, bcy) - half + 1e-9) : Math.min(a.y, b.y)
@@ -755,8 +796,9 @@ export function stairLandingShape(m: StairModule, i: number): StairLandingShape 
   // flights differ on is spanned by their bands, an axis they share is the one block they
   // meet in — unless they share both, which is a corner, and there the stair's own width is
   // what the platform is.
-  const acrossX = a.x !== b.x
-  const acrossY = a.y !== b.y
+  const alignedForward = m.cfg.style === 'centerForward'
+  const acrossX = a.x !== b.x || (alignedForward && flights[i].from.x === a.x)
+  const acrossY = a.y !== b.y || (alignedForward && flights[i].from.y === a.y)
   const corner = !acrossX && !acrossY
   const sx = acrossX ? Math.abs(bx - ax) + width : corner ? width : 1
   const sy = acrossY ? Math.abs(by - ay) + width : corner ? width : 1

@@ -5,7 +5,7 @@ import { exitLandingHeight } from './ExitLanding.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
 import { escalatorBalustradeWidth, escalatorRun } from '../../../sim/escalators.ts'
-import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
+import { stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
 import { RAMP_JOIN_THICKNESS, RAMP_JOIN_RAIL_OVERLAP, RAMP_JOIN_DOME_RADIUS, RAMP_JOIN_DOME_SPACING, STAIR_RAIL_PROUD, ESCALATOR_SURFACE_CLEARANCE } from '../../../sim/constants.ts'
 
 type Escalator = Extract<Module, { type: 'escalator' }>
@@ -43,7 +43,7 @@ function run(ctx: ModuleContext, mod: Module, from: Vec3i, to: Vec3i, dx = 0, dy
     trim: 0, railHeight: 1, blocked: () => false,
   }
   if (mod.type !== 'stair') return null
-  const width = mod.cfg.width ?? STAIR_WIDTH_NARROW
+  const width = stairTreadWidth(mod)
   return {
     mod, lower, upper, axis, across, length, normal,
     planHalf: Math.max(0.5, width / 2 + STAIR_RAIL_PROUD),
@@ -66,7 +66,7 @@ function runs(ctx: ModuleContext, mod: Module): Run[] {
     if (!r) return []
     // Only scan the station's walls/lanes after finding an actual adjoining run.
     const blocked = (side: number): boolean => {
-      const walls = stairWallSides(ctx.data.cells, f.from, f.to, mod.cfg.width ?? STAIR_WIDTH_NARROW, slide)
+      const walls = stairWallSides(ctx.data.cells, f.from, f.to, stairTreadWidth(mod), slide)
       if (side > 0 ? walls.left : walls.right) return true
       return stairLaneMates(ctx.data.modules, mod).some((mate) => mate.sameFlight && Math.sign(mate.step[0] * r.across.x + mate.step[1] * r.across.y) === side)
     }

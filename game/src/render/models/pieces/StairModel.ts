@@ -7,7 +7,7 @@ import { StairBlockModel } from './StairBlockModel.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials, ModuleContext } from '../PieceBuilder.ts'
 import { STAIR_BODY_DROP } from '../../../sim/openings.ts'
-import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLaneMates, stairLandingShape, stairLandingWalls, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
+import { stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairLandingShape, stairLandingWalls, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
 import type { StairFlightSlide, StairLaneMate, StairLandingShape, StairLandingWalls, StairWallSides } from '../../../sim/stairs.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
 
@@ -44,10 +44,10 @@ const NO_STAIR_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
  * The stair wears the floor it climbs from — the top finish of its lower
  * landing — so a granite hall gets a granite staircase, not a steel one.
  *
- * A stair is built to fit inside one tile, handrails included, so it keeps both
+ * A narrow stair fits inside one tile, handrails included, so it keeps both
  * of its railings and may stand flush against an escalator or another stair:
- * each run's own balustrade is the barrier between them. Two lanes of the *same*
- * wide flight are the exception — they drop the rail along the seam and run their
+ * each run's own balustrade is the barrier between them. New wide stairs span their
+ * full width as one model. Legacy lanes of the *same* wide flight are the exception — they drop the rail along the seam and run their
  * treads together, so a 2- or 3-lane stair reads as one wide flight with rails
  * only at its outer edges (`stairLaneMates`). So is a side a **wall hugs from
  * bottom to top** (`stairWallSides`): the wall is the barrier there, so the
@@ -58,7 +58,7 @@ const NO_STAIR_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
 function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>): THREE.Group {
   if (mod.cfg.block) return new StairBlockModel(ctx).build(mod)
   const g = new THREE.Group()
-  const width = mod.cfg.width ?? STAIR_WIDTH_NARROW
+  const width = stairTreadWidth(mod)
   const surface = stairSurface(ctx, mod)
   const flights = stairFlights(mod)
   // Only the module's outer landings stand on a floor of their own; an interior
@@ -71,9 +71,10 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
   // flight's own landings stay on the cells the graph walks.
   const slides = stairFlightSlides(mod)
   for (const [i, f] of flights.entries()) {
-    const slide = slides[i] ?? NO_STAIR_SLIDE
     const from = { x: f.from.x, y: f.from.y, z: f.from.z }
     const to = { x: f.to.x, y: f.to.y, z: f.to.z }
+    // Rendering, carving and collision share the same block-aligned band.
+    const slide = slides[i] ?? NO_STAIR_SLIDE
     const walls = stairWallSides(ctx.data.cells, from, to, width, slide)
     const renderOuter = new Set([from, to].filter((p) => outer.has(`${p.x},${p.y},${p.z}`)).map((p) => `${p.x},${p.y},${p.z + exitLandingHeight(ctx.data.modules, p)}`))
     from.z += exitLandingHeight(ctx.data.modules, f.from)
@@ -81,7 +82,7 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
     g.add(buildStairFlight(ctx.mats, surface, from, to, width, renderOuter, mates, walls, slide))
   }
   for (let i = 0; i + 1 < flights.length; i++) {
-    g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], stairLandingShape(mod, i), stairLandingWalls(ctx.data.cells, mod, i)))
+    g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], stairLandingShape(mod, i), stairLandingWalls(ctx.data.cells, mod, i), mod.cfg.style?.endsWith('Forward') ? { width, incoming: slides[i], outgoing: slides[i + 1] } : undefined))
   }
   return g
 }
@@ -229,7 +230,9 @@ function buildStairFlight(
     // The stringer runs the incline on every side the flight keeps, a walled one
     // included: the treads stop at their own edge, so the stringer is what meets
     // the wall.
-    const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), underside + STAIR_STRINGER_T / 2, beamLen(STAIR_STRINGER_T), 0.09, STAIR_STRINGER_T)
+    // Its outer face meets the rail's outer face, including when a wall replaces
+    // the rail: no strip of exposed ground between the stair and its block edge.
+    const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), underside + STAIR_STRINGER_T / 2, beamLen(STAIR_STRINGER_T), 0.11, STAIR_STRINGER_T)
     beam.rotation.y = -theta
     // A wall hugging this side is already the barrier: no handrail, no rail posts.
     if (wallSides.has(s)) continue
@@ -240,6 +243,18 @@ function buildStairFlight(
     for (let i = 0; i <= 2; i++) {
       const u = inner + (i / 2) * stairRun
       slab(g, mats.steel, u, s * (half + 0.07), ((u - inner) / stairRun) * rise + 0.47, 0.05, 0.05, 0.94)
+    }
+    // Vertical panel ends meet the uprights; the top and bottom follow the
+    // incline, keeping glass above the treads and below the handrail (§5.1).
+    for (let i = 0; i < 2; i++) {
+      const x0 = inner + i * stairRun / 2 + 0.03
+      const x1 = inner + (i + 1) * stairRun / 2 - 0.03
+      const z0 = (x0 - inner) / stairRun * rise
+      const z1 = (x1 - inner) / stairRun * rise
+      stairGlass(g, mats.glass, s * (half + 0.07), [
+        [x0, z0 + 0.09], [x1, z1 + 0.09],
+        [x1, z1 + STAIR_RAIL_H - 0.06], [x0, z0 + STAIR_RAIL_H - 0.06],
+      ])
     }
   }
   // The soffit runs under the whole joined width, overhanging only on a free
@@ -273,6 +288,20 @@ function buildStairFlight(
       g.add(turn)
       const post = zEnd - STAIR_RETURN_R - floor
       slab(g, mats.steel, xEnd + o * (STAIR_LEAD + STAIR_RETURN_R), y, floor + post / 2, 0.07, 0.07, post)
+      const panelEnd = STAIR_LEAD + STAIR_RETURN_R - 0.04
+      const points: Array<[number, number]> = [
+        [xEnd + o * 0.03, floor + 0.09], [xEnd + o * panelEnd, floor + 0.09],
+      ]
+      // Follow the curved return right up to the newel, with a small clearance
+      // beneath the black rail instead of leaving its landing extension open.
+      for (let i = 8; i >= 0; i--) {
+        const u = STAIR_LEAD + (panelEnd - STAIR_LEAD) * i / 8
+        const h = STAIR_RAIL_H - STAIR_RETURN_R
+          + Math.sqrt(STAIR_RETURN_R ** 2 - (u - STAIR_LEAD) ** 2) - 0.06
+        points.push([xEnd + o * u, floor + h])
+      }
+      points.push([xEnd + o * 0.03, floor + STAIR_RAIL_H - 0.06])
+      stairGlass(g, mats.glass, y, points)
     }
   }
   return g
@@ -284,6 +313,16 @@ const STAIR_RAIL_H = 0.95
 const STAIR_LEAD = 0.34
 /** Radius of the turn that carries it down into the newel, metres. */
 const STAIR_RETURN_R = 0.25
+
+/** A thin glass infill in the flight's x-z plane, centred under its rail. */
+function stairGlass(g: THREE.Group, material: THREE.Material, y: number, points: Array<[number, number]>): void {
+  const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, z)))
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.025, bevelEnabled: false, steps: 1 })
+  geo.rotateX(Math.PI / 2)
+  const pane = new THREE.Mesh(geo, material)
+  pane.position.y = y + 0.0125
+  g.add(pane)
+}
 
 /**
  * The quarter-turn a stair handrail makes into its newel post: an arc in the
@@ -314,6 +353,7 @@ function buildStairLanding(
   fout: { from: Vec3i; to: Vec3i },
   shape: StairLandingShape,
   walls: StairLandingWalls,
+  forward?: { width: number; incoming: StairFlightSlide; outgoing: StairFlightSlide },
 ): THREE.Group {
   const g = new THREE.Group()
   const a = fin.to
@@ -339,19 +379,43 @@ function buildStairLanding(
   attachEdge(fout.from, fout.to) // the outgoing flight, beyond the landing
 
   const RAIL = 0.95
-  const rail = (edge: string): void => {
+  const rail = (edge: string, lo?: number, hi?: number): void => {
+    const horizontal = edge === 's' || edge === 'n'
+    const start = lo ?? (horizontal ? x0 : y0)
+    const end = hi ?? (horizontal ? x1 : y1)
+    const length = end - start
+    const mid = (start + end) / 2
     if (edge === 's' || edge === 'n') {
       const y = edge === 's' ? y0 + 0.04 : y1 - 0.04
-      slab(g, mats.handrail, cx, y, top + RAIL, sx, 0.06, 0.06)
-      for (const px of [x0 + 0.07, x1 - 0.07]) slab(g, mats.steel, px, y, top + RAIL / 2, 0.05, 0.05, RAIL)
+      slab(g, mats.handrail, mid, y, top + RAIL, length, 0.06, 0.06)
+      slab(g, mats.glass, mid, y, top + RAIL / 2, Math.max(0.01, length - 0.2), 0.025, RAIL - 0.16)
+      for (const px of [start + 0.07, end - 0.07]) slab(g, mats.steel, px, y, top + RAIL / 2, 0.05, 0.05, RAIL)
     } else {
       const x = edge === 'w' ? x0 + 0.04 : x1 - 0.04
-      slab(g, mats.handrail, x, cy, top + RAIL, 0.06, sy, 0.06)
-      for (const py of [y0 + 0.07, y1 - 0.07]) slab(g, mats.steel, x, py, top + RAIL / 2, 0.05, 0.05, RAIL)
+      slab(g, mats.handrail, x, mid, top + RAIL, 0.06, length, 0.06)
+      slab(g, mats.glass, x, mid, top + RAIL / 2, 0.025, Math.max(0.01, length - 0.2), RAIL - 0.16)
+      for (const py of [start + 0.07, end - 0.07]) slab(g, mats.steel, x, py, top + RAIL / 2, 0.05, 0.05, RAIL)
     }
   }
   const edges: Array<keyof StairLandingWalls> = ['s', 'n', 'w', 'e']
-  for (const edge of edges) if (!attached.has(edge) && !walls[edge]) rail(edge)
+  for (const edge of edges) {
+    if (walls[edge]) continue
+    if (!attached.has(edge)) { rail(edge); continue }
+    if (!forward) continue
+    // Forward offset flights attach to opposite halves; rail the exposed remainder.
+    const horizontal = edge === 's' || edge === 'n'
+    const incomingEdge = Math.abs(fin.from.x - a.x) >= Math.abs(fin.from.y - a.y)
+      ? (fin.from.x > a.x ? 'e' : 'w') : (fin.from.y > a.y ? 'n' : 's')
+    const end = edge === incomingEdge ? fin.to : fout.from
+    const slide = edge === incomingEdge ? forward.incoming : forward.outgoing
+    const centre = horizontal ? end.x + 0.5 + slide.dx : end.y + 0.5 + slide.dy
+    const lo = horizontal ? x0 : y0
+    const hi = horizontal ? x1 : y1
+    const openLo = centre - forward.width / 2
+    const openHi = centre + forward.width / 2
+    if (openLo - lo > 0.1) rail(edge, lo, openLo)
+    if (hi - openHi > 0.1) rail(edge, openHi, hi)
+  }
   return g
 }
 

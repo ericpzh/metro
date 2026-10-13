@@ -1,13 +1,13 @@
 // One timeline drives the chart, time boundaries and demand sliders. SMIL also
 // runs in image embeds; opening the SVG allows pointer and keyboard edits.
-import { demandSeries, DEMAND_LIMITS, DAY_TYPE_FACTOR, PERIOD_FACTOR, DEMAND_AM_HOUR,
+import { demandSeries, DEMAND_LIMITS, PERIOD_FACTOR, DEMAND_AM_HOUR,
   DEMAND_PM_HOUR, DEMAND_MIDDAY_HOUR, DEMAND_SIGMA, DEMAND_FLOOR, DEMAND_MIDDAY } from '../game/src/sim/demand.ts';
 import { n } from './iso.mjs';
 import { SHOULDER_OPEN, SHOULDER_CLOSE } from '../game/src/sim/constants.ts';
 
 const KEYS = ['amPeak', 'pmPeak', 'sharpness'];
 const LABELS = ['开站时间', '关站时间', '早高峰开始', '早高峰结束', '晚高峰开始', '晚高峰结束'];
-const px = hour => 26 + hour / 24 * 394; // DayCurve's current 26 / 60 margins.
+const px = hour => 60 + hour / 24 * 394; // DayCurve/TrainCurve share 60 / 26 viewBox margins.
 const clock = hour => { const m=Math.round(hour*60); return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); };
 const times = b => `营业 ${clock(b[0])}–${clock(b[1])} · 早高峰 ${clock(b[2])}–${clock(b[3])} · 晚高峰 ${clock(b[4])}–${clock(b[5])}`;
 
@@ -22,8 +22,8 @@ export function demandAnimation(x, y, w, h, spansBox, capture) {
     const b=bounds.map((v,j)=>v+(j===0?-1:j===3?1:0)*ease(t,1,4)*reset);
     const knobs={...input.knobs,amPeak:input.knobs.amPeak+.55*ease(t,5,8)*reset,
       pmPeak:input.knobs.pmPeak+.5*ease(t,9,12)*reset,sharpness:input.knobs.sharpness+.5*ease(t,13,16)*reset};
-    const rates=demandSeries('holiday',{service:{from:b[0]*3600,to:b[1]*3600},
-      peaks:[2,4].map(j=>({from:b[j]*3600,to:b[j+1]*3600})),knobs},15);
+    const rates=demandSeries(capture.workday,{service:{from:b[0]*3600,to:b[1]*3600},
+      peaks:[2,4].map(j=>({from:b[j]*3600,to:b[j+1]*3600})),workday:knobs,offday:knobs},15);
     const top=Math.ceil(Math.max(1,...rates)*10)/10+.1;
     return {bounds:b,knobs,top,baseY:97-83/top,points:rates.map((r,j)=>`${n(px(j/4))},${n(97-r/top*83)}`).join(' ')};
   });
@@ -64,7 +64,7 @@ export function demandAnimation(x, y, w, h, spansBox, capture) {
       `<rect data-knob="${i}" tabindex="0" role="slider" aria-label="${s.label}" aria-valuemin="${s.limits[0]*100}" aria-valuemax="${s.limits[1]*100}" aria-valuenow="${initial.knobs[s.key]*100}" x="${n(r.x)}" y="${n(r.y)}" width="${n(r.w)}" height="${n(r.h)}" fill="transparent" style="cursor:ew-resize;touch-action:none"/>`);
   });
   // All coefficients are imported from the sim for the standalone SVG's edits.
-  const model={am:DEMAND_AM_HOUR,pm:DEMAND_PM_HOUR,mid:DEMAND_MIDDAY_HOUR,sigma:DEMAND_SIGMA,floor:DEMAND_FLOOR,midday:DEMAND_MIDDAY,factors:PERIOD_FACTOR,day:DAY_TYPE_FACTOR.holiday,shoulderOpen:SHOULDER_OPEN/3600,shoulderClose:SHOULDER_CLOSE/3600};
+  const model={am:DEMAND_AM_HOUR,pm:DEMAND_PM_HOUR,mid:DEMAND_MIDDAY_HOUR,sigma:DEMAND_SIGMA,floor:DEMAND_FLOOR,midday:DEMAND_MIDDAY,factors:PERIOD_FACTOR,shoulderOpen:SHOULDER_OPEN/3600,shoulderClose:SHOULDER_CLOSE/3600,workday:capture.workday};
   svg.push(`<script><![CDATA[(() => {
     const root=document.documentElement,chart=document.getElementById('demand-edit-chart');
     let bounds=${JSON.stringify(bounds)},knobs=${JSON.stringify(initial.knobs)},held=null;
@@ -78,7 +78,7 @@ export function demandAnimation(x, y, w, h, spansBox, capture) {
       const gauss=(h,mu,sigma)=>Math.exp(-((h-mu)**2)/(2*sigma*sigma));
       const rates=Array.from({length:97},(_,i)=>{const h=(i/4)%24,s=knobs.sharpness;
         const shape=model.floor+knobs.amPeak*gauss(h,model.am,model.sigma.am*s)+knobs.pmPeak*gauss(h,model.pm,model.sigma.pm*s)+model.midday*gauss(h,model.mid,model.sigma.midday*s);
-        const factor=h<bounds[0]||h>=bounds[1]?model.factors.late:((h>=bounds[2]&&h<bounds[3])||(h>=bounds[4]&&h<bounds[5]))?model.factors.peak:(h<model.shoulderOpen||h>=model.shoulderClose)?model.factors.late:model.factors.offpeak;return shape*factor*model.day;});
+        const factor=h<bounds[0]||h>=bounds[1]?model.factors.late:model.workday&&((h>=bounds[2]&&h<bounds[3])||(h>=bounds[4]&&h<bounds[5]))?model.factors.peak:(h<model.shoulderOpen||h>=model.shoulderClose)?model.factors.late:model.factors.offpeak;return shape*factor;});
       const top=Math.ceil(Math.max(1,...rates)*10)/10+.1,by=97-83/top;
       document.getElementById('demand-live-line').setAttribute('points',rates.map((r,i)=>px(i/4)+','+(97-r/top*83)).join(' '));
       const base=document.getElementById('demand-baseline');base.setAttribute('y1',by);base.setAttribute('y2',by);

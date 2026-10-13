@@ -9,7 +9,7 @@ import type { ExitBays, Module, Vec3i } from './types.ts'
 import { ESCALATOR_CASING_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { escalatorBodyWidth, escalatorRun } from './escalators.ts'
 import { LIFT_SIZE } from './lifts.ts'
-import { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_NARROW, stairRotFor } from './stairs.ts'
+import { STAIR_RISE, STAIR_RUN, stairTreadWidth, stairRotFor } from './stairs.ts'
 
 /**
  * Width of the reference 双向 head-house, metres: four blocks — two runs standing
@@ -107,7 +107,7 @@ export function exitRunHalf(run: Module): number {
     run.type === 'escalator'
       ? escalatorBodyWidth(run) / 2 + ESCALATOR_CASING_PROUD
       : run.type === 'stair'
-        ? (run.cfg.width ?? STAIR_WIDTH_NARROW) / 2 + STAIR_RAIL_PROUD
+        ? stairTreadWidth(run) / 2 + STAIR_RAIL_PROUD
         : run.type === 'lift'
           ? LIFT_SIZE / 2
           : 0

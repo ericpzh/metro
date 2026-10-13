@@ -25,7 +25,7 @@
 // strips), and the renderer in `game/src/render/` still answers to it.
 // True isometric projection, 1 block = 1 m, z is height in metres.
 
-import { passengerSprites, walkingDefinitions, walkingSprite, walkingHeading } from './passenger-cards.mjs';
+import { passengerSprites, passengerSpriteCount, walkingDefinitions, walkingSprite, walkingHeading } from './passenger-cards.mjs';
 
 export const C = {
   bg0: '#0c1017', soil: '#3b3229', soil2: '#4a4034',
@@ -351,7 +351,7 @@ export function Scene() {
     sprite(x, y, z, sprite, o = {}) {
       const identity = Math.abs(Math.round(x * 31 + y * 47 + z * 13));
       const human = ['person', 'personBag', 'personSeat'].includes(sprite);
-      if (human) sprite = `human-${identity % 96}`;
+      if (human) sprite = `human-${identity % passengerSpriteCount()}`;
       const scale = o.scale ?? 1;
       const t = scale !== 1
         ? `transform="translate(${n(px(x, y))},${n(py(x, y, z))}) scale(${scale})"`

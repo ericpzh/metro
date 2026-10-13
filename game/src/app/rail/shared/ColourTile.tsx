@@ -1,4 +1,4 @@
-import { translate } from '../../../sim/i18n.ts'
+import { msg, translate } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 // The shared colour picker tile for 搪瓷板 and 涂料 (§4.3).
 //
@@ -24,6 +24,26 @@ export function ColourTile({ colour, onChange }: { colour: number; onChange: (co
         />
       </span>
       <span className="bpBlockLabel">{translate(hexColour(colour).toUpperCase())}</span>
+    </label>
+  )
+}
+
+/** A separate palette slot for adding a new saved finish colour. */
+export function NewColorTile({ colour, onChange }: { colour: number; onChange: (colour: number) => void }): React.ReactElement {
+  useLanguage()
+  return (
+    <label className="bpBlock bpNewColourTile">
+      <span className="bpBlockArt bpNewColourArt">
+        <span aria-hidden="true" className="bpNewColourPlus">+</span>
+        <input
+          className="bpNewColourInput"
+          type="color"
+          value={hexColour(colour)}
+          aria-label={translate(msg('new_color'))}
+          onChange={(e) => onChange(Number.parseInt(e.target.value.slice(1), 16))}
+        />
+      </span>
+      <span className="bpBlockLabel">{translate(msg('new_color'))}</span>
     </label>
   )
 }

@@ -8,6 +8,9 @@ web/dist/
 
 # Generated: the concept sheets are copied from art/ at build time
 web/public/art/
+model/public/models/
+# Interrupted model exports
+*.glb.*.tmp
 
 # Wrangler
 .wrangler/
@@ -35,5 +38,5 @@ slope-cut-preview/
 game/.rolldown-locked/
 tools/_probe-sweep.mjs
 
-# npm is this repo's manager; all three package-lock.json files are tracked
+# npm is this repo's manager; package-lock.json files are tracked for every app
 web/pnpm-lock.yaml

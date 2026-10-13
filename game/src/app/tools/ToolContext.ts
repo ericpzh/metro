@@ -37,7 +37,8 @@ export interface AreaDrag {
   /**
    * A wall drag that never becomes a run: the 方块 tool's **半墙** mode lays one
    * block per click, so the release takes the press's own cell whatever the
-   * pointer did in between.
+   * pointer did in between. A **三角** drag is the ridge-locked line instead —
+   * still released by the 方块 tool, because it lays single courses.
    */
   single?: boolean
   /**

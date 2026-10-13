@@ -74,7 +74,7 @@ export function artDemand({ language = 'zh-CN' } = {}) {
     return c
   }
   const image = (crop, x, y, w) => `<image x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(w * crop.rect.height / crop.rect.width)}" href="${crop.href}"/>`
-  const g = [title(48, 62, '把早晚高峰，交给你的车站', '拖动蓝色营业边界与黄色高峰边界，试试车站能承受怎样的一天。')]
+  const g = [title(48, 62, '两种客流，一起看懂车站压力', '上图调整乘客从出入口进站的时段与强度；下图对照列车带来的下车客流。')]
   const modal = cropOf('time', 'timeWindow'), mx = 48, my = 140, mw = 950
   const scale = mw / modal.rect.width, mh = modal.rect.height * scale
   g.push(image(modal, mx, my, mw))
@@ -90,9 +90,9 @@ export function artDemand({ language = 'zh-CN' } = {}) {
       y: my + (b.y - modal.rect.y) * scale, w: b.width * scale, h: b.height * scale }) },
   ))
   const notes = [
-    ['1  调整高峰', ['拖动时间边界，改变高峰持续多久。', '用下方滑块调整客流的强弱。']],
-    ['2  换一天试试', ['选择工作日、周末或节假日，', '观察不同日子的客流压力。']],
-    ['3  决定从哪里进站', ['每个出入口都能单独设置流量。', '把人群分散到不同入口。']],
+    ['1  调整进站曲线', ['拖动蓝色营业边界和黄色高峰边界，', '用滑块调整早晚高峰的客流强度。']],
+    ['2  对照列车下车量', ['下图汇总各线路的下车客流，', '会随行车间隔和停站时段变化。']],
+    ['3  看客流怎样经过车站', ['分别设置各出入口的进站流量，', '运行车站，观察队伍从哪里变长。']],
   ]
   notes.forEach(([name, lines], i) => {
     const y = 202 + i * 145
@@ -102,6 +102,6 @@ export function artDemand({ language = 'zh-CN' } = {}) {
   const exits = cropOf('exits', 'inspector')
   g.push(image(exits, 1164, 646, 250))
   const bottom = Math.max(my + mh, 646 + 250 * exits.rect.height / exits.rect.width)
-  g.push(T(48, bottom + 48, '增加客流后，运行车站：看看队伍先在哪里变长。', { size: 23, weight: 700, fill: G.warn }))
+  g.push(T(48, bottom + 48, '运行车站，观察进站与下车客流如何汇成队伍。', { size: 23, weight: 700, fill: G.warn }))
   return sheet(W, Math.ceil(bottom + 92), g.join(''))
 }

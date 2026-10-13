@@ -106,15 +106,15 @@ const STATION = toState({
  * state the two faces as the two boards they are, including an empty back. `type` picks
  * the mount, which is the piece's own (`sign-ceiling` / `sign-wall`).
  */
-function buildSignMeshes(boards = { front: [], back: [] }, type = 'sign', rot = 0) {
-  const mod = createModule(type, 2, 3, 0, `sign-${type}`, rot, undefined, 'up', 'right', [LINE], boards)
+function buildSignMeshes(boards = { front: [], back: [] }, type = 'sign', rot = 0, data = STATION, z = 0) {
+  const mod = createModule(type, 2, 3, z, `sign-${type}`, rot, undefined, 'up', 'right', [LINE], boards)
   assert.equal(mod.type, 'sign')
   const plates = []
   const mats = createModelMaterials()
   const ctx = {
     mats,
     ads: { poster: () => null, slugFor: () => '' },
-    data: STATION,
+    data,
     trackCells: new Set(),
     finish: () => mats.black,
     tvPlate: () => mats.screen.map,
@@ -174,7 +174,9 @@ const FRONT = [
 ]
 const BACK = [
   { id: 'b1', kind: 'icon', icon: 'lift', x: 0.27, y: 0.35, scale: 1, side: 'both' },
-  { id: 'b2', kind: 'text', text: '出站', x: 0.81, y: 0.35, scale: 1, side: 'both' },
+  // Two lines, so the back stays the shorter face: a lone primary now takes over the
+  // gloss row and sets twice as large, which would make this back the longer board.
+  { id: 'b2', kind: 'text', text: '出站\nExit', x: 0.81, y: 0.35, scale: 1, side: 'both' },
 ]
 
 test('a placed sign hangs a lit face per composed board, each printing its own', () => {
@@ -313,6 +315,19 @@ test('a wall sign is a panel on the wall: one lit face into the room, and no rod
   assert.ok(Math.abs(hungBox.max.z - 4) < 0.06, 'the hung board still reaches the ceiling its rods bolt to')
   // The two mounts are one board: the panel is the same size either way.
   assert.equal(mm(wallBox.max.x - wallBox.min.x), mm(hungBox.max.x - hungBox.min.x), 'the same board, hung the other way')
+})
+
+test('a hung sign rod reaches a nonstandard ceiling above a shifted storey', () => {
+  const station = {
+    ...STATION,
+    cells: [
+      { x: 2, y: 3, z: 1, fill: 'solid' },
+      { x: 2, y: 3, z: 6, fill: 'solid' },
+    ],
+  }
+  const { group } = buildSignMeshes(undefined, 'sign-ceiling', 0, station, 1)
+  const bounds = new THREE.Box3().setFromObject(group)
+  assert.ok(Math.abs(bounds.max.z - 6) < 0.06, 'the suspension terminates at the actual z=6 ceiling slab')
 })
 
 test('a wall sign is cut to the face it mounts, never to a back it never prints', () => {

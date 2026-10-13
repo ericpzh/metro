@@ -1,7 +1,8 @@
 import { msg } from '../../sim/i18n.ts'
 // The 方块 (block) tool: click for one block, long-press + drag for a rectangle
 // patch (with an auto-wall ring when 生成墙壁 is on, which **Tab** and the ring's
-// own tile raise), one **半墙** / 三角 block at a time when a cut piece is armed,
+// own tile raise), one **半墙** block at a time or a ridge-locked **三角** line
+// when a cut piece is armed, right-press on a wall for a whole-column lift.
 // right-press on a wall for a whole-column lift. Moved verbatim
 // from app/Viewport.tsx (GAME-SPEC §4).
 
@@ -18,9 +19,10 @@ import {
 } from '../../build/model.ts'
 import { checkBlockCells, newPreview, previewNotice } from '../../build/validation.ts'
 import type { PlacementPreview } from '../../build/validation.ts'
-import type { CellShape } from '../../sim/types.ts'
+import type { Cell, CellShape } from '../../sim/types.ts'
+import { triangleOf } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
-import { pendingCells, rectCells, straightLineCells } from './geometry/cells.ts'
+import { pendingCells, rectCells, straightLineCells, triangleLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { cutShapeFor, shapeWallSide, thinGhost } from './geometry/walls.ts'
 import { ToolController } from './ToolController.ts'
@@ -92,7 +94,7 @@ export class BlockTool extends ToolController {
         sy: info.clientY,
         downTime: performance.now(),
       }
-      this.drawCutGhost(anchor, shape)
+      this.drawCutGhost([anchor], shape)
       scene.setCursor(anchor, true)
       return
     }
@@ -122,30 +124,42 @@ export class BlockTool extends ToolController {
     const d = this.ctx.drag.current
     // A wall remove drag — the right-press that landed on a 半墙 or any other
     // tagged column — previews the columns the release lifts, exactly as the 墙
-    // tool's own right-drag does.
+    // tool's own right-drag does. A 三角 column drags a ridge-locked line, so the
+    // run it lifts is the run its slopes join.
     if (d?.active && d.wall === true && d.mode === 'remove') {
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
-      const line = dragging ? straightLineCells(d.anchor, hit.cell, d.z) : [d.anchor]
+      const rawLine = dragging ? straightLineCells(d.anchor, hit.cell, d.z) : [d.anchor]
+      const line = dragging ? this.wallRemoveLine(st.station.cells, d.anchor, hit.cell, d.z, rawLine) : rawLine
       scene.setGhost(wallColumnsAt(st.station, line), 'remove')
       scene.setCursor(dragging ? hit.cell : d.anchor, true)
       this.ctx.clearMeasure()
       return
     }
-    // A cut mode (半墙 / 三角), add path: one piece, never a patch and never a run, so
-    // there is no rectangle to preview and no patch size to report. The pressed
-    // column's own candidate faces (`d.wallDirs`) are what **R** steps through, and
-    // the shape it resolves to is written back to the drag so the release and the
-    // ghost never part company.
+    // A cut mode (半墙 / 三角), add path: a 半墙 is one piece, never a patch and
+    // never a run; a 三角 drags a ridge-locked line, so its slopes join as one
+    // smooth surface. There is no rectangle to preview and no patch size to report.
+    // The pressed column's own candidate faces (`d.wallDirs`) are what **R** steps
+    // through, and the shape it resolves to is written back to the drag so the
+    // release and the ghost never part company.
     if ((st.halfWall || st.triangles) && d?.mode !== 'remove') {
       const held = d?.active === true && d.wall === true
       const base: [number, number, number] = held ? d.anchor : hit.solid ? hit.place : hit.cell
       const open = d?.wallDirs ?? wallSnap(st.station.cells, base, [hit.point[0], hit.point[1]], 0).dirs
       const shape = cutShapeFor([base], open, st)
       if (held) d.shape = shape
-      const check = this.drawCutGhost(base, shape)
+      // A held 三角 press becomes a line along its own ridge once the pointer
+      // moves; a tap stays one wedge, and a 半墙 stays one panel either way.
+      const target: [number, number, number] = hit.solid ? hit.place : hit.cell
+      const dragging = held && performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
+      const line =
+        dragging && shape?.kind === 'triangle'
+          ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side)
+          : [base]
+      const check = this.drawCutGhost(line, shape)
       // The pointer's own ring is the verdict too: a cell that refuses the piece
       // shows the ring red, not a hopeful cyan over a red box.
-      scene.setCursor(base, check.blockedCells.length === 0)
+      const cursor = dragging && line.length > 0 ? line[line.length - 1] : base
+      scene.setCursor(cursor, check.blockedCells.length === 0)
       this.ctx.clearMeasure()
       return
     }
@@ -208,10 +222,11 @@ export class BlockTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
-    // The viewport routes only plain and single-half-wall drags here; any
+    // The viewport routes only plain and single-cut drags here; any
     // `wall` run release belongs to the wall tool. The cells tail below is the
     // same code for both — a quick press is one block, a deliberate drag a
-    // rectangle (or line with Shift).
+    // rectangle (or line with Shift). A 三角 drag is the ridge-locked line its
+    // ghost drew, still released here because it lays single courses.
     const d = this.ctx.drag.current
     this.ctx.drag.current = null
     const scene = this.ctx.scene()
@@ -230,23 +245,26 @@ export class BlockTool extends ToolController {
       // the cells that are not candidates (solid ground, a rail bed), and
       // `checkBlockCells` names the refused ones so the notice can say why.
       const check = checkBlockCells(st.station, cells)
-      // A cut-mode click (半墙 / 三角) is one tagged course, not a plain block: it goes
+      // A cut-mode click (半墙 / 三角) is tagged courses, not plain blocks: it goes
       // through `addWalls` with the height of one and the shape the press resolved,
       // which is what writes the `half-wall:<side>` / `tri-upper:<side>` tag the
-      // mesher draws the piece from. The plain-block path below would lay an untagged
-      // solid — a whole block where the ghost showed a cut one — which is the whole
-      // difference between the two.
+      // mesher draws the piece from. A 三角 drag lays the ridge-locked line its
+      // ghost drew — same side on every cell, so the slopes join as one surface.
+      // The plain-block path below would lay untagged solids — whole blocks where
+      // the ghost showed cut ones — which is the whole difference between the two.
       if ((st.halfWall || st.triangles) && d.single === true && d.wall === true) {
         const shape = d.shape ?? null
         const triangle = shape?.kind === 'triangle' ? { kind: shape.triangle, side: shape.side } : null
-        const { state: next, changed, blocked } = addWalls(st.station, [d.anchor], shapeWallSide(shape), 1, triangle)
+        const line =
+          rect && triangle ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, triangle.side) : [d.anchor]
+        const { state: next, changed, blocked } = addWalls(st.station, line, shapeWallSide(shape), 1, triangle)
         if (changed > 0) st.commit(next)
         // The cut piece answers to the same block verdict, so name the same
         // conflict the red ghost boxed rather than a bare `equipment`. A cell
         // the station already holds is neither accepted nor refused — the ghost
         // stays blue over it — so a click that lays nothing there says so
         // instead of dropping the press in silence.
-        if (blocked > 0) st.setNotice(previewNotice(st.station, checkBlockCells(st.station, [d.anchor])))
+        if (blocked > 0) st.setNotice(previewNotice(st.station, checkBlockCells(st.station, line)))
         else if (changed === 0) st.setNotice(msg('cannot_place_value_here_a_block_already_exists', triangle ? msg('wedge') : msg('half_wall')))
       } else if (rect && st.autoWalls) {
         // A deliberate 方块 drag with 生成墙壁 on draws a walled floor patch:
@@ -304,23 +322,42 @@ export class BlockTool extends ToolController {
   }
 
   /**
-   * Draw the ghost for one cut piece: a **半墙** as a single half-thick course, a
-   * **三角** as the 45° wedge it tags, so the preview is the piece — the cut *is* the
-   * block (`thinGhost`). The shape is resolved before it gets here (`cutShapeFor`
-   * over the pressed cell's own candidate faces), so the ghost that shows the piece
-   * and the release that lays it read one answer.
+   * Draw the ghost for a cut run: a **半墙** as single half-thick courses, a
+   * **三角** as the 45° wedges it tags — one shape on every cell, so a dragged
+   * line previews the smooth slope the release will lay (`thinGhost`). The shape
+   * is resolved before it gets here (`cutShapeFor` over the pressed cell's own
+   * candidate faces), so the ghost that shows the pieces and the release that
+   * lays them read one answer.
    */
-  private drawCutGhost(base: [number, number, number], shape: CellShape | null): PlacementPreview {
+  private drawCutGhost(bases: Array<[number, number, number]>, shape: CellShape | null): PlacementPreview {
     const scene = this.ctx.scene()
     if (!scene) return newPreview()
     const st = useStore.getState()
     // A cut piece is a course like any other, so it answers to the same rule: the
     // cell a 闸机 holds, a ramp corridor or a rail bed refuses it, and the ghost says
     // so with the red box rather than laying a panel nobody asked for.
-    const check = checkBlockCells(st.station, [base])
+    const check = checkBlockCells(st.station, bases)
     scene.setGhost(check.acceptedCells, 'add', undefined, thinGhost(check.acceptedCells, shape), check.blockedCells)
     scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
     return check
+  }
+
+  /**
+   * A wall-remove line through the pressed column: the dominant-axis run, unless
+   * the column is a 三角 — then the ridge-locked line its slopes join along, so a
+   * delete drag can never take half a ramp and leave the rest stepped.
+   */
+  private wallRemoveLine(
+    cells: readonly Cell[],
+    anchor: [number, number, number],
+    target: [number, number, number],
+    z: number,
+    fallback: Array<[number, number, number]>,
+  ): Array<[number, number, number]> {
+    const found = cells.find((c) => c.x === anchor[0] && c.y === anchor[1] && c.z === anchor[2])
+    const tri = found ? triangleOf(found) : null
+    if (!tri) return fallback
+    return triangleLineCells(anchor, [target[0], target[1], z], z, tri.side)
   }
 
   /**
@@ -346,7 +383,7 @@ export class BlockTool extends ToolController {
       // shows, or the two would disagree at the release.
       const d = this.ctx.drag.current
       if (d?.active === true && d.wall === true && d.single === true) d.shape = shape
-      check = this.drawCutGhost(base, shape)
+      check = this.drawCutGhost([base], shape)
     } else {
       check = this.showAddGhost([base])
     }

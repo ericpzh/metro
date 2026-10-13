@@ -418,7 +418,7 @@ export type LineMapVariant = 'wall' | 'stand'
  * differ only in the hand the return flight is on — `right180` turns the run
  * back on its right, `left180` on its left.
  */
-export type StairStyle = 'straight' | 'right90' | 'left90' | 'right180' | 'left180'
+export type StairStyle = 'straight' | 'right90' | 'left90' | 'right180' | 'left180' | 'leftForward' | 'centerForward' | 'rightForward'
 
 /** One flight of a stair: a straight run of treads from one landing to the next. */
 export interface StairFlight {

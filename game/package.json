@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Metro Station Designer — the game. Playable vertical slice: build a station, watch the crowd break it.",
+  "description": "Station Designer — the game. Playable vertical slice: build a station, watch the crowd break it.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

@@ -1,15 +1,22 @@
 // Refresh the clothed human figures in sheets 01, 02, 12 and 13.
 // Requires game/dist. Run before gen-art.mjs after changing passengerModel.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { passengerCaptureBatches, validatePassengerCaptures } from './passenger-capture-plan.mjs';
 import { resolve, join } from 'node:path';
 import { serveDir, withPage, waitFor } from './browser-harness.mjs';
 
 const repo = resolve(import.meta.dirname, '..');
-const out = join(repo, '.preview/passenger-cards');
+const out = resolve(process.env.PASSENGER_CARDS_DIR ?? join(repo, '.preview/passenger-cards'));
+const port = Number(process.env.PASSENGER_CAPTURE_PORT ?? 4243);
+const debugPort = Number(process.env.PASSENGER_CAPTURE_DEBUG_PORT ?? 9385);
 mkdirSync(out, { recursive: true });
-const server = await serveDir(join(repo, 'game/dist'), 4243);
-const session = await withPage({ url: 'http://127.0.0.1:4243/?capture-passengers',
-  profile: join(repo, '.preview', `.chrome-passengers-${process.pid}`), debugPort: 9385 });
+const atlasBytes = readFileSync(join(repo, 'game/src/assets/passenger-approved.json'));
+const atlas = JSON.parse(atlasBytes);
+const batches = passengerCaptureBatches(atlas.variants.map((_,i)=>i));
+const server = await serveDir(join(repo, 'game/dist'), port);
+const session = await withPage({ url: `http://127.0.0.1:${port}/?capture-passengers`,
+  profile: join(repo, '.preview', `.chrome-passengers-${process.pid}`), debugPort });
 try {
   await waitFor(session.evaluate, '!!window.__passengerCardsReady', { what: 'passenger capture' });
   const save = images => images.map(({ png, ...item }) => {
@@ -25,13 +32,15 @@ try {
   const cycle = [];
   for (const [view, headings] of [['iso', Array.from({ length: 8 }, (_, i) => i * Math.PI / 4)],
     ['elevation', [0, Math.PI]], ['plan', [0]]]) {
-    for (const heading of headings) {
+    for (const heading of headings) for (const cycleVariants of batches) {
       cycle.push(...save(await session.evaluate(`window.__passengerCards.capturePassengers(${JSON.stringify({
-        walkCycles: true, cycleView: view, cycleHeading: heading,
+        walkCycles: true, cycleView: view, cycleHeading: heading, cycleVariants,
       })})`)));
-      console.log(`walking capture: ${view}, heading ${heading.toFixed(2)}`);
+      console.log(`walking capture: ${view}, heading ${heading.toFixed(2)}, variants ${cycleVariants.join(',')}`);
     }
   }
+  validatePassengerCaptures(index, cycle, atlas.library, atlas.walkFrames);
+  writeFileSync(join(out, 'manifest.json'), JSON.stringify({atlasSha256:createHash('sha256').update(atlasBytes).digest('hex'), models:atlas.library.map(m=>({id:m.id,sourceSha256:m.sourceSha256})), standingSamples:index.length, walkingFrames:cycle.length},null,2));
   writeFileSync(join(out, 'walking-index.json'), JSON.stringify(cycle, null, 2));
   console.log(`walking captures: ${cycle.length} stride frames`);
   console.log(`passenger captures: ${index.length} outfit/pose/view combinations -> ${out}`);

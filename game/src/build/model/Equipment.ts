@@ -400,6 +400,9 @@ export function createModule(
     case 'stair-right90':
     case 'stair-left90':
     case 'stair-right180':
+    case 'stair-leftForward':
+    case 'stair-centerForward':
+    case 'stair-rightForward':
     case 'stair-left180': {
       const style = type.slice('stair-'.length) as StairStyle;
       // The **size** lays the flights (a switchback's two runs stand `stairLanes` cells

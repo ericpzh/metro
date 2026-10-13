@@ -7,10 +7,10 @@ import { useLanguage } from '../i18n.ts'
 // under actions/; shared chrome under shared/. This shell owns only what the
 // folders share: which folders are open, the single nested variant sub-menu slot
 // (at most one of 楼梯 / 出入口 / 座椅 / 广告牌 / 搪瓷板 expanded), and the ladder that
-// opens and closes them from the keyboard — **Shift+Q** the first folder, then
-// W, E, R, T, Y, U down the stack (`RAIL_FOLDERS`). The order the folders are
+// opens and closes them from the keyboard — **Shift+1** the first folder, then
+// 2 through 7 down the stack (`RAIL_FOLDERS`). The order the folders are
 // stacked in *is* the ladder, so both come from that one list. The 信息栏 is the other
-// column and carries its own table with its own modifier — **Alt+Q … Alt+R** over
+// column and carries its own table with its own modifier — **Alt+1 … Alt+4** over
 // 信息 / 视图 / 出入口 / 线路 (`INSPECTOR_FOLDERS`), which is where 视图 went: it is a set
 // of look controls, so it lives beside the read-outs.
 // `Folder` stays here for now — Lane A will lift the shared chrome into
@@ -34,7 +34,7 @@ import { PaintFolder } from './folders/PaintFolder.tsx'
 interface FolderProps {
   title: string
   count?: number
-  /** The Shift+letter that folds this folder, badged on the header on hover. */
+  /** The Shift+number that folds this folder, badged on the header on hover. */
   shortcut?: string
   open: boolean
   onToggle: () => void
@@ -90,7 +90,7 @@ const FOLDER_FOR_TOOL: Record<Tool, RailFolderKey> = {
   tunnel: 'rail',
 }
 
-/** The rail's own folder keys, so a 信息栏 folder's Alt+letter is not folded here. */
+/** The rail's own folder keys, so a 信息栏 folder's Alt+number is not folded here. */
 const RAIL_FOLDER_KEYS: ReadonlySet<string> = new Set(RAIL_FOLDERS.map((f) => f.key))
 
 export function LeftRail(): React.ReactElement {
@@ -141,7 +141,7 @@ export function LeftRail(): React.ReactElement {
     setSubMenu(subMenuForModule(moduleType))
   }, [moduleType])
 
-  // The Shift+letter ladder is the app's to read and this component's to fold:
+  // The Shift+number ladder is the app's to read and this component's to fold:
   // the one global keydown listener (`app/windows/AppShell.tsx`) does not know
   // which folders are open, so it dispatches `metro:folder` with the FolderKey
   // and the fold happens here — the same split as `metro:preset` / `metro:frame`
@@ -231,7 +231,7 @@ export function LeftRail(): React.ReactElement {
         <span className="railStampSub">{t('build_caption')}</span>
       </div>
 
-      {/* Stacked in ladder order, so the Shift+letter that folds a folder and the
+      {/* Stacked in ladder order, so the Shift+number that folds a folder and the
           row it sits in are the same list read two ways (`RAIL_FOLDERS`). */}
       {RAIL_FOLDERS.map(({ key, title, shift }) => (
         <Folder

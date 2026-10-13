@@ -280,6 +280,9 @@ const SERVICE: Record<string, string> = {
   'stair-straight': STAIR_RATE,
   'stair-left90': STAIR_RATE,
   'stair-right90': STAIR_RATE,
+  'stair-leftForward': STAIR_RATE,
+  'stair-centerForward': STAIR_RATE,
+  'stair-rightForward': STAIR_RATE,
   'stair-left180': STAIR_RATE,
   'stair-right180': STAIR_RATE,
 }

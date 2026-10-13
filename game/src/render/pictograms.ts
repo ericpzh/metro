@@ -72,8 +72,8 @@ export function loadPictograms(): Promise<SignIconArt> {
     )
     // Dev-only: the catalogue and the asset folder must agree, or a mark silently
     // never appears on any board and the editor offers a square of nothing. The
-    // **drawn** marks (`SIGN_DRAWN_ICONS` — the 出/EXIT plate and the 禁止 roundel)
-    // have no file by design: the renderer paints them, so they are not asked for.
+    // **drawn** marks (`SIGN_DRAWN_ICONS`) have no file by design: the renderer
+    // paints them, so they are not asked for.
     if (import.meta.env?.DEV) {
       const missing = SIGN_ICONS.filter((icon) => !decoded.has(icon) && !signIconIsDrawn(icon))
       if (missing.length > 0) console.warn(`[sign] no pictogram art for: ${missing.join(', ')}`)

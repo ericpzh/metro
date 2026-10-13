@@ -6,13 +6,15 @@ import { serveDir, withPage, waitFor } from './browser-harness.mjs';
 import { walkingSprite, walkingDefinitions } from './passenger-cards.mjs';
 
 const repo = resolve(import.meta.dirname, '..');
-const server = await serveDir(join(repo, 'art'), 4251);
+const port = Number(process.env.PASSENGER_ANIMATION_PORT ?? 4251);
+const debugPort = Number(process.env.PASSENGER_ANIMATION_DEBUG_PORT ?? 9386);
+const server = await serveDir(join(repo, 'art'), port);
 let session;
 try {
   for (const file of ['01-isometric-cutaway', '02-vertical-section', '12-platform-doors-flow', '13-two-line-interchange']
     .flatMap(file => [file, `${file}-en`])) {
-    session = await withPage({ url: `http://127.0.0.1:4251/${file}.svg`,
-      profile: join(repo, '.preview', `.chrome-gait-test-${process.pid}-${file}`), debugPort: 9386 });
+    session = await withPage({ url: `http://127.0.0.1:${port}/${file}.svg`,
+      profile: join(repo, '.preview', `.chrome-gait-test-${process.pid}-${file}`), debugPort });
     await waitFor(session.evaluate, "document.readyState === 'complete' && document.querySelector('[data-pose=animated-walk]')",
       { what: file });
     for (const seconds of [.37, 8, 13.7]) {
@@ -28,7 +30,7 @@ try {
     await session.close(); session = null;
   }
   session = await withPage({ url: 'about:blank',
-    profile: join(repo, '.preview', `.chrome-gait-image-test-${process.pid}`), debugPort: 9386 });
+    profile: join(repo, '.preview', `.chrome-gait-image-test-${process.pid}`), debugPort });
   await waitFor(session.evaluate, '!!document.body');
   for (const view of ['iso', 'elevation', 'plan']) {
     const walker = walkingSprite(view, 'test-walker', 0, 0, 1.2, 110);

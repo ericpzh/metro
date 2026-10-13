@@ -1,39 +1,35 @@
 import { translate } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
+import { FaDoorOpen, FaTicket, FaTicketSimple, FaTrainSubway } from 'react-icons/fa6'
+import { HiMiniWrenchScrewdriver } from 'react-icons/hi2'
 // The 分区 folder body (§5.7 fare zones).
 //
 // One tile per zone, in `ZONE_LIST`'s own order. A fare zone wears its overlay
-// colour — exactly what the rectangle drag paints — while **无分区** has no slab to
-// draw: that tile *is* the brush that takes a label off (`isEraseBrush`,
+// colour — exactly what the rectangle drag paints — while **无分区** has no zone
+// to paint: that tile *is* the brush that takes a label off (`isEraseBrush`,
 // `app/store/catalog.ts`), the way back to the state an unpainted cell is in, so
-// it wears the eraser line icon instead. Thumbnails are the 3D palette icons
-// rendered once per session and cached; the `tone` stays as the paint-time
-// fallback.
+// it wears the eraser line icon instead. The five fare zones each wear an icon
+// that identifies the kind of area.
 
-import { useEffect, useState } from 'react'
 import { FACILITY_OPTIONS, useStore, type ZoneBrush } from '../../store.ts'
-import { getZoneThumbnails } from '../../zoneThumbnails.ts'
 import { DEFAULT_ZONE } from '../../../sim/types.ts'
 import { ZONE_LIST } from '../../../sim/zones.ts'
 import { Block } from '../shared/Block.tsx'
+
+const ZONE_ART: Record<string, React.ReactNode> = {
+  outside: <FaDoorOpen />,
+  unpaid: <FaTicketSimple />,
+  paid: <FaTicket />,
+  platform: <FaTrainSubway />,
+  restricted: <HiMiniWrenchScrewdriver />,
+}
 
 export function ZoneFolder(): React.ReactElement {
   useLanguage()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const zoneBrush = useStore((s) => s.zoneBrush)
-  const [zoneThumbs, setZoneThumbs] = useState<Record<string, string>>({})
   const st = useStore.getState
-
-  useEffect(() => {
-    let alive = true
-    void getZoneThumbnails().then((t) => {
-      if (alive) setZoneThumbs(t)
-    })
-    return () => {
-      alive = false
-    }
-  }, [])
 
   const arm = (id: ZoneBrush): void => {
     st().setZoneBrush(id)
@@ -60,8 +56,7 @@ export function ZoneFolder(): React.ReactElement {
             key={z.id}
             label={translate(z.label)}
             tile={z.id}
-            thumb={zoneThumbs[z.id]}
-            tone={`#${z.colour.toString(16).padStart(6, '0')}`}
+            art={ZONE_ART[z.id]}
             active={tool === 'zone' && zoneBrush === z.id}
             onClick={() => arm(z.id)}
           />

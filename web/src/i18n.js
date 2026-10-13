@@ -10,21 +10,21 @@ export const LANGS = ['zh', 'en']
 
 const zh = {
   doc: {
-    title: '地铁车站设计师 — 概念图',
-    desc: '《地铁车站设计师》是一款 3D 沙盒小游戏：亲手搭一座地铁车站，看人群在里面挤挤挨挨地走。这里是它的概念图和设计笔记。',
+    title: '车站设计师 — 概念图',
+    desc: '《车站设计师》是一款 3D 沙盒小游戏：亲手搭一座车站，看人群在里面挤挤挨挨地走。这里是它的概念图和设计笔记。',
   },
   nav: {
     languageZh: '中文',
     languageEn: 'EN',
-    brand: '地铁站设计师',
+    brand: '车站设计师',
     game: '游戏',
     gallery: '看图',
     siteLabel: '站点',
     langLabel: '语言',
   },
   hero: {
-    eyebrow: '地铁车站设计师 · 游戏',
-    line1: '搭一座小小地铁车站。',
+    eyebrow: '车站设计师 · 游戏',
+    line1: '搭一座小小车站。',
     line2: '看人群来来去去。',
     accent: '再想办法，别让它挤爆。',
     facts: [
@@ -51,12 +51,12 @@ const zh = {
     artSub: 'SVG 原图',
     repo: '代码仓库',
     repoSub: '项目源码',
-    name: '地铁车站设计师',
+    name: '车站设计师',
     line: '搭一座车站，看人群来来去去。',
   },
   game: {
-    title: '地铁车站设计师 — 游戏',
-    frameTitle: '地铁车站设计师 — 游戏',
+    title: '车站设计师 — 游戏',
+    frameTitle: '车站设计师 — 游戏',
     loading: '正在载入游戏…',
     loadingHint: '如果一直没反应，可能是游戏服务没连上。',
   },
@@ -69,21 +69,21 @@ const zh = {
 
 const en = {
   doc: {
-    title: 'Metro Station Designer — Concept Art',
-    desc: 'Metro Station Designer is a 3D sandbox toy: build a metro station by hand and watch crowds squeeze through it. These are its concept sheets and design notes.',
+    title: 'Station Designer — Concept Art',
+    desc: 'Station Designer is a 3D sandbox toy: build a station by hand and watch crowds squeeze through it. These are its concept sheets and design notes.',
   },
   nav: {
     languageZh: '中文',
     languageEn: 'EN',
-    brand: 'Metro Station Designer',
+    brand: 'Station Designer',
     game: 'Game',
     gallery: 'Gallery',
     siteLabel: 'Site',
     langLabel: 'Language',
   },
   hero: {
-    eyebrow: 'Metro Station Designer · Game',
-    line1: 'Build a tiny metro station.',
+    eyebrow: 'Station Designer · Game',
+    line1: 'Build a tiny station.',
     line2: 'Watch the crowds come and go.',
     accent: "Then keep it from bursting at the seams.",
     facts: [
@@ -112,12 +112,12 @@ const en = {
     artSub: 'SVG originals',
     repo: 'Repo',
     repoSub: 'source code',
-    name: 'Metro Station Designer',
+    name: 'Station Designer',
     line: 'Build a station, watch the crowds come and go.',
   },
   game: {
-    title: 'Metro Station Designer — Game',
-    frameTitle: 'Metro Station Designer — Game',
+    title: 'Station Designer — Game',
+    frameTitle: 'Station Designer — Game',
     loading: 'Loading the game…',
     loadingHint: 'If nothing happens, the game service may be unreachable.',
   },

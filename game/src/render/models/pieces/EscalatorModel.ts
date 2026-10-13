@@ -240,7 +240,21 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
   // edge, round the end, and down onto the floor — instead of stopping dead in
   // mid-air, and a flat newel plate closes the foot of each balustrade.
   for (const s of [1, -1]) {
-    slab(g, mats.glass, len / 2, (s * railW) / 2, rise / 2, len, 0.03, rise)
+    // One continuous pane fills the half-round newels as well as the incline
+    // (§5.1), avoiding a transparent seam where separate end panels would meet.
+    const outline = new THREE.Shape()
+    outline.moveTo(0, 0)
+    outline.lineTo(len, 0)
+    outline.absarc(len, rise / 2, rise / 2, -Math.PI / 2, Math.PI / 2, false)
+    outline.lineTo(0, rise)
+    outline.absarc(0, rise / 2, rise / 2, Math.PI / 2, 3 * Math.PI / 2, false)
+    outline.closePath()
+    const glassGeo = new THREE.ExtrudeGeometry(outline, { depth: 0.03, bevelEnabled: false, curveSegments: 18, steps: 1 })
+    glassGeo.rotateX(Math.PI / 2) // shape coordinates are the local x-z plane
+    const glass = new THREE.Mesh(glassGeo, mats.glass)
+    glass.position.y = (s * railW) / 2 + 0.015
+    glass.name = 'escalator-balustrade'
+    g.add(glass)
     slab(g, mats.handrail, len / 2, (s * railW) / 2 + s * 0.03, rise, len, 0.1, 0.08)
   }
   const railReturn = new THREE.TorusGeometry(rise / 2, 0.045, 8, 18, Math.PI)

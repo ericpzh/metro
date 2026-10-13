@@ -3,7 +3,7 @@ name: metro-repo
 description: Entry point for the ericpzh/metro repo — a React 19 + three.js metro-station building sandbox in game/ plus the concept-art site in web/. Use for repo-wide work (what lives where, root commands, conventions, Cloudflare deploy, the tools/ scripts) and to reach the subskills — metro-game (game/src), metro-game-test (game/test), metro-web (web/ and art/).
 ---
 
-# Metro Station Designer — repo entry point
+# Station Designer — repo entry point
 
 A 3D sandbox about moving crowds through a metro station you build yourself.
 Block-based construction (1 block = 1 m), procedural voxel art, real rolling
@@ -20,6 +20,12 @@ the station either copes or it does not.
 
 ## What lives where
 
+`model/` is the third app: a Vite + three.js character viewer at port 5175.
+`model/src/characters/female.js` owns variants, `model/src/animation/` owns the
+accepted gait, and `model/src/i18n.js` owns viewer labels. Its preparation script
+regenerates ignored model assets; use `metro-model` (`../metro-model/SKILL.md`) for
+model editing, exports and the approved game atlas. See `model/README.md`. No model Worker is configured.
+
 | Path | What it is |
 |---|---|
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
@@ -27,6 +33,7 @@ the station either copes or it does not.
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
+| `model/` | Reviewed character viewer and GLB library at 5175; `metro-model` owns builders, cleanup, walking clips, exports and game atlas regeneration. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
 | `art/` | The generated concept sheets — the source of truth, copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. Each sheet has a `*-en.svg` English sidecar (same rule) for the `/en/` route. `metro-web` covers the pipeline. |
 | `tools/` | Root-level Node/Python scripts: the art generator and viewer, the headless-Chrome passes that photograph the game, the demo-save bake, the pictogram asset prep. See the index below. |
@@ -61,6 +68,21 @@ in the variant menu and door width is a separate narrow/wide setting. Their
 simulation, placement, rendering, and picker behavior belongs to `game/src/`;
 coverage belongs in `game/test/` and follows `metro-game-test`.
 
+The eight fixed stairs include 左 / 中 / 右直跑楼梯: two flights climb forward
+with an interior landing between them. Keep their flight plan, landing width,
+railing openings, carve and passenger graph aligned; extend `stairs.test.mjs`
+for geometry and routes, and `module-build.test.mjs` for visible model parts.
+
+Ceiling-hung signs, TVs, clocks and cameras attach to the nearest slab shared by
+their footprint; their suspension reaches that slab instead of assuming a 4 m
+room. All three 监控 housings read that slab like 枪机 does: 枪机 and 球机 keep
+their heads at a fixed height while the mount extends (stem / pole), and 半球机
+rides flush under the slab. Aiming at the underside of a ceiling slab resolves
+to the floor using the station's `levelBase`. Keep the preview and placement
+verdict aligned, and pin shifted-base snapping and nonstandard ceiling heights
+in `wall-ceiling-snap` and `sign-model` tests, plus the camera tall-ceiling
+pin in `ceiling-decor`.
+
 ## Repo rule: translations use the existing i18n infrastructure
 
 All built-in player-facing copy must come from the owning catalogue, including
@@ -89,9 +111,20 @@ review those paths as well. Run relevant language/renderer tests and inspect aff
 text in both locales for clipping and CN regressions. Art generation must report
 no missing translations. Follow the owning subskill for layout and cache refresh.
 
-Passenger sources: `game/src/assets/passenger-human.json` is baked, not authored —
+Passenger sources: the live `game/src/assets/passenger-approved.json` comes from
+the eleven reviewed model exports; use `metro-model` and `npm run bake:passengers`.
+The historical `game/src/assets/passenger-human.json` is baked, not authored —
 `game/src/assets/PASSENGERS.md` names the CC0 Quaternius outfits and
 `tools/bake-passengers.mjs` regenerates the atlas. Never hand-edit the JSON.
+
+The shipped demo's stairs must remain complete current-catalogue pieces with
+explicit block-fitted tread widths (0.79 m for its three straight stairs,
+1.79 m per run for its two medium switchbacks). When refreshing
+`game/src/data/demo-station.json`, rebuild affected stairs with `createModule`,
+preserve their IDs and landing plans, and store `stairTreadWidth` as their width.
+Run `demo`, `stairs` and `placement` tests. Platform `doors` are **server IDs**:
+connectivity checks must resolve `graph.servers[id].node`, never index node
+reachability with the server ID. See `metro-game` for the demo/save workflow.
 
 ## Commands
 
@@ -106,6 +139,11 @@ npm run deploy        # build + wrangler deploy (site Worker `metro`)
 
 npm run setup:game    # install game/ deps
 npm run dev:game      # game dev server at http://localhost:5174
+npm run setup:model   # install model/ deps
+npm run dev:model     # model viewer at http://127.0.0.1:5175
+npm run build:model   # generate assets and build model/dist
+npm run art:models    # approved model exports → game atlas → bilingual art + verified previews
+npm run dev:all       # web 5173 + game 5174 + model 5175
 npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run build:game    # install game/ deps, then tsc --noEmit && vite build
 npm run bench:sim     # demo-station simulation + build CPU timings
@@ -117,7 +155,8 @@ npm run preview:local # tools/preview.mjs — both built apps on one origin
 
 Inside `game/`: `npm run dev` (5174), `npm run typecheck`, `npm run build`,
 `npm test`, `npm run preview` (4174); `npm start` there builds then previews.
-Note: `npm start` at the **repo root** is the game, not the site.
+Note: `npm start` at the **repo root** starts all three dev services, reusing
+existing listening services. Ctrl+C stops only services started by that launcher.
 
 On Windows PowerShell 5.1 the `&&` separator is not valid — use `;` or separate
 commands.
@@ -132,6 +171,8 @@ commands.
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
 | `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/`, `/metro/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Worker does. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
+| `bake-approved-passenger.mjs` | Bakes all eleven reviewed model exports into the active shared game crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
+| `check-game-passenger-library.mjs` | Checks all eleven variants and the live instanced crowd in the built game GPU renderer. |
 | `bake-passengers.mjs` | Regenerates `game/src/assets/passenger-human.json` from the CC0 sources listed in `game/src/assets/PASSENGERS.md` (see `metro-game`). |
 | `render-module-cards.mjs` | Sheet 04's cards: drives headless Chrome to run the game's own thumbnail pass. Needs Chrome + `game/dist`. |
 | `render-block-cards.mjs` | Sheet 03's blocks, meshed and lit by the game (same shape). |

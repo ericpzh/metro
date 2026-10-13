@@ -130,13 +130,16 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'lift', label: msg('lift'), type: 'lift', w: 1, h: 1 },
   { id: 'stair-straight', label: msg('straight_stairs'), type: 'stair', w: 1, h: 1 },
   { id: 'stair-block', label: msg('stair_block'), type: 'stair', w: 1, h: 1 },
+  { id: 'stair-leftForward', label: msg('left_forward_stairs'), type: 'stair', w: 1, h: 1 },
+  { id: 'stair-centerForward', label: msg('center_forward_stairs'), type: 'stair', w: 1, h: 1 },
+  { id: 'stair-rightForward', label: msg('right_forward_stairs'), type: 'stair', w: 1, h: 1 },
   { id: 'stair-left90', label: msg('left_quarter_turn_stairs'), type: 'stair', w: 1, h: 1 },
   { id: 'stair-right90', label: msg('right_quarter_turn_stairs'), type: 'stair', w: 1, h: 1 },
   { id: 'stair-left180', label: msg('left_switchback_stairs'), type: 'stair', w: 1, h: 1 },
   { id: 'stair-right180', label: msg('right_switchback_stairs'), type: 'stair', w: 1, h: 1 },
 ]
 
-/** True for any of the five fixed staircase shapes in the palette. */
+/** True for any fixed staircase shape in the palette. */
 export function isStairType(type: string): boolean {
   return type === 'stair' || type.startsWith('stair-')
 }

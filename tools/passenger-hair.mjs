@@ -9,7 +9,7 @@ export function passengerHair(style, head) {
  const size = head.getSize(new THREE.Vector3())
  const top = head.max.z
  function ellipsoid(x, y, z, rx, ry, rz, cap = false) {
-  const g = new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, cap ? Math.PI * 0.61 : Math.PI)
+  const g = new THREE.SphereGeometry(1, 8, 5, 0, Math.PI * 2, 0, cap ? Math.PI * 0.61 : Math.PI)
   // Sphere's pole is Y; the game's pole is Z.
   g.rotateX(Math.PI / 2)
   g.scale(rx, ry, rz)

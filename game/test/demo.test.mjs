@@ -7,6 +7,8 @@ import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { referenceStation, emptyStation, REFERENCE_BOOT } from '../src/data/reference-station.ts'
+import { createModule } from '../src/build/model.ts'
+import { STAIR_WIDTHS, stairOnBlockGrid, stairRunBlocks, stairTreadWidth } from '../src/sim/stairs.ts'
 
 function reachable(g, starts) {
   const seen = new Uint8Array(g.nodeCount)
@@ -22,8 +24,7 @@ function reachable(g, starts) {
   return seen
 }
 
-test('the demo station is one connected circulation', () => {
-  const g = buildGraph(referenceStation())
+function assertConnectedCirculation(g) {
   const fromExits = reachable(g, g.exits.map((e) => e.node))
   const fromPlatforms = reachable(g, g.platforms.flatMap((p) => p.cells))
 
@@ -31,9 +32,46 @@ test('the demo station is one connected circulation', () => {
   assert.ok(g.platforms.length >= 1, 'the demo should have at least one platform')
   for (const p of g.platforms) {
     for (const c of p.cells) assert.ok(fromExits[c], `platform ${p.id} is unreachable from the exits`)
-    for (const d of p.doors) assert.ok(fromExits[d], `a screen door of ${p.id} is unreachable from the exits`)
+    for (const id of p.doors) {
+      const door = g.servers[id]
+      assert.equal(door?.kind, 'door', `${p.id} references a missing door server`)
+      assert.ok(fromExits[door.node], `a screen door of ${p.id} is unreachable from the exits`)
+    }
   }
   for (const e of g.exits) assert.ok(fromPlatforms[e.node], `exit ${e.id} is unreachable from the platforms`)
+}
+
+test('the demo station is one connected circulation', () => {
+  assertConnectedCirculation(buildGraph(referenceStation()))
+})
+
+test('demo circulation checks door server nodes, and rejects an unreachable door', () => {
+  const g = buildGraph(referenceStation())
+  const seen = reachable(g, g.exits.map((e) => e.node))
+  const p = g.platforms[0]
+  const id = p.doors.find((id) => !seen[id] && seen[g.servers[id].node])
+  assert.notEqual(id, undefined, 'the fixture must distinguish server IDs from node IDs')
+  assertConnectedCirculation(g)
+  const isolated = seen.findIndex((value) => !value)
+  assert.ok(isolated >= 0, 'the fixture needs an unreachable node')
+  g.servers[id] = { ...g.servers[id], node: isolated }
+  assert.throws(() => assertConnectedCirculation(g), /screen door.*unreachable/,
+    'checking server IDs as node IDs must not conceal an unreachable boarding point')
+})
+
+test('the demo stores complete block-fitted stairs built from the current catalogue', () => {
+  const stairs = referenceStation().modules.filter((m) => m.type === 'stair')
+  assert.equal(stairs.length, 5, 'retain the demo’s three straight stairs and two switchbacks')
+  for (const m of stairs) {
+    assert.equal(m.cfg.flight, undefined, `${m.id} must be one complete module, not a linked legacy lane`)
+    assert.ok(stairOnBlockGrid(m.cfg.width), `${m.id} must store its fitted width explicitly`)
+    assert.equal(m.cfg.width, stairTreadWidth(m), `${m.id} must not rely on legacy width conversion`)
+    const blocks = stairRunBlocks(m.cfg.width)
+    const expected = createModule(`stair-${m.cfg.style}`, m.x, m.y, m.z, m.id, m.rot, STAIR_WIDTHS[blocks - 1])
+    assert.deepEqual(m.from, expected.from, `${m.id}: lower landing matches the current catalogue`)
+    assert.deepEqual(m.to, expected.to, `${m.id}: upper landing matches the current catalogue`)
+    assert.deepEqual(m.cfg.flights, expected.cfg.flights, `${m.id}: preserve the current complete flight plan`)
+  }
 })
 
 test('the demo moves a crowd: people board and leave', () => {

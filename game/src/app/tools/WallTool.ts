@@ -7,8 +7,9 @@ import { msg } from '../../sim/i18n.ts'
 
 import { addWalls, removeCells } from '../../build/model.ts'
 import { checkBlockCells, previewNotice } from '../../build/validation.ts'
+import { triangleOf } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
-import { straightLineCells } from './geometry/cells.ts'
+import { straightLineCells, triangleLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { halfWallSideFor, wallSnapAt } from './geometry/walls.ts'
 import { ToolController } from './ToolController.ts'
@@ -16,6 +17,23 @@ import type { PointerInfo } from './ToolContext.ts'
 import { wallColumnAt, wallColumnsAt, wallRun } from '../../build/model.ts'
 
 export class WallTool extends ToolController {  readonly tool = 'wall' as const
+
+  /**
+   * A remove line through the pressed column: the dominant-axis run, unless the
+   * column is a 三角 — then the ridge-locked line its slopes join along, so the
+   * drag lifts the run it was placed as.
+   */
+  private removeLine(
+    anchor: [number, number, number],
+    target: [number, number, number],
+    z: number,
+  ): Array<[number, number, number]> {
+    const st = useStore.getState()
+    const found = st.station.cells.find((c) => c.x === anchor[0] && c.y === anchor[1] && c.z === anchor[2])
+    const tri = found ? triangleOf(found) : null
+    if (tri) return triangleLineCells(anchor, [target[0], target[1], z], z, tri.side)
+    return straightLineCells(anchor, target, z)
+  }
 
   /**
    * Preview a wall run: the courses the release would lay, with the refused cells
@@ -74,11 +92,12 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
     if (d?.active) {
       const target = d.mode === 'add' ? wallSnapAt(hit, st.station.cells, st.wallSnapCycle).base : hit.cell
       // Only a deliberate press becomes a run; a quick press stays one column.
-      // The run snaps to the dominant axis — straight 90° lines only. The
-      // anchor was already snapped at the press, so a drag extends that line
-      // instead of re-snapping every cell it crosses.
+      // A full wall snaps to the dominant axis — straight 90° lines only — while
+      // a 三角 remove run is ridge-locked, so it lifts the smooth run it was
+      // placed as. The anchor was already snapped at the press, so a drag
+      // extends that line instead of re-snapping every cell it crosses.
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
-      const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
+      const line = dragging ? (d.mode === 'remove' ? this.removeLine(d.anchor, target, d.z) : straightLineCells(d.anchor, target, d.z)) : [d.anchor]
       if (d.mode === 'add') this.showWallGhost(wallRun(line))
       else scene.setGhost(wallColumnsAt(st.station, line), 'remove')
       scene.setCursor(dragging ? line[line.length - 1] : d.anchor, d.mode === 'add')
@@ -116,7 +135,8 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
     // The thickness side is the one R had stepped to at the press (`d.wallDirs`
     // is the anchor's own candidate faces), so the wall laid is the wall the
     // ghost showed.
-    const line = d.single === true || !rect ? [d.anchor] : straightLineCells(d.anchor, target, d.z)
+    const rawLine = d.single === true || !rect ? [d.anchor] : straightLineCells(d.anchor, target, d.z)
+    const line = d.single === true || !rect || d.mode === 'add' ? rawLine : this.removeLine(d.anchor, target, d.z)
     if (d.mode === 'add') {
       const side = d.wallDirs === undefined ? null : halfWallSideFor(line, d.wallDirs, st)
       // The courses the release would lay, judged once: the count it refuses here and

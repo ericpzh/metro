@@ -224,11 +224,10 @@ test('a head-house opens a wellway per run, one block wide', () => {
     { column: 1, half: 0.5 },
   ])
   // A run wider than a block opens wider, so its rails never surface through the
-  // floor beside it. (A turning stair is one such piece; a straight wide stair is
-  // laid as one-block lanes and never needs it.)
+  // floor beside it. A medium straight stair fills two blocks including its rails.
   const wide = createModule('stair-straight', 0, -6, -4, 'wide', 0, STAIR_WIDTH_DOUBLE)
   assert.ok(wide)
-  assert.ok(Math.abs(exitRunHalf(wide) - (STAIR_WIDTH_DOUBLE / 2 + 0.105)) < 1e-9)
+  assert.equal(exitRunHalf(wide), 1, 'a medium stair opens a two-block wellway')
   assert.equal(exitRunOpenings([m, wide], m)[0].half > 0.5, true)
   // A run that lands off the head-house, or stands on another level, does not
   // open anything: the pad follows the run that really descends through it.

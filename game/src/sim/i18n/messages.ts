@@ -26,6 +26,7 @@ export const messages = {
   "material_metal": { "zh": "金属", "en": "Metal" },
   "material_wood": { "zh": "木材", "en": "Wood" },
   "material_other": { "zh": "其他", "en": "Other" },
+  "new_color": { "zh": "新颜色", "en": "New Color" },
   "marble": { "zh": "大理石", "en": "Marble" },
   "limestone": { "zh": "石灰石", "en": "Limestone" },
   "sandstone": { "zh": "砂岩", "en": "Sandstone" },
@@ -370,8 +371,8 @@ export const messages = {
     "en": "← Back to game"
   },
   "metro_station_designer": {
-    "zh": "地铁站设计师",
-    "en": "Metro Station Designer"
+    "zh": "车站设计师",
+    "en": "Station Designer"
   },
   "please_open_on_a_computer": {
     "zh": "请在电脑端打开",
@@ -382,7 +383,7 @@ export const messages = {
     "en": "This game needs a mouse and keyboard. Phones and tablets are not supported yet."
   },
   "open_this_url_in_a_desktop_browser_to_start_designing_your_stati": {
-    "zh": "请用电脑浏览器打开同一网址，即可开始设计地铁站。",
+    "zh": "请用电脑浏览器打开同一网址，即可开始设计车站。",
     "en": "Open this URL in a desktop browser to start designing your station."
   },
   "use_the_mouse_to_rotate_the_view_build_and_remove_equipment": {
@@ -1033,6 +1034,9 @@ export const messages = {
     "zh": "右转角楼梯",
     "en": "Right quarter-turn stairs"
   },
+  "left_forward_stairs": { "zh": "左直跑楼梯", "en": "Left offset straight stairs" },
+  "center_forward_stairs": { "zh": "中直跑楼梯", "en": "Aligned straight stairs" },
+  "right_forward_stairs": { "zh": "右直跑楼梯", "en": "Right offset straight stairs" },
   "left_switchback_stairs": {
     "zh": "左双跑楼梯",
     "en": "Left switchback stairs"
@@ -2053,6 +2057,10 @@ export const messages = {
     "zh": "重启",
     "en": "Restart"
   },
+  "report_issue": {
+    "zh": "报告问题",
+    "en": "Report issue"
+  },
   "exit_value": {
     "zh": "{0}口",
     "en": "Exit {0}"
@@ -2102,8 +2110,8 @@ export const messages = {
     "en": "Corrupt file"
   },
   "this_is_not_a_metro_station_save": {
-    "zh": "不是地铁车站存档",
-    "en": "This is not a Metro Station save"
+    "zh": "不是车站存档",
+    "en": "This is not a Station Designer save"
   },
   "this_save_is_too_new_update_the_game_first": {
     "zh": "存档版本过新，请先更新游戏",
@@ -2240,6 +2248,14 @@ export const messages = {
   "customer_service": {
     "zh": "客服中心",
     "en": "Customer service"
+  },
+  "separator": {
+    "zh": "分隔线",
+    "en": "Separator"
+  },
+  "gap": {
+    "zh": "空隙",
+    "en": "Gap"
   },
   "metro": {
     "zh": "地铁",
@@ -2674,8 +2690,8 @@ export const messages = {
     "en": "Wall decorations need a solid wall behind them"
   },
   "hung_signs_tvs_clocks_and_cameras_need_a_slab_4_m_above_wall_sig": {
-    "zh": "吊挂指示牌、电视、时钟和监控需吊装于天花板下：上方需有楼板（4 米高）；墙面指示牌贴墙安装即可",
-    "en": "Hung signs, TVs, clocks and cameras need a slab 4 m above; wall signs attach to a wall"
+    "zh": "吊挂指示牌、电视、时钟和监控需安装在天花板下；墙面指示牌贴墙安装即可",
+    "en": "Hung signs, TVs, clocks and cameras need a ceiling slab above; wall signs attach to a wall"
   },
   "the_escalator_bottom_needs_a_solid_floor": {
     "zh": "扶梯底端需有实心地板",
@@ -2846,12 +2862,12 @@ export const messages = {
     "en": "Switch language: 简体中文"
   },
   "build_caption": {
-    "zh": "地铁 / 建造",
-    "en": "METRO / BUILD"
+    "zh": "车站 / 建造",
+    "en": "STATION / BUILD"
   },
   "inspector_caption": {
-    "zh": "地铁 / 信息",
-    "en": "METRO / INSPECTOR"
+    "zh": "车站 / 信息",
+    "en": "STATION / INSPECTOR"
   },
   "fov_label": {
     "zh": "视场角：",

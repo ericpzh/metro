@@ -1,7 +1,7 @@
 // ModuleSystem — the placed equipment: building every module through the
-// model factory, the contact blobs, the tactile strips, plus the selection and
+// model factory, the contact blobs, plus the selection and
 // collision highlights (moved verbatim from `render/scene.ts`: `buildModules`,
-// `clearModules`, `tactileDecals`, `setSelection`, `setCollisionHighlight`,
+// `clearModules`, `setSelection`, `setCollisionHighlight`,
 // `refreshCollisionHighlight`, `refreshSelection`).
 //
 // GAME-SPEC §3 item 6: modules are no longer unit cubes — `models.ts` gives
@@ -20,7 +20,7 @@ import {
 } from '../../models.ts'
 import type { ClockRig, EscalatorRoll, ModuleContext } from '../../models.ts'
 import { trackBedKeys } from '../../../sim/placement.ts'
-import { edgeCells, rotateLocal, trackFacing } from '../../../sim/track.ts'
+import { rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -186,8 +186,6 @@ export class ModuleSystem extends SceneSystem {
       inst.count = blobs.length
       this.moduleMeshes.add(inst)
     }
-    const decal = this.tactileDecals(data)
-    if (decal) this.moduleMeshes.add(decal)
     this.builtData = data
     this.builtLanguage = getLanguage()
   }
@@ -245,48 +243,6 @@ export class ModuleSystem extends SceneSystem {
     this.crowd.gateWings.length = 0
     this.plates.adScreens.length = 0
     this.plates.tvScreens.length = 0
-  }
-
-  /**
-   * Tactile strips along every platform edge, as a separate transparent quad
-   * layer so they never break a chunk merge (§4.2). The strip sits on the side
-   * of the edge cell that faces a track bed.
-   */
-  private tactileDecals(data: StationData): THREE.Mesh | null {
-    const track = trackBedKeys(data.cells, data.modules)
-    if (track.size === 0) return null
-    const pos: number[] = []
-    const nor: number[] = []
-    const uv: number[] = []
-    const idx: number[] = []
-    let base = 0
-    const quad = (x0: number, y0: number, x1: number, y1: number, z: number): void => {
-      pos.push(x0, y0, z, x1, y0, z, x1, y1, z, x0, y1, z)
-      for (let i = 0; i < 4; i++) nor.push(0, 0, 1)
-      uv.push(0, 0, 1, 0, 1, 1, 0, 1)
-      idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
-      base += 4
-    }
-    for (const m of data.modules) {
-      if (m.type !== 'platform-edge') continue
-      const z = m.z + 1 + 0.02
-      for (const [x, y] of edgeCells(m)) {
-        if (track.has(`${x},${y - 1},${m.z}`)) quad(x, y, x + 1, y + 0.3, z)
-        else if (track.has(`${x},${y + 1},${m.z}`)) quad(x, y + 0.7, x + 1, y + 1, z)
-        else if (track.has(`${x - 1},${y},${m.z}`)) quad(x, y, x + 0.3, y + 1, z)
-        else if (track.has(`${x + 1},${y},${m.z}`)) quad(x + 0.7, y, x + 1, y + 1, z)
-      }
-    }
-    if (idx.length === 0) return null
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
-    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3))
-    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2))
-    geo.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1))
-    const mesh = new THREE.Mesh(geo, this.ctx.mats.tactile)
-    mesh.renderOrder = 1
-    mesh.userData.levelZs = [...new Set(data.modules.filter((m) => m.type === 'platform-edge').map((m) => m.z))]
-    return mesh
   }
 
   /**

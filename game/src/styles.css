@@ -61,6 +61,18 @@ button.ghost {
 button.ghost:hover {
   background: #10233a;
 }
+a.ghost {
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+}
+a.ghost:hover {
+  background: #10233a;
+  border-color: #3d6f9f;
+}
 .chip {
   padding: 4px 8px;
   border-radius: 3px;
@@ -616,6 +628,28 @@ button.ghost:hover {
 }
 .bpColour::-webkit-color-swatch {
   border: 0;
+}
+.bpNewColourArt {
+  background: #0a1a2b;
+}
+.bpNewColourPlus {
+  color: #fff;
+  font-size: 46px;
+  font-weight: 300;
+  line-height: 1;
+}
+.bpNewColourTile .bpBlockLabel {
+  color: #fff;
+}
+.bpNewColourInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 .bpBlockLabel {
   flex: none;

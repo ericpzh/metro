@@ -11,6 +11,7 @@ import { STOCK, doorRunOffsets } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
+import { finishPsdHousing } from './PsdHousing.ts'
 
 /** A platform-screen header: white, a line band, and the direction sticker. */
 function psdHeaderCanvas(colour: string, lineId: string, terminus: string, name: string, nameEn: string): HTMLCanvasElement {
@@ -53,7 +54,7 @@ function psdHeaderCanvas(colour: string, lineId: string, terminus: string, name:
 /* ------------------------------------------------------------ platform door */
 
 /** Platform screen doors (站台门) along a `platform-edge` run. */
-export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edge' }>, fixedSpan?: readonly [number, number]): THREE.Group {
+export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platform-edge' }>, fixedSpan?: readonly [number, number], housingOnly = false): THREE.Group {
   const mats = ctx.mats
   const g = new THREE.Group()
   // Local frame: the group sits on the origin cell's centre, the run along +x,
@@ -85,17 +86,28 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const half = (mod.cfg.psd ?? line?.psd) === 'half'
   // Widen the screen opening without moving its train-aligned centre (§1.13).
   const doorW = STOCK[stock].doorWidth * (half ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
-  const doorH = half ? PSD_HALF_HEIGHT - 0.24 : 2.5
-  // Half stack from the local floor at z0: 0.12 sill + 1.26 glass + 0.12 cap.
-  const glassH = half ? PSD_HALF_HEIGHT - 0.24 : doorH
+  // The half-height cap is part of the total height, above the white rail.
+  const halfRailTop = PSD_HALF_HEIGHT - 0.05
+  const doorH = half ? halfRailTop - 0.24 : 2.5
+  const glassH = doorH
   const glassMid = z0 + 0.12 + glassH / 2
   const leafMid = z0 + 0.12 + doorH / 2
   // Single glass surfaces avoid competing front/back faces at grazing angles.
-  const fixedGlass = ownedMaterial(ctx, mats.glass.clone())
-  const movingGlass = ownedMaterial(ctx, mats.tintedGlass.clone())
-  const fullHeightIndicator = ownedMaterial(ctx, new THREE.MeshBasicMaterial({ color: 0xffd43b, side: THREE.DoubleSide }))
-  fixedGlass.depthWrite = false
-  movingGlass.depthWrite = false
+  const fixedGlass = housingOnly ? mats.glass : ownedMaterial(ctx, mats.glass.clone())
+  const movingGlass = housingOnly ? mats.tintedGlass : ownedMaterial(ctx, mats.tintedGlass.clone())
+  const fullHeightIndicator = housingOnly ? mats.glow : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ color: 0xffd43b, side: THREE.DoubleSide }))
+  if (!housingOnly) {
+    fixedGlass.depthWrite = false
+    movingGlass.depthWrite = false
+    // PSDs can sit flush with a platform wall. Keep their transparent panes just
+    // ahead in the depth buffer so the wall behind does not shimmer through them.
+    fixedGlass.polygonOffset = true
+    fixedGlass.polygonOffsetFactor = -1
+    fixedGlass.polygonOffsetUnits = -1
+    movingGlass.polygonOffset = true
+    movingGlass.polygonOffsetFactor = -1
+    movingGlass.polygonOffsetUnits = -1
+  }
   const platYaw = toward < 0 ? Math.PI : 0
   // Openings that actually fall on this run, ascending. The cadence is measured
   // from the *consist* centre, which is the rail's run centre — not this edge's,
@@ -156,7 +168,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   // moved down onto the glass, which is where the reference art puts it.
   const stickerMap = half && !fixedSpan ? canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId, terminus, name, nameEn), 0, 0)) : null
   const stickerMat = stickerMap ? ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: stickerMap, side: THREE.FrontSide })) : null
-  const bandMat = half ? null : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(1024, 128, drawPsdBand), side: THREE.FrontSide }))
+  const bandMat = half || housingOnly ? null : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(1024, 128, drawPsdBand), side: THREE.FrontSide }))
   if (bandMat?.map) bandMat.map.wrapS = THREE.RepeatWrapping
   const doorBandMat = half || fixedSpan ? null : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(640, 128, drawPsdDoorBand), side: THREE.FrontSide }))
   const warningMat = half || fixedSpan ? null : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(640, 480, drawPsdWarning), transparent: true, depthWrite: false, side: THREE.FrontSide }))
@@ -174,10 +186,10 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const panel = (a: number, b: number): void => {
     const w = b - a
     if (w <= 0.05) return
-    plate(g, fixedGlass, w, glassH, a + w / 2, yWall, glassMid, 0).name = 'psd-fixed-glass'
+    if (!housingOnly) plate(g, fixedGlass, w, glassH, a + w / 2, yWall, glassMid, 0).name = 'psd-fixed-glass'
     if (half) {
-      slab(g, mats.white, a + w / 2, yWall, z0 + PSD_HALF_HEIGHT - 0.06, w, 0.08, 0.12).name = 'psd-fixed-rail'
-      slab(g, mats.darkSteel, a + w / 2, yWall, z0 + PSD_HALF_HEIGHT + 0.025, w, 0.1, 0.05).name = 'psd-fixed-cap'
+      slab(g, mats.white, a + w / 2, yWall, z0 + halfRailTop - 0.06, w, 0.08, 0.12).name = 'psd-fixed-rail'
+      slab(g, mats.darkSteel, a + w / 2, yWall, z0 + PSD_HALF_HEIGHT - 0.025, w, 0.1, 0.05).name = 'psd-fixed-cap'
     }
     band(a, b, yWall - toward * 0.075)
     if (!half) {
@@ -232,10 +244,10 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
       registerDoorLeaf(glass, s, doorW / 2, leaves)
       registerDoorLeaf(frame, s, doorW / 2, leaves)
       if (half) {
-        const rail = slab(g, mats.white, leafX, leafY, z0 + PSD_HALF_HEIGHT - 0.06, leafW, 0.08, 0.12)
+        const rail = slab(g, mats.white, leafX, leafY, z0 + halfRailTop - 0.06, leafW, 0.08, 0.12)
         rail.name = 'half-door-rail'
         registerDoorLeaf(rail, s, leafW, leaves)
-        const cap = slab(g, mats.darkSteel, leafX, leafY, z0 + PSD_HALF_HEIGHT + 0.025, leafW, 0.1, 0.05)
+        const cap = slab(g, mats.darkSteel, leafX, leafY, z0 + PSD_HALF_HEIGHT - 0.025, leafW, 0.1, 0.05)
         cap.name = 'half-door-cap'
         registerDoorLeaf(cap, s, leafW, leaves)
       }
@@ -261,6 +273,8 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
     if (!half) plate(g, fullHeightIndicator, 0.3, 0.06, dx, yWall - toward * 0.14, z0 + 2.7, platYaw)
   }
   g.userData.doors = leaves
+  // Sliding leaves retain independent faces so they still seal as they move.
+  if (!fixedSpan) finishPsdHousing(g)
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)
   if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
   // 隐藏墙壁 fades the whole screen along with the block walls.

@@ -598,7 +598,7 @@ test('a save that cannot be trusted is refused whole, and the open station is un
   st().loadFromText('{ not json')
   assert.equal(st().notice, '文件损坏')
   st().loadFromText(JSON.stringify({ format: 'other' }))
-  assert.equal(st().notice, '不是地铁车站存档')
+  assert.equal(st().notice, '不是车站存档')
   st().loadFromText(JSON.stringify({ format: 'metro-save', formatVersion: SAVE_VERSION + 1, static: { cells: [] } }))
   assert.equal(st().notice, '存档版本过新，请先更新游戏', 'a save from a later game is refused, not half-migrated')
   st().loadFromText(JSON.stringify({ format: 'metro-save', formatVersion: SAVE_VERSION }))

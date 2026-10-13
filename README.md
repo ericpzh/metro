@@ -1,4 +1,4 @@
-# Metro Station Designer
+# Station Designer
 
 **A 3D sandbox about moving crowds through a metro station you build yourself.**
 
@@ -13,6 +13,7 @@ either copes or it does not.
 | [`art/`](art/) | Eleven concept sheets: drawings of the game, as SVG. Nine of them carry the game's own renders. |
 | [`tools/`](tools/) | The generators for both: `node tools/gen-art.mjs` redraws `art/`. |
 | [`web/`](web/) | The concept-art website — React + Vite. |
+| [`model/`](model/) | Character model library — three.js + Vite, male/female previews and GLB downloads. |
 | [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers deploy config for the site. |
 | [`worker/`](worker/) | Optional entry point, only needed for path-prefix routing. |
 
@@ -40,7 +41,7 @@ build and deploy independently. The only coupling is a URL: `gameUrl` in
 step and nothing to keep in sync by hand.
 
 ```bash
-npm start             # build the game, then serve it at http://localhost:4174
+npm start             # web 5173 + game 5174 + model 5175
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
 npm run test:game     # node --test: determinism, tick budgets, capacity ladder
@@ -52,11 +53,30 @@ To see the tab locally, run the site and the game side by side:
 ```bash
 npm run dev           # site dev server at http://localhost:5173
 npm run dev:game      # game at http://localhost:5174, embedded by http://localhost:5173/game/
+npm run dev:model     # model library at http://127.0.0.1:5175/
 ```
 
 `game/README.md` covers the milestones, the simulation's time base, and the
 places where the vertical slice deliberately diverges from the spec.
 
+
+## The model library
+
+`model/` is the third independently built app. It includes the approved male
+commuter and five female hair/backpack variants, standing views, three walk
+profiles, English/Chinese controls and GLB downloads. Long hair uses the no-backpack
+version. Its character and gait source also powers the earlier prototype pages.
+
+```bash
+npm run setup:model   # install model/ dependencies
+npm run build:model   # generate the library and build model/dist
+npm run dev:model     # http://127.0.0.1:5175/
+npm run dev:all       # start web/, game/ and model/ together
+```
+
+`npm start` is an alias for `dev:all`. The launcher reuses existing listening
+services and stops only its own children on Ctrl+C. `npm run setup:all` installs
+dependencies for all three apps. See `model/README.md` for assets and provenance.
 
 ## The site
 
@@ -95,8 +115,8 @@ npm run dev     # dev server at http://localhost:5173
 ```
 
 `npm run dev` is a thin alias for `web`'s `dev` script, so it runs `sync-art` first and then Vite.
-`npm start` is the *game*: it builds it and serves the build at http://localhost:4174 — it is not the
-site.
+`npm start` launches all three dev services. Use `npm run dev:game` for the game
+alone, or run `npm start` inside `game/` to build and preview its production app.
 
 ## Deploying to Cloudflare
 
@@ -270,7 +290,18 @@ node tools/sheet-png.mjs 03              # rasterise one sheet, to look at it
 node tools/serve.mjs                     # a small local viewer for the sheets
 ```
 
-Sheets 01, 02, 12 and 13 use the game's clothed human mesh and pose atlas, captured
+After approving a model-library change, run **`npm run art:models`** at the root.
+It regenerates exports and the game atlas, builds the game, captures all standing/
+walking variants, refreshes interface screenshots in both languages,
+regenerates sheets 01/02/07/12/13, validates animation, renders PNG previews,
+and builds/syncs the gallery. It never deploys. For an art-only refresh of the
+current game atlas use `npm run art:models -- --from-game`.
+
+Capture batches and static sprite pools grow with the model catalogue. The capture
+manifest records source hashes; stale builds, dropped models and incomplete
+strides fail before art generation. See `model/README.md` and `metro-model`.
+
+Sheets 01, 02, 12 and 13 use the game's approved faceless model library and pose atlas, captured
 in isometric, elevation and plan views. Refresh passenger cards after changing
 the human model; refresh UI and camera captures in both languages as well.
 Moving people cycle full strides facing their paths; queues remain standing.
@@ -375,3 +406,6 @@ Sheets 01 and 09 still draw their furniture by hand; 02, 03, 04, 05, 06, 07, 11,
 game's own output, and the same swap is open to the rest — every layout, label, callout and animation
 stays where it is.
 
+
+The model-art command uses dedicated `.preview/model-art/` captures and free
+browser ports, so it can coexist with other local previews.

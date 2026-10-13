@@ -121,7 +121,15 @@ export const STAIR_RAIL_PROUD = 0.105
 export const HALF_WALL_T = 0.5
 
 /** Free-flow walking speed, m/s. */
-export const WALK_SPEED = 1.34/** Walking speed on stair treads, m/s (derated from free flow). */
+export const WALK_SPEED = 1.34
+/** §7.1 free-flow variation: longer steps, with the same relaxed cycle cadence.
+ * Body proportions scale both physical stride and speed, including children. */
+export const WALK_PROFILES = [
+  { name: 'slow', speed: 0.9, cycleSeconds: 1.12 },
+  { name: 'medium', speed: 1.15, cycleSeconds: 1.12 },
+  { name: 'fast', speed: 1.4, cycleSeconds: 1.12 },
+] as const
+/** Walking speed on stair treads, m/s (derated from free flow). */
 export const STAIR_SPEED = 1.0
 /** Escalator running speed, m/s. 0.5 is the heavy-duty setting used in crowds. */
 export const ESCALATOR_SPEED = 0.5
@@ -311,12 +319,12 @@ export const DOOR_RATE = 1.2
 
 /**
  * Platform screen door (屏蔽门) heights above the platform, metres (§5.9). A
- * full-height screen fills the storey; a half-height (半高) screen stops at
+ * full-height screen clears the ceiling block by 5 cm; a half-height (半高) screen stops at
  * chest height. Shared by the collision envelope and the procedural model, so
  * the two can never disagree.
  */
-export const PSD_FULL_HEIGHT = 3.1
-export const PSD_HALF_HEIGHT = 1.5
+export const PSD_FULL_HEIGHT = 2.95
+export const PSD_HALF_HEIGHT = 1.45
 /** Full-height screen openings are wider than the car doors they align with (§5.9). */
 export const PSD_FULL_DOOR_WIDTH_SCALE = 1.5
 

@@ -210,15 +210,15 @@ test('a 屏蔽门 全高/半高 choice derives onto the edge and sizes its envel
   assert.equal(s.lines[0].psd, 'full')
   let edge = s.modules.find((m) => m.type === 'platform-edge')
   assert.equal(edge.cfg.psd, 'full', 'the derived edge carries the line choice')
-  assert.equal(moduleEnvelope(edge).z1, edge.z + 1 + 3.1, 'a full screen reserves the storey')
+  assert.equal(moduleEnvelope(edge).z1, edge.z + 1 + 2.95, 'a full screen clears the ceiling block')
 
-  // Switch the line to 半高 and regenerate: the edge follows, and rises only 1.5 m.
+  // Switch the line to 半高 and regenerate: the edge follows, and rises only 1.45 m.
   s = { ...s, lines: s.lines.map((l) => ({ ...l, psd: 'half' })) }
   const track = s.modules.find((m) => m.type === 'track')
   s = regenerateRailEdges(s, track.id)
   edge = s.modules.find((m) => m.type === 'platform-edge')
   assert.equal(edge.cfg.psd, 'half')
-  assert.equal(moduleEnvelope(edge).z1, edge.z + 1 + 1.5, 'a half screen reserves only its 1.5 m')
+  assert.equal(moduleEnvelope(edge).z1, edge.z + 1 + 1.45, 'a half screen reserves only its 1.45 m')
 })
 
 test('a quarter-turned track digs a north–south bed and derives side edges', () => {
@@ -256,7 +256,7 @@ test('a north–south rail runs its train in y with a quarter-turn yaw', () => {
   w.tickOnce()
   const pose = w.trainRenderState()
   assert.equal(pose.length, 10)
-  assert.equal(pose[0], 0.5, 'x is fixed at the bed centre')
+  assert.equal(pose[0], 1.5, 'x is fixed at the centre of the bed column at x = 1')
   assert.ok(Math.abs(pose[8] - Math.PI / 2) < 1e-6, 'the consist is turned onto the run axis')
   // The run direction is +y, so the approach offset shows up in y, not x.
   assert.notEqual(pose[1], 5, 'the train is not sitting on the mark yet')

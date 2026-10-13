@@ -2,11 +2,13 @@
   "name": "metro-station-designer",
   "private": true,
   "version": "1.0.0",
-  "description": "Root tooling for the Metro Station Designer concept-art site. The site itself lives in web/ and is deployed to Cloudflare Workers as static assets.",
+  "description": "Root tooling for the Station Designer concept-art site. The site itself lives in web/ and is deployed to Cloudflare Workers as static assets.",
   "type": "module",
   "scripts": {
     "setup": "npm --prefix web ci",
-    "start": "npm run dev:game",
+    "start": "npm run dev:all",
+    "dev:all": "node tools/dev-services.mjs",
+    "setup:all": "npm run setup && npm run setup:game && npm run setup:model",
     "build": "npm --prefix web ci && npm --prefix web run build",
     "deploy": "npm run build && wrangler deploy",
     "preview": "npm run build && wrangler dev",
@@ -17,9 +19,15 @@
     "build:game": "npm --prefix game ci && npm --prefix game run build",
     "deploy:game": "npm run build:game && wrangler deploy -c game/wrangler.jsonc",
     "test:game": "npm --prefix game test",
+    "setup:model": "npm --prefix model ci",
+    "dev:model": "npm --prefix model run dev",
+    "build:model": "npm --prefix model run build",
+    "preview:model": "npm --prefix model run preview",
     "bench:sim": "node tools/bench-sim.mjs",
     "bench:browser": "npm --prefix game run build && node tools/bench-browser.mjs",
-    "audit:i18n": "node tools/audit-i18n.mjs"
+    "audit:i18n": "node tools/audit-i18n.mjs",
+    "bake:passengers": "node model/scripts/prepare-assets.mjs && node tools/bake-approved-passenger.mjs",
+    "art:models": "node tools/refresh-model-art.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.143.0"

@@ -58,6 +58,12 @@ the replaced station. Pin the prompt and shortcut wiring in
 `game/test/new-station-confirmation.test.mjs` (React views are tested as source
 contracts because the Node suite does not mount them).
 
+The top bar also links the issue tracker beside restart: a `FaBug`
+(`react-icons/fa`) anchor to `https://github.com/ericpzh/metro/issues`, opening in
+a new tab with `rel="noreferrer"`, named by the bilingual `report_issue` catalogue
+key and wearing the nav's `ghost iconBtn` chrome (with the matching `a.ghost`
+styling in `src/styles.css`). Pin it in `game/test/topbar-report-issue.test.mjs`.
+
 Inspector controls that edit placed equipment should call a store action and commit
 one station edit, so the worker, undo history and selected document stay in sync.
 The right-side inspector does not expose per-cell zone controls; paint and erase zones
@@ -134,7 +140,8 @@ rendered copy and the retained TV/map plate caches, without resetting the camera
 English station-name fields are **Primary name / Secondary name**; sign-text
 fields are **Primary text / Secondary text**. These describe the existing first
 and second fields: do not swap, translate or rewrite their authored contents.
-Chinese mode keeps 中文 / 英文 labels and the existing field limits.
+Chinese mode keeps 中文 / 英文 labels. Both text boxes allow 24 characters
+(`SIGN_TEXT_MAX` / `SIGN_TEXT_EN_MAX`, pinned in `game/test/sign.test.mjs`).
 
 Inspect translated UI at desktop widths in both locales. Clock/status rows and
 long control labels must wrap within their panels; SVG axis text must fit inside
@@ -322,7 +329,10 @@ the four rules most changes trip over.
   rotations and directions). Its step band runs the incline plus a flat at each end
   (`ESCALATOR_FLAT_LENGTH`, comb plates and a landing deck of its own), its steps level
   through `escalatorStepHeight` while risers collapse on the flats (`rollEscalator`), its
-  four newels carry entry-arrow / stop-bar lights (`EscalatorIndicatorModel`), and flush
+  two glass balustrades each form one continuous pane: their rounded end caps fill the
+  half-round gaps beneath the handrail returns (`module-build.test.mjs` checks both ends,
+  widths, rotations and directions). Its four newels carry entry-arrow / stop-bar lights
+  (`EscalatorIndicatorModel`), and flush
   neighbours share stainless infill caps (`RampJoinModel`, `ramp-join.test.mjs`). The
   piece draws its own body (`SlopeCut.ownBody`), so the mesher derives no filling under
   one — `ramp-fill.test.mjs` keeps the mesher's band honest against the real truss. A run
@@ -333,22 +343,24 @@ the four rules most changes trip over.
   (`escalator-length.test.mjs`). A fence *on* a landing is read the same way as
   one beside it: the fence cell is not a walkable node, so that flight drops out of the
   walk graph and fencing the head of a stair really closes it off.
-* **A stair is lanes** (`sim/stairs.ts`, §5.1). Tab cycles three **sizes**, which the
-  action tile names 窄 / 中 / 宽 (`STAIR_WIDTH_LABELS`, `stairWidthLabel`) rather than
-  quoting a width — a straight stair is one, two or three **lanes**, each exactly
-  `ESCALATOR_BAND` (0.68 m) and each fitting one cell. `stairLanes(width)` reads the
-  tool's width (a width that is not a whole number of lanes — an old 1.6 m stair — reads
-  as the nearest) and `planStairLanes(base, rot, lanes, placeable)` picks where the
-  flight goes: the hovered cell as the first lane, then shifted back one lane at a time,
-  so it butts against whatever stands beside it instead of overlapping, and flagged when
-  nowhere fits. Neighbouring lanes always **join their steps** — `buildStairFlight` runs
-  each flight's treads and risers out to the cell edge — but being *one* staircase is a
-  property of the pieces: every lane of a wide stair laid in one action carries the same
-  `cfg.flight` token, and only along a seam between lanes sharing it does the model drop
-  the stringer, handrail and posts and does `sim/station.ts` leave out the balustrade
-  wall, so the crowd may cross between lanes at the landings. A side a **wall hugs from
-  bottom to top** (`stairWallSides(...)`) loses its handrail, rail posts and newel return
-  the same way — the wall is the barrier there — but keeps its stringer; the wall must
+* **A stair has three sizes** (`sim/stairs.ts`, §5.1). Tab cycles 窄 / 中 / 宽
+  Straight catalogue pieces retain their stored palette width, but `stairTreadWidth`
+  resolves their actual treads to 0.79 / 1.79 / 2.79 m so the two outer rails fill
+  exactly 1 / 2 / 3 blocks, including saved stairs. Rendering, carve, collision and
+  graph barriers share this width and `stairFlightSlides`' straight-flight offset;
+  do not add a renderer-only offset. Custom widths retain their authored dimensions.
+  (`STAIR_WIDTH_LABELS`, `stairWidthLabel`); straight stairs place one standalone module
+  whose width is one, two or three `ESCALATOR_BAND` lanes. The renderer keeps the hovered
+  block as the near-side lane and shifts a new 中 / 宽 straight flight by half a block per
+  extra lane along `stairRight`, so its footprint sits beside the anchor instead of
+  straddling the anchor's centre. `stairWallSides` receives that same translated band, so
+  walls are read beside the drawn flight. Narrow stairs and legacy off-grid widths such as
+  1.6 m keep their original centre line. Old saves made from separate narrow lanes remain
+  supported: neighbouring lanes **join their steps**, and lanes with the same legacy
+  `cfg.flight` token drop their shared rail and graph barrier; separately placed stairs
+  keep their own. A side a **wall hugs from bottom to top** (`stairWallSides(...)`) loses its
+  handrail, rail posts and newel return the same way — the wall is the barrier there — but
+  keeps its stringer; the wall must
   run the flight's whole length at the flight's own heights, or the rail stays. The
   stringer and the soffit are **trimmed by `thickness · tan θ`** so their square-cut
   lower corners end on the treads' edge; the handrail keeps the full incline, because it
@@ -378,7 +390,12 @@ the four rules most changes trip over.
   not a shared cell, so the crowd has to walk it: `sim/station.ts` cuts each flight's
   balustrade wall off at the flight end that meets an interior landing
   (`stairTurnConnectors`), because the 0.6 m over-run an outer landing keeps would seal
-  the landing's own cells apart and leave the two flights disconnected. A stair's
+  the landing's own cells apart and leave the two flights disconnected. The three forward
+  variants (`leftForward`, `centerForward`, `rightForward`, 左 / 中 / 右直跑楼梯) place the
+  upper flight three cells farther along the same heading, shifted left, centred or shifted
+  right across the intermediate landing. They still climb one storey through two walkable
+  flights; `stairs.test.mjs` checks every size and rotation in both travel directions, and
+  `module-build.test.mjs` checks both rendered flights and the landing. A stair's
   **walking surface is a finish of its own** (`stair.cfg.finish`, 材质): its treads,
   risers and half-landing platform are one material, chosen by the floor it climbs from
   unless the player painted the piece (`paintStairSurface`), and that finish reaches the
@@ -521,11 +538,16 @@ the four rules most changes trip over.
   tunnel. `LineDef.upTerminus` / `downTerminus` are the per-direction destinations, and
   every platform screen prints the bound line's terminus for its own `cfg.dir` (falling
   back to 上行/下行). Each line also chooses its 屏蔽门 height (`cfg.psd`, 全高 by default):
-  `full` reserves the whole storey with a deep signage fascia sized from `PSD_FULL_HEIGHT`,
+  `full` rises 2.95 m above the platform, leaving 5 cm under the ceiling block, with a
+  deep signage fascia sized from `PSD_FULL_HEIGHT`,
   openings 1.5× the car-door width (`PSD_FULL_DOOR_WIDTH_SCALE`), and sliding vinyl bands —
   fixed-pane band, door band, warning placard and opening arrow (`PsdDecals.ts`, printed
-  canvases registered as door leaves so they slide); `half` is a 1.5 m screen
-  with the header on the glass; switching re-derives every edge on the line
+  canvases registered as door leaves so they slide); `half` is 1.45 m tall, including
+  its top cap, with the header on the glass. `psd-end` extensions use those same heights;
+  their model bounds and placement envelope must agree, every cap must fit within
+  the block height, and both transparent panes need polygon offset so a flush platform
+  wall cannot z-fight through them. `psd-end.test.mjs` pins extension clearance and
+  `module-build.test.mjs` pins pane depth ordering. Switching re-derives every edge on the line
   (`regenerateRailEdges`), so the model and the collision envelope agree
   (`PSD_FULL_HEIGHT` / `PSD_HALF_HEIGHT`). The header prints the station's own
   `name` / `nameEn`, never a hardcoded terminus.
@@ -717,14 +739,15 @@ the four rules most changes trip over.
 * **Hanging signs are smaller** (`sim/sign.ts`): `PANEL_MIN_H` 0.4 m, nine-arrow
   capacity at 3.5 m, smaller arrow/line/text/icon geometry. Saved content is
   vertically centred on reprint; a rejected tenth arrow never enters the hover
-  preview. New `customer-service` drawn mark. Pin in `game/test/sign.test.mjs` +
+  preview. Drawn marks are `customer-service`, the `separator` divider line and
+  the `gap` blank divider. Pin in `game/test/sign.test.mjs` +
   `sign-render.test.mjs`.
 
 ## The document and the demo station
 
 * **Both boundaries repair rather than refuse.** `persistence/save.ts` owns the `metro-save`
   v1 envelope (`SAVE_FORMAT`, `SAVE_VERSION`, `serialize`, `parse`); a refusal (`文件损坏` /
-  不是地铁车站存档 / 存档太新了 / 缺少车站数据) is reserved for a broken **envelope**, and never
+  不是车站存档 / 存档太新了 / 缺少车站数据) is reserved for a broken **envelope**, and never
   partially loads. Everything else is repaired by the one grid rule in `build/model/State.ts`:
   `isGridCell` / `isGridModule` / `repairGrid` drop cells and modules at fractional coordinates
   no tool can address (a pick names whole cells, `removeCells` matches an exact coordinate), and
@@ -734,7 +757,7 @@ the four rules most changes trip over.
   `test/grid.test.mjs` is the guard on the commands downstream of the pick — extend it if you add
   a tool that writes cells — and `save.test.mjs` pins both boundaries.
 * **The demo is the author's real 动物园 (广州地铁 5号线) save**, shipped as
-  `data/demo-station.json` (12,031 cells, 604 modules, seed `7654321`) and handed out by
+  `data/demo-station.json` (12,075 cells, 727 modules, seed `7654321`) and handed out by
   `referenceStation()` as a `structuredClone` so an edit never leaks back into the shared
   document. It opens cold at 06:30 sim time, warmup 0 (`REFERENCE_BOOT` in
   `data/reference-station.ts`, pinned to `DEFAULT_SIM_TIME`), and `app/boot.tsx` seeds the world from `station.seed`, so a cold
@@ -747,13 +770,21 @@ the four rules most changes trip over.
   builds — as one line with no trailing newline, so the demo cannot carry anything a load would
   have repaired away. After a refresh, re-check `data/reference-station.ts`'s header comment and
   the demo facts `placement.test.mjs` pins, and make sure `demo.test.mjs` still passes.
+  The five shipped stairs are complete current-catalogue pieces: three straight
+  runs explicitly store 0.79 m fitted treads and two medium switchbacks store
+  1.79 m per run. Rebuild replaced stairs with `createModule`, preserve their IDs
+  and landing plans, and store `stairTreadWidth`; do not reintroduce lane tokens
+  or leave the demo relying on legacy width conversion. `demo.test.mjs` pins
+  the saved widths and current flight plans. Its reachability assertions resolve
+  `platform.doors` as **server IDs** through `graph.servers[id].node`; the negative
+  fixture must reject a door server moved to an unreachable node.
 
 ## Rendering and the app
 
 * `render/models.ts` is a **dispatcher + barrel** over `render/models/` (the
   `PieceBuilder` base + shared kit, and one `pieces/*Model.ts` per piece). It builds all
   module geometry procedurally — turnstiles, ticket machines, escalators (rolling step
-  band via `rollEscalator`), the five stair shapes, exits, platform screen doors (printed
+  band via `rollEscalator`), the eight fixed stair shapes, exits, platform screen doors (printed
   header is FrontSide only, facing the platform read from `cfg.side`), rolling stock.
   **No image or GLB assets.** `render/materials.ts` is the shared procedural material kit —
   an **ownership set** as much as a cache: `owns` says whether it minted a material (the
@@ -812,7 +843,8 @@ the four rules most changes trip over.
   the room-facing quarter is left free for furniture (`room-model.test.mjs` pins the square
   ring, the empty quarter, and that every wall mesh is a `BoxGeometry`). Rooms and the booth
   wear no name plate. The 房间 folder's tiles are line icons of use (商店 / 售票亭 / 问讯处 /
-  办公室 / 厕所), not colour chips, and `app/zoneThumbnails.ts` renders the 分区 brushes alone. Brush
+  办公室 / 厕所), not colour chips. The 分区 folder uses distinct icons for 站外 / 非付费区 /
+  付费区 / 站台 / 设备区, while 无分区 keeps its eraser icon. Brush
   ids are `store` / `toilet` / `office` / `ticket` / `info` (the footprint rooms share the `shop`
   module, the booths are `booth`). The 分区 folder arms the three footprint brushes beside its
   zones (`zoneFolderTiles` = zones + 3). The **售票亭** (`buildBooth`) is hand-built geometry rather
@@ -839,7 +871,11 @@ the four rules most changes trip over.
   room furniture. 门 (`sim/doors.ts`) is the folder's one **doorway**: a threshold, a post at
   each end, a head across them and the leaf hung between, so the piece carries its own frame
   and stands on a floor tile like a 货架 — it is *not* wall-mounted (`WALL_MOUNTED` leaves it
-  out) and it reserves its whole cells from the floor top to its head. Six variants, 单开 /
+  out) and it reserves its whole cells from the floor top to its head. All six variants are
+  1.99 m high, leaving 1 cm below the lintel of a two-block wall opening; keep the shared
+  `DoorSpec.h`, rendered frame and placement envelope aligned. Pin the clearance across
+  variants, rotations and storeys in `test/door-panel.test.mjs`, and update the fitted curtain
+  pane boundary in `test/glass-panel.test.mjs`. Six variants, 单开 /
   双开 × 不锈钢 / 木 / 玻璃, and **R** turns it; the glass variant uses a translucent pane
   in the steel frame, while steel and wood leaves stay solid. Every fitting stands proud of
   the leaf's face by `DOOR_FRAME`'s own stand-off, because a plate lying a
@@ -954,7 +990,11 @@ the four rules most changes trip over.
 * **The 方块 tool** has a **生成墙壁** toggle (**off by default**): on, a deliberate drag grows
   the `auto-wall` ring and tags the floor; off, the same click / drag lays untagged bare blocks
   with no ring. **Tab** is that toggle's key, refused while a cut piece owns the tool; the
-  **半墙 / 上三角块 / 下三角块** cut tiles are **click-only** (each arms its own mode). The
+  **半墙** cut tile places **one piece per click**, while the **上三角块 / 下三角块** tiles
+  drag **ridge-locked lines** (`triangleRidgeAxis` / `triangleLineCells` in
+  `app/tools/geometry/cells.ts`: `e`/`w` runs go north–south, `n`/`s` east–west, one
+  shape on every cell so slopes join smooth — `BlockTool` for placement, `BlockTool` /
+  `WallTool` ridge-locked removes via `wallRemoveLine` / `removeLine`). The
   deliberate drag also tags its cells `auto-floor` — the room-union rule generalised to cells,
   so overlapping/abutting patches union, hand-built floor is continuous ground, and a hole dug
   through a patch stays open — while a single click stays a plain block. A badge pinned to the
@@ -992,7 +1032,16 @@ the four rules most changes trip over.
   **even when a solid block stands against the face it leans to**, and the paint ghost rides
   the sawn plane (`wedgeSlope`). `thinWallCells` / `thinWallSideMap` hand out a `CellShape`
   (`{kind:'half'}` | `{kind:'triangle'}`) rather than a bare `WallSide`, which is the type the
-  mesher, the build ghost, the chunk hash and `facePresent` all read. The three cut pieces are
+  mesher, the build ghost, the chunk hash and `facePresent` all read. A dragged 三角 run
+  travels its **ridge only** (`triangleLineCells`: the off-axis extent is dropped, so the line
+  can never step the run), lays the press's side on every course through `addWalls`, and
+  deletes through the same line (`wallColumnsAt` over it) — a tap stays one wedge. The
+  mesher culls a side only against a **covering** neighbour (`coversSide` / `sideOpen` in
+  `render/chunkMesher.ts`): a full block or a wedge whose full-height face is the interface;
+  a thin edge or triangular end leaves the neighbour's side drawn, so a wedge beside a
+  block never punches a black hole in it, while a hugged full–full seam and a continuing
+  ridge run (shared ends culled, outer ends kept) stay shut. Pin the line, the seam and
+  the join in `test/triangle.test.mjs`. The three cut pieces are
   **three rail tiles** — **半墙**, **上三角块**, **下三角块** — and an armed one folds out a
   **旋转 row under its own tile** (`cutAnchor` is the cut's tile *and* its action anchor, so
   the row arrives through the very `ActionRow` a 座椅's 旋转 does), which steps the counter
@@ -1154,17 +1203,20 @@ the four rules most changes trip over.
   and cuts alike (`rail/helpers.ts` `armedTiles` → `armedRailTile` / `armedActionsAnchor`).
   **No tile anywhere carries a tooltip** (`Block` has no `title` at all): `aria-label` — not
   `title` — is how an icon-only control is named. `app/LeftRail.tsx` is a barrel over
-  `app/rail/`; thumbnails are rendered from the real models by `app/moduleThumbnails.ts` /
-  `app/zoneThumbnails.ts`.
+  `app/rail/`; module thumbnails are rendered from the real models by `app/moduleThumbnails.ts`.
   Concept-art passengers are game-owned too: `app/capturePassengers.ts` renders
   `passengerMesh` from `render/passengerModel.ts` for sheets 01, 02, 12 and 13. If
   the baked human, hair, pose atlas, appearance or crowd material changes, rebuild
   and run `node tools/render-passenger-cards.mjs` before regenerating `art/`. It
   records varied identities and frozen idle/walking poses in `.preview/passenger-cards/`.
-* **The 材质 brush keeps its mode.** `N` 单块 / `M` 整面 are the 材质 folder's own setting
-  (`paintBaseMode`), not a property of a tile: clicking a finish tile — or a fresh 搪瓷板
-  colour, which reaches the brush in the same click — leaves the mode alone, so it survives a
-  detour through another folder on the left rail. `P` 吸取 (the 工具 folder's eyedropper) lifts
+* **The 材质 brush modes live under each material tile.** 单块 / 整面 are a persistent brush
+  setting (`paintBaseMode`); the finish submenu repeats those choices and **Tab** cycles them
+  while 材质 is active (`N` still selects 单块). Mode controls occupy two tiles per row, with no
+  current-color tile beside them. Custom-color slots are derived from saved station finish ids
+  (`app/rail/paintColours.ts`), omit the stock enamel tint, and each opens a native color picker;
+  **New Color** is the final picker tile, with a white plus and label. Choosing a color keeps the
+  current brush mode and saves that color in the station when painted. `paint-mode.test.mjs` pins
+  the mode and UI contracts. `P` 吸取 (the 工具 folder's eyedropper) lifts
   a bare face's finish into the brush and a placed piece into the placement; a **指示牌** is
   copied as its own printed **boards** (`SignSlice.adoptSignBoards`), not merely as its tile,
   and a picked 灯具 / 导向柱 / wide 扶梯 / shell roof brings its spot / exit / width / bay along
@@ -1178,16 +1230,21 @@ the four rules most changes trip over.
 * **The 指示牌 board is a document with an editor** (`sim/sign.ts`,
   `app/windows/sign/`, `render/signFace.ts`, `render/pictograms.ts`, §5.8). The board is an
   ordered list of components (arrows, line badges, text, icon labels) laid out in metres and
-  dragged in the board editor. A sign is **two boards**, front and back — independent documents,
+  dragged in the board editor. A text label carries two rows of up to 24 characters
+  each (`SIGN_TEXT_MAX` / `SIGN_TEXT_EN_MAX`); a lone primary line takes over the
+  gloss row below it, setting at twice the size, so the tile preview and the
+  printed board agree (`signInkSize`, pinned in `game/test/sign.test.mjs` +
+  `sign-render.test.mjs`). A sign is **two boards**, front and back — independent documents,
   either of which may be empty, and an empty side is the unlit black plate — but that pair is
   the **hung** board's (`signMountSpec(...).doubleSided`); a **wall** 指示牌 mounts 正面 alone.
   `signPanelSize` sizes the panel to what it carries between a floor and a ceiling, so a board
   never grows into a wall. `sim/sign.ts` is pure (no DOM, canvas or three): `signFace.ts` owns
   the only pixels and the editor the drag surface, both reading the same geometry, so the editor
-  preview, the hover ghost and the lit face are one layout drawn three times. Six of the eight
-  pictograms are thresholded photo-to-bitmap assets (`tools/prep-sign-icons.py` turns
-  `tools/sign-icons-source/` into `src/assets/pictograms/`), and two marks are **drawn
-  geometry** instead — the green 出口/EXIT plate and the red 禁止 roundel, listed in
+  preview, the hover ghost and the lit face are one layout drawn three times. Six of the eleven
+  icons are thresholded photo-to-bitmap assets (`tools/prep-sign-icons.py` turns
+  `tools/sign-icons-source/` into `src/assets/pictograms/`), and five marks are **drawn
+  geometry** instead — the green 出口/EXIT plate, the red 禁止 roundel, the
+  service-counter mark, the white divider line and the blank divider, listed in
   `SIGN_DRAWN_ICONS` (`signIconIsDrawn`), which is what `pictograms.ts` asks before reporting a
   missing asset (`tools/sign-icons-sheet.py` prints the contact sheet for review).
   The **wall-mounted** sign is a single printed sheet, 3 mm proud of its backing; it has no steel
@@ -1260,18 +1317,19 @@ the four rules most changes trip over.
   previews build one `blockedCellsByLevel` index per rectangle and pass it to each
   `blockReason`; preview and release must continue to share the same placement verdict.
 
-* **Passengers are instanced humans with an eye view** (`src/assets/passenger-human.json`,
-  `src/assets/PASSENGERS.md`, `tools/bake-passengers.mjs`,
+* **Passengers are instanced humans with an eye view** (`src/assets/passenger-approved.json`,
+  `src/assets/PASSENGERS.md`, `tools/bake-approved-passenger.mjs`,
   `render/passengerModel.ts`, `render/scene/systems/CrowdSystem.ts`,
   `render/scene/systems/CameraSystem.ts`, `app/store/slices/ViewSlice.ts`,
-  `app/windows/inspector/InfoCard.tsx`, `app/Viewport.tsx`). Four CC0 Quaternius
-  outfits, each with six baked hairstyles, share a compact pose atlas and one
-  crowd `InstancedMesh`; hair follows the animated head. Passenger identity picks
-  outfit, hairstyle, height, build and grey tone. About one in eight passengers
-  is child-sized (roughly 1.0–1.4 m); adults span roughly 1.47–1.94 m, and a
-  child's narrower build and eye height scale with their body. Keep those values
-  in `passengerAppearance`, while `tools/passenger-hair.mjs` and
-  `tools/bake-passengers.mjs` own the authored hair and its pose bake. The
+  `app/windows/inspector/InfoCard.tsx`, `app/Viewport.tsx`). All eleven reviewed grey, faceless library variants share the pose atlas.
+  Use `metro-model` (`../metro-model/SKILL.md`) for model builders, exports and
+  the bake. Every complete variant has equal 1/11 selection chances from stable
+  identity; physique, child sizing, ink tone and gait remain independent. About
+  one in eight passengers is child-sized, with narrower builds and scaled eye
+  height. Keep physique/speed in `sim/walking.ts` and model selection in
+  `passengerAppearance`; consume no simulation RNG. `passenger-library.test.mjs`
+  pins catalogue, equal selection, every walk on every variant, bag visibility,
+  bounded topology, one draw and atlas disposal. The
   crowd has one draw, gait by distance, idle when waiting/riding, frozen while
   paused — and so is every other sim-driven animation: escalator step bands
   (`LiftSystem`), 闸机 leaves (`CrowdSystem.updateGates`) and train/screen doors

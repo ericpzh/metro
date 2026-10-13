@@ -114,3 +114,8 @@ module and pin a rotated curtain, a door clamped inside its run, allowed fitted 
 rejected crosswise overlap, and the clipped lower-pane geometry in `glass-panel.test.mjs`.
 Pin front and back handle geometry and stand-off in `door-panel.test.mjs`; room and
 standalone doors share `DoorModel.buildDoor`, so both use the same assertion.
+
+For 三角 runs, keep the drag arithmetic in the pure geometry module
+(`app/tools/geometry/cells.ts` `triangleRidgeAxis` / `triangleLineCells`) and pin the
+ridge-only line, the one-shape-per-course release, the neighbour side a wedge leaves
+open, and the seamless ridge join in `triangle.test.mjs`.

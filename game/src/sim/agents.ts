@@ -6,6 +6,7 @@
 import { PATIENCE_MAX, PATIENCE_MIN } from './constants.ts'
 import type { Rng } from './rng.ts'
 import { AgentState, type GateDir, type Trip } from './types.ts'
+import { passengerWalkSpeed } from './walking.ts'
 
 export interface Needs {
   stepFree: boolean
@@ -137,7 +138,7 @@ export class AgentPool {
     a.vx = 0
     a.vy = 0
     a.state = AgentState.Arriving
-    a.speed = 1.34
+    a.speed = passengerWalkSpeed(a.id)
     a.timer = 0
     a.wait = 0
     a.patienceWait = 0

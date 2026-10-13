@@ -5,7 +5,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { defaultLine, placeRail, placeTrack } from '../src/build/rail.ts'
-import { doorCentres } from '../src/sim/stock.ts'
+import { doorCentres, doorRunOffsets } from '../src/sim/stock.ts'
+import { rotateLocal, trackCentre } from '../src/sim/track.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { TRAIN_DOOR_TRAVEL, TRAIN_DWELL } from '../src/sim/constants.ts'
 
@@ -21,6 +22,40 @@ function floorRow(x0, x1, y, finish = 'floor.granite') {
   for (let x = x0; x <= x1; x++) out.push({ x, y, z: 0, fill: 'solid', finish: { top: finish } })
   return out
 }
+
+test('rotated Line 6 berths keep every train door centred on its screen opening', () => {
+  for (const rot of [0, 1, 2, 3]) for (const dir of ['up', 'down']) {
+    const line = { ...defaultLine('6', dir, 'third-rail'), stock: 'L', cars: 4 }
+    // Tanwei's Line 6 uses a 68 m bed, three cells wide, at z = -7.
+    const track = { id: 'track-6', type: 'track', x: 17, y: 52, z: -7, w: 68, d: 3, rot,
+      cfg: { line: '6', dir, power: 'third-rail' } }
+    const cells = []
+    for (let i = 0; i < track.w; i++) for (let j = -1; j <= 3; j++) {
+      const [dx, dy] = rotateLocal(rot, i, j)
+      cells.push({ x: track.x + dx, y: track.y + dy, z: track.z, fill: 'solid', finish: { top: 'floor.granite' } })
+    }
+    const [ex, ey] = rotateLocal(rot, 0, dir === 'down' ? 3 : -1)
+    const edge = { id: 'screen-6', type: 'platform-edge', x: track.x + ex, y: track.y + ey, z: track.z, w: track.w, rot,
+      cfg: { line: '6', dir, from: track.id, side: dir === 'down' ? 'left' : 'right', psd: 'full', name: '站台门' } }
+    const world = new World({ ...station(cells), modules: [track, edge], lines: [line] }, 99)
+    for (let tick = 0; tick < 20; tick++) world.tickOnce()
+    const pose = world.trainRenderState()
+    assert.equal(pose.length, STRIDE)
+    assert.equal(pose[5], 1, 'compare the berthed train while its doors are open')
+    const centre = trackCentre(track)
+    for (let axis = 0; axis < 2; axis++) assert.ok(Math.abs(pose[axis] - centre[axis]) < 1e-5,
+      `rotation ${rot}, ${dir}: berth axis ${axis} must meet the bed centre`)
+    const [fx, fy] = rotateLocal(rot, 1, 0)
+    const offsets = doorRunOffsets(line, track.w)
+    for (const [index, door] of doorCentres(line).entries()) {
+      const [dx, dy] = rotateLocal(rot, offsets[index] - 0.5, 0)
+      const screenX = edge.x + 0.5 + dx
+      const screenY = edge.y + 0.5 + dy
+      const error = (pose[0] + fx * door - screenX) * fx + (pose[1] + fy * door - screenY) * fy
+      assert.ok(Math.abs(error) < 1e-5, `rotation ${rot}, ${dir}: door ${index} is displaced ${error} m along the screen`)
+    }
+  }
+})
 
 test('no rolling stock before the first dispatch', () => {
   const w = new World(scenarioStation(), 99)

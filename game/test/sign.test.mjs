@@ -699,24 +699,24 @@ test('text is measured, and estimated the same way without a canvas', () => {
   const latin = estimateSignTextWidth('EXIT', 0.16)
   assert.ok(latin > 0.3 && latin < 0.5, `${latin}`)
   // A real canvas measurement replaces it, and the ink follows the measurement.
+  // A lone primary line takes over the gloss row below it: measured at twice the
+  // size and two rows tall, so the tile preview and the printed board agree.
   const measured = (text, size) => text.length * size
   const comp = { id: 'c', kind: 'text', text: '出站', x: 1, y: 0.35, scale: 1, side: 'both' }
-  assert.ok(Math.abs(signInkSize(comp).w - cjk) < 1e-9)
-  assert.ok(Math.abs(signInkSize(comp, measured).w - 0.214) < 1e-9)
+  assert.ok(Math.abs(signInkSize(comp).w - 2 * cjk) < 1e-9)
+  assert.ok(Math.abs(signInkSize(comp, measured).w - 2 * 0.214) < 1e-9)
   assert.equal(signInkSize(comp, measured).h, signInkSize(comp).h)
   // The padded box is that ink plus the pad either side.
-  assert.ok(Math.abs(signPieceSize(comp).w - (cjk + SIGN_PIECE_PAD * 2)) < 1e-9)
+  assert.ok(Math.abs(signPieceSize(comp).w - (2 * cjk + SIGN_PIECE_PAD * 2)) < 1e-9)
 })
 
-test('a label is 中文 of eight and English of twenty-four, and no more', () => {
+test('a label is twenty-four characters per line, and no more', () => {
   assert.deepEqual(signTextLines('出站方向'), ['出站方向'])
   assert.deepEqual(signTextLines('换乘二号线\n请往前走'), ['换乘二号线', '请往前走'])
-  // The name is cut to its own limit, the gloss to its longer one, and a third
-  // line is dropped.
-  const long = signTextLines('123456789012\nabcdefghijklmnopqrstuvwxyz\nthird')
-  assert.deepEqual(long, ['12345678', 'abcdefghijklmnopqrstuvwx'])
-  // A lone line may be the gloss with no name above it, so it keeps the gloss
-  // limit rather than being cut to the name's.
+  // Both lines are cut to the same limit, and a third line is dropped.
+  const long = signTextLines('123456789012345678901234567890\nabcdefghijklmnopqrstuvwxyz0123456789\nthird')
+  assert.deepEqual(long, ['123456789012345678901234', 'abcdefghijklmnopqrstuvwx'])
+  // A lone line keeps the same limit.
   assert.deepEqual(signTextLines('abcdefghijklmnopqrstuvwxyz'), ['abcdefghijklmnopqrstuvwx'])
   assert.equal(signTextLines('').length, 0)
   assert.equal(signTextLines('a\n\nb').length, 2)
@@ -760,14 +760,14 @@ test('a label sets its English gloss small, so one box carries both languages', 
   // wider than the ink the renderer prints.
   assert.ok(Math.abs(ink.w - Math.max(zh, en)) < 1e-9, `${ink.w}`)
   assert.ok(en < zh, `the small gloss should not outweigh the name: ${en} vs ${zh}`)
-  // Which is the same box the name alone asks for: the gloss, set small, fits inside
-  // it rather than stretching the box the way a full-size second row would.
-  assert.ok(Math.abs(signInkSize({ ...both, text: '换乘二号线' }, measured).w - zh) < 1e-9)
+  // A lone primary takes over the gloss row: set twice as large, so its box is as
+  // wide as the name at double size and as tall as the two-line stack it fills.
+  assert.ok(Math.abs(signInkSize({ ...both, text: '换乘二号线' }, measured).w - 2 * zh) < 1e-9)
   assert.ok(en < measured('Exit', size), `the gloss is set smaller: ${en} < ${measured('Exit', size)}`)
-  // Its height is the stack of two rows at the name's size, so a two-line label is
-  // twice as tall as a one-line one and the board makes room for both rows.
+  // Its height is the stack of two rows at the name's size, and a lone primary keeps
+  // that height while setting twice as large to fill the gloss row it took over.
   assert.ok(Math.abs(ink.h - size * 1.15 * 2) < 1e-9, `${ink.h}`)
-  assert.ok(Math.abs(ink.h - 2 * signInkSize({ ...both, text: '出站' }, measured).h) < 1e-9)
+  assert.ok(Math.abs(ink.h - signInkSize({ ...both, text: '出站' }, measured).h) < 1e-9)
   // The row the **drawing** sets is the row the **measurement** priced: the renderer
   // reads the same function (`render/signFace.ts`), and a label whose gloss was
   // measured at one size and printed at another overran the board it was packed onto.

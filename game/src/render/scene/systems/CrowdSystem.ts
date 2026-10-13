@@ -5,7 +5,7 @@
 // `clearZoneLabels`, `zoneLabelMaterial`, `renderAgents`, `setAgentsVisible`,
 // `agentLevelVisible`, `detectGateCrossings`, `updateGates`, `stepGateWing`).
 //
-// Authored, animated grey human silhouettes in one instanced draw. This
+// Authored, animated anime silhouettes in one instanced draw. This
 // intentionally replaces §11's limb-less Shapes style. Each gate
 // cycle is crowd-driven: every crossing queues one open/hold/close leaf cycle.
 //
@@ -15,7 +15,8 @@
 // `pickAgent` and `setRoute` never touch the sim.
 
 import * as THREE from 'three'
-import { passengerMesh, passengerFrames, passengerAppearance, PASSENGER_WALK_FRAMES, PASSENGER_STRIDE, PASSENGER_EYE_HEIGHT } from '../../passengerModel.ts'
+import { passengerMesh, passengerFrames, passengerAppearance, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES, PASSENGER_EYE_HEIGHT } from '../../passengerModel.ts'
+import { passengerWalkProfile } from '../../../sim/walking.ts'
 import { setGateWing } from '../../models.ts'
 import { AgentState } from '../../../sim/types.ts'
 import { ZONE_LIST } from '../../../sim/zones.ts'
@@ -325,7 +326,8 @@ export class CrowdSystem extends SceneSystem {
         if (!frozen) continue
         frozen.position.toArray(this.prev, i * 3)
         this.yaws[i] = frozen.yaw
-        this.gaitPhases[i] = (frozen.pose[0] - 1 + frozen.pose[2]) / PASSENGER_WALK_FRAMES
+        const firstFrame = PASSENGER_WALK_PROFILES[passengerWalkProfile(this.cur[i * 6 + 5])].firstFrame
+        this.gaitPhases[i] = (frozen.pose[0] - firstFrame + frozen.pose[2]) / PASSENGER_WALK_FRAMES
         this.gaitWeights[i] = frozen.pose[3]
       }
       this.ctx.lastStateTime = now
@@ -377,7 +379,9 @@ export class CrowdSystem extends SceneSystem {
       const p = old * 3
       if (this.cur[q + 3] !== AgentState.Riding) {
         const walked = Math.hypot(this.cur[q] - this.prev[p], this.cur[q + 1] - this.prev[p + 1])
-        oldPhases[old] = (oldPhases[old] + walked / PASSENGER_STRIDE) % 1
+        const strideScale = passengerAppearance(this.cur[q + 5], this.appearanceScratch)[2]
+        const stride = PASSENGER_WALK_PROFILES[passengerWalkProfile(this.cur[q + 5])].stride
+        oldPhases[old] = (oldPhases[old] + walked / (stride * strideScale)) % 1
       }
     }
     nextId.clear()
@@ -591,7 +595,9 @@ export class CrowdSystem extends SceneSystem {
       const travelled = this.cur[o + 3] !== AgentState.Riding ? Math.hypot(dx, dy) : 0
       const moving = travelled > 1e-5 ? 1 : 0
       this.gaitWeights[i] += (moving - this.gaitWeights[i]) * Math.min(1, dt * 12)
-      const frames = passengerFrames(travelled * alpha, this.gaitPhases[i], this.gaitWeights[i], this.poseScratch)
+      // Fore/aft mesh scaling changes the physical step length, including for
+      // children. Phase uses the same distance as the displayed translation.
+      const frames = passengerFrames(travelled * alpha / appearance[2], this.gaitPhases[i], this.gaitWeights[i], this.poseScratch, passengerWalkProfile(id))
       const frozen = this.frozen.get(id)
       if (frozen) {
         pos.copy(frozen.position)

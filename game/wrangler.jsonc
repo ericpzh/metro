@@ -1,5 +1,5 @@
 {
-  // Metro Station Designer — the game. Its own Worker project, separate from
+  // Station Designer — the game. Its own Worker project, separate from
   // the art site (`metro`).
   //
   // Served at /metro/game/ and /metro-game/. The prefix Worker strips either

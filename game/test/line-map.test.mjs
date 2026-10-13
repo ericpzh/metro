@@ -152,7 +152,7 @@ test('the supplied poster is the asset, and the panel is cut to its own pixels',
     i += 2 + jpeg.readUInt16BE(i + 2)
   }
   assert.ok(size, 'the asset carries a frame header')
-  assert.deepEqual(size, { w: 2048, h: 2047 }, 'the supplied 线网示意图, at its own resolution')
+  assert.deepEqual(size, { w: 1080, h: 1080 }, 'the supplied 线网示意图, at its own resolution')
   const imageAspect = size.w / size.h
   assert.equal(LINE_MAP_ASPECT, imageAspect, 'the table records the asset’s own aspect')
   // The crop window is therefore the whole image: `panelUvWindow` of the poster's aspect

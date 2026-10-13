@@ -1,9 +1,10 @@
-// Concept figures use the same clothed mesh, pose atlas and grey material as
+// Concept figures use the same illustrated mesh, pose atlas and flat ink as
 // the live crowd (§9.5). Capture with alpha; sheet placement keeps the foot origin.
 import * as THREE from 'three'
-import { passengerMesh, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_WALK_FRAMES, PASSENGER_STRIDE } from '../render/passengerModel.ts'
+import { passengerMesh, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_LIBRARY, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES } from '../render/passengerModel.ts'
+import { passengerWalkProfile } from '../sim/walking.ts'
 
-export function capturePassengers(options: { walkCycles?: boolean; cycleView?: string; cycleHeading?: number } = {}) {
+export function capturePassengers(options: { walkCycles?: boolean; cycleView?: string; cycleHeading?: number; walkProfile?: number; cycleVariants?: number[] } = {}) {
   const cycles = options.walkCycles === true
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true })
   renderer.setSize(192, 256)
@@ -32,7 +33,7 @@ export function capturePassengers(options: { walkCycles?: boolean; cycleView?: s
     camera.updateMatrixWorld()
     const origin = new THREE.Vector3().project(camera)
     for (let variant = 0; variant < PASSENGER_OUTFITS.length; variant++) {
-      if (cycles && variant % 3 !== 0) continue
+      if (cycles && options.cycleVariants && !options.cycleVariants.includes(variant)) continue
       outfit.setX(0, variant)
       outfit.needsUpdate = true
       // Freeze different moments of a stride, like pausing the live simulation.
@@ -51,12 +52,15 @@ export function capturePassengers(options: { walkCycles?: boolean; cycleView?: s
         mesh.instanceMatrix.needsUpdate = true
         mesh.setColorAt(0, new THREE.Color(appearance[3], appearance[3], appearance[3]))
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-        const frame = cycles ? sample + 1 : (variant * 7 + sample * 5) % PASSENGER_WALK_FRAMES + 1
-        pose.setXYZW(0, frame, frame % PASSENGER_WALK_FRAMES + 1, cycles ? 0 : .35, walking ? 1 : 0)
+        const profile = PASSENGER_WALK_PROFILES[options.walkProfile ?? passengerWalkProfile(identity+73)]
+        const index = cycles ? sample : (variant * 7 + sample * 5) % PASSENGER_WALK_FRAMES
+        const frame = profile.firstFrame + index
+        pose.setXYZW(0, frame, profile.firstFrame+(index+1)%PASSENGER_WALK_FRAMES, cycles ? 0 : .35, walking ? 1 : 0)
         pose.needsUpdate = true
         renderer.render(scene, camera)
         images.push({ id: `${view}-${cycles ? `cycle-${cycleHeading}-` : ''}${variant}-${sample}`, view, variant, sample, identity, heading, frame,
-          walking, stride: PASSENGER_STRIDE, width: 192, height: 256, pixelsPerMetre: 256 / 2.8,
+          model: PASSENGER_OUTFITS[variant], sourceSha256: PASSENGER_LIBRARY[variant].sourceSha256,
+          walking, stride: profile.stride, walkProfile: profile.name, width: 192, height: 256, pixelsPerMetre: 256 / 2.8,
           origin: [(origin.x + 1) * 96, (1 - origin.y) * 128],
           png: renderer.domElement.toDataURL('image/png') })
       }

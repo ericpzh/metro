@@ -140,6 +140,8 @@ export type SignIcon =
   | 'exit'
   | 'stop'
   | 'customer-service'
+  | 'separator'
+  | 'gap'
 
 export const SIGN_ICONS: readonly SignIcon[] = [
   'train',
@@ -151,6 +153,8 @@ export const SIGN_ICONS: readonly SignIcon[] = [
   'exit',
   'stop',
   'customer-service',
+  'separator',
+  'gap',
 ]
 
 /** What each pictogram is called, in the inspector's own words. */
@@ -164,18 +168,21 @@ export const SIGN_ICON_LABEL: Record<SignIcon, string> = {
   exit: msg('exit_667'),
   stop: msg('prohibited'),
   'customer-service': msg('customer_service'),
+  separator: msg('separator'),
+  gap: msg('gap'),
 }
 
 /**
  * The marks a board **draws** rather than loading: the 出口 plate, which is a printed
- * plate and not a pictogram at all, and the 禁止 roundel, which is two shapes and no
- * artwork, plus the customer-service counter mark formerly printed on booths.
- * Every other icon is a bitmap (`src/assets/pictograms/`), and this list is
+ * plate and not a pictogram at all, the 禁止 roundel, which is two shapes and no
+ * artwork, the customer-service counter mark formerly printed on booths, the plain
+ * divider line, and the blank divider, which draws nothing at all. Every other icon
+ * is a bitmap (`src/assets/pictograms/`), and this list is
  * what tells the two apart — `render/signFace.ts` draws one and blits the other, and
  * `render/pictograms.ts` asks it before reporting a missing asset, so a drawn mark can
  * never be reported as a missing picture nor waited on as one.
  */
-export const SIGN_DRAWN_ICONS: readonly SignIcon[] = ['exit', 'stop', 'customer-service']
+export const SIGN_DRAWN_ICONS: readonly SignIcon[] = ['exit', 'stop', 'customer-service', 'separator', 'gap']
 
 /** True for an icon whose look is drawn by the renderer rather than supplied as art. */
 export function signIconIsDrawn(icon: SignIcon): boolean {
@@ -313,15 +320,15 @@ export type SignComponentDraft = SignComponent extends infer T ? (T extends Sign
 /** Everything a sign prints, in paint order — later components sit on top. */
 export type SignLayout = SignComponent[]
 
-/** The longest a label's first line (中文名) may carry — §5.8's 2 × 8 rule. */
-export const SIGN_TEXT_MAX = 8
+/** The longest a label's first line (中文名) may carry — the same 24 as the gloss. */
+export const SIGN_TEXT_MAX = 24
 
 /**
  * The longest a label's gloss (English) line may carry. The gloss sets smaller
  * (`SIGN_TEXT_EN_SCALE`) and Latin advances are narrower than a CJK em, so
- * twenty-four English characters measure about like eight Chinese — the board stays
- * the width §5.8 sizes it. A lone single line may also be the gloss (the editor
- * drops empty rows when it joins its two boxes), so it keeps this limit too.
+ * twenty-four English characters measure well under twenty-four Chinese. A lone
+ * single line may also be the gloss (the editor drops empty rows when it joins
+ * its two boxes), so it keeps this limit too.
  */
 export const SIGN_TEXT_EN_MAX = 24
 
@@ -551,6 +558,16 @@ export function signInkSize(c: SignComponent, measure: SignMeasure = estimateSig
       // line, because a gloss is recognised by its own content (`signTextLineScale`)
       // and not by the row it happens to be on — and the box is as tall as the stack
       // of rows at the first line's size.
+      //
+      // A lone primary line takes over the gloss row below it: the box stays two
+      // rows tall and the single row is set at twice the size, so what the editor's
+      // tile preview shows (the primary grown into the secondary's space) is what
+      // the board prints. `drawText` derives its row size from this height, so it
+      // follows without its own branch.
+      if (lines.length === 1) {
+        const line = lines[0]
+        return { w: measure(line, size * 2 * signTextLineScale(0, line)), h: size * 1.15 * SIGN_TEXT_LINES }
+      }
       const w = Math.max(...lines.map((l, i) => measure(l, size * signTextLineScale(i, l))))
       return { w, h: size * 1.15 * lines.length }
     }

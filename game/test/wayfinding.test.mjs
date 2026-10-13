@@ -327,6 +327,9 @@ test('patience re-routes are rationed: a crush retries over ticks, not all at on
   for (let i = 0; i < 6; i++) {
     six.push(w.pool.spawn({ origin: '', stops: [], dest: 'exit:exit-1' }, 3.5, 0.5, 1, 0))
   }
+  // Hold the crush geometry fixed: this pins the re-route search ration,
+  // independently of randomized free-flow profiles during the warmup ticks.
+  for (const a of w.pool.live) a.speed = 1.34
   for (let i = 0; i < 5; i++) w.tickOnce()
   assert.ok(six.every((a) => a.destNode >= 0 && a.path.length > 0), 'every passenger has a leg to walk')
   for (const a of six) {

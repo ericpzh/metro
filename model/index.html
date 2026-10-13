@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Station Designer — Models</title></head>
+<body>
+<main>
+ <header><div><p class="eyebrow" data-i18n="project"></p><h1 data-i18n="title"></h1></div><nav><a id="site-link" data-i18n="site"></a><a id="game-link" data-i18n="game"></a><select id="language" aria-label="Language"><option value="en">English</option><option value="zh">中文</option></select></nav></header>
+ <section class="workspace">
+  <aside>
+   <label for="character" data-i18n="character"></label><select id="character"><option value="female" data-i18n="female"></option><option value="male" data-i18n="male"></option></select>
+   <label for="hair" data-i18n="hair"></label><select id="hair"><option value="bob" data-i18n="bob"></option><option value="shoulder" data-i18n="shoulder"></option><option value="long" data-i18n="long"></option></select>
+   <label for="bag" data-i18n="bag"></label><select id="bag"><option value="1" data-i18n="withBag"></option><option value="0" data-i18n="noBag"></option></select>
+   <p class="hint" id="variant-hint"></p>
+   <label for="profile" data-i18n="profile"></label><select id="profile"><option value="0" data-i18n="slow"></option><option value="1" data-i18n="medium"></option><option value="2" data-i18n="fast"></option></select>
+   <div class="playback"><button id="play"></button><button id="stand" data-i18n="stand"></button></div>
+   <a id="download" class="download" download data-i18n="download"></a>
+   <figure><img id="reference"><figcaption data-i18n="reference"></figcaption></figure>
+  </aside>
+  <div id="view"><div id="status" role="status"></div></div>
+ </section>
+ <footer><div class="views"><button data-view="front" data-i18n="front"></button><button data-view="three" data-i18n="three"></button><button data-view="side" data-i18n="side"></button><button data-view="back" data-i18n="back"></button><button id="rotate" data-i18n="rotate"></button></div><p data-i18n="orbitHint"></p></footer>
+</main>
+<script type="module" src="/src/main.js"></script>
+</body></html>

@@ -112,10 +112,9 @@ export function artBlocks() {
   g.push(T(48, 850, '半墙与斜块，让角落和边界更灵活。', { size: 18, fill: NOTE }))
   g.push(T(850, 605, '地面、墙面、天花板材质', { size: 21, weight: 800, fill: C.yellow }))
   finishes.forEach((f, i) => {
-    const x = 850 + (i % 4) * 174, y = 642 + Math.floor(i / 4) * 86
-    g.push(`<rect x="${x}" y="${y}" width="52" height="32" rx="5" fill="${f.tint}"/>`)
-    g.push(T(x, y + 55, f.label, { size: 15, fill: '#dbe4ee' }))
+    const x = 850 + (i % 4) * 174, y = 628 + Math.floor(i / 4) * 54
+    g.push(`<rect x="${x}" y="${y}" width="48" height="26" rx="5" fill="${f.tint}"/>`)
+    g.push(T(x, y + 45, f.label, { size: 15, fill: '#dbe4ee' }))
   })
-  g.push(T(850, 914, '轨道床和覆土不能通行，步行通路要铺可通行地面。', { size: 15, fill: NOTE }))
   return sheet(W, 950, g.join(''))
 }

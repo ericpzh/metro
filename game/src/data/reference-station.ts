@@ -14,6 +14,10 @@ import { msg } from '../sim/i18n.ts'
 // the platform, and the author's lighting pass over it —
 // one hundred and twenty-six 灯具 and two 通风口. Two open exits feed the concourse — B口 and C口,
 // each with a surface guidepost — and the line's up direction runs to 文冲.
+// The five stairs were rebuilt from the current catalogue without moving their
+// landings: straight runs store 0.79 m treads (one full block with rails), and
+// the two medium switchbacks store 1.79 m treads per run. `demo.test.mjs` pins
+// these complete pieces and checks boarding reachability through door servers.
 //
 // The raw document lives beside this file as `demo-station.json` so it is not
 // hand-edited; `referenceStation()` hands back a fresh clone each call, because

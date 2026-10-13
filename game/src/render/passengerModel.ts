@@ -1,26 +1,29 @@
 import * as THREE from 'three'
-import human from '../assets/passenger-human.json' with { type: 'json' }
+import human from '../assets/passenger-approved.json' with { type: 'json' }
+import { passengerProportions } from '../sim/walking.ts'
 
-/** CC0 clothed humans and walking poses, baked offline; see assets/PASSENGERS.md. */
+/** Approved grey, faceless commuter and baked walk; see assets/PASSENGERS.md. */
 export const PASSENGER_EYE_HEIGHT = 1.57
 export const PASSENGER_STRIDE = human.stride
 export const PASSENGER_WALK_FRAMES = human.walkFrames
+export const PASSENGER_WALK_PROFILES = human.walkProfiles
+export const PASSENGER_LIBRARY = human.library
 export const PASSENGER_OUTFITS = human.variants
 export const PASSENGER_HAIRSTYLES = human.hairstyles
 
 /** Identity, rather than buffer slot, keeps each commuter's appearance stable. */
 export function passengerAppearance(id: number, out: [number, number, number, number] = [0, 0, 0, 0]): [number, number, number, number] {
-  let hash = Math.imul(id ^ 0x9e3779b9, 0x85ebca6b) >>> 0
+  // Reuse the caller's scratch tuple: no per-frame crowd allocations.
+  passengerProportions(id, out)
+  out[3] = out[2]
+  out[2] = out[1]
+  out[1] = out[0]
+  // A separate identity hash chooses directly from the complete library: each
+  // model gets one equal bucket, independent of sex, hair, bag and walk speed.
+  let hash = Math.imul(id ^ 0x51ed270b, 0x85ebca6b) >>> 0
   hash = Math.imul(hash ^ (hash >>> 16), 0xc2b2ae35) >>> 0
-  hash ^= hash >>> 16
-  out[0] = (hash >>> 0) % PASSENGER_OUTFITS.length
-  const height = ((hash >>> 8) & 255) / 255
-  // About one in eight passengers is child-sized (1.0–1.4 m); the rest
-  // span shorter adults through tall commuters (1.47–1.94 m).
-  const child = (hash & 255) < 32
-  out[1] = child ? 0.58 + height * 0.23 : 0.85 + height * 0.27
-  out[2] = (0.9 + ((hash >>> 16) & 255) / 255 * 0.2) * (child ? out[1] * 1.08 : 1)
-  out[3] = 0.9 + ((hash >>> 24) & 255) / 255 * 0.15
+  hash = (hash ^ (hash >>> 16)) >>> 0
+  out[0] = Math.floor(hash / 0x100000000 * PASSENGER_OUTFITS.length)
   return out
 }
 
@@ -30,7 +33,7 @@ function bytes(value: string): Uint8Array {
 
 const bakedPositions = new Int16Array(bytes(human.positions).buffer)
 const bakedNormals = new Int8Array(bytes(human.normals).buffer)
-const bakedIndices = new Uint16Array(bytes(human.indices).buffer)
+const bakedIndices = human.indexBits === 32 ? new Uint32Array(bytes(human.indices).buffer) : new Uint16Array(bytes(human.indices).buffer)
 
 function expanded(values: Int16Array | Int8Array, frame: number, outfit: number, divisor: number): Float32Array {
   const offset = frame * human.vertices * 3
@@ -71,10 +74,10 @@ function atlas(values: Int16Array | Int8Array, divisor: number): THREE.DataTextu
   return texture
 }
 
-export function passengerMaterial(): THREE.MeshStandardMaterial {
-  // Matte grey washes show clothed silhouettes without distracting textures.
-  return new THREE.MeshStandardMaterial({ color: 0xb3b5b7, roughness: 1, metalness: 0,
-    transparent: true, opacity: 0.94, depthWrite: true })
+export function passengerMaterial(): THREE.MeshBasicMaterial {
+  // Illustration colours stay flat under the station's lights and exposure.
+  // Opaque ink also avoids overlapping translucent bodies washing together.
+  return new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
 }
 
 /** One GPU draw for the whole crowd; no per-passenger skeleton or animation mixer. */
@@ -93,11 +96,16 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
   indexPixels.set(bakedIndices)
   const indices = new THREE.DataTexture(indexPixels, 1024, indexRows, THREE.RedFormat, THREE.FloatType)
   indices.needsUpdate = true
+  const regionPixels = new Float32Array(1024 * Math.ceil(human.vertices / 1024))
+  regionPixels.set(bytes(human.regions))
+  const regions = new THREE.DataTexture(regionPixels, 1024, regionPixels.length / 1024, THREE.RedFormat, THREE.FloatType)
+  regions.needsUpdate = true
   const material = passengerMaterial()
   material.onBeforeCompile = (shader) => {
     shader.uniforms.passengerPositions = { value: positions }
     shader.uniforms.passengerNormals = { value: normals }
     shader.uniforms.passengerIndices = { value: indices }
+    shader.uniforms.passengerRegions = { value: regions }
     shader.uniforms.passengerAtlasSize = { value: new THREE.Vector2(positions.image.width, positions.image.height) }
     shader.vertexShader = `
       attribute float passengerVertex;
@@ -106,11 +114,19 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
       uniform sampler2D passengerPositions;
       uniform sampler2D passengerNormals;
       uniform sampler2D passengerIndices;
+      uniform sampler2D passengerRegions;
       uniform vec2 passengerAtlasSize;
-      vec3 passengerSample(sampler2D data, float frame) {
+      varying vec3 passengerInk;
+      varying vec3 passengerNormal;
+      varying vec3 passengerView;
+      varying float passengerRegion;
+      float passengerIndex() {
         float corner = passengerVertex + passengerOutfit * ${human.corners.toFixed(1)};
-        float vertex = texture2D(passengerIndices, vec2((mod(corner, 1024.0) + 0.5) / 1024.0,
+        return texture2D(passengerIndices, vec2((mod(corner, 1024.0) + 0.5) / 1024.0,
           (floor(corner / 1024.0) + 0.5) / ${indexRows.toFixed(1)})).r;
+      }
+      vec3 passengerSample(sampler2D data, float frame) {
+        float vertex = passengerIndex();
         float pixel = vertex + frame * ${human.vertices.toFixed(1)};
         return texture2D(data, vec2((mod(pixel, passengerAtlasSize.x) + 0.5) / passengerAtlasSize.x,
           (floor(pixel / passengerAtlasSize.x) + 0.5) / passengerAtlasSize.y)).xyz;
@@ -123,10 +139,29 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
       }
     ` + shader.vertexShader
     shader.vertexShader = shader.vertexShader
-      .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize(passengerAnimated(passengerNormals));')
-      .replace('#include <begin_vertex>', 'vec3 transformed = passengerAnimated(passengerPositions);')
+      .replace('#include <begin_vertex>', `
+        vec3 transformed = passengerAnimated(passengerPositions);
+        vec3 objectNormal = normalize(passengerAnimated(passengerNormals));
+        #include <defaultnormal_vertex>
+        passengerNormal = normalize(transformedNormal);
+        float vertex = passengerIndex();
+        passengerRegion = texture2D(passengerRegions, vec2((mod(vertex, 1024.0) + 0.5) / 1024.0,
+          (floor(vertex / 1024.0) + 0.5) / ${(regionPixels.length / 1024).toFixed(1)})).r;
+        passengerInk = ${human.palette.map((grey, i) => `${i < human.palette.length - 1 ? `passengerRegion < ${(i + .5).toFixed(1)} ? ` : ''}vec3(${new THREE.Color().setRGB(grey, grey, grey, THREE.SRGBColorSpace).r.toFixed(6)})`).join(' : ')};
+      `)
+      .replace('#include <project_vertex>', '#include <project_vertex>\npassengerView = -mvPosition.xyz;')
+    shader.fragmentShader = `
+      varying vec3 passengerInk;
+      varying vec3 passengerNormal;
+      varying vec3 passengerView;
+      varying float passengerRegion;
+    ` + shader.fragmentShader
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `
+      #include <color_fragment>
+      diffuseColor.rgb *= passengerInk;
+    `)
   }
-  material.customProgramCacheKey = () => 'passenger-clothed-hair-poses-v3'
+  material.customProgramCacheKey = () => 'passenger-approved-library-v3'
   const mesh = new THREE.InstancedMesh(geometry, material, capacity)
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
   mesh.frustumCulled = false
@@ -137,16 +172,18 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
     positions.dispose()
     normals.dispose()
     indices.dispose()
+    regions.dispose()
   }
   return mesh
 }
 
 /** Travel-driven gait: queued passengers and conveyor/lift riders do not march. */
-export function passengerFrames(distance: number, phase: number, weight: number, out: [number, number, number, number] = [0, 0, 0, 0]): [number, number, number, number] {
-  const frame = (((phase + distance / PASSENGER_STRIDE) % 1 + 1) % 1) * PASSENGER_WALK_FRAMES
+export function passengerFrames(distance: number, phase: number, weight: number, out: [number, number, number, number] = [0, 0, 0, 0], profile = 0): [number, number, number, number] {
+  const walk = PASSENGER_WALK_PROFILES[profile]
+  const frame = (((phase + distance / walk.stride) % 1 + 1) % 1) * PASSENGER_WALK_FRAMES
   const first = Math.floor(frame)
-  out[0] = first + 1
-  out[1] = (first + 1) % PASSENGER_WALK_FRAMES + 1
+  out[0] = first + walk.firstFrame
+  out[1] = (first + 1) % PASSENGER_WALK_FRAMES + walk.firstFrame
   out[2] = frame - first
   out[3] = weight
   return out

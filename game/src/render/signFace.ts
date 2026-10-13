@@ -232,8 +232,9 @@ function drawStopMark(g: CanvasRenderingContext2D, x: number, y: number, w: numb
 }
 
 /**
- * One pictogram in the box `(x, y, w, h)`: the two **drawn** marks — the 出/EXIT
- * plate and the 禁止 roundel — and every other one as bitmap art, printed as it is.
+ * One pictogram in the box `(x, y, w, h)`: the **drawn** marks — the 出/EXIT
+ * plate, the 禁止 roundel, the service-counter mark, the divider line and the
+ * blank divider — and every other one as bitmap art, printed as it is.
  *
  * Every bitmap mark is a square asset, drawn into the mark's own square and
  * nothing else — a pictogram is a picture, so the board neither recolours it nor
@@ -260,6 +261,16 @@ function drawIcon(g: CanvasRenderingContext2D, icon: SignIcon, x: number, y: num
     drawCustomerServiceMark(g, ox, oy, s)
     return
   }
+  if (icon === 'separator') {
+    drawSeparatorMark(g, ox, oy, s)
+    return
+  }
+  if (icon === 'gap') {
+    // The blank divider: pure board ground, no ink at all. It still holds its
+    // own square on the row (`signInkSize` gives it a pictogram's box), so it
+    // reads as spacing between two groups rather than as an empty board.
+    return
+  }
   const art = iconArt.get(icon)
   if (art) g.drawImage(art, ox, oy, s, s)
 }
@@ -284,6 +295,26 @@ function drawCustomerServiceMark(g: CanvasRenderingContext2D, x: number, y: numb
   g.fillRect(68, 79, 48, 5)
   g.fillRect(72, 84, 5, 31)
   g.restore()
+}
+
+/**
+ * The divider between two groups of marks on one board: one white vertical line,
+ * full bleed top to bottom of its own square. It is a **path** rather than a
+ * `fillRect` for the same reason the 禁止 strip is — the recording context behind
+ * the render tests reads the corners it painted — and its width is the line's own,
+ * a hair under the 禁止 ring's, so the two drawn line-marks read as one family.
+ */
+function drawSeparatorMark(g: CanvasRenderingContext2D, x: number, y: number, size: number): void {
+  const line = size * 0.12
+  const cx = x + size / 2
+  g.fillStyle = INK
+  poly(g, [
+    [cx - line / 2, y],
+    [cx + line / 2, y],
+    [cx + line / 2, y + size],
+    [cx - line / 2, y + size],
+  ])
+  g.fill()
 }
 
 /* ------------------------------------------------------------- components */
@@ -470,8 +501,7 @@ function drawLineBadge(
 
 /**
  * A typed label: 中文 up to `SIGN_TEXT_MAX`, its English gloss up to
- * `SIGN_TEXT_EN_MAX` (§5.8 sizes the hanging sign 2 × 8; the gloss runs longer
- * because it sets smaller). The first line is the name (中文, large) and the
+ * `SIGN_TEXT_EN_MAX` (both 24). The first line is the name (中文, large) and the
  * second the gloss under it (English, small) —
  * `SIGN_TEXT_EN_SCALE` is the one ratio the board, the tile preview and the
  * measurement all use, and it is read through `signTextLineScale`, which decides it

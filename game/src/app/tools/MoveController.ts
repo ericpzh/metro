@@ -110,7 +110,7 @@ export class MoveController extends ToolController {
       return { x, y, z }
     }
     if (d && isCeilingHung(d.module)) {
-      const [x, y, z] = ceilingMountStandCell(h.cell, h.place)
+      const [x, y, z] = ceilingMountStandCell(h.cell, h.place, st.station.levelBase, st.station.cells)
       return { x, y, z }
     }
     const [x, y, z] = h.solid || exitFloorAt(st.station.modules, h.cell[0], h.cell[1], h.cell[2]) ? h.cell : h.place

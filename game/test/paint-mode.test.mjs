@@ -1,5 +1,5 @@
-// The 材质 folder's own setting (GAME-SPEC §4.3): `N` 单块 and click-only 整面 are the
-// brush, and `I` 取色 only borrows it. Choosing a texture — a plain finish tile or
+// The 材质 brush setting (GAME-SPEC §4.3): each material submenu offers 单块 / 整面,
+// Tab cycles them, and `I` 取色 only borrows the active mode. Choosing a texture — a plain finish tile or
 // the 搪瓷板 colour picker — must not reset the mode, so the setting a player left
 // the folder in is still there after a detour through another folder on the left
 // rail; and eyedropping a face hands the brush back in the mode it was entered
@@ -8,8 +8,15 @@
 // The rail's tiles only call these store commands, so this covers the click.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { useStore } from '../src/app/store.ts'
 import { customFinishId, finishBaseId, finishDef, finishTint } from '../src/sim/finishes.ts'
+import { customPaintColoursInStation } from '../src/app/rail/paintColours.ts'
+
+const paintFolder = readFileSync(new URL('../src/app/rail/folders/PaintFolder.tsx', import.meta.url), 'utf8')
+const colourTiles = readFileSync(new URL('../src/app/rail/shared/ColourTile.tsx', import.meta.url), 'utf8')
+const paintCss = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+const appShell = readFileSync(new URL('../src/app/windows/AppShell.tsx', import.meta.url), 'utf8')
 
 const st = () => useStore.getState()
 
@@ -90,4 +97,43 @@ test('取色 borrows the brush and hands it back in the mode it was entered with
   st().setPaintMode('pick')
   st().selectPaintFinish('wall.tile')
   assert.equal(st().paintMode, 'surface')
+})
+
+test('saved custom colors are collected from the station and omit stock swatches', () => {
+  const station = {
+    cells: [
+      { finish: { n: 'wall.enamel#f72b2b', top: 'wall.enamel#f72b2b' } },
+      { finish: { e: 'wall.enamel#2f7ef2', s: 'wall.plaster#abcdef' } },
+    ],
+    modules: [
+      { cfg: { finish: 'wall.enamel#ff4242' } },
+      { cfg: { bridgeFinish: 'wall.enamel#f94848' } },
+      { cfg: { finish: 'wall.plaster#123456' } },
+    ],
+  }
+  assert.deepEqual(customPaintColoursInStation(station, 'wall.enamel'), [0xf72b2b, 0xf94848, 0xff4242])
+  assert.deepEqual(customPaintColoursInStation(station, 'wall.plaster'), [0x123456, 0xabcdef])
+})
+
+test('each material owns a two-mode submenu, with Tab cycling and no current-color tile row', () => {
+  const panelAt = paintFolder.indexOf('<InlinePanel key=')
+  const gridAt = paintFolder.indexOf('<div className="blockGrid">', panelAt)
+  const gridEnd = paintFolder.indexOf('</div>', gridAt)
+  const modeGrid = paintFolder.slice(gridAt, gridEnd)
+  assert.match(paintFolder, /const menu = `paint:\$\{anchor\}`/)
+  assert.match(modeGrid, /id: 'single'/)
+  assert.match(modeGrid, /id: 'surface'/)
+  assert.doesNotMatch(modeGrid, /ColourTile|NewColorTile/)
+  assert.match(paintFolder, /shortcut="Tab"/)
+  assert.match(appShell, /if \(st\.tool === 'paint'\) st\.setPaintMode\(st\.paintMode === 'single' \? 'surface' : 'single'\)/)
+})
+
+test('used-color tiles and New Color open native color pickers in the two-column palette', () => {
+  assert.match(paintFolder, /colours\.map\(\(colour\) => \(\s*<ColourTile key=\{colour\}/)
+  assert.match(paintFolder, /<NewColorTile colour=\{colourFor\(anchor\)\}/)
+  assert.doesNotMatch(paintFolder, /blockGrid three/)
+  assert.match(colourTiles, /export function ColourTile[\s\S]*?className="bpColour"[\s\S]*?type="color"/)
+  assert.match(colourTiles, /export function NewColorTile[\s\S]*?className="bpNewColourInput"[\s\S]*?type="color"/)
+  assert.match(paintCss, /\.bpNewColourPlus\s*\{[^}]*color:\s*#fff/i)
+  assert.match(paintCss, /\.bpNewColourTile \.bpBlockLabel\s*\{[^}]*color:\s*#fff/i)
 })

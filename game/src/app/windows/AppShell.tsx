@@ -42,17 +42,17 @@ export function App(): React.ReactElement {
       // Handled before the single-letter tool keys so Ctrl+N never also grabs
       // the 材质 brush, etc.
       const ck = e.key.toLowerCase()
-      // Shift+Q … Shift+U fold the build rail's folders, one letter a row down the stack
-      // (`rail/helpers.ts` `RAIL_FOLDERS`): Shift+Q is 工具, the first folder, and
-      // W E R T Y U follow the folders below it. **Alt+Q … Alt+R** do the same for the
+      // Shift+1 … Shift+7 fold the build rail's folders, one number a row down the stack
+      // (`rail/helpers.ts` `RAIL_FOLDERS`): Shift+1 is 工具, the first folder, and
+      // 2 through 7 follow the folders below it. **Alt+1 … Alt+4** do the same for the
       // 信息栏's own stack (`INSPECTOR_FOLDERS`: 信息, 视图, 出入口, 线路) — a modifier per
-      // column, so the same four letters serve both stacks without a clash. Each shell
+      // column, so the same numbers can serve both stacks without a clash. Each shell
       // owns which of its folders are open, so this only names the folder and hands it over.
-      // Both run before the switch below because every one of these letters already means
+      // Both run before the switch below because every unmodified key already means
       // something unmodified — Q/E step the storey, R turns, U hides the UI, P 吸取,
       // T 分区 — and a held key repeats, which would flicker the folder it names.
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
-        const folder = folderForShiftKey(ck)
+        const folder = folderForShiftKey(e.code.startsWith('Digit') ? e.code.slice(5) : ck)
         if (folder) {
           e.preventDefault()
           window.dispatchEvent(new CustomEvent('metro:folder', { detail: folder }))
@@ -63,7 +63,7 @@ export function App(): React.ReactElement {
       // it: on a European layout AltGr *is* Ctrl+Alt, so AltGr+letter types a character
       // and must not fold a folder — the same guard the camera's Ctrl+Q/E pan uses.
       if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.repeat) {
-        const folder = folderForAltKey(ck)
+        const folder = folderForAltKey(e.code.startsWith('Digit') ? e.code.slice(5) : ck)
         if (folder) {
           e.preventDefault()
           window.dispatchEvent(new CustomEvent('metro:folder', { detail: folder }))
@@ -172,11 +172,12 @@ export function App(): React.ReactElement {
           // cut off behind the player's back (`setAutoWalls` holds that guard). The
           // three cut pieces are picked on their own tiles, one click each, and
           // **R** turns whichever is armed.
-          // Everywhere else Tab keeps its own meaning for the piece being
-          // placed: rail direction, stair or roof width, escalator direction, the 闸机's
-          // lane or fence.
+          // 材质 uses Tab to cycle 单块 / 整面; elsewhere Tab keeps its own meaning
+          // for the piece being placed: rail direction, stair or roof width, escalator
+          // direction, the 闸机's lane or fence.
           e.preventDefault()
-          if (st.moveDraft?.module.type === 'light') st.cycleMoveLightPosition()
+          if (st.tool === 'paint') st.setPaintMode(st.paintMode === 'single' ? 'surface' : 'single')
+          else if (st.moveDraft?.module.type === 'light') st.cycleMoveLightPosition()
           else if (st.tool === 'module' && st.moduleType === 'light-rectangular') st.cycleLightPosition()
           else if (st.tool === 'block') {
             st.setAutoWalls(!st.autoWalls)

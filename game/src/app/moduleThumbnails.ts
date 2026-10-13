@@ -489,6 +489,12 @@ function sampleModule(id: string, station: StationData): Module | null {
       return sampleStair('left90')
     case 'stair-right90':
       return sampleStair('right90')
+    case 'stair-leftForward':
+      return sampleStair('leftForward')
+    case 'stair-centerForward':
+      return sampleStair('centerForward')
+    case 'stair-rightForward':
+      return sampleStair('rightForward')
     case 'stair-right180':
       return sampleStair('right180')
     case 'stair-left180':

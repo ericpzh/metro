@@ -1,0 +1,21 @@
+{
+  "tool": "pwilkin/trellis.cpp",
+  "version": "v0.8.1",
+  "reference": "reference.png",
+  "args": [
+    "--res",
+    "1024",
+    "--seed",
+    "42",
+    "--steps",
+    "12",
+    "--atlas",
+    "2048",
+    "--webp",
+    "off",
+    "--dump-bg",
+    "--require-gpu"
+  ],
+  "elapsedSeconds": 76.044,
+  "rigged": false
+}

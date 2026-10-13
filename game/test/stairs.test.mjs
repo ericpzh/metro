@@ -9,13 +9,89 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { scenarioStation } from './support/scenario-station.ts'
 import { buildGraph, EDGE_KIND } from '../src/sim/station.ts'
-import { carveRampOpenings } from '../src/sim/openings.ts'
+import { carveRampOpenings, rampCorridorHalf, rampEnvelope, thinWallCells } from '../src/sim/openings.ts'
 import { placementBlocked } from '../src/sim/placement.ts'
+import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
+import { useStore } from '../src/app/store.ts'
 import { ESCALATOR_BAND, STAIR_RAIL_PROUD } from '../src/sim/constants.ts'
 import { STAIR_FLIGHT_RISE, STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_LABELS, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, STAIR_WIDTHS, nextStairWidth, planStairLanes, stairBuildWidth, stairFacing, stairFlightSlides, stairFlights, stairLaneBases, stairLaneMates, stairLandingShape, stairLandingWalls, stairLandings, stairLanes, stairOnBlockGrid, stairRight, stairRunBlocks, stairSwitchbackGap, stairSwitchbackOffset, stairSwitchbackRunWidth, stairTurnCells, stairWallSides, stairWidthLabel } from '../src/sim/stairs.ts'
 import { addEquipment, createModule, removeModule, toState, wallRun } from '../src/build/model.ts'
 
+test('saved straight stair sizes reserve their full block band and detect walls at its edges', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const [rx, ry] = stairRight(rot)
+    for (const [width, blocks] of [[0.68, 1], [1.36, 2], [2.04, 3]]) {
+      const m = createModule('stair-straight', 0, 0, 0, 'stair', rot, width)
+      assert.equal(m.cfg.width, width, 'stored size stays compatible with saved stairs and the picker')
+      const slide = stairFlightSlides(m)[0]
+      assert.deepEqual(slide, { dx: rx * (blocks - 1) / 2 || 0, dy: ry * (blocks - 1) / 2 || 0 })
+      assert.ok(Math.abs(rampCorridorHalf(m) - blocks / 2) < 1e-9,
+        'carving includes the full width of the two outer rails')
+      const e = rampEnvelope(m)
+      const lo = rx ? e.x0 : e.y0
+      const hi = rx ? e.x1 : e.y1
+      // The physical tread leaves room for its balustrades inside the blocks.
+      assert.ok(Math.abs((lo + hi) / 2 - (0.5 + (rx || ry) * (blocks - 1) / 2)) < 1e-9,
+        'collision envelope uses the same centre as the rendered flight')
+      const walls = []
+      const [fx, fy] = stairFacing(rot)
+      for (const side of [-1, blocks]) {
+        for (let along = 0; along <= STAIR_RUN; along++) {
+          for (let z = 0; z <= STAIR_RISE + 2; z++) {
+            walls.push({ x: fx * along + rx * side, y: fy * along + ry * side, z, fill: 'solid' })
+          }
+        }
+      }
+      const treadWidth = blocks - 2 * STAIR_RAIL_PROUD
+      assert.deepEqual(stairWallSides(walls, m.from, m.to, treadWidth, slide), { left: true, right: true })
+      assert.equal(carveRampOpenings(walls, [m]), 0, 'full-block fit does not carve adjacent walls')
+      assert.deepEqual(thinWallCells(walls, [m]), [], 'adjacent blocks remain whole walls')
+    }
+  }
+})
+
 const key = (p) => `${p.x},${p.y},${p.z}`
+
+test('explicit block-fitted stair widths retain their palette size and Tab cycle', () => {
+  for (const [width, blocks, label, next] of [
+    [0.79, 1, '窄', STAIR_WIDTH_DOUBLE],
+    [1.79, 2, '中', STAIR_WIDTH_TRIPLE],
+    [2.79, 3, '宽', STAIR_WIDTH_NARROW],
+  ]) {
+    assert.equal(stairLanes(width), blocks, 'stored fitted width identifies the same number of blocks')
+    assert.equal(stairWidthLabel(width), label)
+    assert.equal(nextStairWidth(width), next, 'Tab advances from the saved size rather than resetting to narrow')
+  }
+})
+
+test('explicit fitted narrow stairs still join adjacent stair treads while keeping their own rails', () => {
+  const a = createModule('stair-straight', 0, 0, 0, 'a', 0, 0.79)
+  const b = createModule('stair-straight', 1, 0, 0, 'b', 0, 0.79)
+  assert.deepEqual(stairLaneMates([a, b], a), [{ mate: b, step: [1, 0], side: 1, sameFlight: false }])
+  assert.deepEqual(stairLaneMates([a, b], b), [{ mate: a, step: [-1, 0], side: -1, sameFlight: false }])
+})
+
+test('the equipment tool places each straight stair size as one standalone module in every rotation', () => {
+  const previous = useStore.getState()
+  try {
+    useStore.setState({ station: { ...previous.station, cells: [], modules: [] } })
+    const tool = new EquipmentTool({})
+    for (const width of STAIR_WIDTHS) {
+      for (let rot = 0; rot < 4; rot++) {
+        useStore.setState({ stairWidth: width, moduleRot: rot })
+        for (const type of ['stair', 'stair-straight']) {
+          const pieces = tool.buildPlacementModules(type, [0, 0, 0], 'whole-stair')
+          assert.equal(pieces.length, 1, 'preview and placement carry one selectable/deletable piece')
+          assert.equal(pieces[0].cfg.width, width, 'the standalone piece keeps the chosen full width')
+          assert.equal(pieces[0].cfg.flight, undefined, 'no token ties separate narrow stairs together')
+          assert.equal(stairFlights(pieces[0]).length, 1, 'one continuous straight flight')
+        }
+      }
+    }
+  } finally {
+    useStore.setState({ station: previous.station, stairWidth: previous.stairWidth, moduleRot: previous.moduleRot })
+  }
+})
 
 /**
  * A 墙-tool column standing on the floor whose surface is `z`: four courses,
@@ -368,8 +444,17 @@ test('placing a stair carves the slab it climbs through', () => {
   assert.ok(next.cells.length < state.cells.length, 'the slab it climbs through is carved')
 })
 
-test('the five stair buttons each build their fixed one-storey shape', () => {
-  const expected = { 'stair-straight': 1, 'stair-left90': 2, 'stair-right90': 2, 'stair-right180': 2, 'stair-left180': 2 }
+test('all eight fixed stair buttons build their one-storey flight plans', () => {
+  const expected = {
+    'stair-straight': 1,
+    'stair-left90': 2,
+    'stair-right90': 2,
+    'stair-left180': 2,
+    'stair-right180': 2,
+    'stair-leftForward': 2,
+    'stair-centerForward': 2,
+    'stair-rightForward': 2,
+  }
   for (const [id, nFlights] of Object.entries(expected)) {
     const m = createModule(id, 4, 4, -4, 'x', 0, STAIR_WIDTH_NARROW)
     assert.ok(m && m.type === 'stair', `${id} did not build a stair`)
@@ -677,4 +762,33 @@ test('carving a turning stair keeps its landings and opens the slab it climbs th
   assert.ok(removed > 0, 'the roof the stair climbs through is carved')
   assert.ok(cells.some((c) => c.x === 1 && c.y === 2 && c.z === -2), 'the half-landing is kept')
   assert.ok(cells.some((c) => c.x === 2 && c.y === 0 && c.z === 0), 'the top landing is kept')
+})
+
+
+test('forward stairs continue after a block-fitted middle landing in every size and rotation', () => {
+  for (const width of STAIR_WIDTHS) for (let rot = 0; rot < 4; rot++) {
+    const [fx, fy] = stairFacing(rot)
+    const [rx, ry] = stairRight(rot)
+    const blocks = stairLanes(width)
+    for (const [style, hand] of [['leftForward', -1], ['centerForward', 0], ['rightForward', 1]]) {
+      const m = createModule(`stair-${style}`, 0, 0, -4, 'forward', rot, width)
+      assert.equal(m.cfg.width, stairSwitchbackRunWidth(width))
+      const [first, second] = stairFlights(m)
+      assert.deepEqual(first.to, { x: fx * 3, y: fy * 3, z: -2 })
+      assert.deepEqual(second.from, { x: fx * 3 + rx * hand * blocks, y: fy * 3 + ry * hand * blocks, z: -2 })
+      assert.deepEqual(m.to, { x: fx * 6 + rx * hand * blocks, y: fy * 6 + ry * hand * blocks, z: 0 })
+      const row = stairTurnCells(m)
+      assert.equal(row.length, blocks * (hand === 0 ? 1 : 2), 'middle landing fills only the shared row')
+      const shape = stairLandingShape(m, 0)
+      assert.equal(fx ? shape.x1 - shape.x0 : shape.y1 - shape.y0, 1, 'landing is one cell deep along the run')
+      const g = stairwell(m)
+      const bottom = g.nodeIndex.get(key(m.from))
+      const top = g.nodeIndex.get(key(m.to))
+      assert.notEqual(bottom, undefined)
+      assert.notEqual(top, undefined)
+      assert.ok(reachable(g, bottom, top), `${style}/${rot}/${width} connects uphill`)
+      assert.ok(reachable(g, top, bottom), `${style}/${rot}/${width} connects downhill`)
+      assert.ok(reachableWithin(g, g.nodeIndex.get(key(first.to)), g.nodeIndex.get(key(second.from)), row), 'flights connect across their own landing')
+    }
+  }
 })

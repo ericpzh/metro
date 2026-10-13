@@ -163,7 +163,7 @@ export function artHeroBanded() {
       + T(tx + 23, ty, `${i + 1}  ${text}`, { size: 15, fill: '#c3d0de' });
   }).join('');
   return sheet(1600, 1100,
-    title(48, 62, '地铁车站设计师', 'B1 站厅 · B2 站台。逐层建造，1 格 = 1 米。')
+    title(48, 62, '车站设计师', 'B1 站厅 · B2 站台。逐层建造，1 格 = 1 米。')
     + concreteGrain + fit.group(layers) + annotations.join('')
     + '<rect x="42" y="997" width="1516" height="68" rx="12" fill="#0b0f16" opacity=".9"/>' + key,
     { glow: true });

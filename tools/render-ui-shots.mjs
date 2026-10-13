@@ -20,7 +20,6 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { messages } from '../game/src/sim/i18n/messages.ts'
 import { tForLanguage } from '../game/src/sim/i18n.ts'
 import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 
@@ -34,6 +33,8 @@ const arg = (name, fallback) => {
 }
 const width = Number(arg('w', 1600))
 const height = Number(arg('h', 1000))
+const sheetTarget = arg('sheet', null);
+if (sheetTarget !== null && sheetTarget !== '07') throw new Error('--sheet currently supports 07');
 const DEVICE_SCALE = 1
 const language = arg('lang', 'zh-CN')
 if (!['zh-CN', 'en'].includes(language)) throw new Error('--lang must be zh-CN or en')
@@ -67,16 +68,13 @@ const REGIONS = {
 }
 
 /**
- * A calendar date as the 时刻 window's own day button labels it — the real handler for
- * picking the day the station runs, which is what the curve is drawn for.
+ * A calendar date as the 时刻 window lays it out — clicking its numbered cell invokes
+ * the real handler that picks the day the station runs.
  */
 const pickDate = (month, day, dayType) => {
-  const locale = language === 'en' ? 'en' : 'zh-CN'
-  const dayKey = Object.keys(messages).find(key => messages[key].zh === dayType)
-  if (!dayKey) throw new Error(`Unknown calendar day type: ${dayType}`)
-  const label = tForLanguage(locale, 'value_value_value', month, day, tForLanguage(locale, dayKey))
   return `(() => {
-    const el = document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)})
+    const el = [...document.querySelectorAll('.calGrid button.calCell')]
+      .find((button) => button.textContent.trim() === ${JSON.stringify(String(day))})
     if (!el) throw new Error('no day button for ${month}/${day} ${dayType}')
     el.click()
     return true
@@ -344,7 +342,10 @@ try {
     }
   }
 
-  for (const shot of SHOTS) {
+  const selectedShots = sheetTarget === '07'
+    ? SHOTS.filter(shot => shot.id === 'played').map(shot => ({...shot, crops: [['window', 2]]}))
+    : SHOTS;
+  for (const shot of selectedShots) {
     await setFolders(shot.folders)
     if (shot.setup) await session.evaluate(shot.setup)
     await session.evaluate('new Promise((ok) => setTimeout(ok, 900))')
@@ -387,7 +388,12 @@ try {
       const s = window.__metro.getState().station
       const rect = el => { const b = el.getBoundingClientRect(); return { x:b.x, y:b.y, width:b.width, height:b.height } }
       return {
-        input: { service:s.service, peaks:s.peaks, knobs:s.demand },
+        input: {
+          service:s.service,
+          peaks:s.peaks,
+          knobs:s.demand[document.querySelector('.calCell.today')?.classList.contains('workday') ? 'workday' : 'offday'],
+        },
+        workday:document.querySelector('.calCell.today')?.classList.contains('workday') ?? true,
         baseRate: s.modules.reduce((sum,m) => m.type === 'exit' && m.cfg.open ? sum + Math.max(0,m.cfg.inRate) : sum, 0),
         sliders: [...document.querySelectorAll('.knob')].map(el => ({
           label:el.querySelector('.knobLabel').textContent,

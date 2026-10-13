@@ -432,7 +432,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return { x0: m.x, y0: m.y, z0, x1: m.x + m.w, y1: m.y + m.h, z1: z0 + FLAT_HEIGHT[m.type] }
     case 'platform-edge': {
       // The screen sits on the track-facing strip of its single-cell-deep run.
-      // A half-height (半高) screen reserves only its real 1.5 m, so something
+      // A half-height (半高) screen reserves only its actual height, so something
       // may stand in the headroom the full screen would have filled.
       const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : PSD_FULL_HEIGHT
       const box = cellsAabb(edgeCells(m), z0, z0 + h)
@@ -773,17 +773,28 @@ function stepSide(dx: number, dy: number): WallSide {
  *     dropped to its own storey floor (`storeyBand`), the same floor a wall panel
  *     takes from the same hover (`wallMountStandCell`).
  *
- * Hovering void (the work plane) already names the floor, so it passes through.
- * The caller still checks `ceilingMountMissing` for the slab above the anchor.
+ * On a bottom-face hit, the nearest exposed floor in that column wins, even when
+ * the ceiling span is taller than one storey. Hovering void (the work plane)
+ * already names the floor, so it passes through. The caller checks
+ * `ceilingMountMissing` for the slab above the anchor.
  */
 export function ceilingMountStandCell(
   cell: readonly [number, number, number],
   place: readonly [number, number, number],
+  levelBase = 0,
+  cells?: readonly Cell[],
 ): [number, number, number] {
   const dz = place[2] - cell[2]
-  if (dz === -1) return [cell[0], cell[1], cell[2] - 4]
+  if (dz === -1) {
+    const floorCells = cells ?? []
+    const floor = floorCells
+      .filter((c) => c.fill === 'solid' && c.x === cell[0] && c.y === cell[1] && c.z < cell[2] && !isWallBlock(c))
+      .filter((c) => !floorCells.some((above) => above.fill === 'solid' && above.x === c.x && above.y === c.y && above.z === c.z + 1))
+      .sort((a, b) => b.z - a.z)[0]
+    return [cell[0], cell[1], floor?.z ?? storeyBand(cell[2] - 1, levelBase)]
+  }
   if (dz === 1) return [cell[0], cell[1], cell[2]]
-  return [place[0], place[1], storeyBand(place[2])]
+  return [place[0], place[1], storeyBand(place[2], levelBase)]
 }
 
 /**
@@ -886,27 +897,44 @@ export function autofaceWallMount(cells: readonly Cell[], candidate: Module, nea
 
 /**
  * True when a **hanging** decoration (a 指示牌 on its ceiling mount, a 电视, a 时钟 or a
- * 监控) has no ceiling above it. The ceiling is the first storey grid line above the
- * piece's floor (`LEVEL_STEPS`, one storey = 4 m in the built grid): the slab the
- * suspension rods bolt to. A piece with nothing overhead has nowhere to hang, so the
+ * 监控) has no ceiling above it. The ceiling is the nearest common slab over its
+ * footprint, wherever that slab sits: the suspension rods bolt to it. A piece with
+ * nothing overhead has nowhere to hang, so the
  * builder refuses it. A **wall** 指示牌 is bolted instead of hung and asks for backing
  * (`wallMountMissing`), and wall-mounted and floor-standing modules are never refused
  * here either.
  *
- * Every cell of the piece needs a slab over it, asked through `baseCells` so that
- * a future multi-cell hung fitting is covered rather than only its anchor.
+ * Every cell of the piece needs a slab at the same height, asked through `baseCells`
+ * so a future multi-cell hung fitting is covered rather than only its anchor.
  */
 export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
   if (candidate.type === 'hanger') return hangerRoofMissing(cells, modules, candidate)
   if (!isCeilingHung(candidate)) return false
   if (modules.some((m) => hangerSupports(m, candidate))) return false
-  const ceilingZ = LEVEL_STEPS.find((z) => z > candidate.z)
-  if (ceilingZ === undefined) return true
-  return baseCells(candidate).some(
-    ([bx, by]) =>
-      !cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === ceilingZ) &&
-      !virtualSolidAt(cells, modules, bx, by, ceilingZ),
+  return ceilingMountHeight(cells, candidate, modules) === null
+}
+
+/**
+ * Local height from a module's floor top to the underside of its actual ceiling.
+ * Read the nearest common slab over the whole footprint instead of assuming a
+ * fixed 4 m room; the model uses this to extend its suspension up to that slab.
+ */
+export function ceilingMountHeight(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): number | null {
+  if (!isCeilingHung(candidate)) return null
+  if (modules.some((m) => hangerSupports(m, candidate))) return 3
+  const footprint = baseCells(candidate)
+  const [firstX, firstY] = footprint[0] ?? [candidate.x, candidate.y]
+  const candidates = new Set(cells
+    .filter((c) => c.fill === 'solid' && c.x === firstX && c.y === firstY && c.z > candidate.z)
+    .map((c) => c.z))
+  if (virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z) && GROUND_Z > candidate.z) candidates.add(GROUND_Z)
+  const ceilingZ = [...candidates].sort((a, b) => a - b).find((z) =>
+    footprint.every(([x, y]) =>
+      cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) ||
+      virtualSolidAt(cells, modules, x, y, z),
+    ),
   )
+  return ceilingZ === undefined ? null : ceilingZ - candidate.z - 1
 }
 
 /** Strict overlap, so modules in adjacent cells (a gate line) do not collide. */

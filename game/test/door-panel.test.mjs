@@ -40,6 +40,7 @@ import {
   placementBlocked,
   wallMountCourses,
   wallMountMissing,
+  blockReason,
 } from '../src/sim/placement.ts'
 import { createModule } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
@@ -409,5 +410,20 @@ test('the door is drawn to the size the palette promises, standing on the floor'
     assert.ok(Math.abs(outer - -0.31) < EPS, `${v}: its outer face is on the cell's edge (y ${outer})`)
     assert.ok(inner < outer, `${v}: and its depth reaches in from there (${inner}..${outer})`)
     assert.ok(outer - inner < 0.25, `${v}: no deeper than a door (${outer - inner})`)
+  }
+})
+
+test('every door clears a two-block wall opening and reserves the same height', () => {
+  for (const variant of DOOR_VARIANTS) for (let rot = 0; rot < 4; rot++) for (const z of [0, -4, 4]) {
+    const p = door(0, 0, z, rot, 'entry', variant)
+    const { box } = build(p)
+    // build() subtracts the ground floor's top; account for this door's storey.
+    const height = box.max.z - z
+    assert.ok(Math.abs(2 - height - 0.01) < 1e-6, 'the complete frame clears the lintel by 1 cm')
+    assert.ok(Math.abs(moduleEnvelope(p).z1 - (z + 1 + height)) < 1e-6, 'placement and geometry agree')
+    for (const [x, y] of doorCells(p)) {
+      assert.equal(blockReason([], [p], x, y, z + 3).ok, true, 'the lintel can occupy the block above the doorway')
+      assert.equal(blockReason([], [p], x, y, z + 2).ok, false, 'a block through the leaf remains blocked')
+    }
   }
 })

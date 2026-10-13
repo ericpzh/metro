@@ -244,6 +244,32 @@ test('camera variants keep their shape through save, ghost refresh and same-vari
   }
 })
 
+test('球机 extends its pole and 半球机 snaps flush on a taller ceiling', () => {
+  // A 6 m slab over a floor at z = 0 is a 5 m room: the mount must reach the
+  // actual slab like 枪机 does, not the fixed 4 m grid line.
+  const buildTall = (mod) => {
+    const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
+    const data = {
+      name: 't',
+      seed: 1,
+      cells: [
+        { x: 0, y: 0, z: 0, fill: 'solid' },
+        { x: 0, y: 0, z: 6, fill: 'solid' },
+      ],
+      modules: [],
+      lines: [],
+    }
+    const group = buildModule(mod, { mats, data, trackCells: new Set(), finish: () => mats.steel, preview: false })
+    return new THREE.Box3().setFromObject(group).translate(new THREE.Vector3(-0.5, -0.5, -1))
+  }
+  const ptz = buildTall(createModule('cctv-ptz', 0, 0, 0, 'ptz', 0))
+  const dome = buildTall(createModule('cctv-dome', 0, 0, 0, 'dome', 0))
+  assert.ok(Math.abs(ptz.max.z - 5) < 1e-6, '球机 mount touches the tall slab')
+  assert.ok(Math.abs(dome.max.z - 5) < 1e-6, '半球机 base sits flush under the tall slab')
+  assert.ok(ptz.min.z < 2.4, '球机 globe stays at its fixed height while the pole extends')
+  assert.ok(dome.min.z > 4.7, '半球机 rides up with the slab it is bolted to')
+})
+
 test('球机 hangs below its arm and 半球机 sits flush beneath the ceiling in every rotation', () => {
   for (let rot = 0; rot < 4; rot++) {
     const ptz = build(createModule('cctv-ptz', 0, 0, 0, 'ptz', rot))

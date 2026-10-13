@@ -55,12 +55,13 @@ export function doorLabel(material: DoorMaterial, leaves: number): string {
 }
 
 export const DOOR_SPECS: Record<DoorVariant, DoorSpec> = {
-  'steel-1': { variant: 'steel-1', label: doorLabel('steel', 1), w: 1, h: 2.05, material: 'steel', leaves: 1 },
-  'steel-2': { variant: 'steel-2', label: doorLabel('steel', 2), w: 2, h: 2.05, material: 'steel', leaves: 2 },
-  'wood-1': { variant: 'wood-1', label: doorLabel('wood', 1), w: 1, h: 2.05, material: 'wood', leaves: 1 },
-  'wood-2': { variant: 'wood-2', label: doorLabel('wood', 2), w: 2, h: 2.05, material: 'wood', leaves: 2 },
-  'glass-1': { variant: 'glass-1', label: doorLabel('glass', 1), w: 1, h: 2.05, material: 'glass', leaves: 1 },
-  'glass-2': { variant: 'glass-2', label: doorLabel('glass', 2), w: 2, h: 2.05, material: 'glass', leaves: 2 },
+  // Fit a two-block-high wall opening with 1 cm header clearance (§5.7).
+  'steel-1': { variant: 'steel-1', label: doorLabel('steel', 1), w: 1, h: 1.99, material: 'steel', leaves: 1 },
+  'steel-2': { variant: 'steel-2', label: doorLabel('steel', 2), w: 2, h: 1.99, material: 'steel', leaves: 2 },
+  'wood-1': { variant: 'wood-1', label: doorLabel('wood', 1), w: 1, h: 1.99, material: 'wood', leaves: 1 },
+  'wood-2': { variant: 'wood-2', label: doorLabel('wood', 2), w: 2, h: 1.99, material: 'wood', leaves: 2 },
+  'glass-1': { variant: 'glass-1', label: doorLabel('glass', 1), w: 1, h: 1.99, material: 'glass', leaves: 1 },
+  'glass-2': { variant: 'glass-2', label: doorLabel('glass', 2), w: 2, h: 1.99, material: 'glass', leaves: 2 },
 }
 
 /**

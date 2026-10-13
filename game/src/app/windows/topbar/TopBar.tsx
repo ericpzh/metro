@@ -7,6 +7,7 @@ import { useStore } from '../../store.ts'
 import { ExampleStationsButton } from './ExampleStationsButton.tsx'
 import { NewStationButton } from './NewStationButton.tsx'
 import { IoLanguageSharp } from 'react-icons/io5'
+import { FaBug } from 'react-icons/fa'
 import { getLanguage, setLanguage } from '../../i18n.ts'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
@@ -191,6 +192,16 @@ export function TopBar(): React.ReactElement {
           <path d="M13.5 1.8v3h-3" />
         </svg>
       </button>
+      <a
+        className="ghost iconBtn"
+        href="https://github.com/ericpzh/metro/issues"
+        target="_blank"
+        rel="noreferrer"
+        title={t('report_issue')}
+        aria-label={t('report_issue')}
+      >
+        <FaBug aria-hidden="true" />
+      </a>
       <button
         className="ghost iconBtn"
         onClick={() => setLanguage(getLanguage() === 'en' ? 'zh-CN' : 'en')}

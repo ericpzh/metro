@@ -32,33 +32,33 @@ export type InspectorFolderKey = 'info' | 'view' | 'exits' | 'lines'
 export type FolderKey = RailFolderKey | InspectorFolderKey
 
 /**
- * The **build rail's** folders, top to bottom, each with the Shift+letter that opens
- * and closes it — **Shift+Q** the first folder, then W, E, R, T, Y, U one letter a row
+ * The **build rail's** folders, top to bottom, each with the Shift+number that opens
+ * and closes it — **Shift+1** the first folder, then 2 through 7 one number a row
  * down the stack. The ladder is data because two units read it: the shell renders the
  * folders in this order and prints each key on its header, and the app's one keydown
- * listener turns a Shift+letter into the folder to fold
+ * listener turns a Shift+number into the folder to fold
  * (`app/windows/AppShell.tsx` → the `metro:folder` event the rail listens for).
  * It lives here rather than in either of them so the order, the key on the header
  * and the key that fires can never drift apart.
  *
- * A folder added at the bottom takes the next letter; one inserted in the middle moves
+ * A folder added at the bottom takes the next number; one inserted in the middle moves
  * every key below it, so keep the ladder in step with the render.
  */
 export const RAIL_FOLDERS: ReadonlyArray<{ key: RailFolderKey; title: string; shift: string }> = [
-  { key: 'tools', title: msg('tools'), shift: 'Q' },
-  { key: 'rail', title: msg('structure'), shift: 'W' },
-  { key: 'equipment', title: msg('equipment'), shift: 'E' },
-  { key: 'decor', title: msg('decor'), shift: 'R' },
-  { key: 'surfaces', title: msg('materials'), shift: 'T' },
-  { key: 'rooms', title: msg('rooms'), shift: 'Y' },
-  { key: 'zones', title: msg('zones'), shift: 'U' },
+  { key: 'tools', title: msg('tools'), shift: '1' },
+  { key: 'rail', title: msg('structure'), shift: '2' },
+  { key: 'equipment', title: msg('equipment'), shift: '3' },
+  { key: 'decor', title: msg('decor'), shift: '4' },
+  { key: 'surfaces', title: msg('materials'), shift: '5' },
+  { key: 'rooms', title: msg('rooms'), shift: '6' },
+  { key: 'zones', title: msg('zones'), shift: '7' },
 ]
 
 /**
- * The **信息栏's** (RHS) folders, top to bottom, each with the **Alt+letter** that folds
- * it — Alt+Q down the stack, one letter a row. The inspector is its own column with its
+ * The **信息栏's** (RHS) folders, top to bottom, each with the **Alt+number** that folds
+ * it — Alt+1 down the stack, one number a row. The inspector is its own column with its
  * own modifier, so the two ladders never compete for a key: **Shift** belongs to the
- * build rail (Q W E R T Y U, the tools) and **Alt** to the read-outs, and every folder
+ * build rail (1–7, the tools) and **Alt** to the read-outs, and every folder
  * in this column is labeled here rather than in the JSX, so its header, its badge and
  * the key that fires come from one row (`windows/inspector/Inspector.tsx` renders the
  * table in this order; `folderForAltKey` is how the app's listener names one).
@@ -66,17 +66,17 @@ export const RAIL_FOLDERS: ReadonlyArray<{ key: RailFolderKey; title: string; sh
  * 视图 sits between 信息 and 出入口: it moved out of the build rail because its tiles
  * (显示其他层 / 剖切 / 隐藏UI / 隐藏天花板 / 隐藏墙壁 / 隐藏地面 / 分区图 / 热力图) are controls over
  * how the station is *drawn* rather than pieces of it. A fifth folder would take
- * **Alt+T**, the next letter on this ladder.
+ * **Alt+5**, the next number on this ladder.
  */
 export const INSPECTOR_FOLDERS: ReadonlyArray<{ key: InspectorFolderKey; title: string; alt: string }> = [
-  { key: 'info', title: msg('info'), alt: 'Q' },
-  { key: 'view', title: msg('view'), alt: 'W' },
-  { key: 'exits', title: msg('entrances'), alt: 'E' },
-  { key: 'lines', title: msg('line'), alt: 'R' },
+  { key: 'info', title: msg('info'), alt: '1' },
+  { key: 'view', title: msg('view'), alt: '2' },
+  { key: 'exits', title: msg('entrances'), alt: '3' },
+  { key: 'lines', title: msg('line'), alt: '4' },
 ]
 
 /**
- * The build-rail folder a **Shift+letter** folds, or null when no folder stands on that
+ * The build-rail folder a **Shift+number** folds, or null when no folder stands on that
  * letter. Case-blind, because the caller hands over `KeyboardEvent.key.toLowerCase()`.
  */
 export function folderForShiftKey(letter: string): RailFolderKey | null {
@@ -85,7 +85,7 @@ export function folderForShiftKey(letter: string): RailFolderKey | null {
 }
 
 /**
- * The 信息栏 folder an **Alt+letter** folds, or null — the inspector's half of the same
+ * The 信息栏 folder an **Alt+number** folds, or null — the inspector's half of the same
  * split (`rail/LeftRail.tsx` owns the Shift ladder, `windows/inspector/Inspector.tsx`
  * this one). Case-blind for the same reason.
  */
@@ -99,7 +99,7 @@ export function folderForAltKey(letter: string): InspectorFolderKey | null {
  * 材质 folder's 搪瓷板 colour list, which is a paint brush's swatches rather than a family
  * of pieces. At most one is expanded at a time.
  */
-export type SubMenuKey = ModuleFamilyKey | 'enamel' | 'plaster'
+export type SubMenuKey = ModuleFamilyKey | 'enamel' | 'plaster' | `paint:${string}`
 
 /**
  * Which nested variant sub-menu owns a module, or null when it owns none. Derived from

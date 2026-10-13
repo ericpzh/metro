@@ -91,16 +91,22 @@ Check the animated demand overlay as well as screenshots for clipped labels. The
 (`sync-art.mjs` copies them like any other sheet).
 
 Sheets 01, 02, 12 and 13 place PNG captures of the game's actual passenger mesh.
-After changing `passenger-human.json`, its bake, hair, pose atlas or crowd material,
-run `npm run build:game`, `node tools/render-passenger-cards.mjs`, then
-`node tools/gen-art.mjs --en` so both language versions use the refreshed humans.
+After changing the approved model library or crowd material, run
+`npm run art:models` from the root. This regenerates approved exports and atlas,
+builds the game, captures every variant and bilingual interface screenshots, regenerates sheets 01/02/07/12/13 in both
+languages, checks gait playback, renders PNG previews and builds/syncs the site.
+For art-only updates use `npm run art:models -- --from-game` to reuse the game
+atlas. Neither command deploys. `metro-model` owns model editing and the bake.
+The capture manifest records source hashes; validation rejects stale builds,
+missing variants and incomplete walks. Static sprite pools and bounded capture
+batches grow automatically with the catalogue.
 The capture pass freezes four samples per outfit in isometric, elevation and plan
 views: three are mid-stride and one is idle. It applies `passengerAppearance` for
 the same outfit, height, build, heading and grey-tone variation the crowd uses.
 Check the resulting sheets with `node tools/sheet-png.mjs 01`, `02`, `12` and `13`;
 the figures should remain foot-anchored and varied, with most shown walking.
 The same capture pass also writes `walking-index.json`: complete 24-frame strides
-for eight appearances in plan, elevation (two headings) and isometric (eight
+for every catalogue entry in plan, elevation (two headings) and isometric (eight
 headings) views. The driver captures each camera/heading in a bounded batch;
 keep that batching when extending the pass so the CDP response does not exceed
 its message limit. Movers in sheets 01, 02, 12 and 13 must cycle these poses

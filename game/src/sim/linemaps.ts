@@ -23,14 +23,14 @@ import { wallCourses } from './courses.ts'
 import type { LineMapVariant } from './types.ts'
 
 /**
- * The supplied poster's own aspect ratio, and therefore the panel's: 2048 × 2047 px
+ * The supplied poster's own aspect ratio, and therefore the panel's: 1080 × 1080 px
  * (`src/assets/linemaps/network-map.jpg`). Both mounts are cut to it, so the poster
  * fills its board exactly — `render/lineMapArt.ts` still crops rather than stretches
  * (it cuts the centred window that fits the panel), but on this panel the crop is the
  * whole image, not a slice of it. `test/line-map.test.mjs` reads the file's real
  * header and pins the two against each other.
  */
-export const LINE_MAP_ASPECT = 2048 / 2047
+export const LINE_MAP_ASPECT = 1
 
 /** The board's width, metres — two cells, the same for both mounts. */
 export const LINE_MAP_PANEL_W = 1.8

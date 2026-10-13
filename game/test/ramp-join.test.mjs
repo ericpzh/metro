@@ -135,7 +135,9 @@ test('stair connections drop vertically to a shelf instead of slanting across th
       const transverse = Math.abs(normal.dot(across))
       assert.ok(transverse < 1e-5 || transverse > 0.99999, 'main faces are vertical cheeks or shelves with no cross-gap tilt')
       const centreOffset = vertices[0].clone().sub(new THREE.Vector3(0.5,0.5,1)).dot(across)
-      if (Math.abs(centreOffset + side * 0.61) < 1e-5 && normal.dot(across) * -side > 0.99999) {
+      // One-block stair: 0.79 m treads, rail centre 0.465 m from its axis,
+      // plus the cap's 0.02 m overlap toward the stair.
+      if (Math.abs(centreOffset + side * 0.555) < 1e-5 && normal.dot(across) * -side > 0.99999) {
         const heights = vertices.map((p) => p.z)
         assert.ok(Math.max(...heights) - Math.min(...heights) > 3, 'stair skin spans the full incline')
         stairSkinFaces++

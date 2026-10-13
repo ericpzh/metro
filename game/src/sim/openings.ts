@@ -31,7 +31,7 @@ import { ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, ESCALATOR_CASING_PROUD, STAIR_RAI
 import { escalatorBandWidth, escalatorBodyWidth, escalatorRun, escalatorLandings } from './escalators.ts'
 import { exitFloorAt } from './exits.ts'
 import { virtualSolidAt } from './ground.ts'
-import { STAIR_WIDTH_NARROW, stairFlightSlides, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
+import { stairTreadWidth, stairFlightSlides, stairFlights, stairLandings, stairTreadTrim } from './stairs.ts'
 
 /** Headroom above the walking line that must be clear, metres. */
 const HEADROOM = 1.3
@@ -89,7 +89,7 @@ const ESCALATOR_CORRIDOR_HALF = ESCALATOR_BAND / 2 + ESCALATOR_RAIL_PROUD
  * run is never reached, never carved and never thinned.
  */
 export function rampCorridorHalf(m: Module): number {
-  if (m.type === 'stair') return (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2 + STAIR_RAIL_PROUD
+  if (m.type === 'stair') return stairTreadWidth(m) / 2 + STAIR_RAIL_PROUD
   if (m.type === 'escalator') return escalatorBodyWidth(m) / 2 + ESCALATOR_CASING_PROUD
   return ESCALATOR_CORRIDOR_HALF
 }
@@ -101,7 +101,7 @@ export function rampCorridorHalf(m: Module): number {
  * panel so the run still fits beside it (`rampThinCells`).
  */
 export function rampBodyHalf(m: Module): number {
-  if (m.type === 'stair') return (m.cfg.width ?? STAIR_WIDTH_NARROW) / 2
+  if (m.type === 'stair') return stairTreadWidth(m) / 2
   if (m.type === 'escalator') return escalatorBandWidth(m) / 2
   // The escalator's step band is the shared `ESCALATOR_BAND`, so its half is
   // 0.34 m — well inside one cell, so an adjacent cell is not carved.

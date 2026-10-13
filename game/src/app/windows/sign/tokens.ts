@@ -169,6 +169,14 @@ export function markInk(mark: SignComponent): { w: number; h: number } {
       // An empty box is one character's worth of ink rather than nothing: it is what
       // the player drags onto a bin, and a mark with no footprint could not be seen.
       if (lines.length === 0) return { w: size, h: size * 1.15 }
+      // A lone primary line takes over the gloss row, exactly as `signInkSize` does:
+      // the tile stays two rows tall and the single row sets twice as large, so the
+      // palette, the bins and the printed board agree on the mark's size.
+      if (lines.length === 1) {
+        const line = lines[0]
+        const w = Math.max(0.01, estimateSignTextWidth(line, size * 2 * signTextLineScale(0, line)))
+        return { w, h: size * 1.15 * 2 }
+      }
       const w = Math.max(0.01, ...lines.map((l, i) => estimateSignTextWidth(l, size * signTextLineScale(i, l))))
       return { w, h: Math.max(size, lines.length * size * 1.15) }
     }
