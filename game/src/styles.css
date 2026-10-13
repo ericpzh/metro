@@ -410,6 +410,12 @@ a.ghost:hover {
 .folder:nth-of-type(8) {
   --tab-x: 78px;
 }
+.folder:nth-of-type(9) {
+  --tab-x: 88px;
+}
+.folder:nth-of-type(10) {
+  --tab-x: 98px;
+}
 .folderName {
   font-size: 12px;
 }
@@ -477,6 +483,7 @@ a.ghost:hover {
 .blockGrid + .blockGrid {
   margin-top: 6px;
 }
+
 /* The 信息栏 is the wider column — `.main` gives the build rail 232px and the panel
    300px — so the tile grids in it fit **three** to a row where the rail's fit two. The
    panel's only grid is 视图's (§8 view toggles), and this covers the row its 剖切 folds

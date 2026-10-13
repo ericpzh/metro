@@ -17,6 +17,7 @@ import { msg } from './i18n.ts'
 // Pure data — no three, no DOM.
 
 import { shelfSpec } from './shelves.ts'
+import { extinguisherCells, extinguisherSpec } from './extinguishers.ts'
 import { CHECKOUT_HEIGHT, DESK_HEIGHT } from './constants.ts'
 import { hangerBoxes, hangerCells, hangerPostCells, hangerRoofMissing, hangerSupports } from './hangers.ts'
 import { fenceArms, railLandingAt, type FenceNeighbours } from './fences.ts'
@@ -28,7 +29,7 @@ import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
 import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
 import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
-import { glassSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
+import { GLASS_FRAME, glassModuleSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
 import { GROUND_Z, groundHoleAt, virtualSolidAt } from './ground.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
@@ -40,6 +41,8 @@ import { PANEL_MIN_H, mountedSignBoards, signBoardsOf, signBoardsPanel, signMoun
 import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
 import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './track.ts'
+import { monitorCells } from './monitors.ts'
+import { RAIL_SIGNAL_HEIGHT, RAIL_SIGNAL_SCALE } from './constants.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
 import { halfWallSide, isWallBlock, type Cell, type Module, type Vec3i, type WallSide } from './types.ts'
 
@@ -67,7 +70,7 @@ const PANEL_DEPTH = 0.25
 const FRAME_PAD = 0.14
 
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk' | 'checkout' | 'cubicle' | 'sink' | 'bin' | 'extinguisher' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk' | 'checkout' | 'cubicle' | 'sink' | 'bin' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.3,
   fence: 1.0,
   tvm: 1.9,
@@ -77,11 +80,7 @@ const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk
   checkout: CHECKOUT_HEIGHT,
   cubicle: 1.8,
   sink: 0.9,
-  // A litter bin (垃圾桶) and a fire-extinguisher cabinet (灭火器) are single
-  // free-standing decorations: no variant, no `cfg`, turned by the hover
-  // rotation like a shelf.
   bin: 0.95,
-  extinguisher: 1.1,
   tv: 3.0,
   // A ceiling-hung 指示牌 / 电视 / 时钟 / 监控 spans the whole storey, from the floor
   // top to the ceiling one grid step up, so its envelope is the full column (and it
@@ -161,6 +160,46 @@ export function glassCells(m: Extract<Module, { type: 'glass' }>): Array<[number
   return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
 }
 
+/**
+ * Whether two floor-standing curtains occupy different sides of the same tile.
+ * Opposite-facing panels share an axis but sit on opposite tile edges. A run can
+ * meet another run in the middle of its length, so the shared cell need not be
+ * an endpoint of either piece.
+ */
+export function curtainShareCrossTile(
+  a: Extract<Module, { type: 'glass' }>,
+  b: Extract<Module, { type: 'glass' }>,
+): boolean {
+  const aRot = normRot(a.rot)
+  const bRot = normRot(b.rot)
+  if (a.z !== b.z || aRot === bRot) return false
+  if (!glassStandsOnFloor(glassModuleSpec(a.cfg?.variant, a.cfg?.curtainHeight))
+    || !glassStandsOnFloor(glassModuleSpec(b.cfg?.variant, b.cfg?.curtainHeight))) return false
+  const bCells = glassCells(b)
+  return glassCells(a).some(([x, y]) => bCells.some(([bx, by]) => x === bx && y === by))
+}
+
+/** The end posts of `a` that enter `b`'s frame envelope at a shared crossing. */
+export function curtainCornerJoin(
+  a: Extract<Module, { type: 'glass' }>,
+  b: Extract<Module, { type: 'glass' }>,
+): Array<'start' | 'end'> {
+  if (!curtainShareCrossTile(a, b)) return []
+  const other = moduleEnvelope(b)
+  if (!other) return []
+  const postCenter = (m: Extract<Module, { type: 'glass' }>, end: 'start' | 'end'): [number, number] => {
+    const w = m.w || glassModuleSpec(m.cfg?.variant, m.cfg?.curtainHeight).w
+    const endX = end === 'start' ? -(w / 2 - GLASS_FRAME.post / 2) : w / 2 - GLASS_FRAME.post / 2
+    const [ox, oy] = rotateLocal(m.rot, 0.5 + (w - 1) / 2, GLASS_FRAME.depth / 2 - 0.5)
+    const [ex, ey] = rotateLocal(m.rot, endX, 0)
+    return [m.x + ox + ex, m.y + oy + ey]
+  }
+  return (['start', 'end'] as const).filter((end) => {
+    const [x, y] = postCenter(a, end)
+    return x >= other.x0 && x < other.x1 && y >= other.y0 && y < other.y1
+  })
+}
+
 /** Every cell a 门's run covers: one for a 单开 door, two for a 双开. */
 export function doorCells(m: Extract<Module, { type: 'door' }>): Array<[number, number, number]> {
   return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
@@ -172,7 +211,7 @@ export function snapDoorToCurtain(
   glass: Extract<Module, { type: 'glass' }>,
   cell: [number, number],
 ): Extract<Module, { type: 'door' }> {
-  if (glass.z !== door.z || !glassStandsOnFloor(glassSpec(glass.cfg?.variant))) return door
+  if (glass.z !== door.z || !glassStandsOnFloor(glassModuleSpec(glass.cfg?.variant, glass.cfg?.curtainHeight))) return door
   const run = glassCells(glass)
   const index = run.findIndex(([x, y]) => x === cell[0] && y === cell[1])
   if (index < 0 || door.w > run.length) return door
@@ -186,7 +225,7 @@ export function curtainDoorShare(a: Module, b: Module): boolean {
   const glass = a.type === 'glass' ? a : b.type === 'glass' ? b : undefined
   const door = a.type === 'door' ? a : b.type === 'door' ? b : undefined
   if (!glass || !door || glass.z !== door.z || normRot(glass.rot) !== normRot(door.rot)) return false
-  if (!glassStandsOnFloor(glassSpec(glass.cfg?.variant))) return false
+  if (!glassStandsOnFloor(glassModuleSpec(glass.cfg?.variant, glass.cfg?.curtainHeight))) return false
   const wallCells = new Set(glassCells(glass).map(([x, y]) => `${x},${y}`))
   return doorCells(door).every(([x, y]) => wallCells.has(`${x},${y}`))
 }
@@ -265,11 +304,12 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'cubicle':
     case 'sink':
     case 'bin':
-    case 'extinguisher':
     case 'clock':
     case 'cctv':
     case 'tv':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
+    case 'extinguisher':
+      return cellsAabb(extinguisherCells(m), z0, z0 + extinguisherSpec(m.cfg.variant).height)
     case 'shelf':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + shelfSpec(m.cfg.variant).height }
     case 'ac-unit':
@@ -343,16 +383,16 @@ function flatEnvelope(m: Module): ModuleBox | null {
     }
     case 'glass': {
       // A 玻璃板 reserves a **slab on an edge** rather than a cell: the run along
-      // local +x and a thin strip on its local −y edge (`wallSide`). A short panel
-      // is cladding bolted to the wall behind it, so that strip hugs the wall; a
-      // tall 4 m panel stands on the floor edge like a doorway, so the same strip
-      // is its leading edge with no wall behind it. Either way the strip is the
+      // local +x and a thin strip on its local −y edge (`wallSide`). A short 玻璃板
+      // is cladding bolted to the wall behind it, so that strip hugs the wall;
+      // 玻璃幕墙 variants stand on the floor edge like a doorway, so the strip is
+      // their leading edge with no wall behind them. Either way the strip is the
       // housing the model draws (`GlassModel`), and the air beside it is the
       // room's — which is why a 围栏 through the middle of the same tile co-exists
       // with a parallel panel (centre 0.45–0.55 vs edge 0–0.25) while a crossing
       // one still overlaps and is refused. Nothing is exempted by hand: the boxes
       // decide.
-      const spec = glassSpec(m.cfg?.variant)
+      const spec = glassModuleSpec(m.cfg?.variant, m.cfg?.curtainHeight)
       return wallPanelBox(m, glassCells(m), z0, z0 + spec.h)
     }
     case 'calligraphy': {
@@ -361,6 +401,14 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // same shape as the 广告牌's, at the height the inscription is written.
       const bottom = calligraphyBottom(m.cfg?.axis)
       return wallPanelBox(m, calligraphyCells(m), z0 + bottom, z0 + bottom + m.panelH)
+    }
+    case 'monitor':
+      return m.cfg.mount === 'wall'
+        ? wallPanelBox(m, monitorCells(m), z0 + 0.5, z0 + 2.5)
+        : { x0: m.x, y0: m.y, z0: z0 + 1.7, x1: m.x + 1, y1: m.y + 1, z1: z0 + 3 }
+    case 'rail-signal': {
+      const half = 0.38 * RAIL_SIGNAL_SCALE
+      return { x0: m.x + 0.5 - half, y0: m.y + 0.5 - half, z0, x1: m.x + 0.5 + half, y1: m.y + 0.5 + half, z1: z0 + RAIL_SIGNAL_HEIGHT }
     }
     case 'linemap': {
       const spec = lineMapSpec(m.cfg?.mount)
@@ -405,6 +453,10 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return { x0: m.x + 0.5 + offset.x - half, y0: m.y + 0.5 + offset.y - half, x1: m.x + 0.5 + offset.x + half, y1: m.y + 0.5 + offset.y + half, z0, z1: z0 + height }
     }
     case 'roof':
+      if (!m.cfg.variant && m.cfg.plateSnap) {
+        const centre = m.z + (m.cfg.plateSnap === 'lower' ? 0.125 : 0.875)
+        return cellsAabb(trackCells(m), centre - ROOF_THICKNESS / 2, centre + ROOF_THICKNESS / 2)
+      }
       return cellsAabb(trackCells(m), z0 + TRUSS_ROOF_BASE, z0 + (m.cfg.variant ? trussRoofTop(m.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS))
     case 'exit': {
       if (m.cfg.style === 'doorway') {
@@ -523,6 +575,7 @@ export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], 
  */
 export function moduleFootprint(m: Module): Array<[number, number]> {
   switch (m.type) {
+    case 'extinguisher': return extinguisherCells(m).map(([x, y]) => [x, y])
     case 'hanger': return hangerCells(m)
     case 'ac-unit':
     case 'electrical-cabinet':
@@ -546,6 +599,8 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
       return doorCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'calligraphy':
       return calligraphyCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'monitor':
+      return monitorCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'linemap':
       return lineMapCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'bench':
@@ -585,8 +640,10 @@ function baseCells(m: Module): Array<[number, number]> {
     case 'glass':
     case 'calligraphy':
     case 'linemap':
+    case 'monitor':
     case 'busstop':
     case 'bench':
+    case 'extinguisher':
     case 'hanger':
     case 'door':
     case 'track':
@@ -656,10 +713,11 @@ const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv', 'cc
  * hanging one is not. 地面 出入口 uses its doorway style as a wall-mounted exit panel.
  */
 export function isWallMounted(m: Module): boolean {
+  if (m.type === 'monitor') return m.cfg.mount === 'wall'
   if (m.type === 'exit') return m.cfg.style === 'doorway'
   if (m.type === 'sign') return !signMountSpec(m.cfg.mount).hung
   if (!WALL_MOUNTED.has(m.type)) return false
-  if (m.type === 'glass') return !glassStandsOnFloor(glassSpec(m.cfg.variant))
+  if (m.type === 'glass') return !glassStandsOnFloor(glassModuleSpec(m.cfg.variant, m.cfg.curtainHeight))
   return m.type === 'linemap' ? lineMapSpec(m.cfg.mount).mount === 'wall' : true
 }
 
@@ -676,6 +734,7 @@ export function isWallMounted(m: Module): boolean {
  */
 export function wallMountCourses(m: Module): number[] {
   switch (m.type) {
+    case 'monitor': return m.cfg.mount === 'wall' ? [0, 1, 2] : []
     case 'billboard':
       // A poster is one course: the billboard's variants hang inside the first
       // metre of their wall whatever their panel size.
@@ -684,7 +743,7 @@ export function wallMountCourses(m: Module): number[] {
       // 地面 exits use the anchor block as their single wall attachment.
       return m.cfg.style === 'doorway' ? [0] : []
     case 'glass':
-      return glassWallCourses(glassSpec(m.cfg?.variant))
+      return glassWallCourses(glassModuleSpec(m.cfg?.variant, m.cfg?.curtainHeight))
     case 'door':
       // A 门 stands on the floor, so it wants no wall behind it at all.
       return []
@@ -714,6 +773,7 @@ export function wallMountCourses(m: Module): number[] {
  * board itself — answers no.
  */
 export function isCeilingHung(m: { type: string; cfg?: object }): boolean {
+  if (m.type === 'monitor-ceiling' || m.type === 'monitor') return (m.cfg as { mount?: string } | undefined)?.mount !== 'wall'
   if (m.type === 'hanger-roof' || m.type.startsWith('hanger-roof-')) return true
   if (m.type === 'hanger') return (m.cfg as { mount?: string } | undefined)?.mount === 'roof'
   if (m.type === 'sign' || m.type === 'sign-ceiling') return signMountSpec(signMountOf(m.cfg)).hung
@@ -925,9 +985,12 @@ export function ceilingMountHeight(cells: readonly Cell[], candidate: Module, mo
   const footprint = baseCells(candidate)
   const [firstX, firstY] = footprint[0] ?? [candidate.x, candidate.y]
   const candidates = new Set(cells
-    .filter((c) => c.fill === 'solid' && c.x === firstX && c.y === firstY && c.z > candidate.z)
+    // The first three courses above a floor are a wall, not a ceiling slab.
+    .filter((c) => c.fill === 'solid' && c.x === firstX && c.y === firstY && c.z >= candidate.z + 4)
     .map((c) => c.z))
-  if (virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z) && GROUND_Z > candidate.z) candidates.add(GROUND_Z)
+  // The street plane can ceiling the storey immediately below grade, but it
+  // cannot stand in for a missing concourse slab several storeys underground.
+  if (virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z) && GROUND_Z === candidate.z + 4) candidates.add(GROUND_Z)
   const ceilingZ = [...candidates].sort((a, b) => a - b).find((z) =>
     footprint.every(([x, y]) =>
       cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) ||
@@ -1003,7 +1066,7 @@ function fenceGlassBlocked(sources: readonly Module[], fence: Module, glass: Mod
 /** A floor-standing 玻璃幕墙 shares its tile with a 围栏; their frames meet at the crossing. */
 function fenceCurtainShareTile(fence: Module, glass: Module): boolean {
   if (fence.type !== 'fence' || glass.type !== 'glass' || fence.z !== glass.z) return false
-  if (!glassStandsOnFloor(glassSpec(glass.cfg?.variant))) return false
+  if (!glassStandsOnFloor(glassModuleSpec(glass.cfg?.variant, glass.cfg?.curtainHeight))) return false
   return glassCells(glass).some(([x, y]) => fence.x === x && fence.y === y)
 }
 
@@ -1263,6 +1326,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (isTvPair(m, candidate)) continue
     if (isHangingShare(m, candidate)) continue
     if (curtainDoorShare(m, candidate)) continue
+    if (m.type === 'glass' && candidate.type === 'glass' && curtainShareCrossTile(m, candidate)) continue
     // A station-side 广告牌 can sit on the wall behind the platform screen doors.
     // Their coarse envelopes overlap in height, but the poster is mounted at the
     // back wall while the doors occupy the track edge; they are separated across
@@ -1490,6 +1554,7 @@ export function moduleAt(
  * are torn down and built again by hand.
  */
 const MOVABLE_TYPES: ReadonlySet<string> = new Set([
+  'monitor', 'rail-signal',
   'hanger',
   'ac-unit', 'electrical-cabinet', 'tactile', 'floor-mark',
   'gate',
@@ -1667,14 +1732,14 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     if (placementOnTrack(cells, candidate, modules)) return 'track'
     return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
   }
-  if (candidate.type === 'shelf' || candidate.type === 'checkout' || candidate.type === 'desk' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
+  if (candidate.type === 'rail-signal' || candidate.type === 'shelf' || candidate.type === 'checkout' || candidate.type === 'desk' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
     const box = moduleEnvelope(candidate)!
     if (cells.some((c) => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
   }
   if ((candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
-  if ((candidate.type === 'pillar' || candidate.type === 'roof') && candidate.z < 0) return 'exit-on-slab'
+  if ((candidate.type === 'pillar' || (candidate.type === 'roof' && candidate.cfg.variant)) && candidate.z < 0) return 'exit-on-slab'
   if (candidate.type === 'roof') {
     if (placementColliders(modules, candidate).length > 0) return 'occupied'
     const box = moduleEnvelope(candidate)!
@@ -1823,6 +1888,8 @@ const MODULE_TYPE_LABELS: Record<string, string> = {
   calligraphy: msg('station_name'),
   linemap: msg('network_map'),
   tv: msg('tv'),
+  monitor: msg('monitor'),
+  'rail-signal': msg('rail_signal'),
   sign: msg('sign'),
   exit: msg('entrances'),
   escalator: msg('escalator'),

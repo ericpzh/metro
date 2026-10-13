@@ -16,6 +16,7 @@
 
 import * as THREE from 'three'
 import { passengerMesh, passengerFrames, passengerAppearance, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES, PASSENGER_EYE_HEIGHT } from '../../passengerModel.ts'
+import type { PassengerAppearance } from '../../passengerModel.ts'
 import { passengerWalkProfile } from '../../../sim/walking.ts'
 import { setGateWing } from '../../models.ts'
 import { AgentState } from '../../../sim/types.ts'
@@ -48,9 +49,6 @@ const AGENT_PICK_RADIUS = 14
  * screen are one person to the pointer and the player meant the front one.
  */
 const AGENT_PICK_TIE_PX = 3
-
-/** How far up a body the pick aims: mid-torso, so a click on the head still lands. */
-const AGENT_PICK_HEIGHT = 1.05
 
 /** How much nearer than the passenger a solid face has to be before it hides them. */
 const AGENT_PICK_CLEARANCE = 0.8
@@ -125,7 +123,7 @@ export class CrowdSystem extends SceneSystem {
   private gaitWeights = new Float32Array(0)
   private lastRenderTime = 0
   private poseScratch: [number, number, number, number] = [0, 0, 0, 0]
-  private appearanceScratch: [number, number, number, number] = [0, 0, 0, 0]
+  private appearanceScratch: PassengerAppearance = [0, 0, 0, 0, 0]
   private passengerColor = new THREE.Color()
   private zAxis = new THREE.Vector3(0, 0, 1)
   private tmpQ = new THREE.Quaternion()
@@ -273,22 +271,27 @@ export class CrowdSystem extends SceneSystem {
       const z = frozen?.position.z ?? this.prev[p + 2] + (this.cur[o + 2] - this.prev[p + 2]) * alpha
       if (!this.agentLevelVisible(z)) continue
       const height = passengerAppearance(id, this.appearanceScratch)[1]
-      const wy = z + AGENT_PICK_HEIGHT * height
-      this.pickVec.set(x, y, wy).applyMatrix4(this.pickView)
+      this.pickVec.set(x, y, z + 0.12 * height).applyMatrix4(this.pickView)
+      this.pickTop.set(x, y, z + 1.7 * height).applyMatrix4(this.pickView)
       // View space looks down -z, so anything at or behind the lens has no screen
       // position at all — projecting it would mirror it back into the picture.
-      if (this.pickVec.z > -0.2) continue
-      const depth = -this.pickVec.z
+      const bottomDepth = -this.pickVec.z, topDepth = -this.pickTop.z
+      if (bottomDepth < 0.2 || topDepth < 0.2) continue
       // A screen-space capsule spans feet to head, rather than making only one
       // point on a now much taller body selectable. It follows the drawn pose.
-      this.pickVec.set(x, y, z + 0.12 * height).project(camera)
-      this.pickTop.set(x, y, z + 1.7 * height).project(camera)
+      this.pickVec.applyMatrix4(camera.projectionMatrix)
+      this.pickTop.applyMatrix4(camera.projectionMatrix)
       const bx = ((this.pickVec.x + 1) / 2) * rect.width
       const by = ((1 - this.pickVec.y) / 2) * rect.height
       const sx = (this.pickTop.x - this.pickVec.x) * rect.width / 2
       const sy = (this.pickVec.y - this.pickTop.y) * rect.height / 2
       const length2 = sx * sx + sy * sy
       const along = length2 > 0 ? Math.max(0, Math.min(1, ((left - bx) * sx + (top - by) * sy) / length2)) : 0
+      // Compare depth at the clicked part of the body. A fixed torso centre
+      // incorrectly let a taller passenger behind a shorter one win the tie.
+      const depth = (camera as THREE.PerspectiveCamera).isPerspectiveCamera
+        ? 1 / ((1 - along) / bottomDepth + along / topDepth)
+        : bottomDepth + (topDepth - bottomDepth) * along
       const dx = bx + sx * along - left
       const dy = by + sy * along - top
       const dist2 = dx * dx + dy * dy
@@ -577,9 +580,9 @@ export class CrowdSystem extends SceneSystem {
       const p = i * 3
       const id = this.cur[o + 5]
       const appearance = passengerAppearance(id, this.appearanceScratch)
-      scale.set(appearance[2], appearance[2], appearance[1])
+      scale.set(appearance[2], appearance[3], appearance[1])
       outfit.setX(i, appearance[0])
-      this.passengerColor.setRGB(appearance[3], appearance[3], appearance[3])
+      this.passengerColor.setRGB(appearance[4], appearance[4], appearance[4])
       this.agents.setColorAt(i, this.passengerColor)
       const px = this.prev[p]
       const py = this.prev[p + 1]
@@ -613,7 +616,10 @@ export class CrowdSystem extends SceneSystem {
       if (drawn) {
         m.compose(pos, q, scale)
         this.agents.setMatrixAt(i, m)
-        m.makeTranslation(pos.x, pos.y, pos.z + 0.03)
+        // The flat ground shadow follows the same independent horizontal axes.
+        scale.z = 1
+        m.compose(pos, q, scale)
+        m.elements[14] += 0.03
         this.blobs.setMatrixAt(i, m)
       } else {
         m.makeScale(0, 0, 0)

@@ -13,9 +13,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { DEFAULT_GLASS_VARIANT, GLASS_FRAME, GLASS_SPECS, GLASS_VARIANTS, glassSpec, glassStandsOnFloor, glassWallCourses } from '../src/sim/glassPanels.ts'
+import { DEFAULT_GLASS_VARIANT, GLASS_FRAME, GLASS_SPECS, GLASS_VARIANTS, glassModuleSpec, glassSpec, glassStandsOnFloor, glassWallCourses } from '../src/sim/glassPanels.ts'
 import {
   autofaceWallMount,
+  curtainCornerJoin,
+  curtainShareCrossTile,
   glassCells,
   doorCells,
   curtainDoorShare,
@@ -45,6 +47,16 @@ const glass = (x, y, z = 0, rot = 0, id = 'glass-1', variant = '1x1') => ({
   rot,
   w: glassSpec(variant).w,
   cfg: { variant },
+})
+const curtain = (x, y, z = 0, rot = 0, id = 'curtain-1', variant = '3x4', curtainHeight = 4) => ({
+  id,
+  type: 'glass',
+  x,
+  y,
+  z,
+  rot,
+  w: glassModuleSpec(variant, curtainHeight).w,
+  cfg: { variant, curtainHeight },
 })
 const door = (x, y, z = 0, rot = 0, id = 'door-1', w = 1) => ({
   id, type: 'door', x, y, z, rot, w, cfg: { variant: w === 2 ? 'steel-2' : 'steel-1' },
@@ -189,6 +201,32 @@ test('two panels may not share a cell, and neighbours may not', () => {
   assert.equal(placementBlocked([glass(2, 2, 0, 0, 'a', '1x1')], { id: 'b', type: 'bench', x: 2, y: 2, z: 0, w: 1, cfg: {} }), true)
 })
 
+test('four 玻璃幕墙 sides fit on one tile, but a same-facing duplicate does not', () => {
+  const sides = [0, 1, 2, 3].map((rot) => curtain(2, 2, 0, rot, `side-${rot}`, '1x4', 2))
+  for (const panel of sides) {
+    const others = sides.filter((other) => other.id !== panel.id)
+    assert.equal(curtainShareCrossTile(panel, others[0]), true, 'opposite sides and corners share the tile')
+    assert.equal(placementBlocked(others, panel), false, `rotation ${panel.rot} fits beside all three other sides`)
+    assert.equal(moduleEnvelope(panel).z1, 3, 'the 2 m curtain remains floor-standing')
+  }
+  assert.equal(placementBlocked(sides, curtain(2, 2, 0, 0, 'duplicate', '1x4', 2)), true, 'a second panel on the same side still overlaps')
+  assert.equal(placementBlocked([sides[0]], curtain(2, 2, 0, 2, 'opposite', '1x4', 3)), false, 'opposite-facing sides can share a tile')
+})
+
+test('a corner join drops the intersecting end post and shortens both rails', () => {
+  const horizontal = curtain(2, 2, 0, 0, 'horizontal', '1x4', 3)
+  const vertical = curtain(2, 2, 0, 1, 'vertical', '1x4', 3)
+  assert.deepEqual(curtainCornerJoin(vertical, horizontal), ['start'], 'the vertical start post enters the horizontal frame')
+
+  const { mats, meshes } = build(vertical, [horizontal, vertical])
+  assert.equal(meshes.filter((mesh) => mesh.material === mats.steel).length, 1, 'one of the two intersecting end posts is removed')
+  const rails = meshes.filter((mesh) => mesh.material === mats.darkSteel)
+  assert.equal(rails.length, 2, 'the sill and head remain')
+  for (const rail of rails) {
+    assert.ok(Math.abs(rail.geometry.parameters.width - 0.9) < 1e-9, 'both rails stop at the joined edge')
+  }
+})
+
 test('a fence shares parallel wall glass and may cross a floor-standing curtain', () => {
   // A 围栏 runs through the middle of its tile while wall-mounted 玻璃板 hugs an
   // edge, so those share only when parallel. A floor-standing 玻璃幕墙 explicitly
@@ -265,9 +303,11 @@ test('a door snaps to the curtain axis and shares only its fitted run', () => {
 })
 
 test('a drag sweep takes the same size, and leaves the others', () => {
-  assert.equal(sweepFamily(glass(0, 0, 0, 0, 'a', '2x1')), 'glass:2x1')
+  assert.equal(sweepFamily(glass(0, 0, 0, 0, 'a', '2x1')), 'glass:2x1:')
   assert.equal(sameSweepFamily(glass(0, 0, 0, 0, 'a', '2x1'), glass(1, 0, 0, 3, 'b', '2x1')), true)
   assert.equal(sameSweepFamily(glass(0, 0, 0, 0, 'a', '2x1'), glass(1, 0, 0, 0, 'b', '1x1')), false)
+  assert.equal(sameSweepFamily(curtain(0, 0, 0, 0, 'short'), curtain(1, 0, 0, 2, 'short-2')), true, 'same-width, same-height curtains sweep together')
+  assert.equal(sameSweepFamily(curtain(0, 0, 0, 0, 'short'), curtain(1, 0, 0, 2, 'medium', '3x4', 3)), false, 'different curtain heights remain separate sweep families')
 })
 
 test('a different size is a different hover ghost, so the palette click redraws it', () => {

@@ -1,4 +1,4 @@
-import { translate } from '../../../sim/i18n.ts'
+import { msg, translate } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 // The 房间 folder body (§5.6 facility rooms).
 //
@@ -9,6 +9,7 @@ import { useLanguage } from '../../i18n.ts'
 
 import { FACILITY_OPTIONS, useStore } from '../../store.ts'
 import { Block } from '../shared/Block.tsx'
+import { RotateTile } from '../shared/RotateTile.tsx'
 
 export function RoomFolder(): React.ReactElement {
   useLanguage()
@@ -35,6 +36,9 @@ export function RoomFolder(): React.ReactElement {
           }}
         />
       ))}
+      {tool === 'zone' && (zoneBrush === 'ticket' || zoneBrush === 'info') ? (
+        <RotateTile label={msg('rotate')} onClick={() => st().rotateFacility()} />
+      ) : null}
     </div>
   )
 }

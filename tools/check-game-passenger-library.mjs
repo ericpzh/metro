@@ -12,18 +12,24 @@ try {
  const report=await page.evaluate(`(async()=>{
   const errors=[],original=console.error;console.error=(...args)=>{errors.push(args.join(' '));original(...args)};
   window.__libraryImages=window.__passengerCards.capturePassengers();
+  const childImages=window.__passengerCards.capturePassengers({age:'child'});
   const coverage=new Set(),empty=[];
-  for(const card of window.__libraryImages){
+  for(const card of [...window.__libraryImages,...childImages]){
    const img=new Image();img.src=card.png;await img.decode();
    const canvas=document.createElement('canvas');canvas.width=card.width;canvas.height=card.height;
    const context=canvas.getContext('2d');context.drawImage(img,0,0);
    const pixels=context.getImageData(0,0,card.width,card.height).data;
    let visible=0;for(let i=3;i<pixels.length;i+=4)if(pixels[i])visible++;
-   if(visible<500)empty.push(card.id);coverage.add(card.variant);
+   // Children occupy fewer pixels in the same metre-scale frame. Keep the
+   // adult visibility floor, scaled by the smallest allowed child silhouette.
+   const minimumPixels=500*(card.age==='child'?.52*.56:1);
+   if(visible<minimumPixels)empty.push(card.id);coverage.add(card.variant);
   }
-  console.error=original;return {images:window.__libraryImages.length,variants:[...coverage],empty,errors};
+  console.error=original;return {images:window.__libraryImages.length,childImages:childImages.length,childVariants:[...new Set(childImages.map(c=>c.variant))],variants:[...coverage],empty,errors};
  })()`);
- assert.equal(report.images,11*3*4);assert.equal(report.variants.length,11);assert.deepEqual(report.empty,[]);assert.deepEqual(report.errors,[]);
+ assert.equal(report.images,MODEL_LIBRARY.length*3*4);assert.equal(report.variants.length,MODEL_LIBRARY.length);assert.deepEqual(report.empty,[]);assert.deepEqual(report.errors,[]);
+ const childVariants=MODEL_LIBRARY.flatMap((model,index)=>!model.bag&&model.hair!=='bald'?[index]:[]);
+ assert.equal(report.childImages,childVariants.length*3*4);assert.deepEqual(report.childVariants,childVariants);
  const names=MODEL_LIBRARY.map(m=>m.id);
  await page.evaluate(`(()=>{
   const images=window.__libraryImages.filter(c=>c.view==='iso'&&c.sample===0);
@@ -40,8 +46,18 @@ try {
  const live=await page.evaluate(`(()=>{
   const r=window.__scene,c=r.crowd;window.__metro.getState().setPlaying(false);
   const outfits=c.agents.geometry.getAttribute('passengerOutfit');
-  return {agents:c.agentCount,variants:[...new Set(Array.from(outfits.array).slice(0,c.agents.count))].sort((a,b)=>a-b),instanced:c.agents.isInstancedMesh,triangles:c.agents.geometry.index.count/3,shaderErrors:r.renderer.info.programs.filter(p=>p.diagnostics&&!p.diagnostics.runnable).length};
+  const models=${JSON.stringify(MODEL_LIBRARY)},children=[],invalid=[];let visible=0;
+  for(let i=0;i<c.agents.count;i++){
+   const m=c.agents.instanceMatrix.array,offset=i*16,depth=Math.hypot(m[offset],m[offset+1],m[offset+2]),width=Math.hypot(m[offset+4],m[offset+5],m[offset+6]),height=Math.hypot(m[offset+8],m[offset+9],m[offset+10]);
+   // Hidden storeys and a followed passenger use a zero instance matrix.
+   if(height===0&&depth===0&&width===0)continue;visible++;
+   const child=height<.8,model=models[outfits.getX(i)];if(child)children.push(model.id);
+   if(child?(height<.5199||height>.7801||depth<.5599||depth>.6301||width<.5599||width>.6301||model.bag||model.hair==='bald'):(height<.7999||height>1.2001||depth<.8999||depth>1.1001||width<.8999||width>1.1001))invalid.push(i);
+  }
+  return {agents:c.agentCount,visible,variants:[...new Set(Array.from(outfits.array).slice(0,c.agents.count))].sort((a,b)=>a-b),children:children.length,childModels:[...new Set(children)],invalidSizes:invalid,opacity:c.agents.material.opacity,transparent:c.agents.material.transparent,instanced:c.agents.isInstancedMesh,triangles:c.agents.geometry.index.count/3,shaderErrors:r.renderer.info.programs.filter(p=>p.diagnostics&&!p.diagnostics.runnable).length};
  })()`);
- assert.equal(live.instanced,true);assert.equal(live.shaderErrors,0);assert.equal(live.variants.length,11);
+ assert.equal(live.instanced,true);assert.equal(live.shaderErrors,0);assert.equal(live.variants.length,MODEL_LIBRARY.length);
+ assert.equal(live.opacity,.7);assert.equal(live.transparent,true);
+ assert.deepEqual(live.invalidSizes,[]);assert(live.children>0&&live.children<live.agents,'the live crowd contains adults and smaller children');
  writeFileSync(resolve(out,'report.json'),JSON.stringify({report,live},null,2));console.log({report,live});
 } finally {if(page)await page.close();server.close()}

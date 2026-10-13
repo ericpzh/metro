@@ -10,6 +10,9 @@ export function trimCoatUnderStraps(body,strap){
  const vector=i=>new THREE.Vector3().fromBufferAttribute(points,i);
  for(let side=0;side<2;side++)for(let offset=10;offset<perSide-10;offset+=10){
   const i=side*perSide+offset,center=vector(i+2).add(vector(i+7)).multiplyScalar(.5);
+  // Free rear bridges enter the pack; coat-coloured support there can emerge
+  // through its rim. Trim and back only the sections resting on the torso.
+  if(center.z<-.09)continue;
   const tangent=vector(i+12).sub(vector(i-8)).normalize();
   const across=vector(i+4).add(vector(i+5)).sub(vector(i)).sub(vector(i+9)).multiplyScalar(.5);
   const width=across.length();across.normalize();
@@ -66,23 +69,24 @@ export function trimCoatUnderStraps(body,strap){
   }
   if(changed){trimmed++;polygons.forEach(emit)}else indices.push(...ids);
  }
- // A smooth coat backing closes the trimmed shell 3 mm beneath the webbing.
+ // A recessed coat backing closes the trimmed shell beneath the webbing.
  // This keeps the lower return supported behind the arm instead of opening a
  // hole in the garment, and keeps the same support through every walking pose.
  const spine=body.skeleton.bones.findIndex(b=>b.name==='Spine');
  const grey=v=>new THREE.Color().setRGB(v,v,v,THREE.SRGBColorSpace).r;
  const coatGrey=attributes.color.array.some(v=>Math.abs(v-grey(.74))<.001)?.74:.66;
  for(let side=0;side<2;side++){
-  const grid=[],inner=[],rows=perSide/10;
+  const grid=[],inner=[],supported=[],rows=perSide/10;
   for(let row=0;row<rows;row++){
    const i=side*perSide+row*10,center=vector(i+2).add(vector(i+7)).multiplyScalar(.5);
+   supported.push(center.z>=-.09);
    const next=side*perSide+Math.min(rows-1,row+1)*10,previous=side*perSide+Math.max(0,row-1)*10;
    const tangent=vector(next+2).sub(vector(previous+2)).normalize(),across=vector(i+4).sub(vector(i));
    const normal=new THREE.Vector3().crossVectors(tangent,across).normalize();
    if(normal.dot(new THREE.Vector3(center.x,center.y>1.29?.2:0,center.z-.035))<0)normal.negate();
    for(let j=0;j<5;j++){
-    const point=vector(i+j).add(vector(i+9-j)).multiplyScalar(.5).addScaledVector(across.clone().normalize(),(j-2)*.002);
-    grid.push(point.clone().addScaledVector(normal,-.003));
+    const point=vector(i+j).add(vector(i+9-j)).multiplyScalar(.5).addScaledVector(across.clone().normalize(),(j-2)*.0001);
+    grid.push(point.clone().addScaledVector(normal,center.z<.035?-.006:-.003));
     inner.push(point.clone().addScaledVector(normal,-.033));
    }
   }
@@ -94,16 +98,16 @@ export function trimCoatUnderStraps(body,strap){
     for(const [key,a] of Object.entries(attributes))arrays[key].push(...(key==='position'?point.toArray():key==='color'?[color,color,color]:key==='skinIndex'?[spine,0,0,0]:key==='skinWeight'?[1,0,0,0]:Array(a.itemSize).fill(0)));
    }
   }
-  for(let row=0;row<rows-1;row++)for(let j=0;j<4;j++)for(const ids of [[row*5+j,row*5+j+1,(row+1)*5+j],[row*5+j+1,(row+1)*5+j+1,(row+1)*5+j]]){
+  for(let row=0;row<rows-1;row++)if(supported[row]&&supported[row+1])for(let j=0;j<4;j++)for(const ids of [[row*5+j,row*5+j+1,(row+1)*5+j],[row*5+j+1,(row+1)*5+j+1,(row+1)*5+j]]){
    backingTriangle(ids.map(id=>grid[id]));backingTriangle(ids.toReversed().map(id=>inner[id]));
   }
   // Close the sides down into the existing coat. A single inset sheet left a
   // visible background slit when viewed along the shoulder or swinging sleeve.
-  for(let row=0;row<rows-1;row++)for(const j of [0,4]){
+  for(let row=0;row<rows-1;row++)if(supported[row]&&supported[row+1])for(const j of [0,4]){
    const a=row*5+j,b=(row+1)*5+j;
    backingTriangle([grid[a],inner[a],grid[b]]);backingTriangle([inner[a],inner[b],grid[b]]);
   }
-  for(const row of [0,rows-1])for(let j=0;j<4;j++){
+  for(let row=0;row<rows;row++)if(supported[row]&&(!supported[row-1]||!supported[row+1]))for(let j=0;j<4;j++){
    const a=row*5+j,b=a+1;
    backingTriangle([grid[a],grid[b],inner[a]]);backingTriangle([grid[b],inner[b],inner[a]]);
   }

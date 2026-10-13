@@ -23,7 +23,10 @@ export class RoofModel extends PieceBuilder {
     // The finish brush paints the roof sheets; the supporting truss stays steel.
     const mat = this.ctx.finish(mod.cfg.finish ?? DEFAULT_ROOF_FINISH)
     if (!mod.cfg.variant) {
-      finishSlab(group, mat, (mod.w - 1) / 2, (mod.d - 1) / 2, TRUSS_ROOF_BASE + ROOF_THICKNESS / 2, mod.w, mod.d, ROOF_THICKNESS)
+      const z = mod.cfg.plateSnap === 'lower'
+        ? -0.875
+        : mod.cfg.plateSnap === 'upper' ? -0.125 : TRUSS_ROOF_BASE + ROOF_THICKNESS / 2
+      finishSlab(group, mat, (mod.w - 1) / 2, (mod.d - 1) / 2, z, mod.w, mod.d, ROOF_THICKNESS)
       return this.placeLocal(group, mod)
     }
 

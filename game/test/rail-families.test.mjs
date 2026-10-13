@@ -45,10 +45,10 @@ import {
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 20)
+  assert.equal(MODULE_FAMILIES.length, 22)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['gate', 'fence', 'hanger', 'cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
+    ['monitor', 'gate', 'fence', 'hanger', 'cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'extinguisher', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
@@ -109,7 +109,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
   }
   assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['gate', 'fence', 'stair', 'exit'])
   assert.deepEqual(familiesIn('rail').map((f) => f.key), ['roof', 'pillar'])
-  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['hanger', 'cctv', 'tactile', 'floor-mark', 'busstop', 'light', 'bench', 'shelf', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
+  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['monitor', 'hanger', 'cctv', 'tactile', 'floor-mark', 'busstop', 'light', 'bench', 'shelf', 'extinguisher', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
   // **The id has to answer as the type does.** The rail and the placement tool hold a
   // palette **id**, not a module: `LeftRail` folds the folder open by `isDecorType(moduleType)`
   // and `EquipmentTool` asks the same predicate before its 装饰 right-click guard. A family
@@ -165,8 +165,9 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     familyAnchor('bench'), familyAnchor('calligraphy'),
     familyAnchor('tactile'), familyAnchor('floor-mark'),
     familyAnchor('linemap'), 'tv',
+    familyAnchor('monitor'), 'rail-signal',
     'psd-end', 'curtain-wall',
-    'bin', 'extinguisher',
+    'bin', familyAnchor('extinguisher'),
     'clock', familyAnchor('cctv'),
     familyAnchor('shelf'), 'checkout',
     familyAnchor('glass'),
@@ -175,11 +176,10 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     familyAnchor('light'), 'vent',
     familyAnchor('hanger'), 'desk',
     'guidepost', familyAnchor('busstop'),
-    'ac-unit', 'electrical-cabinet',
+    'ac-unit', 'electrical-cabinet', 'tvm', 'vending',
   ])
   assert.deepEqual(anchors('equipment'), [
     familyAnchor('gate'), familyAnchor('fence'),
-    'tvm', 'vending',
     'escalator', 'lift',
     familyAnchor('stair'), familyAnchor('exit'),
   ])
@@ -210,6 +210,41 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     // tiles the grid really draws.
     assert.equal(tiles.length, folderOptions(folder).length + familiesIn(folder).length)
   }
+})
+
+test('the four top-level decor sections keep their contents and requested order', () => {
+  const anchors = (category) => folderTiles('decor', category).map((tile) => tile.anchor)
+  assert.deepEqual(anchors('ceiling'), [
+    familyAnchor('sign'), 'tv', familyAnchor('monitor'), 'clock', familyAnchor('cctv'), familyAnchor('light'), 'vent', familyAnchor('hanger'),
+  ])
+  assert.deepEqual(anchors('wall'), [
+    familyAnchor('sign'), familyAnchor('billboard'), familyAnchor('monitor'), familyAnchor('glass'),
+    familyAnchor('calligraphy'), familyAnchor('linemap'),
+  ], '站名 and 线网图 close out the wall section')
+  assert.deepEqual(anchors('floor'), [
+    'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', 'psd-end',
+    familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
+    familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'),
+  ])
+  assert.deepEqual(anchors('outside'), ['guidepost', familyAnchor('busstop'), 'ac-unit'])
+  assert.ok(anchors('floor').includes('tvm') && anchors('floor').includes('vending'), 'ticket and vending machines are decor')
+})
+
+test('a decor family is included by any matching variant but keeps its full menu in every section', () => {
+  const anchors = (category) => folderTiles('decor', category).map((tile) => tile.anchor)
+  const ids = (family) => familyOptions(familyFor(family)).map((option) => option.id)
+
+  assert.ok(anchors('ceiling').includes(familyAnchor('sign')))
+  assert.ok(anchors('wall').includes(familyAnchor('sign')))
+  assert.deepEqual(ids('sign'), ['sign-ceiling', 'sign-wall'])
+  assert.ok(anchors('ceiling').includes(familyAnchor('hanger')))
+  assert.ok(anchors('floor').includes(familyAnchor('hanger')))
+  assert.deepEqual(ids('hanger'), ['hanger-roof', 'hanger-post'])
+  assert.ok(anchors('wall').includes(familyAnchor('linemap')))
+  assert.ok(anchors('floor').includes(familyAnchor('linemap')))
+  assert.deepEqual(ids('linemap'), ['linemap-wall', 'linemap-stand'])
+  assert.ok(anchors('wall').includes(familyAnchor('glass')))
+  assert.deepEqual(ids('glass'), ['glass-1x1', 'glass-2x1', 'glass-3x1', 'glass-1x2', 'glass-2x2', 'glass-3x2'])
 })
 
 test('the open slot follows the family table, so a variant cannot fold its own list away', () => {

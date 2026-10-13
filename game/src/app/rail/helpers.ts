@@ -23,7 +23,7 @@ import { ZONE_LIST } from '../../sim/zones.ts'
 import type { Module, TriangleKind } from '../../sim/types.ts'
 
 /** One build-rail folder per key; `RAIL_FOLDERS` is the order they are stacked in. */
-export type RailFolderKey = 'tools' | 'rail' | 'equipment' | 'decor' | 'surfaces' | 'rooms' | 'zones'
+export type RailFolderKey = 'tools' | 'rail' | 'equipment' | 'decorCeiling' | 'decorWall' | 'decorFloor' | 'decorOutside' | 'surfaces' | 'rooms' | 'zones'
 
 /** One 信息栏 (RHS) folder per key; `INSPECTOR_FOLDERS` is the inspector's own stack. */
 export type InspectorFolderKey = 'info' | 'view' | 'exits' | 'lines'
@@ -33,25 +33,27 @@ export type FolderKey = RailFolderKey | InspectorFolderKey
 
 /**
  * The **build rail's** folders, top to bottom, each with the Shift+number that opens
- * and closes it — **Shift+1** the first folder, then 2 through 7 one number a row
- * down the stack. The ladder is data because two units read it: the shell renders the
+ * and closes it — **Shift+1** the first folder, then 2 through 9 and 0 down the stack.
+ * The ladder is data because two units read it: the shell renders the
  * folders in this order and prints each key on its header, and the app's one keydown
  * listener turns a Shift+number into the folder to fold
  * (`app/windows/AppShell.tsx` → the `metro:folder` event the rail listens for).
  * It lives here rather than in either of them so the order, the key on the header
  * and the key that fires can never drift apart.
  *
- * A folder added at the bottom takes the next number; one inserted in the middle moves
- * every key below it, so keep the ladder in step with the render.
+ * The four decor categories each own a top-level folder. Shift+0 is the tenth slot.
  */
 export const RAIL_FOLDERS: ReadonlyArray<{ key: RailFolderKey; title: string; shift: string }> = [
   { key: 'tools', title: msg('tools'), shift: '1' },
   { key: 'rail', title: msg('structure'), shift: '2' },
   { key: 'equipment', title: msg('equipment'), shift: '3' },
-  { key: 'decor', title: msg('decor'), shift: '4' },
-  { key: 'surfaces', title: msg('materials'), shift: '5' },
-  { key: 'rooms', title: msg('rooms'), shift: '6' },
-  { key: 'zones', title: msg('zones'), shift: '7' },
+  { key: 'decorCeiling', title: msg('ceiling_decor'), shift: '4' },
+  { key: 'decorWall', title: msg('wall_decor'), shift: '5' },
+  { key: 'decorFloor', title: msg('ground_decor'), shift: '6' },
+  { key: 'decorOutside', title: msg('outside_decor'), shift: '7' },
+  { key: 'surfaces', title: msg('materials'), shift: '8' },
+  { key: 'rooms', title: msg('rooms'), shift: '9' },
+  { key: 'zones', title: msg('zones'), shift: '0' },
 ]
 
 /**

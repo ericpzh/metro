@@ -76,12 +76,13 @@ export class TileEquipmentTool extends ToolController {
     const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
     const pickedStair = picked?.type === 'stair' && picked.cfg.block ? picked : undefined
     const pickedRoof = picked?.type === 'roof' ? picked : undefined
-    // Roofs are laid against the current level's grid, even when the ray hits
-    // an existing roof or another object above that plane. Only stair blocks
-    // retain object snapping so a click can target an existing block tile.
+    // Truss bays stay on the active storey plane. Thin plates follow the normal
+    // block hit, so they can snap to either side of a cell at any visible height.
     const anchor: [number, number, number] = st.moduleType === 'stair-block'
       ? pickedStair ? [pickedStair.x, pickedStair.y, pickedStair.z] : hit.cell
-      : info.button === 2 && pickedRoof ? [pickedRoof.x, pickedRoof.y, pickedRoof.z] : [hit.cell[0], hit.cell[1], st.activeZ]
+      : info.button === 2 && pickedRoof ? [pickedRoof.x, pickedRoof.y, pickedRoof.z]
+        : st.moduleType === 'roof' ? hit.roofSnap ? hit.cell : hit.place
+          : [hit.cell[0], hit.cell[1], st.activeZ]
     const tileType = info.button === 2
       ? pickedStair ? 'stair-block'
         : pickedRoof?.cfg.variant === 'shell' ? 'roof-shell'
@@ -95,6 +96,7 @@ export class TileEquipmentTool extends ToolController {
     this.ctx.drag.current = {
       active: true, roof: true, button: info.button, mode: info.button === 2 ? 'remove' : 'add',
       anchor, z: anchor[2], shift: false, sx: info.clientX, sy: info.clientY, downTime: performance.now(),
+      ...(hit.roofSnap ? { tileSnap: hit.roofSnap } : {}),
       ...(tileType ? { tileType, tileRot: tileRot ?? st.moduleRot, tileWidth: tileWidth ?? st.roofWidth } : {}),
     }
     this.draw([anchor])
@@ -121,8 +123,8 @@ export class TileEquipmentTool extends ToolController {
     const st = useStore.getState()
     const cell: [number, number, number] = st.moduleType === 'stair-block'
       ? hit.cell
-      : [hit.cell[0], hit.cell[1], st.activeZ]
-    this.ctx.hover.current = { cell, place: hit.place, solid: hit.solid }
+      : st.moduleType === 'roof' ? hit.roofSnap ? hit.cell : hit.place : [hit.cell[0], hit.cell[1], st.activeZ]
+    this.ctx.hover.current = { cell, place: hit.place, solid: hit.solid, ...(hit.roofSnap ? { roofSnap: hit.roofSnap } : {}) }
     this.draw([cell])
   }
 
@@ -134,16 +136,20 @@ export class TileEquipmentTool extends ToolController {
 
   private cells(info: PointerInfo): Array<[number, number, number]> {
     const drag = this.ctx.drag.current!
-    const rect = performance.now() - drag.downTime >= LONG_PRESS_MS && isMoved(drag, info)
-    if (!rect) return [drag.anchor]
     const st = useStore.getState()
     const type = drag.tileType ?? st.moduleType
+    // The thin roof is a simple area tile: pointer travel immediately grows its
+    // rectangle, while the other tile pieces keep the block tool's long-press guard.
+    const rect = isMoved(drag, info) && (type === 'roof' || performance.now() - drag.downTime >= LONG_PRESS_MS)
+    if (!rect) return [drag.anchor]
     const rot = drag.tileRot ?? st.moduleRot
     const width = drag.tileWidth ?? st.roofWidth
     if (isTrussRun(type)) {
       return trussLineCells(drag.anchor, info.hit?.cell ?? drag.anchor, rot)
     }
-    const all = rectCells(drag.anchor, info.hit?.cell ?? drag.anchor, drag.z, false)
+    const hit = info.hit
+    const target = hit && type === 'roof' ? [hit.roofSnap ? hit.cell[0] : hit.place[0], hit.roofSnap ? hit.cell[1] : hit.place[1], drag.z] as [number, number, number] : hit?.cell ?? drag.anchor
+    const all = rectCells(drag.anchor, target, drag.z, false)
     const [stepX, stepY] = bayStep(type, rot, width)
     // One anchor per whole bay, even after R swaps its world-space axes.
     return all.filter(([x, y]) => Math.abs(x - drag.anchor[0]) % stepX === 0 && Math.abs(y - drag.anchor[1]) % stepY === 0)
@@ -158,6 +164,7 @@ export class TileEquipmentTool extends ToolController {
     const type = this.ctx.drag.current?.tileType ?? st.moduleType
     const rot = this.ctx.drag.current?.tileRot ?? st.moduleRot
     const width = this.ctx.drag.current?.tileWidth ?? st.roofWidth
+    const snap = this.ctx.drag.current?.tileSnap ?? this.ctx.hover.current?.roofSnap ?? st.roofPlateSnap
     const mods: Module[] = []
     for (const [x, y, z] of cells) {
       if (removing) {
@@ -165,7 +172,10 @@ export class TileEquipmentTool extends ToolController {
         if (roof) mods.push(roof)
         continue
       }
-      const mod = centredModule(type, x, y, z, `roof-preview-${x}-${y}`, rot, type === 'stair-block' ? st.stairBlockHeight : width)
+      const made = centredModule(type, x, y, z, `roof-preview-${x}-${y}-${z}`, rot, type === 'stair-block' ? st.stairBlockHeight : width)
+      const mod = made?.type === 'roof' && !made.cfg.variant && type === 'roof'
+        ? { ...made, cfg: { ...made.cfg, plateSnap: snap } }
+        : made
       if (!mod) continue
       const roof = pieceAt(st.station.modules, mod.x, mod.y, z, type)
       if (roof?.x === mod.x && roof.y === mod.y) continue
@@ -195,6 +205,7 @@ export class TileEquipmentTool extends ToolController {
     const type = drag.tileType ?? st.moduleType
     const rot = drag.tileRot ?? st.moduleRot
     const width = drag.tileWidth ?? st.roofWidth
+    const snap = drag.tileSnap ?? st.roofPlateSnap
     for (const [x, y, z] of cells) {
       if (drag.mode === 'remove') {
         const roof = pieceAt(next.modules, x, y, z, type)
@@ -204,7 +215,10 @@ export class TileEquipmentTool extends ToolController {
         }
         continue
       }
-      const mod = centredModule(type, x, y, z, nextModuleId(next.modules, type === 'stair-block' ? 'stair' : 'roof'), rot, type === 'stair-block' ? st.stairBlockHeight : width)
+      const made = centredModule(type, x, y, z, nextModuleId(next.modules, type === 'stair-block' ? 'stair' : 'roof'), rot, type === 'stair-block' ? st.stairBlockHeight : width)
+      const mod = made?.type === 'roof' && !made.cfg.variant && type === 'roof'
+        ? { ...made, cfg: { ...made.cfg, plateSnap: snap } }
+        : made
       if (!mod) continue
       const roof = pieceAt(next.modules, mod.x, mod.y, z, type)
       if (roof?.x === mod.x && roof.y === mod.y) continue

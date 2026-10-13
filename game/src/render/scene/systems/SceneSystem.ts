@@ -40,6 +40,8 @@ export interface PickResult {
   /** Where a tool would place a new block, one whole cell out along `normal`. */
   place: [number, number, number]
   point: [number, number, number]
+  /** Thin roof tile hit, so a new plate can match its exact half-cell height. */
+  roofSnap?: 'lower' | 'upper'
 }
 
 export interface SceneStats {
@@ -288,8 +290,14 @@ export abstract class SceneSystem {
 export function moduleLevels(mod: Module, base = 0): number[] {
   switch (mod.type) {
     case 'roof': {
-      const lower = storeyBand(mod.z + TRUSS_ROOF_BASE, base)
-      const upper = storeyBand(mod.z + 1 + (mod.cfg.variant ? trussRoofTop(mod.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS) - 1e-4, base)
+      const lowZ = !mod.cfg.variant && mod.cfg.plateSnap
+        ? mod.z + (mod.cfg.plateSnap === 'lower' ? 0 : 0.75)
+        : mod.z + TRUSS_ROOF_BASE
+      const highZ = !mod.cfg.variant && mod.cfg.plateSnap
+        ? mod.z + (mod.cfg.plateSnap === 'lower' ? 0.25 : 1)
+        : mod.z + 1 + (mod.cfg.variant ? trussRoofTop(mod.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS)
+      const lower = storeyBand(lowZ, base)
+      const upper = storeyBand(highZ - 1e-4, base)
       return lower === upper ? [lower] : [lower, upper]
     }
     case 'pillar': {

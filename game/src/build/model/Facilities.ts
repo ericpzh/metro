@@ -275,14 +275,22 @@ export function restroomSpots(rect: FacilityRect, doors: ReadonlySet<string> = n
 
 /**
  * The booth's staff seats: one `bench` per back-row interior cell, facing the
- * front counter (rot 2). Mirrors the seats the booth model used to draw, so a
+ * public counter side. Mirrors the seats the booth model used to draw, so a
  * migrated booth reads exactly as before — except each seat is now its own
  * right-clickable module.
  */
-export function boothBenchSpots(rect: FacilityRect): FurnitureSpot[] {
+export function boothBenchSpots(rect: FacilityRect, front = 0): FurnitureSpot[] {
   const spots: FurnitureSpot[] = [];
-  if (rect.y1 - 1 <= rect.y0) return spots;
-  for (let x = rect.x0 + 1; x <= rect.x1 - 1; x++) spots.push({ type: 'bench', x, y: rect.y1 - 1, rot: 2 });
+  const side = ((front % 4) + 4) % 4;
+  if (side % 2 === 0) {
+    if (rect.y1 - 1 <= rect.y0) return spots;
+    const y = side === 0 ? rect.y1 - 1 : rect.y0;
+    for (let x = rect.x0 + 1; x <= rect.x1 - 1; x++) spots.push({ type: 'bench', x, y, rot: (2 + side) % 4 });
+  } else {
+    if (rect.x1 - 1 <= rect.x0) return spots;
+    const x = side === 1 ? rect.x0 : rect.x1 - 1;
+    for (let y = rect.y0 + 1; y <= rect.y1 - 1; y++) spots.push({ type: 'bench', x, y, rot: (2 + side) % 4 });
+  }
   return spots;
 }
 
@@ -403,6 +411,7 @@ export function placeFacility(
   kind: FacilityKind,
   r: FacilityRect,
   id?: string,
+  front = 0,
 ): StationState {
   const plan = facilityPlan(state, kind, r);
   if (plan.blockedBy) return state;
@@ -462,11 +471,11 @@ export function placeFacility(
           h,
           cfg: { kind: WALLED_ROOM[kind], door: keptDoors, stocked: true },
         }
-      : { id: modId, type: 'booth', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind, stocked: true } }
+      : { id: modId, type: 'booth', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind, stocked: true, front: ((front % 4) + 4) % 4 } }
   ) as StationState['modules'][number];
   let next = { ...base, cells: [...base.cells, ...add], modules: [...base.modules, module] };
   if (stocksBooth) {
-    next = addAutoFurniture(next, rect.z, boothBenchSpots(rect));
+    next = addAutoFurniture(next, rect.z, boothBenchSpots(rect, front));
   }
   return next;
 }

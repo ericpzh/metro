@@ -34,6 +34,8 @@ import { GlassModel } from './models/pieces/GlassModel.ts'
 import { DoorModel } from './models/pieces/DoorModel.ts'
 import { CalligraphyModel } from './models/pieces/CalligraphyModel.ts'
 import { LineMapModel } from './models/pieces/LineMapModel.ts'
+import { MonitorModel } from './models/pieces/MonitorModel.ts'
+import { RailSignalModel } from './models/pieces/RailSignalModel.ts'
 import { TvModel } from './models/pieces/TvModel.ts'
 import { SignModel } from './models/pieces/SignModel.ts'
 import { hangerLiftFor } from '../sim/hangers.ts'
@@ -106,6 +108,8 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return new CalligraphyModel(ctx).build(mod)
     case 'linemap':
       return new LineMapModel(ctx).build(mod)
+    case 'monitor': return new MonitorModel(ctx).build(mod)
+    case 'rail-signal': return new RailSignalModel(ctx).build(mod)
     case 'tv':
       return raised(new TvModel(ctx).build(mod))
     case 'sign':

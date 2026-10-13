@@ -29,6 +29,20 @@ test('picking each fence variant copies it and Esc restores the previous piece',
   } finally { useStore.setState(before) }
 })
 
+test('picking each fire cabinet copies its size and Esc restores the previous piece', () => {
+  const before = useStore.getState()
+  try {
+    for (const type of ['extinguisher', 'extinguisher-compact', 'extinguisher-glass']) {
+      const m = createModule(type, 0, 0, 0, 'picked-fire', 1)
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, tool: 'module', moduleType: 'tvm' })
+      ctxFor(m.id).onDown(press([0, 0, 0]))
+      assert.equal(useStore.getState().moduleType, type)
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().moduleType, 'tvm')
+    }
+  } finally { useStore.setState(before) }
+})
+
 test('picking short or long escalators copies length and Esc restores it', () => {
   const before = useStore.getState()
   try {

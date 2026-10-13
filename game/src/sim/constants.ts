@@ -122,6 +122,13 @@ export const HALF_WALL_T = 0.5
 
 /** Free-flow walking speed, m/s. */
 export const WALK_SPEED = 1.34
+/** §7.1 appearance proportions, chosen from stable identity rather than journey RNG. */
+export const PASSENGER_CHILD_CHANCE = 0.20
+export const PASSENGER_CHILD_SCALE = { height: 0.65, depth: 0.70, width: 0.70 } as const
+export const PASSENGER_SIZE_VARIATION = { height: [0.80, 1.20], depth: [0.90, 1.10], width: [0.90, 1.10] } as const
+export const PASSENGER_CHILD_SIZE_VARIATION = { depth: [0.80, 0.90], width: [0.80, 0.90] } as const
+/** Crowd silhouettes reveal the station behind them. */
+export const PASSENGER_OPACITY = 0.70
 /** §7.1 free-flow variation: longer steps, with the same relaxed cycle cadence.
  * Body proportions scale both physical stride and speed, including children. */
 export const WALK_PROFILES = [
@@ -449,3 +456,6 @@ export function periodOf(simTime: number, service: TimeSpan = DEFAULT_SERVICE, p
 /** Floor furniture clearance, including displays (GAME-SPEC §5.7). */
 export const DESK_HEIGHT = 1.22
 export const CHECKOUT_HEIGHT = 1.42
+/** Decorative rail signal: preserve the reference proportions at one metre tall. */
+export const RAIL_SIGNAL_HEIGHT = 1
+export const RAIL_SIGNAL_SCALE = RAIL_SIGNAL_HEIGHT / 2.59

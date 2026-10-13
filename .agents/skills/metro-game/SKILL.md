@@ -99,6 +99,9 @@ crowd movement, queue approaches or stair turns.
 * **Axes:** `+z` is up; `n` is `+y`, `e` is `+x`, `+z` = top face.
 * **Camera follows the edited storey:** `CameraSystem.frame()` aims at `activeZ + 1 m` and translates the camera with the target, preserving orbit and zoom. Keep this pinned in `game/test/camera-vertical-pan.test.mjs` when changing storey or baseline behavior.
 * **All tuning numbers live in `sim/constants.ts`** (or `stock.ts`).
+* The decorative 信号机 is one metre tall; its lower post and base use the shared
+  `floor.concrete` finish. Keep the material choice pinned in
+  `game/test/monitor-signal.test.mjs` when changing its model.
 * **The code is organised for parallel edits:** every window, subwindow, list
   item, tool and 3D model is its own unit in its own file, and shared
   UI/behaviour uses a base class or shared chrome rather than a shared god-file.
@@ -693,7 +696,13 @@ the four rules most changes trip over.
   raised truss bay in 4/8/12 m widths (`ROOF_WIDTHS`, `nextRoofWidth` /
   `supportedRoofWidth` / `roofWidthLabel`, `trussRoofRidge`/`trussRoofTop`), painted
   per tile or per connected surface (`paintRoofSurface`, 材质 单块/整面) while the
-  truss stays steel. A doorway exit (`ExitCfg.style: 'doorway'`) is a 1 m pad aligned
+  truss stays steel. A plain tile's 上 / 下 snap puts its quarter-metre slab against
+  the upper / lower boundary of the target metre; drawing, collision envelope and
+  storey slicing must share those exact bounds. Placement prefers an existing thin
+  roof's height and snap half, then the block's outside face, then the active view
+  height. Tab and the action tile cycle the same state; pin bounds in
+  `overground.test.mjs` and snapping/control agreement in `roof-tool.test.mjs`.
+  A doorway exit (`ExitCfg.style: 'doorway'`) is a 1 m pad aligned
   to the block edge (`exitDoorwayOffset`) with no carved floor, no walls and no run
   snap. A stair block (`stair.cfg.block`, 高 1 m / 矮 0.5 m) is a solid 1×1 m step
   with no rails; only the metre-high block connects storeys in the graph. A bridge
@@ -832,7 +841,14 @@ the four rules most changes trip over.
   `cfg.stocked` and old saves migrate once via `ensureRoomFurniture` in `toState`,
   which only marks legacy store / office / toilet rooms stocked and never
   recreates their old auto fit-out. Only a booth still stocks itself (one `bench`
-  per back-row cell). Deleting
+  per back-row cell). A booth's `cfg.front` names the counter/desktop face
+  (`0` = −y, then +x, +y, −x); the R shortcut and 房间 folder's 旋转 tile turn
+  that face, and `boothBenchSpots` keeps the staff benches opposite it. During a
+  booth rectangle drag, `ZoneTool` previews the booth and its benches through
+  `setModulePreview`, and refreshes that 3D ghost when R changes the front.
+  `facility.test.mjs`, `booth-model.test.mjs`, `zonetool.test.mjs` and
+  `tool-shortcuts.test.mjs` pin the saved orientation, model bounds, opposite
+  benches, live drag preview/release and the R affordance. Deleting
   a room takes its `cfg.auto` furniture but leaves hand-placed pieces. Extending
   a room over the same kind unions the footprint and clears only the absorbed
   ring the union buries — the player's walls on the new edge stay. Two rooms merge only when their type *and*
@@ -853,14 +869,23 @@ the four rules most changes trip over.
   corner squares while the north and south runs butt between them, and the four glass sheets
   run out to each other's inner faces with a corner mullion over every joint
   (`booth-model.test.mjs` pins the box).
-* The **装饰 folder** holds the free-standing pieces — 座椅, 货架, 办公桌,
-  厕所隔间, 洗手池, 垃圾桶, 灭火器, 门, 导向柱 and 公交站 (its own family: 短/长 shelters) —
-  plus 广告牌 and the **墙面指示牌** (wall-mounted,
-  `wallMountMissing`) and 电视 / **吊挂指示牌** / 时钟 / 监控 / 灯具 / 通风口 (ceiling-hung) — the 指示牌
-  being one piece with both mounts, offered as two tiles (`sign-ceiling` / `sign-wall`) and
-  read from its own `cfg.mount` — plus the floor kit (条形导向 / 圆点提示 盲道 tiles,
-  屏蔽门箭头 / 排队等候线 / 方向指引 floor vinyl, the 空调风机 and 设备柜 machinery)
-  and the 屏蔽端门 return that caps a screen run. 座椅 is a nested sub-menu of two styles from
+* Decoration has four top-level rail folders: 天花板装饰 (Shift+4), 墙面装饰 (Shift+5),
+  地面装饰 (Shift+6) and 站外装饰 (Shift+7); the other rail folders use Shift+1–3 and Shift+8–0.
+  `decorCategoryHasId` assigns palette ids by mount/location, and a family appears in any section
+  containing one of its variants. Once shown, its variant menu is always complete, including options
+  mounted in other sections. Wall order ends with 站名 / 线网图; ground order is 售票机 / 自动售货机,
+  座椅 / 门, 玻璃幕墙 / 屏蔽端门, 灭火器 / 垃圾桶, 货架 / 收银台, 线网图 / 办公桌,
+  盲道 / 地面指示, 设备柜 / 信号机, 厕所隔间 / 洗手池, 挂架. 售票机 and 售货机 are ground decor;
+  空调风机, 导向柱 and 公交站 are outside decor. 时钟 / 监控 / 电视 / 灯具 / 通风口 are ceiling decor,
+  while 信号机 is floor-standing. The 监视器 family has a 1 m ceiling-hung cabinet whose rods reach
+  the actual overhead slab, and a 3 m wall-backed cabinet with twelve 1 × 0.5 m views in a 3 × 4
+  grid facing into the room. `sim/monitors.ts` owns its rotated run; placement must keep its three
+  wall courses, panel envelope and backing verdict aligned with `MonitorModel`. 信号机 is a separate
+  floor piece: its rendered model and placement envelope are both 1 m tall, with the lower post and
+  base using `floor.concrete`. Keep mounting, rotations, screen orientation, tall-ceiling suspension,
+  and signal bounds/materials pinned in `test/monitor-signal.test.mjs`. `DECOR_CATEGORY_ORDER` pins
+  the wall and ground layouts. 座椅 is a
+  nested sub-menu of two styles from
   `sim/benches.ts` — a plain stainless bench with no back and an upholstered seat with a back
   and arm rests — one tile per style, with **Tab** cycling each between its 1 m and 2 m
   run (`cycleBenchWidth`); the 2 m piece is a real two-cell run, and a pick arms its exact
@@ -952,8 +977,12 @@ the four rules most changes trip over.
   ghost and the 移动 ghost all draw the piece with `setCursor(null)` — selection still commits
   the blue `setSelection` box round the model, picked from the drawn mesh (`pickModule`) before
   the cell. **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`) has six
-  short wall-mounted sizes (one to three cells wide, 1 m / 2 m tall); the 4 m floor-edge
-  glass is its own **玻璃幕墙** tile instead (Tab cycles 超窄 / 窄 / 中 / 宽, 1 / 2 / 3 / 4 m).
+  short wall-mounted sizes (one to three cells wide, 1 m / 2 m tall); floor-standing
+  glass is its own **玻璃幕墙** tile, with 超窄 / 窄 / 中 / 宽 widths (1 / 2 / 3 / 4 m)
+  and 短 / 中 / 长 heights (2 / 3 / 4 m). All four rotations may occupy the same tile,
+  while a duplicate on the same side remains blocked. At a corner, remove one intersecting
+  end post and shorten the rails for a clean snap; pin the four-side placement and corner
+  frame in `test/glass-panel.test.mjs`.
   A door placed over a floor-standing
   curtain snaps to the curtain's run and rotation; `placement.ts` permits only a door fully
   inside that same-storey run, and `GlassModel` removes the lower doorway section while keeping
@@ -962,7 +991,7 @@ the four rules most changes trip over.
   pin the two face positions and clearance in `test/door-panel.test.mjs`.
   Each panel is **one outer frame**
   round the whole run, with a single
-  pane between them. The floor-standing 玻璃幕墙 (`h >= 4`) may share any of its
+  pane between them. The floor-standing 玻璃幕墙 may share any of its
   occupied tiles with a 围栏, including a perpendicular crossing; the shared tile is
   the frame connection. Keep both placement orders pinned in `test/glass-panel.test.mjs`.
   站名 (`sim/calligraphy.ts` + `render/calligraphyFace.ts`) is the
@@ -1185,15 +1214,20 @@ the four rules most changes trip over.
   (`ModuleFamily` = key + label + folder + the ids it `owns` + its variants' tile label) is read
   by every half of that UI: `familyOptions` is the sub-menu, `familyAnchor` the parent tile,
   `familyFor` / `subMenuForModule` the rail's single open slot, `actionsAnchorFor` where the
-  action row folds out, `folderTiles(folder)` a folder's tiles **in rail order** (with
-  `RAIL_ORDER` the one place that order is written down), and the folder header's count. The
+  action row folds out, `folderTiles(folder)` a folder's tiles **in rail order** (`RAIL_ORDER`
+  supplies the general order and `DECOR_CATEGORY_ORDER` overrides the wall / ground decor order),
+  and the folder header's count. A family included by a section keeps all of its variants there;
+  `familyOptions` does not filter its submenu by section. The
   cut pieces themselves are `CUT_MODES` beside the family table (one row per piece: label and
   glyph, its own `cutAnchor`). `rail/shared/TileGrid.tsx` is the one grid the 设备 and 装饰
   folders render, and `rail/menus/VariantMenu.tsx` the one variant list for every family.
   Adding a family is one row; `test/rail-families.test.mjs` pins the contract — including that
   **a predicate answers for a palette id exactly as for the module type it builds**
   (`isDecorType('sign-ceiling')`), because the rail folds a folder open and the tool guards a
-  right-click by the **id** it is armed with, before any module exists. **The action row is one
+  right-click by the **id** it is armed with, before any module exists. The extinguisher family
+  labels its three sizes 小 / 中 / 大 (Small / Medium / Large); keep their physical dimensions
+  in `sim/extinguishers.ts` and pin both locale labels and heights in `test/decor.test.mjs`.
+  **The action row is one
   component for the whole rail** — `rail/actions/ActionRow.tsx` holds the fold, the open rule
   (`actionRowOpen`) and every action tile (旋转 / 自定义 / 窄 中 宽 / 上行-下行 / 宽-窄 / 短-长 /
   有门-围栏 / 玻璃-钢板 / the batten's Tab position tile / the guidepost's exit picker), and
@@ -1204,6 +1238,18 @@ the four rules most changes trip over.
   **No tile anywhere carries a tooltip** (`Block` has no `title` at all): `aria-label` — not
   `title` — is how an icon-only control is named. `app/LeftRail.tsx` is a barrel over
   `app/rail/`; module thumbnails are rendered from the real models by `app/moduleThumbnails.ts`.
+  **New module variant controls belong in `app/store/builderAttributes.ts`.** Declare each
+  capability there with its shared kind (`width`, `length`, `height`, `direction`, `position`
+  or `style`), current label and store action; do not add a model-specific tile in
+  `ActionRow.tsx` or a separate module branch in `AppShell.tsx`. The same capability list
+  drives the row and keyboard dispatch: **R** is the transform key; variants follow the
+  shared priority width → length → height → direction → position → style, with **Tab** on
+  the first and **Shift+Tab** on the second. The shared tile renderer owns each kind's icon,
+  so every width uses one mark. Add a focused `builder-attributes.test.mjs` case for new
+  capabilities and update `placementPreviewKey` plus `render/moduleGhostKey.ts` when the new
+  setting changes a placement ghost. List the test in both game READMEs. Exceptional pickers
+  and editor actions (such as choosing an exit or opening the sign composer) remain their own
+  controls; they are not cycled module attributes.
   Concept-art passengers are game-owned too: `app/capturePassengers.ts` renders
   `passengerMesh` from `render/passengerModel.ts` for sheets 01, 02, 12 and 13. If
   the baked human, hair, pose atlas, appearance or crowd material changes, rebuild
@@ -1321,15 +1367,20 @@ the four rules most changes trip over.
   `src/assets/PASSENGERS.md`, `tools/bake-approved-passenger.mjs`,
   `render/passengerModel.ts`, `render/scene/systems/CrowdSystem.ts`,
   `render/scene/systems/CameraSystem.ts`, `app/store/slices/ViewSlice.ts`,
-  `app/windows/inspector/InfoCard.tsx`, `app/Viewport.tsx`). All eleven reviewed grey, faceless library variants share the pose atlas.
+  `app/windows/inspector/InfoCard.tsx`, `app/Viewport.tsx`). All sixteen reviewed grey, faceless library variants share the pose atlas.
   Use `metro-model` (`../metro-model/SKILL.md`) for model builders, exports and
-  the bake. Every complete variant has equal 1/11 selection chances from stable
-  identity; physique, child sizing, ink tone and gait remain independent. About
-  one in eight passengers is child-sized, with narrower builds and scaled eye
-  height. Keep physique/speed in `sim/walking.ts` and model selection in
+  the bake. Adults choose every complete variant equally from stable identity;
+  children choose equally among the five bagless, non-bald templates. Age is
+  20% children / 80% adults; size, ink tone and gait use separate identity hashes.
+  Height varies 80–120%; width/depth vary 90–110% for adults and 80–90% for children.
+  Child bases are 65% height and 70% width/depth; fore/aft depth scales speed and
+  stride together. The shared material uses 70% opacity with alpha blending and
+  no depth writes. Keep physique/speed in `sim/walking.ts` and model selection in
   `passengerAppearance`; consume no simulation RNG. `passenger-library.test.mjs`
-  pins catalogue, equal selection, every walk on every variant, bag visibility,
-  bounded topology, one draw and atlas disposal. The
+  pins catalogue, equal age-pool selection, every walk on every variant, bag visibility,
+  bounded topology, one draw and atlas disposal. `passenger-size` pins ranges,
+  child restrictions and independent body/shadow matrices; the model preview
+  shares tuning through `preview-appearance.js`. The
   crowd has one draw, gait by distance, idle when waiting/riding, frozen while
   paused — and so is every other sim-driven animation: escalator step bands
   (`LiftSystem`), 闸机 leaves (`CrowdSystem.updateGates`) and train/screen doors

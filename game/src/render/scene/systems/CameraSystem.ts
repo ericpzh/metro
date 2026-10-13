@@ -591,6 +591,62 @@ export class CameraSystem extends SceneSystem {
   }
 
   /**
+   * A forgiving target around visible roof slabs. Their actual mesh is only 25 cm
+   * thick, so a precise ray hit can be hard at shallow camera angles; the projected
+   * mesh bounds get a small pixel margin while nearer blocks still occlude the snap.
+   */
+  pickRoofModuleNear(
+    clientX: number,
+    clientY: number,
+    moduleIds: ReadonlySet<string>,
+    radiusPx = 24,
+  ): { moduleId: string; point: [number, number, number] } | null {
+    const rect = this.canvas.getBoundingClientRect()
+    const sx = clientX - rect.left
+    const sy = clientY - rect.top
+    const camera = this.activeCamera()
+    const blocks = this.pickables.filter((m) => m.visible && (!m.parent || m.parent.visible))
+    let nearest: { moduleId: string; point: [number, number, number]; screenDistance: number } | null = null
+    const bounds = new THREE.Box3()
+    const projected = new THREE.Vector3()
+    for (const group of this.modules.moduleMeshes.children) {
+      const moduleId = group.userData.moduleId
+      if (typeof moduleId !== 'string' || !moduleIds.has(moduleId) || !group.visible) continue
+      group.updateWorldMatrix(true, true)
+      bounds.setFromObject(group)
+      if (bounds.isEmpty()) continue
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+      for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
+        projected.set(x, y, z).project(camera)
+        const px = ((projected.x + 1) / 2) * rect.width
+        const py = ((1 - projected.y) / 2) * rect.height
+        minX = Math.min(minX, px)
+        maxX = Math.max(maxX, px)
+        minY = Math.min(minY, py)
+        maxY = Math.max(maxY, py)
+      }
+      const dx = Math.max(minX - sx, 0, sx - maxX)
+      const dy = Math.max(minY - sy, 0, sy - maxY)
+      const screenDistance = Math.hypot(dx, dy)
+      if (screenDistance > radiusPx || (nearest && screenDistance >= nearest.screenDistance)) continue
+
+      const rectNdc = new THREE.Vector2((sx / rect.width) * 2 - 1, -((sy / rect.height) * 2 - 1))
+      this.raycaster.setFromCamera(rectNdc, camera)
+      const planePoint = new THREE.Vector3()
+      const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -bounds.max.z)
+      if (!this.raycaster.ray.intersectPlane(plane, planePoint)) continue
+      const planeDistance = this.raycaster.ray.origin.distanceTo(planePoint)
+      const blockHits = this.raycaster.intersectObjects(blocks, false)
+      if (blockHits.length > 0 && blockHits[0].distance + 1e-4 < planeDistance) continue
+      nearest = { moduleId, point: [planePoint.x, planePoint.y, bounds.max.z], screenDistance }
+    }
+    return nearest ? { moduleId: nearest.moduleId, point: nearest.point } : null
+  }
+
+  /**
    * The horizontal direction the camera is looking **from**, as a world step — the
    * value `moduleAt`'s `facing` wants. It is the
    * second half of a pick: a mesh answers *which* piece the pointer is on, but the

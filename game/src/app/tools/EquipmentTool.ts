@@ -21,7 +21,7 @@ import { snapPsdEnd } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { escalatorModule, ESCALATOR_LONG_RUN, ESCALATOR_LONG_RISE } from '../../sim/escalators.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
-import { glassSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
+import { glassModuleSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
   autofaceWallMount,
@@ -442,6 +442,7 @@ export class EquipmentTool extends ToolController {
         st.gateDoor,
         st.station,
         st.currentBoards,
+        st.curtainHeight,
       )
     }
     if (mod?.type === 'pillar') mod.cfg.height = st.pillarLength
@@ -450,7 +451,7 @@ export class EquipmentTool extends ToolController {
     if (mod?.type === 'door') {
       const curtain = st.station.modules.find((placed) => placed.type === 'glass'
         && placed.z === cell[2]
-        && glassStandsOnFloor(glassSpec(placed.cfg?.variant))
+        && glassStandsOnFloor(glassModuleSpec(placed.cfg?.variant, placed.cfg?.curtainHeight))
         && glassCells(placed).some(([x, y]) => x === cell[0] && y === cell[1]))
       if (curtain?.type === 'glass') mod = snapDoorToCurtain(mod, curtain, [cell[0], cell[1]])
     }

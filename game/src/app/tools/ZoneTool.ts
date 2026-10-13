@@ -19,6 +19,7 @@ import {
   facilityPlan,
   facilityRect,
   facilityWallCells,
+  boothBenchSpots,
   FACILITY_MIN,
   paintZoneCells,
   placeFacility,
@@ -28,11 +29,12 @@ import {
 } from '../../build/model.ts'
 import { isTrackCell } from '../../sim/placement.ts'
 import { ZONE_LIST } from '../../sim/zones.ts'
+import type { Module } from '../../sim/types.ts'
 import { FACILITY_OPTIONS, isEraseBrush, isFacilityBrush, moduleLabel, useStore, type ZoneBrush } from '../store.ts'
 import { rectCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
-import type { PointerInfo } from './ToolContext.ts'
+import type { PointerInfo, ZoneDragState } from './ToolContext.ts'
 
 /** Highlight colour for a facility-room drag. */
 function facilityColour(kind: FacilityKind): number {
@@ -119,6 +121,7 @@ export class ZoneTool extends ToolController {
       active: true,
       brush,
       anchor,
+      target: anchor,
       z,
       sx: info.clientX,
       sy: info.clientY,
@@ -148,16 +151,12 @@ export class ZoneTool extends ToolController {
     const zd = this.ctx.zoneDrag.current
     if (zd?.active) {
       const target: [number, number, number] = [hit.cell[0], hit.cell[1], zd.z]
+      zd.target = target
       if (isFacilityBrush(zd.brush)) {
         // Live highlight of the area about to become a room: the rectangle
         // between the pressed cell and the pointer, merged with any same-type
         // room the drag extends. A different-type clash flags red.
-        const plan = facilityPlan(st.station, zd.brush, facilityRect(zd.anchor, target, zd.z))
-        const area = plan.rect
-        const cells = rectCells([area.x0, area.y0, area.z], [area.x1, area.y1, area.z], zd.z, false)
-        scene.setGhost([], 'remove')
-        scene.setFaceGhost(cells, 'top', plan.blockedBy ? 0xff7a7a : facilityColour(zd.brush))
-        scene.setCursor(target, true)
+        this.showFacilityPreview(zd, target)
         return
       }
       // A fare-zone patch: tint exactly the floor the rectangle covers. The
@@ -170,6 +169,7 @@ export class ZoneTool extends ToolController {
       scene.setCursor(target, true)
       return
     }
+    scene.setModulePreview(null)
     if (isFacilityBrush(st.zoneBrush)) {
       // Over an existing room, light up its walls — the floor tile sits under
       // the wall blocks and is invisible. A room with no walls (a booth, or a
@@ -200,6 +200,36 @@ export class ZoneTool extends ToolController {
     if (onFloor) scene.setFaceGhost([hit.cell], 'top', brushColour(st.zoneBrush))
     else scene.clearFaceGhost()
     scene.setCursor(hit.cell, onFloor)
+  }
+
+  /** Rebuild the room ghost when R changes its front during a held drag. */
+  refreshFacilityPreview(): void {
+    const zd = this.ctx.zoneDrag.current
+    if (zd?.active && isFacilityBrush(zd.brush)) this.showFacilityPreview(zd, zd.target)
+  }
+
+  private showFacilityPreview(zd: ZoneDragState, target: [number, number, number]): void {
+    const scene = this.ctx.scene()
+    if (!scene) return
+    const st = useStore.getState()
+    const kind = zd.brush as FacilityKind
+    const plan = facilityPlan(st.station, kind, facilityRect(zd.anchor, target, zd.z))
+    const area = plan.rect
+    const cells = rectCells([area.x0, area.y0, area.z], [area.x1, area.y1, area.z], zd.z, false)
+    scene.clearFaceGhost()
+    const front = st.facilityRot as 0 | 1 | 2 | 3
+    const width = area.x1 - area.x0 + 1
+    const height = area.y1 - area.y0 + 1
+    const modules: Module[] = zd.brush === 'ticket' || zd.brush === 'info'
+      ? [
+          { id: 'facility-preview', type: 'booth', x: area.x0, y: area.y0, z: area.z, w: width, h: height, cfg: { kind: zd.brush, stocked: true, front } },
+          ...boothBenchSpots(area, front).map((spot, i): Module => ({ id: `facility-preview-bench-${i}`, type: 'bench', x: spot.x, y: spot.y, z: area.z, rot: spot.rot, cfg: { auto: true } })),
+        ]
+      : []
+    scene.setGhost([], 'remove')
+    scene.setModulePreview(modules.length ? modules : null, plan.blockedBy !== null)
+    if (!modules.length) scene.setFaceGhost(cells, 'top', plan.blockedBy ? 0xff7a7a : facilityColour(kind))
+    scene.setCursor(target, true)
   }
 
   onUp(info: PointerInfo): void {
@@ -237,6 +267,7 @@ export class ZoneTool extends ToolController {
     this.ctx.zoneDrag.current = null
     if (zd?.active) {
       this.ctx.scene()?.clearFaceGhost()
+      this.ctx.scene()?.setModulePreview(null)
       const st = useStore.getState()
       const hit = info.hit
       const target: [number, number, number] = hit ? [hit.cell[0], hit.cell[1], zd.z] : zd.anchor
@@ -289,7 +320,7 @@ export class ZoneTool extends ToolController {
           }
         }
       }
-      const next = placeFacility(st.station, zd.brush, r)
+      const next = placeFacility(st.station, zd.brush, r, undefined, st.facilityRot)
       if (next === st.station) {
         st.setNotice(msg('lay_a_complete_floor_before_drawing_a_room_here'))
         return

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import human from '../assets/passenger-approved.json' with { type: 'json' }
-import { passengerProportions } from '../sim/walking.ts'
+import { passengerIsChild, passengerProportions } from '../sim/walking.ts'
+import { PASSENGER_OPACITY } from '../sim/constants.ts'
 
 /** Approved grey, faceless commuter and baked walk; see assets/PASSENGERS.md. */
 export const PASSENGER_EYE_HEIGHT = 1.57
@@ -10,20 +11,26 @@ export const PASSENGER_WALK_PROFILES = human.walkProfiles
 export const PASSENGER_LIBRARY = human.library
 export const PASSENGER_OUTFITS = human.variants
 export const PASSENGER_HAIRSTYLES = human.hairstyles
+// Reuse the reviewed meshes at child scale; bags and bald heads are adults only.
+export const PASSENGER_CHILD_OUTFITS = human.library.flatMap((model, index) => !model.bag && model.hair !== 'bald' ? [index] : [])
+export type PassengerAppearance = [outfit: number, height: number, depth: number, width: number, tone: number]
 
 /** Identity, rather than buffer slot, keeps each commuter's appearance stable. */
-export function passengerAppearance(id: number, out: [number, number, number, number] = [0, 0, 0, 0]): [number, number, number, number] {
+export function passengerAppearance(id: number, out: PassengerAppearance = [0, 0, 0, 0, 0]): PassengerAppearance {
   // Reuse the caller's scratch tuple: no per-frame crowd allocations.
   passengerProportions(id, out)
+  out[4] = out[3]
   out[3] = out[2]
   out[2] = out[1]
   out[1] = out[0]
-  // A separate identity hash chooses directly from the complete library: each
-  // model gets one equal bucket, independent of sex, hair, bag and walk speed.
+  // A separate identity hash chooses equally within the age-appropriate pool,
+  // independently of size and gait, without advancing simulation randomness.
   let hash = Math.imul(id ^ 0x51ed270b, 0x85ebca6b) >>> 0
   hash = Math.imul(hash ^ (hash >>> 16), 0xc2b2ae35) >>> 0
   hash = (hash ^ (hash >>> 16)) >>> 0
-  out[0] = Math.floor(hash / 0x100000000 * PASSENGER_OUTFITS.length)
+  out[0] = passengerIsChild(id)
+    ? PASSENGER_CHILD_OUTFITS[Math.floor(hash / 0x100000000 * PASSENGER_CHILD_OUTFITS.length)]
+    : Math.floor(hash / 0x100000000 * PASSENGER_OUTFITS.length)
   return out
 }
 
@@ -76,8 +83,7 @@ function atlas(values: Int16Array | Int8Array, divisor: number): THREE.DataTextu
 
 export function passengerMaterial(): THREE.MeshBasicMaterial {
   // Illustration colours stay flat under the station's lights and exposure.
-  // Opaque ink also avoids overlapping translucent bodies washing together.
-  return new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
+  return new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: true, opacity: PASSENGER_OPACITY, depthWrite: false })
 }
 
 /** One GPU draw for the whole crowd; no per-passenger skeleton or animation mixer. */

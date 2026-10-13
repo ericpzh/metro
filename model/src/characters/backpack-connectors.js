@@ -2,9 +2,9 @@ import * as THREE from 'three';
 
 // Continuous, closed straps run from the pack over each shoulder and return
 // beneath the arms. All sections stay on the torso; sleeves move over them.
-export function addBackpackConnectors(model,body){
+export function addBackpackConnectors(model,body,{small=false,coatGrey=.66}={}){
  const positions=[],indices=[],skinIndices=[],skinWeights=[],segments=160;
- const source=body.geometry.attributes,coat=new THREE.Color().setRGB(.66,.66,.66,THREE.SRGBColorSpace).r,skin=new THREE.Color().setRGB(.78,.78,.78,THREE.SRGBColorSpace).r;
+ const source=body.geometry.attributes,coat=new THREE.Color().setRGB(coatGrey,coatGrey,coatGrey,THREE.SRGBColorSpace).r,skin=new THREE.Color().setRGB(.78,.78,.78,THREE.SRGBColorSpace).r;
  const spine=body.skeleton.bones.findIndex(b=>b.name==='Spine');
  const armInfluence=i=>{
   let sum=0;for(let j=0;j<4;j++)if(/arm|hand/i.test(body.skeleton.bones[source.skinIndex.array[i*4+j]].name))sum+=source.skinWeight.array[i*4+j];
@@ -32,10 +32,14 @@ export function addBackpackConnectors(model,body){
   if(ids.some(i=>source.position.getY(i)>.90&&source.position.getY(i)<1.41&&Math.abs(source.position.getX(i))<.26))coatIndices.push(...ids);
  }
  const surfaceGeometry=new THREE.BufferGeometry();surfaceGeometry.setAttribute('position',source.position);surfaceGeometry.setIndex(coatIndices);
- const surface=new THREE.Mesh(surfaceGeometry,new THREE.MeshBasicMaterial({side:THREE.DoubleSide})),ray=new THREE.Raycaster();
+ const material=new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),surface=new THREE.Group(),ray=new THREE.Raycaster();
+ surface.add(new THREE.Mesh(surfaceGeometry,material));
+ // The small pack exposes the coat backing that the standard pack covers.
+ // Fit the rear returns to that backing too, so it cannot cut the ribbon into tabs.
+ if(small)surface.add(new THREE.Mesh(model.getObjectByName('Jacket back fill').geometry,material));
  function contact(point,outward){
   ray.set(point.clone().addScaledVector(outward,.22),outward.clone().negate());
-  const hit=ray.intersectObject(surface,false)[0];
+  const hit=ray.intersectObject(surface,true)[0];
   if(!hit||hit.point.distanceTo(point)>.10)return {point,weights:[[spine,1]]};
   return {point:hit.point.clone(),weights:[[spine,1]]};
  }
@@ -49,20 +53,29 @@ export function addBackpackConnectors(model,body){
    outward.lerp(new THREE.Vector3(0,0,1),THREE.MathUtils.smoothstep(center.z,.095,.15)).normalize();
    if(center.y>1.20)outward.lerp(new THREE.Vector3(0,0,-1),THREE.MathUtils.smoothstep(-center.z,0,.035)).normalize();
    const side=new THREE.Vector3().crossVectors(outward,tangent).normalize();
-   const bridge=center.z<-.13,fitWeight=1-THREE.MathUtils.smoothstep(-center.z,.075,.13);
+   const bridge=center.z<-.13,fitWeight=bridge?0:1;
    // Five samples across the width preserve the coat's curvature. A flat
    // rectangle either floated at its centre or intersected the coat there.
    const samples=[-1,-.5,0,.5,1].map(s=>{
     const localWidth=THREE.MathUtils.lerp(.016,width,THREE.MathUtils.smoothstep(center.y,1.00,1.08));
     const point=center.clone().addScaledVector(side,s*localWidth/2),hit=bridge?{point}:contact(point,outward);
     const clearance=.002+.003*THREE.MathUtils.smoothstep(center.y,1.28,1.34);
-    return {point,weights:hit.weights??[[spine,1]],offset:bridge?0:(hit.point.clone().sub(point).dot(outward)+clearance)*fitWeight};
+    const contactOffset=bridge?0:(hit.point.clone().sub(point).dot(outward)+clearance)*fitWeight;
+    // Rear sections already clear of the coat form the bridge into the pack.
+    // Fade inward fitting before that bridge, avoiding a sharp kink at its rim.
+    const offset=contactOffset<0?contactOffset*(1-THREE.MathUtils.smoothstep(-center.z,.075,.11)):contactOffset;
+    return {point,weights:hit.weights??[[spine,1]],offset,required:offset};
    });
-   sections.push({outward,samples,bridge});
+   sections.push({outward,samples,bridge,constrained:center.z<.095||center.y>1.28||center.y<1.06});
   }
   // Smooth the fitted contour while retaining its clearance over the coat.
-  for(let pass=0;pass<80;pass++){
-   const next=sections.map((section,i)=>section.samples.map((sample,j)=>section.bridge?sample.offset:(sections[Math.max(0,i-1)].samples[j].offset+2*sample.offset+sections[Math.min(segments,i+1)].samples[j].offset)/4));
+  for(let pass=0;pass<240;pass++){
+   const next=sections.map((section,i)=>section.samples.map((sample,j)=>{
+    if(section.bridge||(!section.constrained&&pass>=80))return sample.offset;
+    const average=(sections[Math.max(0,i-1)].samples[j].offset+2*sample.offset+sections[Math.min(segments,i+1)].samples[j].offset)/4;
+    // Smooth the upper envelope without sinking any edge into the garment.
+    return section.constrained?Math.max(sample.required,average):average;
+   }));
    sections.forEach((section,i)=>section.samples.forEach((sample,j)=>sample.offset=next[i][j]));
   }
   for(const fit of sections){
@@ -79,7 +92,7 @@ export function addBackpackConnectors(model,body){
  for(const sign of [-1,1]){
   // One curve per side, including the lower turn: no separate butt joint or
   // disconnected painted return between the shoulder and pack attachment.
-  ribbon([[sign*.110,.930,-.140],[sign*.125,.925,-.115],[sign*.153,.925,-.082],[sign*.205,.930,-.045],[sign*.215,.938,.025],[sign*.185,.952,.100],[sign*.140,.975,.160],[sign*.130,1.015,.183],[sign*.130,1.08,.184],[sign*.128,1.15,.170],[sign*.120,1.25,.149],[sign*.115,1.32,.113],[sign*.110,1.350,.045],[sign*.095,1.335,-.047],[sign*.090,1.290,-.063],[sign*.100,1.245,-.105],[sign*.110,1.220,-.140]],.028);
+  ribbon([[sign*(small?.095:.110),.930,-.140],[sign*.125,.925,-.115],[sign*.153,.925,-.082],[sign*.205,.930,-.045],[sign*.215,.938,.025],[sign*.185,.952,.100],[sign*.140,.975,.160],[sign*.130,1.015,.183],[sign*.130,1.08,.184],[sign*.128,1.15,.170],[sign*.120,1.25,.149],[sign*.115,1.32,.113],[sign*.110,1.350,.045],[sign*.095,1.335,-.047],[sign*.090,1.290,-.063],[sign*(small?.075:.100),1.245,-.105],[sign*(small?.065:.110),1.220,small?-.120:-.140]],.028);
  }
  const geometry=new THREE.BufferGeometry(),count=positions.length/3;
  geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setIndex(indices);geometry.computeVertexNormals();
@@ -89,5 +102,6 @@ export function addBackpackConnectors(model,body){
  const mesh=new THREE.SkinnedMesh(geometry,new THREE.MeshBasicMaterial({vertexColors:true,toneMapped:false,side:THREE.DoubleSide}));
  mesh.name='Backpack_strap_connectors';mesh.bind(body.skeleton,body.bindMatrix);model.add(mesh);
  body.geometry.computeVertexNormals();body.geometry.computeBoundingBox();body.geometry.computeBoundingSphere();
- surfaceGeometry.dispose();surface.material.dispose();
+ surfaceGeometry.dispose();material.dispose();
+ return mesh;
 }

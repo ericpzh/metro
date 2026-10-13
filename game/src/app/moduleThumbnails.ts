@@ -188,6 +188,8 @@ const SILHOUETTE_POSTER: Record<BillboardShape, AdPoster> = {
 
 /** Which way to look at a given piece, so its silhouette is the readable one. */
 function viewDir(id: string): THREE.Vector3 {
+  if (id === 'monitor-wall') return new THREE.Vector3(0.4, 1, 0.45).normalize()
+  if (id === 'rail-signal' || id.startsWith('monitor')) return new THREE.Vector3(0.4, -1, 0.45).normalize()
   // The TV's lit screen is on local -y; FRONT sees its blank backing.
   if (id === 'tv') return ISO
   // Wall-mounted decor faces +y, so its thumbnail looks at the lit front — for
@@ -330,6 +332,9 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'busstop', x: 0, y: 0, z: 0, rot: 0, w: id === 'busstop-long' ? 8 : 4, d: 2, cfg: { variant: id === 'busstop-long' ? 'long' : 'short' } }
     case 'bin':
       return { id, type: 'bin', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'extinguisher-compact':
+    case 'extinguisher-glass':
+      return { id, type: 'extinguisher', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: id === 'extinguisher-compact' ? 'compact' : 'glass' } }
     case 'extinguisher':
       return { id, type: 'extinguisher', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'vent':
@@ -358,6 +363,11 @@ function sampleModule(id: string, station: StationData): Module | null {
       const poster = SILHOUETTE_POSTER[shape]
       return { id, type: 'billboard', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant, poster: poster.slug } }
     }
+    case 'monitor':
+    case 'monitor-ceiling':
+    case 'monitor-wall':
+    case 'rail-signal':
+      return createModule(id, 0, 0, 0, id)
     case 'tv':
       return { id, type: 'tv', x: 0, y: 0, z: 0, rot: 0, cfg: { poster: SILHOUETTE_POSTER.landscape.slug } }
     case 'curtain-wall':

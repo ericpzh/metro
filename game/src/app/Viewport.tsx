@@ -18,7 +18,7 @@ import { CgColorPicker } from 'react-icons/cg'
 import { SceneRenderer, PAN_DOWN, PAN_UP, type PickResult } from '../render/scene.ts'
 import { cellKey, removeFloor, thinWallSideMap, toData, zoneFloorKeys, zoneMapFloorsAt, zoneRegionLabels } from '../build/model.ts'
 import { withGround } from '../sim/ground.ts'
-import { ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop } from '../sim/structures.ts'
+import { trussRoofTop } from '../sim/structures.ts'
 import type { CellShape } from '../sim/types.ts'
 import { zoneIndexOf } from '../sim/zones.ts'
 import { dragOffset, snapOffset, walkAlong } from '../render/section.ts'
@@ -237,6 +237,7 @@ export function Viewport(): React.ReactElement {
   // fields — is what lets R and Tab redraw a ghost that is already under the
   // pointer, and it keeps the list in one place (`placementPreviewKey`).
   const placementKey = useStore(placementPreviewKey)
+  const facilityRot = useStore((s) => s.facilityRot)
   const railRot = useStore((s) => s.railRot)
   const railLineId = useStore((s) => s.railLineId)
   const railDir = useStore((s) => s.railDir)
@@ -257,6 +258,10 @@ export function Viewport(): React.ReactElement {
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
   const graph = useStore((s) => s.graph)
   const selected = useStore((s) => s.selected)
+
+  useEffect(() => {
+    tools.zone.refreshFacilityPreview()
+  }, [facilityRot, tools])
 
   useEffect(() => {
     overlayRef.current = overlayOn
@@ -719,10 +724,24 @@ export function Viewport(): React.ReactElement {
     const scene = sceneRef.current
     if (!scene) return null
     const st = useStore.getState()
-    if (!st.moveDraft && st.tool === 'module' && st.moduleType.startsWith('roof') && button !== 2 && dragRef.current?.mode !== 'remove') {
-      const top = st.moduleType === 'roof' ? TRUSS_ROOF_BASE + ROOF_THICKNESS : trussRoofTop(st.roofWidth)
-      const hit = scene.pickHorizontalPlane(clientX, clientY, st.activeZ + 1 + top, st.activeZ)
-      if (hit && st.moduleType !== 'roof') hit.cell = [Math.round(hit.point[0]), Math.round(hit.point[1]), st.activeZ]
+    if (!st.moveDraft && st.tool === 'module' && st.moduleType === 'roof' && button !== 2 && dragRef.current?.mode !== 'remove') {
+      const roofIds = new Set(st.station.modules.filter((m) => m.type === 'roof' && !m.cfg.variant).map((m) => m.id))
+      const direct = scene.pickModuleHit(clientX, clientY)
+      const directModule = direct ? st.station.modules.find((m) => m.id === direct.moduleId) : undefined
+      const directRoof = directModule?.type === 'roof' && !directModule.cfg.variant ? direct : null
+      const slab = directRoof ?? scene.pickRoofModuleNear(clientX, clientY, roofIds)
+      const roof = slab ? st.station.modules.find((m) => m.id === slab.moduleId) : undefined
+      if (slab && roof?.type === 'roof' && !roof.cfg.variant) {
+        const cell: [number, number, number] = [Math.floor(slab.point[0]), Math.floor(slab.point[1]), roof.z]
+        return {
+          cell, place: cell, solid: true, normal: [0, 0, 1], point: slab.point,
+          ...(roof.cfg.plateSnap ? { roofSnap: roof.cfg.plateSnap } : {}),
+        }
+      }
+    }
+    if (!st.moveDraft && st.tool === 'module' && st.moduleType.startsWith('roof') && st.moduleType !== 'roof' && button !== 2 && dragRef.current?.mode !== 'remove') {
+      const hit = scene.pickHorizontalPlane(clientX, clientY, st.activeZ + 1 + trussRoofTop(st.roofWidth), st.activeZ)
+      if (hit) hit.cell = [Math.round(hit.point[0]), Math.round(hit.point[1]), st.activeZ]
       return hit
     }
     return scene.pick(clientX, clientY, st.activeZ)

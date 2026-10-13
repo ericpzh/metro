@@ -2,6 +2,7 @@
 // the save format (§10.5). Ids stay ASCII per §9.2 even though the UI is Chinese.
 
 import type { ShelfVariant } from './shelves.ts'
+import type { ExtinguisherVariant } from './extinguishers.ts'
 import type { StockClass } from './stock.ts'
 import type { SignLayout, SignMount } from './sign.ts'
 import type { PeakWindows, TimeSpan } from './constants.ts'
@@ -431,7 +432,7 @@ export type BridgeRailing = 'railing' | 'sound-barrier-half' | 'sound-barrier'
 export type Module =
     | (ModuleBase & { type: 'hanger'; w: 4 | 6 | 8; cfg: { mount: 'roof' | 'post' } })
   | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number; finish?: FinishId; bridgeId?: string } })
-  | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss'; finish?: FinishId } })
+  | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss'; finish?: FinishId; plateSnap?: 'lower' | 'upper' } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor; variant?: 'old' | 'new' } })
   | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; offset?: [number, number]; corner?: string } })
@@ -539,9 +540,10 @@ export type Module =
    * A fire-extinguisher cabinet (灭火器, 装饰): the red steel box on four legs of
    * the reference — a slight lid overhang, a two-door front carrying 灭火器箱 /
    * FIRE EXTINGUISHER BOX over 火119警 in white, and a recessed side handle.
-   * Free-standing and rotatable; cosmetic, like the bin.
+   * Compact cabinets are 0.5 m tall; glass cabinets are 1.5 m wide × 2 m tall.
+   * An absent variant keeps the original steel box. Free-standing and rotatable.
    */
-  | (ModuleBase & { type: 'extinguisher'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'extinguisher'; cfg: { variant?: ExtinguisherVariant } })
   /**
    * A station clock (时钟, 装饰): the white-faced analogue clock of the reference,
    * hung by a rod from the storey ceiling. The dial is a **round** cylinder — face
@@ -597,11 +599,11 @@ export type Module =
    *
    * It runs `w` cells along its local +x and stands `cfg.variant`'s height
    * (`sim/glassPanels.ts`) from the floor top up, so a 1 m panel is cladding and a
-   * 2 m one is a full-height pane. Wall-mounted: it needs solid backing on **every course
-   * the panel crosses** (`wallMountMissing`), and it may hang over a track like a
-   * 广告牌, where there is no floor in front of the station wall at all.
+   * 2 m one is a full-height pane. Ordinary glass panels are wall-mounted and need
+   * backing on every course they cross; 玻璃幕墙 carries its selected height in
+   * `cfg.curtainHeight` and stands on a floor edge like a doorway.
    */
-  | (ModuleBase & { type: 'glass'; w: number; cfg: { variant: GlassVariant } })
+  | (ModuleBase & { type: 'glass'; w: number; cfg: { variant: GlassVariant; curtainHeight?: 2 | 3 | 4 } })
   /**
    * A free-standing swing door (门, 装饰): a doorway of its own — a threshold, a post
    * at each end, a head across them and the leaf hung between — standing on a floor
@@ -666,6 +668,8 @@ export type Module =
    * screen each side — so the pair is exempt from the usual one-piece-per-cell
    * rule and `render/models.ts` draws the shared housing once.
    */
+  | (ModuleBase & { type: 'monitor'; w: number; cfg: { mount: 'ceiling' | 'wall' } })
+  | (ModuleBase & { type: 'rail-signal'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'tv'; cfg: { poster?: string } })
   /**
    * A wayfinding sign (指示牌, 装饰), in one of the two mounts §5.8 allows: a lit
@@ -701,7 +705,13 @@ export type Module =
   | (ModuleBase & { type: 'sign'; cfg: { mount?: SignMount; boothId?: string; boothOffset?: { x: number; y: number }; components?: SignLayout; front?: SignLayout; back?: SignLayout } })
   | (ModuleBase & { type: 'retail'; w: number; h: number; cfg: { kind: 'store' | 'cafe' | 'restroom'; bare?: boolean; stocked?: boolean } })
   | (ModuleBase & { type: 'shop'; w: number; h: number; cfg: { kind?: RoomKind; door?: Array<[number, number]>; bare?: boolean; stocked?: boolean } })
-  | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: { kind?: 'ticket' | 'info'; door?: Array<[number, number]>; stocked?: boolean } })
+  | (ModuleBase & { type: 'booth'; w: number; h: number; cfg: {
+      kind?: 'ticket' | 'info'
+      door?: Array<[number, number]>
+      stocked?: boolean
+      /** Face with the service counter/desktops: 0 = −y, then +x, +y, −x. */
+      front?: 0 | 1 | 2 | 3
+    } })
   | (ModuleBase & {
       type: 'platform-edge'
       /** Length in cells along +x from (x, y, z). */

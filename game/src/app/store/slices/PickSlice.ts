@@ -38,6 +38,7 @@ export interface PickDraft {
   lightPosition: number
   pillarLength: 2 | 4
   roofWidth: number
+  roofPlateSnap: 'lower' | 'upper'
   bridgeLength: number
   bridgeRailing: BridgeRailing
   escalatorDir: 'up' | 'down'
@@ -46,6 +47,7 @@ export interface PickDraft {
   liftStyle: 'glass' | 'steel'
   hangerLength: 4 | 6 | 8
   curtainWidth: 1 | 2 | 3 | 4
+  curtainHeight: 2 | 3 | 4
   psdEndHeight: 'half' | 'full'
   gateDoor: GateDoor
   doorWide: boolean
@@ -88,6 +90,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         lightPosition: s.lightPosition,
         pillarLength: s.pillarLength,
         roofWidth: s.roofWidth,
+        roofPlateSnap: s.roofPlateSnap,
         bridgeLength: s.bridgeLength,
         bridgeRailing: s.bridgeRailing,
         escalatorDir: s.escalatorDir,
@@ -96,6 +99,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         liftStyle: s.liftStyle,
         hangerLength: s.hangerLength,
         curtainWidth: s.curtainWidth,
+        curtainHeight: s.curtainHeight,
         psdEndHeight: s.psdEndHeight,
         gateDoor: s.gateDoor,
         doorWide: s.doorWide,
@@ -119,6 +123,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       lightPosition: d.lightPosition,
       pillarLength: d.pillarLength,
       roofWidth: d.roofWidth,
+      roofPlateSnap: d.roofPlateSnap,
       bridgeLength: d.bridgeLength,
       bridgeRailing: d.bridgeRailing,
       escalatorDir: d.escalatorDir,
@@ -127,6 +132,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       liftStyle: d.liftStyle,
       hangerLength: d.hangerLength,
       curtainWidth: d.curtainWidth,
+      curtainHeight: d.curtainHeight,
       psdEndHeight: d.psdEndHeight,
       gateDoor: d.gateDoor,
       doorWide: d.doorWide,

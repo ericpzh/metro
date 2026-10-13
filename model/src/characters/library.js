@@ -9,4 +9,7 @@ export const MODEL_LIBRARY = [
     file: bag ? (hair === 'bob' ? 'passenger-female-walk.glb' : 'passenger-female-shoulder-walk.glb') : `passenger-female-no-bag-${hair}-walk.glb`,
   }))),
   {id: 'female-long-no-bag', character: 'female', hair: 'long', bag: false, file: 'passenger-female-no-bag-long-walk.glb'},
+  ...[['male',['original','short','bald']],['female',['bob','shoulder']]].flatMap(([character,hairs])=>hairs.map(hair=>({
+    id:`${character}-${hair}-small-bag`,character,hair,bag:true,bagStyle:'small',file:`passenger-${character}-small-bag-${hair}-walk.glb`,
+  }))),
 ];

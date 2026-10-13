@@ -18,7 +18,8 @@ import { useLanguage } from '../i18n.ts'
 // import paths working.
 
 import { useEffect, useRef, useState } from 'react'
-import { FACILITY_OPTIONS, folderTiles, isDecorType, isFacilityBrush, useStore } from '../store.ts'
+import { FACILITY_OPTIONS, decorCategoryForId, folderTiles, isDecorType, isFacilityBrush, useStore } from '../store.ts'
+import type { DecorCategory } from '../store.ts'
 import type { Tool } from '../store.ts'
 import { FINISH_LIST } from '../../sim/finishes.ts'
 import { RAIL_FOLDERS, REVEAL_SETTLE_MS, armedRailTile, findSelectedTrack, revealScrollDelta, subMenuForModule, toolsFolderTiles, zoneFolderTiles } from './helpers.ts'
@@ -90,6 +91,13 @@ const FOLDER_FOR_TOOL: Record<Tool, RailFolderKey> = {
   tunnel: 'rail',
 }
 
+const DECOR_FOLDER: Record<DecorCategory, RailFolderKey> = {
+  ceiling: 'decorCeiling',
+  wall: 'decorWall',
+  floor: 'decorFloor',
+  outside: 'decorOutside',
+}
+
 /** The rail's own folder keys, so a 信息栏 folder's Alt+number is not folded here. */
 const RAIL_FOLDER_KEYS: ReadonlySet<string> = new Set(RAIL_FOLDERS.map((f) => f.key))
 
@@ -108,7 +116,10 @@ export function LeftRail(): React.ReactElement {
     equipment: false,
     rail: true,
     rooms: false,
-    decor: false,
+    decorCeiling: false,
+    decorWall: false,
+    decorFloor: false,
+    decorOutside: false,
     surfaces: false,
     zones: false,
   })
@@ -129,7 +140,7 @@ export function LeftRail(): React.ReactElement {
           : tool === 'module' && moduleType === 'bridge'
           ? 'rail'
           : tool === 'module' && isDecorType(moduleType)
-          ? 'decor'
+          ? DECOR_FOLDER[decorCategoryForId(moduleType) ?? 'floor']
           : FOLDER_FOR_TOOL[tool]
     setOpen((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
   }, [tool, zoneBrush, moduleType])
@@ -212,9 +223,21 @@ export function LeftRail(): React.ReactElement {
       count: folderTiles('equipment').length,
       body: <EquipmentFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
     },
-    decor: {
-      count: folderTiles('decor').length,
-      body: <DecorFolder subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
+    decorCeiling: {
+      count: folderTiles('decor', 'ceiling').length,
+      body: <DecorFolder category="ceiling" subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
+    },
+    decorWall: {
+      count: folderTiles('decor', 'wall').length,
+      body: <DecorFolder category="wall" subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
+    },
+    decorFloor: {
+      count: folderTiles('decor', 'floor').length,
+      body: <DecorFolder category="floor" subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
+    },
+    decorOutside: {
+      count: folderTiles('decor', 'outside').length,
+      body: <DecorFolder category="outside" subMenu={subMenu} onToggleSubMenu={toggleSubMenu} />,
     },
     surfaces: {
       count: FINISH_LIST.length + 2,

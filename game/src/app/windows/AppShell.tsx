@@ -6,7 +6,7 @@ import { useLanguage } from '../i18n.ts'
 // so the old import path (via the App.tsx barrel) keeps working.
 import { useEffect, useState } from 'react'
 import { CollapseButton } from './shared/CollapseButton.tsx'
-import { useStore, isBenchType, isDoorType, isEscalatorType, isGateType, isRotatableType, isStairType } from '../store.ts'
+import { useStore, activateModuleBuilderShortcut } from '../store.ts'
 import { LeftRail } from '../LeftRail.tsx'
 import { Viewport, isTypingTarget } from '../Viewport.tsx'
 import { SignEditor } from '../SignEditor.tsx'
@@ -42,9 +42,9 @@ export function App(): React.ReactElement {
       // Handled before the single-letter tool keys so Ctrl+N never also grabs
       // the 材质 brush, etc.
       const ck = e.key.toLowerCase()
-      // Shift+1 … Shift+7 fold the build rail's folders, one number a row down the stack
+      // Shift+1 … Shift+0 fold the build rail's folders, one number a row down the stack
       // (`rail/helpers.ts` `RAIL_FOLDERS`): Shift+1 is 工具, the first folder, and
-      // 2 through 7 follow the folders below it. **Alt+1 … Alt+4** do the same for the
+      // 2 through 9, then 0, follow the folders below it. **Alt+1 … Alt+4** do the same for the
       // 信息栏's own stack (`INSPECTOR_FOLDERS`: 信息, 视图, 出入口, 线路) — a modifier per
       // column, so the same numbers can serve both stacks without a clash. Each shell
       // owns which of its folders are open, so this only names the folder and hands it over.
@@ -161,7 +161,8 @@ export function App(): React.ReactElement {
           else if (st.tool === 'block') {
             if (st.halfWall || st.triangles) st.rotateWallSnap()
           } else if (st.tool === 'rail') st.rotateRail()
-          else if (st.tool === 'module' && isRotatableType(st.moduleType)) st.rotateModule()
+          else if (st.tool === 'zone' && (st.zoneBrush === 'ticket' || st.zoneBrush === 'info')) st.rotateFacility()
+          else if (st.tool === 'module') activateModuleBuilderShortcut(st.moduleType, st, 'R')
           break
         case 'tab':
           // In the 方块 tool Tab raises the generated **生成墙壁** ring — the key the
@@ -178,23 +179,11 @@ export function App(): React.ReactElement {
           e.preventDefault()
           if (st.tool === 'paint') st.setPaintMode(st.paintMode === 'single' ? 'surface' : 'single')
           else if (st.moveDraft?.module.type === 'light') st.cycleMoveLightPosition()
-          else if (st.tool === 'module' && st.moduleType === 'light-rectangular') st.cycleLightPosition()
+          else if (st.tool === 'module') activateModuleBuilderShortcut(st.moduleType, st, e.shiftKey ? 'Shift+Tab' : 'Tab')
           else if (st.tool === 'block') {
             st.setAutoWalls(!st.autoWalls)
           } else if (st.tool === 'rail') st.cycleRailDir()
           else if (st.tool === 'tunnel') st.cycleTunnelLength()
-          else if (st.tool === 'module' && st.moduleType === 'bridge') st.cycleBridgeLength()
-          else if (st.tool === 'module' && st.moduleType.startsWith('pillar')) st.togglePillarLength()
-          else if (st.tool === 'module' && isStairType(st.moduleType)) st.cycleStairWidth()
-          else if (st.tool === 'module' && isDoorType(st.moduleType)) st.toggleDoorWidth()
-          else if (st.tool === 'module' && isBenchType(st.moduleType)) st.cycleBenchWidth()
-          else if (st.tool === 'module' && (st.moduleType === 'roof-shell' || st.moduleType === 'roof-truss' || st.moduleType === 'roof-tapered')) st.cycleRoofWidth()
-          else if (st.tool === 'module' && isEscalatorType(st.moduleType)) st.cycleEscalatorDir()
-          else if (st.tool === 'module' && st.moduleType === 'lift') st.cycleLiftStyle()
-          else if (st.tool === 'module' && (st.moduleType === 'hanger-roof' || st.moduleType === 'hanger-post')) st.cycleHangerLength()
-          else if (st.tool === 'module' && st.moduleType === 'curtain-wall') st.cycleCurtainWidth()
-          else if (st.tool === 'module' && st.moduleType === 'psd-end') st.cyclePsdEndHeight()
-          else if (st.tool === 'module' && isGateType(st.moduleType)) st.cycleGateDoor()
           break
         case 'n':
           st.setTool('paint')

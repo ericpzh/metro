@@ -28,6 +28,10 @@ export function closeCoatInterior(body){
    if(cosine>0){
     const x=position[0],support=.190-.045*THREE.MathUtils.smoothstep(y,1.10,1.28)-.040*THREE.MathUtils.smoothstep(y,1.28,1.405)-.020*(x/.20)**2-.002;
     position[2]=THREE.MathUtils.lerp(position[2],support,THREE.MathUtils.smoothstep(cosine,.05,.35)*THREE.MathUtils.smoothstep(Math.abs(x),.105,.125));
+    // Keep the lower front lining behind the shirt, including its curved hem.
+    // The old flat inset emerged as a small coat-coloured strip below the top.
+    const lower=(1-THREE.MathUtils.smoothstep(y,.855,.905))*(1-THREE.MathUtils.smoothstep(Math.abs(x),.085,.110));
+    position[2]=THREE.MathUtils.lerp(position[2],Math.min(position[2],.115),lower);
    }
    for(const [key,a] of Object.entries(attributes)){
     const value=key==='position'?position:key==='color'?[coat,coat,coat]:key==='normal'?[0,0,-1]:key==='skinIndex'?[spine,0,0,0]:key==='skinWeight'?[1,0,0,0]:Array(a.itemSize).fill(0);

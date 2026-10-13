@@ -20,6 +20,7 @@ import type { Module } from '../sim/types.ts'
 
 /** The ghost identity of one module, ignoring its id (a ghost is a prototype). */
 export function moduleGhostKey(mod: Module): string {
+  if (mod.type === 'extinguisher') return `extinguisher:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'standard'}`
   if (mod.type === 'fence') return `fence:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'glass'}`
   if (mod.type === 'hanger') return `hanger:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.w}:${mod.cfg.mount}`
   if (mod.type === 'cctv') return `cctv:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'bullet'}`
@@ -27,6 +28,7 @@ export function moduleGhostKey(mod: Module): string {
   if (mod.type === 'tactile' || mod.type === 'floor-mark') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${JSON.stringify(mod.cfg)}`
   if (mod.type === 'guidepost' || mod.type === 'busstop' || mod.type === 'light' || mod.type === 'pillar' || mod.type === 'roof' || mod.type === 'exit') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${JSON.stringify(mod)}`
   if (mod.type === 'psd-end') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.psd}:${JSON.stringify(mod.cfg.offset ?? [])}:${mod.cfg.corner ?? ''}`
+  if (mod.type === 'booth') return `booth:${mod.x},${mod.y},${mod.z}:${mod.w}x${mod.h}:${mod.cfg.kind ?? 'ticket'}:${mod.cfg.front ?? 0}`
   const span =
     mod.type === 'stair'
       ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}:${mod.cfg.finish ?? ''}`
@@ -57,5 +59,6 @@ export function moduleGhostKey(mod: Module): string {
                           // hanging board it is drawn as.
                           ? `:${mod.cfg.mount === 'wall' ? 'wall' : 'ceiling'}:${mod.cfg.boothId ?? ''}:${JSON.stringify(mod.cfg.boothOffset ?? {})}`
                           : ''
+  if (mod.type === 'monitor') return `monitor:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.w}:${mod.cfg.mount}`
   return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}${span}`
 }

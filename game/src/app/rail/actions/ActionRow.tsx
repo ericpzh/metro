@@ -27,27 +27,22 @@ import { useLanguage } from '../../i18n.ts'
 
 import {
   actionRowOpen,
-  isBenchType,
-  isEscalatorType,
-  isGateType,
-  isRotatableType,
+  moduleBuilderAttributes,
   isSignType,
-  isStairType,
   useStore,
   type ModuleFamilyKey,
 } from '../../store.ts'
 import { AiOutlineColumnHeight } from 'react-icons/ai'
 import { RiExpandWidthFill } from 'react-icons/ri'
+import { LuArrowUpToLine } from 'react-icons/lu'
+import { LuArrowDownToLine } from 'react-icons/lu'
 import { armedCut } from '../helpers.ts'
-import { stairWidthLabel } from '../../../sim/stairs.ts'
-import { roofWidthLabel } from '../../../sim/structures.ts'
-import type { GateDoor } from '../../../sim/types.ts'
+import type { BuilderAttribute } from '../../store/builderAttributes.ts'
 import { Block } from '../shared/Block.tsx'
 import { PositionTile, RotateTile } from '../shared/RotateTile.tsx'
 import { InlineExpand } from '../shared/InlinePanel.tsx'
 
-/** The 闸机 tile's Tab cycle, in the label the action tile wears. */
-const GATE_DOOR_LABEL: Record<GateDoor, string> = { lane: msg('doors'), fence: msg('fence') }
+import type { AppState } from '../../store/Store.ts'
 
 /**
  * One anchor's action row: the fold, the open rule and the tiles. A folder mounts one
@@ -86,62 +81,29 @@ function ActionTiles(): React.ReactElement {
   useLanguage()
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
-  const moduleRot = useStore((s) => s.moduleRot)
   const lines = useStore((s) => s.station.lines)
   const railLineId = useStore((s) => s.railLineId)
   const floorLine = lines.find((l) => l.id === railLineId) ?? lines.find((l) => l.id === '5') ?? lines[0]
   const guideExitId = useStore((s) => s.guideExitId)
   const exits = useStore((s) => s.station.modules).filter((m) => m.type === 'exit')
   const selectedExitId = exits.find((m) => m.id === guideExitId)?.id ?? exits[0]?.id
-  const lightPosition = useStore((s) => s.lightPosition)
-  const escalatorDir = useStore((s) => s.escalatorDir)
-  const escalatorWide = useStore((s) => s.escalatorWide)
-  const escalatorLong = useStore((s) => s.escalatorLong)
-  const liftStyle = useStore((s) => s.liftStyle)
-  const hangerLength = useStore((s) => s.hangerLength)
-  const curtainWidth = useStore((s) => s.curtainWidth)
-  const psdEndHeight = useStore((s) => s.psdEndHeight)
-  const gateDoor = useStore((s) => s.gateDoor)
-  const stairWidth = useStore((s) => s.stairWidth)
-  const doorWide = useStore((s) => s.doorWide)
-  const stairBlockHeight = useStore((s) => s.stairBlockHeight)
-  const pillarLength = useStore((s) => s.pillarLength)
-  const roofWidth = useStore((s) => s.roofWidth)
   const st = useStore.getState
   // The cut piece the 方块 click will lay, if any: its orientation is the one thing a
   // cut can be told about, and it is the same counter **R** turns.
   const cutArmed = useStore(armedCut)
   const cut = tool === 'block' ? cutArmed : null
   const piece = tool === 'module' ? moduleType : null
+  const state = useStore((s) => s)
   return (
     <>
       {cut !== null ? (
         <RotateTile label={t('rotate')} onClick={() => st().rotateWallSnap()} />
       ) : null}
-      {piece !== null && isRotatableType(piece) ? (
-        piece.startsWith('pillar-slim')
-          ? <PositionTile position={moduleRot} onClick={() => st().rotateModule()} />
-          : <RotateTile label={t('rotate_value', piece === 'light-rectangular' ? (moduleRot % 2) * 90 : ((4 - moduleRot) % 4) * 90)} onClick={() => st().rotateModule()} />
-      ) : null}
-      {piece === 'psd-end' ? (
-        <Block label={translate(psdEndHeight === 'half' ? msg('half_height') : msg('full_height'))} art={<AiOutlineColumnHeight />} shortcut="Tab" onClick={() => st().cyclePsdEndHeight()} />
-      ) : null}
+      {piece !== null ? moduleBuilderAttributes(piece, state).map((attribute, index) => <BuilderAttributeTile key={`${attribute.kind}-${index}`} attribute={attribute} moduleType={piece} state={state} />) : null}
       {piece === 'floor-mark-direction' ? (
         <div className="floorLineTiles" role="group" aria-label={t('choose_floor_guide_line')}>
           {lines.length ? lines.map((line) => <Block key={line.id} label={line.name} tone={line.colour} active={floorLine?.id === line.id} onClick={() => st().setRailLine(line.id)} />) : <span>{t('no_lines_yet')}</span>}
         </div>
-      ) : null}
-      {piece === 'hanger-roof' || piece === 'hanger-post' ? (
-        <Block label={translate(hangerLength === 4 ? msg('short') : hangerLength === 6 ? msg('medium') : msg('long'))} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleHangerLength()} />
-      ) : null}
-      {piece === 'curtain-wall' ? (
-        <Block label={translate(curtainWidth === 1 ? msg('extra_narrow') : curtainWidth === 2 ? msg('narrow') : curtainWidth === 3 ? msg('medium') : msg('wide'))} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleCurtainWidth()} />
-      ) : null}
-      {piece !== null && piece.startsWith('pillar') ? (
-        <Block label={translate(pillarLength === 2 ? msg('short') : msg('long'))} art={<AiOutlineColumnHeight />} shortcut="Tab" onClick={() => st().togglePillarLength()} />
-      ) : null}
-      {piece === 'lift' ? (
-        <Block label={translate(liftStyle === 'glass' ? msg('glass') : msg('steel'))} icon="block" shortcut="Tab" onClick={() => st().cycleLiftStyle()} />
       ) : null}
       {piece === 'guidepost' ? (
         <div className="guideExitTiles" role="group" aria-label={t('choose_exit')}>
@@ -149,9 +111,6 @@ function ActionTiles(): React.ReactElement {
             <button type="button" key={exit.id} aria-pressed={selectedExitId === exit.id} onClick={() => st().setGuideExitId(exit.id)}>{translate(exit.cfg.name || msg('exit'))}</button>
           ))}
         </div>
-      ) : null}
-      {piece === 'light-rectangular' ? (
-        <PositionTile position={lightPosition} shortcut="Tab" onClick={() => st().cycleLightPosition()} />
       ) : null}
       {/* Both 指示牌 mounts — the hung board and the wall board — are composed on the
           same board editor, so the tile follows the piece and not one palette id. */}
@@ -162,48 +121,21 @@ function ActionTiles(): React.ReactElement {
           onClick={() => st().openSignComposer()}
         />
       ) : null}
-      {piece !== null && isBenchType(piece) ? (
-        <Block label={translate(piece.endsWith('-2') ? msg('wide') : msg('narrow'))} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().cycleBenchWidth()} />
-      ) : null}
-      {piece !== null && isStairType(piece) ? (
-        <Block
-          label={translate(piece === 'stair-block' ? stairBlockHeight === 1 ? msg('tall') : msg('low') : stairWidthLabel(stairWidth))}
-          art={piece === 'stair-block' ? <AiOutlineColumnHeight /> : <RiExpandWidthFill />}
-          shortcut="Tab"
-          onClick={() => st().cycleStairWidth()}
-        />
-      ) : null}
-      {piece !== null && piece.startsWith('door-') ? (
-        <Block label={translate(doorWide ? msg('wide') : msg('narrow'))} art={<RiExpandWidthFill />} shortcut="Tab" onClick={() => st().toggleDoorWidth()} />
-      ) : null}
-      {piece !== null && (piece === 'roof-shell' || piece === 'roof-truss' || piece === 'roof-tapered') ? (
-        <Block
-          label={translate(roofWidthLabel(roofWidth))}
-          art={<RiExpandWidthFill />}
-          shortcut="Tab"
-          onClick={() => st().cycleRoofWidth()}
-        />
-      ) : null}
-      {piece !== null && isEscalatorType(piece) ? (
-        <>
-          <Block
-            label={translate(escalatorDir === 'up' ? msg('up') : msg('down'))}
-            icon={escalatorDir === 'up' ? 'up' : 'down'}
-            shortcut="Tab"
-            onClick={() => st().cycleEscalatorDir()}
-          />
-          <Block label={translate(escalatorWide ? msg('wide') : msg('narrow'))} art={<RiExpandWidthFill />} onClick={() => st().toggleEscalatorWidth()} />
-          <Block label={translate(escalatorLong ? msg('long') : msg('short'))} art={<AiOutlineColumnHeight />} onClick={() => st().toggleEscalatorLength()} />
-        </>
-      ) : null}
-      {piece !== null && isGateType(piece) ? (
-        <Block
-          label={translate(GATE_DOOR_LABEL[gateDoor])}
-          icon="turnstile"
-          shortcut="Tab"
-          onClick={() => st().cycleGateDoor()}
-        />
-      ) : null}
     </>
   )
+}
+
+function BuilderAttributeTile({ attribute, moduleType, state }: { attribute: BuilderAttribute; moduleType: string; state: AppState }): React.ReactElement {
+  if (attribute.kind === 'rotation') return <RotateTile label={translate(attribute.label)} onClick={attribute.activate} />
+  if (attribute.visual === 'grid-position') {
+    const position = moduleType.startsWith('pillar-slim') ? state.moduleRot : state.lightPosition
+    return <PositionTile position={position} shortcut={attribute.shortcut} onClick={attribute.activate} />
+  }
+  const art = attribute.kind === 'width' ? <RiExpandWidthFill />
+    : attribute.kind === 'length' || attribute.kind === 'height' ? <AiOutlineColumnHeight />
+    : attribute.kind === 'direction' ? (state.escalatorDir === 'up' ? <LuArrowUpToLine /> : <LuArrowDownToLine />)
+    : attribute.visual === 'roof-snap' ? (state.roofPlateSnap === 'lower' ? <LuArrowDownToLine /> : <LuArrowUpToLine />)
+    : undefined
+  const icon = attribute.kind === 'style' ? (moduleType === 'gate' || moduleType === 'gate-new' ? 'turnstile' : 'block') : undefined
+  return <Block label={translate(attribute.label)} art={art} icon={icon} shortcut={attribute.shortcut} onClick={attribute.activate} />
 }

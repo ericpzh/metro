@@ -9,12 +9,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { moduleAt, moduleEnvelope, placementBlocked, placementOnTrack } from '../src/sim/placement.ts'
+import { moduleAt, moduleEnvelope, moduleFootprint, moduleFloorOk, movedModule, placementBlocked, placementOnTrack } from '../src/sim/placement.ts'
 import { createModule } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { MODULE_OPTIONS, isDecorType, moduleLabel } from '../src/app/store.ts'
 import { sameSweepFamily, sweepFamily } from '../src/app/sweep.ts'
 import { buildModule } from '../src/render/models.ts'
+import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
+import { EXTINGUISHER_SPECS } from '../src/sim/extinguishers.ts'
+import { tForLanguage } from '../src/sim/i18n.ts'
 
 /** The drawn height of each piece, which its collision envelope must reserve. */
 const BIN_H = 0.95
@@ -45,10 +48,7 @@ test('the factory builds both pieces with the hover rotation', () => {
 })
 
 test('the palette files both under 装饰, with their Chinese labels', () => {
-  for (const [id, label] of [
-    ['bin', '垃圾桶'],
-    ['extinguisher', '灭火器'],
-  ]) {
+  for (const [id, label] of [['bin', '垃圾桶']]) {
     const option = MODULE_OPTIONS.find((m) => m.id === id)
     assert.ok(option, `${id} is in the palette`)
     assert.equal(option.label, label)
@@ -57,6 +57,23 @@ test('the palette files both under 装饰, with their Chinese labels', () => {
     assert.equal(isDecorType(id), true, `${id} belongs to the 装饰 folder`)
     assert.equal(moduleLabel(id), label)
   }
+})
+
+test('fire cabinet size names stay 小 / 中 / 大 in both catalogues', () => {
+  const ids = ['extinguisher-compact', 'extinguisher', 'extinguisher-glass']
+  assert.deepEqual(ids.map((id) => MODULE_OPTIONS.find((m) => m.id === id)?.label), ['小', '中', '大'])
+  assert.deepEqual(
+    ['fire_cabinet_small', 'fire_cabinet_medium', 'fire_cabinet_large'].map((key) => tForLanguage('en', key)),
+    ['Small', 'Medium', 'Large'],
+  )
+  assert.deepEqual(
+    ['compact', 'standard', 'glass'].map((variant) => EXTINGUISHER_SPECS[variant].label),
+    ['小', '中', '大'],
+  )
+  assert.deepEqual(
+    ['compact', 'standard', 'glass'].map((variant) => EXTINGUISHER_SPECS[variant].height),
+    [0.5, 1.1, 2],
+  )
 })
 
 test('each piece reserves its own cell, up to the height it is drawn to', () => {
@@ -210,4 +227,57 @@ test('the 灭火器箱 is a red steel box on four legs, lettered in white', () =
   assert.ok(letters[0].geometry.parameters.height >= 0.7, 'the plate covers both doors')
   // The recessed handle is on the +x side, outside the carcass.
   assert.ok(meshes.some((m) => m.position.x > 0.35), 'the handle is on the side')
+})
+
+test('compact and glazed cabinets preserve size, save, move and preview identity', () => {
+  for (const [id, variant, height, width] of [
+    ['extinguisher-compact', 'compact', 0.5, 0.5],
+    ['extinguisher-glass', 'glass', 2, 1.5],
+  ]) {
+    for (let rot = 0; rot < 4; rot++) {
+      const mod = createModule(id, 0, 0, 0, id, rot)
+      assert.equal(mod.cfg.variant, variant)
+      assert.equal(isDecorType(id), true)
+      const env = moduleEnvelope(mod)
+      const { box } = build(mod)
+      const size = box.getSize(new THREE.Vector3())
+      assert.ok(Math.abs(size.z - height) < 1e-6, `${id} is ${height} m tall`)
+      assert.ok(Math.abs((rot % 2 ? size.y : size.x) - width) < 0.001, `${id} is ${width} m wide`)
+      assert.ok(box.min.x + 0.5 >= env.x0 - 1e-6 && box.max.x + 0.5 <= env.x1 + 1e-6, 'model fits reserved x')
+      assert.ok(box.min.y + 0.5 >= env.y0 - 1e-6 && box.max.y + 0.5 <= env.y1 + 1e-6, 'model fits reserved y')
+      assert.equal(env.z1 - env.z0, height)
+      const saved = parse(serialize({ ...flatStation(), modules: [mod] }))
+      assert.equal(saved.ok, true)
+      assert.deepEqual(saved.state.modules[0], mod)
+      assert.equal(movedModule(mod, { x: 5, y: 5, z: -4 }, rot).cfg.variant, variant)
+      assert.notEqual(moduleGhostKey(mod), moduleGhostKey(fire(0, 0, 0, 'legacy', rot)))
+      assert.equal(sameSweepFamily(mod, fire(0, 0)), false, 'a sweep leaves other cabinet sizes')
+    }
+  }
+})
+
+test('the large cabinet needs both floor cells and blocks equipment under its full height', () => {
+  const mod = createModule('extinguisher-glass', 2, 2, -4, 'glass')
+  assert.deepEqual(moduleFootprint(mod), [[2, 2], [3, 2]])
+  const floor = [{ x: 2, y: 2, z: -4, fill: 'solid' }]
+  assert.equal(moduleFloorOk(floor, [], mod), false)
+  floor.push({ x: 3, y: 2, z: -4, fill: 'solid' })
+  assert.equal(moduleFloorOk(floor, [], mod), true)
+  assert.equal(placementBlocked([mod], bin(3, 2, -4)), true, 'the far half is reserved')
+  assert.equal(placementBlocked([mod], bin(2, 2, -3)), true, 'equipment cannot enter the upper half')
+  assert.equal(placementBlocked([mod], bin(4, 2, -4)), false)
+  assert.equal(placementOnTrack([{ ...floor[1], finish: { top: 'floor.track' } }], mod, []), true)
+})
+
+test('the glass cabinet has two clear door apertures with equipment behind them', () => {
+  const { mats, meshes } = build(createModule('extinguisher-glass', 0, 0, 0, 'glass'))
+  const panes = meshes.filter((m) => m.material === mats.glass)
+  assert.equal(panes.length, 2)
+  assert.ok(panes.every((m) => m.geometry.type === 'PlaneGeometry'), 'one glass surface per aperture')
+  assert.ok(meshes.some((m) => m.material === mats.exitRed && m.geometry.type === 'CylinderGeometry'), 'visible extinguishers inside')
+  const ray = new THREE.Raycaster(new THREE.Vector3(1.1, -1, 2.6), new THREE.Vector3(0, 1, 0))
+  const front = Math.min(...panes.map((m) => meshBox(m).min.y)) + 0.5
+  const blocking = meshes.filter((m) => m.material !== mats.glass && m.material !== mats.fireStationLabels)
+  const first = ray.intersectObjects(blocking, false)[0]
+  assert.ok(first && first.point.y > front + 0.2, 'the aperture is open all the way to the back wall')
 })

@@ -1,5 +1,5 @@
 // The two folder ladders (`app/rail/helpers.ts`): **Shift+1** opens the build rail's
-// first folder, the 工具 folder, and 2 through 7 follow the folders below it — while the
+// first folder, the 工具 folder, and 2 through 0 follow the folders below it — while the
 // 信息栏's stack answers to **Alt+1 through Alt+4** (信息, 视图, 出入口, 线路).
 //
 // One column, one table, one modifier: `RAIL_FOLDERS` is the rail's stack and
@@ -9,7 +9,7 @@
 // listener turns a modified number into the folder it names, wherever that folder lives.
 //
 // **视图's own body is pinned here too**, because it is the one folder whose *shape* is a
-// decision rather than data: its eight tiles in reading order — the three modes, the three
+// decision rather than data: its nine tiles in reading order — the three modes, the three
 // surfaces taken away, the two overlays — with 剖切's folded-out row at the foot of the row
 // 剖切 sits in, the header's count matching the tiles, and the folder opening with the app.
 import test from 'node:test'
@@ -18,20 +18,30 @@ import fs from 'node:fs'
 import { msg } from '../src/sim/i18n.ts'
 import { INSPECTOR_FOLDERS, RAIL_FOLDERS, folderForAltKey, folderForShiftKey } from '../src/app/rail/helpers.ts'
 
-test('the rail is Shift+1 through Shift+7, one number a row down the stack', () => {
+test('the rail is Shift+1 through Shift+0, one number a row down the stack', () => {
   assert.deepEqual(
     RAIL_FOLDERS.map((f) => f.shift),
-    ['1', '2', '3', '4', '5', '6', '7'],
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
   )
   assert.deepEqual(RAIL_FOLDERS[0], { key: 'tools', title: '工具', shift: '1' }, 'Shift+1 is the 工具 folder, the one already open')
   assert.deepEqual(RAIL_FOLDERS[1], { key: 'rail', title: '结构', shift: '2' })
   assert.equal(RAIL_FOLDERS.at(-1).key, 'zones', '分区 ends the column')
 })
 
-test('材质 sits directly above 房间, and every other folder keeps its place', () => {
+test('the four decor groups are top-level folders with their own shortcuts', () => {
   const keys = RAIL_FOLDERS.map((f) => f.key)
-  assert.equal(keys.indexOf('rooms') - keys.indexOf('surfaces'), 1, '材质 is the row above 房间')
-  assert.deepEqual(keys, ['tools', 'rail', 'equipment', 'decor', 'surfaces', 'rooms', 'zones'])
+  assert.deepEqual(keys, ['tools', 'rail', 'equipment', 'decorCeiling', 'decorWall', 'decorFloor', 'decorOutside', 'surfaces', 'rooms', 'zones'])
+  assert.deepEqual(RAIL_FOLDERS.slice(3, 7).map((f) => f.title), ['天花板装饰', '墙面装饰', '地面装饰', '站外装饰'])
+})
+
+test('the folder tabs continue one diagonal through the last two rail rows', () => {
+  const css = read('../src/styles.css')
+  const positions = [...css.matchAll(/\.folder:nth-of-type\((\d+)\)\s*\{\s*--tab-x:\s*(\d+)px;/g)]
+    .map((match) => [Number(match[1]), Number(match[2])])
+  assert.deepEqual(positions, Array.from({ length: 10 }, (_, i) => [i + 1, 8 + i * 10]))
+  // 房间 and 分区 are the last two rows and must keep stepping right along the same
+  // diagonal after the decor folders were inserted above them.
+  assert.deepEqual(positions.slice(-2), [[9, 88], [10, 98]])
 })
 
 test('the 信息栏 is Alt+1 through Alt+4 over its own four folders, in stack order', () => {
@@ -71,10 +81,13 @@ test('a folder stands on one key and a key on one folder, within its own column'
 test('a modified number resolves to its own column and nothing else does', () => {
   // AppShell resolves DigitN from KeyboardEvent.code because Shift+DigitN changes key.
   assert.equal(folderForShiftKey('1'), 'tools')
-  assert.equal(folderForShiftKey('5'), 'surfaces')
-  assert.equal(folderForShiftKey('6'), 'rooms')
-  assert.equal(folderForShiftKey('7'), 'zones')
-  assert.equal(folderForShiftKey('8'), null)
+  assert.equal(folderForShiftKey('4'), 'decorCeiling')
+  assert.equal(folderForShiftKey('5'), 'decorWall')
+  assert.equal(folderForShiftKey('6'), 'decorFloor')
+  assert.equal(folderForShiftKey('7'), 'decorOutside')
+  assert.equal(folderForShiftKey('8'), 'surfaces')
+  assert.equal(folderForShiftKey('9'), 'rooms')
+  assert.equal(folderForShiftKey('0'), 'zones')
 
   assert.equal(folderForAltKey('1'), 'info', 'Alt+1 is the 信息栏’s first row')
   assert.equal(folderForAltKey('2'), 'view')
@@ -82,9 +95,7 @@ test('a modified number resolves to its own column and nothing else does', () =>
   assert.equal(folderForAltKey('4'), 'lines')
   // Neither lookup answers for the other column: the modifier is what tells them apart.
   assert.equal(folderForAltKey('5'), null, 'Alt+5 names no 信息栏 folder')
-  assert.equal(folderForShiftKey('8'), null)
   assert.equal(folderForAltKey('9'), null)
-  assert.equal(folderForShiftKey('9'), null, '9 is the next slot on the rail ladder, and empty')
   assert.equal(folderForAltKey('0'), null, 'a number the ladder does not use hands the key back')
   assert.equal(folderForAltKey('alt'), null, 'the modifier alone is not a folder')
   assert.equal(folderForShiftKey(''), null)

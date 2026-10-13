@@ -14,7 +14,7 @@ import type { Module } from '../sim/types.ts'
 import { shelfVariant } from '../sim/shelves.ts'
 import { benchSpec } from '../sim/benches.ts'
 import { billboardSpec } from '../sim/billboards.ts'
-import { glassSpec } from '../sim/glassPanels.ts'
+import { glassModuleSpec } from '../sim/glassPanels.ts'
 import { doorSpec } from '../sim/doors.ts'
 import { lineMapSpec } from '../sim/linemaps.ts'
 import { signMountSpec } from '../sim/sign.ts'
@@ -82,6 +82,9 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
  * same piece as a hand-placed one.
  */
 export function sweepFamily(mod: Module): string | null {
+  if (mod.type === 'monitor') return `monitor:${mod.cfg.mount}`
+  if (mod.type === 'rail-signal') return mod.type
+  if (mod.type === 'extinguisher') return mod.cfg.variant === 'compact' || mod.cfg.variant === 'glass' ? `extinguisher-${mod.cfg.variant}` : 'extinguisher'
   if (mod.type === 'gate') return mod.cfg.variant === 'new' ? 'gate-new' : 'gate'
   if (mod.type === 'psd-end') return `psd-end:${mod.cfg.psd}`
   if (mod.type === 'floor-mark') return `floor-mark:${mod.cfg.variant}`
@@ -97,7 +100,7 @@ export function sweepFamily(mod: Module): string | null {
   // A 玻璃板 sweeps by size: a 2 × 2 window does not collect the 1 m bands beside
   // it. A 站名 sweeps by hand and axis, and a 线网图 by mount, so a drag takes the
   // wall maps and leaves the totems (and vice versa).
-  if (mod.type === 'glass') return `glass:${glassSpec(mod.cfg?.variant).variant}`
+  if (mod.type === 'glass') return `glass:${glassModuleSpec(mod.cfg?.variant, mod.cfg?.curtainHeight).variant}:${mod.cfg?.curtainHeight ?? ''}`
   // A 门 sweeps by variant too: a 双开 stainless door does not collect the single
   // wooden ones beside it, and a drag takes the doors of one finish only.
   if (mod.type === 'door') return `door:${doorSpec(mod.cfg?.variant).variant}`

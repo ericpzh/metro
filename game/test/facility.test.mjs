@@ -18,6 +18,7 @@ import {
   facilityPlan,
   facilityRect,
   facilityWallCells,
+  boothBenchSpots,
   placeFacility,
   removeFacility,
   SHOP_WALL_H,
@@ -87,6 +88,25 @@ test('a booth adds no solid cells — it is a desk, not a wall', () => {
   assert.ok(!next.cells.some((c) => c.z > 0), 'the booth placed a voxel base')
   assert.equal(next.cells.length, 100, 'the booth changed the floor')
   assert.equal(mod.cfg.door, undefined, 'a booth should have no door')
+})
+
+test('the booth front selects the desktop side and keeps benches on the opposite side', () => {
+  const r = facilityRect([1, 1, 0], [4, 4, 0], 0)
+  const expected = [
+    [[2, 3, 2], [3, 3, 2]],
+    [[1, 2, 3], [1, 3, 3]],
+    [[2, 1, 0], [3, 1, 0]],
+    [[3, 2, 1], [3, 3, 1]],
+  ]
+  for (let front = 0; front < 4; front++) {
+    const state = placeFacility(flatStation(), 'ticket', r, `booth-${front}`, front)
+    const booth = state.modules.find((m) => m.type === 'booth')
+    assert.equal(booth.cfg.front, front, `front ${front} was saved with the booth`)
+    const benches = state.modules.filter((m) => m.type === 'bench')
+      .map((m) => [m.x, m.y, m.rot]).sort((a, b) => a[0] - b[0] || a[1] - b[1])
+    assert.deepEqual(benches, expected[front], `front ${front} keeps staff seats opposite its counter`)
+    assert.deepEqual(boothBenchSpots(r, front).map((s) => [s.x, s.y, s.rot]).sort((a, b) => a[0] - b[0] || a[1] - b[1]), expected[front])
+  }
 })
 
 test('right-click carves player-built walls of any size, anywhere on the wall', () => {

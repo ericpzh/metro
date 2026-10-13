@@ -101,6 +101,17 @@ When a behaviour change touches the sim, the README's rule stands: keep `sim/`
 pure, add a focused `.test.mjs`, and update `game/README.md` if the change is
 player-visible.
 
+The build rail's category membership and tile order are pinned in
+`rail-families.test.mjs`; its top-level folder names, shortcuts, and diagonal tab
+positions are pinned in `rail-folders.test.mjs`. Update both the corresponding
+README test lists and `.agents/skills/metro-game/SKILL.md` when those palette
+rules change.
+
+For a thin roof snap change, keep the quarter-metre model bounds, collision bounds and
+storey slicing in agreement in `overground.test.mjs`; keep pointer priority (roof,
+then block outside face, then active view height), the 上 / 下 control and icon wiring,
+and preview/release agreement in `roof-tool.test.mjs`.
+
 New-behaviour pins: `booth-sign` (booth-header snap, faces, bounds, save/move),
 `gate-traffic` (forecast reservations, directional drain, cleanup, wait
 accounting), `diagonal-walk` (√2 cost, 2×2 clearance, barrier awareness),
@@ -108,6 +119,16 @@ accounting), `diagonal-walk` (√2 cost, 2×2 clearance, barrier awareness),
 `touch-zoom` (pinch direction, cancel, release suppression),
 `sim-pause` (escalator bands, gate leaves and train/screen doors hold while
 paused; consists settle; orchestrator forwarding).
+
+Model integration coverage lives in `passenger-library`, `passenger-size`,
+`passenger-view`, `capture-passengers` and `passenger-art-pipeline`: all sixteen
+templates and walks, equal adult/child pools, 20% child selection, separate age
+size ranges, body/shadow axes, 70% opacity, pause, picking and physical stride.
+The art validator must reject missing child frames and bagged/bald child cards.
+Browser geometry/strap/hem/GPU checks live in `tools/check-model-*.mjs` and
+`check-game-passenger-library.mjs`; model preview rules have their own deterministic
+`npm --prefix model test`. The boarding capacity fixture uses a one-car train and
+no alighting, so changes in stride do not turn its counter into an alighting test.
 
 For the fitted 门 / 玻璃幕墙 joint, keep the snap arithmetic in the pure placement
 module and pin a rotated curtain, a door clamped inside its run, allowed fitted overlap,

@@ -24,22 +24,22 @@ try {
     writeFileSync(join(out, file), Buffer.from(png.split(',')[1], 'base64'));
     return { ...item, file };
   });
-  const images = await session.evaluate('window.__passengerCards.capturePassengers()');
+  const images = await session.evaluate("[...window.__passengerCards.capturePassengers(),...window.__passengerCards.capturePassengers({age:'child'})]");
   const index = save(images);
   writeFileSync(join(out, 'index.json'), JSON.stringify(index, null, 2));
   // Keep each CDP response bounded: returning every direction at once can exceed
   // the debugging connection's message limit and leave a capture waiting forever.
   const cycle = [];
-  for (const [view, headings] of [['iso', Array.from({ length: 8 }, (_, i) => i * Math.PI / 4)],
+  for (const age of ['adult','child']) for (const [view, headings] of [['iso', Array.from({ length: 8 }, (_, i) => i * Math.PI / 4)],
     ['elevation', [0, Math.PI]], ['plan', [0]]]) {
     for (const heading of headings) for (const cycleVariants of batches) {
       cycle.push(...save(await session.evaluate(`window.__passengerCards.capturePassengers(${JSON.stringify({
-        walkCycles: true, cycleView: view, cycleHeading: heading, cycleVariants,
+        age, walkCycles: true, cycleView: view, cycleHeading: heading, cycleVariants,
       })})`)));
-      console.log(`walking capture: ${view}, heading ${heading.toFixed(2)}, variants ${cycleVariants.join(',')}`);
+      console.log(`walking capture: ${age}, ${view}, heading ${heading.toFixed(2)}, variants ${cycleVariants.join(',')}`);
     }
   }
-  validatePassengerCaptures(index, cycle, atlas.library, atlas.walkFrames);
+  validatePassengerCaptures(index, cycle, atlas.library, atlas.walkFrames, true);
   writeFileSync(join(out, 'manifest.json'), JSON.stringify({atlasSha256:createHash('sha256').update(atlasBytes).digest('hex'), models:atlas.library.map(m=>({id:m.id,sourceSha256:m.sourceSha256})), standingSamples:index.length, walkingFrames:cycle.length},null,2));
   writeFileSync(join(out, 'walking-index.json'), JSON.stringify(cycle, null, 2));
   console.log(`walking captures: ${cycle.length} stride frames`);

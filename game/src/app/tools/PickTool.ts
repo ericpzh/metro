@@ -83,7 +83,7 @@ function paletteIdForModule(mod: Module): string | null {
       id = `billboard-${mod.cfg.variant ?? 'wide'}`
       break
     case 'glass':
-      id = (mod.cfg.variant ?? '').endsWith('x4') ? 'curtain-wall' : `glass-${mod.cfg.variant ?? '1x1'}`
+      id = mod.cfg.curtainHeight !== undefined || (mod.cfg.variant ?? '').endsWith('x4') ? 'curtain-wall' : `glass-${mod.cfg.variant ?? '1x1'}`
       break
     case 'door':
       id = `door-${(mod.cfg.variant ?? 'steel-1').split('-')[0]}-1`
@@ -93,6 +93,9 @@ function paletteIdForModule(mod: Module): string | null {
       break
     case 'linemap':
       id = mod.cfg.mount === 'stand' ? 'linemap-stand' : 'linemap-wall'
+      break
+    case 'monitor':
+      id = mod.cfg.mount === 'wall' ? 'monitor-wall' : 'monitor-ceiling'
       break
     case 'sign':
       // The two mounts are two tiles, so a picked sign arms the one it was hung as —
@@ -129,6 +132,9 @@ function paletteIdForModule(mod: Module): string | null {
     case 'gate':
       id = mod.cfg.variant === 'new' ? 'gate-new' : 'gate'
       break
+    case 'extinguisher':
+      id = mod.cfg.variant === 'compact' ? 'extinguisher-compact' : mod.cfg.variant === 'glass' ? 'extinguisher-glass' : 'extinguisher'
+      break
     case 'psd-end':
     case 'guidepost':
     case 'tvm':
@@ -138,9 +144,9 @@ function paletteIdForModule(mod: Module): string | null {
     case 'cubicle':
     case 'sink':
     case 'bin':
-    case 'extinguisher':
     case 'vent':
     case 'clock':
+    case 'rail-signal':
     case 'tv':
     case 'escalator':
     case 'lift':
@@ -234,7 +240,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
       st.setModuleType(optionId)
       if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
-      if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4 })
+      if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4, curtainHeight: mod.cfg.curtainHeight ?? 4 })
       if (mod.type === 'psd-end') useStore.setState({ psdEndHeight: mod.cfg.psd })
       if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
       if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)

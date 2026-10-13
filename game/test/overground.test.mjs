@@ -122,6 +122,20 @@ test('the roof places as a fixed 1x1 quarter-metre tile and uses the material fi
   assert.equal(equipmentReason([], [m], { ...beside, x: 0 }, true), 'occupied')
 })
 
+test('thin roof upper and lower snaps meet the corresponding block boundaries', () => {
+  const base = createModule('roof', 0, 0, 3, 'roof')
+  for (const [plateSnap, expected] of [['lower', [3, 3.25]], ['upper', [3.75, 4]]]) {
+    const roof = { ...base, cfg: { ...base.cfg, plateSnap } }
+    const envelope = moduleEnvelope(roof)
+    const model = new RoofModel(ctx).build(roof)
+    const bounds = new THREE.Box3().setFromObject(model)
+    assert.deepEqual([envelope.z0, envelope.z1], expected, `${plateSnap} collision bounds touch the cell boundary`)
+    assert.ok(Math.abs(bounds.min.z - expected[0]) < 1e-6, `${plateSnap} rendered slab begins at the matching bound`)
+    assert.ok(Math.abs(bounds.max.z - expected[1]) < 1e-6, `${plateSnap} rendered slab ends at the matching bound`)
+    assert.deepEqual(moduleLevels(roof), [0], `${plateSnap} remains assigned to the same four-metre storey band`)
+  }
+})
+
 test('both truss styles paint only their roof sheets and retain metal supports at every width', () => {
   const metal = new THREE.MeshStandardMaterial({ color: 0xb7bdc4, metalness: 0.4 })
   for (const [style, prefix] of [['truss', 'roof-truss'], ['tapered-truss', 'roof-tapered']]) {

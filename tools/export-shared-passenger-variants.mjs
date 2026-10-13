@@ -1,5 +1,6 @@
-import {readFileSync,writeFileSync,renameSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
+import {writeAsset} from '../model/scripts/write-asset.mjs';
 import * as THREE from '../model/node_modules/three/build/three.module.js';
 import {GLTFLoader} from '../model/node_modules/three/examples/jsm/loaders/GLTFLoader.js';
 import {GLTFExporter} from '../model/node_modules/three/examples/jsm/exporters/GLTFExporter.js';
@@ -29,10 +30,11 @@ export async function exportSharedPassengerVariants(){
   rig.setBag(bag);rig.setHairstyle(style);
   const name=bag?(style==='bob'?'passenger-female-walk.glb':`passenger-female-${style}-walk.glb`):`passenger-female-no-bag-${style}-walk.glb`;
   const binary=await withTrimmedStrapSurface(rig.model,()=>new GLTFExporter().parseAsync(rig.model,{binary:true,animations:clips}));
-  const path=fileURLToPath(new URL('../prototypes/passenger-female-shared/'+name,import.meta.url)),temporary=path+`.${process.pid}.tmp`;
-  writeFileSync(temporary,Buffer.from(binary));renameSync(temporary,path);console.log(`${name}: ${binary.byteLength} bytes`);
+  const path=fileURLToPath(new URL('../prototypes/passenger-female-shared/'+name,import.meta.url));
+  await writeAsset(path,Buffer.from(binary));
+  console.log(`${name}: ${binary.byteLength} bytes`);
  }
  rig.setBag(true);rig.setHairstyle('bob');
- const flat=await new GLTFExporter().parseAsync(rig.model,{binary:true});writeFileSync(new URL('../prototypes/passenger-female-shared/passenger-female-flat.glb',import.meta.url),Buffer.from(flat));
+ const flat=await new GLTFExporter().parseAsync(rig.model,{binary:true});await writeAsset(new URL('../prototypes/passenger-female-shared/passenger-female-flat.glb',import.meta.url),Buffer.from(flat));
 }
 if(process.argv[1]===fileURLToPath(import.meta.url))await exportSharedPassengerVariants();

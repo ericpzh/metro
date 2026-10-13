@@ -563,6 +563,10 @@ export class SceneRenderer {
     return this.cameraSys.pickModuleHit(clientX, clientY)
   }
 
+  pickRoofModuleNear(clientX: number, clientY: number, moduleIds: ReadonlySet<string>, radiusPx = 24): { moduleId: string; point: [number, number, number] } | null {
+    return this.cameraSys.pickRoofModuleNear(clientX, clientY, moduleIds, radiusPx)
+  }
+
   pickFacing(): [number, number] {
     return this.cameraSys.pickFacing()
   }

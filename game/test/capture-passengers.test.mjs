@@ -27,6 +27,7 @@ test('the capture route exposes the passenger capture once it is ready', () => {
   const driver = readTool('render-passenger-cards.mjs')
   assert.ok(driver.includes('!!window.__passengerCardsReady'), 'the driver must wait for readiness, not sleep')
   assert.ok(driver.includes('window.__passengerCards.capturePassengers()'), 'the index capture call is missing')
+  assert.ok(driver.includes("capturePassengers({age:'child'})"), 'the art must capture smaller children as well as adult catalogue templates')
   assert.ok(driver.includes('walkCycles: true') && driver.includes('cycleView: view') && driver.includes('cycleHeading: heading'),
     'gait cycles must be captured in bounded camera/heading batches')
 })
@@ -58,7 +59,7 @@ test('every field the sheet tools place by comes out of the capture', () => {
   // `stride` is the model's own gait length, not a second copy of it: the sheet
   // divides it by path speed for the animation duration, so a missing or
   // hand-written value is a NaN animation — invisible walkers, no error.
-  assert.ok(push.includes('stride: profile.stride') && capture.includes('PASSENGER_WALK_PROFILES'), 'the gait cycle must come from the selected passenger walk profile')
+  assert.ok(push.includes('stride: profile.stride * appearance[2]') && capture.includes('PASSENGER_WALK_PROFILES'), 'the gait cycle must follow the physical stride after fore/aft size scaling')
   // The driver turns each data URL into the file the sheets place by.
   assert.ok(readTool('render-passenger-cards.mjs').includes('Buffer.from(png.split'),
     'the driver must save capture pngs to the files the sheets read')

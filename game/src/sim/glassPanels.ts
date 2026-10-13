@@ -12,7 +12,7 @@ import { msg } from './i18n.ts'
 //     three windows butted together.
 //   * **It comes in sizes.** Short panels are wall-mounted; the 2×4, 3×4 and 4×4
 //     panels stand on a floor edge like a doorway. Short sizes use the 玻璃板 sub-menu; the tall panels use the separate
-//     玻璃幕墙 tile, with Tab cycling 窄 / 中 / 宽.
+//     玻璃幕墙 tile, with separate width and height choices (短 / 中 / 长).
 //
 // This one table is shared by the builder (the module it creates), the placement
 // rules (its run, its height and the wall courses it needs behind it), the
@@ -30,6 +30,8 @@ export interface GlassSpec {
   w: number
   /** Panel height in metres, measured from the floor top up. */
   h: number
+  /** Curtain-wall pieces stand on the floor edge at every offered height. */
+  floorStanding?: boolean
 }
 
 export const GLASS_SPECS: Record<GlassVariant, GlassSpec> = {
@@ -48,8 +50,8 @@ export const GLASS_SPECS: Record<GlassVariant, GlassSpec> = {
 /** Every size, in palette order: the 1 m band first, the tall ones after it. */
 export const GLASS_VARIANTS: readonly GlassVariant[] = ['1x1', '2x1', '3x1', '1x2', '2x2', '3x2', '1x4', '2x4', '3x4', '4x4']
 
-/** The four-metre panels stand on floor edges like a doorway instead of needing a wall. */
-export function glassStandsOnFloor(spec: GlassSpec): boolean { return spec.h >= 4 }
+/** Four-metre panels and explicit 玻璃幕墙 variants stand on floor edges like a doorway. */
+export function glassStandsOnFloor(spec: GlassSpec): boolean { return spec.floorStanding ?? spec.h >= 4 }
 
 /** The size the palette shows first in the 玻璃板 sub-menu. */
 export const DEFAULT_GLASS_VARIANT: GlassVariant = '1x1'
@@ -57,6 +59,14 @@ export const DEFAULT_GLASS_VARIANT: GlassVariant = '1x1'
 /** The spec for a size, defaulting to the single-cell 1 m panel for a legacy value. */
 export function glassSpec(variant: GlassVariant | undefined): GlassSpec {
   return GLASS_SPECS[variant ?? DEFAULT_GLASS_VARIANT] ?? GLASS_SPECS[DEFAULT_GLASS_VARIANT]
+}
+
+/** The 玻璃幕墙 uses the same width variants as the 4 m catalogue entry, with its
+ * selected height carried separately so 2 m curtain walls remain distinct from
+ * wall-mounted 2 m 玻璃板 pieces. */
+export function glassModuleSpec(variant: GlassVariant | undefined, curtainHeight?: 2 | 3 | 4): GlassSpec {
+  const spec = glassSpec(variant)
+  return curtainHeight === undefined ? spec : { ...spec, h: curtainHeight, floorStanding: true }
 }
 
 /**

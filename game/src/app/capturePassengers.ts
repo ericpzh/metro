@@ -2,10 +2,11 @@
 // the live crowd (§9.5). Capture with alpha; sheet placement keeps the foot origin.
 import * as THREE from 'three'
 import { passengerMesh, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_LIBRARY, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES } from '../render/passengerModel.ts'
-import { passengerWalkProfile } from '../sim/walking.ts'
+import { passengerIsChild, passengerWalkProfile } from '../sim/walking.ts'
 
-export function capturePassengers(options: { walkCycles?: boolean; cycleView?: string; cycleHeading?: number; walkProfile?: number; cycleVariants?: number[] } = {}) {
+export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles?: boolean; cycleView?: string; cycleHeading?: number; walkProfile?: number; cycleVariants?: number[] } = {}) {
   const cycles = options.walkCycles === true
+  const age = options.age ?? 'adult'
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true })
   renderer.setSize(192, 256)
   renderer.setClearColor(0x000000, 0)
@@ -33,6 +34,7 @@ export function capturePassengers(options: { walkCycles?: boolean; cycleView?: s
     camera.updateMatrixWorld()
     const origin = new THREE.Vector3().project(camera)
     for (let variant = 0; variant < PASSENGER_OUTFITS.length; variant++) {
+      if (age === 'child' && (PASSENGER_LIBRARY[variant].bag || PASSENGER_LIBRARY[variant].hair === 'bald')) continue
       if (cycles && options.cycleVariants && !options.cycleVariants.includes(variant)) continue
       outfit.setX(0, variant)
       outfit.needsUpdate = true
@@ -43,14 +45,17 @@ export function capturePassengers(options: { walkCycles?: boolean; cycleView?: s
       for (const cycleHeading of headings) for (let sample = 0; sample < (cycles ? PASSENGER_WALK_FRAMES : 4); sample++) {
         if (cycles && options.cycleHeading !== undefined && cycleHeading !== options.cycleHeading) continue
         const walking = cycles || sample !== 0
-        const identity = variant * 4 + (cycles ? 1 : sample)
+        let identity = variant * 4 + (cycles ? 1 : sample)
+        // Each complete stride keeps one identity at the requested age. Child
+        // cards reuse only bagless templates with hair, as the live crowd does.
+        while (passengerIsChild(identity + 73) !== (age === 'child')) identity += PASSENGER_OUTFITS.length * 4
         const appearance = passengerAppearance(identity + 73)
         const heading = cycleHeading ?? ((identity * 5) % 8) * Math.PI / 4
         const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), heading)
         mesh.setMatrixAt(0, new THREE.Matrix4().compose(new THREE.Vector3(), rotation,
-          new THREE.Vector3(appearance[2], appearance[2], appearance[1])))
+          new THREE.Vector3(appearance[2], appearance[3], appearance[1])))
         mesh.instanceMatrix.needsUpdate = true
-        mesh.setColorAt(0, new THREE.Color(appearance[3], appearance[3], appearance[3]))
+        mesh.setColorAt(0, new THREE.Color(appearance[4], appearance[4], appearance[4]))
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
         const profile = PASSENGER_WALK_PROFILES[options.walkProfile ?? passengerWalkProfile(identity+73)]
         const index = cycles ? sample : (variant * 7 + sample * 5) % PASSENGER_WALK_FRAMES
@@ -58,9 +63,9 @@ export function capturePassengers(options: { walkCycles?: boolean; cycleView?: s
         pose.setXYZW(0, frame, profile.firstFrame+(index+1)%PASSENGER_WALK_FRAMES, cycles ? 0 : .35, walking ? 1 : 0)
         pose.needsUpdate = true
         renderer.render(scene, camera)
-        images.push({ id: `${view}-${cycles ? `cycle-${cycleHeading}-` : ''}${variant}-${sample}`, view, variant, sample, identity, heading, frame,
+        images.push({ id: `${age === 'child' ? 'child-' : ''}${view}-${cycles ? `cycle-${cycleHeading}-` : ''}${variant}-${sample}`, age, view, variant, sample, identity, heading, frame,
           model: PASSENGER_OUTFITS[variant], sourceSha256: PASSENGER_LIBRARY[variant].sourceSha256,
-          walking, stride: profile.stride, walkProfile: profile.name, width: 192, height: 256, pixelsPerMetre: 256 / 2.8,
+          walking, stride: profile.stride * appearance[2], walkProfile: profile.name, width: 192, height: 256, pixelsPerMetre: 256 / 2.8,
           origin: [(origin.x + 1) * 96, (1 - origin.y) * 128],
           png: renderer.domElement.toDataURL('image/png') })
       }

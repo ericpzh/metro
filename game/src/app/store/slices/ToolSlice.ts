@@ -85,6 +85,8 @@ export interface ToolSlice {
   pillarLength: 2 | 4
   /** Width across a truss roof, cycled 窄 4 m → 中 8 m → 宽 12 m with Tab. */
   roofWidth: number
+  /** Thin roof plate position against the hit 1 m cell, cycled lower/upper with Tab. */
+  roofPlateSnap: 'lower' | 'upper'
   /** Escalator travel direction, cycled with Tab (up/down). */
   escalatorDir: 'up' | 'down'
   /** Whether a newly placed escalator spans two blocks. */
@@ -107,11 +109,16 @@ export interface ToolSlice {
   cycleHangerLength: () => void
   curtainWidth: 1 | 2 | 3 | 4
   cycleCurtainWidth: () => void
+  curtainHeight: 2 | 3 | 4
+  cycleCurtainHeight: () => void
   psdEndHeight: 'half' | 'full'
   cyclePsdEndHeight: () => void
   gateDoor: GateDoor
   /** Active fare-zone brush, or a facility room (§5.7) built by rectangle. */
   zoneBrush: ZoneBrush
+  /** Which side of a service room is its public front (the desktop/counter side). */
+  facilityRot: number
+  rotateFacility: () => void
   zoneOverlayOn: boolean
 
   setTool: (t: Tool) => void
@@ -171,6 +178,7 @@ export interface ToolSlice {
   togglePillarLength: () => void
   cycleRoofWidth: () => void
   setRoofWidth: (width: number) => void
+  cycleRoofPlateSnap: () => void
   /** Flip the escalator travel direction up ↔ down (Tab). */
   cycleEscalatorDir: () => void
   /** Toggle a narrow or two-block-wide escalator from its rail tile. */
@@ -216,6 +224,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   stairBlockHeight: 1,
   pillarLength: 4,
   roofWidth: 4,
+  roofPlateSnap: 'upper',
   escalatorDir: 'up',
   escalatorWide: false,
   escalatorLong: false,
@@ -231,10 +240,13 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleHangerLength: () => set((s) => ({ hangerLength: s.hangerLength === 4 ? 6 : s.hangerLength === 6 ? 8 : 4 })),
   curtainWidth: 2,
   cycleCurtainWidth: () => set((s) => ({ curtainWidth: s.curtainWidth === 1 ? 2 : s.curtainWidth === 2 ? 3 : s.curtainWidth === 3 ? 4 : 1 })),
+  curtainHeight: 4,
+  cycleCurtainHeight: () => set((s) => ({ curtainHeight: s.curtainHeight === 2 ? 3 : s.curtainHeight === 3 ? 4 : 2 })),
   psdEndHeight: 'half',
   cyclePsdEndHeight: () => set((s) => ({ psdEndHeight: s.psdEndHeight === 'half' ? 'full' : 'half' })),
   gateDoor: 'lane',
   zoneBrush: DEFAULT_ZONE_BRUSH,
+  facilityRot: 0,
   zoneOverlayOn: false,
 
   setTool: (t) => set((s) => ({
@@ -281,6 +293,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
     : {}),
   cycleRoofWidth: () => set((s) => ({ roofWidth: nextRoofWidth(s.roofWidth) })),
   setRoofWidth: (width) => set({ roofWidth: supportedRoofWidth(width) }),
+  cycleRoofPlateSnap: () => set((s) => ({ roofPlateSnap: s.roofPlateSnap === 'lower' ? 'upper' : 'lower' })),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
   toggleEscalatorWidth: () => set((s) => ({ escalatorWide: !s.escalatorWide })),
   toggleEscalatorLength: () => set((s) => ({ escalatorLong: !s.escalatorLong })),
@@ -288,6 +301,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   setLiftStyle: (style) => set({ liftStyle: style }),
   cycleGateDoor: () => set((s) => ({ gateDoor: nextGateDoor(s.gateDoor) })),
   setZoneBrush: (z) => set({ zoneBrush: z }),
+  rotateFacility: () => set((s) => ({ facilityRot: (s.facilityRot + 1) % 4 })),
   setZoneOverlay: (on) => set({ zoneOverlayOn: on }),
   setModuleRot: (rot) => set((s) => {
     const count = s.moduleType.startsWith('pillar-slim') ? 9 : s.moduleType === 'light-rectangular' ? 2 : 4

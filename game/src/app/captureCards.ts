@@ -128,7 +128,7 @@ const PICK_IDS: readonly string[] = [
   'billboard',
   'tv',
   'sign',
-  'linemap',
+  'rail-signal',
   'ac-unit',
   'electrical-cabinet',
   'desk',

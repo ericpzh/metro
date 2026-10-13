@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import {smoothShoulders} from './shoulders.js';
+import {addBackpackConnectors} from './backpack-connectors.js';
+import {smallBackpackGeometry} from './small-backpack.js';
 
 const grey=value=>new THREE.Color().setRGB(value,value,value,THREE.SRGBColorSpace).r;
 // A continuous coat profile: rounded shoulder, straight back, gently flared hem.
@@ -113,23 +115,6 @@ export function createFemaleVariant(model,{male=false}={}){
   if(q>1){const t=THREE.MathUtils.smoothstep(p.getY(i),.79,.815),scale=THREE.MathUtils.lerp(1,1/q,t);p.setX(i,x*scale);p.setZ(i,.035+z*scale)}
  }
  body.geometry.computeVertexNormals();
- // The inherited arm mask also caught the outer upper trousers. These vertices
- // need the same leg blend as their neighbours, rather than following hands.
- const joints=body.geometry.attributes.skinIndex,weights=body.geometry.attributes.skinWeight;
- const boneIndex=name=>skeleton.bones.findIndex(b=>b.name===name);
- for(let i=0;i<p.count;i++){
-  if(p.getY(i)>=.825||Math.abs(c.getX(i)-grey(.53))>.001)continue;
-  let followsArm=false;
-  for(let k=0;k<4;k++)if(weights.array[i*4+k]>0&&/arm|hand/i.test(skeleton.bones[joints.array[i*4+k]].name))followsArm=true;
-  if(!followsArm)continue;
-  const side=p.getX(i)<0?'Left':'Right',y=p.getY(i);let influences;
-  if(y>.75){const t=THREE.MathUtils.smoothstep(y,.75,.825);influences=[['Hips',t],[side+'Thigh',1-t]]}
-  else if(y>.50)influences=[[side+'Thigh',1]];
-  else if(y>.36){const t=THREE.MathUtils.smoothstep(y,.36,.50);influences=[[side+'Thigh',t],[side+'Shin',1-t]]}
-  else if(y>.17)influences=[[side+'Shin',1]];
-  else {const t=THREE.MathUtils.smoothstep(y,.115,.17);influences=[[side+'Shin',t],[side+'Foot',1-t]]}
-  for(let k=0;k<4;k++){joints.array[i*4+k]=influences[k]?boneIndex(influences[k][0]):0;weights.array[i*4+k]=influences[k]?.[1]??0}
- }
  const palette=male?[]:[[.66,.74],[.89,.62],[.53,.48]];
  const coatGrey=male?.66:.74;
  model.traverse(mesh=>{
@@ -160,6 +145,9 @@ export function createFemaleVariant(model,{male=false}={}){
  const bp=backFill.geometry.attributes.position,bc=backFill.geometry.attributes.color;
  for(let i=0;i<bp.count;i++){bp.setZ(i,coatBackZ(bp.getY(i))+(bp.getZ(i)+.255)*.10);bc.setXYZ(i,grey(coatGrey),grey(coatGrey),grey(coatGrey))}
  backFill.geometry.computeVertexNormals();backFill.material=new THREE.MeshBasicMaterial({vertexColors:true,toneMapped:false});backFill.visible=false;model.add(backFill);
+ const panel=model.getObjectByName('Clean_backpack_panel'),standardPanel=panel.geometry;
+ const smallPanel=smallBackpackGeometry(skeleton),standardStrap=model.getObjectByName('Backpack_strap_connectors');
+ const smallStrap=addBackpackConnectors(model,body,{small:true,coatGrey});smallStrap.name='Small backpack straps';smallStrap.visible=false;
  const head=skeleton.bones.findIndex(b=>b.name==='Head');
  function styledGeometry(style){
  const geometry=bobGeometry(style);
@@ -171,12 +159,18 @@ export function createFemaleVariant(model,{male=false}={}){
  }
  const hair=new THREE.SkinnedMesh(styledGeometry('bob'),new THREE.MeshBasicMaterial({vertexColors:true,toneMapped:false,side:THREE.DoubleSide}));hair.name='Bob hairstyle';hair.frustumCulled=false;
  model.add(hair);hair.bind(skeleton,new THREE.Matrix4());
- let currentStyle='bob',withBag=true;
+ let currentStyle='bob',withBag=true,bagStyle='standard';
  function setBag(enabled){
   withBag=Boolean(enabled);
+  bagStyle=enabled==='small'?'small':'standard';
   body.geometry.setAttribute('position',withBag?p:noBagPositions);body.geometry.computeBoundingBox();body.geometry.computeBoundingSphere();
   body.geometry.setAttribute('normal',withBag?originalNormals:noBagNormals);
-  backpack.forEach(mesh=>mesh.visible=withBag);backFill.visible=!withBag;
+  backpack.forEach(mesh=>mesh.visible=withBag);backFill.visible=!withBag||bagStyle==='small';
+  panel.geometry=bagStyle==='small'?smallPanel:standardPanel;
+  standardStrap.visible=withBag&&bagStyle==='standard';smallStrap.visible=withBag&&bagStyle==='small';
+  // Export trimming finds the active ribbon by its established mesh name.
+  standardStrap.name=bagStyle==='small'?'Standard backpack straps':'Backpack_strap_connectors';
+  smallStrap.name=bagStyle==='small'?'Backpack_strap_connectors':'Small backpack straps';
   for(const i of strapVertices)c.setXYZ(i,grey(withBag?.47:coatGrey),grey(withBag?.47:coatGrey),grey(withBag?.47:coatGrey));c.needsUpdate=true;
   if(withBag&&currentStyle==='long')setHairstyle('shoulder');
  }

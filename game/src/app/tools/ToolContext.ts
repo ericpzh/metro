@@ -18,6 +18,7 @@ export interface HoverTile {
   place: [number, number, number]
   solid: boolean
   point?: [number, number]
+  roofSnap?: 'lower' | 'upper'
 }
 
 /**
@@ -66,6 +67,8 @@ export interface AreaDrag {
   tileType?: string
   tileRot?: number
   tileWidth?: number
+  /** Snap inherited from a roof slab pressed at the start of a placement drag. */
+  tileSnap?: 'lower' | 'upper'
   /** Current tile rectangle, for live R/Tab preview updates while dragging. */
   tileCells?: Array<[number, number, number]>
   /**
@@ -106,6 +109,8 @@ export interface ZoneDragState {
   /** The active brush when the press began: a fare zone or a room kind. */
   brush: ZoneBrush
   anchor: [number, number, number]
+  /** Latest drag target, retained so a rotation redraws the preview immediately. */
+  target: [number, number, number]
   z: number
   sx: number
   sy: number

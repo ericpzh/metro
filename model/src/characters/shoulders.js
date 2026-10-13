@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {cleanFrontBoundaries} from './front-boundaries.js';
 import {closeCoatInterior} from './garment-lining.js';
 import {addBackpackConnectors} from './backpack-connectors.js';
+import {repairWaistSkinning} from './waist-skinning.js';
 
 function relaxJaw(geometry,skin,frontOnly=false){
  const p=geometry.attributes.position,c=geometry.attributes.color,ids=new Map(),groups=[],vertices=[],neighbors=[],weights=[];
@@ -35,10 +36,20 @@ export function smoothShoulders(model){
  model.traverse(mesh=>{
   if(mesh!==body)return;
   const p=mesh.geometry.attributes.position;
+  repairWaistSkinning(mesh);
   // The reconstruction assigned inner coat panels to the forearms. Keep the
   // torso on Spine, blending into the actual sleeve at the outer shoulder.
   const joints=mesh.geometry.attributes.skinIndex,weights=mesh.geometry.attributes.skinWeight;
   const spine=mesh.skeleton.bones.findIndex(b=>b.name==='Spine');
+  const coat=new THREE.Color().setRGB(.66,.66,.66,THREE.SRGBColorSpace).r;
+  // The lower coat panels inherited a forearm blend from the reconstruction.
+  // Keep the torso hem at its rest location while the actual sleeves swing.
+  for(let i=0;i<p.count;i++){
+   if(p.getY(i)<.80||p.getY(i)>=.96||Math.abs(p.getX(i))>=.225||Math.abs(mesh.geometry.attributes.color.getX(i)-coat)>.001)continue;
+   let arm=0;for(let k=0;k<4;k++)if(/arm|hand/i.test(mesh.skeleton.bones[joints.array[i*4+k]].name))arm+=weights.array[i*4+k];
+   if(arm>=.95)continue;
+   for(let k=0;k<4;k++){joints.array[i*4+k]=k?0:spine;weights.array[i*4+k]=k?0:1}
+  }
   for(let i=0;i<p.count;i++)if(p.getY(i)>.92&&p.getY(i)<1.27&&Math.abs(p.getX(i))<.235){
    const factor=1-THREE.MathUtils.smoothstep(Math.abs(p.getX(i)),.195,.235),influences=new Map();let transfer=0;
    for(let k=0;k<4;k++){const id=joints.array[i*4+k],weight=weights.array[i*4+k],moved=/arm|hand/i.test(mesh.skeleton.bones[id].name)?weight*factor:0;transfer+=moved;influences.set(id,(influences.get(id)??0)+weight-moved)}
@@ -100,6 +111,18 @@ export function smoothShoulders(model){
   relaxJaw(mesh.geometry,skin,true);
   cleanFrontBoundaries(mesh.geometry);
   closeCoatInterior(mesh);
+  // Retire rear reconstruction ridges before fitting webbing. Those ridges
+  // were visible through the strap edges and the tapered pack's front rim.
+  const rear=mesh.geometry.attributes.position,ink=mesh.geometry.attributes.color,coatInk=new THREE.Color().setRGB(.66,.66,.66,THREE.SRGBColorSpace).r;
+  for(let i=0;i<rear.count;i++){
+   const x=rear.getX(i),y=rear.getY(i),z=rear.getZ(i);
+   if(y<.90||y>1.385||z>=0||Math.abs(x)>.235)continue;
+   let arms=0;for(let k=0;k<4;k++)if(/arm|hand/i.test(mesh.skeleton.bones[mesh.geometry.attributes.skinIndex.array[i*4+k]].name))arms+=mesh.geometry.attributes.skinWeight.array[i*4+k];
+   const coat=Math.abs(ink.getX(i)-coatInk)<.001;
+   if(arms>.005||(!coat&&!(Math.abs(x)>.07&&y<1.385&&Math.abs(ink.getX(i)-skin)<.001)))continue;
+   const back=-.075-.038*(1-THREE.MathUtils.smoothstep(y,.83,.98))+.045*THREE.MathUtils.smoothstep(y,1.25,1.39);
+   rear.setZ(i,Math.max(z,back+.001));
+  }
   p.needsUpdate=true;mesh.geometry.computeVertexNormals();mesh.geometry.computeBoundingBox();mesh.geometry.computeBoundingSphere();
  });
  addBackpackConnectors(model,body);

@@ -64,6 +64,15 @@ English-copy change must preserve the Chinese catalogue and default captures.
 
 ## The sheets (`art/`, and the `tools/` that draw them)
 
+After character, size or crowd-material changes, use `metro-model` and run
+`npm run art:models`. It captures all sixteen adult templates and five eligible
+children with the live 70% game opacity, validates complete strides and source
+hashes, refreshes bilingual sheets 01/02/07/12/13 and renders previews at 8 s.
+The sheet figure helpers use stable 20/80 child/adult selection; child cards must
+have hair and no bag. Gait duration uses the captured stride after depth scaling.
+Keep `.preview/model-art/` captures separate from other running previews and
+retain `capture-passengers` / `passenger-art-pipeline` coverage when changing formats.
+
 `node tools/gen-art.mjs [nn …]` rewrites every sheet from its own `SHEETS` table,
 or only the ones named by leading number / file name
 (`node tools/gen-art.mjs 01 13`), one module per sheet, drawn with `tools/iso.mjs`,

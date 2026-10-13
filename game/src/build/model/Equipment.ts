@@ -2,6 +2,7 @@ import { msg } from '../../sim/i18n.ts'
 // Build model: equipment modules — placement payloads, posters, add/remove (§5).
 // Sign-board repair lives here too: a 指示牌 is equipment with a document.
 
+import { extinguisherVariant } from '../../sim/extinguishers.ts';
 import { shelfVariant } from '../../sim/shelves.ts';
 import { benchSpec } from '../../sim/benches.ts';
 import { BILLBOARD_SPECS, billboardSpec, postersFor } from '../../sim/billboards.ts';
@@ -100,6 +101,7 @@ export function createModule(
   door: GateDoor = 'lane',
   lines: SignLineInput = [],
   sign?: SignBoardsDraft,
+  curtainHeight: 2 | 3 | 4 = 4,
 ): Module | null {
   switch (type) {
     case 'pillar':
@@ -173,10 +175,10 @@ export function createModule(
       return { id, type: 'busstop', x: ox, y: oy, z, rot, w, d: 2, cfg: { variant: type === 'busstop-long' ? 'long' : 'short' } };
     }
     case 'bin':
-      // A litter bin (垃圾桶) and a fire-extinguisher cabinet (灭火器) are single
-      // free-standing decorations: no variant, no `cfg`, turned by the hover
-      // rotation like a shelf.
       return { id, type: 'bin', x, y, z, rot, cfg: {} };
+    case 'extinguisher-compact':
+    case 'extinguisher-glass':
+      return { id, type: 'extinguisher', x, y, z, rot, cfg: { variant: extinguisherVariant(type.slice(13)) } };
     case 'extinguisher':
       return { id, type: 'extinguisher', x, y, z, rot, cfg: {} };
     case 'ac-unit':
@@ -223,13 +225,22 @@ export function createModule(
       const [ox, oy] = trackOriginForCentre(rot, x, y, spec.w, 1);
       return { id, type: 'billboard', x: ox, y: oy, z, rot, w: spec.w, cfg: { variant: spec.variant } };
     }
+    case 'monitor':
+    case 'monitor-ceiling':
+    case 'monitor-wall': {
+      const w = type === 'monitor-wall' ? 3 : 1;
+      const [ox, oy] = trackOriginForCentre(rot, x, y, w, 1);
+      return { id, type: 'monitor', x: ox, y: oy, z, rot, w, cfg: { mount: type === 'monitor-wall' ? 'wall' : 'ceiling' } };
+    }
+    case 'rail-signal':
+      return { id, type: 'rail-signal', x, y, z, rot, cfg: {} };
     case 'tv':
       return { id, type: 'tv', x, y, z, rot, cfg: {} };
     case 'curtain-wall': {
       const variant: GlassVariant = width === 4 ? '4x4' : width === 3 ? '3x4' : width === 2 ? '2x4' : '1x4';
       const w = glassSpec(variant).w;
       const [ox, oy] = trackOriginForCentre(rot, x, y, w, 1);
-      return { id, type: 'glass', x: ox, y: oy, z, rot, w, cfg: { variant } };
+      return { id, type: 'glass', x: ox, y: oy, z, rot, w, cfg: { variant, ...(curtainHeight === 4 ? {} : { curtainHeight }) } };
     }
     case 'glass':
     case 'glass-1x1':

@@ -17,6 +17,41 @@ export interface ModuleOption {
   h: number
 }
 
+/** The four sections inside 装饰. */
+export type DecorCategory = 'ceiling' | 'wall' | 'floor' | 'outside'
+
+/** Palette ids grouped by where the player mounts or places the decor. */
+const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
+  ceiling: new Set([
+    'hanger-roof', 'monitor-ceiling', 'tv', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome',
+    'light-circular', 'light-rectangular', 'vent', 'sign-ceiling',
+  ]),
+  wall: new Set([
+    'monitor-wall', 'billboard-wide', 'billboard-standard', 'billboard-large', 'billboard-panorama',
+    'billboard-portrait', 'billboard-square', 'glass-1x1', 'glass-2x1', 'glass-3x1',
+    'glass-1x2', 'glass-2x2', 'glass-3x2', 'calligraphy-kai-h', 'calligraphy-kai-v',
+    'calligraphy-xing-h', 'calligraphy-xing-v', 'calligraphy-li-h', 'calligraphy-li-v',
+    'calligraphy-wei-h', 'calligraphy-wei-v', 'calligraphy-hei-h', 'calligraphy-hei-v',
+    'calligraphy-song-h', 'calligraphy-song-v', 'linemap-wall', 'sign-wall',
+  ]),
+  floor: new Set([
+    'tvm', 'vending', 'hanger-post', 'electrical-cabinet', 'tactile-guide', 'tactile-warning',
+    'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction', 'bench-steel-1', 'bench-seat-1',
+    'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'rail-signal',
+    'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1',
+  ]),
+  outside: new Set(['ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
+}
+
+export function decorCategoryHasId(category: DecorCategory, id: string): boolean {
+  if (category === 'floor' && (id.startsWith('shelf-') || id.startsWith('extinguisher-'))) return true
+  return DECOR_CATEGORY_IDS[category].has(id)
+}
+
+export function decorCategoryForId(id: string): DecorCategory | null {
+  return (['ceiling', 'wall', 'floor', 'outside'] as const).find((category) => decorCategoryHasId(category, id)) ?? null
+}
+
 /**
  * Every placeable piece's palette row: the id the tool arms, the tile's label and the
  * footprint the smallest piece of its family covers.
@@ -63,7 +98,9 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'busstop-short', label: msg('short'), type: 'busstop', w: 4, h: 2 },
   { id: 'busstop-long', label: msg('long'), type: 'busstop', w: 8, h: 2 },
   { id: 'bin', label: msg('bin'), type: 'bin', w: 1, h: 1 },
-  { id: 'extinguisher', label: msg('extinguisher'), type: 'extinguisher', w: 1, h: 1 },
+  { id: 'extinguisher', label: msg('fire_cabinet_medium'), type: 'extinguisher', w: 1, h: 1 },
+  { id: 'extinguisher-compact', label: msg('fire_cabinet_small'), type: 'extinguisher', w: 1, h: 1 },
+  { id: 'extinguisher-glass', label: msg('fire_cabinet_large'), type: 'extinguisher', w: 2, h: 1 },
   { id: 'vent', label: msg('vent'), type: 'vent', w: 1, h: 1 },
   { id: 'light-circular', label: msg('round'), type: 'light', w: 1, h: 1 },
   { id: 'light-rectangular', label: msg('strip'), type: 'light', w: 1, h: 1 },
@@ -77,6 +114,9 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'billboard-panorama', label: msg('wide_3_75_1'), type: 'billboard', w: 3, h: 1 },
   { id: 'billboard-portrait', label: msg('portrait_0_7_1'), type: 'billboard', w: 1, h: 1 },
   { id: 'billboard-square', label: msg('square_1_1'), type: 'billboard', w: 1, h: 1 },
+  { id: 'monitor-ceiling', label: msg('monitor_ceiling'), type: 'monitor', w: 1, h: 1 },
+  { id: 'monitor-wall', label: msg('monitor_wall'), type: 'monitor', w: 3, h: 1 },
+  { id: 'rail-signal', label: msg('rail_signal'), type: 'rail-signal', w: 1, h: 1 },
   { id: 'tv', label: msg('tv'), type: 'tv', w: 1, h: 1 },
   // The 指示牌's two mounts (§5.8): the overhead board hung from the ceiling and read
   // from both sides, and the same board bolted flat to a wall. Two tiles, one piece —
@@ -185,6 +225,7 @@ export function isBenchType(type: string): boolean {
  */
 export function isDecorType(type: string): boolean {
   return (
+    type === 'tvm' || type === 'vending' ||
     type === 'hanger' || type.startsWith('hanger-') ||
     type === 'tactile' || type.startsWith('tactile-') || type === 'floor-mark' || type.startsWith('floor-mark-') ||
     type === 'ac-unit' || type === 'electrical-cabinet' ||
@@ -197,7 +238,7 @@ export function isDecorType(type: string): boolean {
     type === 'sink' ||
     type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
     type === 'bin' ||
-    type === 'extinguisher' ||
+    type === 'extinguisher' || type.startsWith('extinguisher-') ||
     (type === 'light' || type.startsWith('light-')) ||
     type === 'vent' ||
     type === 'clock' ||
@@ -208,7 +249,7 @@ export function isDecorType(type: string): boolean {
     isDoorType(type) ||
     isCalligraphyType(type) ||
     isLineMapType(type) ||
-    type === 'tv'
+    type === 'tv' || type === 'monitor' || type.startsWith('monitor-') || type === 'rail-signal'
   )
 }
 
@@ -270,7 +311,7 @@ export function isSignType(type: string): boolean {
  * stands on a floor tile like a 货架 and the tool resolves it from the ground.
  */
 export function isWallMountedType(type: string): boolean {
-  return isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || type === 'sign-wall' || type.startsWith('exit-doorway-') || (isLineMapType(type) && type !== 'linemap-stand')
+  return type === 'monitor-wall' || isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || type === 'sign-wall' || type.startsWith('exit-doorway-') || (isLineMapType(type) && type !== 'linemap-stand')
 }
 
 /** True for the fence piece, which drags out a run like the wall tool. */
@@ -338,7 +379,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'gate' | 'fence' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
+export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -365,6 +406,8 @@ export interface ModuleFamily {
 
 /** The family a palette id belongs to, or null for a piece that is its own tile. */
 const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
+  { key: 'monitor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
+  { key: 'extinguisher', owns: (id) => id === 'extinguisher' || id.startsWith('extinguisher-') },
   { key: 'gate', owns: isGateType },
   { key: 'fence', owns: isFenceType },
   { key: 'hanger', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
@@ -393,6 +436,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
+  { key: 'monitor', label: msg('monitor'), folder: 'decor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'gate', label: msg('fare_gate'), folder: 'equipment', owns: isGateType },
   { key: 'fence', label: msg('fence'), folder: 'equipment', owns: isFenceType },
   { key: 'hanger', label: msg('hanger'), folder: 'decor', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
@@ -407,6 +451,7 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
   { key: 'light', label: msg('light'), folder: 'decor', owns: (id) => id === 'light' || id.startsWith('light-') },
   { key: 'bench', label: msg('bench'), folder: 'decor', owns: isBenchType },
   { key: 'shelf', label: msg('shelf'), folder: 'decor', owns: isShelfType },
+  { key: 'extinguisher', label: msg('extinguisher'), folder: 'decor', owns: (id) => id === 'extinguisher' || id.startsWith('extinguisher-') },
   { key: 'billboard', label: msg('billboard'), folder: 'decor', owns: isBillboardType },
   {
     key: 'glass',
@@ -463,12 +508,14 @@ export function isFamilyOption(id: string): boolean {
 
 /** Every variant of a family, in palette order. */
 export function familyOptions(family: ModuleFamily): ModuleOption[] {
+  // A category decides whether a family appears there; once present, keep its full
+  // variant menu together so mount/size alternatives are not hidden by the section.
   return MODULE_OPTIONS.filter((m) => family.owns(m.id))
 }
 
 /** The families a folder shows, in the family table's own order (the grid's is `RAIL_ORDER`). */
-export function familiesIn(folder: ModuleFolder): ModuleFamily[] {
-  return MODULE_FAMILIES.filter((f) => f.folder === folder)
+export function familiesIn(folder: ModuleFolder, category?: DecorCategory): ModuleFamily[] {
+  return MODULE_FAMILIES.filter((f) => f.folder === folder && (!category || MODULE_OPTIONS.some((m) => f.owns(m.id) && decorCategoryHasId(category, m.id))))
 }
 
 /** True for the gear tiles the 设备 folder owns (everything that is not decor, a run or an exit). */
@@ -512,7 +559,7 @@ export type FolderTile =
  */
 const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
   rail: [familyAnchor('roof'), familyAnchor('pillar')],
-  equipment: [familyAnchor('gate'), familyAnchor('fence'), 'tvm', 'vending', 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
+  equipment: [familyAnchor('gate'), familyAnchor('fence'), 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
   decor: [
     familyAnchor('sign'),
     familyAnchor('billboard'),
@@ -521,10 +568,12 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     familyAnchor('tactile'), familyAnchor('floor-mark'),
     familyAnchor('linemap'),
     'tv',
+    familyAnchor('monitor'),
+    'rail-signal',
     'psd-end',
     'curtain-wall',
     'bin',
-    'extinguisher',
+    familyAnchor('extinguisher'),
     'clock',
     familyAnchor('cctv'),
     familyAnchor('shelf'),
@@ -546,6 +595,20 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     'guidepost',
     familyAnchor('busstop'),
     'ac-unit', 'electrical-cabinet',
+    'tvm', 'vending',
+  ],
+}
+
+/** Category-specific reading order where the all-decor order cannot serve both lists. */
+const DECOR_CATEGORY_ORDER: Partial<Record<DecorCategory, readonly string[]>> = {
+  wall: [
+    familyAnchor('sign'), familyAnchor('billboard'), familyAnchor('monitor'), familyAnchor('glass'),
+    familyAnchor('calligraphy'), familyAnchor('linemap'),
+  ],
+  floor: [
+    'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', 'psd-end',
+    familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
+    familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'),
   ],
 }
 
@@ -555,10 +618,11 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
  * (`TileGrid` renders it and the folder header counts it), so a tile cannot be drawn twice,
  * drawn in the wrong row, or missing from the count.
  */
-export function folderTiles(folder: ModuleFolder): FolderTile[] {
-  const families = familiesIn(folder)
-  const options = MODULE_OPTIONS.filter((m) => (folder === 'rail' ? m.type === 'roof' || m.type === 'pillar' : folder === 'decor' ? isDecorType(m.type) : isGearTile(m)))
-  return RAIL_ORDER[folder].flatMap((anchor): FolderTile[] => {
+export function folderTiles(folder: ModuleFolder, category?: DecorCategory): FolderTile[] {
+  const families = familiesIn(folder, category)
+  const options = MODULE_OPTIONS.filter((m) => (folder === 'rail' ? m.type === 'roof' || m.type === 'pillar' : folder === 'decor' ? isDecorType(m.type) && (!category || decorCategoryHasId(category, m.id)) : isGearTile(m)))
+  const order = folder === 'decor' && category ? DECOR_CATEGORY_ORDER[category] ?? RAIL_ORDER.decor : RAIL_ORDER[folder]
+  return order.flatMap((anchor): FolderTile[] => {
     const family = families.find((f) => familyAnchor(f.key) === anchor)
     if (family) return [{ kind: 'family', anchor, family }]
     const option = options.find((m) => m.id === anchor)
@@ -573,8 +637,8 @@ export function folderTiles(folder: ModuleFolder): FolderTile[] {
  * in rail order. This is what keeps a variant from appearing twice, once in the grid and
  * once in its family's list.
  */
-export function folderOptions(folder: ModuleFolder): ModuleOption[] {
-  return folderTiles(folder).flatMap((t) => (t.kind === 'option' ? [t.option] : []))
+export function folderOptions(folder: ModuleFolder, category?: DecorCategory): ModuleOption[] {
+  return folderTiles(folder, category).flatMap((t) => (t.kind === 'option' ? [t.option] : []))
 }
 
 /**
@@ -781,6 +845,8 @@ const MODULE_LABELS: Record<string, string> = {
   calligraphy: msg('station_name'),
   linemap: msg('network_map'),
   tv: msg('tv'),
+  monitor: msg('monitor'),
+  'rail-signal': msg('rail_signal'),
   sign: msg('sign'),
   exit: msg('entrances'),
   escalator: msg('escalator'),
@@ -808,6 +874,7 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
   if (type === 'shop') return ROOM_KIND_LABELS[roomKind ?? 'store'] ?? MODULE_LABELS.shop
   if (type === 'booth' && roomKind === 'info') return msg('information_desk')
   if (type.startsWith('cctv-')) return MODULE_OPTIONS.find((m) => m.id === type)?.label ?? MODULE_LABELS.cctv
+  if (type.startsWith('monitor-')) return MODULE_OPTIONS.find((m) => m.id === type)?.label ?? MODULE_LABELS.monitor
   return MODULE_LABELS[type] ?? MODULE_OPTIONS.find((m) => m.type === type)?.label ?? type
 }
 
@@ -826,8 +893,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'railLineId' | 'hangerLength' | 'curtainWidth' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'escalatorDir' | 'escalatorWide' | 'escalatorLong' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'railLineId' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'escalatorLong' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.escalatorDir}|${s.escalatorWide}|${s.escalatorLong}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.escalatorLong}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

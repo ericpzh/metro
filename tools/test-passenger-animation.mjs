@@ -4,19 +4,26 @@ import assert from 'node:assert/strict';
 import { resolve, join } from 'node:path';
 import { serveDir, withPage, waitFor } from './browser-harness.mjs';
 import { walkingSprite, walkingDefinitions } from './passenger-cards.mjs';
+import { passengerIsChild } from '../game/src/sim/walking.ts';
+import { MODEL_LIBRARY } from '../model/src/characters/library.js';
 
 const repo = resolve(import.meta.dirname, '..');
 const port = Number(process.env.PASSENGER_ANIMATION_PORT ?? 4251);
 const debugPort = Number(process.env.PASSENGER_ANIMATION_DEBUG_PORT ?? 9386);
 const server = await serveDir(join(repo, 'art'), port);
 let session;
+const childModels=MODEL_LIBRARY.filter(model=>!model.bag&&model.hair!=='bald').map(model=>model.id);
+let childFigures=0;
 try {
+  session = await withPage({ url: 'about:blank',
+    profile: join(repo, '.preview', `.chrome-gait-test-${process.pid}`), debugPort });
   for (const file of ['01-isometric-cutaway', '02-vertical-section', '12-platform-doors-flow', '13-two-line-interchange']
     .flatMap(file => [file, `${file}-en`])) {
-    session = await withPage({ url: `http://127.0.0.1:${port}/${file}.svg`,
-      profile: join(repo, '.preview', `.chrome-gait-test-${process.pid}-${file}`), debugPort });
-    await waitFor(session.evaluate, "document.readyState === 'complete' && document.querySelector('[data-pose=animated-walk]')",
+    await session.send('Page.navigate', { url: `http://127.0.0.1:${port}/${file}.svg` });
+    await waitFor(session.evaluate, `location.pathname === '/${file}.svg' && document.readyState === 'complete' && document.querySelector('[data-pose=animated-walk]')`,
       { what: file });
+    const kids=await session.evaluate("[...document.querySelectorAll('[data-age=child][data-variant]')].map(node=>node.dataset.variant)");
+    childFigures+=kids.length;assert(kids.every(model=>childModels.includes(model)),`${file}: child figures cannot carry bags or be bald`);
     for (const seconds of [.37, 8, 13.7]) {
       const counts = await session.evaluate(`(() => {
         for (const animation of document.getAnimations()) { animation.pause(); animation.currentTime = ${seconds * 1000}; }
@@ -27,13 +34,13 @@ try {
         `${file} at ${seconds}s: every walker must show exactly one frame, not vanish or stack silhouettes`);
     }
     console.log(`PASS ${file}: one gait frame per walker at three times`);
-    await session.close(); session = null;
   }
-  session = await withPage({ url: 'about:blank',
-    profile: join(repo, '.preview', `.chrome-gait-image-test-${process.pid}`), debugPort });
+  assert(childFigures>0,'refreshed concept sheets include smaller children');
+  await session.send('Page.navigate', { url: 'about:blank' });
   await waitFor(session.evaluate, '!!document.body');
-  for (const view of ['iso', 'elevation', 'plan']) {
-    const walker = walkingSprite(view, 'test-walker', 0, 0, 1.2, 110);
+  for (const child of [false,true]) for (const view of ['iso', 'elevation', 'plan']) {
+    let identity=0;while(passengerIsChild(identity)!==child)identity++;
+    const walker = walkingSprite(view, 'test-walker', identity, 0, 1.2, 110);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320"><defs>${walkingDefinitions()}</defs><g transform="translate(160 240)">${walker}</g></svg>`;
     const src = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
     const frames = await session.evaluate(`(async () => {

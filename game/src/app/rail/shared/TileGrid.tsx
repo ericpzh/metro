@@ -30,6 +30,7 @@ import {
   useStore,
   type ModuleFamily,
   type ModuleFolder,
+  type DecorCategory,
 } from '../../store.ts'
 import { armedActionsAnchor } from '../helpers.ts'
 import { getModuleThumbnails } from '../../moduleThumbnails.ts'
@@ -41,12 +42,14 @@ import type { SubMenuKey } from '../helpers.ts'
 
 export function TileGrid({
   folder,
+  decorCategory,
   subMenu,
   onToggleSubMenu,
   embedded = false,
 }: {
   embedded?: boolean
   folder: ModuleFolder
+  decorCategory?: DecorCategory
   subMenu: SubMenuKey | null
   onToggleSubMenu: (k: SubMenuKey) => void
 }): React.ReactElement {
@@ -70,7 +73,7 @@ export function TileGrid({
   // The family the piece being placed belongs to, if any: its tile lights up (`active`),
   // its list is the one that may be open, and its tile is where the action row folds out.
   // One derivation, so the tile, the list and the row cannot answer differently.
-  const pieceFamily = familiesIn(folder).find((f) => f.owns(moduleType)) ?? null
+  const pieceFamily = familiesIn(folder, decorCategory).find((f) => familyOptions(f).some((option) => option.id === moduleType)) ?? null
   // Which tile the armed piece's action row folds out under. Read from the one
   // derivation the whole rail shares (`armedActionsAnchor`), so a folder never decides
   // this for itself â€” the cut pieces in the å·¥å…· folder ask the same question.
@@ -78,12 +81,12 @@ export function TileGrid({
   const familyOpen = (family: ModuleFamily): boolean => subMenu === family.key
   // The list the player is looking at, as a family key â€” a paint sub-menu ('enamel') is
   // not a module family, and simply parks every action row while it is open.
-  const openFamily = familiesIn(folder).find((f) => familyOpen(f))?.key ?? null
+  const openFamily = familiesIn(folder, decorCategory).find((f) => familyOpen(f))?.key ?? null
 
   // The folder's tiles in rail order: the plain ones and each family's parent tile,
   // already interleaved by the catalogue's one order table, so this component never
   // decides what shares a row with what or where a family's list folds out.
-  const tiles = folderTiles(folder)
+  const tiles = folderTiles(folder, decorCategory)
 
   const rows = interleaveRows(
         tiles.map((tile) => ({

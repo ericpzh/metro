@@ -4,9 +4,9 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
-import { GLASS_FRAME, glassSpec, glassStandsOnFloor } from '../../../sim/glassPanels.ts'
+import { GLASS_FRAME, glassModuleSpec, glassStandsOnFloor } from '../../../sim/glassPanels.ts'
 import { doorSpec } from '../../../sim/doors.ts'
-import { curtainDoorShare, doorCells, glassCells } from '../../../sim/placement.ts'
+import { curtainCornerJoin, curtainDoorShare, doorCells, glassCells } from '../../../sim/placement.ts'
 import { normRot, rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
 
@@ -30,7 +30,7 @@ const WALL_OFFSET = 0.44
  * length.
  */
 function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>): THREE.Group {
-  const spec = glassSpec(mod.cfg?.variant)
+  const spec = glassModuleSpec(mod.cfg?.variant, mod.cfg?.curtainHeight)
   const g = new THREE.Group()
   const run = mod.w > 0 ? mod.w : spec.w
   // Floor-standing panels follow the doorway's placement: their pane sits on the
@@ -47,6 +47,21 @@ function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>)
   const h = spec.h
   const y = glassStandsOnFloor(spec) ? 0 : -WALL_OFFSET
   const { depth, rail, post, pane } = GLASS_FRAME
+  // At a same-tile crossing, an end post that projects into the other panel's
+  // frame is removed. The final model chooses by orientation; the hover preview
+  // trims its own intersecting post so it already shows the joined shape.
+  const joinedEnds = new Set<'start' | 'end'>()
+  if (glassStandsOnFloor(spec) && (ctx.preview || normRot(mod.rot) % 2 === 1)) {
+    for (const other of ctx.data.modules) {
+      if (other.type !== 'glass' || other.id === mod.id) continue
+      for (const end of curtainCornerJoin(mod, other)) joinedEnds.add(end)
+    }
+  }
+  const railBounds = (): { x: number; w: number } => {
+    const left = -w / 2 + (joinedEnds.has('start') ? post : 0)
+    const right = w / 2 - (joinedEnds.has('end') ? post : 0)
+    return { x: (left + right) / 2, w: right - left }
+  }
 
   // A 门 fitted into a curtain replaces the lower doorway-sized section of
   // that panel. Keep the upper glazing continuous, and retain lower glazing only
@@ -66,11 +81,12 @@ function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>)
     const cut = Math.max(...fittedDoors.map((door) => doorSpec(door.cfg?.variant).h))
     const centerX = (i: number): number => i - (w - 1) / 2
     const paneH = Math.max(0.05, h - cut - rail * 2)
-    slab(g, ctx.mats.darkSteel, 0, y, cut + rail / 2, w, depth, rail)
-    slab(g, ctx.mats.darkSteel, 0, y, h - rail / 2, w, depth, rail)
+    const bounds = railBounds()
+    slab(g, ctx.mats.darkSteel, bounds.x, y, cut + rail / 2, bounds.w, depth, rail)
+    slab(g, ctx.mats.darkSteel, bounds.x, y, h - rail / 2, bounds.w, depth, rail)
     const upperPostH = Math.max(0, h - cut - rail * 2)
-    slab(g, ctx.mats.steel, -(w / 2 - post / 2), y, cut + rail + upperPostH / 2, post, depth, upperPostH)
-    slab(g, ctx.mats.steel, w / 2 - post / 2, y, cut + rail + upperPostH / 2, post, depth, upperPostH)
+    if (!joinedEnds.has('start')) slab(g, ctx.mats.steel, -(w / 2 - post / 2), y, cut + rail + upperPostH / 2, post, depth, upperPostH)
+    if (!joinedEnds.has('end')) slab(g, ctx.mats.steel, w / 2 - post / 2, y, cut + rail + upperPostH / 2, post, depth, upperPostH)
     const upper = slab(g, ctx.mats.glass, 0, y + pane, cut + rail + paneH / 2, Math.max(0.05, w - post * 2), pane, paneH)
     upper.userData.glassPane = true
 
@@ -82,15 +98,17 @@ function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>)
       const first = i
       while (i + 1 < w && !covered.has(i + 1)) i++
       const last = i
-      const sectionW = last - first + 1
-      const cx = (centerX(first) + centerX(last)) / 2
+      const sectionLo = centerX(first) - 0.5 + (first === 0 && joinedEnds.has('start') ? post : 0)
+      const sectionHi = centerX(last) + 0.5 - (last === w - 1 && joinedEnds.has('end') ? post : 0)
+      const sectionW = sectionHi - sectionLo
+      const cx = (sectionLo + sectionHi) / 2
       slab(g, ctx.mats.darkSteel, cx, y, rail / 2, sectionW, depth, rail)
       slab(g, ctx.mats.darkSteel, cx, y, cut - rail / 2, sectionW, depth, rail)
       const lowerPaneH = Math.max(0.05, cut - rail * 2)
       const lower = slab(g, ctx.mats.glass, cx, y + pane, cut / 2, sectionW - (first === 0 ? post / 2 : 0) - (last === w - 1 ? post / 2 : 0), pane, lowerPaneH)
       lower.userData.glassPane = true
-      if (first === 0) slab(g, ctx.mats.steel, -w / 2 + post / 2, y, cut / 2, post, depth, cut - rail * 2)
-      if (last === w - 1) slab(g, ctx.mats.steel, w / 2 - post / 2, y, cut / 2, post, depth, cut - rail * 2)
+      if (first === 0 && !joinedEnds.has('start')) slab(g, ctx.mats.steel, -w / 2 + post / 2, y, cut / 2, post, depth, cut - rail * 2)
+      if (last === w - 1 && !joinedEnds.has('end')) slab(g, ctx.mats.steel, w / 2 - post / 2, y, cut / 2, post, depth, cut - rail * 2)
       i++
     }
     return g
@@ -99,11 +117,12 @@ function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>)
   // The outer frame: a sill on the floor, a head at the top, and one post at each
   // end of the run. Nothing between them — five meshes for a panel of any size,
   // which is the whole difference from a 围栏 run of the same length.
-  slab(g, ctx.mats.darkSteel, 0, y, rail / 2, w, depth, rail)
-  slab(g, ctx.mats.darkSteel, 0, y, h - rail / 2, w, depth, rail)
+  const bounds = railBounds()
+  slab(g, ctx.mats.darkSteel, bounds.x, y, rail / 2, bounds.w, depth, rail)
+  slab(g, ctx.mats.darkSteel, bounds.x, y, h - rail / 2, bounds.w, depth, rail)
   const postH = Math.max(0, h - rail * 2)
-  slab(g, ctx.mats.steel, -(w / 2 - post / 2), y, h / 2, post, depth, postH)
-  slab(g, ctx.mats.steel, w / 2 - post / 2, y, h / 2, post, depth, postH)
+  if (!joinedEnds.has('start')) slab(g, ctx.mats.steel, -(w / 2 - post / 2), y, h / 2, post, depth, postH)
+  if (!joinedEnds.has('end')) slab(g, ctx.mats.steel, w / 2 - post / 2, y, h / 2, post, depth, postH)
   // One pane across the whole run, proud of the frame's centre line by a hair so it
   // catches the light rather than reading as the frame's own shadow.
   const glass = slab(g, ctx.mats.glass, 0, y + pane, h / 2, Math.max(0.05, w - post * 2), pane, Math.max(0.05, h - rail * 2))

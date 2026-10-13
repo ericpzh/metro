@@ -16,6 +16,28 @@ function profile(g: THREE.Group, mat: THREE.Material, points: Array<[number, num
 }
 
 function buildBooth(ctx: ModuleContext, mod: Extract<Module, { type: 'booth' }>): THREE.Group {
+  const front = ((mod.cfg.front ?? 0) % 4 + 4) % 4
+  if (front === 0) return buildBoothCanonical(ctx, mod)
+  const centerX = mod.x + mod.w / 2
+  const centerY = mod.y + mod.h / 2
+  const width = front % 2 ? mod.h : mod.w
+  const height = front % 2 ? mod.w : mod.h
+  const canonical = buildBoothCanonical(ctx, {
+    ...mod,
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    w: width,
+    h: height,
+  })
+  canonical.position.set(-centerX, -centerY, 0)
+  const oriented = new THREE.Group()
+  oriented.position.set(centerX, centerY, 0)
+  oriented.rotation.z = (front * Math.PI) / 2
+  oriented.add(canonical)
+  return oriented
+}
+
+function buildBoothCanonical(ctx: ModuleContext, mod: Extract<Module, { type: 'booth' }>): THREE.Group {
   const { mats } = ctx
   const g = new THREE.Group()
   const info = mod.cfg.kind === 'info'

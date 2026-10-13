@@ -1,3 +1,4 @@
+import type { DecorCategory } from '../../store.ts'
 import { useLanguage } from '../../i18n.ts'
 // The 装饰 folder body (§5.4 decor palette).
 //
@@ -11,7 +12,7 @@ import { useLanguage } from '../../i18n.ts'
 import { TileGrid } from '../shared/TileGrid.tsx'
 import type { SubMenuKey } from '../helpers.ts'
 
-export function DecorFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey | null; onToggleSubMenu: (k: SubMenuKey) => void }): React.ReactElement {
+export function DecorFolder({ category, subMenu, onToggleSubMenu }: { category: DecorCategory; subMenu: SubMenuKey | null; onToggleSubMenu: (k: SubMenuKey) => void }): React.ReactElement {
   useLanguage()
-  return <TileGrid folder="decor" subMenu={subMenu} onToggleSubMenu={onToggleSubMenu} />
+  return <TileGrid folder="decor" decorCategory={category} subMenu={subMenu} onToggleSubMenu={onToggleSubMenu} />
 }

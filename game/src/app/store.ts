@@ -9,6 +9,8 @@ export type { AppState } from './store/Store.ts'
 export type { Tool } from './store/slices/ToolSlice.ts'
 export type { PaintMode, PaintBaseMode } from './store/slices/PaintSlice.ts'
 export type { MoveDraft } from './store/slices/MoveSlice.ts'
+export { moduleBuilderAttributes, activateModuleBuilderShortcut } from './store/builderAttributes.ts'
+export type { BuilderAttribute, BuilderAttributeKind } from './store/builderAttributes.ts'
 
 export type {
   ModuleOption,
@@ -17,6 +19,7 @@ export type {
   ModuleFamily,
   ModuleFamilyKey,
   ModuleFolder,
+  DecorCategory,
   FolderTile,
   CutMode,
   CutModeSpec,
@@ -35,6 +38,8 @@ export {
   familyOptions,
   folderTiles,
   folderOptions,
+  decorCategoryHasId,
+  decorCategoryForId,
   hasModuleActions,
   isFamilyOption,
   // The 方块 tool's cut pieces: the same kind of list for the three shapes a click

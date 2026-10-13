@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { RoofTool } from '../src/app/tools/RoofTool.ts'
 import { LONG_PRESS_MS } from '../src/app/tools/geometry/pointer.ts'
 import { MODULE_OPTIONS, useStore } from '../src/app/store.ts'
@@ -13,7 +14,7 @@ import { RoofModel } from '../src/render/models/pieces/RoofModel.ts'
 
 function harness(cells = [], moduleType = 'roof') {
   const state = { ...toState(emptyStation()), cells }
-  useStore.setState({ station: state, past: [], future: [], moduleType, moduleRot: 0, roofWidth: 4, stairBlockHeight: 1, activeZ: 0, tool: 'module' })
+  useStore.setState({ station: state, past: [], future: [], moduleType, moduleRot: 0, roofWidth: 4, roofPlateSnap: 'upper', stairBlockHeight: 1, activeZ: 0, tool: 'module' })
   let ghost = []
   const drag = { current: null }
   const scene = { setModulePreview: (mods) => { ghost = mods ?? [] }, setGhost() {}, setCollisionHighlight() {}, setCursor() {} }
@@ -87,8 +88,51 @@ test('a roof click lays one tile, and a drag lays the preview rectangle in one u
   assert.equal(useStore.getState().station.modules.length, 1)
 })
 
+test('thin roof snaps use the block side, existing roof height, and selected half consistently', () => {
+  const h = harness()
+  useStore.getState().cycleRoofPlateSnap()
+  assert.equal(useStore.getState().roofPlateSnap, 'lower')
+
+  const blockHit = { ...h.event(2, 3), hit: { cell: [2, 3, 4], place: [2, 3, 5], solid: true } }
+  h.tool.onMove(blockHit)
+  assert.deepEqual([h.ghost()[0].x, h.ghost()[0].y, h.ghost()[0].z], [2, 3, 5], 'a block hit places on its outside face')
+  assert.equal(h.ghost()[0].cfg.plateSnap, 'lower')
+  h.tool.onDown(blockHit)
+  h.tool.onUp(blockHit)
+  assert.deepEqual([useStore.getState().station.modules[0].z, useStore.getState().station.modules[0].cfg.plateSnap], [5, 'lower'], 'release matches the preview')
+
+  useStore.getState().cycleRoofPlateSnap()
+  const roofHit = { ...h.event(7, 8), hit: { cell: [7, 8, 2], place: [7, 8, 9], solid: true, roofSnap: 'lower' } }
+  h.tool.onMove(roofHit)
+  assert.deepEqual([h.ghost()[0].z, h.ghost()[0].cfg.plateSnap], [2, 'lower'], 'an existing roof supplies the snapped height and half with priority')
+  h.tool.onDown(roofHit)
+  h.tool.onUp(roofHit)
+  const placed = useStore.getState().station.modules.at(-1)
+  assert.deepEqual([placed.z, placed.cfg.plateSnap], [2, 'lower'], 'release preserves the existing roof snap')
+})
+
+test('Tab and the action tile expose the upper/lower thin-roof snap with the requested icons', () => {
+  const shell = fs.readFileSync(new URL('../src/app/windows/AppShell.tsx', import.meta.url), 'utf8')
+  const actions = fs.readFileSync(new URL('../src/app/rail/actions/ActionRow.tsx', import.meta.url), 'utf8')
+  const attributes = fs.readFileSync(new URL('../src/app/store/builderAttributes.ts', import.meta.url), 'utf8')
+  const viewport = fs.readFileSync(new URL('../src/app/Viewport.tsx', import.meta.url), 'utf8')
+  assert.match(shell, /activateModuleBuilderShortcut\(st\.moduleType, st, e\.shiftKey \? 'Shift\+Tab' : 'Tab'\)/)
+  assert.match(actions, /import \{ LuArrowUpToLine \} from 'react-icons\/lu'/)
+  assert.match(actions, /import \{ LuArrowDownToLine \} from 'react-icons\/lu'/)
+  assert.match(actions, /attribute\.visual === 'roof-snap' \? \(state\.roofPlateSnap === 'lower' \? <LuArrowDownToLine \/> : <LuArrowUpToLine \/>\)/)
+  assert.match(attributes, /s\.cycleRoofPlateSnap/)
+  assert.match(attributes, /s\.roofPlateSnap === 'lower' \? 'roof_snap_lower' : 'roof_snap_upper'/)
+  assert.match(viewport, /const slab = directRoof \?\? scene\.pickRoofModuleNear\(clientX, clientY, roofIds\)/)
+  assert.match(viewport, /return scene\.pick\(clientX, clientY, st\.activeZ\)/, 'open-area placement falls back to the active view height')
+  assert.equal(useStore.getState().roofPlateSnap, 'upper', 'the action cycles back to upper')
+  useStore.getState().cycleRoofPlateSnap()
+  assert.equal(useStore.getState().roofPlateSnap, 'lower')
+  useStore.getState().cycleRoofPlateSnap()
+  assert.equal(useStore.getState().roofPlateSnap, 'upper')
+})
+
 test('roof drag refuses obstructed tiles and right-drag removes only roofs', () => {
-  const cells = [{ x: 1, y: 0, z: 5, fill: 'solid' }]
+  const cells = [{ x: 1, y: 0, z: 1, fill: 'solid' }]
   const h = harness(cells)
   h.tool.onDown(h.event(0, 0))
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1

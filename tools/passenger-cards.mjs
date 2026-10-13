@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { passengerIsChild } from '../game/src/sim/walking.ts';
 
 let cards;
 function load() {
@@ -16,14 +17,16 @@ function load() {
 
 /** A real human at metre scale, anchored on its feet (or floor origin in plan). */
 export function passengerImage(view, x, y, pixelsPerMetre, variant = 0, walking, scale = 1, heading) {
-  const matches = load().filter(p => p.view === view && (walking === undefined || p.walking === walking));
+  const age=passengerIsChild(Math.round(variant))?'child':'adult';
+  const matches = load().filter(p => p.view === view && (p.age??'adult')===age && (walking === undefined || p.walking === walking));
+  if(!matches.length)throw new Error(`capture ${age} humans first: npm run art:models`);
   const p = matches[((Math.round(variant) % matches.length) + matches.length) % matches.length];
   const s = pixelsPerMetre / p.pixelsPerMetre * scale;
   // A plan camera looks straight down: rotating around the floor origin is an
   // exact heading change, retaining the captured stride and appearance.
   const turn = view === 'plan' && heading !== undefined
     ? ` transform="rotate(${(p.heading - heading) * 180 / Math.PI} ${x} ${y})"` : '';
-  return `<image data-variant="${p.model}" data-model="passenger-human" data-pose="${p.walking ? 'walk' : 'idle'}" x="${x - p.origin[0] * s}" y="${y - p.origin[1] * s}" width="${p.width * s}" height="${p.height * s}" href="${p.href}"${turn}/>`;
+  return `<image data-age="${age}" data-variant="${p.model}" data-model="passenger-human" data-pose="${p.walking ? 'walk' : 'idle'}" x="${x - p.origin[0] * s}" y="${y - p.origin[1] * s}" width="${p.width * s}" height="${p.height * s}" href="${p.href}"${turn}/>`;
 }
 
 export function passengerSpriteCount() { return load().filter(p => p.view === 'iso').length; }
@@ -68,7 +71,9 @@ export function walkingPlanSprite(id, identity, heading, speedMetresPerSecond) {
 }
 
 export function walkingSprite(view, id, identity, heading, speedMetresPerSecond, pixelsPerMetre) {
-  const cards = loadWalking().filter(p => p.view === view);
+  const age=passengerIsChild(identity)?'child':'adult';
+  const cards = loadWalking().filter(p => p.view === view && (p.age??'adult')===age);
+  if(!cards.length)throw new Error(`capture ${age} walking humans first: npm run art:models`);
   const variants = [...new Set(cards.map(p => p.variant))];
   const variant = variants[identity % variants.length];
   const headings = [...new Set(cards.map(p => p.heading))];
@@ -78,9 +83,9 @@ export function walkingSprite(view, id, identity, heading, speedMetresPerSecond,
   if (!(speedMetresPerSecond > 0) || !frames.length) throw new Error('walking sprite needs captured frames and positive speed');
   const duration = frames[0].stride / speedMetresPerSecond;
   const turn = view === 'plan' ? ` rotate(${-heading * 180 / Math.PI})` : '';
-  return `<g id="${id}" data-variant="${frames[0].model}" data-pose="animated-walk" data-view="${view}" data-heading="${capturedHeading}" transform="scale(${pixelsPerMetre})${turn}">`
+  return `<g id="${id}" data-age="${age}" data-variant="${frames[0].model}" data-pose="animated-walk" data-view="${view}" data-heading="${capturedHeading}" transform="scale(${pixelsPerMetre})${turn}">`
     + frames.map((p, i) => {
-      const frameId = `passenger-cycle-${view}-${p.variant}-${headings.indexOf(capturedHeading)}-${p.sample}`;
+      const frameId = `passenger-cycle-${age}-${view}-${p.variant}-${headings.indexOf(capturedHeading)}-${p.sample}`;
       const s = 1 / p.pixelsPerMetre;
       usedFrames.set(frameId, `<image id="${frameId}" x="${-p.origin[0] * s}" y="${-p.origin[1] * s}" width="${p.width * s}" height="${p.height * s}" href="${p.href}"/>`);
       const delay = -(((frames.length - i) % frames.length) / frames.length + identity * .17) * duration;

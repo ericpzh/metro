@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { cameraRig, look } from './support/camera-rig.mjs'
 import { CrowdSystem } from '../src/render/scene/systems/CrowdSystem.ts'
 import { passengerBody, passengerPose, passengerFrames, passengerMaterial, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_EYE_HEIGHT, PASSENGER_STRIDE, PASSENGER_WALK_PROFILES } from '../src/render/passengerModel.ts'
-import { passengerWalkProfile, passengerWalkSpeed } from '../src/sim/walking.ts'
+import { passengerIsChild, passengerWalkProfile, passengerWalkSpeed } from '../src/sim/walking.ts'
 import { useStore } from '../src/app/store.ts'
 import human from '../src/assets/passenger-approved.json' with { type: 'json' }
 
@@ -139,7 +139,7 @@ test('outfits, proportions and ink tones follow identity through buffer reorderi
 })
 
 test('approved faceless head and backpack stay attached through grounded walking poses', () => {
-  assert.equal(PASSENGER_OUTFITS.length, 11)
+  assert.equal(PASSENGER_OUTFITS.length, 16)
   for (const frame of Array.from({length:human.frames-1},(_,i)=>i+1)) {
     const walk = passengerPose(frame)
     let top = 0, foot = Infinity
@@ -150,11 +150,11 @@ test('approved faceless head and backpack stay attached through grounded walking
 })
 test('child-sized passengers retain smaller builds, eye heights and selection', () => {
   const identities = Array.from({length: 1000}, (_,id) => ({id, appearance: passengerAppearance(id)}))
-  const kids = identities.filter(({appearance:a}) => a[1] < 0.82)
-  assert.ok(kids.length > 80 && kids.length < 170, 'kids form a minority of the crowd')
+  const kids = identities.filter(({id}) => passengerIsChild(id))
+  assert.ok(kids.length > 170 && kids.length < 230, 'about one in five passengers is a child')
   assert.ok(kids.some(({appearance:a}) => a[1] * 1.73 < 1.1))
   assert.ok(identities.some(({appearance:a}) => a[1] * 1.73 > 1.9))
-  for (const {appearance:a} of kids) assert.ok(a[2] < 0.97, 'child width shrinks with height')
+  for (const {appearance:a} of kids) assert.ok(a[2] < 0.78 && a[3] < 0.78, 'child width and depth both use the smaller base')
   const ctx = { scene: new THREE.Scene(), mats: { blob: new THREE.MeshBasicMaterial() },
     activeZ: 0, levelBase: 0, ghost: false, hideUI: true, stateIntervalMs: 1000 }
   const crowd = new CrowdSystem(ctx), kid = kids[0]
@@ -204,8 +204,9 @@ test('illustrated human mesh has human scale, flat ink shading and grounded walk
   const material = passengerMaterial()
   assert.equal(material.isMeshBasicMaterial, true, 'station lights cannot sculpt gradients into flat illustration colours')
   assert.equal(material.toneMapped, false, 'station exposure must not wash out the ink palette')
-  assert.equal(material.transparent, false, 'overlapping passengers remain distinct, opaque silhouettes')
-  assert.equal(material.opacity, 1)
+  assert.equal(material.transparent, true, 'all game passenger variants blend with the station behind them')
+  assert.equal(material.opacity, 0.7, 'game passenger models use 70% opacity')
+  assert.equal(material.depthWrite, false, 'translucent passengers do not hide later transparent surfaces')
   body.dispose()
   material.dispose()
 })
@@ -270,8 +271,8 @@ test('cadence follows displayed speed and the scaled step length for adults and 
   const ctx = {scene:new THREE.Scene(),mats:{blob:new THREE.MeshBasicMaterial()},
     activeZ:0,levelBase:0,ghost:false,hideUI:true,stateIntervalMs:1000}
   const crowd = new CrowdSystem(ctx)
-  const child = Array.from({length:100},(_,i)=>i+1).find(id=>passengerAppearance(id)[1]<0.82)
-  const adult = Array.from({length:100},(_,i)=>i+1).find(id=>passengerAppearance(id)[1]>0.9)
+  const child = Array.from({length:100},(_,i)=>i+1).find(id=>passengerIsChild(id))
+  const adult = Array.from({length:100},(_,i)=>i+1).find(id=>!passengerIsChild(id))
   const ids = [child,adult]
   const frame = x => crowd.setAgents(new Float32Array(ids.flatMap(id=>[x,0,0,1,0,id])),2,1000)
   const phase = slot => {

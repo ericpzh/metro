@@ -16,9 +16,11 @@ import { ZoneTool } from '../src/app/tools/ZoneTool.ts'
 /** A ToolContext with the scene stubbed to a recorder, as the 方块 tool's test does. */
 function ctxFor() {
   const faceGhosts = []
+  const modulePreviews = []
   let cleared = 0
   const scene = {
     setGhost: () => {},
+    setModulePreview: (modules, blocked) => modulePreviews.push({ modules: modules ?? [], blocked }),
     setFaceGhost: (cells, face, colour) => faceGhosts.push({ cells, face, colour }),
     clearFaceGhost: () => {
       cleared++
@@ -29,6 +31,7 @@ function ctxFor() {
   const zoneDrag = ref()
   return {
     faceGhosts,
+    modulePreviews,
     cleared: () => cleared,
     zoneDrag,
     tool: new ZoneTool({
@@ -54,6 +57,15 @@ function ctxFor() {
       clearMeasure: () => {},
     }),
   }
+}
+
+function roomStation() {
+  const cells = []
+  for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) cells.push({ x, y, z: 0, fill: 'solid', finish: { top: 'floor.granite' } })
+  useStore.setState({
+    tool: 'zone', zoneBrush: 'ticket', facilityRot: 0, activeZ: 0, notice: null, past: [], future: [],
+    station: toState({ name: 't', seed: 1, cells, modules: [], lines: [] }),
+  })
 }
 
 /** One pointer event; the pick is the cell the pointer is over. */
@@ -140,6 +152,30 @@ test('a drag across the patch tints the floor it crosses and drops the rest', ()
   // rather than a zone nothing could draw.
   assert.equal(zoneAt(cells, 1, 1, 0), 'none', 'the drag painted the cell under the wall')
   assert.equal(zoneAt(cells, 1, 1, 1), 'none', 'and the wall course above it')
+})
+
+test('a booth drag previews its desktop front and opposite benches, then places that rotation', () => {
+  roomStation()
+  const { tool, zoneDrag, modulePreviews } = ctxFor()
+  tool.onDown(press([2, 2, 0], 0, 0))
+  zoneDrag.current.downTime = performance.now() - 1000
+  const target = press([5, 5, 0], 40, 40)
+  tool.onMove(target)
+  let preview = modulePreviews.at(-1).modules
+  assert.equal(preview.find((m) => m.type === 'booth').cfg.front, 0)
+  assert.deepEqual(preview.filter((m) => m.type === 'bench').map((m) => [m.x, m.y, m.rot]), [[3, 4, 2], [4, 4, 2]])
+
+  useStore.getState().rotateFacility()
+  tool.refreshFacilityPreview()
+  preview = modulePreviews.at(-1).modules
+  assert.equal(preview.find((m) => m.type === 'booth').cfg.front, 1, 'R updates the visible counter front during the drag')
+  assert.deepEqual(preview.filter((m) => m.type === 'bench').map((m) => [m.x, m.y, m.rot]), [[2, 3, 3], [2, 4, 3]])
+
+  tool.onUp(target)
+  const placed = useStore.getState().station.modules
+  assert.equal(placed.find((m) => m.type === 'booth').cfg.front, 1, 'release places the previewed front')
+  assert.deepEqual(placed.filter((m) => m.type === 'bench').map((m) => [m.x, m.y, m.rot]), [[2, 3, 3], [2, 4, 3]])
+  assert.deepEqual(modulePreviews.at(-1).modules, [], 'release clears the 3D preview')
 })
 
 test('the 无分区 brush takes a label off, and says when there is none', () => {

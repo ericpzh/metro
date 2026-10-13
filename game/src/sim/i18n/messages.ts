@@ -1,5 +1,14 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  "monitor": { "zh": "监视器", "en": "Monitor" },
+  "monitor_ceiling": { "zh": "吊挂式", "en": "Hanging" },
+  "monitor_wall": { "zh": "壁挂式", "en": "Wall-mounted" },
+  "rail_signal": { "zh": "信号机", "en": "Rail signal" },
+  "fire_cabinet_medium": { "zh": "中", "en": "Medium" },
+  "fire_cabinet_small": { "zh": "小", "en": "Small" },
+  "fire_cabinet_large": { "zh": "大", "en": "Large" },
+  "fire_station": { "zh": "微型消防站", "en": "Fire station" },
+  "fire_alarm_119": { "zh": "火警 119", "en": "Fire 119" },
   // Fixed English captions on bilingual model decals; keep both locales identical.
   "printed_queue": { "zh": "Please queue", "en": "Please queue" },
   "printed_line_value": { "zh": "Line {0}", "en": "Line {0}" },
@@ -530,6 +539,14 @@ export const messages = {
     "zh": "下行",
     "en": "Down"
   },
+  "roof_snap_lower": {
+    "zh": "下",
+    "en": "Lower"
+  },
+  "roof_snap_upper": {
+    "zh": "上",
+    "en": "Upper"
+  },
   "floor_track": {
     "zh": "地面 · 轨道",
     "en": "Floor · track"
@@ -665,6 +682,22 @@ export const messages = {
   "decor": {
     "zh": "装饰",
     "en": "Decor"
+  },
+  "ceiling_decor": {
+    "zh": "天花板装饰",
+    "en": "Ceiling decor"
+  },
+  "wall_decor": {
+    "zh": "墙面装饰",
+    "en": "Wall decor"
+  },
+  "ground_decor": {
+    "zh": "地面装饰",
+    "en": "Ground decor"
+  },
+  "outside_decor": {
+    "zh": "站外装饰",
+    "en": "Outside decor"
   },
   "materials": {
     "zh": "材质",

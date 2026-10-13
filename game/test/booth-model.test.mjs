@@ -6,7 +6,7 @@ import { equipmentReason, moduleEnvelope } from '../src/sim/placement.ts'
 import { buildModule } from '../src/render/models.ts'
 const EPS = 1e-6
 const near = (a, b) => Math.abs(a - b) < EPS
-const booth = (kind, w = 4, h = 3, x = 0, y = 0, z = 0) => ({id:'booth',type:'booth',x,y,z,w,h,cfg:{kind}})
+const booth = (kind, w = 4, h = 3, x = 0, y = 0, z = 0, front = 0) => ({id:'booth',type:'booth',x,y,z,w,h,cfg:{kind,front}})
 function build(mod) {
   const mats = new Proxy({}, {get:(t,k)=>(t[k]??=new THREE.MeshStandardMaterial({name:String(k)}))})
   const owned = []
@@ -82,6 +82,24 @@ test('counter geometry follows translated room coordinates',()=>{
       const expected=a[i].box[axis].clone().add(new THREE.Vector3(11,-8,-4))
       assert.ok(expected.distanceTo(b[i].box[axis])<EPS)
     }
+  }
+})
+
+test('counter desktops face the selected front and stay inside a rectangular footprint',()=>{
+  const w=5,h=4,x=-3,y=7,z=-2
+  const centerX=x+w/2,centerY=y+h/2
+  for(const kind of ['ticket','info'])for(const front of [0,1,2,3]) {
+    const mod=booth(kind,w,h,x,y,z,front)
+    const {boxes,mats}=build(mod)
+    const desktop=boxes.filter(({mat})=>mat===mats.black)
+    assert.ok(desktop.length>0,`${kind} keeps its desktop screens`)
+    const point=desktop.reduce((sum,{box})=>sum.add(box.getCenter(new THREE.Vector3())),new THREE.Vector3()).multiplyScalar(1/desktop.length)
+    const edgeDistance=front===0?Math.abs(point.y-y):front===1?Math.abs(point.x-(x+w)):front===2?Math.abs(point.y-(y+h)):Math.abs(point.x-x)
+    assert.ok(edgeDistance<0.6,`${kind} desktop faces front ${front} (distance ${edgeDistance})`)
+    const bounds=new THREE.Box3()
+    for(const {box} of boxes)bounds.union(box)
+    assert.ok(bounds.min.x>=x-EPS&&bounds.max.x<=x+w+EPS,`${kind} front ${front} fits x`)
+    assert.ok(bounds.min.y>=y-EPS&&bounds.max.y<=y+h+EPS,`${kind} front ${front} fits y`)
   }
 })
 

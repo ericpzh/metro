@@ -40,3 +40,16 @@ test('B, P and M keyboard handlers toggle the active tool to its remembered pred
   assert.match(shell, /case 'p':[\s\S]{0,80}st\.setTool\(st\.tool === 'pick' \? st\.previousTool : 'pick'\)/)
   assert.match(shell, /case 'm':[\s\S]{0,80}st\.setTool\(st\.tool === 'move' \? st\.previousTool : 'move'\)/)
 })
+
+test('facility R cycles the service front and the room rail exposes its rotation tile', () => {
+  const state = toolSlice()
+  assert.equal(state().facilityRot, 0)
+  for (const expected of [1, 2, 3, 0]) {
+    state().rotateFacility()
+    assert.equal(state().facilityRot, expected, 'service front turns one quarter each press')
+  }
+  const shell = fs.readFileSync(new URL('../src/app/windows/AppShell.tsx', import.meta.url), 'utf8')
+  const folder = fs.readFileSync(new URL('../src/app/rail/folders/RoomFolder.tsx', import.meta.url), 'utf8')
+  assert.match(shell, /st\.tool === 'zone' && \(st\.zoneBrush === 'ticket' \|\| st\.zoneBrush === 'info'\)\) st\.rotateFacility\(\)/)
+  assert.match(folder, /<RotateTile label=\{msg\('rotate'\)\} onClick=\{\(\) => st\(\)\.rotateFacility\(\)\} \/>/)
+})

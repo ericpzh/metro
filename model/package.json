@@ -9,6 +9,7 @@
     "predev": "npm run prepare-assets",
     "dev": "vite",
     "start": "npm run dev",
+    "test": "node --test test/*.test.mjs",
     "prebuild": "npm run prepare-assets",
     "build": "vite build",
     "preview": "vite preview"

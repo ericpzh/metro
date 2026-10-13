@@ -233,13 +233,19 @@ The models are pure three.js geometry
 over one shared material kit — no image or GLB assets. Modules are level-aware, so a tall escalator
 or exit ghosts with the floor it belongs to instead of drawing through it.
 
-**The 装饰 folder holds seating, room furniture and advertising.** 座椅 (the bench, moved
-out of 设备), 货架 (a stocked supermarket gondola), 收银台 (white checkout counter with a stocked front display, cash drawer, POS and payment reader), 办公桌 (a control-room desk with two monitors and a mesh office chair),
-厕所隔间 (the restroom cubicle), 洗手池 (the wash basin), 垃圾桶 (a stainless double bin), 灭火器
-(the red fire-extinguisher cabinet on four legs), 导向柱 (the exit-linked street pillar) and 公交站
-(the short/long shelter) are all free-standing pieces — everything but the round 灯具 turns with **R** —
-and 广告牌, 电视, 指示牌, 时钟, 监控, 灯具 (圆形 / 直条 ceiling fittings) and 通风口 (the ceiling grille)
-all live under 装饰 in the build rail. 收银台 shares a palette row with 货架, and 办公桌 with 挂架. Both computers show a blue desktop with shortcuts and a taskbar, separate from the ticket-machine UI. 垃圾桶 and 灭火器 are cosmetic like the
+**装饰 is split into four top-level build-rail folders:** 天花板装饰 (Shift+4), 墙面装饰 (Shift+5),
+地面装饰 (Shift+6) and 站外装饰 (Shift+7). Family variants determine whether a family appears in a
+section, but its full variant menu stays available there. The wall order ends with 站名 and 线网图;
+the ground order groups 售票机 / 自动售货机, 座椅 / 门, 玻璃幕墙 / 屏蔽端门,
+灭火器 / 垃圾桶, 货架 / 收银台, 线网图 / 办公桌, 盲道 / 地面指示, 设备柜 / 信号机,
+厕所隔间 / 洗手池, then 挂架. The shared network-map family appears in both wall and ground folders.
+This folder membership and order is pinned in `rail-families.test.mjs`. 售票机 and 自动售货机
+are floor decor. 座椅 (the bench, moved out of 设备), 货架 (a stocked supermarket gondola),
+收银台 (white checkout counter with a stocked front display, cash drawer, POS and payment reader),
+办公桌 (a control-room desk with two monitors and a mesh office chair), 厕所隔间 (the restroom cubicle),
+洗手池 (the wash basin), 垃圾桶 (a stainless double bin), 灭火器 (the red fire-extinguisher cabinet
+on four legs), 导向柱 (the exit-linked street pillar) and 公交站 (the short/long shelter) are all free-standing
+pieces — everything but the round 灯具 turns with **R**. 收银台 shares a palette row with 货架, and 办公桌 with 挂架. Both computers show a blue desktop with shortcuts and a taskbar, separate from the ticket-machine UI. 垃圾桶 and 灭火器 are cosmetic like the
 rest of the furniture — no server and no stop — and both count as room furniture, so they may stand
 inside a walled 商店 / 厕所 / 办公室 / 售票亭 (`placementBlocked`'s furniture ↔ room exemption). 广告牌 is *wall-mounted*:
 `sim/placement.ts`'s `wallMountMissing` refuses it unless the facing neighbour has a solid block at
@@ -260,8 +266,10 @@ is no walkable floor in front of it.
 wall-mounted cousin: a sheet of glass in an **outer frame only** — one sill, one head and two end
 posts around the whole run, with a single pane between them, so a three-cell panel is one window where
 a fence run of the same length stands three frames up — in six sizes (one, two or three cells wide, in
-a 1 m and a 2 m height) from `sim/glassPanels.ts`. The separate **玻璃幕墙** tile stands
-4 m tall with **Tab** cycling **窄 / 中 / 宽** (2 / 3 / 4 m wide). Beside it, **屏蔽端门**
+a 1 m and a 2 m height) from `sim/glassPanels.ts`. The separate floor-standing **玻璃幕墙** tile
+has **短 / 中 / 长** height choices (2 / 3 / 4 m) and **窄 / 中 / 宽** widths (2 / 3 / 4 m).
+All four sides can share one tile; at a corner the intersecting end post and rail are removed
+to make a clean snap. Beside it, **屏蔽端门**
 reuses fixed platform-screen glass with **半高 / 全高** heights; a perpendicular panel
 snaps into a screen run’s endpoint tile so the two cap rails meet at the corner.
 The corner panel shortens to its tile boundary (0.84 m); subsequent panels are exactly
@@ -380,6 +388,10 @@ collides. No piece-hand-written exemption: the boxes decide, which is the same r
 own tests read.
 
 监控的子菜单提供 **枪机 / 球机 / 半球机**：枪机保留原来的支架与镜头，球机采用白色吊臂与锥形机身，半球机紧贴天花板安装。两种新机型都带烟色半球罩与内部镜头；旧存档的监控默认显示为枪机。吸取保留机型，拖动删除只收集同机型，切换机型立即刷新预览。`ceiling-decor` 与 `pick-tool` 测试覆盖存档、吊挂、旋转、预览和机型选择。
+
+灭火器的子菜单提供 **小 / 中 / 大** 三种尺寸：小型高 0.5 m，中型为标准箱，大型玻璃柜宽 1.5 m、高 2 m。
+玻璃柜采用红色双门框和透明前面板，柜内可见灭火器、头盔和储物搁板，占两个地面格。
+旧存档保留标准箱；吸取保留尺寸，拖动删除只收集同款柜体。
 
 **时钟 and 监控 are the same ceiling-hung contract with different hardware.** 时钟 is a **round**
 station clock: a white face with black hour marks, minute ticks and hands and *nothing* printed on
@@ -887,8 +899,8 @@ at once, and again once the 280 ms fold has settled, because the first one measu
 still travelling.
 
 **Each column's folders answer to its own modifier, one number a folder.** The build rail is
-**Shift+1 through Shift+7**: 工具 is **Shift+1** and 2 through 7 follow the folders below it (轨道,
-设备, 装饰, 材质, 房间, 分区). The 信息栏 is **Alt+1 through Alt+4**, one number a row down its own
+**Shift+1 through Shift+0**: 工具 is **Shift+1**; 2–3 are 结构 / 设备, 4–7 are 天花板装饰 /
+墙面装饰 / 地面装饰 / 站外装饰, and 8–0 are 材质 / 房间 / 分区. The 信息栏 is **Alt+1 through Alt+4**, one number a row down its own
 stack — **信息, 视图, 出入口, 线路** — and every header in both columns badges its own key on hover the way
 a tile does (`Shift+1` / `Alt+2`; `.folderKey`, the tile's own `.bpKey` — hidden until the header is
 hovered or focused, so a column of closed folders stays quiet). A **modifier each** lets both columns share
@@ -898,7 +910,7 @@ numbers 1 through 4 under different modifiers. Each column is therefore **one ta
 single keydown listener (`app/windows/AppShell.tsx`) turns a modified number into the folder it names and
 hands it over as `metro:folder`, because the columns own which folders are open and the app owns the
 keyboard — the same split `metro:preset` / `metro:frame` use for the camera. Each column folds only the
-rows of its own table, so one number never folds two headers. Shift+1–7 use the physical number-row keys
+rows of its own table, so one number never folds two headers. Shift+1–0 use the physical number-row keys
 (`KeyboardEvent.code`) because their `key` values change to symbols when Shift is held. The camera ignores
 **Alt** altogether, so Alt+2 folds 视图 without also starting a move.
 
@@ -1996,7 +2008,8 @@ approximated); neither needs WebGL.
   leak an edit back into the next 打开), the shipped save carries no cell off the 1 m grid, and
   `emptyStation()` is the 2 × 2 at-grade seed with nothing built on it.
 * `capacity.test.mjs` — the §7.8 capacity ladder as a comparison: one platform escalator
-  jams, three fix it; a saturated platform leaves people behind.
+  jams, three fix it; a one-car train with no alighting isolates boarding queues
+  and leaves people behind at a saturated platform.
 * `layering.test.mjs` — `sim/` imports nothing and touches no DOM; `render/` never reaches
   up into `app/`; `build/` imports neither.
 * `scene-wiring.test.mjs` — the scene systems' sibling wiring (`render/scene/SceneRenderer.ts`).
@@ -2352,7 +2365,8 @@ approximated); neither needs WebGL.
   module only (one `shop` module type, the fit-out in `cfg.kind`, `door` and `stocked`) — no
   walls are built (the player walls the footprint with the block tool) — while 售票亭 and 问讯处
   are open-desk booths (`cfg.kind` ticket / info) that keep their staff benches; same-fit-out drags
-  extend a room, different ones clash (including ticket vs info); right-click carves the
+  extend a room, all four front rotations keep benches opposite the desktop side, different ones
+  clash (including ticket vs info); right-click carves the
   player-built wall openings (the renderer then hangs a
   3D door on a 厕所 / 办公室 opening and leaves the 商店 front open) and a room with no wall left is
   removed; picking an info booth arms the info zone brush; the demo's shop and booth stay connected with live sim stops.
@@ -2403,7 +2417,8 @@ approximated); neither needs WebGL.
 * `booth-model.test.mjs` — the reference-based 问讯处 / 售票亭 models (§5.7): both stay
   within their footprint and 2.4 m height, the white information counter has a lowered
   accessible centre, the stainless ticket kiosk has clear transfer apertures beneath its
-  service glazing, and both open overhead frames have no built-in 客服中心 banner.
+  service glazing, and both open overhead frames have no built-in 客服中心 banner. Their
+  desktops follow each of the four selected front faces while remaining inside rectangular footprints.
   Customer-service pictograms are available in the sign editor; editable hanging signs fit
   inside either booth type under a ceiling slab. `sign-render` pins the pictogram's ink.
 * `booth-sign.test.mjs` — wall signs snap to the nearest outer face of either booth's
@@ -2431,7 +2446,7 @@ approximated); neither needs WebGL.
   the 1 m stainless piece; a 2 m bench covers two cells in its own direction (and quarter-turned),
   blocks a piece on its second cell but not the next one over, is found by `moduleAt` from either
   cell, is refused over a track bed on either cell, and round-trips the save.
-* `decor.test.mjs` — the 垃圾桶 and 灭火器 decorations (§5.7): the palette files both under 装饰 with
+* `decor.test.mjs` — the 垃圾桶 and 灭火器 decorations (§5.7): compact 0.5 m tall and glass-front 1.5 × 2 m cabinets preserve save/move/preview identity, reserve their rotated footprints, and expose equipment through clear door apertures. The palette files both under 装饰 with
   their Chinese labels, the factory builds them with the hover rotation, each reserves exactly its own
   cell up to the height it is drawn to (so the body can never stand taller than the space it reserves),
   two may not share a cell while a neighbour or the storey above is free, both are room furniture that
@@ -2441,6 +2456,7 @@ approximated); neither needs WebGL.
   0.76 × 0.57 m sorting-sticker plate floating just off its front panel, symmetric about x,
   and the cabinet is a red steel box standing on exactly four corner legs with one
   white lettered plate spanning both doors in front of them.
+* `monitor-signal.test.mjs` — 监视器 ceiling/wall support, rotated 3×2 m panels with six square screens facing into the room, tall-ceiling suspension, save/preview/sweep variants and the 1 m 信号机's scaled bounds and three unobstructed vertical lamps.
 * `ceiling-decor.test.mjs` — the ceiling-hung 时钟 and 监控 (§5.7): the palette
   files both under 装饰 with their Chinese labels, the factory builds them with the hover rotation,
   each reserves exactly its own cell from the floor top to the ceiling, neither may be hung
@@ -2534,7 +2550,7 @@ approximated); neither needs WebGL.
   the 2 m window); a panel turns itself to a wall that backs it; two may not share a cell; the pieces
   round-trip the save and sweep by size. The model is where "outer frame only" becomes a number: five
   meshes at **every** unmodified size — a sill, a head, two end posts and one pane — against a 围栏 run of the same
-  length, which stands one frame up per cell. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here.
+  length, which stands one frame up per cell. 玻璃幕墙 height choices stay floor-standing; all four orientations can occupy one tile while same-facing duplicates remain blocked, and a corner join removes the intersecting end post and shortens its rails. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here.
 * `door-panel.test.mjs` — the 门 (§5.7), the **free-standing doorway**: three material variants (不锈钢 / 木 / 玻璃) in the 门 family menu, plus a 窄 / 宽 action tile
   that also cycles with Tab, and a legacy value reading as the narrow stainless door; the factory centres a 双开 run on the hovered cell; the piece **stands on the
   floor** — it reserves its whole cells from the floor top to its head, wants no wall behind it
@@ -2667,6 +2683,10 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   finish ids, stock-tint exclusion, two-column native color-picker tiles and the white New Color tile.
 * `tool-shortcuts.test.mjs` — B 删除, P 吸取 and M 移动 toggle back to the tool that was active
   before the mode; changing tools records the previous one, and each shortcut cancels its own mode.
+  The service-room R tile cycles the front face.
+* `builder-attributes.test.mjs` — module action tiles and R / Tab / Shift+Tab dispatch share
+  one capability list, variants follow the width → length → height → direction → position → style
+  priority, and every width uses the shared width glyph.
 * `tool-hover-preview.test.mjs` — 移动, 吸取 and 选择 tint the equipment under the pointer blue; 删除 uses the red bulldozer preview.
 * `pick-tool.test.mjs` — the 工具 folder's **吸取** (`app/tools/PickTool.ts`, `P`): clicking a placed
   piece arms the placement with its exact palette variant — a 2 m backed 座椅, a 六 format 广告牌, a
@@ -2703,12 +2723,13 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   new tab with `rel="noreferrer"`, named by the bilingual `report_issue` key and wearing the nav's
   `ghost iconBtn` chrome (with the matching `a.ghost` styling).
 * `rail-folders.test.mjs` — the two folder ladders (`app/rail/helpers.ts` `RAIL_FOLDERS` +
-  `INSPECTOR_FOLDERS`): the build rail is Shift+1 through Shift+7 in the order its folders are stacked, 工具
-  first (so Shift+1 folds the folder the rail already opens on), with **材质 pinned directly above 房间**;
+  `INSPECTOR_FOLDERS`): the build rail is Shift+1 through Shift+0 in stack order, 工具 first,
+  with the four top-level decor folders at Shift+4–7 and 材质 / 房间 / 分区 at Shift+8–0;
+  each folder tab steps right down the same diagonal, including the last two rows;
   the 信息栏 is Alt+1 through Alt+4 over 信息 / 视图 / 出入口 / 线路, 视图 standing in **one** of the two tables;
   a folder stands on one key and a key on one folder **within its column**, with the two columns sharing
   numbers 1–4 under different modifiers; unused numbers fall through to the app's own switch.
-* `rail-families.test.mjs` — the rail's **variant families** (`app/store/catalog.ts` `MODULE_FAMILIES`),
+* `rail-families.test.mjs` — the rail's **variant families and decor folders** (`app/store/catalog.ts` `MODULE_FAMILIES`),
   the one table the parent tiles, the sub-menus, the rail's single open slot, the folder counts and the
   contextual action row all read. It pins the four halves against each other for every family and every
   palette id: the keys and anchors are unique; each family owns at least one variant and **no variant is
@@ -2722,7 +2743,9 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   grid out** and every tile a folder owns is drawn exactly once, in it — a family's variants are excluded
   from its folder's plain tiles (`folderOptions`), so nothing is drawn twice and everything the folder can
   place is reachable; the
-  open slot answers with the piece's own family (`subMenuForModule`), which is what stops a variant
+  the wall and ground decor sections' ordered anchors, the outside/ceiling contents, shared families
+  present in each fitting section, and the rule that every such family keeps its full variant menu;
+  the open slot answers with the piece's own family (`subMenuForModule`), which is what stops a variant
   folding its list away the moment it is picked; and every piece with an action row anchors to a tile its
   folder really draws — `actionsAnchorFor` names the family tile for a variant and the piece's own tile
   otherwise, so the 旋转 row can never fold out under nothing; and `actionRowOpen` is open only under the
@@ -3141,7 +3164,7 @@ Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions
 
 细支柱 and 粗支柱 each have one palette tile. Tab switches the section added by a click between 2 m（短） and 4 m（长）; clicking a pillar adds that selected length while retaining its width, position and finish, so 2 m → 4 m → 2 m becomes one continuous 8 m pillar. Existing pillar saves keep their heights.
 
-`roof-tool.test.mjs` verifies rectangular thin-roof previews, truss-bay placement and removal as a straight run along the crest axis (a sideways wander never staggers it, backwards and right-drag removal included) including rotated 8 m bays, collision refusal, and one undo step per drag. Each truss style has one tile; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover.
+`roof-tool.test.mjs` verifies rectangular thin-roof previews, truss-bay placement and removal as a straight run along the crest axis (a sideways wander never staggers it, backwards and right-drag removal included) including rotated 8 m bays, collision refusal, and one undo step per drag. Each truss style has one tile; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover. Thin roofs use Tab or their action tile to choose 下 / 上: 下 occupies the cell's bottom 0.25 m and 上 its top 0.25 m, each touching the corresponding block boundary. A roof slab under the pointer supplies both the placement height and half first, followed by the hit block's outside face, then the active view height. `roof-tool.test.mjs` pins this priority and preview/release agreement; `overground.test.mjs` pins the rendered and collision bounds.
 
 Roof placement centres the roof footprint on the mouse, snapping to the block grid for plain roofs and both truss styles. The pointer ray targets the roof's top height rather than the floor below, so elevated previews stay under the cursor in perspective and orthographic views. Click and drag release use the same centred anchor; rotation and width changes keep the centre in place. `roof-tool.test.mjs` checks centring, preview/release agreement and roof-height ray projection. Removal continues to target the existing roof footprint.
 
@@ -3213,7 +3236,7 @@ In English mode, station fields are labelled Primary name / Secondary name and s
 
 `sim-pause.test.mjs` pins the rest of the pause: an escalator's step band holds its phase while paused and rolls on from it on resume, a 闸机 leaf never starts its cycle (the crossing stays queued), paused train and screen doors hold mid-travel while the consist itself still glides to its latest snapshot, and the orchestrator forwards pause to the crowd, the lifts and the trains.
 
-Passengers use all eleven reviewed grey, faceless model-library variants: male original/short/bald with and without a bag; female bob/shoulder with and without a bag; female long hair without a bag. Each complete variant has an equal 1/11 chance, chosen deterministically from stable passenger identity without consuming the journey RNG. Physique, child sizing (about one in eight), ink tone and slow/medium/fast gait remain independent of that choice. Arms swing and feet step according to distance travelled; waiting passengers settle into a standing pose. All models share one instanced draw, including the closed coats and fitted backpack straps from the reviewed exports. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
+Passengers use all sixteen reviewed grey, faceless model-library variants: male original/short/bald with and without a bag; female bob/shoulder with and without a bag; female long hair without a bag; five smaller tapered backpacks for male original/short/bald and female bob/shoulder hair. Adults choose equally from all sixteen variants; children reuse only bagless models with hair. A stable identity hash assigns 20% children and 80% adults without consuming the journey RNG. Each passenger varies independently from 80–120% in height; adults vary 90–110% in width and depth, while children vary 80–90% on both axes. Children start at 65% height and 70% width/depth before that variation. Ink tone and slow/medium/fast gait remain independent of the age-appropriate model choice. Arms swing and feet step according to distance travelled; waiting passengers settle into a standing pose. All models share one instanced draw, including the closed coats and fitted backpack straps from the reviewed exports. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
 
 The build palette, inspector and view cube each have an independent hide/show button with a short animation; their settings stay mounted while hidden. Reduced-motion preferences disable these transitions. Two-finger pinch on the viewport zooms both perspective and orthographic views. Single-finger taps select or place on release, so the first contact of a pinch cannot edit the station.
 
@@ -3241,7 +3264,7 @@ without changing the capacity-limited stair, escalator, lift or gate rules.
 左 / 中 / 右直跑楼梯 continue forward across a middle landing, with the upper run shifted across the landing for the left and right variants. `stairs.test.mjs` checks flight plans and passenger routes in both directions across all sizes and rotations; `module-build.test.mjs` checks their rendered treads, railing glass and landing.
 
 
-Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 11 variants, balanced selection independent of physique/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
+Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 16 variants, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
 
 Walking now varies by stable slow/medium/fast profiles (§7.1's uniform 1.34 m/s
 is intentionally replaced). Nominal speeds are 0.9/1.15/1.4 m/s, scaled by body
@@ -3251,3 +3274,26 @@ pool reuse, and matching sim speed/stride; `passenger-view` checks planted soles
 against world movement, all three pose ranges, compaction, pause and resume.
 
 `passenger-art-pipeline.test.mjs` pins growing model catalogues, bounded capture batches, complete standing/stride coverage and rejection of stale builds or duplicate frames. `npm run art:models` refreshes the approved exports and game atlas, builds the game, captures all models, regenerates sheets 01/02/07/12/13 in both languages, checks gait playback, renders previews and builds/syncs the site.
+## Small passenger backpacks
+
+The adult passenger library includes sixteen equally weighted variants. Five use a
+smaller tapered backpack, available on male original/short/bald and female
+bob/shoulder hair. `passenger-library` checks the smaller pack remains visible
+and shallower than the standard pack in standing and walking frames.
+
+`passenger-size.test.mjs` pins the 20% child / 80% adult population, separate height/depth/width ranges, child model restrictions, stable identity and body/shadow instance scales through reordering. Children reuse the existing bagless male original/short and female bob/shoulder/long models; no bald or backpack child models are selected. Fore/aft depth scales speed and stride together; vertical scale sets eye height and picking.
+
+With the game dev server at 5174, `node tools/check-game-passenger-size.mjs`
+captures a lineup of eight adults and two children in `.preview/passenger-size/`.
+After a game build, `node tools/check-game-passenger-library.mjs` checks all
+catalogue poses and live crowd scales/model restrictions on the actual GPU path.
+
+All game passenger variants render at 70% opacity through their shared material.
+`passenger-view` pins alpha blending and depth-write settings; the production GPU
+check verifies the live material and the slimmer 80–90% child width/depth ranges.
+
+The art capture includes all sixteen adult templates and the five eligible child
+templates in every camera and complete stride. Physical captured stride includes
+depth scaling; static and moving sheet figures choose age with the game identity
+hash. `passenger-art-pipeline` rejects missing child frames and bagged/bald child
+cards; the art browser check verifies child figures and changing SVG gait frames.

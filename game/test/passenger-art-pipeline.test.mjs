@@ -38,6 +38,22 @@ test('stale game builds and duplicate captured files cannot regenerate model art
  assert.throws(()=>validatePassengerCaptures(index,[...cycles,cycles[0]],library,24),/duplicate captured file/)
 })
 
+test('the art requires complete child strides and rejects bags or bald child cards', () => {
+ const {index,cycles,library}=fixture(3)
+ Object.assign(library[0],{bag:false,hair:'short'})
+ Object.assign(library[1],{bag:true,hair:'bob'})
+ Object.assign(library[2],{bag:false,hair:'bald'})
+ const kids=cards=>cards.filter(c=>c.variant===0).map(c=>({...c,age:'child',file:`child-${c.file}`}))
+ const stills=[...index,...kids(index)],walks=[...cycles,...kids(cycles)]
+ assert.doesNotThrow(()=>validatePassengerCaptures(stills,walks,library,24,true))
+ assert.throws(()=>validatePassengerCaptures(index,walks,library,24,true),/missing/)
+ assert.throws(()=>validatePassengerCaptures(stills,walks.slice(0,-1),library,24,true),/incomplete/)
+ for(const variant of [1,2]){
+  const bad={...index.find(c=>c.variant===variant),age:'child',file:'ineligible-child'}
+  assert.throws(()=>validatePassengerCaptures([...stills,bad],walks,library,24,true),/ineligible child/)
+ }
+})
+
 
 test('the repeatable command refreshes exactly the five requested sheets and only sheet 07 UI', () => {
  const script=readFileSync(new URL('../../tools/refresh-model-art.mjs',import.meta.url),'utf8')

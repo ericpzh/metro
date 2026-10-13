@@ -162,6 +162,7 @@ export interface ModelMaterials {
   binLabels: THREE.MeshBasicMaterial
   /** The 灭火器箱 doors' white lettering (灭火器箱 / FIRE EXTINGUISHER BOX / 火119警). */
   fireLabels: THREE.MeshBasicMaterial
+  fireStationLabels: THREE.MeshBasicMaterial
   ledGreen: THREE.MeshBasicMaterial
   ledRed: THREE.MeshBasicMaterial
   glow: THREE.MeshBasicMaterial
@@ -735,6 +736,19 @@ export function createModelMaterials(): ModelMaterials {
     // Clear decal backgrounds preserve the cabinet shading between the stickers.
     binLabels: new THREE.MeshBasicMaterial({ map: canvasTexture(1024, 768, (g) => g.drawImage(binLabelCanvas(), 0, 0)), transparent: true }),
     fireLabels: new THREE.MeshBasicMaterial({ map: canvasTexture(320, 400, (g) => g.drawImage(fireLabelCanvas(), 0, 0)), transparent: true, side: THREE.DoubleSide }),
+    fireStationLabels: new THREE.MeshBasicMaterial({
+      map: canvasTexture(640, 800, (g) => {
+        g.fillStyle = '#ffdf50'
+        g.textAlign = 'center'
+        g.textBaseline = 'middle'
+        g.font = 'bold 46px "Microsoft YaHei", sans-serif'
+        drawModelText(g, t('fire_station'), 160, 150, 220)
+        drawModelText(g, t('fire_alarm_119'), 480, 520, 220)
+      }),
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
     ledGreen: new THREE.MeshBasicMaterial({ color: 0x48e08a }),
     ledRed: new THREE.MeshBasicMaterial({ color: 0xff5d47 }),
     glow: new THREE.MeshBasicMaterial({ color: 0xf7ecc8, side: THREE.DoubleSide }),

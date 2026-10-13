@@ -50,11 +50,14 @@ test('one escalator off the platform breaks; three fix it', () => {
 })
 
 test('boarding demand that the doors cannot clear is counted as left behind', () => {
-  // A boarding-heavy peak: the exits pour in far faster than the platform can
-  // absorb, so the door queues survive a dwell and the counter climbs.
+  // A short train against a boarding-heavy peak keeps the doors saturated
+  // across physique/stride distributions. No alighting wave may contribute to
+  // the left-behind counter: this assertion is specifically about boarders.
   const data = setInRates(scenarioStation({ upEscalators: 3 }), 6000)
+  for (const line of data.lines) { line.cars = 1; line.alightPerTrain = 0 }
   const r = run(data, 1600)
   assert.ok(r.world.totals.boarded > 0, 'nobody boarded a train at all')
+  assert.equal(r.world.totals.alighted, 0, 'only boarding demand contributes to this capacity fixture')
   assert.ok(r.world.totals.leftBehind > 0, 'expected people left behind at a saturated platform')
   console.log(`    boarded ${r.world.totals.boarded}, left behind ${r.world.totals.leftBehind}`)
 })

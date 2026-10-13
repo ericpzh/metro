@@ -68,6 +68,11 @@ in the variant menu and door width is a separate narrow/wide setting. Their
 simulation, placement, rendering, and picker behavior belongs to `game/src/`;
 coverage belongs in `game/test/` and follows `metro-game-test`.
 
+Monitor decor has a ceiling-hung 1 m cabinet and a 3 m wall-backed panel with
+twelve room-facing views; the separate floor-standing 信号机 is 1 m tall. Route
+implementation to `metro-game` and preserve the mounting, bounds and material
+invariants in `game/test/monitor-signal.test.mjs`.
+
 The eight fixed stairs include 左 / 中 / 右直跑楼梯: two flights climb forward
 with an interior landing between them. Keep their flight plan, landing width,
 railing openings, carve and passenger graph aligned; extend `stairs.test.mjs`
@@ -112,7 +117,9 @@ text in both locales for clipping and CN regressions. Art generation must report
 no missing translations. Follow the owning subskill for layout and cache refresh.
 
 Passenger sources: the live `game/src/assets/passenger-approved.json` comes from
-the eleven reviewed model exports; use `metro-model` and `npm run bake:passengers`.
+the sixteen reviewed model exports; use `metro-model` and `npm run bake:passengers`.
+Adults choose all entries equally; the 20% child population uses only five bagless,
+non-bald templates at smaller scale. The shared game material uses 70% opacity.
 The historical `game/src/assets/passenger-human.json` is baked, not authored —
 `game/src/assets/PASSENGERS.md` names the CC0 Quaternius outfits and
 `tools/bake-passengers.mjs` regenerates the atlas. Never hand-edit the JSON.
@@ -171,8 +178,9 @@ commands.
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
 | `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/`, `/metro/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Worker does. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
-| `bake-approved-passenger.mjs` | Bakes all eleven reviewed model exports into the active shared game crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
-| `check-game-passenger-library.mjs` | Checks all eleven variants and the live instanced crowd in the built game GPU renderer. |
+| `bake-approved-passenger.mjs` | Bakes all sixteen reviewed model exports into the active shared game crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
+| `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, 70% opacity and the instanced crowd in the built game GPU renderer. |
+| `check-model-preview-options.mjs`, `check-game-passenger-size.mjs` | Verify production model age/size controls and render a game lineup. The model's pure preview rules also have `npm --prefix model test`. |
 | `bake-passengers.mjs` | Regenerates `game/src/assets/passenger-human.json` from the CC0 sources listed in `game/src/assets/PASSENGERS.md` (see `metro-game`). |
 | `render-module-cards.mjs` | Sheet 04's cards: drives headless Chrome to run the game's own thumbnail pass. Needs Chrome + `game/dist`. |
 | `render-block-cards.mjs` | Sheet 03's blocks, meshed and lit by the game (same shape). |
