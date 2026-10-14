@@ -2018,6 +2018,18 @@ GAME-SPEC §9.5's "side face = wall-mounted" says it belongs in the cell in fron
 now where it stands, on that face's own storey whatever the block is tagged. No save changes: a panel
 already hanging keeps the cell and the course it was given.
 
+*The other half of that face: the pieces that stand on the floor.* Fixing the wall panels left the
+**floor-standing** ones — the 玻璃幕墙 and the tall 玻璃 sizes, and every other floor piece — reading the
+same hover wrong in the opposite direction: a side-face hit took the block *under the pointer* as the
+floor to stand on, so a 幕墙 aimed at a wall parked inside the wall at whatever course the crosshair
+crossed, a course below or above the 玻璃板 bolted to the same face. `floorStandCell` is the ground
+mirror of `wallMountStandCell`: a **top or bottom face** still names the cell itself (a floor top is the
+tile the piece stands on), a side face of a **floor** block — nothing solid over it — still stands the
+piece on top of it, and a side face of a **wall course** stands it against that face, on the face's own
+storey of the 基准高度 grid, which is the cell the wall-mounted panel takes from the same hover. One
+wall, one answer, whichever piece is being aimed; the cursor follows the resolved cell instead of the
+block the pointer crossed, so the tool shows where the piece lands.
+
 `test/` holds the acceptance tests. Run them with `npm test`:
 
 Two of the drawn faces can be rendered to a PNG outside the browser, for looking at rather than
@@ -2270,7 +2282,10 @@ approximated); neither needs WebGL.
   (`wallMountStandCell`), so it can bolt to the station wall across the track — and that half of the aim
   takes **any** block's side face as a wall, tagged or not, on the face's own storey of the station's
   基准高度 grid, so a wall raised with the 方块 brush mounts a panel like one the 墙 tool tagged
-  (`wall-ceiling-snap.test.mjs`).
+  (`wall-ceiling-snap.test.mjs`). A **floor-standing** piece aimed at the same face resolves through
+  `floorStandCell`: a top face names the cell itself, a side face of a floor block stands the piece on
+  top of it, and a side face of a covered wall course stands it against that face — the cell the panel
+  takes — instead of inside the wall (`placement.test.mjs`).
   Escalator equipment collisions follow the sloped, per-tile body even against another run: the
   floor above the lower section stays free, and vertically adjacent runs may meet at the landing
   plane without reserving the whole shaft. Placement and bay tests pin that clearance and real
@@ -2670,7 +2685,9 @@ approximated); neither needs WebGL.
   a solid floor hit. The same aim is what picks **which** wall a panel hangs on, and the mounts bolted
   to a named piece of the document keep the turn the pointer gave them: a 地面出入口 stays on the block
   face it was clicked on (`cfg.mountZ`) while a 玻璃板 on the same hover takes the wall the camera is
-  looking at.
+  looking at. It also pins the cell a **floor-standing** piece takes from that hover: the 玻璃幕墙 aimed
+  at a wall lands beside the 玻璃板 in front of it, never inside the block at the course the pointer
+  crossed (`floorStandCell`).
 * `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers ten (six wall sizes and four
   4 m floor-edge sizes, including 1 m 超窄), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
   band; the factory centres the run on the hovered cell; short-panel envelopes are a **slab on a wall**
@@ -2805,7 +2822,8 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   hang over the track where there is no floor in front of that wall), and the ghost in the air is aimed
   by the same two inputs a fresh placement is: `MoveController` hands `moveCandidate` the station's own
   **基准高度** and the camera's aim, so a wall panel already hanging on one wall lands on the wall the
-  view prefers — while a 地面出入口 keeps the block face the pointer is on; and it requires a ceiling over a
+  view prefers — while a 地面出入口 keeps the block face the pointer is on; a floor-standing piece aimed
+  at a wall course stands beside it (`floorStandCell`), the same cell a fresh placement gives it; and it requires a ceiling over a
   指示牌 — which is the only thing it is asked for, since a hung piece is exempt from the ground; `replaceEquipment` swaps the piece in place keeping the list order; a **run** is re-laid instead: a moved 扶梯's `from`/`to` travel with it (and a turn swings the upper landing about the base, never the travel direction), a moved 楼梯 is the stair the factory would build at that cell and rotation for every shape and size (its flights, its width), a piece that was never on the block grid keeps the run it has, a turning stair's half-landing floor goes with it and the new one is laid — every cell of a 90° turn's `lanes × lanes` square, so a 中 turn's four landing cells all travel — a moved 扶梯 carves its new opening while the one it left stays open as it does on a delete, and the whole move stays one commit that `Ctrl+Z` undoes (landing floor and all); and in the store a lift is
   not an edit (the piece stays in the document, nothing on the undo stack), `取消` puts it back with no
   commit, `确认` is one commit that `Ctrl+Z` undoes, a refused drop keeps the piece in the air and says

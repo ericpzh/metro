@@ -32,6 +32,7 @@ import {
   ceilingMountStandCell,
   equipmentReason,
   equipmentRefusalNotice,
+  floorStandCell,
   isCeilingHung,
   moduleAt,
   pillarAt,
@@ -686,6 +687,12 @@ export class EquipmentTool extends ToolController {
     // below, so the exit's own floor is enough to stand its upper landing on.
     const snap = this.isStraightRamp(st.moduleType) ? exitRunSnap(st.station.modules, x, y, z) : null
     const placeable = floorHere || !!liftExt || !!snap
+    // A floor-standing piece aimed at the **side** of a covered block stands against
+    // that face rather than inside it (`floorStandCell`) — the cell a 玻璃板 bolted to
+    // the same face takes, so one wall gives one answer for either piece.
+    const at = h.solid
+      ? floorStandCell(st.station.cells, st.station.modules, h.cell, h.place, st.station.levelBase)
+      : h.cell
     let mods: Module[] = []
     if (st.moduleType === 'lift') {
       if (liftExt) {
@@ -695,7 +702,7 @@ export class EquipmentTool extends ToolController {
         if (lift) mods = [lift]
       }
     } else if (placeable) {
-      mods = this.buildPlacementModules(st.moduleType, h.cell, nextModuleId(st.station.modules, st.moduleType))
+      mods = this.buildPlacementModules(st.moduleType, at, nextModuleId(st.station.modules, st.moduleType))
     }
     // **One verdict, one display.** The rules are `build/validation.ts`'s (the same
     // ones the release asks), so a piece is refused here for exactly the reason it
@@ -707,7 +714,8 @@ export class EquipmentTool extends ToolController {
       mods.map((module) => ({ id: module.id, module, layer: true })),
     )
     const blocked = check.refused.size > 0
-    scene.setCursor(h.cell, placeable && !blocked)
+    // The cursor marks the cell the piece lands in, as the 移动 ghost's does.
+    scene.setCursor(mods.length > 0 ? [mods[0].x, mods[0].y, mods[0].z] : h.cell, placeable && !blocked)
     scene.setModulePreview(mods.length > 0 ? mods : null, blocked)
     scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
   }
@@ -762,7 +770,11 @@ export class EquipmentTool extends ToolController {
     }
     // Exit-covered holes count as floor, like the hover ghost above.
     const floorHere = solid || exitFloorAt(st.station.modules, cell[0], cell[1], cell[2])
-    const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])
+    // The same anchor the ghost showed: a side face of a covered block stands the
+    // piece against it (`floorStandCell`), never inside it.
+    const at = solid
+      ? floorStandCell(st.station.cells, st.station.modules, cell, place, st.station.levelBase)
+      : (floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number]))
     const mods = this.buildPlacementModules(type, at, nextModuleId(st.station.modules, type))
     if (mods.length === 0) {
       st.setNotice(msg('cannot_place_equipment_here_choose_another_location'))

@@ -32,7 +32,7 @@ import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { GLASS_FRAME, glassModuleSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
-import { GROUND_Z, groundHoleAt, virtualSolidAt } from './ground.ts'
+import { GROUND_Z, groundHoleAt, solidAt, virtualSolidAt } from './ground.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
 import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
@@ -833,6 +833,38 @@ export function wallMountStandCell(
   if (side) return [place[0], place[1], storeyBand(cell[2], levelBase)]
   if (!onWall) return [cell[0], cell[1], cell[2]]
   return [place[0], place[1], storeyBand(place[2], levelBase)]
+}
+
+/**
+ * The cell a **floor-standing** piece aimed at this hit stands in: the ground
+ * mirror of `wallMountStandCell`, from the same two cells.
+ *
+ *   * **A top or bottom face** names the cell itself — a floor top is the tile the
+ *     piece stands on, and the caller's own rules have already resolved a slab
+ *     underside to the storey below.
+ *   * **A side face names the surface the player pointed at.** When the block there
+ *     is a **floor** — nothing solid over it — the piece stands on top of it, which
+ *     is the block's own cell, and that is what aiming at a slab's edge means. When
+ *     it is a **wall course** (something solid above it), standing "on top" is
+ *     standing *inside* the wall: a 玻璃幕墙 aimed at a wall used to park in the
+ *     block at whatever course the pointer crossed, one cell away from the 玻璃板
+ *     bolted to the same face. So the piece stands against that face instead, on the
+ *     face's own storey (`storeyBand` with the station's 基准高度) — the same cell the
+ *     wall-mounted panel takes from that hover — and the ground verdict refuses it if
+ *     there is no floor to stand on.
+ */
+export function floorStandCell(
+  cells: readonly Cell[],
+  modules: readonly Module[],
+  cell: readonly [number, number, number],
+  place: readonly [number, number, number],
+  levelBase = 0,
+): [number, number, number] {
+  const side = place[0] !== cell[0] || place[1] !== cell[1]
+  if (!side) return [cell[0], cell[1], cell[2]]
+  // Nothing solid above: the block is floor, and the piece stands on it.
+  if (!solidAt(cells, modules, cell[0], cell[1], cell[2] + 1)) return [cell[0], cell[1], cell[2]]
+  return [place[0], place[1], storeyBand(cell[2], levelBase)]
 }
 
 /** A unit cell step as the side it names (`+y` is `n`, `+x` is `e`). */

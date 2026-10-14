@@ -285,6 +285,7 @@ test('the 移动 ghost takes the wall the camera is looking at, on the 基准高
     { x: 0, y: 0, z: 5, fill: 'solid' },
     { x: 0, y: 1, z: 6, fill: 'solid' },
     { x: 1, y: 0, z: 6, fill: 'solid' },
+    { x: 0, y: 1, z: 7, fill: 'solid' },
   ]
   const board = piece('billboard-wide', 0, 0, 5)
   useStore.setState({
@@ -314,6 +315,21 @@ test('the 移动 ghost takes the wall the camera is looking at, on the 基准高
   tool.refreshHover()
   assert.equal(preview.rot, 1, 'the east wall, which the camera now faces')
   assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 5], 'the stand cell does not move with the view')
+  // A **floor-standing** piece aimed at the same face stands beside the wall, not on
+  // it: the course it was pointed at is covered, so "stand on the block" would bury it
+  // (`floorStandCell`). One hover, one cell, whichever piece is in the air.
+  const bench = piece('bench-steel-1', 0, 0, 5)
+  useStore.setState({
+    station: toState({ name: '移动测试', seed: 1, levelBase: 1, cells, modules: [bench], lines: [] }),
+    moveDraft: null,
+    past: [],
+    future: [],
+    notice: null,
+    version: 0,
+  })
+  st().liftModule(bench.id)
+  tool.refreshHover()
+  assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 5], 'the bench stands beside the wall too')
 })
 
 /* ------------------------------------------------------- putting it back */

@@ -4,7 +4,7 @@
 // collide with the one below.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { autofaceWallMount, boxesOverlap, equipmentReason, isCeilingHung, isTrackBed, moduleAt, moduleBlockedCells, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
+import { autofaceWallMount, boxesOverlap, equipmentReason, floorStandCell, isCeilingHung, isTrackBed, moduleAt, moduleBlockedCells, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
 import { addCells, addEquipment, addFloor, createModule, GROUND_Z, nextExitLetter, nextExitName, nextModuleId, randomAdSlug, removeModule, toData, toState } from '../src/build/model.ts'
 import { billboardSpec, postersFor } from '../src/sim/billboards.ts'
 import { referenceStation } from '../src/data/reference-station.ts'
@@ -171,6 +171,32 @@ test('the camera outranks a turn that already faces a wall, and owns the wall be
   assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 0), undefined, [], [-1, 0]).rot, 1, 'and the east wall from a south-facing one')
 })
 
+test('a floor-standing piece aimed at a wall course stands against it, not inside it', () => {
+  // The ground mirror of `wallMountStandCell`, from the same two cells. A block with
+  // something solid over it is a **wall course**: standing "on top" of it is standing
+  // inside the wall, so the piece stands in front of that face, on the face's own
+  // storey — the cell the wall-mounted panel takes from the same hover, which is why a
+  // 玻璃幕墙 and a 玻璃板 aimed at one wall no longer disagree by a course.
+  const cells = [
+    { x: 0, y: 0, z: 1, fill: 'solid' }, // the storey floor the piece stands on (基准高度 1)
+    { x: 0, y: 1, z: 2, fill: 'solid' }, // a wall course under the pointer…
+    { x: 0, y: 1, z: 3, fill: 'solid' }, // …covered by the one over it
+  ]
+  assert.deepEqual(floorStandCell(cells, [], [0, 1, 2], [0, 0, 2], 1), [0, 0, 1], 'in front of the covered face')
+  assert.deepEqual(wallMountStandCell(cells, [0, 1, 2], [0, 0, 2], false, 1), [0, 0, 1], 'the same cell a wall-mounted panel takes')
+  // The **top** course of that wall has nothing over it, so aiming at its side still
+  // stands the piece on top of the wall — the reading a floor block keeps.
+  assert.deepEqual(floorStandCell(cells, [], [0, 1, 3], [0, 0, 3], 1), [0, 1, 3], 'on top of the wall column')
+  // A top (or bottom) face names the cell itself: a floor top is the tile the piece
+  // stands on.
+  assert.deepEqual(floorStandCell(cells, [], [0, 0, 1], [0, 0, 2], 1), [0, 0, 1])
+  // A **floor** block — nothing solid over it — keeps the "stand on the block you aimed
+  // at" reading, so a 座椅 aimed at a slab's edge still lands on the slab.
+  assert.deepEqual(floorStandCell([{ x: 0, y: 0, z: 1, fill: 'solid' }], [], [0, 0, 1], [0, -1, 1], 1), [0, 0, 1], 'on top of a floor block, not beside it')
+  // The storey is asked with the station's own 基准高度 grid, not the fixed 0 / 4 / 8 lines.
+  assert.deepEqual(floorStandCell(cells, [], [0, 1, 2], [0, 0, 2]), [0, 0, 0], 'the unshifted grid reads the same face as storey 0')
+})
+
 test('in a corner the panel takes the wall the pointer is nearest', () => {
   // Two walls, neither matching the held turn: the aim decides. `near` is a
   // world position, so the wall step is comparable to it.
@@ -217,8 +243,7 @@ test('a direction only counts when it really backs the whole run', () => {
   assert.equal(wallMountMissing(cells, faced), false, 'so it takes the south wall it really hangs on')
 })
 
-test('with no wall in any direction the ad is refused, not spun', () => {
-  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+test('with no wall in any direction the ad is refused, not spun', () => {  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
   const held = billboard(0, 0, 0, 2)
   const faced = autofaceWallMount(floor, held)
   assert.equal(faced.rot, 2, 'there is nothing to face, so the turn must not be invented')

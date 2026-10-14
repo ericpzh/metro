@@ -503,7 +503,15 @@ the four rules most changes trip over.
   along it; the carried turn, the pointer then the rotation order settle a view that cannot
   tell them apart. The one mount the view may not re-aim is one bolted to a **named piece of
   the document**: a board on a booth header, and a 地面出入口 on the block face the pointer
-  clicked (its `cfg.mountZ`). The **hanging**
+  clicked (its `cfg.mountZ`). Its ground mirror is `floorStandCell`, for every piece that stands on the
+  floor rather than on a wall: a top/bottom face names the cell itself, a side face of a **floor** block
+  (nothing solid over it) stands the piece on top of that block, and a side face of a **wall course**
+  stands it against that face, on the face's own storey — the cell the wall-mounted panel takes from the
+  same hover. Without it a 玻璃幕墙 aimed at a wall parked *inside* the wall at whatever course the
+  pointer crossed, one course away from the 玻璃板 bolted to the same face. The tool aims through it in
+  `EquipmentTool` (preview and release) and `MoveController.moveAnchorAt`, both with the station's
+  `levelBase`, and the floor cursor follows the **resolved** cell rather than the block the pointer
+  crossed. The **hanging**
   指示牌, the 电视, the 时钟, the 监控, the 灯具 (both tiles) and the 通风口 are instead *ceiling-hung*:
   `ceilingMountMissing` refuses them unless a solid slab sits above every cell of the
   piece one storey up (`LEVEL_STEPS`, the 4 m grid), and `ceilingMountStandCell` resolves

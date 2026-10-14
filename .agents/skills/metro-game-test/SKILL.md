@@ -177,7 +177,11 @@ search asks `wallMountMissing` per direction (a 半墙 facing away is skipped, n
 chosen and refused); `glass-panel` and `move` for the tool and controller halves —
 the stand cell, the station's `levelBase`, and an orbit changing the ghost;
 `equipment-placement-input` for the one mount the view may not re-aim (a 地面出入口
-on its clicked block face). All of it is preview-and-release agreement: the ghost
+on its clicked block face) and for the floor-standing half of the same hover — a
+玻璃幕墙 aimed at a wall lands beside the 玻璃板 in front of it; `placement` also
+pins the pure `floorStandCell` (a covered wall course stands the piece against it,
+a floor block still takes it on top, a top face still names the cell itself). All of
+it is preview-and-release agreement: the ghost
 and the click ask one function.
 
 `placement.test.mjs` pins stair footing: every stair shape may be placed with ground

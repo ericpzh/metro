@@ -29,6 +29,46 @@ test('floor-standing equipment still requires a solid floor hit', () => {
   assert.equal(canPlaceWithoutFloorHit('linemap-stand'), false)
 })
 
+test('a 玻璃幕墙 and a 玻璃板 aimed at one wall land in one cell, in front of it', () => {
+  // The reported shape of the bug: the same wall gave one cell for a poster and a
+  // course-lower one for a 玻璃, because a **floor-standing** piece took the block it
+  // was pointed at as its floor — standing *inside* the wall at whatever course the
+  // pointer crossed — while a wall-mounted panel stood in front of the face. One
+  // hover, one answer now: the wall the ghost is aimed at has one cell in front of it.
+  const cells = [
+    { x: 0, y: 0, z: 5, fill: 'solid' }, // the storey floor
+    { x: 0, y: 1, z: 6, fill: 'solid' }, // the wall mass, first course
+    { x: 0, y: 1, z: 7, fill: 'solid' }, // covered above: a wall course, not a floor
+  ]
+  const station = toState({ name: 'aim', seed: 1, levelBase: 1, cells, modules: [], lines: [] })
+  const before = useStore.getState()
+  try {
+    let ghost = null
+    const scene = {
+      setModulePreview: (mods) => { ghost = Array.isArray(mods) ? mods[0] : mods },
+      setCursor: () => {},
+      setCollisionHighlight: () => {},
+    }
+    const ctx = {
+      scene: () => scene,
+      facing: () => [0, -1], // the eye south of the piece: the view looks north, at the wall
+      hover: { current: { cell: [0, 1, 6], place: [0, 0, 6], solid: true, point: [0.5, 1] } },
+      drag: { current: null },
+    }
+    const tool = new EquipmentTool(ctx)
+    useStore.setState({ station, tool: 'module', moduleType: 'curtain-wall', curtainWidth: 1, curtainHeight: 4, moduleRot: 0 })
+    tool.refreshHover()
+    assert.deepEqual([ghost.x, ghost.y, ghost.z], [0, 0, 5], 'the 幕墙 stands in front of the wall, on the storey floor')
+    assert.equal(ghost.type, 'glass', 'and it is still the floor-standing piece the tile names')
+    // The wall panel on that same hover takes the same cell.
+    useStore.setState({ moduleType: 'glass-1x1' })
+    tool.refreshHover()
+    assert.deepEqual([ghost.x, ghost.y, ghost.z], [0, 0, 5], 'and the wall-mounted 玻璃板 joins it there')
+  } finally {
+    useStore.setState(before)
+  }
+})
+
 test('an aimed 地面出入口 keeps the block face the pointer clicked, whatever the camera says', () => {
   // A 地面出入口 is a shallow sign on the **block face under the pointer**, and its own
   // `cfg.mountZ` names that course: its turn is the pointer's answer. The wall search
