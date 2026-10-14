@@ -35,10 +35,16 @@ const TV_HALF_DEPTH = 0.05
 const TV_PAIR_MARGIN = 0.01
 
 /**
+ * The screen's centre, in metres, below the surface a hung 电视 hangs from: the drop its own rods
+ * make, so the screen sits close under the slab rather than a metre down.
+ */
+const TV_HANG = 0.85
+
+/**
  * Passenger-information screen (电视, 装饰): a slim dark bezel with a bright
  * screen, hung by two rods from the storey ceiling like the 指示牌. The floor top
- * is the local origin and the ceiling slab is one storey up (`LEVEL_STEPS`, 4 m =
- * local z 3.0), which is exactly what `ceilingMountMissing` required before it
+ * is the local origin and the ceiling is the real slab over the cell
+ * (`hangCeilingLocal`), which is exactly what `ceilingMountMissing` required before it
  * could be placed.
  *
  * The screen is **two** lit panes, not one poster. Down the left is the station
@@ -81,10 +87,11 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   // `ceilingMountMissing` only asks for a ceiling, and the piece is decor.
   const sw = 1.42
   const sh = 0.8
-  // The screen hangs **one metre below** the surface it was hung from (`hangCeilingLocal`):
-  // the slab over its cell, or the line the player aimed at.
+  // The screen rides **just under** the surface it hangs from (`hangCeilingLocal`): the slab over
+  // its cell, or the line the player aimed at — its own 0.85 m of rod, so it hugs the ceiling the
+  // way it always did and follows a taller one instead of keeping a height of its own.
   const ceiling = hangCeilingLocal(mod, ctx.data.cells, ctx.data.modules)
-  const zc = ceiling - 1
+  const zc = ceiling - TV_HANG
   // A lone 电视 is one slim panel (0.1 m through). A pair is **two** of them back to
   // back, not a box as deep as the cell: the two screens sit against each other and
   // the housing is only as thick as the pair of them.

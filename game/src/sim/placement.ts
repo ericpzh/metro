@@ -919,9 +919,11 @@ export function ceilingMountStandCell(
 }
 
 /**
- * The drop, in metres, between the surface a **hung** piece hangs from and its own body: a
- * **flush** plate rides at the surface itself (灯具, 通风口, 半球机) and everything carried on a
- * **stem** hangs one metre below it (电视, 吊挂指示牌, 时钟, 监控, 天花板显示器).
+ * How far, in metres, a **hung** piece's cell sits below the line it hangs from: a **flush** plate
+ * rides at the line itself (`0` — 灯具, 通风口, 半球机, whose body is drawn *on* that surface) and a
+ * piece whose body hangs on a **stem** takes the cell under it (`1` — 电视, 吊挂指示牌, 时钟, 监控,
+ * 天花板显示器), so the body keeps its own short drop from the line and still sits inside its own
+ * cell's column.
  *
  * Answers a **palette id** (`cctv-dome`, `light-circular`) as readily as a placed module,
  * because the tool is armed with the id before there is a module to ask — and a placed 监控
@@ -946,10 +948,9 @@ export function hungDrop(m: { type: string; cfg?: object }): number {
  * **Any other surface names a height**, which is the whole point of a hung piece: a wall
  * course or a slab's underside hands back the line at that surface's own **bottom edge**, and
  * the piece is anchored under it — in front of the wall for a side face, in the same column
- * under a slab. `drop` is the metre the piece's own body hangs below that line: a **flush**
- * plate sits at it (`drop` 0 — 灯具, 通风口, 半球机) and a piece on a **stem** hangs one metre
- * down (`drop` 1 — 电视, 吊挂指示牌, 时钟, 监控, 天花板显示器), so its cell is the one whose floor
- * top is the body's own height and the whole piece stays inside that cell's column.
+ * under a slab. `drop` is how far its own cell sits below that line (`hungDrop`): a **flush**
+ * plate rides at the line and a piece on a **stem** takes the cell below it, so its body keeps
+ * the short drop the model gives it and stays inside that cell's column.
  */
 export function hungCeilingAim(
   cell: readonly [number, number, number],
@@ -982,11 +983,10 @@ export function hangLineOf(m: { cfg?: object }): number | undefined {
  * The local height — above the cell's own floor top — of the surface a **hung** piece hangs
  * from: the line the player aimed at (`cfg.line`), else the real slab over its cell.
  *
- * Every hung piece is drawn from it, so all of them follow the surface the pointer is on
- * rather than carrying a height of their own: a **flush** plate sits *at* that surface (灯具,
- * 通风口, 半球机), and a piece on a **stem** hangs one metre below it (电视, 吊挂指示牌, 时钟,
- * 监控, 天花板显示器) — the drop that used to be a constant above the floor, leaving them
- * 0.65…1.9 m under a 4 m ceiling and stranded in a taller hall.
+ * Every hung piece is drawn from it, so all of them follow the surface the pointer is on rather
+ * than carrying a height of their own — and each keeps the short drop its own model gives it (a
+ * 指示牌's 0.65 m of rod, a 电视's 0.85, a 灯具 none at all), which is what puts a board just under
+ * the slab it hangs from and lets it hug a taller one.
  */
 export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: readonly Module[]): number {
   const line = hangLineOf(m)

@@ -244,10 +244,10 @@ test('camera variants keep their shape through save, ghost refresh and same-vari
   }
 })
 
-test('球机 rides a metre below the slab and 半球机 snaps flush, taller ceiling or not', () => {
+test('球机 hugs the slab it hangs from and 半球机 snaps flush, taller ceiling or not', () => {
   // A 6 m slab over a floor at z = 0 is a 5 m room: both mounts reach the **actual** slab, and the
-  // globe hangs the metre below it that a stem piece always hangs — not a height of its own, which
-  // used to leave it at 2.5 m under a six-metre hall.
+  // globe rides the short stem below it that a 球机 has — not a height of its own, which used to
+  // leave it at 2.5 m under a six-metre hall with a pole stretched to the ceiling.
   const buildTall = (mod) => {
     const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
     const data = {
@@ -267,7 +267,7 @@ test('球机 rides a metre below the slab and 半球机 snaps flush, taller ceil
   const dome = buildTall(createModule('cctv-dome', 0, 0, 0, 'dome', 0))
   assert.ok(Math.abs(ptz.max.z - 5) < 1e-6, '球机 mount touches the tall slab')
   assert.ok(Math.abs(dome.max.z - 5) < 1e-6, '半球机 base sits flush under the tall slab')
-  assert.ok(ptz.min.z > 3.5, '球机 globe rides the metre below the tall slab it hangs from')
+  assert.ok(ptz.min.z > 3.9, '球机 globe rides the short stem under the tall slab it hangs from')
   assert.ok(dome.min.z > 4.7, '半球机 rides up with the slab it is bolted to')
 })
 
@@ -574,14 +574,13 @@ test('the 监控 is a bracketed bullet camera whose lens faces local −y', () =
   // **A slim piece.** Its body, hood, lens and bracket are a small fraction of the cell
   // they reserve — the collision envelope is the hung column, not the drawn hardware, so a
   // camera that filled the cell would read as a box on a rod. The volume is the number that
-  // matters: before this pass the piece filled a fifth of its cell, and the metre of stem a
-  // stem piece now draws between the slab and its head is most of what is left.
+  // matters: before this pass the piece filled a fifth of its cell.
   const drawnX = box.max.x - box.min.x
   const drawnY = box.max.y - box.min.y
   const drawnZ = box.max.z - box.min.z
   assert.ok(drawnX <= 0.32, `the drawn housing is slim across (${drawnX.toFixed(2)} m)`)
   assert.ok(drawnY <= 0.45, `and shallow into the room (${drawnY.toFixed(2)} m)`)
-  assert.ok(drawnX * drawnY * drawnZ <= 0.14, `a slim fitting, not a box (${(drawnX * drawnY * drawnZ).toFixed(3)} m³ of a 1 m³ cell)`)
+  assert.ok(drawnX * drawnY * drawnZ <= 0.08, `a slim fitting, not a box (${(drawnX * drawnY * drawnZ).toFixed(3)} m³ of a 1 m³ cell)`)
   // The dark optics are contained inside a rounded white front surround.
   const body = meshes.find((m) => m.name === 'cctv-body')
   const surround = meshes.find((m) => m.name === 'cctv-front-surround')

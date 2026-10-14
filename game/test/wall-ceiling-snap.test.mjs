@@ -141,7 +141,7 @@ test('a hung ceiling piece can be hung at the height the pointer is on', () => {
   assert.deepEqual(hungCeilingAim([2, 2, 6], [2, 2, 6], 1), { at: [2, 2, 5] }, 'a void hover reads the 基准高度 storey')
   // `drop` is the metre a stem piece's **body** hangs below that line, so its cell is the one
   // whose floor top is the body's own height and the whole piece stays inside that column.
-  assert.deepEqual(hungCeilingAim([2, 2, 7], [2, 2, 6], 0, 1), { at: [2, 2, 5], line: 7 }, 'a stem piece: a metre lower still')
+  assert.deepEqual(hungCeilingAim([2, 2, 7], [2, 2, 6], 0, 1), { at: [2, 2, 5], line: 7 }, 'a stem piece: its cell under the line')
   assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 6], 0, 1), { at: [2, 2, 5] }, 'a floor aim is the storey either way')
   // Which pieces are on a stem and which ride flush on the surface, palette ids included.
   assert.equal(hungDrop({ type: 'tv' }), 1)

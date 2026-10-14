@@ -6,6 +6,10 @@ import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { hangCeilingLocal } from '../../../sim/placement.ts'
 
+/** The head, in metres, below the surface a hung 监控 hangs from: its own stem's drop plus the
+ *  half-height of the housing it carries. */
+const CCTV_HANG = 0.22
+
 /**
  * Ceiling camera (监控, 装饰): a rounded white bullet housing, a recessed dark
  * optical panel and an arched sun hood, carried on a
@@ -20,10 +24,10 @@ import { hangCeilingLocal } from '../../../sim/placement.ts'
  */
 function buildCctv(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const g = new THREE.Group()
-  // The head hangs **one metre below** the surface the piece was hung from
-  // (`hangCeilingLocal`): the slab over its cell, or the line the player aimed at. Its
-  // centre is that drop, so the mount's own stem is what reaches back up to the surface.
-  const headZ = ceiling - 1
+  // The head rides **just under** the surface the piece hangs from (`hangCeilingLocal`): the slab
+  // over its cell, or the line the player aimed at — its own 0.22 m of stem, so it hugs that
+  // surface instead of dropping a metre clear of it.
+  const headZ = ceiling - CCTV_HANG - 0.15
   // The mount is slim: a 0.14 m ceiling plate, a thin stem, a small clamp.
   slab(g, mats.darkSteel, 0.1, 0, ceiling - 0.02, 0.14, 0.14, 0.04)
   slab(g, mats.steel, 0.1, 0, (headZ + 0.15 + ceiling) / 2, 0.028, 0.028, ceiling - (headZ + 0.15))
@@ -145,9 +149,9 @@ function cameraDome(g: THREE.Group, mats: ModelMaterials, radius: number, x: num
 /** 球机: substantial mounting arm, tapered white housing and suspended dark globe. */
 function buildPtz(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const g = new THREE.Group()
-  // The white housing and its globe hang **one metre below** the surface, so the plate stays on
-  // that surface and the arm is the part that stretches to reach the head.
-  const headZ = ceiling - 1
+  // The white housing and its globe ride **just under** the surface, so the plate stays on that
+  // surface and the arm is the short reach down to the head.
+  const headZ = ceiling - CCTV_HANG - 0.15
   slab(g, mats.white, 0.18, 0.07, ceiling - 0.02, 0.16, 0.18, 0.04)
   slab(g, mats.white, 0.18, 0.07, (headZ + 0.19 + ceiling) / 2, 0.1, 0.12, ceiling - (headZ + 0.19))
   slab(g, mats.white, 0.065, 0.07, headZ + 0.17, 0.31, 0.12, 0.09)

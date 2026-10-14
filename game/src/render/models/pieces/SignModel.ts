@@ -61,13 +61,20 @@ function buildSign(ctx: ModuleContext, mod: Extract<Module, { type: 'sign' }>): 
   // in the document can neither widen its steel nor shift its plate (`mountedSignBoards`).
   const boards = mountedSignBoards(mod.cfg.mount, signBoardsOf(mod.cfg, ctx.data))
   const panel = signBoardsPanel(boards)
-  // A **hung** board hangs one metre below the surface it was hung from
-  // (`hangCeilingLocal`): the slab over its cell, or the line the player aimed at — never a
-  // panel height of its own. The **wall** board is bolted at `panelZ` as it always was.
-  if (spec.hung) mountHangingSign(ctx, mod, boards, panel, hangCeilingLocal(mod, ctx.data.cells, ctx.data.modules) - 1, g)
+  // A **hung** board rides just under the surface it hangs from (`hangCeilingLocal`): the slab
+  // over its cell, or the line the player aimed at — its own 0.65 m of rod and plate, so a board
+  // under a 4 m ceiling hangs where it always did and still hugs a taller one. The **wall** board
+  // is bolted at `panelZ` as it always was.
+  if (spec.hung) mountHangingSign(ctx, mod, boards, panel, hangCeilingLocal(mod, ctx.data.cells, ctx.data.modules) - SIGN_HANG, g)
   else mountWallSign(ctx, mod, boards, panel, mod.cfg.boothId ? BOOTH_SIGN_PANEL_Z : spec.panelZ, g)
   return g
 }
+
+/**
+ * The board's centre, in metres, below the surface a **hung** board hangs from: the drop its own
+ * rods and ceiling plate make, so a board sits close under the slab rather than a metre down.
+ */
+const SIGN_HANG = 0.65
 
 /**
  * The **hung** board: two rods up to the ceiling plate, a dark steel frame around a

@@ -671,7 +671,7 @@ export class EquipmentTool extends ToolController {
     // A **hung** piece goes where the pointer is, at the height it is on
     // (`hungCeilingAim`): a floor hover means "hang in this room" and takes the real ceiling,
     // any other surface names a line to hang under — mid-air included — and `hungDrop` is the
-    // metre a stem piece's own body then hangs below that line (a flush plate rides at it).
+    // metre a stem piece's own cell then sits below that line, so its body keeps the short drop its model gives it.
     const hung = isCeilingHung({ type: st.moduleType }) && !st.moduleType.startsWith('hanger')
     const aim = hung ? hungCeilingAim(cell, place, st.station.levelBase, hungDrop({ type: st.moduleType })) : null
     const at = aim ? aim.at : ceilingMountStandCell(cell, place, st.station.levelBase, st.station.cells)

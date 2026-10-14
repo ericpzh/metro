@@ -4,6 +4,9 @@ import type { Module } from '../../../sim/types.ts'
 import { hangCeilingLocal } from '../../../sim/placement.ts'
 import { rotateLocal } from '../../../sim/track.ts'
 
+/** The cabinet's centre, in metres, below the surface a ceiling-mounted 显示器 hangs from. */
+const MONITOR_HANG = 0.9
+
 /** Decorative platform views, drawn as flat ink so they need no extra scene cameras. */
 export class MonitorModel extends PieceBuilder {
   readonly kind = 'monitor'
@@ -12,11 +15,11 @@ export class MonitorModel extends PieceBuilder {
     const wall = mod.cfg.mount === 'wall'
     const width = wall ? 3 : 0.96
     const height = wall ? 2 : 0.72
-    // The **ceiling** cabinet hangs one metre below the surface it was hung from
-    // (`hangCeilingLocal`): the slab over its cell, or the line the player aimed at. The
-    // **wall** one is bolted at eye height, exactly as it always was.
+    // The **ceiling** cabinet rides just under the surface it hangs from (`hangCeilingLocal`): the
+    // slab over its cell, or the line the player aimed at — its own 0.9 m of rod. The **wall** one
+    // is bolted at eye height, exactly as it always was.
     const ceiling = hangCeilingLocal(mod, this.ctx.data.cells, this.ctx.data.modules)
-    const z = wall ? 1.5 : ceiling - 1
+    const z = wall ? 1.5 : ceiling - MONITOR_HANG
     const y = wall ? -0.40 : 0
     const mats = this.ctx.mats
     slab(g, mats.darkSteel, 0, y, z, width, 0.18, height)

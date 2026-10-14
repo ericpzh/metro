@@ -357,8 +357,8 @@ const PIECES = [
   ['洗手池', palette('sink'), 15, '0.689×0.585×1.042'],
   ['垃圾桶', palette('bin'), 28, '0.88×0.42×0.95'],
   ['灭火器', palette('extinguisher'), 13, '0.743×0.487×1.1'],
-  ['时钟', palette('clock'), 131, '0.8×0.236×1.4'],
-  ['监控 枪机', palette('cctv'), 24, '0.31×0.369×1.11'],
+  ['时钟', palette('clock'), 131, '0.8×0.236×1.05'],
+  ['监控 枪机', palette('cctv'), 24, '0.31×0.369×0.48'],
   ['灯具 圆形', palette('light-circular'), 2, '0.5×0.5×0.08'],
   ['灯具 直条', palette('light-rectangular'), 2, '0.8×0.12×0.08'],
   ['通风口', palette('vent'), 14, '0.7×0.7×0.06'],
@@ -371,8 +371,8 @@ const PIECES = [
   ['广告牌 长幅', palette('billboard-panorama'), 5, '2.94×0.185×1.13'],
   ['广告牌 竖版', palette('billboard-portrait'), 5, '0.92×0.185×1.54'],
   ['广告牌 方形', palette('billboard-square'), 5, '0.92×0.185×1.18'],
-  ['电视', palette('tv'), 12, '1.56×0.16×1.47'],
-  ['指示牌 吊挂', palette('sign-ceiling'), 7, '1.9×0.16×1.2'],
+  ['电视', palette('tv'), 12, '1.56×0.16×1.32'],
+  ['指示牌 吊挂', palette('sign-ceiling'), 7, '1.9×0.16×0.85'],
   ['指示牌 墙面', palette('sign-wall'), 1, '1.9×0×0.4'],
   // The wall pieces (§5.7). A 玻璃板 is the outer frame and one pane whatever its
   // size — five meshes for a 1 × 1 band and for a 3 × 2 window alike, which is what
@@ -440,12 +440,12 @@ test('every piece the palette can lay draws a model, at the size it draws it', (
   }
 })
 
-test('a hung piece hangs from the surface it was aimed at, its body a metre below', () => {
+test('a hung piece hangs from the surface it was aimed at, at its own drop below it', () => {
   // `cfg.line` is the surface a pointed hover wrote (`hungCeilingAim` → `hungDrop`). Every hung
-  // piece's mount sits on that line and its body hangs a metre under it — 电视, 吊挂指示牌, 时钟,
-  // 监控 and the ceiling 显示器 on their stems, the flush 灯具 / 通风口 at the line itself — so two
-  // lines two metres apart draw the same piece two metres apart, and with no line of its own the
-  // mount is the storey's own slab and the body the metre below it.
+  // piece's mount sits on that line and its body hangs the short drop its own model gives it — a
+  // 指示牌's 0.65 m of rod, a 电视's 0.85, a flush 灯具 none at all — so two lines two metres apart
+  // draw the same piece two metres apart, and with no line of its own the mount is the storey's own
+  // slab and the body the same short drop under it.
   for (const id of ['tv', 'sign-ceiling', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'monitor-ceiling', 'light-circular', 'vent']) {
     const mod = palette(id)
     const bare = box(build(mod).group)
@@ -1013,10 +1013,9 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   assert.equal(round(wallSign.min.z - 1), 1.45, 'the wall board hangs at the eye height its courses name')
   assert.equal(round(wallSign.max.z - 1), 1.85, 'and its panel crosses exactly the one wall course it asks for')
   assert.ok(hungSign.max.z - 1 > 2.9, 'a 吊挂 board reaches the ceiling its rods bolt to')
-  // Both boards are one storey apart in a 4 m room, and the hung one hangs a metre below that
-  // slab: its **centre** clears the wall board, while the two panels' edges come within a
-  // few centimetres of each other — the boards are read from different places, not stacked.
-  assert.ok((hungSign.min.z + hungSign.max.z) / 2 > wallSign.max.z, 'and its centre hangs over the concourse rather than at reading height')
+  // The hung board rides 0.65 m under the slab and the wall sheet at eye height, so the two are
+  // read from different places in the room rather than stacked on one another.
+  assert.ok(hungSign.min.z > wallSign.max.z, 'and hangs over the concourse rather than at reading height')
 })
 
 test('a 扶梯 carries its own solid under the truss, over the course the ground leaves', () => {

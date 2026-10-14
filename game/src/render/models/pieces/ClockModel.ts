@@ -78,6 +78,9 @@ export function reposeClockHands(rig: ClockRig, seconds: number): void {
  * exactly the gap between the ceiling plate and the regulator box on top of the dial.
  * Nothing reaches the floor: the whole piece hangs.
  */
+/** The dial's centre, in metres, below the surface a hung 时钟 hangs from: its own rod's drop. */
+const CLOCK_HANG = 0.65
+
 function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const g = new THREE.Group()
   const faceR = 0.38 // the dial radius; the case is a shade larger all round
@@ -89,10 +92,10 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const bodyDepth = 0.12
   const bodyFront = -0.06 // the front white end; the camera looks from −y
   const bodyBack = bodyFront + bodyDepth
-  // The dial hangs **one metre below** the surface it was hung from (`hangCeilingLocal`): the slab
-  // over its cell, or the line the player aimed at — its height follows the room instead of a
-  // constant of its own.
-  const dialZ = ceiling - 1
+  // The dial rides **just under** the surface it hangs from (`hangCeilingLocal`): the slab over its
+  // cell, or the line the player aimed at — its own 0.65 m of rod, so it hugs the ceiling the way
+  // it always did and follows a taller room instead of keeping a height of its own.
+  const dialZ = ceiling - CLOCK_HANG
   // The white body. **A `CylinderGeometry` is Y-up, so its caps already face ±y and it needs no
   // rotation**: the ends of the barrel are the two faces. A quarter-turn about x would lay it flat
   // in the X-Z plane, which is the wrong plane and no sign of that turn fixes it.
