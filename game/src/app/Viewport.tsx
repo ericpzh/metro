@@ -528,6 +528,19 @@ export function Viewport(): React.ReactElement {
     // the live renderer, no copy, so a probe and the game cannot disagree.
     window.__scene = scene
     scene.onStats = (s) => useStore.getState().setStats(s)
+    // A wall panel hangs on the wall the **camera** is looking at
+    // (`autofaceWallMount`), so an orbit has to re-aim the ghost already under the
+    // pointer: the settings-driven refresh only fires when R / Tab changes
+    // something, and the pointer has not moved. Only when nothing else owns the
+    // pointer — a drag in progress is already drawing its own preview — and never
+    // while following a passenger, whose camera the crowd drives.
+    scene.onCameraAim = () => {
+      const st = useStore.getState()
+      if (st.followAgentId !== null) return
+      if (dragRef.current || paintRef.current || zoneDragRef.current || facilityDragRef.current || sectionDragRef.current) return
+      tools.equipment.refreshHover()
+      tools.move.refreshHover()
+    }
     const resize = (): void => scene.resize(canvas.clientWidth, canvas.clientHeight)
     resize()
     const ro = new ResizeObserver(resize)

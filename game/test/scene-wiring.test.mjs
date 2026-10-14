@@ -104,3 +104,28 @@ test('a boards-only sign preview rebuilds one sign and skips the chunk remesh', 
   assert.ok(body.includes('id !== signOnly'), 'the module rebuild retains everything but that sign')
   assert.ok(/if \(signOnly !== null\) this\.repaintSignPreview\(data, signOnly\)/.test(body), 'and its plates are repainted in place')
 })
+
+test('an orbit re-aims the wall ghost: the renderer announces the camera aim and the viewport rebuilds on it', () => {
+  // A wall-mounted piece hangs on the wall the camera is looking at
+  // (`autofaceWallMount`), so *moving the camera* changes a ghost the pointer never
+  // touched — the settings-driven refresh (`placementPreviewKey`) knows nothing
+  // about the view. `SceneRenderer` cannot be constructed without WebGL, so the two
+  // halves of that wiring are pinned as source contracts: the renderer notices the
+  // aim has moved, and the viewport re-aims the equipment and 移动 ghosts when it has.
+  const renderer = fs.readFileSync(new URL(ORCHESTRATOR, SRC), 'utf8')
+  assert.ok(
+    /onCameraAim: \(\(facing: readonly \[number, number\]\) => void\) \| null = null/.test(renderer),
+    'the renderer offers the aim callback',
+  )
+  assert.ok(renderer.includes('this.notifyCameraAim()'), 'and asks it once a frame')
+  const notify = renderer.slice(renderer.indexOf('private notifyCameraAim'), renderer.indexOf('resize(w: number, h: number)'))
+  assert.ok(notify.includes('this.cameraSys.pickFacing()'), 'the aim is the camera’s own')
+  assert.ok(notify.includes('this.onCameraAim(aim)'), 'and only a real move notifies')
+  assert.ok(/Math\.abs\(aim\[0\] - this\.lastAim\[0\]\) <= 1e-3/.test(notify), 'a still camera notifies nobody')
+  const viewport = fs.readFileSync(new URL('app/Viewport.tsx', SRC), 'utf8')
+  const wired = viewport.slice(viewport.indexOf('scene.onCameraAim = '), viewport.indexOf('const resize = '))
+  assert.ok(wired.includes('tools.equipment.refreshHover()'), 'the equipment ghost rebuilds on the new aim')
+  assert.ok(wired.includes('tools.move.refreshHover()'), 'and so does a piece in the air (移动)')
+  assert.ok(wired.includes('st.followAgentId !== null'), 'never while the crowd drives the camera')
+  assert.ok(wired.includes('dragRef.current'), 'and never under a drag, which owns the pointer')
+})

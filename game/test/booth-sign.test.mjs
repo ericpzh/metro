@@ -141,6 +141,10 @@ test('an attached sign never turns itself and never collides with its own booth'
   assert.ok(boothSupportsSign(b, sign))
   const turned = autofaceWallMount([], sign, [sign.x + 5, sign.y], [b])
   assert.equal(turned.rot, sign.rot, 'backed signs skip the wall-facing search')
+  // The board is bolted to the **booth**, a named piece of the document, so the wall
+  // search is not re-aimed onto a camera's wall either — nor is the aimed
+  // 地面出入口's turn (`equipment-placement-input`).
+  assert.equal(autofaceWallMount([], sign, [sign.x + 5, sign.y], [b], [-1, 0]).rot, sign.rot, 'and the camera cannot re-aim it')
   assert.equal(wallMountMissing([], sign, [b]), false)
   assert.deepEqual(placementColliders([sign], b), [], 'the booth shares its header with its own sign')
   assert.deepEqual(placementColliders([b], sign), [], 'either order exempts the pair')
@@ -159,7 +163,7 @@ test('pointing at the visible booth uses its frame instead of the floor behind i
       pickModuleHit: () => ({ moduleId: b.id, point: [9, -5, 3.25] }),
       setModulePreview: (mod, invalid) => { preview = mod; blocked = invalid },
     }, { get: (obj, key) => obj[key] ?? (() => {}) })
-    const ctx = { scene: () => scene, hover: { current: null }, drag: { current: null } }
+    const ctx = { scene: () => scene, hover: { current: null }, drag: { current: null }, facing: () => undefined }
     const tool = new EquipmentTool(ctx)
     const info = { clientX: 100, clientY: 200, button: 0, preventDefault: () => {},
       hit: { cell: [20, 20, 0], place: [20, 20, 0], solid: true, normal: [0, 0, 1], point: [20.5, 20.5, 1] } }

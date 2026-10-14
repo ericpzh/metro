@@ -152,13 +152,23 @@ test('a wall-mounted ad turns itself to face the wall, with no R needed', () => 
   }
 })
 
-test('a turn that already faces a wall is left alone', () => {
-  // The player's own choice is respected when it is valid, so deliberately
-  // flipping a panel between two walls is not undone under their hands.
+test('the camera outranks a turn that already faces a wall, and owns the wall between two of them', () => {
+  // Two walls beside one tile — the case a hovered wall face cannot answer, because
+  // the pointer's own hit runs along that face and the neighbour beside the piece
+  // won every time. The **view** decides, even over a carried turn that already
+  // hangs: the wall a player can see is the wall they mean, and orbiting is how they
+  // choose between them. The carried turn still settles a view that cannot tell the
+  // two apart, so a caller with no camera keeps the turn it was given.
   const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
   const both = [...floor, { x: 1, y: 0, z: 1, fill: 'solid' }, { x: 0, y: -1, z: 1, fill: 'solid' }]
-  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 0)).rot, 0, 'an east wall must not steal a south-facing panel')
-  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 1)).rot, 1)
+  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 0)).rot, 0, 'no camera: the south-facing turn stands')
+  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 1)).rot, 1, 'no camera: and so does the east-facing one')
+  // The eye is north of the piece, so the view looks south: the south wall, whatever
+  // turn the piece carries.
+  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 1), undefined, [], [0, 1]).rot, 0, 'the view takes the south wall from an east-facing panel')
+  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 0), undefined, [], [0, 1]).rot, 0)
+  // The eye west of it: the view looks east, at the east wall.
+  assert.equal(autofaceWallMount(both, billboard(0, 0, 0, 0), undefined, [], [-1, 0]).rot, 1, 'and the east wall from a south-facing one')
 })
 
 test('in a corner the panel takes the wall the pointer is nearest', () => {
@@ -169,6 +179,42 @@ test('in a corner the panel takes the wall the pointer is nearest', () => {
   const held = billboard(0, 0, 0, 0) // faces south, which is not a wall here
   assert.equal(autofaceWallMount(corner, held, [2, 0.5]).rot, 1, 'aiming east takes the east wall')
   assert.equal(autofaceWallMount(corner, held, [0.5, 2]).rot, 2, 'aiming north takes the north wall')
+})
+
+test('in a corner the camera takes the wall it is looking at, and the pointer breaks its tie', () => {
+  // The same corner, aimed by the **view** rather than by `near`: `facing` is the
+  // piece-to-eye step `pickFacing` reports, so an eye south of the piece looks north.
+  // A tile with two walls a panel could hang on is the case the pointer cannot
+  // answer — hovering a wall face puts the hit anywhere along it, and the wall
+  // beside the piece won every time.
+  const floor = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  const corner = [...floor, { x: 1, y: 0, z: 1, fill: 'solid' }, { x: 0, y: 1, z: 1, fill: 'solid' }]
+  const held = billboard(0, 0, 0, 0) // faces south, which is not a wall here
+  assert.equal(autofaceWallMount(corner, held, undefined, [], [0, -1]).rot, 2, 'looking north takes the north wall')
+  assert.equal(autofaceWallMount(corner, held, undefined, [], [-1, 0]).rot, 1, 'looking east takes the east wall')
+  // A view that meets the corner square on cannot tell the two apart, so the
+  // pointer still decides — the ordering is a ranking, not a replacement.
+  assert.equal(autofaceWallMount(corner, held, [2, 0.5], [], [-1, -1]).rot, 1, 'a 45° view keeps the pointer’s wall')
+  assert.equal(autofaceWallMount(corner, held, [0.5, 2], [], [-1, -1]).rot, 2)
+  // A caller with no camera at all (a test, a head-less tool) keeps the pointer rule.
+  assert.equal(autofaceWallMount(corner, held, [2, 0.5]).rot, 1)
+  assert.equal(autofaceWallMount(corner, held, [0.5, 2]).rot, 2)
+})
+
+test('a direction only counts when it really backs the whole run', () => {
+  // The search asks the refusal's own verdict (`wallMountMissing`), so a **半墙**
+  // that keeps the half of its cell away from the panel is not a wall for it: the
+  // turn the view prefers is skipped in favour of one that really hangs, rather
+  // than chosen and refused on release.
+  const cells = [
+    { x: 0, y: 0, z: 0, fill: 'solid' },
+    { x: 0, y: 1, z: 1, fill: 'solid', tags: ['half-wall:n'] },
+    { x: 0, y: -1, z: 1, fill: 'solid' },
+  ]
+  const held = billboard(0, 0, 0, 1) // faces east, which has no wall at all
+  const faced = autofaceWallMount(cells, held, undefined, [], [0, -1])
+  assert.equal(faced.rot, 0, 'the view looks north, but the half wall there does not back the panel')
+  assert.equal(wallMountMissing(cells, faced), false, 'so it takes the south wall it really hangs on')
 })
 
 test('with no wall in any direction the ad is refused, not spun', () => {

@@ -279,7 +279,10 @@ inside a walled 商店 / 厕所 / 办公室 / 售票亭 (`placementBlocked`'s fu
 its first course (`z + 1`), which is exactly where the 方块 auto-wall ring and the 墙 tool both start.
 Because that requirement is a function of the rotation alone, the panel **turns itself** to face its
 wall (`autofaceWallMount`): build a wall and drop the ad, and the orientation follows — no **R**
-needed, and none can leave it facing the wrong way. `wallSide` turns that requirement with the module
+needed, and none can leave it facing the wrong way. A tile with a wall on **two** sides is the one case
+the pointer cannot answer — a hovered wall face puts the hit anywhere along it — so the **camera**
+decides: the panel hangs on the wall the player is looking at, and orbiting the view is how they choose
+between them. `wallSide` turns that requirement with the module
 rotation and the renderer mounts the model on the same local −y face, so
 what the ghost shows is what the click builds. 广告牌 is a nested sub-menu of six formats —
 横版 16:9 / 标准 2.25:1 / 大横版 16:9 / 长幅 3.75:1 / 竖版 0.7:1 / 方形 1:1 — whose run length (one,
@@ -1674,9 +1677,9 @@ turn the piece before the tool will agree with them, instead of the tool reading
 the piece itself. **The same rule governs wall decor.** A 广告牌 bolted flat to a wall has exactly one
 correct orientation, so `autofaceWallMount` (`sim/placement.ts`) derives it from the backing wall —
 `wallMountMissing` already reduces "which way does it hang?" to `rot` alone, so the turn is an output
-there too. A valid turn is kept (deliberately flipping a panel between two walls still works), the
-pointer's aim breaks a corner tie, and a run must be backed along its whole length. The only failure
-left is "there is no wall here at all".
+there too. When the tile has walls on two sides the **camera** answers it — the panel hangs on the wall
+the player is looking at, and orbiting is how they choose — and a run must be backed along its whole
+length. The only failure left is "there is no wall here at all".
 
 **The 方块 tool lays a 半墙 — the same wall at half a block thick, one block at a time.** A facility
 room's own walls and the panel a wide run keeps beside it have always been drawn half a block thick;
@@ -1781,7 +1784,8 @@ wall is painted like any other. A ramp never thins a player's 半墙 a second ti
 
 It is a wall to everything else that asks about walls, including the decor: `wallMountMissing`
 requires the backing block to keep the half that faces the panel, so a 广告牌 bolts to a 半墙's near
-side and `autofaceWallMount` turns the piece to a side that really backs it — a full wall, which fills
+side and `autofaceWallMount` turns the piece to a side that really backs it — its search asks that same
+verdict per direction, so a 半墙 facing away is never chosen and then refused — while a full wall, which fills
 its cell, still backs either. See `test/halfwall.test.mjs`.
 
 **A 三角's slope is a face of the piece too, and the brush paints it there.** It is the one 45°
@@ -1989,6 +1993,31 @@ queue grows past a thousand. That is the authored rule and it needs its own deci
 a lane that alternates) — `wayfinding.test.mjs` and `zones.test.mjs` now assert the gate's *throughput*
 rather than one direction's, and the fixture says why.
 
+*Which wall, and which storey.* A wall-mounted panel — 玻璃板, 广告牌, 站名, the wall 线网图, the wall
+指示牌 — faces the wall it hangs on, and `autofaceWallMount` derives that turn rather than asking the
+player to press R first. Two things about that derivation were wrong.
+
+**Which wall** was the pointer's own hit point, which cannot answer the question it was being asked:
+hovering a **wall face** puts the hit anywhere along it, so the neighbour east of the piece won every
+time and a panel beside two walls always hung on the same one however the player orbited. The camera
+answers it now — the wall behind the piece, the one whose face the player can see, is the wall the view
+points into — with the carried turn, the pointer and the rotation order settling the views that cannot
+tell two walls apart. The search also asks the refusal's own verdict (`wallMountMissing`) instead of a
+looser "is any solid cell there", so a 半墙 facing the other way is no longer chosen and then refused on
+release. The two mounts bolted to a **named piece of the document** keep the turn the pointer gave them:
+a board on a booth header, and a 地面出入口 whose own `cfg.mountZ` names the block face it was clicked on
+(the camera can see the block, but not which one was aimed at). Because an orbit now changes what the
+piece would be, `SceneRenderer.onCameraAim` hands the view's own aim to the viewport, which re-aims the
+equipment and 移动 ghosts already under the pointer — the pointer has not moved, so nothing else would.
+
+**Which storey** was `storeyBand` on the fixed 0 / 4 / 8 grid, so a station built on a 基准高度 of 1
+bolted every wall panel one metre off its grid: the ceiling snap had been taught the base
+(`ceilingMountStandCell`), the wall snap had not. And a **plain 方块 wall** carries no wall tag, so a
+side-face hover there stood the panel *inside* the block it was aimed at, free to hug either neighbour —
+GAME-SPEC §9.5's "side face = wall-mounted" says it belongs in the cell in front of that face, which is
+now where it stands, on that face's own storey whatever the block is tagged. No save changes: a panel
+already hanging keeps the cell and the course it was given.
+
 `test/` holds the acceptance tests. Run them with `npm test`:
 
 Two of the drawn faces can be rendered to a PNG outside the browser, for looking at rather than
@@ -1999,8 +2028,7 @@ functions through a recording 2D context, so the picture is the real output (onl
 approximated); neither needs WebGL.
 
 * `determinism.test.mjs` — same seed + tick ⇒ byte-identical positions, and no unseeded
-  randomness anywhere in `sim/`.
-* `rng.test.mjs` — the generator that determinism rests on (`sim/rng.ts`, §7.6): the exact
+  randomness anywhere in `sim/`.* `rng.test.mjs` — the generator that determinism rests on (`sim/rng.ts`, §7.6): the exact
   sequence a seed produces (golden values — mulberry32 is a published algorithm, so a change
   to these is a change to every recorded crowd and every replay), the range each helper
   promises (`int` / `range` / `chance` / `pick`), the Poisson draw the crowd's arrivals are
@@ -2228,11 +2256,21 @@ approximated); neither needs WebGL.
   装饰 广告牌 is wall-mounted: `wallMountMissing` refuses it without a solid wall block
   at the facing neighbour's first course, and `wallSide` turns that requirement with the module's
   rotation. `autofaceWallMount` turns the panel to face that wall, so the rotation is derived rather
-  than pressed. A fresh exit is named for the first free letter A ~ Z (`nextExitName`, so A口 / B口 / …),
+  than pressed — and when the tile has **two** walls to hang on, the **camera** decides: the wall the
+  player is looking at wins even over a turn the piece already carries (a hovered wall face puts the
+  pointer's hit anywhere along it, so the neighbour beside the piece answered for the view), the carried
+  turn settles a view that cannot tell two of them apart, and the pointer and the rotation order settle
+  the rest. The search asks `wallMountMissing`'s own verdict per direction, so a 半墙 facing the other way
+  is never chosen, and the one mount the view may not re-aim is one bolted to a named piece of the
+  document — a board on a booth header (`booth-sign.test.mjs`) or a 地面出入口 on the block face the
+  pointer clicked (`equipment-placement-input.test.mjs`). A fresh exit is named for the first free letter A ~ Z (`nextExitName`, so A口 / B口 / …),
   reusing a letter freed by a delete or rename, and falling back to 未命名口 once all 26 are taken.
   A 虚拟 exit takes the same letter bare (`nextExitLetter`, so C, not C口).
   A wall-mounted ad may also stand in the face-adjacent cell when the pointer is on a wall itself
-  (`wallMountStandCell`), so it can bolt to the station wall across the track.
+  (`wallMountStandCell`), so it can bolt to the station wall across the track — and that half of the aim
+  takes **any** block's side face as a wall, tagged or not, on the face's own storey of the station's
+  基准高度 grid, so a wall raised with the 方块 brush mounts a panel like one the 墙 tool tagged
+  (`wall-ceiling-snap.test.mjs`).
   Escalator equipment collisions follow the sloped, per-tile body even against another run: the
   floor above the lower section stays free, and vertically adjacent runs may meet at the landing
   plane without reserving the whole shaft. Placement and bay tests pin that clearance and real
@@ -2590,7 +2628,11 @@ approximated); neither needs WebGL.
   duplicated.
 * `wall-ceiling-snap.test.mjs` — the wall/ceiling snap contract (§5.7): a wall hover on an
   upper course anchors the panel to the storey floor below (`wallMountStandCell` + `storeyBand`,
-  never a floating course height); a hung fitting hovered on the floor, the slab overhead or
+  never a floating course height) on the station's own **基准高度** grid, since a base of 1 puts that
+  floor at 5 rather than the unshifted 4 `storeyBand` reads by default; a **side face is a wall
+  whatever tags the block carries** (§9.5), so aiming at a plain 方块 wall stands the panel in the
+  cell in front of that face instead of inside the block (a top face still stands it on the block it
+  hit); a hung fitting hovered on the floor, the slab overhead or
   a wall course resolves to the floor it hangs over (`ceilingMountStandCell`), including a
   nonzero `levelBase`; and a piece so aimed passes `equipmentReason` with the actual overhead slab.
 * `sign.test.mjs` — the 装饰 pieces 指示牌 and 电视 (§5.7): the factory builds the sign
@@ -2625,7 +2667,10 @@ approximated); neither needs WebGL.
   picked, the grid cell remains the fallback.
 * `equipment-placement-input.test.mjs` — wall and ceiling mounted equipment can be placed when the
   pointer is over open air and let the support verdict decide; floor-standing equipment still needs
-  a solid floor hit.
+  a solid floor hit. The same aim is what picks **which** wall a panel hangs on, and the mounts bolted
+  to a named piece of the document keep the turn the pointer gave them: a 地面出入口 stays on the block
+  face it was clicked on (`cfg.mountZ`) while a 玻璃板 on the same hover takes the wall the camera is
+  looking at.
 * `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers ten (six wall sizes and four
   4 m floor-edge sizes, including 1 m 超窄), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
   band; the factory centres the run on the hovered cell; short-panel envelopes are a **slab on a wall**
@@ -2635,7 +2680,7 @@ approximated); neither needs WebGL.
   the 2 m window); a panel turns itself to a wall that backs it; two may not share a cell; the pieces
   round-trip the save and sweep by size. The model is where "outer frame only" becomes a number: five
   meshes at **every** unmodified size — a sill, a head, two end posts and one pane — against a 围栏 run of the same
-  length, which stands one frame up per cell. 玻璃幕墙 height choices stay floor-standing; all four orientations can occupy one tile while same-facing duplicates remain blocked, and a corner join removes the intersecting end post and shortens its rails. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here. The **height tile** is pinned through the tool as well as the factory: the 2 / 3 / 4 storey setting has to reach the piece a click would build (a dropped field would silently build every curtain four storeys tall, and it would still be a valid curtain).
+  length, which stands one frame up per cell. 玻璃幕墙 height choices stay floor-standing; all four orientations can occupy one tile while same-facing duplicates remain blocked, and a corner join removes the intersecting end post and shortens its rails. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here. The **height tile** is pinned through the tool as well as the factory: the 2 / 3 / 4 storey setting has to reach the piece a click would build (a dropped field would silently build every curtain four storeys tall, and it would still be a valid curtain). The **aim** is pinned through the tool too: a side-face hover on a plain 方块 wall mounts a 玻璃板 in the cell in front of that face, on the station's 基准高度 storey, hanging on the wall the camera is looking at — and orbiting to the other side of the tile re-aims it.
 * `door-panel.test.mjs` — the 门 (§5.7), the **free-standing doorway**: three material variants (不锈钢 / 木 / 玻璃) in the 门 family menu, plus a 窄 / 宽 action tile
   that also cycles with Tab, and a legacy value reading as the narrow stainless door; the factory centres a 双开 run on the hovered cell; the piece **stands on the
   floor** — it reserves its whole cells from the floor top to its head, wants no wall behind it
@@ -2757,7 +2802,10 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   and the drop needs floor under the new cell); a drop needs floor under every cell it stands on (a 2 m 座椅 needs
   both, and a 扶梯 needs the slab its upper landing arrives on), refuses a track bed and an occupied cell,
   turns a 广告牌 to the wall that backs it (and lets it
-  hang over the track where there is no floor in front of that wall), and requires a ceiling over a
+  hang over the track where there is no floor in front of that wall), and the ghost in the air is aimed
+  by the same two inputs a fresh placement is: `MoveController` hands `moveCandidate` the station's own
+  **基准高度** and the camera's aim, so a wall panel already hanging on one wall lands on the wall the
+  view prefers — while a 地面出入口 keeps the block face the pointer is on; and it requires a ceiling over a
   指示牌 — which is the only thing it is asked for, since a hung piece is exempt from the ground; `replaceEquipment` swaps the piece in place keeping the list order; a **run** is re-laid instead: a moved 扶梯's `from`/`to` travel with it (and a turn swings the upper landing about the base, never the travel direction), a moved 楼梯 is the stair the factory would build at that cell and rotation for every shape and size (its flights, its width), a piece that was never on the block grid keeps the run it has, a turning stair's half-landing floor goes with it and the new one is laid — every cell of a 90° turn's `lanes × lanes` square, so a 中 turn's four landing cells all travel — a moved 扶梯 carves its new opening while the one it left stays open as it does on a delete, and the whole move stays one commit that `Ctrl+Z` undoes (landing floor and all); and in the store a lift is
   not an edit (the piece stays in the document, nothing on the undo stack), `取消` puts it back with no
   commit, `确认` is one commit that `Ctrl+Z` undoes, a refused drop keeps the piece in the air and says

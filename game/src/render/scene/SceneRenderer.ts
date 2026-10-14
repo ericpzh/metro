@@ -43,6 +43,16 @@ export type { PickResult, SceneStats }
 export class SceneRenderer {
   renderer: THREE.WebGLRenderer
   onStats: ((s: SceneStats) => void) | null = null
+  /**
+   * The camera's own horizontal aim, notified when it changes: a wall-mounted
+   * ghost takes the wall the camera is looking at (`autofaceWallMount`), so an
+   * orbit has to re-aim the piece already under the pointer — the pointer never
+   * moved, and the settings-driven refresh (`placementPreviewKey`) knows nothing
+   * about the view. The step is the one `pickFacing` reports (piece → eye).
+   */
+  onCameraAim: ((facing: readonly [number, number]) => void) | null = null
+  /** The aim last notified, so a still camera notifies nobody. */
+  private lastAim: readonly [number, number] = [NaN, NaN]
   private ctx: SceneContextData
   private chunks: ChunkSystem
   private modules: ModuleSystem
@@ -652,6 +662,7 @@ export class SceneRenderer {
     this.clocks.updateClocks(now)
     const cam = this.cameraSys.activeCamera()
     this.cameraSys.syncOrtho()
+    this.notifyCameraAim()
     this.renderer.render(this.ctx.scene, cam)
     this.frameCount++
     if (now - this.fpsTime > 500) {
@@ -667,6 +678,21 @@ export class SceneRenderer {
         chunks: this.chunks.chunkMeshes.length,
       })
     }
+  }
+
+  /**
+   * Hand the camera's aim to `onCameraAim` when it really moved. The tolerance is
+   * a thousandth of a unit of the view direction: the aim drifts in its last
+   * decimals while the controls settle (`OrbitControls.update` re-derives the
+   * camera every frame), and re-aiming a ghost on every one of those would rebuild
+   * the piece 60 times a second for nothing.
+   */
+  private notifyCameraAim(): void {
+    if (!this.onCameraAim) return
+    const aim = this.cameraSys.pickFacing()
+    if (Math.abs(aim[0] - this.lastAim[0]) <= 1e-3 && Math.abs(aim[1] - this.lastAim[1]) <= 1e-3) return
+    this.lastAim = aim
+    this.onCameraAim(aim)
   }
 
   resize(w: number, h: number): void {

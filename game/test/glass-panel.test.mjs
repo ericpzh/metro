@@ -425,3 +425,39 @@ test('the 幕墙 height tile reaches the piece the tool builds', () => {
     useStore.setState(before)
   }
 })
+
+test('aiming a wall panel at a plain wall mounts it in front of the face, on the 基准高度 grid', () => {
+  // The whole wire a 玻璃板 placement is: the pointer's hit cell and the face-adjacent
+  // `place` cell in, the module the ghost and the release both use out. Two things
+  // are the tool's own to get right, and neither shows up in the pure functions:
+  // the storey is asked with the station's **基准高度** (`levelBase`), and the wall it
+  // hangs on is the one the **camera** is looking at.
+  //
+  // The wall is a plain 方块 column (no wall tag), hit on its south face: the panel
+  // stands in front of it at (0, 0), on the storey floor 5 — not at the block's own
+  // cell, and not on the unshifted 0 / 4 / 8 line.
+  const cells = [
+    { x: 0, y: 0, z: 5, fill: 'solid' },
+    { x: 0, y: 1, z: 6, fill: 'solid' },
+    { x: 1, y: 0, z: 6, fill: 'solid' },
+  ]
+  const station = toState({ name: 'shifted', seed: 1, levelBase: 1, cells, modules: [], lines: [] })
+  const before = useStore.getState()
+  try {
+    let aim = [0, -1] // the eye south of the piece: the view looks north, at the wall column
+    useStore.setState({ station, moduleType: 'glass-1x1', moduleRot: 0 })
+    const tool = new EquipmentTool({ facing: () => aim, scene: () => null })
+    const north = tool.wallMountPlacement([0, 1, 6], [0, 0, 6], 'g1', [0.5, 1])
+    assert.equal(north.noWall, false)
+    assert.deepEqual([north.mod.x, north.mod.y, north.mod.z], [0, 0, 5], 'in front of the face, on the shifted storey floor')
+    assert.equal(north.mod.rot, 2, 'and hanging on the wall the camera is looking at')
+    // Orbiting to the other side of the tile takes the other backed wall — the same
+    // hover, the same held turn, a different answer.
+    aim = [-1, 0] // the eye west of the piece: the view looks east
+    const east = tool.wallMountPlacement([0, 1, 6], [0, 0, 6], 'g2', [0.5, 1])
+    assert.equal(east.mod.rot, 1, 'the east wall, which the camera now faces')
+    assert.deepEqual([east.mod.x, east.mod.y, east.mod.z], [0, 0, 5], 'the stand cell does not move with the view')
+  } finally {
+    useStore.setState(before)
+  }
+})

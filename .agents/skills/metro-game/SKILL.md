@@ -122,7 +122,7 @@ take conservative rebuilds. Pin these in `batching-lifecycle` and `draw-batching
 * **Pack cell coordinates with `packKey`** (number arithmetic, ±4096 m). Never use
   bit shifts — the old `(x + 4096) << 20` collided neighbours.
 * **Axes:** `+z` is up; `n` is `+y`, `e` is `+x`, `+z` = top face.
-* **Camera follows the edited storey:** `CameraSystem.frame()` aims at `activeZ + 1 m` and translates the camera with the target, preserving orbit and zoom. Keep this pinned in `game/test/camera-vertical-pan.test.mjs` when changing storey or baseline behavior.
+* **Camera follows the edited storey:** `CameraSystem.frame()` aims at `activeZ + 1 m` and translates the camera with the target, preserving orbit and zoom. Keep this pinned in `game/test/camera-vertical-pan.test.mjs` when changing storey or baseline behavior. The camera is also **read**: `pickFacing()` answers which face a pick means (a back-to-back 电视 pair, the wall a panel hangs on), and `SceneRenderer.onCameraAim` tells `Viewport` when the aim moved, so a ghost that depends on the view (a wall mount) is re-aimed without a pointer event.
 * **All tuning numbers live in `sim/constants.ts`** (or `stock.ts`).
 * The decorative 信号机 is one metre tall; its lower post and base use the shared
   `floor.concrete` finish. Keep the material choice pinned in
@@ -190,6 +190,12 @@ both the preview and the release get it. `game/test/validation.test.mjs` pins th
 agreement cell for cell. Refusals name the offending piece (`被闸机挡住了` via
 `blockerLabels`), and no failed press or release stays silent — a held cell the
 preview skips reads blue under the cursor, so the release toasts it instead.
+
+The same rule governs a piece's **own orientation**: `autofaceWallMount`'s search
+asks `wallMountMissing` for each of the four directions rather than testing "is a
+solid cell over there" itself, so the turn it picks is a turn the release accepts.
+A looser second test chose a direction backed by a 半墙 facing away and refused
+the panel on release — the ghost and the click disagreeing about the same wall.
 
 Two grade-level traps this rule has already paid for, at `z = 0` where a `solid`
 and its dug `void` share one coordinate: `addWalls` must fill a `void` back by
@@ -486,8 +492,18 @@ the four rules most changes trip over.
   solid block at its first course (`z + 1`), and a two-cell banner needs a wall behind
   every cell of its run (`billboardCells`). `wallMountStandCell` stands the panel on the
   hovered floor, or on the face-adjacent cell when the pointer is on a wall itself —
-  dropped to that wall's own storey floor (`storeyBand`) — so an ad can bolt to the
-  station wall across the track where there is no floor in front of it. The **hanging**
+  dropped to that wall's own storey floor (`storeyBand(z, levelBase)`, the station's
+  **基准高度**, never the unshifted 0 / 4 / 8 grid) — so an ad can bolt to the
+  station wall across the track where there is no floor in front of it. **A side face is a
+  wall whatever the block is tagged** (§9.5 "side face = wall-mounted"): a wall raised with
+  the 方块 brush carries no `wall` tag, and treating that hover as "not a wall" stood the
+  panel *inside* the block, free to hug either neighbour. **Which of two walls** the panel
+  hangs on is the **camera's** answer (`autofaceWallMount` ranks by the aim `pickFacing`
+  reports), because the pointer cannot answer it — a hovered wall face puts the hit anywhere
+  along it; the carried turn, the pointer then the rotation order settle a view that cannot
+  tell them apart. The one mount the view may not re-aim is one bolted to a **named piece of
+  the document**: a board on a booth header, and a 地面出入口 on the block face the pointer
+  clicked (its `cfg.mountZ`). The **hanging**
   指示牌, the 电视, the 时钟, the 监控, the 灯具 (both tiles) and the 通风口 are instead *ceiling-hung*:
   `ceilingMountMissing` refuses them unless a solid slab sits above every cell of the
   piece one storey up (`LEVEL_STEPS`, the 4 m grid), and `ceilingMountStandCell` resolves
@@ -719,7 +735,10 @@ the four rules most changes trip over.
   refused by the same rules a fresh placement answers to, asked of a piece that already
   exists so the copy at its origin is never the obstacle. A carried wall panel aims through
   `wallMountStandCell` and a hung fitting through `ceilingMountStandCell`
-  (`MoveController.moveAnchorAt`, reading the placed module's own mount), and either
+  (`MoveController.moveAnchorAt`, reading the placed module's own mount), with the station's
+  `levelBase` for the storey and — for a 玻璃板 / 广告牌 / 站名 — the **camera** for which wall it
+  hangs on (`moveCandidate`'s `facing`; a 地面出入口 whose turn came from the block under the
+  pointer passes none), and either
   previews with no floor cursor: the ghost is the highlight. A moved rectangular 灯具
   carries its in-cell spot with it (`cycleMoveLightPosition`, Tab; in the ghost key),
   and a picked one adopts the spot it hung from. The ways out are a left press
@@ -1045,8 +1064,18 @@ the four rules most changes trip over.
   `SceneRenderer.tintModuleGhost` doubles the sides of everything except a material the model
   already made single-sided. Wall-mounted pieces must bolt to a wall, and because
   `wallMountMissing` is a function of `rot` alone the panel **turns itself** to face its wall
-  (`autofaceWallMount`) — a valid turn is kept so flipping a panel between two walls still
-  works, and the pointer's aim breaks a corner tie. A wall/ceiling piece is highlighted as
+  (`autofaceWallMount`) — and when the tile has a wall on two sides the **camera** picks:
+  the aim ranks first, so a turn the piece already carries does not hide the wall the player
+  is looking at (a hovered wall face puts the pointer's hit anywhere along it, and the
+  neighbour beside the piece won every time), with the carried turn, the pointer and the
+  rotation order settling a view that cannot tell them apart. That search asks
+  `wallMountMissing`'s own verdict per direction, so a 半墙 facing the other way is never
+  chosen and then refused — **except** for the mounts bolted to a named piece of the
+  document (a booth header, an aimed 地面出入口 on its clicked block face), which the caller
+  keeps by passing no aim. An orbit is therefore a **change to the ghost**: `SceneRenderer`
+  reports the aim it last handed out (`onCameraAim`, one notification per real move) and
+  `Viewport` re-runs `refreshHover` for the equipment and 移动 ghosts — the pointer has not
+  moved, so the settings-driven `placementPreviewKey` effect would never fire. A wall/ceiling piece is highlighted as
   itself, never as the floor beneath it: the build preview, the 选择 hover ghost, the 删除 red
   ghost and the 移动 ghost all draw the piece with `setCursor(null)` — selection still commits
   the blue `setSelection` box round the model, picked from the drawn mesh (`pickModule`) before
@@ -1125,7 +1154,10 @@ the four rules most changes trip over.
   through `triangleTag`), which is what makes every other rule agree with no second code path:
   `isWallBlock` reads it, so the column lift, the storey slice, the ramp carve (a run *keeps* a
   cut block instead of carving it — `rampThinCells` skips anything `shapeOf` answers) and the
-  crowd all treat it as a wall. The mesher draws the 半墙 by squashing the square profile
+  crowd all treat it as a wall. A **plain 方块 block is not one** to `isWallBlock` (it wears no
+  tag), which decides only the *top/bottom* half of a wall mount's stand cell: a **side face is
+  a wall whatever the tags are** (`wallMountStandCell`), or a wall raised with the 方块 brush
+  could not take a 广告牌 or a 玻璃板 at all. The mesher draws the 半墙 by squashing the square profile
   into the half it keeps (`buildThinProfile`) — half a block through it, full height along it,
   square rim like any other block — which is what keeps its
   **per-face finishes** paintable; **R** picks the side (`halfWallSideDirs`, so a 半墙 along a
@@ -1295,7 +1327,13 @@ the four rules most changes trip over.
   (`render/moduleGhostKey.ts`) has to name the same setting — a stair's painted `finish`
   included — because `SceneRenderer.setModulePreview` skips a rebuild whose key is unchanged.
   Naming a setting in only one of the two is a stale ghost that only a pointer move clears
-  (`gate-door.test.mjs` pins both halves).
+  (`gate-door.test.mjs` pins both halves). **A camera orbit is a third key for the same
+  reason**: a wall mount's ghost follows the view, so `SceneRenderer` hands the viewport the
+  aim it last reported whenever it really moved (`onCameraAim`, compared with a tolerance so
+  a settling camera does not rebuild the piece every frame) and the viewport re-runs
+  `refreshHover` for the equipment and 移动 ghosts — skipped while a drag owns the pointer or
+  a passenger is followed (`scene-wiring.test.mjs` pins both halves of that wiring as source
+  text, since the renderer needs WebGL).
 * **A variant family is one row in one table.** `app/store/catalog.ts`'s `MODULE_FAMILIES`
   (`ModuleFamily` = key + label + folder + the ids it `owns` + its variants' tile label) is read
   by every half of that UI: `familyOptions` is the sub-menu, `familyAnchor` the parent tile,

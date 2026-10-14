@@ -106,7 +106,7 @@ export class MoveController extends ToolController {
     const d = st.moveDraft
     if (d && isWallMounted(d.module)) {
       const groundExit = d.module.type === 'exit' && d.module.cfg.style === 'doorway'
-      const [x, y, z] = wallMountStandCell(st.station.cells, h.cell, h.place, groundExit)
+      const [x, y, z] = wallMountStandCell(st.station.cells, h.cell, h.place, groundExit, st.station.levelBase)
       return { x, y, z }
     }
     if (d && isCeilingHung(d.module)) {
@@ -154,6 +154,11 @@ export class MoveController extends ToolController {
     // and the rotation are the player's aim.
     let current = st.station.modules.find((m) => m.id === d.module.id) ?? d.module
     let rot = d.rot
+    // A turn that came from a **named block face** under the pointer, rather than from
+    // the piece's carried rotation, is the pointer's answer: a 地面出入口 is a shallow
+    // sign on the block it was aimed at, and its `cfg.mountZ` names that course, so the
+    // camera must not re-aim it at a neighbour (`autofaceWallMount`'s ranking would).
+    let aimedAtBlock = false
     if (h && current.type === 'exit' && current.cfg.style === 'doorway') {
       const backing = st.station.cells.find((c) => c.fill === 'solid'
         && c.x === h.cell[0] && c.y === h.cell[1] && c.z === h.cell[2])
@@ -163,6 +168,9 @@ export class MoveController extends ToolController {
         current = { ...current, cfg: { ...current.cfg, mountZ: current.z + (backing.z - at.z) } }
         const dx = backing.x - at.x
         const dy = backing.y - at.y
+        // A step to a **neighbouring** cell names the face the panel hangs on; a hit
+        // on the piece's own cell (a floor top) names no face at all.
+        aimedAtBlock = Math.abs(dx) + Math.abs(dy) === 1
         if (dx === 0 && dy === -1) rot = 0
         else if (dx === 1 && dy === 0) rot = 1
         else if (dx === 0 && dy === 1) rot = 2
@@ -170,7 +178,7 @@ export class MoveController extends ToolController {
       }
     }
     const { module: candidate, reason } = h || !d.candidate
-      ? moveCandidate(st.station.cells, st.station.modules, current, at, rot, h?.point)
+      ? moveCandidate(st.station.cells, st.station.modules, current, at, rot, h?.point, aimedAtBlock ? undefined : this.facing())
       : { module: d.candidate, reason: d.reason }
     // A ghost carries a private id: a 指示牌's printed plate and a 电视's station
     // plate are cached per module id, and a preview must never mint into the copy a

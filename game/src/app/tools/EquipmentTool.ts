@@ -531,7 +531,7 @@ export class EquipmentTool extends ToolController {
   ): { mod: Module | null; noWall: boolean } {
     const st = useStore.getState()
     const groundExit = st.moduleType.startsWith('exit-doorway-')
-    const at = wallMountStandCell(st.station.cells, cell, place, groundExit)
+    const at = wallMountStandCell(st.station.cells, cell, place, groundExit, st.station.levelBase)
     const hitBlock = st.station.cells.some((block) => block.fill === 'solid'
       && block.x === cell[0] && block.y === cell[1] && block.z === cell[2])
     const snappedRot = groundExit && hitBlock
@@ -564,7 +564,18 @@ export class EquipmentTool extends ToolController {
     const snapped = printed.type === 'sign' && near
       ? snapSignToBooth(st.station.modules, printed, near, cell[2])
       : printed
-    const mod = autofaceWallMount(st.station.cells, snapped, near, st.station.modules)
+    // The wall the panel hangs on is the one the camera is looking at
+    // (`autofaceWallMount`) — except for a 地面出入口, which is a shallow sign on the
+    // **block face the pointer clicked** (`snappedRot`, and its `cfg.mountZ` names that
+    // course): the view can see the block, but it cannot know which one was aimed at,
+    // and a floor cell beside the piece backs a panel just as well.
+    const mod = autofaceWallMount(
+      st.station.cells,
+      snapped,
+      near,
+      st.station.modules,
+      snappedRot === null ? this.facing() : undefined,
+    )
     return { mod, noWall: wallMountMissing(st.station.cells, mod, st.station.modules) }
   }
 

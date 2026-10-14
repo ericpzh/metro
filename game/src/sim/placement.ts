@@ -797,26 +797,42 @@ export function wallSide(rot: number | undefined): [number, number] {
 }
 
 /**
- * The cell a wall-mounted piece stands in. Normally the hovered cell itself; but
- * when the pointer is on a wall — the station wall across the track, where there
- * is no walkable floor in front — it is the face-adjacent `place` cell in front
- * of that wall, dropped to that wall's own storey floor (`storeyBand`): a hover
- * on an upper wall course still anchors the panel to the floor below, not to a
- * floating course height. Ground exits can opt into treating any solid block face
- * as the hit surface; other mounts still require a wall-tagged cell here.
+ * The cell a wall-mounted piece stands in, from the pointer's hit (`cell`, the
+ * block under it) and `place = cell + face normal` (`pickCells`, §9.5's "click the
+ * host face").
+ *
+ *   * **A side face is a wall** — whatever tags the block carries. The piece
+ *     stands in the `place` cell in front of that face, on the storey the face
+ *     belongs to (`storeyBand`): a hover on an upper wall course anchors the
+ *     panel to the floor below, not to a floating course height. The station wall
+ *     across the track is the case the mount was built for (there is no walkable
+ *     floor in front of it), and a wall raised with the 方块 brush is the same
+ *     surface as one the 墙 tool tagged — a plain block is not a wall to
+ *     `isWallBlock`, so without this the panel stood *inside* the block it was
+ *     aimed at and could hug either of two neighbours.
+ *   * **A top or bottom face is not a wall**: the piece is aimed at the hovered cell
+ *     itself, the floor it stands on. A ground exit may still ask for the storey snap
+ *     there (`snapToSolidBlock`), and a wall-tagged cell gets it; a plain block keeps
+ *     the exact height it was hit at, so a raised slab is not dragged to the grid.
+ *   * `levelBase` is the station's 基准高度: the 4 m editing grid is shifted by it,
+ *     so the storey floor a course anchors to is asked with it — never the fixed
+ *     0 / 4 / 8 lines.
  */
 export function wallMountStandCell(
   cells: readonly Cell[],
   cell: readonly [number, number, number],
   place: readonly [number, number, number],
   snapToSolidBlock = false,
+  levelBase = 0,
 ): [number, number, number] {
   const hit = cells.find((c) => c.x === cell[0] && c.y === cell[1] && c.z === cell[2])
   // 地面 exits attach to an ordinary block face too; they do not require the
   // block to carry one of the station-wall tags used by wall decorations.
   const onWall = hit !== undefined && hit.fill === 'solid' && (snapToSolidBlock || isWallBlock(hit))
+  const side = place[0] !== cell[0] || place[1] !== cell[1]
+  if (side) return [place[0], place[1], storeyBand(cell[2], levelBase)]
   if (!onWall) return [cell[0], cell[1], cell[2]]
-  return [place[0], place[1], storeyBand(place[2])]
+  return [place[0], place[1], storeyBand(place[2], levelBase)]
 }
 
 /** A unit cell step as the side it names (`+y` is `n`, `+x` is `e`). */
@@ -915,46 +931,61 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module, modu
  *
  * `wallMountMissing` already reduces "which way does it hang?" to `rot` alone, so
  * the orientation is not a free choice: a panel bolted flat to a wall faces that
- * wall and nothing else. This keeps the player's current turn when it is already
- * valid (so a deliberately flipped panel is respected), and otherwise takes the
- * first direction that has real backing, nearest-to-`near` first so a panel
- * dropped in a corner picks the wall the pointer is looking at.
+ * wall and nothing else. Which wall, then, when the tile has two of them?
+ *
+ * **The camera answers** (`facing`, the piece-to-eye step `moduleAt` also takes, so
+ * the look direction is its opposite): the wall the player can see is the wall they
+ * mean. A piece that already carries a turn fitting a wall does not get to hide the
+ * other one — the pointer cannot tell them apart (hovering a wall face puts the hit
+ * anywhere along it, and the neighbour beside the piece won every time), so the view
+ * decides and the orbit is the way to choose. The carried turn still settles a view
+ * that cannot tell two walls apart (a corner met square on), the pointer's own hit
+ * point (`near`) settles that, and the rotation order settles the last tie — so the
+ * aim is a ranking, stable rather than flickering between two walls, and a caller
+ * with no camera at all (a head-less tool, a test) keeps the old behaviour.
+ *
+ * The one mount the view may not re-aim is one the player bolted to a **named piece
+ * of the document**: a board on a booth header, and a 地面出入口 whose own
+ * `cfg.mountZ` names the course its block face is on. Those are the caller's to keep
+ * (see `EquipmentTool.wallMountPlacement`), because the camera can see the block but
+ * cannot know which one the pointer clicked.
  *
  * Returns the module unchanged when it is not wall-mounted, or when no direction
  * has backing at all — that case is a genuine refusal, and
  * `wallMountMissing` reports it rather than being papered over here.
  */
-export function autofaceWallMount(cells: readonly Cell[], candidate: Module, near?: readonly [number, number], modules: readonly Module[] = []): Module {
+export function autofaceWallMount(cells: readonly Cell[], candidate: Module, near?: readonly [number, number], modules: readonly Module[] = [], facing?: readonly [number, number]): Module {
   if (!isWallMounted(candidate)) return candidate
   if (candidate.type === 'sign' && candidate.cfg.boothId) return candidate
-  if (!wallMountMissing(cells, candidate, modules)) return candidate
 
   const [bx, by] = baseCells(candidate)[0] ?? [candidate.x, candidate.y]
-  const courses = wallMountCourses(candidate)
+  // The camera's own look direction, in world space: `facing` is the step from the
+  // piece to the eye, so the view looks the other way (see `render/pickFacing.ts`).
+  const lookX = facing ? -facing[0] : 0
+  const lookY = facing ? -facing[1] : 0
   // `wallSide` is the wall step for a given rot, so inverting it is the whole
   // search: rot 0 → −y, 1 → +x, 2 → +y, 3 → −x.
-  const options: Array<{ rot: number; d: number }> = []
+  const options: Array<{ rot: number; d: number; aim: number; held: number }> = []
   for (let rot = 0; rot < 4; rot++) {
-    const [dx, dy] = wallSide(rot)
     // A direction only counts as a wall when **every** cell of the run and every
-    // course the panel crosses is backed — the same test `wallMountMissing` makes,
-    // so the turn this picks is a turn that really hangs.
-    const backed = courses.every((course) =>
-      baseCells(candidate).every(([cx, cy]) => {
-        const z = candidate.z + 1 + course
-        return (
-          cells.some((c) => c.fill === 'solid' && c.x === cx + dx && c.y === cy + dy && c.z === z) ||
-          virtualSolidAt(cells, modules, cx + dx, cy + dy, z)
-        )
-      }),
-    )
-    if (!backed) continue
+    // course the panel crosses is really backed — the refusal's own verdict, so a
+    // 半墙 facing the other way is not a wall here either and the turn this picks
+    // is a turn that hangs.
+    if (wallMountMissing(cells, { ...candidate, rot }, modules)) continue
+    const [dx, dy] = wallSide(rot)
     const d = near === undefined ? 0 : Math.abs(bx + dx - near[0]) + Math.abs(by + dy - near[1])
-    options.push({ rot, d })
+    // How squarely the camera looks at that wall: the wall behind the piece — the
+    // one whose face the player is looking at — is the one the view points *into*.
+    options.push({
+      rot,
+      d,
+      aim: dx * lookX + dy * lookY,
+      held: rot === (candidate.rot ?? 0) ? 1 : 0,
+    })
   }
   if (options.length === 0) return candidate
 
-  options.sort((a, b) => a.d - b.d || a.rot - b.rot)
+  options.sort((a, b) => b.aim - a.aim || b.held - a.held || a.d - b.d || a.rot - b.rot)
   return { ...candidate, rot: options[0].rot }
 }
 
@@ -2000,9 +2031,10 @@ export function moveDropReason(cells: readonly Cell[], modules: readonly Module[
  * itself, so what the player sees in the air is exactly what lands.
  *
  * The rotation is the carried one; a wall-mounted piece is turned to face its
- * wall first (`autofaceWallMount` keeps the carried turn whenever that turn is
- * backed), because which way a panel bolted to a wall faces is the wall's answer,
- * never the player's problem.
+ * wall first (`autofaceWallMount`), because which way a panel bolted to a wall
+ * faces is the wall's answer, never the player's problem: the wall the **camera**
+ * is looking at wins, the carried turn settles a view that cannot tell two of them
+ * apart.
  */
 export function moveCandidate(
   cells: readonly Cell[],
@@ -2011,12 +2043,13 @@ export function moveCandidate(
   at: Vec3i,
   rot: number,
   near?: readonly [number, number],
+  facing?: readonly [number, number],
 ): { module: Module; reason: string } {
   let moved = movedModule(mod, at, rot)
   if (moved.type === 'sign' && moved.cfg.mount === 'wall') {
     moved = snapSignToBooth(modules, moved, near ?? [at.x + 0.5, at.y + 0.5], at.z)
   }
-  moved = autofaceWallMount(cells, moved, near, modules)
+  moved = autofaceWallMount(cells, moved, near, modules, facing)
   if (moved.type === 'psd-end') moved = snapPsdEnd(moved, modules)
   return { module: moved, reason: moveDropReason(cells, modules, moved) }
 }

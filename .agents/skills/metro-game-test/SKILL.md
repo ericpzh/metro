@@ -81,8 +81,10 @@ results; imported dependencies inflate the overall denominator. Do not claim
   RAF release/cancel behavior, paused camera repacking and stable crowd poses/IDs.
 - `worker-preview`: actual worker edit acknowledgement with no cosmetic routing
   rebuild and no paused tick; speed/topology edits must still rebuild.
-- `scene-wiring`: source contracts for sign-only chunk skipping and pointer
-  touch/delete preservation, release-before-commit, and unmount cancellation.
+- `scene-wiring`: source contracts for sign-only chunk skipping, pointer
+  touch/delete preservation, release-before-commit, unmount cancellation, and the
+  camera-aim notification (`SceneRenderer.onCameraAim` firing once per real aim
+  move) with the viewport's re-aim of the equipment and 移动 ghosts.
 
 Run the full `npm --prefix game test` and production build after focused checks.
 Then run root `npm run check:render-batching` for real production GLSL/WebGL and
@@ -150,8 +152,10 @@ storey slicing in agreement in `overground.test.mjs`; keep pointer priority (roo
 then block outside face, then active view height), the 上 / 下 control and icon wiring,
 and preview/release agreement in `roof-tool.test.mjs`.
 
-New-behaviour pins: `booth-sign` (booth-header snap, faces, bounds, save/move),
-`gate-traffic` (forecast reservations, directional drain, cleanup, wait
+New-behaviour pins: `booth-sign` (booth-header snap, faces, bounds, save/move —
+plus that a booth board keeps its turn against a camera aim, the one mount the
+wall search may not re-aim), `gate-traffic` (forecast reservations, directional
+drain, cleanup, wait
 accounting), `diagonal-walk` (√2 cost, 2×2 clearance, barrier awareness),
 `passenger-view` (instanced humans, gait, pause, picking, eye restore),
 `touch-zoom` (pinch direction, cancel, release suppression),
@@ -162,6 +166,19 @@ envelope, carve, landing nodes, ride time, exit-bay snap, save round-trip, both
 drawn models, and the catalogue's fallback and nearest-match answers — with
 `ramp-join` for the seam at each length and `builder-attributes` for the tile,
 the predicate and the dispatch).
+
+For a wall mount, keep the aiming rules in the pure placement module
+(`wallMountStandCell` + `autofaceWallMount`) and pin each half where it lives:
+`wall-ceiling-snap` for the **基准高度** storey snap and for a **side face being a
+wall whatever the block is tagged** (a plain 方块 wall mounts in front of the face,
+a top face still stands the piece on the block it hit); `placement` for the camera
+ranking, its carried-turn / pointer / rotation-order tie-breaks and that the
+search asks `wallMountMissing` per direction (a 半墙 facing away is skipped, not
+chosen and refused); `glass-panel` and `move` for the tool and controller halves —
+the stand cell, the station's `levelBase`, and an orbit changing the ghost;
+`equipment-placement-input` for the one mount the view may not re-aim (a 地面出入口
+on its clicked block face). All of it is preview-and-release agreement: the ghost
+and the click ask one function.
 
 `placement.test.mjs` pins stair footing: every stair shape may be placed with ground
 only at its foot, regardless of width or rotation, and is still refused if that foot

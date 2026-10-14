@@ -4,7 +4,9 @@
 // below (`wallMountStandCell`), and a hung fitting hovered on the ceiling slab,
 // the floor, or a wall course resolves to the floor it hangs over
 // (`ceilingMountStandCell`) — so the ghost and the committed piece sit on the
-// surface, while the save keeps the floor anchor the envelopes read.
+// surface, while the save keeps the floor anchor the envelopes read. Both snaps
+// ask the station's own **基准高度** for the 4 m grid: a station whose grid is
+// shifted by a metre must not anchor its decor to the fixed 0 / 4 / 8 lines.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -33,6 +35,48 @@ test('a wall hover on an upper course anchors the panel to the floor below', () 
   assert.ok(mod)
   assert.equal(wallMountMissing(cells, mod), false)
 })
+
+test('a wall hover anchors to the storey of the 基准高度 grid, not the fixed 0 / 4 / 8 lines', () => {
+  // The same wall one storey up a station whose grid is shifted by a metre (基准高度
+  // 1): its floor is 5, its four courses are 6…9, and the next floor is 9.
+  const cells = [floor(0, 0, 5), wall(0, -1, 6), wall(0, -1, 7), wall(0, -1, 8)]
+  assert.deepEqual(
+    wallMountStandCell(cells, [0, -1, 7], [0, 0, 7], false, 1),
+    [0, 0, 5],
+    'the panel belongs to the storey floor, and the storey is the shifted one',
+  )
+  assert.deepEqual(
+    wallMountStandCell(cells, [0, -1, 7], [0, 0, 7]),
+    [0, 0, 4],
+    'a caller that names no base still reads the unshifted grid',
+  )
+  // The panel really hangs there: the wall's own two courses back a 2 m panel.
+  const panel = createModule('glass-1x2', 0, 0, 5, 'g', 0)
+  assert.ok(panel)
+  assert.equal(wallMountMissing(cells, panel), false)
+  // The storey above keeps its own floor, not the one below it.
+  const upper = [...cells, floor(0, 0, 9), wall(0, -1, 9), wall(0, -1, 10)]
+  assert.deepEqual(wallMountStandCell(upper, [0, -1, 10], [0, 0, 10], false, 1), [0, 0, 9])
+})
+
+test('a side face is a wall whatever tags the block carries, so a 方块 wall mounts too', () => {
+  // A wall raised with the 方块 brush wears no wall tag, and `isWallBlock` says a
+  // plain block is not one. Aiming at its **side face** still means "hang the panel
+  // on this face" (§9.5: side face = wall-mounted), so the piece stands in the cell
+  // in front of that face — not inside the block, where it could bolt to either
+  // neighbour and its z was whatever course happened to be hit.
+  const plain = (x, y, z) => ({ x, y, z, fill: 'solid' })
+  const cells = [plain(0, 0, 0), plain(0, -1, 1), plain(0, -1, 2)]
+  assert.deepEqual(wallMountStandCell(cells, [0, -1, 1], [0, 0, 1]), [0, 0, 0], 'the cell in front of the face')
+  // A **top** face is the block the piece stands on, so that half is unchanged.
+  assert.deepEqual(wallMountStandCell(cells, [0, 0, 0], [0, 0, 0]), [0, 0, 0])
+  // The block behind the face is backing enough (`wallMountMissing` reads any solid,
+  // tagged or not), so the panel really hangs on the 方块 wall.
+  const panel = createModule('glass-1x1', 0, 0, 0, 'g', 0)
+  assert.ok(panel)
+  assert.equal(wallMountMissing(cells, panel), false)
+})
+
 
 test('a ceiling hover resolves to the floor below, from any face', () => {
   // Top face of the floor: the cell itself.

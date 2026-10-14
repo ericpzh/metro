@@ -34,6 +34,7 @@ import {
 import { createModule, moveEquipment, addEquipment, replaceEquipment, toState } from '../src/build/model.ts'
 import { STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairTurnCells } from '../src/sim/stairs.ts'
 import { useStore } from '../src/app/store.ts'
+import { MoveController } from '../src/app/tools/MoveController.ts'
 
 /* --------------------------------------------------------------- fixtures */
 
@@ -270,6 +271,49 @@ test('a 广告牌 may hang over the track, where there is no floor in front of t
   )
   const board = piece('billboard-wide', 5, 5)
   assert.equal(moveDropReason(cells, [board], movedModule(board, at(5, 5, 0), 0)), '', 'the wall is the whole requirement')
+})
+
+test('the 移动 ghost takes the wall the camera is looking at, on the 基准高度 grid', () => {
+  // `MoveController` is the one caller holding both the station's own grid base and
+  // the camera, and a carried wall panel is aimed by them (`moveAnchorAt` +
+  // `moveCandidate`) — so the piece in the air is the piece the drop would make.
+  // The wall is a plain block, hit on its south face, two metres up a wall column:
+  // the panel stands in front of that face on the storey floor, and **which** of
+  // the two walls beside it backs the panel is the view's answer, not the carried
+  // turn's (which named the wall at the cell the piece came from).
+  const cells = [
+    { x: 0, y: 0, z: 5, fill: 'solid' },
+    { x: 0, y: 1, z: 6, fill: 'solid' },
+    { x: 1, y: 0, z: 6, fill: 'solid' },
+  ]
+  const board = piece('billboard-wide', 0, 0, 5)
+  useStore.setState({
+    station: toState({ name: '移动测试', seed: 1, levelBase: 1, cells, modules: [board], lines: [] }),
+    moveDraft: null,
+    selected: null,
+    past: [],
+    future: [],
+    notice: null,
+    version: 0,
+  })
+  let aim = [0, -1] // the eye south of the piece: the view looks north, at the wall column
+  let preview = null
+  const scene = { setModulePreview: (mod) => { preview = mod }, setCursor: () => {}, setCollisionHighlight: () => {} }
+  const tool = new MoveController({
+    scene: () => scene,
+    facing: () => aim,
+    hover: { current: { cell: [0, 1, 6], place: [0, 0, 6], solid: true, point: [0.5, 1] } },
+    drag: { current: null },
+  })
+  st().liftModule(board.id)
+  tool.refreshHover()
+  assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 5], 'the ghost stands in front of the face, on the shifted storey floor')
+  assert.equal(preview.rot, 2, 'and hangs on the wall the camera is looking at')
+  // Orbiting around the tile re-aims it: the same hover, the same carried piece.
+  aim = [-1, 0] // the eye west of the piece: the view looks east
+  tool.refreshHover()
+  assert.equal(preview.rot, 1, 'the east wall, which the camera now faces')
+  assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 5], 'the stand cell does not move with the view')
 })
 
 /* ------------------------------------------------------- putting it back */

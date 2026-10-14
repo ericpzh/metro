@@ -89,6 +89,21 @@ verdict aligned, and pin shifted-base snapping and nonstandard ceiling heights
 in `wall-ceiling-snap` and `sign-model` tests, plus the camera tall-ceiling
 pin in `ceiling-decor`.
 
+**Wall-mounted** decor — 广告牌, 玻璃板, 站名, the wall 线网图 and 指示牌 — is the
+mirror image, and `wallMountStandCell` asks the same base: a **side face is a wall
+whatever the block is tagged** (§9.5 "side face = wall-mounted"), so a wall raised
+with the 方块 brush mounts a panel in the cell in front of that face — never inside
+the block — on that face's storey of the station's `levelBase` grid. When the tile
+has a wall on two sides the **camera** decides which one the panel hangs on
+(`autofaceWallMount` ranks by the aim `pickFacing` reports; the carried turn, the
+pointer and the rotation order settle a view that cannot tell them apart), and the
+search asks `wallMountMissing`'s own verdict per direction. The mounts bolted to a
+**named piece of the document** keep the turn the pointer gave them — a board on a
+booth header, a 地面出入口 on the block face it was clicked on. An orbit therefore
+re-aims the ghost already under the pointer (`SceneRenderer.onCameraAim` →
+`Viewport`'s `refreshHover`). Pin all of it in `wall-ceiling-snap`,
+`equipment-placement-input`, `glass-panel`, `move` and `scene-wiring`.
+
 ## Repo rule: translations use the existing i18n infrastructure
 
 All built-in player-facing copy must come from the owning catalogue, including
