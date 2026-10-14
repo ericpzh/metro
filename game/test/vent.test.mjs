@@ -43,6 +43,17 @@ test('the grille touches the ceiling and matches its collision bounds at every r
   }
 })
 
+test('a grille hangs from the real slab, and from its own line when the player aimed at one', () => {
+  // The 4 m grid line used to be the grille's ceiling, which floated a 基准高度-1 station's
+  // at 8 under a slab at 9; it reads the slab over it now, or the line the player aimed at.
+  const data = { mats: { steel: mat }, data: { cells: [{ x: 2, y: 3, z: 5, fill: 'solid' }, { x: 2, y: 3, z: 9, fill: 'solid' }], modules: [], lines: [] } }
+  const flush = createModule('vent', 2, 3, 5, 'vent')
+  close(new THREE.Box3().setFromObject(new VentModel(data).build(flush)).max.z, 9)
+  const hung = createModule('vent', 2, 3, 6, 'vent')
+  hung.cfg.line = 7
+  close(new THREE.Box3().setFromObject(new VentModel({ mats: { steel: mat }, data: { cells: [], modules: [], lines: [] } }).build(hung)).max.z, 7)
+})
+
 test('vents require ceiling support, fit over furniture and refuse structural or fitting clashes', () => {
   const vent = createModule('vent', 0, 0, 0, 'vent')
   assert.equal(equipmentReason([], [], vent), 'ceiling')

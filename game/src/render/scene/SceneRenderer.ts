@@ -609,6 +609,15 @@ export class SceneRenderer {
     return this.cameraSys.pickModule(clientX, clientY)
   }
 
+  pickModuleInBounds(clientX: number, clientY: number, moduleIds: ReadonlySet<string>): string | null {
+    return this.cameraSys.pickModuleInBounds(clientX, clientY, moduleIds)
+  }
+
+  /** Whether a document module is currently shown by level and view visibility. */
+  isModuleVisible(id: string): boolean {
+    return this.modules.isModuleVisible(id)
+  }
+
   pickModuleHit(clientX: number, clientY: number): { moduleId: string; point: [number, number, number] } | null {
     return this.cameraSys.pickModuleHit(clientX, clientY)
   }

@@ -66,7 +66,7 @@ English-copy change must preserve the Chinese catalogue and default captures.
 
 After character, size or crowd-material changes, use `metro-model` and run
 `npm run art:models`. It captures every eligible adult and child template
-(currently 50 adult / 19 child choices across 56 exports) with the live 70% game
+(currently 172 adult / 74 child choices across 192 exports) with the live 70% game
 opacity, validates complete strides and source
 hashes, refreshes bilingual sheets 01/02/07/12/13 and renders previews at 8 s.
 The sheet figure helpers use stable 20/80 child/adult selection; child cards must

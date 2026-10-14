@@ -154,6 +154,27 @@ test('a drag across the patch tints the floor it crosses and drops the rest', ()
   assert.equal(zoneAt(cells, 1, 1, 1), 'none', 'and the wall course above it')
 })
 
+for (const kind of ['store', 'toilet', 'office']) {
+  test(`${kind} is an ordinary room-color paint and never builds a room or walls`, () => {
+    station()
+    const before = useStore.getState().station
+    const paintedCells = before.cells.map((c) => ({ ...c, zone: 'paid' }))
+    useStore.setState({ zoneBrush: kind, station: toState({ ...before, cells: paintedCells }) })
+    const { tool, modulePreviews } = ctxFor()
+    tool.onDown(press([0, 0, 0]))
+    tool.onUp(press([0, 0, 0]))
+
+    const next = useStore.getState().station
+    const painted = next.cells.find((c) => c.x === 0 && c.y === 0 && c.z === 0)
+    assert.equal(painted.room, kind, 'the tile writes its room-purpose color label')
+    assert.equal(painted.zone, 'paid', 'the fare zone remains available to gate logic')
+    assert.equal(next.cells.length, before.cells.length, 'painting an existing floor adds no wall or floor cells')
+    assert.deepEqual(next.modules, [], 'painting creates no room, door or furniture modules')
+    assert.ok(modulePreviews.every((preview) => preview.modules.length === 0), 'room paints never preview facility modules')
+    assert.equal(next.cells.some((c) => c.x === 0 && c.y === 0 && c.z === 1), false, 'painting adds no wall above the floor')
+  })
+}
+
 test('a booth drag previews its desktop front and opposite benches, then places that rotation', () => {
   roomStation()
   const { tool, zoneDrag, modulePreviews } = ctxFor()

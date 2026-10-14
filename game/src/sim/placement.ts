@@ -321,7 +321,9 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return floorDecorBounds(m)
     case 'vent': {
       const half = VENT_WIDTH / 2
-      const ceiling = ventCeilingZ(m)
+      // A **line-hung** grille (`flushCeilingAim`) reserves the plate just under the line
+      // the player hung it at; otherwise it is the plate under its storey's ceiling line.
+      const ceiling = hangLineOf(m) ?? ventCeilingZ(m)
       return { x0: m.x + 0.5 - half, y0: m.y + 0.5 - half, z0: ceiling - VENT_DEPTH, x1: m.x + 0.5 + half, y1: m.y + 0.5 + half, z1: ceiling }
     }
     case 'light': {
@@ -329,7 +331,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       const offset = lightOffset(m)
       const cx = m.x + 0.5 + offset.x
       const cy = m.y + 0.5 + offset.y
-      const ceiling = lightCeilingZ(m)
+      const ceiling = hangLineOf(m) ?? lightCeilingZ(m)
       return { x0: cx - width / 2, y0: cy - depth / 2, z0: ceiling - LIGHT_DEPTH, x1: cx + width / 2, y1: cy + depth / 2, z1: ceiling }
     }
     case 'sign': {
@@ -917,6 +919,81 @@ export function ceilingMountStandCell(
 }
 
 /**
+ * The drop, in metres, between the surface a **hung** piece hangs from and its own body: a
+ * **flush** plate rides at the surface itself (灯具, 通风口, 半球机) and everything carried on a
+ * **stem** hangs one metre below it (电视, 吊挂指示牌, 时钟, 监控, 天花板显示器).
+ *
+ * Answers a **palette id** (`cctv-dome`, `light-circular`) as readily as a placed module,
+ * because the tool is armed with the id before there is a module to ask — and a placed 监控
+ * carries the family type with its variant in `cfg`.
+ */
+export function hungDrop(m: { type: string; cfg?: object }): number {
+  if (m.type === 'vent' || m.type === 'light' || m.type.startsWith('light-')) return 0
+  if (m.type === 'cctv-dome') return 0
+  if (m.type === 'cctv' && (m.cfg as { variant?: string } | undefined)?.variant === 'dome') return 0
+  return 1
+}
+
+/**
+ * Where a **hung** ceiling piece is put, from the pointer's hit, as the cell it sits in and the
+ * **line** it hangs from (`cfg.line`, world z; absent when it hangs from the ceiling).
+ *
+ * A **floor** (a top face) means "hang in this room": the piece takes the storey floor and
+ * no line of its own, so it hangs from the real slab overhead — `ceilingMountHeight`, not
+ * the 4 m grid line, which floated a 基准高度-1 station's lights a metre below their ceiling
+ * and a tall room's mid-air. Hovering void (the work plane) names the storey the same way.
+ *
+ * **Any other surface names a height**, which is the whole point of a hung piece: a wall
+ * course or a slab's underside hands back the line at that surface's own **bottom edge**, and
+ * the piece is anchored under it — in front of the wall for a side face, in the same column
+ * under a slab. `drop` is the metre the piece's own body hangs below that line: a **flush**
+ * plate sits at it (`drop` 0 — 灯具, 通风口, 半球机) and a piece on a **stem** hangs one metre
+ * down (`drop` 1 — 电视, 吊挂指示牌, 时钟, 监控, 天花板显示器), so its cell is the one whose floor
+ * top is the body's own height and the whole piece stays inside that cell's column.
+ */
+export function hungCeilingAim(
+  cell: readonly [number, number, number],
+  place: readonly [number, number, number],
+  levelBase = 0,
+  drop = 0,
+): { at: [number, number, number]; line?: number } {
+  const side = place[0] !== cell[0] || place[1] !== cell[1]
+  const dz = place[2] - cell[2]
+  if (!side && dz === 0) return { at: [cell[0], cell[1], storeyBand(cell[2], levelBase)] }
+  if (dz > 0) return { at: [cell[0], cell[1], cell[2]] }
+  const line = cell[2]
+  const x = side ? place[0] : cell[0]
+  const y = side ? place[1] : cell[1]
+  return { at: [x, y, line - 1 - drop], line }
+}
+
+/**
+ * The absolute z a **hung** piece was hung at, when the player aimed at a height rather than
+ * at a floor (`cfg.line`, written from `flushCeilingAim`). A piece with a line of its own
+ * hangs where it was put and needs no slab overhead (`ceilingMountMissing`); every other
+ * ceiling piece, and every save that predates the field, hangs from the ceiling above its cell.
+ */
+export function hangLineOf(m: { cfg?: object }): number | undefined {
+  const line = (m.cfg as { line?: unknown } | undefined)?.line
+  return typeof line === 'number' && Number.isFinite(line) ? line : undefined
+}
+
+/**
+ * The local height — above the cell's own floor top — of the surface a **hung** piece hangs
+ * from: the line the player aimed at (`cfg.line`), else the real slab over its cell.
+ *
+ * Every hung piece is drawn from it, so all of them follow the surface the pointer is on
+ * rather than carrying a height of their own: a **flush** plate sits *at* that surface (灯具,
+ * 通风口, 半球机), and a piece on a **stem** hangs one metre below it (电视, 吊挂指示牌, 时钟,
+ * 监控, 天花板显示器) — the drop that used to be a constant above the floor, leaving them
+ * 0.65…1.9 m under a 4 m ceiling and stranded in a taller hall.
+ */
+export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: readonly Module[]): number {
+  const line = hangLineOf(m)
+  return line !== undefined ? line - m.z - 1 : ceilingMountHeight(cells, m, modules) ?? 3
+}
+
+/**
  * True when a wall-mounted decoration has no wall behind it. Every cell of the run
  * needs its own backing — three cells wide needs three — and so does **every
  * course the panel crosses** (`wallMountCourses`): a poster wants the first metre
@@ -1044,6 +1121,10 @@ export function autofaceWallMount(cells: readonly Cell[], candidate: Module, nea
 export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
   if (candidate.type === 'hanger') return hangerRoofMissing(cells, modules, candidate)
   if (!isCeilingHung(candidate)) return false
+  // A **flush** piece the player hung at a height they aimed at (`hangLineOf`) is held by
+  // nothing overhead: it was put where it is on purpose, mid-air included, so the slab rule
+  // below does not apply to it.
+  if (hangLineOf(candidate) !== undefined) return false
   if (modules.some((m) => hangerSupports(m, candidate))) return false
   return ceilingMountHeight(cells, candidate, modules) === null
 }

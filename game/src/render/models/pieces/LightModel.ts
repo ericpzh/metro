@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec, type LightModule } from '../../../sim/lights.ts'
+import { ceilingMountHeight, hangLineOf } from '../../../sim/placement.ts'
 
 /** Flush ceiling housing and a downward-facing diffuser (§5.7). */
 export class LightModel extends PieceBuilder {
@@ -10,7 +11,14 @@ export class LightModel extends PieceBuilder {
     const diffuserMat = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: 0xfff8e8, emissive: 0xfff4d8, emissiveIntensity: 1.5, roughness: 0.4 }))
     const { width, depth } = lightSpec(mod)
     const offset = lightOffset(mod)
-    const ceiling = lightCeilingZ(mod) - mod.z - 1
+    // The line the housing hangs from: the height the player aimed at when they hung it
+    // there by hand, else the **real** slab overhead (`ceilingMountHeight`) — the 4 m grid
+    // line floated a 基准高度-1 station's lights a metre below their ceiling.
+    const line = hangLineOf(mod)
+    const ceiling = line !== undefined
+      ? line - mod.z - 1
+      // With no slab to read (a ghost in an empty station) the nominal storey line stands in.
+      : ceilingMountHeight(this.ctx.data.cells, mod, this.ctx.data.modules) ?? lightCeilingZ(mod) - mod.z - 1
     // The diffuser fills the bottom centimetre. A full-depth steel body would
     // put its bottom face on the luminous face, making the two surfaces flicker.
     const diffuserDepth = 0.01

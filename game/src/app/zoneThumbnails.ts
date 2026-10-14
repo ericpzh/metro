@@ -1,19 +1,15 @@
-// 3D palette icons for the 分区 (fare-zone) folder in the build rail.
+// 3D palette icons for the 分区 folder in the build rail.
 //
 // A fare zone is a grey floor slab wearing its overlay colour — exactly what the
 // rectangle drag paints — rendered once through an offscreen WebGL pass and cached
 // for the session.
 //
-// The 房间 folder's tiles do **not** come from here. A room is identified by what
-// it is for, so those tiles wear a blueprint line icon (`LeftRail`'s `roomStore` /
-// `roomTicket` / `roomOffice` / `roomRestroom`) instead of a render of the model or
-// a colour field, which is the one way a 1 cm tile can say "tickets" and "washroom"
-// apart.
+// Room-purpose labels use the same color swatches as the fare-zone labels.
 
 import * as THREE from 'three'
 import { addStationLights, applyStationRenderer } from '../render/scene/lightRig.ts'
-import { DEFAULT_ZONE, type Zone } from '../sim/types.ts'
-import { ZONE_LIST } from '../sim/zones.ts'
+import { DEFAULT_ZONE } from '../sim/types.ts'
+import { ZONE_PAINT_LIST, type ZonePaint } from '../sim/zones.ts'
 
 /** The isometric direction the game opens on (`SceneRenderer.setPreset('iso')`). */
 const ISO = new THREE.Vector3(1, -1.2, 0.85).normalize()
@@ -46,7 +42,7 @@ function floorSlab(): THREE.Mesh {
   return m
 }
 
-/** A fare zone: the coloured floor the overlay paints, laid out as four tiles. */
+/** A zone or room-purpose label: the coloured floor shown by the overlay. */
 function zoneIcon(colour: number): THREE.Group {
   const g = new THREE.Group()
   g.add(floorSlab())
@@ -73,7 +69,7 @@ function disposeIcon(root: THREE.Object3D): void {
   })
 }
 
-/** Render every zone brush that has a slab to show — every one but 无分区. */
+/** Render every colored floor label — every one but 无分区. */
 export function renderZoneThumbnails(size = 132): Record<string, string> {
   const out: Record<string, string> = {}
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
@@ -91,8 +87,8 @@ export function renderZoneThumbnails(size = 132): Record<string, string> {
 
   // 无分区 has no slab: it is the *absence* of a zone, and the tile that arms it is
   // the folder's eraser (a line icon, not a render of a floor wearing a colour).
-  const icons: Array<[Zone, THREE.Group]> = ZONE_LIST.filter((z) => z.id !== DEFAULT_ZONE).map(
-    (z): [Zone, THREE.Group] => [z.id, zoneIcon(z.colour)],
+  const icons: Array<[ZonePaint, THREE.Group]> = ZONE_PAINT_LIST.filter((z) => z.id !== DEFAULT_ZONE).map(
+    (z): [ZonePaint, THREE.Group] => [z.id, zoneIcon(z.colour)],
   )
 
   try {

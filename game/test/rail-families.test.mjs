@@ -10,6 +10,7 @@
 // it is pinned here, in Node, rather than by clicking through seven sub-menus.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import {
   CUT_MODES,
   FACILITY_OPTIONS,
@@ -31,7 +32,7 @@ import {
   isFacilityBrush,
   isFamilyOption,
 } from '../src/app/store.ts'
-import { ZONE_LIST } from '../src/sim/zones.ts'
+import { ZONE_LIST, ZONE_PAINT_LIST } from '../src/sim/zones.ts'
 import {
   armedActionsAnchor,
   armedCut,
@@ -427,27 +428,34 @@ test('the armed thing names the tile the rail scrolls to', () => {
   assert.equal(armed({ tool: 'delete' }), null)
 })
 
-test('the 分区 folder is its zone list plus the three room brushes, 无分区 included, and that tile erases', () => {
-  // The folder draws one tile per zone in `ZONE_LIST` plus the three walled-room
-  // brushes (商店 / 厕所 / 办公室 — 售票亭 and 问讯处 stay in 房间), and the
-  // header's count is that sum — so a new zone, a lost 无分区 tile or a missing
-  // room brush moves the number with it. 无分区 is the one tile that is *not* a
-  // slab: arming it takes a label off rather than writing one (`isEraseBrush`),
-  // which is why the folder's grid and the card's chip row both branch on it.
-  assert.equal(zoneFolderTiles(), ZONE_LIST.length + 3)
+test('the 分区 folder treats room-purpose labels like ordinary color zones and keeps their icons', () => {
+  // 商店 / 厕所 / 办公室 belong to the same paint palette as fare zones; only
+  // 售票亭 / 问讯处 remain buildable facility brushes.
+  assert.equal(zoneFolderTiles(), ZONE_PAINT_LIST.length)
   assert.equal(ZONE_LIST[0].id, 'none', '无分区 leads: it is the state an unpainted cell is in')
   assert.equal(zoneFolderTiles(), 9)
-  assert.deepEqual(
-    FACILITY_OPTIONS.filter((f) => f.id !== 'ticket' && f.id !== 'info').map((f) => f.id),
-    ['store', 'toilet', 'office'],
-    'the three room brushes are the facility options outside 售票亭 / 问讯处',
-  )
+  assert.deepEqual(ZONE_PAINT_LIST.slice(-3).map((z) => z.id), ['store', 'toilet', 'office'])
+  assert.deepEqual(FACILITY_OPTIONS.map((f) => f.id), ['ticket', 'info'])
   assert.equal(isEraseBrush('none'), true)
   assert.equal(isEraseBrush('paid'), false)
   assert.equal(isEraseBrush('store'), false, 'a room brush paints a room, it does not erase')
   assert.equal(isFacilityBrush('none'), false, 'and it is not a room brush either')
-  assert.equal(isFacilityBrush('toilet'), true)
-  // Every other zone has its own area icon in the folder; 无分区 keeps the eraser icon.
+  assert.equal(isFacilityBrush('toilet'), false, 'room-purpose labels do not build modules')
+  // The room-specific glyphs are preserved while the tile joins the shared palette.
+  const folder = fs.readFileSync(new URL('../src/app/rail/folders/ZoneFolder.tsx', import.meta.url), 'utf8')
+  for (const icon of [
+    "outside: <FaDoorOpen />",
+    "unpaid: <FaTicketSimple />",
+    "paid: <FaTicket />",
+    "platform: <FaTrainSubway />",
+    "restricted: <HiMiniWrenchScrewdriver />",
+    "store: 'roomStore'",
+    "toilet: 'roomRestroom'",
+    "office: 'roomOffice'",
+  ]) {
+    assert.ok(folder.includes(icon), `the 分区 tile keeps ${icon}`)
+  }
+  // Fare-zone areas keep their established art; 无分区 keeps the eraser icon.
   assert.equal(ZONE_LIST.filter((z) => z.id !== 'none').length, 5)
 })
 

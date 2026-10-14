@@ -5,7 +5,7 @@ import { msg } from '../../sim/i18n.ts'
 // instead of reaching into a slice.
 
 import type { AppState } from './Store.ts'
-import type { Module, TriangleKind, Zone } from '../../sim/types.ts'
+import type { Module, RoomKind, TriangleKind, Zone } from '../../sim/types.ts'
 import { SHELF_VARIANTS, shelfSpec } from '../../sim/shelves.ts'
 import { SIGN_MOUNTS, signMountSpec } from '../../sim/sign.ts'
 
@@ -765,12 +765,11 @@ export function cutAnchor(cut: CutMode): string {
 }
 
 /**
- * Facility rooms built by dragging a rectangle in the zone tool. The ids name the
- * pieces the brushes build — a walled room of a fit-out, or the ticket booth —
- * exactly as `build/model.ts`'s `FacilityKind` spells them, so the brush the rail
- * hands the drag and the module the drag places cannot drift apart.
+ * Counter modules built by dragging a rectangle in the zone tool. The ids match
+ * `FacilityKind`'s buildable counter values; store/toilet/office are room-purpose
+ * paint labels and do not create modules.
  */
-export type FacilityBrush = 'store' | 'toilet' | 'office' | 'ticket' | 'info'
+export type FacilityBrush = 'ticket' | 'info'
 
 /**
  * The 分区 folder's **无分区** brush: the tile that takes a label off the floor
@@ -786,7 +785,7 @@ export type FacilityBrush = 'store' | 'toilet' | 'office' | 'ticket' | 'info'
  */
 export type ZoneEraser = 'none'
 
-export type ZoneBrush = Zone | FacilityBrush
+export type ZoneBrush = Zone | RoomKind | FacilityBrush
 
 /**
  * The brush the 分区 folder opens on, and the one a fresh station is armed with:
@@ -797,19 +796,15 @@ export type ZoneBrush = Zone | FacilityBrush
 export const DEFAULT_ZONE_BRUSH: ZoneBrush = 'unpaid'
 
 /**
- * Facility brushes use an icon so the room's purpose reads clearly in 分区.
- * `colour` tints the drag preview and placement ghost.
+ * Counter brushes use an icon; `colour` tints their drag preview.
  */
 export const FACILITY_OPTIONS: Array<{ id: FacilityBrush; label: string; colour: number; icon: string }> = [
-  { id: 'store', label: msg('store'), colour: 0xb07cc6, icon: 'roomStore' },
-  { id: 'toilet', label: msg('restroom'), colour: 0x5fb7a6, icon: 'roomRestroom' },
-  { id: 'office', label: msg('office'), colour: 0xd9a24b, icon: 'roomOffice' },
   { id: 'ticket', label: msg('ticket_booth'), colour: 0x42a5c4, icon: 'roomTicket' },
   { id: 'info', label: msg('information_desk'), colour: 0x42a5c4, icon: 'roomInfo' },
 ]
 
 export function isFacilityBrush(b: ZoneBrush): b is FacilityBrush {
-  return b === 'store' || b === 'toilet' || b === 'office' || b === 'ticket' || b === 'info'
+  return b === 'ticket' || b === 'info'
 }
 
 /**

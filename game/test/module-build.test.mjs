@@ -26,6 +26,7 @@
 // changing, which is what the player would see too.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import * as THREE from 'three'
 
 /**
@@ -356,8 +357,8 @@ const PIECES = [
   ['洗手池', palette('sink'), 15, '0.689×0.585×1.042'],
   ['垃圾桶', palette('bin'), 28, '0.88×0.42×0.95'],
   ['灭火器', palette('extinguisher'), 13, '0.743×0.487×1.1'],
-  ['时钟', palette('clock'), 131, '0.8×0.236×1.05'],
-  ['监控 枪机', palette('cctv'), 24, '0.31×0.369×0.48'],
+  ['时钟', palette('clock'), 131, '0.8×0.236×1.4'],
+  ['监控 枪机', palette('cctv'), 24, '0.31×0.369×1.11'],
   ['灯具 圆形', palette('light-circular'), 2, '0.5×0.5×0.08'],
   ['灯具 直条', palette('light-rectangular'), 2, '0.8×0.12×0.08'],
   ['通风口', palette('vent'), 14, '0.7×0.7×0.06'],
@@ -370,8 +371,8 @@ const PIECES = [
   ['广告牌 长幅', palette('billboard-panorama'), 5, '2.94×0.185×1.13'],
   ['广告牌 竖版', palette('billboard-portrait'), 5, '0.92×0.185×1.54'],
   ['广告牌 方形', palette('billboard-square'), 5, '0.92×0.185×1.18'],
-  ['电视', palette('tv'), 12, '1.56×0.16×1.32'],
-  ['指示牌 吊挂', palette('sign-ceiling'), 7, '1.9×0.16×0.85'],
+  ['电视', palette('tv'), 12, '1.56×0.16×1.47'],
+  ['指示牌 吊挂', palette('sign-ceiling'), 7, '1.9×0.16×1.2'],
   ['指示牌 墙面', palette('sign-wall'), 1, '1.9×0×0.4'],
   // The wall pieces (§5.7). A 玻璃板 is the outer frame and one pane whatever its
   // size — five meshes for a 1 × 1 band and for a 3 × 2 window alike, which is what
@@ -436,6 +437,23 @@ test('every piece the palette can lay draws a model, at the size it draws it', (
     assert.ok(built.meshes > 0, `${label}: a piece with no mesh is invisible in the station`)
     assert.equal(built.meshes, meshes, `${label}: mesh count`)
     assert.equal(built.size, size, `${label}: bounding box (x×y×z metres)`)
+  }
+})
+
+test('a hung piece hangs from the surface it was aimed at, its body a metre below', () => {
+  // `cfg.line` is the surface a pointed hover wrote (`hungCeilingAim` → `hungDrop`). Every hung
+  // piece's mount sits on that line and its body hangs a metre under it — 电视, 吊挂指示牌, 时钟,
+  // 监控 and the ceiling 显示器 on their stems, the flush 灯具 / 通风口 at the line itself — so two
+  // lines two metres apart draw the same piece two metres apart, and with no line of its own the
+  // mount is the storey's own slab and the body the metre below it.
+  for (const id of ['tv', 'sign-ceiling', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'monitor-ceiling', 'light-circular', 'vent']) {
+    const mod = palette(id)
+    const bare = box(build(mod).group)
+    const low = box(build({ ...mod, cfg: { ...mod.cfg, line: 7 } }).group)
+    const high = box(build({ ...mod, cfg: { ...mod.cfg, line: 9 } }).group)
+    assert.ok(Math.abs(bare.max.z - 4) < 0.02, `${id}: with no line the mount is the storey ceiling`)
+    assert.ok(Math.abs(low.max.z - 7) < 0.02, `${id}: the mount sits on the line the player aimed at`)
+    assert.equal(round(high.min.z - low.min.z), 2, `${id}: the whole piece follows the line`)
   }
 })
 
@@ -995,7 +1013,10 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   assert.equal(round(wallSign.min.z - 1), 1.45, 'the wall board hangs at the eye height its courses name')
   assert.equal(round(wallSign.max.z - 1), 1.85, 'and its panel crosses exactly the one wall course it asks for')
   assert.ok(hungSign.max.z - 1 > 2.9, 'a 吊挂 board reaches the ceiling its rods bolt to')
-  assert.ok(hungSign.min.z > wallSign.max.z, 'and hangs over the concourse rather than at reading height')
+  // Both boards are one storey apart in a 4 m room, and the hung one hangs a metre below that
+  // slab: its **centre** clears the wall board, while the two panels' edges come within a
+  // few centimetres of each other — the boards are read from different places, not stacked.
+  assert.ok((hungSign.min.z + hungSign.max.z) / 2 > wallSign.max.z, 'and its centre hangs over the concourse rather than at reading height')
 })
 
 test('a 扶梯 carries its own solid under the truss, over the course the ground leaves', () => {
@@ -1291,6 +1312,49 @@ test('the pieces whose numbers come from the sim use the sim’s numbers', () =>
   assert.ok(STAIR_RUN > 0 && STAIR_RISE > 0, 'a flight runs and climbs, and the model draws both')
 })
 
+
+test('Tanwei B and snapped exits open under the actual 1/2/3 m stair band in every rotation', async () => {
+  const { snapExitToRamp, exitRunOpenings } = await import('../src/sim/exits.ts')
+  const { stairFlightSlides } = await import('../src/sim/stairs.ts')
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/tanwei-exit-b.json', import.meta.url), 'utf8'))
+  const cases = [fixture]
+  for (let rot = 0; rot < 4; rot++) for (const width of [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]) {
+    const stair = createModule('stair-straight', -1, 40, -4, `band-${rot}-${width}`, rot, width)
+    const exit = snapExitToRamp({ ...fixture.exit, cfg: { ...fixture.exit.cfg, bays: 3 } }, stair)
+    cases.push({ stair, exit })
+  }
+  const previous = ctx.data
+  try {
+    for (const { stair, exit } of cases) {
+      ctx.data = { ...data, modules: [exit, stair] }
+      const portal = buildModule(exit, ctx), stairs = buildModule(stair, ctx)
+      portal.updateMatrixWorld(true); stairs.updateMatrixWorld(true)
+      const upper = stair.from.z > stair.to.z ? stair.from : stair.to
+      const lower = stair.from.z < stair.to.z ? stair.from : stair.to
+      const slide = stairFlightSlides(stair)[0]
+      const centre = new THREE.Vector3(upper.x + 0.5 + slide.dx, upper.y + 0.5 + slide.dy, upper.z + 1)
+      const uphill = new THREE.Vector3(upper.x - lower.x, upper.y - lower.y, 0).normalize()
+      const right = new THREE.Vector3(uphill.y, -uphill.x, 0)
+      const half = exitRunOpenings([stair], exit)[0].half
+      const stairCentre = box(stairs).getCenter(new THREE.Vector3())
+      assert.ok(Math.abs(stairCentre.dot(right) - centre.dot(right)) < 1e-6, 'probes follow the real rendered stair centerline')
+      const pads = []
+      portal.traverse((o) => { if (o.name === 'exit-concrete-base') pads.push(o) })
+      const floorAt = (across) => {
+        const point = centre.clone().addScaledVector(uphill, -1).addScaledVector(right, across)
+        point.z = exit.z + 3
+        return new THREE.Raycaster(point, new THREE.Vector3(0, 0, -1)).intersectObjects(pads, false).length > 0
+      }
+      for (const across of [-half + 0.05, 0, half - 0.05]) {
+        assert.equal(floorAt(across), false, `${stair.id}: concrete must not cover either edge or the centre of the flight`)
+      }
+      for (const across of [-half - 0.05, half + 0.05]) {
+        assert.equal(floorAt(across), true, `${stair.id}: concrete remains immediately outside both rails`)
+      }
+      disposeObject(portal); disposeObject(stairs)
+    }
+  } finally { ctx.data = previous }
+})
 
 test('raised concrete exits meet connected runs without covering escalator terminal tracks', async () => {
   const { exitRunSnap } = await import('../src/sim/exits.ts')

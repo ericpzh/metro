@@ -25,6 +25,11 @@ npm run build      # tsc --noEmit && vite build
 npm test           # node --test "test/**/*.test.mjs"
 ```
 
+The production build enforces the Cloudflare Worker asset limit: every emitted
+file must be smaller than 25 MiB. `game/test/passenger-assets.test.mjs` pins the
+strict boundary, including files exactly 25 MiB, and verifies lossless atlas
+splitting.
+
 ## Layout, and the one dependency rule
 
 The direction is one-way and enforced by `game/test/layering.test.mjs`:
@@ -110,7 +115,12 @@ UV slots; deleted slots recycle. Unsupported/oversized/repeating/custom panels k
 their original maps; pages keep pixel sizes and gutters with linear/no-mipmap sampling.
 Changing the view invalidates equipment revisions; cell-only edits with retained
 roots preserve the actual batch allocations. New metadata/module neighbours still
-take conservative rebuilds. Pin these in `batching-lifecycle` and `draw-batching`.
+take conservative rebuilds, except a module edit that only adds 楼梯块 tiles: those models
+read their own floor finish and do not change neighbour geometry, so `retainedModuleIds`
+keeps prior groups and builds the new tiles. Keep ordinary module additions fail-closed.
+Pin the retention policy and real ModuleSystem keep-set in
+`game/test/performance-policy.test.mjs`; the general batching rules stay in
+`batching-lifecycle` and `draw-batching`.
 
 * **Imports carry the file extension** (`./foo.ts`, `./Bar.tsx`) and types use
   `import type`. The tsconfig is strict with `verbatimModuleSyntax`,
@@ -118,7 +128,8 @@ take conservative rebuilds. Pin these in `batching-lifecycle` and `draw-batching
 * **No enums** (`erasableSyntaxOnly`). Use `as const` objects, e.g. `AgentState`.
 * **ASCII ids; centralised bilingual copy** for anything a player reads (§9.2).
   The game supports Simplified Chinese and English; follow the i18n rules below.
-* **Equipment hover previews:** 移动, 吸取 and 选择 show the actual targeted module as a vivid blue translucent preview; 删除 uses the same preview shape in red. Keep tint strength and opacity in `render/scene/systems/GhostSystem.ts`, and pin the tool-to-preview colors in `game/test/tool-hover-preview.test.mjs` when changing this behavior.
+* **Equipment hover previews:** 移动, 吸取 and 选择 show the actual targeted module as a vivid blue translucent preview; 删除 uses the same preview shape in red. `EquipmentTool.refreshHover` must only rebuild while the module tool is active, because its placement settings are shared with 方块 and a setting change after F must not restore a stale equipment ghost. Keep tint strength and opacity in `render/scene/systems/GhostSystem.ts`, and pin the tool-to-preview colors and inactive-tool refresh in `game/test/tool-hover-preview.test.mjs` when changing this behavior.
+* **Picking follows what level slicing draws:** when 显示其他层 is off, hidden-storey modules cannot be selected, deleted, moved or picked. Three's raycaster still intersects invisible objects, so `CameraSystem` must reject hits with an invisible mesh or ancestor; cell-based tool fallbacks must also check `ModuleSystem.isModuleVisible` before resolving a document module. Keep the camera and level agreement in `game/test/batching-lifecycle.test.mjs`, and the tool fallbacks in `delete-tool`, `move`, `pick-tool` and `select-agent`.
 * **Pack cell coordinates with `packKey`** (number arithmetic, ±4096 m). Never use
   bit shifts — the old `(x + 4096) << 20` collided neighbours.
 * **Axes:** `+z` is up; `n` is `+y`, `e` is `+x`, `+z` = top face.
@@ -233,8 +244,11 @@ the four rules most changes trip over.
   tools read (`app/Viewport.tsx` → `ToolContext.solids`) is the **effective** list,
   or the plane is real to the crowd and the mesher and invisible to the pointer. A
   dig is the one edit that writes the plane — `removeCells` records the `void` at
-  grade and nowhere else, and `addCells` / `addFloor` **fill it back** by
-  *replacing* that record, which is why both count **blocks** rather than records;
+  grade and nowhere else. `addCells` fills a dug hole by clearing the `void` and
+  returning to implicit ground; it must not leave a redundant plain `solid` at
+  `z = 0` in the document/save. `addFloor` replaces the hole with its tagged
+  `auto-floor` record, which is meaningful authored structure. Both count
+  **blocks** rather than records;
   the 材质 brush materialises the pavement it paints, refused by the same
   `blockReason` the 方块 brush asks and refused outright on a `void`, because a hole
   is not a surface. Two things deliberately stay on the **document's** cells:
@@ -243,7 +257,8 @@ the four rules most changes trip over.
   `BlockTool` hands `addFloor` the preview's own `acceptedCells`, so the release
   lays what the ghost drew) and `build/rail.ts`'s platform-edge derivation (the
   open street beside a track bed is not a platform). `ground.test.mjs` pins both
-  halves; `ground-visibility.test.mjs` pins the window as its own mesh pass and the
+  halves and default-ground re-add; `save.test.mjs` pins custom finish/zone round trips
+  and the absence of default ground from saves; `ground-visibility.test.mjs` pins the window as its own mesh pass and the
   隐藏地面 tile that takes it away whole.
 * **Time base.** `SIM_SECONDS_PER_TICK = 1.0`; 1× runs one tick per real second, so
   the crowd walks at true speed. Fast-forward multiplies ticks per second, never the
@@ -280,7 +295,11 @@ the four rules most changes trip over.
   (`isFloorCell`: solid, top face exposed, a walkable finish or a track bed at the
   foot of its column), the 分区图 draws the storey being edited (`zoneMapFloorsAt`),
   and the folder's sixth tile is 无分区 as the *eraser* (`eraseZoneCells`,
-  `isEraseBrush`) — see `zonetool.test.mjs`.
+  `isEraseBrush`) — see `zonetool.test.mjs`. 商店 / 厕所 / 办公室 are ordinary room-purpose
+  paint labels in `ZONE_PAINT_LIST`: they tint the same walkable floor path as fare zones, retain
+  their existing room-type tile icons, preserve `Cell.zone` for fare logic, and create no room
+  modules or walls. `zones.test.mjs`, `zonetool.test.mjs` and `rail-families.test.mjs` pin the
+  map, click and palette behavior.
 * **Only a gate may cross the fare line** (`sim/zones.ts`), if the gate's policy
   permits that direction. A same-side relabelling (`outside`↔`unpaid`,
   `paid`↔`platform`) is not a crossing at all: `crossingDir` returns 0, so
@@ -345,6 +364,12 @@ the four rules most changes trip over.
   machine side (`gateSolidFaces`), and `railLandingAt` also treats a stair/escalator
   landing as a neighbour — read through `escalatorLandings`, so both landing columns
   of a wide escalator count — so a run butts up to the handrail instead of stopping short.
+  A 楼梯块 is a stepped floor tile without a handrail; `railLandingAt` skips it so an adjacent
+  fence stays capped rather than snapping into it. Pin this beside the ramp landing cases in
+  `game/test/fence.test.mjs`.
+  A 楼梯块 drag is a straight row across its rotated width axis, so adjacent blocks widen the
+  stair; ignore pointer movement along the treads. Keep its preview and release footprint aligned
+  in `game/test/roof-tool.test.mjs`; roof plates remain rectangular.
   A run reserves exactly the tile it stands in, so the cell beside it is free ground
   and `placementBlocked` needs no exemption for that pair (only a single piece wider
   than a cell — an old 1.6 m stair — reaches its neighbour
@@ -930,40 +955,21 @@ the four rules most changes trip over.
   those bands. The 高度 rail shifts that whole grid by a 0–3 m `levelBase`
   (`normalizeLevelBase` / `levelSteps(base)` / `storeyBand(z, base)`; old saves default
   to 0, `storey.test.mjs` + `structures-gaps.test.mjs`). The save carries no `levels` field; old saves load with it ignored.
-* A **facility room** is the one `shop` module type; its fit-out lives in
-  `cfg.kind` (`store` / `toilet` / `office`, plus the open `booth` counter in
-  `ticket` / `info` 问讯处 and the `retail` shell). The rectangle drag runs through `placeFacility` (`build/model/Facilities.ts`) to mark a
-  商店 / 厕所 / 办公室 footprint or a 售票亭 / 问讯处, and the matching model draws the sign — 厕所 / 办公室 hang a real door on
-  their openings, 商店 keeps an open front. The brush builds **no walls and no
-  fit-out**: the player walls the footprint with the 方块 / 墙 tools and
-  furnishes it piece by piece, so every unit is right-clickable; the room carries
-  `cfg.stocked` and old saves migrate once via `ensureRoomFurniture` in `toState`,
-  which only marks legacy store / office / toilet rooms stocked and never
-  recreates their old auto fit-out. Only a booth still stocks itself (one `bench`
-  per back-row cell). A booth's `cfg.front` names the counter/desktop face
-  (`0` = −y, then +x, +y, −x); the R shortcut and 房间 folder's 旋转 tile turn
-  that face, and `boothBenchSpots` keeps the staff benches opposite it. During a
-  booth rectangle drag, `ZoneTool` previews the booth and its benches through
-  `setModulePreview`, and refreshes that 3D ghost when R changes the front.
-  `facility.test.mjs`, `booth-model.test.mjs`, `zonetool.test.mjs` and
-  `tool-shortcuts.test.mjs` pin the saved orientation, model bounds, opposite
-  benches, live drag preview/release and the R affordance. Deleting
-  a room takes its `cfg.auto` furniture but leaves hand-placed pieces. Extending
-  a room over the same kind unions the footprint and clears only the absorbed
-  ring the union buries — the player's walls on the new edge stay. Two rooms merge only when their type *and*
-  fit-out match. A room's walls meet
-  at **square** corners — `mitreCap` is deleted — with the west/east panel taking the corner
-  cell's outer half across the cell's whole depth and the south/north panel stopping one
-  `WALL_T` short to butt its inner face, so three quarters of the corner cell are wall and
-  the room-facing quarter is left free for furniture (`room-model.test.mjs` pins the square
-  ring, the empty quarter, and that every wall mesh is a `BoxGeometry`). Rooms and the booth
-  wear no name plate. The 房间 folder's tiles are line icons of use (商店 / 售票亭 / 问讯处 /
-  办公室 / 厕所), not colour chips. The 分区 folder uses distinct icons for 站外 / 非付费区 /
-  付费区 / 站台 / 设备区, while 无分区 keeps its eraser icon. Brush
-  ids are `store` / `toilet` / `office` / `ticket` / `info` (the footprint rooms share the `shop`
-  module, the booths are `booth`). The 分区 folder arms the three footprint brushes beside its
-  zones (`zoneFolderTiles` = zones + 3). The **售票亭** (`buildBooth`) is hand-built geometry rather
-  than voxels, and it must be a **closed box inside the module's own cells** — every side
+* **商店 / 厕所 / 办公室 are room-purpose zone paints**, not facility-room brushes. They are
+  `RoomKind` labels in `Cell.room` and join `ZONE_PAINT_LIST` beside 站外 / 付费区. They paint
+  exposed walkable floor through `paintZoneCells`, change the overlay color while leaving the
+  underlying `Cell.zone` intact for fare logic, and create no `shop` module, wall, door or furniture.
+  The 分区 tiles keep their existing type icons; only their paint and overlay behavior is shared.
+  `zones.test.mjs`, `zonetool.test.mjs` and `rail-families.test.mjs` pin this contract. Legacy
+  `shop` modules and their footprint/model helpers remain readable for old station data;
+  `facility.test.mjs` covers those helpers, not current room-label brush behavior. 房间 keeps the
+  buildable 售票亭 / 问讯处 counters. A booth's `cfg.front` names the counter/desktop face (`0` =
+  −y, then +x, +y, −x); the R shortcut and 房间 folder's 旋转 tile turn that face, and
+  `boothBenchSpots` keeps the staff benches opposite it. During a booth rectangle drag, `ZoneTool`
+  previews the booth and its benches through `setModulePreview`, and refreshes that 3D ghost when R
+  changes the front. `booth-model.test.mjs`, `zonetool.test.mjs` and `tool-shortcuts.test.mjs` pin
+  orientation, model bounds, opposite benches, live drag preview/release and the R affordance.
+  The **售票亭** (`buildBooth`) is hand-built geometry rather than voxels, and it must be a **closed box inside the module's own cells** — every side
   measures *inward from that side's outer face*, the west and east counter runs own the four
   corner squares while the north and south runs butt between them, and the four glass sheets
   run out to each other's inner faces with a corner mullion over every joint
@@ -1248,7 +1254,18 @@ the four rules most changes trip over.
   same way its exits are: the top bar's two-field form (中文站名 + English name) commits both
   as one undoable edit, and the envelope carries `nameEn` (trimmed, `''` by default).
   `exitRunSnap` snaps a straight stair/escalator dropped inside a head-house into the column
-  under the pointer, clamped to the bay group; turning stairs are left un-snapped, and a
+  under the pointer, clamped to the bay group. In the other direction, `snapExitToRamp` places a
+  selected head-house around a picked straight stair/escalator, aligns a bay to the upper
+  landing and faces its mouth down the run; preview and click must share that target, even when
+  the exact ray falls through gaps between stair treads to a floor hit. A ramp-only model-bounds
+  pick is the fallback and still respects hidden modules and nearer walls. The floor wellway follows
+  both the landing's across-bay column and its along-run
+  row (`exitRunOpenings` / `ExitModel`), including saves where the exit anchor and top landing
+  differ by a row. Wide straight stairs' saved endpoints are the first lane, not the rendered
+  centreline: openings must apply `stairFlightSlides`, as escalators apply `escalatorRun`.
+  Snap the whole occupied lane span into the bay group. Ramp catalogue rotations are clockwise
+  (`stairFacing`), whereas exit model rotations are counterclockwise (`exitRotate`); invert the
+  rotation when snapping an exit to a ramp. Turning stairs are left un-snapped, and a
   虚拟 pillar never snaps (`isExitHeadHouse`). A
   head-house's plan is `cfg.bays` **alone**, and `exitRunOpenings` walks the runs actually
   placed and keeps the ones that fixed span covers.

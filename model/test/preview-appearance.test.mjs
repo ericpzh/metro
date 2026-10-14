@@ -37,7 +37,8 @@ test('preview scale maps width/height/depth to the GLB axes at each age base',()
 test('random previews preserve the 20/80 population and choose equally within each model pool',()=>{
  let seed=1234567,children=0;
  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2**32},counts=new Map();
- for(let i=0;i<120000;i++){
+ const samples=480000;
+ for(let i=0;i<samples;i++){
   const state=randomAppearance(random),child=state.age==='child';
   if(child){children++;assert(!state.bag||state.bagStyle==='small'||state.bagStyle.startsWith('crossbody-'));assert.notEqual(state.hair,'bald')}
   const model=MODEL_LIBRARY.find(m=>m.character===state.character&&m.hair===state.hair&&m.bag===state.bag&&(!m.bag||(m.bagStyle??'standard')===state.bagStyle));
@@ -45,10 +46,10 @@ test('random previews preserve the 20/80 population and choose equally within ea
   assert(state.size.height>=80&&state.size.height<=120);
   for(const axis of ['width','depth'])assert(child?state.size[axis]>=80&&state.size[axis]<=90:state.size[axis]>=90&&state.size[axis]<=110);
  }
- assert(children>23500&&children<24500);
+ assert(children>samples*.195&&children<samples*.205);
  for(const age of ['adult','child']){
   const pool=MODEL_LIBRARY.filter(m=>modelEligible(m,age));
-  const mean=(age==='child'?children:120000-children)/pool.length;
+  const mean=(age==='child'?children:samples-children)/pool.length;
   for(const model of pool)assert(Math.abs(counts.get(`${age}:${model.id}`)-mean)<mean*.1,`${age} ${model.id} stays equally selectable`);
  }
  const atChance=randomAppearance(()=>.2);assert.equal(atChance.age,'adult','the 20% child interval ends at .2');
@@ -56,16 +57,18 @@ test('random previews preserve the 20/80 population and choose equally within ea
 });
 
 test('side bags obey adult sex rules, child rules and long-hair compatibility',()=>{
- assert.equal(MODEL_LIBRARY.length,56);
- assert.equal(MODEL_LIBRARY.filter(m=>m.adultEligible).length,50);
- assert.equal(MODEL_LIBRARY.filter(m=>m.childEligible).length,19);
+ assert.equal(MODEL_LIBRARY.filter(m=>m.adultEligible).length,172);
+ assert.equal(MODEL_LIBRARY.filter(m=>m.childEligible).length,74);
  for(const character of ['male','female'])for(const age of ['adult','child'])for(const style of ['shoulder-left','shoulder-right','crossbody-left','crossbody-right','purse-left','purse-right','small']){
   const state={age,character,hair:character==='male'?'short':'bob',bag:true,bagStyle:style,size:{height:100,width:100,depth:100}};
   constrainAppearance(state);
   const allowed=age==='child'?style==='small'||style.startsWith('crossbody-'):style.startsWith('purse-')?character==='female':style.startsWith('crossbody-')?character==='male':true;
   assert.equal(state.bag,allowed,`${age}/${character}/${style}`);
  }
- for(const [age,style] of [['adult','shoulder-left'],['adult','purse-right'],['child','crossbody-left']]){
-  const state={age,character:'female',hair:'long',bag:true,bagStyle:style,size:{height:100,width:100,depth:100}};constrainAppearance(state);assert(state.bag);assert.equal(state.hair,'long');
+ for(const hair of ['long','long-swept'])for(const [age,style] of [['adult','shoulder-left'],['adult','purse-right'],['child','crossbody-left']]){
+  const state={age,character:'female',hair,bag:true,bagStyle:style,size:{height:100,width:100,depth:100}};constrainAppearance(state);assert(state.bag);assert.equal(state.hair,hair);
+ }
+ for(const hair of ['long','long-swept'])for(const bagStyle of ['standard','standard-87.5','standard-75','small']){
+  const state={age:'adult',character:'female',hair,bag:true,bagStyle,size:{height:100,width:100,depth:100}};constrainAppearance(state);assert.equal(state.bag,false);
  }
 });

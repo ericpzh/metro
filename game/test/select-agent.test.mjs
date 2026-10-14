@@ -16,7 +16,7 @@ import assert from 'node:assert/strict'
 
 const { useStore } = await import('../src/app/store.ts')
 const { SelectTool } = await import('../src/app/tools/SelectTool.ts')
-const { toState } = await import('../src/build/model.ts')
+const { createModule, toState } = await import('../src/build/model.ts')
 
 const floor = (x, y, z = 0) => ({ x, y, z, fill: 'solid' })
 const cells = []
@@ -42,12 +42,13 @@ function arrange() {
 const st = () => useStore.getState()
 
 /** The select tool with its scene stubbed; `pickAgent` answers `agentId`. */
-function toolFor(agentId) {
+function toolFor(agentId, moduleVisible = true) {
   const calls = { cursor: 0, ghost: 0, preview: 0, selection: 0, bulldozed: [] }
   const ref = (v = null) => ({ current: v })
   const tool = new SelectTool({
     scene: () => ({
       pickAgent: () => agentId,
+      isModuleVisible: () => moduleVisible,
       setCursor: () => calls.cursor++,
       setGhost: () => calls.ghost++,
       setModulePreview: () => calls.preview++,
@@ -96,6 +97,20 @@ test('a click on open floor still selects the cell', () => {
   tool.onDown(press([2, 2, 0]))
   assert.equal(st().selected.kind, 'cell')
   assert.equal(st().selected.key, '2,2,0')
+})
+
+test('select does not resolve a hidden module from the hit cell when its mesh was not picked', () => {
+  arrange()
+  const mod = createModule('tvm', 1, 1, 0, 'hidden-tvm')
+  useStore.setState({ station: { ...st().station, modules: [mod] } })
+  const visible = toolFor(null, true).tool
+  visible.onDown(press([1, 1, 0]))
+  assert.equal(st().selected.key, mod.id, 'the same coordinate fallback can select a visible TVM')
+  st().select(null)
+  const { tool } = toolFor(null, false)
+  tool.onDown(press([1, 1, 0]))
+  assert.equal(st().selected.kind, 'cell', 'cell fallback stays on the visible floor instead of selecting the hidden TVM')
+  assert.notEqual(st().selected.key, mod.id)
 })
 
 test('a right-click bulldozes whatever is under the pointer, passenger or not', () => {

@@ -18,7 +18,7 @@ import {
   zoneMapFloorsAt,
   zoneRegionLabels,
 } from '../src/build/model.ts'
-import { crossingDir, ZONE_INDEX, zoneIndexOf, zoneOf } from '../src/sim/zones.ts'
+import { crossingDir, ZONE_INDEX, zoneDisplayIndexOf, zoneIndexOf, zoneOf } from '../src/sim/zones.ts'
 import { ZONES } from '../src/sim/types.ts'
 
 /** A 2 m corridor x=0..12, unpaid up to x=4 and paid from x=5, with a line at
@@ -190,31 +190,31 @@ test('the zone map labels one area per contiguous zone patch', () => {
   assert.equal(zoneAt(state.cells, Math.floor(paid.x), 0, 0), 'paid')
 })
 
-test('the zone map names the walled rooms standing on it', () => {
-  // `zoneRegionLabels` takes the rooms as an optional second argument: each one
-  // earns a label of its own (商店 / 厕所 / 办公室), on top of the fare-zone
-  // labels the floor patches already earn — which is what makes the 分区图 a map
-  // of the rooms as well as of the zones.
+test('room-purpose labels tint ordinary regions without naming room modules or changing fare zones', () => {
   const cells = []
-  for (let x = 0; x <= 11; x++) for (let y = 0; y <= 3; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  for (let x = 0; x <= 11; x++) for (let y = 0; y <= 3; y++) cells.push({ x, y, z: 0, fill: 'solid', zone: 'paid' })
   const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
-  const floors = zoneMapFloors(state.cells)
-  const room = (id, kind, x) => ({ id, type: 'shop', x, y: 0, z: 0, w: 3, h: 3, cfg: { kind, door: [] } })
-  const labels = zoneRegionLabels(floors, [room('s', 'store', 0), room('t', 'toilet', 4), room('o', 'office', 8)])
-  const named = labels.filter((l) => l.label !== undefined)
-  assert.deepEqual(
-    named.map((l) => l.label).sort(),
-    ['办公室', '厕所', '商店'],
-    'each walled room earns a label of its own',
-  )
-  for (const l of named) {
-    assert.ok(l.x >= 0 && l.x <= 12 && l.y >= 0 && l.y <= 4, `${l.label} sits inside its own room`)
-    assert.equal(l.z, 1.08, `${l.label} rides at the room-label height, above the zone labels`)
+  const painted = paintZoneCells(state, [
+    ...Array.from({ length: 9 }, (_, i) => [i % 3, Math.floor(i / 3), 0]),
+  ], 'store')
+  const store = painted.cells.find((c) => c.x === 1 && c.y === 1)
+  assert.equal(store.room, 'store')
+  assert.equal(store.zone, 'paid', 'the fare zone stays underneath the room-purpose tint')
+  assert.equal(zoneIndexOf(store), ZONE_INDEX.paid, 'fare routing still reads the paid zone')
+  assert.notEqual(zoneDisplayIndexOf(store), zoneDisplayIndexOf({ zone: 'paid' }), 'the overlay sees the room color')
+
+  const floors = zoneMapFloors(painted.cells)
+  const labels = zoneRegionLabels(floors, [])
+  assert.equal(labels.length, 2, 'the overlay labels the room-colored region and surrounding paid floor')
+  assert.ok(labels.every((l) => l.label === undefined), 'room-purpose paint does not create module name labels')
+  assert.equal(painted.modules.length, 0, 'painting does not create a room module')
+  assert.equal(painted.cells.length, state.cells.length, 'painting existing floors does not add wall or floor cells')
+
+  for (const kind of ['toilet', 'office']) {
+    const one = paintZoneCells(state, [[5, 1, 0]], kind)
+    assert.equal(one.cells.find((c) => c.x === 5 && c.y === 1).room, kind)
+    assert.equal(one.cells.find((c) => c.x === 5 && c.y === 1).zone, 'paid')
   }
-  // A 售票亭 / 问讯处 is a room too, but it keeps no name on the map: only the
-  // three walled-room brushes the 分区 folder arms are labelled.
-  const booth = zoneRegionLabels(floors, [room('b', 'ticket', 0)])
-  assert.equal(booth.filter((l) => l.label !== undefined).length, 0, 'a 售票亭 earns no room label')
 })
 
 /* ------------------------------------------- the map follows the storey (§4.5) */

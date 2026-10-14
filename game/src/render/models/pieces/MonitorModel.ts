@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { PieceBuilder, ownedMaterial, slab, plate, placeLocal } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
-import { ceilingMountHeight } from '../../../sim/placement.ts'
+import { hangCeilingLocal } from '../../../sim/placement.ts'
 import { rotateLocal } from '../../../sim/track.ts'
 
 /** Decorative platform views, drawn as flat ink so they need no extra scene cameras. */
@@ -12,12 +12,15 @@ export class MonitorModel extends PieceBuilder {
     const wall = mod.cfg.mount === 'wall'
     const width = wall ? 3 : 0.96
     const height = wall ? 2 : 0.72
-    const z = wall ? 1.5 : 2.1
+    // The **ceiling** cabinet hangs one metre below the surface it was hung from
+    // (`hangCeilingLocal`): the slab over its cell, or the line the player aimed at. The
+    // **wall** one is bolted at eye height, exactly as it always was.
+    const ceiling = hangCeilingLocal(mod, this.ctx.data.cells, this.ctx.data.modules)
+    const z = wall ? 1.5 : ceiling - 1
     const y = wall ? -0.40 : 0
     const mats = this.ctx.mats
     slab(g, mats.darkSteel, 0, y, z, width, 0.18, height)
     if (!wall) {
-      const ceiling = ceilingMountHeight(this.ctx.data.cells, mod, this.ctx.data.modules) ?? 3
       for (const x of [-0.30, 0.30]) {
         const top = z + height / 2
         slab(g, mats.steel, x, y, (top + ceiling) / 2, 0.035, 0.035, ceiling - top)

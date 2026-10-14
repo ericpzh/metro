@@ -22,6 +22,8 @@ import type { Module } from './types.ts'
 export function railLandingAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
   for (const m of modules) {
     if (m.type === 'stair') {
+      // A 楼梯块 is a stepped floor tile, not a ramp with a handrail to meet (§5.1–§5.2).
+      if (m.cfg.block) continue
       for (const f of stairFlights(m)) {
         if ((f.from.x === x && f.from.y === y && f.from.z === z) || (f.to.x === x && f.to.y === y && f.to.z === z)) return true
       }

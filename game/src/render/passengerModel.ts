@@ -3,6 +3,7 @@ import human from '../assets/passenger-approved.json' with { type: 'json' }
 import { passengerIsChild, passengerProportions } from '../sim/walking.ts'
 import { PASSENGER_OPACITY } from '../sim/constants.ts'
 import { passengerEligible } from './passengerEligibility.ts'
+import { decodePassengerBytes } from './passengerAtlas.ts'
 
 /** Approved grey, faceless commuter and baked walk; see assets/PASSENGERS.md. */
 export const PASSENGER_EYE_HEIGHT = 1.57
@@ -39,12 +40,13 @@ export function passengerAppearance(id: number, out: PassengerAppearance = [0, 0
 }
 
 function bytes(value: string): Uint8Array {
-  return Uint8Array.from(atob(value), c => c.charCodeAt(0))
+  return decodePassengerBytes(value, (human as { encoding?: string }).encoding)
 }
 
 const bakedPositions = new Int16Array(bytes(human.positions).buffer)
 const bakedNormals = new Int8Array(bytes(human.normals).buffer)
 const bakedIndices = human.indexBits === 32 ? new Uint32Array(bytes(human.indices).buffer) : new Uint16Array(bytes(human.indices).buffer)
+const bakedRegions = bytes(human.regions)
 
 function expanded(values: Int16Array | Int8Array, frame: number, outfit: number, divisor: number): Float32Array {
   const offset = frame * human.vertices * 3
@@ -108,7 +110,7 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
   const indices = new THREE.DataTexture(indexPixels, 1024, indexRows, THREE.RedFormat, THREE.FloatType)
   indices.needsUpdate = true
   const regionPixels = new Float32Array(1024 * Math.ceil(human.vertices / 1024))
-  regionPixels.set(bytes(human.regions))
+  regionPixels.set(bakedRegions)
   const regions = new THREE.DataTexture(regionPixels, 1024, regionPixels.length / 1024, THREE.RedFormat, THREE.FloatType)
   regions.needsUpdate = true
   const material = passengerMaterial()

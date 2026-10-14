@@ -166,10 +166,10 @@ test('picking a short stair block restores its height and rotation', () => {
   assert.equal(useStore.getState().moduleRot, 2)
 })
 
-function ctxFor(pickedId) {
+function ctxFor(pickedId, moduleVisible = true) {
   const ref = (v = null) => ({ current: v })
   return new PickTool({
-    scene: () => ({ setGhost: () => {}, setCursor: () => {}, setModulePreview: () => {}, setCollisionHighlight: () => {} }),
+    scene: () => ({ setGhost: () => {}, setCursor: () => {}, setModulePreview: () => {}, setCollisionHighlight: () => {}, isModuleVisible: () => moduleVisible }),
     pick: () => null,
     pickModule: () => pickedId,
     facing: () => undefined,
@@ -184,6 +184,22 @@ function ctxFor(pickedId) {
     clearMeasure: () => {},
   })
 }
+
+test('picker does not resolve a hidden module from the hit cell when its mesh was not picked', () => {
+  const before = useStore.getState()
+  try {
+    const mod = createModule('tvm', 1, 1, 0, 'hidden-tvm')
+    useStore.setState({ station: { ...toState(emptyStation()), modules: [mod] }, tool: 'pick', moduleType: 'gate', pickDraft: null, selected: null })
+    ctxFor(null, true).onDown(press([1, 1, 0]))
+    assert.equal(useStore.getState().moduleType, 'tvm', 'the same coordinate fallback can pick a visible TVM')
+    useStore.getState().cancelPick()
+    useStore.setState({ tool: 'pick', moduleType: 'gate', pickDraft: null, selected: null })
+    ctxFor(null, false).onDown(press([1, 1, 0]))
+    assert.equal(useStore.getState().moduleType, 'gate', 'the hidden TVM does not arm the placement palette')
+    assert.equal(useStore.getState().pickDraft, null, 'nothing is recorded as a pick gesture')
+    assert.equal(useStore.getState().selected, null)
+  } finally { useStore.setState(before) }
+})
 
 /** One left press on a cell; `solid` says the ray hit a block face. */
 function press(cell, solid = true, button = 0) {

@@ -16,6 +16,10 @@ import {
   ceilingMountMissing,
   ceilingMountStandCell,
   equipmentReason,
+  hungCeilingAim,
+  hangLineOf,
+  hungDrop,
+  moduleEnvelope,
   wallMountFollowsCourse,
   wallMountMissing,
   wallMountStandCell,
@@ -121,6 +125,50 @@ test('only the wall-mounted 玻璃板 follows the aimed course', () => {
   assert.ok(panel)
   assert.equal(wallMountFollowsCourse(standing), false, 'a floor-standing 玻璃幕墙 is not wall-mounted at all')
   assert.equal(wallMountFollowsCourse(panel), true)
+})
+
+test('a hung ceiling piece can be hung at the height the pointer is on', () => {
+  // `hungCeilingAim`: a floor means "hang in this room" — the piece takes the storey and no line
+  // of its own, so it hangs from the real slab overhead (`ceilingMountHeight` — never the fixed
+  // 4 m grid line, which floated a 基准高度-1 station's lights a metre low and a tall room's in
+  // mid-air). Any **other** surface names a height: the line is that block's own bottom edge and
+  // the piece is anchored under it — in front of the wall for a side face, in the same column
+  // under a slab — so it can be hung wherever the pointer is, mid-air included.
+  assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 6]), { at: [2, 2, 5] }, 'a floor top: the storey, hung from its ceiling')
+  assert.deepEqual(hungCeilingAim([2, 2, 7], [2, 2, 6]), { at: [2, 2, 6], line: 7 }, 'a slab underside: just below the slab')
+  assert.deepEqual(hungCeilingAim([2, 3, 7], [2, 2, 7]), { at: [2, 2, 6], line: 7 }, 'a wall course: one below it, in front of the wall')
+  // The station's own grid answers the work-plane hover (void), the same storey a floor gives.
+  assert.deepEqual(hungCeilingAim([2, 2, 6], [2, 2, 6], 1), { at: [2, 2, 5] }, 'a void hover reads the 基准高度 storey')
+  // `drop` is the metre a stem piece's **body** hangs below that line, so its cell is the one
+  // whose floor top is the body's own height and the whole piece stays inside that column.
+  assert.deepEqual(hungCeilingAim([2, 2, 7], [2, 2, 6], 0, 1), { at: [2, 2, 5], line: 7 }, 'a stem piece: a metre lower still')
+  assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 6], 0, 1), { at: [2, 2, 5] }, 'a floor aim is the storey either way')
+  // Which pieces are on a stem and which ride flush on the surface, palette ids included.
+  assert.equal(hungDrop({ type: 'tv' }), 1)
+  assert.equal(hungDrop({ type: 'sign-ceiling' }), 1)
+  assert.equal(hungDrop({ type: 'clock' }), 1)
+  assert.equal(hungDrop({ type: 'cctv' }), 1, '枪机 on its stem')
+  assert.equal(hungDrop({ type: 'cctv', cfg: { variant: 'dome' } }), 0, 'and a placed 半球机 flush, whatever its id')
+  assert.equal(hungDrop({ type: 'cctv-ptz' }), 1)
+  assert.equal(hungDrop({ type: 'cctv-dome' }), 0, '半球机 bolts to the surface')
+  assert.equal(hungDrop({ type: 'monitor-ceiling' }), 1)
+  assert.equal(hungDrop({ type: 'light-circular' }), 0)
+  assert.equal(hungDrop({ type: 'vent' }), 0)
+
+  // A **line-hung** piece needs no slab overhead: it hangs where it was put, mid-air
+  // included. An ordinary one still wants the ceiling, which is the rule that kept a
+  // fixture out of an empty doorway.
+  const hung = createModule('light-circular', 2, 2, 6, 'l')
+  assert.ok(hung)
+  hung.cfg.line = 7
+  assert.equal(hangLineOf(hung), 7)
+  assert.equal(ceilingMountMissing([], hung), false, 'hung at a height, it hangs on nothing')
+  const ceilingBound = createModule('light-circular', 2, 2, 5, 'l2')
+  assert.ok(ceilingBound)
+  assert.equal(hangLineOf(ceilingBound), undefined)
+  assert.equal(ceilingMountMissing([], ceilingBound), true, 'and one meant for the ceiling still needs a slab')
+  // A line the player aimed at is reserved as its own thin plate, not as the storey's ceiling.
+  assert.equal(moduleEnvelope(hung).z1, 7)
 })
 
 test('a ceiling hover resolves to the floor below, from any face', () => {

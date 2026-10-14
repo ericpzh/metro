@@ -7,7 +7,7 @@ import { mountedSignBoards, signBoardsOf, signBoardsPanel, signMountSpec } from 
 import type { SignBoards, SignLayout, SignPanelSize } from '../../../sim/sign.ts'
 import type { Module } from '../../../sim/types.ts'
 import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF } from '../../../sim/boothSigns.ts'
-import { ceilingMountHeight } from '../../../sim/placement.ts'
+import { hangCeilingLocal } from '../../../sim/placement.ts'
 
 /* ----------------------------------------------------------------- sign */
 
@@ -61,7 +61,10 @@ function buildSign(ctx: ModuleContext, mod: Extract<Module, { type: 'sign' }>): 
   // in the document can neither widen its steel nor shift its plate (`mountedSignBoards`).
   const boards = mountedSignBoards(mod.cfg.mount, signBoardsOf(mod.cfg, ctx.data))
   const panel = signBoardsPanel(boards)
-  if (spec.hung) mountHangingSign(ctx, mod, boards, panel, spec.panelZ, g)
+  // A **hung** board hangs one metre below the surface it was hung from
+  // (`hangCeilingLocal`): the slab over its cell, or the line the player aimed at — never a
+  // panel height of its own. The **wall** board is bolted at `panelZ` as it always was.
+  if (spec.hung) mountHangingSign(ctx, mod, boards, panel, hangCeilingLocal(mod, ctx.data.cells, ctx.data.modules) - 1, g)
   else mountWallSign(ctx, mod, boards, panel, mod.cfg.boothId ? BOOTH_SIGN_PANEL_Z : spec.panelZ, g)
   return g
 }
@@ -84,7 +87,7 @@ function mountHangingSign(
 ): void {
   const W = panel.w
   const H = panel.h
-  const ceiling = ceilingMountHeight(ctx.data.cells, mod, ctx.data.modules) ?? 3
+  const ceiling = hangCeilingLocal(mod, ctx.data.cells, ctx.data.modules)
   const rodX = Math.max(0.22, W / 2 - 0.35)
   for (const x of [-rodX, rodX]) {
     slab(g, ctx.mats.steel, x, 0, (zc + H / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + H / 2) - 0.04)

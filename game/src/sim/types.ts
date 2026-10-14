@@ -89,6 +89,8 @@ export interface Cell {
    * (`zoneOf`, `sim/zones.ts`).
    */
   zone?: Zone
+  /** Optional room-purpose tint. This never changes the cell's fare-zone behavior. */
+  room?: RoomKind
   tags?: string[]
 }
 
@@ -336,12 +338,7 @@ export interface ModuleBase {
   rot?: number
 }
 
-/**
- * Fit-out of a walled facility room (the `shop` module type is the generic
- * walled room): a shop (商店), a toilet (厕所) or an office (办公室). The
- * rectangle-drag builder writes it into `shop.cfg.kind`, and the renderer picks
- * the interior and the sign from it, so all three share one wall/opening model.
- */
+/** Room-purpose label, also retained as the fit-out id on legacy room modules. */
 export type RoomKind = 'store' | 'toilet' | 'office'
 
 /**
@@ -560,8 +557,15 @@ export type Module =
   | (ModuleBase & { type: 'electrical-cabinet'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'tactile'; cfg: { variant: 'guide' | 'warning' } })
   | (ModuleBase & { type: 'floor-mark'; cfg: { variant: 'boarding' | 'waiting' | 'direction'; line?: string; edgeId?: string; offset?: { x: number; y: number } } })
-  | (ModuleBase & { type: 'vent'; cfg: Record<string, never> })
-  | (ModuleBase & { type: 'light'; cfg: { variant: 'circular' | 'rectangular'; position?: number } })
+  /**
+   * A ceiling **grille** (通风口, 装饰) or a ceiling **lamp** (灯具): a flush plate with no
+   * stem, which is what lets the player hang it at a height they aim at instead of at the
+   * storey's ceiling — `cfg.line` is the absolute z it was hung at then
+   * (`flushCeilingAim`), absent for the ordinary "hang in this room" placement, which
+   * follows the real slab overhead.
+   */
+  | (ModuleBase & { type: 'vent'; cfg: { line?: number } })
+  | (ModuleBase & { type: 'light'; cfg: { variant: 'circular' | 'rectangular'; position?: number; line?: number } })
   | (ModuleBase & { type: 'clock'; cfg: Record<string, never> })
   /**
    * A ceiling camera (监控, 装饰): the bracket-and-swivel housing of the reference,

@@ -15,7 +15,7 @@ import { rotateLocal, trackCells, trackFacing } from '../../sim/track.ts'
 import { TRUSS_ROOF_BAY } from '../../sim/structures.ts'
 import type { Module } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
-import { rectCells } from './geometry/cells.ts'
+import { rectCells, stairBlockLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -149,6 +149,7 @@ export class TileEquipmentTool extends ToolController {
     }
     const hit = info.hit
     const target = hit && type === 'roof' ? [hit.roofSnap ? hit.cell[0] : hit.place[0], hit.roofSnap ? hit.cell[1] : hit.place[1], drag.z] as [number, number, number] : hit?.cell ?? drag.anchor
+    if (type === 'stair-block') return stairBlockLineCells(drag.anchor, target, drag.z, rot)
     const all = rectCells(drag.anchor, target, drag.z, false)
     const [stepX, stepY] = bayStep(type, rot, width)
     // One anchor per whole bay, even after R swaps its world-space axes.

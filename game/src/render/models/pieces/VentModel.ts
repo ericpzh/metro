@@ -1,13 +1,21 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ, type VentModule } from '../../../sim/vents.ts'
+import { ceilingMountHeight, hangLineOf } from '../../../sim/placement.ts'
 
 /** A flush ceiling grille with a recessed dark duct and separated metal blades (§5.7). */
 export class VentModel extends PieceBuilder {
   readonly kind = 'vent'
   build(mod: VentModule): THREE.Group {
     const g = new THREE.Group()
-    const ceiling = ventCeilingZ(mod) - mod.z - 1
+    // The line the grille hangs from: the height the player aimed at when they hung it
+    // there by hand, else the **real** slab overhead (`ceilingMountHeight`) — the 4 m grid
+    // line floated a 基准高度-1 station's vents a metre below their ceiling.
+    const line = hangLineOf(mod)
+    const ceiling = line !== undefined
+      ? line - mod.z - 1
+      // With no slab to read (a ghost in an empty station) the nominal storey line stands in.
+      : ceilingMountHeight(this.ctx.data.cells, mod, this.ctx.data.modules) ?? ventCeilingZ(mod) - mod.z - 1
     const border = 0.045
     const opening = VENT_WIDTH - border * 2
     const edge = (VENT_WIDTH - border) / 2

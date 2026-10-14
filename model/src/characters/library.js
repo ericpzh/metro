@@ -1,22 +1,25 @@
+import {HAIR_CHOICES,supportsBackpack} from './hairstyles.js';
+
+const backpackHairs=character=>HAIR_CHOICES[character].filter(hair=>supportsBackpack(character,hair));
 /** Approved downloadable variants; each entry has equal weight in the game. */
 export const MODEL_LIBRARY = [
-  ...['original', 'short', 'bald'].flatMap(hair => [true, false].map(bag => ({
+  ...HAIR_CHOICES.male.flatMap(hair => [true, false].map(bag => ({
     id: `male-${hair}-${bag ? 'bag' : 'no-bag'}`, character: 'male', hair, bag,
     file: hair === 'original' && bag ? 'passenger-male-walk.glb' : `passenger-male-${bag ? 'bag' : 'no-bag'}-${hair}-walk.glb`,
   }))),
-  ...['bob', 'shoulder'].flatMap(hair => [true, false].map(bag => ({
+  ...backpackHairs('female').flatMap(hair => [true, false].map(bag => ({
     id: `female-${hair}-${bag ? 'bag' : 'no-bag'}`, character: 'female', hair, bag,
-    file: bag ? (hair === 'bob' ? 'passenger-female-walk.glb' : 'passenger-female-shoulder-walk.glb') : `passenger-female-no-bag-${hair}-walk.glb`,
+    file: bag ? (hair === 'bob' ? 'passenger-female-walk.glb' : `passenger-female-${hair}-walk.glb`) : `passenger-female-no-bag-${hair}-walk.glb`,
   }))),
-  {id: 'female-long-no-bag', character: 'female', hair: 'long', bag: false, file: 'passenger-female-no-bag-long-walk.glb'},
-  ...[['male',['original','short','bald']],['female',['bob','shoulder']]].flatMap(([character,hairs])=>hairs.map(hair=>({
+  ...HAIR_CHOICES.female.filter(hair=>!supportsBackpack('female',hair)).map(hair=>({id:`female-${hair}-no-bag`,character:'female',hair,bag:false,file:`passenger-female-no-bag-${hair}-walk.glb`})),
+  ...['male','female'].flatMap(character=>backpackHairs(character).map(hair=>({
     id:`${character}-${hair}-small-bag`,character,hair,bag:true,bagStyle:'small',file:`passenger-${character}-small-bag-${hair}-walk.glb`,
   }))),
-  ...[.875,.75].flatMap(bagScale=>[['male',['original','short','bald']],['female',['bob','shoulder']]].flatMap(([character,hairs])=>hairs.map(hair=>({
+  ...[.875,.75].flatMap(bagScale=>['male','female'].flatMap(character=>backpackHairs(character).map(hair=>({
     id:`${character}-${hair}-standard-${bagScale*100}-bag`,character,hair,bag:true,bagStyle:`standard-${bagScale*100}`,bagScale,
     file:`passenger-${character}-standard-${bagScale*100}-bag-${hair}-walk.glb`,
   })))),
-  ...['shoulder','crossbody','purse'].flatMap(type=>['left','right'].flatMap(side=>[['male',['original','short','bald']],['female',['bob','shoulder','long']]].flatMap(([character,hairs])=>type==='purse'&&character==='male'?[]:hairs.map(hair=>({
+  ...['shoulder','crossbody','purse'].flatMap(type=>['left','right'].flatMap(side=>['male','female'].flatMap(character=>type==='purse'&&character==='male'?[]:HAIR_CHOICES[character].map(hair=>({
     id:`${character}-${hair}-${type}-${side}-bag`,character,hair,bag:true,bagStyle:`${type}-${side}`,bagType:type,bagSide:side,
     ...(type==='crossbody'&&character==='female'?{childOnly:true}:{}),file:`passenger-${character}-${type}-${side}-${hair}-walk.glb`,
   }))))),

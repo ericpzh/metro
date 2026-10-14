@@ -11,7 +11,10 @@ exclusions and legacy/explicit passenger age metadata compatibility.
 `batching-lifecycle.test.mjs` adds mapped-equipment UV/material integration,
 cache/disable/re-enable and disposal ownership, separate clipping/culling policies,
 hidden/deforming mesh exclusions, nested landing/cabin rigs, and real module/level
-hide/ghost/cut transitions. `draw-batching` also checks all stock classes and track
+hide/ghost/cut transitions, including hidden-descendant ray rejection and agreement
+between level visibility and module picks. `delete-tool`, `move`, `pick-tool` and
+`select-agent` cover tools ignoring missing/hidden module targets. `draw-batching`
+also checks all stock classes and track
 rotations, exact triangle preservation, paused/hidden buffers and train eviction.
 Run root `npm run test:perf` for measured source coverage, `npm run check:render-batching`
 for production GLSL/WebGL checks, and `npm run check:perf-tools` for CPU/trace export.
@@ -19,13 +22,21 @@ for production GLSL/WebGL checks, and `npm run check:perf-tools` for CPU/trace e
 `performance-policy.test.mjs` pins indexed placement/refusals, preview invalidation,
 cosmetic worker edit classification, model dependencies and disposal, frame-coalesced
 pointer release, crowd uploads/culling/following and train shell bounds/door motion.
+A stair-block-only module addition builds the new stepped tile while retaining existing
+equipment groups; ordinary module edits still take the conservative dependency path.
 A boards-only sign change rebuilds one sign's model and repaints its plates in place,
 skipping the chunk remesh and the station-wide repaints. See `PERFORMANCE.md` for
 benchmarks, CPU profiles, Chrome traces and GPU diagnostics.
 
-`passenger-library` also pins the 75% and 87.5% standard backpacks: all ten
-new variants stay visible and shallower than full size through every walk,
+`passenger-library` also pins the 75% and 87.5% standard backpacks: all thirty-six
+resized variants stay visible and shallower than full size through every walk,
 with equal adult selection and unchanged child restrictions.
+
+The library offers ten hairstyles per sex across 192 complete templates. Atlas
+buffers use lossless zlib/base64 packing; `passenger-library` compares the browser
+decoder with Node's inflater and keeps legacy raw-base64 buffers readable.
+It also measures actual baked standing poses for all seven added male styles
+with every bag: crowns stay below 1.70 m and at least 2 cm below the original.
 
 Straight stairs fill exactly 1, 2 or 3 blocks, including their two outer railings.
 Existing saved catalogue sizes use the same fitted tread width and block offset
@@ -63,6 +74,10 @@ npm run dev        # http://localhost:5173
 npm run build      # tsc --noEmit && vite build -> dist/
 npm run test       # node --test: determinism, tick budgets, capacity ladder
 ```
+
+The production build splits the complete passenger atlas into 8 MiB data chunks
+and rejects emitted files at or above Cloudflare Workers' 25 MiB asset limit.
+`test/passenger-assets.test.mjs` verifies exact reassembly and the size guard.
 
 ## Where things live
 
@@ -842,11 +857,12 @@ was the cell's *inner* corner rather than the wall's — one thickness past the 
 for furniture — so every corner also wore a 0.5 m diagonal wedge laid across that half. Nothing is
 left for it to fill, so it is gone; `room-model.test.mjs` pins the corner as a right angle.) A
 room wears **no name plate**: the 招牌 that used to hang over a doorway only ever repeated 商店 /
-厕所 / 办公室 (or 售票 over a booth) above the shelves and cubicles that already say so. The 房间
-folder's tiles wear a line icon of what the room is *for* — 商店, 售票亭, 办公室 and the 指示牌's own
-厕所 mark — rather than a colour field, which is the only way a 1 cm tile can tell "tickets" from
-"washroom". The 分区 folder uses distinct icons for its five named areas, while 无分区 keeps its
-eraser icon (`Icon`'s `zoneErase`), since there is no zone to draw.
+厕所 / 办公室 (or 售票 over a booth) above the shelves and cubicles that already say so. The current
+分区 paints 商店 / 厕所 / 办公室 as ordinary color-coded floor labels (`Cell.room`), using their
+existing room-type tile icons. They create no room module, wall, door or furniture, and preserve
+the fare zone underneath for gate logic. 售票亭 and 问讯处 remain buildable counters in 房间.
+The labels use the same floor paint and overlay path as 站外 / 付费区; 无分区 keeps its eraser
+icon (`Icon`'s `zoneErase`).
 
 **The booth's counter is laid like a picture frame, not as two runs of whole cells.** `buildBooth`
 draws a run that closes a corner across its own 1 m cell and stops the run meeting it one
@@ -864,6 +880,12 @@ leaks in through a "plate
 hanging in space" rule any more. With it on, the active storey stays crisp and every other storey is
 drawn as a 35% ghost that keeps its real depth, so a storey the active one covers is simply behind it
 and the depth test drops it: the ghost shows exactly where it does not block the depth being edited.
+The pointer tools use that same slice: select, delete, move and 吸取 cannot target a module whose
+storey is hidden, including when a rail or fixture is found by its footprint instead of its drawn mesh.
+`CameraSystem` filters ray hits through every visible ancestor because Three's raycaster still tests
+objects marked invisible; coordinate-based select/picker/delete fallbacks ask the module system's
+current visibility before resolving a document module. `batching-lifecycle`, `delete-tool`, `move`,
+`pick-tool` and `select-agent` pin those paths.
 **隐藏天花板** (`H`, on by default) is the one piece of a storey *above* the active one that always
 draws, and only when nothing stands under it, so a room never wears its own ceiling and a top view
 looks into the room rather than onto its roof. The crowd follows the same `crowdVisible` rule — never
@@ -1557,7 +1579,16 @@ stood, so the barrier the crowd meets is the same and only the look changes. The
 is a sub-menu of all six (有盖 单向/双向/三向, 无盖 单向/双向/三向).
 See `test/exits.test.mjs`.
 
-**A ramp dropped inside an exit snaps into one of its run columns.** When an escalator or straight
+**A ramp and an exit snap to each other.** Selecting an existing straight stair or escalator while
+placing a head-house aligns a bay with its upper landing and turns the exit to face
+down the run; the preview and click use the same result, including when a ray falls between stair
+treads and hits the floor. A ramp-only bounds pick still respects hidden modules and nearer walls.
+`snapExitToRamp` owns that calculation and `equipment-placement-input.test.mjs` pins the picked-module
+path. Wide stair endpoints identify their first lane; the wellway applies `stairFlightSlides` to follow
+the rendered band centre, including the half-metre offset of a 2 m stair. Exit snapping accounts for
+the occupied lane span and converts clockwise ramp rotations to counterclockwise exit rotations.
+The floor wellway follows the landing's column and row, even when a saved exit anchor is one row
+away from its stair (`exitRunOpenings`, `ExitModel`, `exits.test.mjs`). A ramp dropped inside an exit also snaps into one of its run columns. When an escalator or straight
 stair is placed over a
 head-house, the pointer controls the run's position on the *street* floor: `exitRunSnap` puts its upper
 landing in the column under the pointer — clamped to the bay group (0 … bays − 1), so the runs stay
@@ -1834,6 +1865,7 @@ segment up to an existing end regenerates that end on the spot, dropping its old
 A run plugs straight into a 闸机 row, and it also joins a stair or escalator: `railLandingAt` makes a
 fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short
 (a wide escalator's second landing column counts too, via `escalatorLandings`).
+A 楼梯块 is a stepped floor tile without a handrail, so it is not a fence neighbour.
 That connection needs no collision exemption: a run reserves just its own tile, so the cell beside it
 is free ground and the fence's own thin box never meets the run's. The **landing tile itself** is free
 ground on a stair too — its treads stop half a landing cell short of each landing (`stairTreadTrim`) —
@@ -2136,7 +2168,8 @@ approximated); neither needs WebGL.
   the name and the seed: a v1 file written before any of it loads on the defaults (absent and
   defaulted are one code path, and the cell schema `formatVersion` freezes has not moved), and a
   hand-edited file with an inverted window, a one-ended peak pair, a knob past its slider or a
-  calendar whose epoch is 02-31 still opens, repaired field by field.
+  calendar whose epoch is 02-31 still opens, repaired field by field; a re-added default street
+  block stays absent from the save, while a custom finish or zone remains authored data.
 * `ground.test.mjs` — the city's own floor (§4.1), which the document stores **inverted**: at
   `z = 0` a `{ fill: 'void' }` record is a hole the player dug and *absence is ground*, so an empty
   document already stands on built ground and no save ever carries the horizon. It pins both halves.
@@ -2150,8 +2183,9 @@ approximated); neither needs WebGL.
   again); `groundHoleAt` / `virtualSolidAt` / `solidAt` are the three answers a coordinate can have,
   and an opening the *game* cut — a ramp's carved corridor, an exit's floor — is a hole with no
   record of its own, so the demo's surface openings stay out of its JSON. And the edits: `removeCells`
-  records the hole at grade and nowhere else, `addCells` / `addFloor` **fill it back** by replacing
-  that record instead of shadowing it (they count *blocks*, not records — counting records skipped
+  records the hole at grade and nowhere else, `addCells` clears that hole back to implicit ground
+  without saving a redundant block, while `addFloor` replaces it with its tagged floor record (they
+  count *blocks*, not records — counting records skipped
   the very cell `checkBlockCells` had offered the drag, so the ghost promised a block the release
   dropped), the 材质 brush materialises the pavement it paints and refuses a hole (a hole is not a
   surface) and a cell the one placement rule set refuses, a zone rectangle materialises the ground it
@@ -2191,15 +2225,19 @@ approximated); neither needs WebGL.
   (`none`, on every storey — in `zoneAt`, the map's labels, the graph's `nodeZone` and `zoneIndexOf`),
   with the model refusing to *write* that reading while 非付费区 is a real label, `none`↔`unpaid` and
   `none`↔`outside` still one fare side so an unpainted station invents no fare line, and a coordinate
-  with no record at all reading 站外 at the ground plane (the street) and 无分区 anywhere else; and
+  with no record at all reading 站外 at the ground plane (the street) and 无分区 anywhere else.
+  Room-purpose colors split overlay regions while preserving the underlying fare-zone value and
+  without module-name labels; and
   `eraseZoneCells` — the 无分区 brush — takes a label off and leaves the cell reading 无分区, the
   materialised street going with its label and a cell with a finish of its own keeping its record, and
   does nothing where there is no label.
-* `zonetool.test.mjs` — the same floor rule through the **click** (`app/tools/ZoneTool.ts`,
+* `zonetool.test.mjs` — 商店 / 厕所 / 办公室 paint ordinary room-color labels without adding
+  room modules, walls or floor cells, keep the room-type tile icons and preserve fare zones; the
+  same floor rule through the **click** (`app/tools/ZoneTool.ts`,
   `ToolContext.floors`): a tapped floor tile paints; a tapped coping paints nothing, opens no drag and
   says `分区只能画在地板上`; a hover on one draws no tint at all; and a drag across a patch tints the
   floor it crosses while the tile under the wall course and the course itself stay untouched. Then the
-  无分区 brush, which is the same zone id armed instead of a colour: it drags like the brush it erases,
+  无分区 brush: it drags like the brush it erases,
   takes a label off a zoned tile (which reads 无分区 again, with no record left behind), and says
   `这些格子上没有分区` — committing nothing — when the patch carries no label at all.
 * `ramp-passengers.test.mjs` — narrow/wide passenger columns and same-tick boarding; swept body
@@ -2429,7 +2467,9 @@ approximated); neither needs WebGL.
   (the stringer and the soffit are trimmed by `thickness · tan θ` so their square-cut lower corners end
   on the treads' edge, in the cell the cut shaves — an overhang buried the foot of the flight 0.36 m
   deep in a block `rampSlopeCuts` never touches, and the floor's own surface cut it off there).
-* `exits.test.mjs` — the 出入口 (§5.6): the plan is the runs' group with one full block of floor at
+* `exits.test.mjs` — the 出入口 (§5.6): selecting a straight stair or escalator aligns a head-house bay
+  with its upper landing in all rotations and escalator travel directions; turning stairs and 虚拟 exits
+  do not snap. The plan is the runs' group with one full block of floor at
   each end, so a 单向 / 双向 / 三向 / 四向 is 3 / 4 / 5 / 6 blocks across and the runs stand side by side in
   columns 0 … bays − 1; the floor, street-opening node and glass/back walls all follow the placement
   rotation; the house's plan is `cfg.bays` alone — one full block of pad each end and no other
@@ -2497,15 +2537,10 @@ approximated); neither needs WebGL.
   3.1 m to 1.5 m; the reference
   station builds its bed from the same dig and its hand-authored edge
   matches what the derive would place.
-* `facility.test.mjs` — the rectangle-drag facilities: 商店 / 厕所 / 办公室 place a footprint
-  module only (one `shop` module type, the fit-out in `cfg.kind`, `door` and `stocked`) — no
-  walls are built (the player walls the footprint with the block tool) — while 售票亭 and 问讯处
-  are open-desk booths (`cfg.kind` ticket / info) that keep their staff benches; same-fit-out drags
-  extend a room, all four front rotations keep benches opposite the desktop side, different ones
-  clash (including ticket vs info); right-click carves the
-  player-built wall openings (the renderer then hangs a
-  3D door on a 厕所 / 办公室 opening and leaves the 商店 front open) and a room with no wall left is
-  removed; picking an info booth arms the info zone brush; the demo's shop and booth stay connected with live sim stops.
+* `facility.test.mjs` — legacy footprint-module helpers, room-module compatibility and booth
+  geometry; these module cases do not describe the current 商店 / 厕所 / 办公室 分区 brushes.
+  The current ordinary-label paint path is pinned in `zonetool.test.mjs` and `zones.test.mjs`.
+  售票亭 / 问讯处 remain buildable counters with staff benches.
 * `column-delete.test.mjs` — G right-click clears the four courses above the floor (+1..+4),
   including the ceiling, mixed wall/plain blocks and gaps. It checks negative heights,
   all height bases, drag deduplication, neighbouring storeys and preserved street floors,
@@ -2528,7 +2563,8 @@ approximated); neither needs WebGL.
   at a gate, and `fenceArms` builds every joint from the neighbours — a lone panel caps both ends,
   a run end caps its free side, and an L / T / + turns through the centre with no overhang or cap;
   `railLandingAt` lets a fence connect to a stair or escalator landing, both landing columns of
-  a wide escalator included.
+  a wide escalator included, while a 楼梯块 has no handrail connection. The equipment preview
+  refresh also stays silent after 方块 takes over shared placement settings.
 * `storey.test.mjs` — the renderer's storey bands key every cell to the fixed 4 m grid line at or
   below it (`storeyBand`), so a floor and its 4 m auto walls share a storey while a second floor one
   storey down stays its own; a lower floor's wall reaching the floor above must not merge the two
@@ -2846,7 +2882,7 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   (Tab takes the stair's width, Shift+Tab its length) — and `isStraightStairType` answers for the
   palette ids the rail arms exactly as for the module type each builds, so a turning stair and a
   楼梯块 grow no length tile.
-* `tool-hover-preview.test.mjs` — 移动, 吸取 and 选择 tint the equipment under the pointer blue; 删除 uses the red bulldozer preview.
+* `tool-hover-preview.test.mjs` — 移动, 吸取 and 选择 tint the equipment under the pointer blue; 删除 uses the red bulldozer preview; shared placement-setting refresh cannot restore an equipment ghost after 方块 takes over.
 * `pick-tool.test.mjs` — the 工具 folder's **吸取** (`app/tools/PickTool.ts`, `P`): clicking a placed
   piece arms the placement with its exact palette variant — a 2 m backed 座椅, a 六 format 广告牌, a
   right-双跑 楼梯, a 木 双开 门, or either 桁架屋顶 style at its placed width — and copies its turn, 扶梯
@@ -2917,9 +2953,10 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   very same `actionRowOpen` call a 座椅's does, and a cut left armed in the store folds **no** row out of
   any other tool's grid — so the 旋转 a 半墙 shows is the equipment mechanism, not a second one beside it.
   `生成墙壁` is the one tile that comes and goes with the cut modes, and the folder count follows it.
-  The 分区 folder's own count is the same kind of arithmetic (`zoneFolderTiles`): the length of
-  `ZONE_LIST` **plus the three walled-room brushes** (商店 / 厕所 / 办公室 — 售票亭 / 问讯处 stay in
-  房间), **无分区 included** — that tile is the folder's eraser, armed as the zone id `none`
+  The 分区 folder's own count is the same kind of arithmetic (`zoneFolderTiles`): `ZONE_PAINT_LIST`
+  carries fare zones and three color-coded room-purpose labels (商店 / 厕所 / 办公室) with their
+  existing type icons, **无分区 included** —
+  that tile is the folder's eraser, armed as the zone id `none`
   (`isEraseBrush`) and reported by `armedRailTile` like any other tile, which is what keeps the grid the
   folder draws, the header's count and the brush the drag runs one list.
 * `halfwall.test.mjs` — the **半墙** (§4.1/§4.3), the 方块 tool's half-block mode
@@ -3332,7 +3369,7 @@ Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions
 
 Roof placement centres the roof footprint on the mouse, snapping to the block grid for plain roofs and both truss styles. The pointer ray targets the roof's top height rather than the floor below, so elevated previews stay under the cursor in perspective and orthographic views. Click and drag release use the same centred anchor; rotation and width changes keep the centre in place. `roof-tool.test.mjs` checks centring, preview/release agreement and roof-height ray projection. Removal continues to target the existing roof footprint.
 
-Small stair blocks: 楼梯块 under 楼梯 has a 1×1 m footprint and no railings. Tab switches 高 (1 m, four treads) / 矮 (0.5 m, two treads), with a live placement preview; the palette preview is turned 90° counter-clockwise. Click or rectangular drag places independent tiles on floor, R rotates them, and 材质 paints the whole stepped surface. The high block connects adjacent lower/upper floors without carving blocks; the short building piece does not create a full-metre walking connection on the whole-metre floor grid. `overground.test.mjs` pins dimensions, painting, collisions, floor preservation, save/load and both walking directions; `roof-tool.test.mjs` pins drag, rotation, undo and removal.
+Small stair blocks: 楼梯块 under 楼梯 has a 1×1 m footprint and no railings. Tab switches 高 (1 m, four treads) / 矮 (0.5 m, two treads), with a live placement preview; the palette preview is turned 90° counter-clockwise. Click places one tile; a drag lays a straight row across the stair's rotated width, ignoring pointer movement along the treads. R rotates the steps, and 材质 paints the whole stepped surface. The high block connects adjacent lower/upper floors without carving blocks; the short building piece does not create a full-metre walking connection on the whole-metre floor grid. `overground.test.mjs` pins dimensions, painting, collisions, floor preservation, save/load and both walking directions; `roof-tool.test.mjs` pins the rotated drag axis, preview/release agreement, undo and removal.
 
 Bridges use a solid one-metre concrete deck beneath the track bed, with no coplanar edge girders. They generate one thick centre pier per complete eight-metre bay (four-metre bridges have no generated pier), standing on the highest available floor below the deck; existing supporting pillars are reused and bridge-owned piers are removed with their bridge. Older saves gain missing supports on load. B can remove each generated pier independently; the bridge records that deletion so edits and reloads do not regenerate it, while undo restores it. New bridges must keep their entire deck at or above the street surface. 材质 paints the concrete deck independently of the rails, sleepers, power equipment and edge barriers. The 轨道桥 panel uses one tile to cycle 栏杆 → 半高声屏障 → 全高声屏障 for new and selected bridges; sound barriers rise 1.5 / 3 m above the bed, with opaque lower panels and a clear upper band. `overground.test.mjs` checks deck geometry, support spacing and ownership, collision refusal, independent deck paint, barrier bounds and save/load; `pick-tool.test.mjs` checks copying and cancelling the bridge settings.
 
@@ -3400,7 +3437,7 @@ In English mode, station fields are labelled Primary name / Secondary name and s
 
 `sim-pause.test.mjs` pins the rest of the pause: an escalator's step band holds its phase while paused and rolls on from it on resume, a 闸机 leaf never starts its cycle (the crossing stays queued), paused train and screen doors hold mid-travel while the consist itself still glides to its latest snapshot, and the orchestrator forwards pause to the crowd, the lifts and the trains.
 
-Passengers use 56 reviewed grey, faceless model-library templates: male original/short/bald with and without a bag; female bob/shoulder with and without a bag; female long hair without a bag; five smaller tapered backpacks for male original/short/bald and female bob/shoulder hair. Adults choose equally from 50 templates and children from 19 templates with hair. Left/right shoulder bags are adult-only, adult crossbody bags male-only, and purses adult female-only. Children may carry small backpacks or crossbody bags; girls’ crossbody templates are child-only. A stable identity hash assigns 20% children and 80% adults without consuming the journey RNG. Each passenger varies independently from 80–120% in height; adults vary 90–110% in width and depth, while children vary 80–90% on both axes. Children start at 65% height and 70% width/depth before that variation. Ink tone and slow/medium/fast gait remain independent of the age-appropriate model choice. Arms swing and feet step according to distance travelled; waiting passengers settle into a standing pose. All models share one instanced draw, including the closed coats and fitted backpack straps from the reviewed exports. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
+Passengers use 192 reviewed grey, faceless model-library templates, with ten hairstyles per sex. The variations change crown volume, fringe, sweep and length. Eighteen backpack-compatible hairstyles support all four pack sizes; both long female styles support bagless and side-bag templates. Adults choose equally from 172 templates and children from 74 templates with hair. Left/right shoulder bags are adult-only, adult crossbody bags male-only, and purses adult female-only. Children may carry small backpacks or crossbody bags; girls’ crossbody templates are child-only. A stable identity hash assigns 20% children and 80% adults without consuming the journey RNG. Each passenger varies independently from 80–120% in height; adults vary 90–110% in width and depth, while children vary 80–90% on both axes. Children start at 65% height and 70% width/depth before that variation. Ink tone and slow/medium/fast gait remain independent of the age-appropriate model choice. Arms swing and feet step according to distance travelled; waiting passengers settle into a standing pose. All models share one instanced draw, including the closed coats and fitted backpack straps from the reviewed exports. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
 
 The build palette, inspector and view cube each have an independent hide/show button with a short animation; their settings stay mounted while hidden. Reduced-motion preferences disable these transitions. Two-finger pinch on the viewport zooms both perspective and orthographic views. Single-finger taps select or place on release, so the first contact of a pinch cannot edit the station.
 
@@ -3428,7 +3465,7 @@ without changing the capacity-limited stair, escalator, lift or gate rules.
 左 / 中 / 右直跑楼梯 continue forward across a middle landing, with the upper run shifted across the landing for the left and right variants. `stairs.test.mjs` checks flight plans and passenger routes in both directions across all sizes and rotations; `module-build.test.mjs` checks their rendered treads, railing glass and landing.
 
 
-Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 56 variants, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
+Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 192 variants with ten hairstyles per sex, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
 
 Walking now varies by stable slow/medium/fast profiles (§7.1's uniform 1.34 m/s
 is intentionally replaced). Nominal speeds are 0.9/1.15/1.4 m/s, scaled by body
@@ -3440,9 +3477,9 @@ against world movement, all three pose ranges, compaction, pause and resume.
 `passenger-art-pipeline.test.mjs` pins growing model catalogues, bounded capture batches, complete standing/stride coverage and rejection of stale builds or duplicate frames. `npm run art:models` refreshes the approved exports and game atlas, builds the game, captures all models, regenerates sheets 01/02/07/12/13 in both languages, checks gait playback, renders previews and builds/syncs the site.
 ## Small passenger backpacks
 
-The adult passenger library includes 50 equally weighted variants. Five use a
-smaller tapered backpack, available on male original/short/bald and female
-bob/shoulder hair. `passenger-library` checks the smaller pack remains visible
+The adult passenger library includes 172 equally weighted variants. Eighteen use a
+smaller tapered backpack, available on every male hairstyle and eight shorter
+female hairstyles. `passenger-library` checks the smaller pack remains visible
 and shallower than the standard pack in standing and walking frames.
 
 `passenger-size.test.mjs` pins the 20% child / 80% adult population, separate height/depth/width ranges, child model restrictions, stable identity and body/shadow instance scales through reordering. Children reuse bagless, small-backpack and crossbody templates with hair; standard backpacks, shoulder bags, purses and bald child models are excluded. Fore/aft depth scales speed and stride together; vertical scale sets eye height and picking.
@@ -3456,7 +3493,7 @@ All game passenger variants render at 70% opacity through their shared material.
 `passenger-view` pins alpha blending and depth-write settings; the production GPU
 check verifies the live material and the slimmer 80–90% child width/depth ranges.
 
-The art capture includes all 50 adult templates and the 19 eligible child
+The art capture includes all 172 adult templates and the 74 eligible child
 templates in every camera and complete stride. Physical captured stride includes
 depth scaling; static and moving sheet figures choose age with the game identity
 hash. `passenger-art-pipeline` rejects missing child frames and ineligible child

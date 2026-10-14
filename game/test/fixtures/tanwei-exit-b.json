@@ -1,0 +1,15 @@
+{
+  "exit": {
+    "id": "exit-uncovered-2-1167", "type": "exit", "x": -1, "y": 46, "z": 0, "rot": 0,
+    "cfg": { "name": "B", "inRate": 900, "open": true, "covered": false, "bays": 2 }
+  },
+  "stair": {
+    "id": "stair-straight-1168", "type": "stair", "x": -1, "y": 40, "z": -4, "rot": 0,
+    "from": { "x": -1, "y": 40, "z": -4 },
+    "to": { "x": -1, "y": 46, "z": 0 },
+    "cfg": {
+      "width": 1.36, "style": "straight",
+      "flights": [{ "from": { "x": -1, "y": 40, "z": -4 }, "to": { "x": -1, "y": 46, "z": 0 } }]
+    }
+  }
+}

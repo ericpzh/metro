@@ -1,6 +1,7 @@
 import {readFileSync} from 'node:fs';
 import {writeAsset} from '../model/scripts/write-asset.mjs';
 import {createHash} from 'node:crypto';
+import {deflateSync} from 'node:zlib';
 import * as THREE from '../game/node_modules/three/build/three.module.js';
 import {GLTFLoader} from '../game/node_modules/three/examples/jsm/loaders/GLTFLoader.js';
 import {MeshoptSimplifier} from '../game/node_modules/meshoptimizer/meshopt_simplifier.js';
@@ -122,10 +123,12 @@ for(const [outfit,model] of models.entries()){
  const start=outfit*corners;indices.fill(model.lookup[0],start,start+corners);
  indices.set(model.indices.map(i=>model.lookup[i]),start);
 }
-const encode=a=>Buffer.from(a.buffer).toString('base64');
+// Lossless packing keeps the complete growing catalogue practical to track and
+// bundle. The renderer inflates once before constructing its existing GPU data.
+const encode=a=>deflateSync(Buffer.from(a.buffer,a.byteOffset,a.byteLength),{level:9}).toString('base64');
 const walkProfiles=WALK_PROFILES.map((p,i)=>({...p,stride:p.speed*p.cycleSeconds,firstFrame:i*walkFrames+1}));
 const library=models.map(({id,character,hair,bag,bagStyle,bagScale,bagType,bagSide,adultEligible,childEligible,file,vertices,corners,sourceSha256})=>({id,character,hair,bag,adultEligible,childEligible,...(bagStyle?{bagStyle}:{}),...(bagScale?{bagScale}:{}),...(bagType?{bagType,bagSide}:{}),file,vertices,triangles:corners/3,sourceSha256}));
-const baked={source:'Approved model library, local TRELLIS reconstruction and authored variants; foot-targeted slow/medium/fast walks',style:'grey-faceless',variants:models.map(m=>m.id),hairstyles:models.map(m=>m.hair),library,palette,vertices,corners,triangles:corners/3,indexBits:IndexArray.BYTES_PER_ELEMENT*8,frames,walkFrames,walkProfiles,height:1.72,stride:walkProfiles[0].stride,positionScale:4096,normalScale:127,regions:encode(regions),indices:encode(indices),positions:encode(poses),normals:encode(normals)};
+const baked={source:'Approved model library, local TRELLIS reconstruction and authored variants; foot-targeted slow/medium/fast walks',style:'grey-faceless',encoding:'zlib-base64',variants:models.map(m=>m.id),hairstyles:models.map(m=>m.hair),library,palette,vertices,corners,triangles:corners/3,indexBits:IndexArray.BYTES_PER_ELEMENT*8,frames,walkFrames,walkProfiles,height:1.72,stride:walkProfiles[0].stride,positionScale:4096,normalScale:127,regions:encode(regions),indices:encode(indices),positions:encode(poses),normals:encode(normals)};
 const out=new URL('../game/src/assets/passenger-approved.json',import.meta.url);await writeAsset(out,JSON.stringify(baked)+'\n');
 const atlasWidth=2**Math.ceil(Math.log2(Math.max(1024,Math.ceil(vertices*frames/8192))));
 console.log({variants:models.length,vertices,triangles:corners/3,atlasWidth,atlasRows:Math.ceil(vertices*frames/atlasWidth),bytes:readFileSync(out).length});

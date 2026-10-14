@@ -5,6 +5,7 @@ import {withPage,waitFor} from './browser-harness.mjs';
 import {GLTFLoader} from '../model/node_modules/three/examples/jsm/loaders/GLTFLoader.js';
 import {smoothShoulders} from '../model/src/characters/shoulders.js';
 import {trimCoatUnderStraps} from '../model/src/characters/strap-surface.js';
+import {HAIR_CHOICES} from '../model/src/characters/hairstyles.js';
 
 const url=process.argv.find(arg=>arg.startsWith('--url='))?.slice(6)??'http://127.0.0.1:5175/';
 const out=resolve('.preview/models');mkdirSync(out,{recursive:true});
@@ -45,7 +46,7 @@ try{
  await select('bag','1');assert.equal(await page.evaluate('window.__modelPreview.state.hair'),'shoulder','bag replaces long hair');
  await select('character','male');
  await select('bag','1');
- assert.deepEqual(await page.evaluate('[...document.querySelector("#hair").options].map(o=>o.value)'),['original','short','bald']);
+ assert.deepEqual(await page.evaluate('[...document.querySelector("#hair").options].map(o=>o.value)'),HAIR_CHOICES.male);
  const male=await new GLTFLoader().parseAsync(await(await fetch(new URL('models/passenger-male-walk.glb',url))).arrayBuffer(),'');
  const originalBytes=readFileSync(resolve('prototypes/trellis-passenger/passenger-b-walk-forward.glb'));
  const original=await new GLTFLoader().parseAsync(originalBytes.buffer.slice(originalBytes.byteOffset,originalBytes.byteOffset+originalBytes.byteLength),'');

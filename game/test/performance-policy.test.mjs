@@ -151,6 +151,15 @@ test('module dependencies invalidate affected walls, ramps and overhead supports
   assert.equal(retainedModuleIds(before, add({ x: 22, y: 1, z: 2 })).has('stair'), false, 'a neighbouring course can change a balustrade/join')
   assert.equal(retainedModuleIds(before, add({ x: 100, y: 0, z: 0 })).size, modules.length)
   assert.equal(retainedModuleIds(before, { ...before, modules: modules.slice(1) }).size, 0, 'module and neighbour changes fail closed')
+  const stairBlock = createModule('stair-block', 40, 0, 0, 'block')
+  assert.ok(stairBlock?.type === 'stair' && stairBlock.cfg.block)
+  assert.deepEqual(
+    [...retainedModuleIds(before, { ...before, modules: [...modules, stairBlock] })],
+    modules.map((mod) => mod.id),
+    'adding only stair blocks keeps existing module models; the new tile builds on its own',
+  )
+  assert.equal(retainedModuleIds(before, { ...before, modules: [...modules, createModule('bench', 40, 0, 0, 'new-bench')] }).size, 0,
+    'other module additions still invalidate conservatively')
 })
 
 test('a boards-only sign change names its sign, and anything else fails closed', () => {
@@ -346,5 +355,31 @@ test('retained equipment keeps geometry and owned materials until invalidation o
     modules.clearModules()
     assert.equal(disposed, 1, 'teardown releases retained owned material once')
     assert.equal(ctx.ownedMats.length, 0)
+  } finally { modules?.clearModules(); if (mats) disposeModelMaterials(mats); blob.dispose(); globalThis.document = previousDocument }
+})
+
+test('adding stair blocks builds their models and keeps existing ModuleSystem groups', () => {
+  const previousDocument = globalThis.document
+  globalThis.document = { createElement: () => canvasNode() }
+  let mats, modules
+  const blob = new THREE.MeshBasicMaterial()
+  try {
+    mats = createModelMaterials()
+    const ctx = { scene: new THREE.Scene(), mats: { blob, finish: () => mats.white }, modelMats: mats, ads: {}, groundOf: new Map(), levelBase: 0, ownedMats: [] }
+    modules = new ModuleSystem(ctx)
+    modules.ghost = { clearFencePreview() {} }
+    modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
+    modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
+    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [] }
+    const bench = createModule('bench', 0, 0, 0, 'bench')
+    const before = { name: 'test', seed: 1, lines: [], modules: [bench], cells: [] }
+    modules.buildModules(before, new Set())
+    const benchGroup = modules.moduleMeshes.children.find(g => g.userData.moduleId === bench.id)
+    assert.ok(benchGroup)
+    const stairBlock = createModule('stair-block', 4, 0, 0, 'stair-block')
+    const after = { ...before, modules: [...before.modules, stairBlock] }
+    modules.buildModules(after, new Set(), true)
+    assert.ok(modules.moduleMeshes.children.includes(benchGroup), 'the existing equipment group is retained')
+    assert.ok(modules.moduleMeshes.children.some(g => g.userData.moduleId === stairBlock.id), 'the new stepped tile is built')
   } finally { modules?.clearModules(); if (mats) disposeModelMaterials(mats); blob.dispose(); globalThis.document = previousDocument }
 })

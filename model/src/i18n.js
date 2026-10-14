@@ -11,5 +11,9 @@ const carriedMessages={
  zh:{bag:'包袋',noBag:'不带包',shoulderLeft:'单肩包 · 左侧',shoulderRight:'单肩包 · 右侧',crossbodyLeft:'斜挎包 · 左侧',crossbodyRight:'斜挎包 · 右侧',purseLeft:'手提包 · 左手',purseRight:'手提包 · 右手',childHint:'儿童可不带包，或带小背包、斜挎包。',longHint:'长发可搭配单肩包、手提包；背包使用齐肩发。',maleHint:'可选择背包、单肩包或斜挎包。'},
 };
 let language='en';
-export const t=key=>carriedMessages[language][key]??appearanceMessages[language][key]??messages[language][key]??key;
+const hairMessages={
+ en:{buzz:'Buzz cut',crew:'Crew cut',crop:'Fringed crop','side-part':'Side part',swept:'Swept crop',quiff:'Short quiff',rounded:'Rounded crop','cropped-bob':'Tapered bob','rounded-bob':'Rounded bob','angled-bob':'Angled bob','side-part-bob':'Side-part bob',lob:'Long bob','shoulder-swept':'Swept shoulder length','long-swept':'Swept long hair'},
+ zh:{buzz:'超短寸头',crew:'平头',crop:'短刘海','side-part':'侧分短发',swept:'偏分短发',quiff:'蓬松短发',rounded:'圆形短发','cropped-bob':'收束短发','rounded-bob':'圆形短发','angled-bob':'斜切短发','side-part-bob':'侧分短发',lob:'中长短发','shoulder-swept':'偏分齐肩发','long-swept':'偏分长发'},
+};
+export const t=key=>hairMessages[language][key]??carriedMessages[language][key]??appearanceMessages[language][key]??messages[language][key]??key;
 export function setLanguage(value){language=value==='zh'?'zh':'en';document.documentElement.lang=language;document.querySelectorAll('[data-i18n]').forEach(node=>node.textContent=t(node.dataset.i18n))}

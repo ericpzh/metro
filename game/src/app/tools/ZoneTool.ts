@@ -1,7 +1,6 @@
 import { msg } from '../../sim/i18n.ts'
-// The 分区 (zone) tool: drag a fare-zone patch, or a facility room when a room
-// brush is chosen; right-drag over a shop cuts wall openings (or swallows the
-// room to delete it). Moved verbatim from app/Viewport.tsx (GAME-SPEC §10).
+// The 分区 tool paints floor labels; ticket and information counters remain
+// buildable room modules. Moved verbatim from app/Viewport.tsx (GAME-SPEC §10).
 //
 // A fare zone is painted on **floor** and nowhere else (§4.5). The brush asks the
 // viewport's floor key set (`ToolContext.floors`, built by `zoneFloorKeys`), which
@@ -9,26 +8,20 @@ import { msg } from '../../sim/i18n.ts'
 // what the overlay can tint.
 
 import {
-  carveFacilityOpenings,
   cellKey,
   eraseZoneCells,
   facilityAt,
-  facilityCovers,
-  facilityFloorCells,
-  facilityOpeningCells,
   facilityPlan,
   facilityRect,
-  facilityWallCells,
   boothBenchSpots,
   FACILITY_MIN,
   paintZoneCells,
   placeFacility,
   removeFacility,
-  SHOP_WALL_H,
   type FacilityKind,
 } from '../../build/model.ts'
 import { isTrackCell } from '../../sim/placement.ts'
-import { ZONE_LIST } from '../../sim/zones.ts'
+import { ZONE_PAINT_LIST } from '../../sim/zones.ts'
 import type { Module } from '../../sim/types.ts'
 import { FACILITY_OPTIONS, isEraseBrush, isFacilityBrush, moduleLabel, useStore, type ZoneBrush } from '../store.ts'
 import { rectCells } from './geometry/cells.ts'
@@ -52,23 +45,7 @@ const ERASE_PREVIEW = 0xff7a7a
 function brushColour(brush: ZoneBrush): number {
   if (isEraseBrush(brush)) return ERASE_PREVIEW
   if (isFacilityBrush(brush)) return facilityColour(brush)
-  return ZONE_LIST.find((z) => z.id === brush)?.colour ?? 0x7fe4ff
-}
-
-/** Colour of the "cut an opening" right-click preview. */
-const OPENING_PREVIEW = 0x7fe4ff
-
-/** Every cell a whole-store delete would clear, for the red preview volume. */
-function facilityVolume(mod: { x: number; y: number; z: number; w?: number; h?: number }): Array<[number, number, number]> {
-  const w = mod.w ?? 1
-  const h = mod.h ?? 1
-  const out: Array<[number, number, number]> = []
-  for (let x = mod.x; x < mod.x + w; x++) {
-    for (let y = mod.y; y < mod.y + h; y++) {
-      for (let dz = 1; dz <= SHOP_WALL_H; dz++) out.push([x, y, mod.z + dz])
-    }
-  }
-  return out
+  return ZONE_PAINT_LIST.find((z) => z.id === brush)?.colour ?? 0x7fe4ff
 }
 
 export class ZoneTool extends ToolController {
@@ -79,21 +56,10 @@ export class ZoneTool extends ToolController {
     const hit = info.hit
     if (!scene || !hit) return
     const st = useStore.getState()
-    // Right-click edits a walled room: drag over its walls to cut openings, or
-    // drag across the whole room to delete it. Booths have no opening, so a
-    // right-click deletes them outright.
+    // Counter modules can be removed as modules. Room labels are ordinary zones.
     if (info.button === 2) {
       const fac = hit.solid ? facilityAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined
-      if (fac && fac.type === 'shop') {
-        info.preventDefault()
-        const anchor: [number, number, number] = [hit.cell[0], hit.cell[1], fac.z]
-        this.ctx.facilityDrag.current = { active: true, id: fac.id, anchor, z: fac.z, sx: info.clientX, sy: info.clientY, downTime: performance.now() }
-        const r = facilityRect(anchor, anchor, fac.z)
-        scene.setGhost(facilityOpeningCells(st.station.cells, fac, r), 'remove', OPENING_PREVIEW)
-        scene.setCursor(anchor, true)
-        return
-      }
-      if (fac) {
+      if (fac?.type === 'booth') {
         st.commit(removeFacility(st.station, fac.id))
         st.select(null)
         st.setNotice(msg('removed_value', moduleLabel(fac.type, fac.type === 'booth' ? fac.cfg.kind : undefined)))
@@ -102,9 +68,7 @@ export class ZoneTool extends ToolController {
       if (hit.solid) this.bulldoze(hit.cell, hit.place, this.facing())
       return
     }
-    // Both brushes are a long-press drag: the press holds the anchor, the
-    // rectangle previews live, and the release applies it — a room when a
-    // shop/booth is chosen, a painted zone patch when a fare zone is.
+    // Zone brushes paint floors; ticket and information brushes build counters.
     info.preventDefault()
     const brush = st.zoneBrush
     // §4.5: a zone belongs to a **floor** cell, so a fare-zone patch may not be
@@ -136,18 +100,6 @@ export class ZoneTool extends ToolController {
     const hit = info.hit
     if (!scene || !hit) return
     const st = useStore.getState()
-    const fd = this.ctx.facilityDrag.current
-    if (fd?.active) {
-      const mod = st.station.modules.find((m) => m.id === fd.id)
-      if (!mod) return
-      const target: [number, number, number] = [hit.cell[0], hit.cell[1], fd.z]
-      const r = facilityRect(fd.anchor, target, fd.z)
-      scene.clearFaceGhost()
-      if (facilityCovers(mod, r)) scene.setGhost(facilityVolume(mod), 'remove')
-      else scene.setGhost(facilityOpeningCells(st.station.cells, mod, r), 'remove', OPENING_PREVIEW)
-      scene.setCursor(target, true)
-      return
-    }
     const zd = this.ctx.zoneDrag.current
     if (zd?.active) {
       const target: [number, number, number] = [hit.cell[0], hit.cell[1], zd.z]
@@ -159,7 +111,7 @@ export class ZoneTool extends ToolController {
         this.showFacilityPreview(zd, target)
         return
       }
-      // A fare-zone patch: tint exactly the floor the rectangle covers. The
+      // Tint exactly the floor the rectangle covers. The
       // brush's own floor set is the filter — a rectangle dragged across a wall
       // row tints the floor it crosses and drops the copings it also swept.
       const cells = rectCells(zd.anchor, target, zd.z, false)
@@ -170,28 +122,6 @@ export class ZoneTool extends ToolController {
       return
     }
     scene.setModulePreview(null)
-    if (isFacilityBrush(st.zoneBrush)) {
-      // Over an existing room, light up its walls — the floor tile sits under
-      // the wall blocks and is invisible. A room with no walls (a booth, or a
-      // shop already opened up) highlights its footprint instead.
-      const fac = hit.solid ? facilityAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined
-      if (fac) {
-        const walls = facilityWallCells(st.station.cells, fac)
-        scene.clearFaceGhost()
-        if (walls.length > 0) scene.setGhost(walls, 'remove', facilityColour(st.zoneBrush))
-        else {
-          scene.setGhost([], 'remove')
-          scene.setFaceGhost(facilityFloorCells(fac), 'top', facilityColour(st.zoneBrush))
-        }
-        scene.setCursor([hit.cell[0], hit.cell[1], fac.z], true)
-        return
-      }
-      scene.setGhost([], 'remove')
-      const c: [number, number, number] = [hit.cell[0], hit.cell[1], st.activeZ]
-      scene.setFaceGhost([c], 'top', facilityColour(st.zoneBrush))
-      scene.setCursor(c, true)
-      return
-    }
     // A fare-zone brush hovers as a single tinted floor cell, ready to drag — and
     // only on floor: over a wall coping or a ceiling there is nothing a zone
     // could be painted on, so the ghost goes and the cursor reads refused.
@@ -233,36 +163,6 @@ export class ZoneTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
-    // The viewport routes both the shop right-drag and the zone/room rectangle
-    // here; whichever ref is active owns the release.
-    const fd = this.ctx.facilityDrag.current
-    this.ctx.facilityDrag.current = null
-    if (fd?.active) {
-      this.ctx.scene()?.setGhost([], 'remove')
-      const st = useStore.getState()
-      const mod = st.station.modules.find((m) => m.id === fd.id)
-      if (!mod) return
-      const hit = info.hit
-      const target: [number, number, number] = hit ? [hit.cell[0], hit.cell[1], fd.z] : fd.anchor
-      const r = facilityRect(fd.anchor, target, fd.z)
-      // A drag that swallows the whole room means delete; anything narrower
-      // cuts the wall openings it touches.
-      if (facilityCovers(mod, r)) {
-        st.commit(removeFacility(st.station, mod.id))
-        st.select(null)
-        st.setNotice(msg('room_removed'))
-        return
-      }
-      const walls = facilityOpeningCells(st.station.cells, mod, r)
-      if (walls.length === 0) {
-        st.setNotice(msg('right_drag_on_a_wall_to_open_a_door_select_the_entire_room_to_re'))
-        return
-      }
-      const cut = carveFacilityOpenings(st.station, mod.id, walls)
-      st.commit(cut)
-      if (!cut.modules.some((m) => m.id === mod.id)) st.setNotice(msg('all_room_walls_removed'))
-      return
-    }
     const zd = this.ctx.zoneDrag.current
     this.ctx.zoneDrag.current = null
     if (zd?.active) {
@@ -327,14 +227,8 @@ export class ZoneTool extends ToolController {
       }
       st.commit(next)
       st.select({ kind: 'cell', key: cellKey(area.x0, area.y0, area.z), label: `(${area.x0}, ${area.y0}, ${area.z}) ${aw}×${ah}` })
-      const built = FACILITY_OPTIONS.find((f) => f.id === zd.brush)?.label ?? msg('rooms')
-      st.setNotice(
-        plan.merge.length > 0
-          ? msg('room_expanded_to_the_new_bounds')
-          : zd.brush === 'ticket'
-            ? msg('built_value_with_counters_around_it_serving_from_outside', built)
-            : msg('built_value_right_drag_on_its_wall_to_open_a_door', built),
-      )
+      const built = zd.brush === 'ticket' ? msg('ticket_booth') : msg('information_desk')
+      st.setNotice(plan.merge.length > 0 ? msg('room_expanded_to_the_new_bounds') : msg('built_value_with_counters_around_it_serving_from_outside', built))
     }
   }
 }

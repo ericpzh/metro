@@ -4,7 +4,7 @@ import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import { PieceBuilder, finishSlab, canvasTexture, drawMetroMark, slab, plate, ownedMaterial, placeLocal } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
-import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, exitRunOpenings, exitSpan } from '../../../sim/exits.ts'
+import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, exitLandingBack, exitRunOpenings, exitSpan } from '../../../sim/exits.ts'
 import { EXIT_BASE_HEIGHT } from './ExitLanding.ts'
 import { DoorwayExitModel } from './DoorwayExitModel.ts'
 import { GuidepostModel } from './StreetDecorModel.ts'
@@ -122,6 +122,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const covered = mod.cfg.covered !== false
   const side = hw - 0.06 // the glass line, just inside the frame
   const BACKY = EXIT_BACK_Y // back wall, just past where the runs go under the floor
+  const runs = exitRunOpenings(ctx.data.modules, mod)
 
   // Head-house floor: a raised concrete plinth over the whole plan the exit claims, so no
   // hollow cell shows between the railings. It runs from one full block before
@@ -132,7 +133,9 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const padLo = xc - hw
   const padHi = xc + hw
   const yHi = Math.ceil(EXIT_BACK + 0.5) - 0.5 // cell-aligned street edge
-  const landingBack = 0.5 // street edge of the run's top-landing cell (local y)
+  // Older saves can have the exit anchor one row away from a stair's upper cell.
+  // Carry the wellway through that cell instead of leaving its floor cut beside it.
+  const landingBack = exitLandingBack(runs, yHi - 0.3)
   const corridorBack = BACKY + 1 // the mouth-most cell stays floored under the rail
   const concrete = ctx.finish('floor.concrete')
   const pad = (x: number, y: number, w: number, len: number, height = EXIT_BASE_HEIGHT): void => {
@@ -155,7 +158,6 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   // The columns runs actually land in (`exitRunOpenings`) and the width each one
   // needs. A run fits its own block, so the floor keeps a full block beside it —
   // the concrete pad on each side covers the whole cell.
-  const runs = exitRunOpenings(ctx.data.modules, mod)
   let prev = padLo
   for (const run of runs) {
     // A run descends here: leave a handrail-clear opening, or the balustrade
@@ -167,9 +169,9 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   for (const run of runs) {
     const hasEscalator = ctx.data.modules.some((m) => {
       if (m.type !== 'escalator') return false
-      return exitRunOpenings([m], mod).some((r) => r.column === run.column)
+      return exitRunOpenings([m], mod).some((r) => r.column === run.column && r.row === run.row)
     })
-    if (!hasEscalator) pad(run.column, 0, run.half * 2, 1)
+    if (!hasEscalator) pad(run.column, run.row, run.half * 2, 1)
   }
 
   const house = new THREE.Group()

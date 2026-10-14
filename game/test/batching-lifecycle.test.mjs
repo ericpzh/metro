@@ -77,12 +77,34 @@ test('real module picking reaches batch source IDs, restores ray layers and resp
     const hit = cam.pickModuleHit(640, 410)
     assert.equal(hit?.moduleId, 'a'); assert.ok(Math.abs(hit.point[1] + 0.5) < 1e-6)
     assert.equal(cam.raycaster.layers.mask, 1, 'temporary layer 31 must not leak into block picking')
+    a.visible = false
+    assert.equal(cam.pickModuleHit(640, 410), null, 'an invisible nested surface cannot be selected through its visible module root')
+    a.visible = true
     cam.setPickables([wall]); assert.equal(cam.pickModuleHit(640, 410), null, 'batching cannot select through a nearer station wall')
     cam.setPickables([]); modules.children[0].visible = false; batches.sync(modules)
     assert.equal(cam.pickModuleHit(640, 410), null, 'hidden source roots are not selectable')
     modules.children[0].visible = true; batches.enabled = false; batches.sync(modules)
     assert.equal(cam.pickModuleHit(640, 410)?.moduleId, 'a', 'profiling fallback retains the same picking result')
   } finally { cam.dispose(); batches.clear(); cleanup(modules); wall.geometry.dispose(); material.dispose() }
+})
+
+test('ramp bound picking reaches between stair treads but still respects walls', () => {
+  const { cam } = cameraRig(), modules = new THREE.Group(), material = new THREE.MeshBasicMaterial()
+  const left = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1, 0.1), material)
+  const right = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1, 0.1), material)
+  left.position.x = -0.7; right.position.x = 0.7
+  modules.add(root([left, right], 'stair', 'stair'))
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 2), material)
+  wall.position.set(0, -1, 0); wall.updateMatrixWorld(true)
+  try {
+    cam.modules = { moduleMeshes: modules }
+    modules.updateMatrixWorld(true)
+    cam.camera.position.set(0, -5, 0); cam.camera.lookAt(0, 0, 0); cam.camera.updateMatrixWorld(true)
+    assert.equal(cam.pickModuleHit(640, 410), null, 'the exact ray passes between the separated stair surfaces')
+    assert.equal(cam.pickModuleInBounds(640, 410, new Set(['stair'])), 'stair', 'the stair footprint catches a ray through its tread gap')
+    cam.setPickables([wall])
+    assert.equal(cam.pickModuleInBounds(640, 410, new Set(['stair'])), null, 'a nearer wall still blocks the forgiving pick')
+  } finally { cam.dispose(); cleanup(modules); wall.geometry.dispose(); material.dispose() }
 })
 
 test('unsupported/mutable equipment meshes keep their render paths and batch state boundaries stay separate', () => {
@@ -216,7 +238,9 @@ test('real module/level systems retain cell-local batches and apply hide/ghost/c
     apply({ ...station, cells: [{ x: 100, y: 100, z: 1, fill: 'solid' }] })
     assert.deepEqual(modules.batches.root.children, held, 'an unrelated structural cell edit preserves actual batch objects through both systems')
     level.setLevel(4, false); assert.equal(modules.batches.root.children.length, 0, 'hidden storeys submit no equipment')
+    assert.equal(modules.isModuleVisible('a'), false, 'hidden storey module roots are excluded from cell-based tool fallbacks')
     level.setLevel(4, true); assert.ok(modules.batches.root.children.length > 0)
+    assert.equal(modules.isModuleVisible('a'), true, 'ghosted storeys remain visible and pickable when 显示其他层 is on')
     assert.ok(modules.batches.root.children.every(m => m.material.transparent && m.material.opacity === 0.35), 'another storey uses sorted ghost materials')
     ctx.cutaway = true; const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 1); level.setClip(plane)
     assert.ok(modules.batches.root.children.every(m => m.material.clippingPlanes[0] === plane && m.material.opacity === 1), 'cut mode restores original ink and clips the batched render surfaces')

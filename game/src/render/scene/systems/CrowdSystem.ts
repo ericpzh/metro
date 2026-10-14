@@ -21,7 +21,7 @@ import { passengerWalkProfile } from '../../../sim/walking.ts'
 import { setGateWing } from '../../models.ts'
 import { AgentState } from '../../../sim/types.ts'
 import { PASSENGER_CULL_HEIGHT_FRACTION, PASSENGER_CULL_RADIUS_SCALE, PASSENGER_INSTANCE_CAPACITY } from '../../../sim/constants.ts'
-import { ZONE_LIST } from '../../../sim/zones.ts'
+import { ZONE_PAINT_LIST } from '../../../sim/zones.ts'
 import { crowdVisible } from '../../levelSlicing.ts'
 import {
   ROUTE_MAX_POINTS,
@@ -514,7 +514,7 @@ export class CrowdSystem extends SceneSystem {
     for (let i = 0; i < n; i++) {
       mat4.makeTranslation(quads[i * 3], quads[i * 3 + 1], quads[i * 3 + 2])
       this.zoneOverlay.setMatrixAt(i, mat4)
-      col.setHex(ZONE_LIST[zones[i]]?.colour ?? 0x888888)
+      col.setHex(ZONE_PAINT_LIST[zones[i]]?.colour ?? 0x888888)
       this.zoneOverlay.setColorAt(i, col)
     }
     this.zoneOverlay.count = n
@@ -547,7 +547,7 @@ export class CrowdSystem extends SceneSystem {
     const key = `${index}:${label ?? ''}`
     let m = this.zoneLabelMats.get(key)
     if (m) return m
-    const def = ZONE_LIST[index]
+    const def = ZONE_PAINT_LIST[index]
     const c = document.createElement('canvas')
     c.width = 256
     c.height = 96

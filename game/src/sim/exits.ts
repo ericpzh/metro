@@ -9,7 +9,7 @@ import type { ExitBays, Module, Vec3i } from './types.ts'
 import { ESCALATOR_CASING_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { escalatorBodyWidth, escalatorRun } from './escalators.ts'
 import { LIFT_SIZE } from './lifts.ts'
-import { STAIR_RISE, STAIR_RUN, stairTreadWidth, stairRotFor } from './stairs.ts'
+import { STAIR_RISE, STAIR_RUN, stairTreadWidth, stairRotFor, stairFlightSlides } from './stairs.ts'
 
 /**
  * Width of the reference 双向 head-house, metres: four blocks — two runs standing
@@ -127,12 +127,18 @@ export interface ExitSpan {
   half: number
 }
 
-/** The upper (street) landing of a run — the end that stands under the exit. */
+/** The upper run band's centre under the exit, including shifts from its first lane. */
 function runTop(run: Module): Vec3i | null {
   if (run.type !== 'escalator' && run.type !== 'stair' && run.type !== 'lift') return null
   if (run.type === 'escalator') {
     const centred = escalatorRun(run)
     return centred.from.z >= centred.to.z ? centred.from : centred.to
+  }
+  if (run.type === 'stair') {
+    const top = run.from.z >= run.to.z ? run.from : run.to
+    const slides = stairFlightSlides(run)
+    const slide = slides[run.from.z >= run.to.z ? 0 : slides.length - 1]
+    return { x: top.x + (slide?.dx ?? 0), y: top.y + (slide?.dy ?? 0), z: top.z }
   }
   return run.from.z >= run.to.z ? run.from : run.to
 }
@@ -250,10 +256,43 @@ export function exitBayCell(m: ExitModule, column: number): [number, number, num
   return [m.x + dx, m.y + dy, m.z]
 }
 
+/**
+ * Reposition a head-house around a stair/escalator the player picked. Its bay
+ * lands on the ramp's upper endpoint, and the mouth faces back down the run.
+ * This lets the player place an exit from the equipment itself rather than
+ * finding the exact floor cell under its landing.
+ */
+export function snapExitToRamp(exit: ExitModule, ramp: Module): ExitModule | null {
+  if (!isExitHeadHouse(exit) || (ramp.type !== 'stair' && ramp.type !== 'escalator')) return null
+  if (ramp.type === 'stair' && (ramp.cfg.block || (ramp.cfg.style && ramp.cfg.style !== 'straight'))) return null
+
+  const upper = ramp.from.z >= ramp.to.z ? ramp.from : ramp.to
+  const lower = ramp.from.z < ramp.to.z ? ramp.from : ramp.to
+  if (upper.z === lower.z) return null
+
+  // Ramp catalogue turns are clockwise; exit model turns are counterclockwise.
+  const rot = (4 - stairRotFor(Math.sign(upper.x - lower.x), Math.sign(upper.y - lower.y))) % 4
+  // The saved endpoint is the first lane. Centre all occupied lanes in the bay
+  // group, including the lateral slide used by the actual stair/escalator model.
+  const top = runTop(ramp)!
+  const width = 1 + 2 * Math.hypot(top.x - upper.x, top.y - upper.y)
+  const bay = Math.max(0, Math.floor((exitBays(exit) - width) / 2))
+  const rotated = { ...exit, rot }
+  const [bayX, bayY] = exitBayCell(rotated, bay)
+  return { ...rotated, x: exit.x + upper.x - bayX, y: exit.y + upper.y - bayY, z: upper.z }
+}
+
 /** One run's wellway in the head-house floor: the column it lands in, and its half-width. */
 export interface ExitRunOpening {
   column: number
+  /** Local row of the run's upper landing; usually 0, but saved exits can be offset. */
+  row: number
   half: number
+}
+
+/** The street-side edge of the run wellway, advanced through offset top landings. */
+export function exitLandingBack(runs: readonly ExitRunOpening[], upperLimit: number): number {
+  return Math.min(upperLimit, Math.max(0.5, ...runs.map((run) => run.row + 0.5)))
 }
 
 /**
@@ -263,17 +302,18 @@ export interface ExitRunOpening {
  */
 export function exitRunOpenings(modules: readonly Module[], m: ExitModule): ExitRunOpening[] {
   const out: ExitRunOpening[] = []
-  const seen = new Set<number>()
+  const seen = new Set<string>()
   for (const run of modules) {
     const top = runTop(run)
     if (!top || top.z !== m.z) continue
     if (!exitCoversCell(m, top.x, top.y, top.z)) continue
-    const [lx] = exitLocal(top.x - m.x, top.y - m.y, m.rot)
-    if (seen.has(lx)) continue
-    seen.add(lx)
-    out.push({ column: lx, half: exitRunHalf(run) })
+    const [lx, ly] = exitLocal(top.x - m.x, top.y - m.y, m.rot)
+    const key = `${lx},${ly}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ column: lx, row: ly, half: exitRunHalf(run) })
   }
-  return out.sort((a, b) => a.column - b.column)
+  return out.sort((a, b) => a.column - b.column || a.row - b.row)
 }
 
 /**

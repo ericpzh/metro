@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, placeLocal } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { clockHandAngles } from '../../../sim/clock.ts'
-import { ceilingMountHeight } from '../../../sim/placement.ts'
+import { hangCeilingLocal } from '../../../sim/placement.ts'
 import type { Module } from '../../../sim/types.ts'
 
 /* ------------------------------------------------------ ceiling decoration */
@@ -89,7 +89,10 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
   const bodyDepth = 0.12
   const bodyFront = -0.06 // the front white end; the camera looks from −y
   const bodyBack = bodyFront + bodyDepth
-  const dialZ = 2.35 // the dial centre height: the lower half of the storey, easy to read
+  // The dial hangs **one metre below** the surface it was hung from (`hangCeilingLocal`): the slab
+  // over its cell, or the line the player aimed at — its height follows the room instead of a
+  // constant of its own.
+  const dialZ = ceiling - 1
   // The white body. **A `CylinderGeometry` is Y-up, so its caps already face ±y and it needs no
   // rotation**: the ends of the barrel are the two faces. A quarter-turn about x would lay it flat
   // in the X-Z plane, which is the wrong plane and no sign of that turn fixes it.
@@ -261,7 +264,7 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
 export class ClockModel extends PieceBuilder {
   readonly kind = 'clock'
   build(mod: Extract<Module, { type: 'clock' }>): THREE.Group {
-    return placeLocal(buildClock(this.ctx.mats, ceilingMountHeight(this.ctx.data.cells, mod, this.ctx.data.modules) ?? 3), mod)
+    return placeLocal(buildClock(this.ctx.mats, hangCeilingLocal(mod, this.ctx.data.cells, this.ctx.data.modules)), mod)
   }
 }
 

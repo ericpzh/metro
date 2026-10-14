@@ -7,7 +7,7 @@ import { posterFor } from '../../../sim/billboards.ts'
 import type { TvPairSlot } from '../../../sim/tvs.ts'
 import type { Module } from '../../../sim/types.ts'
 import { TV_POSTER_RECT } from '../../stationDisplay.ts'
-import { ceilingMountHeight } from '../../../sim/placement.ts'
+import { hangCeilingLocal } from '../../../sim/placement.ts'
 
 /**
  * The 电视 and 广告牌 window: a lit pane sits inside a dark slab, and a plane that
@@ -81,8 +81,10 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   // `ceilingMountMissing` only asks for a ceiling, and the piece is decor.
   const sw = 1.42
   const sh = 0.8
-  const zc = 2.15 // screen centre above the floor top
-  const ceiling = ceilingMountHeight(ctx.data.cells, mod, ctx.data.modules) ?? 3
+  // The screen hangs **one metre below** the surface it was hung from (`hangCeilingLocal`):
+  // the slab over its cell, or the line the player aimed at.
+  const ceiling = hangCeilingLocal(mod, ctx.data.cells, ctx.data.modules)
+  const zc = ceiling - 1
   // A lone 电视 is one slim panel (0.1 m through). A pair is **two** of them back to
   // back, not a box as deep as the cell: the two screens sit against each other and
   // the housing is only as thick as the pair of them.

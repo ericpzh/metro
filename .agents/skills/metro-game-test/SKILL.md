@@ -70,7 +70,10 @@ results; imported dependencies inflate the overall denominator. Do not claim
   distinct culling/render/material/clip policies; unsupported/hidden/skinned/morph
   and partial-range exclusions; nested landing doors and moving cabins; real
   ModuleSystem/LevelSystem hide/ghost/cut transitions and local retained objects;
-  actual CameraSystem source-layer IDs, layer restoration and nearer-wall occlusion.
+  actual CameraSystem source-layer IDs, layer restoration and nearer-wall occlusion,
+  invisible descendant rejection and hidden storey module roots. `delete-tool`,
+  `move`, `pick-tool` and `select-agent` pin the hidden-target behavior for module
+  ray picks and cell-based fallbacks.
 - `draw-batching`: A/B/C/L stock in all four rotations, exact geometry/bounds,
   independent door banks and moving glass, paused/hidden buffer holds, resume,
   eviction and profiling toggles; full-resolution atlas redraw/recycling and
@@ -78,6 +81,8 @@ results; imported dependencies inflate the overall denominator. Do not claim
 - `performance-policy`: indexed/unindexed placement equivalence, fresh array
   invalidation, ground/holes/exits, bulk-paint deduplication/no-op/immutability,
   fail-closed cosmetic and dependency policies, local/owned/sign-board retention,
+  stair-block-only module additions retaining existing groups while other module
+  additions remain conservative,
   RAF release/cancel behavior, paused camera repacking and stable crowd poses/IDs.
 - `worker-preview`: actual worker edit acknowledgement with no cosmetic routing
   rebuild and no paused tick; speed/topology edits must still rebuild.
@@ -85,6 +90,12 @@ results; imported dependencies inflate the overall denominator. Do not claim
   touch/delete preservation, release-before-commit, unmount cancellation, and the
   camera-aim notification (`SceneRenderer.onCameraAim` firing once per real aim
   move) with the viewport's re-aim of the equipment and 移动 ghosts.
+
+For the inverted street plane, `ground.test.mjs` pins a z=0 delete/re-add cycle:
+removing a dug hole through `addCells` returns to implicit ground without keeping a
+plain solid record, while `addFloor` keeps its tagged floor record. `save.test.mjs`
+pins that re-added default ground adds nothing to the save and later custom finishes
+or zones still round-trip as authored data.
 
 Run the full `npm --prefix game test` and production build after focused checks.
 Then run root `npm run check:render-batching` for real production GLSL/WebGL and
@@ -147,10 +158,37 @@ positions are pinned in `rail-folders.test.mjs`. Update both the corresponding
 README test lists and `.agents/skills/metro-game/SKILL.md` when those palette
 rules change.
 
+Room-purpose paints (`store`, `toilet`, `office`) are ordinary `ZONE_PAINT_LIST`
+entries. Pin their existing room-type icons and counter-only facility brush list
+in `rail-families.test.mjs`; pin no module/wall generation and fare-zone
+preservation in `zonetool.test.mjs`; pin overlay color regions and fare-index
+preservation in `zones.test.mjs`. Keep `game/README.md`, `game/test/README.md` and
+`.agents/skills/metro-game/SKILL.md` aligned when this palette contract changes.
+
 For a thin roof snap change, keep the quarter-metre model bounds, collision bounds and
 storey slicing in agreement in `overground.test.mjs`; keep pointer priority (roof,
 then block outside face, then active view height), the 上 / 下 control and icon wiring,
 and preview/release agreement in `roof-tool.test.mjs`.
+
+For small stair blocks, `roof-tool.test.mjs` also pins the drag to the rotated width axis,
+ignores pointer travel along the treads, and checks the placed row matches the preview. Thin
+roof tiles remain rectangle drags.
+
+Exit snapping is two-way: `exits.test.mjs` pins the pure bay/rotation calculation when a
+head-house is placed from a picked straight stair or escalator, plus the rendered wellway's
+along-run row when a saved stair landing is offset from the exit anchor; `batching-lifecycle`
+pins a ramp-only bounds pick through stair tread gaps, retaining nearer-wall occlusion; and
+`equipment-placement-input.test.mjs` pins that the preview and click use the picked ramp
+even when the ray also hits a floor tile. Keep turning stairs and virtual/doorway exits out of this path.
+`module-build.test.mjs` uses `fixtures/tanwei-exit-b.json` and actual floor meshes to probe both
+edges of the rendered 1/2/3 m stair band in all rotations. Coordinate-only endpoint assertions
+cannot detect a wellway ignoring `stairFlightSlides`; verify clear flight edges and solid floor
+immediately outside both rails when changing exit/ramp alignment.
+
+For fence neighbours, pin that ramp stairs and escalators connect at their landings but
+楼梯块 has no handrail neighbour in `fence.test.mjs`. When equipment settings refresh while
+方块 is active, pin that the shared stair-block setting cannot recreate its ghost in
+`tool-hover-preview.test.mjs`.
 
 New-behaviour pins: `booth-sign` (booth-header snap, faces, bounds, save/move —
 plus that a booth board keeps its turn against a camera aim, the one mount the
@@ -197,6 +235,11 @@ Model integration coverage lives in `passenger-library`, `passenger-size`,
 `passenger-view`, `capture-passengers` and `passenger-art-pipeline`: the complete
 reviewed catalogue and walks, equal explicit adult/child pools, 20% child selection, separate age
 size ranges, body/shadow axes, 70% opacity, pause, picking and physical stride.
+The approved male additions must retain lower crowns in the actual baked poses:
+all seven styles and every bag stay below 1.70 m and at least 2 cm below the
+original standing crown. Source model tests separately pin original-lock topology,
+head/neck weights and pairwise silhouette separation; catalogue checks alone do
+not prove that regenerated geometry reached the game.
 Side bag assertions must inspect the accessory's baked surface, including frame
 zero: broad faces along body depth, left/right mirroring, thin bodies between arm
 and torso, torso-following shoulder/crossbody bags and hand-following purses.

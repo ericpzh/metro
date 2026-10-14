@@ -94,6 +94,16 @@ export class ModuleSystem extends SceneSystem {
     this.ctx.scene.add(this.batches.root)
   }
 
+  /** Whether level slicing currently draws this placed module. */
+  isModuleVisible(id: string): boolean {
+    const root = this.moduleMeshes.children.find((child) => child.userData.moduleId === id)
+    if (!root) return false
+    for (let node: THREE.Object3D | null = root; node; node = node.parent) {
+      if (!node.visible) return false
+    }
+    return true
+  }
+
   /**
    * Build every placed module through the model factory (§3 item 6). Modules are
    * no longer unit cubes: `models.ts` gives each one a silhouette from the

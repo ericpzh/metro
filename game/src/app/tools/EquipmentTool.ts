@@ -22,7 +22,7 @@ import { snapPsdEnd } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { escalatorModule } from '../../sim/escalators.ts'
 import { RAMP_LENGTH_DEFAULT, rampLengthSpec, type RampLength } from '../../sim/rampLengths.ts'
-import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
+import { exitFloorAt, exitRunSnap, snapExitToRamp } from '../../sim/exits.ts'
 import { glassModuleSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
@@ -32,6 +32,8 @@ import {
   ceilingMountStandCell,
   equipmentReason,
   equipmentRefusalNotice,
+  hungCeilingAim,
+  hungDrop,
   isCeilingHung,
   moduleAt,
   pillarAt,
@@ -66,6 +68,14 @@ function wallRotationForSide(dx: number, dy: number): number | null {
   return null
 }
 
+function isHeadHouseExitType(type: string): boolean {
+  return type === 'exit' || type.startsWith('exit-covered-') || type.startsWith('exit-uncovered-')
+}
+
+function isSnapRamp(mod: Module | undefined): mod is Extract<Module, { type: 'stair' | 'escalator' }> {
+  return !!mod && (mod.type === 'escalator' || (mod.type === 'stair' && !mod.cfg.block && (!mod.cfg.style || mod.cfg.style === 'straight')))
+}
+
 export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
 
@@ -77,8 +87,14 @@ export class EquipmentTool extends ToolController {
     const hit = useStore.getState().moduleType === 'sign-wall'
       ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
       : info.hit
-    if (!hit) return
     const st = useStore.getState()
+    const pickedRamp = isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info) : undefined
+    if (info.button !== 2 && !hit && pickedRamp) {
+      const upper = pickedRamp.from.z >= pickedRamp.to.z ? pickedRamp.from : pickedRamp.to
+      this.placeModule([upper.x, upper.y, upper.z], [upper.x, upper.y, upper.z], false, st.moduleType, undefined, pickedRamp)
+      return
+    }
+    if (!hit) return
     if (info.button === 2 && st.moduleType.startsWith('floor-mark-')) {
       // Vinyl can share a screen-door strip: erase the print the ray hits,
       // rather than tearing down the screen standing over that floor (§9.5).
@@ -200,6 +216,13 @@ export class EquipmentTool extends ToolController {
       this.bulldoze(hit.cell, hit.place, this.facing())
       return
     }
+    // An exit can be placed by picking the stair/escalator it should enclose;
+    // the ramp's upper landing supplies the bay position and orientation.
+    const targetRamp = pickedRamp
+    if (targetRamp) {
+      this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]], targetRamp)
+      return
+    }
     // Wall/ceiling mounts are placed from their backing surface, so the pointer
     // may be in open air even though the hover has resolved a valid wall or slab.
     // Let their placement checks decide; floor-standing equipment still needs
@@ -220,8 +243,26 @@ export class EquipmentTool extends ToolController {
     const hit = useStore.getState().moduleType === 'sign-wall'
       ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
       : info.hit
-    if (!hit) return
     const st = useStore.getState()
+    if (!hit) {
+      const targetRamp = isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info) : undefined
+      if (targetRamp) {
+        const upper = targetRamp.from.z >= targetRamp.to.z ? targetRamp.from : targetRamp.to
+        this.ctx.hover.current = {
+          cell: [upper.x, upper.y, upper.z],
+          place: [upper.x, upper.y, upper.z],
+          solid: false,
+          moduleId: targetRamp.id,
+        }
+        this.refreshHover()
+      } else {
+        this.ctx.hover.current = null
+        scene.setModulePreview(null)
+        scene.setCursor(null)
+        scene.setCollisionHighlight(null)
+      }
+      return
+    }
     // An in-progress fence drag previews the straight run the release would
     // lay — one panel per cell, snapped to the dominant axis like the wall —
     // as real translucent fence models, with the existing runs rebuilt so an
@@ -262,7 +303,13 @@ export class EquipmentTool extends ToolController {
     // translucent copy of the module shows exactly what the click will place.
     // Bare void and a clash with existing equipment both flag red.
     scene.setFencePreview(null)
-    this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1]] }
+    this.ctx.hover.current = {
+      cell: hit.cell,
+      place: hit.place,
+      solid: hit.solid,
+      moduleId: isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info)?.id ?? null : null,
+      point: [hit.point[0], hit.point[1]],
+    }
     this.refreshHover()
   }
 
@@ -423,7 +470,7 @@ export class EquipmentTool extends ToolController {
    * the pointer positions the run on the top floor the exit opens onto rather
    * than the floor it climbs from. Everywhere else the cell is the base.
    */
-  private buildPlacementModule(type: string, cell: [number, number, number], id: string): Module | null {
+  private buildPlacementModule(type: string, cell: [number, number, number], id: string, targetRamp?: Module): Module | null {
     const st = useStore.getState()
     const placementType = type.startsWith('door-')
       ? type.replace(/-[12]$/, st.doorWide ? '-2' : '-1')
@@ -484,6 +531,7 @@ export class EquipmentTool extends ToolController {
     }
     if (mod?.type === 'lift') mod.cfg.style = st.liftStyle
     if (mod?.type === 'light') mod.cfg.position = st.lightPosition
+    if (mod?.type === 'exit' && targetRamp) mod = snapExitToRamp(mod, targetRamp) ?? mod
     // The ghost and the eventual commit share this prospective id. Ads freeze their
     // campaign from that id when placed, so carry the same poster in the preview.
     if (mod?.type === 'billboard' && mod.cfg.poster === undefined) {
@@ -507,8 +555,26 @@ export class EquipmentTool extends ToolController {
   }
 
   /** Preview and commit both place one complete module at every stair width. */
-  private buildPlacementModules(type: string, cell: [number, number, number], id: string): Module[] {
-    const one = this.buildPlacementModule(type, cell, id)
+  private pickSnapRamp(info: PointerInfo): Extract<Module, { type: 'stair' | 'escalator' }> | undefined {
+    const modules = useStore.getState().station.modules
+    const direct = modules.find((m) => m.id === this.pickModuleAt(info))
+    if (isSnapRamp(direct)) return direct
+    // Stair treads are separated, so a ray can hit the floor in the visible
+    // stair footprint. Resolve only eligible straight ramps against their model
+    // bounds as a fallback; the renderer still rejects hidden or occluded roots.
+    const candidates = modules.filter(isSnapRamp)
+    if (candidates.length === 0) return undefined
+    const id = this.ctx.scene()?.pickModuleInBounds(
+      info.clientX,
+      info.clientY,
+      new Set(candidates.map((mod) => mod.id)),
+    )
+    return candidates.find((mod) => mod.id === id)
+  }
+
+  /** Preview and commit both place one complete module at every stair width. */
+  private buildPlacementModules(type: string, cell: [number, number, number], id: string, targetRamp?: Module): Module[] {
+    const one = this.buildPlacementModule(type, cell, id, targetRamp)
     return one ? [one] : []
   }
 
@@ -602,9 +668,22 @@ export class EquipmentTool extends ToolController {
     id: string,
   ): { mods: Module[]; noCeiling: boolean } {
     const st = useStore.getState()
-    const at = ceilingMountStandCell(cell, place, st.station.levelBase, st.station.cells)
+    // A **hung** piece goes where the pointer is, at the height it is on
+    // (`hungCeilingAim`): a floor hover means "hang in this room" and takes the real ceiling,
+    // any other surface names a line to hang under — mid-air included — and `hungDrop` is the
+    // metre a stem piece's own body then hangs below that line (a flush plate rides at it).
+    const hung = isCeilingHung({ type: st.moduleType }) && !st.moduleType.startsWith('hanger')
+    const aim = hung ? hungCeilingAim(cell, place, st.station.levelBase, hungDrop({ type: st.moduleType })) : null
+    const at = aim ? aim.at : ceilingMountStandCell(cell, place, st.station.levelBase, st.station.cells)
     const mods = this.buildPlacementModules(st.moduleType, at, id)
     if (mods.length === 0) return { mods: [], noCeiling: true }
+    if (aim) {
+      for (const mod of mods) {
+        const cfg = mod.cfg as { line?: number }
+        if (aim.line === undefined) delete cfg.line
+        else cfg.line = aim.line
+      }
+    }
     // The modules ride along, or the ghost reads a **hung** piece's ceiling off the
     // document alone and reports "no ceiling" for a fitting that hangs from the
     // implicit street slab (`sim/ground.ts`) — a verdict `equipmentReason`, which
@@ -620,14 +699,27 @@ export class EquipmentTool extends ToolController {
    * (`placementPreviewKey` names the settings of both).
    */
   override refreshHover(): void {
+    const st = useStore.getState()
+    // The placement settings are shared with the 方块 tool. A cut-mode change
+    // can refresh this effect after the tool switch, so never rebuild an
+    // equipment ghost unless the equipment tool still owns the pointer (§9.5).
+    if (st.tool !== 'module') return
     if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).refreshHover(); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).refreshHover(); return }
     const scene = this.ctx.scene()
     const h = this.ctx.hover.current
     if (!scene || !h) return
-    const st = useStore.getState()
-    if (st.tool !== 'module') return
     const [x, y, z] = h.cell
+    const pointed = h.moduleId ? st.station.modules.find((m) => m.id === h.moduleId) : undefined
+    const snapRamp = isHeadHouseExitType(st.moduleType) && isSnapRamp(pointed) ? pointed : undefined
+    if (snapRamp) {
+      const exit = this.buildPlacementModules(st.moduleType, [x, y, z], nextModuleId(st.station.modules, st.moduleType), snapRamp)
+      const check = checkModulePlacements(st.station, exit.map((module) => ({ id: module.id, module, layer: true })))
+      scene.setCursor(null)
+      scene.setModulePreview(exit.length > 0 ? exit : null, exit.length === 0 || check.refused.size > 0)
+      scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
+      return
+    }
     if (st.moduleType === 'bridge') {
       const src = railModuleAt(st.station, ...h.cell) ?? railModuleAt(st.station, ...h.place)
       if (!src) { scene.setModulePreview(null); scene.setCursor(null); scene.setCollisionHighlight(null); return }
@@ -729,6 +821,7 @@ export class EquipmentTool extends ToolController {
     solid: boolean,
     type: string,
     near?: [number, number],
+    targetRamp?: Module,
   ): void {
     const st = useStore.getState()
     // A wall-mounted 广告牌 needs only a wall behind it — it may hang over a
@@ -774,7 +867,7 @@ export class EquipmentTool extends ToolController {
     // Exit-covered holes count as floor, like the hover ghost above.
     const floorHere = solid || exitFloorAt(st.station.modules, cell[0], cell[1], cell[2])
     const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])
-    const mods = this.buildPlacementModules(type, at, nextModuleId(st.station.modules, type))
+    const mods = this.buildPlacementModules(type, at, nextModuleId(st.station.modules, type), targetRamp)
     if (mods.length === 0) {
       st.setNotice(msg('cannot_place_equipment_here_choose_another_location'))
       return

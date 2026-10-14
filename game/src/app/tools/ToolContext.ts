@@ -17,6 +17,8 @@ export interface HoverTile {
   cell: [number, number, number]
   place: [number, number, number]
   solid: boolean
+  /** The drawn module under the pointer, when one was picked. */
+  moduleId?: string | null
   point?: [number, number]
   roofSnap?: 'lower' | 'upper'
 }
@@ -69,7 +71,7 @@ export interface AreaDrag {
   tileWidth?: number
   /** Snap inherited from a roof slab pressed at the start of a placement drag. */
   tileSnap?: 'lower' | 'upper'
-  /** Current tile rectangle, for live R/Tab preview updates while dragging. */
+  /** Current tile drag footprint, for live R/Tab preview updates while dragging. */
   tileCells?: Array<[number, number, number]>
   /**
    * The delete tool's module drag: the ids it has collected, the pressed piece
@@ -103,29 +105,14 @@ export interface PaintDrag {
   downTime: number
 }
 
-/** The zone tool's rectangle drag: a fare-zone patch or a facility room. */
+/** The zone tool's rectangle drag: a floor label or a counter module. */
 export interface ZoneDragState {
   active: boolean
-  /** The active brush when the press began: a fare zone or a room kind. */
+  /** The active brush when the press began. */
   brush: ZoneBrush
   anchor: [number, number, number]
   /** Latest drag target, retained so a rotation redraws the preview immediately. */
   target: [number, number, number]
-  z: number
-  sx: number
-  sy: number
-  downTime: number
-}
-
-/**
- * The shop right-click drag: the press holds a shop, the rectangle previews
- * either the wall openings to cut (cyan) or the whole store to delete (red),
- * and the release applies it.
- */
-export interface FacilityDragState {
-  active: boolean
-  id: string
-  anchor: [number, number, number]
   z: number
   sx: number
   sy: number
@@ -172,7 +159,6 @@ export interface ToolContext {
   drag: { current: AreaDrag | null }
   paint: { current: PaintDrag | null }
   zoneDrag: { current: ZoneDragState | null }
-  facilityDrag: { current: FacilityDragState | null }
   /** Pin the 方块 patch-size badge to the pointer, in canvas-relative pixels. */
   showMeasure: (clientX: number, clientY: number, text: string) => void
   clearMeasure: () => void

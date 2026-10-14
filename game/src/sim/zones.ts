@@ -1,7 +1,6 @@
 import { msg } from './i18n.ts'
-// Fare zones — GAME-SPEC.md §4.5. Pure data shared by the sim, the build tools
-// and the overlay: the sim decides who may cross, the game shows the same
-// colour the player painted.
+// Fare zones — GAME-SPEC.md §4.5. Pure data shared by the sim and build tools.
+// Room-purpose labels share the overlay palette without affecting fare crossings.
 //
 // A zone boundary is a movement barrier. The only walk edge that may cross one
 // is through a module that legitimately does so — a gate for the fare line.
@@ -13,7 +12,9 @@ import { msg } from './i18n.ts'
 // the fare line, so an unpainted station still grows no barrier of its own. One
 // rule, read by the sim, the build tools and the 分区 map alike.
 
-import { DEFAULT_ZONE, ZONES, type Cell, type GateDir, type Zone } from './types.ts'
+import { DEFAULT_ZONE, ZONES, type Cell, type GateDir, type RoomKind, type Zone } from './types.ts'
+
+export type ZonePaint = Zone | RoomKind
 
 export interface ZoneDef {
   id: Zone
@@ -22,11 +23,17 @@ export interface ZoneDef {
   colour: number
 }
 
+export interface ZonePaintDef {
+  id: ZonePaint
+  label: string
+  /** Overlay colour. */
+  colour: number
+}
+
 /**
- * The zones, in `ZONES`' own order (`zoneDef` indexes this list by `ZONE_INDEX`,
- * so the two may never drift apart). 无分区 leads: it is the colour of floor
- * nobody has zoned, and it is deliberately the palest of them — an unpainted
- * station should read as unpainted, not as a sixth kind of area.
+ * Fare zones lead in `ZONES` order so their indices stay aligned for simulation.
+ * Room-purpose colors follow them and use a separate `Cell.room` field, leaving
+ * fare-gate behavior unchanged when a room is painted inside a paid area.
  */
 export const ZONE_LIST: readonly ZoneDef[] = [
   { id: 'none', label: msg('no_zone'), colour: 0x9aa2ab },
@@ -35,6 +42,14 @@ export const ZONE_LIST: readonly ZoneDef[] = [
   { id: 'paid', label: msg('paid_area'), colour: 0x4ea8ff },
   { id: 'platform', label: msg('platform'), colour: 0xf2a541 },
   { id: 'restricted', label: msg('equipment_area'), colour: 0xe4572e },
+]
+
+/** Full paint/overlay palette. Fare zones stay first to preserve graph indices. */
+export const ZONE_PAINT_LIST: readonly ZonePaintDef[] = [
+  ...ZONE_LIST,
+  { id: 'store', label: msg('store'), colour: 0xb07cc6 },
+  { id: 'toilet', label: msg('restroom'), colour: 0x5fb7a6 },
+  { id: 'office', label: msg('office'), colour: 0xd9a24b },
 ]
 
 /** Dense index for a zone, for typed arrays in the graph and the mesh. */
@@ -65,20 +80,24 @@ export function zoneOf(cell: Pick<Cell, 'zone'>): Zone {
 }
 
 /**
- * The dense zone index of a **cell** (see `zoneOf`). The graph, the overlay and
- * the build tools all read a cell's zone through this, so an unpainted cell
- * cannot read as 无分区 in one of them and something else in another.
+ * The dense fare-zone index of a **cell** (see `zoneOf`). The graph reads this
+ * index; the visual overlay uses `zoneDisplayIndexOf` to include room colors.
  */
 export function zoneIndexOf(cell: Pick<Cell, 'zone'>): number {
   return ZONE_INDEX[zoneOf(cell)]
 }
 
-export function zoneDef(zone: Zone | undefined): ZoneDef {
-  const i = zoneIndex(zone)
-  return ZONE_LIST[i]
+export function zoneDisplayIndexOf(cell: Pick<Cell, 'zone' | 'room'>): number {
+  const id = cell.room ?? zoneOf(cell)
+  const index = ZONE_PAINT_LIST.findIndex((z) => z.id === id)
+  return index >= 0 ? index : zoneIndex(cell.zone)
 }
 
-export function zoneLabel(zone: Zone | undefined): string {
+export function zoneDef(zone: ZonePaint | undefined): ZonePaintDef {
+  return ZONE_PAINT_LIST.find((z) => z.id === (zone ?? DEFAULT_ZONE)) ?? ZONE_PAINT_LIST[0]
+}
+
+export function zoneLabel(zone: ZonePaint | undefined): string {
   return zoneDef(zone).label
 }
 

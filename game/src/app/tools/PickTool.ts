@@ -184,12 +184,13 @@ export class PickTool extends ToolController {
     // The drawn mesh wins, exactly as in 选择: a large head-house is drawn far
     // past its collision box, and a rail's bed is dug, so the track module is
     // looked for at both the hit and the cell above.
-    const rail =
+    const rail = this.visibleModule(
       railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
-      railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2])
+      railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2]),
+    )
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
-    const mod = picked ?? rail ?? (hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
+    const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
     if (mod) {
       const label = moduleLabel(mod)
       // A derived screen door has no placement of its own: select it, stay.

@@ -6,9 +6,10 @@ import {t,setLanguage} from './i18n.js';
 import {appearanceSizeRanges,constrainAppearance,previewScale,randomAppearance,sizePercent,sizeRanges} from './preview-appearance.js';
 import './style.css';
 import {applyPassengerCarryPose} from './animation/carry-pose.js';
+import {HAIR_CHOICES,supportsBackpack} from './characters/hairstyles.js';
 
 const $=selector=>document.querySelector(selector),params=new URL(location.href).searchParams;
-const hairstyles={male:['original','short','bald'],female:['bob','shoulder','long']};
+const hairstyles=HAIR_CHOICES;
 const character=params.get('character')==='male'?'male':'female';
 const age=params.get('age')==='child'?'child':'adult';
 const bagStyles=BAG_CHOICES.map(([value])=>value).filter(value=>value!=='0'&&value!=='1');
@@ -61,8 +62,8 @@ async function loadModel(){
 }
 $('#age').onchange=e=>{state.age=e.target.value;updateAppearance();loadModel()};
 $('#character').onchange=e=>{state.character=e.target.value;state.hair=hairstyles[state.character][0];constrainAppearance(state);loadModel()};
-$('#hair').onchange=e=>{state.hair=e.target.value;if(state.hair==='long'&&isBackpack(state.bagStyle))state.bag=false;loadModel()};
-$('#bag').onchange=e=>{state.bag=e.target.value!=='0';state.bagStyle=bagStyleFromValue(e.target.value);if(state.bag&&state.hair==='long'&&isBackpack(state.bagStyle))state.hair='shoulder';loadModel()};
+$('#hair').onchange=e=>{state.hair=e.target.value;if(!supportsBackpack(state.character,state.hair)&&isBackpack(state.bagStyle))state.bag=false;loadModel()};
+$('#bag').onchange=e=>{state.bag=e.target.value!=='0';state.bagStyle=bagStyleFromValue(e.target.value);if(state.bag&&!supportsBackpack(state.character,state.hair)&&isBackpack(state.bagStyle))state.hair='shoulder';loadModel()};
 for(const axis of Object.keys(sizeRanges))$('#'+axis).oninput=e=>{state.size[axis]=sizePercent(axis,e.target.value,state.age);applySize();refresh()};
 $('#reset-size').onclick=()=>{for(const axis of Object.keys(sizeRanges))state.size[axis]=sizePercent(axis,null,state.age);applySize();refresh()};
 $('#randomize').onclick=()=>{Object.assign(state,randomAppearance());updateAppearance();loadModel()};

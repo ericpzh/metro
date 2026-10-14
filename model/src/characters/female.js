@@ -4,6 +4,8 @@ import {addBackpackConnectors} from './backpack-connectors.js';
 import {smallBackpackGeometry} from './small-backpack.js';
 import {addCarriedBags} from './carried-bags.js';
 import {isBackpack} from './library.js';
+import {MALE_HAIRSTYLES,FEMALE_HAIRSTYLES,supportsBackpack} from './hairstyles.js';
+import {maleHairGeometry} from './male-hair.js';
 
 const grey=value=>new THREE.Color().setRGB(value,value,value,THREE.SRGBColorSpace).r;
 // A continuous coat profile: rounded shoulder, straight back, gently flared hem.
@@ -30,11 +32,12 @@ export function detachedTrouserTriangles(geometry){
  return new Set(triangles.filter(([,id])=>low[root(id)]>.65).map(([offset])=>offset));
 }
 
-export const HAIRSTYLES={bob:{label:'Short bob',hem:1.435,width:.135,sweep:0},shoulder:{label:'Shoulder length',hem:1.325,width:.135,sweep:0},long:{label:'Long hair',hem:1.105,width:.135,sweep:.035}};
+export const HAIRSTYLES=FEMALE_HAIRSTYLES;
 
 function bobGeometry(style='bob'){
- if(style==='short'||style==='bald')return scalpGeometry();
+ if(MALE_HAIRSTYLES[style]?.kind==='scalp')return scalpGeometry(false,MALE_HAIRSTYLES[style]);
  const shape=HAIRSTYLES[style];
+ const kind=shape.kind;
  const segments=80,rows=28,positions=[],indices=[];
  // Closed hair shell: a rounded crown, chin-length sides, and an open face.
  // Its inner surface and hem join the outer surface without filling the face.
@@ -44,21 +47,23 @@ function bobGeometry(style='bob'){
   // The fringe overlaps the old hair/forehead seam rather than ending above it.
   // Long lengths sit behind the shoulders. Forward side locks stop above the
   // sleeve instead of poking through it as the arms swing.
-  const sideHem=style==='long'?THREE.MathUtils.lerp(shape.hem+.018*Math.sin(phi)**2,1.31,THREE.MathUtils.smoothstep(Math.cos(phi),-.45,-.05)):shape.hem+.018*Math.sin(phi)**2;
-  const hem=THREE.MathUtils.lerp(sideHem,1.549+.004*Math.sin(2*phi-.3),front);
+  const lowerHem=shape.hem+.018*Math.sin(phi)**2+(shape.angle??0)*Math.sin(phi);
+  const sideHem=kind==='long'?THREE.MathUtils.lerp(lowerHem,1.31,THREE.MathUtils.smoothstep(Math.cos(phi),-.45,-.05)):lowerHem;
+  const hem=THREE.MathUtils.lerp(sideHem,1.549+.004*Math.sin(2*phi-.3)-(shape.fringe??0)*(.5+.5*Math.sin(phi)),front);
   const skirt=Math.max(0,(t-.55)/.45);
   const radius=Math.sin(cap*Math.PI/2)*(1-.035*skirt-.075*THREE.MathUtils.smoothstep(skirt,.82,1))*(shell?.94:1);
   const y=t<=.55?1.72-.12*(1-Math.cos(cap*Math.PI/2)):THREE.MathUtils.lerp(1.60,hem,skirt);
   const fringe=.009*Math.max(0,Math.cos(phi))**8*skirt;
   // The approved forehead reaches Z=.209. A symmetric .13 m cap left an
   // exposed wedge; the front crown must enclose that actual head envelope.
-  const cosine=Math.cos(phi),depth=cosine>0?.205:(style==='bob'?.130:.105),profile=cosine>0?Math.sqrt(cosine):cosine;
+  const cosine=Math.cos(phi),depth=cosine>0?.205:(kind==='bob'?.130:.105),profile=cosine>0?Math.sqrt(cosine):cosine;
   // Close-fitting crown and sides, with a small flare only at the lower hem.
   // The long-hair temple follows height, not each column's different hem.
   // Otherwise the forehead column flares early and leaves a notch at its side.
-  const width=shape.width+(style==='bob'?0:style==='long'?.040*THREE.MathUtils.smoothstep(1.50-y,0,.19):.009*THREE.MathUtils.smoothstep(skirt,.45,1));
-  const sideRadius=style==='long'?Math.sin(cap*Math.PI/2)*(1-.11*THREE.MathUtils.smoothstep(1.32-y,0,.22))*(shell?.94:1):radius;
-  positions.push(width*sideRadius*Math.sin(phi),y-(shell?.002:0),.018-shape.sweep*skirt*(1-front)+depth*radius*profile+fringe);
+  const width=shape.width+(kind==='bob'?0:kind==='long'?.040*THREE.MathUtils.smoothstep(1.50-y,0,.19):.009*THREE.MathUtils.smoothstep(skirt,.45,1))-(shape.taper??0)*skirt+(shape.roundness??0)*Math.sin(skirt*Math.PI);
+  const sideRadius=kind==='long'?Math.sin(cap*Math.PI/2)*(1-.11*THREE.MathUtils.smoothstep(1.32-y,0,.22))*(shell?.94:1):radius;
+  const crown=1-THREE.MathUtils.smoothstep(t,.2,.55);
+  positions.push(width*sideRadius*Math.sin(phi)+(shape.part??0)*crown,y-(shell?.002:0),.018-shape.sweep*skirt*(1-front)+depth*radius*profile+fringe);
  }
  const count=(rows+1)*(segments+1);
  for(let shell=0;shell<2;shell++)for(let row=0;row<rows;row++)for(let j=0;j<segments;j++){
@@ -74,14 +79,21 @@ function bobGeometry(style='bob'){
 }
 
 // Follow the actual skin envelope, rather than retaining a bob's projecting
-// fringe and square rear hem. Both cropped styles share this rounded scalp.
+// fringe and square rear hem. Short/bald share this scalp; crops vary its crown.
 const scalpHem=phi=>{const t=(Math.cos(phi)+1)/2;return 1.475+.08*(.6*t+.4*t*t)};
-function scalpGeometry(lower=false){
+function scalpGeometry(lower=false,shape={}){
  const segments=80,rows=28,positions=[],indices=[],count=(rows+1)*(segments+1);
  for(let shell=0;shell<2;shell++)for(let row=0;row<=rows;row++)for(let j=0;j<=segments;j++){
   const phi=j/segments*Math.PI*2;
-  const hem=scalpHem(phi),edge=Math.acos((hem-1.56)/.13),theta=lower?THREE.MathUtils.lerp(edge,Math.PI,row/rows):row/rows*edge,radius=Math.sin(theta)*(shell?.98:1);
-  positions.push(.108*radius*Math.sin(phi),1.56+.13*Math.cos(theta)-(shell?.001:0),.04+.133*radius*Math.cos(phi));
+  const front=Math.max(0,Math.cos(phi)),hem=scalpHem(phi)-(shape.fringe??0)*front**4;
+  const edge=Math.acos((hem-1.56)/.13),theta=lower?THREE.MathUtils.lerp(edge,Math.PI,row/rows):row/rows*edge,radius=Math.sin(theta)*(shell?.98:1);
+  const crown=lower?0:Math.max(0,Math.cos(theta))**2;
+  const lift=(shape.volume??0)*crown+(shape.quiff??0)*front*crown*Math.sin(theta);
+  const part=(shape.part??0)*crown*Math.sin(theta)*Math.sin(phi);
+  // A lowered fringe must cover the source forehead's projecting skin surface,
+  // rather than cutting a shallow scalp through it and exposing jagged slivers.
+  const fringe=shape.fringe?.043*front**8*THREE.MathUtils.smoothstep(row/rows,.55,1):0;
+  positions.push((.108+(shape.width??0))*radius*Math.sin(phi)+(shape.sweep??0)*crown,1.56+.13*Math.cos(theta)+lift+part-(shell?.001:0),.04+.133*radius*Math.cos(phi)+fringe);
  }
  for(let shell=0;shell<2;shell++)for(let row=0;row<rows;row++)for(let j=0;j<segments;j++){
   const a=shell*count+row*(segments+1)+j,b=a+1,c=a+segments+1,d=c+1;
@@ -191,11 +203,11 @@ export function createFemaleVariant(model,{male=false}={}){
   for(const [style,{strap}] of scaledPacks){strap.visible=withBag&&bagStyle===style;strap.name=bagStyle===style?'Backpack_strap_connectors':`${style} backpack straps`}
   for(const [style,meshes] of carriedBags)for(const mesh of meshes)mesh.visible=withBag&&bagStyle===style;
   for(const i of strapVertices)c.setXYZ(i,grey(withBag?.47:coatGrey),grey(withBag?.47:coatGrey),grey(withBag?.47:coatGrey));c.needsUpdate=true;
-  if(onBack&&currentStyle==='long')setHairstyle('shoulder');
+  if(onBack&&!supportsBackpack(male?'male':'female',currentStyle))setHairstyle('shoulder');
  }
  function setHairstyle(style){
-  if(!HAIRSTYLES[style]&&!(male&&['short','bald'].includes(style)))throw new Error(`Unknown hairstyle: ${style}`);
-  if(style==='long'&&isBackpack(bagStyle))setBag(false);currentStyle=style;
+  if(!(male?MALE_HAIRSTYLES:HAIRSTYLES)[style])throw new Error(`Unknown hairstyle: ${style}`);
+  if(!supportsBackpack(male?'male':'female',style)&&isBackpack(bagStyle))setBag(false);currentStyle=style;
   const previous=hair.geometry;hair.geometry=styledGeometry(style);previous.dispose();hair.name=style[0].toUpperCase()+style.slice(1)+' hairstyle';
  }
  // Preserve the approved tousled hair as a separate head-skinned surface for
@@ -213,7 +225,7 @@ export function createFemaleVariant(model,{male=false}={}){
    }
    return positions;
   });
-  const updateHead=()=>{const onBack=withBag&&isBackpack(bagStyle);body.geometry.setAttribute('position',currentStyle==='original'?(onBack?p:noBagPositions):croppedPositions[onBack?0:1]);body.geometry.computeVertexNormals();body.geometry.computeBoundingBox();body.geometry.computeBoundingSphere()};
+  const updateHead=()=>{const onBack=withBag&&isBackpack(bagStyle);body.geometry.setAttribute('position',MALE_HAIRSTYLES[currentStyle].kind==='source'?(onBack?p:noBagPositions):croppedPositions[onBack?0:1]);body.geometry.computeVertexNormals();body.geometry.computeBoundingBox();body.geometry.computeBoundingSphere()};
   const changeBag=setBag;setBag=enabled=>{changeBag(enabled);updateHead()};
   const headFill=hair.clone();headFill.geometry=scalpGeometry(true);headFill.name='Scalp skin continuation';headFill.visible=false;
   const count=headFill.geometry.attributes.position.count,indices=new Uint16Array(count*4),weights=new Float32Array(count*4);
@@ -224,12 +236,18 @@ export function createFemaleVariant(model,{male=false}={}){
   const hairIndices=[];
   for(let i=0;i<index.length;i+=3){const ids=[index[i],index[i+1],index[i+2]];if(ids.every(j=>p.getY(j)>1.425&&Math.abs(c.getX(j)-grey(.47))<.001))hairIndices.push(...ids)}
   originalHair.geometry.setIndex(hairIndices);model.add(originalHair);
+  const sourceHair=originalHair.geometry;
   const changeHair=setHairstyle;
   setHairstyle=style=>{
-   if(!['original','short','bald'].includes(style))throw new Error(`Unknown male hairstyle: ${style}`);
+   if(!MALE_HAIRSTYLES[style])throw new Error(`Unknown male hairstyle: ${style}`);
+   const shape=MALE_HAIRSTYLES[style],fromSource=shape.kind==='source';
    originalHair.visible=style==='original';hair.visible=style!=='original';
-   headFill.visible=style!=='original';
-   if(style!=='original')changeHair(style);else currentStyle=style;
+   headFill.visible=!fromSource;
+   if(style==='original')currentStyle=style;
+   else if(fromSource){
+    const previous=hair.geometry;hair.geometry=maleHairGeometry(sourceHair,hairIndices,shape);previous.dispose();
+    hair.name=style[0].toUpperCase()+style.slice(1)+' hairstyle';currentStyle=style;
+   }else changeHair(style);
    updateHead();
   };
   setHairstyle('original');

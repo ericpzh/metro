@@ -10,8 +10,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { canPlaceWithoutFloorHit } from '../src/app/tools/placementInput.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
-import { toState } from '../src/build/model.ts'
+import { createModule, toState } from '../src/build/model.ts'
 import { useStore } from '../src/app/store.ts'
+import { exitBayCell } from '../src/sim/exits.ts'
+import { STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
 
 test('wall-mounted poster and glass tiles reach the backing-wall verdict from open air', () => {
   assert.equal(canPlaceWithoutFloorHit('billboard-wide'), true)
@@ -28,6 +30,90 @@ test('floor-standing equipment still requires a solid floor hit', () => {
   assert.equal(canPlaceWithoutFloorHit('bench-steel'), false)
   assert.equal(canPlaceWithoutFloorHit('door'), false)
   assert.equal(canPlaceWithoutFloorHit('linemap-stand'), false)
+})
+
+test('an exit preview and click snap to the picked stair without a ground hit', () => {
+  const before = useStore.getState()
+  try {
+    const stair = createModule('stair-straight', -1, 40, -4, 'stair-b', 0, STAIR_WIDTH_DOUBLE)
+    assert.ok(stair)
+    const state = toState({ name: 'exit snap', seed: 1, cells: [], modules: [stair], lines: [] })
+    useStore.setState({ station: state, past: [], future: [], tool: 'module', moduleType: 'exit-uncovered-2', moduleRot: 3, selected: null })
+
+    let preview = null
+    let blocked = true
+    const scene = {
+      setModulePreview: (modules, refused) => { preview = modules?.[0] ?? null; blocked = refused },
+      setCursor: () => {},
+      setCollisionHighlight: () => {},
+    }
+    const tool = new EquipmentTool({
+      scene: () => scene,
+      pickModule: () => stair.id,
+      hover: { current: null },
+      drag: { current: null },
+    })
+    const pointer = { clientX: 10, clientY: 10, button: 0, buttons: 1, hit: null, preventDefault() {} }
+
+    tool.onMove(pointer)
+    assert.ok(preview)
+    assert.equal(blocked, false, 'the exit can share the selected stair')
+    const upper = stair.from.z > stair.to.z ? stair.from : stair.to
+    assert.deepEqual(exitBayCell(preview, 0), [upper.x, upper.y, upper.z], 'the ghost bay follows the stair upper landing')
+    assert.equal(preview.rot, 0, 'the exit faces down the stair')
+
+    tool.onDown(pointer)
+    const placed = useStore.getState().station.modules.find((module) => module.type === 'exit')
+    assert.ok(placed)
+    assert.deepEqual(exitBayCell(placed, 0), [upper.x, upper.y, upper.z], 'click places the previewed alignment')
+    assert.equal(placed.rot, preview.rot)
+  } finally {
+    useStore.setState(before)
+  }
+})
+
+test('an exit finds a stair through tread gaps when the pointer also hits the floor', () => {
+  const before = useStore.getState()
+  try {
+    const stair = createModule('stair-straight', -1, 40, -4, 'stair-gap', 0, STAIR_WIDTH_DOUBLE)
+    assert.ok(stair)
+    const state = toState({ name: 'exit snap over tread gaps', seed: 1, cells: [], modules: [stair], lines: [] })
+    useStore.setState({ station: state, past: [], future: [], tool: 'module', moduleType: 'exit-uncovered-2', moduleRot: 3, selected: null })
+
+    let preview = null
+    let blocked = true
+    const scene = {
+      pickModuleInBounds: (_x, _y, ids) => ids.has(stair.id) ? stair.id : null,
+      setModulePreview: (modules, refused) => { preview = modules?.[0] ?? null; blocked = refused },
+      setFencePreview: () => {},
+      setCursor: () => {},
+      setCollisionHighlight: () => {},
+    }
+    const tool = new EquipmentTool({
+      scene: () => scene,
+      pickModule: () => null, // the exact ray falls between the stair's separated treads
+      hover: { current: null },
+      drag: { current: null },
+    })
+    const pointer = {
+      clientX: 10, clientY: 10, button: 0, buttons: 1,
+      hit: { cell: [-1, 46, 0], place: [-1, 46, 0], solid: true, point: [-0.5, 46.5, 1] },
+      preventDefault() {},
+    }
+
+    tool.onMove(pointer)
+    assert.ok(preview, 'the hover resolves the stair despite the floor hit')
+    assert.equal(blocked, false)
+    const upper = stair.from.z > stair.to.z ? stair.from : stair.to
+    assert.deepEqual(exitBayCell(preview, 0), [upper.x, upper.y, upper.z])
+
+    tool.onDown(pointer)
+    const placed = useStore.getState().station.modules.find((module) => module.type === 'exit')
+    assert.ok(placed)
+    assert.deepEqual(exitBayCell(placed, 0), [upper.x, upper.y, upper.z], 'placement follows the bounded ramp pick, not the floor tile')
+  } finally {
+    useStore.setState(before)
+  }
 })
 
 test('a 玻璃板 aimed at a wall hangs on that course, where a poster keeps its band', () => {

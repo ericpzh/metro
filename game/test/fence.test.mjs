@@ -57,7 +57,7 @@ test('fence drag previews and places the selected variant, and deletion leaves d
       let ghost = []
       const scene = { setFencePreview: (mods) => { ghost = mods ?? [] }, setModulePreview() {}, setCollisionHighlight() {}, setGhost() {}, setCursor() {} }
       const drag = { current: null }
-      const tool = new EquipmentTool({ scene: () => scene, drag, hover: { current: null } })
+      const tool = new EquipmentTool({ scene: () => scene, drag, hover: { current: null }, pickModule: () => null })
       const event = (x, button = 0) => ({ clientX: x * 20, clientY: 0, button, buttons: button === 2 ? 2 : 1, hit: { cell: [x, 0, 0], place: [x, 0, 1], solid: true }, preventDefault() {} })
       tool.onDown(event(0))
       drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
@@ -230,6 +230,12 @@ test('a fence treats a stair or escalator landing as a neighbour', () => {
   assert.equal(railLandingAt([wide], 1, 6, 4), true, 'the extra upper landing cell connects')
   assert.equal(railLandingAt([wide], 2, 0, 0), false, 'only the two landing columns connect')
   assert.equal(railLandingAt([], 0, 0, 0), false)
+})
+
+test('a stair block is not a fence neighbour because it has no handrail', () => {
+  const block = createModule('stair-block', 0, 0, 0, 'block')
+  assert.ok(block?.type === 'stair' && block.cfg.block)
+  assert.equal(railLandingAt([block], block.x, block.y, block.z), false)
 })
 
 test('a fence on a landing closes the flight it stands on', () => {

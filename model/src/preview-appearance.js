@@ -1,4 +1,5 @@
 import {MODEL_LIBRARY,isBackpack,modelEligible} from './characters/library.js';
+import {supportsBackpack} from './characters/hairstyles.js';
 import {PASSENGER_CHILD_CHANCE, PASSENGER_CHILD_SCALE, PASSENGER_CHILD_SIZE_VARIATION, PASSENGER_SIZE_VARIATION} from '../../game/src/sim/constants.ts';
 
 export const sizeRanges=PASSENGER_SIZE_VARIATION;
@@ -12,7 +13,7 @@ export function constrainAppearance(state){
   if(state.hair==='bald')state.hair='short';
  }
  state.bagStyle??='standard';
- if(state.hair==='long'&&state.bag&&isBackpack(state.bagStyle))state.bag=false;
+ if(!supportsBackpack(state.character??'female',state.hair)&&state.bag&&isBackpack(state.bagStyle))state.bag=false;
  if(state.bag&&!MODEL_LIBRARY.some(model=>model.character===(state.character??'female')&&model.hair===state.hair&&model.bagStyle===state.bagStyle&&modelEligible(model,state.age))){
   // Legacy standard entries omit bagStyle; all restricted combinations clear
   // the bag rather than silently selecting a bag the user did not request.

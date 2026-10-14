@@ -19,7 +19,7 @@ import {
 } from '../store.ts'
 import type { AppState, Tool, ZoneBrush } from '../store.ts'
 import { finishBaseId } from '../../sim/finishes.ts'
-import { ZONE_LIST } from '../../sim/zones.ts'
+import { ZONE_PAINT_LIST } from '../../sim/zones.ts'
 import type { Module, TriangleKind } from '../../sim/types.ts'
 
 /** One build-rail folder per key; `RAIL_FOLDERS` is the order they are stacked in. */
@@ -263,13 +263,12 @@ export const PLATFORM_TILE = '__platform'
 export const TUNNEL_TILE = '__tunnel'
 
 /**
- * How many tiles the 分区 folder can put on screen: one per zone in `ZONE_LIST`,
- * **无分区** included — that tile is the brush that takes a label off
- * (`isEraseBrush`) — plus the three walled-room brushes (商店 / 厕所 / 办公室)
- * the folder also arms, so the count is the zone list plus those three.
+ * How many tiles the 分区 folder can put on screen: one per fare-zone or room
+ * label in `ZONE_PAINT_LIST`, **无分区** included — that tile is the brush that takes
+ * a label off (`isEraseBrush`).
  */
 export function zoneFolderTiles(): number {
-  return ZONE_LIST.length + 3
+  return ZONE_PAINT_LIST.length
 }
 
 /** A rectangle, in the two numbers a "is it in view" test needs. */

@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_SIDE, EXIT_W } from '../src/sim/exits.ts'
-import { exitBayCell, exitBayOffsets, exitBays, exitCentre, exitDoorCell, exitFloorAt, exitFloorBounds, exitRunHalf, exitRunOpenings, exitRunSnap, exitSide, exitSpan, exitWallPlanes, exitWidth, isExitHeadHouse } from '../src/sim/exits.ts'
+import { exitBayCell, exitBayOffsets, exitBays, exitCentre, exitDoorCell, exitFloorAt, exitFloorBounds, exitLandingBack, exitRunHalf, exitRunOpenings, exitRunSnap, exitSide, exitSpan, exitWallPlanes, exitWidth, isExitHeadHouse, snapExitToRamp } from '../src/sim/exits.ts'
 import { STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
 import { createModule } from '../src/build/model.ts'
 
@@ -165,6 +165,42 @@ test('a bay cell turns with the exit, so the floor pad finds its run', () => {
   assert.deepEqual(exitBayCell(exit(3), 1), [0, -1, 0])
 })
 
+test('placing a head-house from a picked straight stair centers a bay on its upper landing', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const stair = createModule('stair-straight', 3, -5, -4, `stair-${rot}`, rot)
+    assert.ok(stair)
+    const upper = stair.from.z > stair.to.z ? stair.from : stair.to
+    const snapped = snapExitToRamp(variant(2, { bays: 2 }), stair)
+    assert.ok(snapped)
+    assert.equal(snapped.rot, (4 - rot) % 4, `rotation ${rot}: the mouth faces down the stair`)
+    assert.deepEqual(exitBayCell(snapped, 0), [upper.x, upper.y, upper.z], `rotation ${rot}: selected stair fits bay 0`)
+    assert.equal(snapped.z, upper.z)
+  }
+})
+
+test('placing a head-house from an escalator follows its uphill end in either travel direction', () => {
+  for (let rot = 0; rot < 4; rot++) for (const direction of ['up', 'down']) for (const width of [1, 2]) {
+    const escalator = createModule('escalator', 3, -5, -4, `escalator-${rot}-${direction}-${width}`, rot, width, direction)
+    assert.ok(escalator)
+    const upper = escalator.from.z > escalator.to.z ? escalator.from : escalator.to
+    const snapped = snapExitToRamp(variant(0, { bays: 3 }), escalator)
+    assert.ok(snapped)
+    assert.equal(snapped.rot, (4 - rot) % 4, `${direction}, rotation ${rot}: the mouth faces down the slope`)
+    const bay = width === 2 ? 0 : 1
+    assert.deepEqual(exitBayCell(snapped, bay), [upper.x, upper.y, upper.z], `${direction}, rotation ${rot}: the first occupied bay meets the landing`)
+    assert.equal(exitRunOpenings([escalator], snapped)[0].column, bay + (width - 1) / 2, 'the wellway follows the full width of the escalator')
+  }
+})
+
+test('head-house placement from a ramp rejects virtual exits and turning stairs', () => {
+  const turning = createModule('stair-right90', 0, 0, -4, 'turning', 0)
+  const virtual = createModule('exit-virtual', 0, 0, 0, 'virtual')
+  const straight = createModule('stair-straight', 0, 0, -4, 'straight', 0)
+  assert.ok(turning && virtual && straight)
+  assert.equal(snapExitToRamp(variant(0, { bays: 2 }), turning), null)
+  assert.equal(snapExitToRamp(virtual, straight), null)
+})
+
 test('a ramp snapped into an exit lands on the bay and descends to the floor below', () => {
   const mods = [exit(0)]
   // Hovering a bay snaps the run's upper landing to it and drops its base a
@@ -220,9 +256,15 @@ test('a head-house opens a wellway per run, one block wide', () => {
   assert.deepEqual(exitRunOpenings([m], m), [], 'a bare head-house opens nothing')
   // A pair side by side: one block each, so the pad keeps a full block beside it.
   assert.deepEqual(exitRunOpenings([m, run('w', 0), run('e', 1)], m), [
-    { column: 0, half: 0.5 },
-    { column: 1, half: 0.5 },
+    { column: 0, row: 0, half: 0.5 },
+    { column: 1, row: 0, half: 0.5 },
   ])
+  const offsetStair = createModule('stair-straight', 0, -5, -4, 'offset-top', 0)
+  assert.ok(offsetStair)
+  const offsetOpening = exitRunOpenings([m, offsetStair], m)
+  assert.equal(offsetOpening[0]?.row, 1, 'the opening follows the stair upper landing row')
+  assert.equal(exitLandingBack(offsetOpening, 2.2), 1.5, 'floor cut extends past that upper landing')
+  assert.equal(exitLandingBack([{ column: 0, row: 0, half: 0.5 }], 2.2), 0.5, 'aligned stairs keep the normal opening edge')
   // A run wider than a block opens wider, so its rails never surface through the
   // floor beside it. A medium straight stair fills two blocks including its rails.
   const wide = createModule('stair-straight', 0, -6, -4, 'wide', 0, STAIR_WIDTH_DOUBLE)

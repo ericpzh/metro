@@ -2,7 +2,7 @@
 // Leaf module: only sim/ imports plus a type-only StationState.
 
 import { levelSteps, storeyBand } from '../../sim/constants.ts';
-import { groundHoleAt, virtualSolidAt } from '../../sim/ground.ts';
+import { GROUND_Z, groundHoleAt, virtualSolidAt } from '../../sim/ground.ts';
 import { blockIndex } from '../../sim/blockIndex.ts';
 import { blockReason } from '../validation.ts';
 import type { Cell, Module } from '../../sim/types.ts';
@@ -126,6 +126,7 @@ export function addCells(
   const at = new Map<string, number>();
   cells.forEach((c, i) => at.set(cellKey(c.x, c.y, c.z), i));
   const out = cells.slice();
+  const filledGroundHoles = new Set<string>();
   let changed = 0;
   let blocked = 0;
   // One set per level, built once for the whole rectangle: equipment is sparse, so
@@ -143,11 +144,21 @@ export function addCells(
     const k = cellKey(x, y, z);
     have.add(k);
     const hole = at.get(k);
-    if (hole === undefined) out.push({ x, y, z, fill: 'solid' });
+    // At grade, a plain block is the implicit street, not authored content.
+    // Remove the hole record and let absence mean ground again; otherwise a
+    // delete/re-add cycle leaves a redundant solid in the save. A later finish
+    // or zone edit can materialise this coordinate with its authored data.
+    if (z === GROUND_Z) {
+      if (hole !== undefined) filledGroundHoles.add(k);
+    } else if (hole === undefined) out.push({ x, y, z, fill: 'solid' });
     else out[hole] = { x, y, z, fill: 'solid' };
     changed++;
   }
-  return { cells: out, changed, blocked };
+  return {
+    cells: filledGroundHoles.size === 0 ? out : out.filter((c) => !filledGroundHoles.has(cellKey(c.x, c.y, c.z))),
+    changed,
+    blocked,
+  };
 }
 
 /** Remove solid cells and any modules hosted on them. */

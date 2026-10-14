@@ -35,6 +35,13 @@ export abstract class ToolController {
     return this.ctx.pickModule(info.clientX, info.clientY)
   }
 
+  /** Coordinate fallbacks must respect the renderer's current storey slice too. */
+  protected visibleModule(mod: Module | undefined): Module | undefined {
+    if (!mod) return undefined
+    const scene = this.ctx.scene()
+    return scene?.isModuleVisible && !scene.isModuleVisible(mod.id) ? undefined : mod
+  }
+
   protected facing(): [number, number] | undefined {
     return this.ctx.facing()
   }
@@ -73,14 +80,15 @@ export abstract class ToolController {
   protected bulldoze(cell: [number, number, number], place?: [number, number, number], facing?: readonly [number, number]): void {
     const st = useStore.getState()
     // A rail's bed is dug, so the module is found from the hit or the cell above.
-    const rail =
+    const rail = this.visibleModule(
       railModuleAt(st.station, cell[0], cell[1], cell[2]) ??
-      (place ? railModuleAt(st.station, place[0], place[1], place[2]) : undefined)
+      (place ? railModuleAt(st.station, place[0], place[1], place[2]) : undefined),
+    )
     if (rail) {
       this.removePlacedModule(rail)
       return
     }
-    const mod = moduleAt(st.station.modules, cell[0], cell[1], cell[2], facing)
+    const mod = this.visibleModule(moduleAt(st.station.modules, cell[0], cell[1], cell[2], facing))
     if (mod) this.removePlacedModule(mod)
     else st.setNotice(msg('nothing_to_remove_here'))
   }

@@ -7,6 +7,7 @@ import { passengerBody, passengerPose, passengerFrames, passengerMaterial, passe
 import { passengerIsChild, passengerWalkProfile, passengerWalkSpeed } from '../src/sim/walking.ts'
 import { useStore } from '../src/app/store.ts'
 import human from '../src/assets/passenger-approved.json' with { type: 'json' }
+import { decodePassengerBytes } from '../src/render/passengerAtlas.ts'
 
 for (const preset of ['iso', 'plan']) {
   test(`passenger eye view restores the ${preset} camera, lens and projection`, () => {
@@ -119,7 +120,7 @@ test('outfits, proportions and ink tones follow identity through buffer reorderi
   assert.equal(crowd.agents, previousMesh, 'snapshot growth reuses the existing instanced draw')
   frame([7, 23, 3])
   assert.deepEqual(appearance(0), before, 'variant, scale and ink survive snapshot growth and compaction')
-  const identities = Array.from({length: 1000}, (_,i) => passengerAppearance(i))
+  const identities = Array.from({length: 20000}, (_,i) => passengerAppearance(i))
   assert.equal(new Set(identities.map(a => a[0])).size, PASSENGER_OUTFITS.length)
   assert.ok(new Set(identities.map(a => a[1])).size > 20)
   assert.ok(new Set(identities.map(a => a[2])).size > 20)
@@ -137,7 +138,7 @@ test('outfits, proportions and ink tones follow identity through buffer reorderi
 })
 
 test('approved faceless head and backpack stay attached through grounded walking poses', () => {
-  assert.equal(PASSENGER_OUTFITS.length, 56)
+  assert.equal(PASSENGER_OUTFITS.length, human.library.length)
   for (const frame of Array.from({length:human.frames-1},(_,i)=>i+1)) {
     const walk = passengerPose(frame)
     let top = 0, foot = Infinity
@@ -210,8 +211,8 @@ test('illustrated human mesh has human scale, flat ink shading and grounded walk
 })
 
 test('approved variants retain flat grey boundaries through the pose lookup', () => {
-  const regions = Buffer.from(human.regions, 'base64')
-  const raw = Buffer.from(human.indices, 'base64')
+  const regions = Buffer.from(decodePassengerBytes(human.regions, human.encoding))
+  const raw = Buffer.from(decodePassengerBytes(human.indices, human.encoding))
   const indices = new (human.indexBits === 32 ? Uint32Array : Uint16Array)(raw.buffer, raw.byteOffset, raw.byteLength / (human.indexBits / 8))
   assert.equal(regions.length, human.vertices)
   for(let i=0;i<indices.length;i+=3){

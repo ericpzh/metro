@@ -229,7 +229,7 @@ test('a block fills a dug hole back, replacing the record instead of shadowing i
 
   const filled = addCells(dug.cells, [[3, 4, 0]], [])
   assert.equal(filled.changed, 1, 'the hole the drag covered is filled')
-  assert.deepEqual(filled.cells, [{ x: 3, y: 4, z: 0, fill: 'solid' }], 'and the `void` is gone, not merely outvoted')
+  assert.deepEqual(filled.cells, [], 'the `void` is removed and default ground stays implicit')
   assert.equal(groundHoleAt(filled.cells, [], 3, 4), false, 'so the plane is closed again')
 })
 

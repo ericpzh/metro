@@ -83,6 +83,7 @@ input (geometry, speed/cover/track, zones/tags, metadata and future fields fail 
 | `panelAtlas.ts` | Full-resolution canvas panel pages, UV remapping/gutters, live texture versions, recycled slots and rendering/clipping-plane identity boundaries. |
 | `moduleDependencies.ts` | Cell-local retained roots and conservative metadata/neighbour invalidation; one-sign printed-board-only keep-set verdict. |
 | `passengerEligibility.ts` | Explicit adult/child metadata with historical fallback for old atlases; explicit false wins. |
+| `passengerAtlas.ts` | Lossless zlib/base64 buffer decoding, with legacy raw-base64 compatibility. |
 | `passengerModel.ts` | Approved shared pose/outfit atlas, normalized age metadata and stable identity-based appearance; no per-agent skeleton. |
 
 ModuleSystem owns equipment batches and original picking roots; LevelSystem updates

@@ -73,10 +73,7 @@ export function Block({ label, active, onClick, thumb, art, icon, tone, submenu,
       ) : null}
       <span className="bpBlockArt">
         {/* Art is one of four, in that order of preference: the real model, the
-            caller's own glyph, a blueprint line icon, or a colour field. The 房间 tiles
-            hand over their icon *and* their colour, and the icon is the one that
-            identifies the room — the colour is only what the drag paints the floor
-            with. */}
+            caller's own glyph, a blueprint line icon, or a colour field. */}
         {thumb ? (
           <img src={thumb} alt="" draggable={false} />
         ) : art ? (

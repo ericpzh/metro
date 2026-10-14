@@ -7,6 +7,7 @@ import { DeleteTool } from '../src/app/tools/DeleteTool.ts'
 import { MoveController } from '../src/app/tools/MoveController.ts'
 import { PickTool } from '../src/app/tools/PickTool.ts'
 import { SelectTool } from '../src/app/tools/SelectTool.ts'
+import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 
 const hit = { cell: [0, 0, 0], place: [0, 0, 1], solid: true, point: [0.5, 0.5] }
 
@@ -55,6 +56,24 @@ test('move, picker and select hover previews tint the target blue; bulldoze prev
     useStore.setState({ tool: 'delete' })
     new DeleteTool(f.ctx).onMove(f.pointer)
     assert.deepEqual(f.previews.at(-1), [f.module, true], 'bulldoze keeps the red blocked-preview treatment')
+  } finally {
+    useStore.setState(before)
+  }
+})
+
+test('equipment settings refresh cannot restore a stair-block preview after switching to 方块', () => {
+  const before = useStore.getState()
+  try {
+    useStore.setState({ station: toState(emptyStation()), tool: 'block', moduleType: 'stair-block' })
+    const previews = []
+    const scene = { setModulePreview: (...args) => previews.push(args), setGhost() {}, setCollisionHighlight() {}, setCursor() {} }
+    const ctx = {
+      scene: () => scene,
+      hover: { current: { cell: [0, 0, 0], place: [0, 0, 1], solid: true } },
+      drag: { current: null },
+    }
+    new EquipmentTool(ctx).refreshHover()
+    assert.deepEqual(previews, [], 'shared placement-setting changes must not redraw an inactive equipment ghost')
   } finally {
     useStore.setState(before)
   }

@@ -1,4 +1,3 @@
-import { msg } from '../../sim/i18n.ts'
 // Build model: zones — the zone brush, its bucket, the floor rule both of them
 // publish, and the 分区 map (§4.5: a zone belongs to a floor cell, and the map
 // draws one storey at a time).
@@ -6,8 +5,8 @@ import { msg } from '../../sim/i18n.ts'
 import { finishOf, floorSpeed } from '../../sim/finishes.ts';
 import { storeyBand } from '../../sim/constants.ts';
 import { GROUND_Z, groundHoleAt } from '../../sim/ground.ts';
-import { zoneIndexOf, zoneOf } from '../../sim/zones.ts';
-import { DEFAULT_ZONE, type Cell, type Module, type Zone } from '../../sim/types.ts';
+import { zoneDisplayIndexOf, zoneOf, type ZonePaint } from '../../sim/zones.ts';
+import { DEFAULT_ZONE, type Cell, type Module, type RoomKind, type Zone } from '../../sim/types.ts';
 import { cellKey, NEIGH4 } from './Cells.ts';
 import type { StationState } from './State.ts';
 
@@ -149,9 +148,11 @@ export function paintZone(state: StationState, x: number, y: number, z: number, 
   }
   let changed = false;
   const cells = state.cells.map((c, i) => {
-    if (!targets.has(i) || zoneOf(c) === zone) return c;
+    if (!targets.has(i) || (zoneOf(c) === zone && c.room === undefined)) return c;
     changed = true;
-    return { ...c, zone };
+    const next = { ...c, zone };
+    delete next.room;
+    return next;
   });
   return changed ? { ...state, cells } : state;
 }
@@ -168,7 +169,7 @@ export function paintZone(state: StationState, x: number, y: number, z: number, 
 export function paintZoneCells(
   state: StationState,
   cells: Array<[number, number, number]>,
-  zone: Zone,
+  zone: ZonePaint,
 ): StationState {
   if (cells.length === 0) return state;
   // See `paintZone`: 无分区 is what a cell reads with no label, so a brush that
@@ -183,20 +184,27 @@ export function paintZoneCells(
     if (floorOf(solid, byKey, state.cells, state.modules, x, y, z)) keys.add(cellKey(x, y, z));
   }
   if (keys.size === 0) return state;
+  const isRoom = zone === 'store' || zone === 'toilet' || zone === 'office';
   let changed = false;
   const next = state.cells.map((c) => {
     if (c.fill !== 'solid' || !keys.has(cellKey(c.x, c.y, c.z))) return c;
-    if (zoneOf(c) === zone) return c;
+    if (isRoom ? c.room === zone : zoneOf(c) === zone && c.room === undefined) return c;
     changed = true;
-    return { ...c, zone };
+    if (isRoom) return { ...c, room: zone as RoomKind };
+    const { room: _room, ...withoutRoom } = c;
+    return { ...withoutRoom, zone: zone as Zone };
   });
-  // Virgin street in the rectangle materialises wearing the zone, like the
-  // bucket; a dug hole takes no zone because it is not floor.
+  // Virgin street materialises with its outside fare label plus the room tint;
+  // fare-zone paint uses its chosen label directly. A dug hole is never floor.
   for (const [x, y, z] of cells) {
     const k = cellKey(x, y, z);
     if (!keys.has(k) || byKey.has(k)) continue;
     changed = true;
-    next.push({ x, y, z, fill: 'solid', zone });
+    next.push(
+      isRoom
+        ? { x, y, z, fill: 'solid', ...(z === GROUND_Z ? { zone: 'outside' as const } : {}), room: zone as RoomKind }
+        : { x, y, z, fill: 'solid', zone: zone as Zone },
+    );
   }
   return changed ? { ...state, cells: next } : state;
 }
@@ -224,11 +232,24 @@ export function eraseZoneCells(state: StationState, cells: Array<[number, number
   let changed = false;
   const next: Cell[] = [];
   for (const c of state.cells) {
-    if (c.zone === undefined || !keys.has(cellKey(c.x, c.y, c.z))) {
+    if ((c.zone === undefined && c.room === undefined) || !keys.has(cellKey(c.x, c.y, c.z))) {
       next.push(c);
       continue;
     }
     changed = true;
+    if (c.room !== undefined) {
+      const kept = { ...c };
+      delete kept.room;
+      const isStreet =
+        kept.zone === undefined &&
+        kept.z === GROUND_Z &&
+        kept.fill === 'solid' &&
+        kept.finish === undefined &&
+        kept.tags === undefined &&
+        !groundHoleAt(state.cells, state.modules, kept.x, kept.y);
+      if (!isStreet) next.push(kept);
+      continue;
+    }
     // The plane must really be solid there, too: a coordinate a ramp or an exit
     // opens (`groundHoleAt`) is a hole, and a record standing in one is a block
     // the player laid rather than street — it keeps its record either way.
@@ -318,7 +339,7 @@ const LABEL_MIN_CELLS = 6;
  * zone map then names each area (付费区, 站台 …) instead of leaving the player to
  * read colours — the text is what makes it a map.
  */
-export function zoneRegionLabels(floors: readonly Cell[], modules: readonly Module[] = []): ZoneLabel[] {
+export function zoneRegionLabels(floors: readonly Cell[], _modules: readonly Module[] = []): ZoneLabel[] {
   const byKey = new Map<string, Cell>();
   for (const c of floors) byKey.set(cellKey(c.x, c.y, c.z), c);
   const seen = new Set<string>();
@@ -326,7 +347,7 @@ export function zoneRegionLabels(floors: readonly Cell[], modules: readonly Modu
   for (const start of floors) {
     const startKey = cellKey(start.x, start.y, start.z);
     if (seen.has(startKey)) continue;
-    const zone = zoneIndexOf(start);
+    const zone = zoneDisplayIndexOf(start);
     const stack: Cell[] = [start];
     seen.add(startKey);
     const region: Cell[] = [];
@@ -340,7 +361,7 @@ export function zoneRegionLabels(floors: readonly Cell[], modules: readonly Modu
       for (const [dx, dy] of NEIGH4) {
         const k = cellKey(cur.x + dx, cur.y + dy, cur.z);
         const nb = byKey.get(k);
-        if (!nb || seen.has(k) || zoneIndexOf(nb) !== zone) continue;
+        if (!nb || seen.has(k) || zoneDisplayIndexOf(nb) !== zone) continue;
         seen.add(k);
         stack.push(nb);
       }
@@ -360,28 +381,6 @@ export function zoneRegionLabels(floors: readonly Cell[], modules: readonly Modu
       }
     }
     labels.push({ x: best.x + 0.5, y: best.y + 0.5, z: best.z + 1.06, zone });
-  }
-  for (const m of modules) {
-    if (m.type !== 'shop') continue;
-    const kind = m.cfg.kind ?? 'store';
-    const label = kind === 'store' ? msg('store') : kind === 'toilet' ? msg('restroom') : kind === 'office' ? msg('office') : undefined;
-    if (!label) continue;
-    const cx = m.x + (m.w ?? 1) / 2;
-    const cy = m.y + (m.h ?? 1) / 2;
-    // A room can sit on the implicit street plane, which deliberately has no
-    // materialised floor cells. Its name must still appear on the zone map.
-    const roomFloors = floors.filter((c) => c.z === m.z && c.x >= m.x && c.x < m.x + (m.w ?? 1) && c.y >= m.y && c.y < m.y + (m.h ?? 1));
-    let best = roomFloors[0];
-    if (!best) {
-      labels.push({ x: cx, y: cy, z: m.z + 1.08, zone: zoneIndexOf({}), label });
-      continue;
-    }
-    let bestD = Infinity;
-    for (const c of roomFloors) {
-      const d = (c.x + 0.5 - cx) ** 2 + (c.y + 0.5 - cy) ** 2;
-      if (d < bestD) { bestD = d; best = c; }
-    }
-    labels.push({ x: best.x + 0.5, y: best.y + 0.5, z: best.z + 1.08, zone: zoneIndexOf(best), label });
   }
   return labels;
 }

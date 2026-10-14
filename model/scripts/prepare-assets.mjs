@@ -11,24 +11,29 @@ import {smoothShoulders} from '../src/characters/shoulders.js';
 import {withTrimmedStrapSurface} from '../src/characters/strap-surface.js';
 import {WALK_PROFILES} from '../../game/src/sim/constants.ts';
 const assets=new URL('../public/models/',import.meta.url);mkdirSync(assets,{recursive:true});
-await exportSharedPassengerVariants();
-const filenames=['passenger-female-walk.glb','passenger-female-shoulder-walk.glb',...['bob','shoulder','long'].map(style=>`passenger-female-no-bag-${style}-walk.glb`)];
-for(const file of filenames)await writeAsset(new URL(file,assets),readFileSync(new URL('../../prototypes/passenger-female-shared/'+file,import.meta.url)));
+const selectedCharacter=process.argv.find(arg=>arg.startsWith('--character='))?.slice(12);
+if(selectedCharacter&&!['male','female'].includes(selectedCharacter))throw Error('Expected --character=male or --character=female');
+const selected=character=>!selectedCharacter||selectedCharacter===character;
+if(selected('female'))await exportSharedPassengerVariants({outputDirectory:assets});
+const filenames=MODEL_LIBRARY.filter(entry=>entry.character==='female').map(entry=>entry.file);
 const source=new URL('../../prototypes/trellis-passenger/passenger-b-walk-forward.glb',import.meta.url),bytes=readFileSync(source);
+let maleRig,maleClips;
+const maleVariants=MODEL_LIBRARY.filter(entry=>entry.character==='male'&&entry.id!=='male-original-bag').map(entry=>entry.file);
+if(selected('male')){
 const male=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
 smoothShoulders(male.scene);
 const clips=createWalkClips(male.scene,WALK_PROFILES);
 await writeAsset(new URL('passenger-male-walk.glb',assets),Buffer.from(await withTrimmedStrapSurface(male.scene,()=>new GLTFExporter().parseAsync(male.scene,{binary:true,animations:clips}))));
 const variantSource=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
-const maleRig=createFemaleVariant(variantSource.scene,{male:true});
-const maleClips=createWalkClips(maleRig.model,WALK_PROFILES),maleVariants=[];
-for(const style of ['original','short','bald'])for(const bag of [true,false]){
+maleRig=createFemaleVariant(variantSource.scene,{male:true});
+maleClips=createWalkClips(maleRig.model,WALK_PROFILES);
+for(const {hair:style,bag,file} of MODEL_LIBRARY.filter(entry=>entry.character==='male'&&!entry.bagStyle)){
  if(style==='original'&&bag)continue;
  maleRig.setBag(bag);maleRig.setHairstyle(style);
- const file=`passenger-male-${bag?'bag':'no-bag'}-${style}-walk.glb`;maleVariants.push(file);
  await writeAsset(new URL(file,assets),Buffer.from(await withTrimmedStrapSurface(maleRig.model,()=>new GLTFExporter().parseAsync(maleRig.model,{binary:true,animations:maleClips}))));
 }
-for(const character of ['male','female']){
+}
+for(const character of ['male','female'].filter(selected)){
  const parsed=character==='female'?await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),''):null;
  const rig=character==='male'?maleRig:createFemaleVariant(parsed.scene);
  const animations=character==='male'?maleClips:createWalkClips(rig.model,WALK_PROFILES);
@@ -36,7 +41,6 @@ for(const character of ['male','female']){
   rig.setBag(entry.bagStyle);rig.setHairstyle(entry.hair);
   const variantAnimations=entry.bagType?createWalkClips(rig.model,WALK_PROFILES):animations;
   await writeAsset(new URL(entry.file,assets),Buffer.from(await withTrimmedStrapSurface(rig.model,()=>new GLTFExporter().parseAsync(rig.model,{binary:true,animations:variantAnimations}))));
-  (character==='male'?maleVariants:filenames).push(entry.file);
  }
 }
 await writeAsset(new URL('walk-profiles.json',assets),JSON.stringify(WALK_PROFILES,null,2)+'\n');

@@ -14,14 +14,23 @@ Work from the metro root. Read `model/README.md` and
 - `model/src/characters/library.js` is the catalogue: original/short/bald male
   and bob/shoulder/long female templates, bagless/full/small backpacks, 75% and
   87.5% standard backpacks, and left/right shoulder, crossbody and purse variants.
-  Viewer and bake share the complete catalogue (currently 56 entries).
-  Explicit `adultEligible` / `childEligible` flags own the pools (currently 50 / 19):
+  `hairstyles.js` defines ten styles per sex and their backpack compatibility.
+  Viewer and bake share the complete catalogue (currently 192 entries).
+  Explicit `adultEligible` / `childEligible` flags own the pools (currently 172 / 74):
   female crossbody templates are child-only, and bald models are never children.
   Approved small/crossbody bags can be child templates. Choose each eligible entry
   equally; do not select sex, hair and bag hierarchically or freeze catalogue counts.
   Stable identity chooses appearance without consuming simulation RNG.
 - `female.js` builds both sexes; short/bald use the same smooth scalp with hair
   or skin colours. `shoulders.js` cleans neck, face, chest, coat and backpack.
+  The seven added male hairs use `male-hair.js` to deform the original locks,
+  retaining their head/neck weights and forehead join with lower crowns.
+  Keep original/short/bald approved shapes intact. Added male styles vary lock
+  relief, fringe, sweep and nape length; do not replace them with taller smooth
+  caps. Source tests pin topology, attachments, individual crown limits and at
+  least 1 cm maximum displacement between each pair of new styles. The baked
+  game test independently requires all seven additions, with every bag, below
+  1.70 m and at least 2 cm lower than the original standing crown.
   Preserve faceless, unlit flat-grey illustration and source provenance. GLB/viewer
   surfaces are opaque; the game crowd's shared material uses 70% opacity.
 - `small-backpack.js` owns the tapered crown, fuller base and shallow side profile.
@@ -67,6 +76,8 @@ Work from the metro root. Read `model/README.md` and
   no per-agent GLB/skeleton. Deduplicate only complete animated vertices; preserve
   flat material boundaries, winding and all walk profiles. Wrap textures at 1024
   pixels and handle 16/32-bit indices. Never hand-edit generated GLBs/JSON.
+  The atlas stores zlib-compressed base64 buffers. `render/passengerAtlas.ts`
+  decodes them losslessly and retains support for legacy raw-base64 data.
   Carry age/side/bag metadata through exports and bake. Game `passengerEligibility`
   accepts older atlases without flags using historical pools; explicit flags always
   take precedence. A model edit must regenerate the actual atlas before validating
@@ -78,6 +89,12 @@ Work from the metro root. Read `model/README.md` and
    standing and all walks, front/back/side/oblique, across moving arm phases.
 2. Run `npm run build:model`, `npm --prefix model test`,
    `node tools/check-model-preview-options.mjs` and `node tools/check-model-service.mjs`.
+   Hair changes also use `node tools/check-model-hairstyles.mjs` for all catalogue
+   exports in four views, all gaits, bilingual choices and age rules.
+   For a sex-specific iteration, `node model/scripts/prepare-assets.mjs
+   --character=male` (or `female`) refreshes its GLBs while retaining the full
+   catalogue; the hair checker accepts the same filter. Bake the complete atlas
+   after the scoped export and verify the actual game geometry.
    For coat/strap changes run `node tools/check-model-coat-closure.mjs` and
    `node tools/check-model-strap-fit.mjs`. Check both sexes with/without bags,
    ignore arm occlusion in torso fitting rays, keep Spine weights and buried

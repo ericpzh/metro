@@ -21,7 +21,7 @@ import { cellKey, removeFloor, thinWallSideMap, toData, zoneFloorKeys, zoneMapFl
 import { withGround } from '../sim/ground.ts'
 import { trussRoofTop } from '../sim/structures.ts'
 import type { CellShape } from '../sim/types.ts'
-import { zoneIndexOf } from '../sim/zones.ts'
+import { zoneDisplayIndexOf } from '../sim/zones.ts'
 import { dragOffset, snapOffset, walkAlong } from '../render/section.ts'
 import { placementPreviewKey, selectSimAgent, setFrameHandler, setRouteHandler, signModuleWithPreview, useStore, type Tool } from './store.ts'
 import { ViewCube } from './ViewCube.tsx'
@@ -39,7 +39,7 @@ import { WallTool } from './tools/WallTool.ts'
 import { ownsContextMenu } from './tools/geometry/pointer.ts'
 import { ZoneTool } from './tools/ZoneTool.ts'
 import { ToolController } from './tools/ToolController.ts'
-import type { AreaDrag, FacilityDragState, HoverTile, PaintDrag, PointerInfo, ToolContext, ZoneDragState } from './tools/ToolContext.ts'
+import type { AreaDrag, HoverTile, PaintDrag, PointerInfo, ToolContext, ZoneDragState } from './tools/ToolContext.ts'
 
 /** The 方块 (block) tool's live patch size, shown beside the pointer in metres. */
 interface BuildMeasure {
@@ -120,14 +120,8 @@ export function Viewport(): React.ReactElement {
   const dragRef = useRef<AreaDrag | null>(null)
   /** The paint tool's own drag: press a face, drag a rectangle on its plane. */
   const paintRef = useRef<PaintDrag | null>(null)
-  /** The zone tool's rectangle drag: a fare-zone patch or a facility room. */
+  /** The zone tool's rectangle drag: a floor label or counter module. */
   const zoneDragRef = useRef<ZoneDragState | null>(null)
-  /**
-   * The shop right-click drag: the press holds a shop, the rectangle previews
-   * either the wall openings to cut (cyan) or the whole store to delete (red),
-   * and the release applies it.
-   */
-  const facilityDragRef = useRef<FacilityDragState | null>(null)
   /**
    * The 剖切 slide in progress: where on screen the grab started, the offset it
    * started from, and the cut's own axis projected onto the screen — the line the
@@ -175,7 +169,6 @@ export function Viewport(): React.ReactElement {
       drag: dragRef,
       paint: paintRef,
       zoneDrag: zoneDragRef,
-      facilityDrag: facilityDragRef,
       showMeasure: (clientX, clientY, text) => {
         const rect = canvasRef.current?.getBoundingClientRect()
         if (!rect) return
@@ -301,7 +294,7 @@ export function Viewport(): React.ReactElement {
       // A cell with no label of its own wears its storey's default colour — 站外
       // on the street plane (`zoneIndexOf`) — so the map tints the floor the
       // crowd and the graph already read it as.
-      const zone = zoneIndexOf(c)
+      const zone = zoneDisplayIndexOf(c)
       quads[i * 3] = c.x + 0.5
       quads[i * 3 + 1] = c.y + 0.5
       quads[i * 3 + 2] = c.z + 1.02
@@ -399,13 +392,11 @@ export function Viewport(): React.ReactElement {
     const anyActive =
       dragRef.current?.active === true ||
       paintRef.current?.active === true ||
-      zoneDragRef.current?.active === true ||
-      facilityDragRef.current?.active === true
+      zoneDragRef.current?.active === true
     if (!anyActive) return false
     dragRef.current = null
     paintRef.current = null
     zoneDragRef.current = null
-    facilityDragRef.current = null
     setBuildMeasure(null)
     sceneRef.current?.setGhost([], 'add')
     sceneRef.current?.setGhost([], 'remove')
@@ -478,7 +469,6 @@ export function Viewport(): React.ReactElement {
     dragRef.current = null
     paintRef.current = null
     zoneDragRef.current = null
-    facilityDragRef.current = null
     setBuildMeasure(null)
     useStore.getState().cancelMove(false)
     sceneRef.current?.setGhost([], 'add')
@@ -537,7 +527,7 @@ export function Viewport(): React.ReactElement {
     scene.onCameraAim = () => {
       const st = useStore.getState()
       if (st.followAgentId !== null) return
-      if (dragRef.current || paintRef.current || zoneDragRef.current || facilityDragRef.current || sectionDragRef.current) return
+      if (dragRef.current || paintRef.current || zoneDragRef.current || sectionDragRef.current) return
       tools.equipment.refreshHover()
       tools.move.refreshHover()
     }
@@ -903,9 +893,7 @@ export function Viewport(): React.ReactElement {
             ? paintRef.current.button
             : zoneDragRef.current?.active === true
               ? 0
-              : facilityDragRef.current?.active === true
-                ? 2
-                : null
+              : null
       if (activeButton !== null) {
         const otherHeld = activeButton === 2 ? (e.buttons & 1) !== 0 : (e.buttons & 2) !== 0
         if (otherHeld) {
@@ -997,9 +985,7 @@ export function Viewport(): React.ReactElement {
             ? paintRef.current.button
             : zoneDragRef.current?.active === true
               ? 0
-              : facilityDragRef.current?.active === true
-                ? 2
-                : null
+              : null
       if (activeButton !== null && (e.button === 0 || e.button === 2) && e.button !== activeButton) {
         cancelActiveDrag()
         return
@@ -1010,7 +996,7 @@ export function Viewport(): React.ReactElement {
     // Route to whichever drag is active; each controller nulls its own ref and
     // applies the release. No drag active means the press already committed
     // (click tools) and the release owns nothing.
-    if (facilityDragRef.current?.active === true || zoneDragRef.current?.active === true) {
+    if (zoneDragRef.current?.active === true) {
       tools.zone.onUp(info)
       return
     }

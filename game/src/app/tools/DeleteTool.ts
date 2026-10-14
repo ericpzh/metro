@@ -158,6 +158,7 @@ export class DeleteTool extends ToolController {
         const mods = ids
           .map((id) => st.station.modules.find((m) => m.id === id))
           .filter((m): m is Module => m !== undefined)
+          .filter((m) => this.visibleModule(m) !== undefined)
         scene.setGhost([], 'remove')
         scene.setCollisionHighlight(null)
         scene.setModulePreview(mods, true)
@@ -221,6 +222,7 @@ export class DeleteTool extends ToolController {
       const swept = d.modules
         .map((id) => st.station.modules.find((m) => m.id === id))
         .filter((m): m is Module => m !== undefined)
+        .filter((m) => this.visibleModule(m) !== undefined)
       if (swept.length === 0) {
         st.setNotice(msg('nothing_to_remove_here'))
         return
@@ -244,7 +246,7 @@ export class DeleteTool extends ToolController {
       let removed = 0
       for (const [x, y, z] of line) {
         const mod = next.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
-        if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
+        if (!mod || mod.type !== 'fence' || seen.has(mod.id) || !this.visibleModule(mod)) continue
         seen.add(mod.id)
         next = removeModule(next, mod.id)
         removed++

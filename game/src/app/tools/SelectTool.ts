@@ -56,14 +56,15 @@ export class SelectTool extends ToolController {
     if (!hit) return
     // A rail's bed is dug, so the ray lands on the block below or the work
     // plane; look for the track module at both the hit and the cell above.
-    const rail =
+    const rail = this.visibleModule(
       railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
-      railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2])
+      railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2]),
+    )
     // The drawn mesh wins: a large exit is drawn far past its collision box,
     // so the visible model is what a click should select.
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
-    const mod = picked ?? rail ?? (hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
+    const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
     const label = mod ? moduleLabel(mod) : ''
     st.select(mod ? { kind: 'module', key: mod.id, label } : { kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
     scene.setGhost([], 'add')

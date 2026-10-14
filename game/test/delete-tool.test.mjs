@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { toState } from '../src/build/model.ts'
+import { createModule, toState } from '../src/build/model.ts'
 import { useStore } from '../src/app/store.ts'
 import { DeleteTool } from '../src/app/tools/DeleteTool.ts'
 import { LONG_PRESS_MS } from '../src/app/tools/geometry/pointer.ts'
@@ -57,4 +57,15 @@ test('block deletion previews and commits a rectangle, while Shift keeps the dra
   } finally {
     useStore.setState(before)
   }
+})
+
+test('delete starts a block deletion when no visible module ray target exists', () => {
+  const before = useStore.getState()
+  try {
+    const fixture = setup()
+    const hidden = createModule('tvm', 1, 1, -4, 'hidden-tvm')
+    useStore.setState({ station: { ...useStore.getState().station, modules: [hidden] } })
+    fixture.tool.onDown(fixture.event(1, 1))
+    assert.equal(fixture.drag.current.modules, undefined, 'the pointer starts a floor deletion, not a module deletion')
+  } finally { useStore.setState(before) }
 })

@@ -33,10 +33,20 @@ function dependsOnCell(mod: Module, cell: Cell): boolean {
 }
 
 /** §4.3/§5: retain only models whose inputs did not change. Artwork/language
- * invalidation is handled by the caller; module/neighbour edits take a full build. */
+ * invalidation is handled by the caller; module/neighbour edits take a full build
+ * except for the stair-block-only addition below. */
 export function retainedModuleIds(before: StationData, after: StationData): Set<string> {
   const retained = new Set<string>()
-  if (!sameModuleMetadata(before, after)) return retained
+  if (!sameModuleMetadata(before, after)) {
+    // A stair-block addition only contributes its own stepped tile. It does not
+    // change neighbouring module geometry, so keep every existing model and
+    // build the new tile alone. This avoids rebuilding a large station's full
+    // equipment catalogue for each block in a dragged stair-block patch.
+    if (onlyAddedStairBlocks(before, after)) {
+      for (const mod of before.modules) retained.add(mod.id)
+    }
+    return retained
+  }
   const previous = new Map(before.cells.map(c => [`${c.x},${c.y},${c.z}`, c]))
   const changed: Cell[] = []
   for (const cell of after.cells) {
@@ -47,6 +57,25 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
   changed.push(...previous.values())
   for (const mod of after.modules) if (!changed.some(cell => dependsOnCell(mod, cell))) retained.add(mod.id)
   return retained
+}
+
+function onlyAddedStairBlocks(before: StationData, after: StationData): boolean {
+  if (before.cells.length !== after.cells.length) return false
+  for (let i = 0; i < before.cells.length; i++) {
+    const old = before.cells[i], next = after.cells[i]
+    if (old !== next && JSON.stringify(old) !== JSON.stringify(next)) return false
+  }
+  const { cells: _beforeCells, modules: _beforeModules, ...beforeMetadata } = before
+  const { cells: _afterCells, modules: _afterModules, ...afterMetadata } = after
+  if (JSON.stringify(beforeMetadata) !== JSON.stringify(afterMetadata)) return false
+  const afterById = new Map(after.modules.map((mod) => [mod.id, mod]))
+  for (const mod of before.modules) {
+    const next = afterById.get(mod.id)
+    if (!next || (mod !== next && JSON.stringify(mod) !== JSON.stringify(next))) return false
+    afterById.delete(mod.id)
+  }
+  const added = [...afterById.values()]
+  return added.length > 0 && added.every((mod) => mod.type === 'stair' && mod.cfg.block === true)
 }
 
 export function sameModuleMetadata(before: StationData, after: StationData): boolean {

@@ -1458,18 +1458,6 @@ export const messages = {
     "zh": "分区只能画在地板上",
     "en": "Zones can only be painted on floors"
   },
-  "room_removed": {
-    "zh": "房间已拆除",
-    "en": "Room removed"
-  },
-  "right_drag_on_a_wall_to_open_a_door_select_the_entire_room_to_re": {
-    "zh": "在墙上右键拖拽开门；框选整个房间即拆除",
-    "en": "Right-drag on a wall to open a door; select the entire room to remove it"
-  },
-  "all_room_walls_removed": {
-    "zh": "房间墙壁已全部拆除",
-    "en": "All room walls removed"
-  },
   "these_cells_have_no_zone": {
     "zh": "这些格子没有分区",
     "en": "These cells have no zone"
@@ -1497,10 +1485,6 @@ export const messages = {
   "built_value_with_counters_around_it_serving_from_outside": {
     "zh": "{0}已建成，四周为柜台，从外侧服务",
     "en": "Built {0} with counters around it, serving from outside"
-  },
-  "built_value_right_drag_on_its_wall_to_open_a_door": {
-    "zh": "{0}已建成，在墙上右键拖拽开门",
-    "en": "Built {0}; right-drag on its wall to open a door"
   },
   "top": {
     "zh": "顶",

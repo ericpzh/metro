@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { parse, serialize, SAVE_VERSION, SAVE_FORMAT } from '../src/persistence/save.ts'
-import { toState } from '../src/build/model.ts'
+import { addCells, paintFace, paintZoneCells, removeCells, toState } from '../src/build/model.ts'
 import { DEFAULT_PEAKS, DEFAULT_SERVICE } from '../src/sim/constants.ts'
 import { DEFAULT_DEMAND, DEFAULT_OFFDAY } from '../src/sim/demand.ts'
 import { DEFAULT_CALENDAR, SERVICE_MIN_SPAN } from '../src/sim/clock.ts'
@@ -24,6 +24,19 @@ test('serialise -> parse is identity for the static station', () => {
   assert.deepEqual(r.state.peaks, state.peaks, 'and so do the two peak windows')
   assert.deepEqual(r.state.demand, state.demand, 'and the demand curves')
   assert.deepEqual(r.state.calendar, state.calendar, 'and the calendar with its holiday list')
+})
+
+test('a re-added default street block stays implicit, while authored finish and zone are saved', () => {
+  const base = toState({ name: 'ground', seed: 1, cells: [], modules: [], lines: [] })
+  const dug = removeCells(base, [[3, 4, 0]])
+  const refilled = addCells(dug.cells, [[3, 4, 0]], [])
+  assert.deepEqual(refilled.cells, [], 're-adding plain ground clears its hole without adding a redundant block')
+  assert.deepEqual(JSON.parse(serialize({ ...base, cells: refilled.cells })).static.cells, [], 'the save does not write the default block')
+
+  const painted = paintFace({ ...base, cells: refilled.cells }, 3, 4, 0, 'top', 'floor.granite')
+  const zoned = paintZoneCells({ ...base, cells: refilled.cells }, [[3, 4, 0]], 'paid')
+  assert.deepEqual(JSON.parse(serialize(painted)).static.cells, painted.cells, 'a custom finish remains authored save data')
+  assert.deepEqual(JSON.parse(serialize(zoned)).static.cells, zoned.cells, 'a custom zone remains authored save data')
 })
 
 test('the level base round trips and old saves default to zero', () => {

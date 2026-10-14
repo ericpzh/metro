@@ -4,25 +4,33 @@ import * as THREE from 'three'
 import human from '../src/assets/passenger-approved.json' with { type: 'json' }
 import { passengerAppearance, passengerPose, passengerMesh, PASSENGER_OUTFITS, PASSENGER_CHILD_OUTFITS, PASSENGER_ADULT_OUTFITS, PASSENGER_ATLAS_WIDTH } from '../src/render/passengerModel.ts'
 import { passengerIsChild, passengerWalkProfile, passengerProportions } from '../src/sim/walking.ts'
+import { inflateSync } from 'node:zlib'
+import { decodePassengerBytes } from '../src/render/passengerAtlas.ts'
 
+const decoded = key => Buffer.from(decodePassengerBytes(human[key], human.encoding))
+
+const maleHair=['original','short','bald','buzz','crew','crop','side-part','swept','quiff','rounded']
+const femaleHair=['bob','shoulder','long','cropped-bob','rounded-bob','angled-bob','side-part-bob','lob','shoulder-swept','long-swept']
+const backpackHair=femaleHair.filter(hair=>!['long','long-swept'].includes(hair))
+const backpackModels=[...maleHair.map(hair=>`male-${hair}`),...backpackHair.map(hair=>`female-${hair}`)]
+const allModels=[...maleHair.map(hair=>`male-${hair}`),...femaleHair.map(hair=>`female-${hair}`)]
 const expected = [
- 'male-original-bag', 'male-original-no-bag', 'male-short-bag', 'male-short-no-bag',
- 'male-bald-bag', 'male-bald-no-bag', 'female-bob-bag', 'female-bob-no-bag',
- 'female-shoulder-bag', 'female-shoulder-no-bag', 'female-long-no-bag',
- 'male-original-small-bag', 'male-short-small-bag', 'male-bald-small-bag',
- 'female-bob-small-bag', 'female-shoulder-small-bag',
- ...['87.5','75'].flatMap(size=>['male-original','male-short','male-bald','female-bob','female-shoulder'].map(model=>`${model}-standard-${size}-bag`)),
- ...['shoulder','crossbody','purse'].flatMap(type=>['left','right'].flatMap(side=>(type==='purse'?['female-bob','female-shoulder','female-long']:['male-original','male-short','male-bald','female-bob','female-shoulder','female-long']).map(model=>`${model}-${type}-${side}-bag`))),
+ ...backpackModels.flatMap(model=>[`${model}-bag`,`${model}-no-bag`]),
+ 'female-long-no-bag','female-long-swept-no-bag',
+ ...backpackModels.map(model=>`${model}-small-bag`),
+ ...['87.5','75'].flatMap(size=>backpackModels.map(model=>`${model}-standard-${size}-bag`)),
+ ...['shoulder','crossbody','purse'].flatMap(type=>['left','right'].flatMap(side=>allModels.filter(model=>type!=='purse'||model.startsWith('female-')).map(model=>`${model}-${type}-${side}-bag`))),
 ]
 
-test('the game includes all 56 reviewed variants and their age/sex bag restrictions', () => {
+test('the game includes ten hairstyles per sex and every reviewed bag combination', () => {
  assert.deepEqual(PASSENGER_OUTFITS, expected)
  assert.deepEqual(human.library.map(m => m.id), expected)
- assert.equal(human.library.filter(m => m.character === 'male').length, 27)
- assert.equal(human.library.filter(m => m.bag).length, 50)
- assert.equal(PASSENGER_ADULT_OUTFITS.length,50)
- assert.equal(PASSENGER_CHILD_OUTFITS.length,19)
- assert.equal(human.library.filter(m => m.bagStyle === 'small').length, 5)
+ for(const [character,hairs] of [['male',maleHair],['female',femaleHair]])assert.deepEqual([...new Set(human.library.filter(m=>m.character===character).map(m=>m.hair))].sort(),[...hairs].sort())
+ assert.equal(human.library.filter(m => m.character === 'male').length, maleHair.length*9)
+ assert.equal(human.library.filter(m => m.bag).length, expected.length-20)
+ assert.equal(PASSENGER_ADULT_OUTFITS.length,172)
+ assert.equal(PASSENGER_CHILD_OUTFITS.length,74)
+ assert.equal(human.library.filter(m => m.bagStyle === 'small').length, backpackModels.length)
  for (const model of human.library) {
   if(model.bagType==='purse')assert(model.character==='female'&&model.adultEligible&&!model.childEligible)
   if(model.bagType==='shoulder')assert(model.adultEligible&&!model.childEligible)
@@ -33,10 +41,22 @@ test('the game includes all 56 reviewed variants and their age/sex bag restricti
  }
 })
 
+test('the baked male hair additions retain the approved lower crowns with every bag', () => {
+ const additions=['buzz','crew','crop','side-part','swept','quiff','rounded']
+ const original=human.library.findIndex(model=>model.id==='male-original-no-bag')
+ const originalHeight=bounds(passengerPose(0,original)).max.z
+ for(const [index,model] of human.library.entries())if(model.character==='male'&&additions.includes(model.hair)) {
+  const height=bounds(passengerPose(0,index)).max.z
+  assert(height<=1.70,`${model.id}: the shipped crown stays below 1.70 m`)
+  assert(height<originalHeight-.02,`${model.id}: the shipped crown stays lower than the original locks`)
+ }
+ assert.equal(human.library.filter(model=>model.character==='male'&&additions.includes(model.hair)).length,63)
+})
+
 test('adult models and eligible child models are selected equally within their age group', () => {
  const counts = Array(expected.length).fill(0), profiles = Array.from({length:3}, () => Array(expected.length).fill(0))
  const kids = Array(expected.length).fill(0), adults = Array(expected.length).fill(0), scratch = [0,0,0,0,0]
- for (let id=0; id<220000; id++) {
+ for (let id=0; id<880000; id++) {
   assert.equal(passengerAppearance(id, scratch), scratch, 'caller scratch is reused')
   const outfit = scratch[0];counts[outfit]++;profiles[passengerWalkProfile(id)][outfit]++
   ;(passengerIsChild(id) ? kids : adults)[outfit]++
@@ -59,9 +79,9 @@ test('adult models and eligible child models are selected equally within their a
 })
 
 test('resized standard backpacks retain their own silhouette throughout all walks', () => {
- assert.equal(human.library.filter(m=>m.bagScale===.75).length,5)
- assert.equal(human.library.filter(m=>m.bagScale===.875).length,5)
- const raw=Buffer.from(human.indices,'base64'),indices=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer,raw.byteOffset,raw.byteLength/(human.indexBits/8)),regions=Buffer.from(human.regions,'base64')
+ assert.equal(human.library.filter(m=>m.bagScale===.75).length,backpackModels.length)
+ assert.equal(human.library.filter(m=>m.bagScale===.875).length,backpackModels.length)
+ const raw=decoded('indices'),indices=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer,raw.byteOffset,raw.byteLength/(human.indexBits/8)),regions=decoded('regions')
  // Moving arms can hide the pack in the bounds of the complete body. Measure
  // the bag's own flat-grey surface, including every expanded baked triangle.
  const packBounds=(frame,index)=>{
@@ -82,7 +102,7 @@ test('resized standard backpacks retain their own silhouette throughout all walk
 })
 
 test('side bags stay on the requested side in standing and every gait',()=>{
- const raw=Buffer.from(human.indices,'base64'),indices=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer,raw.byteOffset,raw.byteLength/(human.indexBits/8)),regions=Buffer.from(human.regions,'base64')
+ const raw=decoded('indices'),indices=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer,raw.byteOffset,raw.byteLength/(human.indexBits/8)),regions=decoded('regions')
  for(const model of human.library.filter(m=>m.bagType)){
   const outfit=human.library.indexOf(model),ink=model.bagType==='shoulder'?.44:model.bagType==='crossbody'?.46:.40,sign=model.bagSide==='left'?-1:1
   const idlePose=passengerPose(0,outfit),torsoCorners=[],bagCorners=[],strapTriangles=[]
@@ -153,9 +173,10 @@ test('every variant stays grounded, outward-facing and animated in all three wal
 })
 
 test('backpack variants retain a pack and bagless variants remove it throughout walking', () => {
- for(let pair=0;pair<10;pair+=2) for(const frame of [0, 7, 31, 55]) {
-  const bag=bounds(passengerPose(frame,pair),.8,1.15),bare=bounds(passengerPose(frame,pair+1),.8,1.15)
-  assert.ok(bag.getSize(new THREE.Vector3()).x > bare.getSize(new THREE.Vector3()).x+.07, `${expected[pair]} frame ${frame}: pack must remain attached and visible`)
+ for(const model of human.library.filter(m=>m.bag&&!m.bagStyle)) for(const frame of [0, 7, 31, 55]) {
+  const index=human.library.indexOf(model),bareIndex=human.library.findIndex(m=>m.character===model.character&&m.hair===model.hair&&!m.bag)
+  const bag=bounds(passengerPose(frame,index),.8,1.15),bare=bounds(passengerPose(frame,bareIndex),.8,1.15)
+  assert.ok(bag.getSize(new THREE.Vector3()).x > bare.getSize(new THREE.Vector3()).x+.07, `${model.id} frame ${frame}: pack must remain attached and visible`)
  }
  for(const small of human.library.filter(m=>m.bagStyle==='small')) for(const frame of [0,7,31,55]) {
   const index=human.library.indexOf(small),standard=human.library.findIndex(m=>m.character===small.character&&m.hair===small.hair&&m.bag&&!m.bagStyle),bare=human.library.findIndex(m=>m.character===small.character&&m.hair===small.hair&&!m.bag)
@@ -166,10 +187,10 @@ test('backpack variants retain a pack and bagless variants remove it throughout 
 })
 
 test('the library remains a single instanced draw with valid padded topology and disposed atlases', () => {
- const raw=Buffer.from(human.indices,'base64'),indices=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer,raw.byteOffset,raw.byteLength/(human.indexBits/8))
+ const raw=decoded('indices'),indices=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer,raw.byteOffset,raw.byteLength/(human.indexBits/8))
  assert.equal(indices.length,expected.length*human.corners)
- assert.equal(Buffer.from(human.positions,'base64').length,human.vertices*human.frames*3*2)
- assert.equal(Buffer.from(human.normals,'base64').length,human.vertices*human.frames*3)
+ assert.equal(decoded('positions').length,human.vertices*human.frames*3*2)
+ assert.equal(decoded('normals').length,human.vertices*human.frames*3)
  for(let outfit=0;outfit<expected.length;outfit++) {
   let real=0
   for(let i=outfit*human.corners;i<(outfit+1)*human.corners;i+=3) {
@@ -191,4 +212,15 @@ test('the library remains a single instanced draw with valid padded topology and
  }
  mesh.userData.disposePassenger();assert.equal(disposed,4)
  mesh.geometry.dispose();mesh.material.dispose()
+})
+
+test('the packed atlas decodes losslessly with legacy raw-buffer compatibility',()=>{
+ assert.equal(human.encoding,'zlib-base64')
+ assert.ok(Buffer.byteLength(JSON.stringify(human))<100*1024**2,'the expanded library stays within the 100 MiB tracked-asset budget')
+ for(const field of ['positions','normals','indices','regions']){
+  const expected=inflateSync(Buffer.from(human[field],'base64'))
+  assert.deepEqual(decoded(field),expected,'browser decoder matches the independent Node inflater byte for byte')
+  assert.deepEqual(Buffer.from(decodePassengerBytes(expected.toString('base64'))),expected,'older plain-base64 atlases retain their exact bytes')
+ }
+ assert.throws(()=>decodePassengerBytes('AA==','unknown'),/Unsupported passenger atlas encoding/)
 })

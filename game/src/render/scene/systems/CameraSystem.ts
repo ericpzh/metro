@@ -57,6 +57,15 @@ export const FOV_MAX_DEG = 120
  */
 const POLAR_EPS = 0.02
 
+/** Raycaster does not apply Object3D.visible while recursing, so reject hits
+ * whose mesh or any parent was removed from the drawn scene by level slicing. */
+function visibleThroughParents(object: THREE.Object3D): boolean {
+  for (let node: THREE.Object3D | null = object; node; node = node.parent) {
+    if (!node.visible) return false
+  }
+  return true
+}
+
 export class CameraSystem extends SceneSystem {
   camera: THREE.PerspectiveCamera
   ortho: THREE.OrthographicCamera
@@ -520,8 +529,8 @@ export class CameraSystem extends SceneSystem {
     this.raycaster.setFromCamera(ndc, this.activeCamera())
     // Blocks removed from the level above are not pickable: a click must not
     // grab a slab that is no longer drawn.
-    const shown = this.pickables.filter((m) => m.visible && (!m.parent || m.parent.visible))
-    const hits = this.raycaster.intersectObjects(shown, false)
+    const shown = this.pickables.filter(visibleThroughParents)
+    const hits = this.raycaster.intersectObjects(shown, false).filter((hit) => visibleThroughParents(hit.object))
     if (hits.length > 0) {
       const hit = hits[0]
       const p = hit.point
@@ -565,18 +574,49 @@ export class CameraSystem extends SceneSystem {
     return this.pickModuleHit(clientX, clientY)?.moduleId ?? null
   }
 
+  /**
+   * Forgiving equipment targeting for ramps: stair treads have gaps, so the
+   * exact mesh ray can fall through to the floor even though the pointer is
+   * plainly inside the stair's rendered footprint. Only the caller's eligible
+   * modules are considered, and a nearer station block still occludes them.
+   */
+  pickModuleInBounds(clientX: number, clientY: number, moduleIds: ReadonlySet<string>): string | null {
+    const rect = this.canvas.getBoundingClientRect()
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
+    const camera = this.activeCamera()
+    this.raycaster.setFromCamera(ndc, camera)
+    const blocks = this.pickables.filter(visibleThroughParents)
+    const blockHits = this.raycaster.intersectObjects(blocks, false).filter((hit) => visibleThroughParents(hit.object))
+    const bounds = new THREE.Box3()
+    const point = new THREE.Vector3()
+    let nearest: { id: string; distance: number } | null = null
+    for (const group of this.modules.moduleMeshes.children) {
+      const id = group.userData.moduleId
+      if (typeof id !== 'string' || !moduleIds.has(id) || !visibleThroughParents(group)) continue
+      group.updateWorldMatrix(true, true)
+      bounds.setFromObject(group)
+      const hit = this.raycaster.ray.intersectBox(bounds, point)
+      if (!hit) continue
+      const distance = this.raycaster.ray.origin.distanceTo(hit)
+      if (blockHits.length > 0 && blockHits[0]!.distance + 1e-4 < distance) continue
+      if (!nearest || distance < nearest.distance) nearest = { id, distance }
+    }
+    return nearest?.id ?? null
+  }
+
   /** Actual visible surface, so a booth-mounted sign snaps to the frame under the ray. */
   pickModuleHit(clientX: number, clientY: number): { moduleId: string; point: [number, number, number] } | null {
     const rect = this.canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, this.activeCamera())
-    const shown = this.modules.moduleMeshes.children.filter((c) => c.visible && (!c.parent || c.parent.visible))
+    const shown = this.modules.moduleMeshes.children.filter(visibleThroughParents)
     this.raycaster.layers.enable(BATCH_SOURCE_LAYER)
     const hits = this.raycaster.intersectObjects(shown, true)
     this.raycaster.layers.disable(BATCH_SOURCE_LAYER)
     let modHit: THREE.Intersection | null = null
     let moduleId: string | null = null
     for (const hit of hits) {
+      if (!visibleThroughParents(hit.object)) continue
       let o: THREE.Object3D | null = hit.object
       while (o && typeof o.userData.moduleId !== 'string') o = o.parent
       if (o) {
@@ -587,8 +627,8 @@ export class CameraSystem extends SceneSystem {
     }
     if (!modHit || !moduleId) return null
     // A block nearer the camera occludes the module: never select through a wall.
-    const blocks = this.pickables.filter((m) => m.visible && (!m.parent || m.parent.visible))
-    const blockHits = this.raycaster.intersectObjects(blocks, false)
+    const blocks = this.pickables.filter(visibleThroughParents)
+    const blockHits = this.raycaster.intersectObjects(blocks, false).filter((hit) => visibleThroughParents(hit.object))
     if (blockHits.length > 0 && blockHits[0].distance < modHit.distance) return null
     return { moduleId, point: [modHit.point.x, modHit.point.y, modHit.point.z] }
   }
@@ -608,7 +648,7 @@ export class CameraSystem extends SceneSystem {
     const sx = clientX - rect.left
     const sy = clientY - rect.top
     const camera = this.activeCamera()
-    const blocks = this.pickables.filter((m) => m.visible && (!m.parent || m.parent.visible))
+    const blocks = this.pickables.filter(visibleThroughParents)
     let nearest: { moduleId: string; point: [number, number, number]; screenDistance: number } | null = null
     const bounds = new THREE.Box3()
     const projected = new THREE.Vector3()
@@ -642,7 +682,7 @@ export class CameraSystem extends SceneSystem {
       const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -bounds.max.z)
       if (!this.raycaster.ray.intersectPlane(plane, planePoint)) continue
       const planeDistance = this.raycaster.ray.origin.distanceTo(planePoint)
-      const blockHits = this.raycaster.intersectObjects(blocks, false)
+      const blockHits = this.raycaster.intersectObjects(blocks, false).filter((hit) => visibleThroughParents(hit.object))
       if (blockHits.length > 0 && blockHits[0].distance + 1e-4 < planeDistance) continue
       nearest = { moduleId, point: [planePoint.x, planePoint.y, bounds.max.z], screenDistance }
     }

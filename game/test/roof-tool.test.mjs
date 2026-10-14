@@ -24,7 +24,7 @@ function harness(cells = [], moduleType = 'roof') {
   return { tool, event, drag, state, ghost: () => ghost }
 }
 
-test('Tab switches stair block height and refreshes a held rectangle before release', () => {
+test('Tab switches stair block height and refreshes a held run before release', () => {
   const h = harness([], 'stair-block')
   const width = useStore.getState().stairWidth
   h.tool.onDown(h.event(0, 0))
@@ -35,7 +35,7 @@ test('Tab switches stair block height and refreshes a held rectangle before rele
   assert.equal(useStore.getState().stairBlockHeight, 0.5)
   assert.equal(useStore.getState().stairWidth, width, 'height has its own setting')
   h.tool.refreshHover()
-  assert.equal(h.ghost().length, 4)
+  assert.equal(h.ghost().length, 2)
   assert.ok(h.ghost().every((m) => m.cfg.blockHeight === 0.5))
   h.tool.onUp(h.event(1, 1))
   assert.ok(useStore.getState().station.modules.every((m) => m.cfg.blockHeight === 0.5))
@@ -43,17 +43,18 @@ test('Tab switches stair block height and refreshes a held rectangle before rele
   assert.equal(useStore.getState().stairBlockHeight, 1)
 })
 
-test('small stair blocks drag as a rectangle, rotate, undo and remove without disturbing floors', () => {
+test('small stair blocks drag along their rotated width axis, undo and remove without disturbing floors', () => {
   const h = harness([], 'stair-block')
   useStore.setState({ moduleRot: 1 })
   h.tool.onDown(h.event(0, 0))
   assert.equal(h.ghost().length, 1)
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
   h.tool.onMove(h.event(2, 1))
-  assert.equal(h.ghost().length, 6)
+  assert.equal(h.ghost().length, 3, 'the lateral y movement is ignored for an east-west stair width')
+  assert.deepEqual(h.ghost().map(({ x, y }) => [x, y]), [[0, 0], [1, 0], [2, 0]])
   h.tool.onUp(h.event(2, 1))
   const st = useStore.getState()
-  assert.equal(st.station.modules.length, 6)
+  assert.equal(st.station.modules.length, 3)
   assert.ok(st.station.modules.every((m) => m.type === 'stair' && m.cfg.block && m.rot === 1))
   assert.equal(st.past.length, 1)
   assert.equal(st.station.cells, h.state.cells)
@@ -65,6 +66,25 @@ test('small stair blocks drag as a rectangle, rotate, undo and remove without di
   h.tool.onUp(h.event(2, 1, 2))
   assert.equal(useStore.getState().station.modules.length, 0)
   assert.deepEqual(useStore.getState().station.cells, h.state.cells)
+})
+
+test('small stair block drag axis follows the rotated stair width while roofs remain rectangular', () => {
+  for (const [rot, target, expected] of [
+    [0, [2, 1], [[0, 0], [0, 1]]],
+    [1, [2, 1], [[0, 0], [1, 0], [2, 0]]],
+    [2, [-2, 1], [[0, 0], [0, 1]]],
+    [3, [2, -1], [[0, 0], [1, 0], [2, 0]]],
+  ]) {
+    const h = harness([], 'stair-block')
+    useStore.setState({ moduleRot: rot })
+    h.tool.onDown(h.event(0, 0))
+    h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+    h.tool.onMove(h.event(...target))
+    assert.deepEqual(h.ghost().map(({ x, y }) => [x, y]), expected, `rotation ${rot} preview follows only its run axis`)
+    h.tool.onUp(h.event(...target))
+    assert.deepEqual(useStore.getState().station.modules.map(({ x, y }) => [x, y]), expected,
+      `rotation ${rot} release matches its straight preview`)
+  }
 })
 
 test('a roof click lays one tile, and a drag lays the preview rectangle in one undo step', () => {

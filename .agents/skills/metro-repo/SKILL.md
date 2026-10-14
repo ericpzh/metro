@@ -142,7 +142,7 @@ no missing translations. Follow the owning subskill for layout and cache refresh
 
 Passenger sources: the live `game/src/assets/passenger-approved.json` comes from
 the complete reviewed catalogue; use `metro-model` and `npm run bake:passengers`.
-The current library has 56 variants (50 adult-eligible / 19 child-eligible).
+The current library has 192 variants with ten hairstyles per sex (172 adult-eligible / 74 child-eligible).
 Stable identity chooses equally within explicit `adultEligible` / `childEligible`
 pools; the 20% child population can use approved small/crossbody bags, never bald
 heads. `render/passengerEligibility.ts` preserves the previous pools for legacy
@@ -196,6 +196,11 @@ npm run deploy:game   # build:game, deploy metro-game, attach its routes
 
 npm run preview:local # tools/preview.mjs — both built apps on one origin
 ```
+
+The `metro-game` production build enforces a strict Cloudflare Workers asset
+limit: every emitted file must be **smaller than 25 MiB**. Keep the guard in
+`game/scripts/passenger-assets.ts` and its boundary test in
+`game/test/passenger-assets.test.mjs` aligned with this rule.
 
 Inside `game/`: `npm run dev` (5174), `npm run typecheck`, `npm run build`,
 `npm test`, `npm run preview` (4174); `npm start` there builds then previews.

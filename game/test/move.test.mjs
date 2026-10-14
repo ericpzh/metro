@@ -62,6 +62,24 @@ function piece(type, x, y, z = 0, rot = 0, extra = {}) {
 const state = (cells, modules) => toState({ name: '移动测试', seed: 1, cells, modules, lines: [] })
 const flat = (mods = [], extra = []) => state(station(extra).cells, mods)
 
+test('move does not lift a module when the visible-layer picker has no target', () => {
+  const before = useStore.getState()
+  try {
+    const hidden = piece('tvm', 2, 2)
+    useStore.setState({ station: flat([hidden]), moveDraft: null })
+    const tool = new MoveController({
+      scene: () => ({}),
+      pickModule: () => null,
+      facing: () => undefined,
+      hover: { current: null },
+      drag: { current: null },
+    })
+    tool.onDown({ clientX: 10, clientY: 10, button: 0, buttons: 1, shiftKey: false, hit: { cell: [2, 2, 0], place: [2, 2, 1], solid: true, point: [2.5, 2.5] }, preventDefault() {} })
+    assert.equal(useStore.getState().moveDraft, null, 'no hidden module is lifted into the move draft')
+    assert.ok(useStore.getState().station.modules.some((m) => m.id === hidden.id), 'the placed module remains in the station')
+  } finally { useStore.setState(before) }
+})
+
 /* ----------------------------------------------------------- what can move */
 
 test('the flat pieces, an exit and the two runs move; the rest of the structure does not', () => {
