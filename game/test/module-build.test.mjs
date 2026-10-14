@@ -188,7 +188,7 @@ function build(mod, preview = false) {
   return { group, meshes, instanced, size: sizeOf(group), groupKeys, meshKeys }
 }
 
-const palette = (id, rot = 0, dir = 'up', door = 'lane') => createModule(id, 4, 4, 0, 'm-' + id, rot, undefined, dir, door, [LINE])
+const palette = (id, rot = 0, dir = 'up', door = 'lane', at = [4, 4, 0]) => createModule(id, at[0], at[1], at[2], 'm-' + id, rot, undefined, dir, door, [LINE])
 
 test('escalator newel lights show entry arrows and exit bars facing their landings', () => {
   for (const width of [1, 2]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
@@ -440,20 +440,27 @@ test('every piece the palette can lay draws a model, at the size it draws it', (
   }
 })
 
-test('a hung piece hangs from the surface it was aimed at, at its own drop below it', () => {
-  // `cfg.line` is the surface a pointed hover wrote (`hungCeilingAim` → `hungDrop`). Every hung
-  // piece's mount sits on that line and its body hangs the short drop its own model gives it — a
-  // 指示牌's 0.65 m of rod, a 电视's 0.85, a flush 灯具 none at all — so two lines two metres apart
-  // draw the same piece two metres apart, and with no line of its own the mount is the storey's own
-  // slab and the body the same short drop under it.
-  for (const id of ['tv', 'sign-ceiling', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'monitor-ceiling', 'light-circular', 'vent']) {
-    const mod = palette(id)
-    const bare = box(build(mod).group)
-    const low = box(build({ ...mod, cfg: { ...mod.cfg, line: 7 } }).group)
-    const high = box(build({ ...mod, cfg: { ...mod.cfg, line: 9 } }).group)
-    assert.ok(Math.abs(bare.max.z - 4) < 0.02, `${id}: with no line the mount is the storey ceiling`)
-    assert.ok(Math.abs(low.max.z - 7) < 0.02, `${id}: the mount sits on the line the player aimed at`)
-    assert.equal(round(high.min.z - low.min.z), 2, `${id}: the whole piece follows the line`)
+test('a hung piece hangs under the top block of its column, wherever it was aimed', () => {
+  // `hungCeilingAim` puts every hanging item in the free cell under its column's **top block** —
+  // `top block - 1` — and `hangCeilingLocal` mounts it at that cell's own top, so the block over it
+  // *is* its ceiling. A piece that cell-for-cell sits one storey lower (an older save, or a column
+  // with nothing over the floor) hangs from the same block the long way: the real slab overhead.
+  const cells = [
+    { x: 6, y: 6, z: 0, fill: 'solid' },
+    { x: 6, y: 6, z: 4, fill: 'solid' }, // the slab over the room
+  ]
+  const previous = { ...ctx.data }
+  try {
+    data = { ...data, cells, modules: [] }
+    for (const id of ['tv', 'sign-ceiling', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'monitor-ceiling', 'light-circular', 'vent']) {
+      const mod = createModule(id, 6, 6, 0, 'm-' + id, 0, undefined, 'up', 'lane', [LINE])
+      const fromFloor = box(build(mod).group)
+      const fromTopBlock = box(build({ ...mod, z: 3 }).group)
+      assert.ok(Math.abs(fromTopBlock.max.z - 4) < 0.02, `${id}: the mount sits on the top block`)
+      assert.equal(round(fromTopBlock.min.z), round(fromFloor.min.z), `${id}: the same body, hanging from the cell under that block`)
+    }
+  } finally {
+    ctx.data = data = previous
   }
 })
 
@@ -1007,7 +1014,9 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   // metres and the piece stands on a block top at z = 1, so the heights below are read
   // back off it.
   const wallSign = box(build(palette('sign-wall')).group)
-  const hungSign = box(build(palette('sign-ceiling')).group)
+  // A **hung** board is built on a column with nothing over the cell (the room's open middle), so
+  // the storey's nominal slab is its ceiling exactly as it always was.
+  const hungSign = box(build(palette('sign-ceiling', 0, 'up', 'lane', [6, 6, 0])).group)
   assert.equal(round(wallSign.min.y), 4.003, 'the wall sheet sits 3 mm proud of the wall plane')
   assert.ok(wallSign.max.y - wallSign.min.y < 0.001, 'and has no projecting back box')
   assert.equal(round(wallSign.min.z - 1), 1.45, 'the wall board hangs at the eye height its courses name')

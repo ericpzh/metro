@@ -539,9 +539,17 @@ the four rules most changes trip over.
   height wherever on the wall it is aimed. Both tools pass the flag (`EquipmentTool.wallMountPlacement`,
   `MoveController.moveAnchorAt`), so the ghost, a carried piece and the release agree. The **hanging**
   指示牌, the 电视, the 时钟, the 监控, the 灯具 (both tiles) and the 通风口 are instead *ceiling-hung*:
-  `ceilingMountMissing` refuses them unless a solid slab sits above every cell of the
-  piece one storey up (`LEVEL_STEPS`, the 4 m grid), and `ceilingMountStandCell` resolves
-  the hover to the floor the piece hangs over from any face. A 指示牌's **wall** mount is
+  `hungCeilingAim` takes every one of them to the free cell directly under the **first underside above
+  the pointer** — `top block - 1` — wherever on that column the pointer is, so aiming at the block
+  below a ceiling, at the slab's own underside or at the floor all land the piece in the same cell
+  (`topBlockZ` finds the lowest solid whose own cell below is air, which is what skips a wall's own
+  courses; `topBlockOver` says a piece's own cell is such a cell). Its model then hangs it from that
+  block at the short drop the piece's own design gives it (`hangCeilingLocal`; a 指示牌 0.65 m of rod, a
+  电视 0.85, a 灯具 none at all), so a board hugs the slab it hangs from. `ceilingMountMissing` refuses
+  a hung piece with no ceiling over it, and passes one whose own cell has a **top block** over it: the
+  block over the cell *is* its ceiling, no storey slab needed. A piece anchored on a floor instead (an
+  older save, or a hall whose only ceiling is the street plane) reads the real slab overhead
+  (`ceilingMountHeight`), never the fixed 0 / 4 / 8 grid. A 指示牌's **wall** mount is
   the panel rule again rather than this one: one piece, two palette tiles
   (`sign-ceiling` / `sign-wall`), and the mount lives in `cfg.mount` (`SignMount`,
   `sim/sign.ts`) so `isWallMounted` / `isCeilingHung` / `wallMountCourses` ask the module.
@@ -768,7 +776,7 @@ the four rules most changes trip over.
   stack and 取消 has nothing to restore — and the drop is **one** commit (one `Ctrl+Z`),
   refused by the same rules a fresh placement answers to, asked of a piece that already
   exists so the copy at its origin is never the obstacle. A carried wall panel aims through
-  `wallMountStandCell` and a hung fitting through `ceilingMountStandCell`
+  `wallMountStandCell` and a hung fitting through `hungCeilingAim`
   (`MoveController.moveAnchorAt`, reading the placed module's own mount), with the station's
   `levelBase` for the storey and — for a 玻璃板 / 广告牌 / 站名 — the **camera** for which wall it
   hangs on (`moveCandidate`'s `facing`; a 地面出入口 whose turn came from the block under the

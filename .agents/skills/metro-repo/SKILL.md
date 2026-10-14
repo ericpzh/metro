@@ -81,13 +81,17 @@ for geometry and routes, and `module-build.test.mjs` for visible model parts.
 
 Ceiling-hung signs, TVs, clocks and cameras attach to the nearest slab shared by
 their footprint; their suspension reaches that slab instead of assuming a 4 m
-room. All three 监控 housings read that slab like 枪机 does: 枪机 and 球机 keep
-their heads at a fixed height while the mount extends (stem / pole), and 半球机
-rides flush under the slab. Aiming at the underside of a ceiling slab resolves
-to the floor using the station's `levelBase`. Keep the preview and placement
-verdict aligned, and pin shifted-base snapping and nonstandard ceiling heights
-in `wall-ceiling-snap` and `sign-model` tests, plus the camera tall-ceiling
-pin in `ceiling-decor`.
+room. All three 监控 housings read that slab like 枪机 does, and each piece keeps
+its own short drop below it (a 指示牌's 0.65 m of rod, a 灯具 none), so a board hugs
+the slab it hangs from. The anchor is a cell, not a height (`hungCeilingAim`): a
+hanging item takes the free cell directly under the **first underside above the
+pointer** — `top block - 1` — wherever on that column the pointer is, floor,
+wall course or the slab's own underside alike, and a piece whose own cell has that
+block over it hangs from it (`hangCeilingLocal`, `topBlockOver`), while one left on
+a floor reads the real slab overhead using the station's `levelBase`. Keep the
+preview and placement verdict aligned, and pin the anchor, the shifted base and
+nonstandard ceiling heights in `wall-ceiling-snap`, `lights`, `vent`, `module-build`,
+`sign-model` and `ceiling-decor`.
 
 **Wall-mounted** decor — 广告牌, 玻璃板, 站名, the wall 线网图 and 指示牌 — is the
 mirror image, and `wallMountStandCell` asks the same base: a **side face is a wall

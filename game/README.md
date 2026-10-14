@@ -417,10 +417,14 @@ against a **run**, whose treads, step band or shaft passes through the storey th
 Without the exemption the storey-tall envelope `moduleEnvelope` reports made a clock and a chair in one
 corner impossible, though nothing about either is in the other's way.
 
-**The same piece is exempt from the ground rule, and for the same reason.** It is anchored to the
-floor cell of the storey it hangs over — `ceilingMountStandCell` resolves every hover to that cell, and
-it is what the save carries — but it does not *stand* on it, so `equipmentReason` asks
-`moduleFloorOk` of every piece except this one and the slab overhead (`ceilingMountMissing`) is its
+**The same piece is exempt from the ground rule, and for the same reason.** It is anchored to a
+cell of the storey it hangs over — `hungCeilingAim` resolves every hover to the free cell directly
+under the first **underside** above the pointer, `top block - 1`, so aiming at the floor, at a wall
+course or at a slab's own underside of one column lands the piece in the same cell (a wall's own
+courses are skipped by `topBlockZ`, and a column with nothing overhead leaves the storey floor) —
+and it is what the save carries — but it does not *stand* on it, so `equipmentReason` asks
+`moduleFloorOk` of every piece except this one and the block over that cell (`ceilingMountMissing`,
+which passes a piece whose own cell has its **top block** directly over it) is its
 whole structural requirement. A 指示牌 over a well, or over the rails under the station ceiling, is
 refused by what really refuses it — `track` over a bed, `occupied` in a run's headroom, `ceiling` under
 open sky — never by a floor three metres under its rods, which is the notice the ground rule used to
@@ -2047,11 +2051,14 @@ equipment and 移动 ghosts already under the pointer — the pointer has not mo
 
 **Which storey** was `storeyBand` on the fixed 0 / 4 / 8 grid, so a station built on a 基准高度 of 1
 bolted every wall panel one metre off its grid: the ceiling snap had been taught the base
-(`ceilingMountStandCell`), the wall snap had not. And a **plain 方块 wall** carries no wall tag, so a
+(`hangCeilingLocal`), the wall snap had not — and a hung piece reads the **real slab** over it now,
+never the 4 m line, so a 6 m hall no longer leaves a 灯具 floating where the grid used to be. And a
+**plain 方块 wall** carries no wall tag, so a
 side-face hover there stood the panel *inside* the block it was aimed at, free to hug either neighbour —
 GAME-SPEC §9.5's "side face = wall-mounted" says it belongs in the cell in front of that face, which is
 now where it stands, on that face's own storey whatever the block is tagged. No save changes: a panel
-already hanging keeps the cell and the course it was given.
+already hanging keeps the cell and the course it was given, and a hung piece anchored on a floor draws
+exactly where it did before.
 
 **Which course on the wall** is the other half of the same answer, and it is the 玻璃板's own: that piece
 is a **band of wall** — its frame starts at its cell's floor top and rises its own height — so anchoring
@@ -2688,8 +2695,11 @@ approximated); neither needs WebGL.
   cell in front of that face instead of inside the block (a top face still stands it on the block it
   hit); a **玻璃板** — cladding from its base, and the only wall piece that is (`wallMountFollowsCourse`) —
   instead **hangs over the course the pointer is on**, keeping the storey floor when that course is the
-  wall's first, while a piece drawn at its own `panelZ` stays at the floor; a hung fitting hovered on the floor, the slab overhead or
-  a wall course resolves to the floor it hangs over (`ceilingMountStandCell`), including a
+  wall's first, while a piece drawn at its own `panelZ` stays at the floor; a **hung** piece takes the
+  free cell under the first **underside** above the pointer — `top block - 1` — from the floor, a wall
+  course or the slab's own underside alike (`hungCeilingAim`, `topBlockZ` skipping a wall's own
+  courses), with the storey floor standing in when nothing is overhead, and a piece whose own cell has
+  its top block over it (`topBlockOver`) is hung from that block (`hangCeilingLocal`), including a
   nonzero `levelBase`; and a piece so aimed passes `equipmentReason` with the actual overhead slab.
 * `sign.test.mjs` — the 装饰 pieces 指示牌 and 电视 (§5.7): the factory builds the sign
   with the hover rotation; a piece needs a solid ceiling shared by its footprint (so a B1 piece

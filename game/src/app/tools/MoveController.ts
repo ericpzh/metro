@@ -3,8 +3,8 @@
 // or the 信息 card flow (GAME-SPEC §9.5).
 
 import { exitFloorAt } from '../../sim/exits.ts'
-import { ceilingMountStandCell, hungCeilingAim, hungDrop, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountFollowsCourse, wallMountStandCell } from '../../sim/placement.ts'
-import type { Module, Vec3i } from '../../sim/types.ts'
+import { ceilingMountStandCell, hungCeilingAim, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountFollowsCourse, wallMountStandCell } from '../../sim/placement.ts'
+import type { Vec3i } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -119,13 +119,13 @@ export class MoveController extends ToolController {
       return { x, y, z }
     }
     if (d && isCeilingHung(d.module)) {
-      // A **hung** piece is re-aimed the way a fresh one is: the line it hangs from is the
-      // height the pointer is on (`hungCeilingAim`), so a carried light or 电视 follows the
-      // mouse instead of keeping the height of the cell it came from. The 挂架 keeps its
-      // storey anchor: it is a roof, not a fitting hung under a surface.
+      // A **hung** piece is re-aimed the way a fresh one is: it goes to the free cell under the
+      // **top block** of the column the pointer is on (`hungCeilingAim`), so a carried light or
+      // 电视 follows the mouse instead of keeping the height of the cell it came from. The 挂架
+      // keeps its storey anchor: it is a roof, not a fitting hung under a surface.
       if (!d.module.type.startsWith('hanger')) {
-        const aim = hungCeilingAim(h.cell, h.place, st.station.levelBase, hungDrop(d.module))
-        return { x: aim.at[0], y: aim.at[1], z: aim.at[2] }
+        const [x, y, z] = hungCeilingAim(h.cell, h.place, st.station.levelBase, st.station.cells)
+        return { x, y, z }
       }
       const [x, y, z] = ceilingMountStandCell(h.cell, h.place, st.station.levelBase, st.station.cells)
       return { x, y, z }
@@ -171,17 +171,6 @@ export class MoveController extends ToolController {
     // and the rotation are the player's aim.
     let current = st.station.modules.find((m) => m.id === d.module.id) ?? d.module
     let rot = d.rot
-    // A carried **flush** ceiling fitting (灯具 / 通风口) takes the line it is aimed at, the
-    // same one a fresh placement would: its `cfg.line` is the height the pointer is on, and
-    // a floor aim clears it so the piece hangs from the slab overhead again. Carrying an
-    // absolute line into a new cell would hang it at the height it came from.
-    if (h && isCeilingHung(current) && !current.type.startsWith('hanger')) {
-      const aim = hungCeilingAim(h.cell, h.place, st.station.levelBase, hungDrop(current))
-      const cfg: Record<string, unknown> = { ...(current.cfg as Record<string, unknown>) }
-      if (aim.line === undefined) delete cfg.line
-      else cfg.line = aim.line
-      current = { ...current, cfg } as Module
-    }
     // A turn that came from a **named block face** under the pointer, rather than from
     // the piece's carried rotation, is the pointer's answer: a 地面出入口 is a shallow
     // sign on the block it was aimed at, and its `cfg.mountZ` names that course, so the

@@ -33,7 +33,6 @@ import {
   equipmentReason,
   equipmentRefusalNotice,
   hungCeilingAim,
-  hungDrop,
   isCeilingHung,
   moduleAt,
   pillarAt,
@@ -668,22 +667,16 @@ export class EquipmentTool extends ToolController {
     id: string,
   ): { mods: Module[]; noCeiling: boolean } {
     const st = useStore.getState()
-    // A **hung** piece goes where the pointer is, at the height it is on
-    // (`hungCeilingAim`): a floor hover means "hang in this room" and takes the real ceiling,
-    // any other surface names a line to hang under — mid-air included — and `hungDrop` is the
-    // metre a stem piece's own cell then sits below that line, so its body keeps the short drop its model gives it.
+    // A **hung** piece goes to the free cell directly under the **top block** of the column the
+    // pointer is on (`hungCeilingAim`) — the block below the ceiling — wherever on that column the
+    // pointer is: the floor, a wall course between them, or the slab's own underside. Its model
+    // then hangs it from that block, at the short drop its own design gives it.
     const hung = isCeilingHung({ type: st.moduleType }) && !st.moduleType.startsWith('hanger')
-    const aim = hung ? hungCeilingAim(cell, place, st.station.levelBase, hungDrop({ type: st.moduleType })) : null
-    const at = aim ? aim.at : ceilingMountStandCell(cell, place, st.station.levelBase, st.station.cells)
+    const at = hung
+      ? hungCeilingAim(cell, place, st.station.levelBase, st.station.cells)
+      : ceilingMountStandCell(cell, place, st.station.levelBase, st.station.cells)
     const mods = this.buildPlacementModules(st.moduleType, at, id)
     if (mods.length === 0) return { mods: [], noCeiling: true }
-    if (aim) {
-      for (const mod of mods) {
-        const cfg = mod.cfg as { line?: number }
-        if (aim.line === undefined) delete cfg.line
-        else cfg.line = aim.line
-      }
-    }
     // The modules ride along, or the ghost reads a **hung** piece's ceiling off the
     // document alone and reports "no ceiling" for a fitting that hangs from the
     // implicit street slab (`sim/ground.ts`) — a verdict `equipmentReason`, which

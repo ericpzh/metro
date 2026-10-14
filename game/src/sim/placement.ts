@@ -321,9 +321,10 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return floorDecorBounds(m)
     case 'vent': {
       const half = VENT_WIDTH / 2
-      // A **line-hung** grille (`flushCeilingAim`) reserves the plate just under the line
-      // the player hung it at; otherwise it is the plate under its storey's ceiling line.
-      const ceiling = hangLineOf(m) ?? ventCeilingZ(m)
+      // The grille's own band under the storey's ceiling line. (A grille hung under a **top block**
+      // draws at that block, one cell over its own; the envelope still reserves the nominal line,
+      // which is the reservation a hanging fitting has always taken.)
+      const ceiling = ventCeilingZ(m)
       return { x0: m.x + 0.5 - half, y0: m.y + 0.5 - half, z0: ceiling - VENT_DEPTH, x1: m.x + 0.5 + half, y1: m.y + 0.5 + half, z1: ceiling }
     }
     case 'light': {
@@ -331,7 +332,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       const offset = lightOffset(m)
       const cx = m.x + 0.5 + offset.x
       const cy = m.y + 0.5 + offset.y
-      const ceiling = hangLineOf(m) ?? lightCeilingZ(m)
+      const ceiling = lightCeilingZ(m)
       return { x0: cx - width / 2, y0: cy - depth / 2, z0: ceiling - LIGHT_DEPTH, x1: cx + width / 2, y1: cy + depth / 2, z1: ceiling }
     }
     case 'sign': {
@@ -919,78 +920,73 @@ export function ceilingMountStandCell(
 }
 
 /**
- * How far, in metres, a **hung** piece's cell sits below the line it hangs from: a **flush** plate
- * rides at the line itself (`0` — 灯具, 通风口, 半球机, whose body is drawn *on* that surface) and a
- * piece whose body hangs on a **stem** takes the cell under it (`1` — 电视, 吊挂指示牌, 时钟, 监控,
- * 天花板显示器), so the body keeps its own short drop from the line and still sits inside its own
- * cell's column.
+ * The cell a **hung** piece takes from the pointer's hit: the free cell directly under the **top
+ * block** of that column — the block below the ceiling — which is where a hanging item always
+ * lives, `top block - 1`, whether the pointer is on the floor, on a wall course between them or on
+ * the slab's own underside. `place` names the column for a side face, so a board hangs in front of
+ * the wall it was aimed at.
  *
- * Answers a **palette id** (`cctv-dome`, `light-circular`) as readily as a placed module,
- * because the tool is armed with the id before there is a module to ask — and a placed 监控
- * carries the family type with its variant in `cfg`.
- */
-export function hungDrop(m: { type: string; cfg?: object }): number {
-  if (m.type === 'vent' || m.type === 'light' || m.type.startsWith('light-')) return 0
-  if (m.type === 'cctv-dome') return 0
-  if (m.type === 'cctv' && (m.cfg as { variant?: string } | undefined)?.variant === 'dome') return 0
-  return 1
-}
-
-/**
- * Where a **hung** ceiling piece is put, from the pointer's hit, as the cell it sits in and the
- * **line** it hangs from (`cfg.line`, world z; absent when it hangs from the ceiling).
- *
- * A **floor** (a top face) means "hang in this room": the piece takes the storey floor and
- * no line of its own, so it hangs from the real slab overhead — `ceilingMountHeight`, not
- * the 4 m grid line, which floated a 基准高度-1 station's lights a metre below their ceiling
- * and a tall room's mid-air. Hovering void (the work plane) names the storey the same way.
- *
- * **Any other surface names a height**, which is the whole point of a hung piece: a wall
- * course or a slab's underside hands back the line at that surface's own **bottom edge**, and
- * the piece is anchored under it — in front of the wall for a side face, in the same column
- * under a slab. `drop` is how far its own cell sits below that line (`hungDrop`): a **flush**
- * plate rides at the line and a piece on a **stem** takes the cell below it, so its body keeps
- * the short drop the model gives it and stays inside that cell's column.
+ * Nothing solid over the pointer (an open hall, a doorway) leaves the storey's own floor, and
+ * `ceilingMountMissing` decides the piece from there: a hung item with no ceiling is refused.
  */
 export function hungCeilingAim(
   cell: readonly [number, number, number],
   place: readonly [number, number, number],
   levelBase = 0,
-  drop = 0,
-): { at: [number, number, number]; line?: number } {
+  cells: readonly Cell[] = [],
+): [number, number, number] {
   const side = place[0] !== cell[0] || place[1] !== cell[1]
-  const dz = place[2] - cell[2]
-  if (!side && dz === 0) return { at: [cell[0], cell[1], storeyBand(cell[2], levelBase)] }
-  if (dz > 0) return { at: [cell[0], cell[1], cell[2]] }
-  const line = cell[2]
   const x = side ? place[0] : cell[0]
   const y = side ? place[1] : cell[1]
-  return { at: [x, y, line - 1 - drop], line }
+  // Only a **slab's own underside** aimed at can be the ceiling itself; every other hit looks above
+  // the block the pointer is on, so a wall's course and a floor slab are never mistaken for one.
+  const from = !side && place[2] < cell[2] ? cell[2] : cell[2] + 1
+  const top = topBlockZ(cells, cell[0], cell[1], from)
+  if (top === null) return [x, y, storeyBand(cell[2], levelBase)]
+  return [x, y, top - 1]
 }
 
 /**
- * The absolute z a **hung** piece was hung at, when the player aimed at a height rather than
- * at a floor (`cfg.line`, written from `flushCeilingAim`). A piece with a line of its own
- * hangs where it was put and needs no slab overhead (`ceilingMountMissing`); every other
- * ceiling piece, and every save that predates the field, hangs from the ceiling above its cell.
+ * The **ceiling** of the space a pointer is in: the lowest solid cell of a column at or above
+ * `from` whose own cell below it is open air — the first **underside** overhead. A wall's own
+ * courses are skipped, each sitting on another course, so aiming anywhere on a wall that reaches
+ * the slab still finds the slab; a column with nothing overhead reads `null`.
  */
-export function hangLineOf(m: { cfg?: object }): number | undefined {
-  const line = (m.cfg as { line?: unknown } | undefined)?.line
-  return typeof line === 'number' && Number.isFinite(line) ? line : undefined
+export function topBlockZ(cells: readonly Cell[], x: number, y: number, from: number): number | null {
+  let top: number | null = null
+  for (const c of cells) {
+    if (c.fill !== 'solid' || c.x !== x || c.y !== y || c.z < from) continue
+    if (top !== null && c.z >= top) continue
+    if (cells.some((b) => b.fill === 'solid' && b.x === x && b.y === y && b.z === c.z - 1)) continue
+    top = c.z
+  }
+  return top
 }
 
 /**
- * The local height — above the cell's own floor top — of the surface a **hung** piece hangs
- * from: the line the player aimed at (`cfg.line`), else the real slab over its cell.
+ * True when a solid cell sits **directly over** the piece's own cell — the top block a hung piece
+ * hangs from when it was aimed at a column (`hungCeilingAim`). Such a piece needs no storey slab:
+ * the block over it *is* its ceiling.
+ */
+export function topBlockOver(cells: readonly Cell[], m: { x: number; y: number; z: number }): boolean {
+  return cells.some((c) => c.fill === 'solid' && c.x === m.x && c.y === m.y && c.z === m.z + 1)
+}
+
+/**
+ * The local height — above the cell's own floor top — of the surface a **hung** piece hangs from.
  *
- * Every hung piece is drawn from it, so all of them follow the surface the pointer is on rather
- * than carrying a height of their own — and each keeps the short drop its own model gives it (a
- * 指示牌's 0.65 m of rod, a 电视's 0.85, a 灯具 none at all), which is what puts a board just under
- * the slab it hangs from and lets it hug a taller one.
+ * A piece aimed at a column takes the free cell under that column's **top block**
+ * (`hungCeilingAim`), so the block over it *is* its ceiling and the mount sits at the cell's own
+ * top: local zero, with the body hanging the short drop the piece's model gives it — which is what
+ * puts a 指示牌's board just under the slab and lets it hug a taller room.
+ *
+ * A piece anchored on a floor instead — an older save, a hall whose only ceiling is the street
+ * plane — reads the real slab overhead (`ceilingMountHeight`), and `fallback` covers a build with
+ * no slab to read at all (a ghost in an empty station).
  */
-export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: readonly Module[]): number {
-  const line = hangLineOf(m)
-  return line !== undefined ? line - m.z - 1 : ceilingMountHeight(cells, m, modules) ?? 3
+export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: readonly Module[] = [], fallback = 3): number {
+  if (topBlockOver(cells, m)) return 0
+  return ceilingMountHeight(cells, m, modules) ?? fallback
 }
 
 /**
@@ -1121,10 +1117,9 @@ export function autofaceWallMount(cells: readonly Cell[], candidate: Module, nea
 export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
   if (candidate.type === 'hanger') return hangerRoofMissing(cells, modules, candidate)
   if (!isCeilingHung(candidate)) return false
-  // A **flush** piece the player hung at a height they aimed at (`hangLineOf`) is held by
-  // nothing overhead: it was put where it is on purpose, mid-air included, so the slab rule
-  // below does not apply to it.
-  if (hangLineOf(candidate) !== undefined) return false
+  // A piece hung under a **top block** (`hungCeilingAim`) hangs from that block, one cell over it,
+  // so the storey-slab rule below does not apply to it.
+  if (topBlockOver(cells, candidate)) return false
   if (modules.some((m) => hangerSupports(m, candidate))) return false
   return ceilingMountHeight(cells, candidate, modules) === null
 }

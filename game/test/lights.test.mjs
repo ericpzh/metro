@@ -66,11 +66,11 @@ test('rectangular lights and slim pillars follow centre then top-left to bottom-
   }
 })
 
-test('a light hangs from the real slab, and from its own line when the player aimed at one', () => {
+test('a light hangs from the real slab, and from the top block over its own cell', () => {
   // The 4 m **grid line** used to be the light's ceiling: on a 基准高度-1 station the slab is
   // at 9 and the grid line at 8, so every light floated a metre below its ceiling, and a
-  // taller room's floated in mid-air. A light reads the **slab over it** now — and a light
-  // the player hung at a height they aimed at (`cfg.line`) hangs from that line instead.
+  // taller room's floated in mid-air. A light reads the **slab over it** now — and a light whose
+  // own cell is the free one under a **top block** hangs from that block (`hungCeilingAim`).
   const cells = [{ x: 2, y: 3, z: 5, fill: 'solid' }, { x: 2, y: 3, z: 9, fill: 'solid' }]
   const ctx2 = { mats: { steel: mat }, data: { cells, modules: [], lines: [] } }
   const flush = createModule('light-circular', 2, 3, 5, 'l')
@@ -78,22 +78,19 @@ test('a light hangs from the real slab, and from its own line when the player ai
   // A taller room: with no slab at 9 the light reaches the one at 10, not the 4 m line at 8.
   const tall = { mats: { steel: mat }, data: { cells: [{ x: 2, y: 3, z: 5, fill: 'solid' }, { x: 2, y: 3, z: 10, fill: 'solid' }], modules: [], lines: [] } }
   close(new THREE.Box3().setFromObject(new LightModel(tall).build(flush)).max.z, 10, 'flush under a five-metre room’s slab')
-  // Aimed at a height: the housing sits just under the line and needs no slab at all.
-  const hung = createModule('light-circular', 2, 3, 6, 'l2')
-  hung.cfg.line = 7
-  close(new THREE.Box3().setFromObject(new LightModel({ mats: { steel: mat }, data: { cells: [], modules: [], lines: [] } }).build(hung)).max.z, 7, 'hung where it was put')
+  // The cell under the top block: the light hangs from that block, at its own cell's top.
+  const under = createModule('light-circular', 2, 3, 8, 'l2')
+  close(new THREE.Box3().setFromObject(new LightModel(ctx2).build(under)).max.z, 9, 'the cell under the top block hangs from it')
 })
 
-test('the tool hangs a flush fitting at the height the pointer is on', () => {
-  // The aiming half (`EquipmentTool.ceilingPlacement` → `flushCeilingAim`): a surface the
-  // pointer is on names a line and the fitting is built under it with that line in its
-  // `cfg`; a floor leaves it to the slab overhead — which is the difference between hanging
-  // a lamp where you point and hanging it in the room.
+test('the tool hangs a piece in the free cell under the top block of the column', () => {
+  // The aiming half (`EquipmentTool.ceilingPlacement` → `hungCeilingAim`): a hanging item takes the
+  // cell directly under the **top block** of the column the pointer is on — `top block - 1` —
+  // whether the pointer is on the floor, on a course above it or on the slab's own underside.
   const before = useStore.getState()
   try {
     const cells = [
       { x: 0, y: 1, z: 0, fill: 'solid' }, // the storey floor
-      { x: 0, y: 1, z: 2, fill: 'solid' }, // a course to hang under
       { x: 0, y: 1, z: 4, fill: 'solid' }, // and the slab over the room
     ]
     useStore.setState({
@@ -103,16 +100,13 @@ test('the tool hangs a flush fitting at the height the pointer is on', () => {
       moduleRot: 0,
     })
     const tool = new EquipmentTool({ scene: () => null, hover: { current: null }, drag: { current: null } })
-    // Aimed at the underside of the block at (0, 1, 2): hung from that line, one cell below.
-    const hung = tool.ceilingPlacement([0, 1, 2], [0, 1, 1], 'l1')
-    assert.equal(hung.noCeiling, false, 'a line-hung fitting needs no slab')
-    assert.deepEqual([hung.mods[0].x, hung.mods[0].y, hung.mods[0].z], [0, 1, 1], 'in the cell under the surface')
-    assert.equal(hung.mods[0].cfg.line, 2, 'hung from the line the pointer was on')
-    // Aimed at the floor: no line of its own, so it hangs from the room's ceiling.
-    const room = tool.ceilingPlacement([0, 1, 0], [0, 1, 1], 'l2')
-    assert.equal(room.noCeiling, false)
-    assert.deepEqual([room.mods[0].x, room.mods[0].y, room.mods[0].z], [0, 1, 0])
-    assert.equal(room.mods[0].cfg.line, undefined, 'a floor aim leaves it to the slab overhead')
+    const at = (mods) => [mods[0].x, mods[0].y, mods[0].z]
+    const fromFloor = tool.ceilingPlacement([0, 1, 0], [0, 1, 1], 'l1')
+    assert.equal(fromFloor.noCeiling, false)
+    assert.deepEqual(at(fromFloor.mods), [0, 1, 3], 'the cell under the slab over the floor')
+    const fromSlab = tool.ceilingPlacement([0, 1, 4], [0, 1, 3], 'l2')
+    assert.equal(fromSlab.noCeiling, false)
+    assert.deepEqual(at(fromSlab.mods), [0, 1, 3], 'and the same cell aimed at the slab’s own underside')
   } finally {
     useStore.setState(before)
   }

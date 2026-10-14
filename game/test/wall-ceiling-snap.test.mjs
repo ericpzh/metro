@@ -16,10 +16,11 @@ import {
   ceilingMountMissing,
   ceilingMountStandCell,
   equipmentReason,
+  hangCeilingLocal,
   hungCeilingAim,
-  hangLineOf,
-  hungDrop,
   moduleEnvelope,
+  topBlockOver,
+  topBlockZ,
   wallMountFollowsCourse,
   wallMountMissing,
   wallMountStandCell,
@@ -127,48 +128,48 @@ test('only the wall-mounted 玻璃板 follows the aimed course', () => {
   assert.equal(wallMountFollowsCourse(panel), true)
 })
 
-test('a hung ceiling piece can be hung at the height the pointer is on', () => {
-  // `hungCeilingAim`: a floor means "hang in this room" — the piece takes the storey and no line
-  // of its own, so it hangs from the real slab overhead (`ceilingMountHeight` — never the fixed
-  // 4 m grid line, which floated a 基准高度-1 station's lights a metre low and a tall room's in
-  // mid-air). Any **other** surface names a height: the line is that block's own bottom edge and
-  // the piece is anchored under it — in front of the wall for a side face, in the same column
-  // under a slab — so it can be hung wherever the pointer is, mid-air included.
-  assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 6]), { at: [2, 2, 5] }, 'a floor top: the storey, hung from its ceiling')
-  assert.deepEqual(hungCeilingAim([2, 2, 7], [2, 2, 6]), { at: [2, 2, 6], line: 7 }, 'a slab underside: just below the slab')
-  assert.deepEqual(hungCeilingAim([2, 3, 7], [2, 2, 7]), { at: [2, 2, 6], line: 7 }, 'a wall course: one below it, in front of the wall')
-  // The station's own grid answers the work-plane hover (void), the same storey a floor gives.
-  assert.deepEqual(hungCeilingAim([2, 2, 6], [2, 2, 6], 1), { at: [2, 2, 5] }, 'a void hover reads the 基准高度 storey')
-  // `drop` is the metre a stem piece's **body** hangs below that line, so its cell is the one
-  // whose floor top is the body's own height and the whole piece stays inside that column.
-  assert.deepEqual(hungCeilingAim([2, 2, 7], [2, 2, 6], 0, 1), { at: [2, 2, 5], line: 7 }, 'a stem piece: its cell under the line')
-  assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 6], 0, 1), { at: [2, 2, 5] }, 'a floor aim is the storey either way')
-  // Which pieces are on a stem and which ride flush on the surface, palette ids included.
-  assert.equal(hungDrop({ type: 'tv' }), 1)
-  assert.equal(hungDrop({ type: 'sign-ceiling' }), 1)
-  assert.equal(hungDrop({ type: 'clock' }), 1)
-  assert.equal(hungDrop({ type: 'cctv' }), 1, '枪机 on its stem')
-  assert.equal(hungDrop({ type: 'cctv', cfg: { variant: 'dome' } }), 0, 'and a placed 半球机 flush, whatever its id')
-  assert.equal(hungDrop({ type: 'cctv-ptz' }), 1)
-  assert.equal(hungDrop({ type: 'cctv-dome' }), 0, '半球机 bolts to the surface')
-  assert.equal(hungDrop({ type: 'monitor-ceiling' }), 1)
-  assert.equal(hungDrop({ type: 'light-circular' }), 0)
-  assert.equal(hungDrop({ type: 'vent' }), 0)
+test('a hung ceiling piece takes the free cell under the top block of its column', () => {
+  // `hungCeilingAim`: a hanging item always lives at `top block - 1` — the cell under the block it
+  // hangs from — wherever on that column the pointer is: the floor, a wall course between them, or
+  // the slab's own underside. `place` names the column for a side face, so a board hangs in front
+  // of the wall it was aimed at. A column with nothing over the pointer leaves the storey's own
+  // floor, and `ceilingMountMissing` refuses a hung piece that finds no ceiling there.
+  const cells = [
+    { x: 2, y: 2, z: 0, fill: 'solid' }, // the floor, with the slab over it
+    { x: 2, y: 2, z: 5, fill: 'solid' },
+    { x: 2, y: 3, z: 0, fill: 'solid' }, // a wall run, up to its own slab
+    { x: 2, y: 3, z: 1, fill: 'solid' },
+    { x: 2, y: 3, z: 2, fill: 'solid' },
+    { x: 2, y: 3, z: 5, fill: 'solid' },
+  ]
+  assert.deepEqual(hungCeilingAim([2, 2, 0], [2, 2, 1], 0, cells), [2, 2, 4], 'a floor hover: the cell under the slab')
+  assert.deepEqual(hungCeilingAim([2, 3, 2], [2, 2, 2], 0, cells), [2, 2, 4], 'a wall course: the same cell, in front of the wall')
+  assert.deepEqual(hungCeilingAim([2, 3, 5], [2, 3, 4], 0, cells), [2, 3, 4], 'a slab underside: the cell under that slab')
+  assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 4], 0, cells), [2, 2, 4], 'and a floor slab’s own underside reads its storey')
+  assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 5], 0, cells), [2, 2, 4], 'the work plane reads the same column')
+  assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 7], 0, []), [6, 6, 4], 'nothing overhead: the storey floor stands in')
+  assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 6], 1, []), [6, 6, 5], 'and it reads the 基准高度 grid')
+  // The lookup itself: the first **underside** overhead, a wall's own courses skipped.
+  assert.equal(topBlockZ(cells, 2, 2, 1), 5, 'the slab over the floor')
+  assert.equal(topBlockZ(cells, 2, 3, 2), 5, 'and the slab over a wall run')
+  assert.equal(topBlockZ(cells, 2, 4, 0), null, 'a column with nothing in it')
+  assert.equal(topBlockOver(cells, { x: 2, y: 3, z: 4 }), true, 'the block over the piece’s own cell')
+  assert.equal(topBlockOver(cells, { x: 2, y: 2, z: 0 }), false)
 
-  // A **line-hung** piece needs no slab overhead: it hangs where it was put, mid-air
-  // included. An ordinary one still wants the ceiling, which is the rule that kept a
-  // fixture out of an empty doorway.
-  const hung = createModule('light-circular', 2, 2, 6, 'l')
-  assert.ok(hung)
-  hung.cfg.line = 7
-  assert.equal(hangLineOf(hung), 7)
-  assert.equal(ceilingMountMissing([], hung), false, 'hung at a height, it hangs on nothing')
-  const ceilingBound = createModule('light-circular', 2, 2, 5, 'l2')
-  assert.ok(ceilingBound)
-  assert.equal(hangLineOf(ceilingBound), undefined)
-  assert.equal(ceilingMountMissing([], ceilingBound), true, 'and one meant for the ceiling still needs a slab')
-  // A line the player aimed at is reserved as its own thin plate, not as the storey's ceiling.
-  assert.equal(moduleEnvelope(hung).z1, 7)
+  // The verdict: a piece under a top block hangs from it and needs no storey slab; a piece left on
+  // a floor still wants a ceiling over it — which is what kept a fixture out of an empty doorway.
+  const under = createModule('light-circular', 2, 3, 4, 'l')
+  assert.ok(under)
+  assert.equal(ceilingMountMissing(cells, under), false, 'the block over its cell is its ceiling')
+  assert.equal(hangCeilingLocal(under, cells), 0, 'and the mount sits at the cell’s own top')
+  // The reserved band of a flush fitting is still the storey's nominal line: `moduleEnvelope` reads
+  // the module alone, with no cells to ask where the slab actually is.
+  assert.equal(moduleEnvelope(under).z1, 8, 'the fitting reserves its band under the nominal storey line')
+  const floorBound = createModule('light-circular', 2, 2, 0, 'l2')
+  assert.ok(floorBound)
+  assert.equal(ceilingMountMissing([{ x: 2, y: 2, z: 0, fill: 'solid' }], floorBound), true, 'no ceiling over the floor')
+  assert.equal(ceilingMountMissing(cells, floorBound), false, 'and the slab over the floor answers it')
+  assert.equal(hangCeilingLocal(floorBound, cells), 4, 'which is the real slab, this storey tall')
 })
 
 test('a ceiling hover resolves to the floor below, from any face', () => {

@@ -226,6 +226,21 @@ covers the clicked course where a 广告牌 on the same hover keeps its band. Al
 is preview-and-release agreement: the ghost
 and the click ask one function.
 
+For a **hung** piece the same split applies to `hungCeilingAim` + `hangCeilingLocal`:
+`wall-ceiling-snap` pins the anchor itself — the free cell under the first underside
+above the pointer (`topBlockZ` skipping a wall's own courses, `topBlockOver` for a cell
+with its top block over it) from a floor hover, a wall course, a slab's underside and the
+work plane, the storey floor and `levelBase` when nothing is overhead, and the verdict
+(`ceilingMountMissing` passing a piece under a top block, refusing one with no ceiling);
+`lights` pins the tool's half (floor hover and slab underside reaching the same cell) and
+the drawn light — the real slab on a shifted base, and the top block when the piece's own
+cell is the one under it; `vent` the grille the same way; `module-build` the drawn mount of
+every hung piece and its pinned sizes (a hung row is built on a column with nothing over
+the cell, so the nominal storey slab is its ceiling exactly as it always was); `ceiling-decor`
+the 监控 stems against a tall slab. Assert on the **cell** and the drawn mount, not on a
+height the piece carries: an older save anchored on a floor draws identically, which is the
+migration-free promise to keep.
+
 `placement.test.mjs` pins stair footing: every stair shape may be placed with ground
 only at its foot, regardless of width or rotation, and is still refused if that foot
 has no ground. The upper landing and interior turn platform must not become additional
