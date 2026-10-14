@@ -1,12 +1,14 @@
 // Wall/ceiling snap: decor is aimed at its surface, never at a floating course.
 //
-// A wall panel hovered on an upper wall course still anchors to the storey floor
-// below (`wallMountStandCell`), and a hung fitting hovered on the ceiling slab,
-// the floor, or a wall course resolves to the floor it hangs over
-// (`ceilingMountStandCell`) — so the ghost and the committed piece sit on the
-// surface, while the save keeps the floor anchor the envelopes read. Both snaps
-// ask the station's own **基准高度** for the 4 m grid: a station whose grid is
-// shifted by a metre must not anchor its decor to the fixed 0 / 4 / 8 lines.
+// A wall panel hovered on an upper wall course anchors to the storey floor below
+// (`wallMountStandCell`) — except a **玻璃板**, which is cladding from its base and
+// therefore hangs over the very course the pointer is on (`wallMountFollowsCourse`) —
+// and a hung fitting hovered on the ceiling slab, the floor, or a wall course resolves
+// to the floor it hangs over (`ceilingMountStandCell`) — so the ghost and the committed
+// piece sit on the surface, while the save keeps the floor anchor the envelopes read.
+// Every one of those snaps asks the station's own **基准高度** for the 4 m grid: a
+// station whose grid is shifted by a metre must not anchor its decor to the fixed
+// 0 / 4 / 8 lines.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -14,6 +16,7 @@ import {
   ceilingMountMissing,
   ceilingMountStandCell,
   equipmentReason,
+  wallMountFollowsCourse,
   wallMountMissing,
   wallMountStandCell,
 } from '../src/sim/placement.ts'
@@ -77,6 +80,48 @@ test('a side face is a wall whatever tags the block carries, so a 方块 wall mo
   assert.equal(wallMountMissing(cells, panel), false)
 })
 
+
+test('a 玻璃板 hangs over the course the pointer is on, and a poster keeps its band', () => {
+  // `wallMountFollowsCourse`: the 玻璃板 is **cladding from its base**, so the cell one
+  // below the block that was hit puts the pane over exactly the course aimed at — a
+  // window where the player points, instead of floor cladding wherever the pointer
+  // happens to be. Aiming at the wall's first course still lands on the storey floor,
+  // which is the cladding it has always been.
+  const cells = [floor(0, 0, 5), wall(0, -1, 6), wall(0, -1, 7), wall(0, -1, 8), wall(0, -1, 9)]
+  const at = (z, follow) => wallMountStandCell(cells, [0, -1, z], [0, 0, z], false, 1, follow)
+  assert.deepEqual(at(6, true), [0, 0, 5], 'the first course above the floor is the floor')
+  assert.deepEqual(at(7, true), [0, 0, 6], 'the second course hangs the pane over the second course')
+  assert.deepEqual(at(8, true), [0, 0, 7], 'and the third likewise')
+  // The pane really hangs there: the block aimed at is its backing, one course up.
+  const pane = createModule('glass-1x1', 0, 0, 6, 'g6', 0)
+  assert.ok(pane)
+  assert.equal(wallMountMissing(cells, pane), false)
+  assert.equal(equipmentReason(cells, [], pane, true), '', 'and a pane hanging over a course is accepted')
+  // A piece drawn at its own `panelZ` keeps the storey floor: that is what puts a
+  // poster at eye height wherever on the wall it is aimed.
+  assert.deepEqual(at(8, false), [0, 0, 5], 'a poster aimed at the third course stays at the floor')
+  // A **floor** block (nothing over it) is not a band of wall to cover: the pane still
+  // stands on that floor level, so aiming at a slab's edge never sinks it into the slab.
+  assert.deepEqual(wallMountStandCell([floor(0, 0, 5)], [0, 0, 5], [0, -1, 5], false, 1, true), [0, -1, 5], 'a floor edge keeps the storey reading')
+})
+
+test('only the wall-mounted 玻璃板 follows the aimed course', () => {
+  // The predicate the tools ask before the module exists, so it answers a **palette id**
+  // as readily as a placed one (`equipment-placement-input`).
+  for (const id of ['glass-1x1', 'glass-3x2', 'glass-2x1']) {
+    assert.equal(wallMountFollowsCourse({ type: id }), true, `${id} is cladding: it hangs where it is aimed`)
+  }
+  for (const id of ['curtain-wall', 'billboard-wide', 'sign-wall', 'linemap', 'calligraphy-landscape']) {
+    assert.equal(wallMountFollowsCourse({ type: id }), false, `${id} is drawn at its own height`)
+  }
+  // A placed module answers the same way, `cfg` and all.
+  const standing = createModule('curtain-wall', 0, 0, 0, 'c', 0, 1, undefined, undefined, [], undefined, { curtainHeight: 2 })
+  const panel = createModule('glass-2x2', 0, 0, 0, 'g', 0)
+  assert.ok(standing)
+  assert.ok(panel)
+  assert.equal(wallMountFollowsCourse(standing), false, 'a floor-standing 玻璃幕墙 is not wall-mounted at all')
+  assert.equal(wallMountFollowsCourse(panel), true)
+})
 
 test('a ceiling hover resolves to the floor below, from any face', () => {
   // Top face of the floor: the cell itself.

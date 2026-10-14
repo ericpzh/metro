@@ -171,13 +171,21 @@ For a wall mount, keep the aiming rules in the pure placement module
 (`wallMountStandCell` + `autofaceWallMount`) and pin each half where it lives:
 `wall-ceiling-snap` for the **基准高度** storey snap and for a **side face being a
 wall whatever the block is tagged** (a plain 方块 wall mounts in front of the face,
-a top face still stands the piece on the block it hit); `placement` for the camera
+a top face still stands the piece on the block it hit), plus the **玻璃板's course
+rule** — the predicate `wallMountFollowsCourse` (a palette id answers as a module
+does, and only the wall glass answers true), `wallMountStandCell`'s `followCourse`
+(the first wall course is the storey floor, a higher one hangs the pane over itself,
+a floor slab's own edge keeps the storey reading) and that the verdict accepts a pane
+hanging over a course; `placement` for the camera
 ranking, its carried-turn / pointer / rotation-order tie-breaks and that the
 search asks `wallMountMissing` per direction (a 半墙 facing away is skipped, not
 chosen and refused); `glass-panel` and `move` for the tool and controller halves —
-the stand cell, the station's `levelBase`, and an orbit changing the ghost;
+the stand cell, the station's `levelBase`, an orbit changing the ghost, and a carried
+玻璃板 following the course it is aimed at;
 `equipment-placement-input` for the one mount the view may not re-aim (a 地面出入口
-on its clicked block face). All of it is preview-and-release agreement: the ghost
+on its clicked block face) and for the tool's half of the course rule — the 玻璃板
+covers the clicked course where a 广告牌 on the same hover keeps its band. All of it
+is preview-and-release agreement: the ghost
 and the click ask one function.
 
 `placement.test.mjs` pins stair footing: every stair shape may be placed with ground

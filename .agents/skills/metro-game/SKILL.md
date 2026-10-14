@@ -503,7 +503,16 @@ the four rules most changes trip over.
   along it; the carried turn, the pointer then the rotation order settle a view that cannot
   tell them apart. The one mount the view may not re-aim is one bolted to a **named piece of
   the document**: a board on a booth header, and a 地面出入口 on the block face the pointer
-  clicked (its `cfg.mountZ`). The **hanging**
+  clicked (its `cfg.mountZ`). **Which course** of that wall a piece covers is a second question, and the
+  玻璃板 answers it differently: it is the one wall piece that is a **band of wall** (its frame starts at
+  its cell's floor top and rises its own height), so `wallMountFollowsCourse` sends it to the **course the
+  pointer is on** — `wallMountStandCell`'s `followCourse` puts its cell one below the block that was hit,
+  so the pane covers that block, while aiming at the wall's first course still lands on the storey floor.
+  Only a **wall course** counts (a block with a block over it): a floor slab's own edge keeps the storey
+  reading, so the pane is never sunk into a floor, and the pieces drawn at a `panelZ` of their own (广告牌,
+  站名, 线网图, the wall 指示牌) keep the storey floor as their anchor — which is what puts a poster at eye
+  height wherever on the wall it is aimed. Both tools pass the flag (`EquipmentTool.wallMountPlacement`,
+  `MoveController.moveAnchorAt`), so the ghost, a carried piece and the release agree. The **hanging**
   指示牌, the 电视, the 时钟, the 监控, the 灯具 (both tiles) and the 通风口 are instead *ceiling-hung*:
   `ceilingMountMissing` refuses them unless a solid slab sits above every cell of the
   piece one storey up (`LEVEL_STEPS`, the 4 m grid), and `ceilingMountStandCell` resolves
@@ -1080,7 +1089,10 @@ the four rules most changes trip over.
   ghost and the 移动 ghost all draw the piece with `setCursor(null)` — selection still commits
   the blue `setSelection` box round the model, picked from the drawn mesh (`pickModule`) before
   the cell. **Three more wall pieces sit beside it.** 玻璃板 (`sim/glassPanels.ts`) has six
-  short wall-mounted sizes (one to three cells wide, 1 m / 2 m tall); floor-standing
+  short wall-mounted sizes (one to three cells wide, 1 m / 2 m tall) — and it is the one wall piece
+  that is a **band of wall**, so it **hangs over the course the pointer is on**
+  (`wallMountFollowsCourse`, above): the palette size is the metre band the pane covers, not a fixed
+  band at the storey floor; floor-standing
   glass is its own **玻璃幕墙** tile, with 超窄 / 窄 / 中 / 宽 widths (1 / 2 / 3 / 4 m)
   and 短 / 中 / 长 heights (2 / 3 / 4 m). All four rotations may occupy the same tile,
   while a duplicate on the same side remains blocked. At a corner, remove one intersecting

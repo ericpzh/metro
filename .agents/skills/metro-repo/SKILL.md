@@ -101,8 +101,16 @@ search asks `wallMountMissing`'s own verdict per direction. The mounts bolted to
 **named piece of the document** keep the turn the pointer gave them — a board on a
 booth header, a 地面出入口 on the block face it was clicked on. An orbit therefore
 re-aims the ghost already under the pointer (`SceneRenderer.onCameraAim` →
-`Viewport`'s `refreshHover`). Pin all of it in `wall-ceiling-snap`,
-`equipment-placement-input`, `glass-panel`, `move` and `scene-wiring`.
+`Viewport`'s `refreshHover`). The **course** a panel covers is the same aim's second
+question, and the 玻璃板 answers it as a band of wall: it is the one wall piece that
+starts at its cell's floor top and rises its own height, so `wallMountFollowsCourse`
+hangs it over the course the pointer is on (`wallMountStandCell`'s `followCourse`) —
+aim at a wall's second course and the pane covers the second course, aim at the first
+and it is the storey floor it always was. A floor slab's own edge keeps the storey
+reading, and the pieces drawn at their own `panelZ` (广告牌, 站名, 线网图, wall 指示牌) keep
+the storey floor, which is what puts a poster at eye height wherever it is aimed. Pin
+all of it in `wall-ceiling-snap`, `equipment-placement-input`, `glass-panel`, `move`
+and `scene-wiring`.
 
 ## Repo rule: translations use the existing i18n infrastructure
 

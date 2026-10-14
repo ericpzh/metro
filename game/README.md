@@ -296,7 +296,10 @@ is no walkable floor in front of it.
 wall-mounted cousin: a sheet of glass in an **outer frame only** — one sill, one head and two end
 posts around the whole run, with a single pane between them, so a three-cell panel is one window where
 a fence run of the same length stands three frames up — in six sizes (one, two or three cells wide, in
-a 1 m and a 2 m height) from `sim/glassPanels.ts`. The separate floor-standing **玻璃幕墙** tile
+a 1 m and a 2 m height) from `sim/glassPanels.ts`. It is also the one wall piece that is a **band of
+wall** rather than a panel at a fixed height, so aiming at a wall course hangs the pane over that course
+(`wallMountFollowsCourse`): put a 2 m window at the third course and it covers the third and fourth,
+where the same aim leaves a 广告牌's lightbox at its own eye height. The separate floor-standing **玻璃幕墙** tile
 has **短 / 中 / 长** height choices (2 / 3 / 4 m) and **窄 / 中 / 宽** widths (2 / 3 / 4 m).
 All four sides can share one tile; at a corner the intersecting end post and rail are removed
 to make a clean snap. Beside it, **屏蔽端门**
@@ -2018,6 +2021,18 @@ GAME-SPEC §9.5's "side face = wall-mounted" says it belongs in the cell in fron
 now where it stands, on that face's own storey whatever the block is tagged. No save changes: a panel
 already hanging keeps the cell and the course it was given.
 
+**Which course on the wall** is the other half of the same answer, and it is the 玻璃板's own: that piece
+is a **band of wall** — its frame starts at its cell's floor top and rises its own height — so anchoring
+it to the storey floor drew every panel as cladding at the floor, one course below the block the player
+was pointing at (and a poster, whose lightbox hangs at 1.55–1.7 m by design, then looked a course higher
+still). A wall-mounted 玻璃板 now **hangs over the course the pointer is on** (`wallMountFollowsCourse` →
+`wallMountStandCell`'s `followCourse`): aim at a wall's second course and the pane covers the second
+course, aim at the first and the answer is the storey floor it has always been. Only a **wall course**
+counts — a block with a block over it — so aiming at a floor slab's own edge still stands the panel on
+that floor rather than sinking it into the slab, and the pieces drawn at a `panelZ` of their own (广告牌,
+站名, 线网图, wall 指示牌) keep the storey floor as their anchor, which is what puts a poster at eye height
+wherever on the wall it is aimed. One function answers for the ghost, the 移动 ghost and the release.
+
 `test/` holds the acceptance tests. Run them with `npm test`:
 
 Two of the drawn faces can be rendered to a PNG outside the browser, for looking at rather than
@@ -2270,7 +2285,10 @@ approximated); neither needs WebGL.
   (`wallMountStandCell`), so it can bolt to the station wall across the track — and that half of the aim
   takes **any** block's side face as a wall, tagged or not, on the face's own storey of the station's
   基准高度 grid, so a wall raised with the 方块 brush mounts a panel like one the 墙 tool tagged
-  (`wall-ceiling-snap.test.mjs`).
+  (`wall-ceiling-snap.test.mjs`). A **玻璃板** — the one wall piece that is a band of wall rather than a
+  panel at its own height — goes one step further: `wallMountFollowsCourse` sends it to the course the
+  pointer is on, so the pane covers the block that was clicked (`wall-ceiling-snap.test.mjs`,
+  `equipment-placement-input.test.mjs`).
   Escalator equipment collisions follow the sloped, per-tile body even against another run: the
   floor above the lower section stays free, and vertically adjacent runs may meet at the landing
   plane without reserving the whole shaft. Placement and bay tests pin that clearance and real
@@ -2632,7 +2650,9 @@ approximated); neither needs WebGL.
   floor at 5 rather than the unshifted 4 `storeyBand` reads by default; a **side face is a wall
   whatever tags the block carries** (§9.5), so aiming at a plain 方块 wall stands the panel in the
   cell in front of that face instead of inside the block (a top face still stands it on the block it
-  hit); a hung fitting hovered on the floor, the slab overhead or
+  hit); a **玻璃板** — cladding from its base, and the only wall piece that is (`wallMountFollowsCourse`) —
+  instead **hangs over the course the pointer is on**, keeping the storey floor when that course is the
+  wall's first, while a piece drawn at its own `panelZ` stays at the floor; a hung fitting hovered on the floor, the slab overhead or
   a wall course resolves to the floor it hangs over (`ceilingMountStandCell`), including a
   nonzero `levelBase`; and a piece so aimed passes `equipmentReason` with the actual overhead slab.
 * `sign.test.mjs` — the 装饰 pieces 指示牌 and 电视 (§5.7): the factory builds the sign
@@ -2670,7 +2690,8 @@ approximated); neither needs WebGL.
   a solid floor hit. The same aim is what picks **which** wall a panel hangs on, and the mounts bolted
   to a named piece of the document keep the turn the pointer gave them: a 地面出入口 stays on the block
   face it was clicked on (`cfg.mountZ`) while a 玻璃板 on the same hover takes the wall the camera is
-  looking at.
+  looking at. It also pins **which course** that 玻璃板 covers: aimed at a wall's second course the pane
+  hangs over the second course, where a 广告牌 on the same hover keeps its band at the storey floor.
 * `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers ten (six wall sizes and four
   4 m floor-edge sizes, including 1 m 超窄), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
   band; the factory centres the run on the hovered cell; short-panel envelopes are a **slab on a wall**

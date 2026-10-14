@@ -36,6 +36,7 @@ import {
   moduleAt,
   pillarAt,
   placementColliders,
+  wallMountFollowsCourse,
   wallMountMissing,
   wallMountStandCell,
   glassCells,
@@ -531,7 +532,17 @@ export class EquipmentTool extends ToolController {
   ): { mod: Module | null; noWall: boolean } {
     const st = useStore.getState()
     const groundExit = st.moduleType.startsWith('exit-doorway-')
-    const at = wallMountStandCell(st.station.cells, cell, place, groundExit, st.station.levelBase)
+    // A 玻璃板 is cladding from its base, so it **hangs over the course the pointer is
+    // on** rather than always at the storey floor (`wallMountFollowsCourse`): aim at a
+    // wall's third course and the window covers the third course.
+    const at = wallMountStandCell(
+      st.station.cells,
+      cell,
+      place,
+      groundExit,
+      st.station.levelBase,
+      wallMountFollowsCourse({ type: st.moduleType }),
+    )
     const hitBlock = st.station.cells.some((block) => block.fill === 'solid'
       && block.x === cell[0] && block.y === cell[1] && block.z === cell[2])
     const snappedRot = groundExit && hitBlock

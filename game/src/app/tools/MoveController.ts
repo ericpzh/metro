@@ -3,7 +3,7 @@
 // or the 信息 card flow (GAME-SPEC §9.5).
 
 import { exitFloorAt } from '../../sim/exits.ts'
-import { ceilingMountStandCell, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountStandCell } from '../../sim/placement.ts'
+import { ceilingMountStandCell, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountFollowsCourse, wallMountStandCell } from '../../sim/placement.ts'
 import type { Vec3i } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
@@ -106,7 +106,16 @@ export class MoveController extends ToolController {
     const d = st.moveDraft
     if (d && isWallMounted(d.module)) {
       const groundExit = d.module.type === 'exit' && d.module.cfg.style === 'doorway'
-      const [x, y, z] = wallMountStandCell(st.station.cells, h.cell, h.place, groundExit, st.station.levelBase)
+      // A carried 玻璃板 hangs where it is aimed, the same course the fresh placement
+      // takes (`wallMountFollowsCourse`): one hover, one cell, either way in.
+      const [x, y, z] = wallMountStandCell(
+        st.station.cells,
+        h.cell,
+        h.place,
+        groundExit,
+        st.station.levelBase,
+        wallMountFollowsCourse(d.module),
+      )
       return { x, y, z }
     }
     if (d && isCeilingHung(d.module)) {

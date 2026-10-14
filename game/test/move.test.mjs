@@ -314,6 +314,24 @@ test('the 移动 ghost takes the wall the camera is looking at, on the 基准高
   tool.refreshHover()
   assert.equal(preview.rot, 1, 'the east wall, which the camera now faces')
   assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 5], 'the stand cell does not move with the view')
+  // A carried **玻璃板** follows the course it is aimed at, exactly as a fresh placement
+  // does (`wallMountFollowsCourse`): pointed at the wall's second course — covered by the
+  // one over it — the pane covers that course rather than dropping to the storey floor.
+  const panel = piece('glass-1x1', 0, 0, 5)
+  useStore.setState({
+    station: toState({ name: '移动测试', seed: 1, levelBase: 1, cells: [...cells, { x: 0, y: 1, z: 7, fill: 'solid' }, { x: 0, y: 1, z: 8, fill: 'solid' }], modules: [panel], lines: [] }),
+    moveDraft: null,
+    past: [],
+    future: [],
+    notice: null,
+    version: 0,
+  })
+  tool.ctx.hover.current = { cell: [0, 1, 7], place: [0, 0, 7], solid: true, point: [0.5, 1] }
+  aim = [0, -1]
+  st().liftModule(panel.id)
+  tool.refreshHover()
+  assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 6], 'the carried pane hangs over the course it is aimed at')
+  assert.equal(preview.rot, 2, 'on the wall the camera is looking at')
 })
 
 /* ------------------------------------------------------- putting it back */

@@ -30,7 +30,7 @@ import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
 import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
 import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
-import { GLASS_FRAME, glassModuleSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
+import { GLASS_FRAME, glassModuleSpec, glassSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
 import { GROUND_Z, groundHoleAt, virtualSolidAt } from './ground.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
@@ -45,7 +45,7 @@ import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './trac
 import { monitorCells } from './monitors.ts'
 import { RAIL_SIGNAL_HEIGHT, RAIL_SIGNAL_SCALE } from './constants.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
-import { halfWallSide, isWallBlock, type Cell, type Module, type Vec3i, type WallSide } from './types.ts'
+import { halfWallSide, isWallBlock, type Cell, type GlassVariant, type Module, type Vec3i, type WallSide } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
 export interface ModuleBox {
@@ -817,6 +817,13 @@ export function wallSide(rot: number | undefined): [number, number] {
  *   * `levelBase` is the station's 基准高度: the 4 m editing grid is shifted by it,
  *     so the storey floor a course anchors to is asked with it — never the fixed
  *     0 / 4 / 8 lines.
+ *   * `followCourse` is for a piece that is **cladding from its base** — the 玻璃板
+ *     (`wallMountFollowsCourse`). Its body starts at its cell's floor top, so the
+ *     cell one below the block that was hit puts the pane over exactly the course the
+ *     pointer is on: aim at a wall's third course and the window covers the third
+ *     course, aim at the first and the answer is the storey floor it has always been.
+ *     Only a **wall course** counts (something solid over it): a floor slab's own edge
+ *     is not a band of wall to cover, so that half keeps the storey reading.
  */
 export function wallMountStandCell(
   cells: readonly Cell[],
@@ -824,15 +831,46 @@ export function wallMountStandCell(
   place: readonly [number, number, number],
   snapToSolidBlock = false,
   levelBase = 0,
+  followCourse = false,
 ): [number, number, number] {
   const hit = cells.find((c) => c.x === cell[0] && c.y === cell[1] && c.z === cell[2])
   // 地面 exits attach to an ordinary block face too; they do not require the
   // block to carry one of the station-wall tags used by wall decorations.
   const onWall = hit !== undefined && hit.fill === 'solid' && (snapToSolidBlock || isWallBlock(hit))
   const side = place[0] !== cell[0] || place[1] !== cell[1]
-  if (side) return [place[0], place[1], storeyBand(cell[2], levelBase)]
+  if (side) {
+    // A **wall course** is a block with a block over it — the document's own cells,
+    // which is what a wall column is; the street plane over a course below grade reads
+    // as uncovered, and only decides between the aimed course and the storey floor.
+    const coveredAbove = cells.some((c) => c.fill === 'solid' && c.x === cell[0] && c.y === cell[1] && c.z === cell[2] + 1)
+    if (followCourse && coveredAbove) return [place[0], place[1], cell[2] - 1]
+    return [place[0], place[1], storeyBand(cell[2], levelBase)]
+  }
   if (!onWall) return [cell[0], cell[1], cell[2]]
   return [place[0], place[1], storeyBand(place[2], levelBase)]
+}
+
+/**
+ * True for a wall-mounted piece that is **cladding from its base**: its body starts at
+ * the floor top of its own cell and rises its own height (`moduleEnvelope`'s `z0`),
+ * which is the 玻璃板 — the one wall piece whose size is a *band* of wall. Such a piece
+ * **hangs over the course the pointer is on** (`wallMountStandCell`'s `followCourse`),
+ * so a 玻璃板 is a window you place where you aim it rather than floor cladding wherever
+ * the pointer happens to be.
+ *
+ * The 广告牌, the 站名, the 线网图 and the wall 指示牌 are drawn at a `panelZ` of their own
+ * instead, so following the pointer would float them a metre above it: those keep the
+ * storey floor as their anchor, which is what puts a poster at eye height wherever on
+ * the wall it is aimed. A **floor-standing** 玻璃幕墙 is not wall-mounted at all.
+ *
+ * Answers a **palette id** (`glass-2x2`) as readily as a placed module, because the tool
+ * asks it before the module it is about to build exists.
+ */
+export function wallMountFollowsCourse(m: { type: string; cfg?: object }): boolean {
+  const cfg = m.cfg as { variant?: GlassVariant; curtainHeight?: number } | undefined
+  if (m.type === 'glass') return !glassStandsOnFloor(glassModuleSpec(cfg?.variant, cfg?.curtainHeight as 2 | 3 | 4 | undefined))
+  if (!m.type.startsWith('glass-')) return false
+  return !glassStandsOnFloor(glassSpec(m.type.slice('glass-'.length) as GlassVariant))
 }
 
 /** A unit cell step as the side it names (`+y` is `n`, `+x` is `e`). */

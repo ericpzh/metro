@@ -4,7 +4,8 @@
 // (`autofaceWallMount`), and the camera is what answers it — except for the two
 // mounts bolted to a named piece of the document (a board on a booth header, and a
 // 地面出入口 on the block face the pointer clicked), which keep the turn the pointer
-// gave them.
+// gave them. It also picks **which course** a 玻璃板 covers: that piece is cladding from
+// its base, so it hangs over the course aimed at (`wallMountFollowsCourse`).
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { canPlaceWithoutFloorHit } from '../src/app/tools/placementInput.ts'
@@ -27,6 +28,53 @@ test('floor-standing equipment still requires a solid floor hit', () => {
   assert.equal(canPlaceWithoutFloorHit('bench-steel'), false)
   assert.equal(canPlaceWithoutFloorHit('door'), false)
   assert.equal(canPlaceWithoutFloorHit('linemap-stand'), false)
+})
+
+test('a 玻璃板 aimed at a wall hangs on that course, where a poster keeps its band', () => {
+  // The reported case: aiming at one block of a wall gave a 1×1 广告牌 its band at the
+  // storey floor (its lightbox 1.6 m up) while the 玻璃板 was drawn as floor cladding —
+  // "one course lower". A 玻璃板 is **cladding from its base**, so it hangs over the
+  // course the pointer is on: aim at the wall's second course and the pane covers the
+  // second course. A piece drawn at its own `panelZ` keeps the storey floor.
+  const cells = [
+    { x: 0, y: 0, z: 5, fill: 'solid' }, // the room floor: the storey is the one at 5
+    { x: 0, y: 1, z: 6, fill: 'solid' }, // the wall's first course
+    { x: 0, y: 1, z: 7, fill: 'solid' }, // the course aimed at, covered by…
+    { x: 0, y: 1, z: 8, fill: 'solid' }, // …the next one up
+  ]
+  const before = useStore.getState()
+  try {
+    let ghost = null
+    let refused = null
+    const scene = {
+      setModulePreview: (mods, blocked) => { ghost = Array.isArray(mods) ? mods[0] : mods; refused = blocked },
+      setCursor: () => {},
+      setCollisionHighlight: () => {},
+    }
+    const tool = new EquipmentTool({
+      scene: () => scene,
+      facing: () => [0, -1], // the eye south of the piece: the view looks north, at the wall
+      hover: { current: { cell: [0, 1, 7], place: [0, 0, 7], solid: true, point: [0.5, 1] } },
+      drag: { current: null },
+    })
+    useStore.setState({
+      station: toState({ name: 'aim', seed: 1, levelBase: 1, cells, modules: [], lines: [] }),
+      tool: 'module',
+      moduleType: 'glass-1x1',
+      moduleRot: 0,
+    })
+    tool.refreshHover()
+    assert.equal(refused, false, 'the pane hangs on the block that was aimed at')
+    assert.deepEqual([ghost.x, ghost.y, ghost.z], [0, 0, 6], 'over the course that was clicked, one cell below it')
+    assert.equal(ghost.rot, 2, 'and on the wall the camera is looking at')
+    // The same hover with a 广告牌: its lightbox is drawn at its own height, so it keeps
+    // the storey floor as its anchor — the band a poster always hangs at.
+    useStore.setState({ moduleType: 'billboard-wide' })
+    tool.refreshHover()
+    assert.deepEqual([ghost.x, ghost.y, ghost.z], [0, 0, 5], 'the poster keeps its own band at the storey floor')
+  } finally {
+    useStore.setState(before)
+  }
 })
 
 test('an aimed 地面出入口 keeps the block face the pointer clicked, whatever the camera says', () => {

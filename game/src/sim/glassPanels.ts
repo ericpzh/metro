@@ -70,11 +70,17 @@ export function glassModuleSpec(variant: GlassVariant | undefined, curtainHeight
 }
 
 /**
- * The wall courses (local, 0 = the first metre above the floor) a panel needs
- * behind it. The panel is cladding: it starts at the floor top and rises its own
- * height, so a 1 m panel bolts to the first course and a 2 m one crosses two — and
- * a wall that stops after one metre cannot carry the tall panel
+ * The wall courses (local, 0 = the first metre above the **cell's own** floor top) a
+ * panel needs behind it. The panel is cladding: its body starts at that line and rises
+ * its own height, so a 1 m panel bolts to the first course and a 2 m one crosses two —
+ * and a wall that stops after one metre cannot carry the tall panel
  * (`wallMountMissing`, `sim/placement.ts`).
+ *
+ * That line is the **course the player aimed at** when the panel is a wall-mounted
+ * 玻璃板: the piece hangs over the block that was clicked (`wallMountFollowsCourse`), so
+ * its cell is that block less one and the first course here *is* the aimed block. On a
+ * floor's own edge the line is the floor top it always was, which is the size the
+ * palette promises: a 1 m band of wall, or a 2 m glazed one.
  */
 export function glassWallCourses(spec: GlassSpec): number[] {
   return wallCourses(0, spec.h)
