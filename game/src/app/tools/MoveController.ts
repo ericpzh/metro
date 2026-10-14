@@ -3,7 +3,7 @@
 // or the 信息 card flow (GAME-SPEC §9.5).
 
 import { exitFloorAt } from '../../sim/exits.ts'
-import { ceilingMountStandCell, floorStandCell, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountStandCell } from '../../sim/placement.ts'
+import { ceilingMountStandCell, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountStandCell } from '../../sim/placement.ts'
 import type { Vec3i } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
@@ -113,12 +113,7 @@ export class MoveController extends ToolController {
       const [x, y, z] = ceilingMountStandCell(h.cell, h.place, st.station.levelBase, st.station.cells)
       return { x, y, z }
     }
-    // On a solid hit the same stand cell a fresh placement resolves (`floorStandCell`),
-    // so a piece aimed at a wall's face lands where the ghost showed it; on a hole an
-    // exit floored, the cell itself.
-    const [x, y, z] = h.solid
-      ? floorStandCell(st.station.cells, st.station.modules, h.cell, h.place, st.station.levelBase)
-      : (exitFloorAt(st.station.modules, h.cell[0], h.cell[1], h.cell[2]) ? h.cell : h.place)
+    const [x, y, z] = h.solid || exitFloorAt(st.station.modules, h.cell[0], h.cell[1], h.cell[2]) ? h.cell : h.place
     return { x, y, z }
   }
 

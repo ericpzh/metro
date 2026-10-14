@@ -101,11 +101,7 @@ search asks `wallMountMissing`'s own verdict per direction. The mounts bolted to
 **named piece of the document** keep the turn the pointer gave them — a board on a
 booth header, a 地面出入口 on the block face it was clicked on. An orbit therefore
 re-aims the ghost already under the pointer (`SceneRenderer.onCameraAim` →
-`Viewport`'s `refreshHover`). The **floor-standing** pieces take the ground mirror
-of that snap (`floorStandCell`): aiming at a wall course stands the piece against
-that face — the cell the wall panel takes, so a 玻璃幕墙 and a 玻璃板 aimed at one
-wall agree — while a top face still names the cell itself and a floor block still
-takes the piece on top of it. Pin all of it in `wall-ceiling-snap`, `placement`,
+`Viewport`'s `refreshHover`). Pin all of it in `wall-ceiling-snap`,
 `equipment-placement-input`, `glass-panel`, `move` and `scene-wiring`.
 
 ## Repo rule: translations use the existing i18n infrastructure
