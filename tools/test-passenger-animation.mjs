@@ -12,7 +12,7 @@ const port = Number(process.env.PASSENGER_ANIMATION_PORT ?? 4251);
 const debugPort = Number(process.env.PASSENGER_ANIMATION_DEBUG_PORT ?? 9386);
 const server = await serveDir(join(repo, 'art'), port);
 let session;
-const childModels=MODEL_LIBRARY.filter(model=>!model.bag&&model.hair!=='bald').map(model=>model.id);
+const childModels=MODEL_LIBRARY.filter(model=>model.childEligible).map(model=>model.id);
 let childFigures=0;
 try {
   session = await withPage({ url: 'about:blank',
@@ -23,7 +23,7 @@ try {
     await waitFor(session.evaluate, `location.pathname === '/${file}.svg' && document.readyState === 'complete' && document.querySelector('[data-pose=animated-walk]')`,
       { what: file });
     const kids=await session.evaluate("[...document.querySelectorAll('[data-age=child][data-variant]')].map(node=>node.dataset.variant)");
-    childFigures+=kids.length;assert(kids.every(model=>childModels.includes(model)),`${file}: child figures cannot carry bags or be bald`);
+    childFigures+=kids.length;assert(kids.every(model=>childModels.includes(model)),`${file}: child figures use only age-eligible models`);
     for (const seconds of [.37, 8, 13.7]) {
       const counts = await session.evaluate(`(() => {
         for (const animation of document.getAnimations()) { animation.pause(); animation.currentTime = ${seconds * 1000}; }

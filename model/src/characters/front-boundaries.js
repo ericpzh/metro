@@ -18,12 +18,18 @@ export function cleanFrontBoundaries(geometry,{interior=false}={}){
   const sorted=[...influences].sort((a,b)=>b[1]-a[1]).slice(0,4),total=sorted.reduce((sum,[,weight])=>sum+weight,0);
   v.skinIndex=Array.from({length:4},(_,i)=>sorted[i]?.[0]??0);v.skinWeight=Array.from({length:4},(_,i)=>(sorted[i]?.[1]??0)/total);return v;
  }
- function split(poly,distance){
+ function split(poly,distance,curved=false){
   const inside=[],outside=[];
   for(let i=0;i<poly.length;i++){
    const a=poly[i],b=poly[(i+1)%poly.length],da=distance(a.position),db=distance(b.position);
    (da>=0?inside:outside).push(a);
-   if((da>=0)!==(db>=0)){const v=interpolate(a,b,da/(da-db));inside.push(v);outside.push(v)}
+   if((da>=0)!==(db>=0)){
+    let t=da/(da-db);
+    // A linear distance interpolation puts the new vertex off the curved
+    // neckline, so overlapping source shells disagree on its visible edge.
+    if(curved){let low=0,high=1;for(let step=0;step<20;step++){t=(low+high)/2;const d=distance(a.position.map((value,k)=>THREE.MathUtils.lerp(value,b.position[k],t)));if((d>=0)===(da>=0))low=t;else high=t}t=(low+high)/2}
+    const v=interpolate(a,b,t);inside.push(v);outside.push(v);
+   }
   }
   return [inside,outside];
  }
@@ -46,7 +52,7 @@ export function cleanFrontBoundaries(geometry,{interior=false}={}){
   let remaining=[ids.map(vertex)];
   for(const [value,planes] of regions){
    const next=[];
-   for(const poly of remaining){let interior=poly;for(const plane of planes){const [yes,no]=split(interior,plane);if(no.length>=3)next.push(no);interior=yes;if(interior.length<3)break}if(interior.length>=3)emit(interior,value)}
+   for(const poly of remaining){let interior=poly;for(const plane of planes){const [yes,no]=split(interior,plane,value===.78);if(no.length>=3)next.push(no);interior=yes;if(interior.length<3)break}if(interior.length>=3)emit(interior,value)}
    remaining=next;
   }
   for(const poly of remaining)emit(poly,.66);

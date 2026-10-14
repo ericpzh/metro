@@ -141,10 +141,16 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
 
     let next = 1
     const pending = new Map()
+    const eventWaiters = new Map()
     ws.addEventListener('message', (e) => {
       const m = JSON.parse(e.data)
+      if (m.method && eventWaiters.has(m.method)) {
+        for (const waiter of eventWaiters.get(m.method)) { clearTimeout(waiter.timer); waiter.resolve(m.params) }
+        eventWaiters.delete(m.method)
+      }
       if (m.id && pending.has(m.id)) {
-        const { resolve: r, reject: j } = pending.get(m.id)
+        const { resolve: r, reject: j, timer } = pending.get(m.id)
+        clearTimeout(timer)
         pending.delete(m.id)
         m.error ? j(new Error(m.error.message)) : r(m.result)
       }
@@ -152,7 +158,8 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
     const send = (method, params = {}) =>
       new Promise((r, j) => {
         const id = next++
-        pending.set(id, { resolve: r, reject: j })
+        const timer = setTimeout(() => { pending.delete(id); j(new Error(`CDP ${method} timed out`)) }, 60000)
+        pending.set(id, { resolve: r, reject: j, timer })
         ws.send(JSON.stringify({ id, method, params }))
       })
 
@@ -162,7 +169,26 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
       return r.result.value
     }
 
-    return { evaluate, send, close, chromePath }
+    const waitForEvent = (method, timeoutMs = 60000) => new Promise((resolveEvent, reject) => {
+      const waiter = { resolve: resolveEvent, reject, timer: setTimeout(() => {
+        const waiters = eventWaiters.get(method)
+        waiters?.delete(waiter)
+        if (!waiters?.size) eventWaiters.delete(method)
+        reject(new Error(`timed out waiting for ${method}`))
+      }, timeoutMs) }
+      if (!eventWaiters.has(method)) eventWaiters.set(method, new Set())
+      eventWaiters.get(method).add(waiter)
+    })
+    const closeSession = async () => {
+      for (const request of pending.values()) { clearTimeout(request.timer); request.reject(new Error('browser session closed')) }
+      pending.clear()
+      for (const waiters of eventWaiters.values()) for (const waiter of waiters) {
+        clearTimeout(waiter.timer); waiter.reject(new Error('browser session closed'))
+      }
+      eventWaiters.clear()
+      await close()
+    }
+    return { evaluate, send, waitForEvent, close: closeSession, chromePath }
   } catch (err) {
     await close()
     throw err

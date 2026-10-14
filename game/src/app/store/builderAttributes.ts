@@ -1,6 +1,7 @@
 // Shared builder capabilities for module transforms and variants. The rail and
 // keyboard read this same ordered list, so controls, icons and shortcuts agree.
 import { msg } from '../../sim/i18n.ts'
+import { rampLengthLabel } from '../../sim/rampLengths.ts'
 import { stairWidthLabel } from '../../sim/stairs.ts'
 import { roofWidthLabel } from '../../sim/structures.ts'
 import { trackRunLengthLabel } from '../../sim/track.ts'
@@ -11,6 +12,7 @@ import {
   isGateType,
   isRotatableType,
   isStairType,
+  isStraightStairType,
 } from './catalog.ts'
 
 export type BuilderAttributeKind = 'rotation' | 'position' | 'width' | 'length' | 'height' | 'direction' | 'style'
@@ -57,18 +59,24 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
   }
   if (type === 'escalator') {
     attrs.push(variant('width', msg(s.escalatorWide ? 'wide' : 'narrow'), s.toggleEscalatorWidth))
-    attrs.push(variant('length', msg(s.escalatorLong ? 'long' : 'short'), s.toggleEscalatorLength))
+    attrs.push(variant('length', rampLengthLabel(s.rampLength), s.cycleRampLength))
     attrs.push(variant('direction', msg(s.escalatorDir), s.cycleEscalatorDir))
   }
   if (type === 'hanger-roof' || type === 'hanger-post') attrs.push(variant('length', msg(s.hangerLength === 4 ? 'short' : s.hangerLength === 6 ? 'medium' : 'long'), s.cycleHangerLength))
   if (type.startsWith('pillar')) attrs.push(variant('length', msg(s.pillarLength === 2 ? 'short' : 'long'), s.togglePillarLength))
   if (type === 'light-rectangular') attrs.push({ kind: 'position', label: msg('position_value_9', s.lightPosition + 1), shortcut: undefined, activate: s.cycleLightPosition, visual: 'grid-position' })
   if (isBenchType(type)) attrs.push(variant('width', msg(type.endsWith('-2') ? 'wide' : 'narrow'), s.cycleBenchWidth))
-  if (isStairType(type)) attrs.push(variant(
-    type === 'stair-block' ? 'height' : 'width',
-    type === 'stair-block' ? msg(s.stairBlockHeight === 1 ? 'tall' : 'low') : stairWidthLabel(s.stairWidth),
-    type === 'stair-block' ? () => s.setStairBlockHeight(s.stairBlockHeight === 1 ? 0.5 : 1) : s.cycleStairWidth,
-  ))
+  if (isStairType(type)) {
+    attrs.push(variant(
+      type === 'stair-block' ? 'height' : 'width',
+      type === 'stair-block' ? msg(s.stairBlockHeight === 1 ? 'tall' : 'low') : stairWidthLabel(s.stairWidth),
+      type === 'stair-block' ? () => s.setStairBlockHeight(s.stairBlockHeight === 1 ? 0.5 : 1) : s.cycleStairWidth,
+    ))
+    // A 单跑楼梯 climbs the same four lengths a 扶梯 does (`sim/rampLengths.ts`), so a
+    // bank of the two stands flush and the seam between them fills. A turning stair
+    // and a 楼梯块 have no run length of their own, so they grow no tile.
+    if (isStraightStairType(type)) attrs.push(variant('length', rampLengthLabel(s.rampLength), s.cycleRampLength))
+  }
   if (isDoorType(type)) attrs.push(variant('width', msg(s.doorWide ? 'wide' : 'narrow'), s.toggleDoorWidth))
   if (type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered') attrs.push(variant('width', roofWidthLabel(s.roofWidth), s.cycleRoofWidth))
   if (type === 'roof') attrs.push({ ...variant('position', msg(s.roofPlateSnap === 'lower' ? 'roof_snap_lower' : 'roof_snap_upper'), s.cycleRoofPlateSnap), visual: 'roof-snap' })

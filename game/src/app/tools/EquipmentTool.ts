@@ -10,6 +10,7 @@ import {
   extendLift,
   facilityAt,
   fenceRotForLine,
+  nextExitLetter,
   nextExitName,
   nextModuleId,
   randomAdSlug,
@@ -19,7 +20,8 @@ import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockNotice, trackBlockRe
 import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
 import { snapPsdEnd } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
-import { escalatorModule, ESCALATOR_LONG_RUN, ESCALATOR_LONG_RISE } from '../../sim/escalators.ts'
+import { escalatorModule } from '../../sim/escalators.ts'
+import { RAMP_LENGTH_DEFAULT, rampLengthSpec, type RampLength } from '../../sim/rampLengths.ts'
 import { exitFloorAt, exitRunSnap } from '../../sim/exits.ts'
 import { glassModuleSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
@@ -32,6 +34,7 @@ import {
   equipmentRefusalNotice,
   isCeilingHung,
   moduleAt,
+  pillarAt,
   placementColliders,
   wallMountMissing,
   wallMountStandCell,
@@ -40,7 +43,7 @@ import {
 } from '../../sim/placement.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
 import type { Module } from '../../sim/types.ts'
-import { isDecorType, isFenceType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
+import { isDecorType, isFenceType, isStraightStairType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
 import { straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { TactileTool } from './TactileTool.ts'
@@ -105,12 +108,17 @@ export class EquipmentTool extends ToolController {
       return
     }
     if (st.moduleType.startsWith('pillar')) {
-      const old = moduleAt(st.station.modules, ...hit.cell)
-      if (old?.type === 'pillar' && info.button !== 2) {
+      const old = pillarAt(st.station.modules, ...hit.cell)
+      if (old && info.button !== 2) {
         const grown = extendedPillar(old, st.pillarLength)
         const others = st.station.modules.filter((m) => m.id !== old.id)
+        const colliders = placementColliders(others, grown)
         const refusal = equipmentReason(st.station.cells, others, grown, true)
-        if (refusal) { st.setNotice(equipmentRefusalNotice(refusal, placementColliders(others, grown))); return }
+        if (refusal) {
+          st.setNotice(equipmentRefusalNotice(refusal, colliders))
+          scene.setCollisionHighlight(colliders.length > 0 ? colliders.map((m) => m.id) : null)
+          return
+        }
         st.commit({ ...st.station, modules: st.station.modules.map((m) => m.id === old.id ? grown : m) })
         return
       }
@@ -392,12 +400,18 @@ export class EquipmentTool extends ToolController {
   }
 
   /**
-   * A straight ramp type: the pieces an exit bay can hold. A turning stair is
+   * A straight ramp type: the pieces an exit bay can hold, and the pieces that
+   * carry the run-length variants. A turning stair is
    * excluded — its run does not end at the bay, so snapping it would not line
    * its landing up with the hole.
    */
   private isStraightRamp(type: string): boolean {
     return type === 'escalator' || type === 'stair' || type === 'stair-straight'
+  }
+
+  /** The length a hovered run would be built at: the shared setting, or 中 for a type that has none. */
+  private rampLengthFor(type: string): RampLength {
+    return type === 'escalator' || isStraightStairType(type) ? useStore.getState().rampLength : RAMP_LENGTH_DEFAULT
   }
 
   /**
@@ -416,13 +430,17 @@ export class EquipmentTool extends ToolController {
     let mod: Module | null
     if (this.isStraightRamp(type)) {
       const width = type === 'escalator' ? (st.escalatorWide ? 2 : 1) : st.stairWidth
-      const long = type === 'escalator' && st.escalatorLong
-      const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2], long ? ESCALATOR_LONG_RUN : undefined, long ? ESCALATOR_LONG_RISE : undefined)
+      // The piece's own length decides both the bay snap's descent and the run
+      // that is built, so a 超短 / 短 / 中 / 长 piece snaps to the floor its own rise
+      // reaches instead of always to the storey below.
+      const length = this.rampLengthFor(type)
+      const spec = rampLengthSpec(length)
+      const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2], spec.run, spec.rise)
       mod = type === 'escalator'
-        ? escalatorModule(snap ? snap.base : { x: cell[0], y: cell[1], z: cell[2] }, snap ? snap.rot : st.moduleRot, st.escalatorDir, id, st.escalatorWide ? 2 : 1, long)
+        ? escalatorModule(snap ? snap.base : { x: cell[0], y: cell[1], z: cell[2] }, snap ? snap.rot : st.moduleRot, st.escalatorDir, id, st.escalatorWide ? 2 : 1, length)
         : snap
-          ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, width, st.escalatorDir)
-          : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, width, st.escalatorDir)
+          ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length })
+          : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length })
     } else {
       // `st.gateDoor` rides along like the escalator direction: the 闸机's door
       // side is a tool setting, cycled with Tab, and lands in the piece's
@@ -442,7 +460,7 @@ export class EquipmentTool extends ToolController {
         st.gateDoor,
         st.station,
         st.currentBoards,
-        st.curtainHeight,
+        { curtainHeight: st.curtainHeight },
       )
     }
     if (mod?.type === 'pillar') mod.cfg.height = st.pillarLength
@@ -477,8 +495,13 @@ export class EquipmentTool extends ToolController {
     // A sign whose board is open in the editor draws the board being arranged.
     if (mod) mod = signModuleWithPreview(mod, st.signPreview)
     // A fresh exit letters itself A ~ Z rather than wearing the 未命名口
-    // placeholder, so the card and the 3D header read like real signage.
-    if (mod && mod.type === 'exit' && mod.cfg.name === msg('unnamed_exit')) mod.cfg.name = nextExitName(st.station.modules)
+    // placeholder, so the card and the 3D header read like real signage. A 虚拟
+    // exit takes the bare letter (`C`, not `C口`), matching the pillar it reuses.
+    if (mod && mod.type === 'exit' && mod.cfg.name === msg('unnamed_exit')) {
+      mod.cfg.name = mod.cfg.style === 'virtual'
+        ? (nextExitLetter(st.station.modules) ?? msg('unnamed_exit'))
+        : nextExitName(st.station.modules)
+    }
     return mod
   }
 
@@ -594,13 +617,14 @@ export class EquipmentTool extends ToolController {
       return
     }
     if (st.moduleType.startsWith('pillar')) {
-      const old = moduleAt(st.station.modules, ...h.cell)
-      if (old?.type === 'pillar') {
+      const old = pillarAt(st.station.modules, ...h.cell)
+      if (old) {
         const grown = extendedPillar(old, st.pillarLength)
         const others = st.station.modules.filter((m) => m.id !== old.id)
+        const colliders = placementColliders(others, grown)
         const blocked = equipmentReason(st.station.cells, others, grown, true) !== ''
         scene.setModulePreview(grown, blocked)
-        scene.setCollisionHighlight(null)
+        scene.setCollisionHighlight(colliders.length > 0 ? colliders.map((m) => m.id) : null)
         scene.setCursor(null)
         return
       }

@@ -6,6 +6,7 @@ import { BASE_TICK_MS } from './constants.ts'
 import type { FromWorker, ToWorker } from './protocol.ts'
 import type { Metrics } from './world.ts'
 import { World } from './world.ts'
+import { isCosmeticStationEdit } from './cosmeticEdit.ts'
 
 const ctx = self as unknown as {
   postMessage(message: unknown, transfer?: Transferable[]): void
@@ -151,8 +152,9 @@ ctx.addEventListener('message', (e: MessageEvent) => {
     }
     case 'build': {
       if (world) {
+        const cosmetic = isCosmeticStationEdit(world.data, msg.data)
         world.data = msg.data
-        world.rebuild()
+        if (!cosmetic) world.rebuild()
         // The edit has to reach the screen now: while paused there is no stream to
         // carry it later, which is the other half of the dirty flag.
         dirty = true

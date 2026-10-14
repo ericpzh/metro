@@ -3,7 +3,7 @@
 
 import { storeyBand } from '../../sim/constants.ts';
 import { thinWallCells } from '../../sim/openings.ts';
-import { blockedCellsByLevel } from '../../sim/placement.ts';
+import { blockIndex } from '../../sim/blockIndex.ts';
 import { blockReason } from '../validation.ts';
 import { halfWallTag, shapeOf, TRI_SIDES, triangleTag, type CellShape, type TriangleKind, type TriSide, type WallSide } from '../../sim/types.ts';
 import type { Cell, Module } from '../../sim/types.ts';
@@ -21,9 +21,10 @@ export const AUTO_WALL_H = 4;
 
 /**
  * Tag on a wall block the 墙 tool laid. The tag is what lets the tool's
- * right-click find the whole column under the pointer — geometry alone cannot
+ * 方块 right-click find the whole column under the pointer — geometry alone cannot
  * tell a wall course from the floor it stands on. `AUTO_WALL` blocks answer the
  * same lookup, so a hand run and a generated ring can both be lifted in bulk.
+ * G itself clears all blocks in the storey through `storeyColumnsAt`.
  */
 export const WALL = 'wall';
 
@@ -282,7 +283,7 @@ export function addWalls(
   const added: Cell[] = [];
   let blocked = 0;
   const run = height === AUTO_WALL_H ? wallRun(baseCells) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
-  const level = blockedCellsByLevel(state.modules);
+  const level = blockIndex(state.cells, state.modules);
   for (const [x, y, z] of run) {
     const k = cellKey(x, y, z);
     if (have.has(k)) continue;

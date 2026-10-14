@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {applyPassengerCarryPose} from './carry-pose.js';
 
 // Animate the approved skin with foot targets: a planted sole travels backward
 // at exactly the root's forward speed; the other sole returns with clearance.
@@ -47,6 +48,7 @@ export function createPassengerWalkPoser(scene) {
   const sway=Math.sin(phase*Math.PI*2);
   bones.Spine.rotation.y=-.025*sway;
   bones.Neck.rotation.y=.018*sway;
+  applyPassengerCarryPose(scene);
   scene.updateMatrixWorld(true);skeleton.update();
  };
 }

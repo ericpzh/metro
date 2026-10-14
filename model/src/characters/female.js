@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {smoothShoulders} from './shoulders.js';
 import {addBackpackConnectors} from './backpack-connectors.js';
 import {smallBackpackGeometry} from './small-backpack.js';
+import {addCarriedBags} from './carried-bags.js';
+import {isBackpack} from './library.js';
 
 const grey=value=>new THREE.Color().setRGB(value,value,value,THREE.SRGBColorSpace).r;
 // A continuous coat profile: rounded shoulder, straight back, gently flared hem.
@@ -148,7 +150,21 @@ export function createFemaleVariant(model,{male=false}={}){
  const panel=model.getObjectByName('Clean_backpack_panel'),standardPanel=panel.geometry;
  const smallPanel=smallBackpackGeometry(skeleton),standardStrap=model.getObjectByName('Backpack_strap_connectors');
  const smallStrap=addBackpackConnectors(model,body,{small:true,coatGrey});smallStrap.name='Small backpack straps';smallStrap.visible=false;
+ const scaledPacks=new Map([.875,.75].map(scale=>{
+  const geometry=standardPanel.clone(),positions=geometry.attributes.position;
+  geometry.computeBoundingBox();const center=geometry.boundingBox.getCenter(new THREE.Vector3());
+  // Scale around the pack centre in elevation; keep its front buried in the
+  // coat and scale depth outward from that surface, rather than floating it.
+  for(let i=0;i<positions.count;i++){
+   const oldY=positions.getY(i),y=center.y+(oldY-center.y)*scale;
+   positions.setXYZ(i,positions.getX(i)*scale,y,coatBackZ(y)+(positions.getZ(i)-coatBackZ(oldY))*scale);
+  }
+  geometry.computeVertexNormals();geometry.computeBoundingBox();geometry.computeBoundingSphere();
+  const strap=addBackpackConnectors(model,body,{coatGrey,packScale:scale});strap.name=`Standard ${scale*100} backpack straps`;strap.visible=false;
+  return [`standard-${scale*100}`,{geometry,strap}];
+ }));
  const head=skeleton.bones.findIndex(b=>b.name==='Head');
+ const carriedBags=addCarriedBags(model,body);
  function styledGeometry(style){
  const geometry=bobGeometry(style);
  const skinIndices=new Uint16Array(geometry.attributes.position.count*4),hairWeights=new Float32Array(skinIndices.length);
@@ -162,21 +178,24 @@ export function createFemaleVariant(model,{male=false}={}){
  let currentStyle='bob',withBag=true,bagStyle='standard';
  function setBag(enabled){
   withBag=Boolean(enabled);
-  bagStyle=enabled==='small'?'small':'standard';
-  body.geometry.setAttribute('position',withBag?p:noBagPositions);body.geometry.computeBoundingBox();body.geometry.computeBoundingSphere();
-  body.geometry.setAttribute('normal',withBag?originalNormals:noBagNormals);
-  backpack.forEach(mesh=>mesh.visible=withBag);backFill.visible=!withBag||bagStyle==='small';
-  panel.geometry=bagStyle==='small'?smallPanel:standardPanel;
+  bagStyle=enabled==='small'||scaledPacks.has(enabled)||carriedBags.has(enabled)?enabled:'standard';
+  const onBack=withBag&&isBackpack(bagStyle);
+  body.geometry.setAttribute('position',onBack?p:noBagPositions);body.geometry.computeBoundingBox();body.geometry.computeBoundingSphere();
+  body.geometry.setAttribute('normal',onBack?originalNormals:noBagNormals);
+  backpack.forEach(mesh=>mesh.visible=onBack);backFill.visible=!onBack||bagStyle!=='standard';
+  panel.geometry=bagStyle==='small'?smallPanel:scaledPacks.get(bagStyle)?.geometry??standardPanel;
   standardStrap.visible=withBag&&bagStyle==='standard';smallStrap.visible=withBag&&bagStyle==='small';
   // Export trimming finds the active ribbon by its established mesh name.
-  standardStrap.name=bagStyle==='small'?'Standard backpack straps':'Backpack_strap_connectors';
+  standardStrap.name=bagStyle!=='standard'?'Standard backpack straps':'Backpack_strap_connectors';
   smallStrap.name=bagStyle==='small'?'Backpack_strap_connectors':'Small backpack straps';
+  for(const [style,{strap}] of scaledPacks){strap.visible=withBag&&bagStyle===style;strap.name=bagStyle===style?'Backpack_strap_connectors':`${style} backpack straps`}
+  for(const [style,meshes] of carriedBags)for(const mesh of meshes)mesh.visible=withBag&&bagStyle===style;
   for(const i of strapVertices)c.setXYZ(i,grey(withBag?.47:coatGrey),grey(withBag?.47:coatGrey),grey(withBag?.47:coatGrey));c.needsUpdate=true;
-  if(withBag&&currentStyle==='long')setHairstyle('shoulder');
+  if(onBack&&currentStyle==='long')setHairstyle('shoulder');
  }
  function setHairstyle(style){
   if(!HAIRSTYLES[style]&&!(male&&['short','bald'].includes(style)))throw new Error(`Unknown hairstyle: ${style}`);
-  if(style==='long')setBag(false);currentStyle=style;
+  if(style==='long'&&isBackpack(bagStyle))setBag(false);currentStyle=style;
   const previous=hair.geometry;hair.geometry=styledGeometry(style);previous.dispose();hair.name=style[0].toUpperCase()+style.slice(1)+' hairstyle';
  }
  // Preserve the approved tousled hair as a separate head-skinned surface for
@@ -194,7 +213,7 @@ export function createFemaleVariant(model,{male=false}={}){
    }
    return positions;
   });
-  const updateHead=()=>{body.geometry.setAttribute('position',currentStyle==='original'?(withBag?p:noBagPositions):croppedPositions[withBag?0:1]);body.geometry.computeVertexNormals();body.geometry.computeBoundingBox();body.geometry.computeBoundingSphere()};
+  const updateHead=()=>{const onBack=withBag&&isBackpack(bagStyle);body.geometry.setAttribute('position',currentStyle==='original'?(onBack?p:noBagPositions):croppedPositions[onBack?0:1]);body.geometry.computeVertexNormals();body.geometry.computeBoundingBox();body.geometry.computeBoundingSphere()};
   const changeBag=setBag;setBag=enabled=>{changeBag(enabled);updateHead()};
   const headFill=hair.clone();headFill.geometry=scalpGeometry(true);headFill.name='Scalp skin continuation';headFill.visible=false;
   const count=headFill.geometry.attributes.position.count,indices=new Uint16Array(count*4),weights=new Float32Array(count*4);

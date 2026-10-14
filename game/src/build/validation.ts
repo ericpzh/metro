@@ -23,9 +23,10 @@ import { msg } from '../sim/i18n.ts'
 //
 // Pure data — no three, no DOM, no store.
 
-import { blockReason, blockedCellsByLevel, blockerLabels, equipmentReason, equipmentRefusalNotice, placementColliders } from '../sim/placement.ts'
+import { blockReason, blockerLabels, equipmentReason, equipmentRefusalNotice, placementColliders } from '../sim/placement.ts'
 import type { BlockRefusal, EquipmentRefusal } from '../sim/placement.ts'
-import { virtualSolidAt } from '../sim/ground.ts'
+import { blockIndex } from '../sim/blockIndex.ts'
+import type { BlockIndex } from '../sim/blockIndex.ts'
 import type { Cell, Module } from '../sim/types.ts'
 
 export type { BlockRefusal, EquipmentRefusal }
@@ -90,22 +91,27 @@ function addPreview(out: PlacementPreview, id: string, ok: boolean, reason: stri
  * once per cell — a drag over a station with two hundred pieces asks the same
  * question a hundred times.
  */
+const lastBlockPreview = new WeakMap<BlockIndex, { key: string; preview: PlacementPreview }>()
+
 export function checkBlockCells(station: PlacementDoc, cells: Array<[number, number, number]>): PlacementPreview {
+  const occupied = blockIndex(station.cells, station.modules)
+  const key = cells.map(c => c.join(',')).join('|')
+  const cached = lastBlockPreview.get(occupied)
+  if (cached?.key === key) return cached.preview
   const out = newPreview()
   const seen = new Set<string>()
-  const held = new Set<string>()
-  const occupied = blockedCellsByLevel(station.modules)
-  for (const c of station.cells) if (c.fill === 'solid') held.add(`${c.x},${c.y},${c.z}`)
+  const held = occupied.solid
   for (const [x, y, z] of cells) {
     const k = `${x},${y},${z}`
     if (seen.has(k)) continue
     seen.add(k)
     // The street is already floor: like any held cell it is neither accepted
     // nor refused, so a drag across virgin ground draws no red boxes.
-    if (held.has(k) || virtualSolidAt(station.cells, station.modules, x, y, z)) continue
+    if (held.has(k) || occupied.ground(x, y, z)) continue
     const check = blockReason(station.cells, station.modules, x, y, z, occupied)
     addPreview(out, k, check.ok, check.reason, [x, y, z], check.blockers)
   }
+  lastBlockPreview.set(occupied, { key, preview: out })
   return out
 }
 

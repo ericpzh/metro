@@ -18,7 +18,7 @@
 // that walk every cell — the walk graph and the chunk mesher — while every
 // point query (`solidAt`) and every membership skip (`virtualSolidAt`) answers
 // in O(1) without generating a cell. Pure data, no DOM, no three.
-import { exitFloorAt, exitFootprintCells } from './exits.ts'
+import { exitFloorAt, exitFootprintCells, isExitHeadHouse } from './exits.ts'
 // Function-level cycle with `openings.ts` (it reads `virtualSolidAt` for the
 // escalator landings): both sides only call across at runtime, never at module
 // evaluation, so the bindings are settled by the first call.
@@ -124,7 +124,7 @@ export function withGround(
   // and an exit's footprint is exactly the cells `exitCoversCell` names.
   const openings = rampOpeningsInWindow(modules, GROUND_Z, w)
   for (const m of modules) {
-    if (m.type !== 'exit' || m.cfg.style === 'doorway' || m.z !== GROUND_Z) continue
+    if (m.type !== 'exit' || !isExitHeadHouse(m) || m.z !== GROUND_Z) continue
     for (const [x, y] of exitFootprintCells(m)) {
       if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) continue
       openings.add(`${x},${y}`)

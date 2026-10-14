@@ -27,6 +27,7 @@
 // never pushed onto the undo stack — once per dragged bin was the alternative.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { useStore, signModuleWithPreview } from '../src/app/store.ts'
 import { createModule, toState } from '../src/build/model.ts'
 import { settleSignBoards } from '../src/sim/sign.ts'
@@ -379,4 +380,23 @@ test('the whole flow: compose both faces, ✓, place, and the station prints the
   // The sign already hanging was not reprinted by any of it.
   assert.deepEqual(moduleBoards().front, board, 'the old sign kept its own front')
   assert.deepEqual(moduleBoards().back, [], 'and its empty back')
+})
+
+// A live drag writes the bins without redrawing the scene on every hovered bin
+// (React views are tested as source contracts: the Node suite does not mount
+// them). `previewSignLayout` bumps `signVersion`, which rebuilds the whole
+// station through `setStation` — doing that per hovered bin is what made
+// dragging a board mark stutter, so `trackDrag` writes local state and
+// schedules the redraw, and `endDrag` syncs it once.
+test('a live drag defers the scene redraw to a scheduled trailing sync', () => {
+  const src = fs.readFileSync(new URL('../src/app/windows/sign/SignEditor.tsx', import.meta.url), 'utf8')
+  const track = src.slice(src.indexOf('const trackDrag'), src.indexOf('const endDrag'))
+  assert.ok(!track.includes('applyRef'), 'a hovered bin writes local state, not the store preview')
+  assert.ok(!track.includes('previewSignLayout'), 'and previews nothing synchronously')
+  assert.ok(track.includes('applyLocal'), 'the bins still move with the pointer')
+  assert.ok(track.includes('schedulePreview'), 'while the scene redraw is scheduled')
+  const end = src.slice(src.indexOf('const endDrag'), src.indexOf('/* ------------------------------------------------------------- editing */'))
+  assert.ok(end.includes('flushPreview'), 'the drop syncs the scene once')
+  assert.ok(end.includes('cancelScheduledPreview'), 'and a trailing redraw never fires behind it')
+  assert.ok(src.includes('getCoalescedEvents'), 'a fast pointer is evaluated once per frame, not once per queued move')
 })

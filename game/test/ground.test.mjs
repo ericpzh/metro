@@ -18,6 +18,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { GROUND_MARGIN, GROUND_Z, groundHoleAt, groundWindow, solidAt, virtualSolidAt, withGround } from '../src/sim/ground.ts'
+import { blockIndex } from '../src/sim/blockIndex.ts'
 import { rampOpeningAt, rampOpeningsInWindow } from '../src/sim/openings.ts'
 import { exitFloorAt, exitFootprintCells } from '../src/sim/exits.ts'
 import { buildGraph } from '../src/sim/station.ts'
@@ -40,6 +41,9 @@ const ramp = (id = 'e1') => ({
 
 /** A surface head-house, the other thing that derives a hole in the plane. */
 const exit = (id = 'x1') => ({ id, type: 'exit', x: 0, y: 0, z: 0, cfg: { name: 'A口', inRate: 900, open: true } })
+
+/** A 虚拟 pillar exit: a 1×1 surface exit that derives no hole at all. */
+const virtual = (id = 'v1') => ({ id, type: 'exit', x: 0, y: 0, z: 0, cfg: { name: 'C', inRate: 900, open: true, bays: 1, style: 'virtual' } })
 
 const state = (cells = [], modules = []) => toState({ name: 't', seed: 1, cells, modules, lines: [] })
 
@@ -114,12 +118,18 @@ test('an opening the game derived is a hole with no record of its own', () => {
   assert.equal(groundHoleAt([], [ramp()], 5, 3), false, 'and the ground beyond the handrail is untouched')
   assert.equal(groundHoleAt([], [exit()], 0, 0), true, 'an exit floor is a hole')
   assert.equal(groundHoleAt([], [exit()], 5, 5), false, 'well outside its footprint is not')
+  assert.equal(groundHoleAt([], [virtual()], 0, 0), false, 'a 虚拟 pillar lays no floor, so the plane stays solid under it')
+  assert.equal(exitFloorAt([virtual()], 0, 0, GROUND_Z), false)
+  assert.equal(blockIndex([], [exit()]).opening(0, 0, 0), true, 'a head-house footprint is a reserved opening')
+  assert.equal(blockIndex([], [virtual()]).opening(0, 0, 0), false, 'a 虚拟 pillar reserves no opening')
 
   // Which is the same answer `withGround` gives: a derived hole is not paved over
   // either, so the drawn plane and the walked plane agree about the opening.
   const out = withGround([], [ramp()], 2)
   assert.equal(out.some((c) => c.x === 0 && c.y === 3), false, 'the corridor was paved back over')
   assert.equal(out.some((c) => c.x === 0 && c.y === 0), true, 'the landing is still ground under the run')
+  const underVirtual = withGround([], [virtual()], 2)
+  assert.equal(underVirtual.some((c) => c.x === 0 && c.y === 0 && c.z === GROUND_Z && c.fill === 'solid'), true, 'the street is still paved under a 虚拟 pillar')
 })
 
 test('the street enumerates its derived holes by run, not per street cell', () => {
@@ -132,7 +142,8 @@ test('the street enumerates its derived holes by run, not per street cell', () =
   const lift = { id: 'l1', type: 'lift', x: 6, y: 4, z: 0, from: { x: 6, y: 4, z: 0 }, to: { x: 6, y: 4, z: 4 }, cfg: {} }
   const doorway = { id: 'x2', type: 'exit', x: -4, y: -4, z: 0, cfg: { name: 'B口', inRate: 900, open: true, style: 'doorway' } }
   const upstairs = { id: 'x3', type: 'exit', x: 8, y: 8, z: -4, cfg: { name: 'C口', inRate: 900, open: true } }
-  const modules = [ramp(), across, lift, exit(), doorway, upstairs]
+  const pillar = { id: 'v1', type: 'exit', x: 2, y: -4, z: 0, cfg: { name: 'C', inRate: 900, open: true, bays: 1, style: 'virtual' } }
+  const modules = [ramp(), across, lift, exit(), doorway, upstairs, pillar]
   const cells = [
     { x: 0, y: 3, z: GROUND_Z, fill: 'solid' },
     { x: 2, y: 2, z: GROUND_Z, fill: 'void' },
@@ -148,7 +159,7 @@ test('the street enumerates its derived holes by run, not per street cell', () =
   }
   const enumerated = rampOpeningsInWindow(modules, GROUND_Z, w)
   for (const m of modules) {
-    if (m.type !== 'exit' || m.cfg.style === 'doorway' || m.z !== GROUND_Z) continue
+    if (m.type !== 'exit' || m.cfg.style === 'doorway' || m.cfg.style === 'virtual' || m.z !== GROUND_Z) continue
     for (const [x, y] of exitFootprintCells(m)) {
       if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) continue
       enumerated.add(`${x},${y}`)

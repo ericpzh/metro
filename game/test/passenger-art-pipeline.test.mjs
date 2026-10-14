@@ -55,6 +55,18 @@ test('the art requires complete child strides and rejects bags or bald child car
 })
 
 
+test('capture age pools include child small/crossbody bags and exclude adult female crossbody cards',()=>{
+ const {index,cycles,library}=fixture(3)
+ Object.assign(library[0],{bag:true,hair:'short',bagStyle:'small',adultEligible:true,childEligible:true})
+ Object.assign(library[1],{bag:true,hair:'bob',bagType:'crossbody',adultEligible:false,childEligible:true})
+ Object.assign(library[2],{bag:true,hair:'long',bagType:'purse',adultEligible:true,childEligible:false})
+ const adult=cards=>cards.filter(c=>c.variant!==1),kids=cards=>cards.filter(c=>c.variant!==2).map(c=>({...c,age:'child',file:`child-${c.file}`}))
+ const stills=[...adult(index),...kids(index)],walks=[...adult(cycles),...kids(cycles)]
+ assert.doesNotThrow(()=>validatePassengerCaptures(stills,walks,library,24,true))
+ assert.throws(()=>validatePassengerCaptures([...stills,{...index.find(c=>c.variant===1),file:'adult-crossbody'}],walks,library,24,true),/ineligible adult/)
+ assert.throws(()=>validatePassengerCaptures([...stills,{...index.find(c=>c.variant===2),age:'child',file:'child-purse'}],walks,library,24,true),/ineligible child/)
+})
+
 test('the repeatable command refreshes exactly the five requested sheets and only sheet 07 UI', () => {
  const script=readFileSync(new URL('../../tools/refresh-model-art.mjs',import.meta.url),'utf8')
  assert.ok(script.includes("node('tools/gen-art.mjs','01','02','07','12','13','--en')"))

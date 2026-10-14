@@ -1,9 +1,9 @@
 // Build model: cells — the sparse cell list primitives (§4.1).
 // Leaf module: only sim/ imports plus a type-only StationState.
 
-import { levelSteps } from '../../sim/constants.ts';
+import { levelSteps, storeyBand } from '../../sim/constants.ts';
 import { groundHoleAt, virtualSolidAt } from '../../sim/ground.ts';
-import { blockedCellsByLevel } from '../../sim/placement.ts';
+import { blockIndex } from '../../sim/blockIndex.ts';
 import { blockReason } from '../validation.ts';
 import type { Cell, Module } from '../../sim/types.ts';
 import type { StationState } from './State.ts';
@@ -72,6 +72,32 @@ export function isSolid(cells: Cell[], x: number, y: number, z: number): boolean
   return false;
 }
 
+/** G erases courses +1..+4 above the floor, including the ceiling (§4.4). */
+export function storeyColumnsAt(
+  state: StationState,
+  columns: Array<[number, number, number]>,
+): Array<[number, number, number]> {
+  const bands = new Map<string, Set<number>>();
+  for (const [x, y, z] of columns) {
+    const key = `${x},${y}`;
+    const selected = bands.get(key) ?? new Set<number>();
+    selected.add(storeyBand(z - 1, state.levelBase));
+    bands.set(key, selected);
+  }
+  const out = new Map<string, [number, number, number]>();
+  for (const c of state.cells) {
+    if (c.fill !== 'solid' || !bands.get(`${c.x},${c.y}`)?.has(storeyBand(c.z - 1, state.levelBase))) continue;
+    out.set(cellKey(c.x, c.y, c.z), [c.x, c.y, c.z]);
+  }
+  // The street is an implicit block too; deleting it must record its hole (§4.1).
+  for (const [x, y] of columns) {
+    if (bands.get(`${x},${y}`)?.has(storeyBand(-1, state.levelBase)) && virtualSolidAt(state.cells, state.modules, x, y, 0)) {
+      out.set(cellKey(x, y, 0), [x, y, 0]);
+    }
+  }
+  return [...out.values()];
+}
+
 /**
  * Add solid cells, ignoring ones that are already solid and refusing any the one
  * placement rule set rejects (`blockReason`, `sim/placement.ts`): a reserved opening
@@ -104,12 +130,12 @@ export function addCells(
   let blocked = 0;
   // One set per level, built once for the whole rectangle: equipment is sparse, so
   // this is the same handful of modules every time a drag asks about another cell.
-  const level = blockedCellsByLevel(modules);
+  const level = blockIndex(cells, modules);
   for (const [x, y, z] of add) {
     // The street is already solid: laying a block into virtual ground is a
     // no-op, not a duplicate record — the document stays the delta from the
     // plane, so saves never carry the horizon.
-    if (have.has(cellKey(x, y, z)) || virtualSolidAt(cells, modules, x, y, z)) continue;
+    if (have.has(cellKey(x, y, z)) || level.ground(x, y, z)) continue;
     if (!blockReason(cells, modules, x, y, z, level).ok) {
       blocked++;
       continue;

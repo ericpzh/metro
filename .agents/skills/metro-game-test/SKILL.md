@@ -55,6 +55,44 @@ for local frame-rate, draw-call and edit-latency measurements, and `npm run benc
 for simulation tick and build-helper timings. These diagnostics are hardware-dependent
 and are not test assertions or CI thresholds; see `game/PERFORMANCE.md`.
 
+### Performance regression coverage
+
+Root `npm run test:perf` runs `batching-lifecycle`, `draw-batching`,
+`performance-policy`, `worker-preview`, `render-performance` and `scene-wiring`
+with V8 coverage. Flags must precede test paths: appending a coverage flag after
+the npm test glob does not collect coverage. Read per-file line/function/branch
+results; imported dependencies inflate the overall denominator. Do not claim
+100% GPU coverage from Node percentages.
+
+- `batching-lifecycle`: mapped equipment/atlas UV integration without changing
+  source picking UVs; revision reuse and disable/re-enable; exact ownership and
+  disposal of geometry, instance buffers and batch matrix/indirection textures;
+  distinct culling/render/material/clip policies; unsupported/hidden/skinned/morph
+  and partial-range exclusions; nested landing doors and moving cabins; real
+  ModuleSystem/LevelSystem hide/ghost/cut transitions and local retained objects;
+  actual CameraSystem source-layer IDs, layer restoration and nearer-wall occlusion.
+- `draw-batching`: A/B/C/L stock in all four rotations, exact geometry/bounds,
+  independent door banks and moving glass, paused/hidden buffer holds, resume,
+  eviction and profiling toggles; full-resolution atlas redraw/recycling and
+  legacy/explicit age eligibility.
+- `performance-policy`: indexed/unindexed placement equivalence, fresh array
+  invalidation, ground/holes/exits, bulk-paint deduplication/no-op/immutability,
+  fail-closed cosmetic and dependency policies, local/owned/sign-board retention,
+  RAF release/cancel behavior, paused camera repacking and stable crowd poses/IDs.
+- `worker-preview`: actual worker edit acknowledgement with no cosmetic routing
+  rebuild and no paused tick; speed/topology edits must still rebuild.
+- `scene-wiring`: source contracts for sign-only chunk skipping and pointer
+  touch/delete preservation, release-before-commit, and unmount cancellation.
+
+Run the full `npm --prefix game test` and production build after focused checks.
+Then run root `npm run check:render-batching` for real production GLSL/WebGL and
+open/closed GPU geometry checks, and `npm run check:perf-tools` for CPU/trace
+exports. Browser checks require Chrome and have no FPS threshold; software GPU
+is available by running the checker with `--software-gpu` after a build.
+`--no-multi-draw` disables the extension before renderer initialization and checks
+the fallback against the same geometry; its report is separate. Use paired
+unprofiled benchmarks for speed evidence, keeping hardware/fixture/assets fixed.
+
 ## Rules that matter most when adding a test
 
 1. Import the source, not a copy — no build step, no `dist/`. If a module is hard
@@ -118,17 +156,49 @@ accounting), `diagonal-walk` (√2 cost, 2×2 clearance, barrier awareness),
 `passenger-view` (instanced humans, gait, pause, picking, eye restore),
 `touch-zoom` (pinch direction, cancel, release suppression),
 `sim-pause` (escalator bands, gate leaves and train/screen doors hold while
-paused; consists settle; orchestrator forwarding).
+paused; consists settle; orchestrator forwarding),
+`escalator-length` (the four run lengths on both the 扶梯 and the 单跑楼梯: spans,
+envelope, carve, landing nodes, ride time, exit-bay snap, save round-trip, both
+drawn models, and the catalogue's fallback and nearest-match answers — with
+`ramp-join` for the seam at each length and `builder-attributes` for the tile,
+the predicate and the dispatch).
+
+`placement.test.mjs` pins stair footing: every stair shape may be placed with ground
+only at its foot, regardless of width or rotation, and is still refused if that foot
+has no ground. The upper landing and interior turn platform must not become additional
+pre-existing-floor requirements.
 
 Model integration coverage lives in `passenger-library`, `passenger-size`,
-`passenger-view`, `capture-passengers` and `passenger-art-pipeline`: all sixteen
-templates and walks, equal adult/child pools, 20% child selection, separate age
+`passenger-view`, `capture-passengers` and `passenger-art-pipeline`: the complete
+reviewed catalogue and walks, equal explicit adult/child pools, 20% child selection, separate age
 size ranges, body/shadow axes, 70% opacity, pause, picking and physical stride.
-The art validator must reject missing child frames and bagged/bald child cards.
+Side bag assertions must inspect the accessory's baked surface, including frame
+zero: broad faces along body depth, left/right mirroring, thin bodies between arm
+and torso, torso-following shoulder/crossbody bags and hand-following purses.
+Check the baked strap/handle surfaces for long triangles or ink escaping below
+their attachment region, allowing the atlas simplifier's larger planar triangles.
+Model tests pin missed fitting rays and carrying-arm metadata; the browser
+crossbody checker samples shoulder pixels to catch hidden or missing strap patches.
+The art validator must reject missing child frames and age-ineligible/bald child
+cards; approved small/crossbody bags can be child-eligible. Never freeze the
+catalogue length or infer modern eligibility only from bag presence.
 Browser geometry/strap/hem/GPU checks live in `tools/check-model-*.mjs` and
 `check-game-passenger-library.mjs`; model preview rules have their own deterministic
 `npm --prefix model test`. The boarding capacity fixture uses a one-car train and
 no alighting, so changes in stride do not turn its counter into an alighting test.
+
+For a **turning stair**, keep the whole block-grid rule in `stairs.test.mjs`: every turning
+shape built at `stairSwitchbackRunWidth`, a 90° turn's two perpendicular legs each slid
+across **their own** run (the two hands mirroring), its quarter-landing the `lanes × lanes`
+square the legs meet on with the departing leg on that square's far edge and no flight body
+over any landing cell, the walk across the square in both hands × all three sizes × all four
+rotations, the equipment tool's ghost carrying the piece the factory builds, the builder
+laying and bulldozing every cell of the square, and a piece saved at an older off-grid width
+keeping its band and its single corner cell. The same rule is pinned from the other three
+sides: `openings.test.mjs` (the wall a 90° leg stands flush against stays whole),
+`pillar-extension.test.mjs` (the flight-only hitbox at that landing), `module-build.test.mjs`
+(the **drawn** platform measured against the square the sim lays) and `move.test.mjs` (the
+whole square travelling with the piece).
 
 For the fitted 门 / 玻璃幕墙 joint, keep the snap arithmetic in the pure placement
 module and pin a rotated curtain, a door clamped inside its run, allowed fitted overlap,
@@ -136,6 +206,13 @@ rejected crosswise overlap, and the clipped lower-pane geometry in `glass-panel.
 Pin front and back handle geometry and stand-off in `door-panel.test.mjs`; room and
 standalone doors share `DoorModel.buildDoor`, so both use the same assertion.
 
+For the 指示牌 board editor, keep the drag arithmetic in `sim/sign.ts` and pin, in
+`sign-editor`, the store contract (preview never commits, ✓ makes the pair current)
+and the deferred live-drag path (`applyLocal` writes the bins, `schedulePreview` trails
+the scene redraw, the drop flushes once). Keep `signBoardsOnlyChange`'s fail-closed
+verdict and `buildModules`' keep-set retention in `performance-policy`, and the
+`setStation` fast path (no chunk remesh, station-wide plate repaints skipped) in
+`scene-wiring` — `SceneRenderer` itself needs WebGL, so that contract is source-text.
 For 三角 runs, keep the drag arithmetic in the pure geometry module
 (`app/tools/geometry/cells.ts` `triangleRidgeAxis` / `triangleLineCells`) and pin the
 ridge-only line, the one-shape-per-course release, the neighbour side a wedge leaves

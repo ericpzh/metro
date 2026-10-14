@@ -10,7 +10,8 @@
     "start": "npm run build && npm run preview",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "test": "node --test \"test/**/*.test.mjs\""
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "test:perf": "node --test --test-isolation=none --experimental-test-coverage --test-coverage-exclude=\"test/**\" --test-coverage-exclude=\"node_modules/**\" test/batching-lifecycle.test.mjs test/draw-batching.test.mjs test/performance-policy.test.mjs test/worker-preview.test.mjs test/render-performance.test.mjs test/scene-wiring.test.mjs"
   },
   "dependencies": {
     "immer": "^11.1.18",

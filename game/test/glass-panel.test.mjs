@@ -31,9 +31,10 @@ import {
   wallMountMissing,
   wallSide,
 } from '../src/sim/placement.ts'
-import { createModule } from '../src/build/model.ts'
+import { createModule, toState } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
-import { MODULE_OPTIONS, isDecorType, isGlassType, isWallMountedType, moduleLabel } from '../src/app/store.ts'
+import { MODULE_OPTIONS, isDecorType, isGlassType, isWallMountedType, moduleLabel, useStore } from '../src/app/store.ts'
+import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 import { sameSweepFamily, sweepFamily } from '../src/app/sweep.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import { buildModule } from '../src/render/models.ts'
@@ -403,4 +404,24 @@ test('a fence of the same length is a row of frames; a glass panel is one', () =
   })
   const { meshes } = build(glass(0, 0, 0, 0, 'g', '3x1'))
   assert.ok(meshes.length < fences, `one window (${meshes.length} meshes) against one panel of fence (${fences})`)
+})
+
+test('the 幕墙 height tile reaches the piece the tool builds', () => {
+  // `createModule`'s trailing settings are **named**, not counted, so the height a
+  // player arms has to travel through the tool: a field dropped on the way would
+  // silently build every curtain four storeys tall, and nothing else would notice —
+  // the piece is still a valid curtain, just not the one the tile promised.
+  const before = useStore.getState()
+  try {
+    const station = toState({ name: 'curtain', seed: 1, cells: [], modules: [], lines: [] })
+    const tool = new EquipmentTool({})
+    for (const [height, stored] of [[2, 2], [3, 3], [4, undefined]]) {
+      useStore.setState({ station, moduleType: 'curtain-wall', curtainWidth: 2, curtainHeight: height, moduleRot: 0 })
+      const mod = tool.buildPlacementModules('curtain-wall', [0, 0, 0], `curtain-${height}`)[0]
+      assert.equal(mod.cfg.variant, '2x4', 'the width tile still names the variant')
+      assert.equal(mod.cfg.curtainHeight, stored, `${height} storeys of curtain, the default left unspelled`)
+    }
+  } finally {
+    useStore.setState(before)
+  }
 })

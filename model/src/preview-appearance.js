@@ -1,4 +1,4 @@
-import {MODEL_LIBRARY} from './characters/library.js';
+import {MODEL_LIBRARY,isBackpack,modelEligible} from './characters/library.js';
 import {PASSENGER_CHILD_CHANCE, PASSENGER_CHILD_SCALE, PASSENGER_CHILD_SIZE_VARIATION, PASSENGER_SIZE_VARIATION} from '../../game/src/sim/constants.ts';
 
 export const sizeRanges=PASSENGER_SIZE_VARIATION;
@@ -9,10 +9,15 @@ export function sizePercent(axis,value,age='adult'){
 }
 export function constrainAppearance(state){
  if(state.age==='child'){
-  state.bag=false;
   if(state.hair==='bald')state.hair='short';
  }
- if(state.hair==='long')state.bag=false;
+ state.bagStyle??='standard';
+ if(state.hair==='long'&&state.bag&&isBackpack(state.bagStyle))state.bag=false;
+ if(state.bag&&!MODEL_LIBRARY.some(model=>model.character===(state.character??'female')&&model.hair===state.hair&&model.bagStyle===state.bagStyle&&modelEligible(model,state.age))){
+  // Legacy standard entries omit bagStyle; all restricted combinations clear
+  // the bag rather than silently selecting a bag the user did not request.
+  if(state.bagStyle!=='standard'||state.age==='child')state.bag=false;
+ }
  for(const axis of Object.keys(sizeRanges))state.size[axis]=sizePercent(axis,state.size[axis],state.age);
 }
 // GLB/viewer axes are Y-up: width X, height Y, fore/aft depth Z.
@@ -22,7 +27,7 @@ export function previewScale(state){
 }
 export function randomAppearance(random=Math.random){
  const age=random()<PASSENGER_CHILD_CHANCE?'child':'adult';
- const pool=MODEL_LIBRARY.filter(model=>age==='adult'||(!model.bag&&model.hair!=='bald'));
+ const pool=MODEL_LIBRARY.filter(model=>modelEligible(model,age));
  const model=pool[Math.floor(random()*pool.length)],size={};
  for(const [axis,range] of Object.entries(appearanceSizeRanges(age))){
   const [min,max]=range.map(v=>Math.round(v*100));

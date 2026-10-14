@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { carveRampOpenings, rampBlocked, rampCorridorHalf, rampThinCells, OPENING_CEILING } from '../src/sim/openings.ts'
 import { reservedOpening } from '../src/sim/placement.ts'
 import { EXIT_BAY_HALF } from '../src/sim/exits.ts'
-import { STAIR_WIDTHS, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairFlightSlides, stairFlights, stairLanes } from '../src/sim/stairs.ts'
+import { STAIR_WIDTHS, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairFlightSlides, stairFlights, stairLanes, stairTurnCells } from '../src/sim/stairs.ts'
 import { createModule } from '../src/build/model.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { ESCALATOR_RATE, ESCALATOR_SPEED, ESCALATOR_STEP_PITCH } from '../src/sim/constants.ts'
@@ -150,39 +150,65 @@ test('a 双跑楼梯 pushed against a wall keeps it whole: its runs fill their o
   }
 })
 
-test('a turn wider than its own cell still has the wall it reaches thinned', () => {
-  // The other side of the same rule: a 中 / 宽 90° turn is one piece built at the tool's
-  // lane width (1.36 / 2.04 m), so its body really does cross 0.18 / 0.52 m into the
-  // column beside it — that wall is kept and drawn half a block thick, exactly as the
-  // 1.6 m stair's is. The narrow turn (0.68 m) stays inside its own cell and reaches
-  // nothing, and no width reaches a cell it merely touches.
-  for (const width of [STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]) {
-    const cells = []
-    for (let x = 0; x < 3; x++) {
-      for (let y = 0; y < 5; y++) {
-        cells.push({ x, y, z: 0, fill: 'solid', tags: x === 2 ? ['auto-wall'] : ['auto-floor'] })
+test('a 90° turn pushed against a wall keeps it whole: its legs fill their own blocks', () => {
+  // The other half of the same rule, and the report that fixed it: a 中 / 宽 90° turn used to
+  // be one piece built at the tool's palette width (1.36 / 2.04 m), so its band really did
+  // cross 0.18 / 0.52 m into the column beside it and that wall was kept and drawn half a
+  // block thick. A turning leg is built to the blocks it fills now
+  // (`stairSwitchbackRunWidth`, 0.79 / 1.79 / 2.79 m), so its treads and both balustrades end
+  // exactly on the cell edges — the wall beside it has only been touched, never entered, and a
+  // touch is not a reach (`within`). Both hands and all three sizes, each with a wall column
+  // standing flush on either side of the corner the piece turns through.
+  for (const style of ['stair-right90', 'stair-left90']) {
+    for (const size of STAIR_WIDTHS) {
+      const turn = createModule(style, 1, 4, -2, 's', 2, size)
+      assert.ok(turn)
+      const lanes = stairLanes(size)
+      const slides = stairFlightSlides(turn)
+      const cells = []
+      // The blocks the piece stands in: every leg's band is `lanes` whole cells across its
+      // own run, and the run itself covers the cells its walking line passes through.
+      const xs = []
+      const ys = []
+      for (const c of stairTurnCells(turn)) { xs.push(c.x); ys.push(c.y) }
+      stairFlights(turn).forEach((f, i) => {
+        const s = slides[i]
+        const alongX = f.to.x !== f.from.x
+        const centre = (alongX ? f.from.y : f.from.x) + 0.5 + (alongX ? s.dy : s.dx)
+        assert.equal(Number.isInteger(centre - lanes / 2), true, `${style} at ${size}: a leg is not on whole blocks`)
+        const first = Math.round(centre - lanes / 2)
+        for (let k = 0; k < lanes; k++) (alongX ? ys : xs).push(first + k)
+        const a = alongX ? f.from.x : f.from.y
+        const b = alongX ? f.to.x : f.to.y
+        for (let v = Math.min(a, b); v <= Math.max(a, b); v++) (alongX ? xs : ys).push(v)
+      })
+      // A wall column standing flush against every side of the piece's blocks — either side of
+      // each leg — so a band that crossed into the neighbouring cell would be caught.
+      const wallAt = (axis, v, lo, hi) => {
+        for (let u = lo; u <= hi; u++) {
+          for (let dz = 0; dz < 4; dz++) {
+            cells.push(axis === 'x'
+              ? { x: v, y: u, z: -2 + dz, fill: 'solid', tags: ['wall'] }
+              : { x: u, y: v, z: -2 + dz, fill: 'solid', tags: ['wall'] })
+          }
+        }
       }
+      const x0 = Math.min(...xs) - 1
+      const x1 = Math.max(...xs) + 1
+      const y0 = Math.min(...ys) - 1
+      const y1 = Math.max(...ys) + 1
+      wallAt('x', x0, y0, y1)
+      wallAt('x', x1, y0, y1)
+      wallAt('y', y0, x0, x1)
+      wallAt('y', y1, x0, x1)
+      const walls = cells.filter((c) => c.tags?.includes('wall')).length
+      carveRampOpenings(cells, [turn])
+      assert.equal(cells.filter((c) => c.tags?.includes('wall')).length, walls,
+        `${style} at ${size}: every course of the walls beside the turn survives the carve`)
+      assert.deepEqual(rampThinCells(cells, [turn]), [],
+        `${style} at ${size}: nothing beside the turn is reached, so no wall is cut`)
     }
-    const turn = createModule('stair-right90', 1, 4, -2, 's', 2, width)
-    assert.ok(turn)
-    assert.equal(turn.cfg.width, width, 'a 90° turn is built at the tool’s own width, not the block grid')
-    carveRampOpenings(cells, [turn])
-    assert.ok(cells.some((c) => c.x === 2 && c.y === 2 && c.z === 0), `the wall beside the ${width} m turn survives the carve`)
-    const at = rampThinCells(cells, [turn]).find((t) => t.x === 2 && t.y === 2 && t.z === 0)
-    assert.ok(at, `the wall the ${width} m turn reaches is thinned`)
-    assert.equal(at.side, 'e', 'and the panel sits on the half away from the run')
   }
-  // The narrow turn sweeps 0.445 m, well inside its own cell.
-  const cells = []
-  for (let x = 0; x < 3; x++) {
-    for (let y = 0; y < 5; y++) {
-      cells.push({ x, y, z: 0, fill: 'solid', tags: x === 2 ? ['auto-wall'] : ['auto-floor'] })
-    }
-  }
-  const narrow = createModule('stair-right90', 1, 4, -2, 's', 2, STAIR_WIDTH_NARROW)
-  assert.ok(narrow)
-  carveRampOpenings(cells, [narrow])
-  assert.equal(rampThinCells(cells, [narrow]).length, 0, 'a narrow turn reaches no wall at all')
 })
 
 test('a wide stair keeps its side floor cells and marks them as half blocks', () => {

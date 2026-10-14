@@ -7,6 +7,7 @@ import {MeshoptSimplifier} from '../game/node_modules/meshoptimizer/meshopt_simp
 import {WALK_PROFILES} from '../game/src/sim/constants.ts';
 import {MODEL_LIBRARY} from '../model/src/characters/library.js';
 import {createPassengerWalkPoser} from './passenger-walk-poses.mjs';
+import {applyPassengerCarryPose} from '../model/src/animation/carry-pose.js';
 
 // Consume the reviewed exports, including closed coats and trimmed strap surfaces.
 // Regenerate them first: node model/scripts/prepare-assets.mjs.
@@ -56,10 +57,11 @@ const poseWalk=createPassengerWalkPoser(gltf.scene);
 const v=new THREE.Vector3();
 for(let frame=0;frame<frames;frame++){
  if(frame){poseWalk(((frame-1)%walkFrames)/walkFrames,WALK_PROFILES[Math.floor((frame-1)/walkFrames)]);parts.forEach(p=>p.mesh.skeleton.update())}
+ else{applyPassengerCarryPose(gltf.scene);gltf.scene.updateMatrixWorld(true);parts.forEach(p=>p.mesh.skeleton.update())}
  const values=[],geometries=[];let foot=Infinity;
  for(const part of parts){
   const position=part.mesh.geometry.attributes.position,a=[];
-  for(const i of part.used){v.fromBufferAttribute(position,i);if(frame)part.mesh.applyBoneTransform(i,v);a.push(v.z,v.x,v.y);foot=Math.min(foot,v.y)}
+  for(const i of part.used){v.fromBufferAttribute(position,i);part.mesh.applyBoneTransform(i,v);a.push(v.z,v.x,v.y);foot=Math.min(foot,v.y)}
   const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(a,3));geo.setIndex(part.indices);geo.computeVertexNormals();geometries.push(geo);values.push(a);
  }
  let vertex=0;
@@ -122,7 +124,8 @@ for(const [outfit,model] of models.entries()){
 }
 const encode=a=>Buffer.from(a.buffer).toString('base64');
 const walkProfiles=WALK_PROFILES.map((p,i)=>({...p,stride:p.speed*p.cycleSeconds,firstFrame:i*walkFrames+1}));
-const library=models.map(({id,character,hair,bag,bagStyle,file,vertices,corners,sourceSha256})=>({id,character,hair,bag,...(bagStyle?{bagStyle}:{}),file,vertices,triangles:corners/3,sourceSha256}));
+const library=models.map(({id,character,hair,bag,bagStyle,bagScale,bagType,bagSide,adultEligible,childEligible,file,vertices,corners,sourceSha256})=>({id,character,hair,bag,adultEligible,childEligible,...(bagStyle?{bagStyle}:{}),...(bagScale?{bagScale}:{}),...(bagType?{bagType,bagSide}:{}),file,vertices,triangles:corners/3,sourceSha256}));
 const baked={source:'Approved model library, local TRELLIS reconstruction and authored variants; foot-targeted slow/medium/fast walks',style:'grey-faceless',variants:models.map(m=>m.id),hairstyles:models.map(m=>m.hair),library,palette,vertices,corners,triangles:corners/3,indexBits:IndexArray.BYTES_PER_ELEMENT*8,frames,walkFrames,walkProfiles,height:1.72,stride:walkProfiles[0].stride,positionScale:4096,normalScale:127,regions:encode(regions),indices:encode(indices),positions:encode(poses),normals:encode(normals)};
 const out=new URL('../game/src/assets/passenger-approved.json',import.meta.url);await writeAsset(out,JSON.stringify(baked)+'\n');
-console.log({variants:models.length,vertices,triangles:corners/3,atlasRows:Math.ceil(vertices*frames/1024),bytes:readFileSync(out).length});
+const atlasWidth=2**Math.ceil(Math.log2(Math.max(1024,Math.ceil(vertices*frames/8192))));
+console.log({variants:models.length,vertices,triangles:corners/3,atlasWidth,atlasRows:Math.ceil(vertices*frames/atlasWidth),bytes:readFileSync(out).length});

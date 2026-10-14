@@ -2,17 +2,21 @@ import * as THREE from 'three'
 import human from '../assets/passenger-approved.json' with { type: 'json' }
 import { passengerIsChild, passengerProportions } from '../sim/walking.ts'
 import { PASSENGER_OPACITY } from '../sim/constants.ts'
+import { passengerEligible } from './passengerEligibility.ts'
 
 /** Approved grey, faceless commuter and baked walk; see assets/PASSENGERS.md. */
 export const PASSENGER_EYE_HEIGHT = 1.57
 export const PASSENGER_STRIDE = human.stride
 export const PASSENGER_WALK_FRAMES = human.walkFrames
 export const PASSENGER_WALK_PROFILES = human.walkProfiles
-export const PASSENGER_LIBRARY = human.library
+export const PASSENGER_LIBRARY = human.library.map(model => ({ ...model,
+  childEligible: passengerEligible(model, 'child'), adultEligible: passengerEligible(model, 'adult') }))
 export const PASSENGER_OUTFITS = human.variants
 export const PASSENGER_HAIRSTYLES = human.hairstyles
-// Reuse the reviewed meshes at child scale; bags and bald heads are adults only.
-export const PASSENGER_CHILD_OUTFITS = human.library.flatMap((model, index) => !model.bag && model.hair !== 'bald' ? [index] : [])
+// Both age pools are explicit: children may carry small/crossbody bags, while
+// female crossbody templates are child-only and never enter the adult pool.
+export const PASSENGER_CHILD_OUTFITS = human.library.flatMap((model, index) => passengerEligible(model, 'child') ? [index] : [])
+export const PASSENGER_ADULT_OUTFITS = human.library.flatMap((model, index) => passengerEligible(model, 'adult') ? [index] : [])
 export type PassengerAppearance = [outfit: number, height: number, depth: number, width: number, tone: number]
 
 /** Identity, rather than buffer slot, keeps each commuter's appearance stable. */
@@ -30,7 +34,7 @@ export function passengerAppearance(id: number, out: PassengerAppearance = [0, 0
   hash = (hash ^ (hash >>> 16)) >>> 0
   out[0] = passengerIsChild(id)
     ? PASSENGER_CHILD_OUTFITS[Math.floor(hash / 0x100000000 * PASSENGER_CHILD_OUTFITS.length)]
-    : Math.floor(hash / 0x100000000 * PASSENGER_OUTFITS.length)
+    : PASSENGER_ADULT_OUTFITS[Math.floor(hash / 0x100000000 * PASSENGER_ADULT_OUTFITS.length)]
   return out
 }
 
@@ -67,8 +71,9 @@ export function passengerBody(): THREE.BufferGeometry {
   return geometry
 }
 
+export const PASSENGER_ATLAS_WIDTH = 2 ** Math.ceil(Math.log2(Math.max(1024, Math.ceil(human.vertices * human.frames / 8192))))
 function atlas(values: Int16Array | Int8Array, divisor: number): THREE.DataTexture {
-  const width = 1024
+  const width = PASSENGER_ATLAS_WIDTH
   const rows = Math.ceil(human.vertices * human.frames / width)
   const pixels = new Float32Array(width * rows * 4)
   for (let i = 0; i < values.length / 3; i++) {

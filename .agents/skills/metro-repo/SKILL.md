@@ -17,6 +17,7 @@ the station either copes or it does not.
 | Anything under `game/src` — the sim, the renderer, the builder, the app shell, the save format | `metro-game` |
 | Adding, running or fixing tests under `game/test` | `metro-game-test` |
 | `web/` (the concept-art site), `art/` (the sheets), and the art/card renderers in `tools/` | `metro-web` |
+| `model/` characters, bag variants, walking exports and the approved game passenger atlas | `metro-model` |
 
 ## What lives where
 
@@ -117,9 +118,13 @@ text in both locales for clipping and CN regressions. Art generation must report
 no missing translations. Follow the owning subskill for layout and cache refresh.
 
 Passenger sources: the live `game/src/assets/passenger-approved.json` comes from
-the sixteen reviewed model exports; use `metro-model` and `npm run bake:passengers`.
-Adults choose all entries equally; the 20% child population uses only five bagless,
-non-bald templates at smaller scale. The shared game material uses 70% opacity.
+the complete reviewed catalogue; use `metro-model` and `npm run bake:passengers`.
+The current library has 56 variants (50 adult-eligible / 19 child-eligible).
+Stable identity chooses equally within explicit `adultEligible` / `childEligible`
+pools; the 20% child population can use approved small/crossbody bags, never bald
+heads. `render/passengerEligibility.ts` preserves the previous pools for legacy
+atlases without flags; explicit false takes precedence. Derive counts from metadata
+rather than hard-coding them into captures or validators. The shared game material uses 70% opacity.
 The historical `game/src/assets/passenger-human.json` is baked, not authored —
 `game/src/assets/PASSENGERS.md` names the CC0 Quaternius outfits and
 `tools/bake-passengers.mjs` regenerates the atlas. Never hand-edit the JSON.
@@ -129,6 +134,10 @@ explicit block-fitted tread widths (0.79 m for its three straight stairs,
 1.79 m per run for its two medium switchbacks). When refreshing
 `game/src/data/demo-station.json`, rebuild affected stairs with `createModule`,
 preserve their IDs and landing plans, and store `stairTreadWidth` as their width.
+A **90° turn** is rebuilt the same way and takes its `lanes × lanes` quarter-landing and
+the departing leg laid on that square's far edge from the current builder
+(`stairQuarterTurnOffset`), so a turn added to or refreshed in the demo is a 2 × 2 / 3 × 3
+square of walkable floor, not the single corner cell an older save carries.
 Run `demo`, `stairs` and `placement` tests. Platform `doors` are **server IDs**:
 connectivity checks must resolve `graph.servers[id].node`, never index node
 reachability with the server ID. See `metro-game` for the demo/save workflow.
@@ -155,6 +164,11 @@ npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run build:game    # install game/ deps, then tsc --noEmit && vite build
 npm run bench:sim     # demo-station simulation + build CPU timings
 npm run bench:browser # production app/worker/browser FPS + edit-to-frame timings
+npm run test:perf     # focused performance regressions + V8 source coverage
+npm run check:render-batching # production GLSL/WebGL + geometry/draw integrity
+npm run check:perf-tools # real CPU profile + trace-stream export smoke check
+npm run profile:sim   # readable Node/V8 simulation/build CPU profile
+npm run profile:browser # app CPU/Chrome trace + GPU timer/upload diagnostics
 npm run deploy:game   # build:game, deploy metro-game, attach its routes
 
 npm run preview:local # tools/preview.mjs — both built apps on one origin
@@ -178,7 +192,7 @@ commands.
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
 | `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/`, `/metro/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Worker does. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
-| `bake-approved-passenger.mjs` | Bakes all sixteen reviewed model exports into the active shared game crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
+| `bake-approved-passenger.mjs` | Bakes the complete reviewed catalogue, age flags and all walks into the active shared crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
 | `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, 70% opacity and the instanced crowd in the built game GPU renderer. |
 | `check-model-preview-options.mjs`, `check-game-passenger-size.mjs` | Verify production model age/size controls and render a game lineup. The model's pure preview rules also have `npm --prefix model test`. |
 | `bake-passengers.mjs` | Regenerates `game/src/assets/passenger-human.json` from the CC0 sources listed in `game/src/assets/PASSENGERS.md` (see `metro-game`). |
@@ -196,6 +210,17 @@ commands.
 | `render-view-shots.mjs` | Photographs the demo station from each of the game's own camera presets (sheet 09's subject) into `.preview/view-shots/`, for looking at rather than asserting. |
 | `game-tiles.mjs` | Starts the built game in headless Chrome and saves the build rail's real preview tiles, for checking an art change against it. |
 | `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Measure the shipped demo's simulation/build CPU costs and the production browser's FPS, draw calls and edit latency. Reports go under `.preview/perf/`; see `game/PERFORMANCE.md` for controls and interpretation. These are local diagnostics, not CI thresholds. |
+| `profile-sim.mjs`, `check-perf-tools.mjs` | Readable simulation V8 profiles and an actual Chrome CPU/trace-stream smoke check. Sampling and tracing run separately; requests/timeouts and cleanup are bounded. |
+| `check-render-batching.mjs` | Real production GLSL/WebGL check: enabled/disabled station draws, open/closed train GPU triangle preservation, and no shader/runtime errors. Supports `--software-gpu` and `--no-multi-draw` (extension disabled before renderer construction); no FPS gate. |
+
+Performance work belongs to `metro-game` plus `metro-game-test`. Run CPU/browser
+benchmarks sequentially without builds/tests/profilers competing for the host.
+Use `bench:browser -- --compare-batching --investigate` when demo/assets changed:
+it compares one population/camera/station and test consist on both sides, records
+draw inventory and native multi-draw support, and fails on browser errors. GPU
+timers are asynchronous and separate from CPU render submission; buffer counters
+exclude textures/uniforms. Profile exports and screenshots are ignored artifacts
+under `.preview/perf/`, not timing assertions in the deterministic suite.
 | `browser-harness.mjs` | The shared headless-Chrome + static-server driver the `render-*` passes sit on. |
 | `train-cards.mjs`, `piece-views.mjs` | The two placement helpers the sheets share: a captured car / run and the metres it covers, so a sheet stands the game's picture on its own line at its own scale. |
 | `zoom.mjs` | Crops a detail out of a sheet and writes a `*-zoom.svg` beside it (`sync-art.mjs` skips those). |

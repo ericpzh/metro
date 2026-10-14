@@ -4,7 +4,7 @@ import {closeCoatInterior} from './garment-lining.js';
 import {addBackpackConnectors} from './backpack-connectors.js';
 import {repairWaistSkinning} from './waist-skinning.js';
 
-function relaxJaw(geometry,skin,frontOnly=false){
+function relaxJaw(geometry,skin,frontOnly=false,shoulderOnly=false){
  const p=geometry.attributes.position,c=geometry.attributes.color,ids=new Map(),groups=[],vertices=[],neighbors=[],weights=[];
  for(let i=0;i<p.count;i++){
   const x=p.getX(i),y=p.getY(i),z=p.getZ(i),key=[x,y,z].map(v=>Math.round(v*1e6)).join(',');
@@ -13,12 +13,13 @@ function relaxJaw(geometry,skin,frontOnly=false){
   groups[id].push(i);
   if(!frontOnly&&Math.abs(c.getX(i)-skin)<.001&&y>1.385&&y<1.60)weights[id]=Math.max(weights[id],THREE.MathUtils.smoothstep(y,1.385,1.405)*(1-THREE.MathUtils.smoothstep(y,1.57,1.60)));
   if(frontOnly&&z>.045&&y>1.08&&y<1.385)weights[id]=Math.max(weights[id],THREE.MathUtils.smoothstep(y,1.08,1.15)*(1-THREE.MathUtils.smoothstep(y,1.35,1.385))*(1-THREE.MathUtils.smoothstep(Math.abs(x),.16,.23)));
+  if(shoulderOnly)weights[id]=THREE.MathUtils.smoothstep(y,1.25,1.31)*(1-THREE.MathUtils.smoothstep(y,1.37,1.405))*THREE.MathUtils.smoothstep(Math.abs(x),.055,.085)*(1-THREE.MathUtils.smoothstep(Math.abs(x),.20,.25));
  }
  const vertexId=new Uint32Array(p.count);groups.forEach((group,id)=>group.forEach(i=>vertexId[i]=id));
  const index=geometry.index.array;
  for(let i=0;i<index.length;i+=3){const a=vertexId[index[i]],b=vertexId[index[i+1]],d=vertexId[index[i+2]];neighbors[a].add(b).add(d);neighbors[b].add(a).add(d);neighbors[d].add(a).add(b)}
  const active=weights.flatMap((weight,id)=>weight>0?[id]:[]);
- for(let pass=0;pass<80;pass++){
+ for(let pass=0;pass<(shoulderOnly?24:80);pass++){
   const next=active.map(id=>{
    const sum=[0,0,0],linked=neighbors[id];if(!linked.size)return vertices[id];
    for(const other of linked)for(let k=0;k<3;k++)sum[k]+=vertices[other][k];
@@ -50,8 +51,12 @@ export function smoothShoulders(model){
    if(arm>=.95)continue;
    for(let k=0;k<4;k++){joints.array[i*4+k]=k?0:spine;weights.array[i*4+k]=k?0:1}
   }
-  for(let i=0;i<p.count;i++)if(p.getY(i)>.92&&p.getY(i)<1.27&&Math.abs(p.getX(i))<.235){
-   const factor=1-THREE.MathUtils.smoothstep(Math.abs(p.getX(i)),.195,.235),influences=new Map();let transfer=0;
+  for(let i=0;i<p.count;i++)if(p.getY(i)>.92&&p.getY(i)<1.405&&Math.abs(p.getX(i))<(p.getY(i)<1.27?.235:.165)){
+   // The inner shoulder belongs to the torso too. Keeping its old arm blend
+   // excluded small coat fragments from fitting rays and moved them through
+   // the strap; the outer sleeve retains its existing arm weights.
+   const upper=p.getY(i)>=1.27;
+   const factor=1-THREE.MathUtils.smoothstep(Math.abs(p.getX(i)),upper?.135:.195,upper?.165:.235),influences=new Map();let transfer=0;
    for(let k=0;k<4;k++){const id=joints.array[i*4+k],weight=weights.array[i*4+k],moved=/arm|hand/i.test(mesh.skeleton.bones[id].name)?weight*factor:0;transfer+=moved;influences.set(id,(influences.get(id)??0)+weight-moved)}
    influences.set(spine,(influences.get(spine)??0)+transfer);
    const sorted=[...influences].sort((a,b)=>b[1]-a[1]).slice(0,4),sum=sorted.reduce((total,[,w])=>total+w,0);
@@ -109,6 +114,18 @@ export function smoothShoulders(model){
    p.setZ(i,THREE.MathUtils.lerp(z,fitted,weight));
   }
   relaxJaw(mesh.geometry,skin,true);
+  // Relax the reconstructed shoulder across all material seams, including
+  // the rear collar and sleeve crown. Small source tabs otherwise survive
+  // just outside the replacement webbing and imprint its contact contour.
+  relaxJaw(mesh.geometry,skin,false,true);
+  // Fold detached outer shoulder ridges beneath one smooth cap. Topology
+  // relaxation alone cannot remove a ridge belonging to a separate shell.
+  for(let i=0;i<p.count;i++){
+   const x=p.getX(i),y=p.getY(i),z=p.getZ(i);
+   if(y<1.28||y>1.405||Math.abs(x)<.07||Math.abs(x)>.25)continue;
+   const cap=1.432-.65*Math.abs(x)-1.8*(z-.035)**2;
+   p.setY(i,THREE.MathUtils.lerp(y,Math.min(y,cap),THREE.MathUtils.smoothstep(y,1.28,1.32)*(1-THREE.MathUtils.smoothstep(Math.abs(x),.17,.25))));
+  }
   cleanFrontBoundaries(mesh.geometry);
   closeCoatInterior(mesh);
   // Retire rear reconstruction ridges before fitting webbing. Those ridges

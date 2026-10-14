@@ -475,6 +475,10 @@ export const messages = {
     "zh": "暂无线路",
     "en": "No lines yet"
   },
+  "ultra_short": {
+    "zh": "超短",
+    "en": "Extra short"
+  },
   "short": {
     "zh": "短",
     "en": "Short"
@@ -1043,6 +1047,10 @@ export const messages = {
     "zh": "地面 四向",
     "en": "Ground, four ways"
   },
+  "virtual_exit": {
+    "zh": "虚拟",
+    "en": "Virtual"
+  },
   "escalator": {
     "zh": "扶梯",
     "en": "Escalator"
@@ -1433,6 +1441,10 @@ export const messages = {
   "cannot_place_a_wall_here_a_wall_already_exists": {
     "zh": "此处无法放置墙：已有墙",
     "en": "Cannot place a wall here: a wall already exists"
+  },
+  "no_blocks_to_remove_here": {
+    "zh": "此处没有可拆除的方块",
+    "en": "No blocks to remove here"
   },
   "no_wall_to_remove_here": {
     "zh": "此处没有可拆除的墙",
@@ -2691,8 +2703,8 @@ export const messages = {
     "en": "Glass panel 4×4"
   },
   "entrances_must_be_placed_at_ground_level": {
-    "zh": "出入口只能放在地面",
-    "en": "Entrances must be placed at ground level"
+    "zh": "出入口只能放在 0~3 米",
+    "en": "Entrances must be placed between 0 and 3 metres"
   },
   "ground_entrances_must_be_at_0_m_or_above": {
     "zh": "地面出入口只能放在 0 米及以上",

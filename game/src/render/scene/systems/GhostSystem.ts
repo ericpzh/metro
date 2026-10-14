@@ -604,6 +604,7 @@ export class GhostSystem extends SceneSystem {
     // Hide the committed fences; the preview rebuilds every fence, so there is
     // no z-fighting and every joint reflects the in-progress line.
     for (const f of this.modules.fenceGroups) f.visible = false
+    this.modules.syncBatches()
     const merged = { ...this.ctx.stationData, modules: [...this.ctx.stationData.modules, ...list] }
     const ctx: ModuleContext = {
       mats: this.ctx.modelMats,
@@ -641,6 +642,7 @@ export class GhostSystem extends SceneSystem {
 
   /** Drop the fence-drag preview and bring the committed fences back. */
   clearFencePreview(): void {
+    const hadPreview = this.fencePreviewKey !== ''
     for (const child of [...this.fencePreviewGroup.children]) {
       disposeObject(child)
       this.fencePreviewGroup.remove(child)
@@ -651,6 +653,7 @@ export class GhostSystem extends SceneSystem {
     this.fencePreviewBases.length = 0
     this.fencePreviewKey = ''
     for (const f of this.modules.fenceGroups) f.visible = true
+    if (hadPreview) this.modules.syncBatches()
   }
 
   override dispose(): void {

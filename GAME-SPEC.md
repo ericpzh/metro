@@ -398,6 +398,12 @@ modules standing on it, with a confirm if §9.3 confirmations are on.
 | Elevator / lift | 2 × 2 | 15 pax/trip, ~40 s cycle | the only step-free path; agents that need it will wait rather than climb |
 | Ramp | 2 × n | 30 pax/min per metre | accessible, slow |
 
+A **run** — an escalator or a single-run staircase (单跑楼梯) — is built at one of **four lengths**,
+chosen on its action tile: **超短** climbs 2 m over a 3 m run, **短** 3 m over 5 m, **中** 4 m over 6 m
+and **长** 8 m over 12 m. The length is the piece's own endpoints, so a run is a fixed piece that a save
+carries with it, and two runs stand flush — filling the seam between their balustrades — exactly when
+they are the same length. A turning staircase turns inside its own footprint and takes no length.
+
 Two runs of one storey may stand **flush** in adjacent cells. Every run is built to fit inside one
 tile — an escalator's balustrades, glass and handrails, and a *narrow* staircase's treads and rails,
 all inside its own 1 m cell — so a pair simply sits side by side, each carrying its own balustrade,
@@ -479,8 +485,9 @@ would be swallowed by the floor at the foot of the run — the blocks its flight
 line, and where there is no block it
 hangs over its own well, open — a derived filling under it would stand in the run's own carved passage,
 a mass no block fits in and no 材质 brush can register on. The half-landing floor
-a turning staircase lays is the **stair's** own cell — the mesher skips it and the model draws the
-platform — so deleting the stair takes it back out with the piece, and a straight staircase lays none.
+a turning staircase lays is the **stair's** own — the mesher skips those cells and the model
+draws the platform — so deleting the stair takes them back out with the piece, and a straight
+staircase lays none.
 **移动** takes a staircase — and an escalator — apart and builds it again at the cell it is dropped on
 rather than translating it (`moveRebuilds` / `moveEquipment`), because a run's `from`/`to` and flights are
 world cells of the document's, and because the slab it climbs through is opened where it now stands: the

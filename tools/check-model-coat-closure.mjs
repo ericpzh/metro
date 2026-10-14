@@ -5,8 +5,8 @@ import {withPage,waitFor} from './browser-harness.mjs';
 const page=await withPage({url:'http://127.0.0.1:5175/?character=female&hair=bob&bag=1',profile:resolve(`.preview/.chrome-coat-${process.pid}`),debugPort:9397,windowSize:'1440,1000'});
 try{
  await waitFor(page.evaluate,'window.__modelReady===true',{tries:100,every:200});
- async function select(id,value){await page.evaluate(`(()=>{const e=document.querySelector('#${id}');e.value='${value}';e.dispatchEvent(new Event('change'))})()`);await waitFor(page.evaluate,'!window.__modelPreview.loading',{tries:100,every:200})}
- for(const character of ['female','male'])for(const bag of ['1','small','0']){
+ async function select(id,value){await page.evaluate(`(()=>{const e=document.querySelector('#${id}');e.value='${value}';e.dispatchEvent(new Event('change'))})()`);await waitFor(page.evaluate,'!window.__modelPreview.loading&&document.querySelector("#status").textContent===""',{tries:100,every:200})}
+ for(const character of ['female','male'])for(const bag of ['1','small','standard-87.5','standard-75','0']){
   await select('character',character);await select('bag',bag);await select('profile','2');
   if(bag!=='0')for(const view of ['front','side','back']){
    await page.evaluate(`(()=>{const p=window.__modelPreview;p.stand();p.setView('${view}');p.camera.zoom=2.7;p.camera.position.y=1.23;p.controls.target.y=1.23;p.camera.updateProjectionMatrix();p.controls.update();p.renderer.render(p.scene,p.camera)})()`);

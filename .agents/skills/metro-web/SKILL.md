@@ -65,11 +65,14 @@ English-copy change must preserve the Chinese catalogue and default captures.
 ## The sheets (`art/`, and the `tools/` that draw them)
 
 After character, size or crowd-material changes, use `metro-model` and run
-`npm run art:models`. It captures all sixteen adult templates and five eligible
-children with the live 70% game opacity, validates complete strides and source
+`npm run art:models`. It captures every eligible adult and child template
+(currently 50 adult / 19 child choices across 56 exports) with the live 70% game
+opacity, validates complete strides and source
 hashes, refreshes bilingual sheets 01/02/07/12/13 and renders previews at 8 s.
 The sheet figure helpers use stable 20/80 child/adult selection; child cards must
-have hair and no bag. Gait duration uses the captured stride after depth scaling.
+have hair and may carry only approved small backpacks or crossbody bags. Explicit
+catalogue age flags determine both pools, including child-only female crossbody
+templates. Gait duration uses the captured stride after depth scaling.
 Keep `.preview/model-art/` captures separate from other running previews and
 retain `capture-passengers` / `passenger-art-pipeline` coverage when changing formats.
 
@@ -117,8 +120,9 @@ the figures should remain foot-anchored and varied, with most shown walking.
 The same capture pass also writes `walking-index.json`: complete 24-frame strides
 for every catalogue entry in plan, elevation (two headings) and isometric (eight
 headings) views. The driver captures each camera/heading in a bounded batch;
-keep that batching when extending the pass so the CDP response does not exceed
-its message limit. Movers in sheets 01, 02, 12 and 13 must cycle these poses
+keep that batching for both stills and walks when extending the pass so the CDP
+response stays within its message and timeout limits. Movers in sheets 01, 02,
+12 and 13 must cycle these poses
 rather than slide a frozen human. `mover` selects the camera, heading and gait speed for
 human sprites; use `walkView: 'elevation'` for sections. Short loops fade out
 before resetting, so figures never walk backward to their starting point.

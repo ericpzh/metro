@@ -43,18 +43,29 @@ test('picking each fire cabinet copies its size and Esc restores the previous pi
   } finally { useStore.setState(before) }
 })
 
-test('picking short or long escalators copies length and Esc restores it', () => {
+test('picking a run copies its length and Esc restores it, for 扶梯 and 单跑楼梯 alike', () => {
   const before = useStore.getState()
   try {
-    for (const long of [false, true]) {
-      const m = escalatorModule({ x: 0, y: 0, z: -8 }, 2, 'down', 'picked-escalator', 2, long)
-      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, escalatorLong: !long })
+    const lengths = ['ultra-short', 'short', 'medium', 'long']
+    for (const length of lengths) {
+      const m = escalatorModule({ x: 0, y: 0, z: -8 }, 2, 'down', 'picked-escalator', 2, length)
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, rampLength: length === 'long' ? 'short' : 'long' })
       ctxFor(m.id).onDown(press([0, 0, -8]))
-      assert.equal(useStore.getState().escalatorLong, long)
+      assert.equal(useStore.getState().rampLength, length)
       assert.equal(useStore.getState().escalatorWide, true)
       assert.equal(useStore.getState().escalatorDir, 'down')
       useStore.getState().cancelPick()
-      assert.equal(useStore.getState().escalatorLong, !long)
+      assert.equal(useStore.getState().rampLength, length === 'long' ? 'short' : 'long')
+    }
+    // A 单跑楼梯's own length comes with it too, read from its flight's endpoints —
+    // the length a bank of 扶梯 and 楼梯 needs both pieces to share.
+    for (const length of lengths) {
+      const stair = createModule('stair-straight', 0, 0, 0, 'picked-stair', 0, 0.68, 'up', 'lane', [], undefined, { rampLength: length })
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [stair] }, rampLength: 'medium' })
+      ctxFor(stair.id).onDown(press([0, 0, 0]))
+      assert.equal(useStore.getState().rampLength, length)
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().rampLength, 'medium')
     }
   } finally {
     useStore.setState(before)
@@ -112,6 +123,7 @@ const MODULES = [
   },
   { id: 'e1', type: 'exit', x: 3, y: 1, z: 0, rot: 0, cfg: { name: 'A口', inRate: 600, open: true, covered: false, bays: 3 } },
   { id: 'e2', type: 'exit', x: 4, y: 1, z: 0, rot: 0, cfg: { name: 'B口', inRate: 600, open: true, covered: true, bays: 4, style: 'doorway' } },
+  { id: 'e3', type: 'exit', x: 5, y: 1, z: 0, rot: 0, cfg: { name: 'C口', inRate: 600, open: true, covered: true, bays: 1, style: 'virtual' } },
   {
     id: 'es1',
     type: 'escalator',
@@ -268,6 +280,9 @@ test('picking equipment arms its exact variant, copies its turn, and selects it'
 
   ctxFor('e2').onDown(press([4, 1, 0]))
   assert.equal(st().moduleType, 'exit-doorway-4', 'a four-way ground exit keeps its palette variant when picked')
+
+  ctxFor('e3').onDown(press([5, 1, 0]))
+  assert.equal(st().moduleType, 'exit-virtual', 'a 虚拟 pillar exit arms its own tile')
 
   ctxFor('es1').onDown(press([0, 2, 0]))
   assert.equal(st().moduleType, 'escalator')

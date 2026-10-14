@@ -826,6 +826,10 @@ export function disposeObject(root: THREE.Object3D): void {
   root.traverse((o) => {
     const mesh = o as THREE.Mesh
     if (!mesh.isMesh) return
+    // BatchedMesh.dispose owns its geometry AND matrix/indirection textures.
+    // Disposing the geometry separately would emit its release event twice.
+    const batch = mesh as THREE.BatchedMesh
+    if (batch.isBatchedMesh) { batch.dispose(); return }
     // A 广告牌 / 电视 lit face draws a quad `render/adArt.ts` owns and shares with
     // every screen on the same panel; freeing it here would leave the next rebuild
     // drawing a disposed geometry.

@@ -12,7 +12,9 @@
 
 import * as THREE from 'three'
 import { batchStaticModule } from '../../batchStaticModule.ts'
+import { EquipmentBatches } from '../../equipmentBatches.ts'
 import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
+import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange } from '../../moduleDependencies.ts'
 import { getLanguage } from '../../../sim/i18n.ts'
 import {
   buildModule,
@@ -43,7 +45,30 @@ export class ModuleSystem extends SceneSystem {
     this.builtData = data
     return true
   }
+
+  hasSameMetadata(data: StationData): boolean {
+    return !!this.builtData && this.builtLanguage === getLanguage() && sameModuleMetadata(this.builtData, data)
+  }
+
+  /**
+   * The one 指示牌 whose boards changed since the last build, or null — the
+   * preview path a sign edit takes (`signBoardsOnlyChange`). Only a previous
+   * build in the same language counts: translated plates are rebuilt whole.
+   */
+  signBoardsOnlyChanged(data: StationData): string | null {
+    if (!this.builtData || this.builtLanguage !== getLanguage()) return null
+    return signBoardsOnlyChange(this.builtData, data)
+  }
   moduleMeshes: THREE.Group = new THREE.Group()
+  readonly batches = new EquipmentBatches()
+  syncBatches(): void {
+    // Immutable module builds replace affected roots; view changes dress them.
+    // A cell-only edit with identical roots/slice need not walk or copy them again.
+    const view = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}`
+    const roots = this.moduleMeshes.children.filter(g => typeof g.userData.moduleId === 'string')
+      .map(g => `${g.uuid}:${g.visible}:${g.position.toArray()}:${g.rotation.toArray()}:${g.scale.toArray()}:${g.userData.levelZs}:${g.userData.groundBand}`).join('|')
+    this.batches.sync(this.moduleMeshes, `${view}|${roots}`)
+  }
   /** The selected module's id and its highlight box, kept across a rebuild. */
   private selectedModuleId: string | null = null
   private selectionHelper: THREE.Box3Helper | null = null
@@ -66,15 +91,26 @@ export class ModuleSystem extends SceneSystem {
   constructor(ctx: SceneContext) {
     super(ctx)
     this.ctx.scene.add(this.moduleMeshes)
+    this.ctx.scene.add(this.batches.root)
   }
 
   /**
    * Build every placed module through the model factory (§3 item 6). Modules are
    * no longer unit cubes: `models.ts` gives each one a silhouette from the
    * reference art, and the camera sees steel, glass, enamel and screens.
+   *
+   * `keepIds` overrides the dependency calculation: the named groups survive as
+   * they stand, and only the rest is rebuilt. The sign-preview fast path uses it
+   * to rebuild one board's model while retaining everything else.
    */
-  buildModules(data: StationData, _trackCells: Set<number>): void {
-    this.clearModules(data)
+  buildModules(data: StationData, _trackCells: Set<number>, reuse = false, keepIds?: Set<string>): void {
+    const retained = keepIds ?? (reuse && this.builtData && this.builtLanguage === getLanguage()
+      ? retainedModuleIds(this.builtData, data) : new Set<string>())
+    const kept = new Map(this.moduleMeshes.children.filter(g => retained.has(g.userData.moduleId)).map(g => [g.userData.moduleId as string, g]))
+    const liftRigs = new Map(this.lifts.liftRigs.map(r => [r.group, r]))
+    const gateWings = new Map(this.crowd.gateWings.map(r => [r.root, r]))
+    const tvScreens = new Map(this.plates.tvScreens.map(r => [r.moduleId, r]))
+    this.clearModules(data, new Set(kept.values()))
     // The plates belong to the module groups just dropped, so they go with them —
     // otherwise every edit would leak one texture per 电视 or 指示牌.
     const trackCells = trackBedKeys(data.cells, data.modules)
@@ -95,10 +131,15 @@ export class ModuleSystem extends SceneSystem {
     this.trains.psdGroups = []
     this.plates.adScreens = []
     for (const mod of data.modules) {
-      const group = buildModule(mod, ctx)
+      const ownedStart = this.ctx.ownedMats.length
+      const group = kept.get(mod.id) ?? buildModule(mod, ctx)
       if (!group) continue
-      batchStaticModule(group, mod.type)
+      if (!kept.has(mod.id)) {
+        batchStaticModule(group, mod.type)
+        group.userData.ownedMaterials = this.ctx.ownedMats.slice(ownedStart)
+      }
       group.userData.moduleId = mod.id
+      group.userData.moduleType = mod.type
       group.userData.roof = mod.type === 'roof'
       group.userData.levelZs = moduleLevels(mod, this.ctx.levelBase)
       const ground = this.ctx.groundOf.get(`${mod.x},${mod.y}`)
@@ -119,7 +160,7 @@ export class ModuleSystem extends SceneSystem {
         const cabin = group.userData.liftCabin as THREE.Object3D | undefined
         if (cabin) {
           const originZ = mod.from.z + 1
-          this.lifts.liftRigs.push({ key: `${mod.x},${mod.y},${mod.from.z}`, group, cabin, originZ, baseFrom: originZ, baseTo: originZ, doorFrom: 0, doorTo: 0, have: false })
+          this.lifts.liftRigs.push(liftRigs.get(group) ?? { key: `${mod.x},${mod.y},${mod.from.z}`, group, cabin, originZ, baseFrom: originZ, baseTo: originZ, doorFrom: 0, doorTo: 0, have: false })
         }
         group.traverse((o) => {
           const mesh = o as THREE.Mesh
@@ -139,7 +180,7 @@ export class ModuleSystem extends SceneSystem {
         if (mod.type === 'tv' && screen) {
           // The plate is the station information and never changes; only the
           // window (the content the network feed plays in) cycles.
-          this.plates.tvScreens.push({
+          this.plates.tvScreens.push(tvScreens.get(mod.id) ?? {
             screen,
             moduleId: mod.id,
             poster: String(screen.userData.adPoster ?? ''),
@@ -152,7 +193,7 @@ export class ModuleSystem extends SceneSystem {
           // The leaf's length runs along local x, so it blocks local y; a 90°
           // rotation swaps the world crossing axis to x.
           const axisY = (mod.rot ?? 0) % 2 === 0
-          this.crowd.gateWings.push({ root: group, x: mod.x + 0.5, y: mod.y + 0.5, z: mod.z + 1, axisY, pending: 0, hold: 0, open: 0, target: 0 })
+          this.crowd.gateWings.push(gateWings.get(group) ?? { root: group, x: mod.x + 0.5, y: mod.y + 0.5, z: mod.z + 1, axisY, pending: 0, hold: 0, open: 0, target: 0 })
         }
       }
       const r = blobRadius(mod.type)
@@ -201,7 +242,8 @@ export class ModuleSystem extends SceneSystem {
    * is the allocation, not the pixels.) Called with no document (scene teardown),
    * every plate goes.
    */
-  clearModules(data?: StationData): void {
+  clearModules(data?: StationData, kept = new Set<THREE.Object3D>()): void {
+    if (!data) this.batches.clear()
     this.builtData = null
     this.ghost.clearFencePreview()
     if (data) {
@@ -221,7 +263,10 @@ export class ModuleSystem extends SceneSystem {
     // of their own, so keeping them — which is what `disposeObject` does with every
     // other material — would hold the pixels and the GL texture for the rest of the
     // session.
+    const keptMaterials = new Set<THREE.Material>()
+    for (const group of kept) for (const material of (group.userData.ownedMaterials ?? []) as THREE.Material[]) keptMaterials.add(material)
     for (const m of this.ctx.ownedMats) {
+      if (keptMaterials.has(m)) continue
       const map = (m as THREE.MeshBasicMaterial).map
       // ...unless the canvas is a **plate**, which outlives the mesh it is printed
       // on: a 电视's lit face wraps the station plate `PlateSystem` retains across
@@ -230,8 +275,9 @@ export class ModuleSystem extends SceneSystem {
       if (map && !this.plates.ownsTexture(map)) map.dispose()
       m.dispose()
     }
-    this.ctx.ownedMats = []
+    this.ctx.ownedMats = this.ctx.ownedMats.filter(m => keptMaterials.has(m))
     for (const child of [...this.moduleMeshes.children]) {
+      if (kept.has(child)) continue
       disposeObject(child)
       this.moduleMeshes.remove(child)
     }

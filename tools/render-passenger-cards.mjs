@@ -24,8 +24,13 @@ try {
     writeFileSync(join(out, file), Buffer.from(png.split(',')[1], 'base64'));
     return { ...item, file };
   });
-  const images = await session.evaluate("[...window.__passengerCards.capturePassengers(),...window.__passengerCards.capturePassengers({age:'child'})]");
-  const index = save(images);
+  // Still captures grow with both age pools too. Returning the complete library
+  // in one call can exceed the browser timeout before walking captures begin.
+  const index = [];
+  for (const age of ['adult','child']) for (const cycleVariants of batches) {
+    index.push(...save(await session.evaluate(`window.__passengerCards.capturePassengers(${JSON.stringify({age,cycleVariants})})`)));
+    console.log(`still capture: ${age}, variants ${cycleVariants.join(',')}`);
+  }
   writeFileSync(join(out, 'index.json'), JSON.stringify(index, null, 2));
   // Keep each CDP response bounded: returning every direction at once can exceed
   // the debugging connection's message limit and leave a capture waiting forever.

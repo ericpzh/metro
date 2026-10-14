@@ -281,9 +281,46 @@ test('doorway exits accept supported floors at any nonnegative height and remain
     assert.equal(preview.refused.get(below.id), 'exit-below-ground')
   }
   for (const style of ['covered', 'uncovered']) {
+    for (const z of [0, 1, 2, 3]) {
+      const m = createModule(`exit-${style}-1`, 0, 0, z, 'exit')
+      const footprint = moduleFootprint(m).map(([x, y]) => ({ x, y, z, fill: 'solid' }))
+      assert.equal(equipmentReason(footprint, [], m, true), '', `exit at z=${z} should be placeable`)
+    }
     const m = createModule(`exit-${style}-1`, 0, 0, 4, 'exit')
     assert.equal(equipmentReason([], [], m, true), 'exit-on-slab')
   }
+})
+
+test('虚拟 exits are 1x1 surface pillars: refused below ground, a graph node at their own cell', () => {
+  // The 虚拟 exit reuses the 导向柱 reservation and needs a floor like one, but
+  // stays an exit: the graph serves its own cell and it carves no pit.
+  for (let rot = 0; rot < 4; rot++) {
+    const m = createModule('exit-virtual', 0, 0, 0, 'exit', rot)
+    const bounds = moduleEnvelope(m)
+    assert.deepEqual([bounds.x1 - bounds.x0, bounds.y1 - bounds.y0, bounds.z1 - bounds.z0], [1, 1, 4])
+    assert.deepEqual(exitWallPlanes(m), [])
+    assert.equal(exitFloorAt([m], 0, 0, 0), false)
+    assert.equal(exitRunSnap([m], 0, 0, 0), null)
+    const graph = buildGraph({ ...ctx.data, modules: [m] })
+    assert.equal(graph.exits.length, 1)
+    assert.equal(graph.exits[0].node, graph.nodeIndex.get(exitDoorCell(m).join(',')))
+    assert.deepEqual(exitDoorCell(m), [0, 0, 0])
+  }
+  const raised = createModule('exit-virtual', 0, 0, 4, 'exit')
+  const cells = [{ x: 0, y: 0, z: 4, fill: 'solid' }]
+  assert.equal(equipmentReason(cells, [], raised, true), '')
+  const preview = checkModulePlacements({ cells, modules: [] }, [{ id: raised.id, module: raised, layer: true }])
+  assert.deepEqual(preview.accepted, [raised.id], 'preview and release agree on a supported floor')
+  const graph = buildGraph({ ...ctx.data, cells, modules: [raised] })
+  assert.equal(graph.exits.length, 1, 'a raised pillar is still a graph exit at its own cell')
+  const loaded = parse(serialize({ ...toState(emptyStation()), modules: [raised] }))
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.state.modules[0].cfg.style, 'virtual', 'the style survives save/load')
+  const below = createModule('exit-virtual', 0, 0, -1, 'exit')
+  const underground = [{ x: 0, y: 0, z: -1, fill: 'solid' }]
+  assert.equal(equipmentReason(underground, [], below, true), 'outdoor-below-ground')
+  const refused = checkModulePlacements({ cells: underground, modules: [] }, [{ id: below.id, module: below, layer: true }])
+  assert.equal(refused.refused.get(below.id), 'outdoor-below-ground')
 })
 
 test('bridge piers are thick, centred, spaced eight metres, saved once and removed with the bridge', () => {

@@ -15,6 +15,7 @@ import {
   isCalligraphyStyle,
 } from '../../sim/calligraphy.ts';
 import { escalatorModule, escalatorLandings, type EscalatorDir } from '../../sim/escalators.ts';
+import { RAMP_LENGTH_DEFAULT, type RampLength } from '../../sim/rampLengths.ts';
 import { exitFloorAt, exitFootprintCells } from '../../sim/exits.ts';
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../../sim/glassPanels.ts';
 import { DEFAULT_DOOR_VARIANT, doorSpec } from '../../sim/doors.ts';
@@ -41,8 +42,9 @@ import { cellKey, cloneCell } from './Cells.ts';
 import type { StationState } from './State.ts';
 
 /**
- * A placed escalator is a fixed one-storey piece, the same footprint as a
- * straight stair: it rises `ESCALATOR_RUN` cells along the placement rotation.
+ * A placed escalator is a fixed run, the same footprint as a straight stair: it
+ * climbs its `length` — 超短 2 m over 3 m through 长 8 m over 12 m
+ * (`sim/rampLengths.ts`), 中 by default — along the placement rotation.
  * `dir` chooses whether it carries people up (from the base to the top) or down
  * (from the top to the base) — the run itself always climbs from the cell it is
  * dropped on. The piece itself lives in `sim/escalators.ts`, so the builder and
@@ -79,7 +81,9 @@ function stationNameOf(source: SignLineInput): string {
  * them. Returns null for a type the placement UI cannot create yet.
  *
  * A stair or escalator is a fixed-length piece: its base is the cell, and it
- * climbs one storey `STAIR_RUN` cells along the placement rotation.
+ * climbs `settings.rampLength`'s run and rise along the placement rotation
+ * (`sim/rampLengths.ts`; 中 — one storey — when omitted, which is what every
+ * caller that does not choose one wants).
  *
  * `lines` and `sign` are only read by a 指示牌. A fresh board is composed from the
  * station's own lines (`defaultSignLayout`) so the ghost a player hovers already
@@ -89,6 +93,13 @@ function stationNameOf(source: SignLineInput): string {
  * 指示牌 placed without a `sign` still gets a readable default front — and, as ever,
  * an empty back.
  */
+export interface ModuleBuildSettings {
+  /** 玻璃板 only: the storeys of curtain the board leaves (2 / 3 / 4). */
+  curtainHeight?: 2 | 3 | 4
+  /** A straight 扶梯 or 单跑楼梯: which of the four run lengths it is built at. */
+  rampLength?: RampLength
+}
+
 export function createModule(
   type: string,
   x: number,
@@ -101,8 +112,10 @@ export function createModule(
   door: GateDoor = 'lane',
   lines: SignLineInput = [],
   sign?: SignBoardsDraft,
-  curtainHeight: 2 | 3 | 4 = 4,
+  settings: ModuleBuildSettings = {},
 ): Module | null {
+  const curtainHeight = settings.curtainHeight ?? 4
+  const rampLength = settings.rampLength ?? RAMP_LENGTH_DEFAULT
   switch (type) {
     case 'pillar':
     case 'pillar-slim':
@@ -357,6 +370,7 @@ export function createModule(
     case 'exit-covered-3':
     case 'exit-uncovered-1':
     case 'exit-uncovered-2':
+    case 'exit-virtual':
     case 'exit-doorway-1':
     case 'exit-doorway-2':
     case 'exit-doorway-3':
@@ -365,21 +379,22 @@ export function createModule(
       // The palette id names the variant: `exit` (or -covered-) is the 有盖
       // head-house and -uncovered- is the open 无盖 railing exit; the trailing
       // digit is the bay count (单向 / 双向 / 三向). A bare `exit` (an old caller
-      // or save) is the reference covered two-bay piece.
+      // or save) is the reference covered two-bay piece. `exit-virtual` is the
+      // 虚拟 1×1 surface exit: no head-house, drawn by the 导向柱 model.
       const parts = type.split('-');
       const covered = parts[1] !== 'uncovered';
       const n = Number(parts[2]);
-      const bays: ExitBays = n === 1 || n === 3 || n === 4 ? n : 2;
+      const bays: ExitBays = parts[1] === 'virtual' ? 1 : n === 1 || n === 3 || n === 4 ? n : 2;
       // The placeholder name is the fallback: the placement caller swaps in the
       // next free A ~ Z letter (`nextExitName`), so a fresh exit reads like real
       // signage. A save with no name, or all 26 letters used, keeps it.
-      return { id, type: 'exit', x, y, z, rot, cfg: { name: msg('unnamed_exit'), inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : {}) } };
+      return { id, type: 'exit', x, y, z, rot, cfg: { name: msg('unnamed_exit'), inRate: 900, open: true, covered, bays, ...(parts[1] === 'doorway' ? { style: 'doorway' as const } : parts[1] === 'virtual' ? { style: 'virtual' as const } : {}) } };
     }
     case 'escalator':
       // The one shared piece: the run always climbs from the dropped cell;
       // `dir` only orders from/to, which is what the sim reads as the one-way
-      // travel and the label.
-      return escalatorModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1);
+      // travel and the label. `rampLength` is the player's length choice.
+      return escalatorModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1, rampLength);
     case 'lift':
       // An elevator: one storey up from the dropped cell. The player grows the
       // shaft a storey at a time (`extendLift`), so a fresh piece is always two
@@ -394,7 +409,7 @@ export function createModule(
     }
     case 'stair': {
       const style = 'straight' as StairStyle;
-      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW);
+      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW, rampLength);
       return {
         id,
         type: 'stair',
@@ -419,8 +434,10 @@ export function createModule(
       // The **size** lays the flights (a switchback's two runs stand `stairLanes` cells
       // apart); the piece is then built at the width that size means — a 双跑楼梯's runs
       // are block-wide, so its two flush runs fill whole blocks (`stairBuildWidth`).
+      // `rampLength` is read by the single-run (`straight`) shape alone: a turning stair
+      // is the fixed footprint the turn is drawn at and ignores it.
       const size = width ?? STAIR_WIDTH_NARROW;
-      const flights = stairFlightsFor({ x, y, z }, rot, style, size);
+      const flights = stairFlightsFor({ x, y, z }, rot, style, size, rampLength);
       return {
         id,
         type: 'stair',
@@ -757,6 +774,17 @@ export function nextModuleId(modules: readonly Module[], type: string): string {
  * letters are taken the placeholder comes back.
  */
 export function nextExitName(modules: readonly Module[]): string {
+  const letter = nextExitLetter(modules);
+  return letter === null ? msg('unnamed_exit') : msg('exit_value', letter);
+}
+
+/**
+ * The bare first free letter A ~ Z, or `null` once all 26 are taken. The 虚拟
+ * exit names itself with the letter alone (`C`, not `C口`); every other exit
+ * wraps it in `exit_value` via `nextExitName`. Letter-claiming is shared, so a
+ * virtual pillar and a head-house never take the same letter.
+ */
+export function nextExitLetter(modules: readonly Module[]): string | null {
   const used = new Set<string>();
   for (const m of modules) {
     if (m.type !== 'exit') continue;
@@ -765,9 +793,9 @@ export function nextExitName(modules: readonly Module[]): string {
   }
   for (let i = 0; i < 26; i++) {
     const letter = String.fromCharCode(65 + i);
-    if (!used.has(letter)) return msg('exit_value', letter);
+    if (!used.has(letter)) return letter;
   }
-  return msg('unnamed_exit');
+  return null;
 }
 
 /**

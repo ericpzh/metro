@@ -1,6 +1,6 @@
 ---
 name: metro-model
-description: Work on the metro repository model/ character library, reviewed male/female hair and backpack variants, silhouette and strap cleanup, walking clips, GLB exports, and shared game crowd atlas. Use for model/ or tools/bake-approved-passenger.mjs changes. Route game renderer/simulation work through metro-game and test work through metro-game-test.
+description: Work on the metro repository model/ character library, reviewed hair and bag variants, silhouette and strap cleanup, walking clips, GLB exports, and shared game crowd atlas. Use for model/ or tools/bake-approved-passenger.mjs changes. Route game renderer/simulation work through metro-game and test work through metro-game-test.
 ---
 
 # Metro model library
@@ -11,18 +11,29 @@ Work from the metro root. Read `model/README.md` and
 
 ## Ownership and contracts
 
-- `model/src/characters/library.js` is the catalogue: six male original/short/bald
-  variants with/without a bag, female bob/shoulder with/without a bag, and female
-  long hair without a bag, plus five small-backpack variants for male
-  original/short/bald and female bob/shoulder. Viewer and bake share all sixteen
-  entries. Adults choose each entry equally; children choose equally among the
-  five bagless, non-bald templates. Do not select sex, hair and bag hierarchically.
+- `model/src/characters/library.js` is the catalogue: original/short/bald male
+  and bob/shoulder/long female templates, bagless/full/small backpacks, 75% and
+  87.5% standard backpacks, and left/right shoulder, crossbody and purse variants.
+  Viewer and bake share the complete catalogue (currently 56 entries).
+  Explicit `adultEligible` / `childEligible` flags own the pools (currently 50 / 19):
+  female crossbody templates are child-only, and bald models are never children.
+  Approved small/crossbody bags can be child templates. Choose each eligible entry
+  equally; do not select sex, hair and bag hierarchically or freeze catalogue counts.
   Stable identity chooses appearance without consuming simulation RNG.
 - `female.js` builds both sexes; short/bald use the same smooth scalp with hair
   or skin colours. `shoulders.js` cleans neck, face, chest, coat and backpack.
   Preserve faceless, unlit flat-grey illustration and source provenance. GLB/viewer
   surfaces are opaque; the game crowd's shared material uses 70% opacity.
 - `small-backpack.js` owns the tapered crown, fuller base and shallow side profile.
+  Scaled standard packs keep both their body and connectors aligned throughout all
+  walks. `carried-bags.js` owns side bags and torso-following hip placement; test
+  each side standing and through slow/medium/fast gaits, not only whole-body bounds.
+  Side bag faces lie in Y/Z with thin X depth. Shoulder/crossbody bodies stay on
+  Spine between torso and arm; purses and handles follow Hand. `carry-pose.js`
+  applies the same carrying-arm clearance in the viewer, GLBs and atlas, including
+  standing frame zero. Fit continuous straps over the shoulder and smooth the
+  neckline bridge. A missed surface ray must preserve its anchor on a separate
+  vector: aliasing the input can collapse points to the origin and create debris.
   `waist-skinning.js` keeps trouser waists on Hips and lower coat panels on Spine;
   sleeve vertices retain arm movement. The lining stays recessed behind the hem.
 - `preview-appearance.js` owns age rules, percentage clamping, reset and random
@@ -32,6 +43,13 @@ Work from the metro root. Read `model/README.md` and
   X depth / Y width / Z height. Keep preview URLs and ranges valid when age changes.
 - `garment-lining.js` closes coats through moving arm poses on all models,
   including models with bags. Do not remove it based on a standing screenshot.
+- `front-boundaries.js` and `shoulders.js` own neckline/front-opening/shoulder
+  boundaries. Verify narrow residual slivers from front and oblique views, both
+  sexes, with/without every bag; preserve the source surface and moving-arm closure.
+  Keep connector ribbons torso-weighted and buried at the pack, avoiding added
+  floating tabs or exposed shoulder holes. Use `check-model-shoulder-line.mjs`
+  for the close-up boundary pass, `check-model-standard-backpacks.mjs` for scaled
+  pack depth/connector alignment, and existing coat/strap/hem checks for motion.
 - `backpack-connectors.js` creates continuous closed ribbons fitted to torso,
   not arms, with Spine weights. Preserve narrow widths, smooth curves, inward
   pack anchors and continuous lower returns; avoid separate tabs.
@@ -49,6 +67,10 @@ Work from the metro root. Read `model/README.md` and
   no per-agent GLB/skeleton. Deduplicate only complete animated vertices; preserve
   flat material boundaries, winding and all walk profiles. Wrap textures at 1024
   pixels and handle 16/32-bit indices. Never hand-edit generated GLBs/JSON.
+  Carry age/side/bag metadata through exports and bake. Game `passengerEligibility`
+  accepts older atlases without flags using historical pools; explicit flags always
+  take precedence. A model edit must regenerate the actual atlas before validating
+  new geometry/pools, not only update consumers/tests against an older export.
 
 ## Workflow and validation
 
@@ -63,6 +85,11 @@ Work from the metro root. Read `model/README.md` and
    Backpack shape/outline changes also use `check-model-small-backpack.mjs` and
    `check-model-backpack-outline.mjs`; hem or skinning changes use
    `check-model-hem.mjs` (add `--source` to check builders before export).
+   Side bag changes also run `check-model-carried-bags.mjs` for ownership,
+   arm clearance and short strap triangles across all gaits/seven views, and
+   `check-model-crossbody-straps.mjs` for visible shoulder coverage across every
+   eligible age. Bounds alone miss straps buried in the shoulder. Keep the
+   deterministic missed-ray regression in `model/test/carried-bags.test.mjs`.
 3. After approving a model change run `npm run bake:passengers`; it regenerates
    exports before baking. Never bake the raw reconstruction lacking reviewed fixes.
 4. Apply `metro-game` and `metro-game-test` for game integration. Run
@@ -98,7 +125,8 @@ size from captures. Never restore fixed variant counts or skip catalogue entries
 Keep `passenger-art-pipeline` and `capture-passengers` tests passing when extending
 the capture format or adding models. Captured stride includes the identity's depth
 scale. Static and moving sheet figures use stable 20/80 age selection and cannot
-use bagged or bald child cards. Inspect `.preview/sheets/` at frozen time 8 s.
+use age-ineligible or bald child cards. Approved small/crossbody child bags remain
+valid. Inspect `.preview/sheets/` at frozen time 8 s.
 
 The model-art command uses dedicated `.preview/model-art/` captures and free
 browser ports, so it can coexist with other local previews.

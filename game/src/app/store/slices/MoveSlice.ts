@@ -56,7 +56,7 @@ export interface MoveSlice {
    * and 信息 card's 移动 button do, and where the 确认 / 取消 that drop it live too. Not an
    * edit: nothing is committed and nothing leaves the document, the piece only stops
    * being drawn until it is put down. A run is rebuilt where it lands rather than
-   * translated (`moveEquipment`); a 电梯, a room, track and platform doors are refused
+   * translated (`moveEquipment`); a 电梯, a room, a bridge-owned pier, track and platform doors are refused
    * with a toast pointing at 删除; an exit head-house can move with its footprint.
    */
   liftModule: (moduleId: string) => void

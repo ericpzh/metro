@@ -17,7 +17,9 @@ export function closeCoatInterior(body){
   // inset front stays behind the shirt; its upper rim follows the neckline.
   for(let j=0;j<=segments;j++){
    const phi=j/segments*Math.PI*2;
-   const y=THREE.MathUtils.lerp(.835,1.303+.043*Math.sin(phi)**2,row/rows);
+   // Keep the lining rim inside the outer shoulder. Its former high side
+   // corners escaped the sleeve as tiny tabs in front and rear elevation.
+   const y=THREE.MathUtils.lerp(.835,1.350-.020*Math.sin(phi)**2,row/rows);
    const shoulder=THREE.MathUtils.smoothstep(y,1.26,1.345);
    const width=THREE.MathUtils.lerp(.217-.012*THREE.MathUtils.smoothstep(y,1.10,1.24),.145,shoulder);
    const rear=THREE.MathUtils.lerp(-.083+.008*THREE.MathUtils.smoothstep(y,1.10,1.24),-.020,shoulder);
@@ -46,7 +48,7 @@ export function closeCoatInterior(body){
  }
  const lining=new THREE.BufferGeometry();
  for(const [key,a] of Object.entries(attributes))lining.setAttribute(key,key==='skinIndex'?new THREE.Uint16BufferAttribute(liningArrays[key],a.itemSize):new THREE.Float32BufferAttribute(liningArrays[key],a.itemSize));
- lining.setIndex(liningIndices);cleanFrontBoundaries(lining,{interior:true});
+ lining.setIndex(liningIndices);cleanFrontBoundaries(lining);
  for(const key of Object.keys(arrays))for(const value of lining.attributes[key].array)arrays[key].push(value);
  for(const index of lining.index.array)indices.push(base+index);
  for(const [key,a] of Object.entries(attributes))geometry.setAttribute(key,key==='skinIndex'?new THREE.Uint16BufferAttribute(arrays[key],a.itemSize):new THREE.Float32BufferAttribute(arrays[key],a.itemSize));

@@ -459,3 +459,7 @@ export const CHECKOUT_HEIGHT = 1.42
 /** Decorative rail signal: preserve the reference proportions at one metre tall. */
 export const RAIL_SIGNAL_HEIGHT = 1
 export const RAIL_SIGNAL_SCALE = RAIL_SIGNAL_HEIGHT / 2.59
+/** Conservative crowd bounds for render culling; preserve room for the baked gait. */
+export const PASSENGER_CULL_HEIGHT_FRACTION = 0.85
+export const PASSENGER_CULL_RADIUS_SCALE = 1.25
+export const PASSENGER_INSTANCE_CAPACITY = 8000

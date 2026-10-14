@@ -1,6 +1,7 @@
 // Build model: floors — the 方块 patch and its automatic wall ring (§4.1).
 
 import { blockedCellsByLevel } from '../../sim/placement.ts';
+import { blockIndex } from '../../sim/blockIndex.ts';
 import { blockReason } from '../validation.ts';
 import { edgeCells, trackCells } from '../../sim/track.ts';
 import type { Cell, Module } from '../../sim/types.ts';
@@ -127,7 +128,7 @@ export function syncAutoWalls(state: StationState): StationState {
   const doors = platformDoorKeys(state.modules);
   // The cells a piece of equipment holds, by level: the ring may no more rise
   // through a 指示牌 or a 售票机 than the live ghost's may (`plannedAutoWalls`).
-  const occupiedAt = blockedCellsByLevel(state.modules);
+  const occupiedAt = blockIndex(state.cells, state.modules);
   // Group the tracked floor by level: walls only answer a same-level edge.
   const byLevel = new Map<number, Array<[number, number]>>();
   for (const c of state.cells) {
@@ -239,7 +240,7 @@ export function addFloor(state: StationState, cells: Array<[number, number, numb
   const have = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
   const at = new Map<string, number>();
   state.cells.forEach((c, i) => at.set(cellKey(c.x, c.y, c.z), i));
-  const level = blockedCellsByLevel(state.modules);
+  const level = blockIndex(state.cells, state.modules);
   const laid: Cell[] = [];
   for (const [x, y, z] of cells) {
     const k = cellKey(x, y, z);

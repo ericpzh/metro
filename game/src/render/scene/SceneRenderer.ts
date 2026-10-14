@@ -19,6 +19,7 @@ import { createLineMapArt } from '../lineMapArt.ts'
 import { loadPictograms } from '../pictograms.ts'
 import { addStationLights, applyStationRenderer, STATION_CLEAR } from './lightRig.ts'
 import type { Cell, CellShape, Face, Module, StationData } from '../../sim/types.ts'
+import { mountedSignBoards, signBoardsOf } from '../../sim/sign.ts'
 import { SceneContextData } from './systems/SceneSystem.ts'
 import type { SceneStats } from './systems/SceneSystem.ts'
 import { ChunkSystem } from './systems/ChunkSystem.ts'
@@ -90,10 +91,16 @@ export class SceneRenderer {
     void this.ctx.ads.load(() => {
       // The parameter is the legacy packed-key set `buildModules` no longer
       // reads (it derives its own from the data), so the station alone is passed.
-      if (!this.ctx.disposed && this.ctx.stationData) this.modules.buildModules(this.ctx.stationData, new Set())
+      if (!this.ctx.disposed && this.ctx.stationData) {
+        this.modules.buildModules(this.ctx.stationData, new Set())
+        this.ctx.levelKey = ''; this.level.applyLevel()
+      }
     })
     void this.ctx.lineMaps?.load(() => {
-      if (!this.ctx.disposed && this.ctx.stationData) this.modules.buildModules(this.ctx.stationData, new Set())
+      if (!this.ctx.disposed && this.ctx.stationData) {
+        this.modules.buildModules(this.ctx.stationData, new Set())
+        this.ctx.levelKey = ''; this.level.applyLevel()
+      }
     })
     // The 指示牌's pictograms are bitmap art, and a plate printed before the
     // images decode would print the marks off it and keep them off — the texture is
@@ -104,7 +111,10 @@ export class SceneRenderer {
       // The two boards drawn before the art existed: the scene's own fallback
       // plate, and every module group already standing.
       refreshSignFaceMaterial(this.ctx.modelMats)
-      if (this.ctx.stationData) this.modules.buildModules(this.ctx.stationData, new Set())
+      if (this.ctx.stationData) {
+        this.modules.buildModules(this.ctx.stationData, new Set())
+        this.ctx.levelKey = ''; this.level.applyLevel()
+      }
     })
 
     // Light rig: one key + ambient + a soft fill. §2.3 item 3 — and the same call the
@@ -193,6 +203,13 @@ export class SceneRenderer {
 
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.ctx.levelBase = data.levelBase ?? 0
+    // A sign-board preview changes no cell and no other module, so the chunks
+    // this meshes are identical: only that sign's own model and plates are
+    // rebuilt, and the chunk remesh plus the station-wide plate repaints are
+    // skipped. A delete lands here too — it only takes marks off one board —
+    // which is what keeps dragging a tile to the bin from freezing the modal.
+    // Anything else takes the full path below.
+    const signOnly = this.modules.signBoardsOnlyChanged(data)
     this.chunks.prepareStation(data, effective)
     // A painted colour the document no longer holds can go: each finish material
     // wraps a 128² canvas texture, and the colour picker hands out a new id per
@@ -204,12 +221,22 @@ export class SceneRenderer {
     // already hanging before the rebuild replaces them — and the two 装饰 pieces that
     // carry the station's own words, a 站名's name and a 线网图's network, are
     // reprinted for the same reason: a rename or a recoloured line reaches the wall.
-    if (!retainedModules) {
+    if (signOnly === null && !retainedModules && !this.modules.hasSameMetadata(data)) {
       this.plates.redrawSignPlates()
       this.plates.redrawDecorPlates()
     }
-    this.chunks.meshStation()
-    if (!retainedModules) this.modules.buildModules(data, trackCells)
+    if (signOnly === null) {
+      this.chunks.meshStation()
+    }
+    if (!retainedModules) {
+      this.modules.buildModules(
+        data,
+        trackCells,
+        true,
+        signOnly === null ? undefined : new Set(data.modules.map((m) => m.id).filter((id) => id !== signOnly)),
+      )
+    }
+    if (signOnly !== null) this.repaintSignPreview(data, signOnly)
     this.grid.buildGrid()
     this.cameraSys.setPickables([...this.chunks.chunkMeshes, ...this.chunks.wallPick.children, ...this.lifts.liftPickMeshes])
     this.level.applyLevel()
@@ -221,6 +248,19 @@ export class SceneRenderer {
     this.modules.refreshSelection()
     this.modules.refreshCollisionHighlight()
     this.modules.refreshHoverHighlight()
+  }
+
+  /**
+   * Repaint the one sign a boards-only change belongs to, after its model was
+   * rebuilt. The model carries the new panel size; this repaints the retained
+   * same-size plates with the new boards, so a reorder — or a delete that keeps
+   * the panel — mints no new canvas.
+   */
+  private repaintSignPreview(data: StationData, signId: string): void {
+    const mod = data.modules.find((m) => m.id === signId)
+    if (!mod || mod.type !== 'sign') return
+    const boards = mountedSignBoards(mod.cfg.mount, signBoardsOf(mod.cfg, data))
+    this.plates.repaintSignPreview(signId, boards, data.lines)
   }
 
   /**
@@ -601,12 +641,14 @@ export class SceneRenderer {
     this.cameraSys.panCamera(dt)
     this.cameraSys.panCameraVertical(dt)
     if (this.cameraSys.controls.enabled) this.cameraSys.controls.update()
-    this.crowd.renderAgents(now)
+    this.cameraSys.syncOrtho()
+    this.crowd.renderAgents(now, this.cameraSys.activeCamera())
     this.trains.updateTrains(now, dt)
     this.lifts.updateLifts(now)
     this.lifts.updateEscalators(dt * (1000 / this.ctx.stateIntervalMs))
     this.crowd.updateGates(dt * (1000 / this.ctx.stateIntervalMs))
     this.plates.updateAdScreens(now)
+    this.modules.batches.atlas.update()
     this.clocks.updateClocks(now)
     const cam = this.cameraSys.activeCamera()
     this.cameraSys.syncOrtho()

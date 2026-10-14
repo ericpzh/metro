@@ -56,9 +56,9 @@ globalThis.document = { createElement: () => stubCanvas() }
 const { buildModule, buildTrain, createModelMaterials, disposeObject, setDoors, setDoorsSides, setGateWing, rollEscalator } = await import('../src/render/models.ts')
 const { createModule } = await import('../src/build/model.ts')
 const { STOCK, doorCentres } = await import('../src/sim/stock.ts')
-const { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairRight } = await import('../src/sim/stairs.ts')
+const { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairFlights, stairRight, stairTurnCells } = await import('../src/sim/stairs.ts')
 const { LIFT_STEP, LIFT_RISE, liftModule } = await import('../src/sim/lifts.ts')
-const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT } = await import('../src/sim/constants.ts')
+const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, STAIR_RAIL_PROUD } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
 const { TrainSystem } = await import('../src/render/scene/systems/TrainSystem.ts')
@@ -399,20 +399,23 @@ const PIECES = [
   ['出入口 地面 双向', palette('exit-doorway-2'), 3, '4×0.072×0.78'],
   ['出入口 地面 三向', palette('exit-doorway-3'), 3, '5×0.072×0.78'],
   ['出入口 地面 四向', palette('exit-doorway-4'), 3, '6×0.072×0.78'],
+  ['出入口 虚拟', palette('exit-virtual'), 17, '0.16×0.589×4'],
   ['扶梯', palette('escalator'), 33, '1×7.533×5.563'],
   ['电梯', palette('lift'), 102, '2.04×2.04×7'],
   // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns
   // around them are read: a flight or half-landing a wall hugs loses that side's balustrade
   // (`stairWallSides` / `stairLandingWalls`). In the open, a 90° turn draws 90 meshes and a
   // 双跑楼梯 93 — the rows below are the same pieces with a room's wall against the turn.
+  // A turning leg is built block-wide (`stairBuildWidth`), so a 90° turn's box reaches the
+  // corner cell's own edge on the open side, just as a 双跑楼梯's does.
   //
   // The height is the stringer's and soffit's **square-cut corners**, not an overhang: both
   // beams are trimmed by `thickness · tan θ` so they end on the treads' own edge, inside the
   // cell the cut shaves. An overhang put the piece's lowest point 0.36 m deep in the landing's
   // block, which is deliberately never cut — the flight's foot sank into the floor it stands on.
   ['楼梯 单跑', palette('stair-straight'), 79, '1×6.25×5.323'],
-  ['楼梯 左转 90°', palette('stair-left90'), 100, '3.57×3.57×5.315'],
-  ['楼梯 右转 90°', palette('stair-right90'), 104, '3.57×3.57×5.315'],
+  ['楼梯 左转 90°', palette('stair-left90'), 100, '3.625×3.625×5.315'],
+  ['楼梯 右转 90°', palette('stair-right90'), 104, '3.625×3.625×5.315'],
   ['楼梯 左双跑', palette('stair-left180'), 104, '2×3.625×5.315'],
   ['楼梯 右双跑', palette('stair-right180'), 104, '2×3.625×5.315'],
   ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 33, '3×3×2.4'],
@@ -455,6 +458,53 @@ test('left, centre and right forward stairs render both flights and the middle l
           const landing = group.children[2]
           assert.ok(landing.children.some((part) => part.geometry?.type === 'BoxGeometry'),
             `${style}/${width}/${rot}: middle landing is visible`)
+        }
+      }
+    }
+  } finally {
+    ctx.data = previous
+  }
+})
+
+test('a 90° turn draws its quarter-landing as the square the sim lays', () => {
+  // The drawn platform and the walkable floor are one rectangle, so the model must not invent
+  // its own: it is the `lanes × lanes` **block square** the two perpendicular legs meet on
+  // (`stairTurnCells`) — whole cells along the departing leg's run, the leg's band across it
+  // and nothing more (the band's outer faces are its two balustrades, so the slab stops
+  // `STAIR_RAIL_PROUD` short on those sides). A platform drawn a stair's width across (what a
+  // quarter turn drew before) reaches half a block into the tiles beside it at 中 / 宽 and
+  // leaves the landing cells the builder lays uncovered.
+  const previous = ctx.data
+  try {
+    for (const [size, lanes] of [[STAIR_WIDTH_NARROW, 1], [STAIR_WIDTH_DOUBLE, 2], [STAIR_WIDTH_TRIPLE, 3]]) {
+      for (const style of ['left90', 'right90']) {
+        for (let rot = 0; rot < 4; rot++) {
+          const mod = createModule(`stair-${style}`, 0, 0, 0, `${style}-${size}-${rot}`, rot, size)
+          ctx.data = { ...previous, cells: [], modules: [mod] }
+          const group = buildModule(mod, ctx)
+          const where = `${style}/${size}/rot ${rot}`
+          assert.equal(group.children.length, 3, `${where}: two flights and one landing`)
+          // The block square, and the slab that must cover it: whole blocks along the run,
+          // the band across.
+          const cells = stairTurnCells(mod)
+          const alongX = stairFlights(mod)[1].to.x !== stairFlights(mod)[1].from.x
+          const span = (pick) => [Math.min(...cells.map(pick)), Math.max(...cells.map(pick)) + 1]
+          const [alongLo, alongHi] = span((c) => (alongX ? c.x : c.y))
+          const [acrossLo, acrossHi] = span((c) => (alongX ? c.y : c.x))
+          const [lo, hi] = [acrossLo + STAIR_RAIL_PROUD, acrossHi - STAIR_RAIL_PROUD]
+          const drawn = box(group.children[2])
+          const got = alongX ? [drawn.min.x, drawn.max.x, drawn.min.y, drawn.max.y] : [drawn.min.y, drawn.max.y, drawn.min.x, drawn.max.x]
+          const want = [alongLo, alongHi, lo, hi]
+          for (const [i, axis] of ['near', 'far', 'band near', 'band far'].entries()) {
+            assert.ok(Math.abs(got[i] - want[i]) < 1e-6, `${where}: the platform's ${axis} edge is drawn at ${got[i]}, the sim lays ${want[i]}`)
+          }
+          assert.equal(new Set(cells.map((c) => c.x)).size, lanes, `${where}: the landing is not ${lanes} blocks across`)
+          assert.equal(new Set(cells.map((c) => c.y)).size, lanes, `${where}: the landing is not ${lanes} blocks deep`)
+          // Both legs still draw their own treads and rail glazing around that platform.
+          for (const [index, flight] of group.children.slice(0, 2).entries()) {
+            assert.ok(flight.children.some((part) => part.geometry?.type === 'BoxGeometry'), `${where}: flight ${index} has visible treads`)
+            assert.ok(flight.children.some((part) => part.material === mats.glass), `${where}: flight ${index} has its rail glazing`)
+          }
         }
       }
     }

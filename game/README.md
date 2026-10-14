@@ -1,5 +1,32 @@
 # Station Designer — the game
 
+Local editing retains equipment whose model inputs did not change, including its
+owned materials and live gate/lift/TV rigs. Train shells batch stationary opaque
+parts while door leaves remain independent. Hidden and paused crowds avoid buffer
+uploads; drawn passengers are packed by storey and camera visibility.
+`draw-batching.test.mjs` pins mirrored winding, real train door/glass transforms,
+cross-module picking and local GPU reuse, live panel atlas UVs/repaints, moving-rig
+exclusions and legacy/explicit passenger age metadata compatibility.
+
+`batching-lifecycle.test.mjs` adds mapped-equipment UV/material integration,
+cache/disable/re-enable and disposal ownership, separate clipping/culling policies,
+hidden/deforming mesh exclusions, nested landing/cabin rigs, and real module/level
+hide/ghost/cut transitions. `draw-batching` also checks all stock classes and track
+rotations, exact triangle preservation, paused/hidden buffers and train eviction.
+Run root `npm run test:perf` for measured source coverage, `npm run check:render-batching`
+for production GLSL/WebGL checks, and `npm run check:perf-tools` for CPU/trace export.
+
+`performance-policy.test.mjs` pins indexed placement/refusals, preview invalidation,
+cosmetic worker edit classification, model dependencies and disposal, frame-coalesced
+pointer release, crowd uploads/culling/following and train shell bounds/door motion.
+A boards-only sign change rebuilds one sign's model and repaints its plates in place,
+skipping the chunk remesh and the station-wide repaints. See `PERFORMANCE.md` for
+benchmarks, CPU profiles, Chrome traces and GPU diagnostics.
+
+`passenger-library` also pins the 75% and 87.5% standard backpacks: all ten
+new variants stay visible and shallower than full size through every walk,
+with equal adult selection and unchanged child restrictions.
+
 Straight stairs fill exactly 1, 2 or 3 blocks, including their two outer railings.
 Existing saved catalogue sizes use the same fitted tread width and block offset
 for rendering, carving and collision; custom off-grid widths retain their dimensions.
@@ -765,7 +792,7 @@ both the 设备 and 装饰 folders render (those tiles + the one variant menu,
 `rail/menus/VariantMenu.tsx`, for every family — 楼梯 / 出入口 / 座椅 / 广告牌 / 玻璃板 / 门 / 站名 / 线网图 —
 where there used to be seven near-identical components), and **the action row is one component too**:
 `rail/actions/ActionRow.tsx` is the fold, the open rule and every action tile — 旋转 / 自定义 / 窄 中 宽 /
-上行-下行 / 有门-围栏 — and the 工具 folder mounts the very same row under its cut pieces
+超短 短 中 长 / 上行-下行 / 有门-围栏 — and the 工具 folder mounts the very same row under its cut pieces
 (`ToolsFolder`), so the 旋转 a 半墙 folds out **is** the component a 座椅's 旋转 comes from. The 旋转 tile is
 its own shared unit, `rail/shared/RotateTile.tsx`: the four places that turn something — the piece being
 placed, a cut piece's half or corner, a 轨道 run, the 剖切 surface — are one control on **R**, so they are
@@ -1165,14 +1192,27 @@ around the turn — the block mesher skips those cells, so a landing is never a 
 switchback),
 each placed as fixed-length equipment: its base sits on the hovered floor cell, the finished stair
 previews as a translucent ghost, and **R** turns the run; **Tab** cycles its **size**, which the action
-tile names **窄 / 中 / 宽** (`STAIR_WIDTH_LABELS`) — the player picks a size, never a metre. A straight
+tile names **窄 / 中 / 宽** (`STAIR_WIDTH_LABELS`) — the player picks a size, never a metre. A **单跑楼梯**
+(the 直跑楼梯 tile, and the bare `stair` a facility room builds) carries its **length** on the next tile
+along (**Shift+Tab**): the same four sizes a 扶梯 comes in (`sim/rampLengths.ts`), so a bank of the two
+stands flush and the seam between them fills. A turning stair is
+the fixed footprint its turn is drawn at and a 楼梯块 is a half-height block with no run at all, so neither
+grows a length tile. A straight
 flight's size is one, two or three **lanes**, each exactly one escalator band. 中 / 宽 straight stairs
 are single modules whose model shifts half a block per extra lane along `stairRight`, keeping the
 hovered lane at the side of the footprint instead of centring the wider run across it; narrow stairs
 and legacy off-grid widths retain their centre line. A 双跑楼梯's size is the **blocks** its flush pair
 takes across — 2 / 4 / 6, two per
 run — so its runs are built a block wide each and laid on the block grid (`stairSwitchbackRunWidth`,
-`stairFlightSlides`; see the switchback rule below).
+`stairFlightSlides`; see the switchback rule below). A **90° turn** is built the same way
+(`stairBuildWidth`): each leg fills the blocks it stands in, and because the legs are perpendicular
+each band moves half a block across **its own** run — the corner block is the first lane of both, and
+the two hands mirror about it. Its **quarter-landing is the square the two legs meet on**, one block
+of side per lane (2 × 2 at 中, 3 × 3 at 宽, the single corner cell at 窄), and the departing leg is laid
+on that square's far edge (`stairQuarterTurnOffset`) so its treads begin where the platform ends.
+Before that a 90° turn kept the tool's palette width (0.68 / 1.36 /
+2.04 m), so its band sat centred on its own walking line, 0.18 / 0.52 m into the tiles either side,
+with its balustrades short of the cell edge a wall could meet them on.
 Every side of a flight carries a stringer
 and a handrail, and each handrail **levels off at its landing and turns down into a newel post on the
 floor** — a quarter turn, so a stair rail wraps round and reaches the ground instead of stopping dead
@@ -1235,7 +1275,11 @@ three cells apart — walks across it too, and tightens as far as its own layout
 landing is built on is **one block deep** — the row the two runs turn on (`stairLandingShape`), not as
 deep as the runs are wide: that row is what the builder lays as walkable floor and what the crowd turns
 on, and a slab as deep as the stair is wide hangs over the rows either side of it, across the last steps
-of the run climbing into it. The
+of the run climbing into it. A **90° turn**'s legs are perpendicular, so the same one-block rule is
+read the other way round: its quarter-landing is the `lanes × lanes` **square** the two legs meet on
+(`stairQuarterTurnCells` / `stairQuarterTurnShape`) — as deep along the departing leg's run as it is
+wide across it — so every edge of the platform is a cell edge, no tread stands over it, and the drawn
+platform covers exactly the cells the builder lays. The
 **half-landing's own balustrade** follows the same rule as a flight's: the model wraps the platform's
 open edges, and drops the railing on an edge a wall hugs (`stairLandingWalls`, read at the landing's own
 storey) — the two long sides of a 双跑楼梯 in a stairwell lean on the well's walls, and a rail left there
@@ -1284,6 +1328,20 @@ continuous moving step band and balustrades only at the outer edges. Its two-blo
 floor supports, carved openings and picker width follow the same piece in every rotation and
 travel direction. Older saves without a width retain the narrow model.
 
+**A run comes in four lengths** (`sim/rampLengths.ts`), and the 扶梯 and the 单跑楼梯 are built at the
+same four: **超短** rises 2 m over a 3 m run, **短** 3 m over 5 m, **中** 4 m over 6 m — the one-storey
+piece the game shipped with — and **长** 8 m over 12 m. 中 and 长 *are* the old 短 / 长 renamed, and a
+piece's length is its **endpoints**, so an older save reads back as 中 or 长 with no flag to migrate
+(`escalatorLength` / `stairLengthOf`). The catalogue slope is 2:3 and every length wants it, but a run may
+not land between blocks: 3 m of climb wants 4.5 cells of run, and the rounding goes **up** to five, so the
+短 is a 31.0° escalator where four cells would have been 36.9° — past the 35° a real escalator is built at.
+Both pieces share **one** store setting, because two runs fill the seam between their balustrades exactly
+when they are the **same length** — which is what a bank of 扶梯 and 楼梯 is (`addRampJoins`). A 超短 / 短
+run lands **inside** a storey, on a
+half-level slab a player lays block by block; the 方块 tool builds at any height (`hit.place`), and the
+carve, the collision body and the drawn model all follow the endpoints, so a half-level run walks and
+draws exactly as the storey-high ones do.
+
 The metal shoulders are 18 cm wide and the glass sits 8 cm further inward on each side.
 Steps follow a smooth bend into flat landing tracks; their risers collapse and the chain
 wraps beneath the comb plates. The upper landing block is recessed beneath that track,
@@ -1296,10 +1354,11 @@ or deleting a neighbour updates the seam without duplicate surfaces.
 The infill wraps around both rounded rail returns to seal the ends down to the landings,
 and a row of metal hemispheres follows its centreline, seated on the actual cap slope.
 
-**Escalators are placed the same way.** The **扶梯** button drops a fixed one-storey escalator: its
-base sits on the hovered floor cell, it rises `ESCALATOR_RUN` cells along the placement rotation, and
-the finished run previews as a translucent ghost; **R** turns it and **Tab** flips its travel
-direction between up and down. The placement ghost carries a bright arrow over the run pointing the
+**Escalators are placed the same way.** The **扶梯** button drops a fixed run at the length the player has
+armed: its base sits on the hovered floor cell, it climbs that length's rise and run along the placement
+rotation, and the finished run previews as a translucent ghost; **R** turns it, **Tab** cycles its
+窄 / 宽 width, **Shift+Tab** its length, and its direction tile flips travel between up and down. The
+placement ghost carries a bright arrow over the run pointing the
 way it will carry people. Direction only orders `from`/`to` — the single one-way edge the sim reads —
 so an up and a down piece share one footprint, and two runs may stand flush in adjacent tiles (the
 tile rule above). Selecting a placed run exposes a vertical switch control beneath Move; it reverses
@@ -1407,15 +1466,15 @@ either could not see the cell at all or painted half a block away from the surfa
 That is now only ever a piece wider than a cell, and *reaching* is strict: a swept body or
 handrail has to cross the neighbouring block's near edge, because touching the face of a block is
 not being inside it (`REACH_EPS`). A narrow stair or an escalator sweeps 0.445 / 0.49 m, so nothing
-beside it is reached at all, and neither is anything beside a **双跑楼梯**: its run is built to the
-width of the blocks it fills (0.79 / 1.79 / 2.79 m), so its rails end **exactly** on their edges and
-the wall a player pushes the piece flush against stays whole, full block and full height — which is
-the point of that width (the handrail drops on the walled side instead). While a
+beside it is reached at all, and neither is anything beside a **双跑楼梯** or a **转角楼梯**: every
+turning leg is built to the width of the blocks it fills (0.79 / 1.79 / 2.79 m), so its rails end
+**exactly** on their edges and the wall a player pushes the piece flush against stays whole, full
+block and full height — which is the point of that width (the handrail drops on the walled side
+instead). While a
 **floor** is still thinned when a wide stair's 1.6 m body reaches into the
 column beside it — which closes the hole the carve used to leave at the top of the stair — and a wall
 a wide stair's handrail reaches is thinned the same way (both kinds draw identically now, so the
-derivation reports only the side), as is a 中 / 宽 90° turn's, which is one piece 0.18 / 0.52 m wider
-than its own cell. The 动物园
+derivation reports only the side). The 动物园
 demo save carries the same carved openings, so it no longer shows escalators punching through the
 concourse floor. An escalator is single-direction and carries **one passenger per step**
 at 0.5 m/s over a 0.4 m pitch — 75/min, and exactly one rider per step on the run.
@@ -2157,7 +2216,8 @@ approximated); neither needs WebGL.
   the offpeak one off-day — sampled with the entrance curve and zero when there is no line.
 * `placement.test.mjs` — `sim/placement.ts` gives every module a world footprint: two may not
   share space (a gate line in adjacent cells is fine, a module on the storey above is not a
-  conflict), a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
+  conflict), every stair shape requires ground only at its foot and may form its upper/turn
+  landings, a ramp corridor blocks flat equipment inside it, `moduleAt` finds a module from any
   cell it covers, `removeModule` bulldozes exactly one module and leaves its block, and the block
   brush refuses a cell reserved by a ramp opening or an exit's floor (`reservedOpening`) **or held by
   a piece of equipment** (`moduleBlockedCells`: a 闸机, a 售票机, a 座椅, a 房间's whole plan or a
@@ -2170,6 +2230,7 @@ approximated); neither needs WebGL.
   rotation. `autofaceWallMount` turns the panel to face that wall, so the rotation is derived rather
   than pressed. A fresh exit is named for the first free letter A ~ Z (`nextExitName`, so A口 / B口 / …),
   reusing a letter freed by a delete or rename, and falling back to 未命名口 once all 26 are taken.
+  A 虚拟 exit takes the same letter bare (`nextExitLetter`, so C, not C口).
   A wall-mounted ad may also stand in the face-adjacent cell when the pointer is on a wall itself
   (`wallMountStandCell`), so it can bolt to the station wall across the track.
   Escalator equipment collisions follow the sloped, per-tile body even against another run: the
@@ -2202,13 +2263,13 @@ approximated); neither needs WebGL.
 * `openings.test.mjs` — a placed ramp carves the slab it climbs through but keeps its landings as
   graph nodes, only the run's centreline cells are carved (a block the handrail merely grazes is
   kept), a wall beside a run survives untouched (the run sweeps less than half a cell, so nothing
-  beside it is reached), **a 双跑楼梯 pushed flush against a wall leaves it whole** — every size and
-  both hands, with the wall columns standing just outside the blocks the pair fills, kept through the
-  carve and never thinned, because a block-grid run's rails end exactly on the cell edges its runs
-  fill — a single piece wider than a cell keeps its side floor cells and has them
-  marked as half blocks while a wall it reaches is thinned the same way (an old 1.6 m stair, or a 中 /
-  宽 90° turn, which is one piece 0.18 / 0.52 m wider than its own cell; the narrow turn and a
-  straight wide stair, which is lanes now, reach nothing), and every cell the carve
+  beside it is reached), **a 双跑楼梯 pushed flush against a wall leaves it whole**, and so does a
+  **90° turn** on every side of the corner it turns through — every size and both hands, with the
+  wall columns standing just outside the blocks the legs fill, kept through the carve and never
+  thinned, because a block-grid run's rails end exactly on the cell edges its runs fill — a single
+  piece wider than a cell keeps its side floor cells and has them
+  marked as half blocks while a wall it reaches is thinned the same way (an old 1.6 m stair; a
+  straight wide stair, which is lanes now, reaches nothing), and every cell the carve
   opens reads as reserved so a hand-built block cannot cover it back up.
 * `slope-cut.test.mjs` — the ground under a run (§5.1 / §4.2): the 方块 tool lays a block under a
   楼梯 / 扶梯 and the carve leaves it (a block already there when the run arrives survives it), the cut
@@ -2252,7 +2313,14 @@ approximated); neither needs WebGL.
   block grid** — both bands move half a block (a whole block at three lanes) onto it, so the piece claims
   exactly **2 / 4 / 6 blocks** across at 窄 / 中 / 宽, growing along the run's right from the base cell and
   probed with a 围栏 in every column — while a piece saved at an older, off-grid width keeps its own band
-  centred on its walking line and closes the rest of its well, and its two
+  centred on its walking line and closes the rest of its well, a **90° turn's** two perpendicular legs
+  are built block-wide too (each band moving half a block across its *own* run, so the two hands mirror
+  about the corner block), its quarter-landing is the square the two legs meet on — as deep as it is
+  wide (`stairQuarterTurnOffset` blocks the departing leg starts in), with that leg on the square's far
+  edge so no tread, body box or walk stands over a landing cell, the whole square walked leg to leg and
+  bottom to top in both hands × all three sizes × all four rotations, the equipment tool's ghost carrying
+  the piece the factory builds, the builder laying and bulldozing every cell of it, and a legacy off-grid
+  turn keeping its single corner cell — and its two
   hands are mirror images that
   no rotation can swap, the size cycle runs 窄 → 中 → 宽 (one, two or three lanes; the *run* a 180 is built
   at is the blocks it fills less its two balustrades, and a width that is not a whole number of lanes
@@ -2312,14 +2380,26 @@ approximated); neither needs WebGL.
   width, so `exitRunOpenings` keeps the wellways of the runs that fixed span covers and the house
   never widens for a run outside it; the pad opens one wellway per run, exactly its own block (and
   wider only for a run wider than a block); the snap clamps the pointer into the bay group so runs can
-  only be dropped side by side; and 无盖 keeps the same barrier planes as 有盖.
+  only be dropped side by side; and 无盖 keeps the same barrier planes as 有盖. The 虚拟 exit is
+  the exception to the house: a 1×1 surface pillar drawn by the 导向柱 model, whose street node is
+  its own cell, with no walls, no laid floor and no run snap.
 * `ramp-join.test.mjs` — shared metal caps between flush escalators and stair-escalator pairs:
   rotations, travel directions, wide pieces, unique seam ownership and neighbour removal;
   closed rounded end shells and true hemispheres seated along the sloping centreline.
-* `escalator-length.test.mjs` — 长 rises 8 m over a 12 m run, versus 短's 4 m / 6 m.
-  Both widths and travel directions retain their footprint, carve intermediate floors,
-  connect the crowd graph, snap into exit bays, move and survive saving. The rail controls
-  are 旋转 / 上行-下行, then 窄-宽 / 短-长; previews and picking carry the length.
+  A bank fills its seam at every one of the four run lengths, and two pieces of **different**
+  lengths — different landings, slopes and rail returns — never share one.
+* `escalator-length.test.mjs` — the four run lengths: 超短 rises 2 m over 3 m, 短 3 m over 5 m,
+  中 4 m over 6 m and 长 8 m over 12 m, in both widths and travel directions, each its own ghost and
+  its own name on the tile (超短 / 短 / 中 / 长, cycled 超短 → 短 → 中 → 长). Every length carves
+  its own passage, keeps both landings on the crowd graph, snaps into exit bays (a 扶梯 at its own
+  descent, a 单跑楼梯 its own rise below the bay it lands in), moves and survives saving, and both
+  drawn models span the run they were built at. A placed run's length is read back from its endpoints,
+  so an old 4 m / 8 m save comes back as 中 / 长; a size the catalogue cannot spell reads as 中, and a
+  span it never built arms the nearest tile. A turning stair has no length of its own (it reports 中),
+  and the length redraws the **stair's** ghost as well as the 扶梯's. The tile is one store setting for
+  both pieces, so switching from the 扶梯 to the 单跑楼梯 that will stand beside it keeps the size and
+  the two runs built from it are the same span — which is what the seam between them needs; previews
+  and picking carry it.
 * `escalators.test.mjs` — the short escalator is a fixed one-storey piece: an up run travels from
   the dropped cell to the storey above, a down run keeps the same footprint entered from the top,
   the direction cycle flips up ↔ down, two runs may not share a footprint but the next bay over is
@@ -2370,6 +2450,11 @@ approximated); neither needs WebGL.
   player-built wall openings (the renderer then hangs a
   3D door on a 厕所 / 办公室 opening and leaves the 商店 front open) and a room with no wall left is
   removed; picking an info booth arms the info zone brush; the demo's shop and booth stay connected with live sim stops.
+* `column-delete.test.mjs` — G right-click clears the four courses above the floor (+1..+4),
+  including the ceiling, mixed wall/plain blocks and gaps. It checks negative heights,
+  all height bases, drag deduplication, neighbouring storeys and preserved street floors,
+  plus controller preview/release agreement, native context-menu drag preservation,
+  available erase cursors and one commit per click or drag.
 * `walls.test.mjs` — the 建造 tool's deliberate drag draws a walled floor patch: a 4 m auto wall
   ring rises on the patch's outer edge, overlapping or abutting two patches unions them (the buried
   wall goes, the new edge is walled) while a hand-placed wall survives, digging an edge moves the
@@ -2550,7 +2635,7 @@ approximated); neither needs WebGL.
   the 2 m window); a panel turns itself to a wall that backs it; two may not share a cell; the pieces
   round-trip the save and sweep by size. The model is where "outer frame only" becomes a number: five
   meshes at **every** unmodified size — a sill, a head, two end posts and one pane — against a 围栏 run of the same
-  length, which stands one frame up per cell. 玻璃幕墙 height choices stay floor-standing; all four orientations can occupy one tile while same-facing duplicates remain blocked, and a corner join removes the intersecting end post and shortens its rails. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here.
+  length, which stands one frame up per cell. 玻璃幕墙 height choices stay floor-standing; all four orientations can occupy one tile while same-facing duplicates remain blocked, and a corner join removes the intersecting end post and shortens its rails. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here. The **height tile** is pinned through the tool as well as the factory: the 2 / 3 / 4 storey setting has to reach the piece a click would build (a dropped field would silently build every curtain four storeys tall, and it would still be a valid curtain).
 * `door-panel.test.mjs` — the 门 (§5.7), the **free-standing doorway**: three material variants (不锈钢 / 木 / 玻璃) in the 门 family menu, plus a 窄 / 宽 action tile
   that also cycles with Tab, and a legacy value reading as the narrow stainless door; the factory centres a 双开 run on the hovered cell; the piece **stands on the
   floor** — it reserves its whole cells from the floor top to its head, wants no wall behind it
@@ -2631,7 +2716,7 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   `userData` handles the scene animates a piece by (`wing`, `doors`, `liftCabin`, `escalator`,
   `adScreen`, `wall`); the dimensions that are contracts with the sim (the 闸机's 1250 mm, a screen
   door drawn to the height the graph reserves — `PSD_FULL_HEIGHT` / `PSD_HALF_HEIGHT` — an exit one
-  block wider per bay, a stair climbing `STAIR_RISE` over `STAIR_RUN`, a 2 m run spanning two cells,
+  block wider per bay, a stair climbing `STAIR_RISE` over `STAIR_RUN`, a 90° turn's drawn platform being the block square the builder lays — whole cells along the departing leg, the band's rails `STAIR_RAIL_PROUD` inside on the other axis, in both hands and every size and rotation, so the model cannot draw a landing the sim does not walk — a 2 m run spanning two cells,
   the 零售 shell *being* the store room); the consist (`cars × carLength` of body, both ends cabs, one
   leaf per modelled door, white lamps leading); the four per-frame setters (`setGateWing` — whose
   hinge end never moves — `setDoors`, `setDoorsSides`, `rollEscalator`); the 扶梯's own **body under
@@ -2665,14 +2750,15 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
 * `move.test.mjs` — 移动 (§9.5, `sim/placement.ts` + `build/model/Equipment.ts` + `app/store.ts`), the
   `信息` card's action on the
   selected piece rather than a tool: it lifts whatever tool is active and leaves that tool alone; the
-  flat 设备 / 装饰 pieces, an 出入口 and the two runs (a 楼梯 and a 扶梯) are movable while a 电梯 / 房间 /
-  轨道 / 站台门 is refused; a
+  flat 设备 / 装饰 pieces, an 出入口, a free-standing 支柱 and the two runs (a 楼梯 and a 扶梯) are movable while a 电梯 / 房间 /
+  桥墩 (a bridge-owned pier, spaced by its bridge) / 轨道 / 站台门 is refused; a
   moved piece is the same piece (id, `cfg`, poster and boards all travel) and never collides with the
-  copy still standing at its origin; a drop needs floor under every cell it stands on (a 2 m 座椅 needs
+  copy still standing at its origin; a moved 支柱 is a plain translation (its size and height travel,
+  and the drop needs floor under the new cell); a drop needs floor under every cell it stands on (a 2 m 座椅 needs
   both, and a 扶梯 needs the slab its upper landing arrives on), refuses a track bed and an occupied cell,
   turns a 广告牌 to the wall that backs it (and lets it
   hang over the track where there is no floor in front of that wall), and requires a ceiling over a
-  指示牌 — which is the only thing it is asked for, since a hung piece is exempt from the ground; `replaceEquipment` swaps the piece in place keeping the list order; a **run** is re-laid instead: a moved 扶梯's `from`/`to` travel with it (and a turn swings the upper landing about the base, never the travel direction), a moved 楼梯 is the stair the factory would build at that cell and rotation for every shape and size (its flights, its width), a piece that was never on the block grid keeps the run it has, a turning stair's half-landing floor goes with it and the new one is laid, a moved 扶梯 carves its new opening while the one it left stays open as it does on a delete, and the whole move stays one commit that `Ctrl+Z` undoes (landing floor and all); and in the store a lift is
+  指示牌 — which is the only thing it is asked for, since a hung piece is exempt from the ground; `replaceEquipment` swaps the piece in place keeping the list order; a **run** is re-laid instead: a moved 扶梯's `from`/`to` travel with it (and a turn swings the upper landing about the base, never the travel direction), a moved 楼梯 is the stair the factory would build at that cell and rotation for every shape and size (its flights, its width), a piece that was never on the block grid keeps the run it has, a turning stair's half-landing floor goes with it and the new one is laid — every cell of a 90° turn's `lanes × lanes` square, so a 中 turn's four landing cells all travel — a moved 扶梯 carves its new opening while the one it left stays open as it does on a delete, and the whole move stays one commit that `Ctrl+Z` undoes (landing floor and all); and in the store a lift is
   not an edit (the piece stays in the document, nothing on the undo stack), `取消` puts it back with no
   commit, `确认` is one commit that `Ctrl+Z` undoes, a refused drop keeps the piece in the air and says
   why, a drop that changes nothing is not an edit while `R` + `确认` on the same cell is, and what lands
@@ -2686,12 +2772,17 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   The service-room R tile cycles the front face.
 * `builder-attributes.test.mjs` — module action tiles and R / Tab / Shift+Tab dispatch share
   one capability list, variants follow the width → length → height → direction → position → style
-  priority, and every width uses the shared width glyph.
+  priority, and every width uses the shared width glyph. The **run length** is on that list for the
+  扶梯 and for the 单跑楼梯 alone — the four sizes named 超短 / 短 / 中 / 长, cycled 超短 → 短 → 中 → 长
+  (Tab takes the stair's width, Shift+Tab its length) — and `isStraightStairType` answers for the
+  palette ids the rail arms exactly as for the module type each builds, so a turning stair and a
+  楼梯块 grow no length tile.
 * `tool-hover-preview.test.mjs` — 移动, 吸取 and 选择 tint the equipment under the pointer blue; 删除 uses the red bulldozer preview.
 * `pick-tool.test.mjs` — the 工具 folder's **吸取** (`app/tools/PickTool.ts`, `P`): clicking a placed
   piece arms the placement with its exact palette variant — a 2 m backed 座椅, a 六 format 广告牌, a
-  right-双跑 楼梯, a 木 双开 门, or either 桁架屋顶 style at its placed width — and copies its turn, 扶梯 direction and 闸机 door, selects the instance
-  and opens
+  right-双跑 楼梯, a 木 双开 门, or either 桁架屋顶 style at its placed width — and copies its turn, 扶梯
+  direction, 闸机 door and **run length** (a 扶梯's or a 单跑楼梯's own, read from its endpoints), selects
+  the instance and opens
   the owning folder; a legacy piece with no variant reads as the palette default it is drawn as; a
   rail run hands to 轨道, a walled room to 分区's own brush, a derived 站台门 only selects; and a bare
   face lifts its finish into the 材质 brush — a **半墙**'s inner face and a **三角**'s slope included,
@@ -2701,7 +2792,7 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   the next sign hung carries them) — and it arms the **tile of the mount it stands by**
   (`sign-ceiling` / `sign-wall`), so the palette and the piece agree — and **Esc** puts a whole pick back
   — tool, piece, turn, direction,
-  door, the 方块 tool's wall-face cycle and the boards — through the `pickDraft` the picker notes before
+  door, length, the 方块 tool's wall-face cycle and the boards — through the `pickDraft` the picker notes before
   it writes, with a pick that changed nothing noting nothing.
 * `line-edit.test.mjs` — the 线路 card's own actions (`app/store/slices/LineSlice.ts` +
   `StationSlice.ts`, `build/rail.ts`): `addLine` mints the next free id in the document's own numbering
@@ -2878,7 +2969,9 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   current and the next sign hung carries a copy, covering the full compose→place→print flow — and a
   **wall** 指示牌 keeps its mount through an edit and is never given a back (the wall is its second
   face), while a wall board hung as the current one drops the back that pair carries.
-  A rejected tenth arrow never enters the hover preview or shrinks its tiles.
+  A rejected tenth arrow never enters the hover preview or shrinks its tiles. A live
+  drag writes the bins locally and defers the scene redraw to a scheduled trailing
+  sync, and the drop syncs it once — and a fast pointer is evaluated once per frame.
 * `sign-model.test.mjs` — the 指示牌 board document path (`sim/sign.ts` `buildSign`): one lit
   face per composed board with a default-front/empty-back fallback, one vs two mounted faces,
   and the shared panel sized to the longer board. The two mounts are measured off the geometry: a
@@ -3162,7 +3255,9 @@ If the site's tab should point somewhere else — a preview URL, a different dom
 
 Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and two raised truss styles in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with an explicit backing wall, preview/release agreement and a graph node that exists), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Thin roof tiles place by click or rectangular drag, truss bays by click or a straight-line drag along their own crest axis, and both are painted through 材质.
 
-细支柱 and 粗支柱 each have one palette tile. Tab switches the section added by a click between 2 m（短） and 4 m（长）; clicking a pillar adds that selected length while retaining its width, position and finish, so 2 m → 4 m → 2 m becomes one continuous 8 m pillar. Existing pillar saves keep their heights.
+细支柱 and 粗支柱 each have one palette tile. Tab switches the section added by a click between 2 m（短） and 4 m（长）; clicking a pillar adds that selected length while retaining its width, position and finish, so 2 m → 4 m → 2 m becomes one continuous 8 m pillar. Existing pillar saves keep their heights. The extension snap reads the pillar's anchor cell, so a turning stair whose envelope spans the same cell never steals it whatever the document order; a refused extension highlights the pieces in the way and names them, and a turning stair reserves its flights but never its center platform at any size.
+
+`pillar-extension.test.mjs` pins the anchor-cell snap in both document orders, the nine slim offsets, stacked-pillar storey bands, the info-card lift (a free pillar comes up, a bridge-owned pier is refused), the flight-only hitbox across turning styles and widths, the stair-naming refusal for a shaft grown into the upper flight, and the hover/release highlight agreement.
 
 `roof-tool.test.mjs` verifies rectangular thin-roof previews, truss-bay placement and removal as a straight run along the crest axis (a sideways wander never staggers it, backwards and right-drag removal included) including rotated 8 m bays, collision refusal, and one undo step per drag. Each truss style has one tile; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover. Thin roofs use Tab or their action tile to choose 下 / 上: 下 occupies the cell's bottom 0.25 m and 上 its top 0.25 m, each touching the corresponding block boundary. A roof slab under the pointer supplies both the placement height and half first, followed by the hit block's outside face, then the active view height. `roof-tool.test.mjs` pins this priority and preview/release agreement; `overground.test.mjs` pins the rendered and collision bounds.
 
@@ -3236,7 +3331,7 @@ In English mode, station fields are labelled Primary name / Secondary name and s
 
 `sim-pause.test.mjs` pins the rest of the pause: an escalator's step band holds its phase while paused and rolls on from it on resume, a 闸机 leaf never starts its cycle (the crossing stays queued), paused train and screen doors hold mid-travel while the consist itself still glides to its latest snapshot, and the orchestrator forwards pause to the crowd, the lifts and the trains.
 
-Passengers use all sixteen reviewed grey, faceless model-library variants: male original/short/bald with and without a bag; female bob/shoulder with and without a bag; female long hair without a bag; five smaller tapered backpacks for male original/short/bald and female bob/shoulder hair. Adults choose equally from all sixteen variants; children reuse only bagless models with hair. A stable identity hash assigns 20% children and 80% adults without consuming the journey RNG. Each passenger varies independently from 80–120% in height; adults vary 90–110% in width and depth, while children vary 80–90% on both axes. Children start at 65% height and 70% width/depth before that variation. Ink tone and slow/medium/fast gait remain independent of the age-appropriate model choice. Arms swing and feet step according to distance travelled; waiting passengers settle into a standing pose. All models share one instanced draw, including the closed coats and fitted backpack straps from the reviewed exports. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
+Passengers use 56 reviewed grey, faceless model-library templates: male original/short/bald with and without a bag; female bob/shoulder with and without a bag; female long hair without a bag; five smaller tapered backpacks for male original/short/bald and female bob/shoulder hair. Adults choose equally from 50 templates and children from 19 templates with hair. Left/right shoulder bags are adult-only, adult crossbody bags male-only, and purses adult female-only. Children may carry small backpacks or crossbody bags; girls’ crossbody templates are child-only. A stable identity hash assigns 20% children and 80% adults without consuming the journey RNG. Each passenger varies independently from 80–120% in height; adults vary 90–110% in width and depth, while children vary 80–90% on both axes. Children start at 65% height and 70% width/depth before that variation. Ink tone and slow/medium/fast gait remain independent of the age-appropriate model choice. Arms swing and feet step according to distance travelled; waiting passengers settle into a standing pose. All models share one instanced draw, including the closed coats and fitted backpack straps from the reviewed exports. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
 
 The build palette, inspector and view cube each have an independent hide/show button with a short animation; their settings stay mounted while hidden. Reduced-motion preferences disable these transitions. Two-finger pinch on the viewport zooms both perspective and orthographic views. Single-finger taps select or place on release, so the first contact of a pinch cannot edit the station.
 
@@ -3264,7 +3359,7 @@ without changing the capacity-limited stair, escalator, lift or gate rules.
 左 / 中 / 右直跑楼梯 continue forward across a middle landing, with the upper run shifted across the landing for the left and right variants. `stairs.test.mjs` checks flight plans and passenger routes in both directions across all sizes and rotations; `module-build.test.mjs` checks their rendered treads, railing glass and landing.
 
 
-Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 16 variants, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
+Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 56 variants, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
 
 Walking now varies by stable slow/medium/fast profiles (§7.1's uniform 1.34 m/s
 is intentionally replaced). Nominal speeds are 0.9/1.15/1.4 m/s, scaled by body
@@ -3276,12 +3371,12 @@ against world movement, all three pose ranges, compaction, pause and resume.
 `passenger-art-pipeline.test.mjs` pins growing model catalogues, bounded capture batches, complete standing/stride coverage and rejection of stale builds or duplicate frames. `npm run art:models` refreshes the approved exports and game atlas, builds the game, captures all models, regenerates sheets 01/02/07/12/13 in both languages, checks gait playback, renders previews and builds/syncs the site.
 ## Small passenger backpacks
 
-The adult passenger library includes sixteen equally weighted variants. Five use a
+The adult passenger library includes 50 equally weighted variants. Five use a
 smaller tapered backpack, available on male original/short/bald and female
 bob/shoulder hair. `passenger-library` checks the smaller pack remains visible
 and shallower than the standard pack in standing and walking frames.
 
-`passenger-size.test.mjs` pins the 20% child / 80% adult population, separate height/depth/width ranges, child model restrictions, stable identity and body/shadow instance scales through reordering. Children reuse the existing bagless male original/short and female bob/shoulder/long models; no bald or backpack child models are selected. Fore/aft depth scales speed and stride together; vertical scale sets eye height and picking.
+`passenger-size.test.mjs` pins the 20% child / 80% adult population, separate height/depth/width ranges, child model restrictions, stable identity and body/shadow instance scales through reordering. Children reuse bagless, small-backpack and crossbody templates with hair; standard backpacks, shoulder bags, purses and bald child models are excluded. Fore/aft depth scales speed and stride together; vertical scale sets eye height and picking.
 
 With the game dev server at 5174, `node tools/check-game-passenger-size.mjs`
 captures a lineup of eight adults and two children in `.preview/passenger-size/`.
@@ -3292,8 +3387,8 @@ All game passenger variants render at 70% opacity through their shared material.
 `passenger-view` pins alpha blending and depth-write settings; the production GPU
 check verifies the live material and the slimmer 80–90% child width/depth ranges.
 
-The art capture includes all sixteen adult templates and the five eligible child
+The art capture includes all 50 adult templates and the 19 eligible child
 templates in every camera and complete stride. Physical captured stride includes
 depth scaling; static and moving sheet figures choose age with the game identity
-hash. `passenger-art-pipeline` rejects missing child frames and bagged/bald child
+hash. `passenger-art-pipeline` rejects missing child frames and ineligible child
 cards; the art browser check verifies child figures and changing SVG gait frames.

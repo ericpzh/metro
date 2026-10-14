@@ -7,6 +7,7 @@ import type { ModuleContext } from '../PieceBuilder.ts'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, exitRunOpenings, exitSpan } from '../../../sim/exits.ts'
 import { EXIT_BASE_HEIGHT } from './ExitLanding.ts'
 import { DoorwayExitModel } from './DoorwayExitModel.ts'
+import { GuidepostModel } from './StreetDecorModel.ts'
 import type { Module } from '../../../sim/types.ts'
 
 /**
@@ -317,6 +318,12 @@ export class ExitModel extends PieceBuilder {
   readonly kind = 'exit'
   build(mod: Extract<Module, { type: 'exit' }>): THREE.Group {
     if (mod.cfg.style === 'doorway') return new DoorwayExitModel(this.ctx).build(mod)
+    if (mod.cfg.style === 'virtual') {
+      // 虚拟 exit reuses the 导向柱 pillar: a 1×1 surface exit whose letter reads
+      // from its own exit name. The synthetic guidepost links back to this exit
+      // id so `guideLabels` resolves the same station + exit copy.
+      return new GuidepostModel(this.ctx).build({ ...mod, type: 'guidepost', cfg: { exitId: mod.id } })
+    }
     return placeLocal(buildExit(this.ctx, mod), mod)
   }
 }

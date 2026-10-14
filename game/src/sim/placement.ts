@@ -1,4 +1,5 @@
 import { msg } from './i18n.ts'
+import type { BlockIndex } from './blockIndex.ts'
 // Equipment footprints and collision, GAME-SPEC §5.
 //
 // Everything the builder drops is a module with a real plan footprint and a
@@ -459,6 +460,10 @@ function flatEnvelope(m: Module): ModuleBox | null {
       }
       return cellsAabb(trackCells(m), z0 + TRUSS_ROOF_BASE, z0 + (m.cfg.variant ? trussRoofTop(m.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS))
     case 'exit': {
+      if (m.cfg.style === 'virtual') {
+        // 虚拟 exit is a 1×1 导向柱 on the surface: same reservation as the pillar.
+        return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + 4 }
+      }
       if (m.cfg.style === 'doorway') {
         const { centre, half } = exitSpan(m)
         const cells: Array<[number, number, number]> = []
@@ -1196,13 +1201,14 @@ export function blockReason(
   x: number,
   y: number,
   z: number,
-  level?: (z: number) => Set<string>,
+  level?: ((z: number) => Set<string>) | BlockIndex,
 ): BlockCheck {
   const cell: [number, number, number] = [x, y, z]
-  if (reservedOpening(modules, x, y, z)) return { cell, ok: false, reason: 'opening', blockers: [] }
+  const index = level && 'opening' in level ? level : undefined
+  if (index ? index.opening(x, y, z) : reservedOpening(modules, x, y, z)) return { cell, ok: false, reason: 'opening', blockers: [] }
   const occupied = (level ?? blockedCellsByLevel(modules))(z)
   if (occupied.has(`${x},${y},${z}`)) return { cell, ok: false, reason: 'equipment', blockers: equipmentBlockingCell(modules, x, y, z) }
-  if (isTrackCell(cells, modules, x, y, z)) return { cell, ok: false, reason: 'track', blockers: [] }
+  if (index ? index.track.has(`${x},${y},${z}`) : isTrackCell(cells, modules, x, y, z)) return { cell, ok: false, reason: 'track', blockers: [] }
   return { cell, ok: true, reason: '', blockers: [] }
 }
 
@@ -1531,6 +1537,35 @@ export function moduleAt(
   return towards(theirs) > towards(mine) ? mate : found
 }
 
+/**
+ * The 支柱 standing on `(x, y)` under the pointer's own storey band, if any.
+ * Both the extension hover and the release ask this, so what the ghost grows is
+ * what the click grows.
+ *
+ * A pillar's own shaft is thin, but a turning stair's `rampEnvelope` spans the
+ * whole corner it turns through — so a generic `moduleAt` at the pillar's own
+ * cell finds the stair first whenever the stair is earlier in the document, and
+ * the extension snap never fires. The anchor cell is the pillar's own, so it
+ * decides before the envelope overlap does; the band test is `moduleAt`'s own,
+ * read off the pillar's drawn envelope.
+ */
+export function pillarAt(
+  modules: readonly Module[],
+  x: number,
+  y: number,
+  z: number,
+): Extract<Module, { type: 'pillar' }> | undefined {
+  const ceiling = LEVEL_STEPS.find((v) => v > z) ?? z + 4
+  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
+  return modules.find(
+    (m): m is Extract<Module, { type: 'pillar' }> => {
+      if (m.type !== 'pillar' || m.x !== x || m.y !== y) return false
+      const e = moduleEnvelope(m)
+      return !!e && boxesOverlap(e, cell)
+    },
+  )
+}
+
 /* -------------------------------------------------------- moving a piece */
 
 /**
@@ -1549,9 +1584,14 @@ export function moduleAt(
  *
  * The other structural pieces are refused, by the same rule that keeps the delete tool
  * from sweeping one (§9.5): a room owns the walls around it, a 轨道 / 站台门 is sized and
- * derived from its line, and a 电梯's landings are grown a storey at a time (`LIFT_EXTEND`
+ * derived from its line, a bridge-owned pier (`cfg.bridgeId`) is spaced by its bridge,
+ * and a 电梯's landings are grown a storey at a time (`LIFT_EXTEND`
  * never asks for floor), so no single verdict can say where a moved shaft lands. Those
  * are torn down and built again by hand.
+ *
+ * A free-standing 支柱 is the exception: it owns no document cells, carves nothing
+ * and derives nothing, so a 移动 is a plain translation (`movedModule`'s default
+ * branch) re-checked by `moveDropReason` at the drop.
  */
 const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'monitor', 'rail-signal',
@@ -1584,6 +1624,11 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'tv',
   'sign',
   'exit',
+  // A free-standing 支柱: no own cells, no carve, no derived geometry — a plain
+  // translation. A bridge-owned pier (`cfg.bridgeId`) stays put: it is spaced by
+  // its bridge (`syncBridgePillars`), so moving it would orphan the bay or fork
+  // the pier id.
+  'pillar',
   // The two runs: a 楼梯 (the 1 × 1 楼梯块 included) and a 扶梯. Both are re-laid through
   // their own tear-down — a turning stair's half-landing floor is the stair's own cell,
   // and both carve the slab they climb through.
@@ -1593,7 +1638,10 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
 
 /** True when 移动 may lift this placed piece (the tile and 信息 card ask). */
 export function isMovableModule(m: Module): boolean {
-  return MOVABLE_TYPES.has(m.type)
+  if (!MOVABLE_TYPES.has(m.type)) return false
+  // A bridge-owned pier is spaced by its bridge, not placed by hand.
+  if (m.type === 'pillar' && m.cfg.bridgeId) return false
+  return true
 }
 
 /**
@@ -1679,7 +1727,14 @@ export function movedModule(m: Module, at: Vec3i, rot: number): Module {
 
 /** True when every cell of a module's footprint is solid floor or an exit's floor. */
 export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[], candidate: Module): boolean {
-  const footprint = candidate.type === 'hanger' ? hangerPostCells(candidate) : moduleFootprint(candidate)
+  // A staircase is founded at its foot. Its upper landing and intermediate
+  // turn platform are part of the stair it places, so requiring pre-existing
+  // floor at those cells incorrectly rejects turns whose foot is supported.
+  const footprint = candidate.type === 'hanger'
+    ? hangerPostCells(candidate)
+    : candidate.type === 'stair' && !candidate.cfg.block
+      ? [[candidate.x, candidate.y] as [number, number]]
+      : moduleFootprint(candidate)
   for (const [bx, by] of footprint) {
     const floor =
       cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === candidate.z) ||
@@ -1737,6 +1792,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     if (cells.some((c) => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
   }
   if ((candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
+  if (candidate.type === 'exit' && (candidate.cfg as { style?: string }).style === 'virtual' && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
   if ((candidate.type === 'pillar' || (candidate.type === 'roof' && candidate.cfg.variant)) && candidate.z < 0) return 'exit-on-slab'
@@ -1757,7 +1813,10 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   if (layer && candidate.type === 'exit') {
     if (candidate.cfg.style === 'doorway') {
       if (candidate.z < 0) return 'exit-below-ground'
-    } else if (candidate.z !== 0) return 'exit-on-slab'
+    } else if (candidate.cfg.style === 'virtual') {
+      // 虚拟 is a surface pillar like a 导向柱: any floor at 0 m or above.
+      if (candidate.z < 0) return 'outdoor-below-ground'
+    } else if (candidate.z < 0 || candidate.z > 3) return 'exit-on-slab'
   }
   // A wall-mounted 装饰 — a 广告牌, a 玻璃板, a 站名 or the wall 线网图 — bolts to a
   // wall and may hang over the track where there is no floor in front of it, so it

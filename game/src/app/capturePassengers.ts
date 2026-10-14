@@ -3,6 +3,7 @@
 import * as THREE from 'three'
 import { passengerMesh, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_LIBRARY, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES } from '../render/passengerModel.ts'
 import { passengerIsChild, passengerWalkProfile } from '../sim/walking.ts'
+import { passengerEligible } from '../render/passengerEligibility.ts'
 
 export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles?: boolean; cycleView?: string; cycleHeading?: number; walkProfile?: number; cycleVariants?: number[] } = {}) {
   const cycles = options.walkCycles === true
@@ -34,8 +35,8 @@ export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles
     camera.updateMatrixWorld()
     const origin = new THREE.Vector3().project(camera)
     for (let variant = 0; variant < PASSENGER_OUTFITS.length; variant++) {
-      if (age === 'child' && (PASSENGER_LIBRARY[variant].bag || PASSENGER_LIBRARY[variant].hair === 'bald')) continue
-      if (cycles && options.cycleVariants && !options.cycleVariants.includes(variant)) continue
+      if (!passengerEligible(PASSENGER_LIBRARY[variant], age)) continue
+      if (options.cycleVariants && !options.cycleVariants.includes(variant)) continue
       outfit.setX(0, variant)
       outfit.needsUpdate = true
       // Freeze different moments of a stride, like pausing the live simulation.
@@ -47,7 +48,7 @@ export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles
         const walking = cycles || sample !== 0
         let identity = variant * 4 + (cycles ? 1 : sample)
         // Each complete stride keeps one identity at the requested age. Child
-        // cards reuse only bagless templates with hair, as the live crowd does.
+        // cards use the catalogue's eligible hair/bag templates, as the crowd does.
         while (passengerIsChild(identity + 73) !== (age === 'child')) identity += PASSENGER_OUTFITS.length * 4
         const appearance = passengerAppearance(identity + 73)
         const heading = cycleHeading ?? ((identity * 5) % 8) * Math.PI / 4

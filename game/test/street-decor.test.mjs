@@ -73,6 +73,24 @@ test('a guidepost takes the armed exit, or the first one standing', () => {
     useStore.setState(before)
   }
 })
+
+test('a placed 虚拟 exit is lettered bare, while a head-house keeps its 口', () => {
+  const before = useStore.getState()
+  try {
+    const exits = [
+      { id: 'exit-a', type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'A口', inRate: 900, open: true } },
+      { id: 'exit-b', type: 'exit', x: 20, y: 20, z: 0, rot: 0, cfg: { name: 'B口', inRate: 900, open: true } },
+    ]
+    const tool = new EquipmentTool({})
+    useStore.setState({ station: toState({ name: '导向', seed: 1, cells: [], modules: exits, lines: [] }) })
+    const virtual = tool.buildPlacementModules('exit-virtual', [5, 5, 0], 'v1')[0]
+    assert.equal(virtual.cfg.name, 'C')
+    const house = tool.buildPlacementModules('exit-covered-1', [8, 8, 0], 'e3')[0]
+    assert.equal(house.cfg.name, 'C口')
+  } finally {
+    useStore.setState(before)
+  }
+})
 test('exit binding, rotation, shelter variants and frozen ads survive save/load', () => {
   const guide=createModule('guidepost',0,0,0,'g',3);guide.cfg.exitId='exit-b'
   const mods=assignAdPosters([guide,createModule('busstop-short',8,8,0,'b',1),createModule('busstop-long',25,25,4,'c',2)])

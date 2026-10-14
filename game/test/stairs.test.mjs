@@ -9,12 +9,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { scenarioStation } from './support/scenario-station.ts'
 import { buildGraph, EDGE_KIND } from '../src/sim/station.ts'
-import { carveRampOpenings, rampCorridorHalf, rampEnvelope, thinWallCells } from '../src/sim/openings.ts'
+import { carveRampOpenings, rampBodyBoxes, rampCorridorHalf, rampEnvelope, thinWallCells } from '../src/sim/openings.ts'
 import { placementBlocked } from '../src/sim/placement.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 import { useStore } from '../src/app/store.ts'
 import { ESCALATOR_BAND, STAIR_RAIL_PROUD } from '../src/sim/constants.ts'
-import { STAIR_FLIGHT_RISE, STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_LABELS, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, STAIR_WIDTHS, nextStairWidth, planStairLanes, stairBuildWidth, stairFacing, stairFlightSlides, stairFlights, stairLaneBases, stairLaneMates, stairLandingShape, stairLandingWalls, stairLandings, stairLanes, stairOnBlockGrid, stairRight, stairRunBlocks, stairSwitchbackGap, stairSwitchbackOffset, stairSwitchbackRunWidth, stairTurnCells, stairWallSides, stairWidthLabel } from '../src/sim/stairs.ts'
+import { STAIR_FLIGHT_RISE, STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_LABELS, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, STAIR_WIDTHS, nextStairWidth, planStairLanes, stairBuildWidth, stairFacing, stairFlightSlides, stairFlights, stairFlightsFor, stairLaneBases, stairLaneMates, stairLandingShape, stairLandingWalls, stairLandings, stairLanes, stairLevels, stairOnBlockGrid, stairQuarterTurnOffset, stairRight, stairRotFor, stairRunBlocks, stairSwitchbackGap, stairSwitchbackOffset, stairSwitchbackRunWidth, stairTurnCells, stairWallSides, stairWidthLabel } from '../src/sim/stairs.ts'
 import { addEquipment, createModule, removeModule, toState, wallRun } from '../src/build/model.ts'
 
 test('saved straight stair sizes reserve their full block band and detect walls at its edges', () => {
@@ -91,6 +91,93 @@ test('the equipment tool places each straight stair size as one standalone modul
   } finally {
     useStore.setState({ station: previous.station, stairWidth: previous.stairWidth, moduleRot: previous.moduleRot })
   }
+})
+
+test('the equipment tool places a turning stair’s block-grid legs and square landing', () => {
+  // Preview and commit are one piece built by the same factory call, so the ghost a player
+  // aims with carries the square landing and the departing leg laid on its far edge — never a
+  // strip, and never a leg starting on the corner cell the drawing no longer uses.
+  const previous = useStore.getState()
+  try {
+    useStore.setState({ station: { ...previous.station, cells: [], modules: [] } })
+    const tool = new EquipmentTool({})
+    for (const style of ['right90', 'left90', 'right180', 'left180']) {
+      for (const width of STAIR_WIDTHS) {
+        useStore.setState({ stairWidth: width, moduleRot: 0 })
+        const type = `stair-${style}`
+        const pieces = tool.buildPlacementModules(type, [0, 0, 0], 'turn')
+        assert.equal(pieces.length, 1, `${type}/${width}: preview and placement carry one piece`)
+        const fresh = createModule(type, 0, 0, 0, 'turn', 0, width)
+        assert.deepEqual(pieces[0].cfg.flights, fresh.cfg.flights, `${type}/${width}: the ghost is not the piece the factory builds`)
+        assert.equal(pieces[0].cfg.width, fresh.cfg.width, `${type}/${width}: the ghost's run width`)
+        if (!style.endsWith('90')) continue
+        const lanes = stairLanes(width)
+        assert.equal(stairTurnCells(pieces[0]).length, lanes * lanes, `${type}/${width}: the quarter-landing is not ${lanes} × ${lanes}`)
+        // Every whole block the legs fill, and the square between them: the aim cell is the
+        // corner, so the piece never crosses into a column or row it was not drawn in.
+        const [first, second] = stairFlights(pieces[0])
+        assert.equal(Number.isInteger(stairFlightSlides(pieces[0])[0].dx + first.from.x + 0.5 - lanes / 2), true, `${type}/${width}: the first leg is off the grid`)
+        assert.equal(Math.abs(second.from.x - first.to.x) + Math.abs(second.from.y - first.to.y), lanes - 1, `${type}/${width}: the departing leg is not on the square's far edge`)
+      }
+    }
+  } finally {
+    useStore.setState({ station: previous.station, stairWidth: previous.stairWidth, moduleRot: previous.moduleRot })
+  }
+})
+
+test('a 90° turn’s landing is one block of side per lane, read from the piece itself', () => {
+  // The landing's depth less one is how far in the departing leg starts: zero at 窄 — the turn
+  // the game always drew — one at 中 and two at 宽.
+  assert.equal(stairQuarterTurnOffset(STAIR_WIDTH_NARROW), 0)
+  assert.equal(stairQuarterTurnOffset(STAIR_WIDTH_DOUBLE), 1)
+  assert.equal(stairQuarterTurnOffset(STAIR_WIDTH_TRIPLE), 2)
+  // Both the placed widths (`createModule` stores the block-fitted run, and a rebuilt piece is
+  // handed that same number back) and the palette's own off-grid 1.6 m sample: the landing is
+  // read from the **flights**, so its far edge is always where the departing leg's treads
+  // start — half a landing cell from that leg's own lower landing, never a gap and never a
+  // step standing on the platform.
+  for (const width of [stairSwitchbackRunWidth(STAIR_WIDTH_NARROW), stairSwitchbackRunWidth(STAIR_WIDTH_DOUBLE), stairSwitchbackRunWidth(STAIR_WIDTH_TRIPLE), 1.6]) {
+    for (const style of ['right90', 'left90']) {
+      const flights = stairFlightsFor({ x: 0, y: 0, z: 0 }, 0, style, width)
+      const mod = { id: 'sample', type: 'stair', x: 0, y: 0, z: 0, rot: 0, from: flights[0].from, to: flights[flights.length - 1].to, cfg: { width, style, flights } }
+      const cells = stairTurnCells(mod)
+      const shape = stairLandingShape(mod, 0)
+      const corner = flights[0].to
+      const start = flights[1].from
+      const columns = cells.map((c) => c.x)
+      assert.equal(Math.min(...columns), Math.min(corner.x, start.x), `${style}/${width}: the landing does not start at the corner cell`)
+      assert.equal(Math.max(...columns), Math.max(corner.x, start.x), `${style}/${width}: the landing does not reach the departing leg`)
+      const [ux] = [Math.sign(flights[1].to.x - flights[1].from.x)]
+      const far = ux > 0 ? shape.x1 : shape.x0
+      const treadStart = start.x + 0.5 + (ux > 0 ? 0.5 : -0.5)
+      assert.ok(Math.abs(far - treadStart) < 1e-9, `${style}/${width}: the platform ends at ${far}, the treads start at ${treadStart}`)
+    }
+  }
+})
+
+test('a stair reports the storeys it reaches, and the off-axis answers are degenerate', () => {
+  // The distinct storeys a stair touches, for level slicing (`SceneSystem` bands every piece
+  // by them): a straight run stands on its base and one storey up; a turn also stands on its
+  // half-storey landing, which is the level its square platform is drawn at.
+  const straight = createModule('stair-straight', 0, 0, -4, 's', 0, STAIR_WIDTH_NARROW)
+  assert.deepEqual(stairLevels(straight), [-4, 0])
+  const turn = createModule('stair-right90', 0, 0, -4, 't', 0, STAIR_WIDTH_DOUBLE)
+  assert.deepEqual(stairLevels(turn), [-4, -2, 0])
+  // A step that is not a cell axis names no placement rotation (the exit-bay snap asks this),
+  // and a flight that runs off the grid is no lane at all — degenerate answers, not promises.
+  assert.equal(stairRotFor(1, 1), 0)
+  const diagonal = {
+    id: 'd',
+    type: 'stair',
+    x: 0,
+    y: 0,
+    z: -4,
+    rot: 0,
+    from: { x: 0, y: 0, z: -4 },
+    to: { x: 3, y: 3, z: 0 },
+    cfg: { width: STAIR_WIDTH_NARROW, style: 'straight', flights: [{ from: { x: 0, y: 0, z: -4 }, to: { x: 3, y: 3, z: 0 } }] },
+  }
+  assert.deepEqual(stairLaneMates([diagonal], diagonal), [])
 })
 
 /**
@@ -241,12 +328,14 @@ test('a switchback’s runs are built a whole number of blocks wide, lanes or no
     assert.equal(stairRunBlocks(run), blocks)
     assert.ok(Math.abs(run + 2 * STAIR_RAIL_PROUD - blocks) < 1e-9)
     assert.ok(stairOnBlockGrid(run), `${run} m is not read as a block-wide run`)
-    // And that width is what the builder stores for a 180, while every other shape keeps
-    // the tool's own width (a lane, or the single wide piece it always was).
+    // And that width is what the builder stores for **every turning shape** — the two
+    // 180s and both 90s alike — while the single-run stair keeps the tool's own width
+    // (its treads resolve through `stairTreadWidth`).
     assert.equal(stairBuildWidth('right180', size), run)
     assert.equal(stairBuildWidth('left180', size), run)
     assert.equal(stairBuildWidth('straight', size), size)
-    assert.equal(stairBuildWidth('right90', size), size)
+    assert.equal(stairBuildWidth('right90', size), run)
+    assert.equal(stairBuildWidth('left90', size), run)
   }
   // An old piece's width is not a whole number of blocks, so it keeps its own band.
   for (const legacy of [ESCALATOR_BAND, STAIR_WIDTH_DOUBLE, 1.6, STAIR_WIDTH_TRIPLE]) {
@@ -554,6 +643,107 @@ test('a switchback’s runs share their balustrades: 2 / 4 / 6 blocks across', (
   }
 })
 
+test('a 90° turn’s legs are built on the block grid, and its quarter-landing is square', () => {
+  // The report this fixes: a 90° turn was built at the tool's palette width
+  // (0.68 / 1.36 / 2.04 m), so each band stayed **centred on its own walking line** —
+  // 0.18 / 0.52 m into the tiles either side — and its balustrades stopped short of the
+  // cell edge a wall or a floor block could meet them on. A turning leg now fills the
+  // blocks it stands in exactly as a 双跑楼梯's run does (`stairSwitchbackRunWidth`), and
+  // because the two legs are perpendicular each band moves half a block across **its own**
+  // run: the corner block is the first lane of both, and the two hands mirror about the
+  // column the corner cell stands in.
+  for (const [width, blocks] of [
+    [STAIR_WIDTH_NARROW, 1],
+    [STAIR_WIDTH_DOUBLE, 2],
+    [STAIR_WIDTH_TRIPLE, 3],
+  ]) {
+    for (const [style, hand] of [['right90', 1], ['left90', -1]]) {
+      const grid = (blocks - 1) / 2
+      // Every rotation, since a turn is placed in all four: each leg's band fills `blocks`
+      // whole cells across **its own** run, the quarter-landing is the `blocks × blocks`
+      // square the two legs meet on, and no flight body stands over any of its cells.
+      for (let rot = 0; rot < 4; rot++) {
+        const turned = createModule(`stair-${style}`, 0, 0, -4, 'x', rot, width)
+        assert.ok(turned && turned.type === 'stair')
+        assert.ok(Math.abs(turned.cfg.width - stairSwitchbackRunWidth(width)) < 1e-9, `${style}/${width} is not built block-wide`)
+        const legs = stairFlights(turned)
+        const legSlides = stairFlightSlides(turned)
+        for (const [i, f] of legs.entries()) {
+          const alongX = f.to.x !== f.from.x
+          const centre = (alongX ? f.from.y : f.from.x) + 0.5 + (alongX ? legSlides[i].dy : legSlides[i].dx)
+          assert.equal(Number.isInteger(centre - blocks / 2), true, `${style}/${width}/rot ${rot}: leg ${i} starts at ${centre - blocks / 2}`)
+        }
+        const cells = stairTurnCells(turned)
+        assert.equal(cells.length, blocks * blocks, `${style}/${width}/rot ${rot} lays ${cells.length} landing cells`)
+        // The square is as deep along the departing leg's run as it is wide across it.
+        const alongX = legs[1].to.x !== legs[1].from.x
+        const spread = (pick) => Math.max(...cells.map(pick)) - Math.min(...cells.map(pick)) + 1
+        assert.equal(spread((c) => (alongX ? c.y : c.x)), blocks, `${style}/${width}/rot ${rot}: the landing is not ${blocks} blocks across`)
+        assert.equal(spread((c) => (alongX ? c.x : c.y)), blocks, `${style}/${width}/rot ${rot}: the landing is not ${blocks} blocks deep`)
+        // ... and the departing leg's lower landing is the square's far cell along its own
+        // run, so its treads begin where the platform ends and nothing climbs over the
+        // landing (the pillar/extension hitbox reads the flights alone there).
+        const start = legs[1].from
+        assert.equal(
+          cells.some((c) => c.x === start.x && c.y === start.y),
+          true,
+          `${style}/${width}/rot ${rot}: the departing leg's lower landing ${start.x},${start.y} is off the landing`,
+        )
+        const corner = legs[0].to
+        const alongRun = alongX ? Math.abs(start.x - corner.x) : Math.abs(start.y - corner.y)
+        assert.equal(alongRun, blocks - 1, `${style}/${width}/rot ${rot}: the departing leg starts ${alongRun} cells from the corner`)
+        for (const c of cells) {
+          for (const b of rampBodyBoxes(turned)) {
+            assert.ok(
+              !(b.x0 < c.x + 0.5 && c.x + 0.5 < b.x1 && b.y0 < c.y + 0.5 && c.y + 0.5 < b.y1),
+              `${style}/${width}/rot ${rot}: a flight passes over the landing cell ${c.x},${c.y}`,
+            )
+          }
+        }
+        // ... and the turn is **walked**: the two legs join across the square's own cells,
+        // and the whole stair climbs bottom to top.
+        const g = stairwell(turned)
+        const bottom = g.nodeIndex.get(key(turned.from))
+        const top = g.nodeIndex.get(key(turned.to))
+        assert.notEqual(bottom, undefined, `${style}/${width}/rot ${rot}: the lower landing is not walkable`)
+        assert.notEqual(top, undefined, `${style}/${width}/rot ${rot}: the upper landing is not walkable`)
+        assert.ok(reachable(g, bottom, top), `${style}/${width}/rot ${rot} is not walked bottom to top`)
+        assert.ok(
+          reachableWithin(g, g.nodeIndex.get(key(legs[0].to)), g.nodeIndex.get(key(legs[1].from)), cells),
+          `${style}/${width}/rot ${rot}: the two legs are not joined across the landing`,
+        )
+      }
+      // Rot 0 names the sides: the first leg runs +y, so its band spans x; the second runs
+      // +x (right) or −x (left), so its band spans y — the axis the *first* leg travels
+      // along — and it is laid one block in per extra lane, on the square's far edge.
+      const m = createModule(`stair-${style}`, 0, 0, -4, 'x', 0, width)
+      assert.ok(m && m.type === 'stair')
+      const [first, second] = stairFlights(m)
+      const slides = stairFlightSlides(m)
+      const shifted = hand * grid === 0 ? 0 : hand * grid
+      assert.deepEqual(slides[0], { dx: shifted, dy: 0 }, `${style}/${width}: the first leg is not on its blocks`)
+      assert.deepEqual(slides[1], { dx: 0, dy: grid }, `${style}/${width}: the second leg did not move across its own run`)
+      const farEdge = hand * (blocks - 1) === 0 ? 0 : hand * (blocks - 1)
+      assert.equal(second.from.x, farEdge, `${style}/${width}: the departing leg starts at x=${second.from.x}, not on the landing's edge`)
+      assert.equal(second.from.y, 3, `${style}/${width}: the departing leg left the corner row`)
+      const f1 = first.from.x + 0.5 + slides[0].dx
+      const f2 = second.from.y + 0.5 + slides[1].dy
+      const firstLane = hand > 0 ? 0 : -(blocks - 1)
+      assert.equal(f1 - blocks / 2, firstLane === 0 ? 0 : firstLane, `${style}/${width}: the first band starts at ${f1 - blocks / 2}`)
+      assert.equal(f2 - blocks / 2, 3, `${style}/${width}: the second band starts at ${f2 - blocks / 2}, not on the corner row`)
+      // The quarter-landing is the square the two legs meet on: the corner cell's own block
+      // across the departing leg's run, the lanes of its band across it.
+      const cells = stairTurnCells(m)
+      const columns = [...new Set(cells.map((c) => c.x))].sort((a, b) => a - b)
+      const rows = [...new Set(cells.map((c) => c.y))].sort((a, b) => a - b)
+      const firstColumn = Math.min(hand * (blocks - 1), 0)
+      assert.deepEqual(columns, Array.from({ length: blocks }, (_, i) => firstColumn + i),
+        `${style}/${width}: the landing columns are ${columns.join(',')}`)
+      assert.deepEqual(rows, Array.from({ length: blocks }, (_, i) => 3 + i), `${style}/${width}: the landing rows are ${rows.join(',')}`)
+    }
+  }
+})
+
 test('a piece saved at an older, off-grid width keeps its own band', () => {
   // Every switchback placed before the runs were block-wide (a 1.36 m 中, a 1.6 m saved
   // piece) is left exactly where it was: its band centred on its walking line, and the
@@ -569,6 +759,29 @@ test('a piece saved at an older, off-grid width keeps its own band', () => {
   assert.equal(Math.sign(slides[1].dx), -1, 'the return run slides toward the first')
   assert.equal(slides[1].dy, 0)
   assert.ok(Math.abs(stairSwitchbackOffset(STAIR_WIDTH_DOUBLE) - slide - stairSwitchbackGap(STAIR_WIDTH_DOUBLE)) < 0.05)
+  // A 90° turn saved the same way keeps the band and the legs it has: an older build laid the
+  // departing leg on the corner cell itself, so the landing stays that one cell — the square
+  // is read from the piece, not from the size it was placed at.
+  const turn = {
+    id: 'legacy-turn',
+    type: 'stair',
+    x: 0,
+    y: 0,
+    z: -4,
+    rot: 0,
+    from: { x: 0, y: 0, z: -4 },
+    to: { x: 3, y: 3, z: 0 },
+    cfg: {
+      width: STAIR_WIDTH_DOUBLE,
+      style: 'right90',
+      flights: [
+        { from: { x: 0, y: 0, z: -4 }, to: { x: 0, y: 3, z: -2 } },
+        { from: { x: 0, y: 3, z: -2 }, to: { x: 3, y: 3, z: 0 } },
+      ],
+    },
+  }
+  assert.deepEqual(stairFlightSlides(turn), [{ dx: 0, dy: 0 }, { dx: 0, dy: 0 }], 'an old 90° turn must not move')
+  assert.deepEqual(stairTurnCells(turn).map((c) => key(c)), ['0,3,-2'], 'an old 90° turn keeps its one landing cell')
 })
 
 test('a switchback in a stairwell leans on the walls, and loses the rails they replace', () => {
@@ -610,13 +823,29 @@ test('a switchback in a stairwell leans on the walls, and loses the rails they r
   assert.ok(Math.abs(shape.x0 - 0.105) < 1e-9 && Math.abs(shape.x1 - 3.895) < 1e-9, `the landing spans ${shape.x0}..${shape.x1}`)
   assert.ok(Math.abs(shape.y0 - 3) < 1e-9 && Math.abs(shape.y1 - 4) < 1e-9, `the landing is ${shape.y0}..${shape.y1} deep, not one block`)
   assert.ok(Math.abs(shape.z - -2) < 1e-9, 'the landing is read at its own storey')
-  // A 90° turn meets at one cell on both axes, so its platform stays a square the stair's
-  // width across rather than a block.
+  // A 90° turn's legs are perpendicular, so what the two share is the corner **square** —
+  // and it is square rather than the one-block strip a 180's half-landing is: a landing
+  // only one block deep would be narrower than the leg climbing away from it. The
+  // departing leg's lower landing sits on the square's far edge, so no tread stands over
+  // the landing, and every edge of the platform is a cell edge.
   const turn = createModule('stair-right90', 0, 0, -4, 't', 0, STAIR_WIDTH_NARROW)
   assert.ok(turn && turn.type === 'stair')
+  const [turnFirst, turnSecond] = stairFlights(turn)
   const square = stairLandingShape(turn, 0)
-  assert.ok(Math.abs(square.x1 - square.x0 - STAIR_WIDTH_NARROW) < 1e-9, `the corner platform is ${square.x1 - square.x0} across`)
-  assert.ok(Math.abs(square.y1 - square.y0 - STAIR_WIDTH_NARROW) < 1e-9)
+  assert.deepEqual([turnSecond.from.x, turnSecond.from.y], [turnFirst.to.x, turnFirst.to.y], 'a narrow 90° turn still meets on the corner cell')
+  assert.deepEqual(stairTurnCells(turn).map((c) => key(c)), ['0,3,-2'], 'the narrow quarter-landing is that one cell')
+  assert.ok(Math.abs(square.x0 - 0) < 1e-9 && Math.abs(square.x1 - 1) < 1e-9, `the corner platform is ${square.x0}..${square.x1} along the leg`)
+  assert.ok(Math.abs(square.y0 - 3.105) < 1e-9 && Math.abs(square.y1 - 3.895) < 1e-9, `and ${square.y0}..${square.y1} across it`)
+  assert.ok(Math.abs(square.z - -2) < 1e-9, 'the quarter-landing is read at its own storey')
+  // A 中 turn lays the 2 × 2 square the two legs meet on: two blocks either way, so the
+  // platform is at least square and the leg that climbs away starts on its far edge.
+  const wide = createModule('stair-right90', 0, 0, -4, 'w', 0, STAIR_WIDTH_DOUBLE)
+  assert.ok(wide && wide.type === 'stair')
+  assert.deepEqual([wide.cfg.flights[1].from.x, wide.cfg.flights[1].from.y], [1, 3], 'the departing leg starts on the square’s far edge')
+  assert.deepEqual(stairTurnCells(wide).map((c) => key(c)).sort(), ['0,3,-2', '0,4,-2', '1,3,-2', '1,4,-2'])
+  const wideShape = stairLandingShape(wide, 0)
+  assert.ok(Math.abs(wideShape.x0 - 0) < 1e-9 && Math.abs(wideShape.x1 - 2) < 1e-9, `the 中 platform is ${wideShape.x1 - wideShape.x0} m along the leg`)
+  assert.ok(Math.abs(wideShape.y0 - 3.105) < 1e-9 && Math.abs(wideShape.y1 - 4.895) < 1e-9)
 })
 
 test('bulldozing a turning stair takes its half-landing block with it', () => {
@@ -723,17 +952,23 @@ test('the two switchbacks are mirror images of each other', () => {
   }
 })
 
-test('placing a turning stair lays its half-landing as a walkable cell', () => {
+test('placing a turning stair lays its whole landing as walkable cells', () => {
   const cells = []
   for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) cells.push({ x, y, z: 4, fill: 'solid' })
   const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
-  const mod = createModule('stair-left90', 2, 2, 4, 's', 0, STAIR_WIDTH_NARROW)
-  assert.ok(mod)
-  const next = addEquipment(state, mod)
-  // The half-landing sits one storey up, between the two flights.
-  const landing = stairTurnCells(mod)
-  assert.ok(landing.length > 0, 'the turning stair has an interior landing')
-  for (const p of landing) assert.ok(next.cells.some((c) => c.x === p.x && c.y === p.y && c.z === p.z), `landing ${key(p)} was not laid`)
+  for (const style of ['left90', 'right90']) {
+    for (const width of STAIR_WIDTHS) {
+      const mod = createModule(`stair-${style}`, 2, 2, 4, 's', 0, width)
+      assert.ok(mod)
+      const next = addEquipment(state, mod)
+      // The quarter-landing sits one storey's half up, between the two flights, and the
+      // builder lays **the whole square** — every cell the mesher will skip and the model
+      // will draw the platform on.
+      const landing = stairTurnCells(mod)
+      assert.equal(landing.length, stairLanes(width) ** 2, `${style}/${width}: the landing is not a square`)
+      for (const p of landing) assert.ok(next.cells.some((c) => c.x === p.x && c.y === p.y && c.z === p.z), `${style}/${width}: landing ${key(p)} was not laid`)
+    }
+  }
 })
 
 test('carving a turning stair keeps its landings and opens the slab it climbs through', () => {

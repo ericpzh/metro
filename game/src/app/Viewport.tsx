@@ -1,4 +1,5 @@
 import { TouchZoom } from './touchZoom.ts'
+import { FrameTask } from './frameTask.ts'
 import { translate } from '../sim/i18n.ts'
 import { useLanguage } from './i18n.ts'
 // The viewport: owns the SceneRenderer lifecycle and dispatches pointer input
@@ -35,6 +36,7 @@ import { PlatformTool } from './tools/PlatformTool.ts'
 import { SelectTool } from './tools/SelectTool.ts'
 import { TunnelTool } from './tools/TunnelTool.ts'
 import { WallTool } from './tools/WallTool.ts'
+import { ownsContextMenu } from './tools/geometry/pointer.ts'
 import { ZoneTool } from './tools/ZoneTool.ts'
 import { ToolController } from './tools/ToolController.ts'
 import type { AreaDrag, FacilityDragState, HoverTile, PaintDrag, PointerInfo, ToolContext, ZoneDragState } from './tools/ToolContext.ts'
@@ -71,6 +73,8 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 export function Viewport(): React.ReactElement {
   const language = useLanguage()
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const pointerFrame = useRef(new FrameTask())
+  useEffect(() => () => pointerFrame.current.cancel(), [])
   const sceneRef = useRef<SceneRenderer | null>(null)
   const overlayRef = useRef(false)
   const graphNodesRef = useRef<Float32Array>(new Float32Array(0))
@@ -391,6 +395,7 @@ export function Viewport(): React.ReactElement {
    * the ghost. Returns true when a drag was cancelled.
    */
   const cancelActiveDrag = (): boolean => {
+    pointerFrame.current.cancel()
     const anyActive =
       dragRef.current?.active === true ||
       paintRef.current?.active === true ||
@@ -469,6 +474,7 @@ export function Viewport(): React.ReactElement {
   // switching tools is not a way to lose one.
   useEffect(() => {
     hoverRef.current = null
+    pointerFrame.current.cancel()
     dragRef.current = null
     paintRef.current = null
     zoneDragRef.current = null
@@ -768,6 +774,7 @@ export function Viewport(): React.ReactElement {
   const touchPress = useRef<React.PointerEvent | null>(null)
 
   const onPointerDown = (e: React.PointerEvent): void => {
+    pointerFrame.current.cancel()
     // Defer touch edits until release so the first finger of a pinch never builds.
     if (e.pointerType === 'touch') {
       e.preventDefault()
@@ -825,7 +832,7 @@ export function Viewport(): React.ReactElement {
     tools.byTool[st.tool].onDown(info)
   }
 
-  const onPointerMove = (e: React.PointerEvent): void => {
+  const handlePointerMove = (e: React.PointerEvent): void => {
     if (e.pointerType === 'touch') {
       e.preventDefault()
       const factor = touchZoom.current.move(e.pointerId, e.clientX, e.clientY)
@@ -936,7 +943,17 @@ export function Viewport(): React.ReactElement {
     return current === 'delete' ? tools.delete : tools.block
   }
 
+  const onPointerMove = (e: React.PointerEvent): void => {
+    // A deletion sweep collects the full path, including bends within one frame.
+    if (e.pointerType === 'touch' || dragRef.current?.modules !== undefined) {
+      pointerFrame.current.flush()
+      handlePointerMove(e)
+    }
+    else pointerFrame.current.schedule(() => handlePointerMove(e))
+  }
+
   const onPointerUp = (e: React.PointerEvent): void => {
+    pointerFrame.current.flush()
     if (e.pointerType === 'touch') {
       e.preventDefault()
       const tap = touchZoom.current.up(e.pointerId)
@@ -996,8 +1013,8 @@ export function Viewport(): React.ReactElement {
   // its own pointerdown never arrived — so it cancels any previewing drag too.
   const onContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault()
-    // The browser can fire this at right-down; tactile erasure owns that drag.
-    if (dragRef.current?.tactile && dragRef.current.button === 2 && !(e.buttons & 1)) return
+    // The browser can fire this at right-down; let the erase drag reach release.
+    if (ownsContextMenu(dragRef.current, e.buttons)) return
     cancelActiveDrag()
   }
 
@@ -1010,12 +1027,14 @@ export function Viewport(): React.ReactElement {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={(e) => {
+          pointerFrame.current.cancel()
           touchZoom.current.cancel(e.pointerId)
           touchPress.current = null
           cancelActiveDrag()
           sectionDragRef.current = null
         }}
         onLostPointerCapture={(e) => {
+          pointerFrame.current.cancel()
           if (e.pointerType === 'touch') {
             touchZoom.current.cancel(e.pointerId)
             touchPress.current = null
@@ -1023,6 +1042,7 @@ export function Viewport(): React.ReactElement {
         }}
         onContextMenu={onContextMenu}
         onPointerLeave={() => {
+          pointerFrame.current.cancel()
           hoverRef.current = null
           sceneRef.current?.setHoverHighlight(null)
           setBuildMeasure(null)

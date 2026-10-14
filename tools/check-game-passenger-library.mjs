@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {serveDir,withPage,waitFor} from './browser-harness.mjs';
-import {MODEL_LIBRARY} from '../model/src/characters/library.js';
+import {MODEL_LIBRARY,modelEligible} from '../model/src/characters/library.js';
 const out=resolve('.preview/game-passenger-library');mkdirSync(out,{recursive:true});
 const server=await serveDir(resolve('game/dist'),4281);
 let page;
@@ -27,8 +27,8 @@ try {
   }
   console.error=original;return {images:window.__libraryImages.length,childImages:childImages.length,childVariants:[...new Set(childImages.map(c=>c.variant))],variants:[...coverage],empty,errors};
  })()`);
- assert.equal(report.images,MODEL_LIBRARY.length*3*4);assert.equal(report.variants.length,MODEL_LIBRARY.length);assert.deepEqual(report.empty,[]);assert.deepEqual(report.errors,[]);
- const childVariants=MODEL_LIBRARY.flatMap((model,index)=>!model.bag&&model.hair!=='bald'?[index]:[]);
+ assert.equal(report.images,MODEL_LIBRARY.filter(m=>modelEligible(m,'adult')).length*3*4);assert.equal(report.variants.length,MODEL_LIBRARY.length);assert.deepEqual(report.empty,[]);assert.deepEqual(report.errors,[]);
+ const childVariants=MODEL_LIBRARY.flatMap((model,index)=>modelEligible(model,'child')?[index]:[]);
  assert.equal(report.childImages,childVariants.length*3*4);assert.deepEqual(report.childVariants,childVariants);
  const names=MODEL_LIBRARY.map(m=>m.id);
  await page.evaluate(`(()=>{
@@ -52,11 +52,15 @@ try {
    // Hidden storeys and a followed passenger use a zero instance matrix.
    if(height===0&&depth===0&&width===0)continue;visible++;
    const child=height<.8,model=models[outfits.getX(i)];if(child)children.push(model.id);
-   if(child?(height<.5199||height>.7801||depth<.5599||depth>.6301||width<.5599||width>.6301||model.bag||model.hair==='bald'):(height<.7999||height>1.2001||depth<.8999||depth>1.1001||width<.8999||width>1.1001))invalid.push(i);
+   if(child?(height<.5199||height>.7801||depth<.5599||depth>.6301||width<.5599||width>.6301||!model.childEligible):(height<.7999||height>1.2001||depth<.8999||depth>1.1001||width<.8999||width>1.1001||!model.adultEligible))invalid.push(i);
   }
   return {agents:c.agentCount,visible,variants:[...new Set(Array.from(outfits.array).slice(0,c.agents.count))].sort((a,b)=>a-b),children:children.length,childModels:[...new Set(children)],invalidSizes:invalid,opacity:c.agents.material.opacity,transparent:c.agents.material.transparent,instanced:c.agents.isInstancedMesh,triangles:c.agents.geometry.index.count/3,shaderErrors:r.renderer.info.programs.filter(p=>p.diagnostics&&!p.diagnostics.runnable).length};
  })()`);
- assert.equal(live.instanced,true);assert.equal(live.shaderErrors,0);assert.equal(live.variants.length,MODEL_LIBRARY.length);
+ assert.equal(live.instanced,true);assert.equal(live.shaderErrors,0);
+ // The captures above exhaust every eligible template. A finite station crowd
+ // can omit a rare child-only template, so validate its actual sampled pool.
+ assert(live.variants.length>20&&live.variants.every(i=>Number.isInteger(i)&&i>=0&&i<MODEL_LIBRARY.length));
+ assert.deepEqual([...new Set(live.variants.map(i=>MODEL_LIBRARY[i].bagType).filter(Boolean))].sort(),['crossbody','purse','shoulder']);
  assert.equal(live.opacity,.7);assert.equal(live.transparent,true);
  assert.deepEqual(live.invalidSizes,[]);assert(live.children>0&&live.children<live.agents,'the live crowd contains adults and smaller children');
  writeFileSync(resolve(out,'report.json'),JSON.stringify({report,live},null,2));console.log({report,live});

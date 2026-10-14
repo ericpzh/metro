@@ -1033,14 +1033,14 @@ function outwardSide(c: Cell, r: Ramp): WallSide | null {
  * extra. A **半墙** is the one block it leaves alone: that cell is already drawn
  * half a block thick, on the side the player chose.
  *
- * **A 双跑楼梯 reaches nothing beside its runs**, and that is by construction rather
- * than by luck: a switchback's run is laid at the width of the blocks it fills
- * (`stairSwitchbackRunWidth`, 0.79 / 1.79 / 2.79 m), so its treads and both
- * balustrades end exactly on the cell edges and the wall a player pushes the piece
+ * **A turning stair reaches nothing beside its legs**, and that is by construction rather
+ * than by luck: a switchback's run and each leg of a 90° turn are laid at the width of the
+ * blocks they fill (`stairSwitchbackRunWidth`, 0.79 / 1.79 / 2.79 m), so their treads and
+ * both balustrades end exactly on the cell edges and the wall a player pushes the piece
  * flush against is kept **whole** — the wall the piece hugs is the barrier there,
  * and the model drops the handrail on that side (`stairWallSides`). Only a piece
- * genuinely wider than its own blocks — a 中 / 宽 90° turn, an old off-grid 1.6 m
- * stair — has a body that crosses into the column beside it.
+ * genuinely wider than its own blocks — an old off-grid 1.6 m stair, or a turning piece
+ * saved at an older palette width — has a body that crosses into the column beside it.
  */
 export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]): RampThin[] {
   const ramps = rampList(modules)

@@ -21,6 +21,16 @@ const SRC = new URL('../src/', import.meta.url)
 const SYSTEMS = 'render/scene/systems/'
 const ORCHESTRATOR = 'render/scene/SceneRenderer.ts'
 
+test('pointer preview coalescing preserves touch/delete paths, flushes release and cancels unmount work', () => {
+  const viewport = fs.readFileSync(new URL('app/Viewport.tsx', SRC), 'utf8')
+  const moves = viewport.slice(viewport.indexOf('const onPointerMove ='), viewport.indexOf('const onPointerUp ='))
+  assert.match(moves, /e\.pointerType === 'touch' \|\| dragRef\.current\?\.modules !== undefined/, 'touch gestures and deletion sweeps retain every path sample')
+  assert.match(moves, /pointerFrame\.current\.flush\(\)\s*handlePointerMove\(e\)/, 'preserved paths drain an older queued sample before delivering the new one')
+  assert.match(moves, /else pointerFrame\.current\.schedule\(\(\) => handlePointerMove\(e\)\)/)
+  assert.match(viewport, /const onPointerUp = [^{]+\{\s*pointerFrame\.current\.flush\(\)/, 'release processes the latest drag position before committing')
+  assert.match(viewport, /useEffect\(\(\) => \(\) => pointerFrame\.current\.cancel\(\), \[\]\)/, 'an unmounted viewport cannot deliver a stale preview')
+})
+
 /** Which system owns which field name, so a claimed name maps to `this.<owner>.<name>`. */
 const ORCHESTRATOR_FIELDS = {
   ChunkSystem: 'chunks',
@@ -78,4 +88,19 @@ test('the wiring check actually sees the claims it is guarding', () => {
   assert.ok(names.includes('trains'), 'and the consists')
   const section = fs.readFileSync(new URL(SYSTEMS + 'SectionSystem.ts', SRC), 'utf8')
   assert.ok(claimedReferences(section).map((r) => r.name).includes('crowd'), 'SectionSystem claims the crowd it clips')
+})
+
+test('a boards-only sign preview rebuilds one sign and skips the chunk remesh', () => {
+  // `SceneRenderer` needs WebGL to construct, so the fast path it takes for a
+  // sign-board preview is pinned as a source contract: the unit below
+  // (`performance-policy`) covers the pure pieces — the one-sign verdict, the
+  // keep-set rebuild and the in-place plate repaint — and this covers that
+  // `setStation` actually asks for them.
+  const renderer = fs.readFileSync(new URL(ORCHESTRATOR, SRC), 'utf8')
+  const body = renderer.slice(renderer.indexOf('setStation(data: StationData'), renderer.indexOf('defaultSection('))
+  assert.ok(body.includes('signBoardsOnlyChanged'), 'a preview is checked for the one sign it belongs to')
+  assert.ok(/if \(signOnly === null\) \{\s*this\.chunks\.meshStation\(\)/.test(body), 'and only a fuller change remeshes the chunks')
+  assert.ok(body.includes('signOnly === null && !retainedModules'), 'station-wide plate repaints stay on the full path')
+  assert.ok(body.includes('id !== signOnly'), 'the module rebuild retains everything but that sign')
+  assert.ok(/if \(signOnly !== null\) this\.repaintSignPreview\(data, signOnly\)/.test(body), 'and its plates are repainted in place')
 })

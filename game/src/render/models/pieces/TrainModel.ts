@@ -7,6 +7,7 @@ import { STOCK, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentr
 import type { StockClass } from '../../../sim/stock.ts'
 import { buildCab } from './CabModel.ts'
 import { buildTrainInterior } from './TrainInterior.ts'
+import { syncTrainDoorBatches } from '../../trainBatches.ts'
 
 /* ------------------------------------------------------------------ trains */
 
@@ -274,6 +275,7 @@ export function setDoorsSides(root: THREE.Object3D, plus: number, minus: number)
     const travel = (d.userData.travel as number) ?? 0.32
     d.position.x = closed + sign * travel * t
   }
+  syncTrainDoorBatches(root)
 }
 
 /**

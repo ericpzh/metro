@@ -302,7 +302,7 @@ export function isWallBlock(c: { tags?: string[] }): boolean {
 export type ExitBays = 1 | 2 | 3 | 4
 
 export interface ExitCfg {
-  style?: 'doorway'
+  style?: 'doorway' | 'virtual'
   /** Exact backing block course for a wall-mounted 地面 exit panel. */
   mountZ?: number
   name: string

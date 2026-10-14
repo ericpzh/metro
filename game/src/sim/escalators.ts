@@ -1,7 +1,9 @@
 // Escalators (扶梯) — GAME-SPEC §5.1 / §7.8.
 //
-// An escalator is fixed-length equipment: 短 rises 4 m over a 6 m run;
-// 长 rises 8 m over a 12 m run along its placement rotation.
+// An escalator is fixed-length equipment, and it comes in the four lengths of
+// `sim/rampLengths.ts`: 超短 rises 2 m over a 3 m run, 短 3 m over 5 m, 中 4 m over
+// 6 m — the one-storey piece the game shipped with — and 长 8 m over 12 m. All
+// four run along the placement rotation at the catalogue slope.
 // `dir` only orders `from`/`to` — the single
 // one-way travel the sim and the label read — so an up and a down piece share
 // one footprint.
@@ -13,6 +15,7 @@
 // no three, no DOM.
 
 import type { Module, Vec3i } from './types.ts'
+import { RAMP_LENGTH_DEFAULT, rampLengthOf, rampLengthSpec, type RampLength } from './rampLengths.ts'
 import { STAIR_RISE, STAIR_RUN, stairFacing } from './stairs.ts'
 import { ESCALATOR_BAND, ESCALATOR_BALUSTRADE, ESCALATOR_SKIRT_INSET, ESCALATOR_TRANSITION_LENGTH } from './constants.ts'
 
@@ -60,18 +63,14 @@ export function escalatorLandings(m: Escalator): Vec3i[] {
   return [m.from, m.to, ...[m.from, m.to].map((p) => ({ x: p.x + dx, y: p.y + dy, z: p.z }))]
 }
 
-/** Cells of horizontal run for one storey (the equipment's fixed length). */
+/** Cells of horizontal run for one storey — the 中 piece (`sim/rampLengths.ts`). */
 export const ESCALATOR_RUN = STAIR_RUN
 /** Blocks of climb for one storey. */
 export const ESCALATOR_RISE = STAIR_RISE
 
-/** 长 spans two 4 m storeys at the short piece's slope (§5.1). */
-export const ESCALATOR_LONG_RISE = 2 * ESCALATOR_RISE
-export const ESCALATOR_LONG_RUN = 2 * ESCALATOR_RUN
-
 /** Endpoints are authoritative, including pieces loaded from older saves. */
-export function escalatorIsLong(m: Escalator): boolean {
-  return Math.abs(m.to.z - m.from.z) === ESCALATOR_LONG_RISE
+export function escalatorLength(m: Escalator): RampLength {
+  return rampLengthOf(m.to.z - m.from.z, Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y))
 }
 
 export type EscalatorDir = 'up' | 'down'
@@ -82,14 +81,14 @@ export function nextEscalatorDir(dir: EscalatorDir): EscalatorDir {
 }
 
 /**
- * `base` is the lower landing. 短 climbs one storey along `rot`; 长 climbs two.
+ * `base` is the lower landing, and `length` the piece's size — 超短 2 m over 3 m
+ * through 长 8 m over 12 m (`sim/rampLengths.ts`), 中 by default.
  * `dir` orders `from`/`to` (up: base → top, down: top → base) without moving the
  * run, so up and down share one footprint.
  */
-export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id: string, width: 1 | 2 = 1, long = false): Module {
+export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id: string, width: 1 | 2 = 1, length: RampLength = RAMP_LENGTH_DEFAULT): Module {
   const [dx, dy] = stairFacing(rot)
-  const run = long ? ESCALATOR_LONG_RUN : ESCALATOR_RUN
-  const rise = long ? ESCALATOR_LONG_RISE : ESCALATOR_RISE
+  const { run, rise } = rampLengthSpec(length)
   const lower: Vec3i = { x: base.x, y: base.y, z: base.z }
   const upper: Vec3i = {
     x: base.x + dx * run,

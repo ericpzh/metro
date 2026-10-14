@@ -1,9 +1,8 @@
 import { msg } from '../../sim/i18n.ts'
 // The 墙 tool: press to anchor a full-height wall column, drag for a straight
-// 90° run, right-drag to lift the same run back out. Moved verbatim from
-// app/Viewport.tsx (GAME-SPEC §4). This controller also owns the release of the
-// 方块 tool's right-press wall-column drag — the release code is identical, and
-// the viewport routes any non-single `wall` drag here.
+// 90° run, right-drag to clear each column's storey (GAME-SPEC §4).
+// Also releases the 方块 tool's tagged-wall drag; that path keeps its own
+// column lookup so release matches the 方块 preview.
 
 import { addWalls, removeCells } from '../../build/model.ts'
 import { checkBlockCells, previewNotice } from '../../build/validation.ts'
@@ -14,7 +13,7 @@ import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { halfWallSideFor, wallSnapAt } from './geometry/walls.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
-import { wallColumnAt, wallColumnsAt, wallRun } from '../../build/model.ts'
+import { storeyColumnsAt, wallColumnsAt, wallRun } from '../../build/model.ts'
 
 export class WallTool extends ToolController {  readonly tool = 'wall' as const
 
@@ -64,7 +63,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
     const mode: 'add' | 'remove' = info.button === 2 ? 'remove' : 'add'
     // The add path snaps the column to the cell that faces open space and to
     // the R-selected wall face; the remove path lifts exactly what the pointer
-    // is on, a whole tagged column at a time.
+    // is on, every block in that column's storey regardless of wall tags.
     const anchor = mode === 'add' ? wallSnapAt(hit, st.station.cells, st.wallSnapCycle).base : hit.cell
     this.ctx.drag.current = {
       active: true,
@@ -79,8 +78,8 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       downTime: performance.now(),
     }
     if (mode === 'add') this.showWallGhost(wallRun([anchor]))
-    else scene.setGhost(wallColumnAt(st.station, anchor[0], anchor[1], anchor[2]), 'remove')
-    scene.setCursor(anchor, mode === 'add')
+    else scene.setGhost(storeyColumnsAt(st.station, [anchor]), 'remove')
+    scene.setCursor(anchor, true)
   }
 
   onMove(info: PointerInfo): void {
@@ -99,8 +98,8 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
       const line = dragging ? (d.mode === 'remove' ? this.removeLine(d.anchor, target, d.z) : straightLineCells(d.anchor, target, d.z)) : [d.anchor]
       if (d.mode === 'add') this.showWallGhost(wallRun(line))
-      else scene.setGhost(wallColumnsAt(st.station, line), 'remove')
-      scene.setCursor(dragging ? line[line.length - 1] : d.anchor, d.mode === 'add')
+      else scene.setGhost(storeyColumnsAt(st.station, line), 'remove')
+      scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
       return
     }
     const c = wallSnapAt(hit, st.station.cells, st.wallSnapCycle).base
@@ -122,8 +121,8 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
     const target = hit ? (d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell) : d.anchor
     const st = useStore.getState()
     // A 墙 drag lays a straight axis-aligned run of full-height columns; a
-    // quick press is one. The right drag lifts the same run, a whole tagged
-    // column at a time. A **半墙** (`d.single`, the 方块 tool's mode) is always
+    // quick press is one. The right drag lifts all blocks in each column's
+    // storey. A **半墙** (`d.single`, the 方块 tool's mode) is always
     // exactly one block — the one the press landed on — however far the pointer
     // travelled, because that mode places one piece at a time.
     //
@@ -151,9 +150,9 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       if (blocked > 0) st.setNotice(previewNotice(st.station, check))
       else if (changed === 0) st.setNotice(msg('cannot_place_a_wall_here_a_wall_already_exists'))
     } else {
-      const remove = wallColumnsAt(st.station, line)
+      const remove = st.tool === 'block' ? wallColumnsAt(st.station, line) : storeyColumnsAt(st.station, line)
       if (remove.length === 0) {
-        st.setNotice(msg('no_wall_to_remove_here'))
+        st.setNotice(msg('no_blocks_to_remove_here'))
         return
       }
       st.commit(removeCells(st.station, remove))

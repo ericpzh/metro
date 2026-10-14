@@ -11,10 +11,10 @@ try{
  const bagArg=process.argv.find(a=>a.startsWith('--bag='))?.split('=')[1];
  for(const character of characterArg?[characterArg]:['male','female']){
   await page.evaluate(`(()=>{const e=document.querySelector('#character');e.value='${character}';e.dispatchEvent(new Event('change'))})()`);
-  await waitFor(page.evaluate,'!window.__modelPreview.loading',{tries:100,every:200});
-  for(const bag of bagArg?[bagArg]:['1','small']){
+  await waitFor(page.evaluate,'!window.__modelPreview.loading&&document.querySelector("#status").textContent===""',{tries:100,every:200});
+  for(const bag of bagArg?[bagArg]:['1','small','standard-87.5','standard-75']){
   await page.evaluate(`(()=>{const e=document.querySelector('#bag');e.value='${bag}';e.dispatchEvent(new Event('change'))})()`);
-  await waitFor(page.evaluate,'!window.__modelPreview.loading',{tries:100,every:200});
+  await waitFor(page.evaluate,'!window.__modelPreview.loading&&document.querySelector("#status").textContent===""',{tries:100,every:200});
   for(const time of [null,0,.28,.56,.84]){
    const fit=await page.evaluate(`(async()=>{
     const T=await import('/node_modules/three/build/three.module.js'),p=window.__modelPreview;

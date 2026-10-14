@@ -49,16 +49,19 @@ export function trimCoatUnderStraps(body,strap){
  for(let offset=0;offset<geometry.index.count;offset+=3){
   const ids=[0,1,2].map(k=>geometry.index.getX(offset+k)),center=new THREE.Vector3();
   for(const i of ids)center.add(new THREE.Vector3().fromBufferAttribute(p,i).multiplyScalar(1/3));
-  if(center.y<.90||center.y>1.39||Math.abs(center.x)<.07||Math.abs(center.x)>.27||(ids.some(i=>armWeight(i)>.005)&&!(center.y>1.24&&Math.abs(center.x)<.17))||!allowed.some(value=>Math.abs(attributes.color.getX(ids[0])-value)<.001)){indices.push(...ids);continue}
+  if(center.y<.90||center.y>1.41||Math.abs(center.x)<.05||Math.abs(center.x)>.27||(ids.some(i=>armWeight(i)>.005)&&!(center.y>1.24&&Math.abs(center.x)<.17))||!allowed.some(value=>Math.abs(attributes.color.getX(ids[0])-value)<.001)){indices.push(...ids);continue}
   let nearest=0,distance=Infinity;
   for(let i=0;i<sections.length;i++){const d=center.distanceToSquared(sections[i].center);if(d<distance){nearest=i;distance=d}}
   if(distance>.0036){indices.push(...ids);continue}
   let polygons=[ids.map(vertex)],changed=false;
-  for(let i=Math.max(0,nearest-3);i<=Math.min(sections.length-1,nearest+3);i++){
+  for(let i=Math.max(0,nearest-8);i<=Math.min(sections.length-1,nearest+8);i++){
    const section=sections[i],project=(point,axis)=>new THREE.Vector3(...point).sub(section.center).dot(axis),half=section.width/2+.0001;
+   const depth=THREE.MathUtils.lerp(.030,.0015,THREE.MathUtils.smoothstep(section.center.y,1.27,1.33));
+   // Preserve the recessed shoulder shell. A deep cut here opened a view
+   // past the neck to the shirt on the opposite side of the torso.
    // Each clipping plane is linear. An absolute-value slab misses triangles
    // whose edge crosses both sides, leaving shards through the lower turn.
-   const planes=[q=>half-project(q,section.across),q=>half+project(q,section.across),q=>.012-project(q,section.tangent),q=>.012+project(q,section.tangent),q=>.030+project(q,section.normal),q=>.045-project(q,section.normal)];
+   const planes=[q=>half-project(q,section.across),q=>half+project(q,section.across),q=>.012-project(q,section.tangent),q=>.012+project(q,section.tangent),q=>depth+project(q,section.normal),q=>.045-project(q,section.normal)];
    const next=[];
    for(const polygon of polygons){
     let remaining=polygon,outside=[];
@@ -84,19 +87,22 @@ export function trimCoatUnderStraps(body,strap){
    const tangent=vector(next+2).sub(vector(previous+2)).normalize(),across=vector(i+4).sub(vector(i));
    const normal=new THREE.Vector3().crossVectors(tangent,across).normalize();
    if(normal.dot(new THREE.Vector3(center.x,center.y>1.29?.2:0,center.z-.035))<0)normal.negate();
+   // Recess the shoulder support downward, matching the strap's fitting
+   // direction. A tilted ribbon normal pushed this lining above its edge.
+   normal.lerp(new THREE.Vector3(0,1,0),THREE.MathUtils.smoothstep(center.y,1.28,1.34)).normalize();
    for(let j=0;j<5;j++){
+    const shoulder=THREE.MathUtils.smoothstep(center.y,1.28,1.34);
     const point=vector(i+j).add(vector(i+9-j)).multiplyScalar(.5).addScaledVector(across.clone().normalize(),(j-2)*.0001);
-    grid.push(point.clone().addScaledVector(normal,center.z<.035?-.006:-.003));
-    inner.push(point.clone().addScaledVector(normal,-.033));
+    grid.push(point.clone().addScaledVector(normal,THREE.MathUtils.lerp(center.z<.035?-.006:-.003,-.0007,shoulder)));
+    inner.push(point.clone().addScaledVector(normal,THREE.MathUtils.lerp(-.033,-.009,shoulder)));
    }
   }
   function backingTriangle(points){
-   const center=points.reduce((v,point)=>v.add(point.clone().multiplyScalar(1/3)),new THREE.Vector3());
-   const color=grey(center.y>1.305+4.1*center.x*center.x?.78:coatGrey);
-   for(const point of points){
-    const vertex=arrays.position.length/3;indices.push(vertex);
-    for(const [key,a] of Object.entries(attributes))arrays[key].push(...(key==='position'?point.toArray():key==='color'?[color,color,color]:key==='skinIndex'?[spine,0,0,0]:key==='skinWeight'?[1,0,0,0]:Array(a.itemSize).fill(0)));
-   }
+   const polygon=points.map(point=>Object.fromEntries(Object.entries(attributes).map(([key,a])=>[key,key==='position'?point.toArray():key==='color'?[0,0,0]:key==='skinIndex'?[spine,0,0,0]:key==='skinWeight'?[1,0,0,0]:Array(a.itemSize).fill(0)])));
+   // Split the actual neckline rather than colouring whole backing triangles
+   // by their centres; those triangles left sawtooth patches at strap edges.
+   const [skin,coat]=split(polygon,([x,y])=>y-(1.305+4.1*x*x));
+   for(const [poly,value] of [[skin,.78],[coat,coatGrey]])if(poly.length>=3){for(const v of poly)v.color=Array(3).fill(grey(value));emit(poly)}
   }
   for(let row=0;row<rows-1;row++)if(supported[row]&&supported[row+1])for(let j=0;j<4;j++)for(const ids of [[row*5+j,row*5+j+1,(row+1)*5+j],[row*5+j+1,(row+1)*5+j+1,(row+1)*5+j]]){
    backingTriangle(ids.map(id=>grid[id]));backingTriangle(ids.toReversed().map(id=>inner[id]));

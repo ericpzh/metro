@@ -7,6 +7,8 @@
 // live train per tick, so each consist is drawn between its last two poses.
 
 import * as THREE from 'three'
+import { batchStaticParts } from '../../batchStaticModule.ts'
+import { batchTrainDoors, batchTrainTransparent } from '../../trainBatches.ts'
 import { buildTrain, disposeObject, setDoors, setDoorsSides } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import { STOCK, STOCK_CLASSES } from '../../../sim/stock.ts'
@@ -53,6 +55,17 @@ const TRAIN_MISSES_ALLOWED = 4
 export class TrainSystem extends SceneSystem {
   trainGroup: THREE.Group = new THREE.Group()
   private trainSlots = new Map<string, TrainEntry>()
+  private drawBatching = true
+  private lastBuffer = new Float32Array()
+
+  /** Profiling ablation on the same scene/assets; does not change simulation. */
+  setDrawBatching(enabled: boolean): void {
+    if (this.drawBatching === enabled) return
+    this.drawBatching = enabled
+    for (const entry of this.trainSlots.values()) this.dropConsist(entry.group)
+    this.trainSlots.clear()
+    this.setTrains(this.lastBuffer)
+  }
   /** Platform-screen-door runs with their berth position, for per-rail opening. */
   psdGroups: Array<{ group: THREE.Object3D; x: number; y: number; z: number; half: number; fx: number; fy: number }> = []
   /** Level slicing for newly arrived consists; wired by the orchestrator. */
@@ -77,6 +90,7 @@ export class TrainSystem extends SceneSystem {
    * the leaves on the tunnel-wall side stay shut however long the train stands.
    */
   setTrains(buffer: Float32Array): void {
+    this.lastBuffer = buffer.slice()
     const STRIDE = 10
     const n = Math.min(Math.floor(buffer.length / STRIDE), 64)
     for (const entry of this.trainSlots.values()) {
@@ -105,6 +119,9 @@ export class TrainSystem extends SceneSystem {
       if (!entry) {
         const stock: StockClass = STOCK_CLASSES[stockIdx] ?? 'B'
         const group = buildTrain(this.ctx.modelMats, { x, y, z, cars, stock, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
+        group.userData.renderFamily = 'train'
+        batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
+        if (this.drawBatching) { batchTrainDoors(group); batchTrainTransparent(group) }
         // The storey the consist stands in: its track surface is half a metre
         // below the platform, so the walk-surface convention (`cell z + 1`)
         // rounds back to the floor block the train rides over. Without the
@@ -184,7 +201,7 @@ export class TrainSystem extends SceneSystem {
       entry.group.position.lerpVectors(entry.from, entry.to, alpha)
       this.advanceTrainDoors(entry.group, doorDt)
     }
-    for (const psd of this.psdGroups) this.advanceDoors(psd.group, doorDt)
+    for (const psd of this.psdGroups) if (psd.group.visible) this.advanceDoors(psd.group, doorDt)
   }
 
   /** Freeze door leaves while paused; resume easing on play. */
@@ -209,8 +226,12 @@ export class TrainSystem extends SceneSystem {
       if (cur === target[i]) continue
       t[i] = target[i] > cur ? Math.min(target[i], cur + step) : Math.max(target[i], cur - step)
     }
-    root.userData.doorT = t
-    setDoorsSides(root, t[0], t[1])
+    if (t[0] !== root.userData.lastDoorLeft || t[1] !== root.userData.lastDoorRight) {
+      root.userData.doorT = t
+      setDoorsSides(root, t[0], t[1])
+      root.userData.lastDoorLeft = t[0]
+      root.userData.lastDoorRight = t[1]
+    }
   }
 
   /**

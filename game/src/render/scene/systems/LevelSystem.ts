@@ -172,6 +172,7 @@ export class LevelSystem extends SceneSystem {
     // Trains own their `visible` flag (`setTrains` parks them between services),
     // so the slicing is combined with the sim's own state rather than replacing it.
     for (const child of this.trains.trainGroup.children) this.applyGroupLevel(child, 'train')
+    this.modules.syncBatches()
   }
 
   /**

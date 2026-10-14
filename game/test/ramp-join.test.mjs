@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { EscalatorModel } from '../src/render/models/pieces/EscalatorModel.ts'
 import { createModule } from '../src/build/model.ts'
 import { stairFacing } from '../src/sim/stairs.ts'
+import { RAMP_LENGTHS, rampLengthSpec } from '../src/sim/rampLengths.ts'
 
 const mats = new Proxy({}, { get: (o, k) => o[k] ??= new THREE.MeshStandardMaterial() })
 function joins(modules, cells = []) {
@@ -15,7 +16,8 @@ function joins(modules, cells = []) {
     return g.children.filter((o) => o.name === 'ramp-join').map((mesh) => ({ group: g, mesh, bounds: new THREE.Box3().setFromObject(mesh, true), owner: mod.id, domes: g.children.filter((o) => o.name === 'ramp-join-dome' && o.userData.neighbourId === mesh.userData.neighbourId) }))
   })
 }
-const escalator = (x, id, rot = 0, width = 1, dir = 'up', y = 0, z = 0) => createModule('escalator', x, y, z, id, rot, width, dir)
+const escalator = (x, id, rot = 0, width = 1, dir = 'up', y = 0, z = 0, length = 'medium') => createModule('escalator', x, y, z, id, rot, width, dir, 'lane', [], undefined, { rampLength: length })
+const stair = (x, id, rot = 0, length = 'medium') => createModule('stair-straight', x, 0, 0, id, rot, 0.68, 'up', 'lane', [], undefined, { rampLength: length })
 
 test('one metal cap fills every shared escalator seam, in all rotations and travel directions', () => {
   for (let rot = 0; rot < 4; rot++) for (const width of [1, 2]) for (const dir of ['up', 'down']) {
@@ -155,6 +157,28 @@ test('stair connections drop vertically to a shelf instead of slanting across th
       }
       assert.ok(Math.abs(minimum) < 1e-5, 'hemisphere base rests on the stair-height shelf')
     }
+  }
+})
+
+test('a bank fills its seam at every run length, and only between pieces of one length', () => {
+  for (const spec of RAMP_LENGTHS) {
+    // Escalator beside escalator, and a 单跑楼梯 beside an escalator: one cap either way,
+    // because a seam is a property of two runs of the same length standing flush.
+    assert.equal(joins([escalator(0, 'a', 0, 1, 'up', 0, 0, spec.id), escalator(1, 'b', 0, 1, 'down', 0, 0, spec.id)]).length, 1, `${spec.id} escalator pair`)
+    assert.equal(joins([escalator(0, 'a', 0, 1, 'up', 0, 0, spec.id), stair(1, 's', 0, spec.id)]).length, 1, `${spec.id} stair beside an escalator`)
+  }
+  // Two lengths are two runs: their landings, slopes and rail returns do not meet,
+  // so nothing is drawn across the step between them.
+  const [first, ...rest] = RAMP_LENGTHS
+  for (const other of rest) {
+    assert.equal(joins([escalator(0, 'a', 0, 1, 'up', 0, 0, first.id), escalator(1, 'b', 0, 1, 'down', 0, 0, other.id)]).length, 0, `${first.id} vs ${other.id}`)
+  }
+  // Each length's own cap still follows its incline between the rail returns.
+  for (const spec of RAMP_LENGTHS) {
+    const [{ bounds }] = joins([escalator(0, 'a', 0, 1, 'up', 0, 0, spec.id), escalator(1, 'b', 0, 1, 'down', 0, 0, spec.id)])
+    const size = bounds.getSize(new THREE.Vector3())
+    assert.ok(size.y > rampLengthSpec(spec.id).run * 0.8, `${spec.id} cap spans the run it fills`)
+    assert.ok(Math.abs(size.x - 0.32) < 1e-5, `${spec.id} cap fills the 28 cm gap`)
   }
 })
 

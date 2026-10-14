@@ -176,6 +176,12 @@ export function SignEditor(): React.ReactElement | null {
     setDragMark(null)
     setInsertAt(null)
     setHoverFace(null)
+    // A session starts with no pending scene redraw: a trailing redraw from the
+    // boards just closed must not land on the ones just opened.
+    if (previewTimer.current !== null) {
+      window.clearTimeout(previewTimer.current)
+      previewTimer.current = null
+    }
     // Deliberately keyed on the session, not on `stored`: an edit writes the current
     // boards as the player works, and re-seeding on every write would fight the edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,8 +196,81 @@ export function SignEditor(): React.ReactElement | null {
   const SIGN_FULL_NOTICE = msg('no_room_on_this_sign_remove_some_content_first')
 
   /**
-   * The one place a board is written: the editor's own two lists, the bins, the hover
-   * ghost and the module are all this call.
+   * How long a live drag waits after its last hovered bin before asking the
+   * scene to redraw the sign being arranged. The bins themselves move with the
+   * pointer (see `applyLocal`); the 3D redraw behind the modal is trailing, so
+   * scrubbing across a row costs local state per bin and at most one full
+   * `setStation` here, plus the drop's own flush — instead of one rebuild per
+   * hovered bin, which is what made dragging a board mark stutter.
+   */
+  const SIGN_PREVIEW_DEBOUNCE_MS = 150
+  const previewTimer = useRef<number | null>(null)
+
+  /**
+   * The bins alone: the editor's own two lists, without the scene redraw. A drag
+   * reports dozens of positions a second, and every store preview bumps
+   * `signVersion`, which rebuilds the whole station (`Viewport`'s rebuild effect
+   * → `setStation`); doing that per hovered bin blocks the pointer handler the
+   * ghost itself moves in. So live moves write here and schedule the redraw
+   * (`schedulePreview`), and the drop syncs it once (`flushPreview`).
+   */
+  const applyLocal = useCallback(
+    (next: SignBoards) => {
+      const trimmed: SignBoards = {
+        front: next.front.slice(0, SIGN_COMPONENT_MAX),
+        back: next.back.slice(0, SIGN_COMPONENT_MAX),
+      }
+      // Readable to the window listeners before the next render commits: two
+      // pointer moves can land in one frame, and the second must read the first
+      // one's row rather than the last render's.
+      boardsRef.current = trimmed
+      setBoards(trimmed)
+      const cur = useStore.getState().notice
+      if (cur === SIGN_FULL_NOTICE || cur?.startsWith(msg('a_sign_can_hold_at_most')) === true) {
+        useStore.getState().setNotice(null)
+      }
+    },
+    // SIGN_FULL_NOTICE is recomputed per render but always the same string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
+  /**
+   * Ask the scene for a redraw of the boards being arranged, trailing: at most
+   * one pending redraw, fired after the pointer has rested one debounce. Only
+   * while a drag is still in flight — the drop flushes explicitly, and a timer
+   * that fires after the editor closed must not resurrect a preview behind it.
+   */
+  const schedulePreview = useCallback((): void => {
+    if (previewTimer.current !== null) return
+    previewTimer.current = window.setTimeout(() => {
+      previewTimer.current = null
+      if (drag.current) useStore.getState().previewSignLayout(boardsRef.current)
+    }, SIGN_PREVIEW_DEBOUNCE_MS)
+  }, [])
+
+  /** Drop any pending trailing redraw and sync the scene to the bins now. */
+  const flushPreview = useCallback((): void => {
+    if (previewTimer.current !== null) {
+      window.clearTimeout(previewTimer.current)
+      previewTimer.current = null
+    }
+    useStore.getState().previewSignLayout(boardsRef.current)
+  }, [])
+
+  /** Drop a trailing redraw without syncing: the edit was cancelled, not dropped. */
+  const cancelScheduledPreview = useCallback((): void => {
+    if (previewTimer.current !== null) {
+      window.clearTimeout(previewTimer.current)
+      previewTimer.current = null
+    }
+  }, [])
+
+  /**
+   * The one place a settled board is written: the editor's own two lists, the bins,
+   * the hover ghost and the module are all this call. Discrete edits (a click, a
+   * drop, a delete) go through here and redraw at once; live drag moves go through
+   * `applyLocal` and schedule that redraw instead.
    *
    * Both faces are settled together (`previewSignLayout` → `settleSignBoards`) because
    * the two plates share one panel: a mark added to the front can lengthen the steel the
@@ -206,29 +285,23 @@ export function SignEditor(): React.ReactElement | null {
    */
   const apply = useCallback(
     (next: SignBoards) => {
-      const trimmed: SignBoards = {
-        front: next.front.slice(0, SIGN_COMPONENT_MAX),
-        back: next.back.slice(0, SIGN_COMPONENT_MAX),
-      }
-      setBoards(trimmed)
-      previewSignLayout(trimmed)
-      const cur = useStore.getState().notice
-      if (cur === SIGN_FULL_NOTICE || cur?.startsWith(msg('a_sign_can_hold_at_most')) === true) {
-        useStore.getState().setNotice(null)
-      }
+      applyLocal(next)
+      previewSignLayout(boardsRef.current)
     },
-    [previewSignLayout],
+    [applyLocal, previewSignLayout],
   )
 
   const cancel = useCallback((): void => {
+    cancelScheduledPreview()
     restoreSignLayout(opened.current)
     closeSignEditor()
-  }, [restoreSignLayout, closeSignEditor])
+  }, [cancelScheduledPreview, restoreSignLayout, closeSignEditor])
 
   const confirm = useCallback((): void => {
+    cancelScheduledPreview()
     commitSignLayout(boards)
     closeSignEditor()
-  }, [commitSignLayout, closeSignEditor, boards])
+  }, [cancelScheduledPreview, commitSignLayout, closeSignEditor, boards])
 
   useEffect(() => {
     if (!open) return
@@ -269,6 +342,13 @@ export function SignEditor(): React.ReactElement | null {
     ghost: HTMLElement | null
     /** The pointer is over the bin, so the mark is about to be thrown away. */
     overTrash: boolean
+    /**
+     * True once a live move rewrote the bins. The bins move with the pointer
+     * while the scene redraw trails behind (`schedulePreview`), so the drop has
+     * to know whether the scene is behind: only a drag that actually moved
+     * anything needs the drop's own sync (`flushPreview`).
+     */
+    moved: boolean
     /**
      * The pointer is over the **library** — the tiles the mark was taken from — so it is
      * about to be thrown away there instead. The two are mutually exclusive and the bin is
@@ -492,7 +572,11 @@ export function SignEditor(): React.ReactElement | null {
       const carried = signLayoutCarried(list, boardsRef.current[place.face], comp.id, place.index)
       d.id = carried.id
       d.remove = { face: place.face, id: carried.id }
-      applyRef.current({ ...boardsRef.current, [held.face]: carried.source, [place.face]: carried.target })
+      // A live move writes the bins alone and schedules the scene redraw: see
+      // `applyLocal`. The mark travels with the pointer; the 3D sign follows.
+      d.moved = true
+      applyLocal({ ...boardsRef.current, [held.face]: carried.source, [place.face]: carried.target })
+      schedulePreview()
       return
     }
     // A move along a row is the model's own reorder (`signLayoutMoved`), which re-states
@@ -500,13 +584,18 @@ export function SignEditor(): React.ReactElement | null {
     // will be there when they let go. The insert-and-filter form above is for crossing
     // *between* boards — applying it within a row re-pitched the row to its bin centres and
     // lost the place the pointer had aimed at.
-    applyRef.current({ ...boardsRef.current, [held.face]: signLayoutMoved(list, comp.id, place.index) })
+    d.moved = true
+    applyLocal({ ...boardsRef.current, [held.face]: signLayoutMoved(list, comp.id, place.index) })
+    schedulePreview()
   }
 
   const endDrag = (commitDrop: boolean): void => {
     const d = drag.current
     drag.current = null
     armed.current = null
+    // The drop writes once, below: a trailing redraw scheduled mid-drag must not
+    // fire behind it and move the scene a second time.
+    cancelScheduledPreview()
     if (d?.ghost) d.ghost.remove()
     const place = placeRef.current
     placeRef.current = null
@@ -516,7 +605,13 @@ export function SignEditor(): React.ReactElement | null {
     setDragMark(null)
     setOverTrash(false)
     setOverLibrary(false)
-    if (!commitDrop || !d) return
+    if (!d) return
+    if (!commitDrop) {
+      // A cancelled drag already moved the bins live; bring the scene along so
+      // it does not keep showing the pre-drag boards.
+      if (d.moved) flushPreview()
+      return
+    }
     // A mark that was **on a board** is thrown away by two gestures, and by nothing else:
     // let go over the rail's bin, or let go back over the **library** of tiles it was taken
     // from (`overLibrary`). Everything else that is not a place on a row puts it back where
@@ -569,22 +664,38 @@ export function SignEditor(): React.ReactElement | null {
           noticeRef.current(SIGN_FULL_NOTICE)
         }
       }
+      return
+    }
+    // A board mark dropped where it already stands — its own face, or off the rows
+    // after wandering — moved live in the bins alone, so the scene still shows the
+    // pre-drag boards. Sync it once, here, instead of on every hovered bin.
+    // (A delete, a palette insert and a cross-face drop above already wrote through
+    // `apply`, so they need no second redraw.)
+    if (d.id !== null && d.moved && (place === null || (d.remove.face !== null && place.face === d.remove.face))) {
+      flushPreview()
     }
   }
 
   useEffect(() => {
     if (!open) return
     const onMove = (e: PointerEvent): void => {
+      // One evaluation per frame: a fast pointer delivers several moves between
+      // two paints, and the intermediate places are bins the drag skipped over —
+      // the row only has to show where the pointer is now.
+      const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
+      const last = coalesced.length > 0 ? coalesced[coalesced.length - 1] : e
+      const x = last.clientX
+      const y = last.clientY
       const a = armed.current
       if (!a) {
         // Already dragging: the carried mark travels with the pointer.
         if (drag.current) {
           const held = dragMarkRef.current
-          if (held) trackDrag(e.clientX, e.clientY, held)
+          if (held) trackDrag(x, y, held)
         }
         return
       }
-      if (Math.abs(e.clientX - a.x) + Math.abs(e.clientY - a.y) < DRAG_SLOP) return
+      if (Math.abs(x - a.x) + Math.abs(y - a.y) < DRAG_SLOP) return
       // The press became a drag: the mark leaves its tile (or its place in the row) and floats.
       armed.current = null
       const mark = a.id === '' ? markFor(a.payload) : (boardsRef.current[a.face].find((c) => c.id === a.id) ?? null)
@@ -600,10 +711,11 @@ export function SignEditor(): React.ReactElement | null {
         ghost: null,
         overTrash: false,
         overLibrary: false,
+        moved: false,
       }
       dragMarkRef.current = mark
       setDragMark(mark)
-      trackDrag(e.clientX, e.clientY, mark)
+      trackDrag(x, y, mark)
     }
     const onUp = (): void => {
       // Letting go: a drop if a drag is in flight, otherwise the press was a click and
@@ -622,7 +734,14 @@ export function SignEditor(): React.ReactElement | null {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onCancel)
+      // A session torn down mid-drag must not redraw behind the next one.
+      if (previewTimer.current !== null) {
+        window.clearTimeout(previewTimer.current)
+        previewTimer.current = null
+      }
     }
+    // `previewTimer` is a ref: clearing it needs no dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   /* ------------------------------------------------------------- editing */

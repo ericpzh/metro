@@ -4,8 +4,8 @@
 // collide with the one below.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { autofaceWallMount, boxesOverlap, isCeilingHung, isTrackBed, moduleAt, moduleBlockedCells, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
-import { addCells, addEquipment, addFloor, createModule, GROUND_Z, nextExitName, nextModuleId, randomAdSlug, removeModule, toData, toState } from '../src/build/model.ts'
+import { autofaceWallMount, boxesOverlap, equipmentReason, isCeilingHung, isTrackBed, moduleAt, moduleBlockedCells, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
+import { addCells, addEquipment, addFloor, createModule, GROUND_Z, nextExitLetter, nextExitName, nextModuleId, randomAdSlug, removeModule, toData, toState } from '../src/build/model.ts'
 import { billboardSpec, postersFor } from '../src/sim/billboards.ts'
 import { referenceStation } from '../src/data/reference-station.ts'
 
@@ -53,6 +53,20 @@ test('an exit keeps its whole enclosure clear', () => {
 test('a ramp corridor blocks flat equipment inside it', () => {
   assert.equal(placementBlocked([esc()], gate(0, 0, 0, 'g')), true)
   assert.equal(placementBlocked([esc()], gate(5, 0, 0, 'g')), false)
+})
+
+test('every stair shape needs ground at its foot, but may form its upper and turn landings', () => {
+  const foot = { x: 37, y: 44, z: -3, fill: 'solid' }
+  const types = [
+    'stair', 'stair-block', 'stair-straight', 'stair-right90', 'stair-left90',
+    'stair-right180', 'stair-left180', 'stair-leftForward', 'stair-centerForward', 'stair-rightForward',
+  ]
+  for (const type of types) for (const rot of [0, 1, 2, 3]) for (const width of [0.68, 1.79, 2.79]) {
+    const stair = createModule(type, foot.x, foot.y, foot.z, `${type}-${rot}-${width}`, rot, width)
+    assert.ok(stair, `${type} builds at rotation ${rot}, width ${width}`)
+    assert.equal(equipmentReason([foot], [], stair), '', `${type} only needs ground at its foot`)
+    assert.equal(equipmentReason([], [], stair), 'floor', `${type} still needs ground at its foot`)
+  }
 })
 
 test('moduleAt finds a module from any cell it covers', () => {
@@ -453,6 +467,17 @@ test('a new exit letters itself A ~ Z and reuses a freed letter', () => {
   assert.equal(nextExitName([b]), 'A口')
   // Only exits count: other equipment never claims a letter.
   assert.equal(nextExitName([gate(0, 0, 0, 'g')]), 'A口')
+})
+
+test('a 虚拟 exit takes the same free letter bare, without the 口 suffix', () => {
+  // The letter pool is shared with head-houses: a bare `C` claims C.
+  assert.equal(nextExitLetter([]), 'A')
+  const a = exit(0, 0, 0, 'exit-1')
+  const b = { ...exit(1, 0, 0, 'exit-2'), cfg: { name: 'B口', inRate: 900, open: true } }
+  assert.equal(nextExitLetter([a, b]), 'C')
+  const bare = { ...exit(2, 0, 0, 'exit-3'), cfg: { name: 'C', inRate: 900, open: true, style: 'virtual' } }
+  assert.equal(nextExitName([a, b, bare]), 'D口', 'a bare letter still claims its slot')
+  assert.equal(nextExitLetter([a, b, bare]), 'D')
 })
 
 test('the placeholder returns once all 26 letters are taken', () => {

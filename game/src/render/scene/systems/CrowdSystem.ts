@@ -20,6 +20,7 @@ import type { PassengerAppearance } from '../../passengerModel.ts'
 import { passengerWalkProfile } from '../../../sim/walking.ts'
 import { setGateWing } from '../../models.ts'
 import { AgentState } from '../../../sim/types.ts'
+import { PASSENGER_CULL_HEIGHT_FRACTION, PASSENGER_CULL_RADIUS_SCALE, PASSENGER_INSTANCE_CAPACITY } from '../../../sim/constants.ts'
 import { ZONE_LIST } from '../../../sim/zones.ts'
 import { crowdVisible } from '../../levelSlicing.ts'
 import {
@@ -122,6 +123,14 @@ export class CrowdSystem extends SceneSystem {
   private gaitPhases = new Float32Array(0)
   private gaitWeights = new Float32Array(0)
   private lastRenderTime = 0
+  private snapshotVersion = 0
+  private renderedKey = ''
+  private renderedPoses = new Float32Array(PASSENGER_INSTANCE_CAPACITY * 4)
+  private appearances = new Float64Array(PASSENGER_INSTANCE_CAPACITY * 5)
+  private drawnIds = new Float64Array(PASSENGER_INSTANCE_CAPACITY).fill(-1)
+  private frustum = new THREE.Frustum()
+  private projection = new THREE.Matrix4()
+  private bodySphere = new THREE.Sphere()
   private poseScratch: [number, number, number, number] = [0, 0, 0, 0]
   private appearanceScratch: PassengerAppearance = [0, 0, 0, 0, 0]
   private passengerColor = new THREE.Color()
@@ -133,11 +142,11 @@ export class CrowdSystem extends SceneSystem {
 
   constructor(ctx: SceneContext) {
     super(ctx)
-    this.agents = passengerMesh(8000)
+    this.agents = passengerMesh(PASSENGER_INSTANCE_CAPACITY)
     this.ctx.scene.add(this.agents)
 
     const blobGeo = new THREE.CircleGeometry(0.42, 10)
-    this.blobs = new THREE.InstancedMesh(blobGeo, this.ctx.mats.blob, 8000)
+    this.blobs = new THREE.InstancedMesh(blobGeo, this.ctx.mats.blob, PASSENGER_INSTANCE_CAPACITY)
     this.blobs.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
     this.blobs.frustumCulled = false
     this.blobs.renderOrder = 2
@@ -188,6 +197,7 @@ export class CrowdSystem extends SceneSystem {
    * `null`-ish id (-1) means nobody is selected at all.
    */
   setRoute(points: Float32Array, agentId: number): void {
+    this.snapshotVersion++
     this.routeAgentId = agentId
     const total = Math.floor(points.length / 3)
     const n = Math.min(total, ROUTE_MAX_POINTS)
@@ -311,16 +321,16 @@ export class CrowdSystem extends SceneSystem {
   setPlaying(on: boolean, now = performance.now()): void {
     if (on === this.playing) return
     if (!on) {
-      this.renderAgents(now)
+      this.renderAgents(now, undefined, true)
       const alpha = Math.max(0, Math.min(1, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
-      const pose = this.agents.geometry.getAttribute('passengerPose')
+      const pose = this.renderedPoses
       for (let i = 0; i < this.agentCount; i++) {
         const p = i * 3, o = i * 6
         this.frozen.set(this.cur[o + 5], {
           position: new THREE.Vector3(this.prev[p] + (this.cur[o] - this.prev[p]) * alpha,
             this.prev[p + 1] + (this.cur[o + 1] - this.prev[p + 1]) * alpha,
             this.prev[p + 2] + (this.cur[o + 2] - this.prev[p + 2]) * alpha),
-          yaw: this.yaws[i], pose: [pose.getX(i), pose.getY(i), pose.getZ(i), pose.getW(i)],
+          yaw: this.yaws[i], pose: [pose[i * 4], pose[i * 4 + 1], pose[i * 4 + 2], pose[i * 4 + 3]],
         })
       }
     } else {
@@ -410,11 +420,13 @@ export class CrowdSystem extends SceneSystem {
         this.gaitWeights[i] = 0
       }
       nextId.set(buffer[o + 5], i)
+      this.appearances.set(passengerAppearance(buffer[o + 5], this.appearanceScratch), i * 5)
     }
     this.cur.set(buffer.subarray(0, floats))
     this.prevId = nextId
     this.nextId = prevId
     this.agentCount = count
+    this.snapshotVersion++
     for (const id of this.frozen.keys()) if (!this.prevId.has(id)) this.frozen.delete(id)
     this.ctx.lastStateTime = performance.now()
     // One crossing count per worker snapshot, now that `prev`/`cur` are final.
@@ -560,7 +572,16 @@ export class CrowdSystem extends SceneSystem {
     return m
   }
 
-  renderAgents(now: number): void {
+  renderAgents(now: number, camera?: THREE.Camera, force = false): void {
+    if (!force && !this.agentsShown && this.followAgentId === null) {
+      this.lastRenderTime = now
+      this.renderedKey = ''
+      return
+    }
+    const key = `${this.snapshotVersion}|${this.playing}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideUI}|${this.ctx.levelBase}|${this.agentsShown}|${this.followAgentId}|${camera?.matrixWorld.elements.join(',') ?? ''}|${camera?.projectionMatrix.elements.join(',') ?? ''}`
+    if (!force && !this.playing && key === this.renderedKey) return
+    this.renderedKey = key
+    if (camera) this.frustum.setFromProjectionMatrix(this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
     const alpha = Math.min(1, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs)
     const pose = this.agents.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute
     const outfit = this.agents.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute
@@ -573,17 +594,17 @@ export class CrowdSystem extends SceneSystem {
     const axis = this.zAxis
     const n = this.agentCount
     let followed = false
+    let drawnCount = 0
+    let appearanceChanged = false
     /** True once the previewed passenger was drawn: the route goes with them. */
     let agentOn = false
     for (let i = 0; i < n; i++) {
       const o = i * 6
       const p = i * 3
       const id = this.cur[o + 5]
-      const appearance = passengerAppearance(id, this.appearanceScratch)
+      const appearance = this.appearanceScratch
+      for (let a = 0; a < 5; a++) appearance[a] = this.appearances[i * 5 + a]
       scale.set(appearance[2], appearance[3], appearance[1])
-      outfit.setX(i, appearance[0])
-      this.passengerColor.setRGB(appearance[4], appearance[4], appearance[4])
-      this.agents.setColorAt(i, this.passengerColor)
       const px = this.prev[p]
       const py = this.prev[p + 1]
       const pz = this.prev[p + 2]
@@ -608,23 +629,31 @@ export class CrowdSystem extends SceneSystem {
         q.setFromAxisAngle(axis, frozen.yaw)
       }
       const shown = frozen?.pose ?? frames
-      pose.setXYZW(i, shown[0], shown[1], shown[2], shown[3])
+      this.renderedPoses.set(shown, i * 4)
       // Only the crowd on the storeys that are actually drawn: an agent on a
       // hidden floor above (or a ghosted one below) would otherwise float over
       // the visible floor, reading as "seen through" it.
-      const drawn = this.agentLevelVisible(pos.z) && id !== this.followAgentId
+      this.bodySphere.center.set(pos.x, pos.y, pos.z + appearance[1] * PASSENGER_CULL_HEIGHT_FRACTION)
+      this.bodySphere.radius = Math.max(appearance[1], appearance[2], appearance[3]) * PASSENGER_CULL_RADIUS_SCALE
+      const drawn = this.agentsShown && this.agentLevelVisible(pos.z) && id !== this.followAgentId
+        && (!camera || this.followAgentId !== null || this.frustum.intersectsSphere(this.bodySphere))
       if (drawn) {
+        const slot = drawnCount++
+        if (this.drawnIds[slot] !== id) {
+          this.drawnIds[slot] = id
+          appearanceChanged = true
+          outfit.setX(slot, appearance[0])
+          this.passengerColor.setRGB(appearance[4], appearance[4], appearance[4])
+          this.agents.setColorAt(slot, this.passengerColor)
+        }
+        pose.setXYZW(slot, shown[0], shown[1], shown[2], shown[3])
         m.compose(pos, q, scale)
-        this.agents.setMatrixAt(i, m)
+        this.agents.setMatrixAt(slot, m)
         // The flat ground shadow follows the same independent horizontal axes.
         scale.z = 1
         m.compose(pos, q, scale)
         m.elements[14] += 0.03
-        this.blobs.setMatrixAt(i, m)
-      } else {
-        m.makeScale(0, 0, 0)
-        this.agents.setMatrixAt(i, m)
-        this.blobs.setMatrixAt(i, m)
+        this.blobs.setMatrixAt(slot, m)
       }
       // The 选择 tool's ring sits on the body it belongs to, moved with it through
       // the same interpolation, so what is highlighted is the person on screen.
@@ -638,18 +667,24 @@ export class CrowdSystem extends SceneSystem {
       }
 
     }
-    this.agents.count = n
-    this.blobs.count = n
+    this.agents.count = drawnCount
+    this.blobs.count = drawnCount
     // The route follows the passenger it belongs to: a storey that does not draw
     // the person does not draw the line they are walking either.
     this.agentRing.visible = agentOn && this.agentsShown && this.followAgentId === null
     this.route.visible = this.routeDrawn && agentOn && this.agentsShown && this.followAgentId === null
     this.destRing.visible = this.destDrawn && agentOn && this.agentsShown && this.followAgentId === null
-    pose.needsUpdate = true
-    outfit.needsUpdate = true
-    if (this.agents.instanceColor) this.agents.instanceColor.needsUpdate = true
-    this.agents.instanceMatrix.needsUpdate = true
-    this.blobs.instanceMatrix.needsUpdate = true
+    const attributes = [pose, this.agents.instanceMatrix, this.blobs.instanceMatrix]
+    if (appearanceChanged) {
+      attributes.push(outfit)
+      if (this.agents.instanceColor) attributes.push(this.agents.instanceColor)
+    }
+    for (const attr of attributes) {
+      if (!attr || drawnCount === 0) continue
+      attr.clearUpdateRanges()
+      attr.addUpdateRange(0, drawnCount * attr.itemSize)
+      attr.needsUpdate = true
+    }
     if (this.followAgentId !== null && !followed) this.onFollowLost?.()
 
   }

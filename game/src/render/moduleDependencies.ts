@@ -1,0 +1,99 @@
+import type { Cell, Module, StationData } from '../sim/types.ts'
+import { moduleEnvelope, moduleFootprint } from '../sim/placement.ts'
+import { stairFlights } from '../sim/stairs.ts'
+
+// These builders read module/metadata only. Changes to either fail closed below.
+const CELL_INDEPENDENT = new Set<Module['type']>([
+  'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
+  'cubicle', 'sink', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
+  'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
+  'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'track', 'exit', 'guidepost', 'busstop', 'psd-end',
+])
+
+/** The columns a cell-dependent builder reads. Height is intentionally unbounded:
+ * hangers seek a slab, lifts discover stops, ramps inspect adjacent wall courses. */
+function dependsOnCell(mod: Module, cell: Cell): boolean {
+  if (CELL_INDEPENDENT.has(mod.type)) return false
+  if (mod.type === 'shop') return cell.x >= mod.x - 1 && cell.x <= mod.x + mod.w
+    && cell.y >= mod.y - 1 && cell.y <= mod.y + mod.h
+  if (mod.type === 'stair' || mod.type === 'escalator' || mod.type === 'lift') {
+    const box = moduleEnvelope(mod)
+    if (!box || ![box.x0, box.x1, box.y0, box.y1].every(Number.isFinite)) return true
+    let x0 = box.x0, x1 = box.x1, y0 = box.y0, y1 = box.y1
+    if (mod.type === 'stair') for (const f of stairFlights(mod)) {
+      x0 = Math.min(x0, f.from.x, f.to.x); x1 = Math.max(x1, f.from.x, f.to.x)
+      y0 = Math.min(y0, f.from.y, f.to.y); y1 = Math.max(y1, f.from.y, f.to.y)
+    }
+    return cell.x >= x0 - 3 && cell.x <= x1 + 3 && cell.y >= y0 - 3 && cell.y <= y1 + 3
+  }
+  if (['sign', 'tv', 'clock', 'cctv', 'hanger'].includes(mod.type)) {
+    return moduleFootprint(mod).some(([x, y]) => Math.abs(cell.x - x) <= 1 && Math.abs(cell.y - y) <= 1)
+  }
+  return true // A future builder must declare its dependencies before reuse.
+}
+
+/** §4.3/§5: retain only models whose inputs did not change. Artwork/language
+ * invalidation is handled by the caller; module/neighbour edits take a full build. */
+export function retainedModuleIds(before: StationData, after: StationData): Set<string> {
+  const retained = new Set<string>()
+  if (!sameModuleMetadata(before, after)) return retained
+  const previous = new Map(before.cells.map(c => [`${c.x},${c.y},${c.z}`, c]))
+  const changed: Cell[] = []
+  for (const cell of after.cells) {
+    const key = `${cell.x},${cell.y},${cell.z}`, old = previous.get(key)
+    if (old !== cell && JSON.stringify(old) !== JSON.stringify(cell)) changed.push(cell)
+    previous.delete(key)
+  }
+  changed.push(...previous.values())
+  for (const mod of after.modules) if (!changed.some(cell => dependsOnCell(mod, cell))) retained.add(mod.id)
+  return retained
+}
+
+export function sameModuleMetadata(before: StationData, after: StationData): boolean {
+  const { cells: _a, ...a } = before, { cells: _b, ...b } = after
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/**
+ * The one 指示牌 whose printed boards changed, or null.
+ *
+ * A board edit — a drag, a stamp, a delete — changes no cell and no other
+ * module, but `sameModuleMetadata` still fails closed on it, so every preview
+ * step used to rebuild all module models and remesh every chunk. The chunks do
+ * not read signs (the mesher works off cells plus ramp/wall derivations), so a
+ * boards-only change rebuilds that one sign's model and repaints its plates,
+ * and nothing else. Anything else that moved — a cell, a line, the station's
+ * own fields, another module, a sign's mount, two signs at once — answers null
+ * and takes the full rebuild.
+ */
+export function signBoardsOnlyChange(before: StationData, after: StationData): string | null {
+  if (before.cells.length !== after.cells.length) return null
+  for (let i = 0; i < before.cells.length; i++) {
+    const old = before.cells[i], next = after.cells[i]
+    if (old !== next && JSON.stringify(old) !== JSON.stringify(next)) return null
+  }
+  if (before.modules.length !== after.modules.length) return null
+  // Lines included: a shield prints its line's colour and number, so a line
+  // edit reprints every board and is not a boards-only change.
+  const { cells: _bc, modules: _bm, ...beforeMeta } = before
+  const { cells: _ac, modules: _am, ...afterMeta } = after
+  if (JSON.stringify(beforeMeta) !== JSON.stringify(afterMeta)) return null
+  const previous = new Map(before.modules.map((m) => [m.id, m]))
+  let changed: string | null = null
+  for (const mod of after.modules) {
+    const old = previous.get(mod.id)
+    if (!old) return null
+    if (old === mod || JSON.stringify(old) === JSON.stringify(mod)) continue
+    // Exactly one sign, and only its two boards: a mount or booth change moves
+    // the steel, not the print, and takes the full path with it.
+    if (changed !== null || mod.type !== 'sign' || old.type !== 'sign') return null
+    const { cfg: nextCfg, ...nextRest } = mod
+    const { cfg: oldCfg, ...oldRest } = old
+    if (JSON.stringify(nextRest) !== JSON.stringify(oldRest)) return null
+    const { front: _nf, back: _nb, ...nextMount } = nextCfg
+    const { front: _of, back: _ob, ...oldMount } = oldCfg
+    if (JSON.stringify(nextMount) !== JSON.stringify(oldMount)) return null
+    changed = mod.id
+  }
+  return changed
+}

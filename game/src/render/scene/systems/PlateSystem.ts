@@ -21,8 +21,8 @@ import { calligraphyPanelSize } from '../../../sim/calligraphy.ts'
 import { lineMapSpec } from '../../../sim/linemaps.ts'
 import { signBoardsOf, signBoardsPanel, signFaceLayout, signPlate } from '../../../sim/sign.ts'
 import { stampAt } from '../../../sim/clock.ts'
-import type { SignLayout, SignPanelSize } from '../../../sim/sign.ts'
-import type { CalligraphyAxis, CalligraphyStyle, Module, StationData } from '../../../sim/types.ts'
+import type { SignBoards, SignLayout, SignPanelSize } from '../../../sim/sign.ts'
+import type { CalligraphyAxis, CalligraphyStyle, LineDef, Module, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 
@@ -243,6 +243,36 @@ export class PlateSystem extends SceneSystem {
       const plate = signPlate(panel)
       if (canvas.width !== plate.width || canvas.height !== plate.height) continue
       drawSignPanel(g, layout, { lines, panel }, entry.face)
+      entry.texture.needsUpdate = true
+    }
+  }
+
+  /**
+   * Repaint one 指示牌's faces in place after a boards-only change, from the
+   * boards handed in rather than the live document.
+   *
+   * The scene redraw a sign preview asks for (`setStation`'s fast path) cannot
+   * use `redrawSignPlates`: that repaints every face from `stationData`, which
+   * is every board on the station per preview step. This repaints only the one
+   * sign's two faces. A face whose panel changed size is skipped here — its old
+   * plate was disposed by `retainSignPlates` and `buildModules` mints it fresh,
+   * already carrying the new boards.
+   */
+  repaintSignPreview(id: string, boards: SignBoards, lines: readonly LineDef[]): void {
+    const panel = signBoardsPanel(boards)
+    const plate = signPlate(panel)
+    const faces = [
+      { face: 'left', layout: signFaceLayout(boards, 'front') },
+      { face: 'right', layout: signFaceLayout(boards, 'back') },
+    ] as const
+    for (const { face, layout } of faces) {
+      const entry = this.signPlates.get(signPlateKey(id, face, panel))
+      if (!entry) continue
+      const canvas = entry.texture.image as HTMLCanvasElement | undefined
+      const g = canvas?.getContext('2d')
+      if (!canvas || !g) continue
+      if (canvas.width !== plate.width || canvas.height !== plate.height) continue
+      drawSignPanel(g, layout, { lines: [...lines], panel }, face)
       entry.texture.needsUpdate = true
     }
   }

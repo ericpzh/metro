@@ -12,6 +12,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { facingFrom } from '../../pickFacing.ts'
 import { pickCells } from '../../pickCell.ts'
+import { BATCH_SOURCE_LAYER } from '../../batchGeometry.ts'
 import { SceneSystem, PAN_DOWN, PAN_UP } from './SceneSystem.ts'
 import type { PickResult, SceneContext } from './SceneSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
@@ -570,7 +571,9 @@ export class CameraSystem extends SceneSystem {
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, this.activeCamera())
     const shown = this.modules.moduleMeshes.children.filter((c) => c.visible && (!c.parent || c.parent.visible))
+    this.raycaster.layers.enable(BATCH_SOURCE_LAYER)
     const hits = this.raycaster.intersectObjects(shown, true)
+    this.raycaster.layers.disable(BATCH_SOURCE_LAYER)
     let modHit: THREE.Intersection | null = null
     let moduleId: string | null = null
     for (const hit of hits) {

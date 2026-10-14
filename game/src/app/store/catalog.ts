@@ -166,6 +166,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'exit-doorway-2', label: msg('ground_two_ways'), type: 'exit', w: 4, h: 1 },
   { id: 'exit-doorway-3', label: msg('ground_three_ways'), type: 'exit', w: 5, h: 1 },
   { id: 'exit-doorway-4', label: msg('ground_four_ways'), type: 'exit', w: 6, h: 1 },
+  { id: 'exit-virtual', label: msg('virtual_exit'), type: 'exit', w: 1, h: 1 },
   { id: 'escalator', label: msg('escalator'), type: 'escalator', w: 1, h: 1 },
   { id: 'lift', label: msg('lift'), type: 'lift', w: 1, h: 1 },
   { id: 'stair-straight', label: msg('straight_stairs'), type: 'stair', w: 1, h: 1 },
@@ -182,6 +183,17 @@ export const MODULE_OPTIONS: ModuleOption[] = [
 /** True for any fixed staircase shape in the palette. */
 export function isStairType(type: string): boolean {
   return type === 'stair' || type.startsWith('stair-')
+}
+
+/**
+ * True for the **single-run** staircase — 单跑楼梯, the palette's 直跑楼梯 tile and the
+ * bare `stair` the room builder places. It is the one stair shape whose length the
+ * player chooses (the same four sizes a 扶梯 comes in, `sim/rampLengths.ts`); a
+ * turning stair is the fixed footprint its turn is drawn at, and a 楼梯块 is a
+ * half-height building piece with no run at all.
+ */
+export function isStraightStairType(type: string): boolean {
+  return type === 'stair' || type === 'stair-straight'
 }
 
 /**
@@ -880,7 +892,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 
 /**
  * Everything a hover ghost is drawn from: the piece being placed, its rotation,
- * and every Tab cycle — the stair and roof widths, the escalator direction, the 闸机's lane
+ * and every Tab cycle — the stair and roof widths, the **run length** a 扶梯 or a
+ * 单跑楼梯 is built at, the escalator direction, the 闸机's lane
  * or fence, and the 方块 tool's cut modes (**半墙** / **三角上** / **三角下**) with the
  * wall-face cycle they share. The viewport subscribes to this one key, so anything
  * that changes what a ghost looks like rebuilds it under the pointer at once
@@ -893,8 +906,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'railLineId' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'escalatorLong' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'railLineId' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.escalatorLong}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

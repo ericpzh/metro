@@ -337,11 +337,12 @@ function stairReturnGeo(): THREE.TorusGeometry {
 }
 
 /**
- * A stair's turn landing: a platform spanning the two flight ends, one stair
- * width deep on every side the agent crosses, so the perpendicular width never
- * pinches at the corner. Built from the same surface and slab thickness as the
- * treads, over a shallow frame — never a reused 1 m floor block. A balustrade
- * runs the edges a flight does not attach to, wrapping the outside of the turn
+ * A stair's turn landing: a platform spanning the two flight ends — one block deep along
+ * the way the agent crosses it for a 180's half-landing, and the `lanes × lanes` square
+ * the two legs meet on for a 90° turn — so the perpendicular width never pinches at the
+ * corner. Built from the same surface and slab
+ * thickness as the treads, over a shallow frame — never a reused 1 m floor block. A
+ * balustrade runs the edges a flight does not attach to, wrapping the outside of the turn
  * and carrying the flight handrails around it — **except** a side a wall hugs
  * (`stairLandingWalls`): the wall is the barrier there, and a rail against it is
  * the same balustrade drawn twice, poking through the wall.

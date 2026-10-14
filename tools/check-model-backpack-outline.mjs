@@ -6,8 +6,8 @@ const out=resolve('.preview/models/bag-cleanup');mkdirSync(out,{recursive:true})
 const page=await withPage({url:'http://127.0.0.1:5175/?bag=small',profile:resolve(`.preview/.chrome-pack-outline-${process.pid}`),debugPort:9394,windowSize:'1300,1000'});
 try{
  await waitFor(page.evaluate,'window.__modelReady===true',{tries:100,every:200});
- async function select(id,value){await page.evaluate(`(()=>{const e=document.getElementById('${id}');e.value='${value}';e.dispatchEvent(new Event('change'))})()`);await waitFor(page.evaluate,'!window.__modelPreview.loading',{tries:100,every:200})}
- for(const character of ['male','female'])for(const bag of ['1','small']){
+ async function select(id,value){await page.evaluate(`(()=>{const e=document.getElementById('${id}');e.value='${value}';e.dispatchEvent(new Event('change'))})()`);await waitFor(page.evaluate,'!window.__modelPreview.loading&&document.querySelector("#status").textContent===""',{tries:100,every:200})}
+ for(const character of ['male','female'])for(const bag of ['1','small','standard-87.5','standard-75']){
   await select('character',character);await select('bag',bag);await select('profile','2');
   for(const time of [null,0,.28,.56,.84]){
    const report=await page.evaluate(`(async()=>{
@@ -40,5 +40,5 @@ try{
    }
   }
  }
- console.log('Backpack outline passes: both sizes/sexes, upper strap edges and four moving arm phases.');
+ console.log('Backpack outline passes: every bag style/sex, upper strap edges and four moving arm phases.');
 }finally{await page.close()}

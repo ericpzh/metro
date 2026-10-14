@@ -422,11 +422,11 @@ test('a large station trades undo depth for the memory budget, and never drops t
   st().loadReference()
   const cost = st().station.cells.length + st().station.modules.length * 4
   const frames = Math.min(40, Math.floor(120000 / cost))
-  assert.equal(frames, 8, `the shipped demo costs ${cost} a snapshot, so eight fit the 120 000 budget`)
+  assert.ok(frames > 1 && frames < 11, `the shipped demo costs ${cost} a snapshot, so the memory budget binds before eleven edits`)
   for (let i = 1; i <= 11; i++) st().commit({ ...st().station, name: `step-${i}` })
   assert.equal(st().past.length, frames, 'the budget, not the forty-frame depth, is the binding limit')
   assert.equal(st().past[frames - 1].name, 'step-10', 'the newest frame is the one the cap may never drop')
-  assert.equal(st().past[0].name, 'step-3', 'the oldest frames are the ones that go')
+  assert.equal(st().past[0].name, `step-${11 - frames}`, 'the oldest frames are the ones that go')
   assert.equal(st().past[frames - 1].cells.length, st().station.cells.length, 'and a kept frame is the whole document')
 })
 

@@ -32,9 +32,10 @@ for(const character of ['male','female']){
  const parsed=character==='female'?await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),''):null;
  const rig=character==='male'?maleRig:createFemaleVariant(parsed.scene);
  const animations=character==='male'?maleClips:createWalkClips(rig.model,WALK_PROFILES);
- for(const entry of MODEL_LIBRARY.filter(m=>m.character===character&&m.bagStyle==='small')){
-  rig.setBag('small');rig.setHairstyle(entry.hair);
-  await writeAsset(new URL(entry.file,assets),Buffer.from(await withTrimmedStrapSurface(rig.model,()=>new GLTFExporter().parseAsync(rig.model,{binary:true,animations}))));
+ for(const entry of MODEL_LIBRARY.filter(m=>m.character===character&&m.bagStyle)){
+  rig.setBag(entry.bagStyle);rig.setHairstyle(entry.hair);
+  const variantAnimations=entry.bagType?createWalkClips(rig.model,WALK_PROFILES):animations;
+  await writeAsset(new URL(entry.file,assets),Buffer.from(await withTrimmedStrapSurface(rig.model,()=>new GLTFExporter().parseAsync(rig.model,{binary:true,animations:variantAnimations}))));
   (character==='male'?maleVariants:filenames).push(entry.file);
  }
 }
@@ -42,4 +43,4 @@ await writeAsset(new URL('walk-profiles.json',assets),JSON.stringify(WALK_PROFIL
 await writeAsset(new URL('reference.png',assets),readFileSync(new URL('../../prototypes/trellis-passenger/reference.png',import.meta.url)));
 await writeAsset(new URL('provenance.json',assets),JSON.stringify({male:{source:'prototypes/trellis-passenger/passenger-b-walk-forward.glb',sha256:createHash('sha256').update(bytes).digest('hex'),geometryPreservedOutsideCleanupRegions:true,silhouetteCleanup:'model/src/characters/shoulders.js',variants:maleVariants},female:{builder:'model/src/characters/female.js',variants:filenames},walkProfiles:WALK_PROFILES},null,2)+'\n');
 await writeAsset(new URL('library.json',assets),JSON.stringify(MODEL_LIBRARY,null,2)+'\n');
-console.log(`Model library ready: ${MODEL_LIBRARY.length} variants, including five small backpacks.`);
+console.log(`Model library ready: ${MODEL_LIBRARY.length} variants, including small and resized standard backpacks.`);

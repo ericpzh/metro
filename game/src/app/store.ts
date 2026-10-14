@@ -49,6 +49,7 @@ export {
   cutModeOf,
   cutSpec,
   isStairType,
+  isStraightStairType,
   isBillboardType,
   isGlassType,
   isDoorType,

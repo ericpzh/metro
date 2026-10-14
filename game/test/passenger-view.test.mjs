@@ -86,9 +86,7 @@ test('eye pose uses interpolated positions and stable identity through crowd com
   frame([10, 2, 0, 0, 0, 7])
   crowd.renderAgents(ctx.lastStateTime + 1000)
   assert.ok(Math.abs(pose[3] - Math.PI / 2) < 1e-6, 'queued passenger retains their facing after a preceding slot disappears')
-  const matrix = new THREE.Matrix4()
-  crowd.agents.getMatrixAt(0, matrix)
-  assert.equal(matrix.elements[0], 0, 'own head is hidden in first person')
+  assert.equal(crowd.agents.count, 0, 'own head is excluded from the first-person draw')
   frame([])
   crowd.renderAgents(ctx.lastStateTime)
   assert.equal(lost, true, 'departing passenger exits follow instead of leaving a stranded camera')
@@ -139,7 +137,7 @@ test('outfits, proportions and ink tones follow identity through buffer reorderi
 })
 
 test('approved faceless head and backpack stay attached through grounded walking poses', () => {
-  assert.equal(PASSENGER_OUTFITS.length, 16)
+  assert.equal(PASSENGER_OUTFITS.length, 56)
   for (const frame of Array.from({length:human.frames-1},(_,i)=>i+1)) {
     const walk = passengerPose(frame)
     let top = 0, foot = Infinity

@@ -58,6 +58,11 @@ export const EXIT_GLASS_Y1 = 1.8
 
 export type ExitModule = Extract<Module, { type: 'exit' }>
 
+/** True when the exit is a street head-house (not a 地面 panel, not a 虚拟 pillar). */
+export function isExitHeadHouse(m: ExitModule): boolean {
+  return m.cfg.style !== 'doorway' && m.cfg.style !== 'virtual'
+}
+
 /** The default bay count of an exit: the reference 双向 head-house. */
 export const DEFAULT_EXIT_BAYS: ExitBays = 2
 
@@ -196,6 +201,7 @@ function exitLocal(wx: number, wy: number, rot: number | undefined): [number, nu
  * the ground it actually draws on. World-space, half-open: [x0,x1) × [y0,y1).
  */
 export function exitFloorBounds(m: ExitModule): { x0: number; y0: number; x1: number; y1: number } {
+  if (m.cfg.style === 'virtual') return { x0: m.x, y0: m.y, x1: m.x + 1, y1: m.y + 1 }
   const cx = m.x + 0.5
   const cy = m.y + 0.5
   const rot = quarter(m.rot)
@@ -229,7 +235,7 @@ export function exitFloorBounds(m: ExitModule): { x0: number; y0: number; x1: nu
  */
 export function exitDoorCell(m: ExitModule): [number, number, number] {
   const { centre } = exitSpan(m)
-  const [dx, dy] = exitRotate(Math.round(centre), m.cfg.style === 'doorway' ? 0 : EXIT_DOOR_Y, m.rot)
+  const [dx, dy] = exitRotate(Math.round(centre), m.cfg.style === 'doorway' || m.cfg.style === 'virtual' ? 0 : EXIT_DOOR_Y, m.rot)
   return [m.x + dx, m.y + dy, m.z]
 }
 
@@ -296,7 +302,7 @@ export interface ExitRunSnap {
 }
 
 export function exitRunSnap(modules: readonly Module[], x: number, y: number, z: number, run = STAIR_RUN, rise = STAIR_RISE): ExitRunSnap | null {
-  const exit = modules.find((m): m is ExitModule => m.type === 'exit' && m.cfg.style !== 'doorway' && exitCoversCell(m, x, y, z))
+  const exit = modules.find((m): m is ExitModule => m.type === 'exit' && isExitHeadHouse(m) && exitCoversCell(m, x, y, z))
   if (!exit) return null
   const [lx] = exitLocal(x - exit.x, y - exit.y, exit.rot)
   const bays = exitBays(exit)
@@ -321,7 +327,7 @@ export function exitRunSnap(modules: readonly Module[], x: number, y: number, z:
  * edges (`exitSpan`), so they always clear the runs the house holds.
  */
 export function exitWallPlanes(m: ExitModule): ExitWall[] {
-  if (m.cfg.style === 'doorway') return []
+  if (m.cfg.style === 'doorway' || m.cfg.style === 'virtual') return []
   const cx = m.x + 0.5
   const cy = m.y + 0.5
   const rot = quarter(m.rot)
@@ -368,7 +374,7 @@ export function exitFootprintCells(m: ExitModule): Array<[number, number, number
  */
 export function exitFloorAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
   for (const m of modules) {
-    if (m.type === 'exit' && m.cfg.style !== 'doorway' && exitCoversCell(m, x, y, z)) return true
+    if (m.type === 'exit' && isExitHeadHouse(m) && exitCoversCell(m, x, y, z)) return true
   }
   return false
 }

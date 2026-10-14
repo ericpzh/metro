@@ -89,3 +89,25 @@ test('a paused seek moves the clock and posts at once, stepping nothing', () => 
   assert.equal(frame.metrics.simTime, saturday, 'the clock moved')
   assert.equal(frame.metrics.tick, held, 'and moving it stepped nothing')
 })
+
+test('cosmetic builds acknowledge edits without rebuilding routes; speed and topology still rebuild', async () => {
+  const { World } = await import('../src/sim/world.ts')
+  const data = { name: 'test', seed: 1, modules: [], lines: [], cells: [{ x: 0, y: 0, z: -4, fill: 'solid', finish: { top: 'floor.tile' } }] }
+  post({ type: 'init', data, seed: 1, playing: false, speed: 1 })
+  const original = World.prototype.rebuild
+  let rebuilds = 0
+  World.prototype.rebuild = function (...args) { rebuilds++; return original.apply(this, args) }
+  try {
+    const tick = lastState().metrics.tick, count = frames.length
+    const painted = { ...data, cells: [{ ...data.cells[0], finish: { top: 'floor.tile', n: 'wall.enamel' } }] }
+    post({ type: 'build', data: painted })
+    assert.equal(rebuilds, 0, 'side color leaves routing/server state intact')
+    assert.equal(frames.length, count + 1, 'paused renderer receives the acknowledgement immediately')
+    assert.equal(lastState().metrics.tick, tick)
+    const slow = { ...painted, cells: [{ ...painted.cells[0], finish: { top: 'floor.concrete' } }] }
+    post({ type: 'build', data: slow })
+    assert.equal(rebuilds, 1, 'changed walking speed rebuilds the graph')
+    post({ type: 'build', data: { ...slow, cells: [...slow.cells, { x: 1, y: 0, z: -4, fill: 'solid' }] } })
+    assert.equal(rebuilds, 2, 'structural edits rebuild the graph')
+  } finally { World.prototype.rebuild = original }
+})

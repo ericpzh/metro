@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_SIDE, EXIT_W } from '../src/sim/exits.ts'
-import { exitBayCell, exitBayOffsets, exitBays, exitCentre, exitDoorCell, exitFloorBounds, exitRunHalf, exitRunOpenings, exitRunSnap, exitSide, exitSpan, exitWallPlanes, exitWidth } from '../src/sim/exits.ts'
+import { exitBayCell, exitBayOffsets, exitBays, exitCentre, exitDoorCell, exitFloorAt, exitFloorBounds, exitRunHalf, exitRunOpenings, exitRunSnap, exitSide, exitSpan, exitWallPlanes, exitWidth, isExitHeadHouse } from '../src/sim/exits.ts'
 import { STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
 import { createModule } from '../src/build/model.ts'
 
@@ -239,4 +239,20 @@ test('a pointer off the exit, or on another level, does not snap', () => {
   const mods = [exit(0)]
   assert.equal(exitRunSnap(mods, 10, 10, 0), null)
   assert.equal(exitRunSnap(mods, 0, 0, -4), null, 'the exit floor is only at its own level')
+})
+
+test('a 虚拟 exit is a 1x1 surface pillar: its own cell, no walls, no floor, no snap', () => {
+  // Reuses the 导向柱 model: one block, no head-house planes, and the crowd's
+  // node is the pillar's own cell rather than a street doorway two cells out.
+  const m = createModule('exit-virtual', 5, 5, 0, 'v')
+  assert.ok(m)
+  assert.equal(m.type, 'exit')
+  assert.equal(m.cfg.style, 'virtual')
+  assert.equal(m.cfg.bays, 1)
+  assert.equal(isExitHeadHouse(m), false)
+  assert.deepEqual(exitFloorBounds(m), { x0: 5, y0: 5, x1: 6, y1: 6 })
+  assert.deepEqual(exitDoorCell(m), [5, 5, 0])
+  assert.deepEqual(exitWallPlanes(m), [])
+  assert.equal(exitFloorAt([m], 5, 5, 0), false, 'lays no floor a ramp could land through')
+  assert.equal(exitRunSnap([m], 5, 5, 0), null, 'a ramp cannot snap into a pillar')
 })

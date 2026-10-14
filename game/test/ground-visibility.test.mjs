@@ -80,7 +80,7 @@ function rig(data) {
   level.chunks = chunks
   // The walk also visits the fixtures and the consists; a station with neither is
   // the ground's own business, so both are empty groups.
-  level.modules = { moduleMeshes: new THREE.Group() }
+  level.modules = { moduleMeshes: new THREE.Group(), syncBatches() {} }
   level.trains = { trainGroup: new THREE.Group() }
   chunks.prepareStation(data)
   chunks.meshStation()

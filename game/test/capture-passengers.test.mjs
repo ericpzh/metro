@@ -26,8 +26,9 @@ test('the capture route exposes the passenger capture once it is ready', () => {
     'the headless run waits on __passengerCardsReady and calls __passengerCards')
   const driver = readTool('render-passenger-cards.mjs')
   assert.ok(driver.includes('!!window.__passengerCardsReady'), 'the driver must wait for readiness, not sleep')
-  assert.ok(driver.includes('window.__passengerCards.capturePassengers()'), 'the index capture call is missing')
-  assert.ok(driver.includes("capturePassengers({age:'child'})"), 'the art must capture smaller children as well as adult catalogue templates')
+  assert.ok(driver.includes('window.__passengerCards.capturePassengers('), 'the index capture call is missing')
+  assert.ok(driver.includes("for (const age of ['adult','child']) for (const cycleVariants of batches)"),
+    'still captures must include both ages in bounded model batches')
   assert.ok(driver.includes('walkCycles: true') && driver.includes('cycleView: view') && driver.includes('cycleHeading: heading'),
     'gait cycles must be captured in bounded camera/heading batches')
 })
@@ -88,6 +89,7 @@ test('capture includes every model and bounds optional walking batches without a
   assert.ok(capture.includes('variant < PASSENGER_OUTFITS.length'))
   assert.ok(!capture.includes('variant % 3'), 'the old subset must not exclude newly approved models')
   assert.ok(capture.includes('options.cycleVariants.includes(variant)'))
+  assert.ok(!capture.includes('cycles && options.cycleVariants'), 'the requested model batch must also bound still captures')
   assert.ok(capture.includes('model: PASSENGER_OUTFITS[variant]'))
   assert.ok(capture.includes('sourceSha256: PASSENGER_LIBRARY[variant].sourceSha256'))
   assert.ok(driver.includes('passengerCaptureBatches') && driver.includes('validatePassengerCaptures'))

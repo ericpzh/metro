@@ -1,5 +1,6 @@
 import { msg } from '../../sim/i18n.ts'
-import { escalatorIsLong } from '../../sim/escalators.ts'
+import { escalatorLength } from '../../sim/escalators.ts'
+import { stairLengthOf } from '../../sim/stairs.ts'
 // The 吸取 (picker) tool (工具栏, `P`): click anything built and take it into
 // the brush — the generalised form of the old 材质 folder's 取色 (`I`), which
 // only lifted a face finish. Clicking a placed piece of equipment / 装饰 arms
@@ -30,7 +31,7 @@ import { finishLabel } from '../../sim/finishes.ts'
 import { moduleAt } from '../../sim/placement.ts'
 import { signBoardsOf, signMountSpec } from '../../sim/sign.ts'
 import type { Module } from '../../sim/types.ts'
-import { MODULE_OPTIONS, moduleLabel, useStore } from '../store.ts'
+import { MODULE_OPTIONS, isStraightStairType, moduleLabel, useStore } from '../store.ts'
 import { dominantFace } from './geometry/faces.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -109,6 +110,7 @@ function paletteIdForModule(mod: Module): string | null {
     case 'exit': {
       const covered = mod.cfg.covered ?? true
       const bays = mod.cfg.bays === 1 || mod.cfg.bays === 3 || mod.cfg.bays === 4 ? mod.cfg.bays : 2
+      if (mod.cfg.style === 'virtual') { id = 'exit-virtual'; break }
       if (mod.cfg.style === 'doorway') { id = `exit-doorway-${bays}`; break }
       id = covered
         ? bays === 1
@@ -252,8 +254,13 @@ export class PickTool extends ToolController {
       if (mod.type === 'escalator') {
         st.setEscalatorDir(mod.cfg.dir)
         if (st.escalatorWide !== (mod.cfg.width === 2)) st.toggleEscalatorWidth()
-        if (st.escalatorLong !== escalatorIsLong(mod)) st.toggleEscalatorLength()
+        st.setRampLength(escalatorLength(mod))
       }
+      // A 单跑楼梯 is picked at its own length too, so the next click rebuilds the run
+      // the player pointed at (a bank of 扶梯 and 楼梯 stays one length, and the seam
+      // between the two stays filled). A turning stair has no length of its own —
+      // `stairLengthOf` reports 中 for it and the setting is left as it stands.
+      if (mod.type === 'stair' && !mod.cfg.block && isStraightStairType(optionId)) st.setRampLength(stairLengthOf(mod))
       if (mod.type === 'roof' && mod.cfg.variant) st.setRoofWidth(mod.d)
       if (mod.type === 'lift') st.setLiftStyle(mod.cfg.style === 'steel' ? 'steel' : 'glass')
       if (mod.type === 'gate') st.setGateDoor(mod.cfg.door ?? 'lane')

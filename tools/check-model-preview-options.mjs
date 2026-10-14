@@ -8,20 +8,21 @@ const out=resolve('.preview/model-options');mkdirSync(out,{recursive:true});
 let children=0;
 for(let i=0;i<10000;i++){
  const a=randomAppearance();
- if(a.age==='child'){children++;assert.equal(a.bag,false);assert.notEqual(a.hair,'bald');for(const axis of ['width','depth'])assert(a.size[axis]>=80&&a.size[axis]<=90)}
+ if(a.age==='child'){children++;assert(!a.bag||a.bagStyle==='small'||a.bagStyle.startsWith('crossbody-'));assert.notEqual(a.hair,'bald');for(const axis of ['width','depth'])assert(a.size[axis]>=80&&a.size[axis]<=90)}
 }
 assert(children>1750&&children<2250,'random preview uses a 20% child chance');
 const server=await serveDir(resolve('model/dist'),4283);
 let page;
 try{
- page=await withPage({url:'http://127.0.0.1:4283/?age=child&character=male&hair=bald&bag=small&height=120&width=90&depth=110',profile:resolve(`.preview/.chrome-model-options-${process.pid}`),debugPort:9396,windowSize:'1440,1000'});
+ page=await withPage({url:'http://127.0.0.1:4283/?age=child&character=male&hair=bald&bag=small&height=120&width=90&depth=110',profile:resolve(`.preview/.chrome-model-options-${process.pid}`),debugPort:9410,windowSize:'1440,1000'});
  const ready=()=>waitFor(page.evaluate,'window.__modelReady&&!window.__modelPreview.loading&&document.querySelector("#status").textContent===""',{what:'model preview'});
  const change=async(id,value,event='change')=>{await page.evaluate(`(()=>{const input=document.getElementById(${JSON.stringify(id)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event(${JSON.stringify(event)},{bubbles:true}))})()`);await ready()};
- const read=()=>page.evaluate(`(()=>{const p=window.__modelPreview;return {age:p.state.age,hair:p.state.hair,bag:p.state.bag,scale:p.model.scale.toArray(),bagDisabled:document.querySelector('#bag').disabled,hairs:[...document.querySelector('#hair').options].map(o=>o.value),characterLabels:[...document.querySelector('#character').options].map(o=>o.textContent),url:location.href,uuid:p.model.uuid,shaderErrors:p.renderer.info.programs.filter(p=>p.diagnostics&&!p.diagnostics.runnable).length}})()`);
+ const read=()=>page.evaluate(`(()=>{const p=window.__modelPreview;return {age:p.state.age,hair:p.state.hair,bag:p.state.bag,bagStyle:p.state.bagStyle,scale:p.model.scale.toArray(),bagDisabled:document.querySelector('#bag').disabled,hairs:[...document.querySelector('#hair').options].map(o=>o.value),characterLabels:[...document.querySelector('#character').options].map(o=>o.textContent),url:location.href,uuid:p.model.uuid,shaderErrors:p.renderer.info.programs.filter(p=>p.diagnostics&&!p.diagnostics.runnable).length}})()`);
  const scaled=(actual,expected)=>actual.forEach((v,i)=>assert(Math.abs(v-expected[i])<1e-8));
  const capture=async name=>{await page.evaluate('(()=>{const p=window.__modelPreview;p.renderer.render(p.scene,p.camera)})()');const shot=await page.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(out,`${name}.png`),Buffer.from(shot.data,'base64'))};
  await ready();let result=await read();
- assert.equal(result.age,'child');assert.equal(result.hair,'short');assert.equal(result.bag,false);assert(result.bagDisabled);assert(!result.hairs.includes('bald'));assert.deepEqual(result.characterLabels,['Girl','Boy']);scaled(result.scale,[.63,.78,.63]);
+ assert.equal(result.age,'child');assert.equal(result.hair,'short');assert.equal(result.bag,true);assert(!result.bagDisabled);assert(!result.hairs.includes('bald'));assert.deepEqual(result.characterLabels,['Girl','Boy']);scaled(result.scale,[.63,.78,.63]);
+ assert.deepEqual(await page.evaluate('[...document.querySelector("#bag").options].map(o=>o.value)'),['0','small','crossbody-left','crossbody-right']);
  assert.deepEqual(await page.evaluate('[...document.querySelectorAll("#width,#depth")].map(input=>[input.min,input.max])'),[['80','90'],['80','90']]);
  await page.evaluate('window.__modelPreview.stand()');await capture('boy-en');
  const uuid=result.uuid;
@@ -33,7 +34,7 @@ try{
  result=await read();assert.equal(result.bag,true);assert(!result.bagDisabled);scaled(result.scale,[.9,.8,.9]);
  assert.deepEqual(await page.evaluate('[...document.querySelectorAll("#width,#depth")].map(input=>[input.min,input.max])'),[['90','110'],['90','110']]);
  await change('height','120','input');await capture('adult-en');
- await change('age','child');assert.equal((await read()).hair,'short');assert.equal((await read()).bag,false);
+ await change('age','child');assert.equal((await read()).hair,'short');assert.equal((await read()).bag,true);
  await change('character','female');await change('hair','long');
  await page.evaluate('document.querySelector("#reset-size").click()');scaled((await read()).scale,[.595,.65,.595]);
  await change('profile','2');await page.evaluate('window.__modelPreview.setTime(.56)');scaled((await read()).scale,[.595,.65,.595]);
@@ -48,7 +49,7 @@ try{
  }
  for(let i=0;i<8;i++){
   await page.evaluate('document.querySelector("#randomize").click()');await ready();result=await read();
-  if(result.age==='child'){assert.equal(result.bag,false);assert.notEqual(result.hair,'bald')}
+  if(result.age==='child'){assert(!result.bag||result.bagStyle==='small'||result.bagStyle.startsWith('crossbody-'));assert.notEqual(result.hair,'bald')}
   assert.equal(result.shaderErrors,0);
  }
  await page.send('Emulation.setDeviceMetricsOverride',{width:650,height:850,deviceScaleFactor:1,mobile:false});

@@ -6,6 +6,7 @@ import type { StateCreator } from 'zustand'
 import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
 import type { BridgeRailing, GateDoor, TriangleKind } from '../../../sim/types.ts'
+import { RAMP_LENGTH_DEFAULT, nextRampLength, type RampLength } from '../../../sim/rampLengths.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
 import { nextRoofWidth, supportedRoofWidth } from '../../../sim/structures.ts'
@@ -91,8 +92,15 @@ export interface ToolSlice {
   escalatorDir: 'up' | 'down'
   /** Whether a newly placed escalator spans two blocks. */
   escalatorWide: boolean
-  /** Whether a newly placed escalator rises 8 m (长) instead of 4 m (短). */
-  escalatorLong: boolean
+  /**
+   * The length a newly placed **run** is built at — a 扶梯 or a 单跑楼梯, which come
+   * in the same four sizes (`sim/rampLengths.ts`): 超短 2 m over 3 m, 短 3 m over
+   * 5 m, 中 4 m over 6 m (one storey, the piece the game shipped with) and 长 8 m
+   * over 12 m. One setting for both pieces, because the two stand flush in one bay
+   * and share a filled seam only when they are the same length — a player who
+   * builds a bank picks the length once.
+   */
+  rampLength: RampLength
   /**
    * The 闸机 tool's piece (§4.5), toggled with Tab: `lane` (the default) is the
    * working turnstile — machine body on one half of the block, lane with its leaf
@@ -183,7 +191,8 @@ export interface ToolSlice {
   cycleEscalatorDir: () => void
   /** Toggle a narrow or two-block-wide escalator from its rail tile. */
   toggleEscalatorWidth: () => void
-  toggleEscalatorLength: () => void
+  /** Step the run length on to the next size (超短 → 短 → 中 → 长), for 扶梯 and 单跑楼梯 alike. */
+  cycleRampLength: () => void
   /** Toggle the 闸机 between a working lane and the doorless fence machine (Tab). */
   cycleLiftStyle: () => void
   setLiftStyle: (style: 'glass' | 'steel') => void
@@ -198,6 +207,8 @@ export interface ToolSlice {
   setModuleRot: (rot: number) => void
   /** Point the 扶梯 direction at an absolute value (the 吸取 tool copies it). */
   setEscalatorDir: (dir: 'up' | 'down') => void
+  /** Point the run length at an absolute value (the 吸取 tool copies a picked run's own). */
+  setRampLength: (length: RampLength) => void
   /** Point the 闸机 door at an absolute value (the 吸取 tool copies it). */
   setGateDoor: (door: GateDoor) => void
 }
@@ -227,7 +238,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   roofPlateSnap: 'upper',
   escalatorDir: 'up',
   escalatorWide: false,
-  escalatorLong: false,
+  rampLength: RAMP_LENGTH_DEFAULT,
   bridgeLength: 32,
   bridgeRailing: 'railing',
   setStructureOptions: (patch) => set({
@@ -296,7 +307,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleRoofPlateSnap: () => set((s) => ({ roofPlateSnap: s.roofPlateSnap === 'lower' ? 'upper' : 'lower' })),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
   toggleEscalatorWidth: () => set((s) => ({ escalatorWide: !s.escalatorWide })),
-  toggleEscalatorLength: () => set((s) => ({ escalatorLong: !s.escalatorLong })),
+  cycleRampLength: () => set((s) => ({ rampLength: nextRampLength(s.rampLength) })),
   cycleLiftStyle: () => set((s) => ({ liftStyle: s.liftStyle === 'glass' ? 'steel' : 'glass' })),
   setLiftStyle: (style) => set({ liftStyle: style }),
   cycleGateDoor: () => set((s) => ({ gateDoor: nextGateDoor(s.gateDoor) })),
@@ -308,5 +319,6 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
     return { moduleRot: ((rot % count) + count) % count }
   }),
   setEscalatorDir: (dir) => set({ escalatorDir: dir }),
+  setRampLength: (rampLength) => set({ rampLength }),
   setGateDoor: (door) => set({ gateDoor: door }),
 })
