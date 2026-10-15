@@ -30,12 +30,14 @@ import { msg } from '../sim/i18n.ts'
 import type { StationData } from '../sim/types.ts'
 import { DEFAULT_SIM_TIME } from '../sim/constants.ts'
 import demo from './demo-station.json' with { type: 'json' }
+import tanwei from './tanwei-station.json' with { type: 'json' }
 
 const DEMO = demo as unknown as StationData
+export type ExampleStationId = 'zoo' | 'tanwei'
 
 /** A fresh copy of the demo station, safe to mutate. */
-export function referenceStation(): StationData {
-  return structuredClone(DEMO)
+export function referenceStation(id: ExampleStationId = 'zoo'): StationData {
+  return structuredClone(id === 'tanwei' ? tanwei as unknown as StationData : DEMO)
 }
 
 /**

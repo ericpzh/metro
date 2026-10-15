@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { referenceStation, emptyStation, REFERENCE_BOOT } from '../src/data/reference-station.ts'
-import { createModule } from '../src/build/model.ts'
+import { createModule, toData, toStateRepairing } from '../src/build/model.ts'
 import { STAIR_WIDTHS, stairOnBlockGrid, stairRunBlocks, stairTreadWidth } from '../src/sim/stairs.ts'
 
 function reachable(g, starts) {
@@ -23,6 +23,17 @@ function reachable(g, starts) {
   }
   return seen
 }
+
+test('Tanwei ships the complete authored interchange without loader repairs', () => {
+  const data = referenceStation('tanwei')
+  const loaded = toStateRepairing(data)
+  assert.equal(data.name, '坦尾')
+  assert.deepEqual(data.lines.map((l) => l.id), ['5', '6'])
+  assert.equal(data.cells.length, 14554)
+  assert.equal(data.modules.length, 2182)
+  assert.equal(loaded.droppedCells + loaded.droppedModules, 0)
+  assert.deepEqual(toData(loaded.state), data, 'opening the demo must preserve all authored data')
+})
 
 function assertConnectedCirculation(g) {
   const fromExits = reachable(g, g.exits.map((e) => e.node))

@@ -6,6 +6,7 @@ import { msg } from '../../../sim/i18n.ts'
 
 import type { StateCreator } from 'zustand'
 import { REFERENCE_BOOT, referenceStation } from '../../../data/reference-station.ts'
+import type { ExampleStationId } from '../../../data/reference-station.ts'
 import {
   cloneState,
   initialStation,
@@ -97,7 +98,7 @@ export interface StationSlice {
   undo: () => void
   redo: () => void
   newStation: () => void
-  loadReference: () => void
+  loadReference: (id?: ExampleStationId) => void
 }
 
 export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = (set, get) => ({
@@ -207,12 +208,12 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
   },
-  loadReference: () => {
+  loadReference: (id = 'zoo') => {
     // The demo file is guarded clean by `demo.test.mjs`, but the same repair runs
     // here: an off-grid block would be dropped rather than loaded, not refused.
-    const repaired = toStateRepairing(referenceStation())
+    const repaired = toStateRepairing(referenceStation(id))
     const s = repaired.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: -8 + s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: (id === 'tanwei' ? 0 : -8) + s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
     if (repaired.droppedCells + repaired.droppedModules > 0) {
       set({ notice: msg('example_station_repair_removed_value_blocks_outside_the_grid', repaired.droppedCells + repaired.droppedModules) })

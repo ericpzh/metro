@@ -12,8 +12,8 @@ import { getLanguage, setLanguage } from '../../i18n.ts'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
-// pause icon, playing ⇒ the active speed. Clicking a speed resumes at that
-// speed; Space toggles between paused and the last selected speed.
+// pause icon, playing ⇒ the active speed. Clicking play or a speed resumes at
+// that speed; Space toggles between paused and the last selected speed.
 //
 // **64× is the top of the range and it is a wall-clock multiple, not a promise.**
 // One tick steps one simulated second whatever the speed (see `sim/constants.ts`),
@@ -152,7 +152,7 @@ export function TopBar(): React.ReactElement {
         <button
           className={!playing ? 'on' : ''}
           onClick={() => {
-            if (playing) setPlaying(false)
+            setPlaying(!playing)
           }}
           aria-label={t('pause')}
           aria-pressed={!playing}

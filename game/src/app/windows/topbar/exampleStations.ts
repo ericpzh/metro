@@ -1,5 +1,6 @@
 import { msg } from '../../../sim/i18n.ts'
-import zooPreview from '../../../assets/stations/zoo.png'
+import zooPreview from '../../../assets/stations/zoo.webp'
+import tanweiPreview from '../../../assets/stations/tanwei.webp'
 import { useStore } from '../../store.ts'
 
 // Each example owns its preview and loader so adding a station does not change
@@ -11,5 +12,12 @@ export const EXAMPLE_STATIONS = [
     description: msg('guangzhou_metro_line_5'),
     preview: zooPreview,
     load: (): void => useStore.getState().loadReference(),
+  },
+  {
+    id: 'tanwei',
+    name: msg('tanwei'),
+    description: msg('guangzhou_metro_lines_5_6'),
+    preview: tanweiPreview,
+    load: (): void => useStore.getState().loadReference('tanwei'),
   },
 ] as const

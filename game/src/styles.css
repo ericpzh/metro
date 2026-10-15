@@ -154,7 +154,7 @@ a.ghost:hover {
   position: fixed;
   inset: auto;
   margin: 0;
-  width: 360px;
+  width: 720px;
   max-width: calc(100vw - 24px);
   max-height: calc(100vh - 70px);
   overflow: auto;
@@ -194,7 +194,10 @@ a.ghost:hover {
 }
 .exampleStationsHeading > strong { font-size: 14px; }
 .exampleStationsHeading .iconBtn { font-size: 20px; }
-.exampleStationsGrid { display: grid; gap: 12px; }
+.exampleStationsGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 620px) {
+  .exampleStationsGrid { grid-template-columns: minmax(0, 1fr); }
+}
 .exampleStationCard {
   display: block;
   padding: 0;
@@ -209,7 +212,7 @@ a.ghost:hover {
 .exampleStationCard img {
   display: block;
   width: 100%;
-  aspect-ratio: 2517 / 1490;
+  aspect-ratio: 16 / 9;
   object-fit: cover;
 }
 .exampleStationCaption {

@@ -15,8 +15,10 @@ export function ExampleStationsButton(): React.ReactElement {
     const menu = menuRef.current
     if (!button || !menu) return
     const anchor = button.getBoundingClientRect()
-    menu.style.left = `${Math.max(12, Math.min(anchor.left, window.innerWidth - 372))}px`
+    const width = Math.min(720, window.innerWidth - 24)
+    menu.style.left = `${Math.max(12, Math.min(anchor.left, window.innerWidth - width - 12))}px`
     menu.style.top = `${anchor.bottom + 8}px`
+    menu.style.maxHeight = `${Math.max(0, window.innerHeight - anchor.bottom - 20)}px`
     menu.showPopover()
     menu.querySelector<HTMLButtonElement>('.exampleStationCard')?.focus()
   }
@@ -68,7 +70,7 @@ export function ExampleStationsButton(): React.ReactElement {
               }}
               aria-label={t('open_the_value_example_station', translate(station.name))}
             >
-              <img src={station.preview} alt={t('value_station_concourse_preview', translate(station.name))} />
+              <img src={station.preview} alt={t('value_station_preview', translate(station.name))} />
               <span className="exampleStationCaption">
                 <strong>{translate(station.name)}</strong>
                 <span>{translate(station.description)}</span>

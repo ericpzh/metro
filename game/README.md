@@ -2968,6 +2968,8 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   anchor to the repo issues page between the restart button and the language switch, opening in a
   new tab with `rel="noreferrer"`, named by the bilingual `report_issue` key and wearing the nav's
   `ghost iconBtn` chrome (with the matching `a.ghost` styling).
+* `topbar-playback.test.mjs` — the top bar's play/pause button: a paused click resumes like
+  Space at the kept speed, while the speed tiles still resume at their own speed.
 * `rail-folders.test.mjs` — the two folder ladders (`app/rail/helpers.ts` `RAIL_FOLDERS` +
   `INSPECTOR_FOLDERS`): the build rail is Shift+1 through Shift+0 in stack order, 工具 first,
   with the four top-level decor folders at Shift+4–7 and 材质 / 房间 / 分区 at Shift+8–0;

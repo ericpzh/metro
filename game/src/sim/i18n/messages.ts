@@ -1982,6 +1982,18 @@ export const messages = {
     "zh": "示例车站（Ctrl+Shift+N）",
     "en": "Example stations (Ctrl+Shift+N)"
   },
+  "tanwei": {
+    "zh": "坦尾",
+    "en": "Tanwei"
+  },
+  "guangzhou_metro_lines_5_6": {
+    "zh": "广州地铁 · 5号线 / 6号线",
+    "en": "Guangzhou Metro · Lines 5 / 6"
+  },
+  "value_station_preview": {
+    "zh": "{0}站预览",
+    "en": "{0} station preview"
+  },
   "example_stations": {
     "zh": "示例车站",
     "en": "Example stations"

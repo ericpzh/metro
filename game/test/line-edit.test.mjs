@@ -476,6 +476,31 @@ test('loadReference opens the shipped 动物园 demo un-repaired, at its own boo
   assert.equal(boot.data.lines[0].id, '5')
 })
 
+test('Tanwei loads both authored lines, resets the view, and preserves undo across demo switches', () => {
+  st().loadReference()
+  const epoch = st().stationEpoch
+  const before = workerInbox.length
+  const expected = referenceStation('tanwei')
+  st().loadReference('tanwei')
+  assert.equal(st().station.name, '坦尾')
+  assert.deepEqual(st().station.lines.map((l) => l.id), ['5', '6'])
+  assert.equal(st().station.cells.length, expected.cells.length)
+  assert.equal(st().station.modules.length, expected.modules.length)
+  assert.equal(st().activeZ, st().station.levelBase, 'the elevated station opens at street level')
+  assert.equal(st().stationEpoch, epoch + 1)
+  assert.equal(st().selected, null)
+  assert.equal(st().moveDraft, null)
+  assert.equal(workerInbox[before].type, 'init')
+  assert.equal(workerInbox[before].warmup, 0)
+  assert.equal(workerInbox[before].startSeconds, REFERENCE_BOOT.startSeconds)
+  st().undo()
+  assert.equal(st().station.name, '动物园')
+  st().redo()
+  assert.equal(st().station.name, '坦尾')
+  expected.cells.length = 0
+  assert.ok(referenceStation('tanwei').cells.length > 0, 'edits cannot mutate the shipped document')
+})
+
 test('loadReference says so when the demo it opened had to be repaired', () => {
   // The shipped demo is guarded clean (`test/demo.test.mjs`), so `toStateRepairing`
   // only has something to drop when the file itself is damaged: the same repair

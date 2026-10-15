@@ -9,7 +9,7 @@
 // what the loader dropped and materialised, and refuses to finish quietly if the
 // result would not round-trip through the loader again.
 //
-//   node tools/bake-demo-station.mjs [input.metro.json]
+//   node tools/bake-demo-station.mjs [input.metro.json] [output.json]
 //
 // Run from the repo root. The default input is the save this demo came from; the
 // output is written to game/src/data/demo-station.json and must then pass
@@ -21,7 +21,7 @@ import { dirname, resolve } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
-const OUT = resolve(repo, 'game/src/data/demo-station.json')
+const OUT = resolve(repo, process.argv[3] ?? 'game/src/data/demo-station.json')
 
 const input = process.argv[2] ?? 'C:\\Users\\ericp\\Downloads\\动物园.metro.json'
 const text = readFileSync(input, 'utf8')
@@ -56,6 +56,7 @@ console.log(`modules the loader materialised: ${added.length} ${JSON.stringify(a
 // because `referenceStation()` hands it out raw.
 const again = toData(toState(baked))
 console.log(`idempotent      ${JSON.stringify(again) === JSON.stringify(baked) ? 'yes' : 'NO'}`)
+if (JSON.stringify(again) !== JSON.stringify(baked)) throw new Error('Demo must round-trip before shipping')
 
 writeFileSync(OUT, JSON.stringify(baked), 'utf8')
 console.log(`wrote           ${OUT} (${JSON.stringify(baked).length} bytes)`)
