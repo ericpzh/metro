@@ -71,7 +71,11 @@ The equipment palette includes roof/post hangers and their 4/6/8 m lengths,
 checkout counters, and glass/gate/iron fence variants. Door material is selected
 in the variant menu and door width is a separate narrow/wide setting. Their
 simulation, placement, rendering, and picker behavior belongs to `game/src/`;
-coverage belongs in `game/test/` and follows `metro-game-test`.
+coverage belongs in `game/test/` and follows `metro-game-test`. The 吸取 picker
+round-trips every palette tile: clicking a placed piece arms the tile that placed
+it (`paletteIdForModule` in `game/src/app/tools/PickTool.ts`, pinned by the
+`pick-tool` palette sweep) — including the setting-free 空调风机 and 设备柜, which
+carry no variant and arm by their own type.
 
 Monitor decor has a ceiling-hung 1 m cabinet and a 3 m wall-backed panel with
 twelve room-facing views; the separate floor-standing 信号机 is 1 m tall. Route

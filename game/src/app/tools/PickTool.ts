@@ -45,8 +45,12 @@ const OPTION_IDS = new Set(MODULE_OPTIONS.map((m) => m.id))
  * module carries the bare type plus its `cfg`, so each family is mapped back
  * explicitly — and validated against `MODULE_OPTIONS`, so an old save's
  * variant can never arm the tool with a tile the rail does not draw.
+ *
+ * Every id in `MODULE_OPTIONS` must round-trip through here: picking a placed
+ * piece arms the tile that placed it (plain pieces by their own type, including
+ * the setting-free 空调风机 and 设备柜). `pick-tool.test.mjs` pins the sweep.
  */
-function paletteIdForModule(mod: Module): string | null {
+export function paletteIdForModule(mod: Module): string | null {
   let id: string | null = null
   switch (mod.type) {
     case 'tactile':
@@ -152,6 +156,8 @@ function paletteIdForModule(mod: Module): string | null {
     case 'tv':
     case 'escalator':
     case 'lift':
+    case 'ac-unit':
+    case 'electrical-cabinet':
       id = mod.type
       break
     default:

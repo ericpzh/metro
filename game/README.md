@@ -2936,7 +2936,9 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   right-双跑 楼梯, a 木 双开 门, or either 桁架屋顶 style at its placed width — and copies its turn, 扶梯
   direction, 闸机 door and **run length** (a 扶梯's or a 单跑楼梯's own, read from its endpoints), selects
   the instance and opens
-  the owning folder; a legacy piece with no variant reads as the palette default it is drawn as; a
+  the owning folder; every id in `MODULE_OPTIONS` round-trips through the picker — including the
+  setting-free 空调风机 and 设备柜, which arm their own tiles rather than merely selecting;
+  a legacy piece with no variant reads as the palette default it is drawn as; a
   rail run hands to 轨道, a walled room to 分区's own brush, a derived 站台门 only selects; and a bare
   face lifts its finish into the 材质 brush — a **半墙**'s inner face and a **三角**'s slope included,
   resolved by `facePresent` exactly as the brush resolves them — while a right press picks nothing.

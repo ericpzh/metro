@@ -580,3 +580,47 @@ test('picking 新/旧 turnstiles copies style, rotation and door, and Esc restor
     }
   } finally { useStore.setState(before) }
 })
+
+test('picking any palette tile arms its placement, including the setting-free 空调风机 and 设备柜', async () => {
+  // Every id in MODULE_OPTIONS must round-trip through the picker: a click on a
+  // placed piece arms the tile that placed it instead of merely selecting it.
+  // The setting-free 空调风机 and 设备柜 regressed here — `paletteIdForModule`
+  // had no arm for them, so a pick only selected the cabinet.
+  const { MODULE_OPTIONS } = await import('../src/app/store/catalog.ts')
+  const before = useStore.getState()
+  try {
+    const failures = []
+    for (const option of MODULE_OPTIONS) {
+      const m = createModule(option.id, 0, 0, 0, `picked-${option.id}`, 1)
+      if (!m) {
+        failures.push(`${option.id}: createModule returns null`)
+        continue
+      }
+      useStore.setState({
+        station: { ...toState(emptyStation()), modules: [m] },
+        tool: 'pick',
+        moduleType: 'tvm',
+        moduleRot: 0,
+        pickDraft: null,
+        selected: null,
+      })
+      ctxFor(m.id).onDown(press([0, 0, 0]))
+      const armed = useStore.getState().moduleType
+      const tool = useStore.getState().tool
+      const selected = useStore.getState().selected
+      // A bridge is still a placement — its own tile — via the track branch,
+      // which arms without selecting (its existing contract in the barrier test above).
+      if (option.id === 'bridge') {
+        if (tool !== 'module' || armed !== 'bridge') {
+          failures.push(`${option.id}: tool=${tool} armed=${armed} (expected module + bridge)`)
+        }
+      } else if (tool !== 'module' || selected?.key !== m.id) {
+        failures.push(`${option.id}: tool=${tool} selected=${selected?.key ?? 'none'} (expected module + selection)`)
+      } else if (armed !== option.id) {
+        failures.push(`${option.id}: armed ${armed}`)
+      }
+      useStore.getState().cancelPick?.()
+    }
+    assert.deepEqual(failures, [], `every palette tile round-trips through the picker:\n${failures.join('\n')}`)
+  } finally { useStore.setState(before) }
+})
