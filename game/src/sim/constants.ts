@@ -463,3 +463,11 @@ export const RAIL_SIGNAL_SCALE = RAIL_SIGNAL_HEIGHT / 2.59
 export const PASSENGER_CULL_HEIGHT_FRACTION = 0.85
 export const PASSENGER_CULL_RADIUS_SCALE = 1.25
 export const PASSENGER_INSTANCE_CAPACITY = 8000
+
+// Ambient street traffic and automatically derived road lanes (§4.1).
+export const ROAD_VEHICLE_OPACITY = PASSENGER_OPACITY
+export const ROAD_LANE_WIDTH = 3
+export const ROAD_TRAFFIC_SPACING = 20
+export const ROAD_TRAFFIC_DENSITY = 0.5
+export const ROAD_TRAFFIC_SPEED = 6
+export const ROAD_TRAFFIC_CAPACITY = 192

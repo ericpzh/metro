@@ -1705,6 +1705,35 @@ the code.
 `game/README.md` is also where the project's narrative history lives — what a feature replaced,
 and the bug a rule exists to prevent. This skill keeps only the rules and the traps.
 
+### Street roads
+
+The 站外 palette includes `road` (车道). `app/tools/RoadTool.ts` owns its rectangle
+surface gesture; `sim/roads.ts` owns long-axis direction, lane counts (3 m lanes,
+two-way equal pairs), intersection ink intervals and seeded ambient vehicle poses.
+`RoadModel` clips all white/yellow ink at same-level road overlaps. `RoadTrafficSystem`
+uses simulation-clock interpolation and bounded instances of `RoadVehicleModel`'s
+car, bus, bike and scooter meshes. Roads require complete floor at z >= 0 and
+may overlap roads. Seeded vehicle spawning uses 50% of the previous slot count,
+with a 10% bus, 60% scooter and 30% car mix. Pin palette order in `rail-families`
+and behavior in `roads`.
+
+Roads are pedestrian path cutters: exclude their footprint from `buildGraph` and
+sweep moves against the same rectangles on that floor. On edits, relocate walkers
+paved over to remaining floor. Vehicle materials are grayscale and share the
+passenger material's opacity.
+R quarter-turns the held rectangle; Tab switches travel mode. Keep width, depth,
+rotation and direction in `moduleGhostKey`; route `AreaDrag.road` release to
+EquipmentTool, never BlockTool. `npm run check:roads` pins the production browser
+input path in both languages; a direct RoadTool test cannot cover that dispatch.
+
+Road preview validation (`sim/roadPlacement.ts`) prepares support, holes, exit and
+track occupancy once per immutable cell/module pair; keep the existing verdict
+and refusal priority. Never scan the whole document per road square. Road-only
+edits retain non-road equipment groups but rebuild road ink, and remain functional
+worker edits because they cut the walk graph. Pin work counts and allocation
+identity in `road-performance`; measure the actual cold/warm input path with
+`npm run bench:road`, saving profiles under `.preview/perf/`.
+
 ### Platform screen door signage
 
 `render/models/pieces/PsdHeader.ts` owns the printed bilingual full-height PSD

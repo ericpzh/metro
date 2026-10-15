@@ -53,6 +53,7 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
   }
   if (type.startsWith('pillar-slim')) attrs.push({ kind: 'position', label: msg('position_value_9', s.moduleRot + 1), shortcut: 'R', activate: s.rotateModule, transform: true, visual: 'grid-position' })
 
+  if (type === 'road') attrs.push(variant('direction', msg(s.roadDirection === 'one-way' ? 'road_one_way' : 'road_two_way'), s.toggleRoadDirection))
   if (type === 'curtain-wall') {
     attrs.push(variant('width', msg(s.curtainWidth === 1 ? 'extra_narrow' : s.curtainWidth === 2 ? 'narrow' : s.curtainWidth === 3 ? 'medium' : 'wide'), s.cycleCurtainWidth))
     attrs.push(variant('height', msg(s.curtainHeight === 2 ? 'short' : s.curtainHeight === 3 ? 'medium' : 'long'), s.cycleCurtainHeight))

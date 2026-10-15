@@ -1,3 +1,4 @@
+import { RoadTool } from './RoadTool.ts'
 import { msg } from '../../sim/i18n.ts'
 // The 设备 (equipment) tool: press to place the chosen module — fence runs drag
 // out like walls, lifts extend in-column, stairs place as complete flights, billboards
@@ -79,6 +80,7 @@ export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
 
   onDown(info: PointerInfo): void {
+    if (useStore.getState().moduleType === 'road' || this.ctx.drag.current?.road) { new RoadTool(this.ctx).onDown(info); return }
     if (useStore.getState().moduleType.startsWith('tactile-')) { new TactileTool(this.ctx).onDown(info); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).onDown(info); return }
     const scene = this.ctx.scene()
@@ -236,6 +238,7 @@ export class EquipmentTool extends ToolController {
   }
 
   onMove(info: PointerInfo): void {
+    if (useStore.getState().moduleType === 'road' || this.ctx.drag.current?.road) { new RoadTool(this.ctx).onMove(info); return }
     if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onMove(info); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block') || this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
@@ -314,6 +317,7 @@ export class EquipmentTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
+    if (useStore.getState().moduleType === 'road' || this.ctx.drag.current?.road) { new RoadTool(this.ctx).onUp(info); return }
     if (this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onUp(info); return }
     if (this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onUp(info); return }
     // The viewport routes only 围栏 runs here; any other drag release belongs
@@ -699,6 +703,7 @@ export class EquipmentTool extends ToolController {
     // can refresh this effect after the tool switch, so never rebuild an
     // equipment ghost unless the equipment tool still owns the pointer (§9.5).
     if (st.tool !== 'module') return
+    if (st.moduleType === 'road') { new RoadTool(this.ctx).refreshHover(); return }
     if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).refreshHover(); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).refreshHover(); return }
     const scene = this.ctx.scene()

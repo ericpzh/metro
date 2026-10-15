@@ -677,3 +677,75 @@ rebuild; `scene-wiring` pins the `setStation` fast path including the slice-key
 clear. `npm run test:perf`
 passes 90 tests; the full suite passes 1,462 of 1,463 with the pre-existing
 `passenger-clothing` GLB hash mismatch. No browser FPS claim is made here.
+
+
+### Road brush validation and equipment retention — October 15, 2026
+
+The real production road gesture on the shipped demo slowed progressively as its
+rectangle grew. `equipmentReason` called `moduleFloorOk`, which scanned all
+11,871 authored cells and repeatedly searched 770 modules for **each** proposed
+road square. The baseline Chrome CPU profile attributes about 1.67 s across the
+measured sequence to that floor-validation stack (minified `Zc`, including
+`cells.some`, ground-hole and exit searches). The preview model builder itself
+cost only about 0.2–0.5 ms per update; its geometry was not the dominant stall.
+Release also discarded and rebuilt all equipment models for one road addition.
+
+`sim/roadPlacement.ts` now prepares support, ground holes, exit floors and track
+occupancy once for each immutable cell/module array pair, then walks only the
+proposed road rectangle. Preview and release still ask `equipmentReason`, with
+identical support, obstruction and refusal priority; there is no deferred commit
+or skipped preview validation. `roadsOnlyChange` allows the renderer to retain
+non-road equipment allocations while rebuilding road markings for intersections.
+This is a rendering dependency rule only: roads still rebuild pedestrian routing,
+and expanding the street window still remeshes the ground.
+
+Controlled main-thread/browser runs used the same demo (11,871 cells, 770 modules,
+seed 7654321, zero passengers, paused at 0 m), the same 12 × 96 m road at
+(153, 0, 0), camera/viewport and three gestures (two cancels, one release).
+Windows, Chrome 155, NVIDIA RTX 4080 SUPER through ANGLE/D3D11, device scale 1,
+1424 × 905 content viewport. Hardware rendering was requested for both runs;
+the final report records the unmasked backend. CPU sampling ran separately.
+
+| Interaction | Before | After |
+|---|---:|---:|
+| First road hover | 123.6 ms | 100.6 ms |
+| First press | 63.1 ms | 87.3 ms |
+| First movement (6 × 8 m) | 87.5 ms | 87.4 ms |
+| First large preview (12 × 96 m) | 281.5 ms | 77.6 ms |
+| Warm large preview | 268.4 ms | 75.6 ms |
+| Release, through two animation frames | 1880.4 ms | 873.8 ms |
+| `setStation` CPU within release | 621.3 ms | 284.4 ms |
+
+Input figures include CDP dispatch and two animation-frame boundaries, not isolated
+handler CPU, GPU time or actual presentation latency. The first press has no
+measured improvement; cold hover/render setup and a roughly 70–90 ms frame floor
+remain in this headless setup. The exterior road enlarges the generated street
+window, so release still has a noticeable remesh/initial-upload hitch. No steady
+simulation-throughput or FPS improvement is claimed. Main-thread CPU profiles do
+not measure the worker's graph-build time.
+
+Both runs picked once per press, committed nothing during preview/cancel, and
+committed exactly one road on release. The final renderer retained all 770 prior
+equipment roots, with zero runtime/shader failures. Deterministic coverage in
+`road-performance.test.mjs` pins one cold document preparation, **zero document
+cell reads on warmed extent changes**, invalidation on new cell/module arrays,
+original-verdict equivalence, actual equipment-group identity, replaced-road
+material disposal, and continued routing invalidation.
+
+Reproduce with `npm run bench:road`; set `BENCH_STATION` for a supplied save,
+`BENCH_OUTPUT` for a distinct JSON path and `BENCH_PROFILE=1` for a separate CPU
+profile. Raw evidence is ignored under `.preview/perf/`: `road-baseline.json`,
+`road-final.json`, `road-comparison.json`, `road-baseline-profile.cpuprofile`,
+`road-final-profile.cpuprofile` and their corresponding JSON/log files. Builds,
+full tests, coverage and browser correctness checks use separate `road-*.log`
+reports in that directory.
+
+Validation: production build and all 1,500 game tests pass; `test:perf` passes all
+96 tests. Its V8 report gives `roadPlacement.ts` 100% line/function and 97.37%
+branch coverage; `moduleDependencies.ts` has 94.20% line coverage. The existing
+traffic/gesture portions of `roads.ts` are covered by the full road suite, not
+all imported by the focused perf run. Real production input checks pass in both
+languages, and native multi-draw plus the disabled-extension fallback preserve
+train triangles with no GLSL, WebGL or runtime errors. Raw validation outputs are
+`road-full-tests.log`, `road-perf-tests.log`, `road-input-check.log`,
+`road-render-check.log` and `road-render-fallback.log` under `.preview/perf/`.

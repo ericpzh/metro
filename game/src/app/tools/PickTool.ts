@@ -81,6 +81,7 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'hanger':
       id = `hanger-${mod.cfg.mount}`
       break
+    case 'road': id = 'road'; break
     case 'busstop':
       id = `busstop-${mod.cfg.variant}`
       break
@@ -248,6 +249,7 @@ export class PickTool extends ToolController {
       // the next click hangs are the one the player pointed at.
       if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
       st.setModuleType(optionId)
+      if (mod.type === 'road') useStore.setState({ roadDirection: mod.cfg.direction })
       if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
       if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4, curtainHeight: mod.cfg.curtainHeight ?? 4 })
       if (mod.type === 'psd-end') useStore.setState({ psdEndHeight: mod.cfg.psd })

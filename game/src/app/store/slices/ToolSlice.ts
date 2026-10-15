@@ -30,6 +30,8 @@ export interface ToolSlice {
    */
   autoWalls: boolean
   moduleType: string
+  roadDirection: 'one-way' | 'two-way'
+  toggleRoadDirection: () => void
   /** Quarter-turn applied to the equipment being placed: 0..3. */
   moduleRot: number
   guideExitId: string | null
@@ -220,6 +222,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // the ring on its own tile.
   autoWalls: false,
   moduleType: 'gate',
+  roadDirection: 'two-way',
+  toggleRoadDirection: () => set(s => ({ roadDirection: s.roadDirection === 'one-way' ? 'two-way' : 'one-way' })),
   moduleRot: 0,
   guideExitId: null,
   setGuideExitId: (id) => set({ guideExitId: id }),

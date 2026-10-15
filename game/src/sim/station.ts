@@ -222,6 +222,9 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   // plugs into divides the floor into areas the crowd can only cross at a gate.
   const fenceCells = new Set<string>()
   for (const m of data.modules) {
+    if (m.type === 'road') {
+      for (let x = m.x; x < m.x + m.w; x++) for (let y = m.y; y < m.y + m.d; y++) fenceCells.add(cellKey(x, y, m.z))
+    }
     if (m.type === 'pillar') {
       for (let z = m.z; z < m.z + m.cfg.height; z++) fenceCells.add(cellKey(m.x, m.y, z))
     }

@@ -59,6 +59,7 @@ export function groundWindow(
   for (const c of cells) eat(c.x, c.y)
   for (const m of modules) {
     eat(m.x, m.y)
+    if (m.type === 'road') eat(m.x + m.w - 1, m.y + m.d - 1)
     const run = m as { from?: { x: number; y: number }; to?: { x: number; y: number } }
     if (run.from) eat(run.from.x, run.from.y)
     if (run.to) eat(run.to.x, run.to.y)

@@ -7,6 +7,7 @@
 import type * as THREE from 'three'
 import type { Module } from '../sim/types.ts'
 import type { ModuleContext } from './models/PieceBuilder.ts'
+import { RoadModel } from './models/pieces/RoadModel.ts'
 import { PillarModel } from './models/pieces/PillarModel.ts'
 import { RoofModel } from './models/pieces/RoofModel.ts'
 import { HangerModel } from './models/pieces/HangerModel.ts'
@@ -61,6 +62,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
     return model
   }
   switch (mod.type) {
+    case 'road': return new RoadModel(ctx).build(mod)
     case 'hanger': return new HangerModel(ctx).build(mod)
     case 'pillar': return new PillarModel(ctx).build(mod)
     case 'roof': return new RoofModel(ctx).build(mod)

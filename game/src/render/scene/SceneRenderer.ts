@@ -32,6 +32,7 @@ import { CrowdSystem } from './systems/CrowdSystem.ts'
 import { GridSystem } from './systems/GridSystem.ts'
 import { CameraSystem } from './systems/CameraSystem.ts'
 import { PlateSystem } from './systems/PlateSystem.ts'
+import { RoadTrafficSystem } from './systems/RoadTrafficSystem.ts'
 import { ClockSystem } from './systems/ClockSystem.ts'
 import { SectionSystem } from './systems/SectionSystem.ts'
 import type { PickResult } from './systems/SceneSystem.ts'
@@ -64,6 +65,7 @@ export class SceneRenderer {
   private grid: GridSystem
   private cameraSys: CameraSystem
   private plates: PlateSystem
+  private roads: RoadTrafficSystem
   private clocks: ClockSystem
   private sectionSys: SectionSystem
   private lastFrame = 0
@@ -134,6 +136,7 @@ export class SceneRenderer {
     this.chunks = new ChunkSystem(this.ctx)
     this.plates = new PlateSystem(this.ctx)
     this.clocks = new ClockSystem(this.ctx)
+    this.roads = new RoadTrafficSystem(this.ctx)
     this.trains = new TrainSystem(this.ctx)
     this.lifts = new LiftSystem(this.ctx)
     this.crowd = new CrowdSystem(this.ctx)
@@ -335,6 +338,7 @@ export class SceneRenderer {
   setSimClock(simTime: number, services: TrainService[] = []): void {
     this.plates.setSimClock(simTime, services)
     this.clocks.setSimTime(simTime)
+    this.roads.setSimTime(simTime)
   }
 
   setTrains(buffer: Float32Array): void {
@@ -685,6 +689,7 @@ export class SceneRenderer {
     this.plates.updateAdScreens(now)
     this.modules.batches.atlas.update()
     this.clocks.updateClocks(now)
+    this.roads.update(now, this.modules.moduleMeshes, this.sectionSys.on ? this.sectionSys.plane : null)
     const cam = this.cameraSys.activeCamera()
     this.cameraSys.syncOrtho()
     this.notifyCameraAim()
@@ -745,6 +750,7 @@ export class SceneRenderer {
     this.plates.clearDecorPlates()
     this.plates.tvScreens.length = 0
     this.ctx.mats.dispose()
+    this.roads.dispose()
     this.trains.dispose()
     this.crowd.dispose()
     this.renderer.dispose()

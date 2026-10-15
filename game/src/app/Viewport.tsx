@@ -933,6 +933,7 @@ export function Viewport(): React.ReactElement {
    * plain block rectangles to 方块 — or to 删除 for its line-remove drag.
    */
   const ownerForRelease = (d: AreaDrag, current: Tool): ToolController => {
+    if (d.road === true) return tools.equipment
     if (d.roof === true) return d.deleteTile === true ? tools.delete : tools.equipment
     if (d.modules !== undefined) return tools.delete
     if (d.tactile === true) return current === 'delete' ? tools.delete : tools.equipment

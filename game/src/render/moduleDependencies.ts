@@ -1,3 +1,4 @@
+import { roadsOnlyChange } from '../sim/roads.ts'
 import type { Cell, Module, StationData } from '../sim/types.ts'
 import { isEdgeDecor, edgeDecorCurtainShare, moduleEnvelope, moduleFootprint } from '../sim/placement.ts'
 import { hangerSupports } from '../sim/hangers.ts'
@@ -6,7 +7,7 @@ import { stairFlights } from '../sim/stairs.ts'
 
 // These builders read module/metadata only. Changes to either fail closed below.
 const CELL_INDEPENDENT = new Set<Module['type']>([
-  'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
+  'road', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
   'cubicle', 'sink', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
   'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'track', 'exit', 'guidepost', 'busstop', 'psd-end',
@@ -36,15 +37,19 @@ function dependsOnCell(mod: Module, cell: Cell): boolean {
 
 /** §4.3/§5: retain only models whose inputs did not change. Artwork/language
  * invalidation is handled by the caller; module/neighbour edits take a full build
- * except for the stair-block-only and inert-decor-only additions below. */
+ * except for the road-only, stair-block-only and inert-decor-only edits below. */
 export function retainedModuleIds(before: StationData, after: StationData): Set<string> {
   const retained = new Set<string>()
   if (!sameModuleMetadata(before, after)) {
+    // A road changes road ink, never other equipment geometry. Keep routing
+    // invalidation separate: roads still cut the pedestrian graph.
     // A stair-block addition only contributes its own stepped tile. It does not
     // change neighbouring module geometry, so keep every existing model and
     // build the new tile alone. This avoids rebuilding a large station's full
     // equipment catalogue for each block in a dragged stair-block patch.
-    if (onlyAddedStairBlocks(before, after)) {
+    if (roadsOnlyChange(before, after)) {
+      for (const mod of before.modules) if (mod.type !== 'road') retained.add(mod.id)
+    } else if (onlyAddedStairBlocks(before, after)) {
       for (const mod of before.modules) retained.add(mod.id)
     } else {
       // Sim-inert decor (tactile stickers, wall panels, hanging fittings) draws

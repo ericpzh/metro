@@ -1,5 +1,13 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  no_road_to_remove: { zh: '这里没有可移除的车道', en: 'No road to remove here' },
+  road: { zh: '车道', en: 'Road' },
+  road_one_way: { zh: '单向', en: 'One-way' },
+  road_two_way: { zh: '双向', en: 'Two-way' },
+  road_measure: { zh: '{0} × {1} m · {2} 车道', en: '{0} × {1} m · {2} lanes' },
+  road_width_refusal: { zh: '单向车道至少宽 3 m，双向至少宽 6 m', en: 'Roads need at least 3 m for one-way or 6 m for two-way traffic' },
+  road_ground_refusal: { zh: '车道需要 0 m 或以上的完整地面', en: 'Roads need a complete floor at 0 m or above' },
+
   "language_native_chinese": { "zh": "中文", "en": "中文" },
   "language_native_english": { "zh": "English", "en": "English" },
   "tutorial_title": { "zh": "新手教程", "en": "Getting started" },

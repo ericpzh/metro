@@ -53,6 +53,7 @@ import {
 import { Rng } from '../rng.ts'
 import { gateLaneAllows } from '../gates.ts'
 import { GateTraffic } from '../gateTraffic.ts'
+import { roadMoveClear, roadContainsPoint, type Road } from '../roads.ts'
 import { rampMoveClear } from '../rampCollision.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
 import { liftDoorDir } from '../lifts.ts'
@@ -310,7 +311,10 @@ export class World {
   }
 
   /** Rebuild the graph from static data and reset derived state. */
+  private roads: Road[] = []
+
   rebuild(): void {
+    this.roads = this.data.modules.filter((m): m is Road => m.type === 'road')
     // The authored day is document data: re-read and re-normalize it on every rebuild,
     // which is the same path a live edit takes (`build` → `rebuild`).
     this.day = {
@@ -396,6 +400,18 @@ export class World {
       train.onboard = 0
     }
     this.pool.forEach((a) => {
+      // An edit may pave the tile beneath a standing passenger (§7.2). Move it
+      // to the nearest remaining floor on that level before replanning.
+      if (a.train < 0 && a.state !== STATE_RIDING && roadContainsPoint(this.roads, a.x, a.y, Math.round(a.z) - 1)) {
+        let nearest = -1, distance = Infinity
+        for (let node = 0; node < this.graph.nodeCount; node++) {
+          if (this.graph.nodeZ[node] !== Math.round(a.z)) continue
+          const d = (this.graph.nodeX[node] - a.x) ** 2 + (this.graph.nodeY[node] - a.y) ** 2
+          if (d < distance) { nearest = node; distance = d }
+        }
+        if (nearest < 0) this.pool.kill(a)
+        else { a.x = this.graph.nodeX[nearest]; a.y = this.graph.nodeY[nearest]; a.vx = 0; a.vy = 0 }
+      }
       a.path = EMPTY_PATH
       a.pathIdx = 0
       a.fromNode = -1
@@ -1755,6 +1771,7 @@ export class World {
     const holdApproach = preserveApproach && target !== undefined &&
       rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[target], g.nodeY[target], floorZ)
     const clear = (x: number, y: number): boolean => this.onFloor(x, y, a.z) &&
+      roadMoveClear(this.roads, a.x, a.y, x, y, floorZ) &&
       rampMoveClear(g.rampWalls, a.x, a.y, x, y, floorZ) &&
       (!holdApproach || rampMoveClear(g.rampWalls, x, y, g.nodeX[target!], g.nodeY[target!], floorZ))
     if (clear(nx, ny)) {
@@ -1997,7 +2014,7 @@ export class World {
     const tz = g.nodeZ[target]
     // Crowd displacement (or a station edit) can put a rail between a body and
     // its next waypoint. Rejoin the graph on the reachable side (§7.2 / §10.3).
-    if (!rampMoveClear(g.rampWalls, a.x, a.y, tx, ty, Math.round(a.z) - 1)) {
+    if (!roadMoveClear(this.roads, a.x, a.y, tx, ty, Math.round(a.z) - 1) || !rampMoveClear(g.rampWalls, a.x, a.y, tx, ty, Math.round(a.z) - 1)) {
       const path = this.recoverRampRoute(a, a.destNode)
       if (path) {
         a.path = path
@@ -2049,7 +2066,7 @@ export class World {
       const node = g.nodeIndex.get(cellKey(cx + dx, cy + dy, cz))
       if (node === undefined) continue
       const distance = Math.hypot(g.nodeX[node] - a.x, g.nodeY[node] - a.y)
-      if (distance >= best || !rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[node], g.nodeY[node], cz)) continue
+      if (distance >= best || !roadMoveClear(this.roads, a.x, a.y, g.nodeX[node], g.nodeY[node], cz) || !rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[node], g.nodeY[node], cz)) continue
       best = distance
       from = node
     }

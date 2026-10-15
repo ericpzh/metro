@@ -84,6 +84,13 @@ it (`paletteIdForModule` in `game/src/app/tools/PickTool.ts`, pinned by the
 `pick-tool` palette sweep) — including the setting-free 空调风机 and 设备柜, which
 carry no variant and arm by their own type.
 
+Street roads (`车道`) are placed as a ground-level drag surface from the 站外
+palette. They support 单向 / 双向 layouts, cut pedestrian routes, and draw lane
+markings that stop at road intersections. Seeded ambient traffic uses cars,
+buses and scooters at 50% of the original slot density; vehicle opacity matches
+the passenger crowd. Route implementation to `metro-game` and road input,
+placement, traffic and path-cutting coverage to `metro-game-test`.
+
 Monitor decor has a ceiling-hung 1 m cabinet and a 3 m wall-backed panel with
 twelve room-facing views; the separate floor-standing 信号机 is 1 m tall. Route
 implementation to `metro-game` and preserve the mounting, bounds and material

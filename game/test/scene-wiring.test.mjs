@@ -44,6 +44,7 @@ const ORCHESTRATOR_FIELDS = {
   CameraSystem: 'cameraSys',
   PlateSystem: 'plates',
   ClockSystem: 'clocks',
+  RoadTrafficSystem: 'roads',
   SectionSystem: 'sectionSys',
 }
 

@@ -531,6 +531,7 @@ export type Module =
    * cosmetic: it is no server and no stop, so it never changes the crowd.
    */
   | (ModuleBase & { type: 'guidepost'; cfg: { exitId?: string } })
+  | (ModuleBase & { type: 'road'; w: number; d: number; cfg: { direction: 'one-way' | 'two-way' } })
   | (ModuleBase & { type: 'busstop'; w: number; d: number; cfg: { variant: 'short' | 'long'; poster?: string } })
   | (ModuleBase & { type: 'bin'; cfg: Record<string, never> })
   /**

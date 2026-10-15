@@ -1,3 +1,5 @@
+import { roadSurfaceReason } from './roadPlacement.ts'
+import { ROAD_LANE_WIDTH } from './constants.ts'
 import { msg } from './i18n.ts'
 import type { BlockIndex } from './blockIndex.ts'
 // Equipment footprints and collision, GAME-SPEC §5.
@@ -573,6 +575,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
  * (the ramp envelope's thin vertical column would not reserve the whole plan).
  */
 export function moduleEnvelope(m: Module): ModuleBox | null {
+  if (m.type === 'road') return { x0: m.x, y0: m.y, z0: m.z + 1.01, x1: m.x + m.w, y1: m.y + m.d, z1: m.z + 1.07 }
   if (m.type === 'stair' && m.cfg.block) return { x0: m.x, y0: m.y, z0: m.z + 1, x1: m.x + 1, y1: m.y + 1, z1: m.z + 1 + (m.cfg.blockHeight ?? 1) }
   if (m.type === 'lift') return liftEnvelope(m)
   return rampEnvelope(m) ?? flatEnvelope(m)
@@ -639,6 +642,7 @@ export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], 
  * one cell per metre).
  */
 export function moduleFootprint(m: Module): Array<[number, number]> {
+  if (m.type === 'road') return Array.from({ length: m.w * m.d }, (_, i) => [m.x + i % m.w, m.y + Math.floor(i / m.w)])
   switch (m.type) {
     case 'extinguisher': return extinguisherCells(m).map(([x, y]) => [x, y])
     case 'hanger': return hangerCells(m)
@@ -1611,6 +1615,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   const bounds = collisionBounds(candidateBoxes)
   if (!bounds) return out
   for (const { module: m, boxes, bounds: placedBounds } of placedCollisionBoxes(modules)) {
+    if (m.type === 'road' && candidate.type === 'road') continue
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
     if (!isFenceGlassPair(m, candidate) && (!placedBounds || !boxesOverlap(bounds, placedBounds))) continue
     if (boothSupportsSign(m, candidate) || boothSupportsSign(candidate, m)) continue
@@ -2051,6 +2056,7 @@ export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[]
 
 /** Why a module may not be placed, or `''` when it may. */
 export type EquipmentRefusal =
+  | 'road-width' | 'road-ground'
   | ''
   | 'exit-on-slab'
   | 'exit-below-ground'
@@ -2083,6 +2089,14 @@ export type EquipmentRefusal =
  * those produce the piece, not the verdict.
  */
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
+  if (candidate.type === 'road') {
+    const width = (candidate.rot ?? 0) % 2 ? candidate.d : candidate.w
+    if (width < (candidate.cfg.direction === 'two-way' ? ROAD_LANE_WIDTH * 2 : ROAD_LANE_WIDTH)) return 'road-width'
+    const surface = roadSurfaceReason(cells, modules, candidate)
+    if (surface) return surface
+    return placementColliders(modules, candidate).length ? 'occupied' : ''
+  }
+
   if (candidate.type === 'hanger') {
     if (hangerRoofMissing(cells, modules, candidate)) return 'ceiling'
     if (!moduleFloorOk(cells, modules, candidate)) return 'floor'
@@ -2162,6 +2176,8 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
 export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: readonly Module[] = []): string {
   const base = (() => {
     switch (reason) {
+      case 'road-width': return msg('road_width_refusal')
+      case 'road-ground': return msg('road_ground_refusal')
       case 'exit-on-slab':
         return msg('entrances_must_be_placed_at_ground_level')
       case 'exit-below-ground':
@@ -2236,6 +2252,7 @@ const MODULE_TYPE_LABELS: Record<string, string> = {
   cubicle: msg('toilet_cubicle'),
   sink: msg('sink'),
   guidepost: msg('wayfinding_post'),
+  road: msg('road'),
   busstop: msg('bus_stop'),
   bin: msg('bin'),
   extinguisher: msg('extinguisher'),

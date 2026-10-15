@@ -20,6 +20,7 @@ import type { Module } from '../sim/types.ts'
 
 /** The ghost identity of one module, ignoring its id (a ghost is a prototype). */
 export function moduleGhostKey(mod: Module): string {
+  if (mod.type === 'road') return `road:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.w}x${mod.d}:${mod.cfg.direction}`
   if (mod.type === 'extinguisher') return `extinguisher:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'standard'}`
   if (mod.type === 'fence') return `fence:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'glass'}`
   if (mod.type === 'hanger') return `hanger:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.w}:${mod.cfg.mount}`

@@ -176,7 +176,7 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     'cubicle', 'sink',
     familyAnchor('light'), 'vent',
     familyAnchor('hanger'), 'desk',
-    'guidepost', familyAnchor('busstop'),
+    'road', 'guidepost', familyAnchor('busstop'),
     'ac-unit', 'electrical-cabinet', 'tvm', 'vending',
   ])
   assert.deepEqual(anchors('equipment'), [
@@ -227,7 +227,7 @@ test('the four top-level decor sections keep their contents and requested order'
     familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
     familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'),
   ])
-  assert.deepEqual(anchors('outside'), ['guidepost', familyAnchor('busstop'), 'ac-unit'])
+  assert.deepEqual(anchors('outside'), ['road', 'guidepost', familyAnchor('busstop'), 'ac-unit'])
   assert.ok(anchors('floor').includes('tvm') && anchors('floor').includes('vending'), 'ticket and vending machines are decor')
 })
 

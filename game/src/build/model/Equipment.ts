@@ -181,6 +181,7 @@ export function createModule(
       const [ox, oy] = trackOriginForCentre(rot, x, y, w, 1);
       return { id, type: 'hanger', x: ox, y: oy, z, rot, w, cfg: { mount: type === 'hanger-post' ? 'post' : 'roof' } };
     }
+    case 'road': return { id, type: 'road', x, y, z, rot, w: 6, d: 12, cfg: { direction: 'two-way' } };
     case 'busstop-short':
     case 'busstop-long': {
       const w = type === 'busstop-long' ? 8 : 4;
@@ -485,6 +486,7 @@ export function footprintCellsOf(type: string, variant?: number): Array<[number,
     : createModule(type, 0, 0, 0, id, 0, variant);
   if (!mod) return [[0, 0]];
   switch (mod.type) {
+    case 'road': return moduleFootprint(mod);
     case 'retail':
     case 'shop':
     case 'booth': {
