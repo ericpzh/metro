@@ -110,24 +110,22 @@ code {
   letter-spacing: -0.01em;
 }
 
-.nav__roundel {
-  position: relative;
-  width: 20px;
-  height: 20px;
+.brand-mark {
+  display: block;
   flex: none;
-  border-radius: 50%;
-  border: 3.2px solid var(--amber);
+  background: currentColor;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
 }
 
-.nav__roundel::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 100%;
-  width: 3.2px;
-  height: 8px;
-  margin-left: -1.6px;
-  background: var(--amber);
+.nav__mark {
+  width: 40px;
+  height: 40px;
+  color: var(--amber);
 }
 
 .nav__name {

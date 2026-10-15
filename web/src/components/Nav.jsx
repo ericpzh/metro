@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { repoUrl } from '../site.js'
 import { gameHref } from '../i18n.js'
+import BrandMark from './BrandMark.jsx'
 
 export default function Nav({ lang, onLang, t }) {
   const [progress, setProgress] = useState(0)
@@ -26,7 +27,7 @@ export default function Nav({ lang, onLang, t }) {
     <header className={'nav' + (solid ? ' nav--solid' : '')}>
       <div className="nav__inner">
         <a className="nav__brand" href="#top">
-          <span className="nav__roundel" aria-hidden="true" />
+          <BrandMark className="nav__mark" />
           <span className="nav__name">
             {t.nav.brand}
           </span>

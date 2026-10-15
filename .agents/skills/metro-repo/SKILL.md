@@ -46,6 +46,7 @@ model editing, exports and the approved game atlas. See `model/README.md`. No mo
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
 | `model/` | Reviewed character viewer and GLB library at 5175; `metro-model` owns builders, cleanup, walking clips, exports and game atlas regeneration. |
+| `design/icon/` | Station Designer icon source, previews and iterations. `tools/prepare-brand-icon.mjs` builds the game/site favicons and the site's CSS-coloured header mark from `station-designer-blue-bold.png`. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
 | `art/` | The generated concept sheets — the source of truth, copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. Each sheet has a `*-en.svg` English sidecar (same rule) for the `/en/` route. `metro-web` covers the pipeline. |
 | `tools/` | Root-level Node/Python scripts: the art generator and viewer, the headless-Chrome passes that photograph the game, the demo-save bake, the pictogram asset prep. See the index below. |
@@ -70,6 +71,20 @@ a gameplay choice. When trimming copy, preserve useful outcomes and interactions
 The site and the game are **two apps and two Workers** in one repo. They build
 and deploy independently; the only coupling is a URL (`gameUrl` in
 `web/src/site.js`, overridable with `VITE_GAME_URL`).
+
+### Shared game and website branding
+
+The approved icon source is `design/icon/station-designer-blue-bold.png`.
+Regenerate the browser assets with `node tools/prepare-brand-icon.mjs` from the
+repo root. This writes the 64 px favicon and 180 px Apple touch icon into each
+app's `src/assets/brand/`, plus the 512 px transparent silhouette used by the
+website's `BrandMark`. The site applies its amber colour in CSS; the game and
+site favicons retain the source's navy background and white linework. Both HTML
+entries link from `/src/assets/brand/`; Vite rewrites these to fingerprinted,
+relative asset URLs for production, including language and Worker path-prefix
+routes. Keep the artwork and the asset-preparation script in sync when the
+approved source changes. The site's navigation mark belongs in the header; the
+icon is not part of the hero composition.
 
 `game/plan.md` and the root `PLAN.md` are **gone**. Source comments that cite
 them — the R1–R6 / lane language included — are historical; do not follow them.
