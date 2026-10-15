@@ -875,6 +875,26 @@ the four rules most changes trip over.
   `KIND_WALK` edges at `√2/(speed)` cost. Gates keep cardinal approaches; exit /
   ramp / fare checks apply to the diagonal segment too. Pin in
   `game/test/diagonal-walk.test.mjs`.
+* **The crowd fills usable floor** (`sim/crowdRouting.ts`, `sim/walkingSpace.ts`,
+  `sim/world/World.ts`, §7.2–7.3). A shared shortest path is a corridor guide:
+  stable lateral lanes spread walkers across legal width, with gradual fan-in at
+  turns and service approaches. Every lateral move must follow connected floor
+  and preserve fare, wall, road and ramp clearance. When live congestion makes a
+  committed walking segment costly, rationed re-planning may replace only that
+  segment and must preserve the itinerary tail and shared cached route. Platform
+  wait spots use connected floor around the door; balancing counts approaching
+  passengers before physical queues form, and the queue head must walk to the
+  door before boarding. Keep bounded searches, deterministic replay, clear
+  corridors, narrow passage, legal-segment, waiting-area and door-spread behavior
+  pinned in `crowd-routing.test.mjs` and `walking-space.test.mjs`.
+* **Ramp mode share is a preference** (`sim/constants.ts`, `sim/station.ts`,
+  §7.2). `STAIR_AVOID_S` adds 32 seconds to stair edges for walkers who can use
+  them, aiming for roughly 75% escalator entries on the shipped 动物园 scenario;
+  it is not a ban. Step-free passengers still require lifts, and queue costs can
+  send walkers to lifts when ramps are genuinely congested. The measured seed-99
+  2,400-second mix (74.3% escalator / 23.4% stair / 2.4% lift) is recorded in
+  `game/README.md`; pin the preference and lift pressure-valve behavior in
+  `game/test/wayfinding.test.mjs`.
 * **Finishes are material categories that paint any face** (`sim/finishes.ts`,
   `build/model/Paint.ts`). `finishPaletteGroups()` groups `stone` / `metal` /
   `wood` / `other` (marble, limestone, sandstone, slate, softwood, hardwood,

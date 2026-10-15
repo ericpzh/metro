@@ -57,6 +57,8 @@ export interface Agent {
   gateDir: GateDir
   /** True once this leg has re-chosen a gate at the fare line. */
   gateChosen: boolean
+  /** Earliest tick for another live walking-corridor crowd check. */
+  crowdCheckTick: number
   /** Vertical ride interpolation. */
   rideFromX: number
   rideFromY: number
@@ -80,6 +82,8 @@ export interface Agent {
   liftWaitY: number
   /** Chosen platform door server, or -1. */
   door: number
+  /** Assigned connected floor cell while waiting for a platform door. */
+  platformWaitNode: number
   /** Chosen exit id for a leaving leg. */
   exitId: string
   /**
@@ -159,6 +163,7 @@ export class AgentPool {
     a.gateWaitNode = -1
     a.gateDir = 0
     a.gateChosen = false
+    a.crowdCheckTick = tick
     a.rideT = 0
     a.rideTotal = 0
     a.liftServer = -1
@@ -170,6 +175,7 @@ export class AgentPool {
     a.liftWaitX = 0
     a.liftWaitY = 0
     a.door = -1
+    a.platformWaitNode = -1
     a.exitId = ''
     a.train = -1
     a.trainDoor = -1

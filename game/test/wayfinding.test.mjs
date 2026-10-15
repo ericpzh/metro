@@ -18,7 +18,7 @@
 //   *approaching* the gates rather than while standing in one (`chooseGate`).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { LIFT_AVOID_LUGGAGE_S, LIFT_AVOID_S, GATE_LOOKAHEAD, GATE_REPLAN_PER_TICK, REROUTE_REPLAN_PER_TICK, CONGESTION_CAP, CONGESTION_S } from '../src/sim/constants.ts'
+import { LIFT_AVOID_LUGGAGE_S, LIFT_AVOID_S, STAIR_AVOID_S, GATE_LOOKAHEAD, GATE_REPLAN_PER_TICK, REROUTE_REPLAN_PER_TICK, CONGESTION_CAP, CONGESTION_S } from '../src/sim/constants.ts'
 import { escalatorModule } from '../src/sim/escalators.ts'
 import { exitWallPlanes } from '../src/sim/exits.ts'
 import { liftModule } from '../src/sim/lifts.ts'
@@ -45,6 +45,10 @@ test('a lift edge costs what the passenger can avoid paying', () => {
   assert.equal(liftPenalty(LUGGAGE), LIFT_AVOID_LUGGAGE_S)
   assert.equal(liftPenalty(WALKER), LIFT_AVOID_S)
   assert.ok(0 < LIFT_AVOID_LUGGAGE_S && LIFT_AVOID_LUGGAGE_S < LIFT_AVOID_S, 'luggage minds the lift less than a free walker')
+})
+
+test('stair routing keeps a deliberate preference for escalators', () => {
+  assert.equal(STAIR_AVOID_S, 32, 'walkers accept up to 32 seconds of extra stair cost to favour an available escalator')
 })
 
 test('the crowd charge is capped, so a crush is not a wall', () => {

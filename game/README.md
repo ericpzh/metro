@@ -2003,6 +2003,14 @@ preference and not a ban, and that is the point: past that margin the lift still
 ramps really are jammed keeps its relief valve, and a shaft with nothing else beside it keeps its queue —
 the demo's deeper shaft still carries 798 walkers at the default.
 
+Walkers also pay `STAIR_AVOID_S` (32 seconds per stair flight) to favour the faster
+throughput of an escalator when both routes are available. In a 2,400-second run of
+the shipped 动物园 station with seed 99, vertical server entries changed from 8,995
+escalator / 6,282 stair / 307 lift (**57.7 / 40.3 / 2.0%**) to 10,935 / 3,444 / 347
+(**74.3 / 23.4 / 2.4%**). These are vertical-trip entries, so a passenger transferring
+between floors can count more than once; the lift remains the step-free route and the
+pressure valve when other routes are congested.
+
 **The crowd is priced onto the graph.** `World.priceCongestion` scatters every standing passenger into
 its own collision cell **and the ring around it**, so a node knows who is standing *beside* it — the
 crowd pressed at a gate bank is on the tiles in front of the gate, not inside it, which the speed
@@ -2011,6 +2019,31 @@ charged `min(bodies, CONGESTION_CAP) × CONGESTION_S` seconds on the path finder
 tick reads the same field: a budgeted re-path, the fare-line choice and the 选择 tool's preview all price
 the same crowd, so the line a player watches is the line the passenger walks. The cap is what keeps a
 crush from becoming a wall — past it, one more body is not another second of detour.
+
+**Walking routes use corridor width.** `walkingSpace.ts` gives each passenger a stable
+lane across connected floor, using the interior of the available cross-section up to
+8 m either side of the coarse route. Lanes fan out gradually and converge at turns,
+services and destinations. The entire lateral segment must follow legal walk edges,
+including diagonal, fare-line, road and ramp clearance. Shared A* paths are guides to
+usable corridors; passengers no longer all aim at their cell centers against a wall.
+
+Platform door choice counts approaching passengers as well as queued passengers,
+with walking distance weighted at 0.25 and each commitment at 8. Connected waiting
+cells within 4 m of each doorway give its queue distinct places on the platform.
+The first three passengers approach an open doorway; service waits until the head
+is within 1.5 m instead of boarding from a distant waiting spot.
+`walking-space.test.mjs` pins five interior walking lanes, actual crowd width and
+forward progress, narrow passages, holes and fare boundaries, platform waiting
+depth, doorway approach and door balancing before queues form.
+
+Walking passengers also reconsider the next 8 m when at least three bodies crowd their
+committed corridor. At a reached waypoint, at most once per 8 simulated seconds, they
+take a clearer route only if its walking-plus-crowding cost improves by more than 2 s.
+Four searches per tick bound a wave's work. The replacement rejoins the same itinerary
+before any server or vertical edge; gate, queue and ramp choices keep their existing
+owners. Shared cached paths remain unchanged. `crowd-routing.test.mjs` pins a live
+wall-following passenger diverting into open floor, narrow-corridor access, service
+boundaries, cooldown, search ration and deterministic replay.
 
 **The fare line is decided while it is still ahead.** `chooseGate` used to fire when a gate was the
 agent's *next* node, and by then the passenger is standing in the crush it should have walked around. It

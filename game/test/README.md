@@ -249,6 +249,15 @@ node --test --test-isolation=none --experimental-test-coverage "test/**/*.test.m
 
 ## What is here
 
+`crowd-routing.test.mjs` covers committed walkers choosing clearer floor around a crowd,
+preserving their itinerary and cached peers, narrow-corridor access, service boundaries,
+the cooldown, the initial wave's search budget and deterministic replay.
+
+`walking-space.test.mjs` covers stable lanes across corridor width, real passenger
+progress and occupied rows, single-width access, whole-segment hole/fare clearance,
+platform waiting cells and depth, walking to an open door, and counting approaching
+passengers when balancing door choices.
+
 `module-build` checks lift landing doors at real floors, independent car doors,
 and synchronized opening only at the aligned landing in both styles and all rotations.
 

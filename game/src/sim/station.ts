@@ -21,6 +21,7 @@ import {
   RAMP_TURN_LANDING_INSET,
   STAIR_RATE_DOWN,
   STAIR_RATE_UP,
+  STAIR_AVOID_S,
   STAIR_SPEED,
   TVM_RATE,
   WALK_SPEED,
@@ -1148,6 +1149,9 @@ export class PathFinder {
         // §7.2's `levelPenalty` and `waitQ`, and §7.3's crowd — the bodies
         // already standing where the route has to go.
         let ecost = adjCost[e] + congestion[nb]
+        // Escalators carry a larger crowd than stairs; this preference keeps
+        // walkers from taking stairs solely because their ride edge is faster.
+        if (kind === KIND_STAIR) ecost += STAIR_AVOID_S
         if (kind === KIND_LIFT) ecost += lift
         // §7.2: the edge cost carries the live queue wait, so the crowd spreads
         // across escalators and gates instead of all taking the nearest one.

@@ -81,6 +81,15 @@ the npm test glob does not collect coverage. Read per-file line/function/branch
 results; imported dependencies inflate the overall denominator. Do not claim
 100% GPU coverage from Node percentages.
 
+Crowd distribution regressions belong in the focused deterministic suites:
+`crowd-routing.test.mjs` pins live detours around congestion, itinerary/cached-path
+ownership and a bounded repeatable search wave; `walking-space.test.mjs` pins stable
+lanes across legal corridor width, actual passenger progress, fare/hole clearance,
+platform waiting space, walk-to-door boarding and early door balancing. Ramp mode
+preference and the lift relief path belong in `wayfinding.test.mjs`; keep the
+seeded long-run mode-share measurement documented in `game/README.md` instead of
+turning hardware-sensitive timing or a full-day run into a unit-test threshold.
+
 - `batching-lifecycle`: mapped equipment/atlas UV integration without changing
   source picking UVs; revision reuse and disable/re-enable; exact ownership and
   disposal of geometry, instance buffers and batch matrix/indirection textures;

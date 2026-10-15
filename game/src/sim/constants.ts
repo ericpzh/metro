@@ -138,6 +138,8 @@ export const WALK_PROFILES = [
 ] as const
 /** Walking speed on stair treads, m/s (derated from free flow). */
 export const STAIR_SPEED = 1.0
+/** Extra route cost, in seconds, to prefer escalators over faster stair rides. */
+export const STAIR_AVOID_S = 32
 /** Escalator running speed, m/s. 0.5 is the heavy-duty setting used in crowds. */
 export const ESCALATOR_SPEED = 0.5
 /** Escalator step pitch, m. One passenger per step is the capacity model. */
@@ -292,6 +294,22 @@ export const LIFT_AVOID_LUGGAGE_S = 30
  */
 export const CONGESTION_S = 1.2
 export const CONGESTION_CAP = 10
+/** Reconsider a short walking corridor when a crowd forms (§7.2–7.3). */
+export const CROWD_LOOKAHEAD = 8
+export const CROWD_RECHECK_S = 8
+export const CROWD_REPLAN_PER_TICK = 4
+export const CROWD_REPLAN_MIN_BODIES = 3
+export const CROWD_ROUTE_GAIN_S = 2
+/** Fine walking fills clear corridor width instead of sharing one wall line (§7.2). */
+export const WALK_LANE_REACH = 8
+export const WALK_LANE_EDGE_INSET = 0.2
+export const WALK_SEGMENT_SAMPLE = 0.25
+export const WALK_LANE_FAN_SLOPE = 0.5
+/** Waiting fans out on usable platform floor beside each door (§5.9). */
+export const PLATFORM_WAIT_RADIUS = 4
+export const PLATFORM_DOOR_WALK_WEIGHT = 0.25
+export const PLATFORM_DOOR_COMMIT_WEIGHT = 8
+export const PLATFORM_BOARD_APPROACH = 1.5
 
 /**
  * Wayfinding at the fare line (§7.2). An agent re-plans the rest of its leg the

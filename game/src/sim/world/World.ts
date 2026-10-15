@@ -10,6 +10,11 @@ import { serviceArrivals, type TrainService } from '../trainSchedule.ts'
 import {
   CONGESTION_CAP,
   CONGESTION_S,
+  CROWD_RECHECK_S,
+  CROWD_REPLAN_PER_TICK,
+  PLATFORM_DOOR_WALK_WEIGHT,
+  PLATFORM_DOOR_COMMIT_WEIGHT,
+  PLATFORM_BOARD_APPROACH,
   DEFAULT_SIM_TIME,
   DOOR_RATE,
   GATE_CLEAR_RADIUS,
@@ -51,6 +56,8 @@ import {
   type DemandInput,
 } from '../demand.ts'
 import { Rng } from '../rng.ts'
+import { crowdedWalkEnd, spreadWalkRoute } from '../crowdRouting.ts'
+import { clearWalkSegment, walkingLaneNode, platformWaitingNodes } from '../walkingSpace.ts'
 import { gateLaneAllows } from '../gates.ts'
 import { GateTraffic } from '../gateTraffic.ts'
 import { roadMoveClear, roadContainsPoint, type Road } from '../roads.ts'
@@ -206,6 +213,9 @@ export class World {
    * A* in the same tick. Reset beside `gateReplans` in `moveAgents`.
    */
   private rerouteReplans = 0
+  private crowdReplans = 0
+  private doorWaiting = new Map<number, Int32Array>()
+  private doorLoads = new Int32Array(0)
   private nextTrainId = 1
   /** Scratch pose for `trainAt`, so pinning a cabin needs no allocation. */
   private poseScratch: TrainAt = { x: 0, y: 0, z: 0, fx: 1, fy: 0 }
@@ -314,6 +324,7 @@ export class World {
   private roads: Road[] = []
 
   rebuild(): void {
+    this.doorWaiting.clear()
     this.roads = this.data.modules.filter((m): m is Road => m.type === 'road')
     // The authored day is document data: re-read and re-normalize it on every rebuild,
     // which is the same path a live edit takes (`build` → `rebuild`).
@@ -335,6 +346,7 @@ export class World {
     this.routeTailGraph = this.graph
     this.nodePop = new Int32Array(this.graph.nodeCount)
     this.doorsByLine.clear()
+    this.doorLoads = new Int32Array(this.graph.servers.length)
     this.doorsByTrack.clear()
     this.doorOwner.clear()
     this.doorEdge.clear()
@@ -1279,6 +1291,13 @@ export class World {
           s.cooldown = 0
           break
         }
+        const head = this.pool.all().get(s.queue[0])
+        if (s.kind === 'door' && head && !head.dead &&
+          Math.hypot(head.x - this.graph.nodeX[s.node], head.y - this.graph.nodeY[s.node]) > PLATFORM_BOARD_APPROACH) {
+          // A spread-out platform queue walks to the open door before boarding.
+          s.cooldown = 0
+          break
+        }
         const id = s.queue.shift() as number
         const a = this.pool.all().get(id)
         if (!a || a.dead) {
@@ -1616,6 +1635,19 @@ export class World {
     a.state = STATE_QUEUING
     a.timer = 0
     s.queue.push(a.id)
+    if (s.kind === 'door') {
+      const nodes = this.waitingFloor(serverId)
+      a.platformWaitNode = nodes.length > 0 ? nodes[(s.queue.length - 1) % nodes.length] : s.node
+    }
+  }
+
+  private waitingFloor(server: number): Int32Array {
+    let nodes = this.doorWaiting.get(server)
+    if (!nodes) {
+      nodes = platformWaitingNodes(this.graph, this.graph.servers[server].node)
+      this.doorWaiting.set(server, nodes)
+    }
+    return nodes
   }
 
   /**
@@ -1671,6 +1703,16 @@ export class World {
     // the crowd visibly walks in when the car opens.
     let tx = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitX : g.nodeX[node]
     let ty = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitY : g.nodeY[node]
+    if (s.kind === 'door' && a.platformWaitNode >= 0) {
+      // The first few passengers approach an open doorway; everyone else keeps
+      // their waiting spot instead of all pressing against the screen/wall.
+      const approaching = s.rate > 0 && (s.queue[0] === a.id || s.queue[1] === a.id || s.queue[2] === a.id)
+      const wait = approaching ? s.node : a.platformWaitNode
+      if (clearWalkSegment(g, g.nodeX[s.node], g.nodeY[s.node], g.nodeX[wait], g.nodeY[wait], g.nodeZ[s.node])) {
+        tx = g.nodeX[wait]
+        ty = g.nodeY[wait]
+      }
+    }
     let detouring = false
     if (s.ramp && !rampMoveClear(g.rampWalls, a.x, a.y, tx, ty, Math.round(a.z) - 1)) {
       if (!a.rampApproach || !rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[a.rampApproach[0]], g.nodeY[a.rampApproach[0]], Math.round(a.z) - 1)) {
@@ -1803,6 +1845,11 @@ export class World {
     this.gateTraffic.refresh(this.pool)
     this.gateReplans = 0
     this.rerouteReplans = 0
+    this.crowdReplans = 0
+    this.doorLoads.fill(0)
+    for (const a of live) {
+      if (!a.dead && a.train < 0 && a.door >= 0 && a.legs[a.legIdx]?.kind === 'line') this.doorLoads[a.door]++
+    }
     // Resolve path requests first, in agent id order.
     this.processRepaths()
 
@@ -2007,14 +2054,23 @@ export class World {
       return
     }
     if (this.chooseGate(a)) return
+    this.avoidCrowdedWalk(a)
     const g = this.graph
     const target = a.path[a.pathIdx]
-    const tx = g.nodeX[target]
-    const ty = g.nodeY[target]
+    let steering = walkingLaneNode(g, a.path, a.pathIdx, a.id)
+    if (steering !== target && (!clearWalkSegment(g, a.x, a.y, g.nodeX[steering], g.nodeY[steering], a.z) ||
+      !rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[steering], g.nodeY[steering], Math.round(a.z) - 1) ||
+      !roadMoveClear(this.roads, a.x, a.y, g.nodeX[steering], g.nodeY[steering], Math.round(a.z) - 1))) steering = target
+    const tx = g.nodeX[steering]
+    const ty = g.nodeY[steering]
     const tz = g.nodeZ[target]
+    const previous = a.pathIdx > 0 ? a.path[a.pathIdx - 1] : target
+    const floorCorridor = !g.serverForNode.has(target) && !g.serverForNode.has(previous) &&
+      g.nodeZone[target] === g.nodeZone[previous] && Math.abs(a.z - tz) < 0.01
     // Crowd displacement (or a station edit) can put a rail between a body and
     // its next waypoint. Rejoin the graph on the reachable side (§7.2 / §10.3).
-    if (!roadMoveClear(this.roads, a.x, a.y, tx, ty, Math.round(a.z) - 1) || !rampMoveClear(g.rampWalls, a.x, a.y, tx, ty, Math.round(a.z) - 1)) {
+    if ((floorCorridor && !clearWalkSegment(g, a.x, a.y, tx, ty, a.z)) ||
+      !roadMoveClear(this.roads, a.x, a.y, tx, ty, Math.round(a.z) - 1) || !rampMoveClear(g.rampWalls, a.x, a.y, tx, ty, Math.round(a.z) - 1)) {
       const path = this.recoverRampRoute(a, a.destNode)
       if (path) {
         a.path = path
@@ -2055,6 +2111,29 @@ export class World {
     a.z += (tz - a.z) * inv
     a.vx = ((tx - a.x) / Math.max(dist, 1e-6)) * speed
     a.vy = ((ty - a.y) / Math.max(dist, 1e-6)) * speed
+  }
+
+  private avoidCrowdedWalk(a: Agent): void {
+    if (this.tick < a.crowdCheckTick || this.crowdReplans >= CROWD_REPLAN_PER_TICK) return
+    const g = this.graph
+    let start = a.pathIdx
+    let node = a.path[start]
+    // Turn only at a reached waypoint, so a new route never pulls a body
+    // backwards through a wall or a handrail to its old start node.
+    if (Math.hypot(a.x - g.nodeX[node], a.y - g.nodeY[node], a.z - g.nodeZ[node]) > ARRIVE) {
+      if (start === 0) return
+      node = a.path[--start]
+      if (Math.hypot(a.x - g.nodeX[node], a.y - g.nodeY[node], a.z - g.nodeZ[node]) > ARRIVE) return
+    }
+    a.crowdCheckTick = this.tick + Math.ceil(CROWD_RECHECK_S / SIM_DT)
+    const end = crowdedWalkEnd(this.path, a.path, start)
+    if (end <= start + 1) return
+    this.crowdReplans++
+    const route = spreadWalkRoute(this.path, a.path, start, end, a.needs)
+    if (!route) return
+    a.path = route
+    a.pathIdx = 0
+    a.fromNode = route[0]
   }
 
   private recoverRampRoute(a: Agent, destination: number): Int32Array | null {
@@ -2379,7 +2458,9 @@ export class World {
       for (const d of doors) {
         const s = g.servers[d]
         const dist = from >= 0 ? Math.hypot(g.nodeX[from] - g.nodeX[s.node], g.nodeY[from] - g.nodeY[s.node]) : 0
-        const score = dist + 8 * s.queue.length
+        // Include walkers already committed to a door: otherwise a whole wave
+        // chooses the nearest door while every queue still looks empty (§5.9).
+        const score = PLATFORM_DOOR_WALK_WEIGHT * dist + PLATFORM_DOOR_COMMIT_WEIGHT * this.doorLoads[d]
         if (score < bestScore || (score === bestScore && d < best)) {
           bestScore = score
           best = d
@@ -2390,6 +2471,7 @@ export class World {
         return
       }
       a.door = best
+      this.doorLoads[best]++
       leg.node = g.servers[best].node
       a.servedFor = -1
     }
