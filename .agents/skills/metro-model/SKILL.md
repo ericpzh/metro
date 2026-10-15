@@ -15,8 +15,8 @@ Work from the metro root. Read `model/README.md` and
   and bob/shoulder/long female templates, bagless/full/small backpacks, 75% and
   87.5% standard backpacks, and left/right shoulder, crossbody and purse variants.
   `hairstyles.js` defines ten styles per sex and their backpack compatibility.
-  Viewer and bake share the complete catalogue (currently 192 entries).
-  Explicit `adultEligible` / `childEligible` flags own the pools (currently 172 / 74):
+  Viewer and bake share the complete catalogue (currently 232 entries).
+  Explicit `adultEligible` / `childEligible` flags own the pools (currently 212 / 114):
   female crossbody templates are child-only, and bald models are never children.
   Approved small/crossbody bags can be child templates. Choose each eligible entry
   equally; do not select sex, hair and bag hierarchically or freeze catalogue counts.
@@ -45,6 +45,29 @@ Work from the metro root. Read `model/README.md` and
   vector: aliasing the input can collapse points to the origin and create debris.
   `waist-skinning.js` keeps trouser waists on Hips and lower coat panels on Spine;
   sleeve vertices retain arm movement. The lining stays recessed behind the hem.
+- `outfit-presets.js` owns ten jacket-free clothing presets per sex. Forty
+  appended bagless catalogue entries cover both grey arrangements using bob and
+  original male hair; all enter both age pools. Preserve the original 192 IDs
+  and ordering. Children apply their size transform after fitting. Random
+  previews must retain the selected outfit/tones. `outfits.js` retains continuous
+  source sleeves/lining and closes the hem; never cut away the moving underarm
+  closure to clean a standing screenshot. `skirt-motion.js` exports 24 clearance
+  morphs per gait with matching tracks. `export-clothing-variants.mjs` validates
+  all three clips on GLB round trip. The baker samples actual clips with
+  `getVertexPosition`, shares animated morph weights on detached simplifier
+  parts and includes morph trajectories in vertex identity. Skeleton-only baking
+  loses skirt clearance. Keep exact authored grey stops and original head/feet.
+  `passenger-clothing` compares actual baked skirt points to current hashed GLBs
+  with a static-shell negative control. Check both ages, intermediate angles,
+  all walks and child size extremes. These clothing entries currently have no bags.
+  The game-only exterior pass removes garment inner walls/caps, trims trouser
+  waists under the top and omits covered thighs, so hidden GLB supports do not
+  show through the shared 70% material. Never apply this trim to the closed
+  downloadable GLB or remove the source sleeve/underarm closure. Pin actual
+  baked outward skirt faces and absent hidden thighs, not only the trim helper.
+  Pose buffers use lossless `frame-delta` packing before zlib; restore signed
+  16-bit positions and 8-bit normals before GPU upload, retaining absolute legacy
+  atlas compatibility. Keep the 100 MiB tracked-asset and 25 MiB shipped-file guards.
 - `preview-appearance.js` owns age rules, percentage clamping, reset and random
   selection. It imports game tuning: 20% children / 80% adults, height 80–120%,
   adult width/depth 90–110%, child width/depth 80–90%. Child base: height 65%,

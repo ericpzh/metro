@@ -1,4 +1,5 @@
 import {HAIR_CHOICES,supportsBackpack} from './hairstyles.js';
+import {OUTFITS} from './outfit-presets.js';
 
 const backpackHairs=character=>HAIR_CHOICES[character].filter(hair=>supportsBackpack(character,hair));
 /** Approved downloadable variants; each entry has equal weight in the game. */
@@ -23,6 +24,12 @@ export const MODEL_LIBRARY = [
     id:`${character}-${hair}-${type}-${side}-bag`,character,hair,bag:true,bagStyle:`${type}-${side}`,bagType:type,bagSide:side,
     ...(type==='crossbody'&&character==='female'?{childOnly:true}:{}),file:`passenger-${character}-${type}-${side}-${hair}-walk.glb`,
   }))))),
+  ...['female','male'].flatMap(character=>OUTFITS[character].flatMap(preset=>[false,true].map(swapTones=>({
+    id:`${character}-${preset.id}${swapTones?'-swapped':''}-no-bag`,character,
+    hair:character==='female'?'bob':'original',bag:false,outfit:preset.id,swapTones,garmentShape:preset.shape,
+    top:swapTones?preset.bottom:preset.top,bottom:swapTones?preset.top:preset.bottom,
+    file:`passenger-${character}-${preset.id}${swapTones?'-swapped':''}-walk.glb`,
+  })))),
 ].map(model=>({...model,
  adultEligible:!model.childOnly,
  childEligible:model.hair!=='bald'&&(!model.bag||model.bagStyle==='small'||model.bagType==='crossbody'),

@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {readFileSync} from 'node:fs'
+import {readFileSync,readdirSync,statSync} from 'node:fs'
 import {passengerCaptureBatches, validatePassengerCaptures} from '../../tools/passenger-capture-plan.mjs'
+import {passengerSpriteDefinitions} from '../../tools/passenger-cards.mjs'
 
 function fixture(count) {
  const library=Array.from({length:count},(_,i)=>({id:`model-${i}`,sourceSha256:`hash-${i}`})),index=[],cycles=[]
@@ -75,4 +76,36 @@ test('the repeatable command refreshes exactly the five requested sheets and onl
  assert.ok(script.includes('PASSENGER_CARDS_DIR') && script.includes('UI_SHOTS_EN_DIR'))
  const ui=readFileSync(new URL('../../tools/render-ui-shots.mjs',import.meta.url),'utf8')
  assert.ok(ui.includes("SHOTS.filter(shot => shot.id === 'played')"))
+ assert.ok(ui.includes("softwareGpu: process.env.METRO_UI_BROWSER_GPU !== 'hardware'"),'supersampled UI screenshots default to software rendering')
+})
+
+test('both grey arrangements require complete adult and child clothing captures',()=>{
+ const {library,index,cycles}=fixture(2)
+ for(const [i,model] of library.entries())Object.assign(model,{bag:false,hair:'bob',outfit:'long-a-line',swapTones:i===1,adultEligible:true,childEligible:true})
+ const children=cards=>cards.map(card=>({...card,age:'child',file:`child-${card.file}`}))
+ const stills=[...index,...children(index)],walks=[...cycles,...children(cycles)]
+ assert.doesNotThrow(()=>validatePassengerCaptures(stills,walks,library,24,true))
+ assert.throws(()=>validatePassengerCaptures(stills,walks.filter(card=>!(card.age==='child'&&card.variant===1&&card.sample===7)),library,24,true),/incomplete/)
+ const check=readFileSync(new URL('../../tools/test-passenger-animation.mjs',import.meta.url),'utf8')
+ assert(check.includes('clothingFigures.adult>0&&clothingFigures.child>0'),'sheet playback checks that both age groups actually display the new clothes')
+})
+
+test('static sprite deduplication preserves identity and transforms without embedding repeated bitmaps',()=>{
+ const image='<image x="-12" y="-30" width="80" height="100" href="data:image/png;base64,bitmap-a"/>'
+ const shifted=image.replace('x="-12"','x="-10"')
+ const other=image.replace('bitmap-a','bitmap-b')
+ const definitions=passengerSpriteDefinitions([image,image,shifted,other,image])
+ assert.equal(definitions.split('bitmap-a').length-1,2,'only equal positioned image nodes may share a definition')
+ assert(definitions.includes('<g id="human-1"><use href="#human-0"/></g>'))
+ assert(definitions.includes('<g id="human-4"><use href="#human-0"/></g>'))
+ for(let i=0;i<5;i++)assert(definitions.includes(`<g id="human-${i}">`),'every original sprite ID remains addressable')
+ assert(definitions.includes(shifted)&&definitions.includes(other))
+})
+
+test('all published concept sheets stay below the strict Worker asset limit',()=>{
+ const art=new URL('../../art/',import.meta.url)
+ for(const file of readdirSync(art).filter(f=>f.endsWith('.svg')&&!f.startsWith('_')&&!f.endsWith('-zoom.svg')))
+  assert(statSync(new URL(file,art)).size<25*1024*1024,`${file}: must remain smaller than 25 MiB`)
+ const sync=readFileSync(new URL('../../web/scripts/sync-art.mjs',import.meta.url),'utf8')
+ assert(sync.includes('>= 25 * 1024 * 1024'),'site build rejects the exact-limit boundary too')
 })

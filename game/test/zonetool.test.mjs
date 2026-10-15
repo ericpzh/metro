@@ -69,12 +69,12 @@ function roomStation() {
 }
 
 /** One pointer event; the pick is the cell the pointer is over. */
-function press(cell, clientX = 0, clientY = 0) {
+function press(cell, clientX = 0, clientY = 0, button = 0) {
   return {
     clientX,
     clientY,
-    button: 0,
-    buttons: 1,
+    button,
+    buttons: button === 2 ? 2 : 1,
     shiftKey: false,
     hit: { cell, place: [cell[0], cell[1], cell[2] + 1], solid: true, point: [cell[0] + 0.5, cell[1] + 0.5] },
     preventDefault: () => {},
@@ -228,4 +228,50 @@ test('the 无分区 brush takes a label off, and says when there is none', () =>
   tool.onUp(press([0, 1, 0]))
   assert.equal(useStore.getState().notice, '这些格子没有分区')
   assert.equal(useStore.getState().station, before, 'a no-op must not commit')
+})
+
+test('right-click on 分区 erases the floor label like the 无分区 brush without removing the floor', () => {
+  station()
+  const initial = useStore.getState().station
+  useStore.setState({ station: toState({
+    ...initial,
+    cells: initial.cells.map((cell) => cell.x === 0 && cell.y === 0 && cell.z === 0
+      ? { ...cell, zone: 'paid' }
+      : cell),
+  }) })
+  const before = useStore.getState().station
+  const { tool, zoneDrag } = ctxFor()
+  // The selected brush stays paid; right-click temporarily uses 无分区.
+  tool.onDown(press([0, 0, 0], 0, 0, 2))
+  assert.equal(zoneDrag.current?.brush, 'none')
+  tool.onUp(press([0, 0, 0], 0, 0, 2))
+
+  const after = useStore.getState().station
+  assert.equal(zoneAt(after.cells, 0, 0, 0), 'none', 'right-click removes the fare-zone label')
+  assert.equal(after.cells.length, before.cells.length, 'right-click keeps the floor cell')
+  assert.deepEqual(after.cells.find((c) => c.x === 0 && c.y === 0 && c.z === 0).finish, { top: 'floor.granite' })
+  assert.equal(useStore.getState().zoneBrush, 'paid', 'right-click does not change the selected brush')
+})
+
+test('right-drag on 分区 clears every painted floor in its rectangle and leaves non-floor cells alone', () => {
+  station()
+  const before = useStore.getState().station
+  useStore.setState({ station: toState({
+    ...before,
+    cells: before.cells.map((cell) => ({ ...cell, zone: 'paid' })),
+  }) })
+  const { tool, zoneDrag } = ctxFor()
+  tool.onDown(press([0, 0, 0], 0, 0, 2))
+  zoneDrag.current.downTime = performance.now() - 1000
+  const target = press([1, 1, 0], 40, 40, 2)
+  tool.onMove(target)
+  tool.onUp(target)
+
+  const after = useStore.getState().station
+  for (const [x, y] of [[0, 0], [0, 1], [1, 0]]) {
+    assert.equal(zoneAt(after.cells, x, y, 0), 'none', `floor (${x}, ${y}) was erased`)
+  }
+  assert.equal(zoneAt(after.cells, 1, 1, 0), 'paid', 'the tile under the wall is not a floor target')
+  assert.equal(after.cells.length, before.cells.length, 'the drag removes labels, not floor or wall cells')
+  assert.equal(useStore.getState().zoneBrush, 'paid', 'right-drag does not switch the selected brush')
 })

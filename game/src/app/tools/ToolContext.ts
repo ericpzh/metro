@@ -108,6 +108,8 @@ export interface PaintDrag {
 /** The zone tool's rectangle drag: a floor label or a counter module. */
 export interface ZoneDragState {
   active: boolean
+  /** The pointer button that began this brush or erase gesture. */
+  button: number
   /** The active brush when the press began. */
   brush: ZoneBrush
   anchor: [number, number, number]

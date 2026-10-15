@@ -66,8 +66,10 @@ English-copy change must preserve the Chinese catalogue and default captures.
 
 After character, size or crowd-material changes, use `metro-model` and run
 `npm run art:models`. It captures every eligible adult and child template
-(currently 172 adult / 74 child choices across 192 exports) with the live 70% game
-opacity, validates complete strides and source
+(currently 212 adult / 114 child choices across 232 exports) with the live 70% game
+opacity, including forty jacket-free clothing/grey-arrangement entries shared
+by adults and children. Playback checks require newly clothed figures in both
+age groups. The pipeline validates complete strides and source
 hashes, refreshes bilingual sheets 01/02/07/12/13 and renders previews at 8 s.
 The sheet figure helpers use stable 20/80 child/adult selection; child cards must
 have hair and may carry only approved small backpacks or crossbody bags. Explicit
@@ -75,6 +77,18 @@ catalogue age flags determine both pools, including child-only female crossbody
 templates. Gait duration uses the captured stride after depth scaling.
 Keep `.preview/model-art/` captures separate from other running previews and
 retain `capture-passengers` / `passenger-art-pipeline` coverage when changing formats.
+On a local GPU, `$env:METRO_BROWSER_GPU='hardware'` opts browser tools into
+hardware rendering; the default remains software rendering for reproducibility.
+Use the same GPU mode across captures and playback validation.
+Full-resolution interface shots default to software even in that mode: Windows
+hardware rendering can time out on the supersampled station screenshot.
+`METRO_UI_BROWSER_GPU=hardware` explicitly opts only those screenshots in.
+Passenger batches reuse one GPU atlas across their bounded calls and explicitly
+dispose it at completion; retain both the batch bound and final disposal.
+Static sprite definitions reuse identical positioned bitmap nodes while keeping
+all `human-*` IDs and transforms. Keep this deduplication as the catalogue grows;
+`sync-art.mjs` rejects sheets at or above the strict 25 MiB Worker asset limit.
+`passenger-art-pipeline` checks sprite identity/placement and actual sheet sizes.
 
 `node tools/gen-art.mjs [nn …]` rewrites every sheet from its own `SHEETS` table,
 or only the ones named by leading number / file name

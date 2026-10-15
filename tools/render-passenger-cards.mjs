@@ -28,7 +28,7 @@ try {
   // in one call can exceed the browser timeout before walking captures begin.
   const index = [];
   for (const age of ['adult','child']) for (const cycleVariants of batches) {
-    index.push(...save(await session.evaluate(`window.__passengerCards.capturePassengers(${JSON.stringify({age,cycleVariants})})`)));
+    index.push(...save(await session.evaluate(`window.__passengerCards.capturePassengers(${JSON.stringify({age,cycleVariants,reuseContext:true})})`)));
     console.log(`still capture: ${age}, variants ${cycleVariants.join(',')}`);
   }
   writeFileSync(join(out, 'index.json'), JSON.stringify(index, null, 2));
@@ -39,7 +39,7 @@ try {
     ['elevation', [0, Math.PI]], ['plan', [0]]]) {
     for (const heading of headings) for (const cycleVariants of batches) {
       cycle.push(...save(await session.evaluate(`window.__passengerCards.capturePassengers(${JSON.stringify({
-        age, walkCycles: true, cycleView: view, cycleHeading: heading, cycleVariants,
+        age, walkCycles: true, cycleView: view, cycleHeading: heading, cycleVariants, reuseContext:true,
       })})`)));
       console.log(`walking capture: ${age}, ${view}, heading ${heading.toFixed(2)}, variants ${cycleVariants.join(',')}`);
     }
@@ -50,6 +50,7 @@ try {
   console.log(`walking captures: ${cycle.length} stride frames`);
   console.log(`passenger captures: ${index.length} outfit/pose/view combinations -> ${out}`);
 } finally {
+  await session.evaluate('window.__passengerCards?.disposePassengerCapture?.()').catch(()=>{});
   await session.close();
   server.close();
 }

@@ -10,6 +10,7 @@ import {createFemaleVariant} from '../src/characters/female.js';
 import {smoothShoulders} from '../src/characters/shoulders.js';
 import {withTrimmedStrapSurface} from '../src/characters/strap-surface.js';
 import {WALK_PROFILES} from '../../game/src/sim/constants.ts';
+import {exportClothingVariants} from './export-clothing-variants.mjs';
 const assets=new URL('../public/models/',import.meta.url);mkdirSync(assets,{recursive:true});
 const selectedCharacter=process.argv.find(arg=>arg.startsWith('--character='))?.slice(12);
 if(selectedCharacter&&!['male','female'].includes(selectedCharacter))throw Error('Expected --character=male or --character=female');
@@ -27,7 +28,7 @@ await writeAsset(new URL('passenger-male-walk.glb',assets),Buffer.from(await wit
 const variantSource=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
 maleRig=createFemaleVariant(variantSource.scene,{male:true});
 maleClips=createWalkClips(maleRig.model,WALK_PROFILES);
-for(const {hair:style,bag,file} of MODEL_LIBRARY.filter(entry=>entry.character==='male'&&!entry.bagStyle)){
+for(const {hair:style,bag,file} of MODEL_LIBRARY.filter(entry=>entry.character==='male'&&!entry.bagStyle&&!entry.outfit)){
  if(style==='original'&&bag)continue;
  maleRig.setBag(bag);maleRig.setHairstyle(style);
  await writeAsset(new URL(file,assets),Buffer.from(await withTrimmedStrapSurface(maleRig.model,()=>new GLTFExporter().parseAsync(maleRig.model,{binary:true,animations:maleClips}))));
@@ -43,6 +44,7 @@ for(const character of ['male','female'].filter(selected)){
   await writeAsset(new URL(entry.file,assets),Buffer.from(await withTrimmedStrapSurface(rig.model,()=>new GLTFExporter().parseAsync(rig.model,{binary:true,animations:variantAnimations}))));
  }
 }
+await exportClothingVariants({outputDirectory:assets,character:selectedCharacter});
 await writeAsset(new URL('walk-profiles.json',assets),JSON.stringify(WALK_PROFILES,null,2)+'\n');
 await writeAsset(new URL('reference.png',assets),readFileSync(new URL('../../prototypes/trellis-passenger/reference.png',import.meta.url)));
 await writeAsset(new URL('provenance.json',assets),JSON.stringify({male:{source:'prototypes/trellis-passenger/passenger-b-walk-forward.glb',sha256:createHash('sha256').update(bytes).digest('hex'),geometryPreservedOutsideCleanupRegions:true,silhouetteCleanup:'model/src/characters/shoulders.js',variants:maleVariants},female:{builder:'model/src/characters/female.js',variants:filenames},walkProfiles:WALK_PROFILES},null,2)+'\n');

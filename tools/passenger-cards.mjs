@@ -31,9 +31,18 @@ export function passengerImage(view, x, y, pixelsPerMetre, variant = 0, walking,
 
 export function passengerSpriteCount() { return load().filter(p => p.view === 'iso').length; }
 
+/** Preserve every sprite ID/transform while embedding identical bitmap nodes once. */
+export function passengerSpriteDefinitions(images) {
+  const first = new Map();
+  return images.map((image, i) => {
+    if(first.has(image))return `<g id="human-${i}"><use href="#human-${first.get(image)}"/></g>`;
+    first.set(image,i);return `<g id="human-${i}">${image}</g>`;
+  }).join('');
+}
+
 export function passengerSprites() {
   const isoScale = Math.sqrt(30 * 30 + (30 / Math.sqrt(3)) ** 2) / Math.sqrt(2 / 3);
-  return Array.from({ length: passengerSpriteCount() }, (_, i) => `<g id="human-${i}">${passengerImage('iso', 0, 0, isoScale, i)}</g>`).join('')
+  return passengerSpriteDefinitions(Array.from({ length: passengerSpriteCount() }, (_, i) => passengerImage('iso', 0, 0, isoScale, i)))
     + `<g id="person">${passengerImage('iso', 0, 0, isoScale, 0, true)}</g>`
     + `<g id="personBag"><use href="#human-${7 % passengerSpriteCount()}"/></g>`
     + `<g id="personSeat"><use href="#human-${14 % passengerSpriteCount()}"/></g>`;

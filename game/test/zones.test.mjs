@@ -176,6 +176,28 @@ test('the zone map tints the floor, not a roof or a wall coping', () => {
   assert.deepEqual(floors, ['0,0,0', '2,0,0'])
 })
 
+test('the zone map follows rotated track beds instead of their unrotated bounds', () => {
+  // These are north/south (rot 3) track runs. Their local w axis turns onto
+  // world Y, so the synthetic restricted floor must stay in the narrow X strip.
+  const tracks = [
+    { id: 'track-a', type: 'track', x: 17, y: 84, z: -7, w: 32, d: 3, rot: 3, cfg: { line: '6', power: 'third-rail' } },
+    { id: 'track-b', type: 'track', x: 17, y: 52, z: -7, w: 68, d: 3, rot: 3, cfg: { line: '6', power: 'third-rail' } },
+    { id: 'track-c', type: 'track', x: 17, y: -16, z: -7, w: 32, d: 3, rot: 3, cfg: { line: '6', power: 'third-rail' } },
+  ]
+  const floors = zoneMapFloors([], tracks)
+  const keys = new Set(floors.map((c) => `${c.x},${c.y},${c.z}`))
+
+  // Real bed cells are included, while the former unrotated w×d rectangles
+  // incorrectly painted these cells across X.
+  for (const k of ['17,84,-7', '19,53,-7', '18,52,-7', '19,-16,-7', '18,-47,-7']) {
+    assert.ok(keys.has(k), `${k} is part of a rotated track bed`)
+  }
+  for (const k of ['20,85,-7', '41,53,-7', '32,-14,-7', '48,-16,-7']) {
+    assert.equal(keys.has(k), false, `${k} is outside the rotated track beds`)
+  }
+  assert.ok(floors.every((c) => c.zone === 'restricted'), 'synthetic track floors remain in 设备区')
+})
+
 test('the zone map labels one area per contiguous zone patch', () => {
   const state = toState(flatStation({ gate: true }))
   const labels = zoneRegionLabels(zoneMapFloors(state.cells))

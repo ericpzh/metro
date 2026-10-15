@@ -6,6 +6,7 @@
   "description": "Station Designer character model viewer and GLB library.",
   "scripts": {
     "prepare-assets": "node scripts/prepare-assets.mjs",
+    "export:outfits": "node scripts/export-outfits.mjs",
     "predev": "npm run prepare-assets",
     "dev": "vite",
     "start": "npm run dev",

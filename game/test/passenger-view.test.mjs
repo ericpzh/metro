@@ -226,7 +226,9 @@ test('approved variants retain flat grey boundaries through the pose lookup', ()
       assert.ok(vertex < human.vertices, 'colour lookup must address a baked vertex')
       used.add(regions[vertex])
     }
-    for (const region of [human.palette.indexOf(.78), human.palette.indexOf(human.library[outfit].character === 'male' ? .89 : .62)]) {
+    const model=human.library[outfit]
+    const tones=model.outfit?[parseInt(model.top.slice(1,3),16)/255,parseInt(model.bottom.slice(1,3),16)/255]:[model.character==='male'?.89:.62]
+    for (const region of [.78,...tones].map(tone=>human.palette.indexOf(tone))) {
       assert.ok(used.has(region), `outfit ${outfit}: missing approved grey region (${region})`)
     }
     const pose = passengerPose(0, outfit)

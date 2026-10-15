@@ -293,9 +293,15 @@ the four rules most changes trip over.
   `new World(data, seed, { zoneBarriers: true })`, which is how `zones`, `gates` and
   `wayfinding` keep §4.5's rule covered in both modes. A zone is painted on **floor**
   (`isFloorCell`: solid, top face exposed, a walkable finish or a track bed at the
-  foot of its column), the 分区图 draws the storey being edited (`zoneMapFloorsAt`),
+  foot of its column), synthetic track-bed tiles follow the module's actual rotated
+  footprint via `sim/track.ts` `trackCells` (never an unrotated `w × d` rectangle),
+  and the 分区图 draws the storey being edited (`zoneMapFloorsAt`),
   and the folder's sixth tile is 无分区 as the *eraser* (`eraseZoneCells`,
-  `isEraseBrush`) — see `zonetool.test.mjs`. 商店 / 厕所 / 办公室 are ordinary room-purpose
+  `isEraseBrush`) — see `zonetool.test.mjs`. Right-click in the 分区 tool temporarily uses that
+  same eraser for floor taps and drags, without changing the armed brush or demolishing floor;
+  right-click still removes a booth counter module. Preserve the initiating pointer button in
+  `ZoneDragState` so shared viewport cancellation, release routing and early native `contextmenu`
+  leave right-button erase drags intact. 商店 / 厕所 / 办公室 are ordinary room-purpose
   paint labels in `ZONE_PAINT_LIST`: they tint the same walkable floor path as fare zones, retain
   their existing room-type tile icons, preserve `Cell.zone` for fare logic, and create no room
   modules or walls. `zones.test.mjs`, `zonetool.test.mjs` and `rail-families.test.mjs` pin the
@@ -1568,7 +1574,16 @@ the four rules most changes trip over.
   `passengerAppearance`; consume no simulation RNG. `passenger-library.test.mjs`
   pins catalogue, equal age-pool selection, every walk on every variant, bag visibility,
   bounded topology, one draw and atlas disposal. `passenger-size` pins ranges,
-  child restrictions and independent body/shadow matrices; the model preview
+  child restrictions and independent body/shadow matrices. `passenger-clothing`
+  pins all twenty jacket-free presets in both grey arrangements in both age pools,
+  exact tones and actual baked skirt morphs against current GLB hashes. Appended
+  clothing preserves original catalogue ordering and shares the instanced draw.
+  Never replace clip/morph sampling with skeleton posing alone; see `metro-model`.
+  Game-only exterior trimming removes internal garment supports and covered
+  thighs before the transparent bake. Lossless frame deltas restore in
+  `passengerAtlas` before texture creation; preserve absolute legacy atlases and
+  keep both tracked-asset and shipped-chunk size guards.
+  The model preview
   shares tuning through `preview-appearance.js`. The
   crowd has one draw, gait by distance, idle when waiting/riding, frozen while
   paused — and so is every other sim-driven animation: escalator step bands

@@ -14,6 +14,7 @@ const server = await serveDir(join(repo, 'art'), port);
 let session;
 const childModels=MODEL_LIBRARY.filter(model=>model.childEligible).map(model=>model.id);
 let childFigures=0;
+const clothes=new Set(MODEL_LIBRARY.filter(model=>model.outfit).map(model=>model.id)),clothingFigures={adult:0,child:0};
 try {
   session = await withPage({ url: 'about:blank',
     profile: join(repo, '.preview', `.chrome-gait-test-${process.pid}`), debugPort });
@@ -24,6 +25,7 @@ try {
       { what: file });
     const kids=await session.evaluate("[...document.querySelectorAll('[data-age=child][data-variant]')].map(node=>node.dataset.variant)");
     childFigures+=kids.length;assert(kids.every(model=>childModels.includes(model)),`${file}: child figures use only age-eligible models`);
+    for(const figure of await session.evaluate("[...document.querySelectorAll('[data-age][data-variant]')].map(node=>({age:node.dataset.age,model:node.dataset.variant}))"))if(clothes.has(figure.model))clothingFigures[figure.age]++;
     for (const seconds of [.37, 8, 13.7]) {
       const counts = await session.evaluate(`(() => {
         for (const animation of document.getAnimations()) { animation.pause(); animation.currentTime = ${seconds * 1000}; }
@@ -36,6 +38,7 @@ try {
     console.log(`PASS ${file}: one gait frame per walker at three times`);
   }
   assert(childFigures>0,'refreshed concept sheets include smaller children');
+  assert(clothingFigures.adult>0&&clothingFigures.child>0,'refreshed sheets show the newly approved clothes on adults and children');
   await session.send('Page.navigate', { url: 'about:blank' });
   await waitFor(session.evaluate, '!!document.body');
   for (const child of [false,true]) for (const view of ['iso', 'elevation', 'plan']) {

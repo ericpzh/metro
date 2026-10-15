@@ -146,7 +146,10 @@ no missing translations. Follow the owning subskill for layout and cache refresh
 
 Passenger sources: the live `game/src/assets/passenger-approved.json` comes from
 the complete reviewed catalogue; use `metro-model` and `npm run bake:passengers`.
-The current library has 192 variants with ten hairstyles per sex (172 adult-eligible / 74 child-eligible).
+The current library has 232 variants with ten hairstyles per sex (212 adult-eligible / 114 child-eligible).
+Forty appended bagless entries cover ten jacket-free outfits per sex in both
+grey arrangements, shared by both ages. Use `metro-model` for their exported
+skirt morphs and bake, and keep `passenger-clothing`'s actual-asset regression.
 Stable identity chooses equally within explicit `adultEligible` / `childEligible`
 pools; the 20% child population can use approved small/crossbody bags, never bald
 heads. `render/passengerEligibility.ts` preserves the previous pools for legacy

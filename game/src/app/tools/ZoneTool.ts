@@ -56,7 +56,9 @@ export class ZoneTool extends ToolController {
     const hit = info.hit
     if (!scene || !hit) return
     const st = useStore.getState()
-    // Counter modules can be removed as modules. Room labels are ordinary zones.
+    // A counter remains removable as a module. Everywhere else, right-click is
+    // the same floor-label eraser as arming 无分区; zoning should not demolish
+    // the floor the label belongs to.
     if (info.button === 2) {
       const fac = hit.solid ? facilityAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined
       if (fac?.type === 'booth') {
@@ -65,12 +67,12 @@ export class ZoneTool extends ToolController {
         st.setNotice(msg('removed_value', moduleLabel(fac.type, fac.type === 'booth' ? fac.cfg.kind : undefined)))
         return
       }
-      if (hit.solid) this.bulldoze(hit.cell, hit.place, this.facing())
-      return
     }
-    // Zone brushes paint floors; ticket and information brushes build counters.
     info.preventDefault()
-    const brush = st.zoneBrush
+    // Zone brushes paint floors; ticket and information brushes build counters.
+    // Right-click temporarily arms the existing 无分区 brush, independent of
+    // the selected paint or room-color brush.
+    const brush: ZoneBrush = info.button === 2 ? 'none' : st.zoneBrush
     // §4.5: a zone belongs to a **floor** cell, so a fare-zone patch may not be
     // started on a wall coping, a ceiling or the earth over a tunnel — the tiles
     // that are solid and are not floor. Such a press paints nothing and says why,
@@ -83,6 +85,7 @@ export class ZoneTool extends ToolController {
     const anchor: [number, number, number] = [hit.cell[0], hit.cell[1], z]
     this.ctx.zoneDrag.current = {
       active: true,
+      button: info.button,
       brush,
       anchor,
       target: anchor,

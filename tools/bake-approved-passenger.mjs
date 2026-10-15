@@ -9,21 +9,27 @@ import {WALK_PROFILES} from '../game/src/sim/constants.ts';
 import {MODEL_LIBRARY} from '../model/src/characters/library.js';
 import {createPassengerWalkPoser} from './passenger-walk-poses.mjs';
 import {applyPassengerCarryPose} from '../model/src/animation/carry-pose.js';
+import {OUTFITS,outfitFor} from '../model/src/characters/outfit-presets.js';
+import {passengerBakePart,passengerVertexKey,deltaPassengerFrames,passengerExteriorGeometry} from './passenger-bake-geometry.mjs';
 
 // Consume the reviewed exports, including closed coats and trimmed strap surfaces.
 // Regenerate them first: node model/scripts/prepare-assets.mjs.
 await MeshoptSimplifier.ready;
 const palette=[.40,.43,.44,.46,.47,.48,.53,.62,.66,.74,.78,.89];
+for(const outfit of Object.values(OUTFITS).flat())for(const tone of [outfit.top,outfit.bottom]){
+ const value=parseInt(tone.slice(1,3),16)/255;if(!palette.includes(value))palette.push(value);
+}
 const linear=palette.map(g=>new THREE.Color().setRGB(g,g,g,THREE.SRGBColorSpace).r);
 async function bakeVariant(variant) {
 const source=new URL('../model/public/models/'+variant.file,import.meta.url);
 const bytes=readFileSync(source),gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
 const meshes=[];gltf.scene.traverse(n=>{
  if(!n.isSkinnedMesh||!n.visible)return;
+ n.geometry=passengerExteriorGeometry(n,variant.outfit?outfitFor(variant.character,variant.outfit):null);
  if(n.name.includes('backpack')){meshes.push(n);return}
  const p=n.geometry.attributes.position,index=n.geometry.index?.array??Array.from({length:p.count},(_,i)=>i),head=[],body=[];
  for(let i=0;i<index.length;i+=3){const target=[index[i],index[i+1],index[i+2]].some(v=>p.getY(v)>1.34)?head:body;target.push(index[i],index[i+1],index[i+2])}
- for(const [name,indices] of [['Head',head],['Body',body]]){if(!indices.length)continue;const part=n.clone(false);part.name=name;part.geometry=n.geometry.clone();part.geometry.setIndex(indices);meshes.push(part)}
+ for(const [name,indices] of [['Head',head],['Body',body]]){if(!indices.length)continue;const part=passengerBakePart(n,indices);part.name=n.name==='Long_skirt'?'Skirt':name;meshes.push(part)}
 });
 
 const total=meshes.reduce((sum,m)=>sum+(m.geometry.index?.count??m.geometry.attributes.position.count),0);
@@ -33,7 +39,7 @@ for(const mesh of meshes){
  const canonical=new Map(),remap=[],original=[],positions=[],attributes=[],regions=[];
  for(const i of new Set(geo.index?.array??Array.from({length:p.count},(_,i)=>i))){
   const region=linear.reduce((best,v,j)=>Math.abs(v-c.getX(i))<Math.abs(linear[best]-c.getX(i))?j:best,0);
-  const key=[p.getX(i),p.getY(i),p.getZ(i)].map(x=>Math.round(x*1e5)).join(',')+':'+region+':'+Array.from(bones.array.subarray(i*4,i*4+4))+':'+Array.from(skin.array.subarray(i*4,i*4+4),x=>Math.round(x*1e4));
+  const key=passengerVertexKey(geo,i,region);
   if(!canonical.has(key)){
    canonical.set(key,original.length);original.push(i);positions.push(p.getX(i),p.getY(i),p.getZ(i));regions.push(region);
    const head=THREE.MathUtils.smoothstep(p.getY(i),1.32,1.43);
@@ -42,8 +48,8 @@ for(const mesh of meshes){
   remap[i]=canonical.get(key);
  }
  const raw=Uint32Array.from(geo.index?.array??Array.from({length:p.count},(_,i)=>i),i=>remap[i]);
- const target=mesh.name==='Head'?650*3:Math.max(120,Math.floor(2400*3*raw.length/total/3)*3);
- const [reduced,error]=MeshoptSimplifier.simplifyWithAttributes(raw,Float32Array.from(positions),3,Float32Array.from(attributes),8,[8,.2,.2,.2,.2,3,3,3],null,Math.min(raw.length,target),mesh.name==='Head'?.012:.025);
+ const target=mesh.name==='Head'?650*3:mesh.name==='Skirt'?2000*3:Math.max(120,Math.floor(2400*3*raw.length/total/3)*3);
+ const [reduced]=MeshoptSimplifier.simplifyWithAttributes(raw,Float32Array.from(positions),3,Float32Array.from(attributes),8,[8,.2,.2,.2,.2,3,3,3],null,Math.min(raw.length,target),mesh.name==='Head'?.012:mesh.name==='Skirt'?.003:.025);
 
  const used=[...new Set(reduced)],lookup=new Map(used.map((v,i)=>[v,i]));
  parts.push({mesh,used:used.map(i=>original[i]),regions:used.map(i=>regions[i]),indices:Array.from(reduced,i=>lookup.get(i))});
@@ -55,14 +61,24 @@ const corners=parts.reduce((sum,p)=>sum+p.indices.length,0),indices=[],regions=[
 let offset=0;for(const p of parts){indices.push(...p.indices.map(i=>i+offset));regions.push(...p.regions);offset+=p.used.length}
 const poses=new Int16Array(vertices*3*frames),normals=new Int8Array(poses.length);
 const poseWalk=createPassengerWalkPoser(gltf.scene);
+// Clothing GLBs carry the reviewed skirt weight tracks as well as the skeleton.
+// Sampling only a procedural skeleton would leave their clearance shell standing.
+const mixer=variant.outfit?new THREE.AnimationMixer(gltf.scene):null;
 const v=new THREE.Vector3();
 for(let frame=0;frame<frames;frame++){
- if(frame){poseWalk(((frame-1)%walkFrames)/walkFrames,WALK_PROFILES[Math.floor((frame-1)/walkFrames)]);parts.forEach(p=>p.mesh.skeleton.update())}
+ if(frame){
+  const profile=Math.floor((frame-1)/walkFrames),phase=((frame-1)%walkFrames)/walkFrames;
+  if(mixer){
+   if((frame-1)%walkFrames===0){mixer.stopAllAction();mixer.clipAction(gltf.animations[profile]).play()}
+   mixer.setTime(phase*WALK_PROFILES[profile].cycleSeconds);gltf.scene.updateMatrixWorld(true);
+  }else poseWalk(phase,WALK_PROFILES[profile]);
+  parts.forEach(p=>p.mesh.skeleton.update());
+ }
  else{applyPassengerCarryPose(gltf.scene);gltf.scene.updateMatrixWorld(true);parts.forEach(p=>p.mesh.skeleton.update())}
  const values=[],geometries=[];let foot=Infinity;
  for(const part of parts){
-  const position=part.mesh.geometry.attributes.position,a=[];
-  for(const i of part.used){v.fromBufferAttribute(position,i);part.mesh.applyBoneTransform(i,v);a.push(v.z,v.x,v.y);foot=Math.min(foot,v.y)}
+  const a=[];
+  for(const i of part.used){part.mesh.getVertexPosition(i,v);a.push(v.z,v.x,v.y);foot=Math.min(foot,v.y)}
   const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(a,3));geo.setIndex(part.indices);geo.computeVertexNormals();geometries.push(geo);values.push(a);
  }
  let vertex=0;
@@ -76,6 +92,7 @@ for(let frame=0;frame<frames;frame++){
  }
  geometries.forEach(g=>g.dispose());
 }
+mixer?.stopAllAction();mixer?.uncacheRoot(gltf.scene);
 return {...variant,vertices,corners,poses,normals,indices,regions,sourceSha256:createHash('sha256').update(bytes).digest('hex')};
 }
 const models=[];
@@ -127,8 +144,8 @@ for(const [outfit,model] of models.entries()){
 // bundle. The renderer inflates once before constructing its existing GPU data.
 const encode=a=>deflateSync(Buffer.from(a.buffer,a.byteOffset,a.byteLength),{level:9}).toString('base64');
 const walkProfiles=WALK_PROFILES.map((p,i)=>({...p,stride:p.speed*p.cycleSeconds,firstFrame:i*walkFrames+1}));
-const library=models.map(({id,character,hair,bag,bagStyle,bagScale,bagType,bagSide,adultEligible,childEligible,file,vertices,corners,sourceSha256})=>({id,character,hair,bag,adultEligible,childEligible,...(bagStyle?{bagStyle}:{}),...(bagScale?{bagScale}:{}),...(bagType?{bagType,bagSide}:{}),file,vertices,triangles:corners/3,sourceSha256}));
-const baked={source:'Approved model library, local TRELLIS reconstruction and authored variants; foot-targeted slow/medium/fast walks',style:'grey-faceless',encoding:'zlib-base64',variants:models.map(m=>m.id),hairstyles:models.map(m=>m.hair),library,palette,vertices,corners,triangles:corners/3,indexBits:IndexArray.BYTES_PER_ELEMENT*8,frames,walkFrames,walkProfiles,height:1.72,stride:walkProfiles[0].stride,positionScale:4096,normalScale:127,regions:encode(regions),indices:encode(indices),positions:encode(poses),normals:encode(normals)};
+const library=models.map(({id,character,hair,bag,bagStyle,bagScale,bagType,bagSide,adultEligible,childEligible,outfit,swapTones,garmentShape,top,bottom,file,vertices,corners,sourceSha256})=>({id,character,hair,bag,adultEligible,childEligible,...(bagStyle?{bagStyle}:{}),...(bagScale?{bagScale}:{}),...(bagType?{bagType,bagSide}:{}),...(outfit?{outfit,swapTones,garmentShape,top,bottom}:{}),file,vertices,triangles:corners/3,sourceSha256}));
+const baked={source:'Approved model library, local TRELLIS reconstruction and authored variants; foot-targeted slow/medium/fast walks',style:'grey-faceless',encoding:'zlib-base64',poseEncoding:'frame-delta',variants:models.map(m=>m.id),hairstyles:models.map(m=>m.hair),library,palette,vertices,corners,triangles:corners/3,indexBits:IndexArray.BYTES_PER_ELEMENT*8,frames,walkFrames,walkProfiles,height:1.72,stride:walkProfiles[0].stride,positionScale:4096,normalScale:127,regions:encode(regions),indices:encode(indices),positions:encode(deltaPassengerFrames(poses,vertices)),normals:encode(deltaPassengerFrames(normals,vertices))};
 const out=new URL('../game/src/assets/passenger-approved.json',import.meta.url);await writeAsset(out,JSON.stringify(baked)+'\n');
 const atlasWidth=2**Math.ceil(Math.log2(Math.max(1024,Math.ceil(vertices*frames/8192))));
 console.log({variants:models.length,vertices,triangles:corners/3,atlasWidth,atlasRows:Math.ceil(vertices*frames/atlasWidth),bytes:readFileSync(out).length});

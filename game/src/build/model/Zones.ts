@@ -7,6 +7,7 @@ import { storeyBand } from '../../sim/constants.ts';
 import { GROUND_Z, groundHoleAt } from '../../sim/ground.ts';
 import { zoneDisplayIndexOf, zoneOf, type ZonePaint } from '../../sim/zones.ts';
 import { DEFAULT_ZONE, type Cell, type Module, type RoomKind, type Zone } from '../../sim/types.ts';
+import { trackCells } from '../../sim/track.ts';
 import { cellKey, NEIGH4 } from './Cells.ts';
 import type { StationState } from './State.ts';
 
@@ -288,14 +289,13 @@ export function zoneMapFloors(cells: readonly Cell[], modules: readonly Module[]
   const have = new Set(out.map((c) => cellKey(c.x, c.y, c.z)));
   for (const m of modules) {
     if (m.type !== 'track') continue;
-    const d = m.d ?? 1;
-    for (let x = m.x; x < m.x + m.w; x++) {
-      for (let y = m.y; y < m.y + d; y++) {
-        const k = cellKey(x, y, m.z);
-        if (have.has(k)) continue;
-        have.add(k);
-        out.push({ x, y, z: m.z, fill: 'solid', finish: { top: 'floor.track' }, zone: 'restricted' });
-      }
+    // Track width and depth are local axes; rotate the bed through the shared
+    // footprint helper so the overlay matches the placed rails (§5.4).
+    for (const [x, y, z] of trackCells(m)) {
+      const k = cellKey(x, y, z);
+      if (have.has(k)) continue;
+      have.add(k);
+      out.push({ x, y, z, fill: 'solid', finish: { top: 'floor.track' }, zone: 'restricted' });
     }
   }
   return out;

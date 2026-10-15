@@ -3,7 +3,7 @@ import human from '../assets/passenger-approved.json' with { type: 'json' }
 import { passengerIsChild, passengerProportions } from '../sim/walking.ts'
 import { PASSENGER_OPACITY } from '../sim/constants.ts'
 import { passengerEligible } from './passengerEligibility.ts'
-import { decodePassengerBytes } from './passengerAtlas.ts'
+import { decodePassengerBytes, restorePassengerFrames } from './passengerAtlas.ts'
 
 /** Approved grey, faceless commuter and baked walk; see assets/PASSENGERS.md. */
 export const PASSENGER_EYE_HEIGHT = 1.57
@@ -43,8 +43,9 @@ function bytes(value: string): Uint8Array {
   return decodePassengerBytes(value, (human as { encoding?: string }).encoding)
 }
 
-const bakedPositions = new Int16Array(bytes(human.positions).buffer)
-const bakedNormals = new Int8Array(bytes(human.normals).buffer)
+const poseEncoding = (human as { poseEncoding?: string }).poseEncoding
+const bakedPositions = restorePassengerFrames(new Int16Array(bytes(human.positions).buffer), human.vertices, poseEncoding)
+const bakedNormals = restorePassengerFrames(new Int8Array(bytes(human.normals).buffer), human.vertices, poseEncoding)
 const bakedIndices = human.indexBits === 32 ? new Uint32Array(bytes(human.indices).buffer) : new Uint16Array(bytes(human.indices).buffer)
 const bakedRegions = bytes(human.regions)
 

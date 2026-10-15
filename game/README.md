@@ -32,8 +32,8 @@ benchmarks, CPU profiles, Chrome traces and GPU diagnostics.
 resized variants stay visible and shallower than full size through every walk,
 with equal adult selection and unchanged child restrictions.
 
-The library offers ten hairstyles per sex across 192 complete templates. Atlas
-buffers use lossless zlib/base64 packing; `passenger-library` compares the browser
+The library offers ten hairstyles per sex across 232 complete templates. Atlas
+pose buffers use lossless temporal differences before zlib/base64 packing; `passenger-library` compares the browser
 decoder with Node's inflater and keeps legacy raw-base64 buffers readable.
 It also measures actual baked standing poses for all seven added male styles
 with every bag: crowns stay below 1.70 m and at least 2 cm below the original.
@@ -255,6 +255,11 @@ the one zone edit that does not ask whether the cell is floor. A surface tile th
 materialised — virgin street given a record so it could wear a label — goes *with* its label, because
 with nothing else on it that record *is* the plane the document stores inverted; a cell with a finish
 or a tag keeps its record and loses only the label, and reads 无分区 again.
+
+**Right-click on 分区 is the same floor-label erase gesture.** It temporarily uses the 无分区 brush,
+so a tap removes the label under the pointer and a drag removes labels across the floor rectangle.
+It leaves the selected brush unchanged and preserves the floor; counters can still be removed by
+right-clicking their module.
 
 **The module art pass** (part of PLAN §3 item 6, ahead of B3/B4) replaced the unit-cube modules with
 `render/models.ts`: procedural ticket machines, turnstile cabinets, escalators, exits and platform
@@ -2224,7 +2229,9 @@ approximated); neither needs WebGL.
   station document and the clock.
 * `zones.test.mjs` — an ungated fare line strands the crowd (zero boardings); a gate restores
   flow; the graph has no edge across the line; the zone bucket respects a drawn boundary (B2). Then
-  §4.5's later rules: the map draws **one storey** (`zoneMapFloorsAt`, with the labels on their
+  §4.5's later rules: track-bed overlays follow the saved track rotation (`trackCells`), so a
+  north/south run paints only its actual narrow bed rather than an east/west `w × d` rectangle;
+  the map draws **one storey** (`zoneMapFloorsAt`, with the labels on their
   own level); a zone is painted on **floor** — a rectangle, a bucket flood and the 信息 card's own
   point query all drop the cell under a wall column, the earth roof over a tunnel and a track coping,
   and accept a walkable wall top and a track bed at the foot of its column — with the agreement itself
@@ -2246,7 +2253,9 @@ approximated); neither needs WebGL.
   floor it crosses while the tile under the wall course and the course itself stay untouched. Then the
   无分区 brush: it drags like the brush it erases,
   takes a label off a zoned tile (which reads 无分区 again, with no record left behind), and says
-  `这些格子上没有分区` — committing nothing — when the patch carries no label at all.
+  `这些格子上没有分区` — committing nothing — when the patch carries no label at all. Right-click
+  uses the same eraser for taps and drags without switching the selected brush or demolishing floor;
+  booth counters remain removable.
 * `ramp-passengers.test.mjs` — narrow/wide passenger columns and same-tick boarding; swept body
   clearance under crowd pressure; routes that respect rail clearance; recovery around escalator ends
   for walkers and queues without losing queue order; opposing traffic on narrow stairs; and actual
@@ -2551,8 +2560,8 @@ approximated); neither needs WebGL.
 * `column-delete.test.mjs` — G right-click clears the four courses above the floor (+1..+4),
   including the ceiling, mixed wall/plain blocks and gaps. It checks negative heights,
   all height bases, drag deduplication, neighbouring storeys and preserved street floors,
-  plus controller preview/release agreement, native context-menu drag preservation,
-  available erase cursors and one commit per click or drag.
+  plus controller preview/release agreement, native context-menu drag preservation
+  shared with the 分区 tool, available erase cursors and one commit per click or drag.
 * `walls.test.mjs` — the 建造 tool's deliberate drag draws a walled floor patch: a 4 m auto wall
   ring rises on the patch's outer edge, overlapping or abutting two patches unions them (the buried
   wall goes, the new edge is walled) while a hand-placed wall survives, digging an edge moves the
@@ -3447,7 +3456,7 @@ In English mode, station fields are labelled Primary name / Secondary name and s
 
 `sim-pause.test.mjs` pins the rest of the pause: an escalator's step band holds its phase while paused and rolls on from it on resume, a 闸机 leaf never starts its cycle (the crossing stays queued), paused train and screen doors hold mid-travel while the consist itself still glides to its latest snapshot, and the orchestrator forwards pause to the crowd, the lifts and the trains.
 
-Passengers use 192 reviewed grey, faceless model-library templates, with ten hairstyles per sex. The variations change crown volume, fringe, sweep and length. Eighteen backpack-compatible hairstyles support all four pack sizes; both long female styles support bagless and side-bag templates. Adults choose equally from 172 templates and children from 74 templates with hair. Left/right shoulder bags are adult-only, adult crossbody bags male-only, and purses adult female-only. Children may carry small backpacks or crossbody bags; girls’ crossbody templates are child-only. A stable identity hash assigns 20% children and 80% adults without consuming the journey RNG. Each passenger varies independently from 80–120% in height; adults vary 90–110% in width and depth, while children vary 80–90% on both axes. Children start at 65% height and 70% width/depth before that variation. Ink tone and slow/medium/fast gait remain independent of the age-appropriate model choice. Arms swing and feet step according to distance travelled; waiting passengers settle into a standing pose. All models share one instanced draw, including the closed coats and fitted backpack straps from the reviewed exports. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
+Passengers use 232 reviewed grey, faceless model-library templates, with ten hairstyles per sex. The variations change crown volume, fringe, sweep and length. Eighteen backpack-compatible hairstyles support all four pack sizes; both long female styles support bagless and side-bag templates. Adults choose equally from 212 templates and children from 114 templates with hair. Left/right shoulder bags are adult-only, adult crossbody bags male-only, and purses adult female-only. Children may carry small backpacks or crossbody bags; girls’ crossbody templates are child-only. A stable identity hash assigns 20% children and 80% adults without consuming the journey RNG. Each passenger varies independently from 80–120% in height; adults vary 90–110% in width and depth, while children vary 80–90% on both axes. Children start at 65% height and 70% width/depth before that variation. Ink tone and slow/medium/fast gait remain independent of the age-appropriate model choice. Arms swing and feet step according to distance travelled; waiting passengers settle into a standing pose. All models share one instanced draw, including the closed coats and fitted backpack straps from the reviewed exports. Source attribution and regeneration instructions are in `src/assets/PASSENGERS.md`. Select a passenger and press the eye icon in the inspector to follow their eye position in 隐藏UI mode. The view starts facing the passenger's direction; holding a mouse button and dragging then controls yaw/pitch independently while the position follows them. Space continues to toggle play/pause; Esc restores the previous camera, projection, lens and display settings. The view also ends when that passenger leaves the simulation.
 
 The build palette, inspector and view cube each have an independent hide/show button with a short animation; their settings stay mounted while hidden. Reduced-motion preferences disable these transitions. Two-finger pinch on the viewport zooms both perspective and orthographic views. Single-finger taps select or place on release, so the first contact of a pinch cannot edit the station.
 
@@ -3475,7 +3484,7 @@ without changing the capacity-limited stair, escalator, lift or gate rules.
 左 / 中 / 右直跑楼梯 continue forward across a middle landing, with the upper run shifted across the landing for the left and right variants. `stairs.test.mjs` checks flight plans and passenger routes in both directions across all sizes and rotations; `module-build.test.mjs` checks their rendered treads, railing glass and landing.
 
 
-Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 192 variants with ten hairstyles per sex, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
+Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 232 variants with ten hairstyles per sex, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
 
 Walking now varies by stable slow/medium/fast profiles (§7.1's uniform 1.34 m/s
 is intentionally replaced). Nominal speeds are 0.9/1.15/1.4 m/s, scaled by body
@@ -3485,9 +3494,30 @@ pool reuse, and matching sim speed/stride; `passenger-view` checks planted soles
 against world movement, all three pose ranges, compaction, pause and resume.
 
 `passenger-art-pipeline.test.mjs` pins growing model catalogues, bounded capture batches, complete standing/stride coverage and rejection of stale builds or duplicate frames. `npm run art:models` refreshes the approved exports and game atlas, builds the game, captures all models, regenerates sheets 01/02/07/12/13 in both languages, checks gait playback, renders previews and builds/syncs the site.
+## Jacket-free passenger clothing
+
+The shared game pool appends forty bagless entries: ten clothing presets per sex
+in both top/bottom grey arrangements. Six female presets have long or midi skirts;
+the rest have trousers. The new entries use bob or original male hair, and all
+can appear as adults or children. The original 192 hair/bag entries retain their
+ordering. Each age pool still selects entries equally, independently of size,
+gait and the 20% child population.
+
+Skirts carry their reviewed clearance into the actual game atlas: the baker
+samples exported skeleton and morph clips together, retaining morph identity
+through simplification. `passenger-clothing` checks the actual baked skirt points
+against current hashed GLBs through all three gaits and rejects a static shell
+on moving legs. Game-only exterior trimming removes hidden thighs, inner walls
+and caps so they cannot show through the 70% material. The closed GLBs retain
+those supports. Exact garment greys remain flat palette stops. Lossless frame
+deltas keep the expanded atlas at 40.4 MB; absolute legacy atlases still decode. The same one
+instanced crowd draw renders every entry at 70% opacity. `npm run art:models`
+captures the complete expanded adult/child pools and refreshes the five bilingual
+sheets; its playback check requires the new clothes to appear on both ages.
+
 ## Small passenger backpacks
 
-The adult passenger library includes 172 equally weighted variants. Eighteen use a
+The adult passenger library includes 212 equally weighted variants. Eighteen use a
 smaller tapered backpack, available on every male hairstyle and eight shorter
 female hairstyles. `passenger-library` checks the smaller pack remains visible
 and shallower than the standard pack in standing and walking frames.
@@ -3503,7 +3533,7 @@ All game passenger variants render at 70% opacity through their shared material.
 `passenger-view` pins alpha blending and depth-write settings; the production GPU
 check verifies the live material and the slimmer 80–90% child width/depth ranges.
 
-The art capture includes all 172 adult templates and the 74 eligible child
+The art capture includes all 212 adult templates and the 114 eligible child
 templates in every camera and complete stride. Physical captured stride includes
 depth scaling; static and moving sheet figures choose age with the game identity
 hash. `passenger-art-pipeline` rejects missing child frames and ineligible child

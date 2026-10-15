@@ -14,22 +14,25 @@ const femaleHair=['bob','shoulder','long','cropped-bob','rounded-bob','angled-bo
 const backpackHair=femaleHair.filter(hair=>!['long','long-swept'].includes(hair))
 const backpackModels=[...maleHair.map(hair=>`male-${hair}`),...backpackHair.map(hair=>`female-${hair}`)]
 const allModels=[...maleHair.map(hair=>`male-${hair}`),...femaleHair.map(hair=>`female-${hair}`)]
+const clothingIds={female:['long-a-line','slim-long-skirt','long-pleated','full-pleated','midi-a-line','midi-pleated','straight-trousers','tapered-trousers','wide-trousers','relaxed-trousers'],male:['crew-straight','crew-tapered','fitted-straight','fitted-tapered','relaxed-straight','relaxed-wide','short-straight','short-wide','long-tapered','long-relaxed']}
+const clothing=Object.entries(clothingIds).flatMap(([sex,ids])=>ids.flatMap(id=>[`${sex}-${id}-no-bag`,`${sex}-${id}-swapped-no-bag`]))
 const expected = [
  ...backpackModels.flatMap(model=>[`${model}-bag`,`${model}-no-bag`]),
  'female-long-no-bag','female-long-swept-no-bag',
  ...backpackModels.map(model=>`${model}-small-bag`),
  ...['87.5','75'].flatMap(size=>backpackModels.map(model=>`${model}-standard-${size}-bag`)),
  ...['shoulder','crossbody','purse'].flatMap(type=>['left','right'].flatMap(side=>allModels.filter(model=>type!=='purse'||model.startsWith('female-')).map(model=>`${model}-${type}-${side}-bag`))),
+ ...clothing,
 ]
 
 test('the game includes ten hairstyles per sex and every reviewed bag combination', () => {
  assert.deepEqual(PASSENGER_OUTFITS, expected)
  assert.deepEqual(human.library.map(m => m.id), expected)
  for(const [character,hairs] of [['male',maleHair],['female',femaleHair]])assert.deepEqual([...new Set(human.library.filter(m=>m.character===character).map(m=>m.hair))].sort(),[...hairs].sort())
- assert.equal(human.library.filter(m => m.character === 'male').length, maleHair.length*9)
- assert.equal(human.library.filter(m => m.bag).length, expected.length-20)
- assert.equal(PASSENGER_ADULT_OUTFITS.length,172)
- assert.equal(PASSENGER_CHILD_OUTFITS.length,74)
+ assert.equal(human.library.filter(m => m.character === 'male').length, maleHair.length*9+clothingIds.male.length*2)
+ assert.equal(human.library.filter(m => m.bag).length, expected.length-20-clothing.length)
+ assert.equal(PASSENGER_ADULT_OUTFITS.length,172+clothing.length)
+ assert.equal(PASSENGER_CHILD_OUTFITS.length,74+clothing.length)
  assert.equal(human.library.filter(m => m.bagStyle === 'small').length, backpackModels.length)
  for (const model of human.library) {
   if(model.bagType==='purse')assert(model.character==='female'&&model.adultEligible&&!model.childEligible)
@@ -56,7 +59,10 @@ test('the baked male hair additions retain the approved lower crowns with every 
 test('adult models and eligible child models are selected equally within their age group', () => {
  const counts = Array(expected.length).fill(0), profiles = Array.from({length:3}, () => Array(expected.length).fill(0))
  const kids = Array(expected.length).fill(0), adults = Array(expected.length).fill(0), scratch = [0,0,0,0,0]
- for (let id=0; id<880000; id++) {
+ // Keep at least 5,000 expected child observations per template as its pool
+ // grows, retaining the same tight gait-independence assertion for rare models.
+ const samples=Math.max(880000,PASSENGER_CHILD_OUTFITS.length*25000)
+ for (let id=0; id<samples; id++) {
   assert.equal(passengerAppearance(id, scratch), scratch, 'caller scratch is reused')
   const outfit = scratch[0];counts[outfit]++;profiles[passengerWalkProfile(id)][outfit]++
   ;(passengerIsChild(id) ? kids : adults)[outfit]++
@@ -216,6 +222,7 @@ test('the library remains a single instanced draw with valid padded topology and
 
 test('the packed atlas decodes losslessly with legacy raw-buffer compatibility',()=>{
  assert.equal(human.encoding,'zlib-base64')
+ assert.equal(human.poseEncoding,'frame-delta')
  assert.ok(Buffer.byteLength(JSON.stringify(human))<100*1024**2,'the expanded library stays within the 100 MiB tracked-asset budget')
  for(const field of ['positions','normals','indices','regions']){
   const expected=inflateSync(Buffer.from(human[field],'base64'))

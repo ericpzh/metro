@@ -41,7 +41,7 @@ test('random previews preserve the 20/80 population and choose equally within ea
  for(let i=0;i<samples;i++){
   const state=randomAppearance(random),child=state.age==='child';
   if(child){children++;assert(!state.bag||state.bagStyle==='small'||state.bagStyle.startsWith('crossbody-'));assert.notEqual(state.hair,'bald')}
-  const model=MODEL_LIBRARY.find(m=>m.character===state.character&&m.hair===state.hair&&m.bag===state.bag&&(!m.bag||(m.bagStyle??'standard')===state.bagStyle));
+  const model=MODEL_LIBRARY.find(m=>m.character===state.character&&m.hair===state.hair&&m.bag===state.bag&&(m.outfit??'original')===state.outfit&&(m.swapTones??false)===state.swapTones&&(!m.bag||(m.bagStyle??'standard')===state.bagStyle));
   assert(model&&modelEligible(model,state.age));const key=`${state.age}:${model.id}`;counts.set(key,(counts.get(key)??0)+1);
   assert(state.size.height>=80&&state.size.height<=120);
   for(const axis of ['width','depth'])assert(child?state.size[axis]>=80&&state.size[axis]<=90:state.size[axis]>=90&&state.size[axis]<=110);
@@ -57,8 +57,10 @@ test('random previews preserve the 20/80 population and choose equally within ea
 });
 
 test('side bags obey adult sex rules, child rules and long-hair compatibility',()=>{
- assert.equal(MODEL_LIBRARY.filter(m=>m.adultEligible).length,172);
- assert.equal(MODEL_LIBRARY.filter(m=>m.childEligible).length,74);
+ assert.equal(MODEL_LIBRARY.filter(m=>m.adultEligible&&!m.outfit).length,172);
+ assert.equal(MODEL_LIBRARY.filter(m=>m.childEligible&&!m.outfit).length,74);
+ const clothing=MODEL_LIBRARY.filter(m=>m.outfit);assert.equal(clothing.length,40);
+ for(const model of clothing)assert(model.adultEligible&&model.childEligible&&!model.bag&&model.hair!=='bald');
  for(const character of ['male','female'])for(const age of ['adult','child'])for(const style of ['shoulder-left','shoulder-right','crossbody-left','crossbody-right','purse-left','purse-right','small']){
   const state={age,character,hair:character==='male'?'short':'bob',bag:true,bagStyle:style,size:{height:100,width:100,depth:100}};
   constrainAppearance(state);

@@ -162,8 +162,17 @@ Room-purpose paints (`store`, `toilet`, `office`) are ordinary `ZONE_PAINT_LIST`
 entries. Pin their existing room-type icons and counter-only facility brush list
 in `rail-families.test.mjs`; pin no module/wall generation and fare-zone
 preservation in `zonetool.test.mjs`; pin overlay color regions and fare-index
-preservation in `zones.test.mjs`. Keep `game/README.md`, `game/test/README.md` and
+preservation in `zones.test.mjs`. That suite also pins synthetic track floors to
+the actual rotated bed from `trackCells` — a north/south run must not tint the
+unrotated `w × d` rectangle across X. Keep `game/README.md`, `game/test/README.md` and
 `.agents/skills/metro-game/SKILL.md` aligned when this palette contract changes.
+
+`zonetool.test.mjs` also owns 分区 right-click: taps and drags temporarily use the
+无分区 eraser regardless of the selected paint brush, preserve floor records and the
+selected brush, and do not demolish walls or floor. Keep booth-counter removal pinned
+as its existing module action. The shared viewport must retain the initiating button
+in zone-drag state so right drags survive pointer-move cancellation, pointer-up routing
+and the browser's early `contextmenu`; `column-delete.test.mjs` pins that source contract.
 
 For a thin roof snap change, keep the quarter-metre model bounds, collision bounds and
 storey slicing in agreement in `overground.test.mjs`; keep pointer priority (roof,
@@ -247,9 +256,23 @@ has no ground. The upper landing and interior turn platform must not become addi
 pre-existing-floor requirements.
 
 Model integration coverage lives in `passenger-library`, `passenger-size`,
-`passenger-view`, `capture-passengers` and `passenger-art-pipeline`: the complete
+`passenger-view`, `passenger-clothing`, `capture-passengers` and `passenger-art-pipeline`: the complete
 reviewed catalogue and walks, equal explicit adult/child pools, 20% child selection, separate age
 size ranges, body/shadow axes, 70% opacity, pause, picking and physical stride.
+Clothing tests require forty appended entries (ten presets per sex in both grey
+arrangements) in both age pools, exact authored tones, source GLB hashes and
+actual baked skirt points in all gaits. The small skinned fixture rejects
+welding standing-coincident points with different morphs, and proves detached
+bake parts follow animated morph weights. Actual-asset checks must reject a
+standing shell on a moving skeleton. Art validation requires complete child and
+adult strides for both grey arrangements; GPU sheet playback must show new
+clothes on both ages.
+Pin actual baked skirt faces as outward-only and reject hidden thigh vertices;
+closed GLB support shells must not show through the game's 70% material.
+`passenger-atlas` checks byte-exact temporal-delta round trips for signed positions
+and normals (including overflow), absolute legacy data and malformed formats.
+Scale appearance sampling with the child pool so rare templates retain enough
+observations for the existing equal-selection/gait-independence thresholds.
 The approved male additions must retain lower crowns in the actual baked poses:
 all seven styles and every bag stay below 1.70 m and at least 2 cm below the
 original standing crown. Source model tests separately pin original-lock topology,

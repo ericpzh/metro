@@ -42,7 +42,7 @@ preserve free bag anchors, and unsupported crown samples blend with adjacent
 shoulder contact to remove raised corners. Sideways purse
 handles/body follow Hand. Long hair
 supports these side bags; backpacks use shoulder-length
-hair. There are 192 downloadable templates: 172 adult choices and 74 child choices,
+hair. There are 232 downloadable templates: 212 adult choices and 114 child choices,
 with overlap between the age pools. Girls' twenty crossbody templates are child-only.
 `tools/check-model-carried-bags.mjs` checks every hairstyle/side, joint weights,
 palm attachment, standing and every gait, seven views including underside,
@@ -129,12 +129,12 @@ jacket back; cropped variants replace the hair with a smooth head-skinned scalp.
 inputs. The source assets remain in `prototypes/`; generated GLBs do not need to
 be committed twice. Node 24+ is needed by the preparation scripts.
 
-Production is self-contained: `model/dist` includes all 192 GLBs, reference art,
+Production is self-contained: `model/dist` includes all 232 GLBs, reference art,
 profiles, and bundled viewer code. It does not request game dependencies or
 prototype paths at runtime. Set `VITE_WEB_URL` and `VITE_GAME_URL` when building
 to change the two navigation links. No cloud deployment is configured by this change.
 
-The game uses these 192 exports, choosing equally within 172 adult and 74 child
+The game uses these 232 exports, choosing equally within 212 adult and 114 child
 choices. Children use bagless, small-backpack and crossbody templates with hair
 at a smaller base scale. The crowd is
 20% children / 80% adults, with stable independent variation in all three axes. Run
@@ -145,7 +145,7 @@ for the dedicated model workflow.
 
 To refresh the art after approving models, run **`npm run art:models`** at the root.
 It regenerates the reviewed exports and game atlas, builds the game, captures
-all 172 adult entries and 74 eligible child templates in standing and
+all 212 adult entries and 114 eligible child templates in standing and
 complete walks, refreshes the interface
 captures for sheet 07 in both languages, updates sheets
 01/02/07/12/13 in Chinese and English, checks animation, renders previews into
@@ -169,3 +169,58 @@ in `.preview/model-hairstyles/`.
 
 The model-art command uses dedicated `.preview/model-art/` captures and free
 browser ports, so it can coexist with other local previews.
+
+## Approved clothing
+
+The **Outfit** selector adds ten approved bagless outfits per sex for adults
+and children beside the approved jacket. Women and girls have six long/midi skirts
+(A-line, slim and pleated) and four trouser fits. Men and boys have ten combinations of fitted/relaxed/short/long
+tops and straight/tapered/wide trousers. All tops are jacket-free and retain the
+reviewed neckline, sleeves, head and hands. The palette stays strictly greyscale;
+**Swap top / bottom greys** exchanges garment tones without repainting skin,
+hair or shoes. Outfit and swapped tones persist in the URL (`outfit`, `tones`).
+
+`src/characters/outfits.js` retains the continuous source sleeves, underarm
+lining and back closure, fits every garment layer together and closes the old
+front opening with one top colour and a continuous hem. Do not cut the sleeves
+at a fixed X coordinate or remove the moving lining. Skirts retain the complete
+legs underneath. `skirt-motion.js` fits a closed pelvis-skinned surface around
+the actual leg positions and exports 24 clearance morphs per walk (72 total),
+with matching weight tracks in all three clips. Standing uses the fitted base;
+walking smoothly interpolates the reviewed clearance poses. These are authored
+stylized garments, with no cloth-physics simulation. The shared catalogue appends
+forty bagless game entries: all twenty outfits in
+both top/bottom grey arrangements. Each uses the reviewed bob (female) or
+original male hair, and enters both adult and child pools. The original 192
+hair/bag templates retain their order. Clothing does not yet support bags.
+Children use the same fitted garments and walk morphs with the
+existing child height/width/depth transform applied afterward; changing age
+preserves the outfit and grey arrangement. Every age-eligible hairstyle remains
+available, and boys cannot select bald hair.
+
+The viewer downloads the selected outfit, hairstyle and grey arrangement as a
+real base-size GLB with all three walk clips. `npm --prefix model run export:outfits`
+also writes forty reproducible GLBs and a source/output hash manifest into
+`.preview/model-outfits/glb/`, using the current reviewed bagless exports.
+`node tools/check-model-outfits.mjs --orbit` checks all twenty in four standing
+views and 72 walk poses, plus 16 intermediate orbit angles in standing and four
+fast-walk phases. Skirt-only/leg-only GPU passes reject visible leg skin through
+the fabric while allowing hands in front and exposed ankles below the hem.
+The unit test independently checks geometric containment at 48 phases per gait,
+including between morph keys, and rejects the same walk with skirt motion
+disabled. It also pins intact source torso/lining triangles and closed hems.
+Swap/reload/GLB download, age/bag rules and bilingual labels remain covered.
+The game baker samples the exported skeleton and skirt morph clips together,
+including morph trajectories in vertex identity and retaining shared animated
+weights on simplifier parts. `passenger-clothing` compares actual baked skirt
+points with the reviewed GLBs across all three gaits and rejects skeleton-only
+sampling. Authored greys are retained as exact palette stops.
+The game-only exterior pass omits inward garment walls/caps and covered thighs,
+and trims trouser waists beneath the top. This avoids hidden support surfaces
+showing through the game's 70% material; downloadable GLBs remain closed.
+Lossless frame-delta packing keeps the expanded pose atlas below the tracked
+asset budget without reducing any geometry or animation frames.
+Lineups, gait captures and orbit sheets go into `.preview/model-outfits/`.
+Add `--child` to audit all twenty at child proportions (captures go into
+`.preview/model-outfits/children/`), including age switching and child hair rules.
+`--size=short-wide` and `--size=tall-narrow` exercise the child size limits.

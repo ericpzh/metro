@@ -5,9 +5,7 @@ import { passengerMesh, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_LIBRAR
 import { passengerIsChild, passengerWalkProfile } from '../sim/walking.ts'
 import { passengerEligible } from '../render/passengerEligibility.ts'
 
-export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles?: boolean; cycleView?: string; cycleHeading?: number; walkProfile?: number; cycleVariants?: number[] } = {}) {
-  const cycles = options.walkCycles === true
-  const age = options.age ?? 'adult'
+function createCaptureContext() {
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true })
   renderer.setSize(192, 256)
   renderer.setClearColor(0x000000, 0)
@@ -21,6 +19,31 @@ export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles
   mesh.count = 1
   mesh.setMatrixAt(0, new THREE.Matrix4())
   scene.add(mesh)
+  return { renderer, scene, mesh }
+}
+
+type CaptureContext = ReturnType<typeof createCaptureContext>
+let sharedCapture: CaptureContext | undefined
+function disposeContext({ renderer, mesh }: CaptureContext): void {
+  mesh.userData.disposePassenger()
+  mesh.geometry.dispose()
+  ;(mesh.material as THREE.Material).dispose()
+  mesh.dispose()
+  renderer.dispose()
+  renderer.forceContextLoss()
+}
+export function disposePassengerCapture(): void {
+  if (sharedCapture) disposeContext(sharedCapture)
+  sharedCapture = undefined
+}
+
+export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles?: boolean; cycleView?: string; cycleHeading?: number; walkProfile?: number; cycleVariants?: number[]; reuseContext?: boolean } = {}) {
+  const cycles = options.walkCycles === true
+  const age = options.age ?? 'adult'
+  // Bounded art batches share one GPU atlas instead of uploading it per call.
+  // One-shot callers retain the existing immediate-disposal behavior.
+  const context = options.reuseContext ? sharedCapture ??= createCaptureContext() : createCaptureContext()
+  const { renderer, scene, mesh } = context
   const pose = mesh.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute
   const outfit = mesh.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute
   const views = { iso: [1, 1, 1], elevation: [0, -1, 0], plan: [0, 0, 1] } as const
@@ -72,10 +95,6 @@ export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles
       }
     }
   }
-  mesh.userData.disposePassenger()
-  mesh.geometry.dispose()
-  ;(mesh.material as THREE.Material).dispose()
-  renderer.dispose()
-  renderer.forceContextLoss()
+  if (!options.reuseContext) disposeContext(context)
   return images
 }

@@ -225,6 +225,9 @@ const session = await withPage({
   debugPort: DEBUG_PORT,
   windowSize: `${width},${height}`,
   verbose: Boolean(process.env.UI_VERBOSE),
+  // Supersampled full-station screenshots can stall the Windows hardware GPU.
+  // Keep these captures on software unless explicitly opted into hardware.
+  softwareGpu: process.env.METRO_UI_BROWSER_GPU !== 'hardware',
 })
 
 /** One crop: the element's own box, or the whole viewport for `window`. */

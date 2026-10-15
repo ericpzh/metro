@@ -34,5 +34,5 @@ export function randomAppearance(random=Math.random){
   const [min,max]=range.map(v=>Math.round(v*100));
   size[axis]=min+Math.floor(random()*(max-min+1));
  }
- return {age,character:model.character,hair:model.hair,bag:model.bag,bagStyle:model.bagStyle??'standard',size};
+ return {age,character:model.character,hair:model.hair,bag:model.bag,bagStyle:model.bagStyle??'standard',outfit:model.outfit??'original',swapTones:model.swapTones??false,size};
 }

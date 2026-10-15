@@ -892,7 +892,7 @@ export function Viewport(): React.ReactElement {
           : paintRef.current?.active === true
             ? paintRef.current.button
             : zoneDragRef.current?.active === true
-              ? 0
+              ? zoneDragRef.current.button
               : null
       if (activeButton !== null) {
         const otherHeld = activeButton === 2 ? (e.buttons & 1) !== 0 : (e.buttons & 2) !== 0
@@ -984,7 +984,7 @@ export function Viewport(): React.ReactElement {
           : paintRef.current?.active === true
             ? paintRef.current.button
             : zoneDragRef.current?.active === true
-              ? 0
+              ? zoneDragRef.current.button
               : null
       if (activeButton !== null && (e.button === 0 || e.button === 2) && e.button !== activeButton) {
         cancelActiveDrag()
@@ -1013,7 +1013,12 @@ export function Viewport(): React.ReactElement {
   const onContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault()
     // The browser can fire this at right-down; let the erase drag reach release.
-    if (ownsContextMenu(dragRef.current, e.buttons)) return
+    const activeDrag =
+      dragRef.current?.active === true ? dragRef.current
+        : paintRef.current?.active === true ? paintRef.current
+          : zoneDragRef.current?.active === true ? zoneDragRef.current
+            : null
+    if (ownsContextMenu(activeDrag, e.buttons)) return
     cancelActiveDrag()
   }
 

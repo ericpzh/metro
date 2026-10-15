@@ -107,5 +107,5 @@ test('native contextmenu preserves a right erase but still cancels a competing l
   assert.equal(ownsContextMenu({ active: false, button: 2 }, 2), false)
   assert.equal(ownsContextMenu(null, 2), false)
   const viewport = readFileSync(new URL('../src/app/Viewport.tsx', import.meta.url), 'utf8')
-  assert.match(viewport, /if \(ownsContextMenu\(dragRef\.current, e\.buttons\)\) return/, 'the viewport uses the tested guard before cancellation')
+  assert.match(viewport, /zoneDragRef\.current\?\.active === true[\s\S]*?ownsContextMenu\(activeDrag, e\.buttons\)/, 'the viewport gives an active right-button zone erase the same native-menu protection')
 })

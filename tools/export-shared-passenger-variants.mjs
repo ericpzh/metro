@@ -26,7 +26,7 @@ export async function exportSharedPassengerVariants({outputDirectory}={}){
   return new THREE.AnimationClip('Walk_'+profile.name[0].toUpperCase()+profile.name.slice(1),profile.cycleSeconds,tracks);
  });
  rig.skeleton.pose();rig.model.updateMatrixWorld(true);
- const variants=outputDirectory?MODEL_LIBRARY.filter(entry=>entry.character==='female'&&!entry.bagStyle):[
+ const variants=outputDirectory?MODEL_LIBRARY.filter(entry=>entry.character==='female'&&!entry.bagStyle&&!entry.outfit):[
   ['bob',true],['shoulder',true],['bob',false],['shoulder',false],['long',false],
  ].map(([hair,bag])=>MODEL_LIBRARY.find(entry=>entry.character==='female'&&entry.hair===hair&&entry.bag===bag&&!entry.bagStyle));
  for(const {hair:style,bag,file:name} of variants){

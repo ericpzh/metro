@@ -73,7 +73,7 @@ export function serveDir(root, port) {
  * directory open, and the next run's `rmSync` then fails with EPERM on Windows
  * before it draws anything.
  */
-export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false, softwareGpu = true }) {
+export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false, softwareGpu = process.env.METRO_BROWSER_GPU !== 'hardware' }) {
   const chromePath = findChrome()
   rmSync(profile, { recursive: true, force: true })
   const logPath = `${profile}.log`
