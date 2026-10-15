@@ -72,7 +72,7 @@ test('model reuses screen fixed glass, matches its cap height, and has no slidin
       const glass = g.children.filter((c) => c.name === 'psd-fixed-glass')
       assert.equal(glass.length, 1)
       assert.equal(glass[0].geometry.parameters.width, 1)
-      assert.ok(Math.abs(glass[0].geometry.parameters.height - (psd === 'half' ? 1.16 : 2.5)) < 1e-9)
+      assert.ok(Math.abs(glass[0].geometry.parameters.height - (psd === 'half' ? 1.16 : 2.25)) < 1e-9)
       assert.deepEqual(g.userData.doors, [])
       assert.ok(g.children.every((c) => c.userData.wall))
       const reference = buildModule({ ...screen(0, 'left', psd), w: 1 }, ctx)

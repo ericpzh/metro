@@ -1,5 +1,10 @@
 # `game/test` — how the game is tested
 
+`psd-header` pins independent directional terminal matching, platform-facing arrows,
+bilingual station/terminal printing, schematic routes and the lower line-colour band.
+`module-build` and `psd-end` pin the taller fascia, shorter full-height glazing, and
+the amber oval lamp centred below each doorway plaque.
+
 `autosave.test.mjs` covers dirty-only local saves, undo/redo, immediate new/import/demo
 replacement, invalid saved data, quota failures and retries.
 

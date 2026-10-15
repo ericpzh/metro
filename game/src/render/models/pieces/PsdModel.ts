@@ -1,4 +1,3 @@
-import { drawModelText } from '../../modelLabels.ts'
 import { t } from '../../../sim/i18n.ts'
 // Platform screen door builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
@@ -12,44 +11,7 @@ import type { StockClass } from '../../../sim/stock.ts'
 import { rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
 import { finishPsdHousing } from './PsdHousing.ts'
-
-/** A platform-screen header: white, a line band, and the direction sticker. */
-function psdHeaderCanvas(colour: string, lineId: string, terminus: string, name: string, nameEn: string): HTMLCanvasElement {
-  const c = document.createElement('canvas')
-  c.width = 1024
-  c.height = 96
-  const g = c.getContext('2d') as CanvasRenderingContext2D
-  g.fillStyle = '#f4f6f8'
-  g.fillRect(0, 0, 1024, 96)
-  g.fillStyle = colour
-  g.fillRect(0, 0, 1024, 18)
-  g.fillStyle = '#20262a'
-  g.font = 'bold 38px "Microsoft YaHei", sans-serif'
-  g.fillText(name, 40, 56, 370)
-  // Leave clear space above the lower fascia; the English baseline used to sit
-  // under the rail and get clipped off in the rendered sign.
-  g.font = '18px "Microsoft YaHei", sans-serif'
-  g.fillText(nameEn, 40, 80, 370)
-  // The line roundel.
-  g.fillStyle = colour
-  g.beginPath()
-  g.arc(920, 58, 26, 0, Math.PI * 2)
-  g.fill()
-  g.fillStyle = '#ffffff'
-  g.font = 'bold 30px sans-serif'
-  g.textAlign = 'center'
-  drawModelText(g, lineId, 920, 69, 44)
-  // Direction sticker. The destination is the line's own terminus for the
-  // direction this screen serves (`mod.cfg.dir`), so the header reads the bound
-  // line instead of a hardcoded place name. An unset terminus falls back to the
-  // direction word.
-  g.textAlign = 'left'
-  g.fillStyle = '#1b6fd6'
-  g.font = 'bold 22px "Microsoft YaHei", sans-serif'
-  drawModelText(g, t('toward_value', terminus), 470, 56, 390)
-  return c
-}
-
+import { drawPsdHeader, psdHeaderInfo, PSD_HEADER_HEIGHT, PSD_HEADER_PIXELS } from './PsdHeader.ts'
 
 /* ------------------------------------------------------------ platform door */
 
@@ -70,14 +32,9 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   // The line decides the door cadence; the screen is cut open where it lands.
   const line = ctx.data.lines.find((l) => l.id === mod.cfg.line) ?? ctx.data.lines[0]
   const colour = line?.colour ?? '#1b6fd6'
-  const lineId = line?.id ?? '2'
   const name = ctx.data.name || t('metro_station')
   const nameEn = ctx.data.nameEn || ''
-  // The header's destination is the bound line's terminus for this screen's
-  // direction, so an up platform points where the up track runs and a down one
-  // the other way (the terminus fields are the per-line inputs).
-  const terminus =
-    ((mod.cfg.dir === 'down' ? line?.downTerminus : line?.upTerminus) ?? '').trim() || (mod.cfg.dir === 'down' ? t('down') : t('up'))
+  const headerInfo = psdHeaderInfo(line, mod, ctx.data.name)
   const cars = line?.cars ?? 6
   const stock = (line?.stock ?? 'B') as StockClass
   // 屏蔽门 全高 / 半高. The half-height screen (半高) stands 1.5 m and carries
@@ -88,14 +45,16 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const doorW = STOCK[stock].doorWidth * (half ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
   // The half-height cap is part of the total height, above the white rail.
   const halfRailTop = PSD_HALF_HEIGHT - 0.05
-  const doorH = half ? halfRailTop - 0.24 : 2.5
+  const doorH = half ? halfRailTop - 0.24 : PSD_FULL_HEIGHT - 0.12 - 0.05 - PSD_HEADER_HEIGHT
   const glassH = doorH
   const glassMid = z0 + 0.12 + glassH / 2
   const leafMid = z0 + 0.12 + doorH / 2
   // Single glass surfaces avoid competing front/back faces at grazing angles.
   const fixedGlass = housingOnly ? mats.glass : ownedMaterial(ctx, mats.glass.clone())
   const movingGlass = housingOnly ? mats.tintedGlass : ownedMaterial(ctx, mats.tintedGlass.clone())
-  const fullHeightIndicator = housingOnly ? mats.glow : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ color: 0xffd43b, side: THREE.DoubleSide }))
+  const fullHeightIndicator = housingOnly ? mats.glow : ownedMaterial(ctx, new THREE.MeshStandardMaterial({
+    color: 0xffd21c, emissive: 0xffd21c, emissiveIntensity: 0.7, roughness: 0.23,
+  }))
   if (!housingOnly) {
     fixedGlass.depthWrite = false
     movingGlass.depthWrite = false
@@ -134,29 +93,32 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
     const headerZ = z0 + headerBottom + headerH / 2
     slab(g, mats.white, cx, yWall, headerZ, len, 0.24, headerH)
     slab(g, mats.black, cx, yWall, z0 + PSD_FULL_HEIGHT - 0.025, len, 0.28, 0.05)
-    // The printed header faces the platform (away from the track), repeated along
-    // the run so the station name and direction sticker recur as they really do.
-    // FrontSide, not DoubleSide: the track side of a screen has no label, so the
-    // sticker must not bleed through (mirrored) to the platform's back.
+    // Station panels sit above train-aligned doorways; route panels fill
+    // the fixed spans between them. Both face the platform only (§5.9).
     if (!fixedSpan) {
-      const headerMap = canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId, terminus, name, nameEn), 0, 0))
-      headerMap.wrapS = THREE.RepeatWrapping
-      headerMap.repeat.set(Math.max(1, Math.round(len / 4)), 1)
-      const header = plate(
-        g,
-        ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: headerMap, side: THREE.FrontSide })),
-        len,
-        headerH,
-        cx,
-        yWall - toward * 0.13,
-        headerZ,
-        platYaw,
-      )
-      header.renderOrder = 1
+      const headerMaterial = (kind: 'route' | 'station') => ownedMaterial(ctx,
+        new THREE.MeshBasicMaterial({ map: canvasTexture(1024, PSD_HEADER_PIXELS,
+          (c) => drawPsdHeader(c, kind, colour, headerInfo, name, nameEn)), side: THREE.FrontSide }))
+      const routeMat = headerMaterial('route'), stationMat = headerMaterial('station')
+      const headerPanel = (a: number, b: number, station: boolean) => {
+        if (b - a < 0.05) return
+        const panel = plate(g, station ? stationMat : routeMat, b - a, headerH,
+          (a + b) / 2, yWall - toward * 0.13, headerZ, platYaw)
+        panel.name = station ? 'psd-station-header' : 'psd-route-header'
+        panel.renderOrder = 1
+      }
+      let start = x0
+      for (const dx of openings) {
+        headerPanel(start, dx - doorW / 2, false)
+        headerPanel(dx - doorW / 2, dx + doorW / 2, true)
+        start = dx + doorW / 2
+      }
+      headerPanel(start, x0 + len, false)
     }
-    // The under-header light strip.
-    slab(g, mats.black, cx, yWall, z0 + headerBottom, len, 0.18, 0.06)
-    slab(g, mats.glow, cx, yWall - toward * 0.13, z0 + headerBottom + 0.04, len, 0.03, 0.025)
+    // The fascia's bottom edge follows the bound line colour.
+    const lineBand = housingOnly ? mats.white : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ color: colour }))
+    slab(g, lineBand, cx, yWall - toward * 0.13, z0 + headerBottom + 0.012, len, 0.03, 0.025)
+
   }
   // The red "mind the gap" threshold, just under the doors so it never crosses
   // an opening.
@@ -166,7 +128,12 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   // actually shows the track instead of a wall of glass. A half screen prints
   // the line header as a sticker on each fixed panel — the top band it loses is
   // moved down onto the glass, which is where the reference art puts it.
-  const stickerMap = half && !fixedSpan ? canvasTexture(1024, 96, (c) => c.drawImage(psdHeaderCanvas(colour, lineId, terminus, name, nameEn), 0, 0)) : null
+  const stickerMap = half && !fixedSpan ? canvasTexture(2048, PSD_HEADER_PIXELS, (c) => {
+    drawPsdHeader(c, 'route', colour, headerInfo, name, nameEn)
+    c.save(); c.translate(1024, 0)
+    drawPsdHeader(c, 'station', colour, headerInfo, name, nameEn)
+    c.restore()
+  }) : null
   const stickerMat = stickerMap ? ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: stickerMap, side: THREE.FrontSide })) : null
   const bandMat = half || housingOnly ? null : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(1024, 128, drawPsdBand), side: THREE.FrontSide }))
   if (bandMat?.map) bandMat.map.wrapS = THREE.RepeatWrapping
@@ -197,10 +164,10 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
       slab(g, mats.black, a + w / 2, yWall, z0 + 0.12 + glassH - 0.03, w, 0.12, 0.06)
     }
     if (!stickerMat) return
-    // The 1024×96 header keeps its aspect, inset from the panel's mullions.
+    // The paired header keeps its aspect, inset from the panel's mullions.
     const sw = Math.min(w - 0.24, 2.8)
     if (sw < 0.7) return
-    const sticker = plate(g, stickerMat, sw, sw * (96 / 1024), a + w / 2, yWall - toward * 0.05, glassMid, platYaw)
+    const sticker = plate(g, stickerMat, sw, sw * (PSD_HEADER_PIXELS / 2048), a + w / 2, yWall - toward * 0.05, glassMid, platYaw)
     sticker.renderOrder = 1
   }
   let cursor = x0
@@ -269,8 +236,19 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
         registerDoorLeaf(arrow, s, leafW, leaves)
       }
     }
-    // Only full-height screens have an indicator, and it is yellow.
-    if (!half) plate(g, fullHeightIndicator, 0.3, 0.06, dx, yWall - toward * 0.14, z0 + 2.7, platYaw)
+    // A raised oval amber lens in a small metal bezel, below the bilingual name.
+    if (!half) {
+      const lampZ = z0 + 0.12 + doorH + 0.085
+      const oval = (material: THREE.Material, width: number, depth: number, height: number, face: number, z: number) => {
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), material)
+        mesh.scale.set(width / 2, depth / 2, height / 2)
+        mesh.position.set(dx, yWall - toward * face, z)
+        g.add(mesh)
+        return mesh
+      }
+      oval(mats.steel, 0.19, 0.036, 0.09, 0.137, lampZ).name = 'psd-station-light-bezel'
+      oval(fullHeightIndicator, 0.15, 0.05, 0.064, 0.155, lampZ).name = 'psd-station-light'
+    }
   }
   g.userData.doors = leaves
   // Sliding leaves retain independent faces so they still seal as they move.

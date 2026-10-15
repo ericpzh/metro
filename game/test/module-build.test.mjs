@@ -333,6 +333,29 @@ test('escalator landing aprons sit above floor caps, with no coplanar top faces'
 const calligraphy = (id) => createModule(id, 4, 4, 0, 'm-' + id, 0, undefined, 'up', 'lane', data)
 const room = (type, kind, extra = {}) => ({ id: `${type}-1`, type, x: 4, y: 4, z: 0, w: 5, h: 4, rot: 0, cfg: { kind, door: [[6, 4]], ...extra } })
 const edge = (psd, side = 'left', dir = 'up') => ({ id: `edge-${psd}`, type: 'platform-edge', x: 4, y: 4, z: 0, w: 8, rot: 0, cfg: { name: '站台门', line: '5', dir, side, psd, from: 'track-1' } })
+
+test('PSD station plaques and yellow lights stay centred over door openings on either bank', () => {
+  for (const side of ['left', 'right']) for (const dir of ['up', 'down']) {
+    const group = build({ ...edge('full', side, dir), w: 24 }).group
+    const plaques = group.children.filter(o => o.name === 'psd-station-header')
+    const lights = group.children.filter(o => o.name === 'psd-station-light')
+    const leaves = group.userData.doors.filter(o => o.name === 'psd-door-glass')
+    assert.ok(plaques.length > 1, 'station/route alternation recurs along the screen')
+    assert.equal(plaques.length, leaves.length / 2)
+    assert.equal(lights.length, plaques.length)
+    for (let i = 0; i < plaques.length; i++) {
+      assert.ok(Math.abs(plaques[i].position.x - (leaves[2*i].position.x + leaves[2*i+1].position.x) / 2) < 1e-6)
+      assert.equal(lights[i].position.x, plaques[i].position.x)
+      assert.ok(lights[i].position.z < plaques[i].position.z, 'yellow light sits below the station ink')
+      assert.equal(lights[i].geometry.type, 'SphereGeometry', 'indicator is a raised oval lens')
+      assert.equal(round(lights[i].scale.x * 2), 0.15, 'lens is 15 cm wide')
+      assert.equal(round(lights[i].scale.z * 2), 0.064, 'lens is 6.4 cm tall')
+      assert.equal(round(plaques[i].geometry.parameters.height), 0.53, 'header is 53 cm tall')
+      assert.equal(round(leaves[0].geometry.parameters.height), 2.25, 'door glass gives 25 cm to the header')
+      assert.equal(plaques[i].material.side, THREE.FrontSide)
+    }
+  }
+})
 const track = (cfg) => ({ id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, d: 3, rot: 0, cfg: { line: '5', power: 'third-rail', dir: 'up', ...cfg } })
 
 /**
@@ -1299,7 +1322,7 @@ test('full-height platform doors seal the opening and carry their decals while s
       assert.ok(Math.abs(right.position.x + rightW / 2 - (left.position.x - leftW / 2) - STOCK[stock].doorWidth * 1.5) < 1e-6, 'screen glazing spans 150% of the car door width')
       const bottom = left.position.z - left.geometry.parameters.height / 2
       assert.ok(Math.abs(bottom - 1.12) < 1e-6, 'glazing meets the sill')
-      assert.ok(Math.abs(left.position.z + left.geometry.parameters.height / 2 - 3.62) < 1e-6, 'glazing meets the header')
+      assert.ok(Math.abs(left.position.z + left.geometry.parameters.height / 2 - 3.37) < 1e-6, 'glazing meets the taller header')
     }
     const decals = leaves.filter((o) => o.geometry.type === 'PlaneGeometry' && o.name !== 'psd-door-glass')
     assert.equal(decals.length, glazing.length * 3, 'each leaf carries a band, warning and opening arrow')

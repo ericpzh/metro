@@ -1702,3 +1702,20 @@ the code.
 
 `game/README.md` is also where the project's narrative history lives — what a feature replaced,
 and the bug a rule exists to prevent. This skill keeps only the rules and the traps.
+
+### Platform screen door signage
+
+`render/models/pieces/PsdHeader.ts` owns the printed bilingual full-height PSD
+panels and the direction-aware destination. A station name matches the 上行
+terminus only on an 上行 platform, and 下行 only on a 下行 platform; do not infer
+terminal status from the opposite direction or an empty name. A middle station
+gets a schematic route with no invented stops. Keep the next-destination arrow
+on the travel side, independent of which bank faces the platform. The station
+plaque and its yellow oval lamp stay centred over each train-aligned doorway;
+the bound line supplies the lower fascia colour.
+
+The full-height assembly stays 2.95 m overall: its 0.53 m header comes from the
+glazing above the 2.25 m doors. Keep the header dimensions and lamp placement in
+`module-build` / `psd-end`, and the ink, bilingual physical labels and directional
+terminal rule in `psd-header`. Half-height stickers still share the same artwork
+and directional/terminal decision.

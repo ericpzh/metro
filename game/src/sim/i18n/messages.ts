@@ -71,6 +71,8 @@ export const messages = {
   "printed_do_not_touch": { "zh": "CAUTION! Do not touch", "en": "CAUTION! Do not touch" },
   "printed_exit": { "zh": "EXIT", "en": "EXIT" },
   "printed_first_train": { "zh": "The First Train", "en": "The First Train" },
+  "printed_psd_terminal_zh": { "zh": "终点站", "en": "终点站" },
+  "printed_psd_terminal": { "zh": "Terminal", "en": "Terminal" },
   "printed_next_train": { "zh": "The Next Train", "en": "The Next Train" },
   "printed_third_train": { "zh": "The Third Train", "en": "The Third Train" },
   "printed_metro_station": { "zh": "Metro Station", "en": "Metro Station" },

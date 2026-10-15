@@ -1,5 +1,12 @@
 # Station Designer — the game
 
+`psd-header.test.mjs` covers directional terminal signage, schematic line strips,
+bilingual station plaques, travel-side destination arrows and the lower line-colour band.
+Full-height screens have a 0.53 m header above 2.25 m glazing, with an oval amber
+indicator below each station name; the overall screen height stays 2.95 m.
+`module-build` checks that plaques and lamps stay aligned to the openings on each
+platform bank; `psd-end` keeps end infill aligned with the shorter door glazing.
+
 Page loads restore the local autosave, paused at the station's ground level, or
 start empty when no valid autosave exists. Committed changes autosave every 10 seconds
 to `metro-game.autosave.v1`; hiding/leaving the page also flushes pending changes.
