@@ -5,6 +5,7 @@ import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { BRIDGE_DECK_DEPTH, bridgeBarrierTop } from '../../../sim/structures.ts'
 import { TUNNEL_HEADROOM } from '../../../build/rail.ts'
+import { thirdRailSide } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
 import { buildTrackDetails } from './TrackDetails.ts'
 
@@ -38,7 +39,7 @@ function buildDirectionArrow(mat: THREE.Material, x: number, y: number, z: numbe
   return g
 }
 
-function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white): THREE.Group {
+function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white, thirdRail: 1 | -1 = -1): THREE.Group {
   const g = new THREE.Group()
   const d = mod.d ?? 1
   // Build in the track's local frame: the run along +x, the amount across +y,
@@ -78,10 +79,11 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // The line's 供电 decides the model: a conductor rail beside the running
   // rails, or an overhead wire hung over them. Both are drawn for every piece
   // bound to the line, platform and tunnel alike, so a power switch re-cuts all
-  // of them when the module meshes are rebuilt.
+  // of them when the module meshes are rebuilt. The conductor rail sits on the
+  // travel left, or off the platform side at a station (see `thirdRailSide`).
   if (mod.cfg.bridge && mod.cfg.power === 'catenary') buildBridgeCatenary(g, mats, mod, cy, d)
   else if (mod.cfg.power === 'catenary') buildCatenary(g, mats, mod, cx, cy, d)
-  else buildThirdRail(g, mats, mod.w, cx, cy)
+  else buildThirdRail(g, mats, mod.w, cx, cy, thirdRail)
   // The ghost carries the travel direction (上行/下行) as arrows along the run.
   if (preview) {
     const flip = mod.cfg.dir === 'down'
@@ -96,15 +98,21 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   return g
 }
 
-/** 第三轨: a guarded conductor rail along the outer −y edge of the bed. */
-function buildThirdRail(g: THREE.Group, mats: ModelMaterials, w: number, cx: number, cy: number): void {
-  const ty = cy - 1.05
+/**
+ * 第三轨: a guarded conductor rail on one long edge of the bed. The side is the
+ * travel left — local +y for 上行, local −y for 下行 — except a platform rail
+ * with screens on exactly one side, which takes the side with no 屏蔽门 so the
+ * live rail stays off the platform (the transition happens before the station).
+ */
+function buildThirdRail(g: THREE.Group, mats: ModelMaterials, w: number, cx: number, cy: number, side: 1 | -1 = -1): void {
+  const ty = cy + side * 1.05
   // The live rail, sitting on ceramic insulators above the sleepers.
   slab(g, mats.darkSteel, cx, ty, 0.62, w, 0.09, 0.09)
   // A yellow protective cover arches over it, as a capping board on a real
-  // conductor rail does, so the third rail reads at a glance.
-  slab(g, mats.psu, cx, ty - 0.12, 0.8, w, 0.34, 0.05)
-  slab(g, mats.psu, cx, ty - 0.28, 0.7, w, 0.05, 0.22)
+  // conductor rail does, so the third rail reads at a glance. The cap overhangs
+  // outward, away from the running rails.
+  slab(g, mats.psu, cx, ty + side * 0.12, 0.8, w, 0.34, 0.05)
+  slab(g, mats.psu, cx, ty + side * 0.28, 0.7, w, 0.05, 0.22)
   const n = Math.max(2, Math.round(w / 4))
   for (let i = 0; i < n; i++) {
     const x = ((i + 0.5) / n) * w - 0.5
@@ -161,7 +169,11 @@ export class TrackModel extends PieceBuilder {
   readonly kind = 'track'
   build(mod: Extract<Module, { type: 'track' }>): THREE.Group {
     const railWeb = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: 0x62564c, roughness: 0.82, metalness: 0.25 }))
-    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'))
+    const data = this.ctx.data
+    const edges = data?.modules.filter((m): m is Extract<Module, { type: 'platform-edge' }> => m.type === 'platform-edge') ?? []
+    const lineDir = data?.lines.find((l) => l.id === mod.cfg.line)?.direction
+    const side = thirdRailSide(mod, edges, lineDir)
+    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'), side)
   }
 }
 

@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "test:perf": "node --test --test-isolation=none --experimental-test-coverage --test-coverage-exclude=\"test/**\" --test-coverage-exclude=\"node_modules/**\" test/batching-lifecycle.test.mjs test/draw-batching.test.mjs test/performance-policy.test.mjs test/worker-preview.test.mjs test/render-performance.test.mjs test/scene-wiring.test.mjs"
+    "test:perf": "node --test --test-isolation=none --experimental-test-coverage --test-coverage-exclude=\"test/**\" --test-coverage-exclude=\"node_modules/**\" test/batching-lifecycle.test.mjs test/draw-batching.test.mjs test/performance-policy.test.mjs test/worker-preview.test.mjs test/render-performance.test.mjs test/scene-wiring.test.mjs test/roof-tool.test.mjs test/equipment-placement-input.test.mjs test/passenger-assets.test.mjs test/passenger-library.test.mjs"
   },
   "dependencies": {
     "immer": "^11.1.18",

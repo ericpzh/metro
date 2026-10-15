@@ -10,10 +10,54 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { canPlaceWithoutFloorHit } from '../src/app/tools/placementInput.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
+import { TactileTool } from '../src/app/tools/TactileTool.ts'
 import { createModule, toState } from '../src/build/model.ts'
 import { useStore } from '../src/app/store.ts'
 import { exitBayCell } from '../src/sim/exits.ts'
 import { STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
+
+test('tactile placement and floor-mark deletion pick once for large-document misses and late hits', () => {
+  const before = useStore.getState()
+  try {
+    const modules = Array.from({ length: 1334 }, (_, index) => createModule('bench', index + 5000, 0, 0, `bench-${index}`))
+    const station = toState({ name: 'pick count', seed: 1, cells: [], modules, lines: [] })
+    for (const pickedId of [null, modules.at(-1).id]) {
+      for (const moduleType of ['tactile-guide', 'floor-mark-arrow']) {
+        useStore.setState({ station, past: [], future: [], tool: 'module', moduleType, moduleRot: 0 })
+        let picks = 0
+        const scene = { setGhost() {}, setModulePreview() {}, setCollisionHighlight() {}, setCursor() {} }
+        const drag = { current: null }
+        const ctx = { scene: () => scene, pickModule: () => { picks++; return pickedId }, drag, hover: { current: null } }
+        const tool = moduleType === 'tactile-guide' ? new TactileTool(ctx) : new EquipmentTool(ctx)
+        tool.onDown({ clientX: 10, clientY: 10, button: moduleType === 'tactile-guide' ? 0 : 2,
+          hit: { cell: [0, 0, 0], place: [0, 0, 1], solid: true, point: [0.5, 0.5, 1] }, preventDefault() {} })
+        assert.equal(picks, 1, `${moduleType} reuses one scene pick regardless of document search length`)
+        assert.equal(useStore.getState().past.length, 0)
+        if (moduleType === 'tactile-guide') assert.deepEqual(drag.current.anchor, [0, 0, 0])
+      }
+    }
+  } finally { useStore.setState(before) }
+})
+
+test('exit snapping picks once when the selected stair is the last of 1334 modules', () => {
+  const before = useStore.getState()
+  try {
+    const stair = createModule('stair-straight', -1, 40, -4, 'last-stair', 0, STAIR_WIDTH_DOUBLE)
+    const modules = Array.from({ length: 1333 }, (_, index) => createModule('bench', index + 5000, 0, 0, `bench-${index}`))
+    const station = toState({ name: 'exit pick count', seed: 1, cells: [], modules: [...modules, stair], lines: [] })
+    useStore.setState({ station, tool: 'module', moduleType: 'exit-uncovered-2', moduleRot: 0 })
+    let picks = 0, preview = null
+    const tool = new EquipmentTool({
+      scene: () => ({ setModulePreview(modules) { preview = modules?.[0] }, setCursor() {}, setCollisionHighlight() {} }),
+      pickModule: () => { picks++; return stair.id }, hover: { current: null }, drag: { current: null },
+    })
+    tool.onMove({ clientX: 10, clientY: 10, button: 0, buttons: 1, hit: null, preventDefault() {} })
+    assert.equal(picks, 1)
+    assert.ok(preview)
+    const upper = stair.from.z > stair.to.z ? stair.from : stair.to
+    assert.deepEqual(exitBayCell(preview, 0), [upper.x, upper.y, upper.z])
+  } finally { useStore.setState(before) }
+})
 
 test('wall-mounted poster and glass tiles reach the backing-wall verdict from open air', () => {
   assert.equal(canPlaceWithoutFloorHit('billboard-wide'), true)

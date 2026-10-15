@@ -5,6 +5,9 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 
 # The game (`game/`)
 
+For performance work, read [the shared performance guide](../metro-repo/references/performance.md).
+It covers cold interactions, work-count regressions, comparable measurements and GPU validation.
+
 Its own application: its own `package.json`, Vite config, tests and Cloudflare
 Worker (`metro-game`). It imports nothing from `web/` or `art/`.
 
@@ -647,7 +650,15 @@ the four rules most changes trip over.
   (`TRACK_RUN_LENGTHS` 4/16/32/64/128, `track-run-length.test.mjs`). The placement ghost draws the run's 上行/下行
   direction as arrows (`buildTrack`; Tab toggles it in platform mode), a tunnel inherits
   its source's direction, and `computeLineAnchors` reads the train's travel sign from
-  `cfg.dir`. `station.lines` holds many lines (added in the inspector, `LineCard`); each
+  `cfg.dir`. A 第三轨 conductor rail sits on the travel left in the local frame —
+  local +y for 上行, local −y for 下行, whatever the quarter-turn — except a platform
+  rail with screens on exactly one side, which takes the side with no 屏蔽门 so the
+  live rail stays off the platform (tunnel/bridge always keep the travel left, even
+  past a platform; both sides or neither side fall back to it). `thirdRailSide`
+  (`sim/track.ts`) is the one side source the `TrackModel` draws from, counting only
+  the rail's own edges (`cfg.from`, plus legacy direction-matched edges); keep it and
+  `game/test/track-third-rail.test.mjs` aligned when changing 供电 models, edge
+  derivation or the travel sign. `station.lines` holds many lines (added in the inspector, `LineCard`); each
   carries stock/cars/headwayProfile and a power mode, and its colour comes from
   `data/line-colours.ts` (real 广州地铁 sign colours by line number). The consist is one of
   the fixed `FORMATION_OPTIONS` 2/3/4/6/8 chips (`sim/headway.ts` snaps, ties down so a
@@ -1511,8 +1522,8 @@ the four rules most changes trip over.
   plates are **retained** across a rebuild (`PlateSystem.retainTvPlates` / `retainSignPlates`:
   the station's name, lines, services, clock and date are the inputs a rebuild can change;
   per-frame clock/service refreshes upload only when the printed ink changed), a consist
-  configuration that left is evicted after a few snapshots (`TRAIN_MISSES_ALLOWED` /
-  `dropConsist`), an overlay's quad and material are freed where the overlay is replaced
+  configuration that left is retained in an eight-entry dormant cache (`TRAIN_PARKED_LIMIT` /
+  `dropConsist` evicts the least recently seen), an overlay's quad and material are freed where the overlay is replaced
   (`CrowdSystem.dropOverlay`), the 区域 map is rebuilt only when the picture changes
   (`setZoneOverlayVisible`, `zoneKeyRef`), the scene stops its own animation frame on `dispose`
   (`SceneRenderer.raf`), and a painted colour the document no longer names gives its canvas
@@ -1523,6 +1534,18 @@ the four rules most changes trip over.
   `dirty`, and `AgentPool` drops a dead agent's id entry as it recycles the object.
   The demo performance harnesses are `npm run bench:sim` and `npm run bench:browser`
   from the repository root; `game/PERFORMANCE.md` records how to run and compare them.
+  `BENCH_STATION` selects an external save for both harnesses. Move pickup/cancel
+  uses `setMovingModule`, retaining the station and temporarily exposing original
+  neighbour surfaces of affected equipment batches; a storey change restores the
+  source visibility before slicing and reapplies the hidden piece afterwards.
+  Collision bodies cache by immutable module arrays. Production passenger buffers
+  load as binary assets; signed integer pose textures retain every baked value.
+  Stair-block drags are visual-only: `TileEquipmentTool.draw` skips placement
+  validation; release validates each tile and commits the accepted run once.
+  Refusal highlights/notices for these blocks are deferred until release.
+  Pick a module once per event, before finding its document entry. Never call
+  `pickModuleAt` inside `modules.find`'s predicate: a miss would raycast the whole
+  scene once per module and freeze the initial press (`roof-tool` pins the count).
   Opaque static siblings are batched per module by `render/batchStaticModule.ts`; keep the
   module root and nested groups for picking and storey visibility, and leave transparent,
   shared/tagged geometry, mutable screens and animated rigs separate in this base

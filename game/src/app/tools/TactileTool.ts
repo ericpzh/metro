@@ -18,7 +18,8 @@ export class TactileTool extends ToolController {
     if (!info.hit) return
     const st = useStore.getState()
     const removing = st.tool === 'delete' || info.button === 2
-    const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
+    const pickedId = this.pickModuleAt(info)
+    const picked = st.station.modules.find((m) => m.id === pickedId)
     const old = picked?.type === 'tactile' ? picked : tactileAt(st.station.modules, ...info.hit.cell)
     if (removing && old?.type !== 'tactile') {
       st.setNotice(msg('no_tactile_paving_to_remove_here'))

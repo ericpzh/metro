@@ -211,6 +211,11 @@ export class SceneRenderer {
 
   /* ------------------------------------------------------------ station */
 
+  setMovingModule(id: string | null): void {
+    this.ghostSys.movingModuleId = id
+    this.modules.setMovingModule(id)
+  }
+
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.ctx.levelBase = data.levelBase ?? 0
     // A sign-board preview changes no cell and no other module, so the chunks

@@ -13,7 +13,7 @@ import { msg } from './i18n.ts'
 // offsets are allowed, because a run centre is a half-cell. Pure data — no
 // three, no DOM.
 
-import type { Module } from './types.ts'
+import type { LineDirection, Module } from './types.ts'
 
 /** Length presets shared by the tunnel and elevated track tools. */
 export const TRACK_RUN_LENGTHS = [4, 16, 32, 64, 128] as const
@@ -123,4 +123,37 @@ export function edgeCells(m: PlatformEdgeModule): Array<[number, number, number]
     out.push([m.x + dx, m.y + dy, m.z])
   }
   return out
+}
+
+/**
+ * Which side of the bed a track's 第三轨 sits on, as a local +y sign: +1 the
+ * local +y edge, −1 the local −y edge (GAME-SPEC §5.4 track kit).
+ *
+ * A conductor rail runs on the left of the travel direction — the outer wall in
+ * a bore — and jumps across before a station so it stays off the platform side.
+ * `up` travels local +x, so its left is local +y; `down` travels local −x, so
+ * its left is local −y. A tunnel or 轨道桥 keeps that left whatever the station
+ * holds; a platform rail takes the side with no 屏蔽门, and only falls back to
+ * the travel left when both sides (or neither side) carry screens.
+ */
+export function thirdRailSide(
+  track: Pick<TrackModule, 'cfg'>,
+  edges: readonly Pick<PlatformEdgeModule, 'cfg'>[] = [],
+  lineDir?: LineDirection,
+): 1 | -1 {
+  const dir = track.cfg.dir ?? lineDir ?? 'up'
+  const left: 1 | -1 = dir === 'down' ? -1 : 1
+  if (track.cfg.tunnel || track.cfg.bridge) return left
+  const trackId = (track as { id?: string }).id
+  const line = track.cfg.line
+  const relevant = edges.filter((e) => {
+    if (trackId !== undefined && e.cfg.from === trackId) return true
+    // Edges that predate `cfg.from` match by line and direction instead.
+    return e.cfg.from === undefined && e.cfg.line === line && e.cfg.dir === dir
+  })
+  const hasLeft = relevant.some((e) => e.cfg.side === 'left')
+  const hasRight = relevant.some((e) => e.cfg.side === 'right')
+  if (hasLeft && !hasRight) return -1
+  if (hasRight && !hasLeft) return 1
+  return left
 }

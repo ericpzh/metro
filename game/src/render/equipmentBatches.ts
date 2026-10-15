@@ -12,7 +12,7 @@ const STATIC_TYPES = new Set(['bench', 'fence', 'light', 'vent', 'cctv', 'bin', 
   'exit', 'guidepost', 'busstop', 'tvm', 'vending', 'ac-unit', 'electrical-cabinet', 'sign', 'tv', 'billboard',
   'calligraphy', 'linemap', 'monitor', 'clock', 'gate', 'platform-edge', 'psd-end', 'lift', 'escalator', 'booth', 'rail-signal', 'floor-mark', 'glass'])
 interface Source { mesh: THREE.Mesh; matrix: THREE.Matrix4; region: AtlasRegion | null }
-interface Entry { signature: string; mesh: THREE.Mesh }
+interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[] }
 
 /** Cross-module rendering; original surfaces and IDs remain the picking model.
  * Buckets are local to 16 m tiles. Unchanged buckets keep their GPU allocations. */
@@ -23,10 +23,31 @@ export class EquipmentBatches {
   private entries = new Map<string, Entry>()
   private sources = new Set<THREE.Mesh>()
   private revision: string | undefined
+  private masked = new Set<Entry>()
+
+  setHiddenModule(root: THREE.Object3D | null): void {
+    for (const entry of this.masked) {
+      entry.mesh.visible = true
+      for (const source of entry.sources) source.mesh.layers.set(BATCH_SOURCE_LAYER)
+    }
+    this.masked.clear()
+    if (!root) return
+    for (const entry of this.entries.values()) {
+      const contains = entry.sources.some(source => {
+        for (let node: THREE.Object3D | null = source.mesh; node; node = node.parent) if (node === root) return true
+        return false
+      })
+      if (!contains) continue
+      entry.mesh.visible = false
+      for (const source of entry.sources) source.mesh.layers.set(0)
+      this.masked.add(entry)
+    }
+  }
 
   sync(modules: THREE.Group, revision?: string): void {
     if (!this.enabled) { this.clear(); return }
     if (revision !== undefined && revision === this.revision) return
+    this.setHiddenModule(null)
     this.revision = revision
     for (const mesh of this.sources) mesh.layers.set(0)
     this.sources.clear()
@@ -97,7 +118,7 @@ export class EquipmentBatches {
         mesh.frustumCulled = sources[0].mesh.frustumCulled
         if (mesh instanceof THREE.BatchedMesh) mesh.perObjectFrustumCulled = mesh.frustumCulled
         mesh.userData.equipmentBatch = true
-        this.root.add(mesh); this.entries.set(key, { signature, mesh })
+        this.root.add(mesh); this.entries.set(key, { signature, mesh, sources })
       }
       for (const source of sources) { source.mesh.layers.set(BATCH_SOURCE_LAYER); this.sources.add(source.mesh) }
     }
@@ -112,6 +133,7 @@ export class EquipmentBatches {
   }
 
   clear(): void {
+    this.setHiddenModule(null)
     this.revision = undefined
     for (const mesh of this.sources) mesh.layers.set(0)
     this.sources.clear()

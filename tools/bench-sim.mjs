@@ -1,14 +1,16 @@
-// The actual shipped station, actual edit helpers and actual worker snapshot work.
+// The shipped station or an external save, real edit helpers and worker snapshots.
 // Run outside node:test: elapsed time is diagnostic, never a flaky CI assertion.
 import { performance } from 'node:perf_hooks'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { cpus } from 'node:os'
-import { referenceStation, REFERENCE_BOOT } from '../game/src/data/reference-station.ts'
+import { REFERENCE_BOOT } from '../game/src/data/reference-station.ts'
+import { perfFixture } from './perf-fixture.mjs'
 import { World } from '../game/src/sim/world.ts'
 import { withGround } from '../game/src/sim/ground.ts'
 import { addCells, addFloor, addWalls, wallRun, cloneState, toState, toData, paintFaces, fillSurface } from '../game/src/build/model.ts'
-import { checkBlockCells } from '../game/src/build/validation.ts'
+import { checkBlockCells, checkModulePlacements } from '../game/src/build/validation.ts'
+import { createModule } from '../game/src/build/model.ts'
 import { isCosmeticStationEdit } from '../game/src/sim/cosmeticEdit.ts'
 import { summarize, printTimings } from './perf-stats.mjs'
 
@@ -26,7 +28,7 @@ function measure(name, fn, count = edits) {
   }
   timings[name] = summarize(samples)
 }
-const data = referenceStation()
+const data = perfFixture()
 const state = toState(data)
 const cell = state.cells.find((c) => c.fill === 'solid' && c.z < 0 && !c.tags?.length)
 if (!cell) throw new Error('demo has no paint target')
@@ -53,6 +55,9 @@ measure('build.preview32WallColumns.ms', (i = 0) => checkBlockCells(state, wallR
 measure('build.preview32x32Unchanged.ms', () => checkBlockCells(state, largePatch))
 const coldStates = Array.from({ length: edits + 1 }, () => ({ ...state, cells: state.cells.slice() }))
 measure('build.preview32x32ColdIndex.ms', (i = edits) => checkBlockCells(coldStates[i], largePatch))
+const stairPreviews = state.cells.filter(c => c.fill === 'solid' && c.z < 0 && !c.tags?.includes('wall')).slice(0, 32)
+  .map((c, index) => { const module = createModule('stair-block', c.x, c.y, c.z, `bench-stair-${index}`, 0); return { id: module.id, module, layer: true } })
+measure('build.validate32StairBlocksOnRelease.ms', () => checkModulePlacements(state, stairPreviews))
 measure('build.addOneBlock.ms', () => addCells(state.cells, block, state.modules))
 measure('build.add8x8.ms', () => addCells(state.cells, patch, state.modules))
 measure('build.add32x32.ms', () => addCells(state.cells, largePatch, state.modules))

@@ -39,7 +39,7 @@ export function passengerAppearance(id: number, out: PassengerAppearance = [0, 0
   return out
 }
 
-function bytes(value: string): Uint8Array {
+function bytes(value: string | Uint8Array): Uint8Array {
   return decodePassengerBytes(value, (human as { encoding?: string }).encoding)
 }
 
@@ -75,16 +75,16 @@ export function passengerBody(): THREE.BufferGeometry {
 }
 
 export const PASSENGER_ATLAS_WIDTH = 2 ** Math.ceil(Math.log2(Math.max(1024, Math.ceil(human.vertices * human.frames / 8192))))
-function atlas(values: Int16Array | Int8Array, divisor: number): THREE.DataTexture {
+function atlas(values: Int16Array | Int8Array): THREE.DataTexture {
   const width = PASSENGER_ATLAS_WIDTH
   const rows = Math.ceil(human.vertices * human.frames / width)
-  const pixels = new Float32Array(width * rows * 4)
+  const pixels = values instanceof Int16Array ? new Int16Array(width * rows * 4) : new Int8Array(width * rows * 4)
   for (let i = 0; i < values.length / 3; i++) {
-    pixels[i * 4] = values[i * 3] / divisor
-    pixels[i * 4 + 1] = values[i * 3 + 1] / divisor
-    pixels[i * 4 + 2] = values[i * 3 + 2] / divisor
+    pixels[i * 4] = values[i * 3]
+    pixels[i * 4 + 1] = values[i * 3 + 1]
+    pixels[i * 4 + 2] = values[i * 3 + 2]
   }
-  const texture = new THREE.DataTexture(pixels, width, rows, THREE.RGBAFormat, THREE.FloatType)
+  const texture = new THREE.DataTexture(pixels, width, rows, THREE.RGBAIntegerFormat, values instanceof Int16Array ? THREE.ShortType : THREE.ByteType)
   texture.needsUpdate = true
   return texture
 }
@@ -101,8 +101,8 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
   pose.setUsage(THREE.DynamicDrawUsage)
   geometry.setAttribute('passengerPose', pose)
   geometry.setAttribute('passengerOutfit', new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1))
-  const positions = atlas(bakedPositions, human.positionScale)
-  const normals = atlas(bakedNormals, human.normalScale)
+  const positions = atlas(bakedPositions)
+  const normals = atlas(bakedNormals)
   // Each outfit has its own indexed topology. A small lookup maps the shared
   // triangle corners to its vertices without duplicating all 25 baked poses.
   const indexRows = Math.ceil(bakedIndices.length / 1024)
@@ -125,8 +125,8 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
       attribute float passengerVertex;
       attribute vec4 passengerPose;
       attribute float passengerOutfit;
-      uniform sampler2D passengerPositions;
-      uniform sampler2D passengerNormals;
+      uniform highp isampler2D passengerPositions;
+      uniform highp isampler2D passengerNormals;
       uniform sampler2D passengerIndices;
       uniform sampler2D passengerRegions;
       uniform vec2 passengerAtlasSize;
@@ -139,23 +139,23 @@ export function passengerMesh(capacity: number): THREE.InstancedMesh {
         return texture2D(passengerIndices, vec2((mod(corner, 1024.0) + 0.5) / 1024.0,
           (floor(corner / 1024.0) + 0.5) / ${indexRows.toFixed(1)})).r;
       }
-      vec3 passengerSample(sampler2D data, float frame) {
+      vec3 passengerSample(highp isampler2D data, float frame, float divisor) {
         float vertex = passengerIndex();
         float pixel = vertex + frame * ${human.vertices.toFixed(1)};
-        return texture2D(data, vec2((mod(pixel, passengerAtlasSize.x) + 0.5) / passengerAtlasSize.x,
-          (floor(pixel / passengerAtlasSize.x) + 0.5) / passengerAtlasSize.y)).xyz;
+        return vec3(texture2D(data, vec2((mod(pixel, passengerAtlasSize.x) + 0.5) / passengerAtlasSize.x,
+          (floor(pixel / passengerAtlasSize.x) + 0.5) / passengerAtlasSize.y)).xyz) / divisor;
       }
-      vec3 passengerAnimated(sampler2D data) {
-        vec3 idle = passengerSample(data, 0.0);
-        vec3 walk = mix(passengerSample(data, passengerPose.x),
-          passengerSample(data, passengerPose.y), passengerPose.z);
+      vec3 passengerAnimated(highp isampler2D data, float divisor) {
+        vec3 idle = passengerSample(data, 0.0, divisor);
+        vec3 walk = mix(passengerSample(data, passengerPose.x, divisor),
+          passengerSample(data, passengerPose.y, divisor), passengerPose.z);
         return mix(idle, walk, passengerPose.w);
       }
     ` + shader.vertexShader
     shader.vertexShader = shader.vertexShader
       .replace('#include <begin_vertex>', `
-        vec3 transformed = passengerAnimated(passengerPositions);
-        vec3 objectNormal = normalize(passengerAnimated(passengerNormals));
+        vec3 transformed = passengerAnimated(passengerPositions, ${human.positionScale.toFixed(1)});
+        vec3 objectNormal = normalize(passengerAnimated(passengerNormals, ${human.normalScale.toFixed(1)}));
         #include <defaultnormal_vertex>
         passengerNormal = normalize(transformedNormal);
         float vertex = passengerIndex();

@@ -1,6 +1,6 @@
 // Production app, real worker + React commit + renderer. Uses the existing
 // console hooks; timing wrappers exist only in this disposable browser page.
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 import { summarize, printTimings } from './perf-stats.mjs'
@@ -21,12 +21,26 @@ try {
     profile: resolve(`.preview/perf/chrome-${process.pid}`), debugPort: Number(process.env.BENCH_PORT ?? 9348),
     windowSize: process.env.BENCH_SIZE ?? '1400,900', softwareGpu })
   await waitFor(page.evaluate, '!!(window.__scene && window.__metro?.getState().metrics && window.__metro.getState().stats)', { what: 'demo station' })
+  const startup = { readyMs: await page.evaluate('performance.now()') }
+  if (process.env.BENCH_STATION) {
+    const text = readFileSync(process.env.BENCH_STATION, 'utf8')
+    startup.stationLoadMs = await page.evaluate(`(async () => {
+      const start = performance.now(), previous = window.__metro.getState().metrics;
+      window.__metro.getState().loadFromText(${JSON.stringify(text)});
+      while (window.__metro.getState().metrics === previous || !window.__metro.getState().metrics) await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return performance.now() - start;
+    })()`)
+  }
   // Allow asynchronous artwork rebuilds and shader compilation to settle.
   await page.evaluate('new Promise(r => setTimeout(r, 3000))')
   await page.evaluate(`(() => {
     const scene = window.__scene, store = window.__metro;
     const bench = window.__perf = { samples: {}, active: false, last: 0, restore: [] };
     bench.errors = [];
+    const error = console.error;
+    console.error = (...args) => { bench.errors.push(args.map(String).join(' ').slice(0, 4096)); error(...args); };
+    bench.restore.push(() => console.error = error);
     window.addEventListener('error', e => bench.errors.push(e.message));
     window.addEventListener('unhandledrejection', e => bench.errors.push(String(e.reason)));
     bench.record = (key, ms) => { if (bench.active) (bench.samples[key] ??= []).push(ms); };
@@ -40,6 +54,7 @@ try {
       bench.restore.push(() => object[method] = original);
     };
     bench.wrap(scene, 'setStation', 'build.setStation.ms');
+    bench.wrap(scene.trains, 'setTrains', 'trains.setTrains.ms');
     for (const [field, method] of [['chunks', 'prepareStation'], ['chunks', 'meshStation'], ['modules', 'buildModules'], ['level', 'applyLevel'], ['grid', 'buildGrid'], ['crowd', 'renderAgents'], ['trains', 'updateTrains'], ['plates', 'updateAdScreens']]) {
       bench.wrap(scene[field], method, field + '.' + method + '.ms');
     }
@@ -255,6 +270,32 @@ try {
       }
     `)
   }
+  await capture('trainRearrival', `
+    const original = scene.trains.lastBuffer.slice();
+    const pose = new Float32Array([0, 0, store.getState().activeZ + 0.5, 4, 1, 0, 0x2277aa, 1, 0, 3]);
+    for (let i = 0; i < ${edits}; i++) {
+      for (let missed = 0; missed < 5; missed++) scene.trains.setTrains(new Float32Array());
+      const start = performance.now();
+      scene.trains.setTrains(pose);
+      b.record(i ? 'trains.rearrival.ms' : 'trains.firstArrival.ms', performance.now() - start);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    }
+    scene.trains.setTrains(original);
+  `)
+  await capture('moveLiftCancel', `
+    const module = store.getState().station.modules.find(m => m.type === 'bench');
+    if (!module) throw Error('no movable bench');
+    for (let i = 0; i < ${edits}; i++) {
+      let start = performance.now();
+      store.getState().liftModule(module.id);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      b.record('move.liftToFrame.ms', performance.now() - start);
+      start = performance.now();
+      store.getState().cancelMove(false);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      b.record('move.cancelToFrame.ms', performance.now() - start);
+    }
+  `)
   await capture('paintEdits', `
     const cell = store.getState().station.cells.find(c => c.fill === 'solid' && c.z === store.getState().activeZ && !c.tags?.length
       && !store.getState().station.modules.some(m => m.type === 'stair' &&
@@ -343,7 +384,7 @@ try {
       gpuTimer: window.__perf.gpuTimer ?? 'disabled', multiDraw: !!gl.getExtension('WEBGL_multi_draw'), activeZ: window.__metro.getState().activeZ };
   })()`)
   const report = { kind: 'production-browser', timestamp: new Date().toISOString(), environment,
-    config: { duration, edits, softwareGpu, investigate, profile, gpuTimer, compareBatching }, phases }
+    config: { duration, edits, softwareGpu, investigate, profile, gpuTimer, compareBatching }, startup, phases }
   report.errors = await page.evaluate('window.__perf.errors')
   const output = resolve(process.env.BENCH_OUTPUT ?? '.preview/perf/browser.json')
   mkdirSync(dirname(output), { recursive: true })

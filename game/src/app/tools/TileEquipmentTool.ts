@@ -73,7 +73,8 @@ export class TileEquipmentTool extends ToolController {
     if (!hit || !this.ctx.scene()) return
     info.preventDefault()
     const st = useStore.getState()
-    const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
+    const pickedId = this.pickModuleAt(info)
+    const picked = st.station.modules.find((m) => m.id === pickedId)
     const pickedStair = picked?.type === 'stair' && picked.cfg.block ? picked : undefined
     const pickedRoof = picked?.type === 'roof' ? picked : undefined
     // Truss bays stay on the active storey plane. Thin plates follow the normal
@@ -182,10 +183,10 @@ export class TileEquipmentTool extends ToolController {
       if (roof?.x === mod.x && roof.y === mod.y) continue
       mods.push(mod)
     }
-    const check = checkModulePlacements(st.station, mods.map((module) => ({ id: module.id, module, layer: true })))
+    const check = type === 'stair-block' ? null : checkModulePlacements(st.station, mods.map((module) => ({ id: module.id, module, layer: true })))
     scene.setGhost([], 'add')
-    scene.setModulePreview(mods.length ? mods : null, removing || check.refused.size > 0)
-    scene.setCollisionHighlight(removing ? null : check.colliderIds)
+    scene.setModulePreview(mods.length ? mods : null, removing || Boolean(check?.refused.size))
+    scene.setCollisionHighlight(removing ? null : check?.colliderIds ?? null)
     scene.setCursor(null)
   }
 
@@ -225,7 +226,7 @@ export class TileEquipmentTool extends ToolController {
       if (roof?.x === mod.x && roof.y === mod.y) continue
       const check = checkModulePlacements(next, [{ id: mod.id, module: mod, layer: true }])
       if (check.refused.size) {
-        // Name the conflict the red ghost boxed, from the same preview.
+        // Name the conflict found by release validation.
         const reason = check.refused.values().next().value as Parameters<typeof equipmentRefusalNotice>[0]
         const blockers = check.colliderIds
           .map((id) => next.modules.find((m) => m.id === id))

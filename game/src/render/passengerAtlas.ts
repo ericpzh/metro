@@ -1,8 +1,16 @@
 import { unzlibSync } from 'three/addons/libs/fflate.module.js'
 
 /** Lossless baked buffers; legacy atlases contain plain base64. */
-export function decodePassengerBytes(value: string, encoding?: string): Uint8Array {
-  const bytes = Uint8Array.from(atob(value), c => c.charCodeAt(0))
+export function decodePassengerBytes(value: string | Uint8Array, encoding?: string): Uint8Array {
+  const native = (Uint8Array as typeof Uint8Array & { fromBase64?: (value: string) => Uint8Array }).fromBase64
+  let bytes: Uint8Array
+  if (value instanceof Uint8Array) bytes = value
+  else if (native) bytes = native.call(Uint8Array, value)
+  else {
+    const binary = atob(value)
+    bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
+  }
   if (encoding === undefined) return bytes
   if (encoding === 'zlib-base64') return unzlibSync(bytes)
   throw new Error(`Unsupported passenger atlas encoding: ${encoding}`)

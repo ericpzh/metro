@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { referenceStation } from '../src/data/reference-station.ts'
 import { blockIndex } from '../src/sim/blockIndex.ts'
-import { blockReason } from '../src/sim/placement.ts'
+import { blockReason, placementColliders } from '../src/sim/placement.ts'
 import { virtualSolidAt } from '../src/sim/ground.ts'
 import { isCosmeticStationEdit } from '../src/sim/cosmeticEdit.ts'
 import { retainedModuleIds, signBoardsOnlyChange } from '../src/render/moduleDependencies.ts'
@@ -27,6 +27,16 @@ function canvasNode() {
   node.getContext = () => g
   return node
 }
+
+test('prepared module collision bodies invalidate with immutable station edits', () => {
+  const held = createModule('bench', 0, 0, 0, 'held')
+  const candidate = createModule('bench', 0, 0, 0, 'candidate')
+  const modules = [held]
+  assert.deepEqual(placementColliders(modules, candidate), [held])
+  const moved = { ...held, x: 20 }
+  assert.deepEqual(placementColliders([moved], candidate), [])
+  assert.deepEqual(placementColliders(modules, candidate), [held], 'preparing another document does not alter the previous collision bodies')
+})
 
 test('placement indexes distinguish document identity, virgin street, explicit holes and exit openings', () => {
   const cells = [{ x: 0, y: 0, z: 0, fill: 'void' }, { x: 1, y: 0, z: 0, fill: 'solid' }]

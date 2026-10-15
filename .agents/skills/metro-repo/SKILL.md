@@ -12,6 +12,10 @@ the station either copes or it does not.
 
 **This skill is the router — load the subskill that owns the work.**
 
+For performance investigations or changes, read
+[the performance guide](references/performance.md): reproduce the first real
+interaction, bound event work, compare equivalent runs and guard the measured cause.
+
 | Work | Skill |
 |---|---|
 | Anything under `game/src` — the sim, the renderer, the builder, the app shell, the save format | `metro-game` |
@@ -194,6 +198,7 @@ npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run build:game    # install game/ deps, then tsc --noEmit && vite build
 npm run bench:sim     # demo-station simulation + build CPU timings
 npm run bench:browser # production app/worker/browser FPS + edit-to-frame timings
+npm run bench:stair   # real initial stair-block pointer press + raycast counts
 npm run test:perf     # focused performance regressions + V8 source coverage
 npm run check:render-batching # production GLSL/WebGL + geometry/draw integrity
 npm run check:perf-tools # real CPU profile + trace-stream export smoke check

@@ -665,17 +665,13 @@ export function Viewport(): React.ReactElement {
     floorRef.current = zoneFloorKeys(ground)
     thinRef.current = thinWallSideMap(station.cells, station.modules)
     // The board the editor is arranging, drawn where the sign it belongs to hangs —
-    // and, for a piece 移动 has picked up, nothing at all: it is in the air,
-    // so the translucent ghost under the pointer is the only copy drawn.
-    const lifted = st.moveDraft?.module.id
+    // while the move effect hides a lifted piece without changing drawn data.
     const modules = station.modules
-      .filter((m) => m.id !== lifted)
       .map((m) => signModuleWithPreview(m, st.signPreview))
     // Hand the street this effect already built to the mesher: `prepareStation`
     // would materialise the same window again per commit, the second
     // window-wide pass of this edit (the walk graph builds the third, in the
-    // worker). The lifted piece stays out of the drawn data but in this list's
-    // window — at most its own anchor plus margin, never a missing street cell.
+    // worker).
     scene.setStation(toData({ ...station, modules }), undefined, ground)
     scene.setAutoCeiling(st.autoCeiling)
     scene.setHideGround(st.hideGround)
@@ -701,7 +697,7 @@ export function Viewport(): React.ReactElement {
       homeEpochRef.current = stationEpoch
       goHomeView(scene)
     }
-  }, [version, station, stationEpoch, signPreviewId, signVersion, moveId, language])
+  }, [version, station, stationEpoch, signPreviewId, signVersion, language])
 
   // A lifted piece (移动) is drawn from its own ghost, so a fresh lift or an R while
   // it is in the air rebuilds that ghost at once instead of waiting for the next
@@ -711,9 +707,10 @@ export function Viewport(): React.ReactElement {
   // the list because a commit clears the ghost with the station (`setStation`), so an
   // edit made while a piece is in the air — an undo, say — puts it back on screen.
   useEffect(() => {
+    sceneRef.current?.setMovingModule(moveId)
     if (useStore.getState().moveDraft) tools.move.refreshHover()
     else tools.move.clearPreview()
-  }, [moveKey, version, tools])
+  }, [moveKey, moveId, version, tools])
 
   // Keep the 3D selection box in step with the inspector's selection. A rebuild
   // re-applies it inside setStation, so this only has to run on the id itself.

@@ -61,13 +61,43 @@ export class ModuleSystem extends SceneSystem {
   }
   moduleMeshes: THREE.Group = new THREE.Group()
   readonly batches = new EquipmentBatches()
+  private movingModuleId: string | null = null
+  private movingRoot: THREE.Object3D | null = null
+  private movingVisible = false
+
+  restoreMovingModule(): void {
+    if (this.movingRoot) this.movingRoot.visible = this.movingVisible
+    this.movingRoot = null
+    this.batches.setHiddenModule(null)
+  }
+
+  setMovingModule(id: string | null): void {
+    this.restoreMovingModule()
+    this.movingModuleId = id
+    this.refreshSelection()
+    this.applyMovingModule()
+  }
+
+  private applyMovingModule(): void {
+    const root = this.moduleMeshes.children.find(child => child.userData.moduleId === this.movingModuleId)
+    if (root) {
+      this.movingRoot = root
+      this.movingVisible = root.visible
+      root.visible = false
+      this.batches.setHiddenModule(root)
+    }
+    if (this.selectionHelper) this.selectionHelper.visible = this.selectedModuleId !== this.movingModuleId
+  }
+
   syncBatches(): void {
+    this.restoreMovingModule()
     // Immutable module builds replace affected roots; view changes dress them.
     // A cell-only edit with identical roots/slice need not walk or copy them again.
     const view = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}`
     const roots = this.moduleMeshes.children.filter(g => typeof g.userData.moduleId === 'string')
       .map(g => `${g.uuid}:${g.visible}:${g.position.toArray()}:${g.rotation.toArray()}:${g.scale.toArray()}:${g.userData.levelZs}:${g.userData.groundBand}`).join('|')
     this.batches.sync(this.moduleMeshes, `${view}|${roots}`)
+    this.applyMovingModule()
   }
   /** The selected module's id and its highlight box, kept across a rebuild. */
   private selectedModuleId: string | null = null
@@ -377,7 +407,7 @@ export class ModuleSystem extends SceneSystem {
       this.selectionHelper = null
     }
     const id = this.selectedModuleId
-    if (!id) return
+    if (!id || id === this.movingModuleId) return
     const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
     if (!group) return
     const box = new THREE.Box3().setFromObject(group)

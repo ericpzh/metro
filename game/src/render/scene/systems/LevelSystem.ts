@@ -93,6 +93,7 @@ export class LevelSystem extends SceneSystem {
     // assigns materials to.
     const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}`
     if (key === this.ctx.levelKey) return
+    this.modules.restoreMovingModule()
     this.ctx.levelKey = key
     // One record for the whole walk: what the view asks of the slice this frame.
     const slice = sliceOptions({

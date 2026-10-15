@@ -97,7 +97,8 @@ export class EquipmentTool extends ToolController {
     if (info.button === 2 && st.moduleType.startsWith('floor-mark-')) {
       // Vinyl can share a screen-door strip: erase the print the ray hits,
       // rather than tearing down the screen standing over that floor (§9.5).
-      const picked = st.station.modules.find((m) => m.id === this.pickModuleAt(info))
+      const pickedId = this.pickModuleAt(info)
+      const picked = st.station.modules.find((m) => m.id === pickedId)
       if (picked?.type === 'floor-mark') this.removePlacedModule(picked)
       else st.setNotice(msg('no_floor_marking_to_erase_here'))
       return
@@ -556,7 +557,8 @@ export class EquipmentTool extends ToolController {
   /** Preview and commit both place one complete module at every stair width. */
   private pickSnapRamp(info: PointerInfo): Extract<Module, { type: 'stair' | 'escalator' }> | undefined {
     const modules = useStore.getState().station.modules
-    const direct = modules.find((m) => m.id === this.pickModuleAt(info))
+    const pickedId = this.pickModuleAt(info)
+    const direct = modules.find((m) => m.id === pickedId)
     if (isSnapRamp(direct)) return direct
     // Stair treads are separated, so a ray can hit the floor in the visible
     // stair footprint. Resolve only eligible straight ramps against their model

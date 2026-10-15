@@ -50,6 +50,7 @@ const FACE_NORMAL: Record<Face, [number, number, number]> = {
 const FACE_UP = new THREE.Vector3(0, 0, 1)
 
 export class GhostSystem extends SceneSystem {
+  movingModuleId: string | null = null
   /** Hover preview: a translucent copy of the module a click would place. */
   previewGroup: THREE.Group = new THREE.Group()
   private previewKey = ''
@@ -440,7 +441,7 @@ export class GhostSystem extends SceneSystem {
    */
   setModulePreview(mod: Module | readonly Module[] | null, blocked = false, tintOverride?: number): void {
     const mods = mod ? (Array.isArray(mod) ? mod : [mod]) : []
-    const key = mods.length === 0 ? '' : `${mods.map(moduleGhostKey).join('|')}:${blocked ? 'x' : '-'}:${tintOverride ?? ''}`
+    const key = mods.length === 0 ? '' : `${this.movingModuleId ?? ''}:${mods.map(moduleGhostKey).join('|')}:${blocked ? 'x' : '-'}:${tintOverride ?? ''}`
     if (key === this.previewKey) return
     this.clearModulePreview()
     this.previewKey = key
@@ -448,7 +449,7 @@ export class GhostSystem extends SceneSystem {
     // The ghost is built against the station *plus* its own pieces, so a
     // multi-piece hover sees itself: the lanes of a wide stair join their steps
     // and drop the rail between them exactly as they will once placed.
-    const data = { ...this.ctx.stationData, modules: [...this.ctx.stationData.modules, ...mods] }
+    const data = { ...this.ctx.stationData, modules: [...this.ctx.stationData.modules.filter(piece => piece.id !== this.movingModuleId), ...mods] }
     const ctx: ModuleContext = {
       mats: this.ctx.modelMats,
       ads: this.ctx.ads,

@@ -3,31 +3,25 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { passengerAssets } from '../scripts/passenger-assets.ts'
 
-test('production passenger chunks reassemble the complete baked atlas within the Worker limit', () => {
+test('production passenger binary assets preserve the complete baked atlas within the Worker limit', async () => {
   const plugin = passengerAssets()
-  const context = { addWatchFile() {} }
+  const assets = []
+  const context = { addWatchFile() {}, emitFile(asset) { assets.push(asset); return `asset${assets.length - 1}` } }
   const id = plugin.resolveId('../assets/passenger-approved.json')
   const module = plugin.load.call(context, id)
-  const names = [], values = [], ids = []
-  const body = module.replace(/import (\w+) from (".*?");/g, (_, name, quotedId) => {
-    const partId = JSON.parse(quotedId)
-    assert.equal(plugin.resolveId(partId), partId)
-    const source = plugin.load.call(context, partId)
-    assert(Buffer.byteLength(source) < 25 * 1024 * 1024)
-    names.push(name)
-    values.push(JSON.parse(source.slice('export default '.length, -1)))
-    ids.push(partId)
-    return ''
-  }).replace('export default', 'return')
-  const restored = Function(...names, body)(...values)
+  const body = module.replace(/import.meta.ROLLUP_FILE_URL_asset(\d+)/g, (_, index) => index).replace('export default', 'return')
+  const evaluate = new (Object.getPrototypeOf(async function () {}).constructor)('fetch', body)
+  const restored = await evaluate(async index => ({ ok: true, arrayBuffer: async () => Uint8Array.from(assets[index].source).buffer }))
   const original = JSON.parse(readFileSync(new URL('../src/assets/passenger-approved.json', import.meta.url), 'utf8'))
-  assert.deepEqual(restored, original, 'every packed byte and metadata entry survives splitting')
-  assert(ids.length > 1)
-  const options = {}
-  plugin.outputOptions(options)
-  const group = options.codeSplitting.groups[0]
-  assert(ids.every(id => group.test(id)))
-  assert.equal(new Set(ids.map(group.name)).size, ids.length, 'each part stays in a separate output chunk')
+  for (const field of ['positions', 'normals', 'indices', 'regions']) {
+    assert.equal(Buffer.from(restored[field]).toString('base64'), original[field], 'every packed byte survives binary delivery')
+    delete restored[field]; delete original[field]
+  }
+  assert.deepEqual(restored, original, 'metadata survives binary delivery')
+  assert(assets.length >= 4)
+  assert(assets.every(asset => asset.source.byteLength < 25 * 1024 * 1024))
+  assert(Buffer.byteLength(module) < 1024 * 1024, 'the JavaScript module contains metadata rather than the pose buffers')
+  await assert.rejects(evaluate(async () => ({ ok: false, status: 404 })), /Passenger atlas fetch failed: 404/)
 })
 
 test('the production build rejects oversized assets and JavaScript chunks', () => {

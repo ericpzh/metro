@@ -4,6 +4,21 @@ Local editing retains equipment whose model inputs did not change, including its
 owned materials and live gate/lift/TV rigs. Train shells batch stationary opaque
 parts while door leaves remain independent. Hidden and paused crowds avoid buffer
 uploads; drawn passengers are packed by storey and camera visibility.
+Move pickup/cancel hides retained module geometry without remeshing the station;
+affected equipment batches temporarily draw their original neighbouring surfaces.
+Stair-block drags show geometry only; placement checks run on release, accepting
+legal tiles in one commit and reporting refused tiles then. `roof-tool` pins this
+deferred validation and the absence of preview edits or routing rebuilds.
+`roof-tool` also pins a single scene raycast per stair-block mouse-down on a
+1,334-module station: document lookup reuses the picked ID rather than raycasting
+inside its search predicate. Equipment exit snapping, vinyl deletion and tactile
+placement follow the same rule.
+`equipment-placement-input` independently pins those three paths on large module
+lists. Root `npm run bench:stair` builds production and measures an actual initial
+stair-block press; `npm run test:perf` includes these input and passenger asset regressions.
+`batching-lifecycle` pins this allocation reuse, `performance-policy` pins immutable
+collision-body cache invalidation, and `draw-batching` pins repeated train services
+reusing at most eight dormant consists with complete eviction disposal.
 `draw-batching.test.mjs` pins mirrored winding, real train door/glass transforms,
 cross-module picking and local GPU reuse, live panel atlas UVs/repaints, moving-rig
 exclusions and legacy/explicit passenger age metadata compatibility.
@@ -35,6 +50,9 @@ with equal adult selection and unchanged child restrictions.
 The library offers ten hairstyles per sex across 232 complete templates. Atlas
 pose buffers use lossless temporal differences before zlib/base64 packing; `passenger-library` compares the browser
 decoder with Node's inflater and keeps legacy raw-base64 buffers readable.
+Production fetches packed binary buffers; development uses native base64 decoding
+where available. Signed 16-bit position and 8-bit normal textures preserve the
+baked values while using 62.5% less pose-texture memory than float textures.
 It also measures actual baked standing poses for all seven added male styles
 with every bag: crowns stay below 1.70 m and at least 2 cm below the original.
 
@@ -1137,7 +1155,7 @@ the rail's rotation. Every derived edge records which side the track lies on (`c
 screen's own frame), and the renderer, the auto-derive and `World.computeLineAnchors` share that one
 meaning, so the printed header always faces the platform, never the rail. The same `cfg.side` decides
 which of the consist's two door banks may open at that berth: a side with no screen run has none, so
-its doors stay shut — the train opens onto the platform, never onto the tunnel wall (§1.13). Editing a line's 车型/编组 re-cuts its tracks to the new run length. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails, 接触网 draws an overhead contact wire hung from a ceiling — a canopy the model raises over a platform, or the bore's shell in a tunnel — kept under the 4 m storey line so it never buries in the floor above (and, unlike a mast, it cannot foul the screen doors of an island platform). Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
+its doors stay shut — the train opens onto the platform, never onto the tunnel wall (§1.13). Editing a line's 车型/编组 re-cuts its tracks to the new run length. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails — on the travel left in a tunnel or on a bridge, and off the platform side at a station (`thirdRailSide` in `sim/track.ts`), jumping across before the station — 接触网 draws an overhead contact wire hung from a ceiling — a canopy the model raises over a platform, or the bore's shell in a tunnel — kept under the 4 m storey line so it never buries in the floor above (and, unlike a mast, it cannot foul the screen doors of an island platform). Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
 two tools, both gated by one eligibility check (`trackBlockReason`): anything already sharing the run's
 space — equipment, a room, a screen door, a ramp, another rail/tunnel — blocks placement rather than
 being demolished, and the preview flags it red. **站台** is the fixed consist-length piece above; it must
@@ -2553,6 +2571,11 @@ approximated); neither needs WebGL.
   3.1 m to 1.5 m; the reference
   station builds its bed from the same dig and its hand-authored edge
   matches what the derive would place.
+* `track-third-rail.test.mjs` — the 第三轨 side (§5.4): a tunnel or 轨道桥 keeps the travel
+  left (local +y for 上行, local −y for 下行); a platform rail takes the side with no
+  屏蔽门 and only falls back to the travel left when both sides (or neither side) carry
+  screens; only the rail's own edges count, including legacy direction-matched ones; the
+  drawn conductor rail follows the same side.
 * `facility.test.mjs` — legacy footprint-module helpers, room-module compatibility and booth
   geometry; these module cases do not describe the current 商店 / 厕所 / 办公室 分区 brushes.
   The current ordinary-label paint path is pinned in `zonetool.test.mjs` and `zones.test.mjs`.

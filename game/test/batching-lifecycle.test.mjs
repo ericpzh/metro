@@ -24,6 +24,33 @@ function root(meshes, id = 'a', type = 'bench') {
 }
 function cleanup(group) { disposeObject(group) }
 
+test('lifting and cancelling a batched module retains geometry and restores neighbouring draws', () => {
+  const ctx = { scene: new THREE.Scene(), activeZ: 0 }
+  const modules = new ModuleSystem(ctx), material = new THREE.MeshBasicMaterial()
+  const first = root([new THREE.Mesh(new THREE.BoxGeometry(), material)], 'first')
+  const second = root([new THREE.Mesh(new THREE.BoxGeometry(), material)], 'second')
+  second.position.x = 2
+  modules.moduleMeshes.add(first, second)
+  try {
+    modules.syncBatches()
+    const batch = modules.batches.root.children[0], geometry = batch.geometry
+    let disposed = 0
+    geometry.addEventListener('dispose', () => disposed++)
+    modules.setMovingModule('first')
+    assert.equal(first.visible, false)
+    assert.equal(batch.visible, false, 'the combined draw cannot retain the lifted piece')
+    assert.equal(second.children[0].layers.isEnabled(0), true, 'the neighbour renders from its retained source mesh')
+    modules.syncBatches()
+    assert.equal(first.visible, false, 'a batch refresh keeps the lifted piece hidden')
+    modules.setMovingModule(null)
+    assert.equal(first.visible, true)
+    assert.equal(batch.visible, true)
+    assert.equal(second.children[0].layers.isEnabled(BATCH_SOURCE_LAYER), true)
+    assert.equal(modules.batches.root.children[0].geometry, geometry)
+    assert.equal(disposed, 0, 'lifting and cancelling allocate and dispose no batch geometry')
+  } finally { modules.batches.clear(); cleanup(modules.moduleMeshes); material.dispose() }
+})
+
 test('mapped equipment shares page materials and bakes distinct panel UVs without mutating picking geometry', () => {
   const previous = globalThis.document; globalThis.document = { createElement: () => canvas() }
   const modules = new THREE.Group(), batches = new EquipmentBatches()
@@ -237,7 +264,10 @@ test('real module/level systems retain cell-local batches and apply hide/ghost/c
     const held = modules.batches.root.children.slice()
     apply({ ...station, cells: [{ x: 100, y: 100, z: 1, fill: 'solid' }] })
     assert.deepEqual(modules.batches.root.children, held, 'an unrelated structural cell edit preserves actual batch objects through both systems')
+    modules.setMovingModule('a')
     level.setLevel(4, false); assert.equal(modules.batches.root.children.length, 0, 'hidden storeys submit no equipment')
+    modules.setMovingModule(null)
+    assert.equal(modules.isModuleVisible('a'), false, 'cancelling after a storey change cannot reveal a hidden module')
     assert.equal(modules.isModuleVisible('a'), false, 'hidden storey module roots are excluded from cell-based tool fallbacks')
     level.setLevel(4, true); assert.ok(modules.batches.root.children.length > 0)
     assert.equal(modules.isModuleVisible('a'), true, 'ghosted storeys remain visible and pickable when 显示其他层 is on')

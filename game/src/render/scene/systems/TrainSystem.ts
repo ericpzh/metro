@@ -40,17 +40,11 @@ interface TrainEntry {
 const DOOR_TRAVEL_S = 2
 
 /**
- * How many consecutive snapshots a consist may be missing before it is dropped.
- *
- * A signature is a *configuration* (colour, direction, cars, stock, yaw, door side),
- * and an edit that changes one — a new line, a recolour, a track moved — used to mint
- * a whole consist that was then parked and kept forever: invisible, but still walked
- * by every storey slice and every state frame. A train between services is absent for
- * a long stretch, so the threshold only has to outlast the gap between the sim
- * splicing a departed consist and the renderer drawing the last snapshot that
- * mentioned it.
+ * Keep eight dormant configurations for later services. The least recently seen
+ * is evicted when the cache fills, bounding geometry while avoiding arrival-time
+ * rebuilding of every repeated service.
  */
-const TRAIN_MISSES_ALLOWED = 4
+const TRAIN_PARKED_LIMIT = 8
 
 export class TrainSystem extends SceneSystem {
   trainGroup: THREE.Group = new THREE.Group()
@@ -134,10 +128,8 @@ export class TrainSystem extends SceneSystem {
         this.trainSlots.set(sig, entry)
       } else {
         // Continue from where this consist was last drawn. A consist that has
-        // reappeared after a **short** gap (a stop it was parked through, a frame or
-        // two of the sim splicing it out) snaps to its approach start rather than
-        // streaking back across the platform; one absent for longer than
-        // `TRAIN_MISSES_ALLOWED` was evicted above, so this branch never sees it.
+        // reappeared after an absent snapshot snaps to its approach start rather
+        // than streaking back across the platform from its previous service.
         if (entry.missed === 1) entry.from.copy(entry.group.position)
         else entry.from.set(x, y, z)
         entry.to.set(x, y, z)
@@ -153,20 +145,20 @@ export class TrainSystem extends SceneSystem {
       entry.group.userData.doorSides = doorSides
       this.level.applyGroupLevel(entry.group, 'train')
     }
-    for (const [sig, entry] of [...this.trainSlots]) {
+    const parked: TrainEntry[] = []
+    for (const entry of this.trainSlots.values()) {
       // Park it first: the sim's own state (a consist between services) is what the
       // storey slice reads, and a stale entry is parked exactly like a waiting one.
       if (!entry.active) {
         entry.group.userData.parked = true
         entry.group.visible = false
+        parked.push(entry)
       }
-      // Long gone: drop the consist, its geometry and its livery. A later service
-      // with the same configuration builds a fresh group (a cache miss, once per
-      // arrival) rather than the whole session paying for every configuration the
-      // player ever built and then changed.
-      if (entry.missed <= TRAIN_MISSES_ALLOWED) continue
+    }
+    parked.sort((left, right) => left.missed - right.missed)
+    for (const entry of parked.slice(TRAIN_PARKED_LIMIT)) {
       this.dropConsist(entry.group)
-      this.trainSlots.delete(sig)
+      this.trainSlots.delete(entry.sig)
     }
     // A screen opens with the consist berthed at its own rail — not with any
     // train of the line — so 上行/下行 (and two stations on one line) move

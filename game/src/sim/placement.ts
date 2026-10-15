@@ -1452,12 +1452,43 @@ export function placementBlocked(modules: readonly Module[], candidate: Module):
  * but returns the modules instead of a boolean so the builder can highlight
  * them alongside the red ghost (§9.5).
  */
+interface PlacedCollision { module: Module; boxes: ModuleBox[]; bounds: ModuleBox | null }
+const collisionCache = new WeakMap<readonly Module[], PlacedCollision[]>()
+
+function collisionBounds(boxes: ModuleBox[]): ModuleBox | null {
+  if (!boxes.length) return null
+  const bounds = { ...boxes[0] }
+  for (const box of boxes) {
+    bounds.x0 = Math.min(bounds.x0, box.x0); bounds.x1 = Math.max(bounds.x1, box.x1)
+    bounds.y0 = Math.min(bounds.y0, box.y0); bounds.y1 = Math.max(bounds.y1, box.y1)
+    bounds.z0 = Math.min(bounds.z0, box.z0); bounds.z1 = Math.max(bounds.z1, box.z1)
+  }
+  return bounds
+}
+
+function placedCollisionBoxes(modules: readonly Module[]): PlacedCollision[] {
+  let entries = collisionCache.get(modules)
+  if (!entries) {
+    entries = modules.map(module => {
+      const envelope = moduleEnvelope(module)
+      const boxes = envelope ? collisionBoxes(module, envelope) : []
+      return { module, boxes, bounds: collisionBounds(boxes) }
+    })
+    collisionCache.set(modules, entries)
+  }
+  return entries
+}
+
 export function placementColliders(modules: readonly Module[], candidate: Module): Module[] {
   const out: Module[] = []
   const c = moduleEnvelope(candidate)
   if (!c) return out
-  for (const m of modules) {
+  const candidateBoxes = collisionBoxes(candidate, c)
+  const bounds = collisionBounds(candidateBoxes)
+  if (!bounds) return out
+  for (const { module: m, boxes, bounds: placedBounds } of placedCollisionBoxes(modules)) {
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
+    if (!isFenceGlassPair(m, candidate) && (!placedBounds || !boxesOverlap(bounds, placedBounds))) continue
     if (boothSupportsSign(m, candidate) || boothSupportsSign(candidate, m)) continue
     if (hangerSupports(m, candidate) || hangerSupports(candidate, m)) continue
     // The thin support is intentionally allowed to pass through a trussed roof.
@@ -1495,12 +1526,10 @@ export function placementColliders(modules: readonly Module[], candidate: Module
       if (fenceGlassBlocked(sources, fence, glass)) out.push(m)
       continue
     }
-    const e = moduleEnvelope(m)
-    if (!e) continue
     let hit = false
-    for (const a of collisionBoxes(candidate, c)) {
+    for (const a of candidateBoxes) {
       if (hit) break
-      for (const b of collisionBoxes(m, e)) {
+      for (const b of boxes) {
         if (boxesOverlap(a, b)) {
           hit = true
           break

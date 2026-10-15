@@ -214,7 +214,17 @@ test('the library remains a single instanced draw with valid padded topology and
   const texture=shader.uniforms[name].value
   assert.equal(texture.image.width,name==='passengerPositions'||name==='passengerNormals'?PASSENGER_ATLAS_WIDTH:1024)
   assert.ok(texture.image.height<=8192,'pose atlas stays within the game GPU texture budget')
+  if (name === 'passengerPositions' || name === 'passengerNormals') {
+   assert.equal(texture.format, THREE.RGBAIntegerFormat)
+   assert.equal(texture.type, name === 'passengerPositions' ? THREE.ShortType : THREE.ByteType)
+  }
   texture.addEventListener('dispose',()=>disposed++)
+ }
+ const pixels = shader.uniforms.passengerPositions.value.image.data, indicesBuffer = decoded('indices')
+ const corner = 123, vertex = human.indexBits === 32 ? indicesBuffer.readUInt32LE(corner * 4) : indicesBuffer.readUInt16LE(corner * 2)
+ for (const frame of [0, human.frames - 1]) {
+  const pose = passengerPose(frame)
+  for (let axis = 0; axis < 3; axis++) assert.equal(Math.fround(pixels[(frame * human.vertices + vertex) * 4 + axis] / human.positionScale), pose[corner * 3 + axis], 'signed integer textures reconstruct the exact baked pose')
  }
  mesh.userData.disposePassenger();assert.equal(disposed,4)
  mesh.geometry.dispose();mesh.material.dispose()
@@ -227,7 +237,17 @@ test('the packed atlas decodes losslessly with legacy raw-buffer compatibility',
  for(const field of ['positions','normals','indices','regions']){
   const expected=inflateSync(Buffer.from(human[field],'base64'))
   assert.deepEqual(decoded(field),expected,'browser decoder matches the independent Node inflater byte for byte')
+  assert.deepEqual(Buffer.from(decodePassengerBytes(Buffer.from(human[field], 'base64'), human.encoding)), expected, 'production binary buffers decode to the same bytes')
   assert.deepEqual(Buffer.from(decodePassengerBytes(expected.toString('base64'))),expected,'older plain-base64 atlases retain their exact bytes')
  }
  assert.throws(()=>decodePassengerBytes('AA==','unknown'),/Unsupported passenger atlas encoding/)
+ const native = Object.getOwnPropertyDescriptor(Uint8Array, 'fromBase64')
+ try {
+  Object.defineProperty(Uint8Array, 'fromBase64', { value: undefined, configurable: true })
+  const expected = Buffer.from(Array.from({ length: 256 }, (_, index) => index))
+  assert.deepEqual(Buffer.from(decodePassengerBytes(expected.toString('base64'))), expected, 'the compatibility decoder preserves every byte')
+ } finally {
+  if (native) Object.defineProperty(Uint8Array, 'fromBase64', native)
+  else delete Uint8Array.fromBase64
+ }
 })

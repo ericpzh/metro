@@ -39,6 +39,12 @@ placement helpers, which the CPU benchmark measures separately at 8×8, 32×32 a
 | `BENCH_SIZE` | `1400,900` browser window | Browser |
 | `BENCH_PORT` | 9348 debugging port | Browser |
 | `BENCH_OUTPUT` | `.preview/perf/sim.json` or `browser.json` | Both |
+| `BENCH_STATION` | Shipped demo; otherwise a path to a `.metro.json` save | Both |
+
+An external save is parsed through the normal loader, without changing the shipped
+demo. Browser reports include cold application readiness and the subsequent save
+opening time, move pickup/cancel latency, and first/repeated synthetic train arrivals.
+Use distinct `BENCH_OUTPUT` paths for clean benchmarks and instrumented profiles.
 
 The fixture is the current shipped 动物园 station, seed 7654321: 12,075 cells,
 727 modules and 15,037 graph nodes in the measured version. Changing the demo changes
@@ -480,3 +486,161 @@ checks at fixed visibility, not FPS gates. Reports are
 `.preview/perf/render-batching-check.json` and `render-batching-check-fallback.json`;
 coverage/full-suite logs are `coverage-performance-final.log` and
 `tests-skills-coverage-final.log` in the same ignored directory.
+
+### Performance run — 2026-10-14
+
+Ran `bench:sim`, `bench:browser`, `profile:sim` and `profile:browser` sequentially
+on Node 24.15.0 / Windows with an Intel i7-14700KF and RTX 4080 SUPER. The
+fixture was 动物园 (11,871 cells, 770 modules, 15,131 graph nodes); the browser
+used Headless Chrome 155 at 1384×805, DPR 1, z = -16, with native multi-draw.
+
+| Benchmark | Result |
+|---|---|
+| Simulation tick, opening / settled / morning peak | Mean 3.03 / 3.09 / 3.66 ms; p95 6.04 / 6.34 / 7.46 ms (600 samples each) |
+| Simulation morning-peak agent movement | Mean 3.46 ms; p95 7.25 ms (600 samples) |
+| 32×32 build preview / live rebuild | Mean 0.40 / 77.68 ms; p95 0.62 / 89.39 ms (12 samples each) |
+| Browser paused / running at 16× | 60.0 / 49.6 FPS; 2,101 / 2,127 draws; running population 627 |
+| Browser paint / block edits | 35.9 / 33.0 FPS; edit-to-frame mean 140.09 / 199.72 ms, p95 228 / 252.9 ms (8 edits each) |
+
+The browser profile measured GPU render p50/p95 of 11.36/12.38 ms paused and
+11.35/12.67 ms at 16×; the profile pass also collected pointer, edit, crowd and
+train ablations plus GPU buffer uploads. These profiling timings include the
+instrumented run and are separate from the clean browser benchmark above.
+
+Reports and profiles are `.preview/perf/sim.json`,
+`.preview/perf/browser-bench-2026-10-14.json`,
+`.preview/perf/sim-profile.json`, `.preview/perf/sim-1792029212742.cpuprofile`,
+`.preview/perf/browser.json`, `.preview/perf/browser.cpuprofile` and
+`.preview/perf/browser.trace.json`. Browser production builds and all four
+commands completed successfully; Vite reported its existing large-chunk warning.
+
+### Larger-station improvements — 坦尾, 2026-10-14
+
+Used the supplied `坦尾.metro.json` through `BENCH_STATION`: 13,721 cells,
+1,334 modules and 38,462 graph nodes, seed 7654321. The original save and shipped
+demo are unchanged. Hardware is the i7-14700KF / RTX 4080 SUPER above, Chrome 155,
+1384×805, DPR 1, native multi-draw, with this save's active storey z = -7.
+
+Clean browser comparisons use three-second phases and four edits, without CPU
+sampling or GPU timers. Each starts a fresh Chrome profile against local HTTP;
+startup is application readiness on the shipped demo, followed by opening 坦尾.
+These startup measurements do not represent a throttled network or cold disk.
+Simulation comparisons use 600 ticks per phase and 12 helper samples. Browser,
+simulation, build and profiling runs execute separately.
+
+| Measurement | Before | After |
+|---|---:|---:|
+| Application ready | 9.85 s | 8.23 s |
+| Open 坦尾, including worker and two frames | 2.25 s | 2.24 s |
+| Validate 32 stair-block candidates, mean / p95 | 34.52 / 38.84 ms | 8.85 / 10.67 ms |
+| Move pickup to two frames, mean | 1,153.95 ms | 46.65 ms |
+| Move cancel to two frames, mean | 1,156.33 ms | 43.50 ms |
+| Repeated four-car B consist creation, mean (3 repeats) | 58.17 ms | 0.03 ms |
+| Running at 16× | 55.3 FPS | 52.0 FPS |
+| Morning-peak simulation tick, mean / p95 | 19.18 / 40.51 ms | 19.68 / 41.72 ms |
+
+Pickup/cancel now hides retained module geometry instead of rebuilding the station.
+Affected equipment batches temporarily expose their original neighbouring surfaces;
+cancelling restores the same batch allocations. View slicing and picking still agree,
+including changing storey while carrying a piece. Placement prepares immutable module
+collision bodies once and rejects disjoint bodies before expensive pair rules.
+The stair measurement covers validation, excluding ghost construction and pointer work.
+
+Production passenger buffers are fetched as binary assets instead of parsed base64
+JavaScript strings. Their raw payload is 30.25 MB rather than 40.34 MB; normal HTTP
+compression can narrow that transfer difference. Positions/normals retain signed
+16/8-bit values on the GPU, reducing their combined texture allocation from 529.7 MB
+to 198.6 MB without discarding baked values. Development retains a tested native/base64
+compatibility decoder. Production assets remain below the strict 25 MiB Worker limit.
+
+Train geometry survives between services in a cache bounded to eight dormant
+configurations, evicting the least recently used with full GPU disposal. A new
+configuration still took 61.8 ms to construct in the final clean run. The cache
+addresses repeat-arrival stalls; it does not establish a steady FPS improvement.
+Browser populations varied slightly (559 before / 556 after the running phase), and
+the short FPS samples and simulation ticks show no sustained throughput gain.
+Graph rebuilding remains costly: mean 616 → 751 ms, median 556 → 584 ms and p95
+978 → 1,355 ms in these runs. Those long tails, save opening and first-use train
+creation remain targets for further profiling.
+
+Clean reports: `.preview/perf/tanwei-before-clean.json` and
+`tanwei-after-clean.json`; simulation reports: `tanwei-before-sim.json` and
+`tanwei-after-sim.json` in the same directory. Instrumented reports and matching
+`.cpuprofile` / `.trace.json` exports are `tanwei-before-browser.*` and
+`tanwei-after-profile.*`. The latter includes asynchronous GPU timing and buffer
+upload counters, with no console/shader/runtime errors. The final screenshot is
+`tanwei-after-clean.png`. All artifacts are local and ignored.
+
+The production build/typecheck and all **1,447 tests** pass. Regression coverage
+includes move allocation/visibility restoration, immutable collision-cache invalidation,
+train reuse/eviction/disposal, exact binary delivery and signed pose reconstruction.
+Native and extension-free WebGL geometry/draw checks and CPU/trace export checks
+are recorded in `tanwei-render-check.log`, `tanwei-render-fallback.log` and
+`tanwei-perf-tools.log` under `.preview/perf/`.
+
+### Stair-block preview follow-up
+
+Stair-block dragging now draws proposed geometry without running placement
+validation or collision highlighting. Full validation runs on release, rejecting
+blocked tiles and committing accepted tiles as one edit; routing rebuilds only
+after that commit. Invalid placements therefore report their refusal on release.
+The earlier 32-candidate validation measurement now describes release work, and
+the simulation harness labels it `build.validate32StairBlocksOnRelease.ms`.
+`roof-tool` pins that previews never inspect station cells for placement checks
+or create undo entries, while release still refuses covered tiles correctly.
+The 53 focused stair/preview/tool tests and production build/typecheck pass.
+The follow-up full suite passes 1,447 of 1,448 tests; `passenger-clothing` reports
+a current reviewed GLB versus baked-atlas source-hash mismatch, outside this change.
+
+### Initial stair-drag stall: repeated raycasts
+
+The first press searched the module document with
+`modules.find(m => m.id === this.pickModuleAt(info))`. That invokes a complete
+scene raycast for every examined module. A miss on 坦尾 ran 1,334 raycasts before
+initializing the drag, blocking subsequent pointer moves even though the hover
+preview was already visible. Once the press completed, dragging avoided this search,
+explaining why later movement was responsive. Direction uses the tile's rotation;
+the deliberate drag threshold is 160 ms plus 4 px of movement.
+
+The picked ID is now evaluated once and reused by the document lookup. The same
+pattern was corrected in tactile placement, floor-mark deletion and exit-ramp
+snapping. `roof-tool` pins one raycast for both a miss and a final-entry hit in a
+1,334-module station, including preservation of the selected anchor.
+
+`node tools/bench-stair-drag.mjs` reproduces an actual browser press and drag using
+the supplied save through `BENCH_STATION`. On this host, pointer-down fell from
+587.6 ms / 1,334 raycasts to 4.3 ms / 1 raycast (raycast time 586.4 → 3.0 ms).
+Reports are `.preview/perf/stair-drag-before.json` and `stair-drag-after.json`.
+The production build/typecheck passes. The full suite passes 1,454 of 1,455 tests,
+with the same unrelated passenger-clothing GLB/baked-atlas hash mismatch.
+
+### Repository guidance and final coverage
+
+Root `AGENTS.md` and the repo/game/test skills now route performance work through
+`.agents/skills/metro-repo/references/performance.md`: reproduce cold events, count
+work, bound caches, preserve placement/simulation contracts and compare equivalent
+measurements. `npm run bench:stair` exposes the real pointer-event harness.
+
+The expanded `npm run test:perf` passes **87 tests**, covering all four repeated-pick
+paths and the new renderer/passenger contracts. Selected V8 source results:
+
+| File | Lines | Branches | Functions |
+|---|---:|---:|---:|
+| `TileEquipmentTool.ts` | 100% | 85.16% | 90.48% |
+| `EquipmentTool.ts` | 53.38% | 46.67% | 50% |
+| `TactileTool.ts` | 56.91% | 33.33% | 63.64% |
+| `equipmentBatches.ts` | 99.31% | 96.04% | 93.75% |
+| `passengerAtlas.ts` | 100% | 73.33% | 100% |
+| `passengerModel.ts` | 100% | 97.06% | 94.44% |
+| `scripts/passenger-assets.ts` | 100% | 85.71% | 100% |
+
+These are focused-suite source measurements, not exhaustive equipment or GPU
+coverage. The production build/typecheck, native and extension-free WebGL checks,
+CPU/trace exports and all three updated skill validators pass. The local full
+suite passes **1,458 of 1,459**: six ignored generated skirt GLBs differ from the
+tracked atlas's source hashes, producing the existing `passenger-clothing` failure.
+The integrity assertion and generated atlas remain unchanged.
+
+Final logs under `.preview/perf/`: `perf-coverage-final.log`, `perf-tests-final.log`,
+`perf-build-final.log`, `perf-render-final.log`, `perf-render-fallback-final.log`
+and `perf-export-final.log`.

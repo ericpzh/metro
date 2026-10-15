@@ -91,12 +91,17 @@ legacy restoration; `passenger-library` independently verifies zlib decoding.
 The crowd keeps one instanced draw, with no
 runtime GLB downloads or per-agent skeletons. Both 16/32-bit indices are supported.
 
-Production builds split the packed strings into 8 MiB JavaScript modules via
-`game/scripts/passenger-assets.ts`, then join them before the existing decoder
-runs. Each part has its own hashed chunk so the complete catalogue fits
+Production builds deliver the packed bytes as parallel binary fetches via
+`game/scripts/passenger-assets.ts`, avoiding base64 JavaScript parsing and decoding.
+Buffers larger than 20 MiB are split and reassembled losslessly; each part has a
+hashed asset URL so the complete catalogue fits
 Cloudflare Workers' 25 MiB per-file limit. The build rejects any emitted asset
 or JavaScript chunk at or above that limit. Development and Node tests read the original
-baked JSON. `passenger-assets.test.mjs` checks lossless reassembly and the size guard.
+baked JSON with native base64 decoding where available. `passenger-assets.test.mjs`
+checks byte-exact delivery, failed-fetch rejection and the size guard.
+The GPU retains positions as signed 16-bit integers and normals as signed 8-bit
+integers; the shader applies their existing scales when sampling. This preserves
+all baked values and reduces the two pose textures' memory by 62.5%.
 
 `passenger-library.test.mjs` pins the explicit catalogue, balanced selection,
 all walks for every variant, pack visibility, topology budgets and texture disposal.

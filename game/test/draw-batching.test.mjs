@@ -141,7 +141,15 @@ test('actual train system holds paused/hidden door buffers and evicts their GPU 
     let released = 0, expected = 0
     root.traverse(o => { if (o.isInstancedMesh || o.isBatchedMesh) { expected++; o.addEventListener('dispose', () => released++) } })
     for (let i = 0; i < 5; i++) trains.setTrains(new Float32Array())
-    assert.equal(trains.trainGroup.children.length, 0); assert.equal(released, expected, 'expired cached consists release every instance buffer and batch texture')
+    assert.equal(root.visible, false)
+    trains.setTrains(pose)
+    assert.equal(trains.trainGroup.children[0], root, 'the next service reuses the same consist and GPU allocations')
+    for (let index = 0; index < 9; index++) {
+      const other = pose.slice(); other[6] += index + 1
+      trains.setTrains(other)
+    }
+    assert.equal(trains.trainGroup.children.length, 9, 'one active train plus eight dormant configurations bounds the cache')
+    assert.equal(released, expected, 'evicting the least recently used consist releases every instance buffer and batch texture')
     trains.setTrains(pose); trains.setDrawBatching(false)
     assert.equal(trains.trainGroup.children[0].userData.trainDoorBatches, undefined, 'profiling ablation creates the original door rendering')
     trains.setDrawBatching(true); assert.ok(trains.trainGroup.children[0].userData.trainDoorBatches.length)

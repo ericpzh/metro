@@ -15,14 +15,47 @@ import { RoofModel } from '../src/render/models/pieces/RoofModel.ts'
 function harness(cells = [], moduleType = 'roof') {
   const state = { ...toState(emptyStation()), cells }
   useStore.setState({ station: state, past: [], future: [], moduleType, moduleRot: 0, roofWidth: 4, roofPlateSnap: 'upper', stairBlockHeight: 1, activeZ: 0, tool: 'module' })
-  let ghost = []
+  let ghost = [], blocked = false, colliders = null, picks = 0, pickedId = null
   const drag = { current: null }
-  const scene = { setModulePreview: (mods) => { ghost = mods ?? [] }, setGhost() {}, setCollisionHighlight() {}, setCursor() {} }
-  const ctx = { scene: () => scene, pickModule: () => null, drag, hover: { current: null }, showMeasure() {}, clearMeasure() {} }
+  const scene = { setModulePreview: (mods, refused) => { ghost = mods ?? []; blocked = refused }, setGhost() {}, setCollisionHighlight(ids) { colliders = ids }, setCursor() {} }
+  const ctx = { scene: () => scene, pickModule: () => { picks++; return pickedId }, drag, hover: { current: null }, showMeasure() {}, clearMeasure() {} }
   const tool = new RoofTool(ctx)
   const event = (x, y, button = 0) => ({ clientX: x * 20, clientY: y * 20, button, buttons: button === 2 ? 2 : 1, shiftKey: false, hit: { cell: [x, y, 0], place: [x, y, 1], solid: true }, preventDefault() {} })
-  return { tool, event, drag, state, ghost: () => ghost }
+  return { tool, event, drag, state, ghost: () => ghost, blocked: () => blocked, colliders: () => colliders, picks: () => picks, pick: id => { pickedId = id } }
 }
+
+test('stair-block mouse-down raycasts once with many modules, including misses and late hits', () => {
+  const modules = Array.from({ length: 1333 }, (_, index) => createModule('bench', index, 0, 0, `bench-${index}`))
+  modules.push(createModule('stair-block', 8, 9, 0, 'last-stair'))
+  for (const pickedId of [null, 'last-stair']) {
+    const h = harness([], 'stair-block')
+    useStore.setState({ station: { ...h.state, modules } })
+    h.pick(pickedId)
+    h.tool.onDown(h.event(0, 0))
+    assert.equal(h.picks(), 1, 'one pointer press must not repeat a scene raycast for every document module')
+    assert.deepEqual(h.drag.current.anchor, pickedId ? [8, 9, 0] : [0, 0, 0])
+  }
+})
+
+test('stair-block dragging defers placement checks until release and commits only valid tiles', () => {
+  const cells = [{ x: 0, y: 1, z: 1, fill: 'solid' }]
+  const h = harness(cells, 'stair-block')
+  const unreadable = new Proxy(cells, { get() { throw new Error('preview must not inspect station cells for placement validation') } })
+  useStore.setState({ station: { ...h.state, cells: unreadable } })
+  h.tool.onDown(h.event(0, 0))
+  h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+  h.tool.onMove(h.event(0, 2))
+  h.tool.refreshHover()
+  assert.equal(h.ghost().length, 3, 'the drag draws every proposed stair block')
+  assert.equal(h.blocked(), false, 'the visual-only preview makes no placement verdict')
+  assert.equal(h.colliders(), null)
+  assert.equal(useStore.getState().past.length, 0, 'preview never commits a document or rebuilds routing')
+  useStore.setState({ station: h.state })
+  h.tool.onUp(h.event(0, 2))
+  const placed = useStore.getState()
+  assert.deepEqual(placed.station.modules.map(module => [module.x, module.y]), [[0, 0], [0, 2]], 'release refuses the tile covered by a solid block')
+  assert.equal(placed.past.length, 1, 'release commits the accepted run once')
+})
 
 test('Tab switches stair block height and refreshes a held run before release', () => {
   const h = harness([], 'stair-block')

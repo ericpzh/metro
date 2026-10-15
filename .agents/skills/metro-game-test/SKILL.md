@@ -5,6 +5,9 @@ description: Run, extend or fix the game's test suite in game/test/ of the ericp
 
 # The game's test suite (`game/test/`)
 
+For performance regressions, follow [the shared performance guide](../metro-repo/references/performance.md).
+Guard work counts and ownership invariants; use browser measurements for latency.
+
 **`game/test/README.md` is the authority** — the seven rules a test here follows,
 the `test/support/` harnesses, what is deliberately untested and the coverage
 table. Read it before adding a suite. This skill is the short version.
@@ -58,7 +61,8 @@ and are not test assertions or CI thresholds; see `game/PERFORMANCE.md`.
 ### Performance regression coverage
 
 Root `npm run test:perf` runs `batching-lifecycle`, `draw-batching`,
-`performance-policy`, `worker-preview`, `render-performance` and `scene-wiring`
+`performance-policy`, `worker-preview`, `render-performance`, `scene-wiring`,
+`roof-tool`, `equipment-placement-input`, `passenger-assets` and `passenger-library`
 with V8 coverage. Flags must precede test paths: appending a coverage flag after
 the npm test glob does not collect coverage. Read per-file line/function/branch
 results; imported dependencies inflate the overall denominator. Do not claim
@@ -76,7 +80,7 @@ results; imported dependencies inflate the overall denominator. Do not claim
   ray picks and cell-based fallbacks.
 - `draw-batching`: A/B/C/L stock in all four rotations, exact geometry/bounds,
   independent door banks and moving glass, paused/hidden buffer holds, resume,
-  eviction and profiling toggles; full-resolution atlas redraw/recycling and
+  repeated-service reuse, eight-dormant-consist eviction and profiling toggles; full-resolution atlas redraw/recycling and
   legacy/explicit age eligibility.
 - `performance-policy`: indexed/unindexed placement equivalence, fresh array
   invalidation, ground/holes/exits, bulk-paint deduplication/no-op/immutability,
@@ -84,6 +88,9 @@ results; imported dependencies inflate the overall denominator. Do not claim
   stair-block-only module additions retaining existing groups while other module
   additions remain conservative,
   RAF release/cancel behavior, paused camera repacking and stable crowd poses/IDs.
+  `batching-lifecycle` also pins move lift/cancel retaining GPU allocations and
+  respecting a storey change during the lift. Passenger asset/library checks cover
+  binary delivery, native/fallback decoding and signed integer pose reconstruction.
 - `worker-preview`: actual worker edit acknowledgement with no cosmetic routing
   rebuild and no paused tick; speed/topology edits must still rebuild.
 - `scene-wiring`: source contracts for sign-only chunk skipping, pointer
@@ -213,6 +220,17 @@ envelope, carve, landing nodes, ride time, exit-bay snap, save round-trip, both
 drawn models, and the catalogue's fallback and nearest-match answers — with
 `ramp-join` for the seam at each length and `builder-attributes` for the tile,
 the predicate and the dispatch).
+
+For the 第三轨, keep the side rule in the pure sim helper and pin each half where
+it lives: `thirdRailSide` (`sim/track.ts`) owns the verdict — travel left in the
+local frame (上行 +y, 下行 −y, at every `rot`), a tunnel/bridge always that left
+even past a platform, a platform rail on the side with no 屏蔽门 with both/neither
+sides falling back to the travel left, only the rail's own edges counting
+(`cfg.from`, plus legacy direction-matched edges) and an unset `cfg.dir` falling
+back to the line direction — and `track-third-rail` pins the helper (tunnel/bridge
+both directions, no/one/both screens, other-rail and legacy edges, rotation and
+the line fallback) plus the drawn model through the real dispatcher (platform
+up/down, off-platform, tunnel/bridge past a platform, island fallback).
 
 For a wall mount, keep the aiming rules in the pure placement module
 (`wallMountStandCell` + `autofaceWallMount`) and pin each half where it lives:
