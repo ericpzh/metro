@@ -20,7 +20,10 @@ new window, subwindow, list item, tool, model or scene system.
 Performance additions: `blockIndex.ts` caches occupancy, track keys, per-level ramp/
 exit openings and virtual-ground membership by immutable cell/module arrays;
 `cosmeticEdit.ts` classifies appearance-only edits without skipping any routing
-input (geometry, speed/cover/track, zones/tags, metadata and future fields fail closed).
+input (geometry, speed/cover/track, zones/tags, metadata and future fields fail closed);
+`decorInert.ts` names the sim-inert decor modules (floor stickers, wall panels, hanging
+fittings, wayfinding furniture) whose add/remove/edit skips routing, chunk remeshes and
+station-wide repaints while machines, barriers, stops and future types fail closed.
 
 | File | Owns |
 |---|---|
@@ -81,7 +84,7 @@ input (geometry, speed/cover/track, zones/tags, metadata and future fields fail 
 | `trainBatches.ts` | Repeated opaque door instances, sorted glass/strap batches and bank-motion synchronization; render/shadow/culling policies and mutable geometry exclusions. |
 | `equipmentBatches.ts` | Cross-module material/16 m batches, exact geometry instancing versus merging/sorting, immutable revision/local allocation reuse, live rig exclusions and owned teardown. |
 | `panelAtlas.ts` | Full-resolution canvas panel pages, UV remapping/gutters, live texture versions, recycled slots and rendering/clipping-plane identity boundaries. |
-| `moduleDependencies.ts` | Cell-local retained roots and conservative metadata/neighbour invalidation; one-sign printed-board-only keep-set verdict. |
+| `moduleDependencies.ts` | Cell-local retained roots and conservative metadata/neighbour invalidation; one-sign printed-board-only keep-set verdict; sim-inert decor-only keep-set that rebuilds only tactile/hanger neighbours. |
 | `passengerEligibility.ts` | Explicit adult/child metadata with historical fallback for old atlases; explicit false wins. |
 | `passengerAtlas.ts` | Lossless zlib/base64 buffer decoding, with legacy raw-base64 compatibility. |
 | `passengerModel.ts` | Approved shared pose/outfit atlas, normalized age metadata and stable identity-based appearance; no per-agent skeleton. |

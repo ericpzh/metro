@@ -1562,7 +1562,17 @@ the four rules most changes trip over.
   a delete that touches one sign's `front`/`back` — cells, lines, station fields, other
   modules and the mount all identical) skips the chunk remesh entirely and rebuilds just
   that sign through `signBoardsOnlyChange`'s keep-set, repainting only its same-size
-  plates in place; a panel resize mints fresh plates. Module/neighbour metadata, language
+  plates in place; a panel resize mints fresh plates. A **sim-inert decor edit**
+  (`sim/decorInert.ts`: floor stickers, wall panels, hanging fittings and wayfinding
+  furniture that `buildGraph` never reads; machines, cabinet bodies, posts, pillars,
+  screen ends and unknown future types stay functional and fail closed, as does anything
+  that moves a cell, touches lines/station fields or widens the street window) takes the
+  same bargain with its own keep-set: untouched groups survive, only tactile neighbours
+  (`tactileArms`) and hanger-hung fittings (`hangerSupports`) rebuild beside the changed
+  tiles. Both fast paths skip the remesh that clears the slice key, so they clear
+  `ctx.levelKey` themselves; otherwise the trailing `applyLevel` early-outs, batch
+  resync never runs, and a deleted piece keeps drawing its batched body until a reload.
+  Module/neighbour metadata, language
   and decoded artwork changes still rebuild. Retained groups keep owned materials and live rigs until
   invalidation or disposal. `blockIndex` caches occupancy, tracks, openings and virtual
   ground by immutable document arrays; preview and release share the same refusal rules.
@@ -1575,7 +1585,8 @@ the four rules most changes trip over.
   identity. Following an agent still updates the eye pose when its body is hidden;
   paused camera changes repack the draw without advancing frozen gait. Cosmetic
   worker edits skip routing rebuilds only when geometry, zones, tags, metadata,
-  top-face speed/cover and track status agree. `performance-policy` and `worker-preview`
+  top-face speed/cover and track status agree, or when the module diff is sim-inert
+  decor (`sim/decorInert.ts`). `performance-policy` and `worker-preview`
   pin these contracts. `npm run profile:sim` writes V8 CPU profiles; `profile:browser`
   adds Chrome CPU/trace exports, asynchronous GPU timers and measured buffer uploads.
   Sampling and tracing are separate collectors; GPU time is not CPU submission,

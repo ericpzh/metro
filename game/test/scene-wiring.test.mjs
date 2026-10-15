@@ -95,14 +95,23 @@ test('a boards-only sign preview rebuilds one sign and skips the chunk remesh', 
   // sign-board preview is pinned as a source contract: the unit below
   // (`performance-policy`) covers the pure pieces — the one-sign verdict, the
   // keep-set rebuild and the in-place plate repaint — and this covers that
-  // `setStation` actually asks for them.
+  // `setStation` actually asks for them. Inert decor (floor stickers, wall
+  // panels, hanging fittings that `buildGraph` never reads) takes the same
+  // bargain with its own keep-set.
   const renderer = fs.readFileSync(new URL(ORCHESTRATOR, SRC), 'utf8')
   const body = renderer.slice(renderer.indexOf('setStation(data: StationData'), renderer.indexOf('defaultSection('))
   assert.ok(body.includes('signBoardsOnlyChanged'), 'a preview is checked for the one sign it belongs to')
-  assert.ok(/if \(signOnly === null\) \{\s*this\.chunks\.meshStation\(\)/.test(body), 'and only a fuller change remeshes the chunks')
-  assert.ok(body.includes('signOnly === null && !retainedModules'), 'station-wide plate repaints stay on the full path')
+  assert.ok(body.includes('inertDecorOnlyChanged'), 'and a placement is checked for inert decor')
+  assert.ok(body.includes('signOnly === null && !decorOnly'), 'only a fuller change remeshes the chunks')
+  assert.ok(body.includes('signOnly === null && !decorOnly && !retainedModules'), 'station-wide plate repaints stay on the full path')
   assert.ok(body.includes('id !== signOnly'), 'the module rebuild retains everything but that sign')
   assert.ok(/if \(signOnly !== null\) this\.repaintSignPreview\(data, signOnly\)/.test(body), 'and its plates are repainted in place')
+  assert.ok(
+    body.includes('(signOnly !== null || decorOnly) && !retainedModules) this.ctx.levelKey = '),
+    'both fast paths skip the remesh that clears the slice key, so they clear it '
+    + 'themselves — otherwise the trailing applyLevel early-outs, batch resync never '
+    + 'runs, and a deleted shelf keeps drawing its batched body until a reload',
+  )
 })
 
 test('an orbit re-aims the wall ghost: the renderer announces the camera aim and the viewport rebuilds on it', () => {

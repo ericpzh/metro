@@ -644,3 +644,36 @@ The integrity assertion and generated atlas remain unchanged.
 Final logs under `.preview/perf/`: `perf-coverage-final.log`, `perf-tests-final.log`,
 `perf-build-final.log`, `perf-render-final.log`, `perf-render-fallback-final.log`
 and `perf-export-final.log`.
+
+### Sim-inert decor incremental refresh — October 15, 2026
+
+Floor stickers (盲道/地面指示) placed a ~0.5 s hitch because the commit took the
+full path: `setStation` remeshed every chunk and rebuilt all module models
+(`retainedModuleIds` failed closed on any module diff), repainted every sign and
+decor plate, and the worker rebuilt the walk graph (`isCosmeticStationEdit`
+failed closed on any module diff) — even though `buildGraph` never reads these
+pieces.
+
+The fix classifies sim-inert decor once (`sim/decorInert.ts`): floor stickers,
+wall panels, hanging fittings, wayfinding furniture and street props that change
+neither the walk graph nor the street window. Machines, cabinet bodies, posts,
+pillars, screen ends and unknown future types stay functional and fail closed,
+as does any edit that moves a cell, touches lines/station fields, or widens the
+street window. A roof hanger is inert while a post hanger still blocks; a
+tactile add/remove rebuilds its four neighbours (`tactileArms`) and a hanger
+add/remove rebuilds the fittings hung from its bar (`hangerSupports`).
+
+That verdict is asked in all three places: the worker skips `World.rebuild()`
+(`sim/cosmeticEdit.ts`), `setStation` skips the chunk remesh and station-wide
+plate repaints (`render/scene/SceneRenderer.ts` via
+`ModuleSystem.inertDecorOnlyChanged`), and `buildModules` retains every untouched
+group (`render/moduleDependencies.ts`). Both fast paths clear the slice key the
+remesh used to clear, so the trailing `applyLevel` still walks new-group
+visibility and resyncs the cross-module batches — without it a deleted shelf
+kept drawing its batched body until a reload. `performance-policy` pins the inert vs
+functional classification, tactile/hanger neighbour rebuilds, conservative
+functional invalidation and delete-group retention; `worker-preview` pins the skipped vs forced graph
+rebuild; `scene-wiring` pins the `setStation` fast path including the slice-key
+clear. `npm run test:perf`
+passes 90 tests; the full suite passes 1,462 of 1,463 with the pre-existing
+`passenger-clothing` GLB hash mismatch. No browser FPS claim is made here.

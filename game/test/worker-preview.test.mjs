@@ -111,3 +111,21 @@ test('cosmetic builds acknowledge edits without rebuilding routes; speed and top
     assert.equal(rebuilds, 2, 'structural edits rebuild the graph')
   } finally { World.prototype.rebuild = original }
 })
+
+test('inert decor builds skip routing while a bench stop still rebuilds', async () => {
+  const { World } = await import('../src/sim/world.ts')
+  const { createModule } = await import('../src/build/model.ts')
+  const data = { name: 'test', seed: 1, modules: [], lines: [], cells: [{ x: 0, y: 0, z: -4, fill: 'solid' }] }
+  post({ type: 'init', data, seed: 1, playing: false, speed: 1 })
+  const original = World.prototype.rebuild
+  let rebuilds = 0
+  World.prototype.rebuild = function (...args) { rebuilds++; return original.apply(this, args) }
+  try {
+    const sticker = createModule('tactile-guide', 0, 0, -4, 'sticker')
+    post({ type: 'build', data: { ...data, modules: [sticker] } })
+    assert.equal(rebuilds, 0, 'a floor sticker draws without walking')
+    const bench = createModule('bench', 1, 0, -4, 'bench')
+    post({ type: 'build', data: { ...data, modules: [sticker, bench] } })
+    assert.equal(rebuilds, 1, 'a bench stop still rebuilds the graph')
+  } finally { World.prototype.rebuild = original }
+})

@@ -86,14 +86,18 @@ results; imported dependencies inflate the overall denominator. Do not claim
   invalidation, ground/holes/exits, bulk-paint deduplication/no-op/immutability,
   fail-closed cosmetic and dependency policies, local/owned/sign-board retention,
   stair-block-only module additions retaining existing groups while other module
-  additions remain conservative,
+  additions remain conservative, sim-inert decor classification/retention (tactile/
+  hanger neighbours rebuild, functional pieces fail closed, deletes remove their
+  group while retaining neighbours),
   RAF release/cancel behavior, paused camera repacking and stable crowd poses/IDs.
   `batching-lifecycle` also pins move lift/cancel retaining GPU allocations and
   respecting a storey change during the lift. Passenger asset/library checks cover
   binary delivery, native/fallback decoding and signed integer pose reconstruction.
 - `worker-preview`: actual worker edit acknowledgement with no cosmetic routing
-  rebuild and no paused tick; speed/topology edits must still rebuild.
-- `scene-wiring`: source contracts for sign-only chunk skipping, pointer
+  rebuild and no paused tick; speed/topology edits must still rebuild; inert-decor
+  builds skip routing while bench stops still rebuild.
+- `scene-wiring`: source contracts for sign-only and inert-decor chunk skipping
+  (both fast paths clear the slice key so batch resync still runs), pointer
   touch/delete preservation, release-before-commit, unmount cancellation, and the
   camera-aim notification (`SceneRenderer.onCameraAim` firing once per real aim
   move) with the viewport's re-aim of the equipment and 移动 ghosts.
@@ -335,8 +339,9 @@ For the 指示牌 board editor, keep the drag arithmetic in `sim/sign.ts` and pi
 and the deferred live-drag path (`applyLocal` writes the bins, `schedulePreview` trails
 the scene redraw, the drop flushes once). Keep `signBoardsOnlyChange`'s fail-closed
 verdict and `buildModules`' keep-set retention in `performance-policy`, and the
-`setStation` fast path (no chunk remesh, station-wide plate repaints skipped) in
-`scene-wiring` — `SceneRenderer` itself needs WebGL, so that contract is source-text.
+`setStation` fast paths (no chunk remesh, station-wide plate repaints skipped,
+slice key cleared so batches resync) in `scene-wiring` — `SceneRenderer` itself
+needs WebGL, so that contract is source-text.
 For 三角 runs, keep the drag arithmetic in the pure geometry module
 (`app/tools/geometry/cells.ts` `triangleRidgeAxis` / `triangleLineCells`) and pin the
 ridge-only line, the one-shape-per-course release, the neighbour side a wedge leaves

@@ -39,6 +39,11 @@ cosmetic worker edit classification, model dependencies and disposal, frame-coal
 pointer release, crowd uploads/culling/following and train shell bounds/door motion.
 A stair-block-only module addition builds the new stepped tile while retaining existing
 equipment groups; ordinary module edits still take the conservative dependency path.
+A sim-inert decor placement (floor stickers, wall panels, hanging fittings that
+`buildGraph` never reads) retains untouched groups, rebuilds only tactile/hanger
+neighbours, resyncs batches through the cleared slice key, and skips routing,
+chunk remeshes and station-wide repaints; machines,
+cabinet bodies, posts and other functional pieces still rebuild.
 A boards-only sign change rebuilds one sign's model and repaints its plates in place,
 skipping the chunk remesh and the station-wide repaints. See `PERFORMANCE.md` for
 benchmarks, CPU profiles, Chrome traces and GPU diagnostics.

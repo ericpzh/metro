@@ -393,3 +393,71 @@ test('adding stair blocks builds their models and keeps existing ModuleSystem gr
     assert.ok(modules.moduleMeshes.children.some(g => g.userData.moduleId === stairBlock.id), 'the new stepped tile is built')
   } finally { modules?.clearModules(); if (mats) disposeModelMaterials(mats); blob.dispose(); globalThis.document = previousDocument }
 })
+
+test('deleting inert decor removes its group while retaining neighbours', () => {
+  const previousDocument = globalThis.document
+  globalThis.document = { createElement: () => canvasNode() }
+  let mats, modules
+  const blob = new THREE.MeshBasicMaterial()
+  try {
+    mats = createModelMaterials()
+    const ctx = { scene: new THREE.Scene(), mats: { blob, finish: () => mats.white }, modelMats: mats, ads: {}, groundOf: new Map(), levelBase: 0, ownedMats: [] }
+    modules = new ModuleSystem(ctx)
+    modules.ghost = { clearFencePreview() {} }
+    modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
+    modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
+    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [] }
+    const shelfA = createModule('shelf-dark-tall', 0, 0, 0, 'shelf-a')
+    const shelfB = createModule('shelf-dark-tall', 4, 0, 0, 'shelf-b')
+    assert.ok(shelfA && shelfB, 'the shelf variants under test exist')
+    const before = { name: 'test', seed: 1, lines: [], modules: [shelfA, shelfB], cells: [] }
+    modules.buildModules(before, new Set())
+    const kept = modules.moduleMeshes.children.find(g => g.userData.moduleId === shelfB.id)
+    assert.ok(kept, 'both shelves draw before the delete')
+    modules.buildModules({ ...before, modules: [shelfB] }, new Set(), true)
+    assert.ok(!modules.moduleMeshes.children.some(g => g.userData.moduleId === shelfA.id), 'the deleted shelf leaves the scene')
+    assert.ok(modules.moduleMeshes.children.includes(kept), 'the neighbour keeps its group')
+    assert.ok(modules.moduleMeshes.children.some(g => g.userData.moduleId === shelfB.id), 'and still draws')
+  } finally { modules?.clearModules(); if (mats) disposeModelMaterials(mats); blob.dispose(); globalThis.document = previousDocument }
+})
+
+test('sim-inert decor skips routing while functional pieces still rebuild', async () => {
+  const { isSimInertDecorModule, isSimInertDecorEdit } = await import('../src/sim/decorInert.ts')
+  const tactile = createModule('tactile-guide', 0, 0, -4, 'tactile')
+  const mark = createModule('floor-mark-boarding', 2, 0, -4, 'mark')
+  const board = createModule('billboard-wide', 4, 0, -4, 'board')
+  assert.ok(tactile && mark && board)
+  for (const mod of [tactile, mark, board]) assert.equal(isSimInertDecorModule(mod), true, `${mod.id} draws without walking`)
+  const bench = createModule('bench', 0, 0, -4, 'bench')
+  const tvm = createModule('tvm', 0, 0, -4, 'tvm')
+  const cabinet = createModule('electrical-cabinet', 0, 0, -4, 'cabinet')
+  for (const mod of [bench, tvm, cabinet]) assert.equal(isSimInertDecorModule(mod), false, `${mod.id} is a stop or a barrier`)
+  const post = { id: 'post', type: 'hanger', x: 0, y: 0, z: -4, w: 4, h: 1, rot: 0, cfg: { mount: 'post' } }
+  const bar = { id: 'bar', type: 'hanger', x: 0, y: 0, z: -4, w: 4, h: 1, rot: 0, cfg: { mount: 'roof' } }
+  assert.equal(isSimInertDecorModule(post), false, 'a post stands on the walk graph')
+  assert.equal(isSimInertDecorModule(bar), true, 'a roof bar hangs above it')
+  assert.equal(isSimInertDecorModule({ id: 'future', type: 'future', x: 0, y: 0, z: 0, w: 1, h: 1, cfg: {} }), false, 'unknown types fail closed')
+  const station = { name: 'test', seed: 1, modules: [], lines: [], cells: [{ x: 0, y: 0, z: -4, fill: 'solid' }] }
+  assert.equal(isSimInertDecorEdit(station, { ...station, modules: [tactile] }), true, 'a floor sticker needs no new routes')
+  assert.equal(isCosmeticStationEdit(station, { ...station, modules: [tactile] }), true, 'so the worker skips its rebuild')
+  assert.equal(isSimInertDecorEdit({ ...station, modules: [tactile] }, station), true, 'lifting it back out is the same bargain')
+  assert.equal(isSimInertDecorEdit(station, { ...station, modules: [bar] }), true, 'a roof bar hangs above the graph')
+  assert.equal(isSimInertDecorEdit(station, { ...station, modules: [post] }), false, 'a post stands on it')
+  assert.equal(isCosmeticStationEdit(station, { ...station, modules: [bench] }), false, 'a bench stop still rebuilds')
+  assert.equal(isCosmeticStationEdit(station, { ...station, modules: [cabinet] }), false, 'a cabinet barrier still rebuilds')
+  assert.equal(isCosmeticStationEdit(station, { ...station, lines: [{ id: '1' }] }), false, 'a line edit still reprints every shield')
+  const far = { ...station, modules: [createModule('billboard-wide', 5000, 0, -4, 'far')] }
+  assert.equal(isSimInertDecorEdit(station, far), false, 'a prop past the street window still needs its ground')
+})
+
+test('inert decor additions retain existing groups and rebuild tactile/hanger neighbours only', () => {
+  const station = { name: 'test', seed: 1, lines: [], modules: [], cells: [{ x: 0, y: 0, z: -4, fill: 'solid' }] }
+  const a = createModule('tactile-guide', 0, 0, -4, 'a')
+  const board = createModule('billboard-wide', 10, 0, 0, 'board')
+  const before = { ...station, modules: [a, board] }
+  const b = createModule('tactile-guide', 1, 0, -4, 'b')
+  assert.deepEqual([...retainedModuleIds(before, { ...before, modules: [a, b, board] })].sort(), ['board'], 'the neighbouring sticker rebuilds its arms while the wall panel stays')
+  assert.deepEqual([...retainedModuleIds({ ...before, modules: [a, b, board] }, before)].sort(), ['board'], 'lifting the tile rebuilds the neighbour it leaves behind')
+  const bench = createModule('bench', 20, 0, -4, 'bench')
+  assert.equal(retainedModuleIds(before, { ...before, modules: [...before.modules, bench] }).size, 0, 'a functional addition still invalidates conservatively')
+})

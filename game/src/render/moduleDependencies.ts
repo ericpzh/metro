@@ -1,5 +1,7 @@
 import type { Cell, Module, StationData } from '../sim/types.ts'
 import { moduleEnvelope, moduleFootprint } from '../sim/placement.ts'
+import { hangerSupports } from '../sim/hangers.ts'
+import { isSimInertDecorModule } from '../sim/decorInert.ts'
 import { stairFlights } from '../sim/stairs.ts'
 
 // These builders read module/metadata only. Changes to either fail closed below.
@@ -34,7 +36,7 @@ function dependsOnCell(mod: Module, cell: Cell): boolean {
 
 /** §4.3/§5: retain only models whose inputs did not change. Artwork/language
  * invalidation is handled by the caller; module/neighbour edits take a full build
- * except for the stair-block-only addition below. */
+ * except for the stair-block-only and inert-decor-only additions below. */
 export function retainedModuleIds(before: StationData, after: StationData): Set<string> {
   const retained = new Set<string>()
   if (!sameModuleMetadata(before, after)) {
@@ -44,6 +46,12 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
     // equipment catalogue for each block in a dragged stair-block patch.
     if (onlyAddedStairBlocks(before, after)) {
       for (const mod of before.modules) retained.add(mod.id)
+    } else {
+      // Sim-inert decor (tactile stickers, wall panels, hanging fittings) draws
+      // without walking: keep every untouched model and rebuild only the
+      // changed tiles plus the neighbours that read them (tactile arms, hanger
+      // suspensions). Functional pieces still fail closed above.
+      for (const id of inertDecorRetainedIds(before, after)) retained.add(id)
     }
     return retained
   }
@@ -76,6 +84,79 @@ function onlyAddedStairBlocks(before: StationData, after: StationData): boolean 
   }
   const added = [...afterById.values()]
   return added.length > 0 && added.every((mod) => mod.type === 'stair' && mod.cfg.block === true)
+}
+
+/**
+ * Retained models for a sim-inert decor-only module edit: every untouched
+ * module except the neighbours that read the changed tiles. A tactile tile
+ * extends arms into its four neighbours (`tactileArms`), and a roof hanger
+ * lifts the fittings hung from its bar (`hangerSupports`); anything else draws
+ * alone. Cells, lines and station fields must be identical — this answers only
+ * the module diff, so the chunk skip is decided beside it. Empty when the edit
+ * touches anything functional or moves a cell.
+ */
+function inertDecorRetainedIds(before: StationData, after: StationData): Set<string> {
+  const retained = new Set<string>()
+  if (before.cells.length !== after.cells.length) return retained
+  for (let i = 0; i < before.cells.length; i++) {
+    const old = before.cells[i], next = after.cells[i]
+    if (old !== next && JSON.stringify(old) !== JSON.stringify(next)) return new Set<string>()
+  }
+  const { cells: _bc, modules: _bm, ...beforeMeta } = before
+  const { cells: _ac, modules: _am, ...afterMeta } = after
+  if (JSON.stringify(beforeMeta) !== JSON.stringify(afterMeta)) return new Set<string>()
+  const afterById = new Map(after.modules.map((mod) => [mod.id, mod]))
+  const beforeById = new Map(before.modules.map((mod) => [mod.id, mod]))
+  const changedIds = new Set<string>()
+  const tactileCells = new Set<string>()
+  const hangers: Module[] = []
+  let changed = false
+  for (const old of before.modules) {
+    const next = afterById.get(old.id)
+    if (!next) {
+      if (!isSimInertDecorModule(old)) return new Set<string>()
+      changed = true
+      if (old.type === 'tactile') tactileCells.add(`${old.x},${old.y},${old.z}`)
+      if (old.type === 'hanger') hangers.push(old)
+      continue
+    }
+    if (old === next || JSON.stringify(old) === JSON.stringify(next)) continue
+    if (!isSimInertDecorModule(old) || !isSimInertDecorModule(next)) return new Set<string>()
+    changed = true
+    changedIds.add(old.id)
+    if (old.type === 'tactile' || next.type === 'tactile') {
+      tactileCells.add(`${old.x},${old.y},${old.z}`)
+      tactileCells.add(`${next.x},${next.y},${next.z}`)
+    }
+    if (old.type === 'hanger' || next.type === 'hanger') hangers.push(old, next)
+  }
+  for (const added of afterById.values()) {
+    if (beforeById.has(added.id)) continue
+    if (!isSimInertDecorModule(added)) return new Set<string>()
+    changed = true
+    if (added.type === 'tactile') tactileCells.add(`${added.x},${added.y},${added.z}`)
+    if (added.type === 'hanger') hangers.push(added)
+  }
+  if (!changed) return retained
+  const rebuild = new Set<string>(changedIds)
+  const tactileKeys = [...tactileCells].map((key) => key.split(',').map(Number) as [number, number, number])
+  for (const mod of after.modules) {
+    if (changedIds.has(mod.id)) continue
+    if (mod.type === 'tactile' && tactileKeys.some(([x, y, z]) => z === mod.z && Math.abs(x - mod.x) + Math.abs(y - mod.y) <= 1)) {
+      rebuild.add(mod.id)
+      continue
+    }
+    if ((mod.type === 'tv' || mod.type === 'clock' || mod.type === 'cctv' || mod.type === 'sign')
+      && hangers.some((h) => h.type === 'hanger' && h.z === mod.z && hangerSupports(h, mod))) {
+      rebuild.add(mod.id)
+    }
+  }
+  for (const mod of after.modules) {
+    if (rebuild.has(mod.id)) continue
+    if (!beforeById.has(mod.id)) continue
+    retained.add(mod.id)
+  }
+  return retained
 }
 
 export function sameModuleMetadata(before: StationData, after: StationData): boolean {

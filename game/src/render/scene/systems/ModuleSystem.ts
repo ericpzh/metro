@@ -15,6 +15,7 @@ import { batchStaticModule } from '../../batchStaticModule.ts'
 import { EquipmentBatches } from '../../equipmentBatches.ts'
 import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
 import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange } from '../../moduleDependencies.ts'
+import { isSimInertDecorEdit } from '../../../sim/decorInert.ts'
 import { getLanguage } from '../../../sim/i18n.ts'
 import {
   buildModule,
@@ -58,6 +59,18 @@ export class ModuleSystem extends SceneSystem {
   signBoardsOnlyChanged(data: StationData): string | null {
     if (!this.builtData || this.builtLanguage !== getLanguage()) return null
     return signBoardsOnlyChange(this.builtData, data)
+  }
+
+  /**
+   * A sim-inert decor placement since the last build (floor stickers, wall
+   * panels, hanging fittings): cells, lines and station fields identical, every
+   * added/removed/changed module inert, street window unmoved. The chunks the
+   * mesher draws never read these pieces, so the scene can keep its meshes and
+   * plates and build only the new groups.
+   */
+  inertDecorOnlyChanged(data: StationData): boolean {
+    if (!this.builtData || this.builtLanguage !== getLanguage()) return false
+    return isSimInertDecorEdit(this.builtData, data)
   }
   moduleMeshes: THREE.Group = new THREE.Group()
   readonly batches = new EquipmentBatches()
