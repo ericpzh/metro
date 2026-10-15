@@ -299,7 +299,22 @@ export class ChunkSystem extends SceneSystem {
     // they are unsupported plates — and the street with them — so which pass a
     // chunk belongs to is part of what it draws, and a chunk that changes pass must
     // re-mesh.
-        const chunkKey = (levelZ: number, cx: number, cy: number, pass: ChunkPass, cells: Array<{ x: number; y: number; z: number }>): string => {
+    //
+    // The mesher culls every face against its immediate neighbour, which often
+    // lives in the next chunk: without the 1-cell halo below, deleting a block
+    // leaves the neighbouring chunk's key unchanged, so its stale mesh (with the
+    // now-exposed face still culled) is reused and the hole never draws until a
+    // reload rebuilds every key from scratch.
+    const chunkKey = (
+      levelZ: number,
+      cx: number,
+      cy: number,
+      pass: ChunkPass,
+      cells: Array<{ x: number; y: number; z: number }>,
+      emit: ReadonlySet<number>,
+      sideSolid: ReadonlySet<number>,
+      cover?: ReadonlySet<number>,
+    ): string => {
       let h = 2166136261
       let n = 0
       for (const c of cells) {
@@ -346,6 +361,51 @@ export class ChunkSystem extends SceneSystem {
         }
         n++
       }
+      // The 1-cell halo: every face the mesher emits depends on the neighbour
+      // across it (`sideOpen` sides, `draws`/`standsOn` caps, the ridge-neighbour
+      // check and the plate pass's `cover`), with the same votes `meshChunk`
+      // reads — the pass's own solid set minus hidden cells and fillings for
+      // sides, that set or the filling for caps, the whole-station cover for the
+      // plate pass and the pass's emit otherwise, plus the neighbour's shape.
+      // Halo coordinates hash in sorted order so the key is stable.
+      {
+        const own = new Set<number>()
+        for (const c of cells) own.add(packKey(c.x, c.y, c.z))
+        const halo = new Map<number, { x: number; y: number; z: number }>()
+        const addHalo = (x: number, y: number, z: number): void => {
+          const hk = packKey(x, y, z)
+          if (own.has(hk) || halo.has(hk)) return
+          halo.set(hk, { x, y, z })
+        }
+        for (const c of cells) {
+          addHalo(c.x + 1, c.y, c.z)
+          addHalo(c.x - 1, c.y, c.z)
+          addHalo(c.x, c.y + 1, c.z)
+          addHalo(c.x, c.y - 1, c.z)
+          addHalo(c.x, c.y, c.z + 1)
+          addHalo(c.x, c.y, c.z - 1)
+        }
+        const sorted = [...halo.values()].sort((a, b) => packKey(a.x, a.y, a.z) - packKey(b.x, b.y, b.z))
+        for (const nb of sorted) {
+          const hk = packKey(nb.x, nb.y, nb.z)
+          h = Math.imul(h ^ nb.x, 16777619)
+          h = Math.imul(h ^ nb.y, 16777619)
+          h = Math.imul(h ^ nb.z, 16777619)
+          const vote =
+            sideSolid.has(hk) && !this.ctx.hiddenCells.has(hk) && !this.ctx.slopeFills.has(hk) ? 1 : 0
+          h = Math.imul(h ^ (vote + 2), 16777619)
+          const drawsHere = sideSolid.has(hk) || this.ctx.slopeFills.has(hk) ? 1 : 0
+          h = Math.imul(h ^ (drawsHere + 5), 16777619)
+          if (cover !== undefined) {
+            const coveredHere = cover.has(hk) || this.ctx.slopeFills.has(hk) ? 1 : 0
+            h = Math.imul(h ^ (coveredHere + 9), 16777619)
+          } else {
+            h = Math.imul(h ^ (emit.has(hk) ? 14 : 7), 16777619)
+          }
+          const haloShape = this.ctx.thinSides.get(hk)
+          if (haloShape !== undefined) h = Math.imul(h ^ shapeKey(haloShape), 16777619)
+        }
+      }
       return `${levelZ}|${pass}|${cx},${cy}|${n}:${h >>> 0}`
     }
     const reuse = new Map(this.chunkCache)
@@ -366,24 +426,33 @@ export class ChunkSystem extends SceneSystem {
       }
       // Mirrors the three passes below exactly, so the keys match: the storey's
       // own cells, the unsupported plates among them, and the street's pass.
+      // The plate list carries the same truss-filling extras as the meshing
+      // call below, or its keys would never match a built chunk.
       for (const [levelZ, band] of byBand) {
+        const emit = new Set<number>()
+        for (const c of band.cells) emit.add(packKey(c.x, c.y, c.z))
         for (const [k, list] of groupByChunk(band.cells)) {
           const [cx, cy] = k.split(',').map(Number)
-          const key = chunkKey(levelZ, cx, cy, 's', list)
+          const key = chunkKey(levelZ, cx, cy, 's', list, emit, this.ctx.solid)
           if (reuse.has(key)) keep.add(key)
         }
-        const floats = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
+        const plates = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
+        const floats = plates.concat(
+          plates
+            .filter((c) => this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1)))
+            .map((c) => ({ x: c.x, y: c.y, z: c.z + 1 })),
+        )
         if (floats.length > 0) {
           for (const [k, list] of groupByChunk(floats)) {
             const [cx, cy] = k.split(',').map(Number)
-            const key = chunkKey(levelZ, cx, cy, 'f', list)
+            const key = chunkKey(levelZ, cx, cy, 'f', list, emit, floating, this.ctx.solid)
             if (reuse.has(key)) keep.add(key)
           }
         }
       }
       for (const [k, list] of groupByChunk(groundCells)) {
         const [cx, cy] = k.split(',').map(Number)
-        const key = chunkKey(storeyBand(GROUND_Z, this.ctx.levelBase), cx, cy, 'g', list)
+        const key = chunkKey(storeyBand(GROUND_Z, this.ctx.levelBase), cx, cy, 'g', list, groundEmit, this.ctx.solid)
         if (reuse.has(key)) keep.add(key)
       }
     }
@@ -412,7 +481,7 @@ export class ChunkSystem extends SceneSystem {
         entry.cells.push(c)
       }
       for (const { cx, cy, cells: chunkCells } of byChunk.values()) {
-        const key = chunkKey(levelZ, cx, cy, pass, chunkCells)
+        const key = chunkKey(levelZ, cx, cy, pass, chunkCells, emit, solid, cover)
         // Unchanged since the last rebuild: keep the meshes, their GPU geometry and
         // their material wiring, and only put them back in the group.
         const keptEntry = keep.has(key) ? reuse.get(key) : undefined

@@ -122,6 +122,39 @@ test('a rebuild still prunes chunks the station no longer has', () => {
   }
 })
 
+test('deleting a block re-meshes the neighbouring chunk across the chunk border', () => {
+  // Face culling reads the immediate neighbour, which often lives in the next
+  // 16 m chunk — but the chunk key used to hash only a chunk's own cells. Deleting
+  // a block then left the neighbouring chunk's key unchanged, so its stale mesh
+  // (with the now-exposed face still culled) was reused and the hole never drew
+  // until a reload rebuilt every key from scratch.
+  const { chunks } = renderer()
+  const disposed = new Set()
+  const at = (xs) => ({
+    name: 'cache',
+    seed: 1,
+    cells: xs.map((x) => ({ x, y: 0, z: 1, fill: 'solid' })),
+    modules: [],
+    lines: [],
+  })
+  mesh(chunks, at([15, 16]), disposed)
+  // Every mesh covering the surviving cell: the storey pass and its plate pass.
+  const holders = chunks.chunkMeshes.filter((m) => {
+    const b = m.geometry.boundingBox
+    return b && b.min.x <= 15.5 && b.max.x >= 15.5 && b.min.z <= 1.5 && b.max.z >= 1.5
+  })
+  assert.ok(holders.length > 0, 'the border chunk meshed')
+  const holderGeos = new Set(holders.map((m) => m.geometry))
+
+  // Delete the block across the chunk border (16 sits in 16..31, 15 in 0..15).
+  mesh(chunks, at([15]), disposed)
+  const after = new Set(chunks.chunkMeshes.map((m) => m.geometry))
+  for (const g of holderGeos) {
+    assert.equal(after.has(g), false, 'the neighbouring chunk re-meshed when its across-border neighbour was deleted')
+    assert.equal(disposed.has(g), true, 'and its stale mesh was released')
+  }
+})
+
 test('disposing the chunks releases the wall-pick singletons and the tint caches', () => {
   // The shop-wall pick proxies share one geometry/material for the scene's
   // life, and the 显示其他层 / 隐藏墙壁 tints are keyed by dropped materials —

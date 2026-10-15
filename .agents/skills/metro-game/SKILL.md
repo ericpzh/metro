@@ -1518,7 +1518,12 @@ the four rules most changes trip over.
 * **A pass over what a rebuild costs** (`render/scene/systems/*`, `render/materials.ts`,
   `sim/worker.ts`, `build/model/State.ts`, `app/store/slices/*`). The chunk cache is released
   exactly once, keep-aware (`meshStation` used to release the last rebuild twice), and
-  `chunk-cache.test.mjs` pins the very buffer objects a kept chunk comes back with. 电视 / 指示牌
+  `chunk-cache.test.mjs` pins the very buffer objects a kept chunk comes back with. The chunk
+  key hashes a chunk's own cells **plus the 1-cell halo around it** with the mesher's own votes
+  (side occlusion from the pass's solid set, cap draws, plate-pass cover vs pass emit, neighbour
+  shape): face culling reads the immediate neighbour, which often lives in the next 16 m chunk,
+  so without the halo deleting a block reused the neighbouring chunk's stale mesh with the
+  newly exposed face still culled, until a reload rebuilt every key from scratch. 电视 / 指示牌
   plates are **retained** across a rebuild (`PlateSystem.retainTvPlates` / `retainSignPlates`:
   the station's name, lines, services, clock and date are the inputs a rebuild can change;
   per-frame clock/service refreshes upload only when the printed ink changed), a consist
