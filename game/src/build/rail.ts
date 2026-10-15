@@ -10,7 +10,7 @@ import { msg } from '../sim/i18n.ts'
 import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/structures.ts'
 import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
-import { boxesOverlap, blockerLabels, equipmentReason, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
+import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { rampBodyBoxes } from '../sim/openings.ts'
 import { doorCentres, trainLength } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, type TrackModule } from '../sim/track.ts'
@@ -322,6 +322,9 @@ export function trackColliders(state: StationState, track: TrackModule): Module[
   const out: Module[] = []
   for (const m of state.modules) {
     if (m.id === track.id || pillarSupportsBridge(m, track)) continue
+    // A hung fitting below the new bed will hang from its deck, so it never
+    // blocks the rail — the release lets the fitting hang under a 站台 or 轨道桥.
+    if (isCeilingHung(m) && m.z < track.z) continue
     // A stair is only its slope, never the vertical column beneath it — a rail
     // may pass under the upper half of a flight.
     if (m.type === 'stair' && !m.cfg.block) {

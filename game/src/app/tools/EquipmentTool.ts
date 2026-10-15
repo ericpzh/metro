@@ -675,7 +675,7 @@ export class EquipmentTool extends ToolController {
     // then hangs it from that block, at the short drop its own design gives it.
     const hung = isCeilingHung({ type: st.moduleType }) && !st.moduleType.startsWith('hanger')
     const at = hung
-      ? hungCeilingAim(cell, place, st.station.levelBase, st.station.cells)
+      ? hungCeilingAim(cell, place, st.station.levelBase, st.station.cells, st.station.modules)
       : ceilingMountStandCell(cell, place, st.station.levelBase, st.station.cells)
     const mods = this.buildPlacementModules(st.moduleType, at, id)
     if (mods.length === 0) return { mods: [], noCeiling: true }

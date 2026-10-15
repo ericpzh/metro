@@ -85,7 +85,10 @@ for geometry and routes, and `module-build.test.mjs` for visible model parts.
 
 Ceiling-hung signs, TVs, clocks and cameras attach to the nearest slab shared by
 their footprint; their suspension reaches that slab instead of assuming a 4 m
-room. All three 监控 housings read that slab like 枪机 does, and each piece keeps
+room. A 站台 or 轨道桥 deck counts as that slab (a tunnel keeps its own shell
+ceiling): the platform bed is dug, so the module itself is the ceiling, and a
+bridge hangs over void with its 1 m deck as the underside. Standing on the bed
+itself stays refused as track. All three 监控 housings read that slab like 枪机 does, and each piece keeps
 its own short drop below it (a 指示牌's 0.65 m of rod, a 灯具 none), so a board hugs
 the slab it hangs from. The anchor is a cell, not a height (`hungCeilingAim`): a
 hanging item takes the free cell directly under the **first underside above the

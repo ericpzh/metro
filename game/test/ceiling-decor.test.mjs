@@ -12,15 +12,19 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import {
+  ceilingMountHeight,
   ceilingMountMissing,
   equipmentReason,
   equipmentRefusalNotice,
+  hangCeilingLocal,
+  hungCeilingAim,
   isMovableModule,
   moduleAt,
   moduleEnvelope,
   placementBlocked,
   placementOnTrack,
   reservedOpening,
+  topBlockOver,
 } from '../src/sim/placement.ts'
 import { createModule } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
@@ -182,6 +186,34 @@ test('a piece is found from its cell and refused on a track bed', () => {
   assert.equal(placementOnTrack(bed, clock(2, 2), []), true)
   assert.equal(placementOnTrack(bed, cctv(2, 2), []), true)
   assert.equal(placementOnTrack(bed, clock(3, 3), []), false)
+})
+
+test('a hung fitting hangs under a 站台 or 轨道桥 deck', () => {
+  // A platform digs its bed course, so the cells alone show a hole where the
+  // deck hangs; a bridge hangs over void. Either deck is the ceiling overhead.
+  const floor = [{ x: 2, y: 2, z: 0, fill: 'solid' }]
+  const platform = { id: 't1', type: 'track', x: 2, y: 2, z: 4, rot: 0, w: 1, d: 1, cfg: { line: '1', power: 'third-rail', dir: 'up' } }
+  const bridge = { ...platform, id: 't2', cfg: { ...platform.cfg, bridge: true } }
+  for (const [name, deck, height, anchor] of [
+    ['站台', platform, 3, [2, 2, 3]],
+    ['轨道桥', bridge, 2, [2, 2, 2]],
+  ]) {
+    assert.equal(ceilingMountMissing(floor, clock(2, 2), [deck]), false, `${name} hangs the fitting`)
+    assert.equal(ceilingMountHeight(floor, clock(2, 2), [deck]), height, `${name} underside sets the rod length`)
+    assert.equal(equipmentReason(floor, [deck], clock(2, 2), true), '', `${name} passes the shared verdict`)
+    assert.equal(placementOnTrack(floor, clock(2, 2), [deck]), false, `under the ${name} is not standing on it`)
+    assert.deepEqual(hungCeilingAim([2, 2, 0], [2, 2, 1], 0, floor, [deck]), anchor, `the pointer aims under the ${name}`)
+    const hung = { ...clock(2, 2), x: anchor[0], y: anchor[1], z: anchor[2] }
+    assert.equal(topBlockOver(floor, hung, [deck]), true, `the ${name} deck over the cell is its ceiling`)
+    assert.equal(hangCeilingLocal(hung, floor, [deck]), 0, `and the mount sits at the cell top`)
+    assert.equal(equipmentReason(floor, [deck], hung, true), '', `the aimed piece under the ${name} hangs`)
+  }
+  // Standing on the bed itself is still refused as track, not hung from it.
+  assert.equal(placementOnTrack(floor, clock(2, 2, 4), [platform]), true)
+  assert.equal(equipmentReason(floor, [platform], clock(2, 2, 4), true), 'track')
+  // A tunnel keeps its own shell ceiling: its bed is not a deck to hang from.
+  const tunnel = { ...platform, id: 't3', cfg: { ...platform.cfg, tunnel: true } }
+  assert.equal(ceilingMountMissing(floor, clock(2, 2), [tunnel]), true)
 })
 
 test('both are movable decorations, and both round-trip the save', () => {

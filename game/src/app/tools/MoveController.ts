@@ -124,7 +124,7 @@ export class MoveController extends ToolController {
       // 电视 follows the mouse instead of keeping the height of the cell it came from. The 挂架
       // keeps its storey anchor: it is a roof, not a fitting hung under a surface.
       if (!d.module.type.startsWith('hanger')) {
-        const [x, y, z] = hungCeilingAim(h.cell, h.place, st.station.levelBase, st.station.cells)
+        const [x, y, z] = hungCeilingAim(h.cell, h.place, st.station.levelBase, st.station.cells, st.station.modules)
         return { x, y, z }
       }
       const [x, y, z] = ceilingMountStandCell(h.cell, h.place, st.station.levelBase, st.station.cells)

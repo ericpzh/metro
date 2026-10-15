@@ -667,14 +667,21 @@ function baseCells(m: Module): Array<[number, number]> {
  * only sees other modules; the block under a track bed is solid and looks like
  * floor, so this is the surface rule that sits beside it. The builder refuses
  * these placements even though nothing else occupies the space.
+ *
+ * A **hung** fitting under a 站台 or 轨道桥 is not standing on the bed: the
+ * deck over its cell is its ceiling (`ceilingMountMissing`), so only the bed's
+ * own level refuses it — never the trench check one above, which is exactly
+ * the under-deck cell it hangs in.
  */
 export function placementOnTrack(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
+  const hung = isCeilingHung(candidate)
   for (const [x, y] of baseCells(candidate)) {
     if (isTrackBed(cells, x, y, candidate.z)) return true
     // A dug bed leaves no finish: the module covers the cell, and its own bed
     // base is the block just under it, so test the candidate's cell and the one
     // above (the trench).
-    if (trackAt(modules, x, y, candidate.z) || trackAt(modules, x, y, candidate.z + 1)) return true
+    if (trackAt(modules, x, y, candidate.z)) return true
+    if (!hung && trackAt(modules, x, y, candidate.z + 1)) return true
   }
   return false
 }
@@ -920,6 +927,34 @@ export function ceilingMountStandCell(
 }
 
 /**
+ * A rail bed that can ceiling a hung fitting: a 站台 (platform) or an 轨道桥
+ * (bridge). A tunnel already raises its own shell ceiling, so it is left to
+ * the solid rule. The bed is dug where a platform sits, so no solid cell marks
+ * the deck — the module itself is the slab overhead.
+ */
+export function isCeilingTrack(m: Module): boolean {
+  return m.type === 'track' && !(m.cfg as { tunnel?: boolean }).tunnel
+}
+
+/**
+ * The underside a ceiling track hangs a fitting from: the bed level itself,
+ * except a bridge whose 1 m deck hangs below its anchor (`BRIDGE_DECK_DEPTH`).
+ */
+export function trackCeilingUnderside(m: Module): number | null {
+  if (!isCeilingTrack(m)) return null
+  return m.z - ((m.cfg as { bridge?: boolean }).bridge ? BRIDGE_DECK_DEPTH : 0)
+}
+
+/** True when a ceiling track's bed covers `(x, y)` with its underside at `z`. */
+function trackCeilingAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
+  for (const m of modules) {
+    if (trackCeilingUnderside(m) !== z) continue
+    if (m.type === 'track' && trackCellAt(m as Extract<Module, { type: 'track' }>, x, y, m.z)) return true
+  }
+  return false
+}
+
+/**
  * The cell a **hung** piece takes from the pointer's hit: the free cell directly under the **top
  * block** of that column — the block below the ceiling — which is where a hanging item always
  * lives, `top block - 1`, whether the pointer is on the floor, on a wall course between them or on
@@ -929,11 +964,13 @@ export function ceilingMountStandCell(
  * Nothing solid over the pointer (an open hall, a doorway) leaves the storey's own floor, and
  * `ceilingMountMissing` decides the piece from there: a hung item with no ceiling is refused.
  */
+
 export function hungCeilingAim(
   cell: readonly [number, number, number],
   place: readonly [number, number, number],
   levelBase = 0,
   cells: readonly Cell[] = [],
+  modules: readonly Module[] = [],
 ): [number, number, number] {
   const side = place[0] !== cell[0] || place[1] !== cell[1]
   const x = side ? place[0] : cell[0]
@@ -941,7 +978,7 @@ export function hungCeilingAim(
   // Only a **slab's own underside** aimed at can be the ceiling itself; every other hit looks above
   // the block the pointer is on, so a wall's course and a floor slab are never mistaken for one.
   const from = !side && place[2] < cell[2] ? cell[2] : cell[2] + 1
-  const top = topBlockZ(cells, cell[0], cell[1], from)
+  const top = topBlockZ(cells, cell[0], cell[1], from, modules)
   if (top === null) return [x, y, storeyBand(cell[2], levelBase)]
   return [x, y, top - 1]
 }
@@ -951,8 +988,12 @@ export function hungCeilingAim(
  * `from` whose own cell below it is open air — the first **underside** overhead. A wall's own
  * courses are skipped, each sitting on another course, so aiming anywhere on a wall that reaches
  * the slab still finds the slab; a column with nothing overhead reads `null`.
+ *
+ * A 站台 or 轨道桥 bed counts as a top block too: a platform digs its bed course,
+ * so no solid cell marks the deck, and a bridge hangs over void. The deck's
+ * underside is the ceiling there, with the same open-air-below rule as a slab.
  */
-export function topBlockZ(cells: readonly Cell[], x: number, y: number, from: number): number | null {
+export function topBlockZ(cells: readonly Cell[], x: number, y: number, from: number, modules: readonly Module[] = []): number | null {
   let top: number | null = null
   for (const c of cells) {
     if (c.fill !== 'solid' || c.x !== x || c.y !== y || c.z < from) continue
@@ -960,16 +1001,26 @@ export function topBlockZ(cells: readonly Cell[], x: number, y: number, from: nu
     if (cells.some((b) => b.fill === 'solid' && b.x === x && b.y === y && b.z === c.z - 1)) continue
     top = c.z
   }
+  for (const m of modules) {
+    const underside = trackCeilingUnderside(m)
+    if (underside === null || underside < from) continue
+    if (m.type !== 'track' || !trackCellAt(m as Extract<Module, { type: 'track' }>, x, y, m.z)) continue
+    if (top !== null && underside >= top) continue
+    if (cells.some((b) => b.fill === 'solid' && b.x === x && b.y === y && b.z === underside - 1)) continue
+    top = underside
+  }
   return top
 }
 
 /**
  * True when a solid cell sits **directly over** the piece's own cell — the top block a hung piece
  * hangs from when it was aimed at a column (`hungCeilingAim`). Such a piece needs no storey slab:
- * the block over it *is* its ceiling.
+ * the block over it *is* its ceiling. A 站台 or 轨道桥 bed directly over the cell
+ * counts the same way: the deck over the cell is its ceiling.
  */
-export function topBlockOver(cells: readonly Cell[], m: { x: number; y: number; z: number }): boolean {
-  return cells.some((c) => c.fill === 'solid' && c.x === m.x && c.y === m.y && c.z === m.z + 1)
+export function topBlockOver(cells: readonly Cell[], m: { x: number; y: number; z: number }, modules: readonly Module[] = []): boolean {
+  if (cells.some((c) => c.fill === 'solid' && c.x === m.x && c.y === m.y && c.z === m.z + 1)) return true
+  return trackCeilingAt(modules, m.x, m.y, m.z + 1)
 }
 
 /**
@@ -985,7 +1036,7 @@ export function topBlockOver(cells: readonly Cell[], m: { x: number; y: number; 
  * no slab to read at all (a ghost in an empty station).
  */
 export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: readonly Module[] = [], fallback = 3): number {
-  if (topBlockOver(cells, m)) return 0
+  if (topBlockOver(cells, m, modules)) return 0
   return ceilingMountHeight(cells, m, modules) ?? fallback
 }
 
@@ -1118,8 +1169,9 @@ export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, m
   if (candidate.type === 'hanger') return hangerRoofMissing(cells, modules, candidate)
   if (!isCeilingHung(candidate)) return false
   // A piece hung under a **top block** (`hungCeilingAim`) hangs from that block, one cell over it,
-  // so the storey-slab rule below does not apply to it.
-  if (topBlockOver(cells, candidate)) return false
+  // so the storey-slab rule below does not apply to it. A 站台 or 轨道桥 deck over
+  // the cell counts as that block.
+  if (topBlockOver(cells, candidate, modules)) return false
   if (modules.some((m) => hangerSupports(m, candidate))) return false
   return ceilingMountHeight(cells, candidate, modules) === null
 }
@@ -1128,6 +1180,10 @@ export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, m
  * Local height from a module's floor top to the underside of its actual ceiling.
  * Read the nearest common slab over the whole footprint instead of assuming a
  * fixed 4 m room; the model uses this to extend its suspension up to that slab.
+ * A 站台 or 轨道桥 bed counts as a slab: a platform digs its course, so the
+ * cells alone show a hole where the deck hangs, and a bridge hangs over void.
+ * The deck's underside is the ceiling there — the bed level for a platform, one
+ * below it for a bridge's 1 m deck.
  */
 export function ceilingMountHeight(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): number | null {
   if (!isCeilingHung(candidate)) return null
@@ -1138,13 +1194,24 @@ export function ceilingMountHeight(cells: readonly Cell[], candidate: Module, mo
     // The first three courses above a floor are a wall, not a ceiling slab.
     .filter((c) => c.fill === 'solid' && c.x === firstX && c.y === firstY && c.z >= candidate.z + 4)
     .map((c) => c.z))
+  // A rail deck is horizontal cladding, never a wall course: any underside with
+  // headroom counts, even at wall height. A bridge deck hangs a metre below its
+  // anchor, so its underside can sit one lower than a slab's and still ceiling
+  // the room.
+  for (const m of modules) {
+    const underside = trackCeilingUnderside(m)
+    if (underside === null || underside < candidate.z + 2) continue
+    if (m.type !== 'track' || !trackCellAt(m as Extract<Module, { type: 'track' }>, firstX, firstY, m.z)) continue
+    candidates.add(underside)
+  }
   // The street plane can ceiling the storey immediately below grade, but it
   // cannot stand in for a missing concourse slab several storeys underground.
   if (virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z) && GROUND_Z === candidate.z + 4) candidates.add(GROUND_Z)
   const ceilingZ = [...candidates].sort((a, b) => a - b).find((z) =>
     footprint.every(([x, y]) =>
       cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) ||
-      virtualSolidAt(cells, modules, x, y, z),
+      virtualSolidAt(cells, modules, x, y, z) ||
+      trackCeilingAt(modules, x, y, z),
     ),
   )
   return ceilingZ === undefined ? null : ceilingZ - candidate.z - 1
@@ -1507,6 +1574,11 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (isPsdCornerPair(m, candidate) || isPsdEndJoin(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
     if (isHangingShare(m, candidate)) continue
+    // A hung fitting hangs *from* a 站台 or 轨道桥 deck: the deck over its cell
+    // is its ceiling, not something in its way. The nominal flush band of a
+    // light/vent still overlaps the deck volume, so the pair is let through
+    // here — standing on the bed itself stays refused via `placementOnTrack`.
+    if ((isCeilingHung(m) && isCeilingTrack(candidate)) || (isCeilingHung(candidate) && isCeilingTrack(m))) continue
     if (curtainDoorShare(m, candidate)) continue
     if (m.type === 'glass' && candidate.type === 'glass' && curtainShareCrossTile(m, candidate)) continue
     // A station-side 广告牌 can sit on the wall behind the platform screen doors.
@@ -2005,7 +2077,9 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   // (`ceilingMountStandCell`, the storey the save reads) is the room's, not its own,
   // and the ground rule would refuse it over a well or over the rails where a slab
   // really does hang it — with a notice about floor under a piece three metres up.
-  // It is still refused on a track bed, in another piece's space and under open sky.
+  // It is still refused standing on a track bed, in another piece's space and
+  // under open sky — but a 站台 or 轨道桥 deck over its cell is its ceiling, not
+  // the bed it stands on (`placementOnTrack` lets a hung fitting hang under one).
   if (!isCeilingHung(candidate) && !moduleFloorOk(cells, modules, candidate)) {
     return candidate.type === 'lift' ? 'lift-footprint' : 'floor'
   }
