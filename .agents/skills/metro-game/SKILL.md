@@ -1497,7 +1497,9 @@ Run `npm run check:tutorial` for the production browser regression and the
   each (`SIGN_TEXT_MAX` / `SIGN_TEXT_EN_MAX`); a lone primary line takes over the
   gloss row below it, setting at twice the size, so the tile preview and the
   printed board agree (`signInkSize`, pinned in `game/test/sign.test.mjs` +
-  `sign-render.test.mjs`). A sign is **two boards**, front and back — independent documents,
+  `sign-render.test.mjs`). A single primary line is centred by its visible ink bounds
+  vertically and by its per-glyph advances horizontally inside a square tile; keep
+  that renderer rule pinned in `sign-render.test.mjs`. A sign is **two boards**, front and back — independent documents,
   either of which may be empty, and an empty side is the unlit black plate — but that pair is
   the **hung** board's (`signMountSpec(...).doubleSided`); a **wall** 指示牌 mounts 正面 alone.
   `signPanelSize` sizes the panel to what it carries between a floor and a ceiling, so a board

@@ -546,10 +546,18 @@ function drawText(g: CanvasRenderingContext2D, comp: Extract<SignComponent, { ki
       g.font = `bold ${font}px ${CJK}`
     }
     // The row's own band, and inside it the line sits on its baseline: a smaller
-    // gloss keeps the row's pitch and takes the empty space at its foot.
+    // gloss keeps the row's pitch and takes the empty space at its foot. A lone
+    // primary line occupies the full two-row box; center its actual ink bounds so
+    // CJK glyphs do not sit visibly low in the row.
     const top = box.y + box.h - (lines.length - i) * rowH
-    const baseY = top + font + (rowH - font) * 0.5
-    let cursor = box.x
+    const metrics = g.measureText(line)
+    const ascent = metrics.actualBoundingBoxAscent || font * 0.8
+    const descent = metrics.actualBoundingBoxDescent || font * 0.2
+    const baseY = lines.length === 1
+      ? top + rowH * 0.5 + (ascent - descent) * 0.5
+      : top + font + (rowH - font) * 0.5
+    const inkWidth = [...line].reduce((width, ch) => width + g.measureText(ch).width, 0)
+    let cursor = box.x + (lines.length === 1 ? (box.w - inkWidth) * 0.5 : 0)
     // Nothing to dim past the limit: `signTextLines` (line 319) has already cut the
     // row to it, so every character left belongs on the board.
     g.fillStyle = INK

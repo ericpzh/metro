@@ -3177,7 +3177,8 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   saves' content centred vertically and horizontally on each printed face;
   fresh sign prints ink rather than black, per-face boards, the empty-face stand-in, panel-vs-
   plate size agreement, label row pitch and separation, every palette mark printing, the PNG
-  pictograms square/white/clear, and the save round-trip. Five marks are **geometry, not art**, and all
+  pictograms square/white/clear, single-primary text centred horizontally and vertically in its square tile,
+  and the save round-trip. Five marks are **geometry, not art**, and all
   are pinned: the 出口/EXIT plate, and the red **禁止 roundel** — one ring drawn right round, whose strip
   the test reads back off the matrix-tracking context as a filled red path exactly one ring-thickness tall,
   level and centred on the ring (a strip at an angle is a prohibit-sign roundel, not the stop mark), with no

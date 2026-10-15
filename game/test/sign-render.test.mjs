@@ -571,6 +571,28 @@ test('a primary-only label is set twice as large, filling the gloss row', () => 
   assert.ok(Math.min(...ys) > 0 && Math.max(...ys) < plate.height, 'the grown primary stays on the plate')
 })
 
+test('a primary-only label is centred on both axes in a square tile', () => {
+  const tile = { w: 1, h: 1 }
+  const label = { id: 'tile-label', kind: 'text', text: '出站', x: 0.5, y: 0.5, scale: 1, side: 'both' }
+  const { g, ops } = stubCanvas(1000, 1000)
+  // Canvas measures a complete string with slight kerning, but the renderer places
+  // this line one glyph at a time. Keep those two widths different to pin centering
+  // against the advances that are actually drawn.
+  g.measureText = (text) => {
+    const font = Number(/(\d+(?:\.\d+)?)px/.exec(g.font)?.[1] ?? 10)
+    const measured = String(text).length * font * 0.95 - (String(text).length > 1 ? font * 0.2 : 0)
+    return { width: measured, actualBoundingBoxAscent: font * 0.8, actualBoundingBoxDescent: font * 0.2 }
+  }
+  drawSignPanel(g, [label], { lines: [LINE], panel: tile, ppm: 1000, frame: false }, 'left')
+
+  assert.equal(ops.words.length, 2, 'the primary prints as two glyphs')
+  const [first] = ops.words
+  const drawnWidth = ops.words.reduce((width, word) => width + word.size * 0.95, 0)
+  const inkCenterX = first.x + drawnWidth * 0.5
+  assert.ok(Math.abs(inkCenterX - 500) < 0.01, `horizontal ink centre is ${inkCenterX}px (first ${first.x}, advances ${drawnWidth})`)
+  assert.ok(Math.abs(first.y - (500 + first.size * 0.3)) < 0.01, `primary baseline is vertically centred at ${first.y}px`)
+})
+
 /**
  * The **turn back** (`uturn-left` / `uturn-right`) is the one arrow whose shape is not a rotation
  * of the straight mark, and it has been wrong twice, both times invisibly to every other test:
