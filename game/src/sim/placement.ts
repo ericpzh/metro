@@ -231,6 +231,63 @@ export function curtainDoorShare(a: Module, b: Module): boolean {
   return doorCells(door).every(([x, y]) => wallCells.has(`${x},${y}`))
 }
 
+/**
+ * Floor decor drawn offset against a wall edge (§5.7): the bin, the extinguisher
+ * cabinet, the shelf, the TVM and the vending machine. Each is built with its
+ * back on its tile's trailing edge (`placeLocalAtEdge`), so it reads as furniture
+ * pushed against a wall.
+ */
+const EDGE_DECOR_TYPES: ReadonlySet<string> = new Set(['bin', 'extinguisher', 'shelf', 'tvm', 'vending'])
+
+/** True for floor decor whose model sits against its tile's trailing edge. */
+export function isEdgeDecor(m: { type: string }): boolean {
+  return EDGE_DECOR_TYPES.has(m.type)
+}
+
+/**
+ * How far an edge-decor piece shifts towards its tile centre when its back is
+ * against a floor-standing 玻璃幕墙, metres. The curtain frame is 0.1 m deep on the
+ * tile edge; the shift clears it with a little air, so the cabinet back never
+ * intersects the glazing.
+ */
+export const EDGE_DECOR_CURTAIN_SHIFT = 0.15
+
+/**
+ * An edge-decor piece backed against a floor-standing 玻璃幕墙 in the same tile:
+ * same storey, the decor footprint overlaps the curtain run, and the decor back
+ * faces the curtain edge — `wallSide` opposite, so the two backs coincide on one
+ * tile edge. Either side of the pair may be the candidate.
+ */
+export function edgeDecorCurtainShare(a: Module, b: Module): boolean {
+  const glass = a.type === 'glass' ? a : b.type === 'glass' ? b : undefined
+  const decor = a.type !== 'glass' && isEdgeDecor(a) ? a : b.type !== 'glass' && isEdgeDecor(b) ? b : undefined
+  if (!glass || !decor || glass.z !== decor.z) return false
+  if (!glassStandsOnFloor(glassModuleSpec(glass.cfg?.variant, glass.cfg?.curtainHeight))) return false
+  const [gx, gy] = wallSide(glass.rot)
+  const [dx, dy] = wallSide(decor.rot)
+  if (dx !== -gx || dy !== -gy) return false
+  const curtainCells = new Set(glassCells(glass).map(([x, y]) => `${x},${y}`))
+  return moduleFootprint(decor).some(([x, y]) => curtainCells.has(`${x},${y}`))
+}
+
+/**
+ * The plan shift an edge-decor piece takes towards its tile centre when backed
+ * against a curtain in `modules` — `[0, 0]` when it stands alone. Read by the
+ * piece models (`placeLocalAtEdge`), so what is drawn is what the placement
+ * verdict allows.
+ */
+export function edgeDecorCurtainOffset(modules: readonly Module[], decor: Module): [number, number] {
+  if (!isEdgeDecor(decor)) return [0, 0]
+  for (const m of modules) {
+    if (m.id === decor.id || m.type !== 'glass') continue
+    if (edgeDecorCurtainShare(m, decor)) {
+      const [sx, sy] = wallSide(decor.rot)
+      return [sx * EDGE_DECOR_CURTAIN_SHIFT, sy * EDGE_DECOR_CURTAIN_SHIFT]
+    }
+  }
+  return [0, 0]
+}
+
 /** Every cell a 站名's run covers — its panel is its run, in whole cells. */
 export function calligraphyCells(m: Extract<Module, { type: 'calligraphy' }>): Array<[number, number, number]> {
   return runCells({ x: m.x, y: m.y, z: m.z, w: m.w, rot: m.rot })
@@ -1580,6 +1637,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     // here — standing on the bed itself stays refused via `placementOnTrack`.
     if ((isCeilingHung(m) && isCeilingTrack(candidate)) || (isCeilingHung(candidate) && isCeilingTrack(m))) continue
     if (curtainDoorShare(m, candidate)) continue
+    if (edgeDecorCurtainShare(m, candidate)) continue
     if (m.type === 'glass' && candidate.type === 'glass' && curtainShareCrossTile(m, candidate)) continue
     // A station-side 广告牌 can sit on the wall behind the platform screen doors.
     // Their coarse envelopes overlap in height, but the poster is mounted at the

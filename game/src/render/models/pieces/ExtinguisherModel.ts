@@ -106,7 +106,7 @@ export class ExtinguisherModel extends PieceBuilder {
     }
     // The two-cell cabinet sits centrally across its reserved run, beside its anchor.
     if (spec.cells === 2) for (const child of g.children) child.position.x += 0.5
-    return placeLocalAtEdge(g, mod, spec.depth)
+    return placeLocalAtEdge(g, mod, spec.depth, this.ctx.data?.modules)
   }
 }
 

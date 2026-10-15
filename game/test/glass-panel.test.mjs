@@ -18,6 +18,9 @@ import {
   autofaceWallMount,
   curtainCornerJoin,
   curtainShareCrossTile,
+  edgeDecorCurtainOffset,
+  edgeDecorCurtainShare,
+  isEdgeDecor,
   glassCells,
   doorCells,
   curtainDoorShare,
@@ -30,6 +33,7 @@ import {
   wallMountCourses,
   wallMountMissing,
   wallSide,
+  EDGE_DECOR_CURTAIN_SHIFT,
 } from '../src/sim/placement.ts'
 import { createModule, toState } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
@@ -241,6 +245,54 @@ test('a fence shares parallel wall glass and may cross a floor-standing curtain'
   assert.equal(placementBlocked([glass(2, 2, 0, 1, 'g', '3x4')], fence(2, 2, 0)), false, 'the curtain may be placed over a crossing fence')
   assert.equal(placementBlocked([fence(2, 2, 1)], glass(2, 2, 0, 1, 'g', '2x4')), false, 'parallel curtain the other way shares it too')
   assert.equal(placementBlocked([fence(2, 2, 0)], glass(2, 2, 0, 1, 'g', '1x1')), true, 'crossing wall-mounted glass remains blocked')
+})
+
+test('edge decor backed against a curtain shares its tile, shifted towards the centre', () => {
+  // Floor decor drawn offset against a wall (bin, 灭火器, shelf, TVM, vending)
+  // may lean its back on a floor-standing 玻璃幕墙 in the same tile. The backs
+  // coincide on one tile edge — opposite turns — so the piece steps towards the
+  // tile centre to clear the glazing.
+  const decor = (type, x, y, rot, id = `${type}-1`) => ({ id, type, x, y, z: 0, rot, cfg: {} })
+  const wall = glass(2, 2, 0, 0, 'wall', '1x1')
+  const southCurtain = curtain(2, 2, 0, 0, 'curtain-s', '1x4', 2)
+  const fireSouth = decor('extinguisher', 2, 2, 2, 'fire-s')
+  assert.equal(isEdgeDecor(fireSouth), true, 'a 灭火器 is edge decor')
+  assert.equal(isEdgeDecor({ type: 'bench' }), false, 'a bench is centred, not edge decor')
+  assert.equal(edgeDecorCurtainShare(southCurtain, fireSouth), true, 'opposite turns share the south edge')
+  assert.equal(edgeDecorCurtainShare(fireSouth, southCurtain), true, 'either side of the pair')
+  assert.equal(placementBlocked([southCurtain], fireSouth), false, 'the cabinet leans on the curtain')
+  assert.equal(placementBlocked([fireSouth], southCurtain), false, 'either placement order')
+  assert.deepEqual(edgeDecorCurtainOffset([southCurtain], fireSouth), [0, EDGE_DECOR_CURTAIN_SHIFT], 'the cabinet steps north towards its tile centre')
+  assert.deepEqual(edgeDecorCurtainOffset([], fireSouth), [0, 0], 'standing alone it keeps its wall offset')
+  // The other three edges read the same way, and every edge-decor type shares them.
+  for (const rot of [0, 1, 2, 3]) {
+    const edge = curtain(5, 5, 0, rot, `curtain-${rot}`, '1x4', 2)
+    const back = decor('extinguisher', 5, 5, (rot + 2) % 4, `fire-${rot}`)
+    assert.equal(edgeDecorCurtainShare(edge, back), true, `rot ${rot} curtain backs rot ${(rot + 2) % 4} decor`)
+    assert.equal(placementBlocked([edge], back), false, `rot ${rot} pair shares its tile`)
+    const [sx, sy] = wallSide(back.rot)
+    assert.deepEqual(edgeDecorCurtainOffset([edge], back), [sx * EDGE_DECOR_CURTAIN_SHIFT, sy * EDGE_DECOR_CURTAIN_SHIFT])
+    for (const type of ['bin', 'extinguisher', 'shelf', 'tvm', 'vending']) {
+      const piece = decor(type, 5, 5, (rot + 2) % 4, `${type}-${rot}`)
+      assert.equal(placementBlocked([edge], piece), false, `${type} backs rot ${rot} curtain`)
+    }
+  }
+  // Anything else stays refused: the wrong turn, another tile, another storey,
+  // and a wall-mounted panel that is cladding rather than a curtain to lean on.
+  assert.equal(edgeDecorCurtainShare(southCurtain, decor('extinguisher', 2, 2, 0, 'fire-n')), false, 'the far edge is not backed')
+  assert.equal(placementBlocked([southCurtain], decor('extinguisher', 2, 2, 0, 'fire-n')), true, 'the far edge still collides')
+  assert.equal(placementBlocked([southCurtain], decor('extinguisher', 2, 2, 1, 'fire-e')), true, 'a side edge still collides')
+  assert.equal(edgeDecorCurtainShare(southCurtain, decor('extinguisher', 3, 2, 2, 'fire-away')), false, 'another tile is not the same tile')
+  assert.equal(edgeDecorCurtainShare(southCurtain, { ...fireSouth, z: 4 }), false, 'another storey is not the same tile')
+  assert.equal(edgeDecorCurtainShare(wall, fireSouth), false, 'a wall-mounted panel takes no leaning furniture')
+  assert.equal(placementBlocked([wall], fireSouth), true, 'against wall glass the cabinet stays refused')
+  // The shifted cabinet stays inside its reserved cell, clear of the glazing.
+  const originCurtain = curtain(0, 0, 0, 0, 'curtain-o', '1x4', 2)
+  const originFire = decor('extinguisher', 0, 0, 2, 'fire-o')
+  const { box: shifted } = build(originFire, [originCurtain, originFire])
+  assert.ok(shifted.min.x >= -0.5 && shifted.max.x <= 0.5 && shifted.min.y >= -0.5 && shifted.max.y <= 0.5, 'the shifted cabinet stays in its tile')
+  const { box: plain } = build(originFire, [originFire])
+  assert.ok(Math.abs(shifted.min.y - plain.min.y - EDGE_DECOR_CURTAIN_SHIFT) < 1e-9, 'the model steps exactly the placement shift')
 })
 
 test('a panel shares the turning cell of a fence run on the sides no arm reaches', () => {

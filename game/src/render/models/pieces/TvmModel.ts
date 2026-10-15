@@ -102,7 +102,7 @@ function buildTvm(ctx: ModuleContext): THREE.Group {
 export class TvmModel extends PieceBuilder {
   readonly kind = 'tvm'
   build(mod: Extract<Module, { type: 'tvm' }>): THREE.Group {
-    return placeLocalAtEdge(buildTvm(this.ctx), mod, 0.6)
+    return placeLocalAtEdge(buildTvm(this.ctx), mod, 0.6, this.ctx.data?.modules)
   }
 }
 

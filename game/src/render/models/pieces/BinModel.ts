@@ -66,7 +66,7 @@ function buildBin(mats: ModelMaterials): THREE.Group {
 export class BinModel extends PieceBuilder {
   readonly kind = 'bin'
   build(mod: Extract<Module, { type: 'bin' }>): THREE.Group {
-    return placeLocalAtEdge(buildBin(this.ctx.mats), mod, 0.436)
+    return placeLocalAtEdge(buildBin(this.ctx.mats), mod, 0.436, this.ctx.data?.modules)
   }
 }
 

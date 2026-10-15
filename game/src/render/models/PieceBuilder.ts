@@ -9,6 +9,7 @@ import { getLanguage, t } from '../../sim/i18n.ts'
 import * as THREE from 'three'
 import { drawDesktopScreen } from './desktopScreen.ts'
 import type { FenceArms } from '../../sim/fences.ts'
+import { edgeDecorCurtainOffset } from '../../sim/placement.ts'
 import { PANEL_SIZE, makeSignBoards, signPlate } from '../../sim/sign.ts'
 import type { SignBoards, SignLayout, SignPanelSize } from '../../sim/sign.ts'
 import type { TvPairSlot } from '../../sim/tvs.ts'
@@ -1089,12 +1090,21 @@ export function placeLocal(group: THREE.Group, mod: Module): THREE.Group {
 }
 
 /** Place a floor-standing model with its local +y back on the tile's trailing edge. */
-export function placeLocalAtEdge(group: THREE.Group, mod: Module, depth: number): THREE.Group {
+export function placeLocalAtEdge(group: THREE.Group, mod: Module, depth: number, modules?: readonly Module[]): THREE.Group {
   const inset = 0.5 - depth / 2
   const rot = ((mod.rot ?? 0) % 4 + 4) % 4
   const offsets: Array<[number, number]> = [[0, inset], [-inset, 0], [0, -inset], [inset, 0]]
   const [dx, dy] = offsets[rot]!
-  group.position.set(mod.x + 0.5 + dx, mod.y + 0.5 + dy, mod.z + 1)
+  // Backed against a floor-standing curtain, the piece steps towards its tile
+  // centre so its back clears the glazing (`edgeDecorCurtainOffset`).
+  let sx = 0
+  let sy = 0
+  if (modules) {
+    const [ox, oy] = edgeDecorCurtainOffset(modules, mod)
+    sx = ox
+    sy = oy
+  }
+  group.position.set(mod.x + 0.5 + dx + sx, mod.y + 0.5 + dy + sy, mod.z + 1)
   if (mod.rot) group.rotation.z = (mod.rot * Math.PI) / 2
   return group
 }

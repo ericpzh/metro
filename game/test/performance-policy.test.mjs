@@ -461,3 +461,13 @@ test('inert decor additions retain existing groups and rebuild tactile/hanger ne
   const bench = createModule('bench', 20, 0, -4, 'bench')
   assert.equal(retainedModuleIds(before, { ...before, modules: [...before.modules, bench] }).size, 0, 'a functional addition still invalidates conservatively')
 })
+
+test('adding a curtain rebuilds the edge decor leaning on it', () => {
+  const station = { name: 'test', seed: 1, lines: [], modules: [], cells: [{ x: 0, y: 0, z: 0, fill: 'solid' }] }
+  const fire = { id: 'fire', type: 'extinguisher', x: 0, y: 0, z: 0, rot: 2, cfg: {} }
+  const board = createModule('billboard-wide', 10, 0, 0, 'board')
+  const before = { ...station, modules: [fire, board] }
+  const curtain = { id: 'curtain', type: 'glass', x: 0, y: 0, z: 0, rot: 0, w: 1, cfg: { variant: '1x4', curtainHeight: 2 } }
+  assert.deepEqual([...retainedModuleIds(before, { ...before, modules: [fire, board, curtain] })].sort(), ['board'], 'the backed cabinet rebuilds shifted while the wall panel stays')
+  assert.deepEqual([...retainedModuleIds({ ...before, modules: [fire, board, curtain] }, before)].sort(), ['board'], 'lifting the curtain rebuilds the cabinet it leaves behind')
+})

@@ -123,6 +123,14 @@ the storey floor, which is what puts a poster at eye height wherever it is aimed
 all of it in `wall-ceiling-snap`, `equipment-placement-input`, `glass-panel`, `move`
 and `scene-wiring`.
 
+Floor decor drawn offset against a wall — 垃圾桶, 灭火器, 货架, 售票机, 自动售货机 —
+may back against a floor-standing 玻璃幕墙 in the same tile. The pair shares the tile
+only when the backs coincide on one edge (opposite turns); the piece steps towards its
+tile centre (`EDGE_DECOR_CURTAIN_SHIFT`) so its back clears the glazing
+(`edgeDecorCurtainShare` / `edgeDecorCurtainOffset`, drawn via `placeLocalAtEdge`).
+Pin the placement, the shift and the model in `glass-panel`, and the curtain-neighbour
+rebuild in `performance-policy`.
+
 ## Repo rule: translations use the existing i18n infrastructure
 
 All built-in player-facing copy must come from the owning catalogue, including

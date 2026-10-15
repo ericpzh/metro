@@ -1,5 +1,5 @@
 import type { Cell, Module, StationData } from '../sim/types.ts'
-import { moduleEnvelope, moduleFootprint } from '../sim/placement.ts'
+import { isEdgeDecor, edgeDecorCurtainShare, moduleEnvelope, moduleFootprint } from '../sim/placement.ts'
 import { hangerSupports } from '../sim/hangers.ts'
 import { isSimInertDecorModule } from '../sim/decorInert.ts'
 import { stairFlights } from '../sim/stairs.ts'
@@ -109,6 +109,7 @@ function inertDecorRetainedIds(before: StationData, after: StationData): Set<str
   const beforeById = new Map(before.modules.map((mod) => [mod.id, mod]))
   const changedIds = new Set<string>()
   const tactileCells = new Set<string>()
+  const curtainNeighbours: Module[] = []
   const hangers: Module[] = []
   let changed = false
   for (const old of before.modules) {
@@ -118,6 +119,7 @@ function inertDecorRetainedIds(before: StationData, after: StationData): Set<str
       changed = true
       if (old.type === 'tactile') tactileCells.add(`${old.x},${old.y},${old.z}`)
       if (old.type === 'hanger') hangers.push(old)
+      if (old.type === 'glass') curtainNeighbours.push(old)
       continue
     }
     if (old === next || JSON.stringify(old) === JSON.stringify(next)) continue
@@ -129,6 +131,7 @@ function inertDecorRetainedIds(before: StationData, after: StationData): Set<str
       tactileCells.add(`${next.x},${next.y},${next.z}`)
     }
     if (old.type === 'hanger' || next.type === 'hanger') hangers.push(old, next)
+    if (old.type === 'glass' || next.type === 'glass') curtainNeighbours.push(old, next)
   }
   for (const added of afterById.values()) {
     if (beforeById.has(added.id)) continue
@@ -136,6 +139,7 @@ function inertDecorRetainedIds(before: StationData, after: StationData): Set<str
     changed = true
     if (added.type === 'tactile') tactileCells.add(`${added.x},${added.y},${added.z}`)
     if (added.type === 'hanger') hangers.push(added)
+    if (added.type === 'glass') curtainNeighbours.push(added)
   }
   if (!changed) return retained
   const rebuild = new Set<string>(changedIds)
@@ -143,6 +147,12 @@ function inertDecorRetainedIds(before: StationData, after: StationData): Set<str
   for (const mod of after.modules) {
     if (changedIds.has(mod.id)) continue
     if (mod.type === 'tactile' && tactileKeys.some(([x, y, z]) => z === mod.z && Math.abs(x - mod.x) + Math.abs(y - mod.y) <= 1)) {
+      rebuild.add(mod.id)
+      continue
+    }
+    // An edge-decor piece backed against a curtain draws shifted towards its tile
+    // centre, so adding/lifting a curtain rebuilds the furniture leaning on it.
+    if (isEdgeDecor(mod) && curtainNeighbours.some((c) => edgeDecorCurtainShare(c, mod))) {
       rebuild.add(mod.id)
       continue
     }

@@ -150,6 +150,6 @@ export class ShelfModel extends PieceBuilder {
     batch(g, new THREE.BoxGeometry(1, 1, 1), mats.shelfGoods, labels, 'stock-labels')
     batch(g, new THREE.BoxGeometry(1, 1, 1), mats.shelfGoods, fittings, 'shelf-details')
     // The cooler's handles also stay inside its reserved tile.
-    return placeLocalAtEdge(g, mod, depth + (cooler ? 0.12 : 0))
+    return placeLocalAtEdge(g, mod, depth + (cooler ? 0.12 : 0), this.ctx.data?.modules)
   }
 }

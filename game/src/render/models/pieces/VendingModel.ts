@@ -52,7 +52,7 @@ function buildVending(mats: ModelMaterials): THREE.Group {
 export class VendingModel extends PieceBuilder {
   readonly kind = 'vending'
   build(mod: Extract<Module, { type: 'vending' }>): THREE.Group {
-    return placeLocalAtEdge(buildVending(this.ctx.mats), mod, 0.732)
+    return placeLocalAtEdge(buildVending(this.ctx.mats), mod, 0.732, this.ctx.data?.modules)
   }
 }
 

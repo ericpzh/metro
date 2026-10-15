@@ -41,7 +41,8 @@ A stair-block-only module addition builds the new stepped tile while retaining e
 equipment groups; ordinary module edits still take the conservative dependency path.
 A sim-inert decor placement (floor stickers, wall panels, hanging fittings that
 `buildGraph` never reads) retains untouched groups, rebuilds only tactile/hanger
-neighbours, resyncs batches through the cleared slice key, and skips routing,
+neighbours — plus the edge decor leaning on a changed curtain — resyncs batches
+through the cleared slice key, and skips routing,
 chunk remeshes and station-wide repaints; machines,
 cabinet bodies, posts and other functional pieces still rebuild.
 A boards-only sign change rebuilds one sign's model and repaints its plates in place,
@@ -2784,7 +2785,7 @@ approximated); neither needs WebGL.
   the 2 m window); a panel turns itself to a wall that backs it; two may not share a cell; the pieces
   round-trip the save and sweep by size. The model is where "outer frame only" becomes a number: five
   meshes at **every** unmodified size — a sill, a head, two end posts and one pane — against a 围栏 run of the same
-  length, which stands one frame up per cell. 玻璃幕墙 height choices stay floor-standing; all four orientations can occupy one tile while same-facing duplicates remain blocked, and a corner join removes the intersecting end post and shortens its rails. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here. The **height tile** is pinned through the tool as well as the factory: the 2 / 3 / 4 storey setting has to reach the piece a click would build (a dropped field would silently build every curtain four storeys tall, and it would still be a valid curtain). The **aim** is pinned through the tool too: a side-face hover on a plain 方块 wall mounts a 玻璃板 in the cell in front of that face, on the station's 基准高度 storey, hanging on the wall the camera is looking at — and orbiting to the other side of the tile re-aims it.
+  length, which stands one frame up per cell. 玻璃幕墙 height choices stay floor-standing; all four orientations can occupy one tile while same-facing duplicates remain blocked, and a corner join removes the intersecting end post and shortens its rails. A 门 dropped onto a 玻璃幕墙 snaps to its axis, may share its own run, and replaces the lower doorway section while upper and uncovered panes remain; the rotated snap, overlap verdict and partial pane are pinned here. Edge decor drawn offset against a wall (bin, 灭火器, shelf, TVM, vending) may back against a curtain in the same tile on opposite turns, stepping towards its tile centre to clear the glazing; anything else stays refused. The **height tile** is pinned through the tool as well as the factory: the 2 / 3 / 4 storey setting has to reach the piece a click would build (a dropped field would silently build every curtain four storeys tall, and it would still be a valid curtain). The **aim** is pinned through the tool too: a side-face hover on a plain 方块 wall mounts a 玻璃板 in the cell in front of that face, on the station's 基准高度 storey, hanging on the wall the camera is looking at — and orbiting to the other side of the tile re-aims it.
 * `door-panel.test.mjs` — the 门 (§5.7), the **free-standing doorway**: three material variants (不锈钢 / 木 / 玻璃) in the 门 family menu, plus a 窄 / 宽 action tile
   that also cycles with Tab, and a legacy value reading as the narrow stainless door; the factory centres a 双开 run on the hovered cell; the piece **stands on the
   floor** — it reserves its whole cells from the floor top to its head, wants no wall behind it
