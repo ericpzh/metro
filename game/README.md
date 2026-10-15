@@ -1,5 +1,24 @@
 # Station Designer — the game
 
+Each page load starts with an empty, paused station at ground level. The bilingual
+Getting started tour spotlights controls, opens their folders and scrolls them
+into view. Back / Next navigate, Skip or Escape closes it, and the top-bar tutorial button
+restarts it without replacing the station. The keyboard and mouse remain active
+throughout the tour, so players can try camera controls, select tools and build
+while reading each step. Progress and “Don’t show automatically” are stored in
+`metro-game.tutorial.v1` in local storage; station documents still
+need Save / Open files. An unfinished tour resumes on reload unless opted out;
+finishing returns its progress to the first step. Example stations remain available
+from the top bar.
+
+`test/tutorial.test.mjs` pins empty paused startup and tutorial preference
+round-trips, malformed/stale values and blocked storage. `npm run check:tutorial`
+builds the production game and checks both languages in a real browser, including
+live keyboard/mouse input, per-visit tool activation, line/folder expansion,
+keycap grouping and reload/opt-out/reopen behavior. Reports and screenshots live
+in ignored `.preview/tutorial/`. Demo-dependent browser checks use the shared
+`loadExampleStation` harness helper so they keep their authored fixture.
+
 Local editing retains equipment whose model inputs did not change, including its
 owned materials and live gate/lift/TV rigs. Train shells batch stationary opaque
 parts while door leaves remain independent. Hidden and paused crowds avoid buffer

@@ -52,9 +52,10 @@ interface BlockProps {
    * action, a tool), which is also what keeps them out of the reveal's way.
    */
   tile?: string
+  tutorialId?: string
 }
 
-export function Block({ label, active, onClick, thumb, art, icon, tone, submenu, shortcut, disabled, tile }: BlockProps): React.ReactElement {
+export function Block({ label, active, onClick, thumb, art, icon, tone, submenu, shortcut, disabled, tile, tutorialId }: BlockProps): React.ReactElement {
   useLanguage()
   return (
     <button
@@ -63,6 +64,7 @@ export function Block({ label, active, onClick, thumb, art, icon, tone, submenu,
       onClick={onClick}
       disabled={disabled}
       data-tile={tile}
+      data-tutorial={tutorialId}
       aria-pressed={active}
       aria-expanded={submenu}
     >

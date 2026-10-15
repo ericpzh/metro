@@ -3,8 +3,8 @@
 //   node tools/render-view-shots.mjs [--out .preview/view-shots] [--lang en] [--scale 2] [--port 4198]
 //
 // Sheet 09 is about the camera, and the only honest way to draw what a view looks
-// like is to let the game take it: this boots the built game — which loads the
-// shipped demo station, 动物园 — drives the camera through the real presets
+// like is to let the game take it: this boots the built game, loads the shipped
+// demo station, 动物园, then drives the camera through the real presets
 // (`CameraSystem.setPreset`, the same call the 1–5 keys and the nav cube make) and
 // writes one PNG per view, cropped to the station's own ink.
 //
@@ -23,7 +23,7 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { serveDir, withPage, waitFor } from './browser-harness.mjs'
+import { serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
@@ -535,6 +535,7 @@ try {
   })
 
   await waitFor(session.evaluate, '!!window.__scene && !!window.__metro', { what: 'the game' })
+  await loadExampleStation(session)
   // The demo station builds chunk by chunk; a dressed five-level station takes a
   // few seconds, and a photograph of half of it is worse than a slow one.
   await session.evaluate('new Promise((ok) => setTimeout(ok, 8000))')

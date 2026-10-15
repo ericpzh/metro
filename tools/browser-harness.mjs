@@ -203,3 +203,18 @@ export async function waitFor(evaluate, expression, { tries = 120, every = 500, 
   }
   throw new Error(`${what} was never ready: ${expression}`)
 }
+
+/** Demo-dependent checks opt into their fixture; normal game startup is empty. */
+export async function loadExampleStation(page, id = 'zoo') {
+  await waitFor(page.evaluate, '!!window.__scene && !!window.__metro', { what: 'game shell' })
+  await page.evaluate(`(() => {
+    document.querySelector('.tutorialActions .ghost')?.click();
+    window.__browserFixtureMetrics = window.__metro.getState().metrics;
+    window.__metro.getState().loadReference(${JSON.stringify(id)});
+  })()`)
+  await waitFor(page.evaluate, '!!window.__metro.getState().metrics && window.__metro.getState().metrics !== window.__browserFixtureMetrics && window.__metro.getState().station.modules.length > 0', { what: 'example station worker frame' })
+  await page.evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+    delete window.__browserFixtureMetrics;
+    resolve();
+  })))`)
+}

@@ -903,6 +903,33 @@ the four rules most changes trip over.
 
 ## The document and the demo station
 
+### Startup and interactive tutorial
+
+`app/boot.tsx` initializes the worker from the store's empty station, paused at
+ground level. Examples are explicit loads; `initialStation()` remains a reference
+fixture helper, not the startup document. Keep browser fixture loaders explicit.
+
+`app/windows/tutorial/` owns the bilingual tour, step metadata and local-storage
+preference (`metro-game.tutorial.v1`). The top-bar bookmarks button reopens it;
+the first card switches language through the existing shared i18n API. Keep mouse,
+wheel, orbit and game keyboard shortcuts usable under the dimming layer. The tour
+card alone catches pointer input; it must not mark the app inert or swallow game keys.
+
+Block / Delete / Platform practice starts with the tool highlighted even when it
+was already active. Reveal the construction area only after F / B / L or the
+matching tile is selected **during that visit to the step**. Tool changes hide
+that area again. Adding a line expands the line-step spotlight to the new card
+and scrolls its settings into view without stealing editing focus. Highlight
+whole equipment/decor/material folders as they expand, clipped to the rail's
+visible area, and scroll expanded contents into view after the fold settles.
+Use separate keycaps for each modifier/key, with wider gaps between shortcut
+groups. Mouse wheel/middle-button instructions have mouse graphics. All copy
+uses the shared catalogue; material painting starts by selecting a material,
+then Tab switches single-block / whole-surface mode.
+
+Run `npm run check:tutorial` for the production browser regression and the
+`tutorial` unit suite for empty startup, persistence and blocked/corrupt storage.
+
 * **Both boundaries repair rather than refuse.** `persistence/save.ts` owns the `metro-save`
   v1 envelope (`SAVE_FORMAT`, `SAVE_VERSION`, `serialize`, `parse`); a refusal (`文件损坏` /
   不是车站存档 / 存档太新了 / 缺少车站数据) is reserved for a broken **envelope**, and never
@@ -918,8 +945,10 @@ the four rules most changes trip over.
   `data/demo-station.json` (12,075 cells, 727 modules, seed `7654321`) and handed out by
   `referenceStation()` as a `structuredClone` so an edit never leaks back into the shared
   document. It opens cold at 06:30 sim time, warmup 0 (`REFERENCE_BOOT` in
-  `data/reference-station.ts`, pinned to `DEFAULT_SIM_TIME`), and `app/boot.tsx` seeds the world from `station.seed`, so a cold
-  boot and an 打开 of the same document run the same crowd. The old hand-built Wusi Square rig
+  `data/reference-station.ts`, pinned to `DEFAULT_SIM_TIME`). Loading it seeds the world from
+  `station.seed`; normal startup now opens an empty station. Browser captures and benchmarks
+  use `loadExampleStation` from `tools/browser-harness.mjs` to load the demo and dismiss the tour.
+  The old hand-built Wusi Square rig
   moved to `test/support/scenario-station.ts`, so the capacity / stair / escalator / opening tests
   keep their controlled knobs; `demo.test.mjs` guards that the shipped save is one connected
   circulation that actually boards and clears a crowd. **Refreshing it** (the author keeps editing

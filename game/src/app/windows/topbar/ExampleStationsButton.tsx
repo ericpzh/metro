@@ -31,6 +31,7 @@ export function ExampleStationsButton(): React.ReactElement {
     <>
       <button
         ref={buttonRef}
+        data-tutorial="examples"
         className="ghost iconBtn"
         onClick={() => open ? menuRef.current?.hidePopover() : show()}
         title={t('example_stations_ctrl_shift_n')}

@@ -35,7 +35,15 @@ node --test --test-isolation=none --experimental-test-coverage "test/**/*.test.m
 
 ## What the suite is
 
-Nothing runs in a browser. Tests import the TypeScript sources **directly** (Node
+`tutorial.test.mjs` covers empty paused startup, browser-preference persistence,
+invalid/outdated values and unavailable storage. React interactions are checked
+separately by `npm run check:tutorial` from the root: it builds the production
+game, launches Chrome/Edge through `tools/browser-harness.mjs`, and checks both
+locales, live controls, per-visit tool activation, dynamic line/folder spotlights,
+keycap layout and reload/opt-out/reopen behavior. Reports/screenshots go to ignored
+`.preview/tutorial/`. Do not count these browser checks as Node/V8 source coverage.
+
+The Node suites do not run in a browser. Tests import the TypeScript sources **directly** (Node
 strips the types) and drive them the way the app does: the sim in-process, the
 drawing helpers headless, and the React store through its own actions. Tests
 import `src/sim/*.ts`, `src/build/validation.ts` (the placement verdict),

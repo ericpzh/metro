@@ -6,7 +6,7 @@ import type { Root } from 'react-dom/client'
 import { App } from './App.tsx'
 import { Lab } from './Lab.tsx'
 import { initSim, useStore } from './store.ts'
-import { referenceStation, REFERENCE_BOOT } from '../data/reference-station.ts'
+import { toData } from '../build/model.ts'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
@@ -34,10 +34,7 @@ export function renderGame(root: Root): void {
   window.__metro = useStore
 
   if (!isLab) {
-    // The demo opens on the 动物园 station cold, with 0 passengers — the crowd
-    // builds from the first train arrivals. The seed is the station's own, so a
-    // cold boot and 打开 of the same document run the same crowd.
-    const station = referenceStation()
-    initSim(station, station.seed, REFERENCE_BOOT)
+    const station = toData(useStore.getState().station)
+    initSim(station, station.seed)
   }
 }

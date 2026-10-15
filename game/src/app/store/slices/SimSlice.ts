@@ -138,7 +138,7 @@ function ensureClient(): Worker {
   return client
 }
 
-/** Boots the worker on the demo. Called once from boot.tsx. The game opens
+/** Boots the worker on the initial document. Called once from boot.tsx. The game opens
  * paused — the player presses play (or Space) to start the crowd. */
 export function initSim(data: StationData, seed: number, opts: { startSeconds?: number; warmup?: number } = {}): void {
   // A full reset drops every passenger, so the previewed one goes with them — the

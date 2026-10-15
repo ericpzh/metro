@@ -133,6 +133,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
     <Disclosure
       key={line.id}
       className="card"
+      tutorialId={`line-${line.id}`}
       head={
         <span className="kv">
           <b>

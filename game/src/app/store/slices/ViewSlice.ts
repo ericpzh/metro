@@ -117,7 +117,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
     if (!saved) return
     set({ ...saved, followAgentId: null, passengerViewBefore: null })
   },
-  activeZ: -8,
+  activeZ: 0,
   ghostOtherLevels: true,
   autoCeiling: true,
   cutaway: false,

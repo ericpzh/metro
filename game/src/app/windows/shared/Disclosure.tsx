@@ -13,17 +13,19 @@ export function Disclosure({
   open,
   onToggle,
   className,
+  tutorialId,
   children,
 }: {
   head: React.ReactNode
   open: boolean
   onToggle: () => void
   className?: string
+  tutorialId?: string
   children: React.ReactNode
 }): React.ReactElement {
   useLanguage()
   return (
-    <div className={className ? `disclosure ${className}` : 'disclosure'}>
+    <div data-tutorial={tutorialId} className={className ? `disclosure ${className}` : 'disclosure'}>
       <button type="button" className={open ? 'disclosureHead open' : 'disclosureHead'} onClick={onToggle} aria-expanded={open}>
         {translate(head)}
         <span className="disclosureCaret" aria-hidden="true" />

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { serveDir, withPage, waitFor } from './browser-harness.mjs'
+import { serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
 const noMultiDraw = process.argv.includes('--no-multi-draw')
 
 // Real production GLSL/multi-draw check. Geometry/calls are assertions; FPS is
@@ -25,6 +25,7 @@ try {
     await waitFor(page.evaluate, 'window.__multiDrawDisabled === true', { what: 'extension-free document initialization' })
   }
   await waitFor(page.evaluate, '!!window.__scene && !!window.__metro.getState().stats', { what: 'production scene' })
+  await loadExampleStation(page)
   await page.evaluate(`(async () => {
     window.__batchCheck = { errors: [] };
     window.addEventListener('error', e => __batchCheck.errors.push(e.message));

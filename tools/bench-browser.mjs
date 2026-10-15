@@ -2,7 +2,7 @@
 // console hooks; timing wrappers exist only in this disposable browser page.
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
-import { serveDir, withPage, waitFor } from './browser-harness.mjs'
+import { serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
 import { summarize, printTimings } from './perf-stats.mjs'
 
 const duration = Number(process.env.BENCH_SECONDS ?? 6)
@@ -20,8 +20,9 @@ try {
   page = await withPage({ url: `http://127.0.0.1:${server.address().port}/`,
     profile: resolve(`.preview/perf/chrome-${process.pid}`), debugPort: Number(process.env.BENCH_PORT ?? 9348),
     windowSize: process.env.BENCH_SIZE ?? '1400,900', softwareGpu })
-  await waitFor(page.evaluate, '!!(window.__scene && window.__metro?.getState().metrics && window.__metro.getState().stats)', { what: 'demo station' })
+  await waitFor(page.evaluate, '!!(window.__scene && window.__metro?.getState().metrics && window.__metro.getState().stats)', { what: 'initial station' })
   const startup = { readyMs: await page.evaluate('performance.now()') }
+  await page.evaluate(`document.querySelector('.tutorialActions .ghost')?.click()`)
   if (process.env.BENCH_STATION) {
     const text = readFileSync(process.env.BENCH_STATION, 'utf8')
     startup.stationLoadMs = await page.evaluate(`(async () => {
@@ -31,7 +32,8 @@ try {
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
       return performance.now() - start;
     })()`)
-  }
+  } else await loadExampleStation(page)
+  startup.fixtureReadyMs = await page.evaluate('performance.now()')
   // Allow asynchronous artwork rebuilds and shader compilation to settle.
   await page.evaluate('new Promise(r => setTimeout(r, 3000))')
   await page.evaluate(`(() => {

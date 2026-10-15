@@ -7,6 +7,7 @@ import { useStore } from '../../store.ts'
 import { ExampleStationsButton } from './ExampleStationsButton.tsx'
 import { NewStationButton } from './NewStationButton.tsx'
 import { IoLanguageSharp } from 'react-icons/io5'
+import { IoIosBookmarks } from 'react-icons/io'
 import { FaBug } from 'react-icons/fa'
 import { getLanguage, setLanguage } from '../../i18n.ts'
 
@@ -87,6 +88,9 @@ export function TopBar(): React.ReactElement {
       <div className="spacer" />
       <NewStationButton />
       <ExampleStationsButton />
+      <button className="ghost iconBtn" onClick={() => window.dispatchEvent(new Event('metro:tutorial'))} title={t('tutorial_title')} aria-label={t('tutorial_title')}>
+        <IoIosBookmarks aria-hidden="true" />
+      </button>
       <button
         className="ghost iconBtn"
         onClick={saveToFile}

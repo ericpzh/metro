@@ -21,7 +21,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tForLanguage } from '../game/src/sim/i18n.ts'
-import { serveDir, withPage, waitFor } from './browser-harness.mjs'
+import { serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..')
@@ -265,6 +265,7 @@ try {
   })
 
   await waitFor(session.evaluate, '!!window.__scene && !!window.__metro', { what: 'the game' })
+  await loadExampleStation(session)
   // The demo station builds chunk by chunk; a dressed station takes a few seconds.
   await session.evaluate('new Promise((ok) => setTimeout(ok, 6000))')
   await session.evaluate(`(() => { window.__metro.getState().renameStation(${JSON.stringify(tForLanguage(language === 'en' ? 'en' : 'zh-CN', 'metro_station'))}); return true })()`)

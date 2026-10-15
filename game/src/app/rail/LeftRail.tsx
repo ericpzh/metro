@@ -33,6 +33,7 @@ import { ZoneFolder } from './folders/ZoneFolder.tsx'
 import { PaintFolder } from './folders/PaintFolder.tsx'
 
 interface FolderProps {
+  tutorialId?: string
   title: string
   count?: number
   /** The Shift+number that folds this folder, badged on the header on hover. */
@@ -42,10 +43,10 @@ interface FolderProps {
   children: React.ReactNode
 }
 
-export function Folder({ title, count, shortcut, open, onToggle, children }: FolderProps): React.ReactElement {
+export function Folder({ tutorialId, title, count, shortcut, open, onToggle, children }: FolderProps): React.ReactElement {
   useLanguage()
   return (
-    <section className={open ? 'folder open' : 'folder'}>
+    <section data-tutorial-folder={tutorialId} className={open ? 'folder open' : 'folder'}>
       {/* The key is the ladder's (`RAIL_FOLDERS`), and it is worn the way a tile
           wears its own: a badge on the right of the bar, drawn on hover or focus
           (`styles.css` `.bpKey` / `.folderKey`), so a rail of closed folders stays
@@ -159,6 +160,16 @@ export function LeftRail(): React.ReactElement {
   // between the app and the camera. The event carries the 信息栏's own keys too
   // (its Alt ladder), so a key this table does not name is dropped rather than folded.
   useEffect(() => {
+    const reveal = (e: Event): void => {
+      const { open, close } = (e as CustomEvent<{ open: string[]; close: string[] }>).detail
+      const entries = [...open.map((key) => [key, true] as const), ...close.map((key) => [key, false] as const)]
+      setOpen((prev) => ({ ...prev, ...Object.fromEntries(entries.filter(([key]) => RAIL_FOLDER_KEYS.has(key))) }))
+    }
+    window.addEventListener('metro:tutorial-folders', reveal)
+    return () => window.removeEventListener('metro:tutorial-folders', reveal)
+  }, [])
+
+  useEffect(() => {
     const onFolder = (e: Event): void => {
       const key = (e as CustomEvent).detail as FolderKey
       if (!RAIL_FOLDER_KEYS.has(key)) return
@@ -259,6 +270,7 @@ export function LeftRail(): React.ReactElement {
       {RAIL_FOLDERS.map(({ key, title, shift }) => (
         <Folder
           key={key}
+          tutorialId={key}
           title={translate(title)}
           count={folders[key].count}
           shortcut={`Shift+${shift}`}

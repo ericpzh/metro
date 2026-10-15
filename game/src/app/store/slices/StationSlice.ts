@@ -9,7 +9,6 @@ import { REFERENCE_BOOT, referenceStation } from '../../../data/reference-statio
 import type { ExampleStationId } from '../../../data/reference-station.ts'
 import {
   cloneState,
-  initialStation,
   nearestLevel,
   toData,
   toState,
@@ -102,7 +101,7 @@ export interface StationSlice {
 }
 
 export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = (set, get) => ({
-  station: initialStation(),
+  station: toState({ name: msg('unnamed_station'), seed: 7654321, cells: [], modules: [], lines: [] }),
   version: 0,
   stationEpoch: 0,
   notice: null,

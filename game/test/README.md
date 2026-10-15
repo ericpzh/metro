@@ -1,5 +1,15 @@
 # `game/test` — how the game is tested
 
+`tutorial.test.mjs` covers empty, paused startup at ground level and the tutorial's
+local-storage progress/opt-out, including corrupted, stale and blocked storage.
+Run `npm run check:tutorial` from the repo root for the separate production-browser
+regression: bilingual layout, first-card language switching, separate shortcut
+keycaps, live keyboard/mouse controls, tool-only activation before revealing the
+construction area, new-line expansion, whole-folder highlighting/scrolling, and
+reload/skip/completion/opt-out/reopening. It uses Chrome or Edge and saves its
+report/screenshots under ignored `.preview/tutorial/`. These UI checks do not
+contribute to the Node suite's V8 coverage figures.
+
 `roof-tool` pins stair-block previews without placement validation or document edits;
 release validates the run and commits only accepted tiles once.
 It also checks a 1,334-module station produces one mouse-down raycast for both
@@ -289,6 +299,7 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | The pixels | `sign-render` (short 0.4 m signs, nine-arrow capacity and centred existing content, primary-only labels at twice the size, the divider line and the blank divider), `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
 | Concept art | `passenger-art-pipeline` — growing catalogues, bounded browser batches, complete standing/stride coverage, stale build rejection and duplicate capture files; `capture-passengers` — the `?capture-passengers` route wiring, the live crowd mesh photographed with alpha, every field the sheet tools place by (foot origin, scale, stride) and full-stride gait captures in plan, elevation and isometric views. `art-passenger-heading` projects facing through the capture camera and compares it with all eight isometric travel directions, preventing sideways walking. Browser playback is checked separately with `node tools/test-passenger-animation.mjs` after captures and art generation. |
 | Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, explicit-language formatting without changing UI state, root/prefixed English routes and assets |
+| Startup and tutorial | `tutorial` — empty paused startup at ground level and resilient progress/opt-out storage. `npm run check:tutorial` separately exercises the production UI in both languages, including live input, practice activation, dynamic spotlights, keycaps and reload behavior. |
 | The app | `move` (including no lift when the visible-layer picker has no target), `delete-tool` (block delete rectangles, Shift lines and one-step undo; hidden modules do not start a module delete), `equipment-deletion` (visible module before underlying grid cell), `equipment-placement-input` (wall/ceiling support placement from open air, plus an exit preview and click aligned by picking a stair through tread gaps even with a floor hit), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool and the room front R tile), `builder-attributes` (shared module capability order, common width icon, R/Tab/Shift+Tab dispatch, the four run lengths and the straight-stair predicate the length tile is gated on), `tool-hover-preview` (blue previews for move/picker/select, red preview for bulldoze), `rail-folders` (all ten Shift+number keys, four top-level decor folder titles and diagonal tab positions through the last two rows), `rail-families` (per-section decor membership and order, cross-section families with complete variant menus, and the equipment-to-decor TVM move), `line-edit`, `new-station-confirmation` (the top-bar button and Ctrl+N require confirmation before replacing the station), `topbar-report-issue` (the FaBug issue-tracker link beside restart), `topbar-playback` (the paused play button resumes like Space, keeping the speed tiles' own resume), `select-agent` (cell fallback ignores modules hidden by level slicing) — `pick-tool` also pins the hidden-module fallback and the full-palette sweep: every `MODULE_OPTIONS` id round-trips through the picker, including the setting-free 空调风机 and 设备柜 |
 
 ## The rules a test here follows

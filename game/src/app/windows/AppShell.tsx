@@ -4,7 +4,7 @@ import { useLanguage } from '../i18n.ts'
 // five windows (TopBar + LeftRail + Viewport + Inspector + BottomBar) and owns
 // the global keyboard shortcuts and the notice toast. Kept under the App name
 // so the old import path (via the App.tsx barrel) keeps working.
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CollapseButton } from './shared/CollapseButton.tsx'
 import { useStore, activateModuleBuilderShortcut } from '../store.ts'
 import { LeftRail } from '../LeftRail.tsx'
@@ -15,11 +15,13 @@ import { TopBar } from './topbar/TopBar.tsx'
 import { Inspector } from './inspector/Inspector.tsx'
 import { BottomBar } from './statusbar/BottomBar.tsx'
 import { TimePanel } from './time/TimePanel.tsx'
+import { Tutorial } from './tutorial/Tutorial.tsx'
 
 export function App(): React.ReactElement {
   useLanguage()
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
+  const revealTutorial = useCallback(() => { setLeftOpen(true); setRightOpen(true) }, [])
   const setTool = useStore((s) => s.setTool)
   const notice = useStore((s) => s.notice)
 
@@ -295,6 +297,7 @@ export function App(): React.ReactElement {
       {/* The 指示牌 board editor is a modal over everything, so the board is as big
           as the window will allow. */}
       <SignEditor />
+      <Tutorial reveal={revealTutorial} />
     </div>
   )
 }

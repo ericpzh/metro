@@ -23,6 +23,11 @@ interaction, bound event work, compare equivalent runs and guard the measured ca
 | `web/` (the concept-art site), `art/` (the sheets), and the art/card renderers in `tools/` | `metro-web` |
 | `model/` characters, bag variants, walking exports and the approved game passenger atlas | `metro-model` |
 
+The game's first-run tutorial belongs to `metro-game` (`app/windows/tutorial/`).
+Its interactive browser regression is `npm run check:tutorial`; use `metro-game-test`
+for persistence/startup unit tests and the browser coverage split. A normal page
+load starts empty, so browser tools requiring a demo must load their fixture explicitly.
+
 ## What lives where
 
 `model/` is the third app: a Vite + three.js character viewer at port 5175.
@@ -210,6 +215,7 @@ npm run build:model   # generate assets and build model/dist
 npm run art:models    # approved model exports → game atlas → bilingual art + verified previews
 npm run dev:all       # web 5173 + game 5174 + model 5175
 npm run test:game     # node --test over game/test/**/*.test.mjs
+npm run check:tutorial # production browser tutorial/input/i18n regressions
 npm run build:game    # install game/ deps, then tsc --noEmit && vite build
 npm run bench:sim     # demo-station simulation + build CPU timings
 npm run bench:browser # production app/worker/browser FPS + edit-to-frame timings

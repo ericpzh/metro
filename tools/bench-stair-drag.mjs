@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { serveDir, withPage, waitFor } from './browser-harness.mjs'
+import { serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
 
 const server = await serveDir(resolve('game/dist'), 0)
 let page
@@ -8,10 +8,11 @@ try {
   page = await withPage({ url: `http://127.0.0.1:${server.address().port}/`,
     profile: resolve(`.preview/perf/stair-chrome-${process.pid}`), softwareGpu: false })
   await waitFor(page.evaluate, '!!(window.__scene && window.__metro?.getState().metrics)', { what: 'station' })
+  await page.evaluate(`document.querySelector('.tutorialActions .ghost')?.click()`)
   if (process.env.BENCH_STATION) {
     const save = readFileSync(process.env.BENCH_STATION, 'utf8')
     await page.evaluate(`window.__metro.getState().loadFromText(${JSON.stringify(save)})`)
-  }
+  } else await loadExampleStation(page)
   await page.evaluate(`new Promise(resolve => setTimeout(resolve, 3000))`)
   const point = await page.evaluate(`(async () => {
     window.__metro.setState({ tool: 'module', moduleType: 'stair-block', moduleRot: 0 });

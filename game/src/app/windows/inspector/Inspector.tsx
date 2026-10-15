@@ -51,6 +51,16 @@ export function Inspector(): React.ReactElement {
   // listener knows the table, this column knows whether its folder is open. The rail
   // drops the keys it does not own the same way, so one letter folds one header.
   useEffect(() => {
+    const reveal = (e: Event): void => {
+      const { open, close } = (e as CustomEvent<{ open: string[]; close: string[] }>).detail
+      const entries = [...open.map((key) => [key, true] as const), ...close.map((key) => [key, false] as const)]
+      setOpen((prev) => ({ ...prev, ...Object.fromEntries(entries.filter(([key]) => INSPECTOR_FOLDER_KEYS.has(key))) }))
+    }
+    window.addEventListener('metro:tutorial-folders', reveal)
+    return () => window.removeEventListener('metro:tutorial-folders', reveal)
+  }, [])
+
+  useEffect(() => {
     const onFolder = (e: Event): void => {
       const key = (e as CustomEvent).detail as string
       if (!INSPECTOR_FOLDER_KEYS.has(key)) return
@@ -97,7 +107,7 @@ export function Inspector(): React.ReactElement {
               onToggle={() => setOpenLines((o) => ({ ...o, [line.id]: !(o[line.id] ?? true) }))}
             />
           ))}
-          <button className="chip" onClick={addLine}>
+          <button data-tutorial="new-line" className="chip" onClick={addLine}>
             {t('new_line')}</button>
         </>
       ),
@@ -123,6 +133,7 @@ export function Inspector(): React.ReactElement {
         {INSPECTOR_FOLDERS.map(({ key, title, alt }) => (
           <Folder
             key={key}
+            tutorialId={key}
             title={translate(title)}
             count={folders[key].count}
             shortcut={`Alt+${alt}`}

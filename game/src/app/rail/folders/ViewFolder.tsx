@@ -80,7 +80,7 @@ export function ViewFolder(): React.ReactElement {
         onClick={() => st().setAutoCeiling(!autoCeiling)}
       />
       <Block label={t('hide_walls')} icon="wall" active={hideWalls} onClick={() => st().setHideWalls(!hideWalls)} />
-      <Block label={t('hide_floors')} icon="ground" active={hideGround} onClick={() => st().setHideGround(!hideGround)} />
+      <Block label={t('hide_floors')} tutorialId="hide-ground" icon="ground" active={hideGround} onClick={() => st().setHideGround(!hideGround)} />
       <Block label={t('hide_roofs')} icon="roof" active={hideRoof} onClick={() => st().setHideRoof(!hideRoof)} />
       <Block label={t('zone_map')} icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
       <Block label={t('heatmap')} icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
