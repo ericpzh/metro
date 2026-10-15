@@ -1,5 +1,8 @@
 # `game/test` — how the game is tested
 
+`autosave.test.mjs` covers dirty-only local saves, undo/redo, immediate new/import/demo
+replacement, invalid saved data, quota failures and retries.
+
 `tutorial.test.mjs` covers empty, paused startup at ground level and the tutorial's
 local-storage progress/opt-out, including corrupted, stale and blocked storage.
 Run `npm run check:tutorial` from the repo root for the separate production-browser

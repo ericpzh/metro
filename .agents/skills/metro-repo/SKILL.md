@@ -25,8 +25,10 @@ interaction, bound event work, compare equivalent runs and guard the measured ca
 
 The game's first-run tutorial belongs to `metro-game` (`app/windows/tutorial/`).
 Its interactive browser regression is `npm run check:tutorial`; use `metro-game-test`
-for persistence/startup unit tests and the browser coverage split. A normal page
-load starts empty, so browser tools requiring a demo must load their fixture explicitly.
+for persistence/startup unit tests and the browser coverage split. Normal page loads
+restore the local autosave or start empty; browser tools requiring a demo must load
+their fixture explicitly. Autosave ownership and replacement rules live in
+`metro-game` under “Startup and interactive tutorial”.
 
 ## What lives where
 

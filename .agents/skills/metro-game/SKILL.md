@@ -905,9 +905,17 @@ the four rules most changes trip over.
 
 ### Startup and interactive tutorial
 
-`app/boot.tsx` initializes the worker from the store's empty station, paused at
-ground level. Examples are explicit loads; `initialStation()` remains a reference
+`app/boot.tsx` restores a valid local autosave before rendering and initializing
+the worker, paused at the station's baseline; otherwise it starts empty.
+Examples are explicit loads; `initialStation()` remains a reference
 fixture helper, not the startup document. Keep browser fixture loaders explicit.
+
+`app/autosave.ts` owns `metro-game.autosave.v1`, using the existing `metro-save`
+JSON envelope. Committed `version` changes save every 10 seconds and on pagehide
+or hidden visibility; previews and simulation frames must not dirty the save.
+A `stationEpoch` change (new/import/example) invalidates the old save and writes
+the replacement immediately. Failed writes stay dirty for retry; invalid or
+blocked storage must not prevent startup. Pin these rules in `autosave.test.mjs`.
 
 `app/windows/tutorial/` owns the bilingual tour, step metadata and local-storage
 preference (`metro-game.tutorial.v1`). The top-bar bookmarks button reopens it;
@@ -946,7 +954,7 @@ Run `npm run check:tutorial` for the production browser regression and the
   `referenceStation()` as a `structuredClone` so an edit never leaks back into the shared
   document. It opens cold at 06:30 sim time, warmup 0 (`REFERENCE_BOOT` in
   `data/reference-station.ts`, pinned to `DEFAULT_SIM_TIME`). Loading it seeds the world from
-  `station.seed`; normal startup now opens an empty station. Browser captures and benchmarks
+  `station.seed`; normal startup restores the autosave or opens an empty station. Browser captures and benchmarks
   use `loadExampleStation` from `tools/browser-harness.mjs` to load the demo and dismiss the tour.
   The old hand-built Wusi Square rig
   moved to `test/support/scenario-station.ts`, so the capacity / stair / escalator / opening tests

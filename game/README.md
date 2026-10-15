@@ -1,13 +1,19 @@
 # Station Designer — the game
 
-Each page load starts with an empty, paused station at ground level. The bilingual
+Page loads restore the local autosave, paused at the station's ground level, or
+start empty when no valid autosave exists. Committed changes autosave every 10 seconds
+to `metro-game.autosave.v1`; hiding/leaving the page also flushes pending changes.
+Opening a file, loading a demo or creating a station immediately replaces that save.
+Save / Open files remain available for keeping multiple stations and backups.
+`test/autosave.test.mjs` pins dirty-only saves, undo/redo, immediate station replacement,
+invalid data, storage failure and retries.
+The bilingual
 Getting started tour spotlights controls, opens their folders and scrolls them
 into view. Back / Next navigate, Skip or Escape closes it, and the top-bar tutorial button
 restarts it without replacing the station. The keyboard and mouse remain active
 throughout the tour, so players can try camera controls, select tools and build
 while reading each step. Progress and “Don’t show automatically” are stored in
-`metro-game.tutorial.v1` in local storage; station documents still
-need Save / Open files. An unfinished tour resumes on reload unless opted out;
+`metro-game.tutorial.v1` in local storage. An unfinished tour resumes on reload unless opted out;
 finishing returns its progress to the first step. Example stations remain available
 from the top bar.
 

@@ -7,6 +7,7 @@ import { App } from './App.tsx'
 import { Lab } from './Lab.tsx'
 import { initSim, useStore } from './store.ts'
 import { toData } from '../build/model.ts'
+import { AUTOSAVE_INTERVAL_MS, readAutosave, watchAutosave } from './autosave.ts'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
@@ -30,6 +31,19 @@ declare global {
 }
 
 export function renderGame(root: Root): void {
+  if (!isLab) {
+    try {
+      const storage = window.localStorage
+      const restored = readAutosave(storage)
+      if (restored) useStore.setState({ station: restored, activeZ: restored.levelBase })
+      const autosave = watchAutosave(useStore, storage)
+      window.setInterval(autosave.flush, AUTOSAVE_INTERVAL_MS)
+      window.addEventListener('pagehide', autosave.flush)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') autosave.flush()
+      })
+    } catch { /* Storage access may be disabled; the game still opens normally. */ }
+  }
   root.render(isLab ? <Lab /> : <App />)
   window.__metro = useStore
 

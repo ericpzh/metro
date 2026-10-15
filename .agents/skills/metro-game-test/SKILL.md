@@ -35,6 +35,11 @@ node --test --test-isolation=none --experimental-test-coverage "test/**/*.test.m
 
 ## What the suite is
 
+`autosave.test.mjs` covers committed-change saves, undo/redo, immediate new/import/demo
+replacement, invalid storage, quota failure invalidation and retries. It drives
+the autosave flush directly without waiting for timers. Startup restores a valid
+autosave before worker initialization; the slice default remains empty and paused.
+
 `tutorial.test.mjs` covers empty paused startup, browser-preference persistence,
 invalid/outdated values and unavailable storage. React interactions are checked
 separately by `npm run check:tutorial` from the root: it builds the production
