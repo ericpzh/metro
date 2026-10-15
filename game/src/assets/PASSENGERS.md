@@ -49,6 +49,10 @@ Never hand-edit the generated atlas. Original source:
 `4bb4a7ded62d5e5eeb97dcee6d3add711631b9bcc15210444ea113381bd2ef4a`.
 Each library entry records its exported GLB hash. Locally reconstructed/authored
 assets must not be attributed as Quaternius CC0.
+`passenger-clothing.test.mjs` checks the recorded hash against every clothing
+export, including trousers and swapped tones, before the skirt geometry checks.
+If exports change, rebuild with `npm run bake:passengers`; changing only stored
+hashes would bypass the guarantee that the game uses the reviewed geometry.
 
 21 flat grey palette stops retain material boundaries and outward winding.
 The shared game material blends at 70% opacity without writing to the depth buffer.

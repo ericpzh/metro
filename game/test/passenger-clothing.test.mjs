@@ -9,6 +9,16 @@ import {passengerPose,PASSENGER_ADULT_OUTFITS,PASSENGER_CHILD_OUTFITS} from '../
 import {decodePassengerBytes} from '../src/render/passengerAtlas.ts'
 import {passengerBakePart,passengerVertexKey,passengerExteriorGeometry} from '../../tools/passenger-bake-geometry.mjs'
 
+test('every baked clothing entry matches its current reviewed GLB export',()=>{
+ const stale=[]
+ for(const model of human.library.filter(m=>m.outfit)){
+  const data=readFileSync(new URL(`../../model/public/models/${model.file}`,import.meta.url))
+  const actual=createHash('sha256').update(data).digest('hex')
+  if(actual!==model.sourceSha256)stale.push({id:model.id,file:model.file,expected:model.sourceSha256,actual})
+ }
+ assert.deepEqual(stale,[],'clothing exports changed: regenerate the reviewed exports and game atlas with npm run bake:passengers')
+})
+
 test('the baker preserves morph identity and samples the same animated weights on detached parts',()=>{
  const geometry=new THREE.BufferGeometry()
  geometry.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,0,0,0,0,1,0],3))
@@ -99,7 +109,7 @@ test('the actual baked skirts retain their exported clearance morphs through all
  let missingWithStaticSkirt=0
  for(const model of human.library.filter(m=>m.outfit&&m.garmentShape!=='trousers'&&!m.swapTones)){
   const data=readFileSync(new URL(`../../model/public/models/${model.file}`,import.meta.url))
-  assert.equal(createHash('sha256').update(data).digest('hex'),model.sourceSha256,'the game uses the current reviewed GLB')
+  assert.equal(createHash('sha256').update(data).digest('hex'),model.sourceSha256,`${model.id}: the game uses the current reviewed GLB`)
   const gltf=await new GLTFLoader().parseAsync(data.buffer.slice(data.byteOffset,data.byteOffset+data.byteLength),'')
   const skirt=gltf.scene.getObjectByName('Long_skirt');assert.equal(skirt.morphTargetInfluences.length,72)
   const variant=human.library.indexOf(model),bottom=parseInt(model.bottom.slice(1,3),16)/255
