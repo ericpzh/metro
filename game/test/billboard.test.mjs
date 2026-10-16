@@ -7,7 +7,7 @@ import test from 'node:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import { croppedPlane, panelUvWindow } from '../src/render/panelUv.ts'
-import { AD_POSTERS, BILLBOARD_SPECS, BILLBOARD_VARIANTS, billboardSpec, posterFor, postersFor } from '../src/sim/billboards.ts'
+import { AD_POSTERS, BILLBOARD_SPECS, BILLBOARD_VARIANTS, billboardSpec, panelPosters, posterFor, postersFor } from '../src/sim/billboards.ts'
 
 // Read the actual WebP pixel dimensions, rather than a second hand-written catalogue.
 const folder = new URL('../src/assets/posters/', import.meta.url)
@@ -99,6 +99,32 @@ test('the cropped quad walks the window in the geometry UV order', () => {
   const pos = geo.getAttribute('position')
   const xs = [0, 1, 2, 3].map((i) => pos.getX(i))
   assert.ok(Math.abs(Math.max(...xs) - Math.min(...xs) - 0.86) < 1e-5, 'the quad is the panel, not the cropped image')
+})
+
+test('a multi-panel piece leads with its frozen campaign and repeats no poster', () => {
+  // The 公交站's row: two landscape lightboxes and the route cabinet's upright panel. The
+  // campaign the shelter was placed with **leads the panels that can print it**, every later
+  // panel takes the next poster of its own silhouette, and the upright one — whose pool is
+  // disjoint from the landscape pool — varies with the shelter rather than always printing
+  // the same portrait ad. Deterministic in the slug alone: no RNG, so nothing reshuffles.
+  const shapes = ['landscape', 'landscape', 'portrait']
+  for (const slug of [undefined, 'no-such-poster', ...AD_POSTERS.slice(0, 8).map((p) => p.slug)]) {
+    const panels = panelPosters(slug, shapes)
+    assert.equal(panels.length, shapes.length)
+    if (postersFor(shapes[0]).some((p) => p.slug === posterFor(slug).slug)) {
+      assert.equal(panels[0].slug, posterFor(slug).slug, `${slug}: the frozen campaign leads the row`)
+    }
+    assert.equal(new Set(panels.map((p) => p.slug)).size, panels.length, `${slug}: no two panels repeat an ad`)
+    for (const [i, panel] of panels.entries()) {
+      assert.ok(panel.shapes.includes(shapes[i]), `${slug}: panel ${i} is not cut for its own silhouette`)
+    }
+    assert.deepEqual(panelPosters(slug, shapes).map((p) => p.slug), panels.map((p) => p.slug))
+  }
+  // Two different campaigns lead two different rows, including the upright panel.
+  const a = panelPosters(AD_POSTERS[0].slug, shapes).map((p) => p.slug)
+  const b = panelPosters(AD_POSTERS[1].slug, shapes).map((p) => p.slug)
+  assert.notDeepEqual(a, b)
+  assert.equal(panelPosters(AD_POSTERS[0].slug, []).length, 0)
 })
 
 test('a format prints the poster it was given, and an unknown slug a placeholder', () => {

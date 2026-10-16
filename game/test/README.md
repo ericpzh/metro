@@ -499,7 +499,7 @@ Truss roof finishes: the truss bays use neutral white vertex colours and metre-s
 
 Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋顶 is a separate view toggle, off by default, hiding all roof styles even in 隐藏UI / 剖切. It sits below 隐藏天花板 with 分区图 to its right. `ground-visibility.test.mjs` pins independent ceiling/roof visibility; `rail-folders.test.mjs` pins the nine-tile order and header count.
 
-`street-decor.test.mjs` verifies above-ground-only placement and movement, whole shelter floor support, track rejection, rotated model bounds, live station/exit labels, and persistence of exit references and frozen shared posters.
+`street-decor.test.mjs` verifies above-ground-only placement and movement, whole shelter floor support, track rejection, rotated model bounds, live station/exit labels, the 公交站's displays (a **double-sided** landscape lightbox per cabinet, one upright panel on the route cabinet's back, and its own campaign on every panel — `billboard.test.mjs` pins the choice itself), and persistence of exit references and frozen shared posters.
 
 `hanger.test.mjs` covers 挂架: roof suspended and central post supports in 4/6/8m, roof attachments, sign/clock/TV mounting, rotated steel geometry, open walking space, post footing, preview identity and save/load.
 

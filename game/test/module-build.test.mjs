@@ -386,8 +386,12 @@ const PIECES = [
   ['灯具 直条', palette('light-rectangular'), 2, '0.8×0.12×0.08'],
   ['通风口', palette('vent'), 14, '0.7×0.7×0.06'],
   ['导向柱', palette('guidepost'), 17, '0.16×0.589×4'],
-  ['公交站 短版', palette('busstop-short'), 21, '3.88×1.88×3'],
-  ['公交站 长版', palette('busstop-long'), 30, '7.91×1.88×3'],
+  // A 公交站's displays carry a black frame and a poster plate **per face**, and the route
+  // cabinet adds an upright panel on its back — so the two rows below are two meshes per
+  // lightbox face plus two for the upright one (21 and 30 before the back faces existed).
+  // Every face mounts the shared `adArt` quad: one plate each, no duplicated geometry.
+  ['公交站 短版', palette('busstop-short'), 25, '3.88×1.88×3'],
+  ['公交站 长版', palette('busstop-long'), 36, '7.91×1.88×3'],
   ['广告牌 横版', palette('billboard-wide'), 5, '0.98×0.185×0.86'],
   ['广告牌 标准', palette('billboard-standard'), 5, '1.84×0.185×1.14'],
   ['广告牌 大横版', palette('billboard-large'), 5, '1.98×0.185×1.33'],

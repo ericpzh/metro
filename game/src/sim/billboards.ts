@@ -171,3 +171,41 @@ export function postersFor(shape: BillboardShape): AdPoster[] {
 export function posterFor(slug: string | undefined): AdPoster {
   return adPoster(slug) ?? AD_POSTERS[0]
 }
+
+/**
+ * The campaign each panel of a **multi-panel** piece prints, in panel order.
+ *
+ * The 公交站 is the piece this exists for: one shelter carries a row of ad
+ * lightboxes and an upright panel, and the campaign `cfg.poster` froze when the
+ * shelter was placed **leads** the row while every panel behind it takes the next
+ * poster its own silhouette can print — so no two panels of one shelter repeat an
+ * ad, and a long shelter is three campaigns rather than one printed six times.
+ *
+ * `shapes` names each panel's own silhouette, in the order the model mounts them.
+ * A panel whose pool does not hold the frozen slug (the upright panel beside a
+ * landscape lightbox — the two pools are disjoint, which is what keeps the rows
+ * from repeating) starts from where that campaign sits in the whole catalogue, so
+ * two shelters placed with different campaigns still differ from each other.
+ *
+ * Deterministic in the frozen slug alone: no RNG, so an undo, a reload or a second
+ * look at the same shelter cannot reshuffle which panel advertises what.
+ */
+export function panelPosters(slug: string | undefined, shapes: readonly BillboardShape[]): AdPoster[] {
+  const lead = posterFor(slug)
+  const leadIndex = AD_POSTERS.indexOf(lead)
+  const taken = new Set<string>()
+  return shapes.map((shape, panel) => {
+    const choices = postersFor(shape)
+    // The frozen campaign leads the panels that can print it; a panel of another
+    // silhouette steps from the campaign's place in the catalogue instead.
+    const frozen = choices.findIndex((p) => p.slug === lead.slug)
+    const start = frozen >= 0 ? frozen + panel : leadIndex + panel
+    for (let step = 0; step < choices.length; step++) {
+      const poster = choices[(start + step) % choices.length]!
+      if (taken.has(poster.slug)) continue
+      taken.add(poster.slug)
+      return poster
+    }
+    return choices[start % choices.length]!
+  })
+}

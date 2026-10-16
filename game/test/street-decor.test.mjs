@@ -8,6 +8,7 @@ import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 import { equipmentReason, moduleEnvelope, moduleFootprint, moduleAt, placementBlocked } from '../src/sim/placement.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { buildModule } from '../src/render/models.ts'
+import { adPoster } from '../src/sim/billboards.ts'
 import { guideFace, guideEnglishFace, guideLabels, yellowPyramidGeometry, GUIDE_PLAN, GUIDE_YELLOW_PLAN, GUIDE_WIDTH_SCALE, GUIDE_RED_SCALE } from '../src/render/models/pieces/StreetDecorModel.ts'
 
 const data = { name: '植物园', seed: 1, cells: [], modules: [], lines: [] }
@@ -38,8 +39,44 @@ test('models fit their rotated reservation and stand on the floor', () => {
     }
     assert.ok(Math.abs(box.min.z-1)<1e-6)
     const posters=[];group.traverse(o=>{if(o.userData.adPoster)posters.push(o.userData.adPoster)})
-    assert.equal(posters.length,type==='guidepost'?0:type==='busstop-short'?1:2)
-    if(posters.length===2)assert.equal(posters[0],posters[1])
+    // Both faces of every lightbox print, and the route cabinet's upright panel adds one.
+    const lightboxes=type==='guidepost'?0:type==='busstop-short'?1:2
+    assert.equal(posters.length,lightboxes*2+(lightboxes?1:0))
+  }
+})
+test('a 公交站 prints a different campaign on every display panel, on both flanks', () => {
+  const mats = new Proxy({}, {get:(t,k) => t[k] ??= new THREE.MeshStandardMaterial()})
+  const ads = { adFace: (slug,w,h) => ({geometry:new THREE.PlaneGeometry(w,h),material:mats.white}) }
+  for (const [type,lightboxes] of [['busstop-short',1],['busstop-long',2]]) for (let rot=0;rot<4;rot++) {
+    const m = createModule(type,10,10,0,type,rot)
+    const group = buildModule(m,{mats,ads,data,trackCells:new Set(),finish:()=>mats.white})
+    const plates=[];
+    group.traverse(o=>{if(o.userData.adPoster)plates.push(o)})
+    assert.equal(plates.length,lightboxes*2+1,`${type}/${rot}: both lightbox faces and the upright panel`)
+    // Group the plates by the cabinet they hang on: the model's own local x,z.
+    const cabinets=new Map()
+    for(const plate of plates) {
+      const key=`${plate.position.x.toFixed(3)},${plate.position.z.toFixed(3)}`
+      cabinets.set(key,[...(cabinets.get(key)??[]),plate])
+    }
+    assert.equal(cabinets.size,lightboxes+1,`${type}/${rot}: one cabinet per display`)
+    const look=o=>new THREE.Vector3(0,0,1).applyQuaternion(o.getWorldQuaternion(new THREE.Quaternion()))
+    const posters=new Set()
+    for(const group of cabinets.values()) {
+      assert.equal(new Set(group.map(p=>p.userData.adPoster)).size,1,`${type}/${rot}: one campaign per cabinet`)
+      posters.add(group[0].userData.adPoster)
+      const [shape]=adPoster(group[0].userData.adPoster).shapes
+      if(group.length===2) {
+        // A lightbox is a double-sided display, so a walker meets its ad from either flank.
+        assert.ok(Math.abs(look(group[0]).dot(look(group[1]))+1)<1e-6,`${type}/${rot}: the lightbox faces look opposite ways`)
+        assert.equal(shape,'landscape',`${type}/${rot}: the lightboxes are landscape panels`)
+      } else {
+        // The upright one mounts on the route cabinet's back alone: the approach face is
+        // the 线路信息板 the piece stands for.
+        assert.equal(shape,'portrait',`${type}/${rot}: the route cabinet's panel is upright`)
+      }
+    }
+    assert.equal(posters.size,cabinets.size,`${type}/${rot}: no two panels repeat an ad`)
   }
 })
 test('pillar resolves station and selected exit names live, including deletion', () => {

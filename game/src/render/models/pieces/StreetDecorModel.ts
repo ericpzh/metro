@@ -3,7 +3,7 @@ import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import { PieceBuilder, slab, plate, plateOf, placeLocal, ownedMaterial, canvasTexture, drawMetroMark } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
-import { posterFor } from '../../../sim/billboards.ts'
+import { panelPosters } from '../../../sim/billboards.ts'
 
 /** Resolve from the live document so station and exit renames repaint the pillar. */
 export function guideLabels(data: { name: string; modules: readonly Module[] }, mod: Extract<Module, { type: 'guidepost' }>) {
@@ -234,18 +234,38 @@ export class BusstopModel extends PieceBuilder {
       const mat = ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(256, 768, (c) => c.drawImage(routeFace(ctx.data.name || t('metro_station')), 0, 0)) }))
       plate(g, mat, .76, 1.91, .53, .998, 1.35, 0)
     } else slab(g, ctx.mats.green, .53, .995, 1.35, .76, .02, 1.91)
-    const poster = posterFor(mod.cfg.poster)
     const panels = mod.cfg.variant === 'long' ? [[2.75, 2.8], [6.1, 2.6]] : [[2.13, 1.63]]
+    // Every display the shelter prints, in panel order: the landscape lightboxes down the
+    // shelter, then the upright panel on the route cabinet. Each one advertises its **own**
+    // campaign (`panelPosters`), so a long shelter shows three different ads rather than one
+    // printed six times, and each lightbox is a **double-sided** display — a walker meets the
+    // same ad from the street and from the pavement. The upright panel mounts on the
+    // cabinet's back alone: its approach face is the 线路信息板 the piece stands for.
+    const displays = [
+      ...panels.map(([x, w]) => ({ x, w, h: 1.45, z: 1.53, shape: 'landscape' as const, faces: [0, 1] as const })),
+      { x: .53, w: .76, h: 1.91, z: 1.35, shape: 'portrait' as const, faces: [1] as const },
+    ]
+    const posters = panelPosters(mod.cfg.poster, displays.map((d) => d.shape))
+    // The cabinet's own centre: each face's frame and poster mirror about it, so the
+    // approach side keeps the front it always had (yaw 0 faces local −y, π faces +y).
+    const CABINET_Y = 1.1
+    const FRAME_OFFSET = .18 / 2 + .012
+    const POSTER_OFFSET = FRAME_OFFSET + .02
     for (const [x, w] of panels) {
-      slab(g, green, x, 1.1, 1.53, w + .14, .18, 1.65)
-      slab(g, ctx.mats.black, x, .998, 1.53, w + .04, .025, 1.55)
-      if (ctx.ads) {
-        const face = ctx.ads.adFace(poster.slug, w, 1.45)
-        const ad = plateOf(g, face.geometry, face.material, x, .978, 1.53, 0)
-        ad.userData.adPoster = poster.slug
-      }
+      slab(g, green, x, CABINET_Y, 1.53, w + .14, .18, 1.65)
       slab(g, ctx.mats.steel, x, .35, .48, w * .8, .36, .065)
       for (const dx of [-w * .28, w * .28]) slab(g, green, x + dx, .35, .23, .1, .28, .46)
+    }
+    for (const [index, display] of displays.entries()) {
+      const ad = posters[index]
+      for (const face of display.faces) {
+        const side = face === 0 ? -1 : 1
+        slab(g, ctx.mats.black, display.x, CABINET_Y + side * FRAME_OFFSET, display.z, display.w + .04, .025, display.h + .1)
+        if (!ctx.ads || !ad) continue
+        const lit = ctx.ads.adFace(ad.slug, display.w, display.h)
+        const plate = plateOf(g, lit.geometry, lit.material, display.x, CABINET_Y + side * POSTER_OFFSET, display.z, face === 0 ? 0 : Math.PI)
+        plate.userData.adPoster = ad.slug
+      }
     }
     return placeLocal(g, mod)
   }
