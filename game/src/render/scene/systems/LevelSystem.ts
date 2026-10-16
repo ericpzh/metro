@@ -188,6 +188,15 @@ export class LevelSystem extends SceneSystem {
       root.visible = false
       return
     }
+    // 隐藏地面 includes placed street finishes, plantings, roads and traffic lights
+    // as well as the generated street mesh. These are independent module groups,
+    // so hide the root here and let the normal level walk restore it when toggled off.
+    const type = root.userData.moduleType
+    if (kind === 'module' && this.ctx.hideGround &&
+      (type === 'sidewalk' || type === 'lawn' || type === 'tree' || type === 'road' || type === 'traffic-light')) {
+      root.visible = false
+      return
+    }
     const levels = root.userData.levelZs as number[] | undefined
     const lz = root.userData.levelZ as number | undefined
     const zs = levels ?? (lz !== undefined ? [lz] : undefined)

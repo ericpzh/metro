@@ -34,7 +34,7 @@ export class RoadTrafficSystem extends SceneSystem {
     const network=getRoadNetwork(data.modules)
     if(!this.traffic || this.traffic.network!==network || this.traffic.seed!==data.seed) this.traffic=new RoadTraffic(network,data.seed)
     if (!network.roads.length) { this.root.visible = false; return }
-    this.root.visible = true
+    this.root.visible = !this.ctx.hideGround
     if (!this.meshes.size) for (const kind of ['car', 'bus', 'bike', 'scooter'] as const) {
       this.meshes.set(kind, roadVehicleParts(kind).map(({ geometry, material }) => {
         const mesh = new THREE.InstancedMesh(geometry, material, CAPACITY)

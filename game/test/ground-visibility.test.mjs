@@ -196,6 +196,37 @@ test('隐藏地面 is a visibility flag, not a rebuild', () => {
   )
 })
 
+test('隐藏地面 hides placed pavement, lawn, trees, roads and traffic lights', () => {
+  const { ctx, level } = rig(station([]))
+  const tiles = ['sidewalk', 'lawn', 'tree', 'road', 'traffic-light'].map(type => {
+    const root = new THREE.Group()
+    root.userData = { moduleType: type, levelZs: [0], groundBand: 0 }
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()))
+    if (type === 'road') {
+      const signal = new THREE.Group()
+      signal.name = 'automatic-road-signal'
+      root.add(signal)
+    }
+    level.modules.moduleMeshes.add(root)
+    return root
+  })
+  level.setLevel(0, true)
+  assert.ok(tiles.every(root => root.visible), 'outdoor tiles draw before the toggle')
+
+  level.setHideGround(true)
+  assert.ok(tiles.every(root => !root.visible), 'outdoor tiles, roads and traffic lights are hidden with the street')
+  ctx.hideUI = true
+  level.applyLevel()
+  assert.ok(tiles.every(root => !root.visible), 'hidden UI does not reveal outdoor tiles')
+  ctx.hideUI = false
+  level.applyLevel()
+  level.setHideGround(false)
+  assert.ok(tiles.every(root => root.visible), 'the outdoor tiles return when ground is shown')
+  tiles.forEach(root => root.traverse(node => {
+    if (node.isMesh) { node.geometry.dispose(); node.material.dispose() }
+  }))
+})
+
 /** Up-facing triangles strictly inside one column's square, on one plane. */
 function capTris(chunks, x, y, plane) {
   let n = 0
