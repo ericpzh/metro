@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs'
 import { exitFootprintCells } from '../src/sim/exits.ts'
 import { outdoorSurfaceIndex } from '../src/sim/outdoorSurfaces.ts'
 import { isSimInertDecorEdit } from '../src/sim/decorInert.ts'
+import { buildGraph, PathFinder } from '../src/sim/station.ts'
 import { disposeObject } from '../src/render/models.ts'
 import { retainedModuleIds } from '../src/render/moduleDependencies.ts'
 
@@ -67,6 +68,32 @@ test('trees place on lawns or bare ground, collide with equipment, and survive s
   const bounds = new THREE.Box3().setFromObject(model)
   assert.ok(Math.abs(bounds.max.z - 5.5) < .001, 'the baked ash retains its 4.5 m height')
   assert.ok(model.getObjectByName('tree-trunk').geometry.getAttribute('position').count > 1000, 'branches replace the old cylinder')
+})
+
+test('a tree draws without walking: its tile stays a node and cuts no route', () => {
+  // §9.5: the walk graph's only obstacle primitive is a missing node, so fencing
+  // a tree's tile spends the whole square metre on a trunk the crowd can simply
+  // walk past. Planting is decor (`sim/decorInert.ts`), and this is the rule that
+  // keeps it one: the tile and every edge through it survive untouched. Guard it
+  // here, next to the tree's placement and model, because re-fencing the tile
+  // silently puts planting back on the full routing-rebuild path.
+  const edgesFrom = (graph, id) => {
+    const out = []
+    for (let e = graph.adjStart[id]; e < graph.adjStart[id + 1]; e++) out.push(graph.nodeKey[graph.adjTo[e]])
+    return out
+  }
+  const clean = buildGraph(emptyStation())
+  const planted = buildGraph({ ...emptyStation(), modules: [createModule('tree', 0, 0, 0, 'tree')] })
+  assert.ok(clean.nodeIndex.has('0,0,0'), 'the bare street is walkable to begin with')
+  assert.equal(planted.nodeIndex.get('0,0,0'), clean.nodeIndex.get('0,0,0'), 'the planted tile is the same node')
+  assert.equal(planted.nodeCount, clean.nodeCount, 'planting neither adds nor removes a node')
+  assert.deepEqual(edgesFrom(planted, planted.nodeIndex.get('0,0,0')), edgesFrom(clean, clean.nodeIndex.get('0,0,0')), 'and no walk edge through it changed')
+  // The whole leg across the tile, not only its edges: a tree the crowd walks
+  // through must not lengthen, divert or block a route that crossed it.
+  const walker = { stepFree: false, luggage: false }
+  const leg = (graph) => [...(new PathFinder(graph).search(graph.nodeIndex.get('-1,0,0'), graph.nodeIndex.get('1,0,0'), walker) ?? [])]
+  assert.ok(leg(clean).length > 0, 'the crossing leg exists at all')
+  assert.deepEqual(leg(planted), leg(clean), 'and planting changes no route across it')
 })
 
 test('adding or removing raised finishes rebuilds existing equipment support heights', () => {

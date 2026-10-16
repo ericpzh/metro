@@ -16,7 +16,7 @@ import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import * as THREE from 'three'
 import { FenceModel } from '../src/render/models/pieces/FenceModel.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
-import { useStore, moduleLabel } from '../src/app/store.ts'
+import { useStore, moduleLabel, MODULE_OPTIONS } from '../src/app/store.ts'
 import { LONG_PRESS_MS } from '../src/app/tools/geometry/pointer.ts'
 
 test('gate model clears the centre pavement and iron replaces glass with eight upright bars', () => {
@@ -48,10 +48,39 @@ test('gate model clears the centre pavement and iron replaces glass with eight u
   }
 })
 
+test('ground sound barriers match bridge profiles and reserve their full height in every rotation', () => {
+  const mats = Object.fromEntries(['white', 'steel', 'darkSteel', 'glass'].map(key => [key, new THREE.MeshStandardMaterial()]))
+  try {
+    for (const [id, height] of [['noise-barrier', 3], ['noise-barrier-half', 1.5], ['noise-barrier-railing', 0.74]]) {
+      for (const rot of [0, 1, 2, 3]) {
+        const mod = createModule(id, 2, 3, 0, id, rot)
+        const group = new FenceModel({ mats, data: { ...emptyStation(), modules: [mod] } }).build(mod)
+        group.updateMatrixWorld(true)
+        const box = new THREE.Box3().setFromObject(group)
+        assert.ok(Math.abs(box.min.z - 1) < 1e-6, 'each barrier stands directly on the floor')
+        assert.ok(Math.abs(box.max.z - 1 - height) < 1e-6, 'railing, half and full barriers keep their bridge-profile heights')
+        const envelope = moduleEnvelope(mod)
+        assert.ok(Math.abs(envelope.z1 - box.max.z) < 1e-6, 'placement reserves the actual barrier height')
+        assert.ok(box.min.x >= envelope.x0 - 1e-6 && box.max.x <= envelope.x1 + 1e-6
+          && box.min.y >= envelope.y0 - 1e-6 && box.max.y <= envelope.y1 + 1e-6, 'the rotated model fits its thin collision envelope')
+        let glass = 0, lower = 0
+        group.traverse(o => {
+          if (!o.isMesh) return
+          if (o.material === mats.glass) glass++
+          if (o.material === mats.white) lower++
+          o.geometry.dispose()
+        })
+        assert.equal(glass > 0, id !== 'noise-barrier-railing', 'only sound barriers retain the bridge glass band')
+        assert.equal(lower > 0, id !== 'noise-barrier-railing', 'only sound barriers retain the opaque bridge panels')
+      }
+    }
+  } finally { Object.values(mats).forEach(m => m.dispose()) }
+})
+
 test('fence drag previews and places the selected variant, and deletion leaves decals behind', () => {
   const before = useStore.getState()
   try {
-    for (const type of ['fence', 'fence-gate', 'fence-iron']) {
+    for (const type of ['fence', 'fence-gate', 'fence-iron', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing']) {
       const decals = type === 'fence-gate' ? [createModule('tactile-guide', 0, 0, 0, 'decal')] : []
       useStore.setState({ station: toState({ ...emptyStation(), modules: decals }), past: [], future: [], tool: 'module', moduleType: type, moduleRot: 0 })
       let ghost = []
@@ -68,7 +97,7 @@ test('fence drag previews and places the selected variant, and deletion leaves d
       const placed = useStore.getState().station.modules.filter((m) => m.type === 'fence')
       assert.equal(placed.length, 3)
       assert.equal(useStore.getState().past.length, 1)
-      assert.equal(moduleLabel(placed[0]), type === 'fence-gate' ? '门' : type === 'fence-iron' ? '铁围栏' : '玻璃围栏')
+      assert.equal(moduleLabel(placed[0]), MODULE_OPTIONS.find(o => o.id === type).label)
       tool.onDown(event(0, 2))
       drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
       tool.onUp(event(2, 2))
@@ -79,14 +108,38 @@ test('fence drag previews and places the selected variant, and deletion leaves d
   } finally { useStore.setState(before) }
 })
 
+test('sound-barrier line drags retain the R-selected side in their preview and committed run', () => {
+  const before = useStore.getState()
+  try {
+    for (const type of ['noise-barrier', 'noise-barrier-half', 'noise-barrier-railing']) {
+      for (const axis of [0, 1]) for (const side of [0, 2]) {
+        useStore.setState({ station: toState(emptyStation()), past: [], future: [], tool: 'module', moduleType: type, moduleRot: axis + side })
+        let preview = []
+        const scene = { setFencePreview: mods => { preview = mods ?? [] }, setModulePreview() {}, setCollisionHighlight() {}, setGhost() {}, setCursor() {} }
+        const drag = { current: null }
+        const tool = new EquipmentTool({ scene: () => scene, drag, hover: { current: null }, pickModule: () => null })
+        const event = n => ({ clientX: n * 20, clientY: 0, button: 0, buttons: 1,
+          hit: { cell: axis === 0 ? [n, 0, 0] : [0, n, 0], place: [0, 0, 1], solid: true }, preventDefault() {} })
+        tool.onDown(event(0)); drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+        tool.onMove(event(2))
+        assert.equal(preview.length, 3)
+        assert.ok(preview.every(mod => mod.rot === axis + side), 'the preview stays on the chosen tile edge')
+        tool.onUp(event(2))
+        assert.equal(useStore.getState().station.modules.length, 3)
+        assert.ok(useStore.getState().station.modules.every(mod => mod.rot === axis + side), 'release preserves the preview side')
+      }
+    }
+  } finally { useStore.setState(before) }
+})
+
 test('fence variants keep their save and preview identity, including legacy glass', () => {
-  const modules = ['fence', 'fence-gate', 'fence-iron'].map((id, x) => createModule(id, x * 3, 0, 0, id, 1))
-  assert.deepEqual(modules.map((m) => m.cfg.variant), ['glass', 'gate', 'iron'])
+  const modules = ['fence', 'fence-gate', 'fence-iron', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing'].map((id, x) => createModule(id, x * 3, 0, 0, id, 1))
+  assert.deepEqual(modules.map((m) => m.cfg.variant), ['glass', 'gate', 'iron', 'sound-barrier', 'sound-barrier-half', 'bridge-railing'])
   const state = toState({ ...emptyStation(), modules: [...modules, fence(12, 0, 0, 0, 'legacy')] })
   const loaded = parse(serialize(state))
   assert.equal(loaded.ok, true)
   assert.deepEqual(loaded.state.modules, state.modules)
-  assert.equal(new Set(modules.map((m) => moduleGhostKey({ ...m, x: 0 }))).size, 3)
+  assert.equal(new Set(modules.map((m) => moduleGhostKey({ ...m, x: 0 }))).size, 6)
   assert.equal(moduleGhostKey(fence(0, 0, 0)), moduleGhostKey(createModule('fence', 0, 0, 0, 'new')))
 })
 

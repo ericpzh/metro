@@ -97,6 +97,20 @@ crowd movement, queue approaches or stair turns.
 
 ### Conventions
 
+Ground decor ends with 隔音屏 (`noise-barrier` family): full and half sound barriers
+plus the bridge railing, with the full barrier as the parent thumbnail. These
+are fence modules carrying `sound-barrier`, `sound-barrier-half` or `bridge-railing`
+variants, so they use the existing fence line placement/delete/undo path and block
+walking. Their palette ids belong to decor while ordinary fence ids stay in
+equipment. Keep `fence`, `rail-families`, `rail-folders` and `pick-tool` aligned.
+
+Screen-door lateral alignment is shared by bridge barriers/railings, ground
+barriers and both gantry styles: `PSD_WALL_OFFSET` and `trackSideFixtureOffset`
+define the common line. Ground barriers use `noiseBarrierOffset` for rendering
+and placement; R half-turns choose the opposite side and line drags retain it.
+Keep actual PSD/bridge/gantry geometry aligned in `module-build`, plus the thin
+envelope and drag-side behavior in `fence`.
+
 Train rendering batches repeated opaque leaves, sorts glass/straps with BatchedMesh,
 and bakes mirrored static parts with corrected winding. EquipmentBatches keeps
 original module surfaces on picking layer 31 and draws local material batches on
@@ -633,7 +647,8 @@ the four rules most changes trip over.
   system, `test/pick-cell.test.mjs` the pick over both.
 * **Rails and lines** (`build/rail.ts`, `sim/track.ts`, `sim/placement.ts`,
   `sim/world.ts`). A rail is a `track` module bound to a line and an `up`/`down`
-  direction: a fixed, pre-rendered piece — a car-width bed (`d = 3`) and a run the length
+  direction: a fixed, pre-rendered piece — a car-width bed (three cells by default; D stock
+  needs four) and a run the length
   of the line's consist (`trackPieceForLine`) — placed like equipment (centred on the
   highlighted cell, so the long run grows evenly both ways) with **R** to quarter-turn it.
   `sim/track.ts` is the one orientation source (`rotateLocal` / `trackCells` / `edgeCells`
@@ -655,16 +670,28 @@ the four rules most changes trip over.
   lookup is covered by `line-edit.test.mjs`. The track side also sets the consist's **door-side mask**
   (`LineAnchor.doorSides`, the 10th value of a train pose), and `doorRunOffsets` sets the
   door cadence off the rail, so the train opens only the
-  bank that meets screen doors. Editing a line's 车型/编组 re-cuts its tracks
-  (`resizeTrack`). A track bed is **either** the `floor.track` finish **or** a `track`
+  bank that meets screen doors. Editing a line's 车型/编组 re-cuts platform lengths and widens every
+  bound tunnel / bridge bed to the consist's required width, preserving their authored run lengths;
+  `resizeTrack` rebuilds tunnel shells and bridge supports around the new cross-section. A track bed
+  is **either** the `floor.track` finish **or** a `track`
   module's footprint (`trackBedKeys` / `isTrackCell`), so the hand-built demo and placed
   rails agree. The 轨道 folder has two tools, both gated by `trackBlockReason`: any
   interference blocks placement instead of demolishing it. **站台** places the fixed
   consist-length piece, which must rest on solid floor under its whole bed
-  (`trackFloorMissing`) and refuses a run with a wall in its headroom
-  (`trackClearanceBlocked`); **隧道** extends an existing rail off the free end nearest the
+  (`trackFloorMissing`; at z = 0 the intact virtual street counts, but a saved hole does not) and
+  refuses a run with a wall in its headroom
+  (`trackClearanceBlocked`); **隧道** extends an existing rail off the end selected by the
   pointer (`makeTunnel` / `placeTunnel`, a pure run flagged `cfg.tunnel` that never spawns
-  platform doors; a slider sets the length), may hang over void, clears the wall it bores
+  platform doors). The snap target includes the whole exposed
+  platform connected to its screen-door edge, not only the dug rail bed: `railModuleAtPlatform`
+  resolves floor and screen-door hits through `platform-edge.cfg.from`, and the hovered cell's
+  local run coordinate selects the left or right half/end. **轨道桥** uses the same resolver and
+  half selection. Keep preview and click using that same hit coordinate and pin both ends from
+  platform/屏蔽门 cells in `game/test/rail.test.mjs`. Bridge input also reads the visible
+  module surface once per event (`EquipmentTool.bridgePointerHit`): a dug bed may expose a
+  lower floor to the block picker. Project that surface onto its owning bed, retaining
+  the hovered half; `equipment-placement-input` pins rail/screen hits above a lower floor and
+  ordinary floor hits across the outer platform, every rotation and preview/click agreement. A slider sets the tunnel length. It may hang over void, clears the wall it bores
   through, and raises a side wall + ceiling around itself where missing (`boreTunnel`,
   shell cells tagged `tunnel-shell:<id>`). **轨道桥** (`cfg.bridge`, `makeBridge`) is the
   same extension carried on pillars instead of bored through ground: it needs clearance
@@ -706,19 +733,29 @@ the four rules most changes trip over.
   (`regenerateRailEdges`), so the model and the collision envelope agree
   (`PSD_FULL_HEIGHT` / `PSD_HALF_HEIGHT`). The header prints the station's own
   `name` / `nameEn`, never a hardcoded terminus.
-* **`STOCK_CLASSES` (`['A','B','C','L']`) is the single ordering source** (`sim/stock.ts`), so
+* **`STOCK_CLASSES` (`['A','B','C','D','L']`) is the single ordering source** (`sim/stock.ts`), so
   the worker's pose index (`indexOf`) and the renderer's decode (`STOCK_CLASSES[stockIdx]`)
-  cannot desync, and the inspector's 车型 chips iterate it too. L is the 2.8 m wide, 16.8 m
-  long, three-door, third-rail 广州 4/5/6 stock. `LineDef.stock` is the imported `StockClass`
+  cannot desync, and the inspector's 车型 chips iterate it too. D is the Guangzhou 18/22
+  reference stock: 3.3 m wide, 20.1 m per car, eight cars, 1,758 rated / 2,600 crush capacity,
+  catenary, 1,435 mm gauge and 160 km/h. Each end car has three doorways; only the one nearest
+  each cab uses a single 0.8 m leaf. The other end-car doors and all four middle-car doorways
+  use paired 1.4 m leaves. The A/B/C/D/L order is shared by
+  worker poses, renderer decode, controls and generated train sheets. L is the 2.8 m wide,
+  16.8 m long, three-door, third-rail 广州 4/5/6 stock. `LineDef.stock` is the imported `StockClass`
   (a `stock.ts` → `types.ts` edge that stays inside `sim/`); the save needs no migration,
   because stock is a plain string with no whitelist.
-* **Both ends of a train are cabs, and the doors follow the screens.** `buildTrain`
+* **Both ends of a train are cabs, and the doors follow the screens.** A/B/C/L `buildTrain`
   (`render/models/`) re-skins the last 2 m of each end car through `buildCab` — the dark face
   mask, centre windscreen and crew-door windows, the 广州地铁 mark (`drawMetroMark`, shared with
   the exit banner), twin round lamp clusters and corner marker bars, the cream bumper band, the
   number plates and the coupler — so the body stays exactly `cars × carLength` long, the cab
-  stops short of the car's first passenger door, and only the coupler hangs past the nose. The
-  two ends differ only in their lamps (the `headlight` / `taillight` unlit materials). Door
+  stops short of the car's first passenger door, and only the coupler hangs past the nose. D
+  uses `DTrainShell.ts` and `StreamlinedCab.ts`: its rounded shared car/head cross-section, swept
+  nose, elliptical face livery, central windscreen, clipped trapezoid side panes and lamps, and
+  continuous side paint are fitted to one shell. The D cab has no extra crew door; only the
+  nearest passenger doorway at each end is single-leaf, while all other doorways are double-leaf.
+  Its `d-car-window` panes remain small and inset in the black side band. A/B/C/D ends differ
+  in their lamps (`headlight` / `taillight`); the two L ends follow the generic cab path. Door
   leaves carry the side they belong to (`registerDoorLeaf`'s `side`), and `setDoorsSides` slides
   the two banks independently. A leaf is a **door, not a hole**: it wears the body's own
   material (`trainBody`), with a window in its upper half, a kick plate at its foot and a rubber
@@ -734,7 +771,11 @@ the four rules most changes trip over.
   so a three-door L car spreads its outer doors to the ends. `doorRunOffsets` projects that list
   onto a rail's run, and it is the single list the model cuts the screen open with *and* the one
   `buildGraph` seats a door server on. `test/trains.test.mjs` pins the platform-side / island /
-  no-platform cases and one train per track on a two-direction line; `stock.test.mjs` the cadence.
+  no-platform cases and one train per track on a two-direction line; `stock.test.mjs` pins D's
+  specs, consist capacities, mixed door counts/widths and classification index, while
+  `draw-batching.test.mjs` pins its shell, cab surfaces, windows, livery joins, door geometry and
+  motion. `train-art-pipeline.test.mjs` checks the bilingual sheets keep all five classes ordered
+  and use captured D poses.
 * **The crowd's day is four document fields** (`sim/clock.ts`, `sim/demand.ts`,
   `sim/constants.ts`, `sim/world/World.ts`, `build/model/State.ts`, `persistence/save.ts`).
   日期类型 / 营业时间 / 高峰时段 / 客流曲线 are `StationData.service` / `peaks` / `demand` /
@@ -1561,8 +1602,10 @@ Run `npm run check:tutorial` for the production browser regression and the
   keeps its steel body, black lightbox and two-sided faces.
 * **The 删除 drag sweeps same-type runs** (`app/sweep.ts`, §9.5). A tap removes the piece under
   the pointer — drawn as the module ghost itself with no floor cursor (`setCursor(null)`,
-  the wall/ceiling special cases gone); roof and stair-block deletes delegate to the tile
-  tool, keeping the clicked tile's own type/rotation/width. A held drag keeps collecting
+  the wall/ceiling special cases gone); roof, stair-block, 人行道 and 草坪 deletes delegate to the tile
+  tool, keeping the clicked tile's own type/rotation/width — for the two outdoor finishes that is the
+  only teardown there is, one `editOutdoorSurfaces` commit for the whole run, exactly what the armed
+  人行道 / 草坪 tool's right-drag performs. A held drag keeps collecting
   same-family neighbours — rotation and 自动 origin
   ignored, variant matched, so a 2 m 座椅 never takes the 1 m ones and a 闸机 row never takes the
   售票机 at its end — sampling the path between pointer events so a fast flick skips none, and
@@ -1578,6 +1621,12 @@ Run `npm run check:tutorial` for the production browser regression and the
   Equipment-tool right-click teardown resolves the ray-picked visible module before falling back to
   the hit grid cell; wall posters, ceiling fixtures and tall pieces can overlap a different cell or
   rail beneath them. Keep the target resolver pure and pin it in `test/equipment-deletion.test.mjs`.
+  The same resolver backs the B tool, and it prefers the **pointed cell's own piece** over a model the
+  ray reached from elsewhere: a 树木's alpha-tested canopy swallows rays meant for the paving beside
+  it, and a raised 人行道 plate is hit a cell away from the block the grid pick reports, so a ray-first
+  rule deleted the canopy (or dug the street under the paving) where the tile tools' cell-based
+  right-click removed the tile. B and right-click must stay indistinguishable — `test/delete-tool.test.mjs`
+  compares their documents, tap and run alike.
   On left-click, wall- and ceiling-mounted pieces may be aimed from open air: do not apply the floor-hit
   guard before their wall/slab support verdict runs. Floor-standing pieces still need a solid hit;
   `test/equipment-placement-input.test.mjs` pins both paths.
@@ -1830,8 +1879,8 @@ Pin document/gesture/lifecycle behavior in `road-document`, and run `check:roads
 for production bilingual pointer/keyboard input. Width transitions are uncontrolled
 lane merges in the traffic graph; do not generate signals or zebra crossings there.
 
-站外装饰 begins with 人行道 (`sidewalk`), 草坪 (`lawn`) and 树木 (`tree`). Surfaces use TileEquipmentTool rectangle drags and stand 0.1 m above the floor. **One finish per tile**: `equipmentReason` accepts the *other* finish on the candidate's tile as a replacement (the same kind stays the "already here" no-op), and `editOutdoorSurfaces` then deletes that tile in the same commit — never for a candidate the verdict refused, or a replacement would delete without placing. `outdoorSurfaceLift` shares derived support height with the model dispatcher and collision envelopes; anchors remain integer cells. Surfaces must invalidate equipment models when added or removed. Trees are separate props with trunk collisions and a blocked pedestrian tile. Pin palette order in rail-families and geometry/placement/save in outdoor-surfaces.
+站外装饰 begins with 人行道 (`sidewalk`), 草坪 (`lawn`) and 树木 (`tree`). Surfaces use TileEquipmentTool rectangle drags and stand 0.1 m above the floor. **One finish per tile**: `equipmentReason` accepts the *other* finish on the candidate's tile as a replacement (the same kind stays the "already here" no-op), and `editOutdoorSurfaces` then deletes that tile in the same commit — never for a candidate the verdict refused, or a replacement would delete without placing. `outdoorSurfaceLift` shares derived support height with the model dispatcher and collision envelopes; anchors remain integer cells. Surfaces must invalidate equipment models when added or removed. Trees are separate props: **planting, not structure** — `buildGraph` leaves their tile a walk node, so the crowd walks through a tree like every other street prop and only its equipment collision remains. Keep it that way: fencing the tile puts every planting on the full routing-rebuild path (measured ~1.5 s per click against ~0.2 s, or ~0.6 s where the planting widens the drawn plane and still needs its ground and graph). The walk-graph half is pinned by `outdoor-surfaces`' "a tree draws without walking", and the skipped worker rebuild by `worker-preview` and `performance-policy`. Pin palette order in rail-families and geometry/placement/save in outdoor-surfaces.
 
-Surface performance: `build/model/OutdoorSurfaces.ts` validates and edits a whole drag against one immutable document, committing one array; never reintroduce per-tile addEquipment/collision-cache reconstruction. `sim/outdoorSurfaces.ts` owns the cached tile/support index. Sidewalk/lawn are sim-inert; retention rebuilds equipment only when its derived support height changes. Each finish uses one shared vertex-coloured mesh. Street trees are baked offline from the pinned EZ-Tree dev dependency; preserve the source options/license in `assets/trees/` and the two shared meshes/material-kit texture ownership.
+Surface performance: `build/model/OutdoorSurfaces.ts` validates and edits a whole drag against one immutable document, committing one array; never reintroduce per-tile addEquipment/collision-cache reconstruction. `sim/outdoorSurfaces.ts` owns the cached tile/support index. Sidewalk/lawn/tree are sim-inert; retention rebuilds equipment only when its derived support height changes. Each finish uses one shared vertex-coloured mesh. Street trees are baked offline from the pinned EZ-Tree dev dependency; preserve the source options/license in `assets/trees/` and the two shared meshes/material-kit texture ownership. `node tools/bench-tree-placement.mjs` drives the real tree gesture (plant and delete) in the production browser.
 
 Outdoor finishes must not cap exit-owned floors, ramp openings or dug holes. `outdoorSurfaceHidden` shares the cached opening/support verdict with the surface model; refuse new caps with `opening` and mask pre-existing saved tiles, without lifting exits on that masked paving. Surface retention must depend on its supporting cell so dig/restore updates visibility. The Tanwei B fixture regression lives in `outdoor-surfaces`.

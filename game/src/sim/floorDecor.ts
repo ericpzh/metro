@@ -1,7 +1,7 @@
 import { msg } from './i18n.ts'
 import type { Module, LineDef } from './types.ts'
 import { rotateLocal } from './track.ts'
-import { doorRunOffsets, STOCK } from './stock.ts'
+import { doorRunOffsets, doorWidthAt } from './stock.ts'
 import { PSD_FULL_DOOR_WIDTH_SCALE } from './constants.ts'
 
 export type TactileVariant = 'guide' | 'warning'
@@ -108,9 +108,9 @@ export function snapBoardingMark(m: Extract<Module, { type: 'floor-mark' }>, mod
     const bed = rail?.type === 'track' ? rail : undefined
     const width = bed?.w ?? edge.w
     const i0 = bed ? rotateLocal(-(bed.rot ?? 0), edge.x - bed.x, edge.y - bed.y)[0] : (width - edge.w) / 2
-    const doorWidth = STOCK[stock].doorWidth * ((edge.cfg.psd ?? line?.psd) === 'half' ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
     const toward = edge.cfg.side === 'right' ? 1 : -1
     for (const at of doorRunOffsets({ stock, cars }, width)) {
+      const doorWidth = doorWidthAt({ stock, cars }, at - width / 2) * ((edge.cfg.psd ?? line?.psd) === 'half' ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
       const dx = at - i0 - 0.5
       if (dx - doorWidth / 2 <= -0.4 || dx + doorWidth / 2 >= edge.w - 0.6) continue
       const [ox, oy] = rotateLocal(edge.rot, dx, toward * 0.09)

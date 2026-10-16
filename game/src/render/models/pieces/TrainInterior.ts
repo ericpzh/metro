@@ -1,10 +1,11 @@
+import { dHalfWidth } from './DTrainShell.ts'
 import * as THREE from 'three'
 import { slab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z } from '../../../sim/stock.ts'
 
 /** Benches, seat-end guards, handrails and lighting from the metro cabin references (§1.13). */
-export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: number, end: number, bays: Array<[number, number]>, doors: number[], floor: THREE.Material): void {
+export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: number, end: number, bays: Array<[number, number]>, doors: number[], floor: THREE.Material, express = false): void {
   const tube = (points: THREE.Vector3[], radius: number, mat: THREE.Material, name: string, closed = false): void => {
     const curve = new THREE.CatmullRomCurve3(points, closed, 'centripetal')
     const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, radius, 6, closed), mat)
@@ -12,11 +13,23 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
     g.add(mesh)
   }
   const mid = (start + end) / 2
-  slab(g, floor, mid, 0, CABIN_FLOOR_Z - 0.06, end - start, CABIN_HALF_W * 2, 0.12).name = 'cabin-floor'
+  const halfWidth = express ? dHalfWidth(CABIN_FLOOR_Z - 0.12) - 0.04 : CABIN_HALF_W
+  slab(g, floor, mid, 0, CABIN_FLOOR_Z - 0.06, end - start, halfWidth * 2, 0.12).name = 'cabin-floor'
   for (const side of [-1, 1]) {
-    const y = side * (CABIN_HALF_W - 0.25)
-    for (const [a, b] of bays) {
+    const y = side * (halfWidth - 0.25)
+    for (const [bay, [a, b]] of bays.entries()) {
       if (b - a < 1.2) continue
+      // D stock mixes 2+2 transverse bays with longitudinal metro benches.
+      if (express && bay % 2 === 0) {
+        for (let x = a + 0.55; x < b - 0.35; x += 1.0) {
+          for (const seatY of [0.63, 1.10]) {
+            slab(g, mats.steel, x, side * seatY, CABIN_FLOOR_Z + 0.44, 0.48, 0.43, 0.07).name = 'd-transverse-seat'
+            slab(g, mats.steel, x - 0.23, side * seatY, CABIN_FLOOR_Z + 0.76, 0.07, 0.43, 0.62).name = 'd-seat-back'
+            slab(g, mats.gateRed, x, side * seatY, CABIN_FLOOR_Z + 0.2, 0.12, 0.12, 0.4)
+          }
+        }
+        continue
+      }
       const len = b - a - 0.14
       // Thin formed seat pan curves up into a backrest, rather than a solid box.
       const section = new THREE.Shape()
@@ -76,7 +89,7 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
   }
   for (const x of doors) {
     for (const side of [-1, 1]) {
-      const y = side * (CABIN_HALF_W - 0.025)
+      const y = side * (halfWidth - 0.025)
       slab(g, mats.white, x, y, DOOR_HEAD_Z - 0.17, 0.95, 0.035, 0.24).name = 'cabin-route-panel'
       slab(g, mats.blue, x, y - side * 0.024, DOOR_HEAD_Z - 0.17, 0.82, 0.008, 0.015)
       for (let stop = -3; stop <= 3; stop++) {

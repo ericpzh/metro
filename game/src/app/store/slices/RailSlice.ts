@@ -32,6 +32,7 @@ export interface RailSlice {
   railDir: LineDirection
   /** Quarter-turn applied to the rail piece being placed (R): 0..3. */
   railRot: number
+  railCatenaryStyle: 'canopy' | 'gantry'
   /** Tunnel tool: how far the auto-extended run reaches, in metres. */
   tunnelLength: number
 
@@ -39,6 +40,7 @@ export interface RailSlice {
   setRailDir: (dir: LineDirection) => void
   /** Turn the rail piece being placed 90° (R). */
   rotateRail: () => void
+  setRailCatenaryStyle: (style: 'canopy' | 'gantry') => void
   /** Toggle the platform run's 上行/下行 (Tab): edits a selected platform, else the tool default. */
   cycleRailDir: () => void
   /** Place the fixed track piece for the bound line at a cell (dig + doors). */
@@ -53,18 +55,20 @@ export interface RailSlice {
   /** Remove a rail and the screen doors derived from it. */
   removeRail: (trackId: string) => void
   /** Edit a rail's line/direction and re-derive its screen doors. */
-  updateRail: (trackId: string, patch: { line?: string; dir?: LineDirection; bridgeRailing?: BridgeRailing }) => void
+  updateRail: (trackId: string, patch: { line?: string; dir?: LineDirection; bridgeRailing?: BridgeRailing; catenaryStyle?: 'canopy' | 'gantry' }) => void
 }
 
 export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, get) => ({
   railLineId: '',
   railDir: 'up',
   railRot: 0,
+  railCatenaryStyle: 'canopy',
   tunnelLength: 32,
 
   setRailLine: (id) => set({ railLineId: id }),
   setRailDir: (dir) => set({ railDir: dir }),
   rotateRail: () => set((s) => ({ railRot: (s.railRot + 3) % 4 })),
+  setRailCatenaryStyle: (style) => set({ railCatenaryStyle: style }),
   cycleRailDir: () => {
     const st = get()
     const sel = st.selected
@@ -100,13 +104,13 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     const [ox, oy] = trackOriginForCentre(st.railRot, at[0], at[1], w, d)
     // Eligibility: nothing may share the space, a platform must lie on solid
     // floor (the bed is a full three cells wide) and may not cross a wall.
-    const candidate = makeTrack({ id: 'probe', lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d })
+    const candidate = makeTrack({ id: 'probe', lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d, catenaryStyle: st.railCatenaryStyle })
     const block = trackBlockReason(station, candidate)
     if (block) {
       set({ notice: trackBlockNotice(station, candidate, block) })
       return
     }
-    const next = placeTrack(station, { lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d })
+    const next = placeTrack(station, { lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d, catenaryStyle: st.railCatenaryStyle })
     if (next === station) {
       set({ notice: msg('there_is_already_track_here') })
       return

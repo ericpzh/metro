@@ -4,7 +4,7 @@ import { msg } from '../../sim/i18n.ts'
 // §7). A tunnel never touches the platform track's own cells — the run starts
 // where that rail stops.
 
-import { freeTunnelEnd, makeTunnel, railModuleAt, trackBlockReason, trackColliders } from '../../build/rail.ts'
+import { freeTunnelEnd, makeTunnel, railModuleAtPlatform, trackBlockReason, trackColliders } from '../../build/rail.ts'
 import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -20,8 +20,8 @@ export class TunnelTool extends ToolController {
     // end. It never touches the platform track's own cells — the run starts
     // where that rail stops.
     const src =
-      railModuleAt(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
-      railModuleAt(st.station, hit.place[0], hit.place[1], hit.place[2])
+      railModuleAtPlatform(st.station, hit.cell[0], hit.cell[1], hit.cell[2]) ??
+      railModuleAtPlatform(st.station, hit.place[0], hit.place[1], hit.place[2])
     // A tunnel hangs off an existing rail: with no rail under the pointer say
     // so instead of dropping the click.
     if (!src) {
@@ -42,7 +42,8 @@ export class TunnelTool extends ToolController {
     const hit = info.hit
     if (!scene || !hit) return
     // The extension hangs off the rail under the pointer; no rail, no ghost.
-    const src = railModuleAt(useStore.getState().station, hit.cell[0], hit.cell[1], hit.cell[2])
+    const state = useStore.getState().station
+    const src = railModuleAtPlatform(state, ...hit.cell) ?? railModuleAtPlatform(state, ...hit.place)
     if (!src) {
       this.ctx.hover.current = null
       scene.setCursor(null)
@@ -67,7 +68,7 @@ export class TunnelTool extends ToolController {
     const h = this.ctx.hover.current
     if (!scene || !h) return
     const st = useStore.getState()
-    const src = railModuleAt(st.station, h.cell[0], h.cell[1], h.cell[2])
+    const src = railModuleAtPlatform(st.station, ...h.cell) ?? railModuleAtPlatform(st.station, ...h.place)
     if (!src) {
       scene.setCursor(null)
       scene.setModulePreview(null)

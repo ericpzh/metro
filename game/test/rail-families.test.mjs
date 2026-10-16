@@ -46,10 +46,10 @@ import {
 } from '../src/app/rail/helpers.ts'
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
-  assert.equal(MODULE_FAMILIES.length, 22)
+  assert.equal(MODULE_FAMILIES.length, 23)
   assert.deepEqual(
     MODULE_FAMILIES.map((f) => f.key),
-    ['monitor', 'gate', 'fence', 'hanger', 'cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'extinguisher', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'],
+    ['monitor', 'gate', 'fence', 'hanger', 'cctv', 'tactile', 'floor-mark', 'roof', 'pillar', 'stair', 'exit', 'busstop', 'light', 'bench', 'shelf', 'extinguisher', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign', 'noise-barrier'],
     'the rail order: 设备 first, then 装饰',
   )
   for (const family of MODULE_FAMILIES) {
@@ -102,7 +102,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
       // rest. A family whose folder said otherwise would put its parent tile in one grid
       // and its variants in the other.
       assert.equal(
-        isDecorType(option.type),
+        isDecorType(option.id),
         family.folder === 'decor',
         `${family.key} / ${option.id} belongs in the ${family.folder} folder`,
       )
@@ -110,7 +110,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
   }
   assert.deepEqual(familiesIn('equipment').map((f) => f.key), ['gate', 'fence', 'stair', 'exit'])
   assert.deepEqual(familiesIn('rail').map((f) => f.key), ['roof', 'pillar'])
-  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['monitor', 'hanger', 'cctv', 'tactile', 'floor-mark', 'busstop', 'light', 'bench', 'shelf', 'extinguisher', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign'])
+  assert.deepEqual(familiesIn('decor').map((f) => f.key), ['monitor', 'hanger', 'cctv', 'tactile', 'floor-mark', 'busstop', 'light', 'bench', 'shelf', 'extinguisher', 'billboard', 'glass', 'door', 'calligraphy', 'linemap', 'sign', 'noise-barrier'])
   // **The id has to answer as the type does.** The rail and the placement tool hold a
   // palette **id**, not a module: `LeftRail` folds the folder open by `isDecorType(moduleType)`
   // and `EquipmentTool` asks the same predicate before its 装饰 right-click guard. A family
@@ -120,7 +120,7 @@ test('a family is filed in the folder its own pieces are filed in', () => {
   for (const option of MODULE_OPTIONS) {
     assert.equal(
       isDecorType(option.id),
-      isDecorType(option.type),
+      option.id.startsWith('noise-barrier') || isDecorType(option.type),
       `${option.id}: the palette id is filed where its own type is`,
     )
   }
@@ -140,7 +140,7 @@ test('a variant never appears twice: the grid holds only the plain tiles', () =>
     // Everything a folder can place is either a plain tile or a variant of one of its
     // families — nothing the palette offers is left undrawable.
     const drawn = new Set([...tiles.map((t) => t.id), ...familiesIn(folder).flatMap((f) => familyOptions(f).map((o) => o.id))])
-    const owned = MODULE_OPTIONS.filter((m) => (folder === 'rail' ? m.type === 'roof' || m.type === 'pillar' : folder === 'decor' ? isDecorType(m.type) : !isDecorType(m.type) && m.type !== 'roof' && m.type !== 'pillar'))
+    const owned = MODULE_OPTIONS.filter((m) => (folder === 'rail' ? m.type === 'roof' || m.type === 'pillar' : folder === 'decor' ? isDecorType(m.id) : !isDecorType(m.id) && m.type !== 'roof' && m.type !== 'pillar'))
     for (const option of owned) {
       // The 设备 folder leaves the exits and the runs to their own tools; everything it
       // sweeps up must be reachable from the grid.
@@ -176,8 +176,8 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     'cubicle', 'sink',
     familyAnchor('light'), 'vent',
     familyAnchor('hanger'), 'desk',
-    'road', 'traffic-light', 'guidepost', familyAnchor('busstop'),
-    'ac-unit', 'electrical-cabinet', 'tvm', 'vending',
+    'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'guidepost', familyAnchor('busstop'),
+    'ac-unit', 'electrical-cabinet', 'tvm', 'vending', familyAnchor('noise-barrier'),
   ])
   assert.deepEqual(anchors('equipment'), [
     familyAnchor('gate'), familyAnchor('fence'),
@@ -225,9 +225,9 @@ test('the four top-level decor sections keep their contents and requested order'
   assert.deepEqual(anchors('floor'), [
     'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', 'psd-end',
     familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
-    familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'),
+    familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'), familyAnchor('noise-barrier'),
   ])
-  assert.deepEqual(anchors('outside'), ['road', 'traffic-light', 'guidepost', familyAnchor('busstop'), 'ac-unit'])
+  assert.deepEqual(anchors('outside'), ['sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'guidepost', familyAnchor('busstop'), 'ac-unit'])
   assert.ok(anchors('floor').includes('tvm') && anchors('floor').includes('vending'), 'ticket and vending machines are decor')
 })
 
@@ -255,7 +255,8 @@ test('the open slot follows the family table, so a variant cannot fold its own l
       // answer with the family whose list the player is looking at, or the list folds away
       // underneath the tile they just clicked.
       assert.equal(subMenuForModule(option.id), family.key, `${option.id} keeps the ${family.key} list open`)
-      assert.equal(subMenuForModule(option.type), family.key, `${option.id}: a placed piece answers the same`)
+      assert.equal(subMenuForModule(option.type), family.key === 'noise-barrier' ? 'fence' : family.key,
+        `${option.id}: a bare fence type uses the fence family; the palette id retains its decor variant`)
     }
   }
   assert.equal(subMenuForModule('bin'), null, 'a piece of its own closes every list')

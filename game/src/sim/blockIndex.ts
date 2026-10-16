@@ -2,6 +2,7 @@ import type { Cell, Module } from './types.ts'
 import { blockedCellsByLevel, trackBedKeys } from './placement.ts'
 import { rampOpeningsInWindow } from './openings.ts'
 import { exitFootprintCells, isExitHeadHouse } from './exits.ts'
+import { trackCells } from './track.ts'
 
 export interface BlockIndex {
   (z: number): Set<string>
@@ -25,6 +26,10 @@ export function blockIndex(cells: readonly Cell[], modules: readonly Module[]): 
   index.solid = new Set(cells.filter(c => c.fill === 'solid').map(c => `${c.x},${c.y},${c.z}`))
   const voidGround = new Set(cells.filter(c => c.z === 0 && c.fill !== 'solid').map(c => `${c.x},${c.y}`))
   const exits = new Set<string>()
+  const trackGround = new Set<string>()
+  for (const mod of modules) if (mod.type === 'track' && mod.z === 0 && !mod.cfg.tunnel && !mod.cfg.bridge) {
+    for (const [x, y] of trackCells(mod)) trackGround.add(`${x},${y}`)
+  }
   for (const mod of modules) if (mod.type === 'exit' && isExitHeadHouse(mod)) {
     for (const [x, y, z] of exitFootprintCells(mod)) exits.add(`${x},${y},${z}`)
   }
@@ -38,7 +43,7 @@ export function blockIndex(cells: readonly Cell[], modules: readonly Module[]): 
     }
     return at.has(`${x},${y}`)
   }
-  index.ground = (x, y, z) => z === 0 && !voidGround.has(`${x},${y}`) && !index.opening(x, y, z)
+  index.ground = (x, y, z) => z === 0 && !voidGround.has(`${x},${y}`) && !trackGround.has(`${x},${y}`) && !index.opening(x, y, z)
   byModules.set(modules, index)
   return index
 }

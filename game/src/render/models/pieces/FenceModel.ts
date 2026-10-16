@@ -6,6 +6,8 @@ import type { ModuleContext } from '../PieceBuilder.ts'
 import { fenceArms, railLandingAt } from '../../../sim/fences.ts'
 import { gateSolidFaces } from '../../../sim/gates.ts'
 import type { Module } from '../../../sim/types.ts'
+import { noiseBarrierVariant } from '../../../sim/noiseBarriers.ts'
+import { NoiseBarrierModel } from './NoiseBarrierModel.ts'
 
 /**
  * Fence (围栏, §5.2): a 1 m high, very thin metal frame around a glass panel,
@@ -43,7 +45,7 @@ function buildFence(ctx: ModuleContext, mod: Extract<Module, { type: 'fence' }>)
   const w = joined(mod.x - 1, mod.y)
   const n = joined(mod.x, mod.y + 1)
   const s = joined(mod.x, mod.y - 1)
-  drawFence(g, mats, fenceArms(mod.rot, { e, w, n, s }), true, mod.cfg.variant ?? 'glass')
+  drawFence(g, mats, fenceArms(mod.rot, { e, w, n, s }), true, mod.cfg.variant === 'gate' || mod.cfg.variant === 'iron' ? mod.cfg.variant : 'glass')
   // The orientation is baked into the geometry (neighbour arms + caps), so the
   // group is positioned but never rotated — a 180° turn is the same panel.
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z + 1)
@@ -53,6 +55,7 @@ function buildFence(ctx: ModuleContext, mod: Extract<Module, { type: 'fence' }>)
 export class FenceModel extends PieceBuilder {
   readonly kind = 'fence'
   build(mod: Extract<Module, { type: 'fence' }>): THREE.Group {
+    if (noiseBarrierVariant(mod)) return new NoiseBarrierModel(this.ctx).build(mod)
     return buildFence(this.ctx, mod)
   }
 }

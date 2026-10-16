@@ -445,7 +445,7 @@ export type Module =
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor; variant?: 'old' | 'new' } })
   | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; offset?: [number, number]; corner?: string } })
-  | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' } })
+  | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' | 'bridge-railing' | 'sound-barrier-half' | 'sound-barrier' } })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down'; width?: 1 | 2 } })
   | (ModuleBase & {
       /**
@@ -763,7 +763,7 @@ export type Module =
       /** Bed depth in cells across the run (+y). Defaults to 1. */
       d?: number
       /** A pure tunnel run: an extension of a line's track, never platform doors. */
-      cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean; bridgeRailing?: BridgeRailing; bridgeFinish?: FinishId; removedBridgePillars?: string[] }
+        cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean; catenaryStyle?: 'canopy' | 'gantry'; bridgeRailing?: BridgeRailing; bridgeFinish?: FinishId; removedBridgePillars?: string[] }
     })
 
 export type ModuleType = Module['type']

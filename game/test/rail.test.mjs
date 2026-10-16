@@ -4,7 +4,7 @@
 // contiguous run of platform floor beside the bed.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, placeRail, placeTrack, placeTunnel, railModuleAt, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
+import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, makeBridge, placeRail, placeTrack, placeTunnel, railModuleAt, railModuleAtPlatform, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
 import { trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.ts'
 import { moduleEnvelope, placementOnTrack, trackBedKeys, trackAt } from '../src/sim/placement.ts'
 import { World } from '../src/sim/world.ts'
@@ -373,6 +373,7 @@ test('a platform needs the whole bed on floor and blocks on any interference', (
     if (x === 3 && y === 2) continue
     cells.push({ x, y, z: 0, fill: 'solid' })
   }
+  cells.push({ x: 3, y: 2, z: 0, fill: 'void' })
   const piece = { lineId: '1', dir: 'up', power: 'third-rail', rot: 0, x: 0, y: 0, z: 0, w: 6, d: 3 }
   const s0 = station(cells)
   assert.equal(placeTrack(s0, piece), s0, 'a bed over a hole is refused')
@@ -380,7 +381,7 @@ test('a platform needs the whole bed on floor and blocks on any interference', (
   assert.equal(trackBlockReason(s0, { id: 't', type: 'track', ...piece, cfg: { line: '1', power: 'third-rail' } }), 'floor')
 
   // Complete the strip and it places.
-  const filled = { ...s0, cells: [...cells, { x: 3, y: 2, z: 0, fill: 'solid' }] }
+  const filled = { ...s0, cells: [...cells.filter((c) => !(c.x === 3 && c.y === 2 && c.z === 0)), { x: 3, y: 2, z: 0, fill: 'solid' }] }
   assert.notEqual(placeTrack(filled, piece), filled)
 
   // Anything already in the way blocks it: a gate, a room, another track.
@@ -390,6 +391,17 @@ test('a platform needs the whole bed on floor and blocks on any interference', (
   assert.equal(placeTrack(withRoom, piece), withRoom, 'a room on the bed blocks it')
   const withTrack = { ...filled, modules: [{ id: 't2', type: 'track', x: 2, y: 1, z: 0, w: 2, d: 1, cfg: { line: '1', power: 'third-rail', tunnel: true } }] }
   assert.equal(placeTrack(withTrack, piece), withTrack, 'another track blocks it')
+})
+
+test('a platform can use the intact virtual street at 0 m, but not a dug ground hole', () => {
+  const piece = { lineId: '1', dir: 'up', power: 'third-rail', rot: 0, x: 0, y: 0, z: 0, w: 6, d: 3 }
+  const untouched = station([])
+  assert.equal(trackFloorMissing(untouched, { id: 't', type: 'track', ...piece, cfg: { line: '1', power: 'third-rail' } }), false)
+  assert.notEqual(placeTrack(untouched, piece), untouched, 'the default street supports the platform')
+
+  const dug = station([{ x: 3, y: 1, z: 0, fill: 'void' }])
+  assert.equal(trackFloorMissing(dug, { id: 't', type: 'track', ...piece, cfg: { line: '1', power: 'third-rail' } }), true)
+  assert.equal(placeTrack(dug, piece), dug, 'a documented ground hole is still unsupported')
 })
 
 test('a tunnel may hang over void but still blocks on equipment', () => {
@@ -424,6 +436,24 @@ test('a tunnel snaps to the hovered end', () => {
   // Hovering the east cell extends the east end.
   const east = placeTunnel(s1, src.id, 4, [5, 1, 0]).modules.find((m) => m.type === 'track' && m.cfg.tunnel)
   assert.equal(east.x, src.x + src.w, 'east hover extends east')
+})
+
+test('tunnel and bridge snap from the full platform and screen-door strip', () => {
+  const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]
+  const s1 = placeRail(station(cells), { x0: 0, y0: 1, x1: 5, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const src = s1.modules.find((m) => m.type === 'track')
+  assert.ok(src)
+  assert.ok(s1.modules.some((m) => m.type === 'platform-edge' && m.cfg.from === src.id), 'the platform screen-door strip is derived')
+  assert.equal(railModuleAtPlatform(s1, 1, 0, 0)?.id, src.id, 'a left-half platform floor cell resolves its rail')
+  assert.equal(railModuleAtPlatform(s1, 4, 0, 0)?.id, src.id, 'a right-half screen-door/platform cell resolves its rail')
+  const west = placeTunnel(s1, src.id, 4, [1, 0, 0]).modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  const east = placeTunnel(s1, src.id, 4, [4, 0, 0]).modules.find((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.equal(west.x + west.w, src.x, 'hovering the platform left half extends left')
+  assert.equal(east.x, src.x + src.w, 'hovering the platform right half extends right')
+  const westBridge = makeBridge(src, -1, 4, 'west-bridge')
+  const eastBridge = makeBridge(src, 1, 4, 'east-bridge')
+  assert.equal(westBridge.x + westBridge.w, src.x, 'the bridge uses the same left-half end')
+  assert.equal(eastBridge.x, src.x + src.w, 'the bridge uses the same right-half end')
 })
 
 test('the reference station ships a dug bed with an auto-consistent edge', async () => {

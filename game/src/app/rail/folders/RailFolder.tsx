@@ -28,6 +28,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
   const stationLines = useStore((s) => s.station.lines)
   const railDir = useStore((s) => s.railDir)
   const railLineId = useStore((s) => s.railLineId)
+  const railCatenaryDefault = useStore((s) => s.railCatenaryStyle)
   const railRot = useStore((s) => s.railRot)
   const tunnelLength = useStore((s) => s.tunnelLength)
   const autoWalls = useStore((s) => s.autoWalls)
@@ -40,6 +41,9 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
   const track = findSelectedTrack(selected, stationModules)
   const railDirNow = track ? (track.cfg.dir ?? 'up') : railDir
   const railLineNow = track ? track.cfg.line : railLineId || stationLines[0]?.id || ''
+  const railLine = stationLines.find((l) => l.id === railLineNow)
+  const catenaryStyle = track?.cfg.catenaryStyle ?? railCatenaryDefault
+  const showCatenaryStyle = railLine?.power === 'catenary' && railLine.psd === 'half'
   const trackSummary = track ? railSummary(track, stationLines.find((l) => l.id === track.cfg.line)) : null
   // The platform-only controls (方向 / 线路) make no sense for a
   // tunnel, so they are shown only while placing or editing a platform run.
@@ -56,6 +60,11 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
   const setRailLineNow = (id: string): void => {
     if (track) st().updateRail(track.id, { line: id })
     else st().setRailLine(id)
+  }
+  const toggleCatenaryStyle = (): void => {
+    const next = catenaryStyle === 'canopy' ? 'gantry' : 'canopy'
+    if (track) st().updateRail(track.id, { catenaryStyle: next })
+    else st().setRailCatenaryStyle(next)
   }
 
   return (
@@ -104,6 +113,14 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                     <div className="blockGrid">
                       {tool !== 'tunnel' && (
                         <RotateTile label={t('rotate_value', ((4 - railRot) % 4) * 90)} onClick={() => st().rotateRail()} />
+                      )}
+                      {showCatenaryStyle && (
+                        <Block
+                          label={t('catenary_style_value', t(catenaryStyle === 'gantry' ? 'catenary_gantry' : 'catenary_canopy'))}
+                          icon={catenaryStyle === 'gantry' ? 'bridge' : 'roof'}
+                          active={catenaryStyle === 'gantry'}
+                          onClick={toggleCatenaryStyle}
+                        />
                       )}
                     </div>
                   )}

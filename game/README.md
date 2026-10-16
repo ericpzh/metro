@@ -1,5 +1,30 @@
 # Station Designer — the game
 
+Bridge railings, sound barriers and both bridge/platform gantries follow the
+platform screen-door centre line. Ground 隔音屏 uses the same 0.34 m offset
+within its tile; R selects the side, which line dragging preserves. Rendered
+geometry and placement envelopes share the offset. `module-build` pins both
+sides in every rotation and both track widths; `fence` pins drag-side retention.
+
+地面装饰 ends with 隔音屏 (Sound barrier). Its three variants reuse the bridge's
+railing, half-height and full-height sound-barrier models. The parent tile shows
+the full sound barrier. Drag to place or right-drag to delete a straight run,
+with one undo step per gesture; the 删除 tool also removes a line like 围栏.
+`fence`, `rail-families`, `rail-folders` and `pick-tool` cover geometry, placement,
+drag/delete/undo, save and picker identity, and the tile's final position.
+
+Raised concrete shoulders close the gap below bridge sound barriers and railings.
+They share the deck finish and meet each barrier footing without filling the
+track drainage channels. `module-build` checks footing contact in every rotation;
+`overground` checks that painting the deck also paints its raised shoulders.
+
+Bridge noise barriers fit panels and horizontal frames between their own posts
+and catenary gantry pillars, including neighbouring platform gantries at either
+bridge end. Panels stop at the horizontal frame faces so the
+joints do not flicker. Glass has 3 mm clearance inside its frame to avoid coincident
+faces visible through the transparent pane. `module-build` checks intersections and duplicate exposed
+faces for both barrier heights, both power types and all rotations.
+
 `psd-header.test.mjs` covers directional terminal signage, schematic line strips,
 bilingual station plaques, travel-side destination arrows and the lower line-colour band.
 Full-height screens have a 0.53 m header above 2.25 m glazing, with an oval amber
@@ -342,6 +367,45 @@ the graph seats its boarding doors on — one door server per car door, on the c
 The models are pure three.js geometry
 over one shared material kit — no image or GLB assets. Modules are level-aware, so a tall escalator
 or exit ghosts with the floor it belongs to instead of drawing through it.
+
+D型 stock is selectable in the A/B/C/D/L single-letter button row. D cars use a
+dedicated curved shell with broad roof and sill arcs following the cab, a narrow
+flat crown, small panes in a continuous black window band and rounded passenger plug doors
+with tall narrow capsule windows and side handles. The cab has no additional access door. Its loft
+meets that same cross-section at the roof, shoulders and lower sides. The front has
+a slim central U-shaped windscreen, diagonal corner lamps visible head-on,
+rounded nose sections that blend down into a low tip and smooth U-shaped
+trim. The side windows, lamps and red accents occupy successive sections between
+the same two curved boundaries, with small gaps, closely following the windshield.
+Their inner edges, including the seals and lamp housings, are trimmed to the
+black surround so no pane, lamp or accent crosses into it.
+The colored surround closes into an ellipse in plan, draped onto the rounded crown,
+with a broad line-colored band around the side windows and lamps that extends
+down the nose, and no rectangular rear band. Face details fit the rendered shell triangles with
+small surface offsets; the surround uses adjacent rings rather than overlapping
+filled sheets. Side panes have a short rear cut across the cab, and the lower
+skirt drops toward the car sill. Car and cab shoulders share the same edge chords
+to close the join. Shared section sampling concentrates vertices at the roof and
+sill turns; the floor edge and cab bulkhead stay inside the curved shell.
+A dark brow carries two upper marker lights
+above the windscreen. Enclosed corrugated gangways span the gaps
+between cars across the sides, roof and underfloor.
+End cars have three passenger doorways per side, intermediate cars four. Only the
+nearest doorway to each cab is a narrow single door; the others have wider paired
+leaves. `doorCentres` and `doorWidthAt` keep train openings, screen doors and boarding
+marks aligned without shifting the centres. Doors plug outward before sliding;
+stationary corner infills close the rounded jambs. The black window band continues
+as an opaque taper onto each cab, with the upper color region extending to the car
+joint and the lower stripes sweeping into the skirt. Cab-side paint edges share
+the carriage bands' exact seam coordinates and begin level before tapering. The cabin mixes 2+2 seating
+with benches.
+New D platforms reserve a four-cell bed. Line edits widen platform beds where
+clear; an overlap refusal retains the original track and screens. Tunnel and bridge
+beds widen for D stock while keeping their authored run lengths.
+The eight-car reference holds 1,758 rated / 2,600 crush passengers; shorter sandbox
+formations scale capacity by car count. The 1,435 mm gauge and 160 km/h service speed
+are stock specifications; station approach/departure still uses the shared timetable
+animation. Reference: [Guangzhou 18/22 stock](https://zh.wikipedia.org/zh-cn/广州地铁十八号线／二十二号线列车).
 
 **装饰 is split into four top-level build-rail folders:** 天花板装饰 (Shift+4), 墙面装饰 (Shift+5),
 地面装饰 (Shift+6) and 站外装饰 (Shift+7). Family variants determine whether a family appears in a
@@ -1200,11 +1264,11 @@ the rail's rotation. Every derived edge records which side the track lies on (`c
 screen's own frame), and the renderer, the auto-derive and `World.computeLineAnchors` share that one
 meaning, so the printed header always faces the platform, never the rail. The same `cfg.side` decides
 which of the consist's two door banks may open at that berth: a side with no screen run has none, so
-its doors stay shut — the train opens onto the platform, never onto the tunnel wall (§1.13). Editing a line's 车型/编组 re-cuts its tracks to the new run length. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails — on the travel left in a tunnel or on a bridge, and off the platform side at a station (`thirdRailSide` in `sim/track.ts`), jumping across before the station — 接触网 draws an overhead contact wire hung from a ceiling — a canopy the model raises over a platform, or the bore's shell in a tunnel — kept under the 4 m storey line so it never buries in the floor above (and, unlike a mast, it cannot foul the screen doors of an island platform). Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
+its doors stay shut — the train opens onto the platform, never onto the tunnel wall (§1.13). Editing a line's 车型/编组 re-cuts platform rails to the new run length and widens every bound tunnel or bridge bed to the consist's required car width; tunnels rebuild their tagged shell and bridges recenter their generated supports while keeping their authored run lengths. A platform at z = 0 may stand on the intact virtual street plane, while saved digs and derived ramp/exit openings still refuse it. A placed surface track derives an opening under its bed, so the rendered plane does not cover the rail and removing the track restores implicit ground without leaving a saved hole. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails — on the travel left in a tunnel or on a bridge, and off the platform side at a station (`thirdRailSide` in `sim/track.ts`), jumping across before the station — 接触网 keeps one contact height and follows the consist centre across stations, tunnels and bridges. Platforms default to a low canopy; half-height-PSD catenary platforms can switch to a vehicle-width gantry, with uprights outside the car envelope and below the 4 m storey floor. Tunnel wires hang from the bore; bridge portals and decks size their clear span from the bound stock. Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
 two tools, both gated by one eligibility check (`trackBlockReason`): anything already sharing the run's
 space — equipment, a room, a screen door, a ramp, another rail/tunnel — blocks placement rather than
 being demolished, and the preview flags it red. **站台** is the fixed consist-length piece above; it must
-rest on solid floor under its whole bed (three cells wide, `trackFloorMissing`) and refuses a wall in its
+rest on solid floor under its whole bed (three cells wide by default, `trackFloorMissing`; the intact virtual street at z = 0 counts, but a dug hole does not) and refuses a wall in its
 headroom (`trackClearanceBlocked`) — a platform is open air. **隧道** is a pure tunnel run: hover an
 existing rail and it extends off the free end nearest the pointer (a slider sets the length), keeping
 the source's axis, rotation and bed depth, flagged `cfg.tunnel` so it never spawns platform doors. A
@@ -1697,6 +1761,22 @@ teardown. A **扶梯** and an **电梯** are the deliberate exception, and a div
 lists both as unsweepable: a bank of either sweeps, each strictly within its own family, so an
 escalator never takes a lift, and the teardown is the same `removeModule` a single delete uses, so one
 `Ctrl+Z` restores the row. See `test/sweep.test.mjs`, which is where that decision is written down.
+
+**删除 and a right-click resolve one target the same way.** A drawn piece wins over the block behind it
+— that is what makes a wall poster, a ceiling fitting or a tall piece above a rail trench clickable at
+all — but only while that piece really stands in the cell the pointer is on (`app/tools/deletionTarget.ts`,
+shared by the equipment tool's right-click and the 删除 tool). A ray can also land on a piece that
+belongs *elsewhere*: a 树木's canopy is alpha-tested leaves, so the raycaster sees a quad where the
+player sees the paving beside it, and a raised 人行道 plate is hit a cell away from the block
+`CameraSystem.pick` reports, because the pick answers with the block and the plate stands 0.1 m above
+it. Both used to hand the delete to the wrong piece — or, when the ray missed the plate altogether,
+straight to the block path, which **dug a hole in the street where the paving stood** instead of
+lifting it. The cell's own piece wins in those cases, so the two gestures can no longer disagree.
+The tile families then ride one teardown: `人行道` and `草坪` delegate to the tile tool exactly as a
+roof bay or a stair block does, which is the run drag and the single `editOutdoorSurfaces` commit the
+armed 人行道 / 草坪 tool's right-drag performs — a held 删除 drag over paving lifts the whole rectangle
+in one `Ctrl+Z`, not one tile. `test/delete-tool.test.mjs` compares the two documents tap for tap and
+run for run, and `test/equipment-deletion.test.mjs` pins the resolver's precedence.
 
 **移动 moves a piece — and rebuilds a run.** It is neither a tool nor a second panel: select the
 设备 / 装饰 / 出入口 piece (`Z` 选择) and press the 移动 button in the right inspector's `信息` card, beside what
@@ -2642,10 +2722,12 @@ approximated); neither needs WebGL.
   on the highlighted cell, and a quarter-turned track digs a north–south bed, derives north–south
   screen doors and runs its train in y with a matching yaw; a 供电 switch (`setLinePower`) re-cuts every
   track bound to the line — platform and tunnel — and leaves other lines untouched; a tunnel auto-extends a rail off its free
-  end, clears the wall it pokes through and raises its own side walls and ceiling without spawning
-  doors; a platform needs its whole bed on solid floor and refuses a wall in its headroom; either one
-  is blocked by any existing equipment, room, screen door or track; re-cutting a line's consist resizes
-  its platform tracks; deleting a line (`removeLineAndTracks`) takes its platform rails, tunnels, derived
+  end (including snapping from exposed platform and 屏蔽门 cells, with the hovered half choosing
+  left or right for tunnel and bridge extensions), clears the wall it pokes through and raises its own side walls and ceiling without spawning
+  doors; a platform needs its whole bed on solid floor (including intact virtual ground at z = 0, but
+  not a dug hole) and refuses a wall in its headroom; either one is blocked by any existing equipment,
+  room, screen door or track; re-cutting a line's consist resizes platform lengths and widens tunnel /
+  bridge cross-sections while preserving run lengths; deleting a line (`removeLineAndTracks`) takes its platform rails, tunnels, derived
   screen doors and tunnel shell with it while leaving other lines' tracks and doors untouched;
   a fresh line carries empty 上行/下行 termini for its screen header and a full-height
   (全高) 屏蔽门; switching a line to 半高 re-derives its edges and shrinks the reserved screen height from
@@ -2849,7 +2931,9 @@ approximated); neither needs WebGL.
   a solid floor hit. The same aim is what picks **which** wall a panel hangs on, and the mounts bolted
   to a named piece of the document keep the turn the pointer gave them: a 地面出入口 stays on the block
   face it was clicked on (`cfg.mountZ`) while a 玻璃板 on the same hover takes the wall the camera is
-  looking at. It also pins **which course** that 玻璃板 covers: aimed at a wall's second course the pane
+  looking at. Bridge input also pins rail/screen hits over a lower floor and floor hits across the outer
+  platform, both ends and all rotations, with one visible-module pick per event and preview/click agreement.
+  It also pins **which course** that 玻璃板 covers: aimed at a wall's second course the pane
   hangs over the second course, where a 广告牌 on the same hover keeps its band at the storey floor.
 * `glass-panel.test.mjs` — the 玻璃板 sizes (§5.7): the table offers ten (six wall sizes and four
   4 m floor-edge sizes, including 1 m 超窄), six wall-size palette options plus a separate 玻璃幕墙 Tab cycle, and a legacy or unknown value reads as the 1 × 1
@@ -2930,7 +3014,7 @@ approximated); neither needs WebGL.
 `module-build.test.mjs` also checks that each escalator glass balustrade fills both rounded
 handrail returns with one continuous pane, in both widths and every rotation/travel direction.
 
-* `module-build.test.mjs` — lift landing doors stay closed on empty floors and slide with the aligned car in both styles and all rotations; enclosed stainless double bins, inward-facing hopper walls and recessed wells in all four rotations;
+* `module-build.test.mjs` — lift landing doors stay closed on empty floors and slide with the aligned car in both styles and all rotations; bridge noise-barrier posts yield to coincident overhead catenary gantry pillars; enclosed stainless double bins, inward-facing hopper walls and recessed wells in all four rotations;
   the 地面 X向 exit header fills its full canvas red and keeps fixed-size text as wider bays add spacing;
   full-height platform doors at 150% of car door width, closure across all stock classes and both
   platform sides, including vinyl that travels with each leaf; every piece the station can draw,
@@ -3029,8 +3113,8 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   and wears its real 广州地铁 colour; `updateLine` lands 名字 / 颜色 / 上行终点 / 下行终点 / 车型 / 编组 /
   下车 / 行车间隔, snaps a consist onto the 2/3/4/6/8 menu (ties down) and carries the per-car 下车
   over, clamps each headway leg into 60–1200 s keeping the legs it did not touch, and its **供电** and **屏蔽门**
-  switches reach every track and screen door bound to that line and no other (re-cutting a platform
-  rail while a hand-sized tunnel keeps its own length); refreshing a selected platform or one of
+  switches reach every track and screen door bound to that line and no other (re-cutting platform
+  lengths and widening tunnel / bridge beds while preserving run lengths); refreshing a selected platform or one of
   its screen doors resolves to that platform and re-derives only its doors; `removeLine` takes the
   line, its tracks, their
   doors and any tunnel shell as **one** `Ctrl+Z`; the undo stack pushes the document as it was, walks
@@ -3746,10 +3830,15 @@ under `.preview/roads/node-*`.
 
 人行道 (Sidewalk) and 草坪 (Lawn) in 站外装饰 drag rectangular patches raised 0.1 m. Ground equipment follows the finish; 树木 (Tree) places individually on grass or bare ground. `outdoor-surfaces` pins height, ground-equipment compatibility, collisions, save/pick and support rebuilds; `roof-tool` pins immediate rectangular drag, erase and undo.
 
-A tile carries **one** finish: dragging 草坪 over 人行道 (or the reverse) **replaces** it — the release deletes the finish under the candidate and lays the new one in the same commit, so one Ctrl+Z puts the old finish back. `equipmentReason` owns that rule (the other kind on the tile is the tile being replaced, not an obstacle), which is why the ghost is not red where the release accepts, while laying the *same* kind again stays the "already here" no-op. A cell the verdict refuses replaces nothing: `editOutdoorSurfaces` only drops a replaced finish for a candidate it accepted. Both directions and the refusal case are pinned in `outdoor-surfaces`, and the gesture in `roof-tool`.
+A tile carries **one** finish: dragging 草坪 over 人行道 (or the reverse) **replaces** it — the release deletes the finish under the candidate and lays the new one in the same commit, so one Ctrl+Z puts the old finish back. `equipmentReason` owns that rule (the other kind on the tile is the tile being replaced, not an obstacle), which is why the ghost is not red where the release accepts, while laying the *same* kind again stays the "already here" no-op. A cell the verdict refuses replaces nothing: `editOutdoorSurfaces` only drops a replaced finish for a candidate it accepted. Both directions and the refusal case are pinned in `outdoor-surfaces`, and the gesture in `roof-tool`. **Removal is that same teardown wherever it is asked for**: the 删除 (B) tool resolves the tile standing in the pointed cell and hands it to the tile tool, so a tap and a run drag remove exactly what the armed 人行道 / 草坪 tool's right-click removes — one commit, one undo (`delete-tool`).
 
-Outdoor surface performance: `outdoor-surfaces` now guards one snapshot for bulk placement/removal, bounded document reads, exact floor/track/road refusals, immutable support indexes, retained unaffected equipment and shared geometry disposal. `worker-preview` guards no routing rebuild or paused tick for sidewalk/lawn edits within the existing ground window. Trees use the offline EZ-Tree ash bake (`node tools/bake-street-tree.mjs`), two shared meshes and a scene-owned leaf texture. `node tools/bench-outdoor-surfaces.mjs` measures cold and warm production pointer phases; reports belong under `.preview/perf/`.
+Outdoor surface performance: `outdoor-surfaces` now guards one snapshot for bulk placement/removal, bounded document reads, exact floor/track/road refusals, immutable support indexes, retained unaffected equipment and shared geometry disposal. `worker-preview` guards no routing rebuild or paused tick for sidewalk/lawn/tree edits within the existing ground window — a 树木 is **planting, not structure**: `buildGraph` deliberately leaves its tile a walk node, so the crowd walks through it like every other street prop, and only its equipment collision remains. Re-fencing that tile would put one planting on the full path: 1,475 ms of production click-to-two-frames against 215 ms now (583 ms when the planting widens the drawn plane, which still needs its ground and graph), with the delete direction verified to redraw in the same two frames (`PERFORMANCE.md`). Trees use the offline EZ-Tree ash bake (`node tools/bake-street-tree.mjs`), two shared meshes and a scene-owned leaf texture. `node tools/bench-outdoor-surfaces.mjs` measures cold and warm production pointer phases, and `node tools/bench-tree-placement.mjs` measures the tree gesture end to end; reports belong under `.preview/perf/`.
 
 `outdoor-surfaces` also pins Tanwei B exit protection: sidewalk/lawn refuse exit-owned floors and ramp openings, and existing saved tiles draw no cap when an exit or hole is created afterward. Hidden finishes do not lift the exit away from its stairs. Ground edits invalidate the affected finish so digging and restoring ground update its visibility.
 
 `move` pins moving trees through the move tool/inspector eligibility, cancel, collision refusal, lawn support height and one-step undo/redo.
+
+Bridge hover resolves visible track and screen-door surfaces above lower floors;
+`equipment-placement-input` pins the full bed, screen-door strip and outer
+platform, both ends, all rotations, one module pick per event and preview/click
+agreement.

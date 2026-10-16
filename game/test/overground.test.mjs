@@ -420,8 +420,10 @@ test('material brush paints the bridge deck while retaining rail, sleeper and ba
   const mats = { white: mat, black: mat, steel: mat, darkSteel: mat, glass: mat, psu: mat }
   const model = new TrackModel({ ...ctx, mats, finish: (id) => id === painted.cfg.bridgeFinish ? deckMat : trackConcrete }).build(painted)
   const coated = model.children.filter((child) => child.material === deckMat)
-  assert.equal(coated.length, 1, 'only the concrete deck takes the paint')
-  assert.equal(sizeOf(coated[0]).z, 1)
+  assert.ok(coated.length >= 3 && coated.every(child => child.name === 'bridge-deck' || child.name === 'bridge-edge-concrete'), 'only the concrete deck and its raised shoulders take the paint')
+  assert.equal(sizeOf(model.getObjectByName('bridge-deck')).z, 1)
+  const shoulders = model.children.filter(child => child.name === 'bridge-edge-concrete')
+  assert.ok(shoulders.length >= 2 && shoulders.every(child => child.material === deckMat), 'both raised bridge shoulders share the painted deck finish')
   assert.equal(model.getObjectByName('concrete sleepers').material, trackConcrete, 'sleepers retain concrete when the bridge deck is painted')
   assert.ok(finishesInUse({ ...ctx.data, modules: [painted] }).has(painted.cfg.bridgeFinish))
   assert.notEqual(moduleGhostKey(bridge), moduleGhostKey(painted))

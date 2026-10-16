@@ -62,6 +62,8 @@ export const messages = {
   "tutorial_simulate_body": { "zh": "准备好后选择顶部模拟速度，观察列车与客流。空格键可随时暂停或继续；若乘客无法到达站台，检查通道与楼梯是否连通。", "en": "Choose a simulation speed at the top to watch trains and passengers. Press Space to pause or resume. If passengers cannot reach a platform, check that walkways and stairs connect." },
   "tutorial_examples": { "zh": "寻找更多灵感", "en": "Find more inspiration" },
   "tutorial_examples_body": { "zh": "点击「示例车站」探索已有设计。打开示例会替换当前车站，记得先保存自己的作品。现在开始建造吧！", "en": "Explore Example stations for ideas. Opening an example replaces your current station, so save your work first. You’re ready to build!" },
+  "tutorial_gpu": { "zh": "让浏览器使用独立显卡", "en": "Optional: prefer your dedicated GPU" },
+  "tutorial_gpu_body": { "zh": "若您的笔记本带有独立显卡，可在 Windows 设置 > 系统 > 显示 > 图形中添加浏览器，并在「选项」里选择「高性能」，然后重启浏览器。Chrome 和 Edge 还需在浏览器设置中开启硬件加速（Chrome：设置 > 系统；Edge：edge://settings/system）", "en": "If your PC has a dedicated GPU, open Windows Settings > System > Display > Graphics, add your browser, choose Options > High performance, then restart the browser. Also enable hardware acceleration in Chrome (Settings > System) or Edge (edge://settings/system). On some laptops, the integrated GPU still drives the display." },
   "monitor": { "zh": "监视器", "en": "Monitor" },
   "monitor_ceiling": { "zh": "吊挂式", "en": "Hanging" },
   "monitor_wall": { "zh": "壁挂式", "en": "Wall-mounted" },
@@ -311,6 +313,10 @@ export const messages = {
     "zh": "车头",
     "en": "Cab"
   },
+  "streamlined_d_cab": {
+    "zh": "D 型流线车头",
+    "en": "Streamlined D cab"
+  },
   "the_cab_is_the_last_2_m_of_the_end_car_with_different_front_and_": {
     "zh": "车头并非单独一节：由末节车厢最后 2 米重新蒙皮而成，仅前后车灯不同",
     "en": "The cab is the last 2 m of the end car, with different front and rear lights"
@@ -375,6 +381,9 @@ export const messages = {
     "zh": "接触网",
     "en": "Overhead wire"
   },
+  "catenary_style_value": { "zh": "架线：{0}", "en": "Wire: {0}" },
+  "catenary_canopy": { "zh": "顶棚式", "en": "Canopy" },
+  "catenary_gantry": { "zh": "门架式", "en": "Gantry" },
   "third_rail": {
     "zh": "第三轨",
     "en": "Third rail"
@@ -2946,6 +2955,7 @@ export const messages = {
     "zh": "全高声屏障",
     "en": "Full-height noise barrier"
   },
+  "noise_barrier": { "zh": "隔音屏", "en": "Sound barrier" },
   "railing": {
     "zh": "栏杆",
     "en": "Railing"

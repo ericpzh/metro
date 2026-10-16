@@ -1,4 +1,5 @@
 import { msg } from './i18n.ts'
+import { PSD_WALL_OFFSET } from './constants.ts'
 // Track geometry and orientation — GAME-SPEC §5.4 track kit, §4.3 track bed.
 //
 // A track piece is a fixed-footprint bed: `w` cells of run along its local +x
@@ -71,6 +72,36 @@ export function trackSide(rot: number | undefined): [number, number] {
 /** Bed depth in cells (legacy modules omit `d` and are one cell deep). */
 export function trackDepth(m: Pick<TrackModule, 'd'>): number {
   return m.d ?? 1
+}
+
+/** Across-bed offset of the screen-door line on either adjacent platform tile. */
+export function trackSideFixtureOffset(depth: number): number {
+  return depth / 2 + 0.5 - PSD_WALL_OFFSET
+}
+
+/** The vehicle centre across its bed, measured from the bed's local −y edge. */
+export function trackTrainCentreV(
+  track: TrackModule,
+  vehicleWidth: number,
+  edges: readonly Pick<PlatformEdgeModule, 'cfg'>[] = [],
+  lineDir?: LineDirection,
+): number {
+  const d = trackDepth(track)
+  if (track.cfg.tunnel || track.cfg.bridge) return d / 2
+  const dir = track.cfg.dir ?? lineDir ?? 'up'
+  const id = track.id
+  const edge = edges.find((e) => (id !== undefined && e.cfg.from === id)
+    || (e.cfg.from === undefined && e.cfg.line === track.cfg.line && e.cfg.dir === dir))
+  if (!edge) return d / 2
+  const gap = 0.1
+  if (edge.cfg.side === 'left') {
+    const low = vehicleWidth / 2
+    const high = d - gap - vehicleWidth / 2
+    return low <= high ? Math.min(high, Math.max(low, d / 2)) : low
+  }
+  const low = gap + vehicleWidth / 2
+  const high = d - vehicleWidth / 2
+  return low <= high ? Math.min(high, Math.max(low, d / 2)) : high
 }
 
 /** Every world cell a track's bed covers. */

@@ -29,8 +29,8 @@ test('tutorial progress and opt-out survive storage without touching the station
   assert.deepEqual(readTutorialPreference(storage), { step: 0, hidden: false })
   writeTutorialPreference(storage, { step: 8, hidden: true })
   assert.deepEqual(readTutorialPreference(storage), { step: 8, hidden: true })
-  writeTutorialPreference(storage, { step: 16, hidden: false })
-  assert.deepEqual(readTutorialPreference(storage), { step: 16, hidden: false })
+  writeTutorialPreference(storage, { step: 17, hidden: false })
+  assert.deepEqual(readTutorialPreference(storage), { step: 17, hidden: false })
   assert.equal(useStore.getState().station, document)
 })
 

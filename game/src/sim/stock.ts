@@ -1,14 +1,14 @@
 // Rolling stock — GAME-SPEC.md §6.1. The numbers are the Chinese metro
-// classification (A/B/C/L) used as the tuning baseline. L is the linear-motor
-// (直线电机) car: 2.8 m wide and 16.8 m long, three doors a side, third-rail
-// pickup — the Guangzhou Line 4/5/6 stock.
+// classification (A/B/C/D/L) used as the tuning baseline. D follows the
+// Guangzhou 18/22 reference; L is the linear-motor (直线电机) car: 2.8 m wide
+// and 16.8 m long, three doors a side, third-rail pickup — Guangzhou Line 4/5/6.
 
 /**
  * The classification order shared by the worker and the renderer to encode a
  * stock index in the rolling-stock pose. Keep them in sync through this list so
  * adding a class cannot desync the two sides.
  */
-export const STOCK_CLASSES = ['A', 'B', 'C', 'L'] as const
+export const STOCK_CLASSES = ['A', 'B', 'C', 'D', 'L'] as const
 
 export type StockClass = (typeof STOCK_CLASSES)[number]
 
@@ -18,7 +18,12 @@ export interface Stock {
   length: number
   height: number
   doorsPerSide: number
+  cabDoorsPerSide?: number
+  cabLength?: number
+  gaugeMm?: number
+  operatingSpeedKmh?: number
   doorWidth: number
+  singleEndDoorWidth?: number
   crushPerCar: number
   ratedPerCar: number
   consist: [number, number]
@@ -74,6 +79,14 @@ export const STOCK: Record<StockClass, Stock> = {
     consist: [4, 6],
     power: 'third-rail',
   },
+  // Guangzhou 18/22 reference: capacities are for an eight-car formation.
+  // Keep the exact average so the existing per-car capacity model totals 1,758.
+  D: {
+    cls: 'D', width: 3.3, length: 20.1, height: 3.8,
+    doorsPerSide: 4, cabDoorsPerSide: 3, cabLength: 4.6,
+    doorWidth: 1.4, singleEndDoorWidth: 0.8, ratedPerCar: 1758 / 8, crushPerCar: 2600 / 8,
+    consist: [8, 8], power: 'catenary', gaugeMm: 1435, operatingSpeedKmh: 160,
+  },
 }
 
 export function trainLength(line: { stock: StockClass; cars: number }): number {
@@ -81,7 +94,7 @@ export function trainLength(line: { stock: StockClass; cars: number }): number {
 }
 
 export function trainRatedCapacity(line: { stock: StockClass; cars: number }): number {
-  return STOCK[line.stock].ratedPerCar * line.cars
+  return Math.round(STOCK[line.stock].ratedPerCar * line.cars)
 }
 
 /** Capacity/hour = cars × rated/car × 3600/headway. §6.3. */
@@ -116,18 +129,36 @@ export function doorCentres(line: { stock: StockClass; cars: number }): number[]
   // rather than bunching in the middle, and every car carries the same cadence,
   // so the screen doors can repeat it down the run. A one-door car has no pitch
   // to spread over and keeps its centre.
-  const pitch = s.doorsPerSide > 1 ? (s.length - 2 * DOOR_END_INSET) / (s.doorsPerSide - 1) : 0
   const out: number[] = []
   for (let c = 0; c < line.cars; c++) {
     const carStart = c * s.length
-    for (let d = 0; d < s.doorsPerSide; d++) out.push(carStart + (s.doorsPerSide > 1 ? DOOR_END_INSET + d * pitch : s.length / 2))
+    const cabLeft = c === 0
+    const cabRight = c === line.cars - 1
+    const count = (cabLeft || cabRight) ? s.cabDoorsPerSide ?? s.doorsPerSide : s.doorsPerSide
+    const cabInset = s.cabLength ? s.cabLength + (s.singleEndDoorWidth ?? s.doorWidth) / 2 + 0.3 : DOOR_END_INSET
+    const first = cabLeft ? cabInset : DOOR_END_INSET
+    const last = s.length - (cabRight ? cabInset : DOOR_END_INSET)
+    const pitch = count > 1 ? (last - first) / (count - 1) : 0
+    for (let d = 0; d < count; d++) out.push(carStart + (count > 1 ? first + d * pitch : s.length / 2))
   }
   // Round the distance from the centre, not the raw position: rounding the
   // signed value would break the front/back symmetry on an exact half-decimetre.
+  // The epsilon also keeps 20.1 m floating-point sums on the same rounding tie.
   return out.map((v) => {
     const off = v - total / 2
-    return Math.sign(off) * (Math.round(Math.abs(off) * 10) / 10)
+    return Math.sign(off) * (Math.round(Math.abs(off) * 10 + 1e-9) / 10)
   })
+}
+
+/** Only the doorway nearest each D cab uses the narrow single plug leaf. */
+export function doorWidthAt(line: { stock: StockClass; cars: number }, offset: number): number {
+  const stock = STOCK[line.stock]
+  if (stock.singleEndDoorWidth && stock.cabLength) {
+    const endInset = stock.cabLength + stock.singleEndDoorWidth / 2 + 0.3
+    const fromEnd = trainLength(line) / 2 - Math.abs(offset)
+    if (Math.abs(fromEnd - endInset) < 0.06) return stock.singleEndDoorWidth
+  }
+  return stock.doorWidth
 }
 
 /**

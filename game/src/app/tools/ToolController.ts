@@ -43,7 +43,10 @@ export abstract class ToolController {
   }
 
   protected facing(): [number, number] | undefined {
-    return this.ctx.facing()
+    // The aim is what the camera looks along. A context assembled without a
+    // renderer (a tool test) simply has no direction to offer, which only costs
+    // the tie-break between the two halves of a back-to-back 电视 pair.
+    return this.ctx.facing?.()
   }
 
   /** Remove one placed module, routing rails and rooms through their own teardown. */

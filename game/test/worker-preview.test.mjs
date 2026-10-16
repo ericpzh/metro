@@ -130,7 +130,7 @@ test('inert decor builds skip routing while a bench stop still rebuilds', async 
   } finally { World.prototype.rebuild = original }
 })
 
-test('sidewalk and lawn builds keep routes and paused simulation untouched', async () => {
+test('sidewalk, lawn and tree builds keep routes and paused simulation untouched', async () => {
   const { World } = await import('../src/sim/world.ts')
   const { createModule } = await import('../src/build/model.ts')
   const data = { name: 'outside', seed: 1, modules: [], lines: [], cells: [{ x: 0, y: 0, z: 0, fill: 'solid' }] }
@@ -140,12 +140,12 @@ test('sidewalk and lawn builds keep routes and paused simulation untouched', asy
   World.prototype.rebuild = function (...args) { rebuilds++; return original.apply(this, args) }
   try {
     const tick = lastState().metrics.tick
-    for (const type of ['sidewalk', 'lawn']) {
+    // A 树木 is planting, not an obstacle (§9.5): its tile stays walkable, so a
+    // planting is the same bargain as the tiles and props around it.
+    for (const type of ['sidewalk', 'lawn', 'tree']) {
       post({ type: 'build', data: { ...data, modules: [createModule(type, 0, 0, 0, type)] } })
-      assert.equal(rebuilds, 0)
+      assert.equal(rebuilds, 0, `a ${type} placement needs no new routes`)
       assert.equal(lastState().metrics.tick, tick)
     }
-    post({ type: 'build', data: { ...data, modules: [createModule('tree', 0, 0, 0, 'tree')] } })
-    assert.equal(rebuilds, 1, 'a tree trunk still changes pedestrian routing')
   } finally { World.prototype.rebuild = original }
 })

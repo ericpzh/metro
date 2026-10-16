@@ -148,7 +148,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
         <span className="muted small">{t('train_type')}</span>
         {STOCK_CLASSES.map((s) => (
           <button key={s} className={line.stock === s ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { stock: s })}>
-            {t('type_value', s)}</button>
+            {s}</button>
         ))}
       </div>
       <div className="row">

@@ -57,7 +57,7 @@ import type { StockClass } from '../sim/stock.ts'
  * (yellow / blue / green / red) as much as anything. L wears 5号线 because that is the
  * line the shipped demo station runs, and the consist it runs is the L one.
  */
-const LIVERY_LINE: Record<StockClass, string> = { A: '1', B: '2', C: '4', L: '5' }
+const LIVERY_LINE: Record<StockClass, string> = { A: '1', B: '2', C: '4', L: '5', D: '18' }
 
 /** The colour a class is built in. */
 function liveryFor(cls: StockClass): string {
@@ -167,7 +167,7 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
   ...STOCK_CLASSES.map((cls) => ({
     id: `car-${cls}`,
     label: msg('type_value', cls),
-    note: msg('value_m_value_m_value_doors_per_side', STOCK[cls].length.toFixed(1), STOCK[cls].width.toFixed(1), STOCK[cls].doorsPerSide),
+    note: msg('value_m_value_m_value_doors_per_side', STOCK[cls].length.toFixed(1), STOCK[cls].width.toFixed(1), STOCK[cls].cabDoorsPerSide ?? STOCK[cls].doorsPerSide),
     width: 470,
     height: 200,
     scene: { stock: cls, cars: 2, doorsOpen: false, from: CAR, span: 'car' as Span },
@@ -178,15 +178,15 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
     note: msg('both_leaves_slide_apart_to_reveal_the_interior'),
     width: 470,
     height: 200,
-    scene: { stock: 'B', cars: 2, doorsOpen: true, from: CAR, span: 'car' as Span },
+    scene: { stock: 'D', cars: 2, doorsOpen: true, from: CAR, span: 'car' as Span },
   },
   {
     id: 'nose',
     label: msg('cab'),
-    note: msg('the_cab_is_the_last_2_m_of_the_end_car_with_different_front_and_'),
+    note: msg('streamlined_d_cab'),
     width: 420,
     height: 250,
-    scene: { stock: 'B', cars: 2, doorsOpen: false, from: NOSE, span: 'nose' as Span },
+    scene: { stock: 'D', cars: 2, doorsOpen: false, from: NOSE, span: 'nose' as Span },
   },
   {
     id: 'consist',
@@ -320,6 +320,9 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
 
 export interface TrainFrame {
   id: string
+  /** Review a model from another angle without changing its catalogue specimen. */
+  view?: [number, number, number]
+  span?: Span
   /** Capture-only pose variants reuse a specimen's fixed camera and frame. */
   baseId?: string
   doorProgress?: number
@@ -653,7 +656,7 @@ export async function captureTrains(
       // Otherwise the box is cut from the span in metres and intersected with the built
       // geometry, so a single car fills its frame instead of shrinking into a 30 : 1
       // silhouette.
-      const [x0, x1] = spanOf(show.scene)
+      const [x0, x1] = spanOf({ ...show.scene, span: frame.span ?? show.scene.span })
       /**
        * `up` is the axis the camera treats as vertical, and it cannot be the axis it is
        * looking along — so the plan, seen straight down, stands the train's width up.
@@ -683,7 +686,7 @@ export async function captureTrains(
         const built = objectBox(group)
         if (!built.isEmpty()) box.intersect(built)
       }
-      camera.up.copy(iso ? ISO_UP : show.scene.elevation === 'plan' ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 0, 1))
+      camera.up.copy(iso ? ISO_UP : show.scene.elevation === 'plan' || frame.view?.[2] === 1 && frame.view[0] === 0 && frame.view[1] === 0 ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 0, 1))
 
       const aim = box.getCenter(new THREE.Vector3())
       // The fitted frame is symmetric about the camera's axis, so the camera has to look at
@@ -692,7 +695,7 @@ export async function captureTrains(
       // picture's own edge while leaving the cab end whole. (`aim` is recomputed later, so
       // setting it here did nothing — the camera is what has to move.)
       const framed = iso ? box.getCenter(new THREE.Vector3()) : aim
-      camera.position.copy(framed).addScaledVector(iso ? ISO_FORWARD : show.scene.from, 200)
+      camera.position.copy(framed).addScaledVector(frame.view ? new THREE.Vector3(...frame.view).normalize() : iso ? ISO_FORWARD : show.scene.from, 200)
       // NOTE for the sheet: the drawing kit's projection is **left-handed** against a true
       // view from this corner. `train-iso.mjs` draws a +x car with its nose to the right and
       // its +y side near, and this camera — which sits on that same corner, so the faces are

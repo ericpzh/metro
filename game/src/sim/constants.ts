@@ -363,6 +363,8 @@ export const DOOR_RATE = 1.2
  * the two can never disagree.
  */
 export const PSD_FULL_HEIGHT = 2.95
+/** Screen/barrier centre line within a platform tile, toward the track (§5.4). */
+export const PSD_WALL_OFFSET = 0.34
 export const PSD_HALF_HEIGHT = 1.45
 /** Full-height screen openings are wider than the car doors they align with (§5.9). */
 export const PSD_FULL_DOOR_WIDTH_SCALE = 1.5

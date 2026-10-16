@@ -38,7 +38,7 @@ export function moduleGhostKey(mod: Module): string {
         : mod.type === 'lift'
           ? `:${mod.from.z}>${mod.to.z}:${mod.rot ?? 0}:${mod.cfg.style ?? 'glass'}`
           : mod.type === 'track'
-            ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}:${mod.cfg.power}:${mod.cfg.bridge ? `b:${mod.cfg.bridgeRailing ?? 'railing'}:${mod.cfg.bridgeFinish ?? ''}` : mod.cfg.tunnel ? 't' : 'p'}`
+            ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}:${mod.cfg.power}:${mod.cfg.bridge ? `b:${mod.cfg.bridgeRailing ?? 'railing'}:${mod.cfg.bridgeFinish ?? ''}` : mod.cfg.tunnel ? 't' : `p:${mod.cfg.catenaryStyle ?? 'canopy'}`}`
             : mod.type === 'billboard'
               ? `:${mod.w}:${mod.cfg.variant}`
               : mod.type === 'bench'

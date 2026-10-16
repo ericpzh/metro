@@ -132,6 +132,18 @@ test('an opening the game derived is a hole with no record of its own', () => {
   assert.equal(underVirtual.some((c) => c.x === 0 && c.y === 0 && c.z === GROUND_Z && c.fill === 'solid'), true, 'the street is still paved under a 虚拟 pillar')
 })
 
+test('a surface track displaces generated ground only for its bed, and removal restores it', () => {
+  const track = { id: 't0', type: 'track', x: 2, y: -1, z: GROUND_Z, w: 4, d: 3, rot: 0, cfg: { line: '1', power: 'third-rail' } }
+  assert.deepEqual(groundWindow([], [track], 1), { x0: 1, x1: 6, y0: -2, y1: 2 }, 'the materialized plane follows the whole bed, not just its anchor')
+  assert.equal(groundHoleAt([], [track], 3, 0), true, 'track bed is a derived ground opening')
+  assert.equal(virtualSolidAt([], [track], 3, 0, GROUND_Z), false, 'no virtual floor remains inside the bed')
+  assert.equal(virtualSolidAt([], [track], 1, 0, GROUND_Z), true, 'the infinite plane remains around the bed')
+  const drawn = withGround([], [track], 1)
+  assert.equal(drawn.some((c) => c.x === 3 && c.y === 0 && c.z === GROUND_Z), false, 'meshed ground does not cover the rail')
+  assert.equal(drawn.some((c) => c.x === 1 && c.y === 0 && c.z === GROUND_Z), true, 'neighboring ground is still materialized')
+  assert.equal(withGround([], [], 3).some((c) => c.x === 3 && c.y === 0 && c.z === GROUND_Z), true, 'removing the module restores the implicit plane')
+})
+
 test('the street enumerates its derived holes by run, not per street cell', () => {
   // `withGround` used to ask `rampOpeningAt`/`exitFloorAt` per street cell —
   // O(window × runs), most of a commit on a large station. It now enumerates

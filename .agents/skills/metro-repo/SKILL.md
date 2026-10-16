@@ -47,7 +47,7 @@ model editing, exports and the approved game atlas. See `model/README.md`. No mo
 | Path | What it is |
 |---|---|
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
-| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). Bilingual: Chinese by default, English at `/en/`, with a language toggle beside restart; game copy lives in `game/src/sim/i18n/messages.ts`. See `metro-game` for field semantics and text layout. |
+| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). Bilingual: Chinese by default, English at `/en/`, with a language toggle beside restart; game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
@@ -120,6 +120,27 @@ and palette placement. Seeded ambient traffic uses cars, buses and scooters at
 Route implementation to `metro-game`; pin graph/gesture behavior in
 `metro-game-test`'s `road-document` and network/traffic rules in `road-network`.
 `npm run check:roads` exercises production input in both locales.
+
+Bridge placement can be aimed at any point on the connected platform: use the
+visible track/screen-door module hit when present (the dug bed can expose a
+lower floor to the block picker), then resolve ordinary platform floor cells
+through `railModuleAtPlatform`. Keep the pointer's along-run half so the bridge
+extends from the nearer free end. Preview and click must share this resolution;
+`game/test/rail.test.mjs` pins the platform lookup and
+`game/test/equipment-placement-input.test.mjs` covers track, screen doors, the
+far platform cells, all rotations, one module pick per event, and preview/click
+agreement.
+
+Generated bridge railings and sound barriers, manually placed `隔音屏` variants,
+and platform/bridge gantries share the platform screen-door line. Keep their
+side offset derived from `PSD_WALL_OFFSET` through `trackSideFixtureOffset` and
+rotate placed barriers with the track; drag previews and commits must preserve
+the selected side. Bridge noise-barrier glass sits inside its frame with a small
+clearance, and gantry posts interrupt bridge barrier spans and concrete shoulders
+instead of being covered by them. The reusable models live in
+`render/models/pieces/BridgeNoiseBarrier.ts`, `BridgeRailing.ts`,
+`BridgeEdgeConcrete.ts` and `TrackGantry.ts`; pin alignment, frame clearance,
+neighbor joins and line editing in `module-build.test.mjs` and `fence.test.mjs`.
 
 The RHS selected-piece information card is `app/windows/inspector/InfoCard.tsx`.
 Keep its details and boxed action column side by side; selected one-way roads

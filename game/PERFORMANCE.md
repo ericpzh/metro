@@ -988,3 +988,99 @@ standalone stairs and dig/restore. Full suite: 1582 passes; focused exit/surface
 checks and production build pass. Browser capture verifies an unobstructed
 wellway and the exit at its original height, without runtime errors:
 `.preview/outdoor-openings/tanwei-b.png`.
+
+
+## 树木 is planting, not structure — 2026-10-15
+
+Planting one 树木 cost about **1.5 s per click** because the trunk fenced its own
+walk tile (`buildGraph` → `fenceCells`), which made the placement non-cosmetic in
+all three places that decide:
+
+* the worker rebuilt the routing graph (`worker.ts` `build` → `World.rebuild()`);
+* `retainedModuleIds` failed closed on the module diff, so `buildModules`
+  rebuilt **all 782** module models (measured keep-set: 0 of 770 retained);
+* `meshStation` remeshed, because only the inert-decor path skips it.
+
+The rule was never written down — the line arrived inside commit `13f9806`
+("Add performant outdoor surfaces and movable trees") under a comment about stair
+blocks — and its boundary was inconsistent: the props beside it in 站外装饰
+(垃圾桶, 灭火器, 货架, 导向柱, 交通灯, 公交站) are all walked through. A tree is
+decoration, so the tile now stays a walk node and `sim/decorInert.ts` lists
+`tree` among the inert street props. Its trunk still collides for *equipment*
+placement, and its ground window still grows if it is planted past the content
+bounds (unchanged shared rule).
+
+Measured with the real production gesture (`node tools/bench-tree-placement.mjs`),
+shipped 动物园 demo (11,871 cells, 770 modules, seed 7654321, zero passengers,
+paused, plan camera at grade), Chrome 155 / Windows / RTX 4080 SUPER through
+ANGLE/D3D11, 1440×1000 window, hardware rendering, dispatch through two animation
+frames. Two rows of four plantings: bare street inside the ground window, and the
+same on 草坪 tiles. Delete pass uses the real 删除 tool on the last tree.
+`SKIP_LAWN=1` drops the pre-laid tiles and steps the row outward instead, which is
+the second case below.
+
+A planting **inside** the drawn street window is fully inert:
+
+| Planting one 树木, inside the drawn street window | Before | After |
+|---|---:|---:|
+| Click → two animation frames | 1,475 ms (1,387–1,656) | **215 ms** (188–237) |
+| `setStation` on the main thread | 579 ms | 40 ms |
+| `buildModules` (all 782 models rebuilt) | 379 ms | 7 ms |
+| `meshStation` | 79 ms | skipped |
+| Worker snapshot turnaround | 1,286 ms | 137 ms |
+
+A planting that **widens the drawn plane** (past the content rectangle, which
+`groundWindow` measures over every module anchor) still needs its new ground and
+its graph — the same rule 草坪 and 人行道 obey, and the reason the inert verdict
+asks for an unmoved window. It is still much cheaper, because the model keep-set
+(`retainedModuleIds` → `inertDecorRetainedIds`) is deliberately window-agnostic:
+every untouched model survives, only the ground remesh and the routing rebuild
+remain.
+
+| Planting one 树木 that widens the drawn plane | Before | After |
+|---|---:|---:|
+| Click → two animation frames | 1,778 ms (1,614–1,974) | **583 ms** (525–695) |
+| `setStation` on the main thread | 686 ms (578–760) | 194 ms (168–227) |
+| `buildModules` | 444 ms (363–517) | 7 ms (6–8) |
+| `meshStation` (the new ground is real work) | 101 ms (91–117) | 77 ms (63–99) |
+| Worker snapshot turnaround | 1,495 ms | 537 ms (484–650) |
+
+Drawn geometry is unchanged in both cases: after eight plantings the scene showed
+the same +16 draws and +147,552 triangles as before the change, so every new tree
+is built and drawn while the rest are retained.
+
+| Delete pass (real 删除 tool) | Result |
+|---|---:|
+| Click → two animation frames | 236 ms |
+| Drawn geometry | −2 draws / −18,444 tris, group gone |
+
+The inert fast path is verified in both directions: eight plantings still drew
+their complete geometry, and deleting one tree through the tool removed its group
+and its triangles within the same two frames — the trap this fast path once had,
+where a deleted piece kept drawing until reload, does not apply here. The 垃圾桶
+(174 ms) and 草坪 (164 ms) controls on the same fixture are unchanged, and 售票机
+(1,528 ms) still shows the functional class this placement has now left.
+
+Regressions: `outdoor-surfaces` gained "a tree draws without walking: its tile
+stays a node and cuts no route" (node identity, node count, every edge at the
+planted tile, and a real `PathFinder` leg across it), its existing tree test still
+pins placement, equipment collision, save/load and the 4.5 m model;
+`worker-preview` now loops `sidewalk`, `lawn` and `tree` through zero
+`World.rebuild()` calls and an unchanged paused tick; `performance-policy` asserts
+`isSimInertDecorModule`/`isSimInertDecorEdit`/`isCosmeticStationEdit` for a tree.
+Raw reports: `.preview/perf/tree-placement-tree.json`, `tree-placement-bin.json`,
+`tree-placement-lawn.json`, `tree-placement-tvm.json`, `tree-widening-before.json`
+(before) and `tree-inert-after.json`, `tree-inert-delete.json`,
+`tree-inert-widening.json` (after). Full suite after the change: 1,592 passing,
+plus the two pre-existing failures reported separately below. `npm run test:perf`
+passes 117. Production build and typecheck pass.
+
+Unrelated failures present before and after this change, in this working tree
+only (both about bridge/track ground indexing, not trees): `outdoor-surfaces`
+"indexed surface verdict preserves the general placement rules for floor, track,
+roads and elevation" (expects `floor`, the verdict returns `track` under a bridge)
+and `performance-policy` "indexed placement preserves opening, track, equipment
+and virtual-ground verdicts" (`blockIndex.ground` disagrees with `virtualSolidAt`).
+Both reproduce with `sim/station.ts` and `sim/decorInert.ts` reverted
+(`.preview/perf/baseline-two-files.log`), so they belong to the working tree's
+other uncommitted work.

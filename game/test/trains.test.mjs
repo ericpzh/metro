@@ -23,18 +23,18 @@ function floorRow(x0, x1, y, finish = 'floor.granite') {
   return out
 }
 
-test('rotated Line 6 berths keep every train door centred on its screen opening', () => {
-  for (const rot of [0, 1, 2, 3]) for (const dir of ['up', 'down']) {
-    const line = { ...defaultLine('6', dir, 'third-rail'), stock: 'L', cars: 4 }
+test('rotated L and D berths keep every train door centred on its screen opening', () => {
+  for (const stock of ['L', 'D']) for (const rot of [0, 1, 2, 3]) for (const dir of ['up', 'down']) {
+    const line = { ...defaultLine('6', dir, 'third-rail'), stock, cars: stock === 'D' ? 8 : 4 }
     // Tanwei's Line 6 uses a 68 m bed, three cells wide, at z = -7.
-    const track = { id: 'track-6', type: 'track', x: 17, y: 52, z: -7, w: 68, d: 3, rot,
+    const track = { id: 'track-6', type: 'track', x: 17, y: 52, z: -7, w: stock === 'D' ? 161 : 68, d: stock === 'D' ? 4 : 3, rot,
       cfg: { line: '6', dir, power: 'third-rail' } }
     const cells = []
-    for (let i = 0; i < track.w; i++) for (let j = -1; j <= 3; j++) {
+    for (let i = 0; i < track.w; i++) for (let j = -1; j <= track.d; j++) {
       const [dx, dy] = rotateLocal(rot, i, j)
       cells.push({ x: track.x + dx, y: track.y + dy, z: track.z, fill: 'solid', finish: { top: 'floor.granite' } })
     }
-    const [ex, ey] = rotateLocal(rot, 0, dir === 'down' ? 3 : -1)
+    const [ex, ey] = rotateLocal(rot, 0, dir === 'down' ? track.d : -1)
     const edge = { id: 'screen-6', type: 'platform-edge', x: track.x + ex, y: track.y + ey, z: track.z, w: track.w, rot,
       cfg: { line: '6', dir, from: track.id, side: dir === 'down' ? 'left' : 'right', psd: 'full', name: '站台门' } }
     const world = new World({ ...station(cells), modules: [track, edge], lines: [line] }, 99)

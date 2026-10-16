@@ -275,7 +275,7 @@ test('a 屏蔽门 全高 / 半高 switch re-derives every screen door on the lin
   assert.equal(edgesOf('1')[0], edge, 'a 名字 edit does not re-derive the screen doors')
 })
 
-test('a 车型 / 编组 edit re-cuts the line platform rails and leaves its tunnels hand-sized', () => {
+test('a 车型 / 编组 edit re-cuts platform lengths and preserves tunnel run lengths', () => {
   load(twoLinesClearTunnel())
   const platformId = tracksOf('1').find((t) => !t.cfg.tunnel).id
   assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).w, 4, 'the tunnel run was hand-sized at four metres')
@@ -288,6 +288,7 @@ test('a 车型 / 编组 edit re-cuts the line platform rails and leaves its tunn
     'the platform rail is re-cut to the consist the line now runs',
   )
   assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).w, 4, 'a tunnel is hand-sized, so a consist edit leaves it')
+  assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).d, 3, 'the tunnel keeps enough width for the new stock')
   assert.deepEqual(edgesOf('1').map((e) => e.cfg.from), [platformId], 'and its screen doors were re-derived from the new run')
   assert.equal(tracksOf('2')[0].w, 6, 'another line keeps its own rails')
 
@@ -295,6 +296,36 @@ test('a 车型 / 编组 edit re-cuts the line platform rails and leaves its tunn
   assert.equal(trackPieceForLine(line('1')).w, 88, 'four 22 m A cars')
   assert.equal(tracksOf('1').find((t) => t.id === platformId).w, 88, 'a 编组 edit re-cuts the same rail again')
   assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).w, 4)
+  st().updateLine('1', {stock:'D', cars:8})
+  assert.deepEqual(trackPieceForLine(line('1')), {w:161, d:4})
+  assert.ok(tracksOf('1').some(t => t.id === platformId), 'a neighbouring rail refusing the wider bed cannot delete the original')
+  st().removeLine('2')
+  st().updateLine('1', {stock:'D', cars:8})
+  assert.equal(tracksOf('1').find(t => t.id === platformId).d, 4, 'the 3.3 m D body fits inside a widened platform bed')
+  assert.equal(tracksOf('1').find(t => t.cfg.tunnel).d, 4, 'the tunnel bore also widens for the D body')
+})
+
+test('a wider stock expands tunnel shells and bridge beds without changing their run lengths', () => {
+  const data = twoLinesClearTunnel()
+  const bridge = makeTrack({ id: 'bridge-1', lineId: '1', dir: 'up', power: 'catenary', rot: 0, x: 0, y: 20, z: 3, w: 16, d: 3, bridge: true })
+  load({ ...data, modules: [...data.modules, bridge] })
+
+  st().updateLine('1', { stock: 'D', cars: 8 })
+
+  const tunnel = tracksOf('1').find((t) => t.cfg.tunnel)
+  const widenedBridge = tracksOf('1').find((t) => t.cfg.bridge)
+  assert.equal(tunnel.w, 4, 'the hand-sized tunnel keeps its authored run length')
+  assert.equal(tunnel.d, 4, 'its bore widens to fit D stock')
+  assert.equal(widenedBridge.w, 16, 'the bridge keeps its authored run length')
+  assert.equal(widenedBridge.d, 4, 'its deck and railings widen with D stock')
+  const piers = st().station.modules.filter((m) => m.type === 'pillar' && m.cfg.bridgeId === widenedBridge.id)
+  assert.equal(piers.length, 2, 'the bridge keeps one generated pier per complete eight-metre bay')
+  assert.ok(piers.every((m) => m.y === 22), 'the generated piers recenter under the wider deck')
+  const shellTag = `tunnel-shell:${tunnel.id}`
+  assert.ok(st().station.cells.some((c) => c.x === 0 && c.y === 6 && c.z === 4 && c.tags?.includes(shellTag)), 'the ceiling follows the widened bore')
+  assert.ok(st().station.cells.some((c) => c.x === 0 && c.y === 5 && c.z === 1 && c.tags?.includes(shellTag)), 'the first side wall remains at the bore edge')
+  assert.ok(st().station.cells.some((c) => c.x === 0 && c.y === 10 && c.z === 1 && c.tags?.includes(shellTag)), 'the opposite side wall moves with the bore')
+  assert.equal(st().station.cells.some((c) => c.x === 0 && c.y === 7 && c.z === 1 && c.tags?.includes(shellTag)), false, 'the old narrow side wall is removed')
 })
 
 /* ------------------------------------------------------------ 删除线路 */
@@ -677,22 +708,16 @@ test('station switches move stationEpoch, edits do not — the viewport homes on
 
 /* ------------------------------------------------------- the rail re-cut trap */
 
-test('a 车型 edit on a rail whose own tunnel runs off its end drops the rail instead of refusing', () => {
-  // Pinned as the shipped code behaves, not as the panel implies. `resizeTrack`
-  // (`build/rail.ts`) takes the rail out of `modules` and asks `commitTrackRaw` to
-  // put the wider piece back; that call refuses on `trackOverlaps` — `placeTunnel`
-  // grows the run from the rail's own free end, so the wider bed always covers it —
-  // and returns the state it was handed, which no longer holds the rail. A 车型 or
-  // 编组 edit therefore deletes the platform rail and its screen doors.
+test('a refused consist resize preserves the platform rail and screens beside its own tunnel', () => {
   load(twoLines())
   const platform = tracksOf('1').find((t) => !t.cfg.tunnel)
   assert.equal(edgesOf('1').length, 1, 'the fixture has the rail, its doors and its tunnel run')
   st().updateLine('1', { cars: 4 })
-  assert.equal(st().station.modules.some((m) => m.id === platform.id), false, 'the platform rail is gone')
-  assert.equal(edgesOf('1').length, 0, 'and so are the screen doors derived from it')
-  assert.equal(tracksOf('1').length, 1, 'the tunnel run survives: it is a track of the same line')
+  assert.equal(st().station.modules.some((m) => m.id === platform.id), true, 'the platform rail survives the refused resize')
+  assert.equal(edgesOf('1').length, 1, 'its screen doors survive too')
+  assert.equal(tracksOf('1').length, 2, 'both the platform and the hand-sized tunnel survive')
   st().undo()
-  assert.equal(st().station.modules.some((m) => m.id === platform.id), true, 'and one Ctrl+Z brings the rail back')
+  assert.equal(st().station.modules.some((m) => m.id === platform.id), true, 'undo also preserves the rail')
 })
 
 /* --------------------------------------------------------- the route preview */

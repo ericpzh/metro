@@ -56,10 +56,10 @@ globalThis.document = { createElement: () => stubCanvas() }
 // imports them behind a browser: `createModelMaterials` prints its textures at once.
 const { buildModule, buildTrain, createModelMaterials, disposeObject, setDoors, setDoorsSides, setGateWing, rollEscalator } = await import('../src/render/models.ts')
 const { createModule } = await import('../src/build/model.ts')
-const { STOCK, doorCentres } = await import('../src/sim/stock.ts')
+const { STOCK, doorCentres, doorWidthAt } = await import('../src/sim/stock.ts')
 const { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairFlights, stairRight, stairTurnCells } = await import('../src/sim/stairs.ts')
 const { LIFT_STEP, LIFT_RISE, liftModule, liftWithDoorSide } = await import('../src/sim/lifts.ts')
-const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, STAIR_RAIL_PROUD } = await import('../src/sim/constants.ts')
+const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE, STAIR_RAIL_PROUD } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
 const { TrainSystem } = await import('../src/render/scene/systems/TrainSystem.ts')
@@ -356,6 +356,24 @@ test('PSD station plaques and yellow lights stay centred over door openings on e
     }
   }
 })
+test('D platform openings match the narrow end doors and wider paired passenger doors', () => {
+  const line={...LINE,stock:'D',cars:8}
+  for (const psd of ['half','full']) {
+    const mod={...edge(psd),w:161}
+    const group=buildModule(mod,{...ctx,data:{...data,lines:[line],modules:[mod]}})
+    const leaves=group.userData.doors.filter(o=>o.name==='psd-door-glass')
+    const centres=doorCentres(line)
+    assert.equal(leaves.length,centres.length*2)
+    for (let i=0;i<centres.length;i++) {
+      const centre=(leaves[i*2].position.x+leaves[i*2+1].position.x)/2+0.5-mod.w/2
+      assert.ok(Math.abs(centre-centres[i])<1e-6,'screen opening keeps the train door centre')
+      const scale=psd==='half'?1:PSD_FULL_DOOR_WIDTH_SCALE
+      const expected=doorWidthAt(line,centres[i])*scale/2-(psd==='half'?0.02:0)
+      assert.ok(Math.abs(leaves[i*2].geometry.parameters.width-expected)<1e-6,'each screen opening uses its matching train doorway width')
+    }
+    disposeObject(group)
+  }
+})
 const track = (cfg) => ({ id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, d: 3, rot: 0, cfg: { line: '5', power: 'third-rail', dir: 'up', ...cfg } })
 
 /**
@@ -464,6 +482,190 @@ test('every piece the palette can lay draws a model, at the size it draws it', (
     assert.ok(built.meshes > 0, `${label}: a piece with no mesh is invisible in the station`)
     assert.equal(built.meshes, meshes, `${label}: mesh count`)
     assert.equal(built.size, size, `${label}: bounding box (x×y×z metres)`)
+  }
+})
+
+test('bridge noise barrier panels and rails meet posts without overlapping exposed faces', () => {
+  for (const railing of ['sound-barrier', 'sound-barrier-half']) {
+    for (const power of ['catenary', 'third-rail']) {
+      for (const w of [8, 17]) {
+        for (const rot of [0, 1, 2, 3]) {
+          const mod = { ...track({ bridge: true, power, bridgeRailing: railing }), w, rot }
+          const group = build(mod).group
+          const parts = []
+          group.traverse((o) => {
+            if (o.isMesh && (o.name.startsWith('bridge-barrier-') || o.name === 'bridge-gantry-post' || o.name === 'bridge-edge-concrete')) {
+              parts.push({ name: o.name, box: new THREE.Box3().setFromObject(o) })
+            }
+          })
+          assert.ok(parts.some((p) => p.name === 'bridge-barrier-glass'), 'the barrier retains its clear upper panels')
+          const label = `${railing}, ${power}, ${w} m, rotation ${rot}`
+          for (let i = 0; i < parts.length; i++) {
+            for (let j = i + 1; j < parts.length; j++) {
+              const a = parts[i].box
+              const b = parts[j].box
+              const axes = ['x', 'y', 'z']
+              const overlap = axes.map((axis) => Math.min(a.max[axis], b.max[axis]) - Math.max(a.min[axis], b.min[axis]))
+              assert.ok(!overlap.every((n) => n > 1e-6), `${label}: ${parts[i].name} must not pass through ${parts[j].name}`)
+              if ((parts[i].name === 'bridge-barrier-glass') !== (parts[j].name === 'bridge-barrier-glass')) {
+                const separation = Math.max(...axes.flatMap((axis) => [a.min[axis] - b.max[axis], b.min[axis] - a.max[axis]]))
+                assert.ok(separation >= 0.003 - 1e-6,
+                  `${label}: transparent glass needs 3 mm clearance from frame and gantry faces, including opposing faces`)
+              }
+              // Opposite faces may meet inside a butt joint. Faces pointing the
+              // same way must never cover the same visible area (z-fighting).
+              for (let k = 0; k < axes.length; k++) {
+                if (!overlap.every((n, axis) => axis === k || n > 1e-6)) continue
+                for (const face of ['min', 'max']) {
+                  assert.ok(Math.abs(a[face][axes[k]] - b[face][axes[k]]) > 1e-6,
+                    `${label}: ${parts[i].name} and ${parts[j].name} duplicate an exposed ${axes[k]} face`)
+                }
+              }
+            }
+          }
+          disposeObject(group)
+        }
+      }
+    }
+  }
+})
+
+test('bridge barrier clears a neighbouring platform gantry at either end in every rotation', () => {
+  const turn = (rot, x, y) => [[x, y], [-y, x], [-x, -y], [y, -x]][rot]
+  for (const rot of [0, 1, 2, 3]) for (const end of ['start', 'end']) {
+    for (const d of [3, 4]) for (const railing of ['sound-barrier', 'sound-barrier-half']) {
+      const bridge = { ...track({ bridge: true, power: 'catenary', bridgeRailing: railing }), w: 16, d, rot }
+      const [dx, dy] = turn(rot, end === 'end' ? bridge.w : -1, end === 'end' ? 0 : d - 1)
+      const platform = { ...track({ power: 'catenary', catenaryStyle: 'gantry' }), id: 'platform-join',
+        x: bridge.x + dx, y: bridge.y + dy, w: 16, d, rot: end === 'end' ? rot : (rot + 2) % 4 }
+      const joinCtx = { ...ctx, data: { ...data, modules: [bridge, platform] } }
+      const bridgeGroup = buildModule(bridge, joinCtx)
+      const platformGroup = buildModule(platform, joinCtx)
+      bridgeGroup.updateMatrixWorld(true)
+      platformGroup.updateMatrixWorld(true)
+      const barrier = [], posts = []
+      bridgeGroup.traverse(o => { if (o.isMesh && (o.name.startsWith('bridge-barrier-') || o.name === 'bridge-edge-concrete')) barrier.push(o) })
+      platformGroup.traverse(o => { if (o.isMesh && o.name === 'station-gantry-post') posts.push(o) })
+      assert.equal(posts.length, 4, 'the platform still draws both complete portals')
+      for (const panel of barrier) for (const post of posts) {
+        const a = new THREE.Box3().setFromObject(panel)
+        const b = new THREE.Box3().setFromObject(post)
+        const axes = ['x', 'y', 'z']
+        const overlap = axes.map(axis => Math.min(a.max[axis], b.max[axis]) - Math.max(a.min[axis], b.min[axis]))
+        const label = `${end}, rotation ${rot}, ${d} m, ${railing}: ${panel.name}`
+        assert.ok(!overlap.every(n => n > 1e-6), `${label} must not penetrate the platform gantry`)
+        if (panel.name === 'bridge-barrier-glass') {
+          const separation = Math.max(...axes.flatMap(axis => [a.min[axis] - b.max[axis], b.min[axis] - a.max[axis]]))
+          assert.ok(separation >= 0.003 - 1e-6, `${label} keeps glazing clearance at the module seam`)
+        }
+      }
+      // A canopy has no end upright: removing the neighbouring gantry must
+      // restore the full barrier, rather than permanently shortening the bridge.
+      const canopy = { ...platform, cfg: { ...platform.cfg, catenaryStyle: 'canopy' } }
+      const noGantry = buildModule(bridge, { ...joinCtx, data: { ...joinCtx.data, modules: [bridge, canopy] } })
+      noGantry.updateMatrixWorld(true)
+      const bounds = new THREE.Box3()
+      const local = noGantry.matrixWorld.clone().invert()
+      noGantry.traverse(o => {
+        if (o.isMesh && o.name.startsWith('bridge-barrier-')) {
+          bounds.union(new THREE.Box3().setFromObject(o).applyMatrix4(local))
+        }
+      })
+      assert.ok(Math.abs(bounds.min.x + 0.5) < 1e-6 && Math.abs(bounds.max.x - (bridge.w - 0.5)) < 1e-6,
+        'a platform without a gantry does not clip either bridge barrier end')
+      disposeObject(bridgeGroup)
+      disposeObject(platformGroup)
+      disposeObject(noGantry)
+    }
+  }
+})
+
+test('screen doors, bridge barriers, ground barriers and both gantries share the same side line', () => {
+  const turn = (rot, x, y) => [[x, y], [-y, x], [-x, -y], [y, -x]][rot]
+  for (const rot of [0, 1, 2, 3]) for (const d of [3, 4]) {
+    const platform = { ...track({ power: 'catenary', catenaryStyle: 'gantry' }), w: 16, d, rot }
+    const [bx, by] = turn(rot, -16, 0)
+    const bridge = { ...platform, id: 'bridge-align', x: platform.x + bx, y: platform.y + by,
+      cfg: { ...platform.cfg, bridge: true, bridgeRailing: 'sound-barrier' } }
+    const edges = ['right', 'left'].map(side => {
+      const [dx, dy] = turn(rot, 0, side === 'right' ? -1 : d)
+      return { id: `edge-${side}`, type: 'platform-edge', x: platform.x + dx, y: platform.y + dy, z: platform.z,
+        w: platform.w, rot, cfg: { line: '5', dir: 'up', from: platform.id, side, psd: 'half' } }
+    })
+    const context = { ...ctx, data: { ...data, lines: [{ ...LINE, stock: d === 4 ? 'D' : 'B' }], modules: [platform, bridge, ...edges] } }
+    const [ax, ay] = turn(rot, 0, 1)
+    const across = mesh => {
+      const centre = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3())
+      return centre.x * ax + centre.y * ay
+    }
+    const screens = edges.map(edge => buildModule(edge, context))
+    screens.forEach(screen => screen.updateMatrixWorld(true))
+    const screenLines = screens.map(screen => across(screen.getObjectByName('psd-fixed-glass')))
+    for (const barrier of ['railing', 'sound-barrier-half', 'sound-barrier']) {
+      const candidate = { ...bridge, cfg: { ...bridge.cfg, bridgeRailing: barrier } }
+      const group = buildModule(candidate, context)
+      group.updateMatrixWorld(true)
+      const actual = []
+      group.traverse(o => {
+        if (o.isMesh && (o.name.startsWith('bridge-barrier-') || o.name === 'bridge-railing-post' || o.name === 'bridge-gantry-post')) {
+          const value = across(o)
+          actual.push(value)
+          assert.ok(screenLines.some(line => Math.abs(line - value) < 1e-6), `${barrier}: generated barriers and gantries continue the PSD line`)
+        }
+      })
+      assert.ok(screenLines.every(line => actual.some(value => Math.abs(line - value) < 1e-6)), 'both bridge sides align')
+      disposeObject(group)
+    }
+    const gantry = buildModule(platform, context)
+    gantry.updateMatrixWorld(true)
+    gantry.traverse(o => {
+      if (o.name === 'station-gantry-post') assert.ok(screenLines.some(line => Math.abs(line - across(o)) < 1e-6), 'platform portal uprights sit on the PSD line')
+    })
+    for (let side = 0; side < edges.length; side++) {
+      const edge = edges[side]
+      for (const id of ['noise-barrier', 'noise-barrier-half', 'noise-barrier-railing']) {
+        const mod = createModule(id, edge.x, edge.y, edge.z, id, (rot + (side === 0 ? 2 : 0)) % 4)
+        const group = buildModule(mod, context)
+        group.updateMatrixWorld(true)
+        assert.ok(Math.abs(across(group) - screenLines[side]) < 1e-6, 'a placed barrier on the platform tile aligns with its screen door')
+        disposeObject(group)
+      }
+    }
+    disposeObject(gantry)
+    screens.forEach(disposeObject)
+  }
+})
+
+test('raised concrete bridge shoulders meet every sound barrier and railing footing', () => {
+  for (const bridgeRailing of ['railing', 'sound-barrier-half', 'sound-barrier']) {
+    for (const rot of [0, 1, 2, 3]) for (const power of ['third-rail', 'catenary']) {
+      const mod = { ...track({ bridge: true, power, bridgeRailing }), w: 16, rot }
+      const group = buildModule(mod, { ...ctx, data: { ...data, lines: [LINE], modules: [mod] } })
+      group.updateMatrixWorld(true)
+      const local = group.matrixWorld.clone().invert()
+      const bounds = o => new THREE.Box3().setFromObject(o).applyMatrix4(local)
+      const shoulders = [], feet = []
+      group.traverse(o => {
+        if (!o.isMesh) return
+        if (o.name === 'bridge-edge-concrete') shoulders.push(bounds(o))
+        if (o.name === 'bridge-barrier-lower-panel' || o.name === 'bridge-barrier-post' || o.name === 'bridge-railing-post') feet.push(bounds(o))
+      })
+      const top = bridgeRailing === 'railing' ? 0.55 : 0.5
+      assert.ok(shoulders.length >= 2, 'both bridge edges have raised concrete')
+      for (const curb of shoulders) {
+        assert.ok(Math.abs(curb.min.z) < 1e-6 && Math.abs(curb.max.z - top) < 1e-6, 'concrete rises continuously from the deck to the barrier footing')
+        assert.ok(curb.max.y <= -0.5 + 1e-6 || curb.min.y >= (mod.d - 0.5) - 1e-6, 'raised concrete stays outside the rail bed and its drainage channels')
+      }
+      for (const foot of feet) {
+        assert.ok(shoulders.some(curb => Math.abs(curb.max.z - foot.min.z) < 1e-6
+          && Math.min(curb.max.x, foot.max.x) - Math.max(curb.min.x, foot.min.x) > 1e-6
+          && Math.min(curb.max.y, foot.max.y) - Math.max(curb.min.y, foot.min.y) > 1e-6),
+        `${bridgeRailing}, rotation ${rot}, ${power}: every panel and post stands on concrete without a gap`)
+      }
+      const deck = bounds(group.getObjectByName('bridge-deck'))
+      assert.ok(Math.abs(deck.min.z + 1) < 1e-6 && Math.abs(deck.max.z) < 1e-6, 'the original deck underside and pier seating stay at their authored heights')
+      disposeObject(group)
+    }
   }
 })
 
@@ -1064,6 +1266,64 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
   const wire = box(build(track({ power: 'catenary' })).group).getSize(new THREE.Vector3())
   assert.equal(round(rail.x), 8, 'a rail is exactly as long as its run')
   assert.ok(wire.z > rail.z * 3, 'the catenary reaches over the train; the third rail does not')
+  const contactStripZ = (cfg) => {
+    const group = build(track({ power: 'catenary', ...cfg })).group
+    group.updateMatrixWorld(true)
+    const box = new THREE.Box3()
+    group.traverse((o) => { if (o.isMesh && o.material === mats.wood) box.expandByObject(o) })
+    return box.getCenter(new THREE.Vector3()).z
+  }
+  const contactHeights = [contactStripZ({}), contactStripZ({ tunnel: true }), contactStripZ({ bridge: true })]
+  assert.ok(contactHeights.every((z) => Math.abs(z - contactHeights[0]) < 1e-6), 'station, tunnel and bridge contact strips share one rail-relative height')
+  const bridgeBarrier = build(track({ bridge: true, power: 'catenary', bridgeRailing: 'sound-barrier' })).group
+  bridgeBarrier.updateMatrixWorld(true)
+  const barrierPostXs = []
+  let bridgeGantryPosts = 0
+  bridgeBarrier.traverse((o) => {
+    if (!o.isMesh) return
+    const bounds = new THREE.Box3().setFromObject(o)
+    const size = bounds.getSize(new THREE.Vector3())
+    const centre = bounds.getCenter(new THREE.Vector3())
+    if (o.material === mats.steel && Math.abs(size.z - 3) < 1e-6) barrierPostXs.push(centre.x)
+    if (o.material === mats.darkSteel && Math.abs(size.z - 4.6) < 1e-6) bridgeGantryPosts++
+  })
+  assert.equal(bridgeGantryPosts, 2, 'bridge catenary gantry supplies one upright on each barrier edge')
+  assert.equal(barrierPostXs.length, 6, 'noise-barrier posts are omitted at the shared gantry position, leaving three per edge')
+  assert.ok(!barrierPostXs.some((x) => Math.abs(x - (track({}).x + 0.5)) < 1e-6), 'the barrier does not duplicate the gantry at the bridge start')
+  const thirdRailBarrier = build(track({ bridge: true, power: 'third-rail', bridgeRailing: 'sound-barrier' })).group
+  thirdRailBarrier.updateMatrixWorld(true)
+  let thirdRailBarrierPosts = 0
+  thirdRailBarrier.traverse((o) => {
+    if (!o.isMesh || o.material !== mats.steel) return
+    const size = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3())
+    if (Math.abs(size.z - 3) < 1e-6) thirdRailBarrierPosts++
+  })
+  assert.equal(thirdRailBarrierPosts, 8, 'without overhead gantries, the bridge keeps all four barrier posts per edge')
+  const gantry = build(track({ power: 'catenary', catenaryStyle: 'gantry' })).group
+  let hasPortalUpright = false
+  gantry.traverse((o) => {
+    if (!o.isMesh || o.material !== mats.darkSteel) return
+    const size = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3())
+    if (size.z > 3) hasPortalUpright = true
+  })
+  assert.ok(hasPortalUpright, 'the alternate station style adds tall portal supports around the same wire')
+  assert.ok(box(gantry).max.z < 4, 'the station portal stays below the next storey floor')
+  const wideTrack = { ...track({ power: 'catenary', catenaryStyle: 'gantry' }), d: 4 }
+  const wideEdge = { id: 'edge-wide', type: 'platform-edge', x: wideTrack.x, y: wideTrack.y, z: wideTrack.z, w: wideTrack.w, cfg: { line: '5', dir: 'up', side: 'left', psd: 'half', from: wideTrack.id } }
+  const wideData = { ...data, lines: [{ ...LINE, stock: 'D', power: 'catenary', psd: 'half' }], modules: [wideTrack, wideEdge] }
+  const wideGantry = buildModule(wideTrack, { ...ctx, data: wideData })
+  wideGantry.updateMatrixWorld(true)
+  const trainCentreY = wideTrack.y + 1.65
+  const widePostClearances = []
+  wideGantry.traverse((o) => {
+    if (!o.isMesh || o.material !== mats.darkSteel) return
+    const bounds = new THREE.Box3().setFromObject(o)
+    if (bounds.getSize(new THREE.Vector3()).z < 3) return
+    const centre = bounds.getCenter(new THREE.Vector3())
+    widePostClearances.push(Math.abs(centre.y - trainCentreY) - 3.3 / 2)
+  })
+  const widePostClearance = Math.min(...widePostClearances)
+  assert.ok(widePostClearance >= 0.16 - 1e-6, `wide D stock keeps 0.10 m to the post face on the screen-door line (${round(widePostClearance - 0.06)} m)`)
   const trackGroup = build(track({ power: 'third-rail' })).group
   const instance = (name) => trackGroup.getObjectByName(name)
   assert.equal(instance('concrete sleepers').count, 13, 'slab track seats a regular sleeper along the run')

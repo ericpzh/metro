@@ -1,5 +1,6 @@
 // Photograph real model poses without changing the static train-card captures.
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { STOCK_CLASSES } from '../game/src/sim/stock.ts';
 import { resolve, join } from 'node:path';
 import { serveDir, withPage, waitFor } from './browser-harness.mjs';
 
@@ -14,7 +15,7 @@ try {
     const { trainPieces } = window.__trainCards;
     const base = trainPieces('#0d141d').frames;
     const frames = [];
-    for (const cls of ['A', 'B', 'C', 'L']) {
+    for (const cls of ${JSON.stringify(STOCK_CLASSES)}) {
       for (const id of ['car-' + cls, 'side-' + cls]) {
         const f = base.find(f => f.id === id);
         for (let i = 0; i <= 4; i++) frames.push({ ...f, id: id + '-pose-' + i, baseId: id, doorProgress: i / 4 });

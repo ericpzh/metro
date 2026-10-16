@@ -66,7 +66,7 @@ import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type Statio
 import { liftDoorDir, liftLandingSide } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
 import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
-import { rotateLocal, trackFacing, type TrackModule } from '../track.ts'
+import { rotateLocal, trackFacing, trackTrainCentreV, type TrackModule } from '../track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
 import type { DynamicSnapshot, LineAnchor, Metrics, Train, TrainAt, TrainState } from './types.ts'
 
@@ -1118,33 +1118,13 @@ export class World {
         // away, even before a platform and its screen doors exist.
         const rot = track.rot ?? 0
         const [fx, fy] = trackFacing(rot)
-        const d = track.d ?? 1
         const width = STOCK[line.stock].width
-        const gap = 0.1
         // Work in the track's local frame: u runs along the bed, v across it. The
         // bed spans v ∈ [0, d]; the platform edge (if any) sits at v = −1 or d.
         // `side` names the side the track lies on from the screen's frame, so
         // 'left' means the platform is beyond the bed at v = +d.
         const trackDir = track.cfg.dir ?? line.direction
-        const edge = this.data.modules.find(
-          (m) => m.type === 'platform-edge' && m.cfg.line === line.id && (m.cfg.from === track.id || (!m.cfg.from && m.cfg.dir === trackDir)),
-        )
-        let v = d / 2
-        if (edge && edge.type === 'platform-edge') {
-          const side = edge.cfg.side
-          if (side === 'left') {
-            // Platform on the local +v side (past the bed): keep clear of its
-            // track-facing edge.
-            const minCentre = width / 2
-            const maxCentre = d - gap - width / 2
-            v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : minCentre
-          } else {
-            // Platform on the local −v side.
-            const minCentre = gap + width / 2
-            const maxCentre = d - width / 2
-            v = minCentre <= maxCentre ? clamp(v, minCentre, maxCentre) : maxCentre
-          }
-        }
+        const v = trackTrainCentreV(track, width, this.data.modules.filter((m) => m.type === 'platform-edge'), line.direction)
         // Rotate about the first cell's centre, like the track and PSD models
         // (§1.13). Rotating the cell corner instead shifts a turned berth by
         // up to one metre and separates the train doors from their screens.

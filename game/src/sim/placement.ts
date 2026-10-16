@@ -1,6 +1,7 @@
 import { roadSurfaceReason } from './roadPlacement.ts'
 import { ROAD_LANE_WIDTH, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
 import { msg } from './i18n.ts'
+import { noiseBarrierVariant, noiseBarrierHeight, noiseBarrierOffset } from './noiseBarriers.ts'
 import { blockIndex, type BlockIndex } from './blockIndex.ts'
 import { isOutdoorSurface, outdoorSurfaceIndex, surfaceKey } from './outdoorSurfaces.ts'
 export { isOutdoorSurface } from './outdoorSurfaces.ts'
@@ -512,8 +513,14 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // continuous barrier and a gate row can plug straight into it. Thin still
       // overlaps a full-cell box in the same cell (same-cell stacking is
       // refused) while adjacent cells stay legal.
-      const z1 = z0 + FLAT_HEIGHT.fence
+      const variant = noiseBarrierVariant(m)
+      const z1 = z0 + (variant ? noiseBarrierHeight(variant) : FLAT_HEIGHT.fence)
       const rot = (((m.rot ?? 0) % 4) + 4) % 4
+      if (variant) {
+        const [dx, dy] = noiseBarrierOffset(rot)
+        if (rot % 2 === 1) return { x0: m.x + 0.44 + dx, y0: m.y, z0, x1: m.x + 0.56 + dx, y1: m.y + 1, z1 }
+        return { x0: m.x, y0: m.y + 0.44 + dy, z0, x1: m.x + 1, y1: m.y + 0.56 + dy, z1 }
+      }
       if (rot % 2 === 1) return { x0: m.x + 0.45, y0: m.y, z0, x1: m.x + 0.55, y1: m.y + 1, z1 }
       return { x0: m.x, y0: m.y + 0.45, z0, x1: m.x + 1, y1: m.y + 0.55, z1 }
     }
@@ -2298,7 +2305,7 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
  * Mirrors `app/store/catalog.ts`'s `MODULE_LABELS`.
  */
 export function moduleTypeLabel(m: Module): string {
-  if (m.type === 'fence') return m.cfg.variant === 'gate' ? msg('door') : m.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
+  if (m.type === 'fence') return m.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : m.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : m.cfg.variant === 'bridge-railing' ? msg('railing') : m.cfg.variant === 'gate' ? msg('door') : m.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
   if (m.type === 'shop') {
     const kind = (m.cfg as { kind?: string } | undefined)?.kind
     if (kind === 'toilet') return msg('restroom')

@@ -626,7 +626,7 @@ export class GhostSystem extends SceneSystem {
    */
   setFencePreview(mods: Module[] | null, blocked = false): void {
     const list = mods ?? []
-    const key = list.length === 0 ? '' : `${blocked ? 'x' : '-'}|${list.map((m) => `${m.x},${m.y},${m.z},${m.rot ?? 0}`).join(';')}`
+    const key = list.length === 0 ? '' : `${blocked ? 'x' : '-'}|${list.map(moduleGhostKey).join(';')}`
     if (key === this.fencePreviewKey) return
     this.clearFencePreview()
     this.fencePreviewKey = key

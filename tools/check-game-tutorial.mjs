@@ -218,7 +218,7 @@ try {
     await click('.tutorialActions .primary')
     await until(`!document.querySelector('.tutorialCard')`)
     assert.deepEqual(await evaluate(`window.__tutorialErrors`), [])
-    record(`${language}: all 17 steps, live controls, practice activation, new line, folders and keycaps`)
+    record(`${language}: all ${TUTORIAL_STEPS.length} steps, live controls, practice activation, new line, folders and keycaps`)
   }
 
   // Real top-bar help button, not a test-only route, reopens the tour.

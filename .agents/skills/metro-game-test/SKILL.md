@@ -100,10 +100,14 @@ turning hardware-sensitive timing or a full-day run into a unit-test threshold.
   invisible descendant rejection and hidden storey module roots. `delete-tool`,
   `move`, `pick-tool` and `select-agent` pin the hidden-target behavior for module
   ray picks and cell-based fallbacks.
-- `draw-batching`: A/B/C/L stock in all four rotations, exact geometry/bounds,
+- `draw-batching`: A/B/C/D/L stock in all four rotations, exact geometry/bounds,
   independent door banks and moving glass, paused/hidden buffer holds, resume,
   repeated-service reuse, eight-dormant-consist eviction and profiling toggles; full-resolution atlas redraw/recycling and
   legacy/explicit age eligibility.
+- `stock`: the A/B/C/D/L pose-index order, D's dimensions and eight-car capacity,
+  mirrored 3/4-door layout, narrow single cab-end doors and wide paired doors elsewhere.
+  `trains` checks D's screen alignment; `module-build` checks D-width platform openings and
+  interior gantries; `train-art-pipeline` checks both-language sheets, captured poses and bounds.
 - `performance-policy`: indexed/unindexed placement equivalence, fresh array
   invalidation, ground/holes/exits, bulk-paint deduplication/no-op/immutability,
   fail-closed cosmetic and dependency policies, local/owned/sign-board retention,

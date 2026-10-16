@@ -5,12 +5,14 @@ import { msg } from '../../sim/i18n.ts'
 // itself lives in app/sweep.ts; this file only owns the pointer gesture.
 
 import { removeFloor, removeModule, sameCells } from '../../build/model.ts'
+import { isOutdoorSurface } from '../../sim/outdoorSurfaces.ts'
 import type { Module } from '../../sim/types.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from '../sweep.ts'
 import { moduleLabel, useStore } from '../store.ts'
 import { TactileTool } from './TactileTool.ts'
 import { TileEquipmentTool } from './TileEquipmentTool.ts'
 import { RoadTool } from './RoadTool.ts'
+import { deletionTarget } from './deletionTarget.ts'
 import { pendingCells, rectCells, straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
@@ -19,11 +21,23 @@ import type { PointerInfo } from './ToolContext.ts'
 export class DeleteTool extends ToolController {
   readonly tool = 'delete' as const
 
+  /**
+   * The piece one press means: the drawn model the ray hit when it stands in the
+   * pointed cell, otherwise the piece that cell holds (`deletionTarget`). The
+   * same resolution the right-click teardown uses, and it is asked **once** per
+   * event — the scene pick is the expensive half of it.
+   */
+  private deleteTarget(info: PointerInfo): Module | undefined {
+    const hit = info.hit
+    if (!hit) return undefined
+    const modules = useStore.getState().station.modules
+    return this.visibleModule(deletionTarget(modules, this.pickModuleAt(info), hit.cell, this.facing()))
+  }
+
   onDown(info: PointerInfo): void {
     const scene = this.ctx.scene()
     const hit = info.hit
     if (!scene || !hit) return
-    const st = useStore.getState()
     // The delete tool is button-agnostic: press a block and tap (one block) or
     // drag an area (a rectangle of blocks, a line with Shift). It reuses the `drag`
     // ref in remove mode with `shift` following the key, so the release takes the
@@ -31,11 +45,28 @@ export class DeleteTool extends ToolController {
     // A drawn module under the pointer is the pending delete instead — the
     // whole piece goes, not the floor block beneath it — except a 围栏 panel,
     // which drags out a line of its own like the 围栏 tool (see below).
-    const pickedId = this.pickModuleAt(info)
-    const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+    const picked = this.deleteTarget(info)
     if (picked) {
-      if (picked.type === 'road') { new RoadTool(this.ctx).beginDelete(info,pickedId); return }
+      if (picked.type === 'road') { new RoadTool(this.ctx).beginDelete(info,picked.id); return }
       if (picked.type === 'tactile') { new TactileTool(this.ctx).onDown(info); return }
+      // 人行道 / 草坪 are tiles too: the delete tool hands them to the tile tool
+      // with the *tile's own* finish, exactly as it does for roof and stair blocks
+      // — that is the teardown the tile tool's right-drag performs, one
+      // `editOutdoorSurfaces` commit for the whole rectangle. Without this the
+      // press fell through to the generic module path, which is a ray-resolved
+      // single-tile `removeModule`: right-click and B then disagreed about both
+      // the target and the run.
+      if (isOutdoorSurface(picked)) {
+        info.preventDefault()
+        const anchor: [number, number, number] = [picked.x, picked.y, picked.z]
+        this.ctx.drag.current = {
+          active: true, roof: true, deleteTile: true, button: info.button, mode: 'remove', anchor, z: picked.z,
+          shift: false, sx: info.clientX, sy: info.clientY, downTime: performance.now(),
+          tileType: picked.type, tileRot: picked.rot ?? 0,
+        }
+        new TileEquipmentTool(this.ctx).refreshHover()
+        return
+      }
       if (picked.type === 'roof' || (picked.type === 'stair' && picked.cfg.block)) {
         info.preventDefault()
         const stairBlock = picked.type === 'stair'
@@ -183,12 +214,13 @@ export class DeleteTool extends ToolController {
     }
     // Hover: a drawn module under the pointer is the pending delete, shown as
     // a red ghost of the piece itself; otherwise the block under it. A wall
-    // panel or a hung fitting never rings the floor beneath it.
-    const pickedId = this.pickModuleAt(info)
-    const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
+    // panel or a hung fitting never rings the floor beneath it. The same
+    // resolution the press uses, so the ghost is the piece the release removes —
+    // a 人行道 tile under a tree's canopy is ghosted, not the tree.
+    const picked = this.deleteTarget(info)
     if (picked) {
       if (picked.type === 'road') {
-        new RoadTool(this.ctx).previewDelete(info,pickedId)
+        new RoadTool(this.ctx).previewDelete(info, picked.id)
         return
       }
       scene.setGhost([], 'remove')

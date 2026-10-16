@@ -75,21 +75,23 @@ export function artTrains() {
     return animatedTrain(poses, piece.id, x, y, w, h)
       ?? `<image x="${x}" y="${y}" width="${w}" height="${h}" href="${piece.href}"/>`
   }
-  const g = [title(48, 62, '选列车，也在选站台的规模', '四种车型按同一比例展示。编组越长，载客越多，也需要更长的站台。')]
+  const g = [title(48, 62, '选列车，也在选站台的规模', '五种车型按同一比例展示。编组越长，载客越多，也需要更长的站台。')]
   STOCK_CLASSES.forEach((cls, i) => {
     const s = STOCK[cls], y = 152 + i * 212
+    const cars = Math.max(6, s.consist[0])
     const col = paint.get(cls)?.colour ?? G.accent
     g.push(`<rect x="48" y="${y}" width="1504" height="196" rx="12" fill="#111926" stroke="#243040"/>`)
     g.push(T(72, y + 40, `${cls} 型`, { size: 27, weight: 800, fill: col }))
     g.push(MUL(72, y + 78, [
-      `编组 ${s.consist[0]}–${s.consist[1]} 节`,
-      `6 节额定载客 ${trainRatedCapacity({ stock: cls, cars: 6 })} 人`,
-      `6 节总长 ${trainLength({ stock: cls, cars: 6 }).toFixed(1)} 米`,
+      s.consist[0] === s.consist[1] ? `编组 ${s.consist[0]} 节` : `编组 ${s.consist[0]}–${s.consist[1]} 节`,
+      `${cars} 节额定载客 ${trainRatedCapacity({ stock: cls, cars })} 人`,
+      `${cars} 节总长 ${trainLength({ stock: cls, cars }).toFixed(1)} 米`,
     ], { size: 17, fill: G.text, lh: 29 }))
     g.push(image(pieces.get(`front-${cls}`), 388, y + 26, 128))
     g.push(image(pieces.get(`side-${cls}`), 580, y + 28, 940))
   })
-  g.push(T(48, 1054, '装不下的乘客会留在站台。看「滞留」，再调整车型或编组。', { size: 22, weight: 700, fill: G.warn }))
-  g.push(T(48, 1094, '每条线路可单独设置供电、站台门、颜色和终点。', { size: 18, fill: G.muted }))
-  return sheet(W, 1140, g.join(''))
+  const footerY = 152 + STOCK_CLASSES.length * 212 + 54
+  g.push(T(48, footerY, '装不下的乘客会留在站台。看「滞留」，再调整车型或编组。', { size: 22, weight: 700, fill: G.warn }))
+  g.push(T(48, footerY + 40, '每条线路可单独设置供电、站台门、颜色和终点。', { size: 18, fill: G.muted }))
+  return sheet(W, footerY + 86, g.join(''))
 }

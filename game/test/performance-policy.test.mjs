@@ -124,7 +124,7 @@ test('indexed placement preserves opening, track, equipment and virtual-ground v
   for (let x = -20; x <= 20; x += 2) for (let y = -12; y <= 12; y += 2) probes.push([x, y, 0])
   for (const [x, y, z] of probes) {
     assert.deepEqual(blockReason(data.cells, data.modules, x, y, z, index), blockReason(data.cells, data.modules, x, y, z), `same refusal and colliders at ${x},${y},${z}`)
-    assert.equal(index.ground(x, y, z), virtualSolidAt(data.cells, data.modules, x, y, z))
+    assert.equal(index.ground(x, y, z), virtualSolidAt(data.cells, data.modules, x, y, z), `ground index agrees at ${x},${y},${z}`)
   }
   const maxX = Math.max(...data.cells.map(c => c.x)) + 10
   const patch = [[maxX, 0, -16], [maxX + 1, 0, -16]]
@@ -426,8 +426,9 @@ test('sim-inert decor skips routing while functional pieces still rebuild', asyn
   const tactile = createModule('tactile-guide', 0, 0, -4, 'tactile')
   const mark = createModule('floor-mark-boarding', 2, 0, -4, 'mark')
   const board = createModule('billboard-wide', 4, 0, -4, 'board')
-  assert.ok(tactile && mark && board)
-  for (const mod of [tactile, mark, board]) assert.equal(isSimInertDecorModule(mod), true, `${mod.id} draws without walking`)
+  const tree = createModule('tree', 0, 0, 0, 'tree')
+  assert.ok(tactile && mark && board && tree)
+  for (const mod of [tactile, mark, board, tree]) assert.equal(isSimInertDecorModule(mod), true, `${mod.id} draws without walking`)
   const bench = createModule('bench', 0, 0, -4, 'bench')
   const tvm = createModule('tvm', 0, 0, -4, 'tvm')
   const cabinet = createModule('electrical-cabinet', 0, 0, -4, 'cabinet')
@@ -441,6 +442,8 @@ test('sim-inert decor skips routing while functional pieces still rebuild', asyn
   assert.equal(isSimInertDecorEdit(station, { ...station, modules: [tactile] }), true, 'a floor sticker needs no new routes')
   assert.equal(isCosmeticStationEdit(station, { ...station, modules: [tactile] }), true, 'so the worker skips its rebuild')
   assert.equal(isSimInertDecorEdit({ ...station, modules: [tactile] }, station), true, 'lifting it back out is the same bargain')
+  assert.equal(isSimInertDecorEdit(station, { ...station, modules: [tree] }), true, 'a tree is planting, not an obstacle')
+  assert.equal(isCosmeticStationEdit(station, { ...station, modules: [tree] }), true, 'so planting one skips the routing rebuild')
   assert.equal(isSimInertDecorEdit(station, { ...station, modules: [bar] }), true, 'a roof bar hangs above the graph')
   assert.equal(isSimInertDecorEdit(station, { ...station, modules: [post] }), false, 'a post stands on it')
   assert.equal(isCosmeticStationEdit(station, { ...station, modules: [bench] }), false, 'a bench stop still rebuilds')

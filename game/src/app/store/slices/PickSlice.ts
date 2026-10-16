@@ -38,6 +38,7 @@ export interface PickDraft {
   roadDirection: 'one-way' | 'two-way'
   moduleRot: number
   railLineId: string
+  railCatenaryStyle: 'canopy' | 'gantry'
   guideExitId: string | null
   lightPosition: number
   pillarLength: 2 | 4
@@ -93,6 +94,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         roadDirection: s.roadDirection,
         moduleRot: s.moduleRot,
         railLineId: s.railLineId,
+        railCatenaryStyle: s.railCatenaryStyle,
         guideExitId: s.guideExitId,
         lightPosition: s.lightPosition,
         pillarLength: s.pillarLength,
@@ -127,6 +129,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       moduleType: d.moduleType,
       moduleRot: d.moduleRot,
       railLineId: d.railLineId,
+      railCatenaryStyle: d.railCatenaryStyle,
       guideExitId: d.guideExitId,
       lightPosition: d.lightPosition,
       pillarLength: d.pillarLength,

@@ -65,7 +65,7 @@ export class PlatformTool extends ToolController {
     const { w, d } = trackPieceForLine(line)
     // Centre the long run on the highlighted tile, so it grows evenly both ways.
     const [ox, oy] = trackOriginForCentre(st.railRot, h.cell[0], h.cell[1], w, d)
-    return makeTrack({ id: 'preview', lineId: line.id, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: h.cell[2], w, d })
+    return makeTrack({ id: 'preview', lineId: line.id, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: h.cell[2], w, d, catenaryStyle: st.railCatenaryStyle })
   }
 
   /** Rebuild the rail hover ghost from the last hovered tile. */

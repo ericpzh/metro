@@ -32,9 +32,9 @@ const G = {
 
 const W = 1600
 
-/** The four class specimens, across the top. */
-const CAR_W = 360
-const CAR_PITCH = 372
+/** The five class specimens, across the top. */
+const CAR_W = 288
+const CAR_PITCH = 304
 const CAR_X = 48
 
 /** A PNG's pixel size, straight out of its IHDR. */
@@ -93,13 +93,13 @@ export function artTrains3D() {
     title(
       48,
       62,
-      '四个等级，四种车体',
-      '四种车型的外观。停靠后开门，乘客走进车厢。',
+      '五个等级，五种车体',
+      '五种车型的外观。停靠后开门，乘客走进车厢。',
     ),
   )
 
   /* ---------------- the four classes ---------------- */
-  g.push(head(48, 186, '四个等级'))
+  g.push(head(48, 186, '五个等级'))
   stock.forEach((s, i) => {
     const x = CAR_X + i * CAR_PITCH
     const piece = car(`car-${s.cls}`)

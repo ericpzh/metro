@@ -4,9 +4,9 @@ import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import { PieceBuilder, canvasTexture, slab, plate, ownedMaterial, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
-import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE } from '../../../sim/constants.ts'
+import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE, PSD_WALL_OFFSET } from '../../../sim/constants.ts'
 import { drawPsdBand, drawPsdDoorBand, drawPsdWarning, drawPsdArrow } from './PsdDecals.ts'
-import { STOCK, doorRunOffsets } from '../../../sim/stock.ts'
+import { doorWidthAt, doorRunOffsets } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
@@ -26,7 +26,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const len = fixedSpan ? fixedSpan[1] - fixedSpan[0] : mod.w
   const z0 = 1
   const toward = mod.cfg.side === 'right' ? 1 : -1
-  const yWall = toward * 0.34
+  const yWall = toward * PSD_WALL_OFFSET
   const cx = x0 + len / 2
 
   // The line decides the door cadence; the screen is cut open where it lands.
@@ -42,7 +42,6 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   // full-height screen keeps the storey-tall glass and the header band above it.
   const half = (mod.cfg.psd ?? line?.psd) === 'half'
   // Widen the screen opening without moving its train-aligned centre (§1.13).
-  const doorW = STOCK[stock].doorWidth * (half ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
   // The half-height cap is part of the total height, above the white rail.
   const halfRailTop = PSD_HALF_HEIGHT - 0.05
   const doorH = half ? halfRailTop - 0.24 : PSD_FULL_HEIGHT - 0.12 - 0.05 - PSD_HEADER_HEIGHT
@@ -79,9 +78,10 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const bedW = bed?.w ?? len
   // The edge's own first cell, in rail-local metres along the run.
   const i0 = bed ? rotateLocal(-(bed.rot ?? 0), mod.x - bed.x, mod.y - bed.y)[0] : (bedW - len) / 2
+  const widthAt = (dx: number) => doorWidthAt({ stock, cars }, dx + i0 - x0 - bedW / 2) * (half ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
   const openings = fixedSpan ? [] : doorRunOffsets({ stock, cars }, bedW)
     .map((at) => at - i0 + x0)
-    .filter((dx) => dx - doorW / 2 > x0 + 0.1 && dx + doorW / 2 < x0 + len - 0.1)
+    .filter((dx) => dx - widthAt(dx) / 2 > x0 + 0.1 && dx + widthAt(dx) / 2 < x0 + len - 0.1)
     .sort((a, b) => a - b)
 
   // Sill and head run the full length; the glass itself is broken at the doors.
@@ -109,6 +109,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
       }
       let start = x0
       for (const dx of openings) {
+        const doorW = widthAt(dx)
         headerPanel(start, dx - doorW / 2, false)
         headerPanel(dx - doorW / 2, dx + doorW / 2, true)
         start = dx + doorW / 2
@@ -172,6 +173,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   }
   let cursor = x0
   for (const dx of openings) {
+    const doorW = widthAt(dx)
     panel(cursor, dx - doorW / 2)
     cursor = dx + doorW / 2
   }
@@ -184,11 +186,12 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   }
   if (!half) { postAt(x0 + 0.04); postAt(x0 + len - 0.04) }
   for (const dx of openings) {
+    const doorW = widthAt(dx)
     postAt(dx - doorW / 2)
     postAt(dx + doorW / 2)
   }
   for (let px = x0 + 2.4; px < x0 + len; px += 2.4) {
-    if (openings.some((dx) => Math.abs(px - dx) < doorW / 2 + 0.1)) continue
+    if (openings.some((dx) => Math.abs(px - dx) < widthAt(dx) / 2 + 0.1)) continue
     postAt(px)
   }
 
@@ -200,6 +203,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const leaves: THREE.Mesh[] = []
   g.userData.line = mod.cfg.line
   for (const dx of openings) {
+    const doorW = widthAt(dx)
     for (const s of [-1, 1]) {
       const leafX = dx + (s * doorW) / 4
       const leafW = doorW / 2

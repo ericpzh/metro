@@ -5,10 +5,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { scenarioStation } from './support/scenario-station.ts'
-import { STOCK, STOCK_CLASSES, DOOR_END_INSET, doorCentres, trainLength, trainRatedCapacity, lineCapacityPerHour, cabinSlot, CABIN_FLOOR_Z, CABIN_HALF_W, CABIN_MAX_ROWS, CABIN_MAX_TURNS, CABIN_PAIR_HALF, CABIN_ROW_PITCH } from '../src/sim/stock.ts'
+import { STOCK, STOCK_CLASSES, DOOR_END_INSET, doorCentres, doorWidthAt, trainLength, trainRatedCapacity, lineCapacityPerHour, cabinSlot, CABIN_FLOOR_Z, CABIN_HALF_W, CABIN_MAX_ROWS, CABIN_MAX_TURNS, CABIN_PAIR_HALF, CABIN_ROW_PITCH } from '../src/sim/stock.ts'
 
 test('every classified car has a matching stock row', () => {
-  assert.deepEqual([...STOCK_CLASSES], ['A', 'B', 'C', 'L'])
+  assert.deepEqual([...STOCK_CLASSES], ['A', 'B', 'C', 'D', 'L'])
   for (const cls of STOCK_CLASSES) {
     assert.equal(STOCK[cls].cls, cls, `${cls} row labels itself`)
     assert.ok(STOCK[cls].length > 0 && STOCK[cls].width > 0, `${cls} has real dimensions`)
@@ -37,6 +37,7 @@ test('the cadence spreads the doors to the car ends, on one uniform pitch', () =
   // between them: they must not bunch up in the middle of the car (§1.13).
   for (const cls of STOCK_CLASSES) {
     const s = STOCK[cls]
+    if (s.cabDoorsPerSide) continue // Mixed end/middle-car cadence is pinned below.
     const fromEnd = doorCentres({ stock: cls, cars: 1 }).map((v) => v + s.length / 2)
     assert.equal(fromEnd.length, s.doorsPerSide, `${cls} door count`)
     assert.ok(Math.abs(fromEnd[0] + fromEnd[fromEnd.length - 1] - s.length) < 1e-9, `${cls} doors are centred on the car`)
@@ -47,6 +48,39 @@ test('the cadence spreads the doors to the car ends, on one uniform pitch', () =
       assert.ok(Math.abs(fromEnd[d] - fromEnd[d - 1] - pitch) < 0.15, `${cls} doors share one pitch (within the 0.1 m rounding)`)
     }
   }
+})
+
+test('D stock uses the supplied dimensions and eight-car capacity', () => {
+  assert.equal(STOCK.D.width, 3.3)
+  assert.equal(STOCK.D.length, 20.1)
+  assert.equal(STOCK.D.gaugeMm, 1435)
+  assert.equal(STOCK.D.operatingSpeedKmh, 160)
+  assert.equal(STOCK.D.power, 'catenary')
+  assert.equal(trainRatedCapacity({ stock: 'D', cars: 8 }), 1758)
+  assert.equal(STOCK.D.crushPerCar * 8, 2600)
+})
+
+test('D doors clear the swept cabs and mirror three end-car / four middle-car pairs', () => {
+  for (const cars of [1, 2, 3, 4, 6, 8]) {
+    const s = STOCK.D, total = s.length * cars
+    const doors = doorCentres({ stock: 'D', cars })
+    assert.equal(doors.length, cars === 1 ? 3 : cars * 4 - 2)
+    for (let c = 0; c < cars; c++) {
+      const local = doors.map(x => x + total / 2 - c * s.length).filter(x => x > 0 && x < s.length)
+      assert.equal(local.length, c === 0 || c === cars - 1 ? 3 : 4)
+    }
+    doors.forEach((x, i) => assert.ok(Math.abs(x + doors.at(-1 - i)) < 1e-8, 'opposite cabs share a mirrored layout'))
+    assert.ok(doors[0] + total / 2 - doorWidthAt({stock:'D',cars},doors[0]) / 2 > s.cabLength, 'passenger doors clear the cab')
+  }
+})
+
+test('the worker encodes D stock in the shared classification order', () => {
+  const data = scenarioStation({ upEscalators: 3 })
+  data.lines[0].stock = 'D'
+  data.lines[0].cars = 8
+  const w = new World(data, 99)
+  w.tickOnce()
+  assert.equal(w.trainRenderState()[4], STOCK_CLASSES.indexOf('D'))
 })
 
 test('the worker encodes the L stock index the renderer decodes', () => {
@@ -123,4 +157,16 @@ test('the cabin floor sits a hand above the platform, under the door sill to hea
   // or the sim would seat riders at a height the model does not draw.
   assert.ok(CABIN_FLOOR_Z > 0.5 && CABIN_FLOOR_Z < 0.7, `cabin floor ${CABIN_FLOOR_Z} is a step over the platform`)
   assert.ok(CABIN_FLOOR_Z >= 0.57, 'the floor is not below the door sill the skin is cut at')
+})
+
+test('D uses narrow single doors only nearest each cab and wider paired doors elsewhere', () => {
+  for (const cars of [1,2,8]) {
+    const line={stock:'D',cars},centres=doorCentres(line)
+    assert.equal(doorWidthAt(line,centres[0]),0.8)
+    assert.equal(doorWidthAt(line,centres.at(-1)),0.8)
+    for (const offset of centres.slice(1,-1)) assert.equal(doorWidthAt(line,offset),1.4)
+  }
+  for (const stock of ['A','B','C','L']) for (const offset of doorCentres({stock,cars:2})) {
+    assert.equal(doorWidthAt({stock,cars:2},offset),STOCK[stock].doorWidth)
+  }
 })

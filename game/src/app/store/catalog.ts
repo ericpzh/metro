@@ -38,7 +38,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
     'tvm', 'vending', 'hanger-post', 'electrical-cabinet', 'tactile-guide', 'tactile-warning',
     'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction', 'bench-steel-1', 'bench-seat-1',
     'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'rail-signal',
-    'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1',
+    'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing',
   ]),
   outside: new Set(['sidewalk', 'lawn', 'tree', 'traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
 }
@@ -87,6 +87,9 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'fence', label: msg('glass_fence'), type: 'fence', w: 1, h: 1 },
   { id: 'fence-gate', label: msg('door'), type: 'fence', w: 1, h: 1 },
   { id: 'fence-iron', label: msg('iron_fence'), type: 'fence', w: 1, h: 1 },
+  { id: 'noise-barrier', label: msg('full_height_noise_barrier'), type: 'fence', w: 1, h: 3 },
+  { id: 'noise-barrier-half', label: msg('half_height_noise_barrier'), type: 'fence', w: 1, h: 1.5 },
+  { id: 'noise-barrier-railing', label: msg('railing'), type: 'fence', w: 1, h: 0.74 },
   { id: 'tvm', label: msg('ticket_machine'), type: 'tvm', w: 1, h: 1 },
   { id: 'vending', label: msg('vending_machine'), type: 'vending', w: 1, h: 1 },
   { id: 'bench-steel-1', label: msg('stainless_steel'), type: 'bench', w: 1, h: 1 },
@@ -241,6 +244,7 @@ export function isBenchType(type: string): boolean {
  */
 export function isDecorType(type: string): boolean {
   return (
+    isNoiseBarrierType(type) ||
     type === 'tvm' || type === 'vending' ||
     type === 'hanger' || type.startsWith('hanger-') ||
     type === 'tactile' || type.startsWith('tactile-') || type === 'floor-mark' || type.startsWith('floor-mark-') ||
@@ -332,7 +336,15 @@ export function isWallMountedType(type: string): boolean {
 
 /** True for the fence piece, which drags out a run like the wall tool. */
 export function isFenceType(type: string): boolean {
-  return type === 'fence' || type === 'fence-gate' || type === 'fence-iron'
+  return type === 'fence' || type === 'fence-gate' || type === 'fence-iron' || isNoiseBarrierType(type)
+}
+
+export function isNoiseBarrierType(type: string): boolean {
+  return type === 'noise-barrier' || type === 'noise-barrier-half' || type === 'noise-barrier-railing'
+}
+
+function isStandardFenceType(type: string): boolean {
+  return isFenceType(type) && !isNoiseBarrierType(type)
 }
 
 /**
@@ -403,7 +415,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
+export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -433,7 +445,8 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
   { key: 'monitor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'extinguisher', owns: (id) => id === 'extinguisher' || id.startsWith('extinguisher-') },
   { key: 'gate', owns: isGateType },
-  { key: 'fence', owns: isFenceType },
+  { key: 'fence', owns: isStandardFenceType },
+  { key: 'noise-barrier', owns: isNoiseBarrierType },
   { key: 'hanger', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
   { key: 'cctv', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
   { key: 'tactile', owns: (id) => id === 'tactile' || id.startsWith('tactile-') },
@@ -462,7 +475,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
   { key: 'monitor', label: msg('monitor'), folder: 'decor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'gate', label: msg('fare_gate'), folder: 'equipment', owns: isGateType },
-  { key: 'fence', label: msg('fence'), folder: 'equipment', owns: isFenceType },
+  { key: 'fence', label: msg('fence'), folder: 'equipment', owns: isStandardFenceType },
   { key: 'hanger', label: msg('hanger'), folder: 'decor', owns: (id) => id === 'hanger' || id === 'hanger-roof' || id === 'hanger-post' },
   { key: 'cctv', label: msg('cctv'), folder: 'decor', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
   { key: 'tactile', label: msg('tactile_paving'), folder: 'decor', owns: (id) => id === 'tactile' || id.startsWith('tactile-') },
@@ -512,6 +525,7 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
     folder: 'decor',
     owns: isSignType,
   },
+  { key: 'noise-barrier', label: msg('noise_barrier'), folder: 'decor', owns: isNoiseBarrierType },
 ]
 
 /** The anchor id of a family's parent tile in the grid. */
@@ -544,7 +558,7 @@ export function familiesIn(folder: ModuleFolder, category?: DecorCategory): Modu
 
 /** True for the gear tiles the 设备 folder owns (everything that is not decor, a run or an exit). */
 function isGearTile(option: ModuleOption): boolean {
-  return option.type !== 'roof' && option.type !== 'pillar' && option.type !== 'track' && !isDecorType(option.type) && !isStairType(option.type) && !isExitType(option.id)
+  return option.type !== 'roof' && option.type !== 'pillar' && option.type !== 'track' && !isDecorType(option.id) && !isStairType(option.type) && !isExitType(option.id)
 }
 
 /* -------------------------------------------------- the grid's tile order */
@@ -622,7 +636,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     'guidepost',
     familyAnchor('busstop'),
     'ac-unit', 'electrical-cabinet',
-    'tvm', 'vending',
+    'tvm', 'vending', familyAnchor('noise-barrier'),
   ],
 }
 
@@ -635,7 +649,7 @@ const DECOR_CATEGORY_ORDER: Partial<Record<DecorCategory, readonly string[]>> = 
   floor: [
     'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', 'psd-end',
     familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
-    familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'),
+    familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'), familyAnchor('noise-barrier'),
   ],
 }
 
@@ -647,7 +661,7 @@ const DECOR_CATEGORY_ORDER: Partial<Record<DecorCategory, readonly string[]>> = 
  */
 export function folderTiles(folder: ModuleFolder, category?: DecorCategory): FolderTile[] {
   const families = familiesIn(folder, category)
-  const options = MODULE_OPTIONS.filter((m) => (folder === 'rail' ? m.type === 'roof' || m.type === 'pillar' : folder === 'decor' ? isDecorType(m.type) && (!category || decorCategoryHasId(category, m.id)) : isGearTile(m)))
+  const options = MODULE_OPTIONS.filter((m) => (folder === 'rail' ? m.type === 'roof' || m.type === 'pillar' : folder === 'decor' ? isDecorType(m.id) && (!category || decorCategoryHasId(category, m.id)) : isGearTile(m)))
   const order = folder === 'decor' && category ? DECOR_CATEGORY_ORDER[category] ?? RAIL_ORDER.decor : RAIL_ORDER[folder]
   return order.flatMap((anchor): FolderTile[] => {
     const family = families.find((f) => familyAnchor(f.key) === anchor)
@@ -895,7 +909,7 @@ const ROOM_KIND_LABELS: Record<string, string> = {
 
 export function moduleLabel(type: string | Module, roomKind?: string): string {
   if (typeof type !== 'string') {
-    if (type.type === 'fence') return type.cfg.variant === 'gate' ? msg('door') : type.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
+    if (type.type === 'fence') return type.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : type.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : type.cfg.variant === 'bridge-railing' ? msg('railing') : type.cfg.variant === 'gate' ? msg('door') : type.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
     return moduleLabel(type.type, type.type === 'shop' || type.type === 'booth' ? type.cfg.kind : undefined)
   }
   if (type === 'shop') return ROOM_KIND_LABELS[roomKind ?? 'store'] ?? MODULE_LABELS.shop
@@ -921,8 +935,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'roadWidth' | 'roadDirection' | 'railLineId' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'roadWidth' | 'roadDirection' | 'railLineId' | 'railCatenaryStyle' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.railCatenaryStyle}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

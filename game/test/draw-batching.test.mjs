@@ -9,7 +9,7 @@ import { batchTrainDoors, batchTrainTransparent } from '../src/render/trainBatch
 import { buildTrain, createModelMaterials, disposeModelMaterials, disposeObject, setDoorsSides } from '../src/render/models.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 import { passengerEligible } from '../src/render/passengerEligibility.ts'
-import { STOCK_CLASSES } from '../src/sim/stock.ts'
+import { STOCK, STOCK_CLASSES, doorCentres, doorWidthAt } from '../src/sim/stock.ts'
 import { TrainSystem } from '../src/render/scene/systems/TrainSystem.ts'
 
 function canvas() {
@@ -18,6 +18,281 @@ function canvas() {
   node.getContext = () => g; node.ops = ops
   return node
 }
+
+test('D model keeps swept cabs inside the consist and plugs only the platform door bank', () => {
+  const previous = globalThis.document; globalThis.document = { createElement: canvas }
+  let mats, root
+  try {
+    mats = createModelMaterials()
+    root = buildTrain(mats, {x:0, y:0, z:0, stock:'D', cars:8, doorsOpen:false, colour:'#254eae', dirSign:-1, yaw:0})
+    const cabs = root.children.filter(o => o.name === 'streamlined-cab')
+    assert.equal(cabs.length, 2)
+    const parts = []
+    root.traverse(o => { if (o.isMesh) parts.push(o) })
+    assert.equal(parts.filter(o => o.name === 'd-car-roof').length, 8, 'every car has the dedicated D shell')
+    assert.equal(parts.filter(o => o.name === 'car-roof').length, 0, 'no generic car roof behind the cab')
+    const total = STOCK.D.length * 8
+    for (const cab of cabs) {
+      const bounds = new THREE.Box3().setFromObject(cab)
+      assert.ok(bounds.min.x >= -total / 2 - 1e-5 && bounds.max.x <= total / 2 + 1e-5)
+      const shell = cab.getObjectByName('d-cab-shell')
+      const glass = cab.getObjectByName('d-cab-windscreen')
+      assert.ok(shell && glass, 'a separate shell and sloped windscreen are present')
+      assert.ok(glass.geometry.userData.projectionError < 0.002, `window projection fits without a folded edge: ${glass.geometry.userData.projectionError}`)
+      const glassBounds = new THREE.Box3().setFromObject(glass)
+      assert.ok(glassBounds.max.z - glassBounds.min.z > 0.7 && glassBounds.max.z - glassBounds.min.z < 0.95, 'windscreen preserves its physical U outline in the front view')
+      const area = mesh => {
+        const p = mesh.geometry.attributes.position, index = mesh.geometry.index
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
+        let sum = 0
+        for (let i = 0; i < index.count; i += 3) {
+          a.fromBufferAttribute(p, index.getX(i)); b.fromBufferAttribute(p, index.getX(i + 1)); c.fromBufferAttribute(p, index.getX(i + 2))
+          sum += b.sub(a).cross(c.sub(a)).length() / 2
+        }
+        return sum
+      }
+      const mask = cab.getObjectByName('d-cab-mask')
+      const maskBounds = new THREE.Box3().setFromObject(mask)
+      const relativeWidth = (glassBounds.max.y - glassBounds.min.y) / (maskBounds.max.y - maskBounds.min.y)
+      assert.ok(relativeWidth > 0.65 && relativeWidth < 0.85, 'slim central shield stays inside the narrower dark surround')
+      assert.ok(glassBounds.max.y-glassBounds.min.y<1.34,'central windshield retains the slimmer width')
+      const colour=cab.getObjectByName('d-cab-livery')
+      assert.ok(area(colour)/area(mask)>0.5,'line colour covers a broad surround rather than a thin edge')
+      colour.geometry.computeBoundingBox()
+      assert.ok(colour.geometry.boundingBox.min.z<1.55,'coloured surround reaches down the front of the nose')
+      assert.ok(area(glass) / area(mask) > 0.15, 'the shorter shield keeps a substantial glazed area')
+      assert.equal(cab.children.filter(o => o.name === 'd-cab-side-window').length, 2)
+      for (const window of cab.children.filter(o => o.name === 'd-cab-side-window')) {
+        window.geometry.computeBoundingBox()
+        const box = window.geometry.boundingBox
+        // The four-sided pane retains a finite short edge.
+        const projectedArea = mesh => {
+          const p = mesh.geometry.attributes.position, ix = mesh.geometry.index
+          let sum = 0
+          for (let i = 0; i < ix.count; i += 3) {
+            const [a,b,c] = [ix.getX(i),ix.getX(i+1),ix.getX(i+2)]
+            sum += Math.abs((p.getY(b)-p.getY(a))*(p.getZ(c)-p.getZ(a)) - (p.getZ(b)-p.getZ(a))*(p.getY(c)-p.getY(a))) / 2
+          }
+          return sum
+        }
+        const ratio = projectedArea(window) / ((box.max.y-box.min.y)*(box.max.z-box.min.z))
+        assert.ok(ratio > 0.55 && ratio < 0.95, 'side glazing has a full trapezoid silhouette rather than a triangle')
+        const p = window.geometry.attributes.position
+        const a = new THREE.Vector2(p.getY(48*13),p.getZ(48*13))
+        const b = new THREE.Vector2(p.getY(48*13+12),p.getZ(48*13+12))
+        assert.ok(a.distanceTo(b) > 0.16,'trapezoid keeps a visible short top edge')
+        assert.ok(Math.abs(p.getX(48*13)-p.getX(48*13+12))<0.002,'rear pane edge is cut across the cab instead of trailing into a spike')
+        assert.ok(Math.abs(p.getZ(48*13)-p.getZ(48*13+12))>0.12,'rear pane edge has a finite height in side view')
+      }
+      assert.equal(cab.children.filter(o => o.name.startsWith('d-crew-door')).length, 0, 'no extra cab door beyond the passenger door run')
+      cab.updateWorldMatrix(true, true)
+      assert.ok(cab.getObjectByName('d-windscreen-upper-brow'))
+      assert.ok(cab.getObjectByName('d-cab-upper-display'))
+      const markers = cab.children.filter(o => o.name === 'd-upper-marker-light')
+      assert.equal(markers.length,2,'two marker lamps above the windscreen')
+      for (const marker of markers) {
+        const centre = new THREE.Vector3().fromBufferAttribute(marker.geometry.attributes.position,0)
+        const origin = cab.localToWorld(new THREE.Vector3(5,centre.y,centre.z))
+        const direction = new THREE.Vector3(-1,0,0).transformDirection(cab.matrixWorld)
+        assert.equal(new THREE.Raycaster(origin,direction).intersectObject(cab,true)[0]?.object,marker,'upper lamps remain visible over the brow')
+      }
+      const lamps = cab.children.filter(o => o.name === 'd-headlight' || o.name === 'd-taillight')
+      assert.equal(lamps.length, 2)
+      for (const side of [-1,1]) {
+        const panels = ['d-cab-accent-band', lamps[0].name, 'd-cab-side-window'].map(name =>
+          cab.children.find(o => o.name === name && Math.sign(o.geometry.attributes.position.getY(24*13+6)) === side))
+        const point = (mesh,row,col) => new THREE.Vector2().fromArray([
+          mesh.geometry.attributes.position.getY(row*13+col),mesh.geometry.attributes.position.getZ(row*13+col)])
+        for (let i=1;i<panels.length;i++) for (const col of [0,12]) {
+          const end = point(panels[i-1],48,col),start = point(panels[i],0,col)
+          const before = end.clone().sub(point(panels[i-1],47,col)).normalize()
+          const after = point(panels[i],1,col).sub(start).normalize()
+          const gap = start.clone().sub(end)
+          assert.ok(gap.length()>0.01 && gap.length()<0.10,'panel sections retain small gaps')
+          assert.ok(before.dot(after)>0.99,'both boundary lines continue smoothly across each gap')
+          assert.ok(gap.normalize().dot(before)>0.99 && gap.dot(after)>0.99,'window, light and accent share both boundary curves')
+        }
+      }
+      for (const lamp of lamps) {
+        lamp.geometry.computeBoundingBox()
+        const box = lamp.geometry.boundingBox
+        assert.ok(box.max.z - box.min.z > 0.3 && box.max.y - box.min.y > 0.25, 'lamp is a steep diagonal wedge rather than a horizontal bar')
+        const p = lamp.geometry.attributes.position
+        const end = (row) => Math.hypot(p.getY(row*13)-p.getY(row*13+12),p.getZ(row*13)-p.getZ(row*13+12))
+        assert.ok(end(0)>0.10 && end(48)>0.20,'lamp retains two finite end edges instead of oval caps')
+        const sample = new THREE.Vector3().fromBufferAttribute(p, 24 * 13 + 6)
+        const origin = cab.localToWorld(new THREE.Vector3(5, sample.y, sample.z))
+        const direction = new THREE.Vector3(-1, 0, 0).transformDirection(cab.matrixWorld)
+        const hit = new THREE.Raycaster(origin, direction).intersectObject(cab, true)[0]
+        assert.equal(hit?.object, lamp, 'both corner lamps are exposed in the direct front view')
+      }
+      const maskOutline=cab.getObjectByName('d-cab-mask').geometry.attributes.position
+      const edgePoints=Array.from({length:128},(_,i)=>new THREE.Vector2(maskOutline.getX(48*129+i),maskOutline.getY(48*129+i)))
+      const outlineBounds=new THREE.Box2().setFromPoints(edgePoints)
+      const centre=outlineBounds.getCenter(new THREE.Vector2()),radii=outlineBounds.getSize(new THREE.Vector2()).multiplyScalar(0.5)
+      for (const panel of cab.children.filter(o=>['d-cab-side-window','d-side-window-seal',lamps[0].name,'d-cab-lamp-housing','d-cab-accent-band'].includes(o.name))) {
+        const p=panel.geometry.attributes.position
+        for (let i=0;i<p.count;i++) {
+          const radius=Math.hypot((p.getX(i)-centre.x)/radii.x,(p.getY(i)-centre.y)/radii.y)
+          assert.ok(radius>0.99999,`${panel.name} is trimmed out of the black surround`)
+          if (i%13===0) assert.ok(Math.abs(radius-1)<0.00002,'all inner panel edges follow the black boundary')
+        }
+      }
+      for (const panel of [...lamps,...cab.children.filter(o=>o.name==='d-cab-side-window')]) {
+        const p = panel.geometry.attributes.position
+        const index = 24*13
+        const glazing = glass.geometry.attributes.position
+        let gap = Infinity
+        for (let i=0;i<glazing.count;i++) gap = Math.min(gap,Math.hypot(p.getY(index)-glazing.getY(i),p.getZ(index)-glazing.getZ(i)))
+        assert.ok(gap>0.02 && gap<0.22,`side panels closely hug the windshield without overlap (${gap})`)
+      }
+      for (const ribbon of cab.children.filter(o => ['d-headlight','d-taillight','d-cab-accent-band'].includes(o.name))) {
+        const p = ribbon.geometry.attributes.position
+        const a = new THREE.Vector2(),b = new THREE.Vector2(),c = new THREE.Vector2()
+        for (let row = 2; row < 47; row++) {
+          const index = row * 13 + 6
+          a.set(p.getY(index-13),p.getZ(index-13))
+          b.set(p.getY(index),p.getZ(index))
+          c.set(p.getY(index+13),p.getZ(index+13))
+          const previous = b.clone().sub(a).normalize(),next = c.sub(b).normalize()
+          assert.ok(previous.dot(next) > 0.995,'band and lamp tangents stay smooth along the shared arc')
+        }
+      }
+      for (const name of ['d-cab-windscreen','d-cab-side-window',lamps[0].name,'d-cab-accent-band']) {
+        for (const panel of cab.children.filter(o=>o.name===name)) {
+          const p=panel.geometry.attributes.position,n=panel.geometry.attributes.normal
+          const index=name==='d-cab-windscreen'?16*37+18:24*13+6
+          const origin=cab.localToWorld(new THREE.Vector3().fromBufferAttribute(p,index))
+          const direction=new THREE.Vector3().fromBufferAttribute(n,index).negate().transformDirection(cab.matrixWorld)
+          const hit=new THREE.Raycaster(origin,direction).intersectObject(shell)[0]
+          assert.ok(hit && hit.distance<0.025,`${name} sits against the rendered skin rather than floating (${hit?.distance})`)
+        }
+      }
+      for (const z of [0.55,2.9,3.21]) {
+        const edges=[]
+        for (const offset of [-0.001,0.001]) {
+          const origin=cab.localToWorld(new THREE.Vector3(-STOCK.D.cabLength+offset,5,z))
+          const direction=new THREE.Vector3(0,-1,0).transformDirection(cab.matrixWorld)
+          const hit=new THREE.Raycaster(origin,direction).intersectObject(root,true)[0]
+          assert.ok(hit,'both sides of the cab/car seam are enclosed')
+          edges.push(cab.worldToLocal(hit.point).y)
+        }
+        assert.ok(Math.abs(edges[0]-edges[1])<0.002,`cab and car shoulder edges coincide at height ${z}`)
+        if (z===3.21) assert.ok(edges[1]<1.10,'rounded roof shoulders retreat inward instead of retaining the square crown')
+        if (z===0.55) assert.ok(edges[1]<1.35,'rounded lower car corners follow the head silhouette')
+      }
+      // Compare the actual rear loft vertices to the adjoining car shoulder,
+      // rather than just checking the cab's overall bounding box.
+      const p = shell.geometry.attributes.position
+      const n = shell.geometry.attributes.normal
+      assert.ok(Math.abs(p.getZ(16*129+48)-2.4137683)<0.001,'original long nose crown is preserved at the quarter-length landmark')
+      assert.ok(p.getZ(32*129)<0.55,'lower side skirt stays down near the car sill')
+      const back = []
+      for (let i = 0; i < p.count; i++) {
+        if (Math.abs(p.getX(i) + STOCK.D.cabLength) < 1e-5) back.push([p.getY(i), p.getZ(i)])
+        if (Math.abs(p.getX(i)) < 1e-6) {
+          assert.ok(n.getX(i) > 0.99, 'rounded pole normals meet smoothly without triangular shading seams')
+          assert.ok(p.getZ(i) > 0.7 && p.getZ(i) < 0.85, 'nose tip is low rather than a raised bulb')
+        }
+      }
+      assert.ok(Math.abs(Math.max(...back.map(v => v[1])) - 3.25) < 1e-5)
+      const trim = cab.getObjectByName('d-cab-gold-trim').geometry.attributes.position
+      assert.ok(Math.min(...Array.from({length:129},(_,i)=>trim.getZ(48*129+i))) + 0.45 < trim.getZ(48*129+64), 'trim curves from the lower nose back over the crown')
+      for (const name of ['d-cab-livery','d-cab-gold-trim','d-cab-mask']) {
+        const p = cab.getObjectByName(name).geometry.attributes.position
+        const outline = Array.from({length:128},(_,i)=>new THREE.Vector2(p.getX(48*129+i),p.getY(48*129+i)))
+        const bounds = new THREE.Box2().setFromPoints(outline),centre = bounds.getCenter(new THREE.Vector2())
+        const size = bounds.getSize(new THREE.Vector2())
+        assert.ok(size.x / size.y > 1.4,'surround remains elongated along the original nose')
+        const radii = outline.map(v=>Math.hypot((v.x-centre.x)/(size.x/2),(v.y-centre.y)/(size.y/2)))
+        assert.ok(Math.max(...radii)-Math.min(...radii)<0.002,'surround closes into an ellipse in plan without squared rear corners')
+      }
+      assert.equal(cab.getObjectByName('d-cab-rear-livery'),undefined,'no broad rectangular rear colour patch')
+      const carShoulder = parts.find(o => o.name === 'd-car-shoulder')
+      carShoulder.geometry.computeBoundingBox()
+      assert.ok(Math.abs(carShoulder.geometry.boundingBox.max.z - Math.max(...back.map(v => v[1]))) < 1e-5, 'cab and carriage crowns meet at the same height')
+      for (const y of [-0.50, 0.50]) assert.ok(back.some(v => Math.abs(v[0] - y) < 1e-5 && Math.abs(v[1] - 3.25) < 1e-5), 'narrow crown and rounded shoulders share the car section')
+    }
+    assert.ok(cabs[0].getObjectByName('d-headlight'))
+    assert.ok(cabs[1].getObjectByName('d-taillight'))
+    const roof=parts.find(o=>o.name==='d-car-roof')
+    roof.geometry.computeBoundingBox()
+    assert.ok(roof.geometry.boundingBox.max.y-roof.geometry.boundingBox.min.y<1.1,'flat roof strip is narrow between the broad curved shoulders')
+    assert.ok(root.getObjectByName('d-transverse-seat'))
+    assert.ok(root.getObjectByName('cabin-bench'))
+    const gangways = parts.filter(o => o.name === 'd-intercar-gangway')
+    assert.equal(gangways.length, 7)
+    root.updateMatrixWorld(true)
+    for (let c = 1; c < 8; c++) {
+      const x = c * STOCK.D.length - total / 2
+      const sideRay = new THREE.Raycaster(new THREE.Vector3(x, -5, 2), new THREE.Vector3(0, 1, 0))
+      const topRay = new THREE.Raycaster(new THREE.Vector3(x, 0, 5), new THREE.Vector3(0, 0, -1))
+      assert.ok(sideRay.intersectObjects(gangways).length, 'bellows close the view through each car gap')
+      assert.ok(topRay.intersectObjects(gangways).length, 'gangway also encloses the roof gap')
+    }
+    const corners=parts.filter(o=>o.name==='d-door-upper-corner-infill')
+    assert.equal(corners.length,doorCentres({stock:'D',cars:8}).length*4,'stationary upper corners cover both jambs on both sides')
+    for (const x of doorCentres({stock:'D',cars:8}).slice(0,2)) for (const side of [-1,1]) for (const jamb of [-1,1]) {
+      const width=doorWidthAt({stock:'D',cars:8},x)
+      const ray=new THREE.Raycaster(new THREE.Vector3(x+jamb*(width/2-0.025),side*5,2.61),new THREE.Vector3(0,-side,0))
+      assert.ok(ray.intersectObjects(corners).length,'no uncovered top corner beside single or paired doors')
+    }
+    for (const cab of cabs) {
+      assert.equal(cab.children.filter(o=>o.name==='d-cab-side-black-taper').length,2)
+      for (const [cabName,carName,columns] of [
+        ['d-cab-side-black-taper','d-car-window-surround',24],
+        ['d-cab-side-livery-sweep','d-car-livery',8],
+        ['d-cab-side-gold-sweep','d-car-gold-line',8],
+      ]) for (const part of cab.children.filter(o=>o.name===cabName)) for (const index of [0,columns]) {
+        const endpoint=part.localToWorld(new THREE.Vector3().fromBufferAttribute(part.geometry.attributes.position,index))
+        let gap=Infinity
+        for (const car of parts.filter(o=>o.name===carName)) {
+          const p=car.geometry.attributes.position
+          for (let i=0;i<p.count;i++) {
+            const point=car.localToWorld(new THREE.Vector3().fromBufferAttribute(p,i))
+            gap=Math.min(gap,point.distanceTo(endpoint))
+          }
+        }
+        assert.ok(gap<0.00001,`${cabName} meets the carriage band without a step (${gap})`)
+      }
+      const colour=cab.getObjectByName('d-cab-livery')
+      colour.geometry.computeBoundingBox()
+      assert.ok(colour.geometry.boundingBox.min.x<-4.5,'upper colour extends back to the car joint')
+      for (const name of ['d-cab-side-livery-sweep','d-cab-side-gold-sweep']) for (const part of cab.children.filter(o=>o.name===name)) {
+        part.geometry.computeBoundingBox()
+        assert.ok(part.geometry.boundingBox.min.z<0.6,'lower bands sweep into the skirt')
+      }
+    }
+    const leaves = root.userData.doors
+    assert.equal(leaves.length, doorCentres({stock:'D', cars:8}).length * 4 - 4, 'paired leaves except the two single cab-end doorways per side')
+    assert.equal(leaves.filter(o=>o.name==='d-passenger-single-door').length,4,'only the doorway nearest each cab is single on both sides')
+    for (const window of parts.filter(o=>o.name==='d-car-window')) {
+      window.geometry.computeBoundingBox()
+      const box=window.geometry.boundingBox
+      assert.ok(box.max.x-box.min.x<0.8 && box.max.z-box.min.z<0.55,'small passenger panes sit within the black band')
+    }
+    for (const leaf of leaves) {
+      assert.ok(['d-passenger-single-door','d-passenger-double-door'].includes(leaf.name))
+      const pane = leaf.getObjectByName('train-door-window')
+      assert.ok(pane)
+      pane.geometry.computeBoundingBox()
+      const box = pane.geometry.boundingBox
+      assert.ok(box.max.x - box.min.x < 0.30 && box.max.z - box.min.z > 1.1, 'every passenger door uses the tall narrow capsule window')
+    }
+    setDoorsSides(root, 1, 0)
+    for (const leaf of leaves) {
+      const side = leaf.userData.side
+      assert.ok(Math.abs(leaf.position.y - leaf.userData.closedY - (side > 0 ? 0.09 : 0)) < 1e-8)
+      assert.equal(leaf.position.x,leaf.userData.closedX+(side>0?leaf.userData.openSign*leaf.userData.travel:0),'paired leaves slide apart while the opposite bank stays shut')
+    }
+    setDoorsSides(root, 0, 0)
+    for (const leaf of leaves) assert.equal(leaf.position.y, leaf.userData.closedY)
+  } finally {
+    if (root) { disposeObject(root); root.userData.ownedMats.forEach(m => m.dispose()) }
+    if (mats) disposeModelMaterials(mats)
+    globalThis.document = previous
+  }
+})
 function surfaces(root) {
   const out = []
   root.traverseVisible(o => { if (o.isMesh && o.layers.isEnabled(0)) out.push(o) })
@@ -94,7 +369,7 @@ test('real train batches preserve both door banks, moving glass, and train-local
   } finally { if (root) disposeObject(root); if (mats) disposeModelMaterials(mats); globalThis.document = previous }
 })
 
-test('all four stock classes retain geometry and door poses in all track rotations', () => {
+test('all stock classes retain geometry and door poses in all track rotations', () => {
   const previous = globalThis.document; globalThis.document = { createElement: canvas }
   let mats
   try {

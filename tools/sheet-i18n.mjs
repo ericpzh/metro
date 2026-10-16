@@ -153,6 +153,15 @@ const EN = {
   '门': 'Doors',
   '1.2 人/秒，关闭时阻断通行': '1.2 people/s; closed doors block',
   // 05 — trains and track
+  '五种车型按同一比例展示。编组越长，载客越多，也需要更长的站台。': 'All five types at one scale. Longer consists carry more — and need longer platforms.',
+  'D 型': 'Type D',
+  '编组 8 节': '8 cars per train',
+  '8 节额定载客 1758 人': '8-car rated capacity: 1758',
+  '8 节总长 160.8 米': '8-car total length: 160.8 m',
+  '五个等级，五种车体': 'Five classes, five bodies',
+  '五种车型的外观。停靠后开门，乘客走进车厢。': "The five types' exteriors. Doors open at the stop; passengers step aboard.",
+  '五个等级': 'Five classes',
+
   '选列车，也在选站台的规模': 'Picking trains picks platform scale too',
   '四种车型按同一比例展示。编组越长，载客越多，也需要更长的站台。': 'All four types at one scale. Longer consists carry more — and need longer platforms.',
   'A 型': 'Type A',

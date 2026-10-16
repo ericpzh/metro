@@ -16,6 +16,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { msg } from '../src/sim/i18n.ts'
+import { folderTiles, familyFor, familyOptions } from '../src/app/store/catalog.ts'
+
+test('隔音屏 closes ground decor with three variants and a sound-barrier parent preview', () => {
+  const tile = folderTiles('decor', 'floor').at(-1)
+  assert.equal(tile.anchor, '__noise-barrier')
+  assert.equal(tile.family.label, '隔音屏')
+  const options = familyOptions(familyFor('noise-barrier'))
+  assert.deepEqual(options.map(option => option.id), ['noise-barrier', 'noise-barrier-half', 'noise-barrier-railing'])
+  assert.equal(options[0].id, 'noise-barrier', 'the parent tile uses the full sound barrier thumbnail')
+})
 import { INSPECTOR_FOLDERS, RAIL_FOLDERS, folderForAltKey, folderForShiftKey } from '../src/app/rail/helpers.ts'
 
 test('the rail is Shift+1 through Shift+0, one number a row down the stack', () => {
@@ -148,6 +158,14 @@ test('剖切’s folded-out row is at the foot of the row 剖切 sits in', () =>
   const src = read('../src/app/rail/folders/ViewFolder.tsx')
   assert.ok(src.includes("label={t('hide_section_plane')}"), '隐藏剖切面 left the cut row')
   assert.ok(/RotateTile label=\{t\('rotate_value', next\)\}/.test(src), 'the cut row lost its 旋转 tile')
+})
+
+test('half-height catenary platforms expose a canopy/gantry tile beside rotation', () => {
+  const src = read('../src/app/rail/folders/RailFolder.tsx')
+  assert.match(src, /railLine\?\.power === 'catenary' && railLine\.psd === 'half'/, 'the alternate wire tile is limited to catenary lines with half-height doors')
+  assert.match(src, /<RotateTile[\s\S]*?<Block[\s\S]*catenary_style_value/, 'the wire-style tile shares the rotation row')
+  assert.match(src, /updateRail\(track\.id, \{ catenaryStyle: next \}\)/, 'a selected track gets a document edit')
+  assert.match(src, /setRailCatenaryStyle\(next\)/, 'the tile changes the placement default when no track is selected')
 })
 
 test('视图 opens with the app, like every other row of the 信息栏', () => {

@@ -8,11 +8,12 @@ import { msg } from '../sim/i18n.ts'
 // including across to the other axis. Pure document edits — no React, no three.
 
 import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/structures.ts'
+import { GROUND_Z, virtualSolidAt } from '../sim/ground.ts'
 import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
 import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { rampBodyBoxes } from '../sim/openings.ts'
-import { doorCentres, trainLength } from '../sim/stock.ts'
+import { STOCK, doorCentres, trainLength } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, type TrackModule } from '../sim/track.ts'
 import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
 import { lineColourFor } from '../data/line-colours.ts'
@@ -133,10 +134,10 @@ export interface TrackPiece {
 /**
  * The footprint a line's consist needs: a three-cell car-width bed and a run of
  * the whole train, so the dimension is known before the player places anything.
- * A/B/C/L car widths all round up to the bed, so only the length varies by line.
+ * A/B/C/L fit the default bed; the 3.3 m D body needs four cells across.
  */
 export function trackPieceForLine(line: Pick<LineDef, 'stock' | 'cars'>): TrackPiece {
-  return { w: Math.max(1, Math.ceil(trainLength(line))), d: RAIL_BED_DEPTH }
+  return { w: Math.max(1, Math.ceil(trainLength(line))), d: Math.max(RAIL_BED_DEPTH, Math.ceil(STOCK[line.stock].width)) }
 }
 
 /** A track module payload. Shared by placement and the on-hover ghost. */
@@ -153,6 +154,7 @@ export function makeTrack(o: {
   d: number
   tunnel?: boolean
   bridge?: boolean
+  catenaryStyle?: 'canopy' | 'gantry'
 }): TrackModule {
   return {
     id: o.id,
@@ -163,7 +165,7 @@ export function makeTrack(o: {
     w: o.w,
     d: o.d,
     rot: o.rot,
-    cfg: { line: o.lineId, power: o.power, dir: o.dir, ...(o.tunnel ? { tunnel: true } : {}), ...(o.bridge ? { bridge: true } : {}) },
+    cfg: { line: o.lineId, power: o.power, dir: o.dir, ...(o.tunnel ? { tunnel: true } : {}), ...(o.bridge ? { bridge: true } : {}), ...(o.catenaryStyle ? { catenaryStyle: o.catenaryStyle } : {}) },
   }
 }
 
@@ -349,7 +351,13 @@ export function trackInterferenceBlocked(state: StationState, track: TrackModule
 /** True when a platform run is not fully supported by solid floor. */
 export function trackFloorMissing(state: StationState, track: TrackModule): boolean {
   const solid = solidKeys(state)
-  for (const [x, y, z] of trackCells(track)) if (!solid.has(cellKey(x, y, z))) return true
+  for (const [x, y, z] of trackCells(track)) {
+    if (solid.has(cellKey(x, y, z))) continue
+    // The street is an infinite implicit plane. Treat it as footing for a
+    // surface platform, while respecting saved digs and module openings (§4.1).
+    if (z === GROUND_Z && virtualSolidAt(state.cells, state.modules, x, y, z)) continue
+    return true
+  }
   return false
 }
 
@@ -479,6 +487,7 @@ export interface PlaceTrackOptions {
   z: number
   w: number
   d: number
+  catenaryStyle?: 'canopy' | 'gantry'
 }
 
 /** Place a fixed-footprint track piece (dig + track module + derived doors). */
@@ -513,6 +522,42 @@ export function railModuleAt(state: StationState, x: number, y: number, z: numbe
     if (m.type === 'track' && trackCellAt(m, x, y, z)) return m
   }
   return undefined
+}
+
+/**
+ * Resolve a rail from its platform as well as from its dug bed. Screen doors
+ * identify which track owns a platform edge; exposed floor cells contiguous
+ * with that edge are part of the same snapping target. This lets extension
+ * tools snap across the full platform width, including the door model itself.
+ */
+export function railModuleAtPlatform(state: StationState, x: number, y: number, z: number): TrackModule | undefined {
+  const onRail = railModuleAt(state, x, y, z)
+  if (onRail) return onRail
+  if (!isPlatformCell(state.cells, x, y, z)) return undefined
+
+  const candidates: Array<{ track: TrackModule; across: number }> = []
+  for (const edge of state.modules) {
+    if (edge.type !== 'platform-edge' || edge.z !== z) continue
+    const track = state.modules.find((m): m is TrackModule => m.id === edge.cfg.from && m.type === 'track')
+    if (!track) continue
+    const [i, j] = rotateLocal(-(track.rot ?? 0), x - track.x, y - track.y)
+    if (i < 0 || i >= track.w || (edge.cfg.side === 'left' ? j < (track.d ?? 1) : j >= 0)) continue
+    const edgeStart = rotateLocal(-(track.rot ?? 0), edge.x - track.x, edge.y - track.y)[0]
+    if (i < edgeStart || i >= edgeStart + edge.w) continue
+
+    // Require an unbroken, exposed platform from the screen-door tile to the
+    // hovered tile; this avoids snapping across a wall or another track.
+    const boundary = edge.cfg.side === 'left' ? (track.d ?? 1) : -1
+    const step = edge.cfg.side === 'left' ? 1 : -1
+    let connected = true
+    for (let across = boundary; step > 0 ? across <= j : across >= j; across += step) {
+      const [dx, dy] = rotateLocal(track.rot, i, across)
+      if (!isPlatformCell(state.cells, track.x + dx, track.y + dy, z)) { connected = false; break }
+    }
+    if (connected) candidates.push({ track, across: Math.abs(j - boundary) })
+  }
+  candidates.sort((a, b) => a.across - b.across)
+  return candidates[0]?.track
 }
 
 /**
@@ -585,14 +630,21 @@ export function placeTunnel(state: StationState, sourceId: string, length: numbe
   return commitTrack(state, makeTunnel(src, freeTunnelEnd(state, src, at), length, nextModuleId(state.modules, 'track')))
 }
 
-/** Re-derive a rail's doors if a line's consist changed its run length. */
-export function resizeTrack(state: StationState, track: TrackModule, w: number): StationState {
-  if (w < 1 || w === track.w) return state
-  const resized: TrackModule = { ...track, w }
+/** Re-cut a track and rebuild its derived doors or supporting structure. */
+export function resizeTrack(state: StationState, track: TrackModule, w: number, d = track.d ?? 1): StationState {
+  if (w < 1 || (w === track.w && d === (track.d ?? 1))) return state
+  const resized: TrackModule = { ...track, w, d }
   const cleaned = dropDerivedEdges(state, track.id)
-  const modules = cleaned.modules.filter((m) => m.id !== track.id)
+  // Rebuild generated structure around the resized bed: tunnel shell walls
+  // move with its width, and bridge-owned piers need their new centreline.
+  const withoutShell = track.cfg.tunnel ? stripTunnelShell(cleaned, track.id) : cleaned
+  const modules = withoutShell.modules.filter((m) => m.id !== track.id
+    && !(track.cfg.bridge && m.type === 'pillar' && m.cfg.bridgeId === track.id))
   // A consist edit re-cuts the bed; it must not silently refuse on a wall.
-  return commitTrackRaw({ ...cleaned, modules }, resized)
+  const next = commitTrackRaw({ ...withoutShell, modules }, resized)
+  // A wider D bed can meet a neighbouring rail. A refused resize must retain
+  // the original rail and its screens rather than return the stripped document.
+  return next.modules.some(m => m.id === track.id) ? next : state
 }
 
 /** Read-only summary for the rail panel: length, consist and derived doors. */

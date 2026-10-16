@@ -31,6 +31,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   { title: 'tutorial_save', body: 'tutorial_save_body', targets: ['.stationName', '[aria-keyshortcuts="Control+S"]', '[aria-keyshortcuts="Control+L"]'], keys: ['Ctrl+S', 'Ctrl+L'] },
   { title: 'tutorial_simulate', body: 'tutorial_simulate_body', targets: ['.topbar .seg'], keys: ['Space'] },
   { title: 'tutorial_examples', body: 'tutorial_examples_body', targets: ['[data-tutorial="examples"]'] },
+  { title: 'tutorial_gpu', body: 'tutorial_gpu_body', targets: ['.stage'] },
 ]
 
 export const TUTORIAL_STORAGE_KEY = 'metro-game.tutorial.v1'

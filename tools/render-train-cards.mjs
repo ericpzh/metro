@@ -196,32 +196,34 @@ try {
     what: 'the train capture pass',
   })
 
-  const result = await session.evaluate(`(async () => {
-    const { trainPieces, captureTrains, stockTable, cabinFacts, liveryTable } = window.__trainCards
-    const wanted = trainPieces('#0d141d')
-    const shots = await captureTrains(wanted.frames)
-    const pixels = new Map(shots.map((s) => [s.id, s.png]))
-    const frames = new Map(wanted.frames.map((f) => [f.id, f]))
-    const origins = new Map(shots.map((s) => [s.id, s.origin ?? null]))
-    const fitted = new Map(shots.map((s) => [s.id, s.frameMetres ? [s.frameMetres, s.frameVertical] : null]))
-    // The fitted views measure their own box, so the box a sheet gets is the one that was
-    // framed rather than a second statement of it. trainPieces has none for those.
-    const boxes = new Map(shots.map((s) => [s.id, s.box ?? null]))
-    return {
-      pieces: wanted.pieces.map((p) => ({
-        ...p,
-        frame: frames.get(p.id) ?? null,
-        origin: origins.get(p.id) ?? null,
-        box: boxes.get(p.id) ?? p.box ?? null,
-        metres: fitted.get(p.id)?.[0] ?? p.metres ?? null,
-        verticalMetres: fitted.get(p.id)?.[1] ?? p.verticalMetres ?? null,
-        png: pixels.get(p.id) ?? null,
-      })),
-      stock: stockTable(),
-      cabin: cabinFacts(),
-      livery: liveryTable(),
-    }
+  const catalogue = await session.evaluate(`(() => {
+    const { trainPieces, stockTable, cabinFacts, liveryTable } = window.__trainCards
+    return { ...trainPieces('#0d141d'), stock: stockTable(), cabin: cabinFacts(), livery: liveryTable() }
   })()`)
+  const shots = new Map()
+  // Bound each browser call: the detailed D model and wide plan captures can
+  // exceed the CDP deadline when the entire catalogue is rendered in one call.
+  for (const frame of catalogue.frames) {
+    const [shot] = await session.evaluate(`window.__trainCards.captureTrains(${JSON.stringify([frame])})`)
+    if (!shot?.png) throw new Error(`No capture pixels for ${frame.id}`)
+    shots.set(frame.id, shot)
+    console.log(`  captured ${frame.id}`)
+  }
+  const frames = new Map(catalogue.frames.map(frame => [frame.id, frame]))
+  const result = {
+    ...catalogue,
+    pieces: catalogue.pieces.map(piece => {
+      const shot = shots.get(piece.id)
+      return {
+        ...piece, frame: frames.get(piece.id) ?? null,
+        origin: shot?.origin ?? null,
+        box: shot?.box ?? piece.box ?? null,
+        metres: shot?.frameMetres ?? piece.metres ?? null,
+        verticalMetres: shot?.frameVertical ?? piece.verticalMetres ?? null,
+        png: shot?.png ?? null,
+      }
+    }),
+  }
 
   const pieces = result?.pieces
   if (!Array.isArray(pieces) || !pieces.length) throw new Error('the capture pass returned no pictures')

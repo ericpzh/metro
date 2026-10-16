@@ -6,9 +6,11 @@
 // stair blocks, AC/cabinet bodies, fences, lifts, exits, machines, benches,
 // shops, ramps, platform edges and tracks. Everything else here draws without
 // walking: floor stickers, wall panels, hanging fittings, wayfinding furniture
-// and street props. TVM/vending/bench cabinets stay out — machines are trip
-// stops and cabinet bodies are barriers — as do posts, pillars, screen ends and
-// every non-decor type. Unknown future types fail closed.
+// and street props, a 树木 included — planting is not structure, so the crowd
+// walks through its tile rather than around a trunk the graph can only express
+// by deleting the whole cell. TVM/vending/bench cabinets stay out — machines are
+// trip stops and cabinet bodies are barriers — as do posts, pillars, screen ends
+// and every non-decor type. Unknown future types fail closed.
 import { groundWindow } from './ground.ts'
 import type { Module, StationData } from './types.ts'
 
@@ -16,7 +18,7 @@ const INERT_TYPES: ReadonlySet<Module['type']> = new Set([
   'tactile', 'floor-mark', 'billboard', 'glass', 'door', 'calligraphy', 'linemap',
   'sign', 'tv', 'monitor', 'clock', 'cctv', 'light', 'vent', 'traffic-light', 'rail-signal',
   'guidepost', 'busstop', 'shelf', 'desk', 'checkout', 'cubicle', 'sink', 'bin',
-  'extinguisher', 'sidewalk', 'lawn',
+  'extinguisher', 'sidewalk', 'lawn', 'tree',
 ])
 
 /** True when this placed module never reaches the walk graph or street holes. */

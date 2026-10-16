@@ -240,3 +240,49 @@ test('an aimed 地面出入口 keeps the block face the pointer clicked, whateve
     useStore.setState(before)
   }
 })
+
+
+test('bridge hover and click use visible rail and screen surfaces above a lower floor, in every rotation', async () => {
+  const { rotateLocal } = await import('../src/sim/track.ts')
+  const { defaultLine } = await import('../src/build/rail.ts')
+  const before = useStore.getState()
+  try {
+    for (const rot of [0, 1, 2, 3]) for (const i of [0, 4, 7]) for (const across of [0, 1, 2, 3, 4, 5, 6]) for (const floorHit of [false, true]) {
+      const track = { id: 'source', type: 'track', x: 20, y: 20, z: 4, w: 8, d: 3, rot, cfg: { line: '1', dir: 'up', power: 'third-rail' } }
+      const [edgeX, edgeY] = rotateLocal(rot, 0, 3)
+      const edge = { id: 'screens', type: 'platform-edge', x: 20 + edgeX, y: 20 + edgeY, z: 4, w: 8, rot, cfg: { from: track.id, side: 'left' } }
+      const cells = []
+      for (let along = 0; along < 8; along++) for (let side = 3; side <= 6; side++) {
+        const [x, y] = rotateLocal(rot, along, side)
+        cells.push({ x: 20 + x, y: 20 + y, z: 4, fill: 'solid' })
+      }
+      const station = toState({ name: 'bridge aim', seed: 1, cells, modules: [track, edge], lines: [defaultLine('1', 'up', 'third-rail')] })
+      useStore.setState({ station, past: [], future: [], tool: 'module', moduleType: 'bridge', bridgeLength: 4 })
+      const [dx, dy] = rotateLocal(rot, i, across)
+      let preview = null, picks = 0
+      const scene = {
+        pickModuleHit() {
+          picks++
+          return across > 3 ? null : { moduleId: across === 3 ? edge.id : track.id, point: [20.5 + dx, 20.5 + dy, 5.2] }
+        },
+        setModulePreview(mods) { preview = mods?.[0] ?? null },
+        setCursor() {}, setCollisionHighlight() {}, setFencePreview() {},
+      }
+      const tool = new EquipmentTool({ scene: () => scene, hover: { current: null }, drag: { current: null } })
+      const pointer = { clientX: 10, clientY: 10, button: 0, buttons: 0,
+        hit: floorHit || across > 3 ? { cell: [20 + dx, 20 + dy, 4], place: [20 + dx, 20 + dy, 5], point: [20.5 + dx, 20.5 + dy, 5], solid: true, normal: [0, 0, 1] } : null,
+        preventDefault() {} }
+      tool.onMove(pointer)
+      assert.equal(picks, 1, 'one visible-surface pick per hover')
+      assert.ok(preview, `the bed, screen strip and outer platform snap: rotation ${rot}, run ${i}, across ${across}`)
+      const [ex, ey] = rotateLocal(rot, i > 3.5 ? 8 : -4, 0)
+      assert.deepEqual([preview.x, preview.y, preview.z], [20 + ex, 20 + ey, 4], 'the actual surface selects the near end')
+      tool.onDown(pointer)
+      assert.equal(picks, 2, 'one visible-surface pick per click')
+      const placed = useStore.getState().station.modules.find((m) => m.type === 'track' && m.cfg.bridge)
+      assert.ok(placed, `click commits rot ${rot}, i ${i}, across ${across}: ${useStore.getState().notice}`)
+      assert.deepEqual([placed.x, placed.y, placed.z, placed.w, placed.rot], [preview.x, preview.y, preview.z, preview.w, preview.rot])
+    }
+  } finally { useStore.setState(before) }
+})
+

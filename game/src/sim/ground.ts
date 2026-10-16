@@ -23,6 +23,7 @@ import { exitFloorAt, exitFootprintCells, isExitHeadHouse } from './exits.ts'
 // escalator landings): both sides only call across at runtime, never at module
 // evaluation, so the bindings are settled by the first call.
 import { rampOpeningAt, rampOpeningsInWindow } from './openings.ts'
+import { trackCellAt, trackCells } from './track.ts'
 import type { Cell, Module } from './types.ts'
 
 /** The street storey: the one plane the document stores inverted. */
@@ -60,6 +61,7 @@ export function groundWindow(
   for (const m of modules) {
     eat(m.x, m.y)
     if (m.type === 'road') eat(m.x + m.w - 1, m.y + m.d - 1)
+    if (m.type === 'track') for (const [x, y] of trackCells(m)) eat(x, y)
     const run = m as { from?: { x: number; y: number }; to?: { x: number; y: number } }
     if (run.from) eat(run.from.x, run.from.y)
     if (run.to) eat(run.to.x, run.to.y)
@@ -81,7 +83,7 @@ export function groundHoleAt(cells: readonly Cell[], modules: readonly Module[],
   for (const c of cells) {
     if (c.x === x && c.y === y && c.z === GROUND_Z && c.fill !== 'solid') return true
   }
-  return rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)
+  return modules.some((m) => m.type === 'track' && !m.cfg.tunnel && !m.cfg.bridge && trackCellAt(m, x, y, GROUND_Z)) || rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)
 }
 
 /** True for a generated ground cell: z = 0 with neither a record nor a hole. */
@@ -125,6 +127,12 @@ export function withGround(
   // and an exit's footprint is exactly the cells `exitCoversCell` names.
   const openings = rampOpeningsInWindow(modules, GROUND_Z, w)
   for (const m of modules) {
+    if (m.type === 'track' && m.z === GROUND_Z && !m.cfg.tunnel && !m.cfg.bridge) {
+      for (const [x, y] of trackCells(m)) {
+        if (x >= w.x0 && x <= w.x1 && y >= w.y0 && y <= w.y1) openings.add(`${x},${y}`)
+      }
+      continue
+    }
     if (m.type !== 'exit' || !isExitHeadHouse(m) || m.z !== GROUND_Z) continue
     for (const [x, y] of exitFootprintCells(m)) {
       if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) continue

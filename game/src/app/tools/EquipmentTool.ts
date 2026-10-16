@@ -17,8 +17,9 @@ import {
   randomAdSlug,
   removeModule,
 } from '../../build/model.ts'
-import { railModuleAt, makeBridge, freeTunnelEnd, trackBlockNotice, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
+import { railModuleAtPlatform, makeBridge, freeTunnelEnd, trackBlockNotice, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
 import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
+import { rotateLocal } from '../../sim/track.ts'
 import { snapPsdEnd } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { escalatorModule } from '../../sim/escalators.ts'
@@ -86,7 +87,9 @@ export class EquipmentTool extends ToolController {
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block' || useStore.getState().moduleType === 'sidewalk' || useStore.getState().moduleType === 'lawn')) { new TileEquipmentTool(this.ctx).onDown(info); return }
     const scene = this.ctx.scene()
     if (!scene) return
-    const hit = useStore.getState().moduleType === 'sign-wall'
+    const hit = useStore.getState().moduleType === 'bridge'
+      ? this.bridgePointerHit(info)
+      : useStore.getState().moduleType === 'sign-wall'
       ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
       : info.hit
     const st = useStore.getState()
@@ -107,7 +110,7 @@ export class EquipmentTool extends ToolController {
       return
     }
     if (st.moduleType === 'bridge') {
-      const src = railModuleAt(st.station, ...hit.cell) ?? railModuleAt(st.station, ...hit.place)
+      const src = railModuleAtPlatform(st.station, ...hit.cell) ?? railModuleAtPlatform(st.station, ...hit.place)
       if (!src) { st.setNotice(msg('select_existing_track_first_the_bridge_connects_to_its_end')); return }
       if (info.button === 2) { st.removeRail(src.id); return }
       const bridge = makeBridge(src, freeTunnelEnd(st.station, src, hit.cell), st.bridgeLength, nextModuleId(st.station.modules, 'track'), st.bridgeRailing)
@@ -244,7 +247,9 @@ export class EquipmentTool extends ToolController {
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block' || useStore.getState().moduleType === 'sidewalk' || useStore.getState().moduleType === 'lawn') || this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
     if (!scene) return
-    const hit = useStore.getState().moduleType === 'sign-wall'
+    const hit = useStore.getState().moduleType === 'bridge'
+      ? this.bridgePointerHit(info)
+      : useStore.getState().moduleType === 'sign-wall'
       ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
       : info.hit
     const st = useStore.getState()
@@ -278,7 +283,7 @@ export class EquipmentTool extends ToolController {
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
       const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
       if (d.mode === 'add') {
-        const rot = fenceRotForLine(line) ?? st.moduleRot
+        const rot = this.fenceRunRotation(line)
         const { mods, blocked, colliderIds } = this.fenceRunPreview(line, rot)
         scene.setGhost([], 'add')
         scene.setModulePreview(null)
@@ -343,7 +348,7 @@ export class EquipmentTool extends ToolController {
       // The panel follows the run's own span. Using the run cells (not the
       // press cell against the sorted end) keeps a run laid toward −x/−y from
       // turning crosswise; a single cell keeps the R rotation.
-      const rot = fenceRotForLine(line) ?? st.moduleRot
+      const rot = this.fenceRunRotation(line)
       let next = st.station
       let placed = 0
       let blocked = 0
@@ -406,6 +411,15 @@ export class EquipmentTool extends ToolController {
    * run was refused, so the whole ghost flags red, and `colliderIds` names the
    * placed modules the refused panels hit.
    */
+  private fenceRunRotation(line: Array<[number, number, number]>): number {
+    const st = useStore.getState()
+    const axis = fenceRotForLine(line)
+    if (axis === null) return st.moduleRot
+    // An offset barrier has two distinct sides along the same run axis. Keep
+    // the R-selected half-turn while the drag chooses the run's axis (§5.4).
+    return axis + (st.moduleType.startsWith('noise-barrier') && st.moduleRot >= 2 ? 2 : 0)
+  }
+
   private fenceRunPreview(line: Array<[number, number, number]>, rot: number): { mods: Module[]; blocked: boolean; colliderIds: string[] } {
     const st = useStore.getState()
     const mods: Module[] = []
@@ -572,6 +586,23 @@ export class EquipmentTool extends ToolController {
     return mod
   }
 
+  /** The visible rail can sit above the floor that the block picker sees. */
+  private bridgePointerHit(info: PointerInfo): PointerInfo['hit'] {
+    const picked = this.ctx.scene()?.pickModuleHit(info.clientX, info.clientY)
+    const modules = useStore.getState().station.modules
+    const pointed = picked ? modules.find((m) => m.id === picked.moduleId) : undefined
+    const track = pointed?.type === 'track' ? pointed
+      : pointed?.type === 'platform-edge' ? modules.find((m) => m.type === 'track' && m.id === pointed.cfg.from)
+      : undefined
+    if (!picked || track?.type !== 'track') return info.hit
+    // Project onto the owning bed, retaining the hovered half even when a
+    // screen-door frame overhangs its platform floor.
+    const [i] = rotateLocal(-(track.rot ?? 0), Math.floor(picked.point[0]) - track.x, Math.floor(picked.point[1]) - track.y)
+    const [dx, dy] = rotateLocal(track.rot, Math.max(0, Math.min(track.w - 1, i)), 0)
+    const cell: [number, number, number] = [track.x + dx, track.y + dy, track.z]
+    return { cell, place: cell, point: picked.point, normal: [0, 0, 1], solid: false }
+  }
+
   /** Preview and commit both place one complete module at every stair width. */
   private pickSnapRamp(info: PointerInfo): Extract<Module, { type: 'stair' | 'escalator' }> | undefined {
     const modules = useStore.getState().station.modules
@@ -735,7 +766,7 @@ export class EquipmentTool extends ToolController {
       return
     }
     if (st.moduleType === 'bridge') {
-      const src = railModuleAt(st.station, ...h.cell) ?? railModuleAt(st.station, ...h.place)
+      const src = railModuleAtPlatform(st.station, ...h.cell) ?? railModuleAtPlatform(st.station, ...h.place)
       if (!src) { scene.setModulePreview(null); scene.setCursor(null); scene.setCollisionHighlight(null); return }
       const bridge = makeBridge(src, freeTunnelEnd(st.station, src, h.cell), st.bridgeLength, 'preview', st.bridgeRailing)
       const blocked = trackBlockReason(st.station, bridge) !== null

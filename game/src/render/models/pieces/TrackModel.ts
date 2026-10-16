@@ -5,9 +5,13 @@ import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { BRIDGE_DECK_DEPTH, bridgeBarrierTop } from '../../../sim/structures.ts'
 import { TUNNEL_HEADROOM } from '../../../build/rail.ts'
-import { thirdRailSide } from '../../../sim/track.ts'
+import { thirdRailSide, trackSideFixtureOffset } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
 import { buildTrackDetails } from './TrackDetails.ts'
+import { buildBridgeNoiseBarrier } from './BridgeNoiseBarrier.ts'
+import { neighboringGantryPosts, trackGantryLayout } from './TrackGantry.ts'
+import { buildBridgeEdgeConcrete } from './BridgeEdgeConcrete.ts'
+import { buildBridgeRailing } from './BridgeRailing.ts'
 
 /* ------------------------------------------------------------------ track */
 
@@ -39,7 +43,7 @@ function buildDirectionArrow(mat: THREE.Material, x: number, y: number, z: numbe
   return g
 }
 
-function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white, thirdRail: 1 | -1 = -1): THREE.Group {
+function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white, thirdRail: 1 | -1 = -1, neighborPosts: readonly { x: number; y: number }[] = []): THREE.Group {
   const g = new THREE.Group()
   const d = mod.d ?? 1
   // Build in the track's local frame: the run along +x, the amount across +y,
@@ -47,6 +51,9 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // the world, so a quarter-turned piece runs north–south.
   const cx = (mod.w - 1) / 2
   const cy = (d - 1) / 2
+  // Continue the screen-door centre line across the platform/bridge join.
+  const bridgeSupportOffset = trackSideFixtureOffset(d)
+  const bridgeSpan = Math.max(d, bridgeSupportOffset * 2 + 0.12)
   // The bed is a trench: placing the rail dug the cell, so the platform top
   // drops half a metre to this slab. The exposed block sides form the trench
   // walls; the module only supplies the bed and the power supply on top.
@@ -56,22 +63,20 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   if (mod.cfg.bridge) {
     // One solid concrete deck (§5.4). Edge girders previously shared its outer
     // face, making the underside flicker as the camera moved.
-    finishSlab(g, deckMat, cx, cy, -BRIDGE_DECK_DEPTH / 2, mod.w, d, BRIDGE_DECK_DEPTH)
-    for (const y of [-0.42, d - 0.58]) {
+    finishSlab(g, deckMat, cx, cy, -BRIDGE_DECK_DEPTH / 2, mod.w, bridgeSpan, BRIDGE_DECK_DEPTH).name = 'bridge-deck'
+    for (const y of [cy - bridgeSupportOffset, cy + bridgeSupportOffset]) {
+      const soundBarrier = mod.cfg.bridgeRailing === 'sound-barrier' || mod.cfg.bridgeRailing === 'sound-barrier-half'
+      const shoulderDepth = (bridgeSpan - d) / 2
+      const shoulderY = cy + Math.sign(y - cy) * (d / 2 + shoulderDepth / 2)
+      const postXs = [
+        ...(trackGantryLayout(mod)?.xs ?? []),
+        ...neighborPosts.filter(post => Math.abs(post.y - y) < 0.12 - 1e-6).map(post => post.x),
+      ]
+      buildBridgeEdgeConcrete(g, deckMat, mod.w, shoulderY, shoulderDepth, soundBarrier ? 0.5 : 0.55, postXs)
       if (mod.cfg.bridgeRailing === 'sound-barrier' || mod.cfg.bridgeRailing === 'sound-barrier-half') {
-        // Absorbing lower panels with a clear upper band, framed on both sides.
-        const top = bridgeBarrierTop(mod.cfg.bridgeRailing)
-        const height = top - 0.5
-        const lowerHeight = height * 2 / 3
-        const upperHeight = height / 3
-        slab(g, mats.white, cx, y, 0.5 + lowerHeight / 2, mod.w, 0.08, lowerHeight)
-        slab(g, mats.glass, cx, y, top - upperHeight / 2, mod.w, 0.08, upperHeight)
-        slab(g, mats.steel, cx, y, 0.5 + lowerHeight, mod.w, 0.12, 0.08)
-        slab(g, mats.steel, cx, y, top - 0.04, mod.w, 0.12, 0.08)
-        for (let x = 0; x < mod.w; x += 2) slab(g, mats.steel, x, y, 0.5 + height / 2, 0.12, 0.12, height)
+        buildBridgeNoiseBarrier(g, mats, mod.w, y, bridgeBarrierTop(mod.cfg.bridgeRailing), mod.cfg.power === 'catenary', neighborPosts)
       } else {
-        slab(g, mats.steel, cx, y, 1.25, mod.w, 0.08, 0.08)
-        for (let x = 0; x < mod.w; x += 2) slab(g, mats.steel, x, y, 0.9, 0.08, 0.08, 0.7)
+        buildBridgeRailing(g, mats, mod.w, y, mod.cfg.power === 'catenary')
       }
     }
   }
@@ -81,7 +86,8 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // bound to the line, platform and tunnel alike, so a power switch re-cuts all
   // of them when the module meshes are rebuilt. The conductor rail sits on the
   // travel left, or off the platform side at a station (see `thirdRailSide`).
-  if (mod.cfg.bridge && mod.cfg.power === 'catenary') buildBridgeCatenary(g, mats, mod, cy, d)
+  if (mod.cfg.bridge && mod.cfg.power === 'catenary') buildBridgeCatenary(g, mats, mod, cy)
+  else if (mod.cfg.power === 'catenary' && !mod.cfg.tunnel && mod.cfg.catenaryStyle === 'gantry') buildStationGantryCatenary(g, mats, mod, cx, cy)
   else if (mod.cfg.power === 'catenary') buildCatenary(g, mats, mod, cx, cy, d)
   else buildThirdRail(g, mats, mod.w, cx, cy, thirdRail)
   // The ghost carries the travel direction (上行/下行) as arrows along the run.
@@ -138,30 +144,59 @@ function buildCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module
   // The platform canopy stops short of the 4 m storey line, so it never fights
   // the floor slab of the level above.
   const ceilingBottom = mod.cfg.tunnel ? TUNNEL_HEADROOM + 1 : TUNNEL_HEADROOM + 0.88
-  const wireZ = ceilingBottom - 0.1
+  const wireZ = CONTACT_WIRE_Z
   if (!mod.cfg.tunnel) {
     // A flat canopy over the bed, with a fascia beam down each long edge.
     slab(g, mats.white, cx, cy, ceilingBottom + 0.05, w, d, 0.1)
-    for (const j of [-0.5, d - 0.5]) slab(g, mats.darkSteel, cx, j, ceilingBottom + 0.04, w, 0.12, 0.12)
+    // Put each fascia outside the slab edge. Centering it on the edge embeds
+    // half of its top face in the canopy, where the coplanar faces z-fight.
+    const fasciaHalfWidth = 0.06
+    for (const j of [-0.5 - fasciaHalfWidth, d - 0.5 + fasciaHalfWidth]) {
+      slab(g, mats.darkSteel, cx, j, ceilingBottom + 0.04, w, fasciaHalfWidth * 2, 0.12)
+    }
   }
-  // Rigid conductor with a narrow copper contact strip and transverse ceiling brackets.
+  buildContactWire(g, mats, mod, cx, cy, wireZ, ceilingBottom)
+}
+
+// Every track form presents the conductor at this shared clearance over the
+// rails. Tunnels hang it from the bore; stations use either a canopy or portal.
+const CONTACT_WIRE_Z = 3.78
+
+function buildContactWire(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, cx: number, cy: number, wireZ: number, supportZ: number): void {
+  const w = mod.w
+  // Rigid conductor with a narrow copper contact strip and transverse brackets.
   slab(g, mats.steel, cx, cy, wireZ + 0.016, w, 0.09, 0.032)
   slab(g, mats.wood, cx, cy, wireZ - 0.006, w, 0.018, 0.012)
   const n = Math.max(2, Math.round(w / 4))
   for (let i = 0; i < n; i++) {
     const x = ((i + 0.5) / n) * w - 0.5
-    slab(g, mats.darkSteel, x, cy, ceilingBottom - 0.015, 0.14, 0.62, 0.03)
-    slab(g, mats.steel, x, cy, (wireZ + ceilingBottom) / 2, 0.05, 0.05, ceilingBottom - wireZ)
+    slab(g, mats.darkSteel, x, cy, supportZ - 0.015, 0.14, 0.62, 0.03)
+    slab(g, mats.steel, x, cy, (wireZ + supportZ) / 2, 0.05, 0.05, supportZ - wireZ)
     slab(g, mats.psu, x, cy, wireZ + 0.04, 0.1, 0.1, 0.05)
   }
 }
 
-function buildBridgeCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, cy: number, d: number): void {
-  slab(g, mats.steel, (mod.w - 1) / 2, cy, 4.1, mod.w, 0.05, 0.05)
-  for (let x = 0; x < mod.w; x += 8) {
-    for (const y of [-0.42, d - 0.58]) slab(g, mats.darkSteel, x, y, 2.3, 0.12, 0.12, 4.6)
-    slab(g, mats.darkSteel, x, cy, 4.5, 0.12, d, 0.12)
-    slab(g, mats.steel, x, cy, 4.3, 0.05, 0.05, 0.4)
+/** A station portal keeps the conductor clear of the 4 m upper-storey floor. */
+function buildStationGantryCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, cx: number, cy: number): void {
+  const top = 3.88
+  const layout = trackGantryLayout(mod)!
+  const span = layout.ys[1]! - layout.ys[0]! + 0.12
+  for (const x of layout.xs) {
+    for (const y of layout.ys) slab(g, mats.darkSteel, x, y, (0.5 + top) / 2, 0.12, 0.12, top - 0.5).name = 'station-gantry-post'
+    slab(g, mats.darkSteel, x, cy, top, 0.12, span, 0.12)
+  }
+  buildContactWire(g, mats, mod, cx, cy, CONTACT_WIRE_Z, top - 0.06)
+}
+
+function buildBridgeCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, cy: number): void {
+  slab(g, mats.steel, (mod.w - 1) / 2, cy, CONTACT_WIRE_Z, mod.w, 0.05, 0.05)
+  slab(g, mats.wood, (mod.w - 1) / 2, cy, CONTACT_WIRE_Z - 0.006, mod.w, 0.018, 0.012)
+  const layout = trackGantryLayout(mod)!
+  const span = layout.ys[1]! - layout.ys[0]! + 0.12
+  for (const x of layout.xs) {
+    for (const y of layout.ys) slab(g, mats.darkSteel, x, y, 2.3, 0.12, 0.12, 4.6).name = 'bridge-gantry-post'
+    slab(g, mats.darkSteel, x, cy, 4.5, 0.12, span, 0.12)
+    slab(g, mats.steel, x, cy, (CONTACT_WIRE_Z + 4.44) / 2, 0.05, 0.05, 4.44 - CONTACT_WIRE_Z)
   }
 }
 
@@ -171,9 +206,15 @@ export class TrackModel extends PieceBuilder {
     const railWeb = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: 0x62564c, roughness: 0.82, metalness: 0.25 }))
     const data = this.ctx.data
     const edges = data?.modules.filter((m): m is Extract<Module, { type: 'platform-edge' }> => m.type === 'platform-edge') ?? []
-    const lineDir = data?.lines.find((l) => l.id === mod.cfg.line)?.direction
+    const line = data?.lines.find((l) => l.id === mod.cfg.line)
+    const lineDir = line?.direction
     const side = thirdRailSide(mod, edges, lineDir)
-    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'), side)
+    const tracks = mod.cfg.bridge ? (data?.modules ?? []).flatMap(m => {
+      if (m.type !== 'track') return []
+      return [m]
+    }) : []
+    const neighborPosts = neighboringGantryPosts(mod, tracks)
+    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'), side, neighborPosts)
   }
 }
 

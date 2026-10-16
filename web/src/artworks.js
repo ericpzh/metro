@@ -62,8 +62,8 @@ const zh = {
       nav: '车体',
       accent: '#5c93f5',
       title: '靠近看看你的列车',
-      lead: '四种车型各有外观，停靠后开门，乘客走进车厢。',
-      alt: '四种列车外观、开门车厢与车头细节。',
+      lead: '五种车型各有外观，停靠后开门，乘客走进车厢。',
+      alt: '五种列车外观、开门车厢与 D 型车头细节。',
     },
     {
       id: '05',
@@ -73,7 +73,7 @@ const zh = {
       accent: '#a98bf5',
       title: '让列车装得下等车的人',
       lead: '选择车型与编组，留出足够长的站台；载客不足时，乘客会滞留。',
-      alt: 'A、B、C、L 四种列车的正面、侧面与六节编组规模对比。',
+      alt: 'A、B、C、D、L 五种列车的正面、侧面与编组规模对比。',
     },
     {
       id: '12',
@@ -201,8 +201,8 @@ const en = {
       nav: 'Stock',
       accent: '#5c93f5',
       title: 'Meet your trains up close',
-      lead: 'Four car types, each with its own look; doors open at the stop and passengers step aboard.',
-      alt: 'Four train exteriors, open-door cars and cab details.',
+      lead: 'Five car types, each with its own look; doors open at the stop and passengers step aboard.',
+      alt: 'Five train exteriors, open-door cars and D cab details.',
     },
     {
       id: '05',
@@ -212,7 +212,7 @@ const en = {
       accent: '#a98bf5',
       title: 'Fit everyone waiting on the platform',
       lead: 'Pick a car type and consist, and leave enough platform; short trains leave passengers stranded.',
-      alt: 'Front, side and six-car scale comparison of type A, B, C and L trains.',
+      alt: 'Front, side and consist scale comparison of type A, B, C, D and L trains.',
     },
     {
       id: '12',
