@@ -31,7 +31,7 @@ export const messages = {
   "tutorial_move": { "zh": "移动视野", "en": "Move around" },
   "tutorial_move_body": { "zh": "欢迎来到新车站！W / S 前后移动，A / D 左右移动。先认识基本操作，再开始建造；随时可点击顶部的教程按钮重看教程。", "en": "Welcome to your new station! W / S move forward and back; A / D move sideways. Learn the controls, then start building. Reopen this tour anytime with the tutorial button at the top." },
   "tutorial_level": { "zh": "切换建造高度", "en": "Choose a building level" },
-  "tutorial_level_body": { "zh": "Q 向下一层，E 向上一层。高度条显示当前建造层，也可以直接点击选择高度。", "en": "Q moves down a level; E moves up. The height bar shows your current building level. Click it to choose a height directly." },
+  "tutorial_level_body": { "zh": "Q 向下一层，E 向上一层；Ctrl+Q / Ctrl+E 向下或向上移动视野。高度条显示当前建造层，也可以直接点击选择高度。", "en": "Q moves down a level; E moves up. Ctrl+Q lowers the view and Ctrl+E raises it. The height bar shows your current building level. Click it to choose a height directly." },
   "tutorial_zoom": { "zh": "缩放视野", "en": "Zoom in and out" },
   "tutorial_zoom_body": { "zh": "滚动鼠标滚轮即可缩放：拉近查看细节，拉远查看整个车站。", "en": "Scroll the mouse wheel to zoom in for details or out for a view of the whole station." },
   "tutorial_orbit": { "zh": "调整观察角度", "en": "Look from another angle" },

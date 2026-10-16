@@ -15,7 +15,7 @@ const folder = (id: string): string => `[data-tutorial-folder="${id}"]`
 
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   { title: 'tutorial_move', body: 'tutorial_move_body', targets: ['.stage'], keys: ['W', 'A', 'S', 'D'] },
-  { title: 'tutorial_level', body: 'tutorial_level_body', targets: ['.depthRail'], keys: ['Q', 'E'] },
+  { title: 'tutorial_level', body: 'tutorial_level_body', targets: ['.depthRail'], keys: ['Q', 'E', 'Ctrl+Q', 'Ctrl+E'] },
   { title: 'tutorial_zoom', body: 'tutorial_zoom_body', targets: ['.stage'] },
   { title: 'tutorial_orbit', body: 'tutorial_orbit_body', targets: ['.viewCube'] },
   { title: 'tutorial_inspector', body: 'tutorial_inspector_body', targets: ['#rightMenu'] },
