@@ -19,7 +19,7 @@ function dependsOnCell(mod: Module, cell: Cell): boolean {
   if (CELL_INDEPENDENT.has(mod.type)) return false
   if (mod.type === 'shop') return cell.x >= mod.x - 1 && cell.x <= mod.x + mod.w
     && cell.y >= mod.y - 1 && cell.y <= mod.y + mod.h
-  if (mod.type === 'stair' || mod.type === 'escalator' || mod.type === 'lift') {
+  if (mod.type === 'stair' || mod.type === 'escalator' || mod.type === 'walkway' || mod.type === 'lift') {
     const box = moduleEnvelope(mod)
     if (!box || ![box.x0, box.x1, box.y0, box.y1].every(Number.isFinite)) return true
     let x0 = box.x0, x1 = box.x1, y0 = box.y0, y1 = box.y1

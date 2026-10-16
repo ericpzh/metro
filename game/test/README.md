@@ -177,7 +177,15 @@ It pins the 地面 X向 exit header's full-width red fill and unchanged font siz
 rotations and directions, each with its own passage, landing graph nodes, ride time, exit snap (a
 单跑楼梯 as well as a 扶梯), preview refresh, move, save round-trip and drawn model, with old 4 m / 8 m
 saves reading back as 中 / 长;
-`pick-tool` checks copying a run's length and restoring the previous one with Esc.
+`pick-tool` checks copying a run's length and restoring the previous one with Esc,
+and the same for a **自动步道**'s level length, width and direction.
+`walkways` checks the escalator's flat twin: the three level lengths 短 30 m / 中 60 m /
+长 90 m in every rotation, direction and width; the wide belt's centring being
+direction-independent; the belt's interior cells not being walkable while both
+landings are (a step-free passenger is carried too); the doubled wide rate and
+1.84 m/s ride; placement carving nothing (every belt cell keeps its floor, and all
+of them are required); the block brush reserving the plan; move/rebuild, the
+preview-key and ghost-key identity; the save round trip; and the shared flat model's own span.
 `ramp-join` checks shared metal caps between escalators and stair-escalator pairs,
 including wide pieces, rotation, reversed travel, single seam ownership and neighbour removal —
 and that a bank fills its seam at every one of the four lengths while two differing lengths never

@@ -199,7 +199,7 @@ export class ModuleSystem extends SceneSystem {
       group.userData.groundBand = ground
       this.moduleMeshes.add(group)
       if (mod.type === 'fence') this.fenceGroups.push(group)
-      if (mod.type === 'escalator') {
+      if (mod.type === 'escalator' || mod.type === 'walkway') {
         const roll = group.userData.escalator as EscalatorRoll | undefined
         if (roll) this.lifts.escalatorRolls.push(roll)
       }

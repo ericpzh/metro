@@ -436,6 +436,19 @@ export type Module =
   | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' } })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down'; width?: 1 | 2 } })
   | (ModuleBase & {
+      /**
+       * A 自动步道 (`sim/walkways.ts`): the level member of the ramp family, an
+       * escalator with no climb. The two landings are the `from`/`to` endpoints on
+       * one storey; `dir` orders them (the one-way travel the sim reads), and
+       * `width` is 1 or 2 blocks (窄 / 宽). Its moving band is carried along the
+       * run exactly as an escalator's is.
+       */
+      type: 'walkway'
+      from: Vec3i
+      to: Vec3i
+      cfg: { dir: 'up' | 'down'; width?: 1 | 2 }
+    })
+  | (ModuleBase & {
       type: 'stair'
       /**
        * The first and last landings — kept for every consumer that reads a stair

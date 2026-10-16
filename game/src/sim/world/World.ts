@@ -1808,7 +1808,7 @@ export class World {
   private tryMove(a: Agent, nx: number, ny: number, preserveApproach = false): void {
     const g = this.graph
     const floorZ = Math.round(a.z) - 1
-    const target = a.server >= 0 && (g.servers[a.server].kind === 'escalator' || g.servers[a.server].kind === 'stair')
+    const target = a.server >= 0 && (g.servers[a.server].kind === 'escalator' || g.servers[a.server].kind === 'walkway' || g.servers[a.server].kind === 'stair')
       ? g.servers[a.server].node : a.state === STATE_WALKING ? a.path[a.pathIdx] : undefined
     const holdApproach = preserveApproach && target !== undefined &&
       rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[target], g.nodeY[target], floorZ)
@@ -2023,7 +2023,7 @@ export class World {
       const srv = g.serverForNode.get(path[i])
       if (srv === undefined) continue
       const kind = g.servers[srv].kind
-      if (kind === 'gate' || kind === 'lift' || kind === 'escalator' || kind === 'stair') return srv
+      if (kind === 'gate' || kind === 'lift' || kind === 'escalator' || kind === 'walkway' || kind === 'stair') return srv
     }
     return -1
   }
@@ -2528,7 +2528,7 @@ export class World {
     if (e >= 0) {
       const kind = g.adjKind[e]
       const server = g.adjServer[e]
-      if ((kind === EDGE_KIND.escalator || kind === EDGE_KIND.stair || kind === EDGE_KIND.lift) && server >= 0) {
+      if ((kind === EDGE_KIND.escalator || kind === EDGE_KIND.walkway || kind === EDGE_KIND.stair || kind === EDGE_KIND.lift) && server >= 0) {
         if (kind === EDGE_KIND.lift) {
           // Remember where this passenger boards and where the car should drop
           // them; a lift's car delivers each rider to its own floor.
@@ -2773,7 +2773,7 @@ export class World {
     let doorQ = 0
     for (const s of g.servers) {
       if (s.kind === 'gate') gateQ += s.queue.length
-      else if (s.kind === 'escalator' || s.kind === 'stair') escQ += s.queue.length
+      else if (s.kind === 'escalator' || s.kind === 'walkway' || s.kind === 'stair') escQ += s.queue.length
       else if (s.kind === 'lift') liftQ += s.queue.length
       else if (s.kind === 'door') doorQ += s.queue.length
     }

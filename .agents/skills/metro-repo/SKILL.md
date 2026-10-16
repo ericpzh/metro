@@ -116,6 +116,17 @@ with an interior landing between them. Keep their flight plan, landing width,
 railing openings, carve and passenger graph aligned; extend `stairs.test.mjs`
 for geometry and routes, and `module-build.test.mjs` for visible model parts.
 
+The **自动步道** (moving walkway, `game/src/sim/walkways.ts`) is the 扶梯's level
+twin: one body of truss, band and glass laid flat at 短 30 m / 中 60 m / 长 90 m,
+filed under 设备 beside the 扶梯 and sharing its 窄/宽 width and up/down direction.
+It carries riders at the free walking speed plus 0.5 m/s and, unlike the 楼梯 or
+扶梯, a step-free passenger may ride it. Two contracts hold it together: it
+**carves nothing** (so it is a plain equipment append that needs floor under its
+whole belt), and it is **ends only** (its belt cells are dropped from the crowd
+graph, so the crowd boards and leaves at the two landings). Route implementation
+to `metro-game`; `game/test/walkways.test.mjs` pins the lengths, the level
+centring, the ends-only routing, the doubled-width rate and the shared flat model.
+
 Ceiling-hung signs, TVs, clocks and cameras attach to the nearest slab shared by
 their footprint; their suspension reaches that slab instead of assuming a 4 m
 room. A 站台 or 轨道桥 deck counts as that slab (a tunnel keeps its own shell

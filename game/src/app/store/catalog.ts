@@ -169,6 +169,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'exit-doorway-4', label: msg('ground_four_ways'), type: 'exit', w: 6, h: 1 },
   { id: 'exit-virtual', label: msg('virtual_exit'), type: 'exit', w: 1, h: 1 },
   { id: 'escalator', label: msg('escalator'), type: 'escalator', w: 1, h: 1 },
+  { id: 'walkway', label: msg('walkway'), type: 'walkway', w: 1, h: 1 },
   { id: 'lift', label: msg('lift'), type: 'lift', w: 1, h: 1 },
   { id: 'stair-straight', label: msg('straight_stairs'), type: 'stair', w: 1, h: 1 },
   { id: 'stair-block', label: msg('stair_block'), type: 'stair', w: 1, h: 1 },
@@ -345,6 +346,14 @@ export function isExitType(type: string): boolean {
 /** True for the fixed escalator piece, whose Tab cycle is up/down instead. */
 export function isEscalatorType(type: string): boolean {
   return type === 'escalator'
+}
+
+/**
+ * True for the 自动步道 — the level twin of the escalator. Its Tab cycle is its
+ * own length plus the shared up/down direction and 窄/宽 width.
+ */
+export function isWalkwayType(type: string): boolean {
+  return type === 'walkway'
 }
 
 /**
@@ -555,7 +564,7 @@ export type FolderTile =
  * The grid order of each folder's tiles — **read two at a time by the 2-column grid**
  * (`rail/shared/InlinePanel.tsx` `interleaveRows`), so a line here is a row of the palette:
  *
- * 设备：闸机 围栏 / 售票机 自动售货机 / 扶梯 电梯 / 楼梯 出入口
+ * 设备：闸机 围栏 / 扶梯 自动步道 / 电梯 楼梯 / 出入口
  * 装饰：指示牌 广告牌 / 座椅 站名 / 线网图 电视 / 垃圾桶 灭火器 / 时钟 监控 /
  * 货架 收银台 / 玻璃板 门 / 厕所隔间 洗手池 / 灯具 通风口 / 挂架 办公桌 / 导向柱 公交站
  *
@@ -572,7 +581,7 @@ export type FolderTile =
  */
 const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
   rail: [familyAnchor('roof'), familyAnchor('pillar')],
-  equipment: [familyAnchor('gate'), familyAnchor('fence'), 'escalator', 'lift', familyAnchor('stair'), familyAnchor('exit')],
+  equipment: [familyAnchor('gate'), familyAnchor('fence'), 'escalator', 'walkway', 'lift', familyAnchor('stair'), familyAnchor('exit')],
   decor: [
     familyAnchor('sign'),
     familyAnchor('billboard'),
@@ -668,6 +677,7 @@ export function hasModuleActions(moduleType: string): boolean {
     isStairType(moduleType) ||
     isDoorType(moduleType) ||
     isEscalatorType(moduleType) ||
+    isWalkwayType(moduleType) ||
     isGateType(moduleType)
   )
 }
@@ -860,6 +870,7 @@ const MODULE_LABELS: Record<string, string> = {
   sign: msg('sign'),
   exit: msg('entrances'),
   escalator: msg('escalator'),
+  walkway: msg('walkway'),
   stair: msg('stairs'),
   lift: msg('lift'),
   retail: msg('shop'),
@@ -904,8 +915,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'roadDirection' | 'railLineId' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'roadDirection' | 'railLineId' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.roadDirection}|${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.roadDirection}|${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

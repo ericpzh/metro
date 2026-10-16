@@ -2,6 +2,7 @@
 // keyboard read this same ordered list, so controls, icons and shortcuts agree.
 import { msg } from '../../sim/i18n.ts'
 import { rampLengthLabel } from '../../sim/rampLengths.ts'
+import { walkwayLengthLabel } from '../../sim/walkways.ts'
 import { stairWidthLabel } from '../../sim/stairs.ts'
 import { roofWidthLabel } from '../../sim/structures.ts'
 import { trackRunLengthLabel } from '../../sim/track.ts'
@@ -61,6 +62,13 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
   if (type === 'escalator') {
     attrs.push(variant('width', msg(s.escalatorWide ? 'wide' : 'narrow'), s.toggleEscalatorWidth))
     attrs.push(variant('length', rampLengthLabel(s.rampLength), s.cycleRampLength))
+    attrs.push(variant('direction', msg(s.escalatorDir), s.cycleEscalatorDir))
+  }
+  // The 自动步道 is the escalator's level twin: it shares the 窄/宽 width and the
+  // up/down direction tabs, and carries its own three-length cycle beside them.
+  if (type === 'walkway') {
+    attrs.push(variant('width', msg(s.escalatorWide ? 'wide' : 'narrow'), s.toggleEscalatorWidth))
+    attrs.push(variant('length', walkwayLengthLabel(s.walkwayLength), s.cycleWalkwayLength))
     attrs.push(variant('direction', msg(s.escalatorDir), s.cycleEscalatorDir))
   }
   if (type === 'hanger-roof' || type === 'hanger-post') attrs.push(variant('length', msg(s.hangerLength === 4 ? 'short' : s.hangerLength === 6 ? 'medium' : 'long'), s.cycleHangerLength))

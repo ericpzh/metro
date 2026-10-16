@@ -222,7 +222,7 @@ function viewDir(id: string): THREE.Vector3 {
   // backless stainless bench has nothing to hide and looks best on the lit
   // isometric angle.
   if (id.startsWith('bench-seat')) return FRONT
-  return id === 'escalator' || id.startsWith('stair') ? RUN : ISO
+  return id === 'escalator' || id === 'walkway' || id.startsWith('stair') ? RUN : ISO
 }
 
 /**
@@ -490,6 +490,10 @@ function sampleModule(id: string, station: StationData): Module | null {
     }
     case 'escalator':
       return { id, type: 'escalator', x: 0, y: 0, z: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 6, z: 4 }, cfg: { dir: 'up' } }
+    case 'walkway':
+      // A level belt with the escalator's body: a short, flat run so the icon shows
+      // the moving band and its glass, not the 30 m the real piece is built at.
+      return { id, type: 'walkway', x: 0, y: 0, z: 0, rot: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 6, y: 0, z: 0 }, cfg: { dir: 'up' } }
     case 'lift':
       return liftModule({ x: 0, y: 0, z: 0 }, 0, id)
     case 'stair-straight':

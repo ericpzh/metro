@@ -40,6 +40,7 @@ import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
 import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
 import { escalatorLandings } from './escalators.ts'
+import { walkwayCoveredCells, walkwayLandings } from './walkways.ts'
 import { PANEL_MIN_H, mountedSignBoards, signBoardsOf, signBoardsPanel, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
 import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
 import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
@@ -685,6 +686,8 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
       return [m.from, m.to].map((p) => [p.x, p.y] as [number, number])
     case 'escalator':
       return escalatorLandings(m).map((p) => [p.x, p.y] as [number, number])
+    case 'walkway':
+      return walkwayLandings(m).map((p) => [p.x, p.y] as [number, number])
     default:
       return [[m.x, m.y]]
   }
@@ -1736,14 +1739,14 @@ function collisionBoxes(m: Module, envelope: ModuleBox): ModuleBox[] {
   return body.length > 0 ? body : [envelope]
 }
 
-/** A run whose body is the slope it sweeps: a stair or an escalator. */
+/** A run whose body is the slope it sweeps: a stair, an escalator or a level 自动步道. */
 function isRampRun(m: Module): boolean {
-  return (m.type === 'stair' && !m.cfg.block) || m.type === 'escalator'
+  return (m.type === 'stair' && !m.cfg.block) || m.type === 'escalator' || m.type === 'walkway'
 }
 
-/** A piece whose own space is a run: a stair, an escalator or a lift shaft. */
+/** A piece whose own space is a run: a stair, an escalator, a 自动步道 or a lift shaft. */
 function isRunPiece(m: Module): boolean {
-  return m.type === 'stair' || m.type === 'escalator' || m.type === 'lift'
+  return m.type === 'stair' || m.type === 'escalator' || m.type === 'walkway' || m.type === 'lift'
 }
 
 /**
@@ -1943,6 +1946,10 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   // and both carve the slab they climb through.
   'stair',
   'escalator',
+  // A 自动步道 is a level run: it owns no floor of its own (the floor under it is
+  // there for its whole length) and carves nothing, so it rebuilds on a move for
+  // one reason — the run's `from`/`to` are world cells and have to be re-laid.
+  'walkway',
 ])
 
 /** True when 移动 may lift this placed piece (the tile and 信息 card ask). */
@@ -1956,19 +1963,20 @@ export function isMovableModule(m: Module): boolean {
 /**
  * True when a 移动 of this piece is a **teardown and a rebuild** rather than a
  * translation: a 楼梯 (bar the 1 × 1 楼梯块, which owns no cell of the document's and
- * carves nothing) or a 扶梯.
+ * carves nothing), a 扶梯, or a 自动步道.
  *
- * Both are re-laid where they land rather than translated, and for two reasons: a turning
+ * The three are re-laid where they land rather than translated, and for two reasons: a turning
  * stair owns floor the document holds for it — its half-landing, laid by `addEquipment` and
- * taken back out by `removeModule` — and either kind opens the slab it climbs through, so the
- * piece has to be out of `modules` while it is in the air and in them again before the carve
- * runs at its new cell. That is exactly the pair a player would drive by hand
+ * taken back out by `removeModule` — and a stair or escalator opens the slab it climbs through,
+ * so the piece has to be out of `modules` while it is in the air and in them again before the
+ * carve runs at its new cell. (A walkway carves nothing, but its `from`/`to` still have to
+ * move with it.) That is exactly the pair a player would drive by hand
  * (`moveEquipment`), and it is one commit: one `Ctrl+Z` puts the run back, landing floor and
  * all. The opening a run **carved** where it stood is left behind, exactly as it is when a run
  * is deleted; a 方块 may be laid in it again (it is no longer a reserved opening).
  */
 export function moveRebuilds(m: Module): boolean {
-  return (m.type === 'stair' && m.cfg.block !== true) || m.type === 'escalator'
+  return (m.type === 'stair' && m.cfg.block !== true) || m.type === 'escalator' || m.type === 'walkway'
 }
 
 /**
@@ -2001,7 +2009,7 @@ export function movedModule(m: Module, at: Vec3i, rot: number): Module {
       cfg: { ...m.cfg, mountZ: at.z + (m.cfg.mountZ - m.z) },
     }
   }
-  if (m.type === 'stair' || m.type === 'escalator') {
+  if (m.type === 'stair' || m.type === 'escalator' || m.type === 'walkway') {
     const steps = (((normRot(rot) - normRot(m.rot)) % 4) + 4) % 4
     const blocky = m.type === 'stair' ? m.cfg.block === true : false
     const shift = (p: Vec3i): Vec3i => {
@@ -2015,7 +2023,7 @@ export function movedModule(m: Module, at: Vec3i, rot: number): Module {
       }
       return { x: at.x + dx, y: at.y + dy, z: at.z + (p.z - m.z) }
     }
-    if (m.type === 'escalator') {
+    if (m.type === 'escalator' || m.type === 'walkway') {
       return { ...m, x: at.x, y: at.y, z: at.z, rot, from: shift(m.from), to: shift(m.to) }
     }
     return {
@@ -2043,7 +2051,11 @@ export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[]
     ? hangerPostCells(candidate)
     : candidate.type === 'stair' && !candidate.cfg.block
       ? [[candidate.x, candidate.y] as [number, number]]
-      : moduleFootprint(candidate)
+      // A 自动步道 lies on the ground for its whole length: the belt covers every
+      // cell between its landings, so all of them need floor, not just the two ends.
+      : candidate.type === 'walkway'
+        ? [...walkwayLandings(candidate), ...walkwayCoveredCells(candidate)].map((p) => [p.x, p.y] as [number, number])
+        : moduleFootprint(candidate)
   for (const [bx, by] of footprint) {
     const floor =
       cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === candidate.z) ||
@@ -2275,6 +2287,7 @@ const MODULE_TYPE_LABELS: Record<string, string> = {
   sign: msg('sign'),
   exit: msg('entrances'),
   escalator: msg('escalator'),
+  walkway: msg('walkway'),
   stair: msg('stairs'),
   lift: msg('lift'),
   retail: msg('shop'),

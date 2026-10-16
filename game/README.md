@@ -152,6 +152,13 @@ narrow stair flights let the current direction clear before admitting opposing
 traffic. `test/ramp-passengers.test.mjs` pins spacing, rotated/reversed escalators,
 wide throughput, opposing stair traffic, collision clearance, waypoint recovery,
 and queued detours around rails.
+A **自动步道** is the escalator's level twin — the same body, glass and one-way
+ride laid flat in 短 30 m / 中 60 m / 长 90 m — and carries everyone at the free
+walking speed plus 0.5 m/s (1.84 m/s), step-free passengers included. It rides
+end to end only: the belt's own cells are not walkable, so the crowd boards and
+leaves at its two landings. `test/walkways.test.mjs` pins the lengths, the
+level centring, the ends-only routing, the doubled wide rate, the no-carve
+placement, the save round trip and the shared flat model.
 Crowd shoves and walking also respect those ramp rails with swept body clearance,
 including landing ends, so pressure cannot push passengers through the glass or
 handrails. The same suite checks repeated crowd pressure, sliding, clear landing

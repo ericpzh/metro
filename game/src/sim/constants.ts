@@ -144,6 +144,20 @@ export const STAIR_AVOID_S = 32
 export const ESCALATOR_SPEED = 0.5
 /** Escalator step pitch, m. One passenger per step is the capacity model. */
 export const ESCALATOR_STEP_PITCH = 0.4
+/**
+ * A moving walkway's own speed, m/s: the belt carries a stander at the free
+ * walking speed **plus** the 0.5 m/s the belt itself adds, so a walker who keeps
+ * walking gets the same boost an escalator gives. The piece is level, so the
+ * whole speed is what the graph edge is ridden at (`sim/walkways.ts`).
+ */
+export const WALKWAY_SPEED = WALK_SPEED + 0.5
+/**
+ * Moving-walkway throughput, pax/s per lane. A belt has no steps: riders stand
+ * a walking stride apart (~0.8 m), so its capacity is the carried speed over
+ * that pitch — a little under three per second on one 0.68 m lane.
+ */
+export const WALKWAY_PITCH = 0.8
+export const WALKWAY_RATE = WALKWAY_SPEED / WALKWAY_PITCH
 /** Separation between the two passenger columns of a wide ramp (§5.1), metres. */
 export const RAMP_PASSENGER_COLUMN_SPACING = 0.7
 /** Body clearance from the inside of a ramp rail; fits the narrow tread (§5.1). */

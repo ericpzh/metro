@@ -21,6 +21,15 @@ import { ESCALATOR_BAND, ESCALATOR_BALUSTRADE, ESCALATOR_SKIRT_INSET, ESCALATOR_
 
 type Escalator = Extract<Module, { type: 'escalator' }>
 
+/**
+ * The pieces that share the escalator's run geometry: the escalator itself and
+ * the flat 自动步道 (`sim/walkways.ts`), which is the same piece with no climb.
+ * Every function below that reads only `from`/`to`/`cfg.width` — the band and
+ * body widths, the run's centring shift and the landings — takes one of these,
+ * so the walkway renders and carves with the escalator's own numbers.
+ */
+type RampPiece = Escalator | Extract<Module, { type: 'walkway' }>
+
 /** Level treads follow a smooth bend into each flat landing (§5.1), then return under the comb. */
 export function escalatorStepHeight(along: number, len: number, risePerM: number, horizontalPerM: number): number {
   const bend = Math.min(ESCALATOR_TRANSITION_LENGTH / horizontalPerM, len / 4)
@@ -29,23 +38,36 @@ export function escalatorStepHeight(along: number, len: number, risePerM: number
 }
 
 /** Clear moving band and glass spacing; the wide piece adds one whole block (§5.1). */
-export function escalatorBandWidth(m: Escalator): number {
+export function escalatorBandWidth(m: RampPiece): number {
   return ESCALATOR_BAND + (m.cfg.width === 2 ? 1 : 0) - 2 * ESCALATOR_SKIRT_INSET
 }
 
-export function escalatorBalustradeWidth(m: Escalator): number {
+export function escalatorBalustradeWidth(m: RampPiece): number {
   return escalatorBodyWidth(m) - 2 * ESCALATOR_SKIRT_INSET
 }
 
 /** The metal casing retains the original envelope while the glass moves inward. */
-export function escalatorBodyWidth(m: Escalator): number {
+export function escalatorBodyWidth(m: RampPiece): number {
   return ESCALATOR_BALUSTRADE + (m.cfg.width === 2 ? 1 : 0)
 }
 
-/** The body is centred between its two cells; graph endpoints stay on integer cells. */
-export function escalatorRun(m: Escalator): { from: Vec3i; to: Vec3i } {
-  const lower = m.from.z < m.to.z ? m.from : m.to
-  const upper = m.from.z < m.to.z ? m.to : m.from
+/**
+ * The body is centred between its two cells; graph endpoints stay on integer cells.
+ *
+ * The centring shift is derived from the run's **low → high** order, which is the
+ * climb direction for a ramp. A **level** run (a walkway) has no `z` to order by,
+ * so the tie is broken on the plan position: without that, an up and a down
+ * walkway would shift to opposite sides of their own cells and one of the pair
+ * would sit a block off its landings.
+ */
+export function escalatorRun(m: RampPiece): { from: Vec3i; to: Vec3i } {
+  const lowerFirst = m.from.z !== m.to.z
+    ? m.from.z < m.to.z
+    : m.from.x !== m.to.x
+      ? m.from.x < m.to.x
+      : m.from.y < m.to.y
+  const lower = lowerFirst ? m.from : m.to
+  const upper = lowerFirst ? m.to : m.from
   const len = Math.hypot(upper.x - lower.x, upper.y - lower.y)
   const half = m.cfg.width === 2 && len > 0 ? 0.5 / len : 0
   const dx = (upper.y - lower.y) * half
@@ -55,7 +77,7 @@ export function escalatorRun(m: Escalator): { from: Vec3i; to: Vec3i } {
 }
 
 /** All floor cells supporting the two ends of this single piece. */
-export function escalatorLandings(m: Escalator): Vec3i[] {
+export function escalatorLandings(m: RampPiece): Vec3i[] {
   if (m.cfg.width !== 2) return [m.from, m.to]
   const run = escalatorRun(m)
   const dx = 2 * (run.from.x - m.from.x)

@@ -7,6 +7,7 @@ import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
 import type { BridgeRailing, GateDoor, TriangleKind } from '../../../sim/types.ts'
 import { RAMP_LENGTH_DEFAULT, nextRampLength, type RampLength } from '../../../sim/rampLengths.ts'
+import { WALKWAY_LENGTH_DEFAULT, nextWalkwayLength, type WalkwayLength } from '../../../sim/walkways.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
 import { nextRoofWidth, supportedRoofWidth } from '../../../sim/structures.ts'
@@ -104,6 +105,14 @@ export interface ToolSlice {
    */
   rampLength: RampLength
   /**
+   * The length a newly placed **自动步道** is built at — 短 30 m, 中 60 m, 长 90 m
+   * (`sim/walkways.ts`). Its own cycle, because the walkway's three level sizes
+   * are not the escalator's four climb sizes; its width and direction reuse the
+   * escalator's settings (`escalatorWide` / `escalatorDir`), since the two pieces
+   * are the same body.
+   */
+  walkwayLength: WalkwayLength
+  /**
    * The 闸机 tool's piece (§4.5), toggled with Tab: `lane` (the default) is the
    * working turnstile — machine body on one half of the block, lane with its leaf
    * on the other — and `fence` is the doorless machine that carries a 围栏 run
@@ -195,6 +204,8 @@ export interface ToolSlice {
   toggleEscalatorWidth: () => void
   /** Step the run length on to the next size (超短 → 短 → 中 → 长), for 扶梯 and 单跑楼梯 alike. */
   cycleRampLength: () => void
+  /** Step the 自动步道 length on to the next size (短 → 中 → 长). */
+  cycleWalkwayLength: () => void
   /** Toggle the 闸机 between a working lane and the doorless fence machine (Tab). */
   cycleLiftStyle: () => void
   setLiftStyle: (style: 'glass' | 'steel') => void
@@ -211,6 +222,8 @@ export interface ToolSlice {
   setEscalatorDir: (dir: 'up' | 'down') => void
   /** Point the run length at an absolute value (the 吸取 tool copies a picked run's own). */
   setRampLength: (length: RampLength) => void
+  /** Point the 自动步道 length at an absolute value (the 吸取 tool copies a picked belt's own). */
+  setWalkwayLength: (length: WalkwayLength) => void
   /** Point the 闸机 door at an absolute value (the 吸取 tool copies it). */
   setGateDoor: (door: GateDoor) => void
 }
@@ -243,6 +256,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   escalatorDir: 'up',
   escalatorWide: false,
   rampLength: RAMP_LENGTH_DEFAULT,
+  walkwayLength: WALKWAY_LENGTH_DEFAULT,
   bridgeLength: 32,
   bridgeRailing: 'railing',
   setStructureOptions: (patch) => set({
@@ -312,6 +326,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
   toggleEscalatorWidth: () => set((s) => ({ escalatorWide: !s.escalatorWide })),
   cycleRampLength: () => set((s) => ({ rampLength: nextRampLength(s.rampLength) })),
+  cycleWalkwayLength: () => set((s) => ({ walkwayLength: nextWalkwayLength(s.walkwayLength) })),
   cycleLiftStyle: () => set((s) => ({ liftStyle: s.liftStyle === 'glass' ? 'steel' : 'glass' })),
   setLiftStyle: (style) => set({ liftStyle: style }),
   cycleGateDoor: () => set((s) => ({ gateDoor: nextGateDoor(s.gateDoor) })),
@@ -324,5 +339,6 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   }),
   setEscalatorDir: (dir) => set({ escalatorDir: dir }),
   setRampLength: (rampLength) => set({ rampLength }),
+  setWalkwayLength: (walkwayLength) => set({ walkwayLength }),
   setGateDoor: (door) => set({ gateDoor: door }),
 })

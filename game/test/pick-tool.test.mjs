@@ -14,6 +14,7 @@ import { PickTool } from '../src/app/tools/PickTool.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
 import { escalatorModule } from '../src/sim/escalators.ts'
+import { walkwayModule } from '../src/sim/walkways.ts'
 
 test('picking each fence variant copies it and Esc restores the previous piece', () => {
   const before = useStore.getState()
@@ -66,6 +67,26 @@ test('picking a run copies its length and Esc restores it, for 扶梯 and 单跑
       assert.equal(useStore.getState().rampLength, length)
       useStore.getState().cancelPick()
       assert.equal(useStore.getState().rampLength, 'medium')
+    }
+  } finally {
+    useStore.setState(before)
+  }
+})
+
+test('picking a 自动步道 copies its level length, width and direction', () => {
+  const before = useStore.getState()
+  try {
+    for (const length of ['short', 'medium', 'long']) {
+      const m = walkwayModule({ x: 0, y: 0, z: 0 }, 2, 'down', 'picked-walkway', 2, length)
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, walkwayLength: length === 'long' ? 'short' : 'long', escalatorWide: false, escalatorDir: 'up' })
+      ctxFor(m.id).onDown(press([0, 0, 0]))
+      assert.equal(useStore.getState().moduleType, 'walkway')
+      assert.equal(useStore.getState().walkwayLength, length)
+      assert.equal(useStore.getState().escalatorWide, true)
+      assert.equal(useStore.getState().escalatorDir, 'down')
+      assert.equal(useStore.getState().moduleRot, 2)
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().walkwayLength, length === 'long' ? 'short' : 'long', 'Esc restores the pre-pick length')
     }
   } finally {
     useStore.setState(before)

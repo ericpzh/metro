@@ -181,8 +181,8 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
   ])
   assert.deepEqual(anchors('equipment'), [
     familyAnchor('gate'), familyAnchor('fence'),
-    'escalator', 'lift',
-    familyAnchor('stair'), familyAnchor('exit'),
+    'escalator', 'walkway',
+    'lift', familyAnchor('stair'), familyAnchor('exit'),
   ])
 
   for (const folder of ['rail', 'equipment', 'decor']) {

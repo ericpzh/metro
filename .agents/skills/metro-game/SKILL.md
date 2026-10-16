@@ -77,7 +77,9 @@ one station edit, so the worker, undo history and selected document stay in sync
 The right-side inspector does not expose per-cell zone controls; paint and erase zones
 through the 分区 build-rail tool (`ZoneTool`).
 For escalators, travel direction is encoded by both `cfg.dir` and ordered `from`/`to`
-endpoints; reverse both together. Pin the action in `game/test/escalators.test.mjs`.
+endpoints; reverse both together. The inspector's selected-run reverse is
+`switchRunDirection`, which serves a 自动步道 as well as a 扶梯. Pin the action in
+`game/test/escalators.test.mjs`.
 Escalator equipment collisions use `rampBodyBoxes`'s per-tile slope, even against
 another run; do not substitute the landing-to-landing vertical envelope there.
 Runs may occupy vertically adjacent storeys when their bodies only meet at the
@@ -273,7 +275,9 @@ the four rules most changes trip over.
 * **Graph** (`sim/station.ts`). Every walkable cell is a node (a solid cell with
   nothing solid above it and floor speed > 0). Fixed-length vertical equipment —
   escalator, each stair flight — is a capacity-limited edge with a server; a lift is
-  one car whose every ordered pair of stops is an edge; gates, doors and stops are
+  one car whose every ordered pair of stops is an edge; a **自动步道** is the same
+  capacity edge laid flat (kind `walkway`, step-free, its belt's interior cells left
+  out of the nodes); gates, doors and stops are
   servers too. CSR adjacency; A* with a `(from|to|needsClass)` path cache, a per-tick
   re-path budget, and live queue wait folded into edge cost. `PathFinder.search()`
   bypasses the cache for the fare-line gate choice, which must see queues as they are
@@ -415,6 +419,25 @@ the four rules most changes trip over.
   `ramp-join.test.mjs`). A fence *on* a landing is read the same way as
   one beside it: the fence cell is not a walkable node, so that flight drops out of the
   walk graph and fencing the head of a stair really closes it off.
+* **A 自动步道 (moving walkway, `sim/walkways.ts`, §5.1) is the 扶梯's level twin.** It
+  reuses the escalator's body, glass and one-way ride, laid flat: `walkwayModule` builds a
+  zero-rise run at `cfg.width` 1 (窄) or 2 (宽) and `cfg.dir` up/down — the width and direction
+  tabs are the **shared** `escalatorWide` / `escalatorDir`, the length is its own three
+  (`WALKWAY_LENGTHS`, 短 30 m / 中 60 m / 长 90 m, `WALKWAY_LENGTH_DEFAULT = 'short'`, cycled by
+  `cycleWalkwayLength`). `WalkwayModel` calls the escalator's exported `buildRampBand`, so the two
+  are one drawing. It sits under 设备 beside the 扶梯 / 电梯. Two contracts differ from the
+  escalator: it **carves nothing** (excluded from `openings.ts`'s `rampList`), so it is a plain
+  `addEquipment` append whose every belt cell — both lanes of a wide piece — must already have
+  floor (`moduleFloorOk` reads `walkwayCoveredCells`, not just the landings), and it is **ends
+  only**: `walkwayCoveredCells` are dropped from the crowd-graph nodes, so the only way across the
+  belt is to ride it. The ride is a capacity edge of kind `walkway` (`KIND_WALKWAY`), `ride =
+  dist / WALKWAY_SPEED` with `WALKWAY_SPEED = WALK_SPEED + 0.5` (1.84 m/s), width-2 doubling the
+  rate. Unlike `stair`/`escalator`, `walkway` is **not** banned for a step-free passenger. A
+  level run has no z to order its endpoints by, so `escalatorRun` breaks the tie on the plan
+  (x then y) — that is what keeps a wide belt's centring shift the same whichever way it travels
+  (`walkways.test.mjs` pins the lengths, the level centring, the ends-only routing, the doubled
+  wide rate, the no-carve placement and the shared flat model). There is **no exit-bay snap** and
+  no `RampJoinModel` seam (a level bank's glass meets with no infill).
 * **A stair has three sizes** (`sim/stairs.ts`, §5.1) — and a **single-run** stair has four
   **lengths** as well, the same four a 扶梯 comes in (`sim/rampLengths.ts`): 超短 2 m / 短 3 m /
   中 4 m / 长 8 m, cycled on the action tile beside the size (**Shift+Tab**) and carried into
@@ -1545,7 +1568,7 @@ Run `npm run check:tutorial` for the production browser regression and the
   售票机 at its end — sampling the path between pointer events so a fast flick skips none, and
   the release bulldozes the run in **one** commit (one Ctrl+Z puts it back). Rooms, rails,
   出入口, 楼梯, screen doors and 围栏 are never swept — one piece, own teardown — while a bank of
-  **escalators** or of **lift** shafts does sweep, each strictly inside its own family; that pair
+  **escalators**, of **自动步道** or of **lift** shafts does sweep, each strictly inside its own family; that pair
   is a deliberate divergence from §9.5, which lists both as unsweepable. 导向柱, 公交站 (by
   shelter length), 灯具 (by housing shape) and 通风口 sweep as families too, and so do the
   floor kit (空调风机, 设备柜, each 地面指示 variant) and the 屏蔽端门 (by 半高/全高) —

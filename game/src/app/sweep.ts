@@ -30,8 +30,9 @@ import { removeModule, type StationState } from '../build/model.ts'
  * structure rather than a row of loose pieces, a 站台门 is derived from a track,
  * and a 围栏 already drags out a straight run of its own.
  *
- * An **escalator** and a **lift** are listed here, so a bank of either does sweep
- * — each strictly within its own family, so an escalator never takes a lift. That
+ * An **escalator**, a **自动步道** and a **lift** are listed here, so a bank of any
+ * does sweep — each strictly within its own family, so an escalator never takes a
+ * lift and neither takes a walkway. That
  * is a deliberate divergence from §9.5, which lists both as unsweepable; the
  * teardown is the same `removeModule` a single delete uses, so a swept lift shaft
  * leaves nothing stranded and one `Ctrl+Z` restores it.
@@ -45,6 +46,7 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
   'tvm',
   'vending',
   'escalator',
+  'walkway',
   'lift',
   // 装饰
   'psd-end',

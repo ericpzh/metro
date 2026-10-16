@@ -13,6 +13,7 @@ import { msg } from '../../../sim/i18n.ts'
 import type { StateCreator } from 'zustand'
 import type { BridgeRailing, GateDoor, FinishId } from '../../../sim/types.ts'
 import type { RampLength } from '../../../sim/rampLengths.ts'
+import type { WalkwayLength } from '../../../sim/walkways.ts'
 import type { SignBoards } from '../../../sim/sign.ts'
 import type { ZoneBrush } from '../catalog.ts'
 import type { PaintMode } from './PaintSlice.ts'
@@ -46,6 +47,7 @@ export interface PickDraft {
   escalatorDir: 'up' | 'down'
   escalatorWide: boolean
   rampLength: RampLength
+  walkwayLength: WalkwayLength
   liftStyle: 'glass' | 'steel'
   hangerLength: 4 | 6 | 8
   curtainWidth: 1 | 2 | 3 | 4
@@ -99,6 +101,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         escalatorDir: s.escalatorDir,
         escalatorWide: s.escalatorWide,
         rampLength: s.rampLength,
+        walkwayLength: s.walkwayLength,
         liftStyle: s.liftStyle,
         hangerLength: s.hangerLength,
         curtainWidth: s.curtainWidth,
@@ -132,6 +135,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       escalatorDir: d.escalatorDir,
       escalatorWide: d.escalatorWide,
       rampLength: d.rampLength,
+      walkwayLength: d.walkwayLength,
       liftStyle: d.liftStyle,
       hangerLength: d.hangerLength,
       curtainWidth: d.curtainWidth,

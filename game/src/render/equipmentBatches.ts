@@ -10,7 +10,7 @@ import { sortedBatch } from './trainBatches.ts'
 const STATIC_TYPES = new Set(['bench', 'fence', 'light', 'vent', 'cctv', 'bin', 'extinguisher', 'shelf',
   'desk', 'cubicle', 'sink', 'stair', 'track', 'pillar', 'roof', 'hanger', 'tactile', 'door', 'shop',
   'exit', 'guidepost', 'busstop', 'tvm', 'vending', 'ac-unit', 'electrical-cabinet', 'sign', 'tv', 'billboard',
-  'calligraphy', 'linemap', 'monitor', 'clock', 'gate', 'platform-edge', 'psd-end', 'lift', 'escalator', 'booth', 'rail-signal', 'floor-mark', 'glass'])
+  'calligraphy', 'linemap', 'monitor', 'clock', 'gate', 'platform-edge', 'psd-end', 'lift', 'escalator', 'walkway', 'booth', 'rail-signal', 'floor-mark', 'glass'])
 interface Source { mesh: THREE.Mesh; matrix: THREE.Matrix4; region: AtlasRegion | null }
 interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[] }
 

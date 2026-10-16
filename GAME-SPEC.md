@@ -211,7 +211,7 @@ less broken:
    massing (§4.3): whole-surface fill for speed plus per-block texture override for
    detail. This pass is cosmetic *and* structural — a floor finish decides walk speed,
    a ceiling decides cover, a wall decides blockage.
-4. **Modules (设备).** Doors, gates, TVMs, exits, stairs, escalators, lifts, PSDs and
+4. **Modules (设备).** Doors, gates, TVMs, exits, stairs, escalators, 自动步道, lifts, PSDs and
    queue furniture are placed onto / into the blueprint and can be removed freely
    (§5). Modules snap to cells but sit *on top of* the block model, so deleting a
    module never deletes the block under it.
@@ -395,6 +395,7 @@ modules standing on it, with a confirm if §9.3 confirmations are on.
 |---|---|---|---|
 | Staircase | 3 × 6 (per 3.5 m rise) | 25 pax/min per metre up, 33 down | width scales with footprint; queuing happens at the foot; handrails are modelled so the run is walkable |
 | Escalator | 1 × 8 | 75 pax/min, one direction | theoretical 150/min at 0.5 m/s; observed flows under crowding land at 60–80, so 75 is the design value |
+| 自动步道 (moving walkway) | 1 × 30 / 60 / 90 | ~138 pax/min, one direction, step-free | the escalator's level twin: the same body laid flat, ridden at the walking speed + 0.5 m/s (1.84 m/s); the 宽 tile doubles it |
 | Elevator / lift | 2 × 2 | 15 pax/trip, ~40 s cycle | the only step-free path; agents that need it will wait rather than climb |
 | Ramp | 2 × n | 30 pax/min per metre | accessible, slow |
 
@@ -403,6 +404,16 @@ chosen on its action tile: **超短** climbs 2 m over a 3 m run, **短** 3 m ove
 and **长** 8 m over 12 m. The length is the piece's own endpoints, so a run is a fixed piece that a save
 carries with it, and two runs stand flush — filling the seam between their balustrades — exactly when
 they are the same length. A turning staircase turns inside its own footprint and takes no length.
+
+A **自动步道** (moving walkway) is the escalator's **level** twin. It reuses the escalator's body,
+glass balustrades and one-way ride, laid flat: it rises nothing and travels its whole length
+horizontally, in 短 30 m / 中 60 m / 长 90 m, at the 窄 / 宽 width and up/down direction the 扶梯
+shares. Everyone on it moves at the free walking speed **plus 0.5 m/s** (1.84 m/s), and — unlike a
+stair or an escalator — it is **step-free**. It is entered and left **at its two landings only**:
+the belt's own cells are not walkable, so the crowd lines up along its axis and rides it end to end,
+and the glass on both sides is a barrier the whole way. It lies **on the floor**: it carves no
+opening, so every cell under the belt must already be floor, and it is placed as plain equipment
+(no exit-bay snap). A 宽 belt carries two lanes and twice the rate.
 
 Two runs of one storey may stand **flush** in adjacent cells. Every run is built to fit inside one
 tile — an escalator's balustrades, glass and handrails, and a *narrow* staircase's treads and rails,

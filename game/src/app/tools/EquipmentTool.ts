@@ -22,6 +22,7 @@ import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
 import { snapPsdEnd } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { escalatorModule } from '../../sim/escalators.ts'
+import { walkwayModule } from '../../sim/walkways.ts'
 import { RAMP_LENGTH_DEFAULT, rampLengthSpec, type RampLength } from '../../sim/rampLengths.ts'
 import { exitFloorAt, exitRunSnap, snapExitToRamp } from '../../sim/exits.ts'
 import { glassModuleSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
@@ -480,7 +481,20 @@ export class EquipmentTool extends ToolController {
       ? type.replace(/-[12]$/, st.doorWide ? '-2' : '-1')
       : type
     let mod: Module | null
-    if (this.isStraightRamp(type)) {
+    if (type === 'walkway') {
+      // A 自动步道 is level, so it never snaps into an exit bay (whose run descends a
+      // storey): the cell is its near landing, the run runs along the placement
+      // rotation, and `st.walkwayLength` picks 短 30 m / 中 60 m / 长 90 m. Width and
+      // direction are the shared escalator settings.
+      mod = walkwayModule(
+        { x: cell[0], y: cell[1], z: cell[2] },
+        st.moduleRot,
+        st.escalatorDir,
+        id,
+        st.escalatorWide ? 2 : 1,
+        st.walkwayLength,
+      )
+    } else if (this.isStraightRamp(type)) {
       const width = type === 'escalator' ? (st.escalatorWide ? 2 : 1) : st.stairWidth
       // The piece's own length decides both the bay snap's descent and the run
       // that is built, so a 超短 / 短 / 中 / 长 piece snaps to the floor its own rise

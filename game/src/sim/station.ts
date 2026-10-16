@@ -25,12 +25,15 @@ import {
   STAIR_SPEED,
   TVM_RATE,
   WALK_SPEED,
+  WALKWAY_RATE,
+  WALKWAY_SPEED,
   ZONE_LINES_BLOCK,
 } from './constants.ts'
 import { floorDecorCells } from './floorDecor.ts'
 import { hangerPostCells } from './hangers.ts'
 import { floorSpeed } from './finishes.ts'
 import { escalatorRun, escalatorBalustradeWidth } from './escalators.ts'
+import { walkwayCoveredCells } from './walkways.ts'
 import { gateAllows, gateHasLane } from './gates.ts'
 import { withGround } from './ground.ts'
 import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
@@ -42,7 +45,7 @@ import { rampMoveClear, type RampWall } from './rampCollision.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndexOf } from './zones.ts'
 
-export type ServerKind = 'gate' | 'escalator' | 'stair' | 'lift' | 'door' | 'stop'
+export type ServerKind = 'gate' | 'escalator' | 'walkway' | 'stair' | 'lift' | 'door' | 'stop'
 
 export interface ServerDef {
   id: number
@@ -160,7 +163,14 @@ const KIND_WALK = 0
 const KIND_ESCALATOR = 1
 const KIND_STAIR = 2
 const KIND_LIFT = 3
-export const EDGE_KIND = { walk: KIND_WALK, escalator: KIND_ESCALATOR, stair: KIND_STAIR, lift: KIND_LIFT }
+/**
+ * A 自动步道's edge. It is a carried ride like an escalator, but **step-free**:
+ * the belt is level, so a passenger with a buggy or a wheelchair uses it the way
+ * anyone else does. The PathFinder's step-free rule skips the stair and escalator
+ * kinds and leaves this one alone.
+ */
+const KIND_WALKWAY = 4
+export const EDGE_KIND = { walk: KIND_WALK, escalator: KIND_ESCALATOR, stair: KIND_STAIR, lift: KIND_LIFT, walkway: KIND_WALKWAY }
 
 export function cellKey(x: number, y: number, z: number): string {
   return `${x},${y},${z}`
@@ -252,6 +262,19 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     }
   }
 
+  // A 自动步道 carries people along its level belt, so the belt's interior is not
+  // walkable: only the two landings are, and the crowd must **ride** between them
+  // (`walkwayCoveredCells`). Its side balustrades already stop anyone stepping on
+  // from the side; this stops the crowd from walking the belt's own length
+  // instead of standing on it. The landings stay nodes, so the ride has two ends.
+  const walkwayCells = new Set<string>()
+  for (const m of data.modules) {
+    if (m.type !== 'walkway') continue
+    for (const p of walkwayCoveredCells(m)) {
+      walkwayCells.add(cellKey(p.x, p.y, p.z))
+    }
+  }
+
   // Walkable = a solid cell with nothing solid directly above it.
   const nodeIndex = new Map<string, number>()
   const keys: string[] = []
@@ -278,6 +301,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     if (fenceCells.has(key)) continue
     if (gateWallCells.has(key)) continue
     if (liftCells.has(key)) continue
+    if (walkwayCells.has(key)) continue
     const id = keys.length
     nodeIndex.set(key, id)
     keys.push(key)
@@ -368,7 +392,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   const rampWalls: RampWall[] = []
   const crowdRampWalls: RampWall[] = []
   for (const m of data.modules) {
-    if (m.type !== 'escalator' && m.type !== 'stair') continue
+    if (m.type !== 'escalator' && m.type !== 'stair' && m.type !== 'walkway') continue
     // A stair may turn: every flight gets its own side walls, so the crowd
     // boards each flight along its run and never through the glass. Lanes of one
     // wide flight (`sameFlight`) have no rail between them, so that side carries
@@ -380,7 +404,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     // flush return run): the balustrade the crowd walks along is the one drawn
     // beside those treads, not the one beside the cell its landings sit on.
     const slides = m.type === 'stair' ? stairFlightSlides(m) : []
-    const half = m.type === 'escalator' ? escalatorBalustradeWidth(m) / 2 : stairTreadWidth(m) / 2
+    const half = m.type === 'stair' ? stairTreadWidth(m) / 2 : escalatorBalustradeWidth(m) / 2
     const laneMates = m.type === 'stair' ? stairLaneMates(data.modules, m) : []
     // The flight ends that meet an **interior turn landing** of the same stair.
     // A balustrade stops dead at the flight there: the crowd has to walk the
@@ -630,20 +654,25 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
         break
       }
       case 'escalator':
+      case 'walkway':
       case 'stair':
       case 'lift': {
         const a = nodeAt(m.from)
         const b = nodeAt(m.to)
-        if (m.type === 'escalator') {
+        if (m.type === 'escalator' || m.type === 'walkway') {
           if (a < 0 || b < 0) break
+          const walkway = m.type === 'walkway'
           const horizontal = Math.hypot(nodeX[a] - nodeX[b], nodeY[a] - nodeY[b])
           const vertical = Math.abs(nodeZ[a] - nodeZ[b])
           const dist = Math.hypot(horizontal, vertical)
-          const ride = dist / ESCALATOR_SPEED
+          // A walkway is ridden at the free walking speed plus the belt's own 0.5
+          // m/s; an escalator at its running speed. Both are one-way and
+          // capacity-limited, one passenger per step / standing pitch.
+          const ride = dist / (walkway ? WALKWAY_SPEED : ESCALATOR_SPEED)
           const id = addServer({
-            kind: 'escalator',
-            label: m.cfg.dir === 'up' ? msg('up_escalator') : msg('down_escalator'),
-            rate: ESCALATOR_RATE * (m.cfg.width === 2 ? 2 : 1),
+            kind: walkway ? 'walkway' : 'escalator',
+            label: walkway ? msg('walkway') : m.cfg.dir === 'up' ? msg('up_escalator') : msg('down_escalator'),
+            rate: (walkway ? WALKWAY_RATE : ESCALATOR_RATE) * (m.cfg.width === 2 ? 2 : 1),
             ramp: { dx: escalatorRun(m).from.x - m.from.x, dy: escalatorRun(m).from.y - m.from.y, columns: m.cfg.width === 2 ? 2 : 1, next: 0 },
             node: a,
             exitNode: b,
@@ -651,7 +680,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             batch: 1,
             cycle: 0,
           })
-          edges.push({ from: a, to: b, cost: ride, kind: KIND_ESCALATOR, server: id })
+          edges.push({ from: a, to: b, cost: ride, kind: walkway ? KIND_WALKWAY : KIND_ESCALATOR, server: id })
         } else if (m.type === 'stair') {
           // Floor nodes use whole metre levels. A short block cannot bridge a
           // full metre between them; keep it a half-height building piece.

@@ -1108,6 +1108,10 @@ export const messages = {
     "zh": "扶梯",
     "en": "Escalator"
   },
+  "walkway": {
+    "zh": "自动步道",
+    "en": "Moving walkway"
+  },
   "lift": {
     "zh": "电梯",
     "en": "Lift"
@@ -1702,6 +1706,10 @@ export const messages = {
   "reverse_escalator": {
     "zh": "切换扶梯方向",
     "en": "Reverse escalator"
+  },
+  "reverse_walkway": {
+    "zh": "切换自动步道方向",
+    "en": "Reverse walkway"
   },
   "refresh_selected_platform_doors": {
     "zh": "刷新所选站台门",

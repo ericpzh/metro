@@ -138,7 +138,7 @@ test('switching a selected escalator reverses travel and undo restores it', () =
     const station = toState({ name: 'direction switch', seed: 1, cells: [], modules: [escalator], lines: [] })
     useStore.setState({ station, past: [], future: [], selected: { kind: 'module', key: escalator.id, label: '扶梯' } })
 
-    useStore.getState().switchEscalatorDirection(escalator.id)
+    useStore.getState().switchRunDirection(escalator.id)
     const reversed = useStore.getState().station.modules[0]
     assert.ok(reversed.type === 'escalator')
     assert.equal(reversed.cfg.dir, 'down', 'the sim-facing direction changes')

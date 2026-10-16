@@ -60,8 +60,8 @@ export interface MoveSlice {
    * with a toast pointing at 删除; an exit head-house can move with its footprint.
    */
   liftModule: (moduleId: string) => void
-  /** Reverse a placed escalator's one-way travel without changing its footprint. */
-  switchEscalatorDirection: (moduleId: string) => void
+  /** Reverse a placed run's one-way travel (a 扶梯 or its level twin, the 自动步道), footprint unchanged. */
+  switchRunDirection: (moduleId: string) => void
   /**
    * Aim the lifted piece: the cell under the pointer, the exact module it would
    * become there and why that cell refuses it (`''` when it does not). Called by
@@ -107,10 +107,10 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
       notice: msg('picked_up_value_click_its_new_location_or_confirm_in_info_cancel', label),
     })
   },
-  switchEscalatorDirection: (moduleId) => {
+  switchRunDirection: (moduleId) => {
     const st = get()
     const modules = st.station.modules.map((m) =>
-      m.id === moduleId && m.type === 'escalator'
+      m.id === moduleId && (m.type === 'escalator' || m.type === 'walkway')
         ? { ...m, from: m.to, to: m.from, cfg: { ...m.cfg, dir: nextEscalatorDir(m.cfg.dir) } }
         : m,
     )

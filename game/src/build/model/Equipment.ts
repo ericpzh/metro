@@ -15,6 +15,7 @@ import {
   isCalligraphyStyle,
 } from '../../sim/calligraphy.ts';
 import { escalatorModule, escalatorLandings, type EscalatorDir } from '../../sim/escalators.ts';
+import { walkwayLandings, walkwayModule, WALKWAY_LENGTH_DEFAULT, type WalkwayLength } from '../../sim/walkways.ts';
 import { RAMP_LENGTH_DEFAULT, type RampLength } from '../../sim/rampLengths.ts';
 import { exitFloorAt, exitFootprintCells } from '../../sim/exits.ts';
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../../sim/glassPanels.ts';
@@ -98,6 +99,8 @@ export interface ModuleBuildSettings {
   curtainHeight?: 2 | 3 | 4
   /** A straight 扶梯 or 单跑楼梯: which of the four run lengths it is built at. */
   rampLength?: RampLength
+  /** A 自动步道: which of the three level lengths (30 / 60 / 90 m) it is built at. */
+  walkwayLength?: WalkwayLength
 }
 
 export function createModule(
@@ -396,6 +399,11 @@ export function createModule(
       // `dir` only orders from/to, which is what the sim reads as the one-way
       // travel and the label. `rampLength` is the player's length choice.
       return escalatorModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1, rampLength);
+    case 'walkway':
+      // The level twin of the escalator (`sim/walkways.ts`): 短 30 m / 中 60 m /
+      // 长 90 m of belt along the placement rotation. `dir` orders from/to (the
+      // one-way travel) and `width` is 窄 / 宽, exactly as the escalator's are.
+      return walkwayModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1, settings.walkwayLength ?? WALKWAY_LENGTH_DEFAULT);
     case 'lift':
       // An elevator: one storey up from the dropped cell. The player grows the
       // shaft a storey at a time (`extendLift`), so a fresh piece is always two
@@ -482,6 +490,7 @@ export function footprintCellsOf(type: string, variant?: number): Array<[number,
   const id = 'footprint';
   const mod =
     type === 'escalator' ? escalatorModule(anchor, 0, 'up', id)
+    : type === 'walkway' ? walkwayModule(anchor, 0, 'up', id)
     : type === 'lift' ? liftModule(anchor, 0, id)
     : createModule(type, 0, 0, 0, id, 0, variant);
   if (!mod) return [[0, 0]];
@@ -502,13 +511,20 @@ export function footprintCellsOf(type: string, variant?: number): Array<[number,
     case 'exit':
       return exitFootprintCells(mod).map(([x, y]) => [x, y] as [number, number]);
     case 'stair':
-    case 'escalator': {
+    case 'escalator':
+    case 'walkway': {
       if (mod.type === 'stair' && mod.cfg.block) return [[0, 0]];
       // Every landing of the run: a switchback's two flights stand a run apart, and
       // the ground the pair covers is the pair, not the cells it starts and stops on.
+      // A 自动步道's footprint is its two landings, like the escalator's (the belt
+      // between them is floor it lies on, not floor it owns).
+      const landings: Vec3i[] =
+        mod.type === 'stair' ? [mod.from, mod.to, ...(mod.cfg.flights ?? []).flatMap((f) => [f.from, f.to])]
+        : mod.type === 'walkway' ? walkwayLandings(mod)
+        : escalatorLandings(mod);
       const seen = new Set<string>();
       const out: Array<[number, number]> = [];
-      for (const f of mod.type === 'escalator' ? escalatorLandings(mod) : [mod.from, mod.to, ...(mod.cfg.flights ?? []).flatMap((f) => [f.from, f.to])]) {
+      for (const f of landings) {
         const key = `${f.x},${f.y}`;
         if (seen.has(key)) continue;
         seen.add(key);

@@ -33,7 +33,7 @@ export function moduleGhostKey(mod: Module): string {
   const span =
     mod.type === 'stair'
       ? `:${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.width}:${mod.cfg.finish ?? ''}`
-      : mod.type === 'escalator'
+      : mod.type === 'escalator' || mod.type === 'walkway'
         ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}:${mod.cfg.width ?? 1}`
         : mod.type === 'lift'
           ? `:${mod.from.z}>${mod.to.z}:${mod.rot ?? 0}:${mod.cfg.style ?? 'glass'}`

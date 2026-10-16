@@ -8,7 +8,14 @@ import { escalatorBalustradeWidth, escalatorRun } from '../../../sim/escalators.
 import { stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
 import { RAMP_JOIN_THICKNESS, RAMP_JOIN_RAIL_OVERLAP, RAMP_JOIN_DOME_RADIUS, RAMP_JOIN_DOME_SPACING, STAIR_RAIL_PROUD, ESCALATOR_SURFACE_CLEARANCE } from '../../../sim/constants.ts'
 
-type Escalator = Extract<Module, { type: 'escalator' }>
+/**
+ * The two belt pieces share a body, so the join scan is typed for both. A
+ * 自动步道 has no seam to fill — its run is level and `run()` bails on a level
+ * span — so `runs()` returns nothing for it and `addRampJoins` is a no-op. (A
+ * future level bank would need `run()` to handle a flat seam; today the plain
+ * walkway's glass meets without an infill.)
+ */
+type RampBand = Extract<Module, { type: 'escalator' | 'walkway' }>
 interface Run {
   mod: Module
   lower: THREE.Vector3
@@ -226,7 +233,7 @@ function board(rows: Row[], mat: THREE.Material, verticalThickness = false): THR
 }
 
 /** Add infill only where two full runs stand flush, with real facing handrails. */
-export function addRampJoins(ctx: ModuleContext, mod: Escalator, group: THREE.Group): void {
+export function addRampJoins(ctx: ModuleContext, mod: RampBand, group: THREE.Group): void {
   if (!ctx.data) return
   const own = runs(ctx, mod)[0]
   if (!own) return

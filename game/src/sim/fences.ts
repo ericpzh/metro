@@ -12,12 +12,13 @@
 
 import { stairFlights } from './stairs.ts'
 import { escalatorLandings } from './escalators.ts'
+import { walkwayLandings } from './walkways.ts'
 import type { Module } from './types.ts'
 
 /**
- * True when a stair or escalator has a landing on `(x, y, z)`. A fence run may
- * meet a stair's handrail at that cell, so the fence treats it as a neighbour
- * (drops its end cap and butts up to the rail) instead of stopping short.
+ * True when a stair, escalator or 自动步道 has a landing on `(x, y, z)`. A fence
+ * run may meet a run's balustrade at that cell, so the fence treats it as a
+ * neighbour (drops its end cap and butts up to the rail) instead of stopping short.
  */
 export function railLandingAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
   for (const m of modules) {
@@ -29,6 +30,8 @@ export function railLandingAt(modules: readonly Module[], x: number, y: number, 
       }
     } else if (m.type === 'escalator') {
       if (escalatorLandings(m).some((p) => p.x === x && p.y === y && p.z === z)) return true
+    } else if (m.type === 'walkway') {
+      if (walkwayLandings(m).some((p) => p.x === x && p.y === y && p.z === z)) return true
     }
   }
   return false

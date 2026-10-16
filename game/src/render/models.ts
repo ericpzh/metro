@@ -43,6 +43,7 @@ import { hangerLiftFor } from '../sim/hangers.ts'
 import { GateModel } from './models/pieces/GateModel.ts'
 import { FenceModel } from './models/pieces/FenceModel.ts'
 import { EscalatorModel } from './models/pieces/EscalatorModel.ts'
+import { WalkwayModel } from './models/pieces/WalkwayModel.ts'
 import { StairModel } from './models/pieces/StairModel.ts'
 import { LiftModel } from './models/pieces/LiftModel.ts'
 import { ExitModel } from './models/pieces/ExitModel.ts'
@@ -122,6 +123,8 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
       return new FenceModel(ctx).build(mod)
     case 'escalator':
       return new EscalatorModel(ctx).build(mod)
+    case 'walkway':
+      return new WalkwayModel(ctx).build(mod)
     case 'stair':
       return new StairModel(ctx).build(mod)
     case 'lift':

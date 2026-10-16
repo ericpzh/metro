@@ -1,5 +1,6 @@
 import { msg } from '../../sim/i18n.ts'
 import { escalatorLength } from '../../sim/escalators.ts'
+import { walkwayLengthOf } from '../../sim/walkways.ts'
 import { stairLengthOf } from '../../sim/stairs.ts'
 // The 吸取 (picker) tool (工具栏, `P`): click anything built and take it into
 // the brush — the generalised form of the old 材质 folder's 取色 (`I`), which
@@ -156,6 +157,7 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'rail-signal':
     case 'tv':
     case 'escalator':
+    case 'walkway':
     case 'lift':
     case 'ac-unit':
     case 'electrical-cabinet':
@@ -264,6 +266,13 @@ export class PickTool extends ToolController {
         st.setEscalatorDir(mod.cfg.dir)
         if (st.escalatorWide !== (mod.cfg.width === 2)) st.toggleEscalatorWidth()
         st.setRampLength(escalatorLength(mod))
+      }
+      // A 自动步道 is picked at its own level length, and copies the shared 窄/宽
+      // width and up/down direction the way the escalator does.
+      if (mod.type === 'walkway') {
+        st.setEscalatorDir(mod.cfg.dir)
+        if (st.escalatorWide !== (mod.cfg.width === 2)) st.toggleEscalatorWidth()
+        st.setWalkwayLength(walkwayLengthOf(mod))
       }
       // A 单跑楼梯 is picked at its own length too, so the next click rebuilds the run
       // the player pointed at (a bank of 扶梯 and 楼梯 stays one length, and the seam

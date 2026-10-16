@@ -173,7 +173,15 @@ export function rollEscalator(roll: EscalatorRoll, simDt: number): void {
   roll.risers.instanceMatrix.needsUpdate = true
 }
 
-function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escalator' }>): THREE.Group {
+/**
+ * The shared body builder of the two **belt** pieces: the 扶梯 and the level
+ * 自动步道 (`sim/walkways.ts`). The walkway is this same builder with the ramp's
+ * climb collapsed to zero — so it lays a level band on the floor, draws no truss
+ * under it (`undercroftSolid` returns nothing for a level run) and rolls in the
+ * direction its `from`/`to` point. `mod.cfg.width` is the shared 窄/宽, so a wide
+ * walkway is the wide escalator's band with no steps to climb.
+ */
+export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: 'escalator' | 'walkway' }>): THREE.Group {
   const mats = ctx.mats
   const run = escalatorRun(mod)
   const a = new THREE.Vector3(run.from.x + 0.5, run.from.y + 0.5, run.from.z + 1 + exitLandingHeight(ctx.data.modules, run.from))
@@ -357,6 +365,6 @@ function buildEscalator(ctx: ModuleContext, mod: Extract<Module, { type: 'escala
 export class EscalatorModel extends PieceBuilder {
   readonly kind = 'escalator'
   build(mod: Extract<Module, { type: 'escalator' }>): THREE.Group {
-    return buildEscalator(this.ctx, mod)
+    return buildRampBand(this.ctx, mod)
   }
 }

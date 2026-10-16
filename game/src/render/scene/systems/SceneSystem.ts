@@ -306,8 +306,13 @@ export function moduleLevels(mod: Module, base = 0): number[] {
       return levels
     }
     case 'escalator':
-    case 'lift':
-      return [storeyBand(mod.from.z, base), storeyBand(mod.to.z, base)]
+    case 'walkway':
+    case 'lift': {
+      // A level 自动步道 sits on one storey: collapse the pair rather than repeat it.
+      const lower = storeyBand(mod.from.z, base)
+      const upper = storeyBand(mod.to.z, base)
+      return lower === upper ? [lower] : [lower, upper]
+    }
     case 'stair':
       return stairLevels(mod).map((z) => storeyBand(z, base))
     default:
@@ -322,6 +327,7 @@ export function blobRadius(type: Module['type']): number {
     case 'track':
     case 'platform-edge':
     case 'escalator':
+    case 'walkway':
     case 'stair':
       return 0
     case 'exit':

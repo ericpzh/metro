@@ -90,7 +90,7 @@ const ESCALATOR_CORRIDOR_HALF = ESCALATOR_BAND / 2 + ESCALATOR_RAIL_PROUD
  */
 export function rampCorridorHalf(m: Module): number {
   if (m.type === 'stair') return stairTreadWidth(m) / 2 + STAIR_RAIL_PROUD
-  if (m.type === 'escalator') return escalatorBodyWidth(m) / 2 + ESCALATOR_CASING_PROUD
+  if (m.type === 'escalator' || m.type === 'walkway') return escalatorBodyWidth(m) / 2 + ESCALATOR_CASING_PROUD
   return ESCALATOR_CORRIDOR_HALF
 }
 
@@ -102,7 +102,7 @@ export function rampCorridorHalf(m: Module): number {
  */
 export function rampBodyHalf(m: Module): number {
   if (m.type === 'stair') return stairTreadWidth(m) / 2
-  if (m.type === 'escalator') return escalatorBandWidth(m) / 2
+  if (m.type === 'escalator' || m.type === 'walkway') return escalatorBandWidth(m) / 2
   // The escalator's step band is the shared `ESCALATOR_BAND`, so its half is
   // 0.34 m — well inside one cell, so an adjacent cell is not carved.
   return ESCALATOR_BAND / 2
@@ -172,7 +172,8 @@ export function rampEnvelope(m: Module): RampBox | null {
   const segs = rampSegments(m)
   if (!segs) return null
   // A run reserves its own cell; only a body wider than a cell claims more.
-  const half = m.type === 'escalator' && m.cfg.width === 2 ? 1 : Math.max(RAMP_TILE_HALF, rampBodyHalf(m))
+  const wide = (m.type === 'escalator' || m.type === 'walkway') && m.cfg.width === 2
+  const half = wide ? 1 : Math.max(RAMP_TILE_HALF, rampBodyHalf(m))
   let x0 = Infinity
   let y0 = Infinity
   let x1 = -Infinity
@@ -191,7 +192,6 @@ export function rampEnvelope(m: Module): RampBox | null {
     lo = Math.min(lo, s.from.z, s.to.z)
     hi = Math.max(hi, s.from.z, s.to.z)
   }
-  const wide = m.type === 'escalator' && m.cfg.width === 2
   const hx = wide && m.from.x !== m.to.x ? RAMP_TILE_HALF : half
   const hy = wide && m.from.y !== m.to.y ? RAMP_TILE_HALF : half
   return {
@@ -494,12 +494,14 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
  * the caller must then keep the envelope rather than read emptiness as clear space.
  */
 export function rampBodyBoxes(m: Module): RampBox[] {
-  if (m.type !== 'stair' && m.type !== 'escalator') return []
+  if (m.type !== 'stair' && m.type !== 'escalator' && m.type !== 'walkway') return []
   const segs = rampSegments(m)
   if (!segs) return []
   // A legacy 1.6 m stair's body crosses into the cells either side of it; every
   // lane-sized piece (the builder's wide stair is lanes) stays inside its own tile.
   const extra = Math.max(0, rampBodyHalf(m) - RAMP_TILE_HALF)
+  // A walkway is the escalator's band laid level: the same column of reserved space
+  // (its body hangs to `RAMP_FOOT` under the walking line like the truss).
   const drop = m.type === 'stair' ? STAIR_BODY_DROP : RAMP_FOOT
   const out: RampBox[] = []
   for (const s of segs) {
@@ -728,7 +730,7 @@ function rampSegments(m: Module): Ramp[] | null {
   if (m.type === 'stair' && m.cfg.block) return null
   const bodyHalf = rampBodyHalf(m)
   const railHalf = rampCorridorHalf(m)
-  if (m.type === 'escalator') return [{ ...escalatorRun(m), bodyHalf, railHalf }]
+  if (m.type === 'escalator' || m.type === 'walkway') return [{ ...escalatorRun(m), bodyHalf, railHalf }]
   if (m.type === 'lift') return [{ from: m.from, to: m.to, bodyHalf, railHalf }]
   if (m.type === 'stair') return stairSegments(m)
   return null
@@ -748,6 +750,11 @@ function stairSegments(m: Extract<Module, { type: 'stair' }>): Ramp[] {
  * reads: an escalator cuts the taller wall/ceiling corridor, a stair or lift the
  * conservative one. The carve and the block-brush reservation share this single
  * list, so a hand-built block is refused in exactly the cells the carve opens.
+ *
+ * A **自动步道 is deliberately absent**: a level run climbs through nothing, so it
+ * must not carve the floor it lies on. Its side balustrades are still barriers
+ * (`rampWalls` in `sim/station.ts`), and its body still reserves its own column
+ * for equipment (`rampBodyBoxes`) — but the slab under it stays whole.
  */
 function rampList(modules: readonly Module[]): Ramp[] {
   const ramps: Ramp[] = []

@@ -110,11 +110,11 @@ export function InfoCard(): React.ReactElement {
                     <IoMdMove />
                   </button>
                 )}
-                {selectedModule?.type === 'escalator' && (
+                {(selectedModule?.type === 'escalator' || selectedModule?.type === 'walkway') && (
                   <button
                     className="chip iconOnly"
-                    aria-label={t('reverse_escalator')}
-                    onClick={() => useStore.getState().switchEscalatorDirection(selectedModule.id)}
+                    aria-label={t(selectedModule.type === 'walkway' ? 'reverse_walkway' : 'reverse_escalator')}
+                    onClick={() => useStore.getState().switchRunDirection(selectedModule.id)}
                   >
                     <HiSwitchVertical />
                   </button>

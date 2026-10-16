@@ -18,6 +18,28 @@ test('module attributes use the shared priority and first two variant shortcuts'
   assert.deepEqual(curtain.map(({ shortcut }) => shortcut), ['R', 'Tab', 'Shift+Tab'])
 })
 
+test('the 自动步道 carries the escalator’s two shared tabs and its own level lengths', () => {
+  const state = stateWith()
+  const walkway = moduleBuilderAttributes('walkway', state)
+  assert.deepEqual(walkway.map(({ kind }) => kind), ['rotation', 'width', 'length', 'direction'])
+  assert.deepEqual(walkway.map(({ shortcut }) => shortcut), ['R', 'Tab', 'Shift+Tab', undefined])
+  // 短 at the catalogue default (30 m) and only three sizes, not the escalator's four.
+  assert.equal(walkway.at(-2).label, '短')
+  const labels = ['short', 'medium', 'long'].map((walkwayLength) => moduleBuilderAttributes('walkway', stateWith({ walkwayLength })).at(-2).label)
+  assert.deepEqual(labels, ['短', '中', '长'])
+
+  const calls = []
+  const cycles = stateWith({
+    toggleEscalatorWidth: () => calls.push('width'),
+    cycleWalkwayLength: () => calls.push('length'),
+    cycleEscalatorDir: () => calls.push('direction'),
+    rotateModule: () => calls.push('rotation'),
+  })
+  for (const key of ['Tab', 'Shift+Tab']) assert.equal(activateModuleBuilderShortcut('walkway', cycles, key), true)
+  assert.equal(activateModuleBuilderShortcut('walkway', cycles, 'R'), true)
+  assert.deepEqual(calls, ['width', 'length', 'rotation'], 'Tab takes the width, Shift+Tab the level length')
+})
+
 test('a 单跑楼梯 carries the same four run lengths a 扶梯 does, and only that shape does', () => {
   const state = stateWith()
   // 单跑楼梯 — 直跑楼梯 tile and the bare `stair` the room builder places — is the one
