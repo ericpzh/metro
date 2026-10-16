@@ -2152,8 +2152,13 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     if (!occupied.solid.has(surfaceKey(x, y, z)) && !occupied.ground(x, y, z) && !exitFloorAt(modules, x, y, z)) return 'floor'
     if (occupied.track.has(surfaceKey(x, y, z))) return 'track'
     const index = outdoorSurfaceIndex(modules)
+    // §4.3/§9.5: a tile carries **one** finish, and laying the other kind on it is a
+    // **replacement**, not a collision — the release deletes the finish under the
+    // candidate before it lays this one (`editOutdoorSurfaces`), so the ghost and the
+    // release agree that the tile changes hands. Laying the *same* kind back is that
+    // drag's "already here" no-op rather than a replacement, and stays a collision.
     const existing = index.tiles.get(surfaceKey(x, y, z))
-    if (existing && existing.id !== candidate.id) return 'occupied'
+    if (existing && existing.id !== candidate.id && existing.type === candidate.type) return 'occupied'
     const box = moduleEnvelope(candidate)!
     if (index.roads.some(road => boxesOverlap(box, moduleEnvelope(road)!))) return 'occupied'
     return ''

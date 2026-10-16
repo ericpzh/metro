@@ -328,6 +328,23 @@ for (const type of ['sidewalk', 'lawn']) test(`${type} drags rectangles immediat
   assert.equal(useStore.getState().station.modules.length, 0)
 })
 
+for (const [from, to] of [['sidewalk', 'lawn'], ['lawn', 'sidewalk']]) test(`${to} laid over ${from} replaces the tile in one commit and one undo`, () => {
+  // §4.3: one finish per tile. The armed finish replaces the other kind where it
+  // is laid — the ghost promises it and the release performs it, as one edit.
+  const h = harness([], to)
+  useStore.setState({ station: { ...h.state, modules: [createModule(from, 0, 0, 0, 'old'), createModule(from, 1, 0, 0, 'neighbour')] } })
+  h.tool.onDown(h.event(0, 0))
+  h.tool.onMove(h.event(0, 0))
+  assert.equal(h.blocked(), false, 'the ghost is not red where the release accepts')
+  assert.deepEqual(h.ghost().map(m => [m.type, m.x]), [[to, 0]])
+  h.tool.onUp(h.event(0, 0))
+  const placed = useStore.getState()
+  assert.deepEqual(placed.station.modules.map(m => [m.type, m.x]), [[from, 1], [to, 0]])
+  assert.equal(placed.past.length, 1, 'the replacement is one commit')
+  placed.undo()
+  assert.deepEqual(useStore.getState().station.modules.map(m => [m.type, m.x]), [[from, 0], [from, 1]], 'one undo puts the replaced finish back')
+})
+
 test('outdoor finishes follow the picked supporting floor above the active work plane', () => {
   const h = harness([{ x: 0, y: 0, z: 4, fill: 'solid' }], 'sidewalk')
   const event = { ...h.event(0, 0), hit: { cell: [0, 0, 4], place: [0, 0, 5], solid: true } }

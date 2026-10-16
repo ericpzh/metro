@@ -11,6 +11,7 @@ import { buildModule } from '../src/render/models.ts'
 import { TreeModel } from '../src/render/models/pieces/TreeModel.ts'
 import { serialize, parse } from '../src/persistence/save.ts'
 import { editOutdoorSurfaces } from '../src/build/model/OutdoorSurfaces.ts'
+import { checkModulePlacements } from '../src/build/validation.ts'
 import { blockIndex } from '../src/sim/blockIndex.ts'
 import { readFileSync } from 'node:fs'
 import { exitFootprintCells } from '../src/sim/exits.ts'
@@ -25,7 +26,8 @@ for (const type of ['sidewalk', 'lawn']) {
     assert.equal(moduleEnvelope(surface).z1, 1.1)
     assert.equal(equipmentReason([], [], surface, true), '')
     assert.equal(equipmentReason([{ x: 0, y: 0, z: 0, fill: 'void' }], [], surface, true), 'floor')
-    assert.equal(equipmentReason([], [surface], createModule(type === 'lawn' ? 'sidewalk' : 'lawn', 0, 0, 0, 'overlap'), true), 'occupied')
+    assert.equal(equipmentReason([], [surface], createModule(type, 0, 0, 0, 'same-again'), true), 'occupied')
+    assert.equal(equipmentReason([], [surface], createModule(type === 'lawn' ? 'sidewalk' : 'lawn', 0, 0, 0, 'other'), true), '', 'the other finish on this tile is replaced, not refused')
     assert.equal(equipmentReason([], [], { ...surface, z: -4 }, true), 'outdoor-below-ground')
     for (const option of MODULE_OPTIONS.filter(o => decorCategoryHasId('floor', o.id) || decorCategoryHasId('outside', o.id))) {
       const mod = createModule(option.id, 0, 0, 0, option.id)
@@ -96,6 +98,42 @@ test('surface bulk edits bound document reads, preserve refusals, deduplicate an
   assert.deepEqual(removed.state.modules, original)
 })
 
+test('a tile carries one finish: laying the other kind replaces it in the same edit', () => {
+  const lawn = createModule('lawn', 0, 0, 0, 'lawn')
+  const state = { ...emptyStation(), modules: [lawn] }
+  const candidate = createModule('sidewalk', 0, 0, 0, 'candidate')
+  // Preview and release ask the one verdict, so the ghost is not red where the
+  // release accepts.
+  assert.deepEqual([...checkModulePlacements(state, [{ id: candidate.id, module: candidate, layer: true }]).refused], [])
+  const result = editOutdoorSurfaces(state, [[0, 0, 0]], 'sidewalk', 0)
+  assert.deepEqual(result.state.modules.map(m => [m.type, m.x, m.y, m.z]), [['sidewalk', 0, 0, 0]])
+  assert.ok(!result.state.modules.some(m => m.id === lawn.id), 'the replaced finish is gone, not stacked under the new one')
+  assert.equal(result.state.cells, state.cells, 'a finish edit leaves the floor alone')
+  assert.equal(isSimInertDecorEdit(state, result.state), true, 'swapping one finish for the other still rebuilds no routing')
+  assert.equal(editOutdoorSurfaces(result.state, [[0, 0, 0]], 'sidewalk', 0).state, result.state, 'laying the same kind again is still the no-op')
+  assert.deepEqual(editOutdoorSurfaces(result.state, [[0, 0, 0]], 'lawn', 0).state.modules.map(m => m.type), ['lawn'], 'and the replacement works both ways')
+})
+
+test('a replacement the verdict refuses keeps the finish that was there', () => {
+  const lawn = createModule('lawn', 0, 0, 0, 'lawn')
+  // The block overhead is the obstacle, not the finish the candidate would
+  // replace: a refused cell must not delete the tile it failed to replace.
+  const state = { ...emptyStation(), cells: [{ x: 0, y: 0, z: 1, fill: 'solid' }], modules: [lawn] }
+  const candidate = createModule('sidewalk', 0, 0, 0, 'candidate')
+  assert.deepEqual([...checkModulePlacements(state, [{ id: candidate.id, module: candidate, layer: true }]).refused.values()], ['occupied'])
+  const result = editOutdoorSurfaces(state, [[0, 0, 0]], 'sidewalk', 0)
+  assert.equal(result.state, state, 'nothing was placed, so nothing was replaced')
+  assert.deepEqual(result.state.modules.map(m => m.id), [lawn.id])
+})
+
+test('one drag replaces only the tiles it can lay and leaves the rest standing', () => {
+  const tiles = [0, 1, 2].map(x => createModule('lawn', x, 0, 0, `lawn-${x}`))
+  const state = { ...emptyStation(), cells: [{ x: 2, y: 0, z: 1, fill: 'solid' }], modules: tiles }
+  const result = editOutdoorSurfaces(state, [[0, 0, 0], [1, 0, 0], [2, 0, 0]], 'sidewalk', 0)
+  assert.deepEqual(result.state.modules.map(m => [m.type, m.x]), [['lawn', 2], ['sidewalk', 0], ['sidewalk', 1]])
+  assert.equal(result.check.refused.size, 1)
+})
+
 test('surface edits retain unaffected models and skip routing within the existing ground window', () => {
   const near = createModule('bench', 0, 0, 0, 'near'), far = createModule('bin', 10, 10, 0, 'far')
   const before = { ...emptyStation(), modules: [near, far] }
@@ -123,7 +161,12 @@ test('indexed surface verdict preserves the general placement rules for floor, t
     const mod = createModule(type, x, 0, z, 'candidate')
     const box = moduleEnvelope(mod)
     const blocked = doc.cells.some(c => c.fill === 'solid' && c.x < box.x1 && c.x + 1 > box.x0 && c.y < box.y1 && c.y + 1 > box.y0 && c.z < box.z1 && c.z + 1 > box.z0)
-    const expected = z < 0 ? 'outdoor-below-ground' : blockIndex(doc.cells, doc.modules).opening(mod.x, mod.y, mod.z) ? 'opening' : blocked ? 'occupied' : !moduleFloorOk(doc.cells, doc.modules, mod) ? 'floor' : placementOnTrack(doc.cells, mod, doc.modules) ? 'track' : placementColliders(doc.modules, mod).length ? 'occupied' : ''
+    // §4.3: the finish under a candidate of the **other** kind is the tile it
+    // replaces, so it is never the obstacle — the same-kind one still is.
+    const held = doc.modules.find(m => (m.type === 'sidewalk' || m.type === 'lawn') && m.x === mod.x && m.y === mod.y && m.z === mod.z)
+    const replacing = held !== undefined && held.type !== mod.type
+    const colliders = placementColliders(doc.modules, mod).filter(m => !replacing || m !== held)
+    const expected = z < 0 ? 'outdoor-below-ground' : blockIndex(doc.cells, doc.modules).opening(mod.x, mod.y, mod.z) ? 'opening' : blocked ? 'occupied' : !moduleFloorOk(doc.cells, doc.modules, mod) ? 'floor' : placementOnTrack(doc.cells, mod, doc.modules) ? 'track' : colliders.length ? 'occupied' : ''
     assert.equal(equipmentReason(doc.cells, doc.modules, mod, true), expected, `${type} ${x},${z} ${JSON.stringify(doc)}`)
   }
 })
