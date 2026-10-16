@@ -3,7 +3,7 @@ import { batchStaticParts } from '../../batchStaticModule.ts'
 import { PieceBuilder, slab, ownedMaterial } from '../PieceBuilder.ts'
 import { roadLayout, roadPoint, roadInkIntervals } from '../../../sim/roads.ts'
 import type { Road } from '../../../sim/roads.ts'
-import { getRoadNetwork, roadLaneSign, roadEdgeMovements } from '../../../sim/roadNetwork.ts'
+import { getRoadNetwork, roadLaneSign, roadEdgeMovements, roadJunctionSides } from '../../../sim/roadNetwork.ts'
 import { ROAD_CROSSWALK_DEPTH } from '../../../sim/constants.ts'
 import { TrafficLightModel } from './TrafficLightModel.ts'
 import { roadArrowMarking } from './RoadArrowMarking.ts'
@@ -48,13 +48,30 @@ export class RoadModel extends PieceBuilder {
       }
       batchStaticParts(arrows);g.add(arrows);return g
     }
-    // One crossing and pole per approach, shared by all its lanes. Derived geometry
-    // follows road undo/delete; nothing is added to the authored document (§9.5).
+    // Arrival markings: one arrow set, stop line and pole per arriving approach,
+    // shared by all its lanes. Derived geometry follows road undo/delete; nothing is
+    // added to the authored document (§9.5).
     const network=getRoadNetwork(this.ctx.data.modules)
     const approaches=new Set<string>()
     const crossings=new THREE.Group();crossings.name='road-crosswalk'
     g.userData.roadSignals=[]
     g.userData.roadStopLines=[]
+    g.userData.roadCrosswalks=[]
+    // A zebra belongs to the intersection rather than to a direction of travel:
+    // `roadJunctionSides` hands back every side of every junction, so a one-way street
+    // keeps its crossing on both sides and a stem that only carries traffic away still
+    // gets one at its mouth. Stop lines and poles below stay on arrivals.
+    for(const side of roadJunctionSides(network)) {
+      const junction=network.junctions[side.junction]
+      if(junction.uncontrolled || junction.z!==r.z || side.road!==r.id) continue
+      const along=side.boundary+side.out*(ROAD_CROSSWALK_DEPTH/2+.8)
+      const roadAcross=side.axis?r.x:r.y,roadWidth=side.axis?r.w:r.d
+      for(let across=.4;across<roadWidth-.3;across+=1) {
+        slab(crossings,this.ctx.mats.white,side.axis?roadAcross+across:along,side.axis?along:roadAcross+across,r.z+1.045,
+          side.axis?.5:ROAD_CROSSWALK_DEPTH,side.axis?ROAD_CROSSWALK_DEPTH:.5,.01).name='road-crosswalk'
+      }
+      g.userData.roadCrosswalks.push({axis:side.axis,out:side.out,along,across:roadAcross,width:roadWidth})
+    }
     for(const e of network.edges) {
       if(e.road.id!==r.id || e.junction>=0) continue
       const connector=e.next.map(n=>network.edges[n]).find(n=>n.junction>=0)
@@ -73,10 +90,6 @@ export class RoadModel extends PieceBuilder {
       approaches.add(key)
       const along=(e.axis?e.end[1]:e.end[0])-e.sign*(ROAD_CROSSWALK_DEPTH/2+.8)
       const roadAcross=e.axis?r.x:r.y,roadWidth=e.axis?r.w:r.d
-      for(let across=.4;across<roadWidth-.3;across+=1) {
-        slab(crossings,this.ctx.mats.white,e.axis?roadAcross+across:along,e.axis?along:roadAcross+across,r.z+1.045,
-          e.axis?.5:ROAD_CROSSWALK_DEPTH,e.axis?ROAD_CROSSWALK_DEPTH:.5,.01).name='road-crosswalk'
-      }
       const stop=along-e.sign*(ROAD_CROSSWALK_DEPTH/2+.5)
       const stopWidth=r.cfg.direction==='two-way'?roadWidth/2:roadWidth
       const stopAcross=roadAcross+(r.cfg.direction==='two-way'&&e.lane>=lanes/2?roadWidth/2:0)+stopWidth/2

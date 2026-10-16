@@ -1800,6 +1800,11 @@ collinear strokes and builds crossing/T connectors. `sim/roadTraffic.ts` owns bo
 fixed-step ambient queues and exclusive junction reservations. Road-derived zebra
 markings are visual; pedestrian roads remain blocked. `RoadModel` builds automatic
 signals/crosswalks, while `RoadTrafficSystem` animates their lamps and instanced cars.
+A junction crosses **every street it meets, one-way or two-way**: `roadJunctionSides`
+returns one side per junction per street — the side traffic arrives along and the side
+it only leaves by — so a one-way street keeps its zebra on both sides and a stem that
+only feeds traffic out gets one at its mouth. Stop lines and signal poles stay on
+arrivals, and a width-merge node gets neither.
 The separate `traffic-light` decor tile belongs in 站外装饰 beside 道路. Keep placement,
 3.5 m pole bounds, picker/move/save and palette identity aligned; preserve dynamic
 lens references when batching. Tests live in `road-network` and `rail-families`;
@@ -1815,8 +1820,9 @@ Road authoring is a node/segment graph in `sim/roadDocument.ts`, separate from t
 lane graph in `roadNetwork.ts`. Nodes derive their stable position/elevation IDs
 from incident `road.cfg.from/to` endpoint references; no isolated node is saved.
 `build/model/Roads.ts` materialises legacy/split segments in one edit. `RoadTool`
-drags orthogonal centre lines, snaps to nodes/roads and inherits source width and
-direction. Width uses Tab, traffic uses Shift+Tab, R reverses flow. Deletion targets
+drags orthogonal centre lines and snaps to nodes/roads, but the snap moves the start
+point only: it never takes width or direction from the road under the pointer. Width
+uses Tab, traffic uses Shift+Tab, R reverses flow. Deletion targets
 one segment, including virtual splits in older saves; shared caps and connected
 nodes remain. Node handles are a persistent, bounded GhostSystem instance pool,
 cleared on tool cancellation and restored after station/move-preview cleanup.

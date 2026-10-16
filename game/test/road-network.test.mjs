@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import {getRoadNetwork,roadEdgePoint,roadSignal,roadLaneSign,roadEdgeMovements} from '../src/sim/roadNetwork.ts'
+import {getRoadNetwork,roadEdgePoint,roadSignal,roadLaneSign,roadEdgeMovements,roadJunctionSides} from '../src/sim/roadNetwork.ts'
 import {roadLaneMovements,roadDriverLaneOrder} from '../src/sim/roadLaneMovements.ts'
 import {roadLayout,roadPoint} from '../src/sim/roads.ts'
 import {roadArrowMarking} from '../src/render/models/pieces/RoadArrowMarking.ts'
@@ -202,6 +202,43 @@ test('the actual crossing and T connectors enforce the arrows for every incoming
       assert.deepEqual([...roadEdgeMovements(network,approach[i])].sort(),[...expected].sort())
     }
   }
+})
+
+test('a junction crosses every arm it meets, one-way or two-way, while stop lines and poles stay on arrivals',()=>{
+  const white=new THREE.MeshStandardMaterial({color:'white'}),darkSteel=new THREE.MeshStandardMaterial(),mats={white,darkSteel,steel:darkSteel,black:darkSteel,ledGreen:darkSteel},owned=[]
+  const crosswalksOf=(modules,id)=>new RoadModel({data:{modules},mats,owned}).build(modules.find(m=>m.id===id)).userData
+  const bands=(userData)=>userData.roadCrosswalks.map(c=>+c.along.toFixed(2)).sort((l,r)=>l-r)
+  // Eastbound one-way street through x 0..40 with a stem at x 17..23 whose own one-way
+  // traffic leaves the junction northward, so no lane of it ever arrives.
+  const oneWay=[{id:'main',type:'road',z:0,x:0,y:0,w:40,d:6,rot:1,cfg:{direction:'one-way'}},
+    {id:'stem',type:'road',z:0,x:17,y:-40,w:6,d:43,rot:2,cfg:{direction:'one-way'}}]
+  const arms=roadJunctionSides(getRoadNetwork(oneWay))
+  assert.deepEqual(arms.map(s=>[s.road,s.axis,s.out]).sort(),[['main',false,-1],['main',false,1],['stem',true,-1]]
+    .sort(),'a T junction has one crossing per side: both sides of the through street and the stem mouth')
+  const main=crosswalksOf(oneWay,'main'),stem=crosswalksOf(oneWay,'stem')
+  assert.deepEqual(bands(main),[15.2,24.8],'a one-way street is crossed on both sides of the junction, not only the arriving side')
+  assert.deepEqual(bands(stem),[-1.8],'the stem is crossed at its mouth although traffic only leaves by it')
+  for(const band of main.roadCrosswalks) {
+    assert.equal(band.across,0);assert.equal(band.width,6,'a band spans the whole carriageway')
+    assert.ok(band.along<17||band.along>23,'no zebra ink inside the junction')
+  }
+  assert.equal(main.roadStopLines.length,1,'a stop line still faces the one arriving side')
+  assert.equal(main.roadSignals.length,1)
+  assert.equal(stem.roadStopLines.length,0,'an arm nothing arrives along has no stop line or pole')
+  assert.equal(stem.roadSignals.length,0)
+  // The two-way crossroads keeps the same crossing set it always had: one band per side.
+  const twoWay=[{...oneWay[0],cfg:{direction:'two-way'}},{...oneWay[1],y:-40,d:80,rot:0,cfg:{direction:'two-way'}}]
+  assert.deepEqual(bands(crosswalksOf(twoWay,'main')),[15.2,24.8])
+  assert.deepEqual(bands(crosswalksOf(twoWay,'stem')),[-1.8,7.8])
+  assert.equal(crosswalksOf(twoWay,'main').roadStopLines.length,2)
+  assert.equal(crosswalksOf(twoWay,'stem').roadSignals.length,2)
+  // A shared node between two widths of one street is a lane merge, not an intersection.
+  const merge=[{id:'narrow',type:'road',z:0,x:0,y:0,w:20,d:6,rot:1,cfg:{direction:'one-way'}},
+    {id:'wide',type:'road',z:0,x:20,y:0,w:20,d:12,rot:1,cfg:{direction:'one-way'}}]
+  assert.ok(getRoadNetwork(merge).junctions.every(j=>j.uncontrolled))
+  assert.equal(crosswalksOf(merge,'narrow').roadCrosswalks.length,0)
+  assert.equal(crosswalksOf(merge,'wide').roadCrosswalks.length,0)
+  for(const material of new Set([white,darkSteel,...owned]))material.dispose()
 })
 
 test('preview arrows show each lane direction without rebuilding topology; stop lines cover incoming halves only',()=>{

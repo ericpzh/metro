@@ -148,6 +148,34 @@ export function getRoadNetwork(modules: readonly Module[]): RoadNetwork {
   if(recentNetworks.size>ROAD_NETWORK_CACHE_LIMIT) recentNetworks.delete(recentNetworks.keys().next().value!)
   return network
 }
+export interface RoadJunctionSide { junction: number; road: string; axis: boolean; out: number; boundary: number }
+/** One side of a junction per street, whether traffic arrives along it or only leaves
+ * by it: an intersection crosses every street it meets, one-way or two-way. Stop lines
+ * and signal poles stay on arrivals, because those really do face one direction of
+ * travel, and a lane merge is not an intersection at all (§4.1/§9.5). */
+export function roadJunctionSides(network: RoadNetwork): RoadJunctionSide[] {
+  const sides: RoadJunctionSide[] = [], seen = new Set<string>()
+  const add = (junction: number, edge: RoadEdge, arriving: boolean) => {
+    const out = arriving ? -edge.sign : edge.sign
+    const key = `${junction}:${edge.road.id}:${edge.axis}:${out}`
+    if (seen.has(key)) return
+    seen.add(key)
+    sides.push({ junction, road: edge.road.id, axis: edge.axis, out,
+      boundary: arriving ? (edge.axis ? edge.end[1] : edge.end[0]) : (edge.axis ? edge.start[1] : edge.start[0]) })
+  }
+  for (const edge of network.edges) {
+    if (edge.junction >= 0) {
+      if (edge.next.length) add(edge.junction, network.edges[edge.next[0]], false)
+      continue
+    }
+    for (const next of edge.next) {
+      const connector = network.edges[next]
+      if (connector.junction >= 0) add(connector.junction, edge, true)
+    }
+  }
+  return sides
+}
+
 /** Read the actual connectors, so painted permissions cannot disagree with cars. */
 export function roadEdgeMovements(network: RoadNetwork, edge: RoadEdge): RoadTurn[] {
   const result=new Set<RoadTurn>()

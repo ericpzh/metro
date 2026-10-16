@@ -26,10 +26,13 @@ export class RoadTool extends ToolController {
     info.preventDefault()
     const s=useStore.getState(),picked=s.station.modules.find(m=>m.id===pickedId&&m.type==='road')
     const z=picked?.z??info.hit.cell[2],graph=getRoadDocument(s.station.modules),p:RoadPosition=[info.hit.point?.[0]??info.hit.cell[0],info.hit.point?.[1]??info.hit.cell[1]]
+    // Snapping moves the start point only. Width (Tab) and traffic direction
+    // (Shift+Tab) are the player's settings for the road being drawn, so landing on
+    // an existing node or body never rewrites them — a branch off a node keeps the
+    // width the player chose rather than whichever incident arm the graph listed first.
     const snap=roadSnap(graph,[Math.round(p[0]),Math.round(p[1])],z,ROAD_NODE_SNAP_RADIUS,this.shown),start=snap.point
     const segment=remove?roadSegmentAt(graph,p,z,pickedId??undefined):undefined
     if(remove&&(!segment||!this.shown(segment))){s.setNotice(msg('no_road_to_remove'));return}
-    if(!remove&&snap.road) useStore.setState({roadWidth:roadLayout(snap.road).width,roadDirection:snap.road.cfg.direction})
     this.ctx.drag.current={active:true,road:true,button:info.button,mode:remove?'remove':'add',anchor:[start[0],start[1],z],roadStart:start,
       roadRemoveId:segment?.road.id,z,shift:false,sx:info.clientX,sy:info.clientY,downTime:performance.now()}
     this.onMove(info)

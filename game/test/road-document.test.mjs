@@ -10,7 +10,7 @@ import {DeleteTool} from '../src/app/tools/DeleteTool.ts'
 import {useStore} from '../src/app/store.ts'
 import * as THREE from 'three'
 import {GhostSystem} from '../src/render/scene/systems/GhostSystem.ts'
-import {roadContainsPoint} from '../src/sim/roads.ts'
+import {roadContainsPoint,roadLayout} from '../src/sim/roads.ts'
 import {ROAD_NODE_HANDLE_CAPACITY} from '../src/sim/constants.ts'
 const road=(from,to,id='a',z=0)=>roadBetween(from,to,z,6,'two-way',false,id)
 const state=(modules=[])=>({...toState(emptyStation()),modules})
@@ -93,19 +93,41 @@ test('legacy rectangular roads migrate without changing their outer pavement, an
   assert.equal(getRoadDocument([road([0,0],[0,30]),road([-20,15],[20,15],'upper',4)]).nodes.size,4)
 })
 
-test('node drag inherits width, previews without edits, commits a branch once and undoes/redoes shared nodes',()=>{
+test('a snapped start keeps the selected width and direction, previews without edits, commits a branch once and undoes/redoes shared nodes',()=>{
   const initial=state([road([0,0],[0,30])]),drag={current:null},hover={current:null};let picks=0,preview,nodes
   const scene={setGhost(){},setCursor(){},setModulePreview(m){preview=m},setRoadNodePreview(n){nodes=n}}
   useStore.setState({station:initial,past:[],future:[],tool:'module',moduleType:'road',roadWidth:18,roadDirection:'one-way',moduleRot:0})
   const tool=new RoadTool({scene:()=>scene,pickModule:()=>{picks++;return 'a'},drag,hover,clearMeasure(){},showMeasure(){}})
   tool.onDown(event(0,15));tool.onMove(event(20,15))
-  assert.equal(picks,1);assert.equal(useStore.getState().roadWidth,6);assert.equal(useStore.getState().roadDirection,'two-way')
+  assert.equal(picks,1);assert.equal(useStore.getState().roadWidth,18);assert.equal(useStore.getState().roadDirection,'one-way')
   assert.deepEqual(preview[0].cfg.from,[0,15]);assert.deepEqual(preview[0].cfg.to,[20,15]);assert.equal(nodes.length,2)
+  assert.equal(roadLayout(preview[0]).width,18,'starting on a road body keeps the selected width')
+  assert.equal(preview[0].cfg.direction,'one-way','and the selected traffic direction')
   assert.equal(useStore.getState().past.length,0);assert.equal(useStore.getState().station,initial)
   tool.onUp(event(20,15));assert.equal(useStore.getState().past.length,1)
-  assert.equal(getRoadDocument(useStore.getState().station.modules).nodes.get(roadNodeId([0,15],0)).segments.length,3)
+  const g=getRoadDocument(useStore.getState().station.modules),built=g.segments.find(s=>s.road.cfg.from?.[1]===15&&s.road.cfg.to?.[0]===20)
+  assert.equal(roadLayout(built.road).width,18,'the committed branch keeps the selected width too')
+  assert.equal(built.road.cfg.direction,'one-way')
+  assert.equal(g.nodes.get(roadNodeId([0,15],0)).segments.length,3)
   useStore.getState().undo();assert.deepEqual(useStore.getState().station,initial)
   useStore.getState().redo();assert.equal(getRoadDocument(useStore.getState().station.modules).segments.length,3)
+})
+
+test('starting on a node keeps the selected width and direction rather than the incident arm settings',()=>{
+  const initial=state([road([0,0],[0,30])]),drag={current:null},hover={current:null};let preview
+  const scene={setGhost(){},setCursor(){},setModulePreview(m){preview=m},setRoadNodePreview(){}}
+  useStore.setState({station:initial,past:[],future:[],tool:'module',moduleType:'road',roadWidth:18,roadDirection:'one-way',moduleRot:0})
+  const tool=new RoadTool({scene:()=>scene,pickModule:()=>null,drag,hover,clearMeasure(){},showMeasure(){}})
+  tool.onDown(event(0,30));assert.deepEqual(drag.current.roadStart,[0,30],'the endpoint node inside the snap radius is reused')
+  tool.onMove(event(20,30))
+  assert.equal(useStore.getState().roadWidth,18);assert.equal(useStore.getState().roadDirection,'one-way')
+  assert.equal(roadLayout(preview[0]).width,18);assert.equal(preview[0].cfg.direction,'one-way')
+  tool.onUp(event(20,30))
+  const g=getRoadDocument(useStore.getState().station.modules)
+  assert.equal(g.nodes.get(roadNodeId([0,30],0)).segments.length,2,'the branch shares the snapped node')
+  const built=g.segments.find(s=>s.road.cfg.from?.[0]===0&&s.road.cfg.from?.[1]===30)
+  assert.equal(roadLayout(built.road).width,18,'a 6 m incident arm does not rewrite the selected width')
+  assert.equal(built.road.cfg.direction,'one-way','nor its two-way traffic direction')
 })
 
 test('the delete tool resolves one scene pick and removes a single virtual legacy segment',()=>{

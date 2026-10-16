@@ -3699,8 +3699,9 @@ halves at every rotation; production browser checks cover preview R/Tab arrows,
 a wide crossing and a wide T in both languages.
 
 Road editing now uses an authored node/segment graph (`sim/roadDocument.ts`). Drag
-a centreline between nodes; it snaps to visible endpoints or onto existing roads.
-A start on a road inherits its width and traffic direction. Tab cycles 6/12/18/24 m
+a centreline between nodes; it snaps to visible endpoints or onto existing roads,
+and the snap moves the start point only — a start on a node or on a road body keeps
+the width and traffic direction the player selected. Tab cycles 6/12/18/24 m
 width, Shift+Tab switches one-way/two-way, and R reverses one-way flow; the pointer
 chooses the horizontal or vertical run. Cyan rings identify shared nodes, with
 active endpoints highlighted yellow. Nodes stay visible after a committed edit.
@@ -3713,6 +3714,17 @@ saves; node IDs derive from position and height, with no separately saved orphan
 Width transitions get lane merges without signals/crosswalks. Orthogonal roads
 retain right-hand traffic, lane arrows, automatic intersection facilities and the
 existing ground/placement refusal rules.
+
+**A junction crosses every street it meets, one-way or two-way.** `roadJunctionSides`
+hands the renderer one crossing per side of every controlled junction — the side
+traffic arrives along *and* the side it only leaves by — so a one-way street keeps its
+zebra on both sides of the intersection and a stem that only feeds traffic out still
+gets one at its mouth. Before that, zebra ink hung off the incoming approach edges, so
+a one-way street was crossed on one side only and the far side of the junction was bare
+asphalt. Stop lines and signal poles stay on arrivals, because those really do face one
+direction of travel, and a shared node between two widths of one street remains a lane
+merge with neither. `road-network` pins the side set, the band positions and the
+arrival-only stops and poles.
 
 The RHS 信息 card places its icon actions in a separate boxed column to the right
 of the selection details. One-way roads offer a direction switch that reverses the
