@@ -426,6 +426,16 @@ export interface StairFlight {
 
 export type BridgeRailing = 'railing' | 'sound-barrier-half' | 'sound-barrier'
 
+/**
+ * Which cabin doors a lift shaft opens at one storey (§5.1): `front` is the
+ * piece's local −y face (the default), `back` its local +y face, and `both` a
+ * through-lift that opens onto both. `none` is a sealed storey — the car stops
+ * nowhere there and the model draws no landing. A shaft is rotated as a whole,
+ * so the four compass directions are covered by `rot`; a per-storey choice only
+ * picks a side.
+ */
+export type LiftDoorSide = 'front' | 'back' | 'both' | 'none'
+
 export type Module =
     | (ModuleBase & { type: 'hanger'; w: 4 | 6 | 8; cfg: { mount: 'roof' | 'post' } })
   | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number; finish?: FinishId; bridgeId?: string } })
@@ -487,7 +497,7 @@ export type Module =
         finish?: FinishId
       }
     })
-  | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: { style?: 'glass' | 'steel' } })
+  | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: { style?: 'glass' | 'steel'; doors?: Record<string, LiftDoorSide> } })
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
   /**
    * A drinks vending machine (自动售货机): the same 1 × 1 m equipment footprint
@@ -544,7 +554,7 @@ export type Module =
    * cosmetic: it is no server and no stop, so it never changes the crowd.
    */
   | (ModuleBase & { type: 'guidepost'; cfg: { exitId?: string } })
-  | (ModuleBase & { type: 'road'; w: number; d: number; cfg: { direction: 'one-way' | 'two-way' } })
+  | (ModuleBase & { type: 'road'; w: number; d: number; cfg: { direction: 'one-way' | 'two-way'; from?: [number,number]; to?: [number,number] } })
   | (ModuleBase & { type: 'busstop'; w: number; d: number; cfg: { variant: 'short' | 'long'; poster?: string } })
   | (ModuleBase & { type: 'bin'; cfg: Record<string, never> })
   /**
@@ -680,6 +690,7 @@ export type Module =
    * rule and `render/models.ts` draws the shared housing once.
    */
   | (ModuleBase & { type: 'monitor'; w: number; cfg: { mount: 'ceiling' | 'wall' } })
+  | (ModuleBase & { type: 'traffic-light'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'rail-signal'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'tv'; cfg: { poster?: string } })
   /**

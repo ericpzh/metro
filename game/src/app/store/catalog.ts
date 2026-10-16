@@ -40,7 +40,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
     'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'rail-signal',
     'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1',
   ]),
-  outside: new Set(['road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
+  outside: new Set(['traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
 }
 
 export function decorCategoryHasId(category: DecorCategory, id: string): boolean {
@@ -117,6 +117,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'billboard-square', label: msg('square_1_1'), type: 'billboard', w: 1, h: 1 },
   { id: 'monitor-ceiling', label: msg('monitor_ceiling'), type: 'monitor', w: 1, h: 1 },
   { id: 'monitor-wall', label: msg('monitor_wall'), type: 'monitor', w: 3, h: 1 },
+  { id: 'traffic-light', label: msg('traffic_light'), type: 'traffic-light', w: 1, h: 1 },
   { id: 'rail-signal', label: msg('rail_signal'), type: 'rail-signal', w: 1, h: 1 },
   { id: 'tv', label: msg('tv'), type: 'tv', w: 1, h: 1 },
   // The 指示牌's two mounts (§5.8): the overhead board hung from the ceiling and read
@@ -250,7 +251,7 @@ export function isDecorType(type: string): boolean {
     type === 'checkout' ||
     type === 'cubicle' ||
     type === 'sink' ||
-    type === 'road' || type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
+    type === 'traffic-light' || type === 'road' || type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
     type === 'bin' ||
     type === 'extinguisher' || type.startsWith('extinguisher-') ||
     (type === 'light' || type.startsWith('light-')) ||
@@ -615,6 +616,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     familyAnchor('hanger'),
     'desk',
     'road',
+    'traffic-light',
     'guidepost',
     familyAnchor('busstop'),
     'ac-unit', 'electrical-cabinet',
@@ -866,6 +868,7 @@ const MODULE_LABELS: Record<string, string> = {
   linemap: msg('network_map'),
   tv: msg('tv'),
   monitor: msg('monitor'),
+  'traffic-light': msg('traffic_light'),
   'rail-signal': msg('rail_signal'),
   sign: msg('sign'),
   exit: msg('entrances'),
@@ -915,8 +918,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'roadDirection' | 'railLineId' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'roadWidth' | 'roadDirection' | 'railLineId' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.roadDirection}|${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

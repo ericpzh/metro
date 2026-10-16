@@ -14,6 +14,10 @@ try {
   store.setState({tool:'module',moduleType:'road',moduleRot:0,roadDirection:'two-way'});s.setActiveZ(0);
   const cellEdge=s.station.cells.reduce((hi,c)=>Math.max(hi,c.x),0);
   const x=s.station.modules.reduce((hi,m)=>Math.max(hi,m.x+(m.w??1)),cellEdge)+20,y=0;
+  if(${process.env.ROAD_INTERSECT==='1'}) {
+    s.commit({...s.station,modules:[...s.station.modules,{id:'bench-cross-road',type:'road',x:x-20,y:y+40,z:0,rot:1,w:52,d:6,cfg:{direction:'two-way'}}]});
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  }
   scene.setPreset('plan');scene.setOrtho(true);
   const cs=scene.cameraSys;cs.controls.target.set(x+6,y+48,1);cs.camera.position.set(x+6,y+48,201);cs.controls.update();
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
@@ -26,7 +30,7 @@ try {
   let commits=0;const commit=store.getState().commit;store.setState({commit:(...args)=>{commits++;return commit(...args)}});__roadBench.commits=()=>commits;
   const cam=cs.activeCamera(),rect=scene.renderer.domElement.getBoundingClientRect();
   const point=(dx,dy)=>{const v=cam.position.clone().set(x+dx+.5,y+dy+.5,1.001).project(cam);return {x:rect.left+(v.x+1)*rect.width/2,y:rect.top+(1-v.y)*rect.height/2}};
-  return {name:s.station.name,cells:s.station.cells.length,modules:s.station.modules.length,seed:s.station.seed,population:s.metrics?.inside??0,points:[point(0,0),point(5,7),point(11,31),point(11,63),point(11,95)],browser:navigator.userAgent,hardwareConcurrency:navigator.hardwareConcurrency,deviceMemory:navigator.deviceMemory,viewport:{width:innerWidth,height:innerHeight,devicePixelRatio},playing:s.playing,activeZ:0,gpu:(()=>{const gl=scene.renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');return gl.getParameter(ext?ext.UNMASKED_RENDERER_WEBGL:gl.RENDERER)})()};
+  return {name:s.station.name,cells:s.station.cells.length,modules:store.getState().station.modules.length,intersect:${process.env.ROAD_INTERSECT==='1'},seed:s.station.seed,population:s.metrics?.inside??0,points:[point(0,0),point(5,7),point(11,31),point(11,63),point(11,95)],browser:navigator.userAgent,hardwareConcurrency:navigator.hardwareConcurrency,deviceMemory:navigator.deviceMemory,viewport:{width:innerWidth,height:innerHeight,devicePixelRatio},playing:s.playing,activeZ:0,gpu:(()=>{const gl=scene.renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');return gl.getParameter(ext?ext.UNMASKED_RENDERER_WEBGL:gl.RENDERER)})()};
  })()`)
  if(process.env.BENCH_PROFILE==='1'){await page.send('Profiler.enable');await page.send('Profiler.start')}
  const measure=async(phase,method,params)=>{

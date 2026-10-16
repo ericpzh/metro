@@ -1,6 +1,7 @@
-import { ROAD_TRAFFIC_CAPACITY, ROAD_TRAFFIC_SPACING } from '../../../sim/constants.ts'
+import { ROAD_TRAFFIC_CAPACITY, ROAD_STEP } from '../../../sim/constants.ts'
 import * as THREE from 'three'
-import { roadLayout, roadPoint, roadTrafficPose } from '../../../sim/roads.ts'
+import { getRoadNetwork, roadEdgePoint, roadSignal } from '../../../sim/roadNetwork.ts'
+import { RoadTraffic } from '../../../sim/roadTraffic.ts'
 import { roadVehicleParts } from '../../models/pieces/RoadVehicleModel.ts'
 import type { RoadVehicleKind } from '../../models/pieces/RoadVehicleModel.ts'
 import type { Module } from '../../../sim/types.ts'
@@ -16,6 +17,9 @@ export class RoadTrafficSystem extends SceneSystem {
   private have = false
   private pose = new THREE.Object3D()
   private roads: Module[] | null = null
+  private traffic: RoadTraffic | null = null
+  private signalMats = [new THREE.MeshBasicMaterial({color:0xff3535}),new THREE.MeshBasicMaterial({color:0xffbd35}),new THREE.MeshBasicMaterial({color:0x40e58a})]
+  private unlit = new THREE.MeshBasicMaterial({color:0x202522})
   constructor(...args: ConstructorParameters<typeof SceneSystem>) {
     super(...args)
     this.ctx.scene.add(this.root)
@@ -27,8 +31,9 @@ export class RoadTrafficSystem extends SceneSystem {
   update(now: number, moduleRoots: THREE.Group, clip: THREE.Plane | null = null): void {
     const data = this.ctx.stationData
     if (!data) return
-    const roads = data.modules.filter(m => m.type === 'road')
-    if (!roads.length) { this.root.visible = false; return }
+    const network=getRoadNetwork(data.modules)
+    if(!this.traffic || this.traffic.network!==network || this.traffic.seed!==data.seed) this.traffic=new RoadTraffic(network,data.seed)
+    if (!network.roads.length) { this.root.visible = false; return }
     this.root.visible = true
     if (!this.meshes.size) for (const kind of ['car', 'bus', 'bike', 'scooter'] as const) {
       this.meshes.set(kind, roadVehicleParts(kind).map(({ geometry, material }) => {
@@ -43,30 +48,43 @@ export class RoadTrafficSystem extends SceneSystem {
       const mat = mesh.material as THREE.Material
       if (!!mat.clippingPlanes?.length !== !!clip) { mat.clippingPlanes = clip ? [clip] : []; mat.needsUpdate = true }
     }
+    for(const mat of [...this.signalMats,this.unlit]) if(!!mat.clippingPlanes?.length!==!!clip) {
+      mat.clippingPlanes=clip?[clip]:[];mat.needsUpdate=true
+    }
     const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
     const time = this.from + (this.to - this.from) * alpha
     // Once interpolation settles, paused views require no further buffer uploads.
-    const key = `${time}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideGround}|${this.ctx.cutaway}`
+    const key = `${data.seed}|${time}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideGround}|${this.ctx.cutaway}`
     const visible = new Set(moduleRoots.children.filter(g => g.visible).map(g => g.userData.moduleId))
-    const visibility = [...visible].join('|')
+    const visibility = moduleRoots.children.filter(g=>g.visible).map(g=>g.uuid).join('|')
     if (this.roads === data.modules && this.root.userData.key === key && this.root.userData.visibility === visibility) return
     this.roads = data.modules; this.root.userData.key = key; this.root.userData.visibility = visibility
     const counts = new Map<RoadVehicleKind, number>()
-    let total = 0
-    for (const r of roads) {
-      if (r.type !== 'road' || !visible.has(r.id)) continue
-      const { lanes, length } = roadLayout(r)
-      for (let lane = 0; lane < lanes && total < CAPACITY; lane++) for (let slot = 0; slot < Math.max(1, Math.floor(length / ROAD_TRAFFIC_SPACING)) && total < CAPACITY; slot++) {
-        const p = roadTrafficPose(r, lane, slot, time, data.seed)
-        if (!p.spawn || !p.visible) continue
-        const [x, y] = roadPoint(r, p.across, p.along)
-        this.pose.position.set(x, y, r.z + 1.05)
-        this.pose.rotation.set(0, 0, ((r.rot ?? 0) % 2 ? -Math.PI / 2 : 0) + (p.sign < 0 ? Math.PI : 0))
-        this.pose.updateMatrix()
-        const index = counts.get(p.kind) ?? 0
-        for (const mesh of this.meshes.get(p.kind)!) mesh.setMatrixAt(index, this.pose.matrix)
-        counts.set(p.kind, index + 1); total++
+    this.traffic.advance(time)
+    for(const root of moduleRoots.children) for(const signal of root.userData.roadSignals??[]) {
+      const phase=roadSignal(signal.junction,signal.axis,time),active=phase==='red'?0:phase==='amber'?1:2
+      signal.lenses.forEach((lens:THREE.Mesh,i:number)=>{lens.material=i===active?this.signalMats[i]:this.unlit})
+    }
+    for(const c of this.traffic.cars) {
+      const fraction=Math.min(1,Math.max(0,(time-this.traffic.time)/ROAD_STEP))
+      const previous=network.edges[c.previousEdge]
+      let edge=c.edge,distance=c.distance
+      if(c.previousEdge===c.edge) distance=c.previousDistance+(c.distance-c.previousDistance)*fraction
+      else {
+        const travelled=(previous.length-c.previousDistance+c.distance)*fraction
+        if(c.previousDistance+travelled<previous.length) {edge=c.previousEdge;distance=c.previousDistance+travelled}
+        else distance=c.previousDistance+travelled-previous.length
       }
+      const e=network.edges[edge]
+      if(!visible.has(e.road.id)) continue
+      const t=Math.max(0,Math.min(1,distance/e.length)),[x,y]=roadEdgePoint(e,t)
+      const dx=e.control?2*((1-t)*(e.control[0]-e.start[0])+t*(e.end[0]-e.control[0])):e.end[0]-e.start[0]
+      const dy=e.control?2*((1-t)*(e.control[1]-e.start[1])+t*(e.end[1]-e.control[1])):e.end[1]-e.start[1]
+      this.pose.position.set(x,y,e.road.z+1.05)
+      this.pose.rotation.set(0,0,Math.atan2(-dx,dy));this.pose.updateMatrix()
+      const index=counts.get(c.kind)??0
+      for(const mesh of this.meshes.get(c.kind)!) mesh.setMatrixAt(index,this.pose.matrix)
+      counts.set(c.kind,index+1)
     }
     for (const [kind, meshes] of this.meshes) for (const mesh of meshes) {
       mesh.count = counts.get(kind) ?? 0
@@ -78,5 +96,7 @@ export class RoadTrafficSystem extends SceneSystem {
       mesh.dispose(); mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose()
     }
     this.meshes.clear(); this.root.removeFromParent()
+    for(const m of this.signalMats) m.dispose()
+    this.unlit.dispose()
   }
 }

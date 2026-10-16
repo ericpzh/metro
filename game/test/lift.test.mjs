@@ -246,6 +246,7 @@ test('the car pose is deterministic and reports a door fraction in 0..1', () => 
   }
   assert.deepEqual([...a.liftRenderState()], [...b.liftRenderState()])
   const pose = a.liftRenderState()
-  assert.equal(pose.length, 6)
+  assert.equal(pose.length, 7)
   assert.ok(pose[5] >= 0 && pose[5] <= 1, `door fraction out of range: ${pose[5]}`)
+  assert.ok(pose[6] === 1 || pose[6] === 2, `door side out of range: ${pose[6]}`)
 })

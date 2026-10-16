@@ -23,6 +23,7 @@ export {
   type SignLineInput,
 } from './model/Equipment.ts';
 export { extendLift, liftInColumn } from './model/Lifts.ts';
+export { addRoadSegment, removeRoadSegment } from './model/Roads.ts';
 export { paintBridgeSurface } from './model/BridgePaint.ts';
 export { syncBridgePillars } from './model/BridgePillars.ts';
 export {

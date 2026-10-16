@@ -366,6 +366,7 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'monitor':
     case 'monitor-ceiling':
     case 'monitor-wall':
+    case 'traffic-light':
     case 'rail-signal':
       return createModule(id, 0, 0, 0, id)
     case 'tv':

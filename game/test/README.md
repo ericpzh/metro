@@ -314,6 +314,9 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 
 | Area | Files |
 |---|---|
+| Authored road nodes | `road-document.test.mjs` — segment splits, shared-node lifetime, legacy migration, duplicate/elevation rules, width merges, save/undo, node input, hidden/refused pieces and node-buffer ownership. |
+| Road network and traffic | `road-network.test.mjs` — crossings/T joins, directed turns, bounded topology cache/vehicle capacity, signals, lane gaps, bus tail reservations, clock seeks, derived facilities and traffic-light decor; right-hand rotations, lane-specific turns/T splits, preview arrows and incoming-only stop lines. |
+| Elevator doors | `lift-doors.test.mjs` — per-storey front/back/both/none choices, landing geometry, graph stops and ride edges, render-facing snapshot, and save round trip. `check:info-panel` covers the browser dialog and per-floor undo. |
 | Architecture | `layering`, `scene-wiring` — the sibling-wiring guard, and the `setStation` boards-only/inert-decor fast paths: one-sign verdict, chunk remesh skipped, station-wide plate repaints kept on the full path |
 | Numbers | `rng`, `clock`, `demand`, `headway` |
 | 屏蔽端门 | `psd-end` — fixed glass stack, matching heights, Tab preview refresh, shortened corner snapping and exact 1 m extensions, tile-contained meshes/reservations and adjacent block/equipment placement, hover/click placement, undo, walk barrier and save/load; curtain-wall widths and picking |
@@ -544,21 +547,22 @@ backpacks, equal selection within each age pool, and the smaller pack's visible
 depth throughout walking.
 `passenger-view` pins the expanded catalogue alongside the shared draw and gait.
 
-`roads.test.mjs` covers the 站外 车道 surface brush: rectangular drags, one-way
+`roads.test.mjs` covers the 站外 道路 node builder: centerline drags, one-way
 and two-way lane counts (3 m per lane; two-way counts round down to equal pairs),
-R quarter-turns and immediate R/Tab preview refresh, ground support at 0 m or above,
+R flow reversal and immediate width/direction preview refresh, ground support at 0 m or above,
 intersection ink clipping, save/load, vehicle geometry and a single undoable
-placement gesture. Road traffic is ambient: it travels straight through crossings
-and follows the simulation clock, pausing and fast-forwarding with it; it does not
-carry passengers. Seeded spawns use half the original density with 10% buses,
+placement gesture. Road traffic is ambient: directed lane connectors join crossings and T junctions,
+vehicles queue at signals, and their movement follows the simulation clock. It does
+not carry passengers; derived zebra markings remain visual. Seeded spawns use half the original density with 10% buses,
 60% scooters and 30% cars.
 
 Roads cut pedestrian routing on their own floor and swept movement keeps crowd
 pressure off the pavement. Editing a road beneath walkers relocates them to the
 nearest remaining pedestrian floor before replanning. Vehicle materials are
 grayscale and share the passenger material's 70% opacity. `npm run check:roads` drives the real
-production viewport in Chinese and English: first flat-ground drag, R rotation,
-Tab direction refresh without pointer movement, and one road commit on release.
+production viewport in Chinese and English: centerline node drags, R flow reversal,
+Tab width / Shift+Tab direction refresh, endpoint extension, mid-road branches,
+segment-only deletion and undo/redo. Each gesture commits once on release.
 This catches release dispatch falling through to the block tool and ghost keys
 omitting road dimensions/direction. Screenshots/reports live in `.preview/roads/`.
 
@@ -569,3 +573,8 @@ invalidation/disposal, and continued pedestrian graph invalidation. `bench:road`
 drives cold and warm hover/press/drag/cancel/release through the production viewport;
 its raw reports and optional CPU profiles go under `.preview/perf/`. See
 `game/PERFORMANCE.md` for controlled before/after measurements.
+
+
+The production browser check `node tools/check-road-network.mjs` covers both locales,
+actual road signal meshes, turning/waiting vehicles, paused buffers and WebGL errors;
+its timings/screenshots live under ignored `.preview/perf/road-network/`.

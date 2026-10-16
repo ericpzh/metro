@@ -31,6 +31,8 @@ export interface ToolSlice {
    */
   autoWalls: boolean
   moduleType: string
+  roadWidth: number
+  cycleRoadWidth: () => void
   roadDirection: 'one-way' | 'two-way'
   toggleRoadDirection: () => void
   /** Quarter-turn applied to the equipment being placed: 0..3. */
@@ -235,6 +237,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // the ring on its own tile.
   autoWalls: false,
   moduleType: 'gate',
+  roadWidth: 6,
+  cycleRoadWidth: () => set(s => ({ roadWidth: [6,12,18,24].find(w=>w>s.roadWidth)??6 })),
   roadDirection: 'two-way',
   toggleRoadDirection: () => set(s => ({ roadDirection: s.roadDirection === 'one-way' ? 'two-way' : 'one-way' })),
   moduleRot: 0,
@@ -292,7 +296,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // A fixed-angle piece simply ignores the turn, so the guard lives here as well
   // as on the rail button.
   rotateModule: () =>
-    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType.startsWith('pillar-slim') ? (s.moduleRot + 1) % 9 : s.moduleType === 'light-rectangular' ? (s.moduleRot + 1) % 2 : (s.moduleRot + 3) % 4) } : {})),
+    set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType.startsWith('pillar-slim') ? (s.moduleRot + 1) % 9 : s.moduleType === 'road' ? (s.moduleRot + 2) % 4 : s.moduleType === 'light-rectangular' ? (s.moduleRot + 1) % 2 : (s.moduleRot + 3) % 4) } : {})),
   rotateWallSnap: () => set((s) => ({ wallSnapCycle: s.wallSnapCycle + 1 })),
   setHalfWall: (on) => set({ halfWall: on, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
   toggleHalfWall: () => get().setHalfWall(!get().halfWall),

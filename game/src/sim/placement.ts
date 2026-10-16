@@ -1,5 +1,5 @@
 import { roadSurfaceReason } from './roadPlacement.ts'
-import { ROAD_LANE_WIDTH } from './constants.ts'
+import { ROAD_LANE_WIDTH, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
 import { msg } from './i18n.ts'
 import type { BlockIndex } from './blockIndex.ts'
 // Equipment footprints and collision, GAME-SPEC §5.
@@ -470,6 +470,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return m.cfg.mount === 'wall'
         ? wallPanelBox(m, monitorCells(m), z0 + 0.5, z0 + 2.5)
         : { x0: m.x, y0: m.y, z0: z0 + 1.7, x1: m.x + 1, y1: m.y + 1, z1: z0 + 3 }
+    case 'traffic-light': return { x0: m.x + .2, y0: m.y + .2, z0, x1: m.x + .8, y1: m.y + .8, z1: z0 + TRAFFIC_LIGHT_HEIGHT }
     case 'rail-signal': {
       const half = 0.38 * RAIL_SIGNAL_SCALE
       return { x0: m.x + 0.5 - half, y0: m.y + 0.5 - half, z0, x1: m.x + 0.5 + half, y1: m.y + 0.5 + half, z1: z0 + RAIL_SIGNAL_HEIGHT }
@@ -1906,7 +1907,7 @@ export function pillarAt(
  * branch) re-checked by `moveDropReason` at the drop.
  */
 const MOVABLE_TYPES: ReadonlySet<string> = new Set([
-  'monitor', 'rail-signal',
+  'monitor', 'traffic-light', 'rail-signal',
   'hanger',
   'ac-unit', 'electrical-cabinet', 'tactile', 'floor-mark',
   'gate',
@@ -2117,11 +2118,11 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     if (placementOnTrack(cells, candidate, modules)) return 'track'
     return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
   }
-  if (candidate.type === 'rail-signal' || candidate.type === 'shelf' || candidate.type === 'checkout' || candidate.type === 'desk' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
+  if (candidate.type === 'traffic-light' || candidate.type === 'rail-signal' || candidate.type === 'shelf' || candidate.type === 'checkout' || candidate.type === 'desk' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
     const box = moduleEnvelope(candidate)!
     if (cells.some((c) => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
   }
-  if ((candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
+  if ((candidate.type === 'traffic-light' || candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'exit' && (candidate.cfg as { style?: string }).style === 'virtual' && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
@@ -2283,6 +2284,7 @@ const MODULE_TYPE_LABELS: Record<string, string> = {
   linemap: msg('network_map'),
   tv: msg('tv'),
   monitor: msg('monitor'),
+  'traffic-light': msg('traffic_light'),
   'rail-signal': msg('rail_signal'),
   sign: msg('sign'),
   exit: msg('entrances'),

@@ -85,7 +85,7 @@ const SWEEP_TYPES: ReadonlySet<string> = new Set<string>([
  */
 export function sweepFamily(mod: Module): string | null {
   if (mod.type === 'monitor') return `monitor:${mod.cfg.mount}`
-  if (mod.type === 'rail-signal') return mod.type
+  if (mod.type === 'traffic-light' || mod.type === 'rail-signal') return mod.type
   if (mod.type === 'extinguisher') return mod.cfg.variant === 'compact' || mod.cfg.variant === 'glass' ? `extinguisher-${mod.cfg.variant}` : 'extinguisher'
   if (mod.type === 'gate') return mod.cfg.variant === 'new' ? 'gate-new' : 'gate'
   if (mod.type === 'psd-end') return `psd-end:${mod.cfg.psd}`

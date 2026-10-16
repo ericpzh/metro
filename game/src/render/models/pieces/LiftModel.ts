@@ -3,7 +3,7 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab, plate, registerDoorLeaf, ownedMaterial } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
-import { LIFT_STEP, liftStopZs } from '../../../sim/lifts.ts'
+import { LIFT_STEP, liftServesSide, liftStopZs } from '../../../sim/lifts.ts'
 import { solidAt } from '../../../sim/ground.ts'
 import type { Module, StationData } from '../../../sim/types.ts'
 
@@ -17,28 +17,12 @@ import type { Module, StationData } from '../../../sim/types.ts'
  * it leaves does the rest of the job — the cabin and its call panel fit under it.
  */
 const LIFT_CAP = 0.14
-
-/** Landing doors stay on the shaft; car doors travel with the cabin (§5.1). */
-function landingDoors(g: THREE.Group, height: number, panel: THREE.Material, steel: THREE.Material, glazed: boolean): void {
-  const landing = new THREE.Group()
-  landing.name = 'landing-doors'
-  landing.position.z = height
-  g.add(landing)
-  const doors: THREE.Mesh[] = []
-  for (const sign of [-1, 1]) {
-    const leaf = slab(landing, panel, sign * 0.36, -0.82, 1.19, 0.72, 0.035, 2.24)
-    leaf.name = 'landing-door-leaf'
-    if (glazed) {
-      for (const x of [-0.33, 0.33]) slab(leaf, steel, x, 0, 0, 0.06, 0.06, 2.24)
-      for (const z of [-1.08, 1.08]) slab(leaf, steel, 0, 0, z, 0.72, 0.06, 0.08)
-      slab(leaf, steel, 0, 0, -0.855, 0.72, 0.06, 0.45)
-    }
-    registerDoorLeaf(leaf, sign, 0.7, doors)
-  }
-  landing.userData.doors = doors
-  const landings = (g.userData.liftLandings ??= []) as THREE.Group[]
-  landings.push(landing)
-}
+/** Wall centre-line, so the assembly reads as 2 m across. */
+const LIFT_OUTER = 0.94
+/** 1.44 m clear carriage. */
+const LIFT_INNER = 0.72
+/** How far up the doorway is cut before the header closes it (metres). */
+const LIFT_DOORWAY_H = 2.58
 
 /**
  * True when `(x, y, z)` is walkable floor: solid, with nothing solid above it.
@@ -52,15 +36,121 @@ function floorAt(data: StationData, x: number, y: number, z: number): boolean {
 }
 
 /**
+ * Landing doors stay on the shaft; car doors travel with the cabin (§5.1).
+ *
+ * A storey's doors are built on **one face** at a time: the group carries the
+ * face's own y and a `bank` (1 front / local −y, 2 back / local +y), which
+ * `LiftSystem` reads so a through-floor only opens the side the car was called
+ * to. The leaves themselves are built at the group's origin so the same
+ * geometry serves either face.
+ */
+function landingDoors(g: THREE.Group, height: number, back: boolean, panel: THREE.Material, steel: THREE.Material, glazed: boolean): void {
+  const side = back ? 1 : -1
+  const landing = new THREE.Group()
+  landing.name = back ? 'landing-doors-back' : 'landing-doors-front'
+  landing.userData.bank = back ? 2 : 1
+  landing.position.set(0, side * 0.82, height)
+  g.add(landing)
+  const doors: THREE.Mesh[] = []
+  for (const sign of [-1, 1]) {
+    const leaf = slab(landing, panel, sign * 0.36, 0, 1.19, 0.72, 0.035, 2.24)
+    leaf.name = 'landing-door-leaf'
+    if (glazed) {
+      for (const x of [-0.33, 0.33]) slab(leaf, steel, x, 0, 0, 0.06, 0.06, 2.24)
+      for (const z of [-1.08, 1.08]) slab(leaf, steel, 0, 0, z, 0.72, 0.06, 0.08)
+      slab(leaf, steel, 0, 0, -0.855, 0.72, 0.06, 0.45)
+    }
+    registerDoorLeaf(leaf, sign, 0.7, doors)
+  }
+  landing.userData.doors = doors
+  const landings = (g.userData.liftLandings ??= []) as THREE.Group[]
+  landings.push(landing)
+}
+
+/** The steel lift's threshold, jambs, header and call panel on one face. */
+function steelLandingPortal(g: THREE.Group, height: number, back: boolean, mats: ModuleContext['mats']): void {
+  const side = back ? 1 : -1
+  const y = side * LIFT_OUTER
+  landingDoors(g, height, back, mats.steel, mats.steel, false)
+  for (const x of [-0.79, 0.79]) slab(g, mats.darkSteel, x, y, height + 1.16, 0.18, 0.16, 2.32)
+  slab(g, mats.darkSteel, 0, y, height + 2.43, 1.74, 0.16, 0.22)
+  slab(g, mats.darkSteel, 0, y - side * 0.02, height + 0.03, 1.9, 0.22, 0.06)
+  slab(g, mats.black, 0.6, y + side * 0.03, height + 1.35, 0.3, 0.04, 0.18)
+  slab(g, mats.ledGreen, 0.6, y + side * 0.05, height + 1.35, 0.12, 0.02, 0.07)
+}
+
+/** The glazed lift's stainless portal and transom on one face. */
+function glassLandingPortal(
+  g: THREE.Group,
+  height: number,
+  back: boolean,
+  shaftH: number,
+  mats: ModuleContext['mats'],
+  steel: THREE.Material,
+  glass: THREE.Material,
+): void {
+  const side = back ? 1 : -1
+  const y = side * LIFT_OUTER
+  landingDoors(g, height, back, glass, steel, true)
+  slab(g, steel, 0, y - side * 0.04, height + 0.035, 1.88, 0.22, 0.07)
+  // Stainless landing portal and its glazed transom leave the doorway clear.
+  for (const x of [-0.79, 0.79]) slab(g, steel, x, y, height + 1.16, 0.18, 0.16, 2.32)
+  slab(g, steel, 0, y, height + 2.43, 1.74, 0.16, 0.22)
+  const top = Math.min(height + LIFT_STEP, shaftH)
+  if (top > height + LIFT_DOORWAY_H) slab(g, glass, 0, y, (height + LIFT_DOORWAY_H + top) / 2, 1.72, 0.025, top - height - LIFT_DOORWAY_H)
+  slab(g, mats.black, 0, y + side * 0.065, height + 2.43, 0.34, 0.02, 0.13)
+  slab(g, mats.ledGreen, 0, y + side * 0.073, height + 2.43, 0.09, 0.012, 0.06)
+  slab(g, steel, 0.79, y + side * 0.06, height + 1.12, 0.11, 0.025, 0.28)
+  for (const h of [1.08, 1.17]) slab(g, mats.black, 0.79, y + side * 0.073, height + h, 0.045, 0.012, 0.04)
+}
+
+/** A shaft storey that opens onto `back` really has a landing to open onto. */
+function backLandingAt(data: StationData, mod: Extract<Module, { type: 'lift' }>, z: number): boolean {
+  return liftServesSide(mod.cfg, z, 'back') && floorAt(data, mod.x, mod.y, z)
+}
+
+/** True when any served storey opens a back door, so the cabin needs one too. */
+function hasBackLandings(data: StationData, mod: Extract<Module, { type: 'lift' }>): boolean {
+  return liftStopZs(mod.from.z, mod.to.z).some((z) => backLandingAt(data, mod, z))
+}
+
+/** The moving steel cabin leaves of one face (front −1 or back +1 bank). */
+function steelCabinDoors(cabin: THREE.Group, back: boolean, mats: ModuleContext['mats'], doors: THREE.Mesh[]): void {
+  const y = back ? LIFT_INNER - 0.02 : -LIFT_INNER + 0.02
+  for (const s of [-1, 1]) {
+    const leaf = slab(cabin, mats.black, s * 0.36, y, 1.24, 0.72, 0.06, 2.15)
+    registerDoorLeaf(leaf, s, 0.7, doors, back ? 1 : -1)
+  }
+}
+
+/** The moving glass cabin leaves of one face, frames printed onto each leaf. */
+function glassCabinDoors(cabin: THREE.Group, back: boolean, mats: ModuleContext['mats'], steel: THREE.Material, glass: THREE.Material, doors: THREE.Mesh[]): void {
+  const y = back ? 0.73 : -0.73
+  for (const s of [-1, 1]) {
+    const leaf = slab(cabin, glass, s * 0.36, y, 1.24, 0.72, 0.035, 2.15)
+    for (const x of [-0.33, 0.33]) slab(leaf, steel, x, 0, 0, 0.06, 0.06, 2.15)
+    for (const z of [-1.035, 1.035]) slab(leaf, steel, 0, 0, z, 0.72, 0.06, 0.08)
+    slab(leaf, steel, 0, 0, -0.79, 0.72, 0.06, 0.45)
+    slab(leaf, mats.psu, 0, back ? 0.024 : -0.024, -0.16, 0.6, 0.012, 0.025)
+    registerDoorLeaf(leaf, s, 0.7, doors, back ? 1 : -1)
+  }
+}
+
+/**
  * An elevator (电梯). A 2 × 2 m vertical shaft with a moving 1.5 × 1.5 m cabin:
  * a steel frame and back/side walls, landing doors, a threshold and a
  * call panel at every floor the shaft actually serves, and a cabin whose doors
  * slide apart. Only real landings get a sill/panel — a shaft that runs past a
  * floorless level shows nothing there. The cabin group is left in
- * `userData.liftCabin` and its two leaves are registered as doors, so
+ * `userData.liftCabin` and its leaves are registered as doors, so
  * `SceneRenderer.setLifts` can travel the cabin and ease the doors from the sim
  * car state. Built in world space so one model spans every storey of the shaft;
  * the group origin is the centre of the 2 × 2 plan.
+ *
+ * A storey may be configured to open its cabin doors on the front, the back or
+ * both faces (§5.1): each face gets its own landing portal, and the back wall
+ * (and the cabin's own back wall) is cut wherever a back door stands so the
+ * doorway is real and not glassed over.
  */
 function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): THREE.Group {
   const mats = ctx.mats
@@ -75,50 +165,61 @@ function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): 
   const ceiling = runH + LIFT_STEP - 1
   const H = ceiling - LIFT_CAP
   const capMid = ceiling - LIFT_CAP / 2
-  const outer = 0.94 // wall centre-line, so the assembly reads as 2 m across
-  const inner = 0.72 // 1.44 m clear carriage
   const midH = H / 2
+  const anyBack = hasBackLandings(ctx.data, mod)
 
-  // Four corner posts and the back/side walls; the front (local −y) stays open.
+  // Four corner posts and the side walls; the front (local −y) stays open. The
+  // back wall is drawn a storey at a time so a back-door storey leaves a real
+  // doorway (the wall resumes above the header).
   for (const sx of [-1, 1]) {
-    for (const sy of [-1, 1]) slab(g, mats.darkSteel, sx * outer, sy * outer, midH, 0.14, 0.14, H)
+    for (const sy of [-1, 1]) slab(g, mats.darkSteel, sx * LIFT_OUTER, sy * LIFT_OUTER, midH, 0.14, 0.14, H)
   }
-  slab(g, mats.steel, 0, outer, midH, 1.74, 0.12, H)
-  slab(g, mats.steel, -outer, 0, midH, 0.12, 1.74, H)
-  slab(g, mats.steel, outer, 0, midH, 0.12, 1.74, H)
+  if (anyBack) {
+    // Cut a real doorway wherever a storey opens its back doors; the wall resumes
+    // above the header. A shaft with no back doors keeps its one solid slab.
+    for (const z of liftStopZs(mod.from.z, mod.to.z)) {
+      const L = z - mod.from.z
+      const top = Math.min(L + LIFT_STEP, H)
+      // A back-door storey keeps only the wall **above** its doorway; every
+      // other storey is walled from its own floor up.
+      const lo = backLandingAt(ctx.data, mod, z) ? Math.max(L, L + LIFT_DOORWAY_H) : L
+      if (top - lo > 0.1) slab(g, mats.steel, 0, LIFT_OUTER, (lo + top) / 2, 1.74, 0.12, top - lo)
+    }
+  } else {
+    slab(g, mats.steel, 0, LIFT_OUTER, midH, 1.74, 0.12, H)
+  }
+  slab(g, mats.steel, -LIFT_OUTER, 0, midH, 0.12, 1.74, H)
+  slab(g, mats.steel, LIFT_OUTER, 0, midH, 0.12, 1.74, H)
 
-  // A threshold sill and a call panel at every real landing in the column.
+  // A threshold sill and a call panel at every real landing in the column, on
+  // each face the storey opens onto.
   for (const z of liftStopZs(mod.from.z, mod.to.z)) {
     if (!floorAt(ctx.data, mod.x, mod.y, z)) continue
     const L = z - mod.from.z
-    landingDoors(g, L, mats.steel, mats.steel, false)
-    for (const x of [-0.79, 0.79]) slab(g, mats.darkSteel, x, -outer, L + 1.16, 0.18, 0.16, 2.32)
-    slab(g, mats.darkSteel, 0, -outer, L + 2.43, 1.74, 0.16, 0.22)
-    slab(g, mats.darkSteel, 0, -outer + 0.02, L + 0.03, 1.9, 0.22, 0.06)
-    slab(g, mats.black, 0.6, -outer - 0.03, L + 1.35, 0.3, 0.04, 0.18)
-    slab(g, mats.ledGreen, 0.6, -outer - 0.05, L + 1.35, 0.12, 0.02, 0.07)
+    if (liftServesSide(mod.cfg, z, 'front')) steelLandingPortal(g, L, false, mats)
+    if (liftServesSide(mod.cfg, z, 'back')) steelLandingPortal(g, L, true, mats)
   }
   slab(g, mats.darkSteel, 0, 0, capMid, 2.04, 2.04, LIFT_CAP)
 
-  // The cabin: floor, roof, back and sides, with the two door leaves at the
-  // front. Its local origin is the cabin floor, so the renderer only sets z.
+  // The cabin: floor, roof, sides, with the two door leaves on each face it
+  // serves. Its local origin is the cabin floor, so the renderer only sets z.
   const cabin = new THREE.Group()
   g.add(cabin)
   g.userData.liftCabin = cabin
   slab(cabin, mats.steel, 0, 0, 0.05, 1.5, 1.5, 0.1)
   slab(cabin, mats.darkSteel, 0, 0, 2.42, 1.54, 1.54, 0.12)
-  slab(cabin, mats.steel, 0, inner, 1.24, 1.5, 0.06, 2.32)
-  slab(cabin, mats.steel, -inner, 0, 1.24, 0.06, 1.44, 2.32)
-  slab(cabin, mats.steel, inner, 0, 1.24, 0.06, 1.44, 2.32)
-  // Interior light and a mirror panel on the back wall.
+  slab(cabin, mats.steel, -LIFT_INNER, 0, 1.24, 0.06, 1.44, 2.32)
+  slab(cabin, mats.steel, LIFT_INNER, 0, 1.24, 0.06, 1.44, 2.32)
+  // Interior light, and a mirror on the back wall when it is not a doorway.
   slab(cabin, mats.glow, 0, 0, 2.3, 0.9, 0.9, 0.04)
-  plate(cabin, mats.screen, 0.9, 1.2, 0, inner - 0.04, 1.3, Math.PI)
   const doors: THREE.Mesh[] = []
-  const leafW = 0.72
-  for (const s of [-1, 1]) {
-    const leaf = slab(cabin, mats.black, (s * leafW) / 2, -inner + 0.02, 1.24, leafW, 0.06, 2.15)
-    registerDoorLeaf(leaf, s, 0.7, doors)
+  if (anyBack) {
+    steelCabinDoors(cabin, true, mats, doors)
+  } else {
+    slab(cabin, mats.steel, 0, LIFT_INNER, 1.24, 1.5, 0.06, 2.32)
+    plate(cabin, mats.screen, 0.9, 1.2, 0, LIFT_INNER - 0.04, 1.3, Math.PI)
   }
+  steelCabinDoors(cabin, false, mats, doors)
   g.userData.doors = doors
   return g
 }
@@ -138,7 +239,8 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
   g.rotation.z = ((mod.rot ?? 0) * Math.PI) / 2
   const ceiling = Math.max(LIFT_STEP, mod.to.z - mod.from.z) + LIFT_STEP - 1
   const H = ceiling - LIFT_CAP
-  const outer = 0.94
+  const outer = LIFT_OUTER
+  const anyBack = hasBackLandings(ctx.data, mod)
   for (const x of [-outer, outer]) {
     for (const y of [-outer, outer]) {
       slab(g, steel, x, y, H / 2, 0.14, 0.14, H).name = 'shaft-post'
@@ -156,8 +258,20 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
         for (const z of [bottom + 0.18, top - 0.18]) slab(g, steel, x, y, z, 0.05, 0.08, 0.07)
       }
     }
-    slab(g, glass, 0, outer, mid, 1.72, 0.025, top - bottom - 0.08).name = 'shaft-glass'
-    slab(g, steel, 0, outer, bottom + 0.04, 1.74, 0.12, 0.08).name = 'shaft-crossbeam'
+  }
+  // The back wall is glazed a storey at a time, in the same 2 m bays as the
+  // sides, so a back-door storey is cut open where its landing portal stands
+  // instead of being glassed over.
+  for (const z of liftStopZs(mod.from.z, mod.to.z)) {
+    const L = z - mod.from.z
+    const lo = backLandingAt(ctx.data, mod, z) ? Math.max(L, L + LIFT_DOORWAY_H) : L
+    const hi = Math.min(L + LIFT_STEP, H)
+    for (let bottom = lo; bottom < hi; bottom += 2) {
+      const top = Math.min(bottom + 2, hi)
+      if (top - bottom <= 0.1) break
+      slab(g, glass, 0, outer, (bottom + top) / 2, 1.72, 0.025, top - bottom - 0.08).name = 'shaft-glass'
+      slab(g, steel, 0, outer, bottom + 0.04, 1.74, 0.12, 0.08).name = 'shaft-crossbeam'
+    }
   }
   // Rear guide rails remain visible through the enclosure as the car travels.
   for (const x of [-0.57, 0.57]) {
@@ -167,22 +281,15 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
   for (const z of liftStopZs(mod.from.z, mod.to.z)) {
     const L = z - mod.from.z
     if (!floorAt(ctx.data, mod.x, mod.y, z)) continue
-    landingDoors(g, L, glass, steel, true)
-    slab(g, steel, 0, -outer + 0.04, L + 0.035, 1.88, 0.22, 0.07)
-    // Stainless landing portal and its glazed transom leave the doorway clear.
-    for (const x of [-0.79, 0.79]) slab(g, steel, x, -outer, L + 1.16, 0.18, 0.16, 2.32)
-    slab(g, steel, 0, -outer, L + 2.43, 1.74, 0.16, 0.22)
-    const top = Math.min(L + LIFT_STEP, H)
-    if (top > L + 2.58) slab(g, glass, 0, -outer, (L + 2.58 + top) / 2, 1.72, 0.025, top - L - 2.58)
-    slab(g, mats.black, 0, -outer - 0.065, L + 2.43, 0.34, 0.02, 0.13)
-    slab(g, mats.ledGreen, 0, -outer - 0.073, L + 2.43, 0.09, 0.012, 0.06)
-    slab(g, steel, 0.79, -outer - 0.06, L + 1.12, 0.11, 0.025, 0.28)
-    for (const h of [1.08, 1.17]) slab(g, mats.black, 0.79, -outer - 0.073, L + h, 0.045, 0.012, 0.04)
+    if (liftServesSide(mod.cfg, z, 'front')) glassLandingPortal(g, L, false, H, mats, steel, glass)
+    if (liftServesSide(mod.cfg, z, 'back')) glassLandingPortal(g, L, true, H, mats, steel, glass)
   }
   slab(g, steel, 0, 0, ceiling - LIFT_CAP / 2, 2.04, 2.04, LIFT_CAP)
   const cabin = new THREE.Group()
   g.add(cabin)
   g.userData.liftCabin = cabin
+  const cabinDoors: THREE.Mesh[] = []
+  g.userData.doors = cabinDoors
   slab(cabin, steel, 0, 0, 0.05, 1.5, 1.5, 0.1)
   slab(cabin, mats.rubber, 0, 0, 0.108, 1.36, 1.36, 0.015)
   slab(cabin, steel, 0, 0, 2.42, 1.54, 1.54, 0.12)
@@ -193,20 +300,14 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
     slab(cabin, steel, x, 0, 0.2, 0.055, 1.44, 0.2)
     slab(cabin, steel, x * 0.9, 0, 1.02, 0.035, 1.16, 0.035)
   }
-  slab(cabin, glass, 0, 0.72, 1.3, 1.38, 0.025, 2.12).name = 'cabin-glass'
-  slab(cabin, steel, 0, 0.72, 0.2, 1.44, 0.055, 0.2)
-  slab(cabin, steel, 0, 0.65, 1.02, 1.16, 0.035, 0.035)
-  const doors: THREE.Mesh[] = []
-  for (const s of [-1, 1]) {
-    // Each frame is parented to its glass leaf so every detail slides with it.
-    const leaf = slab(cabin, glass, s * 0.36, -0.73, 1.24, 0.72, 0.035, 2.15)
-    for (const x of [-0.33, 0.33]) slab(leaf, steel, x, 0, 0, 0.06, 0.06, 2.15)
-    for (const z of [-1.035, 1.035]) slab(leaf, steel, 0, 0, z, 0.72, 0.06, 0.08)
-    slab(leaf, steel, 0, 0, -0.79, 0.72, 0.06, 0.45)
-    slab(leaf, mats.psu, 0, -0.024, -0.16, 0.6, 0.012, 0.025)
-    registerDoorLeaf(leaf, s, 0.7, doors)
+  if (anyBack) {
+    glassCabinDoors(cabin, true, mats, steel, glass, cabinDoors)
+  } else {
+    slab(cabin, glass, 0, 0.72, 1.3, 1.38, 0.025, 2.12).name = 'cabin-glass'
+    slab(cabin, steel, 0, 0.72, 0.2, 1.44, 0.055, 0.2)
+    slab(cabin, steel, 0, 0.65, 1.02, 1.16, 0.035, 0.035)
   }
-  g.userData.doors = doors
+  glassCabinDoors(cabin, false, mats, steel, glass, cabinDoors)
   return g
 }
 

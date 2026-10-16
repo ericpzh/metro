@@ -213,7 +213,7 @@ export class ModuleSystem extends SceneSystem {
         const cabin = group.userData.liftCabin as THREE.Object3D | undefined
         if (cabin) {
           const originZ = mod.from.z + 1
-          this.lifts.liftRigs.push(liftRigs.get(group) ?? { key: `${mod.x},${mod.y},${mod.from.z}`, group, cabin, originZ, baseFrom: originZ, baseTo: originZ, doorFrom: 0, doorTo: 0, have: false })
+          this.lifts.liftRigs.push(liftRigs.get(group) ?? { key: `${mod.x},${mod.y},${mod.from.z}`, group, cabin, originZ, baseFrom: originZ, baseTo: originZ, doorFrom: 0, doorTo: 0, side: 1, have: false })
         }
         group.traverse((o) => {
           const mesh = o as THREE.Mesh

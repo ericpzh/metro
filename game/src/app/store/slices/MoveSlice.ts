@@ -62,6 +62,8 @@ export interface MoveSlice {
   liftModule: (moduleId: string) => void
   /** Reverse a placed run's one-way travel (a 扶梯 or its level twin, the 自动步道), footprint unchanged. */
   switchRunDirection: (moduleId: string) => void
+  /** Reverse a one-way road segment without moving its nodes or pavement. */
+  switchRoadDirection: (moduleId: string) => void
   /**
    * Aim the lifted piece: the cell under the pointer, the exact module it would
    * become there and why that cell refuses it (`''` when it does not). Called by
@@ -116,6 +118,16 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     )
     if (modules.every((m, i) => m === st.station.modules[i])) return
     get().commit({ ...st.station, modules })
+  },
+  switchRoadDirection: (moduleId) => {
+    const st = get()
+    const modules = st.station.modules.map((m) =>
+      m.id === moduleId && m.type === 'road' && m.cfg.direction === 'one-way'
+        ? { ...m, rot: ((m.rot ?? 0) + 2) % 4 }
+        : m,
+    )
+    if (modules.every((m, i) => m === st.station.modules[i])) return
+    st.commit({ ...st.station, modules })
   },
   aimMove: (at, candidate, reason) => {
     const d = get().moveDraft

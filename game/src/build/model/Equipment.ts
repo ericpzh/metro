@@ -249,6 +249,7 @@ export function createModule(
       const [ox, oy] = trackOriginForCentre(rot, x, y, w, 1);
       return { id, type: 'monitor', x: ox, y: oy, z, rot, w, cfg: { mount: type === 'monitor-wall' ? 'wall' : 'ceiling' } };
     }
+    case 'traffic-light': return { id, type: 'traffic-light', x, y, z, rot, cfg: {} };
     case 'rail-signal':
       return { id, type: 'rail-signal', x, y, z, rot, cfg: {} };
     case 'tv':

@@ -1,3 +1,4 @@
+import { TrafficLightModel } from './models/pieces/TrafficLightModel.ts'
 // Procedural module models â€” dispatcher plus compatibility barrel (Lane E).
 //
 // buildModule keeps its signature and routes each module type to its piece
@@ -112,6 +113,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
     case 'linemap':
       return new LineMapModel(ctx).build(mod)
     case 'monitor': return new MonitorModel(ctx).build(mod)
+    case 'traffic-light': return new TrafficLightModel(ctx).build(mod)
     case 'rail-signal': return new RailSignalModel(ctx).build(mod)
     case 'tv':
       return raised(new TvModel(ctx).build(mod))

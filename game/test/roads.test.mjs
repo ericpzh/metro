@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { roadFromDrag, roadLayout, roadInkIntervals, roadTrafficPose, roadContainsPoint, roadMoveClear } from '../src/sim/roads.ts'
+import { roadFromDrag, roadLayout, roadInkIntervals, roadContainsPoint, roadMoveClear } from '../src/sim/roads.ts'
+import {getRoadNetwork,roadLaneSign,roadEdgePoint} from '../src/sim/roadNetwork.ts'
+import {RoadTraffic} from '../src/sim/roadTraffic.ts'
 import { PASSENGER_OPACITY } from '../src/sim/constants.ts'
 import { equipmentReason, moduleFootprint } from '../src/sim/placement.ts'
 import { groundWindow } from '../src/sim/ground.ts'
@@ -45,13 +47,16 @@ test('crossings and T junctions remove all lane and edge ink only on the shared 
   assert.deepEqual(roadInkIntervals(a,[t],5.84),[[0,10],[16,40]])
 })
 test('ambient traffic is seeded, follows lane directions, stays inside its road and uses the requested vehicle mix and density', () => {
-  const a = road(12,120), kinds = new Set(), counts={car:0,bus:0,scooter:0}, candidates=1000
-  for (let lane=0;lane<4;lane++) for(let slot=0;slot<250;slot++) {
-    const p = roadTrafficPose(a,lane,slot,100,42)
-    assert.deepEqual(p,roadTrafficPose(a,lane,slot,100,42))
-    if(p.spawn) { kinds.add(p.kind); counts[p.kind]++ }
-    assert.equal(p.sign,lane<2?-1:1)
-    if(p.visible) { assert.ok(p.along>=p.size/2); assert.ok(p.along<=120-p.size/2) }
+  const a=road(12,120),kinds=new Set(),counts={car:0,bus:0,scooter:0},candidates=1200,n=getRoadNetwork([a])
+  for(let lane=0;lane<4;lane++)assert.equal(roadLaneSign(a,lane),lane<2?-1:1)
+  for(let seed=0;seed<50;seed++) {
+    const traffic=new RoadTraffic(n,seed),same=new RoadTraffic(n,seed)
+    traffic.advance(100);same.advance(100);assert.deepEqual(traffic.cars,same.cars)
+    for(const c of traffic.cars) {
+      kinds.add(c.kind);counts[c.kind]++
+      const e=n.edges[c.edge],[x,y]=roadEdgePoint(e,c.distance/e.length)
+      assert.ok(x>=0&&x<=12);assert.ok(y>=c.size/2&&y<=120-c.size/2)
+    }
   }
   assert.equal(kinds.size,3)
   const spawned=counts.car+counts.bus+counts.scooter
@@ -81,13 +86,13 @@ test('road model emits actual asphalt, yellow centre and white ink; saved geomet
 test('road gesture previews without commits, uses one press pick, commits once, undoes and erases', () => {
   const state=emptyStation(),drag={current:null},hover={current:null};let picks=0,preview
   const scene={pickModule:()=>{picks++;return null},setGhost(){},setCursor(){},setModulePreview:m=>{preview=m}}
-  useStore.setState({station:state,past:[],future:[],tool:'module',moduleType:'road',moduleRot:0,roadDirection:'two-way'})
+  useStore.setState({station:state,past:[],future:[],tool:'module',moduleType:'road',moduleRot:0,roadDirection:'two-way',roadWidth:6})
   const tool=new RoadTool({scene:()=>scene,pickModule:()=>{picks++;return null},drag,hover,clearMeasure(){},showMeasure(){}})
   const event=(x,y,button=0)=>({clientX:x,clientY:y,button,buttons:button===2?2:1,shiftKey:false,preventDefault(){},hit:{cell:[x,y,0],place:[x,y,1],solid:true}})
   tool.onDown(event(0,0));tool.onMove(event(5,39))
   assert.equal(picks,1)
   assert.equal(useStore.getState().past.length,0)
-  assert.equal(preview[0].d,40)
+  assert.equal(preview[0].d,45)
   tool.onUp(event(5,39))
   assert.equal(useStore.getState().past.length,1)
   assert.equal(useStore.getState().station.modules.length,1)
@@ -117,12 +122,12 @@ test('traffic instances stop while paused, advance with sim snapshots, follow vi
   traffic.dispose();assert.equal(disposed,meshes.length);assert.equal(ctx.scene.children.length,0)
 })
 
-test('road controls quarter-turn the footprint and picker rotations stay finite', () => {
-  useStore.setState({moduleType:'road',moduleRot:0,roadDirection:'two-way'})
+test('road controls reverse flow and picker rotations stay finite', () => {
+  useStore.setState({moduleType:'road',moduleRot:0,roadDirection:'two-way',roadWidth:6})
   const s=useStore.getState()
-  s.rotateModule();assert.equal(useStore.getState().moduleRot,3)
+  s.rotateModule();assert.equal(useStore.getState().moduleRot,2)
   s.setModuleRot(1);assert.equal(useStore.getState().moduleRot,1)
-  s.rotateModule();assert.equal(useStore.getState().moduleRot,0)
+  s.rotateModule();assert.equal(useStore.getState().moduleRot,3)
   s.toggleRoadDirection();assert.equal(useStore.getState().roadDirection,'one-way')
   s.toggleRoadDirection();assert.equal(useStore.getState().roadDirection,'two-way')
 })
@@ -130,13 +135,13 @@ test('road controls quarter-turn the footprint and picker rotations stay finite'
 test('R and Tab immediately refresh the held road preview and release matches it', () => {
   const drag={current:null},hover={current:null};let preview
   const scene={setGhost(){},setCursor(){},setModulePreview:m=>{preview=m}}
-  useStore.setState({station:emptyStation(),past:[],future:[],tool:'module',moduleType:'road',moduleRot:0,roadDirection:'two-way'})
+  useStore.setState({station:emptyStation(),past:[],future:[],tool:'module',moduleType:'road',moduleRot:0,roadDirection:'two-way',roadWidth:6})
   const tool=new RoadTool({scene:()=>scene,pickModule:()=>null,drag,hover,clearMeasure(){},showMeasure(){}})
   const event=(x,y)=>({clientX:x,clientY:y,button:0,buttons:1,shiftKey:false,preventDefault(){},hit:{cell:[x,y,0],place:[x,y,1],solid:true}})
   tool.onDown(event(0,0));tool.onMove(event(5,19))
-  assert.deepEqual([preview[0].w,preview[0].d],[6,20])
+  assert.deepEqual([preview[0].w,preview[0].d],[6,25])
   useStore.getState().rotateModule();tool.refreshHover()
-  assert.deepEqual([preview[0].w,preview[0].d],[20,6])
+  assert.deepEqual([preview[0].w,preview[0].d],[6,25])
   useStore.getState().toggleRoadDirection();tool.refreshHover()
   assert.equal(preview[0].cfg.direction,'one-way')
   const expected={...preview[0]};tool.onUp(event(5,19))

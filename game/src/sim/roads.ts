@@ -1,4 +1,4 @@
-import { ROAD_LANE_WIDTH, ROAD_TRAFFIC_DENSITY, ROAD_TRAFFIC_SPACING, ROAD_TRAFFIC_SPEED } from './constants.ts'
+import { ROAD_LANE_WIDTH } from './constants.ts'
 // Road surfaces and ambient traffic extend the street plane (§4.1, §9.5).
 import type { Module, StationData } from './types.ts'
 export type Road = Extract<Module, { type: 'road' }>
@@ -13,17 +13,21 @@ export function roadPoint(r: Road, across: number, along: number): [number, numb
   return (r.rot ?? 0) % 2 === 0 ? [r.x + across, r.y + along] : [r.x + along, r.y + across]
 }
 /** Clip ink against every overlapping road at the same elevation, including T junctions. */
-export function roadInkIntervals(r: Road, modules: readonly Module[], across: number): Array<[number, number]> {
+export function roadInkIntervals(r: Road, modules: readonly Module[], across: number, junctionMargin = 0): Array<[number, number]> {
   const { acrossX, length } = roadLayout(r)
   let spans: Array<[number, number]> = [[0, length]]
   for (const other of modules) {
     if (other.type !== 'road' || other.id === r.id || other.z !== r.z) continue
+    // Shared caps on collinear segments keep continuous ink. Draw their overlap
+    // once, owned by the stable earlier segment, rather than erasing both sides.
+    if(roadLayout(other).acrossX===acrossX && (acrossX?other.x===r.x&&other.w===r.w:other.y===r.y&&other.d===r.d) && other.id>r.id) continue
     const cross = (acrossX ? r.x : r.y) + across
     const cross0 = acrossX ? other.x : other.y
     const cross1 = cross0 + (acrossX ? other.w : other.d)
     if (cross < cross0 || cross > cross1) continue
-    const lo = (acrossX ? other.y - r.y : other.x - r.x)
-    const hi = lo + (acrossX ? other.d : other.w)
+    const margin=roadLayout(other).acrossX!==acrossX?junctionMargin:0
+    const lo = (acrossX ? other.y - r.y : other.x - r.x)-margin
+    const hi = lo + (acrossX ? other.d : other.w)+margin*2
     spans = spans.flatMap(([a, b]) => hi <= a || lo >= b ? [[a, b] as [number, number]] : [
       ...(a < lo ? [[a, lo] as [number, number]] : []),
       ...(hi < b ? [[hi, b] as [number, number]] : []),
@@ -41,24 +45,11 @@ export function roadFromDrag(a: readonly number[], b: readonly number[], rot: nu
 export function roadHash(text: string): number {
   let h = 2166136261
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619)
-  return h >>> 0
+  // Avalanche before modulo selection: FNV's low bit correlates spawn/type rolls.
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b)
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)
+  return (h ^ (h >>> 16)) >>> 0
 }
-export function roadTrafficPose(r: Road, lane: number, slot: number, time: number, seed: number) {
-  const { lanes, laneWidth, length } = roadLayout(r)
-  const hash = roadHash(`${seed}:${r.id}:${lane}:${slot}`)
-  const spawn = roadHash(`spawn:${seed}:${r.id}:${lane}:${slot}`) % Math.round(1 / ROAD_TRAFFIC_DENSITY) === 0
-  const vehicleRoll = roadHash(`kind:${seed}:${r.id}:${lane}:${slot}`) % 10
-  const kind = vehicleRoll === 0 ? 'bus' : vehicleRoll <= 6 ? 'scooter' : 'car'
-  const size = kind === 'bus' ? 10 : kind === 'car' ? 4.2 : 1.9
-  const speed = ROAD_TRAFFIC_SPEED
-  const sign = ((r.rot ?? 0) >= 2 ? -1 : 1) * (r.cfg.direction === 'two-way' && lane < lanes / 2 ? -1 : 1)
-  const count = Math.max(1, Math.floor(length / ROAD_TRAFFIC_SPACING))
-  const distance = ((time * speed + slot * (length + ROAD_TRAFFIC_SPACING) / count + (hash % 100) / 100 * 5) % (length + ROAD_TRAFFIC_SPACING) + length + ROAD_TRAFFIC_SPACING) % (length + ROAD_TRAFFIC_SPACING) - ROAD_TRAFFIC_SPACING / 2
-  const along = sign > 0 ? distance : length - distance
-  return { kind, hash, spawn, sign, size, across: (lane + .5) * laneWidth, along,
-    visible: lanes > 0 && length >= size && along >= size / 2 && along <= length - size / 2 }
-}
-
 /** Roads cut pedestrian paths on their own floor only; elevated decks remain independent. */
 export function roadContainsPoint(roads: readonly Road[], x: number, y: number, floorZ: number): boolean {
   return roads.some(r => r.z === floorZ && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.d)

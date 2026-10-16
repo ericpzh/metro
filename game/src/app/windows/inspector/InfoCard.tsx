@@ -8,15 +8,17 @@ import { useLanguage } from '../../i18n.ts'
 // selected piece, and the lift's own 确认 / 取消, which are a tick and a cross
 // (`IoMdCheckmark` / `IoMdClose`, the same Ionicons the 移动 button is drawn from, so
 // the card the button turns into is visibly the same card). A label apiece made it
-// read as text where the rail reads as tiles; the glyph carries the meaning and the
-// `aria-label` carries the name (which is also what a screen reader reads), and the
-// buttons wear no tooltip, here or anywhere else in this column.
-import { FaEdit, FaRegEye } from 'react-icons/fa'
+// read as text where the rail reads as tiles; the glyph carries the meaning, the
+// `aria-label` carries the name (which is also what a screen reader reads) and the
+// `title` shows the same name as a native hover tooltip.
+import { FaDoorOpen, FaEdit, FaRegEye } from 'react-icons/fa'
 import { HiOutlineRefresh, HiSwitchVertical } from 'react-icons/hi'
 import { IoMdCheckmark, IoMdClose, IoMdMove } from 'react-icons/io'
+import { useState } from 'react'
 import { useStore, moduleLabel } from '../../store.ts'
 import { isMovableModule } from '../../../sim/placement.ts'
 import { refreshTrackForSelection } from './refreshPlatform.ts'
+import { LiftDoorModal } from './LiftDoorModal.tsx'
 
 export function InfoCard(): React.ReactElement {
   useLanguage()
@@ -28,8 +30,11 @@ export function InfoCard(): React.ReactElement {
   // The selected piece, when the selection is a placed module — what 移动 acts on.
   const selectedModule = selected?.kind === 'module' ? station.modules.find((m) => m.id === selected.key) : undefined
   const refreshTrack = refreshTrackForSelection(station.modules, selectedModule)
+  const liftModule = selectedModule?.type === 'lift' ? selectedModule : undefined
   const isSign = selectedModule?.type === 'sign'
   const movable = selectedModule !== undefined && isMovableModule(selectedModule)
+  // The elevator door picker is a modal over the column, opened from the card.
+  const [doorModal, setDoorModal] = useState(false)
   // The lift's own controls take the card over the moment a piece is in the air, so
   // they are read from the lift rather than from the selection: whatever is selected,
   // the tick and the cross are always where the 移动 button was.
@@ -38,14 +43,15 @@ export function InfoCard(): React.ReactElement {
   return (
     <>
       {selected ? (
-        <div className="card">
+        <div className="card infoSelectionCard">
           {moveDraft ? (
             // 移动 (§9.5): while a piece is in the air this card **is** the move's
             // control surface — the same place the 移动 button was pressed, so
             // there is nothing to look for anywhere else. The 3D view shows the
             // translucent ghost under the pointer; here is where it is, whether it
             // will land, and the two ways out of it.
-            <>
+            <div className="infoCardLayout">
+              <div className="infoCardDetails">
               <div className="kv">
                 <span>{t('move')}</span>
                 <b>{translate(moduleLabel(moveDraft.module))}</b>
@@ -57,11 +63,13 @@ export function InfoCard(): React.ReactElement {
                 </b>
               </div>
               {moveDraft.reason !== '' && <div className="moveReason small">{translate(moveDraft.reason)}</div>}
-              <div className="row">
+              </div>
+              <div className="infoCardActions">
                 <button
                   className="chip primary iconOnly"
                   disabled={!canDrop}
                   aria-label={t('confirm_move')}
+                  title={t('confirm_move')}
                   onClick={() => useStore.getState().confirmMove()}
                 >
                   <IoMdCheckmark />
@@ -69,12 +77,13 @@ export function InfoCard(): React.ReactElement {
                 <button
                   className="chip iconOnly"
                   aria-label={t('cancel_move')}
+                  title={t('cancel_move')}
                   onClick={() => useStore.getState().cancelMove()}
                 >
                   <IoMdClose />
                 </button>
               </div>
-            </>
+            </div>
           ) : (
             <>
             <div className="infoCardLayout">
@@ -91,6 +100,7 @@ export function InfoCard(): React.ReactElement {
               <div className="infoCardActions">
                 {selected.kind === 'agent' && (
                   <button className="chip iconOnly" aria-label={t('passenger_eye_view')}
+                    title={t('passenger_eye_view')}
                     aria-pressed={followAgentId === Number(selected.key)}
                     onClick={() => {
                       const st = useStore.getState()
@@ -105,16 +115,39 @@ export function InfoCard(): React.ReactElement {
                     className="chip primary iconOnly"
                     disabled={!movable}
                     aria-label={t('move_value', translate(selected.label))}
+                    title={t('move_value', translate(selected.label))}
                     onClick={() => useStore.getState().liftModule(selected.key)}
                   >
                     <IoMdMove />
+                  </button>
+                )}
+                {liftModule && (
+                  <button
+                    className="chip iconOnly"
+                    aria-label={t('configure_lift_doors')}
+                    title={t('configure_lift_doors')}
+                    aria-haspopup="dialog"
+                    onClick={() => setDoorModal(true)}
+                  >
+                    <FaDoorOpen />
                   </button>
                 )}
                 {(selectedModule?.type === 'escalator' || selectedModule?.type === 'walkway') && (
                   <button
                     className="chip iconOnly"
                     aria-label={t(selectedModule.type === 'walkway' ? 'reverse_walkway' : 'reverse_escalator')}
+                    title={t(selectedModule.type === 'walkway' ? 'reverse_walkway' : 'reverse_escalator')}
                     onClick={() => useStore.getState().switchRunDirection(selectedModule.id)}
+                  >
+                    <HiSwitchVertical />
+                  </button>
+                )}
+                {selectedModule?.type === 'road' && selectedModule.cfg.direction === 'one-way' && (
+                  <button
+                    className="chip iconOnly"
+                    aria-label={t('reverse_road')}
+                    title={t('reverse_road')}
+                    onClick={() => useStore.getState().switchRoadDirection(selectedModule.id)}
                   >
                     <HiSwitchVertical />
                   </button>
@@ -123,6 +156,7 @@ export function InfoCard(): React.ReactElement {
                   <button
                     className="chip iconOnly"
                     aria-label={t('refresh_selected_platform_doors')}
+                    title={t('refresh_selected_platform_doors')}
                     onClick={() => useStore.getState().regenRail(refreshTrack.id)}
                   >
                     <HiOutlineRefresh />
@@ -132,6 +166,7 @@ export function InfoCard(): React.ReactElement {
                   <button
                     className="chip iconOnly"
                     aria-label={t('edit_sign_board')}
+                    title={t('edit_sign_board')}
                     onClick={() => openSignEditor(selected.key)}
                   >
                     <FaEdit />
@@ -145,6 +180,7 @@ export function InfoCard(): React.ReactElement {
       ) : (
         <div className="muted small">{t('nothing_selected_yet')}</div>
       )}
+      {doorModal && liftModule && <LiftDoorModal mod={liftModule} onClose={() => setDoorModal(false)} />}
     </>
   )
 }

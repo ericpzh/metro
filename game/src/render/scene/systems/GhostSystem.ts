@@ -16,7 +16,7 @@ import { CHUNK, meshChunk, wedgeSlope } from '../../chunkMesher.ts'
 import { buildModule, disposeObject } from '../../models.ts'
 import type { ClockRig } from '../../models.ts'
 import type { ModuleContext } from '../../models.ts'
-import { HALF_WALL_T } from '../../../sim/constants.ts'
+import { HALF_WALL_T, ROAD_NODE_HANDLE_CAPACITY } from '../../../sim/constants.ts'
 import { rampFillKeys, type SlopeCut } from '../../../sim/openings.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace } from '../../../sim/types.ts'
@@ -50,6 +50,34 @@ const FACE_NORMAL: Record<Face, [number, number, number]> = {
 const FACE_UP = new THREE.Vector3(0, 0, 1)
 
 export class GhostSystem extends SceneSystem {
+  private roadNodes: THREE.InstancedMesh | null = null
+  private roadNodeKey = ''
+  setRoadNodePreview(nodes:readonly {x:number;y:number;z:number}[],from?:[number,number],to?:[number,number],z=this.ctx.activeZ):void {
+    const points=nodes.map(n=>({x:n.x,y:n.y,z:n.z,selected:false}))
+    for(const p of [from,to])if(p) {
+      const existing=points.find(n=>n.x===p[0]&&n.y===p[1]&&n.z===z)
+      if(existing)existing.selected=true
+      else points.push({x:p[0],y:p[1],z,selected:true})
+    }
+    points.sort((a,b)=>Number(b.selected)-Number(a.selected))
+    const key=JSON.stringify(points)
+    if(!this.roadNodes) {
+      this.roadNodes=new THREE.InstancedMesh(new THREE.RingGeometry(.24,.4,16),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.95,depthTest:false}),ROAD_NODE_HANDLE_CAPACITY)
+      this.roadNodes.frustumCulled=false;this.roadNodes.renderOrder=10
+      this.ctx.scene.add(this.roadNodes)
+    }
+    this.roadNodes.visible=points.length>0
+    if(key===this.roadNodeKey)return
+    this.roadNodeKey=key
+    const transform=new THREE.Object3D(),colour=new THREE.Color()
+    this.roadNodes.count=Math.min(points.length,ROAD_NODE_HANDLE_CAPACITY)
+    for(let i=0;i<this.roadNodes.count;i++) {
+      const p=points[i];transform.position.set(p.x,p.y,p.z+1.1);transform.scale.setScalar(p.selected?1.6:1);transform.updateMatrix()
+      this.roadNodes.setMatrixAt(i,transform.matrix);this.roadNodes.setColorAt(i,colour.setHex(p.selected?0xffdf70:0x42caff))
+    }
+    this.roadNodes.instanceMatrix.needsUpdate=true
+    if(this.roadNodes.instanceColor)this.roadNodes.instanceColor.needsUpdate=true
+  }
   movingModuleId: string | null = null
   /** Hover preview: a translucent copy of the module a click would place. */
   previewGroup: THREE.Group = new THREE.Group()
@@ -564,6 +592,7 @@ export class GhostSystem extends SceneSystem {
 
   /** Drop the hover preview's geometry and the materials/geometries it owns. */
   clearModulePreview(): void {
+    if(this.roadNodes)this.roadNodes.visible=false
     for (const child of [...this.previewGroup.children]) {
       disposeObject(child)
       this.previewGroup.remove(child)
@@ -658,6 +687,9 @@ export class GhostSystem extends SceneSystem {
   }
 
   override dispose(): void {
+    if(this.roadNodes) {
+      this.roadNodes.geometry.dispose();(this.roadNodes.material as THREE.Material).dispose();this.roadNodes.dispose();this.roadNodes.removeFromParent()
+    }
     this.clearShapeGhost()
     this.clearModulePreview()
     this.clearFencePreview()

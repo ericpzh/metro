@@ -1794,3 +1794,32 @@ glazing above the 2.25 m doors. Keep the header dimensions and lamp placement in
 `module-build` / `psd-end`, and the ink, bilingual physical labels and directional
 terminal rule in `psd-header`. Half-height stickers still share the same artwork
 and directional/terminal decision.
+
+Road network additions: `sim/roadNetwork.ts` caches directed lanes, coalesces same-width
+collinear strokes and builds crossing/T connectors. `sim/roadTraffic.ts` owns bounded
+fixed-step ambient queues and exclusive junction reservations. Road-derived zebra
+markings are visual; pedestrian roads remain blocked. `RoadModel` builds automatic
+signals/crosswalks, while `RoadTrafficSystem` animates their lamps and instanced cars.
+The separate `traffic-light` decor tile belongs in 站外装饰 beside 道路. Keep placement,
+3.5 m pole bounds, picker/move/save and palette identity aligned; preserve dynamic
+lens references when batching. Tests live in `road-network` and `rail-families`;
+`tools/check-road-network.mjs` checks both locales in production WebGL.
+
+Road lane permissions live in `sim/roadLaneMovements.ts`; `roadNetwork.ts` applies
+them to connectors and `RoadModel` reads those connectors for ground arrows. Keep
+two-way handedness independent of half turns. Preview arrows read the candidate
+without building topology; stop lines cover incoming carriageways only. Pin all
+rotations, odd T middle sharing, one-lane combined arrows and live R/Tab refresh.
+
+Road authoring is a node/segment graph in `sim/roadDocument.ts`, separate from the
+lane graph in `roadNetwork.ts`. Nodes derive their stable position/elevation IDs
+from incident `road.cfg.from/to` endpoint references; no isolated node is saved.
+`build/model/Roads.ts` materialises legacy/split segments in one edit. `RoadTool`
+drags orthogonal centre lines, snaps to nodes/roads and inherits source width and
+direction. Width uses Tab, traffic uses Shift+Tab, R reverses flow. Deletion targets
+one segment, including virtual splits in older saves; shared caps and connected
+nodes remain. Node handles are a persistent, bounded GhostSystem instance pool,
+cleared on tool cancellation and restored after station/move-preview cleanup.
+Pin document/gesture/lifecycle behavior in `road-document`, and run `check:roads`
+for production bilingual pointer/keyboard input. Width transitions are uncontrolled
+lane merges in the traffic graph; do not generate signals or zebra crossings there.

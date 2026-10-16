@@ -14,7 +14,7 @@ import type { Module, StationData } from './types.ts'
 
 const INERT_TYPES: ReadonlySet<Module['type']> = new Set([
   'tactile', 'floor-mark', 'billboard', 'glass', 'door', 'calligraphy', 'linemap',
-  'sign', 'tv', 'monitor', 'clock', 'cctv', 'light', 'vent', 'rail-signal',
+  'sign', 'tv', 'monitor', 'clock', 'cctv', 'light', 'vent', 'traffic-light', 'rail-signal',
   'guidepost', 'busstop', 'shelf', 'desk', 'checkout', 'cubicle', 'sink', 'bin',
   'extinguisher',
 ])

@@ -58,7 +58,7 @@ const { buildModule, buildTrain, createModelMaterials, disposeObject, setDoors, 
 const { createModule } = await import('../src/build/model.ts')
 const { STOCK, doorCentres } = await import('../src/sim/stock.ts')
 const { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairFlights, stairRight, stairTurnCells } = await import('../src/sim/stairs.ts')
-const { LIFT_STEP, LIFT_RISE, liftModule } = await import('../src/sim/lifts.ts')
+const { LIFT_STEP, LIFT_RISE, liftModule, liftWithDoorSide } = await import('../src/sim/lifts.ts')
 const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, STAIR_RAIL_PROUD } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
@@ -701,8 +701,8 @@ test('landing doors close the shaft at each served floor and open only with the 
     assert.ok(landings.every((landing) => landing.parent === group && landing.userData.doors.length === 2))
     const sceneCtx = { lastStateTime: 0, stateIntervalMs: 1000 }
     const system = new LiftSystem(sceneCtx)
-    system.liftRigs.push({ key: '4,4,-8', group, cabin, originZ: -7, baseFrom: -7, baseTo: -7, doorFrom: 0, doorTo: 0, have: false })
-    const pose = (height, open) => new Float32Array([4, 4, -8, 0, height, open])
+    system.liftRigs.push({ key: '4,4,-8', group, cabin, originZ: -7, baseFrom: -7, baseTo: -7, doorFrom: 0, doorTo: 0, side: 1, have: false })
+    const pose = (height, open, side = 1) => new Float32Array([4, 4, -8, 0, height, open, side])
     const checkDoors = (owner, fraction) => {
       for (const leaf of owner.userData.doors) {
         assert.ok(Math.abs(leaf.position.x - leaf.userData.closedX - leaf.userData.openSign * 0.7 * fraction) < 1e-6)
@@ -736,6 +736,64 @@ test('landing doors close the shaft at each served floor and open only with the 
     const direction = new THREE.Vector3(0, 1, 0).applyQuaternion(group.quaternion)
     const ray = new THREE.Raycaster(origin, direction)
     assert.ok(ray.intersectObject(landings[0], true).length > 0, 'the empty lower floor is visibly closed by its own doors')
+  }
+})
+
+test('a two-sided storey builds a landing and car door on both faces, and the car opens only the face it was called to', () => {
+  // §5.1: a storey may be reconfigured to open on its front (local −y), its back
+  // (local +y) or both. The shaft then has to carry a real landing and a real car
+  // door on **each** face a storey serves — and the renderer must slide only the
+  // face the sim named in the snapshot's side mask (bit 1 front, bit 2 back), so a
+  // through-floor opens onto the landing the car was called to and not the other.
+  for (const style of ['glass', 'steel']) {
+    // Lower storey opens to the back, upper to the front — one shaft, both faces.
+    const mod = liftWithDoorSide(liftModule({ x: 4, y: 4, z: 0 }, 0, `through-${style}`), 0, 'back')
+    mod.cfg.style = style
+    const cells = [0, LIFT_STEP].map((z) => ({ x: 4, y: 4, z, fill: 'solid' }))
+    const group = buildModule(mod, { ...ctx, data: { ...data, cells, modules: [mod] } })
+    const cabin = group.userData.liftCabin
+    const landings = group.userData.liftLandings
+    assert.equal(landings.length, 2, `${style}: one landing per served storey`)
+    const lower = landings.find((l) => l.userData.bank === 2)
+    const upper = landings.find((l) => l.userData.bank === 1)
+    assert.ok(lower, `${style}: the back storey's landing is on the back face`)
+    assert.ok(upper, `${style}: the front storey's landing is on the front face`)
+    assert.equal(lower.position.y, 0.82, `${style}: the back landing stands past the local +y wall`)
+    assert.equal(upper.position.y, -0.82, `${style}: the front landing stands past the local −y wall`)
+
+    // The car carries two leaves per face, banked by their own ±y.
+    const cabinDoors = group.userData.doors
+    assert.equal(cabinDoors.length, 4, `${style}: two car leaves on each face`)
+    const backLeaves = cabinDoors.filter((d) => d.userData.side === 1)
+    const frontLeaves = cabinDoors.filter((d) => d.userData.side === -1)
+    assert.equal(backLeaves.length, 2)
+    assert.equal(frontLeaves.length, 2)
+    assert.ok(backLeaves.every((d) => d.position.y > 0), `${style}: the back leaves sit on +y`)
+    assert.ok(frontLeaves.every((d) => d.position.y < 0), `${style}: the front leaves sit on −y`)
+
+    const sceneCtx = { lastStateTime: 0, stateIntervalMs: 1000 }
+    const system = new LiftSystem(sceneCtx)
+    // group origin sits at from.z + 1; the cabin floor rides at world z, so its
+    // local offset is `cabinZ − originZ` and the lower landing lines up at 1.
+    system.liftRigs.push({ key: '4,4,0', group, cabin, originZ: 1, baseFrom: 1, baseTo: 1, doorFrom: 0, doorTo: 0, side: 1, have: false })
+    const leaves = (owner) => owner.userData.doors
+    const isOpen = (leaf) => Math.abs(leaf.position.x - leaf.userData.closedX) > 1e-9
+
+    // Called to the lower (back) storey: the back face opens, the front stays shut.
+    system.setLifts(new Float32Array([4, 4, 0, LIFT_STEP, 1, 1, 2]))
+    system.updateLifts(1000)
+    assert.ok(backLeaves.every(isOpen), `${style}: the back car doors open onto the back storey`)
+    assert.ok(frontLeaves.every((d) => !isOpen(d)), `${style}: the front car doors stay shut`)
+    assert.ok(leaves(lower).length > 0 && leaves(lower).every(isOpen), `${style}: the back landing opens with the car`)
+    assert.ok(leaves(upper).every((d) => !isOpen(d)), `${style}: the front landing stays shut`)
+
+    // Called to the upper (front) storey: now only the front face opens.
+    system.setLifts(new Float32Array([4, 4, 0, LIFT_STEP, 5, 1, 1]))
+    system.updateLifts(2000)
+    assert.ok(frontLeaves.every(isOpen), `${style}: the front car doors open onto the front storey`)
+    assert.ok(backLeaves.every((d) => !isOpen(d)), `${style}: the back car doors stay shut`)
+    assert.ok(leaves(upper).every(isOpen), `${style}: the front landing opens with the car`)
+    assert.ok(leaves(lower).every((d) => !isOpen(d)), `${style}: the back landing stays shut`)
   }
 })
 

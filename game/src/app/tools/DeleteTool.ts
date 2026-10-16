@@ -10,6 +10,7 @@ import { removeSweptModules, sweepFamily, sweepThrough } from '../sweep.ts'
 import { moduleLabel, useStore } from '../store.ts'
 import { TactileTool } from './TactileTool.ts'
 import { TileEquipmentTool } from './TileEquipmentTool.ts'
+import { RoadTool } from './RoadTool.ts'
 import { pendingCells, rectCells, straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
@@ -33,6 +34,7 @@ export class DeleteTool extends ToolController {
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     if (picked) {
+      if (picked.type === 'road') { new RoadTool(this.ctx).beginDelete(info,pickedId); return }
       if (picked.type === 'tactile') { new TactileTool(this.ctx).onDown(info); return }
       if (picked.type === 'roof' || (picked.type === 'stair' && picked.cfg.block)) {
         info.preventDefault()
@@ -107,6 +109,7 @@ export class DeleteTool extends ToolController {
   }
 
   onMove(info: PointerInfo): void {
+    if (this.ctx.drag.current?.road) { new RoadTool(this.ctx).onMove(info); return }
     if (this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onMove(info); return }
     if (this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
@@ -184,6 +187,10 @@ export class DeleteTool extends ToolController {
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     if (picked) {
+      if (picked.type === 'road') {
+        new RoadTool(this.ctx).previewDelete(info,pickedId)
+        return
+      }
       scene.setGhost([], 'remove')
       scene.setCollisionHighlight(null)
       scene.setModulePreview(picked, true)
@@ -197,6 +204,7 @@ export class DeleteTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
+    if (this.ctx.drag.current?.road) { new RoadTool(this.ctx).onUp(info); return }
     if (this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onUp(info); return }
     // The viewport routes module/fence/plain-block drags here (never a 围栏
     // placement run — that release belongs to the equipment tool). Each branch

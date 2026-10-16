@@ -63,6 +63,8 @@ export interface AreaDrag {
   tactile?: boolean
   /** Roof tiles or small stair blocks laid/removed on the pressed plane. */
   road?: boolean
+  roadStart?: [number,number]
+  roadRemoveId?: string
   roof?: boolean
   /** This roof/stair-block drag was started from 删除. */
   deleteTile?: boolean

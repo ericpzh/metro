@@ -9,7 +9,7 @@
 // transport, driven by the same simulated time.
 
 import type * as THREE from 'three'
-import { rollEscalator, setDoors } from '../../models.ts'
+import { rollEscalator, setDoors, setDoorsSides } from '../../models.ts'
 import type { EscalatorRoll } from '../../models.ts'
 import { SceneSystem } from './SceneSystem.ts'
 
@@ -31,6 +31,8 @@ export interface LiftRig {
   /** Door fraction at the previous and current snapshots, 0 shut … 1 open. */
   doorFrom: number
   doorTo: number
+  /** Which doors the current stop opens: bit 1 front (local −y), bit 2 back. */
+  side: number
   /** False until the first snapshot names this rig. */
   have: boolean
 }
@@ -46,12 +48,13 @@ export class LiftSystem extends SceneSystem {
   private playing = true
 
   /**
-   * One pose per elevator car, stride 6: plan x, plan y, lower cell z, upper
-   * cell z, cabin floor height, door fraction. Pairs each car with its shaft by
-   * the first three numbers and queues the new cabin position for gliding.
+   * One pose per elevator car, stride 7: plan x, plan y, lower cell z, upper
+   * cell z, cabin floor height, door fraction, and the door sides the stop opens
+   * (bit 1 front, bit 2 back). Pairs each car with its shaft by the first three
+   * numbers and queues the new cabin position for gliding.
    */
   setLifts(buffer: Float32Array): void {
-    const STRIDE = 6
+    const STRIDE = 7
     const n = Math.floor(buffer.length / STRIDE)
     for (const rig of this.liftRigs) {
       if (rig.have) {
@@ -71,10 +74,11 @@ export class LiftSystem extends SceneSystem {
       }
       rig.baseTo = buffer[o + 4]
       rig.doorTo = buffer[o + 5]
+      rig.side = buffer[o + 6] | 0
     }
   }
 
-  /** Glide every cabin between snapshots and draw its doors. */
+  /** Glide every cabin between snapshots and draw the doors it opens. */
   updateLifts(now: number): void {
     if (this.liftRigs.length === 0) return
     const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
@@ -83,13 +87,17 @@ export class LiftSystem extends SceneSystem {
       const z = rig.baseFrom + (rig.baseTo - rig.baseFrom) * alpha
       rig.cabin.position.z = z - rig.originZ
       const door = rig.doorFrom + (rig.doorTo - rig.doorFrom) * alpha
-      setDoors(rig.group, door)
-      // Only the landing aligned with the car can open; the other floors
-      // remain enclosed while the cabin travels through the shaft (§5.1).
+      // The cabin carries a door on each face; only the face the stop serves
+      // slides open, so a through-floor opens onto the landing it was called to.
+      setDoorsSides(rig.group, rig.side & 2 ? door : 0, rig.side & 1 ? door : 0)
+      // Only the landing aligned with the car opens; the other floors remain
+      // enclosed while the cabin travels through the shaft (§5.1), and each
+      // landing opens only on its own face.
       const landings = rig.group.userData.liftLandings as THREE.Object3D[] | undefined
       for (const landing of landings ?? []) {
         const aligned = Math.abs(rig.cabin.position.z - landing.position.z) < 0.01
-        setDoors(landing, aligned ? door : 0)
+        const bank = (landing.userData.bank as number | undefined) ?? 1
+        setDoors(landing, aligned && (rig.side & bank) ? door : 0)
       }
     }
   }

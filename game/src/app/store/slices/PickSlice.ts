@@ -34,6 +34,7 @@ import type { AppState } from '../Store.ts'
 export interface PickDraft {
   tool: Tool
   moduleType: string
+  roadWidth: number
   roadDirection: 'one-way' | 'two-way'
   moduleRot: number
   railLineId: string
@@ -88,6 +89,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       pickDraft: {
         tool: s.tool,
         moduleType: s.moduleType,
+        roadWidth: s.roadWidth,
         roadDirection: s.roadDirection,
         moduleRot: s.moduleRot,
         railLineId: s.railLineId,

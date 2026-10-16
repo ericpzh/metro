@@ -7,7 +7,7 @@ import { stairFlights } from '../sim/stairs.ts'
 
 // These builders read module/metadata only. Changes to either fail closed below.
 const CELL_INDEPENDENT = new Set<Module['type']>([
-  'road', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
+  'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
   'cubicle', 'sink', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
   'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'track', 'exit', 'guidepost', 'busstop', 'psd-end',

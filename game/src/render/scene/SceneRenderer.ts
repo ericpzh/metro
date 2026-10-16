@@ -610,6 +610,9 @@ export class SceneRenderer {
   setModulePreview(mod: Module | readonly Module[] | null, blocked = false, tintOverride?: number): void {
     this.ghostSys.setModulePreview(mod, blocked, tintOverride)
   }
+  setRoadNodePreview(nodes:readonly {x:number;y:number;z:number}[],from?:[number,number],to?:[number,number],z=this.ctx.activeZ):void {
+    this.ghostSys.setRoadNodePreview(nodes,from,to,z)
+  }
 
   setFencePreview(mods: Module[] | null, blocked = false): void {
     this.ghostSys.setFencePreview(mods, blocked)

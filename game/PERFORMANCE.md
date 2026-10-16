@@ -749,3 +749,156 @@ languages, and native multi-draw plus the disabled-extension fallback preserve
 train triangles with no GLSL, WebGL or runtime errors. Raw validation outputs are
 `road-full-tests.log`, `road-perf-tests.log`, `road-input-check.log`,
 `road-render-check.log` and `road-render-fallback.log` under `.preview/perf/`.
+
+
+## Connected road traffic — 2026-10-15
+
+Road traffic now follows a derived directed lane graph. Topology is prepared once
+per immutable module array; an eight-entry road-signature history also preserves
+it across unrelated decor edits and thumbnail builds. Same-width collinear strokes
+coalesce, perpendicular crossings/T joins get curved turn connectors, and different
+heights remain separate. A maximum of 192 vehicles uses 0.1 simulated-second steps,
+lane queues and exclusive junction reservations. Seeks/catch-up over 60 simulated
+seconds reset ambient traffic instead of replaying an unbounded day. Cars are
+instanced, static crosswalk ink/pole parts merge, and paused views stop buffer uploads.
+Crosswalks remain visual; pedestrian routing still avoids roads.
+
+Controlled production-browser input comparison, existing demo (11,871 cells,
+770 modules, no passengers, paused, seed 7654321), ground level, plan camera,
+1440 × 1000 window, Chrome 155, Windows, RTX 4080 SUPER through ANGLE/D3D11,
+28 logical processors. Same fixture/assets/camera on both sides. Three gestures
+(two cancellations and one release), including the first invocation:
+
+| Measurement | Before network | After network |
+|---|---:|---:|
+| First hover, dispatch through two RAFs | 101.8 ms | 86.4 ms |
+| First pointer-down, dispatch through two RAFs | 62.7 ms | 61.7 ms |
+| First drag move, dispatch through two RAFs | 78.8 ms | 78.6 ms |
+| Maximum `setModulePreview` CPU | 1.2 ms | 0.7 ms |
+| Release, dispatch through two RAFs | 743.9 ms | 771.8 ms |
+| `setStation` CPU on release | 283.5 ms | 301.9 ms |
+
+These are individual local observations, not an FPS improvement or timing gate.
+The existing remesh/initial-upload and pedestrian-graph work on release remains a
+noticeable stall. Both runs commit once and retain all 770 equipment roots. A
+separate `ROAD_INTERSECT=1` run adds a perpendicular road before the gesture: first
+hover/down/move 76.9/97.9/93.2 ms, release 790.4 ms, `setStation` 272.0 ms, maximum
+preview 1.7 ms, one commit and 770 retained non-road equipment roots. It creates
+one junction with both authored roads retained in the document. The crossing run
+has one additional fixture road and is not a controlled before/after comparison.
+
+The isolated production crossing check uses two 6 m × 86 m roads plus one manually
+placed traffic-light decor, the same browser/GPU/seed, a 1424 × 905 inner viewport
+and an isometric camera. It advances 60 simulated seconds (600 calls): 20 directed
+edges, one junction, four automatic signals, two road-owned crosswalk assemblies,
+24 vehicles at the end. CN/EN first road-system updates: 1.8/1.9 ms; median update
+below browser timer resolution, p95 0.1/0.1 ms, maximum 0.2/0.2 ms. These CPU times
+include instance writes, not asynchronous GPU completion. Cold `setStation` for
+this small fixture is 92.7/77.0 ms and includes street/scene construction.
+Turns, waits, static paused buffers, signal lenses and both locales pass with no
+runtime or shader failures. No passenger throughput or GPU-time gain is claimed.
+
+Raw reports: `.preview/perf/road-network-before.json`, `road-network-after.json`,
+`road-network-crossing.json`, and `road-network/report.json`; PNGs live beside the
+last report. Reproduce with `node tools/bench-road-drag.mjs` using `BENCH_OUTPUT`,
+then `ROAD_INTERSECT=1` for the extra crossing fixture. `node
+tools/check-road-network.mjs` runs the bilingual WebGL and live-traffic check.
+
+Deterministic `road-network` regressions guard cached document scans, bounded
+history, actual saturated capacity, full/partial T junctions, merged crossings,
+continuous directed connectors, signal exclusion, vehicle tail reservations,
+queue body gaps, seed/time behavior, model bounds and decor save/placement.
+Focused V8 coverage: `roadNetwork.ts` 100% lines / 91.87% branches / 94.44%
+functions; `roadTraffic.ts` 100% lines / 97.59% branches / 100% functions. This
+covers source logic, not the GPU. Full game suite: 1,521 passing tests; existing
+`test:perf`: 96 passing tests. Production build and i18n audit pass.
+
+Production flat-ground/R/Tab/release input checks pass in both locales. Native
+multi-draw and disabled-extension fallback both preserve train geometry with no
+GLSL/WebGL/runtime errors. CPU sampling and trace-stream export smoke checks pass.
+Logs: `road-network-input-check.txt`, `road-network-render.txt`,
+`road-network-render-fallback.txt`, `road-network-profiler-check.txt` under
+`.preview/perf/`. The browser crossing check also verifies both palette labels fit,
+that the 交通灯 tile arms its own placement tool, and its real model thumbnail loads.
+
+
+## Right-hand lane arrows and incoming stop lines — 2026-10-15
+
+Two-way rotations 0/2 and 1/3 now keep the same right-hand lane directions.
+Connector generation assigns left/right turns only to the driver's corresponding
+outer lane while all lanes retain legal through movements. A T stem splits its
+lanes; an odd middle lane serves both turns. Painted arrows read those same
+connectors, and stop lines span incoming lanes only. Preview arrows read the
+candidate lane layout and return before any topology lookup; their flat geometry
+merges into one white draw per road. No document commit or worker routing rebuild
+occurs during hover, drag or R/Tab refresh.
+
+Deterministic `road-network` tests pin every rotation, one-way reversals, actual
+multi-lane connectors, odd/even T splits, multi-direction arrow faces and incoming
+stop-line width/side. A module-array proxy refuses topology preparation during
+preview, guarding the avoided per-gesture graph work. V8 coverage gives
+`roadLaneMovements.ts` and `RoadArrowMarking.ts` 100% line/branch/function coverage;
+`RoadModel.ts` has 100% lines/functions and 97.40% branches.
+
+Production browser checks in Chinese and English verify live preview arrows,
+R/Tab refresh, real wide-crossing/T meshes, right-hand lane positions, incoming
+half-width stop lines and working traffic. The 18 m-wide crossing has 44 edges,
+12 lane arrows, four 9 m stop lines and 58 vehicles after 60 simulated seconds;
+road-system update p95 is 0.1/0.2 ms (CN/EN), cold update 1.7/3.1 ms. The wide T
+has 30 edges, nine lane arrows, three 9 m stop lines and 48 vehicles; p95 is
+0.1/0.1 ms, cold update 3.2/2.5 ms. CPU includes instance writes, not asynchronous
+GPU work. Both scenes have zero runtime/shader failures and retain paused buffers.
+Fixtures: seed 7654321, ground level, isometric camera, 1440 × 1000 Chrome 155
+window (1424 × 905 inner viewport), RTX 4080 SUPER / ANGLE D3D11, 28 processors,
+no passengers. Timings are observations, not gates or a throughput claim.
+
+The real first road gesture on the unchanged 11,871-cell / 770-module paused demo
+records hover/down/first move at 118.6/94.1/100.7 ms through CDP and two RAFs;
+maximum preview CPU 0.9 ms, release 1029.4 ms (`setStation` CPU 339.7 ms). One commit,
+770 retained equipment roots, zero runtime/shader failures. The existing release
+stall remains; these single-run timings do not establish a speed improvement.
+Raw report: `.preview/perf/road-markings-drag.json`. Wide scene reports/screenshots:
+`.preview/perf/road-markings/` and `.preview/perf/road-markings-t/`; preview captures
+are `.preview/roads/preview-{zh-CN,en}.png`. Use `ROAD_WIDE=1`, optionally `ROAD_T=1`,
+and `ROAD_NETWORK_OUTPUT` with `tools/check-road-network.mjs` to reproduce.
+
+Validation for this follow-up: all 1,525 game tests pass, production build and i18n
+audit pass, native and disabled-extension render checks preserve geometry without
+GLSL/WebGL/runtime errors, and CPU/trace exports pass. Focused source coverage is
+`.preview/perf/road-markings-coverage.txt`; full test/build/browser logs are under
+`.preview/road-markings-*`, with render logs under `.preview/perf/`.
+
+## Node-based road editing — 2026-10-15
+
+Road authoring now caches a node/segment graph by immutable module array. An edit
+splits crossings and branches once on release; previews reuse the prepared graph
+without commits or worker routing rebuilds. Each press resolves one scene pick.
+Node handles share one retained instanced ring mesh, capped at 2,048 handles with
+active endpoints prioritized; unchanged previews do not upload their matrices.
+Deleting an arm removes one segment, and surviving arms retain their shared node
+and pavement. Collinear width transitions use unsignalled traffic connectors.
+
+The real first gesture on the paused 11,871-cell / 770-module demo records
+hover/down/first move at 130.4/92.1/100.1 ms through CDP and two RAFs. A warmed
+repeat records 78.2/80.7/77.6 ms. Maximum preview CPU is 0.9 ms; release is
+1,130 ms (`setStation` CPU 359.1 ms), with one commit and 770 retained equipment
+roots. The existing release stall remains. New centreline/cap geometry changes
+the workload, so these observations do not establish a before/after speedup.
+Fixture: seed 7654321, no passengers, Chrome 155, RTX 4080 SUPER / ANGLE D3D11,
+28 processors, 1424 × 905 inner viewport. No runtime/shader failures.
+Raw report: `.preview/perf/road-node-drag.json`.
+
+Deterministic `road-document` tests pin shared node lifetime, legacy splitting,
+save/load, duplicate links, elevation isolation, width-transition continuity,
+snapped placement/deletion, undo/redo, one pick per press, preview isolation,
+cache reuse and retained/capped/disposed handle allocations. Focused V8 coverage
+gives `roadDocument.ts` 100% lines/functions and 92.5% branches; `Roads.ts` has
+100% lines/functions and 80% branches. Full game suite: 1,558 passing tests;
+existing `test:perf`: 96 passing tests. Production build and i18n audit pass.
+
+Production input checks pass in both languages for node drags, width/direction
+preview changes, endpoint extension, mid-road branches, persistent node handles,
+segment deletion and undo/redo. Reports/captures: `.preview/roads/node-*`.
+The live crossing regression, native and disabled-extension rendering checks,
+and CPU/trace-export smoke checks pass. Logs are under `.preview/perf/road-node-*`;
+full-suite/build logs are under `.preview/road-node-*`.

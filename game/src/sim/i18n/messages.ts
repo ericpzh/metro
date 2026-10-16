@@ -1,12 +1,18 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
-  no_road_to_remove: { zh: '这里没有可移除的车道', en: 'No road to remove here' },
-  road: { zh: '车道', en: 'Road' },
+  no_road_to_remove: { zh: '这里没有可移除的道路', en: 'No road to remove here' },
+  traffic_light: { zh: '交通灯', en: 'Traffic light' },
+  road_reverse: { zh: '反向', en: 'Reverse flow' },
+  reverse_road: { zh: '切换道路行驶方向', en: 'Reverse road direction' },
+  road_nodes_distinct: { zh: '请拖动到另一个道路节点', en: 'Drag to another road node' },
+  road_width_value: { zh: '道路宽 {0} m', en: 'Road width {0} m' },
+  road_node_hint: { zh: '拖动连接节点 · Tab 宽度 · Shift+Tab 方向', en: 'Drag between nodes · Tab width · Shift+Tab traffic' },
+  road: { zh: '道路', en: 'Road' },
   road_one_way: { zh: '单向', en: 'One-way' },
   road_two_way: { zh: '双向', en: 'Two-way' },
   road_measure: { zh: '{0} × {1} m · {2} 车道', en: '{0} × {1} m · {2} lanes' },
-  road_width_refusal: { zh: '单向车道至少宽 3 m，双向至少宽 6 m', en: 'Roads need at least 3 m for one-way or 6 m for two-way traffic' },
-  road_ground_refusal: { zh: '车道需要 0 m 或以上的完整地面', en: 'Roads need a complete floor at 0 m or above' },
+  road_width_refusal: { zh: '单向道路至少宽 3 m，双向至少宽 6 m', en: 'Roads need at least 3 m for one-way or 6 m for two-way traffic' },
+  road_ground_refusal: { zh: '道路需要 0 m 或以上的完整地面', en: 'Roads need a complete floor at 0 m or above' },
 
   "language_native_chinese": { "zh": "中文", "en": "中文" },
   "language_native_english": { "zh": "English", "en": "English" },
@@ -1710,6 +1716,34 @@ export const messages = {
   "reverse_walkway": {
     "zh": "切换自动步道方向",
     "en": "Reverse walkway"
+  },
+  "configure_lift_doors": {
+    "zh": "配置电梯门",
+    "en": "Configure lift doors"
+  },
+  "lift_doors": {
+    "zh": "电梯门",
+    "en": "Lift doors"
+  },
+  "lift_doors_hint": {
+    "zh": "选择每层轿厢门开启的方向。正面为默认；无门表示该层不经停。",
+    "en": "Choose which way the cabin doors open on each floor. The front is the default; no door means the car passes the floor."
+  },
+  "lift_door_front": {
+    "zh": "正面",
+    "en": "Front"
+  },
+  "lift_door_back": {
+    "zh": "背面",
+    "en": "Back"
+  },
+  "lift_door_both": {
+    "zh": "两侧",
+    "en": "Both sides"
+  },
+  "lift_door_none": {
+    "zh": "无门",
+    "en": "No door"
   },
   "refresh_selected_platform_doors": {
     "zh": "刷新所选站台门",

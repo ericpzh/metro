@@ -709,7 +709,13 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setMovingModule(moveId)
     if (useStore.getState().moveDraft) tools.move.refreshHover()
-    else tools.move.clearPreview()
+    else {
+      tools.move.clearPreview()
+      const st=useStore.getState()
+      // Move cancellation shares the preview root; restore the active road's
+      // node handles after that cleanup and any station rebuild.
+      if(st.tool==='module'&&st.moduleType==='road'&&!dragRef.current?.road) tools.equipment.refreshHover()
+    }
   }, [moveKey, moveId, version, tools])
 
   // Keep the 3D selection box in step with the inspector's selection. A rebuild

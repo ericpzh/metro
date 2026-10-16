@@ -40,7 +40,7 @@ import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
 import { STAIR_WIDTH_NARROW, stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
-import { liftFootprintCells, liftLandingCells, liftStopZs } from './lifts.ts'
+import { liftFootprintCells, liftLandingRows, liftStopZs } from './lifts.ts'
 import { rampMoveClear, type RampWall } from './rampCollision.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndexOf } from './zones.ts'
@@ -731,22 +731,26 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
         } else {
           // Elevator: one car per shaft. Its stops are the walkable floor tiles
           // in front of the door at every storey between `from` and `to`, so a
-          // passenger boards and alights only through the door. Every ordered
-          // pair of stops is an edge the one car serves, so a rider travels
-          // straight to their floor. `exitNode` is unused — the car delivers
-          // each rider to `liftDest`.
+          // passenger boards and alights only through the door. A storey whose
+          // cabin opens onto both faces contributes a stop on each (front
+          // first), so the car can be called to either side. Every ordered pair
+          // of stops on **different storeys** is an edge the one car serves, so
+          // a rider travels straight to their floor. Same-storey pairs are left
+          // out — riding from one face of a floor to the other is a walk around.
+          // `exitNode` is unused — the car delivers each rider to `liftDest`.
           const stops: number[] = []
           const stopZ: number[] = []
-          const landings = liftLandingCells(m)
           for (const z of liftStopZs(m.from.z, m.to.z)) {
-            let n: number | undefined
-            for (const [lx, ly] of landings) {
-              n = nodeIndex.get(cellKey(lx, ly, z))
-              if (n !== undefined) break
+            for (const row of liftLandingRows(m, z)) {
+              let n: number | undefined
+              for (const [lx, ly] of row) {
+                n = nodeIndex.get(cellKey(lx, ly, z))
+                if (n !== undefined) break
+              }
+              if (n === undefined) continue
+              stops.push(n)
+              stopZ.push(nodeZ[n])
             }
-            if (n === undefined) continue
-            stops.push(n)
-            stopZ.push(nodeZ[n])
           }
           if (stops.length < 2) break
           const ride = LIFT_CYCLE
@@ -781,7 +785,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           }
           for (let i = 0; i < stops.length; i++) {
             for (let j = 0; j < stops.length; j++) {
-              if (i === j) continue
+              if (stopZ[i] === stopZ[j]) continue
               edges.push({ from: stops[i], to: stops[j], cost: ride, kind: KIND_LIFT, server: id })
             }
           }

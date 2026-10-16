@@ -99,12 +99,27 @@ it (`paletteIdForModule` in `game/src/app/tools/PickTool.ts`, pinned by the
 `pick-tool` palette sweep) — including the setting-free 空调风机 and 设备柜, which
 carry no variant and arm by their own type.
 
-Street roads (`车道`) are placed as a ground-level drag surface from the 站外
-palette. They support 单向 / 双向 layouts, cut pedestrian routes, and draw lane
-markings that stop at road intersections. Seeded ambient traffic uses cars,
-buses and scooters at 50% of the original slot density; vehicle opacity matches
-the passenger crowd. Route implementation to `metro-game` and road input,
-placement, traffic and path-cutting coverage to `metro-game-test`.
+Street roads (`道路`) are placed as orthogonal node-to-node segments from the 站外
+palette. The document derives shared nodes from segment endpoints: intersections
+and branches split segments, extension snaps to existing nodes, and deleting a
+segment leaves its nodes while incident segments remain. Legacy rectangle roads
+adapt when edited; the node graph is derived rather than saved as independent
+objects. `sim/roadDocument.ts` owns this adapter/index, `build/model/Roads.ts`
+owns segment edits, and `sim/roadLaneMovements.ts` / `roadNetwork.ts` / `roadTraffic.ts`
+own directed connectors, network topology and traffic. Rendering and generated
+intersection markings/lights belong to `render/models/pieces/RoadModel.ts` and
+`render/scene/systems/RoadTrafficSystem.ts`; the 交通灯 decor keeps its own model
+and palette placement. Seeded ambient traffic uses cars, buses and scooters at
+50% of the original slot density; vehicle opacity matches the passenger crowd.
+Route implementation to `metro-game`; pin graph/gesture behavior in
+`metro-game-test`'s `road-document` and network/traffic rules in `road-network`.
+`npm run check:roads` exercises production input in both locales.
+
+The RHS selected-piece information card is `app/windows/inspector/InfoCard.tsx`.
+Keep its details and boxed action column side by side; selected one-way roads
+reverse from that column, and all icon actions expose matching translated
+tooltips and accessible names. `tools/check-info-panel.mjs` checks the real
+production layout and road reversal in both locales.
 
 Monitor decor has a ceiling-hung 1 m cabinet and a 3 m wall-backed panel with
 twelve room-facing views; the separate floor-standing 信号机 is 1 m tall. Route

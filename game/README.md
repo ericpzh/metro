@@ -2622,6 +2622,9 @@ approximated); neither needs WebGL.
   two lifts may not share space but a 2 m gap is free; and a passenger rides —
   walks in, is pinned to the 1.5 m cabin while it moves, and steps out on the
   floor above. The car pose is deterministic and its door fraction stays in 0..1.
+* `lift-doors.test.mjs` — per-storey front/back/both/none door choices, landing
+  rows, passenger graph stops and rides, rendered face state, save/load and a
+  sealed intermediate storey.
 * `lift-style.test.mjs` — the 电梯's two housings (§5.1): glass is the default, steel keeps
   the old enclosed shaft; Tab cycles the style with a live ghost refresh, picking adopts it
   and Esc restores the armed one, the ghost key names it, and both styles survive extending
@@ -3645,21 +3648,24 @@ depth scaling; static and moving sheet figures choose age with the game identity
 hash. `passenger-art-pipeline` rejects missing child frames and ineligible child
 cards; the art browser check verifies child figures and changing SVG gait frames.
 
-`roads.test.mjs` covers the 站外 车道 surface brush: rectangular drags, one-way
+`roads.test.mjs` covers the 站外 道路 node builder: centerline drags, one-way
 and two-way lane counts (3 m per lane; two-way counts round down to equal pairs),
-R quarter-turns and immediate R/Tab preview refresh, ground support at 0 m or above,
+R flow reversal and immediate width/direction preview refresh, ground support at 0 m or above,
 intersection ink clipping, save/load, vehicle geometry and a single undoable
-placement gesture. Road traffic is ambient: it travels straight through crossings
-and follows the simulation clock, pausing and fast-forwarding with it; it does not
-carry passengers. Seeded spawns use half the original density with 10% buses,
+placement gesture. Road traffic is ambient: a cached directed lane network joins crossings and
+collinear road strokes. Seeded cars choose straight/left/right connectors, queue
+behind stop lines, and reserve a junction until their tail clears. Alternating
+green/amber/all-red signals share the simulation clock. Traffic does not carry
+passengers. Automatic zebra markings are visual; roads still cut pedestrian routes. Seeded spawns use half the original density with 10% buses,
 60% scooters and 30% cars.
 
 Roads cut pedestrian routing on their own floor and swept movement keeps crowd
 pressure off the pavement. Editing a road beneath walkers relocates them to the
 nearest remaining pedestrian floor before replanning. Vehicle materials are
 grayscale and share the passenger material's 70% opacity. `npm run check:roads` drives the real
-production viewport in Chinese and English: first flat-ground drag, R rotation,
-Tab direction refresh without pointer movement, and one road commit on release.
+production viewport in Chinese and English: centerline node drags, R flow reversal,
+Tab width / Shift+Tab direction refresh, endpoint extension, mid-road branches,
+segment-only deletion and undo/redo. Each gesture commits once on release.
 This catches release dispatch falling through to the block tool and ghost keys
 omitting road dimensions/direction. Screenshots/reports live in `.preview/roads/`.
 
@@ -3670,3 +3676,58 @@ invalidation/disposal, and continued pedestrian graph invalidation. `bench:road`
 drives cold and warm hover/press/drag/cancel/release through the production viewport;
 its raw reports and optional CPU profiles go under `.preview/perf/`. See
 `game/PERFORMANCE.md` for controlled before/after measurements.
+
+`road-network.test.mjs` pins crossing/T/one-way/elevation topology, continuous turns,
+collinear road deduplication, cached topology with no per-frame document scans,
+nonconflicting signal phases, seeded queue gaps, junction reservations, a 192-car
+cap, pause/seek behavior and traffic-light model/save/placement. 交通灯 / Traffic
+light is a pole-mounted, rotatable decor tile in 站外装饰; junction lights and zebra
+markings are derived from roads and disappear with undo/delete. `node
+tools/check-road-network.mjs` checks the real production WebGL path in both locales,
+including turns, waits, paused uploads, signal rigs and errors, and writes captures
+and timing reports to `.preview/perf/road-network/`.
+
+Roads use right-hand traffic in all four drawing rotations. A two-way half turn
+keeps the same lane directions; a one-way half turn reverses them. Placement
+previews show a straight arrow per lane, refreshed by R and Tab. Intersection
+arrows use the actual vehicle connectors: every lane may go straight where an
+exit exists, only the driver's leftmost/rightmost lanes turn left/right, and a
+T stem splits left/right with an odd middle lane shared. A single lane can show
+all three movements. Stop lines span incoming lanes only. `road-network` pins the
+lane rules, turn topology, upward-facing arrow ink, preview work and stop-line
+halves at every rotation; production browser checks cover preview R/Tab arrows,
+a wide crossing and a wide T in both languages.
+
+Road editing now uses an authored node/segment graph (`sim/roadDocument.ts`). Drag
+a centreline between nodes; it snaps to visible endpoints or onto existing roads.
+A start on a road inherits its width and traffic direction. Tab cycles 6/12/18/24 m
+width, Shift+Tab switches one-way/two-way, and R reverses one-way flow; the pointer
+chooses the horizontal or vertical run. Cyan rings identify shared nodes, with
+active endpoints highlighted yellow. Nodes stay visible after a committed edit.
+Crossings/branches split segments in one undoable edit. Right-click with 道路 or
+use 删除 to remove only the selected segment; a node remains while any incident
+segment exists, and shared square pavement caps remain with the surviving arms.
+Older rectangle roads are adapted on the first road edit without changing their
+outer pavement. Optional `road.cfg.from/to` preserve endpoint references in v1
+saves; node IDs derive from position and height, with no separately saved orphans.
+Width transitions get lane merges without signals/crosswalks. Orthogonal roads
+retain right-hand traffic, lane arrows, automatic intersection facilities and the
+existing ground/placement refusal rules.
+
+The RHS 信息 card places its icon actions in a separate boxed column to the right
+of the selection details. One-way roads offer a direction switch that reverses the
+selected segment in one undoable edit, preserving its nodes and pavement.
+Two-way roads keep their right-hand flow. `npm run check:info-panel` checks the
+action column in production for lifts, signs, escalators, walkways, roads, blocks
+and move controls in both locales. It exercises road reversal/undo and lift
+door choices, including a sealed floor, undo, Escape and backdrop dismissal.
+
+`road-network.test.mjs` also checks that generated signal faces point toward all
+four incoming approaches across the road rotations.
+
+`road-document.test.mjs` pins node identity/lifetime, segment splitting/deletion,
+legacy conversion, duplicate coalescing, elevation separation, traffic continuity
+across width changes, save/load, snapped gestures, undo/redo, one pick per press,
+hidden/refused roads and reused/disposed node-handle buffers. `npm run check:roads`
+is the real bilingual production-input regression; captures and its report are
+under `.preview/roads/node-*`.

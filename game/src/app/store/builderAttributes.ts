@@ -47,14 +47,17 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
   if (isRotatableType(type) && !type.startsWith('pillar-slim')) {
     attrs.push({
       kind: 'rotation',
-      label: msg('rotate_value', type === 'light-rectangular' ? (s.moduleRot % 2) * 90 : ((4 - s.moduleRot) % 4) * 90),
+      label: type==='road'?msg('road_reverse'):msg('rotate_value', type === 'light-rectangular' ? (s.moduleRot % 2) * 90 : ((4 - s.moduleRot) % 4) * 90),
       shortcut: 'R',
       activate: s.rotateModule,
     })
   }
   if (type.startsWith('pillar-slim')) attrs.push({ kind: 'position', label: msg('position_value_9', s.moduleRot + 1), shortcut: 'R', activate: s.rotateModule, transform: true, visual: 'grid-position' })
 
-  if (type === 'road') attrs.push(variant('direction', msg(s.roadDirection === 'one-way' ? 'road_one_way' : 'road_two_way'), s.toggleRoadDirection))
+  if (type === 'road') {
+    attrs.push(variant('width', msg('road_width_value', s.roadWidth), s.cycleRoadWidth))
+    attrs.push(variant('direction', msg(s.roadDirection === 'one-way' ? 'road_one_way' : 'road_two_way'), s.toggleRoadDirection))
+  }
   if (type === 'curtain-wall') {
     attrs.push(variant('width', msg(s.curtainWidth === 1 ? 'extra_narrow' : s.curtainWidth === 2 ? 'narrow' : s.curtainWidth === 3 ? 'medium' : 'wide'), s.cycleCurtainWidth))
     attrs.push(variant('height', msg(s.curtainHeight === 2 ? 'short' : s.curtainHeight === 3 ? 'medium' : 'long'), s.cycleCurtainHeight))

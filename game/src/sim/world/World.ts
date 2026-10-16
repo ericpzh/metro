@@ -63,7 +63,7 @@ import { GateTraffic } from '../gateTraffic.ts'
 import { roadMoveClear, roadContainsPoint, type Road } from '../roads.ts'
 import { rampMoveClear } from '../rampCollision.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
-import { liftDoorDir } from '../lifts.ts'
+import { liftDoorDir, liftLandingSide } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
 import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
 import { rotateLocal, trackFacing, type TrackModule } from '../track.ts'
@@ -1250,17 +1250,21 @@ export class World {
   }
 
   /**
-   * One pose per elevator car, stride 6: plan x, plan y, lower cell z, upper
-   * cell z, cabin floor height, door-open fraction. The renderer matches a car
+   * One pose per elevator car, stride 7: plan x, plan y, lower cell z, upper
+   * cell z, cabin floor height, door-open fraction, and the doors the stop opens
+   * (bit 1 front / local −y, bit 2 back / local +y). The renderer matches a car
    * to its shaft by the first three numbers, then moves the cabin and slides the
-   * doors. A pure function of car state, so §7.6 determinism is untouched.
+   * doors on the sides the car is serving. A pure function of car state, so §7.6
+   * determinism is untouched.
    */
   liftRenderState(): Float32Array {
     const out: number[] = []
     for (const s of this.graph.servers) {
       if (s.kind !== 'lift' || !s.lift) continue
       const c = s.lift
-      out.push(c.x, c.y, c.fromZ, c.toZ, c.z, c.door)
+      const node = c.stops[c.at] ?? -1
+      const side = node >= 0 ? liftLandingSide(c, this.graph.nodeX[node], this.graph.nodeY[node]) : 1
+      out.push(c.x, c.y, c.fromZ, c.toZ, c.z, c.door, side)
     }
     return Float32Array.from(out)
   }
@@ -2535,12 +2539,17 @@ export class World {
           a.liftBoard = cur
           a.liftDest = next
           const car = g.servers[server].lift
-          // The stop node is the landing tile in front of the door; stand the
+          // The stop node is the landing tile in front of a door; stand the
           // queue just off the threshold (toward the landing, away from the car),
-          // so the crowd visibly funnels through the doorway when it opens.
-          const [dx, dy] = liftDoorDir(car?.rot ?? 0)
-          a.liftWaitX = g.nodeX[cur] - dx * 0.45
-          a.liftWaitY = g.nodeY[cur] - dy * 0.45
+          // so the crowd visibly funnels through the doorway when it opens. A
+          // through-floor has a landing on each face, so the outward direction is
+          // read off whichever face this stop sits on, not just the front.
+          const [fx, fy] = liftDoorDir(car?.rot ?? 0)
+          const front = liftLandingSide(car ?? { x: 0, y: 0 }, g.nodeX[cur], g.nodeY[cur]) === 1
+          const ox = front ? fx : -fx
+          const oy = front ? fy : -fy
+          a.liftWaitX = g.nodeX[cur] - ox * 0.45
+          a.liftWaitY = g.nodeY[cur] - oy * 0.45
         }
         this.joinServer(a, server)
         return true

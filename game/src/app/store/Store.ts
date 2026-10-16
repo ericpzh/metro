@@ -12,6 +12,7 @@ import { createViewSlice, type ViewSlice } from './slices/ViewSlice.ts'
 import { createRailSlice, type RailSlice } from './slices/RailSlice.ts'
 import { createLineSlice, type LineSlice } from './slices/LineSlice.ts'
 import { createMoveSlice, type MoveSlice } from './slices/MoveSlice.ts'
+import { createLiftSlice, type LiftSlice } from './slices/LiftSlice.ts'
 import { createPaintSlice, type PaintSlice } from './slices/PaintSlice.ts'
 import { createSignSlice, type SignSlice } from './slices/SignSlice.ts'
 import { createPickSlice, type PickSlice } from './slices/PickSlice.ts'
@@ -24,6 +25,7 @@ export type AppState =
   & RailSlice
   & LineSlice
   & MoveSlice
+  & LiftSlice
   & PaintSlice
   & SignSlice
   & PickSlice
@@ -36,6 +38,7 @@ export const useStore = create<AppState>()((...a) => ({
   ...createRailSlice(...a),
   ...createLineSlice(...a),
   ...createMoveSlice(...a),
+  ...createLiftSlice(...a),
   ...createPaintSlice(...a),
   ...createSignSlice(...a),
   ...createPickSlice(...a),
