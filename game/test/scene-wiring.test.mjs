@@ -46,6 +46,7 @@ const ORCHESTRATOR_FIELDS = {
   ClockSystem: 'clocks',
   RoadTrafficSystem: 'roads',
   SectionSystem: 'sectionSys',
+  SkySystem: 'sky',
 }
 
 function systemFiles() {

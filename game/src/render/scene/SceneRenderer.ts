@@ -35,6 +35,7 @@ import { PlateSystem } from './systems/PlateSystem.ts'
 import { RoadTrafficSystem } from './systems/RoadTrafficSystem.ts'
 import { ClockSystem } from './systems/ClockSystem.ts'
 import { SectionSystem } from './systems/SectionSystem.ts'
+import { SkySystem } from './systems/SkySystem.ts'
 import type { PickResult } from './systems/SceneSystem.ts'
 import { DEFAULT_SECTION_AZIMUTH, sectionNormal } from '../section.ts'
 import type { Section, Vec3 } from '../section.ts'
@@ -68,6 +69,7 @@ export class SceneRenderer {
   private roads: RoadTrafficSystem
   private clocks: ClockSystem
   private sectionSys: SectionSystem
+  private sky: SkySystem
   private lastFrame = 0
   private frameCount = 0
   private fpsTime = 0
@@ -84,6 +86,7 @@ export class SceneRenderer {
 
     const scene = new THREE.Scene()
     scene.fog = new THREE.Fog(STATION_CLEAR, 120, 320)
+    this.sky = new SkySystem(scene)
 
     const mats = createMaterials()
     const modelMats = createModelMaterials()
@@ -336,6 +339,7 @@ export class SceneRenderer {
    * rebuilds but the pixels — while the hands are swept between snapshots every frame.
    */
   setSimClock(simTime: number, services: TrainService[] = []): void {
+    this.sky.setSimTime(simTime)
     this.plates.setSimClock(simTime, services)
     this.clocks.setSimTime(simTime)
     this.roads.setSimTime(simTime)
@@ -693,6 +697,7 @@ export class SceneRenderer {
     const cam = this.cameraSys.activeCamera()
     this.cameraSys.syncOrtho()
     this.notifyCameraAim()
+    this.sky.update(this.ctx.hideUI)
     this.renderer.render(this.ctx.scene, cam)
     this.frameCount++
     if (now - this.fpsTime > 500) {
@@ -733,6 +738,7 @@ export class SceneRenderer {
     this.ctx.disposed = true
     cancelAnimationFrame(this.raf)
     this.cameraSys.dispose()
+    this.sky.dispose()
     this.chunks.disposeChunks()
     this.ghostSys.dispose()
     this.grid.dispose()

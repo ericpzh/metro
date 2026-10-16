@@ -8,6 +8,10 @@ the amber oval lamp centred below each doorway plaque.
 `autosave.test.mjs` covers dirty-only local saves, undo/redo, immediate new/import/demo
 replacement, invalid saved data, quota failures and retries.
 
+`sky.test.mjs` pins hidden-UI sky brightness through dawn, daylight, dusk and night,
+including daily wrapping, backward clock seeks and midnight continuity. Since the Node
+suite does not exercise WebGL, check scene integration in a browser when changing it.
+
 `tutorial.test.mjs` covers empty, paused startup at ground level and the tutorial's
 local-storage progress/opt-out, including corrupted, stale and blocked storage.
 Run `npm run check:tutorial` from the repo root for the separate production-browser

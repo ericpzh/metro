@@ -1620,8 +1620,11 @@ outlines; a bright interior against a dark world. The art must never be so detai
   are rounded-corner boxes: ticket machines, gates, totems, benches, lift shafts and columns
   all soften their vertical edges, so nothing reads as a raw cube.
 * **The interior is high key.** Light speckled granite floors with dark inlay bands, white panels,
-  brushed stainless, glass. The world outside — soil, sky, surrounding buildings — stays dark, so
-  the station glows and the crowd is the most saturated thing on screen.
+  brushed stainless, glass. The world outside — soil, sky, surrounding buildings — stays dark in
+  the build view, so the station glows and the crowd is the most saturated thing on screen.
+  With the UI hidden, views use a blue sky with soft clouds and a hazy horizon at every camera
+  and storey height, including passenger-eye views. Sky and horizon fog brighten from 05:00–07:00
+  and darken from 17:00–19:00 using simulation time, holding their appearance while paused.
 * **One line colour per line, used big.** A station's identity is a glossy enamel wall panel in the
   line colour with visible panel seams and the station name set into it, plus a coloured band along
   the top of the walls and along the PSD header. Everything else is white, grey or metal.
