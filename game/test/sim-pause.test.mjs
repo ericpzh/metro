@@ -1,11 +1,7 @@
 // Paused sim, paused scenery (`SceneRenderer.setPlaying`).
 //
-// The crowd and the station clocks already stopped when the sim did: the crowd
-// freezes its stride (`passenger-view`) and a clock's hands hold at the end of
-// their sweep (`ceiling-decor`). The escalator step bands, the 闸机 leaves and
-// the train/screen doors did not — `SceneRenderer.animate` drives them off the
-// wall clock every frame, so a paused station kept rolling, sliding and easing
-// behind a frozen crowd. These now hold their pose too and resume on play.
+// The crowd, station clocks, escalator bands, 闸机 leaves and trains follow the
+// SIM clock: paused scenery holds its pose and resumes from where it stopped.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -75,11 +71,12 @@ test('a paused 闸机 holds its leaf for the passenger still queuing', () => {
   assert.ok(wing.open > 0, 'resume opens the leaf the pause was holding shut')
 })
 
-test('paused train and screen doors hold mid-travel; the consist still settles', () => {
+test('paused train poses and doors hold mid-travel, then resume from the held pose', () => {
   const ctx = { scene: new THREE.Scene(), lastStateTime: 1000, stateIntervalMs: 1000 }
   const system = new TrainSystem(ctx)
   const group = new THREE.Group()
   group.visible = true
+  group.position.x = 4
   group.userData.doorOpen = 1
   group.userData.doorSides = 3
   group.userData.doorT = [0, 0]
@@ -99,11 +96,14 @@ test('paused train and screen doors hold mid-travel; the consist still settles',
   system.updateTrains(2000, 1)
   assert.deepEqual(group.userData.doorT, [0, 0], 'paused consist leaves hold shut mid-command')
   assert.equal(screen.userData.doorT, 0, 'and the platform screen holds with them')
-  assert.ok(group.position.x > 0, 'while the consist itself still glides to its latest snapshot')
+  assert.equal(group.position.x, 4, 'and the consist holds its currently displayed pose')
+  ctx.lastStateTime = 2000
   system.setPlaying(true)
   system.updateTrains(2000, 1)
   assert.ok(group.userData.doorT[0] > 0, 'resume eases the consist leaves open')
   assert.ok(screen.userData.doorT > 0, 'and the screen with them')
+  system.updateTrains(2100, 0.1)
+  assert.equal(group.position.x, 4.6, 'resume interpolation continues from the held position')
 })
 
 test('the orchestrator forwards pause to the crowd, the lifts and the trains', () => {

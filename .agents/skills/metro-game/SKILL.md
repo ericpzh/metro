@@ -1687,8 +1687,8 @@ Run `npm run check:tutorial` for the production browser regression and the
   crowd has one draw, gait by distance, idle when waiting/riding, frozen while
   paused — and so is every other sim-driven animation: escalator step bands
   (`LiftSystem`), 闸机 leaves (`CrowdSystem.updateGates`) and train/screen doors
-  (`TrainSystem`, whose consists still glide to their latest snapshot while the
-  leaves hold). `SceneRenderer.setPlaying` forwards pause to all three systems.
+  (`TrainSystem`, which holds consist poses and door leaves, then resumes from
+  the held pose). `SceneRenderer.setPlaying` forwards pause to all three systems.
   Pin in `game/test/sim-pause.test.mjs`. `followPassenger(id)` forces
   隐藏UI + perspective and snapshots the display state; the camera rides
   `PASSENGER_EYE_HEIGHT` facing travel direction, mouse-drag looks after the

@@ -66,6 +66,8 @@ export class TrainSystem extends SceneSystem {
   level!: LevelSystem
   /** False while the sim is paused: doors hold their pose like the crowd. */
   private playing = true
+  /** Keep the first post-resume snapshot anchored to the pose shown during pause. */
+  private resumeSnapshotPending = false
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -130,7 +132,8 @@ export class TrainSystem extends SceneSystem {
         // Continue from where this consist was last drawn. A consist that has
         // reappeared after an absent snapshot snaps to its approach start rather
         // than streaking back across the platform from its previous service.
-        if (entry.missed === 1) entry.from.copy(entry.group.position)
+        if (this.resumeSnapshotPending) entry.from.copy(entry.group.position)
+        else if (entry.missed === 1) entry.from.copy(entry.group.position)
         else entry.from.set(x, y, z)
         entry.to.set(x, y, z)
         entry.active = true
@@ -178,26 +181,29 @@ export class TrainSystem extends SceneSystem {
       }
       psd.group.userData.doorTarget = open ? 1 : 0
     }
+    this.resumeSnapshotPending = false
     this.updateTrains(performance.now(), 0)
   }
 
   /** Place every visible consist between its last two worker poses, and ease doors. */
   updateTrains(now: number, dt: number): void {
     const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
-    // Consists still glide to their latest snapshot while paused (the
-    // interpolation settles and holds, like the station clocks); only the
-    // door leaves freeze, holding whatever pose they had.
     const doorDt = this.playing ? dt : 0
     for (const entry of this.trainSlots.values()) {
       if (!entry.group.visible) continue
-      entry.group.position.lerpVectors(entry.from, entry.to, alpha)
+      if (this.playing) entry.group.position.lerpVectors(entry.from, entry.to, alpha)
       this.advanceTrainDoors(entry.group, doorDt)
     }
     for (const psd of this.psdGroups) if (psd.group.visible) this.advanceDoors(psd.group, doorDt)
   }
 
-  /** Freeze door leaves while paused; resume easing on play. */
+  /** Freeze train poses and doors while paused; resume interpolation from the held pose. */
   setPlaying(on: boolean): void {
+    if (on === this.playing) return
+    if (on) {
+      for (const entry of this.trainSlots.values()) entry.from.copy(entry.group.position)
+      this.resumeSnapshotPending = true
+    }
     this.playing = on
   }
 
