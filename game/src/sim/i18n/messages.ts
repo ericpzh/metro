@@ -1,5 +1,10 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  no_outdoor_surface_here: { zh: "这里没有可移除的人行道或草坪", en: "No matching sidewalk or lawn to remove here" },
+  outdoor_surface_already_here: { zh: "这里已经铺设了人行道或草坪", en: "This surface is already covered" },
+  sidewalk: { zh: "人行道", en: "Sidewalk" },
+  lawn: { zh: "草坪", en: "Lawn" },
+  tree: { zh: "树木", en: "Tree" },
   no_road_to_remove: { zh: '这里没有可移除的道路', en: 'No road to remove here' },
   traffic_light: { zh: '交通灯', en: 'Traffic light' },
   road_reverse: { zh: '反向', en: 'Reverse flow' },

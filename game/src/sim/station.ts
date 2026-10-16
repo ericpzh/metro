@@ -242,6 +242,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     if (m.type === 'hanger') for (const [x, y] of hangerPostCells(m)) fenceCells.add(cellKey(x, y, m.z))
     // A solid stair block fills the anchor's headroom; its flight connects the
     // neighbouring lower and upper floors instead of walking through its body.
+    if (m.type === 'tree') fenceCells.add(cellKey(m.x, m.y, m.z))
     if (m.type === 'stair' && m.cfg.block) fenceCells.add(cellKey(m.x, m.y, m.z))
     if (m.type === 'ac-unit' || m.type === 'electrical-cabinet') {
       for (const [x, y] of floorDecorCells(m)) fenceCells.add(cellKey(x, y, m.z))

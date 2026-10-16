@@ -1,13 +1,13 @@
 import { roadsOnlyChange } from '../sim/roads.ts'
 import type { Cell, Module, StationData } from '../sim/types.ts'
-import { isEdgeDecor, edgeDecorCurtainShare, moduleEnvelope, moduleFootprint } from '../sim/placement.ts'
+import { isEdgeDecor, edgeDecorCurtainShare, moduleEnvelope, moduleFootprint, outdoorSurfaceLift, isOutdoorSurface } from '../sim/placement.ts'
 import { hangerSupports } from '../sim/hangers.ts'
 import { isSimInertDecorModule } from '../sim/decorInert.ts'
 import { stairFlights } from '../sim/stairs.ts'
 
 // These builders read module/metadata only. Changes to either fail closed below.
 const CELL_INDEPENDENT = new Set<Module['type']>([
-  'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
+  'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
   'cubicle', 'sink', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
   'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'track', 'exit', 'guidepost', 'busstop', 'psd-end',
@@ -16,6 +16,7 @@ const CELL_INDEPENDENT = new Set<Module['type']>([
 /** The columns a cell-dependent builder reads. Height is intentionally unbounded:
  * hangers seek a slab, lifts discover stops, ramps inspect adjacent wall courses. */
 function dependsOnCell(mod: Module, cell: Cell): boolean {
+  if (isOutdoorSurface(mod)) return cell.x === mod.x && cell.y === mod.y && cell.z === mod.z
   if (CELL_INDEPENDENT.has(mod.type)) return false
   if (mod.type === 'shop') return cell.x >= mod.x - 1 && cell.x <= mod.x + mod.w
     && cell.y >= mod.y - 1 && cell.y <= mod.y + mod.h
@@ -151,6 +152,10 @@ function inertDecorRetainedIds(before: StationData, after: StationData): Set<str
   const tactileKeys = [...tactileCells].map((key) => key.split(',').map(Number) as [number, number, number])
   for (const mod of after.modules) {
     if (changedIds.has(mod.id)) continue
+    if (outdoorSurfaceLift(before.modules, mod) !== outdoorSurfaceLift(after.modules, mod)) {
+      rebuild.add(mod.id)
+      continue
+    }
     if (mod.type === 'tactile' && tactileKeys.some(([x, y, z]) => z === mod.z && Math.abs(x - mod.x) + Math.abs(y - mod.y) <= 1)) {
       rebuild.add(mod.id)
       continue

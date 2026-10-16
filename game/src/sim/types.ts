@@ -437,6 +437,8 @@ export type BridgeRailing = 'railing' | 'sound-barrier-half' | 'sound-barrier'
 export type LiftDoorSide = 'front' | 'back' | 'both' | 'none'
 
 export type Module =
+  | (ModuleBase & { type: 'sidewalk' | 'lawn'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'tree'; cfg: Record<string, never> })
     | (ModuleBase & { type: 'hanger'; w: 4 | 6 | 8; cfg: { mount: 'roof' | 'post' } })
   | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number; finish?: FinishId; bridgeId?: string } })
   | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss'; finish?: FinishId; plateSnap?: 'lower' | 'upper' } })

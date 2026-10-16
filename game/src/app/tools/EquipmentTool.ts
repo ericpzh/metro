@@ -83,7 +83,7 @@ export class EquipmentTool extends ToolController {
   onDown(info: PointerInfo): void {
     if (useStore.getState().moduleType === 'road' || this.ctx.drag.current?.road) { new RoadTool(this.ctx).onDown(info); return }
     if (useStore.getState().moduleType.startsWith('tactile-')) { new TactileTool(this.ctx).onDown(info); return }
-    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).onDown(info); return }
+    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block' || useStore.getState().moduleType === 'sidewalk' || useStore.getState().moduleType === 'lawn')) { new TileEquipmentTool(this.ctx).onDown(info); return }
     const scene = this.ctx.scene()
     if (!scene) return
     const hit = useStore.getState().moduleType === 'sign-wall'
@@ -241,7 +241,7 @@ export class EquipmentTool extends ToolController {
   onMove(info: PointerInfo): void {
     if (useStore.getState().moduleType === 'road' || this.ctx.drag.current?.road) { new RoadTool(this.ctx).onMove(info); return }
     if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onMove(info); return }
-    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block') || this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
+    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block' || useStore.getState().moduleType === 'sidewalk' || useStore.getState().moduleType === 'lawn') || this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
     if (!scene) return
     const hit = useStore.getState().moduleType === 'sign-wall'
@@ -719,7 +719,7 @@ export class EquipmentTool extends ToolController {
     if (st.tool !== 'module') return
     if (st.moduleType === 'road') { new RoadTool(this.ctx).refreshHover(); return }
     if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).refreshHover(); return }
-    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block')) { new TileEquipmentTool(this.ctx).refreshHover(); return }
+    if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block' || useStore.getState().moduleType === 'sidewalk' || useStore.getState().moduleType === 'lawn')) { new TileEquipmentTool(this.ctx).refreshHover(); return }
     const scene = this.ctx.scene()
     const h = this.ctx.hover.current
     if (!scene || !h) return

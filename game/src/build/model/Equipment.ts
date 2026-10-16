@@ -120,6 +120,10 @@ export function createModule(
   const curtainHeight = settings.curtainHeight ?? 4
   const rampLength = settings.rampLength ?? RAMP_LENGTH_DEFAULT
   switch (type) {
+    case 'sidewalk':
+    case 'lawn':
+    case 'tree':
+      return { id, type, x, y, z, rot, cfg: {} };
     case 'pillar':
     case 'pillar-slim':
     case 'pillar-thick':

@@ -3731,3 +3731,11 @@ across width changes, save/load, snapped gestures, undo/redo, one pick per press
 hidden/refused roads and reused/disposed node-handle buffers. `npm run check:roads`
 is the real bilingual production-input regression; captures and its report are
 under `.preview/roads/node-*`.
+
+人行道 (Sidewalk) and 草坪 (Lawn) in 站外装饰 drag rectangular patches raised 0.1 m. Ground equipment follows the finish; 树木 (Tree) places individually on grass or bare ground. `outdoor-surfaces` pins height, ground-equipment compatibility, collisions, save/pick and support rebuilds; `roof-tool` pins immediate rectangular drag, erase and undo.
+
+Outdoor surface performance: `outdoor-surfaces` now guards one snapshot for bulk placement/removal, bounded document reads, exact floor/track/road refusals, immutable support indexes, retained unaffected equipment and shared geometry disposal. `worker-preview` guards no routing rebuild or paused tick for sidewalk/lawn edits within the existing ground window. Trees use the offline EZ-Tree ash bake (`node tools/bake-street-tree.mjs`), two shared meshes and a scene-owned leaf texture. `node tools/bench-outdoor-surfaces.mjs` measures cold and warm production pointer phases; reports belong under `.preview/perf/`.
+
+`outdoor-surfaces` also pins Tanwei B exit protection: sidewalk/lawn refuse exit-owned floors and ramp openings, and existing saved tiles draw no cap when an exit or hole is created afterward. Hidden finishes do not lift the exit away from its stairs. Ground edits invalidate the affected finish so digging and restoring ground update its visibility.
+
+`move` pins moving trees through the move tool/inspector eligibility, cancel, collision refusal, lawn support height and one-step undo/redo.

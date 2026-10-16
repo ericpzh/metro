@@ -16,7 +16,7 @@ const INERT_TYPES: ReadonlySet<Module['type']> = new Set([
   'tactile', 'floor-mark', 'billboard', 'glass', 'door', 'calligraphy', 'linemap',
   'sign', 'tv', 'monitor', 'clock', 'cctv', 'light', 'vent', 'traffic-light', 'rail-signal',
   'guidepost', 'busstop', 'shelf', 'desk', 'checkout', 'cubicle', 'sink', 'bin',
-  'extinguisher',
+  'extinguisher', 'sidewalk', 'lawn',
 ])
 
 /** True when this placed module never reaches the walk graph or street holes. */

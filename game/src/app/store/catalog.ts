@@ -40,7 +40,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
     'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'rail-signal',
     'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1',
   ]),
-  outside: new Set(['traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
+  outside: new Set(['sidewalk', 'lawn', 'tree', 'traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
 }
 
 export function decorCategoryHasId(category: DecorCategory, id: string): boolean {
@@ -63,6 +63,7 @@ export function decorCategoryForId(id: string): DecorCategory | null {
  * a list that also has to keep each family's variants adjacent.
  */
 export const MODULE_OPTIONS: ModuleOption[] = [
+  ...(['sidewalk', 'lawn', 'tree'] as const).map(id => ({ id, label: msg(id), type: id, w: 1, h: 1 })),
   { id: 'road', label: msg('road'), type: 'road', w: 6, h: 12 },
   { id: 'hanger-roof', label: msg('roof_hanger'), type: 'hanger', w: 4, h: 1 },
   { id: 'hanger-post', label: msg('post_hanger'), type: 'hanger', w: 4, h: 1 },
@@ -251,7 +252,7 @@ export function isDecorType(type: string): boolean {
     type === 'checkout' ||
     type === 'cubicle' ||
     type === 'sink' ||
-    type === 'traffic-light' || type === 'road' || type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
+    type === 'sidewalk' || type === 'lawn' || type === 'tree' || type === 'traffic-light' || type === 'road' || type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
     type === 'bin' ||
     type === 'extinguisher' || type.startsWith('extinguisher-') ||
     (type === 'light' || type.startsWith('light-')) ||
@@ -615,6 +616,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     'vent',
     familyAnchor('hanger'),
     'desk',
+    'sidewalk', 'lawn', 'tree',
     'road',
     'traffic-light',
     'guidepost',
@@ -849,6 +851,7 @@ const MODULE_LABELS: Record<string, string> = {
   cubicle: msg('toilet_cubicle'),
   sink: msg('sink'),
   guidepost: msg('wayfinding_post'),
+  sidewalk: msg('sidewalk'), lawn: msg('lawn'), tree: msg('tree'),
   road: msg('road'),
   busstop: msg('bus_stop'),
   bin: msg('bin'),

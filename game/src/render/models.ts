@@ -1,3 +1,6 @@
+import { outdoorSurfaceLift } from '../sim/placement.ts'
+import { OutdoorSurfaceModel } from './models/pieces/OutdoorSurfaceModel.ts'
+import { TreeModel } from './models/pieces/TreeModel.ts'
 import { TrafficLightModel } from './models/pieces/TrafficLightModel.ts'
 // Procedural module models â€” dispatcher plus compatibility barrel (Lane E).
 //
@@ -59,11 +62,20 @@ import { BoothModel } from './models/pieces/BoothModel.ts'
  * with nothing to draw. The caller owns disposal.
  */
 export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | null {
+  const model = buildRawModule(mod, ctx)
+  if (model) model.position.z += outdoorSurfaceLift(ctx.data.modules, mod)
+  return model
+}
+
+function buildRawModule(mod: Module, ctx: ModuleContext): THREE.Object3D | null {
   const raised = (model: THREE.Object3D): THREE.Object3D => {
     model.position.z += hangerLiftFor(ctx.data.modules, mod)
     return model
   }
   switch (mod.type) {
+    case 'sidewalk':
+    case 'lawn': return new OutdoorSurfaceModel(ctx).build(mod)
+    case 'tree': return new TreeModel(ctx).build(mod)
     case 'road': return new RoadModel(ctx).build(mod)
     case 'hanger': return new HangerModel(ctx).build(mod)
     case 'pillar': return new PillarModel(ctx).build(mod)

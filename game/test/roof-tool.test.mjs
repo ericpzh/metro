@@ -309,3 +309,32 @@ test('the shell roof is the truss bay without the truss', () => {
   assert.equal(createModule('roof-shell', 0, 0, 4, 'shell5', 1, 5).d, supportedRoofWidth(5), 'an off-list width reads as the bay it fits')
   assert.equal(supportedRoofWidth(5), 4)
 })
+
+for (const type of ['sidewalk', 'lawn']) test(`${type} drags rectangles immediately, commits once, undoes and erases its own tiles`, () => {
+  const h = harness([], type)
+  h.tool.onDown(h.event(0, 0))
+  h.tool.onMove(h.event(2, 1))
+  assert.equal(h.ghost().length, 6)
+  assert.equal(useStore.getState().past.length, 0)
+  h.tool.onUp(h.event(2, 1))
+  assert.equal(useStore.getState().station.modules.length, 6)
+  assert.equal(useStore.getState().past.length, 1)
+  assert.ok(useStore.getState().station.modules.every(m => m.type === type && m.z === 0))
+  useStore.getState().undo()
+  assert.equal(useStore.getState().station.modules.length, 0)
+  useStore.getState().redo()
+  h.tool.onDown(h.event(0, 0, 2))
+  h.tool.onUp(h.event(2, 1, 2))
+  assert.equal(useStore.getState().station.modules.length, 0)
+})
+
+test('outdoor finishes follow the picked supporting floor above the active work plane', () => {
+  const h = harness([{ x: 0, y: 0, z: 4, fill: 'solid' }], 'sidewalk')
+  const event = { ...h.event(0, 0), hit: { cell: [0, 0, 4], place: [0, 0, 5], solid: true } }
+  h.tool.onMove(event)
+  assert.equal(h.ghost()[0].z, 4)
+  h.tool.onDown(event)
+  assert.equal(h.ghost()[0].z, 4)
+  h.tool.onUp(event)
+  assert.equal(useStore.getState().station.modules[0].z, 4)
+})

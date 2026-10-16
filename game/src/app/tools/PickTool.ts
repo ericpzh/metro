@@ -154,6 +154,9 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'bin':
     case 'vent':
     case 'clock':
+    case 'sidewalk':
+    case 'lawn':
+    case 'tree':
     case 'traffic-light':
     case 'rail-signal':
     case 'tv':

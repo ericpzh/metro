@@ -1823,3 +1823,9 @@ cleared on tool cancellation and restored after station/move-preview cleanup.
 Pin document/gesture/lifecycle behavior in `road-document`, and run `check:roads`
 for production bilingual pointer/keyboard input. Width transitions are uncontrolled
 lane merges in the traffic graph; do not generate signals or zebra crossings there.
+
+站外装饰 begins with 人行道 (`sidewalk`), 草坪 (`lawn`) and 树木 (`tree`). Surfaces use TileEquipmentTool rectangle drags and stand 0.1 m above the floor. `outdoorSurfaceLift` shares derived support height with the model dispatcher and collision envelopes; anchors remain integer cells. Surfaces must invalidate equipment models when added or removed. Trees are separate props with trunk collisions and a blocked pedestrian tile. Pin palette order in rail-families and geometry/placement/save in outdoor-surfaces.
+
+Surface performance: `build/model/OutdoorSurfaces.ts` validates and edits a whole drag against one immutable document, committing one array; never reintroduce per-tile addEquipment/collision-cache reconstruction. `sim/outdoorSurfaces.ts` owns the cached tile/support index. Sidewalk/lawn are sim-inert; retention rebuilds equipment only when its derived support height changes. Each finish uses one shared vertex-coloured mesh. Street trees are baked offline from the pinned EZ-Tree dev dependency; preserve the source options/license in `assets/trees/` and the two shared meshes/material-kit texture ownership.
+
+Outdoor finishes must not cap exit-owned floors, ramp openings or dug holes. `outdoorSurfaceHidden` shares the cached opening/support verdict with the surface model; refuse new caps with `opening` and mask pre-existing saved tiles, without lifting exits on that masked paving. Surface retention must depend on its supporting cell so dig/restore updates visibility. The Tanwei B fixture regression lives in `outdoor-surfaces`.

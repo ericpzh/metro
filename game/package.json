@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "test:perf": "node --test --test-isolation=none --experimental-test-coverage --test-coverage-exclude=\"test/**\" --test-coverage-exclude=\"node_modules/**\" test/batching-lifecycle.test.mjs test/draw-batching.test.mjs test/performance-policy.test.mjs test/road-performance.test.mjs test/worker-preview.test.mjs test/render-performance.test.mjs test/scene-wiring.test.mjs test/roof-tool.test.mjs test/equipment-placement-input.test.mjs test/passenger-assets.test.mjs test/passenger-library.test.mjs"
+    "test:perf": "node --test --test-isolation=none --experimental-test-coverage --test-coverage-exclude=\"test/**\" --test-coverage-exclude=\"node_modules/**\" test/batching-lifecycle.test.mjs test/draw-batching.test.mjs test/performance-policy.test.mjs test/road-performance.test.mjs test/worker-preview.test.mjs test/render-performance.test.mjs test/scene-wiring.test.mjs test/roof-tool.test.mjs test/outdoor-surfaces.test.mjs test/equipment-placement-input.test.mjs test/passenger-assets.test.mjs test/passenger-library.test.mjs"
   },
   "dependencies": {
     "immer": "^11.1.18",
@@ -22,6 +22,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@dgreenheck/ez-tree": "1.1.0",
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

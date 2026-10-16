@@ -1,7 +1,9 @@
 import { roadSurfaceReason } from './roadPlacement.ts'
 import { ROAD_LANE_WIDTH, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
 import { msg } from './i18n.ts'
-import type { BlockIndex } from './blockIndex.ts'
+import { blockIndex, type BlockIndex } from './blockIndex.ts'
+import { isOutdoorSurface, outdoorSurfaceIndex, surfaceKey } from './outdoorSurfaces.ts'
+export { isOutdoorSurface } from './outdoorSurfaces.ts'
 // Equipment footprints and collision, GAME-SPEC §5.
 //
 // Everything the builder drops is a module with a real plan footprint and a
@@ -30,7 +32,7 @@ import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker } fro
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
 import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
-import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth } from './exits.ts'
+import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth, isExitHeadHouse } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { GLASS_FRAME, glassModuleSpec, glassSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
@@ -48,6 +50,7 @@ import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './trac
 import { monitorCells } from './monitors.ts'
 import { RAIL_SIGNAL_HEIGHT, RAIL_SIGNAL_SCALE } from './constants.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
+import { OUTDOOR_SURFACE_HEIGHT } from './constants.ts'
 import { halfWallSide, isWallBlock, type Cell, type GlassVariant, type Module, type Vec3i, type WallSide } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
@@ -332,6 +335,9 @@ function wallPanelBox(m: Module, cells: ReadonlyArray<[number, number, number]>,
 function flatEnvelope(m: Module): ModuleBox | null {
   const z0 = m.z + 1
   switch (m.type) {
+    case 'sidewalk':
+    case 'lawn': return { x0: m.x, x1: m.x + 1, y0: m.y, y1: m.y + 1, z0, z1: z0 + OUTDOOR_SURFACE_HEIGHT }
+    case 'tree': return { x0: m.x + .3, x1: m.x + .7, y0: m.y + .3, y1: m.y + .7, z0, z1: z0 + 4.5 }
     case 'hanger': {
       const boxes = hangerBoxes(m)
       return {
@@ -571,12 +577,41 @@ function flatEnvelope(m: Module): ModuleBox | null {
   }
 }
 
+const NO_SURFACE_CELLS: readonly Cell[] = []
+
+/** §4.1/§4.3: exits own their floor and wellways; a finish cannot cap that opening. */
+export function outdoorSurfaceHidden(cells: readonly Cell[], modules: readonly Module[], m: Module): boolean {
+  const occupied = blockIndex(cells, modules)
+  return occupied.opening(m.x, m.y, m.z)
+    || (!occupied.solid.has(surfaceKey(m.x, m.y, m.z)) && !occupied.ground(m.x, m.y, m.z))
+}
+
+/** §4.3/§5: floor equipment follows its raised finish, including existing pieces. */
+export function outdoorSurfaceLift(modules: readonly Module[], m: Module): number {
+  if (m.type === 'exit' && isExitHeadHouse(m)) return 0
+  if (!modules.length || isOutdoorSurface(m) || isWallMounted(m) || isCeilingHung(m)
+    || ['road', 'roof', 'track', 'stair', 'escalator', 'walkway', 'lift'].includes(m.type)) return 0
+  const box = flatEnvelope(m)
+  if (!box || Math.abs(box.z0 - m.z - 1) > .01) return 0
+  const { tiles } = outdoorSurfaceIndex(modules)
+  for (let x = Math.floor(box.x0); x < Math.ceil(box.x1); x++) for (let y = Math.floor(box.y0); y < Math.ceil(box.y1); y++) {
+    if (tiles.has(surfaceKey(x, y, m.z)) && !blockIndex(NO_SURFACE_CELLS, modules).opening(x, y, m.z)) return OUTDOOR_SURFACE_HEIGHT
+  }
+  return 0
+}
+
 /**
  * The world box a module occupies — its ramp corridor or its flat body. A lift
  * is neither: it is a 2 × 2 m shaft rising two storeys, so it gets its own box
  * (the ramp envelope's thin vertical column would not reserve the whole plan).
  */
-export function moduleEnvelope(m: Module): ModuleBox | null {
+export function moduleEnvelope(m: Module, modules: readonly Module[] = []): ModuleBox | null {
+  const box = rawModuleEnvelope(m)
+  const lift = outdoorSurfaceLift(modules, m)
+  return box && lift ? { ...box, z0: box.z0 + lift, z1: box.z1 + lift } : box
+}
+
+function rawModuleEnvelope(m: Module): ModuleBox | null {
   if (m.type === 'road') return { x0: m.x, y0: m.y, z0: m.z + 1.01, x1: m.x + m.w, y1: m.y + m.d, z1: m.z + 1.07 }
   if (m.type === 'stair' && m.cfg.block) return { x0: m.x, y0: m.y, z0: m.z + 1, x1: m.x + 1, y1: m.y + 1, z1: m.z + 1 + (m.cfg.blockHeight ?? 1) }
   if (m.type === 'lift') return liftEnvelope(m)
@@ -1602,7 +1637,7 @@ function placedCollisionBoxes(modules: readonly Module[]): PlacedCollision[] {
   let entries = collisionCache.get(modules)
   if (!entries) {
     entries = modules.map(module => {
-      const envelope = moduleEnvelope(module)
+      const envelope = moduleEnvelope(module, modules)
       const boxes = envelope ? collisionBoxes(module, envelope) : []
       return { module, boxes, bounds: collisionBounds(boxes) }
     })
@@ -1613,12 +1648,14 @@ function placedCollisionBoxes(modules: readonly Module[]): PlacedCollision[] {
 
 export function placementColliders(modules: readonly Module[], candidate: Module): Module[] {
   const out: Module[] = []
-  const c = moduleEnvelope(candidate)
+  const c = moduleEnvelope(candidate, modules)
   if (!c) return out
   const candidateBoxes = collisionBoxes(candidate, c)
   const bounds = collisionBounds(candidateBoxes)
   if (!bounds) return out
   for (const { module: m, boxes, bounds: placedBounds } of placedCollisionBoxes(modules)) {
+    if ((isOutdoorSurface(m) && !isOutdoorSurface(candidate) && candidate.type !== 'road')
+      || (isOutdoorSurface(candidate) && !isOutdoorSurface(m) && m.type !== 'road')) continue
     if (m.type === 'road' && candidate.type === 'road') continue
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
     if (!isFenceGlassPair(m, candidate) && (!placedBounds || !boxesOverlap(bounds, placedBounds))) continue
@@ -1731,7 +1768,11 @@ function isHangingShare(a: Module, b: Module): boolean {
  * space.
  */
 function collisionBoxes(m: Module, envelope: ModuleBox): ModuleBox[] {
-  if (m.type === 'hanger') return hangerBoxes(m)
+  if (m.type === 'hanger') {
+    const boxes = hangerBoxes(m)
+    const lift = envelope.z0 - Math.min(...boxes.map(b => b.z0))
+    return lift ? boxes.map(b => ({ ...b, z0: b.z0 + lift, z1: b.z1 + lift })) : boxes
+  }
   if (!isRampRun(m)) return [envelope]
   // Stairs and escalators occupy their per-tile body slope, even against another
   // run. This leaves the space below an elevated section free while preserving
@@ -1907,6 +1948,7 @@ export function pillarAt(
  * branch) re-checked by `moveDropReason` at the drop.
  */
 const MOVABLE_TYPES: ReadonlySet<string> = new Set([
+  'tree',
   'monitor', 'traffic-light', 'rail-signal',
   'hanger',
   'ac-unit', 'electrical-cabinet', 'tactile', 'floor-mark',
@@ -2069,7 +2111,7 @@ export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[]
 
 /** Why a module may not be placed, or `''` when it may. */
 export type EquipmentRefusal =
-  | 'road-width' | 'road-ground'
+  | 'road-width' | 'road-ground' | 'opening'
   | ''
   | 'exit-on-slab'
   | 'exit-below-ground'
@@ -2102,6 +2144,25 @@ export type EquipmentRefusal =
  * those produce the piece, not the verdict.
  */
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
+  if (isOutdoorSurface(candidate)) {
+    if (candidate.z < 0) return 'outdoor-below-ground'
+    const { x, y, z } = candidate, occupied = blockIndex(cells, modules)
+    if (occupied.opening(x, y, z)) return 'opening'
+    if (occupied.solid.has(surfaceKey(x, y, z + 1))) return 'occupied'
+    if (!occupied.solid.has(surfaceKey(x, y, z)) && !occupied.ground(x, y, z) && !exitFloorAt(modules, x, y, z)) return 'floor'
+    if (occupied.track.has(surfaceKey(x, y, z))) return 'track'
+    const index = outdoorSurfaceIndex(modules)
+    const existing = index.tiles.get(surfaceKey(x, y, z))
+    if (existing && existing.id !== candidate.id) return 'occupied'
+    const box = moduleEnvelope(candidate)!
+    if (index.roads.some(road => boxesOverlap(box, moduleEnvelope(road)!))) return 'occupied'
+    return ''
+  }
+  if (candidate.type === 'tree' && candidate.z < 0) return 'outdoor-below-ground'
+  if (isOutdoorSurface(candidate) || candidate.type === 'tree') {
+    const box = moduleEnvelope(candidate, modules)!
+    if (cells.some(c => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, x1: c.x + 1, y0: c.y, y1: c.y + 1, z0: c.z, z1: c.z + 1 }))) return 'occupied'
+  }
   if (candidate.type === 'road') {
     const width = (candidate.rot ?? 0) % 2 ? candidate.d : candidate.w
     if (width < (candidate.cfg.direction === 'two-way' ? ROAD_LANE_WIDTH * 2 : ROAD_LANE_WIDTH)) return 'road-width'
@@ -2119,7 +2180,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
   }
   if (candidate.type === 'traffic-light' || candidate.type === 'rail-signal' || candidate.type === 'shelf' || candidate.type === 'checkout' || candidate.type === 'desk' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
-    const box = moduleEnvelope(candidate)!
+    const box = moduleEnvelope(candidate, modules)!
     if (cells.some((c) => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
   }
   if ((candidate.type === 'traffic-light' || candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
@@ -2129,14 +2190,14 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   if ((candidate.type === 'pillar' || (candidate.type === 'roof' && candidate.cfg.variant)) && candidate.z < 0) return 'exit-on-slab'
   if (candidate.type === 'roof') {
     if (placementColliders(modules, candidate).length > 0) return 'occupied'
-    const box = moduleEnvelope(candidate)!
+    const box = moduleEnvelope(candidate, modules)!
     for (const c of cells) {
       if (c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })) return 'occupied'
     }
     return ''
   }
   if (candidate.type === 'pillar') {
-    const box = moduleEnvelope(candidate)!
+    const box = moduleEnvelope(candidate, modules)!
     for (const c of cells) {
       if (c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })) return 'occupied'
     }
@@ -2189,6 +2250,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
 export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: readonly Module[] = []): string {
   const base = (() => {
     switch (reason) {
+      case 'opening': return msg('keep_openings_clear_do_not_cover_stairs_escalators_or_entrances_')
       case 'road-width': return msg('road_width_refusal')
       case 'road-ground': return msg('road_ground_refusal')
       case 'exit-on-slab':
@@ -2252,6 +2314,7 @@ export function moduleTypeLabel(m: Module): string {
 const MODULE_TYPE_LABELS: Record<string, string> = {
   hanger: msg('hanger'),
   pillar: msg('support_pillar'),
+  sidewalk: msg('sidewalk'), lawn: msg('lawn'), tree: msg('tree'),
   roof: msg('station_roof'),
   gate: msg('fare_gate'),
   'psd-end': msg('screen_end_door'),

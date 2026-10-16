@@ -1,3 +1,5 @@
+import { editOutdoorSurfaces } from '../../build/model/OutdoorSurfaces.ts'
+import { outdoorSurfaceIndex, surfaceKey } from '../../sim/outdoorSurfaces.ts'
 import { msg } from '../../sim/i18n.ts'
 // Roof bays and small stair blocks share the block tool's rectangular gesture
 // and equipment's placement verdict.
@@ -10,7 +12,7 @@ import { msg } from '../../sim/i18n.ts'
 // so a run stays one straight hall rather than a staggered grid.
 import { addEquipment, createModule, nextModuleId, removeModule } from '../../build/model.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
-import { equipmentRefusalNotice } from '../../sim/placement.ts'
+import { equipmentRefusalNotice, isOutdoorSurface } from '../../sim/placement.ts'
 import { rotateLocal, trackCells, trackFacing } from '../../sim/track.ts'
 import { TRUSS_ROOF_BAY } from '../../sim/structures.ts'
 import type { Module } from '../../sim/types.ts'
@@ -21,6 +23,10 @@ import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 
 function pieceAt(modules: readonly Module[], x: number, y: number, z: number, type: string): Module | undefined {
+  if (type === 'sidewalk' || type === 'lawn') {
+    const held = outdoorSurfaceIndex(modules).tiles.get(surfaceKey(x, y, z))
+    return held?.type === type ? held : undefined
+  }
   const stair = type === 'stair-block'
   return modules.find((m) => m.z === z && (stair
     ? m.type === 'stair' && m.cfg.block && m.x === x && m.y === y
@@ -79,7 +85,7 @@ export class TileEquipmentTool extends ToolController {
     const pickedRoof = picked?.type === 'roof' ? picked : undefined
     // Truss bays stay on the active storey plane. Thin plates follow the normal
     // block hit, so they can snap to either side of a cell at any visible height.
-    const anchor: [number, number, number] = st.moduleType === 'stair-block'
+    const anchor: [number, number, number] = (st.moduleType === 'stair-block' || isOutdoorSurface({ type: st.moduleType }))
       ? pickedStair ? [pickedStair.x, pickedStair.y, pickedStair.z] : hit.cell
       : info.button === 2 && pickedRoof ? [pickedRoof.x, pickedRoof.y, pickedRoof.z]
         : st.moduleType === 'roof' ? hit.roofSnap ? hit.cell : hit.place
@@ -122,7 +128,7 @@ export class TileEquipmentTool extends ToolController {
       return
     }
     const st = useStore.getState()
-    const cell: [number, number, number] = st.moduleType === 'stair-block'
+    const cell: [number, number, number] = (st.moduleType === 'stair-block' || isOutdoorSurface({ type: st.moduleType }))
       ? hit.cell
       : st.moduleType === 'roof' ? hit.roofSnap ? hit.cell : hit.place : [hit.cell[0], hit.cell[1], st.activeZ]
     this.ctx.hover.current = { cell, place: hit.place, solid: hit.solid, ...(hit.roofSnap ? { roofSnap: hit.roofSnap } : {}) }
@@ -141,7 +147,7 @@ export class TileEquipmentTool extends ToolController {
     const type = drag.tileType ?? st.moduleType
     // The thin roof is a simple area tile: pointer travel immediately grows its
     // rectangle, while the other tile pieces keep the block tool's long-press guard.
-    const rect = isMoved(drag, info) && (type === 'roof' || performance.now() - drag.downTime >= LONG_PRESS_MS)
+    const rect = isMoved(drag, info) && (type === 'roof' || type === 'sidewalk' || type === 'lawn' || performance.now() - drag.downTime >= LONG_PRESS_MS)
     if (!rect) return [drag.anchor]
     const rot = drag.tileRot ?? st.moduleRot
     const width = drag.tileWidth ?? st.roofWidth
@@ -208,6 +214,14 @@ export class TileEquipmentTool extends ToolController {
     const rot = drag.tileRot ?? st.moduleRot
     const width = drag.tileWidth ?? st.roofWidth
     const snap = drag.tileSnap ?? st.roofPlateSnap
+    if (type === 'sidewalk' || type === 'lawn') {
+      const result = editOutdoorSurfaces(st.station, cells, type, rot, drag.mode === 'remove')
+      if (result.state !== st.station) st.commit(result.state)
+      const reason = result.check.refused.values().next().value
+      if (reason) st.setNotice(equipmentRefusalNotice(reason as Parameters<typeof equipmentRefusalNotice>[0], st.station.modules.filter(m => result.check.colliderIds.includes(m.id))))
+      else if (result.state === st.station) st.setNotice(msg(drag.mode === 'remove' ? 'no_outdoor_surface_here' : 'outdoor_surface_already_here'))
+      return
+    }
     for (const [x, y, z] of cells) {
       if (drag.mode === 'remove') {
         const roof = pieceAt(next.modules, x, y, z, type)
@@ -238,6 +252,8 @@ export class TileEquipmentTool extends ToolController {
     }
     if (next !== st.station) st.commit(next)
     if (why) st.setNotice(why)
-    else if (next === st.station) st.setNotice(drag.mode === 'remove' && removed === 0 ? msg('no_roof_to_remove_here') : msg('cannot_place_a_roof_here_choose_another_location'))
+    else if (next === st.station) st.setNotice(isOutdoorSurface({ type })
+      ? msg(drag.mode === 'remove' ? 'no_outdoor_surface_here' : 'outdoor_surface_already_here')
+      : drag.mode === 'remove' && removed === 0 ? msg('no_roof_to_remove_here') : msg('cannot_place_a_roof_here_choose_another_location'))
   }
 }

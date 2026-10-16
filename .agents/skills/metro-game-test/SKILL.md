@@ -139,6 +139,17 @@ is available by running the checker with `--software-gpu` after a build.
 the fallback against the same geometry; its report is separate. Use paired
 unprofiled benchmarks for speed evidence, keeping hardware/fixture/assets fixed.
 
+## Coverage completion gate
+
+Coverage means the changed behaviour has a deterministic regression for each affected
+contract, the `game/test/README.md` map names the owning suite, and the **full** game
+suite completes. A focused file, V8 percentage, build, or browser check cannot stand
+in for the full suite. Run the focused tests while iterating, then run
+`npm --prefix game test` before reporting completion. If that run exposes an unrelated
+failure, preserve it and identify it explicitly; do not claim full-suite coverage or
+change unrelated code to make the result green. For performance work, retain the
+additional measurement and work-count requirements in the performance guide.
+
 ## Rules that matter most when adding a test
 
 1. Import the source, not a copy — no build step, no `dist/`. If a module is hard

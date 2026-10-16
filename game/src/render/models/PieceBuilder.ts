@@ -76,6 +76,8 @@ export const C = {
 /* --------------------------------------------------------------- materials */
 
 export interface ModelMaterials {
+  treeBark: THREE.MeshStandardMaterial
+  treeLeaves: THREE.MeshStandardMaterial
   steel: THREE.MeshStandardMaterial
   /** Broad satin stainless panels; subtle grain under the station light rig. */
   binSteel: THREE.MeshStandardMaterial
@@ -661,7 +663,12 @@ export function createModelMaterials(): ModelMaterials {
     opacity: 0.4,
     side: THREE.DoubleSide,
   })
+  const treeLeafMap = typeof document !== 'undefined' && typeof document.createElementNS === 'function'
+    ? new THREE.TextureLoader().load(new URL('../../assets/trees/ash-leaves.png', import.meta.url).href) : null
+  if (treeLeafMap) treeLeafMap.colorSpace = THREE.SRGBColorSpace
   return {
+    treeBark: new THREE.MeshStandardMaterial({ color: 0x726454, roughness: 1 }),
+    treeLeaves: new THREE.MeshStandardMaterial({ map: treeLeafMap, color: 0xb7cf99, alphaTest: .5, side: THREE.DoubleSide, roughness: 1 }),
     steel,
     darkSteel: new THREE.MeshStandardMaterial({ color: C.darkSteel, roughness: 0.55, metalness: 0.4 }),
     black: new THREE.MeshStandardMaterial({ color: C.black, roughness: 0.6, metalness: 0.2 }),

@@ -902,3 +902,89 @@ segment deletion and undo/redo. Reports/captures: `.preview/roads/node-*`.
 The live crossing regression, native and disabled-extension rendering checks,
 and CPU/trace-export smoke checks pass. Logs are under `.preview/perf/road-node-*`;
 full-suite/build logs are under `.preview/road-node-*`.
+
+
+## Outdoor surface placement and street ash (2026-10-15)
+
+`node tools/bench-outdoor-surfaces.mjs` drives the production viewport with CDP
+mouse input: first hover, press, first/continued movement and release, followed by
+a warmed repeat for each finish. Fixture: 401 bins, no authored cells, no crowd,
+paused at z=0, seed 7654321, a 10×10 m patch within the existing ground window.
+Chrome 155, 28 logical processors, RTX 4080 SUPER / ANGLE D3D11, 1424×905 inner
+viewport. The same fixture/camera was used before and after. A later harness
+assertion caught one camera-settling run that placed only 72 tiles; that run was
+discarded, damping was disabled and the camera matrix updated before projection.
+All reported runs placed exactly 100 tiles; errors are asserted absent.
+
+| Interaction | Before release CPU | After release CPU | Before CDP + two RAFs | After CDP + two RAFs |
+|---|---:|---:|---:|---:|
+| 人行道 first drag | 226.0 ms | 18.1 ms | 296.2 ms | 81.4 ms |
+| 人行道 warm drag | 266.5 ms | 16.2 ms | 316.0 ms | 47.7 ms |
+| 草坪 first drag | 243.6 ms | 13.8 ms | 296.8 ms | 49.8 ms |
+| 草坪 warm drag | 243.4 ms | 13.6 ms | 293.7 ms | 49.6 ms |
+
+First hover remains approximately 66–69 ms through CDP and two RAFs; first
+pointer-down CPU stays approximately 2 ms. Those phases are not claimed as a
+speedup. RAF timings include browser scheduling/presentation delay; they are not
+GPU timer measurements. Tree visuals changed, but no trees are in this fixture,
+so their geometry does not affect this placement comparison.
+
+The old release validated/added each tile against a newly allocated module array,
+recreating collision data and assigning posters for every tile. Surfaces also
+missed the sim-inert classification, so a 100-tile edit remeshed terrain and
+rebuilt every existing equipment model. Baseline `buildModules` took about
+107–109 ms; `setStation` about 148–157 ms. CPU profiles also show shader program
+initialization and geometry/material allocation churn.
+
+The batch edit now validates against one immutable snapshot, allocates IDs once
+and publishes one array. A cached surface index supplies support heights and
+occupancy; the indexed verdict preserves floor, track, road and height refusals.
+Sidewalk/lawn edits within the existing ground window skip routing and terrain
+meshing. All 401 unrelated roots survive by identity; equipment actually lifted
+or lowered still rebuilds. Pavers/turf keep the same geometry and colours, but
+use one shared vertex-coloured mesh per tile instead of 11/17 individual meshes.
+Post-placement station draws fall from 1162/1762 to 162 for sidewalk/lawn.
+
+Expanding the existing ground window still needs terrain and routing updates to
+keep the generated street and walk graph aligned. A second 400-bin fixture
+without the far extent anchor measures first/warm release CPU of 39.1/40.4 ms
+(sidewalk), 25.4/25.5 ms (lawn), retaining all 400 existing equipment roots. This
+remaining work is intentional; boundary-expanding edits are not claimed inert.
+
+The street tree now uses an offline EZ-Tree 1.1.0 ash bake: branching trunk and
+alpha-cutout leaf clusters, 4.5 m high, two shared meshes (8832 branch and 9600
+leaf triangles), one scene-owned leaf texture. The MIT generator is a pinned dev
+dependency; no generation happens in a pointer handler. The bake options, source
+attribution and license are preserved under `src/assets/trees/`. Its shader and
+texture creation are separate from the surface-placement timing above.
+
+Regression coverage: bulk edit read counts, deduplication/no-op/erase, shared
+geometry reuse/disposal, immutable index invalidation, indexed/general placement
+agreement, supported-equipment rebuilds and unaffected retention, preview/undo,
+and real worker acknowledgements without routing rebuilds or paused ticks.
+Focused V8 coverage reports 100% lines/functions/branches for the bulk editor,
+surface index and both piece builders; TileEquipmentTool has 99.23% lines.
+The full game suite passes 1578 tests; the performance suite passes 109 tests.
+Production build and bilingual visual/i18n checks pass.
+
+Raw reports/profiles: `.preview/perf/outdoor-baseline-bounded/`,
+`.preview/perf/outdoor-profile/` (separate CPU-profile run),
+`.preview/perf/outdoor-final-bounded/`, `.preview/perf/outdoor-final-expanding/`.
+Source coverage: `.preview/perf/outdoor-perf-tests.log`; full suite/build logs:
+`.preview/perf/outdoor-full-tests.log`, `.preview/perf/outdoor-final-build.log`.
+
+
+Outdoor opening protection follow-up (2026-10-15): sidewalk/lawn use the shared
+cached opening verdict to refuse exit floors and ramp holes. Saved surfaces also
+skip drawing there, including exits placed after paving; head-houses keep their
+fixed stair-landing elevation. Supporting-cell changes invalidate surface models
+for dig/restore. The existing production 401-bin, 100-tile benchmark still retains
+all 401 roots with zero terrain remeshes: first/warm release CPU 21.6/16.2 ms
+(sidewalk), 12.9/12.4 ms (lawn). Raw report:
+`.preview/perf/outdoor-openings/report.json`. These are observations, not a new
+speedup claim. Tanwei B fixture tests cover both finishes, all rotations and
+covered/uncovered exits, plus existing saved tiles, surrounding pavement,
+standalone stairs and dig/restore. Full suite: 1582 passes; focused exit/surface
+checks and production build pass. Browser capture verifies an unobstructed
+wellway and the exit at its original height, without runtime errors:
+`.preview/outdoor-openings/tanwei-b.png`.

@@ -26,6 +26,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   isMovableModule,
+  outdoorSurfaceLift,
   moveCandidate,
   moveDropReason,
   moveRebuilds,
@@ -655,4 +656,37 @@ test('a piece that vanished under the lift is not dropped back into being', () =
   assert.equal(st().moveDraft, null)
   assert.match(st().notice, /不存在/)
   assert.equal(st().station.modules.length, 0)
+})
+
+test('the move tool picks up trees, cancels, drops on lawns, and preserves undo/redo', () => {
+  const tree = piece('tree', 2, 2), lawn = piece('lawn', 5, 5), bin = piece('bin', 7, 7)
+  load(station().cells, [tree, lawn, bin], { tool: 'move' })
+  let ghost = null
+  const scene = { setModulePreview: m => { ghost = m }, setCursor() {}, setCollisionHighlight() {} }
+  const tool = new MoveController({ scene: () => scene, pickModule: () => tree.id, facing: () => undefined, hover: { current: null }, drag: { current: null } })
+  const event = (x, y, button = 0) => ({ clientX: x * 20, clientY: y * 20, button, hit: { cell: [x, y, 0], place: [x, y, 1], solid: true, point: [x + .5, y + .5, 1] }, preventDefault() {} })
+  assert.equal(isMovableModule(tree), true, 'both the move tool and inspector enable trees')
+  tool.onDown(event(2, 2))
+  assert.equal(st().moveDraft.module.id, tree.id)
+  assert.equal(st().past.length, 0)
+  tool.onDown(event(2, 2, 2))
+  assert.equal(st().moveDraft, null)
+  assert.deepEqual(held(tree.id), tree)
+  assert.equal(st().past.length, 0)
+  tool.onDown(event(2, 2))
+  tool.onMove(event(7, 7))
+  assert.ok(st().moveDraft.reason, 'occupied destinations still refuse the drop')
+  tool.onMove(event(5, 5))
+  assert.equal(ghost.type, 'tree')
+  assert.equal(st().moveDraft.reason, '')
+  assert.equal(outdoorSurfaceLift(st().station.modules, st().moveDraft.candidate), .1)
+  tool.onDown(event(5, 5))
+  assert.equal(st().moveDraft, null)
+  assert.deepEqual([held(tree.id).x, held(tree.id).y], [5, 5])
+  assert.deepEqual(held(tree.id).cfg, tree.cfg)
+  assert.equal(st().past.length, 1)
+  st().undo()
+  assert.deepEqual([held(tree.id).x, held(tree.id).y], [2, 2])
+  st().redo()
+  assert.deepEqual([held(tree.id).x, held(tree.id).y], [5, 5])
 })

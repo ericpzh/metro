@@ -129,3 +129,23 @@ test('inert decor builds skip routing while a bench stop still rebuilds', async 
     assert.equal(rebuilds, 1, 'a bench stop still rebuilds the graph')
   } finally { World.prototype.rebuild = original }
 })
+
+test('sidewalk and lawn builds keep routes and paused simulation untouched', async () => {
+  const { World } = await import('../src/sim/world.ts')
+  const { createModule } = await import('../src/build/model.ts')
+  const data = { name: 'outside', seed: 1, modules: [], lines: [], cells: [{ x: 0, y: 0, z: 0, fill: 'solid' }] }
+  post({ type: 'init', data, seed: 1, playing: false, speed: 1 })
+  const original = World.prototype.rebuild
+  let rebuilds = 0
+  World.prototype.rebuild = function (...args) { rebuilds++; return original.apply(this, args) }
+  try {
+    const tick = lastState().metrics.tick
+    for (const type of ['sidewalk', 'lawn']) {
+      post({ type: 'build', data: { ...data, modules: [createModule(type, 0, 0, 0, type)] } })
+      assert.equal(rebuilds, 0)
+      assert.equal(lastState().metrics.tick, tick)
+    }
+    post({ type: 'build', data: { ...data, modules: [createModule('tree', 0, 0, 0, 'tree')] } })
+    assert.equal(rebuilds, 1, 'a tree trunk still changes pedestrian routing')
+  } finally { World.prototype.rebuild = original }
+})

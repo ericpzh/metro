@@ -496,6 +496,8 @@ export const PASSENGER_CULL_HEIGHT_FRACTION = 0.85
 export const PASSENGER_CULL_RADIUS_SCALE = 1.25
 export const PASSENGER_INSTANCE_CAPACITY = 8000
 
+export const OUTDOOR_SURFACE_HEIGHT = 0.1
+
 // Ambient street traffic and automatically derived road lanes (§4.1).
 export const ROAD_VEHICLE_OPACITY = PASSENGER_OPACITY
 export const ROAD_LANE_WIDTH = 3
