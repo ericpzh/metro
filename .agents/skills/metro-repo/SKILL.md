@@ -320,7 +320,7 @@ npm run check:perf-tools # real CPU profile + trace-stream export smoke check
 npm run profile:sim   # readable Node/V8 simulation/build CPU profile
 npm run profile:browser # app CPU/Chrome trace + GPU timer/upload diagnostics
 npm run deploy:game   # build:game, deploy metro-game, attach its routes
-npm run dev:stats     # stats page + API on local D1 at http://127.0.0.1:5176/stats/
+npm run dev:stats     # stats page + empty local D1 at http://localhost:5176/ (fed by :5174)
 npm run deploy:stats  # migrate remote stats D1, deploy metro-stats, verify live
 
 npm run preview:local # tools/preview.mjs — both built apps on one origin
@@ -414,13 +414,30 @@ push to `main` ships both. Stats is deployed by hand because it applies its D1 s
   the API under `/stats/api/v1/*`, on the routes
   `stationdesigner.com/stats` and `/stats/*`. Its top level is production (remote
   D1 `metro-stats`); `env.dev` is a local-only environment with no routes and a
-  separate local D1. `npm run dev:stats` applies the schema + sample rows and runs
+  separate local D1. `npm run dev:stats` applies the schema to an **empty** local
+  D1 (the game at `localhost:5174` fills it with real submissions; `--seed` adds
+  sample rows for a UI-only pass, `--reset` clears the state) and runs
   `wrangler dev --env dev`; `npm run deploy:stats` applies `stats/schema.sql` to
   the remote database, deploys the top level and verifies the live health/totals
   endpoints. The page and API are the same Worker; there is no stats build.
   Workers Builds must use `npm run deploy:stats:ci` (the auto build token has no
   D1 permission) and `npm run version:stats`; `npm run dev:stats` is a
   long-running server, never a version/preview command.
+
+The game is the stats writer. `sim/globalStats.ts` owns the pure counts/deltas
+(solid cells, modules, lines, track/platform tracks; cumulative passenger
+counters measured from a run baseline). `app/globalStats.ts` owns the browser
+half: the stable anonymous client id, the persisted retry queue that keeps its
+`submitId`, the five-minute production tick (five seconds on localhost), a
+dev-only initial submit of the currently built station, and the `pagehide`
+beacon. `app/statsSettings.ts`, `StatsSlice` and the gear menu own the default-on
+分享匿名统计 opt-out; turning it off clears the queue. Local `dev:stats` is empty,
+so `http://localhost:5176/` shows the actual data from `http://localhost:5174`.
+`game/test/global-stats.test.mjs` pins the queue/idempotency, opt-out, reset,
+storage, host resolution and menu contract. `npm --prefix game run
+coverage:global-stats` reports 100 % lines on all four new modules (the browser
+half is 82.7 % branches, 93.9 % functions); update the coverage rows in
+`game/test/README.md` when this grows.
 
 Route gotchas: the game and stats each need **two** routes (bare + `/*`) because
 `/game/*` and `/stats/*` do not match `/game` and `/stats`. Never collapse a pair

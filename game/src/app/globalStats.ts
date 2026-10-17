@@ -376,9 +376,8 @@ export function createGlobalStats(options: GlobalStatsOptions) {
 let active: ReturnType<typeof createGlobalStats> | null = null
 
 /** Boot hook: one collector per page, once the store and worker exist. */
-export function startGlobalStats(): void {
+export function startGlobalStats(apiUrl: string | null = runtimeStatsApiUrl()): void {
   if (active) return
-  const apiUrl = runtimeStatsApiUrl()
   if (!apiUrl) return
   active = createGlobalStats({
     store: useStore,

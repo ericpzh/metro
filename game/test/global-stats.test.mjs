@@ -8,14 +8,17 @@ import { createStatsSlice } from '../src/app/store/slices/StatsSlice.ts'
 import {
   createGlobalStats,
   resolveStatsApiUrl,
+  startGlobalStats,
   STATS_DEV_INTERVAL_MS,
   STATS_QUEUE_KEY,
   statsIntervalMs,
+  stopGlobalStats,
 } from '../src/app/globalStats.ts'
 import {
   readShareStats,
   readStatsClientId,
   saveShareStats,
+  createStatsId,
   SHARE_STATS_KEY,
   STATS_CLIENT_KEY,
 } from '../src/app/statsSettings.ts'
@@ -23,6 +26,7 @@ import {
   emptyStatsBaseline,
   emptyStatsDelta,
   hasStatsDelta,
+  makeStatsSubmission,
   stationCounts,
   statsBaseline,
   statsDelta,
@@ -121,7 +125,7 @@ function fakeTimers() {
   }
 }
 
-function collectorFixture({ stationState = station(), metricsValue = metrics(), storage = memoryStorage(), fetchImpl, submitInitial = false } = {}) {
+function collectorFixture({ stationState = station(), metricsValue = metrics(), storage = memoryStorage(), fetchImpl, submitInitial = false, beacon } = {}) {
   const store = fakeStore({
     metrics: metricsValue,
     station: stationState,
@@ -141,10 +145,12 @@ function collectorFixture({ stationState = station(), metricsValue = metrics(), 
     apiUrl: 'http://stats.test/api',
     storage,
     fetchImpl: fetchImpl ?? fetchCalls,
-    beacon: (url, body) => {
-      beacons.push({ url, body: JSON.parse(body) })
-      return true
-    },
+    beacon: beacon === undefined
+      ? (url, body) => {
+          beacons.push({ url, body: JSON.parse(body) })
+          return true
+        }
+      : beacon,
     randomUUID: ids(),
     timers: timers.timers,
     submitInitial,
@@ -180,6 +186,16 @@ test('station counts, deltas and reset arithmetic are pure and deterministic', (
   assert.equal(backwards.reset, true)
   assert.deepEqual(backwards.delta, emptyStatsDelta())
   assert.deepEqual(backwards.baseline, { ...emptyStatsBaseline(), tick: 3 })
+
+  const hashed = makeStatsSubmission({
+    clientId: '00000000-0000-4000-8000-000000000001',
+    submitId: '00000000-0000-4000-8000-000000000002',
+    hash: 'doc-1',
+    counts,
+    delta: emptyStatsDelta(),
+  })
+  assert.equal(hashed.station.hash, 'doc-1')
+  assert.equal(hashed.station.name, undefined)
 })
 
 test('a built station submits counts and deltas in one idempotent body', async () => {
@@ -282,6 +298,126 @@ test('a failed submission retries with the same submit id and is not re-counted'
   assert.equal(calls[1].body.delta.boarded, 3, 'the retry does not grow or repeat the delta')
 })
 
+test('a server rejection is dropped, while a 429 retries the same payload', async () => {
+  const calls = []
+  const responses = [{ ok: false, status: 400 }, { ok: false, status: 429 }, { ok: true, status: 200 }]
+  const fetchImpl = async (url, init) => {
+    calls.push(JSON.parse(init.body))
+    return responses.shift()
+  }
+  const f = collectorFixture({ fetchImpl })
+  f.store.setState({ version: 2, metrics: metrics({ tick: 10, boarded: 1 }) })
+  await f.collector.tick()
+  assert.equal(f.collector.pending().length, 0, 'a 400 is not retried forever')
+
+  f.store.setState({ version: 3, metrics: metrics({ tick: 20, boarded: 2 }) })
+  await f.collector.tick()
+  assert.equal(f.collector.pending().length, 1, 'a 429 keeps the payload')
+  const submitId = f.collector.pending()[0].submitId
+  await f.collector.tick()
+  assert.equal(f.collector.pending().length, 0)
+  assert.equal(calls.at(-1).submitId, submitId)
+
+  const dropped = collectorFixture({ fetchImpl: async () => ({ ok: false, status: 404 }) })
+  dropped.store.setState({ version: 2, metrics: metrics({ tick: 30, boarded: 3 }) })
+  await dropped.collector.tick()
+  assert.equal(dropped.collector.pending().length, 0)
+})
+
+test('the persisted queue ignores corrupt data and a blocked store', () => {
+  const store = fakeStore({ metrics: metrics(), station: station(), version: 1, stationEpoch: 0, shareStats: true })
+  const timers = fakeTimers().timers
+  const valid = { clientId: '00000000-0000-4000-8000-000000000001', submitId: '00000000-0000-4000-8000-000000000002', station: { cells: 1 }, delta: {} }
+
+  const corrupt = createGlobalStats({ store, apiUrl: null, storage: memoryStorage({ [STATS_QUEUE_KEY]: '{bad' }), beacon: null, timers })
+  assert.deepEqual(corrupt.pending(), [])
+
+  const mixed = createGlobalStats({ store, apiUrl: null, storage: memoryStorage({ [STATS_QUEUE_KEY]: JSON.stringify([{ nope: true }, valid]) }), beacon: null, timers })
+  assert.deepEqual(mixed.pending(), [valid])
+
+  const blocked = { getItem() { throw Error('blocked') }, setItem() { throw Error('blocked') }, removeItem() { throw Error('blocked') } }
+  const noStore = createGlobalStats({ store, apiUrl: null, storage: blocked, beacon: null, timers })
+  assert.deepEqual(noStore.pending(), [])
+})
+
+test('opting out clears a queued payload', async () => {
+  let calls = 0
+  const f = collectorFixture({
+    fetchImpl: async () => { calls += 1; return { ok: false, status: 503 } },
+  })
+  f.store.setState({ version: 2, metrics: metrics({ tick: 100, boarded: 2 }) })
+  await f.collector.tick()
+  assert.equal(calls, 1)
+  assert.equal(f.collector.pending().length, 1)
+
+  f.store.setState({ shareStats: false })
+  assert.equal(f.collector.pending().length, 0, 'the subscription drops the pending queue')
+  assert.equal(f.storage.values.has(STATS_QUEUE_KEY), false)
+})
+
+test('pagehide without a beacon leaves the payload for the next visit', () => {
+  const f = collectorFixture({ beacon: null })
+  f.store.setState({ version: 2, metrics: metrics({ tick: 90, boarded: 2 }) })
+  assert.doesNotThrow(() => f.collector.pagehide())
+  assert.equal(f.beacons.length, 0)
+  assert.equal(f.collector.pending().length, 1)
+})
+
+test('the boot hook is inert where no stats host exists', () => {
+  assert.doesNotThrow(() => {
+    startGlobalStats()
+    stopGlobalStats()
+  })
+})
+
+test('the boot hook starts one collector for an explicit stats host', () => {
+  assert.doesNotThrow(() => {
+    startGlobalStats('http://stats.test/api')
+    startGlobalStats('http://ignored.test/api')
+    stopGlobalStats()
+  })
+})
+
+test('flush clears a queued payload when sharing has been turned off', async () => {
+  const valid = { clientId: '00000000-0000-4000-8000-000000000001', submitId: '00000000-0000-4000-8000-000000000002', station: { cells: 1 }, delta: {} }
+  const storage = memoryStorage({ [STATS_QUEUE_KEY]: JSON.stringify([valid]) })
+  const store = fakeStore({ metrics: metrics(), station: station(), version: 1, stationEpoch: 0, shareStats: false })
+  const collector = createGlobalStats({
+    store,
+    apiUrl: 'http://stats.test/api',
+    storage,
+    fetchImpl: async () => ({ ok: true, status: 200 }),
+    beacon: null,
+    timers: fakeTimers().timers,
+    randomUUID: ids(),
+  })
+  await collector.flush()
+  assert.equal(collector.pending().length, 0)
+  assert.equal(storage.values.has(STATS_QUEUE_KEY), false)
+})
+
+test('the collector falls back to browser localStorage when none is injected', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const valid = { clientId: '00000000-0000-4000-8000-000000000001', submitId: '00000000-0000-4000-8000-000000000002', station: { cells: 1 }, delta: {} }
+  const store = fakeStore({ metrics: metrics(), station: station(), version: 1, stationEpoch: 0, shareStats: true })
+  const timers = fakeTimers().timers
+  try {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: memoryStorage({ [STATS_QUEUE_KEY]: JSON.stringify([valid]) }),
+    })
+    const fromBrowser = createGlobalStats({ store, apiUrl: null, beacon: null, timers })
+    assert.deepEqual(fromBrowser.pending(), [valid])
+
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw Error('blocked') } })
+    const blocked = createGlobalStats({ store, apiUrl: null, beacon: null, timers })
+    assert.deepEqual(blocked.pending(), [])
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor)
+    else delete globalThis.localStorage
+  }
+})
+
 test('pagehide beacons pending work and the next page retries the same payload', async () => {
   const storage = memoryStorage()
   const first = collectorFixture({ storage })
@@ -377,6 +513,63 @@ test('the stats slice persists the opt-out without touching the document', () =>
   } finally {
     if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor)
     else delete globalThis.localStorage
+  }
+})
+
+test('a network failure keeps the payload for a later tick', async () => {
+  const f = collectorFixture({ fetchImpl: async () => { throw Error('offline') } })
+  f.store.setState({ version: 2, metrics: metrics({ tick: 10, boarded: 1 }) })
+  await f.collector.tick()
+  assert.equal(f.collector.pending().length, 1)
+  assert.equal(f.storage.values.has(STATS_QUEUE_KEY), true)
+})
+
+test('the default beacon sends a JSON blob and the default pagehide hook is inert', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  const sent = []
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { sendBeacon: (url, body) => { sent.push({ url, body }); return true } },
+  })
+  try {
+    const store = fakeStore({ metrics: metrics(), station: station(), version: 1, stationEpoch: 0, shareStats: true })
+    const collector = createGlobalStats({
+      store,
+      apiUrl: 'http://stats.test/api',
+      storage: memoryStorage(),
+      timers: fakeTimers().timers,
+      randomUUID: ids(),
+    })
+    collector.start()
+    store.setState({ version: 2, metrics: metrics({ tick: 10, boarded: 1 }) })
+    collector.pagehide()
+    assert.equal(sent.length, 1)
+    assert.equal(sent[0].url, 'http://stats.test/api/v1/submit')
+    const payload = JSON.parse(await sent[0].body.text())
+    assert.equal(payload.delta.boarded, 1)
+    collector.stop()
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'navigator', descriptor)
+    else delete globalThis.navigator
+  }
+})
+
+test('blocked browser storage and a missing crypto keep the preference and id safe', () => {
+  const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+  try {
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw Error('blocked') } })
+    assert.equal(readShareStats(), true)
+    assert.doesNotThrow(() => saveShareStats(false))
+    assert.match(readStatsClientId(), /^[0-9a-f-]{8,64}$/i)
+
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {} })
+    assert.match(createStatsId(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+  } finally {
+    if (storageDescriptor) Object.defineProperty(globalThis, 'localStorage', storageDescriptor)
+    else delete globalThis.localStorage
+    if (cryptoDescriptor) Object.defineProperty(globalThis, 'crypto', cryptoDescriptor)
+    else delete globalThis.crypto
   }
 })
 

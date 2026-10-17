@@ -521,6 +521,10 @@ the column that shows what an untested file was hiding.
 
 | File | Before | Now | The test that closed it |
 |---|---|---|---|
+| `sim/globalStats.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions | `global-stats` — station counts (solid cells, tracks/platform tracks), cumulative deltas, run resets, station-switch baselines, empty-station skipping and the submit body. Reproduce the four rows with `npm --prefix game run coverage:global-stats`. |
+| `app/globalStats.ts` | — (new) | 100 % lines / 82.7 % branches / 93.9 % functions | `global-stats` — client id and opt-out storage, five-minute/dev-five-second tick, dev initial snapshot, persisted queue retry with one `submitId`, 4xx/429/5xx/network handling, pagehide beacon, host resolution and boot hook |
+| `app/statsSettings.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions | `global-stats` — default-on preference, valid/invalid client ids, blocked storage and the randomUUID fallback |
+| `app/store/slices/StatsSlice.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions | `global-stats` — persisted opt-out without dirtying the document |
 | `sim/rampLengths.ts` (the four run lengths) | — (new) | 100 % lines / 100 % branches | `escalator-length` — the catalogue both runs and the rail read: the four spans, the 超短 → 短 → 中 → 长 cycle, the label per size, the length a placed run's endpoints name (an old 4 m / 8 m save is 中 / 长), the 中 fallback for a size another build wrote, and the nearest entry for a span the catalogue never built; `ramp-join` covers the seam at every length |
 | `sim/ground.ts` (the street plane) | — (new) | 100 % lines / 97.6 % branches | `ground` — the window, the three answers at a coordinate, the dig and the fill-back, the brushes that materialise the plane, and the two predicates that read it |
 | `render/models.ts` (the dispatcher) | 100 % | 100 % | `module-build` (now including the 灯具/通风口/导向柱/公交站/地面 rows, which closed the new dispatch arms) |
