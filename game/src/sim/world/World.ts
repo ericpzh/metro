@@ -117,6 +117,7 @@ function freshMetrics(simTime: number): Metrics {
     boarded: 0,
     alighted: 0,
     exited: 0,
+    trainArrivals: 0,
     trainsLate: 0,
     gateQueue: 0,
     escalatorQueue: 0,
@@ -701,6 +702,7 @@ export class World {
           if (train.t >= TRAIN_APPROACH_S) {
             this.setTrainState(train, 'berth')
             this.loadAlighting(train)
+            this.metrics.trainArrivals++
           }
           break
         case 'berth':

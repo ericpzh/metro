@@ -1,12 +1,13 @@
 # Station Designer — the game
 
-The top-right gear opens settings: 低画质 / 高画质, restart, report issue and
-the opposite language. Quality is saved locally, separately from the station.
-High quality uses distance detail on the current floor and reduced geometry on
-other floors visible through 显示其他楼层. Low quality also reduces eligible current-floor
-models. Hide UI restores full geometry for every visible model using its existing
-presentation visibility rules. Source geometry remains authoritative for picking
-and construction.
+The top-right gear opens settings: 低画质 / 高画质, 分享匿名统计, restart,
+report issue and the opposite language. Quality is saved locally, separately
+from the station. Sharing is also a local preference, in its own slice; it never
+dirties the station or its undo history. High quality uses distance detail on the
+current floor and reduced geometry on other floors visible through 显示其他楼层.
+Low quality also reduces eligible current-floor models. Hide UI restores full
+geometry for every visible model using its existing presentation visibility
+rules. Source geometry remains authoritative for picking and construction.
 
 Bridge railings, sound barriers and both bridge/platform gantries follow the
 platform screen-door centre line. Ground 隔音屏 uses the same 0.34 m offset
@@ -53,6 +54,20 @@ Paused Q/E retains up to four prepared storey views. Opening prepares the deepes
 storey and the next one after artwork is ready; edits invalidate dormant views.
 Run `npm run bench:levels` at the repo root for both demos' first/repeated input
 measurements and see `PERFORMANCE.md` for loading/memory costs and remaining limits.
+
+Anonymous global totals are collected only where a stats Worker actually exists:
+the live site, or the local game + `dev:stats` pair. The game keeps a random client
+id in local storage, sends a built station's counts and the passenger deltas since
+its last submission every five minutes, and beacons the same queue on `pagehide`.
+Retries keep their `submitId`, so the server's `(clientId, submitId)` idempotency
+does not double count a retry. The gear menu's **分享匿名统计 / Share anonymous
+stats** toggle is on by default; turning it off clears the queue and sends nothing
+from the opted-out span. Only station counts and aggregate passenger numbers are
+sent — never the layout or a player identity. A local production preview or a
+preview deployment without `VITE_STATS_API_URL` stays silent.
+`test/global-stats.test.mjs` pins the client id and opt-out storage, station
+counts, run-reset behaviour, queue retry with the same submit id, pagehide
+beacon, API host resolution and the settings-menu contract.
 The bilingual
 Getting started tour spotlights controls, opens their folders and scrolls them
 into view. Back / Next navigate, Skip or Escape closes it, and the top-bar tutorial button

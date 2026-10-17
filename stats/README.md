@@ -15,6 +15,11 @@ the same brand mark; regenerate it with `node tools/prepare-brand-icon.mjs` when
 the approved icon changes. The top bar mark is the site's silhouette from
 [`brand-mark.js`](brand-mark.js), re-coloured amber with a CSS mask.
 
+The game is the writer: a stable anonymous client id and a default-on
+**分享匿名统计** opt-out in its gear menu, a five-minute submission plus a
+`pagehide` beacon, and a persisted retry queue that keeps its `submitId`. See
+`game/src/app/globalStats.ts` and `game/test/global-stats.test.mjs`.
+
 | | Production | Development |
 |---|---|---|
 | Worker | `metro-stats` | `metro-stats-dev` (local only) |

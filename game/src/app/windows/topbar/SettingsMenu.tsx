@@ -10,6 +10,8 @@ export function SettingsMenu(): React.ReactElement {
   const language = useLanguage()
   const quality = useStore(s => s.graphicsQuality)
   const setQuality = useStore(s => s.setGraphicsQuality)
+  const shareStats = useStore(s => s.shareStats)
+  const setShareStats = useStore(s => s.setShareStats)
   const restartSim = useStore(s => s.restartSim)
   const root = useRef<HTMLDetailsElement>(null)
   useEffect(() => {
@@ -38,6 +40,12 @@ export function SettingsMenu(): React.ReactElement {
         <button type="button" aria-pressed={quality === 'low'} className={quality === 'low' ? 'on' : ''} onClick={() => setQuality('low')}>{t('graphics_low')}</button>
         <button type="button" aria-pressed={quality === 'high'} className={quality === 'high' ? 'on' : ''} onClick={() => setQuality('high')}>{t('graphics_high')}</button>
       </div>
+      <div className="settingsQualityLabel">{t('share_stats')}</div>
+      <div className="settingsQuality" role="group" aria-label={t('share_stats')}>
+        <button type="button" aria-pressed={shareStats} className={shareStats ? 'on' : ''} onClick={() => setShareStats(true)}>{t('share_stats_on')}</button>
+        <button type="button" aria-pressed={!shareStats} className={!shareStats ? 'on' : ''} onClick={() => setShareStats(false)}>{t('share_stats_off')}</button>
+      </div>
+      <p className="settingsNote">{t('share_stats_note')}</p>
       <button type="button" className="ghost settingsAction" onClick={() => { restartSim(); if (root.current) root.current.open = false }} title={t('restart_simulation_ctrl_r')} aria-label={t('restart')} aria-keyshortcuts="Control+R">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" /><path d="M13.5 1.8v3h-3" /></svg>
         <span>{t('restart')}</span>

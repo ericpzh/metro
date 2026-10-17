@@ -128,6 +128,8 @@ environment (no routes, a different database id) and the page shows a
 `开发预览 · 本地数据库` badge. The production deploy applies
 `schema.sql` to the remote database before uploading the Worker; both the bare
 `/stats` and the `/stats/*` route are declared so the page and API resolve.
+The game reports a built station's counts and passenger deltas every five
+minutes and on `pagehide`; the gear menu's 分享匿名统计 toggle opts out.
 
 ## The site
 

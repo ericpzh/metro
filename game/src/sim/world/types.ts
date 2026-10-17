@@ -74,6 +74,8 @@ export interface Metrics {
   boarded: number
   alighted: number
   exited: number
+  /** Consists that have reached a platform berth (approach -> berth). */
+  trainArrivals: number
   trainsLate: number
   gateQueue: number
   /** Escalators and stairs — the ramps that carry the crowd between floors. */

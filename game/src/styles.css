@@ -160,6 +160,7 @@ a.ghost:hover {
 .settingsQuality { display: flex; gap: 4px; padding-bottom: 10px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }
 .settingsQuality button { flex: 1; white-space: nowrap; }
 .settingsQuality button.on { background: #16374f; color: var(--accent); border-color: var(--accent); }
+.settingsNote { margin: -2px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .settingsAction { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px; text-align: left; text-decoration: none; }
 .settingsAction svg { flex: none; width: 16px; height: 16px; }
 .exampleStationsMenu {

@@ -9,6 +9,7 @@ import { initSim, useStore } from './store.ts'
 import { toData } from '../build/model.ts'
 import { AUTOSAVE_INTERVAL_MS, readAutosave, watchAutosave } from './autosave.ts'
 import { demoStationForPath, gamePathFor } from './demoRoute.ts'
+import { startGlobalStats } from './globalStats.ts'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
@@ -68,4 +69,9 @@ export function renderGame(root: Root): void {
     const station = toData(useStore.getState().station)
     initSim(station, station.seed)
   }
+
+  // Anonymous totals: one five-minute collector and a pagehide beacon. It
+  // resolves the stats Worker for this host, so the lab, a local production
+  // preview and a preview deployment without a stats API stay silent.
+  if (!isLab) startGlobalStats()
 }
