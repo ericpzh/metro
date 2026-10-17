@@ -18,6 +18,13 @@
     "dev:game": "npm --prefix game run dev",
     "build:game": "npm --prefix game ci && npm --prefix game run build",
     "deploy:game": "npm run build:game && wrangler deploy -c game/wrangler.jsonc",
+    "build:stats": "node --check stats/worker.js && node --check stats/page.js && node --check stats/favicon.js && node --check stats/brand-mark.js",
+    "dev:stats": "node stats/scripts/preview.mjs",
+    "preview:stats": "node stats/scripts/preview.mjs",
+    "deploy:stats": "npm run build:stats && node stats/scripts/deploy.mjs",
+    "deploy:stats:ci": "npm run build:stats && wrangler deploy --config stats/wrangler.jsonc --env=",
+    "version:stats": "npm run build:stats && wrangler versions upload --config stats/wrangler.jsonc --env=",
+    "test:stats": "node --test \"stats/test/*.test.mjs\"",
     "test:game": "npm --prefix game test",
     "check:roads": "npm --prefix game run build && node tools/check-road-placement.mjs",
     "check:demos": "npm run build && npm run build:game && node tools/check-demos.mjs",
@@ -43,6 +50,6 @@
     "art:models": "node tools/refresh-model-art.mjs"
   },
   "devDependencies": {
-    "wrangler": "^4.143.0"
+    "wrangler": "^4.151.1"
   }
 }

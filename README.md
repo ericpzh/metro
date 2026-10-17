@@ -14,7 +14,9 @@ either copes or it does not.
 | [`tools/`](tools/) | The generators for both: `node tools/gen-art.mjs` redraws `art/`. |
 | [`web/`](web/) | The concept-art website — React + Vite. |
 | [`model/`](model/) | Character model library — three.js + Vite, male/female previews and GLB downloads. |
+| [`stats/`](stats/) | Global stats service — one Worker + D1, page and API at `stationdesigner.com/stats/`. |
 | [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers deploy config for the site — route `stationdesigner.com/*`. |
+| [`stats/wrangler.jsonc`](stats/wrangler.jsonc) | Stats Worker config: production database/routes plus a local-only `dev` environment. |
 | [`worker/`](worker/) | The site's Worker: pins `/en` to `/en/` and serves the English document. |
 
 ## The game
@@ -56,12 +58,14 @@ creates them along with the Worker — there is no dashboard step and nothing to
 keep in sync by hand.
 
 ```bash
-npm start             # web 5173 + game 5174 + model 5175
+npm start             # web 5173 + game 5174 + model 5175 + stats 5176
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
+npm run dev:stats     # http://127.0.0.1:5176/stats/ (local D1, dev environment)
 npm run test:game     # node --test: determinism, tick budgets, capacity ladder
 npm run check:demos   # builds both apps, then walks the picker and all four demo URLs in Chrome
 npm run deploy:game   # build, deploy metro-game, and attach its route pair
+npm run deploy:stats  # migrate the remote stats D1, deploy metro-stats, verify the live API
 ```
 
 To follow a game link locally, run the site and the game side by side:
@@ -91,12 +95,39 @@ version. Its character and gait source also powers the earlier prototype pages.
 npm run setup:model   # install model/ dependencies
 npm run build:model   # generate the library and build model/dist
 npm run dev:model     # http://127.0.0.1:5175/
-npm run dev:all       # start web/, game/ and model/ together
+npm run dev:all       # start web/, game/, model/ and stats/ together
 ```
 
 `npm start` is an alias for `dev:all`. The launcher reuses existing listening
 services and stops only its own children on Ctrl+C. `npm run setup:all` installs
-dependencies for all three apps. See `model/README.md` for assets and provenance.
+dependencies for the three Vite apps (the stats Worker uses only the root wrangler install). See
+`model/README.md` for assets and provenance.
+
+## The stats service
+
+`stats/` is a third, independent Worker: **`metro-stats`** serves the public
+totals page at <https://stationdesigner.com/stats/> (English at
+<https://stationdesigner.com/stats/en/>) and the JSON API at `/stats/api/v1/*`,
+backed by the remote D1 database `metro-stats`. The page and the API have no
+build step; the Worker's source and the database schema ship together. The
+site's footer 文档 list links here (English to `/stats/en/`), and the stats page
+links back to the site. See [`stats/README.md`](stats/README.md) for the
+endpoints, the schema, idempotency and data policy.
+
+Production and development are separate environments in
+[`stats/wrangler.jsonc`](stats/wrangler.jsonc):
+
+```bash
+npm run dev:stats      # http://127.0.0.1:5176/stats/ — dev env, local D1, sample rows
+npm run test:stats     # Worker routing/validation suite against a fake D1
+npm run deploy:stats   # apply the schema remotely, deploy production, verify live
+```
+
+The local preview never touches the production database: it runs the `dev`
+environment (no routes, a different database id) and the page shows a
+`开发预览 · 本地数据库` badge. The production deploy applies
+`schema.sql` to the remote database before uploading the Worker; both the bare
+`/stats` and the `/stats/*` route are declared so the page and API resolve.
 
 ## The site
 
@@ -191,17 +222,29 @@ same repository, so a push to `main` ships both:
 
 `npm run deploy:game` still deploys the game by hand.
 
+The stats service is a third Worker (`metro-stats`). It has no asset build: `npm run deploy:stats`
+applies `stats/schema.sql` to the remote D1 database and then deploys the Worker from
+[`stats/wrangler.jsonc`](stats/wrangler.jsonc). It is deployed by hand (and verified by the script),
+because the schema step needs the Cloudflare credentials and D1 access. Its page and API are served
+by the Worker itself; there is no `stats/dist`. For a Workers Builds project, set the deploy command
+to `npm run deploy:stats:ci` and the version command to `npm run version:stats`: the auto-created
+build token has no D1 permission, and `npm run dev:stats` is a long-running local server, not a
+build step. `npm run deploy:stats` remains the schema-migration command.
+
 ### Local preview and deploy
 
 ```bash
 npm install
 npm run preview    # build, then serve the real Worker locally via wrangler dev
 npm run deploy     # build, then wrangler deploy
+npm run dev:stats  # stats page + API on the local D1: http://127.0.0.1:5176/stats/
+npm run deploy:stats # migrate the remote stats D1, deploy metro-stats, verify the live API
 ```
 
 `npm run deploy` needs `npx wrangler login` once. CI does not — Cloudflare supplies its own
 credentials to the build. `npm run deploy:game` deploys the game and attaches its routes the same
-way, and needs the same login.
+way, and needs the same login. `npm run deploy:stats` needs it too, because it applies the schema to
+the production D1 database before deploying.
 
 When wrangler is not available — no Cloudflare account, no network, or a machine that will not let
 it spawn — `npm run preview:local` serves the same two builds from `.dist` on one origin instead:
@@ -215,17 +258,19 @@ npm run preview:local                  # http://127.0.0.1:4173/
 
 ### Routing
 
-Both apps live on one hostname, **`https://stationdesigner.com`**, as two Workers in one zone:
+The site, game and stats service live on one hostname, **`https://stationdesigner.com`**, as three
+Workers in one zone:
 
 | URL | Worker | Route pattern | Declared by |
 |---|---|---|---|
 | `/`, `/en/` | `metro` (the site) | `stationdesigner.com/*` | [`wrangler.jsonc`](wrangler.jsonc) — `npm run deploy` |
 | `/game/`, `/game/en/` | `metro-game` | `stationdesigner.com/game`, `stationdesigner.com/game/*` | [`game/wrangler.jsonc`](game/wrangler.jsonc) — `npm run deploy:game` |
+| `/stats/`, `/stats/en/`, `/stats/api/v1/*` | `metro-stats` | `stationdesigner.com/stats`, `stationdesigner.com/stats/*` | [`stats/wrangler.jsonc`](stats/wrangler.jsonc) — `npm run deploy:stats` |
 
-Route patterns are ranked by specificity, so the game's pair wins over the site's broader `/*` and a
-request for `/gameplay` still reaches the site. The bare `/game` needs its own pattern because
-`/game/*` does not match it; never collapse the pair into `/game*` — `*` matches across `/`, so it
-would also swallow `/gameplay` and hand it to the game's Worker.
+Route patterns are ranked by specificity, so the game's pair and the stats pair win over the site's
+broader `/*` and requests for `/gameplay` still reach the site. A bare route needs its own pattern
+because `/game/*` and `/stats/*` do not match `/game` and `/stats`; never collapse a pair into
+`/game*` or `/stats*` — `*` matches across `/`, so it would also swallow unrelated paths.
 
 The game also answers three client routes under that pair, which have no file behind them and are
 served by its SPA fallback:
@@ -236,22 +281,27 @@ served by its SPA fallback:
 | `/game/en/zoo`, `/game/en/tanwei` | the same, in English |
 | `/game/zoo/`, `/game/tanwei/` | `308` to the slash-less URL (a directory form would break the relative assets) |
 
-Both Workers are attached with **routes**, not as a Custom Domain: a Custom Domain claims the whole
-hostname for one Worker and would hide the other. The zone must hold `stationdesigner.com`, and its
-DNS records must be **proxied** (orange cloud) for routes to apply. `npm run deploy` attaches the
-site's route from `wrangler.jsonc` and `npm run deploy:game` attaches the game's — no dashboard step
-for either.
+All three Workers are attached with **routes**, not as a Custom Domain: a Custom Domain claims the
+whole hostname for one Worker and would hide the others. The zone must hold `stationdesigner.com`,
+and its DNS records must be **proxied** (orange cloud) for routes to apply. `npm run deploy` attaches
+the site's route from `wrangler.jsonc`, `npm run deploy:game` attaches the game's and
+`npm run deploy:stats` attaches the stats pair — no dashboard step for any of them.
 
 #### What the Workers rewrite
 
-Assets sit at the root of each Worker, so a request that matches no file falls through to its
-Worker. Neither language pin is a second document; both are redirects and a strip:
+The site and the game are asset-backed: assets sit at the root of their Worker, so a request that
+matches a file never reaches the handler. The stats Worker is not asset-backed — it serves its page
+and API directly from `stats/worker.js`. Neither language pin is a second document; both are
+redirects and a strip:
 
 * The site's [`worker/index.js`](worker/index.js) answers `/en` and `/en/index.html` with a `308` to
   `/en/`, strips the `/en` segment, and re-fetches from `env.ASSETS`. It is the same document — the
   client reads the segment (`web/src/i18n.js`).
 * The game's [`game/worker/index.js`](game/worker/index.js) strips the `/game` prefix first, then
   applies the same `/en/` pin, so `/game/en/assets/*.js` finds the game's own bundle.
+* The stats Worker normalizes `/stats` to `/stats/`, then splits `/stats/api/*` from the page. It
+  serves the API at `/stats/api/v1/global`, `/stats/api/v1/submit` and `/stats/api/v1/health`, and
+  returns a real `404` for unknown paths rather than a shell.
 
 The pins exist because both documents spell their assets relatively (`./assets/...`): without them
 `/en/` would load and then fetch its CSS one directory too high.
@@ -276,6 +326,12 @@ reproducible locally with `npm run preview:local`:
 | `/game/zoo` | `200` game `index.html` — the zoo demo opens |
 | `/game/en/tanwei` | `200` game `index.html`, English — the Tanwei demo opens |
 | `/game/zoo/` | `308` → `/game/zoo` |
+| `/stats` | `308` → `/stats/` |
+| `/stats/` | `200` stats page |
+| `/stats/en` | `308` → `/stats/en/` |
+| `/stats/en/` | `200` stats page, English |
+| `/stats/api/v1/global` | `200` JSON totals |
+| `/stats/api/v1/health` | `200` JSON when the D1 schema is applied, `503` otherwise |
 | `/gameplay`, `/nope` | `404` |
 
 When the game deploys, `wrangler` warns that the routes "will attempt to serve Assets on a configured

@@ -1,0 +1,52 @@
+{
+  // Station Designer — global stats. Its own Worker project, separate from the
+  // art site (`metro`) and the game (`metro-game`).
+  //
+  // Production:
+  //   https://stationdesigner.com/stats/                 the totals page
+  //   https://stationdesigner.com/stats/api/v1/global    the API
+  //   https://stationdesigner.com/stats/api/v1/submit
+  //   https://stationdesigner.com/stats/api/v1/health
+  //
+  // The site Worker owns the rest of the hostname; these more specific routes
+  // win for /stats. Both patterns are required: `/stats/*` does not match the
+  // bare `/stats` (same rule as the game's route pair).
+  //
+  // Development is the `dev` environment below, run locally by
+  // `npm run dev:stats`. It has no routes and points at a **separate local D1**
+  // id, so a preview can never write to the production `metro-stats` database.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "metro-stats",
+  "compatibility_date": "2026-10-17",
+  "main": "./worker.js",
+
+  "routes": [
+    { "pattern": "stationdesigner.com/stats", "zone_name": "stationdesigner.com" },
+    { "pattern": "stationdesigner.com/stats/*", "zone_name": "stationdesigner.com" }
+  ],
+
+  "vars": { "ENVIRONMENT": "production" },
+
+  "d1_databases": [
+    {
+      "binding": "STATS_DB",
+      "database_name": "metro-stats",
+      "database_id": "045c02d3-c8cf-4ed5-87d1-16d749eb1734"
+    }
+  ],
+
+  "env": {
+    "dev": {
+      "name": "metro-stats-dev",
+      "routes": [],
+      "vars": { "ENVIRONMENT": "development" },
+      "d1_databases": [
+        {
+          "binding": "STATS_DB",
+          "database_name": "metro-stats-dev",
+          "database_id": "00000000-0000-4000-8000-000000000001"
+        }
+      ]
+    }
+  }
+}

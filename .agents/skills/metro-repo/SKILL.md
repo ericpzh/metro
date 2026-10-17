@@ -60,8 +60,9 @@ model editing, exports and the approved game atlas. See `model/README.md`. No mo
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro` at `stationdesigner.com/`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
 | `art/` | The generated concept sheets — the source of truth, copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. Each sheet has a `*-en.svg` English sidecar (same rule) for the `/en/` route. `metro-web` covers the pipeline. |
 | `tools/` | Root-level Node/Python scripts: the art generator and viewer, the headless-Chrome passes that photograph the game, the demo-save bake, the pictogram asset prep. See the index below. |
+| `stats/` | The global stats service: Worker `metro-stats` + D1 database, page at `stationdesigner.com/stats/` (English `/stats/en/`) and API under `/stats/api/`. `stats/wrangler.jsonc` holds the production database/routes and a local-only `dev` environment; `npm run dev:stats` previews against local D1. See `stats/README.md`. |
 | `worker/index.js` | The site's Worker entry (root Worker): pins `/en` to `/en/` and serves the site document for that language route. `game/worker/index.js` is the game's, which strips `/game`. |
-| `wrangler.jsonc` | Root site Worker config, route `stationdesigner.com/*`. `game/wrangler.jsonc` is the game's, routes `stationdesigner.com/game` and `/game/*`. |
+| `wrangler.jsonc` | Root site Worker config, route `stationdesigner.com/*`. `game/wrangler.jsonc` is the game's, routes `stationdesigner.com/game` and `/game/*`; `stats/wrangler.jsonc` is the stats Worker's, routes `stationdesigner.com/stats` and `/stats/*`. |
 
 The concept gallery in `web/` groups its eleven sheets into four player-facing
 paths: the station (01, 02, 13), trains and boarding (11, 05, 12), building
@@ -78,9 +79,10 @@ their panels. Omit implementation terms, source-code references, exact model
 coordinates, and repeated specifications unless a player needs them to understand
 a gameplay choice. When trimming copy, preserve useful outcomes and interactions.
 
-The site and the game are **two apps and two Workers** in one repo. They build
-and deploy independently; the only coupling is a URL (`gameHref` in
-`web/src/site.js`, overridable with `VITE_GAME_URL`).
+The site and the game are **two apps and two Workers**, with the stats service as a third
+Worker in the same repo. The site and game build and deploy independently; the only
+coupling between them is a URL (`gameHref` in `web/src/site.js`, overridable with
+`VITE_GAME_URL`). Stats shares the hostname through its own routes and no code.
 
 ### Shared game and website branding
 
@@ -88,7 +90,10 @@ The approved icon source is `design/icon/station-designer-blue-bold.png`.
 Regenerate the browser assets with `node tools/prepare-brand-icon.mjs` from the
 repo root. This writes the 64 px favicon and 180 px Apple touch icon into each
 app's `src/assets/brand/`, plus the 512 px transparent silhouette used by the
-website's `BrandMark`. The site applies its amber colour in CSS; the game and
+website's `BrandMark`. It also writes the stats page's data-URI copies
+(`stats/favicon.js` for the tab icon and `stats/brand-mark.js` for the amber
+masked top-bar mark), because the stats Worker has no asset binding. The site
+applies its amber colour in CSS; the game and
 site favicons retain the source's navy background and white linework. Both HTML
 entries link from `/src/assets/brand/`; Vite rewrites these to fingerprinted,
 relative asset URLs for production, including language and Worker path-prefix
@@ -300,8 +305,9 @@ npm run setup:model   # install model/ deps
 npm run dev:model     # model viewer at http://127.0.0.1:5175
 npm run build:model   # generate assets and build model/dist
 npm run art:models    # approved model exports → game atlas → bilingual art + verified previews
-npm run dev:all       # web 5173 + game 5174 + model 5175
+npm run dev:all       # web 5173 + game 5174 + model 5175 + stats 5176
 npm run test:game     # node --test over game/test/**/*.test.mjs
+npm run test:stats    # Worker routing/validation against a fake D1
 npm run check:tutorial # production browser tutorial/input/i18n regressions
 npm run check:demos   # production browser: the site's demo picker and all four demo URLs
 npm run build:game    # install game/ deps, then tsc --noEmit && vite build
@@ -314,6 +320,8 @@ npm run check:perf-tools # real CPU profile + trace-stream export smoke check
 npm run profile:sim   # readable Node/V8 simulation/build CPU profile
 npm run profile:browser # app CPU/Chrome trace + GPU timer/upload diagnostics
 npm run deploy:game   # build:game, deploy metro-game, attach its routes
+npm run dev:stats     # stats page + API on local D1 at http://127.0.0.1:5176/stats/
+npm run deploy:stats  # migrate remote stats D1, deploy metro-stats, verify live
 
 npm run preview:local # tools/preview.mjs — both built apps on one origin
 ```
@@ -387,9 +395,9 @@ inspect per-module coverage in both test output and keep the coverage map in syn
 
 ## Deploy (Cloudflare Workers)
 
-Everything is static assets; the only server runtime is the language-pin
-rewriter. Two Workers, two Workers Builds projects on the same repo, so a push
-to `main` ships both:
+Everything is static assets except the language-pin rewriter and the stats API. Three
+Workers on the same repo; the site and game each have a Workers Builds project, so a
+push to `main` ships both. Stats is deployed by hand because it applies its D1 schema:
 
 * `metro` — the site, root `wrangler.jsonc`, assets from `web/dist`, served at
   `stationdesigner.com/` (English `/en/`) on the route
@@ -401,10 +409,23 @@ to `main` ships both:
   dashboard step). `game/worker/index.js` strips `ASSET_PREFIX` before reading
   an asset, and drops a trailing slash from a client route (`/game/zoo/` → 308
   `/game/zoo`) so the document's relative assets resolve at the game root.
+* `metro-stats` — the stats Worker, `stats/wrangler.jsonc`, no assets, served at
+  `stationdesigner.com/stats/` (Chinese default) and `/stats/en/` (English), with
+  the API under `/stats/api/v1/*`, on the routes
+  `stationdesigner.com/stats` and `/stats/*`. Its top level is production (remote
+  D1 `metro-stats`); `env.dev` is a local-only environment with no routes and a
+  separate local D1. `npm run dev:stats` applies the schema + sample rows and runs
+  `wrangler dev --env dev`; `npm run deploy:stats` applies `stats/schema.sql` to
+  the remote database, deploys the top level and verifies the live health/totals
+  endpoints. The page and API are the same Worker; there is no stats build.
+  Workers Builds must use `npm run deploy:stats:ci` (the auto build token has no
+  D1 permission) and `npm run version:stats`; `npm run dev:stats` is a
+  long-running server, never a version/preview command.
 
-Route gotchas: the game needs **two** routes (bare + `/*`) because `/game/*`
-does not match `/game`. Never collapse them to `/game*` — `*` spans `/` and
-would swallow paths belonging to the site. `/game/*` beats site `/*` on
-specificity. Both Workers must be attached with routes rather than a Custom
-Domain, which would claim the whole hostname for one of them; routes need the
-hostname proxied in DNS. The root `README.md` holds the full routing table.
+Route gotchas: the game and stats each need **two** routes (bare + `/*`) because
+`/game/*` and `/stats/*` do not match `/game` and `/stats`. Never collapse a pair
+to `/game*` or `/stats*` — `*` spans `/` and would swallow paths belonging to the
+site. The more specific pairs beat the site's `/*` on specificity. All Workers
+must be attached with routes rather than a Custom Domain, which would claim the
+whole hostname for one of them; routes need the hostname proxied in DNS. The root
+`README.md` holds the full routing table.

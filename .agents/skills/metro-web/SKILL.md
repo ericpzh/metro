@@ -61,7 +61,10 @@ English-copy change must preserve the Chinese catalogue and default captures.
   with `gameHref(lang)` appending `en/` for English and `demoHref(lang, id)`
   appending the station (`en/zoo`) for a demo. The game is its own Worker at
   `stationdesigner.com/game/` (`/game/en/` for English), so the site's 游戏 and
-  Play links point straight at it — there is no iframe tab.
+  Play links point straight at it — there is no iframe tab. `statsRoot` /
+  `statsHref(lang)` do the same for the stats Worker (`VITE_STATS_URL`, else
+  `127.0.0.1:5176/stats/` in development, else `/stats/`); the footer's 文档 list
+  carries its 全球统计 / Global stats link in both languages.
 * `web/public/art/` is **generated** at build time by `web/scripts/sync-art.mjs`,
   which copies every `art/*.svg` except `_*` drafts and `*-zoom.svg`. Never edit
   files there, and never add a sheet to the site by hand.

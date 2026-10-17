@@ -72,6 +72,14 @@ try {
   await page.send('Page.enable')
   await waitFor(page.evaluate, `!!document.querySelector('[data-demos="nav"]')`, { what: 'the site nav' })
 
+  const statsLink = await page.evaluate(`(() => {
+    const link = [...document.querySelectorAll('.footer__links a')].find(a => a.getAttribute('href') === '/stats/')
+    return link ? link.textContent.trim() : null
+  })()`)
+  assert.match(statsLink, /全球统计/)
+  assert.match(statsLink, /玩家数据/)
+  console.log('demos: the site footer links the global stats page')
+
   // --- Chinese site: one picker, opened by both buttons ---------------------
   await page.evaluate(`(() => { const b = document.querySelector('[data-demos="nav"]'); b.focus(); b.click(); return true })()`)
   await waitFor(page.evaluate, `!!document.querySelector('.demos__panel')`, { what: 'the nav picker' })
@@ -133,6 +141,13 @@ try {
   // --- the English site links the English demo routes ----------------------
   await navigate('/en/')
   await waitFor(page.evaluate, `document.documentElement.lang === 'en' && !!document.querySelector('[data-demos="hero"]')`, { what: 'the English site' })
+
+  const enStatsLink = await page.evaluate(`(() => {
+    const link = [...document.querySelectorAll('.footer__links a')].find(a => a.getAttribute('href') === '/stats/en/')
+    return link ? link.textContent.trim() : null
+  })()`)
+  assert.match(enStatsLink, /Global stats/)
+  assert.match(enStatsLink, /player totals/)
   await page.evaluate(`(() => { const b = document.querySelector('[data-demos="hero"]'); b.focus(); b.click(); return true })()`)
   await waitFor(page.evaluate, `!!document.querySelector('.demos__panel')`, { what: 'the English picker' })
   const en = await page.evaluate(READ_PICKER)

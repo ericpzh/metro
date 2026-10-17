@@ -105,7 +105,7 @@ export default function App() {
             />
           ))}
         </div>
-        <Footer t={t} />
+        <Footer t={t} lang={lang} />
       </main>
       <DemoPicker open={demosOpen} onClose={closeDemos} lang={lang} t={t} />
     </>

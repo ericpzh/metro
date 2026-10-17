@@ -1,6 +1,6 @@
-import { artUrl, repoUrl, specUrl } from '../site.js'
+import { artUrl, repoUrl, specUrl, statsHref } from '../site.js'
 
-export default function Footer({ t }) {
+export default function Footer({ t, lang }) {
   return (
     <footer className="footer">
       <div className="footer__inner">
@@ -26,6 +26,11 @@ export default function Footer({ t }) {
             <li>
               <a href={repoUrl} target="_blank" rel="noreferrer">
                 {t.footer.repo} <span>{t.footer.repoSub}</span>
+              </a>
+            </li>
+            <li>
+              <a href={statsHref(lang)} target="_blank" rel="noreferrer">
+                {t.footer.stats} <span>{t.footer.statsSub}</span>
               </a>
             </li>
           </ul>

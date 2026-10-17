@@ -29,6 +29,21 @@ export const gameRoot = (() => {
 export const gameHref = (lang) => `${gameRoot}${lang === 'en' ? 'en/' : ''}`
 
 /**
+ * The stats page is its own Worker at https://stationdesigner.com/stats/ with an
+ * English route at /stats/en/. Development runs `npm run dev:stats` on 5176, so
+ * the site footer links there while the site itself is on 5173. Point
+ * VITE_STATS_URL at another stats root (a workers.dev /stats/ URL, a preview
+ * URL) to override either.
+ */
+export const statsRoot = (() => {
+  const url = import.meta.env.VITE_STATS_URL || (import.meta.env.DEV ? 'http://127.0.0.1:5176/stats/' : '/stats/')
+  return url.endsWith('/') ? url : `${url}/`
+})()
+
+/** Href of the stats page in a language: `/stats/` or `/stats/en/`. */
+export const statsHref = (lang) => `${statsRoot}${lang === 'en' ? 'en/' : ''}`
+
+/**
  * Href that opens a demo station straight in the game: `/game/zoo`,
  * `/game/tanwei`, or `/game/en/zoo` and `/game/en/tanwei` in English. The route
  * carries no trailing slash — its relative `./assets/...` resolve at the game
