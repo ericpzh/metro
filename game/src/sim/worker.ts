@@ -42,6 +42,20 @@ const NO_ROUTE = new Float32Array(0)
  */
 let dirty = true
 
+/**
+ * The record's own cursor (§8.1): how many samples the app has been sent. The world
+ * keeps the buffer; this only says where the next `state` should resume, and the
+ * `reset` flag tells the app to throw its copy away.
+ */
+let postedHistory = 0
+let historyReset = true
+
+/** The run started over — `load`, `restart` or `seek`: the app's copy is stale. */
+function resetHistory(): void {
+  postedHistory = 0
+  historyReset = true
+}
+
 function post(message: FromWorker, transfer: Transferable[] = []): void {
   ctx.postMessage(message, transfer)
 }
@@ -83,6 +97,13 @@ function run(): void {
   // rather than copied: nothing here keeps it.
   const route = w.selectedAgent >= 0 ? w.routeOf(w.selectedAgent) : null
   const points = route ?? NO_ROUTE
+  // The minute's record, as far as the app has been told (§8.1). A copy, like
+  // everything else here: the worker keeps the buffer the next tick writes into.
+  const historyFrom = postedHistory
+  const history = w.history.run(historyFrom)
+  postedHistory = w.history.count
+  const wasReset = historyReset
+  historyReset = false
   // Post copies (not transfers) so the worker keeps ownership of its buffers;
   // the payload is ~145 KB and the main thread keeps prev/next anyway.
   post({
@@ -100,6 +121,11 @@ function run(): void {
     route: points,
     routeAgent: route ? w.selectedAgent : -1,
     routeToken: agentToken,
+    history,
+    historyFrom,
+    historyReset: wasReset,
+    historyStart: w.history.start,
+    historyStep: w.history.step,
   }, route ? [points.buffer] : [])
 }
 
@@ -123,6 +149,8 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       }
       playing = msg.playing
       speed = msg.speed
+      // A load (or a first boot) is a new run: the app's record goes with it.
+      resetHistory()
       // Warm the station so the demo does not open on an empty floor. This is
       // just ticks: §7.6 determinism is unaffected.
       const warm = msg.warmup ?? 0
@@ -175,6 +203,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       // `run` posts the cleared state immediately, even while paused.
       if (world) {
         world.restart()
+        resetHistory()
         dirty = true
         run()
       }
@@ -185,6 +214,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       // stay. Posted straight away, because a paused sim has no stream to carry it later.
       if (world) {
         world.seek(msg.seconds)
+        resetHistory()
         dirty = true
         run()
       }

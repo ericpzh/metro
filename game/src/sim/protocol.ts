@@ -57,4 +57,19 @@ export type FromWorker =
       route: Float32Array
       routeAgent: number
       routeToken: number
+      /**
+       * The run's record (§8.1, the 数据 window): the samples that landed since the
+       * previous `state`, `HISTORY_STRIDE` floats each and `historyFrom` naming the
+       * first one's index. Empty when no new minute has passed (59 ticks in 60),
+       * which is why it rides this message instead of getting one of its own.
+       *
+       * `historyReset` is the worker saying the run started over — a load, a restart
+       * or a seek — so the app **replaces** its copy instead of appending, and
+       * `historyStart` is the clock sample 0 stands on.
+       */
+      history: Float32Array
+      historyFrom: number
+      historyReset: boolean
+      historyStart: number
+      historyStep: number
     }

@@ -9,6 +9,7 @@ import { EXIT_BASE_HEIGHT } from './ExitLanding.ts'
 import { DoorwayExitModel } from './DoorwayExitModel.ts'
 import { GuidepostModel } from './StreetDecorModel.ts'
 import type { Module } from '../../../sim/types.ts'
+import { omitModelDetail, panelModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /**
  * The exit portal header: the metro logo, station name and the exit's name.
@@ -87,6 +88,7 @@ function buildWavyRoof(
     const seg = slab(g, mat, cx, ya + step / 2, (za + zb) / 2, w, Math.hypot(step, zb - za) + 0.03, 0.1)
     // Tilt the segment so its long (y) axis follows the slope between crests.
     seg.rotation.x = Math.atan2(zb - za, step)
+    panelModelDetail(seg, 'z')
   }
 }
 
@@ -195,27 +197,28 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   // bottom rail with a glass sheet between them and a post at each joint. Built
   // along a fixed local x (railZ) or y (railX), so it reads as the same fence
   // piece the player places by hand.
-  const post = (x: number, y: number): void => {
-    slab(house, mats.darkSteel, x, y, 0.02, 0.16, 0.16, 0.04)
-    slab(house, mats.steel, x, y, 0.5, 0.08, 0.08, 1.0)
+  const post = (x: number, y: number, keep: boolean): void => {
+    omitModelDetail(slab(house, mats.darkSteel, x, y, 0.02, 0.16, 0.16, 0.04))
+    const upright = slab(house, mats.steel, x, y, 0.5, 0.08, 0.08, 1.0)
+    if (!keep) omitModelDetail(upright)
   }
   const railZ = (cx: number, y0: number, y1: number): void => {
     const len = y1 - y0
     const cy = (y0 + y1) / 2
-    slab(house, mats.steel, cx, cy, 0.955, 0.07, len, 0.09)
-    slab(house, mats.steel, cx, cy, 0.06, 0.07, len, 0.08)
-    slab(house, mats.glass, cx, cy, 0.52, 0.03, len, 0.76)
+    panelModelDetail(slab(house, mats.steel, cx, cy, 0.955, 0.07, len, 0.09), 'z')
+    omitModelDetail(slab(house, mats.steel, cx, cy, 0.06, 0.07, len, 0.08))
+    panelModelDetail(slab(house, mats.glass, cx, cy, 0.52, 0.03, len, 0.76), 'x')
     const n = Math.max(1, Math.round(len / 1.4))
-    for (let i = 0; i <= n; i++) post(cx, y0 + (len * i) / n)
+    for (let i = 0; i <= n; i++) post(cx, y0 + (len * i) / n, i === 0 || i === n)
   }
   const railX = (cy: number, x0: number, x1: number): void => {
     const len = x1 - x0
     const cx = (x0 + x1) / 2
-    slab(house, mats.steel, cx, cy, 0.955, len, 0.07, 0.09)
-    slab(house, mats.steel, cx, cy, 0.06, len, 0.07, 0.08)
-    slab(house, mats.glass, cx, cy, 0.52, len, 0.03, 0.76)
+    panelModelDetail(slab(house, mats.steel, cx, cy, 0.955, len, 0.07, 0.09), 'z')
+    omitModelDetail(slab(house, mats.steel, cx, cy, 0.06, len, 0.07, 0.08))
+    panelModelDetail(slab(house, mats.glass, cx, cy, 0.52, len, 0.03, 0.76))
     const n = Math.max(1, Math.round(len / 1.4))
-    for (let i = 0; i <= n; i++) post(x0 + (len * i) / n, cy)
+    for (let i = 0; i <= n; i++) post(x0 + (len * i) / n, cy, i === 0 || i === n)
   }
 
   // The canopy profile, shared by the roof, the glazing and the sign: it rises
@@ -239,15 +242,19 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
     const frameTop = H + 0.55 // top beam, just clear of the wave crest
     const frameYs = [BACKY + 0.3, (BACKY + EXIT_GLASS_Y1) / 2, EXIT_GLASS_Y1 - 0.15]
     for (const fy of frameYs) {
-      for (const sx of [-1, 1]) slab(house, mats.exitRed, xc + sx * frameX, fy, frameTop / 2, 0.16, 0.16, frameTop)
-      slab(house, mats.exitRed, xc, fy, frameTop - 0.08, frameX * 2 + 0.16, 0.16, 0.16)
+      for (const sx of [-1, 1]) {
+        const upright = slab(house, mats.exitRed, xc + sx * frameX, fy, frameTop / 2, 0.16, 0.16, frameTop)
+        if (fy === frameYs[1]) omitModelDetail(upright)
+      }
+      const beam = slab(house, mats.exitRed, xc, fy, frameTop - 0.08, frameX * 2 + 0.16, 0.16, 0.16)
+      if (fy === frameYs[1]) omitModelDetail(beam)
     }
     // Base frame: side members along the run plus the far cross tie only — the
     // street doorway stays clear, so no red beam runs across the entrance floor.
     const baseY0 = frameYs[0]
     const baseY1 = frameYs[frameYs.length - 1]
-    for (const sx of [-1, 1]) slab(house, mats.exitRed, xc + sx * frameX, (baseY0 + baseY1) / 2, 0.2, 0.14, baseY1 - baseY0 + 0.3, 0.2)
-    slab(house, mats.exitRed, xc, baseY0, 0.2, frameX * 2, 0.14, 0.2)
+    for (const sx of [-1, 1]) omitModelDetail(slab(house, mats.exitRed, xc + sx * frameX, (baseY0 + baseY1) / 2, 0.2, 0.14, baseY1 - baseY0 + 0.3, 0.2))
+    omitModelDetail(slab(house, mats.exitRed, xc, baseY0, 0.2, frameX * 2, 0.14, 0.2))
 
     // Blue waved canopy, rising toward the street doorway (+y). `heightAt` is
     // the profile the roof, the glazing and the sign share, so the glass meets
@@ -271,17 +278,18 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
         const h = (zmid - FLOOR_TOP) / Math.cos(theta)
         const panel = slab(house, mats.glass, x, (ya + yb) / 2, (zmid + FLOOR_TOP) / 2, 0.04, Math.hypot(step, zb - za), h)
         panel.rotation.x = theta
+        panelModelDetail(panel, 'x')
       }
     }
     for (const sx of [-1, 1]) sideGlass(xc + sx * side)
     // Glass back wall (glazed like the sides); its head follows the roof there.
     const zBack = topAt(BACKY)
-    slab(house, mats.glass, xc, BACKY, (zBack + FLOOR_TOP) / 2, side * 2, 0.05, zBack - FLOOR_TOP)
+    panelModelDetail(slab(house, mats.glass, xc, BACKY, (zBack + FLOOR_TOP) / 2, side * 2, 0.05, zBack - FLOOR_TOP))
 
     // Under-canopy light strips down the middle, tucked under the wave.
     for (let i = 0; i < 3; i++) {
       const ly = 1.2 - i * 2.0
-      slab(house, mats.glow, xc, ly, topAt(ly) - 0.1, 0.16, 0.9, 0.04)
+      omitModelDetail(slab(house, mats.glow, xc, ly, topAt(ly) - 0.1, 0.16, 0.9, 0.04))
     }
 
     // Handrail down each divider between two runs.
@@ -310,7 +318,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const signBoard = 0.62
   const signY = covered ? hl - 0.02 : BACKY
   const signZ = covered ? topAt(hl + 0.06) - signBoard / 2 - 0.02 : 0.52
-  slab(house, mats.darkSteel, xc, signY, signZ, W - 0.06, 0.12, signBoard)
+  panelModelDetail(slab(house, mats.darkSteel, xc, signY, signZ, W - 0.06, 0.12, signBoard))
   const header = plate(house, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || t('metro'), mod.cfg.name || t('entrances'), ctx.data.nameEn), 0, 0)) })), W - 0.3, 0.5, xc, signY + 0.08, signZ, Math.PI)
   header.renderOrder = 1
   return g
@@ -324,7 +332,18 @@ export class ExitModel extends PieceBuilder {
       // 虚拟 exit reuses the 导向柱 pillar: a 1×1 surface exit whose letter reads
       // from its own exit name. The synthetic guidepost links back to this exit
       // id so `guideLabels` resolves the same station + exit copy.
-      return new GuidepostModel(this.ctx).build({ ...mod, type: 'guidepost', cfg: { exitId: mod.id } })
+      const root = new GuidepostModel(this.ctx).build({ ...mod, type: 'guidepost', cfg: { exitId: mod.id } })
+      for (const child of root.children) {
+        if (!(child instanceof THREE.Mesh)) continue
+        if (child.name === 'guide-triangular-base') omitModelDetail(child)
+        else if (child.geometry.type === 'ExtrudeGeometry') {
+          // Adjacent column sections cover the two triangular end caps.
+          const simple = child.geometry.clone()
+          simple.setIndex(Array.from({ length: simple.attributes.position.count - 6 }, (_, i) => i + 6))
+          simple.clearGroups(); setModelDetail(child, simple)
+        }
+      }
+      return root
     }
     return placeLocal(buildExit(this.ctx, mod), mod)
   }

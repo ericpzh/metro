@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { slab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
+import { beamModelDetail, panelModelDetail } from '../../modelDetail.ts'
 
 /** Fit the barrier bays around their posts and the bridge gantries (§5.4). */
 export function buildBridgeNoiseBarrier(g: THREE.Group, mats: ModelMaterials, width: number, y: number, top: number, catenary: boolean, neighborPosts: readonly { x: number; y: number }[] = []): void {
@@ -13,7 +14,10 @@ export function buildBridgeNoiseBarrier(g: THREE.Group, mats: ModelMaterials, wi
   // Leave a 3 mm glazing clearance inside the opaque frame on every edge.
   const glazingClearance = 0.003
   const add = (name: string, mat: THREE.Material, x: number, z: number, w: number, depth: number, h: number): void => {
-    slab(g, mat, x, y, z, w, depth, h).name = `bridge-barrier-${name}`
+    const mesh = slab(g, mat, x, y, z, w, depth, h)
+    mesh.name = `bridge-barrier-${name}`
+    if (name === 'top-rail') beamModelDetail(mesh, 'x')
+    else if (name !== 'post') panelModelDetail(mesh)
   }
   const bay = (start: number, end: number): void => {
     if (end <= start) return

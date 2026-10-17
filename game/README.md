@@ -382,6 +382,21 @@ The models are pure three.js geometry
 over one shared material kit — no image or GLB assets. Modules are level-aware, so a tall escalator
 or exit ghosts with the floor it belongs to instead of drawing through it.
 
+**An A/B/C/L car stops a quarter of a metre short of its own length at each end**
+(`CAR_GAP` in `render/models/pieces/TrainGangway.ts`, which is also what `bodyLen` is cut
+from), so two neighbouring shells stand that gap apart. The platform used to read that gap as
+a hole through the train: the two car ends, their bulkheads and the sky between them. The real
+stock closes it with an enclosed flexible gangway, and so does the model — a **black**
+corrugated bellows that rides on the car's own section, `GANGWAY_SHRINK` (3 %) inboard of it,
+so it is the same shape as the car and lightly smaller all round: flat flanks under the rolled
+shoulder, flat crown, underfloor closed. It tucks 5 cm under each car's end face, which is why
+it is drawn as a tube with no caps — and the whole consist's gangways are **one mesh**
+(`car-intercar-gangway`, `mats.rubber`) rather than one per joint, because the pieces are
+identical apart from where they stand and an eight-car consist should not add seven draw calls
+to a model that batches everything else. Nothing in `sim/` knows about it: car length, door
+cadence and the cabin are unchanged. D skins its cars on the curved `dHalfWidth` section
+instead, so its gangway is lofted from that curve (`buildDGangway`) and keeps its own look.
+
 D型 stock is selectable in the A/B/C/D/L single-letter button row. D cars use a
 dedicated curved shell with broad roof and sill arcs following the cab, a narrow
 flat crown, small panes in a continuous black window band and rounded passenger plug doors
@@ -1346,6 +1361,18 @@ it** (its seed value was E and the scan could only raise it). A per-platform let
 高峰预警 — stays derivable: `platforms[].cells` and the per-node `density` buffer both cross the
 worker boundary. `capacity.test.mjs` pins an empty station at A and the under-built station as the
 more crowded of the two, and `train-cabin.test.mjs` pins that a full cabin cannot lift the letter.
+
+**The status bar's numbers are also the run's own record (§8.1).** The left half of the bottom
+rail is a button: it opens the floating **数据** window, three line charts drawn from
+`World.history`. `sim/history.ts` samples the rail's own counters once a **sim minute**, in the
+worker, where the clock is the only thing that decides — so the grain holds at 16× and a `seek`
+starts the record over rather than splicing two days into one line. 平均拥挤等级 draws the letter
+against its class, A at the top and F at the bottom so the line reads the way the letter does,
+站内数值 the population and the four queue lengths, and 客流累计 the three climbing totals —
+已上车 / 已出站 / 滞留 — either as those totals or as each one's per-minute change, which is why
+every sample records both. Each line toggles on its own legend chip, and a chart's scale follows
+the lines actually showing, so hiding a tall one rescales the rest. `history.test.mjs` pins the
+minute, the baseline first sample, the world's three resets and the app's own append.
 
 The passengers follow the web concept sheets' rounded body, circular head and curved hair cap,
 retaining three instanced draws for the crowd. Train roofs use the body's own paint and meet
@@ -2357,6 +2384,12 @@ approximated); neither needs WebGL.
 * `capacity.test.mjs` — the §7.8 capacity ladder as a comparison: one platform escalator
   jams, three fix it; a one-car train with no alighting isolates boarding queues
   and leaves people behind at a saturated platform.
+* `history.test.mjs` — the run's minute-by-minute record (§8.1): one sample a sim minute rather
+  than one a tick, the letter stored as its LOS order, a first sample whose per-minute columns are
+  a *baseline* rather than the run so far, counter columns that only climb and whose minutes add up
+  to the total, the world starting the record over on load, restart and seek, the store's append
+  (the buffer growing without moving an index) and its replace on a reset, and the chart axes'
+  round-number ceiling and upside-down A–F class axis.
 * `layering.test.mjs` — `sim/` imports nothing and touches no DOM; `render/` never reaches
   up into `app/`; `build/` imports neither.
 * `scene-wiring.test.mjs` — the scene systems' sibling wiring (`render/scene/SceneRenderer.ts`).

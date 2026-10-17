@@ -130,11 +130,24 @@ per-platform letter, if §9.3's 高峰预警 needs one, must be derived from
 - `worker-preview`: actual worker edit acknowledgement with no cosmetic routing
   rebuild and no paused tick; speed/topology edits must still rebuild; inert-decor
   builds skip routing while bench stops still rebuild.
+- `history`: the run's minute-by-minute record (§8.1, the 数据 window) — one sample a
+  sim minute rather than one a tick, the LOS letter stored as its order, the first
+  sample's per-minute columns as a **baseline** rather than the run so far, climbing
+  counters whose minutes add up to the total, `World` starting the record over on
+  load / restart / seek, the app appending a posted minute (its buffer growing without
+  moving an index) or replacing the lot on a reset, and the chart axes — the round-number
+  ceiling and the upside-down A–F class axis. The record rides the `state` message, so a
+  change to that payload touches this suite.
 - `scene-wiring`: source contracts for sign-only and inert-decor chunk skipping
   (both fast paths clear the slice key so batch resync still runs), pointer
   touch/delete preservation, release-before-commit, unmount cancellation, and the
   camera-aim notification (`SceneRenderer.onCameraAim` firing once per real aim
   move) with the viewport's re-aim of the equipment and 移动 ghosts.
+- `graphics-quality`: the 画质 preference — 低画质 / 高画质 read from local storage
+  with a missing or invalid value falling back to high, persisted independently of
+  the station save, surviving an unavailable store and restored by a fresh store on
+  load — plus the floor/presentation detail policy (`detailPolicy`, Hide UI
+  restoring full visible geometry) and the dropdown's labelled actions.
 
 For the inverted street plane, `ground.test.mjs` pins a z=0 delete/re-add cycle:
 removing a dug hole through `addCells` returns to implicit ground without keeping a

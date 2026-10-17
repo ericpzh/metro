@@ -7,6 +7,7 @@ import { getLanguage, t } from '../../sim/i18n.ts'
 // builders that own them; only genuinely-shared geometry lives here.
 
 import * as THREE from 'three'
+import { omitModelDetail, panelModelDetail, setModelDetail } from '../modelDetail.ts'
 import { drawDesktopScreen } from './desktopScreen.ts'
 import type { FenceArms } from '../../sim/fences.ts'
 import { edgeDecorCurtainOffset } from '../../sim/placement.ts'
@@ -1137,6 +1138,7 @@ function fenceTube(g: THREE.Group, mat: THREE.Material, from: [number, number, n
   const b = new THREE.Vector3(...to)
   const delta = b.clone().sub(a)
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, delta.length(), 12), mat)
+  setModelDetail(mesh, new THREE.CylinderGeometry(radius, radius, delta.length(), 4))
   mesh.position.copy(a.add(b).multiplyScalar(0.5))
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize())
   mesh.castShadow = true
@@ -1146,9 +1148,9 @@ function fenceTube(g: THREE.Group, mat: THREE.Material, from: [number, number, n
 
 /** Floor shoe, upright and two glass clamps on a stainless fence post. */
 export function fencePost(g: THREE.Group, mats: ModelMaterials, x: number, y: number): void {
-  slab(g, mats.steel, x, y, 0.018, 0.11, 0.11, 0.036)
+  omitModelDetail(slab(g, mats.steel, x, y, 0.018, 0.11, 0.11, 0.036))
   fenceTube(g, mats.steel, [x, y, 0.035], [x, y, 0.97], 0.026)
-  for (const z of [0.23, 0.78]) slab(g, mats.steel, x, y, z, 0.075, 0.055, 0.035)
+  for (const z of [0.23, 0.78]) omitModelDetail(slab(g, mats.steel, x, y, z, 0.075, 0.055, 0.035))
 }
 
 /**
@@ -1178,12 +1180,12 @@ export function drawFence(g: THREE.Group, mats: ModelMaterials, arms: FenceArms,
       const bottom = gate ? 0.2 : 0.11
       const height = 0.89 - bottom
       const mid = (a + b) / 2
-      slab(g, mats.glass, alongY ? 0 : mid, alongY ? mid : 0, bottom + height / 2,
-        alongY ? 0.012 : len - 0.012, alongY ? len - 0.012 : 0.012, height)
+      panelModelDetail(slab(g, mats.glass, alongY ? 0 : mid, alongY ? mid : 0, bottom + height / 2,
+        alongY ? 0.012 : len - 0.012, alongY ? len - 0.012 : 0.012, height), alongY ? 'x' : 'y')
       // Paired clamps hold the panel without a heavy bottom crossbar.
       for (const s of [a + 0.045, b - 0.045]) {
         for (const z of [bottom + 0.07, 0.78]) {
-          slab(g, mats.steel, alongY ? 0 : s, alongY ? s : 0, z, alongY ? 0.044 : 0.055, alongY ? 0.055 : 0.044, 0.032)
+          omitModelDetail(slab(g, mats.steel, alongY ? 0 : s, alongY ? s : 0, z, alongY ? 0.044 : 0.055, alongY ? 0.055 : 0.044, 0.032))
         }
       }
       if (gate) {
@@ -1191,7 +1193,7 @@ export function drawFence(g: THREE.Group, mats: ModelMaterials, arms: FenceArms,
         fenceTube(g, mats.steel, at(a + 0.04, 0.2), at(b - 0.04, 0.2), 0.018)
         for (const z of [0.3, 0.77]) fenceTube(g, mats.steel, at(a + 0.045, z - 0.045), at(a + 0.045, z + 0.045), 0.038)
         const [x, y] = at(b - 0.09, 0.76)
-        slab(g, mats.darkSteel, x, y, 0.76, alongY ? 0.065 : 0.1, alongY ? 0.1 : 0.065, 0.035)
+        omitModelDetail(slab(g, mats.darkSteel, x, y, 0.76, alongY ? 0.065 : 0.1, alongY ? 0.1 : 0.065, 0.035))
       }
     }
   }

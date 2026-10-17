@@ -1959,6 +1959,38 @@ export const messages = {
     "zh": "滞留",
     "en": "Left behind"
   },
+  "data": {
+    "zh": "数据",
+    "en": "Data"
+  },
+  "open_data_window": {
+    "zh": "打开数据窗口",
+    "en": "Open the data window"
+  },
+  "close_data_window": {
+    "zh": "关闭数据窗口",
+    "en": "Close the data window"
+  },
+  "station_numbers": {
+    "zh": "站内数值",
+    "en": "In-station numbers"
+  },
+  "passenger_totals": {
+    "zh": "客流累计",
+    "en": "Passenger totals"
+  },
+  "cumulative": {
+    "zh": "累计",
+    "en": "Cumulative"
+  },
+  "per_minute": {
+    "zh": "每分钟",
+    "en": "Per minute"
+  },
+  "no_data_yet": {
+    "zh": "暂无数据",
+    "en": "No data yet"
+  },
   "time_440": {
     "zh": "时间",
     "en": "Time"

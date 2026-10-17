@@ -755,6 +755,12 @@ test('the newest selection survives a stale frame, and clears itself when the pa
     route,
     routeAgent,
     routeToken,
+    // An empty record with no reset: a frame that has no new minute to report.
+    history: new Float32Array(0),
+    historyFrom: 0,
+    historyReset: false,
+    historyStart: 0,
+    historyStep: 60,
   })
 
   // A frame built before the click: it answers an older request and names nobody.

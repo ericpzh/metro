@@ -1376,10 +1376,10 @@ Triangle counts below are for one model built from each palette option's default
 
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
-| tree | 1353 | 18432 |
+| tree | 396 | 18432 |
 | shelf-cooler | 420 | 9852 |
 | shelf-cooler-dark | 420 | 9852 |
-| bridge | 788 | 9588 |
+| bridge | 732 | 9588 |
 | shelf-white-tall | 240 | 7556 |
 | shelf-dark-tall | 240 | 7244 |
 | shelf-wire | 412 | 6524 |
@@ -1398,32 +1398,32 @@ Triangle counts below are for one model built from each palette option's default
 | stair-centerForward | 920 | 2096 |
 | stair-left90 | 920 | 2096 |
 | stair-right90 | 920 | 2096 |
-| clock | 1870 | 1940 |
+| clock | 212 | 1940 |
 | cctv | 124 | 1888 |
 | stair-straight | 620 | 1796 |
 | lift | 468 | 1488 |
 | electrical-cabinet | 36 | 1224 |
-| extinguisher-glass | 822 | 918 |
-| exit-covered-1 | 902 | 902 |
-| exit | 902 | 902 |
-| exit-covered-3 | 902 | 902 |
+| extinguisher-glass | 134 | 918 |
+| exit-covered-1 | 346 | 902 |
+| exit | 346 | 902 |
+| exit-covered-3 | 346 | 902 |
 | tactile-warning | 12 | 812 |
-| fence-iron | 768 | 768 |
-| checkout | 750 | 750 |
-| gate-new | 720 | 720 |
-| rail-signal | 708 | 708 |
-| vending | 676 | 676 |
-| gate | 540 | 668 |
-| desk | 652 | 652 |
+| fence-iron | 256 | 768 |
+| checkout | 104 | 750 |
+| gate-new | 130 | 720 |
+| rail-signal | 144 | 708 |
+| vending | 200 | 676 |
+| gate | 162 | 668 |
+| desk | 212 | 652 |
 | pillar-thick | 576 | 576 |
-| exit-uncovered-2 | 554 | 554 |
-| exit-uncovered-3 | 554 | 554 |
-| exit-uncovered-1 | 530 | 530 |
-| fence-gate | 432 | 432 |
+| exit-uncovered-2 | 150 | 554 |
+| exit-uncovered-3 | 150 | 554 |
+| exit-uncovered-1 | 150 | 530 |
+| fence-gate | 100 | 432 |
 | roof-tapered | 396 | 396 |
 | tvm | 372 | 372 |
 | busstop-long | 372 | 372 |
-| fence | 360 | 360 |
+| fence | 68 | 360 |
 | door-steel-1 | 324 | 324 |
 | door-glass-1 | 324 | 324 |
 | roof-truss | 264 | 264 |
@@ -1434,13 +1434,13 @@ Triangle counts below are for one model built from each palette option's default
 | bin | 196 | 196 |
 | vent | 168 | 168 |
 | bench-seat-1 | 156 | 156 |
-| extinguisher | 146 | 146 |
-| extinguisher-compact | 146 | 146 |
+| extinguisher | 50 | 146 |
+| extinguisher-compact | 50 | 146 |
 | door-wood-1 | 144 | 144 |
 | sidewalk | 12 | 132 |
 | tv | 114 | 114 |
-| noise-barrier | 108 | 108 |
-| noise-barrier-half | 108 | 108 |
+| noise-barrier | 52 | 108 |
+| noise-barrier-half | 52 | 108 |
 | traffic-light | 108 | 108 |
 | bench-steel-1 | 84 | 84 |
 | sign-ceiling | 74 | 74 |
@@ -1454,7 +1454,7 @@ Triangle counts below are for one model built from each palette option's default
 | glass-1x2 | 60 | 60 |
 | glass-2x2 | 60 | 60 |
 | glass-3x2 | 60 | 60 |
-| exit-virtual | 60 | 60 |
+| exit-virtual | 46 | 60 |
 | psd-end | 58 | 58 |
 | road | 50 | 50 |
 | stair-block | 34 | 48 |
@@ -1469,12 +1469,12 @@ Triangle counts below are for one model built from each palette option's default
 | hanger-post | 36 | 36 |
 | pillar-slim | 36 | 36 |
 | linemap-wall | 26 | 26 |
-| exit-doorway-1 | 26 | 26 |
-| exit-doorway-2 | 26 | 26 |
-| exit-doorway-3 | 26 | 26 |
-| exit-doorway-4 | 26 | 26 |
+| exit-doorway-1 | 10 | 26 |
+| exit-doorway-2 | 10 | 26 |
+| exit-doorway-3 | 10 | 26 |
+| exit-doorway-4 | 10 | 26 |
 | roof-shell | 24 | 24 |
-| noise-barrier-railing | 24 | 24 |
+| noise-barrier-railing | 16 | 24 |
 | light-rectangular | 24 | 24 |
 | roof | 12 | 12 |
 | floor-mark-boarding | 2 | 2 |
@@ -1601,3 +1601,138 @@ Production batching validation passes with and without native multi-draw: statio
 calls 3,597 to 1,022 / 1,715; train calls 814 to 25 / 630, preserving open/closed
 train triangles and reporting no GLSL/WebGL/runtime failures. Logs are
 `authored-low-batching-{native,fallback}.log` under `.preview/perf/`.
+
+## 2026-10-16 — smaller tree and clock approximations
+
+The default tree Low/far mesh is 396 triangles (previously 1,353; full 18,432).
+Its baked six-sided main trunk follows alternate source longitudinal rings so it
+remains connected from ground to canopy. Retain every thirty-second intact crossed
+leaf card plus canopy extrema, expanding retained cards up to 3x inside the original
+canopy bounds. The middle tree level remains 5,847 triangles. An initial 40 cm
+clustering attempt erased the thin lower trunk in production close-ups; it was
+replaced by the connected trunk before completion. The static-rendering regression
+now pins a 400-triangle budget, ground-to-canopy extent and connected indexed faces.
+
+Clock Low is 212 triangles (previously 1,870; full 1,940). It keeps both readable
+faces and live simulation-time hands, with a twelve-sided case, six-sided hubs,
+flat hour marks and hands; minute ticks are omitted. Source picking, live pivots
+and retained geometry restoration are covered before/after local batching.
+All 117 full-model triangle totals match the original inventory. Both tables retain
+their descending High-triangle ordering; regenerate with the inventory tool.
+
+Production close-ups were inspected with opaque tree source materials (the placed
+demo tree starts on a ghosted floor). The trunk, foliage and clock face render
+correctly with GL error 0. Low draw counters report 720 triangles for the tree,
+including the renderer's two passes over double-sided leaves, and 212 for the
+clock. Model inventory counts each leaf triangle
+once. Captures and logs live in ignored `.preview/perf/tree-clock-models/` and
+`tree-clock-visual-final.log`. These counts do not establish a station FPS gain.
+
+Validation: build passes; `test:perf` passes all 181 tests, with ClockModel and
+TreeModel each at 100% line/branch/function coverage. Full suite: 1,679 pass, one
+existing Tanwei cell-count failure (14,717 fixture cells vs 14,554 expected).
+Final logs use `.preview/perf/tree-clock-{build,tests,coverage}-final.log`.
+The native production geometry check passes both paused demos: first Low click to
+two animation frames is 25.7 / 54.7 ms (Zoo/Tanwei), and first/repeated wheel zoom
+is 16.7/17.2 and 35.4/41.5 ms respectively. Cached GPU batches are retained and
+full geometry returns with Hide UI/detail restoration; there are no JS/shader/GL
+errors. This is a correctness/interaction sample without a controlled timing
+baseline. Report: `.preview/perf/tree-clock-detail/native/report.json`; the
+ignored checker extends `tools/check-geometry-detail.mjs` with first-toggle timing.
+
+## 2026-10-16 — Low cabinets, furniture, gates, fences and exits
+
+Authored Low alternatives now cover all 22 requested catalogue variants. The
+117-row table above and the performance skill have been regenerated in descending
+High order. All 117 High counts still match the original inventory. Raw inventory:
+`.preview/perf/fixtures-low-models.json`.
+
+Standard/compact extinguishers retain the labelled cabinet, with an apron replacing
+four tiny feet (50 triangles); the glass cabinet retains its shell, empty shelves,
+door frames and labels (134). Checkout omits stock, tiny peripherals and fittings
+but retains its counter, empty rack and POS (104). Desk keeps its workstation,
+screens and chair with one continuous back instead of ten slats (212). Vending
+keeps colourful drink silhouettes as thin panels and omits bottle caps (200).
+Fences retain their neighbour-derived runs and glass/iron structure, using
+four-sided tubes without clamps (68 / 100 / 256 for glass / gate / iron).
+Fare gates retain indicators and live opposing leaves, using a simple case/crown
+and flat coarse leaf shapes (162 old / 130 new).
+
+Covered exits preserve the full wave profile, floor openings, glazing and printed
+header, using thin roof/glass surfaces and omitting intermediate frames/lighting
+(346). Uncovered exits retain corner/end posts, top rails and glazing (150).
+Wall exit panels retain front/back faces and artwork (10); the virtual pillar
+omits its small base and hidden internal caps (46). `panelModelDetail` preserves
+both broad panel faces. Approximation bounds contain both original and reduced
+geometry, including combined cabinet feet and chair backs; the source geometry
+continues to own picking and approximation disposal. These variants are prepared
+when a model is built and keep its existing geometry/rig objects when swapped.
+
+Production close-ups for all 22 variants were captured and inspected under
+`.preview/perf/fixtures-low-models/`, with GL error 0 throughout. The gallery
+uses default catalogue configurations in the production renderer; glass retains
+its transparency and exit shots face the printed header. Log:
+`.preview/perf/fixtures-low-visual.log`. Triangle inventory counts geometry once;
+renderer counters also include material passes over double-sided glass/leaves.
+
+Build passes. `test:perf` passes 210 tests; after adding joined-fence and doorless
+gate cases, the focused suite passes all 75 tests. Model-detail coverage is 100%
+lines/functions and 93.10% branches in the full performance run. Checkout, desk,
+extinguisher and vending each have 100% line/branch/function coverage; doorway
+exit 100/80/100%, exit 92.31/77.05/93.75%. Gate reaches 98.58/91.18/100% in the
+focused run. Coverage logs are `fixtures-low-{coverage,focused-coverage}.log`.
+The full suite run has 1,707 passes and two unrelated failures: the existing
+Tanwei fixture count, and a legacy worker-frame fixture missing new history
+fields in the concurrently edited SimSlice (`fixtures-low-tests.log`).
+
+Native production checks pass both paused demos, retaining GPU batches and
+restoring full geometry after detail/Hide UI changes, without JS/shader/GL errors.
+First Low click to two animation frames: 26.1 / 56.7 ms (Zoo/Tanwei). First and
+repeated wheel input: 24.3/23.7 and 41.9/48.4 ms. Default-camera Low draws report
+545,443 / 1,112,809 triangles. This is one correctness/interaction sample with
+no controlled FPS or latency improvement claim. Raw report:
+`.preview/perf/fixtures-low-detail/native/report.json`.
+
+The same production check passes with multi-draw disabled for both demos, with
+retained allocations, exact full restoration and zero runtime/GL errors. Fallback
+reports/captures are in `.preview/perf/fixtures-low-detail/fallback/`; no FPS
+threshold or cross-run timing comparison is inferred from these checks.
+
+## 2026-10-16 — Low rail signals and noise barriers
+
+Rail-signal Low is 144 triangles (full and previous Low 708): keep all three
+aspect materials/positions, eight-sided lenses and front rims, four-segment visor
+shells, concrete support and head boxes; omit the small side equipment box.
+Full and half-height noise barriers are 52 triangles (previously/full 108), and
+the simple railing is 16 (previously/full 24). Panels and middle rails retain
+both broad faces; top beams retain their 3D thickness with small end caps omitted.
+Simple railing posts also omit their hidden end caps. An initial flat top-bar
+attempt looked detached from its post in close-ups and was replaced by the
+four-side-face beam approximation before completion.
+
+The shared bridge builders keep every original bay, upright, gantry exclusion and
+3 mm glazing clearance. They prepare the same Low geometry for bridge-generated
+and separately placed barriers. Default bridge Low falls from 788 to 732 triangles
+as a result. The 117-row inventory and performance skill remain sorted by High
+descending, with all High counts unchanged. Raw inventory:
+`.preview/perf/signal-barrier-models.json`.
+
+`model-detail` now pins the four budgets, three visible signal aspects and exact
+lamp picks, all barrier rotations, long runs with/without catenary and neighbour
+posts, batching, retained geometry restoration and beam end-cap picking on all
+three axes. All 96 focused tests pass. Build passes; the full suite has 1,747
+passes and the existing Tanwei fixture-count failure (14,717 vs 14,554 cells).
+Logs: `.preview/perf/signal-barrier-{focused,build-final,tests-final}.log`.
+
+All four default models were captured at full/Low in the production renderer and
+visually inspected, including the retained beam thickness and visible lower red
+aspect. Every capture has GL error 0. Raw renderer counters are 708 -> 144 for
+the signal, 132 -> 60 for each glazed barrier (includes double-sided glass
+passes), and 24 -> 16 for the railing. Captures/log:
+`.preview/perf/signal-barrier-models/` and `signal-barrier-visual-final.log`.
+These per-model counts do not establish a station FPS improvement.
+
+The final performance suite passes all 242 tests. RailSignalModel,
+BridgeNoiseBarrier and BridgeRailing each have 100% line/branch/function coverage;
+modelDetail has 100/93.33/100%. Coverage log:
+`.preview/perf/signal-barrier-coverage-final.log`.

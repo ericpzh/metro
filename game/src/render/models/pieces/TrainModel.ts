@@ -8,6 +8,7 @@ import type { StockClass } from '../../../sim/stock.ts'
 import { buildCab } from './CabModel.ts'
 import { buildStreamlinedCab } from './StreamlinedCab.ts'
 import { buildDCarShell, buildDGangway, buildDDoor } from './DTrainShell.ts'
+import { CAR_GAP, CAR_CROWN_Z, CAR_SHOULDER, CAR_SILL_Z, CAR_WAIST_Z, buildConsistGangways } from './TrainGangway.ts'
 import { buildTrainInterior } from './TrainInterior.ts'
 import { syncTrainDoorBatches } from '../../trainBatches.ts'
 
@@ -69,12 +70,20 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
   const carDoors = doorCentres({ stock: pose.stock, cars: pose.cars })
   const doors: THREE.Mesh[] = []
   g.userData.doors = doors
+  // Every car boundary that has a car on both sides, in the consist's own x. A/B/C/L
+  // close each of them with the black gangway below; D wears its own curved bellows.
+  const joints: number[] = []
 
   for (let c = 0; c < pose.cars; c++) {
-    if (pose.stock === 'D' && c > 0) buildDGangway(g, mats, c * s.length - total / 2)
     const carStart = c * s.length
+    if (c > 0) {
+      const joint = carStart - total / 2
+      if (pose.stock === 'D') buildDGangway(g, mats, joint)
+      else joints.push(joint)
+    }
     const carCentre = carStart + s.length / 2 - total / 2
-    const bodyLen = s.length - 0.25
+    // The car stops `CAR_GAP` short of its own length, which is the gap the gangway fills.
+    const bodyLen = s.length - CAR_GAP
     const halfLen = bodyLen / 2
     const cabCut = (s.cabLength ?? 2) - 0.125
     const shellStart = carCentre - halfLen + (c === 0 ? cabCut : 0)
@@ -116,14 +125,16 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         if ((e < 0 && c === 0) || (e > 0 && c === pose.cars - 1)) continue
         slab(g, mats.trainBody, carCentre + e * (halfLen - 0.04), 0, 1.75, 0.08, s.width - 0.08, 2.5)
       }
-      // A rolled shoulder joins the flat side to the roof without a square eave.
+      // A rolled shoulder joins the flat side to the roof without a square eave. The
+      // outline is `TrainGangway`'s own (`CAR_WAIST_Z`, `CAR_CROWN_Z`, `CAR_SHOULDER`),
+      // because the gangway between two cars is the same section, lightly inboard.
       const roofSection = new THREE.Shape()
       const hw = s.width / 2
-      roofSection.moveTo(-hw, 2.75)
-      roofSection.quadraticCurveTo(-hw, 3.15, -hw + 0.4, 3.15)
-      roofSection.lineTo(hw - 0.4, 3.15)
-      roofSection.quadraticCurveTo(hw, 3.15, hw, 2.75)
-      roofSection.lineTo(-hw, 2.75)
+      roofSection.moveTo(-hw, CAR_WAIST_Z)
+      roofSection.quadraticCurveTo(-hw, CAR_CROWN_Z, -hw + CAR_SHOULDER, CAR_CROWN_Z)
+      roofSection.lineTo(hw - CAR_SHOULDER, CAR_CROWN_Z)
+      roofSection.quadraticCurveTo(hw, CAR_CROWN_Z, hw, CAR_WAIST_Z)
+      roofSection.lineTo(-hw, CAR_WAIST_Z)
       roofSection.closePath()
       const roofGeometry = new THREE.ExtrudeGeometry(roofSection, { depth: shellLen, bevelEnabled: false, curveSegments: 32 })
       roofGeometry.rotateY(Math.PI / 2)
@@ -134,9 +145,10 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
       g.add(roof)
       for (const side of [-1, 1]) {
         const y = side * skinY
-        // Full-length sill and header, then infill panels between the doors.
-        slab(g, mats.trainBody, shellCentre, y, 0.51, shellLen, 0.06, 0.12)
-        slab(g, mats.trainBody, shellCentre, y, 2.69, shellLen, 0.06, 0.12)
+        // Full-length sill and header, then infill panels between the doors. Both are the
+        // shell's own outline height, so the body's sill is `CAR_SILL_Z` exactly.
+        slab(g, mats.trainBody, shellCentre, y, CAR_SILL_Z + 0.06, shellLen, 0.06, 0.12)
+        slab(g, mats.trainBody, shellCentre, y, CAR_WAIST_Z - 0.06, shellLen, 0.06, 0.12)
         for (const [a, b] of sideRuns(shellStart, shellEnd, 0)) {
           // Below the waist: body. Above it: the glazing that makes the cabin visible.
           slab(g, mats.trainBody, (a + b) / 2, y, (DOOR_SILL_Z + WINDOW_SILL_Z) / 2, b - a, 0.06, WINDOW_SILL_Z - DOOR_SILL_Z)
@@ -259,6 +271,9 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
       }
     }
   }
+
+  // The black bellows in every gap between two cars, one mesh for the whole consist.
+  buildConsistGangways(g, mats, joints, s.width)
 
   // A cab at each end (車头), identical but for the lamps: the leading one burns
   // white, the trailing one red — the only difference the reference photos show

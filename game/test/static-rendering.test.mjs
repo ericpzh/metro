@@ -138,6 +138,26 @@ test('distant tile envelopes and tree leaf UV cards preserve the authored geomet
     assert.ok([...far.getAttribute('uv').array].every(v=>Number.isFinite(v)&&v>=0&&v<=1))
   }
   const far = crown.userData.staticFarGeometry; far.computeBoundingBox()
+  const lowTriangles = root.children.reduce((sum, mesh) => sum + mesh.userData.staticFarGeometry.index.count / 3, 0)
+  assert.ok(lowTriangles <= 400, `far tree triangle budget: ${lowTriangles}`)
+  const trunk = root.children[0].userData.staticFarGeometry
+  trunk.computeBoundingBox()
+  assert.ok(Math.abs(trunk.boundingBox.min.z) < 1e-5, 'Low trunk reaches the ground')
+  assert.ok(trunk.boundingBox.max.z > crown.geometry.boundingBox.min.z, 'Low trunk reaches the canopy')
+  // All trunk rings must form a continuous surface, including below the canopy.
+  const edges = new Map()
+  for (let i = 0; i < trunk.index.count; i += 3) {
+    const face = Array.from(trunk.index.array.slice(i, i + 3))
+    for (const a of face) {
+      if (!edges.has(a)) edges.set(a, new Set())
+      for (const b of face) edges.get(a).add(b)
+    }
+  }
+  const reached = new Set([0]), queue = [0]
+  for (let i = 0; i < queue.length; i++) for (const next of edges.get(queue[i])) {
+    if (!reached.has(next)) { reached.add(next); queue.push(next) }
+  }
+  assert.equal(reached.size, trunk.attributes.position.count, 'no disconnected trunk fragments')
   assert.ok(far.boundingBox.min.distanceTo(crown.geometry.boundingBox.min)<1e-6)
   assert.ok(far.boundingBox.max.distanceTo(crown.geometry.boundingBox.max)<1e-6)
 })

@@ -9,10 +9,42 @@ import type { StationData } from '../../../sim/types.ts'
 import type { Metrics } from '../../../sim/world.ts'
 import type { TrainService } from '../../../sim/trainSchedule.ts'
 import type { SceneStats } from '../../../render/scene.ts'
+import { DEFAULT_SIM_TIME } from '../../../sim/constants.ts'
+import { HISTORY_STRIDE, SAMPLE_SECONDS } from '../../../sim/history.ts'
 import { simTimeAtDate, type SimDate } from '../../../sim/clock.ts'
 import { timeOfDayOf } from '../../../sim/constants.ts'
 import type { AppState } from '../Store.ts'
 import { useStore } from '../Store.ts'
+
+/**
+ * The run's own record as the app holds it (§8.1, the 数据 window): the sim's
+ * interleaved samples, `HISTORY_STRIDE` floats each, kept in a buffer that grows with
+ * the run. `count` is how many of them are real — the array is usually larger.
+ */
+export interface HistorySeries {
+  /** Sim seconds sample 0 stands on, for the x axis' own labels. */
+  start: number
+  /** Seconds between samples. */
+  step: number
+  values: Float32Array
+  count: number
+}
+
+/** What one `state` message says about the record: a fresh run, or the new samples. */
+export interface HistoryUpdate {
+  values: Float32Array
+  from: number
+  reset: boolean
+  start: number
+  step: number
+}
+
+const EMPTY_HISTORY: HistorySeries = {
+  start: DEFAULT_SIM_TIME,
+  step: SAMPLE_SECONDS,
+  values: new Float32Array(0),
+  count: 0,
+}
 
 export interface SimSlice {
   playing: boolean
@@ -20,6 +52,7 @@ export interface SimSlice {
   metrics: Metrics | null
   stats: SceneStats | null
   graph: GraphInfo | null
+  history: HistorySeries
 
   setPlaying: (on: boolean) => void
   setSpeed: (s: number) => void
@@ -28,6 +61,8 @@ export interface SimSlice {
   setMetrics: (m: Metrics) => void
   setStats: (s: SceneStats) => void
   setGraph: (g: GraphInfo) => void
+  /** Fold one frame's worth of the run's record in — replace on a reset, append otherwise. */
+  setHistory: (update: HistoryUpdate) => void
   /**
    * Move the station's clock to `date`, keeping the time of day — the 时刻 window's calendar pick
    * (§7.9's scrub). The day type the crowd runs is derived from the date the clock stands on, so
@@ -120,6 +155,13 @@ function ensureClient(): Worker {
       if (msg.levelsZ.length > 0) useStore.getState().setActiveZ(msg.levelsZ[0])
     } else if (msg.type === 'state') {
       useStore.getState().setMetrics(msg.metrics)
+      useStore.getState().setHistory({
+        values: msg.history,
+        from: msg.historyFrom,
+        reset: msg.historyReset,
+        start: msg.historyStart,
+        step: msg.historyStep,
+      })
       if (agentSelected >= 0 && msg.routeToken === agentToken && msg.routeAgent !== agentSelected) {
         // This frame is the worker's own answer to the newest selection, and the
         // passenger is not in the world: the selection goes with them, so the 信息
@@ -170,6 +212,7 @@ export const createSimSlice: StateCreator<AppState, [], [], SimSlice> = (set, ge
   metrics: null,
   stats: null,
   graph: null,
+  history: EMPTY_HISTORY,
 
   setPlaying: (on) => {
     sendControl(on, get().speed)
@@ -184,6 +227,35 @@ export const createSimSlice: StateCreator<AppState, [], [], SimSlice> = (set, ge
     set({ notice: msg('all_passengers_cleared') })
   },
   setMetrics: (m) => set({ metrics: m }),
+  setHistory: (update) =>
+    set((s) => {
+      // A new run: the whole series arrives at once and the old one is dropped.
+      if (update.reset) {
+        return {
+          history: {
+            start: update.start,
+            step: update.step,
+            values: update.values.slice(),
+            count: update.values.length / HISTORY_STRIDE,
+          },
+        }
+      }
+      // 59 ticks in 60 have no new sample: no store write, no re-render.
+      if (update.values.length === 0) return {}
+      const count = update.from + update.values.length / HISTORY_STRIDE
+      const held = s.history
+      let values = held.values
+      const need = count * HISTORY_STRIDE
+      if (values.length < need) {
+        let size = values.length || HISTORY_STRIDE * 64
+        while (size < need) size *= 2
+        const next = new Float32Array(size)
+        next.set(values)
+        values = next
+      }
+      values.set(update.values, update.from * HISTORY_STRIDE)
+      return { history: { start: update.start, step: update.step, values, count } }
+    }),
   setStats: (s) => set({ stats: s }),
   setGraph: (g) => set({ graph: g }),
   seekToDate: (date) => {

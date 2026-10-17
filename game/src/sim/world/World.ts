@@ -65,6 +65,7 @@ import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type Statio
 import { liftDoorDir, liftLandingSide } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
 import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
+import { History } from '../history.ts'
 import { rotateLocal, trackFacing, trackTrainCentreV, type TrackModule } from '../track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
 import type { DynamicSnapshot, LineAnchor, Metrics, Train, TrainAt, TrainState } from './types.ts'
@@ -155,6 +156,13 @@ export class World {
   nodePop: Int32Array
   metrics: Metrics
   /**
+   * The run's minute-by-minute record (§8.1, the 数据 window): the counters above,
+   * read once a minute and posted to the app as they land. Dropped by `load`,
+   * `restart` and `seek` — each of those starts a different run or a different day,
+   * and a chart that spliced them would draw a cliff where the clock jumped.
+   */
+  history = new History()
+  /**
    * The passenger whose route the renderer previews (the 选择 tool's floor line),
    * or -1 for none. Only `routeOf` reads it, and only the worker writes it: the
    * preview is an observation, never an input, so a selected agent walks exactly
@@ -236,6 +244,7 @@ export class World {
     this.pool = new AgentPool(this.rng)
     this.nodePop = new Int32Array(g.nodeCount)
     this.metrics = freshMetrics(this.simTime)
+    this.history.reset(this.simTime)
     this.rebuild()
   }
 
@@ -258,6 +267,7 @@ export class World {
     this.selectedAgent = -1
     this.routeTails.clear()
     this.routeTailGraph = null
+    this.history.reset(startSeconds)
     this.rebuild()
   }
 
@@ -277,6 +287,7 @@ export class World {
     this.selectedAgent = -1
     this.routeTails.clear()
     this.routeTailGraph = null
+    this.history.reset(this.simTime)
     this.rebuild()
   }
 
@@ -316,6 +327,9 @@ export class World {
     this.metrics.period = periodOf(seconds, this.day.service, this.day.peaks, dayAt(seconds, this.calendar).dayType === 'workday')
     this.dayTypeCache.index = Number.NaN
     this.nextDispatch.clear()
+    // The record is the run's, and a seek puts the run on another day: starting it
+    // over here is what keeps a chart from drawing an hour-wide cliff at the jump.
+    this.history.reset(seconds)
   }
 
   /** Rebuild the graph from static data and reset derived state. */
@@ -500,6 +514,8 @@ export class World {
     this.moveAgents()
     this.pool.compact()
     this.computeMetrics(period)
+    // The minute's own read (§8.1): a no-op on 59 ticks out of 60.
+    this.history.sample(this.metrics)
     // The path cache is keyed on (from, to, needsClass); queue waits drift, so
     // refresh it periodically and let new legs rebalance (§7.2 trigger 3).
     if (this.tick % 60 === 0) this.path.clear()

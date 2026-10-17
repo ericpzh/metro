@@ -28,6 +28,27 @@ function branches(mesh, step = .07) {
   return output
 }
 
+function trunk(mesh) {
+  // EZ-Tree writes the main trunk first, as contiguous rings plus a UV seam.
+  // Decimate those rings instead of clustering a thin trunk into disconnected faces.
+  const sections = source.options.branch.sections[0], segments = source.options.branch.segments[0]
+  const sides = 6, rings = []
+  for (let i = 0; i < sections; i += 2) rings.push(i)
+  rings.push(sections)
+  const output = { position: [], normal: [], uv: [], index: [] }
+  for (const ring of rings) for (let j = 0; j <= sides; j++) {
+    const vertex = ring * (segments + 1) + Math.floor(j * segments / sides)
+    output.position.push(...mesh.position.slice(vertex * 3, vertex * 3 + 3))
+    output.normal.push(...mesh.normal.slice(vertex * 3, vertex * 3 + 3))
+    output.uv.push(...mesh.uv.slice(vertex * 2, vertex * 2 + 2))
+  }
+  for (let i = 0; i < rings.length - 1; i++) for (let j = 0; j < sides; j++) {
+    const a = i * (sides + 1) + j, b = a + sides + 1
+    output.index.push(a, b, a + 1, a + 1, b, b + 1)
+  }
+  return output
+}
+
 function leaves(mesh, stride = 2, expansion = 1) {
   // Keep crossed cards intact (UVs and normals), including every canopy extremum.
   const keep = new Set(), output = { position: [], normal: [], uv: [], index: [] }
@@ -62,6 +83,6 @@ function leaves(mesh, stride = 2, expansion = 1) {
 const output = { source: source.source, derivation: '7 cm branch clustering; alternate intact crossed leaf cards, retaining canopy extrema', branches: branches(source.branches), leaves: leaves(source.leaves) }
 writeFileSync(new URL('../game/src/assets/trees/street-ash-lod.json', import.meta.url), JSON.stringify(output))
 console.log('Ash distant LOD triangles:', output.branches.index.length / 3, output.leaves.index.length / 3)
-const far = { source: source.source, derivation: '24 cm branch clustering; every eighth intact crossed leaf card plus canopy extrema, expanded up to 2x within authored bounds', branches: branches(source.branches, .24), leaves: leaves(source.leaves, 8, 2) }
+const far = { source: source.source, derivation: 'Continuous six-sided main trunk, alternate longitudinal rings; every thirty-second intact crossed leaf card plus canopy extrema, expanded up to 3x within authored bounds', branches: trunk(source.branches), leaves: leaves(source.leaves, 32, 3) }
 writeFileSync(new URL('../game/src/assets/trees/street-ash-far.json', import.meta.url), JSON.stringify(far))
 console.log('Ash far LOD triangles:', far.branches.index.length / 3, far.leaves.index.length / 3)

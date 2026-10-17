@@ -5,6 +5,7 @@ import { PieceBuilder, slab, plate, placeLocalAtEdge } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { extinguisherSpec, extinguisherVariant } from '../../../sim/extinguishers.ts'
+import { omitModelDetail, panelModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /**
  * Fire-extinguisher cabinet (灭火器, 装饰): the reference red steel box, 0.70 ×
@@ -24,20 +25,26 @@ function buildExtinguisher(mats: ModelMaterials): THREE.Group {
   const h = extinguisherSpec('standard').height
   const legH = 0.16
   // Four corner legs, then the base plate they carry the carcass on.
+  let apron = false
   for (const x of [-w / 2 + 0.06, w / 2 - 0.06]) {
-    for (const y of [-d / 2 + 0.06, d / 2 - 0.06]) slab(g, mats.exitRed, x, y, legH / 2, 0.05, 0.05, legH)
+    for (const y of [-d / 2 + 0.06, d / 2 - 0.06]) {
+      const foot = slab(g, mats.exitRed, x, y, legH / 2, 0.05, 0.05, legH)
+      if (!apron) setModelDetail(foot, new THREE.BoxGeometry(w, d, legH).translate(-x, -y, 0))
+      else omitModelDetail(foot)
+      apron = true
+    }
   }
   slab(g, mats.darkSteel, 0, 0, legH + 0.025, w, d, 0.05)
   // The carcass, and the dark backing its two doors close over.
   slab(g, mats.exitRed, 0, 0.01, 0.63, w, d - 0.02, 0.86)
-  slab(g, mats.black, 0, -d / 2 + 0.011, 0.63, w - 0.06, 0.017, 0.84)
+  omitModelDetail(slab(g, mats.black, 0, -d / 2 + 0.011, 0.63, w - 0.06, 0.017, 0.84))
   // Two doors with a seam between them, then the overhanging lid.
-  slab(g, mats.exitRed, 0, -d / 2 - 0.0125, 0.88, w - 0.05, 0.025, 0.32)
-  slab(g, mats.exitRed, 0, -d / 2 - 0.0125, 0.47, w - 0.05, 0.025, 0.46)
-  slab(g, mats.exitRed, 0, 0, h - 0.025, w + 0.04, d + 0.04, 0.05)
+  panelModelDetail(slab(g, mats.exitRed, 0, -d / 2 - 0.0125, 0.88, w - 0.05, 0.025, 0.32))
+  panelModelDetail(slab(g, mats.exitRed, 0, -d / 2 - 0.0125, 0.47, w - 0.05, 0.025, 0.46))
+  panelModelDetail(slab(g, mats.exitRed, 0, 0, h - 0.025, w + 0.04, d + 0.04, 0.05), 'z')
   // The recessed side handle: a dark well with the grip standing in it.
-  slab(g, mats.black, w / 2 + 0.0035, 0.05, 0.88, 0.009, 0.16, 0.07)
-  slab(g, mats.steel, w / 2 + 0.0125, 0.05, 0.88, 0.02, 0.12, 0.02)
+  omitModelDetail(slab(g, mats.black, w / 2 + 0.0035, 0.05, 0.88, 0.009, 0.16, 0.07))
+  omitModelDetail(slab(g, mats.steel, w / 2 + 0.0125, 0.05, 0.88, 0.02, 0.12, 0.02))
   // The lettering, printed on the doors' own red steel.
   plate(g, mats.fireLabels, 0.64, 0.8, 0, -d / 2 - 0.027, 0.66, 0)
   return g
@@ -52,19 +59,25 @@ function buildGlassCabinet(mats: ModelMaterials): THREE.Group {
   for (const x of [-w / 2 + t / 2, w / 2 - t / 2]) slab(g, mats.exitRed, x, 0, h / 2, t, d - 2 * t, h)
   for (const z of [t / 2, h - t / 2]) slab(g, mats.exitRed, 0, 0, z, w - 2 * t, d - 2 * t, t)
   slab(g, mats.exitRed, 0, 0, h / 2, t, d - 2 * t, h - 2 * t)
+  for (const mesh of g.children) mesh.name = 'cabinet-shell'
   // Left-hand storage shelves; the right bay keeps room for tall equipment.
-  for (const z of [0.45, 0.85, 1.25, 1.65]) slab(g, mats.exitRed, -w / 4, 0, z, w / 2 - t * 1.5, d - 2 * t, 0.025)
+  for (const z of [0.45, 0.85, 1.25, 1.65]) {
+    const shelf = slab(g, mats.exitRed, -w / 4, 0, z, w / 2 - t * 1.5, d - 2 * t, 0.025)
+    shelf.name = 'cabinet-shelf'; panelModelDetail(shelf, 'z')
+  }
   // Framed double doors. Every pane is a single surface, with no steel behind it.
   for (const x of [-w / 4, w / 4]) {
     const doorW = w / 2 - 0.008
     const doorH = h - 0.08
     const front = -d / 2 + 0.018
     for (const edge of [-1, 1]) {
-      slab(g, mats.exitRed, x + edge * (doorW / 2 - 0.04), front, h / 2, 0.08, 0.036, doorH)
-      slab(g, mats.exitRed, x, front, h / 2 + edge * (doorH / 2 - 0.06), doorW - 0.16, 0.036, 0.12)
+      const upright = slab(g, mats.exitRed, x + edge * (doorW / 2 - 0.04), front, h / 2, 0.08, 0.036, doorH)
+      const rail = slab(g, mats.exitRed, x, front, h / 2 + edge * (doorH / 2 - 0.06), doorW - 0.16, 0.036, 0.12)
+      for (const mesh of [upright, rail]) { mesh.name = 'cabinet-frame'; panelModelDetail(mesh) }
     }
-    plate(g, mats.glass, doorW - 0.16, doorH - 0.24, x, front, h / 2, 0)
-    slab(g, mats.exitRed, x, front, 1.2, doorW - 0.16, 0.036, 0.027)
+    plate(g, mats.glass, doorW - 0.16, doorH - 0.24, x, front, h / 2, 0).name = 'cabinet-pane'
+    const rail = slab(g, mats.exitRed, x, front, 1.2, doorW - 0.16, 0.036, 0.027)
+    rail.name = 'cabinet-frame'; panelModelDetail(rail)
   }
   // Extinguishers have round red bodies, a pale label, valve, handle and black hose.
   function bottle(x: number, z: number, size: number) {
@@ -90,7 +103,8 @@ function buildGlassCabinet(mats: ModelMaterials): THREE.Group {
     slab(g, mats.psu, x, -0.088, 0.31, 0.12, 0.006, 0.07)
   }
   for (const x of [-0.075, 0.075]) slab(g, mats.steel, x, -d / 2 + 0.007, 1.02, 0.02, 0.012, 0.19)
-  plate(g, mats.fireStationLabels, w - 0.12, h - 0.18, 0, -d / 2 + 0.001, h / 2, 0)
+  plate(g, mats.fireStationLabels, w - 0.12, h - 0.18, 0, -d / 2 + 0.001, h / 2, 0).name = 'cabinet-label'
+  for (const mesh of g.children) if (!mesh.name.startsWith('cabinet-')) omitModelDetail(mesh)
   return g
 }
 

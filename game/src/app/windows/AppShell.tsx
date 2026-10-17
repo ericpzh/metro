@@ -15,6 +15,7 @@ import { TopBar } from './topbar/TopBar.tsx'
 import { Inspector } from './inspector/Inspector.tsx'
 import { BottomBar } from './statusbar/BottomBar.tsx'
 import { TimePanel } from './time/TimePanel.tsx'
+import { ChartsPanel } from './charts/ChartsPanel.tsx'
 import { Tutorial } from './tutorial/Tutorial.tsx'
 
 export function App(): React.ReactElement {
@@ -289,6 +290,9 @@ export function App(): React.ReactElement {
       {/* The 时刻 window floats over the game rather than covering it: the station it
           describes stays visible behind the panel (§9.6C). */}
       <TimePanel />
+      {/* The 数据 window is the same kind of thing — a view over the run, floating over
+          the station (§8.1) — and the status bar's own numbers are what opens it. */}
+      <ChartsPanel />
       {notice && (
         <div className="toast" onClick={() => useStore.getState().setNotice(null)}>
           {translate(notice)}

@@ -6,6 +6,7 @@ import type { ModelMaterials } from '../PieceBuilder.ts'
 import { clockHandAngles } from '../../../sim/clock.ts'
 import { hangCeilingLocal } from '../../../sim/placement.ts'
 import type { Module } from '../../../sim/types.ts'
+import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /* ------------------------------------------------------ ceiling decoration */
 
@@ -100,6 +101,7 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
   // rotation**: the ends of the barrel are the two faces. A quarter-turn about x would lay it flat
   // in the X-Z plane, which is the wrong plane and no sign of that turn fixes it.
   const body = new THREE.Mesh(new THREE.CylinderGeometry(faceR, faceR, bodyDepth, 48), mats.white)
+  setModelDetail(body, new THREE.CylinderGeometry(faceR, faceR, bodyDepth, 12))
   body.position.set(0, bodyFront + bodyDepth / 2, dialZ)
   g.add(body)
   // The black wrap: an **open** ring around the barrel. Open-ended because a capped cylinder would
@@ -109,6 +111,7 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
     mats.darkSteel,
   )
   wrap.position.set(0, bodyFront + bodyDepth / 2, dialZ)
+  setModelDetail(wrap, new THREE.CylinderGeometry(caseR, caseR, bodyDepth + 0.05, 12, 1, true))
   g.add(wrap)
   /**
    * One dial, in a **neutral frame**: the dial's face lies in the X-Z plane, its outward
@@ -160,6 +163,9 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
       const mid = rim - length / 2
       const a = (deg * Math.PI) / 180
       const bar = new THREE.Mesh(new THREE.BoxGeometry(length, thick, across), mats.black)
+      // Low keeps the twelve readable hour marks as outward-facing surfaces.
+      if (deg % 30 === 0) setModelDetail(bar, new THREE.PlaneGeometry(length, across).rotateX(Math.PI / 2).translate(0, -thick / 2, 0))
+      else omitModelDetail(bar)
       bar.position.set(Math.sin(a) * mid, markOut - thick / 2, Math.cos(a) * mid)
       // **A mark runs radially**, so its long axis points at the centre: the 12 and 6 marks stand
       // vertical in the dial's plane and the 3 and 9 marks lie horizontal along the radius, which is
@@ -201,6 +207,7 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
     const hand = (len: number, wide: number, into: THREE.Object3D[]): THREE.Group => {
       const pivot = new THREE.Group()
       const arm = new THREE.Mesh(new THREE.BoxGeometry(len, 0.012, wide), mats.black)
+      setModelDetail(arm, new THREE.PlaneGeometry(len, wide).rotateX(Math.PI / 2).translate(0, -0.006, 0))
       // The arm's length runs along its own local x, and the pivot's y rotation turns it: half a
       // length out along that axis is the arm's midpoint at 12 o'clock.
       arm.position.set(0, handOut - 0.006, len / 2)
@@ -214,6 +221,7 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
     hand(0.27, 0.02, rig.minute) // minute: 0.7 R
     // The centre boss, so the hands read as turning on a pivot rather than on a hole.
     const boss = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.02, 16), mats.black)
+    setModelDetail(boss, new THREE.CylinderGeometry(0.022, 0.022, 0.02, 6))
     boss.position.set(0, bossOut - 0.01, 0)
     dial.add(boss)
     return dial

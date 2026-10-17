@@ -6,6 +6,7 @@ import type { ModuleContext } from '../PieceBuilder.ts'
 import { gateHasLane, gateSolidFaces } from '../../../sim/gates.ts'
 import { rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
+import { boxModelDetail, omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /* ------------------------------------------------------------------ gate */
 
@@ -48,18 +49,21 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
     shape.lineTo(x0, y0 + r); shape.quadraticCurveTo(x0, y0, x0 + r, y0)
     const body = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.80, bevelEnabled: false, curveSegments: 8 }), mats.steel)
     body.position.z = GATE_PLINTH_H
+    boxModelDetail(body)
     g.add(body)
     slab(g, mats.blue, cx, 0, 0.90, GATE_W, GATE_D - 0.02, 0.045)
     const hood = prism(g, mats.steel, GATE_W, -front + 0.02, front - 0.02, -0.13, 0.13, 0.923, 1.12)
     hood.position.x = cx
     const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, GATE_W * 0.94, 24), mats.steel)
     crown.rotation.z = Math.PI / 2
+    setModelDetail(crown, new THREE.CylinderGeometry(0.13, 0.13, GATE_W * 0.94, 6))
     crown.position.set(cx, 0, 1.12)
     g.add(crown)
     for (const x of [cx - GATE_W / 2 + 0.004, cx + GATE_W / 2 - 0.004]) {
       const end = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 0.006, 24), mats.blue)
       end.rotation.z = Math.PI / 2
       end.position.set(x, 0, 1.12)
+      omitModelDetail(end)
       g.add(end)
     }
   } else {
@@ -94,8 +98,9 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
       plate(g, mats.trainGlass, 0.15, 0.055, cx, onSlope(0.93, 0.005), 0.93, yaw, GATE_SHOULDER_TILT)
       const sticker = plateOf(g, new THREE.CircleGeometry(0.038, 32), mats.white, cx, onSlope(0.845, 0.004), 0.845, yaw, GATE_SHOULDER_TILT)
       sticker.name = 'reader-sticker'
+      setModelDetail(sticker, new THREE.CircleGeometry(0.038, 6))
       for (const radius of [0.014, 0.023]) {
-        plateOf(g, new THREE.RingGeometry(radius, radius + 0.002, 32), mats.gateNavy, cx, onSlope(0.845, 0.0045), 0.845, yaw, GATE_SHOULDER_TILT)
+        omitModelDetail(plateOf(g, new THREE.RingGeometry(radius, radius + 0.002, 32), mats.gateNavy, cx, onSlope(0.845, 0.0045), 0.845, yaw, GATE_SHOULDER_TILT))
       }
       plate(g, mats.gateNavy, 0.013, 0.015, cx, onSlope(0.845, 0.005), 0.845, yaw, GATE_SHOULDER_TILT)
       // QR/token reader below the sloped card reader, inset into its dark bezel.
@@ -144,6 +149,11 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
       wings.add(wing)
       wing.name = sign === 1 ? 'left-leaf' : 'right-leaf'
       wing.userData = { fullW, edgeX, sign }
+      const simple = new THREE.ShapeGeometry(flap, 2)
+      const flat = simple.getAttribute('position')
+      for (let i = 0; i < flat.count; i++) flat.setXYZ(i, sign * (flat.getX(i) - fullW / 2), 0, flat.getY(i))
+      simple.computeVertexNormals()
+      setModelDetail(wing, simple)
 
     }
     setGateWing(g, 0)

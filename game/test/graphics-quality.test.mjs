@@ -22,8 +22,10 @@ test('quality persists separately from station saves and survives unavailable/in
   try {
     assert.equal(readGraphicsQuality(),'high')
     const store=createStore((...args)=>({...createViewSlice(...args),version:7,stationEpoch:3}))
+    assert.equal(store.getState().graphicsQuality,'high','a fresh store defaults to high with no stored preference')
     store.getState().setGraphicsQuality('low')
     assert.equal(readGraphicsQuality(),'low');assert.equal(store.getState().version,7);assert.equal(store.getState().stationEpoch,3)
+    assert.equal(createStore((...args)=>({...createViewSlice(...args),version:7,stationEpoch:3})).getState().graphicsQuality,'low','a reloaded store restores the stored preference')
     store.getState().setGraphicsQuality('high');assert.equal(readGraphicsQuality(),'high')
     values.set('metro-game.graphics-quality','bad');assert.equal(readGraphicsQuality(),'high')
     Object.defineProperty(globalThis,'localStorage',{configurable:true,get(){throw Error('blocked')}})

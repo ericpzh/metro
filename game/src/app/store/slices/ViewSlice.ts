@@ -72,6 +72,13 @@ export interface ViewSlice {
    */
   timePanel: boolean
   /**
+   * The floating **数据** window (§8.1): the run's counters over time, drawn from
+   * `World.history`. Like 时刻 it is a view over the document rather than a build
+   * tool, and it is opened by the status bar itself — the numbers on the left of
+   * the bottom rail are the button.
+   */
+  chartsPanel: boolean
+  /**
    * The 剖切 surface: where it was anchored, which quarter turn it looks in and
    * how far it has slid (`render/section.ts`). The 旋转 tile and the 3D drag are
    * two writes into this one record, so the plane, the highlighted surface and
@@ -95,6 +102,8 @@ export interface ViewSlice {
   setOrtho: (on: boolean) => void
   /** Open or close the floating 时刻 window. */
   setTimePanel: (open: boolean) => void
+  /** Open or close the floating 数据 window. */
+  setChartsPanel: (open: boolean) => void
   /** Re-place the cut at `anchor` on the storey being edited (a fresh 剖切). */
   placeSection: (anchor: Vec3) => void
   /** Slide the cut along its normal, in metres — what a drag writes. */
@@ -135,6 +144,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   ortho: false,
   overlayOn: false,
   timePanel: false,
+  chartsPanel: false,
   section: { anchor: [0, 0, -8], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH }, offset: 0 },
 
   setActiveZ: (z) => set({ activeZ: nearestLevel(z, get().station.levelBase) }),
@@ -164,6 +174,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setHideUI: (on) => set({ hideUI: on }),
   setOrtho: (on) => set({ ortho: on }),
   setTimePanel: (open) => set({ timePanel: open }),
+  setChartsPanel: (open) => set({ chartsPanel: open }),
   placeSection: (anchor) =>
     set((s) => ({
       section: { ...s.section, anchor: [anchor[0], anchor[1], anchor[2]], offset: 0 },

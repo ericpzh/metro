@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, plate, placeLocal } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { CHECKOUT_HEIGHT } from '../../../sim/constants.ts'
+import { omitModelDetail, panelModelDetail } from '../../modelDetail.ts'
 
 /** White convenience-store checkout with a stocked impulse display (§5.7). */
 export class CheckoutModel extends PieceBuilder {
@@ -38,7 +39,7 @@ export class CheckoutModel extends PieceBuilder {
     // Cash drawer and tall POS screen face the cashier behind the counter.
     slab(g, mats.rubber, 0.08, 0.04, 1.025, 0.38, 0.29, 0.07).name = 'cash-drawer'
     slab(g, mats.steel, 0.08, 0.19, 1.03, 0.2, 0.008, 0.018)
-    slab(g, mats.darkSteel, 0.08, -0.035, 1.15, 0.045, 0.045, 0.2)
+    slab(g, mats.darkSteel, 0.08, -0.035, 1.15, 0.045, 0.045, 0.2).name = 'pos-stem'
     const pos = new THREE.Group()
     pos.position.set(0.08, -0.035, CHECKOUT_HEIGHT - 0.16)
     pos.rotation.x = -0.15
@@ -55,6 +56,13 @@ export class CheckoutModel extends PieceBuilder {
     slab(g, mats.green, 0.33, 0.03, 1.04, 0.1, 0.1, 0.006)
     slab(g, mats.darkSteel, -0.25, -0.245, 1.075, 0.105, 0.055, 0.17).name = 'payment-reader'
     plate(g, mats.desktopScreen, 0.08, 0.12, -0.25, -0.274, 1.08, 0)
+    const keep = new Set(['checkout-plinth', 'checkout-cabinet', 'checkout-worktop', 'checkout-fascia', 'display-back', 'display-shelf', 'cash-drawer', 'pos-stem', 'pos-housing', 'pos-screen', 'customer-display'])
+    g.traverse(mesh => {
+      if (!(mesh instanceof THREE.Mesh)) return
+      if (!keep.has(mesh.name)) omitModelDetail(mesh)
+      else if (mesh.name === 'display-shelf') panelModelDetail(mesh, 'z')
+      else if (mesh.name === 'display-back' || mesh.name === 'checkout-fascia') panelModelDetail(mesh)
+    })
     return placeLocal(g, mod)
   }
 }

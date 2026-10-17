@@ -51,7 +51,16 @@ source-owned approximation disposal.
 `model-detail.test.mjs` covers authored Low triangle budgets for all shelf,
 restroom, CCTV, cabinet, AC, tactile, track, ramp, lift and stair models; exact
 instanced stock picks, retained motion/geometry, painted finishes, local/cross-model
-batching, Hide UI restoration and single disposal. It runs in `test:perf`.
+batching, Hide UI restoration and single disposal. Clock Low keeps two animated,
+readable faces and exact picking; static-rendering pins the far-tree triangle budget.
+Furniture, extinguisher, exit, gate and fence variants have Low budgets; joined
+fences, both panel faces, combined-fitting bounds and doorless gates in all rotations
+are covered. Gate leaves retain their live motion and entry-direction artwork.
+Rail signals keep three visible aspects and exact lens picks. Noise-barrier Low
+variants cover every rotation plus long shared bridge runs, gantry/post cutouts,
+glazing bounds, batching and full restoration.
+Beam approximations retain four side faces and exact source end-cap picks on all axes.
+It runs in `test:perf`.
 `graphics-quality` pins floor/presentation policy and preference persistence without
 document edits. `static-rendering` also pins all three
 tree levels, canopy bounds, leaf UVs and exact disposal. Production
@@ -236,7 +245,10 @@ risers and covered step return are checked too;
 `module-build` also checks floor/apron clearance and the body's inset, buried joins.
 It pins train roof/body paint and non-overlapping cab seams, plus half-height screen-door caps
 that slide clear with their leaves. `train-cabin` pins spawning at the stopped berth before opening,
-and clearing riders after closing while the train is still stationary.
+and clearing riders after closing while the train is still stationary. `train-gangway` pins the
+black bellows an A/B/C/L consist wears in every gap between two cars: the car's own section
+scaled by one factor (same shape, lightly smaller), strictly inside the car's skin, one mesh for
+the whole consist, corrugated, and D keeping its own curved gangway.
 `module-build` also checks clear train-door window apertures and screen-door slide-lane clearance
 for both screen heights, both track sides, and closed, partial and fully open poses.
 It also pins the slim half-height rails, cap/rail vertical separation, single glass surfaces,
@@ -339,6 +351,14 @@ progress and occupied rows, single-width access, whole-segment hole/fare clearan
 platform waiting cells and depth, walking to an open door, and counting approaching
 passengers when balancing door choices.
 
+`history.test.mjs` covers the run's minute-by-minute record (§8.1, the 数据 window): one
+sample a sim minute rather than one a tick, the letter stored as its LOS order, the first
+sample's per-minute columns as a **baseline** rather than the run so far, climbing counters
+whose minutes add up to the total, the world starting the record over on load / restart /
+seek, the app appending each posted minute (its buffer growing without moving an index) or
+replacing the lot on a reset, and the chart axes — the round-number ceiling and the
+class axis drawn the way the letter reads, A at the top and F at the bottom.
+
 `module-build` checks lift landing doors at real floors, independent car doors,
 and synchronized opening only at the aligned landing in both styles and all rotations.
 
@@ -387,7 +407,7 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Road network and traffic | `road-network.test.mjs` — crossings/T joins, a crossing on every junction side whatever the one-way setting, directed turns, bounded topology cache/vehicle capacity, signals, lane gaps, bus tail reservations, clock seeks, derived facilities and traffic-light decor; right-hand rotations, lane-specific turns/T splits, preview arrows and incoming-only stop lines. |
 | Elevator doors | `lift-doors.test.mjs` — per-storey front/back/both/none choices, landing geometry, graph stops and ride edges, render-facing snapshot, and save round trip. `check:info-panel` covers the browser dialog and per-floor undo. |
 | Architecture | `layering`, `scene-wiring` — the sibling-wiring guard, and the `setStation` boards-only/inert-decor fast paths: one-sign verdict, chunk remesh skipped, station-wide plate repaints kept on the full path |
-| Numbers | `rng`, `clock`, `demand`, `headway` |
+| Numbers | `rng`, `clock`, `demand`, `headway`, `history` |
 | 屏蔽端门 | `psd-end` — fixed glass stack, matching heights, Tab preview refresh, shortened corner snapping and exact 1 m extensions, tile-contained meshes/reservations and adjacent block/equipment placement, hover/click placement, undo, walk barrier and save/load; curtain-wall widths and picking |
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones` (room-purpose overlay regions preserve fare-zone values; synthetic track floors follow rotated `trackCells` footprints, not unrotated bounds), `lift`, `placement` (stair shapes require only foot-level ground; escalator collision clearance follows its sloped body), `openings`, `stairs`, `escalators`, `escalator-length` (all four run lengths, on the 扶梯 and the 单跑楼梯 alike: spans, carve, landing nodes, ride time, exit snap, save round-trip, both drawn models, the catalogue's fallbacks and the one armed length a bank is built at), `ramp-passengers` (ramp lane spacing, body clearance, collision recovery, stair-turn access and queue-preserving detours), `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route` (including the 1.5 m figure scale), `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
 | The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool` (ordinary room-color labels add no walls/modules and preserve fare zones; rotated booth drag preview and release; right-click taps and drags erase labels like 无分区 while preserving floor), `facility` (legacy footprint-module helpers and booth fronts/benches), `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail` (virtual street footing at z = 0, derived bed openings that restore after removal, refusal on dug ground, tunnel / bridge snapping from exposed platform and 屏蔽门 cells with left/right end selection by hovered half, and width updates with stock), `track-third-rail` (the 第三轨 travel-left / off-platform side and its drawn model), `validation`, `overground`, `roof-tool`, `track-run-length`, `structures-gaps` — `storey` checks the 0–3 m height base and `save` checks its persistence and older-save default; `overground` + `roof-tool` are the pillars/roofs/doorway-exits/stair-blocks/bridges, `track-run-length` the shared tunnel/bridge lengths, `structures-gaps` the repair-shaped edges; `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole, re-adding default ground without a record, and authored paint/zone persistence |

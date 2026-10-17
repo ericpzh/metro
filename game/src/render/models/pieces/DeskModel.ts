@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, plate, placeLocal } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { DESK_HEIGHT } from '../../../sim/constants.ts'
+import { omitModelDetail, panelModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /** Control-room workstation, with the chair tucked into its own cell (§5.7). */
 export class DeskModel extends PieceBuilder {
@@ -22,7 +23,7 @@ export class DeskModel extends PieceBuilder {
     // Both widescreen monitors face the operator; ink sits outside each bezel.
     for (const x of [-0.225, 0.225]) {
       slab(g, mats.rubber, x, -0.24, 0.78, 0.2, 0.14, 0.025)
-      slab(g, mats.darkSteel, x, -0.265, 0.88, 0.035, 0.035, 0.19)
+      slab(g, mats.darkSteel, x, -0.265, 0.88, 0.035, 0.035, 0.19).name = 'monitor-stem'
       slab(g, mats.rubber, x, -0.245, DESK_HEIGHT - 0.135, 0.42, 0.045, 0.27).name = 'monitor-housing'
       plate(g, mats.desktopScreen, 0.38, 0.225, x, -0.221, DESK_HEIGHT - 0.135, Math.PI).name = 'monitor-screen'
     }
@@ -33,11 +34,12 @@ export class DeskModel extends PieceBuilder {
     slab(g, mats.white, -0.34, 0.015, 0.766, 0.14, 0.16, 0.006).name = 'paperwork'
     // An open mesh chair with armrests, casters and a five-star base.
     const chairY = 0.265
-    slab(g, mats.darkSteel, 0, chairY, 0.28, 0.055, 0.055, 0.39)
+    slab(g, mats.darkSteel, 0, chairY, 0.28, 0.055, 0.055, 0.39).name = 'chair-column'
     for (let i = 0; i < 5; i++) {
       const angle = i * Math.PI * 2 / 5
       const spoke = slab(g, mats.darkSteel, Math.sin(angle) * 0.095, chairY + Math.cos(angle) * 0.095, 0.085, 0.035, 0.22, 0.035)
       spoke.rotation.z = -angle
+      spoke.name = 'chair-spoke'
       slab(g, mats.rubber, Math.sin(angle) * 0.195, chairY + Math.cos(angle) * 0.195, 0.035, 0.05, 0.05, 0.07).name = 'chair-caster'
     }
     slab(g, mats.rubber, 0, chairY, 0.455, 0.35, 0.33, 0.07).name = 'chair-seat'
@@ -48,6 +50,15 @@ export class DeskModel extends PieceBuilder {
     }
     for (const z of [0.5, 0.96]) slab(g, mats.rubber, 0, 0.445, z, 0.35, 0.03, 0.035)
     for (let i = 0; i < 10; i++) slab(g, mats.darkSteel, 0, 0.445, 0.535 + i * 0.04, 0.32, 0.012, 0.018).name = 'chair-mesh'
+    const keep = new Set(['desktop', 'desk-end-panel', 'modesty-panel', 'drawer-pedestal', 'monitor-housing', 'monitor-screen', 'monitor-stem', 'keyboard', 'chair-column', 'chair-spoke', 'chair-seat'])
+    let back = false
+    for (const mesh of g.children as THREE.Mesh[]) {
+      if (mesh.name === 'chair-mesh' && !back) {
+        setModelDetail(mesh, new THREE.BoxGeometry(0.32, 0.012, 0.378).translate(0, 0, 0.18))
+        back = true
+      } else if (!keep.has(mesh.name)) omitModelDetail(mesh)
+      else if (mesh.name === 'keyboard') panelModelDetail(mesh, 'z')
+    }
     // Default approach is −y, matching other floor furniture and the rail preview.
     g.rotation.z = Math.PI
     const placed = new THREE.Group()

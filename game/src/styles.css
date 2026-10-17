@@ -2482,6 +2482,24 @@ input[type='range'] {
 .metric.danger b {
   color: var(--danger);
 }
+/* The status bar's left half is the 数据 window's button (§8.1): every number it holds
+   is drawn over time in that window, so the whole group answers a click. It is a `div`
+   with a button's role (a button may only hold phrasing content, and each 数值 is a
+   block), which is why it wears its own hover instead of the global `button` rules. */
+.bottombarMetrics {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.bottombarMetrics:hover {
+  background: rgba(85, 182, 255, 0.07);
+}
+.bottombarMetrics:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* Lab */
 .lab {
@@ -2939,6 +2957,107 @@ input[type='range'] {
 }
 .calKey.offday {
   border-color: var(--muted);
+}
+
+/* ------------------------------------------------------- the floating 数据 window */
+/* `windows/charts/ChartsPanel.tsx` (§8.1): the run's counters over time, opened by
+   the status bar's own numbers. It shares the 时刻 window's chrome — `.timeModal`,
+   `.timeWindow`, `.timeBlock` and their parts — so only the plot, its legend and the
+   one reading toggle are new. */
+.chartsWindow {
+  width: min(720px, calc(100vw - 340px));
+}
+/* The legend: one chip a line, its colour the swatch and its text the name. The chip
+   is the line's only switch. */
+.chartLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-bottom: 5px;
+}
+.chartChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--ink);
+  background: #081a2c;
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+.chartChip i {
+  width: 9px;
+  height: 2px;
+}
+.chartChip:hover {
+  border-color: var(--accent);
+}
+/* A hidden line is dimmed rather than removed: the chip stays where the hand left it
+   and still names what is off. */
+.chartChip.off {
+  color: var(--muted);
+  opacity: 0.55;
+}
+.chartChip.off i {
+  opacity: 0.4;
+}
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.chart .chartPlot {
+  fill: #06111d;
+}
+.chart .chartGrid {
+  stroke: rgba(126, 183, 231, 0.16);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.chart .chartLine {
+  fill: none;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+.chart .chartDot {
+  stroke: none;
+}
+.chart .chartTick {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.5px;
+}
+.chartEmpty {
+  margin: 14px 0;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+/* 客流累计's own two readings — the totals or the per-minute flow — in the block
+   head's note slot. */
+.chartModes {
+  display: inline-flex;
+  gap: 4px;
+}
+.chartMode {
+  padding: 1px 6px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  background: #081a2c;
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+.chartMode.on {
+  color: #eaf5ff;
+  border-color: var(--accent);
+}
+.chartMode:hover {
+  border-color: var(--accent);
 }
 
 .guideExitTiles { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; }

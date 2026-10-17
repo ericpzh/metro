@@ -203,6 +203,13 @@ export const LOS_BANDS = [1.2, 0.9, 0.7, 0.4, 0.2] as const
 export type Los = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
 
 /**
+ * The letters worst-last, A first: the only ordering the code may index a letter
+ * by. `LOS_LABELS` is a map to sort by *name*, and the charts and the run's own
+ * record (§8.1) need the order, not the spelling.
+ */
+export const LOS_ORDER: readonly Los[] = ['A', 'B', 'C', 'D', 'E', 'F']
+
+/**
  * The letters as the panels print them (§7.3). One map, because two readouts show a level
  * of service — the status bar's 平均拥挤等级 and the 时刻 window's own strip — and two maps is
  * two chances for them to disagree about what D means.

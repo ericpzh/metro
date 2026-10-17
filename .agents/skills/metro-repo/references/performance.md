@@ -68,12 +68,29 @@ surfaces. Source picks and rigs stay exact. `model-detail` guards per-model tria
 budgets, batching, restoration, finish colours and disposal. Update this table and
 `game/PERFORMANCE.md` together after changing models or the detail policy.
 
+Tree far/Low uses sparse, enlarged intact crossed leaf cards and a continuous six-sided trunk;
+retain canopy extrema and valid leaf UVs when rebaking with
+`node tools/bake-street-tree-lod.mjs`. Clock Low retains two readable hour-marked
+faces and moving hands, using flat marks/hands and a twelve-sided case.
+
+Furniture/cabinets omit stock and fine fittings; vending drinks become thin colour
+panels. Fences use four-sided tubes without clamps/feet fittings. Fare gates retain
+reader/entry artwork and animated leaves. Exit Low retains openings, printed
+headers and the wave profile, with thin roof/glass surfaces and fewer frame posts.
+`panelModelDetail` retains two broad faces; approximation bounds include both full
+and reduced shapes so combined fittings do not disappear at the screen edge.
+
+Rail-signal Low keeps three eight-sided aspects/rims and coarse hood shells.
+Noise barriers retain full posts and all bay/gantry cutouts, using two broad faces
+per thin panel/middle rail. Top beams retain thickness with hidden end caps omitted;
+the shared bridge builders also prepare these Low variants.
+
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
-| tree | 1353 | 18432 |
+| tree | 396 | 18432 |
 | shelf-cooler | 420 | 9852 |
 | shelf-cooler-dark | 420 | 9852 |
-| bridge | 788 | 9588 |
+| bridge | 732 | 9588 |
 | shelf-white-tall | 240 | 7556 |
 | shelf-dark-tall | 240 | 7244 |
 | shelf-wire | 412 | 6524 |
@@ -92,32 +109,32 @@ budgets, batching, restoration, finish colours and disposal. Update this table a
 | stair-centerForward | 920 | 2096 |
 | stair-left90 | 920 | 2096 |
 | stair-right90 | 920 | 2096 |
-| clock | 1870 | 1940 |
+| clock | 212 | 1940 |
 | cctv | 124 | 1888 |
 | stair-straight | 620 | 1796 |
 | lift | 468 | 1488 |
 | electrical-cabinet | 36 | 1224 |
-| extinguisher-glass | 822 | 918 |
-| exit-covered-1 | 902 | 902 |
-| exit | 902 | 902 |
-| exit-covered-3 | 902 | 902 |
+| extinguisher-glass | 134 | 918 |
+| exit-covered-1 | 346 | 902 |
+| exit | 346 | 902 |
+| exit-covered-3 | 346 | 902 |
 | tactile-warning | 12 | 812 |
-| fence-iron | 768 | 768 |
-| checkout | 750 | 750 |
-| gate-new | 720 | 720 |
-| rail-signal | 708 | 708 |
-| vending | 676 | 676 |
-| gate | 540 | 668 |
-| desk | 652 | 652 |
+| fence-iron | 256 | 768 |
+| checkout | 104 | 750 |
+| gate-new | 130 | 720 |
+| rail-signal | 144 | 708 |
+| vending | 200 | 676 |
+| gate | 162 | 668 |
+| desk | 212 | 652 |
 | pillar-thick | 576 | 576 |
-| exit-uncovered-2 | 554 | 554 |
-| exit-uncovered-3 | 554 | 554 |
-| exit-uncovered-1 | 530 | 530 |
-| fence-gate | 432 | 432 |
+| exit-uncovered-2 | 150 | 554 |
+| exit-uncovered-3 | 150 | 554 |
+| exit-uncovered-1 | 150 | 530 |
+| fence-gate | 100 | 432 |
 | roof-tapered | 396 | 396 |
 | tvm | 372 | 372 |
 | busstop-long | 372 | 372 |
-| fence | 360 | 360 |
+| fence | 68 | 360 |
 | door-steel-1 | 324 | 324 |
 | door-glass-1 | 324 | 324 |
 | roof-truss | 264 | 264 |
@@ -128,13 +145,13 @@ budgets, batching, restoration, finish colours and disposal. Update this table a
 | bin | 196 | 196 |
 | vent | 168 | 168 |
 | bench-seat-1 | 156 | 156 |
-| extinguisher | 146 | 146 |
-| extinguisher-compact | 146 | 146 |
+| extinguisher | 50 | 146 |
+| extinguisher-compact | 50 | 146 |
 | door-wood-1 | 144 | 144 |
 | sidewalk | 12 | 132 |
 | tv | 114 | 114 |
-| noise-barrier | 108 | 108 |
-| noise-barrier-half | 108 | 108 |
+| noise-barrier | 52 | 108 |
+| noise-barrier-half | 52 | 108 |
 | traffic-light | 108 | 108 |
 | bench-steel-1 | 84 | 84 |
 | sign-ceiling | 74 | 74 |
@@ -148,7 +165,7 @@ budgets, batching, restoration, finish colours and disposal. Update this table a
 | glass-1x2 | 60 | 60 |
 | glass-2x2 | 60 | 60 |
 | glass-3x2 | 60 | 60 |
-| exit-virtual | 60 | 60 |
+| exit-virtual | 46 | 60 |
 | psd-end | 58 | 58 |
 | road | 50 | 50 |
 | stair-block | 34 | 48 |
@@ -163,12 +180,12 @@ budgets, batching, restoration, finish colours and disposal. Update this table a
 | hanger-post | 36 | 36 |
 | pillar-slim | 36 | 36 |
 | linemap-wall | 26 | 26 |
-| exit-doorway-1 | 26 | 26 |
-| exit-doorway-2 | 26 | 26 |
-| exit-doorway-3 | 26 | 26 |
-| exit-doorway-4 | 26 | 26 |
+| exit-doorway-1 | 10 | 26 |
+| exit-doorway-2 | 10 | 26 |
+| exit-doorway-3 | 10 | 26 |
+| exit-doorway-4 | 10 | 26 |
 | roof-shell | 24 | 24 |
-| noise-barrier-railing | 24 | 24 |
+| noise-barrier-railing | 16 | 24 |
 | light-rectangular | 24 | 24 |
 | roof | 12 | 12 |
 | floor-mark-boarding | 2 | 2 |

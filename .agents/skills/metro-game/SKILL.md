@@ -132,6 +132,17 @@ owns approximation disposal. Use `model-detail` for triangle budgets, exact stoc
 picks, retained motion, finish colours, restoration and disposal; regenerate the
 per-model table with `node tools/model-triangle-inventory.mjs`.
 
+Low furniture, extinguisher cabinets, fences, fare gates and exits also have
+authored variants. `panelModelDetail` retains both broad faces of thin panels;
+keep gate leaf rig metadata and direction artwork when reducing its shape.
+Approximation bounds must contain both the source and replacement geometry,
+including combined feet and chair backs that span several original fittings.
+Rail signals keep all three aspect materials and unobstructed lenses. Shared
+bridge noise-barrier/railing builders prepare thin Low panels without changing
+post locations, gantry cutouts or glazing clearance; cover long runs and rotations.
+Use `beamModelDetail` for top bars that must retain thickness: omit the two end
+caps covered by joints, preserving four longitudinal faces and full source picks.
+
 Batching preserves render order, shadow flags and culling policy. Hidden, skinned,
 morphing and partial-range geometry retains its original rendering. Clock-hand,
 wing, landing-door and moving-cabin descendants remain independent; cycling artwork
@@ -376,7 +387,8 @@ the four rules most changes trip over.
 * **The worker** (`sim/worker.ts`, `sim/protocol.ts`) is the only sim code that
   touches `postMessage`. Messages in: `init` / `build` / `control` / `restart` /
   `seek`; out: `ready` (graph) / `state` (agent `Float32Array`s, metrics, density,
-  train poses, the `trainServices` timetable forecast, `intervalMs`). Payloads are copied, not transferred; the renderer
+  train poses, the `trainServices` timetable forecast, `intervalMs`, and the run's
+  record — see the 数据 window bullet). Payloads are copied, not transferred; the renderer
   interpolates over `intervalMs`. Each tick is synchronous. `build` is a live edit:
   it calls `World.rebuild()` and keeps the crowd. A station switch (打开 / 新建 /
   示例车站) re-sends `init`, which calls `World.load()` — a full reset of agents,
@@ -835,6 +847,23 @@ the four rules most changes trip over.
   leaves the entrance curve alone. `game/test/clock.test.mjs`, `demand.test.mjs`,
   `headway.test.mjs` and `line-edit.test.mjs` (the store
   half) pin it.
+* **The status bar's numbers are also the 数据 window** (`sim/history.ts`,
+  `app/windows/charts/`, `app/store/slices/SimSlice.ts`, `statusbar/BottomBar.tsx`, §8.1).
+  The left half of the bottom rail is a `div role="button"` (a `button` may only hold
+  phrasing content and each 数值 is a block) that opens the floating panel — the 时刻
+  window's chrome classes, and like it a non-modal view with a scrim and Escape.
+  `World.history` samples the rail's own counters **once a sim minute**; the `state`
+  message carries the samples since the last post (empty on 59 ticks out of 60) with
+  `historyReset` telling the app to replace rather than append, because only `load`,
+  `restart` and `seek` start a different run or day. A sample is the whole reading plus
+  the **per-minute change** in 已上车 / 已出站 / 滞留 — a total is unreadable on the same
+  axis as a level — and the first sample after a reset records those deltas as a
+  baseline, since a seek keeps the counters and the first delta would read as one huge
+  minute. Three charts, because they do not share a y axis: 平均拥挤等级 (the class
+  axis upside down — **A at the top, F at the bottom**, so the line reads the way the
+  letter does), 站内数值, 客流累计 (with its own 累计 / 每分钟 toggle). Each line toggles
+  on its own legend chip and a chart's scale follows the lines actually shown.
+  `game/test/history.test.mjs` pins the minute, the resets and the store's append.
 * **A consist is a cabin the crowd rides in** (`sim/stock.ts`, `sim/agents.ts`,
   `sim/world/World.ts`, `render/models/pieces/TrainModel.ts`,
   `game/test/train-cabin.test.mjs`). The alighting wave is not dumped onto the platform at

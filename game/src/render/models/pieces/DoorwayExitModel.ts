@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, plate, canvasTexture } from '../PieceBuilder.ts'
 import { exitSpan } from '../../../sim/exits.ts'
 import { exitHeaderCanvas } from './ExitModel.ts'
+import { panelModelDetail } from '../../modelDetail.ts'
 import type { Module } from '../../../sim/types.ts'
 export class DoorwayExitModel extends PieceBuilder {
   readonly kind = 'exit'
@@ -12,8 +13,8 @@ export class DoorwayExitModel extends PieceBuilder {
     const width = half * 2
     // 地面 X向 is a wall-fixed exit panel: the anchor's −y face sits flush
     // against a one-metre block. The old floor feet made it read as a totem.
-    slab(g, this.ctx.mats.darkSteel, centre, -0.475, 0.5, width, 0.05, 0.78)
-    slab(g, this.ctx.mats.exitRed, centre, -0.441, 0.5, width - 0.06, 0.02, 0.68)
+    panelModelDetail(slab(g, this.ctx.mats.darkSteel, centre, -0.475, 0.5, width, 0.05, 0.78))
+    panelModelDetail(slab(g, this.ctx.mats.exitRed, centre, -0.441, 0.5, width - 0.06, 0.02, 0.68))
     // Keep the header's pixel density constant as the bay count grows. The
     // artwork's text stays the same physical size; only the gaps between the
     // brand, station name and exit identifier get wider.

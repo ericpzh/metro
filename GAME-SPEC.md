@@ -1169,20 +1169,33 @@ behind today. And a "day report" you can scrub hour by hour.
 
 ### 8.1 Charts — counts and waits (客流 / 等待)
 
-Stage 7 of the loop. Overlays show *where*; charts show *when and how long*. A bottom-docked
-`数据` drawer (toggle key `T`) holds four live charts, all fed by the worker at 2 Hz and all
-scrubbable with the timeline:
+Stage 7 of the loop. Overlays show *where*; charts show *when and how long*. The status bar's own
+numbers are the button: pressing the left half of the bottom rail opens a floating **数据** window
+over the station, and what it draws is the run the HUD under it is reading.
+
+The sim records the counters **once a sim minute** (`sim/history.ts`), in the worker, where the
+clock is the only thing that decides — so the grain is a minute at 1× and at 16× alike, and a
+`seek` or a restart starts the record over rather than splicing two days into one line. A sample
+is the whole rail's reading — 站内人数, the crowd letter, the four queue lengths and the three
+climbing totals — plus **the per-minute change** in each of those three, because a total is
+unreadable on the same axis as a level.
+
+Three charts, because they do not share a y axis:
 
 | Chart (中文) | Series | Answers |
 |---|---|---|
-| 进出站客流 | per-exit entries/exits per 5 min (actual solid vs configured dashed) + station total | is Exit C saturated? did the closure re-route? |
-| 列车载客 | per-line boardings/alightings per train + left-behind count | is the line (§6.3) or the platform the bottleneck? |
-| 等待时间 | mean / p90 wait per gate group, escalator group, platform-door group | which queue is the pinch point? |
-| 站内人数 | in-station population + crowd level letter over time | when exactly did the peak break? |
+| 平均拥挤等级 | the station-wide letter over time, A at the top and F at the bottom so the line reads the way the letter does | when exactly did the peak break? |
+| 站内数值 | 站内人数 and the four queues — 闸机 / 扶梯 / 电梯 / 站台门 | which queue is the pinch point, and does it drain? |
+| 客流累计 | 已上车 / 已出站 / 滞留, read either as **累计** (the totals the rail prints) or **每分钟** (the flow through the minute) | was the station saturated, or just busy once? |
 
-Rules: charts pause with the sim; hovering a spike frames the contributing asset (`F`);
-every chart exports its CSV from the day report. Numbers here are the same counters the
-HUD and overlays read — one source of truth, three views (3D, HUD, chart).
+Every line carries a chip in its chart's legend and toggles on and off on its own; a chart's scale
+is set by the lines it is actually showing, so hiding a tall line rescales the rest. Numbers here
+are the same counters the HUD and the overlays read — one source of truth, three views (3D, HUD,
+chart).
+
+Still to build: 等待时间 (mean / p90 wait per gate, escalator and platform-door group), per-exit
+configured-vs-actual entry curves, hovering a spike to frame the contributing asset (`F`), and CSV
+export from the day report.
 
 ---
 
@@ -1197,7 +1210,7 @@ HUD and overlays read — one source of truth, three views (3D, HUD, chart).
   and what it is connected to.
 * **Bottom rail** = line manager (per line: name, colour, stock, cars, headway, route, terminus),
   exit list, minimap, clock and speed (`pause / 1× / 4× / 16×`), timeline scrubber, and the
-  `数据` charts drawer (`T`, §8.1).
+  `数据` window (§8.1) — whose button is the status bar's own numbers.
 * **Ghost preview** with validity, snap, autotile, blueprint copy/paste, and an undo stack of
   build commands.
 * **Controls** — one work-plane rule plus per-tool mouse/keys. See §9.5 for the full table

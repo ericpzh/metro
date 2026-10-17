@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, placeLocal } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { RAIL_SIGNAL_SCALE } from '../../../sim/constants.ts'
+import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /** Three hooded aspects on a low concrete plinth, reference rail-side decor (§5.7). */
 export class RailSignalModel extends PieceBuilder {
@@ -18,20 +19,23 @@ export class RailSignalModel extends PieceBuilder {
       slab(g, mats.darkSteel, 0, 0, z, 0.47, 0.28, 0.50)
       const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.205, 0.205, 0.03, 32), mats.black)
       rim.position.set(0, -0.155, z)
+      setModelDetail(rim, new THREE.CircleGeometry(0.205, 8).rotateX(Math.PI / 2).translate(0, -0.015, 0))
       g.add(rim)
       const lens = new THREE.Mesh(new THREE.CircleGeometry(0.167, 32), i === 0 ? mats.ledRed : mats.darkSteel)
       lens.name = `signal-lamp-${i}`
       lens.rotation.x = Math.PI / 2
       lens.position.set(0, -0.176, z)
+      setModelDetail(lens, new THREE.CircleGeometry(0.167, 8))
       g.add(lens)
       // Upper semicylinder: open underneath, with a deep visor in front of the lens.
       const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.28, 24, 1, true, 0, Math.PI), mats.darkSteel)
       hood.name = `signal-hood-${i}`
       hood.rotation.y = -Math.PI / 2
       hood.position.set(0, -0.22, z)
+      setModelDetail(hood, new THREE.CylinderGeometry(0.22, 0.22, 0.28, 4, 1, true, 0, Math.PI))
       g.add(hood)
     }
-    slab(g, mats.steel, 0.25, 0.15, 0.31, 0.18, 0.28, 0.40)
+    omitModelDetail(slab(g, mats.steel, 0.25, 0.15, 0.31, 0.18, 0.28, 0.40))
     g.scale.setScalar(RAIL_SIGNAL_SCALE)
     return placeLocal(g, mod)
   }

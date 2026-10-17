@@ -13,18 +13,36 @@ export function BottomBar(): React.ReactElement {
   const m = useStore((s) => s.metrics)
   const stats = useStore((s) => s.stats)
   const station = useStore((s) => s.station)
+  const setChartsPanel = useStore((s) => s.setChartsPanel)
   return (
     <div className="bottombar">
-      <Metric label={t('passengers_inside')} value={m ? m.population.toLocaleString() : '—'} />
-      <Metric label={t('avg_crowd_level')} value={m ? `${m.crowdLos} ${LOS_LABELS[m.crowdLos]}` : '—'} tone={m?.crowdLos} />
-      <Metric label={t('gate_queue')} value={m ? m.gateQueue : '—'} />
-      <Metric label={t('escalator_queue')} value={m ? m.escalatorQueue : '—'} />
-      <Metric label={t('lift_queue')} value={m ? m.liftQueue : '—'} />
-      <Metric label={t('platform_door_queue')} value={m ? m.doorQueue : '—'} />
-      <Metric label={t('boarded')} value={m ? m.boarded : '—'} />
-      <Metric label={t('exited')} value={m ? m.exited : '—'} />
-      <Metric label={t('left_behind')} value={m ? m.leftBehind : '—'} warn={(m?.leftBehind ?? 0) > 0} />
-      <Metric label={t('time_440')} value={m ? stampAt(m.simTime).clock : '—'} />
+      {/* The left half is the 数据 window's own button (§8.1): every number here is
+          drawn over time in that window, so the reading and its history are one
+          gesture apart. A `div` with a button's role rather than a `button`, because
+          a button may only hold phrasing content and each 数值 is a block. */}
+      <div
+        className="bottombarMetrics"
+        role="button"
+        tabIndex={0}
+        aria-label={t('open_data_window')}
+        onClick={() => setChartsPanel(true)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault()
+          setChartsPanel(true)
+        }}
+      >
+        <Metric label={t('passengers_inside')} value={m ? m.population.toLocaleString() : '—'} />
+        <Metric label={t('avg_crowd_level')} value={m ? `${m.crowdLos} ${LOS_LABELS[m.crowdLos]}` : '—'} tone={m?.crowdLos} />
+        <Metric label={t('gate_queue')} value={m ? m.gateQueue : '—'} />
+        <Metric label={t('escalator_queue')} value={m ? m.escalatorQueue : '—'} />
+        <Metric label={t('lift_queue')} value={m ? m.liftQueue : '—'} />
+        <Metric label={t('platform_door_queue')} value={m ? m.doorQueue : '—'} />
+        <Metric label={t('boarded')} value={m ? m.boarded : '—'} />
+        <Metric label={t('exited')} value={m ? m.exited : '—'} />
+        <Metric label={t('left_behind')} value={m ? m.leftBehind : '—'} warn={(m?.leftBehind ?? 0) > 0} />
+        <Metric label={t('time_440')} value={m ? stampAt(m.simTime).clock : '—'} />
+      </div>
       <span className="spacer" />
       <Metric label={t('fps')} value={stats ? stats.fps : '—'} />
       <Metric label={t('blocks')} value={station.cells.length} />
