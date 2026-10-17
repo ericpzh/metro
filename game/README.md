@@ -58,7 +58,11 @@ measurements and see `PERFORMANCE.md` for loading/memory costs and remaining lim
 Anonymous global totals are collected only where a stats Worker actually exists:
 the live site, or the local game + `dev:stats` pair. The game keeps a random client
 id in local storage, sends a built station's counts and the passenger deltas since
-its last submission every five minutes, and beacons the same queue on `pagehide`.
+its last submission every five minutes (every five seconds on localhost), and
+beacons the same queue on `pagehide`. On localhost it also sends the current
+built station once on page load, so opening the game at `:5174` fills the empty
+stats preview at `:5176` immediately; then the five-second dev tick carries the
+passenger deltas.
 Retries keep their `submitId`, so the server's `(clientId, submitId)` idempotency
 does not double count a retry. The gear menu's **分享匿名统计 / Share anonymous
 stats** toggle is on by default; turning it off clears the queue and sends nothing

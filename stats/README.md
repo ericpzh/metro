@@ -16,9 +16,10 @@ the approved icon changes. The top bar mark is the site's silhouette from
 [`brand-mark.js`](brand-mark.js), re-coloured amber with a CSS mask.
 
 The game is the writer: a stable anonymous client id and a default-on
-**分享匿名统计** opt-out in its gear menu, a five-minute submission plus a
-`pagehide` beacon, and a persisted retry queue that keeps its `submitId`. See
-`game/src/app/globalStats.ts` and `game/test/global-stats.test.mjs`.
+**分享匿名统计** opt-out in its gear menu, a five-minute production submission
+(five seconds on localhost) plus a `pagehide` beacon, and a persisted retry
+queue that keeps its `submitId`. See `game/src/app/globalStats.ts` and
+`game/test/global-stats.test.mjs`.
 
 | | Production | Development |
 |---|---|---|
@@ -47,26 +48,36 @@ top-level environment.
 
 ```powershell
 npm install            # root deps, including wrangler
-npm run dev:stats      # http://127.0.0.1:5176/stats/
+npm run dev:stats      # http://localhost:5176/
+npm run dev:game       # http://localhost:5174/ (in another terminal, or npm start)
 ```
 
-The first run applies [`schema.sql`](schema.sql) to the persistent local D1 and
-then inserts the development sample rows from [`seed.sql`](seed.sql). Both are
-idempotent, so restarting the preview does not duplicate anything.
+The local database is **empty by default** and is filled by the real game at
+`localhost:5174`: opening the game submits the current built station once, then
+the dev collector submits every five seconds, so building a station or running
+the sim makes the numbers appear on `localhost:5176` without waiting for the
+production five-minute interval. Both addresses serve the same page (`/` and
+`/stats/`).
 
 ```powershell
-npm run dev:stats -- --empty          # skip the sample rows
+npm run dev:stats -- --seed           # add the sample rows for a UI pass
+npm run dev:stats -- --reset          # clear the local D1 first
 npm run dev:stats -- --port 5179      # another port
 npm run preview:stats                 # alias for dev:stats
 ```
 
-`npm start` / `npm run dev:all` also start it on port 5176 alongside the site,
-game and model viewer.
+The first run applies [`schema.sql`](schema.sql) to the persistent local D1 under
+`stats/.wrangler/state`. `--seed` additionally applies [`seed.sql`](seed.sql) and
+is idempotent, so restarting does not duplicate rows; without it the sample rows
+are never inserted.
 
-The local state lives in `stats/.wrangler/state` and is ignored by git. Delete
-that directory for a clean database. Workerd's per-run temp files are kept in
-`stats/.wrangler/tmp/miniflare` because some Windows profiles deny writes to the
-OS temp directory even when the repository is writable.
+`npm start` / `npm run dev:all` start the site, game, model viewer and stats
+together, so the game → stats path is live on one command.
+
+The local state lives in `stats/.wrangler/state` and is ignored by git. Use
+`--reset` or delete that directory for a clean database. Workerd's per-run temp
+files are kept in `stats/.wrangler/tmp/miniflare` because some Windows profiles
+deny writes to the OS temp directory even when the repository is writable.
 
 ## Deploy
 
@@ -231,5 +242,5 @@ The suite drives the real Worker entry with a fake D1 binding. It covers the
 failure, missing-binding `503`s, totals mapping, the batched submit SQL,
 idempotent submission, validation limits, CORS and 4xx routing.
 
-Development sample data is not a test fixture: it is only applied by the local
-preview, never by the deploy script.
+Development sample data is not a test fixture: it is only applied by
+`npm run dev:stats -- --seed`, never by the deploy script or the default preview.

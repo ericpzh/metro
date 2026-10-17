@@ -61,7 +61,7 @@ keep in sync by hand.
 npm start             # web 5173 + game 5174 + model 5175 + stats 5176
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
-npm run dev:stats     # http://127.0.0.1:5176/stats/ (local D1, dev environment)
+npm run dev:stats     # http://localhost:5176/ (local D1 filled by the game at :5174)
 npm run test:game     # node --test: determinism, tick budgets, capacity ladder
 npm run check:demos   # builds both apps, then walks the picker and all four demo URLs in Chrome
 npm run deploy:game   # build, deploy metro-game, and attach its route pair
@@ -118,18 +118,23 @@ Production and development are separate environments in
 [`stats/wrangler.jsonc`](stats/wrangler.jsonc):
 
 ```bash
-npm run dev:stats      # http://127.0.0.1:5176/stats/ — dev env, local D1, sample rows
+npm run dev:stats      # http://localhost:5176/ — dev env, local D1, fed by the game at :5174
 npm run test:stats     # Worker routing/validation suite against a fake D1
 npm run deploy:stats   # apply the schema remotely, deploy production, verify live
 ```
 
-The local preview never touches the production database: it runs the `dev`
+The local preview starts with an empty database, so its numbers are the real
+submissions from the game at `localhost:5174` (the dev collector posts the
+current built station once and then every five seconds);
+`npm run dev:stats -- --seed` adds sample rows only for a UI pass.
+The preview never touches the production database: it runs the `dev`
 environment (no routes, a different database id) and the page shows a
 `开发预览 · 本地数据库` badge. The production deploy applies
 `schema.sql` to the remote database before uploading the Worker; both the bare
 `/stats` and the `/stats/*` route are declared so the page and API resolve.
 The game reports a built station's counts and passenger deltas every five
-minutes and on `pagehide`; the gear menu's 分享匿名统计 toggle opts out.
+minutes (five seconds on localhost) and on `pagehide`; the gear menu's
+分享匿名统计 toggle opts out.
 
 ## The site
 
@@ -239,7 +244,7 @@ build step. `npm run deploy:stats` remains the schema-migration command.
 npm install
 npm run preview    # build, then serve the real Worker locally via wrangler dev
 npm run deploy     # build, then wrangler deploy
-npm run dev:stats  # stats page + API on the local D1: http://127.0.0.1:5176/stats/
+npm run dev:stats  # stats page + API on the local D1: http://localhost:5176/
 npm run deploy:stats # migrate the remote stats D1, deploy metro-stats, verify the live API
 ```
 

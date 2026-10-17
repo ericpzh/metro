@@ -1,10 +1,10 @@
 -- Development-only sample data for the local stats preview.
 --
--- `stats/scripts/preview.mjs` applies this after `schema.sql`; it is never run
--- against the production D1 database. Every row is idempotent (fixed primary
--- keys plus `INSERT OR IGNORE`), so restarting the preview does not duplicate
--- stations or passenger deltas. Clear it with `npm run dev:stats -- --empty`
--- plus a reset of stats/.wrangler/state, or just delete that directory.
+-- `npm run dev:stats -- --seed` applies this after `schema.sql`; the default
+-- local preview is empty and is filled by the real game at localhost:5174.
+-- It is never run against the production D1 database. Every row is idempotent
+-- (fixed primary keys plus `INSERT OR IGNORE`), so restarting the preview does
+-- not duplicate stations or passenger deltas.
 
 INSERT OR IGNORE INTO clients (client_id, first_seen, last_seen) VALUES
   ('11111111-1111-4111-8111-111111111111', '2026-10-14T08:12:00.000Z', '2026-10-17T09:42:00.000Z'),

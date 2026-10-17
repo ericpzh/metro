@@ -8,7 +8,9 @@ import { createStatsSlice } from '../src/app/store/slices/StatsSlice.ts'
 import {
   createGlobalStats,
   resolveStatsApiUrl,
+  STATS_DEV_INTERVAL_MS,
   STATS_QUEUE_KEY,
+  statsIntervalMs,
 } from '../src/app/globalStats.ts'
 import {
   readShareStats,
@@ -119,7 +121,7 @@ function fakeTimers() {
   }
 }
 
-function collectorFixture({ stationState = station(), metricsValue = metrics(), storage = memoryStorage(), fetchImpl } = {}) {
+function collectorFixture({ stationState = station(), metricsValue = metrics(), storage = memoryStorage(), fetchImpl, submitInitial = false } = {}) {
   const store = fakeStore({
     metrics: metricsValue,
     station: stationState,
@@ -145,6 +147,7 @@ function collectorFixture({ stationState = station(), metricsValue = metrics(), 
     },
     randomUUID: ids(),
     timers: timers.timers,
+    submitInitial,
     addPageHide: () => {},
     removePageHide: () => {},
   })
@@ -245,6 +248,15 @@ test('an empty station is never sent', async () => {
   assert.equal(f.collector.pending().length, 0)
 })
 
+test('dev start sends the already-built station once, before the worker reports', async () => {
+  const f = collectorFixture({ metricsValue: null, submitInitial: true })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(f.calls.length, 1)
+  assert.equal(f.calls[0].body.station.name, 'Test')
+  assert.equal(f.calls[0].body.station.cells, 2)
+  assert.deepEqual(f.calls[0].body.delta, emptyStatsDelta())
+})
+
 test('a failed submission retries with the same submit id and is not re-counted', async () => {
   const storage = memoryStorage()
   const calls = []
@@ -319,6 +331,9 @@ test('the stats API only exists on the real site or an explicit override', () =>
   assert.equal(resolveStatsApiUrl({ dev: false, hostname: '127.0.0.1' }), null)
   assert.equal(resolveStatsApiUrl({ dev: false, hostname: 'preview.workers.dev' }), null)
   assert.equal(resolveStatsApiUrl({ dev: false, hostname: 'preview.workers.dev', configured: 'https://stats.example/api/' }), 'https://stats.example/api')
+  assert.equal(statsIntervalMs(true), STATS_DEV_INTERVAL_MS)
+  assert.equal(statsIntervalMs(false), STATS_INTERVAL_MS)
+  assert.equal(STATS_DEV_INTERVAL_MS, 5_000)
 })
 
 test('the share preference and client id survive valid storage and fail closed', () => {

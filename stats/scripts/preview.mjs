@@ -1,7 +1,8 @@
 // Local **development** preview of the global stats Worker.
 //
-//   npm run dev:stats                 # http://127.0.0.1:5176/stats/
-//   npm run dev:stats -- --empty      # skip the sample rows
+//   npm run dev:stats                 # http://localhost:5176/  — empty, fed by the game
+//   npm run dev:stats -- --seed       # add the sample rows for a UI pass
+//   npm run dev:stats -- --reset      # clear the local D1 first
 //   npm run dev:stats -- --port 5179
 //   npm run preview:stats             # alias
 //
@@ -9,11 +10,11 @@
 // no routes, a separate local D1 id, and ENVIRONMENT=development, so the page
 // shows a Development badge and nothing can touch the production database.
 //
-// The first run applies stats/schema.sql to the persistent local D1 under
-// stats/.wrangler/state and (unless --empty) inserts the sample rows from
-// stats/seed.sql. Both are idempotent.
+// The default database is **empty**: the game at http://localhost:5174 posts
+// its real submissions here (its dev collector runs every five seconds). Apply
+// stats/schema.sql on start; --seed adds stats/seed.sql only for a sample UI.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -43,7 +44,13 @@ function option(name, fallback) {
 }
 
 const port = Number(process.env.STATS_PORT || option('--port', '5176'))
-const empty = args.includes('--empty')
+const seed = args.includes('--seed')
+const reset = args.includes('--reset')
+
+if (reset) {
+  console.log(`[stats] clearing local D1 state (${state})`)
+  rmSync(state, { recursive: true, force: true })
+}
 
 function run(step, commandArgs) {
   console.log(`\n[stats] ${step}`)
@@ -72,9 +79,7 @@ run('applying schema to the local D1 database', [
   '--yes',
 ])
 
-if (empty) {
-  console.log('[stats] skipping sample data (--empty)')
-} else {
+if (seed) {
   run('adding development sample data', [
     'd1', 'execute', 'STATS_DB',
     '--local',
@@ -84,12 +89,15 @@ if (empty) {
     '--persist-to', state,
     '--yes',
   ])
+} else {
+  console.log('[stats] no sample data: the game at http://localhost:5174 fills this local D1')
 }
 
 console.log('\nStation Designer stats — development')
-console.log(`  page  http://127.0.0.1:${port}/stats/`)
-console.log(`  api   http://127.0.0.1:${port}/stats/api/v1/global`)
-console.log(`  db    local D1 (${state})${empty ? '' : ' + sample data'}`)
+console.log(`  page  http://localhost:${port}/`)
+console.log(`  api   http://localhost:${port}/stats/api/v1/global`)
+console.log(`  game  http://localhost:5174/  (npm run dev:game)`)
+console.log(`  db    local D1 (${state})${seed ? ' + sample data' : ' · game submissions only'}`)
 console.log('  prod is never used by this preview; Ctrl+C stops it.\n')
 
 const child = spawn(process.execPath, [

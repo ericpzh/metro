@@ -9,6 +9,7 @@ import type { StationState } from '../build/model.ts'
 import { msg } from '../sim/i18n.ts'
 import {
   emptyStatsBaseline,
+  emptyStatsDelta,
   hasStatsDelta,
   isBuiltStation,
   makeStatsSubmission,
@@ -25,6 +26,12 @@ import { useStore } from './store.ts'
 
 export const STATS_QUEUE_KEY = 'metro-game.stats-queue.v1'
 const MAX_PENDING = 20
+/** A local game session posts every five seconds so the 5176 page reflects it. */
+export const STATS_DEV_INTERVAL_MS = 5_000
+
+export function statsIntervalMs(dev: boolean): number {
+  return dev ? STATS_DEV_INTERVAL_MS : STATS_INTERVAL_MS
+}
 
 interface StatsStoreState {
   metrics: Metrics | null
@@ -66,6 +73,8 @@ export interface GlobalStatsOptions {
   beacon?: StatsBeacon | null
   randomUUID?: () => string
   intervalMs?: number
+  /** Dev only: send the already-built station once on start so 5176 fills at once. */
+  submitInitial?: boolean
   timers?: StatsTimers
   addPageHide?: (listener: () => void) => void
   removePageHide?: (listener: () => void) => void
@@ -195,7 +204,7 @@ export function createGlobalStats(options: GlobalStatsOptions) {
   }
 
   /** Turn the current store state into one payload, or null when nothing changed. */
-  function currentSubmission(): StatsSubmission | null {
+  function currentSubmission(force = false): StatsSubmission | null {
     const state = store.getState()
     if (!state.shareStats) return null
 
@@ -209,7 +218,15 @@ export function createGlobalStats(options: GlobalStatsOptions) {
     if (!metrics) {
       lastVersion = state.version
       lastEpoch = state.stationEpoch
-      return null
+      if (!force) return null
+      return makeStatsSubmission({
+        clientId: ensureClientId(),
+        submitId: createId(),
+        sessionId: ensureSessionId(),
+        name: state.station.name.trim() || msg('unnamed_station'),
+        counts,
+        delta: emptyStatsDelta(),
+      })
     }
 
     // A station switch is a new run: never pair the old run's counters with the
@@ -230,7 +247,7 @@ export function createGlobalStats(options: GlobalStatsOptions) {
     const stationChanged = state.version !== lastVersion
     lastVersion = state.version
     lastEpoch = state.stationEpoch
-    if (!hasStatsDelta(next.delta) && !stationChanged) return null
+    if (!hasStatsDelta(next.delta) && !stationChanged && !force) return null
 
     return makeStatsSubmission({
       clientId: ensureClientId(),
@@ -242,8 +259,8 @@ export function createGlobalStats(options: GlobalStatsOptions) {
     })
   }
 
-  function enqueueCurrent(): void {
-    const submission = currentSubmission()
+  function enqueueCurrent(force = false): void {
+    const submission = currentSubmission(force)
     if (!submission) return
     pending.push(submission)
     if (pending.length > MAX_PENDING) pending = pending.slice(-MAX_PENDING)
@@ -328,6 +345,7 @@ export function createGlobalStats(options: GlobalStatsOptions) {
     })
     timer = timers.setInterval(() => { void tick() }, intervalMs)
     addPageHide(pagehide)
+    if (options.submitInitial) enqueueCurrent(true)
     if (pending.length > 0) void flush()
   }
 
@@ -362,7 +380,12 @@ export function startGlobalStats(): void {
   if (active) return
   const apiUrl = runtimeStatsApiUrl()
   if (!apiUrl) return
-  active = createGlobalStats({ store: useStore, apiUrl })
+  active = createGlobalStats({
+    store: useStore,
+    apiUrl,
+    intervalMs: statsIntervalMs(Boolean(import.meta.env?.DEV)),
+    submitInitial: Boolean(import.meta.env?.DEV),
+  })
   active.start()
 }
 
