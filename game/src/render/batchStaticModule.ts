@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { Module } from '../sim/types.ts'
 import { bakedGeometry } from './batchGeometry.ts'
+import { setModelDetail } from './modelDetail.ts'
 
 // Keep each module's root and every nested group: picking (§9.5), storey slicing
 // (§9.3) and selection still address the original module. Animated rigs and
@@ -30,7 +31,7 @@ export function batchStaticParts(root: THREE.Object3D, protectedObjects = new Se
       const material = child.material as THREE.Material | THREE.Material[]
       // Transparent parts need independent depth sorting. Tagged meshes may be
       // shared artwork or externally referenced; leave ownership untouched.
-      if (Array.isArray(material) || material.transparent || !child.visible || child.children.length || Object.keys(child.userData).length) continue
+      if (Array.isArray(material) || material.transparent || !child.visible || child.children.length || Object.keys(child.userData).some(key => key !== 'lowDetailGeometry')) continue
       if (Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count !== Infinity) continue
       child.updateMatrix()
       if (child.matrix.determinant() === 0 || (!reflections && child.matrix.determinant() < 0)) continue
@@ -51,6 +52,12 @@ export function batchStaticParts(root: THREE.Object3D, protectedObjects = new Se
       geometry.computeBoundingSphere()
       const first = meshes[0]
       const merged = new THREE.Mesh(geometry, first.material)
+      if (meshes.some(mesh => mesh.userData.lowDetailGeometry)) {
+        const reduced = meshes.map(mesh => bakedGeometry(mesh.userData.lowDetailGeometry ?? mesh.geometry, mesh.matrix))
+        const detail = mergeGeometries(reduced)
+        for (const copy of reduced) copy.dispose()
+        if (detail) setModelDetail(merged, detail)
+      }
       merged.renderOrder = first.renderOrder
       merged.castShadow = first.castShadow
       merged.receiveShadow = first.receiveShadow

@@ -6,7 +6,8 @@ import type { AtlasRegion } from './panelAtlas.ts'
 import { sortedBatch } from './trainBatches.ts'
 import { StaticInstances } from './staticInstances.ts'
 import { EQUIPMENT_VIEW_CACHE_SIZE } from '../sim/constants.ts'
-import { coarseGeometry, GeometryDetail } from './geometryDetail.ts'
+import { GeometryDetail } from './geometryDetail.ts'
+import { modelDetailGeometry } from './modelDetail.ts'
 import { detailHeight } from './detailPolicy.ts'
 import type { GraphicsQuality } from './detailPolicy.ts'
 
@@ -142,11 +143,7 @@ export class EquipmentBatches {
     }
     const alive = new Set<string>()
     for (const [key, { material, sources }] of buckets) {
-      const coarse = sources.map(s => {
-        const mat = s.mesh.material as THREE.MeshStandardMaterial
-        return s.mesh.userData.staticInstances || mat.alphaMap || mat.alphaTest > 0 || mat.displacementMap || mat.vertexColors ||
-          mat.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile ? null : coarseGeometry(s.mesh.geometry)
-      })
+      const coarse = sources.map(s => modelDetailGeometry(s.mesh))
       if (sources.length < 2 && !sources[0].mesh.userData.staticInstances && !coarse[0]) continue
       alive.add(key)
       const signature = `${material.transparent}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => `${s.mesh.uuid}:${s.mesh.geometry.uuid}:${s.matrix.elements.join(',')}`).join('|')
@@ -163,7 +160,8 @@ export class EquipmentBatches {
         // Repeated identical geometry can instance without duplicating vertex data.
         // Reflections and atlas regions use the baked path to retain their winding/UV.
         const staticInstances = sources.every(s => s.mesh.userData.staticInstances === true)
-        const identical = (!material.transparent || staticInstances) && sources.every(s => !s.region && s.matrix.determinant() > 0 && equalGeometry(s.mesh.geometry, sources[0].mesh.geometry))
+        const identical = (!material.transparent || staticInstances) && sources.every((s, i) => !s.region && s.matrix.determinant() > 0 && equalGeometry(s.mesh.geometry, sources[0].mesh.geometry) &&
+          (!!coarse[i] === !!coarse[0]) && (!coarse[i] || equalGeometry(coarse[i]!, coarse[0]!)))
         if (identical) {
           if (staticInstances) {
             const source = sources[0].mesh

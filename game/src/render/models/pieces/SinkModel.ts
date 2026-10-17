@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, placeLocal, ownedMaterial } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { ceramicMaterial, roundedFixture, turnedFixture, fixtureRing } from './RestroomFixtures.ts'
+import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 export class SinkModel extends PieceBuilder {
   readonly kind = 'sink'
@@ -30,6 +31,16 @@ export class SinkModel extends PieceBuilder {
     for (const x of [-0.21, 0.21]) {
       slab(g, mats.steel, x, -0.30, 0.65, 0.035, 0.04, 0.22)
       slab(g, mats.steel, x, -0.21, 0.74, 0.035, 0.20, 0.025)
+    }
+    // Keep the hollow bowl and pedestal profile with eight radial segments.
+    for (const [index, part] of g.children.entries()) {
+      const mesh = part as THREE.Mesh
+      if (index < 2) {
+        const geometry = mesh.geometry as THREE.LatheGeometry
+        setModelDetail(mesh, new THREE.LatheGeometry(geometry.parameters.points, 8).rotateX(Math.PI / 2))
+      } else if (mesh.geometry instanceof THREE.TubeGeometry) {
+        setModelDetail(mesh, new THREE.TubeGeometry(path, 4, 0.018, 4, false))
+      } else omitModelDetail(mesh)
     }
     return placeLocal(g, mod)
   }

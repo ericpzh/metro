@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Module } from '../../../sim/types.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
+import { omitModelDetail } from '../../modelDetail.ts'
 
 /** A three-bay switchboard with red fascia, meters, breakers and status lamps (§9.5). */
 export class ElectricalCabinetModel extends PieceBuilder {
@@ -29,6 +30,7 @@ export class ElectricalCabinetModel extends PieceBuilder {
     }
     // Recess the instruments within the cabinet's reserved floor tile.
     for (const part of g.children) if (part.position.y < -0.46) part.position.y += 0.055
+    for (const part of g.children.slice(3)) omitModelDetail(part)
     return this.placeLocal(g, mod)
   }
 }

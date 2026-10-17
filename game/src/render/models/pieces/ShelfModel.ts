@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { PieceBuilder, C, slab, placeLocalAtEdge } from '../PieceBuilder.ts'
 import { shelfSpec, shelfVariant } from '../../../sim/shelves.ts'
 import type { Module } from '../../../sim/types.ts'
+import { omitModelDetail } from '../../modelDetail.ts'
 
 type Part = { x: number; y: number; z: number; w: number; d: number; h: number; color: number }
 
@@ -149,6 +150,7 @@ export class ShelfModel extends PieceBuilder {
     batch(g, cylinders(), mats.shelfGoods, caps, 'stock-caps')
     batch(g, new THREE.BoxGeometry(1, 1, 1), mats.shelfGoods, labels, 'stock-labels')
     batch(g, new THREE.BoxGeometry(1, 1, 1), mats.shelfGoods, fittings, 'shelf-details')
+    for (const part of g.children) if (part.name.startsWith('stock-') || part.name === 'shelf-details') omitModelDetail(part)
     // The cooler's handles also stay inside its reserved tile.
     return placeLocalAtEdge(g, mod, depth + (cooler ? 0.12 : 0), this.ctx.data?.modules)
   }

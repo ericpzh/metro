@@ -48,6 +48,10 @@ disposal, UV attributes, alpha-cut exclusions and moving rigs. `floor-geometry`
 pins chunk picking against full source geometry and train rig/restoration/disposal.
 It also covers unbatched moving equipment, hidden/batched-source exclusions and
 source-owned approximation disposal.
+`model-detail.test.mjs` covers authored Low triangle budgets for all shelf,
+restroom, CCTV, cabinet, AC, tactile, track, ramp, lift and stair models; exact
+instanced stock picks, retained motion/geometry, painted finishes, local/cross-model
+batching, Hide UI restoration and single disposal. It runs in `test:perf`.
 `graphics-quality` pins floor/presentation policy and preference persistence without
 document edits. `static-rendering` also pins all three
 tree levels, canopy bounds, leaf UVs and exact disposal. Production
@@ -513,6 +517,7 @@ the column that shows what an untested file was hiding.
 | `sim/trainSchedule.ts` (the timetable forecast) | — (new) | 100 % lines / 100 % branches | `station-display` (forecasts checked against the real dispatcher) |
 | `sim/headway.ts` (formation and train curve) | — (new) | 100 % lines / 82.5 % branches | `headway` (repair, dispatch count, readouts and the train curve) |
 | `render/batchStaticModule.ts` | — (new) | 100 % lines / 90 % branches | `render-performance` (bounds, triangles, picking, disposal and exclusions) |
+| `render/modelDetail.ts` | — (new) | 100 % lines / 92.86 % branches / 100 % functions (`test:perf`) | `model-detail` (authored triangle budgets, source picks, finish colours, batching, motion, restoration and disposal) |
 | `render/retainPaintedModules.ts` | — (new) | 100 % lines / 94.4 % branches | `render-performance` (paint reuse and structural invalidation) |
 | `render/moduleDependencies.ts` | — (new) | 99.0 % lines / 89.5 % branches | `performance-policy` (per-model dependencies, stair-block-only and inert-decor-only additions, tactile/hanger neighbours and the boards-only sign verdict) |
 | `sim/lights.ts` / `sim/vents.ts` / `sim/inCellPositions.ts` | — (new) | 100 % lines | `lights`, `vent` |

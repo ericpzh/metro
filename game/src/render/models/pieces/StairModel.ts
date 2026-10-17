@@ -10,6 +10,7 @@ import { STAIR_BODY_DROP } from '../../../sim/openings.ts'
 import { stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairLandingShape, stairLandingWalls, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
 import type { StairFlightSlide, StairLaneMate, StairLandingShape, StairLandingWalls, StairWallSides } from '../../../sim/stairs.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
+import { setModelDetail } from '../../modelDetail.ts'
 
 // Procedural module models — the art pass behind PLAN §3 item 6 ("modules are
 // ad-hoc boxes") and the reference photos in `docs/`. Every module the builder
@@ -199,9 +200,12 @@ function buildStairFlight(
   const going = stairRun / steps
   for (let i = 0; i < steps; i++) {
     // Tread: level, its top on the step line.
-    finishSlab(g, surface, inner + i * going + going / 2, yMid, (i + 1) * stepRise - STAIR_TREAD_T / 2, going + 0.002, yWide, STAIR_TREAD_T)
+    const tread = finishSlab(g, surface, inner + i * going + going / 2, yMid, (i + 1) * stepRise - STAIR_TREAD_T / 2, going + 0.002, yWide, STAIR_TREAD_T)
+    setModelDetail(tread, new THREE.PlaneGeometry(going + 0.002, yWide).translate(0, 0, STAIR_TREAD_T / 2))
     // Riser under the leading edge, from the tread below up to this one.
-    finishSlab(g, surface, inner + i * going, yMid, i * stepRise + stepRise / 2, 0.05, yWide, stepRise)
+    const riser = finishSlab(g, surface, inner + i * going, yMid, i * stepRise + stepRise / 2, 0.05, yWide, stepRise)
+    // Retain a vertical face; omit the five hidden sides of each thin slab.
+    setModelDetail(riser, new THREE.PlaneGeometry(yWide, stepRise).rotateX(Math.PI / 2).rotateZ(-Math.PI / 2).translate(-0.025, 0, 0))
   }
 
   // Side stringers, a soffit and a handrail run the incline. `theta` tilts a
@@ -286,6 +290,7 @@ function buildStairFlight(
       turn.position.set(xEnd + o * STAIR_LEAD, y, zEnd - STAIR_RETURN_R)
       if (o < 0) turn.rotation.z = Math.PI // bulge outward at both ends
       g.add(turn)
+      setModelDetail(turn, new THREE.TorusGeometry(STAIR_RETURN_R, 0.035, 3, 3, Math.PI / 2).rotateX(Math.PI / 2))
       const post = zEnd - STAIR_RETURN_R - floor
       slab(g, mats.steel, xEnd + o * (STAIR_LEAD + STAIR_RETURN_R), y, floor + post / 2, 0.07, 0.07, post)
       const panelEnd = STAIR_LEAD + STAIR_RETURN_R - 0.04

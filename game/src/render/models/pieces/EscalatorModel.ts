@@ -10,6 +10,7 @@ import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH, ESCALATOR_FLAT_LENGTH, ESCALATOR
 import { escalatorBalustradeWidth, escalatorBodyWidth, escalatorBandWidth, escalatorRun, escalatorStepHeight } from '../../../sim/escalators.ts'
 import { RAMP_FOOT } from '../../../sim/openings.ts'
 import type { Module } from '../../../sim/types.ts'
+import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /* --------------------------------------------------- ramp-adjacent blocks */
 
@@ -236,12 +237,15 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
   const steps = new THREE.InstancedMesh(tread, mats.steel, nSteps)
   steps.frustumCulled = false // the band is reposed every frame
   band.add(steps)
+  setModelDetail(steps, new THREE.PlaneGeometry(stepRun * 1.02, stepW))
   const noseMesh = new THREE.InstancedMesh(nosing, mats.orange, nSteps)
   noseMesh.frustumCulled = false
   band.add(noseMesh)
+  omitModelDetail(noseMesh)
   const risers = new THREE.InstancedMesh(riser, mats.steel, nSteps)
   risers.frustumCulled = false
   band.add(risers)
+  omitModelDetail(risers)
 
   // Glass balustrades and black handrails. The handrail wraps the end of the
   // glass at both landings — a half-turn in the balustrade plane from the top
@@ -263,6 +267,8 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
     glass.position.y = (s * railW) / 2 + 0.015
     glass.name = 'escalator-balustrade'
     g.add(glass)
+    const distantGlass = new THREE.ExtrudeGeometry(outline, { depth: 0.03, bevelEnabled: false, curveSegments: 2, steps: 1 })
+    setModelDetail(glass, distantGlass.rotateX(Math.PI / 2))
     slab(g, mats.handrail, len / 2, (s * railW) / 2 + s * 0.03, rise, len, 0.1, 0.08)
   }
   const railReturn = new THREE.TorusGeometry(rise / 2, 0.045, 8, 18, Math.PI)
@@ -274,6 +280,7 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
       rail.position.set(endX, s * (railW / 2 + 0.03), rise / 2)
       if (endX === 0) rail.rotation.z = Math.PI // bulge the other way at the start
       g.add(rail)
+      setModelDetail(rail, new THREE.TorusGeometry(rise / 2, 0.045, 3, 4, Math.PI).rotateX(Math.PI / 2).rotateY(Math.PI / 2))
     }
   }
   // Newel ends at both landings. The comb plates are separate: they are level
@@ -359,6 +366,7 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
   }
   addRampJoins(ctx, mod, g)
   addEscalatorIndicators(ctx, g, len, railW)
+  for (const part of g.children) if (part.name === 'escalator-indicator') omitModelDetail(part)
   return g
 }
 

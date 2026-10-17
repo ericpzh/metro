@@ -1370,6 +1370,130 @@ establish a Tanwei speedup; fog also makes those far-camera screenshots unsuitab
 for judging visible model detail. Final screenshots use the original camera or
 modest real wheel input.
 
+### Per-model geometry detail inventory
+
+Triangle counts below are for one model built from each palette option's default configuration. High is the full model geometry; Low uses the renderer's reduced geometry wherever that model part has a supported approximation, and keeps unsupported parts at full detail. These are model triangles, not totals across all placed copies. Width, length, style and material controls can create additional variants; the table lists the 117 shipped palette options.
+
+| Equipment / decor model name | Low triangles | High triangles |
+|---|---:|---:|
+| tree | 1353 | 18432 |
+| shelf-cooler | 420 | 9852 |
+| shelf-cooler-dark | 420 | 9852 |
+| bridge | 788 | 9588 |
+| shelf-white-tall | 240 | 7556 |
+| shelf-dark-tall | 240 | 7244 |
+| shelf-wire | 412 | 6524 |
+| cubicle | 84 | 5688 |
+| cctv-dome | 360 | 5208 |
+| walkway | 496 | 5162 |
+| sink | 224 | 4972 |
+| cctv-ptz | 332 | 4924 |
+| shelf-white-short | 192 | 4420 |
+| escalator | 394 | 3122 |
+| ac-unit | 140 | 2924 |
+| stair-leftForward | 1016 | 2192 |
+| stair-rightForward | 1016 | 2192 |
+| stair-left180 | 968 | 2144 |
+| stair-right180 | 968 | 2144 |
+| stair-centerForward | 920 | 2096 |
+| stair-left90 | 920 | 2096 |
+| stair-right90 | 920 | 2096 |
+| clock | 1870 | 1940 |
+| cctv | 124 | 1888 |
+| stair-straight | 620 | 1796 |
+| lift | 468 | 1488 |
+| electrical-cabinet | 36 | 1224 |
+| extinguisher-glass | 822 | 918 |
+| exit-covered-1 | 902 | 902 |
+| exit | 902 | 902 |
+| exit-covered-3 | 902 | 902 |
+| tactile-warning | 12 | 812 |
+| fence-iron | 768 | 768 |
+| checkout | 750 | 750 |
+| gate-new | 720 | 720 |
+| rail-signal | 708 | 708 |
+| vending | 676 | 676 |
+| gate | 540 | 668 |
+| desk | 652 | 652 |
+| pillar-thick | 576 | 576 |
+| exit-uncovered-2 | 554 | 554 |
+| exit-uncovered-3 | 554 | 554 |
+| exit-uncovered-1 | 530 | 530 |
+| fence-gate | 432 | 432 |
+| roof-tapered | 396 | 396 |
+| tvm | 372 | 372 |
+| busstop-long | 372 | 372 |
+| fence | 360 | 360 |
+| door-steel-1 | 324 | 324 |
+| door-glass-1 | 324 | 324 |
+| roof-truss | 264 | 264 |
+| busstop-short | 260 | 260 |
+| light-circular | 256 | 256 |
+| monitor-wall | 213 | 213 |
+| lawn | 12 | 204 |
+| bin | 196 | 196 |
+| vent | 168 | 168 |
+| bench-seat-1 | 156 | 156 |
+| extinguisher | 146 | 146 |
+| extinguisher-compact | 146 | 146 |
+| door-wood-1 | 144 | 144 |
+| sidewalk | 12 | 132 |
+| tv | 114 | 114 |
+| noise-barrier | 108 | 108 |
+| noise-barrier-half | 108 | 108 |
+| traffic-light | 108 | 108 |
+| bench-steel-1 | 84 | 84 |
+| sign-ceiling | 74 | 74 |
+| monitor-ceiling | 72 | 72 |
+| tactile-guide | 60 | 60 |
+| guidepost | 60 | 60 |
+| curtain-wall | 60 | 60 |
+| glass-1x1 | 60 | 60 |
+| glass-2x1 | 60 | 60 |
+| glass-3x1 | 60 | 60 |
+| glass-1x2 | 60 | 60 |
+| glass-2x2 | 60 | 60 |
+| glass-3x2 | 60 | 60 |
+| exit-virtual | 60 | 60 |
+| psd-end | 58 | 58 |
+| road | 50 | 50 |
+| stair-block | 34 | 48 |
+| billboard-wide | 40 | 40 |
+| billboard-standard | 40 | 40 |
+| billboard-large | 40 | 40 |
+| billboard-panorama | 40 | 40 |
+| billboard-portrait | 40 | 40 |
+| billboard-square | 40 | 40 |
+| linemap-stand | 40 | 40 |
+| hanger-roof | 36 | 36 |
+| hanger-post | 36 | 36 |
+| pillar-slim | 36 | 36 |
+| linemap-wall | 26 | 26 |
+| exit-doorway-1 | 26 | 26 |
+| exit-doorway-2 | 26 | 26 |
+| exit-doorway-3 | 26 | 26 |
+| exit-doorway-4 | 26 | 26 |
+| roof-shell | 24 | 24 |
+| noise-barrier-railing | 24 | 24 |
+| light-rectangular | 24 | 24 |
+| roof | 12 | 12 |
+| floor-mark-boarding | 2 | 2 |
+| floor-mark-waiting | 2 | 2 |
+| floor-mark-direction | 2 | 2 |
+| sign-wall | 2 | 2 |
+| calligraphy-kai-h | 2 | 2 |
+| calligraphy-kai-v | 2 | 2 |
+| calligraphy-xing-h | 2 | 2 |
+| calligraphy-xing-v | 2 | 2 |
+| calligraphy-li-h | 2 | 2 |
+| calligraphy-li-v | 2 | 2 |
+| calligraphy-wei-h | 2 | 2 |
+| calligraphy-wei-v | 2 | 2 |
+| calligraphy-hei-h | 2 | 2 |
+| calligraphy-hei-v | 2 | 2 |
+| calligraphy-song-h | 2 | 2 |
+| calligraphy-song-v | 2 | 2 |
+
 Final reports: `.preview/perf/graphics-verified-{zoo,tanwei}.json` and PNGs. No
 console/shader/runtime errors. Tanwei phase buffer updates were 0–4 calls / 0–140
 bytes, unrelated to geometry swaps; no large geometry uploads occurred in the
@@ -1401,3 +1525,79 @@ checks pass. These checks establish correctness, not an FPS threshold.
 Final production batching checks also pass: native station calls 3,597 → 1,022
 and train 814 → 25; fallback 3,597 → 1,715 and 814 → 630, unchanged open/closed
 train triangles and no shader/runtime/GL errors (`graphics-batching-*-final.log`).
+
+## 2026-10-16 — authored Low models for fixtures and circulation
+
+The per-model table above now includes authored alternatives for every requested
+shelf, restroom fixture, CCTV, electrical cabinet, AC unit, warning tactile tile,
+bridge track, escalator, walkway, lift and stair shape. Regenerate its complete
+117-option JSON/Markdown inventory with `node tools/model-triangle-inventory.mjs`.
+All 117 full-model triangle totals match the earlier raw inventory.
+
+Shelves omit products, price labels and fine fittings. Cubicles retain the enclosure
+and omit sanitary fit-out; sinks retain an eight-sided hollow bowl/pedestal and
+simple tap. Cameras use low-segment housings and omit small IR emitters/trim.
+Cabinets retain the base, body and coloured fascia; AC retains its shell, grille
+panels and simple fan caps. Tactile plates omit dots. Track retains bed, sleepers,
+rails and power structures while omitting clips, anchor bolts and rail seats.
+Ramps retain animated tread matrices but use thin surfaces, simpler newels and no
+nosing/riser hardware. Lifts keep shaft/cabin/door movement and omit clamps, narrow
+trim and instruments. Stair flights keep tread/riser surfaces and simpler curved
+returns; stair blocks omit underside and internal end faces.
+
+`render/modelDetail.ts` owns explicit geometry selection and source-owned disposal.
+Full picking meshes/instance IDs, material state and live rig objects remain intact.
+Local batching merges both full and reduced geometry; cross-model instancing checks
+both variants for equality. Current-floor projected detail, other-floor detail,
+Low forcing reduced geometry and Hide UI restoring full geometry keep their policies.
+No model is rebuilt or uploaded when its prepared geometry variant changes.
+
+The final production run used Chrome 155 / RTX 4080 SUPER / ANGLE D3D11, native
+multi-draw, 1384x805, output ratio 1, seed 7654321 and paused population 0.
+Zoo had 11,913 cells / 4,062 modules at -16 m; Tanwei had 14,717 / 9,572 at -7 m.
+Command: `BENCH_SECONDS=2 BENCH_EDITS=2 node tools/bench-demos.mjs browser
+--compare-detail --lod-only --gpu-timer`. Each scene alternates full/high/full/high,
+then Low with identical visibility/camera/population. Ranges show both repeats.
+
+| Demo / policy | Triangles | Draws | GPU mean ms | Continuous FPS |
+|---|---:|---:|---:|---:|
+| Zoo full | 3,760,543 | 2,271 | 11.44–14.88 | 51.5–60.0 |
+| Zoo high | 901,447 | 2,271 | 10.63–10.70 | 58.9–59.9 |
+| Zoo low | 779,221 | 2,271 | 11.92 | 57.4 |
+| Tanwei full | 4,784,113 | 4,039 | 24.45–26.34 | 27.2–30.0 |
+| Tanwei high | 1,670,311 | 4,039 | 22.75–23.67 | 30.2–31.0 |
+| Tanwei low | 1,396,365 | 4,039 | 22.88 | 31.0 |
+
+These are short samples. The extra Low reductions do not establish a consistent
+throughput gain over High: Tanwei still spends about 31 ms in CPU submission with
+4,039 calls. Lower topology helps GPU work but does not eliminate that cost. The
+initial baseline used the pre-existing built demos (11,871 / 14,554 cells), which
+differ from current committed fixtures; do not treat those before/after FPS values
+as a controlled comparison. Raw before/after reports remain in ignored
+`.preview/perf/authored-low-{baseline,final}-{zoo,tanwei}.json`.
+
+Validation: production build passes; 33 new authored-model regressions pass.
+`test:perf` passes 179 tests. Coverage line / branch / function: modelDetail
+100 / 92.86 / 100%, batchStaticModule 100 / 95.92 / 100%, equipmentBatches
+100 / 97.87 / 97.22%, sourceGeometryDetail 100 / 100 / 100%. The full suite is
+1,676 passing / 1 failing: `demo.test.mjs` expects 14,554 Tanwei cells while the
+committed fixture already contains 14,717 (confirmed in HEAD). The unrelated
+fixture assertion is unchanged. Native production geometry checks pass for both
+demos, including settings, full restoration, retained GPU allocations and no
+JS/shader/WebGL failures. Logs and screenshots are in ignored `.preview/perf/`.
+
+The extension-disabled geometry check also passes both demos. Close-up production
+captures under `.preview/perf/authored-low-models/` were inspected for empty shelves,
+simple hollow sinks, camera housings, escalator bands, lift shafts and stair
+surfaces; every capture reports GL error 0. They use placed demo variants, whose
+dimensions/materials can differ from the catalogue defaults in the table.
+Real Q/E (`authored-low-levels.json`) retains cached batches for every revisit with
+no JS/GL failures. First key-to-two-RAF latency is 123.5 / 173.3 ms (Zoo/Tanwei);
+repeated means 37.3 / 56.3 ms, average batch CPU 3.4 / 7.1 ms, and initial prewarm
+1.92 / 2.92 s. These timings do not establish a first-switch latency improvement;
+the deterministic cache/allocation work assertions still pass.
+
+Production batching validation passes with and without native multi-draw: station
+calls 3,597 to 1,022 / 1,715; train calls 814 to 25 / 630, preserving open/closed
+train triangles and reporting no GLSL/WebGL/runtime failures. Logs are
+`authored-low-batching-{native,fallback}.log` under `.preview/perf/`.

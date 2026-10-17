@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { BATCH_SOURCE_LAYER } from './batchGeometry.ts'
-import { coarseGeometry } from './geometryDetail.ts'
+import { modelDetailGeometry } from './modelDetail.ts'
 
 /** Unbatched and animated equipment keeps its mesh/rig identity and full picking surface. */
 export class SourceGeometryDetail {
@@ -10,10 +10,7 @@ export class SourceGeometryDetail {
     root.traverseVisible(object => {
       if (!(object instanceof THREE.Mesh) || object instanceof THREE.BatchedMesh || object instanceof THREE.SkinnedMesh ||
           object.layers.isEnabled(BATCH_SOURCE_LAYER) || Array.isArray(object.material)) return
-      const material = object.material as THREE.MeshStandardMaterial
-      if (material.alphaMap || material.alphaTest > 0 || material.displacementMap || material.vertexColors ||
-          material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return
-      const near = object.geometry, far = coarseGeometry(near)
+      const near = object.geometry, far = modelDetailGeometry(object)
       if (!far || !reduced) return
       const raycast = object.raycast
       this.entries.set(object, { near, raycast })

@@ -6,6 +6,7 @@ import type { ModuleContext } from '../PieceBuilder.ts'
 import { LIFT_STEP, liftServesSide, liftStopZs } from '../../../sim/lifts.ts'
 import { solidAt } from '../../../sim/ground.ts'
 import type { Module, StationData } from '../../../sim/types.ts'
+import { omitModelDetail } from '../../modelDetail.ts'
 
 /**
  * The shaft's top course — its lid — in metres. The lid's **top face** lands on
@@ -316,6 +317,16 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
 export class LiftModel extends PieceBuilder {
   readonly kind = 'lift'
   build(mod: Extract<Module, { type: 'lift' }>): THREE.Group {
-    return mod.cfg.style === 'steel' ? buildLift(this.ctx, mod) : buildGlassLift(this.ctx, mod)
+    const model = mod.cfg.style === 'steel' ? buildLift(this.ctx, mod) : buildGlassLift(this.ctx, mod)
+    model.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return
+      const geometry = object.geometry as THREE.BufferGeometry
+      geometry.computeBoundingBox()
+      const size = geometry.boundingBox!.getSize(new THREE.Vector3()).toArray().sort((a, b) => b - a)
+      // Preserve shaft walls, portals and moving door leaves; remove clamps,
+      // narrow frame trims, guide brackets and cabin instruments at a distance.
+      if (size[0] < 0.4 || size[1] <= 0.12 || object.material === this.ctx.mats.glow || object.material === this.ctx.mats.screen) omitModelDetail(object)
+    })
+    return model
   }
 }

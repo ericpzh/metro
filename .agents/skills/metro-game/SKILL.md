@@ -121,6 +121,17 @@ Use `bench:browser -- --compare-batching --investigate` for an enabled/disabled
 comparison on the same scene and test consist; inspect its drawInventory and
 multiDraw support instead of comparing reports from changed demo/assets.
 
+Authored Low geometry belongs to each piece builder through `render/modelDetail.ts`.
+Keep the full source geometry for picking; a zero-triangle approximation removes
+small fittings without hiding their source/rig object. Shelves omit products and
+price fittings; restroom furniture, cameras, cabinets, AC, tactile warning dots,
+track hardware, ramps, lifts and stairs have explicit approximations. Both local
+and cross-module batching must preserve these variants, and instances may share
+geometry only when both their full and reduced geometry match. The full source
+owns approximation disposal. Use `model-detail` for triangle budgets, exact stock
+picks, retained motion, finish colours, restoration and disposal; regenerate the
+per-model table with `node tools/model-triangle-inventory.mjs`.
+
 Batching preserves render order, shadow flags and culling policy. Hidden, skinned,
 morphing and partial-range geometry retains its original rendering. Clock-hand,
 wing, landing-door and moving-cabin descendants remain independent; cycling artwork

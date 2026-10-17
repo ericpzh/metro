@@ -5,6 +5,7 @@ import { PieceBuilder, slab, placeLocal } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { hangCeilingLocal } from '../../../sim/placement.ts'
+import { boxModelDetail, omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /** The head, in metres, below the surface a hung 监控 hangs from: its own stem's drop plus the
  *  half-height of the housing it carries. */
@@ -185,6 +186,19 @@ export class CctvModel extends PieceBuilder {
     const mats = this.ctx.mats
     const ceiling = hangCeilingLocal(mod, this.ctx.data.cells, this.ctx.data.modules)
     const model = mod.cfg.variant === 'ptz' ? buildPtz(mats, ceiling) : mod.cfg.variant === 'dome' ? buildDome(mats, ceiling) : buildCctv(mats, ceiling)
+    model.traverse(part => {
+      if (!(part instanceof THREE.Mesh)) return
+      const geometry = part.geometry
+      if (part.name === 'cctv-ir-led' || part.name === 'cctv-sun-hood' || part.name === 'cctv-rear-seam' || part.name === 'cctv-front-surround' || geometry instanceof THREE.TorusGeometry) omitModelDetail(part)
+      else if (geometry instanceof THREE.ExtrudeGeometry) boxModelDetail(part)
+      else if (geometry instanceof THREE.SphereGeometry) {
+        const p = geometry.parameters
+        setModelDetail(part, new THREE.SphereGeometry(p.radius, 8, 4, p.phiStart, p.phiLength, p.thetaStart, p.thetaLength))
+      } else if (geometry instanceof THREE.CylinderGeometry) {
+        const p = geometry.parameters
+        setModelDetail(part, new THREE.CylinderGeometry(p.radiusTop, p.radiusBottom, p.height, 8))
+      } else if (geometry instanceof THREE.CircleGeometry) setModelDetail(part, new THREE.CircleGeometry(geometry.parameters.radius, 8))
+    })
     return placeLocal(model, mod)
   }
 }

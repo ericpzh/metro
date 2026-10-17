@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { Module } from '../../../sim/types.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import { tactileArms } from '../../../sim/floorDecor.ts'
+import { omitModelDetail } from '../../modelDetail.ts'
 
 /** Thin 盲道 tiles in dark grey-green, with lengthwise ribs or a warning dot field (§9.5). */
 export class TactileModel extends PieceBuilder {
@@ -30,6 +31,7 @@ export class TactileModel extends PieceBuilder {
       }
       dots.instanceMatrix.needsUpdate = true
       g.add(dots)
+      omitModelDetail(dots)
     }
     return this.placeLocal(g, mod)
   }

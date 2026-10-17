@@ -1336,6 +1336,17 @@ the whole wave is aboard before the doors open, a doorway passes a row at its ow
 wait for their doorway, everybody still in the cabin despawns after closing and before motion, and a wave too big for
 the dwell is counted rather than lost.
 
+**The status bar's crowding letter is a station-wide reading (§7.3).** `Metrics.crowdLos` is the
+people standing in the station over `StationGraph.stationArea` — the station's own walkable floor,
+one square metre per node, with the street plane (站外) excluded, because the generated ground
+covers the whole window and a reading divided by it would never leave LOS A. A body aboard a
+consist is standing on no floor, so the cabin is on neither side of the ratio. That replaces the
+old per-node *worst* letter, which the status bar read as **E 非常拥挤 in a station with nobody in
+it** (its seed value was E and the scan could only raise it). A per-platform letter — §9.3's
+高峰预警 — stays derivable: `platforms[].cells` and the per-node `density` buffer both cross the
+worker boundary. `capacity.test.mjs` pins an empty station at A and the under-built station as the
+more crowded of the two, and `train-cabin.test.mjs` pins that a full cabin cannot lift the letter.
+
 The passengers follow the web concept sheets' rounded body, circular head and curved hair cap,
 retaining three instanced draws for the crowd. Train roofs use the body's own paint and meet
 the cab at a cut seam without overlapping shells. Half-height screen-door top rails are split
@@ -3857,6 +3868,12 @@ Bridge hover resolves visible track and screen-door surfaces above lower floors;
 platform, both ends, all rotations, one module pick per event and preview/click
 agreement.
 
+
+`model-detail.test.mjs` pins authored Low geometry budgets, empty shelves with exact
+stock picking, unchanged full geometry and finishes, retained ramp/lift motion,
+batch allocation reuse, Hide UI restoration and single disposal. Generate the
+per-model triangle inventory with `node tools/model-triangle-inventory.mjs` from
+the repository root; reports and its Markdown table go to `.preview/perf/`.
 
 `static-rendering.test.mjs` pins retained 16 m outdoor tile/tree instance batches,
 original picking layers and move masking, transparent instance ordering with stable

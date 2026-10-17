@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
+import { omitModelDetail } from '../../modelDetail.ts'
 
 /** Slab-track hardware (§5.4), batched so a long platform costs the same draw calls. */
 export function buildTrackDetails(g: THREE.Group, mats: ModelMaterials, concrete: THREE.Material, railWeb: THREE.Material, w: number, d: number): void {
@@ -38,6 +39,7 @@ export function buildTrackDetails(g: THREE.Group, mats: ModelMaterials, concrete
     points.forEach(([x, y, z], i) => mesh.setMatrixAt(i, pose.makeTranslation(x, y, z)))
     mesh.instanceMatrix.needsUpdate = true
     g.add(mesh)
+    if (name !== 'concrete sleepers') omitModelDetail(mesh)
   }
   batch('concrete sleepers', new THREE.BoxGeometry(0.23, Math.min(2.42, Math.max(1.9, d - 0.3)), 0.08), concrete, positions.map(x => [x, cy, 0.53]))
   const seats: Array<[number, number, number]> = []

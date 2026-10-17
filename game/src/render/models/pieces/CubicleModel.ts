@@ -3,6 +3,7 @@ import { PieceBuilder, slab, placeLocal, ownedMaterial } from '../PieceBuilder.t
 import { rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
 import { ceramicMaterial, roundedFixture, turnedFixture, fixtureRing } from './RestroomFixtures.ts'
+import { omitModelDetail } from '../../modelDetail.ts'
 
 type Cubicle = Extract<Module, { type: 'cubicle' }>
 const WALLS = [[-0.5, 0], [0.5, 0], [0, 0.5]] as const
@@ -39,10 +40,10 @@ export class CubicleModel extends PieceBuilder {
         slab(g, mats.steel, x, fy, 0.015, 0.07, 0.085, 0.03)
       }
     }
-    for (const x of [-0.445, 0.445]) slab(g, partition, x, -0.48, 1.05, 0.07, 0.04, 1.8)
+    for (const x of [-0.445, 0.445]) slab(g, partition, x, -0.48, 1.05, 0.07, 0.04, 1.8).name = 'cubicle-jamb'
     const door = slab(g, partition, 0, -0.48, 1.075, 0.802, 0.035, 1.75)
     door.name = 'cubicle-door'
-    slab(g, mats.steel, 0, -0.48, 1.955, 1, 0.055, 0.045)
+    slab(g, mats.steel, 0, -0.48, 1.955, 1, 0.055, 0.045).name = 'cubicle-header'
     for (const z of [0.5, 1.65]) roundedFixture(g, mats.steel, -0.41, -0.505, z, 0.025, 0.03, 0.09, 0.009)
     roundedFixture(g, mats.steel, 0.31, -0.509, 1.08, 0.075, 0.025, 0.12, 0.012)
     slab(g, mats.darkSteel, 0.30, -0.532, 1.055, 0.06, 0.025, 0.018)
@@ -61,6 +62,8 @@ export class CubicleModel extends PieceBuilder {
     const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.11, 20), seat)
     roll.position.set(-0.415, -0.12, 0.77)
     g.add(roll)
+    // The enclosing panels identify a distant cubicle; its hidden sanitary fit-out does not.
+    for (const part of g.children) if (!part.name.startsWith('cubicle-')) omitModelDetail(part)
     return placeLocal(g, mod)
   }
 }
