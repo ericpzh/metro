@@ -2,8 +2,8 @@ import { ROAD_TRAFFIC_CAPACITY, ROAD_STEP } from '../../../sim/constants.ts'
 import * as THREE from 'three'
 import { getRoadNetwork, roadEdgePoint, roadSignal } from '../../../sim/roadNetwork.ts'
 import { RoadTraffic } from '../../../sim/roadTraffic.ts'
-import { roadVehicleParts } from '../../models/pieces/RoadVehicleModel.ts'
-import type { RoadVehicleKind } from '../../models/pieces/RoadVehicleModel.ts'
+import { roadVehicleDrawParts, roadVehicleVariant, ROAD_VEHICLE_VARIANTS } from '../../models/pieces/RoadVehicleModel.ts'
+import type { RoadVehicleDetail, RoadVehicleVariant } from '../../models/pieces/RoadVehicleModel.ts'
 import type { Module } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 
@@ -11,7 +11,7 @@ const CAPACITY = ROAD_TRAFFIC_CAPACITY
 /** Ambient traffic uses the simulation clock, with bounded instance buffers and no document edits. */
 export class RoadTrafficSystem extends SceneSystem {
   private root = new THREE.Group()
-  private meshes = new Map<RoadVehicleKind, THREE.InstancedMesh[]>()
+  private meshes = new Map<RoadVehicleVariant, Record<RoadVehicleDetail, THREE.InstancedMesh[]>>()
   private from = 0
   private to = 0
   private have = false
@@ -35,16 +35,26 @@ export class RoadTrafficSystem extends SceneSystem {
     if(!this.traffic || this.traffic.network!==network || this.traffic.seed!==data.seed) this.traffic=new RoadTraffic(network,data.seed)
     if (!network.roads.length) { this.root.visible = false; return }
     this.root.visible = !this.ctx.hideGround
-    if (!this.meshes.size) for (const kind of ['car', 'bus', 'bike', 'scooter'] as const) {
-      this.meshes.set(kind, roadVehicleParts(kind).map(({ geometry, material }) => {
-        const mesh = new THREE.InstancedMesh(geometry, material, CAPACITY)
-        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-        mesh.frustumCulled = false
-        this.root.add(mesh)
-        return mesh
-      }))
+    if (!this.meshes.size) for (const kind of ROAD_VEHICLE_VARIANTS) {
+      const details = {} as Record<RoadVehicleDetail, THREE.InstancedMesh[]>
+      for (const detail of ['high', 'low'] as const) {
+        details[detail] = roadVehicleDrawParts(kind, detail).map(({ geometry, material }) => {
+          const mesh = new THREE.InstancedMesh(geometry, material, CAPACITY)
+          mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+          mesh.frustumCulled = false
+          mesh.userData.vehicleVariant = kind
+          mesh.userData.vehicleDetail = detail
+          mesh.renderOrder = material.colorWrite ? 0 : -1
+          mesh.visible = (this.ctx.graphicsQuality ?? 'high') === detail
+          this.root.add(mesh)
+          return mesh
+        })
+      }
+      this.meshes.set(kind, details)
     }
-    for (const meshes of this.meshes.values()) for (const mesh of meshes) {
+    const detail: RoadVehicleDetail = this.ctx.graphicsQuality === 'low' ? 'low' : 'high'
+    for (const models of this.meshes.values()) for (const quality of ['high', 'low'] as const) for (const mesh of models[quality]) {
+      mesh.visible = quality === detail
       const mat = mesh.material as THREE.Material
       if (!!mat.clippingPlanes?.length !== !!clip) { mat.clippingPlanes = clip ? [clip] : []; mat.needsUpdate = true }
     }
@@ -54,12 +64,12 @@ export class RoadTrafficSystem extends SceneSystem {
     const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
     const time = this.from + (this.to - this.from) * alpha
     // Once interpolation settles, paused views require no further buffer uploads.
-    const key = `${data.seed}|${time}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideGround}|${this.ctx.cutaway}`
+    const key = `${data.seed}|${time}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideGround}|${this.ctx.cutaway}|${detail}`
     const visible = new Set(moduleRoots.children.filter(g => g.visible).map(g => g.userData.moduleId))
     const visibility = moduleRoots.children.filter(g=>g.visible).map(g=>g.uuid).join('|')
     if (this.roads === data.modules && this.root.userData.key === key && this.root.userData.visibility === visibility) return
     this.roads = data.modules; this.root.userData.key = key; this.root.userData.visibility = visibility
-    const counts = new Map<RoadVehicleKind, number>()
+    const counts = new Map<RoadVehicleVariant, number>()
     this.traffic.advance(time)
     for(const root of moduleRoots.children) for(const signal of root.userData.roadSignals??[]) {
       const phase=roadSignal(signal.junction,signal.axis,time),active=phase==='red'?0:phase==='amber'?1:2
@@ -82,17 +92,18 @@ export class RoadTrafficSystem extends SceneSystem {
       const dy=e.control?2*((1-t)*(e.control[1]-e.start[1])+t*(e.end[1]-e.control[1])):e.end[1]-e.start[1]
       this.pose.position.set(x,y,e.road.z+1.05)
       this.pose.rotation.set(0,0,Math.atan2(-dx,dy));this.pose.updateMatrix()
-      const index=counts.get(c.kind)??0
-      for(const mesh of this.meshes.get(c.kind)!) mesh.setMatrixAt(index,this.pose.matrix)
-      counts.set(c.kind,index+1)
+      const variant = roadVehicleVariant(c.kind, c.id, data.seed)
+      const index=counts.get(variant)??0
+      for(const mesh of this.meshes.get(variant)![detail]) mesh.setMatrixAt(index,this.pose.matrix)
+      counts.set(variant,index+1)
     }
-    for (const [kind, meshes] of this.meshes) for (const mesh of meshes) {
-      mesh.count = counts.get(kind) ?? 0
-      mesh.instanceMatrix.needsUpdate = true
+    for (const [kind, models] of this.meshes) for (const quality of ['high', 'low'] as const) for (const mesh of models[quality]) {
+      mesh.count = quality === detail ? counts.get(kind) ?? 0 : 0
+      if (quality === detail) mesh.instanceMatrix.needsUpdate = true
     }
   }
   dispose(): void {
-    for (const meshes of this.meshes.values()) for (const mesh of meshes) {
+    for (const models of this.meshes.values()) for (const quality of ['high', 'low'] as const) for (const mesh of models[quality]) {
       mesh.dispose(); mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose()
     }
     this.meshes.clear(); this.root.removeFromParent()

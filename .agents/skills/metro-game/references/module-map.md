@@ -1,5 +1,12 @@
 # `game/src` module map
 
+Road vehicle geometry lives in `render/models/pieces/vehicles/`: `VehicleKit.ts`
+owns merged material bins, shaped hulls, rods and wheels; `RoadCar.ts`, `RoadBus.ts`
+and `RoadCycle.ts` own the six model variants. `RoadVehicleModel.ts` dispatches the
+models and hashes seed/id to stable appearances. `RoadTrafficSystem.ts` owns their
+instance packing; `app/captureRoadVehicles.ts` renders the actual instanced models
+for the production browser review (`tools/check-road-vehicles.mjs`).
+
 A file-by-file ownership map of the game. Keep the dependency rule in mind:
 `app/ → render/ → sim/`, and `build/ → sim/` (build imports neither render nor
 app). `sim/` imports nothing outside itself and never touches the DOM, three or

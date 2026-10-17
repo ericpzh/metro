@@ -3840,7 +3840,17 @@ passengers. Automatic zebra markings are visual; roads still cut pedestrian rout
 Roads cut pedestrian routing on their own floor and swept movement keeps crowd
 pressure off the pavement. Editing a road beneath walkers relocates them to the
 nearest remaining pedestrian floor before replanning. Vehicle materials are
-grayscale and share the passenger material's 70% opacity. `npm run check:roads` drives the real
+grayscale and share the passenger material's 70% opacity, with a depth prepass for
+self-occlusion. Six reference-inspired models
+appear in stable seeded pairs: pale/orange and mosaic city buses, SUV and fastback sedan,
+and seated moped and step-through bicycle riders. Cars have shaped hoods, glazing,
+wheel arches and alloy hubs; buses have curb-side double doors, rooftop equipment,
+route displays and mirrors; the bicycle has open spokes and a wire basket. Vehicle
+draws include a shared depth pass so far-side wheels do not show through the near-side body.
+`road-vehicles.test.mjs` pins these silhouettes, visible fittings, seeded instance packing,
+pause and resource disposal. `node tools/check-road-vehicles.mjs` photographs all six
+production instanced models from front and rear into `.preview/road-vehicles/`.
+`npm run check:roads` drives the real
 production viewport in Chinese and English: centerline node drags, R flow reversal,
 Tab width / Shift+Tab direction refresh, endpoint extension, mid-road branches,
 segment-only deletion and undo/redo. Each gesture commits once on release.

@@ -30,6 +30,11 @@ restore the local autosave or start empty; browser tools requiring a demo must l
 their fixture explicitly. Autosave ownership and replacement rules live in
 `metro-game` under “Startup and interactive tutorial”.
 
+Ambient road traffic has six seeded vehicle appearances: pale/orange and red-mosaic
+buses, SUV, sedan, moped and step-through bicycle. Low graphics quality uses authored
+reduced geometry; High uses full detail. Per-instance triangle counts, including the
+shared depth pass, are in [`references/performance.md`](references/performance.md#ambient-road-vehicles).
+
 For every behaviour change, add or update deterministic regressions for each affected
 contract and run the complete owning test suite before calling the work covered. A
 focused test or a coverage percentage is not a substitute for the full suite; report

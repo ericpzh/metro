@@ -60,6 +60,29 @@ resource creation and cache reuse; local HTTP startup is not a WAN measurement.
 
 Triangle counts below are for one model built from each palette option's default configuration. High is the full model geometry; Low uses the renderer's reduced geometry wherever that model part has a supported approximation, and keeps unsupported parts at full detail. These are model triangles, not totals across all placed copies. Width, length, style and material controls can create additional variants; the table lists the 119 shipped palette options.
 
+Ambient road vehicles are seeded into the six models listed below. The counts are per
+vehicle instance and include the colour geometry plus its matching depth-only prepass;
+the prepass suppresses far-side fittings while keeping the 70% grey paint. Low is an
+authored geometry variant selected by the game's Low graphics setting, not a runtime
+simplification. Regenerate the production counts and front/rear captures with
+`node tools/check-road-vehicles.mjs`; the ignored report and images are in
+`.preview/road-vehicles/`. The app keeps only the active quality visible and packs
+traffic into its matching instance buffers.
+
+| Ambient road vehicle | Low triangles | High triangles |
+|---|---:|---:|
+| Guangzhou bus, pale/orange | 5,080 | 11,224 |
+| Guangzhou bus, red mosaic | 5,298 | 11,506 |
+| SUV | 2,544 | 5,136 |
+| Sedan | 2,456 | 4,984 |
+| Moped with rider | 2,832 | 7,120 |
+| Step-through bicycle with rider | 3,744 | 8,160 |
+
+Each Low model preserves the full variant's body outline, windows and required fittings
+while reducing wheels, repeated rods, spokes, fender tessellation and bus-window mullions.
+`road-vehicles.test.mjs` pins the reduction, instance switch, pause behaviour and exact
+resource release. This is a geometry update, with no timing claim.
+
 Regenerate all three tables in this section with `node tools/model-triangle-inventory.mjs`;
 it writes ignored `.preview/perf/model-triangles.{json,md}`, `train-triangles.{json,md}`
 and `passenger-triangles.{json,md}`. The inventory builds the equipment and the trains

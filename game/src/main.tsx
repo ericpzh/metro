@@ -21,6 +21,11 @@ const root = createRoot(document.getElementById('root') as HTMLElement)
  */
 async function boot() {
   const params = new URLSearchParams(location.search)
+  if (params.has('capture-road-vehicles')) {
+    const capture = await import('./app/captureRoadVehicles.ts')
+    Object.assign(window, { __roadVehicles: capture, __roadVehiclesReady: true })
+    return
+  }
   if (params.has('capture-passengers')) {
     const capture = await import('./app/capturePassengers.ts')
     Object.assign(window, { __passengerCards: capture, __passengerCardsReady: true })
