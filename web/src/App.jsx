@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { gallery } from './artworks.js'
 import {
   canonicalPath,
@@ -11,6 +11,7 @@ import Hero from './components/Hero.jsx'
 import Rail from './components/Rail.jsx'
 import Section from './components/Section.jsx'
 import Footer from './components/Footer.jsx'
+import DemoPicker from './components/DemoPicker.jsx'
 
 function setMeta(name, content) {
   const node = document.querySelector(`meta[name="${name}"]`)
@@ -20,8 +21,11 @@ function setMeta(name, content) {
 export default function App() {
   const [lang, setLang] = useState(() => detectLang())
   const [active, setActive] = useState(gallery.zh.artworks[0].id)
+  const [demosOpen, setDemosOpen] = useState(false)
   const copy = gallery[lang]
   const t = ui[lang]
+  const openDemos = useCallback(() => setDemosOpen(true), [])
+  const closeDemos = useCallback(() => setDemosOpen(false), [])
 
   // Reflect the language in <html lang> / title / meta, and pin it to the
   // canonical path (/en/ for English) so the URL stays shareable.
@@ -88,9 +92,9 @@ export default function App() {
 
   return (
     <>
-      <Nav lang={lang} onLang={setLang} t={t} />
+      <Nav lang={lang} onLang={setLang} t={t} onOpenDemos={openDemos} />
       <main>
-        <Hero t={t} copy={copy} lang={lang} />
+        <Hero t={t} copy={copy} lang={lang} onOpenDemos={openDemos} />
         <div className="gallery" id="gallery">
           <Rail active={active} t={t} copy={copy} />
           {copy.sections.map((section) => (
@@ -103,6 +107,7 @@ export default function App() {
         </div>
         <Footer t={t} />
       </main>
+      <DemoPicker open={demosOpen} onClose={closeDemos} lang={lang} t={t} />
     </>
   )
 }

@@ -1,3 +1,5 @@
+import { demoPath } from './stations.js'
+
 // Repository and document links. Change `repo` if you fork this elsewhere.
 export const repo = 'ericpzh/metro'
 export const repoUrl = `https://github.com/${repo}`
@@ -7,6 +9,9 @@ export const artUrl = `${repoUrl}/tree/${branch}/art`
 
 /** Resolve a file in public/art, honouring Vite's configured base path. */
 export const sheet = (file) => `${import.meta.env.BASE_URL}art/${file}`
+
+/** Resolve an example-station preview, copied into public/stations at build time. */
+export const stationPreview = (file) => `${import.meta.env.BASE_URL}stations/${file}`
 
 /**
  * The game is a separate Worker, served from https://stationdesigner.com/game/
@@ -22,3 +27,11 @@ export const gameRoot = (() => {
 
 /** Href of the game in a language: `/game/` for Chinese, `/game/en/` for English. */
 export const gameHref = (lang) => `${gameRoot}${lang === 'en' ? 'en/' : ''}`
+
+/**
+ * Href that opens a demo station straight in the game: `/game/zoo`,
+ * `/game/tanwei`, or `/game/en/zoo` and `/game/en/tanwei` in English. The route
+ * carries no trailing slash — its relative `./assets/...` resolve at the game
+ * root, and the game replaces it with the plain path once the station is open.
+ */
+export const demoHref = (lang, id) => `${gameRoot}${demoPath(lang, id)}`

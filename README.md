@@ -31,6 +31,26 @@ coupling between the two apps: it is built in [`web/src/site.js`](web/src/site.j
 (`gameHref`) and can be overridden with `VITE_GAME_URL`. The Worker's own
 `workers.dev` root keeps serving the same build.
 
+**A demo station can be opened straight from the URL** — that is the fourth and
+fifth way in:
+
+| URL | Opens |
+|---|---|
+| `/game/zoo`, `/game/en/zoo` | 动物园, 广州地铁 5号线 — the five-level station with a surface plaza |
+| `/game/tanwei`, `/game/en/tanwei` | 坦尾, 广州地铁 5/6号线 — the elevated interchange |
+
+The path opens that example station instead of the local autosave, then rewrites
+the URL to the plain game path (`/game/`, `/game/en/`), so a reload restores what
+the player was building rather than throwing their edits away. `boot.tsx` does
+that through `app/demoRoute.ts`.
+
+The site's **示例车站** picker is the shop window for those routes: the nav button
+left of 看图 and the hero button between 开始游戏 and 浏览概念图 open the same
+two-card dialog, and each card is a plain link to one of the demo URLs. The cards'
+pictures are the game's own previews (`game/src/assets/stations/*.webp`), copied
+into the site at build time by `web/scripts/sync-stations.mjs` — the site never
+imports game code, only the two pictures and the URL.
+
 `game/wrangler.jsonc` declares the game's route pair, so `npm run deploy:game`
 creates them along with the Worker — there is no dashboard step and nothing to
 keep in sync by hand.
@@ -40,6 +60,7 @@ npm start             # web 5173 + game 5174 + model 5175
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
 npm run test:game     # node --test: determinism, tick budgets, capacity ladder
+npm run check:demos   # builds both apps, then walks the picker and all four demo URLs in Chrome
 npm run deploy:game   # build, deploy metro-game, and attach its route pair
 ```
 
@@ -81,6 +102,12 @@ dependencies for all three apps. See `model/README.md` for assets and provenance
 
 A dark, single scrolling page: every concept sheet runs edge to edge, and its design note is a
 translucent glass panel floating over the drawing. Click any sheet to open it at full resolution.
+
+Two buttons — 示例车站 in the nav, left of 看图, and the one between 开始游戏 and 浏览概念图 in the
+hero — open a picker of the game's two example stations. Each card is that game's own preview
+render and a link to the station's demo route, so choosing one starts the game on it. The dialog is
+[`web/src/components/DemoPicker.jsx`](web/src/components/DemoPicker.jsx); its copy is in
+[`web/src/i18n.js`](web/src/i18n.js) and the previews are published from the game at build time.
 
 Seven sheets are **photographs of the game** rather than drawings of it: 03's blocks come from the game's own
 chunk mesher, 04's modules from the pass the build rail uses, 06 is the 客流 window in the four day
@@ -178,8 +205,8 @@ way, and needs the same login.
 
 When wrangler is not available — no Cloudflare account, no network, or a machine that will not let
 it spawn — `npm run preview:local` serves the same two builds from `.dist` on one origin instead:
-the site at `/`, the game at `/game/`, each with its `/en/` pin. It is plain Node with no children,
-so it starts anywhere:
+the site at `/`, the game at `/game/`, each with its `/en/` pin and the game's demo routes
+(`/game/zoo`, `/game/tanwei`). It is plain Node with no children, so it starts anywhere:
 
 ```bash
 npm run build && npm run build:game    # it only reads build output
@@ -199,6 +226,15 @@ Route patterns are ranked by specificity, so the game's pair wins over the site'
 request for `/gameplay` still reaches the site. The bare `/game` needs its own pattern because
 `/game/*` does not match it; never collapse the pair into `/game*` — `*` matches across `/`, so it
 would also swallow `/gameplay` and hand it to the game's Worker.
+
+The game also answers three client routes under that pair, which have no file behind them and are
+served by its SPA fallback:
+
+| URL | Result |
+|---|---|
+| `/game/zoo`, `/game/tanwei` | the game document; the app opens that example station |
+| `/game/en/zoo`, `/game/en/tanwei` | the same, in English |
+| `/game/zoo/`, `/game/tanwei/` | `308` to the slash-less URL (a directory form would break the relative assets) |
 
 Both Workers are attached with **routes**, not as a Custom Domain: a Custom Domain claims the whole
 hostname for one Worker and would hide the other. The zone must hold `stationdesigner.com`, and its
@@ -237,6 +273,9 @@ reproducible locally with `npm run preview:local`:
 | `/game/en/` | `200` game `index.html`, English |
 | `/game/en/assets/*.js` | `200` — game assets, aliased back to the Worker root |
 | `/game/lab` | `200` game `index.html` — the SPA fallback |
+| `/game/zoo` | `200` game `index.html` — the zoo demo opens |
+| `/game/en/tanwei` | `200` game `index.html`, English — the Tanwei demo opens |
+| `/game/zoo/` | `308` → `/game/zoo` |
 | `/gameplay`, `/nope` | `404` |
 
 When the game deploys, `wrangler` warns that the routes "will attempt to serve Assets on a configured

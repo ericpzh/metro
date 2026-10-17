@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { gameHref, repoUrl } from '../site.js'
 import BrandMark from './BrandMark.jsx'
 
-export default function Nav({ lang, onLang, t }) {
+export default function Nav({ lang, onLang, t, onOpenDemos }) {
   const [progress, setProgress] = useState(0)
   const [solid, setSolid] = useState(false)
 
@@ -38,6 +38,9 @@ export default function Nav({ lang, onLang, t }) {
         </nav>
         <span className="nav__spacer" />
         <nav className="nav__links">
+          <button type="button" onClick={onOpenDemos} data-demos="nav">
+            {t.nav.demos}
+          </button>
           <a href="#gallery">{t.nav.gallery}</a>
           <a href={repoUrl} target="_blank" rel="noreferrer">
             GitHub

@@ -35,6 +35,14 @@ export default {
       return Response.redirect(url.toString(), 308)
     }
 
+    // A client route (/lab, /zoo, /tanwei) has no directory of its own: with a
+    // trailing slash its relative `./assets/...` would resolve inside the route.
+    // Drop the slash and let the SPA fallback below serve the app.
+    if (rest.length > 1 && rest.endsWith('/') && !rest.slice(1, -1).includes('/')) {
+      url.pathname = base + (english ? '/en' : '') + rest.slice(0, -1)
+      return Response.redirect(url.toString(), 308)
+    }
+
     url.pathname = rest
     const res = await env.ASSETS.fetch(new Request(url, request))
 

@@ -1,6 +1,6 @@
 import { gameHref, sheet } from '../site.js'
 
-export default function Hero({ t, copy, lang }) {
+export default function Hero({ t, copy, lang, onOpenDemos }) {
   const first = copy.artworks[0]
 
   return (
@@ -23,6 +23,9 @@ export default function Hero({ t, copy, lang }) {
               <a className="btn btn--primary" href={gameHref(lang)}>
                 {t.hero.play}
               </a>
+              <button type="button" className="btn" onClick={onOpenDemos} data-demos="hero">
+                {t.hero.demos}
+              </button>
               <a className="btn" href="#gallery">
                 {t.hero.browse}
               </a>

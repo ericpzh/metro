@@ -8,6 +8,8 @@ web/dist/
 
 # Generated: the concept sheets are copied from art/ at build time
 web/public/art/
+# Generated: the example-station previews come from game/src/assets/stations
+web/public/stations/
 model/public/models/
 # Interrupted model exports
 *.glb.*.tmp

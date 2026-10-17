@@ -63,6 +63,14 @@ while reading each step. Progress and “Don’t show automatically” are store
 finishing returns its progress to the first step. Example stations remain available
 from the top bar.
 
+A link can name an example station too: `https://stationdesigner.com/game/zoo` and
+`…/game/tanwei` (English `/game/en/zoo`, `/game/en/tanwei`) open that station before the
+autosave is read, then rewrite the URL to the plain game path, so a reload restores the
+player's own station instead of the demo. `app/demoRoute.ts` owns the matching and
+`app/boot.tsx` the one-shot load; `demo-route.test.mjs` pins the paths, the Worker's
+trailing-slash redirect and that boot order, and `npm run check:demos` walks the site's two
+buttons and all four links in the production browser.
+
 `test/tutorial.test.mjs` pins empty paused startup and tutorial preference
 round-trips, malformed/stale values and blocked storage. `npm run check:tutorial`
 builds the production game and checks both languages in a real browser, including
@@ -3614,6 +3622,11 @@ swallow `/gameplay`. The art site's Worker answers the rest of the hostname on t
 `stationdesigner.com/*` route, so this pair wins by specificity. The Worker's own `workers.dev` root
 keeps working at the same time.
 
+The demo links (`/game/zoo`, `/game/tanwei`, and their `/game/en/…` twins) are client routes, not
+directories: the Worker drops a trailing slash before the asset layer sees it, so the document's
+relative `./assets/...` resolve at the game root and the app's own `demoRoute.ts` reads the segment.
+`demo-route.test.mjs` pins that rule.
+
 Two notes:
 
 * `wrangler` warns that the routes "will attempt to serve Assets on a configured path" (it looks for
@@ -3705,7 +3718,7 @@ All built-in copy lives in `src/sim/i18n/messages.ts`. Fixed English glosses on 
 
 In English mode, station fields are labelled Primary name / Secondary name and sign fields Primary text / Secondary text. Their authored contents and order stay intact. Clock rows and longer labels wrap within their panels, and the demand chart reserves a gutter for translated units and counts.
 
-`i18n.test.mjs` pins both catalogues, interpolation, existing-notice language switching, canonical simulation labels, explicit-language formatting without locale mutation, and the `/game` + `/game/en` routes with their asset resolution at the deployed prefix and the workers.dev root. `site-worker.test.mjs` pins the site's own `/en` pin and asset rewrite. Run `npm run audit:i18n` from the repo root to check runtime JSX, accessible labels, and canvas/model decal calls for inline copy. The site uses `web/src/i18n.js` and `web/src/artworks.js`; generated art uses `tools/sheet-i18n.mjs`, including labels measured before drawing.
+`i18n.test.mjs` pins both catalogues, interpolation, existing-notice language switching, canonical simulation labels, explicit-language formatting without locale mutation, and the `/game` + `/game/en` routes with their asset resolution at the deployed prefix and the workers.dev root. `site-worker.test.mjs` pins the site's own `/en` pin and asset rewrite. `demo-route.test.mjs` pins the demo URLs, their trailing-slash redirect and the boot that opens the named station over the autosave; `site-demo-links.test.mjs` pins the concept site's picker wiring and its copied previews. Run `npm run audit:i18n` from the repo root to check runtime JSX, accessible labels, and canvas/model decal calls for inline copy. The site uses `web/src/i18n.js` and `web/src/artworks.js`; generated art uses `tools/sheet-i18n.mjs`, including labels measured before drawing.
 
 `passenger-view.test.mjs` pins the approved faceless silhouettes, shallow head/body proportions, opaque unlit ink, flat skin/hair/clothing boundaries and grounded walking poses, stable outfit/build/height/tone variation through buffer reordering, grounded animated arm/leg poses, travel-driven gait, idle/riding transitions, mid-stride pause/resume through duplicate and reordered snapshots, selection at the displayed head/legs, phase identity through crowd compaction, interpolated eye position, departure handling, click-held first-person mouse look after the initial heading, and restoration of the camera and display settings.
 

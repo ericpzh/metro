@@ -213,7 +213,8 @@ errors change immediately. Keep locale out of station saves and worker state;
 switching it must preserve edits, undo history, drafts and the simulation.
 
 `https://stationdesigner.com/game/en/` (including the bare `/game/en`) opens the
-English game; `/game/` is Chinese. The
+English game; `/game/` is Chinese. The demo links keep the same pin —
+`/game/en/zoo` opens the zoo in English. The
 `IoLanguageSharp` button beside restart switches either route; each route keeps
 its preference in local storage. Worker, Vite preview and `tools/preview.mjs`
 must resolve the English document's relative assets. Locale changes refresh
@@ -1046,6 +1047,15 @@ the four rules most changes trip over.
 the worker, paused at the station's baseline; otherwise it starts empty.
 Examples are explicit loads; `initialStation()` remains a reference
 fixture helper, not the startup document. Keep browser fixture loaders explicit.
+
+`app/demoRoute.ts` plus `boot.tsx` also answer a demo link — `/game/zoo`,
+`/game/tanwei`, and their `/game/en/…` twins, which the concept site's 示例车站
+picker links. The named example is loaded **before** the autosave is read, the
+worker is initialised once (not again after the load), and the URL is replaced
+with the plain game path (`/game/`, `/game/en/`) so a reload restores the player's
+own station. `game/worker/index.js` serves the route as a client route and 308s a
+trailing slash away. Pin the matching, the redirect and the boot order in
+`demo-route.test.mjs`; `npm run check:demos` walks it in the production browser.
 
 `app/autosave.ts` owns `metro-game.autosave.v1`, using the existing `metro-save`
 JSON envelope. Committed `version` changes save every 10 seconds and on pagehide

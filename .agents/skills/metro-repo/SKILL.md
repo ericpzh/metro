@@ -51,7 +51,7 @@ model editing, exports and the approved game atlas. See `model/README.md`. No mo
 | Path | What it is |
 |---|---|
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
-| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`), served at `stationdesigner.com/game/`. Bilingual: Chinese by default, English at `/game/en/`; the top-right gear menu contains the quality controls and the opposite-language action. Game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
+| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`), served at `stationdesigner.com/game/`. Bilingual: Chinese by default, English at `/game/en/`; the top-right gear menu contains the quality controls and the opposite-language action. A demo station can be opened from the URL (`/game/zoo`, `/game/tanwei`, `/game/en/…`), which loads that example and then rewrites the address to the plain game path. Game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
@@ -303,6 +303,7 @@ npm run art:models    # approved model exports → game atlas → bilingual art 
 npm run dev:all       # web 5173 + game 5174 + model 5175
 npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run check:tutorial # production browser tutorial/input/i18n regressions
+npm run check:demos   # production browser: the site's demo picker and all four demo URLs
 npm run build:game    # install game/ deps, then tsc --noEmit && vite build
 npm run bench:sim     # demo-station simulation + build CPU timings
 npm run bench:browser # production app/worker/browser FPS + edit-to-frame timings
@@ -338,7 +339,7 @@ commands.
 | `sheet-i18n.mjs` | The English copy table for the sheets: every Chinese `<text>` string (plus sheet 06's slider `aria-label`s and live-readout script literals) mapped to terse English; `{ t, size }` pulls a long label's font-size down. Embedded game captures stay Chinese. |
 | `sheet-png.mjs <nn>` | Rasterises one sheet in a headless browser so the composition can be **looked at** (`--at <s>` freezes an animated sheet). |
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
-| `preview.mjs` | `npm run preview:local`: serves the built site at `/` (English `/en/`) and the built game at `/game/` (English `/game/en/`), over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Workers do. |
+| `preview.mjs` | `npm run preview:local`: serves the built site at `/` (English `/en/`) and the built game at `/game/` (English `/game/en/`, with its demo routes `/game/zoo`, `/game/tanwei`), over one origin. Exports `createPreview()` for `check-demos.mjs`. Stands in for `wrangler dev`, with the Workers' pins and trailing-slash redirects. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
 | `bake-approved-passenger.mjs` | Bakes the complete reviewed catalogue, age flags and all walks into the active shared crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
 | `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, 70% opacity and the instanced crowd in the built game GPU renderer. |
@@ -376,6 +377,7 @@ floor policy, geometry lifecycle, graphics preference, retained-view and static-
 cases to focused coverage. Then run `npm --prefix game test` for the full suite;
 inspect per-module coverage in both test output and keep the coverage map in sync.
 | `browser-harness.mjs` | The shared headless-Chrome + static-server driver the `render-*` passes sit on. |
+| `check-demos.mjs` | `npm run check:demos`: builds both apps, serves them through `preview.mjs` and drives Chrome — the nav and hero buttons open the one station picker, every card links its demo route, a demo outranks the autosave while the plain path restores it, `/game/zoo/` redirects, and the nav fits 390 px. Screenshots in ignored `.preview/demos/`. |
 | `train-cards.mjs`, `piece-views.mjs` | The two placement helpers the sheets share: a captured car / run and the metres it covers, so a sheet stands the game's picture on its own line at its own scale. |
 | `zoom.mjs` | Crops a detail out of a sheet and writes a `*-zoom.svg` beside it (`sync-art.mjs` skips those). |
 | `render-sign-panel.mjs`, `render-tv-plate.mjs` | Render the real sign / TV draw functions to PNG for looking at, rather than asserting. |
@@ -397,7 +399,8 @@ to `main` ships both:
   `stationdesigner.com/game` and `/game/*`, with `ASSET_PREFIX=/game` and its
   routes declared in its own config (so `wrangler deploy` creates them; no
   dashboard step). `game/worker/index.js` strips `ASSET_PREFIX` before reading
-  an asset.
+  an asset, and drops a trailing slash from a client route (`/game/zoo/` → 308
+  `/game/zoo`) so the document's relative assets resolve at the game root.
 
 Route gotchas: the game needs **two** routes (bare + `/*`) because `/game/*`
 does not match `/game`. Never collapse them to `/game*` — `*` spans `/` and

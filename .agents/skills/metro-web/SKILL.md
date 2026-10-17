@@ -27,8 +27,9 @@ npm run deploy         # build + wrangler deploy (Worker `metro`)
 npm run preview:local  # tools/preview.mjs — the built site and game on one origin
 ```
 
-`web/package.json`'s own `sync-art` script runs automatically as `prestart` /
-`predev` / `prebuild`, so a build can never serve a stale sheet.
+`web/package.json`'s own `sync-art` and `sync-stations` scripts run automatically as
+`prestart` / `predev` / `prebuild`, so a build can never serve a stale sheet or a
+stale station preview.
 
 ## The site
 
@@ -40,23 +41,34 @@ instead of hand-formatting translated templates; use `sheetText` from
 English-copy change must preserve the Chinese catalogue and default captures.
 
 * `web/src/App.jsx` + `web/src/components/` — `Nav`, `Hero`, `Sheet`, `Rail`,
-  `Section`, `Footer`. One component per region; the gallery is
+  `Section`, `Footer`, `DemoPicker`. One component per region; the gallery is
   data-driven. The left-side `Rail` tracks the current sheet and links to four
   reading sections. Sheets render at full width with their short introduction
-  above the image; the gallery does not open a lightbox.
+  above the image; the gallery does not open a lightbox. `DemoPicker` is the
+  shared demo-station dialog: the nav button left of 看图 and the hero button
+  between 开始游戏 and 浏览概念图 both open it, Escape/backdrop/× close it, and a
+  card is a link to the game's own route (`/game/zoo`, `/game/en/tanwei`).
 * `web/src/artworks.js` — the sheets as data: spec id, title, player-facing
   introduction, alt text, section and order. The four paths are the station
   (01, 02, 13), trains and boarding (11, 05, 12), building (03, 04, 09), and
   passenger flow and interface (06, 07). Section notes introduce each group.
+* `web/src/stations.js` — the two example stations the game ships (ids and
+  preview files) and `demoPath(lang, id)`; its copy lives in `i18n.js` under
+  `demos`, keyed by station id, with the authored names (动物园 / 坦尾) kept.
 * `web/src/site.js` — repo / spec / art links, `sheet(file)` (Vite
-  `BASE_URL`-aware), and the game URL: `gameRoot` = `VITE_GAME_URL`, else the
-  dev server `http://localhost:5174/`, else `/game/`, with `gameHref(lang)`
-  appending `en/` for English. The game is its own Worker at
+  `BASE_URL`-aware), `stationPreview(file)`, and the game URLs: `gameRoot` =
+  `VITE_GAME_URL`, else the dev server `http://localhost:5174/`, else `/game/`,
+  with `gameHref(lang)` appending `en/` for English and `demoHref(lang, id)`
+  appending the station (`en/zoo`) for a demo. The game is its own Worker at
   `stationdesigner.com/game/` (`/game/en/` for English), so the site's 游戏 and
   Play links point straight at it — there is no iframe tab.
 * `web/public/art/` is **generated** at build time by `web/scripts/sync-art.mjs`,
   which copies every `art/*.svg` except `_*` drafts and `*-zoom.svg`. Never edit
   files there, and never add a sheet to the site by hand.
+* `web/public/stations/` is **generated** the same way by
+  `web/scripts/sync-stations.mjs` from `game/src/assets/stations/*.webp` — the
+  game's own preview renders. The site copies the pictures; it never imports game
+  code. `npm run check:demos` pins the whole path in a production browser.
 * `web/vite.config.js` — `base: './'` so the build is portable, `assetsInlineLimit: 0`.
 * The site Worker is not a server: root `wrangler.jsonc` (route
   `stationdesigner.com/*`, assets from `web/dist`) plus `worker/index.js`, which

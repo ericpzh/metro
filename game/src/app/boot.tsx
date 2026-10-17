@@ -8,6 +8,7 @@ import { Lab } from './Lab.tsx'
 import { initSim, useStore } from './store.ts'
 import { toData } from '../build/model.ts'
 import { AUTOSAVE_INTERVAL_MS, readAutosave, watchAutosave } from './autosave.ts'
+import { demoStationForPath, gamePathFor } from './demoRoute.ts'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
@@ -31,11 +32,25 @@ declare global {
 }
 
 export function renderGame(root: Root): void {
+  // A demo link names its document (/game/zoo, /game/en/tanwei): it opens that
+  // station whether or not this browser holds an autosave. The link is a start,
+  // not a location — the URL becomes the plain game path, so a reload restores
+  // what the player was building rather than throwing their edits away.
+  const demo = isLab ? null : demoStationForPath(location.pathname)
+  if (demo) {
+    useStore.getState().loadReference(demo)
+    const url = new URL(location.href)
+    url.pathname = gamePathFor(url.pathname)
+    window.history.replaceState(null, '', url)
+  }
+
   if (!isLab) {
     try {
       const storage = window.localStorage
-      const restored = readAutosave(storage)
-      if (restored) useStore.setState({ station: restored, activeZ: restored.levelBase })
+      if (!demo) {
+        const restored = readAutosave(storage)
+        if (restored) useStore.setState({ station: restored, activeZ: restored.levelBase })
+      }
       const autosave = watchAutosave(useStore, storage)
       window.setInterval(autosave.flush, AUTOSAVE_INTERVAL_MS)
       window.addEventListener('pagehide', autosave.flush)
@@ -47,7 +62,9 @@ export function renderGame(root: Root): void {
   root.render(isLab ? <Lab /> : <App />)
   window.__metro = useStore
 
-  if (!isLab) {
+  // A demo link loaded its station (and its worker) above; a second `init` would
+  // only build the same graph twice.
+  if (!isLab && !demo) {
     const station = toData(useStore.getState().station)
     initSim(station, station.seed)
   }
