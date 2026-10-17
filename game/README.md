@@ -1,5 +1,13 @@
 # Station Designer — the game
 
+The top-right gear opens settings: 低画质 / 高画质, restart, report issue and
+the opposite language. Quality is saved locally, separately from the station.
+High quality uses distance detail on the current floor and reduced geometry on
+other floors visible through 显示其他楼层. Low quality also reduces eligible current-floor
+models. Hide UI restores full geometry for every visible model using its existing
+presentation visibility rules. Source geometry remains authoritative for picking
+and construction.
+
 Bridge railings, sound barriers and both bridge/platform gantries follow the
 platform screen-door centre line. Ground 隔音屏 uses the same 0.34 m offset
 within its tile; R selects the side, which line dragging preserves. Rendered
@@ -35,12 +43,16 @@ indicator below each station name; the overall screen height stays 2.95 m.
 platform bank; `psd-end` keeps end infill aligned with the shorter door glazing.
 
 Page loads restore the local autosave, paused at the station's ground level, or
-start empty when no valid autosave exists. Committed changes autosave every 10 seconds
+start empty when no valid autosave exists. Committed changes autosave every five minutes
 to `metro-game.autosave.v1`; hiding/leaving the page also flushes pending changes.
 Opening a file, loading a demo or creating a station immediately replaces that save.
 Save / Open files remain available for keeping multiple stations and backups.
 `test/autosave.test.mjs` pins dirty-only saves, undo/redo, immediate station replacement,
 invalid data, storage failure and retries.
+Paused Q/E retains up to four prepared storey views. Opening prepares the deepest
+storey and the next one after artwork is ready; edits invalidate dormant views.
+Run `npm run bench:levels` at the repo root for both demos' first/repeated input
+measurements and see `PERFORMANCE.md` for loading/memory costs and remaining limits.
 The bilingual
 Getting started tour spotlights controls, opens their folders and scrolls them
 into view. Back / Next navigate, Skip or Escape closes it, and the top-bar tutorial button
@@ -1175,7 +1187,7 @@ with the lattice because the pointer re-sets it every frame
 (`test/grid-visibility.test.mjs`, `test/level-slicing.test.mjs`).
 
 **The clock pauses and restarts.** **Space** toggles play/pause (the top bar's 暂停 / 播放 button does
-the same), and 重启 empties the crowd, trains and queues while keeping the built station and the clock
+the same), and 重启仿真 empties the crowd, trains and queues while keeping the built station and the clock
 (`World.restart`, sent as a `restart` worker message).
 
 Two faults found while the view toggles were being built are worth keeping in mind.
@@ -3844,3 +3856,11 @@ Bridge hover resolves visible track and screen-door surfaces above lower floors;
 `equipment-placement-input` pins the full bed, screen-door strip and outer
 platform, both ends, all rotations, one module pick per event and preview/click
 agreement.
+
+
+`static-rendering.test.mjs` pins retained 16 m outdoor tile/tree instance batches,
+original picking layers and move masking, transparent instance ordering with stable
+buffers, near/far geometry reuse and exact disposal, distant tile/canopy bounds,
+and paused framebuffer invalidation for camera, projection, edits and animation.
+The production `tools/check-static-rendering.mjs` check covers actual idle draws,
+camera/preview/view/edit wakeups, retained chunk allocations and both demo fixtures.

@@ -35,6 +35,7 @@ try {
     window.__metro.getState().setPlaying(false);
     await new Promise(r => setTimeout(r, 3000));
     const scene = window.__scene, state = window.__metro.getState();
+    scene.setContinuousRendering(true); scene.setStaticDetail(false);
     scene.setLevel(state.activeZ, false); scene.setAgentsVisible(false); scene.trains.setPlaying(false);
     const track = state.station.modules.find(m => m.type === 'track' && m.z === state.activeZ && m.w >= 60);
     if (!track) throw Error('validation fixture requires a visible 60 m track');

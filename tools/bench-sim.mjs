@@ -30,15 +30,16 @@ function measure(name, fn, count = edits) {
 }
 const data = perfFixture()
 const state = toState(data)
-const cell = state.cells.find((c) => c.fill === 'solid' && c.z < 0 && !c.tags?.length)
+const cell = state.cells.find((c) => c.fill === 'solid' && !c.tags?.length)
 if (!cell) throw new Error('demo has no paint target')
+const editZ = state.cells.reduce((minimum, candidate) => Math.min(minimum, candidate.z), cell.z)
 measure('build.cloneUndo.ms', () => cloneState(state))
 measure('build.paintOneCell.ms', (i = 0) => paintFaces(state, [[cell.x, cell.y, cell.z]], 'top', i % 2 ? 'floor.concrete' : 'floor.tile'))
 const maxX = Math.max(...state.cells.map((c) => c.x))
-const block = [[maxX + 2, 0, -16]]
-const patch = Array.from({ length: 64 }, (_, i) => [maxX + 2 + i % 8, Math.floor(i / 8), -16])
-const largePatch = Array.from({ length: 1024 }, (_, i) => [maxX + 2 + i % 32, Math.floor(i / 32), -16])
-const wallLine = Array.from({ length: 32 }, (_, i) => [maxX + 2 + i, 0, -15])
+const block = [[maxX + 2, 0, editZ]]
+const patch = Array.from({ length: 64 }, (_, i) => [maxX + 2 + i % 8, Math.floor(i / 8), editZ])
+const largePatch = Array.from({ length: 1024 }, (_, i) => [maxX + 2 + i % 32, Math.floor(i / 32), editZ])
+const wallLine = Array.from({ length: 32 }, (_, i) => [maxX + 2 + i, 0, editZ + 1])
 const alternating = cells => [cells, cells.map(([x, y, z]) => [x + 1, y, z])]
 const blocks = alternating(block), patches = alternating(patch), largePatches = alternating(largePatch), wallRuns = alternating(wallRun(wallLine))
 const solids = new Set(state.cells.filter(c => c.fill === 'solid').map(c => `${c.x},${c.y},${c.z}`))
@@ -55,7 +56,7 @@ measure('build.preview32WallColumns.ms', (i = 0) => checkBlockCells(state, wallR
 measure('build.preview32x32Unchanged.ms', () => checkBlockCells(state, largePatch))
 const coldStates = Array.from({ length: edits + 1 }, () => ({ ...state, cells: state.cells.slice() }))
 measure('build.preview32x32ColdIndex.ms', (i = edits) => checkBlockCells(coldStates[i], largePatch))
-const stairPreviews = state.cells.filter(c => c.fill === 'solid' && c.z < 0 && !c.tags?.includes('wall')).slice(0, 32)
+const stairPreviews = state.cells.filter(c => c.fill === 'solid' && !c.tags?.includes('wall')).slice(0, 32)
   .map((c, index) => { const module = createModule('stair-block', c.x, c.y, c.z, `bench-stair-${index}`, 0); return { id: module.id, module, layer: true } })
 measure('build.validate32StairBlocksOnRelease.ms', () => checkModulePlacements(state, stairPreviews))
 measure('build.addOneBlock.ms', () => addCells(state.cells, block, state.modules))

@@ -273,10 +273,12 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
       slab(g, steel, 0, outer, bottom + 0.04, 1.74, 0.12, 0.08).name = 'shaft-crossbeam'
     }
   }
-  // Rear guide rails remain visible through the enclosure as the car travels.
-  for (const x of [-0.57, 0.57]) {
-    slab(g, mats.darkSteel, x, 0.84, H / 2, 0.055, 0.065, H).name = 'guide-rail'
-    for (let z = 0.4; z < H; z += LIFT_STEP) slab(g, steel, x, 0.88, z, 0.16, 0.13, 0.06)
+  // The car's black guide rails run up the two side walls, clear of both door faces.
+  for (const side of [-1, 1]) {
+    slab(g, mats.darkSteel, side * 0.84, 0, H / 2, 0.055, 0.065, H).name = 'guide-rail'
+    for (let z = 0.4; z < H; z += LIFT_STEP) {
+      slab(g, steel, side * 0.88, 0, z, 0.13, 0.16, 0.06).name = 'guide-rail-bracket'
+    }
   }
   for (const z of liftStopZs(mod.from.z, mod.to.z)) {
     const L = z - mod.from.z

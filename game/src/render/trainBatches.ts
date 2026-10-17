@@ -4,8 +4,8 @@ import { attributeKey, bakedGeometry, BATCH_SOURCE_LAYER, geometryKey, equalGeom
 interface DoorBatch { mesh: THREE.InstancedMesh; sources: THREE.Mesh[] }
 
 /** Keep each transparent surface sortable inside a material batch. */
-export function sortedBatch(sources: THREE.Mesh[], geometries: THREE.BufferGeometry[], material: THREE.Material): THREE.BatchedMesh {
-  const vertices = geometries.reduce((n, g) => n + g.getAttribute('position').count, 0)
+export function sortedBatch(sources: THREE.Mesh[], geometries: THREE.BufferGeometry[], material: THREE.Material, reserved: THREE.BufferGeometry[] = []): THREE.BatchedMesh {
+  const vertices = [...geometries, ...reserved].reduce((n, g) => n + g.getAttribute('position').count, 0)
   const batch = new THREE.BatchedMesh(sources.length, vertices, 0, material)
   for (const geometry of geometries) {
     const id = batch.addGeometry(geometry)

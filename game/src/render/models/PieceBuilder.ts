@@ -76,6 +76,7 @@ export const C = {
 /* --------------------------------------------------------------- materials */
 
 export interface ModelMaterials {
+  outdoorSurface: THREE.MeshStandardMaterial
   treeBark: THREE.MeshStandardMaterial
   treeLeaves: THREE.MeshStandardMaterial
   steel: THREE.MeshStandardMaterial
@@ -667,6 +668,7 @@ export function createModelMaterials(): ModelMaterials {
     ? new THREE.TextureLoader().load(new URL('../../assets/trees/ash-leaves.png', import.meta.url).href) : null
   if (treeLeafMap) treeLeafMap.colorSpace = THREE.SRGBColorSpace
   return {
+    outdoorSurface: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .95 }),
     treeBark: new THREE.MeshStandardMaterial({ color: 0x726454, roughness: 1 }),
     treeLeaves: new THREE.MeshStandardMaterial({ map: treeLeafMap, color: 0xb7cf99, alphaTest: .5, side: THREE.DoubleSide, roughness: 1 }),
     steel,

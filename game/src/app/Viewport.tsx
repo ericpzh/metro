@@ -240,6 +240,7 @@ export function Viewport(): React.ReactElement {
   const railDir = useStore((s) => s.railDir)
   const tunnelLength = useStore((s) => s.tunnelLength)
   const activeZ = useStore((s) => s.activeZ)
+  const graphicsQuality = useStore((s) => s.graphicsQuality)
   const ghostOther = useStore((s) => s.ghostOtherLevels)
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
@@ -342,6 +343,10 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setLevel(activeZ, ghostOther)
   }, [activeZ, ghostOther])
+
+  useEffect(() => {
+    sceneRef.current?.setGraphicsQuality(graphicsQuality)
+  }, [graphicsQuality])
 
   // 剖切 is the placed section surface plus the clip (`render/section.ts`): the
   // plane is written in place, so a slide costs two numbers and no rebuild. The
@@ -505,6 +510,7 @@ export function Viewport(): React.ReactElement {
     const canvas = canvasRef.current
     if (!canvas) return
     const scene = new SceneRenderer(canvas)
+    scene.setGraphicsQuality(useStore.getState().graphicsQuality)
     sceneRef.current = scene
     scene.setPlaying(useStore.getState().playing)
     const unsubscribePlaying = useStore.subscribe((state, previous) => {
@@ -696,6 +702,7 @@ export function Viewport(): React.ReactElement {
       framedRef.current = true
       homeEpochRef.current = stationEpoch
       goHomeView(scene)
+      scene.prepareBuildViews()
     }
   }, [version, station, stationEpoch, signPreviewId, signVersion, language])
 

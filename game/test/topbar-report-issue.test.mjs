@@ -4,8 +4,9 @@ import fs from 'node:fs'
 
 const source = (path) => fs.readFileSync(new URL('../src/' + path, import.meta.url), 'utf8')
 
-test('the top bar links the issue tracker beside restart', () => {
-  const topBar = source('app/windows/topbar/TopBar.tsx')
+test('the top-bar settings links the issue tracker beside restart', () => {
+  const topBar = source('app/windows/topbar/SettingsMenu.tsx')
+  assert.match(source('app/windows/topbar/TopBar.tsx'), /<SettingsMenu \/>/)
   const messages = source('sim/i18n/messages.ts')
   const css = source('styles.css')
 
@@ -21,7 +22,7 @@ test('the top bar links the issue tracker beside restart', () => {
     /aria-label=\{t\('restart'\)\}[\s\S]*metro\/issues[\s\S]*setLanguage/,
     'the tracker link sits between the restart button and the language switch',
   )
-  assert.match(topBar, /<a[\s\S]*?className="ghost iconBtn"[\s\S]*?metro\/issues/, 'the link wears the nav button chrome')
+  assert.match(topBar, /<a[\s\S]*?className="ghost settingsAction"[\s\S]*?metro\/issues/, 'the link wears the settings row chrome')
   assert.match(css, /a\.ghost \{/, 'the transparent button styling applies to anchors, or the link renders as default blue text')
   assert.match(messages, /"report_issue": \{\s*"zh": "报告问题",\s*"en": "Report issue"\s*\}/, 'both locales name the tracker action')
 })

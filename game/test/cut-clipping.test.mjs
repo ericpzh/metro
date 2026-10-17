@@ -44,7 +44,7 @@ function station() {
     levelGroups.set(lz, group)
   }
   level.chunks = { levelGroups, outlineSet: new Set(), chunkMeshes: [], outlineMeshes: [] }
-  level.modules = { moduleMeshes: new THREE.Group(), syncBatches() {}, restoreMovingModule() {} }
+  level.modules = { moduleMeshes: new THREE.Group(), syncBatches() {}, restoreMovingModule() {}, batches: { invalidateViews() {} } }
   level.trains = { trainGroup: new THREE.Group() }
   return { ctx, level, levelGroups, meshAt: (lz) => levelGroups.get(lz).children[0] }
 }

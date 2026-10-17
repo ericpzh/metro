@@ -879,6 +879,16 @@ test('glass lifts expose their frame and moving car; steel keeps its solid enclo
     group.traverse((o) => { if (o.name === 'shaft-glass') panels.push(o) })
     assert.ok(panels.length >= 6)
     assert.ok(panels.every((p) => p.material.transparent && !p.material.depthWrite))
+    const guideRails = []
+    group.traverse((o) => { if (o.name === 'guide-rail') guideRails.push(o) })
+    assert.equal(guideRails.length, 2)
+    const guideRailXs = guideRails.map((rail) => rail.position.x).sort((a, b) => a - b)
+    assert.deepEqual(guideRailXs, [-0.84, 0.84])
+    assert.ok(guideRails.every((rail) => rail.position.y === 0 && rail.material === mats.darkSteel))
+    const brackets = []
+    group.traverse((o) => { if (o.name === 'guide-rail-bracket') brackets.push(o) })
+    assert.ok(brackets.length > 0)
+    assert.ok(brackets.every((bracket) => Math.abs(bracket.position.x) === 0.88 && bracket.position.y === 0))
     const cabin = group.userData.liftCabin
     const leaves = group.userData.doors
     assert.equal(leaves.length, 2)

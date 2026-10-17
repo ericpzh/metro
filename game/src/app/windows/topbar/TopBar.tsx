@@ -6,10 +6,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
 import { ExampleStationsButton } from './ExampleStationsButton.tsx'
 import { NewStationButton } from './NewStationButton.tsx'
-import { IoLanguageSharp } from 'react-icons/io5'
 import { IoIosBookmarks } from 'react-icons/io'
-import { FaBug } from 'react-icons/fa'
-import { getLanguage, setLanguage } from '../../i18n.ts'
+import { SettingsMenu } from './SettingsMenu.tsx'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -62,7 +60,6 @@ export function TopBar(): React.ReactElement {
   const setSpeed = useStore((s) => s.setSpeed)
   const saveToFile = useStore((s) => s.saveToFile)
   const loadFromText = useStore((s) => s.loadFromText)
-  const restartSim = useStore((s) => s.restartSim)
   const undo = useStore((s) => s.undo)
   const redo = useStore((s) => s.redo)
   const canUndo = useStore((s) => s.past.length > 0)
@@ -184,36 +181,7 @@ export function TopBar(): React.ReactElement {
           </button>
         ))}
       </div>
-      <button
-        className="ghost iconBtn"
-        onClick={restartSim}
-        title={t('restart_simulation_ctrl_r')}
-        aria-label={t('restart')}
-        aria-keyshortcuts="Control+R"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
-          <path d="M13.5 1.8v3h-3" />
-        </svg>
-      </button>
-      <a
-        className="ghost iconBtn"
-        href="https://github.com/ericpzh/metro/issues"
-        target="_blank"
-        rel="noreferrer"
-        title={t('report_issue')}
-        aria-label={t('report_issue')}
-      >
-        <FaBug aria-hidden="true" />
-      </a>
-      <button
-        className="ghost iconBtn"
-        onClick={() => setLanguage(getLanguage() === 'en' ? 'zh-CN' : 'en')}
-        title={t('switch_language')}
-        aria-label={t('switch_language')}
-      >
-        <IoLanguageSharp aria-hidden="true" />
-      </button>
+      <SettingsMenu />
     </div>
   )
 }

@@ -35,6 +35,27 @@ the amber oval lamp centred below each doorway plaque.
 `autosave.test.mjs` covers dirty-only local saves, undo/redo, immediate new/import/demo
 replacement, invalid saved data, quota failures and retries.
 
+`level-view-cache.test.mjs` covers 1,024-module Q/E batch reuse without source
+traversal, four-view eviction, exact disposal, transform/appearance/clip invalidation,
+and move masking after cache restoration. `tools/bench-level-switch.mjs` drives real
+Q/E input on both demos, including the first press; `--uncached` provides a paired
+baseline and `--no-multi-draw` checks the fallback renderer.
+
+`geometry-detail.test.mjs` covers generated fixture approximations, original
+attributes/indices, complete near restoration, fixed allocation identity for
+opaque instances/merged meshes and sorted ghost batches, orthographic zoom,
+disposal, UV attributes, alpha-cut exclusions and moving rigs. `floor-geometry`
+pins chunk picking against full source geometry and train rig/restoration/disposal.
+It also covers unbatched moving equipment, hidden/batched-source exclusions and
+source-owned approximation disposal.
+`graphics-quality` pins floor/presentation policy and preference persistence without
+document edits. `static-rendering` also pins all three
+tree levels, canopy bounds, leaf UVs and exact disposal. Production
+`tools/check-geometry-detail.mjs` drives first/repeated real wheel zoom on both
+demos, checks restored triangles/batch identities and captures screenshots;
+`--no-multi-draw` covers the fallback path. It also checks the live settings menu,
+quality controls, opposite-language labels, Escape and full Hide UI geometry.
+
 `sky.test.mjs` pins hidden-UI sky brightness through dawn, daylight, dusk and night,
 including daily wrapping, backward clock seeks and midnight continuity. Since the Node
 suite does not exercise WebGL, check scene integration in a browser when changing it.
@@ -370,8 +391,8 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Passenger library | `passenger-library` — all 232 approved variants with ten hairstyles per sex, including eighteen small backpacks, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, valid padded topology, single instanced draw and atlas disposal; `passenger-size` pins the 20% child population, small-backpack/crossbody/bagless non-bald child pool, independent 80–120% height, 90–110% adult horizontal variation and 80–90% child horizontal variation, stable identity and body/shadow matrices; `passenger-view` retains identity, ground contact, flat greys, 70% crowd opacity, pause, picking and eye view. |
 | The models | `module-build` (including slab-track sleepers, seats, clips and rail heads; shared contact-wire height across station/tunnel/bridge models, stock-aware portal clearance, bridge barrier posts omitted at catenary gantry uprights, enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join` (the shared seam at every run length, and never between two differing lengths), `tv-screen`, `tv-pair` |
 | Touch navigation | `touch-zoom` — pinch direction, cancellation and release suppression; shared zoom and limits in both projections |
-| The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `render-performance`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost`, `sim-pause` — `render-performance` pins static module batching and safe reuse after floor paint; `ground-visibility` is the street's own mesh pass and the 隐藏地面 tile that takes it away; `sim-pause` is the paused-sim freeze: escalator bands, 闸机 leaves and train/screen doors hold their pose while consists glide to their latest snapshot |
-| Performance policy | `outdoor-surfaces` (bulk edits, indexed support, refusals and shared geometry), `performance-policy`, `worker-preview` — placement index equivalence/cache invalidation, cosmetic/inert-decor edits and graph rebuilds, model dependencies including stair-block-only and inert-decor-only additions (tactile/hanger neighbours plus edge decor leaning on a curtain), material disposal, pointer coalescing, crowd upload ranges/culling, retained rigs and train shell batching |
+| The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `render-performance`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost`, `sim-pause` — `render-performance` pins static module batching and safe reuse after floor paint; `ground-visibility` covers the street mesh, placed outdoor tiles/roads/traffic lights and ambient cars under 隐藏地面; `sim-pause` is the paused-sim freeze: escalator bands, 闸机 leaves and train/screen doors hold their pose while consists glide to their latest snapshot |
+| Performance policy | `static-rendering` (outdoor chunk instances, transparent ordering, LOD retention/disposal and framebuffer wakeups), `outdoor-surfaces` (bulk edits, indexed support, refusals and shared geometry), `performance-policy`, `worker-preview` — placement index equivalence/cache invalidation, cosmetic/inert-decor edits and graph rebuilds, model dependencies including stair-block-only and inert-decor-only additions (tactile/hanger neighbours plus edge decor leaning on a curtain), material disposal, pointer coalescing, crowd upload ranges/culling, retained rigs and train shell batching |
 | The pixels | `sign-render` (short 0.4 m signs, nine-arrow capacity and centred existing content, primary-only labels at twice the size and centred on both axes in a square tile, the divider line and the blank divider), `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
 | Concept art | `passenger-art-pipeline` — growing catalogues, bounded browser batches, complete standing/stride coverage, stale build rejection and duplicate capture files; `capture-passengers` — the `?capture-passengers` route wiring, the live crowd mesh photographed with alpha, every field the sheet tools place by (foot origin, scale, stride) and full-stride gait captures in plan, elevation and isometric views. `art-passenger-heading` projects facing through the capture camera and compares it with all eight isometric travel directions, preventing sideways walking. Browser playback is checked separately with `node tools/test-passenger-animation.mjs` after captures and art generation. |
 | Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, explicit-language formatting without changing UI state, root/prefixed English routes and assets |
@@ -630,3 +651,11 @@ Outdoor surface performance: `outdoor-surfaces` now guards one snapshot for bulk
 `outdoor-surfaces` also pins Tanwei B exit protection: sidewalk/lawn refuse exit-owned floors and ramp openings, and existing saved tiles draw no cap when an exit or hole is created afterward. Hidden finishes do not lift the exit away from its stairs. Ground edits invalidate the affected finish so digging and restoring ground update its visibility.
 
 `move` pins moving trees through the move tool/inspector eligibility, cancel, collision refusal, lawn support height and one-step undo/redo.
+
+
+`static-rendering.test.mjs` pins retained 16 m outdoor tile/tree instance batches,
+original picking layers and move masking, transparent instance ordering with stable
+buffers, near/far geometry reuse and exact disposal, distant tile/canopy bounds,
+and paused framebuffer invalidation for camera, projection, edits and animation.
+The production `tools/check-static-rendering.mjs` check covers actual idle draws,
+camera/preview/view/edit wakeups, retained chunk allocations and both demo fixtures.

@@ -24,18 +24,31 @@ try {
   const startup = { readyMs: await page.evaluate('performance.now()') }
   await page.evaluate(`document.querySelector('.tutorialActions .ghost')?.click()`)
   if (process.env.BENCH_STATION) {
-    const text = readFileSync(process.env.BENCH_STATION, 'utf8')
-    startup.stationLoadMs = await page.evaluate(`(async () => {
-      const start = performance.now(), previous = window.__metro.getState().metrics;
-      window.__metro.getState().loadFromText(${JSON.stringify(text)});
-      while (window.__metro.getState().metrics === previous || !window.__metro.getState().metrics) await new Promise(r => setTimeout(r, 50));
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      return performance.now() - start;
-    })()`)
+    const stationPath = resolve(process.env.BENCH_STATION)
+    const builtIn = stationPath === resolve('game/src/data/tanwei-station.json')
+      ? 'tanwei'
+      : stationPath === resolve('game/src/data/demo-station.json') ? 'zoo' : null
+    if (builtIn) {
+      const start = performance.now()
+      await loadExampleStation(page, builtIn)
+      startup.stationLoadMs = performance.now() - start
+    } else {
+      const text = readFileSync(stationPath, 'utf8')
+      startup.stationLoadMs = await page.evaluate(`(async () => {
+        const start = performance.now(), previous = window.__metro.getState().metrics;
+        window.__metro.getState().loadFromText(${JSON.stringify(text)});
+        while (window.__metro.getState().metrics === previous || !window.__metro.getState().metrics) await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        return performance.now() - start;
+      })()`)
+    }
   } else await loadExampleStation(page)
   startup.fixtureReadyMs = await page.evaluate('performance.now()')
   // Allow asynchronous artwork rebuilds and shader compilation to settle.
   await page.evaluate('new Promise(r => setTimeout(r, 3000))')
+  // Measure submitted-frame throughput even though the normal paused app retains
+  // its framebuffer. Idle savings are measured separately below.
+  await page.evaluate('window.__scene.setContinuousRendering(true)')
   await page.evaluate(`(() => {
     const scene = window.__scene, store = window.__metro;
     const bench = window.__perf = { samples: {}, active: false, last: 0, restore: [] };
@@ -137,6 +150,7 @@ try {
     const raw = await page.evaluate(`(async () => {
       const b = window.__perf, store = window.__metro, scene = window.__scene;
       b.samples = {}; b.longTasks = []; b.uploads = { calls: 0, bytes: 0 }; b.last = 0; b.active = true;
+      const firstRenderedFrame = scene.framesRendered;
       performance.mark(${JSON.stringify(name + '.start')});
       ${action || `await new Promise(r => setTimeout(r, ${duration * 1000}));`}
       b.active = false;
@@ -160,6 +174,7 @@ try {
         if (object.isBatchedMesh) inventory.batchedSurfaces += object._instanceInfo.filter(i => i.active && i.visible).length;
       }
       return { samples: b.samples, longTasks: b.longTasks, population: s.metrics.population,
+        renderedFrames: scene.framesRendered - firstRenderedFrame,
         drawInventory: inventory,
         uploads: ${gpuTimer} ? b.uploads : undefined,
         tick: s.metrics.tick, stats: s.stats, render: { ...scene.renderer.info.render },
@@ -185,7 +200,39 @@ try {
     await page.send('Profiler.setSamplingInterval', { interval: 1000 })
     await page.send('Profiler.start')
   }
+  if (process.argv.includes('--distant-view')) {
+    await page.evaluate('window.__scene.zoomBy(2); new Promise(r => setTimeout(r, 1000))')
+  }
+  if (process.argv.includes('--compare-detail')) {
+    await page.evaluate('window.__scene.setStaticDetail(false); new Promise(r => setTimeout(r, 1000))')
+    await capture('pausedFullDetail')
+    await page.evaluate('window.__scene.setStaticDetail(true); new Promise(r => setTimeout(r, 1000))')
+  }
+  if (process.argv.includes('--compare-equipment-detail')) {
+    await page.evaluate('window.__scene.setEquipmentDetail(false); new Promise(r => setTimeout(r, 1000))')
+    await capture('pausedOutdoorDetail')
+    await page.evaluate('window.__scene.setEquipmentDetail(true); new Promise(r => setTimeout(r, 1000))')
+  }
   await capture('paused')
+  if (process.argv.includes('--lod-only') && process.argv.includes('--compare-detail')) {
+    await page.evaluate('window.__scene.setStaticDetail(false); new Promise(r => setTimeout(r, 1000))')
+    await capture('pausedFullDetailRepeat')
+    await page.evaluate('window.__scene.setStaticDetail(true); new Promise(r => setTimeout(r, 1000))')
+    await capture('pausedRepeat')
+    await page.evaluate("window.__scene.setGraphicsQuality('low'); new Promise(r => setTimeout(r, 1000))")
+    await capture('pausedLowQuality')
+    await page.evaluate("window.__scene.setGraphicsQuality('high'); new Promise(r => setTimeout(r, 1000))")
+  }
+  if (process.argv.includes('--lod-only') && process.argv.includes('--compare-equipment-detail')) {
+    await page.evaluate('window.__scene.setEquipmentDetail(false); new Promise(r => setTimeout(r, 1000))')
+    await capture('pausedOutdoorDetailRepeat')
+    await page.evaluate('window.__scene.setEquipmentDetail(true); new Promise(r => setTimeout(r, 1000))')
+    await capture('pausedRepeat')
+  }
+  await page.evaluate('window.__scene.setContinuousRendering(false); new Promise(r => setTimeout(r, 1000))')
+  await capture('pausedIdle')
+  await page.evaluate('window.__scene.setContinuousRendering(true)')
+  if (!process.argv.includes('--lod-only')) {
   await page.evaluate('window.__metro.getState().setSpeed(16); window.__metro.getState().setPlaying(true)')
   // A fixed sim tick, not a wall-time warmup; fail if this host cannot get there.
   await waitFor(page.evaluate, 'window.__metro.getState().metrics.tick >= 180', { tries: 180, every: 500, what: '180 simulation ticks' })
@@ -193,6 +240,7 @@ try {
   await page.evaluate('window.__metro.getState().setPlaying(false)')
   await page.evaluate('new Promise(r => setTimeout(r, 1000))')
   if (compareBatching) {
+    await page.evaluate('window.__scene.setStaticDetail(false)')
     // Same production build, population, camera and station on both sides. A
     // benchmark consist ensures rolling stock is exercised even between services.
     await page.evaluate(`(() => {
@@ -344,6 +392,7 @@ try {
       }
     `)
   }
+  }
   if (profile) {
     const base = resolve(process.env.BENCH_OUTPUT ?? '.preview/perf/browser.json').replace(/\.json$/, '')
     mkdirSync(dirname(base), { recursive: true })
@@ -382,11 +431,13 @@ try {
     const gl = window.__scene.renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
     return { userAgent: navigator.userAgent, gpu: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
       width: innerWidth, height: innerHeight, dpr: devicePixelRatio, pixelRatio: window.__scene.renderer.getPixelRatio(),
-      station: { cells: window.__metro.getState().station.cells.length, modules: window.__metro.getState().station.modules.length },
+      station: { name: window.__metro.getState().station.name, nameEn: window.__metro.getState().station.nameEn,
+        cells: window.__metro.getState().station.cells.length, modules: window.__metro.getState().station.modules.length },
       gpuTimer: window.__perf.gpuTimer ?? 'disabled', multiDraw: !!gl.getExtension('WEBGL_multi_draw'), activeZ: window.__metro.getState().activeZ };
   })()`)
   const report = { kind: 'production-browser', timestamp: new Date().toISOString(), environment,
-    config: { duration, edits, softwareGpu, investigate, profile, gpuTimer, compareBatching }, startup, phases }
+    config: { duration, edits, softwareGpu, investigate, profile, gpuTimer, compareBatching,
+      compareDetail: process.argv.includes('--compare-detail'), compareEquipmentDetail: process.argv.includes('--compare-equipment-detail'), distantView: process.argv.includes('--distant-view'), lodOnly: process.argv.includes('--lod-only'), continuousThroughput: true }, startup, phases }
   report.errors = await page.evaluate('window.__perf.errors')
   const output = resolve(process.env.BENCH_OUTPUT ?? '.preview/perf/browser.json')
   mkdirSync(dirname(output), { recursive: true })

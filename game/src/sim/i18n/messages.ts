@@ -1,5 +1,9 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  settings: { zh: '设置', en: 'Settings' },
+  graphics_quality: { zh: '画质', en: 'Graphics quality' },
+  graphics_low: { zh: '低画质', en: 'Low quality' },
+  graphics_high: { zh: '高画质', en: 'High quality' },
   no_outdoor_surface_here: { zh: "这里没有可移除的人行道或草坪", en: "No matching sidewalk or lawn to remove here" },
   outdoor_surface_already_here: { zh: "这里已经铺设了人行道或草坪", en: "This surface is already covered" },
   sidewalk: { zh: "人行道", en: "Sidewalk" },
@@ -2204,8 +2208,8 @@ export const messages = {
     "en": "Restart simulation (Ctrl+R)"
   },
   "restart": {
-    "zh": "重启",
-    "en": "Restart"
+    "zh": "重启仿真",
+    "en": "Restart simulation"
   },
   "report_issue": {
     "zh": "报告问题",

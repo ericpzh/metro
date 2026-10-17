@@ -25,15 +25,15 @@ import { msg } from '../sim/i18n.ts'
 // 坦尾 (Tanwei) ships beside it as the second example, baked the same way from the
 // author's `坦尾.metro.json` (metro-save v1, game 0.2.0, saved 2026-10-16 06:06Z):
 // an elevated 5号线 / 6号线 interchange opening at street level (`levelBase` 1)
-// with 14,554 cells and 9,365 modules — eighty-one 楼梯, eight 扶梯, two lifts and
+// with 14,554 cells and 9,572 modules — eighty-one 楼梯, eight 扶梯, two lifts and
 // seven exits, over the author's own street pass of 6,252 人行道, 686 草坪, 68 树木,
 // seven 道路 and a 公交站. `demo.test.mjs` pins its authored counts and that opening
 // it repairs nothing.
 //
-// The raw document lives beside this file as `demo-station.json` so it is not
-// hand-edited; `referenceStation()` hands back a fresh clone each call, because
-// the app mutates the station it is given (undo, edits) and one shared object
-// would leak those edits back into the demo.
+// The raw documents live beside this file as `demo-station.json` and
+// `tanwei-station.json` so they are not hand-edited; `referenceStation()` hands
+// back a fresh clone each call, because the app mutates its station (undo, edits)
+// and one shared object would leak those edits back into the demo.
 //
 // The old hand-built "Wusi Square" rig is kept for the sim tests as
 // `test/support/scenario-station.ts`.

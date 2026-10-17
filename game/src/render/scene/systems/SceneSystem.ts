@@ -162,6 +162,8 @@ export interface SceneContext {
    * lattice (`GridSystem`), not here.
    */
   hideUI: boolean
+  graphicsQuality: 'high' | 'low'
+  detailEnabled: boolean
   /**
    * 剖切: a surface is cutting the station. While it is on the slice is put away as
    * well (`levelSlicing.sliceOptions` takes the cut alongside 隐藏UI), so Q/E stop
@@ -233,6 +235,8 @@ export class SceneContextData implements SceneContext {
   hideGround = false
   hideRoof = false
   hideUI = false
+  graphicsQuality: 'high' | 'low' = 'high'
+  detailEnabled = true
   cutaway = false
   levelKey = ''
   dimMats = new Map<THREE.Material, THREE.Material>()

@@ -9,6 +9,9 @@
 // `/lab` page keep importing the path they always did.
 
 import * as THREE from 'three'
+import { RenderDemand } from '../renderDemand.ts'
+import { geometryDetailReady } from '../geometryDetail.ts'
+import type { GraphicsQuality } from '../detailPolicy.ts'
 import type { TrainService } from '../../sim/trainSchedule.ts'
 import { createMaterials, finishesInUse } from '../materials.ts'
 import type { MaterialSet } from '../materials.ts'
@@ -74,6 +77,41 @@ export class SceneRenderer {
   private frameCount = 0
   private fpsTime = 0
   private fps = 0
+  private readonly demand = new RenderDemand()
+  private playing = true
+  private artReady = false
+  private pendingBuildViews: StationData | null = null
+  private readonly restoreFrame = (): void => { this.requestRender() }
+  /** Actual GL submissions, independent of RAF cadence while retaining a still frame. */
+  framesRendered = 0
+
+  requestRender(): void { this.demand.invalidate() }
+
+  /** Diagnostics compare actual rendering throughput with the same scene on every RAF. */
+  setContinuousRendering(on: boolean): void {
+    this.requestRender()
+    this.demand.continuous = on
+  }
+
+  setStaticDetail(on: boolean): void {
+    this.requestRender()
+    this.ctx.detailEnabled = on
+    this.modules.batches.detailEnabled = on
+    this.ctx.levelKey = ''; this.level.applyLevel()
+  }
+
+  /** Compare fixture approximations while preserving the existing tree/tile detail policy. */
+  setEquipmentDetail(on: boolean): void {
+    this.requestRender()
+    this.modules.batches.equipmentDetailEnabled = on
+  }
+
+  setGraphicsQuality(quality: GraphicsQuality): void {
+    this.requestRender()
+    this.ctx.graphicsQuality = quality
+    this.modules.batches.graphicsQuality = quality
+    this.ctx.levelKey = ''; this.level.applyLevel()
+  }
   /** The live animation-frame handle, so `dispose` can stop the loop it started. */
   private raf = 0
 
@@ -82,6 +120,7 @@ export class SceneRenderer {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     applyStationRenderer(this.renderer)
     this.renderer.shadowMap.enabled = false
+    canvas.addEventListener('webglcontextrestored', this.restoreFrame)
     this.renderer.localClippingEnabled = true
 
     const scene = new THREE.Scene()
@@ -103,33 +142,28 @@ export class SceneRenderer {
     // uploads empty and stays blank.
     const lineMaps = createLineMapArt(this.renderer)
     this.ctx = new SceneContextData(scene, mats, modelMats, ads, lineMaps)
-    void this.ctx.ads.load(() => {
-      // The parameter is the legacy packed-key set `buildModules` no longer
-      // reads (it derives its own from the data), so the station alone is passed.
-      if (!this.ctx.disposed && this.ctx.stationData) {
-        this.modules.buildModules(this.ctx.stationData, new Set())
-        this.ctx.levelKey = ''; this.level.applyLevel()
-      }
-    })
-    void this.ctx.lineMaps?.load(() => {
-      if (!this.ctx.disposed && this.ctx.stationData) {
-        this.modules.buildModules(this.ctx.stationData, new Set())
-        this.ctx.levelKey = ''; this.level.applyLevel()
-      }
-    })
-    // The 指示牌's pictograms are bitmap art, and a plate printed before the
-    // images decode would print the marks off it and keep them off — the texture is
-    // minted once. So the decode is started here, beside the ad artwork, and the
-    // modules are rebuilt the moment it lands (see `render/pictograms.ts`).
-    void loadPictograms().then((icons) => {
-      if (this.ctx.disposed || icons.size === 0) return
-      // The two boards drawn before the art existed: the scene's own fallback
-      // plate, and every module group already standing.
-      refreshSignFaceMaterial(this.ctx.modelMats)
+    // Decode in parallel, then refresh the models once. Separate completion
+    // callbacks rebuilt the entire station up to three times and could discard
+    // views just prepared during opening.
+    let artChanged = false
+    void Promise.all([
+      this.ctx.ads.load(() => { artChanged = true }),
+      this.ctx.lineMaps?.load(() => { artChanged = true }),
+      loadPictograms(),
+      geometryDetailReady,
+    ]).then(([, , icons]) => {
+      if (this.ctx.disposed) return
+      this.artReady = true
+      if (icons.size > 0) refreshSignFaceMaterial(this.ctx.modelMats)
       if (this.ctx.stationData) {
-        this.modules.buildModules(this.ctx.stationData, new Set())
+        if (artChanged || icons.size > 0) this.modules.buildModules(this.ctx.stationData, new Set())
+        else this.modules.batches.invalidateViews()
         this.ctx.levelKey = ''; this.level.applyLevel()
+        this.requestRender()
       }
+      const pending = this.pendingBuildViews
+      this.pendingBuildViews = null
+      if (pending && pending === this.ctx.stationData) this.prepareBuildViews()
     })
 
     // Light rig: one key + ambient + a soft fill. §2.3 item 3 — and the same call the
@@ -183,6 +217,8 @@ export class SceneRenderer {
    * /lab page) only ever used methods, `keys` and `onStats`, but the fields
    * below were public, so they stay readable. */
   get scene(): THREE.Scene {
+    // Callers can attach/remove overlays through this compatibility surface.
+    this.requestRender()
     return this.ctx.scene
   }
 
@@ -218,11 +254,14 @@ export class SceneRenderer {
   /* ------------------------------------------------------------ station */
 
   setMovingModule(id: string | null): void {
+    this.requestRender()
     this.ghostSys.movingModuleId = id
     this.modules.setMovingModule(id)
   }
 
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
+    this.requestRender()
+    this.modules.batches.invalidateViews()
     this.ctx.levelBase = data.levelBase ?? 0
     // A sign-board preview changes no cell and no other module, so the chunks
     // this meshes are identical: only that sign's own model and plates are
@@ -314,11 +353,13 @@ export class SceneRenderer {
    * The id is remembered, so a `setStation` rebuild re-finds the module.
    */
   setSelection(moduleId: string | null): void {
+    this.requestRender()
     this.modules.setSelection(moduleId)
   }
 
   /** Blue outline for the equipment currently under a tool pointer. */
   setHoverHighlight(moduleId: string | null): void {
+    this.requestRender()
     this.modules.setHoverHighlight(moduleId)
   }
 
@@ -329,6 +370,7 @@ export class SceneRenderer {
    * clear.
    */
   setCollisionHighlight(moduleIds: readonly string[] | null): void {
+    this.requestRender()
     this.modules.setCollisionHighlight(moduleIds)
   }
 
@@ -339,6 +381,7 @@ export class SceneRenderer {
    * rebuilds but the pixels — while the hands are swept between snapshots every frame.
    */
   setSimClock(simTime: number, services: TrainService[] = []): void {
+    this.requestRender()
     this.sky.setSimTime(simTime)
     this.plates.setSimClock(simTime, services)
     this.clocks.setSimTime(simTime)
@@ -346,26 +389,59 @@ export class SceneRenderer {
   }
 
   setTrains(buffer: Float32Array): void {
+    this.requestRender()
     this.trains.setTrains(buffer)
   }
 
   setLifts(buffer: Float32Array): void {
+    this.requestRender()
     this.lifts.setLifts(buffer)
   }
 
   /* ------------------------------------------------------------- levels */
 
   setLevel(z: number, ghost: boolean): void {
+    this.requestRender()
     this.level.setLevel(z, ghost)
     this.grid.buildGrid()
   }
 
+  /** Opening work only: prepare the platform and next storey before building begins. */
+  prepareBuildViews(): void {
+    this.requestRender()
+    if (!this.artReady) {
+      this.pendingBuildViews = this.ctx.stationData
+      return
+    }
+    if (this.ctx.cutaway || this.ctx.hideUI || this.chunks.levelGroups.size === 0) return
+    const deepest = Math.min(...this.chunks.levelGroups.keys())
+    // Populate the renderer's buffer/program caches too. A tiny offscreen target
+    // uploads the exact visible batches without presenting temporary storeys.
+    const target = new THREE.WebGLRenderTarget(1, 1)
+    const previous = this.renderer.getRenderTarget()
+    try {
+      this.renderer.setRenderTarget(target)
+      this.level.prepareViews([deepest, deepest + 4], () => {
+        const camera = this.cameraSys.activeCamera()
+        camera.updateMatrixWorld()
+        this.modules.batches.updateDetail(camera, this.renderer.domElement.clientHeight)
+        this.renderer.render(this.ctx.scene, camera)
+        this.framesRendered++
+      })
+    } finally {
+      this.renderer.setRenderTarget(previous)
+      target.dispose()
+    }
+  }
+
   /** 隐藏天花板: stop hiding the ceilings of the storey above the active one. */
   setAutoCeiling(on: boolean): void {
+    this.requestRender()
     this.level.setAutoCeiling(on)
   }
 
   setHideRoof(on: boolean): void {
+    this.requestRender()
     this.level.setHideRoof(on)
   }
 
@@ -376,6 +452,7 @@ export class SceneRenderer {
    * is the only time the plane's membership changes.
    */
   setSection(section: Section, on: boolean): void {
+    this.requestRender()
     const wasOn = this.sectionSys.on
     this.sectionSys.setSection(section, on)
     if (wasOn !== on) this.sectionSys.applyClip()
@@ -387,6 +464,7 @@ export class SceneRenderer {
    * there is nothing to grab, so the surface stops taking the pointer too.
    */
   setSectionSurface(on: boolean): void {
+    this.requestRender()
     this.sectionSys.setSurfaceVisible(on)
   }
 
@@ -398,6 +476,7 @@ export class SceneRenderer {
    * what restates the plane on the materials it derives from the clipped ones.
    */
   setCutaway(on: boolean): void {
+    this.requestRender()
     if (this.level.cutaway === on) return
     this.level.setCutaway(on)
     // The walk has just dressed every mesh again, so the clip has to be re-stated
@@ -453,6 +532,7 @@ export class SceneRenderer {
   }
 
   setSectionHover(on: boolean): void {
+    this.requestRender()
     this.sectionSys.setHover(on)
   }
 
@@ -466,12 +546,14 @@ export class SceneRenderer {
    * them from disagreeing (`GridSystem`, `LevelSystem.setHideUI`).
    */
   setHideUI(on: boolean): void {
+    this.requestRender()
     this.grid.setHideUI(on)
     this.level.setHideUI(on)
   }
 
   /** 隐藏墙壁: fade every wall and platform screen door, or restore them. */
   setHideWalls(on: boolean): void {
+    this.requestRender()
     this.level.setHideWalls(on)
   }
 
@@ -483,31 +565,38 @@ export class SceneRenderer {
    * untouched (`sim/ground.ts` still walks the same window).
    */
   setHideGround(on: boolean): void {
+    this.requestRender()
     this.level.setHideGround(on)
   }
 
   /* -------------------------------------------------------------- agents */
 
   setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
+    this.requestRender()
     this.crowd.setAgents(buffer, count, intervalMs)
   }
 
   setPlaying(on: boolean): void {
+    this.requestRender()
+    this.playing = on
     this.crowd.setPlaying(on)
     this.lifts.setPlaying(on)
     this.trains.setPlaying(on)
   }
 
   setDensity(nodes: Float32Array, density: Float32Array, on: boolean): void {
+    this.requestRender()
     this.crowd.setDensity(nodes, density, on)
   }
 
   setOverlayVisible(on: boolean): void {
+    this.requestRender()
     this.crowd.setOverlayVisible(on)
   }
 
   /** 区域 map visibility alone, so an unchanged map is not rebuilt to show it. */
   setZoneOverlayVisible(on: boolean): void {
+    this.requestRender()
     this.crowd.setZoneOverlayVisible(on)
   }
 
@@ -517,10 +606,12 @@ export class SceneRenderer {
     labels: Array<{ x: number; y: number; z: number; zone: number; label?: string }>,
     on: boolean,
   ): void {
+    this.requestRender()
     this.crowd.setZoneOverlay(quads, zones, labels, on)
   }
 
   setAgentsVisible(on: boolean): void {
+    this.requestRender()
     this.crowd.setAgentsVisible(on)
   }
 
@@ -529,6 +620,7 @@ export class SceneRenderer {
    * waypoints, drawn as a light-blue line on the floor (`CrowdSystem.setRoute`).
    */
   setRoute(points: Float32Array, agentId: number): void {
+    this.requestRender()
     this.crowd.setRoute(points, agentId)
   }
 
@@ -550,10 +642,12 @@ export class SceneRenderer {
   /* ------------------------------------------------------------- camera */
 
   setPreset(name: 'iso' | 'plan' | 'front' | 'side' | 'custom'): void {
+    this.requestRender()
     this.cameraSys.setPreset(name)
   }
 
   setOrtho(on: boolean): void {
+    this.requestRender()
     this.cameraSys.setOrtho(on)
   }
 
@@ -562,6 +656,7 @@ export class SceneRenderer {
   }
 
   setViewDirection(dir: THREE.Vector3, useOrtho: boolean): void {
+    this.requestRender()
     this.cameraSys.setViewDirection(dir, useOrtho)
   }
 
@@ -580,12 +675,14 @@ export class SceneRenderer {
 
   /** Set the perspective lens, in degrees; the flat ortho views are unaffected. */
   setFov(deg: number): void {
+    this.requestRender()
     this.cameraSys.setFov(deg)
   }
 
   /* -------------------------------------------------------------- ghosts */
 
   setCursor(cell: [number, number, number] | null, valid = true): void {
+    this.requestRender()
     this.grid.setCursor(cell, valid)
   }
 
@@ -596,29 +693,36 @@ export class SceneRenderer {
     thin?: ReadonlyMap<number, CellShape>,
     refused?: ReadonlyArray<[number, number, number]>,
   ): void {
+    this.requestRender()
     this.ghostSys.setGhost(cells, kind, colour, thin, refused)
   }
 
   setFaceGhost(cells: Array<[number, number, number]>, face: Face, colour: number): void {
+    this.requestRender()
     this.ghostSys.setFaceGhost(cells, face, colour)
   }
 
   clearFaceGhost(): void {
+    this.requestRender()
     this.ghostSys.clearFaceGhost()
   }
 
   setModulePreview(mod: Module | readonly Module[] | null, blocked = false, tintOverride?: number): void {
+    this.requestRender()
     this.ghostSys.setModulePreview(mod, blocked, tintOverride)
   }
   setRoadNodePreview(nodes:readonly {x:number;y:number;z:number}[],from?:[number,number],to?:[number,number],z=this.ctx.activeZ):void {
+    this.requestRender()
     this.ghostSys.setRoadNodePreview(nodes,from,to,z)
   }
 
   setFencePreview(mods: Module[] | null, blocked = false): void {
+    this.requestRender()
     this.ghostSys.setFencePreview(mods, blocked)
   }
 
   setGridVisible(on: boolean): void {
+    this.requestRender()
     this.grid.setGridVisible(on)
   }
 
@@ -664,6 +768,7 @@ export class SceneRenderer {
   /* --------------------------------------------------------------- loop */
 
   followPassenger(id: number | null, onLost?: () => void): void {
+    this.requestRender()
     this.crowd.followAgentId = id
     this.crowd.onFollowLost = onLost
     if (id === null) {
@@ -688,20 +793,34 @@ export class SceneRenderer {
     this.cameraSys.panCameraVertical(dt)
     if (this.cameraSys.controls.enabled) this.cameraSys.controls.update()
     this.cameraSys.syncOrtho()
-    this.crowd.renderAgents(now, this.cameraSys.activeCamera())
-    this.trains.updateTrains(now, dt)
-    this.lifts.updateLifts(now)
-    this.lifts.updateEscalators(dt * (1000 / this.ctx.stateIntervalMs))
-    this.crowd.updateGates(dt * (1000 / this.ctx.stateIntervalMs))
-    this.plates.updateAdScreens(now)
-    this.modules.batches.atlas.update()
-    this.clocks.updateClocks(now)
-    this.roads.update(now, this.modules.moduleMeshes, this.sectionSys.on ? this.sectionSys.plane : null)
+    if (this.plates.updateAdScreens(now)) this.requestRender()
     const cam = this.cameraSys.activeCamera()
-    this.cameraSys.syncOrtho()
+    cam.updateMatrixWorld()
     this.notifyCameraAim()
-    this.sky.update(this.ctx.hideUI)
-    this.renderer.render(this.ctx.scene, cam)
+    // Snapshots, fades and cabins finish interpolating after pause. All other
+    // edits/ghosts/async art invalidate explicitly; still frames retain the GL buffer.
+    const animating = this.playing || now < this.ctx.lastStateTime + this.ctx.stateIntervalMs
+    if (this.demand.needsFrame(cam.matrixWorld.elements, cam.projectionMatrix.elements, animating)) {
+      this.crowd.renderAgents(now, this.cameraSys.activeCamera())
+      this.trains.updateTrains(now, dt)
+      this.trains.updateGeometryDetail()
+      this.lifts.updateLifts(now)
+      this.lifts.updateEscalators(dt * (1000 / this.ctx.stateIntervalMs))
+      this.crowd.updateGates(dt * (1000 / this.ctx.stateIntervalMs))
+      this.modules.batches.atlas.update()
+      this.clocks.updateClocks(now)
+      this.roads.update(now, this.modules.moduleMeshes, this.sectionSys.on ? this.sectionSys.plane : null)
+      this.cameraSys.syncOrtho()
+      this.notifyCameraAim()
+      this.sky.update(this.ctx.hideUI)
+      // Following a passenger may update or leave eye view during renderAgents.
+      // Sort transparent instances and choose detail against that final camera.
+      const drawCamera = this.cameraSys.activeCamera()
+      drawCamera.updateMatrixWorld()
+      this.modules.batches.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
+      this.renderer.render(this.ctx.scene, drawCamera)
+      this.framesRendered++
+    }
     this.frameCount++
     if (now - this.fpsTime > 500) {
       this.fps = Math.round((this.frameCount * 1000) / (now - this.fpsTime))
@@ -734,11 +853,13 @@ export class SceneRenderer {
   }
 
   resize(w: number, h: number): void {
+    this.requestRender()
     this.cameraSys.resize(w, h)
   }
 
   dispose(): void {
     this.ctx.disposed = true
+    this.renderer.domElement.removeEventListener('webglcontextrestored', this.restoreFrame)
     cancelAnimationFrame(this.raf)
     this.cameraSys.dispose()
     this.sky.dispose()

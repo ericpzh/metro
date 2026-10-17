@@ -8,6 +8,13 @@ npm run bench:browser
 npm run bench:browser -- --investigate
 ```
 
+Both benchmark commands run the two shipped examples, 动物园 (Zoo) and 坦尾
+(Tanwei), sequentially with the same settings. Browser reports default to
+`.preview/perf/browser-zoo.json` and `browser-tanwei.json`; simulation reports
+default to `sim-zoo.json` and `sim-tanwei.json`. Set `BENCH_STATION` to run one
+external save instead. `BENCH_OUTPUT` supplies the output base, with the fixture
+name added before `.json` when running both.
+
 The browser command builds production first. Chrome/Edge is found by the existing
 capture harness; override it with `CHROME_PATH`. Hardware rendering is the benchmark
 default. `npm run bench:browser -- --software-gpu` uses SwiftShader for CPU-only hosts;
@@ -38,8 +45,8 @@ placement helpers, which the CPU benchmark measures separately at 8×8, 32×32 a
 | `BENCH_SECONDS` | 6 per FPS phase | Browser |
 | `BENCH_SIZE` | `1400,900` browser window | Browser |
 | `BENCH_PORT` | 9348 debugging port | Browser |
-| `BENCH_OUTPUT` | `.preview/perf/sim.json` or `browser.json` | Both |
-| `BENCH_STATION` | Shipped demo; otherwise a path to a `.metro.json` save | Both |
+| `BENCH_OUTPUT` | `.preview/perf/sim.json` or `browser.json` base | Both |
+| `BENCH_STATION` | Both shipped examples; set a path to run one `.metro.json` save | Both |
 
 An external save is parsed through the normal loader, without changing the shipped
 demo. Browser reports include cold application readiness and the subsequent save
@@ -56,7 +63,9 @@ the unselected worker payload construction and structured clone in Node; it excl
 message scheduling and the main-thread handler.
 
 The browser uses the actual app/store/worker/renderer with an isolated profile and
-the default camera/storey (z = -16). It measures an empty paused station, waits until
+each example's default camera/storey. Paused throughput forces continuous rendering;
+`pausedIdle` restores normal frame reuse and reports actual `renderedFrames` alongside
+RAF cadence. It then waits until
 at least tick 180, measures 16× running service, pauses, alternates eight single-cell
 top paints, and alternates adding/removing a block just beyond the station footprint.
 Construction scenarios call the real store commit, including undo, worker messaging,
@@ -1084,3 +1093,311 @@ and virtual-ground verdicts" (`blockIndex.ground` disagrees with `virtualSolidAt
 Both reproduce with `sim/station.ts` and `sim/decorInert.ts` reverted
 (`.preview/perf/baseline-two-files.log`), so they belong to the working tree's
 other uncommitted work.
+
+## Paired demo benchmark — 2026-10-16
+
+Updated `bench:browser` and `bench:sim` to run both bundled examples sequentially.
+The browser pair used the same production build, Headless Chrome 155, RTX 4080 SUPER
+through ANGLE/D3D11, native multi-draw, DPR 1 and 1384×805 viewport. Zoo opened at
+z = -16 (11,871 cells / 4,062 modules); Tanwei opened at z = -7 (14,554 cells /
+9,572 modules). Clean browser runs used six-second phases and four edits. A separate
+three-second GPU-timed/investigation run isolated render work; its FPS is diagnostic
+because the GPU timer and ablations add instrumentation.
+
+| Fixture | Paused FPS, clean | Draws / triangles | Render submission, clean | GPU render, diagnostic |
+|---|---:|---:|---:|---:|
+| Zoo | 38.3 | 5,243 / 3,759,887 | 25.4 ms | 21.8 ms |
+| Tanwei | 19.7 | 10,250 / 4,781,505 | 49.3 ms | 48.7 ms |
+
+Tanwei reproduces the under-20 paused rate. Crowd and train update CPU are each
+under 0.02 ms/frame while paused. After population warmed to 573, paused FPS was
+20.4; hiding both crowd and trains measured 20.2 FPS, with GPU time 39.1 / 39.8 ms.
+The 5,551 sidewalk draws dominate Tanwei's draw inventory, followed by 952 equipment
+batch draws and 822 platform-edge draws. This points to static station rendering and
+GPU work, rather than simulation ticking, as the paused bottleneck. FPS varies with
+the browser frame scheduler; these results describe this fixed local setup.
+
+The simulation/build CPU pair also completed: graph sizes 15,127 / 37,274 nodes;
+settled tick means 4.48 / 28.16 ms and morning-peak means 4.92 / 37.74 ms (Zoo /
+Tanwei, 600 samples each). Tanwei's paused FPS issue is separate from these active
+simulation timings.
+
+Clean reports/captures: `.preview/perf/paused-pair-clean-zoo.json`,
+`.preview/perf/paused-pair-clean-tanwei.json` and their PNGs. GPU ablations:
+`.preview/perf/paused-pair-latest-zoo.json` and
+`.preview/perf/paused-pair-latest-tanwei.json`. Simulation reports:
+`.preview/perf/sim-zoo.json` and `.preview/perf/sim-tanwei.json`.
+
+## Retained outdoor batches and paused frames — 2026-10-16
+
+Sidewalk/lawn now share a scene-owned vertex-colour material and join the existing
+16 m equipment buckets. Trees join those buckets too. Identical static geometry
+uses instances even in ghost views; transparent instances sort by their transformed
+surface centres before submission and retain unchanged matrix buffers. Original
+module roots, detailed picking surfaces and storey/clip policies remain in place.
+Unchanged buckets retain their GPU allocations, and pickup/cancel masks the affected
+bucket without rebuilding it. The instance path no longer creates baked geometry
+copies that it would immediately discard.
+
+Each outdoor instance bucket also retains detailed and distant geometry. Tiles use
+a raised coloured slab below 10 logical pixels per metre; trees use the derived ash
+bake below 45 pixels per tree, with 20% hysteresis. The conservative screen-size
+test uses the nearest edge of the chunk bounds and supports perspective/orthographic
+cameras. Close views restore the authored geometry; picking and culling retain its
+original bounds. The offline tree derivative keeps intact leaf UV cards and canopy
+extrema (1,035 branch / 4,812 leaf triangles versus 8,832 / 9,600 originally).
+
+Paused, settled frames reuse the existing canvas. RAF still services controls and
+artwork timers, while rendering wakes for camera/projection changes, edits, ghosts,
+view/clip changes, artwork, worker snapshots, interpolation and context restoration.
+Running simulation continues rendering normally. The benchmark explicitly forces
+continuous submissions for throughput phases and records actual `renderedFrames`
+in `pausedIdle`; the idle RAF FPS is responsiveness cadence, not freshly drawn FPS.
+`--compare-detail` adds an unchanged-geometry throughput phase for isolating batching.
+
+Validation: 1,626 full-suite tests and 128 focused performance tests pass. New
+deterministic regressions cover 1,024 tiles becoming four chunks, retained buffers,
+source-layer picking, pickup/cancel, ghost order, LOD reuse/bounds and exact disposal,
+and framebuffer wake policy. Source coverage is 100% lines/functions/branches for
+`renderDemand.ts` and the outdoor piece builders; `staticInstances.ts` has 100%
+lines/functions and 91.67% branches. This is source coverage, not GPU coverage.
+Production checks exercise both demos' idle/wakeup/pick/edit/undo/resume paths and
+the native/disabled-extension shader paths. Raw reports, captures and validation
+logs are under `.preview/perf/static-cache/`.
+
+The final clean pair used six-second phases / four edits and the same seed, browser,
+GPU, viewport and opening storeys as the baseline above. These FPS results force
+continuous drawing, so framebuffer reuse cannot inflate the comparison:
+
+| Fixture | Before FPS | After, full original detail | After, automatic distant detail | Draws before → after |
+|---|---:|---:|---:|---:|
+| Zoo | 38.3 | 53.5 | 59.3 | 5,243 → 2,271 |
+| Tanwei | 19.7 | 31.6 | 32.9 | 10,250 → 4,038 |
+
+Full-detail triangles remain exactly 3,759,887 / 4,781,505 (Zoo / Tanwei), isolating
+batching from geometry reduction. Automatic detail draws 1,883,633 / 2,941,200
+triangles in those same views. Normal paused idle submitted 11 / 14 frames during
+six seconds with periodic TV artwork still enabled, compared with 356 / 198 forced
+continuous frames. Isolated settled tests with TV swaps held scheduled submit zero
+frames and verify camera, preview, view, cut, artwork, edit, undo and resume wakeups.
+
+Cold application readiness was 3.30 / 3.37 s; Zoo fixture readiness 6.60 s from
+navigation and Tanwei opening 4.93 s after readiness. These local startup samples
+are not a WAN measurement or a demonstrated startup improvement. Tanwei structural
+edits still take hundreds of milliseconds, and running-service CPU/crowd work is
+separate from paused rendering; this change does not claim to resolve those stalls.
+
+Baseline reports: `static-cache/before-clean-{zoo,tanwei}.json`; final clean reports
+and PNGs: `static-cache/after-clean-final-{zoo,tanwei}.{json,png}` under
+`.preview/perf/`. GPU diagnostic reports are
+`static-cache/after-gpu-final-{zoo,tanwei}.json` (separate three-second timer runs).
+
+| Fixture | GPU mean before | GPU mean after, full detail | GPU mean after, automatic detail | GPU p95 before → automatic |
+|---|---:|---:|---:|---:|
+| Zoo | 21.8 ms | 13.6 ms | 11.2 ms | 29.1 → 12.2 ms |
+| Tanwei | 48.7 ms | 21.9 ms | 20.8 ms | 68.4 → 24.9 ms |
+
+The full-detail control preserves original triangles and accounts for most of the
+gain. Automatic detail reduces GPU time further without changing the close view.
+Settled automatic-detail phases report zero buffer uploads (textures/uniforms are
+not included in that counter). Tanwei still spends about 28–29 ms in render
+submission with roughly 4,000 remaining draws: CPU/driver submission and ghost
+rendering remain limits to continuously drawing 60 FPS. GPU and submission timings
+overlap and must not be added. Host variation remains visible in the ablations,
+so their small FPS differences are not speedup claims.
+
+## Paused building: first and repeated Q/E — 2026-10-16
+
+The reported Q/E interaction still stalled despite retaining a paused framebuffer.
+`bench:levels` now drives eight real CDP key presses (`E Q E Q E Q E Q`) on
+**both** demos, paused and settled for three seconds. It records the first press,
+six warmed repetitions (presses 3–8), slice/batch/model/save work, exact GPU batch
+identity on revisits, loading/preparation cost and unchanged simulation ticks.
+`--uncached` disables view retention and prewarming in the same production bundle;
+`--no-multi-draw` exercises the GPU extension fallback. Raw reports live in
+`.preview/perf/levels-*.json`.
+
+### Cause and changes
+
+Q/E did **not** rebuild the source models, commit the document, rebuild routes or
+write autosave. It did restore source meshes, traverse the whole station, rescan
+UVs/transforms and create new opaque/ghost render batches on every press. In the
+original Tanwei trace this consumed 185–254 ms per press, before drawing.
+
+- Retain four recent level views, including the active view. Unchanged batch
+  entries are shared between them. Revisited views restore their existing GPU
+  objects and picking layers without traversing world matrices, inspecting UVs,
+  baking geometry or uploading new batch buffers.
+- Bound retained resources and dispose entries exactly once when no live view
+  references them. New/changed module roots, transforms, appearance toggles,
+  document edits and clipping membership invalidate dormant views. Moving a module
+  still masks its combined draw and restores its neighbours.
+- Prepare the deepest chunk storey and the next editing storey during opening.
+  A disposable 1×1 offscreen target populates renderer buffers/programs without
+  showing temporary levels; the active slice and render target are restored in
+  `finally` blocks. Ordinary edits do not prewarm the station.
+- Complete poster, line-map and pictogram decoding with **one** model refresh,
+  then prewarm. Three independent completion callbacks previously allowed repeated
+  station rebuilds and could discard a just-prepared view. A deferred opening only
+  runs if it still belongs to the current document. Four slots also accommodate a
+  late worker ready response visiting an intermediate level during loading.
+- Extend periodic autosave from 10 seconds to **five minutes**. Document switches
+  still invalidate/replace the saved station immediately, and page hide/leave still
+  flushes dirty edits. Level changes never dirty the document.
+
+### Controlled browser result
+
+Sequential hardware runs, fresh Chrome 155 profiles, Windows ANGLE/D3D11 on NVIDIA
+RTX 4080 SUPER, device/pixel ratio 1, actual canvas **852×715**. Zoo has 11,871 cells
+and 4,062 modules; Tanwei has 14,554 cells and 9,572 modules; shipped seed 7654321.
+Opening worker levels are −16 and −7 respectively; Q/E alternates with −12 and −3.
+These are empty-crowd building measurements: population and simulation tick are zero.
+Input latency is keydown to the second RAF callback, including the changed scene's
+render submission; it is not an asynchronous GPU timer or a steady-state FPS test.
+
+| Fixture | First Q/E, uncached → cached | Repeated Q/E mean | Batch CPU mean per press | Fixture loading, uncached → cached |
+|---|---:|---:|---:|---:|
+| Zoo | 246.8 → 85.2 ms | 147.7 → 26.5 ms | 108.1 → 2.1 ms | 4.34 → 5.34 s |
+| Tanwei | 331.1 → 98.9 ms | 288.5 → 39.9 ms | 234.2 → 5.2 ms | 5.95 → 7.20 s |
+
+The first press hits a prepared batch view in both fixtures. Every revisited view
+retains **all** of its batch object identities. All eight paired levels have exact
+matching draw and triangle counts: the speedup does not hide geometry. No key press
+rebuilds models, calls `setStation`, writes autosave or advances the paused tick.
+Native reports: `levels-final.json`, `levels-paired-uncached.json`; checked numeric
+comparison: `levels-comparison.json`. The earlier reproduction is `levels-before.json`.
+
+Preparation itself took 1.83 s for Zoo and 2.52 s for Tanwei in these runs; some of
+that overlaps worker loading. Loading is **slower** by about 1.0/1.2 s in this pair.
+At the end, three views retain 1,452/1,887 unique batch objects (shared across views),
+versus 565/922 in the active lowest storey. Four-view retention is a bound, not a
+fixed memory budget: larger stations still require more GPU memory. First visits
+to other, unprepared/evicted levels and the first visit after an edit still perform
+batch preparation. The first rendered visit can still pay driver/presentation work.
+This change removes repeated preparation stalls; it does **not** reduce the remaining
+full-station GPU/driver cost during continuous camera movement or guarantee 60 FPS.
+The Q/E pair does not establish populated-simulation FPS; the preceding section's
+separate GPU/throughput measurements cover that workload.
+
+Deterministic regression: `test/level-view-cache.test.mjs`, using 1,024 modules,
+checks no source matrix walk or atlas resolve on cached Q/E, complete batch identity
+retention, transform/appearance/clip invalidation, move masking, four-view eviction,
+single disposal, failed prewarm restoration and the opening/artwork source wiring.
+Autosave regression additionally pins the five-minute interval and level-only state
+remaining clean. Full suite: **1,630 passing**; performance suite: **132 passing**.
+EquipmentBatches coverage is **100% lines / 95.24% functions / 98.53% branches**.
+The extension-disabled Q/E run also passes first-hit and full revisit allocation
+assertions for both demos: first presses 82.8/114.4 ms, repeated means 27.8/39.6 ms
+(Zoo/Tanwei), with zero JS/shader/GL errors (`levels-fallback.json`). Production
+build/typecheck passes with the existing bundle-size warning.
+Native and extension-disabled static-rendering checks pass on both demos: zero
+settled idle draws, 13 visible wakeups each, source picking, move/cancel retention,
+delete/undo and resumed ticks, with no JS/shader/GL errors. The latest Tanwei
+screen was inspected against the earlier capture; storey appearance is retained.
+The production batching check also passes with/without multi-draw: station calls
+3,597 → 1,022 / 1,715, train calls 814 → 25 / 630, unchanged train triangles and
+no shader/runtime/GL errors.
+
+## 2026-10-16 — floor-aware geometry detail and graphics settings
+
+Eligible fixture geometry now has a cached meshoptimizer approximation prepared
+during model loading/building, targeting 25% of indices with 2% relative geometric
+error and UV weights. Unproductive reductions retain the original. Source bounds,
+UV/material attributes, picking IDs and full picking geometry are preserved.
+Static GPU batches reserve both variants; transitions swap geometry references or
+instance geometry IDs without rebuilding the station or uploading new geometry.
+Stationary cameras skip the batch detail walk. A third authored tree approximation
+uses 1,353 triangles, versus 5,847 medium and 18,432 full.
+
+High quality uses projected-size detail (24 CSS pixels with hysteresis) on current
+floor fixtures and forces reduced geometry on visible other floors. Low quality
+also reduces eligible current-floor geometry. Chunk surfaces, opaque train parts
+and unbatched animated equipment follow the floor policy while retaining source
+picks and live rig references. Hide UI restores full visible geometry. Existing
+floor visibility, wall/ground/roof toggles and frustum culling still determine what
+is visible. Skinned/morph geometry, custom shaders, alpha-cut surfaces without an
+authored alternative and already minimal meshes retain their original geometry.
+The crowd keeps its existing animated atlas; this does not introduce a crowd LoD.
+
+The top-right FaGear dropdown owns labelled restart/report-issue/language actions
+and 低画质/高画质. The language action displays the opposite native language.
+Quality persists locally outside station saves, undo and worker routing. This is
+geometry quality; output pixel ratio and texture resolution are unchanged.
+
+New deterministic regressions cover source immutability, UVs/bounds, approximation
+cache/disposal, isolated fixtures, retained batch allocations, sorted transparent
+instances, source picking, moving equipment/train rig identity, full restoration,
+floor/quality policy and preference persistence. The full game suite passes
+**1,644 tests**; production build/typecheck and the i18n audit pass. Raw profiles,
+paired reports, screenshots and validation logs are in ignored `.preview/perf/`.
+
+`test:perf` passes **146 tests**. Coverage (line / branch / function):
+geometryDetail **100 / 92.86 / 90.91%**, equipmentBatches **100 / 97.40 /
+97.22%**, sourceGeometryDetail **100 / 95.24 / 100%**, staticInstances **100 /
+89.13 / 100%**; detailPolicy and preference persistence are **100% throughout**.
+ChunkSystem's new detail/picking/restore path is exercised; its overall **28.53%**
+line coverage reflects the much larger mesher excluded from this focused suite.
+TrainSystem is **92.59%** lines. Node coverage does not establish GPU correctness.
+
+### Final controlled throughput comparison
+
+Command: `BENCH_SECONDS=4 BENCH_EDITS=2 node tools/bench-demos.mjs browser
+--compare-detail --lod-only --gpu-timer --screenshot`, sequential, no tests or
+builds running. Fresh Chrome 155, RTX 4080 SUPER / ANGLE D3D11, native multi-draw,
+1384×805, DPR/output ratio 1, seed 7654321, paused population 0, original camera,
+Zoo -16 m (11,871 cells / 4,062 modules), Tanwei -7 m (14,554 / 9,572).
+Each scene alternates full/high/full/high, then low quality; visibility is the
+same in each phase. Full detail disables geometry detail only, retaining batching.
+GPU times below are asynchronous timer-query means; ranges show both repetitions.
+
+| Demo / policy | Triangles | Draws | GPU mean ms | Continuous FPS |
+|---|---:|---:|---:|---:|
+| Zoo full | 3,759,887 | 2,271 | 14.24–15.13 | 50.2–52.7 |
+| Zoo high | 1,140,143 | 2,271 | 13.11–13.58 | 54.2–54.7 |
+| Zoo low | 1,113,181 | 2,271 | 11.51 | 59.7 |
+| Tanwei full | 4,781,505 | 4,038 | 24.34–30.21 | 24.9–30.6 |
+| Tanwei high | 2,280,713 | 4,038 | 22.78–30.91 | 24.4–32.1 |
+| Tanwei low | 2,234,951 | 4,038 | 24.09 | 30.6 |
+
+High quality reduces submitted triangles **69.7% / 52.3%** (Zoo/Tanwei).
+Zoo improves in both paired samples. **Tanwei does not show a consistent FPS or
+GPU-time gain**: one pair slightly regresses, the repeat improves. Its high-detail
+CPU submission means remain 29.7–39.2 ms with 4,038 calls; reducing topology alone
+does not remove that cost. Low versus high has little remaining geometry to save
+at this initial floor/camera. These are short local samples, not a stable FPS
+guarantee. Earlier zoomed probes (`equipment-lod-far-final-*`) likewise did not
+establish a Tanwei speedup; fog also makes those far-camera screenshots unsuitable
+for judging visible model detail. Final screenshots use the original camera or
+modest real wheel input.
+
+Final reports: `.preview/perf/graphics-verified-{zoo,tanwei}.json` and PNGs. No
+console/shader/runtime errors. Tanwei phase buffer updates were 0–4 calls / 0–140
+bytes, unrelated to geometry swaps; no large geometry uploads occurred in the
+measured phases. Fixture-ready times were collected separately from throughput;
+Tanwei's built-in example load was 7.28 s. Preparing approximations adds cold-load CPU and
+retains both geometry variants, trading memory/startup work for cheap transitions.
+Paused-idle RAF frequency is not render FPS: settled idle checks report zero draws.
+
+### Real Q/E and GPU validation
+
+`graphics-levels-verified.json` drives eight actual E/Q key events per demo,
+including the first press. First key-to-two-RAF latency is **99.1 / 97.1 ms**
+(Zoo/Tanwei); warmed repeated means **40.4 / 41.7 ms**. Average batch sync CPU is
+**4.0 / 7.2 ms**. First presses hit views prepared during opening; all revisited
+views retain every batch, with ticks held at zero and no JS/GL errors. This stays
+near the earlier cached Q/E result; geometry detail does not remove that first
+presentation delay. Example load including preparation measured **5.63 / 8.69 s**,
+of which preparation/upload was **1.77 / 3.02 s**. Counts/timings are recorded
+separately from the throughput run because the input harness adds work counters.
+
+`geometry-detail/{native,fallback}/report.json` passes both demos: labelled settings,
+quality without station/tick changes, opposite-language switching, Escape dismissal,
+full Hide UI restoration, real first/repeated wheel events, unchanged GPU batch
+identities, unchanged draw counts across fixture LoD and zero shader/runtime/GL
+errors. Settings and station screenshots were inspected. Static-rendering checks
+pass both backends/demos: **zero settled idle draws**, 13 view wakeups, exact source
+picking, move/cancel, delete/undo and resumed simulation. CPU/trace export smoke
+checks pass. These checks establish correctness, not an FPS threshold.
+Final production batching checks also pass: native station calls 3,597 → 1,022
+and train 814 → 25; fallback 3,597 → 1,715 and 814 → 630, unchanged open/closed
+train triangles and no shader/runtime/GL errors (`graphics-batching-*-final.log`).

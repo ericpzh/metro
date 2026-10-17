@@ -494,7 +494,8 @@ export class PlateSystem extends SceneSystem {
    * after each swap. Two screens side by side therefore drift apart instead of
    * flipping together, which is what the reference photo's wall of TVs looks like.
    */
-  updateAdScreens(now: number): void {
+  updateAdScreens(now: number): boolean {
+    let changed = false
     for (const tv of this.tvScreens) {
       if (now < tv.nextAt) continue
       const win = tv.screen.userData.adWindow as { x: number; z: number; w: number; h: number } | undefined
@@ -507,8 +508,10 @@ export class PlateSystem extends SceneSystem {
         tv.screen.material = next.material
         tv.screen.userData.adPoster = next.slug
         tv.poster = next.slug
+        changed = true
       }
       tv.nextAt = now + TV_SWAP_MIN_MS + Math.random() * (TV_SWAP_MAX_MS - TV_SWAP_MIN_MS)
     }
+    return changed
   }
 }

@@ -19,3 +19,4 @@ writeFileSync(resolve(output,'street-ash.json'),JSON.stringify({source:'@dgreenh
 copyFileSync(resolve(source,'src/lib/assets/leaves/ash_color.png'),resolve(output,'ash-leaves.png'))
 copyFileSync(resolve(source,'LICENSE'),resolve(output,'EZ-TREE-LICENSE.txt'))
 console.log({branches:branches.index.count/3,leaves:leaves.index.count/3,height:4.5})
+await import('./bake-street-tree-lod.mjs')

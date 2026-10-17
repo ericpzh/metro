@@ -13,6 +13,8 @@
 import * as THREE from 'three'
 import { batchStaticModule } from '../../batchStaticModule.ts'
 import { EquipmentBatches } from '../../equipmentBatches.ts'
+import { SourceGeometryDetail } from '../../sourceGeometryDetail.ts'
+import { detailHeight } from '../../detailPolicy.ts'
 import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
 import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange } from '../../moduleDependencies.ts'
 import { isSimInertDecorEdit } from '../../../sim/decorInert.ts'
@@ -74,6 +76,7 @@ export class ModuleSystem extends SceneSystem {
   }
   moduleMeshes: THREE.Group = new THREE.Group()
   readonly batches = new EquipmentBatches()
+  private readonly sourceDetail = new SourceGeometryDetail()
   private movingModuleId: string | null = null
   private movingRoot: THREE.Object3D | null = null
   private movingVisible = false
@@ -103,13 +106,26 @@ export class ModuleSystem extends SceneSystem {
   }
 
   syncBatches(): void {
+    this.sourceDetail.restore()
     this.restoreMovingModule()
+    this.batches.activeZ = this.ctx.activeZ
+    this.batches.hideUI = this.ctx.hideUI
+    this.batches.graphicsQuality = this.ctx.graphicsQuality ?? 'high'
     // Immutable module builds replace affected roots; view changes dress them.
     // A cell-only edit with identical roots/slice need not walk or copy them again.
     const view = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}`
     const roots = this.moduleMeshes.children.filter(g => typeof g.userData.moduleId === 'string')
-      .map(g => `${g.uuid}:${g.visible}:${g.position.toArray()}:${g.rotation.toArray()}:${g.scale.toArray()}:${g.userData.levelZs}:${g.userData.groundBand}`).join('|')
-    this.batches.sync(this.moduleMeshes, `${view}|${roots}`)
+      .map(g => `${g.uuid}:${g.position.toArray()}:${g.rotation.toArray()}:${g.scale.toArray()}:${g.userData.levelZs}:${g.userData.groundBand}`).join('|')
+    const visibility = this.moduleMeshes.children.map(g => +g.visible).join('')
+    // Only pure storey changes may reuse prepared views. New roots, transforms,
+    // global appearance toggles and clipping invalidate every dormant slice.
+    const generation = this.ctx.cutaway ? undefined : `${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${roots}`
+    this.batches.sync(this.moduleMeshes, `${view}|${visibility}|${roots}`, generation)
+    for (const root of this.moduleMeshes.children) {
+      const reduced = this.ctx.detailEnabled !== false && detailHeight(root.userData.levelZs,
+        this.ctx.activeZ, this.ctx.hideUI, this.ctx.graphicsQuality ?? 'high', 1) === 0
+      this.sourceDetail.apply(root, reduced)
+    }
     this.applyMovingModule()
   }
   /** The selected module's id and its highlight box, kept across a rebuild. */
@@ -157,6 +173,7 @@ export class ModuleSystem extends SceneSystem {
    * to rebuild one board's model while retaining everything else.
    */
   buildModules(data: StationData, _trackCells: Set<number>, reuse = false, keepIds?: Set<string>): void {
+    this.batches.invalidateViews()
     const retained = keepIds ?? (reuse && this.builtData && this.builtLanguage === getLanguage()
       ? retainedModuleIds(this.builtData, data) : new Set<string>())
     const kept = new Map(this.moduleMeshes.children.filter(g => retained.has(g.userData.moduleId)).map(g => [g.userData.moduleId as string, g]))
@@ -296,6 +313,7 @@ export class ModuleSystem extends SceneSystem {
    * every plate goes.
    */
   clearModules(data?: StationData, kept = new Set<THREE.Object3D>()): void {
+    this.sourceDetail.restore()
     if (!data) this.batches.clear()
     this.builtData = null
     this.ghost.clearFencePreview()

@@ -16,6 +16,8 @@ import type { StockClass } from '../../../sim/stock.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import type { LevelSystem } from './LevelSystem.ts'
+import { coarseGeometry } from '../../geometryDetail.ts'
+import { levelSide } from '../../levelSlicing.ts'
 
 /**
  * One live consist. The worker only reports a pose per tick (1 Hz at 1×), so the
@@ -47,6 +49,17 @@ const DOOR_TRAVEL_S = 2
 const TRAIN_PARKED_LIMIT = 8
 
 export class TrainSystem extends SceneSystem {
+  private details = new Map<THREE.Group, Array<{ mesh: THREE.Mesh; near: THREE.BufferGeometry; far: THREE.BufferGeometry }>>()
+
+  /** Geometry changes keep the consist, door matrices and all animation references. */
+  updateGeometryDetail(): void {
+    for (const [group, pieces] of this.details) {
+      if (!group.visible) continue
+      const reduced = this.ctx.detailEnabled !== false && !this.ctx.hideUI &&
+        (this.ctx.graphicsQuality === 'low' || levelSide(group.userData.levelZs, this.ctx.activeZ) !== 'active')
+      for (const piece of pieces) piece.mesh.geometry = reduced ? piece.far : piece.near
+    }
+  }
   trainGroup: THREE.Group = new THREE.Group()
   private trainSlots = new Map<string, TrainEntry>()
   private drawBatching = true
@@ -118,6 +131,15 @@ export class TrainSystem extends SceneSystem {
         group.userData.renderFamily = 'train'
         batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
         if (this.drawBatching) { batchTrainDoors(group); batchTrainTransparent(group) }
+        const details: Array<{ mesh: THREE.Mesh; near: THREE.BufferGeometry; far: THREE.BufferGeometry }> = []
+        group.traverse(object => {
+          if (!(object instanceof THREE.Mesh) || object instanceof THREE.BatchedMesh || object instanceof THREE.SkinnedMesh || Array.isArray(object.material)) return
+          const material = object.material as THREE.MeshStandardMaterial
+          if (material.alphaMap || material.alphaTest > 0 || material.displacementMap || material.vertexColors || material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return
+          const far = coarseGeometry(object.geometry)
+          if (far) details.push({ mesh: object, near: object.geometry, far: far.clone() })
+        })
+        this.details.set(group, details)
         // The storey the consist stands in: its track surface is half a metre
         // below the platform, so the walk-surface convention (`cell z + 1`)
         // rounds back to the floor block the train rides over. Without the
@@ -254,6 +276,8 @@ export class TrainSystem extends SceneSystem {
    * the next consist too.
    */
   private dropConsist(group: THREE.Group): void {
+    for (const detail of this.details.get(group) ?? []) { detail.mesh.geometry = detail.near; detail.far.dispose() }
+    this.details.delete(group)
     this.trainGroup.remove(group)
     disposeObject(group)
     const owned = group.userData.ownedMats as THREE.Material[] | undefined

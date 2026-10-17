@@ -91,5 +91,5 @@ test('the slider is wired: the widget writes degrees and reads them back', () =>
   assert.match(cube, /max=\{FOV_MAX_DEG\}/, 'both of them')
   const orchestrator = src('render/scene/SceneRenderer.ts')
   assert.match(orchestrator, /fov\(\): number \{\s*return this\.cameraSys\.fov\(\)/, 'the orchestrator forwards the read')
-  assert.match(orchestrator, /setFov\(deg: number\): void \{\s*this\.cameraSys\.setFov\(deg\)/, 'and the write')
+  assert.match(orchestrator, /setFov\(deg: number\): void \{\s*this\.requestRender\(\)\s*this\.cameraSys\.setFov\(deg\)/, 'the write wakes the cached view and forwards degrees')
 })

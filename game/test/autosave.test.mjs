@@ -29,9 +29,10 @@ function fixture() {
 
 test('autosave flushes committed edits once, including undo/redo, and ignores transient state', () => {
   const f = fixture()
-  assert.equal(AUTOSAVE_INTERVAL_MS, 10_000)
+  assert.equal(AUTOSAVE_INTERVAL_MS, 300_000)
   f.autosave.flush()
   f.store.getState().setNotice('notice')
+  f.store.setState({activeZ:-4})
   f.autosave.flush()
   assert.equal(f.writes(), 0)
   f.store.getState().renameStation('First')

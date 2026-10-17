@@ -424,10 +424,11 @@ function boreTunnel(state: StationState, track: TrackModule): StationState {
     add.push({ x, y, z, fill: 'solid', tags: [tag] })
   }
   for (let i = 0; i < track.w; i++) {
-    // Side walls, full storey tall, on both long sides.
+    // Extend the side walls down to the dug bed so their bottoms meet the
+    // recessed track slab instead of leaving a one-course gap above it.
     for (const j of [-1, d]) {
       const [dx, dy] = rotateLocal(rot, i, j)
-      for (let dz = 1; dz <= TUNNEL_HEADROOM + 1; dz++) want(track.x + dx, track.y + dy, track.z + dz)
+      for (let dz = 0; dz <= TUNNEL_HEADROOM + 1; dz++) want(track.x + dx, track.y + dy, track.z + dz)
     }
     // Ceiling across the bore.
     for (let j = 0; j < d; j++) {

@@ -2,7 +2,7 @@ import { parse, serialize } from '../persistence/save.ts'
 import type { StationState } from '../build/model.ts'
 
 export const AUTOSAVE_KEY = 'metro-game.autosave.v1'
-export const AUTOSAVE_INTERVAL_MS = 10_000
+export const AUTOSAVE_INTERVAL_MS = 300_000
 
 interface DocumentState {
   station: StationState

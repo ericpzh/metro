@@ -48,6 +48,19 @@ export class LevelSystem extends SceneSystem {
     this.applyLevel()
   }
 
+  /** Prepare immutable slice batches during station opening, without moving the view. */
+  prepareViews(levels: readonly number[], prepared?: () => void): void {
+    const z = this.ctx.activeZ
+    try {
+      for (const level of levels) {
+        this.setLevel(level, this.ctx.ghost)
+        prepared?.()
+      }
+    } finally {
+      this.setLevel(z, this.ctx.ghost)
+    }
+  }
+
   /** 隐藏天花板: stop hiding the ceilings of the storey above the active one. */
   setAutoCeiling(on: boolean): void {
     this.ctx.autoCeiling = on
@@ -120,6 +133,7 @@ export class LevelSystem extends SceneSystem {
       for (const child of group.children) {
         const mesh = child as THREE.Mesh
         if (!mesh.isMesh) continue
+        this.chunks.setGeometryDetail?.(mesh, this.ctx.detailEnabled !== false && !this.ctx.hideUI && (this.ctx.graphicsQuality === 'low' || side !== 'active'))
         const isOutline = this.chunks.outlineSet.has(mesh)
         // **隐藏地面: the street plane, gone in every mode.** It is the generated
         // window (`sim/ground.ts`), meshed as its own pass and tagged `ground`
@@ -255,6 +269,7 @@ export class LevelSystem extends SceneSystem {
    */
   setClip(plane: THREE.Plane | null): void {
     if (this.clip === plane) return
+    this.modules.batches.invalidateViews()
     this.clip = plane
     // The next walk re-states the planes on every material, so it must not be
     // skipped as a repeat: the plane's *membership* changed even though the

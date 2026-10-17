@@ -34,7 +34,11 @@ For every behaviour change, add or update deterministic regressions for each aff
 contract and run the complete owning test suite before calling the work covered. A
 focused test or a coverage percentage is not a substitute for the full suite; report
 any unrelated failure separately and leave unrelated work untouched. For game changes,
-follow `metro-game-test` and keep `game/test/README.md`'s coverage map current.
+follow `metro-game-test` and keep `game/test/README.md`'s coverage map current. For
+renderer or performance work, also run `npm --prefix game run test:perf`, inspect the
+changed modules' line, branch and function coverage, and use their real production
+browser check. Preserve deterministic work-count/lifecycle assertions; browser timing
+is evidence, not a pass threshold.
 
 ## What lives where
 
@@ -47,7 +51,7 @@ model editing, exports and the approved game atlas. See `model/README.md`. No mo
 | Path | What it is |
 |---|---|
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
-| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). Bilingual: Chinese by default, English at `/en/`, with a language toggle beside restart; game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
+| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). Bilingual: Chinese by default, English at `/en/`; the top-right gear menu contains the quality controls and the opposite-language action. Game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
@@ -353,7 +357,9 @@ commands.
 | `demand-animation.mjs` | Builds sheet 06's demand-curve preview from the game's demand and calendar rules. In an embedded SVG document, its time-boundary handles can be dragged or adjusted with arrow keys. |
 | `render-view-shots.mjs` | Photographs the demo station from each of the game's own camera presets (sheet 09's subject) into `.preview/view-shots/`, for looking at rather than asserting. |
 | `game-tiles.mjs` | Starts the built game in headless Chrome and saves the build rail's real preview tiles, for checking an art change against it. |
-| `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Measure the shipped demo's simulation/build CPU costs and the production browser's FPS, draw calls and edit latency. Reports go under `.preview/perf/`; see `game/PERFORMANCE.md` for controls and interpretation. These are local diagnostics, not CI thresholds. |
+| `bench-demos.mjs`, `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Run simulation/build CPU and production browser FPS, draw-call and edit-latency benchmarks on both shipped examples, Zoo and Tanwei, sequentially. Set `BENCH_STATION` to run one external save. Reports go under `.preview/perf/`; see `game/PERFORMANCE.md` for controls and interpretation. These are local diagnostics, not CI thresholds. |
+| `bench-level-switch.mjs` | Real paused Q/E input on both demos: first/repeated latency, slice/batch/model/save work, exact cached GPU allocation reuse and initial prewarming cost. `--uncached` compares the same code without retained level views; `--no-multi-draw` checks fallback rendering. |
+| `check-geometry-detail.mjs` | Both demos: real first/repeated zoom, retained GPU batches, full geometry restoration, settings/language controls and Hide UI. `--no-multi-draw` covers fallback. `bench-browser --compare-detail --lod-only --gpu-timer` pairs full/high detail twice and low quality in one scene. |
 | `profile-sim.mjs`, `check-perf-tools.mjs` | Readable simulation V8 profiles and an actual Chrome CPU/trace-stream smoke check. Sampling and tracing run separately; requests/timeouts and cleanup are bounded. |
 | `check-render-batching.mjs` | Real production GLSL/WebGL check: enabled/disabled station draws, open/closed train GPU triangle preservation, and no shader/runtime errors. Supports `--software-gpu` and `--no-multi-draw` (extension disabled before renderer construction); no FPS gate. |
 
@@ -365,6 +371,10 @@ draw inventory and native multi-draw support, and fails on browser errors. GPU
 timers are asynchronous and separate from CPU render submission; buffer counters
 exclude textures/uniforms. Profile exports and screenshots are ignored artifacts
 under `.preview/perf/`, not timing assertions in the deterministic suite.
+For renderer/geometry-detail regressions, `npm --prefix game run test:perf` adds the
+floor policy, geometry lifecycle, graphics preference, retained-view and static-render
+cases to focused coverage. Then run `npm --prefix game test` for the full suite;
+inspect per-module coverage in both test output and keep the coverage map in sync.
 | `browser-harness.mjs` | The shared headless-Chrome + static-server driver the `render-*` passes sit on. |
 | `train-cards.mjs`, `piece-views.mjs` | The two placement helpers the sheets share: a captured car / run and the metres it covers, so a sheet stands the game's picture on its own line at its own scale. |
 | `zoom.mjs` | Crops a detail out of a sheet and writes a `*-zoom.svg` beside it (`sync-art.mjs` skips those). |

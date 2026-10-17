@@ -499,6 +499,18 @@ export const PASSENGER_CULL_RADIUS_SCALE = 1.25
 export const PASSENGER_INSTANCE_CAPACITY = 8000
 
 export const OUTDOOR_SURFACE_HEIGHT = 0.1
+/** Renderer detail falls away only after seams/leaves become small on screen. */
+export const OUTDOOR_TILE_DETAIL_PX = 10
+export const OUTDOOR_TREE_DETAIL_PX = 45
+export const OUTDOOR_TREE_FAR_PX = 18
+export const STATIC_DETAIL_HYSTERESIS = 1.2
+/** Four recent/prepared views, including the active one; bounds dormant GPU allocations. */
+export const EQUIPMENT_VIEW_CACHE_SIZE = 4
+/** At 24 CSS pixels, 2% geometric error is under half a pixel. */
+export const EQUIPMENT_DETAIL_PX = 24
+export const EQUIPMENT_DETAIL_ERROR = .02
+export const EQUIPMENT_DETAIL_RATIO = .25
+export const EQUIPMENT_DETAIL_MIN_TRIANGLES = 64
 
 // Ambient street traffic and automatically derived road lanes (§4.1).
 export const ROAD_VEHICLE_OPACITY = PASSENGER_OPACITY

@@ -66,10 +66,10 @@ the replaced station. Pin the prompt and shortcut wiring in
 `game/test/new-station-confirmation.test.mjs` (React views are tested as source
 contracts because the Node suite does not mount them).
 
-The top bar also links the issue tracker beside restart: a `FaBug`
+The top bar's `SettingsMenu` gear dropdown links the issue tracker beside restart: a `FaBug`
 (`react-icons/fa`) anchor to `https://github.com/ericpzh/metro/issues`, opening in
 a new tab with `rel="noreferrer"`, named by the bilingual `report_issue` catalogue
-key and wearing the nav's `ghost iconBtn` chrome (with the matching `a.ghost`
+key and wearing the dropdown's `ghost settingsAction` chrome (with the matching `a.ghost`
 styling in `src/styles.css`). Pin it in `game/test/topbar-report-issue.test.mjs`.
 
 Inspector controls that edit placed equipment should call a store action and commit
@@ -360,7 +360,7 @@ the four rules most changes trip over.
   示例车站) re-sends `init`, which calls `World.load()` — a full reset of agents,
   trains, queues, clock and RNG — so no old passenger walks the new document.
   `restart` calls `World.restart()`: it empties every agent, train and queue and
-  reseeds the RNG, but keeps the document and the clock (the top bar's 重启 button).
+  reseeds the RNG, but keeps the document and the clock (the top bar's 重启仿真 button).
   The tick loop carries a **`dirty` flag**: while paused the station can still change,
   so every mutating message sets it and `run` posts at once — but a paused tick that
   changed nothing returns immediately instead of building and cloning a full ~150 KB
@@ -1437,7 +1437,7 @@ Run `npm run check:tutorial` for the production browser regression and the
   tagged with the storey of the floor block it stands on (`storeyBand` of the rounded track
   surface), and `applyGroupLevel` combines the slice with the sim's own `parked` flag. **The nav
   cube only moves the camera**: no face, corner, Home click (⌂ or `Ctrl+H`), arrow or
-  lens-slider drag may rewrite the slice. The top bar's 重启 button empties the crowd, trains and
+  lens-slider drag may rewrite the slice. The top bar's 重启仿真 button empties the crowd, trains and
   queues but keeps the station and clock, and **Space** toggles play/pause; the speed chips are
   multipliers only (there is no 0× chip). The bottom bar shows FPS and 方块数.
 * **The 剖切 cut is a placed surface** (`render/section.ts`,

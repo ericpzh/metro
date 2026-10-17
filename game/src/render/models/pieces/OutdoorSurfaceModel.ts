@@ -2,11 +2,28 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { Module } from '../../../sim/types.ts'
 import { outdoorSurfaceHidden } from '../../../sim/placement.ts'
-import { OUTDOOR_SURFACE_HEIGHT } from '../../../sim/constants.ts'
+import { OUTDOOR_SURFACE_HEIGHT, OUTDOOR_TILE_DETAIL_PX } from '../../../sim/constants.ts'
 import { PieceBuilder, placeLocal } from '../PieceBuilder.ts'
 
 type Surface = Extract<Module, { type: 'sidewalk' | 'lawn' }>
 const geometryCache = new Map<Surface['type'], THREE.BufferGeometry>()
+const coarseCache = new Map<Surface['type'], THREE.BufferGeometry>()
+
+/** A subpixel paver seam needs no box faces; keep the same raised tile envelope. */
+export function outdoorSurfaceCoarseGeometry(type: Surface['type']): THREE.BufferGeometry {
+  const cached = coarseCache.get(type)
+  if (cached) return cached
+  const geometry = new THREE.BoxGeometry(1, 1, OUTDOOR_SURFACE_HEIGHT)
+  geometry.translate(0, 0, OUTDOOR_SURFACE_HEIGHT / 2)
+  const normal = geometry.getAttribute('normal')
+  const top = new THREE.Color(type === 'lawn' ? 0x70964a : 0xaeb5b7)
+  const side = new THREE.Color(type === 'lawn' ? 0x6a6046 : 0x8f9699)
+  const colours = new Float32Array(normal.count * 3)
+  for (let i = 0; i < normal.count; i++) (normal.getZ(i) > .5 ? top : side).toArray(colours, i * 3)
+  geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3))
+  coarseCache.set(type, geometry)
+  return geometry
+}
 /** Two immutable meshes, shared by every placed tile and preview. §4.3. */
 export function outdoorSurfaceGeometry(type: Surface['type']): THREE.BufferGeometry {
   const held = geometryCache.get(type)
@@ -45,9 +62,13 @@ export class OutdoorSurfaceModel extends PieceBuilder {
     const group = new THREE.Group()
     // Re-evaluate saved tiles too: placing an exit after paving must expose its wellway.
     if (outdoorSurfaceHidden(this.ctx.data.cells, this.ctx.data.modules, mod)) return placeLocal(group, mod)
-    const material = this.ownedMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .95 }))
+    const material = this.ctx.mats.outdoorSurface ?? this.ownedMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .95 }))
     const mesh = new THREE.Mesh(outdoorSurfaceGeometry(mod.type), material)
     mesh.name = 'raised-surface'; mesh.userData.sharedGeometry = true
+    mesh.userData.staticInstances = true
+    mesh.userData.staticDetailGeometry = outdoorSurfaceCoarseGeometry(mod.type)
+    mesh.userData.staticDetailSize = 1
+    mesh.userData.staticDetailPixels = OUTDOOR_TILE_DETAIL_PX
     group.add(mesh)
     return placeLocal(group, mod)
   }

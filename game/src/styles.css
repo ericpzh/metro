@@ -150,6 +150,18 @@ a.ghost:hover {
   background: #0c2136;
   border-bottom: 1px solid var(--line);
 }
+.settingsMenu { position: relative; }
+.settingsMenu summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 3px; color: var(--text); }
+.settingsMenu summary::-webkit-details-marker { display: none; }
+.settingsMenu summary:hover, .settingsMenu[open] summary { background: #173650; color: var(--accent); }
+.settingsMenu summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settingsDropdown { position: absolute; right: 0; top: calc(100% + 8px); z-index: 100; min-width: 224px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; box-shadow: 0 8px 28px #0008; }
+.settingsQualityLabel { color: var(--muted); margin: 0 0 7px; font-size: 12px; }
+.settingsQuality { display: flex; gap: 4px; padding-bottom: 10px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }
+.settingsQuality button { flex: 1; white-space: nowrap; }
+.settingsQuality button.on { background: #16374f; color: var(--accent); border-color: var(--accent); }
+.settingsAction { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px; text-align: left; text-decoration: none; }
+.settingsAction svg { flex: none; width: 16px; height: 16px; }
 .exampleStationsMenu {
   position: fixed;
   inset: auto;

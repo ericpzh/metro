@@ -8,8 +8,12 @@ import { levelSteps } from '../../../sim/constants.ts'
 import { DEFAULT_SECTION_AZIMUTH, nextAzimuth } from '../../../render/section.ts'
 import type { Section, Vec3 } from '../../../render/section.ts'
 import type { AppState } from '../Store.ts'
+import type { GraphicsQuality } from '../../../render/detailPolicy.ts'
+import { readGraphicsQuality, saveGraphicsQuality } from '../../graphicsQuality.ts'
 
 export interface ViewSlice {
+  graphicsQuality: GraphicsQuality
+  setGraphicsQuality: (quality: GraphicsQuality) => void
   followAgentId: number | null
   passengerViewBefore: Pick<ViewSlice, 'hideUI' | 'ortho' | 'cutaway' | 'overlayOn' | 'hideSectionSurface'> & { zoneOverlayOn: boolean } | null
   followPassenger: (id: number) => void
@@ -100,6 +104,8 @@ export interface ViewSlice {
 }
 
 export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, get) => ({
+  graphicsQuality: readGraphicsQuality(),
+  setGraphicsQuality: (quality) => { saveGraphicsQuality(quality); set({ graphicsQuality: quality }) },
   followAgentId: null,
   passengerViewBefore: null,
   followPassenger: (id) => {

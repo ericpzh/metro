@@ -21,6 +21,7 @@ import { packKey } from '../../../sim/types.ts'
 import type { Cell, CellShape, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
+import { coarseGeometry } from '../../geometryDetail.ts'
 
 /**
  * A small order-stable number for one cut shape, for the chunk content hash: the
@@ -43,6 +44,24 @@ function shapeKey(shape: CellShape): number {
 type ChunkPass = 's' | 'f' | 'g'
 
 export class ChunkSystem extends SceneSystem {
+  private readonly details = new Map<THREE.Mesh, { near: THREE.BufferGeometry; raycast: THREE.Mesh['raycast'] }>()
+
+  /** Shared chunk/outline geometry remains owned by the full mesh cache. */
+  setGeometryDetail(mesh: THREE.Mesh, reduced: boolean): void {
+    let entry = this.details.get(mesh)
+    if (!entry) {
+      entry = { near: mesh.geometry, raycast: mesh.raycast }
+      const source = entry
+      mesh.raycast = function (ray, hits) {
+        const drawing = this.geometry
+        this.geometry = source.near
+        try { source.raycast.call(this, ray, hits) } finally { this.geometry = drawing }
+      }
+      this.details.set(mesh, entry)
+    }
+    const far = coarseGeometry(entry.near)
+    mesh.geometry = reduced ? far ?? entry.near : entry.near
+  }
   levelGroups = new Map<number, THREE.Group>()
   chunkMeshes: THREE.Mesh[] = []
   outlineMeshes: THREE.Mesh[] = []
@@ -658,6 +677,8 @@ export class ChunkSystem extends SceneSystem {
    * from the cache's own pruning (see the stale sweep in `meshStation`).
    */
   releaseChunks(): void {
+    for (const [mesh, detail] of this.details) { mesh.geometry = detail.near; mesh.raycast = detail.raycast }
+    this.details.clear()
     // Geometries are shared between a chunk mesh and its outline mesh, and the
     // surface materials are shared across chunks: only the geometry and the
     // per-chunk outline material are ours to dispose.
