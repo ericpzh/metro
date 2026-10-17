@@ -1317,7 +1317,8 @@ picks and live rig references. Hide UI restores full visible geometry. Existing
 floor visibility, wall/ground/roof toggles and frustum culling still determine what
 is visible. Skinned/morph geometry, custom shaders, alpha-cut surfaces without an
 authored alternative and already minimal meshes retain their original geometry.
-The crowd keeps its existing animated atlas; this does not introduce a crowd LoD.
+Train and crowd detail were not part of that pass; both follow this same floor and
+quality policy now — see “Low LoD for trains and the crowd” below.
 
 The top-right FaGear dropdown owns labelled restart/report-issue/language actions
 and 低画质/高画质. The language action displays the opposite native language.
@@ -1736,3 +1737,93 @@ The final performance suite passes all 242 tests. RailSignalModel,
 BridgeNoiseBarrier and BridgeRailing each have 100% line/branch/function coverage;
 modelDetail has 100/93.33/100%. Coverage log:
 `.preview/perf/signal-barrier-coverage-final.log`.
+
+## 2026-10-17 — Low LoD for trains and the crowd
+
+Rolling stock and passengers had no authored Low approximation. A train's per-mesh
+meshopt fallback was consumed by static batching, so a drawn consist stayed at
+96.7–97.2 % of full for A/B/C/L, and every passenger submitted the padded shared
+stride (9,370 triangles) even though most variants are 4,000–6,000. Both now have a
+prepared Low form driven by the existing quality/storey policy.
+
+Trains: every part whose builder can describe a faithful reduction attaches one
+through `render/modelDetail.ts` — cabin straps, handrails and centre poles as
+four-sided tubes on a six-segment path, ring lights as a twelve-sided torus, benches
+and seat-end guards as one envelope, the car roof at four curve segments, eight-sided
+wheels without hubs, the bellows at 8×16, and the D car's plug doors, cab shell and
+paint faces at 3×8 / 16×32 / 12×32. `batchStaticParts` merges both variants so a
+batch carries its own Low geometry; `batchTrainDoors` and `batchTrainTransparent`
+reserve a Low leaf and Low panes; `render/trainDetail.ts` applies the swaps, keeps
+the exact sources for picking and restores them before disposal. Generic
+simplification is now limited to `TRAIN_DETAIL_MAX_RADIUS` (8 m): a merged car body
+spans a whole consist, and 2 % of 150 m is metres.
+
+| Consist | Full triangles | Low triangles | Low share |
+|---|---:|---:|---:|
+| D-8 | 1,061,168 | 89,784 | 8.5 % |
+| D-6 | 812,988 | 74,228 | 9.1 % |
+| A-8 | 228,512 | 58,432 | 25.6 % |
+| A-6 | 178,592 | 44,320 | 24.8 % |
+| B-6 | 156,320 | 37,792 | 24.2 % |
+| C-6 | 156,320 | 37,792 | 24.2 % |
+| L-6 | 136,496 | 31,840 | 23.3 % |
+| B-4 | 113,824 | 25,856 | 22.7 % |
+| C-4 | 113,824 | 25,856 | 22.7 % |
+| L-4 | 100,608 | 21,888 | 21.8 % |
+
+D is the extreme: its streamline cab and plug doors are lofted surfaces, and their
+Low sampling takes the consist from 1,061,168 to 89,784. Preparing both variants
+costs more on a consist's first build (medians of three builds on the same host:
+D-8 552→606 ms, A-8 80→110 ms, B-6 51→70 ms, L-6 48→55 ms), paid once per cached
+configuration (eight are kept).
+
+Crowd: `tools/bake-approved-passenger.mjs` now bakes a second index table over the
+*same* animated vertex pool (`lowIndices`, `lowCorners`, `lowTriangles` and
+`library[].lowTriangles`). A padded Low row is 8,475 corners / 2,825 triangles
+against 28,110 / 9,370 — 30 % of the stride, its vertices and its triangle work — and
+the 232 variants carry 401,778 instead of 1,308,230 triangles. Re-baking added fields
+only: every pre-existing atlas field is byte-identical to the previous file
+(`positions`, `normals`, `indices`, `regions` and all library records).
+`render/passengerModel.ts` shares the pose/normal/region textures between the two
+draws and uploads one extra index texture; `CrowdSystem` prepares both
+`InstancedMesh`es and draws exactly one of them. 低画质 shows the reduced crowd,
+隐藏UI always restores full bodies, and the simulation, identity, picking and the
+70 % material are untouched.
+
+Measured production captures (same paused Zoo camera, seed 7654321, RTX 4080 SUPER
+through ANGLE/D3D11, native multi-draw, 1384×805, device ratio 1; raw reports and
+screenshots under ignored `.preview/perf/crowd-lod*`):
+
+| View | Full triangles | Low triangles | Draw calls | Shader/GL errors |
+|---|---:|---:|---:|---|
+| Gate queue close-up (62 passengers) | 966,584 | 391,992 (−59.4 %) | 478 → 478 | 0 |
+| Station-wide (26 passengers) | 693,258 | 359,206 (−48.2 %) | 890 → 890 | 0 |
+
+Captured images differ only in detail: the gate queue keeps every silhouette, bag and
+walk pose at a natural viewing distance. `npm run check:geometry-detail` passes both
+demos with exact full restoration (Zoo 1,712,275 → 668,421 → 1,712,275; Tanwei
+2,533,776 → 1,380,253 → 2,533,776), retained batch allocations and no GL, shader or
+runtime errors; the Low crowd's separate shader program compiles there.
+
+Limitations: this is geometry only — pixel ratio, texture resolution and shader cost
+are unchanged, and the crowd still submits its transparent 70 % draw. The two
+captures above are single observations at one camera, not an FPS or GPU-time
+comparison; no throughput claim is made. The Low crowd still pads to one shared
+stride, so a bagless variant draws 2,825 triangles where its own topology is 1,388,
+and train detail is still chosen by quality/storey rather than projected size, so a
+close-up consist at 低画质 keeps its approximation.
+
+Validation: `npm --prefix game run typecheck` and the production build pass (the Low
+index table ships as its own 1.65 MiB binary asset, inside the 25 MiB Worker limit).
+The full game suite is 1,776 passing with the pre-existing Tanwei fixture-count
+failure (14,717 fixture cells vs 14,554 expected) unchanged; `npm --prefix game run
+test:perf` passes 255 tests with `trainDetail` 100 % line / 94 % branch, `trainBatches`
+100 / 90.67, `passengerModel` 100 / 93.10 and `TrainSystem` 92.69 % lines. New
+regressions `train-lod` and `passenger-lod` pin the published High counts, the Low
+budgets, the prepared swaps, moving doors and sorted glass under Low, the crowd draw
+switch, pause, clipping and single shared-atlas disposal. `check:render-batching`
+passes with native multi-draw (station 3,598→1,023 draws, train 815→26, open and
+closed train triangles preserved) and with the extension disabled (3,598→1,716,
+815→631), with no GLSL/WebGL/runtime errors; `check:perf-tools` exports CPU samples
+and a trace stream. Raw logs and captures: `.preview/perf/lod-*` and
+`.preview/perf/crowd-lod*/`.

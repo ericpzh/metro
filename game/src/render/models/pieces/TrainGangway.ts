@@ -13,6 +13,7 @@
 
 import * as THREE from 'three'
 import type { ModelMaterials } from '../PieceBuilder.ts'
+import { setModelDetail } from '../../modelDetail.ts'
 
 /**
  * The car body's own outline, which `TrainModel` builds its roof section and its side
@@ -127,26 +128,32 @@ export function sectionOutline(
  * One mesh for the whole consist rather than one per joint: the pieces are identical
  * apart from their place along the train, and an 8-car consist would otherwise add seven
  * more draw calls to a model that batches everything else.
+ *
+ * `low` is the authored §9.3 approximation: the same bellows on eight rings and two
+ * fold crests, with a coarser section. The section's own extrema (sill, waist, crown
+ * and both flanks) survive, so the piece still fills the gap it exists to close.
  */
-export function gangwayGeometry(joints: readonly number[], width: number): THREE.BufferGeometry {
+export function gangwayGeometry(joints: readonly number[], width: number, low = false): THREE.BufferGeometry {
   const section = gangwaySection(width)
-  const outline = sectionOutline(section)
+  const outline = low ? sectionOutline(section, 2, 3, 1, 2) : sectionOutline(section)
   const mid = (section.sill + section.crown) / 2
   const length = CAR_GAP + 2 * GANGWAY_TUCK
   const ring = outline.length
+  const rings = low ? 8 : RINGS
+  const ribs = low ? 2 : RIBS
   const positions: number[] = []
   const indices: number[] = []
   for (const joint of joints) {
     const base = positions.length / 3
-    for (let i = 0; i <= RINGS; i++) {
-      const u = i / RINGS
+    for (let i = 0; i <= rings; i++) {
+      const u = i / rings
       // The bellows folds in and out along the gap. Both ends sit at the section's own
       // size, so each meets the car's end face square.
-      const fold = 1 - RIB_DEPTH * (1 - Math.cos(u * Math.PI * 2 * RIBS))
+      const fold = 1 - RIB_DEPTH * (1 - Math.cos(u * Math.PI * 2 * ribs))
       const x = joint + (u - 0.5) * length
       for (const p of outline) positions.push(x, p.x * fold, mid + (p.y - mid) * fold)
     }
-    for (let i = 0; i < RINGS; i++) {
+    for (let i = 0; i < rings; i++) {
       for (let j = 0; j < ring; j++) {
         const a = base + i * ring + j
         const next = base + i * ring + ((j + 1) % ring)
@@ -171,5 +178,6 @@ export function buildConsistGangways(g: THREE.Group, mats: ModelMaterials, joint
   if (!joints.length) return
   const mesh = new THREE.Mesh(gangwayGeometry(joints, width), mats.rubber)
   mesh.name = 'car-intercar-gangway'
+  setModelDetail(mesh, gangwayGeometry(joints, width, true))
   g.add(mesh)
 }

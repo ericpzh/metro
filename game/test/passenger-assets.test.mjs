@@ -13,7 +13,7 @@ test('production passenger binary assets preserve the complete baked atlas withi
   const evaluate = new (Object.getPrototypeOf(async function () {}).constructor)('fetch', body)
   const restored = await evaluate(async index => ({ ok: true, arrayBuffer: async () => Uint8Array.from(assets[index].source).buffer }))
   const original = JSON.parse(readFileSync(new URL('../src/assets/passenger-approved.json', import.meta.url), 'utf8'))
-  for (const field of ['positions', 'normals', 'indices', 'regions']) {
+  for (const field of ['positions', 'normals', 'indices', 'lowIndices', 'regions']) {
     assert.equal(Buffer.from(restored[field]).toString('base64'), original[field], 'every packed byte survives binary delivery')
     delete restored[field]; delete original[field]
   }

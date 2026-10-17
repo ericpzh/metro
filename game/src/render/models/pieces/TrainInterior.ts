@@ -2,7 +2,20 @@ import { dHalfWidth } from './DTrainShell.ts'
 import * as THREE from 'three'
 import { slab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
+import { boxModelDetail, omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 import { CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z } from '../../../sim/stock.ts'
+
+/**
+ * A handrail or hanging strap is a tube on a short path: full detail samples it 16
+ * times round a six-sided section, Low six times round four sides. The path's own
+ * ends (a rail's run, a strap's loop) are the tube's, not new geometry, so the shape
+ * a passenger holds stays where it was.
+ */
+function tubeDetail(mesh: THREE.Mesh): void {
+  const surface = mesh.geometry as THREE.TubeGeometry
+  const p = surface.parameters
+  setModelDetail(mesh, new THREE.TubeGeometry(p.path, Math.min(p.closed ? 6 : 4, p.tubularSegments), p.radius, 4, p.closed))
+}
 
 /** Benches, seat-end guards, handrails and lighting from the metro cabin references (§1.13). */
 export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: number, end: number, bays: Array<[number, number]>, doors: number[], floor: THREE.Material, express = false): void {
@@ -10,6 +23,7 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
     const curve = new THREE.CatmullRomCurve3(points, closed, 'centripetal')
     const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, radius, 6, closed), mat)
     mesh.name = name
+    tubeDetail(mesh)
     g.add(mesh)
   }
   const mid = (start + end) / 2
@@ -50,6 +64,9 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
       // Mirror across the aisle without flipping the seat's height.
       seat.scale.y = side
       seat.position.set(a + 0.07, y, CABIN_FLOOR_Z)
+      // The formed pan becomes one envelope at Low: a bench is read by the row it
+      // makes down the car, not by the roll of its pan edge.
+      boxModelDetail(seat)
       g.add(seat)
       slab(g, mats.trainInterior, (a + b) / 2, y, CABIN_FLOOR_Z + 0.23, len - 0.18, 0.3, 0.35)
       for (const x of [a + 0.07, b - 0.07]) {
@@ -67,6 +84,7 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
         guard.name = 'seat-end-panel'
         guard.scale.y = side
         guard.position.set(x - 0.03, y, CABIN_FLOOR_Z)
+        boxModelDetail(guard)
         g.add(guard)
         tube([
           new THREE.Vector3(x, y - side * 0.29, CABIN_FLOOR_Z + 0.12),
@@ -79,7 +97,9 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
     slab(g, mats.glow, mid, side * 0.76, DOOR_HEAD_Z - 0.015, end - start - 0.3, 0.09, 0.025).name = 'cabin-light-strip'
     tube([new THREE.Vector3(start + 0.15, side * 0.62, 2.36), new THREE.Vector3(end - 0.15, side * 0.62, 2.36)], 0.025, mats.steel, 'overhead-handrail')
     for (let x = start + 0.7; x < end - 0.3; x += 1.15) {
-      slab(g, mats.rubber, x, side * 0.62, 2.24, 0.035, 0.035, 0.2)
+      // The strap's rubber hanger is the one fitting a passenger never reads at
+      // Low quality; the loop below it is what the eye follows down the car.
+      omitModelDetail(slab(g, mats.rubber, x, side * 0.62, 2.24, 0.035, 0.035, 0.2))
       tube([
         new THREE.Vector3(x, side * 0.62, 2.17),
         new THREE.Vector3(x - 0.1, side * 0.62, 2.02),
@@ -93,13 +113,16 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
       slab(g, mats.white, x, y, DOOR_HEAD_Z - 0.17, 0.95, 0.035, 0.24).name = 'cabin-route-panel'
       slab(g, mats.blue, x, y - side * 0.024, DOOR_HEAD_Z - 0.17, 0.82, 0.008, 0.015)
       for (let stop = -3; stop <= 3; stop++) {
-        slab(g, mats.white, x + stop * 0.11, y - side * 0.03, DOOR_HEAD_Z - 0.17, 0.022, 0.008, 0.03)
+        // Three centimetres of stop ink per station: the board keeps its blue
+        // route line and drops the printed stops when the car is far away.
+        omitModelDetail(slab(g, mats.white, x + stop * 0.11, y - side * 0.03, DOOR_HEAD_Z - 0.17, 0.022, 0.008, 0.03))
       }
     }
     tube([new THREE.Vector3(x, 0, CABIN_FLOOR_Z), new THREE.Vector3(x, 0, DOOR_HEAD_Z - 0.04)], 0.027, mats.steel, 'cabin-centre-pole')
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.018, 6, 32), mats.glow)
     ring.name = 'cabin-ring-light'
     ring.position.set(x, 0, DOOR_HEAD_Z - 0.025)
+    setModelDetail(ring, new THREE.TorusGeometry(0.26, 0.018, 4, 12))
     g.add(ring)
   }
 }

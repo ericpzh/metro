@@ -125,6 +125,26 @@ for(const model of models){
  }
  model.indices=indices;model.corners=indices.length;
 }
+// The crowd's Low LoD is a second, coarser topology over the *same* pose atlas
+// (§9.3): every simplified corner references a vertex whose walks, normals and
+// palette region are already baked, so the two draws share one texture set and a
+// quality change only swaps which index table the shader reads. Simplification
+// runs on the standing pose and only selects existing vertices; a target of
+// LOW_TRIANGLES is a ceiling — meshoptimizer stops at the 3% error it may not
+// exceed, so a bag-heavy variant keeps more corners than a plain one.
+const LOW_TRIANGLES=1400,LOW_ERROR=.03;
+if(!(LOW_TRIANGLES>0))throw Error('Passenger Low LoD needs a positive triangle budget');
+for(const model of models){
+ const positions=new Float32Array(model.vertices*3);
+ for(let i=0;i<positions.length;i++)positions[i]=model.poses[i]/4096;
+ const [reduced]=MeshoptSimplifier.simplify(Uint32Array.from(model.indices),positions,3,Math.min(model.corners,LOW_TRIANGLES*3),LOW_ERROR);
+ const low=[];
+ for(let i=0;i<reduced.length;i+=3){
+  const [a,b,c]=[reduced[i],reduced[i+1],reduced[i+2]].map(v=>model.lookup[v]);
+  if(a!==b&&a!==c&&b!==c)low.push(reduced[i],reduced[i+1],reduced[i+2]);
+ }
+ model.lowIndices=low;model.lowCorners=low.length;
+}
 const vertices=references.length,corners=Math.max(...models.map(m=>m.corners));
 const poses=new Int16Array(vertices*3*frames),normals=new Int8Array(poses.length),regions=new Uint8Array(vertices);
 const IndexArray=vertices>65535?Uint32Array:Uint16Array;
@@ -140,12 +160,20 @@ for(const [outfit,model] of models.entries()){
  const start=outfit*corners;indices.fill(model.lookup[0],start,start+corners);
  indices.set(model.indices.map(i=>model.lookup[i]),start);
 }
+// A single instanced draw reads one stride, so every variant's Low row pads to
+// the widest one with degenerate triangles — the same rule the full table uses.
+const lowCorners=Math.max(...models.map(m=>m.lowCorners));
+const lowIndices=new IndexArray(lowCorners*models.length);
+for(const [outfit,model] of models.entries()){
+ const start=outfit*lowCorners;lowIndices.fill(model.lookup[0],start,start+lowCorners);
+ lowIndices.set(model.lowIndices.map(i=>model.lookup[i]),start);
+}
 // Lossless packing keeps the complete growing catalogue practical to track and
 // bundle. The renderer inflates once before constructing its existing GPU data.
 const encode=a=>deflateSync(Buffer.from(a.buffer,a.byteOffset,a.byteLength),{level:9}).toString('base64');
 const walkProfiles=WALK_PROFILES.map((p,i)=>({...p,stride:p.speed*p.cycleSeconds,firstFrame:i*walkFrames+1}));
-const library=models.map(({id,character,hair,bag,bagStyle,bagScale,bagType,bagSide,adultEligible,childEligible,outfit,swapTones,garmentShape,top,bottom,file,vertices,corners,sourceSha256})=>({id,character,hair,bag,adultEligible,childEligible,...(bagStyle?{bagStyle}:{}),...(bagScale?{bagScale}:{}),...(bagType?{bagType,bagSide}:{}),...(outfit?{outfit,swapTones,garmentShape,top,bottom}:{}),file,vertices,triangles:corners/3,sourceSha256}));
-const baked={source:'Approved model library, local TRELLIS reconstruction and authored variants; foot-targeted slow/medium/fast walks',style:'grey-faceless',encoding:'zlib-base64',poseEncoding:'frame-delta',variants:models.map(m=>m.id),hairstyles:models.map(m=>m.hair),library,palette,vertices,corners,triangles:corners/3,indexBits:IndexArray.BYTES_PER_ELEMENT*8,frames,walkFrames,walkProfiles,height:1.72,stride:walkProfiles[0].stride,positionScale:4096,normalScale:127,regions:encode(regions),indices:encode(indices),positions:encode(deltaPassengerFrames(poses,vertices)),normals:encode(deltaPassengerFrames(normals,vertices))};
+const library=models.map(({id,character,hair,bag,bagStyle,bagScale,bagType,bagSide,adultEligible,childEligible,outfit,swapTones,garmentShape,top,bottom,file,vertices,corners,lowCorners,sourceSha256})=>({id,character,hair,bag,adultEligible,childEligible,...(bagStyle?{bagStyle}:{}),...(bagScale?{bagScale}:{}),...(bagType?{bagType,bagSide}:{}),...(outfit?{outfit,swapTones,garmentShape,top,bottom}:{}),file,vertices,triangles:corners/3,lowTriangles:lowCorners/3,sourceSha256}));
+const baked={source:'Approved model library, local TRELLIS reconstruction and authored variants; foot-targeted slow/medium/fast walks',style:'grey-faceless',encoding:'zlib-base64',poseEncoding:'frame-delta',variants:models.map(m=>m.id),hairstyles:models.map(m=>m.hair),library,palette,vertices,corners,triangles:corners/3,lowCorners,lowTriangles:lowCorners/3,indexBits:IndexArray.BYTES_PER_ELEMENT*8,frames,walkFrames,walkProfiles,height:1.72,stride:walkProfiles[0].stride,positionScale:4096,normalScale:127,regions:encode(regions),indices:encode(indices),lowIndices:encode(lowIndices),positions:encode(deltaPassengerFrames(poses,vertices)),normals:encode(deltaPassengerFrames(normals,vertices))};
 const out=new URL('../game/src/assets/passenger-approved.json',import.meta.url);await writeAsset(out,JSON.stringify(baked)+'\n');
 const atlasWidth=2**Math.ceil(Math.log2(Math.max(1024,Math.ceil(vertices*frames/8192))));
-console.log({variants:models.length,vertices,triangles:corners/3,atlasWidth,atlasRows:Math.ceil(vertices*frames/atlasWidth),bytes:readFileSync(out).length});
+console.log({variants:models.length,vertices,triangles:corners/3,lowTriangles:lowCorners/3,atlasWidth,atlasRows:Math.ceil(vertices*frames/atlasWidth),indexRows:Math.ceil(corners*models.length/1024),lowIndexRows:Math.ceil(lowCorners*models.length/1024),bytes:readFileSync(out).length});

@@ -97,6 +97,7 @@ export class SceneRenderer {
     this.requestRender()
     this.ctx.detailEnabled = on
     this.modules.batches.detailEnabled = on
+    this.crowd.applyDetail()
     this.ctx.levelKey = ''; this.level.applyLevel()
   }
 
@@ -110,6 +111,9 @@ export class SceneRenderer {
     this.requestRender()
     this.ctx.graphicsQuality = quality
     this.modules.batches.graphicsQuality = quality
+    // The crowd's Low LoD is a prepared second draw rather than a batch, so the
+    // quality change has to reach the passengers as well as the fixtures.
+    this.crowd.applyDetail()
     this.ctx.levelKey = ''; this.level.applyLevel()
   }
   /** The live animation-frame handle, so `dispose` can stop the loop it started. */
@@ -549,6 +553,8 @@ export class SceneRenderer {
     this.requestRender()
     this.grid.setHideUI(on)
     this.level.setHideUI(on)
+    // Hide UI is the presentation mode: it always restores full bodies.
+    this.crowd.applyDetail()
   }
 
   /** 隐藏墙壁: fade every wall and platform screen door, or restore them. */

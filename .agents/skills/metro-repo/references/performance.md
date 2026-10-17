@@ -60,8 +60,11 @@ resource creation and cache reuse; local HTTP startup is not a WAN measurement.
 
 Triangle counts below are for one model built from each palette option's default configuration. High is the full model geometry; Low uses the renderer's reduced geometry wherever that model part has a supported approximation, and keeps unsupported parts at full detail. These are model triangles, not totals across all placed copies. Width, length, style and material controls can create additional variants; the table lists the 117 shipped palette options.
 
-Regenerate with `node tools/model-triangle-inventory.mjs`; the JSON and Markdown
-table go to ignored `.preview/perf/model-triangles.{json,md}`. The authored Low
+Regenerate all three tables in this section with `node tools/model-triangle-inventory.mjs`;
+it writes ignored `.preview/perf/model-triangles.{json,md}`, `train-triangles.{json,md}`
+and `passenger-triangles.{json,md}`. The inventory builds the equipment and the trains
+through the real renderer path (batching included) and reads the passengers from the
+baked atlas records. The authored Low
 variants remove shelf stock, cubicle interiors and fine hardware; keep simplified
 sink/CCTV/AC silhouettes, track sleepers/rails, ramp bands, lift doors and stair
 surfaces. Source picks and rigs stay exact. `model-detail` guards per-model triangle
@@ -208,279 +211,298 @@ the shared bridge builders also prepare these Low variants.
 ### Train models (车辆)
 
 One row per consist the game can build (`buildTrain`) at each formation its stock
-class allows; model triangles for one train, not totals across services. Trains have
-no Low/detail approximation, so Low is `none` for every row — each consist renders at
-full detail. Counts include both cabs, gangways, the rideable cabin interior, bogies
-and the closed door leaves (open/closed poses submit the same triangles).
+class allows; model triangles for one train, not totals across services. High is the
+complete consist — both cabs, gangways, the rideable cabin interior, bogies and the
+closed door leaves (open/closed poses submit the same triangles). Low is what the same
+consist draws after its prepared swaps: a part with an authored §9.3 approximation
+swaps geometry, a part outside that set (a 12-triangle slab, a fixed 5 m surface)
+keeps its full geometry. Counts are drawn totals through the renderer's own path —
+static batching, door banks and sorted glass batches — not a sum of unmerged parts.
 
 | Train model | Low triangles | High triangles |
-|---|---:|---:|
-| D-8 | none | 1061168 |
-| A-8 | none | 228512 |
-| A-6 | none | 178592 |
-| B-6 | none | 156320 |
-| C-6 | none | 156320 |
-| L-6 | none | 136496 |
-| B-4 | none | 113824 |
-| C-4 | none | 113824 |
-| L-4 | none | 100608 |
+|---||---:|---:|
+| D-8 | 89784 | 1061168 |
+| D-6 | 74228 | 812988 |
+| A-8 | 58432 | 228512 |
+| A-6 | 44320 | 178592 |
+| B-6 | 37792 | 156320 |
+| C-6 | 37792 | 156320 |
+| L-6 | 31840 | 136496 |
+| B-4 | 25856 | 113824 |
+| C-4 | 25856 | 113824 |
+| L-4 | 21888 | 100608 |
 
-D is the Guangzhou 18/22 reference and the outlier: its streamlined cab uses
-64×128-segment surfaces and curved-shell patches, about 6–8× the other classes. The
-shipped 动物园 Line 5 runs **L-6**. Regenerate with the one-off audit
-`.preview/perf/train-triangle-audit.mjs` (ignored scratch), which builds each consist
-through the real `buildTrain` and sums mesh triangles; door leaves are registered
-door rigs, so animation never changes these counts.
+The interior carries most of the reduction for A/B/C/L: hanging straps, seat-end
+handrails and centre poles become four-sided tubes on a six-segment path, ring lights
+a twelve-sided torus, benches and seat-end guards a single envelope. D is the
+Guangzhou 18/22 reference and the outlier: its streamlined cab and plug doors are
+lofted surfaces, and their Low sampling — four door panels from 12×64 to 3×8, the cab
+shell from 64×128 to 16×32, the bellows from 32×128 to 8×16 — is what takes it from
+1,061,168 to 89,784. The shipped 动物园 Line 5 runs **L-6**.
+
+Train parts are authored in their builders (`render/modelDetail.ts`); `batchStaticParts`
+merges both variants so a batch carries its own Low geometry, and the door banks and
+sorted-glass batches reserve theirs when they are built. A part with no authored
+variant may fall back to the bounded-error simplifier only inside
+`TRAIN_DETAIL_MAX_RADIUS` — a merged car spans a whole consist, and 2 % of that is
+metres. Preparing both variants costs roughly 10 % (D) to 30 % (B/C) more on a
+consist's first build, once per cached configuration (eight are kept).
 
 ### Passenger models (乘客)
 
 One row per reviewed appearance in the baked crowd atlas
 (`game/src/assets/passenger-approved.json`, drawn as a single instanced draw — no
-per-agent GLB or skeleton). Passengers have no Low/detail approximation, so Low is
-`none`. Counts are the `triangles` the atlas `library` records for each variant, not
-PASSENGERS.md's "padded to 9,370 triangles per passenger" claim, which is stale:
-9,370 is only the largest single variant (the shared topology array size).
+per-agent GLB or skeleton). High is the padded shared stride every passenger submits;
+Low is the atlas's baked Low topology (§9.3): a second index table over the *same*
+animated vertex pool, simplified from the standing pose and padded to the same shared
+stride. Both draws sample one pose/normal/region atlas, so 低画质 only swaps geometry
+and index table, and 隐藏UI restores the full draw. Counts are each variant's own
+topology, recorded in the atlas `library` as `triangles` and `lowTriangles`; the
+shared padded stride the crowd actually submits is 9,370 full and 2,825 Low.
 
 | Passenger model | Low triangles | High triangles |
-|---|---:|---:|
-| male-original-bag | none | 9370 |
-| male-short-bag | none | 9314 |
-| male-bald-bag | none | 9296 |
-| male-short-small-bag | none | 8872 |
-| male-short-standard-87.5-bag | none | 8867 |
-| male-bald-small-bag | none | 8854 |
-| male-bald-standard-87.5-bag | none | 8849 |
-| male-short-standard-75-bag | none | 8832 |
-| male-bald-standard-75-bag | none | 8814 |
-| male-side-part-bag | none | 8772 |
-| male-quiff-bag | none | 8772 |
-| male-swept-bag | none | 8752 |
-| male-crop-bag | none | 8673 |
-| female-rounded-bob-bag | none | 8636 |
-| female-lob-bag | none | 8594 |
-| female-bob-bag | none | 8584 |
-| female-angled-bob-bag | none | 8582 |
-| female-side-part-bob-bag | none | 8580 |
-| female-shoulder-bag | none | 8579 |
-| female-shoulder-swept-bag | none | 8579 |
-| female-cropped-bob-bag | none | 8578 |
-| male-crew-bag | none | 8569 |
-| male-buzz-bag | none | 8526 |
-| male-rounded-bag | none | 8524 |
-| male-original-small-bag | none | 8425 |
-| male-original-standard-87.5-bag | none | 8409 |
-| male-original-standard-75-bag | none | 8389 |
-| male-side-part-small-bag | none | 8363 |
-| male-quiff-small-bag | none | 8363 |
-| male-side-part-standard-87.5-bag | none | 8347 |
-| male-quiff-standard-87.5-bag | none | 8347 |
-| male-swept-small-bag | none | 8343 |
-| male-swept-standard-87.5-bag | none | 8327 |
-| male-side-part-standard-75-bag | none | 8327 |
-| male-quiff-standard-75-bag | none | 8327 |
-| male-swept-standard-75-bag | none | 8307 |
-| female-rounded-bob-small-bag | none | 8269 |
-| male-crop-small-bag | none | 8264 |
-| male-crop-standard-87.5-bag | none | 8248 |
-| female-rounded-bob-standard-87.5-bag | none | 8241 |
-| female-rounded-bob-standard-75-bag | none | 8235 |
-| male-crop-standard-75-bag | none | 8228 |
-| female-lob-small-bag | none | 8227 |
-| female-bob-small-bag | none | 8217 |
-| female-angled-bob-small-bag | none | 8215 |
-| female-side-part-bob-small-bag | none | 8213 |
-| female-shoulder-small-bag | none | 8212 |
-| female-shoulder-swept-small-bag | none | 8212 |
-| female-cropped-bob-small-bag | none | 8211 |
-| female-lob-standard-87.5-bag | none | 8199 |
-| female-lob-standard-75-bag | none | 8193 |
-| female-bob-standard-87.5-bag | none | 8189 |
-| female-angled-bob-standard-87.5-bag | none | 8187 |
-| female-side-part-bob-standard-87.5-bag | none | 8185 |
-| female-shoulder-standard-87.5-bag | none | 8184 |
-| female-shoulder-swept-standard-87.5-bag | none | 8184 |
-| female-cropped-bob-standard-87.5-bag | none | 8183 |
-| female-bob-standard-75-bag | none | 8183 |
-| female-angled-bob-standard-75-bag | none | 8181 |
-| female-side-part-bob-standard-75-bag | none | 8179 |
-| female-shoulder-standard-75-bag | none | 8178 |
-| female-shoulder-swept-standard-75-bag | none | 8178 |
-| female-cropped-bob-standard-75-bag | none | 8177 |
-| male-crew-small-bag | none | 8160 |
-| male-crew-standard-87.5-bag | none | 8144 |
-| male-crew-standard-75-bag | none | 8124 |
-| male-buzz-small-bag | none | 8117 |
-| male-rounded-small-bag | none | 8115 |
-| male-buzz-standard-87.5-bag | none | 8101 |
-| male-rounded-standard-87.5-bag | none | 8099 |
-| male-buzz-standard-75-bag | none | 8081 |
-| male-rounded-standard-75-bag | none | 8079 |
-| female-midi-pleated-swapped-no-bag | none | 5832 |
-| female-long-a-line-swapped-no-bag | none | 5806 |
-| female-long-pleated-swapped-no-bag | none | 5805 |
-| female-midi-pleated-no-bag | none | 5802 |
-| female-midi-a-line-swapped-no-bag | none | 5785 |
-| female-long-a-line-no-bag | none | 5775 |
-| female-long-pleated-no-bag | none | 5775 |
-| female-midi-a-line-no-bag | none | 5773 |
-| female-full-pleated-swapped-no-bag | none | 5771 |
-| female-full-pleated-no-bag | none | 5770 |
-| female-slim-long-skirt-no-bag | none | 5749 |
-| female-slim-long-skirt-swapped-no-bag | none | 5718 |
-| male-short-crossbody-right-bag | none | 5071 |
-| male-short-crossbody-left-bag | none | 5070 |
-| male-bald-crossbody-right-bag | none | 5053 |
-| male-bald-crossbody-left-bag | none | 5052 |
-| male-short-shoulder-right-bag | none | 4764 |
-| male-short-shoulder-left-bag | none | 4762 |
-| male-bald-shoulder-right-bag | none | 4746 |
-| male-bald-shoulder-left-bag | none | 4744 |
-| male-short-no-bag | none | 4705 |
-| male-bald-no-bag | none | 4687 |
-| male-original-crossbody-right-bag | none | 4650 |
-| male-original-crossbody-left-bag | none | 4649 |
-| female-long-swept-crossbody-right-bag | none | 4612 |
-| female-long-swept-crossbody-left-bag | none | 4611 |
-| female-long-crossbody-right-bag | none | 4605 |
-| female-long-crossbody-left-bag | none | 4604 |
-| male-side-part-crossbody-right-bag | none | 4588 |
-| male-quiff-crossbody-right-bag | none | 4588 |
-| male-side-part-crossbody-left-bag | none | 4587 |
-| male-quiff-crossbody-left-bag | none | 4587 |
-| male-swept-crossbody-right-bag | none | 4568 |
-| male-swept-crossbody-left-bag | none | 4567 |
-| male-crop-crossbody-right-bag | none | 4489 |
-| male-crop-crossbody-left-bag | none | 4488 |
-| female-rounded-bob-crossbody-right-bag | none | 4482 |
-| female-rounded-bob-crossbody-left-bag | none | 4481 |
-| female-lob-crossbody-right-bag | none | 4440 |
-| female-lob-crossbody-left-bag | none | 4439 |
-| female-bob-crossbody-right-bag | none | 4430 |
-| female-bob-crossbody-left-bag | none | 4429 |
-| female-angled-bob-crossbody-right-bag | none | 4428 |
-| female-angled-bob-crossbody-left-bag | none | 4427 |
-| female-side-part-bob-crossbody-right-bag | none | 4426 |
-| female-side-part-bob-crossbody-left-bag | none | 4425 |
-| female-shoulder-crossbody-right-bag | none | 4425 |
-| female-shoulder-swept-crossbody-right-bag | none | 4425 |
-| female-shoulder-crossbody-left-bag | none | 4424 |
-| female-shoulder-swept-crossbody-left-bag | none | 4424 |
-| female-cropped-bob-crossbody-right-bag | none | 4424 |
-| female-cropped-bob-crossbody-left-bag | none | 4423 |
-| male-crew-crossbody-right-bag | none | 4385 |
-| male-crew-crossbody-left-bag | none | 4384 |
-| male-buzz-crossbody-right-bag | none | 4342 |
-| male-original-shoulder-right-bag | none | 4341 |
-| male-buzz-crossbody-left-bag | none | 4341 |
-| male-rounded-crossbody-right-bag | none | 4340 |
-| female-long-swept-purse-left-bag | none | 4340 |
-| female-long-swept-purse-right-bag | none | 4340 |
-| male-original-shoulder-left-bag | none | 4339 |
-| male-rounded-crossbody-left-bag | none | 4339 |
-| female-long-purse-left-bag | none | 4333 |
-| female-long-purse-right-bag | none | 4333 |
-| female-long-swept-shoulder-right-bag | none | 4318 |
-| female-long-swept-shoulder-left-bag | none | 4316 |
-| female-long-shoulder-right-bag | none | 4311 |
-| female-long-shoulder-left-bag | none | 4309 |
-| male-short-straight-no-bag | none | 4294 |
-| male-short-straight-swapped-no-bag | none | 4292 |
-| male-crew-straight-no-bag | none | 4285 |
-| male-relaxed-straight-swapped-no-bag | none | 4281 |
-| male-side-part-shoulder-right-bag | none | 4279 |
-| male-quiff-shoulder-right-bag | none | 4279 |
-| male-side-part-shoulder-left-bag | none | 4277 |
-| male-quiff-shoulder-left-bag | none | 4277 |
-| male-relaxed-straight-no-bag | none | 4277 |
-| male-fitted-straight-no-bag | none | 4268 |
-| male-original-no-bag | none | 4262 |
-| male-crew-straight-swapped-no-bag | none | 4262 |
-| male-swept-shoulder-right-bag | none | 4259 |
-| male-swept-shoulder-left-bag | none | 4257 |
-| female-long-swept-no-bag | none | 4231 |
-| female-long-no-bag | none | 4224 |
-| male-fitted-straight-swapped-no-bag | none | 4224 |
-| male-short-wide-no-bag | none | 4217 |
-| male-relaxed-wide-swapped-no-bag | none | 4215 |
-| female-rounded-bob-purse-left-bag | none | 4210 |
-| female-rounded-bob-purse-right-bag | none | 4210 |
-| male-relaxed-wide-no-bag | none | 4209 |
-| male-long-relaxed-no-bag | none | 4205 |
-| male-side-part-no-bag | none | 4200 |
-| male-quiff-no-bag | none | 4200 |
-| female-rounded-bob-shoulder-right-bag | none | 4188 |
-| female-rounded-bob-shoulder-left-bag | none | 4186 |
-| male-swept-no-bag | none | 4180 |
-| male-crop-shoulder-right-bag | none | 4180 |
-| male-short-wide-swapped-no-bag | none | 4179 |
-| male-crop-shoulder-left-bag | none | 4178 |
-| female-lob-purse-left-bag | none | 4168 |
-| female-lob-purse-right-bag | none | 4168 |
-| female-bob-purse-left-bag | none | 4158 |
-| female-bob-purse-right-bag | none | 4158 |
-| female-angled-bob-purse-left-bag | none | 4156 |
-| female-angled-bob-purse-right-bag | none | 4156 |
-| female-side-part-bob-purse-left-bag | none | 4154 |
-| female-side-part-bob-purse-right-bag | none | 4154 |
-| female-shoulder-purse-left-bag | none | 4153 |
-| female-shoulder-swept-purse-left-bag | none | 4153 |
-| female-shoulder-purse-right-bag | none | 4153 |
-| female-shoulder-swept-purse-right-bag | none | 4153 |
-| female-cropped-bob-purse-left-bag | none | 4152 |
-| female-cropped-bob-purse-right-bag | none | 4152 |
-| male-crew-tapered-swapped-no-bag | none | 4152 |
-| female-lob-shoulder-right-bag | none | 4146 |
-| female-lob-shoulder-left-bag | none | 4144 |
-| male-crew-tapered-no-bag | none | 4144 |
-| male-long-relaxed-swapped-no-bag | none | 4144 |
-| female-bob-shoulder-right-bag | none | 4136 |
-| female-bob-shoulder-left-bag | none | 4134 |
-| female-angled-bob-shoulder-right-bag | none | 4134 |
-| female-angled-bob-shoulder-left-bag | none | 4132 |
-| female-side-part-bob-shoulder-right-bag | none | 4132 |
-| male-fitted-tapered-no-bag | none | 4132 |
-| female-shoulder-shoulder-right-bag | none | 4131 |
-| female-shoulder-swept-shoulder-right-bag | none | 4131 |
-| female-side-part-bob-shoulder-left-bag | none | 4130 |
-| female-cropped-bob-shoulder-right-bag | none | 4130 |
-| female-shoulder-shoulder-left-bag | none | 4129 |
-| female-shoulder-swept-shoulder-left-bag | none | 4129 |
-| female-cropped-bob-shoulder-left-bag | none | 4128 |
-| male-fitted-tapered-swapped-no-bag | none | 4128 |
-| male-long-tapered-no-bag | none | 4105 |
-| male-crop-no-bag | none | 4101 |
-| female-rounded-bob-no-bag | none | 4101 |
-| male-long-tapered-swapped-no-bag | none | 4089 |
-| male-crew-shoulder-right-bag | none | 4076 |
-| male-crew-shoulder-left-bag | none | 4074 |
-| female-lob-no-bag | none | 4059 |
-| female-bob-no-bag | none | 4049 |
-| female-angled-bob-no-bag | none | 4047 |
-| female-side-part-bob-no-bag | none | 4045 |
-| female-shoulder-no-bag | none | 4044 |
-| female-shoulder-swept-no-bag | none | 4044 |
-| female-cropped-bob-no-bag | none | 4043 |
-| female-straight-trousers-no-bag | none | 4040 |
-| female-straight-trousers-swapped-no-bag | none | 4034 |
-| male-buzz-shoulder-right-bag | none | 4033 |
-| male-buzz-shoulder-left-bag | none | 4031 |
-| male-rounded-shoulder-right-bag | none | 4031 |
-| male-rounded-shoulder-left-bag | none | 4029 |
-| male-crew-no-bag | none | 3997 |
-| female-wide-trousers-swapped-no-bag | none | 3976 |
-| female-wide-trousers-no-bag | none | 3960 |
-| male-buzz-no-bag | none | 3954 |
-| male-rounded-no-bag | none | 3952 |
-| female-relaxed-trousers-no-bag | none | 3921 |
-| female-relaxed-trousers-swapped-no-bag | none | 3900 |
-| female-tapered-trousers-swapped-no-bag | none | 3830 |
-| female-tapered-trousers-no-bag | none | 3821 |
+|---||---:|---:|
+| male-original-bag | 2547 | 9370 |
+| male-short-bag | 2825 | 9314 |
+| male-bald-bag | 2817 | 9296 |
+| male-short-small-bag | 2600 | 8872 |
+| male-short-standard-87.5-bag | 2649 | 8867 |
+| male-bald-small-bag | 2598 | 8854 |
+| male-bald-standard-87.5-bag | 2643 | 8849 |
+| male-short-standard-75-bag | 2664 | 8832 |
+| male-bald-standard-75-bag | 2660 | 8814 |
+| male-side-part-bag | 2429 | 8772 |
+| male-quiff-bag | 2441 | 8772 |
+| male-swept-bag | 2449 | 8752 |
+| male-crop-bag | 2430 | 8673 |
+| female-rounded-bob-bag | 2749 | 8636 |
+| female-lob-bag | 2735 | 8594 |
+| female-bob-bag | 2741 | 8584 |
+| female-angled-bob-bag | 2737 | 8582 |
+| female-side-part-bob-bag | 2733 | 8580 |
+| female-shoulder-bag | 2639 | 8579 |
+| female-shoulder-swept-bag | 2626 | 8579 |
+| female-cropped-bob-bag | 2745 | 8578 |
+| male-crew-bag | 2423 | 8569 |
+| male-buzz-bag | 2443 | 8526 |
+| male-rounded-bag | 2415 | 8524 |
+| male-original-small-bag | 2255 | 8425 |
+| male-original-standard-87.5-bag | 2261 | 8409 |
+| male-original-standard-75-bag | 2286 | 8389 |
+| male-side-part-small-bag | 2249 | 8363 |
+| male-quiff-small-bag | 2244 | 8363 |
+| male-side-part-standard-87.5-bag | 2258 | 8347 |
+| male-quiff-standard-87.5-bag | 2254 | 8347 |
+| male-swept-small-bag | 2247 | 8343 |
+| male-swept-standard-87.5-bag | 2287 | 8327 |
+| male-side-part-standard-75-bag | 2280 | 8327 |
+| male-quiff-standard-75-bag | 2273 | 8327 |
+| male-swept-standard-75-bag | 2269 | 8307 |
+| female-rounded-bob-small-bag | 2573 | 8269 |
+| male-crop-small-bag | 2227 | 8264 |
+| male-crop-standard-87.5-bag | 2253 | 8248 |
+| female-rounded-bob-standard-87.5-bag | 2596 | 8241 |
+| female-rounded-bob-standard-75-bag | 2575 | 8235 |
+| male-crop-standard-75-bag | 2272 | 8228 |
+| female-lob-small-bag | 2567 | 8227 |
+| female-bob-small-bag | 2569 | 8217 |
+| female-angled-bob-small-bag | 2575 | 8215 |
+| female-side-part-bob-small-bag | 2573 | 8213 |
+| female-shoulder-small-bag | 2473 | 8212 |
+| female-shoulder-swept-small-bag | 2457 | 8212 |
+| female-cropped-bob-small-bag | 2569 | 8211 |
+| female-lob-standard-87.5-bag | 2587 | 8199 |
+| female-lob-standard-75-bag | 2563 | 8193 |
+| female-bob-standard-87.5-bag | 2591 | 8189 |
+| female-angled-bob-standard-87.5-bag | 2593 | 8187 |
+| female-side-part-bob-standard-87.5-bag | 2595 | 8185 |
+| female-shoulder-standard-87.5-bag | 2495 | 8184 |
+| female-shoulder-swept-standard-87.5-bag | 2484 | 8184 |
+| female-cropped-bob-standard-87.5-bag | 2597 | 8183 |
+| female-bob-standard-75-bag | 2567 | 8183 |
+| female-angled-bob-standard-75-bag | 2569 | 8181 |
+| female-side-part-bob-standard-75-bag | 2569 | 8179 |
+| female-shoulder-standard-75-bag | 2477 | 8178 |
+| female-shoulder-swept-standard-75-bag | 2461 | 8178 |
+| female-cropped-bob-standard-75-bag | 2567 | 8177 |
+| male-crew-small-bag | 2242 | 8160 |
+| male-crew-standard-87.5-bag | 2266 | 8144 |
+| male-crew-standard-75-bag | 2276 | 8124 |
+| male-buzz-small-bag | 2253 | 8117 |
+| male-rounded-small-bag | 2232 | 8115 |
+| male-buzz-standard-87.5-bag | 2270 | 8101 |
+| male-rounded-standard-87.5-bag | 2263 | 8099 |
+| male-buzz-standard-75-bag | 2283 | 8081 |
+| male-rounded-standard-75-bag | 2263 | 8079 |
+| female-midi-pleated-swapped-no-bag | 1398 | 5832 |
+| female-long-a-line-swapped-no-bag | 1397 | 5806 |
+| female-long-pleated-swapped-no-bag | 1397 | 5805 |
+| female-midi-pleated-no-bag | 1400 | 5802 |
+| female-midi-a-line-swapped-no-bag | 1396 | 5785 |
+| female-long-a-line-no-bag | 1397 | 5775 |
+| female-long-pleated-no-bag | 1400 | 5775 |
+| female-midi-a-line-no-bag | 1399 | 5773 |
+| female-full-pleated-swapped-no-bag | 1399 | 5771 |
+| female-full-pleated-no-bag | 1398 | 5770 |
+| female-slim-long-skirt-no-bag | 1394 | 5749 |
+| female-slim-long-skirt-swapped-no-bag | 1400 | 5718 |
+| male-short-crossbody-right-bag | 1398 | 5071 |
+| male-short-crossbody-left-bag | 1400 | 5070 |
+| male-bald-crossbody-right-bag | 1398 | 5053 |
+| male-bald-crossbody-left-bag | 1399 | 5052 |
+| male-short-shoulder-right-bag | 1397 | 4764 |
+| male-short-shoulder-left-bag | 1399 | 4762 |
+| male-bald-shoulder-right-bag | 1396 | 4746 |
+| male-bald-shoulder-left-bag | 1399 | 4744 |
+| male-short-no-bag | 1400 | 4705 |
+| male-bald-no-bag | 1400 | 4687 |
+| male-original-crossbody-right-bag | 1400 | 4650 |
+| male-original-crossbody-left-bag | 1400 | 4649 |
+| female-long-swept-crossbody-right-bag | 1392 | 4612 |
+| female-long-swept-crossbody-left-bag | 1392 | 4611 |
+| female-long-crossbody-right-bag | 1392 | 4605 |
+| female-long-crossbody-left-bag | 1393 | 4604 |
+| male-side-part-crossbody-right-bag | 1397 | 4588 |
+| male-quiff-crossbody-right-bag | 1400 | 4588 |
+| male-side-part-crossbody-left-bag | 1400 | 4587 |
+| male-quiff-crossbody-left-bag | 1400 | 4587 |
+| male-swept-crossbody-right-bag | 1390 | 4568 |
+| male-swept-crossbody-left-bag | 1399 | 4567 |
+| male-crop-crossbody-right-bag | 1400 | 4489 |
+| male-crop-crossbody-left-bag | 1398 | 4488 |
+| female-rounded-bob-crossbody-right-bag | 1392 | 4482 |
+| female-rounded-bob-crossbody-left-bag | 1394 | 4481 |
+| female-lob-crossbody-right-bag | 1392 | 4440 |
+| female-lob-crossbody-left-bag | 1393 | 4439 |
+| female-bob-crossbody-right-bag | 1392 | 4430 |
+| female-bob-crossbody-left-bag | 1392 | 4429 |
+| female-angled-bob-crossbody-right-bag | 1393 | 4428 |
+| female-angled-bob-crossbody-left-bag | 1393 | 4427 |
+| female-side-part-bob-crossbody-right-bag | 1392 | 4426 |
+| female-side-part-bob-crossbody-left-bag | 1392 | 4425 |
+| female-shoulder-crossbody-right-bag | 1396 | 4425 |
+| female-shoulder-swept-crossbody-right-bag | 1396 | 4425 |
+| female-shoulder-crossbody-left-bag | 1395 | 4424 |
+| female-shoulder-swept-crossbody-left-bag | 1396 | 4424 |
+| female-cropped-bob-crossbody-right-bag | 1391 | 4424 |
+| female-cropped-bob-crossbody-left-bag | 1392 | 4423 |
+| male-crew-crossbody-right-bag | 1399 | 4385 |
+| male-crew-crossbody-left-bag | 1399 | 4384 |
+| male-buzz-crossbody-right-bag | 1400 | 4342 |
+| male-original-shoulder-right-bag | 1400 | 4341 |
+| male-buzz-crossbody-left-bag | 1392 | 4341 |
+| male-rounded-crossbody-right-bag | 1390 | 4340 |
+| female-long-swept-purse-left-bag | 1398 | 4340 |
+| female-long-swept-purse-right-bag | 1397 | 4340 |
+| male-original-shoulder-left-bag | 1399 | 4339 |
+| male-rounded-crossbody-left-bag | 1390 | 4339 |
+| female-long-purse-left-bag | 1400 | 4333 |
+| female-long-purse-right-bag | 1399 | 4333 |
+| female-long-swept-shoulder-right-bag | 1399 | 4318 |
+| female-long-swept-shoulder-left-bag | 1395 | 4316 |
+| female-long-shoulder-right-bag | 1392 | 4311 |
+| female-long-shoulder-left-bag | 1393 | 4309 |
+| male-short-straight-no-bag | 1397 | 4294 |
+| male-short-straight-swapped-no-bag | 1396 | 4292 |
+| male-crew-straight-no-bag | 1400 | 4285 |
+| male-relaxed-straight-swapped-no-bag | 1399 | 4281 |
+| male-side-part-shoulder-right-bag | 1399 | 4279 |
+| male-quiff-shoulder-right-bag | 1400 | 4279 |
+| male-side-part-shoulder-left-bag | 1400 | 4277 |
+| male-quiff-shoulder-left-bag | 1399 | 4277 |
+| male-relaxed-straight-no-bag | 1399 | 4277 |
+| male-fitted-straight-no-bag | 1400 | 4268 |
+| male-original-no-bag | 1400 | 4262 |
+| male-crew-straight-swapped-no-bag | 1400 | 4262 |
+| male-swept-shoulder-right-bag | 1400 | 4259 |
+| male-swept-shoulder-left-bag | 1400 | 4257 |
+| female-long-swept-no-bag | 1397 | 4231 |
+| female-long-no-bag | 1397 | 4224 |
+| male-fitted-straight-swapped-no-bag | 1397 | 4224 |
+| male-short-wide-no-bag | 1393 | 4217 |
+| male-relaxed-wide-swapped-no-bag | 1398 | 4215 |
+| female-rounded-bob-purse-left-bag | 1400 | 4210 |
+| female-rounded-bob-purse-right-bag | 1399 | 4210 |
+| male-relaxed-wide-no-bag | 1398 | 4209 |
+| male-long-relaxed-no-bag | 1400 | 4205 |
+| male-side-part-no-bag | 1398 | 4200 |
+| male-quiff-no-bag | 1400 | 4200 |
+| female-rounded-bob-shoulder-right-bag | 1392 | 4188 |
+| female-rounded-bob-shoulder-left-bag | 1397 | 4186 |
+| male-swept-no-bag | 1399 | 4180 |
+| male-crop-shoulder-right-bag | 1399 | 4180 |
+| male-short-wide-swapped-no-bag | 1399 | 4179 |
+| male-crop-shoulder-left-bag | 1399 | 4178 |
+| female-lob-purse-left-bag | 1399 | 4168 |
+| female-lob-purse-right-bag | 1400 | 4168 |
+| female-bob-purse-left-bag | 1399 | 4158 |
+| female-bob-purse-right-bag | 1399 | 4158 |
+| female-angled-bob-purse-left-bag | 1399 | 4156 |
+| female-angled-bob-purse-right-bag | 1399 | 4156 |
+| female-side-part-bob-purse-left-bag | 1397 | 4154 |
+| female-side-part-bob-purse-right-bag | 1396 | 4154 |
+| female-shoulder-purse-left-bag | 1399 | 4153 |
+| female-shoulder-swept-purse-left-bag | 1394 | 4153 |
+| female-shoulder-purse-right-bag | 1399 | 4153 |
+| female-shoulder-swept-purse-right-bag | 1399 | 4153 |
+| female-cropped-bob-purse-left-bag | 1397 | 4152 |
+| female-cropped-bob-purse-right-bag | 1400 | 4152 |
+| male-crew-tapered-swapped-no-bag | 1398 | 4152 |
+| female-lob-shoulder-right-bag | 1392 | 4146 |
+| female-lob-shoulder-left-bag | 1396 | 4144 |
+| male-crew-tapered-no-bag | 1400 | 4144 |
+| male-long-relaxed-swapped-no-bag | 1389 | 4144 |
+| female-bob-shoulder-right-bag | 1391 | 4136 |
+| female-bob-shoulder-left-bag | 1399 | 4134 |
+| female-angled-bob-shoulder-right-bag | 1390 | 4134 |
+| female-angled-bob-shoulder-left-bag | 1393 | 4132 |
+| female-side-part-bob-shoulder-right-bag | 1391 | 4132 |
+| male-fitted-tapered-no-bag | 1400 | 4132 |
+| female-shoulder-shoulder-right-bag | 1399 | 4131 |
+| female-shoulder-swept-shoulder-right-bag | 1397 | 4131 |
+| female-side-part-bob-shoulder-left-bag | 1397 | 4130 |
+| female-cropped-bob-shoulder-right-bag | 1391 | 4130 |
+| female-shoulder-shoulder-left-bag | 1397 | 4129 |
+| female-shoulder-swept-shoulder-left-bag | 1388 | 4129 |
+| female-cropped-bob-shoulder-left-bag | 1397 | 4128 |
+| male-fitted-tapered-swapped-no-bag | 1398 | 4128 |
+| male-long-tapered-no-bag | 1400 | 4105 |
+| male-crop-no-bag | 1399 | 4101 |
+| female-rounded-bob-no-bag | 1399 | 4101 |
+| male-long-tapered-swapped-no-bag | 1396 | 4089 |
+| male-crew-shoulder-right-bag | 1400 | 4076 |
+| male-crew-shoulder-left-bag | 1398 | 4074 |
+| female-lob-no-bag | 1397 | 4059 |
+| female-bob-no-bag | 1398 | 4049 |
+| female-angled-bob-no-bag | 1398 | 4047 |
+| female-side-part-bob-no-bag | 1397 | 4045 |
+| female-shoulder-no-bag | 1400 | 4044 |
+| female-shoulder-swept-no-bag | 1396 | 4044 |
+| female-cropped-bob-no-bag | 1398 | 4043 |
+| female-straight-trousers-no-bag | 1400 | 4040 |
+| female-straight-trousers-swapped-no-bag | 1395 | 4034 |
+| male-buzz-shoulder-right-bag | 1400 | 4033 |
+| male-buzz-shoulder-left-bag | 1400 | 4031 |
+| male-rounded-shoulder-right-bag | 1395 | 4031 |
+| male-rounded-shoulder-left-bag | 1400 | 4029 |
+| male-crew-no-bag | 1400 | 3997 |
+| female-wide-trousers-swapped-no-bag | 1399 | 3976 |
+| female-wide-trousers-no-bag | 1399 | 3960 |
+| male-buzz-no-bag | 1400 | 3954 |
+| male-rounded-no-bag | 1399 | 3952 |
+| female-relaxed-trousers-no-bag | 1398 | 3921 |
+| female-relaxed-trousers-swapped-no-bag | 1398 | 3900 |
+| female-tapered-trousers-swapped-no-bag | 1399 | 3830 |
+| female-tapered-trousers-no-bag | 1400 | 3821 |
 
-Across all 232 variants the atlas references 1,308,230 triangles over a shared pool
-of 226,731 animated vertices (73 pose frames, 21 palette stops); per-variant topology
-(2,450–7,279 vertices) deduplicates by matching colour, position and normal in every
-pose. `passenger-library` pins the eligibility pools and topology budgets, and the
-atlas `library` array is the authoritative per-variant record.
+Across all 232 variants the atlas references 1,308,230 full triangles and
+401,778 Low triangles over a shared pool of 226,731 animated vertices (73 pose frames,
+21 palette stops); per-variant topology (2,450–7,279 vertices) deduplicates by matching
+colour, position and normal in every pose. The Low table keeps the same pool: a padded
+Low row is `lowCorners` 8,475 corners (2,825 triangles) and 1,388–2,825 real triangles
+per variant — 30 % of the full stride, its vertices and its triangle work.
+`passenger-library` and `passenger-lod` pin the eligibility pools, topology budgets and
+the switch, and the atlas `library` array is the authoritative per-variant record.
 
 ## Guard the cause and verify the result
 

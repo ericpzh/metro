@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { registerDoorLeaf, slab } from '../PieceBuilder.ts'
+import { setModelDetail } from '../../modelDetail.ts'
 import { DOOR_SILL_Z, DOOR_HEAD_Z } from '../../../sim/stock.ts'
 
 export const D_BOTTOM = 0.45
@@ -59,11 +60,17 @@ export function dCrown(q: number): THREE.Vector2 {
   return new THREE.Vector2(sign * dHalfWidth(z), z)
 }
 
-export function dSideGeometry(a: number, b: number, low: number, high: number, side: number, lift = 0): THREE.BufferGeometry {
-  // Match the cab's 32 side intervals so both sides of the join share chords.
+/**
+ * A car-side patch between two heights. `steps` is the section sampling the patch
+ * is lofted on: the full model uses the cab's own 32 intervals so both sides of a
+ * join share chords, while the Low approximation samples fewer rows of the same
+ * curve. The patch's own `low`/`high` ends stay exact either way, so a reduced
+ * patch still meets its neighbours.
+ */
+export function dSideGeometry(a: number, b: number, low: number, high: number, side: number, lift = 0, steps = 32): THREE.BufferGeometry {
   const levels = [low]
-  for (let i = 1; i < 32; i++) {
-    const z = dSideLevel(i / 32)
+  for (let i = 1; i < steps; i++) {
+    const z = dSideLevel(i / steps)
     if (z > low + 1e-6 && z < high - 1e-6) levels.push(z)
   }
   levels.push(high)
@@ -80,7 +87,10 @@ export function dSideGeometry(a: number, b: number, low: number, high: number, s
 
 /** Curved plug doors: single at the cab end, paired elsewhere. */
 export function buildDDoor(g: THREE.Group, mats: ModelMaterials, x: number, side: number, width: number, doors: THREE.Mesh[], single: boolean): void {
-  const rounded = (w: number, low: number, height: number, radius: number, lift: number, half = 0) => dSurface((u, v) => {
+  // The leaf, its seal and the pane are each a lofted rounded panel: 12 rows by
+  // 64 columns full, three by eight at Low — a plug door is 1.3 m tall and reads
+  // by its silhouette, so the fine rows cost triangles nobody can see.
+  const rounded = (w: number, low: number, height: number, radius: number, lift: number, half = 0, rows = 12, columns = 64) => dSurface((u, v) => {
     const depth = Math.max(0, radius - Math.min(v * height, (1 - v) * height))
     const inset = radius - Math.sqrt(Math.max(0, radius * radius - depth * depth))
     const z = low + v * height
@@ -88,11 +98,11 @@ export function buildDDoor(g: THREE.Group, mats: ModelMaterials, x: number, side
     const x = half < 0 ? THREE.MathUtils.lerp(-edge, -0.008, u)
       : half > 0 ? THREE.MathUtils.lerp(0.008, edge, u) : (u - 0.5) * edge * 2
     return new THREE.Vector3(x, side * (dHalfWidth(z) + lift), z)
-  }, 12, 64, side < 0)
+  }, rows, columns, side < 0)
   // Stationary corner infills close the rectangular opening around the
   // rounded moving leaf, including when the plug door is open.
   for (const top of [false, true]) for (const jamb of [-1, 1]) {
-    const infill = new THREE.Mesh(dSurface((u, v) => {
+    const infillPoint = (u: number, v: number) => {
       const radius = 0.14
       const z = top ? DOOR_HEAD_Z - radius + v * radius : DOOR_SILL_Z + v * radius
       const depth = top ? z - (DOOR_HEAD_Z - radius) : DOOR_SILL_Z + radius - z
@@ -100,8 +110,10 @@ export function buildDDoor(g: THREE.Group, mats: ModelMaterials, x: number, side
       const edge = width / 2 - inset
       return new THREE.Vector3(x + jamb * THREE.MathUtils.lerp(edge - 0.008, width / 2 + 0.012, u),
         side * (dHalfWidth(z) + 0.014), z)
-    }, 1, 24, side * jamb < 0), top ? mats.trainDark : mats.trainBody)
+    }
+    const infill = new THREE.Mesh(dSurface(infillPoint, 1, 24, side * jamb < 0), top ? mats.trainDark : mats.trainBody)
     infill.name = top ? 'd-door-upper-corner-infill' : 'd-door-lower-corner-infill'
+    setModelDetail(infill, dSurface(infillPoint, 1, 6, side * jamb < 0))
     g.add(infill)
   }
   for (const half of single ? [0] : [-1, 1]) {
@@ -109,12 +121,16 @@ export function buildDDoor(g: THREE.Group, mats: ModelMaterials, x: number, side
     const leaf = new THREE.Mesh(rounded(width - 0.04, DOOR_SILL_Z + 0.015, DOOR_HEAD_Z - DOOR_SILL_Z - 0.03, 0.13, 0.035, half), mats.trainBody)
     leaf.name = single ? 'd-passenger-single-door' : 'd-passenger-double-door'
     leaf.position.x = x
+    setModelDetail(leaf, rounded(width - 0.04, DOOR_SILL_Z + 0.015, DOOR_HEAD_Z - DOOR_SILL_Z - 0.03, 0.13, 0.035, half, 3, 8))
     const seal = new THREE.Mesh(rounded(width, DOOR_SILL_Z, DOOR_HEAD_Z - DOOR_SILL_Z, 0.14, 0.023, half), mats.rubber)
     seal.name = 'd-passenger-door-seal'; leaf.add(seal)
+    setModelDetail(seal, rounded(width, DOOR_SILL_Z, DOOR_HEAD_Z - DOOR_SILL_Z, 0.14, 0.023, half, 3, 8))
     const paneSeal = new THREE.Mesh(rounded(0.29, 1.23, 1.23, 0.14, 0.048), mats.rubber)
     paneSeal.position.x = centre; leaf.add(paneSeal)
+    setModelDetail(paneSeal, rounded(0.29, 1.23, 1.23, 0.14, 0.048, 0, 3, 6))
     const pane = new THREE.Mesh(rounded(0.25, 1.25, 1.19, 0.124, 0.058), mats.trainGlass)
     pane.position.x = centre; pane.name = 'train-door-window'; leaf.add(pane)
+    setModelDetail(pane, rounded(0.25, 1.25, 1.19, 0.124, 0.058, 0, 3, 6))
     if (single) slab(leaf, mats.darkSteel, -width * 0.32, side * (dHalfWidth(1.2) + 0.070), 1.2, 0.025, 0.025, 0.34).name = 'd-passenger-door-handle'
     registerDoorLeaf(leaf, half || 1, single ? width + 0.03 : width / 2 + 0.02, doors, side)
     leaf.userData.closedY = 0
@@ -126,8 +142,12 @@ export function buildDDoor(g: THREE.Group, mats: ModelMaterials, x: number, side
 /** A dedicated D car skin: curved flanks, inset individual windows and rolled roof. */
 export function buildDCarShell(g: THREE.Group, mats: ModelMaterials, start: number, end: number, runs: Array<[number, number]>, livery: THREE.Material): void {
   const sidePatch = (name: string, mat: THREE.Material, a: number, b: number, low: number, high: number, side: number, lift = 0) => {
-    const mesh = new THREE.Mesh(dSideGeometry(a, b, low, high, side, lift + (mat === mats.trainDark ? 0.008 : 0)), mat)
+    const lifted = lift + (mat === mats.trainDark ? 0.008 : 0)
+    const mesh = new THREE.Mesh(dSideGeometry(a, b, low, high, side, lifted), mat)
     mesh.name = name
+    // The same patch on six section intervals: the arc keeps its silhouette at a
+    // sixth of the columns, and both end heights stay exact.
+    setModelDetail(mesh, dSideGeometry(a, b, low, high, side, lifted, 6))
     g.add(mesh)
   }
   for (const side of [-1, 1]) {
@@ -157,12 +177,14 @@ export function buildDCarShell(g: THREE.Group, mats: ModelMaterials, start: numb
 
 /** An enclosed flexible gangway fills the space between adjacent car shells. */
 export function buildDGangway(g: THREE.Group, mats: ModelMaterials, centre: number): void {
-  const geometry = dSurface((u, v) => {
+  const bellowsPoint = (u: number, v: number) => {
     const section = dSection(v)
     const fold = 0.977 + 0.016 * Math.cos(u * Math.PI * 8)
     return new THREE.Vector3(centre + (u - 0.5) * 0.29, section.x * fold, 1.85 + (section.y - 1.85) * fold)
-  }, 32, 128)
-  const bellows = new THREE.Mesh(geometry, mats.rubber)
+  }
+  const bellows = new THREE.Mesh(dSurface(bellowsPoint, 32, 128), mats.rubber)
   bellows.name = 'd-intercar-gangway'
+  // Eight rings keep the bellows' three fold crests; 16 columns keep its section.
+  setModelDetail(bellows, dSurface(bellowsPoint, 8, 16))
   g.add(bellows)
 }

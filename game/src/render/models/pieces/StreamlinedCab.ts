@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Stock } from '../../../sim/stock.ts'
+import { setModelDetail } from '../../modelDetail.ts'
 import { dSection, dCrown, dSurface, D_CROWN_HALF } from './DTrainShell.ts'
 
 const NOSE_Z = 0.78
@@ -72,7 +73,8 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
   cab.rotation.z = outward > 0 ? 0 : Math.PI
   root.add(cab)
   const length = stock.cabLength!
-  const shell = new THREE.Mesh(dSurface((u, v) => dCabPoint(dSection(v), u * length, length), 64, 128, true), mats.trainBody)
+  const shellPoint = (u: number, v: number) => dCabPoint(dSection(v), u * length, length)
+  const shell = new THREE.Mesh(dSurface(shellPoint, 64, 128, true), mats.trainBody)
   const positions = shell.geometry.attributes.position, normals = shell.geometry.attributes.normal
   const smooth = new THREE.Vector3(), original = new THREE.Vector3()
   for (let i = 0; i < positions.count; i++) {
@@ -85,8 +87,19 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
     normals.setXYZ(i, smooth.x, smooth.y, smooth.z)
   }
   shell.name = 'd-cab-shell'; cab.add(shell)
+  // Sixteen rows over the nose and 32 columns around its section keep the swept
+  // silhouette; the nose is a single car end, not a surface anyone reads up close
+  // at Low quality.
+  setModelDetail(shell, dSurface(shellPoint, 16, 32, true))
   const mesh = (name: string, geometry: THREE.BufferGeometry, material: THREE.Material) => {
     const part = new THREE.Mesh(geometry, material); part.name = name; cab.add(part); return part
+  }
+  /** A lofted cab face with its authored Low sampling, sharing one point function. */
+  const surface = (name: string, material: THREE.Material, point: (u: number, v: number) => THREE.Vector3,
+    rows: number, columns: number, reverse: boolean, lowRows: number, lowColumns: number) => {
+    const part = mesh(name, dSurface(point, rows, columns, reverse), material)
+    setModelDetail(part, dSurface(point, lowRows, lowColumns, reverse))
+    return part
   }
   // Author the surround in plan, then drape it onto the crown. Each layer
   // closes into an ellipse; no rectangular rear patch or corner joins the sides.
@@ -104,12 +117,12 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
   // The line colour wraps the side panes and lamps and reaches down the nose.
   // Adjacent rings share boundaries, keeping the paint against the skin.
   const face = (name: string, material: THREE.Material, outer: [number, number], inner: [number, number]) => {
-    mesh(name, dSurface((u, v) => {
+    surface(name, material, (u, v) => {
       const angle = v * Math.PI * 2
       const rx = THREE.MathUtils.lerp(inner[0], outer[0], u)
       const ry = THREE.MathUtils.lerp(inner[1], outer[1], u)
       return planPoint(-2.35 + rx * Math.cos(angle), ry * Math.sin(angle), 0.010)
-    }, 48, 128, true), material)
+    }, 48, 128, true, 12, 32)
   }
   const rim: [number, number] = [2.23, 1.20]
   const colourEdge: [number, number] = [2.205, 1.175]
@@ -134,21 +147,21 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
     return point
   }
   for (const side of [-1, 1]) {
-    mesh('d-cab-side-black-taper', dSurface((u, v) => {
+    surface('d-cab-side-black-taper', mats.trainDark, (u, v) => {
       const distance = THREE.MathUtils.lerp(length, 2.65, u)
       const fall = THREE.MathUtils.smoothstep(u, 0, 1)
       const middle = THREE.MathUtils.lerp(2.075, 2.08, fall)
       const halfHeight = 0.555 * Math.pow(1 - fall, 0.75)
       return sidePoint(distance, middle + (v * 2 - 1) * halfHeight, side)
-    }, 48, 24, side < 0), mats.trainDark)
+    }, 48, 24, side < 0, 12, 6)
     const stripe = (name: string, material: THREE.Material, low: number, high: number) => {
-      mesh(name, dSurface((u, v) => {
+      surface(name, material, (u, v) => {
         const distance = THREE.MathUtils.lerp(length, 2.55, u)
         const fall = THREE.MathUtils.smoothstep(u, 0, 1)
         const bottom = THREE.MathUtils.lerp(low, 0.55, fall)
         const top = bottom + (high - low) * (1 - fall)
         return sidePoint(distance, THREE.MathUtils.lerp(bottom, top, v), side)
-      }, 48, 8, side < 0), material)
+      }, 48, 8, side < 0, 12, 2)
     }
     stripe('d-cab-side-livery-sweep', livery, 1.05, 1.16)
     stripe('d-cab-side-gold-sweep', mats.trainTrim, 1.01, 1.045)
@@ -158,15 +171,17 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
   ;(root.userData.ownedMats as THREE.Material[]).push(glass,accent)
   const shield = (name: string, material: THREE.Material, extra: number, lift: number) => {
     let error = 0
-    const geometry = dSurface((u, v) => {
+    const point = (u: number, v: number) => {
       const across = v * 2 - 1
       const halfWidth = 0.88 * (0.43 + 0.32 * Math.sin(u * Math.PI / 2) - 0.08 * THREE.MathUtils.smoothstep(u, 0.85, 1))
       const fitted = frontPoint(across * (halfWidth + extra), 2.08 - extra + (0.80 + 2 * extra) * u + 0.18 * across ** 2 * (1 - u) ** 3 - 0.08 * across ** 4 * u ** 3, length, lift)
       error = Math.max(error, fitted.error)
       return fitted.point
-    }, 32, 36)
+    }
+    const geometry = dSurface(point, 32, 36)
     geometry.userData.projectionError = error
-    mesh(name, geometry, material)
+    const part = mesh(name, geometry, material)
+    setModelDetail(part, dSurface(point, 8, 9))
   }
   shield('d-windscreen-seal', mats.rubber, 0.025, 0.012)
   shield('d-cab-windscreen', glass, 0, 0.014)
@@ -250,28 +265,28 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
   }
   // The upper brow and two marker lamps sit over the glazing, as on the reference.
   const brow = (name: string, material: THREE.Material, centreY: number, width: number, low: number, height: number, lift: number) => {
-    mesh(name,dSurface((u,v) => {
+    surface(name, material, (u, v) => {
       const across = v * 2 - 1
       const y = centreY + across * width / 2
       const z = low + u * height - 0.035 * across ** 4
-      return frontPoint(y,z,length,lift).point
-    },8,24),material)
+      return frontPoint(y, z, length, lift).point
+    }, 8, 24, false, 2, 6)
   }
   brow('d-windscreen-upper-brow',mats.trainDark,0,1.43,2.76,0.12,0.016)
   brow('d-cab-upper-display',mats.rubber,0,0.28,2.81,0.045,0.018)
   for (const side of [-1,1]) {
     const marker = (name: string, material: THREE.Material, radius: number, lift: number) => {
-      mesh(name,dSurface((u,v) => {
+      surface(name, material, (u, v) => {
         const angle = v * Math.PI * 2
-        return frontPoint(side * 0.35 + Math.cos(angle) * u * radius,2.835 + Math.sin(angle) * u * radius,length,lift).point
-      },6,24,true),material)
+        return frontPoint(side * 0.35 + Math.cos(angle) * u * radius, 2.835 + Math.sin(angle) * u * radius, length, lift).point
+      }, 6, 24, true, 3, 6)
     }
-    marker('d-upper-marker-housing',mats.rubber,0.042,0.018)
-    marker('d-upper-marker-light',head ? mats.headlight : mats.taillight,0.026,0.020)
+    marker('d-upper-marker-housing', mats.rubber, 0.042, 0.018)
+    marker('d-upper-marker-light', head ? mats.headlight : mats.taillight, 0.026, 0.020)
   }
-  mesh('d-metro-mark', dSurface((u, v) => frontPoint((v - 0.5) * 0.20, 1.79 + u * 0.13, length, 0.014).point, 8, 12), mats.trainMark)
-  mesh('d-cab-bulkhead', dSurface((u, v) => {
+  surface('d-metro-mark', mats.trainMark, (u, v) => frontPoint((v - 0.5) * 0.20, 1.79 + u * 0.13, length, 0.014).point, 8, 12, false, 2, 3)
+  surface('d-cab-bulkhead', mats.trainInterior, (u, v) => {
     const edge = dCabPoint(dSection(v), length - 0.05, length)
     return new THREE.Vector3(-length + 0.05, 0, 1.85).lerp(edge, u)
-  }, 1, 128, true), mats.trainInterior)
+  }, 1, 128, true, 1, 16)
 }

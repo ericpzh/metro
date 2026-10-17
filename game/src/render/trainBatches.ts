@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { attributeKey, bakedGeometry, BATCH_SOURCE_LAYER, geometryKey, equalGeometry } from './batchGeometry.ts'
+import { modelDetailGeometry } from './modelDetail.ts'
 
 interface DoorBatch { mesh: THREE.InstancedMesh; sources: THREE.Mesh[] }
 
@@ -33,10 +34,16 @@ export function batchTrainDoors(root: THREE.Group): void {
   for (const sources of buckets.values()) {
     if (sources.length < 2) continue
     if (!sources.every(s => equalGeometry(s.geometry, sources[0].geometry))) continue
-    const mesh = new THREE.InstancedMesh(sources[0].geometry.clone(), sources[0].material, sources.length)
+    const near = sources[0].geometry.clone()
+    const mesh = new THREE.InstancedMesh(near, sources[0].material, sources.length)
     // Individual door panes must sort with each other, so use the sorted glass
     // path below instead of a single unsorted transparent instance draw.
-    if ((sources[0].material as THREE.Material).transparent) { mesh.geometry.dispose(); mesh.dispose(); continue }
+    if ((sources[0].material as THREE.Material).transparent) { near.dispose(); mesh.dispose(); continue }
+    // A door bank draws one shared leaf geometry, so its authored approximation
+    // travels with the batch: the source keeps the exact leaf for picking.
+    const low = modelDetailGeometry(sources[0])
+    const far = low ? low.clone() : null
+    if (far) mesh.userData.trainDoorDetail = { near, far }
     for (const source of sources) source.layers.set(BATCH_SOURCE_LAYER)
     mesh.renderOrder = sources[0].renderOrder
     mesh.castShadow = sources[0].castShadow; mesh.receiveShadow = sources[0].receiveShadow
@@ -67,8 +74,18 @@ export function batchTrainTransparent(root: THREE.Group): void {
   const batches: GlassBatch[] = []
   for (const sources of buckets.values()) {
     if (sources.length < 2) continue
-    const geometries = sources.map(s => bakedGeometry(s.geometry, new THREE.Matrix4()))
-    const mesh = sortedBatch(sources, geometries, sources[0].material as THREE.Material)
+    const identity = new THREE.Matrix4()
+    const geometries = sources.map(s => bakedGeometry(s.geometry, identity))
+    // Every pane keeps its exact source for picking; the batch also reserves its
+    // authored Low variant, so a reduced car sorts and draws the same glass.
+    const lows = sources.map(s => modelDetailGeometry(s))
+    const distant = lows.some(Boolean) ? sources.map((s, i) => bakedGeometry(lows[i] ?? s.geometry, identity)) : []
+    const mesh = sortedBatch(sources, geometries, sources[0].material as THREE.Material, distant)
+    if (distant.length) {
+      const nearIds = sources.map((_, i) => mesh.getGeometryIdAt(i))
+      const farIds = distant.map(g => mesh.addGeometry(g))
+      mesh.userData.trainGlassDetail = { nearIds, farIds }
+    }
     geometries.forEach(g => g.dispose())
     mesh.renderOrder = sources[0].renderOrder
     mesh.castShadow = sources[0].castShadow; mesh.receiveShadow = sources[0].receiveShadow

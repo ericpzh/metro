@@ -1,12 +1,23 @@
-// Per-model geometry inventory; canvas stubs affect printed artwork only.
-import { mkdirSync, writeFileSync } from 'node:fs'
+// Per-model geometry inventory for the three published tables in
+// `.agents/skills/metro-repo/references/performance.md`:
+//   * equipment/decor — one model per palette option, built and batched exactly as
+//     the renderer draws it (authored Low preferred, bounded-error fallback);
+//   * trains — one consist per stock class, batched through the real train path;
+//   * passengers — the baked crowd atlas's own per-variant records.
+// Canvas stubs affect printed artwork only. The JSON and Markdown go to ignored
+// `.preview/perf/`; update PERFORMANCE.md and the performance reference together.
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import * as THREE from '../game/node_modules/three/build/three.module.js'
-import { createModelMaterials, buildModule, disposeObject } from '../game/src/render/models.ts'
+import { createModelMaterials, buildModule, buildTrain, disposeObject, disposeModelMaterials } from '../game/src/render/models.ts'
 import { createModule } from '../game/src/build/model.ts'
 import { MODULE_OPTIONS } from '../game/src/app/store/catalog.ts'
 import { geometryDetailReady } from '../game/src/render/geometryDetail.ts'
 import { modelDetailGeometry } from '../game/src/render/modelDetail.ts'
+import { batchStaticParts } from '../game/src/render/batchStaticModule.ts'
+import { batchTrainDoors, batchTrainTransparent } from '../game/src/render/trainBatches.ts'
+import { trainDetails, trainDrawnTriangles } from '../game/src/render/trainDetail.ts'
+import { STOCK_CLASSES } from '../game/src/sim/stock.ts'
 const canvas=()=>({width:0,height:0,getContext:()=>new Proxy({}, {get:(o,k)=>o[k]??(k==='measureText'?((s)=>({width:String(s??'').length*8})):()=>undefined),set:(o,k,v)=>(o[k]=v,true)})})
 globalThis.document={createElement:canvas}
 await geometryDetailReady
@@ -16,7 +27,10 @@ const data={name:'动物园',seed:7654321,cells:[],modules:[],lines:[LINE]}
 const ads={adFace:(slug,w,h)=>({material:new THREE.MeshBasicMaterial(),geometry:new THREE.PlaneGeometry(w,h),slug}),adWindow:(w,h)=>ads.adFace('a',w,h),load:async()=>{},dispose(){}}
 const ctx={mats,ads,data,trackCells:new Set(),tvPlate:()=>new THREE.CanvasTexture(canvas()),signFace:()=>new THREE.MeshBasicMaterial(),finish:()=>mats.steel,preview:false,ownedMats:[]}
 const tris=g=>(g.index?.count??g.getAttribute('position')?.count??0)/3
+const table=(header,rows)=>['| '+header.join(' | ')+' |','|---'+(header.map((_,i)=>i===0?'|':'|---:').join(''))+'|',...rows.map(r=>'| '+r.join(' | ')+' |')].join('\n')+'\n'
+const output=(name)=>resolve(process.env.BENCH_OUTPUT?dirname(process.env.BENCH_OUTPUT):'.preview/perf',name)
 
+/* --------------------------------------------------------------- equipment */
 const results=[]
 for(const option of MODULE_OPTIONS){
  const mod=createModule(option.id,4,4,0,`bench-${option.id}`,0,undefined,'up','lane',[LINE])
@@ -40,8 +54,49 @@ for(const option of MODULE_OPTIONS){
 }
 if(results.some(result=>result.reason))throw new Error(JSON.stringify(results.filter(result=>result.reason)))
 results.sort((a,b)=>b.high-a.high)
-const report={revision:THREE.REVISION,options:MODULE_OPTIONS.length,results};
-const output=resolve(process.env.BENCH_OUTPUT??'.preview/perf/model-triangles.json');
-mkdirSync(dirname(output),{recursive:true});writeFileSync(output,JSON.stringify(report,null,2));
-writeFileSync(output.replace(/\.json$/,'.md'),['| Equipment / decor model name | Low triangles | High triangles |','|---|---:|---:|',...results.map(r=>'| '+r.id+' | '+r.low+' | '+r.high+' |')].join('\n')+'\n');
-console.log(results.length+' palette models: '+output)
+let out=output('model-triangles.json')
+mkdirSync(dirname(out),{recursive:true})
+writeFileSync(out,JSON.stringify({revision:THREE.REVISION,options:MODULE_OPTIONS.length,results},null,2))
+writeFileSync(out.replace(/\.json$/,'.md'),table(['Equipment / decor model name','Low triangles','High triangles'],results.map(r=>[r.id,r.low,r.high])))
+console.log(results.length+' palette models: '+out)
+
+/* ------------------------------------------------------------------ trains */
+const CAR_COUNTS={D:8,A:8,B:6,C:6,L:6}
+const trains=[]
+try{
+ for(const stock of STOCK_CLASSES){
+  for(const cars of [CAR_COUNTS[stock],CAR_COUNTS[stock]-2]){
+   const group=buildTrain(mats,{x:0,y:0,z:0,cars,stock,doorsOpen:false,colour:'#c8102e',dirSign:1,yaw:0})
+   try{
+    // The renderer's own path: static batching, door banks, sorted glass, then
+    // every prepared detail swap applied at once.
+    batchStaticParts(group,new Set(group.userData.doors),true)
+    batchTrainDoors(group)
+    batchTrainTransparent(group)
+    group.updateMatrixWorld(true)
+    const details=trainDetails(group), high=trainDrawnTriangles(group)
+    for(const detail of details)detail.apply(true)
+    const low=trainDrawnTriangles(group)
+    for(const detail of details)detail.apply(false)
+    if(trainDrawnTriangles(group)!==high)throw new Error(`${stock}-${cars}: restoring full geometry changed the draw`)
+    trains.push({model:`${stock}-${cars}`,stock,cars,low,high,swaps:details.length})
+   } finally{disposeObject(group)}
+  }
+ }
+} catch(error){disposeModelMaterials(mats);throw error}
+trains.sort((a,b)=>b.high-a.high)
+out=output('train-triangles.json')
+writeFileSync(out,JSON.stringify({revision:THREE.REVISION,results:trains},null,2))
+writeFileSync(out.replace(/\.json$/,'.md'),table(['Train model','Low triangles','High triangles'],trains.map(r=>[r.model,r.low,r.high])))
+console.log(trains.length+' consists: '+out)
+
+/* -------------------------------------------------------------- passengers */
+disposeModelMaterials(mats)
+const human=JSON.parse(readFileSync(new URL('../game/src/assets/passenger-approved.json',import.meta.url),'utf8'))
+if(human.lowTriangles===undefined)throw new Error('Passenger atlas has no baked Low topology; run npm run bake:passengers')
+const passengers=human.library.map(model=>({model:model.id,low:model.lowTriangles,high:model.triangles}))
+ .sort((a,b)=>b.high-a.high)
+out=output('passenger-triangles.json')
+writeFileSync(out,JSON.stringify({revision:THREE.REVISION,atlas:{vertices:human.vertices,corners:human.corners,lowCorners:human.lowCorners,triangles:human.triangles,lowTriangles:human.lowTriangles},results:passengers},null,2))
+writeFileSync(out.replace(/\.json$/,'.md'),table(['Passenger model','Low triangles','High triangles'],passengers.map(r=>[r.model,r.low,r.high])))
+console.log(passengers.length+' passenger variants: '+out)

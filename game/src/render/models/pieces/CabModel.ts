@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { PieceBuilder, slab, plate } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
+import { boxModelDetail, setModelDetail } from '../../modelDetail.ts'
 import type { Stock } from '../../../sim/stock.ts'
 import { cabShellGeometry } from './TrainShell.ts'
 
@@ -30,6 +31,11 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
   const rounded = (mat: THREE.Material, dist: number, y: number, z: number, sx: number, sy: number, sz: number, radius: number): THREE.Mesh => {
     const mesh = new THREE.Mesh(new RoundedBoxGeometry(sx, sy, sz, 5, radius), mat)
     mesh.position.set(nose + d * dist, y, z)
+    // Five-segment rounded boxes are 1,450 triangles each, and a cab carries ten
+    // of them. Low keeps the fitting's own envelope (mask, bumper, glazing,
+    // housing) as one box: the rounded corners are under a pixel at any distance
+    // the camera needs the approximation.
+    boxModelDetail(mesh)
     g.add(mesh)
     return mesh
   }
@@ -64,6 +70,7 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
       // A cylinder's axis is +y; the cab's outward axis is ±x, so tip it over.
       lens.rotation.z = Math.PI / 2
       lens.position.set(nose + d * 0.18, cy + wx * 0.14, 1.38)
+      setModelDetail(lens, new THREE.CylinderGeometry(0.085, 0.085, 0.08, 6))
       g.add(lens)
     }
     // Number plate on the skirt corner.
@@ -83,10 +90,12 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
     return mesh
   }
   axial(new THREE.ConeGeometry(0.105, 0.16, 16), mats.steel, 0.79, -0.13, 0.35)
-  axial(new THREE.CylinderGeometry(0.09, 0.09, 0.012, 20), mats.black, 0.726, 0.13, 0.35)
+  const socketPlate = axial(new THREE.CylinderGeometry(0.09, 0.09, 0.012, 20), mats.black, 0.726, 0.13, 0.35)
+  setModelDetail(socketPlate, new THREE.CylinderGeometry(0.09, 0.09, 0.012, 8))
   const socket = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.018, 8, 20), mats.steel)
   socket.rotation.y = Math.PI / 2
   socket.position.set(nose + d * 0.74, 0.13, 0.35)
+  setModelDetail(socket, new THREE.TorusGeometry(0.09, 0.018, 4, 8))
   g.add(socket)
   out(mats.black, 0.56, 0, 0.13, 0.22, 0.36, 0.09)
   for (const side of [-1, 1]) {
@@ -96,7 +105,9 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
       new THREE.Vector3(nose + d * 0.48, side * 0.31, 0.2),
       new THREE.Vector3(nose + d * 0.56, side * 0.28, 0.35),
     ])
-    g.add(new THREE.Mesh(new THREE.TubeGeometry(hose, 12, 0.023, 6, false), mats.rubber))
+    const hoseMesh = new THREE.Mesh(new THREE.TubeGeometry(hose, 12, 0.023, 6, false), mats.rubber)
+    setModelDetail(hoseMesh, new THREE.TubeGeometry(hose, 4, 0.023, 4, false))
+    g.add(hoseMesh)
   }
 }
 

@@ -511,6 +511,13 @@ export const OUTDOOR_TILE_DETAIL_PX = 10
 export const OUTDOOR_TREE_DETAIL_PX = 45
 export const OUTDOOR_TREE_FAR_PX = 18
 export const STATIC_DETAIL_HYSTERESIS = 1.2
+/**
+ * A train part without an authored Low variant may use the bounded-error
+ * simplifier only up to this radius (metres), where its 2 % relative error stays
+ * below a pixel. Static batching merges a whole consist's car body into one mesh,
+ * so the larger pieces are authored instead — never fed to a 2 %-of-150 m error.
+ */
+export const TRAIN_DETAIL_MAX_RADIUS = 8
 /** Four recent/prepared views, including the active one; bounds dormant GPU allocations. */
 export const EQUIPMENT_VIEW_CACHE_SIZE = 4
 /** At 24 CSS pixels, 2% geometric error is under half a pixel. */

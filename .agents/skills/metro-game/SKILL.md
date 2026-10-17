@@ -132,6 +132,28 @@ owns approximation disposal. Use `model-detail` for triangle budgets, exact stoc
 picks, retained motion, finish colours, restoration and disposal; regenerate the
 per-model table with `node tools/model-triangle-inventory.mjs`.
 
+Train parts author theirs in the same place: the cabin's straps, handrails, ring
+lights, benches and seat-end guards, the car roof, the bogies, the gangway bellows,
+the plug doors and the cab glazing all carry a Low sampling or an omission.
+`batchStaticParts` merges **both** variants so a batch holds its own reduced
+geometry, and `batchTrainDoors`/`batchTrainTransparent` reserve a Low leaf and Low
+glass panes when they build their instance each. `render/trainDetail.ts` owns the
+prepared swaps and `TRAIN_DETAIL_MAX_RADIUS`: a part with no authored variant may
+use the bounded-error simplifier only while it is small, because a merged car body
+spans a consist and 2 % of 150 m is metres. Door-bank and sorted-glass swaps must
+stay reference-only and restore the exact sources before disposal; `train-lod` pins
+the published per-consist High counts, the Low budgets, moving leaves under Low and
+exactly-once release of the prepared approximations. Regenerate its table with the
+inventory tool.
+
+The crowd's Low LoD is not a model approximation but a second baked index table over
+the same animated pose atlas (`lowIndices`/`lowCorners`, `passengerModel.ts`). Both
+`InstancedMesh`es stay prepared and exactly one is visible: 低画质 draws the reduced
+one, 隐藏UI always the full one. Never bake or upload a second pose set, and never
+let the switch change pose sampling, identity, picking or the 70 % material; the
+atlas degrades to the full topology when an older file has no Low table.
+`passenger-lod` pins the table, the switch, pause and one shared-atlas disposal.
+
 Low furniture, extinguisher cabinets, fences, fare gates and exits also have
 authored variants. `panelModelDetail` retains both broad faces of thin panels;
 keep gate leaf rig metadata and direction artwork when reducing its shape.

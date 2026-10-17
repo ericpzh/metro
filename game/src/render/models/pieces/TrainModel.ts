@@ -3,6 +3,7 @@
 import * as THREE from 'three'
 import { PieceBuilder, slab, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
+import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 import { STOCK, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres, doorWidthAt } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { buildCab } from './CabModel.ts'
@@ -142,6 +143,12 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
       const roof = new THREE.Mesh(roofGeometry, mats.trainBody)
       roof.name = 'car-roof'
       roof.position.set(shellStart, 0, 0)
+      // The rolled shoulder is two quarter-turns: four segments per curve keep
+      // both turns and the flat crown between them at Low.
+      const lowRoof = new THREE.ExtrudeGeometry(roofSection, { depth: shellLen, bevelEnabled: false, curveSegments: 4 })
+      lowRoof.rotateY(Math.PI / 2)
+      lowRoof.rotateX(Math.PI / 2)
+      setModelDetail(roof, lowRoof)
       g.add(roof)
       for (const side of [-1, 1]) {
         const y = side * skinY
@@ -206,8 +213,10 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         }
         // The doorway's own seal, at each jamb: the skin's cut edge is body colour,
         // and a door needs a frame to sit in. It does not move with the leaves.
+        // Low drops the 3 cm rubber strip: the leaf still sits in its painted
+        // aperture, which is what the doorway reads as from the platform.
         for (const jamb of [-1, 1]) {
-          slab(g, mats.rubber, dx + (jamb * s.doorWidth) / 2, face + side * 0.015, doorZMid, 0.06, 0.03, doorH)
+          omitModelDetail(slab(g, mats.rubber, dx + (jamb * s.doorWidth) / 2, face + side * 0.015, doorZMid, 0.06, 0.03, doorH))
         }
         for (const leaf of [-1, 1]) {
           const lw = s.doorWidth / 2 - 0.03
@@ -243,7 +252,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
           const pane = slab(m, mats.glass, 0, 0, 0.28, lw - 0.19, 0.02, 0.85)
           pane.name = 'train-door-window'
           // The kick plate, so the leaf has a foot and the sill has a line.
-          slab(m, mats.rubber, 0, side * 0.041, -doorH / 2 + 0.14, lw, 0.02, 0.28)
+          omitModelDetail(slab(m, mats.rubber, 0, side * 0.041, -doorH / 2 + 0.14, lw, 0.02, 0.28))
           registerDoorLeaf(m, leaf, s.doorWidth / 2, doors, side)
         }
       }
@@ -258,13 +267,18 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         const ax = bx + axle * 0.72
         const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.65, 10), mats.darkSteel)
         shaft.position.set(ax, 0, 0.24)
+        setModelDetail(shaft, new THREE.CylinderGeometry(0.055, 0.055, 1.65, 6))
         g.add(shaft)
         for (const wy of [-1, 1]) {
           const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.13, 20), mats.darkSteel)
           wheel.position.set(ax, wy * 0.75, 0.24)
+          // An eight-sided tyre still reads as a wheel in the bogie shadow, and
+          // the hub below it is 10 cm across: it is dropped rather than reduced.
+          setModelDetail(wheel, new THREE.CylinderGeometry(0.24, 0.24, 0.13, 8))
           g.add(wheel)
           const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.145, 12), mats.steel)
           hub.position.copy(wheel.position)
+          omitModelDetail(hub)
           g.add(hub)
           slab(g, mats.darkSteel, ax, wy * 0.57, 0.39, 0.22, 0.18, 0.16)
         }

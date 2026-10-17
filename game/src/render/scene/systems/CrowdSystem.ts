@@ -80,6 +80,13 @@ function losColor(i: number): number {
 
 export class CrowdSystem extends SceneSystem {
   agents: THREE.InstancedMesh
+  /**
+   * The Low-detail crowd (§9.3): the same animated atlas driven by a coarser
+   * baked topology. It is a second prepared instanced draw, never a rebuild —
+   * only one of the two is visible, so the crowd stays one GPU draw either way.
+   */
+  agentsLow: THREE.InstancedMesh
+  private lowDetail = false
   blobs: THREE.InstancedMesh
   overlay: THREE.InstancedMesh | null = null
   zoneOverlay: THREE.InstancedMesh | null = null
@@ -143,7 +150,10 @@ export class CrowdSystem extends SceneSystem {
   constructor(ctx: SceneContext) {
     super(ctx)
     this.agents = passengerMesh(PASSENGER_INSTANCE_CAPACITY)
+    this.agentsLow = passengerMesh(PASSENGER_INSTANCE_CAPACITY, 'low')
+    this.agentsLow.visible = false
     this.ctx.scene.add(this.agents)
+    this.ctx.scene.add(this.agentsLow)
 
     const blobGeo = new THREE.CircleGeometry(0.42, 10)
     this.blobs = new THREE.InstancedMesh(blobGeo, this.ctx.mats.blob, PASSENGER_INSTANCE_CAPACITY)
@@ -174,6 +184,36 @@ export class CrowdSystem extends SceneSystem {
 
     this.agentRing = this.routeRing(0.3, 0.46, 0.95)
     this.destRing = this.routeRing(0.36, 0.54, 0.8)
+    // Start on the draw the context's quality asks for, so the first frame of a
+    // scene opened at 低画质 already draws the reduced crowd.
+    this.applyDetail()
+  }
+
+  /** The draw the current graphics policy reads: one of two prepared meshes. */
+  private get activeAgents(): THREE.InstancedMesh {
+    return this.lowDetail ? this.agentsLow : this.agents
+  }
+
+  /**
+   * Choose the crowd draw the graphics policy asks for: 低画质 uses the reduced
+   * topology, Hide UI — the presentation mode — always draws full bodies, and a
+   * disabled static-detail setting restores them too. A switch swaps which
+   * prepared mesh is visible and forces one identity repack on the next frame;
+   * neither buffers nor textures are rebuilt, and the simulation is untouched.
+   */
+  applyDetail(): void {
+    const low = this.ctx.detailEnabled !== false && !this.ctx.hideUI && this.ctx.graphicsQuality === 'low'
+    if (low === this.lowDetail) return
+    this.lowDetail = low
+    this.agents.count = 0
+    this.agentsLow.count = 0
+    this.agents.visible = this.agentsShown && !low
+    this.agentsLow.visible = this.agentsShown && low
+    // The other draw has never carried these identities: repack pose, outfit and
+    // ink for every slot instead of trusting the shared "already written" map.
+    this.drawnIds.fill(-1)
+    this.renderedKey = ''
+    this.snapshotVersion++
   }
 
   /** One flat ring of the route preview, lying on the floor. */
@@ -229,6 +269,7 @@ export class CrowdSystem extends SceneSystem {
   clipMaterials(): THREE.Material[] {
     return [
       this.agents.material,
+      this.agentsLow.material,
       this.blobs.material,
       // The route preview is drawn in the station too: a cut that hides the floor
       // it lies on has to hide the line as well.
@@ -583,8 +624,9 @@ export class CrowdSystem extends SceneSystem {
     this.renderedKey = key
     if (camera) this.frustum.setFromProjectionMatrix(this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
     const alpha = Math.min(1, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs)
-    const pose = this.agents.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute
-    const outfit = this.agents.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute
+    const agents = this.activeAgents
+    const pose = agents.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute
+    const outfit = agents.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute
     const dt = this.playing && this.lastRenderTime > 0 ? Math.max(0, Math.min(0.05, (now - this.lastRenderTime) / 1000)) : 0
     this.lastRenderTime = now
     const m = this.tmpM
@@ -644,11 +686,11 @@ export class CrowdSystem extends SceneSystem {
           appearanceChanged = true
           outfit.setX(slot, appearance[0])
           this.passengerColor.setRGB(appearance[4], appearance[4], appearance[4])
-          this.agents.setColorAt(slot, this.passengerColor)
+          agents.setColorAt(slot, this.passengerColor)
         }
         pose.setXYZW(slot, shown[0], shown[1], shown[2], shown[3])
         m.compose(pos, q, scale)
-        this.agents.setMatrixAt(slot, m)
+        agents.setMatrixAt(slot, m)
         // The flat ground shadow follows the same independent horizontal axes.
         scale.z = 1
         m.compose(pos, q, scale)
@@ -667,17 +709,17 @@ export class CrowdSystem extends SceneSystem {
       }
 
     }
-    this.agents.count = drawnCount
+    agents.count = drawnCount
     this.blobs.count = drawnCount
     // The route follows the passenger it belongs to: a storey that does not draw
     // the person does not draw the line they are walking either.
     this.agentRing.visible = agentOn && this.agentsShown && this.followAgentId === null
     this.route.visible = this.routeDrawn && agentOn && this.agentsShown && this.followAgentId === null
     this.destRing.visible = this.destDrawn && agentOn && this.agentsShown && this.followAgentId === null
-    const attributes = [pose, this.agents.instanceMatrix, this.blobs.instanceMatrix]
+    const attributes = [pose, agents.instanceMatrix, this.blobs.instanceMatrix]
     if (appearanceChanged) {
       attributes.push(outfit)
-      if (this.agents.instanceColor) attributes.push(this.agents.instanceColor)
+      if (agents.instanceColor) attributes.push(agents.instanceColor)
     }
     for (const attr of attributes) {
       if (!attr || drawnCount === 0) continue
@@ -694,7 +736,8 @@ export class CrowdSystem extends SceneSystem {
     // visibility every frame, so the crowd's own switch has to be remembered for
     // it — otherwise hiding the crowd would leave one passenger's route drawn.
     this.agentsShown = on
-    this.agents.visible = on
+    this.agents.visible = on && !this.lowDetail
+    this.agentsLow.visible = on && this.lowDetail
     this.blobs.visible = on
     if (!on) {
       this.agentRing.visible = false
@@ -803,7 +846,7 @@ export class CrowdSystem extends SceneSystem {
     // outfit/pose textures, geometry, material and instance buffers.
     // `blobs` wears the shared `mats.blob`, which the material set disposes itself.
     this.agents.userData.disposePassenger()
-    for (const mesh of [this.agents, this.blobs]) {
+    for (const mesh of [this.agents, this.agentsLow, this.blobs]) {
       mesh.geometry.dispose()
       if (mesh !== this.blobs) (mesh.material as THREE.Material).dispose()
       mesh.dispose()

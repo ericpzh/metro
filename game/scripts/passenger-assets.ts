@@ -22,7 +22,7 @@ export function passengerAssets(): Plugin {
       const human = JSON.parse(readFileSync(path, 'utf8'))
       const urls: string[] = []
       const fields: string[] = []
-      for (const key of ['positions', 'normals', 'indices', 'regions']) {
+      for (const key of ['positions', 'normals', 'indices', 'lowIndices', 'regions']) {
         const value = Buffer.from(human[key], 'base64')
         const names: string[] = []
         for (let offset = 0; offset < value.length; offset += partSize) {

@@ -87,13 +87,33 @@ Pose texture width doubles when needed to keep the row count below 8,192.
 The first pose is absolute; later position/normal frames store exact signed
 integer differences with `poseEncoding: "frame-delta"`. These buffers are
 losslessly zlib-compressed and stored as base64 with `encoding: "zlib-base64"`.
-The JSON is 40.4 MB; its decoded buffers occupy 175.3 MB.
+The JSON is 42.7 MB; its decoded buffers occupy 183.2 MB.
 `render/passengerAtlas.ts` inflates and restores frame deltas once before GPU
 upload, preserving the same positions, normals, indices and palette regions; older absolute and raw-base64
 atlases remain readable. `passenger-atlas` pins byte-exact signed overflow and
 legacy restoration; `passenger-library` independently verifies zlib decoding.
-The crowd keeps one instanced draw, with no
+The crowd keeps one visible instanced draw, with no
 runtime GLB downloads or per-agent skeletons. Both 16/32-bit indices are supported.
+
+### Crowd Low LoD
+
+`lowIndices`, `lowCorners` and `lowTriangles` (plus `library[].lowTriangles`) are a
+second index table over the *same* animated vertex pool (§9.3): the baker simplifies
+each variant's standing topology toward a 1,400-triangle ceiling at a 3 % relative
+error, keeps a triangle only where its three corners still reference baked vertices,
+and pads every row to the widest one exactly as the full table does. A padded Low row
+is 8,475 corners (2,825 triangles) against 28,110 corners (9,370), and the 232 variants
+carry 401,778 rather than 1,308,230 triangles — 30 % of the stride, its vertices and
+its triangle work, with no second pose set and no second bake of the walks.
+
+`render/passengerModel.ts` uploads the table as one extra index texture and shares the
+pose/normal/region atlases between both draws, so a quality change swaps a geometry
+and an index table, never a texture. `CrowdSystem` keeps both InstancedMeshes prepared
+and visible one at a time: 低画质 shows the reduced draw, 隐藏UI always restores the
+full one. Pose sampling, identity, the 70 % material and picking are identical, and
+only one crowd draw submits either way. `passenger-lod` pins the table, the switch,
+pause and single shared-atlas disposal. The generated Low rows are never hand-edited;
+regenerate them with `npm run bake:passengers`.
 
 Production builds deliver the packed bytes as parallel binary fetches via
 `game/scripts/passenger-assets.ts`, avoiding base64 JavaScript parsing and decoding.

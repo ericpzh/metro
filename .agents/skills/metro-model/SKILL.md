@@ -101,6 +101,15 @@ Work from the metro root. Read `model/README.md` and
   pixels and handle 16/32-bit indices. Never hand-edit generated GLBs/JSON.
   The atlas stores zlib-compressed base64 buffers. `render/passengerAtlas.ts`
   decodes them losslessly and retains support for legacy raw-base64 data.
+  The bake also emits the crowd's Low LoD: `lowIndices`/`lowCorners`/`lowTriangles`
+  and `library[].lowTriangles` are a second index table over the *same* animated
+  vertex pool, simplified from the standing pose (target 1,400 triangles, 3 % relative
+  error), filtered to triangles that still reference baked vertices, and padded per
+  row to the widest one. It is not a second atlas: never duplicate the pose buffers,
+  never re-simplify at runtime, and keep the full topology the authoritative record
+  (`triangles`) beside the reduced one. The game's `passenger-lod` pins the table,
+  the 低画质 switch and shared-atlas disposal; `node tools/model-triangle-inventory.mjs`
+  regenerates the published passenger table.
   Carry age/side/bag metadata through exports and bake. Game `passengerEligibility`
   accepts older atlases without flags using historical pools; explicit flags always
   take precedence. A model edit must regenerate the actual atlas before validating
