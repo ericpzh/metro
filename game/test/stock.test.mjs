@@ -60,14 +60,17 @@ test('D stock uses the supplied dimensions and eight-car capacity', () => {
   assert.equal(STOCK.D.crushPerCar * 8, 2600)
 })
 
-test('D doors clear the swept cabs and mirror three end-car / four middle-car pairs', () => {
+test('D doors clear the swept cabs and mirror four doorways on every car', () => {
   for (const cars of [1, 2, 3, 4, 6, 8]) {
     const s = STOCK.D, total = s.length * cars
     const doors = doorCentres({ stock: 'D', cars })
-    assert.equal(doors.length, cars === 1 ? 3 : cars * 4 - 2)
+    assert.equal(doors.length, cars * 4)
     for (let c = 0; c < cars; c++) {
       const local = doors.map(x => x + total / 2 - c * s.length).filter(x => x > 0 && x < s.length)
-      assert.equal(local.length, c === 0 || c === cars - 1 ? 3 : 4)
+      assert.equal(local.length, 4)
+      const widths = doors.filter(x => x + total / 2 > c * s.length && x + total / 2 < (c + 1) * s.length)
+        .map(x => doorWidthAt({stock:'D', cars}, x))
+      assert.deepEqual(widths, [c === 0 ? .8 : 1.4, 1.4, 1.4, c === cars - 1 ? .8 : 1.4])
     }
     doors.forEach((x, i) => assert.ok(Math.abs(x + doors.at(-1 - i)) < 1e-8, 'opposite cabs share a mirrored layout'))
     assert.ok(doors[0] + total / 2 - doorWidthAt({stock:'D',cars},doors[0]) / 2 > s.cabLength, 'passenger doors clear the cab')

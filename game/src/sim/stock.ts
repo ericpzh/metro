@@ -83,7 +83,7 @@ export const STOCK: Record<StockClass, Stock> = {
   // Keep the exact average so the existing per-car capacity model totals 1,758.
   D: {
     cls: 'D', width: 3.3, length: 20.1, height: 3.8,
-    doorsPerSide: 4, cabDoorsPerSide: 3, cabLength: 4.6,
+    doorsPerSide: 4, cabDoorsPerSide: 4, cabLength: 4.6,
     doorWidth: 1.4, singleEndDoorWidth: 0.8, ratedPerCar: 1758 / 8, crushPerCar: 2600 / 8,
     consist: [8, 8], power: 'catenary', gaugeMm: 1435, operatingSpeedKmh: 160,
   },

@@ -97,8 +97,9 @@ export class TrainSystem extends SceneSystem {
   /**
    * Rolling stock (§6). The worker sends one pose per live train as a flat
    * `Float32Array`, stride 10: x, y, z, cars, stock index, doors-open, colour,
-   * direction, yaw, door-side mask. A consist is cached by its signature (colour
-   * + direction + length + mask), so it survives slot reordering, and its two
+   * direction, yaw, door/power flags (bits 0–1 doors, bit 2 catenary).
+   * A consist is cached by its signature (colour + direction + length + flags),
+   * so it survives slot reordering, and its two
    * latest poses are kept so `updateTrains` can glide it between ticks.
    *
    * The mask says which door banks may open (§1.13): bit 0 the consist's local
@@ -125,16 +126,18 @@ export class TrainSystem extends SceneSystem {
       const colour = buffer[o + 6] & 0xffffff
       const dirSign = buffer[o + 7] >= 0 ? 1 : -1
       const yaw = buffer[o + 8]
-      const doorSides = buffer[o + 9] | 0
+      const flags = buffer[o + 9] | 0
+      const doorSides = flags & 3
+      const power = (flags & 4) !== 0 ? 'catenary' : 'third-rail'
       if (doorsOpen && doorSides !== 0) {
         const cls = STOCK_CLASSES[stockIdx] ?? 'B'
         openTrains.push({ x, y, z, fx: Math.cos(yaw), fy: Math.sin(yaw), half: (STOCK[cls].length * cars) / 2 })
       }
-      const sig = `${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}:${doorSides}`
+      const sig = `${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
       let entry = this.trainSlots.get(sig)
       if (!entry) {
         const stock: StockClass = STOCK_CLASSES[stockIdx] ?? 'B'
-        const group = buildTrain(this.ctx.modelMats, { x, y, z, cars, stock, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
+        const group = buildTrain(this.ctx.modelMats, { x, y, z, cars, stock, power, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
         group.userData.renderFamily = 'train'
         batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
         if (this.drawBatching) { batchTrainDoors(group); batchTrainTransparent(group) }

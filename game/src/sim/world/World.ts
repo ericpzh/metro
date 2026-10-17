@@ -1217,10 +1217,10 @@ export class World {
 
   /**
    * One pose per live train, stride 10: x, y, z, cars, stock index (A/B/C/L),
-   * doors-open, line colour, direction, yaw, door-side mask. A pure function of
+   * doors-open, line colour, direction, yaw, door/power flags. A pure function of
    * train state, so it adds no randomness and cannot disturb §7.6 determinism.
-   * The mask is the berth's `LineAnchor.doorSides`: the renderer slides only the
-   * leaves on a side whose screen doors exist (§1.13).
+   * Bits 0–1 are `LineAnchor.doorSides`; bit 2 selects catenary pickup. The
+   * renderer slides only leaves whose screen doors exist (§1.13).
    */
   trainRenderState(): Float32Array {
     const STRIDE = 10
@@ -1240,7 +1240,8 @@ export class World {
       out[k++] = a.colour
       out[k++] = a.dirSign
       out[k++] = a.yaw
-      out[k++] = a.doorSides
+      // Bits 0–1 open door banks; bit 2 selects the overhead-wire roof variant.
+      out[k++] = a.doorSides | (this.lineById.get(train.line)?.power === 'catenary' ? 4 : 0)
     }
     return out.subarray(0, k)
   }

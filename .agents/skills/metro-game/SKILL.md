@@ -798,13 +798,40 @@ the four rules most changes trip over.
   the worker's pose index (`indexOf`) and the renderer's decode (`STOCK_CLASSES[stockIdx]`)
   cannot desync, and the inspector's 车型 chips iterate it too. D is the Guangzhou 18/22
   reference stock: 3.3 m wide, 20.1 m per car, eight cars, 1,758 rated / 2,600 crush capacity,
-  catenary, 1,435 mm gauge and 160 km/h. Each end car has three doorways; only the one nearest
+  catenary, 1,435 mm gauge and 160 km/h. Each end car has four doorways; only the one nearest
   each cab uses a single 0.8 m leaf. The other end-car doors and all four middle-car doorways
   use paired 1.4 m leaves. The A/B/C/D/L order is shared by
   worker poses, renderer decode, controls and generated train sheets. L is the 2.8 m wide,
   16.8 m long, three-door, third-rail 广州 4/5/6 stock. `LineDef.stock` is the imported `StockClass`
   (a `stock.ts` → `types.ts` edge that stays inside `sim/`); the save needs no migration,
   because stock is a plain string with no whitelist.
+* **Type A side glazing** shares `BTrainWindows.ts`'s smaller inset apertures:
+  five doors alternate with four windows per side per car, with painted end bays.
+  `draw-batching` pins B-sized glass, clear openings and independent door banks
+  in six/eight-car consists in both directions. Keep stock door alignment intact.
+* **Type B glazing** uses one `b-cab-windscreen` per cab on the existing generic
+  shell. `BTrainWindows.ts` cuts three rounded, rubber-framed passenger apertures
+  between four doorways per side per car; end bays stay painted. Door centres and
+  platform alignment still come from `stock.ts`. Pin the apertures and both travel
+  directions/consist sizes in `draw-batching`; keep authored Low apertures intact.
+* **Type C glazing** uses two front panes, one in a fixed evacuation door with
+  its own outline and handle. Keep that door behind the emblem and lamp lenses.
+  `CTrainWindows.ts` cuts three single large inter-door apertures and small end
+  panes; driving-end small panes sit on the cab. Preserve the shared shell,
+  `stock.ts` door centres, authored Low apertures and independent door banks.
+  `draw-batching` pins four/six-car consists in both directions.
+* **Overhead-wire variants exist for every stock class.** `TrainPose.power` selects
+  the catenary roof; absent power keeps legacy callers' third-rail geometry.
+  `TrainPantograph.ts` builds mirrored single-arm collectors at the inward end
+  of each cab car (one central collector on a one-car formation). Recessed mounts
+  in `TrainModel.ts`/`DTrainShell.ts` keep the raised linkage above the cabin and
+  its contact bars at `CONTACT_STRIP_Z`, accounting for the train origin's 0.5 m
+  elevation over the track origin. Keep the conductor constants shared with
+  `TrackModel.ts`; do not raise the wire through the storey above. The tenth
+  worker-pose value packs door banks into bits 0–1 and catenary into bit 2;
+  `TrainSystem` masks the door bits and includes power in its cache signature.
+  `train-pantograph` covers all classes, inward placement, rotations, contact,
+  real roof recesses, independent doors and power-mode cache reuse.
 * **Both ends of a train are cabs, and the doors follow the screens.** A/B/C/L `buildTrain`
   (`render/models/`) re-skins the last 2 m of each end car through `buildCab` — the dark face
   mask, centre windscreen and crew-door windows, the 广州地铁 mark (`drawMetroMark`, shared with
@@ -815,7 +842,8 @@ the four rules most changes trip over.
   nose, elliptical face livery, central windscreen, clipped trapezoid side panes and lamps, and
   continuous side paint are fitted to one shell. The D cab has no extra crew door; only the
   nearest passenger doorway at each end is single-leaf, while all other doorways are double-leaf.
-  Its `d-car-window` panes remain small and inset in the black side band. A/B/C/D ends differ
+  Its `d-car-window` panes remain small and inset in the black side band, exactly two between
+  each adjacent pair of doorways (six per side per car), with painted end bays. A/B/C/D ends differ
   in their lamps (`headlight` / `taillight`); the two L ends follow the generic cab path. Door
   leaves carry the side they belong to (`registerDoorLeaf`'s `side`), and `setDoorsSides` slides
   the two banks independently. A leaf is a **door, not a hole**: it wears the body's own
@@ -835,7 +863,10 @@ the four rules most changes trip over.
   no-platform cases and one train per track on a two-direction line; `stock.test.mjs` pins D's
   specs, consist capacities, mixed door counts/widths and classification index, while
   `draw-batching.test.mjs` pins its shell, cab surfaces, windows, livery joins, door geometry and
-  motion. `train-art-pipeline.test.mjs` checks the bilingual sheets keep all five classes ordered
+  motion. L keeps its shell and three-door cadence, with one broad cab windscreen, small side
+  windows at the ends and paired wide panes between the doors; `LTrainWindows.ts` authors the
+  framed apertures and their Low geometry. `train-lod.test.mjs` pins the full and Low consist
+  counts; `train-art-pipeline.test.mjs` checks the bilingual sheets keep all five classes ordered
   and use captured D poses.
 * **The crowd's day is four document fields** (`sim/clock.ts`, `sim/demand.ts`,
   `sim/constants.ts`, `sim/world/World.ts`, `build/model/State.ts`, `persistence/save.ts`).
@@ -1147,6 +1178,18 @@ Run `npm run check:tutorial` for the production browser regression and the
   fixture must reject a door server moved to an unreachable node.
 
 ## Rendering and the app
+
+Ambient road vehicles are procedural models in `render/models/pieces/vehicles/`:
+`RoadCar`, `RoadBus`, `RoadCycle` share the grey `VehicleKit`; `RoadVehicleModel`
+dispatches six variants and assigns them from seed/id without changing simulation
+vehicle kinds, spacing or RNG. `RoadTrafficSystem` packs instances by variant.
+Keep 70% colour opacity with a shared depth pass for self-occlusion. `road-vehicles` pins visible
+geometry, variant packing, pause and teardown; `tools/check-road-vehicles.mjs`
+captures the production front/rear views through `?capture-road-vehicles`.
+The app prepares authored High and Low geometry per variant, uses the existing
+`graphicsQuality` setting, shows only its selected variant and updates the matching
+instance buffers when quality changes. `performance.md` records submitted counts,
+including the depth prepass, for all six appearances.
 
 * `render/models.ts` is a **dispatcher + barrel** over `render/models/` (the
   `PieceBuilder` base + shared kit, and one `pieces/*Model.ts` per piece). It builds all

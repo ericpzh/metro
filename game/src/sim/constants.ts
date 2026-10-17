@@ -399,6 +399,9 @@ export const TRAIN_DOOR_TRAVEL = 2
 export const TRAIN_DWELL = 30
 export const TRAIN_DEPART_HOLD = 5
 export const TRAIN_DEPART_S = 6
+/** Track-local conductor height; train origins ride 0.5 m above the track origin. */
+export const CONTACT_WIRE_Z = 3.78
+export const CONTACT_STRIP_Z = CONTACT_WIRE_Z - 0.012
 /** Agent patience before re-route, seconds. */
 export const PATIENCE_MIN = 60
 export const PATIENCE_MAX = 180

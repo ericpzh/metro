@@ -1,5 +1,13 @@
 # `game/test` — how the game is tested
 
+`stock` pins D's four doorways per car and mirrored cab-end single-door widths.
+`draw-batching` checks exactly two small panes in each of its three inter-door
+bays per side, clear apertures and independent door banks in both travel directions.
+
+`draw-batching` pins B's single windshield at both ends, three inset passenger
+windows per side between four doorways in every car, unobstructed glass apertures,
+and independent door-bank motion for both travel directions and consist sizes.
+
 `module-build` compares actual PSD glass planes with bridge barriers, ground
 barriers and both gantry models on both sides, at 3/4 m bed widths and every
 rotation. `fence` checks that R-selected barrier sides survive line previews and
@@ -23,7 +31,8 @@ checks barrier/glass clearance from the platform gantry, and restores the full
 barrier when that platform changes to a canopy.
 
 `train-art-pipeline` pins the bilingual train sheets: five classes in shared order,
-animated D door details, eight-car D figures and capture bounds inside each canvas.
+animated D door details, eight-car D figures and capture bounds inside each canvas,
+plus stock-default capture power across car, side, front and detail frames.
 
 `psd-header` pins independent directional terminal matching, platform-facing arrows,
 bilingual station/terminal printing, schematic routes and the lower line-colour band.
@@ -98,6 +107,9 @@ cache invalidation; `draw-batching` checks repeated services reuse train geometr
 with an eight-dormant-consist bound and exact disposal on eviction. `passenger-library`
 checks the native base64 decoder and the compatibility path preserve every byte.
 
+`train-pantograph` covers all five overhead-wire variants, mirrored inward cab-car
+placement at every rotation and direction, contact-wire height, one-car placement,
+third-rail absence, worker power flags, door-mask isolation and cached power changes.
 `train-lod` pins the published full triangle count of every consist (asset integrity),
 its Low budget through the real TrainSystem path, one prepared swap per drawn piece
 with full sources kept, door-bank and sorted-glass geometry swaps under Low, the
@@ -125,6 +137,8 @@ rays reject invisible nested surfaces and hidden storey roots; `delete-tool`, `m
 cell fallbacks do not resolve a module hidden by the active level slice.
 `draw-batching` exercises A/B/C/D/L stock in all four track rotations and compares
 exact submitted geometry, then drives TrainSystem pause/hide/resume/eviction.
+It pins L's single cab windshield, small end windows, two broad inter-door panes
+per side, real glazing apertures, unchanged shell and independent door banks.
 It also checks D cab bounds, slim central shield proportions, broad line-color
 coverage down the front, four-sided side windows
 and lamps with finite end edges, close windshield spacing, both shared boundary
@@ -417,6 +431,7 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Area | Files |
 |---|---|
 | Authored road nodes | `road-document.test.mjs` — segment splits, shared-node lifetime, legacy migration, duplicate/elevation rules, width merges, snapped starts keeping the selected width/direction, save/undo, node input, hidden/refused pieces and node-buffer ownership. |
+| Road vehicle models | `road-vehicles.test.mjs` — six silhouettes at both detail levels, triangle reductions, exposed fittings, grayscale/opacity, depth prepass, seeded variant packing, quality switching, pause and disposal. Production GPU views/counts: `tools/check-road-vehicles.mjs`. |
 | Road network and traffic | `road-network.test.mjs` — crossings/T joins, a crossing on every junction side whatever the one-way setting, directed turns, bounded topology cache/vehicle capacity, signals, lane gaps, bus tail reservations, clock seeks, derived facilities and traffic-light decor; right-hand rotations, lane-specific turns/T splits, preview arrows and incoming-only stop lines. |
 | Elevator doors | `lift-doors.test.mjs` — per-storey front/back/both/none choices, landing geometry, graph stops and ride edges, render-facing snapshot, and save round trip. `check:info-panel` covers the browser dialog and per-floor undo. |
 | Architecture | `layering`, `scene-wiring` — the sibling-wiring guard, and the `setStation` boards-only/inert-decor fast paths: one-sign verdict, chunk remesh skipped, station-wide plate repaints kept on the full path |
@@ -667,7 +682,15 @@ not carry passengers; derived zebra markings remain visual. Seeded spawns use ha
 Roads cut pedestrian routing on their own floor and swept movement keeps crowd
 pressure off the pavement. Editing a road beneath walkers relocates them to the
 nearest remaining pedestrian floor before replanning. Vehicle materials are
-grayscale and share the passenger material's 70% opacity. `npm run check:roads` drives the real
+grayscale and share the passenger material's 70% opacity, with a depth prepass for self-occlusion.
+`road-vehicles.test.mjs` covers all six procedural variants: grounded finite geometry,
+bounded material/triangle counts, visible car hubs and windscreens, distinct rooflines,
+curb-side bus doors and exposed route/lamp surfaces, open bicycle spokes/basket,
+moped luggage, deterministic variant selection, actual six-way instance packing,
+paused buffer retention and exactly-once disposal. `node tools/check-road-vehicles.mjs`
+renders the production instanced models with the station light rig from front/rear;
+screenshots and triangle/draw reports live in `.preview/road-vehicles/`.
+`npm run check:roads` drives the real
 production viewport in Chinese and English: centerline node drags, R flow reversal,
 Tab width / Shift+Tab direction refresh, endpoint extension, mid-road branches,
 segment-only deletion and undo/redo. Each gesture commits once on release.
@@ -706,3 +729,14 @@ camera/preview/view/edit wakeups, retained chunk allocations and both demo fixtu
 `ceiling-decor` also pins the ground-mounted pole PTZ: outdoor floor support, no ceiling requirement, 4 m height and rotated footprint; `model-detail` pins its authored Low budget and restoration.
 
 `canopy.test.mjs` pins 有柱雨棚 in the roof family: a 4 m ridge / 3 m eaves, exactly two symmetric round-column rows at 4/8/12 m widths, open ground collision and walking, roof-hanger backing, paint/save, every rotation, and exact Low picks/restoration. `roof-tool`, `pick-tool` and `model-detail` cover centred ground previews, straight drags, undo/deletion, variant/width identity and reduced geometry budgets.
+
+`draw-batching` also pins C's two front panes and evacuation-door fittings,
+small end windows and three large inter-door windows per side, clear apertures,
+and independent passenger door banks in both directions for four/six-car consists.
+
+`draw-batching` pins Type A's five doors alternating with four Type B-sized
+passenger windows per side, painted end bays, unobstructed apertures and independent
+door banks in six/eight-car consists travelling in both directions.
+
+`draw-batching` checks C cab glazing contacts its backing in profile and the
+smaller emblem clears both panes and the front door at both ends.

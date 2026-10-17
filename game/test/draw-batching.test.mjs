@@ -19,6 +19,265 @@ function canvas() {
   return node
 }
 
+test('A alternates five doors with four B-sized inset windows on each car side', () => {
+  const previous = globalThis.document; globalThis.document = { createElement: canvas }
+  const mats = createModelMaterials()
+  const reference = buildTrain(mats, { x:0, y:0, z:0, stock:'B', cars:4, doorsOpen:false, colour:'#e45526', dirSign:1, yaw:0 })
+  const size = mesh => new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3())
+  const expected = size(reference.getObjectByName('b-car-window'))
+  try {
+    for (const cars of [6, 8]) for (const dirSign of [-1, 1]) {
+      const root = buildTrain(mats, { x:0, y:0, z:0, stock:'A', cars, doorsOpen:false, colour:'#e45526', dirSign, yaw:0 })
+      try {
+        root.updateMatrixWorld(true)
+        const parts = []; root.traverse(o => { if (o.isMesh) parts.push(o) })
+        const windows = parts.filter(o => o.name === 'a-car-window')
+        assert.equal(windows.length, cars * 4 * 2, 'only four inter-door windows per side, with painted end bays')
+        const centres = doorCentres({ stock:'A', cars })
+        for (let car = 0; car < cars; car++) for (const side of [-1, 1]) {
+          const doors = centres.slice(car * 5, car * 5 + 5)
+          const panes = windows.filter(o => Math.sign(o.position.y) === side && o.position.x > doors[0] && o.position.x < doors[4]).sort((a,b) => a.position.x - b.position.x)
+          assert.equal(panes.length, 4)
+          for (const [i, pane] of panes.entries()) {
+            assert.ok(size(pane).distanceTo(expected) < 1e-5, 'A uses the same smaller aperture as B')
+            const box = new THREE.Box3().setFromObject(pane)
+            assert.ok(box.min.x > doors[i] + STOCK.A.doorWidth / 2 + .25)
+            assert.ok(box.max.x < doors[i + 1] - STOCK.A.doorWidth / 2 - .25)
+            const ray = new THREE.Raycaster(new THREE.Vector3(pane.position.x, side * 4, pane.position.z), new THREE.Vector3(0, -side, 0))
+            assert.equal(ray.intersectObjects(parts, false)[0]?.object, pane, 'glass is visible through a real opening')
+          }
+        }
+        assert.equal(root.userData.doors.length, cars * 5 * 4)
+        const closed = root.userData.doors.map(o => o.position.x)
+        setDoorsSides(root, 1, 0)
+        root.userData.doors.forEach((door, i) => assert.equal(door.position.x === closed[i], door.userData.side === -1))
+      } finally { disposeObject(root) }
+    }
+  } finally { disposeObject(reference); disposeModelMaterials(mats); globalThis.document = previous }
+})
+
+test('B keeps its shell with a single cab shield and three framed windows between four doorways', () => {
+  const previous = globalThis.document; globalThis.document = { createElement: canvas }
+  let mats
+  try {
+    mats = createModelMaterials()
+    for (const cars of [4, 6]) for (const dirSign of [-1, 1]) {
+      const root = buildTrain(mats, {x:0, y:0, z:0, stock:'B', cars, doorsOpen:false, colour:'#e45526', dirSign, yaw:0})
+      try {
+        root.updateMatrixWorld(true)
+        const parts = []; root.traverse(o => { if (o.isMesh) parts.push(o) })
+        const shields = parts.filter(o => o.name === 'b-cab-windscreen')
+        assert.equal(shields.length, 2)
+        for (const shield of shields) {
+          const bounds = new THREE.Box3().setFromObject(shield)
+          assert.ok(bounds.max.y - bounds.min.y > STOCK.B.width * .7, 'one broad pane spans the cab')
+        }
+        assert.equal(parts.filter(o => o.name === 'cab-shell').length, 2)
+        const windows = parts.filter(o => o.name === 'b-car-window')
+        assert.equal(windows.length, cars * 3 * 2)
+        const centres = doorCentres({ stock:'B', cars })
+        for (let car = 0; car < cars; car++) {
+          const doors = centres.slice(car * 4, car * 4 + 4)
+          for (const side of [-1, 1]) {
+            const panes = windows.filter(o => Math.sign(o.position.y) === side && o.position.x > doors[0] && o.position.x < doors[3])
+            assert.equal(panes.length, 3)
+            panes.sort((a,b) => a.position.x - b.position.x)
+            for (const [i, pane] of panes.entries()) {
+              const box = new THREE.Box3().setFromObject(pane)
+              assert.ok(box.min.x > doors[i] + STOCK.B.doorWidth / 2 + .25)
+              assert.ok(box.max.x < doors[i + 1] - STOCK.B.doorWidth / 2 - .25)
+              const ray = new THREE.Raycaster(new THREE.Vector3(pane.position.x, side * 4, pane.position.z), new THREE.Vector3(0, -side, 0))
+              const hits = ray.intersectObjects(parts, false)
+              assert.equal(hits[0]?.object, pane, 'the pane is an open aperture, without an opaque panel behind it')
+            }
+          }
+        }
+        assert.equal(root.userData.doors.length, cars * 4 * 4)
+        const closed = root.userData.doors.map(o => o.position.x)
+        setDoorsSides(root, 1, 0)
+        root.userData.doors.forEach((door, i) => assert.equal(door.position.x === closed[i], door.userData.side === -1))
+      } finally { disposeObject(root) }
+    }
+    for (const stock of ['A', 'C', 'L']) {
+      const root = buildTrain(mats, {x:0, y:0, z:0, stock, cars:4, doorsOpen:false, colour:'#e45526', dirSign:1, yaw:0})
+      try { assert.equal(root.getObjectByName('b-cab-windscreen'), undefined); assert.equal(root.getObjectByName('b-car-window'), undefined) }
+      finally { disposeObject(root) }
+    }
+  } finally { if (mats) disposeModelMaterials(mats); globalThis.document = previous }
+})
+
+test('L keeps its shell, single windshield and small-door-big-door-big-door-small side layout', () => {
+  const previous = globalThis.document; globalThis.document = { createElement: canvas }
+  const mats = createModelMaterials()
+  try {
+    for (const cars of [4, 6]) for (const dirSign of [-1, 1]) {
+      const root = buildTrain(mats, { x:0, y:0, z:0, stock:'L', cars, doorsOpen:false, colour:'#3399bb', dirSign, yaw:0 })
+      try {
+        root.updateMatrixWorld(true)
+        const parts = []; root.traverse(o => { if (o.isMesh) parts.push(o) })
+        assert.equal(parts.filter(o => o.name === 'cab-shell').length, 2)
+        assert.equal(parts.filter(o => o.name === 'car-roof').length, cars)
+        const shields = parts.filter(o => o.name === 'l-cab-windscreen')
+        assert.equal(shields.length, 2)
+        for (const shield of shields) {
+          const box = new THREE.Box3().setFromObject(shield)
+          assert.ok(box.max.y - box.min.y > STOCK.L.width * .7)
+        }
+        const big = parts.filter(o => o.name === 'l-car-big-window')
+        const small = parts.filter(o => o.name === 'l-car-small-window' || o.name === 'l-cab-side-window')
+        assert.equal(big.length, cars * 4)
+        assert.equal(small.length, cars * 4)
+        const centres = doorCentres({ stock:'L', cars })
+        for (let car = 0; car < cars; car++) for (const side of [-1, 1]) {
+          const start = car * STOCK.L.length - cars * STOCK.L.length / 2
+          const inCar = list => list.filter(o => Math.sign(o.position.y) === side && o.position.x > start && o.position.x < start + STOCK.L.length).sort((a,b) => a.position.x - b.position.x)
+          const bigPanes = inCar(big), smallPanes = inCar(small), doors = centres.slice(car * 3, car * 3 + 3)
+          assert.equal(bigPanes.length, 2); assert.equal(smallPanes.length, 2)
+          assert.ok(smallPanes[0].position.x < doors[0] && smallPanes[1].position.x > doors[2])
+          for (const [i, pane] of bigPanes.entries()) {
+            const box = new THREE.Box3().setFromObject(pane)
+            assert.ok(box.max.x - box.min.x > 2.5)
+            assert.ok(box.min.x > doors[i] + STOCK.L.doorWidth / 2 + .3)
+            assert.ok(box.max.x < doors[i + 1] - STOCK.L.doorWidth / 2 - .3)
+            const ray = new THREE.Raycaster(new THREE.Vector3(pane.position.x + .3, side * 4, pane.position.z), new THREE.Vector3(0, -side, 0))
+            assert.equal(ray.intersectObjects(parts, false)[0]?.object, pane, 'glazing has a real aperture')
+          }
+          for (const pane of smallPanes) {
+            const box = new THREE.Box3().setFromObject(pane)
+            assert.ok(box.max.x - box.min.x < .75)
+          }
+        }
+        assert.equal(root.userData.doors.length, cars * 12)
+        const closed = root.userData.doors.map(o => o.position.x)
+        setDoorsSides(root, 1, 0)
+        root.userData.doors.forEach((door, i) => assert.equal(door.position.x === closed[i], door.userData.side === -1))
+      } finally { disposeObject(root) }
+    }
+  } finally { disposeModelMaterials(mats); globalThis.document = previous }
+})
+
+test('C keeps two front panes, an evacuation door and small-door-big-door-big-door-big-door-small sides', () => {
+  const previous = globalThis.document; globalThis.document = { createElement: canvas }
+  const mats = createModelMaterials()
+  try {
+    for (const cars of [4, 6]) for (const dirSign of [-1, 1]) {
+      const root = buildTrain(mats, { x:0, y:0, z:0, stock:'C', cars, doorsOpen:false, colour:'#3399bb', dirSign, yaw:0 })
+      try {
+        root.updateMatrixWorld(true)
+        const parts = []; root.traverse(o => { if (o.isMesh) parts.push(o) })
+        assert.equal(parts.filter(o => o.name === 'cab-shell').length, 2)
+        assert.equal(parts.filter(o => o.name === 'car-roof').length, cars)
+        const shields = parts.filter(o => o.name === 'c-cab-windscreen')
+        assert.equal(shields.length, 2)
+        for (const name of ['c-cab-door-window', 'c-cab-front-door', 'c-cab-front-door-frame', 'c-cab-door-handle']) {
+          assert.equal(parts.filter(o => o.name === name).length, 2, `${name} at both ends`)
+        }
+        const frontWindows = parts.filter(o => o.name === 'c-cab-door-window')
+        for (const [i, shield] of shields.entries()) {
+          assert.ok(shield.position.y * frontWindows[i].position.y < 0, 'two panes straddle the front pillar')
+        }
+        for (const shield of shields) {
+          const box = new THREE.Box3().setFromObject(shield)
+          assert.ok(box.max.y - box.min.y > STOCK.C.width * .3)
+        }
+        for (const pane of [...shields, ...frontWindows]) {
+          const outward = Math.sign(pane.position.x)
+          const nose = outward * cars * STOCK.C.length / 2
+          const box = new THREE.Box3().setFromObject(pane)
+          const back = outward * (pane.position.x - nose) - (box.max.x - box.min.x) / 2
+          const backing = pane.name === 'c-cab-windscreen' ? .19 : .196
+          assert.ok(back < backing, 'the pane embeds in its backing instead of floating in front of it')
+          assert.ok(outward * (pane.position.x - nose) + (box.max.x - box.min.x) / 2 > backing, 'the glass face remains visible')
+        }
+        const marks = parts.filter(o => o.name === 'c-cab-mark')
+        assert.equal(marks.length, 2)
+        for (const mark of marks) {
+          const box = new THREE.Box3().setFromObject(mark)
+          assert.ok(box.max.y - box.min.y <= .241 && box.max.z - box.min.z <= .281, 'C uses the smaller emblem')
+          const sameEnd = [...shields, ...frontWindows].filter(o => Math.sign(o.position.x) === Math.sign(mark.position.x))
+          for (const pane of sameEnd) assert.ok(box.max.z < new THREE.Box3().setFromObject(pane).min.z, 'the entire emblem clears the glazing')
+          const door = parts.find(o => o.name === 'c-cab-front-door' && Math.sign(o.position.x) === Math.sign(mark.position.x))
+          const doorBox = new THREE.Box3().setFromObject(door)
+          assert.ok(box.max.y < doorBox.min.y || box.min.y > doorBox.max.y, 'the emblem also clears the front door')
+        }
+        for (const outward of [-1, 1]) for (const side of [-1, 1]) {
+          const nose = outward * cars * STOCK.C.length / 2
+          const ray = new THREE.Raycaster(new THREE.Vector3(nose + outward * 3, side * STOCK.C.width * .31 + .14, 1.38), new THREE.Vector3(-outward, 0, 0))
+          const material = ray.intersectObjects(parts, false)[0]?.object.material
+          assert.equal(material, outward === dirSign ? mats.headlight : mats.taillight, 'the evacuation door leaves both lamp clusters visible')
+        }
+        const big = parts.filter(o => o.name === 'c-car-big-window')
+        const small = parts.filter(o => o.name === 'c-car-small-window' || o.name === 'c-cab-side-window')
+        assert.equal(big.length, cars * 6)
+        assert.equal(small.length, cars * 4)
+        const centres = doorCentres({ stock:'C', cars })
+        for (let car = 0; car < cars; car++) for (const side of [-1, 1]) {
+          const start = car * STOCK.C.length - cars * STOCK.C.length / 2
+          const inCar = list => list.filter(o => Math.sign(o.position.y) === side && o.position.x > start && o.position.x < start + STOCK.C.length).sort((a,b) => a.position.x - b.position.x)
+          const bigPanes = inCar(big), smallPanes = inCar(small), doors = centres.slice(car * 4, car * 4 + 4)
+          assert.equal(bigPanes.length, 3); assert.equal(smallPanes.length, 2)
+          assert.ok(smallPanes[0].position.x < doors[0] && smallPanes[1].position.x > doors[3])
+          for (const [i, pane] of bigPanes.entries()) {
+            const box = new THREE.Box3().setFromObject(pane)
+            assert.ok(box.max.x - box.min.x > 1.7)
+            assert.ok(box.min.x > doors[i] + STOCK.C.doorWidth / 2 + .3)
+            assert.ok(box.max.x < doors[i + 1] - STOCK.C.doorWidth / 2 - .3)
+            const ray = new THREE.Raycaster(new THREE.Vector3(pane.position.x + .3, side * 4, pane.position.z), new THREE.Vector3(0, -side, 0))
+            assert.equal(ray.intersectObjects(parts, false)[0]?.object, pane, 'glazing has a real aperture')
+          }
+          for (const pane of smallPanes) {
+            const box = new THREE.Box3().setFromObject(pane)
+            assert.ok(box.max.x - box.min.x < .75)
+          }
+        }
+        assert.equal(root.userData.doors.length, cars * 16)
+        const closed = root.userData.doors.map(o => o.position.x)
+        setDoorsSides(root, 1, 0)
+        root.userData.doors.forEach((door, i) => assert.equal(door.position.x === closed[i], door.userData.side === -1))
+      } finally { disposeObject(root) }
+    }
+  } finally { disposeModelMaterials(mats); globalThis.document = previous }
+})
+
+test('D has two small windows between each of four doorways, with a single doorway at each cab', () => {
+  const previous = globalThis.document; globalThis.document = { createElement: canvas }
+  const mats = createModelMaterials()
+  try {
+    for (const dirSign of [-1, 1]) {
+      const pose = {x:0, y:0, z:0, stock:'D', cars:8, doorsOpen:false, colour:'#254eae', dirSign, yaw:0}
+      const root = buildTrain(mats, pose)
+      try {
+        root.updateMatrixWorld(true)
+        const parts = []; root.traverse(o => { if (o.isMesh) parts.push(o) })
+        const windows = parts.filter(o => o.name === 'd-car-window').map(mesh => ({mesh, box:new THREE.Box3().setFromObject(mesh)}))
+        assert.equal(windows.length, 8 * 6 * 2, 'six small windows on every side, with no extra end panes')
+        const centres = doorCentres(pose)
+        for (let car = 0; car < 8; car++) for (const side of [-1, 1]) {
+          const doors = centres.slice(car * 4, car * 4 + 4)
+          for (let bay = 0; bay < 3; bay++) {
+            const panes = windows.filter(({box}) => Math.sign(box.min.y) === side && box.min.x > doors[bay] && box.max.x < doors[bay + 1])
+            assert.equal(panes.length, 2, `car ${car}, side ${side}, bay ${bay}: exactly two panes`)
+            for (const {mesh, box} of panes) {
+              assert.ok(box.max.x - box.min.x <= .781 && box.max.x - box.min.x >= .77, 'the small pane width is retained')
+              assert.ok(box.min.x > doors[bay] + doorWidthAt(pose, doors[bay]) / 2)
+              assert.ok(box.max.x < doors[bay + 1] - doorWidthAt(pose, doors[bay + 1]) / 2)
+              const point = box.getCenter(new THREE.Vector3())
+              const ray = new THREE.Raycaster(new THREE.Vector3(point.x, side * 4, point.z), new THREE.Vector3(0, -side, 0))
+              assert.equal(ray.intersectObjects(parts, false)[0]?.object, mesh, 'glass stays visible through its shell opening')
+            }
+          }
+          const widths = doors.map(x => doorWidthAt(pose, x))
+          assert.deepEqual(widths, [car === 0 ? .8 : 1.4, 1.4, 1.4, car === 7 ? .8 : 1.4])
+        }
+        assert.equal(root.userData.doors.length, 124, 'three double plus one single per cab side; four doubles per middle side')
+        const closed = root.userData.doors.map(o => o.position.x)
+        setDoorsSides(root, 1, 0)
+        root.userData.doors.forEach((door, i) => assert.equal(door.position.x === closed[i], door.userData.side === -1))
+      } finally { disposeObject(root) }
+    }
+  } finally { disposeModelMaterials(mats); globalThis.document = previous }
+})
+
 test('D model keeps swept cabs inside the consist and plugs only the platform door bank', () => {
   const previous = globalThis.document; globalThis.document = { createElement: canvas }
   let mats, root

@@ -1,5 +1,14 @@
 # Station Designer — the game
 
+Type D has four doorways and six small windows on each car side, with two windows
+between adjacent doorways. Middle cars use four double doors; cab cars use three
+double doors and a single door nearest the cab. `stock` pins the shared platform
+alignment and mirrored widths; `draw-batching` pins pane counts, clear apertures
+and independent door-bank motion in both directions.
+
+Type B keeps the rounded train body with a single broad cab windshield and three
+inset, rubber-framed side windows between its four passenger doorways per car.
+
 The top-right gear opens settings: 低画质 / 高画质, 分享匿名统计, restart,
 report issue and the opposite language. Quality is saved locally, separately
 from the station. Sharing is also a local preference, in its own slice; it never
@@ -3964,3 +3973,14 @@ camera/preview/view/edit wakeups, retained chunk allocations and both demo fixtu
 `ceiling-decor` also pins the ground-mounted pole PTZ: outdoor floor support, no ceiling requirement, 4 m height and rotated footprint; `model-detail` pins its authored Low budget and restoration.
 
 `canopy.test.mjs` pins 有柱雨棚 in the roof family: a 4 m ridge / 3 m eaves, exactly two symmetric round-column rows at 4/8/12 m widths, open ground collision and walking, roof-hanger backing, paint/save, every rotation, and exact Low picks/restoration. `roof-tool`, `pick-tool` and `model-detail` cover centred ground previews, straight drags, undo/deletion, variant/width identity and reduced geometry budgets.
+
+`draw-batching` also pins C's two front panes and evacuation-door fittings,
+small end windows and three large inter-door windows per side, clear apertures,
+and independent passenger door banks in both directions for four/six-car consists.
+
+`draw-batching` pins Type A's five doors alternating with four Type B-sized
+passenger windows per side, painted end bays, unobstructed apertures and independent
+door banks in six/eight-car consists travelling in both directions.
+
+`draw-batching` checks C cab glazing contacts its backing in profile and the
+smaller emblem clears both panes and the front door at both ends.

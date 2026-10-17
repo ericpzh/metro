@@ -12,6 +12,10 @@ import { buildDCarShell, buildDGangway, buildDDoor } from './DTrainShell.ts'
 import { CAR_GAP, CAR_CROWN_Z, CAR_SHOULDER, CAR_SILL_Z, CAR_WAIST_Z, buildConsistGangways } from './TrainGangway.ts'
 import { buildTrainInterior } from './TrainInterior.ts'
 import { syncTrainDoorBatches } from '../../trainBatches.ts'
+import { buildBWindowBay } from './BTrainWindows.ts'
+import { buildLWindowBay } from './LTrainWindows.ts'
+import { buildCWindowBay } from './CTrainWindows.ts'
+import { buildTrainPantograph, PANTOGRAPH_MOUNT_Z, PANTOGRAPH_WELL_HALF_LENGTH } from './TrainPantograph.ts'
 
 /* ------------------------------------------------------------------ trains */
 
@@ -35,6 +39,8 @@ export interface TrainPose {
   dirSign: number
   /** Yaw (radians) that turns the consist's local +x onto the track's run axis. */
   yaw: number
+  /** Absent for legacy model callers, which keep the third-rail roof. */
+  power?: 'third-rail' | 'catenary'
 }
 
 /**
@@ -86,6 +92,12 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     // The car stops `CAR_GAP` short of its own length, which is the gap the gangway fills.
     const bodyLen = s.length - CAR_GAP
     const halfLen = bodyLen / 2
+    let pantographX: number | undefined
+    if (pose.power === 'catenary' && (c === 0 || c === pose.cars - 1)) {
+      const inward = c === 0 ? 1 : -1
+      pantographX = pose.cars === 1 ? carCentre : carCentre + inward * (halfLen - 2)
+      buildTrainPantograph(g, mats, pantographX, inward, PANTOGRAPH_MOUNT_Z)
+    }
     const cabCut = (s.cabLength ?? 2) - 0.125
     const shellStart = carCentre - halfLen + (c === 0 ? cabCut : 0)
     const shellEnd = carCentre + halfLen - (c === pose.cars - 1 ? cabCut : 0)
@@ -120,7 +132,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     const doorZMid = (DOOR_SILL_Z + DOOR_HEAD_Z) / 2
     slab(g, mats.trainInterior, s.cabLength ? shellCentre : carCentre, 0, DOOR_HEAD_Z + 0.05, s.cabLength ? shellLen : bodyLen, coreW + 0.24, 0.1)
     if (pose.stock === 'D') {
-      buildDCarShell(g, mats, shellStart, shellEnd, sideRuns(shellStart, shellEnd, 0), blue)
+      buildDCarShell(g, mats, shellStart, shellEnd, sideRuns(shellStart, shellEnd, 0), blue, pantographX)
     } else {
       for (const e of [-1, 1]) {
         if ((e < 0 && c === 0) || (e > 0 && c === pose.cars - 1)) continue
@@ -137,19 +149,37 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
       roofSection.quadraticCurveTo(hw, CAR_CROWN_Z, hw, CAR_WAIST_Z)
       roofSection.lineTo(-hw, CAR_WAIST_Z)
       roofSection.closePath()
-      const roofGeometry = new THREE.ExtrudeGeometry(roofSection, { depth: shellLen, bevelEnabled: false, curveSegments: 32 })
-      roofGeometry.rotateY(Math.PI / 2)
-      roofGeometry.rotateX(Math.PI / 2)
-      const roof = new THREE.Mesh(roofGeometry, mats.trainBody)
-      roof.name = 'car-roof'
-      roof.position.set(shellStart, 0, 0)
-      // The rolled shoulder is two quarter-turns: four segments per curve keep
-      // both turns and the flat crown between them at Low.
-      const lowRoof = new THREE.ExtrudeGeometry(roofSection, { depth: shellLen, bevelEnabled: false, curveSegments: 4 })
-      lowRoof.rotateY(Math.PI / 2)
-      lowRoof.rotateX(Math.PI / 2)
-      setModelDetail(roof, lowRoof)
-      g.add(roof)
+      const roofRuns: Array<{ start: number; end: number; section: THREE.Shape }> = []
+      if (pantographX === undefined) roofRuns.push({ start: shellStart, end: shellEnd, section: roofSection })
+      else {
+        const a = pantographX - PANTOGRAPH_WELL_HALF_LENGTH, b = pantographX + PANTOGRAPH_WELL_HALF_LENGTH
+        const well = new THREE.Shape()
+        well.moveTo(-hw, CAR_WAIST_Z)
+        well.quadraticCurveTo(-hw, CAR_CROWN_Z, -hw + CAR_SHOULDER, CAR_CROWN_Z)
+        well.lineTo(-0.55, CAR_CROWN_Z)
+        well.lineTo(-0.55, PANTOGRAPH_MOUNT_Z)
+        well.lineTo(0.55, PANTOGRAPH_MOUNT_Z)
+        well.lineTo(0.55, CAR_CROWN_Z)
+        well.lineTo(hw - CAR_SHOULDER, CAR_CROWN_Z)
+        well.quadraticCurveTo(hw, CAR_CROWN_Z, hw, CAR_WAIST_Z)
+        well.closePath()
+        roofRuns.push({ start: shellStart, end: a, section: roofSection }, { start: a, end: b, section: well }, { start: b, end: shellEnd, section: roofSection })
+      }
+      for (const run of roofRuns) {
+        const roofGeometry = new THREE.ExtrudeGeometry(run.section, { depth: run.end - run.start, bevelEnabled: false, curveSegments: 32 })
+        roofGeometry.rotateY(Math.PI / 2)
+        roofGeometry.rotateX(Math.PI / 2)
+        const roof = new THREE.Mesh(roofGeometry, mats.trainBody)
+        roof.name = 'car-roof'
+        roof.position.set(run.start, 0, 0)
+        // Four curve segments retain both rolled shoulders at Low, including
+        // the vertical edges of the recessed pantograph mounting well.
+        const lowRoof = new THREE.ExtrudeGeometry(run.section, { depth: run.end - run.start, bevelEnabled: false, curveSegments: 4 })
+        lowRoof.rotateY(Math.PI / 2)
+        lowRoof.rotateX(Math.PI / 2)
+        setModelDetail(roof, lowRoof)
+        g.add(roof)
+      }
       for (const side of [-1, 1]) {
         const y = side * skinY
         // Full-length sill and header, then infill panels between the doors. Both are the
@@ -159,7 +189,20 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         for (const [a, b] of sideRuns(shellStart, shellEnd, 0)) {
           // Below the waist: body. Above it: the glazing that makes the cabin visible.
           slab(g, mats.trainBody, (a + b) / 2, y, (DOOR_SILL_Z + WINDOW_SILL_Z) / 2, b - a, 0.06, WINDOW_SILL_Z - DOOR_SILL_Z)
-          slab(g, mats.glass, (a + b) / 2, y, (WINDOW_SILL_Z + DOOR_HEAD_Z) / 2, b - a, 0.04, DOOR_HEAD_Z - WINDOW_SILL_Z)
+          if (pose.stock === 'A' || pose.stock === 'B') {
+            // Only inter-door bays carry passenger windows: four on A, three on B.
+            // Shared inset glazing keeps the windows small and end bays painted.
+            const betweenDoors = a > inCar[0] && b < inCar[inCar.length - 1]
+            buildBWindowBay(g, mats, a, b, y, WINDOW_SILL_Z, DOOR_HEAD_Z, betweenDoors, pose.stock)
+          } else if (pose.stock === 'C') {
+            buildCWindowBay(g, mats, a, b, y, WINDOW_SILL_Z, DOOR_HEAD_Z,
+              a > inCar[0] && b < inCar[inCar.length - 1])
+          } else if (pose.stock === 'L') {
+            buildLWindowBay(g, mats, a, b, y, WINDOW_SILL_Z, DOOR_HEAD_Z,
+              a > inCar[0] && b < inCar[inCar.length - 1])
+          } else {
+            slab(g, mats.glass, (a + b) / 2, y, (WINDOW_SILL_Z + DOOR_HEAD_Z) / 2, b - a, 0.04, DOOR_HEAD_Z - WINDOW_SILL_Z)
+          }
           // The lining behind the seats, so a passenger looking out of one window
           // sees a wall and not the platform through the window opposite. It stands
           // at the cabin's own clear half-width, the box the sim seats riders in.

@@ -2,6 +2,17 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { STOCK_CLASSES, trainLength, trainRatedCapacity } from '../src/sim/stock.ts'
+import { trainPieces } from '../src/app/captureTrains.ts'
+
+test('catalogue captures include overhead collectors for A/D and third-rail roofs for B/C/L', () => {
+  const frames = new Map(trainPieces().frames.map(frame => [frame.id, frame]))
+  for (const stock of STOCK_CLASSES) for (const view of ['car', 'side', 'front']) {
+    assert.equal(frames.get(`${view}-${stock}`).power, stock === 'A' || stock === 'D' ? 'catenary' : 'third-rail')
+  }
+  assert.equal(frames.get('open').power, 'catenary', 'the D door detail uses the same roof variant')
+  assert.equal(frames.get('nose').power, 'catenary')
+  assert.equal(frames.get('iso-A').power, 'catenary', 'station illustrations use the A overhead-wire roof')
+})
 
 for (const language of ['zh','en']) for (const name of ['05-trains-and-track','11-rolling-stock-3d']) {
   test(`${name} ${language} contains every stock class and keeps captures within the sheet`, () => {

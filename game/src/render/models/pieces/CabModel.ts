@@ -52,10 +52,41 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
   // Cream bumper band under the mask.
   rounded(mats.trainTrim, -0.08, 0, 0.98, 0.38, faceW, 0.3, 0.13)
   // Windows: the tall centre windscreen and the two crew-door windows beside it.
-  rounded(mats.trainGlass, 0.2, 0, 2.24, 0.04, s.width * 0.22, 1.08, 0.018)
-  for (const wy of [-1, 1]) rounded(mats.trainGlass, 0.215, wy * s.width * 0.27, 2.16, 0.04, s.width * 0.2, 0.94, 0.018)
+  if (s.cls === 'B') {
+    // Guangzhou B: one uninterrupted shield, within the same rounded cab shell.
+    const shield = rounded(mats.trainGlass, 0.215, 0, 2.22, 0.04, s.width * 0.74, 1.13, 0.018)
+    shield.name = 'b-cab-windscreen'
+  } else if (s.cls === 'C') {
+    // Two separate panes; the right-hand pane sits in a front evacuation door.
+    // Mirror the fittings with the cab's outward axis at the opposite end.
+    const doorY = d * s.width * 0.205
+    const doorWidth = s.width * 0.36
+    rounded(mats.rubber, 0.187, doorY, 1.91, 0.014, doorWidth + 0.07, 1.89, 0.06).name = 'c-cab-front-door-frame'
+    rounded(mats.trainDark, 0.19, doorY, 1.91, 0.012, doorWidth, 1.82, 0.045).name = 'c-cab-front-door'
+    // Sink the back of each pane into its backing so no daylight shows in profile.
+    rounded(mats.trainGlass, 0.195, -d * s.width * 0.205, 2.19, 0.025, s.width * 0.34, 1.08, 0.045).name = 'c-cab-windscreen'
+    rounded(mats.trainGlass, 0.201, doorY, 2.17, 0.025, s.width * 0.28, 0.98, 0.045).name = 'c-cab-door-window'
+    out(mats.steel, 0.27, doorY + d * doorWidth * 0.35, 1.5, 0.035, 0.035, 0.17).name = 'c-cab-door-handle'
+    for (const side of [-1, 1]) {
+      rounded(mats.trainGlass, -1.48, side * (s.width / 2 + 0.012), 2.1, 0.66, 0.035, 0.82, 0.06).name = 'c-cab-side-window'
+    }
+  } else if (s.cls === 'L') {
+    const shield = rounded(mats.trainGlass, 0.215, 0, 2.19, 0.04, s.width * 0.75, 1.08, 0.06)
+    shield.name = 'l-cab-windscreen'
+    // The short cab-side bay carries the small pane before the first passenger
+    // door. It sits on the existing shell, like the front's dark glazing.
+    for (const side of [-1, 1]) {
+      const pane = rounded(mats.trainGlass, -1.48, side * (s.width / 2 + 0.012), 2.1, 0.66, 0.035, 0.82, 0.06)
+      pane.name = 'l-cab-side-window'
+    }
+  } else {
+    rounded(mats.trainGlass, 0.2, 0, 2.24, 0.04, s.width * 0.22, 1.08, 0.018)
+    for (const wy of [-1, 1]) rounded(mats.trainGlass, 0.215, wy * s.width * 0.27, 2.16, 0.04, s.width * 0.2, 0.94, 0.018)
+  }
   // The 广州地铁 mark below the windscreen, in the nose's own plane.
-  plate(g, mats.trainMark, 0.46, 0.54, nose + d * 0.2, 0, 1.46, d > 0 ? Math.PI / 2 : -Math.PI / 2)
+  const mark = plate(g, mats.trainMark, s.cls === 'C' ? 0.24 : 0.46, s.cls === 'C' ? 0.28 : 0.54,
+    nose + d * 0.2, s.cls === 'C' ? -d * 0.1 : 0, s.cls === 'C' ? 1.43 : 1.46, d > 0 ? Math.PI / 2 : -Math.PI / 2)
+  if (s.cls === 'C') mark.name = 'c-cab-mark'
   // Marker bars high at the corners, sunk in a dark housing.
   for (const wy of [-1, 1]) {
     rounded(mats.trainDark, 0.19, wy * s.width * 0.27, 2.78, 0.08, 0.4, 0.14, 0.035)

@@ -35,6 +35,41 @@ buses, SUV, sedan, moped and step-through bicycle. Low graphics quality uses aut
 reduced geometry; High uses full detail. Per-instance triangle counts, including the
 shared depth pass, are in [`references/performance.md`](references/performance.md#ambient-road-vehicles).
 
+Type A train cars have five doors alternating with four smaller, inset windows on
+each side; their windows share Type B's framed aperture geometry, and the end bays
+stay painted. The train LOD table in the performance guide includes the resulting
+High and Low triangle counts for A-8 and A-6 consists.
+
+Type B keeps the shared rounded car and cab shell, with one broad windshield per
+cab and three inset, rubber-framed side windows between four doorways on each car.
+The end bays stay painted, and the platform-aligned door centres remain shared with
+the simulation. Its window builder preserves the apertures at Low detail; the train
+LOD table records B-6 and B-4 High/Low counts.
+
+Type C keeps the shared car silhouette and platform-aligned door cadence, with two
+front panes, with one pane in the evacuation door. The front glass sits
+inside its backing, while the smaller emblem clears the glass and door. Each side
+has small end windows and three broad windows between its four passenger doors;
+`CTrainWindows.ts` and `CabModel.ts` own these details. The train LOD table records
+the resulting C-6 and C-4 triangle counts.
+
+Type D has four doorways per car side, with exactly two small windows between
+each adjacent pair and painted end bays. Middle cars use four double doors;
+cab cars use three double doors and a single door nearest the cab, mirrored at
+opposite ends. Route geometry to `metro-game` (`DTrainShell.ts`); keep the shared
+`stock.ts` door centres aligned with platform screens. `stock` and `draw-batching`
+pin the layout; the [train LOD table](references/performance.md#train-models-车辆)
+records D-8 and legacy D-6 counts through the production batching/detail path.
+
+All A/B/C/D/L trains have an overhead-wire roof variant, selected by the line's
+`power`, with mirrored pantographs at the inward ends of the two cab cars.
+`metro-game` owns `TrainPantograph.ts`, the recessed roof mounts and the worker's
+door/power flags; `train-pantograph` pins their placement and conductor contact.
+L keeps its three-door shell with paired wide inter-door windows and small end
+panes in `LTrainWindows.ts`. For any train-model refresh, use `metro-web`'s
+“Refreshing train artwork” workflow: recapture static and animated poses before
+regenerating bilingual sheets 01/02/05/11/12/13 and their tracked PNG previews.
+
 For every behaviour change, add or update deterministic regressions for each affected
 contract and run the complete owning test suite before calling the work covered. A
 focused test or a coverage percentage is not a substitute for the full suite; report

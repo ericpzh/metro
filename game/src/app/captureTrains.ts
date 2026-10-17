@@ -319,6 +319,7 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
 ]
 
 export interface TrainFrame {
+  power?: 'third-rail' | 'catenary'
   id: string
   /** Review a model from another angle without changing its catalogue specimen. */
   view?: [number, number, number]
@@ -534,6 +535,7 @@ export function trainPieces(background = '#0d141d'): { frames: TrainFrame[]; pie
   for (const show of SHOW) {
     frames.push({
       id: show.id,
+      power: STOCK[show.scene.stock].power,
       width: show.width,
       height: show.height,
       background: show.scene.transparent ? undefined : background,
@@ -633,6 +635,7 @@ export async function captureTrains(
             z: 0,
             cars: show.scene.cars,
             stock: show.scene.stock,
+            power: frame.power,
             doorsOpen: show.scene.doorsOpen,
             colour: liveryFor(show.scene.stock),
             dirSign: 1,

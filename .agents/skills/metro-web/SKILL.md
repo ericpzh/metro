@@ -224,7 +224,33 @@ also read their numbers out of `sim/` **by import** (`stock.ts`, `constants.ts`,
 `finishes.ts`, `demand.ts`, `clock.ts`), so a retuned value moves the sheet's text
 as well as its pictures.
 
-Looking at a sheet rather than diffing it:
+### Refreshing train artwork
+
+Train-model changes affect sheets **01, 02, 05, 11, 12 and 13**. Rebuild the game,
+then run `node tools/render-train-cards.mjs` and
+`node tools/render-train-animation.mjs` sequentially. The latter supplies the real
+door/headlight poses embedded by sheets 05 and 11; refreshing stills alone leaves
+their animated trains stale. `captureTrains.ts` seeds catalogue frame power from
+`STOCK[show.scene.stock].power` (A/D overhead wire, B/C/L third rail); a frame's
+explicit `power` overrides it for variant reviews, and animation frames retain
+their base frame's power. Preserve all five classes and the shared stock order.
+
+Before generation, select the reviewed passenger captures: set `PASSENGER_CARDS_DIR` to
+`.preview/model-art/passenger-cards` when using the latest `art:models` output
+(the older default `.preview/passenger-cards` may lack children). Reuse these
+existing captures for a train-only refresh; do not regenerate character assets.
+Run `node tools/gen-art.mjs 01 02 05 11 12 13 --en`, then preview both locales with
+`tools/sheet-png.mjs --at 8` in `.preview/sheets/`. Refresh the tracked 300-DPI
+static exports (about 6667 px wide) using
+`node tools/svg-to-png.mjs 01 02 05 11 12 13`. The numeric filters include both
+locales and avoid rewriting unrelated exports. Browser previews and playback
+checks verify the animations; the print rasterizer retains their initial poses.
+Inspect the result for model/cab details, contact collectors,
+door alignment and clipped labels. Run `train-art-pipeline`, the full game suite,
+and the web build (which syncs `art/` into `web/public/art/`). Do not hand-edit SVGs
+or commit ignored capture directories.
+
+### Previewing sheets
 
 ```powershell
 node tools/sheet-png.mjs 03      # rasterise one sheet (--at <s> freezes animation)

@@ -1,6 +1,7 @@
 // Track bed builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { CONTACT_WIRE_Z } from '../../../sim/constants.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { BRIDGE_DECK_DEPTH, bridgeBarrierTop } from '../../../sim/structures.ts'
@@ -160,7 +161,6 @@ function buildCatenary(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module
 
 // Every track form presents the conductor at this shared clearance over the
 // rails. Tunnels hang it from the bore; stations use either a canopy or portal.
-const CONTACT_WIRE_Z = 3.78
 
 function buildContactWire(g: THREE.Group, mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, cx: number, cy: number, wireZ: number, supportZ: number): void {
   const w = mod.w

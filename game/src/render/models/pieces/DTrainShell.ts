@@ -3,6 +3,7 @@ import type { ModelMaterials } from '../PieceBuilder.ts'
 import { registerDoorLeaf, slab } from '../PieceBuilder.ts'
 import { setModelDetail } from '../../modelDetail.ts'
 import { DOOR_SILL_Z, DOOR_HEAD_Z } from '../../../sim/stock.ts'
+import { PANTOGRAPH_MOUNT_Z, PANTOGRAPH_WELL_HALF_LENGTH } from './TrainPantograph.ts'
 
 export const D_BOTTOM = 0.45
 export const D_ROOF = 3.25
@@ -140,7 +141,7 @@ export function buildDDoor(g: THREE.Group, mats: ModelMaterials, x: number, side
 }
 
 /** A dedicated D car skin: curved flanks, inset individual windows and rolled roof. */
-export function buildDCarShell(g: THREE.Group, mats: ModelMaterials, start: number, end: number, runs: Array<[number, number]>, livery: THREE.Material): void {
+export function buildDCarShell(g: THREE.Group, mats: ModelMaterials, start: number, end: number, runs: Array<[number, number]>, livery: THREE.Material, pantographX?: number): void {
   const sidePatch = (name: string, mat: THREE.Material, a: number, b: number, low: number, high: number, side: number, lift = 0) => {
     const lifted = lift + (mat === mats.trainDark ? 0.008 : 0)
     const mesh = new THREE.Mesh(dSideGeometry(a, b, low, high, side, lifted), mat)
@@ -157,7 +158,8 @@ export function buildDCarShell(g: THREE.Group, mats: ModelMaterials, start: numb
       sidePatch('d-car-lower-skin', mats.trainBody, a, b, 0.57, 1.52, side)
       sidePatch('d-car-window-surround', mats.trainDark, a, b, 1.52, 1.85, side)
       sidePatch('d-car-window-surround', mats.trainDark, a, b, 2.35, 2.63, side)
-      const panes = b - a < 0.95 ? 0 : Math.max(1, Math.ceil((b - a) / 1.6))
+      // §1.12: two small panes in each inter-door bay; end bays stay painted.
+      const panes = a > start + 1e-6 && b < end - 1e-6 ? 2 : 0
       if (!panes) sidePatch('d-car-window-pillar', mats.trainDark, a, b, 1.85, 2.35, side)
       for (let i = 0; i < panes; i++) {
         const x0 = a + (b - a) * i / panes, x1 = a + (b - a) * (i + 1) / panes
@@ -170,9 +172,22 @@ export function buildDCarShell(g: THREE.Group, mats: ModelMaterials, start: numb
       sidePatch('d-car-gold-line', mats.trainTrim, a, b, 1.01, 1.045, side, 0.008)
     }
   }
-  const roof = new THREE.Mesh(dSurface((u, v) => new THREE.Vector3(THREE.MathUtils.lerp(start, end, u), THREE.MathUtils.lerp(-D_CROWN_HALF, D_CROWN_HALF, v), D_ROOF), 1, 1, true), mats.trainBody)
-  roof.name = 'd-car-roof'
-  g.add(roof)
+  const roofRuns: Array<[number, number]> = pantographX === undefined ? [[start, end]]
+    : [[start, pantographX - PANTOGRAPH_WELL_HALF_LENGTH], [pantographX + PANTOGRAPH_WELL_HALF_LENGTH, end]]
+  for (const [a, b] of roofRuns) {
+    const roof = new THREE.Mesh(dSurface((u, v) => new THREE.Vector3(THREE.MathUtils.lerp(a, b, u), THREE.MathUtils.lerp(-D_CROWN_HALF, D_CROWN_HALF, v), D_ROOF), 1, 1, true), mats.trainBody)
+    roof.name = 'd-car-roof'
+    g.add(roof)
+  }
+  if (pantographX !== undefined) {
+    const width = D_CROWN_HALF * 2, length = PANTOGRAPH_WELL_HALF_LENGTH * 2
+    const height = D_ROOF - PANTOGRAPH_MOUNT_Z
+    slab(g, mats.trainBody, pantographX, 0, PANTOGRAPH_MOUNT_Z - 0.01, length, width, 0.02).name = 'pantograph-roof-well'
+    for (const side of [-1, 1]) {
+      slab(g, mats.trainBody, pantographX, side * D_CROWN_HALF, (D_ROOF + PANTOGRAPH_MOUNT_Z) / 2, length, 0.02, height)
+      slab(g, mats.trainBody, pantographX + side * PANTOGRAPH_WELL_HALF_LENGTH, 0, (D_ROOF + PANTOGRAPH_MOUNT_Z) / 2, 0.02, width, height)
+    }
+  }
 }
 
 /** An enclosed flexible gangway fills the space between adjacent car shells. */
