@@ -90,6 +90,14 @@ preference and the lift relief path belong in `wayfinding.test.mjs`; keep the
 seeded long-run mode-share measurement documented in `game/README.md` instead of
 turning hardware-sensitive timing or a full-day run into a unit-test threshold.
 
+The status bar's **station-wide crowd level** (§7.3) is pinned in `capacity.test.mjs`:
+a station with nobody in it reads LOS A, and the under-built station reads a worse
+letter than the fixed one. `train-cabin.test.mjs` pins that a consist's riders cannot
+lift it. It is a mean over the station's own floor (`StationGraph.stationArea`, one
+node per square metre, street plane excluded), **not** a per-node worst — so a
+per-platform letter, if §9.3's 高峰预警 needs one, must be derived from
+`platforms[].cells` and the per-node `density` buffer rather than read off `metrics`.
+
 - `batching-lifecycle`: mapped equipment/atlas UV integration without changing
   source picking UVs; revision reuse and disable/re-enable; exact ownership and
   disposal of geometry, instance buffers and batch matrix/indirection textures;

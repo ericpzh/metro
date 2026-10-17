@@ -136,6 +136,12 @@ export interface StationGraph {
   nodeSpeed: Float32Array
   /** Zone index at each node (§4.5), for trip sampling and the overlay. */
   nodeZone: Uint8Array
+  /**
+   * The station's own walkable floor, m² — one node is one square metre. The
+   * street plane (站外) is excluded, so this is the denominator of the status
+   * bar's station-wide crowd level (§7.3).
+   */
+  stationArea: number
   nodeKey: string[]
   nodeIndex: Map<string, number>
   adjStart: Int32Array
@@ -288,6 +294,11 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   const sps: number[] = []
   const zns: number[] = []
   const levelSet = new Set<number>()
+  // The station's own floor, in m² — one node is one square metre. The street
+  // plane wears 站外 (`outside`) and is not the station (§4.1), so it is left
+  // out: it covers the whole ground window and would drown a station-wide
+  // density reading in pavement.
+  let stationArea = 0
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -313,7 +324,9 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     ys.push(c.y + 0.5)
     zs.push(c.z + 1)
     sps.push(speed)
-    zns.push(zoneIndexOf(c))
+    const zone = zoneIndexOf(c)
+    zns.push(zone)
+    if (ZONES[zone] !== 'outside') stationArea++
     levelSet.add(c.z)
     if (c.x < minX) minX = c.x
     if (c.y < minY) minY = c.y
@@ -879,6 +892,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     nodeZ,
     nodeSpeed,
     nodeZone,
+    stationArea,
     nodeKey: keys,
     nodeIndex,
     adjStart,

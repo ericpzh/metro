@@ -20,15 +20,29 @@ function run(data, ticks) {
   const w = new World(data, 99)
   let peakEscQueue = 0
   let peakPop = 0
-  let worstLos = 'A'
+  let crowdLos = 'A'
   for (let i = 0; i < ticks; i++) {
     const m = w.tickOnce()
     peakEscQueue = Math.max(peakEscQueue, m.escalatorQueue)
     peakPop = Math.max(peakPop, m.population)
-    if ('ABCDEF'.indexOf(m.worstLos) > 'ABCDEF'.indexOf(worstLos)) worstLos = m.worstLos
+    if ('ABCDEF'.indexOf(m.crowdLos) > 'ABCDEF'.indexOf(crowdLos)) crowdLos = m.crowdLos
   }
-  return { world: w, peakEscQueue, peakPop, worstLos, totals: w.totals }
+  return { world: w, peakEscQueue, peakPop, crowdLos, totals: w.totals }
 }
+
+test('a station with nobody in it reads free flow, not a crush', () => {
+  // The reading is the station's own crowd over the station's own floor, so an
+  // empty station is LOS A. It must never be a floor of E for "worst", which is
+  // what the old per-node readout reported (nobody in the station, E 非常拥挤).
+  const data = scenarioStation()
+  for (const m of data.modules) if (m.type === 'exit') m.cfg.inRate = 0
+  for (const l of data.lines) l.alightPerTrain = 0
+  const w = new World(data, 99)
+  for (let i = 0; i < 200; i++) w.tickOnce()
+  assert.ok(w.graph.stationArea > 0, 'the station had no floor to divide by')
+  assert.equal(w.metrics.population, 0)
+  assert.equal(w.metrics.crowdLos, 'A')
+})
 
 test('one escalator off the platform breaks; three fix it', () => {
   // AM-peak load is set explicitly: the demo default is lighter and would not
@@ -41,11 +55,16 @@ test('one escalator off the platform breaks; three fix it', () => {
     `the extra escalators did not relieve the platform exit: broken ${broken.peakEscQueue} vs fixed ${fixed.peakEscQueue}`,
   )
   assert.ok(fixed.peakPop < broken.peakPop, `fixed station still carries more people: ${fixed.peakPop} vs ${broken.peakPop}`)
-  assert.equal(broken.worstLos, 'F')
+  assert.ok(
+    'ABCDEF'.indexOf(broken.crowdLos) > 'ABCDEF'.indexOf(fixed.crowdLos),
+    `the broken station did not read as the more crowded one: ${broken.crowdLos} vs ${fixed.crowdLos}`,
+  )
+  assert.equal(broken.crowdLos, 'D')
   assert.ok(broken.totals.exited > 0 && fixed.totals.exited > broken.totals.exited, 'the fixed station did not clear more people')
   console.log(
     `    platform exit peak queue: broken ${broken.peakEscQueue}, fixed ${fixed.peakEscQueue}; ` +
-      `exited ${broken.totals.exited} -> ${fixed.totals.exited}`,
+      `exited ${broken.totals.exited} -> ${fixed.totals.exited}; ` +
+      `crowd level ${broken.crowdLos} -> ${fixed.crowdLos}`,
   )
 })
 

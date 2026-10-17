@@ -204,7 +204,7 @@ export type Los = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
 
 /**
  * The letters as the panels print them (§7.3). One map, because two readouts show a level
- * of service — the status bar's 最拥挤等级 and the 时刻 window's own strip — and two maps is
+ * of service — the status bar's 平均拥挤等级 and the 时刻 window's own strip — and two maps is
  * two chances for them to disagree about what D means.
  */
 export const LOS_LABELS: Record<Los, string> = {

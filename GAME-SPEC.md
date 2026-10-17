@@ -983,6 +983,13 @@ Density uses the Fruin level-of-service letters, which the overlays map straight
 | E | 0.2 – 0.4 | intermittent stoppage |
 | F | < 0.2 | crush — the thing you are trying to avoid |
 
+The status bar's **平均拥挤等级** is one station-wide reading: everybody standing in the station
+divided by the station's own walkable floor (one square metre per graph node), graded by the table
+above. The street plane is not station floor and is left out — the generated ground covers the
+whole window, so counting pavement would drown the reading and nothing would ever leave LOS A —
+and nobody aboard a consist is standing on the floor under its car. A station average cannot point
+at the one escalator mouth that is failing, which is exactly what §8's per-cell overlay is for.
+
 ### 7.4 Demand: waves from time, date and events
 
 Arrivals are a non-homogeneous Poisson process: a per-exit rate λ(t) shaped by three multipliers.
@@ -1157,7 +1164,7 @@ The simulation is only interesting if you can see it. Overlays are toggles on th
 | Transfer | OD matrix between any nodes (lines, exits, modules), transfer time percentiles |
 | Dead weight | cells nobody walks through (the design smell) |
 
-Plus a running HUD: passengers in the station, worst LOS, total wait, trains late, people left
+Plus a running HUD: passengers in the station, the station-wide crowd level (§7.3), total wait, trains late, people left
 behind today. And a "day report" you can scrub hour by hour.
 
 ### 8.1 Charts — counts and waits (客流 / 等待)
@@ -1171,7 +1178,7 @@ scrubbable with the timeline:
 | 进出站客流 | per-exit entries/exits per 5 min (actual solid vs configured dashed) + station total | is Exit C saturated? did the closure re-route? |
 | 列车载客 | per-line boardings/alightings per train + left-behind count | is the line (§6.3) or the platform the bottleneck? |
 | 等待时间 | mean / p90 wait per gate group, escalator group, platform-door group | which queue is the pinch point? |
-| 站内人数 | in-station population + worst LOS letter over time | when exactly did the peak break? |
+| 站内人数 | in-station population + crowd level letter over time | when exactly did the peak break? |
 
 Rules: charts pause with the sim; hovering a spike frames the contributing asset (`F`);
 every chart exports its CSV from the day report. Numbers here are the same counters the

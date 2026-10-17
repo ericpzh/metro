@@ -16,7 +16,7 @@ export function BottomBar(): React.ReactElement {
   return (
     <div className="bottombar">
       <Metric label={t('passengers_inside')} value={m ? m.population.toLocaleString() : '—'} />
-      <Metric label={t('worst_crowd_level')} value={m ? `${m.worstLos} ${LOS_LABELS[m.worstLos]}` : '—'} tone={m?.worstLos} />
+      <Metric label={t('avg_crowd_level')} value={m ? `${m.crowdLos} ${LOS_LABELS[m.crowdLos]}` : '—'} tone={m?.crowdLos} />
       <Metric label={t('gate_queue')} value={m ? m.gateQueue : '—'} />
       <Metric label={t('escalator_queue')} value={m ? m.escalatorQueue : '—'} />
       <Metric label={t('lift_queue')} value={m ? m.liftQueue : '—'} />

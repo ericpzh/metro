@@ -12,11 +12,11 @@ function run(label, data, ticks) {
     peakEsc = Math.max(peakEsc, m.escalatorQueue)
     peakDoorQ = Math.max(peakDoorQ, m.doorQueue)
     peakPop = Math.max(peakPop, m.population)
-    if ('ABCDEF'.indexOf(m.worstLos) > 'ABCDEF'.indexOf(worst)) worst = m.worstLos
+    if ('ABCDEF'.indexOf(m.crowdLos) > 'ABCDEF'.indexOf(worst)) worst = m.crowdLos
     if (i % 150 === 0) gateSamples.push(m.gateQueue)
   }
   console.log(`\n== ${label} ==`)
-  console.log(`pop peak ${peakPop}, gateQ peak ${peakGate}, escQ peak ${peakEsc}, doorQ peak ${peakDoorQ}, worst LOS ${worst}`)
+  console.log(`pop peak ${peakPop}, gateQ peak ${peakGate}, escQ peak ${peakEsc}, doorQ peak ${peakDoorQ}, crowd level peak ${worst}`)
   console.log(`gateQ every 150s: ${gateSamples.join(' ')}`)
   console.log(`totals:`, JSON.stringify(w.totals))
   // Per-gate queue snapshot at the end.

@@ -192,13 +192,15 @@ test('a wave too big for the dwell is counted left behind, not silently lost', (
   assert.equal(aboard(w).length, 0, 'and the cabin was cleared with the consist')
 })
 
-test('a consist in the cabin is priced as a train, not as a platform crush', () => {
-  // 384 bodies pinned inside one consist: if the crowd passes saw them, the
-  // platform under the train would read as the worst crush in the station.
+test('a consist in the cabin is priced as a train, not as a station crowd', () => {
+  // 384 bodies pinned inside one consist: if the crowd pass saw them, the floor
+  // under the train would read as the station's own crowd and lift its level.
+  // Every body here is aboard, so the station itself is empty and reads A.
   const w = new World(platformStation(384), 99)
   runTo(w, 'berth')
   assert.equal(aboard(w).length, 384, 'the wave is aboard')
-  assert.notEqual(w.metrics.worstLos, 'F', `the cabin was counted as a platform crush (worst ${w.metrics.worstLos})`)
+  assert.equal(w.metrics.population, 384, 'and they are the whole world')
+  assert.equal(w.metrics.crowdLos, 'A', `the cabin lifted the station crowd level (${w.metrics.crowdLos})`)
 })
 
 test('an edit that re-cuts the doorways sets the riders down, and marks nobody', () => {

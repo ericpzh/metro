@@ -44,7 +44,6 @@ import {
   densityDerate,
   losOf,
   periodOf,
-  type Los,
   type Period,
 } from '../constants.ts'
 import { DEFAULT_CALENDAR, dayAt, normalizeCalendar, normalizePeaks, normalizeService, type DayType, type SimCalendar } from '../clock.ts'
@@ -112,8 +111,7 @@ function freshMetrics(simTime: number): Metrics {
     tick: 0,
     simTime,
     population: 0,
-    worstLos: 'A',
-    worstLosNode: -1,
+    crowdLos: 'A',
     leftBehind: 0,
     boarded: 0,
     alighted: 0,
@@ -2732,29 +2730,22 @@ export class World {
   private computeMetrics(period: 'peak' | 'offpeak' | 'late'): void {
     const g = this.graph
     this.nodePop.fill(0)
-    let worst = 4
-    let worstNode = -1
+    // Everybody standing in the station, over the station's own floor area
+    // (§7.3). One pass, two jobs: `nodePop` feeds the per-node density overlay,
+    // and `standing` is the numerator of the status bar's crowd level. Bodies on
+    // the street plane are left out of the numerator because they are already
+    // out of `stationArea`, and a rider is aboard a consist rather than standing
+    // on the floor under its car.
+    let standing = 0
     for (const a of this.pool.live) {
-      // A rider is aboard a consist, not standing in the station: pricing it
-      // against the platform node under its car would report the train's own
-      // passengers as a crush on the floor they have not stepped onto yet.
       if (a.train >= 0) continue
       // A queued body stands in its lane but is logically at the server, so
       // count it there — and skip the ring search, which is what makes a lane
       // that reaches past the station expensive.
       const n = a.server >= 0 ? g.servers[a.server].node : this.nearestNode(a.x, a.y, a.z)
-      if (n >= 0) this.nodePop[n]++
-    }
-    for (let n = 0; n < g.nodeCount; n++) {
-      const pop = this.nodePop[n]
-      if (pop === 0) continue
-      // One node is one square metre of floor.
-      const los = losOf(1 / pop)
-      const rank = 'ABCDEF'.indexOf(los)
-      if (rank > worst) {
-        worst = rank
-        worstNode = n
-      }
+      if (n < 0) continue
+      this.nodePop[n]++
+      if (ZONES[g.nodeZone[n]] !== 'outside') standing++
     }
     let gateQ = 0
     let escQ = 0
@@ -2769,8 +2760,9 @@ export class World {
     this.metrics.tick = this.tick
     this.metrics.simTime = this.simTime
     this.metrics.population = this.pool.count
-    this.metrics.worstLos = 'ABCDEF'[worst] as Los
-    this.metrics.worstLosNode = worstNode
+    // An empty station, or one with no floor to stand on, is free flow rather
+    // than a crush: guard the ratio rather than letting 0/0 fall through `losOf`.
+    this.metrics.crowdLos = standing > 0 && g.stationArea > 0 ? losOf(g.stationArea / standing) : 'A'
     this.metrics.gateQueue = gateQ
     this.metrics.escalatorQueue = escQ
     this.metrics.liftQueue = liftQ

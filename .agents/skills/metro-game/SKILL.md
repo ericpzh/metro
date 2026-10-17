@@ -362,6 +362,17 @@ the four rules most changes trip over.
   choices over ticks) and `World.reRouteAroundQueue` is §7.2's patience trigger for a
   gate or lift queue (rationed by `REROUTE_REPLAN_PER_TICK`), moving an agent **only**
   when the new route queues at a different server.
+* **The crowd level is one station-wide average** (`World.computeMetrics`, §7.3).
+  The status bar's 平均拥挤等级 is the people *standing in the station* over
+  `StationGraph.stationArea` — the graph's own walkable floor, one node per square
+  metre, with the street plane (站外) **excluded**: the generated ground covers the
+  whole window, so a reading divided by it would never leave LOS A. Nobody aboard a
+  consist is standing on the floor under its car, so riders are on neither side, and
+  an empty station reads A. The same pass still fills `nodePop`, which the heat
+  overlay reads — do not drop it when touching the metric. A per-platform letter, if
+  §9.3's 高峰预警 needs one, comes from `platforms[].cells` plus that per-node
+  `density` buffer. This replaced a per-node *worst* letter whose scan was seeded at
+  E, so a station with nobody in it read `E 非常拥挤`.
 * **The worker** (`sim/worker.ts`, `sim/protocol.ts`) is the only sim code that
   touches `postMessage`. Messages in: `init` / `build` / `control` / `restart` /
   `seek`; out: `ready` (graph) / `state` (agent `Float32Array`s, metrics, density,

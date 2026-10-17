@@ -65,8 +65,11 @@ export interface Metrics {
   tick: number
   simTime: number
   population: number
-  worstLos: Los
-  worstLosNode: number
+  /**
+   * The station-wide crowd level (§7.3): the Fruin letter for the mean density
+   * of everybody standing in the station over the station's own floor area.
+   */
+  crowdLos: Los
   leftBehind: number
   boarded: number
   alighted: number

@@ -11,7 +11,7 @@
 // Nothing about the interface is stated in this file or on the sheet: the region
 // names come from the DOM, the labels in the pictures are the ones the components
 // render, and the readout values are the running simulation's (see `BottomBar.tsx`
-// for 站内人数 / 最拥挤等级 / 闸机排队 …, `RAIL_FOLDERS` and `INSPECTOR_FOLDERS` in
+// for 站内人数 / 平均拥挤等级 / 闸机排队 …, `RAIL_FOLDERS` and `INSPECTOR_FOLDERS` in
 // `rail/helpers.ts` for the two folder stacks, and `TopBar.tsx` for the speed group).
 //
 // The regions are found by class name, which is what the app's own layout CSS uses;

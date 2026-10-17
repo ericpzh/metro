@@ -1927,9 +1927,9 @@ export const messages = {
     "zh": "站内人数",
     "en": "Passengers inside"
   },
-  "worst_crowd_level": {
-    "zh": "最拥挤等级",
-    "en": "Worst crowd level"
+  "avg_crowd_level": {
+    "zh": "平均拥挤等级",
+    "en": "Average crowd level"
   },
   "gate_queue": {
     "zh": "闸机排队",
