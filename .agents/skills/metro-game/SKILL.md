@@ -148,11 +148,14 @@ inventory tool.
 
 The crowd's Low LoD is not a model approximation but a second baked index table over
 the same animated pose atlas (`lowIndices`/`lowCorners`, `passengerModel.ts`). Both
-`InstancedMesh`es stay prepared and exactly one is visible: 低画质 draws the reduced
-one, 隐藏UI always the full one. Never bake or upload a second pose set, and never
-let the switch change pose sampling, identity, picking or the 70 % material; the
-atlas degrades to the full topology when an older file has no Low table.
-`passenger-lod` pins the table, the switch, pause and one shared-atlas disposal.
+`InstancedMesh`es stay prepared and every packed instance records its storey in the
+`passengerLevel` attribute; pack each drawn passenger into the topology its storey
+asks for — 高画质 full on the edited storey and reduced on a ghosted one, 低画质 all
+reduced, 隐藏UI all full — so a single-storey crowd stays one draw and only a ghosted
+storey adds a second. Never bake or upload a second pose set, and never let the split
+change pose sampling, identity, picking or the 70 % material; the atlas degrades to
+the full topology when an older file has no Low table. `passenger-lod` pins the
+table, the per-instance attribution, pause and one shared-atlas disposal.
 
 Low furniture, extinguisher cabinets, fences, fare gates and exits also have
 authored variants. `panelModelDetail` retains both broad faces of thin panels;
@@ -1828,7 +1831,9 @@ Run `npm run check:tutorial` for the production browser regression and the
   no depth writes. Keep physique/speed in `sim/walking.ts` and model selection in
   `passengerAppearance`; consume no simulation RNG. `passenger-library.test.mjs`
   pins catalogue, equal age-pool selection, every walk on every variant, bag visibility,
-  bounded topology, one draw and atlas disposal. `passenger-size` pins ranges,
+  bounded topology and atlas disposal. `passenger-lod` pins the Low topology and its
+  per-storey split (`passengerLevel` attribution, one draw for a single-storey crowd,
+  two when a ghosted storey draws). `passenger-size` pins ranges,
   child restrictions and independent body/shadow matrices. `passenger-clothing`
   pins all twenty jacket-free presets in both grey arrangements in both age pools,
   exact tones and actual baked skirt morphs against current GLB hashes. Appended
@@ -1840,7 +1845,8 @@ Run `npm run check:tutorial` for the production browser regression and the
   keep both tracked-asset and shipped-chunk size guards.
   The model preview
   shares tuning through `preview-appearance.js`. The
-  crowd has one draw, gait by distance, idle when waiting/riding, frozen while
+  crowd draws once per visible LOD group (normally one; a ghosted storey's crowd
+  adds a second), gait by distance, idle when waiting/riding, frozen while
   paused — and so is every other sim-driven animation: escalator step bands
   (`LiftSystem`), 闸机 leaves (`CrowdSystem.updateGates`) and train/screen doors
   (`TrainSystem`, which holds consist poses and door leaves, then resumes from

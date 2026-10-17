@@ -1,7 +1,9 @@
 // Crowd detail (§9.3, §7.1). The crowd's Low LoD is a second baked index table
 // over the *same* animated pose atlas, drawn by a second prepared instanced mesh.
-// A quality change swaps which one is visible; nothing is rebuilt, no pose data is
-// duplicated, and the simulation, identity and picking are untouched.
+// Each passenger is packed into the draw its storey asks for — the storey being
+// edited full, a ghosted storey reduced — and the level it was classified by is
+// recorded per instance. Nothing is rebuilt, no pose data is duplicated, and the
+// simulation, identity and picking are untouched.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -16,13 +18,27 @@ import { decodePassengerBytes } from '../src/render/passengerAtlas.ts'
 const decoded = key => Buffer.from(decodePassengerBytes(human[key], human.encoding))
 const triangles = geometry => (geometry.index?.count ?? geometry.getAttribute('position').count) / 3
 
-function crowdFixture(quality = 'high') {
+/**
+ * Three commuters: two on the storey being edited (z = 0) and one on the storey
+ * below (z = -4), so a ghosted floor has a passenger of its own.
+ */
+function crowdFixture(quality = 'high', toggles = {}) {
   const ctx = { scene: new THREE.Scene(), mats: { blob: new THREE.MeshBasicMaterial() },
-    activeZ: 0, levelBase: 0, ghost: false, hideUI: false, stateIntervalMs: 1000, detailEnabled: true, graphicsQuality: quality }
+    activeZ: 0, levelBase: 0, ghost: false, hideUI: false, stateIntervalMs: 1000, detailEnabled: true, graphicsQuality: quality, ...toggles }
   const crowd = new CrowdSystem(ctx)
-  crowd.setAgents(new Float32Array([0, 0, 0, 0, 0, 3, 10, 4, 0, 0, 0, 7, 20, 0, 0, 0, 0, 11]), 3, 1000)
+  crowd.setAgents(new Float32Array([
+    0, 0, 0, 0, 0, 3,
+    10, 4, 0, 0, 0, 7,
+    20, 0, -4, 0, 0, 11,
+  ]), 3, 1000)
   crowd.renderAgents(ctx.lastStateTime + 500)
   return { ctx, crowd }
+}
+
+/** The storey each packed instance of a draw recorded, in slot order. */
+function levels(mesh) {
+  const level = mesh.geometry.getAttribute('passengerLevel')
+  return Array.from({ length: mesh.count }, (_, slot) => level.getX(slot))
 }
 
 function cleanup({ ctx, crowd }) {
@@ -91,56 +107,87 @@ test('full and Low draws share one pose atlas and differ only in their index tab
   } finally { full.geometry.dispose(); full.material.dispose(); full.dispose(); low.geometry.dispose(); low.material.dispose(); low.dispose() }
 })
 
-test('低画质 swaps the drawn crowd to the Low mesh and hide UI restores full bodies', () => {
-  const fixture = crowdFixture('high')
-  const { ctx, crowd } = fixture
+test('高画质 draws the edited storey full and a ghosted storey reduced, per instance', () => {
+  const fixture = crowdFixture('high', { ghost: true })
+  const { crowd } = fixture
   try {
-    const drawn = () => [crowd.agents, crowd.agentsLow].filter(mesh => mesh.visible)
-    assert.deepEqual(drawn(), [crowd.agents], 'high quality draws the full crowd')
-    assert.ok(crowd.agents.count > 0)
-    ctx.graphicsQuality = 'low'
-    crowd.applyDetail()
-    assert.deepEqual(drawn(), [crowd.agentsLow], 'exactly one crowd draw survives the switch')
-    assert.equal(crowd.agents.count, 0)
-    crowd.renderAgents(ctx.lastStateTime + 900)
-    assert.equal(crowd.agentsLow.count, crowd.agentCount, 'every passenger is packed into the Low draw')
-    // Identity reaches the new draw: outfit, ink and pose are repacked, not inherited.
+    assert.equal(crowd.agents.count, 2, 'the storey being edited keeps the full body')
+    assert.equal(crowd.agentsLow.count, 1, 'the ghosted storey draws the reduced body')
+    assert.deepEqual(levels(crowd.agents), [0, 0], 'each instance records the storey it was classified by')
+    assert.deepEqual(levels(crowd.agentsLow), [-4])
+    // The ghosted passenger is a person, not just a slot: its outfit and position
+    // travelled into the reduced draw.
     const outfit = crowd.agentsLow.geometry.getAttribute('passengerOutfit')
-    for (let slot = 0; slot < crowd.agentsLow.count; slot++) {
-      assert.equal(outfit.getX(slot), passengerAppearance(crowd.cur[slot * 6 + 5])[0])
-      const lowPose = crowd.agentsLow.geometry.getAttribute('passengerPose')
-      assert.ok(Number.isFinite(lowPose.getX(slot)))
-    }
-    ctx.hideUI = true
-    crowd.applyDetail()
-    assert.deepEqual(drawn(), [crowd.agents], 'Hide UI is the presentation mode: full bodies')
-    ctx.hideUI = false
-    crowd.applyDetail()
-    assert.deepEqual(drawn(), [crowd.agentsLow])
-    ctx.detailEnabled = false
-    crowd.applyDetail()
-    assert.deepEqual(drawn(), [crowd.agents], 'a disabled static-detail setting restores full geometry')
+    assert.equal(outfit.getX(0), passengerAppearance(11)[0])
+    const matrix = new THREE.Matrix4()
+    crowd.agentsLow.getMatrixAt(0, matrix)
+    assert.equal(Math.round(new THREE.Vector3().setFromMatrixPosition(matrix).z), -4)
+    // The two draws keep their own slot maps: a frame that only moves the edited
+    // storey leaves the ghosted instance where it was.
+    const ghost = crowd.agentsLow.geometry.getAttribute('passengerPose').array.slice(0, 4)
+    crowd.cur[2] = 2
+    crowd.renderAgents(crowd.ctx.lastStateTime + 900)
+    assert.equal(crowd.agentsLow.count, 1, 'the reduced draw keeps its one passenger')
+    assert.deepEqual(levels(crowd.agentsLow), [-4])
+    assert.deepEqual(crowd.agentsLow.geometry.getAttribute('passengerPose').array.slice(0, 4), ghost)
   } finally { cleanup(fixture) }
 })
 
-test('picking, pause, follow and the shadow blobs do not depend on which draw is visible', () => {
-  const fixture = crowdFixture('low')
+test('a 高画质 crowd on one storey is one draw, and 显示其他层 is what adds the second', () => {
+  const single = crowdFixture('high')
+  try {
+    assert.equal(single.crowd.agents.count, 2, 'the storey below is not drawn when 显示其他层 is off')
+    assert.equal(single.crowd.agentsLow.count, 0)
+  } finally { cleanup(single) }
+  const ghosted = crowdFixture('high', { ghost: true })
+  try {
+    assert.ok(ghosted.crowd.agentsLow.count > 0, 'the ghosted storey is where the second draw comes from')
+  } finally { cleanup(ghosted) }
+})
+
+test('低画质 draws the whole crowd reduced; Hide UI and a disabled detail setting restore full bodies', () => {
+  const low = crowdFixture('low', { ghost: true })
+  try {
+    assert.equal(low.crowd.agents.count, 0)
+    assert.equal(low.crowd.agentsLow.count, 3, 'every drawn passenger, on every storey, is reduced')
+    assert.deepEqual(levels(low.crowd.agentsLow), [0, 0, -4])
+    const outfit = low.crowd.agentsLow.geometry.getAttribute('passengerOutfit')
+    assert.equal(outfit.getX(2), passengerAppearance(11)[0], 'identity is repacked into the reduced draw')
+  } finally { cleanup(low) }
+  const hidden = crowdFixture('high', { ghost: true, hideUI: true })
+  try {
+    assert.equal(hidden.crowd.agents.count, 3, 'Hide UI is the presentation mode: full bodies on every storey')
+    assert.equal(hidden.crowd.agentsLow.count, 0)
+  } finally { cleanup(hidden) }
+  const disabled = crowdFixture('high', { ghost: true })
+  try {
+    disabled.ctx.detailEnabled = false
+    disabled.crowd.applyDetail()
+    disabled.crowd.renderAgents(disabled.ctx.lastStateTime + 900)
+    assert.equal(disabled.crowd.agents.count, 3)
+    assert.equal(disabled.crowd.agentsLow.count, 0, 'a disabled static-detail setting restores full geometry')
+  } finally { cleanup(disabled) }
+})
+
+test('picking, pause, follow and the shadow blobs do not depend on which draw a person is in', () => {
+  const fixture = crowdFixture('low', { ghost: true })
   const { ctx, crowd } = fixture
   try {
-    assert.equal(crowd.agentsLow.visible, true)
     const matrix = new THREE.Matrix4(), lowMatrix = new THREE.Matrix4()
     crowd.agentsLow.getMatrixAt(0, lowMatrix)
     crowd.blobs.getMatrixAt(0, matrix)
-    assert.equal(crowd.blobs.count, crowd.agentsLow.count, 'the flat shadows follow the visible draw')
+    assert.equal(crowd.blobs.count, crowd.agents.count + crowd.agentsLow.count, 'the flat shadows cover both draws')
     assert.ok(Math.abs(matrix.elements[12] - lowMatrix.elements[12]) < 1e-6)
-    // Pausing freezes the displayed pose of whichever draw is on screen.
+    // Pausing freezes the displayed pose of whichever draw each person is in.
     crowd.setPlaying(false, ctx.lastStateTime + 1200)
     const frozen = crowd.agentsLow.geometry.getAttribute('passengerPose').array.slice(0, 4)
     crowd.renderAgents(ctx.lastStateTime + 1400)
     assert.deepEqual(crowd.agentsLow.geometry.getAttribute('passengerPose').array.slice(0, 4), frozen)
     crowd.setPlaying(true, ctx.lastStateTime + 1600)
-    assert.equal(crowd.lowDetail, true)
     assert.ok(crowd.clipMaterials().includes(crowd.agentsLow.material), 'a cut clips both crowd draws')
+    // The 选择 tool's screen-space pick never reads either mesh, so a passenger in
+    // the reduced draw is still selectable by identity.
+    assert.equal(typeof crowd.pickAgent, 'function')
   } finally { cleanup(fixture) }
 })
 

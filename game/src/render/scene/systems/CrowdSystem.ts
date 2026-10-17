@@ -20,9 +20,9 @@ import type { PassengerAppearance } from '../../passengerModel.ts'
 import { passengerWalkProfile } from '../../../sim/walking.ts'
 import { setGateWing } from '../../models.ts'
 import { AgentState } from '../../../sim/types.ts'
-import { PASSENGER_CULL_HEIGHT_FRACTION, PASSENGER_CULL_RADIUS_SCALE, PASSENGER_INSTANCE_CAPACITY } from '../../../sim/constants.ts'
+import { PASSENGER_CULL_HEIGHT_FRACTION, PASSENGER_CULL_RADIUS_SCALE, PASSENGER_INSTANCE_CAPACITY, storeyBand } from '../../../sim/constants.ts'
 import { ZONE_PAINT_LIST } from '../../../sim/zones.ts'
-import { crowdVisible } from '../../levelSlicing.ts'
+import { crowdVisible, levelSide } from '../../levelSlicing.ts'
 import {
   ROUTE_MAX_POINTS,
   ROUTE_MAX_QUADS,
@@ -78,15 +78,35 @@ function losColor(i: number): number {
   return i >= LOS_HEX.length ? 0x30384a : LOS_HEX[i]
 }
 
+/**
+ * One prepared crowd draw and the per-frame packing state it carries: the slot
+ * identity map (so a swap does not rewrite outfit/ink), its own attribute set and
+ * the number of instances packed this frame.
+ */
+interface CrowdDraw {
+  mesh: THREE.InstancedMesh
+  pose: THREE.InstancedBufferAttribute
+  outfit: THREE.InstancedBufferAttribute
+  level: THREE.InstancedBufferAttribute
+  ids: Float64Array
+  count: number
+  appearance: boolean
+}
+
 export class CrowdSystem extends SceneSystem {
   agents: THREE.InstancedMesh
   /**
    * The Low-detail crowd (§9.3): the same animated atlas driven by a coarser
-   * baked topology. It is a second prepared instanced draw, never a rebuild —
-   * only one of the two is visible, so the crowd stays one GPU draw either way.
+   * baked topology. The renderer keeps both prepared draws in the scene and packs
+   * each passenger into the one its storey asks for — the storey being edited
+   * draws full, a ghosted storey draws the reduced topology — so 高画质 gets
+   * per-level detail instead of one crowd-wide switch. 低画质 puts the whole crowd
+   * on this draw and 隐藏UI restores the full one.
    */
   agentsLow: THREE.InstancedMesh
-  private lowDetail = false
+  private drawFull!: CrowdDraw
+  private drawLow!: CrowdDraw
+  private detailPolicy = ''
   blobs: THREE.InstancedMesh
   overlay: THREE.InstancedMesh | null = null
   zoneOverlay: THREE.InstancedMesh | null = null
@@ -134,7 +154,6 @@ export class CrowdSystem extends SceneSystem {
   private renderedKey = ''
   private renderedPoses = new Float32Array(PASSENGER_INSTANCE_CAPACITY * 4)
   private appearances = new Float64Array(PASSENGER_INSTANCE_CAPACITY * 5)
-  private drawnIds = new Float64Array(PASSENGER_INSTANCE_CAPACITY).fill(-1)
   private frustum = new THREE.Frustum()
   private projection = new THREE.Matrix4()
   private bodySphere = new THREE.Sphere()
@@ -151,7 +170,8 @@ export class CrowdSystem extends SceneSystem {
     super(ctx)
     this.agents = passengerMesh(PASSENGER_INSTANCE_CAPACITY)
     this.agentsLow = passengerMesh(PASSENGER_INSTANCE_CAPACITY, 'low')
-    this.agentsLow.visible = false
+    // Both draws stay in the scene: `count` (and the per-storey split) decides
+    // what each submits, so a level change never toggles a whole mesh.
     this.ctx.scene.add(this.agents)
     this.ctx.scene.add(this.agentsLow)
 
@@ -162,6 +182,8 @@ export class CrowdSystem extends SceneSystem {
     this.blobs.renderOrder = 2
     this.ctx.scene.add(this.blobs)
     this.ctx.scene.add(this.zoneLabels)
+    this.drawFull = this.drawRecord(this.agents)
+    this.drawLow = this.drawRecord(this.agentsLow)
 
     // The 选择 tool's route preview: one ribbon on the walk surface, a ring under
     // the passenger it belongs to and a ring where the walk ends. The position
@@ -184,34 +206,56 @@ export class CrowdSystem extends SceneSystem {
 
     this.agentRing = this.routeRing(0.3, 0.46, 0.95)
     this.destRing = this.routeRing(0.36, 0.54, 0.8)
-    // Start on the draw the context's quality asks for, so the first frame of a
-    // scene opened at 低画质 already draws the reduced crowd.
-    this.applyDetail()
+    // Record the starting policy so the first frame already packs by storey.
+    this.detailPolicy = this.detailPolicyKey()
   }
 
-  /** The draw the current graphics policy reads: one of two prepared meshes. */
-  private get activeAgents(): THREE.InstancedMesh {
-    return this.lowDetail ? this.agentsLow : this.agents
+  /** The attribute set and slot map one prepared crowd draw packs into. */
+  private drawRecord(mesh: THREE.InstancedMesh): CrowdDraw {
+    return {
+      mesh,
+      pose: mesh.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute,
+      outfit: mesh.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute,
+      level: mesh.geometry.getAttribute('passengerLevel') as THREE.InstancedBufferAttribute,
+      ids: new Float64Array(PASSENGER_INSTANCE_CAPACITY).fill(-1),
+      count: 0,
+      appearance: false,
+    }
+  }
+
+  /** The quality/Hide-UI policy a crowd repack depends on, as one comparable key. */
+  private detailPolicyKey(): string {
+    return `${this.ctx.detailEnabled !== false}|${this.ctx.hideUI}|${this.ctx.graphicsQuality ?? 'high'}`
   }
 
   /**
-   * Choose the crowd draw the graphics policy asks for: 低画质 uses the reduced
-   * topology, Hide UI — the presentation mode — always draws full bodies, and a
-   * disabled static-detail setting restores them too. A switch swaps which
-   * prepared mesh is visible and forces one identity repack on the next frame;
-   * neither buffers nor textures are rebuilt, and the simulation is untouched.
+   * Which prepared topology a passenger on storey band `level` is drawn with.
+   *
+   * 低画质 draws the whole crowd reduced and 隐藏UI — the presentation mode —
+   * always draws full bodies. In 高画质 the crowd follows the same rule as the
+   * fixtures and consists beside it: the storey being edited is drawn full, and a
+   * ghosted storey (显示其他层) is drawn with the reduced topology. `level` is the
+   * `storeyBand` the same repack records in the draw's `passengerLevel` attribute.
+   */
+  private crowdDetail(level: number): 'full' | 'low' {
+    if (this.ctx.detailEnabled === false || this.ctx.hideUI) return 'full'
+    if (this.ctx.graphicsQuality === 'low') return 'low'
+    return levelSide([level], this.ctx.activeZ) === 'active' ? 'full' : 'low'
+  }
+
+  /**
+   * A quality or Hide-UI change re-splits the crowd between its two prepared
+   * draws. Both meshes stay in the scene; nothing is rebuilt or reallocated, and
+   * the next frame repacks pose, identity and level for every slot.
    */
   applyDetail(): void {
-    const low = this.ctx.detailEnabled !== false && !this.ctx.hideUI && this.ctx.graphicsQuality === 'low'
-    if (low === this.lowDetail) return
-    this.lowDetail = low
-    this.agents.count = 0
-    this.agentsLow.count = 0
-    this.agents.visible = this.agentsShown && !low
-    this.agentsLow.visible = this.agentsShown && low
-    // The other draw has never carried these identities: repack pose, outfit and
-    // ink for every slot instead of trusting the shared "already written" map.
-    this.drawnIds.fill(-1)
+    const policy = this.detailPolicyKey()
+    if (policy === this.detailPolicy) return
+    this.detailPolicy = policy
+    // Both draws may carry different identities after the re-split: repack outfit
+    // and ink for every slot instead of trusting the previous slot map.
+    this.drawFull.ids.fill(-1)
+    this.drawLow.ids.fill(-1)
     this.renderedKey = ''
     this.snapshotVersion++
   }
@@ -619,14 +663,14 @@ export class CrowdSystem extends SceneSystem {
       this.renderedKey = ''
       return
     }
-    const key = `${this.snapshotVersion}|${this.playing}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideUI}|${this.ctx.levelBase}|${this.agentsShown}|${this.followAgentId}|${camera?.matrixWorld.elements.join(',') ?? ''}|${camera?.projectionMatrix.elements.join(',') ?? ''}`
+    const key = `${this.snapshotVersion}|${this.playing}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideUI}|${this.ctx.levelBase}|${this.agentsShown}|${this.followAgentId}|${this.detailPolicyKey()}|${camera?.matrixWorld.elements.join(',') ?? ''}|${camera?.projectionMatrix.elements.join(',') ?? ''}`
     if (!force && !this.playing && key === this.renderedKey) return
     this.renderedKey = key
     if (camera) this.frustum.setFromProjectionMatrix(this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
     const alpha = Math.min(1, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs)
-    const agents = this.activeAgents
-    const pose = agents.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute
-    const outfit = agents.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute
+    const full = this.drawFull, low = this.drawLow
+    full.count = 0; full.appearance = false
+    low.count = 0; low.appearance = false
     const dt = this.playing && this.lastRenderTime > 0 ? Math.max(0, Math.min(0.05, (now - this.lastRenderTime) / 1000)) : 0
     this.lastRenderTime = now
     const m = this.tmpM
@@ -636,8 +680,7 @@ export class CrowdSystem extends SceneSystem {
     const axis = this.zAxis
     const n = this.agentCount
     let followed = false
-    let drawnCount = 0
-    let appearanceChanged = false
+    let blobCount = 0
     /** True once the previewed passenger was drawn: the route goes with them. */
     let agentOn = false
     for (let i = 0; i < n; i++) {
@@ -680,22 +723,27 @@ export class CrowdSystem extends SceneSystem {
       const drawn = this.agentsShown && this.agentLevelVisible(pos.z) && id !== this.followAgentId
         && (!camera || this.followAgentId !== null || this.frustum.intersectsSphere(this.bodySphere))
       if (drawn) {
-        const slot = drawnCount++
-        if (this.drawnIds[slot] !== id) {
-          this.drawnIds[slot] = id
-          appearanceChanged = true
-          outfit.setX(slot, appearance[0])
+        // The storey this instance stands on decides its topology, and the same
+        // value is recorded per instance so the split is inspectable.
+        const level = storeyBand(pos.z, this.ctx.levelBase)
+        const group = this.crowdDetail(level) === 'low' ? low : full
+        const slot = group.count++
+        if (group.ids[slot] !== id) {
+          group.ids[slot] = id
+          group.appearance = true
+          group.outfit.setX(slot, appearance[0])
           this.passengerColor.setRGB(appearance[4], appearance[4], appearance[4])
-          agents.setColorAt(slot, this.passengerColor)
+          group.mesh.setColorAt(slot, this.passengerColor)
         }
-        pose.setXYZW(slot, shown[0], shown[1], shown[2], shown[3])
+        group.level.setX(slot, level)
+        group.pose.setXYZW(slot, shown[0], shown[1], shown[2], shown[3])
         m.compose(pos, q, scale)
-        agents.setMatrixAt(slot, m)
+        group.mesh.setMatrixAt(slot, m)
         // The flat ground shadow follows the same independent horizontal axes.
         scale.z = 1
         m.compose(pos, q, scale)
         m.elements[14] += 0.03
-        this.blobs.setMatrixAt(slot, m)
+        this.blobs.setMatrixAt(blobCount++, m)
       }
       // The 选择 tool's ring sits on the body it belongs to, moved with it through
       // the same interpolation, so what is highlighted is the person on screen.
@@ -709,24 +757,32 @@ export class CrowdSystem extends SceneSystem {
       }
 
     }
-    agents.count = drawnCount
-    this.blobs.count = drawnCount
+    for (const group of [full, low]) {
+      group.mesh.count = group.count
+      if (!group.count) continue
+      const attributes = [group.pose, group.mesh.instanceMatrix, group.level]
+      if (group.appearance) {
+        attributes.push(group.outfit)
+        if (group.mesh.instanceColor) attributes.push(group.mesh.instanceColor)
+      }
+      for (const attr of attributes) {
+        attr.clearUpdateRanges()
+        attr.addUpdateRange(0, group.count * attr.itemSize)
+        attr.needsUpdate = true
+      }
+    }
+    this.blobs.count = blobCount
+    if (blobCount) {
+      const matrix = this.blobs.instanceMatrix
+      matrix.clearUpdateRanges()
+      matrix.addUpdateRange(0, blobCount * matrix.itemSize)
+      matrix.needsUpdate = true
+    }
     // The route follows the passenger it belongs to: a storey that does not draw
     // the person does not draw the line they are walking either.
     this.agentRing.visible = agentOn && this.agentsShown && this.followAgentId === null
     this.route.visible = this.routeDrawn && agentOn && this.agentsShown && this.followAgentId === null
     this.destRing.visible = this.destDrawn && agentOn && this.agentsShown && this.followAgentId === null
-    const attributes = [pose, agents.instanceMatrix, this.blobs.instanceMatrix]
-    if (appearanceChanged) {
-      attributes.push(outfit)
-      if (agents.instanceColor) attributes.push(agents.instanceColor)
-    }
-    for (const attr of attributes) {
-      if (!attr || drawnCount === 0) continue
-      attr.clearUpdateRanges()
-      attr.addUpdateRange(0, drawnCount * attr.itemSize)
-      attr.needsUpdate = true
-    }
     if (this.followAgentId !== null && !followed) this.onFollowLost?.()
 
   }
@@ -736,8 +792,8 @@ export class CrowdSystem extends SceneSystem {
     // visibility every frame, so the crowd's own switch has to be remembered for
     // it — otherwise hiding the crowd would leave one passenger's route drawn.
     this.agentsShown = on
-    this.agents.visible = on && !this.lowDetail
-    this.agentsLow.visible = on && this.lowDetail
+    this.agents.visible = on
+    this.agentsLow.visible = on
     this.blobs.visible = on
     if (!on) {
       this.agentRing.visible = false

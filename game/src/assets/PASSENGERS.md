@@ -107,13 +107,17 @@ carry 401,778 rather than 1,308,230 triangles — 30 % of the stride, its vertic
 its triangle work, with no second pose set and no second bake of the walks.
 
 `render/passengerModel.ts` uploads the table as one extra index texture and shares the
-pose/normal/region atlases between both draws, so a quality change swaps a geometry
-and an index table, never a texture. `CrowdSystem` keeps both InstancedMeshes prepared
-and visible one at a time: 低画质 shows the reduced draw, 隐藏UI always restores the
-full one. Pose sampling, identity, the 70 % material and picking are identical, and
-only one crowd draw submits either way. `passenger-lod` pins the table, the switch,
-pause and single shared-atlas disposal. The generated Low rows are never hand-edited;
-regenerate them with `npm run bake:passengers`.
+pose/normal/region atlases between both draws, so nothing but the geometry, the index
+table and the per-instance level is duplicated. Each packed instance records the
+storey it stands on in `passengerLevel` (the `storeyBand` the detail rule compares),
+and `CrowdSystem` packs every drawn passenger into the draw its storey asks for: 高画质
+draws the storey being edited full and a ghosted storey (显示其他层) reduced, 低画质
+draws the whole crowd reduced, and 隐藏UI always restores full bodies. A crowd that
+shares the edited storey is still one draw; only a ghosted storey's crowd adds a
+second. Pose sampling, identity, the 70 % material and picking are identical.
+`passenger-lod` pins the table, the per-instance attribution, pause and single
+shared-atlas disposal. The generated Low rows are never hand-edited; regenerate them
+with `npm run bake:passengers`.
 
 Production builds deliver the packed bytes as parallel binary fetches via
 `game/scripts/passenger-assets.ts`, avoiding base64 JavaScript parsing and decoding.

@@ -251,14 +251,19 @@ consist's first build, once per cached configuration (eight are kept).
 ### Passenger models (乘客)
 
 One row per reviewed appearance in the baked crowd atlas
-(`game/src/assets/passenger-approved.json`, drawn as a single instanced draw — no
-per-agent GLB or skeleton). High is the padded shared stride every passenger submits;
-Low is the atlas's baked Low topology (§9.3): a second index table over the *same*
-animated vertex pool, simplified from the standing pose and padded to the same shared
-stride. Both draws sample one pose/normal/region atlas, so 低画质 only swaps geometry
-and index table, and 隐藏UI restores the full draw. Counts are each variant's own
-topology, recorded in the atlas `library` as `triangles` and `lowTriangles`; the
-shared padded stride the crowd actually submits is 9,370 full and 2,825 Low.
+(`game/src/assets/passenger-approved.json`, drawn as prepared instanced draws — no
+per-agent GLB or skeleton). High is the padded shared stride a full-detail passenger
+submits; Low is the atlas's baked Low topology (§9.3): a second index table over the
+*same* animated vertex pool, simplified from the standing pose and padded to the same
+shared stride. Both draws sample one pose/normal/region atlas, so nothing is
+duplicated but the geometry and index table. Each packed instance records its storey
+in `passengerLevel`, and the renderer packs each drawn passenger into the topology its
+storey asks for: 高画质 draws the edited storey full and a ghosted storey reduced,
+低画质 draws the whole crowd reduced, 隐藏UI restores full bodies. A crowd that shares
+the edited storey is one draw; a ghosted storey's crowd adds a second. Counts are each
+variant's own topology, recorded in the atlas `library` as `triangles` and
+`lowTriangles`; the shared padded stride the crowd actually submits is 9,370 full and
+2,825 Low.
 
 | Passenger model | Low triangles | High triangles |
 |---||---:|---:|

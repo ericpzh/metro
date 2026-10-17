@@ -235,13 +235,24 @@ export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshB
   return material
 }
 
-/** One GPU draw for the whole crowd; no per-passenger skeleton or animation mixer. */
+/**
+ * One prepared crowd draw (§7.1). The renderer keeps two of these — the full and
+ * the Low topology — and packs each passenger into the one its storey asks for;
+ * no per-passenger skeleton or animation mixer is introduced.
+ */
 export function passengerMesh(capacity: number, detail: PassengerDetail = 'full'): THREE.InstancedMesh {
   const geometry = passengerBody(detail === 'low')
   const pose = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
   pose.setUsage(THREE.DynamicDrawUsage)
   geometry.setAttribute('passengerPose', pose)
   geometry.setAttribute('passengerOutfit', new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1))
+  // The storey each packed instance stands on (`storeyBand` metres), the value the
+  // renderer classifies for detail and the one a shader would read if the split
+  // ever moves to the GPU. Unreferenced by the current programs, so it costs no
+  // GPU upload — it is the crowd's per-instance level record.
+  const level = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1)
+  level.setUsage(THREE.DynamicDrawUsage)
+  geometry.setAttribute('passengerLevel', level)
   const material = passengerMaterial(detail)
   const mesh = new THREE.InstancedMesh(geometry, material, capacity)
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)

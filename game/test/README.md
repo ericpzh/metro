@@ -106,8 +106,10 @@ D plug doors), the `TRAIN_DETAIL_MAX_RADIUS` guard that keeps a consist-wide mer
 mesh out of the relative-error simplifier, and batching carrying both variants.
 `passenger-lod` pins the baked Low topology (every variant, padded the same way), the
 coarser body's unchanged shader contract and silhouette, one shared pose atlas with a
-separate index table, the 低画质/隐藏UI draw switch with identity repacked, pause and
-clipping of both draws, and single shared-atlas disposal.
+separate index table, the per-storey split (the edited storey full, a ghosted storey
+reduced, one draw when the crowd shares the edited storey), 低画质/隐藏UI, the recorded
+`passengerLevel` attribute, pause and clipping of both draws, and single shared-atlas
+disposal.
 
 `draw-batching` covers reflection winding and rays, actual train door-bank and glass
 transforms, buffer disposal, equipment instance/merge/sort paths, original module

@@ -1785,10 +1785,15 @@ the 232 variants carry 401,778 instead of 1,308,230 triangles. Re-baking added f
 only: every pre-existing atlas field is byte-identical to the previous file
 (`positions`, `normals`, `indices`, `regions` and all library records).
 `render/passengerModel.ts` shares the pose/normal/region textures between the two
-draws and uploads one extra index texture; `CrowdSystem` prepares both
-`InstancedMesh`es and draws exactly one of them. 低画质 shows the reduced crowd,
-隐藏UI always restores full bodies, and the simulation, identity, picking and the
-70 % material are untouched.
+draws and uploads one extra index texture. Each packed instance also records the
+storey it stands on in a `passengerLevel` attribute (the `storeyBand` the detail
+rule compares, and the value a future GPU rule would read). `CrowdSystem` packs
+every drawn passenger into the draw its storey asks for, so the crowd follows the
+same policy as the fixtures and consists beside it: 高画质 draws the storey being
+edited full and a ghosted storey (显示其他层) reduced, 低画质 draws the whole crowd
+reduced, and 隐藏UI always restores full bodies. A crowd whose passengers all share
+the edited storey is still one draw; only a ghosted storey's crowd adds a second.
+The simulation, identity, picking and the 70 % material are untouched.
 
 Measured production captures (same paused Zoo camera, seed 7654321, RTX 4080 SUPER
 through ANGLE/D3D11, native multi-draw, 1384×805, device ratio 1; raw reports and
@@ -1800,7 +1805,12 @@ screenshots under ignored `.preview/perf/crowd-lod*`):
 | Station-wide (26 passengers) | 693,258 | 359,206 (−48.2 %) | 890 → 890 | 0 |
 
 Captured images differ only in detail: the gate queue keeps every silhouette, bag and
-walk pose at a natural viewing distance. `npm run check:geometry-detail` passes both
+walk pose at a natural viewing distance.
+A third capture measured the per-storey split: standing on the concourse
+(显示其他层 on), the platform crowd below is ghosted and lands in the reduced draw —
+200 full + 191 reduced passengers against 3,663,670 triangles if all were full,
+2,413,575 in fact (−34.1 % of the crowd) — while a crowd that shares the edited
+storey stays one draw (191 passengers, no reduced group). `npm run check:geometry-detail` passes both
 demos with exact full restoration (Zoo 1,712,275 → 668,421 → 1,712,275; Tanwei
 2,533,776 → 1,380,253 → 2,533,776), retained batch allocations and no GL, shader or
 runtime errors; the Low crowd's separate shader program compiles there.
@@ -1809,21 +1819,29 @@ Limitations: this is geometry only — pixel ratio, texture resolution and shade
 are unchanged, and the crowd still submits its transparent 70 % draw. The two
 captures above are single observations at one camera, not an FPS or GPU-time
 comparison; no throughput claim is made. The Low crowd still pads to one shared
-stride, so a bagless variant draws 2,825 triangles where its own topology is 1,388,
-and train detail is still chosen by quality/storey rather than projected size, so a
-close-up consist at 低画质 keeps its approximation.
+stride, so a bagless variant draws 2,825 triangles where its own topology is 1,388.
+A ghosted storey's crowd needs a second crowd draw (the topology differs, so it
+cannot ride the same instanced draw), and both crowd draws are still chosen by
+storey and quality only, never by projected size. Train detail is likewise chosen by
+quality/storey rather than projected size, so a close-up consist at 低画质 keeps its
+approximation.
 
 Validation: `npm --prefix game run typecheck` and the production build pass (the Low
 index table ships as its own 1.65 MiB binary asset, inside the 25 MiB Worker limit).
-The full game suite is 1,776 passing with the pre-existing Tanwei fixture-count
+The full game suite is 1,778 passing with the pre-existing Tanwei fixture-count
 failure (14,717 fixture cells vs 14,554 expected) unchanged; `npm --prefix game run
-test:perf` passes 255 tests with `trainDetail` 100 % line / 94 % branch, `trainBatches`
-100 / 90.67, `passengerModel` 100 / 93.10 and `TrainSystem` 92.69 % lines. New
-regressions `train-lod` and `passenger-lod` pin the published High counts, the Low
-budgets, the prepared swaps, moving doors and sorted glass under Low, the crowd draw
-switch, pause, clipping and single shared-atlas disposal. `check:render-batching`
-passes with native multi-draw (station 3,598→1,023 draws, train 815→26, open and
+test:perf` passes 257 tests with `trainDetail` 100 % line / 92 % branch, `trainBatches`
+100 / 90.67, `passengerModel` 100 / 93.10, `CrowdSystem` 72.58 % lines / 80.53 %
+branches and `TrainSystem` 92.69 % lines. New regressions `train-lod` and
+`passenger-lod` pin the published High counts, the Low budgets, the prepared swaps,
+moving doors and sorted glass under Low, the crowd's per-storey split and recorded
+`passengerLevel`, pause, clipping and single shared-atlas disposal. The per-storey
+split was re-verified in the production build (200 full + 191 reduced passengers;
+crowd 2,413,575 against 3,663,670 triangles if all were full) with GL error 0 and no
+console errors. `check:render-batching` passes with native multi-draw (station 3,598→1,023 draws, train 815→26, open and
 closed train triangles preserved) and with the extension disabled (3,598→1,716,
 815→631), with no GLSL/WebGL/runtime errors; `check:perf-tools` exports CPU samples
-and a trace stream. Raw logs and captures: `.preview/perf/lod-*` and
-`.preview/perf/crowd-lod*/`.
+and a trace stream. `tools/check-game-passenger-library.mjs` fails before any render —
+the plain game path starts empty now and that older tool never loads a demo — which is
+pre-existing and unrelated. Raw logs and captures: `.preview/perf/lod-*`,
+`.preview/perf/crowd-lod*/` and `.preview/perf/crowd-level*/`.
